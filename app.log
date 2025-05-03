@@ -1,0 +1,4 @@
+{"fields.level":"","level":"warning","msg":"Invalid log level, defaulting to debug","time":"2025-05-03T23:32:00+05:30"}
+{"fields.level":"","file":"app.log","level":"info","msg":"Logging initialized","time":"2025-05-03T23:32:00+05:30"}
+{"level":"info","msg":"Configuration loaded","time":"2025-05-03T23:32:00+05:30"}
+{"key_length":64,"level":"fatal","msg":"master_key must be 32 bytes","time":"2025-05-03T23:32:00+05:30"}
