@@ -1,0 +1,14 @@
+{"level":"info","msg":"Logging configured","time":"2025-05-03T19:37:37+05:30"}
+{"level":"info","msg":"Configuration loaded","time":"2025-05-03T19:37:37+05:30"}
+{"level":"fatal","msg":"MASTER_KEY environment variable not set","time":"2025-05-03T19:37:37+05:30"}
+{"level":"info","msg":"Logging configured","time":"2025-05-03T19:37:48+05:30"}
+{"level":"info","msg":"Configuration loaded","time":"2025-05-03T19:37:48+05:30"}
+{"level":"fatal","msg":"MASTER_KEY environment variable not set","time":"2025-05-03T19:37:48+05:30"}
+{"level":"info","msg":"Logging configured","time":"2025-05-03T19:39:15+05:30"}
+{"level":"info","msg":"Configuration loaded","time":"2025-05-03T19:39:15+05:30"}
+{"level":"fatal","msg":"MASTER_KEY environment variable not set","time":"2025-05-03T19:39:15+05:30"}
+{"level":"info","msg":"Logging configured","time":"2025-05-03T20:00:02+05:30"}
+{"level":"info","msg":"Configuration loaded","time":"2025-05-03T20:00:02+05:30"}
+{"key_length":22,"level":"fatal","msg":"master_key must be 32 bytes","time":"2025-05-03T20:00:02+05:30"}
+{"level":"info","msg":"Logging configured","time":"2025-05-03T20:01:31+05:30"}
+{"key_length":22,"level":"fatal","msg":"master_key must be 32 bytes","time":"2025-05-03T20:01:31+05:30"}
