@@ -1,0 +1,44 @@
+# Configuration file for the password manager application.
+# This file defines settings for the API server, database, authentication, and logging.
+# Settings can be overridden by environment variables (e.g., API_PORT, DATABASE_CONNECTION).
+# The application uses github.com/spf13/viper to load these settings.
+
+# API configuration.
+api:
+  # Port on which the API server listens (default: 8080).
+  # Example: 8080
+  port: 8080
+  # Address of the API server for CLI requests (default: http://localhost:8080).
+  # Example: http://localhost:8080
+  address: "http://localhost:8080"
+
+# Database configuration.
+database:
+  # Connection string for the database (SQLite or PostgreSQL).
+  # For SQLite, specify the database file path (e.g., ./password_manager.db).
+  # For PostgreSQL, use: postgresql://user:password@localhost:5432/dbname
+  # Example: ./password_manager.db
+  connection: "./password_manager.db"
+
+# Authentication configuration.
+auth:
+  # JWT token for CLI commands, obtained via the /login endpoint.
+  # Replace with a valid token after logging in.
+  # Example: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+  token: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ1c2VyX2lkIjoxLCJ1c2VybmFtZSI6InNkMiIsInJvbGUiOiJTZWNyZXRzTWFuYWdlciIsImV4cCI6MTc0NjE4MDc0NywiaWF0IjoxNzQ2MDk0MzQ3fQ.735MTClpLVhVrbf8NpE3iYKpjGq4BuPg1_iNS-1xnU4"
+  # Secret key for signing JWT tokens.
+  # Replace with a secure, random string (at least 32 characters).
+  # Example: your-jwt-secret
+  jwt_secret: "your-jwt-secret"
+
+# Logging configuration for github.com/sirupsen/logrus.
+log:
+  # Log level (debug, info, warn, error, fatal).
+  # Default: debug
+  level: debug
+
+# Encryption configuration.
+# Master key for encrypting secrets (e.g., passwords, API keys).
+# Replace with a secure, random 32-byte key for AES-256 encryption.
+# Example: your-secure-master-key
+master_key: "your-secure-master-key"

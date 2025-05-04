@@ -1,0 +1,42 @@
+[
+    {
+        "ID": 0,
+        "UserID": 1,
+        "Name": "BASE_URL",
+        "Value": "https://localhost:1977",
+        "Version": 1,
+        "CreatedAt": "2025-05-01T10:57:15Z"
+    },
+    {
+        "ID": 0,
+        "UserID": 1,
+        "Name": "BASE_URL",
+        "Value": "https://localhost:1977",
+        "Version": 2,
+        "CreatedAt": "2025-05-01T10:58:00Z"
+    },
+    {
+        "ID": 0,
+        "UserID": 1,
+        "Name": "BASE_URL",
+        "Value": "https://localhost:1977",
+        "Version": 3,
+        "CreatedAt": "2025-05-01T10:59:23Z"
+    },
+    {
+        "ID": 0,
+        "UserID": 1,
+        "Name": "BASE_URL",
+        "Value": "https://localhost:1977",
+        "Version": 4,
+        "CreatedAt": "2025-05-01T11:00:21Z"
+    },
+    {
+        "ID": 0,
+        "UserID": 1,
+        "Name": "BASE_URL",
+        "Value": "https://localhost:1977",
+        "Version": 5,
+        "CreatedAt": "2025-05-01T11:05:09Z"
+    }
+]
