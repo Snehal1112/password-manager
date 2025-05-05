@@ -100,7 +100,7 @@ func loginHandler(w http.ResponseWriter, r *http.Request) {
 
 	response := map[string]string{"token": token}
 	w.Header().Set("Content-Type", "application/json")
-	log.LogAuditInfo(0, "login", "success", "User logged in successfully")
+	log.LogAuditInfo(0, "login", "success", "User logged in successfully", nil)
 	json.NewEncoder(w).Encode(response)
 }
 
@@ -135,7 +135,7 @@ func createSecretHandler(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusCreated)
-	log.LogAuditInfo(userID, "create_secret", "success", "Secret created successfully")
+	log.LogAuditInfo(userID, "create_secret", "success", "Secret created successfully", nil)
 	json.NewEncoder(w).Encode(secret)
 }
 
@@ -164,7 +164,7 @@ func getSecretHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	log.LogAuditInfo(userID, "get_secret", "success", "Secret retrieved successfully")
+	log.LogAuditInfo(userID, "get_secret", "success", "Secret retrieved successfully", nil)
 	json.NewEncoder(w).Encode(secret)
 }
 
@@ -182,7 +182,7 @@ func listSecretsHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	log.LogAuditInfo(userID, "list_secrets", "success", fmt.Sprintf("Secrets listed successfully: %d secrets", len(secretsList)))
+	log.LogAuditInfo(userID, "list_secrets", "success", fmt.Sprintf("Secrets listed successfully: %d secrets", len(secretsList)), nil)
 	json.NewEncoder(w).Encode(secretsList)
 }
 
@@ -231,7 +231,7 @@ func updateSecretHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	log.LogAuditInfo(userID, "update_secret", "success", "Secret updated successfully")
+	log.LogAuditInfo(userID, "update_secret", "success", "Secret updated successfully", nil)
 	json.NewEncoder(w).Encode(secret)
 }
 
@@ -266,7 +266,7 @@ func deleteSecretHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.WriteHeader(http.StatusNoContent)
-	log.LogAuditInfo(userID, "delete_secret", "success", "Secret deleted successfully")
+	log.LogAuditInfo(userID, "delete_secret", "success", "Secret deleted successfully", nil)
 }
 
 // parseID parses a string ID to an integer.

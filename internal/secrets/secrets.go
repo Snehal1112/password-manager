@@ -11,7 +11,6 @@ import (
 	"database/sql"
 	"encoding/base64"
 	"fmt"
-	"log"
 	"strings"
 	"time"
 
@@ -107,7 +106,11 @@ func (r *secretRepository) Create(ctx context.Context, secret Secret) error {
 		}
 	}
 
-	r.log.LogAuditInfo(secret.UserID, "create_secret", "success", "Secret created successfully")
+	r.log.LogAuditInfo(secret.UserID, "create_secret", "success", "Secret created successfully", &logrus.Fields{
+		"secret_id": secretID,
+		"name":      secret.Name,
+		"tags":      secret.Tags,
+	})
 	return nil
 }
 
@@ -219,7 +222,11 @@ func (r *secretRepository) Update(ctx context.Context, secret Secret) error {
 		}
 	}
 
-	r.log.LogAuditInfo(secret.UserID, "update_secret", "success", "Secret updated successfully")
+	r.log.LogAuditInfo(secret.UserID, "update_secret", "success", "Secret updated successfully", &logrus.Fields{
+		"secret_id": secretID,
+		"name":      secret.Name,
+		"tags":      secret.Tags,
+	})
 	return nil
 }
 
@@ -249,7 +256,9 @@ func (r *secretRepository) Delete(ctx context.Context, id int) error {
 		return fmt.Errorf("failed to delete secret: %w", err)
 	}
 
-	r.log.WithAuditFields(0, "delete_secret", "success").Info("Secret deleted successfully")
+	r.log.LogAuditInfo(0, "delete_secret", "success", "Secret deleted successfully", &logrus.Fields{
+		"secret_id": id,
+	})
 	logrus.WithFields(logrus.Fields{
 		"secret_id": id,
 	}).Info("Secret deleted successfully")
@@ -282,7 +291,7 @@ func (r *secretRepository) ListByUser(ctx context.Context, userID int, tags []st
 
 	rows, err := r.db.QueryContext(ctx, query, args...)
 	if err != nil {
-		logrus.Error("Failed to query secrets: ", err)
+		r.log.LogAuditError(userID, "list_secrets", "failed", "Failed to query secrets", err)
 		return nil, fmt.Errorf("failed to query secrets: %w", err)
 	}
 	defer rows.Close()
@@ -292,33 +301,31 @@ func (r *secretRepository) ListByUser(ctx context.Context, userID int, tags []st
 		var encryptedValue string
 
 		if err := rows.Scan(&secret.ID, &secret.UserID, &secret.Name, &encryptedValue, &secret.Version, &secret.CreatedAt); err != nil {
-			logrus.Error("Failed to scan secret: ", err)
+			r.log.LogAuditError(userID, "list_secrets", "failed", "Failed to scan secret", err)
 			return nil, fmt.Errorf("failed to scan secret: %w", err)
 		}
 
 		// Decrypt the secret value.
 		secret.Value, err = DecryptSecret(encryptedValue)
 		if err != nil {
-			logrus.Error("Failed to decrypt secret: ", err)
+			r.log.LogAuditError(userID, "list_secrets", "failed", "Failed to decrypt secret", err)
 			return nil, fmt.Errorf("failed to decrypt secret: %w", err)
 		}
 
 		// Retrieve tags.
 		tagRows, err := r.db.QueryContext(ctx, "SELECT tag FROM secret_tags WHERE secret_id = ?", 1)
 		if err != nil {
-			logrus.Errorf("Failed to query tags: %v, context error: %v", err, ctx.Err())
-			logrus.Error("Failed to query tags: ", err)
+			r.log.LogAuditError(userID, "list_secrets", "failed", "Failed to query tags", err)
+			r.log.LogAuditError(userID, "list_secrets", "failed", fmt.Sprintf("Failed to query tags: %v, context error: %v", err, ctx.Err()), err)
 			return nil, fmt.Errorf("failed to query tags: %w", err)
 		}
 
 		for tagRows.Next() {
 			var tag string
 			if err := tagRows.Scan(&tag); err != nil {
-				logrus.Error("Failed to scan tag: ", err)
+				r.log.LogAuditError(userID, "list_secrets", "failed", "Failed to scan tag", err)
 				return nil, fmt.Errorf("failed to scan tag: %w", err)
 			}
-
-			log.Println("tagg :", tag)
 			secret.Tags = append(secret.Tags, tag)
 		}
 		tagRows.Close()
@@ -326,6 +333,10 @@ func (r *secretRepository) ListByUser(ctx context.Context, userID int, tags []st
 		secrets = append(secrets, secret)
 	}
 
+	r.log.LogAuditInfo(userID, "list_secrets", "success", "Secrets listed successfully", &logrus.Fields{
+		"count":   len(secrets),
+		"user_id": userID,
+	})
 	logrus.WithFields(logrus.Fields{
 		"user_id": userID,
 		"count":   len(secrets),

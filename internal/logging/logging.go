@@ -69,23 +69,23 @@ func InitLogger() *Logger {
 }
 
 // LogAuditInfo logs an info-level audit event with standard fields.
-func (l *Logger) LogAuditInfo(userID int, operation, status, message string) {
-	l.WithAuditFields(userID, operation, status).Info(message)
+func (l *Logger) LogAuditInfo(userID int, operation, status, message string, fields *logrus.Fields) {
+	l.WithAuditFields(userID, operation, status, fields).Info(message)
 }
 
 // LogAuditError logs an error-level audit event with standard fields and an error.
 func (l *Logger) LogAuditError(userID int, operation, status, message string, err error) {
-	l.WithAuditFields(userID, operation, status).WithError(err).Error(message)
+	l.WithAuditFields(userID, operation, status, nil).WithError(err).Error(message)
 }
 
 // WithAuditFields adds standard audit fields to a log entry.
-func (l *Logger) WithAuditFields(userID int, operation, status string) *logrus.Entry {
+func (l *Logger) WithAuditFields(userID int, operation, status string, fields *logrus.Fields) *logrus.Entry {
 	return l.WithFields(logrus.Fields{
 		"user_id":   userID,
 		"operation": operation,
 		"status":    status,
 		"timestamp": time.Now().Format(time.RFC3339),
-	})
+	}).WithFields(*fields)
 }
 
 // RotateLogFile checks if the log file needs rotation and performs cleanup.
