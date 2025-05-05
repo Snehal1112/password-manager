@@ -1,0 +1,56 @@
+# Binaries for programs and plugins
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+
+# Test binary, built with `go test -c`
+*.test
+
+# Output of the go coverage tool
+*.out
+
+# Dependency directories
+vendor/
+
+# Go workspace file
+go.work
+
+# Build output
+bin/
+build/
+
+# Environment variables
+.env
+*.env
+
+# IDE and editor files
+.idea/
+.vscode/
+*.sublime-workspace
+*.sublime-project
+
+# Log files
+*.log
+
+# macOS system files
+.DS_Store
+
+# Temporary files
+tmp/
+*.tmp
+*.bak
+*.swp
+
+# Sensitive data (specific to password-manager)
+secrets/
+credentials/
+*.key
+*.pem
+*.cert
+
+# Database files (if using local DB for testing)
+*.db
+*.sqlite
+*.sqlite3

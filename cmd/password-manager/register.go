@@ -24,6 +24,7 @@ func registerCmd() *cobra.Command {
 			role, _ := cmd.Flags().GetString("role")
 			if username == "" || password == "" || role == "" {
 				logrus.Fatal("Username, password, and role are required")
+				cmd.Help()
 			}
 
 			// Ensure database is initialized.

@@ -67,7 +67,7 @@ func (m *Middleware) LoggingMiddleware(next http.Handler) http.Handler {
 			"duration_ms": duration.Milliseconds(),
 		}
 
-		logEntry := m.log.WithAuditFields(userID, operation, status).WithFields(logFields)
+		logEntry := m.log.WithAuditFields(userID, operation, status, nil).WithFields(logFields)
 		if status == "success" {
 			logEntry.Info("API request processed")
 		} else {
@@ -126,8 +126,10 @@ func (m *Middleware) AuthMiddleware(next http.Handler) http.Handler {
 		}
 
 		// Add user_id to context.
-		ctx := context.WithValue(r.Context(), "user_id", claims.UserID)
-		m.log.LogAuditInfo(claims.UserID, "auth", "success", "Authenticated successfully")
+		type contextKey string
+		const userIDKey contextKey = "user_id"
+		ctx := context.WithValue(r.Context(), userIDKey, claims.UserID)
+		m.log.LogAuditInfo(claims.UserID, "auth", "success", "Authenticated successfully", nil)
 		next.ServeHTTP(w, r.WithContext(ctx))
 	})
 }
