@@ -43,7 +43,11 @@ func NewServer(l *logging.Logger) (*Server, error) {
 
 	// Protected routes with middleware.
 	protected := r.PathPrefix("/").Subrouter()
-	protected.Use(middleware.LoggingMiddleware, middleware.RateLimitMiddleware, middleware.AuthMiddleware)
+	protected.Use(
+		middleware.LoggingMiddleware,
+		middleware.RateLimitMiddleware,
+		middleware.AuthMiddleware,
+	)
 	protected.HandleFunc("/secrets", createSecretHandler).Methods("POST")
 	protected.HandleFunc("/secrets/{id}", getSecretHandler).Methods("GET")
 	protected.HandleFunc("/secrets", listSecretsHandler).Methods("GET")

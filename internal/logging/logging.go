@@ -78,14 +78,23 @@ func (l *Logger) LogAuditError(userID int, operation, status, message string, er
 	l.WithAuditFields(userID, operation, status, nil).WithError(err).Error(message)
 }
 
-// WithAuditFields adds standard audit fields to a log entry.
 func (l *Logger) WithAuditFields(userID int, operation, status string, fields *logrus.Fields) *logrus.Entry {
-	return l.WithFields(logrus.Fields{
+	// Start with the audit fields
+	auditFields := logrus.Fields{
 		"user_id":   userID,
 		"operation": operation,
 		"status":    status,
 		"timestamp": time.Now().Format(time.RFC3339),
-	}).WithFields(*fields)
+	}
+
+	// If additional fields are provided, include them
+	if fields != nil {
+		for k, v := range *fields {
+			auditFields[k] = v
+		}
+	}
+
+	return l.WithFields(auditFields)
 }
 
 // RotateLogFile checks if the log file needs rotation and performs cleanup.

@@ -90,7 +90,7 @@ func NewCertificateRepository(db *sql.DB, log *logging.Logger) CertificateReposi
 //	An error if certificate creation or storage fails.
 func (r *certificateRepository) CreateSelfSigned(ctx context.Context, userID int, name string, keyID int, validityDays int) error {
 	// Retrieve the private key.
-	keyRepo := keys.NewKeyRepository(r.db)
+	keyRepo := keys.NewKeyRepository(r.db, r.log)
 	key, err := keyRepo.Read(ctx, keyID)
 	if err != nil {
 		r.log.LogAuditError(0, "CreateSelfSigned", "failed", "Failed to read private key", err)
@@ -180,7 +180,7 @@ func (r *certificateRepository) CreateSelfSigned(ctx context.Context, userID int
 //	An error if certificate creation or storage fails.
 func (r *certificateRepository) CreateCASigned(ctx context.Context, userID int, name string, keyID int, caCertID int, validityDays int) error {
 	// Retrieve the private key.
-	keyRepo := keys.NewKeyRepository(r.db)
+	keyRepo := keys.NewKeyRepository(r.db, r.log)
 	key, err := keyRepo.Read(ctx, keyID)
 	if err != nil {
 		logrus.Error("Failed to read private key: ", err)

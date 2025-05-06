@@ -7,6 +7,7 @@ import (
 	"crypto/rand"
 	"database/sql"
 	"encoding/base64"
+	"os"
 	"testing"
 	"time"
 
@@ -16,6 +17,7 @@ import (
 
 	"github.com/snehal1112/password-manager/internal/db"
 	"github.com/snehal1112/password-manager/internal/keys"
+	"github.com/snehal1112/password-manager/internal/logging"
 	"github.com/snehal1112/password-manager/internal/secrets"
 )
 
@@ -82,12 +84,20 @@ func TestGenerateRSA(t *testing.T) {
 	defer cleanup()
 
 	// Set Viper configuration.
+	viper.Set("jwt_secret", "test-jwt-secret")
+	viper.Set("log.file", "test.log")
+	viper.Set("api.rate_limit", "10-M")
+	viper.Set("log.level", "debug")
+	log := logging.InitLogger()
+	defer os.Remove("test.log")
+
+	// Set Viper configuration.
 	viper.Set("master_key", generateMasterKey(t))
 
 	// Test RSA key generation.
 	ctx := context.Background()
-	repo := keys.NewKeyRepository(db.DB)
-	err := repo.GenerateRSA(ctx, 1, "test-rsa-key", 2048)
+	repo := keys.NewKeyRepository(db.DB, log)
+	_, err := repo.GenerateRSA(ctx, 1, "test-rsa-key", 2048)
 	assert.NoError(t, err, "generating RSA key should succeed")
 
 	// Verify key in database.
@@ -113,12 +123,19 @@ func TestGenerateECDSA(t *testing.T) {
 	defer cleanup()
 
 	// Set Viper configuration.
+	viper.Set("jwt_secret", "test-jwt-secret")
+	viper.Set("log.file", "test.log")
+	viper.Set("api.rate_limit", "10-M")
+	viper.Set("log.level", "debug")
+	log := logging.InitLogger()
+	defer os.Remove("test.log")
+	// Set Viper configuration.
 	viper.Set("master_key", generateMasterKey(t))
 
 	// Test ECDSA key generation.
 	ctx := context.Background()
-	repo := keys.NewKeyRepository(db.DB)
-	err := repo.GenerateECDSA(ctx, 1, "test-ecdsa-key", "P-256")
+	repo := keys.NewKeyRepository(db.DB, log)
+	_, err := repo.GenerateECDSA(ctx, 1, "test-ecdsa-key", "P-256")
 	assert.NoError(t, err, "generating ECDSA key should succeed")
 
 	// Verify key in database.
@@ -144,6 +161,13 @@ func TestRead(t *testing.T) {
 	defer cleanup()
 
 	// Set Viper configuration.
+	viper.Set("jwt_secret", "test-jwt-secret")
+	viper.Set("log.file", "test.log")
+	viper.Set("api.rate_limit", "10-M")
+	viper.Set("log.level", "debug")
+	log := logging.InitLogger()
+	defer os.Remove("test.log")
+	// Set Viper configuration.
 	viper.Set("master_key", generateMasterKey(t))
 
 	// Insert a test key.
@@ -158,7 +182,7 @@ func TestRead(t *testing.T) {
 
 	// Test reading.
 	ctx := context.Background()
-	repo := keys.NewKeyRepository(db.DB)
+	repo := keys.NewKeyRepository(db.DB, log)
 	key, err := repo.Read(ctx, 1)
 	assert.NoError(t, err, "reading key should succeed")
 	assert.Equal(t, 1, key.ID, "key ID should match")
@@ -176,6 +200,14 @@ func TestRotate(t *testing.T) {
 	defer cleanup()
 
 	// Set Viper configuration.
+	viper.Set("jwt_secret", "test-jwt-secret")
+	viper.Set("log.file", "test.log")
+	viper.Set("api.rate_limit", "10-M")
+	viper.Set("log.level", "debug")
+	log := logging.InitLogger()
+	defer os.Remove("test.log")
+
+	// Set Viper configuration.
 	viper.Set("master_key", generateMasterKey(t))
 
 	// Insert a test key.
@@ -190,8 +222,8 @@ func TestRotate(t *testing.T) {
 
 	// Test rotation.
 	ctx := context.Background()
-	repo := keys.NewKeyRepository(db.DB)
-	err = repo.Rotate(ctx, 1)
+	repo := keys.NewKeyRepository(db.DB, log)
+	_, err = repo.Rotate(ctx, 1)
 	assert.NoError(t, err, "rotating key should succeed")
 
 	// Verify old key is revoked.
@@ -229,9 +261,9 @@ func BenchmarkGenerateRSA(b *testing.B) {
 
 	// Run benchmark.
 	ctx := context.Background()
-	repo := keys.NewKeyRepository(db.DB)
+	repo := keys.NewKeyRepository(db.DB, logging.InitLogger())
 	for i := 0; i < b.N; i++ {
-		_ = repo.GenerateRSA(ctx, 1, "test-rsa-key", 2048)
+		_, err = repo.GenerateRSA(ctx, 1, "test-rsa-key", 2048)
 	}
 
 	// Verify mock expectations.
