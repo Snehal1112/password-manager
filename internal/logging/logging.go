@@ -70,15 +70,15 @@ func InitLogger() *Logger {
 
 // LogAuditInfo logs an info-level audit event with standard fields.
 func (l *Logger) LogAuditInfo(userID int, operation, status, message string, fields *logrus.Fields) {
-	l.WithAuditFields(userID, operation, status, fields).Info(message)
+	l.WithAuditFields(userID, operation, status).Info(message)
 }
 
 // LogAuditError logs an error-level audit event with standard fields and an error.
 func (l *Logger) LogAuditError(userID int, operation, status, message string, err error) {
-	l.WithAuditFields(userID, operation, status, nil).WithError(err).Error(message)
+	l.WithAuditFields(userID, operation, status).WithError(err).Error(message)
 }
 
-func (l *Logger) WithAuditFields(userID int, operation, status string, fields *logrus.Fields) *logrus.Entry {
+func (l *Logger) WithAuditFields(userID int, operation, status string) *logrus.Entry {
 	// Start with the audit fields
 	auditFields := logrus.Fields{
 		"user_id":   userID,
@@ -87,12 +87,13 @@ func (l *Logger) WithAuditFields(userID int, operation, status string, fields *l
 		"timestamp": time.Now().Format(time.RFC3339),
 	}
 
-	// If additional fields are provided, include them
-	if fields != nil {
-		for k, v := range *fields {
-			auditFields[k] = v
-		}
-	}
+	// log.Println("fields:", fields)
+	// // If additional fields are provided, include them
+	// if fields != nil {
+	// 	for k, v := range *fields {
+	// 		auditFields[k] = v
+	// 	}
+	// }
 
 	return l.WithFields(auditFields)
 }
