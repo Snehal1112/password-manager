@@ -67,7 +67,7 @@ func (m *Middleware) LoggingMiddleware(next http.Handler) http.Handler {
 			"duration_ms": duration.Milliseconds(),
 		}
 
-		logEntry := m.log.WithAuditFields(userID, operation, status, nil).WithFields(logFields)
+		logEntry := m.log.WithAuditFields(userID, operation, status).WithFields(logFields)
 		if status == "success" {
 			logEntry.Info("API request processed")
 		} else {
