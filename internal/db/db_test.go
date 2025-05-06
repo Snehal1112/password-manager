@@ -1,12 +1,11 @@
 // Package db_test contains unit tests for the db package.
 // It verifies database initialization, table creation, and connection management.
-package db_test
+package db
 
 import (
 	"os"
 	"testing"
 
-	"github.com/snehal1112/password-manager/internal/db"
 	"github.com/spf13/viper"
 	"github.com/stretchr/testify/assert"
 )
@@ -18,12 +17,12 @@ func TestInitializeDB(t *testing.T) {
 	defer os.Remove("./test.db") // Clean up test database.
 
 	// Test happy path.
-	err := db.InitializeDB()
+	err := InitializeDB()
 	assert.NoError(t, err, "database initialization should succeed")
-	assert.NotNil(t, db.DB, "DB connection should be initialized")
+	assert.NotNil(t, DB, "DB connection should be initialized")
 
 	// Verify table creation.
-	rows, err := db.DB.Query("SELECT name FROM sqlite_master WHERE type='table' AND name='users'")
+	rows, err := DB.Query("SELECT name FROM sqlite_master WHERE type='table' AND name='users'")
 	assert.NoError(t, err, "query for users table should succeed")
 	assert.True(t, rows.Next(), "users table should exist")
 	rows.Close()
@@ -32,7 +31,7 @@ func TestInitializeDB(t *testing.T) {
 // TestInitializeDBInvalidConfig tests InitializeDB with an invalid connection string.
 func TestInitializeDBInvalidConfig(t *testing.T) {
 	viper.Set("database.connection", "")
-	err := db.InitializeDB()
+	err := InitializeDB()
 	assert.Error(t, err, "database initialization should fail with empty connection string")
 	assert.Contains(t, err.Error(), "database connection string not configured")
 }
@@ -43,11 +42,11 @@ func TestCloseDB(t *testing.T) {
 	defer os.Remove("./test.db")
 
 	// Initialize database.
-	err := db.InitializeDB()
+	err := InitializeDB()
 	assert.NoError(t, err, "database initialization should succeed")
 
 	// Test closing.
-	err = db.CloseDB()
+	err = CloseDB()
 	assert.NoError(t, err, "closing database should succeed")
 }
 
@@ -57,7 +56,7 @@ func BenchmarkInitializeDB(b *testing.B) {
 	defer os.Remove("./test.db")
 
 	for i := 0; i < b.N; i++ {
-		db.InitializeDB()
-		db.CloseDB()
+		InitializeDB()
+		CloseDB()
 	}
 }

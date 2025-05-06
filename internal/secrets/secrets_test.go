@@ -1,6 +1,6 @@
 // Package secrets_test contains unit tests for the secrets package.
 // It verifies CRUD operations, encryption, versioning, and tagging for secrets.
-package secrets_test
+package secrets
 
 import (
 	"context"
@@ -17,7 +17,6 @@ import (
 
 	"github.com/snehal1112/password-manager/internal/db"
 	"github.com/snehal1112/password-manager/internal/logging"
-	"github.com/snehal1112/password-manager/internal/secrets"
 )
 
 // setupTestDB initializes an in-memory SQLite database for testing.
@@ -120,7 +119,7 @@ func TestCreate(t *testing.T) {
 
 	// Test secret creation.
 	ctx := context.Background()
-	secret := secrets.Secret{
+	secret := Secret{
 		UserID:    1,
 		Name:      "test-secret",
 		Value:     "my-secret-value",
@@ -128,7 +127,7 @@ func TestCreate(t *testing.T) {
 		Tags:      []string{"prod", "api"},
 		CreatedAt: time.Now(),
 	}
-	repo := secrets.NewSecretRepository(db.DB, log)
+	repo := NewSecretRepository(db.DB, log)
 	err := repo.Create(ctx, secret)
 	assert.NoError(t, err, "creating secret should succeed")
 
@@ -142,7 +141,7 @@ func TestCreate(t *testing.T) {
 	assert.Equal(t, 1, version, "secret version should match")
 
 	// Decrypt and verify value.
-	decryptedValue, err := secrets.DecryptSecret(value)
+	decryptedValue, err := DecryptSecret(value)
 	assert.NoError(t, err, "decrypting secret should succeed")
 	assert.Equal(t, "my-secret-value", decryptedValue, "decrypted value should match")
 
@@ -182,7 +181,7 @@ func TestCreateInvalidKey(t *testing.T) {
 
 	// Test secret creation.
 	ctx := context.Background()
-	secret := secrets.Secret{
+	secret := Secret{
 		UserID:    1,
 		Name:      "test-secret",
 		Value:     "my-secret-value",
@@ -190,7 +189,7 @@ func TestCreateInvalidKey(t *testing.T) {
 		Tags:      []string{"prod"},
 		CreatedAt: time.Now(),
 	}
-	repo := secrets.NewSecretRepository(db.DB, log)
+	repo := NewSecretRepository(db.DB, log)
 	err = repo.Create(ctx, secret)
 	assert.Error(t, err, "creating secret should fail with invalid key")
 	assert.Contains(t, err.Error(), "master key must be 32 bytes", "error should indicate invalid key length")
@@ -214,7 +213,7 @@ func TestRead(t *testing.T) {
 	viper.Set("master_key", generateMasterKey(t))
 
 	// Insert a test secret.
-	encryptedValue, err := secrets.EncryptSecret("my-secret-value")
+	encryptedValue, err := EncryptSecret("my-secret-value")
 	assert.NoError(t, err, "encrypting secret should succeed")
 	createdAt := time.Now()
 	_, err = db.DB.Exec(
@@ -227,7 +226,7 @@ func TestRead(t *testing.T) {
 
 	// Test reading.
 	ctx := context.Background()
-	repo := secrets.NewSecretRepository(db.DB, log)
+	repo := NewSecretRepository(db.DB, log)
 	secret, err := repo.Read(ctx, 1)
 	assert.NoError(t, err, "reading secret should succeed")
 	assert.Equal(t, 1, secret.ID, "secret ID should match")
@@ -256,7 +255,7 @@ func TestUpdate(t *testing.T) {
 	viper.Set("master_key", generateMasterKey(t))
 
 	// Insert a test secret.
-	encryptedValue, err := secrets.EncryptSecret("old-value")
+	encryptedValue, err := EncryptSecret("old-value")
 	assert.NoError(t, err, "encrypting secret should succeed")
 	_, err = db.DB.Exec(
 		"INSERT INTO secrets (id, user_id, name, value, version, created_at) VALUES (1, 1, 'test-secret', ?, 1, ?)",
@@ -266,7 +265,7 @@ func TestUpdate(t *testing.T) {
 
 	// Test updating.
 	ctx := context.Background()
-	secret := secrets.Secret{
+	secret := Secret{
 		UserID:    1,
 		Name:      "test-secret",
 		Value:     "new-value",
@@ -274,7 +273,7 @@ func TestUpdate(t *testing.T) {
 		Tags:      []string{"dev"},
 		CreatedAt: time.Now(),
 	}
-	repo := secrets.NewSecretRepository(db.DB, log)
+	repo := NewSecretRepository(db.DB, log)
 	err = repo.Update(ctx, secret)
 	assert.NoError(t, err, "updating secret should succeed")
 
@@ -286,7 +285,7 @@ func TestUpdate(t *testing.T) {
 	assert.NoError(t, err, "querying updated secret should succeed")
 	assert.Equal(t, "test-secret", name, "secret name should match")
 	assert.Equal(t, 2, version, "secret version should match")
-	decryptedValue, err := secrets.DecryptSecret(value)
+	decryptedValue, err := DecryptSecret(value)
 	assert.NoError(t, err, "decrypting secret should succeed")
 	assert.Equal(t, "new-value", decryptedValue, "decrypted value should match")
 
@@ -328,7 +327,7 @@ func TestDelete(t *testing.T) {
 
 	// Test deletion.
 	ctx := context.Background()
-	repo := secrets.NewSecretRepository(db.DB, log)
+	repo := NewSecretRepository(db.DB, log)
 	err = repo.Delete(ctx, 1)
 	assert.NoError(t, err, "deleting secret should succeed")
 
@@ -362,9 +361,9 @@ func TestListByUser(t *testing.T) {
 	viper.Set("master_key", generateMasterKey(t))
 
 	// Insert test secrets.
-	encryptedValue1, err := secrets.EncryptSecret("value1")
+	encryptedValue1, err := EncryptSecret("value1")
 	assert.NoError(t, err, "encrypting secret should succeed")
-	encryptedValue2, err := secrets.EncryptSecret("value2")
+	encryptedValue2, err := EncryptSecret("value2")
 	assert.NoError(t, err, "encrypting secret should succeed")
 	createdAt := time.Now()
 	_, err = db.DB.Exec(
@@ -377,7 +376,7 @@ func TestListByUser(t *testing.T) {
 
 	// Test listing with tag filter.
 	ctx := context.Background()
-	repo := secrets.NewSecretRepository(db.DB, log)
+	repo := NewSecretRepository(db.DB, log)
 	secretsList, err := repo.ListByUser(ctx, 1, []string{"prod"})
 	assert.NoError(t, err, "listing secrets should succeed")
 	assert.Len(t, secretsList, 1, "should return one secret")
@@ -423,8 +422,8 @@ func BenchmarkCreate(b *testing.B) {
 
 	// Run benchmark.
 	ctx := context.Background()
-	repo := secrets.NewSecretRepository(db.DB, log)
-	secret := secrets.Secret{
+	repo := NewSecretRepository(db.DB, log)
+	secret := Secret{
 		UserID:    1,
 		Name:      "test-secret",
 		Value:     "my-secret-value",

@@ -39,7 +39,7 @@ type Claims struct {
 // Role constants define user roles for RBAC.
 const (
 	RoleSecretsManager     = "SecretsManager"
-	RoleCryptoManager      = "CryptoManager"
+	RoleCryptoManager      = "crypto_manager"
 	RoleCertificateManager = "CertificateManager"
 )
 
@@ -276,7 +276,7 @@ func Login(ctx context.Context, username, password, totpCode string) (string, er
 	}
 
 	logrus.WithFields(logrus.Fields{
-		"username": "snehal1112",
+		"username": username,
 		"user_id":  user.ID,
 	}).Info("User logged in successfully")
 	return tokenString, nil

@@ -18,6 +18,7 @@ import (
 	"github.com/sirupsen/logrus"
 
 	"github.com/snehal1112/password-manager/internal/db"
+	"github.com/snehal1112/password-manager/internal/logging"
 	"github.com/snehal1112/password-manager/internal/secrets"
 )
 
@@ -37,14 +38,15 @@ type Key struct {
 // It provides type-safe CRUD operations for the Key type.
 type KeyRepository interface {
 	db.Repository[Key]
-	GenerateRSA(ctx context.Context, userID int, name string, bits int) error
-	GenerateECDSA(ctx context.Context, userID int, name string, curve string) error
-	Rotate(ctx context.Context, id int) error
+	GenerateRSA(ctx context.Context, userID int, name string, bits int) (*Key, error)
+	GenerateECDSA(ctx context.Context, userID int, name string, curve string) (*Key, error)
+	Rotate(ctx context.Context, id int) (*Key, error)
 }
 
 // keyRepository implements KeyRepository for database operations on keys.
 type keyRepository struct {
-	db *sql.DB
+	db  *sql.DB
+	log *logging.Logger
 }
 
 // NewKeyRepository creates a new KeyRepository with the given database connection.
@@ -57,8 +59,8 @@ type keyRepository struct {
 // Returns:
 //
 //	A KeyRepository for key operations.
-func NewKeyRepository(db *sql.DB) KeyRepository {
-	return &keyRepository{db: db}
+func NewKeyRepository(db *sql.DB, log *logging.Logger) KeyRepository {
+	return &keyRepository{db: db, log: log}
 }
 
 // Create inserts a new key into the database.
@@ -217,12 +219,13 @@ func (r *keyRepository) Delete(ctx context.Context, id int) error {
 // Returns:
 //
 //	An error if key generation or storage fails.
-func (r *keyRepository) GenerateRSA(ctx context.Context, userID int, name string, bits int) error {
+func (r *keyRepository) GenerateRSA(ctx context.Context, userID int, name string, bits int) (*Key, error) {
 	// Generate RSA private key.
 	privateKey, err := rsa.GenerateKey(rand.Reader, bits)
 	if err != nil {
+		r.log.LogAuditError(userID, "generate_key", "failed", "Failed to generate RSA key", err)
 		logrus.Error("Failed to generate RSA key: ", err)
-		return fmt.Errorf("failed to generate RSA key: %w", err)
+		return nil, fmt.Errorf("failed to generate RSA key: %w", err)
 	}
 
 	// Encode private key to PEM.
@@ -232,7 +235,7 @@ func (r *keyRepository) GenerateRSA(ctx context.Context, userID int, name string
 	})
 
 	// Store the key in the database.
-	key := Key{
+	key := &Key{
 		UserID:    userID,
 		Name:      name,
 		Type:      "RSA",
@@ -240,11 +243,12 @@ func (r *keyRepository) GenerateRSA(ctx context.Context, userID int, name string
 		Revoked:   false,
 		CreatedAt: time.Now(),
 	}
-	if err := r.Create(ctx, key); err != nil {
-		return err
+
+	if err := r.Create(ctx, *key); err != nil {
+		return nil, err
 	}
 
-	return nil
+	return key, nil
 }
 
 // GenerateECDSA generates a new ECDSA key pair and stores it in the database.
@@ -259,8 +263,8 @@ func (r *keyRepository) GenerateRSA(ctx context.Context, userID int, name string
 //
 // Returns:
 //
-//	An error if key generation or storage fails.
-func (r *keyRepository) GenerateECDSA(ctx context.Context, userID int, name string, curve string) error {
+//	The generated key and an error if key generation or storage fails.
+func (r *keyRepository) GenerateECDSA(ctx context.Context, userID int, name string, curve string) (*Key, error) {
 	var c elliptic.Curve
 	switch curve {
 	case "P-256":
@@ -270,21 +274,21 @@ func (r *keyRepository) GenerateECDSA(ctx context.Context, userID int, name stri
 	case "P-521":
 		c = elliptic.P521()
 	default:
-		return fmt.Errorf("unsupported curve: %s", curve)
+		return nil, fmt.Errorf("unsupported curve: %s", curve)
 	}
 
 	// Generate ECDSA private key.
 	privateKey, err := ecdsa.GenerateKey(c, rand.Reader)
 	if err != nil {
-		logrus.Error("Failed to generate ECDSA key: ", err)
-		return fmt.Errorf("failed to generate ECDSA key: %w", err)
+		r.log.LogAuditError(userID, "generate_key", "failed", "Failed to generate ECDSA key", err)
+		return nil, fmt.Errorf("failed to generate ECDSA key: %w", err)
 	}
 
 	// Encode private key to PEM.
 	privateKeyBytes, err := x509.MarshalECPrivateKey(privateKey)
 	if err != nil {
-		logrus.Error("Failed to marshal ECDSA key: ", err)
-		return fmt.Errorf("failed to marshal ECDSA key: %w", err)
+		r.log.LogAuditError(userID, "generate_key", "failed", "Failed to marshal ECDSA key", err)
+		return nil, fmt.Errorf("failed to marshal ECDSA key: %w", err)
 	}
 	privateKeyPEM := pem.EncodeToMemory(&pem.Block{
 		Type:  "EC PRIVATE KEY",
@@ -292,7 +296,7 @@ func (r *keyRepository) GenerateECDSA(ctx context.Context, userID int, name stri
 	})
 
 	// Store the key in the database.
-	key := Key{
+	key := &Key{
 		UserID:    userID,
 		Name:      name,
 		Type:      "ECDSA",
@@ -300,11 +304,12 @@ func (r *keyRepository) GenerateECDSA(ctx context.Context, userID int, name stri
 		Revoked:   false,
 		CreatedAt: time.Now(),
 	}
-	if err := r.Create(ctx, key); err != nil {
-		return err
+
+	if err := r.Create(ctx, *key); err != nil {
+		return nil, err
 	}
 
-	return nil
+	return key, nil
 }
 
 // Rotate rotates an existing key by generating a new key pair and updating the database.
@@ -317,33 +322,35 @@ func (r *keyRepository) GenerateECDSA(ctx context.Context, userID int, name stri
 //
 // Returns:
 //
-//	An error if rotation fails.
-func (r *keyRepository) Rotate(ctx context.Context, id int) error {
+//	The generated key and an error if rotation fails.
+func (r *keyRepository) Rotate(ctx context.Context, id int) (*Key, error) {
 	// Read the existing key.
 	key, err := r.Read(ctx, id)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	// Mark the old key as revoked.
 	key.Revoked = true
 	key.CreatedAt = time.Now()
 	if err := r.Update(ctx, key); err != nil {
-		return err
+		r.log.LogAuditError(key.UserID, "rotate_key", "failed", "Failed to revoke old key", err)
+		return nil, err
 	}
 
+	var newKey *Key
 	// Generate a new key based on the type.
 	switch key.Type {
 	case "RSA":
-		err = r.GenerateRSA(ctx, key.UserID, key.Name, 2048) // Default to 2048 bits for simplicity.
+		newKey, err = r.GenerateRSA(ctx, key.UserID, key.Name, 2048) // Default to 2048 bits for simplicity.
 	case "ECDSA":
-		err = r.GenerateECDSA(ctx, key.UserID, key.Name, "P-256") // Default to P-256 curve.
+		newKey, err = r.GenerateECDSA(ctx, key.UserID, key.Name, "P-256") // Default to P-256 curve.
 	default:
 		err = fmt.Errorf("unsupported key type: %s", key.Type)
 	}
 	if err != nil {
-		logrus.Error("Failed to rotate key: ", err)
-		return fmt.Errorf("failed to rotate key: %w", err)
+		r.log.LogAuditError(key.UserID, "rotate_key", "failed", "Failed to rotate key", err)
+		return nil, fmt.Errorf("failed to rotate key: %w", err)
 	}
 
 	logrus.WithFields(logrus.Fields{
@@ -351,5 +358,5 @@ func (r *keyRepository) Rotate(ctx context.Context, id int) error {
 		"name":   key.Name,
 		"type":   key.Type,
 	}).Info("Key rotated successfully")
-	return nil
+	return newKey, nil
 }

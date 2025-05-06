@@ -1,6 +1,6 @@
 // Package auth_test contains unit tests for the auth package.
 // It verifies user registration, login, and JWT generation with TOTP MFA.
-package auth_test
+package auth
 
 import (
 	"context"
@@ -9,13 +9,10 @@ import (
 	"time"
 
 	"github.com/DATA-DOG/go-sqlmock"
-	"github.com/pquerna/otp"
-	"github.com/pquerna/otp/totp"
 	"github.com/spf13/viper"
 	"github.com/stretchr/testify/assert"
 	"golang.org/x/crypto/bcrypt"
 
-	"github.com/snehal1112/password-manager/internal/auth"
 	"github.com/snehal1112/password-manager/internal/db"
 )
 
@@ -70,7 +67,7 @@ func TestRegister(t *testing.T) {
 
 	// Test registration.
 	ctx := context.Background()
-	totpURL, err := auth.Register(ctx, "testuser", "password123", auth.RoleSecretsManager)
+	totpURL, err := Register(ctx, "testuser", "password123", RoleSecretsManager)
 	assert.NoError(t, err, "registration should succeed")
 	assert.NotEmpty(t, totpURL, "TOTP URL should be returned")
 
@@ -82,7 +79,7 @@ func TestRegister(t *testing.T) {
 	assert.NoError(t, err, "querying user should succeed")
 	assert.Equal(t, "testuser", username, "username should match")
 	assert.True(t, totpSecret.Valid, "TOTP secret should be set")
-	assert.Equal(t, auth.RoleSecretsManager, role, "role should match")
+	assert.Equal(t, RoleSecretsManager, role, "role should match")
 }
 
 // TestLogin tests the Login function to ensure it authenticates users and issues JWTs.
@@ -98,7 +95,7 @@ func TestLogin(t *testing.T) {
 	// Mock user query.
 	hashedPassword, _ := bcrypt.GenerateFromPassword([]byte("password123"), bcrypt.DefaultCost)
 	rows := sqlmock.NewRows([]string{"id", "username", "password_hash", "role", "totp_secret"}).
-		AddRow(1, "testuser", string(hashedPassword), auth.RoleSecretsManager, "TOTPSECRET")
+		AddRow(1, "testuser", string(hashedPassword), RoleSecretsManager, "TOTPSECRET")
 	mock.ExpectQuery("SELECT id, username, password_hash, role, totp_secret FROM users WHERE username = ?").
 		WithArgs("testuser").
 		WillReturnRows(rows)
@@ -112,7 +109,7 @@ func TestLogin(t *testing.T) {
 
 	// Test login.
 	ctx := context.Background()
-	token, err := auth.Login(ctx, "testuser", "password123", totpCode)
+	token, err := Login(ctx, "testuser", "password123", totpCode)
 	assert.NoError(t, err, "login should succeed")
 	assert.NotEmpty(t, token, "JWT token should be returned")
 
@@ -140,7 +137,7 @@ func TestLoginInvalidCredentials(t *testing.T) {
 
 	// Test login with invalid username.
 	ctx := context.Background()
-	_, err = auth.Login(ctx, "testuser", "password123", "123456")
+	_, err = Login(ctx, "testuser", "password123", "123456")
 	assert.Error(t, err, "login should fail with invalid credentials")
 	assert.Contains(t, err.Error(), "invalid credentials", "error should indicate invalid credentials")
 
@@ -161,7 +158,7 @@ func BenchmarkLogin(b *testing.B) {
 	// Mock user query.
 	hashedPassword, _ := bcrypt.GenerateFromPassword([]byte("password123"), bcrypt.DefaultCost)
 	rows := sqlmock.NewRows([]string{"id", "username", "password_hash", "role", "totp_secret"}).
-		AddRow(1, "testuser", string(hashedPassword), auth.RoleSecretsManager, "TOTPSECRET")
+		AddRow(1, "testuser", string(hashedPassword), RoleSecretsManager, "TOTPSECRET")
 	mock.ExpectQuery("SELECT id, username, password_hash, role, totp_secret FROM users WHERE username = ?").
 		WithArgs("testuser").
 		WillReturnRows(rows)
@@ -176,20 +173,9 @@ func BenchmarkLogin(b *testing.B) {
 	// Run benchmark.
 	ctx := context.Background()
 	for i := 0; i < b.N; i++ {
-		_, _ = auth.Login(ctx, "testuser", "password123", totpCode)
+		_, _ = Login(ctx, "testuser", "password123", totpCode)
 	}
 
 	// Verify mock expectations.
 	assert.NoError(b, mock.ExpectationsWereMet(), "all mock expectations should be met")
-}
-
-// GenerateTOTPCode generates a TOTP code for testing purposes.
-// It is a helper function to create valid TOTP codes for a given secret and time.
-func GenerateTOTPCode(secret string, t time.Time) (string, error) {
-	return totp.GenerateCodeCustom(secret, t, totp.ValidateOpts{
-		Period:    30,
-		Skew:      2,
-		Digits:    otp.DigitsSix,
-		Algorithm: otp.AlgorithmSHA1,
-	})
 }

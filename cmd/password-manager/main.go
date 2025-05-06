@@ -82,9 +82,6 @@ func main() {
 		logrus.Fatal("Failed to initialize configuration: ", err)
 	}
 
-	// Initialize logger
-	Logger = logging.InitLogger()
-
 	// Initialize the database.
 	if err := db.InitializeDB(); err != nil {
 		logrus.Fatal("Failed to initialize database: ", err)
@@ -135,12 +132,16 @@ func initConfig() error {
 	// Read the configuration file.
 	if err := viper.ReadInConfig(); err != nil {
 		if _, ok := err.(viper.ConfigFileNotFoundError); !ok {
+			Logger.LogAuditError(0, "config_init", "failed", "Failed to read config file", err)
 			return fmt.Errorf("failed to read config file: %w", err)
 		}
 		Logger.LogAuditError(0, "config_init", "failed", "Failed to read config file", err)
 		os.Exit(1)
 	}
 
-	logrus.Info("Configuration initialized")
+	// Initialize logger
+	Logger = logging.InitLogger()
+
+	Logger.LogAuditInfo(0, "config_init", "success", "Configuration file loaded successfully", nil)
 	return nil
 }

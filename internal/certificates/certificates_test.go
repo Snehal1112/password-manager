@@ -1,6 +1,6 @@
 // Package certificates_test contains unit tests for the certificates package.
 // It verifies certificate creation, CRUD operations, revocation, and encryption for X.509 certificates.
-package certificates_test
+package certificates
 
 import (
 	"context"
@@ -18,7 +18,6 @@ import (
 	"github.com/spf13/viper"
 	"github.com/stretchr/testify/assert"
 
-	"github.com/snehal1112/password-manager/internal/certificates"
 	"github.com/snehal1112/password-manager/internal/db"
 	"github.com/snehal1112/password-manager/internal/keys"
 	"github.com/snehal1112/password-manager/internal/logging"
@@ -112,13 +111,13 @@ func TestCreateSelfSigned(t *testing.T) {
 	viper.Set("master_key", generateMasterKey(t))
 
 	// Create a test RSA key.
-	keyRepo := keys.NewKeyRepository(db.DB)
+	keyRepo := keys.NewKeyRepository(db.DB, log)
 	ctx := context.Background()
-	err := keyRepo.GenerateRSA(ctx, 1, "test-key", 2048)
+	_, err := keyRepo.GenerateRSA(ctx, 1, "test-key", 2048)
 	assert.NoError(t, err, "generating RSA key should succeed")
 
 	// Test self-signed certificate creation.
-	repo := certificates.NewCertificateRepository(db.DB, log)
+	repo := NewCertificateRepository(db.DB, log)
 	err = repo.CreateSelfSigned(ctx, 1, "test-cert", 1, 365)
 	assert.NoError(t, err, "creating self-signed certificate should succeed")
 
@@ -153,16 +152,16 @@ func TestCreateCASigned(t *testing.T) {
 	viper.Set("master_key", generateMasterKey(t))
 
 	// Create a CA key and certificate.
-	keyRepo := keys.NewKeyRepository(db.DB)
+	keyRepo := keys.NewKeyRepository(db.DB, log)
 	ctx := context.Background()
-	err := keyRepo.GenerateRSA(ctx, 1, "ca-key", 2048)
+	_, err := keyRepo.GenerateRSA(ctx, 1, "ca-key", 2048)
 	assert.NoError(t, err, "generating CA key should succeed")
-	repo := certificates.NewCertificateRepository(db.DB, log)
+	repo := NewCertificateRepository(db.DB, log)
 	err = repo.CreateSelfSigned(ctx, 1, "ca-cert", 1, 365)
 	assert.NoError(t, err, "creating CA certificate should succeed")
 
 	// Create a client key.
-	err = keyRepo.GenerateRSA(ctx, 2, "client-key", 2048)
+	_, err = keyRepo.GenerateRSA(ctx, 2, "client-key", 2048)
 	assert.NoError(t, err, "generating client key should succeed")
 
 	// Test CA-signed certificate creation.
@@ -198,7 +197,7 @@ func TestRevoke(t *testing.T) {
 
 	// Test revocation.
 	ctx := context.Background()
-	repo := certificates.NewCertificateRepository(db.DB, log)
+	repo := NewCertificateRepository(db.DB, log)
 	err := repo.Revoke(ctx, 1, "123456789", "test-cert")
 	assert.NoError(t, err, "revoking certificate should succeed")
 
@@ -234,7 +233,7 @@ func TestListRevoked(t *testing.T) {
 
 	// Test listing revoked certificates.
 	ctx := context.Background()
-	repo := certificates.NewCertificateRepository(db.DB, log)
+	repo := NewCertificateRepository(db.DB, log)
 	revokedCerts, err := repo.ListRevoked(ctx, 1)
 	assert.NoError(t, err, "listing revoked certificates should succeed")
 	assert.Len(t, revokedCerts, 1, "should return one revoked certificate")
@@ -293,7 +292,7 @@ func BenchmarkCreateSelfSigned(b *testing.B) {
 
 	// Run benchmark.
 	ctx := context.Background()
-	repo := certificates.NewCertificateRepository(db.DB, log)
+	repo := NewCertificateRepository(db.DB, log)
 	for i := 0; i < b.N; i++ {
 		_ = repo.CreateSelfSigned(ctx, 1, "test-cert", 1, 365)
 	}
