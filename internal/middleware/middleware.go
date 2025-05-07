@@ -9,7 +9,9 @@ import (
 	"strings"
 	"time"
 
+	"github.com/golang-jwt/jwt/v5"
 	"github.com/sirupsen/logrus"
+	"github.com/spf13/viper"
 	"github.com/ulule/limiter/v3"
 	"github.com/ulule/limiter/v3/drivers/store/memory"
 
@@ -108,13 +110,60 @@ func (m *Middleware) AuthMiddleware(next http.Handler) http.Handler {
 			http.Error(w, "Unauthorized: missing or invalid token", http.StatusUnauthorized)
 			return
 		}
-		token := strings.TrimPrefix(authHeader, "Bearer ")
+		tokenString := strings.TrimPrefix(authHeader, "Bearer ")
 
-		// Parse JWT.
-		claims, err := auth.ParseJWT(token)
+		claims := &auth.Claims{}
+
+		// Parse the JWT token and validate its claims.
+		// Use jwt.ParseWithClaims to parse the token and validate the claims.
+		// The claims struct should match the structure of the JWT claims.
+		// The function will return an error if the token is invalid or expired.
+		// The claims struct should include the user ID and role.
+		token, err := jwt.ParseWithClaims(tokenString, claims, func(token *jwt.Token) (interface{}, error) {
+			// Validate the token signing method.
+			if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
+				m.log.LogAuditError(0, "auth", "failed", "Unexpected signing method", nil)
+				logrus.Warn("Unexpected signing method: ", token.Header["alg"])
+				return nil, jwt.ErrSignatureInvalid
+			}
+
+			// Retrieve the JWT secret from the configuration.
+			var jwtSecret = viper.GetString("jwt_secret")
+			if jwtSecret == "" {
+				m.log.LogAuditError(0, "auth", "failed", "JWT secret is not set", nil)
+				logrus.Warn("JWT secret is not set")
+				return nil, jwt.ErrInvalidKey
+			}
+
+			// Validate the token expiration.
+			if claims.ExpiresAt != nil && claims.ExpiresAt.Time.Before(time.Now()) {
+				m.log.LogAuditError(0, "auth", "failed", "Token has expired", nil)
+				logrus.Warn("Token has expired")
+				return nil, jwt.ErrTokenExpired
+			}
+
+			return []byte(viper.GetString("jwt_secret")), nil
+		})
+
 		if err != nil {
-			m.log.LogAuditError(0, "auth", "failed", "Invalid JWT", err)
+			m.log.LogAuditError(0, "auth", "failed", "Invalid JWT token", nil)
+			logrus.Warn("Invalid JWT token: ", err)
 			http.Error(w, "Unauthorized: invalid token", http.StatusUnauthorized)
+			return
+		}
+
+		if !token.Valid {
+			m.log.LogAuditError(0, "auth", "failed", "Token is invalid", nil)
+			logrus.Warn("Invalid JWT: token is invalid")
+			http.Error(w, "Unauthorized: invalid claims", http.StatusUnauthorized)
+			return
+		}
+
+		claims, ok := token.Claims.(*auth.Claims)
+		if !ok {
+			m.log.LogAuditError(0, "auth", "failed", "Invalid JWT claims", nil)
+			logrus.Warn("Invalid JWT claims")
+			http.Error(w, "Unauthorized: invalid claims", http.StatusUnauthorized)
 			return
 		}
 
@@ -129,7 +178,7 @@ func (m *Middleware) AuthMiddleware(next http.Handler) http.Handler {
 		type contextKey string
 		const userIDKey contextKey = "user_id"
 		ctx := context.WithValue(r.Context(), userIDKey, claims.UserID)
-		m.log.LogAuditInfo(claims.UserID, "auth", "success", "Authenticated successfully", nil)
+		m.log.LogAuditInfo(claims.UserID, "auth", "success", "Authenticated successfully")
 		next.ServeHTTP(w, r.WithContext(ctx))
 	})
 }

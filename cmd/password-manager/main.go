@@ -142,6 +142,6 @@ func initConfig() error {
 		Logger.LogAuditError(0, "config_init", "failed", "Failed to read config file", err)
 	}
 
-	Logger.LogAuditInfo(0, "config_init", "success", "Configuration file loaded successfully", nil)
+	Logger.LogAuditInfo(0, "config_init", "success", "Configuration file loaded successfully")
 	return nil
 }
