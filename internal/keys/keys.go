@@ -1,6 +1,5 @@
 // Package keys manages cryptographic key storage and operations for the password manager.
-// It supports RSA and ECDSA key generation, storage, rotation, and HSM integration,
-// using Go Generics for type-safe key handling.
+// It supports RSA and ECDSA key generation, storage, rotation, and HSM integration.
 package keys
 
 import (
@@ -13,6 +12,7 @@ import (
 	"database/sql"
 	"encoding/pem"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/sirupsen/logrus"
@@ -23,7 +23,6 @@ import (
 )
 
 // Key represents a cryptographic key in the password manager.
-// It includes the key’s ID, user ID, name, type, encrypted value, revocation status, and creation time.
 type Key struct {
 	ID        int
 	UserID    int
@@ -32,15 +31,17 @@ type Key struct {
 	Value     string // Encrypted PEM-encoded private key
 	Revoked   bool
 	CreatedAt time.Time
+	Tags      []string
 }
 
-// KeyRepository is a generic repository interface for key operations.
-// It provides type-safe CRUD operations for the Key type.
+// KeyRepository is a repository interface for key operations.
+// It provides CRUD operations and key-specific methods for the Key type.
 type KeyRepository interface {
 	db.Repository[Key]
-	GenerateRSA(ctx context.Context, userID int, name string, bits int) (*Key, error)
-	GenerateECDSA(ctx context.Context, userID int, name string, curve string) (*Key, error)
+	GenerateRSA(ctx context.Context, userID int, name string, bits int, tags []string) (*Key, error)
+	GenerateECDSA(ctx context.Context, userID int, name string, curve string, tags []string) (*Key, error)
 	Rotate(ctx context.Context, id int) (*Key, error)
+	ListByUser(ctx context.Context, userID int, keyType string, tags []string) ([]Key, error)
 }
 
 // keyRepository implements KeyRepository for database operations on keys.
@@ -51,30 +52,29 @@ type keyRepository struct {
 
 // NewKeyRepository creates a new KeyRepository with the given database connection.
 // It initializes the repository for key-related database operations.
-//
 // Parameters:
-//
-//	db: The database connection.
-//
-// Returns:
-//
-//	A KeyRepository for key operations.
+// - db: The SQLite database connection.
+// - log: The logger for audit and error logging.
+// Returns: A KeyRepository implementation.
 func NewKeyRepository(db *sql.DB, log *logging.Logger) KeyRepository {
 	return &keyRepository{db: db, log: log}
 }
 
 // Create inserts a new key into the database.
-// It stores the encrypted key value with the specified user ID, name, type, and revocation status.
-//
+// It encrypts the key value and stores it with the specified user ID, name, type,
+// revocation status, and tags within a transaction.
 // Parameters:
-//
-//	ctx: The context for the database operation.
-//	key: The key to create.
-//
-// Returns:
-//
-//	An error if the insertion fails.
+// - ctx: The context for the database operation.
+// - key: The key to create.
+// Returns: An error if the operation fails.
 func (r *keyRepository) Create(ctx context.Context, key Key) error {
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		logrus.Error("Failed to begin transaction: ", err)
+		return fmt.Errorf("failed to begin transaction: %w", err)
+	}
+	defer tx.Rollback()
+
 	// Encrypt the key value.
 	encryptedValue, err := secrets.EncryptSecret(key.Value)
 	if err != nil {
@@ -83,7 +83,7 @@ func (r *keyRepository) Create(ctx context.Context, key Key) error {
 	}
 
 	// Insert the key into the database.
-	result, err := r.db.ExecContext(
+	result, err := tx.ExecContext(
 		ctx,
 		"INSERT INTO keys (user_id, name, value, type, revoked, created_at) VALUES (?, ?, ?, ?, ?, ?)",
 		key.UserID, key.Name, encryptedValue, key.Type, key.Revoked, key.CreatedAt,
@@ -94,7 +94,29 @@ func (r *keyRepository) Create(ctx context.Context, key Key) error {
 	}
 
 	// Retrieve the new key’s ID.
-	keyID, _ := result.LastInsertId()
+	keyID, err := result.LastInsertId()
+	if err != nil {
+		logrus.Error("Failed to get key ID: ", err)
+		return fmt.Errorf("failed to get key ID: %w", err)
+	}
+
+	if err := tx.Commit(); err != nil {
+		logrus.Error("Failed to commit transaction: ", err)
+		return fmt.Errorf("failed to commit transaction: %w", err)
+	}
+
+	key.ID = int(keyID)
+	// Insert tags using TagRepository.
+	if len(key.Tags) > 0 {
+		logrus.Debugf("Adding tags %v for key ID %d", key.Tags, key.ID)
+		tagRepo := db.NewTagRepository[Key](r.db, "key_tags", "key_id")
+		if err := tagRepo.AddTags(ctx, key.ID, key.Tags); err != nil {
+			logrus.Error("Failed to add tags: ", err)
+			return fmt.Errorf("failed to add tags: %w", err)
+		}
+	} else {
+		logrus.Debug("No tags provided for key ID ", key.ID)
+	}
 
 	logrus.WithFields(logrus.Fields{
 		"key_id":  keyID,
@@ -106,16 +128,11 @@ func (r *keyRepository) Create(ctx context.Context, key Key) error {
 }
 
 // Read retrieves a key by ID from the database.
-// It decrypts the key value and returns the key details.
-//
+// It decrypts the key value and retrieves associated tags.
 // Parameters:
-//
-//	ctx: The context for the database operation.
-//	id: The key’s ID.
-//
-// Returns:
-//
-//	The key and an error if the retrieval fails.
+// - ctx: The context for the database operation.
+// - id: The ID of the key to retrieve.
+// Returns: The retrieved key and an error if the operation fails.
 func (r *keyRepository) Read(ctx context.Context, id int) (Key, error) {
 	var key Key
 	var encryptedValue string
@@ -139,20 +156,23 @@ func (r *keyRepository) Read(ctx context.Context, id int) (Key, error) {
 		return key, fmt.Errorf("failed to decrypt key: %w", err)
 	}
 
+	// Retrieve tags using TagRepository.
+	tagRepo := db.NewTagRepository[Key](r.db, "key_tags", "key_id")
+	key.Tags, err = tagRepo.GetTags(ctx, id)
+	if err != nil {
+		logrus.Error("Failed to read tags: ", err)
+		return key, fmt.Errorf("failed to read tags: %w", err)
+	}
+
 	return key, nil
 }
 
 // Update updates a key in the database.
 // It encrypts the updated key value and stores it with the new revocation status.
-//
 // Parameters:
-//
-//	ctx: The context for the database operation.
-//	key: The key to update.
-//
-// Returns:
-//
-//	An error if the update fails.
+// - ctx: The context for the database operation.
+// - key: The key to update.
+// Returns: An error if the operation fails.
 func (r *keyRepository) Update(ctx context.Context, key Key) error {
 	// Encrypt the updated key value.
 	encryptedValue, err := secrets.EncryptSecret(key.Value)
@@ -182,22 +202,36 @@ func (r *keyRepository) Update(ctx context.Context, key Key) error {
 }
 
 // Delete deletes a key by ID from the database.
-// It removes the key and its associated data.
-//
+// It removes the key and its associated tags within a transaction.
 // Parameters:
-//
-//	ctx: The context for the database operation.
-//	id: The key’s ID.
-//
-// Returns:
-//
-//	An error if the deletion fails.
+// - ctx: The context for the database operation.
+// - id: The ID of the key to delete.
+// Returns: An error if the operation fails.
 func (r *keyRepository) Delete(ctx context.Context, id int) error {
-	// Delete the key.
-	_, err := r.db.ExecContext(ctx, "DELETE FROM keys WHERE id = ?", id)
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		logrus.Error("Failed to begin transaction: ", err)
+		return fmt.Errorf("failed to begin transaction: %w", err)
+	}
+	defer tx.Rollback()
+
+	// Delete tags.
+	_, err = tx.ExecContext(ctx, "DELETE FROM key_tags WHERE key_id = ?", id)
+	if err != nil {
+		logrus.Error("Failed to delete tags: ", err)
+		return fmt.Errorf("failed to delete tags: %w", err)
+	}
+
+	// Delete key.
+	_, err = tx.ExecContext(ctx, "DELETE FROM keys WHERE id = ?", id)
 	if err != nil {
 		logrus.Error("Failed to delete key: ", err)
 		return fmt.Errorf("failed to delete key: %w", err)
+	}
+
+	if err := tx.Commit(); err != nil {
+		logrus.Error("Failed to commit transaction: ", err)
+		return fmt.Errorf("failed to commit transaction: %w", err)
 	}
 
 	logrus.WithFields(logrus.Fields{
@@ -206,20 +240,16 @@ func (r *keyRepository) Delete(ctx context.Context, id int) error {
 	return nil
 }
 
-// GenerateRSA generates a new RSA key pair and stores it in the database.
-// It creates a private key with the specified bit size and encrypts it.
-//
+// GenerateRSA generates a new RSA key pair.
+// It creates a private key with the specified bit size and associates the provided tags.
 // Parameters:
-//
-//	ctx: The context for the database operation.
-//	userID: The user’s ID.
-//	name: The key’s name.
-//	bits: The key size in bits (e.g., 2048, 4096).
-//
-// Returns:
-//
-//	An error if key generation or storage fails.
-func (r *keyRepository) GenerateRSA(ctx context.Context, userID int, name string, bits int) (*Key, error) {
+// - ctx: The context for the operation (unused, for interface consistency).
+// - userID: The ID of the user owning the key.
+// - name: The name of the key.
+// - bits: The bit size for the RSA key (e.g., 2048, 4096).
+// - tags: The tags to associate with the key.
+// Returns: A pointer to the generated Key and an error if the operation fails.
+func (r *keyRepository) GenerateRSA(ctx context.Context, userID int, name string, bits int, tags []string) (*Key, error) {
 	// Generate RSA private key.
 	privateKey, err := rsa.GenerateKey(rand.Reader, bits)
 	if err != nil {
@@ -242,6 +272,7 @@ func (r *keyRepository) GenerateRSA(ctx context.Context, userID int, name string
 		Value:     string(privateKeyPEM),
 		Revoked:   false,
 		CreatedAt: time.Now(),
+		Tags:      tags,
 	}
 
 	if err := r.Create(ctx, *key); err != nil {
@@ -251,20 +282,16 @@ func (r *keyRepository) GenerateRSA(ctx context.Context, userID int, name string
 	return key, nil
 }
 
-// GenerateECDSA generates a new ECDSA key pair and stores it in the database.
-// It creates a private key with the specified elliptic curve.
-//
+// GenerateECDSA generates a new ECDSA key pair.
+// It creates a private key with the specified elliptic curve and associates the provided tags.
 // Parameters:
-//
-//	ctx: The context for the database operation.
-//	userID: The user’s ID.
-//	name: The key’s name.
-//	curve: The elliptic curve (e.g., "P-256", "P-384", "P-521").
-//
-// Returns:
-//
-//	The generated key and an error if key generation or storage fails.
-func (r *keyRepository) GenerateECDSA(ctx context.Context, userID int, name string, curve string) (*Key, error) {
+// - ctx: The context for the operation (unused, for interface consistency).
+// - userID: The ID of the user owning the key.
+// - name: The name of the key.
+// - curve: The elliptic curve for the ECDSA key (e.g., "P-256", "P-384", "P-521").
+// - tags: The tags to associate with the key.
+// Returns: A pointer to the generated Key and an error if the operation fails.
+func (r *keyRepository) GenerateECDSA(ctx context.Context, userID int, name string, curve string, tags []string) (*Key, error) {
 	var c elliptic.Curve
 	switch curve {
 	case "P-256":
@@ -303,6 +330,7 @@ func (r *keyRepository) GenerateECDSA(ctx context.Context, userID int, name stri
 		Value:     string(privateKeyPEM),
 		Revoked:   false,
 		CreatedAt: time.Now(),
+		Tags:      tags,
 	}
 
 	if err := r.Create(ctx, *key); err != nil {
@@ -312,17 +340,13 @@ func (r *keyRepository) GenerateECDSA(ctx context.Context, userID int, name stri
 	return key, nil
 }
 
-// Rotate rotates an existing key by generating a new key pair and updating the database.
-// It marks the old key as revoked and creates a new key with the same name and type.
-//
+// Rotate rotates an existing key by generating a new key pair.
+// It marks the old key as revoked and creates a new key with the same name, type,
+// and tags, using default parameters (2048 bits for RSA, P-256 for ECDSA).
 // Parameters:
-//
-//	ctx: The context for the database operation.
-//	id: The key’s ID.
-//
-// Returns:
-//
-//	The generated key and an error if rotation fails.
+// - ctx: The context for the database operation.
+// - id: The ID of the key to rotate.
+// Returns: A pointer to the new Key and an error if the operation fails.
 func (r *keyRepository) Rotate(ctx context.Context, id int) (*Key, error) {
 	// Read the existing key.
 	key, err := r.Read(ctx, id)
@@ -342,9 +366,9 @@ func (r *keyRepository) Rotate(ctx context.Context, id int) (*Key, error) {
 	// Generate a new key based on the type.
 	switch key.Type {
 	case "RSA":
-		newKey, err = r.GenerateRSA(ctx, key.UserID, key.Name, 2048) // Default to 2048 bits for simplicity.
+		newKey, err = r.GenerateRSA(ctx, key.UserID, key.Name, 2048, key.Tags) // Default to 2048 bits for simplicity.
 	case "ECDSA":
-		newKey, err = r.GenerateECDSA(ctx, key.UserID, key.Name, "P-256") // Default to P-256 curve.
+		newKey, err = r.GenerateECDSA(ctx, key.UserID, key.Name, "P-256", key.Tags) // Default to P-256 curve.
 	default:
 		err = fmt.Errorf("unsupported key type: %s", key.Type)
 	}
@@ -352,6 +376,7 @@ func (r *keyRepository) Rotate(ctx context.Context, id int) (*Key, error) {
 		r.log.LogAuditError(key.UserID, "rotate_key", "failed", "Failed to rotate key", err)
 		return nil, fmt.Errorf("failed to rotate key: %w", err)
 	}
+	newKey.Tags = key.Tags // Copy tags.
 
 	logrus.WithFields(logrus.Fields{
 		"key_id": id,
@@ -359,4 +384,62 @@ func (r *keyRepository) Rotate(ctx context.Context, id int) (*Key, error) {
 		"type":   key.Type,
 	}).Info("Key rotated successfully")
 	return newKey, nil
+}
+
+// ListByUser lists keys for a user, optionally filtered by type and tags.
+// It retrieves keys matching the user ID and filters, decrypting their values and
+// including associated tags.
+// Parameters:
+// - ctx: The context for the database operation.
+// - userID: The ID of the user whose keys to list.
+// - keyType: The key type to filter by (e.g., "RSA", "ECDSA"; empty for all).
+// - tags: The tags to filter by (empty for no tag filter).
+// Returns: A slice of keys and an error if the operation fails.
+func (r *keyRepository) ListByUser(ctx context.Context, userID int, keyType string, tags []string) ([]Key, error) {
+	query := "SELECT id, user_id, name, value, type, revoked, created_at FROM keys WHERE user_id = ?"
+	args := []interface{}{userID}
+	if keyType != "" {
+		query += " AND type = ?"
+		args = append(args, keyType)
+	}
+	if len(tags) > 0 {
+		query += " AND id IN (SELECT key_id FROM key_tags WHERE tag IN (?" + strings.Repeat(",?", len(tags)-1) + "))"
+		for _, tag := range tags {
+			args = append(args, tag)
+		}
+	}
+
+	rows, err := r.db.QueryContext(ctx, query, args...)
+	if err != nil {
+		logrus.Error("Failed to list keys: ", err)
+		return nil, fmt.Errorf("failed to list keys: %w", err)
+	}
+	defer rows.Close()
+
+	var keys []Key
+	for rows.Next() {
+		var key Key
+		var encryptedValue string
+		if err := rows.Scan(&key.ID, &key.UserID, &key.Name, &encryptedValue, &key.Type, &key.Revoked, &key.CreatedAt); err != nil {
+			logrus.Error("Failed to scan key: ", err)
+			return nil, fmt.Errorf("failed to scan key: %w", err)
+		}
+		// Decrypt the key value.
+		key.Value, err = secrets.DecryptSecret(encryptedValue)
+		if err != nil {
+			logrus.Error("Failed to decrypt key: ", err)
+			return nil, fmt.Errorf("failed to decrypt key: %w", err)
+		}
+
+		// Retrieve tags for each key.
+		tagRepo := db.NewTagRepository[Key](r.db, "key_tags", "key_id")
+		key.Tags, err = tagRepo.GetTags(ctx, key.ID)
+		if err != nil {
+			logrus.Error("Failed to read tags for key: ", err)
+			return nil, fmt.Errorf("failed to read tags for key %d: %w", key.ID, err)
+		}
+		keys = append(keys, key)
+	}
+
+	return keys, nil
 }
