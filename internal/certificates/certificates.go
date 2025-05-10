@@ -152,10 +152,7 @@ func (r *certificateRepository) CreateSelfSigned(ctx context.Context, userID int
 		return err
 	}
 
-	r.log.LogAuditInfo(cert.UserID, "CreateSelfSigned", "success", "Self-signed certificate created successfully", &logrus.Fields{
-		"name":    name,
-		"user_id": userID,
-	})
+	r.log.LogAuditInfo(cert.UserID, "CreateSelfSigned", "success", "Self-signed certificate created successfully")
 	logrus.WithFields(logrus.Fields{
 		"user_id": userID,
 		"name":    name,

@@ -10,11 +10,12 @@ import (
 	"time"
 
 	"github.com/sirupsen/logrus"
+	"github.com/spf13/cobra"
+	"github.com/spf13/viper"
+
 	"github.com/snehal1112/password-manager/internal/api"
 	"github.com/snehal1112/password-manager/internal/db"
 	"github.com/snehal1112/password-manager/internal/logging"
-	"github.com/spf13/cobra"
-	"github.com/spf13/viper"
 )
 
 // Logger is the global logger instance for the application.
@@ -129,6 +130,9 @@ func initConfig() error {
 	// Enable automatic environment variable binding.
 	viper.AutomaticEnv()
 
+	// Initialize logger
+	Logger = logging.InitLogger()
+
 	// Read the configuration file.
 	if err := viper.ReadInConfig(); err != nil {
 		if _, ok := err.(viper.ConfigFileNotFoundError); !ok {
@@ -136,12 +140,8 @@ func initConfig() error {
 			return fmt.Errorf("failed to read config file: %w", err)
 		}
 		Logger.LogAuditError(0, "config_init", "failed", "Failed to read config file", err)
-		os.Exit(1)
 	}
 
-	// Initialize logger
-	Logger = logging.InitLogger()
-
-	Logger.LogAuditInfo(0, "config_init", "success", "Configuration file loaded successfully", nil)
+	Logger.LogAuditInfo(0, "config_init", "success", "Configuration file loaded successfully")
 	return nil
 }

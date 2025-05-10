@@ -106,11 +106,7 @@ func (r *secretRepository) Create(ctx context.Context, secret Secret) error {
 		}
 	}
 
-	r.log.LogAuditInfo(secret.UserID, "create_secret", "success", "Secret created successfully", &logrus.Fields{
-		"secret_id": secretID,
-		"name":      secret.Name,
-		"tags":      secret.Tags,
-	})
+	r.log.LogAuditInfo(secret.UserID, "create_secret", "success", "Secret created successfully")
 	return nil
 }
 
@@ -222,11 +218,7 @@ func (r *secretRepository) Update(ctx context.Context, secret Secret) error {
 		}
 	}
 
-	r.log.LogAuditInfo(secret.UserID, "update_secret", "success", "Secret updated successfully", &logrus.Fields{
-		"secret_id": secretID,
-		"name":      secret.Name,
-		"tags":      secret.Tags,
-	})
+	r.log.LogAuditInfo(secret.UserID, "update_secret", "success", "Secret updated successfully")
 	return nil
 }
 
@@ -256,9 +248,7 @@ func (r *secretRepository) Delete(ctx context.Context, id int) error {
 		return fmt.Errorf("failed to delete secret: %w", err)
 	}
 
-	r.log.LogAuditInfo(0, "delete_secret", "success", "Secret deleted successfully", &logrus.Fields{
-		"secret_id": id,
-	})
+	r.log.LogAuditInfo(0, "delete_secret", "success", "Secret deleted successfully")
 	logrus.WithFields(logrus.Fields{
 		"secret_id": id,
 	}).Info("Secret deleted successfully")
@@ -333,10 +323,7 @@ func (r *secretRepository) ListByUser(ctx context.Context, userID int, tags []st
 		secrets = append(secrets, secret)
 	}
 
-	r.log.LogAuditInfo(userID, "list_secrets", "success", "Secrets listed successfully", &logrus.Fields{
-		"count":   len(secrets),
-		"user_id": userID,
-	})
+	r.log.LogAuditInfo(userID, "list_secrets", "success", "Secrets listed successfully")
 	logrus.WithFields(logrus.Fields{
 		"user_id": userID,
 		"count":   len(secrets),
