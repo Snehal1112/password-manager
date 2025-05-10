@@ -89,6 +89,12 @@ func InitializeDB() error {
 			revoked BOOLEAN NOT NULL,
 			FOREIGN KEY (user_id) REFERENCES users(id)
 		);
+		CREATE TABLE IF NOT EXISTS key_tags (
+			key_id INTEGER NOT NULL,
+			tag TEXT NOT NULL,
+			PRIMARY KEY (key_id, tag),
+			FOREIGN KEY (key_id) REFERENCES keys(id)
+		);
 		CREATE TABLE IF NOT EXISTS ca_keys (
 			user_id INTEGER PRIMARY KEY,
 			certificate TEXT NOT NULL,

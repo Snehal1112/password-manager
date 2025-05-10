@@ -1,5 +1,6 @@
 // Package logging provides structural logging for the password manager.
-// It configures logrus for JSON logging with custom file rotation in the root directory, supporting audit trails and compliance.
+// It configures logrus for JSON logging with configurable rotation (lumberjack or custom gzip),
+// supporting audit trails and compliance.
 package logging
 
 import (
@@ -11,6 +12,7 @@ import (
 	"sort"
 	"time"
 
+	"github.com/natefinch/lumberjack"
 	"github.com/sirupsen/logrus"
 	"github.com/spf13/viper"
 )
@@ -18,14 +20,15 @@ import (
 // Logger wraps logrus for application-specific logging with audit fields.
 type Logger struct {
 	*logrus.Logger
-	logFile      string
-	maxSizeBytes int64
-	maxBackups   int
-	maxAgeDays   int
+	logFile        string
+	maxSizeBytes   int64
+	maxBackups     int
+	maxAgeDays     int
+	rotationMethod string
 }
 
-// InitLogger initializes a structured logger with JSON output and custom file rotation.
-// It configures log level, output file, and rotation settings from viper.
+// InitLogger initializes a structured logger with JSON output and configurable rotation.
+// It uses either lumberjack or custom gzip rotation based on viper settings.
 func InitLogger() *Logger {
 	logger := logrus.New()
 	logger.SetFormatter(&logrus.JSONFormatter{
@@ -45,22 +48,48 @@ func InitLogger() *Logger {
 	maxSizeMB := viper.GetInt("log.max_size_mb")
 	maxBackups := viper.GetInt("log.max_backups")
 	maxAgeDays := viper.GetInt("log.max_age_days")
+	rotationMethod := viper.GetString("log.rotation_method")
 
 	l := &Logger{
-		Logger:       logger,
-		logFile:      logFile,
-		maxSizeBytes: int64(maxSizeMB) * 1024 * 1024,
-		maxBackups:   maxBackups,
-		maxAgeDays:   maxAgeDays,
+		Logger:         logger,
+		logFile:        logFile,
+		maxSizeBytes:   int64(maxSizeMB) * 1024 * 1024,
+		maxBackups:     maxBackups,
+		maxAgeDays:     maxAgeDays,
+		rotationMethod: rotationMethod,
 	}
 
 	if logFile != "" {
-		// Open log file in root directory, creating it if it doesn’t exist.
-		file, err := os.OpenFile(logFile, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0600)
-		if err != nil {
-			logger.Fatal("Failed to open log file: ", err)
+		if rotationMethod == "lumberjack" {
+			// Use lumberjack for rotation.
+			lumberjackLogger := &lumberjack.Logger{
+				Filename:   logFile,
+				MaxSize:    maxSizeMB,
+				MaxBackups: maxBackups,
+				MaxAge:     maxAgeDays,
+				Compress:   true,
+				LocalTime:  true,
+			}
+			logger.SetOutput(lumberjackLogger)
+
+			_, err := os.OpenFile(logFile, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0600)
+			if err != nil {
+				logger.Fatal("Failed to open log file: ", err)
+			}
+
+			// Set file permissions manually for lumberjack logs.
+			if err := os.Chmod(logFile, 0600); err != nil && !os.IsNotExist(err) {
+				logger.Warn("Failed to set log file permissions: ", err)
+			}
+		} else {
+			// Use custom gzip rotation (default).
+			file, err := os.OpenFile(logFile, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0600)
+			if err != nil {
+				logger.Fatal("Failed to open log file: ", err)
+			}
+			logger.SetOutput(file)
 		}
-		logger.SetOutput(file)
+
 	} else {
 		logger.SetOutput(os.Stdout)
 	}
@@ -69,39 +98,30 @@ func InitLogger() *Logger {
 }
 
 // LogAuditInfo logs an info-level audit event with standard fields.
-func (l *Logger) LogAuditInfo(userID int, operation, status, message string, fields *logrus.Fields) {
-	l.WithAuditFields(userID, operation, status, fields).Info(message)
+func (l *Logger) LogAuditInfo(userID int, operation, status, message string) {
+	l.WithAuditFields(userID, operation, status).Info(message)
 }
 
 // LogAuditError logs an error-level audit event with standard fields and an error.
 func (l *Logger) LogAuditError(userID int, operation, status, message string, err error) {
-	l.WithAuditFields(userID, operation, status, nil).WithError(err).Error(message)
+	l.WithAuditFields(userID, operation, status).WithError(err).Error(message)
 }
 
-func (l *Logger) WithAuditFields(userID int, operation, status string, fields *logrus.Fields) *logrus.Entry {
-	// Start with the audit fields
-	auditFields := logrus.Fields{
+// WithAuditFields adds standard audit fields to a log entry.
+func (l *Logger) WithAuditFields(userID int, operation, status string) *logrus.Entry {
+	return l.WithFields(logrus.Fields{
 		"user_id":   userID,
 		"operation": operation,
 		"status":    status,
 		"timestamp": time.Now().Format(time.RFC3339),
-	}
-
-	// If additional fields are provided, include them
-	if fields != nil {
-		for k, v := range *fields {
-			auditFields[k] = v
-		}
-	}
-
-	return l.WithFields(auditFields)
+	})
 }
 
-// RotateLogFile checks if the log file needs rotation and performs cleanup.
+// RotateLogFile checks if the log file needs rotation and performs cleanup (custom rotation only).
 // It rotates based on size and removes old files based on retention and backup limits.
 func (l *Logger) RotateLogFile() error {
-	if l.logFile == "" {
-		return nil // No rotation for stdout.
+	if l.logFile == "" || l.rotationMethod == "lumberjack" {
+		return nil // No rotation needed for stdout or lumberjack.
 	}
 
 	// Check file size.
@@ -182,9 +202,9 @@ func compressLogFile(src, dst string) error {
 	return nil
 }
 
-// cleanupOldLogs removes log files exceeding retention period or backup limit in the root directory.
+// cleanupOldLogs removes log files exceeding retention period or backup limit in the root directory (custom rotation only).
 func (l *Logger) cleanupOldLogs() error {
-	if l.logFile == "" {
+	if l.logFile == "" || l.rotationMethod == "lumberjack" {
 		return nil
 	}
 

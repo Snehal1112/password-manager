@@ -8,5 +8,6 @@ log:
   max_age_days: 30
 api:
   port: 8080
+  rate_limit: "10-M"
 master_key: "***SECRET-REMOVED-2026-08-17***" # Replace with a secure 32-byte key
 jwt_secret: "***SECRET-REMOVED-2026-08-17***" # Replace with a secure secret
