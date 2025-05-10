@@ -62,6 +62,11 @@ func setupTestDB(t *testing.T) func() {
 			type TEXT NOT NULL,
 			revoked BOOLEAN NOT NULL,
 			created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+		);	
+		CREATE TABLE key_tags (
+			key_id INTEGER NOT NULL,
+			tag TEXT NOT NULL,
+			PRIMARY KEY (key_id, tag)
 		)
 	`)
 	assert.NoError(t, err, "creating tables should succeed")
@@ -113,7 +118,7 @@ func TestCreateSelfSigned(t *testing.T) {
 	// Create a test RSA key.
 	keyRepo := keys.NewKeyRepository(db.DB, log)
 	ctx := context.Background()
-	_, err := keyRepo.GenerateRSA(ctx, 1, "test-key", 2048)
+	_, err := keyRepo.GenerateRSA(ctx, 1, "test-key", 2048, []string{"prod"})
 	assert.NoError(t, err, "generating RSA key should succeed")
 
 	// Test self-signed certificate creation.
@@ -154,14 +159,14 @@ func TestCreateCASigned(t *testing.T) {
 	// Create a CA key and certificate.
 	keyRepo := keys.NewKeyRepository(db.DB, log)
 	ctx := context.Background()
-	_, err := keyRepo.GenerateRSA(ctx, 1, "ca-key", 2048)
+	_, err := keyRepo.GenerateRSA(ctx, 1, "ca-key", 2048, []string{"prod"})
 	assert.NoError(t, err, "generating CA key should succeed")
 	repo := NewCertificateRepository(db.DB, log)
 	err = repo.CreateSelfSigned(ctx, 1, "ca-cert", 1, 365)
 	assert.NoError(t, err, "creating CA certificate should succeed")
 
 	// Create a client key.
-	_, err = keyRepo.GenerateRSA(ctx, 2, "client-key", 2048)
+	_, err = keyRepo.GenerateRSA(ctx, 2, "client-key", 2048, []string{"prod"})
 	assert.NoError(t, err, "generating client key should succeed")
 
 	// Test CA-signed certificate creation.

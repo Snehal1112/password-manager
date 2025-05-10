@@ -5,6 +5,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"math/rand"
 	"time"
@@ -172,9 +173,8 @@ func listSecretsCmd() *cobra.Command {
 			}
 			Logger.LogAuditInfo(userID, "list_secrets", "success", "Secrets listed successfully")
 			logrus.WithFields(*fields).Info("Secrets listed successfully")
-			for _, secret := range secretsList {
-				fmt.Printf("Secret: %+v\n", secret)
-			}
+			secrets, _ := json.MarshalIndent(secretsList, "", "  ")
+			fmt.Println("Secrets List:", string(secrets))
 		},
 	}
 	cmd.Flags().StringSlice("tags", []string{}, "Tags to filter secrets (comma-separated)")
