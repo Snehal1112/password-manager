@@ -95,12 +95,20 @@ func InitializeDB() error {
 			PRIMARY KEY (key_id, tag),
 			FOREIGN KEY (key_id) REFERENCES keys(id)
 		);
-		CREATE TABLE IF NOT EXISTS ca_keys (
-			user_id INTEGER PRIMARY KEY,
+		CREATE TABLE IF NOT EXISTS certificates (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			user_id INTEGER NOT NULL,
+			name TEXT NOT NULL,
 			certificate TEXT NOT NULL,
 			private_key TEXT NOT NULL,
 			created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
 			FOREIGN KEY (user_id) REFERENCES users(id)
+		);
+		CREATE TABLE IF NOT EXISTS certificate_tags (
+			certificate_id INTEGER NOT NULL,
+			tag TEXT NOT NULL,
+			PRIMARY KEY (certificate_id, tag),
+			FOREIGN KEY (certificate_id) REFERENCES certificates(id)
 		);
 		CREATE TABLE IF NOT EXISTS crl (
 			id INTEGER PRIMARY KEY AUTOINCREMENT,
