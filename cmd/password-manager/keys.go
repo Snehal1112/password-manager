@@ -98,18 +98,21 @@ func generateKeyCmd() *cobra.Command {
 			// Validate key type.
 			if keyType != "rsa" && keyType != "ecdsa" {
 				Logger.LogAuditError(userID, "generate_key", "failed", "Invalid key type: must be rsa or ecdsa", nil)
+				os.Exit(1)
 				return
 			}
 
 			// Validate RSA bit size.
 			if keyType == "rsa" && bitSize != 2048 && bitSize != 4096 {
 				Logger.LogAuditError(userID, "generate_key", "failed", "Invalid bit size: must be 2048 or 4096 for RSA", nil)
+				os.Exit(1)
 				return
 			}
 
 			// Validate ECDSA curve.
 			if keyType == "ecdsa" && !contains([]string{"P256", "P384", "P521"}, curve) {
 				Logger.LogAuditError(userID, "generate_key", "failed", "Invalid curve: must be P256, P384, or P521 for ECDSA", nil)
+				os.Exit(1)
 				return
 			}
 
@@ -123,12 +126,14 @@ func generateKeyCmd() *cobra.Command {
 			}
 			if err != nil {
 				Logger.LogAuditError(userID, "generate_key", "failed", fmt.Sprintf("Failed to generate %s key", keyType), err)
+				os.Exit(1)
 				return
 			}
 
 			key.Tags = tags
 			if err := repo.Create(cmd.Context(), *key); err != nil {
 				Logger.LogAuditError(userID, "generate_key", "failed", fmt.Sprintf("Failed to store %s key", keyType), err)
+				os.Exit(1)
 				return
 			}
 
@@ -163,13 +168,13 @@ func getKeyCmd() *cobra.Command {
 			key, err := repo.Read(cmd.Context(), id)
 			if err != nil {
 				Logger.LogAuditError(userID, "get_key", "failed", "Failed to retrieve key", err)
-				fmt.Println("Error retrieving key:", err)
+				os.Exit(1)
 				return
 			}
 
 			if key.UserID != userID {
 				Logger.LogAuditError(userID, "get_key", "failed", "Unauthorized access attempt to key", nil)
-				fmt.Println("Error: unauthorized access")
+				os.Exit(1)
 				return
 			}
 
@@ -198,7 +203,7 @@ func listKeysCmd() *cobra.Command {
 			keysList, err := repo.ListByUser(cmd.Context(), userID, keyType, tags)
 			if err != nil {
 				Logger.LogAuditError(userID, "list_keys", "failed", "Failed to list keys", err)
-				fmt.Println("Error listing keys:", err)
+				os.Exit(1)
 				return
 			}
 
@@ -228,24 +233,24 @@ for the authenticated user.`,
 			key, err := repo.Read(cmd.Context(), id)
 			if err != nil {
 				Logger.LogAuditError(userID, "rotate_key", "failed", "Failed to read key", err)
-				fmt.Println("Error reading key:", err)
+				os.Exit(1)
 				return
 			}
 			if key.UserID != userID {
 				Logger.LogAuditError(userID, "rotate_key", "failed", "Unauthorized access attempt to key", nil)
-				fmt.Println("Error: unauthorized access")
+				os.Exit(1)
 				return
 			}
 			if key.Revoked {
 				Logger.LogAuditError(userID, "rotate_key", "failed", "Key is already revoked", nil)
-				fmt.Println("Error: key is already revoked")
+				os.Exit(1)
 				return
 			}
 
 			newKey, err := repo.Rotate(cmd.Context(), id)
 			if err != nil {
 				Logger.LogAuditError(userID, "rotate_key", "failed", "Failed to rotate key", err)
-				fmt.Println("Error rotating key:", err)
+				os.Exit(1)
 				return
 			}
 
@@ -271,23 +276,23 @@ func deleteKeyCmd() *cobra.Command {
 			key, err := repo.Read(cmd.Context(), id)
 			if err != nil {
 				Logger.LogAuditError(userID, "delete_key", "failed", "Failed to read key", err)
-				fmt.Println("Error reading key:", err)
+				os.Exit(1)
 				return
 			}
 			if key.UserID != userID {
 				Logger.LogAuditError(userID, "delete_key", "failed", "Unauthorized access attempt to key", nil)
-				fmt.Println("Error: unauthorized access")
+				os.Exit(1)
 				return
 			}
 			if key.Revoked {
 				Logger.LogAuditError(userID, "delete_key", "failed", "Key is already revoked", nil)
-				fmt.Println("Error: key is already revoked")
+				os.Exit(1)
 				return
 			}
 
 			if err := repo.Delete(cmd.Context(), id); err != nil {
 				Logger.LogAuditError(userID, "delete_key", "failed", "Failed to delete key", err)
-				fmt.Println("Error deleting key:", err)
+				os.Exit(1)
 				return
 			}
 
