@@ -116,6 +116,7 @@ func createSecretHandler(w http.ResponseWriter, r *http.Request) {
 		Value string   `json:"value"`
 		Tags  []string `json:"tags"`
 	}
+
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		log.LogAuditError(userID, "create_secret", "failed", "Invalid request body", err)
 		http.Error(w, "Bad Request: invalid JSON", http.StatusBadRequest)
@@ -131,6 +132,7 @@ func createSecretHandler(w http.ResponseWriter, r *http.Request) {
 		Tags:      req.Tags,
 		CreatedAt: time.Now(),
 	}
+
 	if err := repo.Create(r.Context(), secret); err != nil {
 		log.LogAuditError(userID, "create_secret", "failed", "Failed to create secret", err)
 		http.Error(w, "Internal Server Error", http.StatusInternalServerError)

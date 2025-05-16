@@ -54,3 +54,7 @@ credentials/
 *.db
 *.sqlite
 *.sqlite3
+
+# Configuration files
+password-manager
+password-manager.*

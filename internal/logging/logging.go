@@ -33,6 +33,7 @@ func InitLogger() *Logger {
 	logger := logrus.New()
 	logger.SetFormatter(&logrus.JSONFormatter{
 		TimestampFormat: time.RFC3339,
+		PrettyPrint:     viper.GetBool("log.pretty_print"),
 	})
 
 	// Set log level from config.yaml.

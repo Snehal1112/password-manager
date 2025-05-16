@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"math/rand"
+	"os"
 	"time"
 
 	"github.com/sirupsen/logrus"
@@ -37,12 +38,14 @@ as well as generating random passwords.`,
 			totpCode, _ := cmd.Flags().GetString("totp-code")
 			if username == "" || password == "" {
 				Logger.LogAuditError(0, "secrets", "failed", "Username and password are required for authentication", nil)
+				os.Exit(0)
 				return
 			}
 
 			token, err := auth.Login(cmd.Context(), username, password, totpCode)
 			if err != nil {
 				Logger.LogAuditError(0, "secrets", "failed", "Authentication failed", err)
+				os.Exit(0)
 				return
 			}
 
@@ -50,6 +53,7 @@ as well as generating random passwords.`,
 			claims, err := auth.ParseJWT(token)
 			if err != nil {
 				Logger.LogAuditError(0, "secrets", "failed", "Failed to parse JWT", err)
+				os.Exit(0)
 				return
 			}
 			// Add userID to context.
@@ -101,6 +105,7 @@ func createSecretCmd() *cobra.Command {
 
 			if err := repo.Create(cmd.Context(), secret); err != nil {
 				Logger.LogAuditError(userID, "create_secret", "failed", "Failed to create secret", err)
+				os.Exit(0)
 				return
 			}
 
@@ -131,19 +136,21 @@ func getSecretCmd() *cobra.Command {
 			secret, err := repo.Read(cmd.Context(), id)
 			if err != nil {
 				Logger.LogAuditError(userID, "get_secret", "failed", "Failed to retrieve secret", err)
+				os.Exit(0)
 				return
 			}
 			if secret.UserID != userID {
 				Logger.LogAuditError(userID, "get_secret", "failed", "Unauthorized access to secret", nil)
+				os.Exit(0)
 				return
 			}
 
-			Logger.LogAuditInfo(userID, "get_secret", "success", "Secret retrieved successfully")
 			logrus.WithFields(logrus.Fields{
 				"secret_id": id,
 				"user_id":   userID,
+				"opration":  "get_secret",
+				"status":    "success",
 			}).Info("Secret retrieved successfully")
-			fmt.Printf("Secret: %+v\n", secret)
 		},
 	}
 	return cmd
@@ -162,19 +169,13 @@ func listSecretsCmd() *cobra.Command {
 			repo := secrets.NewSecretRepository(db.DB, Logger)
 			secretsList, err := repo.ListByUser(cmd.Context(), userID, tags)
 			if err != nil {
-				logrus.Error("Failed to list secrets: ", err)
-				fmt.Println("Error listing secrets:", err)
+				Logger.LogAuditError(userID, "list_secrets", "failed", "Failed to list secrets", err)
+				os.Exit(0)
 				return
 			}
 
-			fields := &logrus.Fields{
-				"user_id": userID,
-				"count":   len(secretsList),
-			}
-			Logger.LogAuditInfo(userID, "list_secrets", "success", "Secrets listed successfully")
-			logrus.WithFields(*fields).Info("Secrets listed successfully")
-			secrets, _ := json.MarshalIndent(secretsList, "", "  ")
-			fmt.Println("Secrets List:", string(secrets))
+			t, _ := json.MarshalIndent(secretsList, "", "  ")
+			fmt.Println(string(t))
 		},
 	}
 	cmd.Flags().StringSlice("tags", []string{}, "Tags to filter secrets (comma-separated)")
@@ -199,11 +200,13 @@ func updateSecretCmd() *cobra.Command {
 			if err != nil {
 				logrus.Error("Failed to read secret: ", err)
 				fmt.Println("Error reading secret:", err)
+				os.Exit(1)
 				return
 			}
 			if secret.UserID != userID {
 				logrus.Warn("Unauthorized access attempt to secret")
 				fmt.Println("Error: unauthorized access")
+				os.Exit(1)
 				return
 			}
 
@@ -214,6 +217,7 @@ func updateSecretCmd() *cobra.Command {
 			if err := repo.Update(cmd.Context(), secret); err != nil {
 				logrus.Error("Failed to update secret: ", err)
 				fmt.Println("Error updating secret:", err)
+				os.Exit(1)
 				return
 			}
 
@@ -221,7 +225,6 @@ func updateSecretCmd() *cobra.Command {
 				"secret_id": id,
 				"user_id":   userID,
 			}).Info("Secret updated successfully")
-			fmt.Println("Secret updated successfully")
 		},
 	}
 	cmd.Flags().StringSlice("tags", []string{}, "Tags for the secret (comma-separated)")
@@ -243,18 +246,18 @@ func deleteSecretCmd() *cobra.Command {
 			secret, err := repo.Read(cmd.Context(), id)
 			if err != nil {
 				logrus.Error("Failed to read secret: ", err)
-				fmt.Println("Error reading secret:", err)
+				os.Exit(1)
 				return
 			}
 			if secret.UserID != userID {
 				logrus.Warn("Unauthorized access attempt to secret")
-				fmt.Println("Error: unauthorized access")
+				os.Exit(1)
 				return
 			}
 
 			if err := repo.Delete(cmd.Context(), id); err != nil {
 				logrus.Error("Failed to delete secret: ", err)
-				fmt.Println("Error deleting secret:", err)
+				os.Exit(1)
 				return
 			}
 
@@ -262,7 +265,6 @@ func deleteSecretCmd() *cobra.Command {
 				"secret_id": id,
 				"user_id":   userID,
 			}).Info("Secret deleted successfully")
-			fmt.Println("Secret deleted successfully")
 		},
 	}
 	return cmd
@@ -284,7 +286,7 @@ func generatePasswordCmd() *cobra.Command {
 			password, err := generatePassword(length, useUpper, useLower, useNumbers, useSpecial)
 			if err != nil {
 				logrus.Error("Failed to generate password: ", err)
-				fmt.Println("Error generating password:", err)
+				os.Exit(1)
 				return
 			}
 

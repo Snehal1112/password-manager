@@ -130,17 +130,15 @@ func initConfig() error {
 	// Enable automatic environment variable binding.
 	viper.AutomaticEnv()
 
-	// Initialize logger
-	Logger = logging.InitLogger()
-
 	// Read the configuration file.
 	if err := viper.ReadInConfig(); err != nil {
 		if _, ok := err.(viper.ConfigFileNotFoundError); !ok {
-			Logger.LogAuditError(0, "config_init", "failed", "Failed to read config file", err)
 			return fmt.Errorf("failed to read config file: %w", err)
 		}
-		Logger.LogAuditError(0, "config_init", "failed", "Failed to read config file", err)
 	}
+
+	// Initialize logger
+	Logger = logging.InitLogger()
 
 	Logger.LogAuditInfo(0, "config_init", "success", "Configuration file loaded successfully")
 	return nil

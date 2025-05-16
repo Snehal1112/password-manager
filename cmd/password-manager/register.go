@@ -4,12 +4,12 @@ package main
 
 import (
 	"fmt"
+	"os"
 
 	"github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
 
 	"github.com/snehal1112/password-manager/internal/auth"
-	"github.com/snehal1112/password-manager/internal/db"
 )
 
 // registerCmd represents the register command for creating a new user.
@@ -24,17 +24,14 @@ func registerCmd() *cobra.Command {
 			role, _ := cmd.Flags().GetString("role")
 			if username == "" || password == "" || role == "" {
 				logrus.Fatal("Username, password, and role are required")
-				cmd.Help()
+				os.Exit(1)
 			}
-
-			// Ensure database is initialized.
-			db.InitializeDB()
 
 			// Register the user.
 			totpSecret, err := auth.Register(cmd.Context(), username, password, role)
 			if err != nil {
 				logrus.Error("Failed to register user: ", err)
-				fmt.Println("Error registering user:", err)
+				os.Exit(1)
 				return
 			}
 
