@@ -287,7 +287,7 @@ func TestUpdate(t *testing.T) {
 	// Test updating.
 	ctx := context.Background()
 	secret := Secret{
-		ID:        id,
+		ID:        uuid.New(),
 		UserID:    userID,
 		Name:      "test-secret",
 		Value:     "new-value",
@@ -313,7 +313,7 @@ func TestUpdate(t *testing.T) {
 	assert.Equal(t, "new-value", decryptedValue, "decrypted value should match")
 
 	// Verify tags.
-	rows, err := db.DB.Query("SELECT tag FROM secret_tags WHERE secret_id = ?", id.String())
+	rows, err := db.DB.Query("SELECT tag FROM secret_tags WHERE secret_id = ?", secret.ID.String())
 	assert.NoError(t, err, "querying tags should succeed")
 	defer rows.Close()
 	var tags []string

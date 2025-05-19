@@ -54,60 +54,8 @@ var rootCmd = &cobra.Command{
 	Long: `The password manager is a standalone application for securely managing
 secrets, cryptographic keys, and certificates. It provides a CLI for user interaction
 and a RESTful API for programmatic access, with features like MFA and secret rotation.`,
-	PersistentPreRun: func(cmd *cobra.Command, args []string) {
-		// TODO: I think not below check is not required.
-		if restrictedCmds[cmd.Name()] != nil && restrictedCmds[cmd.Name()]["parent"] == cmd.Parent().Name() {
-			return
-		}
-
-		// Initialize the logger.
-		log := logging.InitLogger()
-
-		// Ensure database is initialized.
-		database := db.NewRepository(log)
-		database.InitializeDB()
-
-		ctx := context.WithValue(cmd.Context(), "db", database.GetDB())
-		ctx = context.WithValue(ctx, "db_class", database)
-		ctx = context.WithValue(ctx, "log", log)
-
-		username, _ := cmd.Flags().GetString("username")
-		password, _ := cmd.Flags().GetString("password")
-		totpCode, _ := cmd.Flags().GetString("totp-code")
-
-		if username == "" || password == "" {
-			log.LogAuditError("", "secrets", "failed", "Username and password are required for authentication", nil)
-			os.Exit(0)
-			return
-		}
-
-		token, err := auth.Login(ctx, username, password, totpCode)
-		if err != nil {
-			log.LogAuditError("", "secrets", "failed", "Authentication failed", err)
-			os.Exit(0)
-			return
-		}
-
-		// Parse JWT to extract userID.
-		claims, err := auth.ParseJWT(token)
-		if err != nil {
-			log.LogAuditError("", "secrets", "failed", "Failed to parse JWT", err)
-			os.Exit(0)
-			return
-		}
-
-		// Add userID to context.
-		ctx = context.WithValue(ctx, "userID", claims.UserID)
-		cmd.SetContext(ctx)
-	},
-	PersistentPostRunE: func(cmd *cobra.Command, args []string) error {
-		// TODO: I think not below check is not required.
-		if restrictedCmds[cmd.Name()] != nil && restrictedCmds[cmd.Name()]["parent"] == cmd.Parent().Name() {
-			return nil
-		}
-		cmd.Context().Value("db_class").(*db.DBRepository).CloseDB()
-		return nil
-	},
+	PersistentPreRun:   persistentPreRun,
+	PersistentPostRunE: persistentPostRun,
 	// Run: func(cmd *cobra.Command, args []string) {},
 }
 
@@ -161,4 +109,81 @@ func initConfig() {
 	if err := viper.ReadInConfig(); err != nil {
 		log.Panicf("Error reading config file: %v (%s)", err, viper.ConfigFileUsed())
 	}
+}
+
+// persistentPreRun is a Cobra persistent pre-run function that initializes logging,
+// database connection, and authentication context for the command execution.
+// It checks for restricted commands, initializes the logger and database, and
+// sets up the context with database, logger, and user authentication information.
+// If username or password flags are missing, or authentication fails, it logs
+// an audit error and exits the application.
+//
+// Parameters:
+//   - cmd: *cobra.Command - the command being executed
+//   - args: []string - the command-line arguments
+//
+// Return type: none
+func persistentPreRun(cmd *cobra.Command, args []string) {
+	// TODO: I think not below check is not required.
+	if restrictedCmds[cmd.Name()] != nil && restrictedCmds[cmd.Name()]["parent"] == cmd.Parent().Name() {
+		return
+	}
+
+	// Initialize the logger.
+	log := logging.InitLogger()
+
+	// Ensure database is initialized.
+	database := db.NewRepository(log)
+	database.InitializeDB()
+
+	ctx := context.WithValue(cmd.Context(), "db", database.GetDB())
+	ctx = context.WithValue(ctx, "db_class", database)
+	ctx = context.WithValue(ctx, "log", log)
+
+	username, _ := cmd.Flags().GetString("username")
+	password, _ := cmd.Flags().GetString("password")
+	totpCode, _ := cmd.Flags().GetString("totp-code")
+
+	if username == "" || password == "" {
+		log.LogAuditError("", "secrets", "failed", "Username and password are required for authentication", nil)
+		os.Exit(0)
+		return
+	}
+
+	token, err := auth.Login(ctx, username, password, totpCode)
+	if err != nil {
+		log.LogAuditError("", "secrets", "failed", "Authentication failed", err)
+		os.Exit(0)
+		return
+	}
+
+	// Parse JWT to extract userID.
+	claims, err := auth.ParseJWT(token)
+	if err != nil {
+		log.LogAuditError("", "secrets", "failed", "Failed to parse JWT", err)
+		os.Exit(0)
+		return
+	}
+
+	// Add userID to context.
+	ctx = context.WithValue(ctx, "userID", claims.UserID)
+	cmd.SetContext(ctx)
+}
+
+// persistentPostRun is a Cobra persistent post-run function that closes the database connection
+// after the command execution. It checks if the command is restricted and if so,
+// it skips closing the database connection. Otherwise, it safely closes the database
+// connection to ensure no resources are leaked.
+// Parameters:
+//   - cmd: *cobra.Command - the command that was executed
+//   - args: []string - the command-line arguments
+//
+// Return type: error - returns nil if successful, or an error if closing the database fails.
+func persistentPostRun(cmd *cobra.Command, args []string) error {
+	// TODO: I think not below check is not required.
+	if restrictedCmds[cmd.Name()] != nil && restrictedCmds[cmd.Name()]["parent"] == cmd.Parent().Name() {
+		return nil
+	}
+	cmd.Context().Value("db_class").(*db.DBRepository).CloseDB()
+	return nil
 }
