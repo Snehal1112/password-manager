@@ -27,6 +27,12 @@ type Repository[T any] interface {
 	Delete(ctx context.Context, id uuid.UUID) error
 }
 
+// DBRepository implements the Repository interface for SQLite or PostgreSQL databases.
+// It provides methods to create, read, update, and delete records in the database.
+// The repository is initialized with a logger for logging database operations.
+// It uses Go Generics to allow for type-safe operations on different entity types.
+// The repository is designed to work with various database backends, including SQLite and PostgreSQL.
+// The database connection is managed through the global DB variable.
 type DBRepository struct {
 	db  *sql.DB
 	log *logging.Logger

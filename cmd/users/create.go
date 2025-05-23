@@ -19,11 +19,13 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 */
+
 package users
 
 import (
 	"context"
 	"os"
+	"password-manager/common"
 	"password-manager/internal/auth"
 	"password-manager/internal/db"
 	"password-manager/internal/logging"
@@ -44,7 +46,7 @@ var createCmd = &cobra.Command{
 		db := db.NewRepository(log)
 		db.InitializeDB()
 
-		ctx := context.WithValue(cmd.Context(), "db", db)
+		ctx := context.WithValue(cmd.Context(), common.DBKey.String(), db)
 		cmd.SetContext(ctx)
 
 		username, _ := cmd.Flags().GetString("username")
@@ -76,6 +78,27 @@ var createCmd = &cobra.Command{
 	},
 }
 
+// InitUsersCreate initializes the create command for users
+// and adds it to the users command.
+// It also sets up the necessary flags and configuration settings.
+// The create command allows users to create a new user with a username, password, and role.
+// It also sets up the command to use the database and logger from the context.
+// The command will generate a TOTP secret for the user to use with MFA.
+// Parameters:
+//
+// - usersCmd: The parent command to which the create command will be added.
+//
+// Returns:
+//
+// - *cobra.Command: The modified users command with the create command added.
+//
+// This function is called in the main package to set up the command.
+// Example usage:
+// usersCmd := &cobra.Command{Use: "users"}
+// usersCmd = InitUsersCreate(usersCmd)
+// usersCmd.Execute()
+// The create command is used to create a new user in the system.
+// It requires a username, password, and role to be specified.
 func InitUsersCreate(usersCmd *cobra.Command) *cobra.Command {
 	usersCmd.AddCommand(createCmd)
 

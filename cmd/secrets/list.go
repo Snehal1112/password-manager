@@ -19,6 +19,7 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 */
+
 package secrets
 
 import (
@@ -59,6 +60,57 @@ var listCmd = &cobra.Command{
 	},
 }
 
+// InitSecretsList initializes the list command for secrets
+// It sets up the command flags and adds it to the secrets command tree.
+// This function is called in the main function of the application to set up the command structure.
+// It returns the modified secrets command.
+// Parameters:
+//
+//	secretsCmd: The parent command under which the list command will be added.
+//
+// Returns:
+//
+//	*cobra.Command: The modified secrets command with the list command added.
+//
+// Example usage:
+//
+//	secretsCmd := &cobra.Command{Use: "secrets"}
+//	secretsCmd = InitSecretsList(secretsCmd)
+//	secretsCmd.Execute()
+//
+// Example output:
+//
+//	[
+//		{
+//			"id": "123e4567-e89b-12d3-a456-426614174000",
+//			"name": "My Secret",
+//			"tags": ["tag1", "tag2"]
+//		}
+//	]
+//
+// Example error handling:
+//
+//	if err := secretsCmd.Execute(); err != nil {
+//		fmt.Println("Error executing command:", err)
+//		os.Exit(1)
+//	}
+//
+// Example context usage:
+//
+//	ctx := context.Background()
+//	ctx = context.WithValue(ctx, "userID", uuid.New())
+//	secretsCmd.SetContext(ctx)
+//	secretsCmd.Execute()
+//
+// Example database usage:
+//
+//	db, err := sql.Open("postgres", "user=foo dbname=bar sslmode=disable")
+//	if err != nil {
+//		log.Fatal(err)
+//	}
+//	ctx := context.WithValue(context.Background(), "db", db)
+//	secretsCmd.SetContext(ctx)
+//	secretsCmd.Execute()
 func InitSecretsList(secretsCmd *cobra.Command) *cobra.Command {
 	secretsCmd.AddCommand(listCmd)
 

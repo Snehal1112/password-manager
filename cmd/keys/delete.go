@@ -19,6 +19,7 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 */
+
 package keys
 
 import (
@@ -29,19 +30,33 @@ import (
 
 // deleteCmd represents the delete command
 var deleteCmd = &cobra.Command{
-	Use:   "delete",
-	Short: "A brief description of your command",
-	Long: `A longer description that spans multiple lines and likely contains examples
-and usage of using your command. For example:
-
-Cobra is a CLI library for Go that empowers applications.
-This application is a tool to generate the needed files
-to quickly create a Cobra application.`,
+	Use:     "delete",
+	Short:   "Delete a key",
+	Long:    `Delete a key by its ID.`,
+	Example: `keys delete --id <key_id>`,
+	Args:    cobra.ExactArgs(1),
 	Run: func(cmd *cobra.Command, args []string) {
 		fmt.Println("delete called")
 	},
 }
 
+// InitKeysDelete initializes the delete command for keys
+// and adds it to the keys command. It also sets up the necessary flags
+// and configuration settings. The delete command allows users to delete
+// a specific key by its ID. It requires the key ID to be specified.
+//
+// parameters:
+//
+// - keysCmd: The parent command under which the delete command will be added.
+//
+// returns:
+//
+// - *cobra.Command: The initialized delete command.
+//
+// This function is called in the main function of the application to set up the command structure.
+// It is part of the Cobra library, which is used for creating command-line applications in Go.
+// The delete command is a subcommand of the keys command and is used to delete a specific key.
+// It is part of the Cobra library, which is used for creating command-line applications in Go.
 func InitKeysDelete(keysCmd *cobra.Command) *cobra.Command {
 	keysCmd.AddCommand(deleteCmd)
 

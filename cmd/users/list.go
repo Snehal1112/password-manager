@@ -19,6 +19,7 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 */
+
 package users
 
 import (
@@ -30,18 +31,32 @@ import (
 // listCmd represents the list command
 var listCmd = &cobra.Command{
 	Use:   "list",
-	Short: "A brief description of your command",
-	Long: `A longer description that spans multiple lines and likely contains examples
-and usage of using your command. For example:
-
-Cobra is a CLI library for Go that empowers applications.
-This application is a tool to generate the needed files
-to quickly create a Cobra application.`,
+	Short: "List all users",
+	Long:  `Retrieve a list of all users in the system. This command does not require any additional parameters.`,
 	Run: func(cmd *cobra.Command, args []string) {
 		fmt.Println("list called")
 	},
 }
 
+// InitUsersList initializes the list command for users
+// and adds it to the users command. It also sets up the necessary flags
+// and configuration settings. The list command allows users to retrieve
+// a list of all users in the system. It does not require any additional parameters.
+//
+// parameters:
+//
+// - usersCmd: The parent command under which the list command will be added.
+//
+// returns:
+//
+// - *cobra.Command: The initialized list command.
+//
+// This function is called in the main function of the application to set up the command structure.
+// It is part of the Cobra library, which is used for creating command-line applications in Go.
+// The list command is a subcommand of the users command and is used to list all users.
+// It does not require any additional parameters.
+// The command is defined using the Cobra library, which provides a simple way to create command-line applications in Go.
+// The list command is a subcommand of the users command and is used to list all users.
 func InitUsersList(usersCmd *cobra.Command) *cobra.Command {
 	usersCmd.AddCommand(listCmd)
 

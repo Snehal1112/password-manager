@@ -19,6 +19,7 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 */
+
 package cmd
 
 import (
@@ -29,6 +30,7 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 
+	"password-manager/common"
 	"password-manager/internal/auth"
 	"password-manager/internal/db"
 	"password-manager/internal/logging"
@@ -136,9 +138,9 @@ func persistentPreRun(cmd *cobra.Command, args []string) {
 	database := db.NewRepository(log)
 	database.InitializeDB()
 
-	ctx := context.WithValue(cmd.Context(), "db", database.GetDB())
-	ctx = context.WithValue(ctx, "db_class", database)
-	ctx = context.WithValue(ctx, "log", log)
+	ctx := context.WithValue(cmd.Context(), common.DBKey, database.GetDB())
+	ctx = context.WithValue(ctx, common.DBClassKey, database)
+	ctx = context.WithValue(ctx, common.LogKey, log)
 
 	username, _ := cmd.Flags().GetString("username")
 	password, _ := cmd.Flags().GetString("password")
@@ -166,7 +168,7 @@ func persistentPreRun(cmd *cobra.Command, args []string) {
 	}
 
 	// Add userID to context.
-	ctx = context.WithValue(ctx, "userID", claims.UserID)
+	ctx = context.WithValue(ctx, common.UserIDKey, claims.UserID)
 	cmd.SetContext(ctx)
 }
 

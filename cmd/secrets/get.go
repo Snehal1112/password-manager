@@ -19,6 +19,7 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 */
+
 package secrets
 
 import (
@@ -74,6 +75,17 @@ var getCmd = &cobra.Command{
 	},
 }
 
+// InitSecretsGet initializes the get command for secrets
+// It sets up the command flags and adds it to the secrets command tree.
+// This function is called in the main function of the application to set up the command structure.
+// It returns the modified secrets command.
+// Parameters:
+//
+//	secretsCmd: The parent command under which the get command will be added.
+//
+// Returns:
+//
+//	The modified secrets command with the get command added.
 func InitSecretsGet(secretsCmd *cobra.Command) *cobra.Command {
 	secretsCmd.AddCommand(getCmd)
 

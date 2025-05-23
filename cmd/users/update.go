@@ -19,6 +19,7 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 */
+
 package users
 
 import (
@@ -29,19 +30,33 @@ import (
 
 // updateCmd represents the update command
 var updateCmd = &cobra.Command{
-	Use:   "update",
-	Short: "A brief description of your command",
-	Long: `A longer description that spans multiple lines and likely contains examples
-and usage of using your command. For example:
-
-Cobra is a CLI library for Go that empowers applications.
-This application is a tool to generate the needed files
-to quickly create a Cobra application.`,
+	Use:     "update",
+	Short:   "Update user information",
+	Example: `users update --username <username> --password <new_password> --role <new_role>`,
+	Long:    `Update information about a specific user by their username.`,
 	Run: func(cmd *cobra.Command, args []string) {
 		fmt.Println("update called")
 	},
 }
 
+// InitUsersUpdate initializes the update command for users
+// and adds it to the users command. It also sets up the necessary flags
+// and configuration settings. The update command allows users to update
+// information about a specific user by username. It requires the username
+// to be specified.
+//
+// parameters:
+//
+// - usersCmd: The parent command under which the update command will be added.
+//
+// returns:
+//
+// - *cobra.Command: The initialized update command.
+//
+// This function is called in the main function of the application to set up the command structure.
+// It is part of the Cobra library, which is used for creating command-line applications in Go.
+// The update command is a subcommand of the users command and is used to update user information.
+// It is part of the Cobra library, which is used for creating command-line applications in Go.
 func InitUsersUpdate(usersCmd *cobra.Command) *cobra.Command {
 	usersCmd.AddCommand(updateCmd)
 

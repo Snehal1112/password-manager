@@ -19,6 +19,7 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 */
+
 package secrets
 
 import (
@@ -57,6 +58,17 @@ var generateCmd = &cobra.Command{
 	},
 }
 
+// InitSecretsGenerate initializes the generate command under the secrets command.
+// It sets up the command flags and adds it to the secrets command tree.
+// This function is called in the main function of the application to set up the command structure.
+// It returns the modified secrets command.
+// Parameters:
+//
+//	secretsCmd: The parent command under which the generate command will be added.
+//
+// Returns:
+//
+//	The modified secrets command with the generate command added.
 func InitSecretsGenerate(secretsCmd *cobra.Command) *cobra.Command {
 	secretsCmd.AddCommand(generateCmd)
 

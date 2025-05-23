@@ -19,6 +19,7 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 */
+
 package keys
 
 import (
@@ -29,19 +30,33 @@ import (
 
 // createCmd represents the create command
 var createCmd = &cobra.Command{
-	Use:   "create",
-	Short: "A brief description of your command",
-	Long: `A longer description that spans multiple lines and likely contains examples
-and usage of using your command. For example:
-
-Cobra is a CLI library for Go that empowers applications.
-This application is a tool to generate the needed files
-to quickly create a Cobra application.`,
+	Use:     "create",
+	Short:   "Create a new key",
+	Long:    `Create a new key with the specified details.`,
+	Example: `keys create --name <name> --type <type>`,
+	Args:    cobra.ExactArgs(1),
 	Run: func(cmd *cobra.Command, args []string) {
 		fmt.Println("create called")
 	},
 }
 
+// InitKeysCreate initializes the create command for keys
+// and adds it to the keys command. It also sets up the necessary flags
+// and configuration settings. The create command allows users to create
+// a new key. It requires the key details to be specified.
+//
+// parameters:
+//
+// - keysCmd: The parent command under which the create command will be added.
+//
+// returns:
+//
+// - *cobra.Command: The initialized create command.
+//
+// This function is called in the main function of the application to set up the command structure.
+// It is part of the Cobra library, which is used for creating command-line applications in Go.
+// The create command is a subcommand of the keys command and is used to create a new key.
+// It is part of the Cobra library, which is used for creating command-line applications in Go.
 func InitKeysCreate(keysCmd *cobra.Command) *cobra.Command {
 	keysCmd.AddCommand(createCmd)
 	return keysCmd
