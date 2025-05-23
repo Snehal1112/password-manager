@@ -19,6 +19,7 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 */
+
 package cmd
 
 import (
@@ -29,14 +30,11 @@ import (
 
 // certificateCmd represents the certificate command
 var certificateCmd = &cobra.Command{
-	Use:   "certificate",
-	Short: "A brief description of your command",
-	Long: `A longer description that spans multiple lines and likely contains examples
-and usage of using your command. For example:
-
-Cobra is a CLI library for Go that empowers applications.
-This application is a tool to generate the needed files
-to quickly create a Cobra application.`,
+	Use:     "certificate",
+	Short:   "Manage certificates",
+	Long:    `Manage certificates for the application, including creating, updating, and deleting certificates.`,
+	Example: `certificate create --name <name> --type <type>`,
+	Args:    cobra.ExactArgs(1),
 	Run: func(cmd *cobra.Command, args []string) {
 		fmt.Println("certificate called")
 	},

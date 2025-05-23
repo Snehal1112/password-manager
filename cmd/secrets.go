@@ -19,6 +19,7 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 */
+
 package cmd
 
 import (
@@ -33,6 +34,8 @@ var secretsCmd = &cobra.Command{
 	Short: "Manage secrets in the password manager",
 	Long: `A command group for creating, retrieving, updating, listing, and deleting secrets,
 as well as generating random passwords.`,
+	Example: `secrets create --name <name> --value <value>`,
+	Args:    cobra.ExactArgs(1),
 }
 
 func init() {

@@ -19,6 +19,7 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 */
+
 package keys
 
 import (
@@ -29,19 +30,33 @@ import (
 
 // listCmd represents the list command
 var listCmd = &cobra.Command{
-	Use:   "list",
-	Short: "A brief description of your command",
-	Long: `A longer description that spans multiple lines and likely contains examples
-and usage of using your command. For example:
-
-Cobra is a CLI library for Go that empowers applications.
-This application is a tool to generate the needed files
-to quickly create a Cobra application.`,
+	Use:     "list",
+	Short:   "List all keys",
+	Long:    `Retrieve a list of all keys in the system. This command does not require any additional parameters.`,
+	Example: `keys list`,
+	Args:    cobra.ExactArgs(0),
 	Run: func(cmd *cobra.Command, args []string) {
 		fmt.Println("list called")
 	},
 }
 
+// InitKeysList initializes the list command for keys
+// and adds it to the keys command. It also sets up the necessary flags
+// and configuration settings. The list command allows users to retrieve
+// a list of all keys in the system. It does not require any additional parameters.
+//
+// parameters:
+//
+// - keysCmd: The parent command under which the list command will be added.
+//
+// returns:
+//
+// - *cobra.Command: The initialized list command.
+//
+// This function is called in the main function of the application to set up the command structure.
+// It is part of the Cobra library, which is used for creating command-line applications in Go.
+// The list command is a subcommand of the keys command and is used to retrieve a list of all keys.
+// It is part of the Cobra library, which is used for creating command-line applications in Go.
 func InitKeysList(keysCmd *cobra.Command) *cobra.Command {
 	keysCmd.AddCommand(listCmd)
 

@@ -19,6 +19,7 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 */
+
 package keys
 
 import (
@@ -29,19 +30,34 @@ import (
 
 // getCmd represents the get command
 var getCmd = &cobra.Command{
-	Use:   "get",
-	Short: "A brief description of your command",
-	Long: `A longer description that spans multiple lines and likely contains examples
-and usage of using your command. For example:
-
-Cobra is a CLI library for Go that empowers applications.
-This application is a tool to generate the needed files
-to quickly create a Cobra application.`,
+	Use:     "get",
+	Short:   "Get key information",
+	Long:    `Retrieve information about a specific key.`,
+	Example: `keys get --id <key_id>`,
+	Args:    cobra.ExactArgs(1),
 	Run: func(cmd *cobra.Command, args []string) {
 		fmt.Println("get called")
 	},
 }
 
+// InitKeysGet initializes the get command for keys
+// and adds it to the keys command. It also sets up the necessary flags
+// and configuration settings. The get command allows users to retrieve
+// information about a specific key by its ID. It requires the key ID
+// to be specified.
+//
+// parameters:
+//
+// - keysCmd: The parent command under which the get command will be added.
+//
+// returns:
+//
+// - *cobra.Command: The initialized get command.
+//
+// This function is called in the main function of the application to set up the command structure.
+// It is part of the Cobra library, which is used for creating command-line applications in Go.
+// The get command is a subcommand of the keys command and is used to retrieve information about a specific key.
+// It is part of the Cobra library, which is used for creating command-line applications in Go.
 func InitKeysGet(keysCmd *cobra.Command) *cobra.Command {
 	keysCmd.AddCommand(getCmd)
 

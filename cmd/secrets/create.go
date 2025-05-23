@@ -31,6 +31,7 @@ import (
 	"github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
 
+	"password-manager/common"
 	"password-manager/internal/logging"
 	"password-manager/internal/secrets"
 )
@@ -46,10 +47,10 @@ var createCmd = &cobra.Command{
 		name := args[0]
 		value := args[1]
 		tags, _ := cmd.Flags().GetStringSlice("tags")
-		userID := cmd.Context().Value("userID").(uuid.UUID)
+		userID := cmd.Context().Value(common.UserIDKey.String()).(uuid.UUID)
 
-		db := cmd.Context().Value("db").(*sql.DB)
-		log := cmd.Context().Value("log").(*logging.Logger)
+		db := cmd.Context().Value(common.DBKey.String()).(*sql.DB)
+		log := cmd.Context().Value(common.LogKey.String()).(*logging.Logger)
 
 		repo := secrets.NewSecretRepository(db, log)
 
@@ -78,6 +79,19 @@ var createCmd = &cobra.Command{
 	},
 }
 
+// InitSecretsCreate initializes the create command for secrets.
+// It sets up the command with flags and adds it to the secrets command group.
+// The create command allows users to create a new secret with a name, value, and optional tags.
+// It also sets up the command to use the database and logger from the context.
+// Parameters:
+//   - secretsCmd: *cobra.Command - the parent command to which the create command will be added
+//
+// Return type: *cobra.Command - the initialized create command
+// Example usage:
+//
+//	secretsCmd := &cobra.Command{Use: "secrets"}
+//	createCmd := InitSecretsCreate(secretsCmd)
+//	createCmd.Execute()
 func InitSecretsCreate(secretsCmd *cobra.Command) *cobra.Command {
 	secretsCmd.AddCommand(createCmd)
 

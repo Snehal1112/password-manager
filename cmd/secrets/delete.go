@@ -19,11 +19,13 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 */
+
 package secrets
 
 import (
 	"database/sql"
 	"os"
+	"password-manager/common"
 	"password-manager/internal/logging"
 	"password-manager/internal/secrets"
 
@@ -41,10 +43,10 @@ var deleteCmd = &cobra.Command{
 		secretID := uuid.MustParse(args[0])
 
 		ctx := cmd.Context()
-		userID := ctx.Value("userID").(uuid.UUID)
+		userID := ctx.Value(common.UserIDKey.String()).(uuid.UUID)
 
-		db := ctx.Value("db").(*sql.DB)
-		logger := ctx.Value("log").(*logging.Logger)
+		db := ctx.Value(common.DBKey.String()).(*sql.DB)
+		logger := ctx.Value(common.LogKey.String()).(*logging.Logger)
 
 		repo := secrets.NewSecretRepository(db, logger)
 		secret, err := repo.Read(cmd.Context(), secretID)
@@ -72,6 +74,15 @@ var deleteCmd = &cobra.Command{
 	},
 }
 
+// InitSecretsDelete initializes the delete command for secrets
+// and adds it to the secrets command.
+// It also sets up the necessary flags and configuration settings.
+// This function is called in the main package to set up the command.
+// It returns the modified secrets command.
+// Parameters:
+// - secretsCmd: The parent command to which the delete command will be added.
+// Returns:
+// - *cobra.Command: The modified secrets command with the delete command added.
 func InitSecretsDelete(secretsCmd *cobra.Command) *cobra.Command {
 	secretsCmd.AddCommand(deleteCmd)
 

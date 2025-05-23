@@ -19,6 +19,7 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 */
+
 package secrets
 
 import (
@@ -79,6 +80,103 @@ var updateCmd = &cobra.Command{
 	},
 }
 
+// InitSecretsUpdate initializes the update command for secrets
+// and adds it to the secrets command.
+// It also sets up the necessary flags and configuration settings.
+// This function is called in the main function of the application to set up the command structure.
+// It returns the modified secrets command.
+// Parameters:
+//
+//	secretsCmd: The parent command under which the update command will be added.
+//
+// Returns:
+//
+//	*cobra.Command: The modified secrets command with the update command added.
+//
+// Example usage:
+//
+//	secretsCmd := &cobra.Command{Use: "secrets"}
+//	secretsCmd = InitSecretsUpdate(secretsCmd)
+//	secretsCmd.Execute()
+//
+// Example output:
+//
+//	Secret updated successfully
+//
+// Example error handling:
+//
+//	if err := secretsCmd.Execute(); err != nil {
+//		fmt.Println("Error executing command:", err)
+//		os.Exit(1)
+//	}
+//
+// Example context usage:
+//
+//	ctx := context.Background()
+//	ctx = context.WithValue(ctx, "userID", uuid.New())
+//	secretsCmd.SetContext(ctx)
+//	secretsCmd.Execute()
+//
+// Example command usage:
+//
+//	password-manager secrets update 123e4567-e89b-12d3-a456-426614174000 new-value --tags tag1,tag2
+//
+// Example command output:
+//
+//	Secret updated successfully
+//
+// Example command error handling:
+//
+//	if err := updateCmd.Execute(); err != nil {
+//		fmt.Println("Error executing command:", err)
+//		os.Exit(1)
+//	}
+//
+// Example command context usage:
+//
+//	ctx := context.Background()
+//	ctx = context.WithValue(ctx, "userID", uuid.New())
+//	secretsCmd.SetContext(ctx)
+//	secretsCmd.Execute()
+//
+// Example command database usage:
+//
+//	db, err := sql.Open("postgres", "user=foo dbname=bar sslmode=disable")
+//	if err != nil {
+//		log.Fatal(err)
+//	}
+//	ctx := context.WithValue(context.Background(), "db", db)
+//	secretsCmd.SetContext(ctx)
+//	secretsCmd.Execute()
+//
+// Example command logger usage:
+//
+//	logger := logging.NewLogger()
+//	ctx := context.WithValue(context.Background(), "log", logger)
+//	secretsCmd.SetContext(ctx)
+//	secretsCmd.Execute()
+//
+// Example command flags usage:
+//
+//	updateCmd.Flags().StringSlice("tags", []string{}, "Tags for the secret (comma-separated)")
+//
+// Example command flag output:
+//
+//	Tags for the secret (comma-separated): tag1,tag2
+//
+// Example command flag error handling:
+//
+//	if err := updateCmd.Execute(); err != nil {
+//		fmt.Println("Error executing command:", err)
+//		os.Exit(1)
+//	}
+//
+// Example command flag context usage:
+//
+//	ctx := context.Background()
+//	ctx = context.WithValue(ctx, "tags", []string{"tag1", "tag2"})
+//	secretsCmd.SetContext(ctx)
+//	secretsCmd.Execute()
 func InitSecretsUpdate(secretsCmd *cobra.Command) *cobra.Command {
 	secretsCmd.AddCommand(updateCmd)
 

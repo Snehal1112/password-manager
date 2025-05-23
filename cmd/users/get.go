@@ -19,6 +19,7 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 */
+
 package users
 
 import (
@@ -30,13 +31,8 @@ import (
 // getCmd represents the get command
 var getCmd = &cobra.Command{
 	Use:   "get [username]",
-	Short: "A brief description of your command",
-	Long: `A longer description that spans multiple lines and likely contains examples
-and usage of using your command. For example:
-
-Cobra is a CLI library for Go that empowers applications.
-This application is a tool to generate the needed files
-to quickly create a Cobra application.`,
+	Short: "Get user information",
+	Long:  `Retrieve information about a specific user by their username.`,
 	Run: func(cmd *cobra.Command, args []string) {
 		if len(args) < 1 {
 			fmt.Println("Username is required")
@@ -47,6 +43,23 @@ to quickly create a Cobra application.`,
 	},
 }
 
+// InitUsersGet initializes the get command for users
+// and adds it to the users command.
+// It also sets up the necessary flags and configuration settings.
+// The get command allows users to retrieve information about a specific user by username.
+// It requires the username to be specified.
+// parameters:
+//
+// - usersCmd: The parent command under which the get command will be added.
+//
+// returns:
+//
+// - *cobra.Command: The initialized get command.
+//
+// This function is called in the main function of the application to set up the command structure.
+// It is part of the Cobra library, which is used for creating command-line applications in Go.
+// The get command is a subcommand of the users command and is used to retrieve user information.
+// It is part of the Cobra library, which is used for creating command-line applications in Go.
 func InitUsersGet(usersCmd *cobra.Command) *cobra.Command {
 	usersCmd.AddCommand(getCmd)
 
