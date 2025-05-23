@@ -21,9 +21,9 @@ var DB *sql.DB
 // Repository defines a generic interface for database operations.
 // It supports type-safe CRUD operations for entities like users, secrets, and keys.
 type Repository[T any] interface {
-	Create(ctx context.Context, entity T) error
-	Read(ctx context.Context, id uuid.UUID) (T, error)
-	Update(ctx context.Context, entity T) error
+	Create(ctx context.Context, entity *T) error
+	Read(ctx context.Context, id uuid.UUID) (*T, error)
+	Update(ctx context.Context, entity *T) error
 	Delete(ctx context.Context, id uuid.UUID) error
 }
 

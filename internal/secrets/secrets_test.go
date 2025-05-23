@@ -16,6 +16,7 @@ import (
 	"github.com/spf13/viper"
 	"github.com/stretchr/testify/assert"
 
+	"password-manager/common"
 	"password-manager/internal/db"
 	"password-manager/internal/logging"
 )
@@ -141,7 +142,7 @@ func TestCreate(t *testing.T) {
 	}
 
 	repo := NewSecretRepository(db.DB, log)
-	err := repo.Create(ctx, secret)
+	err := repo.Create(ctx, &secret)
 	assert.NoError(t, err, "creating secret should succeed")
 
 	// Verify secret in database.
@@ -156,7 +157,7 @@ func TestCreate(t *testing.T) {
 	assert.Equal(t, 1, version, "secret version should match")
 
 	// Decrypt and verify value.
-	decryptedValue, err := DecryptSecret(value)
+	decryptedValue, err := common.DecryptSecret(value)
 	assert.NoError(t, err, "decrypting secret should succeed")
 	assert.Equal(t, "my-secret-value", decryptedValue, "decrypted value should match")
 
@@ -207,7 +208,7 @@ func TestCreateInvalidKey(t *testing.T) {
 		CreatedAt: time.Now(),
 	}
 	repo := NewSecretRepository(db.DB, log)
-	err = repo.Create(ctx, secret)
+	err = repo.Create(ctx, &secret)
 	assert.Error(t, err, "creating secret should fail with invalid key")
 	assert.Contains(t, err.Error(), "master key must be 32 bytes", "error should indicate invalid key length")
 }
@@ -230,7 +231,7 @@ func TestRead(t *testing.T) {
 	viper.Set("master_key", generateMasterKey(t))
 
 	// Insert a test secret.
-	encryptedValue, err := EncryptSecret("my-secret-value")
+	encryptedValue, err := common.EncryptSecret("my-secret-value")
 	assert.NoError(t, err, "encrypting secret should succeed")
 	createdAt := time.Now()
 	userID := uuid.New()
@@ -274,7 +275,7 @@ func TestUpdate(t *testing.T) {
 	viper.Set("master_key", generateMasterKey(t))
 
 	// Insert a test secret.
-	encryptedValue, err := EncryptSecret("old-value")
+	encryptedValue, err := common.EncryptSecret("old-value")
 	assert.NoError(t, err, "encrypting secret should succeed")
 	userID := uuid.New()
 	id := uuid.New()
@@ -296,7 +297,7 @@ func TestUpdate(t *testing.T) {
 		CreatedAt: time.Now(),
 	}
 	repo := NewSecretRepository(db.DB, log)
-	err = repo.Update(ctx, secret)
+	err = repo.Update(ctx, &secret)
 	assert.NoError(t, err, "updating secret should succeed")
 
 	// Verify updated secret.
@@ -308,7 +309,7 @@ func TestUpdate(t *testing.T) {
 	assert.NoError(t, err, "querying updated secret should succeed")
 	assert.Equal(t, "test-secret", name, "secret name should match")
 	assert.Equal(t, 2, version, "secret version should match")
-	decryptedValue, err := DecryptSecret(value)
+	decryptedValue, err := common.DecryptSecret(value)
 	assert.NoError(t, err, "decrypting secret should succeed")
 	assert.Equal(t, "new-value", decryptedValue, "decrypted value should match")
 
@@ -387,9 +388,9 @@ func TestListByUser(t *testing.T) {
 	viper.Set("master_key", generateMasterKey(t))
 
 	// Insert test secrets.
-	encryptedValue1, err := EncryptSecret("value1")
+	encryptedValue1, err := common.EncryptSecret("value1")
 	assert.NoError(t, err, "encrypting secret should succeed")
-	encryptedValue2, err := EncryptSecret("value2")
+	encryptedValue2, err := common.EncryptSecret("value2")
 	assert.NoError(t, err, "encrypting secret should succeed")
 	createdAt := time.Now()
 	id1 := uuid.New()
@@ -467,7 +468,7 @@ func BenchmarkCreate(b *testing.B) {
 		CreatedAt: time.Now(),
 	}
 	for i := 0; i < b.N; i++ {
-		_ = repo.Create(ctx, secret)
+		_ = repo.Create(ctx, &secret)
 	}
 
 	// Verify mock expectations.

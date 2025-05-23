@@ -14,9 +14,9 @@ import (
 	"github.com/spf13/viper"
 	"github.com/stretchr/testify/assert"
 
+	"password-manager/common"
 	"password-manager/internal/db"
 	"password-manager/internal/logging"
-	"password-manager/internal/secrets"
 )
 
 // setupTestDB initializes an in-memory SQLite database for testing.
@@ -154,7 +154,7 @@ func TestGenerateRSA(t *testing.T) {
 	assert.Equal(t, "RSA", keyType, "key type should match")
 	assert.False(t, revoked, "key should not be revoked")
 
-	decryptedValue, err := secrets.DecryptSecret(value)
+	decryptedValue, err := common.DecryptSecret(value)
 	assert.NoError(t, err, "decrypting key should succeed")
 	assert.Contains(t, decryptedValue, "-----BEGIN RSA PRIVATE KEY-----", "key should be PEM-encoded RSA")
 
@@ -195,7 +195,7 @@ func TestGenerateECDSA(t *testing.T) {
 	assert.Equal(t, "ECDSA", keyType, "key type should match")
 	assert.False(t, revoked, "key should not be revoked")
 
-	decryptedValue, err := secrets.DecryptSecret(value)
+	decryptedValue, err := common.DecryptSecret(value)
 	assert.NoError(t, err, "decrypting key should succeed")
 	assert.Contains(t, decryptedValue, "-----BEGIN EC PRIVATE KEY-----", "key should be PEM-encoded ECDSA")
 
@@ -234,7 +234,7 @@ func TestCreate(t *testing.T) {
 		CreatedAt: time.Now(),
 		Tags:      []string{"prod", "api"},
 	}
-	err := repo.Create(ctx, key)
+	err := repo.Create(ctx, &key)
 	assert.NoError(t, err, "creating key should succeed")
 
 	var id string
@@ -276,7 +276,7 @@ func TestRead(t *testing.T) {
 	log := logging.InitLogger()
 	defer os.Remove("test.log")
 
-	encryptedValue, err := secrets.EncryptSecret("-----BEGIN RSA PRIVATE KEY-----\ntest-key\n-----END RSA PRIVATE KEY-----")
+	encryptedValue, err := common.EncryptSecret("-----BEGIN RSA PRIVATE KEY-----\ntest-key\n-----END RSA PRIVATE KEY-----")
 	assert.NoError(t, err, "encrypting key should succeed")
 	createdAt := time.Now()
 	userID := uuid.New()
@@ -322,9 +322,9 @@ func TestListByUser(t *testing.T) {
 	defer os.Remove("test.log")
 
 	// Insert test keys.
-	encryptedValue1, err := secrets.EncryptSecret("-----BEGIN RSA PRIVATE KEY-----\ntest-key1\n-----END RSA PRIVATE KEY-----")
+	encryptedValue1, err := common.EncryptSecret("-----BEGIN RSA PRIVATE KEY-----\ntest-key1\n-----END RSA PRIVATE KEY-----")
 	assert.NoError(t, err, "encrypting key should succeed")
-	encryptedValue2, err := secrets.EncryptSecret("-----BEGIN EC PRIVATE KEY-----\ntest-key2\n-----END EC PRIVATE KEY-----")
+	encryptedValue2, err := common.EncryptSecret("-----BEGIN EC PRIVATE KEY-----\ntest-key2\n-----END EC PRIVATE KEY-----")
 	assert.NoError(t, err, "encrypting key should succeed")
 	createdAt := time.Now()
 	userID1 := uuid.New()
@@ -382,7 +382,7 @@ func TestRotate(t *testing.T) {
 	defer os.Remove("test.log")
 
 	// Insert test key.
-	encryptedValue, err := secrets.EncryptSecret("-----BEGIN RSA PRIVATE KEY-----\ntest-key\n-----END RSA PRIVATE KEY-----")
+	encryptedValue, err := common.EncryptSecret("-----BEGIN RSA PRIVATE KEY-----\ntest-key\n-----END RSA PRIVATE KEY-----")
 	assert.NoError(t, err, "encrypting key should succeed")
 
 	userID := uuid.New()

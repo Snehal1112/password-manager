@@ -15,10 +15,10 @@ import (
 	"github.com/spf13/viper"
 	"github.com/stretchr/testify/assert"
 
+	"password-manager/common"
 	"password-manager/internal/certificates"
 	"password-manager/internal/keys"
 	"password-manager/internal/logging"
-	"password-manager/internal/secrets"
 )
 
 // setupTestDB initializes an in-memory SQLite database for testing.
@@ -129,7 +129,7 @@ func TestCreateSelfSignedRSA(t *testing.T) {
 	assert.NoError(t, err, "querying certificate should succeed")
 	assert.Contains(t, certPEM, "-----BEGIN CERTIFICATE-----", "certificate should be PEM-encoded")
 
-	decryptedPrivateKey, err := secrets.DecryptSecret(privateKeyPEM)
+	decryptedPrivateKey, err := common.DecryptSecret(privateKeyPEM)
 	assert.NoError(t, err, "decrypting private key should succeed")
 	assert.Contains(t, decryptedPrivateKey, "-----BEGIN RSA PRIVATE KEY-----", "private key should be PEM-encoded")
 
@@ -171,7 +171,7 @@ func TestCreateSelfSignedECDSA(t *testing.T) {
 	assert.NoError(t, err, "querying certificate should succeed")
 	assert.Contains(t, certPEM, "-----BEGIN CERTIFICATE-----", "certificate should be PEM-encoded")
 
-	decryptedPrivateKey, err := secrets.DecryptSecret(privateKeyPEM)
+	decryptedPrivateKey, err := common.DecryptSecret(privateKeyPEM)
 	assert.NoError(t, err, "decrypting private key should succeed")
 	assert.Contains(t, decryptedPrivateKey, "-----BEGIN EC PRIVATE KEY-----", "private key should be PEM-encoded")
 
@@ -219,7 +219,7 @@ func TestCreateCASigned(t *testing.T) {
 	assert.NoError(t, err, "querying certificate should succeed")
 	assert.Contains(t, certPEM, "-----BEGIN CERTIFICATE-----", "certificate should be PEM-encoded")
 
-	decryptedPrivateKey, err := secrets.DecryptSecret(privateKeyPEM)
+	decryptedPrivateKey, err := common.DecryptSecret(privateKeyPEM)
 	assert.NoError(t, err, "decrypting private key should succeed")
 	assert.Contains(t, decryptedPrivateKey, "-----BEGIN RSA PRIVATE KEY-----", "private key should be PEM-encoded")
 
@@ -322,7 +322,7 @@ func TestListByUser(t *testing.T) {
 	_, err = repo.CreateSelfSigned(ctx, userID, "test-cert", key.ID, 365, []string{"prod", "api"})
 	assert.NoError(t, err, "creating self-signed certificate should succeed")
 
-	encryptedValue2, err := secrets.EncryptSecret("-----BEGIN CERTIFICATE-----\ntest-cert2\n-----END CERTIFICATE-----")
+	encryptedValue2, err := common.EncryptSecret("-----BEGIN CERTIFICATE-----\ntest-cert2\n-----END CERTIFICATE-----")
 	assert.NoError(t, err, "encrypting certificate should succeed")
 	ID := uuid.New()
 	_, err = sqlDB.Exec(

@@ -5,19 +5,15 @@ package secrets
 
 import (
 	"context"
-	"crypto/aes"
-	"crypto/cipher"
-	"crypto/rand"
 	"database/sql"
-	"encoding/base64"
 	"fmt"
 	"strings"
 	"time"
 
 	"github.com/google/uuid"
 	"github.com/sirupsen/logrus"
-	"github.com/spf13/viper"
 
+	"password-manager/common"
 	"password-manager/internal/db"
 	"password-manager/internal/logging"
 )
@@ -72,9 +68,9 @@ func NewSecretRepository(db *sql.DB, log *logging.Logger) SecretRepository {
 // Returns:
 //
 //	An error if the insertion fails.
-func (r *secretRepository) Create(ctx context.Context, secret Secret) error {
+func (r *secretRepository) Create(ctx context.Context, secret *Secret) error {
 	// Encrypt the secret value.
-	encryptedValue, err := EncryptSecret(secret.Value)
+	encryptedValue, err := common.EncryptSecret(secret.Value)
 	if err != nil {
 		r.log.LogAuditError(secret.UserID.String(), "create_secret", "failed", "Failed to encrypt secret", err)
 		return fmt.Errorf("failed to encrypt secret: %w", err)
@@ -120,7 +116,7 @@ func (r *secretRepository) Create(ctx context.Context, secret Secret) error {
 // Returns:
 //
 //	The secret and an error if the retrieval fails.
-func (r *secretRepository) Read(ctx context.Context, id uuid.UUID) (Secret, error) {
+func (r *secretRepository) Read(ctx context.Context, id uuid.UUID) (*Secret, error) {
 	var secret Secret
 	var encryptedValue string
 	err := r.db.QueryRowContext(
@@ -130,25 +126,25 @@ func (r *secretRepository) Read(ctx context.Context, id uuid.UUID) (Secret, erro
 	).Scan(&secret.ID, &secret.UserID, &secret.Name, &encryptedValue, &secret.Version, &secret.CreatedAt)
 	if err == sql.ErrNoRows {
 		r.log.LogAuditError(secret.UserID.String(), "get_secret", "failed", "Secret not found", err)
-		return secret, fmt.Errorf("secret not found")
+		return nil, fmt.Errorf("secret not found")
 	}
 	if err != nil {
 		r.log.LogAuditError(secret.UserID.String(), "get_secret", "failed", "Failed to query secret", err)
-		return secret, fmt.Errorf("failed to query secret: %w", err)
+		return nil, fmt.Errorf("failed to query secret: %w", err)
 	}
 
 	// Decrypt the secret value.
-	secret.Value, err = DecryptSecret(encryptedValue)
+	secret.Value, err = common.DecryptSecret(encryptedValue)
 	if err != nil {
 		r.log.LogAuditError(secret.UserID.String(), "get_secret", "failed", "Failed to decrypt secret", err)
-		return secret, fmt.Errorf("failed to decrypt secret: %w", err)
+		return nil, fmt.Errorf("failed to decrypt secret: %w", err)
 	}
 
 	// Retrieve tags.
 	rows, err := r.db.QueryContext(ctx, "SELECT tag FROM secret_tags WHERE secret_id = ?", id)
 	if err != nil {
 		r.log.LogAuditError(secret.UserID.String(), "get_secret", "failed", "Failed to query tags", err)
-		return secret, fmt.Errorf("failed to query tags: %w", err)
+		return nil, fmt.Errorf("failed to query tags: %w", err)
 	}
 	defer rows.Close()
 
@@ -156,12 +152,12 @@ func (r *secretRepository) Read(ctx context.Context, id uuid.UUID) (Secret, erro
 		var tag string
 		if err := rows.Scan(&tag); err != nil {
 			r.log.LogAuditError(secret.UserID.String(), "get_secret", "failed", "Failed to scan tag", err)
-			return secret, fmt.Errorf("failed to scan tag: %w", err)
+			return nil, fmt.Errorf("failed to scan tag: %w", err)
 		}
 		secret.Tags = append(secret.Tags, tag)
 	}
 
-	return secret, nil
+	return &secret, nil
 }
 
 // Update updates a secret in the database.
@@ -175,9 +171,9 @@ func (r *secretRepository) Read(ctx context.Context, id uuid.UUID) (Secret, erro
 // Returns:
 //
 //	An error if the update fails.
-func (r *secretRepository) Update(ctx context.Context, secret Secret) error {
+func (r *secretRepository) Update(ctx context.Context, secret *Secret) error {
 	// Encrypt the updated secret value.
-	encryptedValue, err := EncryptSecret(secret.Value)
+	encryptedValue, err := common.EncryptSecret(secret.Value)
 	if err != nil {
 		r.log.LogAuditError(secret.UserID.String(), "update_secret", "failed", "Failed to encrypt secret", err)
 		return fmt.Errorf("failed to encrypt secret: %w", err)
@@ -292,7 +288,7 @@ func (r *secretRepository) ListByUser(ctx context.Context, userID uuid.UUID, tag
 		}
 
 		// Decrypt the secret value.
-		secret.Value, err = DecryptSecret(encryptedValue)
+		secret.Value, err = common.DecryptSecret(encryptedValue)
 		if err != nil {
 			r.log.LogAuditError(userID.String(), "list_secrets", "failed", "Failed to decrypt secret", err)
 			return nil, fmt.Errorf("failed to decrypt secret: %w", err)
@@ -325,99 +321,4 @@ func (r *secretRepository) ListByUser(ctx context.Context, userID uuid.UUID, tag
 		"count":   len(secrets),
 	}).Info("Secrets listed successfully")
 	return secrets, nil
-}
-
-// encryptSecret encrypts a secret value using AES-256-GCM.
-// It uses the master key from configuration for encryption.
-//
-// Parameters:
-//
-//	value: The plaintext secret value.
-//
-// Returns:
-//
-//	The encrypted value (base64-encoded) and an error if encryption fails.
-func EncryptSecret(value string) (string, error) {
-	masterKey := viper.GetString("master_key")
-	if masterKey == "" {
-		return "", fmt.Errorf("master key not configured")
-	}
-
-	key, err := base64.StdEncoding.DecodeString(masterKey)
-	if err != nil {
-		return "", fmt.Errorf("failed to decode master key: %w", err)
-	}
-	if len(key) < 32 {
-		return "", fmt.Errorf("master key must be 32 bytes")
-	}
-
-	block, err := aes.NewCipher(key)
-	if err != nil {
-		return "", fmt.Errorf("failed to create AES cipher: %w", err)
-	}
-
-	gcm, err := cipher.NewGCM(block)
-	if err != nil {
-		return "", fmt.Errorf("failed to create GCM: %w", err)
-	}
-
-	nonce := make([]byte, gcm.NonceSize())
-	if _, err := rand.Read(nonce); err != nil {
-		return "", fmt.Errorf("failed to generate nonce: %w", err)
-	}
-
-	ciphertext := gcm.Seal(nonce, nonce, []byte(value), nil)
-	return base64.StdEncoding.EncodeToString(ciphertext), nil
-}
-
-// decryptSecret decrypts a secret value encrypted with AES-256-GCM.
-// It uses the master key from configuration for decryption.
-//
-// Parameters:
-//
-//	encryptedValue: The encrypted value (base64-encoded).
-//
-// Returns:
-//
-//	The decrypted plaintext value and an error if decryption fails.
-func DecryptSecret(encryptedValue string) (string, error) {
-	masterKey := viper.GetString("master_key")
-	if masterKey == "" {
-		return "", fmt.Errorf("master key not configured")
-	}
-
-	key, err := base64.StdEncoding.DecodeString(masterKey)
-	if err != nil {
-		return "", fmt.Errorf("failed to decode master key: %w", err)
-	}
-	if len(key) != 32 {
-		return "", fmt.Errorf("master key must be 32 bytes")
-	}
-
-	ciphertext, err := base64.StdEncoding.DecodeString(encryptedValue)
-	if err != nil {
-		return "", fmt.Errorf("failed to decode encrypted value: %w", err)
-	}
-
-	block, err := aes.NewCipher(key)
-	if err != nil {
-		return "", fmt.Errorf("failed to create AES cipher: %w", err)
-	}
-
-	gcm, err := cipher.NewGCM(block)
-	if err != nil {
-		return "", fmt.Errorf("failed to create GCM: %w", err)
-	}
-
-	if len(ciphertext) < gcm.NonceSize() {
-		return "", fmt.Errorf("ciphertext too short")
-	}
-
-	nonce, ciphertext := ciphertext[:gcm.NonceSize()], ciphertext[gcm.NonceSize():]
-	plaintext, err := gcm.Open(nil, nonce, ciphertext, nil)
-	if err != nil {
-		return "", fmt.Errorf("failed to decrypt: %w", err)
-	}
-
-	return string(plaintext), nil
 }
