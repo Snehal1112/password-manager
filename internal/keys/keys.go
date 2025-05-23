@@ -18,9 +18,9 @@ import (
 	"github.com/google/uuid"
 	"github.com/sirupsen/logrus"
 
+	"password-manager/common"
 	"password-manager/internal/db"
 	"password-manager/internal/logging"
-	"password-manager/internal/secrets"
 )
 
 // Key represents a cryptographic key in the password manager.
@@ -68,7 +68,7 @@ func NewKeyRepository(db *sql.DB, log *logging.Logger) KeyRepository {
 // - ctx: The context for the database operation.
 // - key: The key to create.
 // Returns: An error if the operation fails.
-func (r *keyRepository) Create(ctx context.Context, key Key) error {
+func (r *keyRepository) Create(ctx context.Context, key *Key) error {
 	tx, err := r.db.BeginTx(ctx, nil)
 	if err != nil {
 		logrus.Error("Failed to begin transaction: ", err)
@@ -77,7 +77,7 @@ func (r *keyRepository) Create(ctx context.Context, key Key) error {
 	defer tx.Rollback()
 
 	// Encrypt the key value.
-	encryptedValue, err := secrets.EncryptSecret(key.Value)
+	encryptedValue, err := common.EncryptSecret(key.Value)
 	if err != nil {
 		logrus.Error("Failed to encrypt key: ", err)
 		return fmt.Errorf("failed to encrypt key: %w", err)
@@ -126,7 +126,7 @@ func (r *keyRepository) Create(ctx context.Context, key Key) error {
 // - ctx: The context for the database operation.
 // - id: The ID of the key to retrieve.
 // Returns: The retrieved key and an error if the operation fails.
-func (r *keyRepository) Read(ctx context.Context, id uuid.UUID) (Key, error) {
+func (r *keyRepository) Read(ctx context.Context, id uuid.UUID) (*Key, error) {
 	var key Key
 	var encryptedValue string
 	err := r.db.QueryRowContext(
@@ -135,18 +135,18 @@ func (r *keyRepository) Read(ctx context.Context, id uuid.UUID) (Key, error) {
 		id,
 	).Scan(&key.ID, &key.UserID, &key.Name, &encryptedValue, &key.Type, &key.Revoked, &key.CreatedAt)
 	if err == sql.ErrNoRows {
-		return key, fmt.Errorf("key not found")
+		return nil, fmt.Errorf("key not found")
 	}
 	if err != nil {
 		logrus.Error("Failed to query key: ", err)
-		return key, fmt.Errorf("failed to query key: %w", err)
+		return nil, fmt.Errorf("failed to query key: %w", err)
 	}
 
 	// Decrypt the key value.
-	key.Value, err = secrets.DecryptSecret(encryptedValue)
+	key.Value, err = common.DecryptSecret(encryptedValue)
 	if err != nil {
 		logrus.Error("Failed to decrypt key: ", err)
-		return key, fmt.Errorf("failed to decrypt key: %w", err)
+		return nil, fmt.Errorf("failed to decrypt key: %w", err)
 	}
 
 	// Retrieve tags using TagRepository.
@@ -154,10 +154,10 @@ func (r *keyRepository) Read(ctx context.Context, id uuid.UUID) (Key, error) {
 	key.Tags, err = tagRepo.GetTags(ctx, id)
 	if err != nil {
 		logrus.Error("Failed to read tags: ", err)
-		return key, fmt.Errorf("failed to read tags: %w", err)
+		return nil, fmt.Errorf("failed to read tags: %w", err)
 	}
 
-	return key, nil
+	return &key, nil
 }
 
 // Update updates a key in the database.
@@ -166,9 +166,9 @@ func (r *keyRepository) Read(ctx context.Context, id uuid.UUID) (Key, error) {
 // - ctx: The context for the database operation.
 // - key: The key to update.
 // Returns: An error if the operation fails.
-func (r *keyRepository) Update(ctx context.Context, key Key) error {
+func (r *keyRepository) Update(ctx context.Context, key *Key) error {
 	// Encrypt the updated key value.
-	encryptedValue, err := secrets.EncryptSecret(key.Value)
+	encryptedValue, err := common.EncryptSecret(key.Value)
 	if err != nil {
 		logrus.Error("Failed to encrypt key: ", err)
 		return fmt.Errorf("failed to encrypt key: %w", err)
@@ -269,7 +269,7 @@ func (r *keyRepository) GenerateRSA(ctx context.Context, userID uuid.UUID, name 
 		Tags:      tags,
 	}
 
-	if err := r.Create(ctx, *key); err != nil {
+	if err := r.Create(ctx, key); err != nil {
 		return nil, err
 	}
 
@@ -327,7 +327,7 @@ func (r *keyRepository) GenerateECDSA(ctx context.Context, userID uuid.UUID, nam
 		Tags:      tags,
 	}
 
-	if err := r.Create(ctx, *key); err != nil {
+	if err := r.Create(ctx, key); err != nil {
 		return nil, err
 	}
 
@@ -419,7 +419,7 @@ func (r *keyRepository) ListByUser(ctx context.Context, userID uuid.UUID, keyTyp
 			return nil, fmt.Errorf("failed to scan key: %w", err)
 		}
 		// Decrypt the key value.
-		key.Value, err = secrets.DecryptSecret(encryptedValue)
+		key.Value, err = common.DecryptSecret(encryptedValue)
 		if err != nil {
 			logrus.Error("Failed to decrypt key: ", err)
 			return nil, fmt.Errorf("failed to decrypt key: %w", err)

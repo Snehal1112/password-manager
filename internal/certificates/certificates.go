@@ -20,10 +20,10 @@ import (
 	"github.com/google/uuid"
 	"github.com/sirupsen/logrus"
 
+	"password-manager/common"
 	"password-manager/internal/db"
 	"password-manager/internal/keys"
 	"password-manager/internal/logging"
-	"password-manager/internal/secrets"
 )
 
 // Certificate represents an X.509 certificate in the password manager.
@@ -303,7 +303,7 @@ func (r *certificateRepository) Read(ctx context.Context, id uuid.UUID) (*Certif
 		return nil, fmt.Errorf("failed to query certificate: %w", err)
 	}
 
-	cert.PrivateKey, err = secrets.DecryptSecret(encryptedPrivateKey)
+	cert.PrivateKey, err = common.DecryptSecret(encryptedPrivateKey)
 	if err != nil {
 		logrus.Error("Failed to decrypt private key: ", err)
 		return nil, fmt.Errorf("failed to decrypt private key: %w", err)
@@ -334,7 +334,7 @@ func (r *certificateRepository) Update(ctx context.Context, cert *Certificate) e
 	}
 	defer tx.Rollback()
 
-	encryptedPrivateKey, err := secrets.EncryptSecret(cert.PrivateKey)
+	encryptedPrivateKey, err := common.EncryptSecret(cert.PrivateKey)
 	if err != nil {
 		logrus.Error("Failed to encrypt private key: ", err)
 		return fmt.Errorf("failed to encrypt private key: %w", err)
@@ -487,7 +487,7 @@ func (r *certificateRepository) ListByUser(ctx context.Context, userID uuid.UUID
 			logrus.Error("Failed to scan certificate: ", err)
 			return nil, fmt.Errorf("failed to scan certificate: %w", err)
 		}
-		cert.PrivateKey, err = secrets.DecryptSecret(encryptedPrivateKey)
+		cert.PrivateKey, err = common.DecryptSecret(encryptedPrivateKey)
 		if err != nil {
 			logrus.Error("Failed to decrypt private key: ", err)
 			return nil, fmt.Errorf("failed to decrypt private key: %w", err)
@@ -561,7 +561,7 @@ func (r *certificateRepository) storeCertificate(ctx context.Context, cert Certi
 	}
 	defer tx.Rollback()
 
-	encryptedPrivateKey, err := secrets.EncryptSecret(cert.PrivateKey)
+	encryptedPrivateKey, err := common.EncryptSecret(cert.PrivateKey)
 	if err != nil {
 		logrus.Error("Failed to encrypt private key: ", err)
 		return fmt.Errorf("failed to encrypt private key: %w", err)

@@ -64,7 +64,7 @@ var createCmd = &cobra.Command{
 			CreatedAt: time.Now(),
 		}
 
-		if err := repo.Create(cmd.Context(), secret); err != nil {
+		if err := repo.Create(cmd.Context(), &secret); err != nil {
 			log.LogAuditError(userID.String(), "create_secret", "failed", "Failed to create secret", err)
 			os.Exit(0)
 			return

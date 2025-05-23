@@ -15,22 +15,29 @@ import (
 	"github.com/ulule/limiter/v3"
 	"github.com/ulule/limiter/v3/drivers/store/memory"
 
+	"password-manager/common"
 	"password-manager/internal/auth"
 	"password-manager/internal/logging"
 )
 
-// responseWriter wraps http.ResponseWriter to capture the status code.
+// ResponseWriter is a custom http.ResponseWriter that captures the status code.
+// It embeds the original ResponseWriter and adds a statusCode field.
 type ResponseWriter struct {
 	http.ResponseWriter
 	statusCode int
 	log        *logging.Logger
 }
 
+// WriteHeader captures the response body and status code.
+// It logs the response body and status code.
 func (rw *ResponseWriter) WriteHeader(code int) {
 	rw.statusCode = code
 	rw.ResponseWriter.WriteHeader(code)
 }
 
+// Middleware provides HTTP middleware for the password manager API.
+// It includes logging, rate limiting, and authentication middleware.
+// The middleware is designed to be used with the net/http package.
 type Middleware struct {
 	log *logging.Logger
 }
@@ -48,7 +55,7 @@ func NewMiddleware(logger *logging.Logger) *Middleware {
 func (m *Middleware) LoggingMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		start := time.Now()
-		userID, _ := r.Context().Value("user_id").(string) // May be 0 if unauthenticated.
+		userID, _ := r.Context().Value(common.UserIDKey.String()).(string) // May be 0 if unauthenticated.
 
 		// Create a response writer to capture status code.
 		rw := &ResponseWriter{ResponseWriter: w, statusCode: http.StatusOK, log: m.log}
@@ -78,6 +85,17 @@ func (m *Middleware) LoggingMiddleware(next http.Handler) http.Handler {
 	})
 }
 
+// RateLimitMiddleware limits the number of requests from a single IP address.
+// It uses the ulule/limiter library to enforce rate limits.
+// The rate limit is set to 10 requests per minute.
+// parameters:
+//
+// - next: the next http.Handler in the chain.
+//
+// returns:
+//
+// - http.Handler: the wrapped handler with rate limiting applied.
+// The rate limit is enforced using an in-memory store.
 func (m *Middleware) RateLimitMiddleware(next http.Handler) http.Handler {
 	store := memory.NewStore()
 	rate, _ := limiter.NewRateFromFormatted("10-M") // 10 requests per minute

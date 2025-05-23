@@ -58,8 +58,15 @@ var createCmd = &cobra.Command{
 			os.Exit(0)
 		}
 
-		otpSecret, err := auth.Register(ctx, username, password, role)
-		if err != nil {
+		userRepo := auth.NewUserRepository(db.GetDB(), log)
+
+		user := auth.User{
+			Username:     username,
+			PasswordHash: password,
+			Role:         "secrets_manager;crypto_manager",
+		}
+
+		if err := userRepo.Create(ctx, &user); err != nil {
 			log.Error("Failed to register user: ", err)
 			logrus.Error("Failed to register user: ", err)
 			os.Exit(0)
@@ -68,12 +75,12 @@ var createCmd = &cobra.Command{
 
 		logrus.WithFields(logrus.Fields{
 			"username":   username,
-			"totpSecret": otpSecret,
+			"totpSecret": user.TOTPSecret,
 		}).Info("Configure this secret in a TOTP app (e.g., Google Authenticator) for MFA.")
 	},
 	Run: func(cmd *cobra.Command, args []string) {},
 	PersistentPostRunE: func(cmd *cobra.Command, args []string) error {
-		cmd.Context().Value("db").(*db.DBRepository).CloseDB()
+		cmd.Context().Value(common.DBKey.String()).(*db.DBRepository).CloseDB()
 		return nil
 	},
 }

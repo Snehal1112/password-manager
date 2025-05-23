@@ -17,6 +17,7 @@ import (
 	"github.com/spf13/viper"
 	"golang.org/x/crypto/bcrypt"
 
+	"password-manager/common"
 	"password-manager/internal/db"
 	"password-manager/internal/logging"
 )
@@ -24,12 +25,12 @@ import (
 // User represents a user in the Password Manager.
 // It includes the user’s ID, username, password hash, TOTP secret, role, and creation time.
 type User struct {
-	ID           uuid.UUID
-	Username     string
-	PasswordHash string
-	TOTPSecret   string
-	Role         string
-	CreatedAt    time.Time
+	ID           uuid.UUID `json:"id"`
+	Username     string    `json:"user_name"`
+	PasswordHash string    `json:"password_hash"`
+	TOTPSecret   string    `json:"totp_secret"`
+	Role         string    `json:"role"`
+	CreatedAt    time.Time `json:"created_at"`
 }
 
 // Claims extends JWT claims with user-specific fields.
@@ -82,44 +83,63 @@ func NewUserRepository(db *sql.DB, log *logging.Logger) UserRepository {
 // Parameters:
 // - ctx: The context for the database operation.
 // - user: The user to create, with Username, PasswordHash (raw password), and Role.
+//
 // Returns: The TOTP secret and an error if the operation fails.
-func (r *userRepository) Create(ctx context.Context, user User) error {
+func (r *userRepository) Create(ctx context.Context, user *User) error {
+	logrus.WithFields(logrus.Fields{
+		"username": user.Username,
+		"role":     user.Role,
+	}).Info("Creating user")
+
+	hashedPassword, err := common.HashString(user.PasswordHash)
+	if err != nil {
+		r.log.LogAuditError(user.ID.String(), "create_user", "failed", "Failed to hash password", err)
+		return fmt.Errorf("failed to hash password: %w", err)
+	}
+
+	// Check if the username already exists.
+	var existingUserID string
+	err = r.db.QueryRowContext(ctx, "SELECT id FROM users WHERE username = ?", user.Username).Scan(&existingUserID)
+	if err == nil {
+		r.log.LogAuditError(user.ID.String(), "create_user", "failed", "Username already exists", nil)
+		return fmt.Errorf("username already exists")
+	}
+
+	totpKey, err := totp.Generate(totp.GenerateOpts{
+		Issuer:      "PasswordManager",
+		AccountName: user.Username,
+		SecretSize:  20,
+	})
+
+	if err != nil {
+		r.log.LogAuditError(user.ID.String(), "create_user", "failed", "Failed to generate TOTP secret", err)
+		return fmt.Errorf("failed to generate TOTP secret: %w", err)
+	}
+
+	// If the user already exists, return an error.
+	userID := uuid.New()
+	_, err = r.db.ExecContext(
+		ctx,
+		"INSERT INTO users (id, username, password_hash, totp_secret, role, created_at) VALUES (?, ?, ?, ?, ?, ?)",
+		userID.String(), user.Username, string(hashedPassword), totpKey.Secret(), user.Role, time.Now(),
+	)
+
+	// Check for errors during insertion.
+	if err != nil {
+		r.log.LogAuditError(userID.String(), "create_user", "failed", "Failed to create user", err)
+		return fmt.Errorf("failed to create user: %w", err)
+	}
+
+	user.TOTPSecret = totpKey.URL()
+
+	r.log.LogAuditInfo(userID.String(), "create_user", "success", fmt.Sprintf("User created: %s", user.Username))
+	logrus.WithFields(logrus.Fields{
+		"username": user.Username,
+		"role":     user.Role,
+		"user_id":  userID.String(),
+	}).Info("User created successfully")
+
 	return nil
-	// logrus.Debug("Starting user creation")
-	// hashedPassword, err := bcrypt.GenerateFromPassword([]byte(user.PasswordHash), bcrypt.DefaultCost)
-	// if err != nil {
-	// 	r.log.LogAuditError(uuid.Nil, "create_user", "failed", "Failed to hash password", err)
-	// 	return "", fmt.Errorf("failed to hash password: %w", err)
-	// }
-
-	// totpKey, err := totp.Generate(totp.GenerateOpts{
-	// 	Issuer:      "PasswordManager",
-	// 	AccountName: user.Username,
-	// 	SecretSize:  20,
-	// })
-	// if err != nil {
-	// 	r.log.LogAuditError(uuid.Nil, "create_user", "failed", "Failed to generate TOTP secret", err)
-	// 	return "", fmt.Errorf("failed to generate TOTP secret: %w", err)
-	// }
-
-	// userID := uuid.New()
-	// _, err = r.db.ExecContext(
-	// 	ctx,
-	// 	"INSERT INTO users (id, username, password_hash, totp_secret, role, created_at) VALUES (?, ?, ?, ?, ?, ?)",
-	// 	userID.String(), user.Username, string(hashedPassword), totpKey.Secret(), user.Role, time.Now(),
-	// )
-	// if err != nil {
-	// 	r.log.LogAuditError(userID, "create_user", "failed", "Failed to create user", err)
-	// 	return "", fmt.Errorf("failed to create user: %w", err)
-	// }
-
-	// r.log.LogAuditInfo(userID, "create_user", "success", fmt.Sprintf("User created: %s", user.Username))
-	// logrus.WithFields(logrus.Fields{
-	// 	"username": user.Username,
-	// 	"role":     user.Role,
-	// 	"user_id":  userID,
-	// }).Info("User created successfully")
-	// return totpKey.Secret(), nil
 }
 
 // Read retrieves a user by ID from the database.
@@ -133,17 +153,17 @@ func (r *userRepository) Create(ctx context.Context, user User) error {
 // Returns:
 //
 //	The user and an error if the retrieval fails.
-func (r *userRepository) Read(ctx context.Context, id uuid.UUID) (User, error) {
+func (r *userRepository) Read(ctx context.Context, id uuid.UUID) (*User, error) {
 	var user User
 	err := r.db.QueryRowContext(ctx, "SELECT id, username, role FROM users WHERE id = ?", id).
 		Scan(&user.ID, &user.Username, &user.Role)
 	if err == sql.ErrNoRows {
-		return user, fmt.Errorf("user not found")
+		return nil, fmt.Errorf("user not found")
 	}
 	if err != nil {
-		return user, fmt.Errorf("failed to query user: %w", err)
+		return nil, fmt.Errorf("failed to query user: %w", err)
 	}
-	return user, nil
+	return &user, nil
 }
 
 // Update updates a user in the database.
@@ -157,7 +177,7 @@ func (r *userRepository) Read(ctx context.Context, id uuid.UUID) (User, error) {
 // Returns:
 //
 //	An error indicating the operation is not supported.
-func (r *userRepository) Update(ctx context.Context, user User) error {
+func (r *userRepository) Update(ctx context.Context, user *User) error {
 	return fmt.Errorf("user updates not supported")
 }
 
@@ -261,8 +281,7 @@ func Login(ctx context.Context, username, password, totpCode string) (string, er
 		return "", fmt.Errorf("failed to query user: %w", err)
 	}
 
-	// Verify the password using bcrypt.
-	if err := bcrypt.CompareHashAndPassword([]byte(hashedPassword), []byte(password)); err != nil {
+	if err := common.CheckPassword(password, hashedPassword); err != nil {
 		logrus.Warn("Invalid password for user: ", username)
 		return "", fmt.Errorf("invalid credentials")
 	}
@@ -302,6 +321,8 @@ func Login(ctx context.Context, username, password, totpCode string) (string, er
 		RegisteredClaims: jwt.RegisteredClaims{
 			ExpiresAt: jwt.NewNumericDate(time.Now().Add(time.Hour)),
 			IssuedAt:  jwt.NewNumericDate(time.Now()),
+			Audience:  jwt.ClaimStrings{"PASSWORD_MANAGER"},
+			Subject:   user.ID.String(),
 		},
 	}
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
