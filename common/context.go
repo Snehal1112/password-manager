@@ -1,17 +1,17 @@
 package common
 
 // ContextKey is a custom type for context keys to avoid key collisions.
-type ContextKey string
+type ContextKey int
 
 const (
 	// DBKey is the key used to store the database connection in the context.
-	DBKey ContextKey = "db"
+	DBKey ContextKey = iota
 	// DBClassKey is the key used to store the database class in the context.
-	DBClassKey ContextKey = "db_class"
+	DBClassKey
 	// LogKey is the key used to store the logger in the context.
-	LogKey ContextKey = "log"
+	LogKey
 	// UserIDKey is the key used to store the user ID in the context.
-	UserIDKey ContextKey = "userID"
+	UserIDKey
 )
 
 // String returns the string representation of the ContextKey.
@@ -23,6 +23,6 @@ const (
 //	var ctx context.Context
 //	ctx = context.WithValue(context.Background(), common.UserIDKey, "userID")
 //	fmt.Println(ctx.Value(common.UserIDKey)) // Output: userID
-func (k ContextKey) String() string {
-	return string(k)
-}
+// func (k ContextKey) String() string {
+// 	return string(k)
+// }

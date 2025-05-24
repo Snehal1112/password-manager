@@ -43,10 +43,10 @@ var deleteCmd = &cobra.Command{
 		secretID := uuid.MustParse(args[0])
 
 		ctx := cmd.Context()
-		userID := ctx.Value(common.UserIDKey.String()).(uuid.UUID)
+		userID := ctx.Value(common.UserIDKey).(uuid.UUID)
 
-		db := ctx.Value(common.DBKey.String()).(*sql.DB)
-		logger := ctx.Value(common.LogKey.String()).(*logging.Logger)
+		db := ctx.Value(common.DBKey).(*sql.DB)
+		logger := ctx.Value(common.LogKey).(*logging.Logger)
 
 		repo := secrets.NewSecretRepository(db, logger)
 		secret, err := repo.Read(cmd.Context(), secretID)
