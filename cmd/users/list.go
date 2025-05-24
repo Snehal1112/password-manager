@@ -23,7 +23,12 @@ THE SOFTWARE.
 package users
 
 import (
+	"database/sql"
+	"encoding/json"
 	"fmt"
+	"password-manager/common"
+	"password-manager/internal/auth"
+	"password-manager/internal/logging"
 
 	"github.com/spf13/cobra"
 )
@@ -35,7 +40,23 @@ var listCmd = &cobra.Command{
 	Long:    `Retrieve a list of all users in the system. This command does not require any additional parameters.`,
 	Example: `users list`,
 	Run: func(cmd *cobra.Command, args []string) {
-		fmt.Println("list called")
+		ctx := cmd.Context()
+		claims, ok := ctx.Value(common.ClaimsKey).(*auth.Claims)
+		if !ok {
+			return
+		}
+
+		log := ctx.Value(common.LogKey).(*logging.Logger)
+
+		userRepo := auth.NewUserRepository(ctx.Value(common.DBKey).(*sql.DB), log)
+		users, err := userRepo.List(ctx)
+		if err != nil {
+			log.LogAuditError(claims.UserID.String(), "list_users", "failed", fmt.Sprintf("failed to list users: %s", err), err)
+			return
+		}
+
+		t, _ := json.MarshalIndent(users, "", "  ")
+		fmt.Println(string(t))
 	},
 }
 
