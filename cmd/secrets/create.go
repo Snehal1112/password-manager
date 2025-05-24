@@ -75,7 +75,6 @@ var createCmd = &cobra.Command{
 			"user_id": userID.String(),
 			"name":    name,
 		}).Info("Secret created successfully")
-
 	},
 }
 

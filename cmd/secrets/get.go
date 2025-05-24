@@ -27,6 +27,7 @@ import (
 	"encoding/json"
 	"log"
 	"os"
+	"password-manager/common"
 	"password-manager/internal/logging"
 	"password-manager/internal/secrets"
 
@@ -45,9 +46,9 @@ var getCmd = &cobra.Command{
 		secretID := uuid.MustParse(args[0])
 
 		ctx := cmd.Context()
-		userID := ctx.Value("userID").(uuid.UUID)
-		db := ctx.Value("db").(*sql.DB)
-		logger := ctx.Value("log").(*logging.Logger)
+		userID := ctx.Value(common.UserIDKey).(uuid.UUID)
+		db := ctx.Value(common.DBKey).(*sql.DB)
+		logger := ctx.Value(common.LogKey).(*logging.Logger)
 
 		repo := secrets.NewSecretRepository(db, logger)
 		secret, err := repo.Read(cmd.Context(), secretID)
