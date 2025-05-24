@@ -27,6 +27,7 @@ import (
 	"log"
 	"os"
 
+	"github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 
@@ -126,6 +127,7 @@ func initConfig() {
 //
 // Return type: none
 func persistentPreRun(cmd *cobra.Command, args []string) {
+	logrus.Info("Persistent PreRun called for command:", cmd.Name())
 	// TODO: I think not below check is not required.
 	if restrictedCmds[cmd.Name()] != nil && restrictedCmds[cmd.Name()]["parent"] == cmd.Parent().Name() {
 		return
@@ -153,7 +155,6 @@ func persistentPreRun(cmd *cobra.Command, args []string) {
 	}
 
 	authRepo := auth.NewUserRepository(database.GetDB(), log)
-
 	token, err := authRepo.Login(ctx, username, password, totpCode)
 	if err != nil {
 		log.LogAuditError("", "secrets", "failed", "Authentication failed", err)
@@ -189,7 +190,6 @@ func persistentPostRun(cmd *cobra.Command, args []string) error {
 		return nil
 	}
 
-	log.Println(common.DBClassKey, "Closing database connection")
 	cmd.Context().Value(common.DBClassKey).(*db.DBRepository).CloseDB()
 	return nil
 }

@@ -34,7 +34,7 @@ var usersCmd = &cobra.Command{
 	Short: "Manage users in the password manager",
 	Long: `A command group for creating, retrieving, updating, listing, and deleting users,
 as well as generating TOTP secrets for MFA.`,
-	Example: `users create --username <username> --password <password> --role <role>`,
+	Example: `users create --username <username> --password <password> --totp-secret <totp-secret>`,
 	Args:    cobra.ExactArgs(1),
 }
 
@@ -44,9 +44,9 @@ func init() {
 	users.InitUsersCreate(usersCmd)
 	users.InitUsersDelete(usersCmd)
 	users.InitUsersGet(usersCmd)
-	users.InitUsersList(usersCmd)
 	users.InitUsersUpdate(usersCmd)
 	users.InitUsersLogin(usersCmd)
+	users.InitUsersList(usersCmd)
 	// Here you will define your flags and configuration settings.
 
 	// Cobra supports Persistent Flags which will work for this command

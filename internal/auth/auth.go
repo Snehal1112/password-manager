@@ -15,7 +15,6 @@ import (
 	"github.com/pquerna/otp/totp"
 	"github.com/sirupsen/logrus"
 	"github.com/spf13/viper"
-	"golang.org/x/crypto/bcrypt"
 
 	"password-manager/common"
 	"password-manager/internal/db"
@@ -197,58 +196,6 @@ func (r *userRepository) Delete(ctx context.Context, id uuid.UUID) error {
 	return fmt.Errorf("user deletion not supported")
 }
 
-// Register creates a new user with a hashed password and TOTP secret.
-// It stores the user in the database and returns a TOTP URL for MFA setup.
-//
-// Parameters:
-//
-//	ctx: The context for the database operation.
-//	username: The user’s chosen username.
-//	password: The user’s plaintext password.
-//	role: The user’s role (e.g., SecretsManager, CryptoManager, CertificateManager).
-//
-// Returns:
-//
-//	A TOTP URL for MFA setup and an error if registration fails.
-//
-// The function is used to onboard new users, enabling them to log in with MFA.
-func Register(ctx context.Context, username, password, role string) (string, error) {
-	// Hash the password using bcrypt.
-	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
-	if err != nil {
-		logrus.Error("Failed to hash password: ", err)
-		return "", fmt.Errorf("failed to hash password: %w", err)
-	}
-
-	// Generate a TOTP secret for MFA.
-	key, err := totp.Generate(totp.GenerateOpts{
-		Issuer:      "PasswordManager",
-		AccountName: username,
-	})
-	if err != nil {
-		logrus.Error("Failed to generate TOTP key: ", err)
-		return "", fmt.Errorf("failed to generate TOTP key: %w", err)
-	}
-
-	userID := uuid.New()
-	// Insert the user into the database.
-	_, err = db.DB.ExecContext(
-		ctx,
-		"INSERT INTO users (id, username, password_hash, role, totp_secret, created_at) VALUES (?, ?, ?, ?, ?, ?)",
-		userID.String(), username, string(hashedPassword), role, key.Secret(), time.Now(),
-	)
-	if err != nil {
-		logrus.Error("Failed to register user: ", err)
-		return "", fmt.Errorf("failed to register user: %w", err)
-	}
-
-	logrus.WithFields(logrus.Fields{
-		"username": username,
-		"user_id":  userID,
-	}).Info("User registered successfully")
-	return key.URL(), nil
-}
-
 // Login authenticates a user with username, password, and TOTP code.
 // It verifies credentials and issues a JWT token for authenticated requests.
 //
@@ -294,6 +241,7 @@ func (r *userRepository) Login(ctx context.Context, username, password, totpCode
 		Digits:    otp.DigitsSix,
 		Algorithm: otp.AlgorithmSHA1,
 	}
+
 	valid, err := totp.ValidateCustom(totpCode, totpSecret, time.Now(), opts)
 	if err != nil {
 		logrus.Error("TOTP validation error: ", err)
@@ -362,15 +310,48 @@ func GenerateTOTPCode(secret string, t time.Time) (string, error) {
 //
 //	The parsed Claims and an error if parsing or validation fails.
 func ParseJWT(tokenString string) (*Claims, error) {
-	var claims Claims
-	token, err := jwt.ParseWithClaims(tokenString, &claims, func(token *jwt.Token) (interface{}, error) {
+	claims := Claims{}
+
+	// Parse the JWT token and validate its claims.
+	// Use jwt.ParseWithClaims to parse the token and validate the claims.
+	// The claims struct should match the structure of the JWT claims.
+	// The function will return an error if the token is invalid or expired.
+	// The claims struct should include the user ID and role.
+	token, err := jwt.ParseWithClaims(tokenString, claims, func(token *jwt.Token) (interface{}, error) {
+		// Validate the token signing method.
+		if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
+			logrus.Warn("Unexpected signing method: ", token.Header["alg"])
+			return nil, jwt.ErrSignatureInvalid
+		}
+
+		// Retrieve the JWT secret from the configuration.
+		var jwtSecret = viper.GetString("jwt_secret")
+		if jwtSecret == "" {
+			logrus.Warn("JWT secret is not set")
+			return nil, jwt.ErrInvalidKey
+		}
+
+		// Validate the token expiration.
+		if claims.ExpiresAt != nil && claims.ExpiresAt.Time.Before(time.Now()) {
+			logrus.Warn("Token has expired")
+			return nil, jwt.ErrTokenExpired
+		}
+
 		return []byte(viper.GetString("jwt_secret")), nil
 	})
+
 	if err != nil {
 		logrus.Warn("Invalid JWT token: ", err)
 		return nil, fmt.Errorf("invalid JWT token: %w", err)
 	}
+
 	if !token.Valid {
+		logrus.Warn("Invalid JWT: token is invalid")
+		return nil, fmt.Errorf("invalid JWT: token is invalid")
+	}
+
+	claims, ok := token.Claims.(Claims)
+	if !ok {
 		logrus.Warn("Invalid JWT claims")
 		return nil, fmt.Errorf("invalid JWT claims")
 	}

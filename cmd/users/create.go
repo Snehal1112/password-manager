@@ -32,14 +32,15 @@ import (
 
 	"github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
+	"github.com/spf13/viper"
 )
 
 // createCmd represents the create command
 var createCmd = &cobra.Command{
 	Use:     "create",
 	Short:   "Create a new user",
-	Long:    `Create a new user with a username, password, and role, generating a TOTP secret for MFA.`,
-	Example: `users create --username <username> --password <password> --role <role>`,
+	Long:    `Create a new user with a username, password, and role, generating a TOTP secret for MFA. Requires crypto_manager role.`,
+	Example: `password-manager users create --username admin --password admin123 --totp-code <code> --new-username testuser --new-password password123 --new-role user`,
 	PersistentPreRun: func(cmd *cobra.Command, args []string) {
 		log := logging.InitLogger()
 
@@ -49,9 +50,9 @@ var createCmd = &cobra.Command{
 		ctx := context.WithValue(cmd.Context(), common.DBKey, db)
 		cmd.SetContext(ctx)
 
-		username, _ := cmd.Flags().GetString("username")
-		password, _ := cmd.Flags().GetString("password")
-		role, _ := cmd.Flags().GetString("role")
+		username := viper.GetString("new-username")
+		password := viper.GetString("new-password")
+		role := viper.GetString("new-role")
 		if username == "" || password == "" || role == "" {
 			log.Fatal("Username, password, and role are required")
 			logrus.Error("Username, password, and role are required")
@@ -63,7 +64,7 @@ var createCmd = &cobra.Command{
 		user := auth.User{
 			Username:     username,
 			PasswordHash: password,
-			Role:         "secrets_manager;crypto_manager",
+			Role:         role,
 		}
 
 		if err := userRepo.Create(ctx, &user); err != nil {
@@ -119,9 +120,13 @@ func InitUsersCreate(usersCmd *cobra.Command) *cobra.Command {
 	// is called directly, e.g.:
 	// createCmd.Flags().BoolP("toggle", "t", false, "Help message for toggle")
 	// Flags for registration.
-	createCmd.Flags().String("username", "", "Username for the new user")
-	createCmd.Flags().String("password", "", "Password for the new user")
-	createCmd.Flags().String("role", "", "Role for the new user (e.g., secrets_manager, crypto_manager, certificate_manager)")
+	createCmd.Flags().String("new-username", "", "Username for the new user")
+	createCmd.Flags().String("new-password", "", "Password for the new user")
+	createCmd.Flags().String("new-role", "", "Role for the new user (e.g., secrets_manager, crypto_manager, certificate_manager)")
+
+	viper.BindPFlag("new-username", createCmd.Flags().Lookup("new-username"))
+	viper.BindPFlag("new-password", createCmd.Flags().Lookup("new-password"))
+	viper.BindPFlag("new-role", createCmd.Flags().Lookup("new-role"))
 
 	return usersCmd
 }
