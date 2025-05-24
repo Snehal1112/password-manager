@@ -23,20 +23,48 @@ THE SOFTWARE.
 package users
 
 import (
+	"database/sql"
 	"fmt"
+	"password-manager/common"
+	"password-manager/internal/auth"
+	"password-manager/internal/logging"
 
+	"github.com/google/uuid"
 	"github.com/spf13/cobra"
 )
 
 // deleteCmd represents the delete command
+// The delete command allows users to delete an existing user by ID.
+// It requires the user ID to be specified as an argument.
 var deleteCmd = &cobra.Command{
 	Use:     "delete",
 	Short:   "Delete a user",
-	Long:    `Delete a user by their ID. This action cannot be undone.`,
-	Example: `users delete --id <user_id>`,
+	Long:    `Delete a user by their UUID. Accessible by the user themselves or users with the crypto_manager role. This action cannot be undone.`,
+	Example: `password-manager users delete <user-id> --username admin --password admin123 --totp-code <code>`,
 	Args:    cobra.ExactArgs(1),
 	Run: func(cmd *cobra.Command, args []string) {
-		fmt.Println("delete called")
+		ctx := cmd.Context()
+		claims, ok := ctx.Value(common.ClaimsKey).(*auth.Claims)
+		if !ok {
+			return
+		}
+
+		log := ctx.Value(common.LogKey).(*logging.Logger)
+		id := uuid.MustParse(args[0])
+
+		if claims.UserID != id && claims.Role != auth.RoleCryptoManager {
+			log.LogAuditError(claims.UserID.String(), "delete_user", "failed", "forbidden: cannot delete other users", nil)
+			return
+		}
+
+		userRepo := auth.NewUserRepository(ctx.Value(common.DBKey).(*sql.DB), log)
+		if err := userRepo.Delete(ctx, id); err != nil {
+			log.LogAuditError(claims.UserID.String(), "delete_user", "failed", fmt.Sprintf("failed to delete user: %s", err), err)
+			return
+		}
+		// If the user is deleting themselves, we should log them out
+		log.LogAuditInfo(claims.UserID.String(), "delete_user", "success", fmt.Sprintf("user deleted: %s", id))
+		fmt.Printf("User %s deleted successfully\n", id)
 	},
 }
 
