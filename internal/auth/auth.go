@@ -230,7 +230,71 @@ func (r *userRepository) List(ctx context.Context) ([]User, error) {
 //
 //	An error indicating the operation is not supported.
 func (r *userRepository) Delete(ctx context.Context, id uuid.UUID) error {
-	return fmt.Errorf("user deletion not supported")
+	logrus.Debug("Starting user deletion")
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		r.log.LogAuditError(id.String(), "delete_user", "failed", "Failed to begin transaction", err)
+		return fmt.Errorf("failed to begin transaction: %w", err)
+	}
+	defer tx.Rollback()
+
+	// Delete associated data in the correct order to respect foreign key constraints
+	// 1. Delete tags (dependent on secrets, keys, certificates)
+	_, err = tx.ExecContext(ctx, "DELETE FROM secret_tags WHERE secret_id IN (SELECT id FROM secrets WHERE user_id = ?)", id.String())
+	if err != nil {
+		r.log.LogAuditError(id.String(), "delete_user", "failed", "Failed to delete secret tags", err)
+		return fmt.Errorf("failed to delete secret tags: %w", err)
+	}
+	_, err = tx.ExecContext(ctx, "DELETE FROM key_tags WHERE key_id IN (SELECT id FROM keys WHERE user_id = ?)", id.String())
+	if err != nil {
+		r.log.LogAuditError(id.String(), "delete_user", "failed", "Failed to delete key tags", err)
+		return fmt.Errorf("failed to delete key tags: %w", err)
+	}
+	_, err = tx.ExecContext(ctx, "DELETE FROM certificate_tags WHERE certificate_id IN (SELECT id FROM certificates WHERE user_id = ?)", id.String())
+	if err != nil {
+		r.log.LogAuditError(id.String(), "delete_user", "failed", "Failed to delete certificate tags", err)
+		return fmt.Errorf("failed to delete certificate tags: %w", err)
+	}
+
+	// 2. Delete secrets, keys, certificates, and CRL
+	_, err = tx.ExecContext(ctx, "DELETE FROM secrets WHERE user_id = ?", id.String())
+	if err != nil {
+		r.log.LogAuditError(id.String(), "delete_user", "failed", "Failed to delete user secrets", err)
+		return fmt.Errorf("failed to delete user secrets: %w", err)
+	}
+	_, err = tx.ExecContext(ctx, "DELETE FROM keys WHERE user_id = ?", id.String())
+	if err != nil {
+		r.log.LogAuditError(id.String(), "delete_user", "failed", "Failed to delete user keys", err)
+		return fmt.Errorf("failed to delete user keys: %w", err)
+	}
+	_, err = tx.ExecContext(ctx, "DELETE FROM certificates WHERE user_id = ?", id.String())
+	if err != nil {
+		r.log.LogAuditError(id.String(), "delete_user", "failed", "Failed to delete user certificates", err)
+		return fmt.Errorf("failed to delete user certificates: %w", err)
+	}
+	_, err = tx.ExecContext(ctx, "DELETE FROM crl WHERE user_id = ?", id.String())
+	if err != nil {
+		r.log.LogAuditError(id.String(), "delete_user", "failed", "Failed to delete user CRL entries", err)
+		return fmt.Errorf("failed to delete user CRL entries: %w", err)
+	}
+
+	// 3. Delete the user
+	_, err = tx.ExecContext(ctx, "DELETE FROM users WHERE id = ?", id.String())
+	if err != nil {
+		r.log.LogAuditError(id.String(), "delete_user", "failed", "Failed to delete user", err)
+		return fmt.Errorf("failed to delete user: %w", err)
+	}
+
+	if err := tx.Commit(); err != nil {
+		r.log.LogAuditError(id.String(), "delete_user", "failed", "Failed to commit transaction", err)
+		return fmt.Errorf("failed to commit transaction: %w", err)
+	}
+
+	r.log.LogAuditInfo(id.String(), "delete_user", "success", "User and associated data deleted successfully")
+	logrus.WithFields(logrus.Fields{
+		"user_id": id.String(),
+	}).Info("User and associated data deleted successfully")
+	return nil
 }
 
 // Login authenticates a user with username, password, and TOTP code.
