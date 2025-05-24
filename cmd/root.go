@@ -152,7 +152,9 @@ func persistentPreRun(cmd *cobra.Command, args []string) {
 		return
 	}
 
-	token, err := auth.Login(ctx, username, password, totpCode)
+	authRepo := auth.NewUserRepository(database.GetDB(), log)
+
+	token, err := authRepo.Login(ctx, username, password, totpCode)
 	if err != nil {
 		log.LogAuditError("", "secrets", "failed", "Authentication failed", err)
 		os.Exit(0)
@@ -186,6 +188,8 @@ func persistentPostRun(cmd *cobra.Command, args []string) error {
 	if restrictedCmds[cmd.Name()] != nil && restrictedCmds[cmd.Name()]["parent"] == cmd.Parent().Name() {
 		return nil
 	}
-	cmd.Context().Value("db_class").(*db.DBRepository).CloseDB()
+
+	log.Println(common.DBClassKey, "Closing database connection")
+	cmd.Context().Value(common.DBClassKey).(*db.DBRepository).CloseDB()
 	return nil
 }

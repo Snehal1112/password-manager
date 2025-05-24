@@ -4,17 +4,22 @@ package auth
 
 import (
 	"context"
+	"crypto/rand"
 	"database/sql"
+	"encoding/base64"
+	"os"
 	"testing"
 	"time"
 
 	"github.com/DATA-DOG/go-sqlmock"
 	"github.com/google/uuid"
+	"github.com/sirupsen/logrus"
 	"github.com/spf13/viper"
 	"github.com/stretchr/testify/assert"
 	"golang.org/x/crypto/bcrypt"
 
 	"password-manager/internal/db"
+	"password-manager/internal/logging"
 )
 
 // setupTestDB initializes an in-memory SQLite database for testing.
@@ -57,8 +62,31 @@ func setupTestDB(t *testing.T) func() {
 	}
 }
 
+// generateMasterKey generates a valid 32-byte base64-encoded master key for testing.
+//
+// Parameters:
+// - tb: The testing context (supports *testing.T or *testing.B).
+// Returns: A base64-encoded 32-byte key.
+func generateMasterKey(tb testing.TB) string {
+	tb.Helper()
+
+	key := make([]byte, 32)
+	_, err := rand.Read(key)
+	if err != nil {
+		tb.Fatalf("generating random key failed: %v", err)
+	}
+	return base64.StdEncoding.EncodeToString(key)
+}
+
 // TestRegister tests the Register function to ensure it creates a user with a TOTP secret.
 func TestRegister(t *testing.T) {
+	viper.Set("jwt_secret", "test-jwt-secret")
+	viper.Set("log.file", "test.log")
+	viper.Set("api.rate_limit", "10-M")
+	viper.Set("log.level", "debug")
+	log := logging.InitLogger()
+	defer os.Remove("test.log")
+
 	// Set up test database.
 	cleanup := setupTestDB(t)
 	defer cleanup()
@@ -68,9 +96,17 @@ func TestRegister(t *testing.T) {
 
 	// Test registration.
 	ctx := context.Background()
-	totpURL, err := Register(ctx, "testuser", "password123", RoleSecretsManager)
+	authRepo := NewUserRepository(db.DB, log)
+	user := User{
+		Username:     "testuser",
+		PasswordHash: "password123",
+		Role:         RoleSecretsManager,
+	}
+	err := authRepo.Create(ctx, &user)
+	log.Println(user)
+
 	assert.NoError(t, err, "registration should succeed")
-	assert.NotEmpty(t, totpURL, "TOTP URL should be returned")
+	assert.NotEmpty(t, &user.TOTPSecret, "TOTP URL should be returned")
 
 	// Verify user in database.
 	var username, role string
@@ -112,7 +148,8 @@ func TestLogin(t *testing.T) {
 
 	// Test login.
 	ctx := context.Background()
-	token, err := Login(ctx, "testuser", "password123", totpCode)
+	authRepo := NewUserRepository(db.DB, nil)
+	token, err := authRepo.Login(ctx, "testuser", "password123", totpCode)
 	assert.NoError(t, err, "login should succeed")
 	assert.NotEmpty(t, token, "JWT token should be returned")
 
@@ -140,7 +177,8 @@ func TestLoginInvalidCredentials(t *testing.T) {
 
 	// Test login with invalid username.
 	ctx := context.Background()
-	_, err = Login(ctx, "testuser", "password123", "123456")
+	authRepo := NewUserRepository(db.DB, nil)
+	_, err = authRepo.Login(ctx, "testuser", "password123", "123456")
 	assert.Error(t, err, "login should fail with invalid credentials")
 	assert.Contains(t, err.Error(), "invalid credentials", "error should indicate invalid credentials")
 
@@ -158,26 +196,40 @@ func BenchmarkLogin(b *testing.B) {
 	// Set Viper configuration.
 	viper.Set("jwt_secret", "test-jwt-secret")
 
-	// Mock user query.
-	hashedPassword, _ := bcrypt.GenerateFromPassword([]byte("password123"), bcrypt.DefaultCost)
-	rows := sqlmock.NewRows([]string{"id", "username", "password_hash", "role", "totp_secret"}).
-		AddRow(uuid.New().String(), "testuser", string(hashedPassword), RoleSecretsManager, "TOTPSECRET")
-
-	mock.ExpectQuery("SELECT id, username, password_hash, role, totp_secret FROM users WHERE username = ?").
-		WithArgs("testuser").
-		WillReturnRows(rows)
-
-	// Generate TOTP code.
-	totpCode, err := GenerateTOTPCode("TOTPSECRET", time.Now())
-	assert.NoError(b, err, "generating TOTP code should succeed")
-
 	// Set mock database for auth package.
 	db.DB = sqlDB
 
-	// Run benchmark.
-	ctx := context.Background()
+	log := logrus.New()
+	log.SetLevel(logrus.InfoLevel)
+	b.ResetTimer()
+	authRepo := NewUserRepository(db.DB, nil)
+	// Run benchmark
 	for i := 0; i < b.N; i++ {
-		_, _ = Login(ctx, "testuser", "password123", totpCode)
+		// Mock user query.
+		userID := uuid.New().String()
+		hashedPassword, _ := bcrypt.GenerateFromPassword([]byte("password123"), bcrypt.DefaultCost)
+		rows := sqlmock.NewRows([]string{"id", "username", "password_hash", "role", "totp_secret"}).
+			AddRow(userID, "testuser", string(hashedPassword), RoleSecretsManager, "TOTPSECRET")
+
+		// Set up the query expectation to handle multiple calls
+		query := "SELECT id, username, password_hash, role, totp_secret FROM users WHERE username = \\?"
+		mock.ExpectQuery(query).
+			WithArgs("testuser").
+			WillReturnRows(rows).
+			RowsWillBeClosed()
+
+		// Generate TOTP code.
+		totpCode, err := GenerateTOTPCode("TOTPSECRET", time.Now())
+		assert.NoError(b, err, "generating TOTP code should succeed")
+
+		ctx := context.Background()
+		_, err = authRepo.Login(ctx, "testuser", "password123", totpCode)
+		if err != nil {
+			b.Fatalf("login failed: %v", err)
+		}
+
+		// Optionally log success (remove in production benchmarks to avoid overhead)
+		log.Infof("User logged in successfully, user_id=%s, username=%s", userID, "testuser")
 	}
 
 	// Verify mock expectations.

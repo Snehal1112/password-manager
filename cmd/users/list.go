@@ -23,19 +23,15 @@ THE SOFTWARE.
 package users
 
 import (
-	"fmt"
-
 	"github.com/spf13/cobra"
 )
 
 // listCmd represents the list command
 var listCmd = &cobra.Command{
-	Use:   "list",
-	Short: "List all users",
-	Long:  `Retrieve a list of all users in the system. This command does not require any additional parameters.`,
-	Run: func(cmd *cobra.Command, args []string) {
-		fmt.Println("list called")
-	},
+	Use:     "list",
+	Short:   "List all users",
+	Long:    `Retrieve a list of all users in the system. This command does not require any additional parameters.`,
+	Example: `users list`,
 }
 
 // InitUsersList initializes the list command for users

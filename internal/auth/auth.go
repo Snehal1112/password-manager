@@ -53,6 +53,7 @@ const (
 // It provides type-safe CRUD operations for the User type.
 type UserRepository interface {
 	db.Repository[User]
+	Login(ctx context.Context, username, password, totpCode string) (string, error)
 }
 
 // userRepository implements UserRepository for database operations on users.
@@ -263,11 +264,11 @@ func Register(ctx context.Context, username, password, role string) (string, err
 //	A JWT token string and an error if authentication fails.
 //
 // The function is used by the /login endpoint to authenticate users and issue tokens.
-func Login(ctx context.Context, username, password, totpCode string) (string, error) {
+func (r *userRepository) Login(ctx context.Context, username, password, totpCode string) (string, error) {
 	// Retrieve user data from the database.
 	var user User
 	var hashedPassword, totpSecret string
-	err := db.DB.QueryRowContext(
+	err := r.db.QueryRowContext(
 		ctx,
 		"SELECT id, username, password_hash, role, totp_secret FROM users WHERE username = ?",
 		username,

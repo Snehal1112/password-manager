@@ -47,10 +47,10 @@ var createCmd = &cobra.Command{
 		name := args[0]
 		value := args[1]
 		tags, _ := cmd.Flags().GetStringSlice("tags")
-		userID := cmd.Context().Value(common.UserIDKey.String()).(uuid.UUID)
+		userID := cmd.Context().Value(common.UserIDKey).(uuid.UUID)
 
-		db := cmd.Context().Value(common.DBKey.String()).(*sql.DB)
-		log := cmd.Context().Value(common.LogKey.String()).(*logging.Logger)
+		db := cmd.Context().Value(common.DBKey).(*sql.DB)
+		log := cmd.Context().Value(common.LogKey).(*logging.Logger)
 
 		repo := secrets.NewSecretRepository(db, log)
 

@@ -55,7 +55,7 @@ func NewMiddleware(logger *logging.Logger) *Middleware {
 func (m *Middleware) LoggingMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		start := time.Now()
-		userID, _ := r.Context().Value(common.UserIDKey.String()).(string) // May be 0 if unauthenticated.
+		userID, _ := r.Context().Value(common.UserIDKey).(string) // May be 0 if unauthenticated.
 
 		// Create a response writer to capture status code.
 		rw := &ResponseWriter{ResponseWriter: w, statusCode: http.StatusOK, log: m.log}

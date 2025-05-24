@@ -46,7 +46,7 @@ var createCmd = &cobra.Command{
 		db := db.NewRepository(log)
 		db.InitializeDB()
 
-		ctx := context.WithValue(cmd.Context(), common.DBKey.String(), db)
+		ctx := context.WithValue(cmd.Context(), common.DBKey, db)
 		cmd.SetContext(ctx)
 
 		username, _ := cmd.Flags().GetString("username")
@@ -80,7 +80,7 @@ var createCmd = &cobra.Command{
 	},
 	Run: func(cmd *cobra.Command, args []string) {},
 	PersistentPostRunE: func(cmd *cobra.Command, args []string) error {
-		cmd.Context().Value(common.DBKey.String()).(*db.DBRepository).CloseDB()
+		cmd.Context().Value(common.DBKey).(*db.DBRepository).CloseDB()
 		return nil
 	},
 }

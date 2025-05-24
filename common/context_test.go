@@ -7,9 +7,9 @@ import (
 
 func TestContextKey_String(t *testing.T) {
 	key := UserIDKey
-	want := "userID"
-	if key.String() != want {
-		t.Errorf("ContextKey.String() = %q, want %q", key.String(), want)
+	var want ContextKey = 3
+	if key != want {
+		t.Errorf("ContextKey.String() = %q, want %q", key, want)
 	}
 }
 
