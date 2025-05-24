@@ -35,7 +35,7 @@ var usersCmd = &cobra.Command{
 	Long: `A command group for creating, retrieving, updating, listing, and deleting users,
 as well as generating TOTP secrets for MFA.`,
 	Example: `users create --username <username> --password <password> --totp-secret <totp-secret>`,
-	Args:    cobra.ExactArgs(1),
+	Args:    cobra.NoArgs,
 }
 
 func init() {

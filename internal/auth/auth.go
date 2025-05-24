@@ -53,6 +53,7 @@ const (
 type UserRepository interface {
 	db.Repository[User]
 	Login(ctx context.Context, username, password, totpCode string) (string, error)
+	List(ctx context.Context) ([]User, error)
 }
 
 // userRepository implements UserRepository for database operations on users.
@@ -179,6 +180,42 @@ func (r *userRepository) Read(ctx context.Context, id uuid.UUID) (*User, error) 
 //	An error indicating the operation is not supported.
 func (r *userRepository) Update(ctx context.Context, user *User) error {
 	return fmt.Errorf("user updates not supported")
+}
+
+// List retrieves all users from the database.
+// It returns a list of users with their details.
+//
+// Parameters:
+// - ctx: The context for the database operation.
+// Returns: A slice of users and an error if the operation fails.
+func (r *userRepository) List(ctx context.Context) ([]User, error) {
+	rows, err := r.db.QueryContext(ctx, "SELECT id, username, password_hash, totp_secret, role, created_at FROM users")
+	if err != nil {
+		logrus.Error("Failed to list users: ", err)
+		return nil, fmt.Errorf("failed to list users: %w", err)
+	}
+	defer rows.Close()
+
+	var users []User
+	for rows.Next() {
+		var user User
+		var idStr string
+		if err := rows.Scan(&idStr, &user.Username, &user.PasswordHash, &user.TOTPSecret, &user.Role, &user.CreatedAt); err != nil {
+			logrus.Error("Failed to scan user: ", err)
+			return nil, fmt.Errorf("failed to scan user: %w", err)
+		}
+		user.ID, err = uuid.Parse(idStr)
+		if err != nil {
+			logrus.Error("Failed to parse user ID: ", err)
+			return nil, fmt.Errorf("failed to parse user ID: %w", err)
+		}
+		users = append(users, user)
+	}
+
+	logrus.WithFields(logrus.Fields{
+		"count": len(users),
+	}).Info("Users listed successfully")
+	return users, nil
 }
 
 // Delete deletes a user by ID from the database.

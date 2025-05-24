@@ -174,6 +174,8 @@ func persistentPreRun(cmd *cobra.Command, args []string) {
 	ctx = context.WithValue(ctx, common.TokenKey, token)
 	// Add userID to context.
 	ctx = context.WithValue(ctx, common.UserIDKey, claims.UserID)
+	// Add claims to context for further use in the command.
+	ctx = context.WithValue(ctx, common.ClaimsKey, claims)
 	cmd.SetContext(ctx)
 
 	log.WithFields(logrus.Fields{

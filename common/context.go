@@ -14,6 +14,8 @@ const (
 	UserIDKey
 	// TokenKey is the key used to store the authentication token in the context.
 	TokenKey
+	// ClaimsKey is the key used to store the authentication claims in the context.
+	ClaimsKey
 )
 
 // String returns the string representation of the ContextKey.
