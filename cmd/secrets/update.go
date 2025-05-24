@@ -25,6 +25,7 @@ package secrets
 import (
 	"database/sql"
 	"os"
+	"password-manager/common"
 	"password-manager/internal/logging"
 	"password-manager/internal/secrets"
 	"time"
@@ -46,9 +47,9 @@ var updateCmd = &cobra.Command{
 		tags, _ := cmd.Flags().GetStringSlice("tags")
 
 		ctx := cmd.Context()
-		userID := ctx.Value("userID").(uuid.UUID)
-		db := ctx.Value("db").(*sql.DB)
-		logger := ctx.Value("log").(*logging.Logger)
+		userID := ctx.Value(common.UserIDKey).(uuid.UUID)
+		db := ctx.Value(common.DBKey).(*sql.DB)
+		logger := ctx.Value(common.LogKey).(*logging.Logger)
 
 		repo := secrets.NewSecretRepository(db, logger)
 		secret, err := repo.Read(cmd.Context(), secretID)
