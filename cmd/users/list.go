@@ -23,6 +23,10 @@ THE SOFTWARE.
 package users
 
 import (
+	"fmt"
+	"log"
+	"password-manager/common"
+
 	"github.com/spf13/cobra"
 )
 
@@ -32,6 +36,11 @@ var listCmd = &cobra.Command{
 	Short:   "List all users",
 	Long:    `Retrieve a list of all users in the system. This command does not require any additional parameters.`,
 	Example: `users list`,
+	Run: func(cmd *cobra.Command, args []string) {
+		fmt.Println("list called")
+		tt := cmd.Context().Value(common.TestKey)
+		log.Println("listcmd Run:", tt)
+	},
 }
 
 // InitUsersList initializes the list command for users
