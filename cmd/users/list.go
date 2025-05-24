@@ -24,8 +24,6 @@ package users
 
 import (
 	"fmt"
-	"log"
-	"password-manager/common"
 
 	"github.com/spf13/cobra"
 )
@@ -38,8 +36,6 @@ var listCmd = &cobra.Command{
 	Example: `users list`,
 	Run: func(cmd *cobra.Command, args []string) {
 		fmt.Println("list called")
-		tt := cmd.Context().Value(common.TestKey)
-		log.Println("listcmd Run:", tt)
 	},
 }
 

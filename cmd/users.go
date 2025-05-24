@@ -45,7 +45,6 @@ func init() {
 	users.InitUsersDelete(usersCmd)
 	users.InitUsersGet(usersCmd)
 	users.InitUsersUpdate(usersCmd)
-	users.InitUsersLogin(usersCmd)
 	users.InitUsersList(usersCmd)
 	// Here you will define your flags and configuration settings.
 

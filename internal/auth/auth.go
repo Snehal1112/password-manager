@@ -310,7 +310,7 @@ func GenerateTOTPCode(secret string, t time.Time) (string, error) {
 //
 //	The parsed Claims and an error if parsing or validation fails.
 func ParseJWT(tokenString string) (*Claims, error) {
-	claims := Claims{}
+	claims := &Claims{}
 
 	// Parse the JWT token and validate its claims.
 	// Use jwt.ParseWithClaims to parse the token and validate the claims.
@@ -318,6 +318,10 @@ func ParseJWT(tokenString string) (*Claims, error) {
 	// The function will return an error if the token is invalid or expired.
 	// The claims struct should include the user ID and role.
 	token, err := jwt.ParseWithClaims(tokenString, claims, func(token *jwt.Token) (interface{}, error) {
+		logrus.WithFields(logrus.Fields{
+			"token": tokenString,
+		}).Info("Validating JWT token")
+
 		// Validate the token signing method.
 		if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
 			logrus.Warn("Unexpected signing method: ", token.Header["alg"])
@@ -327,13 +331,13 @@ func ParseJWT(tokenString string) (*Claims, error) {
 		// Retrieve the JWT secret from the configuration.
 		var jwtSecret = viper.GetString("jwt_secret")
 		if jwtSecret == "" {
-			logrus.Warn("JWT secret is not set")
+			logrus.Error("JWT secret is not set")
 			return nil, jwt.ErrInvalidKey
 		}
 
 		// Validate the token expiration.
 		if claims.ExpiresAt != nil && claims.ExpiresAt.Time.Before(time.Now()) {
-			logrus.Warn("Token has expired")
+			logrus.Error("Token has expired")
 			return nil, jwt.ErrTokenExpired
 		}
 
@@ -341,20 +345,20 @@ func ParseJWT(tokenString string) (*Claims, error) {
 	})
 
 	if err != nil {
-		logrus.Warn("Invalid JWT token: ", err)
+		logrus.Error("Invalid JWT token: ", err)
 		return nil, fmt.Errorf("invalid JWT token: %w", err)
 	}
 
 	if !token.Valid {
-		logrus.Warn("Invalid JWT: token is invalid")
+		logrus.Error("Invalid JWT: token is invalid")
 		return nil, fmt.Errorf("invalid JWT: token is invalid")
 	}
 
-	claims, ok := token.Claims.(Claims)
+	claims, ok := token.Claims.(*Claims)
 	if !ok {
-		logrus.Warn("Invalid JWT claims")
+		logrus.Error("Invalid JWT claims")
 		return nil, fmt.Errorf("invalid JWT claims")
 	}
 
-	return &claims, nil
+	return claims, nil
 }
