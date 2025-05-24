@@ -170,9 +170,18 @@ func persistentPreRun(cmd *cobra.Command, args []string) {
 		return
 	}
 
+	// Log successful authentication.
+	ctx = context.WithValue(ctx, common.TokenKey, token)
 	// Add userID to context.
 	ctx = context.WithValue(ctx, common.UserIDKey, claims.UserID)
 	cmd.SetContext(ctx)
+
+	log.WithFields(logrus.Fields{
+		"command":  cmd.Short,
+		"jwt":      token,
+		"userID":   claims.UserID,
+		"username": username,
+	}).Info("User authenticated successfully")
 }
 
 // persistentPostRun is a Cobra persistent post-run function that closes the database connection

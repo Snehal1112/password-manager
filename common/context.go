@@ -12,8 +12,8 @@ const (
 	LogKey
 	// UserIDKey is the key used to store the user ID in the context.
 	UserIDKey
-
-	TestKey
+	// TokenKey is the key used to store the authentication token in the context.
+	TokenKey
 )
 
 // String returns the string representation of the ContextKey.
