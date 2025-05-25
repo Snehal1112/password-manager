@@ -180,7 +180,7 @@ func persistentPreRun(cmd *cobra.Command, args []string) {
 
 	log.WithFields(logrus.Fields{
 		"command":  cmd.Short,
-		"jwt":      token,
+		"jwt":      token[:10] + "...",
 		"userID":   claims.UserID,
 		"username": username,
 	}).Info("User authenticated successfully")

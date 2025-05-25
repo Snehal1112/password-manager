@@ -23,23 +23,50 @@ THE SOFTWARE.
 package users
 
 import (
+	"database/sql"
+	"encoding/json"
 	"fmt"
+	"password-manager/common"
+	"password-manager/internal/auth"
+	"password-manager/internal/logging"
 
+	"github.com/google/uuid"
+	"github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
 )
 
 // getCmd represents the get command
 var getCmd = &cobra.Command{
-	Use:   "get [username]",
-	Short: "Get user information",
-	Long:  `Retrieve information about a specific user by their username.`,
+	Use:     "get",
+	Short:   "Get user information",
+	Long:    `Retrieve information about a specific user by their username.`,
+	Example: `password-manager users get <id> --username admin --password admin123 --totp-code <code>`,
 	Run: func(cmd *cobra.Command, args []string) {
+		ctx := cmd.Context()
+		log := ctx.Value(common.LogKey).(*logging.Logger)
+
 		if len(args) < 1 {
-			fmt.Println("Username is required")
+			log.LogAuditError("", "get_user", "failed", "user id is required", nil)
+			logrus.Fatalln("user id is required")
+
 			return
 		}
-		username := args[0]
-		fmt.Println("get called for user:", username)
+		userID := args[0]
+
+		claims, ok := ctx.Value(common.ClaimsKey).(*auth.Claims)
+		if !ok {
+			return
+		}
+
+		userRepo := auth.NewUserRepository(ctx.Value(common.DBKey).(*sql.DB), log)
+		user, err := userRepo.Read(ctx, uuid.MustParse(userID))
+		if err != nil {
+			log.LogAuditError(claims.UserID.String(), "get_user", "failed", fmt.Sprintf("failed to get user: %s", err), err)
+			return
+		}
+
+		userJSON, _ := json.MarshalIndent(user, "", "  ")
+		fmt.Println(string(userJSON))
 	},
 }
 

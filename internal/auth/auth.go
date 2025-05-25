@@ -420,7 +420,8 @@ func ParseJWT(tokenString string) (*Claims, error) {
 	// The claims struct should include the user ID and role.
 	token, err := jwt.ParseWithClaims(tokenString, claims, func(token *jwt.Token) (interface{}, error) {
 		logrus.WithFields(logrus.Fields{
-			"token": tokenString,
+			"token": tokenString[:10] + "...",
+			"alg":   token.Header["alg"],
 		}).Info("Validating JWT token")
 
 		// Validate the token signing method.
