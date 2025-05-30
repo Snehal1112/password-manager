@@ -24,9 +24,10 @@ package cmd
 
 import (
 	"fmt"
-	"password-manager/cmd/keys"
 
 	"github.com/spf13/cobra"
+
+	"password-manager/cmd/keys"
 )
 
 // keysCmd represents the keys command

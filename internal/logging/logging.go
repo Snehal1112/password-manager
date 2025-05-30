@@ -73,24 +73,23 @@ func InitLogger() *Logger {
 			}
 			logger.SetOutput(lumberjackLogger)
 
-			_, err := os.OpenFile(logFile, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0600)
+			_, err := os.OpenFile(logFile, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600)
 			if err != nil {
 				logger.Fatal("Failed to open log file: ", err)
 			}
 
 			// Set file permissions manually for lumberjack logs.
-			if err := os.Chmod(logFile, 0600); err != nil && !os.IsNotExist(err) {
+			if err := os.Chmod(logFile, 0o600); err != nil && !os.IsNotExist(err) {
 				logger.Warn("Failed to set log file permissions: ", err)
 			}
 		} else {
 			// Use custom gzip rotation (default).
-			file, err := os.OpenFile(logFile, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0600)
+			file, err := os.OpenFile(logFile, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600)
 			if err != nil {
 				logger.Fatal("Failed to open log file: ", err)
 			}
 			logger.SetOutput(file)
 		}
-
 	} else {
 		logger.SetOutput(os.Stdout)
 	}
@@ -138,7 +137,7 @@ func (l *Logger) RotateLogFile() error {
 	}
 
 	// Close current file.
-	currentFile, err := os.OpenFile(l.logFile, os.O_APPEND|os.O_WRONLY, 0600)
+	currentFile, err := os.OpenFile(l.logFile, os.O_APPEND|os.O_WRONLY, 0o600)
 	if err != nil {
 		return fmt.Errorf("failed to open current log file: %w", err)
 	}
@@ -154,7 +153,7 @@ func (l *Logger) RotateLogFile() error {
 	}
 
 	// Create new log file.
-	newFile, err := os.OpenFile(l.logFile, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0600)
+	newFile, err := os.OpenFile(l.logFile, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o600)
 	if err != nil {
 		return fmt.Errorf("failed to create new log file: %w", err)
 	}
@@ -196,7 +195,7 @@ func compressLogFile(src, dst string) error {
 	}
 
 	// Set permissions on compressed file.
-	if err := os.Chmod(dst, 0600); err != nil {
+	if err := os.Chmod(dst, 0o600); err != nil {
 		return fmt.Errorf("failed to set permissions on compressed file: %w", err)
 	}
 

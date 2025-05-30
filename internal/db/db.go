@@ -8,11 +8,12 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
-	"password-manager/internal/logging"
 
 	"github.com/google/uuid"
 	_ "github.com/mattn/go-sqlite3" // SQLite driver for database/sql.
 	"github.com/spf13/viper"
+
+	"password-manager/internal/logging"
 )
 
 // DB is the global database connection for the application.

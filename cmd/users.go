@@ -23,9 +23,9 @@ THE SOFTWARE.
 package cmd
 
 import (
-	"password-manager/cmd/users"
-
 	"github.com/spf13/cobra"
+
+	"password-manager/cmd/users"
 )
 
 // usersCmd represents the users command

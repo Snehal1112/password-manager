@@ -26,11 +26,12 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+
+	"github.com/spf13/cobra"
+
 	"password-manager/common"
 	"password-manager/internal/auth"
 	"password-manager/internal/logging"
-
-	"github.com/spf13/cobra"
 )
 
 // listCmd represents the list command

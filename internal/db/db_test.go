@@ -4,11 +4,12 @@ package db
 
 import (
 	"os"
-	"password-manager/internal/logging"
 	"testing"
 
 	"github.com/spf13/viper"
 	"github.com/stretchr/testify/assert"
+
+	"password-manager/internal/logging"
 )
 
 // TestInitializeDB tests the InitializeDB function to ensure it opens a SQLite connection and creates tables.

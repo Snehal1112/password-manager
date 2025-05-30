@@ -25,14 +25,15 @@ package users
 import (
 	"context"
 	"os"
-	"password-manager/common"
-	"password-manager/internal/auth"
-	"password-manager/internal/db"
-	"password-manager/internal/logging"
 
 	"github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
+
+	"password-manager/common"
+	"password-manager/internal/auth"
+	"password-manager/internal/db"
+	"password-manager/internal/logging"
 )
 
 // createCmd represents the create command

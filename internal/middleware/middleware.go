@@ -146,7 +146,7 @@ func (m *Middleware) AuthMiddleware(next http.Handler) http.Handler {
 			}
 
 			// Retrieve the JWT secret from the configuration.
-			var jwtSecret = viper.GetString("jwt_secret")
+			jwtSecret := viper.GetString("jwt_secret")
 			if jwtSecret == "" {
 				m.log.LogAuditError("", "auth", "failed", "JWT secret is not set", nil)
 				logrus.Warn("JWT secret is not set")
@@ -162,7 +162,6 @@ func (m *Middleware) AuthMiddleware(next http.Handler) http.Handler {
 
 			return []byte(viper.GetString("jwt_secret")), nil
 		})
-
 		if err != nil {
 			m.log.LogAuditError("", "auth", "failed", "Invalid JWT token", nil)
 			logrus.Warn("Invalid JWT token: ", err)

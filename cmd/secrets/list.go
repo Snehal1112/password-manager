@@ -27,12 +27,13 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
-	"password-manager/common"
-	"password-manager/internal/logging"
-	"password-manager/internal/secrets"
 
 	"github.com/google/uuid"
 	"github.com/spf13/cobra"
+
+	"password-manager/common"
+	"password-manager/internal/logging"
+	"password-manager/internal/secrets"
 )
 
 // listCmd represents the list command
