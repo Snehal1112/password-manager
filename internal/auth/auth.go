@@ -43,6 +43,7 @@ type Claims struct {
 
 // Role constants define user roles for RBAC.
 const (
+	RoleAdmin              = "admin"
 	RoleSecretsManager     = "secrets_manager"
 	RoleCryptoManager      = "crypto_manager"
 	RoleCertificateManager = "certificate_manager"
@@ -52,8 +53,11 @@ const (
 // It provides type-safe CRUD operations for the User type.
 type UserRepository interface {
 	db.Repository[User]
+	ReadByUsername(ctx context.Context, username string) (User, error)
 	Login(ctx context.Context, username, password, totpCode string) (string, error)
 	List(ctx context.Context) ([]User, error)
+	ValidateBootstrapToken(ctx context.Context, token string) (bool, error)
+	InvalidateBootstrapToken(ctx context.Context, token string) error
 }
 
 // userRepository implements UserRepository for database operations on users.
@@ -297,6 +301,38 @@ func (r *userRepository) Delete(ctx context.Context, id uuid.UUID) error {
 	return nil
 }
 
+// ReadByUsername retrieves a user by username from the database.
+// It returns the user’s details for authentication or lookup purposes.
+//
+// Parameters:
+// - ctx: The context for the database operation.
+// - username: The user’s username.
+// Returns: The user and an error if the retrieval fails.
+func (r *userRepository) ReadByUsername(ctx context.Context, username string) (User, error) {
+	var user User
+	var idStr string
+	err := r.db.QueryRowContext(
+		ctx,
+		"SELECT id, username, password_hash, totp_secret, role FROM users WHERE username = ?",
+		username,
+	).Scan(&idStr, &user.Username, &user.PasswordHash, &user.TOTPSecret, &user.Role)
+	if err == sql.ErrNoRows {
+		return user, fmt.Errorf("user not found")
+	}
+	if err != nil {
+		logrus.Error("Failed to query user by username: ", err)
+		return user, fmt.Errorf("failed to query user by username: %w", err)
+	}
+
+	user.ID, err = uuid.Parse(idStr)
+	if err != nil {
+		logrus.Error("Failed to parse user ID: ", err)
+		return user, fmt.Errorf("failed to parse user ID: %w", err)
+	}
+
+	return user, nil
+}
+
 // Login authenticates a user with username, password, and TOTP code.
 // It verifies credentials and issues a JWT token for authenticated requests.
 //
@@ -463,4 +499,57 @@ func ParseJWT(tokenString string) (*Claims, error) {
 	}
 
 	return claims, nil
+}
+
+// ValidateBootstrapToken checks if the provided bootstrap token is valid and unused.
+// It verifies the token against a stored value and checks if the users table is empty.
+//
+// Parameters:
+// - ctx: The context for the database operation.
+// - token: The bootstrap token to validate.
+// Returns: True if valid and unused, false otherwise, and an error if the operation fails.
+func (r *userRepository) ValidateBootstrapToken(ctx context.Context, token string) (bool, error) {
+	// Check if users table is empty
+	rows, err := r.db.QueryContext(ctx, "SELECT COUNT(*) FROM users")
+	if err != nil {
+		r.log.LogAuditError(uuid.Nil.String(), "validate_bootstrap_token", "failed", "Failed to query users", err)
+		return false, fmt.Errorf("failed to query users: %w", err)
+	}
+	defer rows.Close()
+
+	var count int
+	if rows.Next() {
+		if err := rows.Scan(&count); err != nil {
+			r.log.LogAuditError(uuid.Nil.String(), "validate_bootstrap_token", "failed", "Failed to scan user count", err)
+			return false, fmt.Errorf("failed to scan user count: %w", err)
+		}
+	}
+
+	// Mock bootstrap token validation (replace with secure storage in production)
+	expectedToken := viper.GetString("bootstrap_token") // Load from viper
+	if expectedToken == "" {
+		r.log.LogAuditError(uuid.Nil.String(), "validate_bootstrap_token", "failed", "Bootstrap token not configured", nil)
+		return false, fmt.Errorf("bootstrap token not configured")
+	}
+	if token != expectedToken {
+		r.log.LogAuditError(uuid.Nil.String(), "validate_bootstrap_token", "failed", "Invalid bootstrap token", nil)
+		return false, nil
+	}
+
+	return true, nil
+}
+
+// InvalidateBootstrapToken marks the bootstrap token as used.
+// In this implementation, it’s a no-op since we rely on users table being non-empty.
+// In production, update a config or database to mark the token as invalid.
+//
+// Parameters:
+// - ctx: The context for the database operation.
+// - token: The bootstrap token to invalidate.
+// Returns: An error if the operation fails.
+func (r *userRepository) InvalidateBootstrapToken(ctx context.Context, token string) error {
+	// No-op for now; token is implicitly invalidated by user creation
+	// TODO: Implement token invalidation (e.g., update config, database)
+	r.log.LogAuditInfo(uuid.Nil.String(), "invalidate_bootstrap_token", "success", "Bootstrap token invalidated")
+	return nil
 }

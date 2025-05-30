@@ -24,6 +24,7 @@ package cmd
 
 import (
 	"context"
+	"errors"
 	"log"
 	"os"
 
@@ -43,6 +44,9 @@ var restrictedCmds = map[string]map[string]string{
 		"parent": "password-manager",
 	},
 	"create": {
+		"parent": "users",
+	},
+	"admin": {
 		"parent": "users",
 	},
 }
@@ -149,7 +153,7 @@ func persistentPreRun(cmd *cobra.Command, args []string) {
 	totpCode, _ := cmd.Flags().GetString("totp-code")
 
 	if username == "" || password == "" {
-		log.LogAuditError("", "secrets", "failed", "Username and password are required for authentication", nil)
+		log.LogAuditError("", "secrets", "failed", "Username and password are required for authentication", errors.New("missing credentials"))
 		os.Exit(0)
 		return
 	}
