@@ -23,19 +23,85 @@ THE SOFTWARE.
 package users
 
 import (
+	"database/sql"
 	"fmt"
+	"strings"
 
+	"github.com/google/uuid"
 	"github.com/spf13/cobra"
+	"github.com/spf13/viper"
+
+	"password-manager/common"
+	"password-manager/internal/auth"
+	"password-manager/internal/logging"
 )
 
 // updateCmd represents the update command
 var updateCmd = &cobra.Command{
-	Use:     "update",
+	Use:     "update <id>",
 	Short:   "Update user information",
-	Example: `users update --username <username> --password <new_password> --role <new_role>`,
-	Long:    `Update information about a specific user by their username.`,
-	Run: func(cmd *cobra.Command, args []string) {
-		fmt.Println("update called")
+	Long:    `Update a user's username, password, or role by their UUID. Accessible by the user themselves or users with the admin role.`,
+	Example: `password-manager users update <user-id> --username admin --password admin123 --totp-code <code> --new-username newuser --new-password newpass123 --new-role user`,
+	Args:    cobra.ExactArgs(1),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		ctx := cmd.Context()
+		claims, ok := ctx.Value(common.ClaimsKey).(*auth.Claims)
+		if !ok {
+			return fmt.Errorf("unauthorized: missing authentication claims")
+		}
+
+		log := ctx.Value(common.LogKey).(*logging.Logger)
+		id, err := uuid.Parse(args[0])
+		if err != nil {
+			log.LogAuditError(claims.UserID.String(), "update_user", "failed", fmt.Sprintf("invalid user ID: %s", err), err)
+			return fmt.Errorf("invalid user ID: %w", err)
+		}
+
+		if claims.UserID != id && claims.Role != auth.RoleAdmin {
+			log.LogAuditError(claims.UserID.String(), "update_user", "failed", "forbidden: cannot update other users", nil)
+			return fmt.Errorf("forbidden: cannot update other users")
+		}
+
+		newUsername := viper.GetString("new-username")
+		newPassword := viper.GetString("new-password")
+		newRole := viper.GetString("new-role")
+
+		if newUsername == "" && newPassword == "" && newRole == "" {
+			log.LogAuditError(claims.UserID.String(), "update_user", "failed", "at least one field (new-username, new-password, new-role) must be provided", nil)
+			return fmt.Errorf("at least one field (new-username, new-password, new-role) must be provided")
+		}
+
+		if newRole != "" && !strings.Contains("admin,secrets_manager,crypto_manager,certificate_manager,user", newRole) {
+			log.LogAuditError(claims.UserID.String(), "update_user", "failed", "invalid role", nil)
+			return fmt.Errorf("invalid role: must be admin, secrets_manager, crypto_manager, certificate_manager, or user")
+		}
+
+		userRepo := auth.NewUserRepository(ctx.Value(common.DBKey).(*sql.DB), log)
+		user, err := userRepo.Read(ctx, id)
+		if err != nil {
+			log.LogAuditError(claims.UserID.String(), "update_user", "failed", fmt.Sprintf("failed to read user: %s", err), err)
+			return fmt.Errorf("failed to read user: %w", err)
+		}
+
+		// Update fields only if provided
+		if newUsername != "" {
+			user.Username = newUsername
+		}
+		if newPassword != "" {
+			user.PasswordHash = newPassword
+		}
+		if newRole != "" {
+			user.Role = newRole
+		}
+
+		if err := userRepo.Update(ctx, user); err != nil {
+			log.LogAuditError(claims.UserID.String(), "update_user", "failed", fmt.Sprintf("failed to update user: %s", err), err)
+			return fmt.Errorf("failed to update user: %w", err)
+		}
+
+		log.LogAuditInfo(claims.UserID.String(), "update_user", "success", fmt.Sprintf("user updated: %s", user.Username))
+		fmt.Printf("User %s updated successfully\n", user.ID)
+		return nil
 	},
 }
 
@@ -60,14 +126,12 @@ var updateCmd = &cobra.Command{
 func InitUsersUpdate(usersCmd *cobra.Command) *cobra.Command {
 	usersCmd.AddCommand(updateCmd)
 
-	// Here you will define your flags and configuration settings.
+	updateCmd.Flags().String("new-username", "", "New username for the user")
+	updateCmd.Flags().String("new-password", "", "New password for the user")
+	updateCmd.Flags().String("new-role", "", "New role for the user (admin, secrets_manager, crypto_manager, certificate_manager)")
+	viper.BindPFlag("new-username", updateCmd.Flags().Lookup("new-username"))
+	viper.BindPFlag("new-password", updateCmd.Flags().Lookup("new-password"))
+	viper.BindPFlag("new-role", updateCmd.Flags().Lookup("new-role"))
 
-	// Cobra supports Persistent Flags which will work for this command
-	// and all subcommands, e.g.:
-	// updateCmd.PersistentFlags().String("foo", "", "A help for foo")
-
-	// Cobra supports local flags which will only run when this command
-	// is called directly, e.g.:
-	// updateCmd.Flags().BoolP("toggle", "t", false, "Help message for toggle")
 	return usersCmd
 }
