@@ -24,8 +24,8 @@ package users
 
 import (
 	"database/sql"
-	"encoding/json"
 	"fmt"
+	"time"
 
 	"github.com/spf13/cobra"
 
@@ -38,26 +38,41 @@ import (
 var listCmd = &cobra.Command{
 	Use:     "list",
 	Short:   "List all users",
-	Long:    `Retrieve a list of all users in the system. This command does not require any additional parameters.`,
-	Example: `users list`,
-	Run: func(cmd *cobra.Command, args []string) {
+	Long:    `Retrieve a list of all users in the Password Manager. Accessible only by users with the admin role.`,
+	Example: `password-manager users list --username admin --password admin123 --totp-code <code>`,
+	Args:    cobra.NoArgs,
+	RunE: func(cmd *cobra.Command, args []string) error {
 		ctx := cmd.Context()
 		claims, ok := ctx.Value(common.ClaimsKey).(*auth.Claims)
 		if !ok {
-			return
+			return fmt.Errorf("unauthorized: missing authentication claims")
 		}
 
 		log := ctx.Value(common.LogKey).(*logging.Logger)
+		if claims.Role != auth.RoleAdmin {
+			log.LogAuditError(claims.UserID.String(), "list_users", "failed", "forbidden: requires admin role", nil)
+			return fmt.Errorf("forbidden: requires admin role")
+		}
 
 		userRepo := auth.NewUserRepository(ctx.Value(common.DBKey).(*sql.DB), log)
 		users, err := userRepo.List(ctx)
 		if err != nil {
 			log.LogAuditError(claims.UserID.String(), "list_users", "failed", fmt.Sprintf("failed to list users: %s", err), err)
-			return
+			return fmt.Errorf("failed to list users: %w", err)
 		}
 
-		t, _ := json.MarshalIndent(users, "", "  ")
-		fmt.Println(string(t))
+		log.LogAuditInfo(claims.UserID.String(), "list_users", "success", fmt.Sprintf("listed %d users", len(users)))
+		if len(users) == 0 {
+			fmt.Println("No users found.")
+			return nil
+		}
+
+		fmt.Println("Users:")
+		for _, user := range users {
+			fmt.Printf("- ID=%s, Username=%s, Role=%s, CreatedAt=%s\n",
+				user.ID, user.Username, user.Role, user.CreatedAt.Format(time.RFC3339))
+		}
+		return nil
 	},
 }
 
