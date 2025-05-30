@@ -158,8 +158,8 @@ func (r *userRepository) Create(ctx context.Context, user *User) error {
 //	The user and an error if the retrieval fails.
 func (r *userRepository) Read(ctx context.Context, id uuid.UUID) (*User, error) {
 	var user User
-	err := r.db.QueryRowContext(ctx, "SELECT id, username, role FROM users WHERE id = ?", id).
-		Scan(&user.ID, &user.Username, &user.Role)
+	err := r.db.QueryRowContext(ctx, "SELECT id, password_hash, totp_secret, username, role FROM users WHERE id = ?", id).
+		Scan(&user.ID, &user.PasswordHash, &user.TOTPSecret, &user.Username, &user.Role)
 	if err == sql.ErrNoRows {
 		return nil, fmt.Errorf("user not found")
 	}
@@ -181,7 +181,40 @@ func (r *userRepository) Read(ctx context.Context, id uuid.UUID) (*User, error) 
 //
 //	An error indicating the operation is not supported.
 func (r *userRepository) Update(ctx context.Context, user *User) error {
-	return fmt.Errorf("user updates not supported")
+	logrus.Debug("Starting user update")
+	var hashedPassword string
+	var err error
+	if user.PasswordHash != "" {
+		hashedPassword, err = common.HashString(user.PasswordHash)
+		if err != nil {
+			r.log.LogAuditError(user.ID.String(), "update_user", "failed", "Failed to hash password", err)
+			return fmt.Errorf("failed to hash password: %w", err)
+		}
+	} else {
+		existingUser, err := r.Read(ctx, user.ID)
+		if err != nil {
+			logrus.Error("Failed to read existing user: ", err)
+			return err
+		}
+		hashedPassword = existingUser.PasswordHash
+	}
+
+	_, err = r.db.ExecContext(
+		ctx,
+		"UPDATE users SET username = ?, password_hash = ?, role = ? WHERE id = ?",
+		user.Username, hashedPassword, user.Role, user.ID.String(),
+	)
+	if err != nil {
+		r.log.LogAuditError(user.ID.String(), "update_user", "failed", "Failed to update user", err)
+		return fmt.Errorf("failed to update user: %w", err)
+	}
+
+	r.log.LogAuditInfo(user.ID.String(), "update_user", "success", fmt.Sprintf("User updated: %s", user.Username))
+	logrus.WithFields(logrus.Fields{
+		"user_id":  user.ID.String(),
+		"username": user.Username,
+	}).Info("Updated user successfully")
+	return nil
 }
 
 // List retrieves all users from the database.
