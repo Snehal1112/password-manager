@@ -25,14 +25,15 @@ package secrets
 import (
 	"database/sql"
 	"os"
-	"password-manager/common"
-	"password-manager/internal/logging"
-	"password-manager/internal/secrets"
 	"time"
 
 	"github.com/google/uuid"
 	"github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
+
+	"password-manager/common"
+	"password-manager/internal/logging"
+	"password-manager/internal/secrets"
 )
 
 // updateCmd represents the update command

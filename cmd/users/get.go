@@ -24,14 +24,14 @@ package users
 
 import (
 	"database/sql"
-	"encoding/json"
 	"fmt"
+	"time"
+
 	"password-manager/common"
 	"password-manager/internal/auth"
 	"password-manager/internal/logging"
 
 	"github.com/google/uuid"
-	"github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
 )
 
@@ -41,32 +41,36 @@ var getCmd = &cobra.Command{
 	Short:   "Get user information",
 	Long:    `Retrieve information about a specific user by their username.`,
 	Example: `password-manager users get <id> --username admin --password admin123 --totp-code <code>`,
-	Run: func(cmd *cobra.Command, args []string) {
+	RunE: func(cmd *cobra.Command, args []string) error {
 		ctx := cmd.Context()
-		log := ctx.Value(common.LogKey).(*logging.Logger)
-
-		if len(args) < 1 {
-			log.LogAuditError("", "get_user", "failed", "user id is required", nil)
-			logrus.Fatalln("user id is required")
-
-			return
-		}
-		userID := args[0]
-
 		claims, ok := ctx.Value(common.ClaimsKey).(*auth.Claims)
 		if !ok {
-			return
+			return fmt.Errorf("unauthorized: missing authentication claims")
+		}
+
+		log := ctx.Value(common.LogKey).(*logging.Logger)
+		id, err := uuid.Parse(args[0])
+		if err != nil {
+			log.LogAuditError(claims.UserID.String(), "get_user", "failed", fmt.Sprintf("invalid user ID: %s", err), err)
+			return fmt.Errorf("invalid user ID: %w", err)
+		}
+
+		if claims.UserID != id && claims.Role != auth.RoleAdmin {
+			log.LogAuditError(claims.UserID.String(), "get_user", "failed", "forbidden: cannot access other users", nil)
+			return fmt.Errorf("forbidden: cannot access other users")
 		}
 
 		userRepo := auth.NewUserRepository(ctx.Value(common.DBKey).(*sql.DB), log)
-		user, err := userRepo.Read(ctx, uuid.MustParse(userID))
+		user, err := userRepo.Read(ctx, id)
 		if err != nil {
 			log.LogAuditError(claims.UserID.String(), "get_user", "failed", fmt.Sprintf("failed to get user: %s", err), err)
-			return
+			return fmt.Errorf("failed to get user: %w", err)
 		}
 
-		userJSON, _ := json.MarshalIndent(user, "", "  ")
-		fmt.Println(string(userJSON))
+		log.LogAuditInfo(claims.UserID.String(), "get_user", "success", fmt.Sprintf("user retrieved: %s", user.Username))
+		fmt.Printf("User: ID=%s, Username=%s, Role=%s, CreatedAt=%s\n",
+			user.ID, user.Username, user.Role, user.CreatedAt.Format(time.RFC3339))
+		return nil
 	},
 }
 

@@ -115,7 +115,6 @@ func (r *userRepository) Create(ctx context.Context, user *User) error {
 		AccountName: user.Username,
 		SecretSize:  20,
 	})
-
 	if err != nil {
 		r.log.LogAuditError(user.ID.String(), "create_user", "failed", "Failed to generate TOTP secret", err)
 		return fmt.Errorf("failed to generate TOTP secret: %w", err)
@@ -128,7 +127,6 @@ func (r *userRepository) Create(ctx context.Context, user *User) error {
 		"INSERT INTO users (id, username, password_hash, totp_secret, role, created_at) VALUES (?, ?, ?, ?, ?, ?)",
 		userID.String(), user.Username, string(hashedPassword), totpKey.Secret(), user.Role, time.Now(),
 	)
-
 	// Check for errors during insertion.
 	if err != nil {
 		r.log.LogAuditError(userID.String(), "create_user", "failed", "Failed to create user", err)
@@ -467,7 +465,7 @@ func ParseJWT(tokenString string) (*Claims, error) {
 		}
 
 		// Retrieve the JWT secret from the configuration.
-		var jwtSecret = viper.GetString("jwt_secret")
+		jwtSecret := viper.GetString("jwt_secret")
 		if jwtSecret == "" {
 			logrus.Error("JWT secret is not set")
 			return nil, jwt.ErrInvalidKey
@@ -481,7 +479,6 @@ func ParseJWT(tokenString string) (*Claims, error) {
 
 		return []byte(viper.GetString("jwt_secret")), nil
 	})
-
 	if err != nil {
 		logrus.Error("Invalid JWT token: ", err)
 		return nil, fmt.Errorf("invalid JWT token: %w", err)

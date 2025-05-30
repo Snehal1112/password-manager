@@ -25,13 +25,14 @@ package secrets
 import (
 	"database/sql"
 	"os"
-	"password-manager/common"
-	"password-manager/internal/logging"
-	"password-manager/internal/secrets"
 
 	"github.com/google/uuid"
 	"github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
+
+	"password-manager/common"
+	"password-manager/internal/logging"
+	"password-manager/internal/secrets"
 )
 
 // deleteCmd represents the delete command

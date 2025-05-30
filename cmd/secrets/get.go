@@ -27,13 +27,14 @@ import (
 	"encoding/json"
 	"log"
 	"os"
-	"password-manager/common"
-	"password-manager/internal/logging"
-	"password-manager/internal/secrets"
 
 	"github.com/google/uuid"
 	"github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
+
+	"password-manager/common"
+	"password-manager/internal/logging"
+	"password-manager/internal/secrets"
 )
 
 // getCmd represents the get command
@@ -72,7 +73,6 @@ var getCmd = &cobra.Command{
 
 		jsonData, _ := json.MarshalIndent(secret, "", "  ")
 		log.Println(string(jsonData))
-
 	},
 }
 

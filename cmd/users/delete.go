@@ -25,12 +25,13 @@ package users
 import (
 	"database/sql"
 	"fmt"
-	"password-manager/common"
-	"password-manager/internal/auth"
-	"password-manager/internal/logging"
 
 	"github.com/google/uuid"
 	"github.com/spf13/cobra"
+
+	"password-manager/common"
+	"password-manager/internal/auth"
+	"password-manager/internal/logging"
 )
 
 // deleteCmd represents the delete command

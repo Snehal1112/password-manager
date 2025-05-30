@@ -82,7 +82,6 @@ func (r *secretRepository) Create(ctx context.Context, secret *Secret) error {
 		"INSERT INTO secrets (id, user_id, name, value, version, created_at) VALUES (?,?, ?, ?, ?, ?)",
 		secret.ID.String(), secret.UserID.String(), secret.Name, encryptedValue, secret.Version, secret.CreatedAt,
 	)
-
 	if err != nil {
 		r.log.LogAuditError(secret.UserID.String(), "create_secret", "failed", "Failed to create secret", err)
 		return fmt.Errorf("failed to create secret: %w", err)

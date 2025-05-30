@@ -126,7 +126,7 @@ func TestRotateLogFileCustom(t *testing.T) {
 	logger := InitLogger()
 
 	// Write data to exceed size limit.
-	file, err := os.OpenFile(logger.logFile, os.O_APPEND|os.O_WRONLY, 0600)
+	file, err := os.OpenFile(logger.logFile, os.O_APPEND|os.O_WRONLY, 0o600)
 	assert.NoError(t, err, "failed to open log file")
 	defer file.Close()
 	data := make([]byte, 1.5*1024*1024) // 1.5 MB
@@ -149,7 +149,7 @@ func TestRotateLogFileCustom(t *testing.T) {
 
 	// Test cleanup with old files.
 	oldFile := fmt.Sprintf("%s.%s.gz", logger.logFile, time.Now().AddDate(0, 0, -10).Format("20060102_150405"))
-	err = os.WriteFile(oldFile, []byte("old"), 0600)
+	err = os.WriteFile(oldFile, []byte("old"), 0o600)
 	assert.NoError(t, err, "failed to create old log file")
 
 	err = logger.cleanupOldLogs()
@@ -161,7 +161,7 @@ func TestRotateLogFileCustom(t *testing.T) {
 	// Test backup limit.
 	for i := 0; i < 3; i++ {
 		extraFile := fmt.Sprintf("%s.%s.gz", logger.logFile, time.Now().Add(-time.Duration(i)*time.Hour).Format("20060102_150405"))
-		err = os.WriteFile(extraFile, []byte("extra"), 0600)
+		err = os.WriteFile(extraFile, []byte("extra"), 0o600)
 		assert.NoError(t, err, "failed to create extra log file")
 	}
 	err = logger.cleanupOldLogs()
@@ -192,7 +192,7 @@ func TestRotateLogFileLumberjack(t *testing.T) {
 	logger := InitLogger()
 
 	// Write data to exceed size limit.
-	file, err := os.OpenFile(logger.logFile, os.O_APPEND|os.O_WRONLY, 0600)
+	file, err := os.OpenFile(logger.logFile, os.O_APPEND|os.O_WRONLY, 0o600)
 	assert.NoError(t, err, "failed to open log file")
 	defer file.Close()
 	data := make([]byte, 1.5*1024*1024) // 1.5 MB
