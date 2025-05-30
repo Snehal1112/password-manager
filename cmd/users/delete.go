@@ -53,7 +53,7 @@ var deleteCmd = &cobra.Command{
 		log := ctx.Value(common.LogKey).(*logging.Logger)
 		id := uuid.MustParse(args[0])
 
-		if claims.UserID != id && claims.Role != auth.RoleCryptoManager {
+		if claims.UserID != id && claims.Role != auth.RoleAdmin {
 			log.LogAuditError(claims.UserID.String(), "delete_user", "failed", "forbidden: cannot delete other users", nil)
 			return
 		}
