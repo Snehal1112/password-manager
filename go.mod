@@ -11,6 +11,7 @@ require (
 	github.com/BurntSushi/toml v1.5.0 // indirect
 	github.com/boombuler/barcode v1.0.1-0.20190219062509-6c824513bacc // indirect
 	github.com/pkg/errors v0.9.1 // indirect
+	golang.org/x/term v0.32.0 // indirect
 	gopkg.in/natefinch/lumberjack.v2 v2.2.1 // indirect
 	gopkg.in/yaml.v2 v2.4.0 // indirect
 )

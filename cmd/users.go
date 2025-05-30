@@ -46,6 +46,7 @@ func init() {
 	users.InitUsersGet(usersCmd)
 	users.InitUsersUpdate(usersCmd)
 	users.InitUsersList(usersCmd)
+	users.InitUsersRegisterAdmin(usersCmd)
 	// Here you will define your flags and configuration settings.
 
 	// Cobra supports Persistent Flags which will work for this command
