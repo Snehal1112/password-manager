@@ -31,10 +31,29 @@ type Logger struct {
 // It uses either lumberjack or custom gzip rotation based on viper settings.
 func InitLogger() *Logger {
 	logger := logrus.New()
-	logger.SetFormatter(&logrus.JSONFormatter{
-		TimestampFormat: time.RFC3339,
-		PrettyPrint:     viper.GetBool("log.pretty_print"),
-	})
+
+	switch viper.GetString("log.format") {
+	case "json":
+		logger.SetFormatter(&logrus.JSONFormatter{
+			TimestampFormat: time.RFC3339,
+			PrettyPrint:     viper.GetBool("log.pretty_print"),
+		})
+		break
+	case "yaml":
+		logger.SetFormatter(&YAMLFormatter{
+			TimestampFormat: time.RFC3339,
+			PrettyPrint:     viper.GetBool("log.pretty_print"),
+		})
+		break
+	case "text":
+		logger.SetFormatter(&logrus.TextFormatter{
+			TimestampFormat: time.RFC3339,
+			FullTimestamp:   true,
+		})
+		break
+	default:
+		logrus.WithField("format", viper.GetString("log.format")).Infoln("Default log format is used by logrus")
+	}
 
 	// Set log level from config.yaml.
 	level, err := logrus.ParseLevel(viper.GetString("log.level"))
@@ -88,7 +107,9 @@ func InitLogger() *Logger {
 			if err != nil {
 				logger.Fatal("Failed to open log file: ", err)
 			}
-			logger.SetOutput(file)
+
+			mw := io.MultiWriter(os.Stdout, file)
+			logger.SetOutput(mw)
 		}
 	} else {
 		logger.SetOutput(os.Stdout)
