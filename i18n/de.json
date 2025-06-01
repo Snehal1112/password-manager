@@ -1,0 +1,67 @@
+[{
+	"id": "api.user.github.repository.not_found",
+	"translation": "Repository id {{.Id}} not found"
+},{
+	"id": "api.user.github.repository.not_deleted",
+	"translation": "Repository not deleted {{.Name}}"
+},{
+	"id": "api.user.github.invalid.token",
+	"translation": "Unauthorized: No token present"
+},{
+	"id": "server.start",
+	"translation" : "Server running successfully."
+},{
+	"id": "server.error.in.start",
+	"translation" : "Problem in server start."
+},{
+	"id": "server.shutdown",
+	"translation" : "Server shutdown successfully."
+},{
+	"id": "api.server.new_server.init.info",
+	"translation": "Server is initializing..."
+},{
+	"id": "api.server.start_server.listening.info",
+	"translation": "Server is listening on %v"
+},{
+	"id": "api.emp.delete.error",
+	"translation": "Problem in delete item"
+},{
+	"id": "store.db_item.delete.app_error",
+	"translation": "Problem in delete item"
+},{
+	"id": "store.db_item.save.app_error",
+	"translation": "Problem in create item"
+},{
+	"id": "store.db_item.read.app_error",
+	"translation": "Problem in read item"
+},{
+	"id" : "api.user.login.blank_pwd.app_error",
+	"translation" : "Password must not empty"
+},{
+	"id" : "store.db_user.user.exists.app_error",
+	"translation" : "User {{.User}} is already exists."
+},{
+	"id" : "api.context.session_expired.app_error",
+	"translation" : "Invalid session."
+},{
+	"id" : "store.message_store.create.app_error",
+	"translation" : "Problem in create message store."
+},{
+	"id" : "store.message_store.create.object_table.app_error",
+	"translation" : "Problem in create root folder."
+},{
+	"id" : "store.message_store.create.root_container.app_error",
+	"translation" : "Problem in create root container."
+},{
+	"id" : "store.message_store.create.ipm_subtree.app_error",
+	"translation" : "IMP_SUBTREE wird nicht ordnungsgemäß erstellt"
+},{
+	"id" : "utils.config.load_config.decoding.panic",
+	"translation" : "Problem in decoding {{.Filename}} config file"
+},{
+	"id" : "utils.config.load_config.opening.panic",
+	"translation" : "Problem in opening {{.Filename}} config file. Probably config file is not exist in directory."
+},{
+	"id" : "store.ecgenericprop.hrGetHandler.invalid_proptag",
+	"translation" : "Prop tag {{.ulPropTag}} does not exists."
+}]

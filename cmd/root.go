@@ -27,6 +27,8 @@ import (
 	"errors"
 	"log"
 	"os"
+	"path/filepath"
+	"time"
 
 	"github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
@@ -139,6 +141,8 @@ func persistentPreRun(cmd *cobra.Command, args []string) {
 
 	// Initialize the logger.
 	log := logging.InitLogger()
+	// Start log rotation goroutine
+	go rotateLogsPeriodically(log)
 
 	// Ensure database is initialized.
 	database := db.NewRepository(log)
@@ -207,4 +211,45 @@ func persistentPostRun(cmd *cobra.Command, args []string) error {
 
 	cmd.Context().Value(common.DBClassKey).(*db.DBRepository).CloseDB()
 	return nil
+}
+
+// rotateLogsPeriodically rotates the log file if it exceeds 10MB.
+// It checks every 10 minutes and rotates if necessary.
+//
+// Parameters:
+// - logger: The Logger instance for log rotation.
+func rotateLogsPeriodically(logger *logging.Logger) {
+	logFile := viper.GetString("log.file")
+	if logFile == "" {
+		logFile = "password-manager.log"
+	}
+
+	// Resolve absolute path
+	logFileAbs, err := filepath.Abs(logFile)
+	if err != nil {
+		logrus.Errorf("Failed to resolve log file path: %v", err)
+		return
+	}
+
+	ticker := time.NewTicker(10 * time.Minute)
+	defer ticker.Stop()
+
+	for range ticker.C {
+		fileInfo, err := os.Stat(logFileAbs)
+		if err != nil {
+			logrus.Errorf("Failed to stat log file: %v", err)
+			continue
+		}
+
+		maxSizeMB := viper.GetInt("log.max_size_mb")
+		if maxSizeMB == 0 {
+			maxSizeMB = 10 // Default to 10MB if not set
+		}
+		// Rotate if file size exceeds maxSizeMB
+		if fileInfo.Size() > int64(maxSizeMB)*1024*1024 {
+			if err := logger.RotateLogFile(); err != nil {
+				logrus.Errorf("Failed to rotate log file: %v", err)
+			}
+		}
+	}
 }
