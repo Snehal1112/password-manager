@@ -6,6 +6,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"log"
 	"os"
 	"path/filepath"
 	"strings"
@@ -33,6 +34,8 @@ func TestInitLogger(t *testing.T) {
 			// Set up viper configuration.
 			viper.Set("log.level", "debug")
 			viper.Set("log.file", "test.log")
+			viper.Set("log.format", "json") // 1 MB
+
 			viper.Set("log.max_size_mb", 1)
 			viper.Set("log.max_backups", 3)
 			viper.Set("log.max_age_days", 7)
@@ -80,6 +83,7 @@ func TestLogAuditError(t *testing.T) {
 	// Set up viper configuration (default to custom rotation).
 	viper.Set("log.level", "error")
 	viper.Set("log.file", "test.log")
+	viper.Set("log.format", "json") // 1 MB
 	viper.Set("log.rotation_method", "custom")
 
 	// Create logger.
@@ -100,6 +104,7 @@ func TestLogAuditError(t *testing.T) {
 	// Parse JSON output.
 	var logEntry map[string]interface{}
 	jsonErr := json.Unmarshal(buf.Bytes(), &logEntry)
+	log.Println("Log output:", buf.String())
 	assert.NoError(t, jsonErr, "log output should be valid JSON")
 
 	// Verify log fields.
@@ -117,6 +122,7 @@ func TestRotateLogFileCustom(t *testing.T) {
 	// Set up viper configuration.
 	viper.Set("log.level", "info")
 	viper.Set("log.file", "test.log")
+	viper.Set("log.format", "json") // 1 MB
 	viper.Set("log.max_size_mb", 1) // 1 MB
 	viper.Set("log.max_backups", 2)
 	viper.Set("log.max_age_days", 7)
@@ -183,6 +189,7 @@ func TestRotateLogFileLumberjack(t *testing.T) {
 	// Set up viper configuration.
 	viper.Set("log.level", "info")
 	viper.Set("log.file", "test.log")
+	viper.Set("log.format", "json") // 1 MB
 	viper.Set("log.max_size_mb", 1) // 1 MB
 	viper.Set("log.max_backups", 2)
 	viper.Set("log.max_age_days", 7)
