@@ -56,3 +56,6 @@ tmp/
 # Configuration files
 password-manager
 password-manager.*
+
+# Coverage reports
+coverage/
