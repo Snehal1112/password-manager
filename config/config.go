@@ -3,8 +3,7 @@ package config
 import (
 	"net"
 	"net/http"
-
-	"github.com/sirupsen/logrus"
+	"password-manager/internal/logging"
 )
 
 // Config holds the configuration settings for the vault service application.
@@ -15,7 +14,7 @@ type Config struct {
 	ListenAddr string
 
 	// Logger is the logger used for logging messages.
-	Logger logrus.FieldLogger
+	Logger *logging.Logger
 
 	// HTTPTransport is the transport used for making HTTP requests.
 	HTTPTransport http.RoundTripper

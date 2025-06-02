@@ -4,9 +4,9 @@ import (
 	"context"
 
 	"github.com/gorilla/mux"
-	"github.com/sirupsen/logrus"
 
 	"password-manager/common"
+	"password-manager/internal/logging"
 	"password-manager/server"
 )
 
@@ -28,7 +28,7 @@ type App struct {
 	basePath        string
 	databaseName    string
 	backendEndPoint string
-	logger          logrus.FieldLogger
+	Logger          *logging.Logger
 }
 
 // NewApp creates a new instance of the application with the provided options.
@@ -62,7 +62,7 @@ func newApp(options ...Option) *App {
 	}
 
 	if err := common.TranslationsPreInit(); err != nil {
-		a.logger.Errorln("Unable to initialize the localization.")
+		a.Logger.Errorln("Unable to initialize the localization.")
 	}
 
 	return a

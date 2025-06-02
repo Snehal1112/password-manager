@@ -2,9 +2,9 @@ package api
 
 import (
 	"github.com/gorilla/mux"
-	"github.com/sirupsen/logrus"
 
 	"password-manager/app"
+	"password-manager/internal/logging"
 )
 
 // Options is a function type that takes a pointer to an API instance.
@@ -64,8 +64,8 @@ func WithRouter(root *mux.Router) Options {
 // WithLogger sets the logger for the API.
 // It takes a logrus.FieldLogger as an argument and returns an Options function
 // that assigns the provided logger to the API instance.
-func WithLogger(logger logrus.FieldLogger) Options {
+func WithLogger(logger *logging.Logger) Options {
 	return func(a *API) {
-		a.logger = logger
+		a.Logger = logger
 	}
 }
