@@ -1,9 +1,8 @@
 package app
 
 import (
+	"password-manager/internal/logging"
 	"password-manager/server"
-
-	"github.com/sirupsen/logrus"
 )
 
 // Option represents a function that modifies the configuration or behavior of an App instance.
@@ -62,8 +61,8 @@ func WithServer(server *server.Server) Option {
 //
 //	logger := logrus.New()
 //	app := NewApp(WithLogger(logger))
-func WithLogger(logger logrus.FieldLogger) Option {
+func WithLogger(logger *logging.Logger) Option {
 	return func(a *App) {
-		a.logger = logger
+		a.Logger = logger
 	}
 }

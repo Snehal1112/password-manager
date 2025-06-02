@@ -2,7 +2,6 @@ package bootstrap
 
 import (
 	"context"
-	"log"
 
 	"github.com/sirupsen/logrus"
 
@@ -92,6 +91,5 @@ func (b *bootstrap) setup(ctx context.Context, cfg *Config) error {
 	)
 
 	app.StartServer(ctx)
-	log.Println("Initializing application with configuration:", app.GetRouter())
 	return nil
 }

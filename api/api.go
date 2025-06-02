@@ -4,9 +4,10 @@ import (
 	"strings"
 
 	"github.com/gorilla/mux"
-	"github.com/sirupsen/logrus"
 
 	"password-manager/app"
+	"password-manager/internal/logging"
+	"password-manager/internal/middleware"
 )
 
 // router is a type alias for a map where the keys are strings and the values are pointers to mux.Router.
@@ -28,7 +29,7 @@ type API struct {
 	BaseRoutes router
 	basePath   string
 	rootRouter *mux.Router
-	logger     logrus.FieldLogger
+	Logger     *logging.Logger
 }
 
 // Init initializes the API with the provided options and sets up the base routes.
@@ -50,9 +51,13 @@ func Init(options ...Options) *API {
 		option(api)
 	}
 
-	api.logger.WithField("basePath", api.basePath).Infoln("Api configured with")
-
+	middleware := middleware.NewMiddleware(api.Logger)
+	api.Logger.WithField("basePath", api.basePath).Infoln("Api configured with")
 	api.BaseRoutes["ApiRoot"] = api.rootRouter.PathPrefix(api.basePath).Subrouter()
+
+	api.BaseRoutes["ApiRoot"].Use(
+		middleware.RateLimitMiddleware,
+	)
 	api.BaseRoutes["Vault"] = api.BaseRoutes["ApiRoot"].PathPrefix("/vault").Subrouter()
 
 	api.InitVault(api.BaseRoutes["Vault"])
@@ -63,6 +68,6 @@ func Init(options ...Options) *API {
 			apiNames = append(apiNames, s)
 		}
 	}
-	api.logger.WithField("api", strings.Join(apiNames, ",")).Infoln("Initialized api")
+	api.Logger.WithField("api", strings.Join(apiNames, ",")).Infoln("Initialized api")
 	return api
 }
