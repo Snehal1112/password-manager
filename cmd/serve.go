@@ -49,7 +49,8 @@ const (
 	// defaultDatabase is the default database name.
 	defaultDatabase = "vault"
 
-	rateLimit = "10-M" // Default rate limit for the API
+	// rateLimit is the default rate limit for the API.
+	rateLimit = "10-M"
 )
 
 // bootstrapConfig is the configuration for the bootstrap process.
@@ -111,6 +112,10 @@ func serve(cmd *cobra.Command) error {
 
 	log := ctx.Value(common.LogKey).(*logging.Logger)
 
+	// Set up logging configuration based on command flags.
+	bootstrapConfig.Logger = log
+
+	// Set up the HTTP transport for the server.
 	return bootstrap.Boot(ctx, bootstrapConfig, &config.Config{
 		Logger: log,
 	})
