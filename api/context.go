@@ -36,8 +36,8 @@ import (
 	"github.com/spf13/viper"
 
 	"password-manager/app"
-	"password-manager/common"
 	"password-manager/internal/logging"
+	"password-manager/model"
 )
 
 // Context holds the contextual information for a request in the vault-service application.
@@ -45,8 +45,8 @@ import (
 // request ID, IP address, and request path.
 type Context struct {
 	App            *app.App
-	T              common.TranslateFunc
-	Err            *common.AppError
+	T              model.TranslateFunc
+	Err            *model.AppError
 	RequestID      string
 	IPAddress      string
 	Token          string          // JWT token
@@ -85,7 +85,7 @@ func APIHandler(app *app.App, handler func(*Context, http.ResponseWriter, *http.
 		}
 
 		app.Logger.Println("API request started", ctx.RequestId)
-		ctx.Logger.Errorln(common.T("server.error.in.start"))
+		ctx.Logger.Errorln(model.T("server.error.in.start"))
 		// Populate URL parameters
 		vars := mux.Vars(r)
 		if userId, ok := vars["user_id"]; ok {
@@ -146,7 +146,7 @@ func ApiSessionRequired(app *app.App, handler func(*Context, http.ResponseWriter
 		// Extract JWT token
 		authHeader := r.Header.Get("Authorization")
 		if authHeader == "" {
-			ctx.Err = common.NewAppError("ApiSessionRequired", "Missing Authorization header", nil, "", http.StatusUnauthorized)
+			ctx.Err = model.NewAppError("ApiSessionRequired", "Missing Authorization header", nil, "", http.StatusUnauthorized)
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(ctx.Err.StatusCode)
 			json.NewEncoder(w).Encode(map[string]interface{}{
@@ -158,7 +158,7 @@ func ApiSessionRequired(app *app.App, handler func(*Context, http.ResponseWriter
 
 		parts := strings.Split(authHeader, "Bearer ")
 		if len(parts) != 2 {
-			ctx.Err = common.NewAppError("ApiSessionRequired", "Invalid Authorization header format", nil, "", http.StatusUnauthorized)
+			ctx.Err = model.NewAppError("ApiSessionRequired", "Invalid Authorization header format", nil, "", http.StatusUnauthorized)
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(ctx.Err.StatusCode)
 			json.NewEncoder(w).Encode(map[string]interface{}{
@@ -177,7 +177,7 @@ func ApiSessionRequired(app *app.App, handler func(*Context, http.ResponseWriter
 		})
 
 		if err != nil || !token.Valid {
-			ctx.Err = common.NewAppError("ApiSessionRequired", "Invalid or expired token", nil, err.Error(), http.StatusUnauthorized)
+			ctx.Err = model.NewAppError("ApiSessionRequired", "Invalid or expired token", nil, err.Error(), http.StatusUnauthorized)
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(ctx.Err.StatusCode)
 			json.NewEncoder(w).Encode(map[string]interface{}{
@@ -192,7 +192,7 @@ func ApiSessionRequired(app *app.App, handler func(*Context, http.ResponseWriter
 			ctx.Claims = *claims
 			ctx.Token = tokenString
 		} else {
-			ctx.Err = common.NewAppError("ApiSessionRequired", "Invalid token claims", nil, "", http.StatusUnauthorized)
+			ctx.Err = model.NewAppError("ApiSessionRequired", "Invalid token claims", nil, "", http.StatusUnauthorized)
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(ctx.Err.StatusCode)
 			json.NewEncoder(w).Encode(map[string]interface{}{
@@ -205,7 +205,7 @@ func ApiSessionRequired(app *app.App, handler func(*Context, http.ResponseWriter
 		// Validate user
 		userID, ok := ctx.Claims["sub"].(string)
 		if !ok {
-			ctx.Err = common.NewAppError("ApiSessionRequired", "Missing user ID in token", nil, "", http.StatusUnauthorized)
+			ctx.Err = model.NewAppError("ApiSessionRequired", "Missing user ID in token", nil, "", http.StatusUnauthorized)
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(ctx.Err.StatusCode)
 			json.NewEncoder(w).Encode(map[string]interface{}{
