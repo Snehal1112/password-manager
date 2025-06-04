@@ -39,6 +39,7 @@ import (
 	"password-manager/internal/auth"
 	"password-manager/internal/db"
 	"password-manager/internal/logging"
+	"password-manager/model"
 )
 
 // registerAdminCmd represents the register/admin command
@@ -63,6 +64,7 @@ var registerAdminCmd = &cobra.Command{
 
 		// Verify terminal input for security
 		if !term.IsTerminal(int(os.Stdin.Fd())) {
+			model.NewAppError("users.registerAdminCmd.RunE", "Command must be run interactively", nil, "", 0)
 			log.LogAuditError(uuid.Nil.String(), "register_admin", "failed", "command must be run interactively", nil)
 			return fmt.Errorf("command must be run interactively from a terminal")
 		}
