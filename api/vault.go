@@ -2,6 +2,7 @@ package api
 
 import (
 	"net/http"
+	"password-manager/model"
 
 	"github.com/gorilla/mux"
 )
@@ -15,8 +16,9 @@ import (
 // Parameters:
 // - vault (*mux.Router): The router to which the routes will be added.
 func (api *API) InitVault(vault *mux.Router) {
-	vault.Handle("/tenant", api.APIHandler(createTenant)).Methods("POST")
-	vault.Handle("/tenant/{id:[A-Za-z0-9_-]+}", api.APIHandler(getTenant)).Methods("GET")
+
+	vault.Handle("/tenant", APIHandler(api.App, createTenant)).Methods("GET")
+	vault.Handle("/tenant/{id:[A-Za-z0-9_-]+}", APIHandler(api.App, getTenant)).Methods("GET")
 
 }
 
@@ -50,6 +52,8 @@ func createTenant(c *Context, w http.ResponseWriter, r *http.Request) {
 //   - w: The HTTP response writer to send the response.
 //   - r: The HTTP request containing the tenant ID in the URL parameters.
 func getTenant(c *Context, w http.ResponseWriter, r *http.Request) {
-	w.WriteHeader(http.StatusOK)
-	w.Write([]byte("Tenant retrieved successfully"))
+	//w.WriteHeader(http.StatusOK)
+
+	c.Err = model.NewAppError("vault.getTenant", "Tenant not found", nil, "tenant_id="+mux.Vars(r)["id"], http.StatusNotFound)
+	//w.Write([]byte("Tenant retrieved successfully"))
 }

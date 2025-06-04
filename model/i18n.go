@@ -1,4 +1,4 @@
-package common
+package model
 
 import (
 	"fmt"
@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/nicksnyder/go-i18n/v2/i18n"
+	"github.com/sirupsen/logrus"
 	"golang.org/x/text/language"
 )
 
@@ -104,8 +105,9 @@ func T(translationID string, args ...interface{}) string {
 
 	msg, err := localizer.Localize(localizeCfg)
 	if err != nil {
-		log.Println(err)
-		log.Println("Invalid messageID:", translationID)
+		logrus.WithFields(logrus.Fields{
+			"translationID": translationID,
+		}).Errorln("Error localizing message:", err)
 		return ""
 	}
 	return msg
