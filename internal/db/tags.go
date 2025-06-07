@@ -11,8 +11,14 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
+type TagRepository[T any] interface {
+	AddTags(ctx context.Context, id uuid.UUID, tags []string) error
+	GetTags(ctx context.Context, id uuid.UUID) ([]string, error)
+	ReplaceTags(ctx context.Context, id uuid.UUID, tags []string) error
+}
+
 // TagRepository manages tags for a specific entity type.
-type TagRepository[T any] struct {
+type tagRepository[T any] struct {
 	db       *sql.DB
 	table    string
 	idColumn string
@@ -26,8 +32,8 @@ type TagRepository[T any] struct {
 // - table: The name of the table storing tags (e.g., "key_tags").
 // - idColumn: The column name for the entity ID (e.g., "key_id").
 // Returns: A pointer to the initialized TagRepository.
-func NewTagRepository[T any](db *sql.DB, table, idColumn string) *TagRepository[T] {
-	return &TagRepository[T]{
+func NewTagRepository[T any](db *sql.DB, table, idColumn string) *tagRepository[T] {
+	return &tagRepository[T]{
 		db:       db,
 		table:    table,
 		idColumn: idColumn,
@@ -42,7 +48,7 @@ func NewTagRepository[T any](db *sql.DB, table, idColumn string) *TagRepository[
 // - id: The ID of the entity to tag.
 // - tags: The list of tags to add.
 // Returns: An error if the operation fails.
-func (r *TagRepository[T]) AddTags(ctx context.Context, id uuid.UUID, tags []string) error {
+func (r *tagRepository[T]) AddTags(ctx context.Context, id uuid.UUID, tags []string) error {
 	tx, err := r.db.BeginTx(ctx, nil)
 	if err != nil {
 		logrus.Error("Failed to begin transaction for tags: ", err)
@@ -79,7 +85,7 @@ func (r *TagRepository[T]) AddTags(ctx context.Context, id uuid.UUID, tags []str
 // - ctx: The context for the database operation.
 // - id: The ID of the entity to retrieve tags for.
 // Returns: A slice of tags and an error if the operation fails.
-func (r *TagRepository[T]) GetTags(ctx context.Context, id uuid.UUID) ([]string, error) {
+func (r *tagRepository[T]) GetTags(ctx context.Context, id uuid.UUID) ([]string, error) {
 	rows, err := r.db.QueryContext(ctx,
 		fmt.Sprintf("SELECT tag FROM %s WHERE %s = ?", r.table, r.idColumn),
 		id,
@@ -101,4 +107,60 @@ func (r *TagRepository[T]) GetTags(ctx context.Context, id uuid.UUID) ([]string,
 	}
 
 	return tags, nil
+}
+
+// ReplaceTags replaces all tags for an entity in the database.
+// It first deletes existing tags for the specified entity ID and then adds the new tags.
+// Parameters:
+// - ctx: The context for the database operation.
+// - id: The ID of the entity to update tags for.
+// - tags: The new list of tags to set for the entity.
+func (r *tagRepository[T]) ReplaceTags(ctx context.Context, id uuid.UUID, tags []string) error {
+	// Ensure unique tags
+	uniqueTags := make(map[string]struct{})
+	var dedupedTags []string
+	for _, tag := range tags {
+		if tag == "" {
+			continue // Skip empty tags
+		}
+		if _, exists := uniqueTags[tag]; !exists {
+			uniqueTags[tag] = struct{}{}
+			dedupedTags = append(dedupedTags, tag)
+		}
+	}
+
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		logrus.Error("Failed to begin transaction: ", err)
+		return fmt.Errorf("failed to begin transaction: %w", err)
+	}
+	defer tx.Rollback()
+
+	// Delete existing tags
+	_, err = tx.ExecContext(ctx, fmt.Sprintf("DELETE FROM %s WHERE %s = ?", r.table, r.idColumn), id.String())
+	if err != nil {
+		logrus.Error("Failed to delete tags: ", err)
+		return fmt.Errorf("failed to delete tags: %w", err)
+	}
+
+	// Insert new tags (if any)
+	for _, tag := range dedupedTags {
+		_, err = tx.ExecContext(ctx, fmt.Sprintf("INSERT INTO %s (%s, tag) VALUES (?, ?)", r.table, r.idColumn), id.String(), tag)
+		if err != nil {
+			logrus.Error("Failed to insert tag: ", err)
+			return fmt.Errorf("failed to insert tag %s: %w", tag, err)
+		}
+	}
+
+	if err := tx.Commit(); err != nil {
+		logrus.Error("Failed to commit transaction: ", err)
+		return fmt.Errorf("failed to commit transaction: %w", err)
+	}
+
+	logrus.WithFields(logrus.Fields{
+		"id":    id,
+		"tags":  dedupedTags,
+		"table": r.table,
+	}).Debug("Tags replaced successfully")
+	return nil
 }
