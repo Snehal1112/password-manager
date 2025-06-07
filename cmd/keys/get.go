@@ -23,20 +23,57 @@ THE SOFTWARE.
 package keys
 
 import (
+	"database/sql"
 	"fmt"
+	"strings"
+	"time"
 
+	"github.com/google/uuid"
 	"github.com/spf13/cobra"
+
+	"password-manager/common"
+	"password-manager/internal/auth"
+	"password-manager/internal/keys"
+	"password-manager/internal/logging"
 )
 
 // getCmd represents the get command
 var getCmd = &cobra.Command{
-	Use:     "get",
-	Short:   "Get key information",
-	Long:    `Retrieve information about a specific key.`,
-	Example: `keys get --id <key_id>`,
+	Use:     "get <id>",
+	Short:   "Retrieve a cryptographic key",
+	Long:    `Retrieve details of a cryptographic key by its UUID. Accessible by the key's owner or users with the admin role.`,
+	Example: `password-manager keys get <key-id> --username admin --password admin123 --totp-code <code>`,
 	Args:    cobra.ExactArgs(1),
-	Run: func(cmd *cobra.Command, args []string) {
-		fmt.Println("get called")
+	RunE: func(cmd *cobra.Command, args []string) error {
+		ctx := cmd.Context()
+		claims, ok := ctx.Value(common.ClaimsKey).(*auth.Claims)
+		if !ok {
+			return fmt.Errorf("unauthorized: missing authentication claims")
+		}
+
+		log := ctx.Value(common.LogKey).(*logging.Logger)
+		keyID, err := uuid.Parse(args[0])
+		if err != nil {
+			log.LogAuditError(claims.UserID.String(), "get_key", "failed", fmt.Sprintf("invalid key ID: %s", err), err)
+			return fmt.Errorf("invalid key ID: %w", err)
+		}
+
+		keyRepo := keys.NewKeyRepository(ctx.Value(common.DBKey).(*sql.DB), log)
+		key, err := keyRepo.Read(ctx, keyID)
+		if err != nil {
+			log.LogAuditError(claims.UserID.String(), "get_key", "failed", fmt.Sprintf("failed to get key: %s", err), err)
+			return fmt.Errorf("failed to get key: %w", err)
+		}
+
+		if claims.UserID != key.UserID && claims.Role != auth.RoleAdmin {
+			log.LogAuditError(claims.UserID.String(), "get_key", "failed", "forbidden: cannot access other users' keys", nil)
+			return fmt.Errorf("forbidden: cannot access other users' keys")
+		}
+
+		log.LogAuditInfo(claims.UserID.String(), "get_key", "success", fmt.Sprintf("key retrieved: %s", key.Name))
+		fmt.Printf("Key: ID=%s, Name=%s, Type=%s, Revoked=%t, CreatedAt=%s, Tags=[%s]\n",
+			key.ID, key.Name, key.Type, key.Revoked, key.CreatedAt.Format(time.RFC3339), strings.Join(key.Tags, ", "))
+		return nil
 	},
 }
 
@@ -62,14 +99,4 @@ func InitKeysGet(keysCmd *cobra.Command) *cobra.Command {
 	keysCmd.AddCommand(getCmd)
 
 	return keysCmd
-
-	// Here you will define your flags and configuration settings.
-
-	// Cobra supports Persistent Flags which will work for this command
-	// and all subcommands, e.g.:
-	// getCmd.PersistentFlags().String("foo", "", "A help for foo")
-
-	// Cobra supports local flags which will only run when this command
-	// is called directly, e.g.:
-	// getCmd.Flags().BoolP("toggle", "t", false, "Help message for toggle")
 }

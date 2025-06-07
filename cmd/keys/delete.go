@@ -23,20 +23,62 @@ THE SOFTWARE.
 package keys
 
 import (
+	"database/sql"
 	"fmt"
 
+	"github.com/google/uuid"
 	"github.com/spf13/cobra"
+
+	"password-manager/common"
+	"password-manager/internal/auth"
+	"password-manager/internal/keys"
+	"password-manager/internal/logging"
 )
 
 // deleteCmd represents the delete command
 var deleteCmd = &cobra.Command{
-	Use:     "delete",
-	Short:   "Delete a key",
-	Long:    `Delete a key by its ID.`,
-	Example: `keys delete --id <key_id>`,
+	Use:     "delete <id>",
+	Short:   "Delete a cryptographic key",
+	Long:    `Delete a cryptographic key by its UUID, including associated tags. Accessible by the key's owner or users with the admin role.`,
+	Example: `password-manager keys delete <key-id> --username admin --password admin123 --totp-code <code>`,
 	Args:    cobra.ExactArgs(1),
-	Run: func(cmd *cobra.Command, args []string) {
-		fmt.Println("delete called")
+	RunE: func(cmd *cobra.Command, args []string) error {
+		ctx := cmd.Context()
+		claims, ok := ctx.Value(common.ClaimsKey).(*auth.Claims)
+		if !ok {
+			return fmt.Errorf("unauthorized: missing authentication claims")
+		}
+
+		log := ctx.Value(common.LogKey).(*logging.Logger)
+		keyID, err := uuid.Parse(args[0])
+		if err != nil {
+			log.LogAuditError(claims.UserID.String(), "delete_key", "failed", fmt.Sprintf("invalid key ID: %s", err), err)
+			return fmt.Errorf("invalid key ID: %w", err)
+		}
+
+		keyRepo := keys.NewKeyRepository(ctx.Value(common.DBKey).(*sql.DB), log)
+		// Read key to check ownership
+		key, err := keyRepo.Read(ctx, keyID)
+		if err != nil {
+			log.LogAuditError(claims.UserID.String(), "delete_key", "failed", fmt.Sprintf("failed to read key: %s", err), err)
+			return fmt.Errorf("failed to read key: %w", err)
+		}
+
+		if claims.UserID != key.UserID && claims.Role != auth.RoleAdmin {
+			log.LogAuditError(claims.UserID.String(), "delete_key", "failed", "forbidden: cannot delete other users' keys", nil)
+			return fmt.Errorf("forbidden: cannot delete other users' keys")
+		}
+
+		// Delete the key
+		err = keyRepo.Delete(ctx, keyID)
+		if err != nil {
+			log.LogAuditError(claims.UserID.String(), "delete_key", "failed", fmt.Sprintf("failed to delete key: %s", err), err)
+			return fmt.Errorf("failed to delete key: %w", err)
+		}
+
+		log.LogAuditInfo(claims.UserID.String(), "delete_key", "success", fmt.Sprintf("key deleted: %s", key.Name))
+		fmt.Printf("Key %s deleted successfully\n", keyID)
+		return nil
 	},
 }
 
