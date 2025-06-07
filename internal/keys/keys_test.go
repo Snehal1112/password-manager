@@ -357,7 +357,7 @@ func TestListByUser(t *testing.T) {
 
 	ctx := context.Background()
 	repo := NewKeyRepository(db.DB, log)
-	keysList, err := repo.ListByUser(ctx, userID1, "RSA", []string{"prod"})
+	keysList, err := repo.ListByUser(ctx, &userID1, "RSA", []string{"prod"})
 
 	assert.NoError(t, err, "listing keys should succeed")
 	assert.Len(t, keysList, 1, "should return one key")

@@ -42,7 +42,7 @@ type KeyRepository interface {
 	GenerateRSA(ctx context.Context, userID uuid.UUID, name string, bits int, tags []string) (*Key, error)
 	GenerateECDSA(ctx context.Context, userID uuid.UUID, name string, curve string, tags []string) (*Key, error)
 	Rotate(ctx context.Context, id uuid.UUID) (*Key, error)
-	ListByUser(ctx context.Context, userID uuid.UUID, keyType string, tags []string) ([]Key, error)
+	ListByUser(ctx context.Context, userID *uuid.UUID, keyType string, tags []string) ([]Key, error)
 }
 
 // keyRepository implements KeyRepository for database operations on keys.
@@ -177,8 +177,8 @@ func (r *keyRepository) Update(ctx context.Context, key *Key) error {
 	// Update the key in the database.
 	_, err = r.db.ExecContext(
 		ctx,
-		"UPDATE keys SET value = ?, revoked = ?, created_at = ? WHERE id = ?",
-		encryptedValue, key.Revoked, key.CreatedAt, key.ID,
+		"UPDATE keys SET name = ?, value = ?, revoked = ?, created_at = ? WHERE id = ?",
+		key.Name, encryptedValue, key.Revoked, key.CreatedAt, key.ID,
 	)
 	if err != nil {
 		logrus.Error("Failed to update key: ", err)
@@ -390,13 +390,22 @@ func (r *keyRepository) Rotate(ctx context.Context, id uuid.UUID) (*Key, error) 
 // - keyType: The key type to filter by (e.g., "RSA", "ECDSA"; empty for all).
 // - tags: The tags to filter by (empty for no tag filter).
 // Returns: A slice of keys and an error if the operation fails.
-func (r *keyRepository) ListByUser(ctx context.Context, userID uuid.UUID, keyType string, tags []string) ([]Key, error) {
-	query := "SELECT id, user_id, name, value, type, revoked, created_at FROM keys WHERE user_id = ?"
-	args := []interface{}{userID.String()}
-	if keyType != "" {
+func (r *keyRepository) ListByUser(ctx context.Context, userID *uuid.UUID, keyType string, tags []string) ([]Key, error) {
+	var args = []interface{}{}
+	query := "SELECT id, user_id, name, value, type, revoked, created_at FROM keys"
+	if userID != nil {
+		query += " WHERE user_id = ?"
+		args = append(args, userID.String())
+	}
+
+	if keyType != "" && userID != nil {
 		query += " AND type = ?"
 		args = append(args, keyType)
+	} else if keyType != "" {
+		query += " WHERE type = ?"
+		args = append(args, keyType)
 	}
+
 	if len(tags) > 0 {
 		query += " AND id IN (SELECT key_id FROM key_tags WHERE tag IN (?" + strings.Repeat(",?", len(tags)-1) + "))"
 		for _, tag := range tags {
