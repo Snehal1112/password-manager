@@ -185,11 +185,11 @@ func TestGenerateECDSA(t *testing.T) {
 	_, err := repo.GenerateECDSA(ctx, userID, "test-ecdsa-key", "P-256", []string{"dev"})
 	assert.NoError(t, err, "generating ECDSA key should succeed")
 
-	var id, userId string
+	var id, _userID string
 	var name, value, keyType string
 	var revoked bool
 	err = sqlDB.QueryRow("SELECT id,user_id, name, value, type, revoked FROM keys WHERE user_id = ?", userID.String()).
-		Scan(&id, &userId, &name, &value, &keyType, &revoked)
+		Scan(&id, &_userID, &name, &value, &keyType, &revoked)
 	assert.NoError(t, err, "querying key should succeed")
 	assert.Equal(t, "test-ecdsa-key", name, "key name should match")
 	assert.Equal(t, "ECDSA", keyType, "key type should match")
@@ -238,11 +238,11 @@ func TestCreate(t *testing.T) {
 	assert.NoError(t, err, "creating key should succeed")
 
 	var id string
-	var userId string
+	var _userID string
 	var name, value, keyType string
 	var revoked bool
 	err = sqlDB.QueryRow("SELECT id, user_id, name, value, type, revoked FROM keys WHERE user_id = ?", userID.String()).
-		Scan(&id, &userId, &name, &value, &keyType, &revoked)
+		Scan(&id, &_userID, &name, &value, &keyType, &revoked)
 	assert.NoError(t, err, "querying key should succeed")
 	assert.Equal(t, "test-key", name, "key name should match")
 	assert.Equal(t, "RSA", keyType, "key type should match")
@@ -408,10 +408,10 @@ func TestRotate(t *testing.T) {
 
 	// Verify old key is revoked.
 	var revoked bool
-	var userId, ID string
+	var _userID, ID string
 	var name, value, types string
 
-	err = db.DB.QueryRow("SELECT id, user_id, name, value, type, revoked FROM keys WHERE id = ?", keyID.String()).Scan(&ID, &userId, &name, &value, &types, &revoked)
+	err = db.DB.QueryRow("SELECT id, user_id, name, value, type, revoked FROM keys WHERE id = ?", keyID.String()).Scan(&ID, &_userID, &name, &value, &types, &revoked)
 	assert.NoError(t, err, "querying old key should succeed")
 	assert.True(t, revoked, "old key should be revoked")
 
@@ -419,7 +419,7 @@ func TestRotate(t *testing.T) {
 	var newID string
 	var tag string
 
-	err = db.DB.QueryRow("SELECT id FROM keys WHERE user_id = ? AND name = ? AND id != ?", userId, "test-key", 0).Scan(&newID)
+	err = db.DB.QueryRow("SELECT id FROM keys WHERE user_id = ? AND name = ? AND id != ?", _userID, "test-key", 0).Scan(&newID)
 	assert.NoError(t, err, "querying new key should succeed")
 
 	err = db.DB.QueryRow("SELECT tag FROM key_tags WHERE key_id = ?", newID).Scan(&tag)
