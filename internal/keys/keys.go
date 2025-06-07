@@ -318,6 +318,7 @@ func (r *keyRepository) GenerateECDSA(ctx context.Context, userID uuid.UUID, nam
 
 	// Store the key in the database.
 	key := &Key{
+		ID:        uuid.New(),
 		UserID:    userID,
 		Name:      name,
 		Type:      "ECDSA",
