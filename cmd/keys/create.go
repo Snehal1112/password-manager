@@ -23,9 +23,17 @@ THE SOFTWARE.
 package keys
 
 import (
+	"database/sql"
 	"fmt"
+	"strings"
+
+	"password-manager/common"
+	"password-manager/internal/auth"
+	"password-manager/internal/keys"
+	"password-manager/internal/logging"
 
 	"github.com/spf13/cobra"
+	"github.com/spf13/viper"
 )
 
 // createCmd represents the create command
@@ -34,9 +42,71 @@ var createCmd = &cobra.Command{
 	Short:   "Create a new key",
 	Long:    `Create a new key with the specified details.`,
 	Example: `keys create --name <name> --type <type>`,
-	Args:    cobra.ExactArgs(1),
-	Run: func(cmd *cobra.Command, args []string) {
-		fmt.Println("create called")
+	RunE: func(cmd *cobra.Command, args []string) error {
+		ctx := cmd.Context()
+		claims, ok := ctx.Value(common.ClaimsKey).(*auth.Claims)
+		if !ok {
+			return fmt.Errorf("unauthorized: missing authentication claims")
+		}
+
+		log := ctx.Value(common.LogKey).(*logging.Logger)
+		if claims.Role != auth.RoleAdmin && claims.Role != auth.RoleSecretsManager {
+			log.LogAuditError(claims.UserID.String(), "create_key", "failed", "forbidden: requires admin or secrets_manager role", nil)
+			return fmt.Errorf("forbidden: requires admin or secrets_manager role")
+		}
+
+		name := viper.GetString("name")
+		keyType := viper.GetString("type")
+		bits := viper.GetInt("bits")
+		curve := viper.GetString("curve")
+		tagsStr := viper.GetString("tags")
+
+		if name == "" || keyType == "" {
+			log.LogAuditError(claims.UserID.String(), "create_key", "failed", "name and type are required", nil)
+			return fmt.Errorf("name and type are required")
+		}
+
+		keyType = strings.ToUpper(keyType)
+		if keyType != "RSA" && keyType != "ECDSA" {
+			log.LogAuditError(claims.UserID.String(), "create_key", "failed", "invalid key type: must be RSA or ECDSA", nil)
+			return fmt.Errorf("invalid key type: must be RSA or ECDSA")
+		}
+
+		var tags []string
+		if tagsStr != "" {
+			tags = strings.Split(tagsStr, ",")
+			for i, tag := range tags {
+				tags[i] = strings.TrimSpace(tag)
+			}
+		}
+
+		keyRepo := keys.NewKeyRepository(ctx.Value(common.DBKey).(*sql.DB), log)
+		var key *keys.Key
+		var err error
+
+		if keyType == "RSA" {
+			if bits != 2048 && bits != 4096 {
+				log.LogAuditError(claims.UserID.String(), "create_key", "failed", "invalid RSA key size: must be 2048 or 4096", nil)
+				return fmt.Errorf("invalid RSA key size: must be 2048 or 4096")
+			}
+			key, err = keyRepo.GenerateRSA(ctx, claims.UserID, name, bits, tags)
+		} else {
+			if curve != "P-256" && curve != "P-384" && curve != "P-521" {
+				log.LogAuditError(claims.UserID.String(), "create_key", "failed", "invalid ECDSA curve: must be P-256, P-384, or P-521", nil)
+				return fmt.Errorf("invalid ECDSA curve: must be P-256, P-384, or P-521")
+			}
+			log.Println("Creating ECDSA key with curve:", claims.UserID.String())
+			key, err = keyRepo.GenerateECDSA(ctx, claims.UserID, name, curve, tags)
+		}
+
+		if err != nil {
+			log.LogAuditError(claims.UserID.String(), "create_key", "failed", fmt.Sprintf("failed to create key: %s", err), err)
+			return fmt.Errorf("failed to create key: %w", err)
+		}
+
+		log.LogAuditInfo(claims.UserID.String(), "create_key", "success", fmt.Sprintf("key created: %s, ID: %s", name, key.ID))
+		fmt.Printf("Key created successfully, ID: %s\n", key.ID)
+		return nil
 	},
 }
 
@@ -59,6 +129,18 @@ var createCmd = &cobra.Command{
 // It is part of the Cobra library, which is used for creating command-line applications in Go.
 func InitKeysCreate(keysCmd *cobra.Command) *cobra.Command {
 	keysCmd.AddCommand(createCmd)
+
+	createCmd.Flags().String("name", "", "Name for the new key")
+	createCmd.Flags().String("type", "", "Key type (RSA, ECDSA)")
+	createCmd.Flags().Int("bits", 2048, "RSA key size in bits (2048 or 4096)")
+	createCmd.Flags().String("curve", "P-256", "ECDSA curve (P-256, P-384, P-521)")
+	createCmd.Flags().String("tags", "", "Comma-separated tags for the key")
+	viper.BindPFlag("name", createCmd.Flags().Lookup("name"))
+	viper.BindPFlag("type", createCmd.Flags().Lookup("type"))
+	viper.BindPFlag("bits", createCmd.Flags().Lookup("bits"))
+	viper.BindPFlag("curve", createCmd.Flags().Lookup("curve"))
+	viper.BindPFlag("tags", createCmd.Flags().Lookup("tags"))
+
 	return keysCmd
 
 	// Here you will define your flags and configuration settings.
