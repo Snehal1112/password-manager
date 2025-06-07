@@ -23,19 +23,105 @@ THE SOFTWARE.
 package keys
 
 import (
+	"database/sql"
 	"fmt"
+	"strings"
+	"time"
 
+	"github.com/google/uuid"
 	"github.com/spf13/cobra"
+	"github.com/spf13/viper"
+
+	"password-manager/common"
+	"password-manager/internal/auth"
+	"password-manager/internal/db"
+	"password-manager/internal/keys"
+	"password-manager/internal/logging"
 )
 
 // updateCmd represents the update command
 var updateCmd = &cobra.Command{
-	Use:     "update",
-	Short:   "Update a key",
-	Long:    `Update a key in the password manager.`,
-	Example: `keys update --key <key> --value <new_value>`,
-	Run: func(cmd *cobra.Command, args []string) {
-		fmt.Println("update called")
+	Use:     "update <id>",
+	Short:   "Update a cryptographic key",
+	Long:    `Update a cryptographic key's name, revocation status, or tags by its UUID. Accessible by the key's owner or users with the admin role.`,
+	Example: `password-manager keys update <key-id> --username admin --password admin123 --totp-code <code> --name newkey --revoked true --tags tag1,tag2`,
+	RunE: func(cmd *cobra.Command, args []string) error {
+		ctx := cmd.Context()
+		claims, ok := ctx.Value(common.ClaimsKey).(*auth.Claims)
+		if !ok {
+			return fmt.Errorf("unauthorized: missing authentication claims")
+		}
+
+		log := ctx.Value(common.LogKey).(*logging.Logger)
+		keyID, err := uuid.Parse(args[0])
+		if err != nil {
+			log.LogAuditError(claims.UserID.String(), "update_key", "failed", fmt.Sprintf("invalid key ID: %s", err), err)
+			return fmt.Errorf("invalid key ID: %w", err)
+		}
+
+		// Read key to check ownership
+		keyRepo := keys.NewKeyRepository(ctx.Value(common.DBKey).(*sql.DB), log)
+		key, err := keyRepo.Read(ctx, keyID)
+		if err != nil {
+			log.LogAuditError(claims.UserID.String(), "update_key", "failed", fmt.Sprintf("failed to read key: %s", err), err)
+			return fmt.Errorf("failed to read key: %w", err)
+		}
+
+		if claims.UserID != key.UserID && claims.Role != auth.RoleAdmin {
+			log.LogAuditError(claims.UserID.String(), "update_key", "failed", "forbidden: cannot update other users' keys", nil)
+			return fmt.Errorf("forbidden: cannot update other users' keys")
+		}
+
+		// Get update parameters
+		newName := viper.GetString("name")
+		revoked := viper.GetBool("revoked")
+		tagsStr := viper.GetString("tags")
+		updateRequired := false
+
+		if newName != "" {
+			key.Name = newName
+			updateRequired = true
+		}
+		if viper.IsSet("revoked") {
+			key.Revoked = revoked
+			updateRequired = true
+		}
+
+		var tags []string
+		if tagsStr != "" {
+			tags = strings.Split(tagsStr, ",")
+			for i, tag := range tags {
+				tags[i] = strings.TrimSpace(tag)
+			}
+			key.Tags = tags
+			updateRequired = true
+		}
+
+		if !updateRequired {
+			log.LogAuditError(claims.UserID.String(), "update_key", "failed", "at least one update field (name, revoked, tags) must be provided", nil)
+			return fmt.Errorf("at least one update field (name, revoked, tags) must be provided")
+		}
+
+		// Update the key
+		err = keyRepo.Update(ctx, key)
+		if err != nil {
+			log.LogAuditError(claims.UserID.String(), "update_key", "failed", fmt.Sprintf("failed to update key: %s", err), err)
+			return fmt.Errorf("failed to update key: %w", err)
+		}
+
+		// Update tags if provided
+		if tagsStr != "" {
+			tagRepo := db.NewTagRepository[keys.Key](ctx.Value(common.DBKey).(*sql.DB), "key_tags", "key_id")
+			if err := tagRepo.ReplaceTags(ctx, keyID, tags); err != nil {
+				log.LogAuditError(claims.UserID.String(), "update_key", "failed", fmt.Sprintf("failed to update tags: %s", err), err)
+				return fmt.Errorf("failed to update tags: %w", err)
+			}
+		}
+
+		log.LogAuditInfo(claims.UserID.String(), "update_key", "success", fmt.Sprintf("key updated: %s, ID: %s", key.Name, key.ID))
+		fmt.Printf("Key updated successfully: ID=%s, Name=%s, Type=%s, Revoked=%t, CreatedAt=%s, Tags=[%s]\n",
+			key.ID, key.Name, key.Type, key.Revoked, key.CreatedAt.Format(time.RFC3339), strings.Join(key.Tags, ", "))
+		return nil
 	},
 }
 
@@ -59,6 +145,13 @@ var updateCmd = &cobra.Command{
 // It is part of the Cobra library, which is used for creating command-line applications in Go.
 func InitKeysUpdate(keysCmd *cobra.Command) *cobra.Command {
 	keysCmd.AddCommand(updateCmd)
+
+	updateCmd.Flags().String("name", "", "New name for the key")
+	updateCmd.Flags().Bool("revoked", false, "Set key revocation status (true/false)")
+	updateCmd.Flags().String("tags", "", "Comma-separated tags to replace existing tags")
+	viper.BindPFlag("name", updateCmd.Flags().Lookup("name"))
+	viper.BindPFlag("revoked", updateCmd.Flags().Lookup("revoked"))
+	viper.BindPFlag("tags", updateCmd.Flags().Lookup("tags"))
 
 	return keysCmd
 	// Here you will define your flags and configuration settings.
