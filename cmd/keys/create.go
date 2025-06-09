@@ -32,6 +32,7 @@ import (
 	"password-manager/internal/keys"
 	"password-manager/internal/logging"
 
+	"github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 )
@@ -54,12 +55,11 @@ var createCmd = &cobra.Command{
 			log.LogAuditError(claims.UserID.String(), "create_key", "failed", "forbidden: requires admin or secrets_manager role", nil)
 			return fmt.Errorf("forbidden: requires admin or secrets_manager role")
 		}
-
-		name := viper.GetString("name")
-		keyType := viper.GetString("type")
-		bits := viper.GetInt("bits")
-		curve := viper.GetString("curve")
-		tagsStr := viper.GetString("tags")
+		name := viper.GetString("key-name")
+		keyType := viper.GetString("key-type")
+		bits := viper.GetInt("key-bits")
+		curve := viper.GetString("key-curve")
+		tagsStr := viper.GetString("key-tags")
 
 		if name == "" || keyType == "" {
 			log.LogAuditError(claims.UserID.String(), "create_key", "failed", "name and type are required", nil)
@@ -105,7 +105,13 @@ var createCmd = &cobra.Command{
 		}
 
 		log.LogAuditInfo(claims.UserID.String(), "create_key", "success", fmt.Sprintf("key created: %s, ID: %s", name, key.ID))
-		fmt.Printf("Key created successfully, ID: %s\n", key.ID)
+
+		log.WithFields(logrus.Fields{
+			"key_id": key.ID,
+			"name":   key.Name,
+			"type":   key.Type,
+			"tags":   key.Tags,
+		}).Info("Key created successfully")
 		return nil
 	},
 }
@@ -135,21 +141,11 @@ func InitKeysCreate(keysCmd *cobra.Command) *cobra.Command {
 	createCmd.Flags().Int("bits", 2048, "RSA key size in bits (2048 or 4096)")
 	createCmd.Flags().String("curve", "P-256", "ECDSA curve (P-256, P-384, P-521)")
 	createCmd.Flags().String("tags", "", "Comma-separated tags for the key")
-	viper.BindPFlag("name", createCmd.Flags().Lookup("name"))
-	viper.BindPFlag("type", createCmd.Flags().Lookup("type"))
-	viper.BindPFlag("bits", createCmd.Flags().Lookup("bits"))
-	viper.BindPFlag("curve", createCmd.Flags().Lookup("curve"))
-	viper.BindPFlag("tags", createCmd.Flags().Lookup("tags"))
+	viper.BindPFlag("key-name", createCmd.Flags().Lookup("name"))
+	viper.BindPFlag("key-type", createCmd.Flags().Lookup("type"))
+	viper.BindPFlag("key-bits", createCmd.Flags().Lookup("bits"))
+	viper.BindPFlag("key-curve", createCmd.Flags().Lookup("curve"))
+	viper.BindPFlag("key-tags", createCmd.Flags().Lookup("tags"))
 
 	return keysCmd
-
-	// Here you will define your flags and configuration settings.
-
-	// Cobra supports Persistent Flags which will work for this command
-	// and all subcommands, e.g.:
-	// createCmd.PersistentFlags().String("foo", "", "A help for foo")
-
-	// Cobra supports local flags which will only run when this command
-	// is called directly, e.g.:
-	// createCmd.Flags().BoolP("toggle", "t", false, "Help message for toggle")
 }

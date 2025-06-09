@@ -44,6 +44,7 @@ type Claims struct {
 // Role constants define user roles for RBAC.
 const (
 	RoleAdmin              = "admin"
+	RoleUser               = "user"
 	RoleSecretsManager     = "secrets_manager"
 	RoleCryptoManager      = "crypto_manager"
 	RoleCertificateManager = "certificate_manager"

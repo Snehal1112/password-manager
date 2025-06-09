@@ -25,6 +25,8 @@ package cmd
 import (
 	"fmt"
 
+	"password-manager/cmd/certificates"
+
 	"github.com/spf13/cobra"
 )
 
@@ -42,6 +44,8 @@ var certificateCmd = &cobra.Command{
 
 func init() {
 	rootCmd.AddCommand(certificateCmd)
+
+	certificates.InitCertificatesCreate(certificateCmd)
 
 	// Here you will define your flags and configuration settings.
 
