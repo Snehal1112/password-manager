@@ -23,8 +23,6 @@ THE SOFTWARE.
 package cmd
 
 import (
-	"fmt"
-
 	"github.com/spf13/cobra"
 
 	"password-manager/cmd/keys"
@@ -38,7 +36,8 @@ var keysCmd = &cobra.Command{
 	Example: `keys create --name <name> --type <type>`,
 	Args:    cobra.ExactArgs(1),
 	Run: func(cmd *cobra.Command, args []string) {
-		fmt.Println("keys called")
+		// Show help when command is called without subcommands
+		cmd.Help()
 	},
 }
 

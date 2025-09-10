@@ -1,61 +1,106 @@
-# Binaries for programs and plugins
+# Go build artifacts
 *.exe
 *.exe~
 *.dll
 *.so
 *.dylib
 
-# Test binary, built with `go test -c`
+# Go test binaries and coverage
 *.test
-
-# Output of the go coverage tool
 *.out
+coverage/
+coverage.html
+*.cover
 
-# Dependency directories
+# Go workspace and modules
+go.work
+go.work.sum
 vendor/
 
-# Go workspace file
-go.work
-
-# Build output
+# Build and distribution
 bin/
 build/
+dist/
 
-# Environment variables
+# Environment and configuration
 .env
+.env.*
 *.env
+config.yaml
+config.yml
+config.json
 
 # IDE and editor files
 .idea/
 .vscode/
 *.sublime-workspace
 *.sublime-project
+.vim/
+*.swp
+*.swo
+*~
+
+# Operating system files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Temporary and backup files
+tmp/
+temp/
+*.tmp
+*.bak
+*.backup
+*.orig
 
 # Log files
 *.log
+logs/
 
-# macOS system files
-.DS_Store
-
-# Temporary files
-tmp/
-*.tmp
-*.bak
-*.swp
-
-# Sensitive data (specific to password-manager)
+# Security sensitive files (password-manager specific)
 *.key
 *.pem
 *.cert
+*.crt
+*.p12
+*.pfx
+master.key
+bootstrap.token
 
-# Database files (if using local DB for testing)
+# Database files
 *.db
 *.sqlite
 *.sqlite3
+*.db-shm
+*.db-wal
 
-# Configuration files
+# Application binaries
 password-manager
-password-manager.*
+password-manager.exe
+password-manager-*
 
-# Coverage reports
-coverage/
+# Test artifacts
+test_data/
+test_logs/
+*.test.log
+
+# Profiling and debugging
+*.prof
+*.cpu
+*.mem
+debug.log
+
+# Documentation builds
+docs/build/
+*.pdf
+
+# Package manager
+node_modules/
+npm-debug.log*
+
+# Claude Code documentation (keep in repo)
+.claude/

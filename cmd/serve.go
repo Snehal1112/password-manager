@@ -25,7 +25,6 @@ package cmd
 import (
 	"context"
 	"fmt"
-	"os"
 
 	"github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
@@ -77,11 +76,8 @@ var serveCmd = &cobra.Command{
 		cmd.SetContext(ctx)
 
 	},
-	Run: func(cmd *cobra.Command, args []string) {
-		if err := serve(cmd); err != nil {
-			fmt.Printf("Error: %v\n\n", err)
-			os.Exit(1)
-		}
+	RunE: func(cmd *cobra.Command, args []string) error {
+		return serve(cmd)
 	},
 	PersistentPostRun: func(cmd *cobra.Command, args []string) {
 		logrus.Info("Persistent PostRun called from serve for command:", cmd.Name())
