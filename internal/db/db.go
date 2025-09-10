@@ -167,6 +167,11 @@ func (d *DBRepository) InitializeDB() error {
 			timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
 			FOREIGN KEY (user_id) REFERENCES users(id)
 		);
+		CREATE TABLE IF NOT EXISTS bootstrap_tokens (
+			token TEXT PRIMARY KEY,
+			created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+			used BOOLEAN DEFAULT FALSE
+		);
 		CREATE TABLE IF NOT EXISTS secret_tags (
 			secret_id TEXT NOT NULL,
 			tag TEXT NOT NULL,

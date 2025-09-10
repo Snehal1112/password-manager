@@ -570,17 +570,36 @@ func (r *userRepository) ValidateBootstrapToken(ctx context.Context, token strin
 	return true, nil
 }
 
-// InvalidateBootstrapToken marks the bootstrap token as used.
-// In this implementation, it’s a no-op since we rely on users table being non-empty.
-// In production, update a config or database to mark the token as invalid.
+// InvalidateBootstrapToken marks the bootstrap token as used in the database.
+// This ensures the token cannot be reused for creating additional admin users.
 //
 // Parameters:
 // - ctx: The context for the database operation.
 // - token: The bootstrap token to invalidate.
 // Returns: An error if the operation fails.
 func (r *userRepository) InvalidateBootstrapToken(ctx context.Context, token string) error {
-	// No-op for now; token is implicitly invalidated by user creation
-	// TODO: Implement token invalidation (e.g., update config, database)
+	// First try to update existing token
+	result, err := r.db.ExecContext(ctx, "UPDATE bootstrap_tokens SET used = TRUE WHERE token = ?", token)
+	if err != nil {
+		r.log.LogAuditError(uuid.Nil.String(), "invalidate_bootstrap_token", "failed", "Failed to update bootstrap token", err)
+		return fmt.Errorf("failed to update bootstrap token: %w", err)
+	}
+
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		r.log.LogAuditError(uuid.Nil.String(), "invalidate_bootstrap_token", "failed", "Failed to get rows affected", err)
+		return fmt.Errorf("failed to get rows affected: %w", err)
+	}
+
+	// If no rows were affected, insert the token as used
+	if rowsAffected == 0 {
+		_, err = r.db.ExecContext(ctx, "INSERT INTO bootstrap_tokens (token, used) VALUES (?, TRUE)", token)
+		if err != nil {
+			r.log.LogAuditError(uuid.Nil.String(), "invalidate_bootstrap_token", "failed", "Failed to insert bootstrap token", err)
+			return fmt.Errorf("failed to insert bootstrap token: %w", err)
+		}
+	}
+
 	r.log.LogAuditInfo(uuid.Nil.String(), "invalidate_bootstrap_token", "success", "Bootstrap token invalidated")
 	return nil
 }

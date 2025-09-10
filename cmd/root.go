@@ -158,7 +158,7 @@ func persistentPreRun(cmd *cobra.Command, args []string) {
 
 	if username == "" || password == "" {
 		log.LogAuditError("", "secrets", "failed", "Username and password are required for authentication", errors.New("missing credentials"))
-		os.Exit(0)
+		cmd.PrintErrln("Error: Username and password are required for authentication")
 		return
 	}
 
@@ -166,7 +166,7 @@ func persistentPreRun(cmd *cobra.Command, args []string) {
 	token, err := authRepo.Login(ctx, username, password, totpCode)
 	if err != nil {
 		log.LogAuditError("", "secrets", "failed", "Authentication failed", err)
-		os.Exit(0)
+		cmd.PrintErrln("Error: Authentication failed -", err.Error())
 		return
 	}
 
@@ -174,7 +174,7 @@ func persistentPreRun(cmd *cobra.Command, args []string) {
 	claims, err := auth.ParseJWT(token)
 	if err != nil {
 		log.LogAuditError("", "secrets", "failed", "Failed to parse JWT", err)
-		os.Exit(0)
+		cmd.PrintErrln("Error: Failed to parse authentication token -", err.Error())
 		return
 	}
 
