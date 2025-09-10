@@ -26,14 +26,10 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
-	"os"
-	"strings"
-	"syscall"
 
 	"github.com/google/uuid"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
-	"golang.org/x/term"
 
 	"password-manager/common"
 	"password-manager/internal/auth"
@@ -61,20 +57,26 @@ var registerAdminCmd = &cobra.Command{
 
 		userRepo := auth.NewUserRepository(ctx.Value(common.DBKey).(*sql.DB), log)
 
-		// Verify terminal input for security
-		if !term.IsTerminal(int(os.Stdin.Fd())) {
-			log.LogAuditError(uuid.Nil.String(), "register_admin", "failed", "command must be run interactively", nil)
-			return fmt.Errorf("command must be run interactively from a terminal")
-		}
-
 		username := viper.GetString("admin-username")
 		token := viper.GetString("bootstrap-token")
+
 		if username == "" || token == "" {
 			log.LogAuditError(uuid.Nil.String(), "register_admin", "failed", "admin-username and bootstrap-token are required", nil)
 			return fmt.Errorf("admin-username and bootstrap-token are required")
 		}
 
-		log.Println("Registering initial admin user...", token)
+		log.Println("Registering initial admin user...")
+
+		// Only prompt if not provided via flags
+		if username == "" {
+			fmt.Print("Enter admin username: ")
+			fmt.Scanln(&username)
+		}
+
+		if token == "" {
+			fmt.Print("Enter bootstrap token: ")
+			fmt.Scanln(&token)
+		}
 
 		// Validate bootstrap token
 		valid, err := userRepo.ValidateBootstrapToken(ctx, token)
@@ -87,27 +89,20 @@ var registerAdminCmd = &cobra.Command{
 			return fmt.Errorf("invalid or used bootstrap token")
 		}
 
-		// Prompt for password securely
-		fmt.Print("Enter admin password: ")
-		passwordBytes, err := term.ReadPassword(int(syscall.Stdin))
-		fmt.Println()
-		if err != nil {
-			log.LogAuditError(uuid.Nil.String(), "register_admin", "failed", "failed to read password", err)
-			return fmt.Errorf("failed to read password: %w", err)
-		}
-		password := strings.TrimSpace(string(passwordBytes))
+		password := viper.GetString("admin-password")
 		if password == "" {
-			log.LogAuditError(uuid.Nil.String(), "register_admin", "failed", "password cannot be empty", nil)
-			return fmt.Errorf("password cannot be empty")
+			log.LogAuditError(uuid.Nil.String(), "register_admin", "failed", "admin-password is required", nil)
+			return fmt.Errorf("admin-password is required")
 		}
 
-		user := &auth.User{
+		// Create admin user
+		adminUser := &auth.User{
+			ID:           uuid.New(),
 			Username:     username,
 			PasswordHash: password,
 			Role:         auth.RoleAdmin,
 		}
-
-		err = userRepo.Create(ctx, user)
+		err = userRepo.Create(ctx, adminUser)
 		if err != nil {
 			log.LogAuditError(uuid.Nil.String(), "register_admin", "failed", fmt.Sprintf("failed to create admin user: %s", err), err)
 			return fmt.Errorf("failed to create admin user: %w", err)
@@ -120,7 +115,6 @@ var registerAdminCmd = &cobra.Command{
 		}
 
 		log.LogAuditInfo(uuid.Nil.String(), "register_admin", "success", fmt.Sprintf("admin user created: %s", username))
-		fmt.Printf("Admin user created successfully, TOTP secret: %s\nConfigure this secret in a TOTP app (e.g., Google Authenticator) for MFA.\n", user.TOTPSecret)
 		return nil
 	},
 }
@@ -137,8 +131,10 @@ func InitUsersRegisterAdmin(usersCmd *cobra.Command) *cobra.Command {
 
 	registerAdminCmd.Flags().String("admin-username", "", "Username for the admin user")
 	registerAdminCmd.Flags().String("bootstrap-token", "", "Bootstrap token for initial admin registration")
+	registerAdminCmd.Flags().String("admin-password", "", "Password for the admin user")
 	viper.BindPFlag("admin-username", registerAdminCmd.Flags().Lookup("admin-username"))
 	viper.BindPFlag("bootstrap-token", registerAdminCmd.Flags().Lookup("bootstrap-token"))
+	viper.BindPFlag("admin-password", registerAdminCmd.Flags().Lookup("admin-password"))
 
 	return usersCmd
 }

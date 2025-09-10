@@ -43,8 +43,10 @@ func init() {
 
 	secrets.InitSecretsCreate(secretsCmd)
 	secrets.InitSecretsDelete(secretsCmd)
+	secrets.InitSecretsExport(secretsCmd)
 	secrets.InitSecretsGenerate(secretsCmd)
 	secrets.InitSecretsGet(secretsCmd)
+	secrets.InitSecretsImport(secretsCmd)
 	secrets.InitSecretsList(secretsCmd)
 	secrets.InitSecretsUpdate(secretsCmd)
 

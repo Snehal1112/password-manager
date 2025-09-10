@@ -63,7 +63,7 @@ var rootCmd = &cobra.Command{
 	Long: `The password manager is a standalone application for securely managing
 secrets, cryptographic keys, and certificates. It provides a CLI for user interaction
 and a RESTful API for programmatic access, with features like MFA and secret rotation.`,
-	PersistentPreRun:   persistentPreRun,
+	PersistentPreRunE:  persistentPreRun,
 	PersistentPostRunE: persistentPostRun,
 	// Run: func(cmd *cobra.Command, args []string) {},
 }
@@ -132,11 +132,11 @@ func initConfig() {
 //   - args: []string - the command-line arguments
 //
 // Return type: none
-func persistentPreRun(cmd *cobra.Command, args []string) {
+func persistentPreRun(cmd *cobra.Command, args []string) error {
 	logrus.Info("Persistent PreRun called for command:", cmd.Name())
 	// TODO: I think not below check is not required.
 	if restrictedCmds[cmd.Name()] != nil && restrictedCmds[cmd.Name()]["parent"] == cmd.Parent().Name() {
-		return
+		return nil
 	}
 
 	// Initialize the logger.
@@ -159,7 +159,8 @@ func persistentPreRun(cmd *cobra.Command, args []string) {
 	if username == "" || password == "" {
 		log.LogAuditError("", "secrets", "failed", "Username and password are required for authentication", errors.New("missing credentials"))
 		cmd.PrintErrln("Error: Username and password are required for authentication")
-		return
+		cmd.SetContext(ctx)
+		return errors.New("authentication failed")
 	}
 
 	authRepo := auth.NewUserRepository(database.GetDB(), log)
@@ -167,7 +168,8 @@ func persistentPreRun(cmd *cobra.Command, args []string) {
 	if err != nil {
 		log.LogAuditError("", "secrets", "failed", "Authentication failed", err)
 		cmd.PrintErrln("Error: Authentication failed -", err.Error())
-		return
+		cmd.SetContext(ctx)
+		return errors.New("authentication failed")
 	}
 
 	// Parse JWT to extract userID.
@@ -175,7 +177,8 @@ func persistentPreRun(cmd *cobra.Command, args []string) {
 	if err != nil {
 		log.LogAuditError("", "secrets", "failed", "Failed to parse JWT", err)
 		cmd.PrintErrln("Error: Failed to parse authentication token -", err.Error())
-		return
+		cmd.SetContext(ctx)
+		return errors.New("authentication failed")
 	}
 
 	// Log successful authentication.
@@ -192,6 +195,7 @@ func persistentPreRun(cmd *cobra.Command, args []string) {
 		"userID":   claims.UserID,
 		"username": username,
 	}).Info("User authenticated successfully")
+	return nil
 }
 
 // persistentPostRun is a Cobra persistent post-run function that closes the database connection
@@ -209,7 +213,9 @@ func persistentPostRun(cmd *cobra.Command, args []string) error {
 		return nil
 	}
 
-	cmd.Context().Value(common.DBClassKey).(*db.DBRepository).CloseDB()
+	if dbRepo, ok := cmd.Context().Value(common.DBClassKey).(*db.DBRepository); ok {
+		return dbRepo.CloseDB()
+	}
 	return nil
 }
 
