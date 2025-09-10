@@ -35,6 +35,8 @@ type Secret struct {
 type SecretRepository interface {
 	db.Repository[Secret]
 	ListByUser(ctx context.Context, userID uuid.UUID, tags []string) ([]Secret, error)
+	ExportSecrets(ctx context.Context, options ExportOptions) ([]byte, error)
+	ImportSecrets(ctx context.Context, data []byte, options ImportOptions) (int, error)
 }
 
 // secretRepository implements SecretRepository for database operations on secrets.
