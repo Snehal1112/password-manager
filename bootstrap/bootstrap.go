@@ -93,7 +93,7 @@ func (b *bootstrap) setup(ctx context.Context, cfg *Config) error {
 		app.WithBasePath(cfg.BasePath),
 		app.WithBackendEndPoint(cfg.BackendEndPoint),
 		app.WithLogger(b.cfg.Logger),
-		app.WithServer(server.NewServer(b.cfg.Logger, cfg.Listen)),
+		app.WithServer(server.NewDefaultServer(b.cfg.Logger, cfg.Listen)),
 		app.WithScheduler(scheduler),
 	).(*app.App)
 

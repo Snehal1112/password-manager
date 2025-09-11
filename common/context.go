@@ -16,6 +16,12 @@ const (
 	TokenKey
 	// ClaimsKey is the key used to store the authentication claims in the context.
 	ClaimsKey
+	// RequestIDKey is the key used to store the request ID in the context.
+	RequestIDKey
+	// ContentTypeKey is the key used to store the content type in the context.
+	ContentTypeKey
+	// APIVersionKey is the key used to store the API version in the context.
+	APIVersionKey
 )
 
 // String returns the string representation of the ContextKey.

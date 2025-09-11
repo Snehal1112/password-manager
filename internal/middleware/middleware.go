@@ -1,5 +1,6 @@
-// Package middleware provides HTTP middleware for the password manager API.
-// It includes logging, rate limiting, and authentication middleware.
+// Package middleware provides comprehensive HTTP middleware for the password manager API.
+// It includes logging, rate limiting, authentication, content negotiation,
+// request validation, security headers, and request ID tracking.
 package middleware
 
 import (
@@ -133,10 +134,6 @@ func (m *Middleware) AuthMiddleware(next http.Handler) http.Handler {
 		claims := &auth.Claims{}
 
 		// Parse the JWT token and validate its claims.
-		// Use jwt.ParseWithClaims to parse the token and validate the claims.
-		// The claims struct should match the structure of the JWT claims.
-		// The function will return an error if the token is invalid or expired.
-		// The claims struct should include the user ID and role.
 		token, err := jwt.ParseWithClaims(tokenString, claims, func(token *jwt.Token) (interface{}, error) {
 			// Validate the token signing method.
 			if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
