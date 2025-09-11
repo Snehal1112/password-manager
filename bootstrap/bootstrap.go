@@ -8,6 +8,8 @@ import (
 	"password-manager/api"
 	"password-manager/app"
 	"password-manager/config"
+	"password-manager/internal/db"
+	"password-manager/internal/secrets"
 	"password-manager/server"
 )
 
@@ -75,12 +77,24 @@ func Boot(ctx context.Context, cfg *Config, serverCfg *config.Config) error {
 // Returns:
 //   - error: An error if the setup process fails, otherwise nil.
 func (b *bootstrap) setup(ctx context.Context, cfg *Config) error {
+	// Initialize database
+	database := db.NewRepository(b.cfg.Logger)
+	if err := database.InitializeDB(); err != nil {
+		return err
+	}
+
+	// Create rotation scheduler
+	repo := secrets.NewRotationPolicyRepository(database.GetDB(), b.cfg.Logger)
+	secretRepo := secrets.NewSecretRepository(database.GetDB(), b.cfg.Logger)
+	scheduler := secrets.NewRotationScheduler(database.GetDB(), b.cfg.Logger, repo, secretRepo)
+
 	app := app.NewApp(
 		app.WithDBName(cfg.DatabaseName),
 		app.WithBasePath(cfg.BasePath),
 		app.WithBackendEndPoint(cfg.BackendEndPoint),
 		app.WithLogger(b.cfg.Logger),
 		app.WithServer(server.NewServer(b.cfg.Logger, cfg.Listen)),
+		app.WithScheduler(scheduler),
 	).(*app.App)
 
 	api.Init(

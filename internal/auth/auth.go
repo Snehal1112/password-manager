@@ -423,7 +423,7 @@ func (r *userRepository) Login(ctx context.Context, username, password, totpCode
 		}).Warn("Invalid TOTP code")
 		return "", fmt.Errorf("invalid TOTP code")
 	}
-
+	
 	// Retrieve the JWT secret from configuration.
 	jwtSecret := viper.GetString("jwt_secret")
 	if jwtSecret == "" {

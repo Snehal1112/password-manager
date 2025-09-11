@@ -30,8 +30,8 @@ import (
 //
 // Returns:
 //
-//	A function to clean up the database after the test.
-func setupTestDB(t *testing.T) func() {
+//	A pointer to the sql.DB instance and a function to clean up the database after the test.
+func setupTestDB(t *testing.T) (*sql.DB, func()) {
 	t.Helper()
 
 	// Switch to Shared In-Memory Database (Optional):
@@ -75,6 +75,75 @@ func setupTestDB(t *testing.T) func() {
 
 	assert.NoError(t, err, "creating secret_tags table should succeed")
 
+	// Create secret_versions table.
+	_, err = sqlDB.Exec(`
+		CREATE TABLE IF NOT EXISTS secret_versions (
+			id TEXT PRIMARY KEY,
+			secret_id TEXT NOT NULL,
+			user_id TEXT NOT NULL,
+			name TEXT NOT NULL,
+			value TEXT NOT NULL,
+			version INTEGER NOT NULL,
+			created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+			FOREIGN KEY (secret_id) REFERENCES secrets(id),
+			FOREIGN KEY (user_id) REFERENCES users(id)
+		)
+	`)
+
+	assert.NoError(t, err, "creating secret_versions table should succeed")
+
+	// Create rotation tables
+	_, err = sqlDB.Exec(`
+		CREATE TABLE IF NOT EXISTS rotation_policies (
+			id TEXT PRIMARY KEY,
+			user_id TEXT NOT NULL,
+			name TEXT NOT NULL,
+			description TEXT,
+			interval_days INTEGER NOT NULL,
+			enabled BOOLEAN NOT NULL DEFAULT TRUE,
+			reminder_days INTEGER NOT NULL DEFAULT 7,
+			auto_rotate BOOLEAN NOT NULL DEFAULT FALSE,
+			created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+			updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+			FOREIGN KEY (user_id) REFERENCES users(id)
+		);
+		CREATE TABLE IF NOT EXISTS secret_rotation_history (
+			id TEXT PRIMARY KEY,
+			secret_id TEXT NOT NULL,
+			policy_id TEXT,
+			rotated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+			previous_version INTEGER,
+			new_version INTEGER,
+			triggered_by TEXT NOT NULL,
+			notes TEXT,
+			FOREIGN KEY (secret_id) REFERENCES secrets(id),
+			FOREIGN KEY (policy_id) REFERENCES rotation_policies(id)
+		);
+		CREATE TABLE IF NOT EXISTS rotation_reminders (
+			id TEXT PRIMARY KEY,
+			secret_id TEXT NOT NULL,
+			policy_id TEXT NOT NULL,
+			reminder_type TEXT NOT NULL,
+			sent_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+			next_reminder_at TIMESTAMP,
+			acknowledged BOOLEAN NOT NULL DEFAULT FALSE,
+			FOREIGN KEY (secret_id) REFERENCES secrets(id),
+			FOREIGN KEY (policy_id) REFERENCES rotation_policies(id)
+		);
+		CREATE TABLE IF NOT EXISTS secret_policies (
+			secret_id TEXT NOT NULL,
+			policy_id TEXT NOT NULL,
+			assigned_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+			last_rotated_at TIMESTAMP,
+			next_rotation_at TIMESTAMP,
+			PRIMARY KEY (secret_id, policy_id),
+			FOREIGN KEY (secret_id) REFERENCES secrets(id),
+			FOREIGN KEY (policy_id) REFERENCES rotation_policies(id)
+		);
+	`)
+
+	assert.NoError(t, err, "creating rotation tables should succeed")
+
 	// Verify table creation.
 	var count int
 	err = sqlDB.QueryRow("SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='secrets'").Scan(&count)
@@ -83,9 +152,17 @@ func setupTestDB(t *testing.T) func() {
 	err = sqlDB.QueryRow("SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='secret_tags'").Scan(&count)
 	assert.NoError(t, err, "querying secret_tags table existence should succeed")
 	assert.Equal(t, 1, count, "secret_tags table should exist")
+	err = sqlDB.QueryRow("SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='secret_versions'").Scan(&count)
+	assert.NoError(t, err, "querying secret_versions table existence should succeed")
+	assert.Equal(t, 1, count, "secret_versions table should exist")
+
+	// Verify rotation table creation
+	err = sqlDB.QueryRow("SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='rotation_policies'").Scan(&count)
+	assert.NoError(t, err, "querying rotation_policies table existence should succeed")
+	assert.Equal(t, 1, count, "rotation_policies table should exist")
 
 	db.DB = sqlDB
-	return func() {
+	return sqlDB, func() {
 		db.DB.Close()
 		db.DB = nil
 	}
@@ -114,7 +191,7 @@ func generateMasterKey(tb testing.TB) string {
 // TestCreate tests the Create function to ensure it stores an encrypted secret with tags.
 func TestCreate(t *testing.T) {
 	// Set up test database.
-	cleanup := setupTestDB(t)
+	_, cleanup := setupTestDB(t)
 	defer cleanup()
 
 	// Set Viper configuration.
@@ -177,7 +254,7 @@ func TestCreate(t *testing.T) {
 // TestCreateInvalidKey tests the Create function with an invalid master key length.
 func TestCreateInvalidKey(t *testing.T) {
 	// Set up test database.
-	cleanup := setupTestDB(t)
+	_, cleanup := setupTestDB(t)
 	defer cleanup()
 
 	// Set Viper configuration.
@@ -216,7 +293,7 @@ func TestCreateInvalidKey(t *testing.T) {
 // TestRead tests the Read function to ensure it retrieves and decrypts a secret.
 func TestRead(t *testing.T) {
 	// Set up test database.
-	cleanup := setupTestDB(t)
+	_, cleanup := setupTestDB(t)
 	defer cleanup()
 
 	// Set Viper configuration.
@@ -260,7 +337,7 @@ func TestRead(t *testing.T) {
 // TestUpdate tests the Update function to ensure it creates a new secret version.
 func TestUpdate(t *testing.T) {
 	// Set up test database.
-	cleanup := setupTestDB(t)
+	_, cleanup := setupTestDB(t)
 	defer cleanup()
 
 	// Set Viper configuration.
@@ -288,7 +365,7 @@ func TestUpdate(t *testing.T) {
 	// Test updating.
 	ctx := context.Background()
 	secret := Secret{
-		ID:        uuid.New(),
+		ID:        id,
 		UserID:    userID,
 		Name:      "test-secret",
 		Value:     "new-value",
@@ -329,7 +406,7 @@ func TestUpdate(t *testing.T) {
 // TestDelete tests the Delete function to ensure it removes a secret and its tags.
 func TestDelete(t *testing.T) {
 	// Set up test database.
-	cleanup := setupTestDB(t)
+	_, cleanup := setupTestDB(t)
 	defer cleanup()
 
 	// Set Viper configuration.
@@ -373,7 +450,7 @@ func TestDelete(t *testing.T) {
 // TestListByUser tests the ListByUser function to ensure it retrieves secrets with optional tag filtering.
 func TestListByUser(t *testing.T) {
 	// Set up test database.
-	cleanup := setupTestDB(t)
+	_, cleanup := setupTestDB(t)
 	defer cleanup()
 
 	// Set Viper configuration.

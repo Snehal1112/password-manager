@@ -2,6 +2,7 @@ package app
 
 import (
 	"password-manager/internal/logging"
+	"password-manager/internal/secrets"
 	"password-manager/server"
 )
 
@@ -64,5 +65,12 @@ func WithServer(server *server.Server) Option {
 func WithLogger(logger *logging.Logger) Option {
 	return func(a *App) {
 		a.Logger = logger
+	}
+}
+
+// WithScheduler sets the rotation scheduler for the App instance.
+func WithScheduler(scheduler *secrets.RotationScheduler) Option {
+	return func(a *App) {
+		a.scheduler = scheduler
 	}
 }

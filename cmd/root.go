@@ -139,6 +139,18 @@ func persistentPreRun(cmd *cobra.Command, args []string) error {
 		return nil
 	}
 
+	// System commands that don't require authentication
+	systemCmds := map[string]bool{
+		"health": true,
+		"backup": true,
+	}
+
+	// Check if this is a system command (either the command itself or its parent)
+	isSystemCmd := systemCmds[cmd.Name()]
+	if !isSystemCmd && cmd.Parent() != nil {
+		isSystemCmd = systemCmds[cmd.Parent().Name()]
+	}
+
 	// Initialize the logger.
 	log := logging.InitLogger()
 	// Start log rotation goroutine
@@ -151,6 +163,13 @@ func persistentPreRun(cmd *cobra.Command, args []string) error {
 	ctx := context.WithValue(cmd.Context(), common.DBKey, database.GetDB())
 	ctx = context.WithValue(ctx, common.DBClassKey, database)
 	ctx = context.WithValue(ctx, common.LogKey, log)
+	cmd.SetContext(ctx)
+
+	// Skip authentication for system commands
+	if isSystemCmd {
+		log.WithField("command", cmd.Name()).Info("System command executed without authentication")
+		return nil
+	}
 
 	username, _ := cmd.Flags().GetString("username")
 	password, _ := cmd.Flags().GetString("password")
@@ -159,7 +178,6 @@ func persistentPreRun(cmd *cobra.Command, args []string) error {
 	if username == "" || password == "" {
 		log.LogAuditError("", "secrets", "failed", "Username and password are required for authentication", errors.New("missing credentials"))
 		cmd.PrintErrln("Error: Username and password are required for authentication")
-		cmd.SetContext(ctx)
 		return errors.New("authentication failed")
 	}
 
@@ -168,7 +186,6 @@ func persistentPreRun(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		log.LogAuditError("", "secrets", "failed", "Authentication failed", err)
 		cmd.PrintErrln("Error: Authentication failed -", err.Error())
-		cmd.SetContext(ctx)
 		return errors.New("authentication failed")
 	}
 
@@ -177,7 +194,6 @@ func persistentPreRun(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		log.LogAuditError("", "secrets", "failed", "Failed to parse JWT", err)
 		cmd.PrintErrln("Error: Failed to parse authentication token -", err.Error())
-		cmd.SetContext(ctx)
 		return errors.New("authentication failed")
 	}
 

@@ -153,8 +153,22 @@ Deletes a certificate by ID.
 **Arguments**:
 - `id`: Certificate ID (required).
 
+### Health
+Displays system health metrics including memory usage, CPU statistics, database connection status, and query performance.
+
+```bash
+./password-manager health
+```
+
+This command provides a comprehensive view of system health without requiring authentication. It displays:
+- Memory usage statistics (allocated, heap, system memory)
+- CPU statistics (goroutines, CGO calls)
+- Database connection pool status
+- Query performance metrics
+- System uptime and Go version
+
 ## Authentication
-All commands except `setup` and `register` require authentication via `--username`, `--password`, and `--totp-code`. Users must have the `crypto_manager` role to perform key and certificate operations.
+All commands except `setup`, `register`, and `health` require authentication via `--username`, `--password`, and `--totp-code`. Users must have the `crypto_manager` role to perform key and certificate operations.
 
 ## Logging
 CLI operations are logged to a file (default: `test.log`) and stdout in JSON format using `github.com/sirupsen/logrus`. Audit logs are stored in the `audit_logs` table.

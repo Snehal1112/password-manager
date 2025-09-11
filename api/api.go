@@ -6,6 +6,8 @@ import (
 	"github.com/gorilla/mux"
 
 	"password-manager/app"
+	"password-manager/internal/db"
+	"password-manager/internal/health"
 	"password-manager/internal/logging"
 	"password-manager/internal/middleware"
 )
@@ -60,9 +62,11 @@ func Init(options ...Options) *API {
 	)
 	api.BaseRoutes["Vault"] = api.BaseRoutes["ApiRoot"].PathPrefix("/vault").Subrouter()
 	api.BaseRoutes["Secrets"] = api.BaseRoutes["ApiRoot"].PathPrefix("/secrets").Subrouter()
+	api.BaseRoutes["Health"] = api.BaseRoutes["ApiRoot"].PathPrefix("/health").Subrouter()
 
 	api.InitVault(api.BaseRoutes["Vault"])
 	api.InitSecrets(api.BaseRoutes["Secrets"])
+	api.InitHealth(api.BaseRoutes["Health"])
 
 	var apiNames []string
 	for s := range api.BaseRoutes {
@@ -72,4 +76,27 @@ func Init(options ...Options) *API {
 	}
 	api.Logger.WithField("api", strings.Join(apiNames, ",")).Infoln("Initialized api")
 	return api
+}
+
+// InitHealth initializes the routes for the health service API.
+// It sets up the following endpoints:
+// - GET /health: Returns comprehensive health metrics
+// - GET /health/ready: Returns readiness status
+// - GET /health/live: Returns liveness status
+//
+// Parameters:
+// - healthRouter (*mux.Router): The router to which the routes will be added.
+func (api *API) InitHealth(healthRouter *mux.Router) {
+	// Create health collector with global database connection
+	collector := health.NewHealthCollector(db.DB)
+
+	// Create health handler
+	handler := NewHealthHandler(collector, api.Logger)
+
+	// Register routes
+	healthRouter.HandleFunc("", handler.HealthCheck).Methods("GET")
+	healthRouter.HandleFunc("/ready", handler.ReadinessCheck).Methods("GET")
+	healthRouter.HandleFunc("/live", handler.LivenessCheck).Methods("GET")
+
+	api.Logger.Infoln("Health API routes initialized")
 }

@@ -21,8 +21,9 @@ A production-ready, self-hosted password manager application built in Go, design
 - X.509 certificate management with self-signed and CA-signed options
 - Encrypted database storage (SQLite for development, PostgreSQL for production)
 - Comprehensive logging and audit trails
+- System health monitoring with memory, CPU, and database metrics
+- RESTful API with health check endpoints
 - Backup and recovery tools (coming soon)
-- RESTful API (coming soon)
 
 ## Prerequisites
 - Go 1.24 or higher
@@ -71,6 +72,13 @@ A production-ready, self-hosted password manager application built in Go, design
 ```bash
 ./password-manager certificates generate --key-id 1 --name test-cert --validity-days 365 --tags prod,api --username admin --password admin123 --totp-code <valid-totp-code>
 ```
+
+### Check System Health
+```bash
+./password-manager health
+```
+
+This command displays comprehensive system health metrics including memory usage, CPU statistics, database connection status, and query performance.
 
 For more usage examples, refer to the [CLI documentation](docs/cli.md).
 

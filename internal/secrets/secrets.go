@@ -37,12 +37,16 @@ type SecretRepository interface {
 	ListByUser(ctx context.Context, userID uuid.UUID, tags []string) ([]Secret, error)
 	ExportSecrets(ctx context.Context, options ExportOptions) ([]byte, error)
 	ImportSecrets(ctx context.Context, data []byte, options ImportOptions) (int, error)
+	GetVersions(ctx context.Context, secretID uuid.UUID) ([]SecretVersion, error)
+	GetVersion(ctx context.Context, secretID uuid.UUID, version int) (*SecretVersion, error)
+	GetLatestVersion(ctx context.Context, secretID uuid.UUID) (*SecretVersion, error)
 }
 
 // secretRepository implements SecretRepository for database operations on secrets.
 type secretRepository struct {
-	db  *sql.DB
-	log *logging.Logger
+	db          *sql.DB
+	log         *logging.Logger
+	versionRepo SecretVersionRepository
 }
 
 // NewSecretRepository creates a new SecretRepository with the given database connection.
@@ -56,7 +60,11 @@ type secretRepository struct {
 //
 //	A SecretRepository for secret operations.
 func NewSecretRepository(db *sql.DB, log *logging.Logger) SecretRepository {
-	return &secretRepository{db: db, log: log}
+	return &secretRepository{
+		db:          db,
+		log:         log,
+		versionRepo: NewSecretVersionRepository(db, log),
+	}
 }
 
 // Create inserts a new secret into the database.
@@ -173,6 +181,31 @@ func (r *secretRepository) Read(ctx context.Context, id uuid.UUID) (*Secret, err
 //
 //	An error if the update fails.
 func (r *secretRepository) Update(ctx context.Context, secret *Secret) error {
+	// First, get the current secret to create a version
+	currentSecret, err := r.Read(ctx, secret.ID)
+	if err != nil {
+		return fmt.Errorf("failed to read current secret: %w", err)
+	}
+
+	// Create a new version before updating
+	version := &SecretVersion{
+		ID:        uuid.New(),
+		SecretID:  currentSecret.ID,
+		UserID:    currentSecret.UserID,
+		Name:      currentSecret.Name,
+		Value:     currentSecret.Value,
+		Version:   currentSecret.Version,
+		CreatedAt: currentSecret.CreatedAt,
+	}
+
+	if err := r.versionRepo.CreateVersion(ctx, version); err != nil {
+		r.log.LogAuditError(secret.UserID.String(), "update_secret", "failed", "Failed to create version", err)
+		return fmt.Errorf("failed to create version: %w", err)
+	}
+
+	// Increment version for the update
+	secret.Version = currentSecret.Version + 1
+
 	// Encrypt the updated secret value.
 	encryptedValue, err := common.EncryptSecret(secret.Value)
 	if err != nil {
@@ -180,15 +213,26 @@ func (r *secretRepository) Update(ctx context.Context, secret *Secret) error {
 		return fmt.Errorf("failed to encrypt secret: %w", err)
 	}
 
-	// Insert a new version of the secret.
-	_, err = r.db.ExecContext(
+	// Update the existing secret.
+	result, err := r.db.ExecContext(
 		ctx,
-		"INSERT INTO secrets (id, user_id, name, value, version, created_at) VALUES (?, ?, ?, ?, ?, ?)",
-		secret.ID.String(), secret.UserID.String(), secret.Name, encryptedValue, secret.Version, secret.CreatedAt,
+		"UPDATE secrets SET name = ?, value = ?, version = ? WHERE id = ? AND user_id = ?",
+		secret.Name, encryptedValue, secret.Version, secret.ID.String(), secret.UserID.String(),
 	)
 	if err != nil {
 		r.log.LogAuditError(secret.UserID.String(), "update_secret", "failed", "Failed to update secret", err)
 		return fmt.Errorf("failed to update secret: %w", err)
+	}
+
+	// Check if the update actually affected a row
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		r.log.LogAuditError(secret.UserID.String(), "update_secret", "failed", "Failed to get rows affected", err)
+		return fmt.Errorf("failed to get rows affected: %w", err)
+	}
+	if rowsAffected == 0 {
+		r.log.LogAuditError(secret.UserID.String(), "update_secret", "failed", "Secret not found for update", sql.ErrNoRows)
+		return fmt.Errorf("secret not found")
 	}
 
 	// Delete existing tags.
@@ -211,12 +255,13 @@ func (r *secretRepository) Update(ctx context.Context, secret *Secret) error {
 		}
 	}
 
-	r.log.LogAuditInfo(secret.UserID.String(), "update_secret", "success", "Secret updated successfully")
+	r.log.LogAuditInfo(secret.UserID.String(), "update_secret", "success",
+		fmt.Sprintf("Secret updated to version %d", secret.Version))
 	return nil
 }
 
 // Delete deletes a secret by ID from the database.
-// It also removes associated tags.
+// It also removes associated tags and versions.
 //
 // Parameters:
 //
@@ -227,7 +272,13 @@ func (r *secretRepository) Update(ctx context.Context, secret *Secret) error {
 //
 //	An error if the deletion fails.
 func (r *secretRepository) Delete(ctx context.Context, id uuid.UUID) error {
-	// Delete associated tags first.
+	// Delete associated versions first.
+	if err := r.versionRepo.DeleteVersions(ctx, id); err != nil {
+		r.log.LogAuditError("", "delete_secret", "failed", "Failed to delete versions", err)
+		return fmt.Errorf("failed to delete versions: %w", err)
+	}
+
+	// Delete associated tags.
 	_, err := r.db.ExecContext(ctx, "DELETE FROM secret_tags WHERE secret_id = ?", id.String())
 	if err != nil {
 		r.log.LogAuditError("", "delete_secret", "failed", "Failed to delete tags", err)
@@ -241,10 +292,7 @@ func (r *secretRepository) Delete(ctx context.Context, id uuid.UUID) error {
 		return fmt.Errorf("failed to delete secret: %w", err)
 	}
 
-	r.log.LogAuditInfo("", "delete_secret", "success", "Secret deleted successfully")
-	logrus.WithFields(logrus.Fields{
-		"secret_id": id.String(),
-	}).Info("Secret deleted successfully")
+	r.log.LogAuditInfo("", "delete_secret", "success", "Secret and all versions deleted successfully")
 	return nil
 }
 
@@ -322,4 +370,50 @@ func (r *secretRepository) ListByUser(ctx context.Context, userID uuid.UUID, tag
 		"count":   len(secrets),
 	}).Info("Secrets listed successfully")
 	return secrets, nil
+}
+
+// GetVersions retrieves all versions of a secret by secret ID.
+// It returns an error if the retrieval fails.
+//
+// Parameters:
+//
+//	ctx: The context for the database operation.
+//	secretID: The secret’s ID.
+//
+// Returns:
+//
+//	A list of secret versions and an error if the retrieval fails.
+func (r *secretRepository) GetVersions(ctx context.Context, secretID uuid.UUID) ([]SecretVersion, error) {
+	return r.versionRepo.GetVersions(ctx, secretID)
+}
+
+// GetVersion retrieves a specific version of a secret by secret ID and version number.
+// It returns an error if the retrieval fails.
+//
+// Parameters:
+//
+//	ctx: The context for the database operation.
+//	secretID: The secret’s ID.
+//	version: The version number.
+//
+// Returns:
+//
+//	The secret version and an error if the retrieval fails.
+func (r *secretRepository) GetVersion(ctx context.Context, secretID uuid.UUID, version int) (*SecretVersion, error) {
+	return r.versionRepo.GetVersion(ctx, secretID, version)
+}
+
+// GetLatestVersion retrieves the latest version of a secret by secret ID.
+// It returns an error if the retrieval fails.
+//
+// Parameters:
+//
+//	ctx: The context for the database operation.
+//	secretID: The secret’s ID.
+//
+// Returns:
+//
+//	The latest secret version and an error if the retrieval fails.
+func (r *secretRepository) GetLatestVersion(ctx context.Context, secretID uuid.UUID) (*SecretVersion, error) {
+	return r.versionRepo.GetLatestVersion(ctx, secretID)
 }
