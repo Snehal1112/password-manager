@@ -2,8 +2,10 @@ package common
 
 import (
 	"bytes"
+	"crypto/rand"
 	"encoding/base32"
 	"encoding/json"
+	"math/big"
 
 	"github.com/google/uuid"
 )
@@ -95,4 +97,37 @@ func (er *AppError) ToJSON() string {
 	}
 
 	return string(b)
+}
+
+// GenerateRandomString generates a cryptographically secure random string of the specified length
+// using characters from the provided charset.
+//
+// Parameters:
+//   - length: The desired length of the generated string
+//   - charset: The set of characters to use for generation
+//
+// Returns:
+//   - A random string of the specified length
+//   - An error if random generation fails
+func GenerateRandomString(length int, charset string) (string, error) {
+	if length <= 0 {
+		return "", nil
+	}
+	
+	if len(charset) == 0 {
+		return "", nil
+	}
+
+	result := make([]byte, length)
+	charsetLen := big.NewInt(int64(len(charset)))
+	
+	for i := 0; i < length; i++ {
+		randomIndex, err := rand.Int(rand.Reader, charsetLen)
+		if err != nil {
+			return "", err
+		}
+		result[i] = charset[randomIndex.Int64()]
+	}
+	
+	return string(result), nil
 }
