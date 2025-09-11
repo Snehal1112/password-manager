@@ -62,10 +62,14 @@ func Init(options ...Options) *API {
 	)
 	api.BaseRoutes["Vault"] = api.BaseRoutes["ApiRoot"].PathPrefix("/vault").Subrouter()
 	api.BaseRoutes["Secrets"] = api.BaseRoutes["ApiRoot"].PathPrefix("/secrets").Subrouter()
+	api.BaseRoutes["Users"] = api.BaseRoutes["ApiRoot"].PathPrefix("/users").Subrouter()
+	api.BaseRoutes["Keys"] = api.BaseRoutes["ApiRoot"].PathPrefix("/keys").Subrouter()
 	api.BaseRoutes["Health"] = api.BaseRoutes["ApiRoot"].PathPrefix("/health").Subrouter()
 
 	api.InitVault(api.BaseRoutes["Vault"])
 	api.InitSecrets(api.BaseRoutes["Secrets"])
+	api.InitUsers(api.BaseRoutes["Users"])
+	api.InitKeys(api.BaseRoutes["Keys"])
 	api.InitHealth(api.BaseRoutes["Health"])
 
 	var apiNames []string
