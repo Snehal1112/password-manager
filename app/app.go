@@ -6,9 +6,9 @@ import (
 
 	"github.com/gorilla/mux"
 
+	"password-manager/common"
 	"password-manager/internal/logging"
 	"password-manager/internal/secrets"
-	"password-manager/model"
 	"password-manager/server"
 )
 
@@ -64,7 +64,7 @@ func newApp(options ...Option) *App {
 		option(a)
 	}
 
-	if err := model.TranslationsPreInit(); err != nil {
+	if err := common.TranslationsPreInit(); err != nil {
 		a.Logger.Errorln("Unable to initialize the localization.")
 	}
 
