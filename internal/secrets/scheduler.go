@@ -201,8 +201,8 @@ func (s *RotationScheduler) performRotation(ctx context.Context, sp SecretPolicy
 	s.updateNextRotationTime(ctx, sp, policy)
 
 	s.log.WithFields(logrus.Fields{
-		"secret_id": sp.SecretID,
-		"policy_id": sp.PolicyID,
+		"secret_id":   sp.SecretID,
+		"policy_id":   sp.PolicyID,
 		"new_version": secret.Version,
 	}).Info("Automatic rotation completed")
 }
@@ -371,8 +371,8 @@ func (s *RotationScheduler) ManualRotate(ctx context.Context, secretID, policyID
 	s.updateNextRotationTime(ctx, sp, policy)
 
 	s.log.WithFields(logrus.Fields{
-		"secret_id": secretID,
-		"policy_id": policyID,
+		"secret_id":   secretID,
+		"policy_id":   policyID,
 		"new_version": secret.Version,
 	}).Info("Manual rotation completed")
 
@@ -479,8 +479,8 @@ func (s *RotationScheduler) updateReminderNextAt(ctx context.Context, reminderID
 
 	rowsAffected, _ := result.RowsAffected()
 	s.log.WithFields(map[string]interface{}{
-		"reminder_id": reminderID,
-		"next_at": nextAt,
+		"reminder_id":   reminderID,
+		"next_at":       nextAt,
 		"rows_affected": rowsAffected,
 	}).Info("Reminder next_at updated")
 

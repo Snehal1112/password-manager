@@ -27,8 +27,9 @@ import (
 	"os"
 	"text/tabwriter"
 
-	"github.com/spf13/cobra"
 	"database/sql"
+
+	"github.com/spf13/cobra"
 
 	"password-manager/common"
 	"password-manager/internal/health"

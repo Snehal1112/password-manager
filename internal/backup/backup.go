@@ -47,10 +47,10 @@ type BackupMetadata struct {
 
 // TableData represents data from a single table
 type TableData struct {
-	Name       string                   `json:"name"`
-	Columns    []string                 `json:"columns"`
-	Rows       []map[string]interface{} `json:"rows"`
-	RowCount   int                      `json:"row_count"`
+	Name     string                   `json:"name"`
+	Columns  []string                 `json:"columns"`
+	Rows     []map[string]interface{} `json:"rows"`
+	RowCount int                      `json:"row_count"`
 }
 
 // BackupData represents the complete backup structure
@@ -115,9 +115,9 @@ func (m *Manager) CreateBackup(outputPath string, encrypt bool) error {
 	}
 
 	m.logger.WithFields(map[string]interface{}{
-		"file":     outputPath,
-		"tables":   len(tables),
-		"records":  totalRecords,
+		"file":      outputPath,
+		"tables":    len(tables),
+		"records":   totalRecords,
 		"encrypted": encrypt,
 	}).Info("Backup completed successfully")
 
@@ -130,45 +130,45 @@ func (m *Manager) RestoreBackup(backupPath string, encrypted bool) error {
 
 	// Read and parse backup file
 	backupData, err := m.readBackupFile(backupPath, encrypted)
-		if err != nil {
-			return fmt.Errorf("failed to read backup file: %w", err)
-		}
-
-		// Validate backup data
-		if err := m.validateBackupData(backupData); err != nil {
-			return fmt.Errorf("invalid backup data: %w", err)
-		}
-
-		// Begin transaction for restore
-		tx, err := m.db.Begin()
-		if err != nil {
-			return fmt.Errorf("failed to begin transaction: %w", err)
-		}
-		defer tx.Rollback()
-
-		// Clear existing data and restore
-		totalRecords := 0
-		for _, tableData := range backupData.Tables {
-			if err := m.restoreTableData(tx, &tableData); err != nil {
-				return fmt.Errorf("failed to restore table %s: %w", tableData.Name, err)
-			}
-			totalRecords += tableData.RowCount
-			m.logger.WithField("table", tableData.Name).WithField("records", tableData.RowCount).Info("Restored table")
-		}
-
-		// Commit transaction
-		if err := tx.Commit(); err != nil {
-			return fmt.Errorf("failed to commit transaction: %w", err)
-		}
-
-		m.logger.WithFields(map[string]interface{}{
-			"file":    backupPath,
-			"tables":  len(backupData.Tables),
-			"records": totalRecords,
-		}).Info("Restore completed successfully")
-
-		return nil
+	if err != nil {
+		return fmt.Errorf("failed to read backup file: %w", err)
 	}
+
+	// Validate backup data
+	if err := m.validateBackupData(backupData); err != nil {
+		return fmt.Errorf("invalid backup data: %w", err)
+	}
+
+	// Begin transaction for restore
+	tx, err := m.db.Begin()
+	if err != nil {
+		return fmt.Errorf("failed to begin transaction: %w", err)
+	}
+	defer tx.Rollback()
+
+	// Clear existing data and restore
+	totalRecords := 0
+	for _, tableData := range backupData.Tables {
+		if err := m.restoreTableData(tx, &tableData); err != nil {
+			return fmt.Errorf("failed to restore table %s: %w", tableData.Name, err)
+		}
+		totalRecords += tableData.RowCount
+		m.logger.WithField("table", tableData.Name).WithField("records", tableData.RowCount).Info("Restored table")
+	}
+
+	// Commit transaction
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("failed to commit transaction: %w", err)
+	}
+
+	m.logger.WithFields(map[string]interface{}{
+		"file":    backupPath,
+		"tables":  len(backupData.Tables),
+		"records": totalRecords,
+	}).Info("Restore completed successfully")
+
+	return nil
+}
 
 // ListBackups lists available backup files in a directory
 func (m *Manager) ListBackups(backupDir string) ([]BackupMetadata, error) {

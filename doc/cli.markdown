@@ -3,13 +3,17 @@
 This document provides detailed instructions for using the Password Manager’s command-line interface (CLI), built with `github.com/spf13/cobra`. The CLI allows users to manage users, cryptographic keys, and X.509 certificates securely.
 
 ## Overview
+
 The CLI is the primary interface for interacting with the Password Manager. It supports commands for user registration, key management, and certificate management, with role-based access control (RBAC) and multi-factor authentication (MFA) using TOTP.
 
 ## Installation
+
 See the [README](../README.md#installation) for installation instructions.
 
 ## Commands
+
 ### Setup
+
 Initializes the database and admin user (not yet implemented).
 
 ```bash
@@ -17,11 +21,13 @@ Initializes the database and admin user (not yet implemented).
 ```
 
 **Flags**:
+
 - `--db-type`: Database type (`sqlite` or `postgres`).
 - `--db-path`: SQLite database file path (e.g., `./password_manager.db`).
 - `--db-connection`: PostgreSQL connection string (e.g., `host=localhost user=postgres password=secret dbname=password_manager sslmode=disable`).
 
 ### Register
+
 Registers a new user with a username, password, and role.
 
 ```bash
@@ -29,14 +35,17 @@ Registers a new user with a username, password, and role.
 ```
 
 **Flags**:
+
 - `--username`: Username (required).
 - `--password`: Password (required).
 - `--role`: Role (`crypto_manager` or `user`, default: `user`).
 
 ### Keys
+
 Manages cryptographic keys (RSA and ECDSA).
 
 #### Generate
+
 Generates a new key.
 
 ```bash
@@ -44,6 +53,7 @@ Generates a new key.
 ```
 
 **Flags**:
+
 - `--type`: Key type (`rsa` or `ecdsa`, required).
 - `--name`: Key name (required).
 - `--bits`: Key size for RSA (e.g., 2048, default: 2048).
@@ -52,6 +62,7 @@ Generates a new key.
 - `--username`, `--password`, `--totp-code`: Authentication credentials.
 
 #### Get
+
 Retrieves a key by ID.
 
 ```bash
@@ -59,9 +70,11 @@ Retrieves a key by ID.
 ```
 
 **Arguments**:
+
 - `id`: Key ID (required).
 
 #### List
+
 Lists keys with optional tag filtering.
 
 ```bash
@@ -69,10 +82,12 @@ Lists keys with optional tag filtering.
 ```
 
 **Flags**:
+
 - `--type`: Filter by key type (`rsa` or `ecdsa`).
 - `--tags`: Filter by tags (e.g., `prod`).
 
 #### Rotate
+
 Rotates a key by ID.
 
 ```bash
@@ -80,9 +95,11 @@ Rotates a key by ID.
 ```
 
 **Arguments**:
+
 - `id`: Key ID (required).
 
 #### Delete
+
 Deletes a key by ID.
 
 ```bash
@@ -90,12 +107,15 @@ Deletes a key by ID.
 ```
 
 **Arguments**:
+
 - `id`: Key ID (required).
 
 ### Certificates
+
 Manages X.509 certificates.
 
 #### Generate
+
 Generates a self-signed or CA-signed certificate.
 
 ```bash
@@ -103,6 +123,7 @@ Generates a self-signed or CA-signed certificate.
 ```
 
 **Flags**:
+
 - `--key-id`: ID of the private key (required).
 - `--ca-cert-id`: ID of the CA certificate (omit for self-signed).
 - `--name`: Certificate name (default: `cert-<userID>`).
@@ -111,6 +132,7 @@ Generates a self-signed or CA-signed certificate.
 - `--username`, `--password`, `--totp-code`: Authentication credentials.
 
 #### Get
+
 Retrieves a certificate by ID.
 
 ```bash
@@ -118,9 +140,11 @@ Retrieves a certificate by ID.
 ```
 
 **Arguments**:
+
 - `id`: Certificate ID (required).
 
 #### List
+
 Lists certificates with optional tag filtering.
 
 ```bash
@@ -128,10 +152,12 @@ Lists certificates with optional tag filtering.
 ```
 
 **Flags**:
+
 - `--type`: Filter by certificate type (not yet implemented).
 - `--tags`: Filter by tags.
 
 #### Revoke
+
 Revokes a certificate by ID.
 
 ```bash
@@ -139,11 +165,13 @@ Revokes a certificate by ID.
 ```
 
 **Arguments**:
+
 - `id`: Certificate ID (required).
 - `serial-number`: Certificate serial number (required).
 - `name`: Certificate name (required).
 
 #### Delete
+
 Deletes a certificate by ID.
 
 ```bash
@@ -151,9 +179,11 @@ Deletes a certificate by ID.
 ```
 
 **Arguments**:
+
 - `id`: Certificate ID (required).
 
 ### Health
+
 Displays system health metrics including memory usage, CPU statistics, database connection status, and query performance.
 
 ```bash
@@ -161,6 +191,7 @@ Displays system health metrics including memory usage, CPU statistics, database 
 ```
 
 This command provides a comprehensive view of system health without requiring authentication. It displays:
+
 - Memory usage statistics (allocated, heap, system memory)
 - CPU statistics (goroutines, CGO calls)
 - Database connection pool status
@@ -168,12 +199,15 @@ This command provides a comprehensive view of system health without requiring au
 - System uptime and Go version
 
 ## Authentication
+
 All commands except `setup`, `register`, and `health` require authentication via `--username`, `--password`, and `--totp-code`. Users must have the `crypto_manager` role to perform key and certificate operations.
 
 ## Logging
+
 CLI operations are logged to a file (default: `test.log`) and stdout in JSON format using `github.com/sirupsen/logrus`. Audit logs are stored in the `audit_logs` table.
 
 ## Planned Commands
+
 - **Secrets Management**: Commands for secrets (`generate`, `get`, `list`, `delete`) with versioning and export/import.
 - **Backup/Restore**: Commands for encrypted database backups and restores.
 - **Password Generator**: Command to generate strong passwords with configurable parameters.

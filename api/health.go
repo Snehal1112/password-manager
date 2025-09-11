@@ -40,7 +40,7 @@ type HealthHandler struct {
 func NewHealthHandler(collector *health.HealthCollector, logger *logging.Logger) *HealthHandler {
 	return &HealthHandler{
 		collector: collector,
-		logger:     logger,
+		logger:    logger,
 	}
 }
 
@@ -64,18 +64,18 @@ func (h *HealthHandler) HealthCheck(w http.ResponseWriter, r *http.Request) {
 	response := struct {
 		*health.HealthMetrics
 		QueryMetrics struct {
-			QueryCount    int64         `json:"query_count"`
-			TotalDuration string        `json:"total_duration"`
-			AvgDuration   string        `json:"avg_duration"`
-			SlowQueries   int64         `json:"slow_queries"`
+			QueryCount    int64  `json:"query_count"`
+			TotalDuration string `json:"total_duration"`
+			AvgDuration   string `json:"avg_duration"`
+			SlowQueries   int64  `json:"slow_queries"`
 		} `json:"query_metrics"`
 	}{
 		HealthMetrics: metrics,
 		QueryMetrics: struct {
-			QueryCount    int64         `json:"query_count"`
-			TotalDuration string        `json:"total_duration"`
-			AvgDuration   string        `json:"avg_duration"`
-			SlowQueries   int64         `json:"slow_queries"`
+			QueryCount    int64  `json:"query_count"`
+			TotalDuration string `json:"total_duration"`
+			AvgDuration   string `json:"avg_duration"`
+			SlowQueries   int64  `json:"slow_queries"`
 		}{
 			QueryCount:    queryMetrics.QueryCount,
 			TotalDuration: health.FormatDuration(queryMetrics.TotalDuration),
