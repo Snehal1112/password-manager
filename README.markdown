@@ -5,6 +5,8 @@ A production-ready, self-hosted password manager application built in Go, design
 ## Table of Contents
 
 - [Features](#features)
+- [Documentation](#documentation)
+- [API Endpoints](#api-endpoints)
 - [Prerequisites](#prerequisites)
 - [Installation](#installation)
 - [Usage](#usage)
@@ -26,6 +28,53 @@ A production-ready, self-hosted password manager application built in Go, design
 - System health monitoring with memory, CPU, and database metrics
 - RESTful API with health check endpoints
 - Backup and recovery tools (coming soon)
+
+## Documentation
+
+- [API Specification (OpenAPI/Swagger)](docs/api-specification.yaml) - Complete OpenAPI 3.0 specification
+- [API Developer Guide](docs/api-developer-guide.md) - Comprehensive guide for developers
+- [Integration Examples](docs/integration-examples.md) - Real-world integration examples
+- [API Documentation Validation](validate-api-docs.sh) - Script to validate documentation completeness and syntax
+- [CLI Documentation](doc/cli.markdown) - Command-line interface guide
+- [Architecture Documentation](doc/architecture.markdown) - System architecture overview
+- [Configuration Guide](doc/configuration.markdown) - Configuration options and setup
+- [Security Documentation](doc/security.markdown) - Security features and best practices
+- [Setup Guide](doc/setup.md) - Installation and setup instructions
+- [Troubleshooting Guide](doc/troubleshooting.markdown) - Common issues and solutions
+- [Testing Guide](docs/testing-guide.md) - Testing procedures and guidelines
+
+## API Endpoints
+
+The Password Manager provides a comprehensive REST API for managing secrets, keys, certificates, and system health monitoring.
+
+### Health Endpoints
+
+- `GET /api/v1/health` - Comprehensive system health metrics
+- `GET /api/v1/health/ready` - Readiness check
+- `GET /api/v1/health/live` - Liveness check
+
+### Vault Endpoints
+
+- `GET /api/v1/vault/tenant` - Create new tenant
+- `GET /api/v1/vault/tenant/{id}` - Get tenant by ID
+
+### Secrets Endpoints
+
+- `POST /api/v1/secrets/export` - Export secrets (authenticated)
+- `POST /api/v1/secrets/import` - Import secrets (authenticated)
+- `GET /api/v1/secrets/{id}/versions` - List secret versions (authenticated)
+- `GET /api/v1/secrets/{id}/versions/{version}` - Get specific version (authenticated)
+- `GET /api/v1/secrets/{id}/versions/latest` - Get latest version (authenticated)
+
+### Authentication
+
+All secrets endpoints require JWT authentication:
+
+```
+Authorization: Bearer <your-jwt-token>
+```
+
+For detailed API documentation, see the [API Developer Guide](docs/api-developer-guide.md) and [OpenAPI Specification](docs/api-specification.yaml).
 
 ## Prerequisites
 

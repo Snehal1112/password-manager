@@ -1,0 +1,912 @@
+# Password Manager API Developer Guide
+
+## Overview
+
+The Password Manager API provides a comprehensive REST interface for managing secrets, keys, certificates, and system health monitoring. This guide covers authentication, request/response formats, error handling, and integration patterns.
+
+## Base URL
+
+```
+https://api.password-manager.local/api/v1
+```
+
+## Authentication
+
+All API endpoints except health checks require JWT authentication. Include the JWT token in the `Authorization` header:
+
+```
+Authorization: Bearer <your-jwt-token>
+```
+
+### Obtaining a JWT Token
+
+JWT tokens are obtained through the CLI login process:
+
+```bash
+./password-manager login --username admin --password yourpassword --totp-code 123456
+```
+
+The CLI will return a JWT token that can be used for API authentication.
+
+### Token Expiration
+
+- JWT tokens expire after 24 hours
+- Include the token in all authenticated requests
+- Handle 401 responses by re-authenticating
+
+## Request/Response Format
+
+### Content Type
+
+All requests and responses use JSON format:
+
+```
+Content-Type: application/json
+Accept: application/json
+```
+
+### Response Structure
+
+#### Success Response
+
+```json
+{
+  "data": { ... },
+  "message": "Operation completed successfully",
+  "status": "success"
+}
+```
+
+#### Error Response
+
+```json
+{
+  "id": "endpoint_name",
+  "message": "Human-readable error message",
+  "detailed_error": "Technical error details",
+  "status_code": 400
+}
+```
+
+## API Endpoints
+
+### Health Endpoints
+
+#### Get Health Metrics
+
+```http
+GET /api/v1/health
+```
+
+Returns comprehensive system health information.
+
+**Response:**
+
+```json
+{
+  "status": "healthy",
+  "timestamp": "2023-12-01T10:30:00Z",
+  "uptime": "2h 15m 30s",
+  "memory": {
+    "used": "45.2 MB",
+    "total": "512 MB",
+    "percentage": 8.8
+  },
+  "cpu": {
+    "usage": 12.5,
+    "cores": 4
+  },
+  "database": {
+    "status": "connected",
+    "connection_pool": {
+      "active": 2,
+      "idle": 5,
+      "max_open": 10
+    }
+  },
+  "query_metrics": {
+    "query_count": 1250,
+    "total_duration": "1.2s",
+    "avg_duration": "950µs",
+    "slow_queries": 3
+  }
+}
+```
+
+#### Readiness Check
+
+```http
+GET /api/v1/health/ready
+```
+
+**Response:**
+
+```json
+{
+  "status": "ready"
+}
+```
+
+#### Liveness Check
+
+```http
+GET /api/v1/health/live
+```
+
+**Response:**
+
+```json
+{
+  "status": "alive"
+}
+```
+
+### Vault Endpoints
+
+#### Create Tenant
+
+```http
+GET /api/v1/vault/tenant
+```
+
+**Response:**
+
+```json
+{
+  "message": "Tenant created successfully",
+  "status": "success"
+}
+```
+
+#### Get Tenant
+
+```http
+GET /api/v1/vault/tenant/{id}
+```
+
+**Parameters:**
+
+- `id`: Tenant identifier (alphanumeric, hyphens, underscores)
+
+**Response:**
+
+```json
+{
+  "id": "tenant-123",
+  "name": "Production Tenant",
+  "created_at": "2023-12-01T10:30:00Z",
+  "updated_at": "2023-12-01T10:30:00Z"
+}
+```
+
+### Secrets Endpoints
+
+All secrets endpoints require authentication.
+
+#### Export Secrets
+
+```http
+POST /api/v1/secrets/export
+Authorization: Bearer <token>
+Content-Type: application/json
+```
+
+**Request Body:**
+
+```json
+{
+  "format": "json",
+  "encrypt": true,
+  "tags": ["production", "api"],
+  "include_tags": true
+}
+```
+
+**Parameters:**
+
+- `format`: `"json"` or `"csv"`
+- `encrypt`: Boolean, whether to encrypt the export
+- `tags`: Array of tag strings to filter secrets
+- `include_tags`: Boolean, include tags in export
+
+**Response:** Binary file download with appropriate content type.
+
+#### Import Secrets
+
+```http
+POST /api/v1/secrets/import
+Authorization: Bearer <token>
+Content-Type: multipart/form-data
+```
+
+**Form Data:**
+
+- `file`: File containing secrets data
+- `format`: `"json"` or `"csv"`
+- `encrypted`: `"true"` or `"false"`
+- `overwrite`: `"true"` or `"false"`
+
+**Response:**
+
+```json
+{
+  "success": true,
+  "message": "Successfully imported 5 secrets",
+  "imported_count": 5,
+  "total_count": 5,
+  "format": "json",
+  "imported_at": "2023-12-01T10:30:00Z"
+}
+```
+
+#### List Secret Versions
+
+```http
+GET /api/v1/secrets/{id}/versions
+Authorization: Bearer <token>
+```
+
+**Parameters:**
+
+- `id`: Secret UUID
+
+**Response:**
+
+```json
+[
+  {
+    "id": "550e8400-e29b-41d4-a716-446655440000",
+    "version": 1,
+    "name": "database-password",
+    "value": "encrypted-secret-value",
+    "tags": ["production", "database"],
+    "created_at": "2023-12-01T10:30:00Z",
+    "updated_at": "2023-12-01T10:30:00Z",
+    "created_by": "550e8400-e29b-41d4-a716-446655440001"
+  }
+]
+```
+
+#### Get Secret Version
+
+```http
+GET /api/v1/secrets/{id}/versions/{version}
+Authorization: Bearer <token>
+```
+
+**Parameters:**
+
+- `id`: Secret UUID
+- `version`: Version number (integer ≥ 1)
+
+#### Get Latest Secret Version
+
+```http
+GET /api/v1/secrets/{id}/versions/latest
+Authorization: Bearer <token>
+```
+
+**Parameters:**
+
+- `id`: Secret UUID
+
+## Error Handling
+
+### HTTP Status Codes
+
+- `200`: Success
+- `201`: Created
+- `400`: Bad Request (invalid input)
+- `401`: Unauthorized (missing/invalid token)
+- `404`: Not Found
+- `500`: Internal Server Error
+
+### Common Error Patterns
+
+#### Authentication Error
+
+```json
+{
+  "id": "ApiSessionRequired",
+  "message": "Missing Authorization header",
+  "detailed_error": "",
+  "status_code": 401
+}
+```
+
+#### Validation Error
+
+```json
+{
+  "id": "exportSecrets",
+  "message": "Invalid format. Must be 'json' or 'csv'",
+  "detailed_error": "",
+  "status_code": 400
+}
+```
+
+#### Not Found Error
+
+```json
+{
+  "id": "listSecretVersions",
+  "message": "Secret not found",
+  "detailed_error": "secret_id=550e8400-e29b-41d4-a716-446655440000",
+  "status_code": 404
+}
+```
+
+## Rate Limiting
+
+The API implements rate limiting to prevent abuse:
+
+- Default limit: 100 requests per minute per IP
+- Headers included in responses:
+  - `X-RateLimit-Limit`: Maximum requests per minute
+  - `X-RateLimit-Remaining`: Remaining requests
+  - `X-RateLimit-Reset`: Time when limit resets (Unix timestamp)
+
+## Best Practices
+
+### 1. Handle Authentication Gracefully
+
+```javascript
+// Example: Automatic token refresh
+async function apiRequest(url, options = {}) {
+  const token = getStoredToken();
+
+  if (!token) {
+    throw new Error("No authentication token available");
+  }
+
+  const response = await fetch(url, {
+    ...options,
+    headers: {
+      Authorization: `Bearer ${token}`,
+      "Content-Type": "application/json",
+      ...options.headers,
+    },
+  });
+
+  if (response.status === 401) {
+    // Token expired, redirect to login
+    redirectToLogin();
+    return;
+  }
+
+  return response;
+}
+```
+
+### 2. Implement Retry Logic
+
+```javascript
+// Example: Retry with exponential backoff
+async function retryApiRequest(url, options = {}, maxRetries = 3) {
+  let attempt = 0;
+
+  while (attempt < maxRetries) {
+    try {
+      const response = await apiRequest(url, options);
+
+      if (response.ok) {
+        return response;
+      }
+
+      // Don't retry on client errors (4xx)
+      if (response.status >= 400 && response.status < 500) {
+        throw new Error(`Client error: ${response.status}`);
+      }
+    } catch (error) {
+      attempt++;
+
+      if (attempt >= maxRetries) {
+        throw error;
+      }
+
+      // Exponential backoff: 1s, 2s, 4s...
+      const delay = Math.pow(2, attempt - 1) * 1000;
+      await new Promise((resolve) => setTimeout(resolve, delay));
+    }
+  }
+}
+```
+
+### 3. Validate Input Data
+
+```javascript
+// Example: Input validation before API calls
+function validateExportRequest(data) {
+  const errors = [];
+
+  if (!["json", "csv"].includes(data.format)) {
+    errors.push('Format must be "json" or "csv"');
+  }
+
+  if (data.tags && !Array.isArray(data.tags)) {
+    errors.push("Tags must be an array");
+  }
+
+  if (typeof data.encrypt !== "boolean") {
+    errors.push("Encrypt must be a boolean");
+  }
+
+  return errors;
+}
+
+const exportData = {
+  format: "json",
+  encrypt: true,
+  tags: ["production"],
+};
+
+const validationErrors = validateExportRequest(exportData);
+if (validationErrors.length > 0) {
+  console.error("Validation errors:", validationErrors);
+  return;
+}
+```
+
+### 4. Handle File Uploads Properly
+
+```javascript
+// Example: Secure file upload for secret import
+async function importSecrets(file, format, options = {}) {
+  const formData = new FormData();
+  formData.append("file", file);
+  formData.append("format", format);
+  formData.append("encrypted", options.encrypted ? "true" : "false");
+  formData.append("overwrite", options.overwrite ? "true" : "false");
+
+  const response = await apiRequest("/api/v1/secrets/import", {
+    method: "POST",
+    body: formData,
+    // Don't set Content-Type header - let browser set it with boundary
+    headers: {
+      Authorization: `Bearer ${getStoredToken()}`,
+    },
+  });
+
+  return response.json();
+}
+```
+
+## SDK Examples
+
+### JavaScript/Node.js
+
+```javascript
+class PasswordManagerAPI {
+  constructor(baseURL, token) {
+    this.baseURL = baseURL;
+    this.token = token;
+  }
+
+  async request(endpoint, options = {}) {
+    const url = `${this.baseURL}${endpoint}`;
+    const response = await fetch(url, {
+      ...options,
+      headers: {
+        Authorization: `Bearer ${this.token}`,
+        "Content-Type": "application/json",
+        ...options.headers,
+      },
+    });
+
+    if (!response.ok) {
+      const error = await response.json();
+      throw new Error(`${error.message} (${error.status_code})`);
+    }
+
+    return response.json();
+  }
+
+  async getHealth() {
+    return this.request("/health");
+  }
+
+  async exportSecrets(format, options = {}) {
+    return this.request("/secrets/export", {
+      method: "POST",
+      body: JSON.stringify({
+        format,
+        encrypt: options.encrypt || false,
+        tags: options.tags || [],
+        include_tags: options.includeTags || false,
+      }),
+    });
+  }
+
+  async getSecretVersions(secretId) {
+    return this.request(`/secrets/${secretId}/versions`);
+  }
+}
+
+// Usage
+const api = new PasswordManagerAPI(
+  "https://api.password-manager.local/api/v1",
+  token
+);
+
+// Get health status
+const health = await api.getHealth();
+console.log("System health:", health.status);
+
+// Export secrets
+const exportResponse = await api.exportSecrets("json", {
+  encrypt: true,
+  tags: ["production"],
+  includeTags: true,
+});
+
+// Get secret versions
+const versions = await api.getSecretVersions(
+  "550e8400-e29b-41d4-a716-446655440000"
+);
+console.log("Secret versions:", versions);
+```
+
+### Python
+
+```python
+import requests
+import json
+from typing import Dict, List, Optional
+
+class PasswordManagerAPI:
+    def __init__(self, base_url: str, token: str):
+        self.base_url = base_url.rstrip('/')
+        self.token = token
+        self.session = requests.Session()
+        self.session.headers.update({
+            'Authorization': f'Bearer {token}',
+            'Content-Type': 'application/json'
+        })
+
+    def _request(self, method: str, endpoint: str, **kwargs) -> Dict:
+        url = f"{self.base_url}/api/v1{endpoint}"
+        response = self.session.request(method, url, **kwargs)
+
+        if not response.ok:
+            error_data = response.json()
+            raise Exception(f"{error_data['message']} ({error_data['status_code']})")
+
+        return response.json()
+
+    def get_health(self) -> Dict:
+        """Get system health metrics"""
+        return self._request('GET', '/health')
+
+    def export_secrets(self, format: str, encrypt: bool = False,
+                      tags: List[str] = None, include_tags: bool = False) -> bytes:
+        """Export secrets in specified format"""
+        data = {
+            'format': format,
+            'encrypt': encrypt,
+            'tags': tags or [],
+            'include_tags': include_tags
+        }
+
+        url = f"{self.base_url}/api/v1/secrets/export"
+        response = self.session.post(url, json=data)
+
+        if not response.ok:
+            error_data = response.json()
+            raise Exception(f"{error_data['message']} ({error_data['status_code']})")
+
+        return response.content
+
+    def import_secrets(self, file_path: str, format: str,
+                      encrypted: bool = False, overwrite: bool = False) -> Dict:
+        """Import secrets from file"""
+        with open(file_path, 'rb') as f:
+            files = {'file': f}
+            data = {
+                'format': format,
+                'encrypted': str(encrypted).lower(),
+                'overwrite': str(overwrite).lower()
+            }
+
+            url = f"{self.base_url}/api/v1/secrets/import"
+            response = self.session.post(url, files=files, data=data)
+
+            if not response.ok:
+                error_data = response.json()
+                raise Exception(f"{error_data['message']} ({error_data['status_code']})")
+
+            return response.json()
+
+    def get_secret_versions(self, secret_id: str) -> List[Dict]:
+        """Get all versions of a secret"""
+        return self._request('GET', f'/secrets/{secret_id}/versions')
+
+    def get_secret_version(self, secret_id: str, version: int) -> Dict:
+        """Get specific version of a secret"""
+        return self._request('GET', f'/secrets/{secret_id}/versions/{version}')
+
+    def get_latest_secret_version(self, secret_id: str) -> Dict:
+        """Get latest version of a secret"""
+        return self._request('GET', f'/secrets/{secret_id}/versions/latest')
+
+# Usage example
+api = PasswordManagerAPI('https://api.password-manager.local', token)
+
+# Get health status
+health = api.get_health()
+print(f"System status: {health['status']}")
+
+# Export secrets
+export_data = api.export_secrets('json', encrypt=True, tags=['production'])
+with open('secrets_export.json', 'wb') as f:
+    f.write(export_data)
+
+# Import secrets
+import_result = api.import_secrets('secrets_import.json', 'json', encrypted=True)
+print(f"Imported {import_result['imported_count']} secrets")
+
+# Get secret versions
+versions = api.get_secret_versions('550e8400-e29b-41d4-a716-446655440000')
+for version in versions:
+    print(f"Version {version['version']}: {version['name']}")
+```
+
+### Go
+
+```go
+package main
+
+import (
+    "bytes"
+    "encoding/json"
+    "fmt"
+    "io"
+    "mime/multipart"
+    "net/http"
+    "os"
+)
+
+type PasswordManagerAPI struct {
+    BaseURL string
+    Token   string
+    Client  *http.Client
+}
+
+type ExportRequest struct {
+    Format      string   `json:"format"`
+    Encrypt     bool     `json:"encrypt"`
+    Tags        []string `json:"tags"`
+    IncludeTags bool     `json:"include_tags"`
+}
+
+type ImportResponse struct {
+    Success       bool   `json:"success"`
+    Message       string `json:"message"`
+    ImportedCount int    `json:"imported_count"`
+    TotalCount    int    `json:"total_count"`
+    Format        string `json:"format"`
+    ImportedAt    string `json:"imported_at"`
+}
+
+func NewPasswordManagerAPI(baseURL, token string) *PasswordManagerAPI {
+    return &PasswordManagerAPI{
+        BaseURL: baseURL,
+        Token:   token,
+        Client:  &http.Client{},
+    }
+}
+
+func (api *PasswordManagerAPI) makeRequest(method, endpoint string, body io.Reader) (*http.Response, error) {
+    url := api.BaseURL + "/api/v1" + endpoint
+    req, err := http.NewRequest(method, url, body)
+    if err != nil {
+        return nil, err
+    }
+
+    req.Header.Set("Authorization", "Bearer "+api.Token)
+    if body != nil {
+        req.Header.Set("Content-Type", "application/json")
+    }
+
+    return api.Client.Do(req)
+}
+
+func (api *PasswordManagerAPI) GetHealth() (map[string]interface{}, error) {
+    resp, err := api.makeRequest("GET", "/health", nil)
+    if err != nil {
+        return nil, err
+    }
+    defer resp.Body.Close()
+
+    if resp.StatusCode != http.StatusOK {
+        return nil, fmt.Errorf("API request failed with status: %d", resp.StatusCode)
+    }
+
+    var result map[string]interface{}
+    if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+        return nil, err
+    }
+
+    return result, nil
+}
+
+func (api *PasswordManagerAPI) ExportSecrets(format string, encrypt bool, tags []string, includeTags bool) ([]byte, error) {
+    exportReq := ExportRequest{
+        Format:      format,
+        Encrypt:     encrypt,
+        Tags:        tags,
+        IncludeTags: includeTags,
+    }
+
+    jsonData, err := json.Marshal(exportReq)
+    if err != nil {
+        return nil, err
+    }
+
+    resp, err := api.makeRequest("POST", "/secrets/export", bytes.NewBuffer(jsonData))
+    if err != nil {
+        return nil, err
+    }
+    defer resp.Body.Close()
+
+    if resp.StatusCode != http.StatusOK {
+        return nil, fmt.Errorf("export failed with status: %d", resp.StatusCode)
+    }
+
+    return io.ReadAll(resp.Body)
+}
+
+func (api *PasswordManagerAPI) ImportSecrets(filePath, format string, encrypted, overwrite bool) (*ImportResponse, error) {
+    file, err := os.Open(filePath)
+    if err != nil {
+        return nil, err
+    }
+    defer file.Close()
+
+    var buf bytes.Buffer
+    writer := multipart.NewWriter(&buf)
+
+    // Add file
+    fileWriter, err := writer.CreateFormFile("file", filePath)
+    if err != nil {
+        return nil, err
+    }
+    io.Copy(fileWriter, file)
+
+    // Add other fields
+    writer.WriteField("format", format)
+    writer.WriteField("encrypted", fmt.Sprintf("%t", encrypted))
+    writer.WriteField("overwrite", fmt.Sprintf("%t", overwrite))
+    writer.Close()
+
+    req, err := http.NewRequest("POST", api.BaseURL+"/api/v1/secrets/import", &buf)
+    if err != nil {
+        return nil, err
+    }
+
+    req.Header.Set("Authorization", "Bearer "+api.Token)
+    req.Header.Set("Content-Type", writer.FormDataContentType())
+
+    resp, err := api.Client.Do(req)
+    if err != nil {
+        return nil, err
+    }
+    defer resp.Body.Close()
+
+    if resp.StatusCode != http.StatusOK {
+        return nil, fmt.Errorf("import failed with status: %d", resp.StatusCode)
+    }
+
+    var result ImportResponse
+    if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+        return nil, err
+    }
+
+    return &result, nil
+}
+
+func main() {
+    api := NewPasswordManagerAPI("https://api.password-manager.local", "your-jwt-token")
+
+    // Get health status
+    health, err := api.GetHealth()
+    if err != nil {
+        fmt.Printf("Error getting health: %v\n", err)
+        return
+    }
+    fmt.Printf("System status: %v\n", health["status"])
+
+    // Export secrets
+    exportData, err := api.ExportSecrets("json", true, []string{"production"}, true)
+    if err != nil {
+        fmt.Printf("Error exporting secrets: %v\n", err)
+        return
+    }
+
+    // Save to file
+    err = os.WriteFile("secrets_export.json", exportData, 0644)
+    if err != nil {
+        fmt.Printf("Error saving export file: %v\n", err)
+        return
+    }
+
+    // Import secrets
+    importResult, err := api.ImportSecrets("secrets_import.json", "json", true, false)
+    if err != nil {
+        fmt.Printf("Error importing secrets: %v\n", err)
+        return
+    }
+
+    fmt.Printf("Imported %d secrets successfully\n", importResult.ImportedCount)
+}
+```
+
+## Troubleshooting
+
+### Common Issues
+
+1. **401 Unauthorized**
+
+   - Check if JWT token is valid and not expired
+   - Verify token format: `Bearer <token>`
+   - Ensure token was obtained from the correct environment
+
+2. **400 Bad Request**
+
+   - Validate request body format
+   - Check required fields are present
+   - Verify data types match API specifications
+
+3. **404 Not Found**
+
+   - Verify endpoint URL is correct
+   - Check if resource exists
+   - Ensure proper path parameters
+
+4. **500 Internal Server Error**
+   - Check server logs for detailed error information
+   - Verify database connectivity
+   - Ensure all required services are running
+
+### Debug Mode
+
+Enable debug logging by setting the log level to debug in your configuration:
+
+```yaml
+logging:
+  level: debug
+  format: json
+```
+
+### Health Check Monitoring
+
+Set up monitoring for the health endpoints:
+
+```bash
+# Check readiness
+curl -f https://api.password-manager.local/api/v1/health/ready
+
+# Check liveness
+curl -f https://api.password-manager.local/api/v1/health/live
+
+# Get detailed health metrics
+curl https://api.password-manager.local/api/v1/health | jq .
+```
+
+## Security Considerations
+
+1. **Always use HTTPS** in production
+2. **Store JWT tokens securely** - never in local storage for web apps
+3. **Implement token refresh** logic to handle expiration
+4. **Validate SSL certificates** when making API calls
+5. **Use appropriate timeouts** to prevent hanging requests
+6. **Implement proper error handling** without exposing sensitive information
+7. **Rate limiting** is enforced - respect the limits to avoid being blocked
+
+## Support
+
+For additional support or questions about the API:
+
+- Check the [troubleshooting guide](troubleshooting.markdown)
+- Review the [architecture documentation](architecture.markdown)
+- Open an issue on the GitHub repository
+- Contact the development team
