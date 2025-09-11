@@ -9,7 +9,7 @@ import (
 
 func main() {
 	// TOTP secret generated for admin user
-	secret := "CJMI7JIFFBM6EWHWZUN2NM7757HDWCZW"
+	secret := "73KP3IPX3L47GBI73ZP65CG5756NVYWL"
 
 	code, err := totp.GenerateCode(secret, time.Now())
 	if err != nil {

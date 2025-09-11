@@ -47,12 +47,10 @@ type Context struct {
 	App            *app.App
 	T              common.TranslateFunc
 	Err            *common.AppError
-	RequestID      string
-	IPAddress      string
-	Token          string          // JWT token
-	Claims         jwt.MapClaims   // JWT claims
 	RequestId      string          // Unique request identifier
 	IpAddress      string          // Client IP address
+	Token          string          // JWT token
+	Claims         jwt.MapClaims   // JWT claims
 	Path           string          // Request URL path
 	UserAgent      string          // Client User-Agent
 	AcceptLanguage string          // Client Accept-Language
@@ -85,7 +83,7 @@ func APIHandler(app *app.App, handler func(*Context, http.ResponseWriter, *http.
 		}
 
 		app.Logger.Println("API request started", ctx.RequestId)
-		ctx.Logger.Errorln(common.T("server.error.in.start"))
+		ctx.Logger.Infoln(common.T("server.start"))
 		// Populate URL parameters
 		vars := mux.Vars(r)
 		if userId, ok := vars["user_id"]; ok {
@@ -150,8 +148,10 @@ func ApiSessionRequired(app *app.App, handler func(*Context, http.ResponseWriter
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(ctx.Err.StatusCode)
 			json.NewEncoder(w).Encode(map[string]interface{}{
-				"id":      ctx.Err.ID,
-				"message": ctx.Err.Message,
+				"id":             ctx.Err.ID,
+				"message":        ctx.Err.Message,
+				"detailed_error": ctx.Err.DetailedError,
+				"status_code":    ctx.Err.StatusCode,
 			})
 			return
 		}
@@ -162,8 +162,10 @@ func ApiSessionRequired(app *app.App, handler func(*Context, http.ResponseWriter
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(ctx.Err.StatusCode)
 			json.NewEncoder(w).Encode(map[string]interface{}{
-				"id":      ctx.Err.ID,
-				"message": ctx.Err.Message,
+				"id":             ctx.Err.ID,
+				"message":        ctx.Err.Message,
+				"detailed_error": ctx.Err.DetailedError,
+				"status_code":    ctx.Err.StatusCode,
 			})
 			return
 		}
@@ -173,7 +175,7 @@ func ApiSessionRequired(app *app.App, handler func(*Context, http.ResponseWriter
 			if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
 				return nil, errors.New("unexpected signing method")
 			}
-			return []byte(viper.GetString("jwt.secret")), nil
+			return []byte(viper.GetString("jwt_secret")), nil
 		})
 
 		if err != nil || !token.Valid {
@@ -181,8 +183,10 @@ func ApiSessionRequired(app *app.App, handler func(*Context, http.ResponseWriter
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(ctx.Err.StatusCode)
 			json.NewEncoder(w).Encode(map[string]interface{}{
-				"id":      ctx.Err.ID,
-				"message": ctx.Err.Message,
+				"id":             ctx.Err.ID,
+				"message":        ctx.Err.Message,
+				"detailed_error": ctx.Err.DetailedError,
+				"status_code":    ctx.Err.StatusCode,
 			})
 			return
 		}
@@ -196,8 +200,10 @@ func ApiSessionRequired(app *app.App, handler func(*Context, http.ResponseWriter
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(ctx.Err.StatusCode)
 			json.NewEncoder(w).Encode(map[string]interface{}{
-				"id":      ctx.Err.ID,
-				"message": ctx.Err.Message,
+				"id":             ctx.Err.ID,
+				"message":        ctx.Err.Message,
+				"detailed_error": ctx.Err.DetailedError,
+				"status_code":    ctx.Err.StatusCode,
 			})
 			return
 		}
@@ -209,24 +215,17 @@ func ApiSessionRequired(app *app.App, handler func(*Context, http.ResponseWriter
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(ctx.Err.StatusCode)
 			json.NewEncoder(w).Encode(map[string]interface{}{
-				"id":      ctx.Err.ID,
-				"message": ctx.Err.Message,
+				"id":             ctx.Err.ID,
+				"message":        ctx.Err.Message,
+				"detailed_error": ctx.Err.DetailedError,
+				"status_code":    ctx.Err.StatusCode,
 			})
 			return
 		}
 
 		log.Println("Validating user ID:", userID)
-		//user, err := app.ValidateUser(userID)
-		if err != nil {
-			// ctx.Err = err
-			w.Header().Set("Content-Type", "application/json")
-			w.WriteHeader(ctx.Err.StatusCode)
-			json.NewEncoder(w).Encode(map[string]interface{}{
-				"id":      ctx.Err.ID,
-				"message": ctx.Err.Message,
-			})
-			return
-		}
+		// TODO: Implement user validation against database if needed
+		// Currently, we trust the JWT token validation
 
 		// Populate query parameters
 		query := r.URL.Query()
@@ -236,8 +235,14 @@ func ApiSessionRequired(app *app.App, handler func(*Context, http.ResponseWriter
 			}
 		}
 
+		// Populate URL parameters
+		vars := mux.Vars(r)
+		if userId, ok := vars["user_id"]; ok {
+			ctx.Params.UserId = userId
+		}
+
 		// Log request
-		ctx.Logger.Printf("Handling %s %s (user: %s)", r.Method, r.URL.Path, "user.ID")
+		ctx.Logger.Printf("Handling %s %s (user: %s)", r.Method, r.URL.Path, userID)
 
 		// Execute handler
 		handler(ctx, w, r)
