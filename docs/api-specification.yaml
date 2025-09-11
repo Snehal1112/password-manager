@@ -1,0 +1,678 @@
+---
+openapi: 3.0.3
+info:
+  title: Password Manager API
+  description: |
+    A production-ready, self-hosted password manager API for securely
+    storing and managing secrets, keys, and certificates
+  version: 1.0.0
+  contact:
+    name: Password Manager Support
+    email: support@password-manager.local
+  license:
+    name: MIT
+    url: https://opensource.org/licenses/MIT
+
+servers:
+  - url: http://localhost:8080/api/v1
+    description: Development server
+  - url: https://api.password-manager.local/api/v1
+    description: Production server
+
+security:
+  - bearerAuth: []
+
+paths:
+  # Health Endpoints
+  /health:
+    get:
+      summary: Get comprehensive health metrics
+      description: |
+        Returns detailed system health information including memory usage,
+        CPU statistics, database status, and query performance metrics
+      tags:
+        - Health
+      responses:
+        "200":
+          description: Health metrics retrieved successfully
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HealthResponse"
+        "500":
+          description: Failed to collect health metrics
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /health/ready:
+    get:
+      summary: Check system readiness
+      description: |
+        Performs a readiness check to determine if the system is ready to
+        accept traffic
+      tags:
+        - Health
+      responses:
+        "200":
+          description: System is ready
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ReadinessResponse"
+        "503":
+          description: System is not ready
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /health/live:
+    get:
+      summary: Check system liveness
+      description: |
+        Performs a liveness check to determine if the application is running
+        properly
+      tags:
+        - Health
+      responses:
+        "200":
+          description: System is alive
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LivenessResponse"
+
+  # Vault Endpoints
+  /vault/tenant:
+    get:
+      summary: Create a new tenant
+      description: Creates a new tenant in the vault system
+      tags:
+        - Vault
+      responses:
+        "201":
+          description: Tenant created successfully
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TenantCreateResponse"
+        "400":
+          description: Invalid request data
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "500":
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /vault/tenant/{id}:
+    get:
+      summary: Get tenant by ID
+      description: Retrieves tenant information by its unique identifier
+      tags:
+        - Vault
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: Unique identifier of the tenant
+          schema:
+            type: string
+            pattern: "^[A-Za-z0-9_-]+$"
+      responses:
+        "200":
+          description: Tenant retrieved successfully
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Tenant"
+        "404":
+          description: Tenant not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  # Secrets Endpoints
+  /secrets/export:
+    post:
+      summary: Export secrets
+      description: |
+        Exports user secrets in JSON or CSV format with optional encryption
+      tags:
+        - Secrets
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ExportRequest"
+      responses:
+        "200":
+          description: Secrets exported successfully
+          content:
+            application/json:
+              schema:
+                type: string
+                format: binary
+                description: Exported secrets data
+            text/csv:
+              schema:
+                type: string
+                format: binary
+                description: Exported secrets data in CSV format
+        "400":
+          description: Invalid request data
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "401":
+          description: Authentication required
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "500":
+          description: Export failed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /secrets/import:
+    post:
+      summary: Import secrets
+      description: |
+        Imports secrets from JSON or CSV format with optional decryption
+      tags:
+        - Secrets
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              $ref: "#/components/schemas/ImportRequest"
+      responses:
+        "200":
+          description: Secrets imported successfully
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ImportResponse"
+        "400":
+          description: Invalid request data
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "401":
+          description: Authentication required
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "500":
+          description: Import failed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /secrets/{id}/versions:
+    get:
+      summary: List secret versions
+      description: Retrieves all versions of a specific secret
+      tags:
+        - Secrets
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: Unique identifier of the secret
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Secret versions retrieved successfully
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/SecretVersion"
+        "400":
+          description: Invalid secret ID
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "401":
+          description: Authentication required
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "404":
+          description: Secret not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "500":
+          description: Failed to retrieve versions
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /secrets/{id}/versions/{version}:
+    get:
+      summary: Get specific secret version
+      description: Retrieves a specific version of a secret
+      tags:
+        - Secrets
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: Unique identifier of the secret
+          schema:
+            type: string
+            format: uuid
+        - name: version
+          in: path
+          required: true
+          description: Version number of the secret
+          schema:
+            type: integer
+            minimum: 1
+      responses:
+        "200":
+          description: Secret version retrieved successfully
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SecretVersion"
+        "400":
+          description: Invalid secret ID or version
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "401":
+          description: Authentication required
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "404":
+          description: Secret or version not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "500":
+          description: Failed to retrieve version
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /secrets/{id}/versions/latest:
+    get:
+      summary: Get latest secret version
+      description: Retrieves the most recent version of a secret
+      tags:
+        - Secrets
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: Unique identifier of the secret
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Latest secret version retrieved successfully
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SecretVersion"
+        "400":
+          description: Invalid secret ID
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "401":
+          description: Authentication required
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "404":
+          description: Secret not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "500":
+          description: Failed to retrieve latest version
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: JWT token obtained from user authentication
+
+  schemas:
+    # Error Response
+    ErrorResponse:
+      type: object
+      required:
+        - id
+        - message
+        - status_code
+      properties:
+        id:
+          type: string
+          description: Error identifier
+          example: "exportSecrets"
+        message:
+          type: string
+          description: Human-readable error message
+          example: "Invalid request body"
+        detailed_error:
+          type: string
+          description: Detailed error information
+          example: "json: invalid character '}' looking for beginning of value"
+        status_code:
+          type: integer
+          description: HTTP status code
+          example: 400
+
+    # Health Response
+    HealthResponse:
+      type: object
+      properties:
+        status:
+          type: string
+          enum: [healthy, unhealthy]
+          example: "healthy"
+        timestamp:
+          type: string
+          format: date-time
+          example: "2023-12-01T10:30:00Z"
+        uptime:
+          type: string
+          example: "2h 15m 30s"
+        memory:
+          type: object
+          properties:
+            used:
+              type: string
+              example: "45.2 MB"
+            total:
+              type: string
+              example: "512 MB"
+            percentage:
+              type: number
+              format: float
+              example: 8.8
+        cpu:
+          type: object
+          properties:
+            usage:
+              type: number
+              format: float
+              example: 12.5
+            cores:
+              type: integer
+              example: 4
+        database:
+          type: object
+          properties:
+            status:
+              type: string
+              enum: [connected, disconnected]
+              example: "connected"
+            connection_pool:
+              type: object
+              properties:
+                active:
+                  type: integer
+                  example: 2
+                idle:
+                  type: integer
+                  example: 5
+                max_open:
+                  type: integer
+                  example: 10
+        query_metrics:
+          type: object
+          properties:
+            query_count:
+              type: integer
+              format: int64
+              example: 1250
+            total_duration:
+              type: string
+              example: "1.2s"
+            avg_duration:
+              type: string
+              example: "950µs"
+            slow_queries:
+              type: integer
+              format: int64
+              example: 3
+
+    # Readiness Response
+    ReadinessResponse:
+      type: object
+      required:
+        - status
+      properties:
+        status:
+          type: string
+          enum: [ready]
+          example: "ready"
+
+    # Liveness Response
+    LivenessResponse:
+      type: object
+      required:
+        - status
+      properties:
+        status:
+          type: string
+          enum: [alive]
+          example: "alive"
+
+    # Tenant
+    Tenant:
+      type: object
+      properties:
+        id:
+          type: string
+          description: Unique tenant identifier
+          example: "tenant-123"
+        name:
+          type: string
+          description: Tenant name
+          example: "Production Tenant"
+        created_at:
+          type: string
+          format: date-time
+          example: "2023-12-01T10:30:00Z"
+        updated_at:
+          type: string
+          format: date-time
+          example: "2023-12-01T10:30:00Z"
+
+    # Tenant Create Response
+    TenantCreateResponse:
+      type: object
+      required:
+        - message
+        - status
+      properties:
+        message:
+          type: string
+          example: "Tenant created successfully"
+        status:
+          type: string
+          example: "success"
+
+    # Export Request
+    ExportRequest:
+      type: object
+      required:
+        - format
+      properties:
+        format:
+          type: string
+          enum: [json, csv]
+          description: Export format
+          example: "json"
+        encrypt:
+          type: boolean
+          description: Whether to encrypt the export
+          default: false
+          example: true
+        tags:
+          type: array
+          items:
+            type: string
+          description: Filter secrets by tags
+          example: ["production", "api"]
+        include_tags:
+          type: boolean
+          description: Include tags in export
+          default: false
+          example: true
+
+    # Import Request
+    ImportRequest:
+      type: object
+      required:
+        - file
+        - format
+      properties:
+        file:
+          type: string
+          format: binary
+          description: File containing secrets to import
+        format:
+          type: string
+          enum: [json, csv]
+          description: Import format
+          example: "json"
+        encrypted:
+          type: string
+          enum: ["true", "false"]
+          description: Whether the file is encrypted
+          default: "false"
+          example: "true"
+        overwrite:
+          type: string
+          enum: ["true", "false"]
+          description: Whether to overwrite existing secrets
+          default: "false"
+          example: "false"
+
+    # Import Response
+    ImportResponse:
+      type: object
+      required:
+        - success
+        - message
+        - imported_count
+        - total_count
+        - format
+        - imported_at
+      properties:
+        success:
+          type: boolean
+          example: true
+        message:
+          type: string
+          example: "Successfully imported 5 secrets"
+        imported_count:
+          type: integer
+          example: 5
+        total_count:
+          type: integer
+          example: 5
+        format:
+          type: string
+          example: "json"
+        imported_at:
+          type: string
+          format: date-time
+          example: "2023-12-01T10:30:00Z"
+
+    # Secret Version
+    SecretVersion:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: Secret identifier
+          example: "550e8400-e29b-41d4-a716-446655440000"
+        version:
+          type: integer
+          description: Version number
+          example: 1
+        name:
+          type: string
+          description: Secret name
+          example: "database-password"
+        value:
+          type: string
+          description: Secret value (encrypted)
+          example: "encrypted-secret-value"
+        tags:
+          type: array
+          items:
+            type: string
+          description: Associated tags
+          example: ["production", "database"]
+        created_at:
+          type: string
+          format: date-time
+          example: "2023-12-01T10:30:00Z"
+        updated_at:
+          type: string
+          format: date-time
+          example: "2023-12-01T10:30:00Z"
+        created_by:
+          type: string
+          format: uuid
+          description: User who created this version
+          example: "550e8400-e29b-41d4-a716-446655440001"
