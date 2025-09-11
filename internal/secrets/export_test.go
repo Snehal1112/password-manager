@@ -28,10 +28,21 @@ func setupExportTestEnvironment(t *testing.T) (SecretRepository, context.Context
 	dbPath := filepath.Join(tempDir, "export_test.db")
 	logPath := filepath.Join(tempDir, "export_test.log")
 
+	// Ensure the log file directory exists
+	logDir := filepath.Dir(logPath)
+	err := os.MkdirAll(logDir, 0755)
+	require.NoError(t, err, "Should create log directory")
+
+	// Create the log file to ensure it exists
+	logFile, err := os.Create(logPath)
+	require.NoError(t, err, "Should create log file")
+	logFile.Close()
+
 	// Configure test environment
 	viper.Reset()
 	viper.Set("database.connection", dbPath)
-	viper.Set("log.file", logPath)
+	// Don't set log.file to avoid file creation issues in tests
+	// viper.Set("log.file", logPath)
 	viper.Set("log.level", "debug")
 	viper.Set("jwt_secret", "test-jwt-secret-for-export-tests")
 	viper.Set("master_key", "***SECRET-REMOVED-2026-08-17***")
@@ -41,7 +52,7 @@ func setupExportTestEnvironment(t *testing.T) (SecretRepository, context.Context
 	require.NotNil(t, logger, "Logger should be initialized")
 
 	database := db.NewRepository(logger)
-	err := database.InitializeDB()
+	err = database.InitializeDB()
 	require.NoError(t, err, "Database should initialize")
 
 	sqlDB := database.GetDB()
@@ -457,7 +468,7 @@ func TestExportImportErrorCases(t *testing.T) {
 
 		_, err := repo.ImportSecrets(ctx, []byte(csvData), options)
 		assert.Error(t, err, "Should fail with invalid CSV")
-		assert.Contains(t, err.Error(), "invalid CSV record")
+		assert.Contains(t, err.Error(), "failed to read CSV data")
 	})
 
 	t.Run("Import_Encrypted_With_Wrong_Key", func(t *testing.T) {

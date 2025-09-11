@@ -178,6 +178,63 @@ func (d *DBRepository) InitializeDB() error {
 			PRIMARY KEY (secret_id, tag),
 			FOREIGN KEY (secret_id) REFERENCES secrets(id)
 		);
+		CREATE TABLE IF NOT EXISTS secret_versions (
+			id TEXT PRIMARY KEY,
+			secret_id TEXT NOT NULL,
+			user_id TEXT NOT NULL,
+			name TEXT NOT NULL,
+			value TEXT NOT NULL,
+			version INTEGER NOT NULL,
+			created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+			FOREIGN KEY (secret_id) REFERENCES secrets(id),
+			FOREIGN KEY (user_id) REFERENCES users(id)
+		);
+		CREATE TABLE IF NOT EXISTS rotation_policies (
+			id TEXT PRIMARY KEY,
+			user_id TEXT NOT NULL,
+			name TEXT NOT NULL,
+			description TEXT,
+			interval_days INTEGER NOT NULL,
+			enabled BOOLEAN NOT NULL DEFAULT TRUE,
+			reminder_days INTEGER NOT NULL DEFAULT 7,
+			auto_rotate BOOLEAN NOT NULL DEFAULT FALSE,
+			created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+			updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+			FOREIGN KEY (user_id) REFERENCES users(id)
+		);
+		CREATE TABLE IF NOT EXISTS secret_rotation_history (
+			id TEXT PRIMARY KEY,
+			secret_id TEXT NOT NULL,
+			policy_id TEXT,
+			rotated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+			previous_version INTEGER,
+			new_version INTEGER,
+			triggered_by TEXT NOT NULL, -- 'manual', 'scheduled', 'auto'
+			notes TEXT,
+			FOREIGN KEY (secret_id) REFERENCES secrets(id),
+			FOREIGN KEY (policy_id) REFERENCES rotation_policies(id)
+		);
+		CREATE TABLE IF NOT EXISTS rotation_reminders (
+			id TEXT PRIMARY KEY,
+			secret_id TEXT NOT NULL,
+			policy_id TEXT NOT NULL,
+			reminder_type TEXT NOT NULL, -- 'upcoming', 'overdue'
+			sent_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+			next_reminder_at TIMESTAMP,
+			acknowledged BOOLEAN NOT NULL DEFAULT FALSE,
+			FOREIGN KEY (secret_id) REFERENCES secrets(id),
+			FOREIGN KEY (policy_id) REFERENCES rotation_policies(id)
+		);
+		CREATE TABLE IF NOT EXISTS secret_policies (
+			secret_id TEXT NOT NULL,
+			policy_id TEXT NOT NULL,
+			assigned_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+			last_rotated_at TIMESTAMP,
+			next_rotation_at TIMESTAMP,
+			PRIMARY KEY (secret_id, policy_id),
+			FOREIGN KEY (secret_id) REFERENCES secrets(id),
+			FOREIGN KEY (policy_id) REFERENCES rotation_policies(id)
+		);
 	`)
 	if err != nil {
 		d.log.Error("Failed to create tables: ", err)

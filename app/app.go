@@ -2,11 +2,13 @@ package app
 
 import (
 	"context"
+	"time"
 
 	"github.com/gorilla/mux"
 
 	"password-manager/common"
 	"password-manager/internal/logging"
+	"password-manager/internal/secrets"
 	"password-manager/server"
 )
 
@@ -29,6 +31,7 @@ type App struct {
 	databaseName    string
 	backendEndPoint string
 	Logger          *logging.Logger
+	scheduler       *secrets.RotationScheduler
 }
 
 // NewApp creates a new instance of the application with the provided options.
@@ -95,5 +98,79 @@ func (a *App) GetRouter() *mux.Router {
 // The context can be used to control the server's lifecycle, such as shutting it down gracefully.
 // Returns an error if the server fails to start.
 func (a *App) StartServer(ctx context.Context) error {
+	// Start the rotation scheduler if configured
+	if a.scheduler != nil {
+		a.scheduler.Start(1 * time.Hour) // Check every hour
+		a.Logger.Info("Rotation scheduler started")
+
+		// Handle graceful shutdown of scheduler
+		go func() {
+			<-ctx.Done()
+			a.Logger.Info("Shutting down rotation scheduler")
+			a.scheduler.Stop()
+		}()
+	}
+
 	return a.srv.StartServer(ctx)
+}
+
+// RotationScheduler is responsible for managing the rotation of secrets
+// in the application. It defines the schedule and the method to execute
+// for rotating the secrets.
+//
+// Parameters:
+//
+//	interval - The duration between each rotation execution.
+//	factory  - A function that creates a new instance of the secret to be rotated.
+//	exec     - A function that performs the rotation of the secret.
+type RotationScheduler struct {
+	interval time.Duration
+	factory  func() secrets.Secret
+	exec     func(secrets.Secret) error
+}
+
+// NewRotationScheduler creates a new instance of RotationScheduler with the
+// specified interval, factory, and execution function.
+//
+// Parameters:
+//
+//	interval - The duration between each rotation execution.
+//	factory  - A function that creates a new instance of the secret to be rotated.
+//	exec     - A function that performs the rotation of the secret.
+//
+// Returns:
+//
+//	A pointer to the newly created RotationScheduler instance.
+func NewRotationScheduler(interval time.Duration, factory func() secrets.Secret, exec func(secrets.Secret) error) *RotationScheduler {
+	return &RotationScheduler{
+		interval: interval,
+		factory:  factory,
+		exec:     exec,
+	}
+}
+
+// Start initiates the secret rotation process. It runs the rotation execution
+// function at the specified interval, creating a new secret instance using the
+// factory function for each rotation.
+//
+// This method will block until the context is done.
+//
+// Parameters:
+//
+//	ctx - The context to control the lifecycle of the rotation process.
+func (rs *RotationScheduler) Start(ctx context.Context) {
+	ticker := time.NewTicker(rs.interval)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			secret := rs.factory()
+			if err := rs.exec(secret); err != nil {
+				// Handle rotation execution error
+			}
+		}
+	}
 }

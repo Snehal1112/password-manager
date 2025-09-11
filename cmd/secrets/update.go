@@ -153,7 +153,7 @@ var updateCmd = &cobra.Command{
 //
 // Example command logger usage:
 //
-//	logger := logging.NewLogger()
+//	logger := logging.InitLogger()
 //	ctx := context.WithValue(context.Background(), "log", logger)
 //	secretsCmd.SetContext(ctx)
 //	secretsCmd.Execute()

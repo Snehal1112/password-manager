@@ -84,6 +84,91 @@ type ImportResponse struct {
 func (api *API) InitSecrets(secrets *mux.Router) {
 	secrets.Handle("/export", ApiSessionRequired(api.App, exportSecrets)).Methods("POST")
 	secrets.Handle("/import", ApiSessionRequired(api.App, importSecrets)).Methods("POST")
+
+	// Secret versioning endpoints
+	secrets.Handle("/{id}/versions", ApiSessionRequired(api.App, listSecretVersionsHandler)).Methods("GET")
+	secrets.Handle("/{id}/versions/{version:[0-9]+}", ApiSessionRequired(api.App, getSecretVersionHandler)).Methods("GET")
+	secrets.Handle("/{id}/versions/latest", ApiSessionRequired(api.App, getLatestSecretVersionHandler)).Methods("GET")
+}
+
+// Handler: List all versions of a secret
+func listSecretVersionsHandler(c *Context, w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	secretID, err := uuid.Parse(vars["id"])
+	if err != nil {
+		c.Err = common.NewAppError("listSecretVersions", "Invalid secret ID", nil, err.Error(), http.StatusBadRequest)
+		return
+	}
+	dbRepo := db.NewRepository(c.Logger)
+	if err := dbRepo.InitializeDB(); err != nil {
+		c.Err = common.NewAppError("listSecretVersions", "Failed to initialize database", nil, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	defer dbRepo.GetDB().Close()
+	secretsRepo := secrets.NewSecretRepository(dbRepo.GetDB(), c.Logger)
+	ctx := r.Context()
+	versions, err := secretsRepo.GetVersions(ctx, secretID)
+	if err != nil {
+		c.Err = common.NewAppError("listSecretVersions", "Failed to get versions", nil, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(versions)
+}
+
+// Handler: Get a specific version of a secret
+func getSecretVersionHandler(c *Context, w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	secretID, err := uuid.Parse(vars["id"])
+	if err != nil {
+		c.Err = common.NewAppError("getSecretVersion", "Invalid secret ID", nil, err.Error(), http.StatusBadRequest)
+		return
+	}
+	versionNum, err := strconv.Atoi(vars["version"])
+	if err != nil {
+		c.Err = common.NewAppError("getSecretVersion", "Invalid version number", nil, err.Error(), http.StatusBadRequest)
+		return
+	}
+	dbRepo := db.NewRepository(c.Logger)
+	if err := dbRepo.InitializeDB(); err != nil {
+		c.Err = common.NewAppError("getSecretVersion", "Failed to initialize database", nil, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	defer dbRepo.GetDB().Close()
+	secretsRepo := secrets.NewSecretRepository(dbRepo.GetDB(), c.Logger)
+	ctx := r.Context()
+	version, err := secretsRepo.GetVersion(ctx, secretID, versionNum)
+	if err != nil {
+		c.Err = common.NewAppError("getSecretVersion", "Failed to get version", nil, err.Error(), http.StatusNotFound)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(version)
+}
+
+// Handler: Get the latest version of a secret
+func getLatestSecretVersionHandler(c *Context, w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	secretID, err := uuid.Parse(vars["id"])
+	if err != nil {
+		c.Err = common.NewAppError("getLatestSecretVersion", "Invalid secret ID", nil, err.Error(), http.StatusBadRequest)
+		return
+	}
+	dbRepo := db.NewRepository(c.Logger)
+	if err := dbRepo.InitializeDB(); err != nil {
+		c.Err = common.NewAppError("getLatestSecretVersion", "Failed to initialize database", nil, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	defer dbRepo.GetDB().Close()
+	secretsRepo := secrets.NewSecretRepository(dbRepo.GetDB(), c.Logger)
+	ctx := r.Context()
+	version, err := secretsRepo.GetLatestVersion(ctx, secretID)
+	if err != nil {
+		c.Err = common.NewAppError("getLatestSecretVersion", "Failed to get latest version", nil, err.Error(), http.StatusNotFound)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(version)
 }
 
 // exportSecrets handles the export of secrets to encrypted files.

@@ -1,0 +1,275 @@
+/*
+Copyright © 2025 Snehal Dangroshiya
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in
+all copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+THE SOFTWARE.
+*/
+
+package backup
+
+import (
+	"database/sql"
+	"os"
+	"path/filepath"
+	"testing"
+	"time"
+
+	"github.com/spf13/viper"
+	_ "github.com/mattn/go-sqlite3"
+
+	"password-manager/internal/logging"
+)
+
+func setupTestDB(t *testing.T) (*sql.DB, func()) {
+	// Create temporary database
+	tmpDir, err := os.MkdirTemp("", "backup_test_*")
+	if err != nil {
+		t.Fatalf("Failed to create temp dir: %v", err)
+	}
+
+	dbPath := filepath.Join(tmpDir, "test.db")
+	db, err := sql.Open("sqlite3", dbPath)
+	if err != nil {
+		t.Fatalf("Failed to open database: %v", err)
+	}
+
+	// Create test tables
+	_, err = db.Exec(`
+		CREATE TABLE users (
+			id TEXT PRIMARY KEY,
+			username TEXT UNIQUE NOT NULL,
+			password_hash TEXT NOT NULL,
+			role TEXT NOT NULL
+		);
+		CREATE TABLE secrets (
+			id TEXT PRIMARY KEY,
+			user_id TEXT NOT NULL,
+			name TEXT NOT NULL,
+			value TEXT NOT NULL,
+			version INTEGER NOT NULL,
+			FOREIGN KEY (user_id) REFERENCES users(id)
+		);
+	`)
+	if err != nil {
+		t.Fatalf("Failed to create tables: %v", err)
+	}
+
+	// Insert test data
+	_, err = db.Exec(`
+		INSERT INTO users (id, username, password_hash, role) VALUES
+		('user1', 'testuser', 'hash1', 'user'),
+		('user2', 'admin', 'hash2', 'admin');
+		INSERT INTO secrets (id, user_id, name, value, version) VALUES
+		('secret1', 'user1', 'db-password', 'secret123', 1),
+		('secret2', 'user1', 'api-key', 'key456', 1);
+	`)
+	if err != nil {
+		t.Fatalf("Failed to insert test data: %v", err)
+	}
+
+	// Setup viper for encryption
+	viper.Set("master_key", "***SECRET-REMOVED-2026-08-17***")
+
+	cleanup := func() {
+		db.Close()
+		os.RemoveAll(tmpDir)
+	}
+
+	return db, cleanup
+}
+
+func TestBackupManager(t *testing.T) {
+	db, cleanup := setupTestDB(t)
+	defer cleanup()
+
+	logger := logging.InitLogger()
+	manager := NewManager(db, logger)
+
+	t.Run("CreateBackup", func(t *testing.T) {
+		tmpDir, err := os.MkdirTemp("", "backup_test_*")
+		if err != nil {
+			t.Fatalf("Failed to create temp dir: %v", err)
+		}
+		defer os.RemoveAll(tmpDir)
+
+		backupPath := filepath.Join(tmpDir, "test.backup")
+
+		err = manager.CreateBackup(backupPath, false)
+		if err != nil {
+			t.Fatalf("CreateBackup failed: %v", err)
+		}
+
+		// Verify backup file exists
+		if _, err := os.Stat(backupPath); os.IsNotExist(err) {
+			t.Fatal("Backup file was not created")
+		}
+	})
+
+	t.Run("CreateEncryptedBackup", func(t *testing.T) {
+		tmpDir, err := os.MkdirTemp("", "backup_test_*")
+		if err != nil {
+			t.Fatalf("Failed to create temp dir: %v", err)
+		}
+		defer os.RemoveAll(tmpDir)
+
+		backupPath := filepath.Join(tmpDir, "encrypted.backup")
+
+		err = manager.CreateBackup(backupPath, true)
+		if err != nil {
+			t.Fatalf("CreateEncryptedBackup failed: %v", err)
+		}
+
+		// Verify backup file exists
+		if _, err := os.Stat(backupPath); os.IsNotExist(err) {
+			t.Fatal("Encrypted backup file was not created")
+		}
+	})
+
+	t.Run("BackupAndRestore", func(t *testing.T) {
+		tmpDir, err := os.MkdirTemp("", "backup_test_*")
+		if err != nil {
+			t.Fatalf("Failed to create temp dir: %v", err)
+		}
+		defer os.RemoveAll(tmpDir)
+
+		backupPath := filepath.Join(tmpDir, "roundtrip.backup")
+
+		// Create backup
+		err = manager.CreateBackup(backupPath, false)
+		if err != nil {
+			t.Fatalf("CreateBackup failed: %v", err)
+		}
+
+		// Clear existing data
+		_, err = db.Exec("DELETE FROM secrets; DELETE FROM users;")
+		if err != nil {
+			t.Fatalf("Failed to clear data: %v", err)
+		}
+
+		// Restore from backup
+		err = manager.RestoreBackup(backupPath, false)
+		if err != nil {
+			t.Fatalf("RestoreBackup failed: %v", err)
+		}
+
+		// Verify data was restored
+		var userCount, secretCount int
+		err = db.QueryRow("SELECT COUNT(*) FROM users").Scan(&userCount)
+		if err != nil {
+			t.Fatalf("Failed to count users: %v", err)
+		}
+		err = db.QueryRow("SELECT COUNT(*) FROM secrets").Scan(&secretCount)
+		if err != nil {
+			t.Fatalf("Failed to count secrets: %v", err)
+		}
+
+		if userCount != 2 {
+			t.Errorf("Expected 2 users, got %d", userCount)
+		}
+		if secretCount != 2 {
+			t.Errorf("Expected 2 secrets, got %d", secretCount)
+		}
+	})
+
+	t.Run("ListBackups", func(t *testing.T) {
+		tmpDir, err := os.MkdirTemp("", "backup_test_*")
+		if err != nil {
+			t.Fatalf("Failed to create temp dir: %v", err)
+		}
+		defer os.RemoveAll(tmpDir)
+
+		// Create some backup files
+		backup1 := filepath.Join(tmpDir, "backup1.backup")
+		backup2 := filepath.Join(tmpDir, "backup2.backup")
+
+		err = manager.CreateBackup(backup1, false)
+		if err != nil {
+			t.Fatalf("Failed to create backup1: %v", err)
+		}
+
+		// Wait a moment to ensure different timestamps
+		time.Sleep(100 * time.Millisecond)
+
+		err = manager.CreateBackup(backup2, false)
+		if err != nil {
+			t.Fatalf("Failed to create backup2: %v", err)
+		}
+
+		// List backups
+		backups, err := manager.ListBackups(tmpDir)
+		if err != nil {
+			t.Fatalf("ListBackups failed: %v", err)
+		}
+
+		if len(backups) != 2 {
+			t.Errorf("Expected 2 backups, got %d", len(backups))
+		}
+
+		// Verify metadata
+		for _, backup := range backups {
+			if backup.Version != "1.0" {
+				t.Errorf("Expected version 1.0, got %s", backup.Version)
+			}
+			if backup.TableCount == 0 {
+				t.Error("Expected non-zero table count")
+			}
+		}
+	})
+}
+
+func TestBackupMetadata(t *testing.T) {
+	db, cleanup := setupTestDB(t)
+	defer cleanup()
+
+	logger := logging.InitLogger()
+	manager := NewManager(db, logger)
+
+	tmpDir, err := os.MkdirTemp("", "backup_test_*")
+	if err != nil {
+		t.Fatalf("Failed to create temp dir: %v", err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	backupPath := filepath.Join(tmpDir, "metadata.backup")
+
+	// Create backup
+	err = manager.CreateBackup(backupPath, false)
+	if err != nil {
+		t.Fatalf("CreateBackup failed: %v", err)
+	}
+
+	// Get metadata
+	metadata, err := manager.getBackupMetadata(backupPath)
+	if err != nil {
+		t.Fatalf("getBackupMetadata failed: %v", err)
+	}
+
+	// Verify metadata
+	if metadata.Version != "1.0" {
+		t.Errorf("Expected version 1.0, got %s", metadata.Version)
+	}
+	if metadata.TableCount == 0 {
+		t.Error("Expected non-zero table count")
+	}
+	if metadata.RecordCount != 4 { // 2 users + 2 secrets
+		t.Errorf("Expected 4 records, got %d", metadata.RecordCount)
+	}
+	if metadata.Encrypted {
+		t.Error("Expected backup to be unencrypted")
+	}
+}
