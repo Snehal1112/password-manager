@@ -2,7 +2,7 @@ package api
 
 import (
 	"net/http"
-	"password-manager/model"
+	"password-manager/common"
 
 	"github.com/gorilla/mux"
 )
@@ -54,6 +54,6 @@ func createTenant(c *Context, w http.ResponseWriter, r *http.Request) {
 func getTenant(c *Context, w http.ResponseWriter, r *http.Request) {
 	//w.WriteHeader(http.StatusOK)
 
-	c.Err = model.NewAppError("vault.getTenant", "Tenant not found", nil, "tenant_id="+mux.Vars(r)["id"], http.StatusNotFound)
+	c.Err = common.NewAppError("vault.getTenant", "Tenant not found", nil, "tenant_id="+mux.Vars(r)["id"], http.StatusNotFound)
 	//w.Write([]byte("Tenant retrieved successfully"))
 }
