@@ -237,13 +237,13 @@ func runRotationCreate(cmd *cobra.Command, args []string) error {
 
 	// Create policy
 	policy := &secrets.RotationPolicy{
-		UserID:        userID,
-		Name:          policyName,
-		Description:   policyDescription,
-		IntervalDays:  policyInterval,
-		Enabled:       true,
-		ReminderDays:  policyReminder,
-		AutoRotate:    policyAutoRotate,
+		UserID:       userID,
+		Name:         policyName,
+		Description:  policyDescription,
+		IntervalDays: policyInterval,
+		Enabled:      true,
+		ReminderDays: policyReminder,
+		AutoRotate:   policyAutoRotate,
 	}
 
 	err := repo.Create(ctx, policy)

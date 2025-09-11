@@ -35,13 +35,13 @@ import (
 
 // HealthMetrics represents the system health metrics
 type HealthMetrics struct {
-	MemoryUsage    MemoryStats    `json:"memory_usage"`
-	CPUStats       CPUStats       `json:"cpu_stats"`
-	DatabaseStats  DatabaseStats  `json:"database_stats"`
-	Uptime         time.Duration  `json:"uptime"`
-	GoVersion      string         `json:"go_version"`
-	Goroutines     int            `json:"goroutines"`
-	Timestamp      time.Time      `json:"timestamp"`
+	MemoryUsage   MemoryStats   `json:"memory_usage"`
+	CPUStats      CPUStats      `json:"cpu_stats"`
+	DatabaseStats DatabaseStats `json:"database_stats"`
+	Uptime        time.Duration `json:"uptime"`
+	GoVersion     string        `json:"go_version"`
+	Goroutines    int           `json:"goroutines"`
+	Timestamp     time.Time     `json:"timestamp"`
 }
 
 // MemoryStats contains memory usage information
@@ -68,19 +68,19 @@ type MemoryStats struct {
 
 // CPUStats contains CPU usage information
 type CPUStats struct {
-	Goroutines int `json:"goroutines"`
+	Goroutines int   `json:"goroutines"`
 	CgoCalls   int64 `json:"cgo_calls"`
 }
 
 // DatabaseStats contains database connection information
 type DatabaseStats struct {
-	OpenConnections int `json:"open_connections"`
-	InUse           int `json:"in_use"`
-	Idle            int `json:"idle"`
-	WaitCount       int64 `json:"wait_count"`
-	WaitDuration    time.Duration `json:"wait_duration"`
-	MaxIdleClosed   int64 `json:"max_idle_closed"`
-	MaxLifetimeClosed int64 `json:"max_lifetime_closed"`
+	OpenConnections   int           `json:"open_connections"`
+	InUse             int           `json:"in_use"`
+	Idle              int           `json:"idle"`
+	WaitCount         int64         `json:"wait_count"`
+	WaitDuration      time.Duration `json:"wait_duration"`
+	MaxIdleClosed     int64         `json:"max_idle_closed"`
+	MaxLifetimeClosed int64         `json:"max_lifetime_closed"`
 }
 
 // HealthCollector manages health metrics collection
@@ -152,12 +152,12 @@ func (hc *HealthCollector) CollectMetrics(ctx context.Context) (*HealthMetrics, 
 	if hc.db != nil {
 		dbStats := hc.db.Stats()
 		metrics.DatabaseStats = DatabaseStats{
-			OpenConnections: dbStats.OpenConnections,
-			InUse:           dbStats.InUse,
-			Idle:            dbStats.Idle,
-			WaitCount:       dbStats.WaitCount,
-			WaitDuration:    dbStats.WaitDuration,
-			MaxIdleClosed:   dbStats.MaxIdleClosed,
+			OpenConnections:   dbStats.OpenConnections,
+			InUse:             dbStats.InUse,
+			Idle:              dbStats.Idle,
+			WaitCount:         dbStats.WaitCount,
+			WaitDuration:      dbStats.WaitDuration,
+			MaxIdleClosed:     dbStats.MaxIdleClosed,
 			MaxLifetimeClosed: dbStats.MaxLifetimeClosed,
 		}
 	}
@@ -231,18 +231,18 @@ func (hc *HealthCollector) LogHealthMetrics(ctx context.Context) error {
 	queryMetrics := hc.GetQueryMetrics()
 
 	logrus.WithFields(logrus.Fields{
-		"memory_alloc":     FormatBytes(metrics.MemoryUsage.Alloc),
-		"memory_heap":      FormatBytes(metrics.MemoryUsage.HeapAlloc),
-		"memory_sys":       FormatBytes(metrics.MemoryUsage.Sys),
-		"goroutines":       metrics.CPUStats.Goroutines,
-		"uptime":           FormatDuration(metrics.Uptime),
-		"db_connections":   metrics.DatabaseStats.OpenConnections,
-		"db_in_use":        metrics.DatabaseStats.InUse,
-		"db_idle":          metrics.DatabaseStats.Idle,
-		"query_count":      queryMetrics.QueryCount,
-		"avg_query_time":   FormatDuration(queryMetrics.AvgDuration),
-		"slow_queries":     queryMetrics.SlowQueries,
-		"gc_cycles":        metrics.MemoryUsage.NumGC,
+		"memory_alloc":   FormatBytes(metrics.MemoryUsage.Alloc),
+		"memory_heap":    FormatBytes(metrics.MemoryUsage.HeapAlloc),
+		"memory_sys":     FormatBytes(metrics.MemoryUsage.Sys),
+		"goroutines":     metrics.CPUStats.Goroutines,
+		"uptime":         FormatDuration(metrics.Uptime),
+		"db_connections": metrics.DatabaseStats.OpenConnections,
+		"db_in_use":      metrics.DatabaseStats.InUse,
+		"db_idle":        metrics.DatabaseStats.Idle,
+		"query_count":    queryMetrics.QueryCount,
+		"avg_query_time": FormatDuration(queryMetrics.AvgDuration),
+		"slow_queries":   queryMetrics.SlowQueries,
+		"gc_cycles":      metrics.MemoryUsage.NumGC,
 	}).Info("System health metrics collected")
 
 	return nil

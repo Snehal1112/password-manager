@@ -29,8 +29,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/spf13/viper"
 	_ "github.com/mattn/go-sqlite3"
+	"github.com/spf13/viper"
 
 	"password-manager/internal/logging"
 )

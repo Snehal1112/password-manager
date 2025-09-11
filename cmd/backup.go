@@ -38,10 +38,10 @@ import (
 )
 
 var (
-	backupOutput    string
-	backupEncrypt   bool
-	backupListDir   string
-	backupRestoreFile string
+	backupOutput         string
+	backupEncrypt        bool
+	backupListDir        string
+	backupRestoreFile    string
 	backupRestoreDecrypt bool
 )
 
@@ -84,9 +84,9 @@ The backup can be encrypted using the master key for security.`,
 
 // backupListCmd represents the backup list command
 var backupListCmd = &cobra.Command{
-	Use:   "list",
-	Short: "List available backup files",
-	Long: `List all backup files in the specified directory with their metadata.`,
+	Use:     "list",
+	Short:   "List available backup files",
+	Long:    `List all backup files in the specified directory with their metadata.`,
 	Example: `password-manager backup list --dir ./backups`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		return runBackupList(cmd, args)
@@ -95,9 +95,9 @@ var backupListCmd = &cobra.Command{
 
 // backupRestoreCmd represents the backup restore command
 var backupRestoreCmd = &cobra.Command{
-	Use:   "restore",
-	Short: "Restore database from backup",
-	Long: `Restore the database from a backup file. This will replace all existing data.`,
+	Use:     "restore",
+	Short:   "Restore database from backup",
+	Long:    `Restore the database from a backup file. This will replace all existing data.`,
 	Example: `password-manager backup restore --file ./backup-2024.backup --decrypt`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		return runBackupRestore(cmd, args)

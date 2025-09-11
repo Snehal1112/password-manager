@@ -30,9 +30,9 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/spf13/viper"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"github.com/spf13/viper"
 
 	"password-manager/common"
 	"password-manager/internal/logging"
@@ -426,11 +426,11 @@ func createTestUser(t *testing.T, db *sql.DB) uuid.UUID {
 
 func createTestSecret(t *testing.T, db *sql.DB, userID uuid.UUID) uuid.UUID {
 	secretID := uuid.New()
-	
+
 	// Encrypt the test value
 	encryptedValue, err := common.EncryptSecret("testvalue")
 	require.NoError(t, err)
-	
+
 	query := `
 		INSERT INTO secrets (id, user_id, name, value, version, created_at)
 		VALUES (?, ?, ?, ?, ?, ?)

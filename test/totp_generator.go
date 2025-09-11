@@ -2,8 +2,9 @@ package main
 
 import (
 	"fmt"
-	"github.com/pquerna/otp/totp"
 	"time"
+
+	"github.com/pquerna/otp/totp"
 )
 
 func main() {
