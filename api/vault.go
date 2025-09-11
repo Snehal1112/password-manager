@@ -1,6 +1,7 @@
 package api
 
 import (
+	"encoding/json"
 	"net/http"
 	"password-manager/common"
 
@@ -37,8 +38,13 @@ func (api *API) InitVault(vault *mux.Router) {
 //   - If there is an error creating the tenant, it sets the error in the context and returns the appropriate status code.
 //   - If there is an error converting the created tenant properties to JSON, it returns a 400 Bad Request error.
 func createTenant(c *Context, w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusCreated)
-	w.Write([]byte("Tenant created successfully"))
+	response := map[string]interface{}{
+		"message": "Tenant created successfully",
+		"status":  "success",
+	}
+	json.NewEncoder(w).Encode(response)
 }
 
 // getTenant handles the HTTP request to retrieve a tenant by its ID.

@@ -38,19 +38,16 @@ func InitLogger() *Logger {
 			TimestampFormat: time.RFC3339,
 			PrettyPrint:     viper.GetBool("log.pretty_print"),
 		})
-		break
 	case "yaml":
 		logger.SetFormatter(&YAMLFormatter{
 			TimestampFormat: time.RFC3339,
 			PrettyPrint:     viper.GetBool("log.pretty_print"),
 		})
-		break
 	case "text":
 		logger.SetFormatter(&logrus.TextFormatter{
 			TimestampFormat: time.RFC3339,
 			FullTimestamp:   true,
 		})
-		break
 	default:
 		logrus.WithField("format", viper.GetString("log.format")).Infoln("Default log format is used by logrus")
 	}
