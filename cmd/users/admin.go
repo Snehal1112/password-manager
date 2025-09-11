@@ -35,6 +35,7 @@ import (
 	"password-manager/internal/auth"
 	"password-manager/internal/db"
 	"password-manager/internal/logging"
+	"password-manager/model"
 )
 
 // registerAdminCmd represents the register/admin command
