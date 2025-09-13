@@ -113,14 +113,14 @@ func GenerateRandomString(length int, charset string) (string, error) {
 	if length <= 0 {
 		return "", nil
 	}
-	
+
 	if len(charset) == 0 {
 		return "", nil
 	}
 
 	result := make([]byte, length)
 	charsetLen := big.NewInt(int64(len(charset)))
-	
+
 	for i := 0; i < length; i++ {
 		randomIndex, err := rand.Int(rand.Reader, charsetLen)
 		if err != nil {
@@ -128,6 +128,6 @@ func GenerateRandomString(length int, charset string) (string, error) {
 		}
 		result[i] = charset[randomIndex.Int64()]
 	}
-	
+
 	return string(result), nil
 }
