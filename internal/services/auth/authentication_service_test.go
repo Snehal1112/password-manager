@@ -131,7 +131,7 @@ func TestAuthenticationService_AuthenticateUser_Success(t *testing.T) {
 	mockJWTService := &MockJWTService{}
 
 	// Create logger
-	logger := logging.NewLogger()
+	logger := logging.InitLogger()
 
 	// Create test user
 	userID := uuid.New()
@@ -187,7 +187,7 @@ func TestAuthenticationService_AuthenticateUser_InvalidPassword(t *testing.T) {
 	mockJWTService := &MockJWTService{}
 
 	// Create logger
-	logger := logging.NewLogger()
+	logger := logging.InitLogger()
 
 	// Create test user
 	userID := uuid.New()
@@ -239,7 +239,7 @@ func TestAuthenticationService_AuthenticateUser_InvalidTOTP(t *testing.T) {
 	mockJWTService := &MockJWTService{}
 
 	// Create logger
-	logger := logging.NewLogger()
+	logger := logging.InitLogger()
 
 	// Create test user
 	userID := uuid.New()

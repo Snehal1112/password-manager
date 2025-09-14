@@ -4,12 +4,10 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
-	"time"
 
 	"github.com/google/uuid"
 	"github.com/sirupsen/logrus"
 
-	"password-manager/internal/db"
 	"password-manager/internal/logging"
 	"password-manager/internal/secrets"
 )
@@ -25,11 +23,13 @@ type SecretRepository struct {
 // It provides pure database operations for secret entities.
 //
 // Parameters:
-//   db: The database connection.
-//   log: The logger for database operation logging.
+//
+//	db: The database connection.
+//	log: The logger for database operation logging.
 //
 // Returns:
-//   A SecretRepository implementation for secret database operations.
+//
+//	A SecretRepository implementation for secret database operations.
 func NewSecretRepository(db *sql.DB, log *logging.Logger) secrets.SecretRepository {
 	return &SecretRepository{db: db, log: log}
 }
@@ -38,11 +38,13 @@ func NewSecretRepository(db *sql.DB, log *logging.Logger) secrets.SecretReposito
 // It expects the secret value to be already encrypted.
 //
 // Parameters:
-//   ctx: The context for the database operation.
-//   secret: The secret entity to store (with encrypted value).
+//
+//	ctx: The context for the database operation.
+//	secret: The secret entity to store (with encrypted value).
 //
 // Returns:
-//   An error if the insertion fails.
+//
+//	An error if the insertion fails.
 func (r *SecretRepository) Create(ctx context.Context, secret *secrets.Secret) error {
 	logrus.WithFields(logrus.Fields{
 		"secret_id": secret.ID.String(),
@@ -73,11 +75,13 @@ func (r *SecretRepository) Create(ctx context.Context, secret *secrets.Secret) e
 // Read retrieves a secret by ID from the database.
 //
 // Parameters:
-//   ctx: The context for the database operation.
-//   id: The secret's unique identifier.
+//
+//	ctx: The context for the database operation.
+//	id: The secret's unique identifier.
 //
 // Returns:
-//   The secret entity (with encrypted value) or an error if not found.
+//
+//	The secret entity (with encrypted value) or an error if not found.
 func (r *SecretRepository) Read(ctx context.Context, id uuid.UUID) (*secrets.Secret, error) {
 	var secret secrets.Secret
 	var idStr, userIDStr string
@@ -112,11 +116,13 @@ func (r *SecretRepository) Read(ctx context.Context, id uuid.UUID) (*secrets.Sec
 // It expects the secret value to be already encrypted and version to be pre-incremented.
 //
 // Parameters:
-//   ctx: The context for the database operation.
-//   secret: The secret entity with updated fields.
+//
+//	ctx: The context for the database operation.
+//	secret: The secret entity with updated fields.
 //
 // Returns:
-//   An error if the update fails.
+//
+//	An error if the update fails.
 func (r *SecretRepository) Update(ctx context.Context, secret *secrets.Secret) error {
 	logrus.WithFields(logrus.Fields{
 		"secret_id": secret.ID.String(),
@@ -157,11 +163,13 @@ func (r *SecretRepository) Update(ctx context.Context, secret *secrets.Secret) e
 // Delete removes a secret from the database.
 //
 // Parameters:
-//   ctx: The context for the database operation.
-//   id: The secret's unique identifier.
+//
+//	ctx: The context for the database operation.
+//	id: The secret's unique identifier.
 //
 // Returns:
-//   An error if the deletion fails.
+//
+//	An error if the deletion fails.
 func (r *SecretRepository) Delete(ctx context.Context, id uuid.UUID) error {
 	logrus.WithField("secret_id", id.String()).Debug("Deleting secret from database")
 
@@ -191,12 +199,14 @@ func (r *SecretRepository) Delete(ctx context.Context, id uuid.UUID) error {
 // Note: Tag filtering has been moved to the TagService.
 //
 // Parameters:
-//   ctx: The context for the database operation.
-//   userID: The user's unique identifier.
-//   tags: Tag filter (maintained for interface compatibility but not used).
+//
+//	ctx: The context for the database operation.
+//	userID: The user's unique identifier.
+//	tags: Tag filter (maintained for interface compatibility but not used).
 //
 // Returns:
-//   A slice of secrets (with encrypted values) or an error if retrieval fails.
+//
+//	A slice of secrets (with encrypted values) or an error if retrieval fails.
 func (r *SecretRepository) ListByUser(ctx context.Context, userID uuid.UUID, tags []string) ([]secrets.Secret, error) {
 	logrus.WithField("user_id", userID.String()).Debug("Listing secrets for user")
 

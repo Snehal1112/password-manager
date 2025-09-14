@@ -4,6 +4,7 @@ import (
 	"github.com/gorilla/mux"
 
 	"password-manager/app"
+	"password-manager/internal/container"
 	"password-manager/internal/logging"
 )
 
@@ -67,5 +68,20 @@ func WithRouter(root *mux.Router) Options {
 func WithLogger(logger *logging.Logger) Options {
 	return func(a *API) {
 		a.Logger = logger
+	}
+}
+
+// WithServiceContainer sets the service container for the API.
+// It provides access to all refactored services following the dependency injection pattern.
+// This enables proper integration between the API layer and the SRP-compliant service layer.
+//
+// Parameters:
+//   container (*container.ServiceContainer): The service container with all initialized services.
+//
+// Returns:
+//   Options: A function that sets the service container for the API.
+func WithServiceContainer(container *container.ServiceContainer) Options {
+	return func(a *API) {
+		a.ServiceContainer = container
 	}
 }

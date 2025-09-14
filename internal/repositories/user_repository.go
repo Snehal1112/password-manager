@@ -7,13 +7,11 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
-	"time"
 
 	"github.com/google/uuid"
 	"github.com/sirupsen/logrus"
 
 	"password-manager/internal/auth"
-	"password-manager/internal/db"
 	"password-manager/internal/logging"
 )
 
@@ -28,11 +26,13 @@ type UserRepository struct {
 // It provides pure database operations for user entities.
 //
 // Parameters:
-//   db: The database connection.
-//   log: The logger for database operation logging.
+//
+//	db: The database connection.
+//	log: The logger for database operation logging.
 //
 // Returns:
-//   A UserRepository implementation for user database operations.
+//
+//	A UserRepository implementation for user database operations.
 func NewUserRepository(db *sql.DB, log *logging.Logger) auth.UserRepository {
 	return &UserRepository{db: db, log: log}
 }
@@ -41,11 +41,13 @@ func NewUserRepository(db *sql.DB, log *logging.Logger) auth.UserRepository {
 // It expects all user fields to be properly prepared (password hashed, TOTP secret generated).
 //
 // Parameters:
-//   ctx: The context for the database operation.
-//   user: The user entity to store (with pre-processed fields).
+//
+//	ctx: The context for the database operation.
+//	user: The user entity to store (with pre-processed fields).
 //
 // Returns:
-//   An error if the insertion fails.
+//
+//	An error if the insertion fails.
 func (r *UserRepository) Create(ctx context.Context, user *auth.User) error {
 	logrus.WithFields(logrus.Fields{
 		"username": user.Username,
@@ -89,11 +91,13 @@ func (r *UserRepository) Create(ctx context.Context, user *auth.User) error {
 // Read retrieves a user by ID from the database.
 //
 // Parameters:
-//   ctx: The context for the database operation.
-//   id: The user's unique identifier.
+//
+//	ctx: The context for the database operation.
+//	id: The user's unique identifier.
 //
 // Returns:
-//   The user entity or an error if not found.
+//
+//	The user entity or an error if not found.
 func (r *UserRepository) Read(ctx context.Context, id uuid.UUID) (*auth.User, error) {
 	var user auth.User
 	var idStr string
@@ -123,11 +127,13 @@ func (r *UserRepository) Read(ctx context.Context, id uuid.UUID) (*auth.User, er
 // It expects all fields to be properly prepared (password hashed if changed).
 //
 // Parameters:
-//   ctx: The context for the database operation.
-//   user: The user entity with updated fields.
+//
+//	ctx: The context for the database operation.
+//	user: The user entity with updated fields.
 //
 // Returns:
-//   An error if the update fails.
+//
+//	An error if the update fails.
 func (r *UserRepository) Update(ctx context.Context, user *auth.User) error {
 	logrus.WithFields(logrus.Fields{
 		"user_id":  user.ID.String(),
@@ -167,11 +173,13 @@ func (r *UserRepository) Update(ctx context.Context, user *auth.User) error {
 // It handles cascading deletion to maintain referential integrity.
 //
 // Parameters:
-//   ctx: The context for the database operation.
-//   id: The user's unique identifier.
+//
+//	ctx: The context for the database operation.
+//	id: The user's unique identifier.
 //
 // Returns:
-//   An error if the deletion fails.
+//
+//	An error if the deletion fails.
 func (r *UserRepository) Delete(ctx context.Context, id uuid.UUID) error {
 	logrus.WithField("user_id", id.String()).Debug("Deleting user from database")
 
@@ -258,11 +266,13 @@ func (r *UserRepository) Delete(ctx context.Context, id uuid.UUID) error {
 // ReadByUsername retrieves a user by username from the database.
 //
 // Parameters:
-//   ctx: The context for the database operation.
-//   username: The user's username.
+//
+//	ctx: The context for the database operation.
+//	username: The user's username.
 //
 // Returns:
-//   The user entity or an error if not found.
+//
+//	The user entity or an error if not found.
 func (r *UserRepository) ReadByUsername(ctx context.Context, username string) (auth.User, error) {
 	var user auth.User
 	var idStr string
@@ -299,10 +309,12 @@ func (r *UserRepository) Login(ctx context.Context, username, password, totpCode
 // List retrieves all users from the database.
 //
 // Parameters:
-//   ctx: The context for the database operation.
+//
+//	ctx: The context for the database operation.
 //
 // Returns:
-//   A slice of all users or an error if retrieval fails.
+//
+//	A slice of all users or an error if retrieval fails.
 func (r *UserRepository) List(ctx context.Context) ([]auth.User, error) {
 	rows, err := r.db.QueryContext(ctx, "SELECT id, username, password_hash, totp_secret, role, created_at FROM users")
 	if err != nil {
@@ -342,11 +354,13 @@ func (r *UserRepository) List(ctx context.Context) ([]auth.User, error) {
 // This is a simple implementation and should be replaced with secure token storage.
 //
 // Parameters:
-//   ctx: The context for the database operation.
-//   token: The bootstrap token to validate.
+//
+//	ctx: The context for the database operation.
+//	token: The bootstrap token to validate.
 //
 // Returns:
-//   True if valid, false otherwise, and an error if the operation fails.
+//
+//	True if valid, false otherwise, and an error if the operation fails.
 func (r *UserRepository) ValidateBootstrapToken(ctx context.Context, token string) (bool, error) {
 	// Check if users table is empty (bootstrap condition)
 	var count int
@@ -385,11 +399,13 @@ func (r *UserRepository) ValidateBootstrapToken(ctx context.Context, token strin
 // InvalidateBootstrapToken marks a bootstrap token as used.
 //
 // Parameters:
-//   ctx: The context for the database operation.
-//   token: The bootstrap token to invalidate.
+//
+//	ctx: The context for the database operation.
+//	token: The bootstrap token to invalidate.
 //
 // Returns:
-//   An error if the operation fails.
+//
+//	An error if the operation fails.
 func (r *UserRepository) InvalidateBootstrapToken(ctx context.Context, token string) error {
 	// Try to update existing token
 	result, err := r.db.ExecContext(ctx, "UPDATE bootstrap_tokens SET used = TRUE WHERE token = ?", token)
