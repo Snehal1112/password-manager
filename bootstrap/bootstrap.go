@@ -1,13 +1,18 @@
+// Package bootstrap provides application initialization with proper separation of concerns.
+// This refactored version follows SRP by delegating specific concerns to dedicated
+// initializers while maintaining a clean orchestration layer.
 package bootstrap
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/sirupsen/logrus"
 
 	"password-manager/api"
 	"password-manager/app"
 	"password-manager/config"
+	"password-manager/internal/container"
 	"password-manager/internal/db"
 	"password-manager/internal/secrets"
 	"password-manager/server"
@@ -24,26 +29,116 @@ type Config struct {
 	Logger          logrus.FieldLogger
 }
 
-// bootstrap is a struct that holds the configuration and application implementation
-// required to initialize and start the application.
-//
-// Fields:
-// - cfg: A pointer to the application's configuration settings.
-// - app: An implementation of the application logic.
+// DatabaseInitializer handles database setup and initialization.
+// It follows SRP by focusing only on database-related concerns.
+type DatabaseInitializer struct {
+	logger *logrus.FieldLogger
+}
+
+// NewDatabaseInitializer creates a new database initializer.
+func NewDatabaseInitializer(logger *logrus.FieldLogger) *DatabaseInitializer {
+	return &DatabaseInitializer{logger: logger}
+}
+
+// Initialize sets up the database connection and schema.
+func (d *DatabaseInitializer) Initialize(cfg *config.Config) (*db.Repository, error) {
+	d.logger.Info("Initializing database")
+
+	database := db.NewRepository(cfg.Logger)
+	if err := database.InitializeDB(); err != nil {
+		return nil, fmt.Errorf("failed to initialize database: %w", err)
+	}
+
+	d.logger.Info("Database initialized successfully")
+	return database, nil
+}
+
+// ServerStarter handles server lifecycle management.
+// It follows SRP by focusing only on server startup concerns.
+type ServerStarter struct {
+	logger *logrus.FieldLogger
+}
+
+// NewServerStarter creates a new server starter.
+func NewServerStarter(logger *logrus.FieldLogger) *ServerStarter {
+	return &ServerStarter{logger: logger}
+}
+
+// Start initializes and starts the HTTP server.
+func (s *ServerStarter) Start(ctx context.Context, app *app.App) error {
+	s.logger.Info("Starting HTTP server")
+	app.StartServer(ctx)
+	s.logger.Info("HTTP server started successfully")
+	return nil
+}
+
+// ConfigurationValidator handles configuration validation.
+// It follows SRP by focusing only on configuration validation concerns.
+type ConfigurationValidator struct {
+	logger *logrus.FieldLogger
+}
+
+// NewConfigurationValidator creates a new configuration validator.
+func NewConfigurationValidator(logger *logrus.FieldLogger) *ConfigurationValidator {
+	return &ConfigurationValidator{logger: logger}
+}
+
+// Validate checks that all required configuration is present and valid.
+func (c *ConfigurationValidator) Validate(cfg *Config, serverCfg *config.Config) error {
+	c.logger.Info("Validating configuration")
+
+	if cfg.DatabaseName == "" {
+		return fmt.Errorf("database name is required")
+	}
+	if cfg.Listen == "" {
+		return fmt.Errorf("listen address is required")
+	}
+	if cfg.BasePath == "" {
+		cfg.BasePath = "/"
+	}
+	if cfg.Logger == nil {
+		return fmt.Errorf("logger is required")
+	}
+	if serverCfg.Logger == nil {
+		return fmt.Errorf("server logger is required")
+	}
+
+	c.logger.Info("Configuration validation successful")
+	return nil
+}
+
+// bootstrap provides orchestration for application startup following SRP.
+// It coordinates different initializers while maintaining single responsibility.
 type bootstrap struct {
-	cfg *config.Config
-	app app.Impl
+	dbInitializer     *DatabaseInitializer
+	serverStarter     *ServerStarter
+	configValidator   *ConfigurationValidator
+	serviceContainer  *container.ServiceContainer
+	cfg               *config.Config
+}
+
+// newBootstrap creates a new bootstrap orchestrator with SRP-compliant design.
+func newBootstrap(serverCfg *config.Config) *bootstrap {
+	return &bootstrap{
+		cfg:             serverCfg,
+		dbInitializer:   NewDatabaseInitializer(serverCfg.Logger),
+		serverStarter:   NewServerStarter(serverCfg.Logger),
+		configValidator: NewConfigurationValidator(serverCfg.Logger),
+	}
 }
 
 // Config returns the configuration settings for the bootstrap instance.
-// It provides access to the configuration object which contains all the necessary
-// settings and parameters required for the application to run.
 func (b *bootstrap) Config() *config.Config {
 	return b.cfg
 }
 
-// Boot initializes and sets up the application using the provided context and configuration.
-// It creates a bootstrap instance with the server configuration and calls its setup method.
+// GetServiceContainer returns the service container for external access.
+func (b *bootstrap) GetServiceContainer() *container.ServiceContainer {
+	return b.serviceContainer
+}
+
+// Boot initializes and sets up the application using proper SRP design.
+// It creates a bootstrap instance and orchestrates the startup process.
 //
 // Parameters:
 //   - ctx: The context for controlling cancellation and deadlines.
@@ -53,22 +148,12 @@ func (b *bootstrap) Config() *config.Config {
 // Returns:
 //   - error: An error if the setup fails, otherwise nil.
 func Boot(ctx context.Context, cfg *Config, serverCfg *config.Config) error {
-	bs := &bootstrap{
-		cfg: serverCfg,
-	}
-
-	if err := bs.setup(ctx, cfg); err != nil {
-		return err
-	}
-
-	return nil
+	bs := newBootstrap(serverCfg)
+	return bs.setup(ctx, cfg)
 }
 
-// setup initializes the application with the provided configuration and context.
-// It creates a new application instance with the specified database name, base path,
-// backend endpoint, logger, and server configuration. It then initializes the API
-// with the application instance, base path, router, and logger. Finally, it initializes
-// the application's store and starts the server.
+// setup orchestrates the complete application startup process following SRP.
+// It coordinates initialization steps while delegating specific tasks to specialized initializers.
 //
 // Parameters:
 //   - ctx: The context for controlling the setup process.
@@ -77,16 +162,72 @@ func Boot(ctx context.Context, cfg *Config, serverCfg *config.Config) error {
 // Returns:
 //   - error: An error if the setup process fails, otherwise nil.
 func (b *bootstrap) setup(ctx context.Context, cfg *Config) error {
-	// Initialize database
-	database := db.NewRepository(b.cfg.Logger)
-	if err := database.InitializeDB(); err != nil {
-		return err
+	logrus.Info("Starting application bootstrap")
+
+	// Step 1: Validate configuration (SRP: dedicated validator)
+	if err := b.configValidator.Validate(cfg, b.cfg); err != nil {
+		return fmt.Errorf("configuration validation failed: %w", err)
 	}
 
-	// Create rotation scheduler
+	// Step 2: Initialize database (SRP: dedicated initializer)
+	database, err := b.dbInitializer.Initialize(b.cfg)
+	if err != nil {
+		return fmt.Errorf("database initialization failed: %w", err)
+	}
+
+	// Step 3: Initialize service container (SRP: dependency injection)
+	serviceContainer, err := container.NewServiceContainer(container.Config{
+		Database: database.GetDB(),
+		Logger:   b.cfg.Logger,
+	})
+	if err != nil {
+		return fmt.Errorf("service container initialization failed: %w", err)
+	}
+	b.serviceContainer = serviceContainer
+
+	// Step 4: Initialize scheduler services (SRP: scheduler-specific logic)
+	scheduler, err := b.initializeScheduler(database)
+	if err != nil {
+		return fmt.Errorf("scheduler initialization failed: %w", err)
+	}
+
+	// Step 5: Create application with dependency injection
+	app, err := b.createApplication(cfg, scheduler)
+	if err != nil {
+		return fmt.Errorf("application creation failed: %w", err)
+	}
+
+	// Step 6: Initialize API with dependencies
+	if err := b.initializeAPI(cfg, app); err != nil {
+		return fmt.Errorf("API initialization failed: %w", err)
+	}
+
+	// Step 7: Start server (SRP: dedicated starter)
+	if err := b.serverStarter.Start(ctx, app); err != nil {
+		return fmt.Errorf("server startup failed: %w", err)
+	}
+
+	logrus.Info("Application bootstrap completed successfully")
+	return nil
+}
+
+// initializeScheduler creates and configures the rotation scheduler.
+// This method follows SRP by handling only scheduler-related initialization.
+func (b *bootstrap) initializeScheduler(database *db.Repository) (*secrets.RotationScheduler, error) {
+	logrus.Info("Initializing rotation scheduler")
+
 	repo := secrets.NewRotationPolicyRepository(database.GetDB(), b.cfg.Logger)
-	secretRepo := secrets.NewSecretRepository(database.GetDB(), b.cfg.Logger)
+	secretRepo := b.serviceContainer.GetSecretRepository()
 	scheduler := secrets.NewRotationScheduler(database.GetDB(), b.cfg.Logger, repo, secretRepo)
+
+	logrus.Info("Rotation scheduler initialized successfully")
+	return scheduler, nil
+}
+
+// createApplication creates the main application instance with injected dependencies.
+// This method follows SRP by handling only application instance creation.
+func (b *bootstrap) createApplication(cfg *Config, scheduler *secrets.RotationScheduler) (*app.App, error) {
+	logrus.Info("Creating application instance")
 
 	app := app.NewApp(
 		app.WithDBName(cfg.DatabaseName),
@@ -97,6 +238,15 @@ func (b *bootstrap) setup(ctx context.Context, cfg *Config) error {
 		app.WithScheduler(scheduler),
 	).(*app.App)
 
+	logrus.Info("Application instance created successfully")
+	return app, nil
+}
+
+// initializeAPI sets up the API layer with proper dependency injection.
+// This method follows SRP by handling only API initialization concerns.
+func (b *bootstrap) initializeAPI(cfg *Config, app *app.App) error {
+	logrus.Info("Initializing API layer")
+
 	api.Init(
 		api.WithAPP(app),
 		api.WithBasePath(cfg.BasePath),
@@ -104,6 +254,22 @@ func (b *bootstrap) setup(ctx context.Context, cfg *Config) error {
 		api.WithLogger(b.cfg.Logger),
 	)
 
-	app.StartServer(ctx)
+	logrus.Info("API layer initialized successfully")
+	return nil
+}
+
+// Shutdown performs graceful application shutdown.
+// This method follows SRP by handling only shutdown concerns.
+func (b *bootstrap) Shutdown(ctx context.Context) error {
+	logrus.Info("Starting application shutdown")
+
+	if b.serviceContainer != nil {
+		if err := b.serviceContainer.Close(); err != nil {
+			logrus.WithError(err).Error("Error closing service container")
+			return fmt.Errorf("service container shutdown failed: %w", err)
+		}
+	}
+
+	logrus.Info("Application shutdown completed")
 	return nil
 }

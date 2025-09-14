@@ -1,6 +1,6 @@
-// Package middleware provides comprehensive HTTP middleware for the password manager API.
-// It includes logging, rate limiting, authentication, content negotiation,
-// request validation, security headers, and request ID tracking.
+// Package middleware provides HTTP middleware with proper separation of concerns.
+// This refactored version focuses only on HTTP concerns while delegating
+// authentication and authorization logic to dedicated services.
 package middleware
 
 import (
@@ -10,14 +10,12 @@ import (
 	"strings"
 	"time"
 
-	"github.com/golang-jwt/jwt/v5"
 	"github.com/sirupsen/logrus"
-	"github.com/spf13/viper"
 	"github.com/ulule/limiter/v3"
 	"github.com/ulule/limiter/v3/drivers/store/memory"
 
 	"password-manager/common"
-	"password-manager/internal/auth"
+	"password-manager/internal/container"
 	"password-manager/internal/logging"
 )
 
@@ -36,39 +34,48 @@ func (rw *ResponseWriter) WriteHeader(code int) {
 	rw.ResponseWriter.WriteHeader(code)
 }
 
-// Middleware provides HTTP middleware for the password manager API.
-// It includes logging, rate limiting, and authentication middleware.
-// The middleware is designed to be used with the net/http package.
+// Middleware provides HTTP middleware with single responsibilities.
+// It delegates authentication and authorization to dedicated services,
+// following the Single Responsibility Principle.
 type Middleware struct {
-	log *logging.Logger
+	container *container.ServiceContainer
+	logger    *logging.Logger
 }
 
-// NewMiddleware initializes a new Middleware instance with the provided logger.
-// It sets up the middleware for logging, rate limiting, and authentication.
-// The logger is used for structured logging with audit fields.
-func NewMiddleware(logger *logging.Logger) *Middleware {
+// NewMiddleware creates a new middleware with service dependencies.
+// It uses dependency injection instead of global state access.
+//
+// Parameters:
+//   container: Service container for dependency access.
+//
+// Returns:
+//   A Middleware instance with injected dependencies.
+func NewMiddleware(container *container.ServiceContainer) *Middleware {
 	return &Middleware{
-		log: logger,
+		container: container,
+		logger:    container.GetLogger(),
 	}
 }
 
-// LoggingMiddleware logs request and response details with audit fields.
+// LoggingMiddleware logs HTTP request and response details.
+// It focuses only on logging concerns without mixing other responsibilities.
 func (m *Middleware) LoggingMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		start := time.Now()
-		userID, _ := r.Context().Value(common.UserIDKey).(string) // May be 0 if unauthenticated.
+		userID, _ := r.Context().Value(common.UserIDKey).(string)
 
-		// Create a response writer to capture status code.
-		rw := &ResponseWriter{ResponseWriter: w, statusCode: http.StatusOK, log: m.log}
+		// Create response writer to capture status code
+		rw := &ResponseWriter{ResponseWriter: w, statusCode: http.StatusOK, log: m.logger}
 		next.ServeHTTP(rw, r)
 
-		// Log request details.
+		// Log request details
 		duration := time.Since(start)
 		operation := fmt.Sprintf("%s %s", r.Method, r.URL.Path)
 		status := "success"
 		if rw.statusCode >= 400 {
 			status = "failed"
 		}
+
 		logFields := logrus.Fields{
 			"method":      r.Method,
 			"path":        r.URL.Path,
@@ -77,122 +84,181 @@ func (m *Middleware) LoggingMiddleware(next http.Handler) http.Handler {
 			"duration_ms": duration.Milliseconds(),
 		}
 
-		logEntry := m.log.WithAuditFields(userID, operation, status).WithFields(logFields)
+		logEntry := m.logger.WithAuditFields(userID, operation, status).WithFields(logFields)
 		if status == "success" {
-			logEntry.Info("API request processed")
+			logEntry.Info("HTTP request processed")
 		} else {
-			logEntry.Error("API request failed")
+			logEntry.Error("HTTP request failed")
 		}
 	})
 }
 
-// RateLimitMiddleware limits the number of requests from a single IP address.
-// It uses the ulule/limiter library to enforce rate limits.
-// The rate limit is set to 10 requests per minute.
-// parameters:
-//
-// - next: the next http.Handler in the chain.
-//
-// returns:
-//
-// - http.Handler: the wrapped handler with rate limiting applied.
-// The rate limit is enforced using an in-memory store.
+// RateLimitMiddleware applies rate limiting to HTTP requests.
+// It focuses solely on rate limiting without mixing other concerns.
 func (m *Middleware) RateLimitMiddleware(next http.Handler) http.Handler {
+	// Create rate limiter with in-memory store
+	rate := limiter.Rate{
+		Period: time.Minute,
+		Limit:  10,
+	}
 	store := memory.NewStore()
-	rate, _ := limiter.NewRateFromFormatted("10-M") // 10 requests per minute
-	limiterInstance := limiter.New(store, rate)
+	rateLimiter := limiter.New(store, rate)
 
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		ctx := r.Context()
-		if _, err := limiterInstance.Get(ctx, r.RemoteAddr); err != nil {
-			logrus.Warn("Rate limit exceeded for ", r.RemoteAddr)
-			http.Error(w, "Too Many Requests", http.StatusTooManyRequests)
+		// Use client IP as the key for rate limiting
+		key := r.RemoteAddr
+
+		context, err := rateLimiter.Get(r.Context(), key)
+		if err != nil {
+			m.logger.LogAuditError("", "rate_limit", "failed", "Rate limiter error", err)
+			logrus.WithError(err).Error("Rate limiter error")
+			http.Error(w, "Internal server error", http.StatusInternalServerError)
 			return
 		}
+
+		w.Header().Set("X-RateLimit-Limit", fmt.Sprintf("%d", context.Limit))
+		w.Header().Set("X-RateLimit-Remaining", fmt.Sprintf("%d", context.Remaining))
+		w.Header().Set("X-RateLimit-Reset", fmt.Sprintf("%d", context.Reset))
+
+		if context.Reached {
+			m.logger.LogAuditError("", "rate_limit", "failed", "Rate limit exceeded", nil)
+			logrus.WithField("client_ip", key).Warn("Rate limit exceeded")
+			http.Error(w, "Rate limit exceeded", http.StatusTooManyRequests)
+			return
+		}
+
 		next.ServeHTTP(w, r)
 	})
 }
 
-// AuthMiddleware authenticates requests using JWT and enforces RBAC.
-func (m *Middleware) AuthMiddleware(next http.Handler) http.Handler {
+// AuthenticationMiddleware handles JWT token validation and user context.
+// It delegates authentication logic to the AuthenticationService.
+func (m *Middleware) AuthenticationMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// Skip authentication for public endpoints.
+		// Skip authentication for public endpoints
 		if r.URL.Path == "/health" || r.URL.Path == "/login" {
 			next.ServeHTTP(w, r)
 			return
 		}
 
-		// Extract JWT from Authorization header.
+		// Extract token from Authorization header
 		authHeader := r.Header.Get("Authorization")
-		if !strings.HasPrefix(authHeader, "Bearer ") {
-			m.log.LogAuditError("", "auth", "failed", "Missing or invalid Authorization header", nil)
-			http.Error(w, "Unauthorized: missing or invalid token", http.StatusUnauthorized)
+		if authHeader == "" {
+			m.logger.LogAuditError("", "auth", "failed", "Missing Authorization header", nil)
+			http.Error(w, "Unauthorized: missing token", http.StatusUnauthorized)
 			return
 		}
+
+		// Validate Bearer token format
+		if !strings.HasPrefix(authHeader, "Bearer ") {
+			m.logger.LogAuditError("", "auth", "failed", "Invalid token format", nil)
+			http.Error(w, "Unauthorized: invalid token format", http.StatusUnauthorized)
+			return
+		}
+
 		tokenString := strings.TrimPrefix(authHeader, "Bearer ")
 
-		claims := &auth.Claims{}
-
-		// Parse the JWT token and validate its claims.
-		token, err := jwt.ParseWithClaims(tokenString, claims, func(token *jwt.Token) (interface{}, error) {
-			// Validate the token signing method.
-			if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
-				m.log.LogAuditError("", "auth", "failed", "Unexpected signing method", nil)
-				logrus.Warn("Unexpected signing method: ", token.Header["alg"])
-				return nil, jwt.ErrSignatureInvalid
-			}
-
-			// Retrieve the JWT secret from the configuration.
-			jwtSecret := viper.GetString("jwt_secret")
-			if jwtSecret == "" {
-				m.log.LogAuditError("", "auth", "failed", "JWT secret is not set", nil)
-				logrus.Warn("JWT secret is not set")
-				return nil, jwt.ErrInvalidKey
-			}
-
-			// Validate the token expiration.
-			if claims.ExpiresAt != nil && claims.ExpiresAt.Time.Before(time.Now()) {
-				m.log.LogAuditError("", "auth", "failed", "Token has expired", nil)
-				logrus.Warn("Token has expired")
-				return nil, jwt.ErrTokenExpired
-			}
-
-			return []byte(viper.GetString("jwt_secret")), nil
-		})
+		// Validate token using authentication service
+		claims, err := m.container.GetAuthenticationService().ValidateSession(r.Context(), tokenString)
 		if err != nil {
-			m.log.LogAuditError("", "auth", "failed", "Invalid JWT token", nil)
-			logrus.Warn("Invalid JWT token: ", err)
+			m.logger.LogAuditError("", "auth", "failed", "Token validation failed", err)
+			logrus.WithError(err).Warn("Token validation failed")
 			http.Error(w, "Unauthorized: invalid token", http.StatusUnauthorized)
 			return
 		}
 
-		if !token.Valid {
-			m.log.LogAuditError("", "auth", "failed", "Token is invalid", nil)
-			logrus.Warn("Invalid JWT: token is invalid")
-			http.Error(w, "Unauthorized: invalid claims", http.StatusUnauthorized)
-			return
-		}
+		// Add user information to request context
+		ctx := context.WithValue(r.Context(), common.UserIDKey, claims.UserID.String())
+		ctx = context.WithValue(ctx, "username", claims.Username)
+		ctx = context.WithValue(ctx, "role", claims.Role)
 
-		claims, ok := token.Claims.(*auth.Claims)
+		m.logger.LogAuditInfo(claims.UserID.String(), "auth", "success", "Authentication successful")
+		next.ServeHTTP(w, r.WithContext(ctx))
+	})
+}
+
+// AuthorizationMiddleware checks if the authenticated user has permission for the endpoint.
+// It delegates authorization logic to the RBACService.
+func (m *Middleware) AuthorizationMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Get user role from context (set by authentication middleware)
+		role, ok := r.Context().Value("role").(string)
 		if !ok {
-			m.log.LogAuditError("", "auth", "failed", "Invalid JWT claims", nil)
-			logrus.Warn("Invalid JWT claims")
-			http.Error(w, "Unauthorized: invalid claims", http.StatusUnauthorized)
+			m.logger.LogAuditError("", "authz", "failed", "Missing role in context", nil)
+			http.Error(w, "Forbidden: missing role", http.StatusForbidden)
 			return
 		}
 
-		// Enforce RBAC based on endpoint and role.
-		if strings.HasPrefix(r.URL.Path, "/secrets") && claims.Role != auth.RoleSecretsManager {
-			m.log.LogAuditError(claims.UserID.String(), "auth", "failed", "Insufficient permissions for secrets endpoint", nil)
+		// Check endpoint access using RBAC service
+		if err := m.container.GetRBACService().ValidateEndpointAccess(role, r.Method, r.URL.Path); err != nil {
+			m.logger.LogAuditError("", "authz", "failed", "Access denied", err)
+			logrus.WithFields(logrus.Fields{
+				"role":   role,
+				"method": r.Method,
+				"path":   r.URL.Path,
+			}).Warn("Authorization failed")
 			http.Error(w, "Forbidden: insufficient permissions", http.StatusForbidden)
 			return
 		}
 
-		// Add user_id to context.
-		type contextKey string
-		const userIDKey contextKey = "user_id"
-		ctx := context.WithValue(r.Context(), userIDKey, claims.UserID)
-		m.log.LogAuditInfo(claims.UserID.String(), "auth", "success", "Authenticated successfully")
+		m.logger.LogAuditInfo("", "authz", "success", "Authorization successful")
+		next.ServeHTTP(w, r)
+	})
+}
+
+// SecurityHeadersMiddleware adds security headers to responses.
+// It focuses solely on HTTP security headers.
+func (m *Middleware) SecurityHeadersMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Add security headers
+		w.Header().Set("X-Content-Type-Options", "nosniff")
+		w.Header().Set("X-Frame-Options", "DENY")
+		w.Header().Set("X-XSS-Protection", "1; mode=block")
+		w.Header().Set("Strict-Transport-Security", "max-age=31536000; includeSubDomains")
+		w.Header().Set("Content-Security-Policy", "default-src 'self'")
+
+		next.ServeHTTP(w, r)
+	})
+}
+
+// CORSMiddleware handles Cross-Origin Resource Sharing headers.
+// It focuses solely on CORS concerns.
+func (m *Middleware) CORSMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Access-Control-Allow-Origin", "*")
+		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
+		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
+
+		// Handle preflight requests
+		if r.Method == "OPTIONS" {
+			w.WriteHeader(http.StatusOK)
+			return
+		}
+
+		next.ServeHTTP(w, r)
+	})
+}
+
+// RequestIDMiddleware adds a unique request ID to each request.
+// It focuses solely on request tracking.
+func (m *Middleware) RequestIDMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requestID := generateRequestID()
+		w.Header().Set("X-Request-ID", requestID)
+
+		ctx := context.WithValue(r.Context(), "request_id", requestID)
 		next.ServeHTTP(w, r.WithContext(ctx))
 	})
+}
+
+// generateRequestID creates a unique request identifier.
+func generateRequestID() string {
+	// Simple implementation - in production, use a more robust UUID library
+	return fmt.Sprintf("req_%d", time.Now().UnixNano())
+}
+
+// Deprecated: AuthMiddleware is deprecated, use AuthenticationMiddleware and AuthorizationMiddleware instead.
+func (m *Middleware) AuthMiddleware(next http.Handler) http.Handler {
+	logrus.Warn("AuthMiddleware is deprecated, use AuthenticationMiddleware and AuthorizationMiddleware instead")
+	return m.AuthenticationMiddleware(m.AuthorizationMiddleware(next))
 }
