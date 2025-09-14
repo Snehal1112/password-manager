@@ -52,6 +52,7 @@ func (r *SecretRepository) Create(ctx context.Context, secret *secrets.Secret) e
 		"name":      secret.Name,
 	}).Debug("Inserting secret into database")
 
+	// Insert the secret into the database.
 	_, err := r.db.ExecContext(
 		ctx,
 		"INSERT INTO secrets (id, user_id, name, value, version, created_at) VALUES (?, ?, ?, ?, ?, ?)",
@@ -60,6 +61,19 @@ func (r *SecretRepository) Create(ctx context.Context, secret *secrets.Secret) e
 	if err != nil {
 		r.log.LogAuditError(secret.UserID.String(), "create_secret", "failed", "Failed to insert secret", err)
 		return fmt.Errorf("failed to insert secret: %w", err)
+	}
+
+	// Insert tags if provided.
+	for _, tag := range secret.Tags {
+		_, err = r.db.ExecContext(
+			ctx,
+			"INSERT INTO secret_tags (secret_id, tag) VALUES (?, ?)",
+			secret.ID.String(), tag,
+		)
+		if err != nil {
+			r.log.LogAuditError(secret.UserID.String(), "create_secret", "failed", "Failed to insert tag", err)
+			return fmt.Errorf("failed to insert tag: %w", err)
+		}
 	}
 
 	r.log.LogAuditInfo(secret.UserID.String(), "create_secret", "success", fmt.Sprintf("Secret inserted: %s", secret.Name))
