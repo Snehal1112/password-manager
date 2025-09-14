@@ -7,6 +7,7 @@ import (
 	"github.com/gorilla/mux"
 
 	"password-manager/common"
+	"password-manager/internal/container"
 	"password-manager/internal/logging"
 	"password-manager/internal/secrets"
 	"password-manager/server"
@@ -30,8 +31,10 @@ type App struct {
 	basePath        string
 	databaseName    string
 	backendEndPoint string
-	Logger          *logging.Logger
 	scheduler       *secrets.RotationScheduler
+
+	ServiceContainer *container.ServiceContainer
+	Logger           *logging.Logger
 }
 
 // NewApp creates a new instance of the application with the provided options.

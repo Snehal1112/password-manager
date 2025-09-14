@@ -90,23 +90,23 @@ type UpdateSecretRequest struct {
 
 // GenerateSecretRequest represents the request structure for generating a secret.
 type GenerateSecretRequest struct {
-	Length      int    `json:"length,omitempty"`      // Password length (default: 16)
-	UseSymbols  bool   `json:"use_symbols,omitempty"`  // Include symbols
-	UseNumbers  bool   `json:"use_numbers,omitempty"`  // Include numbers
+	Length       int    `json:"length,omitempty"`        // Password length (default: 16)
+	UseSymbols   bool   `json:"use_symbols,omitempty"`   // Include symbols
+	UseNumbers   bool   `json:"use_numbers,omitempty"`   // Include numbers
 	UseUppercase bool   `json:"use_uppercase,omitempty"` // Include uppercase letters
 	UseLowercase bool   `json:"use_lowercase,omitempty"` // Include lowercase letters
-	Name        string `json:"name"`                   // Secret name
+	Name         string `json:"name"`                    // Secret name
 }
 
 // SecretResponse represents the response structure for secret operations.
 type SecretResponse struct {
-	ID        string    `json:"id"`
-	Name      string    `json:"name"`
-	Value     string    `json:"value,omitempty"` // Only returned for get operations
-	Tags      []string  `json:"tags,omitempty"`
-	Version   int       `json:"version"`
-	CreatedAt string    `json:"created_at"`
-	UpdatedAt string    `json:"updated_at,omitempty"`
+	ID        string   `json:"id"`
+	Name      string   `json:"name"`
+	Value     string   `json:"value,omitempty"` // Only returned for get operations
+	Tags      []string `json:"tags,omitempty"`
+	Version   int      `json:"version"`
+	CreatedAt string   `json:"created_at"`
+	UpdatedAt string   `json:"updated_at,omitempty"`
 }
 
 // ListSecretsResponse represents the response structure for listing secrets.
@@ -135,7 +135,7 @@ func (api *API) InitSecrets(secrets *mux.Router) {
 	secrets.Handle("/{id:[A-Fa-f0-9-]+}", ApiSessionRequired(api.App, getSecret)).Methods("GET")
 	secrets.Handle("/{id:[A-Fa-f0-9-]+}", ApiSessionRequired(api.App, updateSecret)).Methods("PUT")
 	secrets.Handle("/{id:[A-Fa-f0-9-]+}", ApiSessionRequired(api.App, deleteSecret)).Methods("DELETE")
-	
+
 	// Additional operations
 	secrets.Handle("/generate", ApiSessionRequired(api.App, generateSecret)).Methods("POST")
 	secrets.Handle("/export", ApiSessionRequired(api.App, exportSecrets)).Methods("POST")

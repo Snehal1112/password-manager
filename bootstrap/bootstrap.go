@@ -237,6 +237,7 @@ func (b *bootstrap) createApplication(cfg *Config, scheduler *secrets.RotationSc
 		app.WithLogger(b.cfg.Logger),
 		app.WithServer(server.NewDefaultServer(b.cfg.Logger, cfg.Listen)),
 		app.WithScheduler(scheduler),
+		app.WithServiceContainer(b.serviceContainer),
 	).(*app.App)
 
 	logrus.Info("Application instance created successfully")
@@ -253,7 +254,6 @@ func (b *bootstrap) initializeAPI(cfg *Config, app *app.App) error {
 		api.WithBasePath(cfg.BasePath),
 		api.WithRouter(app.GetRouter()),
 		api.WithLogger(b.cfg.Logger),
-		api.WithServiceContainer(b.serviceContainer),
 	)
 
 	logrus.Info("API layer initialized successfully")
