@@ -114,19 +114,10 @@ func (s *secretService) CreateSecret(ctx context.Context, req CreateSecretReques
 		CreatedAt : time.Now(),
 	}
 
-	// Store secret via repository
+	// Store secret via repository (includes tag insertion)
 	if err := s.secretRepo.Create(ctx, secret); err != nil {
 		s.logger.LogAuditError(req.UserID.String(), "create_secret", "failed", "Failed to store secret", err)
 		return nil, fmt.Errorf("failed to store secret: %w", err)
-	}
-
-	// Add tags if provided
-	if len(req.Tags) > 0 {
-		if err := s.tagService.AddTags(ctx, secretID, req.Tags); err != nil {
-			s.logger.LogAuditError(req.UserID.String(), "create_secret", "failed", "Failed to add tags", err)
-			// Note: We could consider rolling back the secret creation here
-			return nil, fmt.Errorf("failed to add tags: %w", err)
-		}
 	}
 
 	// Decrypt value for return (to avoid exposing encrypted value)
