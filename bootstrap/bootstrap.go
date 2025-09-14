@@ -14,6 +14,7 @@ import (
 	"password-manager/config"
 	"password-manager/internal/container"
 	"password-manager/internal/db"
+	"password-manager/internal/logging"
 	"password-manager/internal/secrets"
 	"password-manager/server"
 )
@@ -32,16 +33,16 @@ type Config struct {
 // DatabaseInitializer handles database setup and initialization.
 // It follows SRP by focusing only on database-related concerns.
 type DatabaseInitializer struct {
-	logger *logrus.FieldLogger
+	logger *logging.Logger
 }
 
 // NewDatabaseInitializer creates a new database initializer.
-func NewDatabaseInitializer(logger *logrus.FieldLogger) *DatabaseInitializer {
+func NewDatabaseInitializer(logger *logging.Logger) *DatabaseInitializer {
 	return &DatabaseInitializer{logger: logger}
 }
 
 // Initialize sets up the database connection and schema.
-func (d *DatabaseInitializer) Initialize(cfg *config.Config) (*db.Repository, error) {
+func (d *DatabaseInitializer) Initialize(cfg *config.Config) (*db.DBRepository, error) {
 	d.logger.Info("Initializing database")
 
 	database := db.NewRepository(cfg.Logger)
@@ -56,11 +57,11 @@ func (d *DatabaseInitializer) Initialize(cfg *config.Config) (*db.Repository, er
 // ServerStarter handles server lifecycle management.
 // It follows SRP by focusing only on server startup concerns.
 type ServerStarter struct {
-	logger *logrus.FieldLogger
+	logger *logging.Logger
 }
 
 // NewServerStarter creates a new server starter.
-func NewServerStarter(logger *logrus.FieldLogger) *ServerStarter {
+func NewServerStarter(logger *logging.Logger) *ServerStarter {
 	return &ServerStarter{logger: logger}
 }
 
@@ -75,11 +76,11 @@ func (s *ServerStarter) Start(ctx context.Context, app *app.App) error {
 // ConfigurationValidator handles configuration validation.
 // It follows SRP by focusing only on configuration validation concerns.
 type ConfigurationValidator struct {
-	logger *logrus.FieldLogger
+	logger *logging.Logger
 }
 
 // NewConfigurationValidator creates a new configuration validator.
-func NewConfigurationValidator(logger *logrus.FieldLogger) *ConfigurationValidator {
+func NewConfigurationValidator(logger *logging.Logger) *ConfigurationValidator {
 	return &ConfigurationValidator{logger: logger}
 }
 
@@ -110,11 +111,11 @@ func (c *ConfigurationValidator) Validate(cfg *Config, serverCfg *config.Config)
 // bootstrap provides orchestration for application startup following SRP.
 // It coordinates different initializers while maintaining single responsibility.
 type bootstrap struct {
-	dbInitializer     *DatabaseInitializer
-	serverStarter     *ServerStarter
-	configValidator   *ConfigurationValidator
-	serviceContainer  *container.ServiceContainer
-	cfg               *config.Config
+	dbInitializer    *DatabaseInitializer
+	serverStarter    *ServerStarter
+	configValidator  *ConfigurationValidator
+	serviceContainer *container.ServiceContainer
+	cfg              *config.Config
 }
 
 // newBootstrap creates a new bootstrap orchestrator with SRP-compliant design.
@@ -213,7 +214,7 @@ func (b *bootstrap) setup(ctx context.Context, cfg *Config) error {
 
 // initializeScheduler creates and configures the rotation scheduler.
 // This method follows SRP by handling only scheduler-related initialization.
-func (b *bootstrap) initializeScheduler(database *db.Repository) (*secrets.RotationScheduler, error) {
+func (b *bootstrap) initializeScheduler(database *db.DBRepository) (*secrets.RotationScheduler, error) {
 	logrus.Info("Initializing rotation scheduler")
 
 	repo := secrets.NewRotationPolicyRepository(database.GetDB(), b.cfg.Logger)
@@ -252,6 +253,7 @@ func (b *bootstrap) initializeAPI(cfg *Config, app *app.App) error {
 		api.WithBasePath(cfg.BasePath),
 		api.WithRouter(app.GetRouter()),
 		api.WithLogger(b.cfg.Logger),
+		api.WithServiceContainer(b.serviceContainer),
 	)
 
 	logrus.Info("API layer initialized successfully")

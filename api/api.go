@@ -6,7 +6,7 @@ import (
 	"github.com/gorilla/mux"
 
 	"password-manager/app"
-	"password-manager/internal/db"
+	"password-manager/internal/container"
 	"password-manager/internal/health"
 	"password-manager/internal/logging"
 	"password-manager/internal/middleware"
@@ -18,20 +18,22 @@ type router = map[string]*mux.Router
 
 // API represents the main API structure for the vault service application.
 // It contains references to the application instance, base routes, base path,
-// root router, and a logger.
+// root router, service container, and a logger.
 //
 // Fields:
 // - App: A pointer to the main application instance.
 // - BaseRoutes: The base routes for the API.
 // - basePath: The base path for the API endpoints.
 // - rootRouter: The root router for handling HTTP requests.
-// - logger: The logger used for logging API-related information.
+// - ServiceContainer: The service container providing access to all services.
+// - Logger: The logger used for logging API-related information.
 type API struct {
-	App        *app.App
-	BaseRoutes router
-	basePath   string
-	rootRouter *mux.Router
-	Logger     *logging.Logger
+	App              *app.App
+	BaseRoutes       router
+	basePath         string
+	rootRouter       *mux.Router
+	ServiceContainer *container.ServiceContainer
+	Logger           *logging.Logger
 }
 
 // Init initializes the API with the provided options and sets up the base routes.
@@ -53,7 +55,7 @@ func Init(options ...Options) *API {
 		option(api)
 	}
 
-	middleware := middleware.NewMiddleware(api.Logger)
+	middleware := middleware.NewMiddleware(api.ServiceContainer)
 	api.Logger.WithField("basePath", api.basePath).Infoln("Api configured with")
 	api.BaseRoutes["ApiRoot"] = api.rootRouter.PathPrefix(api.basePath).Subrouter()
 
@@ -91,8 +93,8 @@ func Init(options ...Options) *API {
 // Parameters:
 // - healthRouter (*mux.Router): The router to which the routes will be added.
 func (api *API) InitHealth(healthRouter *mux.Router) {
-	// Create health collector with global database connection
-	collector := health.NewHealthCollector(db.DB)
+	// Create health collector with service container database connection
+	collector := health.NewHealthCollector(api.ServiceContainer.GetDatabase())
 
 	// Create health handler
 	handler := NewHealthHandler(collector, api.Logger)
