@@ -1,6 +1,7 @@
 package app
 
 import (
+	"password-manager/internal/container"
 	"password-manager/internal/logging"
 	"password-manager/internal/secrets"
 	"password-manager/server"
@@ -72,5 +73,22 @@ func WithLogger(logger *logging.Logger) Option {
 func WithScheduler(scheduler *secrets.RotationScheduler) Option {
 	return func(a *App) {
 		a.scheduler = scheduler
+	}
+}
+
+// WithServiceContainer sets the service container for the API.
+// It provides access to all refactored services following the dependency injection pattern.
+// This enables proper integration between the API layer and the SRP-compliant service layer.
+//
+// Parameters:
+//
+//	container (*container.ServiceContainer): The service container with all initialized services.
+//
+// Returns:
+//
+//	Options: A function that sets the service container for the API.
+func WithServiceContainer(container *container.ServiceContainer) Option {
+	return func(a *App) {
+		a.ServiceContainer = container
 	}
 }
