@@ -8,8 +8,9 @@ import (
 	"github.com/google/uuid"
 	"github.com/sirupsen/logrus"
 
+	"password-manager/internal/domain"
 	"password-manager/internal/logging"
-	"password-manager/internal/secrets"
+	"password-manager/internal/repositories"
 )
 
 // CreateSecretRequest represents a request to create a new secret.
@@ -33,30 +34,30 @@ type UpdateSecretRequest struct {
 // It coordinates encryption, versioning, tagging, and storage
 // while maintaining proper separation of concerns.
 type SecretService interface {
-	CreateSecret(ctx context.Context, req CreateSecretRequest) (*secrets.Secret, error)
+	CreateSecret(ctx context.Context, req CreateSecretRequest) (*domain.Secret, error)
 	UpdateSecret(ctx context.Context, req UpdateSecretRequest) error
-	GetSecret(ctx context.Context, secretID, userID uuid.UUID) (*secrets.Secret, error)
-	ListSecrets(ctx context.Context, userID uuid.UUID, tags []string) ([]secrets.Secret, error)
+	GetSecret(ctx context.Context, secretID, userID uuid.UUID) (*domain.Secret, error)
+	ListSecrets(ctx context.Context, userID uuid.UUID, tags []string) ([]domain.Secret, error)
 	DeleteSecret(ctx context.Context, secretID, userID uuid.UUID) error
-	GetSecretVersions(ctx context.Context, secretID uuid.UUID) ([]secrets.SecretVersion, error)
-	GetSecretVersion(ctx context.Context, secretID uuid.UUID, version int) (*secrets.SecretVersion, error)
-	GetLatestSecretVersion(ctx context.Context, secretID uuid.UUID) (*secrets.SecretVersion, error)
+	GetSecretVersions(ctx context.Context, secretID uuid.UUID, userID uuid.UUID) ([]domain.SecretVersion, error)
+	GetSecretVersion(ctx context.Context, secretID uuid.UUID, version int, userID uuid.UUID) (*domain.SecretVersion, error)
+	GetLatestSecretVersion(ctx context.Context, secretID uuid.UUID, userID uuid.UUID) (*domain.SecretVersion, error)
 }
 
 // secretService implements SecretService by coordinating multiple services.
 type secretService struct {
-	secretRepo     secrets.SecretRepository
+	secretRepo     repositories.SecretRepositoryInterface
 	cryptoService  CryptographyService
-	versionService VersioningService
+	versionService VersioningServiceInterface
 	tagService     TagService
 	logger         *logging.Logger
 }
 
 // SecretServiceConfig holds the dependencies for secret service.
 type SecretServiceConfig struct {
-	SecretRepository secrets.SecretRepository
+	SecretRepository repositories.SecretRepositoryInterface
 	CryptoService    CryptographyService
-	VersionService   VersioningService
+	VersionService   VersioningServiceInterface
 	TagService       TagService
 	Logger           *logging.Logger
 }
@@ -89,7 +90,7 @@ func NewSecretService(config SecretServiceConfig) SecretService {
 //
 // Returns:
 //   The created secret or an error if creation fails.
-func (s *secretService) CreateSecret(ctx context.Context, req CreateSecretRequest) (*secrets.Secret, error) {
+func (s *secretService) CreateSecret(ctx context.Context, req CreateSecretRequest) (*domain.Secret, error) {
 	logrus.WithFields(logrus.Fields{
 		"user_id": req.UserID.String(),
 		"name":    req.Name,
@@ -104,7 +105,7 @@ func (s *secretService) CreateSecret(ctx context.Context, req CreateSecretReques
 
 	// Create secret entity
 	secretID := uuid.New()
-	secret := &secrets.Secret{
+	secret := &domain.Secret{
 		ID        : secretID,
 		UserID    : req.UserID,
 		Name      : req.Name,
@@ -167,7 +168,15 @@ func (s *secretService) UpdateSecret(ctx context.Context, req UpdateSecretReques
 	}
 
 	// Create version before updating
-	if err := s.versionService.CreateVersion(ctx, currentSecret.ID, currentSecret.Name, currentValue, currentSecret.Version, req.UserID); err != nil {
+	versionReq := CreateVersionRequest{
+		SecretID: currentSecret.ID,
+		UserID:   req.UserID,
+		Name:     currentSecret.Name,
+		Value:    currentValue,
+		Version:  currentSecret.Version,
+	}
+	_, err = s.versionService.CreateVersion(ctx, versionReq)
+	if err != nil {
 		s.logger.LogAuditError(req.UserID.String(), "update_secret", "failed", "Failed to create version", err)
 		return fmt.Errorf("failed to create version: %w", err)
 	}
@@ -233,7 +242,7 @@ func (s *secretService) UpdateSecret(ctx context.Context, req UpdateSecretReques
 //
 // Returns:
 //   The decrypted secret or an error if retrieval fails.
-func (s *secretService) GetSecret(ctx context.Context, secretID, userID uuid.UUID) (*secrets.Secret, error) {
+func (s *secretService) GetSecret(ctx context.Context, secretID, userID uuid.UUID) (*domain.Secret, error) {
 	// Get secret from repository
 	secret, err := s.secretRepo.Read(ctx, secretID)
 	if err != nil {
@@ -275,7 +284,7 @@ func (s *secretService) GetSecret(ctx context.Context, secretID, userID uuid.UUI
 //
 // Returns:
 //   A slice of decrypted secrets or an error if retrieval fails.
-func (s *secretService) ListSecrets(ctx context.Context, userID uuid.UUID, tags []string) ([]secrets.Secret, error) {
+func (s *secretService) ListSecrets(ctx context.Context, userID uuid.UUID, tags []string) ([]domain.Secret, error) {
 	// Get secrets from repository
 	secretList, err := s.secretRepo.ListByUser(ctx, userID, tags)
 	if err != nil {
@@ -364,8 +373,8 @@ func (s *secretService) DeleteSecret(ctx context.Context, secretID, userID uuid.
 //
 // Returns:
 //   A slice of secret versions or an error if retrieval fails.
-func (s *secretService) GetSecretVersions(ctx context.Context, secretID uuid.UUID) ([]secrets.SecretVersion, error) {
-	return s.versionService.GetVersions(ctx, secretID)
+func (s *secretService) GetSecretVersions(ctx context.Context, secretID uuid.UUID, userID uuid.UUID) ([]domain.SecretVersion, error) {
+	return s.versionService.GetVersions(ctx, secretID, userID)
 }
 
 // GetSecretVersion retrieves a specific version of a secret.
@@ -377,8 +386,8 @@ func (s *secretService) GetSecretVersions(ctx context.Context, secretID uuid.UUI
 //
 // Returns:
 //   The secret version or an error if not found.
-func (s *secretService) GetSecretVersion(ctx context.Context, secretID uuid.UUID, version int) (*secrets.SecretVersion, error) {
-	return s.versionService.GetVersion(ctx, secretID, version)
+func (s *secretService) GetSecretVersion(ctx context.Context, secretID uuid.UUID, version int, userID uuid.UUID) (*domain.SecretVersion, error) {
+	return s.versionService.GetVersion(ctx, secretID, version, userID)
 }
 
 // GetLatestSecretVersion retrieves the latest version of a secret.
@@ -389,6 +398,6 @@ func (s *secretService) GetSecretVersion(ctx context.Context, secretID uuid.UUID
 //
 // Returns:
 //   The latest secret version or an error if not found.
-func (s *secretService) GetLatestSecretVersion(ctx context.Context, secretID uuid.UUID) (*secrets.SecretVersion, error) {
-	return s.versionService.GetLatestVersion(ctx, secretID)
+func (s *secretService) GetLatestSecretVersion(ctx context.Context, secretID uuid.UUID, userID uuid.UUID) (*domain.SecretVersion, error) {
+	return s.versionService.GetLatestVersion(ctx, secretID, userID)
 }

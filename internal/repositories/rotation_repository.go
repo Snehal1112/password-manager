@@ -1,26 +1,6 @@
-/*
-Copyright © 2025 Snehal Dangroshiya
-
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
-
-The above copyright notice and this permission notice shall be included in
-all copies or substantial portions of the Software.
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
-THE SOFTWARE.
-*/
-
-package secrets
+// Package repositories provides data access interfaces and implementations following
+// the repository pattern with clean separation of concerns.
+package repositories
 
 import (
 	"context"
@@ -30,94 +10,59 @@ import (
 
 	"github.com/google/uuid"
 
+	"password-manager/internal/domain"
 	"password-manager/internal/logging"
 )
 
-// RotationPolicy represents a rotation policy for secrets
-type RotationPolicy struct {
-	ID           uuid.UUID
-	UserID       uuid.UUID
-	Name         string
-	Description  string
-	IntervalDays int
-	Enabled      bool
-	ReminderDays int
-	AutoRotate   bool
-	CreatedAt    time.Time
-	UpdatedAt    time.Time
-}
-
-// RotationHistory represents a rotation event
-type RotationHistory struct {
-	ID              uuid.UUID
-	SecretID        uuid.UUID
-	PolicyID        *uuid.UUID
-	RotatedAt       time.Time
-	PreviousVersion int
-	NewVersion      int
-	TriggeredBy     string // 'manual', 'scheduled', 'auto'
-	Notes           string
-}
-
-// RotationReminder represents a reminder notification
-type RotationReminder struct {
-	ID             uuid.UUID
-	SecretID       uuid.UUID
-	PolicyID       uuid.UUID
-	ReminderType   string // 'upcoming', 'overdue'
-	SentAt         time.Time
-	NextReminderAt *time.Time
-	Acknowledged   bool
-}
-
-// SecretPolicy represents the association between a secret and a policy
-type SecretPolicy struct {
-	SecretID       uuid.UUID
-	PolicyID       uuid.UUID
-	AssignedAt     time.Time
-	LastRotatedAt  *time.Time
-	NextRotationAt *time.Time
-}
-
-// RotationPolicyRepository interface for rotation policy operations
-type RotationPolicyRepository interface {
-	Create(ctx context.Context, policy *RotationPolicy) error
-	Read(ctx context.Context, id uuid.UUID) (*RotationPolicy, error)
-	Update(ctx context.Context, policy *RotationPolicy) error
+// RotationPolicyRepositoryInterface defines the data access contract for rotation policies.
+// It follows the pure repository pattern expecting pre-processed data.
+type RotationPolicyRepositoryInterface interface {
+	// Basic CRUD operations
+	Create(ctx context.Context, policy *domain.RotationPolicy) error
+	Read(ctx context.Context, id uuid.UUID) (*domain.RotationPolicy, error)
+	Update(ctx context.Context, policy *domain.RotationPolicy) error
 	Delete(ctx context.Context, id uuid.UUID) error
-	ListByUser(ctx context.Context, userID uuid.UUID) ([]RotationPolicy, error)
-	AssignToSecret(ctx context.Context, secretID, policyID uuid.UUID) error
+
+	// Query operations
+	ListByUser(ctx context.Context, userID uuid.UUID) ([]domain.RotationPolicy, error)
+
+	// Policy assignment operations
+	AssignToSecret(ctx context.Context, secretID, policyID uuid.UUID, assignedAt time.Time, nextRotationAt time.Time) error
 	RemoveFromSecret(ctx context.Context, secretID, policyID uuid.UUID) error
-	GetSecretPolicies(ctx context.Context, secretID uuid.UUID) ([]SecretPolicy, error)
-	GetPoliciesForSecret(ctx context.Context, secretID uuid.UUID) ([]RotationPolicy, error)
-	RecordRotation(ctx context.Context, history *RotationHistory) error
-	GetRotationHistory(ctx context.Context, secretID uuid.UUID) ([]RotationHistory, error)
-	GetDueRotations(ctx context.Context, userID uuid.UUID) ([]SecretPolicy, error)
-	GetUpcomingReminders(ctx context.Context, userID uuid.UUID) ([]RotationReminder, error)
-	CreateReminder(ctx context.Context, reminder *RotationReminder) error
-	UpdateReminder(ctx context.Context, reminder *RotationReminder) error
+	GetSecretPolicies(ctx context.Context, secretID uuid.UUID) ([]domain.SecretPolicy, error)
+	GetPoliciesForSecret(ctx context.Context, secretID uuid.UUID) ([]domain.RotationPolicy, error)
+	UpdateSecretPolicyRotation(ctx context.Context, secretID, policyID uuid.UUID, lastRotatedAt, nextRotationAt time.Time) error
+
+	// History operations
+	RecordRotation(ctx context.Context, history *domain.RotationHistory) error
+	GetRotationHistory(ctx context.Context, secretID uuid.UUID) ([]domain.RotationHistory, error)
+
+	// Due rotations and reminders
+	GetDueRotations(ctx context.Context, userID uuid.UUID) ([]domain.SecretPolicy, error)
+	GetUpcomingReminders(ctx context.Context, userID uuid.UUID) ([]domain.RotationReminder, error)
+
+	// Reminder operations
+	CreateReminder(ctx context.Context, reminder *domain.RotationReminder) error
+	UpdateReminder(ctx context.Context, reminder *domain.RotationReminder) error
+	GetReminderBySecret(ctx context.Context, secretID, policyID uuid.UUID, reminderType string) (*domain.RotationReminder, error)
 }
 
-// rotationPolicyRepository implements RotationPolicyRepository
+// rotationPolicyRepository implements RotationPolicyRepositoryInterface.
 type rotationPolicyRepository struct {
 	db  *sql.DB
 	log *logging.Logger
 }
 
-// NewRotationPolicyRepository creates a new rotation policy repository
-func NewRotationPolicyRepository(db *sql.DB, log *logging.Logger) RotationPolicyRepository {
+// NewRotationPolicyRepository creates a new rotation policy repository.
+func NewRotationPolicyRepository(db *sql.DB, log *logging.Logger) RotationPolicyRepositoryInterface {
 	return &rotationPolicyRepository{
 		db:  db,
 		log: log,
 	}
 }
 
-// Create creates a new rotation policy
-func (r *rotationPolicyRepository) Create(ctx context.Context, policy *RotationPolicy) error {
-	policy.ID = uuid.New()
-	policy.CreatedAt = time.Now()
-	policy.UpdatedAt = time.Now()
-
+// Create creates a new rotation policy (expects pre-processed data with ID and timestamps).
+func (r *rotationPolicyRepository) Create(ctx context.Context, policy *domain.RotationPolicy) error {
 	query := `
 		INSERT INTO rotation_policies (id, user_id, name, description, interval_days, enabled, reminder_days, auto_rotate, created_at, updated_at)
 		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
@@ -149,15 +94,15 @@ func (r *rotationPolicyRepository) Create(ctx context.Context, policy *RotationP
 	return nil
 }
 
-// Read retrieves a rotation policy by ID
-func (r *rotationPolicyRepository) Read(ctx context.Context, id uuid.UUID) (*RotationPolicy, error) {
+// Read retrieves a rotation policy by ID.
+func (r *rotationPolicyRepository) Read(ctx context.Context, id uuid.UUID) (*domain.RotationPolicy, error) {
 	query := `
 		SELECT id, user_id, name, description, interval_days, enabled, reminder_days, auto_rotate, created_at, updated_at
 		FROM rotation_policies
 		WHERE id = ?
 	`
 
-	var policy RotationPolicy
+	var policy domain.RotationPolicy
 	var userID, policyID string
 
 	err := r.db.QueryRowContext(ctx, query, id.String()).Scan(
@@ -187,10 +132,8 @@ func (r *rotationPolicyRepository) Read(ctx context.Context, id uuid.UUID) (*Rot
 	return &policy, nil
 }
 
-// Update updates a rotation policy
-func (r *rotationPolicyRepository) Update(ctx context.Context, policy *RotationPolicy) error {
-	policy.UpdatedAt = time.Now()
-
+// Update updates a rotation policy (expects pre-processed data with updated timestamp).
+func (r *rotationPolicyRepository) Update(ctx context.Context, policy *domain.RotationPolicy) error {
 	query := `
 		UPDATE rotation_policies
 		SET name = ?, description = ?, interval_days = ?, enabled = ?, reminder_days = ?, auto_rotate = ?, updated_at = ?
@@ -226,7 +169,7 @@ func (r *rotationPolicyRepository) Update(ctx context.Context, policy *RotationP
 	return nil
 }
 
-// Delete deletes a rotation policy
+// Delete deletes a rotation policy.
 func (r *rotationPolicyRepository) Delete(ctx context.Context, id uuid.UUID) error {
 	query := `DELETE FROM rotation_policies WHERE id = ?`
 
@@ -245,8 +188,8 @@ func (r *rotationPolicyRepository) Delete(ctx context.Context, id uuid.UUID) err
 	return nil
 }
 
-// ListByUser lists all rotation policies for a user
-func (r *rotationPolicyRepository) ListByUser(ctx context.Context, userID uuid.UUID) ([]RotationPolicy, error) {
+// ListByUser lists all rotation policies for a user.
+func (r *rotationPolicyRepository) ListByUser(ctx context.Context, userID uuid.UUID) ([]domain.RotationPolicy, error) {
 	query := `
 		SELECT id, user_id, name, description, interval_days, enabled, reminder_days, auto_rotate, created_at, updated_at
 		FROM rotation_policies
@@ -261,9 +204,9 @@ func (r *rotationPolicyRepository) ListByUser(ctx context.Context, userID uuid.U
 	}
 	defer rows.Close()
 
-	var policies []RotationPolicy
+	var policies []domain.RotationPolicy
 	for rows.Next() {
-		var policy RotationPolicy
+		var policy domain.RotationPolicy
 		var policyID, userIDStr string
 
 		err := rows.Scan(
@@ -291,28 +234,18 @@ func (r *rotationPolicyRepository) ListByUser(ctx context.Context, userID uuid.U
 	return policies, nil
 }
 
-// AssignToSecret assigns a policy to a secret
-func (r *rotationPolicyRepository) AssignToSecret(ctx context.Context, secretID, policyID uuid.UUID) error {
-	// Get the policy to calculate next rotation time
-	policy, err := r.Read(ctx, policyID)
-	if err != nil {
-		return fmt.Errorf("failed to read policy for assignment: %w", err)
-	}
-
-	now := time.Now()
-	nextRotation := now.AddDate(0, 0, policy.IntervalDays)
-	reminderTime := nextRotation.AddDate(0, 0, -policy.ReminderDays)
-
+// AssignToSecret assigns a policy to a secret (expects pre-calculated times).
+func (r *rotationPolicyRepository) AssignToSecret(ctx context.Context, secretID, policyID uuid.UUID, assignedAt time.Time, nextRotationAt time.Time) error {
 	query := `
 		INSERT INTO secret_policies (secret_id, policy_id, assigned_at, next_rotation_at)
 		VALUES (?, ?, ?, ?)
 	`
 
-	_, err = r.db.ExecContext(ctx, query,
+	_, err := r.db.ExecContext(ctx, query,
 		secretID.String(),
 		policyID.String(),
-		now,
-		nextRotation,
+		assignedAt,
+		nextRotationAt,
 	)
 
 	if err != nil {
@@ -320,31 +253,16 @@ func (r *rotationPolicyRepository) AssignToSecret(ctx context.Context, secretID,
 		return fmt.Errorf("failed to assign policy to secret: %w", err)
 	}
 
-	// Create initial reminder
-	reminder := &RotationReminder{
-		SecretID:       secretID,
-		PolicyID:       policyID,
-		ReminderType:   "upcoming",
-		NextReminderAt: &reminderTime,
-		Acknowledged:   false,
-	}
-
-	err = r.CreateReminder(ctx, reminder)
-	if err != nil {
-		r.log.WithError(err).Warn("Failed to create initial reminder for policy assignment")
-		// Don't fail the assignment if reminder creation fails
-	}
-
 	r.log.WithFields(map[string]interface{}{
 		"secret_id":     secretID,
 		"policy_id":     policyID,
-		"next_rotation": nextRotation,
+		"next_rotation": nextRotationAt,
 	}).Info("Policy assigned to secret")
 
 	return nil
 }
 
-// RemoveFromSecret removes a policy from a secret
+// RemoveFromSecret removes a policy from a secret.
 func (r *rotationPolicyRepository) RemoveFromSecret(ctx context.Context, secretID, policyID uuid.UUID) error {
 	query := `DELETE FROM secret_policies WHERE secret_id = ? AND policy_id = ?`
 
@@ -367,8 +285,8 @@ func (r *rotationPolicyRepository) RemoveFromSecret(ctx context.Context, secretI
 	return nil
 }
 
-// GetSecretPolicies gets all policies assigned to a secret
-func (r *rotationPolicyRepository) GetSecretPolicies(ctx context.Context, secretID uuid.UUID) ([]SecretPolicy, error) {
+// GetSecretPolicies gets all policies assigned to a secret.
+func (r *rotationPolicyRepository) GetSecretPolicies(ctx context.Context, secretID uuid.UUID) ([]domain.SecretPolicy, error) {
 	query := `
 		SELECT secret_id, policy_id, assigned_at, last_rotated_at, next_rotation_at
 		FROM secret_policies
@@ -382,9 +300,9 @@ func (r *rotationPolicyRepository) GetSecretPolicies(ctx context.Context, secret
 	}
 	defer rows.Close()
 
-	var policies []SecretPolicy
+	var policies []domain.SecretPolicy
 	for rows.Next() {
-		var sp SecretPolicy
+		var sp domain.SecretPolicy
 		var secretIDStr, policyIDStr string
 		var lastRotatedAt, nextRotationAt sql.NullTime
 
@@ -414,8 +332,8 @@ func (r *rotationPolicyRepository) GetSecretPolicies(ctx context.Context, secret
 	return policies, nil
 }
 
-// GetPoliciesForSecret gets all rotation policies for a secret
-func (r *rotationPolicyRepository) GetPoliciesForSecret(ctx context.Context, secretID uuid.UUID) ([]RotationPolicy, error) {
+// GetPoliciesForSecret gets all rotation policies for a secret.
+func (r *rotationPolicyRepository) GetPoliciesForSecret(ctx context.Context, secretID uuid.UUID) ([]domain.RotationPolicy, error) {
 	query := `
 		SELECT rp.id, rp.user_id, rp.name, rp.description, rp.interval_days, rp.enabled,
 		       rp.reminder_days, rp.auto_rotate, rp.created_at, rp.updated_at
@@ -431,9 +349,9 @@ func (r *rotationPolicyRepository) GetPoliciesForSecret(ctx context.Context, sec
 	}
 	defer rows.Close()
 
-	var policies []RotationPolicy
+	var policies []domain.RotationPolicy
 	for rows.Next() {
-		var policy RotationPolicy
+		var policy domain.RotationPolicy
 		var policyID, userIDStr string
 
 		err := rows.Scan(
@@ -461,11 +379,39 @@ func (r *rotationPolicyRepository) GetPoliciesForSecret(ctx context.Context, sec
 	return policies, nil
 }
 
-// RecordRotation records a rotation event
-func (r *rotationPolicyRepository) RecordRotation(ctx context.Context, history *RotationHistory) error {
-	history.ID = uuid.New()
-	history.RotatedAt = time.Now()
+// UpdateSecretPolicyRotation updates rotation times for a secret-policy pair.
+func (r *rotationPolicyRepository) UpdateSecretPolicyRotation(ctx context.Context, secretID, policyID uuid.UUID, lastRotatedAt, nextRotationAt time.Time) error {
+	query := `
+		UPDATE secret_policies
+		SET last_rotated_at = ?, next_rotation_at = ?
+		WHERE secret_id = ? AND policy_id = ?
+	`
 
+	result, err := r.db.ExecContext(ctx, query,
+		lastRotatedAt,
+		nextRotationAt,
+		secretID.String(),
+		policyID.String(),
+	)
+
+	if err != nil {
+		r.log.WithError(err).WithFields(map[string]interface{}{
+			"secret_id": secretID,
+			"policy_id": policyID,
+		}).Error("Failed to update secret policy rotation")
+		return fmt.Errorf("failed to update secret policy rotation: %w", err)
+	}
+
+	rowsAffected, _ := result.RowsAffected()
+	if rowsAffected == 0 {
+		return fmt.Errorf("secret policy not found")
+	}
+
+	return nil
+}
+
+// RecordRotation records a rotation event (expects pre-processed data with ID and timestamp).
+func (r *rotationPolicyRepository) RecordRotation(ctx context.Context, history *domain.RotationHistory) error {
 	query := `
 		INSERT INTO secret_rotation_history (id, secret_id, policy_id, rotated_at, previous_version, new_version, triggered_by, notes)
 		VALUES (?, ?, ?, ?, ?, ?, ?, ?)
@@ -501,8 +447,8 @@ func (r *rotationPolicyRepository) RecordRotation(ctx context.Context, history *
 	return nil
 }
 
-// GetRotationHistory gets rotation history for a secret
-func (r *rotationPolicyRepository) GetRotationHistory(ctx context.Context, secretID uuid.UUID) ([]RotationHistory, error) {
+// GetRotationHistory gets rotation history for a secret.
+func (r *rotationPolicyRepository) GetRotationHistory(ctx context.Context, secretID uuid.UUID) ([]domain.RotationHistory, error) {
 	query := `
 		SELECT id, secret_id, policy_id, rotated_at, previous_version, new_version, triggered_by, notes
 		FROM secret_rotation_history
@@ -517,9 +463,9 @@ func (r *rotationPolicyRepository) GetRotationHistory(ctx context.Context, secre
 	}
 	defer rows.Close()
 
-	var history []RotationHistory
+	var history []domain.RotationHistory
 	for rows.Next() {
-		var h RotationHistory
+		var h domain.RotationHistory
 		var historyID, secretIDStr string
 		var policyID sql.NullString
 
@@ -550,8 +496,8 @@ func (r *rotationPolicyRepository) GetRotationHistory(ctx context.Context, secre
 	return history, nil
 }
 
-// GetDueRotations gets secrets that are due for rotation
-func (r *rotationPolicyRepository) GetDueRotations(ctx context.Context, userID uuid.UUID) ([]SecretPolicy, error) {
+// GetDueRotations gets secrets that are due for rotation.
+func (r *rotationPolicyRepository) GetDueRotations(ctx context.Context, userID uuid.UUID) ([]domain.SecretPolicy, error) {
 	query := `
 		SELECT sp.secret_id, sp.policy_id, sp.assigned_at, sp.last_rotated_at, sp.next_rotation_at
 		FROM secret_policies sp
@@ -567,9 +513,9 @@ func (r *rotationPolicyRepository) GetDueRotations(ctx context.Context, userID u
 	}
 	defer rows.Close()
 
-	var due []SecretPolicy
+	var due []domain.SecretPolicy
 	for rows.Next() {
-		var sp SecretPolicy
+		var sp domain.SecretPolicy
 		var secretIDStr, policyIDStr string
 		var lastRotatedAt, nextRotationAt sql.NullTime
 
@@ -599,8 +545,8 @@ func (r *rotationPolicyRepository) GetDueRotations(ctx context.Context, userID u
 	return due, nil
 }
 
-// GetUpcomingReminders gets upcoming rotation reminders
-func (r *rotationPolicyRepository) GetUpcomingReminders(ctx context.Context, userID uuid.UUID) ([]RotationReminder, error) {
+// GetUpcomingReminders gets upcoming rotation reminders.
+func (r *rotationPolicyRepository) GetUpcomingReminders(ctx context.Context, userID uuid.UUID) ([]domain.RotationReminder, error) {
 	query := `
 		SELECT rr.id, rr.secret_id, rr.policy_id, rr.reminder_type, rr.sent_at, rr.next_reminder_at, rr.acknowledged
 		FROM rotation_reminders rr
@@ -617,9 +563,9 @@ func (r *rotationPolicyRepository) GetUpcomingReminders(ctx context.Context, use
 	}
 	defer rows.Close()
 
-	var reminders []RotationReminder
+	var reminders []domain.RotationReminder
 	for rows.Next() {
-		var reminder RotationReminder
+		var reminder domain.RotationReminder
 		var reminderID, secretIDStr, policyIDStr string
 		var nextReminderAt sql.NullTime
 
@@ -650,11 +596,8 @@ func (r *rotationPolicyRepository) GetUpcomingReminders(ctx context.Context, use
 	return reminders, nil
 }
 
-// CreateReminder creates a rotation reminder
-func (r *rotationPolicyRepository) CreateReminder(ctx context.Context, reminder *RotationReminder) error {
-	reminder.ID = uuid.New()
-	reminder.SentAt = time.Now()
-
+// CreateReminder creates a rotation reminder (expects pre-processed data with ID and timestamp).
+func (r *rotationPolicyRepository) CreateReminder(ctx context.Context, reminder *domain.RotationReminder) error {
 	query := `
 		INSERT INTO rotation_reminders (id, secret_id, policy_id, reminder_type, sent_at, next_reminder_at, acknowledged)
 		VALUES (?, ?, ?, ?, ?, ?, ?)
@@ -689,8 +632,8 @@ func (r *rotationPolicyRepository) CreateReminder(ctx context.Context, reminder 
 	return nil
 }
 
-// UpdateReminder updates a rotation reminder
-func (r *rotationPolicyRepository) UpdateReminder(ctx context.Context, reminder *RotationReminder) error {
+// UpdateReminder updates a rotation reminder.
+func (r *rotationPolicyRepository) UpdateReminder(ctx context.Context, reminder *domain.RotationReminder) error {
 	query := `
 		UPDATE rotation_reminders
 		SET acknowledged = ?, next_reminder_at = ?
@@ -721,4 +664,43 @@ func (r *rotationPolicyRepository) UpdateReminder(ctx context.Context, reminder 
 
 	r.log.WithField("reminder_id", reminder.ID).Info("Reminder updated")
 	return nil
+}
+
+// GetReminderBySecret gets a specific reminder by secret, policy, and type.
+func (r *rotationPolicyRepository) GetReminderBySecret(ctx context.Context, secretID, policyID uuid.UUID, reminderType string) (*domain.RotationReminder, error) {
+	query := `
+		SELECT id, secret_id, policy_id, reminder_type, sent_at, next_reminder_at, acknowledged
+		FROM rotation_reminders
+		WHERE secret_id = ? AND policy_id = ? AND reminder_type = ? AND acknowledged = FALSE
+	`
+
+	var reminder domain.RotationReminder
+	var idStr, secretIDStr, policyIDStr string
+	var nextReminderAt sql.NullTime
+
+	err := r.db.QueryRowContext(ctx, query, secretID.String(), policyID.String(), reminderType).Scan(
+		&idStr,
+		&secretIDStr,
+		&policyIDStr,
+		&reminder.ReminderType,
+		&reminder.SentAt,
+		&nextReminderAt,
+		&reminder.Acknowledged,
+	)
+
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return nil, nil // No reminder found
+		}
+		return nil, fmt.Errorf("failed to get reminder: %w", err)
+	}
+
+	reminder.ID, _ = uuid.Parse(idStr)
+	reminder.SecretID, _ = uuid.Parse(secretIDStr)
+	reminder.PolicyID, _ = uuid.Parse(policyIDStr)
+	if nextReminderAt.Valid {
+		reminder.NextReminderAt = &nextReminderAt.Time
+	}
+
+	return &reminder, nil
 }

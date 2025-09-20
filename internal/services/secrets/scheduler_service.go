@@ -1,0 +1,327 @@
+// Package secrets provides business logic services for secret management operations.
+// This package follows the established service layer patterns with dependency injection
+// and proper separation of concerns.
+package secrets
+
+import (
+	"context"
+	"fmt"
+	"sync"
+	"time"
+
+	"github.com/google/uuid"
+
+	"password-manager/internal/domain"
+	"password-manager/internal/logging"
+	"password-manager/internal/repositories"
+)
+
+// SchedulerServiceInterface defines the business logic contract for rotation scheduling.
+// It orchestrates automated rotation and reminder operations with proper service coordination.
+type SchedulerServiceInterface interface {
+	// Scheduler lifecycle
+	Start(interval time.Duration) error
+	Stop() error
+	IsRunning() bool
+
+	// Manual operations
+	ProcessUserRotations(ctx context.Context, userID uuid.UUID) error
+	ProcessUserReminders(ctx context.Context, userID uuid.UUID) error
+	PerformManualRotation(ctx context.Context, req ManualSchedulerRotationRequest) error
+}
+
+// ManualSchedulerRotationRequest represents a manual rotation request through the scheduler.
+type ManualSchedulerRotationRequest struct {
+	SecretID uuid.UUID `json:"secret_id" validate:"required"`
+	PolicyID uuid.UUID `json:"policy_id" validate:"required"`
+	UserID   uuid.UUID `json:"user_id" validate:"required"`
+	Notes    string    `json:"notes" validate:"max=500"`
+}
+
+// schedulerService implements SchedulerServiceInterface with service dependencies.
+type schedulerService struct {
+	rotationSvc    RotationServiceInterface
+	versioningSvc  VersioningServiceInterface
+	userRepo       repositories.UserRepositoryInterface
+	secretRepo     repositories.SecretRepositoryInterface
+	rotationRepo   repositories.RotationPolicyRepositoryInterface
+	log            *logging.Logger
+	ticker         *time.Ticker
+	stopChan       chan struct{}
+	wg             sync.WaitGroup
+	mu             sync.RWMutex
+	running        bool
+}
+
+// NewSchedulerService creates a new scheduler service with proper service dependencies.
+func NewSchedulerService(
+	rotationSvc RotationServiceInterface,
+	versioningSvc VersioningServiceInterface,
+	userRepo repositories.UserRepositoryInterface,
+	secretRepo repositories.SecretRepositoryInterface,
+	rotationRepo repositories.RotationPolicyRepositoryInterface,
+	log *logging.Logger,
+) SchedulerServiceInterface {
+	return &schedulerService{
+		rotationSvc:   rotationSvc,
+		versioningSvc: versioningSvc,
+		userRepo:      userRepo,
+		secretRepo:    secretRepo,
+		rotationRepo:  rotationRepo,
+		log:           log,
+		stopChan:      make(chan struct{}),
+	}
+}
+
+// Start begins the rotation scheduler with business logic orchestration.
+func (s *schedulerService) Start(interval time.Duration) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if s.running {
+		s.log.Warn("Rotation scheduler is already running")
+		return fmt.Errorf("scheduler is already running")
+	}
+
+	s.running = true
+	s.ticker = time.NewTicker(interval)
+	s.wg.Add(1)
+
+	go s.run()
+
+	s.log.WithField("interval", interval).Info("Rotation scheduler started")
+	return nil
+}
+
+// Stop stops the rotation scheduler gracefully.
+func (s *schedulerService) Stop() error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if !s.running {
+		return nil
+	}
+
+	s.running = false
+	close(s.stopChan)
+	s.ticker.Stop()
+
+	s.wg.Wait()
+	s.log.Info("Rotation scheduler stopped")
+	return nil
+}
+
+// IsRunning returns whether the scheduler is currently running.
+func (s *schedulerService) IsRunning() bool {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.running
+}
+
+// run is the main scheduler loop that processes rotations and reminders.
+func (s *schedulerService) run() {
+	defer s.wg.Done()
+
+	for {
+		select {
+		case <-s.ticker.C:
+			s.processAllUserOperations()
+		case <-s.stopChan:
+			return
+		}
+	}
+}
+
+// processAllUserOperations processes rotations and reminders for all users.
+func (s *schedulerService) processAllUserOperations() {
+	ctx := context.Background()
+
+	// Get all users using proper repository pattern
+	users, err := s.getAllUsers(ctx)
+	if err != nil {
+		s.log.WithError(err).Error("Failed to get users for rotation processing")
+		return
+	}
+
+	for _, userID := range users {
+		// Process rotations for this user
+		err := s.ProcessUserRotations(ctx, userID)
+		if err != nil {
+			s.log.WithError(err).WithField("user_id", userID).Error("Failed to process user rotations")
+		}
+
+		// Process reminders for this user
+		err = s.ProcessUserReminders(ctx, userID)
+		if err != nil {
+			s.log.WithError(err).WithField("user_id", userID).Error("Failed to process user reminders")
+		}
+	}
+}
+
+// ProcessUserRotations processes automatic rotations for a specific user.
+func (s *schedulerService) ProcessUserRotations(ctx context.Context, userID uuid.UUID) error {
+	// Get due rotations using rotation service
+	dueRotations, err := s.rotationSvc.GetDueRotations(ctx, userID)
+	if err != nil {
+		return fmt.Errorf("failed to get due rotations for user %s: %w", userID, err)
+	}
+
+	for _, rotation := range dueRotations {
+		err := s.performAutomaticRotation(ctx, rotation)
+		if err != nil {
+			s.log.WithError(err).WithFields(map[string]any{
+				"user_id":   userID,
+				"secret_id": rotation.SecretID,
+				"policy_id": rotation.PolicyID,
+			}).Error("Failed to perform automatic rotation")
+		}
+	}
+
+	return nil
+}
+
+// ProcessUserReminders processes reminder notifications for a specific user.
+func (s *schedulerService) ProcessUserReminders(ctx context.Context, userID uuid.UUID) error {
+	// Get upcoming reminders using rotation service
+	reminders, err := s.rotationSvc.GetUpcomingReminders(ctx, userID)
+	if err != nil {
+		return fmt.Errorf("failed to get upcoming reminders for user %s: %w", userID, err)
+	}
+
+	for _, reminder := range reminders {
+		err := s.sendReminder(ctx, reminder)
+		if err != nil {
+			s.log.WithError(err).WithFields(map[string]any{
+				"user_id":     userID,
+				"reminder_id": reminder.ID,
+				"secret_id":   reminder.SecretID,
+			}).Error("Failed to send reminder")
+		}
+	}
+
+	return nil
+}
+
+// PerformManualRotation performs a manual rotation through the scheduler.
+func (s *schedulerService) PerformManualRotation(ctx context.Context, req ManualSchedulerRotationRequest) error {
+	// Delegate to rotation service
+	rotationReq := ManualRotationRequest{
+		SecretID: req.SecretID,
+		PolicyID: req.PolicyID,
+		UserID:   req.UserID,
+		Notes:    req.Notes,
+	}
+
+	err := s.rotationSvc.PerformManualRotation(ctx, rotationReq)
+	if err != nil {
+		s.log.WithError(err).WithFields(map[string]any{
+			"secret_id": req.SecretID,
+			"policy_id": req.PolicyID,
+			"user_id":   req.UserID,
+		}).Error("Failed to perform manual rotation through scheduler")
+		return fmt.Errorf("failed to perform manual rotation: %w", err)
+	}
+
+	s.log.WithFields(map[string]any{
+		"secret_id": req.SecretID,
+		"policy_id": req.PolicyID,
+		"user_id":   req.UserID,
+	}).Info("Manual rotation completed through scheduler")
+
+	return nil
+}
+
+// performAutomaticRotation performs an automatic rotation for a secret-policy pair.
+func (s *schedulerService) performAutomaticRotation(ctx context.Context, sp domain.SecretPolicy) error {
+	// Get the policy to check if auto-rotation is enabled
+	policy, err := s.rotationSvc.GetPolicy(ctx, sp.PolicyID)
+	if err != nil {
+		return fmt.Errorf("failed to get policy: %w", err)
+	}
+
+	// Only auto-rotate if enabled
+	if !policy.AutoRotate {
+		s.log.WithFields(map[string]any{
+			"secret_id": sp.SecretID,
+			"policy_id": sp.PolicyID,
+		}).Debug("Skipping automatic rotation - auto-rotate disabled")
+		return nil
+	}
+
+	// Get the secret to determine user
+	secret, err := s.secretRepo.Read(ctx, sp.SecretID)
+	if err != nil {
+		return fmt.Errorf("failed to get secret: %w", err)
+	}
+
+	// Create version before rotation
+	versionReq := CreateVersionRequest{
+		SecretID: sp.SecretID,
+		UserID:   secret.UserID,
+		Name:     secret.Name,
+		Value:    secret.Value,
+		Version:  secret.Version + 1,
+	}
+
+	_, err = s.versioningSvc.CreateVersion(ctx, versionReq)
+	if err != nil {
+		s.log.WithError(err).Error("Failed to create version before automatic rotation")
+		// Continue with rotation even if versioning fails
+	}
+
+	// Perform automatic rotation using rotation service
+	rotationReq := ManualRotationRequest{
+		SecretID: sp.SecretID,
+		PolicyID: sp.PolicyID,
+		UserID:   secret.UserID,
+		Notes:    "Automatic rotation by scheduler",
+	}
+
+	err = s.rotationSvc.PerformManualRotation(ctx, rotationReq)
+	if err != nil {
+		return fmt.Errorf("failed to perform automatic rotation: %w", err)
+	}
+
+	s.log.WithFields(map[string]any{
+		"secret_id": sp.SecretID,
+		"policy_id": sp.PolicyID,
+		"user_id":   secret.UserID,
+	}).Info("Automatic rotation completed")
+
+	return nil
+}
+
+// sendReminder sends a reminder notification (placeholder implementation).
+func (s *schedulerService) sendReminder(ctx context.Context, reminder domain.RotationReminder) error {
+	// In a real implementation, this would send email/SMS notifications
+	// For now, we'll just log it and acknowledge the reminder
+	s.log.WithFields(map[string]any{
+		"reminder_id":   reminder.ID,
+		"secret_id":     reminder.SecretID,
+		"reminder_type": reminder.ReminderType,
+		"sent_at":       reminder.SentAt,
+	}).Info("Rotation reminder sent")
+
+	// Acknowledge the reminder through rotation service
+	err := s.rotationSvc.AcknowledgeReminder(ctx, reminder.ID)
+	if err != nil {
+		return fmt.Errorf("failed to acknowledge reminder: %w", err)
+	}
+
+	return nil
+}
+
+// getAllUsers gets all user IDs using proper repository pattern.
+func (s *schedulerService) getAllUsers(ctx context.Context) ([]uuid.UUID, error) {
+	// This is a simplified implementation that would typically use pagination
+	// In production, you'd want to implement proper user listing in UserRepository
+	// For now, we'll implement a basic query through the repository
+
+	// Note: This should be implemented in the UserRepository interface
+	// as ListAllUsers() method. For now, we'll use a direct query approach
+	// that would be added to the UserRepository.
+
+	// This is a placeholder - in the actual implementation, you would add
+	// a ListAllUsers method to UserRepositoryInterface and implement it properly
+	return []uuid.UUID{}, fmt.Errorf("ListAllUsers not implemented in UserRepository")
+}

@@ -32,8 +32,9 @@ import (
 	"github.com/spf13/cobra"
 
 	"password-manager/common"
+	"password-manager/internal/domain"
 	"password-manager/internal/logging"
-	"password-manager/internal/secrets"
+	"password-manager/internal/repositories"
 )
 
 // createCmd represents the create command
@@ -52,9 +53,9 @@ var createCmd = &cobra.Command{
 		db := cmd.Context().Value(common.DBKey).(*sql.DB)
 		log := cmd.Context().Value(common.LogKey).(*logging.Logger)
 
-		repo := secrets.NewSecretRepository(db, log)
+		repo := repositories.NewSecretRepository(db, log)
 
-		secret := secrets.Secret{
+		secret := domain.Secret{
 			ID:        uuid.New(),
 			UserID:    userID,
 			Name:      name,

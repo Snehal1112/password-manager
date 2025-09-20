@@ -23,68 +23,67 @@ THE SOFTWARE.
 package users
 
 import (
-	"context"
-	"os"
+	"fmt"
 
 	"github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 
 	"password-manager/common"
-	"password-manager/internal/auth"
-	"password-manager/internal/db"
-	"password-manager/internal/logging"
+	"password-manager/internal/container"
+	userService "password-manager/internal/services/users"
 )
 
 // createCmd represents the create command
 var createCmd = &cobra.Command{
 	Use:     "create",
 	Short:   "Create a new user",
-	Long:    `Create a new user with a username, password, and role, generating a TOTP secret for MFA. Requires crypto_manager role.`,
+	Long:    `Create a new user with a username, password, and role, generating a TOTP secret for MFA. Requires admin role for authentication.`,
 	Example: `password-manager users create --username admin --password admin123 --totp-code <code> --new-username testuser --new-password password123 --new-role user`,
-	PersistentPreRun: func(cmd *cobra.Command, args []string) {
-		log := logging.InitLogger()
+	RunE: func(cmd *cobra.Command, args []string) error {
+		// Get service container from context
+		serviceContainer := cmd.Context().Value(common.ServiceContainerKey).(*container.ServiceContainer)
+		if serviceContainer == nil {
+			return fmt.Errorf("service container not available in context")
+		}
 
-		db := db.NewRepository(log)
-		db.InitializeDB()
-
-		ctx := context.WithValue(cmd.Context(), common.DBKey, db)
-		cmd.SetContext(ctx)
-
+		// Get new user details from flags
 		username := viper.GetString("new-username")
 		password := viper.GetString("new-password")
 		role := viper.GetString("new-role")
+
 		if username == "" || password == "" || role == "" {
-			log.Fatal("Username, password, and role are required")
-			logrus.Error("Username, password, and role are required")
-			os.Exit(0)
+			return fmt.Errorf("username, password, and role are required")
 		}
 
-		userRepo := auth.NewUserRepository(db.GetDB(), log)
-
-		user := auth.User{
-			Username:     username,
-			PasswordHash: password,
-			Role:         role,
-		}
-
-		if err := userRepo.Create(ctx, &user); err != nil {
-			log.Error("Failed to register user: ", err)
-			logrus.Error("Failed to register user: ", err)
-			os.Exit(0)
-			return
+		// Create user using service
+		userSvc := serviceContainer.GetUserService()
+		result, err := userSvc.CreateUser(cmd.Context(), userService.CreateUserRequest{
+			Username: username,
+			Password: password,
+			Role:     role,
+		})
+		if err != nil {
+			return fmt.Errorf("failed to create user: %w", err)
 		}
 
 		logrus.WithFields(logrus.Fields{
-			"username":   username,
-			"totpSecret": user.TOTPSecret,
-		}).Info("Configure this secret in a TOTP app (e.g., Google Authenticator) for MFA.")
-	},
-	Run: func(cmd *cobra.Command, args []string) {},
-	PersistentPostRunE: func(cmd *cobra.Command, args []string) error {
-		cmd.Context().Value(common.DBKey).(*db.DBRepository).CloseDB()
+			"username":   result.Username,
+			"user_id":    result.UserID.String(),
+			"role":       result.Role,
+			"totpSecret": result.TOTPSecret,
+		}).Info("User created successfully. Configure this TOTP secret in your authenticator app (e.g., Google Authenticator)")
+
+		fmt.Printf("User created successfully:\n")
+		fmt.Printf("  Username: %s\n", result.Username)
+		fmt.Printf("  User ID: %s\n", result.UserID.String())
+		fmt.Printf("  Role: %s\n", result.Role)
+		fmt.Printf("  TOTP Secret: %s\n", result.TOTPSecret)
+		fmt.Printf("\nConfigure the TOTP secret in your authenticator app for MFA.\n")
+
 		return nil
 	},
+	Run: func(cmd *cobra.Command, args []string) {},
 }
 
 // InitUsersCreate initializes the create command for users

@@ -27,13 +27,17 @@ import (
 	"fmt"
 	"os"
 	"text/tabwriter"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/spf13/cobra"
 
 	"password-manager/common"
+	"password-manager/internal/container"
+	"password-manager/internal/domain"
 	"password-manager/internal/logging"
-	"password-manager/internal/secrets"
+	"password-manager/internal/repositories"
+	"password-manager/internal/services/secrets"
 )
 
 var (
@@ -233,10 +237,10 @@ func runRotationCreate(cmd *cobra.Command, args []string) error {
 	userID := ctx.Value(common.UserIDKey).(uuid.UUID)
 
 	// Create repository
-	repo := secrets.NewRotationPolicyRepository(db, logger)
+	repo := repositories.NewRotationPolicyRepository(db, logger)
 
 	// Create policy
-	policy := &secrets.RotationPolicy{
+	policy := &domain.RotationPolicy{
 		UserID:       userID,
 		Name:         policyName,
 		Description:  policyDescription,
@@ -267,7 +271,7 @@ func runRotationList(cmd *cobra.Command, args []string) error {
 	userID := ctx.Value(common.UserIDKey).(uuid.UUID)
 
 	// Create repository
-	repo := secrets.NewRotationPolicyRepository(db, logger)
+	repo := repositories.NewRotationPolicyRepository(db, logger)
 
 	// Get policies
 	policies, err := repo.ListByUser(ctx, userID)
@@ -314,7 +318,7 @@ func runRotationUpdate(cmd *cobra.Command, args []string) error {
 	}
 
 	// Create repository
-	repo := secrets.NewRotationPolicyRepository(db, logger)
+	repo := repositories.NewRotationPolicyRepository(db, logger)
 
 	// Get existing policy
 	policy, err := repo.Read(ctx, pid)
@@ -367,7 +371,7 @@ func runRotationDelete(cmd *cobra.Command, args []string) error {
 	}
 
 	// Create repository
-	repo := secrets.NewRotationPolicyRepository(db, logger)
+	repo := repositories.NewRotationPolicyRepository(db, logger)
 
 	// Get existing policy
 	policy, err := repo.Read(ctx, pid)
@@ -408,7 +412,7 @@ func runRotationAssign(cmd *cobra.Command, args []string) error {
 	}
 
 	// Create repository
-	repo := secrets.NewRotationPolicyRepository(db, logger)
+	repo := repositories.NewRotationPolicyRepository(db, logger)
 
 	// Verify policy ownership
 	policy, err := repo.Read(ctx, pid)
@@ -420,7 +424,7 @@ func runRotationAssign(cmd *cobra.Command, args []string) error {
 	}
 
 	// Verify secret ownership
-	secretRepo := secrets.NewSecretRepository(db, logger)
+	secretRepo := repositories.NewSecretRepository(db, logger)
 	secret, err := secretRepo.Read(ctx, sid)
 	if err != nil {
 		return fmt.Errorf("failed to read secret: %w", err)
@@ -429,8 +433,10 @@ func runRotationAssign(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("you don't own this secret")
 	}
 
-	// Assign policy
-	err = repo.AssignToSecret(ctx, sid, pid)
+	// Assign policy with proper timestamps
+	assignedAt := time.Now()
+	nextRotationAt := assignedAt.AddDate(0, 0, policy.IntervalDays)
+	err = repo.AssignToSecret(ctx, sid, pid, assignedAt, nextRotationAt)
 	if err != nil {
 		return fmt.Errorf("failed to assign policy to secret: %w", err)
 	}
@@ -457,7 +463,7 @@ func runRotationUnassign(cmd *cobra.Command, args []string) error {
 	}
 
 	// Create repository
-	repo := secrets.NewRotationPolicyRepository(db, logger)
+	repo := repositories.NewRotationPolicyRepository(db, logger)
 
 	// Verify policy ownership
 	policy, err := repo.Read(ctx, pid)
@@ -469,7 +475,7 @@ func runRotationUnassign(cmd *cobra.Command, args []string) error {
 	}
 
 	// Verify secret ownership
-	secretRepo := secrets.NewSecretRepository(db, logger)
+	secretRepo := repositories.NewSecretRepository(db, logger)
 	secret, err := secretRepo.Read(ctx, sid)
 	if err != nil {
 		return fmt.Errorf("failed to read secret: %w", err)
@@ -505,13 +511,25 @@ func runRotationRotate(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("invalid policy ID: %w", err)
 	}
 
-	// Create scheduler
-	repo := secrets.NewRotationPolicyRepository(db, logger)
-	secretRepo := secrets.NewSecretRepository(db, logger)
-	scheduler := secrets.NewRotationScheduler(db, logger, repo, secretRepo)
+	// Create service container for scheduler access
+	serviceContainer, err := container.NewServiceContainer(container.Config{
+		Database: db,
+		Logger:   logger,
+	})
+	if err != nil {
+		return fmt.Errorf("failed to create service container: %w", err)
+	}
+	defer serviceContainer.Close()
+
+	// Get rotation service from container
+	rotationService := serviceContainer.GetRotationService()
 
 	// Perform manual rotation
-	err = scheduler.ManualRotate(ctx, sid, pid, userID)
+	err = rotationService.PerformManualRotation(ctx, secrets.ManualRotationRequest{
+		SecretID: sid,
+		PolicyID: pid,
+		UserID:   userID,
+	})
 	if err != nil {
 		return fmt.Errorf("failed to rotate secret: %w", err)
 	}
@@ -533,10 +551,10 @@ func runRotationHistory(cmd *cobra.Command, args []string) error {
 	}
 
 	// Create repository
-	repo := secrets.NewRotationPolicyRepository(db, logger)
+	repo := repositories.NewRotationPolicyRepository(db, logger)
 
 	// Verify secret ownership
-	secretRepo := secrets.NewSecretRepository(db, logger)
+	secretRepo := repositories.NewSecretRepository(db, logger)
 	secret, err := secretRepo.Read(ctx, sid)
 	if err != nil {
 		return fmt.Errorf("failed to read secret: %w", err)
@@ -587,7 +605,7 @@ func runRotationStatus(cmd *cobra.Command, args []string) error {
 	userID := ctx.Value(common.UserIDKey).(uuid.UUID)
 
 	// Create repository
-	repo := secrets.NewRotationPolicyRepository(db, logger)
+	repo := repositories.NewRotationPolicyRepository(db, logger)
 
 	// Get due rotations
 	due, err := repo.GetDueRotations(ctx, userID)

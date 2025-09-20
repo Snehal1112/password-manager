@@ -33,7 +33,8 @@ import (
 
 	"password-manager/common"
 	"password-manager/internal/logging"
-	"password-manager/internal/secrets"
+	"password-manager/internal/domain"
+	"password-manager/internal/repositories"
 )
 
 var (
@@ -127,7 +128,7 @@ func runVersionList(cmd *cobra.Command, args []string) error {
 	}
 
 	// Create repository
-	repo := secrets.NewSecretRepository(db, logger)
+	repo := repositories.NewSecretRepository(db, logger)
 
 	// Get versions
 	versions, err := repo.GetVersions(ctx, secretID)
@@ -170,7 +171,7 @@ func runVersionGet(cmd *cobra.Command, args []string) error {
 	}
 
 	// Create repository
-	repo := secrets.NewSecretRepository(db, logger)
+	repo := repositories.NewSecretRepository(db, logger)
 
 	// Get specific version
 	version, err := repo.GetVersion(ctx, secretID, versionNumber)
@@ -202,7 +203,7 @@ func runVersionLatest(cmd *cobra.Command, args []string) error {
 	}
 
 	// Create repository
-	repo := secrets.NewSecretRepository(db, logger)
+	repo := repositories.NewSecretRepository(db, logger)
 
 	// Get current secret
 	currentSecret, err := repo.Read(ctx, secretID)
@@ -211,7 +212,7 @@ func runVersionLatest(cmd *cobra.Command, args []string) error {
 	}
 
 	// Convert to SecretVersion for display
-	version := &secrets.SecretVersion{
+	version := &domain.SecretVersion{
 		ID:        currentSecret.ID,
 		SecretID:  currentSecret.ID,
 		UserID:    currentSecret.UserID,

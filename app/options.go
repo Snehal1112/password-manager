@@ -1,9 +1,10 @@
 package app
 
 import (
+	"time"
+
 	"password-manager/internal/container"
 	"password-manager/internal/logging"
-	"password-manager/internal/secrets"
 	"password-manager/server"
 )
 
@@ -69,10 +70,20 @@ func WithLogger(logger *logging.Logger) Option {
 	}
 }
 
-// WithScheduler sets the rotation scheduler for the App instance.
-func WithScheduler(scheduler *secrets.RotationScheduler) Option {
+// WithSchedulerEnabled enables or disables the rotation scheduler.
+// When enabled, the scheduler will automatically process rotations and reminders
+// according to the configured policies.
+//
+// Parameters:
+//   - enabled: Whether to enable the rotation scheduler.
+//   - interval: The interval at which the scheduler runs (e.g., 1 hour).
+//
+// Returns:
+//   - Option: A function that configures the scheduler settings.
+func WithSchedulerEnabled(enabled bool, interval time.Duration) Option {
 	return func(a *App) {
-		a.scheduler = scheduler
+		a.schedulerEnabled = enabled
+		a.schedulerInterval = interval
 	}
 }
 

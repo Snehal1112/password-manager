@@ -32,8 +32,8 @@ import (
 	"github.com/gorilla/mux"
 
 	"password-manager/common"
-	"password-manager/internal/auth"
-	"password-manager/internal/db"
+	"password-manager/internal/domain"
+	userService "password-manager/internal/services/users"
 )
 
 // CreateUserRequest represents the request structure for creating a user.
@@ -100,7 +100,7 @@ func (api *API) InitUsers(users *mux.Router) {
 func createUser(c *Context, w http.ResponseWriter, r *http.Request) {
 	// Check admin privileges
 	claims, ok := c.Claims["role"].(string)
-	if !ok || claims != string(auth.RoleAdmin) {
+	if !ok || claims != string(domain.RoleAdmin) {
 		c.Err = common.NewAppError("createUser", "Forbidden: requires admin role", nil, "", http.StatusForbidden)
 		return
 	}
@@ -134,35 +134,30 @@ func createUser(c *Context, w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Initialize database and user repository
-	database := db.NewRepository(c.Logger)
-	if err := database.InitializeDB(); err != nil {
-		c.Err = common.NewAppError("createUser", "Failed to initialize database", nil, err.Error(), http.StatusInternalServerError)
+	// Use service container for user creation
+	if c.App.ServiceContainer == nil {
+		c.Err = common.NewAppError("createUser", "Service container not available", nil, "", http.StatusInternalServerError)
 		return
 	}
-	defer database.GetDB().Close()
 
-	userRepo := auth.NewUserRepository(database.GetDB(), c.Logger)
-
-	// Create user
-	user := auth.User{
-		Username:     req.Username,
-		PasswordHash: req.Password, // Will be hashed by the repository
-		Role:         req.Role,
-	}
-
-	if err := userRepo.Create(r.Context(), &user); err != nil {
+	userSvc := c.App.ServiceContainer.GetUserService()
+	result, err := userSvc.CreateUser(r.Context(), userService.CreateUserRequest{
+		Username: req.Username,
+		Password: req.Password,
+		Role:     req.Role,
+	})
+	if err != nil {
 		c.Err = common.NewAppError("createUser", "Failed to create user", nil, err.Error(), http.StatusInternalServerError)
 		return
 	}
 
 	// Prepare response
 	response := UserResponse{
-		ID:         user.ID.String(),
-		Username:   user.Username,
-		Role:       user.Role,
-		CreatedAt:  user.CreatedAt.Format(time.RFC3339),
-		TOTPSecret: user.TOTPSecret, // Include TOTP secret on creation
+		ID:         result.UserID.String(),
+		Username:   result.Username,
+		Role:       result.Role,
+		CreatedAt:  time.Now().Format(time.RFC3339), // Service doesn't return creation time
+		TOTPSecret: result.TOTPSecret, // Include TOTP secret on creation
 	}
 
 	// Send response
@@ -171,8 +166,8 @@ func createUser(c *Context, w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(response)
 
 	// Log successful creation
-	c.Logger.Printf("Admin %s created user %s with role %s", 
-		c.Claims["user_id"], user.Username, user.Role)
+	c.Logger.Printf("Admin %s created user %s with role %s",
+		c.Claims["user_id"], result.Username, result.Role)
 }
 
 // listUsers handles the HTTP request to retrieve all users.
@@ -186,7 +181,7 @@ func createUser(c *Context, w http.ResponseWriter, r *http.Request) {
 func listUsers(c *Context, w http.ResponseWriter, r *http.Request) {
 	// Check admin privileges
 	claims, ok := c.Claims["role"].(string)
-	if !ok || claims != string(auth.RoleAdmin) {
+	if !ok || claims != string(domain.RoleAdmin) {
 		c.Err = common.NewAppError("listUsers", "Forbidden: requires admin role", nil, "", http.StatusForbidden)
 		return
 	}
@@ -210,18 +205,14 @@ func listUsers(c *Context, w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// Initialize database and user repository
-	database := db.NewRepository(c.Logger)
-	if err := database.InitializeDB(); err != nil {
-		c.Err = common.NewAppError("listUsers", "Failed to initialize database", nil, err.Error(), http.StatusInternalServerError)
+	// Use service container for user listing
+	if c.App.ServiceContainer == nil {
+		c.Err = common.NewAppError("listUsers", "Service container not available", nil, "", http.StatusInternalServerError)
 		return
 	}
-	defer database.GetDB().Close()
 
-	userRepo := auth.NewUserRepository(database.GetDB(), c.Logger)
-
-	// Get users
-	users, err := userRepo.List(r.Context())
+	userSvc := c.App.ServiceContainer.GetUserService()
+	users, err := userSvc.ListUsers(r.Context())
 	if err != nil {
 		c.Err = common.NewAppError("listUsers", "Failed to list users", nil, err.Error(), http.StatusInternalServerError)
 		return
@@ -284,23 +275,19 @@ func getUser(c *Context, w http.ResponseWriter, r *http.Request) {
 	currentUserID, _ := c.Claims["user_id"].(string)
 	currentRole, _ := c.Claims["role"].(string)
 	
-	if currentRole != string(auth.RoleAdmin) && currentUserID != userID.String() {
+	if currentRole != string(domain.RoleAdmin) && currentUserID != userID.String() {
 		c.Err = common.NewAppError("getUser", "Forbidden: can only access own profile", nil, "", http.StatusForbidden)
 		return
 	}
 
-	// Initialize database and user repository
-	database := db.NewRepository(c.Logger)
-	if err := database.InitializeDB(); err != nil {
-		c.Err = common.NewAppError("getUser", "Failed to initialize database", nil, err.Error(), http.StatusInternalServerError)
+	// Use service container for user retrieval
+	if c.App.ServiceContainer == nil {
+		c.Err = common.NewAppError("getUser", "Service container not available", nil, "", http.StatusInternalServerError)
 		return
 	}
-	defer database.GetDB().Close()
 
-	userRepo := auth.NewUserRepository(database.GetDB(), c.Logger)
-
-	// Get user
-	user, err := userRepo.Read(r.Context(), userID)
+	userSvc := c.App.ServiceContainer.GetUserService()
+	user, err := userSvc.GetUser(r.Context(), userID)
 	if err != nil {
 		c.Err = common.NewAppError("getUser", "User not found", nil, err.Error(), http.StatusNotFound)
 		return
@@ -371,7 +358,7 @@ func updateUser(c *Context, w http.ResponseWriter, r *http.Request) {
 	currentUserID, _ := c.Claims["user_id"].(string)
 	currentRole, _ := c.Claims["role"].(string)
 	
-	if currentRole != string(auth.RoleAdmin) {
+	if currentRole != string(domain.RoleAdmin) {
 		if currentUserID != userID.String() {
 			c.Err = common.NewAppError("updateUser", "Forbidden: can only update own profile", nil, "", http.StatusForbidden)
 			return
@@ -383,37 +370,41 @@ func updateUser(c *Context, w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// Initialize database and user repository
-	database := db.NewRepository(c.Logger)
-	if err := database.InitializeDB(); err != nil {
-		c.Err = common.NewAppError("updateUser", "Failed to initialize database", nil, err.Error(), http.StatusInternalServerError)
-		return
-	}
-	defer database.GetDB().Close()
-
-	userRepo := auth.NewUserRepository(database.GetDB(), c.Logger)
-
-	// Get existing user
-	user, err := userRepo.Read(r.Context(), userID)
-	if err != nil {
-		c.Err = common.NewAppError("updateUser", "User not found", nil, err.Error(), http.StatusNotFound)
+	// Use service container for user update
+	if c.App.ServiceContainer == nil {
+		c.Err = common.NewAppError("updateUser", "Service container not available", nil, "", http.StatusInternalServerError)
 		return
 	}
 
-	// Update fields
+	userSvc := c.App.ServiceContainer.GetUserService()
+
+	// Convert to service request format with optional fields
+	var usernamePtr, passwordPtr, rolePtr *string
 	if req.Username != "" {
-		user.Username = req.Username
+		usernamePtr = &req.Username
 	}
 	if req.Password != "" {
-		user.PasswordHash = req.Password // Will be hashed by the repository
+		passwordPtr = &req.Password
 	}
 	if req.Role != "" {
-		user.Role = req.Role
+		rolePtr = &req.Role
 	}
 
-	// Update user
-	if err := userRepo.Update(r.Context(), user); err != nil {
+	// Update user using service
+	if err := userSvc.UpdateUser(r.Context(), userService.UpdateUserRequest{
+		UserID:   userID,
+		Username: usernamePtr,
+		Password: passwordPtr,
+		Role:     rolePtr,
+	}); err != nil {
 		c.Err = common.NewAppError("updateUser", "Failed to update user", nil, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	// Get updated user for response
+	user, err := userSvc.GetUser(r.Context(), userID)
+	if err != nil {
+		c.Err = common.NewAppError("updateUser", "Failed to get updated user", nil, err.Error(), http.StatusInternalServerError)
 		return
 	}
 
@@ -444,7 +435,7 @@ func updateUser(c *Context, w http.ResponseWriter, r *http.Request) {
 func deleteUser(c *Context, w http.ResponseWriter, r *http.Request) {
 	// Check admin privileges
 	claims, ok := c.Claims["role"].(string)
-	if !ok || claims != string(auth.RoleAdmin) {
+	if !ok || claims != string(domain.RoleAdmin) {
 		c.Err = common.NewAppError("deleteUser", "Forbidden: requires admin role", nil, "", http.StatusForbidden)
 		return
 	}
@@ -463,24 +454,22 @@ func deleteUser(c *Context, w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Initialize database and user repository
-	database := db.NewRepository(c.Logger)
-	if err := database.InitializeDB(); err != nil {
-		c.Err = common.NewAppError("deleteUser", "Failed to initialize database", nil, err.Error(), http.StatusInternalServerError)
+	// Use service container for user deletion
+	if c.App.ServiceContainer == nil {
+		c.Err = common.NewAppError("deleteUser", "Service container not available", nil, "", http.StatusInternalServerError)
 		return
 	}
-	defer database.GetDB().Close()
 
-	userRepo := auth.NewUserRepository(database.GetDB(), c.Logger)
+	userSvc := c.App.ServiceContainer.GetUserService()
 
-	// Check if user exists
-	if _, err := userRepo.Read(r.Context(), userID); err != nil {
+	// Check if user exists by trying to get it
+	if _, err := userSvc.GetUser(r.Context(), userID); err != nil {
 		c.Err = common.NewAppError("deleteUser", "User not found", nil, err.Error(), http.StatusNotFound)
 		return
 	}
 
 	// Delete user
-	if err := userRepo.Delete(r.Context(), userID); err != nil {
+	if err := userSvc.DeleteUser(r.Context(), userID); err != nil {
 		c.Err = common.NewAppError("deleteUser", "Failed to delete user", nil, err.Error(), http.StatusInternalServerError)
 		return
 	}

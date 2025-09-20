@@ -33,7 +33,7 @@ import (
 	"github.com/spf13/viper"
 
 	"password-manager/common"
-	"password-manager/internal/auth"
+	"password-manager/internal/domain"
 	"password-manager/internal/db"
 	"password-manager/internal/keys"
 	"password-manager/internal/logging"
@@ -47,7 +47,7 @@ var updateCmd = &cobra.Command{
 	Example: `password-manager keys update <key-id> --username admin --password admin123 --totp-code <code> --name newkey --revoked true --tags tag1,tag2`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		ctx := cmd.Context()
-		claims, ok := ctx.Value(common.ClaimsKey).(*auth.Claims)
+		claims, ok := ctx.Value(common.ClaimsKey).(*domain.Claims)
 		if !ok {
 			return fmt.Errorf("unauthorized: missing authentication claims")
 		}
@@ -67,7 +67,7 @@ var updateCmd = &cobra.Command{
 			return fmt.Errorf("failed to read key: %w", err)
 		}
 
-		if claims.UserID != key.UserID && claims.Role != auth.RoleAdmin {
+		if claims.UserID != key.UserID && claims.Role != domain.RoleAdmin {
 			log.LogAuditError(claims.UserID.String(), "update_key", "failed", "forbidden: cannot update other users' keys", nil)
 			return fmt.Errorf("forbidden: cannot update other users' keys")
 		}

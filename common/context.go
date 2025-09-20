@@ -22,6 +22,8 @@ const (
 	ContentTypeKey
 	// APIVersionKey is the key used to store the API version in the context.
 	APIVersionKey
+	// ServiceContainerKey is the key used to store the service container in the context.
+	ServiceContainerKey
 )
 
 // String returns the string representation of the ContextKey.

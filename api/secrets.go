@@ -36,7 +36,8 @@ import (
 
 	"password-manager/common"
 	"password-manager/internal/db"
-	"password-manager/internal/secrets"
+	"password-manager/internal/domain"
+	"password-manager/internal/repositories"
 )
 
 // ExportRequest represents the request structure for exporting secrets.
@@ -161,7 +162,7 @@ func listSecretVersionsHandler(c *Context, w http.ResponseWriter, r *http.Reques
 		return
 	}
 	defer dbRepo.GetDB().Close()
-	secretsRepo := secrets.NewSecretRepository(dbRepo.GetDB(), c.Logger)
+	secretsRepo := repositories.NewSecretRepository(dbRepo.GetDB(), c.Logger)
 	ctx := r.Context()
 	versions, err := secretsRepo.GetVersions(ctx, secretID)
 	if err != nil {
@@ -191,7 +192,7 @@ func getSecretVersionHandler(c *Context, w http.ResponseWriter, r *http.Request)
 		return
 	}
 	defer dbRepo.GetDB().Close()
-	secretsRepo := secrets.NewSecretRepository(dbRepo.GetDB(), c.Logger)
+	secretsRepo := repositories.NewSecretRepository(dbRepo.GetDB(), c.Logger)
 	ctx := r.Context()
 	version, err := secretsRepo.GetVersion(ctx, secretID, versionNum)
 	if err != nil {
@@ -216,7 +217,7 @@ func getLatestSecretVersionHandler(c *Context, w http.ResponseWriter, r *http.Re
 		return
 	}
 	defer dbRepo.GetDB().Close()
-	secretsRepo := secrets.NewSecretRepository(dbRepo.GetDB(), c.Logger)
+	secretsRepo := repositories.NewSecretRepository(dbRepo.GetDB(), c.Logger)
 	ctx := r.Context()
 	version, err := secretsRepo.GetLatestVersion(ctx, secretID)
 	if err != nil {
@@ -279,17 +280,17 @@ func exportSecrets(c *Context, w http.ResponseWriter, r *http.Request) {
 	}
 	defer database.GetDB().Close()
 
-	secretsRepo := secrets.NewSecretRepository(database.GetDB(), c.Logger)
+	secretsRepo := repositories.NewSecretRepository(database.GetDB(), c.Logger)
 
 	// Prepare export options
-	var format secrets.ExportFormat
+	var format domain.ExportFormat
 	if exportReq.Format == "json" {
-		format = secrets.ExportFormatJSON
+		format = domain.ExportFormatJSON
 	} else {
-		format = secrets.ExportFormatCSV
+		format = domain.ExportFormatCSV
 	}
 
-	options := secrets.ExportOptions{
+	options := domain.ExportOptions{
 		Format:      format,
 		IncludeTags: exportReq.IncludeTags,
 		FilterTags:  exportReq.Tags,
@@ -314,7 +315,7 @@ func exportSecrets(c *Context, w http.ResponseWriter, r *http.Request) {
 	// Count exported secrets (for JSON format)
 	var count int
 	if !exportReq.Encrypt && exportReq.Format == "json" {
-		var container secrets.ExportContainer
+		var container domain.ExportContainer
 		if err := json.Unmarshal(data, &container); err == nil {
 			count = len(container.Secrets)
 		}
@@ -412,17 +413,17 @@ func importSecrets(c *Context, w http.ResponseWriter, r *http.Request) {
 	}
 	defer database.GetDB().Close()
 
-	secretsRepo := secrets.NewSecretRepository(database.GetDB(), c.Logger)
+	secretsRepo := repositories.NewSecretRepository(database.GetDB(), c.Logger)
 
 	// Prepare import options
-	var importFormat secrets.ExportFormat
+	var importFormat domain.ExportFormat
 	if format == "json" {
-		importFormat = secrets.ExportFormatJSON
+		importFormat = domain.ExportFormatJSON
 	} else {
-		importFormat = secrets.ExportFormatCSV
+		importFormat = domain.ExportFormatCSV
 	}
 
-	options := secrets.ImportOptions{
+	options := domain.ImportOptions{
 		Format:            importFormat,
 		OverwriteExisting: overwrite,
 		Encrypted:         encrypted,
@@ -508,10 +509,10 @@ func createSecret(c *Context, w http.ResponseWriter, r *http.Request) {
 	}
 	defer database.GetDB().Close()
 
-	secretsRepo := secrets.NewSecretRepository(database.GetDB(), c.Logger)
+	secretsRepo := repositories.NewSecretRepository(database.GetDB(), c.Logger)
 
 	// Create secret
-	secret := secrets.Secret{
+	secret := domain.Secret{
 		ID:        uuid.New(),
 		UserID:    userID,
 		Name:      req.Name,
@@ -580,7 +581,7 @@ func listSecrets(c *Context, w http.ResponseWriter, r *http.Request) {
 	}
 	defer database.GetDB().Close()
 
-	secretsRepo := secrets.NewSecretRepository(database.GetDB(), c.Logger)
+	secretsRepo := repositories.NewSecretRepository(database.GetDB(), c.Logger)
 
 	// Get secrets
 	secretsList, err := secretsRepo.ListByUser(r.Context(), userID, tags)
@@ -647,7 +648,7 @@ func getSecret(c *Context, w http.ResponseWriter, r *http.Request) {
 	}
 	defer database.GetDB().Close()
 
-	secretsRepo := secrets.NewSecretRepository(database.GetDB(), c.Logger)
+	secretsRepo := repositories.NewSecretRepository(database.GetDB(), c.Logger)
 
 	// Get secret
 	secret, err := secretsRepo.Read(r.Context(), secretID)
@@ -723,7 +724,7 @@ func updateSecret(c *Context, w http.ResponseWriter, r *http.Request) {
 	}
 	defer database.GetDB().Close()
 
-	secretsRepo := secrets.NewSecretRepository(database.GetDB(), c.Logger)
+	secretsRepo := repositories.NewSecretRepository(database.GetDB(), c.Logger)
 
 	// Get existing secret
 	secret, err := secretsRepo.Read(r.Context(), secretID)
@@ -819,7 +820,7 @@ func deleteSecret(c *Context, w http.ResponseWriter, r *http.Request) {
 	}
 	defer database.GetDB().Close()
 
-	secretsRepo := secrets.NewSecretRepository(database.GetDB(), c.Logger)
+	secretsRepo := repositories.NewSecretRepository(database.GetDB(), c.Logger)
 
 	// Get secret to verify ownership
 	secret, err := secretsRepo.Read(r.Context(), secretID)
@@ -939,10 +940,10 @@ func generateSecret(c *Context, w http.ResponseWriter, r *http.Request) {
 	}
 	defer database.GetDB().Close()
 
-	secretsRepo := secrets.NewSecretRepository(database.GetDB(), c.Logger)
+	secretsRepo := repositories.NewSecretRepository(database.GetDB(), c.Logger)
 
 	// Create secret with generated password
-	secret := secrets.Secret{
+	secret := domain.Secret{
 		ID:        uuid.New(),
 		UserID:    userID,
 		Name:      req.Name,

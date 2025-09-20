@@ -23,13 +23,12 @@ THE SOFTWARE.
 package users
 
 import (
-	"database/sql"
 	"fmt"
 	"time"
 
 	"password-manager/common"
-	"password-manager/internal/auth"
-	"password-manager/internal/logging"
+	"password-manager/internal/domain"
+	"password-manager/internal/container"
 
 	"github.com/google/uuid"
 	"github.com/spf13/cobra"
@@ -43,31 +42,34 @@ var getCmd = &cobra.Command{
 	Example: `password-manager users get <id> --username admin --password admin123 --totp-code <code>`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		ctx := cmd.Context()
-		claims, ok := ctx.Value(common.ClaimsKey).(*auth.Claims)
+		claims, ok := ctx.Value(common.ClaimsKey).(*domain.Claims)
 		if !ok {
 			return fmt.Errorf("unauthorized: missing authentication claims")
 		}
 
-		log := ctx.Value(common.LogKey).(*logging.Logger)
+		// Get service container from context
+		serviceContainer := ctx.Value(common.ServiceContainerKey).(*container.ServiceContainer)
+		if serviceContainer == nil {
+			return fmt.Errorf("service container not available in context")
+		}
+
 		id, err := uuid.Parse(args[0])
 		if err != nil {
-			log.LogAuditError(claims.UserID.String(), "get_user", "failed", fmt.Sprintf("invalid user ID: %s", err), err)
 			return fmt.Errorf("invalid user ID: %w", err)
 		}
 
-		if claims.UserID != id && claims.Role != auth.RoleAdmin {
-			log.LogAuditError(claims.UserID.String(), "get_user", "failed", "forbidden: cannot access other users", nil)
-			return fmt.Errorf("forbidden: cannot access other users")
+		if claims.UserID != id && claims.Role != domain.RoleAdmin {
+			return fmt.Errorf("forbidden: can only access your own profile or requires admin role")
 		}
 
-		userRepo := auth.NewUserRepository(ctx.Value(common.DBKey).(*sql.DB), log)
-		user, err := userRepo.Read(ctx, id)
+		userSvc := serviceContainer.GetUserService()
+		user, err := userSvc.GetUser(ctx, id)
 		if err != nil {
-			log.LogAuditError(claims.UserID.String(), "get_user", "failed", fmt.Sprintf("failed to get user: %s", err), err)
 			return fmt.Errorf("failed to get user: %w", err)
 		}
 
-		log.LogAuditInfo(claims.UserID.String(), "get_user", "success", fmt.Sprintf("user retrieved: %s", user.Username))
+		logger := serviceContainer.GetLogger()
+		logger.LogAuditInfo(claims.UserID.String(), "get_user", "success", fmt.Sprintf("user retrieved: %s", user.Username))
 		fmt.Printf("User: ID=%s, Username=%s, Role=%s, CreatedAt=%s\n",
 			user.ID, user.Username, user.Role, user.CreatedAt.Format(time.RFC3339))
 		return nil

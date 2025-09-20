@@ -23,7 +23,6 @@ THE SOFTWARE.
 package users
 
 import (
-	"database/sql"
 	"fmt"
 	"strings"
 
@@ -32,8 +31,9 @@ import (
 	"github.com/spf13/viper"
 
 	"password-manager/common"
-	"password-manager/internal/auth"
-	"password-manager/internal/logging"
+	"password-manager/internal/domain"
+	"password-manager/internal/container"
+	userService "password-manager/internal/services/users"
 )
 
 // updateCmd represents the update command
@@ -45,20 +45,27 @@ var updateCmd = &cobra.Command{
 	Args:    cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		ctx := cmd.Context()
-		claims, ok := ctx.Value(common.ClaimsKey).(*auth.Claims)
+		claims, ok := ctx.Value(common.ClaimsKey).(*domain.Claims)
 		if !ok {
 			return fmt.Errorf("unauthorized: missing authentication claims")
 		}
 
-		log := ctx.Value(common.LogKey).(*logging.Logger)
+		// Get service container from context
+		serviceContainer := ctx.Value(common.ServiceContainerKey).(*container.ServiceContainer)
+		if serviceContainer == nil {
+			return fmt.Errorf("service container not available in context")
+		}
+
 		id, err := uuid.Parse(args[0])
 		if err != nil {
-			log.LogAuditError(claims.UserID.String(), "update_user", "failed", fmt.Sprintf("invalid user ID: %s", err), err)
+			logger := serviceContainer.GetLogger()
+			logger.LogAuditError(claims.UserID.String(), "update_user", "failed", fmt.Sprintf("invalid user ID: %s", err), err)
 			return fmt.Errorf("invalid user ID: %w", err)
 		}
 
-		if claims.UserID != id && claims.Role != auth.RoleAdmin {
-			log.LogAuditError(claims.UserID.String(), "update_user", "failed", "forbidden: cannot update other users", nil)
+		if claims.UserID != id && claims.Role != domain.RoleAdmin {
+			logger := serviceContainer.GetLogger()
+			logger.LogAuditError(claims.UserID.String(), "update_user", "failed", "forbidden: cannot update other users", nil)
 			return fmt.Errorf("forbidden: cannot update other users")
 		}
 
@@ -67,40 +74,46 @@ var updateCmd = &cobra.Command{
 		newRole := viper.GetString("new-role")
 
 		if newUsername == "" && newPassword == "" && newRole == "" {
-			log.LogAuditError(claims.UserID.String(), "update_user", "failed", "at least one field (new-username, new-password, new-role) must be provided", nil)
+			logger := serviceContainer.GetLogger()
+			logger.LogAuditError(claims.UserID.String(), "update_user", "failed", "at least one field (new-username, new-password, new-role) must be provided", nil)
 			return fmt.Errorf("at least one field (new-username, new-password, new-role) must be provided")
 		}
 
 		if newRole != "" && !strings.Contains("admin,secrets_manager,crypto_manager,certificate_manager,user", newRole) {
-			log.LogAuditError(claims.UserID.String(), "update_user", "failed", "invalid role", nil)
+			logger := serviceContainer.GetLogger()
+			logger.LogAuditError(claims.UserID.String(), "update_user", "failed", "invalid role", nil)
 			return fmt.Errorf("invalid role: must be admin, secrets_manager, crypto_manager, certificate_manager, or user")
 		}
 
-		userRepo := auth.NewUserRepository(ctx.Value(common.DBKey).(*sql.DB), log)
-		user, err := userRepo.Read(ctx, id)
-		if err != nil {
-			log.LogAuditError(claims.UserID.String(), "update_user", "failed", fmt.Sprintf("failed to read user: %s", err), err)
-			return fmt.Errorf("failed to read user: %w", err)
-		}
+		// Use user service for update
+		userSvc := serviceContainer.GetUserService()
 
-		// Update fields only if provided
+		// Convert string values to pointers for optional fields
+		var usernamePtr, passwordPtr, rolePtr *string
 		if newUsername != "" {
-			user.Username = newUsername
+			usernamePtr = &newUsername
 		}
 		if newPassword != "" {
-			user.PasswordHash = newPassword
+			passwordPtr = &newPassword
 		}
 		if newRole != "" {
-			user.Role = newRole
+			rolePtr = &newRole
 		}
 
-		if err := userRepo.Update(ctx, user); err != nil {
-			log.LogAuditError(claims.UserID.String(), "update_user", "failed", fmt.Sprintf("failed to update user: %s", err), err)
+		if err := userSvc.UpdateUser(ctx, userService.UpdateUserRequest{
+			UserID:   id,
+			Username: usernamePtr,
+			Password: passwordPtr,
+			Role:     rolePtr,
+		}); err != nil {
+			logger := serviceContainer.GetLogger()
+			logger.LogAuditError(claims.UserID.String(), "update_user", "failed", fmt.Sprintf("failed to update user: %s", err), err)
 			return fmt.Errorf("failed to update user: %w", err)
 		}
 
-		log.LogAuditInfo(claims.UserID.String(), "update_user", "success", fmt.Sprintf("user updated: %s", user.Username))
-		fmt.Printf("User %s updated successfully\n", user.ID)
+		logger := serviceContainer.GetLogger()
+		logger.LogAuditInfo(claims.UserID.String(), "update_user", "success", fmt.Sprintf("user updated: %s", id))
+		fmt.Printf("User %s updated successfully\n", id)
 		return nil
 	},
 }

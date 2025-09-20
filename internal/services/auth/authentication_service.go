@@ -8,7 +8,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/sirupsen/logrus"
 
-	"password-manager/internal/auth"
+	"password-manager/internal/repositories"
 	"password-manager/internal/logging"
 )
 
@@ -31,7 +31,7 @@ type AuthenticationService interface {
 // authenticationService implements AuthenticationService by coordinating
 // multiple auth services and the user repository.
 type authenticationService struct {
-	userRepo        auth.UserRepository
+	userRepo        repositories.UserRepositoryInterface
 	passwordService PasswordService
 	totpService     TOTPService
 	jwtService      JWTService
@@ -40,7 +40,7 @@ type authenticationService struct {
 
 // AuthenticationConfig holds the dependencies for authentication service.
 type AuthenticationConfig struct {
-	UserRepository  auth.UserRepository
+	UserRepository  repositories.UserRepositoryInterface
 	PasswordService PasswordService
 	TOTPService     TOTPService
 	JWTService      JWTService

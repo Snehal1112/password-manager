@@ -9,7 +9,7 @@ import (
 
 	"github.com/sirupsen/logrus"
 
-	"password-manager/internal/auth"
+	"password-manager/internal/domain"
 	"password-manager/internal/logging"
 )
 
@@ -82,7 +82,7 @@ func NewRBACService(logger *logging.Logger) RBACService {
 // getDefaultRolePermissions returns the default role-permission mappings.
 func getDefaultRolePermissions() map[string][]Permission {
 	return map[string][]Permission{
-		auth.RoleAdmin: {
+		domain.RoleAdmin: {
 			// Admin has all permissions
 			PermissionCreateSecret, PermissionReadSecret, PermissionUpdateSecret, PermissionDeleteSecret, PermissionListSecrets,
 			PermissionCreateKey, PermissionReadKey, PermissionUpdateKey, PermissionDeleteKey, PermissionListKeys,
@@ -90,21 +90,21 @@ func getDefaultRolePermissions() map[string][]Permission {
 			PermissionCreateUser, PermissionReadUser, PermissionUpdateUser, PermissionDeleteUser, PermissionListUsers,
 			PermissionManageSystem,
 		},
-		auth.RoleUser: {
+		domain.RoleUser: {
 			// Basic user has limited permissions
 			PermissionReadSecret, PermissionListSecrets,
 			PermissionReadKey, PermissionListKeys,
 			PermissionReadCertificate, PermissionListCertificates,
 		},
-		auth.RoleSecretsManager: {
+		domain.RoleSecretsManager: {
 			// Secrets manager has full secret permissions
 			PermissionCreateSecret, PermissionReadSecret, PermissionUpdateSecret, PermissionDeleteSecret, PermissionListSecrets,
 		},
-		auth.RoleCryptoManager: {
+		domain.RoleCryptoManager: {
 			// Crypto manager has full key permissions
 			PermissionCreateKey, PermissionReadKey, PermissionUpdateKey, PermissionDeleteKey, PermissionListKeys,
 		},
-		auth.RoleCertificateManager: {
+		domain.RoleCertificateManager: {
 			// Certificate manager has full certificate permissions
 			PermissionCreateCertificate, PermissionReadCertificate, PermissionUpdateCertificate, PermissionDeleteCertificate, PermissionListCertificates,
 		},

@@ -34,7 +34,7 @@ import (
 
 	"password-manager/common"
 	"password-manager/internal/logging"
-	"password-manager/internal/secrets"
+	"password-manager/internal/repositories"
 )
 
 // getCmd represents the get command
@@ -51,7 +51,7 @@ var getCmd = &cobra.Command{
 		db := ctx.Value(common.DBKey).(*sql.DB)
 		logger := ctx.Value(common.LogKey).(*logging.Logger)
 
-		repo := secrets.NewSecretRepository(db, logger)
+		repo := repositories.NewSecretRepository(db, logger)
 		secret, err := repo.Read(cmd.Context(), secretID)
 		if err != nil {
 			logger.LogAuditError(secretID.String(), "get_secret", "failed", "Failed to retrieve secret", err)

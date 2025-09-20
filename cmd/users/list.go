@@ -23,15 +23,14 @@ THE SOFTWARE.
 package users
 
 import (
-	"database/sql"
 	"fmt"
 	"time"
 
 	"github.com/spf13/cobra"
 
 	"password-manager/common"
-	"password-manager/internal/auth"
-	"password-manager/internal/logging"
+	"password-manager/internal/domain"
+	"password-manager/internal/container"
 )
 
 // listCmd represents the list command
@@ -43,25 +42,29 @@ var listCmd = &cobra.Command{
 	Args:    cobra.NoArgs,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		ctx := cmd.Context()
-		claims, ok := ctx.Value(common.ClaimsKey).(*auth.Claims)
+		claims, ok := ctx.Value(common.ClaimsKey).(*domain.Claims)
 		if !ok {
 			return fmt.Errorf("unauthorized: missing authentication claims")
 		}
 
-		log := ctx.Value(common.LogKey).(*logging.Logger)
-		if claims.Role != auth.RoleAdmin {
-			log.LogAuditError(claims.UserID.String(), "list_users", "failed", "forbidden: requires admin role", nil)
+		// Get service container from context
+		serviceContainer := ctx.Value(common.ServiceContainerKey).(*container.ServiceContainer)
+		if serviceContainer == nil {
+			return fmt.Errorf("service container not available in context")
+		}
+
+		if claims.Role != domain.RoleAdmin {
 			return fmt.Errorf("forbidden: requires admin role")
 		}
 
-		userRepo := auth.NewUserRepository(ctx.Value(common.DBKey).(*sql.DB), log)
-		users, err := userRepo.List(ctx)
+		userSvc := serviceContainer.GetUserService()
+		users, err := userSvc.ListUsers(ctx)
 		if err != nil {
-			log.LogAuditError(claims.UserID.String(), "list_users", "failed", fmt.Sprintf("failed to list users: %s", err), err)
 			return fmt.Errorf("failed to list users: %w", err)
 		}
 
-		log.LogAuditInfo(claims.UserID.String(), "list_users", "success", fmt.Sprintf("listed %d users", len(users)))
+		logger := serviceContainer.GetLogger()
+		logger.LogAuditInfo(claims.UserID.String(), "list_users", "success", fmt.Sprintf("listed %d users", len(users)))
 		if len(users) == 0 {
 			fmt.Println("No users found.")
 			return nil
