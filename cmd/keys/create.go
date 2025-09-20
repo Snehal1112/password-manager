@@ -28,7 +28,7 @@ import (
 	"strings"
 
 	"password-manager/common"
-	"password-manager/internal/auth"
+	"password-manager/internal/domain"
 	"password-manager/internal/keys"
 	"password-manager/internal/logging"
 
@@ -45,13 +45,13 @@ var createCmd = &cobra.Command{
 	Example: `keys create --name <name> --type <type>`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		ctx := cmd.Context()
-		claims, ok := ctx.Value(common.ClaimsKey).(*auth.Claims)
+		claims, ok := ctx.Value(common.ClaimsKey).(*domain.Claims)
 		if !ok {
 			return fmt.Errorf("unauthorized: missing authentication claims")
 		}
 
 		log := ctx.Value(common.LogKey).(*logging.Logger)
-		if claims.Role != auth.RoleAdmin && claims.Role != auth.RoleSecretsManager {
+		if claims.Role != domain.RoleAdmin && claims.Role != domain.RoleSecretsManager {
 			log.LogAuditError(claims.UserID.String(), "create_key", "failed", "forbidden: requires admin or secrets_manager role", nil)
 			return fmt.Errorf("forbidden: requires admin or secrets_manager role")
 		}

@@ -10,10 +10,8 @@ import (
 
 	"github.com/spf13/viper"
 
-	"password-manager/internal/auth"
 	"password-manager/internal/logging"
 	"password-manager/internal/repositories"
-	"password-manager/internal/secrets"
 	authServices "password-manager/internal/services/auth"
 	authzServices "password-manager/internal/services/authorization"
 	secretServices "password-manager/internal/services/secrets"
@@ -29,8 +27,10 @@ type ServiceContainer struct {
 	logger *logging.Logger
 
 	// Repositories
-	userRepository   auth.UserRepository
-	secretRepository secrets.SecretRepository
+	userRepository         repositories.UserRepositoryInterface
+	secretRepository       repositories.SecretRepositoryInterface
+	rotationRepository     repositories.RotationPolicyRepositoryInterface
+	versionRepository      repositories.SecretVersionRepositoryInterface
 
 	// Authentication services
 	passwordService      authServices.PasswordService
@@ -46,9 +46,11 @@ type ServiceContainer struct {
 	secretService secretServices.SecretService
 
 	// Secret component services
-	cryptoService     secretServices.CryptographyService
-	versioningService secretServices.VersioningService
-	tagService        secretServices.TagService
+	cryptoService         secretServices.CryptographyService
+	versioningService     secretServices.VersioningServiceInterface
+	tagService            secretServices.TagService
+	rotationService       secretServices.RotationServiceInterface
+	schedulerService      secretServices.SchedulerServiceInterface
 }
 
 // Config holds configuration for the service container.
@@ -83,6 +85,8 @@ func (c *ServiceContainer) initializeServices() error {
 	// Initialize repositories (data layer)
 	c.userRepository = repositories.NewUserRepository(c.db, c.logger)
 	c.secretRepository = repositories.NewSecretRepository(c.db, c.logger)
+	c.rotationRepository = repositories.NewRotationPolicyRepository(c.db, c.logger)
+	c.versionRepository = repositories.NewSecretVersionRepository(c.db, c.logger)
 
 	// Initialize authentication services
 	c.passwordService = authServices.NewPasswordService()
@@ -122,8 +126,29 @@ func (c *ServiceContainer) initializeServices() error {
 
 	// Initialize secret component services
 	c.cryptoService = secretServices.NewCryptographyService()
-	c.versioningService = secretServices.NewVersioningService(c.db, c.logger)
+	c.versioningService = secretServices.NewVersioningService(
+		c.versionRepository,
+		c.secretRepository,
+		c.userRepository,
+		c.cryptoService,
+		c.logger,
+	)
 	c.tagService = secretServices.NewTagService(c.db, c.logger)
+	c.rotationService = secretServices.NewRotationService(
+		c.rotationRepository,
+		c.secretRepository,
+		c.userRepository,
+		c.cryptoService,
+		c.logger,
+	)
+	c.schedulerService = secretServices.NewSchedulerService(
+		c.rotationService,
+		c.versioningService,
+		c.userRepository,
+		c.secretRepository,
+		c.rotationRepository,
+		c.logger,
+	)
 
 	// Initialize secret service
 	c.secretService = secretServices.NewSecretService(secretServices.SecretServiceConfig{
@@ -138,12 +163,12 @@ func (c *ServiceContainer) initializeServices() error {
 }
 
 // GetUserRepository returns the user repository.
-func (c *ServiceContainer) GetUserRepository() auth.UserRepository {
+func (c *ServiceContainer) GetUserRepository() repositories.UserRepositoryInterface {
 	return c.userRepository
 }
 
 // GetSecretRepository returns the secret repository.
-func (c *ServiceContainer) GetSecretRepository() secrets.SecretRepository {
+func (c *ServiceContainer) GetSecretRepository() repositories.SecretRepositoryInterface {
 	return c.secretRepository
 }
 
@@ -188,13 +213,33 @@ func (c *ServiceContainer) GetCryptographyService() secretServices.CryptographyS
 }
 
 // GetVersioningService returns the versioning service.
-func (c *ServiceContainer) GetVersioningService() secretServices.VersioningService {
+func (c *ServiceContainer) GetVersioningService() secretServices.VersioningServiceInterface {
 	return c.versioningService
 }
 
 // GetTagService returns the tag service.
 func (c *ServiceContainer) GetTagService() secretServices.TagService {
 	return c.tagService
+}
+
+// GetRotationRepository returns the rotation policy repository.
+func (c *ServiceContainer) GetRotationRepository() repositories.RotationPolicyRepositoryInterface {
+	return c.rotationRepository
+}
+
+// GetVersionRepository returns the secret version repository.
+func (c *ServiceContainer) GetVersionRepository() repositories.SecretVersionRepositoryInterface {
+	return c.versionRepository
+}
+
+// GetRotationService returns the rotation service.
+func (c *ServiceContainer) GetRotationService() secretServices.RotationServiceInterface {
+	return c.rotationService
+}
+
+// GetSchedulerService returns the scheduler service.
+func (c *ServiceContainer) GetSchedulerService() secretServices.SchedulerServiceInterface {
+	return c.schedulerService
 }
 
 // GetDatabase returns the database connection.

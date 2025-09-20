@@ -33,7 +33,7 @@ import (
 
 	"password-manager/common"
 	"password-manager/internal/logging"
-	"password-manager/internal/secrets"
+	"password-manager/internal/repositories"
 )
 
 // updateCmd represents the update command
@@ -52,7 +52,7 @@ var updateCmd = &cobra.Command{
 		db := ctx.Value(common.DBKey).(*sql.DB)
 		logger := ctx.Value(common.LogKey).(*logging.Logger)
 
-		repo := secrets.NewSecretRepository(db, logger)
+		repo := repositories.NewSecretRepository(db, logger)
 		secret, err := repo.Read(cmd.Context(), secretID)
 		if err != nil {
 			logger.Error("Failed to read secret: ", err)

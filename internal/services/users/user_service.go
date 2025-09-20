@@ -11,7 +11,8 @@ import (
 	"github.com/google/uuid"
 	"github.com/sirupsen/logrus"
 
-	"password-manager/internal/auth"
+	"password-manager/internal/domain"
+	"password-manager/internal/repositories"
 	authService "password-manager/internal/services/auth"
 	"password-manager/internal/logging"
 )
@@ -46,9 +47,9 @@ type UpdateUserRequest struct {
 type UserService interface {
 	CreateUser(ctx context.Context, req CreateUserRequest) (*CreateUserResult, error)
 	UpdateUser(ctx context.Context, req UpdateUserRequest) error
-	GetUser(ctx context.Context, userID uuid.UUID) (*auth.User, error)
-	GetUserByUsername(ctx context.Context, username string) (*auth.User, error)
-	ListUsers(ctx context.Context) ([]auth.User, error)
+	GetUser(ctx context.Context, userID uuid.UUID) (*domain.User, error)
+	GetUserByUsername(ctx context.Context, username string) (*domain.User, error)
+	ListUsers(ctx context.Context) ([]domain.User, error)
 	DeleteUser(ctx context.Context, userID uuid.UUID) error
 	ValidateBootstrapToken(ctx context.Context, token string) (bool, error)
 	InvalidateBootstrapToken(ctx context.Context, token string) error
@@ -57,7 +58,7 @@ type UserService interface {
 // userService implements UserService by coordinating authentication
 // services and user repository operations.
 type userService struct {
-	userRepo        auth.UserRepository
+	userRepo        repositories.UserRepositoryInterface
 	passwordService authService.PasswordService
 	totpService     authService.TOTPService
 	logger          *logging.Logger
@@ -65,7 +66,7 @@ type userService struct {
 
 // UserServiceConfig holds the dependencies for user service.
 type UserServiceConfig struct {
-	UserRepository  auth.UserRepository
+	UserRepository  repositories.UserRepositoryInterface
 	PasswordService authService.PasswordService
 	TOTPService     authService.TOTPService
 	Logger          *logging.Logger
@@ -120,7 +121,7 @@ func (s *userService) CreateUser(ctx context.Context, req CreateUserRequest) (*C
 
 	// Create user entity
 	userID := uuid.New()
-	user := &auth.User{
+	user := &domain.User{
 		ID:           userID,
 		Username:     req.Username,
 		PasswordHash: hashedPassword,
@@ -217,7 +218,7 @@ func (s *userService) UpdateUser(ctx context.Context, req UpdateUserRequest) err
 //
 // Returns:
 //   The user information or an error if not found.
-func (s *userService) GetUser(ctx context.Context, userID uuid.UUID) (*auth.User, error) {
+func (s *userService) GetUser(ctx context.Context, userID uuid.UUID) (*domain.User, error) {
 	return s.userRepo.Read(ctx, userID)
 }
 
@@ -229,7 +230,7 @@ func (s *userService) GetUser(ctx context.Context, userID uuid.UUID) (*auth.User
 //
 // Returns:
 //   The user information or an error if not found.
-func (s *userService) GetUserByUsername(ctx context.Context, username string) (*auth.User, error) {
+func (s *userService) GetUserByUsername(ctx context.Context, username string) (*domain.User, error) {
 	user, err := s.userRepo.ReadByUsername(ctx, username)
 	if err != nil {
 		return nil, err
@@ -244,7 +245,7 @@ func (s *userService) GetUserByUsername(ctx context.Context, username string) (*
 //
 // Returns:
 //   A slice of all users or an error if retrieval fails.
-func (s *userService) ListUsers(ctx context.Context) ([]auth.User, error) {
+func (s *userService) ListUsers(ctx context.Context) ([]domain.User, error) {
 	return s.userRepo.List(ctx)
 }
 

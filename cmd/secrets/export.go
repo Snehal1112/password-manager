@@ -35,8 +35,9 @@ import (
 
 	"password-manager/common"
 	"password-manager/internal/db"
+	"password-manager/internal/domain"
 	"password-manager/internal/logging"
-	"password-manager/internal/secrets"
+	"password-manager/internal/repositories"
 )
 
 var (
@@ -97,15 +98,15 @@ func runSecretsExport(cmd *cobra.Command, args []string) error {
 	defer sqlDB.Close()
 
 	// Initialize secrets repository
-	secretsRepo := secrets.NewSecretRepository(sqlDB, logger)
+	secretsRepo := repositories.NewSecretRepository(sqlDB, logger)
 
 	// Validate format
-	var format secrets.ExportFormat
+	var format domain.ExportFormat
 	switch strings.ToLower(exportFormat) {
 	case "json":
-		format = secrets.ExportFormatJSON
+		format = domain.ExportFormatJSON
 	case "csv":
-		format = secrets.ExportFormatCSV
+		format = domain.ExportFormatCSV
 	default:
 		return fmt.Errorf("unsupported format: %s (supported: json, csv)", exportFormat)
 	}
@@ -121,7 +122,7 @@ func runSecretsExport(cmd *cobra.Command, args []string) error {
 	}
 
 	// Prepare export options
-	options := secrets.ExportOptions{
+	options := domain.ExportOptions{
 		Format:      format,
 		IncludeTags: true,
 		FilterTags:  append(exportTags, exportFilterTags...),

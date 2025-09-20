@@ -11,11 +11,22 @@ import (
 	"github.com/google/uuid"
 	"github.com/sirupsen/logrus"
 
-	"password-manager/internal/auth"
+	"password-manager/internal/db"
+	"password-manager/internal/domain"
 	"password-manager/internal/logging"
 )
 
-// UserRepository implements auth.UserRepository with pure CRUD operations.
+// UserRepositoryInterface is a generic repository interface for user operations.
+// It provides type-safe CRUD operations for the User type.
+type UserRepositoryInterface interface {
+	db.Repository[domain.User]
+	ReadByUsername(ctx context.Context, username string) (domain.User, error)
+	List(ctx context.Context) ([]domain.User, error)
+	ValidateBootstrapToken(ctx context.Context, token string) (bool, error)
+	InvalidateBootstrapToken(ctx context.Context, token string) error
+}
+
+// UserRepository implements UserRepositoryInterface with pure CRUD operations.
 // It focuses solely on database interactions without business logic.
 type UserRepository struct {
 	db  *sql.DB
@@ -33,7 +44,7 @@ type UserRepository struct {
 // Returns:
 //
 //	A UserRepository implementation for user database operations.
-func NewUserRepository(db *sql.DB, log *logging.Logger) auth.UserRepository {
+func NewUserRepository(db *sql.DB, log *logging.Logger) UserRepositoryInterface {
 	return &UserRepository{db: db, log: log}
 }
 
@@ -48,7 +59,7 @@ func NewUserRepository(db *sql.DB, log *logging.Logger) auth.UserRepository {
 // Returns:
 //
 //	An error if the insertion fails.
-func (r *UserRepository) Create(ctx context.Context, user *auth.User) error {
+func (r *UserRepository) Create(ctx context.Context, user *domain.User) error {
 	logrus.WithFields(logrus.Fields{
 		"username": user.Username,
 		"role":     user.Role,
@@ -98,8 +109,8 @@ func (r *UserRepository) Create(ctx context.Context, user *auth.User) error {
 // Returns:
 //
 //	The user entity or an error if not found.
-func (r *UserRepository) Read(ctx context.Context, id uuid.UUID) (*auth.User, error) {
-	var user auth.User
+func (r *UserRepository) Read(ctx context.Context, id uuid.UUID) (*domain.User, error) {
+	var user domain.User
 	var idStr string
 
 	err := r.db.QueryRowContext(
@@ -134,7 +145,7 @@ func (r *UserRepository) Read(ctx context.Context, id uuid.UUID) (*auth.User, er
 // Returns:
 //
 //	An error if the update fails.
-func (r *UserRepository) Update(ctx context.Context, user *auth.User) error {
+func (r *UserRepository) Update(ctx context.Context, user *domain.User) error {
 	logrus.WithFields(logrus.Fields{
 		"user_id":  user.ID.String(),
 		"username": user.Username,
@@ -273,8 +284,8 @@ func (r *UserRepository) Delete(ctx context.Context, id uuid.UUID) error {
 // Returns:
 //
 //	The user entity or an error if not found.
-func (r *UserRepository) ReadByUsername(ctx context.Context, username string) (auth.User, error) {
-	var user auth.User
+func (r *UserRepository) ReadByUsername(ctx context.Context, username string) (domain.User, error) {
+	var user domain.User
 	var idStr string
 
 	err := r.db.QueryRowContext(
@@ -315,7 +326,7 @@ func (r *UserRepository) Login(ctx context.Context, username, password, totpCode
 // Returns:
 //
 //	A slice of all users or an error if retrieval fails.
-func (r *UserRepository) List(ctx context.Context) ([]auth.User, error) {
+func (r *UserRepository) List(ctx context.Context) ([]domain.User, error) {
 	rows, err := r.db.QueryContext(ctx, "SELECT id, username, password_hash, totp_secret, role, created_at FROM users")
 	if err != nil {
 		logrus.WithError(err).Error("Failed to list users")
@@ -323,9 +334,9 @@ func (r *UserRepository) List(ctx context.Context) ([]auth.User, error) {
 	}
 	defer rows.Close()
 
-	var users []auth.User
+	var users []domain.User
 	for rows.Next() {
-		var user auth.User
+		var user domain.User
 		var idStr string
 
 		if err := rows.Scan(&idStr, &user.Username, &user.PasswordHash, &user.TOTPSecret, &user.Role, &user.CreatedAt); err != nil {

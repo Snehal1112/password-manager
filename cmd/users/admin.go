@@ -23,18 +23,17 @@ THE SOFTWARE.
 package users
 
 import (
-	"context"
-	"database/sql"
 	"fmt"
 
 	"github.com/google/uuid"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 
-	"password-manager/common"
-	"password-manager/internal/auth"
+	"password-manager/internal/domain"
+	"password-manager/internal/container"
 	"password-manager/internal/db"
 	"password-manager/internal/logging"
+	userService "password-manager/internal/services/users"
 )
 
 // registerAdminCmd represents the register/admin command
@@ -51,35 +50,30 @@ var registerAdminCmd = &cobra.Command{
 		database := db.NewRepository(log)
 		database.InitializeDB()
 
-		ctx := context.WithValue(cmd.Context(), common.DBKey, database.GetDB())
-		ctx = context.WithValue(ctx, common.DBClassKey, database)
-		ctx = context.WithValue(ctx, common.LogKey, log)
+		// Create service container for admin registration
+		serviceContainer, err := container.NewServiceContainer(container.Config{
+			Database: database.GetDB(),
+			Logger:   log,
+		})
+		if err != nil {
+			return fmt.Errorf("failed to create service container: %w", err)
+		}
 
-		userRepo := auth.NewUserRepository(ctx.Value(common.DBKey).(*sql.DB), log)
-
+		ctx := cmd.Context()
 		username := viper.GetString("admin-username")
 		token := viper.GetString("bootstrap-token")
+		password := viper.GetString("admin-password")
 
-		if username == "" || token == "" {
-			log.LogAuditError(uuid.Nil.String(), "register_admin", "failed", "admin-username and bootstrap-token are required", nil)
-			return fmt.Errorf("admin-username and bootstrap-token are required")
+		if username == "" || token == "" || password == "" {
+			log.LogAuditError(uuid.Nil.String(), "register_admin", "failed", "admin-username, bootstrap-token, and admin-password are required", nil)
+			return fmt.Errorf("admin-username, bootstrap-token, and admin-password are required")
 		}
 
 		log.Println("Registering initial admin user...")
 
-		// Only prompt if not provided via flags
-		if username == "" {
-			fmt.Print("Enter admin username: ")
-			fmt.Scanln(&username)
-		}
-
-		if token == "" {
-			fmt.Print("Enter bootstrap token: ")
-			fmt.Scanln(&token)
-		}
-
-		// Validate bootstrap token
-		valid, err := userRepo.ValidateBootstrapToken(ctx, token)
+		// Validate bootstrap token using service
+		userSvc := serviceContainer.GetUserService()
+		valid, err := userSvc.ValidateBootstrapToken(ctx, token)
 		if err != nil {
 			log.LogAuditError(uuid.Nil.String(), "register_admin", "failed", fmt.Sprintf("failed to validate bootstrap token: %s", err), err)
 			return fmt.Errorf("failed to validate bootstrap token: %w", err)
@@ -89,32 +83,27 @@ var registerAdminCmd = &cobra.Command{
 			return fmt.Errorf("invalid or used bootstrap token")
 		}
 
-		password := viper.GetString("admin-password")
-		if password == "" {
-			log.LogAuditError(uuid.Nil.String(), "register_admin", "failed", "admin-password is required", nil)
-			return fmt.Errorf("admin-password is required")
-		}
-
-		// Create admin user
-		adminUser := &auth.User{
-			ID:           uuid.New(),
-			Username:     username,
-			PasswordHash: password,
-			Role:         auth.RoleAdmin,
-		}
-		err = userRepo.Create(ctx, adminUser)
+		// Create admin user using service
+		result, err := userSvc.CreateUser(ctx, userService.CreateUserRequest{
+			Username: username,
+			Password: password,
+			Role:     domain.RoleAdmin,
+		})
 		if err != nil {
 			log.LogAuditError(uuid.Nil.String(), "register_admin", "failed", fmt.Sprintf("failed to create admin user: %s", err), err)
 			return fmt.Errorf("failed to create admin user: %w", err)
 		}
 
 		// Invalidate bootstrap token
-		if err := userRepo.InvalidateBootstrapToken(ctx, token); err != nil {
+		if err := userSvc.InvalidateBootstrapToken(ctx, token); err != nil {
 			log.LogAuditError(uuid.Nil.String(), "register_admin", "failed", fmt.Sprintf("failed to invalidate bootstrap token: %s", err), err)
 			return fmt.Errorf("failed to invalidate bootstrap token: %w", err)
 		}
 
-		log.LogAuditInfo(uuid.Nil.String(), "register_admin", "success", fmt.Sprintf("admin user created: %s", username))
+		log.LogAuditInfo(uuid.Nil.String(), "register_admin", "success", fmt.Sprintf("admin user created: %s (ID: %s)", result.Username, result.UserID))
+		fmt.Printf("Admin user %s created successfully with ID: %s\n", result.Username, result.UserID)
+		fmt.Printf("TOTP Secret: %s\n", result.TOTPSecret)
+		fmt.Printf("Configure the TOTP secret in your authenticator app for MFA.\n")
 		return nil
 	},
 }

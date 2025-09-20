@@ -35,23 +35,11 @@ import (
 	"github.com/spf13/viper"
 
 	"password-manager/common"
-	"password-manager/internal/auth"
+	"password-manager/internal/container"
 	"password-manager/internal/db"
+	"password-manager/internal/domain"
 	"password-manager/internal/logging"
 )
-
-// restrictedCmds defines commands that are restricted to certain parents.
-var restrictedCmds = map[string]map[string]string{
-	"serve": {
-		"parent": "password-manager",
-	},
-	"create": {
-		"parent": "users",
-	},
-	"admin": {
-		"parent": "users",
-	},
-}
 
 // cfgFile is the config file name
 var cfgFile string
@@ -134,10 +122,6 @@ func initConfig() {
 // Return type: none
 func persistentPreRun(cmd *cobra.Command, args []string) error {
 	logrus.Info("Persistent PreRun called for command:", cmd.Name())
-	// TODO: I think not below check is not required.
-	if restrictedCmds[cmd.Name()] != nil && restrictedCmds[cmd.Name()]["parent"] == cmd.Parent().Name() {
-		return nil
-	}
 
 	// System commands that don't require authentication
 	systemCmds := map[string]bool{
@@ -160,9 +144,20 @@ func persistentPreRun(cmd *cobra.Command, args []string) error {
 	database := db.NewRepository(log)
 	database.InitializeDB()
 
+	// Create service container
+	serviceContainer, err := container.NewServiceContainer(container.Config{
+		Database: database.GetDB(),
+		Logger:   log,
+	})
+	if err != nil {
+		log.LogAuditError("", "init_services", "failed", "Failed to initialize service container", err)
+		return errors.New("failed to initialize services")
+	}
+
 	ctx := context.WithValue(cmd.Context(), common.DBKey, database.GetDB())
 	ctx = context.WithValue(ctx, common.DBClassKey, database)
 	ctx = context.WithValue(ctx, common.LogKey, log)
+	ctx = context.WithValue(ctx, common.ServiceContainerKey, serviceContainer)
 	cmd.SetContext(ctx)
 
 	// Skip authentication for system commands
@@ -181,24 +176,24 @@ func persistentPreRun(cmd *cobra.Command, args []string) error {
 		return errors.New("authentication failed")
 	}
 
-	authRepo := auth.NewUserRepository(database.GetDB(), log)
-	token, err := authRepo.Login(ctx, username, password, totpCode)
+	// Use authentication service for login
+	authService := serviceContainer.GetAuthenticationService()
+	authResult, err := authService.AuthenticateUser(ctx, username, password, totpCode)
 	if err != nil {
 		log.LogAuditError("", "secrets", "failed", "Authentication failed", err)
 		cmd.PrintErrln("Error: Authentication failed -", err.Error())
 		return errors.New("authentication failed")
 	}
 
-	// Parse JWT to extract userID.
-	claims, err := auth.ParseJWT(token)
-	if err != nil {
-		log.LogAuditError("", "secrets", "failed", "Failed to parse JWT", err)
-		cmd.PrintErrln("Error: Failed to parse authentication token -", err.Error())
-		return errors.New("authentication failed")
+	// Create claims from authentication result (no need to parse JWT)
+	claims := &domain.Claims{
+		UserID:   authResult.UserID,
+		Username: authResult.Username,
+		Role:     authResult.Role,
 	}
 
 	// Log successful authentication.
-	ctx = context.WithValue(ctx, common.TokenKey, token)
+	ctx = context.WithValue(ctx, common.TokenKey, authResult.Token)
 	// Add userID to context.
 	ctx = context.WithValue(ctx, common.UserIDKey, claims.UserID)
 	// Add claims to context for further use in the command.
@@ -207,7 +202,7 @@ func persistentPreRun(cmd *cobra.Command, args []string) error {
 
 	log.WithFields(logrus.Fields{
 		"command":  cmd.Short,
-		"jwt":      token[:10] + "...",
+		"jwt":      authResult.Token[:10] + "...",
 		"userID":   claims.UserID,
 		"username": username,
 	}).Info("User authenticated successfully")
@@ -224,11 +219,6 @@ func persistentPreRun(cmd *cobra.Command, args []string) error {
 //
 // Return type: error - returns nil if successful, or an error if closing the database fails.
 func persistentPostRun(cmd *cobra.Command, args []string) error {
-	// TODO: I think not below check is not required.
-	if restrictedCmds[cmd.Name()] != nil && restrictedCmds[cmd.Name()]["parent"] == cmd.Parent().Name() {
-		return nil
-	}
-
 	if dbRepo, ok := cmd.Context().Value(common.DBClassKey).(*db.DBRepository); ok {
 		return dbRepo.CloseDB()
 	}

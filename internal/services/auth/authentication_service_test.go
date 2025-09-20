@@ -11,8 +11,9 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 
-	"password-manager/internal/auth"
+	"password-manager/internal/domain"
 	"password-manager/internal/logging"
+	"password-manager/internal/repositories"
 )
 
 // Mock implementations for testing
@@ -21,17 +22,17 @@ type MockUserRepository struct {
 	mock.Mock
 }
 
-func (m *MockUserRepository) Create(ctx context.Context, user *auth.User) error {
+func (m *MockUserRepository) Create(ctx context.Context, user *domain.User) error {
 	args := m.Called(ctx, user)
 	return args.Error(0)
 }
 
-func (m *MockUserRepository) Read(ctx context.Context, id uuid.UUID) (*auth.User, error) {
+func (m *MockUserRepository) Read(ctx context.Context, id uuid.UUID) (*domain.User, error) {
 	args := m.Called(ctx, id)
-	return args.Get(0).(*auth.User), args.Error(1)
+	return args.Get(0).(*domain.User), args.Error(1)
 }
 
-func (m *MockUserRepository) Update(ctx context.Context, user *auth.User) error {
+func (m *MockUserRepository) Update(ctx context.Context, user *domain.User) error {
 	args := m.Called(ctx, user)
 	return args.Error(0)
 }
@@ -41,19 +42,14 @@ func (m *MockUserRepository) Delete(ctx context.Context, id uuid.UUID) error {
 	return args.Error(0)
 }
 
-func (m *MockUserRepository) ReadByUsername(ctx context.Context, username string) (auth.User, error) {
+func (m *MockUserRepository) ReadByUsername(ctx context.Context, username string) (domain.User, error) {
 	args := m.Called(ctx, username)
-	return args.Get(0).(auth.User), args.Error(1)
+	return args.Get(0).(domain.User), args.Error(1)
 }
 
-func (m *MockUserRepository) Login(ctx context.Context, username, password, totpCode string) (string, error) {
-	args := m.Called(ctx, username, password, totpCode)
-	return args.String(0), args.Error(1)
-}
-
-func (m *MockUserRepository) List(ctx context.Context) ([]auth.User, error) {
+func (m *MockUserRepository) List(ctx context.Context) ([]domain.User, error) {
 	args := m.Called(ctx)
-	return args.Get(0).([]auth.User), args.Error(1)
+	return args.Get(0).([]domain.User), args.Error(1)
 }
 
 func (m *MockUserRepository) ValidateBootstrapToken(ctx context.Context, token string) (bool, error) {
@@ -65,6 +61,9 @@ func (m *MockUserRepository) InvalidateBootstrapToken(ctx context.Context, token
 	args := m.Called(ctx, token)
 	return args.Error(0)
 }
+
+// Ensure MockUserRepository implements repositories.UserRepositoryInterface
+var _ repositories.UserRepositoryInterface = &MockUserRepository{}
 
 type MockPasswordService struct {
 	mock.Mock
@@ -135,19 +134,19 @@ func TestAuthenticationService_AuthenticateUser_Success(t *testing.T) {
 
 	// Create test user
 	userID := uuid.New()
-	user := auth.User{
+	user := domain.User{
 		ID:           userID,
 		Username:     "testuser",
 		PasswordHash: "hashedpassword",
 		TOTPSecret:   "secret123",
-		Role:         auth.RoleUser,
+		Role:         domain.RoleUser,
 	}
 
 	// Setup expectations
 	mockUserRepo.On("ReadByUsername", ctx, "testuser").Return(user, nil)
 	mockPasswordService.On("ValidatePassword", "password123", "hashedpassword").Return(nil)
 	mockTOTPService.On("ValidateCode", "123456", "secret123", mock.AnythingOfType("time.Time")).Return(true, nil)
-	mockJWTService.On("GenerateToken", userID, "testuser", auth.RoleUser).Return("jwt_token", nil)
+	mockJWTService.On("GenerateToken", userID, "testuser", domain.RoleUser).Return("jwt_token", nil)
 
 	// Create service
 	service := NewAuthenticationService(AuthenticationConfig{
@@ -167,7 +166,7 @@ func TestAuthenticationService_AuthenticateUser_Success(t *testing.T) {
 	assert.Equal(t, "jwt_token", result.Token)
 	assert.Equal(t, userID, result.UserID)
 	assert.Equal(t, "testuser", result.Username)
-	assert.Equal(t, auth.RoleUser, result.Role)
+	assert.Equal(t, domain.RoleUser, result.Role)
 
 	// Verify all mocks were called
 	mockUserRepo.AssertExpectations(t)
@@ -191,12 +190,12 @@ func TestAuthenticationService_AuthenticateUser_InvalidPassword(t *testing.T) {
 
 	// Create test user
 	userID := uuid.New()
-	user := auth.User{
+	user := domain.User{
 		ID:           userID,
 		Username:     "testuser",
 		PasswordHash: "hashedpassword",
 		TOTPSecret:   "secret123",
-		Role:         auth.RoleUser,
+		Role:         domain.RoleUser,
 	}
 
 	// Setup expectations
@@ -243,12 +242,12 @@ func TestAuthenticationService_AuthenticateUser_InvalidTOTP(t *testing.T) {
 
 	// Create test user
 	userID := uuid.New()
-	user := auth.User{
+	user := domain.User{
 		ID:           userID,
 		Username:     "testuser",
 		PasswordHash: "hashedpassword",
 		TOTPSecret:   "secret123",
-		Role:         auth.RoleUser,
+		Role:         domain.RoleUser,
 	}
 
 	// Setup expectations

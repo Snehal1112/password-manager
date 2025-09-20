@@ -14,7 +14,7 @@ import (
 	"github.com/spf13/viper"
 
 	"password-manager/common"
-	"password-manager/internal/auth"
+	"password-manager/internal/domain"
 	"password-manager/internal/certificates"
 	"password-manager/internal/keys"
 	"password-manager/internal/logging"
@@ -30,13 +30,13 @@ var createCmd = &cobra.Command{
 	Args:    cobra.NoArgs,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		ctx := cmd.Context()
-		claims, ok := ctx.Value(common.ClaimsKey).(*auth.Claims)
+		claims, ok := ctx.Value(common.ClaimsKey).(*domain.Claims)
 		if !ok {
 			return fmt.Errorf("unauthorized: missing authentication claims")
 		}
 
 		log := ctx.Value(common.LogKey).(*logging.Logger)
-		if claims.Role != auth.RoleAdmin && claims.Role != auth.RoleCertificateManager {
+		if claims.Role != domain.RoleAdmin && claims.Role != domain.RoleCertificateManager {
 			log.LogAuditError(claims.UserID.String(), "create_certificate", "failed", "forbidden: requires admin or certificate_manager role", nil)
 			return fmt.Errorf("forbidden: requires admin or certificate_manager role")
 		}
@@ -73,7 +73,7 @@ var createCmd = &cobra.Command{
 			log.LogAuditError(claims.UserID.String(), "create_certificate", "failed", fmt.Sprintf("failed to read key: %s", err), err)
 			return fmt.Errorf("failed to read key: %w", err)
 		}
-		if key.UserID != claims.UserID && claims.Role != auth.RoleAdmin {
+		if key.UserID != claims.UserID && claims.Role != domain.RoleAdmin {
 			log.LogAuditError(claims.UserID.String(), "create_certificate", "failed", "forbidden: cannot use other users' keys", nil)
 			return fmt.Errorf("forbidden: cannot use other users' keys")
 		}

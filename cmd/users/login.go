@@ -23,7 +23,6 @@ THE SOFTWARE.
 package users
 
 import (
-	"database/sql"
 	"fmt"
 
 	"github.com/google/uuid"
@@ -31,8 +30,7 @@ import (
 	"github.com/spf13/viper"
 
 	"password-manager/common"
-	"password-manager/internal/auth"
-	"password-manager/internal/logging"
+	"password-manager/internal/container"
 )
 
 // loginCmd represents the login command
@@ -44,26 +42,35 @@ var loginCmd = &cobra.Command{
 	Args:    cobra.NoArgs,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		ctx := cmd.Context()
-		log := ctx.Value(common.LogKey).(*logging.Logger)
+
+		// Get service container from context (injected by root command)
+		serviceContainer := ctx.Value(common.ServiceContainerKey).(*container.ServiceContainer)
+		if serviceContainer == nil {
+			return fmt.Errorf("service container not available in context")
+		}
 
 		username := viper.GetString("username")
 		password := viper.GetString("password")
 		totpCode := viper.GetString("totp-code")
 
 		if username == "" || password == "" || totpCode == "" {
-			log.LogAuditError(uuid.Nil.String(), "login", "failed", "username, password, and totp-code are required", nil)
+			logger := serviceContainer.GetLogger()
+			logger.LogAuditError(uuid.Nil.String(), "login", "failed", "username, password, and totp-code are required", nil)
 			return fmt.Errorf("username, password, and totp-code are required")
 		}
 
-		userRepo := auth.NewUserRepository(ctx.Value(common.DBKey).(*sql.DB), log)
-		token, err := userRepo.Login(ctx, username, password, totpCode)
+		// Use authentication service for login
+		authSvc := serviceContainer.GetAuthenticationService()
+		result, err := authSvc.AuthenticateUser(ctx, username, password, totpCode)
 		if err != nil {
-			log.LogAuditError(uuid.Nil.String(), "login", "failed", fmt.Sprintf("failed to login: %s", err), err)
+			logger := serviceContainer.GetLogger()
+			logger.LogAuditError(uuid.Nil.String(), "login", "failed", fmt.Sprintf("failed to login: %s", err), err)
 			return fmt.Errorf("failed to login: %w", err)
 		}
 
-		log.LogAuditInfo(uuid.Nil.String(), "login", "success", fmt.Sprintf("user logged in: %s", username))
-		fmt.Printf("Login successful, JWT token: %s\n", token)
+		logger := serviceContainer.GetLogger()
+		logger.LogAuditInfo(result.UserID.String(), "login", "success", fmt.Sprintf("user logged in: %s", username))
+		fmt.Printf("Login successful, JWT token: %s\n", result.Token)
 		return nil
 	},
 }

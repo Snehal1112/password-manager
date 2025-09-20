@@ -32,7 +32,7 @@ import (
 	"github.com/gorilla/mux"
 
 	"password-manager/common"
-	"password-manager/internal/auth"
+	"password-manager/internal/domain"
 	"password-manager/internal/db"
 	"password-manager/internal/keys"
 )
@@ -98,7 +98,7 @@ func (api *API) InitKeys(keys *mux.Router) {
 func createKey(c *Context, w http.ResponseWriter, r *http.Request) {
 	// Check authorization - requires admin or secrets manager role
 	claims, ok := c.Claims["role"].(string)
-	if !ok || (claims != string(auth.RoleAdmin) && claims != string(auth.RoleSecretsManager)) {
+	if !ok || (claims != string(domain.RoleAdmin) && claims != string(domain.RoleSecretsManager)) {
 		c.Err = common.NewAppError("createKey", "Forbidden: requires admin or secrets_manager role", nil, "", http.StatusForbidden)
 		return
 	}
@@ -229,7 +229,7 @@ func listKeys(c *Context, w http.ResponseWriter, r *http.Request) {
 	var keysList []keys.Key
 	// Check if user is admin - admins can list all keys
 	roleStr, ok := c.Claims["role"].(string)
-	if ok && roleStr == string(auth.RoleAdmin) {
+	if ok && roleStr == string(domain.RoleAdmin) {
 		// Admins list all keys with filters
 		keysList, err = keyRepo.ListByUser(r.Context(), nil, keyType, tags)
 	} else {
@@ -299,7 +299,7 @@ func getKey(c *Context, w http.ResponseWriter, r *http.Request) {
 
 	// Check authorization - users can only access their own keys, admins can access all
 	roleStr, ok := c.Claims["role"].(string)
-	if !ok || (key.UserID != userID && roleStr != string(auth.RoleAdmin)) {
+	if !ok || (key.UserID != userID && roleStr != string(domain.RoleAdmin)) {
 		c.Err = common.NewAppError("getKey", "Forbidden: cannot access other users' keys", nil, "", http.StatusForbidden)
 		return
 	}
@@ -364,7 +364,7 @@ func updateKey(c *Context, w http.ResponseWriter, r *http.Request) {
 
 	// Check authorization - users can only update their own keys, admins can update all
 	roleStr, ok := c.Claims["role"].(string)
-	if !ok || (key.UserID != userID && roleStr != string(auth.RoleAdmin)) {
+	if !ok || (key.UserID != userID && roleStr != string(domain.RoleAdmin)) {
 		c.Err = common.NewAppError("updateKey", "Forbidden: cannot update other users' keys", nil, "", http.StatusForbidden)
 		return
 	}
@@ -459,7 +459,7 @@ func deleteKey(c *Context, w http.ResponseWriter, r *http.Request) {
 
 	// Check authorization - users can only delete their own keys, admins can delete all
 	roleStr, ok := c.Claims["role"].(string)
-	if !ok || (key.UserID != userID && roleStr != string(auth.RoleAdmin)) {
+	if !ok || (key.UserID != userID && roleStr != string(domain.RoleAdmin)) {
 		c.Err = common.NewAppError("deleteKey", "Forbidden: cannot delete other users' keys", nil, "", http.StatusForbidden)
 		return
 	}
@@ -514,7 +514,7 @@ func rotateKey(c *Context, w http.ResponseWriter, r *http.Request) {
 
 	// Check authorization - users can only rotate their own keys, admins can rotate all
 	roleStr, ok := c.Claims["role"].(string)
-	if !ok || (key.UserID != userID && roleStr != string(auth.RoleAdmin)) {
+	if !ok || (key.UserID != userID && roleStr != string(domain.RoleAdmin)) {
 		c.Err = common.NewAppError("rotateKey", "Forbidden: cannot rotate other users' keys", nil, "", http.StatusForbidden)
 		return
 	}

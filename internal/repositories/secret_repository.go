@@ -8,11 +8,25 @@ import (
 	"github.com/google/uuid"
 	"github.com/sirupsen/logrus"
 
+	"password-manager/internal/domain"
 	"password-manager/internal/logging"
-	"password-manager/internal/secrets"
 )
 
-// SecretRepository implements secrets.SecretRepository with pure CRUD operations.
+// SecretRepositoryInterface defines the interface for secret repository operations.
+type SecretRepositoryInterface interface {
+	Create(ctx context.Context, secret *domain.Secret) error
+	Read(ctx context.Context, id uuid.UUID) (*domain.Secret, error)
+	Update(ctx context.Context, secret *domain.Secret) error
+	Delete(ctx context.Context, id uuid.UUID) error
+	ListByUser(ctx context.Context, userID uuid.UUID, tags []string) ([]domain.Secret, error)
+	ExportSecrets(ctx context.Context, options domain.ExportOptions) ([]byte, error)
+	ImportSecrets(ctx context.Context, data []byte, options domain.ImportOptions) (int, error)
+	GetVersions(ctx context.Context, secretID uuid.UUID) ([]domain.SecretVersion, error)
+	GetVersion(ctx context.Context, secretID uuid.UUID, version int) (*domain.SecretVersion, error)
+	GetLatestVersion(ctx context.Context, secretID uuid.UUID) (*domain.SecretVersion, error)
+}
+
+// SecretRepository implements SecretRepositoryInterface with pure CRUD operations.
 // It focuses solely on database interactions without business logic like encryption or versioning.
 type SecretRepository struct {
 	db  *sql.DB
@@ -29,8 +43,8 @@ type SecretRepository struct {
 //
 // Returns:
 //
-//	A SecretRepository implementation for secret database operations.
-func NewSecretRepository(db *sql.DB, log *logging.Logger) secrets.SecretRepository {
+//	A SecretRepositoryInterface implementation for secret database operations.
+func NewSecretRepository(db *sql.DB, log *logging.Logger) SecretRepositoryInterface {
 	return &SecretRepository{db: db, log: log}
 }
 
@@ -45,7 +59,7 @@ func NewSecretRepository(db *sql.DB, log *logging.Logger) secrets.SecretReposito
 // Returns:
 //
 //	An error if the insertion fails.
-func (r *SecretRepository) Create(ctx context.Context, secret *secrets.Secret) error {
+func (r *SecretRepository) Create(ctx context.Context, secret *domain.Secret) error {
 	logrus.WithFields(logrus.Fields{
 		"secret_id": secret.ID.String(),
 		"user_id":   secret.UserID.String(),
@@ -96,8 +110,8 @@ func (r *SecretRepository) Create(ctx context.Context, secret *secrets.Secret) e
 // Returns:
 //
 //	The secret entity (with encrypted value) or an error if not found.
-func (r *SecretRepository) Read(ctx context.Context, id uuid.UUID) (*secrets.Secret, error) {
-	var secret secrets.Secret
+func (r *SecretRepository) Read(ctx context.Context, id uuid.UUID) (*domain.Secret, error) {
+	var secret domain.Secret
 	var idStr, userIDStr string
 
 	err := r.db.QueryRowContext(
@@ -137,7 +151,7 @@ func (r *SecretRepository) Read(ctx context.Context, id uuid.UUID) (*secrets.Sec
 // Returns:
 //
 //	An error if the update fails.
-func (r *SecretRepository) Update(ctx context.Context, secret *secrets.Secret) error {
+func (r *SecretRepository) Update(ctx context.Context, secret *domain.Secret) error {
 	logrus.WithFields(logrus.Fields{
 		"secret_id": secret.ID.String(),
 		"user_id":   secret.UserID.String(),
@@ -221,7 +235,7 @@ func (r *SecretRepository) Delete(ctx context.Context, id uuid.UUID) error {
 // Returns:
 //
 //	A slice of secrets (with encrypted values) or an error if retrieval fails.
-func (r *SecretRepository) ListByUser(ctx context.Context, userID uuid.UUID, tags []string) ([]secrets.Secret, error) {
+func (r *SecretRepository) ListByUser(ctx context.Context, userID uuid.UUID, tags []string) ([]domain.Secret, error) {
 	logrus.WithField("user_id", userID.String()).Debug("Listing secrets for user")
 
 	rows, err := r.db.QueryContext(
@@ -235,9 +249,9 @@ func (r *SecretRepository) ListByUser(ctx context.Context, userID uuid.UUID, tag
 	}
 	defer rows.Close()
 
-	var secretList []secrets.Secret
+	var secretList []domain.Secret
 	for rows.Next() {
-		var secret secrets.Secret
+		var secret domain.Secret
 		var idStr, userIDStr string
 
 		err := rows.Scan(&idStr, &userIDStr, &secret.Name, &secret.Value, &secret.Version, &secret.CreatedAt)
@@ -275,26 +289,26 @@ func (r *SecretRepository) ListByUser(ctx context.Context, userID uuid.UUID, tag
 }
 
 // ExportSecrets is deprecated and should be moved to a dedicated export service.
-func (r *SecretRepository) ExportSecrets(ctx context.Context, options secrets.ExportOptions) ([]byte, error) {
+func (r *SecretRepository) ExportSecrets(ctx context.Context, options domain.ExportOptions) ([]byte, error) {
 	return nil, fmt.Errorf("export functionality has been moved to export service")
 }
 
 // ImportSecrets is deprecated and should be moved to a dedicated import service.
-func (r *SecretRepository) ImportSecrets(ctx context.Context, data []byte, options secrets.ImportOptions) (int, error) {
+func (r *SecretRepository) ImportSecrets(ctx context.Context, data []byte, options domain.ImportOptions) (int, error) {
 	return 0, fmt.Errorf("import functionality has been moved to import service")
 }
 
 // GetVersions is deprecated and should use the VersioningService.
-func (r *SecretRepository) GetVersions(ctx context.Context, secretID uuid.UUID) ([]secrets.SecretVersion, error) {
+func (r *SecretRepository) GetVersions(ctx context.Context, secretID uuid.UUID) ([]domain.SecretVersion, error) {
 	return nil, fmt.Errorf("versioning functionality has been moved to versioning service")
 }
 
 // GetVersion is deprecated and should use the VersioningService.
-func (r *SecretRepository) GetVersion(ctx context.Context, secretID uuid.UUID, version int) (*secrets.SecretVersion, error) {
+func (r *SecretRepository) GetVersion(ctx context.Context, secretID uuid.UUID, version int) (*domain.SecretVersion, error) {
 	return nil, fmt.Errorf("versioning functionality has been moved to versioning service")
 }
 
 // GetLatestVersion is deprecated and should use the VersioningService.
-func (r *SecretRepository) GetLatestVersion(ctx context.Context, secretID uuid.UUID) (*secrets.SecretVersion, error) {
+func (r *SecretRepository) GetLatestVersion(ctx context.Context, secretID uuid.UUID) (*domain.SecretVersion, error) {
 	return nil, fmt.Errorf("versioning functionality has been moved to versioning service")
 }

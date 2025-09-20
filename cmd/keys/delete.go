@@ -30,7 +30,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"password-manager/common"
-	"password-manager/internal/auth"
+	"password-manager/internal/domain"
 	"password-manager/internal/keys"
 	"password-manager/internal/logging"
 )
@@ -44,7 +44,7 @@ var deleteCmd = &cobra.Command{
 	Args:    cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		ctx := cmd.Context()
-		claims, ok := ctx.Value(common.ClaimsKey).(*auth.Claims)
+		claims, ok := ctx.Value(common.ClaimsKey).(*domain.Claims)
 		if !ok {
 			return fmt.Errorf("unauthorized: missing authentication claims")
 		}
@@ -64,7 +64,7 @@ var deleteCmd = &cobra.Command{
 			return fmt.Errorf("failed to read key: %w", err)
 		}
 
-		if claims.UserID != key.UserID && claims.Role != auth.RoleAdmin {
+		if claims.UserID != key.UserID && claims.Role != domain.RoleAdmin {
 			log.LogAuditError(claims.UserID.String(), "delete_key", "failed", "forbidden: cannot delete other users' keys", nil)
 			return fmt.Errorf("forbidden: cannot delete other users' keys")
 		}

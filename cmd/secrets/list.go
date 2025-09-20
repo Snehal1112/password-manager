@@ -33,7 +33,7 @@ import (
 
 	"password-manager/common"
 	"password-manager/internal/logging"
-	"password-manager/internal/secrets"
+	"password-manager/internal/repositories"
 )
 
 // listCmd represents the list command
@@ -49,7 +49,7 @@ var listCmd = &cobra.Command{
 		db := ctx.Value(common.DBKey).(*sql.DB)
 		logger := ctx.Value(common.LogKey).(*logging.Logger)
 
-		repo := secrets.NewSecretRepository(db, logger)
+		repo := repositories.NewSecretRepository(db, logger)
 		secretsList, err := repo.ListByUser(cmd.Context(), userID, tags)
 		if err != nil {
 			logger.LogAuditError(userID.String(), "list_secrets", "failed", "Failed to list secrets", err)

@@ -23,15 +23,14 @@ THE SOFTWARE.
 package users
 
 import (
-	"database/sql"
 	"fmt"
 
 	"github.com/google/uuid"
 	"github.com/spf13/cobra"
 
 	"password-manager/common"
-	"password-manager/internal/auth"
-	"password-manager/internal/logging"
+	"password-manager/internal/domain"
+	"password-manager/internal/container"
 )
 
 // deleteCmd represents the delete command
@@ -43,29 +42,37 @@ var deleteCmd = &cobra.Command{
 	Long:    `Delete a user by their UUID. Accessible by the user themselves or users with the crypto_manager role. This action cannot be undone.`,
 	Example: `password-manager users delete <user-id> --username admin --password admin123 --totp-code <code>`,
 	Args:    cobra.ExactArgs(1),
-	Run: func(cmd *cobra.Command, args []string) {
+	RunE: func(cmd *cobra.Command, args []string) error {
 		ctx := cmd.Context()
-		claims, ok := ctx.Value(common.ClaimsKey).(*auth.Claims)
+		claims, ok := ctx.Value(common.ClaimsKey).(*domain.Claims)
 		if !ok {
-			return
+			return fmt.Errorf("unauthorized: missing authentication claims")
 		}
 
-		log := ctx.Value(common.LogKey).(*logging.Logger)
-		id := uuid.MustParse(args[0])
-
-		if claims.UserID != id && claims.Role != auth.RoleAdmin {
-			log.LogAuditError(claims.UserID.String(), "delete_user", "failed", "forbidden: cannot delete other users", nil)
-			return
+		// Get service container from context
+		serviceContainer := ctx.Value(common.ServiceContainerKey).(*container.ServiceContainer)
+		if serviceContainer == nil {
+			return fmt.Errorf("service container not available in context")
 		}
 
-		userRepo := auth.NewUserRepository(ctx.Value(common.DBKey).(*sql.DB), log)
-		if err := userRepo.Delete(ctx, id); err != nil {
-			log.LogAuditError(claims.UserID.String(), "delete_user", "failed", fmt.Sprintf("failed to delete user: %s", err), err)
-			return
+		id, err := uuid.Parse(args[0])
+		if err != nil {
+			return fmt.Errorf("invalid user ID: %w", err)
 		}
-		// If the user is deleting themselves, we should log them out
-		log.LogAuditInfo(claims.UserID.String(), "delete_user", "success", fmt.Sprintf("user deleted: %s", id))
+
+		if claims.UserID != id && claims.Role != domain.RoleAdmin {
+			return fmt.Errorf("forbidden: can only delete your own account or requires admin role")
+		}
+
+		userSvc := serviceContainer.GetUserService()
+		if err := userSvc.DeleteUser(ctx, id); err != nil {
+			return fmt.Errorf("failed to delete user: %w", err)
+		}
+
+		logger := serviceContainer.GetLogger()
+		logger.LogAuditInfo(claims.UserID.String(), "delete_user", "success", fmt.Sprintf("user deleted: %s", id))
 		fmt.Printf("User %s deleted successfully\n", id)
+		return nil
 	},
 }
 

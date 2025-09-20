@@ -6,6 +6,7 @@ package bootstrap
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/sirupsen/logrus"
 
@@ -15,7 +16,6 @@ import (
 	"password-manager/internal/container"
 	"password-manager/internal/db"
 	"password-manager/internal/logging"
-	"password-manager/internal/secrets"
 	"password-manager/server"
 )
 
@@ -186,14 +186,8 @@ func (b *bootstrap) setup(ctx context.Context, cfg *Config) error {
 	}
 	b.serviceContainer = serviceContainer
 
-	// Step 4: Initialize scheduler services (SRP: scheduler-specific logic)
-	scheduler, err := b.initializeScheduler(database)
-	if err != nil {
-		return fmt.Errorf("scheduler initialization failed: %w", err)
-	}
-
-	// Step 5: Create application with dependency injection
-	app, err := b.createApplication(cfg, scheduler)
+	// Step 4: Create application with dependency injection
+	app, err := b.createApplication(cfg)
 	if err != nil {
 		return fmt.Errorf("application creation failed: %w", err)
 	}
@@ -212,22 +206,10 @@ func (b *bootstrap) setup(ctx context.Context, cfg *Config) error {
 	return nil
 }
 
-// initializeScheduler creates and configures the rotation scheduler.
-// This method follows SRP by handling only scheduler-related initialization.
-func (b *bootstrap) initializeScheduler(database *db.DBRepository) (*secrets.RotationScheduler, error) {
-	logrus.Info("Initializing rotation scheduler")
-
-	repo := secrets.NewRotationPolicyRepository(database.GetDB(), b.cfg.Logger)
-	secretRepo := b.serviceContainer.GetSecretRepository()
-	scheduler := secrets.NewRotationScheduler(database.GetDB(), b.cfg.Logger, repo, secretRepo)
-
-	logrus.Info("Rotation scheduler initialized successfully")
-	return scheduler, nil
-}
 
 // createApplication creates the main application instance with injected dependencies.
 // This method follows SRP by handling only application instance creation.
-func (b *bootstrap) createApplication(cfg *Config, scheduler *secrets.RotationScheduler) (*app.App, error) {
+func (b *bootstrap) createApplication(cfg *Config) (*app.App, error) {
 	logrus.Info("Creating application instance")
 
 	app := app.NewApp(
@@ -236,8 +218,8 @@ func (b *bootstrap) createApplication(cfg *Config, scheduler *secrets.RotationSc
 		app.WithBackendEndPoint(cfg.BackendEndPoint),
 		app.WithLogger(b.cfg.Logger),
 		app.WithServer(server.NewDefaultServer(b.cfg.Logger, cfg.Listen)),
-		app.WithScheduler(scheduler),
 		app.WithServiceContainer(b.serviceContainer),
+		app.WithSchedulerEnabled(true, 1*time.Hour), // Enable scheduler with 1-hour interval
 	).(*app.App)
 
 	logrus.Info("Application instance created successfully")

@@ -26,7 +26,7 @@ import (
 	"database/sql"
 	"fmt"
 	"password-manager/common"
-	"password-manager/internal/auth"
+	"password-manager/internal/domain"
 	"password-manager/internal/keys"
 	"password-manager/internal/logging"
 	"strings"
@@ -45,7 +45,7 @@ var listCmd = &cobra.Command{
 	Args:    cobra.NoArgs,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		ctx := cmd.Context()
-		claims, ok := ctx.Value(common.ClaimsKey).(*auth.Claims)
+		claims, ok := ctx.Value(common.ClaimsKey).(*domain.Claims)
 		if !ok {
 			return fmt.Errorf("unauthorized: missing authentication claims")
 		}
@@ -66,7 +66,7 @@ var listCmd = &cobra.Command{
 		var keys []keys.Key
 		var err error
 
-		if claims.Role == auth.RoleAdmin {
+		if claims.Role == domain.RoleAdmin {
 			// Admins list all keys with filters
 			keys, err = keyRepo.ListByUser(ctx, nil, keyType, tags)
 		} else {

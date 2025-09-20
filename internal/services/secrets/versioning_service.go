@@ -1,265 +1,346 @@
+// Package secrets provides business logic services for secret management operations.
+// This package follows the established service layer patterns with dependency injection
+// and proper separation of concerns.
 package secrets
 
 import (
 	"context"
-	"database/sql"
 	"fmt"
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/sirupsen/logrus"
 
+	"password-manager/internal/domain"
 	"password-manager/internal/logging"
-	"password-manager/internal/secrets"
+	"password-manager/internal/repositories"
 )
 
-// VersioningService handles secret versioning operations.
-// It manages the creation and retrieval of secret versions,
-// separating versioning logic from secret storage operations.
-type VersioningService interface {
-	CreateVersion(ctx context.Context, secretID uuid.UUID, name, value string, version int, userID uuid.UUID) error
-	GetVersions(ctx context.Context, secretID uuid.UUID) ([]secrets.SecretVersion, error)
-	GetVersion(ctx context.Context, secretID uuid.UUID, version int) (*secrets.SecretVersion, error)
-	GetLatestVersion(ctx context.Context, secretID uuid.UUID) (*secrets.SecretVersion, error)
+// VersioningServiceInterface defines the business logic contract for secret versioning operations.
+// It orchestrates version creation, retrieval, and management with proper encryption handling.
+type VersioningServiceInterface interface {
+	// Version creation and management
+	CreateVersion(ctx context.Context, req CreateVersionRequest) (*domain.SecretVersion, error)
+	GetVersions(ctx context.Context, secretID uuid.UUID, userID uuid.UUID) ([]domain.SecretVersion, error)
+	GetVersion(ctx context.Context, secretID uuid.UUID, version int, userID uuid.UUID) (*domain.SecretVersion, error)
+	GetLatestVersion(ctx context.Context, secretID uuid.UUID, userID uuid.UUID) (*domain.SecretVersion, error)
+	DeleteVersions(ctx context.Context, secretID uuid.UUID, userID uuid.UUID) error
+	DeleteSpecificVersion(ctx context.Context, secretID uuid.UUID, version int, userID uuid.UUID) error
+
+	// Version rollback
+	RollbackToVersion(ctx context.Context, req RollbackRequest) (*domain.Secret, error)
 }
 
-// versioningService implements VersioningService for database version operations.
+// CreateVersionRequest represents the request to create a new secret version.
+type CreateVersionRequest struct {
+	SecretID uuid.UUID `json:"secret_id" validate:"required"`
+	UserID   uuid.UUID `json:"user_id" validate:"required"`
+	Name     string    `json:"name" validate:"required,min=1,max=255"`
+	Value    string    `json:"value" validate:"required,min=1"`
+	Version  int       `json:"version" validate:"required,min=1"`
+}
+
+// RollbackRequest represents the request to rollback a secret to a specific version.
+type RollbackRequest struct {
+	SecretID      uuid.UUID `json:"secret_id" validate:"required"`
+	TargetVersion int       `json:"target_version" validate:"required,min=1"`
+	UserID        uuid.UUID `json:"user_id" validate:"required"`
+	Notes         string    `json:"notes" validate:"max=500"`
+}
+
+// versioningService implements VersioningServiceInterface.
 type versioningService struct {
-	db     *sql.DB
-	logger *logging.Logger
+	versionRepo repositories.SecretVersionRepositoryInterface
+	secretRepo  repositories.SecretRepositoryInterface
+	userRepo    repositories.UserRepositoryInterface
+	cryptoSvc   CryptographyService
+	log         *logging.Logger
 }
 
-// NewVersioningService creates a new VersioningService with the given database connection.
-// It provides secret versioning functionality.
-//
-// Parameters:
-//   db: The database connection.
-//   logger: The logger for audit and error logging.
-//
-// Returns:
-//   A VersioningService implementation for versioning operations.
-func NewVersioningService(db *sql.DB, logger *logging.Logger) VersioningService {
+// NewVersioningService creates a new versioning service with the required dependencies.
+func NewVersioningService(
+	versionRepo repositories.SecretVersionRepositoryInterface,
+	secretRepo repositories.SecretRepositoryInterface,
+	userRepo repositories.UserRepositoryInterface,
+	cryptoSvc CryptographyService,
+	log *logging.Logger,
+) VersioningServiceInterface {
 	return &versioningService{
-		db:     db,
-		logger: logger,
+		versionRepo: versionRepo,
+		secretRepo:  secretRepo,
+		userRepo:    userRepo,
+		cryptoSvc:   cryptoSvc,
+		log:         log,
 	}
 }
 
-// CreateVersion creates a new version of a secret before it is updated.
-// It stores the previous state of the secret for version history.
-//
-// Parameters:
-//   ctx: The context for the database operation.
-//   secretID: The secret's unique identifier.
-//   name: The secret's name at this version.
-//   value: The secret's value at this version.
-//   version: The version number.
-//   userID: The user's unique identifier.
-//
-// Returns:
-//   An error if the operation fails.
-func (s *versioningService) CreateVersion(ctx context.Context, secretID uuid.UUID, name, value string, version int, userID uuid.UUID) error {
-	versionID := uuid.New()
-
-	_, err := s.db.ExecContext(
-		ctx,
-		"INSERT INTO secret_versions (id, secret_id, user_id, name, value, version, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
-		versionID.String(), secretID.String(), userID.String(), name, value, version, time.Now(),
-	)
+// CreateVersion creates a new version of a secret with encryption and validation.
+func (s *versioningService) CreateVersion(ctx context.Context, req CreateVersionRequest) (*domain.SecretVersion, error) {
+	// Validate user exists
+	user, err := s.userRepo.Read(ctx, req.UserID)
 	if err != nil {
-		s.logger.LogAuditError(userID.String(), "create_version", "failed", "Failed to create secret version", err)
-		return fmt.Errorf("failed to create secret version: %w", err)
+		s.log.WithError(err).WithField("user_id", req.UserID).Error("User not found for version creation")
+		return nil, fmt.Errorf("user not found: %w", err)
 	}
 
-	s.logger.LogAuditInfo(userID.String(), "create_version", "success",
-		fmt.Sprintf("Created version %d for secret %s", version, secretID.String()))
-	logrus.WithFields(logrus.Fields{
-		"secret_id": secretID.String(),
-		"user_id":   userID.String(),
-		"version":   version,
-	}).Debug("Secret version created")
+	// Validate secret exists and user owns it
+	secret, err := s.secretRepo.Read(ctx, req.SecretID)
+	if err != nil {
+		s.log.WithError(err).WithField("secret_id", req.SecretID).Error("Secret not found for version creation")
+		return nil, fmt.Errorf("secret not found: %w", err)
+	}
 
-	return nil
+	if secret.UserID != req.UserID {
+		return nil, fmt.Errorf("user does not own this secret")
+	}
+
+	// Encrypt the secret value
+	encryptedValue, err := s.cryptoSvc.EncryptSecret(req.Value)
+	if err != nil {
+		s.log.WithError(err).Error("Failed to encrypt secret version")
+		return nil, fmt.Errorf("failed to encrypt secret version: %w", err)
+	}
+
+	// Create version domain object
+	now := time.Now()
+	version := &domain.SecretVersion{
+		ID:        uuid.New(),
+		SecretID:  req.SecretID,
+		UserID:    user.ID,
+		Name:      req.Name,
+		Value:     encryptedValue, // Store encrypted value
+		Version:   req.Version,
+		CreatedAt: now,
+	}
+
+	err = s.versionRepo.CreateVersion(ctx, version)
+	if err != nil {
+		s.log.WithError(err).Error("Failed to create secret version")
+		return nil, fmt.Errorf("failed to create secret version: %w", err)
+	}
+
+	s.log.WithFields(map[string]any{
+		"version_id": version.ID,
+		"secret_id":  version.SecretID,
+		"user_id":    version.UserID,
+		"version":    version.Version,
+	}).Info("Secret version created successfully")
+
+	// Return decrypted version for response
+	version.Value = req.Value
+	return version, nil
 }
 
-// GetVersions retrieves all versions of a secret.
-//
-// Parameters:
-//   ctx: The context for the database operation.
-//   secretID: The secret's unique identifier.
-//
-// Returns:
-//   A slice of secret versions ordered by version number, or an error if the operation fails.
-func (s *versioningService) GetVersions(ctx context.Context, secretID uuid.UUID) ([]secrets.SecretVersion, error) {
-	rows, err := s.db.QueryContext(
-		ctx,
-		"SELECT id, secret_id, user_id, name, value, version, created_at FROM secret_versions WHERE secret_id = ? ORDER BY version ASC",
-		secretID.String(),
-	)
+// GetVersions retrieves all versions of a secret with decryption and ownership validation.
+func (s *versioningService) GetVersions(ctx context.Context, secretID uuid.UUID, userID uuid.UUID) ([]domain.SecretVersion, error) {
+	// Validate secret exists and user owns it
+	secret, err := s.secretRepo.Read(ctx, secretID)
 	if err != nil {
-		s.logger.LogAuditError(secretID.String(), "get_versions", "failed", "Failed to query secret versions", err)
-		return nil, fmt.Errorf("failed to query secret versions: %w", err)
-	}
-	defer rows.Close()
-
-	var versions []secrets.SecretVersion
-	for rows.Next() {
-		var version secrets.SecretVersion
-		var idStr, secretIDStr, userIDStr string
-
-		err := rows.Scan(
-			&idStr, &secretIDStr, &userIDStr,
-			&version.Name, &version.Value, &version.Version, &version.CreatedAt,
-		)
-		if err != nil {
-			s.logger.LogAuditError(secretID.String(), "get_versions", "failed", "Failed to scan secret version", err)
-			return nil, fmt.Errorf("failed to scan secret version: %w", err)
-		}
-
-		// Parse UUIDs
-		version.ID, err = uuid.Parse(idStr)
-		if err != nil {
-			s.logger.LogAuditError(secretID.String(), "get_versions", "failed", "Failed to parse version ID", err)
-			return nil, fmt.Errorf("failed to parse version ID: %w", err)
-		}
-
-		version.SecretID, err = uuid.Parse(secretIDStr)
-		if err != nil {
-			s.logger.LogAuditError(secretID.String(), "get_versions", "failed", "Failed to parse secret ID", err)
-			return nil, fmt.Errorf("failed to parse secret ID: %w", err)
-		}
-
-		version.UserID, err = uuid.Parse(userIDStr)
-		if err != nil {
-			s.logger.LogAuditError(secretID.String(), "get_versions", "failed", "Failed to parse user ID", err)
-			return nil, fmt.Errorf("failed to parse user ID: %w", err)
-		}
-
-		versions = append(versions, version)
+		return nil, fmt.Errorf("secret not found: %w", err)
 	}
 
-	if err := rows.Err(); err != nil {
-		s.logger.LogAuditError(secretID.String(), "get_versions", "failed", "Row iteration error", err)
-		return nil, fmt.Errorf("row iteration error: %w", err)
+	if secret.UserID != userID {
+		return nil, fmt.Errorf("user does not own this secret")
 	}
 
-	logrus.WithFields(logrus.Fields{
-		"secret_id":     secretID.String(),
-		"version_count": len(versions),
-	}).Debug("Retrieved secret versions")
+	// Get encrypted versions from repository
+	encryptedVersions, err := s.versionRepo.GetVersions(ctx, secretID)
+	if err != nil {
+		s.log.WithError(err).WithField("secret_id", secretID).Error("Failed to get secret versions")
+		return nil, fmt.Errorf("failed to get secret versions: %w", err)
+	}
+
+	// Decrypt values for response
+	var versions []domain.SecretVersion
+	for _, encVersion := range encryptedVersions {
+		decryptedValue, err := s.cryptoSvc.DecryptSecret(encVersion.Value)
+		if err != nil {
+			s.log.WithError(err).WithField("version_id", encVersion.ID).Error("Failed to decrypt secret version")
+			return nil, fmt.Errorf("failed to decrypt secret version: %w", err)
+		}
+
+		decVersion := encVersion
+		decVersion.Value = decryptedValue
+		versions = append(versions, decVersion)
+	}
 
 	return versions, nil
 }
 
-// GetVersion retrieves a specific version of a secret.
-//
-// Parameters:
-//   ctx: The context for the database operation.
-//   secretID: The secret's unique identifier.
-//   version: The version number to retrieve.
-//
-// Returns:
-//   The secret version or an error if not found.
-func (s *versioningService) GetVersion(ctx context.Context, secretID uuid.UUID, version int) (*secrets.SecretVersion, error) {
-	var secretVersion secrets.SecretVersion
-	var idStr, secretIDStr, userIDStr string
-
-	err := s.db.QueryRowContext(
-		ctx,
-		"SELECT id, secret_id, user_id, name, value, version, created_at FROM secret_versions WHERE secret_id = ? AND version = ?",
-		secretID.String(), version,
-	).Scan(
-		&idStr, &secretIDStr, &userIDStr,
-		&secretVersion.Name, &secretVersion.Value, &secretVersion.Version, &secretVersion.CreatedAt,
-	)
-
-	if err == sql.ErrNoRows {
-		return nil, fmt.Errorf("secret version %d not found", version)
-	}
+// GetVersion retrieves a specific version of a secret with decryption and ownership validation.
+func (s *versioningService) GetVersion(ctx context.Context, secretID uuid.UUID, version int, userID uuid.UUID) (*domain.SecretVersion, error) {
+	// Validate secret exists and user owns it
+	secret, err := s.secretRepo.Read(ctx, secretID)
 	if err != nil {
-		s.logger.LogAuditError(secretID.String(), "get_version", "failed", "Failed to query secret version", err)
-		return nil, fmt.Errorf("failed to query secret version: %w", err)
+		return nil, fmt.Errorf("secret not found: %w", err)
 	}
 
-	// Parse UUIDs
-	secretVersion.ID, err = uuid.Parse(idStr)
+	if secret.UserID != userID {
+		return nil, fmt.Errorf("user does not own this secret")
+	}
+
+	// Get encrypted version from repository
+	encryptedVersion, err := s.versionRepo.GetVersion(ctx, secretID, version)
 	if err != nil {
-		s.logger.LogAuditError(secretID.String(), "get_version", "failed", "Failed to parse version ID", err)
-		return nil, fmt.Errorf("failed to parse version ID: %w", err)
+		s.log.WithError(err).WithFields(map[string]any{
+			"secret_id": secretID,
+			"version":   version,
+		}).Error("Failed to get secret version")
+		return nil, fmt.Errorf("failed to get secret version: %w", err)
 	}
 
-	secretVersion.SecretID, err = uuid.Parse(secretIDStr)
+	// Decrypt value for response
+	decryptedValue, err := s.cryptoSvc.DecryptSecret(encryptedVersion.Value)
 	if err != nil {
-		s.logger.LogAuditError(secretID.String(), "get_version", "failed", "Failed to parse secret ID", err)
-		return nil, fmt.Errorf("failed to parse secret ID: %w", err)
+		s.log.WithError(err).WithField("version_id", encryptedVersion.ID).Error("Failed to decrypt secret version")
+		return nil, fmt.Errorf("failed to decrypt secret version: %w", err)
 	}
 
-	secretVersion.UserID, err = uuid.Parse(userIDStr)
-	if err != nil {
-		s.logger.LogAuditError(secretID.String(), "get_version", "failed", "Failed to parse user ID", err)
-		return nil, fmt.Errorf("failed to parse user ID: %w", err)
-	}
-
-	logrus.WithFields(logrus.Fields{
-		"secret_id": secretID.String(),
-		"version":   version,
-	}).Debug("Retrieved secret version")
-
-	return &secretVersion, nil
+	encryptedVersion.Value = decryptedValue
+	return encryptedVersion, nil
 }
 
-// GetLatestVersion retrieves the latest version of a secret.
-//
-// Parameters:
-//   ctx: The context for the database operation.
-//   secretID: The secret's unique identifier.
-//
-// Returns:
-//   The latest secret version or an error if not found.
-func (s *versioningService) GetLatestVersion(ctx context.Context, secretID uuid.UUID) (*secrets.SecretVersion, error) {
-	var secretVersion secrets.SecretVersion
-	var idStr, secretIDStr, userIDStr string
-
-	err := s.db.QueryRowContext(
-		ctx,
-		"SELECT id, secret_id, user_id, name, value, version, created_at FROM secret_versions WHERE secret_id = ? ORDER BY version DESC LIMIT 1",
-		secretID.String(),
-	).Scan(
-		&idStr, &secretIDStr, &userIDStr,
-		&secretVersion.Name, &secretVersion.Value, &secretVersion.Version, &secretVersion.CreatedAt,
-	)
-
-	if err == sql.ErrNoRows {
-		return nil, fmt.Errorf("no versions found for secret")
-	}
+// GetLatestVersion retrieves the latest version of a secret with decryption and ownership validation.
+func (s *versioningService) GetLatestVersion(ctx context.Context, secretID uuid.UUID, userID uuid.UUID) (*domain.SecretVersion, error) {
+	// Validate secret exists and user owns it
+	secret, err := s.secretRepo.Read(ctx, secretID)
 	if err != nil {
-		s.logger.LogAuditError(secretID.String(), "get_latest_version", "failed", "Failed to query latest secret version", err)
-		return nil, fmt.Errorf("failed to query latest secret version: %w", err)
+		return nil, fmt.Errorf("secret not found: %w", err)
 	}
 
-	// Parse UUIDs
-	secretVersion.ID, err = uuid.Parse(idStr)
+	if secret.UserID != userID {
+		return nil, fmt.Errorf("user does not own this secret")
+	}
+
+	// Get encrypted latest version from repository
+	encryptedVersion, err := s.versionRepo.GetLatestVersion(ctx, secretID)
 	if err != nil {
-		s.logger.LogAuditError(secretID.String(), "get_latest_version", "failed", "Failed to parse version ID", err)
-		return nil, fmt.Errorf("failed to parse version ID: %w", err)
+		s.log.WithError(err).WithField("secret_id", secretID).Error("Failed to get latest secret version")
+		return nil, fmt.Errorf("failed to get latest secret version: %w", err)
 	}
 
-	secretVersion.SecretID, err = uuid.Parse(secretIDStr)
+	// Decrypt value for response
+	decryptedValue, err := s.cryptoSvc.DecryptSecret(encryptedVersion.Value)
 	if err != nil {
-		s.logger.LogAuditError(secretID.String(), "get_latest_version", "failed", "Failed to parse secret ID", err)
-		return nil, fmt.Errorf("failed to parse secret ID: %w", err)
+		s.log.WithError(err).WithField("version_id", encryptedVersion.ID).Error("Failed to decrypt secret version")
+		return nil, fmt.Errorf("failed to decrypt secret version: %w", err)
 	}
 
-	secretVersion.UserID, err = uuid.Parse(userIDStr)
+	encryptedVersion.Value = decryptedValue
+	return encryptedVersion, nil
+}
+
+// DeleteVersions deletes all versions of a secret with ownership validation.
+func (s *versioningService) DeleteVersions(ctx context.Context, secretID uuid.UUID, userID uuid.UUID) error {
+	// Validate secret exists and user owns it
+	secret, err := s.secretRepo.Read(ctx, secretID)
 	if err != nil {
-		s.logger.LogAuditError(secretID.String(), "get_latest_version", "failed", "Failed to parse user ID", err)
-		return nil, fmt.Errorf("failed to parse user ID: %w", err)
+		return fmt.Errorf("secret not found: %w", err)
 	}
 
-	logrus.WithFields(logrus.Fields{
-		"secret_id": secretID.String(),
-		"version":   secretVersion.Version,
-	}).Debug("Retrieved latest secret version")
+	if secret.UserID != userID {
+		return fmt.Errorf("user does not own this secret")
+	}
 
-	return &secretVersion, nil
+	err = s.versionRepo.DeleteVersions(ctx, secretID)
+	if err != nil {
+		s.log.WithError(err).WithField("secret_id", secretID).Error("Failed to delete secret versions")
+		return fmt.Errorf("failed to delete secret versions: %w", err)
+	}
+
+	s.log.WithFields(map[string]any{
+		"secret_id": secretID,
+		"user_id":   userID,
+	}).Info("Secret versions deleted successfully")
+
+	return nil
+}
+
+// DeleteSpecificVersion deletes a specific version of a secret with ownership validation.
+func (s *versioningService) DeleteSpecificVersion(ctx context.Context, secretID uuid.UUID, version int, userID uuid.UUID) error {
+	// Validate secret exists and user owns it
+	secret, err := s.secretRepo.Read(ctx, secretID)
+	if err != nil {
+		return fmt.Errorf("secret not found: %w", err)
+	}
+
+	if secret.UserID != userID {
+		return fmt.Errorf("user does not own this secret")
+	}
+
+	err = s.versionRepo.DeleteSpecificVersion(ctx, secretID, version)
+	if err != nil {
+		s.log.WithError(err).WithFields(map[string]any{
+			"secret_id": secretID,
+			"version":   version,
+		}).Error("Failed to delete secret version")
+		return fmt.Errorf("failed to delete secret version: %w", err)
+	}
+
+	s.log.WithFields(map[string]any{
+		"secret_id": secretID,
+		"version":   version,
+		"user_id":   userID,
+	}).Info("Secret version deleted successfully")
+
+	return nil
+}
+
+// RollbackToVersion rolls back a secret to a specific version.
+func (s *versioningService) RollbackToVersion(ctx context.Context, req RollbackRequest) (*domain.Secret, error) {
+	// Validate secret exists and user owns it
+	secret, err := s.secretRepo.Read(ctx, req.SecretID)
+	if err != nil {
+		return nil, fmt.Errorf("secret not found: %w", err)
+	}
+
+	if secret.UserID != req.UserID {
+		return nil, fmt.Errorf("user does not own this secret")
+	}
+
+	// Get the target version
+	targetVersion, err := s.versionRepo.GetVersion(ctx, req.SecretID, req.TargetVersion)
+	if err != nil {
+		return nil, fmt.Errorf("target version not found: %w", err)
+	}
+
+	// Decrypt the target version value
+	decryptedValue, err := s.cryptoSvc.DecryptSecret(targetVersion.Value)
+	if err != nil {
+		s.log.WithError(err).Error("Failed to decrypt target version for rollback")
+		return nil, fmt.Errorf("failed to decrypt target version: %w", err)
+	}
+
+	// Create new version from current state before rollback
+	currentVersionReq := CreateVersionRequest{
+		SecretID: req.SecretID,
+		UserID:   req.UserID,
+		Name:     secret.Name,
+		Value:    secret.Value,
+		Version:  secret.Version + 1,
+	}
+
+	_, err = s.CreateVersion(ctx, currentVersionReq)
+	if err != nil {
+		s.log.WithError(err).Error("Failed to create backup version during rollback")
+		return nil, fmt.Errorf("failed to create backup version: %w", err)
+	}
+
+	// Update secret with target version data
+	secret.Value = decryptedValue
+	secret.Version = secret.Version + 2 // Increment beyond backup version
+
+	err = s.secretRepo.Update(ctx, secret)
+	if err != nil {
+		s.log.WithError(err).Error("Failed to update secret during rollback")
+		return nil, fmt.Errorf("failed to update secret during rollback: %w", err)
+	}
+
+	s.log.WithFields(map[string]any{
+		"secret_id":      req.SecretID,
+		"target_version": req.TargetVersion,
+		"new_version":    secret.Version,
+		"user_id":        req.UserID,
+	}).Info("Secret rolled back successfully")
+
+	return secret, nil
 }
