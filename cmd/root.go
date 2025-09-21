@@ -127,6 +127,7 @@ func persistentPreRun(cmd *cobra.Command, args []string) error {
 	systemCmds := map[string]bool{
 		"health": true,
 		"backup": true,
+		"admin":  true, // Allow admin registration without prior authentication
 	}
 
 	// Check if this is a system command (either the command itself or its parent)
