@@ -104,3 +104,5 @@ npm-debug.log*
 
 # Claude Code documentation (keep in repo)
 .claude/
+.admin_totp_secret
+totp_gen
