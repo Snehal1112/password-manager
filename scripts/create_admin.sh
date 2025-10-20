@@ -16,8 +16,8 @@ CYAN='\033[0;36m'
 NC='\033[0m' # No Color
 
 # Default values
-DEFAULT_ADMIN_USERNAME="admin"
-DEFAULT_ADMIN_PASSWORD="admin123"
+DEFAULT_ADMIN_USERNAME="sd0098"
+DEFAULT_ADMIN_PASSWORD="sd0098"
 DEFAULT_CONFIG_FILE=".password-manager.yaml"
 DEFAULT_TEST_CONFIG_FILE=".password-manager-test.yaml"
 
@@ -67,6 +67,9 @@ OPTIONS:
     -g, --generate-totp             Generate TOTP codes after creation
     -m, --mode MODE                 Force specific mode: auto|bootstrap|authenticated
 
+    # For bootstrap mode:
+    --bootstrap-token TOKEN         Custom bootstrap token (overrides config file)
+
     # For authenticated mode only:
     --auth-user USERNAME            Existing admin username for authentication
     --auth-pass PASSWORD            Existing admin password for authentication
@@ -80,6 +83,10 @@ EXAMPLES:
 
     # Force bootstrap mode (initial setup)
     $0 --mode bootstrap --username admin --password admin123
+
+    # Bootstrap mode with custom token
+    $0 --mode bootstrap --username admin --password admin123 \\
+       --bootstrap-token "custom-bootstrap-token-12345"
 
     # Force authenticated mode (additional admin)
     $0 --mode authenticated --username admin2 --password admin2pass \\
@@ -111,6 +118,7 @@ CONFIG_FILE="$DEFAULT_CONFIG_FILE"
 USE_TEST_CONFIG=false
 GENERATE_TOTP=false
 SCRIPT_MODE="$MODE_AUTO"
+CUSTOM_BOOTSTRAP_TOKEN=""
 AUTH_USERNAME=""
 AUTH_PASSWORD=""
 AUTH_TOTP_SECRET=""
@@ -153,6 +161,10 @@ while [[ $# -gt 0 ]]; do
             ;;
         --auth-totp-secret)
             AUTH_TOTP_SECRET="$2"
+            shift 2
+            ;;
+        --bootstrap-token)
+            CUSTOM_BOOTSTRAP_TOKEN="$2"
             shift 2
             ;;
         -h|--help)
@@ -244,8 +256,52 @@ detect_mode() {
     fi
 }
 
+# Function to validate bootstrap token format
+validate_bootstrap_token() {
+    local token="$1"
+
+    # Check if token is not empty
+    if [[ -z "$token" ]]; then
+        print_error "Bootstrap token cannot be empty"
+        return 1
+    fi
+
+    # Check minimum length (should be reasonably long for security)
+    if [[ ${#token} -lt 16 ]]; then
+        print_warning "Bootstrap token is quite short (${#token} characters). Consider using a longer token for better security."
+    fi
+
+    # Check for suspicious characters (basic validation)
+    if [[ "$token" =~ [[:space:]] ]]; then
+        print_error "Bootstrap token contains spaces or whitespace characters"
+        return 1
+    fi
+
+    # Informational: suggest good token format
+    if [[ ! "$token" =~ ^[a-zA-Z0-9_-]+$ ]]; then
+        print_warning "Bootstrap token contains special characters. Ensure compatibility with your system."
+    fi
+
+    print_info "Bootstrap token validation passed"
+    return 0
+}
+
 # Function to extract bootstrap token from config
 get_bootstrap_token() {
+    # Prioritize CLI parameter over config file
+    if [[ -n "$CUSTOM_BOOTSTRAP_TOKEN" ]]; then
+        BOOTSTRAP_TOKEN="$CUSTOM_BOOTSTRAP_TOKEN"
+        print_info "Using custom bootstrap token from command line"
+
+        # Validate the custom token
+        if ! validate_bootstrap_token "$BOOTSTRAP_TOKEN"; then
+            print_error "Custom bootstrap token validation failed"
+            return 1
+        fi
+        return 0
+    fi
+
+    # Fall back to config file
     if command -v yq &> /dev/null; then
         BOOTSTRAP_TOKEN=$(yq e '.bootstrap_token' "$CONFIG_FILE" 2>/dev/null)
     else
@@ -253,10 +309,21 @@ get_bootstrap_token() {
     fi
 
     if [[ -z "$BOOTSTRAP_TOKEN" ]] || [[ "$BOOTSTRAP_TOKEN" == "null" ]]; then
-        print_error "Bootstrap token not found in $CONFIG_FILE"
-        print_info "Please ensure the configuration file contains a valid bootstrap_token"
+        print_error "Bootstrap token not found in $CONFIG_FILE and not provided via --bootstrap-token"
+        print_info "Please either:"
+        print_info "  1. Add bootstrap_token to your configuration file, or"
+        print_info "  2. Use --bootstrap-token <token> parameter"
         return 1
     fi
+
+    print_info "Bootstrap token found in configuration file"
+
+    # Validate the config file token
+    if ! validate_bootstrap_token "$BOOTSTRAP_TOKEN"; then
+        print_error "Bootstrap token from config file validation failed"
+        return 1
+    fi
+
     return 0
 }
 

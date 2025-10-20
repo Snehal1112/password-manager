@@ -8,8 +8,11 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"sync"
+	"time"
 
 	"github.com/google/uuid"
+	_ "github.com/lib/pq"           // PostgreSQL driver for database/sql.
 	_ "github.com/mattn/go-sqlite3" // SQLite driver for database/sql.
 	"github.com/spf13/viper"
 
@@ -18,6 +21,40 @@ import (
 
 // DB is the global database connection for the application.
 var DB *sql.DB
+
+// ConnectionPoolConfig holds database connection pool configuration.
+type ConnectionPoolConfig struct {
+	MaxOpenConns    int           // Maximum number of open connections
+	MaxIdleConns    int           // Maximum number of idle connections
+	ConnMaxLifetime time.Duration // Maximum lifetime of a connection
+	ConnMaxIdleTime time.Duration // Maximum idle time of a connection
+}
+
+// DatabaseConfig holds complete database configuration.
+type DatabaseConfig struct {
+	ConnectionString string
+	DriverName       string
+	PoolConfig       ConnectionPoolConfig
+	Environment      string // dev, staging, prod
+}
+
+// PerformanceMetrics tracks database performance indicators.
+type PerformanceMetrics struct {
+	QueryCount       int64         `json:"query_count"`
+	SlowQueryCount   int64         `json:"slow_query_count"`
+	TotalQueryTime   time.Duration `json:"total_query_time"`
+	AverageQueryTime time.Duration `json:"avg_query_time"`
+	ConnectionStats  sql.DBStats   `json:"connection_stats"`
+	mu               sync.RWMutex
+}
+
+// Global performance metrics
+var metrics *PerformanceMetrics
+
+// Initialize metrics
+func init() {
+	metrics = &PerformanceMetrics{}
+}
 
 // Repository defines a generic interface for database operations.
 // It supports type-safe CRUD operations for entities like users, secrets, and keys.
@@ -67,9 +104,9 @@ func (d *DBRepository) GetDB() *sql.DB {
 	return d.db
 }
 
-// InitializeDB sets up the SQLite or PostgreSQL database.
-// It opens a connection using the configured connection string and creates
-// tables for users, secrets, keys, CA keys, CRLs, and audit logs.
+// InitializeDB sets up the SQLite or PostgreSQL database with optimized connection pooling.
+// It opens a connection using the configured connection string, configures connection pool,
+// and creates tables for users, secrets, keys, CA keys, CRLs, and audit logs.
 //
 // Parameters:
 //
@@ -81,28 +118,126 @@ func (d *DBRepository) GetDB() *sql.DB {
 //
 // The function is called during application startup to prepare the database.
 func (d *DBRepository) InitializeDB() error {
-	// Retrieve the database connection string from configuration.
-	connStr := viper.GetString("database.connection")
-	if connStr == "" {
-		d.log.Error("Database connection string is empty")
-		return fmt.Errorf("database connection string not configured")
+	// Get database configuration
+	dbConfig, err := d.loadDatabaseConfig()
+	if err != nil {
+		return fmt.Errorf("failed to load database config: %w", err)
 	}
 
-	// Open a connection to the database using the SQLite driver.
-	db, err := sql.Open("sqlite3", connStr)
+	// Open a connection to the database.
+	db, err := sql.Open(dbConfig.DriverName, dbConfig.ConnectionString)
 	if err != nil {
 		d.log.Error("Failed to open database: ", err)
 		return fmt.Errorf("failed to open database: %w", err)
 	}
 
-	// Verify the database connection.
-	if err := db.Ping(); err != nil {
+	// Configure connection pool for optimal performance
+	if err := d.configureConnectionPool(db, dbConfig.PoolConfig); err != nil {
+		db.Close()
+		return fmt.Errorf("failed to configure connection pool: %w", err)
+	}
+
+	// Verify the database connection with timeout.
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	if err := db.PingContext(ctx); err != nil {
+		db.Close()
 		d.log.Error("Failed to ping database: ", err)
 		return fmt.Errorf("failed to ping database: %w", err)
 	}
 
-	// Create tables if they don’t exist.
-	_, err = db.Exec(`
+	// Create optimized tables with proper indexes if they don't exist.
+	if err := d.createOptimizedSchema(db); err != nil {
+		db.Close()
+		return fmt.Errorf("failed to create schema: %w", err)
+	}
+
+	// Assign the connection to the global DB variable.
+	DB = db
+	d.db = db
+	d.log.Info("Database initialized successfully with connection pooling")
+	return nil
+}
+
+// loadDatabaseConfig loads and validates database configuration.
+func (d *DBRepository) loadDatabaseConfig() (*DatabaseConfig, error) {
+	// Retrieve the database connection string from configuration.
+	connStr := viper.GetString("database.connection")
+	if connStr == "" {
+		d.log.Error("Database connection string is empty")
+		return nil, fmt.Errorf("database connection string not configured")
+	}
+
+	// Determine driver based on connection string or explicit config
+	driverName := "sqlite3" // default
+	if viper.GetString("database.driver") != "" {
+		driverName = viper.GetString("database.driver")
+	} else if len(connStr) > 10 && connStr[:10] == "postgres://" {
+		driverName = "postgres"
+	}
+
+	// Get environment-specific pool configuration
+	env := viper.GetString("environment")
+	if env == "" {
+		env = "dev"
+	}
+
+	poolConfig := d.getEnvironmentPoolConfig(env)
+
+	return &DatabaseConfig{
+		ConnectionString: connStr,
+		DriverName:       driverName,
+		PoolConfig:       poolConfig,
+		Environment:      env,
+	}, nil
+}
+
+// getEnvironmentPoolConfig returns optimized pool config for each environment.
+func (d *DBRepository) getEnvironmentPoolConfig(env string) ConnectionPoolConfig {
+	switch env {
+	case "prod", "production":
+		return ConnectionPoolConfig{
+			MaxOpenConns:    50,              // High concurrency for production
+			MaxIdleConns:    10,              // Keep connections ready
+			ConnMaxLifetime: 30 * time.Minute, // Rotate connections regularly
+			ConnMaxIdleTime: 5 * time.Minute,  // Close idle connections
+		}
+	case "staging":
+		return ConnectionPoolConfig{
+			MaxOpenConns:    20,               // Moderate concurrency
+			MaxIdleConns:    5,                // Fewer idle connections
+			ConnMaxLifetime: 20 * time.Minute, // Shorter lifetime
+			ConnMaxIdleTime: 3 * time.Minute,  // Quicker cleanup
+		}
+	default: // dev, test
+		return ConnectionPoolConfig{
+			MaxOpenConns:    10,               // Limited concurrency for dev
+			MaxIdleConns:    2,                // Minimal idle connections
+			ConnMaxLifetime: 10 * time.Minute, // Shorter lifetime for dev
+			ConnMaxIdleTime: 2 * time.Minute,  // Quick cleanup
+		}
+	}
+}
+
+// configureConnectionPool sets up optimized connection pool settings.
+func (d *DBRepository) configureConnectionPool(db *sql.DB, config ConnectionPoolConfig) error {
+	db.SetMaxOpenConns(config.MaxOpenConns)
+	db.SetMaxIdleConns(config.MaxIdleConns)
+	db.SetConnMaxLifetime(config.ConnMaxLifetime)
+	db.SetConnMaxIdleTime(config.ConnMaxIdleTime)
+
+	d.log.Info(fmt.Sprintf(
+		"Connection pool configured: MaxOpen=%d, MaxIdle=%d, MaxLifetime=%v, MaxIdleTime=%v",
+		config.MaxOpenConns, config.MaxIdleConns, config.ConnMaxLifetime, config.ConnMaxIdleTime,
+	))
+
+	return nil
+}
+
+// createOptimizedSchema creates tables with proper indexes for performance.
+func (d *DBRepository) createOptimizedSchema(db *sql.DB) error {
+	// Create tables with optimized schema
+	_, err := db.Exec(`
 		CREATE TABLE IF NOT EXISTS users (
 			id TEXT PRIMARY KEY,
 			username TEXT UNIQUE NOT NULL,
@@ -111,6 +246,10 @@ func (d *DBRepository) InitializeDB() error {
 			role TEXT NOT NULL,
 			created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 		);
+		CREATE INDEX IF NOT EXISTS idx_users_username ON users(username);
+		CREATE INDEX IF NOT EXISTS idx_users_role ON users(role);
+		CREATE INDEX IF NOT EXISTS idx_users_created_at ON users(created_at);
+
 		CREATE TABLE IF NOT EXISTS secrets (
 			id TEXT PRIMARY KEY,
 			user_id TEXT NOT NULL,
@@ -118,8 +257,13 @@ func (d *DBRepository) InitializeDB() error {
 			value TEXT NOT NULL,
 			version INTEGER NOT NULL,
 			created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-			FOREIGN KEY (user_id) REFERENCES users(id)
+			FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
 		);
+		CREATE INDEX IF NOT EXISTS idx_secrets_user_id ON secrets(user_id);
+		CREATE INDEX IF NOT EXISTS idx_secrets_name ON secrets(name);
+		CREATE INDEX IF NOT EXISTS idx_secrets_user_name ON secrets(user_id, name);
+		CREATE INDEX IF NOT EXISTS idx_secrets_created_at ON secrets(created_at);
+
 		CREATE TABLE IF NOT EXISTS keys (
 			id TEXT PRIMARY KEY,
 			user_id TEXT NOT NULL,
@@ -127,15 +271,22 @@ func (d *DBRepository) InitializeDB() error {
 			value TEXT NOT NULL,
 			type TEXT NOT NULL,
 			created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-			revoked BOOLEAN NOT NULL,
-			FOREIGN KEY (user_id) REFERENCES users(id)
+			revoked BOOLEAN NOT NULL DEFAULT FALSE,
+			FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
 		);
+		CREATE INDEX IF NOT EXISTS idx_keys_user_id ON keys(user_id);
+		CREATE INDEX IF NOT EXISTS idx_keys_type ON keys(type);
+		CREATE INDEX IF NOT EXISTS idx_keys_revoked ON keys(revoked);
+		CREATE INDEX IF NOT EXISTS idx_keys_user_type ON keys(user_id, type);
+
 		CREATE TABLE IF NOT EXISTS key_tags (
 			key_id TEXT NOT NULL,
 			tag TEXT NOT NULL,
 			PRIMARY KEY (key_id, tag),
-			FOREIGN KEY (key_id) REFERENCES keys(id)
+			FOREIGN KEY (key_id) REFERENCES keys(id) ON DELETE CASCADE
 		);
+		CREATE INDEX IF NOT EXISTS idx_key_tags_tag ON key_tags(tag);
+
 		CREATE TABLE IF NOT EXISTS certificates (
 			id TEXT PRIMARY KEY,
 			user_id TEXT NOT NULL,
@@ -143,41 +294,59 @@ func (d *DBRepository) InitializeDB() error {
 			certificate TEXT NOT NULL,
 			private_key TEXT NOT NULL,
 			created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-			FOREIGN KEY (user_id) REFERENCES users(id)
+			FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
 		);
+		CREATE INDEX IF NOT EXISTS idx_certificates_user_id ON certificates(user_id);
+		CREATE INDEX IF NOT EXISTS idx_certificates_name ON certificates(name);
+		CREATE INDEX IF NOT EXISTS idx_certificates_created_at ON certificates(created_at);
+
 		CREATE TABLE IF NOT EXISTS certificate_tags (
 			certificate_id TEXT NOT NULL,
 			tag TEXT NOT NULL,
 			PRIMARY KEY (certificate_id, tag),
-			FOREIGN KEY (certificate_id) REFERENCES certificates(id)
+			FOREIGN KEY (certificate_id) REFERENCES certificates(id) ON DELETE CASCADE
 		);
+		CREATE INDEX IF NOT EXISTS idx_certificate_tags_tag ON certificate_tags(tag);
+
 		CREATE TABLE IF NOT EXISTS crl (
 			id TEXT PRIMARY KEY,
 			user_id TEXT NOT NULL,
 			serial_number TEXT NOT NULL,
 			revoked_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
 			name TEXT NOT NULL,
-			FOREIGN KEY (user_id) REFERENCES users(id)
+			FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
 		);
+		CREATE INDEX IF NOT EXISTS idx_crl_user_id ON crl(user_id);
+		CREATE INDEX IF NOT EXISTS idx_crl_serial_number ON crl(serial_number);
+
 		CREATE TABLE IF NOT EXISTS audit_logs (
 			id TEXT PRIMARY KEY,
 			user_id TEXT,
 			action TEXT NOT NULL,
 			details TEXT,
 			timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-			FOREIGN KEY (user_id) REFERENCES users(id)
+			FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE SET NULL
 		);
+		CREATE INDEX IF NOT EXISTS idx_audit_logs_user_id ON audit_logs(user_id);
+		CREATE INDEX IF NOT EXISTS idx_audit_logs_action ON audit_logs(action);
+		CREATE INDEX IF NOT EXISTS idx_audit_logs_timestamp ON audit_logs(timestamp);
+		CREATE INDEX IF NOT EXISTS idx_audit_logs_user_action ON audit_logs(user_id, action);
+
 		CREATE TABLE IF NOT EXISTS bootstrap_tokens (
 			token TEXT PRIMARY KEY,
 			created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
 			used BOOLEAN DEFAULT FALSE
 		);
+		CREATE INDEX IF NOT EXISTS idx_bootstrap_tokens_used ON bootstrap_tokens(used);
+
 		CREATE TABLE IF NOT EXISTS secret_tags (
 			secret_id TEXT NOT NULL,
 			tag TEXT NOT NULL,
 			PRIMARY KEY (secret_id, tag),
-			FOREIGN KEY (secret_id) REFERENCES secrets(id)
+			FOREIGN KEY (secret_id) REFERENCES secrets(id) ON DELETE CASCADE
 		);
+		CREATE INDEX IF NOT EXISTS idx_secret_tags_tag ON secret_tags(tag);
+
 		CREATE TABLE IF NOT EXISTS secret_versions (
 			id TEXT PRIMARY KEY,
 			secret_id TEXT NOT NULL,
@@ -186,9 +355,13 @@ func (d *DBRepository) InitializeDB() error {
 			value TEXT NOT NULL,
 			version INTEGER NOT NULL,
 			created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-			FOREIGN KEY (secret_id) REFERENCES secrets(id),
-			FOREIGN KEY (user_id) REFERENCES users(id)
+			FOREIGN KEY (secret_id) REFERENCES secrets(id) ON DELETE CASCADE,
+			FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
 		);
+		CREATE INDEX IF NOT EXISTS idx_secret_versions_secret_id ON secret_versions(secret_id);
+		CREATE INDEX IF NOT EXISTS idx_secret_versions_version ON secret_versions(secret_id, version);
+		CREATE INDEX IF NOT EXISTS idx_secret_versions_created_at ON secret_versions(created_at);
+
 		CREATE TABLE IF NOT EXISTS rotation_policies (
 			id TEXT PRIMARY KEY,
 			user_id TEXT NOT NULL,
@@ -200,8 +373,12 @@ func (d *DBRepository) InitializeDB() error {
 			auto_rotate BOOLEAN NOT NULL DEFAULT FALSE,
 			created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
 			updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-			FOREIGN KEY (user_id) REFERENCES users(id)
+			FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
 		);
+		CREATE INDEX IF NOT EXISTS idx_rotation_policies_user_id ON rotation_policies(user_id);
+		CREATE INDEX IF NOT EXISTS idx_rotation_policies_enabled ON rotation_policies(enabled);
+		CREATE INDEX IF NOT EXISTS idx_rotation_policies_auto_rotate ON rotation_policies(auto_rotate);
+
 		CREATE TABLE IF NOT EXISTS secret_rotation_history (
 			id TEXT PRIMARY KEY,
 			secret_id TEXT NOT NULL,
@@ -211,9 +388,14 @@ func (d *DBRepository) InitializeDB() error {
 			new_version INTEGER,
 			triggered_by TEXT NOT NULL, -- 'manual', 'scheduled', 'auto'
 			notes TEXT,
-			FOREIGN KEY (secret_id) REFERENCES secrets(id),
-			FOREIGN KEY (policy_id) REFERENCES rotation_policies(id)
+			FOREIGN KEY (secret_id) REFERENCES secrets(id) ON DELETE CASCADE,
+			FOREIGN KEY (policy_id) REFERENCES rotation_policies(id) ON DELETE SET NULL
 		);
+		CREATE INDEX IF NOT EXISTS idx_rotation_history_secret_id ON secret_rotation_history(secret_id);
+		CREATE INDEX IF NOT EXISTS idx_rotation_history_policy_id ON secret_rotation_history(policy_id);
+		CREATE INDEX IF NOT EXISTS idx_rotation_history_rotated_at ON secret_rotation_history(rotated_at);
+		CREATE INDEX IF NOT EXISTS idx_rotation_history_triggered_by ON secret_rotation_history(triggered_by);
+
 		CREATE TABLE IF NOT EXISTS rotation_reminders (
 			id TEXT PRIMARY KEY,
 			secret_id TEXT NOT NULL,
@@ -222,9 +404,15 @@ func (d *DBRepository) InitializeDB() error {
 			sent_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
 			next_reminder_at TIMESTAMP,
 			acknowledged BOOLEAN NOT NULL DEFAULT FALSE,
-			FOREIGN KEY (secret_id) REFERENCES secrets(id),
-			FOREIGN KEY (policy_id) REFERENCES rotation_policies(id)
+			FOREIGN KEY (secret_id) REFERENCES secrets(id) ON DELETE CASCADE,
+			FOREIGN KEY (policy_id) REFERENCES rotation_policies(id) ON DELETE CASCADE
 		);
+		CREATE INDEX IF NOT EXISTS idx_rotation_reminders_secret_id ON rotation_reminders(secret_id);
+		CREATE INDEX IF NOT EXISTS idx_rotation_reminders_policy_id ON rotation_reminders(policy_id);
+		CREATE INDEX IF NOT EXISTS idx_rotation_reminders_type ON rotation_reminders(reminder_type);
+		CREATE INDEX IF NOT EXISTS idx_rotation_reminders_acknowledged ON rotation_reminders(acknowledged);
+		CREATE INDEX IF NOT EXISTS idx_rotation_reminders_next_at ON rotation_reminders(next_reminder_at);
+
 		CREATE TABLE IF NOT EXISTS secret_policies (
 			secret_id TEXT NOT NULL,
 			policy_id TEXT NOT NULL,
@@ -232,19 +420,18 @@ func (d *DBRepository) InitializeDB() error {
 			last_rotated_at TIMESTAMP,
 			next_rotation_at TIMESTAMP,
 			PRIMARY KEY (secret_id, policy_id),
-			FOREIGN KEY (secret_id) REFERENCES secrets(id),
-			FOREIGN KEY (policy_id) REFERENCES rotation_policies(id)
+			FOREIGN KEY (secret_id) REFERENCES secrets(id) ON DELETE CASCADE,
+			FOREIGN KEY (policy_id) REFERENCES rotation_policies(id) ON DELETE CASCADE
 		);
+		CREATE INDEX IF NOT EXISTS idx_secret_policies_next_rotation ON secret_policies(next_rotation_at);
+		CREATE INDEX IF NOT EXISTS idx_secret_policies_last_rotated ON secret_policies(last_rotated_at);
 	`)
 	if err != nil {
 		d.log.Error("Failed to create tables: ", err)
 		return fmt.Errorf("failed to create tables: %w", err)
 	}
 
-	// Assign the connection to the global DB variable.
-	DB = db
-	d.db = db
-	d.log.Info("Database initialized successfully")
+	d.log.Info("Database schema created successfully with optimized indexes")
 	return nil
 }
 
@@ -272,5 +459,107 @@ func (d *DBRepository) CloseDB() error {
 	}
 
 	d.log.Println("Database connection closed")
+	return nil
+}
+
+// RecordQueryExecution records query performance metrics.
+func RecordQueryExecution(duration time.Duration) {
+	metrics.mu.Lock()
+	defer metrics.mu.Unlock()
+
+	metrics.QueryCount++
+	metrics.TotalQueryTime += duration
+
+	if metrics.QueryCount > 0 {
+		metrics.AverageQueryTime = metrics.TotalQueryTime / time.Duration(metrics.QueryCount)
+	}
+
+	// Track slow queries (>100ms)
+	if duration > 100*time.Millisecond {
+		metrics.SlowQueryCount++
+	}
+}
+
+// GetPerformanceMetrics returns current database performance metrics.
+func GetPerformanceMetrics() PerformanceMetrics {
+	metrics.mu.RLock()
+	defer metrics.mu.RUnlock()
+
+	result := PerformanceMetrics{
+		QueryCount:       metrics.QueryCount,
+		SlowQueryCount:   metrics.SlowQueryCount,
+		TotalQueryTime:   metrics.TotalQueryTime,
+		AverageQueryTime: metrics.AverageQueryTime,
+	}
+
+	// Add current connection stats if DB is available
+	if DB != nil {
+		result.ConnectionStats = DB.Stats()
+	}
+
+	return result
+}
+
+// ResetPerformanceMetrics resets performance tracking metrics.
+func ResetPerformanceMetrics() {
+	metrics.mu.Lock()
+	defer metrics.mu.Unlock()
+
+	metrics.QueryCount = 0
+	metrics.SlowQueryCount = 0
+	metrics.TotalQueryTime = 0
+	metrics.AverageQueryTime = 0
+}
+
+// GetConnectionPoolStats returns detailed connection pool statistics.
+func GetConnectionPoolStats() map[string]interface{} {
+	if DB == nil {
+		return map[string]interface{}{"error": "database not initialized"}
+	}
+
+	stats := DB.Stats()
+	return map[string]interface{}{
+		"open_connections":     stats.OpenConnections,
+		"in_use":              stats.InUse,
+		"idle":                stats.Idle,
+		"wait_count":          stats.WaitCount,
+		"wait_duration_ms":    stats.WaitDuration.Milliseconds(),
+		"max_idle_closed":     stats.MaxIdleClosed,
+		"max_lifetime_closed": stats.MaxLifetimeClosed,
+		"utilization_percent": float64(stats.InUse) / float64(stats.OpenConnections) * 100,
+	}
+}
+
+// HealthCheck performs comprehensive database health validation.
+func HealthCheck(ctx context.Context) error {
+	if DB == nil {
+		return fmt.Errorf("database not initialized")
+	}
+
+	// Test connection with timeout
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+
+	start := time.Now()
+	if err := DB.PingContext(ctx); err != nil {
+		return fmt.Errorf("database ping failed: %w", err)
+	}
+	duration := time.Since(start)
+
+	// Record the health check as a query
+	RecordQueryExecution(duration)
+
+	// Check connection pool health
+	stats := DB.Stats()
+	if stats.OpenConnections == 0 {
+		return fmt.Errorf("no open database connections")
+	}
+
+	// Warn about potential issues
+	if stats.WaitCount > 100 && stats.WaitDuration > time.Millisecond*100 {
+		return fmt.Errorf("database connection pool under stress: wait_count=%d, wait_duration=%v",
+			stats.WaitCount, stats.WaitDuration)
+	}
+
 	return nil
 }

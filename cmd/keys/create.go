@@ -23,14 +23,14 @@ THE SOFTWARE.
 package keys
 
 import (
-	"database/sql"
 	"fmt"
 	"strings"
 
 	"password-manager/common"
+	"password-manager/internal/container"
 	"password-manager/internal/domain"
-	"password-manager/internal/keys"
 	"password-manager/internal/logging"
+	keyServices "password-manager/internal/services/keys"
 
 	"github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
@@ -80,23 +80,27 @@ var createCmd = &cobra.Command{
 			}
 		}
 
-		keyRepo := keys.NewKeyRepository(ctx.Value(common.DBKey).(*sql.DB), log)
-		var key *keys.Key
+		// Get service container from context
+		serviceContainer := ctx.Value(common.ServiceContainerKey).(*container.ServiceContainer)
+		keyService := serviceContainer.GetKeyService()
+
+		// Create key request
+		req := keyServices.CreateKeyRequest{
+			Name:   name,
+			Type:   keyType,
+			Bits:   bits,
+			Curve:  curve,
+			Tags:   tags,
+			UserID: claims.UserID,
+		}
+
+		var result *keyServices.CreateKeyResult
 		var err error
 
 		if keyType == "RSA" {
-			if bits != 2048 && bits != 4096 {
-				log.LogAuditError(claims.UserID.String(), "create_key", "failed", "invalid RSA key size: must be 2048 or 4096", nil)
-				return fmt.Errorf("invalid RSA key size: must be 2048 or 4096")
-			}
-			key, err = keyRepo.GenerateRSA(ctx, claims.UserID, name, bits, tags)
+			result, err = keyService.CreateRSAKey(ctx, req)
 		} else {
-			if curve != "P-256" && curve != "P-384" && curve != "P-521" {
-				log.LogAuditError(claims.UserID.String(), "create_key", "failed", "invalid ECDSA curve: must be P-256, P-384, or P-521", nil)
-				return fmt.Errorf("invalid ECDSA curve: must be P-256, P-384, or P-521")
-			}
-			log.Println("Creating ECDSA key with curve:", claims.UserID.String())
-			key, err = keyRepo.GenerateECDSA(ctx, claims.UserID, name, curve, tags)
+			result, err = keyService.CreateECDSAKey(ctx, req)
 		}
 
 		if err != nil {
@@ -104,13 +108,13 @@ var createCmd = &cobra.Command{
 			return fmt.Errorf("failed to create key: %w", err)
 		}
 
-		log.LogAuditInfo(claims.UserID.String(), "create_key", "success", fmt.Sprintf("key created: %s, ID: %s", name, key.ID))
+		log.LogAuditInfo(claims.UserID.String(), "create_key", "success", fmt.Sprintf("key created: %s, ID: %s", result.Name, result.KeyID))
 
 		log.WithFields(logrus.Fields{
-			"key_id": key.ID,
-			"name":   key.Name,
-			"type":   key.Type,
-			"tags":   key.Tags,
+			"key_id": result.KeyID,
+			"name":   result.Name,
+			"type":   result.Type,
+			"tags":   result.Tags,
 		}).Info("Key created successfully")
 		return nil
 	},

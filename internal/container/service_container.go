@@ -10,10 +10,14 @@ import (
 
 	"github.com/spf13/viper"
 
+	"password-manager/internal/certificates"
+	"password-manager/internal/keys"
 	"password-manager/internal/logging"
 	"password-manager/internal/repositories"
 	authServices "password-manager/internal/services/auth"
 	authzServices "password-manager/internal/services/authorization"
+	certServices "password-manager/internal/services/certificates"
+	keyServices "password-manager/internal/services/keys"
 	secretServices "password-manager/internal/services/secrets"
 	userServices "password-manager/internal/services/users"
 )
@@ -31,6 +35,8 @@ type ServiceContainer struct {
 	secretRepository       repositories.SecretRepositoryInterface
 	rotationRepository     repositories.RotationPolicyRepositoryInterface
 	versionRepository      repositories.SecretVersionRepositoryInterface
+	keyRepository          keys.KeyRepository
+	certificateRepository  certificates.CertificateRepository
 
 	// Authentication services
 	passwordService      authServices.PasswordService
@@ -42,8 +48,10 @@ type ServiceContainer struct {
 	rbacService authzServices.RBACService
 
 	// Business services
-	userService   userServices.UserService
-	secretService secretServices.SecretService
+	userService         userServices.UserService
+	secretService       secretServices.SecretService
+	keyService          keyServices.KeyService
+	certificateService  certServices.CertificateService
 
 	// Secret component services
 	cryptoService         secretServices.CryptographyService
@@ -87,6 +95,8 @@ func (c *ServiceContainer) initializeServices() error {
 	c.secretRepository = repositories.NewSecretRepository(c.db, c.logger)
 	c.rotationRepository = repositories.NewRotationPolicyRepository(c.db, c.logger)
 	c.versionRepository = repositories.NewSecretVersionRepository(c.db, c.logger)
+	c.keyRepository = keys.NewKeyRepository(c.db, c.logger)
+	c.certificateRepository = certificates.NewCertificateRepository(c.db, c.logger)
 
 	// Initialize authentication services
 	c.passwordService = authServices.NewPasswordService()
@@ -157,6 +167,19 @@ func (c *ServiceContainer) initializeServices() error {
 		VersionService:   c.versioningService,
 		TagService:       c.tagService,
 		Logger:           c.logger,
+	})
+
+	// Initialize key service
+	c.keyService = keyServices.NewKeyService(keyServices.KeyServiceConfig{
+		KeyRepository: c.keyRepository,
+		Logger:        c.logger,
+	})
+
+	// Initialize certificate service
+	c.certificateService = certServices.NewCertificateService(certServices.CertificateServiceConfig{
+		CertificateRepository: c.certificateRepository,
+		KeyRepository:         c.keyRepository,
+		Logger:                c.logger,
 	})
 
 	return nil
@@ -250,6 +273,26 @@ func (c *ServiceContainer) GetDatabase() *sql.DB {
 // GetLogger returns the logger.
 func (c *ServiceContainer) GetLogger() *logging.Logger {
 	return c.logger
+}
+
+// GetKeyRepository returns the key repository.
+func (c *ServiceContainer) GetKeyRepository() keys.KeyRepository {
+	return c.keyRepository
+}
+
+// GetCertificateRepository returns the certificate repository.
+func (c *ServiceContainer) GetCertificateRepository() certificates.CertificateRepository {
+	return c.certificateRepository
+}
+
+// GetKeyService returns the key service.
+func (c *ServiceContainer) GetKeyService() keyServices.KeyService {
+	return c.keyService
+}
+
+// GetCertificateService returns the certificate service.
+func (c *ServiceContainer) GetCertificateService() certServices.CertificateService {
+	return c.certificateService
 }
 
 // Close closes the service container and cleans up resources.

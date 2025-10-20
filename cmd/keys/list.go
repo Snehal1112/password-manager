@@ -23,9 +23,9 @@ THE SOFTWARE.
 package keys
 
 import (
-	"database/sql"
 	"fmt"
 	"password-manager/common"
+	"password-manager/internal/container"
 	"password-manager/internal/domain"
 	"password-manager/internal/keys"
 	"password-manager/internal/logging"
@@ -62,16 +62,20 @@ var listCmd = &cobra.Command{
 			}
 		}
 
-		keyRepo := keys.NewKeyRepository(ctx.Value(common.DBKey).(*sql.DB), log)
+		// Get service container from context
+		serviceContainer := ctx.Value(common.ServiceContainerKey).(*container.ServiceContainer)
+		keyService := serviceContainer.GetKeyService()
+
 		var keys []keys.Key
 		var err error
 
 		if claims.Role == domain.RoleAdmin {
-			// Admins list all keys with filters
+			// Admins list all keys with filters - use repository directly for admin functionality
+			keyRepo := serviceContainer.GetKeyRepository()
 			keys, err = keyRepo.ListByUser(ctx, nil, keyType, tags)
 		} else {
-			// Non-admins list only their keys
-			keys, err = keyRepo.ListByUser(ctx, &claims.UserID, keyType, tags)
+			// Non-admins list only their keys through service layer
+			keys, err = keyService.ListKeys(ctx, claims.UserID)
 		}
 
 		if err != nil {

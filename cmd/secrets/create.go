@@ -23,18 +23,15 @@ THE SOFTWARE.
 package secrets
 
 import (
-	"database/sql"
 	"os"
-	"time"
 
 	"github.com/google/uuid"
 	"github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
 
 	"password-manager/common"
-	"password-manager/internal/domain"
-	"password-manager/internal/logging"
-	"password-manager/internal/repositories"
+	"password-manager/internal/container"
+	"password-manager/internal/services/secrets"
 )
 
 // createCmd represents the create command
@@ -50,31 +47,31 @@ var createCmd = &cobra.Command{
 		tags, _ := cmd.Flags().GetStringSlice("tags")
 		userID := cmd.Context().Value(common.UserIDKey).(uuid.UUID)
 
-		db := cmd.Context().Value(common.DBKey).(*sql.DB)
-		log := cmd.Context().Value(common.LogKey).(*logging.Logger)
+		// Get service container and secret service
+		serviceContainer := cmd.Context().Value(common.ServiceContainerKey).(*container.ServiceContainer)
+		secretService := serviceContainer.GetSecretService()
 
-		repo := repositories.NewSecretRepository(db, log)
-
-		secret := domain.Secret{
-			ID:        uuid.New(),
-			UserID:    userID,
-			Name:      name,
-			Value:     value,
-			Version:   1,
-			Tags:      tags,
-			CreatedAt: time.Now(),
+		// Create secret request
+		req := secrets.CreateSecretRequest{
+			UserID: userID,
+			Name:   name,
+			Value:  value,
+			Tags:   tags,
 		}
 
-		if err := repo.Create(cmd.Context(), &secret); err != nil {
-			log.LogAuditError(userID.String(), "create_secret", "failed", "Failed to create secret", err)
-			os.Exit(0)
+		// Create secret via service
+		secret, err := secretService.CreateSecret(cmd.Context(), req)
+		if err != nil {
+			logrus.WithError(err).Error("Failed to create secret")
+			os.Exit(1)
 			return
 		}
 
-		// Log the creation of the secret.
+		// Log success
 		logrus.WithFields(logrus.Fields{
-			"user_id": userID.String(),
-			"name":    name,
+			"user_id":   userID.String(),
+			"secret_id": secret.ID.String(),
+			"name":      name,
 		}).Info("Secret created successfully")
 	},
 }
