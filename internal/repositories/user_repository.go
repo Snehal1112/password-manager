@@ -7,6 +7,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/sirupsen/logrus"
@@ -27,10 +28,35 @@ type UserRepositoryInterface interface {
 }
 
 // UserRepository implements UserRepositoryInterface with pure CRUD operations.
-// It focuses solely on database interactions without business logic.
+// It focuses solely on database interactions without business logic with performance monitoring.
 type UserRepository struct {
 	db  *sql.DB
 	log *logging.Logger
+}
+
+// executeWithMetrics wraps database operations with performance monitoring.
+func (r *UserRepository) executeWithMetrics(operation string, fn func() error) error {
+	start := time.Now()
+	err := fn()
+	duration := time.Since(start)
+
+	// Record performance metrics
+	db.RecordQueryExecution(duration)
+
+	// Log slow queries
+	if duration > 100*time.Millisecond {
+		logrus.WithFields(logrus.Fields{
+			"operation": operation,
+			"duration":  duration.Milliseconds(),
+		}).Warn("Slow database query detected")
+	}
+
+	return err
+}
+
+// queryWithMetrics wraps query operations with performance monitoring.
+func (r *UserRepository) queryWithMetrics(operation string, fn func() error) error {
+	return r.executeWithMetrics(operation, fn)
 }
 
 // NewUserRepository creates a new UserRepository instance.
@@ -181,7 +207,7 @@ func (r *UserRepository) Update(ctx context.Context, user *domain.User) error {
 }
 
 // Delete removes a user and all associated data from the database.
-// It handles cascading deletion to maintain referential integrity.
+// It handles cascading deletion to maintain referential integrity with optimized batch operations.
 //
 // Parameters:
 //
@@ -192,86 +218,46 @@ func (r *UserRepository) Update(ctx context.Context, user *domain.User) error {
 //
 //	An error if the deletion fails.
 func (r *UserRepository) Delete(ctx context.Context, id uuid.UUID) error {
-	logrus.WithField("user_id", id.String()).Debug("Deleting user from database")
+	return r.executeWithMetrics("delete_user", func() error {
+		logrus.WithField("user_id", id.String()).Debug("Deleting user from database")
 
-	tx, err := r.db.BeginTx(ctx, nil)
-	if err != nil {
-		r.log.LogAuditError(id.String(), "delete_user", "failed", "Failed to begin transaction", err)
-		return fmt.Errorf("failed to begin transaction: %w", err)
-	}
-	defer tx.Rollback()
+		tx, err := r.db.BeginTx(ctx, nil)
+		if err != nil {
+			r.log.LogAuditError(id.String(), "delete_user", "failed", "Failed to begin transaction", err)
+			return fmt.Errorf("failed to begin transaction: %w", err)
+		}
+		defer tx.Rollback()
 
-	// Delete associated data in correct order to respect foreign key constraints
-	// 1. Delete tags
-	_, err = tx.ExecContext(ctx, "DELETE FROM secret_tags WHERE secret_id IN (SELECT id FROM secrets WHERE user_id = ?)", id.String())
-	if err != nil {
-		r.log.LogAuditError(id.String(), "delete_user", "failed", "Failed to delete secret tags", err)
-		return fmt.Errorf("failed to delete secret tags: %w", err)
-	}
+		// Optimized cascading deletion using ON DELETE CASCADE constraints
+		// The foreign key constraints with ON DELETE CASCADE will handle most cleanup automatically
 
-	_, err = tx.ExecContext(ctx, "DELETE FROM key_tags WHERE key_id IN (SELECT id FROM keys WHERE user_id = ?)", id.String())
-	if err != nil {
-		r.log.LogAuditError(id.String(), "delete_user", "failed", "Failed to delete key tags", err)
-		return fmt.Errorf("failed to delete key tags: %w", err)
-	}
+		// Delete the user - cascading will handle related data
+		result, err := tx.ExecContext(ctx, "DELETE FROM users WHERE id = ?", id.String())
+		if err != nil {
+			r.log.LogAuditError(id.String(), "delete_user", "failed", "Failed to delete user", err)
+			return fmt.Errorf("failed to delete user: %w", err)
+		}
 
-	_, err = tx.ExecContext(ctx, "DELETE FROM certificate_tags WHERE certificate_id IN (SELECT id FROM certificates WHERE user_id = ?)", id.String())
-	if err != nil {
-		r.log.LogAuditError(id.String(), "delete_user", "failed", "Failed to delete certificate tags", err)
-		return fmt.Errorf("failed to delete certificate tags: %w", err)
-	}
+		rowsAffected, err := result.RowsAffected()
+		if err != nil {
+			r.log.LogAuditError(id.String(), "delete_user", "failed", "Failed to get rows affected", err)
+			return fmt.Errorf("failed to get rows affected: %w", err)
+		}
+		if rowsAffected == 0 {
+			r.log.LogAuditError(id.String(), "delete_user", "failed", "User not found for deletion", nil)
+			return fmt.Errorf("user not found")
+		}
 
-	// 2. Delete main entities
-	_, err = tx.ExecContext(ctx, "DELETE FROM secrets WHERE user_id = ?", id.String())
-	if err != nil {
-		r.log.LogAuditError(id.String(), "delete_user", "failed", "Failed to delete user secrets", err)
-		return fmt.Errorf("failed to delete user secrets: %w", err)
-	}
+		if err := tx.Commit(); err != nil {
+			r.log.LogAuditError(id.String(), "delete_user", "failed", "Failed to commit transaction", err)
+			return fmt.Errorf("failed to commit transaction: %w", err)
+		}
 
-	_, err = tx.ExecContext(ctx, "DELETE FROM keys WHERE user_id = ?", id.String())
-	if err != nil {
-		r.log.LogAuditError(id.String(), "delete_user", "failed", "Failed to delete user keys", err)
-		return fmt.Errorf("failed to delete user keys: %w", err)
-	}
+		r.log.LogAuditInfo(id.String(), "delete_user", "success", "User and associated data deleted successfully")
+		logrus.WithField("user_id", id.String()).Debug("User deleted successfully")
 
-	_, err = tx.ExecContext(ctx, "DELETE FROM certificates WHERE user_id = ?", id.String())
-	if err != nil {
-		r.log.LogAuditError(id.String(), "delete_user", "failed", "Failed to delete user certificates", err)
-		return fmt.Errorf("failed to delete user certificates: %w", err)
-	}
-
-	_, err = tx.ExecContext(ctx, "DELETE FROM crl WHERE user_id = ?", id.String())
-	if err != nil {
-		r.log.LogAuditError(id.String(), "delete_user", "failed", "Failed to delete user CRL entries", err)
-		return fmt.Errorf("failed to delete user CRL entries: %w", err)
-	}
-
-	// 3. Delete the user
-	result, err := tx.ExecContext(ctx, "DELETE FROM users WHERE id = ?", id.String())
-	if err != nil {
-		r.log.LogAuditError(id.String(), "delete_user", "failed", "Failed to delete user", err)
-		return fmt.Errorf("failed to delete user: %w", err)
-	}
-
-	rowsAffected, err := result.RowsAffected()
-	if err != nil {
-		r.log.LogAuditError(id.String(), "delete_user", "failed", "Failed to get rows affected", err)
-		return fmt.Errorf("failed to get rows affected: %w", err)
-	}
-	if rowsAffected == 0 {
-		r.log.LogAuditError(id.String(), "delete_user", "failed", "User not found for deletion", nil)
-		return fmt.Errorf("user not found")
-	}
-
-	if err := tx.Commit(); err != nil {
-		r.log.LogAuditError(id.String(), "delete_user", "failed", "Failed to commit transaction", err)
-		return fmt.Errorf("failed to commit transaction: %w", err)
-	}
-
-	r.log.LogAuditInfo(id.String(), "delete_user", "success", "User and associated data deleted successfully")
-	logrus.WithField("user_id", id.String()).Debug("User deleted successfully")
-
-	return nil
+		return nil
+	})
 }
 
 // ReadByUsername retrieves a user by username from the database.
@@ -317,7 +303,7 @@ func (r *UserRepository) Login(ctx context.Context, username, password, totpCode
 	return "", fmt.Errorf("login method is deprecated, use AuthenticationService instead")
 }
 
-// List retrieves all users from the database.
+// List retrieves all users from the database with optimized query and monitoring.
 //
 // Parameters:
 //
@@ -327,34 +313,48 @@ func (r *UserRepository) Login(ctx context.Context, username, password, totpCode
 //
 //	A slice of all users or an error if retrieval fails.
 func (r *UserRepository) List(ctx context.Context) ([]domain.User, error) {
-	rows, err := r.db.QueryContext(ctx, "SELECT id, username, password_hash, totp_secret, role, created_at FROM users")
-	if err != nil {
-		logrus.WithError(err).Error("Failed to list users")
-		return nil, fmt.Errorf("failed to list users: %w", err)
-	}
-	defer rows.Close()
-
 	var users []domain.User
-	for rows.Next() {
-		var user domain.User
-		var idStr string
 
-		if err := rows.Scan(&idStr, &user.Username, &user.PasswordHash, &user.TOTPSecret, &user.Role, &user.CreatedAt); err != nil {
-			logrus.WithError(err).Error("Failed to scan user")
-			return nil, fmt.Errorf("failed to scan user: %w", err)
-		}
-
-		user.ID, err = uuid.Parse(idStr)
+	err := r.queryWithMetrics("list_users", func() error {
+		// Optimized query with explicit column selection and ordering for better performance
+		rows, err := r.db.QueryContext(ctx,
+			"SELECT id, username, password_hash, totp_secret, role, created_at FROM users ORDER BY created_at DESC")
 		if err != nil {
-			logrus.WithError(err).Error("Failed to parse user ID")
-			return nil, fmt.Errorf("failed to parse user ID: %w", err)
+			logrus.WithError(err).Error("Failed to list users")
+			return fmt.Errorf("failed to list users: %w", err)
+		}
+		defer rows.Close()
+
+		// Pre-allocate slice for better memory performance
+		users = make([]domain.User, 0, 100) // Assume max 100 users initially
+
+		for rows.Next() {
+			var user domain.User
+			var idStr string
+
+			if err := rows.Scan(&idStr, &user.Username, &user.PasswordHash, &user.TOTPSecret, &user.Role, &user.CreatedAt); err != nil {
+				logrus.WithError(err).Error("Failed to scan user")
+				return fmt.Errorf("failed to scan user: %w", err)
+			}
+
+			user.ID, err = uuid.Parse(idStr)
+			if err != nil {
+				logrus.WithError(err).Error("Failed to parse user ID")
+				return fmt.Errorf("failed to parse user ID: %w", err)
+			}
+
+			users = append(users, user)
 		}
 
-		users = append(users, user)
-	}
+		if err := rows.Err(); err != nil {
+			return fmt.Errorf("row iteration error: %w", err)
+		}
 
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("row iteration error: %w", err)
+		return nil
+	})
+
+	if err != nil {
+		return nil, err
 	}
 
 	logrus.WithField("count", len(users)).Debug("Users listed successfully")

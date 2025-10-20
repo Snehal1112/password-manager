@@ -23,15 +23,14 @@ THE SOFTWARE.
 package keys
 
 import (
-	"database/sql"
 	"fmt"
 
 	"github.com/google/uuid"
 	"github.com/spf13/cobra"
 
 	"password-manager/common"
+	"password-manager/internal/container"
 	"password-manager/internal/domain"
-	"password-manager/internal/keys"
 	"password-manager/internal/logging"
 )
 
@@ -56,27 +55,18 @@ var deleteCmd = &cobra.Command{
 			return fmt.Errorf("invalid key ID: %w", err)
 		}
 
-		keyRepo := keys.NewKeyRepository(ctx.Value(common.DBKey).(*sql.DB), log)
-		// Read key to check ownership
-		key, err := keyRepo.Read(ctx, keyID)
-		if err != nil {
-			log.LogAuditError(claims.UserID.String(), "delete_key", "failed", fmt.Sprintf("failed to read key: %s", err), err)
-			return fmt.Errorf("failed to read key: %w", err)
-		}
+		// Get service container from context
+		serviceContainer := ctx.Value(common.ServiceContainerKey).(*container.ServiceContainer)
+		keyService := serviceContainer.GetKeyService()
 
-		if claims.UserID != key.UserID && claims.Role != domain.RoleAdmin {
-			log.LogAuditError(claims.UserID.String(), "delete_key", "failed", "forbidden: cannot delete other users' keys", nil)
-			return fmt.Errorf("forbidden: cannot delete other users' keys")
-		}
-
-		// Delete the key
-		err = keyRepo.Delete(ctx, keyID)
+		// Service layer handles ownership validation and deletion
+		err = keyService.DeleteKey(ctx, keyID, claims.UserID)
 		if err != nil {
 			log.LogAuditError(claims.UserID.String(), "delete_key", "failed", fmt.Sprintf("failed to delete key: %s", err), err)
 			return fmt.Errorf("failed to delete key: %w", err)
 		}
 
-		log.LogAuditInfo(claims.UserID.String(), "delete_key", "success", fmt.Sprintf("key deleted: %s", key.Name))
+		log.LogAuditInfo(claims.UserID.String(), "delete_key", "success", fmt.Sprintf("key deleted: %s", keyID))
 		fmt.Printf("Key %s deleted successfully\n", keyID)
 		return nil
 	},

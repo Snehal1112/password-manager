@@ -31,6 +31,8 @@ import (
 	"time"
 
 	"github.com/sirupsen/logrus"
+
+	"password-manager/internal/db"
 )
 
 // HealthMetrics represents the system health metrics
@@ -72,15 +74,21 @@ type CPUStats struct {
 	CgoCalls   int64 `json:"cgo_calls"`
 }
 
-// DatabaseStats contains database connection information
+// DatabaseStats contains enhanced database connection and performance information
 type DatabaseStats struct {
-	OpenConnections   int           `json:"open_connections"`
-	InUse             int           `json:"in_use"`
-	Idle              int           `json:"idle"`
-	WaitCount         int64         `json:"wait_count"`
-	WaitDuration      time.Duration `json:"wait_duration"`
-	MaxIdleClosed     int64         `json:"max_idle_closed"`
-	MaxLifetimeClosed int64         `json:"max_lifetime_closed"`
+	OpenConnections     int           `json:"open_connections"`
+	InUse               int           `json:"in_use"`
+	Idle                int           `json:"idle"`
+	WaitCount           int64         `json:"wait_count"`
+	WaitDuration        time.Duration `json:"wait_duration"`
+	MaxIdleClosed       int64         `json:"max_idle_closed"`
+	MaxLifetimeClosed   int64         `json:"max_lifetime_closed"`
+	UtilizationPercent  float64       `json:"utilization_percent"`
+	QueryCount          int64         `json:"query_count"`
+	SlowQueryCount      int64         `json:"slow_query_count"`
+	AverageQueryTime    time.Duration `json:"avg_query_time"`
+	TotalQueryTime      time.Duration `json:"total_query_time"`
+	HealthStatus        string        `json:"health_status"`
 }
 
 // HealthCollector manages health metrics collection
@@ -148,17 +156,43 @@ func (hc *HealthCollector) CollectMetrics(ctx context.Context) (*HealthMetrics, 
 		Timestamp:  time.Now(),
 	}
 
-	// Collect database stats
+	// Collect enhanced database stats including performance metrics
 	if hc.db != nil {
 		dbStats := hc.db.Stats()
+		perfMetrics := db.GetPerformanceMetrics()
+
+		// Calculate utilization percentage
+		utilization := float64(0)
+		if dbStats.OpenConnections > 0 {
+			utilization = float64(dbStats.InUse) / float64(dbStats.OpenConnections) * 100
+		}
+
+		// Determine health status
+		healthStatus := "healthy"
+		if dbStats.WaitCount > 100 && dbStats.WaitDuration > time.Millisecond*100 {
+			healthStatus = "warning"
+		}
+		if perfMetrics.SlowQueryCount > perfMetrics.QueryCount/10 { // >10% slow queries
+			healthStatus = "degraded"
+		}
+		if dbStats.OpenConnections == 0 {
+			healthStatus = "critical"
+		}
+
 		metrics.DatabaseStats = DatabaseStats{
-			OpenConnections:   dbStats.OpenConnections,
-			InUse:             dbStats.InUse,
-			Idle:              dbStats.Idle,
-			WaitCount:         dbStats.WaitCount,
-			WaitDuration:      dbStats.WaitDuration,
-			MaxIdleClosed:     dbStats.MaxIdleClosed,
-			MaxLifetimeClosed: dbStats.MaxLifetimeClosed,
+			OpenConnections:     dbStats.OpenConnections,
+			InUse:               dbStats.InUse,
+			Idle:                dbStats.Idle,
+			WaitCount:           dbStats.WaitCount,
+			WaitDuration:        dbStats.WaitDuration,
+			MaxIdleClosed:       dbStats.MaxIdleClosed,
+			MaxLifetimeClosed:   dbStats.MaxLifetimeClosed,
+			UtilizationPercent:  utilization,
+			QueryCount:          perfMetrics.QueryCount,
+			SlowQueryCount:      perfMetrics.SlowQueryCount,
+			AverageQueryTime:    perfMetrics.AverageQueryTime,
+			TotalQueryTime:      perfMetrics.TotalQueryTime,
+			HealthStatus:        healthStatus,
 		}
 	}
 
@@ -246,4 +280,103 @@ func (hc *HealthCollector) LogHealthMetrics(ctx context.Context) error {
 	}).Info("System health metrics collected")
 
 	return nil
+}
+
+// CheckDatabaseHealth performs comprehensive database health validation.
+func (hc *HealthCollector) CheckDatabaseHealth(ctx context.Context) (map[string]interface{}, error) {
+	if hc.db == nil {
+		return map[string]interface{}{
+			"status": "critical",
+			"error":  "database not initialized",
+		}, fmt.Errorf("database not initialized")
+	}
+
+	result := make(map[string]interface{})
+
+	// Basic connectivity test
+	start := time.Now()
+	if err := hc.db.PingContext(ctx); err != nil {
+		result["status"] = "critical"
+		result["ping_error"] = err.Error()
+		result["ping_duration_ms"] = time.Since(start).Milliseconds()
+		return result, fmt.Errorf("database ping failed: %w", err)
+	}
+	pingDuration := time.Since(start)
+	result["ping_duration_ms"] = pingDuration.Milliseconds()
+
+	// Connection pool stats
+	stats := hc.db.Stats()
+	result["connection_pool"] = map[string]interface{}{
+		"open_connections":     stats.OpenConnections,
+		"in_use":              stats.InUse,
+		"idle":                stats.Idle,
+		"wait_count":          stats.WaitCount,
+		"wait_duration_ms":    stats.WaitDuration.Milliseconds(),
+		"max_idle_closed":     stats.MaxIdleClosed,
+		"max_lifetime_closed": stats.MaxLifetimeClosed,
+		"utilization_percent": float64(stats.InUse) / float64(stats.OpenConnections) * 100,
+	}
+
+	// Performance metrics
+	perfMetrics := db.GetPerformanceMetrics()
+	result["performance"] = map[string]interface{}{
+		"query_count":        perfMetrics.QueryCount,
+		"slow_query_count":   perfMetrics.SlowQueryCount,
+		"avg_query_time_ms":  perfMetrics.AverageQueryTime.Milliseconds(),
+		"total_query_time_ms": perfMetrics.TotalQueryTime.Milliseconds(),
+		"slow_query_percentage": func() float64 {
+			if perfMetrics.QueryCount == 0 {
+				return 0
+			}
+			return float64(perfMetrics.SlowQueryCount) / float64(perfMetrics.QueryCount) * 100
+		}(),
+	}
+
+	// Health status determination
+	status := "healthy"
+	warnings := make([]string, 0)
+
+	if pingDuration > time.Millisecond*50 {
+		warnings = append(warnings, "slow database ping response")
+	}
+	if stats.WaitCount > 100 && stats.WaitDuration > time.Millisecond*100 {
+		warnings = append(warnings, "connection pool under stress")
+		status = "warning"
+	}
+	if perfMetrics.QueryCount > 0 && perfMetrics.SlowQueryCount > perfMetrics.QueryCount/10 {
+		warnings = append(warnings, "high percentage of slow queries")
+		status = "warning"
+	}
+	if stats.OpenConnections == 0 {
+		warnings = append(warnings, "no open database connections")
+		status = "critical"
+	}
+
+	result["status"] = status
+	if len(warnings) > 0 {
+		result["warnings"] = warnings
+	}
+
+	// Test a simple query
+	start = time.Now()
+	var count int
+	err := hc.db.QueryRowContext(ctx, "SELECT COUNT(*) FROM users").Scan(&count)
+	queryDuration := time.Since(start)
+
+	if err != nil {
+		result["query_test"] = map[string]interface{}{
+			"error":       err.Error(),
+			"duration_ms": queryDuration.Milliseconds(),
+		}
+		status = "degraded"
+	} else {
+		result["query_test"] = map[string]interface{}{
+			"success":      true,
+			"user_count":   count,
+			"duration_ms":  queryDuration.Milliseconds(),
+		}
+	}
+
+	result["status"] = status
+	return result, nil
 }

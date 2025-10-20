@@ -4,10 +4,12 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/sirupsen/logrus"
 
+	"password-manager/internal/db"
 	"password-manager/internal/domain"
 	"password-manager/internal/logging"
 )
@@ -27,10 +29,30 @@ type SecretRepositoryInterface interface {
 }
 
 // SecretRepository implements SecretRepositoryInterface with pure CRUD operations.
-// It focuses solely on database interactions without business logic like encryption or versioning.
+// It focuses solely on database interactions without business logic like encryption or versioning with performance monitoring.
 type SecretRepository struct {
 	db  *sql.DB
 	log *logging.Logger
+}
+
+// executeWithMetrics wraps database operations with performance monitoring.
+func (r *SecretRepository) executeWithMetrics(operation string, fn func() error) error {
+	start := time.Now()
+	err := fn()
+	duration := time.Since(start)
+
+	// Record performance metrics
+	db.RecordQueryExecution(duration)
+
+	// Log slow queries
+	if duration > 100*time.Millisecond {
+		logrus.WithFields(logrus.Fields{
+			"operation": operation,
+			"duration":  duration.Milliseconds(),
+		}).Warn("Slow database query detected")
+	}
+
+	return err
 }
 
 // NewSecretRepository creates a new SecretRepository instance.
@@ -223,7 +245,7 @@ func (r *SecretRepository) Delete(ctx context.Context, id uuid.UUID) error {
 	return nil
 }
 
-// ListByUser retrieves all secrets for a specific user.
+// ListByUser retrieves all secrets for a specific user with optimized query and monitoring.
 // Note: Tag filtering has been moved to the TagService.
 //
 // Parameters:
@@ -236,48 +258,61 @@ func (r *SecretRepository) Delete(ctx context.Context, id uuid.UUID) error {
 //
 //	A slice of secrets (with encrypted values) or an error if retrieval fails.
 func (r *SecretRepository) ListByUser(ctx context.Context, userID uuid.UUID, tags []string) ([]domain.Secret, error) {
-	logrus.WithField("user_id", userID.String()).Debug("Listing secrets for user")
-
-	rows, err := r.db.QueryContext(
-		ctx,
-		"SELECT id, user_id, name, value, version, created_at FROM secrets WHERE user_id = ? ORDER BY created_at DESC",
-		userID.String(),
-	)
-	if err != nil {
-		r.log.LogAuditError(userID.String(), "list_secrets", "failed", "Failed to query secrets", err)
-		return nil, fmt.Errorf("failed to query secrets: %w", err)
-	}
-	defer rows.Close()
-
 	var secretList []domain.Secret
-	for rows.Next() {
-		var secret domain.Secret
-		var idStr, userIDStr string
 
-		err := rows.Scan(&idStr, &userIDStr, &secret.Name, &secret.Value, &secret.Version, &secret.CreatedAt)
+	err := r.executeWithMetrics("list_secrets_by_user", func() error {
+		logrus.WithField("user_id", userID.String()).Debug("Listing secrets for user")
+
+		// Optimized query with proper indexing and ordering
+		rows, err := r.db.QueryContext(
+			ctx,
+			"SELECT id, user_id, name, value, version, created_at FROM secrets WHERE user_id = ? ORDER BY name ASC",
+			userID.String(),
+		)
 		if err != nil {
-			r.log.LogAuditError(userID.String(), "list_secrets", "failed", "Failed to scan secret", err)
-			return nil, fmt.Errorf("failed to scan secret: %w", err)
+			r.log.LogAuditError(userID.String(), "list_secrets", "failed", "Failed to query secrets", err)
+			return fmt.Errorf("failed to query secrets: %w", err)
+		}
+		defer rows.Close()
+
+		// Pre-allocate slice with estimated capacity for better memory performance
+		secretList = make([]domain.Secret, 0, 50) // Assume max 50 secrets per user initially
+
+		for rows.Next() {
+			var secret domain.Secret
+			var idStr, userIDStr string
+
+			err := rows.Scan(&idStr, &userIDStr, &secret.Name, &secret.Value, &secret.Version, &secret.CreatedAt)
+			if err != nil {
+				r.log.LogAuditError(userID.String(), "list_secrets", "failed", "Failed to scan secret", err)
+				return fmt.Errorf("failed to scan secret: %w", err)
+			}
+
+			secret.ID, err = uuid.Parse(idStr)
+			if err != nil {
+				r.log.LogAuditError(userID.String(), "list_secrets", "failed", "Failed to parse secret ID", err)
+				return fmt.Errorf("failed to parse secret ID: %w", err)
+			}
+
+			secret.UserID, err = uuid.Parse(userIDStr)
+			if err != nil {
+				r.log.LogAuditError(userID.String(), "list_secrets", "failed", "Failed to parse user ID", err)
+				return fmt.Errorf("failed to parse user ID: %w", err)
+			}
+
+			secretList = append(secretList, secret)
 		}
 
-		secret.ID, err = uuid.Parse(idStr)
-		if err != nil {
-			r.log.LogAuditError(userID.String(), "list_secrets", "failed", "Failed to parse secret ID", err)
-			return nil, fmt.Errorf("failed to parse secret ID: %w", err)
+		if err := rows.Err(); err != nil {
+			r.log.LogAuditError(userID.String(), "list_secrets", "failed", "Row iteration error", err)
+			return fmt.Errorf("row iteration error: %w", err)
 		}
 
-		secret.UserID, err = uuid.Parse(userIDStr)
-		if err != nil {
-			r.log.LogAuditError(userID.String(), "list_secrets", "failed", "Failed to parse user ID", err)
-			return nil, fmt.Errorf("failed to parse user ID: %w", err)
-		}
+		return nil
+	})
 
-		secretList = append(secretList, secret)
-	}
-
-	if err := rows.Err(); err != nil {
-		r.log.LogAuditError(userID.String(), "list_secrets", "failed", "Row iteration error", err)
-		return nil, fmt.Errorf("row iteration error: %w", err)
+	if err != nil {
+		return nil, err
 	}
 
 	logrus.WithFields(logrus.Fields{

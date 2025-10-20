@@ -5,7 +5,6 @@ Copyright © 2025 Snehal Dangroshiya
 package certificates
 
 import (
-	"database/sql"
 	"fmt"
 	"strings"
 
@@ -14,10 +13,10 @@ import (
 	"github.com/spf13/viper"
 
 	"password-manager/common"
+	"password-manager/internal/container"
 	"password-manager/internal/domain"
-	"password-manager/internal/certificates"
-	"password-manager/internal/keys"
 	"password-manager/internal/logging"
+	certServices "password-manager/internal/services/certificates"
 )
 
 // createCmd represents the create command
@@ -66,20 +65,20 @@ var createCmd = &cobra.Command{
 			}
 		}
 
-		// Verify key ownership
-		keyRepo := keys.NewKeyRepository(ctx.Value(common.DBKey).(*sql.DB), log)
-		key, err := keyRepo.Read(ctx, keyID)
-		if err != nil {
-			log.LogAuditError(claims.UserID.String(), "create_certificate", "failed", fmt.Sprintf("failed to read key: %s", err), err)
-			return fmt.Errorf("failed to read key: %w", err)
-		}
-		if key.UserID != claims.UserID && claims.Role != domain.RoleAdmin {
-			log.LogAuditError(claims.UserID.String(), "create_certificate", "failed", "forbidden: cannot use other users' keys", nil)
-			return fmt.Errorf("forbidden: cannot use other users' keys")
+		// Get service container from context
+		serviceContainer := ctx.Value(common.ServiceContainerKey).(*container.ServiceContainer)
+		certService := serviceContainer.GetCertificateService()
+
+		// Create certificate request
+		req := certServices.CreateCertificateRequest{
+			Name:         name,
+			KeyID:        keyID,
+			ValidityDays: validityDays,
+			Tags:         tags,
+			UserID:       claims.UserID,
 		}
 
-		certRepo := certificates.NewCertificateRepository(ctx.Value(common.DBKey).(*sql.DB), log)
-		var cert *certificates.Certificate
+		var result *certServices.CreateCertificateResult
 		if caCertIDStr != "" {
 			// CA-signed certificate
 			caCertID, parseErr := uuid.Parse(caCertIDStr)
@@ -87,11 +86,12 @@ var createCmd = &cobra.Command{
 				log.LogAuditError(claims.UserID.String(), "create_certificate", "failed", fmt.Sprintf("invalid CA certificate ID: %s", parseErr), parseErr)
 				return fmt.Errorf("invalid CA certificate ID: %w", parseErr)
 			}
+			req.CACertID = &caCertID
 			log.WithField("ca_cert_id", caCertID).Info("Creating CA-signed certificate")
-			cert, err = certRepo.CreateCASigned(ctx, claims.UserID, name, keyID, caCertID, validityDays, tags)
+			result, err = certService.CreateCASignedCertificate(ctx, req)
 		} else {
 			// Self-signed certificate
-			cert, err = certRepo.CreateSelfSigned(ctx, claims.UserID, name, keyID, validityDays, tags)
+			result, err = certService.CreateSelfSignedCertificate(ctx, req)
 		}
 
 		if err != nil {
@@ -99,8 +99,8 @@ var createCmd = &cobra.Command{
 			return fmt.Errorf("failed to create certificate: %w", err)
 		}
 
-		log.LogAuditInfo(claims.UserID.String(), "create_certificate", "success", fmt.Sprintf("certificate created: %s, ID: %s", cert.Name, cert.ID))
-		fmt.Printf("Certificate created successfully, ID: %s\n", cert.ID)
+		log.LogAuditInfo(claims.UserID.String(), "create_certificate", "success", fmt.Sprintf("certificate created: %s, ID: %s", result.Name, result.CertID))
+		fmt.Printf("Certificate created successfully, ID: %s\n", result.CertID)
 		return nil
 	},
 }

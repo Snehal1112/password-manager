@@ -23,7 +23,6 @@ THE SOFTWARE.
 package secrets
 
 import (
-	"database/sql"
 	"os"
 
 	"github.com/google/uuid"
@@ -31,8 +30,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"password-manager/common"
-	"password-manager/internal/logging"
-	"password-manager/internal/repositories"
+	"password-manager/internal/container"
 )
 
 // deleteCmd represents the delete command
@@ -46,30 +44,20 @@ var deleteCmd = &cobra.Command{
 		ctx := cmd.Context()
 		userID := ctx.Value(common.UserIDKey).(uuid.UUID)
 
-		db := ctx.Value(common.DBKey).(*sql.DB)
-		logger := ctx.Value(common.LogKey).(*logging.Logger)
+		// Get service container and secret service
+		serviceContainer := ctx.Value(common.ServiceContainerKey).(*container.ServiceContainer)
+		secretService := serviceContainer.GetSecretService()
 
-		repo := repositories.NewSecretRepository(db, logger)
-		secret, err := repo.Read(cmd.Context(), secretID)
+		// Delete secret via service (includes access control)
+		err := secretService.DeleteSecret(ctx, secretID, userID)
 		if err != nil {
-			logrus.Error("Failed to read secret: ", err)
-			os.Exit(0)
-			return
-		}
-		if secret.UserID != userID {
-			logrus.Warn("Unauthorized access attempt to secret")
-			os.Exit(0)
-			return
-		}
-
-		if err := repo.Delete(cmd.Context(), secretID); err != nil {
-			logrus.Error("Failed to delete secret: ", err)
-			os.Exit(0)
+			logrus.WithError(err).Error("Failed to delete secret")
+			os.Exit(1)
 			return
 		}
 
 		logrus.WithFields(logrus.Fields{
-			"secret_id": secret.ID.String(),
+			"secret_id": secretID.String(),
 			"user_id":   userID.String(),
 		}).Info("Secret deleted successfully")
 	},

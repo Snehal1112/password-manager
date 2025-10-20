@@ -23,7 +23,6 @@ THE SOFTWARE.
 package secrets
 
 import (
-	"database/sql"
 	"encoding/json"
 	"log"
 	"os"
@@ -33,8 +32,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"password-manager/common"
-	"password-manager/internal/logging"
-	"password-manager/internal/repositories"
+	"password-manager/internal/container"
 )
 
 // getCmd represents the get command
@@ -48,27 +46,23 @@ var getCmd = &cobra.Command{
 
 		ctx := cmd.Context()
 		userID := ctx.Value(common.UserIDKey).(uuid.UUID)
-		db := ctx.Value(common.DBKey).(*sql.DB)
-		logger := ctx.Value(common.LogKey).(*logging.Logger)
 
-		repo := repositories.NewSecretRepository(db, logger)
-		secret, err := repo.Read(cmd.Context(), secretID)
+		// Get service container and secret service
+		serviceContainer := ctx.Value(common.ServiceContainerKey).(*container.ServiceContainer)
+		secretService := serviceContainer.GetSecretService()
+
+		// Get secret via service (includes access control)
+		secret, err := secretService.GetSecret(ctx, secretID, userID)
 		if err != nil {
-			logger.LogAuditError(secretID.String(), "get_secret", "failed", "Failed to retrieve secret", err)
-			os.Exit(0)
-			return
-		}
-		if secret.UserID != userID {
-			logger.LogAuditError(userID.String(), "get_secret", "failed", "Unauthorized access to secret", nil)
-			os.Exit(0)
+			logrus.WithError(err).Error("Failed to retrieve secret")
+			os.Exit(1)
 			return
 		}
 
+		// Log success
 		logrus.WithFields(logrus.Fields{
 			"secret_id": secret.ID.String(),
-			"user_id":   secret.UserID.String(),
-			"operation": "get_secret",
-			"status":    "success",
+			"user_id":   userID.String(),
 		}).Info("Secret retrieved successfully")
 
 		jsonData, _ := json.MarshalIndent(secret, "", "  ")

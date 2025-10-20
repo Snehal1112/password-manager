@@ -29,9 +29,9 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 
-	"password-manager/internal/domain"
 	"password-manager/internal/container"
 	"password-manager/internal/db"
+	"password-manager/internal/domain"
 	"password-manager/internal/logging"
 	userService "password-manager/internal/services/users"
 )
@@ -73,11 +73,14 @@ var registerAdminCmd = &cobra.Command{
 
 		// Validate bootstrap token using service
 		userSvc := serviceContainer.GetUserService()
+		log.Println("Validating bootstrap token...", token)
 		valid, err := userSvc.ValidateBootstrapToken(ctx, token)
 		if err != nil {
 			log.LogAuditError(uuid.Nil.String(), "register_admin", "failed", fmt.Sprintf("failed to validate bootstrap token: %s", err), err)
 			return fmt.Errorf("failed to validate bootstrap token: %w", err)
 		}
+
+		log.Println("Bootstrap token valid:", valid)
 		if !valid {
 			log.LogAuditError(uuid.Nil.String(), "register_admin", "failed", "invalid or used bootstrap token", nil)
 			return fmt.Errorf("invalid or used bootstrap token")

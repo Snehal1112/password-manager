@@ -23,7 +23,6 @@ THE SOFTWARE.
 package keys
 
 import (
-	"database/sql"
 	"fmt"
 	"strings"
 	"time"
@@ -32,8 +31,8 @@ import (
 	"github.com/spf13/cobra"
 
 	"password-manager/common"
+	"password-manager/internal/container"
 	"password-manager/internal/domain"
-	"password-manager/internal/keys"
 	"password-manager/internal/logging"
 )
 
@@ -58,17 +57,17 @@ var getCmd = &cobra.Command{
 			return fmt.Errorf("invalid key ID: %w", err)
 		}
 
-		keyRepo := keys.NewKeyRepository(ctx.Value(common.DBKey).(*sql.DB), log)
-		key, err := keyRepo.Read(ctx, keyID)
+		// Get service container from context
+		serviceContainer := ctx.Value(common.ServiceContainerKey).(*container.ServiceContainer)
+		keyService := serviceContainer.GetKeyService()
+
+		key, err := keyService.GetKey(ctx, keyID, claims.UserID)
 		if err != nil {
 			log.LogAuditError(claims.UserID.String(), "get_key", "failed", fmt.Sprintf("failed to get key: %s", err), err)
 			return fmt.Errorf("failed to get key: %w", err)
 		}
 
-		if claims.UserID != key.UserID && claims.Role != domain.RoleAdmin {
-			log.LogAuditError(claims.UserID.String(), "get_key", "failed", "forbidden: cannot access other users' keys", nil)
-			return fmt.Errorf("forbidden: cannot access other users' keys")
-		}
+		// Access control is now handled by the service layer
 
 		log.LogAuditInfo(claims.UserID.String(), "get_key", "success", fmt.Sprintf("key retrieved: %s", key.Name))
 		fmt.Printf("Key: ID=%s, Name=%s, Type=%s, Revoked=%t, CreatedAt=%s, Tags=[%s]\n",
