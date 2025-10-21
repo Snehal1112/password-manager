@@ -391,7 +391,7 @@ func (r *keyRepository) Rotate(ctx context.Context, id uuid.UUID) (*Key, error) 
 // - tags: The tags to filter by (empty for no tag filter).
 // Returns: A slice of keys and an error if the operation fails.
 func (r *keyRepository) ListByUser(ctx context.Context, userID *uuid.UUID, keyType string, tags []string) ([]Key, error) {
-	var args = []interface{}{}
+	args := []interface{}{}
 	query := "SELECT id, user_id, name, value, type, revoked, created_at FROM keys"
 	if userID != nil {
 		query += " WHERE user_id = ?"

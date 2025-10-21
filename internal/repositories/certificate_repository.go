@@ -67,7 +67,8 @@ func (r *CertificateRepository) executeWithMetrics(operation string, fn func() e
 //   - log: The logger for database operation logging.
 //
 // Returns:
-//   A CertificateRepositoryInterface implementation for certificate database operations.
+//
+//	A CertificateRepositoryInterface implementation for certificate database operations.
 func NewCertificateRepository(db *sql.DB, log *logging.Logger) CertificateRepositoryInterface {
 	return &CertificateRepository{db: db, log: log}
 }
@@ -81,7 +82,8 @@ func NewCertificateRepository(db *sql.DB, log *logging.Logger) CertificateReposi
 //   - cert: The certificate entity to store (with pre-generated cert PEM and encrypted private key).
 //
 // Returns:
-//   An error if the insertion fails.
+//
+//	An error if the insertion fails.
 func (r *CertificateRepository) Create(ctx context.Context, cert *domain.Certificate) error {
 	return r.executeWithMetrics("create_certificate", func() error {
 		logrus.WithFields(logrus.Fields{
@@ -141,7 +143,8 @@ func (r *CertificateRepository) Create(ctx context.Context, cert *domain.Certifi
 //   - id: The certificate's unique identifier.
 //
 // Returns:
-//   The certificate entity (with encrypted private key) or an error if not found.
+//
+//	The certificate entity (with encrypted private key) or an error if not found.
 func (r *CertificateRepository) Read(ctx context.Context, id uuid.UUID) (*domain.Certificate, error) {
 	var cert domain.Certificate
 	var idStr, userIDStr string
@@ -190,7 +193,8 @@ func (r *CertificateRepository) Read(ctx context.Context, id uuid.UUID) (*domain
 //   - cert: The certificate entity with updated fields (pre-encrypted private key).
 //
 // Returns:
-//   An error if the update fails.
+//
+//	An error if the update fails.
 func (r *CertificateRepository) Update(ctx context.Context, cert *domain.Certificate) error {
 	return r.executeWithMetrics("update_certificate", func() error {
 		logrus.WithFields(logrus.Fields{
@@ -265,7 +269,8 @@ func (r *CertificateRepository) Update(ctx context.Context, cert *domain.Certifi
 //   - id: The certificate's unique identifier.
 //
 // Returns:
-//   An error if the deletion fails.
+//
+//	An error if the deletion fails.
 func (r *CertificateRepository) Delete(ctx context.Context, id uuid.UUID) error {
 	return r.executeWithMetrics("delete_certificate", func() error {
 		logrus.WithField("cert_id", id.String()).Debug("Deleting certificate from database")
@@ -323,7 +328,8 @@ func (r *CertificateRepository) Delete(ctx context.Context, id uuid.UUID) error 
 //   - name: The certificate's common name.
 //
 // Returns:
-//   An error if revocation fails.
+//
+//	An error if revocation fails.
 func (r *CertificateRepository) Revoke(ctx context.Context, id uuid.UUID, serialNumber, name string) error {
 	return r.executeWithMetrics("revoke_certificate", func() error {
 		// Read certificate to get user ID
@@ -363,7 +369,8 @@ func (r *CertificateRepository) Revoke(ctx context.Context, id uuid.UUID, serial
 //   - tags: The tags to filter by (empty for no tag filter).
 //
 // Returns:
-//   A slice of certificates (with encrypted private keys) or an error if retrieval fails.
+//
+//	A slice of certificates (with encrypted private keys) or an error if retrieval fails.
 func (r *CertificateRepository) ListByUser(ctx context.Context, userID uuid.UUID, certType string, tags []string) ([]domain.Certificate, error) {
 	var certList []domain.Certificate
 
@@ -434,7 +441,6 @@ func (r *CertificateRepository) ListByUser(ctx context.Context, userID uuid.UUID
 
 		return nil
 	})
-
 	if err != nil {
 		return nil, err
 	}
@@ -454,7 +460,8 @@ func (r *CertificateRepository) ListByUser(ctx context.Context, userID uuid.UUID
 //   - userID: The user's ID.
 //
 // Returns:
-//   A list of revoked certificates or an error if retrieval fails.
+//
+//	A list of revoked certificates or an error if retrieval fails.
 func (r *CertificateRepository) ListRevoked(ctx context.Context, userID uuid.UUID) ([]domain.RevokedCertificate, error) {
 	var revokedList []domain.RevokedCertificate
 
@@ -501,7 +508,6 @@ func (r *CertificateRepository) ListRevoked(ctx context.Context, userID uuid.UUI
 
 		return nil
 	})
-
 	if err != nil {
 		return nil, err
 	}

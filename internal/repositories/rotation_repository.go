@@ -80,7 +80,6 @@ func (r *rotationPolicyRepository) Create(ctx context.Context, policy *domain.Ro
 		policy.CreatedAt,
 		policy.UpdatedAt,
 	)
-
 	if err != nil {
 		r.log.WithError(err).Error("Failed to create rotation policy")
 		return fmt.Errorf("failed to create rotation policy: %w", err)
@@ -117,7 +116,6 @@ func (r *rotationPolicyRepository) Read(ctx context.Context, id uuid.UUID) (*dom
 		&policy.CreatedAt,
 		&policy.UpdatedAt,
 	)
-
 	if err != nil {
 		if err == sql.ErrNoRows {
 			return nil, fmt.Errorf("rotation policy not found")
@@ -150,7 +148,6 @@ func (r *rotationPolicyRepository) Update(ctx context.Context, policy *domain.Ro
 		policy.UpdatedAt,
 		policy.ID.String(),
 	)
-
 	if err != nil {
 		r.log.WithError(err).Error("Failed to update rotation policy")
 		return fmt.Errorf("failed to update rotation policy: %w", err)
@@ -247,7 +244,6 @@ func (r *rotationPolicyRepository) AssignToSecret(ctx context.Context, secretID,
 		assignedAt,
 		nextRotationAt,
 	)
-
 	if err != nil {
 		r.log.WithError(err).Error("Failed to assign policy to secret")
 		return fmt.Errorf("failed to assign policy to secret: %w", err)
@@ -393,7 +389,6 @@ func (r *rotationPolicyRepository) UpdateSecretPolicyRotation(ctx context.Contex
 		secretID.String(),
 		policyID.String(),
 	)
-
 	if err != nil {
 		r.log.WithError(err).WithFields(map[string]interface{}{
 			"secret_id": secretID,
@@ -433,7 +428,6 @@ func (r *rotationPolicyRepository) RecordRotation(ctx context.Context, history *
 		history.TriggeredBy,
 		history.Notes,
 	)
-
 	if err != nil {
 		r.log.WithError(err).Error("Failed to record rotation")
 		return fmt.Errorf("failed to record rotation: %w", err)
@@ -618,7 +612,6 @@ func (r *rotationPolicyRepository) CreateReminder(ctx context.Context, reminder 
 		nextReminderAt,
 		reminder.Acknowledged,
 	)
-
 	if err != nil {
 		r.log.WithError(err).Error("Failed to create reminder")
 		return fmt.Errorf("failed to create reminder: %w", err)
@@ -651,7 +644,6 @@ func (r *rotationPolicyRepository) UpdateReminder(ctx context.Context, reminder 
 		nextReminderAt,
 		reminder.ID.String(),
 	)
-
 	if err != nil {
 		r.log.WithError(err).Error("Failed to update reminder")
 		return fmt.Errorf("failed to update reminder: %w", err)
@@ -687,7 +679,6 @@ func (r *rotationPolicyRepository) GetReminderBySecret(ctx context.Context, secr
 		&nextReminderAt,
 		&reminder.Acknowledged,
 	)
-
 	if err != nil {
 		if err == sql.ErrNoRows {
 			return nil, nil // No reminder found

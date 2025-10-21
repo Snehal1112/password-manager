@@ -40,17 +40,17 @@ type ManualSchedulerRotationRequest struct {
 
 // schedulerService implements SchedulerServiceInterface with service dependencies.
 type schedulerService struct {
-	rotationSvc    RotationServiceInterface
-	versioningSvc  VersioningServiceInterface
-	userRepo       repositories.UserRepositoryInterface
-	secretRepo     repositories.SecretRepositoryInterface
-	rotationRepo   repositories.RotationPolicyRepositoryInterface
-	log            *logging.Logger
-	ticker         *time.Ticker
-	stopChan       chan struct{}
-	wg             sync.WaitGroup
-	mu             sync.RWMutex
-	running        bool
+	rotationSvc   RotationServiceInterface
+	versioningSvc VersioningServiceInterface
+	userRepo      repositories.UserRepositoryInterface
+	secretRepo    repositories.SecretRepositoryInterface
+	rotationRepo  repositories.RotationPolicyRepositoryInterface
+	log           *logging.Logger
+	ticker        *time.Ticker
+	stopChan      chan struct{}
+	wg            sync.WaitGroup
+	mu            sync.RWMutex
+	running       bool
 }
 
 // NewSchedulerService creates a new scheduler service with proper service dependencies.

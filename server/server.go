@@ -19,12 +19,12 @@ import (
 
 // ServerConfig holds configuration for server features.
 type ServerConfig struct {
-	EnableHTTP2    bool
-	EnableTLS      bool
-	CertFile       string
-	KeyFile        string
+	EnableHTTP2     bool
+	EnableTLS       bool
+	CertFile        string
+	KeyFile         string
 	EnableWebSocket bool
-	MaxConnections int64
+	MaxConnections  int64
 }
 
 // Server represents the HTTP server for the vault service application.
@@ -183,16 +183,16 @@ func (s *Server) StartServer(ctx context.Context) error {
 	}
 
 	logger.WithFields(logrus.Fields{
-		"address": s.listenAddr,
-		"http2":   s.config.EnableHTTP2,
-		"tls":     s.config.EnableTLS,
+		"address":   s.listenAddr,
+		"http2":     s.config.EnableHTTP2,
+		"tls":       s.config.EnableTLS,
 		"websocket": s.config.EnableWebSocket,
 	}).Info("Server ready to handle requests")
 
 	// Start server in goroutine
 	go func() {
 		var serveErr error
-		
+
 		if s.config.EnableTLS && s.config.CertFile != "" && s.config.KeyFile != "" {
 			serveErr = srv.ServeTLS(listener, s.config.CertFile, s.config.KeyFile)
 		} else {
@@ -275,7 +275,7 @@ func (s *Server) HandleWebSocket(w http.ResponseWriter, r *http.Request, message
 
 	s.logger.WithFields(logrus.Fields{
 		"remote_addr": r.RemoteAddr,
-		"user_agent": r.UserAgent(),
+		"user_agent":  r.UserAgent(),
 	}).Info("WebSocket connection established")
 
 	// Handle WebSocket messages

@@ -68,10 +68,12 @@ type rbacService struct {
 // It initializes the service with standard permissions for each role.
 //
 // Parameters:
-//   logger: The logger for audit and error logging.
+//
+//	logger: The logger for audit and error logging.
 //
 // Returns:
-//   An RBACService implementation for authorization operations.
+//
+//	An RBACService implementation for authorization operations.
 func NewRBACService(logger *logging.Logger) RBACService {
 	return &rbacService{
 		rolePermissions: getDefaultRolePermissions(),
@@ -114,16 +116,18 @@ func getDefaultRolePermissions() map[string][]Permission {
 // HasPermission checks if a role has a specific permission.
 //
 // Parameters:
-//   role: The user's role.
-//   permission: The permission to check.
+//
+//	role: The user's role.
+//	permission: The permission to check.
 //
 // Returns:
-//   True if the role has the permission, false otherwise.
+//
+//	True if the role has the permission, false otherwise.
 func (s *rbacService) HasPermission(role string, permission Permission) bool {
 	permissions, exists := s.rolePermissions[role]
 	if !exists {
 		logrus.WithFields(logrus.Fields{
-			"role": role,
+			"role":       role,
 			"permission": string(permission),
 		}).Warn("Unknown role in permission check")
 		return false
@@ -141,10 +145,12 @@ func (s *rbacService) HasPermission(role string, permission Permission) bool {
 // GetRolePermissions returns all permissions for a given role.
 //
 // Parameters:
-//   role: The role to get permissions for.
+//
+//	role: The role to get permissions for.
 //
 // Returns:
-//   A slice of permissions granted to the role.
+//
+//	A slice of permissions granted to the role.
 func (s *rbacService) GetRolePermissions(role string) []Permission {
 	permissions, exists := s.rolePermissions[role]
 	if !exists {
@@ -161,12 +167,14 @@ func (s *rbacService) GetRolePermissions(role string) []Permission {
 // It maps HTTP endpoints to required permissions and checks authorization.
 //
 // Parameters:
-//   role: The user's role.
-//   method: The HTTP method (GET, POST, PUT, DELETE).
-//   path: The request path.
+//
+//	role: The user's role.
+//	method: The HTTP method (GET, POST, PUT, DELETE).
+//	path: The request path.
 //
 // Returns:
-//   An error if access is denied, nil if access is granted.
+//
+//	An error if access is denied, nil if access is granted.
 func (s *rbacService) ValidateEndpointAccess(role, method, path string) error {
 	permission := s.mapEndpointToPermission(method, path)
 	if permission == "" {
@@ -179,9 +187,9 @@ func (s *rbacService) ValidateEndpointAccess(role, method, path string) error {
 			fmt.Sprintf("Access denied for role %s to %s %s", role, method, path), nil)
 
 		logrus.WithFields(logrus.Fields{
-			"role": role,
-			"method": method,
-			"path": path,
+			"role":                role,
+			"method":              method,
+			"path":                path,
 			"required_permission": string(permission),
 		}).Warn("Access denied: insufficient permissions")
 
@@ -189,9 +197,9 @@ func (s *rbacService) ValidateEndpointAccess(role, method, path string) error {
 	}
 
 	logrus.WithFields(logrus.Fields{
-		"role": role,
-		"method": method,
-		"path": path,
+		"role":       role,
+		"method":     method,
+		"path":       path,
 		"permission": string(permission),
 	}).Debug("Access granted")
 

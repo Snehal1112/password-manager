@@ -197,8 +197,8 @@ func (d *DBRepository) getEnvironmentPoolConfig(env string) ConnectionPoolConfig
 	switch env {
 	case "prod", "production":
 		return ConnectionPoolConfig{
-			MaxOpenConns:    50,              // High concurrency for production
-			MaxIdleConns:    10,              // Keep connections ready
+			MaxOpenConns:    50,               // High concurrency for production
+			MaxIdleConns:    10,               // Keep connections ready
 			ConnMaxLifetime: 30 * time.Minute, // Rotate connections regularly
 			ConnMaxIdleTime: 5 * time.Minute,  // Close idle connections
 		}
@@ -519,7 +519,7 @@ func GetConnectionPoolStats() map[string]interface{} {
 
 	stats := DB.Stats()
 	return map[string]interface{}{
-		"open_connections":     stats.OpenConnections,
+		"open_connections":    stats.OpenConnections,
 		"in_use":              stats.InUse,
 		"idle":                stats.Idle,
 		"wait_count":          stats.WaitCount,

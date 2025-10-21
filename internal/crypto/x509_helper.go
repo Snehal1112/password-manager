@@ -25,7 +25,8 @@ type CertificateTemplate struct {
 // GenerateSerialNumber generates a random serial number for a certificate.
 //
 // Returns:
-//   A big integer serial number or an error if generation fails.
+//
+//	A big integer serial number or an error if generation fails.
 func GenerateSerialNumber() (*big.Int, error) {
 	serialNumberLimit := new(big.Int).Lsh(big.NewInt(1), 128)
 	serialNumber, err := rand.Int(rand.Reader, serialNumberLimit)
@@ -42,7 +43,8 @@ func GenerateSerialNumber() (*big.Int, error) {
 //   - params: The certificate template parameters.
 //
 // Returns:
-//   An x509.Certificate template or an error if creation fails.
+//
+//	An x509.Certificate template or an error if creation fails.
 func CreateX509Template(params CertificateTemplate) (*x509.Certificate, error) {
 	serialNumber, err := GenerateSerialNumber()
 	if err != nil {
@@ -73,7 +75,8 @@ func CreateX509Template(params CertificateTemplate) (*x509.Certificate, error) {
 //   - params: The certificate template parameters.
 //
 // Returns:
-//   The PEM-encoded certificate as a string or an error if creation fails.
+//
+//	The PEM-encoded certificate as a string or an error if creation fails.
 func CreateSelfSignedCertificatePEM(privateKeyPEM, keyType string, params CertificateTemplate) (string, error) {
 	// Parse private key
 	privateKey, err := ParsePrivateKey(privateKeyPEM, keyType)
@@ -123,7 +126,8 @@ func CreateSelfSignedCertificatePEM(privateKeyPEM, keyType string, params Certif
 //   - params: The certificate template parameters.
 //
 // Returns:
-//   The PEM-encoded certificate as a string or an error if creation fails.
+//
+//	The PEM-encoded certificate as a string or an error if creation fails.
 func CreateCASignedCertificatePEM(privateKeyPEM, keyType, caCertPEM, caKeyPEM, caKeyType string, params CertificateTemplate) (string, error) {
 	// Parse certificate private key
 	privateKey, err := ParsePrivateKey(privateKeyPEM, keyType)

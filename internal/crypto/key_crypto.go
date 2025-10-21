@@ -20,7 +20,8 @@ import (
 //   - bits: The RSA key size in bits (e.g., 2048, 4096).
 //
 // Returns:
-//   The PEM-encoded RSA private key as a string or an error if generation fails.
+//
+//	The PEM-encoded RSA private key as a string or an error if generation fails.
 func GenerateRSAKeyPEM(bits int) (string, error) {
 	// Generate RSA private key
 	privateKey, err := rsa.GenerateKey(rand.Reader, bits)
@@ -44,7 +45,8 @@ func GenerateRSAKeyPEM(bits int) (string, error) {
 //   - curveName: The elliptic curve name ("P-256", "P-384", "P-521").
 //
 // Returns:
-//   The PEM-encoded ECDSA private key as a string or an error if generation fails.
+//
+//	The PEM-encoded ECDSA private key as a string or an error if generation fails.
 func GenerateECDSAKeyPEM(curveName string) (string, error) {
 	var curve elliptic.Curve
 	switch curveName {
@@ -88,7 +90,8 @@ func GenerateECDSAKeyPEM(curveName string) (string, error) {
 //   - keyType: The type of key ("RSA" or "ECDSA").
 //
 // Returns:
-//   The parsed private key (as interface{}) or an error if parsing fails.
+//
+//	The parsed private key (as interface{}) or an error if parsing fails.
 func ParsePrivateKey(pemData, keyType string) (interface{}, error) {
 	block, _ := pem.Decode([]byte(pemData))
 	if block == nil {

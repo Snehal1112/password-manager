@@ -63,7 +63,8 @@ func (r *KeyRepository) executeWithMetrics(operation string, fn func() error) er
 //   - log: The logger for database operation logging.
 //
 // Returns:
-//   A KeyRepositoryInterface implementation for key database operations.
+//
+//	A KeyRepositoryInterface implementation for key database operations.
 func NewKeyRepository(db *sql.DB, log *logging.Logger) KeyRepositoryInterface {
 	return &KeyRepository{db: db, log: log}
 }
@@ -77,7 +78,8 @@ func NewKeyRepository(db *sql.DB, log *logging.Logger) KeyRepositoryInterface {
 //   - key: The key entity to store (with pre-encrypted value).
 //
 // Returns:
-//   An error if the insertion fails.
+//
+//	An error if the insertion fails.
 func (r *KeyRepository) Create(ctx context.Context, key *domain.Key) error {
 	return r.executeWithMetrics("create_key", func() error {
 		logrus.WithFields(logrus.Fields{
@@ -139,7 +141,8 @@ func (r *KeyRepository) Create(ctx context.Context, key *domain.Key) error {
 //   - id: The key's unique identifier.
 //
 // Returns:
-//   The key entity (with encrypted value) or an error if not found.
+//
+//	The key entity (with encrypted value) or an error if not found.
 func (r *KeyRepository) Read(ctx context.Context, id uuid.UUID) (*domain.Key, error) {
 	var key domain.Key
 	var idStr, userIDStr string
@@ -188,7 +191,8 @@ func (r *KeyRepository) Read(ctx context.Context, id uuid.UUID) (*domain.Key, er
 //   - key: The key entity with updated fields (pre-encrypted value).
 //
 // Returns:
-//   An error if the update fails.
+//
+//	An error if the update fails.
 func (r *KeyRepository) Update(ctx context.Context, key *domain.Key) error {
 	return r.executeWithMetrics("update_key", func() error {
 		logrus.WithFields(logrus.Fields{
@@ -236,7 +240,8 @@ func (r *KeyRepository) Update(ctx context.Context, key *domain.Key) error {
 //   - id: The key's unique identifier.
 //
 // Returns:
-//   An error if the deletion fails.
+//
+//	An error if the deletion fails.
 func (r *KeyRepository) Delete(ctx context.Context, id uuid.UUID) error {
 	return r.executeWithMetrics("delete_key", func() error {
 		logrus.WithField("key_id", id.String()).Debug("Deleting key from database")
@@ -294,7 +299,8 @@ func (r *KeyRepository) Delete(ctx context.Context, id uuid.UUID) error {
 //   - tags: The tags to filter by (empty for no tag filter).
 //
 // Returns:
-//   A slice of keys (with encrypted values) or an error if retrieval fails.
+//
+//	A slice of keys (with encrypted values) or an error if retrieval fails.
 func (r *KeyRepository) ListByUser(ctx context.Context, userID *uuid.UUID, keyType string, tags []string) ([]domain.Key, error) {
 	var keyList []domain.Key
 
@@ -376,7 +382,6 @@ func (r *KeyRepository) ListByUser(ctx context.Context, userID *uuid.UUID, keyTy
 
 		return nil
 	})
-
 	if err != nil {
 		return nil, err
 	}
@@ -394,7 +399,8 @@ func (r *KeyRepository) ListByUser(ctx context.Context, userID *uuid.UUID, keyTy
 //   - revoked: The new revocation status.
 //
 // Returns:
-//   An error if the update fails.
+//
+//	An error if the update fails.
 func (r *KeyRepository) UpdateRevocationStatus(ctx context.Context, id uuid.UUID, revoked bool) error {
 	return r.executeWithMetrics("update_key_revocation", func() error {
 		result, err := r.db.ExecContext(

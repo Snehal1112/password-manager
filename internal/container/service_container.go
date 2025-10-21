@@ -29,34 +29,34 @@ type ServiceContainer struct {
 	logger *logging.Logger
 
 	// Repositories
-	userRepository         repositories.UserRepositoryInterface
-	secretRepository       repositories.SecretRepositoryInterface
-	rotationRepository     repositories.RotationPolicyRepositoryInterface
-	versionRepository      repositories.SecretVersionRepositoryInterface
-	keyRepository          repositories.KeyRepositoryInterface
-	certificateRepository  repositories.CertificateRepositoryInterface
+	userRepository        repositories.UserRepositoryInterface
+	secretRepository      repositories.SecretRepositoryInterface
+	rotationRepository    repositories.RotationPolicyRepositoryInterface
+	versionRepository     repositories.SecretVersionRepositoryInterface
+	keyRepository         repositories.KeyRepositoryInterface
+	certificateRepository repositories.CertificateRepositoryInterface
 
 	// Authentication services
-	passwordService      authServices.PasswordService
-	totpService          authServices.TOTPService
-	jwtService           authServices.JWTService
+	passwordService       authServices.PasswordService
+	totpService           authServices.TOTPService
+	jwtService            authServices.JWTService
 	authenticationService authServices.AuthenticationService
 
 	// Authorization services
 	rbacService authzServices.RBACService
 
 	// Business services
-	userService         userServices.UserService
-	secretService       secretServices.SecretService
-	keyService          keyServices.KeyService
-	certificateService  certServices.CertificateService
+	userService        userServices.UserService
+	secretService      secretServices.SecretService
+	keyService         keyServices.KeyService
+	certificateService certServices.CertificateService
 
 	// Secret component services
-	cryptoService         secretServices.CryptographyService
-	versioningService     secretServices.VersioningServiceInterface
-	tagService            secretServices.TagService
-	rotationService       secretServices.RotationServiceInterface
-	schedulerService      secretServices.SchedulerServiceInterface
+	cryptoService     secretServices.CryptographyService
+	versioningService secretServices.VersioningServiceInterface
+	tagService        secretServices.TagService
+	rotationService   secretServices.RotationServiceInterface
+	schedulerService  secretServices.SchedulerServiceInterface
 }
 
 // Config holds configuration for the service container.
@@ -69,10 +69,12 @@ type Config struct {
 // It initializes all services and their dependencies in the correct order.
 //
 // Parameters:
-//   config: Configuration containing database and logger.
+//
+//	config: Configuration containing database and logger.
 //
 // Returns:
-//   A ServiceContainer with all services properly initialized.
+//
+//	A ServiceContainer with all services properly initialized.
 func NewServiceContainer(config Config) (*ServiceContainer, error) {
 	container := &ServiceContainer{
 		db:     config.Database,

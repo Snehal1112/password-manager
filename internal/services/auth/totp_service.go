@@ -34,7 +34,8 @@ type totpService struct {
 // - SHA1 algorithm
 //
 // Returns:
-//   A TOTPService implementation for TOTP operations.
+//
+//	A TOTPService implementation for TOTP operations.
 func NewTOTPService() TOTPService {
 	return &totpService{
 		period:    30,
@@ -49,11 +50,13 @@ func NewTOTPService() TOTPService {
 // including the QR code URL for user setup.
 //
 // Parameters:
-//   issuer: The service name (e.g., "PasswordManager").
-//   accountName: The user's account identifier (e.g., username).
+//
+//	issuer: The service name (e.g., "PasswordManager").
+//	accountName: The user's account identifier (e.g., username).
 //
 // Returns:
-//   The generated TOTP key and an error if generation fails.
+//
+//	The generated TOTP key and an error if generation fails.
 func (s *totpService) GenerateSecret(issuer, accountName string) (*otp.Key, error) {
 	key, err := totp.Generate(totp.GenerateOpts{
 		Issuer:      issuer,
@@ -71,12 +74,14 @@ func (s *totpService) GenerateSecret(issuer, accountName string) (*otp.Key, erro
 // and provides secure validation of user-provided codes.
 //
 // Parameters:
-//   code: The TOTP code to validate.
-//   secret: The base32-encoded TOTP secret.
-//   currentTime: The time to use for validation.
+//
+//	code: The TOTP code to validate.
+//	secret: The base32-encoded TOTP secret.
+//	currentTime: The time to use for validation.
 //
 // Returns:
-//   True if the code is valid, false otherwise, and an error if validation fails.
+//
+//	True if the code is valid, false otherwise, and an error if validation fails.
 func (s *totpService) ValidateCode(code, secret string, currentTime time.Time) (bool, error) {
 	opts := totp.ValidateOpts{
 		Period:    s.period,
@@ -98,11 +103,13 @@ func (s *totpService) ValidateCode(code, secret string, currentTime time.Time) (
 // for verification workflows.
 //
 // Parameters:
-//   secret: The base32-encoded TOTP secret.
-//   currentTime: The time to use for code generation.
+//
+//	secret: The base32-encoded TOTP secret.
+//	currentTime: The time to use for code generation.
 //
 // Returns:
-//   The generated TOTP code and an error if generation fails.
+//
+//	The generated TOTP code and an error if generation fails.
 func (s *totpService) GenerateCode(secret string, currentTime time.Time) (string, error) {
 	code, err := totp.GenerateCodeCustom(secret, currentTime, totp.ValidateOpts{
 		Period:    s.period,

@@ -52,7 +52,6 @@ func (r *secretVersionRepository) CreateVersion(ctx context.Context, version *do
 		version.Version,
 		version.CreatedAt,
 	)
-
 	if err != nil {
 		r.log.WithError(err).Error("Failed to create secret version")
 		return fmt.Errorf("failed to create secret version: %w", err)

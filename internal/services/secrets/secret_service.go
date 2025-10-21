@@ -66,10 +66,12 @@ type SecretServiceConfig struct {
 // It orchestrates secret operations by coordinating different services.
 //
 // Parameters:
-//   config: Configuration containing all required dependencies.
+//
+//	config: Configuration containing all required dependencies.
 //
 // Returns:
-//   A SecretService implementation for secret management operations.
+//
+//	A SecretService implementation for secret management operations.
 func NewSecretService(config SecretServiceConfig) SecretService {
 	return &secretService{
 		secretRepo:     config.SecretRepository,
@@ -85,11 +87,13 @@ func NewSecretService(config SecretServiceConfig) SecretService {
 // storage, and tag assignment.
 //
 // Parameters:
-//   ctx: The context for the operation.
-//   req: The secret creation request.
+//
+//	ctx: The context for the operation.
+//	req: The secret creation request.
 //
 // Returns:
-//   The created secret or an error if creation fails.
+//
+//	The created secret or an error if creation fails.
 func (s *secretService) CreateSecret(ctx context.Context, req CreateSecretRequest) (*domain.Secret, error) {
 	logrus.WithFields(logrus.Fields{
 		"user_id": req.UserID.String(),
@@ -106,13 +110,13 @@ func (s *secretService) CreateSecret(ctx context.Context, req CreateSecretReques
 	// Create secret entity
 	secretID := uuid.New()
 	secret := &domain.Secret{
-		ID        : secretID,
-		UserID    : req.UserID,
-		Name      : req.Name,
-		Value     : encryptedValue,
-		Version   : 1,
-		Tags      : req.Tags,
-		CreatedAt : time.Now(),
+		ID:        secretID,
+		UserID:    req.UserID,
+		Name:      req.Name,
+		Value:     encryptedValue,
+		Version:   1,
+		Tags:      req.Tags,
+		CreatedAt: time.Now(),
 	}
 
 	// Store secret via repository (includes tag insertion)
@@ -139,11 +143,13 @@ func (s *secretService) CreateSecret(ctx context.Context, req CreateSecretReques
 // It creates a version of the current secret before applying updates.
 //
 // Parameters:
-//   ctx: The context for the operation.
-//   req: The secret update request.
+//
+//	ctx: The context for the operation.
+//	req: The secret update request.
 //
 // Returns:
-//   An error if the update fails.
+//
+//	An error if the update fails.
 func (s *secretService) UpdateSecret(ctx context.Context, req UpdateSecretRequest) error {
 	logrus.WithField("secret_id", req.SecretID.String()).Info("Updating secret")
 
@@ -236,12 +242,14 @@ func (s *secretService) UpdateSecret(ctx context.Context, req UpdateSecretReques
 // GetSecret retrieves a secret by ID with decryption and tag loading.
 //
 // Parameters:
-//   ctx: The context for the operation.
-//   secretID: The secret's unique identifier.
-//   userID: The user's unique identifier for access control.
+//
+//	ctx: The context for the operation.
+//	secretID: The secret's unique identifier.
+//	userID: The user's unique identifier for access control.
 //
 // Returns:
-//   The decrypted secret or an error if retrieval fails.
+//
+//	The decrypted secret or an error if retrieval fails.
 func (s *secretService) GetSecret(ctx context.Context, secretID, userID uuid.UUID) (*domain.Secret, error) {
 	// Get secret from repository
 	secret, err := s.secretRepo.Read(ctx, secretID)
@@ -278,12 +286,14 @@ func (s *secretService) GetSecret(ctx context.Context, secretID, userID uuid.UUI
 // ListSecrets retrieves all secrets for a user with optional tag filtering.
 //
 // Parameters:
-//   ctx: The context for the operation.
-//   userID: The user's unique identifier.
-//   tags: Optional tags to filter by.
+//
+//	ctx: The context for the operation.
+//	userID: The user's unique identifier.
+//	tags: Optional tags to filter by.
 //
 // Returns:
-//   A slice of decrypted secrets or an error if retrieval fails.
+//
+//	A slice of decrypted secrets or an error if retrieval fails.
 func (s *secretService) ListSecrets(ctx context.Context, userID uuid.UUID, tags []string) ([]domain.Secret, error) {
 	// Get secrets from repository
 	secretList, err := s.secretRepo.ListByUser(ctx, userID, tags)
@@ -324,12 +334,14 @@ func (s *secretService) ListSecrets(ctx context.Context, userID uuid.UUID, tags 
 // DeleteSecret removes a secret and its associated data.
 //
 // Parameters:
-//   ctx: The context for the operation.
-//   secretID: The secret's unique identifier.
-//   userID: The user's unique identifier for access control.
+//
+//	ctx: The context for the operation.
+//	secretID: The secret's unique identifier.
+//	userID: The user's unique identifier for access control.
 //
 // Returns:
-//   An error if deletion fails.
+//
+//	An error if deletion fails.
 func (s *secretService) DeleteSecret(ctx context.Context, secretID, userID uuid.UUID) error {
 	// Verify secret exists and ownership
 	secret, err := s.secretRepo.Read(ctx, secretID)
@@ -368,11 +380,13 @@ func (s *secretService) DeleteSecret(ctx context.Context, secretID, userID uuid.
 // GetSecretVersions retrieves all versions of a secret.
 //
 // Parameters:
-//   ctx: The context for the operation.
-//   secretID: The secret's unique identifier.
+//
+//	ctx: The context for the operation.
+//	secretID: The secret's unique identifier.
 //
 // Returns:
-//   A slice of secret versions or an error if retrieval fails.
+//
+//	A slice of secret versions or an error if retrieval fails.
 func (s *secretService) GetSecretVersions(ctx context.Context, secretID uuid.UUID, userID uuid.UUID) ([]domain.SecretVersion, error) {
 	return s.versionService.GetVersions(ctx, secretID, userID)
 }
@@ -380,12 +394,14 @@ func (s *secretService) GetSecretVersions(ctx context.Context, secretID uuid.UUI
 // GetSecretVersion retrieves a specific version of a secret.
 //
 // Parameters:
-//   ctx: The context for the operation.
-//   secretID: The secret's unique identifier.
-//   version: The version number to retrieve.
+//
+//	ctx: The context for the operation.
+//	secretID: The secret's unique identifier.
+//	version: The version number to retrieve.
 //
 // Returns:
-//   The secret version or an error if not found.
+//
+//	The secret version or an error if not found.
 func (s *secretService) GetSecretVersion(ctx context.Context, secretID uuid.UUID, version int, userID uuid.UUID) (*domain.SecretVersion, error) {
 	return s.versionService.GetVersion(ctx, secretID, version, userID)
 }
@@ -393,11 +409,13 @@ func (s *secretService) GetSecretVersion(ctx context.Context, secretID uuid.UUID
 // GetLatestSecretVersion retrieves the latest version of a secret.
 //
 // Parameters:
-//   ctx: The context for the operation.
-//   secretID: The secret's unique identifier.
+//
+//	ctx: The context for the operation.
+//	secretID: The secret's unique identifier.
 //
 // Returns:
-//   The latest secret version or an error if not found.
+//
+//	The latest secret version or an error if not found.
 func (s *secretService) GetLatestSecretVersion(ctx context.Context, secretID uuid.UUID, userID uuid.UUID) (*domain.SecretVersion, error) {
 	return s.versionService.GetLatestVersion(ctx, secretID, userID)
 }
