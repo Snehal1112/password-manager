@@ -65,7 +65,7 @@ var serveCmd = &cobra.Command{
 		// Initialize the logger.
 		log := logging.InitLogger()
 		// Start log rotation goroutine
-		go rotateLogsPeriodically(log)
+		go log.StartPeriodicRotation()
 
 		// Ensure database is initialized.
 		database := db.NewRepository(log)
