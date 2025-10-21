@@ -35,7 +35,6 @@ var secretsCmd = &cobra.Command{
 	Long: `A command group for creating, retrieving, updating, listing, and deleting secrets,
 as well as generating random passwords.`,
 	Example: `secrets create --name <name> --value <value>`,
-	Args:    cobra.ExactArgs(1),
 }
 
 func init() {
