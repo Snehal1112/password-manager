@@ -352,7 +352,6 @@ func (r *UserRepository) List(ctx context.Context) ([]domain.User, error) {
 
 		return nil
 	})
-
 	if err != nil {
 		return nil, err
 	}

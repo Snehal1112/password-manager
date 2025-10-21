@@ -25,7 +25,8 @@ type passwordService struct{}
 // using bcrypt for secure password storage.
 //
 // Returns:
-//   A PasswordService implementation for password operations.
+//
+//	A PasswordService implementation for password operations.
 func NewPasswordService() PasswordService {
 	return &passwordService{}
 }
@@ -35,10 +36,12 @@ func NewPasswordService() PasswordService {
 // hashing across the application.
 //
 // Parameters:
-//   password: The plaintext password to hash.
+//
+//	password: The plaintext password to hash.
 //
 // Returns:
-//   The hashed password string and an error if hashing fails.
+//
+//	The hashed password string and an error if hashing fails.
 func (s *passwordService) HashPassword(password string) (string, error) {
 	hashedPassword, err := common.HashString(password)
 	if err != nil {
@@ -51,11 +54,13 @@ func (s *passwordService) HashPassword(password string) (string, error) {
 // It uses the common.CheckPassword function for consistent validation.
 //
 // Parameters:
-//   password: The plaintext password to validate.
-//   hash: The bcrypt hash to validate against.
+//
+//	password: The plaintext password to validate.
+//	hash: The bcrypt hash to validate against.
 //
 // Returns:
-//   An error if validation fails, nil if password is correct.
+//
+//	An error if validation fails, nil if password is correct.
 func (s *passwordService) ValidatePassword(password, hash string) error {
 	if err := common.CheckPassword(password, hash); err != nil {
 		return fmt.Errorf("invalid password: %w", err)

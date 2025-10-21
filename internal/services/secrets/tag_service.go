@@ -32,11 +32,13 @@ type tagService struct {
 // It provides tag management functionality for secrets.
 //
 // Parameters:
-//   db: The database connection.
-//   logger: The logger for audit and error logging.
+//
+//	db: The database connection.
+//	logger: The logger for audit and error logging.
 //
 // Returns:
-//   A TagService implementation for tag operations.
+//
+//	A TagService implementation for tag operations.
 func NewTagService(db *sql.DB, logger *logging.Logger) TagService {
 	return &tagService{
 		db:     db,
@@ -48,12 +50,14 @@ func NewTagService(db *sql.DB, logger *logging.Logger) TagService {
 // It inserts new tag associations while avoiding duplicates.
 //
 // Parameters:
-//   ctx: The context for the database operation.
-//   secretID: The secret's unique identifier.
-//   tags: The tags to add to the secret.
+//
+//	ctx: The context for the database operation.
+//	secretID: The secret's unique identifier.
+//	tags: The tags to add to the secret.
 //
 // Returns:
-//   An error if the operation fails.
+//
+//	An error if the operation fails.
 func (s *tagService) AddTags(ctx context.Context, secretID uuid.UUID, tags []string) error {
 	if len(tags) == 0 {
 		return nil
@@ -85,12 +89,14 @@ func (s *tagService) AddTags(ctx context.Context, secretID uuid.UUID, tags []str
 // It deletes the tag associations from the database.
 //
 // Parameters:
-//   ctx: The context for the database operation.
-//   secretID: The secret's unique identifier.
-//   tags: The tags to remove from the secret.
+//
+//	ctx: The context for the database operation.
+//	secretID: The secret's unique identifier.
+//	tags: The tags to remove from the secret.
 //
 // Returns:
-//   An error if the operation fails.
+//
+//	An error if the operation fails.
 func (s *tagService) RemoveTags(ctx context.Context, secretID uuid.UUID, tags []string) error {
 	if len(tags) == 0 {
 		return nil
@@ -122,11 +128,13 @@ func (s *tagService) RemoveTags(ctx context.Context, secretID uuid.UUID, tags []
 // It deletes all tag associations for the specified secret.
 //
 // Parameters:
-//   ctx: The context for the database operation.
-//   secretID: The secret's unique identifier.
+//
+//	ctx: The context for the database operation.
+//	secretID: The secret's unique identifier.
 //
 // Returns:
-//   An error if the operation fails.
+//
+//	An error if the operation fails.
 func (s *tagService) RemoveAllTags(ctx context.Context, secretID uuid.UUID) error {
 	result, err := s.db.ExecContext(
 		ctx,
@@ -147,8 +155,8 @@ func (s *tagService) RemoveAllTags(ctx context.Context, secretID uuid.UUID) erro
 	s.logger.LogAuditInfo(secretID.String(), "remove_all_tags", "success",
 		fmt.Sprintf("Removed %d tags from secret", rowsAffected))
 	logrus.WithFields(logrus.Fields{
-		"secret_id":     secretID.String(),
-		"tags_removed":  rowsAffected,
+		"secret_id":    secretID.String(),
+		"tags_removed": rowsAffected,
 	}).Debug("All tags removed from secret")
 
 	return nil
@@ -157,11 +165,13 @@ func (s *tagService) RemoveAllTags(ctx context.Context, secretID uuid.UUID) erro
 // GetTags retrieves all tags associated with a secret.
 //
 // Parameters:
-//   ctx: The context for the database operation.
-//   secretID: The secret's unique identifier.
+//
+//	ctx: The context for the database operation.
+//	secretID: The secret's unique identifier.
 //
 // Returns:
-//   A slice of tags associated with the secret, or an error if the operation fails.
+//
+//	A slice of tags associated with the secret, or an error if the operation fails.
 func (s *tagService) GetTags(ctx context.Context, secretID uuid.UUID) ([]string, error) {
 	rows, err := s.db.QueryContext(ctx, "SELECT tag FROM secret_tags WHERE secret_id = ?", secretID.String())
 	if err != nil {
@@ -192,12 +202,14 @@ func (s *tagService) GetTags(ctx context.Context, secretID uuid.UUID) ([]string,
 // It performs a query to find secrets matching the tag criteria.
 //
 // Parameters:
-//   ctx: The context for the database operation.
-//   userID: The user's unique identifier.
-//   tags: The tags to search for.
+//
+//	ctx: The context for the database operation.
+//	userID: The user's unique identifier.
+//	tags: The tags to search for.
 //
 // Returns:
-//   A slice of secret IDs that have any of the specified tags, or an error if the operation fails.
+//
+//	A slice of secret IDs that have any of the specified tags, or an error if the operation fails.
 func (s *tagService) FindSecretsByTags(ctx context.Context, userID uuid.UUID, tags []string) ([]uuid.UUID, error) {
 	if len(tags) == 0 {
 		return []uuid.UUID{}, nil
@@ -253,9 +265,9 @@ func (s *tagService) FindSecretsByTags(ctx context.Context, userID uuid.UUID, ta
 	}
 
 	logrus.WithFields(logrus.Fields{
-		"user_id":        userID.String(),
-		"tags":           tags,
-		"secrets_found":  len(secretIDs),
+		"user_id":       userID.String(),
+		"tags":          tags,
+		"secrets_found": len(secretIDs),
 	}).Debug("Found secrets by tags")
 
 	return secretIDs, nil

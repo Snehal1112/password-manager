@@ -44,13 +44,13 @@ const (
 
 // ExportOptions contains options for exporting secrets.
 type ExportOptions struct {
-	Format       ExportFormat `json:"format"`
-	IncludeTags  bool         `json:"include_tags"`
-	FilterTags   []string     `json:"filter_tags,omitempty"`
-	Encrypt      bool         `json:"encrypt"`
-	UserID       uuid.UUID    `json:"user_id"`
-	ExportedAt   time.Time    `json:"exported_at"`
-	ExportedBy   string       `json:"exported_by"`
+	Format      ExportFormat `json:"format"`
+	IncludeTags bool         `json:"include_tags"`
+	FilterTags  []string     `json:"filter_tags,omitempty"`
+	Encrypt     bool         `json:"encrypt"`
+	UserID      uuid.UUID    `json:"user_id"`
+	ExportedAt  time.Time    `json:"exported_at"`
+	ExportedBy  string       `json:"exported_by"`
 }
 
 // ImportOptions contains options for importing secrets.

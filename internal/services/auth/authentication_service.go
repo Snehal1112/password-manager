@@ -8,8 +8,8 @@ import (
 	"github.com/google/uuid"
 	"github.com/sirupsen/logrus"
 
-	"password-manager/internal/repositories"
 	"password-manager/internal/logging"
+	"password-manager/internal/repositories"
 )
 
 // AuthenticationResult represents the result of a successful authentication.
@@ -51,10 +51,12 @@ type AuthenticationConfig struct {
 // It orchestrates the authentication workflow by coordinating different auth services.
 //
 // Parameters:
-//   config: Configuration containing all required dependencies.
+//
+//	config: Configuration containing all required dependencies.
 //
 // Returns:
-//   An AuthenticationService implementation for user authentication.
+//
+//	An AuthenticationService implementation for user authentication.
 func NewAuthenticationService(config AuthenticationConfig) AuthenticationService {
 	return &authenticationService{
 		userRepo:        config.UserRepository,
@@ -70,13 +72,15 @@ func NewAuthenticationService(config AuthenticationConfig) AuthenticationService
 // upon successful authentication.
 //
 // Parameters:
-//   ctx: The context for the authentication operation.
-//   username: The user's username.
-//   password: The user's plaintext password.
-//   totpCode: The TOTP code from the user's MFA device.
+//
+//	ctx: The context for the authentication operation.
+//	username: The user's username.
+//	password: The user's plaintext password.
+//	totpCode: The TOTP code from the user's MFA device.
 //
 // Returns:
-//   Authentication result with token and user information, or an error if authentication fails.
+//
+//	Authentication result with token and user information, or an error if authentication fails.
 func (s *authenticationService) AuthenticateUser(ctx context.Context, username, password, totpCode string) (*AuthenticationResult, error) {
 	logrus.WithField("username", username).Info("Starting user authentication")
 
@@ -145,11 +149,13 @@ func (s *authenticationService) AuthenticateUser(ctx context.Context, username, 
 // ensuring tokens are valid and not expired.
 //
 // Parameters:
-//   ctx: The context for the validation operation.
-//   token: The JWT token to validate.
+//
+//	ctx: The context for the validation operation.
+//	token: The JWT token to validate.
 //
 // Returns:
-//   The validated JWT claims or an error if validation fails.
+//
+//	The validated JWT claims or an error if validation fails.
 func (s *authenticationService) ValidateSession(ctx context.Context, token string) (*JWTClaims, error) {
 	claims, err := s.jwtService.ValidateToken(token)
 	if err != nil {

@@ -76,19 +76,19 @@ type CPUStats struct {
 
 // DatabaseStats contains enhanced database connection and performance information
 type DatabaseStats struct {
-	OpenConnections     int           `json:"open_connections"`
-	InUse               int           `json:"in_use"`
-	Idle                int           `json:"idle"`
-	WaitCount           int64         `json:"wait_count"`
-	WaitDuration        time.Duration `json:"wait_duration"`
-	MaxIdleClosed       int64         `json:"max_idle_closed"`
-	MaxLifetimeClosed   int64         `json:"max_lifetime_closed"`
-	UtilizationPercent  float64       `json:"utilization_percent"`
-	QueryCount          int64         `json:"query_count"`
-	SlowQueryCount      int64         `json:"slow_query_count"`
-	AverageQueryTime    time.Duration `json:"avg_query_time"`
-	TotalQueryTime      time.Duration `json:"total_query_time"`
-	HealthStatus        string        `json:"health_status"`
+	OpenConnections    int           `json:"open_connections"`
+	InUse              int           `json:"in_use"`
+	Idle               int           `json:"idle"`
+	WaitCount          int64         `json:"wait_count"`
+	WaitDuration       time.Duration `json:"wait_duration"`
+	MaxIdleClosed      int64         `json:"max_idle_closed"`
+	MaxLifetimeClosed  int64         `json:"max_lifetime_closed"`
+	UtilizationPercent float64       `json:"utilization_percent"`
+	QueryCount         int64         `json:"query_count"`
+	SlowQueryCount     int64         `json:"slow_query_count"`
+	AverageQueryTime   time.Duration `json:"avg_query_time"`
+	TotalQueryTime     time.Duration `json:"total_query_time"`
+	HealthStatus       string        `json:"health_status"`
 }
 
 // HealthCollector manages health metrics collection
@@ -180,19 +180,19 @@ func (hc *HealthCollector) CollectMetrics(ctx context.Context) (*HealthMetrics, 
 		}
 
 		metrics.DatabaseStats = DatabaseStats{
-			OpenConnections:     dbStats.OpenConnections,
-			InUse:               dbStats.InUse,
-			Idle:                dbStats.Idle,
-			WaitCount:           dbStats.WaitCount,
-			WaitDuration:        dbStats.WaitDuration,
-			MaxIdleClosed:       dbStats.MaxIdleClosed,
-			MaxLifetimeClosed:   dbStats.MaxLifetimeClosed,
-			UtilizationPercent:  utilization,
-			QueryCount:          perfMetrics.QueryCount,
-			SlowQueryCount:      perfMetrics.SlowQueryCount,
-			AverageQueryTime:    perfMetrics.AverageQueryTime,
-			TotalQueryTime:      perfMetrics.TotalQueryTime,
-			HealthStatus:        healthStatus,
+			OpenConnections:    dbStats.OpenConnections,
+			InUse:              dbStats.InUse,
+			Idle:               dbStats.Idle,
+			WaitCount:          dbStats.WaitCount,
+			WaitDuration:       dbStats.WaitDuration,
+			MaxIdleClosed:      dbStats.MaxIdleClosed,
+			MaxLifetimeClosed:  dbStats.MaxLifetimeClosed,
+			UtilizationPercent: utilization,
+			QueryCount:         perfMetrics.QueryCount,
+			SlowQueryCount:     perfMetrics.SlowQueryCount,
+			AverageQueryTime:   perfMetrics.AverageQueryTime,
+			TotalQueryTime:     perfMetrics.TotalQueryTime,
+			HealthStatus:       healthStatus,
 		}
 	}
 
@@ -307,7 +307,7 @@ func (hc *HealthCollector) CheckDatabaseHealth(ctx context.Context) (map[string]
 	// Connection pool stats
 	stats := hc.db.Stats()
 	result["connection_pool"] = map[string]interface{}{
-		"open_connections":     stats.OpenConnections,
+		"open_connections":    stats.OpenConnections,
 		"in_use":              stats.InUse,
 		"idle":                stats.Idle,
 		"wait_count":          stats.WaitCount,
@@ -320,9 +320,9 @@ func (hc *HealthCollector) CheckDatabaseHealth(ctx context.Context) (map[string]
 	// Performance metrics
 	perfMetrics := db.GetPerformanceMetrics()
 	result["performance"] = map[string]interface{}{
-		"query_count":        perfMetrics.QueryCount,
-		"slow_query_count":   perfMetrics.SlowQueryCount,
-		"avg_query_time_ms":  perfMetrics.AverageQueryTime.Milliseconds(),
+		"query_count":         perfMetrics.QueryCount,
+		"slow_query_count":    perfMetrics.SlowQueryCount,
+		"avg_query_time_ms":   perfMetrics.AverageQueryTime.Milliseconds(),
 		"total_query_time_ms": perfMetrics.TotalQueryTime.Milliseconds(),
 		"slow_query_percentage": func() float64 {
 			if perfMetrics.QueryCount == 0 {
@@ -371,9 +371,9 @@ func (hc *HealthCollector) CheckDatabaseHealth(ctx context.Context) (map[string]
 		status = "degraded"
 	} else {
 		result["query_test"] = map[string]interface{}{
-			"success":      true,
-			"user_count":   count,
-			"duration_ms":  queryDuration.Milliseconds(),
+			"success":     true,
+			"user_count":  count,
+			"duration_ms": queryDuration.Milliseconds(),
 		}
 	}
 

@@ -12,9 +12,9 @@ import (
 	"github.com/sirupsen/logrus"
 
 	"password-manager/internal/domain"
+	"password-manager/internal/logging"
 	"password-manager/internal/repositories"
 	authService "password-manager/internal/services/auth"
-	"password-manager/internal/logging"
 )
 
 // CreateUserRequest represents a request to create a new user.
@@ -76,10 +76,12 @@ type UserServiceConfig struct {
 // It orchestrates user management operations by coordinating different services.
 //
 // Parameters:
-//   config: Configuration containing all required dependencies.
+//
+//	config: Configuration containing all required dependencies.
 //
 // Returns:
-//   A UserService implementation for user management operations.
+//
+//	A UserService implementation for user management operations.
 func NewUserService(config UserServiceConfig) UserService {
 	return &userService{
 		userRepo:        config.UserRepository,
@@ -94,11 +96,13 @@ func NewUserService(config UserServiceConfig) UserService {
 // and user storage while maintaining proper separation of concerns.
 //
 // Parameters:
-//   ctx: The context for the operation.
-//   req: The user creation request with username, password, and role.
+//
+//	ctx: The context for the operation.
+//	req: The user creation request with username, password, and role.
 //
 // Returns:
-//   The created user information including TOTP setup details, or an error if creation fails.
+//
+//	The created user information including TOTP setup details, or an error if creation fails.
 func (s *userService) CreateUser(ctx context.Context, req CreateUserRequest) (*CreateUserResult, error) {
 	logrus.WithFields(logrus.Fields{
 		"username": req.Username,
@@ -157,11 +161,13 @@ func (s *userService) CreateUser(ctx context.Context, req CreateUserRequest) (*C
 // coordinates the update through the repository.
 //
 // Parameters:
-//   ctx: The context for the operation.
-//   req: The user update request with optional fields.
+//
+//	ctx: The context for the operation.
+//	req: The user update request with optional fields.
 //
 // Returns:
-//   An error if the update fails.
+//
+//	An error if the update fails.
 func (s *userService) UpdateUser(ctx context.Context, req UpdateUserRequest) error {
 	logrus.WithField("user_id", req.UserID.String()).Info("Updating user")
 
@@ -213,11 +219,13 @@ func (s *userService) UpdateUser(ctx context.Context, req UpdateUserRequest) err
 // GetUser retrieves a user by ID.
 //
 // Parameters:
-//   ctx: The context for the operation.
-//   userID: The user's unique identifier.
+//
+//	ctx: The context for the operation.
+//	userID: The user's unique identifier.
 //
 // Returns:
-//   The user information or an error if not found.
+//
+//	The user information or an error if not found.
 func (s *userService) GetUser(ctx context.Context, userID uuid.UUID) (*domain.User, error) {
 	return s.userRepo.Read(ctx, userID)
 }
@@ -225,11 +233,13 @@ func (s *userService) GetUser(ctx context.Context, userID uuid.UUID) (*domain.Us
 // GetUserByUsername retrieves a user by username.
 //
 // Parameters:
-//   ctx: The context for the operation.
-//   username: The user's username.
+//
+//	ctx: The context for the operation.
+//	username: The user's username.
 //
 // Returns:
-//   The user information or an error if not found.
+//
+//	The user information or an error if not found.
 func (s *userService) GetUserByUsername(ctx context.Context, username string) (*domain.User, error) {
 	user, err := s.userRepo.ReadByUsername(ctx, username)
 	if err != nil {
@@ -241,10 +251,12 @@ func (s *userService) GetUserByUsername(ctx context.Context, username string) (*
 // ListUsers retrieves all users from the system.
 //
 // Parameters:
-//   ctx: The context for the operation.
+//
+//	ctx: The context for the operation.
 //
 // Returns:
-//   A slice of all users or an error if retrieval fails.
+//
+//	A slice of all users or an error if retrieval fails.
 func (s *userService) ListUsers(ctx context.Context) ([]domain.User, error) {
 	return s.userRepo.List(ctx)
 }
@@ -252,11 +264,13 @@ func (s *userService) ListUsers(ctx context.Context) ([]domain.User, error) {
 // DeleteUser removes a user from the system.
 //
 // Parameters:
-//   ctx: The context for the operation.
-//   userID: The user's unique identifier.
+//
+//	ctx: The context for the operation.
+//	userID: The user's unique identifier.
 //
 // Returns:
-//   An error if deletion fails.
+//
+//	An error if deletion fails.
 func (s *userService) DeleteUser(ctx context.Context, userID uuid.UUID) error {
 	if err := s.userRepo.Delete(ctx, userID); err != nil {
 		s.logger.LogAuditError(userID.String(), "delete_user", "failed", "Failed to delete user", err)
@@ -270,11 +284,13 @@ func (s *userService) DeleteUser(ctx context.Context, userID uuid.UUID) error {
 // ValidateBootstrapToken validates a bootstrap token for initial admin user creation.
 //
 // Parameters:
-//   ctx: The context for the operation.
-//   token: The bootstrap token to validate.
+//
+//	ctx: The context for the operation.
+//	token: The bootstrap token to validate.
 //
 // Returns:
-//   True if the token is valid, false otherwise, and an error if validation fails.
+//
+//	True if the token is valid, false otherwise, and an error if validation fails.
 func (s *userService) ValidateBootstrapToken(ctx context.Context, token string) (bool, error) {
 	return s.userRepo.ValidateBootstrapToken(ctx, token)
 }
@@ -282,11 +298,13 @@ func (s *userService) ValidateBootstrapToken(ctx context.Context, token string) 
 // InvalidateBootstrapToken marks a bootstrap token as used.
 //
 // Parameters:
-//   ctx: The context for the operation.
-//   token: The bootstrap token to invalidate.
+//
+//	ctx: The context for the operation.
+//	token: The bootstrap token to invalidate.
 //
 // Returns:
-//   An error if invalidation fails.
+//
+//	An error if invalidation fails.
 func (s *userService) InvalidateBootstrapToken(ctx context.Context, token string) error {
 	return s.userRepo.InvalidateBootstrapToken(ctx, token)
 }

@@ -49,10 +49,12 @@ type JWTConfig struct {
 // and token expiration settings.
 //
 // Parameters:
-//   config: JWT configuration including secret key and metadata.
+//
+//	config: JWT configuration including secret key and metadata.
 //
 // Returns:
-//   A JWTService implementation for token operations.
+//
+//	A JWTService implementation for token operations.
 func NewJWTService(config JWTConfig) JWTService {
 	return &jwtService{
 		secretKey: []byte(config.SecretKey),
@@ -67,12 +69,14 @@ func NewJWTService(config JWTConfig) JWTService {
 // JWT claims with appropriate expiration and metadata.
 //
 // Parameters:
-//   userID: The user's unique identifier.
-//   username: The user's username.
-//   role: The user's role for authorization.
+//
+//	userID: The user's unique identifier.
+//	username: The user's username.
+//	role: The user's role for authorization.
 //
 // Returns:
-//   The signed JWT token string and an error if generation fails.
+//
+//	The signed JWT token string and an error if generation fails.
 func (s *jwtService) GenerateToken(userID uuid.UUID, username, role string) (string, error) {
 	now := time.Now()
 	claims := JWTClaims{
@@ -109,10 +113,12 @@ func (s *jwtService) GenerateToken(userID uuid.UUID, username, role string) (str
 // expiration checks, and claim validation.
 //
 // Parameters:
-//   tokenString: The JWT token string to validate.
+//
+//	tokenString: The JWT token string to validate.
 //
 // Returns:
-//   The parsed and validated claims and an error if validation fails.
+//
+//	The parsed and validated claims and an error if validation fails.
 func (s *jwtService) ValidateToken(tokenString string) (*JWTClaims, error) {
 	claims := &JWTClaims{}
 
@@ -140,7 +146,6 @@ func (s *jwtService) ValidateToken(tokenString string) (*JWTClaims, error) {
 
 		return s.secretKey, nil
 	})
-
 	if err != nil {
 		logrus.WithError(err).Error("JWT token validation failed")
 		return nil, fmt.Errorf("invalid JWT token: %w", err)
@@ -165,10 +170,12 @@ func (s *jwtService) ValidateToken(tokenString string) (*JWTClaims, error) {
 // but should not be used for authentication decisions.
 //
 // Parameters:
-//   tokenString: The JWT token string to parse.
+//
+//	tokenString: The JWT token string to parse.
 //
 // Returns:
-//   The parsed claims and an error if parsing fails.
+//
+//	The parsed claims and an error if parsing fails.
 func (s *jwtService) ParseToken(tokenString string) (*JWTClaims, error) {
 	claims := &JWTClaims{}
 

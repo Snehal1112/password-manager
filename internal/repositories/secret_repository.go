@@ -310,7 +310,6 @@ func (r *SecretRepository) ListByUser(ctx context.Context, userID uuid.UUID, tag
 
 		return nil
 	})
-
 	if err != nil {
 		return nil, err
 	}

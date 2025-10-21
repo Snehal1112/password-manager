@@ -27,14 +27,14 @@ type Message struct {
 
 // Client represents a WebSocket client connection.
 type Client struct {
-	ID       string
-	UserID   string
-	Conn     *websocket.Conn
-	Send     chan *Message
-	Hub      *Hub
-	Logger   *logging.Logger
-	ctx      context.Context
-	cancel   context.CancelFunc
+	ID     string
+	UserID string
+	Conn   *websocket.Conn
+	Send   chan *Message
+	Hub    *Hub
+	Logger *logging.Logger
+	ctx    context.Context
+	cancel context.CancelFunc
 }
 
 // Hub maintains active WebSocket connections and broadcasts messages.
@@ -52,7 +52,7 @@ type Hub struct {
 // NewHub creates a new WebSocket hub.
 func NewHub(logger *logging.Logger) *Hub {
 	ctx, cancel := context.WithCancel(context.Background())
-	
+
 	return &Hub{
 		clients:    make(map[string]*Client),
 		broadcast:  make(chan *Message, 100),
@@ -90,12 +90,12 @@ func (h *Hub) run() {
 			h.mu.Lock()
 			h.clients[client.ID] = client
 			h.mu.Unlock()
-			
+
 			h.logger.WithFields(logrus.Fields{
 				"client_id": client.ID,
 				"user_id":   client.UserID,
 			}).Info("WebSocket client registered")
-			
+
 			// Send welcome message
 			welcome := &Message{
 				Type:      "connection",
@@ -106,7 +106,7 @@ func (h *Hub) run() {
 					"client_id": client.ID,
 				},
 			}
-			
+
 			select {
 			case client.Send <- welcome:
 			default:
@@ -123,7 +123,7 @@ func (h *Hub) run() {
 				close(client.Send)
 			}
 			h.mu.Unlock()
-			
+
 			h.logger.WithFields(logrus.Fields{
 				"client_id": client.ID,
 				"user_id":   client.UserID,
@@ -136,7 +136,7 @@ func (h *Hub) run() {
 				if message.UserID != "" && message.UserID != client.UserID {
 					continue
 				}
-				
+
 				select {
 				case client.Send <- message:
 				default:
@@ -197,7 +197,7 @@ func (h *Hub) GetClientCount() int {
 func (h *Hub) GetUserClients(userID string) []*Client {
 	h.mu.RLock()
 	defer h.mu.RUnlock()
-	
+
 	var userClients []*Client
 	for _, client := range h.clients {
 		if client.UserID == userID {
