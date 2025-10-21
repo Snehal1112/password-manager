@@ -47,10 +47,10 @@ var createCmd = &cobra.Command{
 			return fmt.Errorf("service container not available in context")
 		}
 
-		// Get new user details from flags
-		username := viper.GetString("new-username")
-		password := viper.GetString("new-password")
-		role := viper.GetString("new-role")
+		// Get new user details from flags directly
+		username, _ := cmd.Flags().GetString("new-username")
+		password, _ := cmd.Flags().GetString("new-password")
+		role, _ := cmd.Flags().GetString("new-role")
 
 		if username == "" || password == "" || role == "" {
 			return fmt.Errorf("username, password, and role are required")
