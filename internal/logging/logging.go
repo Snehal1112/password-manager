@@ -27,6 +27,29 @@ type Logger struct {
 	rotationMethod string
 }
 
+// ensureLogDirectory ensures the log file's directory exists.
+// If the directory cannot be created, it falls back to using the root folder.
+// Returns the potentially modified log file path.
+func ensureLogDirectory(logFile string, logger *logrus.Logger) string {
+	// Extract directory from log file path.
+	logDir := filepath.Dir(logFile)
+
+	// If logDir is current directory, no need to create.
+	if logDir == "." {
+		return logFile
+	}
+
+	// Try to create the directory.
+	if err := os.MkdirAll(logDir, 0o0755); err != nil {
+		logger.Warnf("Failed to create log directory %s: %v. Using root folder instead.", logDir, err)
+		// Fallback to root folder with just the filename.
+		return filepath.Base(logFile)
+	}
+
+	logger.Infof("Log directory ensured: %s", logDir)
+	return logFile
+}
+
 // InitLogger initializes a structured logger with JSON output and configurable rotation.
 // It uses either lumberjack or custom gzip rotation based on viper settings.
 func InitLogger() *Logger {
@@ -77,6 +100,10 @@ func InitLogger() *Logger {
 	}
 
 	if logFile != "" {
+		// Ensure log directory exists or fallback to root folder.
+		logFile = ensureLogDirectory(logFile, logger)
+		l.logFile = logFile // Update with potentially modified path.
+
 		if rotationMethod == "lumberjack" {
 			// Use lumberjack for rotation.
 			lumberjackLogger := &lumberjack.Logger{
@@ -91,22 +118,24 @@ func InitLogger() *Logger {
 
 			_, err := os.OpenFile(logFile, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600)
 			if err != nil {
-				logger.Fatal("Failed to open log file: ", err)
-			}
-
-			// Set file permissions manually for lumberjack logs.
-			if err := os.Chmod(logFile, 0o600); err != nil && !os.IsNotExist(err) {
-				logger.Warn("Failed to set log file permissions: ", err)
+				logger.Warn("Failed to open log file, falling back to stdout: ", err)
+				logger.SetOutput(os.Stdout)
+			} else {
+				// Set file permissions manually for lumberjack logs.
+				if err := os.Chmod(logFile, 0o600); err != nil && !os.IsNotExist(err) {
+					logger.Warn("Failed to set log file permissions: ", err)
+				}
 			}
 		} else {
 			// Use custom gzip rotation (default).
 			file, err := os.OpenFile(logFile, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600)
 			if err != nil {
-				logger.Fatal("Failed to open log file: ", err)
+				logger.Warn("Failed to open log file, falling back to stdout: ", err)
+				logger.SetOutput(os.Stdout)
+			} else {
+				mw := io.MultiWriter(os.Stdout, file)
+				logger.SetOutput(mw)
 			}
-
-			mw := io.MultiWriter(os.Stdout, file)
-			logger.SetOutput(mw)
 		}
 	} else {
 		logger.SetOutput(os.Stdout)
