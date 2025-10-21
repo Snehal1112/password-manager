@@ -17,6 +17,8 @@ import (
 	"password-manager/common"
 	"password-manager/internal/container"
 	"password-manager/internal/logging"
+	authServices "password-manager/internal/services/auth"
+	authzServices "password-manager/internal/services/authorization"
 )
 
 // ResponseWriter is a custom http.ResponseWriter that captures the status code.
@@ -34,11 +36,19 @@ func (rw *ResponseWriter) WriteHeader(code int) {
 	rw.ResponseWriter.WriteHeader(code)
 }
 
+// MiddlewareContainer defines the interface for service container dependencies.
+// This allows for easier testing with mock implementations.
+type MiddlewareContainer interface {
+	GetLogger() *logging.Logger
+	GetAuthenticationService() authServices.AuthenticationService
+	GetRBACService() authzServices.RBACService
+}
+
 // Middleware provides HTTP middleware with single responsibilities.
 // It delegates authentication and authorization to dedicated services,
 // following the Single Responsibility Principle.
 type Middleware struct {
-	container *container.ServiceContainer
+	container MiddlewareContainer
 	logger    *logging.Logger
 }
 
