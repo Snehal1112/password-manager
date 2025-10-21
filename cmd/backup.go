@@ -51,14 +51,20 @@ var backupCmd = &cobra.Command{
 	Short: "Manage database backups",
 	Long: `Create, list, and restore encrypted database backups.
 Supports full database backup and restore operations with optional encryption.`,
-	Example: `  # Create encrypted backup
-  password-manager backup create --output ./backups/backup-2024.backup --encrypt
+	Example: `  # Create encrypted backup (default)
+  password-manager backup create --output ./backups/backup-2024.backup
+
+  # Create unencrypted backup
+  password-manager backup create --output ./backups/backup-2024.backup --encrypt=false
 
   # List available backups
   password-manager backup list --dir ./backups
 
-  # Restore from backup
-  password-manager backup restore --file ./backups/backup-2024.backup --decrypt`,
+  # Restore from encrypted backup (default)
+  password-manager backup restore --file ./backups/backup-2024.backup
+
+  # Restore from unencrypted backup
+  password-manager backup restore --file ./backups/backup-2024.backup --decrypt=false`,
 }
 
 func init() {
@@ -75,8 +81,12 @@ var backupCreateCmd = &cobra.Command{
 	Use:   "create",
 	Short: "Create a database backup",
 	Long: `Create a complete backup of the database including all tables and data.
-The backup can be encrypted using the master key for security.`,
-	Example: `password-manager backup create --output ./backup-2024.backup --encrypt`,
+The backup is encrypted by default using the master key for security.`,
+	Example: `  # Create encrypted backup (default)
+  password-manager backup create --output ./backup-2024.backup
+
+  # Create unencrypted backup
+  password-manager backup create --output ./backup-2024.backup --encrypt=false`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		return runBackupCreate(cmd, args)
 	},
@@ -95,10 +105,14 @@ var backupListCmd = &cobra.Command{
 
 // backupRestoreCmd represents the backup restore command
 var backupRestoreCmd = &cobra.Command{
-	Use:     "restore",
-	Short:   "Restore database from backup",
-	Long:    `Restore the database from a backup file. This will replace all existing data.`,
-	Example: `password-manager backup restore --file ./backup-2024.backup --decrypt`,
+	Use:   "restore",
+	Short: "Restore database from backup",
+	Long:  `Restore the database from a backup file. This will replace all existing data.`,
+	Example: `  # Restore from encrypted backup (default)
+  password-manager backup restore --file ./backup-2024.backup
+
+  # Restore from unencrypted backup
+  password-manager backup restore --file ./backup-2024.backup --decrypt=false`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		return runBackupRestore(cmd, args)
 	},
@@ -107,7 +121,7 @@ var backupRestoreCmd = &cobra.Command{
 func init() {
 	// Create command flags
 	backupCreateCmd.Flags().StringVarP(&backupOutput, "output", "o", "", "Output file path for backup (required)")
-	backupCreateCmd.Flags().BoolVarP(&backupEncrypt, "encrypt", "e", true, "Encrypt the backup file")
+	backupCreateCmd.Flags().BoolVar(&backupEncrypt, "encrypt", true, "Encrypt the backup file (use --encrypt=false to disable)")
 	backupCreateCmd.MarkFlagRequired("output")
 
 	// List command flags
@@ -115,7 +129,7 @@ func init() {
 
 	// Restore command flags
 	backupRestoreCmd.Flags().StringVarP(&backupRestoreFile, "file", "f", "", "Backup file to restore from (required)")
-	backupRestoreCmd.Flags().BoolVarP(&backupRestoreDecrypt, "decrypt", "d", true, "Decrypt the backup file")
+	backupRestoreCmd.Flags().BoolVar(&backupRestoreDecrypt, "decrypt", true, "Decrypt the backup file (use --decrypt=false to disable)")
 	backupRestoreCmd.MarkFlagRequired("file")
 }
 
