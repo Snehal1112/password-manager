@@ -34,7 +34,6 @@ var certificateCmd = &cobra.Command{
 	Short:   "Manage certificates",
 	Long:    `Manage certificates for the application, including creating, updating, and deleting certificates.`,
 	Example: `certificate create --name <name> --type <type>`,
-	Args:    cobra.ExactArgs(1),
 	Run: func(cmd *cobra.Command, args []string) {
 		// Show help when command is called without subcommands
 		cmd.Help()
