@@ -34,7 +34,8 @@ import (
 	"password-manager/common"
 	"password-manager/internal/domain"
 	"password-manager/internal/db"
-	"password-manager/internal/keys"
+	"password-manager/internal/repositories"
+	keyservices "password-manager/internal/services/keys"
 )
 
 // CreateKeyRequest represents the request structure for creating a cryptographic key.
@@ -134,17 +135,18 @@ func createKey(c *Context, w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Initialize database and keys repository
-	database := db.NewRepository(c.Logger)
-	if err := database.InitializeDB(); err != nil {
-		c.Err = common.NewAppError("createKey", "Failed to initialize database", nil, err.Error(), http.StatusInternalServerError)
-		return
+	// Get key service from service container
+	keyService := c.App.ServiceContainer.GetKeyService()
+
+	// Build create key request
+	createReq := keyservices.CreateKeyRequest{
+		Name:   req.Name,
+		Type:   req.Type,
+		Tags:   req.Tags,
+		UserID: userID,
 	}
-	defer database.GetDB().Close()
 
-	keyRepo := keys.NewKeyRepository(database.GetDB(), c.Logger)
-
-	var key *keys.Key
+	var result *keyservices.CreateKeyResult
 	if req.Type == "RSA" {
 		// Validate RSA key size
 		if req.Bits != 2048 && req.Bits != 4096 {
@@ -155,7 +157,8 @@ func createKey(c *Context, w http.ResponseWriter, r *http.Request) {
 				return
 			}
 		}
-		key, err = keyRepo.GenerateRSA(r.Context(), userID, req.Name, req.Bits, req.Tags)
+		createReq.Bits = req.Bits
+		result, err = keyService.CreateRSAKey(r.Context(), createReq)
 	} else {
 		// Validate ECDSA curve
 		if req.Curve == "" {
@@ -165,7 +168,8 @@ func createKey(c *Context, w http.ResponseWriter, r *http.Request) {
 			c.Err = common.NewAppError("createKey", "Invalid ECDSA curve: must be P-256, P-384, or P-521", nil, "", http.StatusBadRequest)
 			return
 		}
-		key, err = keyRepo.GenerateECDSA(r.Context(), userID, req.Name, req.Curve, req.Tags)
+		createReq.Curve = req.Curve
+		result, err = keyService.CreateECDSAKey(r.Context(), createReq)
 	}
 
 	if err != nil {
@@ -175,13 +179,13 @@ func createKey(c *Context, w http.ResponseWriter, r *http.Request) {
 
 	// Return success response
 	response := KeyResponse{
-		ID:        key.ID,
-		Name:      key.Name,
-		Type:      key.Type,
-		UserID:    key.UserID,
-		Revoked:   key.Revoked,
-		CreatedAt: key.CreatedAt,
-		Tags:      key.Tags,
+		ID:        result.KeyID,
+		Name:      result.Name,
+		Type:      result.Type,
+		UserID:    userID,
+		Revoked:   false, // New keys are never revoked
+		CreatedAt: result.CreatedAt,
+		Tags:      result.Tags,
 	}
 
 	w.Header().Set("Content-Type", "application/json")
@@ -224,9 +228,9 @@ func listKeys(c *Context, w http.ResponseWriter, r *http.Request) {
 	}
 	defer database.GetDB().Close()
 
-	keyRepo := keys.NewKeyRepository(database.GetDB(), c.Logger)
+	keyRepo := repositories.NewKeyRepository(database.GetDB(), c.Logger)
 
-	var keysList []keys.Key
+	var keysList []domain.Key
 	// Check if user is admin - admins can list all keys
 	roleStr, ok := c.Claims["role"].(string)
 	if ok && roleStr == string(domain.RoleAdmin) {
@@ -290,7 +294,7 @@ func getKey(c *Context, w http.ResponseWriter, r *http.Request) {
 	}
 	defer database.GetDB().Close()
 
-	keyRepo := keys.NewKeyRepository(database.GetDB(), c.Logger)
+	keyRepo := repositories.NewKeyRepository(database.GetDB(), c.Logger)
 	key, err := keyRepo.Read(r.Context(), keyID)
 	if err != nil {
 		c.Err = common.NewAppError("getKey", "Key not found", nil, err.Error(), http.StatusNotFound)
@@ -355,7 +359,7 @@ func updateKey(c *Context, w http.ResponseWriter, r *http.Request) {
 	}
 	defer database.GetDB().Close()
 
-	keyRepo := keys.NewKeyRepository(database.GetDB(), c.Logger)
+	keyRepo := repositories.NewKeyRepository(database.GetDB(), c.Logger)
 	key, err := keyRepo.Read(r.Context(), keyID)
 	if err != nil {
 		c.Err = common.NewAppError("updateKey", "Key not found", nil, err.Error(), http.StatusNotFound)
@@ -398,7 +402,7 @@ func updateKey(c *Context, w http.ResponseWriter, r *http.Request) {
 
 	// Update tags if provided
 	if req.Tags != nil {
-		tagRepo := db.NewTagRepository[keys.Key](database.GetDB(), "key_tags", "key_id")
+		tagRepo := db.NewTagRepository[domain.Key](database.GetDB(), "key_tags", "key_id")
 		if err := tagRepo.ReplaceTags(r.Context(), keyID, req.Tags); err != nil {
 			c.Err = common.NewAppError("updateKey", "Failed to update tags", nil, err.Error(), http.StatusInternalServerError)
 			return
@@ -450,7 +454,7 @@ func deleteKey(c *Context, w http.ResponseWriter, r *http.Request) {
 	}
 	defer database.GetDB().Close()
 
-	keyRepo := keys.NewKeyRepository(database.GetDB(), c.Logger)
+	keyRepo := repositories.NewKeyRepository(database.GetDB(), c.Logger)
 	key, err := keyRepo.Read(r.Context(), keyID)
 	if err != nil {
 		c.Err = common.NewAppError("deleteKey", "Key not found", nil, err.Error(), http.StatusNotFound)
@@ -496,31 +500,11 @@ func rotateKey(c *Context, w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Create key repository
-	// Initialize database and keys repository
-	database := db.NewRepository(c.Logger)
-	if err := database.InitializeDB(); err != nil {
-		c.Err = common.NewAppError("listKeys", "Failed to initialize database", nil, err.Error(), http.StatusInternalServerError)
-		return
-	}
-	defer database.GetDB().Close()
+	// Get key service from service container
+	keyService := c.App.ServiceContainer.GetKeyService()
 
-	keyRepo := keys.NewKeyRepository(database.GetDB(), c.Logger)
-	key, err := keyRepo.Read(r.Context(), keyID)
-	if err != nil {
-		c.Err = common.NewAppError("rotateKey", "Key not found", nil, err.Error(), http.StatusNotFound)
-		return
-	}
-
-	// Check authorization - users can only rotate their own keys, admins can rotate all
-	roleStr, ok := c.Claims["role"].(string)
-	if !ok || (key.UserID != userID && roleStr != string(domain.RoleAdmin)) {
-		c.Err = common.NewAppError("rotateKey", "Forbidden: cannot rotate other users' keys", nil, "", http.StatusForbidden)
-		return
-	}
-
-	// Rotate the key
-	newKey, err := keyRepo.Rotate(r.Context(), keyID)
+	// Rotate the key using service (handles authorization internally)
+	result, err := keyService.RotateKey(r.Context(), keyID, userID)
 	if err != nil {
 		c.Err = common.NewAppError("rotateKey", "Failed to rotate key", nil, err.Error(), http.StatusInternalServerError)
 		return
@@ -528,13 +512,13 @@ func rotateKey(c *Context, w http.ResponseWriter, r *http.Request) {
 
 	// Return success response with the new key
 	response := KeyResponse{
-		ID:        newKey.ID,
-		Name:      newKey.Name,
-		Type:      newKey.Type,
-		UserID:    newKey.UserID,
-		Revoked:   newKey.Revoked,
-		CreatedAt: newKey.CreatedAt,
-		Tags:      newKey.Tags,
+		ID:        result.KeyID,
+		Name:      result.Name,
+		Type:      result.Type,
+		UserID:    userID,
+		Revoked:   false, // New rotated keys are never revoked
+		CreatedAt: result.CreatedAt,
+		Tags:      result.Tags,
 	}
 
 	w.Header().Set("Content-Type", "application/json")

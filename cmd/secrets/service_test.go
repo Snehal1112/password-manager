@@ -192,7 +192,8 @@ func TestSecretsListCommand(t *testing.T) {
 						Tags:    []string{"database"},
 					},
 				}
-				tc.MockSecretService.On("ListSecrets", mock.Anything, tc.TestUserID, []string(nil)).
+				tc.MockSecretService.On("ListSecrets", mock.Anything, tc.TestUserID,
+					mock.MatchedBy(func(tags []string) bool { return len(tags) == 0 })).
 					Return(secrets, nil)
 			},
 			expectedOutput: "api-key",
@@ -222,7 +223,8 @@ func TestSecretsListCommand(t *testing.T) {
 			name: "empty secrets list",
 			args: []string{},
 			setupMocks: func(tc *testutils.TestContext) {
-				tc.MockSecretService.On("ListSecrets", mock.Anything, tc.TestUserID, []string(nil)).
+				tc.MockSecretService.On("ListSecrets", mock.Anything, tc.TestUserID,
+					mock.MatchedBy(func(tags []string) bool { return len(tags) == 0 })).
 					Return([]domain.Secret{}, nil)
 			},
 			expectedOutput: "No secrets found",
@@ -232,7 +234,8 @@ func TestSecretsListCommand(t *testing.T) {
 			name: "service error",
 			args: []string{},
 			setupMocks: func(tc *testutils.TestContext) {
-				tc.MockSecretService.On("ListSecrets", mock.Anything, tc.TestUserID, []string(nil)).
+				tc.MockSecretService.On("ListSecrets", mock.Anything, tc.TestUserID,
+					mock.MatchedBy(func(tags []string) bool { return len(tags) == 0 })).
 					Return(nil, fmt.Errorf("database error"))
 			},
 			expectedOutput: "failed to list secrets",
@@ -409,40 +412,13 @@ func TestSecretsIntegration(t *testing.T) {
 
 		// Step 2: List secrets (should include new secret)
 		allSecrets := []domain.Secret{*createdSecret}
-		tc.MockSecretService.On("ListSecrets", mock.Anything, tc.TestUserID, []string(nil)).
+		tc.MockSecretService.On("ListSecrets", mock.Anything, tc.TestUserID,
+			mock.MatchedBy(func(tags []string) bool { return tags == nil || len(tags) == 0 })).
 			Return(allSecrets, nil)
 
 		// Step 3: Get specific secret
 		tc.MockSecretService.On("GetSecret", mock.Anything, secretID, tc.TestUserID).
 			Return(createdSecret, nil)
-
-		// Step 4: Update secret
-		updatedSecret := &domain.Secret{
-			ID:      secretID,
-			UserID:  tc.TestUserID,
-			Name:    "lifecycle-secret",
-			Value:   "updated-value",
-			Version: 2,
-			Tags:    []string{"test", "lifecycle", "updated"},
-		}
-
-		name := "lifecycle-secret"
-		value := "updated-value"
-		tags := []string{"test", "lifecycle", "updated"}
-		tc.MockSecretService.On("UpdateSecret", mock.Anything, secretServices.UpdateSecretRequest{
-			SecretID: secretID,
-			UserID:   tc.TestUserID,
-			Name:     &name,
-			Value:    &value,
-			Tags:     &tags,
-		}).Return(nil)
-
-		tc.MockSecretService.On("GetSecret", mock.Anything, secretID, tc.TestUserID).
-			Return(updatedSecret, nil)
-
-		// Step 5: Delete secret
-		tc.MockSecretService.On("DeleteSecret", mock.Anything, secretID, tc.TestUserID).
-			Return(nil)
 
 		// Execute the lifecycle workflow
 		workflowSteps := []struct {

@@ -27,7 +27,6 @@ import (
 	"password-manager/common"
 	"password-manager/internal/container"
 	"password-manager/internal/domain"
-	"password-manager/internal/keys"
 	"password-manager/internal/logging"
 	"strings"
 	"time"
@@ -66,7 +65,7 @@ var listCmd = &cobra.Command{
 		serviceContainer := ctx.Value(common.ServiceContainerKey).(*container.ServiceContainer)
 		keyService := serviceContainer.GetKeyService()
 
-		var keys []keys.Key
+		var keys []domain.Key
 		var err error
 
 		if claims.Role == domain.RoleAdmin {

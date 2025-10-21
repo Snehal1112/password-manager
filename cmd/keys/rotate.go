@@ -23,17 +23,15 @@ THE SOFTWARE.
 package keys
 
 import (
-	"database/sql"
 	"fmt"
-	"strings"
 	"time"
 
 	"github.com/google/uuid"
 	"github.com/spf13/cobra"
 
 	"password-manager/common"
+	"password-manager/internal/container"
 	"password-manager/internal/domain"
-	"password-manager/internal/keys"
 	"password-manager/internal/logging"
 )
 
@@ -58,29 +56,20 @@ var rotateCmd = &cobra.Command{
 			return fmt.Errorf("invalid key ID: %w", err)
 		}
 
-		keyRepo := keys.NewKeyRepository(ctx.Value(common.DBKey).(*sql.DB), log)
-		// Read key to check ownership
-		key, err := keyRepo.Read(ctx, keyID)
-		if err != nil {
-			log.LogAuditError(claims.UserID.String(), "rotate_key", "failed", fmt.Sprintf("failed to read key: %s", err), err)
-			return fmt.Errorf("failed to read key: %w", err)
-		}
+		// Get service container
+		serviceContainer := ctx.Value(common.ServiceContainerKey).(*container.ServiceContainer)
+		keyService := serviceContainer.GetKeyService()
 
-		if claims.UserID != key.UserID && claims.Role != domain.RoleAdmin {
-			log.LogAuditError(claims.UserID.String(), "rotate_key", "failed", "forbidden: cannot rotate other users' keys", nil)
-			return fmt.Errorf("forbidden: cannot rotate other users' keys")
-		}
-
-		// Rotate the key
-		newKey, err := keyRepo.Rotate(ctx, keyID)
+		// Rotate key using service
+		newKey, err := keyService.RotateKey(ctx, keyID, claims.UserID)
 		if err != nil {
 			log.LogAuditError(claims.UserID.String(), "rotate_key", "failed", fmt.Sprintf("failed to rotate key: %s", err), err)
 			return fmt.Errorf("failed to rotate key: %w", err)
 		}
 
-		log.LogAuditInfo(claims.UserID.String(), "rotate_key", "success", fmt.Sprintf("key rotated: %s, new ID: %s", key.Name, newKey.ID))
-		fmt.Printf("Key rotated successfully, New Key: ID=%s, Name=%s, Type=%s, Revoked=%t, CreatedAt=%s, Tags=[%s]\n",
-			newKey.ID, newKey.Name, newKey.Type, newKey.Revoked, newKey.CreatedAt.Format(time.RFC3339), strings.Join(newKey.Tags, ", "))
+		log.LogAuditInfo(claims.UserID.String(), "rotate_key", "success", fmt.Sprintf("key rotated, new ID: %s", newKey.KeyID))
+		fmt.Printf("Key rotated successfully, New Key: ID=%s, Name=%s, Type=%s, CreatedAt=%s, Tags=%v\n",
+			newKey.KeyID, newKey.Name, newKey.Type, newKey.CreatedAt.Format(time.RFC3339), newKey.Tags)
 		return nil
 	},
 }

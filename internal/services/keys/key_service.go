@@ -11,9 +11,11 @@ import (
 	"github.com/google/uuid"
 	"github.com/sirupsen/logrus"
 
+	"password-manager/common"
+	"password-manager/internal/crypto"
 	"password-manager/internal/domain"
-	"password-manager/internal/keys"
 	"password-manager/internal/logging"
+	"password-manager/internal/repositories"
 )
 
 // CreateKeyRequest represents a request to create a new cryptographic key.
@@ -49,8 +51,8 @@ type UpdateKeyRequest struct {
 type KeyService interface {
 	CreateRSAKey(ctx context.Context, req CreateKeyRequest) (*CreateKeyResult, error)
 	CreateECDSAKey(ctx context.Context, req CreateKeyRequest) (*CreateKeyResult, error)
-	GetKey(ctx context.Context, keyID, userID uuid.UUID) (*keys.Key, error)
-	ListKeys(ctx context.Context, userID uuid.UUID) ([]keys.Key, error)
+	GetKey(ctx context.Context, keyID, userID uuid.UUID) (*domain.Key, error)
+	ListKeys(ctx context.Context, userID uuid.UUID) ([]domain.Key, error)
 	UpdateKey(ctx context.Context, req UpdateKeyRequest) error
 	DeleteKey(ctx context.Context, keyID, userID uuid.UUID) error
 	RotateKey(ctx context.Context, keyID, userID uuid.UUID) (*CreateKeyResult, error)
@@ -60,13 +62,13 @@ type KeyService interface {
 // keyService implements KeyService by coordinating key operations
 // and access control while delegating to repository layer.
 type keyService struct {
-	keyRepo keys.KeyRepository
+	keyRepo repositories.KeyRepositoryInterface
 	logger  *logging.Logger
 }
 
 // KeyServiceConfig holds the dependencies for key service.
 type KeyServiceConfig struct {
-	KeyRepository keys.KeyRepository
+	KeyRepository repositories.KeyRepositoryInterface
 	Logger        *logging.Logger
 }
 
@@ -86,7 +88,7 @@ func NewKeyService(config KeyServiceConfig) KeyService {
 }
 
 // CreateRSAKey creates a new RSA cryptographic key.
-// It validates parameters, generates the key, and handles storage.
+// It validates parameters, generates the key, encrypts it, and handles storage.
 //
 // Parameters:
 //   ctx: The context for the operation.
@@ -108,11 +110,36 @@ func (s *keyService) CreateRSAKey(ctx context.Context, req CreateKeyRequest) (*C
 		return nil, fmt.Errorf("invalid RSA key size: must be 2048 or 4096")
 	}
 
-	// Delegate key generation to repository
-	key, err := s.keyRepo.GenerateRSA(ctx, req.UserID, req.Name, req.Bits, req.Tags)
+	// Generate RSA key using crypto helper
+	privateKeyPEM, err := crypto.GenerateRSAKeyPEM(req.Bits)
 	if err != nil {
-		s.logger.LogAuditError(req.UserID.String(), "create_rsa_key", "failed", fmt.Sprintf("failed to generate RSA key: %s", err), err)
+		s.logger.LogAuditError(req.UserID.String(), "create_rsa_key", "failed", "failed to generate RSA key", err)
 		return nil, fmt.Errorf("failed to generate RSA key: %w", err)
+	}
+
+	// Encrypt the private key
+	encryptedKey, err := common.EncryptSecret(privateKeyPEM)
+	if err != nil {
+		s.logger.LogAuditError(req.UserID.String(), "create_rsa_key", "failed", "failed to encrypt key", err)
+		return nil, fmt.Errorf("failed to encrypt key: %w", err)
+	}
+
+	// Create key entity
+	key := &domain.Key{
+		ID:        uuid.New(),
+		UserID:    req.UserID,
+		Name:      req.Name,
+		Type:      domain.KeyTypeRSA,
+		Value:     encryptedKey,
+		Revoked:   false,
+		CreatedAt: time.Now(),
+		Tags:      req.Tags,
+	}
+
+	// Store in repository
+	if err := s.keyRepo.Create(ctx, key); err != nil {
+		s.logger.LogAuditError(req.UserID.String(), "create_rsa_key", "failed", "failed to store key", err)
+		return nil, fmt.Errorf("failed to store RSA key: %w", err)
 	}
 
 	s.logger.LogAuditInfo(req.UserID.String(), "create_rsa_key", "success", fmt.Sprintf("RSA key created: %s, ID: %s", req.Name, key.ID))
@@ -132,7 +159,7 @@ func (s *keyService) CreateRSAKey(ctx context.Context, req CreateKeyRequest) (*C
 }
 
 // CreateECDSAKey creates a new ECDSA cryptographic key.
-// It validates parameters, generates the key, and handles storage.
+// It validates parameters, generates the key, encrypts it, and handles storage.
 //
 // Parameters:
 //   ctx: The context for the operation.
@@ -154,11 +181,36 @@ func (s *keyService) CreateECDSAKey(ctx context.Context, req CreateKeyRequest) (
 		return nil, fmt.Errorf("invalid ECDSA curve: must be P-256, P-384, or P-521")
 	}
 
-	// Delegate key generation to repository
-	key, err := s.keyRepo.GenerateECDSA(ctx, req.UserID, req.Name, req.Curve, req.Tags)
+	// Generate ECDSA key using crypto helper
+	privateKeyPEM, err := crypto.GenerateECDSAKeyPEM(req.Curve)
 	if err != nil {
-		s.logger.LogAuditError(req.UserID.String(), "create_ecdsa_key", "failed", fmt.Sprintf("failed to generate ECDSA key: %s", err), err)
+		s.logger.LogAuditError(req.UserID.String(), "create_ecdsa_key", "failed", "failed to generate ECDSA key", err)
 		return nil, fmt.Errorf("failed to generate ECDSA key: %w", err)
+	}
+
+	// Encrypt the private key
+	encryptedKey, err := common.EncryptSecret(privateKeyPEM)
+	if err != nil {
+		s.logger.LogAuditError(req.UserID.String(), "create_ecdsa_key", "failed", "failed to encrypt key", err)
+		return nil, fmt.Errorf("failed to encrypt key: %w", err)
+	}
+
+	// Create key entity
+	key := &domain.Key{
+		ID:        uuid.New(),
+		UserID:    req.UserID,
+		Name:      req.Name,
+		Type:      domain.KeyTypeECDSA,
+		Value:     encryptedKey,
+		Revoked:   false,
+		CreatedAt: time.Now(),
+		Tags:      req.Tags,
+	}
+
+	// Store in repository
+	if err := s.keyRepo.Create(ctx, key); err != nil {
+		s.logger.LogAuditError(req.UserID.String(), "create_ecdsa_key", "failed", "failed to store key", err)
+		return nil, fmt.Errorf("failed to store ECDSA key: %w", err)
 	}
 
 	s.logger.LogAuditInfo(req.UserID.String(), "create_ecdsa_key", "success", fmt.Sprintf("ECDSA key created: %s, ID: %s", req.Name, key.ID))
@@ -186,7 +238,7 @@ func (s *keyService) CreateECDSAKey(ctx context.Context, req CreateKeyRequest) (
 //
 // Returns:
 //   The key information or an error if not found or access denied.
-func (s *keyService) GetKey(ctx context.Context, keyID, userID uuid.UUID) (*keys.Key, error) {
+func (s *keyService) GetKey(ctx context.Context, keyID, userID uuid.UUID) (*domain.Key, error) {
 	key, err := s.keyRepo.Read(ctx, keyID)
 	if err != nil {
 		s.logger.LogAuditError(userID.String(), "get_key", "failed", fmt.Sprintf("failed to read key: %s", err), err)
@@ -210,7 +262,7 @@ func (s *keyService) GetKey(ctx context.Context, keyID, userID uuid.UUID) (*keys
 //
 // Returns:
 //   A slice of user's keys or an error if retrieval fails.
-func (s *keyService) ListKeys(ctx context.Context, userID uuid.UUID) ([]keys.Key, error) {
+func (s *keyService) ListKeys(ctx context.Context, userID uuid.UUID) ([]domain.Key, error) {
 	return s.keyRepo.ListByUser(ctx, &userID, "", nil)
 }
 
@@ -279,7 +331,7 @@ func (s *keyService) DeleteKey(ctx context.Context, keyID, userID uuid.UUID) err
 }
 
 // RotateKey creates a new key to replace an existing one.
-// It generates a new key with the same properties as the original.
+// It marks the old key as revoked and generates a new key with the same properties.
 //
 // Parameters:
 //   ctx: The context for the operation.
@@ -295,20 +347,26 @@ func (s *keyService) RotateKey(ctx context.Context, keyID, userID uuid.UUID) (*C
 		return nil, err
 	}
 
+	// Mark old key as revoked
+	if err := s.keyRepo.UpdateRevocationStatus(ctx, keyID, true); err != nil {
+		s.logger.LogAuditError(userID.String(), "rotate_key", "failed", "failed to revoke old key", err)
+		return nil, fmt.Errorf("failed to revoke old key: %w", err)
+	}
+
 	// Create rotation request based on existing key
 	req := CreateKeyRequest{
-		Name:   existingKey.Name + "_rotated",
+		Name:   existingKey.Name + "-rotated",
 		Type:   existingKey.Type,
 		Tags:   existingKey.Tags,
 		UserID: userID,
 	}
 
-	// Set type-specific parameters
+	// Set type-specific parameters and create new key
 	switch existingKey.Type {
-	case "RSA":
+	case domain.KeyTypeRSA:
 		req.Bits = 2048 // Default RSA size for rotation
 		return s.CreateRSAKey(ctx, req)
-	case "ECDSA":
+	case domain.KeyTypeECDSA:
 		req.Curve = "P-256" // Default ECDSA curve for rotation
 		return s.CreateECDSAKey(ctx, req)
 	default:
