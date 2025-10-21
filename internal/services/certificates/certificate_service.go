@@ -11,10 +11,11 @@ import (
 	"github.com/google/uuid"
 	"github.com/sirupsen/logrus"
 
-	"password-manager/internal/certificates"
+	"password-manager/common"
+	"password-manager/internal/crypto"
 	"password-manager/internal/domain"
-	"password-manager/internal/keys"
 	"password-manager/internal/logging"
+	"password-manager/internal/repositories"
 )
 
 // CreateCertificateRequest represents a request to create a new X.509 certificate.
@@ -49,8 +50,8 @@ type UpdateCertificateRequest struct {
 type CertificateService interface {
 	CreateSelfSignedCertificate(ctx context.Context, req CreateCertificateRequest) (*CreateCertificateResult, error)
 	CreateCASignedCertificate(ctx context.Context, req CreateCertificateRequest) (*CreateCertificateResult, error)
-	GetCertificate(ctx context.Context, certID, userID uuid.UUID) (*certificates.Certificate, error)
-	ListCertificates(ctx context.Context, userID uuid.UUID) ([]certificates.Certificate, error)
+	GetCertificate(ctx context.Context, certID, userID uuid.UUID) (*domain.Certificate, error)
+	ListCertificates(ctx context.Context, userID uuid.UUID) ([]domain.Certificate, error)
 	UpdateCertificate(ctx context.Context, req UpdateCertificateRequest) error
 	DeleteCertificate(ctx context.Context, certID, userID uuid.UUID) error
 	RenewCertificate(ctx context.Context, certID, userID uuid.UUID, validityDays int) (*CreateCertificateResult, error)
@@ -61,15 +62,15 @@ type CertificateService interface {
 // certificateService implements CertificateService by coordinating certificate operations
 // and access control while delegating to repository layers.
 type certificateService struct {
-	certRepo certificates.CertificateRepository
-	keyRepo  keys.KeyRepository
+	certRepo repositories.CertificateRepositoryInterface
+	keyRepo  repositories.KeyRepositoryInterface
 	logger   *logging.Logger
 }
 
 // CertificateServiceConfig holds the dependencies for certificate service.
 type CertificateServiceConfig struct {
-	CertificateRepository certificates.CertificateRepository
-	KeyRepository         keys.KeyRepository
+	CertificateRepository repositories.CertificateRepositoryInterface
+	KeyRepository         repositories.KeyRepositoryInterface
 	Logger                *logging.Logger
 }
 
@@ -90,7 +91,7 @@ func NewCertificateService(config CertificateServiceConfig) CertificateService {
 }
 
 // CreateSelfSignedCertificate creates a new self-signed X.509 certificate.
-// It validates parameters, verifies key ownership, and handles certificate generation.
+// It validates parameters, verifies key ownership, generates the certificate, and handles storage.
 //
 // Parameters:
 //   ctx: The context for the operation.
@@ -117,11 +118,53 @@ func (s *certificateService) CreateSelfSignedCertificate(ctx context.Context, re
 		return nil, err
 	}
 
-	// Delegate certificate creation to repository
-	cert, err := s.certRepo.CreateSelfSigned(ctx, req.UserID, req.Name, req.KeyID, req.ValidityDays, req.Tags)
+	// Get the private key
+	key, err := s.keyRepo.Read(ctx, req.KeyID)
 	if err != nil {
-		s.logger.LogAuditError(req.UserID.String(), "create_self_signed_cert", "failed", fmt.Sprintf("failed to create certificate: %s", err), err)
-		return nil, fmt.Errorf("failed to create self-signed certificate: %w", err)
+		s.logger.LogAuditError(req.UserID.String(), "create_self_signed_cert", "failed", "failed to read key", err)
+		return nil, fmt.Errorf("failed to read key: %w", err)
+	}
+
+	// Decrypt the private key
+	privateKeyPEM, err := common.DecryptSecret(key.Value)
+	if err != nil {
+		s.logger.LogAuditError(req.UserID.String(), "create_self_signed_cert", "failed", "failed to decrypt key", err)
+		return nil, fmt.Errorf("failed to decrypt key: %w", err)
+	}
+
+	// Generate self-signed certificate
+	certPEM, err := crypto.CreateSelfSignedCertificatePEM(privateKeyPEM, key.Type, crypto.CertificateTemplate{
+		CommonName:   req.Name,
+		ValidityDays: req.ValidityDays,
+		IsCA:         true,
+	})
+	if err != nil {
+		s.logger.LogAuditError(req.UserID.String(), "create_self_signed_cert", "failed", "failed to generate certificate", err)
+		return nil, fmt.Errorf("failed to generate self-signed certificate: %w", err)
+	}
+
+	// Encrypt the private key for storage
+	encryptedKey, err := common.EncryptSecret(privateKeyPEM)
+	if err != nil {
+		s.logger.LogAuditError(req.UserID.String(), "create_self_signed_cert", "failed", "failed to encrypt private key", err)
+		return nil, fmt.Errorf("failed to encrypt private key: %w", err)
+	}
+
+	// Create certificate entity
+	cert := &domain.Certificate{
+		ID:          uuid.New(),
+		UserID:      req.UserID,
+		Name:        req.Name,
+		Certificate: certPEM,
+		PrivateKey:  encryptedKey,
+		CreatedAt:   time.Now(),
+		Tags:        req.Tags,
+	}
+
+	// Store in repository
+	if err := s.certRepo.Create(ctx, cert); err != nil {
+		s.logger.LogAuditError(req.UserID.String(), "create_self_signed_cert", "failed", "failed to store certificate", err)
+		return nil, fmt.Errorf("failed to store self-signed certificate: %w", err)
 	}
 
 	s.logger.LogAuditInfo(req.UserID.String(), "create_self_signed_cert", "success", fmt.Sprintf("self-signed certificate created: %s, ID: %s", req.Name, cert.ID))
@@ -140,7 +183,7 @@ func (s *certificateService) CreateSelfSignedCertificate(ctx context.Context, re
 }
 
 // CreateCASignedCertificate creates a new CA-signed X.509 certificate.
-// It validates parameters, verifies key ownership, and handles certificate generation.
+// It validates parameters, verifies key ownership, generates the certificate with CA signing, and handles storage.
 //
 // Parameters:
 //   ctx: The context for the operation.
@@ -179,11 +222,67 @@ func (s *certificateService) CreateCASignedCertificate(ctx context.Context, req 
 		return nil, fmt.Errorf("cannot access CA certificate: %w", err)
 	}
 
-	// Delegate certificate creation to repository
-	cert, err := s.certRepo.CreateCASigned(ctx, req.UserID, req.Name, req.KeyID, *req.CACertID, req.ValidityDays, req.Tags)
+	// Get the private key for the new certificate
+	key, err := s.keyRepo.Read(ctx, req.KeyID)
 	if err != nil {
-		s.logger.LogAuditError(req.UserID.String(), "create_ca_signed_cert", "failed", fmt.Sprintf("failed to create certificate: %s", err), err)
-		return nil, fmt.Errorf("failed to create CA-signed certificate: %w", err)
+		s.logger.LogAuditError(req.UserID.String(), "create_ca_signed_cert", "failed", "failed to read key", err)
+		return nil, fmt.Errorf("failed to read key: %w", err)
+	}
+
+	// Decrypt the private key
+	privateKeyPEM, err := common.DecryptSecret(key.Value)
+	if err != nil {
+		s.logger.LogAuditError(req.UserID.String(), "create_ca_signed_cert", "failed", "failed to decrypt key", err)
+		return nil, fmt.Errorf("failed to decrypt key: %w", err)
+	}
+
+	// Get the CA certificate
+	caCert, err := s.certRepo.Read(ctx, *req.CACertID)
+	if err != nil {
+		s.logger.LogAuditError(req.UserID.String(), "create_ca_signed_cert", "failed", "failed to read CA certificate", err)
+		return nil, fmt.Errorf("failed to read CA certificate: %w", err)
+	}
+
+	// Decrypt CA private key
+	caKeyPEM, err := common.DecryptSecret(caCert.PrivateKey)
+	if err != nil {
+		s.logger.LogAuditError(req.UserID.String(), "create_ca_signed_cert", "failed", "failed to decrypt CA key", err)
+		return nil, fmt.Errorf("failed to decrypt CA key: %w", err)
+	}
+
+	// Generate CA-signed certificate - assume CA uses RSA for simplicity
+	certPEM, err := crypto.CreateCASignedCertificatePEM(privateKeyPEM, key.Type, caCert.Certificate, caKeyPEM, "RSA", crypto.CertificateTemplate{
+		CommonName:   req.Name,
+		ValidityDays: req.ValidityDays,
+		IsCA:         false,
+	})
+	if err != nil {
+		s.logger.LogAuditError(req.UserID.String(), "create_ca_signed_cert", "failed", "failed to generate certificate", err)
+		return nil, fmt.Errorf("failed to generate CA-signed certificate: %w", err)
+	}
+
+	// Encrypt the private key for storage
+	encryptedKey, err := common.EncryptSecret(privateKeyPEM)
+	if err != nil {
+		s.logger.LogAuditError(req.UserID.String(), "create_ca_signed_cert", "failed", "failed to encrypt private key", err)
+		return nil, fmt.Errorf("failed to encrypt private key: %w", err)
+	}
+
+	// Create certificate entity
+	cert := &domain.Certificate{
+		ID:          uuid.New(),
+		UserID:      req.UserID,
+		Name:        req.Name,
+		Certificate: certPEM,
+		PrivateKey:  encryptedKey,
+		CreatedAt:   time.Now(),
+		Tags:        req.Tags,
+	}
+
+	// Store in repository
+	if err := s.certRepo.Create(ctx, cert); err != nil {
+		s.logger.LogAuditError(req.UserID.String(), "create_ca_signed_cert", "failed", "failed to store certificate", err)
+		return nil, fmt.Errorf("failed to store CA-signed certificate: %w", err)
 	}
 
 	s.logger.LogAuditInfo(req.UserID.String(), "create_ca_signed_cert", "success", fmt.Sprintf("CA-signed certificate created: %s, ID: %s", req.Name, cert.ID))
@@ -211,7 +310,7 @@ func (s *certificateService) CreateCASignedCertificate(ctx context.Context, req 
 //
 // Returns:
 //   The certificate information or an error if not found or access denied.
-func (s *certificateService) GetCertificate(ctx context.Context, certID, userID uuid.UUID) (*certificates.Certificate, error) {
+func (s *certificateService) GetCertificate(ctx context.Context, certID, userID uuid.UUID) (*domain.Certificate, error) {
 	cert, err := s.certRepo.Read(ctx, certID)
 	if err != nil {
 		s.logger.LogAuditError(userID.String(), "get_certificate", "failed", fmt.Sprintf("failed to read certificate: %s", err), err)
@@ -235,7 +334,7 @@ func (s *certificateService) GetCertificate(ctx context.Context, certID, userID 
 //
 // Returns:
 //   A slice of user's certificates or an error if retrieval fails.
-func (s *certificateService) ListCertificates(ctx context.Context, userID uuid.UUID) ([]certificates.Certificate, error) {
+func (s *certificateService) ListCertificates(ctx context.Context, userID uuid.UUID) ([]domain.Certificate, error) {
 	return s.certRepo.ListByUser(ctx, userID, "", nil)
 }
 

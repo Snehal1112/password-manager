@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/spf13/cobra"
@@ -13,102 +14,97 @@ import (
 
 	"password-manager/cmd/testutils"
 	"password-manager/internal/domain"
-	"password-manager/internal/certificates"
-	"password-manager/internal/keys"
+	certservices "password-manager/internal/services/certificates"
 )
 
-// MockCertificateRepository is a mock implementation of certificate repository for testing
-type MockCertificateRepository struct {
+// MockCertificateService is a mock implementation of CertificateService interface for testing.
+type MockCertificateService struct {
 	mock.Mock
 }
 
-func (m *MockCertificateRepository) CreateSelfSigned(ctx context.Context, userID uuid.UUID, name string, keyID uuid.UUID, validityDays int, tags []string) (*certificates.Certificate, error) {
-	args := m.Called(ctx, userID, name, keyID, validityDays, tags)
+func (m *MockCertificateService) CreateSelfSignedCertificate(ctx context.Context, req certservices.CreateCertificateRequest) (*certservices.CreateCertificateResult, error) {
+	args := m.Called(ctx, req)
 	if args.Get(0) == nil {
 		return nil, args.Error(1)
 	}
-	return args.Get(0).(*certificates.Certificate), args.Error(1)
+	return args.Get(0).(*certservices.CreateCertificateResult), args.Error(1)
 }
 
-func (m *MockCertificateRepository) CreateCASigned(ctx context.Context, userID uuid.UUID, name string, keyID uuid.UUID, caCertID uuid.UUID, validityDays int, tags []string) (*certificates.Certificate, error) {
-	args := m.Called(ctx, userID, name, keyID, caCertID, validityDays, tags)
+func (m *MockCertificateService) CreateCASignedCertificate(ctx context.Context, req certservices.CreateCertificateRequest) (*certservices.CreateCertificateResult, error) {
+	args := m.Called(ctx, req)
 	if args.Get(0) == nil {
 		return nil, args.Error(1)
 	}
-	return args.Get(0).(*certificates.Certificate), args.Error(1)
+	return args.Get(0).(*certservices.CreateCertificateResult), args.Error(1)
 }
 
-func (m *MockCertificateRepository) GetCertificate(ctx context.Context, certID uuid.UUID, userID uuid.UUID) (*certificates.Certificate, error) {
+func (m *MockCertificateService) GetCertificate(ctx context.Context, certID, userID uuid.UUID) (*domain.Certificate, error) {
 	args := m.Called(ctx, certID, userID)
 	if args.Get(0) == nil {
 		return nil, args.Error(1)
 	}
-	return args.Get(0).(*certificates.Certificate), args.Error(1)
+	return args.Get(0).(*domain.Certificate), args.Error(1)
 }
 
-func (m *MockCertificateRepository) ListCertificates(ctx context.Context, userID uuid.UUID) ([]certificates.Certificate, error) {
+func (m *MockCertificateService) ListCertificates(ctx context.Context, userID uuid.UUID) ([]domain.Certificate, error) {
 	args := m.Called(ctx, userID)
 	if args.Get(0) == nil {
 		return nil, args.Error(1)
 	}
-	return args.Get(0).([]certificates.Certificate), args.Error(1)
+	return args.Get(0).([]domain.Certificate), args.Error(1)
 }
 
-func (m *MockCertificateRepository) DeleteCertificate(ctx context.Context, certID uuid.UUID, userID uuid.UUID) error {
+func (m *MockCertificateService) UpdateCertificate(ctx context.Context, req certservices.UpdateCertificateRequest) error {
+	args := m.Called(ctx, req)
+	return args.Error(0)
+}
+
+func (m *MockCertificateService) DeleteCertificate(ctx context.Context, certID, userID uuid.UUID) error {
 	args := m.Called(ctx, certID, userID)
 	return args.Error(0)
 }
 
-func (m *MockCertificateRepository) RevokeCertificate(ctx context.Context, certID uuid.UUID, userID uuid.UUID, reason string) error {
-	args := m.Called(ctx, certID, userID, reason)
-	return args.Error(0)
-}
-
-// MockKeyRepository is a mock implementation for key operations in certificate tests
-type MockKeyRepository struct {
-	mock.Mock
-}
-
-func (m *MockKeyRepository) Read(ctx context.Context, keyID uuid.UUID) (*keys.Key, error) {
-	args := m.Called(ctx, keyID)
+func (m *MockCertificateService) RenewCertificate(ctx context.Context, certID, userID uuid.UUID, validityDays int) (*certservices.CreateCertificateResult, error) {
+	args := m.Called(ctx, certID, userID, validityDays)
 	if args.Get(0) == nil {
 		return nil, args.Error(1)
 	}
-	return args.Get(0).(*keys.Key), args.Error(1)
+	return args.Get(0).(*certservices.CreateCertificateResult), args.Error(1)
 }
 
-// TestCertificatesCreateCommand tests the certificates create command comprehensively
+func (m *MockCertificateService) ValidateCertificateAccess(ctx context.Context, certID, userID uuid.UUID, role string) error {
+	args := m.Called(ctx, certID, userID, role)
+	return args.Error(0)
+}
+
+func (m *MockCertificateService) ValidateKeyOwnership(ctx context.Context, keyID, userID uuid.UUID, role string) error {
+	args := m.Called(ctx, keyID, userID, role)
+	return args.Error(0)
+}
+
+// TestCertificatesCreateCommand tests the certificates create command comprehensively.
 func TestCertificatesCreateCommand(t *testing.T) {
 	tests := []struct {
 		name           string
 		args           []string
-		setupMocks     func(*testutils.TestContext, *MockCertificateRepository, *MockKeyRepository)
+		setupMocks     func(*testutils.TestContext, *MockCertificateService)
 		expectedOutput string
 		expectedError  bool
 	}{
 		{
 			name: "successful self-signed certificate creation",
 			args: []string{"--name=test-cert", "--key-id=550e8400-e29b-41d4-a716-446655440000", "--validity-days=365", "--tags=test,ssl"},
-			setupMocks: func(tc *testutils.TestContext, mockCertRepo *MockCertificateRepository, mockKeyRepo *MockKeyRepository) {
+			setupMocks: func(tc *testutils.TestContext, mockService *MockCertificateService) {
 				keyID := uuid.MustParse("550e8400-e29b-41d4-a716-446655440000")
-				key := &keys.Key{
-					ID:     keyID,
-					UserID: tc.TestUserID,
-					Name:   "test-key",
-					Type:   "RSA",
+				expectedResult := &certservices.CreateCertificateResult{
+					CertID:    uuid.New(),
+					Name:      "test-cert",
+					Tags:      []string{"test", "ssl"},
+					CreatedAt: time.Now(),
 				}
-				mockKeyRepo.On("Read", mock.Anything, keyID).Return(key, nil)
-
-				expectedCert := &certificates.Certificate{
-					ID:          uuid.New(),
-					UserID:      tc.TestUserID,
-					Name:        "test-cert",
-					Certificate: "-----BEGIN CERTIFICATE-----\n...\n-----END CERTIFICATE-----",
-					PrivateKey:  "-----BEGIN PRIVATE KEY-----\n...\n-----END PRIVATE KEY-----",
-					Tags:        []string{"test", "ssl"},
-				}
-				mockCertRepo.On("CreateSelfSigned", mock.Anything, tc.TestUserID, "test-cert", keyID, 365, []string{"test", "ssl"}).
-					Return(expectedCert, nil)
+				mockService.On("CreateSelfSignedCertificate", mock.Anything, mock.MatchedBy(func(req certservices.CreateCertificateRequest) bool {
+					return req.Name == "test-cert" && req.KeyID == keyID && req.ValidityDays == 365
+				})).Return(expectedResult, nil)
 			},
 			expectedOutput: "Certificate created successfully",
 			expectedError:  false,
@@ -116,27 +112,18 @@ func TestCertificatesCreateCommand(t *testing.T) {
 		{
 			name: "successful CA-signed certificate creation",
 			args: []string{"--name=ca-signed-cert", "--key-id=550e8400-e29b-41d4-a716-446655440000", "--validity-days=180", "--ca-cert-id=660e8400-e29b-41d4-a716-446655440000", "--tags=ca,production"},
-			setupMocks: func(tc *testutils.TestContext, mockCertRepo *MockCertificateRepository, mockKeyRepo *MockKeyRepository) {
+			setupMocks: func(tc *testutils.TestContext, mockService *MockCertificateService) {
 				keyID := uuid.MustParse("550e8400-e29b-41d4-a716-446655440000")
 				caCertID := uuid.MustParse("660e8400-e29b-41d4-a716-446655440000")
-				key := &keys.Key{
-					ID:     keyID,
-					UserID: tc.TestUserID,
-					Name:   "test-key",
-					Type:   "RSA",
+				expectedResult := &certservices.CreateCertificateResult{
+					CertID:    uuid.New(),
+					Name:      "ca-signed-cert",
+					Tags:      []string{"ca", "production"},
+					CreatedAt: time.Now(),
 				}
-				mockKeyRepo.On("Read", mock.Anything, keyID).Return(key, nil)
-
-				expectedCert := &certificates.Certificate{
-					ID:          uuid.New(),
-					UserID:      tc.TestUserID,
-					Name:        "ca-signed-cert",
-					Certificate: "-----BEGIN CERTIFICATE-----\n...\n-----END CERTIFICATE-----",
-					PrivateKey:  "-----BEGIN PRIVATE KEY-----\n...\n-----END PRIVATE KEY-----",
-					Tags:        []string{"ca", "production"},
-				}
-				mockCertRepo.On("CreateCASigned", mock.Anything, tc.TestUserID, "ca-signed-cert", keyID, caCertID, 180, []string{"ca", "production"}).
-					Return(expectedCert, nil)
+				mockService.On("CreateCASignedCertificate", mock.Anything, mock.MatchedBy(func(req certservices.CreateCertificateRequest) bool {
+					return req.Name == "ca-signed-cert" && req.KeyID == keyID && req.CACertID != nil && *req.CACertID == caCertID
+				})).Return(expectedResult, nil)
 			},
 			expectedOutput: "Certificate created successfully",
 			expectedError:  false,
@@ -144,7 +131,7 @@ func TestCertificatesCreateCommand(t *testing.T) {
 		{
 			name: "missing certificate name",
 			args: []string{"--key-id=550e8400-e29b-41d4-a716-446655440000", "--validity-days=365"},
-			setupMocks: func(tc *testutils.TestContext, mockCertRepo *MockCertificateRepository, mockKeyRepo *MockKeyRepository) {
+			setupMocks: func(tc *testutils.TestContext, mockService *MockCertificateService) {
 				// No mocks needed for validation error
 			},
 			expectedOutput: "name, key-id, and validity-days are required",
@@ -153,7 +140,7 @@ func TestCertificatesCreateCommand(t *testing.T) {
 		{
 			name: "missing key ID",
 			args: []string{"--name=test-cert", "--validity-days=365"},
-			setupMocks: func(tc *testutils.TestContext, mockCertRepo *MockCertificateRepository, mockKeyRepo *MockKeyRepository) {
+			setupMocks: func(tc *testutils.TestContext, mockService *MockCertificateService) {
 				// No mocks needed for validation error
 			},
 			expectedOutput: "name, key-id, and validity-days are required",
@@ -162,7 +149,7 @@ func TestCertificatesCreateCommand(t *testing.T) {
 		{
 			name: "invalid validity days",
 			args: []string{"--name=test-cert", "--key-id=550e8400-e29b-41d4-a716-446655440000", "--validity-days=0"},
-			setupMocks: func(tc *testutils.TestContext, mockCertRepo *MockCertificateRepository, mockKeyRepo *MockKeyRepository) {
+			setupMocks: func(tc *testutils.TestContext, mockService *MockCertificateService) {
 				// No mocks needed for validation error
 			},
 			expectedOutput: "name, key-id, and validity-days are required",
@@ -171,35 +158,17 @@ func TestCertificatesCreateCommand(t *testing.T) {
 		{
 			name: "invalid key ID format",
 			args: []string{"--name=test-cert", "--key-id=invalid-uuid", "--validity-days=365"},
-			setupMocks: func(tc *testutils.TestContext, mockCertRepo *MockCertificateRepository, mockKeyRepo *MockKeyRepository) {
+			setupMocks: func(tc *testutils.TestContext, mockService *MockCertificateService) {
 				// No mocks needed for validation error
 			},
 			expectedOutput: "invalid key ID",
 			expectedError:  true,
 		},
 		{
-			name: "key not found",
-			args: []string{"--name=test-cert", "--key-id=550e8400-e29b-41d4-a716-446655440000", "--validity-days=365"},
-			setupMocks: func(tc *testutils.TestContext, mockCertRepo *MockCertificateRepository, mockKeyRepo *MockKeyRepository) {
-				keyID := uuid.MustParse("550e8400-e29b-41d4-a716-446655440000")
-				mockKeyRepo.On("Read", mock.Anything, keyID).Return(nil, fmt.Errorf("key not found"))
-			},
-			expectedOutput: "failed to read key",
-			expectedError:  true,
-		},
-		{
 			name: "certificate creation service error",
 			args: []string{"--name=failing-cert", "--key-id=550e8400-e29b-41d4-a716-446655440000", "--validity-days=365"},
-			setupMocks: func(tc *testutils.TestContext, mockCertRepo *MockCertificateRepository, mockKeyRepo *MockKeyRepository) {
-				keyID := uuid.MustParse("550e8400-e29b-41d4-a716-446655440000")
-				key := &keys.Key{
-					ID:     keyID,
-					UserID: tc.TestUserID,
-					Name:   "test-key",
-					Type:   "RSA",
-				}
-				mockKeyRepo.On("Read", mock.Anything, keyID).Return(key, nil)
-				mockCertRepo.On("CreateSelfSigned", mock.Anything, tc.TestUserID, "failing-cert", keyID, 365, []string{}).
+			setupMocks: func(tc *testutils.TestContext, mockService *MockCertificateService) {
+				mockService.On("CreateSelfSignedCertificate", mock.Anything, mock.Anything).
 					Return(nil, fmt.Errorf("certificate creation failed"))
 			},
 			expectedOutput: "failed to create certificate",
@@ -210,20 +179,13 @@ func TestCertificatesCreateCommand(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			tc := testutils.NewTestContext(t)
-			mockCertRepo := &MockCertificateRepository{}
-			mockKeyRepo := &MockKeyRepository{}
-			tt.setupMocks(tc, mockCertRepo, mockKeyRepo)
+			mockService := &MockCertificateService{}
+			tt.setupMocks(tc, mockService)
 
 			// Create enhanced test command that simulates the certificate creation logic
 			createCmd := &cobra.Command{
 				Use: "create",
 				RunE: func(cmd *cobra.Command, args []string) error {
-					// Get claims for role validation
-					claims := &domain.Claims{
-						UserID: tc.TestUserID,
-						Role:   domain.RoleAdmin, // Assume admin role for tests
-					}
-
 					name, _ := cmd.Flags().GetString("name")
 					keyIDStr, _ := cmd.Flags().GetString("key-id")
 					validityDays, _ := cmd.Flags().GetInt("validity-days")
@@ -250,33 +212,34 @@ func TestCertificatesCreateCommand(t *testing.T) {
 						}
 					}
 
-					// Verify key ownership
-					key, err := mockKeyRepo.Read(cmd.Context(), keyID)
-					if err != nil {
-						return fmt.Errorf("failed to read key: %w", err)
-					}
-					if key.UserID != claims.UserID && claims.Role != domain.RoleAdmin {
-						return fmt.Errorf("forbidden: cannot use other users' keys")
+					// Build service request
+					req := certservices.CreateCertificateRequest{
+						Name:         name,
+						KeyID:        keyID,
+						ValidityDays: validityDays,
+						Tags:         tags,
+						UserID:       tc.TestUserID,
 					}
 
-					var cert *certificates.Certificate
+					var result *certservices.CreateCertificateResult
 					if caCertIDStr != "" {
 						// CA-signed certificate
 						caCertID, parseErr := uuid.Parse(caCertIDStr)
 						if parseErr != nil {
 							return fmt.Errorf("invalid CA certificate ID: %w", parseErr)
 						}
-						cert, err = mockCertRepo.CreateCASigned(cmd.Context(), claims.UserID, name, keyID, caCertID, validityDays, tags)
+						req.CACertID = &caCertID
+						result, err = mockService.CreateCASignedCertificate(cmd.Context(), req)
 					} else {
 						// Self-signed certificate
-						cert, err = mockCertRepo.CreateSelfSigned(cmd.Context(), claims.UserID, name, keyID, validityDays, tags)
+						result, err = mockService.CreateSelfSignedCertificate(cmd.Context(), req)
 					}
 
 					if err != nil {
 						return fmt.Errorf("failed to create certificate: %w", err)
 					}
 
-					cmd.Printf("Certificate created successfully, ID: %s\n", cert.ID)
+					cmd.Printf("Certificate created successfully, ID: %s\n", result.CertID)
 					return nil
 				},
 			}
@@ -308,24 +271,23 @@ func TestCertificatesCreateCommand(t *testing.T) {
 				assert.Contains(t, output.String(), tt.expectedOutput)
 			}
 
-			mockCertRepo.AssertExpectations(t)
-			mockKeyRepo.AssertExpectations(t)
+			mockService.AssertExpectations(t)
 		})
 	}
 }
 
-// TestCertificatesListCommand tests the certificates list command
+// TestCertificatesListCommand tests the certificates list command.
 func TestCertificatesListCommand(t *testing.T) {
 	tests := []struct {
 		name           string
-		setupMocks     func(*testutils.TestContext, *MockCertificateRepository)
+		setupMocks     func(*testutils.TestContext, *MockCertificateService)
 		expectedOutput string
 		expectedError  bool
 	}{
 		{
 			name: "successful certificates listing",
-			setupMocks: func(tc *testutils.TestContext, mockCertRepo *MockCertificateRepository) {
-				certs := []certificates.Certificate{
+			setupMocks: func(tc *testutils.TestContext, mockService *MockCertificateService) {
+				certs := []domain.Certificate{
 					{
 						ID:          uuid.New(),
 						UserID:      tc.TestUserID,
@@ -341,7 +303,7 @@ func TestCertificatesListCommand(t *testing.T) {
 						Tags:        []string{"ca", "root"},
 					},
 				}
-				mockCertRepo.On("ListCertificates", mock.Anything, tc.TestUserID).
+				mockService.On("ListCertificates", mock.Anything, tc.TestUserID).
 					Return(certs, nil)
 			},
 			expectedOutput: "ssl-cert",
@@ -349,17 +311,17 @@ func TestCertificatesListCommand(t *testing.T) {
 		},
 		{
 			name: "empty certificates list",
-			setupMocks: func(tc *testutils.TestContext, mockCertRepo *MockCertificateRepository) {
-				mockCertRepo.On("ListCertificates", mock.Anything, tc.TestUserID).
-					Return([]certificates.Certificate{}, nil)
+			setupMocks: func(tc *testutils.TestContext, mockService *MockCertificateService) {
+				mockService.On("ListCertificates", mock.Anything, tc.TestUserID).
+					Return([]domain.Certificate{}, nil)
 			},
 			expectedOutput: "No certificates found",
 			expectedError:  false,
 		},
 		{
 			name: "service error",
-			setupMocks: func(tc *testutils.TestContext, mockCertRepo *MockCertificateRepository) {
-				mockCertRepo.On("ListCertificates", mock.Anything, tc.TestUserID).
+			setupMocks: func(tc *testutils.TestContext, mockService *MockCertificateService) {
+				mockService.On("ListCertificates", mock.Anything, tc.TestUserID).
 					Return(nil, fmt.Errorf("database error"))
 			},
 			expectedOutput: "failed to list certificates",
@@ -370,14 +332,14 @@ func TestCertificatesListCommand(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			tc := testutils.NewTestContext(t)
-			mockCertRepo := &MockCertificateRepository{}
-			tt.setupMocks(tc, mockCertRepo)
+			mockService := &MockCertificateService{}
+			tt.setupMocks(tc, mockService)
 
 			// Create enhanced test list command
 			listCmd := &cobra.Command{
 				Use: "list",
 				RunE: func(cmd *cobra.Command, args []string) error {
-					certs, err := mockCertRepo.ListCertificates(cmd.Context(), tc.TestUserID)
+					certs, err := mockService.ListCertificates(cmd.Context(), tc.TestUserID)
 					if err != nil {
 						return fmt.Errorf("failed to list certificates: %w", err)
 					}
@@ -412,52 +374,55 @@ func TestCertificatesListCommand(t *testing.T) {
 				assert.Contains(t, output.String(), tt.expectedOutput)
 			}
 
-			mockCertRepo.AssertExpectations(t)
+			mockService.AssertExpectations(t)
 		})
 	}
 }
 
-// TestCertificatesIntegration tests certificate command integration scenarios
+// TestCertificatesIntegration tests certificate command integration scenarios.
 func TestCertificatesIntegration(t *testing.T) {
 	t.Run("complete certificate lifecycle", func(t *testing.T) {
 		tc := testutils.NewTestContext(t)
-		mockCertRepo := &MockCertificateRepository{}
-		mockKeyRepo := &MockKeyRepository{}
+		mockService := &MockCertificateService{}
 
 		// Step 1: Create certificate
 		keyID := uuid.New()
 		certID := uuid.New()
-		key := &keys.Key{
-			ID:     keyID,
-			UserID: tc.TestUserID,
-			Name:   "lifecycle-key",
-			Type:   "RSA",
-		}
-		mockKeyRepo.On("Read", mock.Anything, keyID).Return(key, nil)
-
-		createdCert := &certificates.Certificate{
-			ID:          certID,
-			UserID:      tc.TestUserID,
-			Name:        "lifecycle-cert",
-			Certificate: "-----BEGIN CERTIFICATE-----\n...\n-----END CERTIFICATE-----",
-			Tags:        []string{"test", "lifecycle"},
+		createResult := &certservices.CreateCertificateResult{
+			CertID:    certID,
+			Name:      "lifecycle-cert",
+			Tags:      []string{"test", "lifecycle"},
+			CreatedAt: time.Now(),
 		}
 
-		mockCertRepo.On("CreateSelfSigned", mock.Anything, tc.TestUserID, "lifecycle-cert", keyID, 365, []string{"test", "lifecycle"}).
-			Return(createdCert, nil)
+		mockService.On("CreateSelfSignedCertificate", mock.Anything, mock.Anything).
+			Return(createResult, nil).Once()
 
 		// Step 2: List certificates (should include new certificate)
-		allCerts := []certificates.Certificate{*createdCert}
-		mockCertRepo.On("ListCertificates", mock.Anything, tc.TestUserID).
-			Return(allCerts, nil)
+		allCerts := []domain.Certificate{
+			{
+				ID:     certID,
+				UserID: tc.TestUserID,
+				Name:   "lifecycle-cert",
+				Tags:   []string{"test", "lifecycle"},
+			},
+		}
+		mockService.On("ListCertificates", mock.Anything, tc.TestUserID).
+			Return(allCerts, nil).Once()
 
 		// Step 3: Get specific certificate
-		mockCertRepo.On("GetCertificate", mock.Anything, certID, tc.TestUserID).
-			Return(createdCert, nil)
+		createdCert := &domain.Certificate{
+			ID:     certID,
+			UserID: tc.TestUserID,
+			Name:   "lifecycle-cert",
+			Tags:   []string{"test", "lifecycle"},
+		}
+		mockService.On("GetCertificate", mock.Anything, certID, tc.TestUserID).
+			Return(createdCert, nil).Once()
 
 		// Step 4: Delete certificate
-		mockCertRepo.On("DeleteCertificate", mock.Anything, certID, tc.TestUserID).
-			Return(nil)
+		mockService.On("DeleteCertificate", mock.Anything, certID, tc.TestUserID).
+			Return(nil).Once()
 
 		// Execute the lifecycle workflow
 		workflowSteps := []struct {
@@ -471,11 +436,14 @@ func TestCertificatesIntegration(t *testing.T) {
 					cmd := &cobra.Command{
 						Use: "create",
 						RunE: func(cmd *cobra.Command, args []string) error {
-							_, err := mockKeyRepo.Read(cmd.Context(), keyID)
-							if err != nil {
-								return err
+							req := certservices.CreateCertificateRequest{
+								Name:         "lifecycle-cert",
+								KeyID:        keyID,
+								ValidityDays: 365,
+								Tags:         []string{"test", "lifecycle"},
+								UserID:       tc.TestUserID,
 							}
-							_, err = mockCertRepo.CreateSelfSigned(cmd.Context(), tc.TestUserID, "lifecycle-cert", keyID, 365, []string{"test", "lifecycle"})
+							_, err := mockService.CreateSelfSignedCertificate(cmd.Context(), req)
 							if err != nil {
 								return err
 							}
@@ -496,7 +464,7 @@ func TestCertificatesIntegration(t *testing.T) {
 					cmd := &cobra.Command{
 						Use: "list",
 						RunE: func(cmd *cobra.Command, args []string) error {
-							certs, err := mockCertRepo.ListCertificates(cmd.Context(), tc.TestUserID)
+							certs, err := mockService.ListCertificates(cmd.Context(), tc.TestUserID)
 							if err != nil {
 								return err
 							}
@@ -519,7 +487,7 @@ func TestCertificatesIntegration(t *testing.T) {
 					cmd := &cobra.Command{
 						Use: "get",
 						RunE: func(cmd *cobra.Command, args []string) error {
-							cert, err := mockCertRepo.GetCertificate(cmd.Context(), certID, tc.TestUserID)
+							cert, err := mockService.GetCertificate(cmd.Context(), certID, tc.TestUserID)
 							if err != nil {
 								return err
 							}
@@ -532,6 +500,27 @@ func TestCertificatesIntegration(t *testing.T) {
 				},
 				verifyFunc: func(output string) {
 					assert.Contains(t, output, "lifecycle-cert")
+				},
+			},
+			{
+				name: "delete certificate",
+				commandFunc: func() *cobra.Command {
+					cmd := &cobra.Command{
+						Use: "delete",
+						RunE: func(cmd *cobra.Command, args []string) error {
+							err := mockService.DeleteCertificate(cmd.Context(), certID, tc.TestUserID)
+							if err != nil {
+								return err
+							}
+							cmd.Println("Certificate deleted successfully")
+							return nil
+						},
+					}
+					cmd.SetContext(tc.Ctx)
+					return cmd
+				},
+				verifyFunc: func(output string) {
+					assert.Contains(t, output, "deleted successfully")
 				},
 			},
 		}
@@ -548,7 +537,6 @@ func TestCertificatesIntegration(t *testing.T) {
 			})
 		}
 
-		mockCertRepo.AssertExpectations(t)
-		mockKeyRepo.AssertExpectations(t)
+		mockService.AssertExpectations(t)
 	})
 }

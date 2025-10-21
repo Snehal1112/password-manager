@@ -10,8 +10,6 @@ import (
 
 	"github.com/spf13/viper"
 
-	"password-manager/internal/certificates"
-	"password-manager/internal/keys"
 	"password-manager/internal/logging"
 	"password-manager/internal/repositories"
 	authServices "password-manager/internal/services/auth"
@@ -35,8 +33,8 @@ type ServiceContainer struct {
 	secretRepository       repositories.SecretRepositoryInterface
 	rotationRepository     repositories.RotationPolicyRepositoryInterface
 	versionRepository      repositories.SecretVersionRepositoryInterface
-	keyRepository          keys.KeyRepository
-	certificateRepository  certificates.CertificateRepository
+	keyRepository          repositories.KeyRepositoryInterface
+	certificateRepository  repositories.CertificateRepositoryInterface
 
 	// Authentication services
 	passwordService      authServices.PasswordService
@@ -95,8 +93,8 @@ func (c *ServiceContainer) initializeServices() error {
 	c.secretRepository = repositories.NewSecretRepository(c.db, c.logger)
 	c.rotationRepository = repositories.NewRotationPolicyRepository(c.db, c.logger)
 	c.versionRepository = repositories.NewSecretVersionRepository(c.db, c.logger)
-	c.keyRepository = keys.NewKeyRepository(c.db, c.logger)
-	c.certificateRepository = certificates.NewCertificateRepository(c.db, c.logger)
+	c.keyRepository = repositories.NewKeyRepository(c.db, c.logger)
+	c.certificateRepository = repositories.NewCertificateRepository(c.db, c.logger)
 
 	// Initialize authentication services
 	c.passwordService = authServices.NewPasswordService()
@@ -276,12 +274,12 @@ func (c *ServiceContainer) GetLogger() *logging.Logger {
 }
 
 // GetKeyRepository returns the key repository.
-func (c *ServiceContainer) GetKeyRepository() keys.KeyRepository {
+func (c *ServiceContainer) GetKeyRepository() repositories.KeyRepositoryInterface {
 	return c.keyRepository
 }
 
 // GetCertificateRepository returns the certificate repository.
-func (c *ServiceContainer) GetCertificateRepository() certificates.CertificateRepository {
+func (c *ServiceContainer) GetCertificateRepository() repositories.CertificateRepositoryInterface {
 	return c.certificateRepository
 }
 

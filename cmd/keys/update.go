@@ -33,10 +33,10 @@ import (
 	"github.com/spf13/viper"
 
 	"password-manager/common"
-	"password-manager/internal/domain"
 	"password-manager/internal/db"
-	"password-manager/internal/keys"
+	"password-manager/internal/domain"
 	"password-manager/internal/logging"
+	"password-manager/internal/repositories"
 )
 
 // updateCmd represents the update command
@@ -60,7 +60,7 @@ var updateCmd = &cobra.Command{
 		}
 
 		// Read key to check ownership
-		keyRepo := keys.NewKeyRepository(ctx.Value(common.DBKey).(*sql.DB), log)
+		keyRepo := repositories.NewKeyRepository(ctx.Value(common.DBKey).(*sql.DB), log)
 		key, err := keyRepo.Read(ctx, keyID)
 		if err != nil {
 			log.LogAuditError(claims.UserID.String(), "update_key", "failed", fmt.Sprintf("failed to read key: %s", err), err)
@@ -111,7 +111,7 @@ var updateCmd = &cobra.Command{
 
 		// Update tags if provided
 		if tagsStr != "" {
-			tagRepo := db.NewTagRepository[keys.Key](ctx.Value(common.DBKey).(*sql.DB), "key_tags", "key_id")
+			tagRepo := db.NewTagRepository[domain.Key](ctx.Value(common.DBKey).(*sql.DB), "key_tags", "key_id")
 			if err := tagRepo.ReplaceTags(ctx, keyID, tags); err != nil {
 				log.LogAuditError(claims.UserID.String(), "update_key", "failed", fmt.Sprintf("failed to update tags: %s", err), err)
 				return fmt.Errorf("failed to update tags: %w", err)
