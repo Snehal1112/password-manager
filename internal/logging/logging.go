@@ -262,3 +262,21 @@ func (l *Logger) cleanupOldLogs() error {
 
 	return nil
 }
+
+// StartPeriodicRotation starts a goroutine that periodically checks and rotates the log file.
+// It checks every 10 minutes and rotates if the file exceeds the configured size limit.
+// This function should be called with go StartPeriodicRotation(logger).
+func (l *Logger) StartPeriodicRotation() {
+	if l.logFile == "" || l.rotationMethod == "lumberjack" {
+		return // No periodic rotation needed for stdout or lumberjack
+	}
+
+	ticker := time.NewTicker(10 * time.Minute)
+	defer ticker.Stop()
+
+	for range ticker.C {
+		if err := l.RotateLogFile(); err != nil {
+			l.Errorf("Failed to rotate log file: %v", err)
+		}
+	}
+}
