@@ -107,12 +107,17 @@ func (r *KeyRepository) Create(ctx context.Context, key *domain.Key) error {
 			return fmt.Errorf("failed to insert key: %w", err)
 		}
 
-		// Insert tags if provided
+		// Insert tags if provided (using existing transaction to avoid locks)
 		if len(key.Tags) > 0 {
-			tagRepo := db.NewTagRepository[domain.Key](r.db, "key_tags", "key_id")
-			if err := tagRepo.AddTags(ctx, key.ID, key.Tags); err != nil {
-				r.log.LogAuditError(key.UserID.String(), "create_key", "failed", "Failed to add tags", err)
-				return fmt.Errorf("failed to add tags: %w", err)
+			for _, tag := range key.Tags {
+				_, err := tx.ExecContext(ctx,
+					"INSERT INTO key_tags (key_id, tag) VALUES (?, ?)",
+					key.ID.String(), tag,
+				)
+				if err != nil {
+					r.log.LogAuditError(key.UserID.String(), "create_key", "failed", fmt.Sprintf("Failed to insert tag %s", tag), err)
+					return fmt.Errorf("failed to insert tag %s: %w", tag, err)
+				}
 			}
 		}
 

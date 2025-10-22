@@ -110,12 +110,17 @@ func (r *CertificateRepository) Create(ctx context.Context, cert *domain.Certifi
 			return fmt.Errorf("failed to insert certificate: %w", err)
 		}
 
-		// Insert tags if provided
+		// Insert tags if provided (using existing transaction to avoid locks)
 		if len(cert.Tags) > 0 {
-			tagRepo := db.NewTagRepository[domain.Certificate](r.db, "certificate_tags", "certificate_id")
-			if err := tagRepo.AddTags(ctx, cert.ID, cert.Tags); err != nil {
-				r.log.LogAuditError(cert.UserID.String(), "create_certificate", "failed", "Failed to add tags", err)
-				return fmt.Errorf("failed to add tags: %w", err)
+			for _, tag := range cert.Tags {
+				_, err := tx.ExecContext(ctx,
+					"INSERT INTO certificate_tags (certificate_id, tag) VALUES (?, ?)",
+					cert.ID.String(), tag,
+				)
+				if err != nil {
+					r.log.LogAuditError(cert.UserID.String(), "create_certificate", "failed", fmt.Sprintf("Failed to insert tag %s", tag), err)
+					return fmt.Errorf("failed to insert tag %s: %w", tag, err)
+				}
 			}
 		}
 
