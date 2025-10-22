@@ -78,10 +78,12 @@ type CertificateServiceConfig struct {
 // It orchestrates certificate management operations while maintaining SRP compliance.
 //
 // Parameters:
-//   config: Configuration containing all required dependencies.
+//
+//	config: Configuration containing all required dependencies.
 //
 // Returns:
-//   A CertificateService implementation for certificate management operations.
+//
+//	A CertificateService implementation for certificate management operations.
 func NewCertificateService(config CertificateServiceConfig) CertificateService {
 	return &certificateService{
 		certRepo: config.CertificateRepository,
@@ -94,11 +96,13 @@ func NewCertificateService(config CertificateServiceConfig) CertificateService {
 // It validates parameters, verifies key ownership, generates the certificate, and handles storage.
 //
 // Parameters:
-//   ctx: The context for the operation.
-//   req: The certificate creation request.
+//
+//	ctx: The context for the operation.
+//	req: The certificate creation request.
 //
 // Returns:
-//   The created certificate information or an error if creation fails.
+//
+//	The created certificate information or an error if creation fails.
 func (s *certificateService) CreateSelfSignedCertificate(ctx context.Context, req CreateCertificateRequest) (*CreateCertificateResult, error) {
 	logrus.WithFields(logrus.Fields{
 		"name":          req.Name,
@@ -186,11 +190,13 @@ func (s *certificateService) CreateSelfSignedCertificate(ctx context.Context, re
 // It validates parameters, verifies key ownership, generates the certificate with CA signing, and handles storage.
 //
 // Parameters:
-//   ctx: The context for the operation.
-//   req: The certificate creation request with CA certificate ID.
+//
+//	ctx: The context for the operation.
+//	req: The certificate creation request with CA certificate ID.
 //
 // Returns:
-//   The created certificate information or an error if creation fails.
+//
+//	The created certificate information or an error if creation fails.
 func (s *certificateService) CreateCASignedCertificate(ctx context.Context, req CreateCertificateRequest) (*CreateCertificateResult, error) {
 	logrus.WithFields(logrus.Fields{
 		"name":          req.Name,
@@ -304,12 +310,14 @@ func (s *certificateService) CreateCASignedCertificate(ctx context.Context, req 
 // GetCertificate retrieves a certificate by ID with access control validation.
 //
 // Parameters:
-//   ctx: The context for the operation.
-//   certID: The certificate's unique identifier.
-//   userID: The requesting user's ID for access control.
+//
+//	ctx: The context for the operation.
+//	certID: The certificate's unique identifier.
+//	userID: The requesting user's ID for access control.
 //
 // Returns:
-//   The certificate information or an error if not found or access denied.
+//
+//	The certificate information or an error if not found or access denied.
 func (s *certificateService) GetCertificate(ctx context.Context, certID, userID uuid.UUID) (*domain.Certificate, error) {
 	cert, err := s.certRepo.Read(ctx, certID)
 	if err != nil {
@@ -329,11 +337,13 @@ func (s *certificateService) GetCertificate(ctx context.Context, certID, userID 
 // ListCertificates retrieves all certificates for a specific user.
 //
 // Parameters:
-//   ctx: The context for the operation.
-//   userID: The user's unique identifier.
+//
+//	ctx: The context for the operation.
+//	userID: The user's unique identifier.
 //
 // Returns:
-//   A slice of user's certificates or an error if retrieval fails.
+//
+//	A slice of user's certificates or an error if retrieval fails.
 func (s *certificateService) ListCertificates(ctx context.Context, userID uuid.UUID) ([]domain.Certificate, error) {
 	return s.certRepo.ListByUser(ctx, userID, "", nil)
 }
@@ -341,11 +351,13 @@ func (s *certificateService) ListCertificates(ctx context.Context, userID uuid.U
 // UpdateCertificate updates an existing certificate with access control validation.
 //
 // Parameters:
-//   ctx: The context for the operation.
-//   req: The certificate update request with optional fields.
+//
+//	ctx: The context for the operation.
+//	req: The certificate update request with optional fields.
 //
 // Returns:
-//   An error if the update fails or access is denied.
+//
+//	An error if the update fails or access is denied.
 func (s *certificateService) UpdateCertificate(ctx context.Context, req UpdateCertificateRequest) error {
 	logrus.WithField("cert_id", req.CertID.String()).Info("Updating certificate")
 
@@ -381,12 +393,14 @@ func (s *certificateService) UpdateCertificate(ctx context.Context, req UpdateCe
 // DeleteCertificate removes a certificate from the system with access control validation.
 //
 // Parameters:
-//   ctx: The context for the operation.
-//   certID: The certificate's unique identifier.
-//   userID: The requesting user's ID for access control.
+//
+//	ctx: The context for the operation.
+//	certID: The certificate's unique identifier.
+//	userID: The requesting user's ID for access control.
 //
 // Returns:
-//   An error if deletion fails or access is denied.
+//
+//	An error if deletion fails or access is denied.
 func (s *certificateService) DeleteCertificate(ctx context.Context, certID, userID uuid.UUID) error {
 	// Verify certificate exists and access
 	if _, err := s.GetCertificate(ctx, certID, userID); err != nil {
@@ -406,13 +420,15 @@ func (s *certificateService) DeleteCertificate(ctx context.Context, certID, user
 // It generates a new certificate with the same properties as the original.
 //
 // Parameters:
-//   ctx: The context for the operation.
-//   certID: The certificate to renew.
-//   userID: The requesting user's ID for access control.
-//   validityDays: The validity period for the new certificate.
+//
+//	ctx: The context for the operation.
+//	certID: The certificate to renew.
+//	userID: The requesting user's ID for access control.
+//	validityDays: The validity period for the new certificate.
 //
 // Returns:
-//   The new certificate information or an error if renewal fails.
+//
+//	The new certificate information or an error if renewal fails.
 func (s *certificateService) RenewCertificate(ctx context.Context, certID, userID uuid.UUID, validityDays int) (*CreateCertificateResult, error) {
 	// Verify certificate exists and access
 	_, err := s.GetCertificate(ctx, certID, userID)
@@ -429,13 +445,15 @@ func (s *certificateService) RenewCertificate(ctx context.Context, certID, userI
 // It handles role-based access control for certificate operations.
 //
 // Parameters:
-//   ctx: The context for the operation.
-//   certID: The certificate's unique identifier.
-//   userID: The requesting user's ID.
-//   role: The user's role for permission checking.
+//
+//	ctx: The context for the operation.
+//	certID: The certificate's unique identifier.
+//	userID: The requesting user's ID.
+//	role: The user's role for permission checking.
 //
 // Returns:
-//   An error if access is denied.
+//
+//	An error if access is denied.
 func (s *certificateService) ValidateCertificateAccess(ctx context.Context, certID, userID uuid.UUID, role string) error {
 	// Admin users have access to all certificates
 	if role == domain.RoleAdmin {
@@ -461,13 +479,15 @@ func (s *certificateService) ValidateCertificateAccess(ctx context.Context, cert
 // It handles role-based access control for key usage in certificate operations.
 //
 // Parameters:
-//   ctx: The context for the operation.
-//   keyID: The key's unique identifier.
-//   userID: The requesting user's ID.
-//   role: The user's role for permission checking.
+//
+//	ctx: The context for the operation.
+//	keyID: The key's unique identifier.
+//	userID: The requesting user's ID.
+//	role: The user's role for permission checking.
 //
 // Returns:
-//   An error if access is denied.
+//
+//	An error if access is denied.
 func (s *certificateService) ValidateKeyOwnership(ctx context.Context, keyID, userID uuid.UUID, role string) error {
 	// Admin users can use any key
 	if role == domain.RoleAdmin {
