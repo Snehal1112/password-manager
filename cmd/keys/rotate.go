@@ -57,7 +57,11 @@ var rotateCmd = &cobra.Command{
 		}
 
 		// Get service container
-		serviceContainer := ctx.Value(common.ServiceContainerKey).(*container.ServiceContainer)
+		serviceContainer, ok := ctx.Value(common.ServiceContainerKey).(container.ServiceContainerInterface)
+		if !ok || serviceContainer == nil {
+			log.LogAuditError(claims.UserID.String(), "rotate_key", "failed", "service container not available", nil)
+			return fmt.Errorf("service container not available in context")
+		}
 		keyService := serviceContainer.GetKeyService()
 
 		// Rotate key using service

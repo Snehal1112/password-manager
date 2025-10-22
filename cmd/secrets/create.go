@@ -48,7 +48,12 @@ var createCmd = &cobra.Command{
 		userID := cmd.Context().Value(common.UserIDKey).(uuid.UUID)
 
 		// Get service container and secret service
-		serviceContainer := cmd.Context().Value(common.ServiceContainerKey).(*container.ServiceContainer)
+		serviceContainer, ok := cmd.Context().Value(common.ServiceContainerKey).(container.ServiceContainerInterface)
+		if !ok || serviceContainer == nil {
+			logrus.Error("Service container not available in context")
+			os.Exit(1)
+			return
+		}
 		secretService := serviceContainer.GetSecretService()
 
 		// Create secret request

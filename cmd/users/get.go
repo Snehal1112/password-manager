@@ -48,8 +48,8 @@ var getCmd = &cobra.Command{
 		}
 
 		// Get service container from context
-		serviceContainer := ctx.Value(common.ServiceContainerKey).(*container.ServiceContainer)
-		if serviceContainer == nil {
+		serviceContainer, ok := ctx.Value(common.ServiceContainerKey).(container.ServiceContainerInterface)
+		if !ok || serviceContainer == nil {
 			return fmt.Errorf("service container not available in context")
 		}
 

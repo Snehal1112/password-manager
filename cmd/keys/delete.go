@@ -56,7 +56,11 @@ var deleteCmd = &cobra.Command{
 		}
 
 		// Get service container from context
-		serviceContainer := ctx.Value(common.ServiceContainerKey).(*container.ServiceContainer)
+		serviceContainer, ok := ctx.Value(common.ServiceContainerKey).(container.ServiceContainerInterface)
+		if !ok || serviceContainer == nil {
+			log.LogAuditError(claims.UserID.String(), "delete_key", "failed", "service container not available", nil)
+			return fmt.Errorf("service container not available in context")
+		}
 		keyService := serviceContainer.GetKeyService()
 
 		// Service layer handles ownership validation and deletion
