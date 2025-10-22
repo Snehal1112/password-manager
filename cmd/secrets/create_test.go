@@ -17,6 +17,7 @@ func TestCreateSecretCommand(t *testing.T) {
 	tests := []struct {
 		name           string
 		setupMocks     func(*testutils.TestContext)
+		args           []string
 		flags          map[string]string
 		expectedError  string
 		expectedOutput string
@@ -39,32 +40,27 @@ func TestCreateSecretCommand(t *testing.T) {
 					Tags:   []string{"test"},
 				}).Return(expectedSecret, nil)
 			},
+			args: []string{"test-secret", "secret-value"},
 			flags: map[string]string{
-				"name":  "test-secret",
-				"value": "secret-value",
-				"tags":  "test",
+				"tags": "test",
 			},
-			expectedOutput: "✅ Secret created successfully",
+			expectedOutput: "Secret created successfully",
 		},
 		{
-			name: "missing required name flag",
+			name: "missing required arguments",
 			setupMocks: func(tc *testutils.TestContext) {
 				// No mocks needed for validation error
 			},
-			flags: map[string]string{
-				"value": "secret-value",
-			},
-			expectedError: "secret name is required",
+			args:          []string{},
+			expectedError: "index out of range",
 		},
 		{
-			name: "missing required value flag",
+			name: "missing value argument",
 			setupMocks: func(tc *testutils.TestContext) {
 				// No mocks needed for validation error
 			},
-			flags: map[string]string{
-				"name": "test-secret",
-			},
-			expectedError: "secret value is required",
+			args:          []string{"test-secret"},
+			expectedError: "index out of range",
 		},
 		{
 			name: "service error",
@@ -72,11 +68,8 @@ func TestCreateSecretCommand(t *testing.T) {
 				tc.MockSecretService.On("CreateSecret", mock.Anything, mock.Anything).
 					Return(nil, assert.AnError)
 			},
-			flags: map[string]string{
-				"name":  "test-secret",
-				"value": "secret-value",
-			},
-			expectedError: "failed to create secret",
+			args:          []string{"test-secret", "secret-value"},
+			expectedError: "Failed to create secret",
 		},
 	}
 
@@ -86,10 +79,16 @@ func TestCreateSecretCommand(t *testing.T) {
 			tc := testutils.NewTestContext(t)
 			tt.setupMocks(tc)
 
-			// Create command with test context
+			// Create command with test context and initialize flags
 			testCmd := tc.CreateTestCommand(createCmd)
 
-			// Set up flags
+			// Initialize flags (normally done by InitSecretsCreate)
+			testCmd.Flags().StringSlice("tags", []string{}, "Tags for the secret")
+
+			// Set up positional args
+			testCmd.SetArgs(tt.args)
+
+			// Set up flags (only tags flag exists)
 			for flag, value := range tt.flags {
 				err := testCmd.Flags().Set(flag, value)
 				assert.NoError(t, err)
@@ -142,15 +141,17 @@ func TestCreateSecretWithTags(t *testing.T) {
 			req.Tags[2] == "type:api-key"
 	})).Return(expectedSecret, nil)
 
-	// Create command with test context
+	// Create command with test context and initialize flags
 	testCmd := tc.CreateTestCommand(createCmd)
 
+	// Initialize flags (normally done by InitSecretsCreate)
+	testCmd.Flags().StringSlice("tags", []string{}, "Tags for the secret")
+
+	// Set up positional arguments (name and value)
+	testCmd.SetArgs([]string{"test-secret", "secret-value"})
+
 	// Set up flags with comma-separated tags
-	err := testCmd.Flags().Set("name", "test-secret")
-	assert.NoError(t, err)
-	err = testCmd.Flags().Set("value", "secret-value")
-	assert.NoError(t, err)
-	err = testCmd.Flags().Set("tags", "env:prod,team:backend,type:api-key")
+	err := testCmd.Flags().Set("tags", "env:prod,team:backend,type:api-key")
 	assert.NoError(t, err)
 
 	// Execute command
