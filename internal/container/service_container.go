@@ -20,9 +20,56 @@ import (
 	userServices "password-manager/internal/services/users"
 )
 
+// ServiceContainerInterface defines the interface for the service container.
+// This interface enables testability by allowing mock implementations
+// to be used in place of the concrete ServiceContainer.
+//
+// The interface provides access to all application services, repositories,
+// and infrastructure components through well-defined getter methods.
+type ServiceContainerInterface interface {
+	// Repository getters
+	GetUserRepository() repositories.UserRepositoryInterface
+	GetSecretRepository() repositories.SecretRepositoryInterface
+	GetRotationRepository() repositories.RotationPolicyRepositoryInterface
+	GetVersionRepository() repositories.SecretVersionRepositoryInterface
+	GetKeyRepository() repositories.KeyRepositoryInterface
+	GetCertificateRepository() repositories.CertificateRepositoryInterface
+
+	// Authentication service getters
+	GetPasswordService() authServices.PasswordService
+	GetTOTPService() authServices.TOTPService
+	GetJWTService() authServices.JWTService
+	GetAuthenticationService() authServices.AuthenticationService
+
+	// Authorization service getters
+	GetRBACService() authzServices.RBACService
+
+	// Business service getters
+	GetUserService() userServices.UserService
+	GetSecretService() secretServices.SecretService
+	GetKeyService() keyServices.KeyService
+	GetCertificateService() certServices.CertificateService
+
+	// Secret component service getters
+	GetCryptographyService() secretServices.CryptographyService
+	GetVersioningService() secretServices.VersioningServiceInterface
+	GetTagService() secretServices.TagService
+	GetRotationService() secretServices.RotationServiceInterface
+	GetSchedulerService() secretServices.SchedulerServiceInterface
+
+	// Infrastructure getters
+	GetDatabase() *sql.DB
+	GetLogger() *logging.Logger
+
+	// Lifecycle management
+	Close() error
+}
+
 // ServiceContainer manages all application services and their dependencies.
 // It provides a centralized way to create and inject dependencies,
 // replacing global variables with proper dependency injection.
+//
+// ServiceContainer implements ServiceContainerInterface.
 type ServiceContainer struct {
 	// Core infrastructure
 	db     *sql.DB

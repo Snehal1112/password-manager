@@ -58,7 +58,11 @@ var getCmd = &cobra.Command{
 		}
 
 		// Get service container from context
-		serviceContainer := ctx.Value(common.ServiceContainerKey).(*container.ServiceContainer)
+		serviceContainer, ok := ctx.Value(common.ServiceContainerKey).(container.ServiceContainerInterface)
+		if !ok || serviceContainer == nil {
+			log.LogAuditError(claims.UserID.String(), "get_key", "failed", "service container not available", nil)
+			return fmt.Errorf("service container not available in context")
+		}
 		keyService := serviceContainer.GetKeyService()
 
 		key, err := keyService.GetKey(ctx, keyID, claims.UserID)

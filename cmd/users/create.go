@@ -41,9 +41,9 @@ var createCmd = &cobra.Command{
 	Long:    `Create a new user with a username, password, and role, generating a TOTP secret for MFA. Requires admin role for authentication.`,
 	Example: `password-manager users create --username admin --password admin123 --totp-code <code> --new-username testuser --new-password password123 --new-role user`,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		// Get service container from context
-		serviceContainer := cmd.Context().Value(common.ServiceContainerKey).(*container.ServiceContainer)
-		if serviceContainer == nil {
+		// Get service container from context (using interface for testability)
+		serviceContainer, ok := cmd.Context().Value(common.ServiceContainerKey).(container.ServiceContainerInterface)
+		if !ok || serviceContainer == nil {
 			return fmt.Errorf("service container not available in context")
 		}
 

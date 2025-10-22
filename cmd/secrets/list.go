@@ -47,7 +47,12 @@ var listCmd = &cobra.Command{
 		userID := ctx.Value(common.UserIDKey).(uuid.UUID)
 
 		// Get service container and secret service
-		serviceContainer := ctx.Value(common.ServiceContainerKey).(*container.ServiceContainer)
+		serviceContainer, ok := ctx.Value(common.ServiceContainerKey).(container.ServiceContainerInterface)
+		if !ok || serviceContainer == nil {
+			logrus.Error("Service container not available in context")
+			os.Exit(1)
+			return
+		}
 		secretService := serviceContainer.GetSecretService()
 
 		// List secrets via service
