@@ -162,15 +162,14 @@ password-manager/
 
 ### 1. Create Initial Admin User
 
-Use the automated admin creation script:
+Create the first admin user using the bootstrap token:
 
 ```bash
-# For initial setup (bootstrap mode)
-./scripts/create_admin.sh --username admin --password admin123
-
-# Or for additional admins (authenticated mode)
-./scripts/create_admin.sh --username admin2 --password admin456 --auth-user admin --auth-pass admin123
+# Initial admin setup (requires bootstrap token from config)
+./password-manager users admin --admin-username admin --admin-password admin123 --bootstrap-token <your-bootstrap-token>
 ```
+
+The bootstrap token must be configured in your `.password-manager.yaml` file.
 
 ### 2. Configure Your TOTP Authenticator
 
@@ -180,7 +179,7 @@ After creating an admin user, configure the TOTP secret in your authenticator ap
 
 ```bash
 ./password-manager --username admin --password admin123 --totp-code <your-totp-code> \
-  secrets create --name "database-password" --value "my-secret-password"
+  secrets create "database-password" "my-secret-password"
 ```
 
 ### 4. List Your Secrets
@@ -211,33 +210,41 @@ All commands require authentication with username, password, and TOTP code:
 ./password-manager --username admin --password admin123 --totp-code <code> \
   users list
 
-# Update user role
+# Update user (requires user ID as argument)
 ./password-manager --username admin --password admin123 --totp-code <code> \
-  users update --username john --new-role admin
+  users update <user-id> --new-username john2 --new-password newpass123 --new-role admin
+
+# Get specific user
+./password-manager --username admin --password admin123 --totp-code <code> \
+  users get <user-id>
+
+# Delete user
+./password-manager --username admin --password admin123 --totp-code <code> \
+  users delete <user-id>
 ```
 
 ### Secret Management
 
 ```bash
-# Create a secret
+# Create a secret (name and value as positional arguments)
 ./password-manager --username admin --password admin123 --totp-code <code> \
-  secrets create --name "api-key" --value "secret-api-key-value"
+  secrets create "api-key" "secret-api-key-value"
 
-# Generate a random password
+# Create a secret with tags
 ./password-manager --username admin --password admin123 --totp-code <code> \
-  secrets generate --name "random-pass" --length 16 --symbols
+  secrets create "api-key" "secret-api-key-value" --tags "production,api"
 
 # List secrets
 ./password-manager --username admin --password admin123 --totp-code <code> \
   secrets list
 
-# Get a specific secret
+# Get a specific secret (by secret ID)
 ./password-manager --username admin --password admin123 --totp-code <code> \
-  secrets get --name "api-key"
+  secrets get <secret-id>
 
-# Update a secret
+# Delete a secret (by secret ID)
 ./password-manager --username admin --password admin123 --totp-code <code> \
-  secrets update --name "api-key" --value "new-secret-value"
+  secrets delete <secret-id>
 ```
 
 ### Key Management
@@ -249,15 +256,23 @@ All commands require authentication with username, password, and TOTP code:
 
 # Generate an ECDSA key pair
 ./password-manager --username admin --password admin123 --totp-code <code> \
-  keys create --name "my-ecdsa-key" --type ecdsa --curve P256
+  keys create --name "my-ecdsa-key" --type ecdsa --curve P-256
 
 # List keys
 ./password-manager --username admin --password admin123 --totp-code <code> \
   keys list
 
-# Rotate a key
+# Get a specific key (by key ID)
 ./password-manager --username admin --password admin123 --totp-code <code> \
-  keys rotate --name "my-rsa-key"
+  keys get <key-id>
+
+# Rotate a key (by key ID)
+./password-manager --username admin --password admin123 --totp-code <code> \
+  keys rotate <key-id>
+
+# Delete a key (by key ID)
+./password-manager --username admin --password admin123 --totp-code <code> \
+  keys delete <key-id>
 ```
 
 ### Certificate Management
