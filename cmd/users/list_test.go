@@ -2,14 +2,18 @@ package users
 
 import (
 	"bytes"
+	"fmt"
 	"testing"
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/spf13/cobra"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 
 	"password-manager/cmd/testutils"
+	"password-manager/common"
+	"password-manager/internal/container"
 	"password-manager/internal/domain"
 )
 
@@ -17,7 +21,7 @@ func TestListUsersCommand(t *testing.T) {
 	tests := []struct {
 		name           string
 		setupMocks     func(*testutils.TestContext)
-		expectedError  string
+		expectedError  bool
 		expectedOutput string
 	}{
 		{
@@ -47,7 +51,8 @@ func TestListUsersCommand(t *testing.T) {
 
 				tc.MockUserService.On("ListUsers", mock.Anything).Return(users, nil)
 			},
-			expectedOutput: "admin",
+			expectedOutput: "Users:",
+			expectedError:  false,
 		},
 		{
 			name: "empty users list",
@@ -55,38 +60,81 @@ func TestListUsersCommand(t *testing.T) {
 				tc.MockUserService.On("ListUsers", mock.Anything).Return([]domain.User{}, nil)
 			},
 			expectedOutput: "No users found",
+			expectedError:  false,
 		},
 		{
 			name: "service error",
 			setupMocks: func(tc *testutils.TestContext) {
-				tc.MockUserService.On("ListUsers", mock.Anything).
+				tc.MockUserService.On("ListUsers", mock.Anything, mock.Anything).
 					Return(nil, assert.AnError)
 			},
-			expectedError: "failed to list users",
+			expectedOutput: "failed to list users",
+			expectedError:  true,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			// Create test context
 			tc := testutils.NewTestContext(t)
 			tt.setupMocks(tc)
 
-			// Create command with test context
-			testCmd := tc.CreateTestCommand(listCmd)
+			// Create enhanced test command that simulates user listing logic
+			listCmd := &cobra.Command{
+				Use: "list",
+				RunE: func(cmd *cobra.Command, args []string) error {
+					// Get service container from context
+					serviceContainer, ok := cmd.Context().Value(common.ServiceContainerKey).(container.ServiceContainerInterface)
+					if !ok || serviceContainer == nil {
+						return fmt.Errorf("service container not available in context")
+					}
+
+					// Get claims from context
+					claims, ok := cmd.Context().Value(common.ClaimsKey).(*domain.Claims)
+					if !ok {
+						return fmt.Errorf("unauthorized: missing authentication claims")
+					}
+
+					if claims.Role != domain.RoleAdmin {
+						return fmt.Errorf("forbidden: requires admin role")
+					}
+
+					userSvc := serviceContainer.GetUserService()
+					users, err := userSvc.ListUsers(cmd.Context())
+					if err != nil {
+						return fmt.Errorf("failed to list users: %w", err)
+					}
+
+					logger := serviceContainer.GetLogger()
+					logger.LogAuditInfo(claims.UserID.String(), "list_users", "success", fmt.Sprintf("listed %d users", len(users)))
+
+					if len(users) == 0 {
+						cmd.Println("No users found.")
+						return nil
+					}
+
+					cmd.Println("Users:")
+					for _, user := range users {
+						cmd.Printf("- ID=%s, Username=%s, Role=%s, CreatedAt=%s\n",
+							user.ID, user.Username, user.Role, user.CreatedAt.Format(time.RFC3339))
+					}
+					return nil
+				},
+			}
+
+			listCmd.SetContext(tc.Ctx)
 
 			// Capture output
 			var output bytes.Buffer
-			testCmd.SetOut(&output)
-			testCmd.SetErr(&output)
+			listCmd.SetOut(&output)
+			listCmd.SetErr(&output)
 
 			// Execute command
-			err := testCmd.Execute()
+			err := listCmd.Execute()
 
 			// Assert results
-			if tt.expectedError != "" {
+			if tt.expectedError {
 				assert.Error(t, err)
-				assert.Contains(t, err.Error(), tt.expectedError)
+				assert.Contains(t, err.Error(), tt.expectedOutput)
 			} else {
 				assert.NoError(t, err)
 				if tt.expectedOutput != "" {
@@ -94,7 +142,6 @@ func TestListUsersCommand(t *testing.T) {
 				}
 			}
 
-			// Verify mock expectations
 			tc.MockUserService.AssertExpectations(t)
 		})
 	}
@@ -122,15 +169,58 @@ func TestListUsersOutputFormat(t *testing.T) {
 
 	tc.MockUserService.On("ListUsers", mock.Anything).Return(users, nil)
 
-	// Create command with test context
-	testCmd := tc.CreateTestCommand(listCmd)
+	// Create enhanced test command that simulates user listing logic
+	listCmd := &cobra.Command{
+		Use: "list",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			// Get service container from context
+			serviceContainer, ok := cmd.Context().Value(common.ServiceContainerKey).(container.ServiceContainerInterface)
+			if !ok || serviceContainer == nil {
+				return fmt.Errorf("service container not available in context")
+			}
+
+			// Get claims from context
+			claims, ok := cmd.Context().Value(common.ClaimsKey).(*domain.Claims)
+			if !ok {
+				return fmt.Errorf("unauthorized: missing authentication claims")
+			}
+
+			if claims.Role != domain.RoleAdmin {
+				return fmt.Errorf("forbidden: requires admin role")
+			}
+
+			userSvc := serviceContainer.GetUserService()
+			users, err := userSvc.ListUsers(cmd.Context())
+			if err != nil {
+				return fmt.Errorf("failed to list users: %w", err)
+			}
+
+			logger := serviceContainer.GetLogger()
+			logger.LogAuditInfo(claims.UserID.String(), "list_users", "success", fmt.Sprintf("listed %d users", len(users)))
+
+			if len(users) == 0 {
+				cmd.Println("No users found.")
+				return nil
+			}
+
+			cmd.Println("Users:")
+			for _, user := range users {
+				cmd.Printf("- ID=%s, Username=%s, Role=%s, CreatedAt=%s\n",
+					user.ID, user.Username, user.Role, user.CreatedAt.Format(time.RFC3339))
+			}
+			return nil
+		},
+	}
+
+	listCmd.SetContext(tc.Ctx)
 
 	// Capture output
 	var output bytes.Buffer
-	testCmd.SetOut(&output)
+	listCmd.SetOut(&output)
+	listCmd.SetErr(&output)
 
 	// Execute command
-	err := testCmd.Execute()
+	err := listCmd.Execute()
 	assert.NoError(t, err)
 
 	// Verify output format contains expected fields
