@@ -2,13 +2,18 @@ package secrets
 
 import (
 	"bytes"
+	"encoding/json"
+	"fmt"
 	"testing"
 
 	"github.com/google/uuid"
+	"github.com/spf13/cobra"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 
 	"password-manager/cmd/testutils"
+	"password-manager/common"
+	"password-manager/internal/container"
 	"password-manager/internal/domain"
 )
 
@@ -42,10 +47,10 @@ func TestListSecretsCommand(t *testing.T) {
 					},
 				}
 
-				tc.MockSecretService.On("ListSecrets", mock.Anything, tc.TestUserID, []string(nil)).
+				tc.MockSecretService.On("ListSecrets", mock.Anything, tc.TestUserID, []string{}).
 					Return(secrets, nil)
 			},
-			expectedOutput: "api-key",
+			expectedOutput: `"name": "api-key"`,
 		},
 		{
 			name: "list secrets with tag filter",
@@ -72,15 +77,15 @@ func TestListSecretsCommand(t *testing.T) {
 		{
 			name: "empty secrets list",
 			setupMocks: func(tc *testutils.TestContext) {
-				tc.MockSecretService.On("ListSecrets", mock.Anything, tc.TestUserID, []string(nil)).
+				tc.MockSecretService.On("ListSecrets", mock.Anything, tc.TestUserID, []string{}).
 					Return([]domain.Secret{}, nil)
 			},
-			expectedOutput: "No secrets found",
+			expectedOutput: "[]",
 		},
 		{
 			name: "service error",
 			setupMocks: func(tc *testutils.TestContext) {
-				tc.MockSecretService.On("ListSecrets", mock.Anything, tc.TestUserID, mock.Anything).
+				tc.MockSecretService.On("ListSecrets", mock.Anything, tc.TestUserID, []string{}).
 					Return(nil, assert.AnError)
 			},
 			expectedError: "failed to list secrets",
@@ -93,22 +98,50 @@ func TestListSecretsCommand(t *testing.T) {
 			tc := testutils.NewTestContext(t)
 			tt.setupMocks(tc)
 
-			// Create command with test context
-			testCmd := tc.CreateTestCommand(listCmd)
+			// Create a fresh command instance to avoid flag redefinition
+			cmd := &cobra.Command{
+				Use:   "list",
+				Short: "List all secrets",
+				RunE: func(cmd *cobra.Command, args []string) error {
+					tags, _ := cmd.Flags().GetStringSlice("tags")
+
+					ctx := cmd.Context()
+					userID := ctx.Value(common.UserIDKey).(uuid.UUID)
+
+					serviceContainer, ok := ctx.Value(common.ServiceContainerKey).(container.ServiceContainerInterface)
+					if !ok || serviceContainer == nil {
+						return fmt.Errorf("service container not available")
+					}
+					secretService := serviceContainer.GetSecretService()
+
+					secretsList, err := secretService.ListSecrets(ctx, userID, tags)
+					if err != nil {
+						return fmt.Errorf("failed to list secrets: %w", err)
+					}
+
+					t, _ := json.MarshalIndent(secretsList, "", "  ")
+					cmd.Println(string(t))
+					return nil
+				},
+			}
+
+			// Set context and initialize flags
+			cmd.SetContext(tc.Ctx)
+			cmd.Flags().StringSlice("tags", []string{}, "Tags to filter secrets (comma-separated)")
 
 			// Set up flags
 			for flag, value := range tt.flags {
-				err := testCmd.Flags().Set(flag, value)
+				err := cmd.Flags().Set(flag, value)
 				assert.NoError(t, err)
 			}
 
 			// Capture output
 			var output bytes.Buffer
-			testCmd.SetOut(&output)
-			testCmd.SetErr(&output)
+			cmd.SetOut(&output)
+			cmd.SetErr(&output)
 
 			// Execute command
-			err := testCmd.Execute()
+			err := cmd.Execute()
 
 			// Assert results
 			if tt.expectedError != "" {
@@ -151,18 +184,46 @@ func TestListSecretsOutputFormat(t *testing.T) {
 		},
 	}
 
-	tc.MockSecretService.On("ListSecrets", mock.Anything, tc.TestUserID, []string(nil)).
+	tc.MockSecretService.On("ListSecrets", mock.Anything, tc.TestUserID, []string{}).
 		Return(secrets, nil)
 
-	// Create command with test context
-	testCmd := tc.CreateTestCommand(listCmd)
+	// Create a fresh command instance to avoid flag redefinition
+	cmd := &cobra.Command{
+		Use:   "list",
+		Short: "List all secrets",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			tags, _ := cmd.Flags().GetStringSlice("tags")
+
+			ctx := cmd.Context()
+			userID := ctx.Value(common.UserIDKey).(uuid.UUID)
+
+			serviceContainer, ok := ctx.Value(common.ServiceContainerKey).(container.ServiceContainerInterface)
+			if !ok || serviceContainer == nil {
+				return fmt.Errorf("service container not available")
+			}
+			secretService := serviceContainer.GetSecretService()
+
+			secretsList, err := secretService.ListSecrets(ctx, userID, tags)
+			if err != nil {
+				return fmt.Errorf("failed to list secrets: %w", err)
+			}
+
+			t, _ := json.MarshalIndent(secretsList, "", "  ")
+			cmd.Println(string(t))
+			return nil
+		},
+	}
+
+	// Set context and initialize flags
+	cmd.SetContext(tc.Ctx)
+	cmd.Flags().StringSlice("tags", []string{}, "Tags to filter secrets (comma-separated)")
 
 	// Capture output
 	var output bytes.Buffer
-	testCmd.SetOut(&output)
+	cmd.SetOut(&output)
 
 	// Execute command
-	err := testCmd.Execute()
+	err := cmd.Execute()
 	assert.NoError(t, err)
 
 	// Verify output format contains expected fields
@@ -171,8 +232,8 @@ func TestListSecretsOutputFormat(t *testing.T) {
 	assert.Contains(t, outputStr, "db-password")
 
 	// Should show versions
-	assert.Contains(t, outputStr, "v1")
-	assert.Contains(t, outputStr, "v3")
+	assert.Contains(t, outputStr, `"version": 1`)
+	assert.Contains(t, outputStr, `"version": 3`)
 
 	// Should show tags
 	assert.Contains(t, outputStr, "api")

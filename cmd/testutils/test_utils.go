@@ -2,6 +2,7 @@ package testutils
 
 import (
 	"context"
+	"database/sql"
 	"testing"
 
 	"github.com/google/uuid"
@@ -12,10 +13,13 @@ import (
 	"password-manager/common"
 	"password-manager/internal/domain"
 	"password-manager/internal/logging"
-	secretServices "password-manager/internal/services/secrets"
-	userServices "password-manager/internal/services/users"
+	"password-manager/internal/repositories"
 	authServices "password-manager/internal/services/auth"
 	authzServices "password-manager/internal/services/authorization"
+	certServices "password-manager/internal/services/certificates"
+	keyServices "password-manager/internal/services/keys"
+	secretServices "password-manager/internal/services/secrets"
+	userServices "password-manager/internal/services/users"
 )
 
 // TestContext holds common test utilities and mocks
@@ -47,12 +51,21 @@ func NewTestContext(t *testing.T) *TestContext {
 	mockContainer.On("GetSecretService").Return(mockSecretService)
 	mockContainer.On("GetAuthenticationService").Return(mockAuthService)
 	mockContainer.On("GetRBACService").Return(mockRBACService)
+	mockContainer.On("GetLogger").Return(logger)
 	mockContainer.On("Close").Return(nil)
 
-	// Create context with service container
+	// Create test claims for authentication
+	testClaims := &domain.Claims{
+		UserID:   testUserID,
+		Username: "testuser",
+		Role:     domain.RoleAdmin,
+	}
+
+	// Create context with service container and authentication
 	ctx := context.Background()
 	ctx = context.WithValue(ctx, common.ServiceContainerKey, mockContainer)
 	ctx = context.WithValue(ctx, common.UserIDKey, testUserID)
+	ctx = context.WithValue(ctx, common.ClaimsKey, testClaims)
 	ctx = context.WithValue(ctx, common.LogKey, logger)
 
 	return &TestContext{
@@ -73,11 +86,61 @@ func (tc *TestContext) CreateTestCommand(cmd *cobra.Command) *cobra.Command {
 	return cmd
 }
 
-// Mock Service Container
+// Mock Service Container implements ServiceContainerInterface for testing
 type MockServiceContainer struct {
 	mock.Mock
 }
 
+// Repository getters - return nil for unused repositories
+func (m *MockServiceContainer) GetUserRepository() repositories.UserRepositoryInterface {
+	return nil
+}
+
+func (m *MockServiceContainer) GetSecretRepository() repositories.SecretRepositoryInterface {
+	return nil
+}
+
+func (m *MockServiceContainer) GetRotationRepository() repositories.RotationPolicyRepositoryInterface {
+	return nil
+}
+
+func (m *MockServiceContainer) GetVersionRepository() repositories.SecretVersionRepositoryInterface {
+	return nil
+}
+
+func (m *MockServiceContainer) GetKeyRepository() repositories.KeyRepositoryInterface {
+	return nil
+}
+
+func (m *MockServiceContainer) GetCertificateRepository() repositories.CertificateRepositoryInterface {
+	return nil
+}
+
+// Authentication service getters - return nil for unused services
+func (m *MockServiceContainer) GetPasswordService() authServices.PasswordService {
+	return nil
+}
+
+func (m *MockServiceContainer) GetTOTPService() authServices.TOTPService {
+	return nil
+}
+
+func (m *MockServiceContainer) GetJWTService() authServices.JWTService {
+	return nil
+}
+
+func (m *MockServiceContainer) GetAuthenticationService() authServices.AuthenticationService {
+	args := m.Called()
+	return args.Get(0).(authServices.AuthenticationService)
+}
+
+// Authorization service getters
+func (m *MockServiceContainer) GetRBACService() authzServices.RBACService {
+	args := m.Called()
+	return args.Get(0).(authzServices.RBACService)
+}
+
+// Business service getters
 func (m *MockServiceContainer) GetUserService() userServices.UserService {
 	args := m.Called()
 	return args.Get(0).(userServices.UserService)
@@ -88,31 +151,61 @@ func (m *MockServiceContainer) GetSecretService() secretServices.SecretService {
 	return args.Get(0).(secretServices.SecretService)
 }
 
-func (m *MockServiceContainer) GetAuthenticationService() authServices.AuthenticationService {
-	args := m.Called()
-	return args.Get(0).(authServices.AuthenticationService)
+func (m *MockServiceContainer) GetKeyService() keyServices.KeyService {
+	return nil
 }
 
-func (m *MockServiceContainer) GetRBACService() authzServices.RBACService {
+func (m *MockServiceContainer) GetCertificateService() certServices.CertificateService {
+	return nil
+}
+
+// Secret component service getters - return nil for unused services
+func (m *MockServiceContainer) GetCryptographyService() secretServices.CryptographyService {
+	return nil
+}
+
+func (m *MockServiceContainer) GetVersioningService() secretServices.VersioningServiceInterface {
 	args := m.Called()
-	return args.Get(0).(authzServices.RBACService)
+	if len(args) == 0 {
+		return nil
+	}
+	return args.Get(0).(secretServices.VersioningServiceInterface)
+}
+
+func (m *MockServiceContainer) GetTagService() secretServices.TagService {
+	return nil
 }
 
 func (m *MockServiceContainer) GetRotationService() secretServices.RotationServiceInterface {
 	args := m.Called()
+	if len(args) == 0 {
+		return nil
+	}
 	return args.Get(0).(secretServices.RotationServiceInterface)
 }
 
 func (m *MockServiceContainer) GetSchedulerService() secretServices.SchedulerServiceInterface {
 	args := m.Called()
+	if len(args) == 0 {
+		return nil
+	}
 	return args.Get(0).(secretServices.SchedulerServiceInterface)
 }
 
-func (m *MockServiceContainer) GetVersioningService() secretServices.VersioningServiceInterface {
-	args := m.Called()
-	return args.Get(0).(secretServices.VersioningServiceInterface)
+// Infrastructure getters
+func (m *MockServiceContainer) GetDatabase() *sql.DB {
+	return nil
 }
 
+func (m *MockServiceContainer) GetLogger() *logging.Logger {
+	args := m.Called()
+	if len(args) == 0 || args.Get(0) == nil {
+		return nil
+	}
+	return args.Get(0).(*logging.Logger)
+}
+
+// Lifecycle management
 func (m *MockServiceContainer) Close() error {
 	args := m.Called()
 	return args.Error(0)
