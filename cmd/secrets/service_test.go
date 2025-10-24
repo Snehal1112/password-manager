@@ -344,7 +344,7 @@ func TestSecretsGetCommand(t *testing.T) {
 
 			// Create enhanced test get command
 			getCmd := &cobra.Command{
-				Use: "get [id]",
+				Use:  "get [id]",
 				Args: cobra.ExactArgs(1),
 				RunE: func(cmd *cobra.Command, args []string) error {
 					secretIDArg := args[0]
@@ -413,7 +413,7 @@ func TestSecretsIntegration(t *testing.T) {
 		// Step 2: List secrets (should include new secret)
 		allSecrets := []domain.Secret{*createdSecret}
 		tc.MockSecretService.On("ListSecrets", mock.Anything, tc.TestUserID,
-			mock.MatchedBy(func(tags []string) bool { return tags == nil || len(tags) == 0 })).
+			mock.MatchedBy(func(tags []string) bool { return len(tags) == 0 })).
 			Return(allSecrets, nil)
 
 		// Step 3: Get specific secret
