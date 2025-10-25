@@ -24,28 +24,15 @@ func main() {
 		return
 	}
 
-	// Use provided secret or try to read from file
-	totpSecret := *secret
-	if totpSecret == "" {
-		// Try to read from saved admin secret file
-		if data, err := os.ReadFile(".admin_totp_secret"); err == nil {
-			totpSecret = string(data)
-			fmt.Printf("Using saved TOTP secret for %s\n", *username)
-		} else {
-			// Use default secret from original generator
-			totpSecret = "73KP3IPX3L47GBI73ZP65CG5756NVYWL"
-			fmt.Printf("Using default TOTP secret\n")
-		}
-	}
-
-	// Clean the secret (remove any whitespace)
-	totpSecret = trimWhitespace(totpSecret)
-
-	if totpSecret == "" {
-		fmt.Printf("Error: No TOTP secret provided. Use -secret flag or ensure .admin_totp_secret file exists\n")
+	// Validate that secret is provided
+	if *secret == "" {
+		fmt.Printf("Error: TOTP secret is required. Use -secret flag to provide it.\n\n")
 		showUsage()
 		os.Exit(1)
 	}
+
+	// Clean the secret (remove any whitespace)
+	totpSecret := trimWhitespace(*secret)
 
 	// Generate current TOTP code
 	currentCode, err := totp.GenerateCode(totpSecret, time.Now())
@@ -86,16 +73,14 @@ func main() {
 	fmt.Printf("\n📖 Authentication Example:\n")
 	fmt.Printf("./password-manager --username=%s --password=<your-password> --totp-code=%s users list\n", *username, currentCode)
 
-	// Show QR code info if secret was provided
-	if *secret != "" {
-		fmt.Printf("\n📱 QR Code Setup:\n")
-		fmt.Printf("For manual entry in authenticator app:\n")
-		fmt.Printf("  Account: %s@password-manager\n", *username)
-		fmt.Printf("  Secret: %s\n", totpSecret)
-		fmt.Printf("  Type: Time-based (TOTP)\n")
-		fmt.Printf("  Period: 30 seconds\n")
-		fmt.Printf("  Digits: 6\n")
-	}
+	// Show QR code setup info
+	fmt.Printf("\n📱 QR Code Setup:\n")
+	fmt.Printf("For manual entry in authenticator app:\n")
+	fmt.Printf("  Account: %s@password-manager\n", *username)
+	fmt.Printf("  Secret: %s\n", totpSecret)
+	fmt.Printf("  Type: Time-based (TOTP)\n")
+	fmt.Printf("  Period: 30 seconds\n")
+	fmt.Printf("  Digits: 6\n")
 }
 
 // trimWhitespace removes leading/trailing whitespace and newlines
@@ -113,30 +98,27 @@ func showUsage() {
 	fmt.Printf(`🔐 TOTP Generator for Password Manager
 
 USAGE:
-    go run scripts/totp_generator.go [OPTIONS]
+    go run scripts/totp_generator.go -secret="YOUR_SECRET" [OPTIONS]
 
 OPTIONS:
-    -secret STRING    TOTP secret key (if not provided, will try .admin_totp_secret file)
+    -secret STRING    TOTP secret key (REQUIRED)
     -username STRING  Username for display (default: admin)
     -count NUMBER     Number of future codes to generate (default: 3)
     -help            Show this help message
 
 EXAMPLES:
-    # Generate codes using saved admin secret
-    go run scripts/totp_generator.go
-
-    # Generate codes for specific user with custom secret
-    go run scripts/totp_generator.go -secret="ABCD1234EFGH5678" -username="myuser"
+    # Generate codes for specific user with secret
+    go run scripts/totp_generator.go -secret="ABCD1234EFGH5678" -username="admin"
 
     # Generate only current code
-    go run scripts/totp_generator.go -count=0
+    go run scripts/totp_generator.go -secret="ABCD1234EFGH5678" -count=0
 
     # Generate many future codes
-    go run scripts/totp_generator.go -count=10
+    go run scripts/totp_generator.go -secret="ABCD1234EFGH5678" -count=10
 
 NOTES:
+    - TOTP secret key is required for security reasons
     - TOTP codes are valid for 30 seconds
-    - The script automatically reads from .admin_totp_secret if no secret is provided
     - Use the generated codes immediately for authentication
     - Keep TOTP secrets secure and never share them
 
