@@ -352,6 +352,24 @@ func (m *MockAuthenticationService) ValidateSession(ctx context.Context, token s
 	return args.Get(0).(*authServices.JWTClaims), args.Error(1)
 }
 
+func (m *MockAuthenticationService) RefreshAccessToken(ctx context.Context, refreshToken string) (*authServices.RefreshTokenResult, error) {
+	args := m.Called(ctx, refreshToken)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).(*authServices.RefreshTokenResult), args.Error(1)
+}
+
+func (m *MockAuthenticationService) RevokeSession(ctx context.Context, sessionID string, reason string) error {
+	args := m.Called(ctx, sessionID, reason)
+	return args.Error(0)
+}
+
+func (m *MockAuthenticationService) RevokeAllUserSessions(ctx context.Context, userID uuid.UUID, reason string) error {
+	args := m.Called(ctx, userID, reason)
+	return args.Error(0)
+}
+
 // Mock RBAC Service
 type MockRBACService struct {
 	mock.Mock

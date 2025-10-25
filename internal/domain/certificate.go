@@ -30,15 +30,17 @@ import (
 
 // Certificate represents an X.509 certificate in the password manager.
 // It includes the certificate's ID, user ID, name, PEM-encoded certificate,
-// encrypted private key, creation time, and tags.
+// encrypted private key, creation time, tags, and soft delete metadata for compliance.
 type Certificate struct {
-	ID          uuid.UUID
-	UserID      uuid.UUID
-	Name        string
-	Certificate string // PEM-encoded X.509 certificate
-	PrivateKey  string // Encrypted PEM-encoded private key
-	CreatedAt   time.Time
-	Tags        []string
+	ID              uuid.UUID  `json:"id"`
+	UserID          uuid.UUID  `json:"user_id"`
+	Name            string     `json:"name"`
+	Certificate     string     `json:"certificate"` // PEM-encoded X.509 certificate
+	PrivateKey      string     `json:"private_key"` // Encrypted PEM-encoded private key
+	CreatedAt       time.Time  `json:"created_at"`
+	Tags            []string   `json:"tags"`
+	DeletedAt       *time.Time `json:"deleted_at,omitempty"`       // Soft delete timestamp
+	PurgeProtection bool       `json:"purge_protection"`           // Prevents permanent deletion
 }
 
 // RevokedCertificate represents a revoked certificate in the CRL (Certificate Revocation List).
