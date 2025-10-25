@@ -101,6 +101,7 @@ func (r *SessionRepository) GetSessionByID(ctx context.Context, sessionID uuid.U
 	var session domain.Session
 	var userID string
 	var revokedAt sql.NullTime
+	var revokedReason sql.NullString
 
 	query := `
 		SELECT id, user_id, refresh_token_hash, device_info, ip_address,
@@ -114,7 +115,7 @@ func (r *SessionRepository) GetSessionByID(ctx context.Context, sessionID uuid.U
 		&session.ID, &userID, &session.RefreshTokenHash, &session.DeviceInfo,
 		&session.IPAddress, &session.UserAgent, &session.ExpiresAt,
 		&session.LastUsedAt, &session.CreatedAt, &session.Revoked,
-		&revokedAt, &session.RevokedReason,
+		&revokedAt, &revokedReason,
 	)
 
 	if err != nil {
@@ -137,6 +138,11 @@ func (r *SessionRepository) GetSessionByID(ctx context.Context, sessionID uuid.U
 	// Handle nullable revoked_at
 	if revokedAt.Valid {
 		session.RevokedAt = &revokedAt.Time
+	}
+
+	// Handle nullable revoked_reason
+	if revokedReason.Valid {
+		session.RevokedReason = revokedReason.String
 	}
 
 	return &session, nil
@@ -219,12 +225,13 @@ func (r *SessionRepository) GetActiveSessionsByUserID(ctx context.Context, userI
 		var session domain.Session
 		var userIDStr string
 		var revokedAt sql.NullTime
+		var revokedReason sql.NullString
 
 		err := rows.Scan(
 			&session.ID, &userIDStr, &session.RefreshTokenHash, &session.DeviceInfo,
 			&session.IPAddress, &session.UserAgent, &session.ExpiresAt,
 			&session.LastUsedAt, &session.CreatedAt, &session.Revoked,
-			&revokedAt, &session.RevokedReason,
+			&revokedAt, &revokedReason,
 		)
 		if err != nil {
 			r.logger.Errorf("Failed to scan session row: %v", err)
@@ -244,6 +251,11 @@ func (r *SessionRepository) GetActiveSessionsByUserID(ctx context.Context, userI
 		// Handle nullable revoked_at
 		if revokedAt.Valid {
 			session.RevokedAt = &revokedAt.Time
+		}
+
+		// Handle nullable revoked_reason
+		if revokedReason.Valid {
+			session.RevokedReason = revokedReason.String
 		}
 
 		sessions = append(sessions, &session)
