@@ -3,6 +3,7 @@ module password-manager
 go 1.24.2
 
 require (
+	github.com/go-ozzo/ozzo-validation/v4 v4.3.0
 	github.com/google/uuid v1.6.0
 	github.com/gorilla/websocket v1.5.3
 	github.com/stretchr/testify v1.11.1
@@ -11,6 +12,7 @@ require (
 )
 
 require (
+	github.com/asaskevich/govalidator v0.0.0-20230301143203-a9d515a09cc2 // indirect
 	github.com/boombuler/barcode v1.0.1-0.20190219062509-6c824513bacc // indirect
 	github.com/pkg/errors v0.9.1 // indirect
 	github.com/stretchr/objx v0.5.2 // indirect

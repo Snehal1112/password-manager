@@ -55,3 +55,50 @@ test:
   enable_test_endpoints: true
   fast_mode: true
   cleanup_on_exit: true
+
+# Retry Logic Configuration (optimized for testing)
+retry:
+  database:
+    enabled: true
+    max_attempts: 2
+    initial_delay: "1ms"
+    max_delay: "10ms"
+    backoff_multiplier: 2.0
+    retryable_errors:
+      - "connection refused"
+      - "database is locked"
+      - "busy"
+      - "timeout"
+    jitter_enabled: false
+
+  external_services:
+    enabled: true
+    max_attempts: 2
+    initial_delay: "1ms"
+    max_delay: "10ms"
+    backoff_multiplier: 2.0
+    retryable_errors:
+      - "connection refused"
+      - "no such host"
+      - "timeout"
+      - "temporary failure"
+      - "service unavailable"
+      - "too many requests"
+    jitter_enabled: false
+
+  service_operations:
+    enabled: true
+    max_attempts: 2
+    initial_delay: "1ms"
+    max_delay: "10ms"
+    backoff_multiplier: 1.5
+    retryable_errors:
+      - "connection refused"
+      - "timeout"
+      - "temporary failure"
+    jitter_enabled: false
+
+  circuit_breaker:
+    failure_threshold: 2
+    timeout: "100ms"
+    half_open_requests: 1

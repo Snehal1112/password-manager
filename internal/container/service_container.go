@@ -18,6 +18,7 @@ import (
 	authzServices "password-manager/internal/services/authorization"
 	certServices "password-manager/internal/services/certificates"
 	keyServices "password-manager/internal/services/keys"
+	retryServices "password-manager/internal/services/retry"
 	secrets "password-manager/internal/services/secrets"
 	secretServices "password-manager/internal/services/secrets"
 	userServices "password-manager/internal/services/users"
@@ -70,6 +71,9 @@ type ServiceContainerInterface interface {
 	GetCacheConfig() *cache.CacheConfig
 	GetCachedSecretService() secrets.SecretService
 
+	// Retry service getters
+	GetRetryService() retryServices.RetryService
+
 	// Lifecycle management
 	Close() error
 }
@@ -83,6 +87,7 @@ type ServiceContainer struct {
 	// Core infrastructure
 	db     *sql.DB
 	logger *logging.Logger
+	viper  *viper.Viper // Configuration manager
 
 	// Cache infrastructure
 	secretCache      *cache.SecretCache
@@ -121,6 +126,9 @@ type ServiceContainer struct {
 	tagService        secretServices.TagService
 	rotationService   secretServices.RotationServiceInterface
 	schedulerService  secretServices.SchedulerServiceInterface
+
+	// Retry services
+	retryService retryServices.RetryService
 }
 
 // Config holds configuration for the service container.
@@ -128,6 +136,7 @@ type Config struct {
 	Database    *sql.DB
 	Logger      *logging.Logger
 	CacheConfig *cache.CacheConfig
+	Viper       *viper.Viper // Configuration manager for retry policies and other settings
 }
 
 // NewServiceContainer creates a new service container with the provided configuration.
@@ -147,6 +156,7 @@ func NewServiceContainer(config Config) (*ServiceContainer, error) {
 	container := &ServiceContainer{
 		db:           config.Database,
 		logger:       config.Logger,
+		viper:        config.Viper,
 		cacheContext: cacheCtx,
 		cacheCancel:  cacheCancel,
 	}
@@ -207,7 +217,7 @@ func (c *ServiceContainer) initializeServices() error {
 	c.jwtService = authServices.NewJWTService(jwtConfig)
 
 	// Initialize authentication service
-	c.authenticationService = authServices.NewAuthenticationService(authServices.AuthenticationConfig{
+	baseAuthService := authServices.NewAuthenticationService(authServices.AuthenticationConfig{
 		UserRepository:    c.userRepository,
 		SessionRepository: c.sessionRepository,
 		PasswordService:   c.passwordService,
@@ -216,16 +226,46 @@ func (c *ServiceContainer) initializeServices() error {
 		Logger:            c.logger,
 	})
 
+	// Wrap with retry logic if retry service is available
+	if c.retryService != nil {
+		c.authenticationService = retryServices.NewRetryAuthenticationService(baseAuthService, c.retryService)
+		c.logger.Info("Retry logic enabled for authentication service")
+	} else {
+		c.authenticationService = baseAuthService
+	}
+
 	// Initialize authorization services
 	c.rbacService = authzServices.NewRBACService(c.logger)
 
+	// Initialize retry service if configuration is available
+	if c.viper != nil {
+		retrySvc, err := retryServices.NewRetryService(c.viper)
+		if err != nil {
+			c.logger.WithError(err).Warn("Failed to initialize retry service, continuing without retry functionality")
+			// Continue without retry service - operations will not have retry
+		} else {
+			c.retryService = retrySvc
+			c.logger.Info("Retry service initialized successfully")
+		}
+	} else {
+		c.logger.Warn("Viper configuration not provided, retry service will not be available")
+	}
+
 	// Initialize user service
-	c.userService = userServices.NewUserService(userServices.UserServiceConfig{
+	baseUserService := userServices.NewUserService(userServices.UserServiceConfig{
 		UserRepository:  c.userRepository,
 		PasswordService: c.passwordService,
 		TOTPService:     c.totpService,
 		Logger:          c.logger,
 	})
+
+	// Wrap with retry logic if retry service is available
+	if c.retryService != nil {
+		c.userService = retryServices.NewRetryUserService(baseUserService, c.retryService)
+		c.logger.Info("Retry logic enabled for user service")
+	} else {
+		c.userService = baseUserService
+	}
 
 	// Initialize secret component services
 	c.cryptoService = secretServices.NewCryptographyService()
@@ -262,12 +302,22 @@ func (c *ServiceContainer) initializeServices() error {
 		Logger:           c.logger,
 	})
 
+	// Wrap with retry logic if retry service is available
+	var retryEnabledSecretService secrets.SecretService
+	if c.retryService != nil {
+		// Create retry-aware secret service
+		retryEnabledSecretService = retryServices.NewRetrySecretService(baseSecretService, c.retryService)
+		c.logger.Info("Retry logic enabled for secret service")
+	} else {
+		retryEnabledSecretService = baseSecretService
+	}
+
 	// Wrap with cache if enabled
 	if c.cacheConfig.Enabled {
-		c.cachedSecretService = cache.NewCachedSecretService(baseSecretService, c.secretCache, c.logger.Logger)
+		c.cachedSecretService = cache.NewCachedSecretService(retryEnabledSecretService, c.secretCache, c.logger.Logger)
 		c.secretService = c.cachedSecretService
 	} else {
-		c.secretService = baseSecretService
+		c.secretService = retryEnabledSecretService
 	}
 
 	// Initialize key service
@@ -414,6 +464,11 @@ func (c *ServiceContainer) GetCacheConfig() *cache.CacheConfig {
 // GetCachedSecretService returns the cached secret service (if caching is enabled).
 func (c *ServiceContainer) GetCachedSecretService() secrets.SecretService {
 	return c.cachedSecretService
+}
+
+// GetRetryService returns the retry service for handling retry logic.
+func (c *ServiceContainer) GetRetryService() retryServices.RetryService {
+	return c.retryService
 }
 
 // Close closes the service container and cleans up resources.

@@ -11,7 +11,8 @@ import (
 
 // Secret represents a secret in the password manager.
 // It includes the secret's ID, user ID, name, encrypted value, version, tags, creation time,
-// and soft delete metadata for compliance with data retention policies.
+// lifecycle management fields (expiration, activation), and soft delete metadata
+// for compliance with data retention policies and Azure Key Vault compatibility.
 type Secret struct {
 	ID              uuid.UUID  `json:"id"`
 	UserID          uuid.UUID  `json:"user_id"`
@@ -22,6 +23,10 @@ type Secret struct {
 	CreatedAt       time.Time  `json:"created_at"`
 	DeletedAt       *time.Time `json:"deleted_at,omitempty"`       // Soft delete timestamp
 	PurgeProtection bool       `json:"purge_protection"`           // Prevents permanent deletion
+	ExpiresAt       *time.Time `json:"expires_at,omitempty"`       // Secret expiration timestamp
+	NotBefore       *time.Time `json:"not_before,omitempty"`       // Secret activation timestamp
+	Enabled         bool       `json:"enabled"`                     // Whether secret is enabled
+	ScheduledPurgeAt *time.Time `json:"scheduled_purge_at,omitempty"` // Scheduled purge timestamp
 }
 
 // SecretVersion represents a version of a secret for version history.
@@ -79,4 +84,38 @@ type ExportedSecret struct {
 type ExportContainer struct {
 	Metadata ExportOptions    `json:"metadata"`
 	Secrets  []ExportedSecret `json:"secrets"`
+}
+
+// IsExpired checks if the secret has expired.
+func (s *Secret) IsExpired() bool {
+	if s.ExpiresAt == nil {
+		return false
+	}
+	return time.Now().After(*s.ExpiresAt)
+}
+
+// IsActive checks if the secret is currently active (not before time has passed).
+func (s *Secret) IsActive() bool {
+	if s.NotBefore == nil {
+		return true
+	}
+	return time.Now().After(*s.NotBefore)
+}
+
+// IsAccessible checks if the secret can be accessed (enabled, active, not expired).
+func (s *Secret) IsAccessible() bool {
+	return s.Enabled && s.IsActive() && !s.IsExpired()
+}
+
+// DaysUntilExpiration returns the number of days until expiration.
+// Returns -1 if the secret has no expiration or is already expired.
+func (s *Secret) DaysUntilExpiration() int {
+	if s.ExpiresAt == nil {
+		return -1
+	}
+	if s.IsExpired() {
+		return 0
+	}
+	duration := time.Until(*s.ExpiresAt)
+	return int(duration.Hours() / 24)
 }

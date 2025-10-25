@@ -239,17 +239,37 @@ func (s *keyService) CreateECDSAKey(ctx context.Context, req CreateKeyRequest) (
 // Returns:
 //   The key information or an error if not found or access denied.
 func (s *keyService) GetKey(ctx context.Context, keyID, userID uuid.UUID) (*domain.Key, error) {
+	// Log key access attempt with detailed context
+	s.logger.LogAuditInfo(userID.String(), "get_key", "attempt",
+		fmt.Sprintf("Accessing key: %s", keyID))
+
 	key, err := s.keyRepo.Read(ctx, keyID)
 	if err != nil {
-		s.logger.LogAuditError(userID.String(), "get_key", "failed", fmt.Sprintf("failed to read key: %s", err), err)
+		s.logger.LogAuditError(userID.String(), "get_key", "failed",
+			fmt.Sprintf("Key not found: %s", keyID), err)
 		return nil, fmt.Errorf("failed to read key: %w", err)
 	}
 
 	// Access control: users can only access their own keys
 	if key.UserID != userID {
-		s.logger.LogAuditError(userID.String(), "get_key", "failed", "forbidden: cannot access other users' keys", nil)
+		s.logger.LogAuditError(userID.String(), "get_key", "forbidden",
+			fmt.Sprintf("Unauthorized access attempt to key: %s (owner: %s)",
+				keyID, key.UserID), nil)
 		return nil, fmt.Errorf("forbidden: cannot access other users' keys")
 	}
+
+	// Log successful key access with key metadata (excluding sensitive data)
+	logrus.WithFields(logrus.Fields{
+		"key_id":   key.ID,
+		"key_name": key.Name,
+		"key_type": key.Type,
+		"user_id":  userID,
+		"revoked":  key.Revoked,
+	}).Info("Key accessed successfully")
+
+	s.logger.LogAuditInfo(userID.String(), "get_key", "success",
+		fmt.Sprintf("Key accessed: %s (name: %s, type: %s, revoked: %t)",
+			key.ID, key.Name, key.Type, key.Revoked))
 
 	return key, nil
 }
