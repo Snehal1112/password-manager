@@ -1,0 +1,405 @@
+// Package retry provides retry logic with exponential backoff for resilient operations.
+package retry
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"math"
+	"math/rand"
+	"strings"
+	"sync"
+	"time"
+)
+
+// Policy defines retry behavior for different types of operations.
+type Policy struct {
+	Enabled           bool          `yaml:"enabled" json:"enabled"`
+	MaxAttempts       int           `yaml:"max_attempts" json:"max_attempts"`
+	InitialDelay      time.Duration `yaml:"initial_delay" json:"initial_delay"`
+	MaxDelay          time.Duration `yaml:"max_delay" json:"max_delay"`
+	BackoffMultiplier float64       `yaml:"backoff_multiplier" json:"backoff_multiplier"`
+	RetryableErrors   []string      `yaml:"retryable_errors" json:"retryable_errors"`
+	RetryableStatuses []int         `yaml:"retryable_statuses" json:"retryable_statuses"`
+	JitterEnabled     bool          `yaml:"jitter_enabled" json:"jitter_enabled"`
+}
+
+// DefaultPolicy returns a default retry policy suitable for most operations.
+func DefaultPolicy() Policy {
+	return Policy{
+		Enabled:           true,
+		MaxAttempts:       3,
+		InitialDelay:      100 * time.Millisecond,
+		MaxDelay:          5 * time.Second,
+		BackoffMultiplier: 2.0,
+		RetryableErrors:   []string{},
+		RetryableStatuses: []int{500, 502, 503, 504, 429}, // 5xx errors and rate limiting
+		JitterEnabled:     true,
+	}
+}
+
+// DatabasePolicy returns a retry policy optimized for database operations.
+func DatabasePolicy() Policy {
+	return Policy{
+		Enabled:           true,
+		MaxAttempts:       3,
+		InitialDelay:      100 * time.Millisecond,
+		MaxDelay:          5 * time.Second,
+		BackoffMultiplier: 2.0,
+		RetryableErrors: []string{
+			"connection refused",
+			"database is locked",
+			"busy",
+			"timeout",
+			"connection reset by peer",
+			"broken pipe",
+		},
+		JitterEnabled: true,
+	}
+}
+
+// ExternalServicePolicy returns a retry policy for external HTTP services.
+func ExternalServicePolicy() Policy {
+	return Policy{
+		Enabled:           true,
+		MaxAttempts:       5,
+		InitialDelay:      1 * time.Second,
+		MaxDelay:          30 * time.Second,
+		BackoffMultiplier: 2.0,
+		RetryableErrors: []string{
+			"connection refused",
+			"no such host",
+			"timeout",
+			"temporary failure",
+			"service unavailable",
+			"too many requests",
+		},
+		JitterEnabled: true,
+	}
+}
+
+// CircuitBreakerConfig defines circuit breaker behavior for protecting against cascading failures.
+type CircuitBreakerConfig struct {
+	FailureThreshold   int           `yaml:"failure_threshold" json:"failure_threshold"`
+	Timeout           time.Duration `yaml:"timeout" json:"timeout"`
+	HalfOpenRequests  int           `yaml:"half_open_requests" json:"half_open_requests"`
+}
+
+// DefaultCircuitBreaker returns a default circuit breaker configuration.
+func DefaultCircuitBreaker() CircuitBreakerConfig {
+	return CircuitBreakerConfig{
+		FailureThreshold:  5,
+		Timeout:           60 * time.Second,
+		HalfOpenRequests:  3,
+	}
+}
+
+// CircuitBreaker provides circuit breaker functionality for protecting external services.
+type CircuitBreaker struct {
+	config       CircuitBreakerConfig
+	failures     int
+	lastFailure  time.Time
+	state        CircuitState
+	halfOpenCount int
+	mu           sync.RWMutex
+}
+
+// CircuitState represents the state of a circuit breaker.
+type CircuitState int
+
+const (
+	StateClosed CircuitState = iota
+	StateOpen
+	StateHalfOpen
+)
+
+// NewCircuitBreaker creates a new circuit breaker with the given configuration.
+func NewCircuitBreaker(config CircuitBreakerConfig) *CircuitBreaker {
+	return &CircuitBreaker{
+		config: config,
+		state:  StateClosed,
+	}
+}
+
+// Execute runs the given function through the circuit breaker.
+func (cb *CircuitBreaker) Execute(fn func() error) error {
+	cb.mu.RLock()
+	state := cb.state
+	cb.mu.RUnlock()
+
+	switch state {
+	case StateOpen:
+		if time.Since(cb.lastFailure) > cb.config.Timeout {
+			cb.transitionToHalfOpen()
+			return cb.executeHalfOpen(fn)
+		}
+		return ErrCircuitBreakerOpen
+	case StateHalfOpen:
+		return cb.executeHalfOpen(fn)
+	case StateClosed:
+		return cb.executeClosed(fn)
+	default:
+		return errors.New("unknown circuit breaker state")
+	}
+}
+
+func (cb *CircuitBreaker) executeClosed(fn func() error) error {
+	err := fn()
+	if err != nil {
+		cb.recordFailure()
+	} else {
+		cb.recordSuccess()
+	}
+	return err
+}
+
+func (cb *CircuitBreaker) executeHalfOpen(fn func() error) error {
+	cb.mu.Lock()
+	cb.halfOpenCount++
+	currentCount := cb.halfOpenCount
+	cb.mu.Unlock()
+
+	err := fn()
+	if err != nil {
+		cb.recordFailure()
+		return err
+	}
+
+	cb.mu.Lock()
+	if currentCount >= cb.config.HalfOpenRequests {
+		cb.state = StateClosed
+		cb.failures = 0
+		cb.halfOpenCount = 0
+	}
+	cb.mu.Unlock()
+
+	return nil
+}
+
+func (cb *CircuitBreaker) recordFailure() {
+	cb.mu.Lock()
+	defer cb.mu.Unlock()
+
+	cb.failures++
+	cb.lastFailure = time.Now()
+
+	if cb.failures >= cb.config.FailureThreshold {
+		cb.state = StateOpen
+	}
+}
+
+func (cb *CircuitBreaker) recordSuccess() {
+	cb.mu.Lock()
+	defer cb.mu.Unlock()
+
+	cb.failures = 0
+}
+
+func (cb *CircuitBreaker) transitionToHalfOpen() {
+	cb.mu.Lock()
+	defer cb.mu.Unlock()
+
+	cb.state = StateHalfOpen
+	cb.halfOpenCount = 0
+}
+
+// GetState returns the current state of the circuit breaker.
+func (cb *CircuitBreaker) GetState() CircuitState {
+	cb.mu.RLock()
+	defer cb.mu.RUnlock()
+	return cb.state
+}
+
+// Common errors
+var (
+	ErrCircuitBreakerOpen = errors.New("circuit breaker is open")
+	ErrMaxRetriesExceeded = errors.New("max retry attempts exceeded")
+	ErrNonRetryable       = errors.New("error is not retryable")
+)
+
+// RetryableError represents an error that can be retried.
+type RetryableError interface {
+	error
+	Retryable() bool
+}
+
+// retryableError implements RetryableError.
+type retryableError struct {
+	err       error
+	retryable bool
+}
+
+func (e *retryableError) Error() string {
+	return e.err.Error()
+}
+
+func (e *retryableError) Retryable() bool {
+	return e.retryable
+}
+
+// IsRetryable determines if an error should be retried based on the policy.
+func IsRetryable(err error, policy Policy) bool {
+	if err == nil {
+		return false
+	}
+
+	// Check if error implements RetryableError interface
+	var retryableErr RetryableError
+	if errors.As(err, &retryableErr) {
+		return retryableErr.Retryable()
+	}
+
+	// Check against configured retryable error patterns
+	errStr := strings.ToLower(err.Error())
+	for _, pattern := range policy.RetryableErrors {
+		if strings.Contains(errStr, strings.ToLower(pattern)) {
+			return true
+		}
+	}
+
+	return false
+}
+
+// IsRetryableStatus determines if an HTTP status code should be retried based on the policy.
+func IsRetryableStatus(statusCode int, policy Policy) bool {
+	for _, retryableStatus := range policy.RetryableStatuses {
+		if statusCode == retryableStatus {
+			return true
+		}
+	}
+	return false
+}
+
+// WithExponentialBackoff executes the given function with exponential backoff retry logic.
+func WithExponentialBackoff(ctx context.Context, policy Policy, fn func() error) error {
+	if !policy.Enabled {
+		return fn()
+	}
+
+	var lastErr error
+
+	for attempt := 0; attempt < policy.MaxAttempts; attempt++ {
+		// Check context cancellation
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		default:
+		}
+
+		// Execute the function
+		err := fn()
+		if err == nil {
+			return nil
+		}
+
+		lastErr = err
+
+		// Check if error is retryable
+		if !IsRetryable(err, policy) {
+			return fmt.Errorf("%w: %v", ErrNonRetryable, err)
+		}
+
+		// Don't sleep after the last attempt
+		if attempt == policy.MaxAttempts-1 {
+			break
+		}
+
+		// Calculate delay with exponential backoff
+		delay := calculateDelay(attempt, policy)
+
+		// Sleep with context cancellation support
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(delay):
+			// Continue to next attempt
+		}
+	}
+
+	return fmt.Errorf("%w: %v", ErrMaxRetriesExceeded, lastErr)
+}
+
+// WithExponentialBackoffResult executes the given function with exponential backoff and returns a result.
+func WithExponentialBackoffResult[T any](ctx context.Context, policy Policy, fn func() (T, error)) (T, error) {
+	if !policy.Enabled {
+		return fn()
+	}
+
+	var result T
+	var lastErr error
+
+	for attempt := 0; attempt < policy.MaxAttempts; attempt++ {
+		// Check context cancellation
+		select {
+		case <-ctx.Done():
+			return result, ctx.Err()
+		default:
+		}
+
+		// Execute the function
+		result, err := fn()
+		if err == nil {
+			return result, nil
+		}
+
+		lastErr = err
+
+		// Check if error is retryable
+		if !IsRetryable(err, policy) {
+			return result, fmt.Errorf("%w: %v", ErrNonRetryable, err)
+		}
+
+		// Don't sleep after the last attempt
+		if attempt == policy.MaxAttempts-1 {
+			break
+		}
+
+		// Calculate delay with exponential backoff
+		delay := calculateDelay(attempt, policy)
+
+		// Sleep with context cancellation support
+		select {
+		case <-ctx.Done():
+			return result, ctx.Err()
+		case <-time.After(delay):
+			// Continue to next attempt
+		}
+	}
+
+	return result, fmt.Errorf("%w: %v", ErrMaxRetriesExceeded, lastErr)
+}
+
+// calculateDelay calculates the delay for the given attempt with exponential backoff and optional jitter.
+func calculateDelay(attempt int, policy Policy) time.Duration {
+	// Calculate exponential backoff
+	delay := float64(policy.InitialDelay) * math.Pow(policy.BackoffMultiplier, float64(attempt))
+
+	// Apply max delay cap
+	if delay > float64(policy.MaxDelay) {
+		delay = float64(policy.MaxDelay)
+	}
+
+	// Add jitter to prevent thundering herd
+	if policy.JitterEnabled {
+		jitter := rand.Float64() * 0.3 * delay // Up to 30% jitter
+		delay = delay + jitter
+	}
+
+	return time.Duration(delay)
+}
+
+// Retryable wraps an error to indicate it can be retried.
+func Retryable(err error) error {
+	if err == nil {
+		return nil
+	}
+	return &retryableError{err: err, retryable: true}
+}
+
+// NonRetryable wraps an error to indicate it should not be retried.
+func NonRetryable(err error) error {
+	if err == nil {
+		return nil
+	}
+	return &retryableError{err: err, retryable: false}
+}

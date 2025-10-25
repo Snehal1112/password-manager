@@ -105,20 +105,42 @@ func (m *Middleware) LoggingMiddleware(next http.Handler) http.Handler {
 
 // RateLimitMiddleware applies rate limiting to HTTP requests.
 // It focuses solely on rate limiting without mixing other concerns.
+// Default: 60 requests/minute, Auth endpoints: 5 requests/minute.
 func (m *Middleware) RateLimitMiddleware(next http.Handler) http.Handler {
-	// Create rate limiter with in-memory store
-	rate := limiter.Rate{
-		Period: time.Minute,
-		Limit:  10,
-	}
+	// Create rate limiters with in-memory store
 	store := memory.NewStore()
-	rateLimiter := limiter.New(store, rate)
+
+	// Default rate limiter: 60 requests/minute
+	defaultRate := limiter.Rate{
+		Period: time.Minute,
+		Limit:  60,
+	}
+	defaultLimiter := limiter.New(store, defaultRate)
+
+	// Strict rate limiter for auth endpoints: 5 requests/minute
+	authRate := limiter.Rate{
+		Period: time.Minute,
+		Limit:  5,
+	}
+	authLimiter := limiter.New(store, authRate)
 
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// Use client IP as the key for rate limiting
 		key := r.RemoteAddr
 
-		context, err := rateLimiter.Get(r.Context(), key)
+		// Select appropriate limiter based on endpoint
+		selectedLimiter := defaultLimiter
+		isAuthEndpoint := false
+
+		// Apply stricter limits to authentication endpoints
+		if strings.HasPrefix(r.URL.Path, "/api/auth/login") ||
+		   strings.HasPrefix(r.URL.Path, "/api/auth/register") ||
+		   strings.HasPrefix(r.URL.Path, "/api/auth/refresh") {
+			selectedLimiter = authLimiter
+			isAuthEndpoint = true
+		}
+
+		context, err := selectedLimiter.Get(r.Context(), key)
 		if err != nil {
 			m.logger.LogAuditError("", "rate_limit", "failed", "Rate limiter error", err)
 			logrus.WithError(err).Error("Rate limiter error")
@@ -131,8 +153,19 @@ func (m *Middleware) RateLimitMiddleware(next http.Handler) http.Handler {
 		w.Header().Set("X-RateLimit-Reset", fmt.Sprintf("%d", context.Reset))
 
 		if context.Reached {
-			m.logger.LogAuditError("", "rate_limit", "failed", "Rate limit exceeded", nil)
-			logrus.WithField("client_ip", key).Warn("Rate limit exceeded")
+			endpoint := "default"
+			if isAuthEndpoint {
+				endpoint = "auth"
+			}
+
+			m.logger.LogAuditError("", "rate_limit", "failed",
+				fmt.Sprintf("Rate limit exceeded for %s endpoint", endpoint), nil)
+			logrus.WithFields(logrus.Fields{
+				"client_ip": key,
+				"endpoint":  r.URL.Path,
+				"limit":     context.Limit,
+			}).Warn("Rate limit exceeded")
+
 			http.Error(w, "Rate limit exceeded", http.StatusTooManyRequests)
 			return
 		}

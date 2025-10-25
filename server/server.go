@@ -129,16 +129,20 @@ func (s *Server) StartServer(ctx context.Context) error {
 	var tlsConfig *tls.Config
 	if s.config.EnableTLS {
 		tlsConfig = &tls.Config{
-			MinVersion: tls.VersionTLS12,
+			// Enforce TLS 1.3 as minimum version for enhanced security
+			MinVersion: tls.VersionTLS13,
+			// TLS 1.3 cipher suites (order matters for preference)
 			CipherSuites: []uint16{
-				tls.TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384,
-				tls.TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305,
-				tls.TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256,
+				tls.TLS_AES_256_GCM_SHA384,
+				tls.TLS_AES_128_GCM_SHA256,
+				tls.TLS_CHACHA20_POLY1305_SHA256,
 			},
+			// Prefer server cipher suites for TLS 1.2 fallback (if needed)
 			PreferServerCipherSuites: true,
+			// Elliptic curve preferences (P-256 and X25519 for performance and security)
 			CurvePreferences: []tls.CurveID{
-				tls.CurveP256,
 				tls.X25519,
+				tls.CurveP256,
 			},
 		}
 

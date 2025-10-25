@@ -192,26 +192,50 @@ func TestRateLimitMiddleware(t *testing.T) {
 
 	wrappedHandler := mw.RateLimitMiddleware(handler)
 
-	// Make multiple requests from same IP
-	req := httptest.NewRequest("GET", "/api/test", nil)
-	req.RemoteAddr = "192.168.1.1:12345"
+	t.Run("default endpoint rate limit", func(t *testing.T) {
+		// Make multiple requests from same IP to default endpoint
+		req := httptest.NewRequest("GET", "/api/test", nil)
+		req.RemoteAddr = "192.168.1.1:12345"
 
-	// First 10 requests should succeed
-	for i := 0; i < 10; i++ {
+		// First 60 requests should succeed (default rate limit)
+		for i := 0; i < 60; i++ {
+			rr := httptest.NewRecorder()
+			wrappedHandler.ServeHTTP(rr, req)
+			assert.Equal(t, http.StatusOK, rr.Code, "Request %d should succeed", i+1)
+
+			// Check rate limit headers
+			assert.NotEmpty(t, rr.Header().Get("X-RateLimit-Limit"))
+			assert.NotEmpty(t, rr.Header().Get("X-RateLimit-Remaining"))
+			assert.NotEmpty(t, rr.Header().Get("X-RateLimit-Reset"))
+		}
+
+		// 61st request should be rate limited
 		rr := httptest.NewRecorder()
 		wrappedHandler.ServeHTTP(rr, req)
-		assert.Equal(t, http.StatusOK, rr.Code, "Request %d should succeed", i+1)
+		assert.Equal(t, http.StatusTooManyRequests, rr.Code, "61st request should be rate limited")
+	})
 
-		// Check rate limit headers
-		assert.NotEmpty(t, rr.Header().Get("X-RateLimit-Limit"))
-		assert.NotEmpty(t, rr.Header().Get("X-RateLimit-Remaining"))
-		assert.NotEmpty(t, rr.Header().Get("X-RateLimit-Reset"))
-	}
+	t.Run("auth endpoint strict rate limit", func(t *testing.T) {
+		// Make multiple requests from same IP to auth endpoint
+		req := httptest.NewRequest("POST", "/api/auth/login", nil)
+		req.RemoteAddr = "192.168.1.2:12346"
 
-	// 11th request should be rate limited
-	rr := httptest.NewRecorder()
-	wrappedHandler.ServeHTTP(rr, req)
-	assert.Equal(t, http.StatusTooManyRequests, rr.Code, "11th request should be rate limited")
+		// First 5 requests should succeed (stricter auth rate limit)
+		for i := 0; i < 5; i++ {
+			rr := httptest.NewRecorder()
+			wrappedHandler.ServeHTTP(rr, req)
+			assert.Equal(t, http.StatusOK, rr.Code, "Request %d should succeed", i+1)
+
+			// Check rate limit headers
+			limit := rr.Header().Get("X-RateLimit-Limit")
+			assert.Equal(t, "5", limit, "Auth endpoint should have limit of 5")
+		}
+
+		// 6th request should be rate limited
+		rr := httptest.NewRecorder()
+		wrappedHandler.ServeHTTP(rr, req)
+		assert.Equal(t, http.StatusTooManyRequests, rr.Code, "6th request to auth endpoint should be rate limited")
+	})
 }
 
 // TestAuthenticationMiddleware tests JWT authentication.
