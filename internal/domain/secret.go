@@ -10,15 +10,18 @@ import (
 )
 
 // Secret represents a secret in the password manager.
-// It includes the secret's ID, user ID, name, encrypted value, version, tags, and creation time.
+// It includes the secret's ID, user ID, name, encrypted value, version, tags, creation time,
+// and soft delete metadata for compliance with data retention policies.
 type Secret struct {
-	ID        uuid.UUID `json:"id"`
-	UserID    uuid.UUID `json:"user_id"`
-	Name      string    `json:"name"`
-	Value     string    `json:"value"`
-	Version   int       `json:"version"`
-	Tags      []string  `json:"tags"`
-	CreatedAt time.Time `json:"created_at"`
+	ID              uuid.UUID  `json:"id"`
+	UserID          uuid.UUID  `json:"user_id"`
+	Name            string     `json:"name"`
+	Value           string     `json:"value"`
+	Version         int        `json:"version"`
+	Tags            []string   `json:"tags"`
+	CreatedAt       time.Time  `json:"created_at"`
+	DeletedAt       *time.Time `json:"deleted_at,omitempty"`       // Soft delete timestamp
+	PurgeProtection bool       `json:"purge_protection"`           // Prevents permanent deletion
 }
 
 // SecretVersion represents a version of a secret for version history.

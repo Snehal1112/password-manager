@@ -4,18 +4,21 @@
 package container
 
 import (
+	"context"
 	"database/sql"
 	"fmt"
 	"time"
 
 	"github.com/spf13/viper"
 
+	"password-manager/internal/cache"
 	"password-manager/internal/logging"
 	"password-manager/internal/repositories"
 	authServices "password-manager/internal/services/auth"
 	authzServices "password-manager/internal/services/authorization"
 	certServices "password-manager/internal/services/certificates"
 	keyServices "password-manager/internal/services/keys"
+	secrets "password-manager/internal/services/secrets"
 	secretServices "password-manager/internal/services/secrets"
 	userServices "password-manager/internal/services/users"
 )
@@ -62,6 +65,11 @@ type ServiceContainerInterface interface {
 	GetDatabase() *sql.DB
 	GetLogger() *logging.Logger
 
+	// Cache getters
+	GetSecretCache() *cache.SecretCache
+	GetCacheConfig() *cache.CacheConfig
+	GetCachedSecretService() secrets.SecretService
+
 	// Lifecycle management
 	Close() error
 }
@@ -75,6 +83,13 @@ type ServiceContainer struct {
 	// Core infrastructure
 	db     *sql.DB
 	logger *logging.Logger
+
+	// Cache infrastructure
+	secretCache      *cache.SecretCache
+	cachedSecretService secrets.SecretService
+	cacheConfig      *cache.CacheConfig
+	cacheContext     context.Context
+	cacheCancel      context.CancelFunc
 
 	// Repositories
 	userRepository        repositories.UserRepositoryInterface
@@ -96,7 +111,7 @@ type ServiceContainer struct {
 
 	// Business services
 	userService        userServices.UserService
-	secretService      secretServices.SecretService
+	secretService      secrets.SecretService
 	keyService         keyServices.KeyService
 	certificateService certServices.CertificateService
 
@@ -110,8 +125,9 @@ type ServiceContainer struct {
 
 // Config holds configuration for the service container.
 type Config struct {
-	Database *sql.DB
-	Logger   *logging.Logger
+	Database    *sql.DB
+	Logger      *logging.Logger
+	CacheConfig *cache.CacheConfig
 }
 
 // NewServiceContainer creates a new service container with the provided configuration.
@@ -119,18 +135,30 @@ type Config struct {
 //
 // Parameters:
 //
-//	config: Configuration containing database and logger.
+//	config: Configuration containing database, logger, and cache settings.
 //
 // Returns:
 //
 //	A ServiceContainer with all services properly initialized.
 func NewServiceContainer(config Config) (*ServiceContainer, error) {
+	// Create cache context for background operations
+	cacheCtx, cacheCancel := context.WithCancel(context.Background())
+
 	container := &ServiceContainer{
-		db:     config.Database,
-		logger: config.Logger,
+		db:           config.Database,
+		logger:       config.Logger,
+		cacheContext: cacheCtx,
+		cacheCancel:  cacheCancel,
 	}
 
+	// Set default cache config if not provided
+	if config.CacheConfig == nil {
+		config.CacheConfig = cache.DefaultCacheConfig()
+	}
+	container.cacheConfig = config.CacheConfig
+
 	if err := container.initializeServices(); err != nil {
+		cacheCancel() // Clean up cache context on error
 		return nil, fmt.Errorf("failed to initialize services: %w", err)
 	}
 
@@ -150,6 +178,17 @@ func (c *ServiceContainer) initializeServices() error {
 		DB:     c.db,
 		Logger: c.logger,
 	})
+
+	// Initialize cache if enabled
+	if c.cacheConfig.Enabled {
+		// Create secret cache
+		c.secretCache = cache.NewSecretCache(c.cacheConfig.TTL, c.logger.Logger)
+
+		// Start background cleanup if configured
+		if c.cacheConfig.CleanupInterval > 0 {
+			c.secretCache.StartCleanup(c.cacheContext, c.cacheConfig.CleanupInterval)
+		}
+	}
 
 	// Initialize authentication services
 	c.passwordService = authServices.NewPasswordService()
@@ -215,13 +254,21 @@ func (c *ServiceContainer) initializeServices() error {
 	)
 
 	// Initialize secret service
-	c.secretService = secretServices.NewSecretService(secretServices.SecretServiceConfig{
+	baseSecretService := secretServices.NewSecretService(secretServices.SecretServiceConfig{
 		SecretRepository: c.secretRepository,
 		CryptoService:    c.cryptoService,
 		VersionService:   c.versioningService,
 		TagService:       c.tagService,
 		Logger:           c.logger,
 	})
+
+	// Wrap with cache if enabled
+	if c.cacheConfig.Enabled {
+		c.cachedSecretService = cache.NewCachedSecretService(baseSecretService, c.secretCache, c.logger.Logger)
+		c.secretService = c.cachedSecretService
+	} else {
+		c.secretService = baseSecretService
+	}
 
 	// Initialize key service
 	c.keyService = keyServices.NewKeyService(keyServices.KeyServiceConfig{
@@ -354,8 +401,28 @@ func (c *ServiceContainer) GetCertificateService() certServices.CertificateServi
 	return c.certificateService
 }
 
+// GetSecretCache returns the secret cache (if enabled).
+func (c *ServiceContainer) GetSecretCache() *cache.SecretCache {
+	return c.secretCache
+}
+
+// GetCacheConfig returns the cache configuration.
+func (c *ServiceContainer) GetCacheConfig() *cache.CacheConfig {
+	return c.cacheConfig
+}
+
+// GetCachedSecretService returns the cached secret service (if caching is enabled).
+func (c *ServiceContainer) GetCachedSecretService() secrets.SecretService {
+	return c.cachedSecretService
+}
+
 // Close closes the service container and cleans up resources.
 func (c *ServiceContainer) Close() error {
+	// Cancel cache context to stop background operations
+	if c.cacheCancel != nil {
+		c.cacheCancel()
+	}
+
 	if c.db != nil {
 		return c.db.Close()
 	}

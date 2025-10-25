@@ -361,18 +361,18 @@ func (s *secretService) DeleteSecret(ctx context.Context, secretID, userID uuid.
 		return fmt.Errorf("failed to remove tags: %w", err)
 	}
 
-	// Delete secret via repository
-	if err := s.secretRepo.Delete(ctx, secretID); err != nil {
-		s.logger.LogAuditError(userID.String(), "delete_secret", "failed", "Failed to delete secret", err)
-		return fmt.Errorf("failed to delete secret: %w", err)
+	// Soft delete secret via repository (instead of hard delete)
+	if err := s.secretRepo.SoftDelete(ctx, secretID); err != nil {
+		s.logger.LogAuditError(userID.String(), "delete_secret", "failed", "Failed to soft delete secret", err)
+		return fmt.Errorf("failed to soft delete secret: %w", err)
 	}
 
 	s.logger.LogAuditInfo(userID.String(), "delete_secret", "success",
-		fmt.Sprintf("Secret deleted: %s", secret.Name))
+		fmt.Sprintf("Secret soft deleted: %s", secret.Name))
 	logrus.WithFields(logrus.Fields{
 		"secret_id": secretID.String(),
 		"user_id":   userID.String(),
-	}).Info("Secret deleted successfully")
+	}).Info("Secret soft deleted successfully")
 
 	return nil
 }

@@ -29,16 +29,19 @@ import (
 )
 
 // Key represents a cryptographic key in the password manager.
-// It stores encrypted PEM-encoded private keys for RSA and ECDSA algorithms.
+// It stores encrypted PEM-encoded private keys for RSA and ECDSA algorithms,
+// with soft delete support for compliance and data retention.
 type Key struct {
-	ID        uuid.UUID
-	UserID    uuid.UUID
-	Name      string
-	Type      string // "RSA" or "ECDSA"
-	Value     string // Encrypted PEM-encoded private key
-	Revoked   bool
-	CreatedAt time.Time
-	Tags      []string
+	ID              uuid.UUID  `json:"id"`
+	UserID          uuid.UUID  `json:"user_id"`
+	Name            string     `json:"name"`
+	Type            string     `json:"type"` // "RSA" or "ECDSA"
+	Value           string     `json:"value"` // Encrypted PEM-encoded private key
+	Revoked         bool       `json:"revoked"`
+	CreatedAt       time.Time  `json:"created_at"`
+	Tags            []string   `json:"tags"`
+	DeletedAt       *time.Time `json:"deleted_at,omitempty"`       // Soft delete timestamp
+	PurgeProtection bool       `json:"purge_protection"`           // Prevents permanent deletion
 }
 
 // KeyType constants for supported cryptographic key types.
