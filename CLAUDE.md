@@ -47,8 +47,7 @@ password-manager/
 │   ├── health/            # Health check endpoints
 │   ├── keys/              # Key management
 │   ├── logging/           # Structured logging
-│   ├── secrets/           # Secret domain logic
-│   └── webhooks/          # Webhook functionality
+│   └── secrets/           # Secret domain logic
 └── config/                # Configuration management
 ```
 
