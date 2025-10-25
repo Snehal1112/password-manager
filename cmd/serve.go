@@ -28,6 +28,7 @@ import (
 
 	"github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
+	"github.com/spf13/viper"
 
 	"password-manager/bootstrap"
 	"password-manager/common"
@@ -89,7 +90,14 @@ func init() {
 	rootCmd.AddCommand(serveCmd)
 
 	cfg := bootstrapConfig
-	serveCmd.Flags().StringVar(&cfg.Listen, "listen", getEnv("PASSWORD_MANAGER_LISTEN", defaultListenAddr), fmt.Sprintf("TCP listen address (default \"%s\").", "8774"))
+
+	// Get listen address from config, env var, or default (in priority order)
+	listenAddr := viper.GetString("server.listen_addr")
+	if listenAddr == "" {
+		listenAddr = getEnv("PASSWORD_MANAGER_LISTEN", defaultListenAddr)
+	}
+
+	serveCmd.Flags().StringVar(&cfg.Listen, "listen", listenAddr, fmt.Sprintf("TCP listen address (default \"%s\").", "8774"))
 	serveCmd.Flags().StringVar(&cfg.BasePath, "api_base", getEnv("PASSWORD_MANAGER_BASE_API", basePath), "Base api path for the password manager service.")
 	serveCmd.Flags().StringVar(&cfg.BackendEndPoint, "backend_url", getEnv("PASSWORD_MANAGER_BACKEND_ENDPOINT", defaultDBURI), "Backend end point of password manager service.")
 	serveCmd.Flags().StringVar(&cfg.DatabaseName, "database_name", getEnv("PASSWORD_MANAGER_DATABASE", defaultDatabase), "Database name which used by the password manager service.")
