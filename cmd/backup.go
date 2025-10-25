@@ -88,7 +88,7 @@ The backup is encrypted by default using the master key for security.`,
   # Create unencrypted backup
   password-manager backup create --output ./backup-2024.backup --encrypt=false`,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		return runBackupCreate(cmd, args)
+		return runBackupCreate(cmd)
 	},
 }
 
@@ -99,7 +99,7 @@ var backupListCmd = &cobra.Command{
 	Long:    `List all backup files in the specified directory with their metadata.`,
 	Example: `password-manager backup list --dir ./backups`,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		return runBackupList(cmd, args)
+		return runBackupList(cmd)
 	},
 }
 
@@ -114,7 +114,7 @@ var backupRestoreCmd = &cobra.Command{
   # Restore from unencrypted backup
   password-manager backup restore --file ./backup-2024.backup --decrypt=false`,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		return runBackupRestore(cmd, args)
+		return runBackupRestore(cmd)
 	},
 }
 
@@ -133,7 +133,7 @@ func init() {
 	backupRestoreCmd.MarkFlagRequired("file")
 }
 
-func runBackupCreate(cmd *cobra.Command, args []string) error {
+func runBackupCreate(cmd *cobra.Command) error {
 	ctx := cmd.Context()
 	db := ctx.Value(common.DBKey).(*sql.DB)
 	logger := ctx.Value(common.LogKey).(*logging.Logger)
@@ -146,7 +146,7 @@ func runBackupCreate(cmd *cobra.Command, args []string) error {
 
 	// Ensure the directory exists
 	dir := filepath.Dir(backupOutput)
-	if err := os.MkdirAll(dir, 0755); err != nil {
+	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return fmt.Errorf("failed to create backup directory: %w", err)
 	}
 
@@ -165,7 +165,7 @@ func runBackupCreate(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
-func runBackupList(cmd *cobra.Command, args []string) error {
+func runBackupList(cmd *cobra.Command) error {
 	ctx := cmd.Context()
 	db := ctx.Value(common.DBKey).(*sql.DB)
 	logger := ctx.Value(common.LogKey).(*logging.Logger)
@@ -206,7 +206,7 @@ func runBackupList(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
-func runBackupRestore(cmd *cobra.Command, args []string) error {
+func runBackupRestore(cmd *cobra.Command) error {
 	ctx := cmd.Context()
 	db := ctx.Value(common.DBKey).(*sql.DB)
 	logger := ctx.Value(common.LogKey).(*logging.Logger)

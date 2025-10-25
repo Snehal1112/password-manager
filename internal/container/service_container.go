@@ -19,8 +19,8 @@ import (
 	certServices "password-manager/internal/services/certificates"
 	keyServices "password-manager/internal/services/keys"
 	retryServices "password-manager/internal/services/retry"
-	secrets "password-manager/internal/services/secrets"
 	secretServices "password-manager/internal/services/secrets"
+	secrets "password-manager/internal/services/secrets"
 	userServices "password-manager/internal/services/users"
 )
 
@@ -90,11 +90,11 @@ type ServiceContainer struct {
 	viper  *viper.Viper // Configuration manager
 
 	// Cache infrastructure
-	secretCache      *cache.SecretCache
+	secretCache         *cache.SecretCache
 	cachedSecretService secrets.SecretService
-	cacheConfig      *cache.CacheConfig
-	cacheContext     context.Context
-	cacheCancel      context.CancelFunc
+	cacheConfig         *cache.CacheConfig
+	cacheContext        context.Context
+	cacheCancel         context.CancelFunc
 
 	// Repositories
 	userRepository        repositories.UserRepositoryInterface

@@ -91,7 +91,7 @@ var rotationCreateCmd = &cobra.Command{
 	Long:    `Create a new rotation policy with specified parameters.`,
 	Example: `password-manager secrets rotation create --name "Monthly Rotation" --interval 30 --reminder 7 --auto-rotate`,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		return runRotationCreate(cmd, args)
+		return runRotationCreate(cmd)
 	},
 }
 
@@ -102,7 +102,7 @@ var rotationListCmd = &cobra.Command{
 	Long:    `List all rotation policies for the current user.`,
 	Example: `password-manager secrets rotation list`,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		return runRotationList(cmd, args)
+		return runRotationList(cmd)
 	},
 }
 
@@ -113,7 +113,7 @@ var rotationUpdateCmd = &cobra.Command{
 	Long:    `Update an existing rotation policy.`,
 	Example: `password-manager secrets rotation update --id <uuid> --name "New Name" --interval 60`,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		return runRotationUpdate(cmd, args)
+		return runRotationUpdate(cmd)
 	},
 }
 
@@ -124,7 +124,7 @@ var rotationDeleteCmd = &cobra.Command{
 	Long:    `Delete an existing rotation policy.`,
 	Example: `password-manager secrets rotation delete --id <uuid>`,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		return runRotationDelete(cmd, args)
+		return runRotationDelete(cmd)
 	},
 }
 
@@ -135,7 +135,7 @@ var rotationAssignCmd = &cobra.Command{
 	Long:    `Assign a rotation policy to a secret.`,
 	Example: `password-manager secrets rotation assign --policy-id <uuid> --secret-id <uuid>`,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		return runRotationAssign(cmd, args)
+		return runRotationAssign(cmd)
 	},
 }
 
@@ -146,7 +146,7 @@ var rotationUnassignCmd = &cobra.Command{
 	Long:    `Remove a rotation policy from a secret.`,
 	Example: `password-manager secrets rotation unassign --policy-id <uuid> --secret-id <uuid>`,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		return runRotationUnassign(cmd, args)
+		return runRotationUnassign(cmd)
 	},
 }
 
@@ -157,7 +157,7 @@ var rotationRotateCmd = &cobra.Command{
 	Long:    `Manually rotate a secret according to its assigned policy.`,
 	Example: `password-manager secrets rotation rotate --secret-id <uuid> --policy-id <uuid>`,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		return runRotationRotate(cmd, args)
+		return runRotationRotate(cmd)
 	},
 }
 
@@ -168,7 +168,7 @@ var rotationHistoryCmd = &cobra.Command{
 	Long:    `View the rotation history for a specific secret.`,
 	Example: `password-manager secrets rotation history --secret-id <uuid>`,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		return runRotationHistory(cmd, args)
+		return runRotationHistory(cmd)
 	},
 }
 
@@ -179,7 +179,7 @@ var rotationStatusCmd = &cobra.Command{
 	Long:    `View the current rotation status and secrets due for rotation.`,
 	Example: `password-manager secrets rotation status`,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		return runRotationStatus(cmd, args)
+		return runRotationStatus(cmd)
 	},
 }
 
@@ -230,7 +230,7 @@ func init() {
 	// Status command has no flags
 }
 
-func runRotationCreate(cmd *cobra.Command, args []string) error {
+func runRotationCreate(cmd *cobra.Command) error {
 	ctx := cmd.Context()
 	db := ctx.Value(common.DBKey).(*sql.DB)
 	logger := ctx.Value(common.LogKey).(*logging.Logger)
@@ -264,7 +264,7 @@ func runRotationCreate(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
-func runRotationList(cmd *cobra.Command, args []string) error {
+func runRotationList(cmd *cobra.Command) error {
 	ctx := cmd.Context()
 	db := ctx.Value(common.DBKey).(*sql.DB)
 	logger := ctx.Value(common.LogKey).(*logging.Logger)
@@ -305,7 +305,7 @@ func runRotationList(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
-func runRotationUpdate(cmd *cobra.Command, args []string) error {
+func runRotationUpdate(cmd *cobra.Command) error {
 	ctx := cmd.Context()
 	db := ctx.Value(common.DBKey).(*sql.DB)
 	logger := ctx.Value(common.LogKey).(*logging.Logger)
@@ -358,7 +358,7 @@ func runRotationUpdate(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
-func runRotationDelete(cmd *cobra.Command, args []string) error {
+func runRotationDelete(cmd *cobra.Command) error {
 	ctx := cmd.Context()
 	db := ctx.Value(common.DBKey).(*sql.DB)
 	logger := ctx.Value(common.LogKey).(*logging.Logger)
@@ -394,7 +394,7 @@ func runRotationDelete(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
-func runRotationAssign(cmd *cobra.Command, args []string) error {
+func runRotationAssign(cmd *cobra.Command) error {
 	ctx := cmd.Context()
 	db := ctx.Value(common.DBKey).(*sql.DB)
 	logger := ctx.Value(common.LogKey).(*logging.Logger)
@@ -445,7 +445,7 @@ func runRotationAssign(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
-func runRotationUnassign(cmd *cobra.Command, args []string) error {
+func runRotationUnassign(cmd *cobra.Command) error {
 	ctx := cmd.Context()
 	db := ctx.Value(common.DBKey).(*sql.DB)
 	logger := ctx.Value(common.LogKey).(*logging.Logger)
@@ -494,7 +494,7 @@ func runRotationUnassign(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
-func runRotationRotate(cmd *cobra.Command, args []string) error {
+func runRotationRotate(cmd *cobra.Command) error {
 	ctx := cmd.Context()
 	db := ctx.Value(common.DBKey).(*sql.DB)
 	logger := ctx.Value(common.LogKey).(*logging.Logger)
@@ -538,7 +538,7 @@ func runRotationRotate(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
-func runRotationHistory(cmd *cobra.Command, args []string) error {
+func runRotationHistory(cmd *cobra.Command) error {
 	ctx := cmd.Context()
 	db := ctx.Value(common.DBKey).(*sql.DB)
 	logger := ctx.Value(common.LogKey).(*logging.Logger)
@@ -598,7 +598,7 @@ func runRotationHistory(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
-func runRotationStatus(cmd *cobra.Command, args []string) error {
+func runRotationStatus(cmd *cobra.Command) error {
 	ctx := cmd.Context()
 	db := ctx.Value(common.DBKey).(*sql.DB)
 	logger := ctx.Value(common.LogKey).(*logging.Logger)
