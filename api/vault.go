@@ -3,6 +3,7 @@ package api
 import (
 	"encoding/json"
 	"net/http"
+
 	"password-manager/common"
 
 	"github.com/gorilla/mux"
@@ -17,10 +18,9 @@ import (
 // Parameters:
 // - vault (*mux.Router): The router to which the routes will be added.
 func (api *API) InitVault(vault *mux.Router) {
-
-	vault.Handle("/tenant", APIHandler(api.App, createTenant)).Methods("GET")
-	vault.Handle("/tenant/{id:[A-Za-z0-9_-]+}", APIHandler(api.App, getTenant)).Methods("GET")
-
+	// TODO: Implementation is disabled as of now.
+	// vault.Handle("/tenant", Handler(api.App, createTenant)).Methods("GET")
+	// vault.Handle("/tenant/{id:[A-Za-z0-9_-]+}", Handler(api.App, getTenant)).Methods("GET")
 }
 
 // createTenant handles the creation of a new tenant.
@@ -58,8 +58,8 @@ func createTenant(c *Context, w http.ResponseWriter, r *http.Request) {
 //   - w: The HTTP response writer to send the response.
 //   - r: The HTTP request containing the tenant ID in the URL parameters.
 func getTenant(c *Context, w http.ResponseWriter, r *http.Request) {
-	//w.WriteHeader(http.StatusOK)
+	// w.WriteHeader(http.StatusOK)
 
 	c.Err = common.NewAppError("vault.getTenant", "Tenant not found", nil, "tenant_id="+mux.Vars(r)["id"], http.StatusNotFound)
-	//w.Write([]byte("Tenant retrieved successfully"))
+	// w.Write([]byte("Tenant retrieved successfully"))
 }

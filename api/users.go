@@ -131,20 +131,20 @@ type ListSessionsResponse struct {
 // - users (*mux.Router): The router to which the routes will be added.
 func (api *API) InitUsers(users *mux.Router) {
 	// Public endpoints - no authentication required
-	users.Handle("/login", APIHandler(api.App, loginUser)).Methods("POST")
-	users.Handle("/refresh", APIHandler(api.App, refreshToken)).Methods("POST")
+	users.Handle("/login", Handler(api.App, loginUser)).Methods("POST")
+	users.Handle("/refresh", Handler(api.App, refreshToken)).Methods("POST")
 
 	// Session management endpoints - authenticated
-	users.Handle("/sessions", ApiSessionRequired(api.App, listUserSessions)).Methods("GET")
-	users.Handle("/sessions/{id:[A-Fa-f0-9-]+}", ApiSessionRequired(api.App, revokeSession)).Methods("DELETE")
-	users.Handle("/sessions", ApiSessionRequired(api.App, revokeAllSessions)).Methods("DELETE")
+	users.Handle("/sessions", SessionRequired(api.App, listUserSessions)).Methods("GET")
+	users.Handle("/sessions/{id:[A-Fa-f0-9-]+}", SessionRequired(api.App, revokeSession)).Methods("DELETE")
+	users.Handle("/sessions", SessionRequired(api.App, revokeAllSessions)).Methods("DELETE")
 
 	// Authenticated endpoints
-	users.Handle("", ApiSessionRequired(api.App, createUser)).Methods("POST")
-	users.Handle("", ApiSessionRequired(api.App, listUsers)).Methods("GET")
-	users.Handle("/{id:[A-Fa-f0-9-]+}", ApiSessionRequired(api.App, getUser)).Methods("GET")
-	users.Handle("/{id:[A-Fa-f0-9-]+}", ApiSessionRequired(api.App, updateUser)).Methods("PUT")
-	users.Handle("/{id:[A-Fa-f0-9-]+}", ApiSessionRequired(api.App, deleteUser)).Methods("DELETE")
+	users.Handle("", SessionRequired(api.App, createUser)).Methods("POST")
+	users.Handle("", SessionRequired(api.App, listUsers)).Methods("GET")
+	users.Handle("/{id:[A-Fa-f0-9-]+}", SessionRequired(api.App, getUser)).Methods("GET")
+	users.Handle("/{id:[A-Fa-f0-9-]+}", SessionRequired(api.App, updateUser)).Methods("PUT")
+	users.Handle("/{id:[A-Fa-f0-9-]+}", SessionRequired(api.App, deleteUser)).Methods("DELETE")
 }
 
 // createUser handles the creation of a new user.

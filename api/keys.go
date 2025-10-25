@@ -32,8 +32,8 @@ import (
 	"github.com/gorilla/mux"
 
 	"password-manager/common"
-	"password-manager/internal/domain"
 	"password-manager/internal/db"
+	"password-manager/internal/domain"
 	"password-manager/internal/repositories"
 	keyservices "password-manager/internal/services/keys"
 )
@@ -83,14 +83,14 @@ type KeyListResponse struct {
 // - keys (*mux.Router): The router to which the routes will be added.
 func (api *API) InitKeys(keys *mux.Router) {
 	// Basic CRUD operations
-	keys.Handle("", ApiSessionRequired(api.App, createKey)).Methods("POST")
-	keys.Handle("", ApiSessionRequired(api.App, listKeys)).Methods("GET")
-	keys.Handle("/{id:[A-Fa-f0-9-]+}", ApiSessionRequired(api.App, getKey)).Methods("GET")
-	keys.Handle("/{id:[A-Fa-f0-9-]+}", ApiSessionRequired(api.App, updateKey)).Methods("PUT")
-	keys.Handle("/{id:[A-Fa-f0-9-]+}", ApiSessionRequired(api.App, deleteKey)).Methods("DELETE")
+	keys.Handle("", SessionRequired(api.App, createKey)).Methods("POST")
+	keys.Handle("", SessionRequired(api.App, listKeys)).Methods("GET")
+	keys.Handle("/{id:[A-Fa-f0-9-]+}", SessionRequired(api.App, getKey)).Methods("GET")
+	keys.Handle("/{id:[A-Fa-f0-9-]+}", SessionRequired(api.App, updateKey)).Methods("PUT")
+	keys.Handle("/{id:[A-Fa-f0-9-]+}", SessionRequired(api.App, deleteKey)).Methods("DELETE")
 
 	// Additional operations
-	keys.Handle("/{id:[A-Fa-f0-9-]+}/rotate", ApiSessionRequired(api.App, rotateKey)).Methods("POST")
+	keys.Handle("/{id:[A-Fa-f0-9-]+}/rotate", SessionRequired(api.App, rotateKey)).Methods("POST")
 
 	api.Logger.Infoln("Keys API routes initialized")
 }

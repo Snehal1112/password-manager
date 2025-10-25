@@ -131,21 +131,21 @@ type ListSecretsResponse struct {
 // - secrets (*mux.Router): The router to which the routes will be added.
 func (api *API) InitSecrets(secrets *mux.Router) {
 	// Basic CRUD operations
-	secrets.Handle("", ApiSessionRequired(api.App, createSecret)).Methods("POST")
-	secrets.Handle("", ApiSessionRequired(api.App, listSecrets)).Methods("GET")
-	secrets.Handle("/{id:[A-Fa-f0-9-]+}", ApiSessionRequired(api.App, getSecret)).Methods("GET")
-	secrets.Handle("/{id:[A-Fa-f0-9-]+}", ApiSessionRequired(api.App, updateSecret)).Methods("PUT")
-	secrets.Handle("/{id:[A-Fa-f0-9-]+}", ApiSessionRequired(api.App, deleteSecret)).Methods("DELETE")
+	secrets.Handle("", SessionRequired(api.App, createSecret)).Methods("POST")
+	secrets.Handle("", SessionRequired(api.App, listSecrets)).Methods("GET")
+	secrets.Handle("/{id:[A-Fa-f0-9-]+}", SessionRequired(api.App, getSecret)).Methods("GET")
+	secrets.Handle("/{id:[A-Fa-f0-9-]+}", SessionRequired(api.App, updateSecret)).Methods("PUT")
+	secrets.Handle("/{id:[A-Fa-f0-9-]+}", SessionRequired(api.App, deleteSecret)).Methods("DELETE")
 
 	// Additional operations
-	secrets.Handle("/generate", ApiSessionRequired(api.App, generateSecret)).Methods("POST")
-	secrets.Handle("/export", ApiSessionRequired(api.App, exportSecrets)).Methods("POST")
-	secrets.Handle("/import", ApiSessionRequired(api.App, importSecrets)).Methods("POST")
+	secrets.Handle("/generate", SessionRequired(api.App, generateSecret)).Methods("POST")
+	secrets.Handle("/export", SessionRequired(api.App, exportSecrets)).Methods("POST")
+	secrets.Handle("/import", SessionRequired(api.App, importSecrets)).Methods("POST")
 
 	// Secret versioning endpoints
-	secrets.Handle("/{id}/versions", ApiSessionRequired(api.App, listSecretVersionsHandler)).Methods("GET")
-	secrets.Handle("/{id}/versions/{version:[0-9]+}", ApiSessionRequired(api.App, getSecretVersionHandler)).Methods("GET")
-	secrets.Handle("/{id}/versions/latest", ApiSessionRequired(api.App, getLatestSecretVersionHandler)).Methods("GET")
+	secrets.Handle("/{id}/versions", SessionRequired(api.App, listSecretVersionsHandler)).Methods("GET")
+	secrets.Handle("/{id}/versions/{version:[0-9]+}", SessionRequired(api.App, getSecretVersionHandler)).Methods("GET")
+	secrets.Handle("/{id}/versions/latest", SessionRequired(api.App, getLatestSecretVersionHandler)).Methods("GET")
 }
 
 // Handler: List all versions of a secret
