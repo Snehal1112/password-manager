@@ -48,8 +48,7 @@ password-manager/
 │   ├── keys/              # Key management
 │   ├── logging/           # Structured logging
 │   ├── secrets/           # Secret domain logic
-│   ├── webhooks/          # Webhook functionality
-│   └── websocket/         # WebSocket support
+│   └── webhooks/          # Webhook functionality
 └── config/                # Configuration management
 ```
 
