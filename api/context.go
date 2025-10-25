@@ -47,8 +47,8 @@ type Context struct {
 	App            *app.App
 	T              common.TranslateFunc
 	Err            *common.AppError
-	RequestId      string          // Unique request identifier
-	IpAddress      string          // Client IP address
+	RequestID      string          // Unique request identifier
+	IPAddress      string          // Client IP address
 	Token          string          // JWT token
 	Claims         jwt.MapClaims   // JWT claims
 	Path           string          // Request URL path
@@ -60,12 +60,12 @@ type Context struct {
 
 // Params holds URL and query parameters for various endpoints.
 type Params struct {
-	UserId string            // For /users/{user_id}
+	UserID string            // For /users/{user_id}
 	Query  map[string]string // Query parameters (e.g., ?page=1)
 }
 
-// APIHandler wraps handlers with common logic, similar to Mattermost's APIHandler.
-func APIHandler(app *app.App, handler func(*Context, http.ResponseWriter, *http.Request)) http.HandlerFunc {
+// Handler wraps handlers with common logic, similar to Mattermost's APIHandler.
+func Handler(app *app.App, handler func(*Context, http.ResponseWriter, *http.Request)) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		start := time.Now()
 		ctx := &Context{
@@ -73,8 +73,8 @@ func APIHandler(app *app.App, handler func(*Context, http.ResponseWriter, *http.
 			Token:          "",
 			Claims:         nil,
 			Params:         &Params{Query: make(map[string]string)},
-			RequestId:      "req-" + uuid.New().String()[:8],
-			IpAddress:      r.RemoteAddr,
+			RequestID:      "req-" + uuid.New().String()[:8],
+			IPAddress:      r.RemoteAddr,
 			Path:           r.URL.Path,
 			UserAgent:      r.UserAgent(),
 			AcceptLanguage: r.Header.Get("Accept-Language"),
@@ -82,12 +82,12 @@ func APIHandler(app *app.App, handler func(*Context, http.ResponseWriter, *http.
 			Err:            nil,
 		}
 
-		app.Logger.Println("API request started", ctx.RequestId)
+		app.Logger.Println("API request started", ctx.RequestID)
 		ctx.Logger.Infoln(common.T("server.start"))
 		// Populate URL parameters
 		vars := mux.Vars(r)
 		if userId, ok := vars["user_id"]; ok {
-			ctx.Params.UserId = userId
+			ctx.Params.UserID = userId
 		}
 
 		// Populate query parameters
@@ -123,8 +123,8 @@ func APIHandler(app *app.App, handler func(*Context, http.ResponseWriter, *http.
 	}
 }
 
-// ApiSessionRequired wraps handlers requiring authentication, similar to Mattermost's ApiSessionRequired.
-func ApiSessionRequired(app *app.App, handler func(*Context, http.ResponseWriter, *http.Request)) http.HandlerFunc {
+// SessionRequired wraps handlers requiring authentication, similar to Mattermost's SessionRequired.
+func SessionRequired(app *app.App, handler func(*Context, http.ResponseWriter, *http.Request)) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		start := time.Now()
 		ctx := &Context{
@@ -132,8 +132,8 @@ func ApiSessionRequired(app *app.App, handler func(*Context, http.ResponseWriter
 			Token:          "",
 			Claims:         nil,
 			Params:         &Params{Query: make(map[string]string)},
-			RequestId:      "req-" + uuid.New().String()[:8],
-			IpAddress:      r.RemoteAddr,
+			RequestID:      "req-" + uuid.New().String()[:8],
+			IPAddress:      r.RemoteAddr,
 			Path:           r.URL.Path,
 			UserAgent:      r.UserAgent(),
 			AcceptLanguage: r.Header.Get("Accept-Language"),
@@ -144,7 +144,7 @@ func ApiSessionRequired(app *app.App, handler func(*Context, http.ResponseWriter
 		// Extract JWT token
 		authHeader := r.Header.Get("Authorization")
 		if authHeader == "" {
-			ctx.Err = common.NewAppError("ApiSessionRequired", "Missing Authorization header", nil, "", http.StatusUnauthorized)
+			ctx.Err = common.NewAppError("SessionRequired", "Missing Authorization header", nil, "", http.StatusUnauthorized)
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(ctx.Err.StatusCode)
 			json.NewEncoder(w).Encode(map[string]interface{}{
@@ -158,7 +158,7 @@ func ApiSessionRequired(app *app.App, handler func(*Context, http.ResponseWriter
 
 		parts := strings.Split(authHeader, "Bearer ")
 		if len(parts) != 2 {
-			ctx.Err = common.NewAppError("ApiSessionRequired", "Invalid Authorization header format", nil, "", http.StatusUnauthorized)
+			ctx.Err = common.NewAppError("SessionRequired", "Invalid Authorization header format", nil, "", http.StatusUnauthorized)
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(ctx.Err.StatusCode)
 			json.NewEncoder(w).Encode(map[string]interface{}{
@@ -179,7 +179,7 @@ func ApiSessionRequired(app *app.App, handler func(*Context, http.ResponseWriter
 		})
 
 		if err != nil || !token.Valid {
-			ctx.Err = common.NewAppError("ApiSessionRequired", "Invalid or expired token", nil, err.Error(), http.StatusUnauthorized)
+			ctx.Err = common.NewAppError("SessionRequired", "Invalid or expired token", nil, err.Error(), http.StatusUnauthorized)
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(ctx.Err.StatusCode)
 			json.NewEncoder(w).Encode(map[string]interface{}{
@@ -196,7 +196,7 @@ func ApiSessionRequired(app *app.App, handler func(*Context, http.ResponseWriter
 			ctx.Claims = *claims
 			ctx.Token = tokenString
 		} else {
-			ctx.Err = common.NewAppError("ApiSessionRequired", "Invalid token claims", nil, "", http.StatusUnauthorized)
+			ctx.Err = common.NewAppError("SessionRequired", "Invalid token claims", nil, "", http.StatusUnauthorized)
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(ctx.Err.StatusCode)
 			json.NewEncoder(w).Encode(map[string]interface{}{
@@ -211,7 +211,7 @@ func ApiSessionRequired(app *app.App, handler func(*Context, http.ResponseWriter
 		// Validate user
 		userID, ok := ctx.Claims["sub"].(string)
 		if !ok {
-			ctx.Err = common.NewAppError("ApiSessionRequired", "Missing user ID in token", nil, "", http.StatusUnauthorized)
+			ctx.Err = common.NewAppError("SessionRequired", "Missing user ID in token", nil, "", http.StatusUnauthorized)
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(ctx.Err.StatusCode)
 			json.NewEncoder(w).Encode(map[string]interface{}{
@@ -237,8 +237,8 @@ func ApiSessionRequired(app *app.App, handler func(*Context, http.ResponseWriter
 
 		// Populate URL parameters
 		vars := mux.Vars(r)
-		if userId, ok := vars["user_id"]; ok {
-			ctx.Params.UserId = userId
+		if userID, ok := vars["user_id"]; ok {
+			ctx.Params.UserID = userID
 		}
 
 		// Log request

@@ -307,7 +307,7 @@ Authorization: Bearer <token>
 
 ```json
 {
-  "id": "ApiSessionRequired",
+  "id": "SessionRequired",
   "message": "Missing Authorization header",
   "detailed_error": "",
   "status_code": 401
