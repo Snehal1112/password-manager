@@ -36,9 +36,9 @@ func (rw *ResponseWriter) WriteHeader(code int) {
 	rw.ResponseWriter.WriteHeader(code)
 }
 
-// MiddlewareContainer defines the interface for service container dependencies.
+// Container defines the interface for service container dependencies.
 // This allows for easier testing with mock implementations.
-type MiddlewareContainer interface {
+type Container interface {
 	GetLogger() *logging.Logger
 	GetAuthenticationService() authServices.AuthenticationService
 	GetRBACService() authzServices.RBACService
@@ -48,7 +48,7 @@ type MiddlewareContainer interface {
 // It delegates authentication and authorization to dedicated services,
 // following the Single Responsibility Principle.
 type Middleware struct {
-	container MiddlewareContainer
+	container Container
 	logger    *logging.Logger
 }
 
@@ -56,10 +56,12 @@ type Middleware struct {
 // It uses dependency injection instead of global state access.
 //
 // Parameters:
-//   container: Service container for dependency access.
+//
+//	container: Service container for dependency access.
 //
 // Returns:
-//   A Middleware instance with injected dependencies.
+//
+//	A Middleware instance with injected dependencies.
 func NewMiddleware(container *container.ServiceContainer) *Middleware {
 	return &Middleware{
 		container: container,
@@ -134,8 +136,8 @@ func (m *Middleware) RateLimitMiddleware(next http.Handler) http.Handler {
 
 		// Apply stricter limits to authentication endpoints
 		if strings.HasPrefix(r.URL.Path, "/api/auth/login") ||
-		   strings.HasPrefix(r.URL.Path, "/api/auth/register") ||
-		   strings.HasPrefix(r.URL.Path, "/api/auth/refresh") {
+			strings.HasPrefix(r.URL.Path, "/api/auth/register") ||
+			strings.HasPrefix(r.URL.Path, "/api/auth/refresh") {
 			selectedLimiter = authLimiter
 			isAuthEndpoint = true
 		}
@@ -212,8 +214,8 @@ func (m *Middleware) AuthenticationMiddleware(next http.Handler) http.Handler {
 
 		// Add user information to request context
 		ctx := context.WithValue(r.Context(), common.UserIDKey, claims.UserID.String())
-		ctx = context.WithValue(ctx, "username", claims.Username)
-		ctx = context.WithValue(ctx, "role", claims.Role)
+		ctx = context.WithValue(ctx, usernameKey, claims.Username)
+		ctx = context.WithValue(ctx, roleKey, claims.Role)
 
 		m.logger.LogAuditInfo(claims.UserID.String(), "auth", "success", "Authentication successful")
 		next.ServeHTTP(w, r.WithContext(ctx))
@@ -225,7 +227,7 @@ func (m *Middleware) AuthenticationMiddleware(next http.Handler) http.Handler {
 func (m *Middleware) AuthorizationMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// Get user role from context (set by authentication middleware)
-		role, ok := r.Context().Value("role").(string)
+		role, ok := r.Context().Value(roleKey).(string)
 		if !ok {
 			m.logger.LogAuditError("", "authz", "failed", "Missing role in context", nil)
 			http.Error(w, "Forbidden: missing role", http.StatusForbidden)
@@ -284,12 +286,22 @@ func (m *Middleware) CORSMiddleware(next http.Handler) http.Handler {
 
 // RequestIDMiddleware adds a unique request ID to each request.
 // It focuses solely on request tracking.
+// contextKey is a custom type for context keys in this package.
+type contextKey string
+
+const (
+	requestIDKey contextKey = "request_id"
+	usernameKey  contextKey = "username"
+	roleKey      contextKey = "role"
+)
+
+// RequestIDMiddleware adds a unique request ID to each HTTP request for tracking purposes.
 func (m *Middleware) RequestIDMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		requestID := generateRequestID()
 		w.Header().Set("X-Request-ID", requestID)
 
-		ctx := context.WithValue(r.Context(), "request_id", requestID)
+		ctx := context.WithValue(r.Context(), requestIDKey, requestID)
 		next.ServeHTTP(w, r.WithContext(ctx))
 	})
 }
@@ -300,6 +312,8 @@ func generateRequestID() string {
 	return fmt.Sprintf("req_%d", time.Now().UnixNano())
 }
 
+// AuthMiddleware is deprecated. Use AuthenticationMiddleware and AuthorizationMiddleware instead.
+//
 // Deprecated: AuthMiddleware is deprecated, use AuthenticationMiddleware and AuthorizationMiddleware instead.
 func (m *Middleware) AuthMiddleware(next http.Handler) http.Handler {
 	logrus.Warn("AuthMiddleware is deprecated, use AuthenticationMiddleware and AuthorizationMiddleware instead")

@@ -30,24 +30,32 @@ password-manager/
 ├── bootstrap/              # Application initialization (SRP-compliant)
 ├── internal/
 │   ├── domain/            # Pure domain types and constants (DDD)
-│   │   └── user.go        # User, Claims, Role constants
+│   │   ├── user.go        # User, Claims, Role constants
+│   │   ├── secret.go      # Secret domain type
+│   │   ├── key.go         # Key domain type
+│   │   └── certificate.go # Certificate domain type
 │   ├── services/          # Business logic services (SRP-compliant)
 │   │   ├── auth/          # Authentication services (4 focused services)
 │   │   ├── users/         # User management services
 │   │   ├── secrets/       # Secret management services (4 focused services)
+│   │   ├── keys/          # Key management services
+│   │   ├── certificates/  # Certificate management services
 │   │   └── authorization/ # RBAC services
 │   ├── repositories/      # Pure CRUD data access with interfaces
-│   │   ├── user_repository.go      # UserRepositoryInterface + implementation
-│   │   └── secret_repository.go    # Secret data access
+│   │   ├── user_repository.go         # UserRepositoryInterface + implementation
+│   │   ├── secret_repository.go       # Secret data access
+│   │   ├── key_repository.go          # Key data access
+│   │   └── certificate_repository.go  # Certificate data access
 │   ├── container/         # Dependency injection container
 │   ├── middleware/        # HTTP middleware (SRP-compliant)
 │   ├── backup/            # Backup and restore functionality
-│   ├── certificates/      # Certificate management
+│   ├── cache/             # Caching layer
+│   ├── crypto/            # Cryptographic operations (key_crypto, x509_helper)
 │   ├── db/                # Database layer
 │   ├── health/            # Health check endpoints
-│   ├── keys/              # Key management
 │   ├── logging/           # Structured logging
-│   └── secrets/           # Secret domain logic
+│   ├── retry/             # Retry logic and middleware
+│   └── validation/        # Input validation
 └── config/                # Configuration management
 ```
 

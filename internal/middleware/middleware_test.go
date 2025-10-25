@@ -407,7 +407,9 @@ func TestAuthorizationMiddleware(t *testing.T) {
 
 			req := httptest.NewRequest(tt.method, tt.path, nil)
 			if tt.role != "" {
-				ctx := context.WithValue(req.Context(), "role", tt.role)
+				type ctxKey string
+				const roleKey ctxKey = "role"
+				ctx := context.WithValue(req.Context(), roleKey, tt.role)
 				req = req.WithContext(ctx)
 			}
 			rr := httptest.NewRecorder()

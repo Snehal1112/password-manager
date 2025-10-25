@@ -30,35 +30,35 @@ This comprehensive architecture report analyzes a Go-based password manager that
 │                        API Layer (HTTP)                         │
 │  ┌─────────────┐ ┌─────────────┐ ┌─────────────┐ ┌────────────┐ │
 │  │   Users     │ │   Secrets   │ │    Keys     │ │Certificates│ │
-│  └──────┬──────┘ └──────┬──────┘ └──────┬──────┘ └─────┬──────┘ │
+│  └──────┬──────┘ └──────┬──────┘ └──────┬──────┘ └────┬───────┘ │
 │         │               │               │             │         │
 ├─────────┴───────────────┴───────────────┴─────────────┴─────────┤
 │                    Middleware Layer (HTTP)                      │
-│  Authentication │ Authorization │ Rate Limiting │ Logging │ CORS  │
+│  Authentication │ Authorization │ Rate Limiting │ Logging │ CORS│
 ├─────────────────┴───────────────┴───────────────┴─────────┴─────┤
 │                      Service Layer (Business)                   │
-│  ┌──────────────┐ ┌──────────────┐ ┌──────────────┐ ┌──────────┐ │
-│  │UserService   │ │SecretService │ │AuthService   │ │KeyService│ │
-│  │(Orchestration)│ │(Orchestration)│ │(Coordination)│ │(Domain)  │ │
-│  └──────┬───────┘ └──────┬───────┘ └──────┬───────┘ └────┬─────┘ │
-│         │                │                │             │         │
-├─────────┴────────────────┴────────────────┴─────────────┴─────────┤
+│  ┌──────────────┐ ┌──────────────┐ ┌──────────────┐ ┌──────────┐│
+│  │UserService   │ │SecretService │ │AuthService   │ │KeyService││
+│  │(Orchestration)│ │(Orchestration)│ │(Coordination)│ │(Domain)││
+│  └──────┬───────┘ └──────┬───────┘ └──────┬───────┘ └────┬─────┘│
+│         │                │                │             │       │
+├─────────┴────────────────┴────────────────┴─────────────┴───────┤
 │                    Domain Services (Pure Logic)                 │
-│  ┌──────────────┐ ┌──────────────┐ ┌──────────────┐ ┌──────────┐ │
-│  │PasswordSvc   │ │TOTP Service  │ │JWT Service   │ │CryptoSvc │ │
-│  └──────┬───────┘ └──────┬───────┘ └──────┬───────┘ └────┬─────┘ │
-│         │                │                │             │         │
-├─────────┴────────────────┴────────────────┴─────────────┴─────────┤
+│  ┌──────────────┐ ┌──────────────┐ ┌──────────────┐ ┌──────────┐│
+│  │PasswordSvc   │ │TOTP Service  │ │JWT Service   │ │CryptoSvc ││
+│  └──────┬───────┘ └──────┬───────┘ └──────┬───────┘ └────┬─────┘│
+│         │                │                │             │       │
+├─────────┴────────────────┴────────────────┴─────────────┴───────┤
 │                    Repository Layer (Data Access)               │
-│  ┌──────────────┐ ┌──────────────┐ ┌──────────────┐ ┌──────────┐ │
-│  │UserRepo      │ │SecretRepo    │ │KeyRepo       │ │CertRepo  │ │
-│  │(Generic CRUD)│ │(Generic CRUD)│ │(Generic CRUD)│ │(Generic) │ │
-│  └──────┬───────┘ └──────┬───────┘ └──────┬───────┘ └────┬─────┘ │
-│         │                │                │             │         │
-├─────────┴────────────────┴────────────────┴─────────────┴─────────┤
-│                         Database Layer                           │
-│  SQLite (Development) │ PostgreSQL (Production) │ Connection Pool  │
-└──────────────────────────────────────────────────────────────────┘
+│  ┌──────────────┐ ┌──────────────┐ ┌──────────────┐ ┌──────────┐│
+│  │UserRepo      │ │SecretRepo    │ │KeyRepo       │ │CertRepo  ││
+│  │(Generic CRUD)│ │(Generic CRUD)│ │(Generic CRUD)│ │(Generic) ││
+│  └──────┬───────┘ └──────┬───────┘ └──────┬───────┘ └────┬─────┘│
+│         │                │                │             │       │
+├─────────┴────────────────┴────────────────┴─────────────┴───────┤
+│      SQLite     |    Database Layer       |      Connection     │
+│   (Development) │ PostgreSQL (Production) │        Pool         │
+└─────────────────────────────────────────────────────────────────┘
 ```
 
 ---
