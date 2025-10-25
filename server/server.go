@@ -14,6 +14,7 @@ import (
 	"github.com/gorilla/websocket"
 	"github.com/rs/cors"
 	"github.com/sirupsen/logrus"
+	"github.com/spf13/viper"
 	"golang.org/x/net/http2"
 )
 
@@ -115,15 +116,37 @@ func (s *Server) StartServer(ctx context.Context) error {
 		MaxAge:           86400, // 24 hours
 	})
 
-	// Create HTTP server with enhanced configuration
+	// Get timeout configurations from viper with sensible defaults
+	writeTimeout := viper.GetDuration("server.write_timeout")
+	if writeTimeout == 0 {
+		writeTimeout = 30 * time.Second // Default if not configured
+	}
+
+	readTimeout := viper.GetDuration("server.read_timeout")
+	if readTimeout == 0 {
+		readTimeout = 30 * time.Second // Default if not configured
+	}
+
+	idleTimeout := viper.GetDuration("server.idle_timeout")
+	if idleTimeout == 0 {
+		idleTimeout = 120 * time.Second // Default if not configured
+	}
+
+	// Create HTTP server with configuration from YAML
 	srv := &http.Server{
 		Handler:           cc.Handler(s.Router),
-		WriteTimeout:      30 * time.Second,
-		ReadTimeout:       30 * time.Second,
-		IdleTimeout:       120 * time.Second,
-		ReadHeaderTimeout: 10 * time.Second,
-		MaxHeaderBytes:    1 << 20, // 1MB
+		WriteTimeout:      writeTimeout,
+		ReadTimeout:       readTimeout,
+		IdleTimeout:       idleTimeout,
+		ReadHeaderTimeout: 10 * time.Second, // Keep this hardcoded as it's security-related
+		MaxHeaderBytes:    1 << 20,          // 1MB
 	}
+
+	logger.WithFields(logrus.Fields{
+		"write_timeout": writeTimeout,
+		"read_timeout":  readTimeout,
+		"idle_timeout":  idleTimeout,
+	}).Info("Server timeouts configured")
 
 	// Configure TLS if enabled
 	var tlsConfig *tls.Config
