@@ -31,6 +31,8 @@ The CLI will return a JWT token that can be used for API authentication.
 ### Token Expiration
 
 - JWT tokens expire after 24 hours
+	// vault.Handle("/tenant", Handler(api.App, createTenant)).Methods("GET")
+	// vault.Handle("/tenant/{id:[A-Za-z0-9_-]+}", Handler(api.App, getTenant)).Methods("GET")
 - Include the token in all authenticated requests
 - Handle 401 responses by re-authenticating
 

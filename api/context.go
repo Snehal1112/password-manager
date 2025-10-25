@@ -86,8 +86,8 @@ func Handler(app *app.App, handler func(*Context, http.ResponseWriter, *http.Req
 		ctx.Logger.Infoln(common.T("server.start"))
 		// Populate URL parameters
 		vars := mux.Vars(r)
-		if userId, ok := vars["user_id"]; ok {
-			ctx.Params.UserID = userId
+		if userID, ok := vars["user_id"]; ok {
+			ctx.Params.UserID = userID
 		}
 
 		// Populate query parameters
