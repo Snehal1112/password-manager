@@ -49,9 +49,6 @@ const (
 
 	// defaultDatabase is the default database name.
 	defaultDatabase = "vault"
-
-	// rateLimit is the default rate limit for the API.
-	rateLimit = "10-M"
 )
 
 // bootstrapConfig is the configuration for the bootstrap process.
@@ -76,7 +73,6 @@ var serveCmd = &cobra.Command{
 		ctx = context.WithValue(ctx, common.DBClassKey, database)
 		ctx = context.WithValue(ctx, common.LogKey, log)
 		cmd.SetContext(ctx)
-
 	},
 	RunE: func(cmd *cobra.Command, args []string) error {
 		return serve(cmd)

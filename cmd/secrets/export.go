@@ -65,7 +65,7 @@ The exported file is encrypted using the master key for security.`,
   # Export unencrypted JSON for development
   secrets export --format json --file secrets-dev.json --username dev-user`,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		return runSecretsExport(cmd, args)
+		return runSecretsExport(cmd)
 	},
 }
 
@@ -84,7 +84,7 @@ func InitSecretsExport(parentCmd *cobra.Command) {
 }
 
 // runSecretsExport executes the secrets export command.
-func runSecretsExport(cmd *cobra.Command, args []string) error {
+func runSecretsExport(cmd *cobra.Command) error {
 	// Initialize logger
 	logger := logging.InitLogger()
 
@@ -146,13 +146,13 @@ func runSecretsExport(cmd *cobra.Command, args []string) error {
 	// Ensure output directory exists
 	dir := filepath.Dir(exportFile)
 	if dir != "." {
-		if err := os.MkdirAll(dir, 0755); err != nil {
+		if err := os.MkdirAll(dir, 0o755); err != nil {
 			return fmt.Errorf("failed to create output directory: %w", err)
 		}
 	}
 
 	// Write to file
-	if err := os.WriteFile(exportFile, data, 0600); err != nil {
+	if err := os.WriteFile(exportFile, data, 0o600); err != nil {
 		return fmt.Errorf("failed to write export file: %w", err)
 	}
 

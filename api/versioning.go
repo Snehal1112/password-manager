@@ -164,7 +164,7 @@ func (vm *VersionManager) CompatibilityMiddleware(next http.Handler) http.Handle
 }
 
 // handleV1Compatibility handles v1 specific compatibility issues.
-func (vm *VersionManager) handleV1Compatibility(w http.ResponseWriter, r *http.Request) {
+func (vm *VersionManager) handleV1Compatibility(_ http.ResponseWriter, r *http.Request) {
 	// Transform legacy field names, date formats, etc.
 	// Example: Convert old field names to new ones
 	if r.Header.Get("Content-Type") == "application/json" {
@@ -174,7 +174,7 @@ func (vm *VersionManager) handleV1Compatibility(w http.ResponseWriter, r *http.R
 }
 
 // handleV2Compatibility handles v2 specific compatibility issues.
-func (vm *VersionManager) handleV2Compatibility(w http.ResponseWriter, r *http.Request) {
+func (vm *VersionManager) handleV2Compatibility(_ http.ResponseWriter, _ *http.Request) {
 	// v2 specific transformations
 	vm.logger.Debug("Applying v2 compatibility transformations")
 }

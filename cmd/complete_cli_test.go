@@ -13,8 +13,8 @@ import (
 
 	"password-manager/cmd/testutils"
 	"password-manager/internal/domain"
-	userServices "password-manager/internal/services/users"
 	secretServices "password-manager/internal/services/secrets"
+	userServices "password-manager/internal/services/users"
 )
 
 // TestCompleteCLIWorkflows tests complete end-to-end CLI workflows
@@ -229,10 +229,14 @@ func TestCLISecurityFeatures(t *testing.T) {
 			},
 		}
 
+		// Define a custom type for context keys
+		type ctxKey string
+		const userRoleKey ctxKey = "userRole"
+
 		for _, test := range roleTests {
 			t.Run(test.name, func(t *testing.T) {
 				// Set up context with specific role
-				ctx := context.WithValue(tc.Ctx, "userRole", test.userRole)
+				ctx := context.WithValue(tc.Ctx, userRoleKey, test.userRole)
 
 				rootCmd := createFullTestRootCommand()
 				rootCmd.SetContext(ctx)

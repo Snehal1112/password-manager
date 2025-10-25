@@ -32,8 +32,8 @@ import (
 	"github.com/spf13/cobra"
 
 	"password-manager/common"
-	"password-manager/internal/logging"
 	"password-manager/internal/domain"
+	"password-manager/internal/logging"
 	"password-manager/internal/repositories"
 )
 
@@ -74,7 +74,7 @@ var versionListCmd = &cobra.Command{
 	Long:    `List all historical versions of a secret with their metadata.`,
 	Example: `password-manager version list --secret-id 123e4567-e89b-12d3-a456-426614174000`,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		return runVersionList(cmd, args)
+		return runVersionList(cmd)
 	},
 }
 
@@ -85,7 +85,7 @@ var versionGetCmd = &cobra.Command{
 	Long:    `Retrieve a specific historical version of a secret.`,
 	Example: `password-manager version get --secret-id 123e4567-e89b-12d3-a456-426614174000 --version 2`,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		return runVersionGet(cmd, args)
+		return runVersionGet(cmd)
 	},
 }
 
@@ -96,7 +96,7 @@ var versionLatestCmd = &cobra.Command{
 	Long:    `Retrieve the most recent version of a secret.`,
 	Example: `password-manager version latest --secret-id 123e4567-e89b-12d3-a456-426614174000`,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		return runVersionLatest(cmd, args)
+		return runVersionLatest(cmd)
 	},
 }
 
@@ -116,7 +116,7 @@ func init() {
 	versionLatestCmd.MarkFlagRequired("secret-id")
 }
 
-func runVersionList(cmd *cobra.Command, args []string) error {
+func runVersionList(cmd *cobra.Command) error {
 	ctx := cmd.Context()
 	db := ctx.Value(common.DBKey).(*sql.DB)
 	logger := ctx.Value(common.LogKey).(*logging.Logger)
@@ -159,7 +159,7 @@ func runVersionList(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
-func runVersionGet(cmd *cobra.Command, args []string) error {
+func runVersionGet(cmd *cobra.Command) error {
 	ctx := cmd.Context()
 	db := ctx.Value(common.DBKey).(*sql.DB)
 	logger := ctx.Value(common.LogKey).(*logging.Logger)
@@ -191,7 +191,7 @@ func runVersionGet(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
-func runVersionLatest(cmd *cobra.Command, args []string) error {
+func runVersionLatest(cmd *cobra.Command) error {
 	ctx := cmd.Context()
 	db := ctx.Value(common.DBKey).(*sql.DB)
 	logger := ctx.Value(common.LogKey).(*logging.Logger)
@@ -213,7 +213,6 @@ func runVersionLatest(cmd *cobra.Command, args []string) error {
 
 	// Convert to SecretVersion for display
 	version := &domain.SecretVersion{
-		ID:        currentSecret.ID,
 		SecretID:  currentSecret.ID,
 		UserID:    currentSecret.UserID,
 		Name:      currentSecret.Name,
@@ -226,6 +225,7 @@ func runVersionLatest(cmd *cobra.Command, args []string) error {
 	fmt.Printf("🔍 Latest Secret Version Details\n")
 	fmt.Printf("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n")
 	fmt.Printf("Secret ID: %s\n", version.SecretID.String())
+	fmt.Printf("User ID:   %s\n", version.UserID.String())
 	fmt.Printf("Version:   %d\n", version.Version)
 	fmt.Printf("Name:      %s\n", version.Name)
 	fmt.Printf("Value:     %s\n", version.Value)

@@ -75,7 +75,7 @@ func NewDefaultServer(logger logrus.FieldLogger, listenAddr string) *Server {
 	config := ServerConfig{
 		EnableHTTP2:     true,
 		EnableTLS:       false,
-		EnableWebSocket: true,
+		EnableWebSocket: false,
 		MaxConnections:  1000,
 	}
 	return NewServer(logger, listenAddr, config)

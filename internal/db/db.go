@@ -202,13 +202,6 @@ func (d *DBRepository) getEnvironmentPoolConfig(env string) ConnectionPoolConfig
 			ConnMaxLifetime: 30 * time.Minute, // Rotate connections regularly
 			ConnMaxIdleTime: 5 * time.Minute,  // Close idle connections
 		}
-	case "staging":
-		return ConnectionPoolConfig{
-			MaxOpenConns:    20,               // Moderate concurrency
-			MaxIdleConns:    5,                // Fewer idle connections
-			ConnMaxLifetime: 20 * time.Minute, // Shorter lifetime
-			ConnMaxIdleTime: 3 * time.Minute,  // Quicker cleanup
-		}
 	default: // dev, test
 		return ConnectionPoolConfig{
 			MaxOpenConns:    10,               // Limited concurrency for dev
@@ -501,12 +494,21 @@ func RecordQueryExecution(duration time.Duration) {
 	}
 }
 
-// GetPerformanceMetrics returns current database performance metrics.
-func GetPerformanceMetrics() PerformanceMetrics {
+// PerformanceMetricsSnapshot is a copy of PerformanceMetrics without the mutex for safe return.
+type PerformanceMetricsSnapshot struct {
+	QueryCount       int64         `json:"query_count"`
+	SlowQueryCount   int64         `json:"slow_query_count"`
+	TotalQueryTime   time.Duration `json:"total_query_time"`
+	AverageQueryTime time.Duration `json:"avg_query_time"`
+	ConnectionStats  sql.DBStats   `json:"connection_stats"`
+}
+
+// GetPerformanceMetrics returns current database performance metrics without copying the mutex.
+func GetPerformanceMetrics() PerformanceMetricsSnapshot {
 	metrics.mu.RLock()
 	defer metrics.mu.RUnlock()
 
-	result := PerformanceMetrics{
+	result := PerformanceMetricsSnapshot{
 		QueryCount:       metrics.QueryCount,
 		SlowQueryCount:   metrics.SlowQueryCount,
 		TotalQueryTime:   metrics.TotalQueryTime,

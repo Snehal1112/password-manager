@@ -37,7 +37,7 @@ func (api *API) InitVault(vault *mux.Router) {
 //   - If the request body cannot be parsed into a Tenant model, it returns a 400 Bad Request error.
 //   - If there is an error creating the tenant, it sets the error in the context and returns the appropriate status code.
 //   - If there is an error converting the created tenant properties to JSON, it returns a 400 Bad Request error.
-func createTenant(c *Context, w http.ResponseWriter, r *http.Request) {
+func createTenant(_ *Context, w http.ResponseWriter, _ *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusCreated)
 	response := map[string]interface{}{

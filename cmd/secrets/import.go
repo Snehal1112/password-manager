@@ -62,7 +62,7 @@ The file must be compatible with the current master key for decryption.`,
   # Import unencrypted development file
   secrets import --format json --file secrets-dev.json --username dev-user`,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		return runSecretsImport(cmd, args)
+		return runSecretsImport()
 	},
 }
 
@@ -80,10 +80,10 @@ func InitSecretsImport(parentCmd *cobra.Command) {
 }
 
 // runSecretsImport executes the secrets import command.
-func runSecretsImport(cmd *cobra.Command, args []string) error {
+func runSecretsImport() error {
 	// Initialize logger
 	logger := logging.InitLogger()
-	
+
 	// Initialize database
 	database := db.NewRepository(logger)
 	if err := database.InitializeDB(); err != nil {
@@ -144,7 +144,7 @@ func runSecretsImport(cmd *cobra.Command, args []string) error {
 
 	// Import secrets
 	fmt.Printf("🔄 Importing secrets from %s...\n", importFile)
-	
+
 	importedCount, err := secretsRepo.ImportSecrets(ctx, data, options)
 	if err != nil {
 		return fmt.Errorf("failed to import secrets: %w", err)
