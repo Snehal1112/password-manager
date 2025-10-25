@@ -34,6 +34,7 @@ type ServiceContainerInterface interface {
 	GetVersionRepository() repositories.SecretVersionRepositoryInterface
 	GetKeyRepository() repositories.KeyRepositoryInterface
 	GetCertificateRepository() repositories.CertificateRepositoryInterface
+	GetSessionRepository() repositories.SessionRepositoryInterface
 
 	// Authentication service getters
 	GetPasswordService() authServices.PasswordService
@@ -82,6 +83,7 @@ type ServiceContainer struct {
 	versionRepository     repositories.SecretVersionRepositoryInterface
 	keyRepository         repositories.KeyRepositoryInterface
 	certificateRepository repositories.CertificateRepositoryInterface
+	sessionRepository     repositories.SessionRepositoryInterface
 
 	// Authentication services
 	passwordService       authServices.PasswordService
@@ -144,6 +146,10 @@ func (c *ServiceContainer) initializeServices() error {
 	c.versionRepository = repositories.NewSecretVersionRepository(c.db, c.logger)
 	c.keyRepository = repositories.NewKeyRepository(c.db, c.logger)
 	c.certificateRepository = repositories.NewCertificateRepository(c.db, c.logger)
+	c.sessionRepository = repositories.NewSessionRepository(repositories.SessionRepositoryConfig{
+		DB:     c.db,
+		Logger: c.logger,
+	})
 
 	// Initialize authentication services
 	c.passwordService = authServices.NewPasswordService()
@@ -163,11 +169,12 @@ func (c *ServiceContainer) initializeServices() error {
 
 	// Initialize authentication service
 	c.authenticationService = authServices.NewAuthenticationService(authServices.AuthenticationConfig{
-		UserRepository:  c.userRepository,
-		PasswordService: c.passwordService,
-		TOTPService:     c.totpService,
-		JWTService:      c.jwtService,
-		Logger:          c.logger,
+		UserRepository:    c.userRepository,
+		SessionRepository: c.sessionRepository,
+		PasswordService:   c.passwordService,
+		TOTPService:       c.totpService,
+		JWTService:        c.jwtService,
+		Logger:            c.logger,
 	})
 
 	// Initialize authorization services
@@ -330,6 +337,11 @@ func (c *ServiceContainer) GetKeyRepository() repositories.KeyRepositoryInterfac
 // GetCertificateRepository returns the certificate repository.
 func (c *ServiceContainer) GetCertificateRepository() repositories.CertificateRepositoryInterface {
 	return c.certificateRepository
+}
+
+// GetSessionRepository returns the session repository.
+func (c *ServiceContainer) GetSessionRepository() repositories.SessionRepositoryInterface {
+	return c.sessionRepository
 }
 
 // GetKeyService returns the key service.

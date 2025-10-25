@@ -425,6 +425,27 @@ func (d *DBRepository) createOptimizedSchema(db *sql.DB) error {
 		);
 		CREATE INDEX IF NOT EXISTS idx_secret_policies_next_rotation ON secret_policies(next_rotation_at);
 		CREATE INDEX IF NOT EXISTS idx_secret_policies_last_rotated ON secret_policies(last_rotated_at);
+
+		CREATE TABLE IF NOT EXISTS user_sessions (
+			id TEXT PRIMARY KEY,
+			user_id TEXT NOT NULL,
+			refresh_token_hash TEXT NOT NULL,
+			device_info TEXT,
+			ip_address TEXT,
+			user_agent TEXT,
+			expires_at TIMESTAMP NOT NULL,
+			last_used_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+			created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+			revoked BOOLEAN DEFAULT FALSE,
+			revoked_at TIMESTAMP,
+			revoked_reason TEXT,
+			FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+		);
+		CREATE INDEX IF NOT EXISTS idx_user_sessions_user_id ON user_sessions(user_id);
+		CREATE INDEX IF NOT EXISTS idx_user_sessions_refresh_token ON user_sessions(refresh_token_hash);
+		CREATE INDEX IF NOT EXISTS idx_user_sessions_expires_at ON user_sessions(expires_at);
+		CREATE INDEX IF NOT EXISTS idx_user_sessions_revoked ON user_sessions(revoked);
+		CREATE INDEX IF NOT EXISTS idx_user_sessions_last_used ON user_sessions(last_used_at);
 	`)
 	if err != nil {
 		d.log.Error("Failed to create tables: ", err)

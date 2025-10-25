@@ -117,6 +117,70 @@ func (m *MockJWTService) ParseToken(tokenString string) (*JWTClaims, error) {
 	return args.Get(0).(*JWTClaims), args.Error(1)
 }
 
+// MockSessionRepository implements SessionRepositoryInterface for testing
+type MockSessionRepository struct {
+	mock.Mock
+}
+
+func (m *MockSessionRepository) CreateSession(ctx context.Context, session *domain.Session) error {
+	args := m.Called(ctx, session)
+	return args.Error(0)
+}
+
+func (m *MockSessionRepository) GetSessionByID(ctx context.Context, sessionID uuid.UUID) (*domain.Session, error) {
+	args := m.Called(ctx, sessionID)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).(*domain.Session), args.Error(1)
+}
+
+func (m *MockSessionRepository) GetSessionByRefreshToken(ctx context.Context, refreshTokenHash string) (*domain.Session, error) {
+	args := m.Called(ctx, refreshTokenHash)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).(*domain.Session), args.Error(1)
+}
+
+func (m *MockSessionRepository) GetActiveSessionsByUserID(ctx context.Context, userID uuid.UUID) ([]*domain.Session, error) {
+	args := m.Called(ctx, userID)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).([]*domain.Session), args.Error(1)
+}
+
+func (m *MockSessionRepository) UpdateSessionLastUsed(ctx context.Context, sessionID uuid.UUID, lastUsedAt time.Time) error {
+	args := m.Called(ctx, sessionID, lastUsedAt)
+	return args.Error(0)
+}
+
+func (m *MockSessionRepository) RevokeSession(ctx context.Context, sessionID uuid.UUID, reason string) error {
+	args := m.Called(ctx, sessionID, reason)
+	return args.Error(0)
+}
+
+func (m *MockSessionRepository) RevokeAllUserSessions(ctx context.Context, userID uuid.UUID, reason string) error {
+	args := m.Called(ctx, userID, reason)
+	return args.Error(0)
+}
+
+func (m *MockSessionRepository) DeleteExpiredSessions(ctx context.Context, before time.Time) (int64, error) {
+	args := m.Called(ctx, before)
+	return args.Get(0).(int64), args.Error(1)
+}
+
+func (m *MockSessionRepository) CountActiveSessions(ctx context.Context, userID uuid.UUID) (int, error) {
+	args := m.Called(ctx, userID)
+	return args.Get(0).(int), args.Error(1)
+}
+
+func (m *MockSessionRepository) IsSessionRevoked(ctx context.Context, sessionID uuid.UUID) (bool, error) {
+	args := m.Called(ctx, sessionID)
+	return args.Bool(0), args.Error(1)
+}
+
 // Test demonstrating the new SRP-compliant architecture
 
 func TestAuthenticationService_AuthenticateUser_Success(t *testing.T) {
@@ -125,6 +189,7 @@ func TestAuthenticationService_AuthenticateUser_Success(t *testing.T) {
 
 	// Create mocks
 	mockUserRepo := &MockUserRepository{}
+	mockSessionRepo := &MockSessionRepository{}
 	mockPasswordService := &MockPasswordService{}
 	mockTOTPService := &MockTOTPService{}
 	mockJWTService := &MockJWTService{}
@@ -147,14 +212,16 @@ func TestAuthenticationService_AuthenticateUser_Success(t *testing.T) {
 	mockPasswordService.On("ValidatePassword", "password123", "hashedpassword").Return(nil)
 	mockTOTPService.On("ValidateCode", "123456", "secret123", mock.AnythingOfType("time.Time")).Return(true, nil)
 	mockJWTService.On("GenerateToken", userID, "testuser", domain.RoleUser).Return("jwt_token", nil)
+	mockSessionRepo.On("CreateSession", ctx, mock.AnythingOfType("*domain.Session")).Return(nil)
 
 	// Create service
 	service := NewAuthenticationService(AuthenticationConfig{
-		UserRepository:  mockUserRepo,
-		PasswordService: mockPasswordService,
-		TOTPService:     mockTOTPService,
-		JWTService:      mockJWTService,
-		Logger:          logger,
+		UserRepository:    mockUserRepo,
+		SessionRepository: mockSessionRepo,
+		PasswordService:   mockPasswordService,
+		TOTPService:       mockTOTPService,
+		JWTService:        mockJWTService,
+		Logger:            logger,
 	})
 
 	// Act
@@ -164,12 +231,14 @@ func TestAuthenticationService_AuthenticateUser_Success(t *testing.T) {
 	assert.NoError(t, err)
 	assert.NotNil(t, result)
 	assert.Equal(t, "jwt_token", result.Token)
+	assert.NotEmpty(t, result.RefreshToken) // Should have refresh token
 	assert.Equal(t, userID, result.UserID)
 	assert.Equal(t, "testuser", result.Username)
 	assert.Equal(t, domain.RoleUser, result.Role)
 
 	// Verify all mocks were called
 	mockUserRepo.AssertExpectations(t)
+	mockSessionRepo.AssertExpectations(t)
 	mockPasswordService.AssertExpectations(t)
 	mockTOTPService.AssertExpectations(t)
 	mockJWTService.AssertExpectations(t)
