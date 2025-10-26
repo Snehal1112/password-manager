@@ -313,15 +313,17 @@ func (s *schedulerService) sendReminder(ctx context.Context, reminder domain.Rot
 
 // getAllUsers gets all user IDs using proper repository pattern.
 func (s *schedulerService) getAllUsers(ctx context.Context) ([]uuid.UUID, error) {
-	// This is a simplified implementation that would typically use pagination
-	// In production, you'd want to implement proper user listing in UserRepository
-	// For now, we'll implement a basic query through the repository
+	// Get all users using the existing List method from UserRepository
+	users, err := s.userRepo.List(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to list users: %w", err)
+	}
 
-	// Note: This should be implemented in the UserRepository interface
-	// as ListAllUsers() method. For now, we'll use a direct query approach
-	// that would be added to the UserRepository.
+	// Extract user IDs from the user objects
+	userIDs := make([]uuid.UUID, 0, len(users))
+	for _, user := range users {
+		userIDs = append(userIDs, user.ID)
+	}
 
-	// This is a placeholder - in the actual implementation, you would add
-	// a ListAllUsers method to UserRepositoryInterface and implement it properly
-	return []uuid.UUID{}, fmt.Errorf("ListAllUsers not implemented in UserRepository")
+	return userIDs, nil
 }
