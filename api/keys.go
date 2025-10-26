@@ -99,7 +99,7 @@ func (api *API) InitKeys(keys *mux.Router) {
 func createKey(c *Context, w http.ResponseWriter, r *http.Request) {
 	// Check authorization - requires admin or secrets manager role
 	claims, ok := c.Claims["role"].(string)
-	if !ok || (claims != string(domain.RoleAdmin) && claims != string(domain.RoleSecretsManager)) {
+	if !ok || !common.HasRequiredRole(claims, domain.RoleAdmin, domain.RoleSecretsManager) {
 		c.Err = common.NewAppError("createKey", "Forbidden: requires admin or secrets_manager role", nil, "", http.StatusForbidden)
 		return
 	}

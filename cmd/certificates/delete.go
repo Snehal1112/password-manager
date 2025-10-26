@@ -31,7 +31,7 @@ var deleteCmd = &cobra.Command{
 		}
 
 		log := ctx.Value(common.LogKey).(*logging.Logger)
-		if claims.Role != domain.RoleAdmin && claims.Role != domain.RoleCertificateManager {
+		if !common.HasRequiredRole(claims.Role, domain.RoleAdmin, domain.RoleCertificateManager) {
 			log.LogAuditError(claims.UserID.String(), "delete_certificate", "failed", "forbidden: requires admin or certificate_manager role", nil)
 			return fmt.Errorf("forbidden: requires admin or certificate_manager role")
 		}

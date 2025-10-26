@@ -51,7 +51,7 @@ var createCmd = &cobra.Command{
 		}
 
 		log := ctx.Value(common.LogKey).(*logging.Logger)
-		if claims.Role != domain.RoleAdmin && claims.Role != domain.RoleSecretsManager {
+		if !common.HasRequiredRole(claims.Role, domain.RoleAdmin, domain.RoleSecretsManager) {
 			log.LogAuditError(claims.UserID.String(), "create_key", "failed", "forbidden: requires admin or secrets_manager role", nil)
 			return fmt.Errorf("forbidden: requires admin or secrets_manager role")
 		}
