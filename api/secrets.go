@@ -38,6 +38,7 @@ import (
 	"password-manager/internal/db"
 	"password-manager/internal/domain"
 	"password-manager/internal/repositories"
+	"password-manager/internal/services/secrets"
 )
 
 // ExportRequest represents the request structure for exporting secrets.
@@ -501,28 +502,28 @@ func createSecret(c *Context, w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Initialize database and secrets repository
-	database := db.NewRepository(c.Logger)
-	if err := database.InitializeDB(); err != nil {
-		c.Err = common.NewAppError("createSecret", "Failed to initialize database", nil, err.Error(), http.StatusInternalServerError)
+	// Use service container for proper business logic orchestration
+	if c.App == nil || c.App.ServiceContainer == nil {
+		c.Err = common.NewAppError("createSecret", "Service container not available", nil, "", http.StatusInternalServerError)
 		return
 	}
-	defer database.GetDB().Close()
 
-	secretsRepo := repositories.NewSecretRepository(database.GetDB(), c.Logger)
-
-	// Create secret
-	secret := domain.Secret{
-		ID:        uuid.New(),
-		UserID:    userID,
-		Name:      req.Name,
-		Value:     req.Value,
-		Version:   1,
-		Tags:      req.Tags,
-		CreatedAt: time.Now(),
+	secretService := c.App.ServiceContainer.GetSecretService()
+	if secretService == nil {
+		c.Err = common.NewAppError("createSecret", "Secret service not available", nil, "", http.StatusInternalServerError)
+		return
 	}
 
-	if err := secretsRepo.Create(r.Context(), &secret); err != nil {
+	// Create secret using service layer (which handles encryption)
+	createReq := secrets.CreateSecretRequest{
+		UserID: userID,
+		Name:   req.Name,
+		Value:  req.Value,
+		Tags:   req.Tags,
+	}
+
+	secret, err := secretService.CreateSecret(r.Context(), createReq)
+	if err != nil {
 		c.Err = common.NewAppError("createSecret", "Failed to create secret", nil, err.Error(), http.StatusInternalServerError)
 		return
 	}

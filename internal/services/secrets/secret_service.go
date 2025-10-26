@@ -228,8 +228,7 @@ func (s *secretService) UpdateSecret(ctx context.Context, req UpdateSecretReques
 		}
 	}
 
-	s.logger.LogAuditInfo(req.UserID.String(), "update_secret", "success",
-		fmt.Sprintf("Secret updated: %s", updatedSecret.Name))
+	s.logger.LogAuditInfo(req.UserID.String(), "update_secret", "success", fmt.Sprintf("Secret updated: %s", updatedSecret.Name))
 	logrus.WithFields(logrus.Fields{
 		"secret_id": req.SecretID.String(),
 		"user_id":   req.UserID.String(),
