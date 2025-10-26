@@ -4,7 +4,6 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
-	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -139,15 +138,14 @@ func (r *SecretRepository) Create(ctx context.Context, secret *domain.Secret) er
 func (r *SecretRepository) Read(ctx context.Context, id uuid.UUID) (*domain.Secret, error) {
 	var secret domain.Secret
 	var idStr, userIDStr string
-	var tagsJSON string
 	var deletedAt *time.Time
 	var purgeProtection bool
 
 	err := r.db.QueryRowContext(
 		ctx,
-		"SELECT id, user_id, name, value, version, tags, created_at, deleted_at, purge_protection FROM secrets WHERE id = ? AND deleted_at IS NULL",
+		"SELECT id, user_id, name, value, version, created_at, deleted_at, purge_protection FROM secrets WHERE id = ? AND deleted_at IS NULL",
 		id.String(),
-	).Scan(&idStr, &userIDStr, &secret.Name, &secret.Value, &secret.Version, &tagsJSON, &secret.CreatedAt, &deletedAt, &purgeProtection)
+	).Scan(&idStr, &userIDStr, &secret.Name, &secret.Value, &secret.Version, &secret.CreatedAt, &deletedAt, &purgeProtection)
 
 	if err == sql.ErrNoRows {
 		return nil, fmt.Errorf("secret not found")
@@ -164,11 +162,6 @@ func (r *SecretRepository) Read(ctx context.Context, id uuid.UUID) (*domain.Secr
 	secret.UserID, err = uuid.Parse(userIDStr)
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse user ID: %w", err)
-	}
-
-	// Parse tags from JSON
-	if tagsJSON != "" {
-		secret.Tags = strings.Split(tagsJSON, ",")
 	}
 
 	// Set soft delete fields
@@ -383,7 +376,7 @@ func (r *SecretRepository) ListByUser(ctx context.Context, userID uuid.UUID, tag
 		// Optimized query with proper indexing and ordering - excludes soft-deleted secrets
 		rows, err := r.db.QueryContext(
 			ctx,
-			"SELECT id, user_id, name, value, version, tags, created_at, deleted_at, purge_protection FROM secrets WHERE user_id = ? AND deleted_at IS NULL ORDER BY name ASC",
+			"SELECT id, user_id, name, value, version, created_at, deleted_at, purge_protection FROM secrets WHERE user_id = ? AND deleted_at IS NULL ORDER BY name ASC",
 			userID.String(),
 		)
 		if err != nil {
@@ -399,11 +392,10 @@ func (r *SecretRepository) ListByUser(ctx context.Context, userID uuid.UUID, tag
 			var secret domain.Secret
 			var idStr, userIDStr string
 
-			var tagsJSON string
 			var deletedAt *time.Time
 			var purgeProtection bool
 
-			err := rows.Scan(&idStr, &userIDStr, &secret.Name, &secret.Value, &secret.Version, &tagsJSON, &secret.CreatedAt, &deletedAt, &purgeProtection)
+			err := rows.Scan(&idStr, &userIDStr, &secret.Name, &secret.Value, &secret.Version, &secret.CreatedAt, &deletedAt, &purgeProtection)
 			if err != nil {
 				r.log.LogAuditError(userID.String(), "list_secrets", "failed", "Failed to scan secret", err)
 				return fmt.Errorf("failed to scan secret: %w", err)
@@ -419,12 +411,6 @@ func (r *SecretRepository) ListByUser(ctx context.Context, userID uuid.UUID, tag
 			if err != nil {
 				r.log.LogAuditError(userID.String(), "list_secrets", "failed", "Failed to parse user ID", err)
 				return fmt.Errorf("failed to parse user ID: %w", err)
-			}
-
-			// Parse tags from JSON
-			if tagsJSON != "" {
-				// Simple comma-separated tags parsing (adjust based on your actual format)
-				secret.Tags = strings.Split(tagsJSON, ",")
 			}
 
 			// Set soft delete fields (these should be nil/false for active secrets)
@@ -474,7 +460,7 @@ func (r *SecretRepository) ListByUserIncludeDeleted(ctx context.Context, userID 
 		// Query includes soft-deleted secrets
 		rows, err := r.db.QueryContext(
 			ctx,
-			"SELECT id, user_id, name, value, version, tags, created_at, deleted_at, purge_protection FROM secrets WHERE user_id = ? ORDER BY name ASC",
+			"SELECT id, user_id, name, value, version, created_at, deleted_at, purge_protection FROM secrets WHERE user_id = ? ORDER BY name ASC",
 			userID.String(),
 		)
 		if err != nil {
@@ -489,11 +475,10 @@ func (r *SecretRepository) ListByUserIncludeDeleted(ctx context.Context, userID 
 		for rows.Next() {
 			var secret domain.Secret
 			var idStr, userIDStr string
-			var tagsJSON string
 			var deletedAt *time.Time
 			var purgeProtection bool
 
-			err := rows.Scan(&idStr, &userIDStr, &secret.Name, &secret.Value, &secret.Version, &tagsJSON, &secret.CreatedAt, &deletedAt, &purgeProtection)
+			err := rows.Scan(&idStr, &userIDStr, &secret.Name, &secret.Value, &secret.Version, &secret.CreatedAt, &deletedAt, &purgeProtection)
 			if err != nil {
 				r.log.LogAuditError(userID.String(), "list_secrets_include_deleted", "failed", "Failed to scan secret", err)
 				return fmt.Errorf("failed to scan secret: %w", err)
@@ -509,11 +494,6 @@ func (r *SecretRepository) ListByUserIncludeDeleted(ctx context.Context, userID 
 			if err != nil {
 				r.log.LogAuditError(userID.String(), "list_secrets_include_deleted", "failed", "Failed to parse user ID", err)
 				return fmt.Errorf("failed to parse user ID: %w", err)
-			}
-
-			// Parse tags from JSON
-			if tagsJSON != "" {
-				secret.Tags = strings.Split(tagsJSON, ",")
 			}
 
 			// Set soft delete fields
