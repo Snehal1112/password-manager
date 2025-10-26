@@ -26,6 +26,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -185,16 +186,32 @@ func createUser(c *Context, w http.ResponseWriter, r *http.Request) {
 		c.Err = common.NewAppError("createUser", "Invalid password: must be at least 8 characters", nil, "", http.StatusBadRequest)
 		return
 	}
-	validRoles := []string{"secrets_manager", "crypto_manager", "certificate_manager", "admin"}
+	validRoles := []string{domain.RoleAdmin, domain.RoleCryptoManager, domain.RoleCertificateManager, domain.RoleSecretsManager, domain.RoleUser}
 	roleValid := false
-	for _, role := range validRoles {
-		if req.Role == role {
-			roleValid = true
+	
+	// Split role string by comma to support multiple roles
+	requestedRoles := strings.Split(strings.TrimSpace(req.Role), ",")
+	for _, requestedRole := range requestedRoles {
+		requestedRole = strings.TrimSpace(requestedRole)
+		if requestedRole == "" {
+			continue
+		}
+		found := false
+		for _, validRole := range validRoles {
+			if requestedRole == validRole {
+				found = true
+				break
+			}
+		}
+		if !found {
+			roleValid = false
 			break
 		}
+		roleValid = true
 	}
+	
 	if !roleValid {
-		c.Err = common.NewAppError("createUser", "Invalid role: must be one of secrets_manager, crypto_manager, certificate_manager, admin", nil, "", http.StatusBadRequest)
+		c.Err = common.NewAppError("createUser", "Invalid role: must be one of secrets_manager, crypto_manager, certificate_manager, admin, user", nil, "", http.StatusBadRequest)
 		return
 	}
 
@@ -230,8 +247,7 @@ func createUser(c *Context, w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(response)
 
 	// Log successful creation
-	c.Logger.Printf("Admin %s created user %s with role %s",
-		c.Claims["user_id"], result.Username, result.Role)
+	c.Logger.Printf("Admin %s created user %s with role %s", c.Claims["user_id"], result.Username, result.Role)
 }
 
 // listUsers handles the HTTP request to retrieve all users.
@@ -404,16 +420,32 @@ func updateUser(c *Context, w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if req.Role != "" {
-		validRoles := []string{"secrets_manager", "crypto_manager", "certificate_manager", "admin"}
+		validRoles := []string{domain.RoleAdmin, domain.RoleCryptoManager, domain.RoleCertificateManager, domain.RoleSecretsManager, domain.RoleUser}
 		roleValid := false
-		for _, role := range validRoles {
-			if req.Role == role {
-				roleValid = true
+		
+		// Split role string by comma to support multiple roles
+		requestedRoles := strings.Split(strings.TrimSpace(req.Role), ",")
+		for _, requestedRole := range requestedRoles {
+			requestedRole = strings.TrimSpace(requestedRole)
+			if requestedRole == "" {
+				continue
+			}
+			found := false
+			for _, validRole := range validRoles {
+				if requestedRole == validRole {
+					found = true
+					break
+				}
+			}
+			if !found {
+				roleValid = false
 				break
 			}
+			roleValid = true
 		}
+		
 		if !roleValid {
-			c.Err = common.NewAppError("updateUser", "Invalid role: must be one of secrets_manager, crypto_manager, certificate_manager, admin", nil, "", http.StatusBadRequest)
+			c.Err = common.NewAppError("updateUser", "Invalid role: must be one of secrets_manager, crypto_manager, certificate_manager, admin, user", nil, "", http.StatusBadRequest)
 			return
 		}
 	}
