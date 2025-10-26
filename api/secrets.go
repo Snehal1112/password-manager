@@ -582,10 +582,19 @@ func listSecrets(c *Context, w http.ResponseWriter, r *http.Request) {
 	}
 	defer database.GetDB().Close()
 
-	secretsRepo := repositories.NewSecretRepository(database.GetDB(), c.Logger)
+	// Use service container for proper business logic orchestration
+	if c.App == nil || c.App.ServiceContainer == nil {
+		c.Err = common.NewAppError("createSecret", "Service container not available", nil, "", http.StatusInternalServerError)
+		return
+	}
 
-	// Get secrets
-	secretsList, err := secretsRepo.ListByUser(r.Context(), userID, tags)
+	secretService := c.App.ServiceContainer.GetSecretService()
+	if secretService == nil {
+		c.Err = common.NewAppError("createSecret", "Secret service not available", nil, "", http.StatusInternalServerError)
+		return
+	}
+
+	secretsList, err := secretService.ListSecrets(r.Context(), userID, tags)
 	if err != nil {
 		c.Err = common.NewAppError("listSecrets", "Failed to list secrets", nil, err.Error(), http.StatusInternalServerError)
 		return
@@ -649,12 +658,21 @@ func getSecret(c *Context, w http.ResponseWriter, r *http.Request) {
 	}
 	defer database.GetDB().Close()
 
-	secretsRepo := repositories.NewSecretRepository(database.GetDB(), c.Logger)
+	// Use service container for proper business logic orchestration
+	if c.App == nil || c.App.ServiceContainer == nil {
+		c.Err = common.NewAppError("createSecret", "Service container not available", nil, "", http.StatusInternalServerError)
+		return
+	}
 
-	// Get secret
-	secret, err := secretsRepo.Read(r.Context(), secretID)
+	secretService := c.App.ServiceContainer.GetSecretService()
+	if secretService == nil {
+		c.Err = common.NewAppError("createSecret", "Secret service not available", nil, "", http.StatusInternalServerError)
+		return
+	}
+
+	secret, err := secretService.GetSecret(r.Context(), userID, secretID)
 	if err != nil {
-		c.Err = common.NewAppError("getSecret", "Secret not found", nil, err.Error(), http.StatusNotFound)
+		c.Err = common.NewAppError("getSecret", "Failed to get secret", nil, err.Error(), http.StatusInternalServerError)
 		return
 	}
 
@@ -725,12 +743,21 @@ func updateSecret(c *Context, w http.ResponseWriter, r *http.Request) {
 	}
 	defer database.GetDB().Close()
 
-	secretsRepo := repositories.NewSecretRepository(database.GetDB(), c.Logger)
+	// Use service container for proper business logic orchestration
+	if c.App == nil || c.App.ServiceContainer == nil {
+		c.Err = common.NewAppError("createSecret", "Service container not available", nil, "", http.StatusInternalServerError)
+		return
+	}
 
-	// Get existing secret
-	secret, err := secretsRepo.Read(r.Context(), secretID)
+	secretService := c.App.ServiceContainer.GetSecretService()
+	if secretService == nil {
+		c.Err = common.NewAppError("createSecret", "Secret service not available", nil, "", http.StatusInternalServerError)
+		return
+	}
+
+	secret, err := secretService.GetSecret(r.Context(), userID, secretID)
 	if err != nil {
-		c.Err = common.NewAppError("updateSecret", "Secret not found", nil, err.Error(), http.StatusNotFound)
+		c.Err = common.NewAppError("updateSecret", "Failed to get secret", nil, err.Error(), http.StatusInternalServerError)
 		return
 	}
 
@@ -764,7 +791,13 @@ func updateSecret(c *Context, w http.ResponseWriter, r *http.Request) {
 	secret.Version++
 
 	// Update secret
-	if err := secretsRepo.Update(r.Context(), secret); err != nil {
+	if err := secretService.UpdateSecret(r.Context(), secrets.UpdateSecretRequest{
+		UserID:   userID,
+		SecretID: secret.ID,
+		Name:     &secret.Name,
+		Value:    &secret.Value,
+		Tags:     &secret.Tags,
+	}); err != nil {
 		c.Err = common.NewAppError("updateSecret", "Failed to update secret", nil, err.Error(), http.StatusInternalServerError)
 		return
 	}
