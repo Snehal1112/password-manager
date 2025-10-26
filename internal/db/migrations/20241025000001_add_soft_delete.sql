@@ -20,6 +20,3 @@ CREATE INDEX IF NOT EXISTS idx_keys_deleted_at ON keys(deleted_at) WHERE deleted
 CREATE INDEX IF NOT EXISTS idx_keys_purge_protection ON keys(purge_protection);
 CREATE INDEX IF NOT EXISTS idx_certificates_deleted_at ON certificates(deleted_at) WHERE deleted_at IS NOT NULL;
 CREATE INDEX IF NOT EXISTS idx_certificates_purge_protection ON certificates(purge_protection);
-
--- Insert migration record
-INSERT INTO schema_migrations (version, description, applied_at) VALUES (1, 'Add soft delete and purge protection', CURRENT_TIMESTAMP);

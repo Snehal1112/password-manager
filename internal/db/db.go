@@ -104,6 +104,25 @@ func (d *DBRepository) GetDB() *sql.DB {
 	return d.db
 }
 
+// OpenDatabase opens a database connection with the provided configuration.
+// Exported for use by migration commands.
+func (d *DBRepository) OpenDatabase(config *DatabaseConfig) (*sql.DB, error) {
+	// Open a connection to the database
+	db, err := sql.Open(config.DriverName, config.ConnectionString)
+	if err != nil {
+		d.log.Error("Failed to open database: ", err)
+		return nil, fmt.Errorf("failed to open database: %w", err)
+	}
+
+	// Configure connection pool for optimal performance
+	if err := d.configureConnectionPool(db, config.PoolConfig); err != nil {
+		db.Close()
+		return nil, fmt.Errorf("failed to configure connection pool: %w", err)
+	}
+
+	return db, nil
+}
+
 // InitializeDB sets up the SQLite or PostgreSQL database with optimized connection pooling.
 // It opens a connection using the configured connection string, configures connection pool,
 // and creates tables for users, secrets, keys, CA keys, CRLs, and audit logs.
@@ -159,7 +178,13 @@ func (d *DBRepository) InitializeDB() error {
 	return nil
 }
 
-// loadDatabaseConfig loads and validates database configuration.
+// LoadDatabaseConfig loads and validates database configuration.
+// Exported for use by migration commands.
+func (d *DBRepository) LoadDatabaseConfig() (*DatabaseConfig, error) {
+	return d.loadDatabaseConfig()
+}
+
+// loadDatabaseConfig loads and validates database configuration (internal).
 func (d *DBRepository) loadDatabaseConfig() (*DatabaseConfig, error) {
 	// Retrieve the database connection string from configuration.
 	connStr := viper.GetString("database.connection")

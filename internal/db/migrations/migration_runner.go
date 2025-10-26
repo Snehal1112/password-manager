@@ -250,17 +250,17 @@ func (r *MigrationRunner) GetCurrentVersion(ctx context.Context) (string, error)
 		return "", err
 	}
 
-	var version string
+	var version sql.NullString
 	err := r.db.QueryRowContext(ctx, "SELECT MAX(version) FROM schema_migrations").Scan(&version)
 	if err != nil {
 		return "", fmt.Errorf("failed to get current version: %w", err)
 	}
 
-	if version == "" {
+	if !version.Valid || version.String == "" {
 		return "0", nil // No migrations applied yet
 	}
 
-	return version, nil
+	return version.String, nil
 }
 
 // Example usage:
