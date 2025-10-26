@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/mock"
 
 	"password-manager/common"
+	"password-manager/internal/cache"
 	"password-manager/internal/domain"
 	"password-manager/internal/logging"
 	"password-manager/internal/repositories"
@@ -18,6 +19,7 @@ import (
 	authzServices "password-manager/internal/services/authorization"
 	certServices "password-manager/internal/services/certificates"
 	keyServices "password-manager/internal/services/keys"
+	retryServices "password-manager/internal/services/retry"
 	secretServices "password-manager/internal/services/secrets"
 	userServices "password-manager/internal/services/users"
 )
@@ -116,6 +118,10 @@ func (m *MockServiceContainer) GetCertificateRepository() repositories.Certifica
 	return nil
 }
 
+func (m *MockServiceContainer) GetSessionRepository() repositories.SessionRepositoryInterface {
+	return nil
+}
+
 // Authentication service getters - return nil for unused services
 func (m *MockServiceContainer) GetPasswordService() authServices.PasswordService {
 	return nil
@@ -151,6 +157,16 @@ func (m *MockServiceContainer) GetSecretService() secretServices.SecretService {
 	return args.Get(0).(secretServices.SecretService)
 }
 
+func (m *MockServiceContainer) GetCachedSecretService() secretServices.SecretService {
+	// For testing, return the same mock service as GetSecretService
+	args := m.Called()
+	if len(args) == 0 {
+		// Fallback to GetSecretService if not explicitly mocked
+		return m.GetSecretService()
+	}
+	return args.Get(0).(secretServices.SecretService)
+}
+
 func (m *MockServiceContainer) GetKeyService() keyServices.KeyService {
 	return nil
 }
@@ -178,7 +194,7 @@ func (m *MockServiceContainer) GetTagService() secretServices.TagService {
 
 func (m *MockServiceContainer) GetRotationService() secretServices.RotationServiceInterface {
 	args := m.Called()
-	if len(args) == 0 {
+	if len(args) == 0 || args.Get(0) == nil {
 		return nil
 	}
 	return args.Get(0).(secretServices.RotationServiceInterface)
@@ -203,6 +219,20 @@ func (m *MockServiceContainer) GetLogger() *logging.Logger {
 		return nil
 	}
 	return args.Get(0).(*logging.Logger)
+}
+
+// Cache getters
+func (m *MockServiceContainer) GetSecretCache() *cache.SecretCache {
+	return nil
+}
+
+func (m *MockServiceContainer) GetCacheConfig() *cache.CacheConfig {
+	return nil
+}
+
+// Retry service getter
+func (m *MockServiceContainer) GetRetryService() retryServices.RetryService {
+	return nil
 }
 
 // Lifecycle management
