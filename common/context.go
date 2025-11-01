@@ -12,6 +12,10 @@ const (
 	LogKey
 	// UserIDKey is the key used to store the user ID in the context.
 	UserIDKey
+	// UsernameKey is the key used to store the username in the context.
+	UsernameKey
+	// RoleKey is the key used to store the user role in the context.
+	RoleKey
 	// TokenKey is the key used to store the authentication token in the context.
 	TokenKey
 	// ClaimsKey is the key used to store the authentication claims in the context.

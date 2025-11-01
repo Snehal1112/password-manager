@@ -180,8 +180,16 @@ func (m *Middleware) RateLimitMiddleware(next http.Handler) http.Handler {
 // It delegates authentication logic to the AuthenticationService.
 func (m *Middleware) AuthenticationMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// Skip authentication for public endpoints
-		if r.URL.Path == "/health" || r.URL.Path == "/login" {
+		// Skip authentication for public endpoints (health checks and auth endpoints)
+		if strings.HasSuffix(r.URL.Path, "/health") ||
+			strings.HasSuffix(r.URL.Path, "/health/ready") ||
+			strings.HasSuffix(r.URL.Path, "/health/live") ||
+			strings.HasSuffix(r.URL.Path, "/login") ||
+			strings.HasSuffix(r.URL.Path, "/register") ||
+			strings.HasSuffix(r.URL.Path, "/refresh") ||
+			strings.Contains(r.URL.Path, "/auth/login") ||
+			strings.Contains(r.URL.Path, "/auth/register") ||
+			strings.Contains(r.URL.Path, "/auth/refresh") {
 			next.ServeHTTP(w, r)
 			return
 		}
@@ -214,8 +222,8 @@ func (m *Middleware) AuthenticationMiddleware(next http.Handler) http.Handler {
 
 		// Add user information to request context
 		ctx := context.WithValue(r.Context(), common.UserIDKey, claims.UserID.String())
-		ctx = context.WithValue(ctx, usernameKey, claims.Username)
-		ctx = context.WithValue(ctx, roleKey, claims.Role)
+		ctx = context.WithValue(ctx, common.UsernameKey, claims.Username)
+		ctx = context.WithValue(ctx, common.RoleKey, claims.Role)
 
 		m.logger.LogAuditInfo(claims.UserID.String(), "auth", "success", "Authentication successful")
 		next.ServeHTTP(w, r.WithContext(ctx))
@@ -227,7 +235,7 @@ func (m *Middleware) AuthenticationMiddleware(next http.Handler) http.Handler {
 func (m *Middleware) AuthorizationMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// Get user role from context (set by authentication middleware)
-		role, ok := r.Context().Value(roleKey).(string)
+		role, ok := r.Context().Value(common.RoleKey).(string)
 		if !ok {
 			m.logger.LogAuditError("", "authz", "failed", "Missing role in context", nil)
 			http.Error(w, "Forbidden: missing role", http.StatusForbidden)
@@ -291,8 +299,6 @@ type contextKey string
 
 const (
 	requestIDKey contextKey = "request_id"
-	usernameKey  contextKey = "username"
-	roleKey      contextKey = "role"
 )
 
 // RequestIDMiddleware adds a unique request ID to each HTTP request for tracking purposes.
