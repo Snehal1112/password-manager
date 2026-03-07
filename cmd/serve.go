@@ -23,7 +23,6 @@ THE SOFTWARE.
 package cmd
 
 import (
-	"context"
 	"fmt"
 
 	"github.com/sirupsen/logrus"
@@ -33,7 +32,6 @@ import (
 	"password-manager/bootstrap"
 	"password-manager/common"
 	"password-manager/config"
-	"password-manager/internal/db"
 	"password-manager/internal/logging"
 )
 
@@ -59,20 +57,6 @@ var serveCmd = &cobra.Command{
 	Use:   "serve",
 	Short: "Start the API server",
 	PersistentPreRun: func(cmd *cobra.Command, args []string) {
-		logrus.Info("Persistent PreRun called from serve for command:", cmd.Name())
-		// Initialize the logger.
-		log := logging.InitLogger()
-		// Start log rotation goroutine
-		go log.StartPeriodicRotation()
-
-		// Ensure database is initialized.
-		database := db.NewRepository(log)
-		database.InitializeDB()
-
-		ctx := context.WithValue(cmd.Context(), common.DBKey, database.GetDB())
-		ctx = context.WithValue(ctx, common.DBClassKey, database)
-		ctx = context.WithValue(ctx, common.LogKey, log)
-		cmd.SetContext(ctx)
 	},
 	RunE: func(cmd *cobra.Command, args []string) error {
 		return serve(cmd)
@@ -120,7 +104,12 @@ func serve(cmd *cobra.Command) error {
 	bootstrapConfig.Logger = log
 
 	// Set up the HTTP transport for the server.
-	return bootstrap.Boot(ctx, bootstrapConfig, &config.Config{
+	shutdown, err := bootstrap.Boot(ctx, bootstrapConfig, &config.Config{
 		Logger: log,
 	})
+	if err != nil {
+		return err
+	}
+	defer shutdown(ctx)
+	return nil
 }
