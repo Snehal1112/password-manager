@@ -171,6 +171,12 @@ func (d *DBRepository) InitializeDB() error {
 		return fmt.Errorf("failed to create schema: %w", err)
 	}
 
+	// Seed the bootstrap token from config so the first admin can be created.
+	if err := d.seedBootstrapToken(db); err != nil {
+		db.Close()
+		return fmt.Errorf("failed to seed bootstrap token: %w", err)
+	}
+
 	// Assign the connection to the global DB variable.
 	DB = db
 	d.db = db
@@ -471,6 +477,34 @@ func (d *DBRepository) createOptimizedSchema(db *sql.DB) error {
 	}
 
 	d.log.Info("Database schema created successfully with optimized indexes")
+	return nil
+}
+
+// seedBootstrapToken inserts the configured bootstrap token into the
+// bootstrap_tokens table if it is not already present. The SELECT-then-INSERT
+// approach keeps the SQL portable across SQLite and PostgreSQL drivers.
+func (d *DBRepository) seedBootstrapToken(db *sql.DB) error {
+	token := viper.GetString("bootstrap_token")
+	if token == "" {
+		return nil
+	}
+
+	var count int
+	if err := db.QueryRow(
+		"SELECT COUNT(*) FROM bootstrap_tokens WHERE token = ?", token,
+	).Scan(&count); err != nil {
+		return fmt.Errorf("failed to check bootstrap token: %w", err)
+	}
+
+	if count > 0 {
+		return nil // already seeded (or already used)
+	}
+
+	if _, err := db.Exec(
+		"INSERT INTO bootstrap_tokens (token, used) VALUES (?, FALSE)", token,
+	); err != nil {
+		return fmt.Errorf("failed to seed bootstrap token: %w", err)
+	}
 	return nil
 }
 
