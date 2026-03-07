@@ -71,6 +71,9 @@ logs/
 master.key
 bootstrap.token
 
+# Config files contain secrets — never commit
+.password-manager*.yaml
+
 # Database files
 *.db
 *.sqlite
