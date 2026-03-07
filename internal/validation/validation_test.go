@@ -12,6 +12,7 @@ import (
 
 // TestValidateSecretCreate tests secret creation validation.
 func TestValidateSecretCreate(t *testing.T) {
+	t.Parallel()
 	validExpiresAt := time.Now().Add(24 * time.Hour)
 	validNotBefore := time.Now()
 
@@ -75,6 +76,7 @@ func TestValidateSecretCreate(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			err := ValidateSecretCreate(tt.request)
 			if tt.wantError {
 				assert.Error(t, err)
@@ -87,6 +89,7 @@ func TestValidateSecretCreate(t *testing.T) {
 
 // TestValidateKeyCreate tests key creation validation.
 func TestValidateKeyCreate(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name      string
 		request   KeyCreateRequest
@@ -140,6 +143,7 @@ func TestValidateKeyCreate(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			err := ValidateKeyCreate(tt.request)
 			if tt.wantError {
 				assert.Error(t, err)
@@ -152,15 +156,18 @@ func TestValidateKeyCreate(t *testing.T) {
 
 // TestCommonValidationRules tests common validation rules.
 func TestCommonValidationRules(t *testing.T) {
+	t.Parallel()
 	rules := &CommonValidationRules{}
 
 	t.Run("email validation", func(t *testing.T) {
+		t.Parallel()
 		assert.NoError(t, rules.ValidateEmail("user@example.com"))
 		assert.Error(t, rules.ValidateEmail("invalid-email"))
 		assert.Error(t, rules.ValidateEmail(""))
 	})
 
 	t.Run("username validation", func(t *testing.T) {
+		t.Parallel()
 		assert.NoError(t, rules.ValidateUsername("validuser123"))
 		assert.NoError(t, rules.ValidateUsername("user-name_1"))
 		assert.Error(t, rules.ValidateUsername("ab")) // too short
@@ -168,6 +175,7 @@ func TestCommonValidationRules(t *testing.T) {
 	})
 
 	t.Run("password validation", func(t *testing.T) {
+		t.Parallel()
 		assert.NoError(t, rules.ValidatePassword("SecurePass123!"))
 		assert.NoError(t, rules.ValidatePassword("MyP@ssw0rd"))
 		assert.Error(t, rules.ValidatePassword("weak")) // too short
@@ -176,12 +184,14 @@ func TestCommonValidationRules(t *testing.T) {
 	})
 
 	t.Run("tag validation", func(t *testing.T) {
+		t.Parallel()
 		assert.NoError(t, rules.ValidateTag("env:prod"))
 		assert.Error(t, rules.ValidateTag(""))
 		assert.Error(t, rules.ValidateTag(string(make([]byte, 257)))) // too long
 	})
 
 	t.Run("tags validation", func(t *testing.T) {
+		t.Parallel()
 		assert.NoError(t, rules.ValidateTags([]string{"tag1", "tag2"}))
 		assert.NoError(t, rules.ValidateTags([]string{}))
 		assert.Error(t, rules.ValidateTags(make([]string, 16))) // too many
@@ -190,6 +200,7 @@ func TestCommonValidationRules(t *testing.T) {
 
 // TestSecretNamePattern tests secret name pattern matching.
 func TestSecretNamePattern(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name  string
 		input string

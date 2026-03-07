@@ -2,13 +2,13 @@ package secrets
 
 import (
 	"context"
-	"database/sql"
 	"fmt"
 
 	"github.com/google/uuid"
 	"github.com/sirupsen/logrus"
 
 	"password-manager/internal/logging"
+	"password-manager/internal/repositories"
 )
 
 // TagService handles tag management operations for secrets.
@@ -22,27 +22,17 @@ type TagService interface {
 	FindSecretsByTags(ctx context.Context, userID uuid.UUID, tags []string) ([]uuid.UUID, error)
 }
 
-// tagService implements TagService for database tag operations.
+// tagService implements TagService by delegating to a tag repository.
 type tagService struct {
-	db     *sql.DB
-	logger *logging.Logger
+	tagRepo repositories.SecretTagRepositoryInterface
+	logger  *logging.Logger
 }
 
-// NewTagService creates a new TagService with the given database connection.
-// It provides tag management functionality for secrets.
-//
-// Parameters:
-//
-//	db: The database connection.
-//	logger: The logger for audit and error logging.
-//
-// Returns:
-//
-//	A TagService implementation for tag operations.
-func NewTagService(db *sql.DB, logger *logging.Logger) TagService {
+// NewTagService creates a new TagService backed by the given repository.
+func NewTagService(tagRepo repositories.SecretTagRepositoryInterface, logger *logging.Logger) TagService {
 	return &tagService{
-		db:     db,
-		logger: logger,
+		tagRepo: tagRepo,
+		logger:  logger,
 	}
 }
 
@@ -63,16 +53,9 @@ func (s *tagService) AddTags(ctx context.Context, secretID uuid.UUID, tags []str
 		return nil
 	}
 
-	for _, tag := range tags {
-		_, err := s.db.ExecContext(
-			ctx,
-			"INSERT OR IGNORE INTO secret_tags (secret_id, tag) VALUES (?, ?)",
-			secretID.String(), tag,
-		)
-		if err != nil {
-			s.logger.LogAuditError(secretID.String(), "add_tags", "failed", "Failed to add tag", err)
-			return fmt.Errorf("failed to add tag %s: %w", tag, err)
-		}
+	if err := s.tagRepo.AddTags(ctx, secretID, tags); err != nil {
+		s.logger.LogAuditError(secretID.String(), "add_tags", "failed", "Failed to add tags", err)
+		return fmt.Errorf("add tags: %w", err)
 	}
 
 	s.logger.LogAuditInfo(secretID.String(), "add_tags", "success",
@@ -102,16 +85,9 @@ func (s *tagService) RemoveTags(ctx context.Context, secretID uuid.UUID, tags []
 		return nil
 	}
 
-	for _, tag := range tags {
-		_, err := s.db.ExecContext(
-			ctx,
-			"DELETE FROM secret_tags WHERE secret_id = ? AND tag = ?",
-			secretID.String(), tag,
-		)
-		if err != nil {
-			s.logger.LogAuditError(secretID.String(), "remove_tags", "failed", "Failed to remove tag", err)
-			return fmt.Errorf("failed to remove tag %s: %w", tag, err)
-		}
+	if err := s.tagRepo.RemoveTags(ctx, secretID, tags); err != nil {
+		s.logger.LogAuditError(secretID.String(), "remove_tags", "failed", "Failed to remove tags", err)
+		return fmt.Errorf("remove tags: %w", err)
 	}
 
 	s.logger.LogAuditInfo(secretID.String(), "remove_tags", "success",
@@ -136,28 +112,13 @@ func (s *tagService) RemoveTags(ctx context.Context, secretID uuid.UUID, tags []
 //
 //	An error if the operation fails.
 func (s *tagService) RemoveAllTags(ctx context.Context, secretID uuid.UUID) error {
-	result, err := s.db.ExecContext(
-		ctx,
-		"DELETE FROM secret_tags WHERE secret_id = ?",
-		secretID.String(),
-	)
-	if err != nil {
+	if err := s.tagRepo.RemoveAllTags(ctx, secretID); err != nil {
 		s.logger.LogAuditError(secretID.String(), "remove_all_tags", "failed", "Failed to remove all tags", err)
-		return fmt.Errorf("failed to remove all tags: %w", err)
+		return fmt.Errorf("remove all tags: %w", err)
 	}
 
-	rowsAffected, err := result.RowsAffected()
-	if err != nil {
-		s.logger.LogAuditError(secretID.String(), "remove_all_tags", "failed", "Failed to get rows affected", err)
-		return fmt.Errorf("failed to get rows affected: %w", err)
-	}
-
-	s.logger.LogAuditInfo(secretID.String(), "remove_all_tags", "success",
-		fmt.Sprintf("Removed %d tags from secret", rowsAffected))
-	logrus.WithFields(logrus.Fields{
-		"secret_id":    secretID.String(),
-		"tags_removed": rowsAffected,
-	}).Debug("All tags removed from secret")
+	s.logger.LogAuditInfo(secretID.String(), "remove_all_tags", "success", "Removed all tags from secret")
+	logrus.WithField("secret_id", secretID.String()).Debug("All tags removed from secret")
 
 	return nil
 }
@@ -173,28 +134,11 @@ func (s *tagService) RemoveAllTags(ctx context.Context, secretID uuid.UUID) erro
 //
 //	A slice of tags associated with the secret, or an error if the operation fails.
 func (s *tagService) GetTags(ctx context.Context, secretID uuid.UUID) ([]string, error) {
-	rows, err := s.db.QueryContext(ctx, "SELECT tag FROM secret_tags WHERE secret_id = ?", secretID.String())
+	tags, err := s.tagRepo.GetTags(ctx, secretID)
 	if err != nil {
-		s.logger.LogAuditError(secretID.String(), "get_tags", "failed", "Failed to query tags", err)
-		return nil, fmt.Errorf("failed to query tags: %w", err)
+		s.logger.LogAuditError(secretID.String(), "get_tags", "failed", "Failed to get tags", err)
+		return nil, fmt.Errorf("get tags: %w", err)
 	}
-	defer rows.Close()
-
-	var tags []string
-	for rows.Next() {
-		var tag string
-		if err := rows.Scan(&tag); err != nil {
-			s.logger.LogAuditError(secretID.String(), "get_tags", "failed", "Failed to scan tag", err)
-			return nil, fmt.Errorf("failed to scan tag: %w", err)
-		}
-		tags = append(tags, tag)
-	}
-
-	if err := rows.Err(); err != nil {
-		s.logger.LogAuditError(secretID.String(), "get_tags", "failed", "Row iteration error", err)
-		return nil, fmt.Errorf("row iteration error: %w", err)
-	}
-
 	return tags, nil
 }
 
@@ -215,53 +159,10 @@ func (s *tagService) FindSecretsByTags(ctx context.Context, userID uuid.UUID, ta
 		return []uuid.UUID{}, nil
 	}
 
-	// Build query for tag matching
-	placeholders := make([]interface{}, 0, len(tags)+1)
-	placeholders = append(placeholders, userID.String())
-
-	tagPlaceholders := ""
-	for i, tag := range tags {
-		if i > 0 {
-			tagPlaceholders += ", "
-		}
-		tagPlaceholders += "?"
-		placeholders = append(placeholders, tag)
-	}
-
-	query := fmt.Sprintf(`
-		SELECT DISTINCT s.id
-		FROM secrets s
-		INNER JOIN secret_tags st ON s.id = st.secret_id
-		WHERE s.user_id = ? AND st.tag IN (%s)
-	`, tagPlaceholders)
-
-	rows, err := s.db.QueryContext(ctx, query, placeholders...)
+	secretIDs, err := s.tagRepo.FindSecretsByTags(ctx, userID, tags)
 	if err != nil {
-		s.logger.LogAuditError(userID.String(), "find_secrets_by_tags", "failed", "Failed to query secrets by tags", err)
-		return nil, fmt.Errorf("failed to query secrets by tags: %w", err)
-	}
-	defer rows.Close()
-
-	var secretIDs []uuid.UUID
-	for rows.Next() {
-		var secretIDStr string
-		if err := rows.Scan(&secretIDStr); err != nil {
-			s.logger.LogAuditError(userID.String(), "find_secrets_by_tags", "failed", "Failed to scan secret ID", err)
-			return nil, fmt.Errorf("failed to scan secret ID: %w", err)
-		}
-
-		secretID, err := uuid.Parse(secretIDStr)
-		if err != nil {
-			s.logger.LogAuditError(userID.String(), "find_secrets_by_tags", "failed", "Failed to parse secret ID", err)
-			return nil, fmt.Errorf("failed to parse secret ID: %w", err)
-		}
-
-		secretIDs = append(secretIDs, secretID)
-	}
-
-	if err := rows.Err(); err != nil {
-		s.logger.LogAuditError(userID.String(), "find_secrets_by_tags", "failed", "Row iteration error", err)
-		return nil, fmt.Errorf("row iteration error: %w", err)
+		s.logger.LogAuditError(userID.String(), "find_secrets_by_tags", "failed", "Failed to find secrets by tags", err)
+		return nil, fmt.Errorf("find secrets by tags: %w", err)
 	}
 
 	logrus.WithFields(logrus.Fields{

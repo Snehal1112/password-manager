@@ -15,7 +15,6 @@ import (
 	"github.com/ulule/limiter/v3/drivers/store/memory"
 
 	"password-manager/common"
-	"password-manager/internal/container"
 	"password-manager/internal/logging"
 	authServices "password-manager/internal/services/auth"
 	authzServices "password-manager/internal/services/authorization"
@@ -48,12 +47,15 @@ type Container interface {
 // It delegates authentication and authorization to dedicated services,
 // following the Single Responsibility Principle.
 type Middleware struct {
-	container Container
-	logger    *logging.Logger
+	container     Container
+	logger        *logging.Logger
+	defaultLimiter *limiter.Limiter
+	authLimiter    *limiter.Limiter
 }
 
 // NewMiddleware creates a new middleware with service dependencies.
 // It uses dependency injection instead of global state access.
+// Rate limiter stores are created once here and shared across requests.
 //
 // Parameters:
 //
@@ -62,10 +64,23 @@ type Middleware struct {
 // Returns:
 //
 //	A Middleware instance with injected dependencies.
-func NewMiddleware(container *container.ServiceContainer) *Middleware {
+func NewMiddleware(container Container) *Middleware {
+	store := memory.NewStore()
+
+	defaultLimiter := limiter.New(store, limiter.Rate{
+		Period: time.Minute,
+		Limit:  60,
+	})
+	authLimiter := limiter.New(store, limiter.Rate{
+		Period: time.Minute,
+		Limit:  5,
+	})
+
 	return &Middleware{
-		container: container,
-		logger:    container.GetLogger(),
+		container:      container,
+		logger:         container.GetLogger(),
+		defaultLimiter: defaultLimiter,
+		authLimiter:    authLimiter,
 	}
 }
 
@@ -88,12 +103,14 @@ func (m *Middleware) LoggingMiddleware(next http.Handler) http.Handler {
 			status = "failed"
 		}
 
+		requestID, _ := r.Context().Value(requestIDKey).(string)
 		logFields := logrus.Fields{
 			"method":      r.Method,
 			"path":        r.URL.Path,
 			"client_ip":   r.RemoteAddr,
 			"status_code": rw.statusCode,
 			"duration_ms": duration.Milliseconds(),
+			"request_id":  requestID,
 		}
 
 		logEntry := m.logger.WithAuditFields(userID, operation, status).WithFields(logFields)
@@ -109,36 +126,19 @@ func (m *Middleware) LoggingMiddleware(next http.Handler) http.Handler {
 // It focuses solely on rate limiting without mixing other concerns.
 // Default: 60 requests/minute, Auth endpoints: 5 requests/minute.
 func (m *Middleware) RateLimitMiddleware(next http.Handler) http.Handler {
-	// Create rate limiters with in-memory store
-	store := memory.NewStore()
-
-	// Default rate limiter: 60 requests/minute
-	defaultRate := limiter.Rate{
-		Period: time.Minute,
-		Limit:  60,
-	}
-	defaultLimiter := limiter.New(store, defaultRate)
-
-	// Strict rate limiter for auth endpoints: 5 requests/minute
-	authRate := limiter.Rate{
-		Period: time.Minute,
-		Limit:  5,
-	}
-	authLimiter := limiter.New(store, authRate)
-
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// Use client IP as the key for rate limiting
 		key := r.RemoteAddr
 
 		// Select appropriate limiter based on endpoint
-		selectedLimiter := defaultLimiter
+		selectedLimiter := m.defaultLimiter
 		isAuthEndpoint := false
 
 		// Apply stricter limits to authentication endpoints
 		if strings.HasPrefix(r.URL.Path, "/api/auth/login") ||
 			strings.HasPrefix(r.URL.Path, "/api/auth/register") ||
 			strings.HasPrefix(r.URL.Path, "/api/auth/refresh") {
-			selectedLimiter = authLimiter
+			selectedLimiter = m.authLimiter
 			isAuthEndpoint = true
 		}
 
@@ -263,12 +263,16 @@ func (m *Middleware) AuthorizationMiddleware(next http.Handler) http.Handler {
 // It focuses solely on HTTP security headers.
 func (m *Middleware) SecurityHeadersMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// Add security headers
+		// Add security headers.
 		w.Header().Set("X-Content-Type-Options", "nosniff")
 		w.Header().Set("X-Frame-Options", "DENY")
 		w.Header().Set("X-XSS-Protection", "1; mode=block")
-		w.Header().Set("Strict-Transport-Security", "max-age=31536000; includeSubDomains")
 		w.Header().Set("Content-Security-Policy", "default-src 'self'")
+
+		// Only send HSTS when the connection is TLS.
+		if r.TLS != nil {
+			w.Header().Set("Strict-Transport-Security", "max-age=31536000; includeSubDomains")
+		}
 
 		next.ServeHTTP(w, r)
 	})
@@ -316,6 +320,25 @@ func (m *Middleware) RequestIDMiddleware(next http.Handler) http.Handler {
 func generateRequestID() string {
 	// Simple implementation - in production, use a more robust UUID library
 	return fmt.Sprintf("req_%d", time.Now().UnixNano())
+}
+
+// RequestBodySizeLimitMiddleware rejects requests that exceed the allowed body size.
+// Default endpoints are limited to 10 MB; import endpoints allow up to 50 MB.
+func (m *Middleware) RequestBodySizeLimitMiddleware(next http.Handler) http.Handler {
+	const (
+		defaultLimit int64 = 10 << 20 // 10 MB.
+		importLimit  int64 = 50 << 20 // 50 MB for import operations.
+	)
+
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		limit := defaultLimit
+		if strings.HasSuffix(r.URL.Path, "/import") {
+			limit = importLimit
+		}
+
+		r.Body = http.MaxBytesReader(w, r.Body, limit)
+		next.ServeHTTP(w, r)
+	})
 }
 
 // AuthMiddleware is deprecated. Use AuthenticationMiddleware and AuthorizationMiddleware instead.

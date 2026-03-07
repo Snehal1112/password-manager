@@ -12,6 +12,7 @@ A production-ready, self-hosted password manager application built in Go with en
 - [Documentation](#documentation)
 - [Prerequisites](#prerequisites)
 - [Installation](#installation)
+- [Building](#building)
 - [Quick Start](#quick-start)
 - [Usage](#usage)
 - [API](#api)
@@ -155,8 +156,143 @@ password-manager/
 3. Build the application:
 
    ```bash
-   go build -o password-manager ./cmd
+   go build -o password-manager .
    ```
+
+## Building
+
+The project includes a comprehensive build script following 2025 Go best practices.
+
+### Quick Build
+
+For development, use the build script for optimized binaries with embedded version information:
+
+```bash
+# Build for current platform
+./build.sh
+
+# Output: ./build/password-manager
+```
+
+### Build Options
+
+```bash
+# Display build information
+./build.sh --info
+
+# Build for all platforms (cross-compilation)
+./build.sh --all
+
+# Create production release (tests + all platforms + checksums)
+./build.sh --release
+
+# Clean build artifacts
+./build.sh --clean
+
+# Run tests only
+./build.sh --test
+
+# Verify environment and dependencies
+./build.sh --verify-only
+
+# Skip tests during build
+./build.sh --skip-tests
+```
+
+### Build Features
+
+**Modern Go Optimizations**:
+- **Version Injection**: Automatically embeds git version, commit hash, build time, and Go version
+- **Binary Optimization**: Uses `-trimpath`, `-s`, and `-w` flags for smaller, reproducible builds
+- **CGO Support**: Enabled for SQLite3 compatibility
+- **Race Detection**: Runs tests with `-race` flag for concurrency safety
+- **Dependency Verification**: Validates `go.mod` integrity before building
+
+**Cross-Platform Compilation**:
+The build script supports 5 platform targets:
+- Linux (amd64, arm64)
+- macOS (amd64/Intel, arm64/Apple Silicon)
+- Windows (amd64)
+
+**Security & Verification**:
+- SHA256 checksums for all binaries
+- Automated dependency verification
+- Test execution before release builds
+- Archive creation (`.tar.gz` for Unix, `.zip` for Windows)
+
+### Build Output
+
+```
+build/
+└── password-manager              # Current platform binary (15MB)
+
+dist/                             # Cross-platform builds (--all, --release)
+├── password-manager-v4.0.0-linux-amd64.tar.gz
+├── password-manager-v4.0.0-linux-amd64.tar.gz.sha256
+├── password-manager-v4.0.0-darwin-arm64.tar.gz
+├── password-manager-v4.0.0-darwin-arm64.tar.gz.sha256
+├── password-manager-v4.0.0-windows-amd64.zip
+├── password-manager-v4.0.0-windows-amd64.zip.sha256
+└── RELEASE_NOTES.md              # Generated release documentation
+```
+
+### Environment Variables
+
+Customize the build with environment variables:
+
+```bash
+# Override version
+VERSION=v5.0.0 ./build.sh
+
+# Custom commit hash
+COMMIT_HASH=abc123 ./build.sh --release
+
+# Combined
+VERSION=v5.0.0 COMMIT_HASH=abc123 ./build.sh --all
+```
+
+### Manual Build
+
+If you prefer building manually without the script:
+
+```bash
+# Basic build
+go build -o password-manager .
+
+# Optimized build with version injection
+go build \
+  -trimpath \
+  -ldflags="-s -w -X 'main.Version=v1.0.0' -X 'main.CommitHash=$(git rev-parse --short HEAD)'" \
+  -o password-manager \
+  .
+```
+
+### Build Requirements
+
+- **Go**: 1.24.2 or higher (verified automatically by build script)
+- **Git**: For version tagging and commit hash extraction
+- **GCC/Build Tools**: Required for CGO (SQLite3 support)
+- **Disk Space**: ~50MB for single build, ~200MB for all platforms
+
+### Troubleshooting Build Issues
+
+**CGO Errors**:
+```bash
+# Install build essentials on Linux
+sudo apt-get install build-essential
+
+# Install on macOS
+xcode-select --install
+```
+
+**Cross-Compilation Issues**:
+Cross-compiling with CGO requires appropriate cross-compilers. For most use cases, build on the target platform or use the `--current` flag.
+
+**Permission Errors**:
+```bash
+# Make script executable
+chmod +x build.sh
+```
 
 ## Quick Start
 

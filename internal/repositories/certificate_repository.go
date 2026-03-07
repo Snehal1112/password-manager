@@ -6,6 +6,7 @@ package repositories
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -160,7 +161,7 @@ func (r *CertificateRepository) Read(ctx context.Context, id uuid.UUID) (*domain
 		id.String(),
 	).Scan(&idStr, &userIDStr, &cert.Name, &cert.Certificate, &cert.PrivateKey, &cert.CreatedAt)
 
-	if err == sql.ErrNoRows {
+	if errors.Is(err, sql.ErrNoRows) {
 		return nil, fmt.Errorf("certificate not found")
 	}
 	if err != nil {

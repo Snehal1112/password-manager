@@ -283,15 +283,15 @@ func (hc *HealthCollector) LogHealthMetrics(ctx context.Context) error {
 }
 
 // CheckDatabaseHealth performs comprehensive database health validation.
-func (hc *HealthCollector) CheckDatabaseHealth(ctx context.Context) (map[string]interface{}, error) {
+func (hc *HealthCollector) CheckDatabaseHealth(ctx context.Context) (map[string]any, error) {
 	if hc.db == nil {
-		return map[string]interface{}{
+		return map[string]any{
 			"status": "critical",
 			"error":  "database not initialized",
 		}, fmt.Errorf("database not initialized")
 	}
 
-	result := make(map[string]interface{})
+	result := make(map[string]any)
 
 	// Basic connectivity test
 	start := time.Now()
@@ -306,7 +306,7 @@ func (hc *HealthCollector) CheckDatabaseHealth(ctx context.Context) (map[string]
 
 	// Connection pool stats
 	stats := hc.db.Stats()
-	result["connection_pool"] = map[string]interface{}{
+	result["connection_pool"] = map[string]any{
 		"open_connections":    stats.OpenConnections,
 		"in_use":              stats.InUse,
 		"idle":                stats.Idle,
@@ -319,7 +319,7 @@ func (hc *HealthCollector) CheckDatabaseHealth(ctx context.Context) (map[string]
 
 	// Performance metrics
 	perfMetrics := db.GetPerformanceMetrics()
-	result["performance"] = map[string]interface{}{
+	result["performance"] = map[string]any{
 		"query_count":         perfMetrics.QueryCount,
 		"slow_query_count":    perfMetrics.SlowQueryCount,
 		"avg_query_time_ms":   perfMetrics.AverageQueryTime.Milliseconds(),
@@ -364,13 +364,13 @@ func (hc *HealthCollector) CheckDatabaseHealth(ctx context.Context) (map[string]
 	queryDuration := time.Since(start)
 
 	if err != nil {
-		result["query_test"] = map[string]interface{}{
+		result["query_test"] = map[string]any{
 			"error":       err.Error(),
 			"duration_ms": queryDuration.Milliseconds(),
 		}
 		status = "degraded"
 	} else {
-		result["query_test"] = map[string]interface{}{
+		result["query_test"] = map[string]any{
 			"success":     true,
 			"user_count":  count,
 			"duration_ms": queryDuration.Milliseconds(),

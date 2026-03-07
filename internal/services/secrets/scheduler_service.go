@@ -20,7 +20,7 @@ import (
 // It orchestrates automated rotation and reminder operations with proper service coordination.
 type SchedulerServiceInterface interface {
 	// Scheduler lifecycle
-	Start(interval time.Duration) error
+	Start(ctx context.Context, interval time.Duration) error
 	Stop() error
 	IsRunning() bool
 
@@ -46,6 +46,7 @@ type schedulerService struct {
 	secretRepo    repositories.SecretRepositoryInterface
 	rotationRepo  repositories.RotationPolicyRepositoryInterface
 	log           *logging.Logger
+	ctx           context.Context
 	ticker        *time.Ticker
 	stopChan      chan struct{}
 	wg            sync.WaitGroup
@@ -74,7 +75,8 @@ func NewSchedulerService(
 }
 
 // Start begins the rotation scheduler with business logic orchestration.
-func (s *schedulerService) Start(interval time.Duration) error {
+// The provided ctx is used for all background operations and cancels the scheduler on Done.
+func (s *schedulerService) Start(ctx context.Context, interval time.Duration) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -83,6 +85,7 @@ func (s *schedulerService) Start(interval time.Duration) error {
 		return fmt.Errorf("scheduler is already running")
 	}
 
+	s.ctx = ctx
 	s.running = true
 	s.ticker = time.NewTicker(interval)
 	s.wg.Add(1)
@@ -134,7 +137,7 @@ func (s *schedulerService) run() {
 
 // processAllUserOperations processes rotations and reminders for all users.
 func (s *schedulerService) processAllUserOperations() {
-	ctx := context.Background()
+	ctx := s.ctx
 
 	// Get all users using proper repository pattern
 	users, err := s.getAllUsers(ctx)
