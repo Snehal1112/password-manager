@@ -138,19 +138,14 @@ func (b *bootstrap) GetServiceContainer() *container.ServiceContainer {
 	return b.serviceContainer
 }
 
-// Boot initializes and sets up the application using proper SRP design.
-// It creates a bootstrap instance and orchestrates the startup process.
-//
-// Parameters:
-//   - ctx: The context for controlling cancellation and deadlines.
-//   - cfg: The configuration for the application.
-//   - serverCfg: The server configuration.
-//
-// Returns:
-//   - error: An error if the setup fails, otherwise nil.
-func Boot(ctx context.Context, cfg *Config, serverCfg *config.Config) error {
+// Boot initialises the application and returns a shutdown function and any setup error.
+// Call the returned shutdown function after the HTTP server has stopped to release resources.
+func Boot(ctx context.Context, cfg *Config, serverCfg *config.Config) (func(context.Context) error, error) {
 	bs := newBootstrap(serverCfg)
-	return bs.setup(ctx, cfg)
+	if err := bs.setup(ctx, cfg); err != nil {
+		return nil, err
+	}
+	return bs.Shutdown, nil
 }
 
 // setup orchestrates the complete application startup process following SRP.
