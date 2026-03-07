@@ -200,6 +200,20 @@ func (c *ServiceContainer) initializeServices() error {
 		}
 	}
 
+	// Initialize retry service before any service that wraps with retry logic.
+	if c.viper != nil {
+		retrySvc, err := retryServices.NewRetryService(c.viper)
+		if err != nil {
+			c.logger.WithError(err).Warn("Failed to initialize retry service, continuing without retry functionality")
+			// Continue without retry service - operations will not have retry.
+		} else {
+			c.retryService = retrySvc
+			c.logger.Info("Retry service initialized successfully")
+		}
+	} else {
+		c.logger.Warn("Viper configuration not provided, retry service will not be available")
+	}
+
 	// Initialize authentication services
 	c.passwordService = authServices.NewPasswordService()
 	c.totpService = authServices.NewTOTPService()
@@ -226,7 +240,7 @@ func (c *ServiceContainer) initializeServices() error {
 		Logger:            c.logger,
 	})
 
-	// Wrap with retry logic if retry service is available
+	// Wrap with retry logic if retry service is available.
 	if c.retryService != nil {
 		c.authenticationService = retryServices.NewRetryAuthenticationService(baseAuthService, c.retryService)
 		c.logger.Info("Retry logic enabled for authentication service")
@@ -236,20 +250,6 @@ func (c *ServiceContainer) initializeServices() error {
 
 	// Initialize authorization services
 	c.rbacService = authzServices.NewRBACService(c.logger)
-
-	// Initialize retry service if configuration is available
-	if c.viper != nil {
-		retrySvc, err := retryServices.NewRetryService(c.viper)
-		if err != nil {
-			c.logger.WithError(err).Warn("Failed to initialize retry service, continuing without retry functionality")
-			// Continue without retry service - operations will not have retry
-		} else {
-			c.retryService = retrySvc
-			c.logger.Info("Retry service initialized successfully")
-		}
-	} else {
-		c.logger.Warn("Viper configuration not provided, retry service will not be available")
-	}
 
 	// Initialize user service
 	baseUserService := userServices.NewUserService(userServices.UserServiceConfig{
