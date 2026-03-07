@@ -188,7 +188,7 @@ func createUser(c *Context, w http.ResponseWriter, r *http.Request) {
 	}
 	validRoles := []string{domain.RoleAdmin, domain.RoleCryptoManager, domain.RoleCertificateManager, domain.RoleSecretsManager, domain.RoleUser}
 	roleValid := false
-	
+
 	// Split role string by comma to support multiple roles
 	requestedRoles := strings.Split(strings.TrimSpace(req.Role), ",")
 	for _, requestedRole := range requestedRoles {
@@ -209,7 +209,7 @@ func createUser(c *Context, w http.ResponseWriter, r *http.Request) {
 		}
 		roleValid = true
 	}
-	
+
 	if !roleValid {
 		c.Err = common.NewAppError("createUser", "Invalid role: must be one of secrets_manager, crypto_manager, certificate_manager, admin, user", nil, "", http.StatusBadRequest)
 		return
@@ -422,7 +422,7 @@ func updateUser(c *Context, w http.ResponseWriter, r *http.Request) {
 	if req.Role != "" {
 		validRoles := []string{domain.RoleAdmin, domain.RoleCryptoManager, domain.RoleCertificateManager, domain.RoleSecretsManager, domain.RoleUser}
 		roleValid := false
-		
+
 		// Split role string by comma to support multiple roles
 		requestedRoles := strings.Split(strings.TrimSpace(req.Role), ",")
 		for _, requestedRole := range requestedRoles {
@@ -443,7 +443,7 @@ func updateUser(c *Context, w http.ResponseWriter, r *http.Request) {
 			}
 			roleValid = true
 		}
-		
+
 		if !roleValid {
 			c.Err = common.NewAppError("updateUser", "Invalid role: must be one of secrets_manager, crypto_manager, certificate_manager, admin, user", nil, "", http.StatusBadRequest)
 			return
@@ -573,7 +573,7 @@ func deleteUser(c *Context, w http.ResponseWriter, r *http.Request) {
 	// Send response
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
-	response := map[string]interface{}{
+	response := map[string]any{
 		"message": "User deleted successfully",
 		"status":  "success",
 	}
@@ -674,7 +674,7 @@ func refreshToken(c *Context, w http.ResponseWriter, r *http.Request) {
 	authSvc := c.App.ServiceContainer.GetAuthenticationService()
 	result, err := authSvc.RefreshAccessToken(r.Context(), req.RefreshToken)
 	if err != nil {
-		c.Logger.Printf("Token refresh failedssss: %v", err)
+		c.Logger.Printf("Token refresh failed: %v", err)
 		c.Err = common.NewAppError("refreshToken", "Token refresh failed", nil, err.Error(), http.StatusUnauthorized)
 		return
 	}
@@ -790,7 +790,7 @@ func revokeSession(c *Context, w http.ResponseWriter, r *http.Request) {
 
 	// Send response
 	w.Header().Set("Content-Type", "application/json")
-	response := map[string]interface{}{
+	response := map[string]any{
 		"message": "Session revoked successfully",
 		"status":  "success",
 	}
@@ -835,7 +835,7 @@ func revokeAllSessions(c *Context, w http.ResponseWriter, r *http.Request) {
 
 	// Send response
 	w.Header().Set("Content-Type", "application/json")
-	response := map[string]interface{}{
+	response := map[string]any{
 		"message": "All sessions revoked successfully",
 		"status":  "success",
 	}

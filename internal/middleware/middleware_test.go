@@ -2,6 +2,7 @@ package middleware
 
 import (
 	"context"
+	"crypto/tls"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -60,6 +61,24 @@ func (m *MockAuthenticationService) ValidateSession(ctx context.Context, token s
 	return args.Get(0).(*authServices.JWTClaims), args.Error(1)
 }
 
+func (m *MockAuthenticationService) RefreshAccessToken(ctx context.Context, refreshToken string) (*authServices.RefreshTokenResult, error) {
+	args := m.Called(ctx, refreshToken)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).(*authServices.RefreshTokenResult), args.Error(1)
+}
+
+func (m *MockAuthenticationService) RevokeSession(ctx context.Context, sessionID string, reason string) error {
+	args := m.Called(ctx, sessionID, reason)
+	return args.Error(0)
+}
+
+func (m *MockAuthenticationService) RevokeAllUserSessions(ctx context.Context, userID uuid.UUID, reason string) error {
+	args := m.Called(ctx, userID, reason)
+	return args.Error(0)
+}
+
 // MockRBACService is a mock implementation of RBACService.
 type MockRBACService struct {
 	mock.Mock
@@ -93,34 +112,31 @@ func setupTestMiddleware() (*Middleware, *MockServiceContainer, *MockAuthenticat
 	mockContainer.On("GetAuthenticationService").Return(mockAuthService)
 	mockContainer.On("GetRBACService").Return(mockRBACService)
 
-	// Create middleware with mocked container
-	mw := &Middleware{
-		container: mockContainer,
-		logger:    logger,
-	}
+	// Create middleware via constructor so limiters are properly initialized.
+	mw := NewMiddleware(mockContainer)
 	return mw, mockContainer, mockAuthService, mockRBACService
 }
 
 // TestMiddlewareConstructor tests that middleware can be created with a service container.
 func TestMiddlewareConstructor(t *testing.T) {
+	t.Parallel()
 	logger := &logging.Logger{Logger: logrus.New()}
 	mockContainer := &MockServiceContainer{logger: logger}
 
-	// Create middleware manually (since NewMiddleware expects *container.ServiceContainer)
-	mw := &Middleware{
-		container: mockContainer,
-		logger:    logger,
-	}
+	mw := NewMiddleware(mockContainer)
 
 	assert.NotNil(t, mw)
 	assert.NotNil(t, mw.container)
 	assert.NotNil(t, mw.logger)
+	assert.NotNil(t, mw.defaultLimiter)
+	assert.NotNil(t, mw.authLimiter)
 	assert.Equal(t, mockContainer, mw.container)
 	assert.Equal(t, logger, mw.logger)
 }
 
 // TestLoggingMiddleware tests the logging middleware functionality.
 func TestLoggingMiddleware(t *testing.T) {
+	t.Parallel()
 	mw, _, _, _ := setupTestMiddleware()
 
 	tests := []struct {
@@ -159,6 +175,7 @@ func TestLoggingMiddleware(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			// Create test handler that sets status code
 			handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				w.WriteHeader(tt.statusCode)
@@ -184,6 +201,7 @@ func TestLoggingMiddleware(t *testing.T) {
 
 // TestRateLimitMiddleware tests the rate limiting functionality.
 func TestRateLimitMiddleware(t *testing.T) {
+	t.Parallel()
 	mw, _, _, _ := setupTestMiddleware()
 
 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -240,6 +258,7 @@ func TestRateLimitMiddleware(t *testing.T) {
 
 // TestAuthenticationMiddleware tests JWT authentication.
 func TestAuthenticationMiddleware(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name           string
 		path           string
@@ -305,6 +324,7 @@ func TestAuthenticationMiddleware(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			mw, _, mockAuthService, _ := setupTestMiddleware()
 			tt.setupMock(mockAuthService)
 
@@ -315,11 +335,11 @@ func TestAuthenticationMiddleware(t *testing.T) {
 					assert.True(t, ok, "UserID should be in context")
 					assert.NotEmpty(t, userID, "UserID should not be empty")
 
-					username, ok := r.Context().Value("username").(string)
+					username, ok := r.Context().Value(common.UsernameKey).(string)
 					assert.True(t, ok, "Username should be in context")
 					assert.Equal(t, "testuser", username)
 
-					role, ok := r.Context().Value("role").(string)
+					role, ok := r.Context().Value(common.RoleKey).(string)
 					assert.True(t, ok, "Role should be in context")
 					assert.Equal(t, "user", role)
 				}
@@ -344,6 +364,7 @@ func TestAuthenticationMiddleware(t *testing.T) {
 
 // TestAuthorizationMiddleware tests RBAC authorization.
 func TestAuthorizationMiddleware(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name           string
 		role           string
@@ -396,6 +417,7 @@ func TestAuthorizationMiddleware(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			mw, _, _, mockRBACService := setupTestMiddleware()
 			tt.setupMock(mockRBACService)
 
@@ -407,9 +429,7 @@ func TestAuthorizationMiddleware(t *testing.T) {
 
 			req := httptest.NewRequest(tt.method, tt.path, nil)
 			if tt.role != "" {
-				type ctxKey string
-				const roleKey ctxKey = "role"
-				ctx := context.WithValue(req.Context(), roleKey, tt.role)
+				ctx := context.WithValue(req.Context(), common.RoleKey, tt.role)
 				req = req.WithContext(ctx)
 			}
 			rr := httptest.NewRecorder()
@@ -424,6 +444,7 @@ func TestAuthorizationMiddleware(t *testing.T) {
 
 // TestSecurityHeadersMiddleware tests security headers are properly set.
 func TestSecurityHeadersMiddleware(t *testing.T) {
+	t.Parallel()
 	mw, _, _, _ := setupTestMiddleware()
 
 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -432,22 +453,35 @@ func TestSecurityHeadersMiddleware(t *testing.T) {
 
 	wrappedHandler := mw.SecurityHeadersMiddleware(handler)
 
-	req := httptest.NewRequest("GET", "/api/test", nil)
-	rr := httptest.NewRecorder()
+	t.Run("non-TLS request does not set HSTS", func(t *testing.T) {
+		t.Parallel()
+		req := httptest.NewRequest("GET", "/api/test", nil)
+		rr := httptest.NewRecorder()
+		wrappedHandler.ServeHTTP(rr, req)
 
-	wrappedHandler.ServeHTTP(rr, req)
+		assert.Equal(t, "nosniff", rr.Header().Get("X-Content-Type-Options"))
+		assert.Equal(t, "DENY", rr.Header().Get("X-Frame-Options"))
+		assert.Equal(t, "1; mode=block", rr.Header().Get("X-XSS-Protection"))
+		assert.Empty(t, rr.Header().Get("Strict-Transport-Security"), "HSTS must not be set over plain HTTP")
+		assert.Equal(t, "default-src 'self'", rr.Header().Get("Content-Security-Policy"))
+		assert.Equal(t, http.StatusOK, rr.Code)
+	})
 
-	// Verify all security headers are set
-	assert.Equal(t, "nosniff", rr.Header().Get("X-Content-Type-Options"))
-	assert.Equal(t, "DENY", rr.Header().Get("X-Frame-Options"))
-	assert.Equal(t, "1; mode=block", rr.Header().Get("X-XSS-Protection"))
-	assert.Equal(t, "max-age=31536000; includeSubDomains", rr.Header().Get("Strict-Transport-Security"))
-	assert.Equal(t, "default-src 'self'", rr.Header().Get("Content-Security-Policy"))
-	assert.Equal(t, http.StatusOK, rr.Code)
+	t.Run("TLS request sets HSTS", func(t *testing.T) {
+		t.Parallel()
+		req := httptest.NewRequest("GET", "/api/test", nil)
+		req.TLS = &tls.ConnectionState{} // Simulate TLS connection.
+		rr := httptest.NewRecorder()
+		wrappedHandler.ServeHTTP(rr, req)
+
+		assert.Equal(t, "max-age=31536000; includeSubDomains", rr.Header().Get("Strict-Transport-Security"))
+		assert.Equal(t, http.StatusOK, rr.Code)
+	})
 }
 
 // TestCORSMiddleware tests CORS headers are properly set.
 func TestCORSMiddleware(t *testing.T) {
+	t.Parallel()
 	mw, _, _, _ := setupTestMiddleware()
 
 	tests := []struct {
@@ -474,6 +508,7 @@ func TestCORSMiddleware(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				w.WriteHeader(http.StatusOK)
 			})
@@ -496,11 +531,12 @@ func TestCORSMiddleware(t *testing.T) {
 
 // TestRequestIDMiddleware tests request ID generation.
 func TestRequestIDMiddleware(t *testing.T) {
+	t.Parallel()
 	mw, _, _, _ := setupTestMiddleware()
 
 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// Verify request ID is in context
-		requestID, ok := r.Context().Value("request_id").(string)
+		requestID, ok := r.Context().Value(requestIDKey).(string)
 		assert.True(t, ok, "Request ID should be in context")
 		assert.NotEmpty(t, requestID, "Request ID should not be empty")
 		assert.Contains(t, requestID, "req_", "Request ID should have prefix")
@@ -524,6 +560,7 @@ func TestRequestIDMiddleware(t *testing.T) {
 
 // TestGenerateRequestID tests request ID generation uniqueness.
 func TestGenerateRequestID(t *testing.T) {
+	t.Parallel()
 	id1 := generateRequestID()
 	time.Sleep(1 * time.Millisecond) // Ensure different timestamp
 	id2 := generateRequestID()
@@ -537,6 +574,7 @@ func TestGenerateRequestID(t *testing.T) {
 
 // TestAuthMiddlewareDeprecated tests the deprecated auth middleware.
 func TestAuthMiddlewareDeprecated(t *testing.T) {
+	t.Parallel()
 	mw, _, mockAuthService, mockRBACService := setupTestMiddleware()
 
 	// Setup mocks for both authentication and authorization
@@ -568,6 +606,7 @@ func TestAuthMiddlewareDeprecated(t *testing.T) {
 
 // TestResponseWriterStatusCode tests the custom ResponseWriter.
 func TestResponseWriterStatusCode(t *testing.T) {
+	t.Parallel()
 	logger := &logging.Logger{Logger: logrus.New()}
 	w := httptest.NewRecorder()
 	rw := &ResponseWriter{
@@ -591,11 +630,12 @@ func TestResponseWriterStatusCode(t *testing.T) {
 
 // TestMiddlewareChaining tests that multiple middleware can be chained together.
 func TestMiddlewareChaining(t *testing.T) {
+	t.Parallel()
 	mw, _, _, _ := setupTestMiddleware()
 
 	finalHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// Verify request ID and security headers are present
-		requestID, ok := r.Context().Value("request_id").(string)
+		requestID, ok := r.Context().Value(requestIDKey).(string)
 		assert.True(t, ok)
 		assert.NotEmpty(t, requestID)
 
@@ -625,6 +665,7 @@ func TestMiddlewareChaining(t *testing.T) {
 
 // TestMiddlewareArchitecturalChange documents the architectural improvement.
 func TestMiddlewareArchitecturalChange(t *testing.T) {
+	t.Parallel()
 	t.Log("Middleware architecture successfully updated:")
 	t.Log("- Old: NewMiddleware(logger) - direct logger injection")
 	t.Log("- New: NewMiddleware(serviceContainer) - full service dependency injection")

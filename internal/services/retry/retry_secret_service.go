@@ -119,3 +119,42 @@ func (s *retrySecretService) GetLatestSecretVersion(ctx context.Context, secretI
 
 	return result, retryErr
 }
+
+// GenerateSecret generates a secret with retry logic for database operations
+func (s *retrySecretService) GenerateSecret(ctx context.Context, req secrets.GenerateSecretRequest) (*domain.Secret, error) {
+	var result *domain.Secret
+	var err error
+
+	retryErr := s.retryService.ExecuteDatabaseOperation(ctx, func() error {
+		result, err = s.baseService.GenerateSecret(ctx, req)
+		return err
+	})
+
+	return result, retryErr
+}
+
+// ExportSecrets exports secrets with retry logic for database operations
+func (s *retrySecretService) ExportSecrets(ctx context.Context, req secrets.ExportSecretsRequest) ([]byte, error) {
+	var result []byte
+	var err error
+
+	retryErr := s.retryService.ExecuteDatabaseOperation(ctx, func() error {
+		result, err = s.baseService.ExportSecrets(ctx, req)
+		return err
+	})
+
+	return result, retryErr
+}
+
+// ImportSecrets imports secrets with retry logic for database operations
+func (s *retrySecretService) ImportSecrets(ctx context.Context, req secrets.ImportSecretsRequest) (*secrets.ImportResult, error) {
+	var result *secrets.ImportResult
+	var err error
+
+	retryErr := s.retryService.ExecuteDatabaseOperation(ctx, func() error {
+		result, err = s.baseService.ImportSecrets(ctx, req)
+		return err
+	})
+
+	return result, retryErr
+}

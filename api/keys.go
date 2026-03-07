@@ -32,9 +32,7 @@ import (
 	"github.com/gorilla/mux"
 
 	"password-manager/common"
-	"password-manager/internal/db"
 	"password-manager/internal/domain"
-	"password-manager/internal/repositories"
 	keyservices "password-manager/internal/services/keys"
 )
 
@@ -219,26 +217,21 @@ func listKeys(c *Context, w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// Create key repository
-	// Initialize database and keys repository
-	database := db.NewRepository(c.Logger)
-	if err := database.InitializeDB(); err != nil {
-		c.Err = common.NewAppError("listKeys", "Failed to initialize database", nil, err.Error(), http.StatusInternalServerError)
-		return
-	}
-	defer database.GetDB().Close()
+	// Get key service from service container
+	keyService := c.App.ServiceContainer.GetKeyService()
 
-	keyRepo := repositories.NewKeyRepository(database.GetDB(), c.Logger)
-
-	var keysList []domain.Key
 	// Check if user is admin - admins can list all keys
 	roleStr, ok := c.Claims["role"].(string)
-	if ok && roleStr == string(domain.RoleAdmin) {
-		// Admins list all keys with filters
-		keysList, err = keyRepo.ListByUser(r.Context(), nil, keyType, tags)
+	isAdmin := ok && roleStr == string(domain.RoleAdmin)
+
+	// Use service layer with proper admin/user distinction
+	var keysList []domain.Key
+	if isAdmin {
+		// Admins list all keys with filters (userID = nil)
+		keysList, err = keyService.ListKeysWithFilters(r.Context(), nil, keyType, tags, true)
 	} else {
 		// Non-admins list only their keys
-		keysList, err = keyRepo.ListByUser(r.Context(), &userID, keyType, tags)
+		keysList, err = keyService.ListKeysWithFilters(r.Context(), &userID, keyType, tags, false)
 	}
 
 	if err != nil {
@@ -285,27 +278,32 @@ func getKey(c *Context, w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Create key repository
-	// Initialize database and keys repository
-	database := db.NewRepository(c.Logger)
-	if err := database.InitializeDB(); err != nil {
-		c.Err = common.NewAppError("listKeys", "Failed to initialize database", nil, err.Error(), http.StatusInternalServerError)
-		return
-	}
-	defer database.GetDB().Close()
-
-	keyRepo := repositories.NewKeyRepository(database.GetDB(), c.Logger)
-	key, err := keyRepo.Read(r.Context(), keyID)
-	if err != nil {
-		c.Err = common.NewAppError("getKey", "Key not found", nil, err.Error(), http.StatusNotFound)
-		return
-	}
+	// Get key service from service container
+	keyService := c.App.ServiceContainer.GetKeyService()
 
 	// Check authorization - users can only access their own keys, admins can access all
 	roleStr, ok := c.Claims["role"].(string)
-	if !ok || (key.UserID != userID && roleStr != string(domain.RoleAdmin)) {
-		c.Err = common.NewAppError("getKey", "Forbidden: cannot access other users' keys", nil, "", http.StatusForbidden)
-		return
+	isAdmin := ok && roleStr == string(domain.RoleAdmin)
+
+	// Use service layer with access control validation
+	key, err := keyService.GetKey(r.Context(), keyID, userID)
+	if err != nil {
+		// If not admin and access denied, return forbidden
+		if !isAdmin {
+			c.Err = common.NewAppError("getKey", "Key not found or access denied", nil, err.Error(), http.StatusNotFound)
+			return
+		}
+		// Admin can try to validate access with admin role
+		if err := keyService.ValidateKeyAccess(r.Context(), keyID, userID, roleStr); err != nil {
+			c.Err = common.NewAppError("getKey", "Key not found", nil, err.Error(), http.StatusNotFound)
+			return
+		}
+		// Retry get for admin
+		key, err = keyService.GetKey(r.Context(), keyID, userID)
+		if err != nil {
+			c.Err = common.NewAppError("getKey", "Key not found", nil, err.Error(), http.StatusNotFound)
+			return
+		}
 	}
 
 	// Return success response
@@ -350,63 +348,33 @@ func updateKey(c *Context, w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Create key repository
-	// Initialize database and keys repository
-	database := db.NewRepository(c.Logger)
-	if err := database.InitializeDB(); err != nil {
-		c.Err = common.NewAppError("listKeys", "Failed to initialize database", nil, err.Error(), http.StatusInternalServerError)
-		return
-	}
-	defer database.GetDB().Close()
-
-	keyRepo := repositories.NewKeyRepository(database.GetDB(), c.Logger)
-	key, err := keyRepo.Read(r.Context(), keyID)
-	if err != nil {
-		c.Err = common.NewAppError("updateKey", "Key not found", nil, err.Error(), http.StatusNotFound)
-		return
-	}
-
-	// Check authorization - users can only update their own keys, admins can update all
-	roleStr, ok := c.Claims["role"].(string)
-	if !ok || (key.UserID != userID && roleStr != string(domain.RoleAdmin)) {
-		c.Err = common.NewAppError("updateKey", "Forbidden: cannot update other users' keys", nil, "", http.StatusForbidden)
-		return
-	}
-
-	// Apply updates
-	updateRequired := false
-	if req.Name != nil {
-		key.Name = *req.Name
-		updateRequired = true
-	}
-	if req.Revoked != nil {
-		key.Revoked = *req.Revoked
-		updateRequired = true
-	}
-	if req.Tags != nil {
-		key.Tags = req.Tags
-		updateRequired = true
-	}
-
-	if !updateRequired {
+	// Validate at least one field provided
+	if req.Name == nil && req.Revoked == nil && req.Tags == nil {
 		c.Err = common.NewAppError("updateKey", "At least one update field (name, revoked, tags) must be provided", nil, "", http.StatusBadRequest)
 		return
 	}
 
-	// Update the key
-	err = keyRepo.Update(r.Context(), key)
-	if err != nil {
+	// Get key service from service container
+	keyService := c.App.ServiceContainer.GetKeyService()
+
+	// Use service layer for update with access control
+	updateReq := keyservices.UpdateKeyRequest{
+		KeyID:  keyID,
+		Name:   req.Name,
+		Tags:   req.Tags,
+		UserID: userID,
+	}
+
+	if err := keyService.UpdateKey(r.Context(), updateReq); err != nil {
 		c.Err = common.NewAppError("updateKey", "Failed to update key", nil, err.Error(), http.StatusInternalServerError)
 		return
 	}
 
-	// Update tags if provided
-	if req.Tags != nil {
-		tagRepo := db.NewTagRepository[domain.Key](database.GetDB(), "key_tags", "key_id")
-		if err := tagRepo.ReplaceTags(r.Context(), keyID, req.Tags); err != nil {
-			c.Err = common.NewAppError("updateKey", "Failed to update tags", nil, err.Error(), http.StatusInternalServerError)
-			return
-		}
+	// Get updated key for response
+	key, err := keyService.GetKey(r.Context(), keyID, userID)
+	if err != nil {
+		c.Err = common.NewAppError("updateKey", "Failed to get updated key", nil, err.Error(), http.StatusInternalServerError)
+		return
 	}
 
 	// Return success response
@@ -445,32 +413,11 @@ func deleteKey(c *Context, w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Create key repository
-	// Initialize database and keys repository
-	database := db.NewRepository(c.Logger)
-	if err := database.InitializeDB(); err != nil {
-		c.Err = common.NewAppError("listKeys", "Failed to initialize database", nil, err.Error(), http.StatusInternalServerError)
-		return
-	}
-	defer database.GetDB().Close()
+	// Get key service from service container
+	keyService := c.App.ServiceContainer.GetKeyService()
 
-	keyRepo := repositories.NewKeyRepository(database.GetDB(), c.Logger)
-	key, err := keyRepo.Read(r.Context(), keyID)
-	if err != nil {
-		c.Err = common.NewAppError("deleteKey", "Key not found", nil, err.Error(), http.StatusNotFound)
-		return
-	}
-
-	// Check authorization - users can only delete their own keys, admins can delete all
-	roleStr, ok := c.Claims["role"].(string)
-	if !ok || (key.UserID != userID && roleStr != string(domain.RoleAdmin)) {
-		c.Err = common.NewAppError("deleteKey", "Forbidden: cannot delete other users' keys", nil, "", http.StatusForbidden)
-		return
-	}
-
-	// Delete the key
-	err = keyRepo.Delete(r.Context(), keyID)
-	if err != nil {
+	// Use service layer for deletion with access control
+	if err := keyService.DeleteKey(r.Context(), keyID, userID); err != nil {
 		c.Err = common.NewAppError("deleteKey", "Failed to delete key", nil, err.Error(), http.StatusInternalServerError)
 		return
 	}

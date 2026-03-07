@@ -91,8 +91,8 @@ func GenerateECDSAKeyPEM(curveName string) (string, error) {
 //
 // Returns:
 //
-//	The parsed private key (as interface{}) or an error if parsing fails.
-func ParsePrivateKey(pemData, keyType string) (interface{}, error) {
+//	The parsed private key (as any) or an error if parsing fails.
+func ParsePrivateKey(pemData, keyType string) (any, error) {
 	block, _ := pem.Decode([]byte(pemData))
 	if block == nil {
 		return nil, fmt.Errorf("failed to decode private key PEM")

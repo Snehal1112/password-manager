@@ -5,6 +5,7 @@ package repositories
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 
 	"github.com/google/uuid"
@@ -117,7 +118,7 @@ func (r *secretVersionRepository) GetVersion(ctx context.Context, secretID uuid.
 		&id, &secretIDStr, &userIDStr, &v.Name, &v.Value, &v.Version, &v.CreatedAt,
 	)
 
-	if err == sql.ErrNoRows {
+	if errors.Is(err, sql.ErrNoRows) {
 		return nil, fmt.Errorf("version %d not found for secret %s", version, secretID.String())
 	}
 	if err != nil {
@@ -149,7 +150,7 @@ func (r *secretVersionRepository) GetLatestVersion(ctx context.Context, secretID
 		&id, &secretIDStr, &userIDStr, &v.Name, &v.Value, &v.Version, &v.CreatedAt,
 	)
 
-	if err == sql.ErrNoRows {
+	if errors.Is(err, sql.ErrNoRows) {
 		return nil, fmt.Errorf("no versions found for secret %s", secretID.String())
 	}
 	if err != nil {

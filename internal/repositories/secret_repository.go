@@ -3,6 +3,7 @@ package repositories
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"time"
 
@@ -147,7 +148,7 @@ func (r *SecretRepository) Read(ctx context.Context, id uuid.UUID) (*domain.Secr
 		id.String(),
 	).Scan(&idStr, &userIDStr, &secret.Name, &secret.Value, &secret.Version, &secret.CreatedAt, &deletedAt, &purgeProtection)
 
-	if err == sql.ErrNoRows {
+	if errors.Is(err, sql.ErrNoRows) {
 		return nil, fmt.Errorf("secret not found")
 	}
 	if err != nil {
@@ -314,7 +315,7 @@ func (r *SecretRepository) PurgeSecret(ctx context.Context, id uuid.UUID) error 
 		"SELECT deleted_at, purge_protection FROM secrets WHERE id = ?", id.String()).
 		Scan(&deletedAt, &purgeProtection)
 	if err != nil {
-		if err == sql.ErrNoRows {
+		if errors.Is(err, sql.ErrNoRows) {
 			r.log.LogAuditError("", "purge_secret", "failed", "Secret not found", nil)
 			return fmt.Errorf("secret not found")
 		}

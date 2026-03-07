@@ -1,0 +1,35 @@
+version: "2"
+
+linters:
+  enable:
+    - errcheck       # unhandled errors
+    - gosimple       # simplification suggestions
+    - govet          # vet checks (shadow, printf, etc.)
+    - ineffassign    # unused assignments
+    - staticcheck    # broad static analysis
+    - unused         # unused code
+    - gofmt          # formatting
+    - goimports      # import ordering
+    - gosec          # security issues
+    - misspell       # common spelling mistakes
+    - noctx          # http requests without context
+    - bodyclose      # unclosed http response bodies
+    - errorlint      # errors.Is/As usage
+    - exhaustive     # exhaustive switch/map for enums
+
+linters-settings:
+  gosec:
+    excludes:
+      - G115   # integer overflow (too noisy for this codebase)
+  exhaustive:
+    default-signifies-exhaustive: true
+
+issues:
+  exclude-rules:
+    # Test files get more latitude.
+    - path: "_test\\.go"
+      linters:
+        - gosec
+        - errcheck
+  max-issues-per-linter: 0
+  max-same-issues: 0

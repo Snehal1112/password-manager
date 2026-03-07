@@ -453,8 +453,9 @@ func TestCacheConfigValidation(t *testing.T) {
 
 	t.Run("Negative max entries", func(t *testing.T) {
 		config := &CacheConfig{
-			TTL:        5 * time.Minute,
-			MaxEntries: -1,
+			TTL:             5 * time.Minute,
+			CleanupInterval: 1 * time.Minute,
+			MaxEntries:      -1,
 		}
 		err := config.Validate()
 		assert.Error(t, err)

@@ -53,6 +53,7 @@ type KeyService interface {
 	CreateECDSAKey(ctx context.Context, req CreateKeyRequest) (*CreateKeyResult, error)
 	GetKey(ctx context.Context, keyID, userID uuid.UUID) (*domain.Key, error)
 	ListKeys(ctx context.Context, userID uuid.UUID) ([]domain.Key, error)
+	ListKeysWithFilters(ctx context.Context, userID *uuid.UUID, keyType string, tags []string, isAdmin bool) ([]domain.Key, error)
 	UpdateKey(ctx context.Context, req UpdateKeyRequest) error
 	DeleteKey(ctx context.Context, keyID, userID uuid.UUID) error
 	RotateKey(ctx context.Context, keyID, userID uuid.UUID) (*CreateKeyResult, error)
@@ -286,6 +287,57 @@ func (s *keyService) ListKeys(ctx context.Context, userID uuid.UUID) ([]domain.K
 	return s.keyRepo.ListByUser(ctx, &userID, "", nil)
 }
 
+// ListKeysWithFilters retrieves keys with optional filtering by type and tags.
+// Supports admin mode where userID can be nil to list all keys in the system.
+//
+// Parameters:
+//   ctx: The context for the operation.
+//   userID: Optional user ID - nil for admin queries to list all keys.
+//   keyType: Optional key type filter (RSA, ECDSA) - empty string means no filter.
+//   tags: Optional tag filter - empty slice means no filter.
+//   isAdmin: Whether the requester has admin privileges.
+//
+// Returns:
+//   A slice of keys matching the filters or an error if retrieval fails.
+func (s *keyService) ListKeysWithFilters(ctx context.Context, userID *uuid.UUID, keyType string, tags []string, isAdmin bool) ([]domain.Key, error) {
+	// Log the filter request
+	logFields := logrus.Fields{
+		"is_admin": isAdmin,
+		"key_type": keyType,
+		"tags":     tags,
+	}
+	if userID != nil {
+		logFields["user_id"] = userID.String()
+	} else {
+		logFields["user_id"] = "all (admin)"
+	}
+	logrus.WithFields(logFields).Info("Listing keys with filters")
+
+	// Non-admin users can only list their own keys
+	if !isAdmin && userID == nil {
+		s.logger.LogAuditError("unknown", "list_keys_with_filters", "failed", "Non-admin users cannot list all keys", nil)
+		return nil, fmt.Errorf("forbidden: non-admin users cannot list all keys")
+	}
+
+	// Delegate to repository with filters
+	keys, err := s.keyRepo.ListByUser(ctx, userID, keyType, tags)
+	if err != nil {
+		userIDStr := "all"
+		if userID != nil {
+			userIDStr = userID.String()
+		}
+		s.logger.LogAuditError(userIDStr, "list_keys_with_filters", "failed", "Failed to list keys", err)
+		return nil, fmt.Errorf("failed to list keys: %w", err)
+	}
+
+	logrus.WithFields(logrus.Fields{
+		"key_count": len(keys),
+		"is_admin":  isAdmin,
+	}).Info("Keys listed successfully")
+
+	return keys, nil
+}
+
 // UpdateKey updates an existing key with access control validation.
 //
 // Parameters:
@@ -300,7 +352,7 @@ func (s *keyService) UpdateKey(ctx context.Context, req UpdateKeyRequest) error 
 	// Verify key exists and access
 	key, err := s.GetKey(ctx, req.KeyID, req.UserID)
 	if err != nil {
-		return err
+		return fmt.Errorf("update key: %w", err)
 	}
 
 	// Prepare updated key
@@ -338,7 +390,7 @@ func (s *keyService) UpdateKey(ctx context.Context, req UpdateKeyRequest) error 
 func (s *keyService) DeleteKey(ctx context.Context, keyID, userID uuid.UUID) error {
 	// Verify key exists and access
 	if _, err := s.GetKey(ctx, keyID, userID); err != nil {
-		return err
+		return fmt.Errorf("delete key: %w", err)
 	}
 
 	if err := s.keyRepo.Delete(ctx, keyID); err != nil {
@@ -364,7 +416,7 @@ func (s *keyService) RotateKey(ctx context.Context, keyID, userID uuid.UUID) (*C
 	// Get existing key
 	existingKey, err := s.GetKey(ctx, keyID, userID)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("rotate key: %w", err)
 	}
 
 	// Mark old key as revoked

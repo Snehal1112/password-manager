@@ -23,7 +23,6 @@ THE SOFTWARE.
 package api
 
 import (
-	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -35,9 +34,6 @@ import (
 	"github.com/gorilla/mux"
 
 	"password-manager/common"
-	"password-manager/internal/db"
-	"password-manager/internal/domain"
-	"password-manager/internal/repositories"
 	"password-manager/internal/services/secrets"
 )
 
@@ -157,15 +153,33 @@ func listSecretVersionsHandler(c *Context, w http.ResponseWriter, r *http.Reques
 		c.Err = common.NewAppError("listSecretVersions", "Invalid secret ID", nil, err.Error(), http.StatusBadRequest)
 		return
 	}
-	dbRepo := db.NewRepository(c.Logger)
-	if err := dbRepo.InitializeDB(); err != nil {
-		c.Err = common.NewAppError("listSecretVersions", "Failed to initialize database", nil, err.Error(), http.StatusInternalServerError)
+
+	// Get user ID from JWT claims
+	userIDStr, ok := c.Claims["user_id"].(string)
+	if !ok {
+		c.Err = common.NewAppError("listSecretVersions", "Missing user ID in token", nil, "", http.StatusUnauthorized)
 		return
 	}
-	defer dbRepo.GetDB().Close()
-	secretsRepo := repositories.NewSecretRepository(dbRepo.GetDB(), c.Logger)
-	ctx := r.Context()
-	versions, err := secretsRepo.GetVersions(ctx, secretID)
+
+	userID, err := uuid.Parse(userIDStr)
+	if err != nil {
+		c.Err = common.NewAppError("listSecretVersions", "Invalid user ID format", nil, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	// Use service container for proper business logic orchestration
+	if c.App == nil || c.App.ServiceContainer == nil {
+		c.Err = common.NewAppError("listSecretVersions", "Service container not available", nil, "", http.StatusInternalServerError)
+		return
+	}
+
+	secretService := c.App.ServiceContainer.GetSecretService()
+	if secretService == nil {
+		c.Err = common.NewAppError("listSecretVersions", "Secret service not available", nil, "", http.StatusInternalServerError)
+		return
+	}
+
+	versions, err := secretService.GetSecretVersions(r.Context(), secretID, userID)
 	if err != nil {
 		c.Err = common.NewAppError("listSecretVersions", "Failed to get versions", nil, err.Error(), http.StatusInternalServerError)
 		return
@@ -187,15 +201,33 @@ func getSecretVersionHandler(c *Context, w http.ResponseWriter, r *http.Request)
 		c.Err = common.NewAppError("getSecretVersion", "Invalid version number", nil, err.Error(), http.StatusBadRequest)
 		return
 	}
-	dbRepo := db.NewRepository(c.Logger)
-	if err := dbRepo.InitializeDB(); err != nil {
-		c.Err = common.NewAppError("getSecretVersion", "Failed to initialize database", nil, err.Error(), http.StatusInternalServerError)
+
+	// Get user ID from JWT claims
+	userIDStr, ok := c.Claims["user_id"].(string)
+	if !ok {
+		c.Err = common.NewAppError("getSecretVersion", "Missing user ID in token", nil, "", http.StatusUnauthorized)
 		return
 	}
-	defer dbRepo.GetDB().Close()
-	secretsRepo := repositories.NewSecretRepository(dbRepo.GetDB(), c.Logger)
-	ctx := r.Context()
-	version, err := secretsRepo.GetVersion(ctx, secretID, versionNum)
+
+	userID, err := uuid.Parse(userIDStr)
+	if err != nil {
+		c.Err = common.NewAppError("getSecretVersion", "Invalid user ID format", nil, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	// Use service container for proper business logic orchestration
+	if c.App == nil || c.App.ServiceContainer == nil {
+		c.Err = common.NewAppError("getSecretVersion", "Service container not available", nil, "", http.StatusInternalServerError)
+		return
+	}
+
+	secretService := c.App.ServiceContainer.GetSecretService()
+	if secretService == nil {
+		c.Err = common.NewAppError("getSecretVersion", "Secret service not available", nil, "", http.StatusInternalServerError)
+		return
+	}
+
+	version, err := secretService.GetSecretVersion(r.Context(), secretID, versionNum, userID)
 	if err != nil {
 		c.Err = common.NewAppError("getSecretVersion", "Failed to get version", nil, err.Error(), http.StatusNotFound)
 		return
@@ -212,15 +244,33 @@ func getLatestSecretVersionHandler(c *Context, w http.ResponseWriter, r *http.Re
 		c.Err = common.NewAppError("getLatestSecretVersion", "Invalid secret ID", nil, err.Error(), http.StatusBadRequest)
 		return
 	}
-	dbRepo := db.NewRepository(c.Logger)
-	if err := dbRepo.InitializeDB(); err != nil {
-		c.Err = common.NewAppError("getLatestSecretVersion", "Failed to initialize database", nil, err.Error(), http.StatusInternalServerError)
+
+	// Get user ID from JWT claims
+	userIDStr, ok := c.Claims["user_id"].(string)
+	if !ok {
+		c.Err = common.NewAppError("getLatestSecretVersion", "Missing user ID in token", nil, "", http.StatusUnauthorized)
 		return
 	}
-	defer dbRepo.GetDB().Close()
-	secretsRepo := repositories.NewSecretRepository(dbRepo.GetDB(), c.Logger)
-	ctx := r.Context()
-	version, err := secretsRepo.GetLatestVersion(ctx, secretID)
+
+	userID, err := uuid.Parse(userIDStr)
+	if err != nil {
+		c.Err = common.NewAppError("getLatestSecretVersion", "Invalid user ID format", nil, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	// Use service container for proper business logic orchestration
+	if c.App == nil || c.App.ServiceContainer == nil {
+		c.Err = common.NewAppError("getLatestSecretVersion", "Service container not available", nil, "", http.StatusInternalServerError)
+		return
+	}
+
+	secretService := c.App.ServiceContainer.GetSecretService()
+	if secretService == nil {
+		c.Err = common.NewAppError("getLatestSecretVersion", "Secret service not available", nil, "", http.StatusInternalServerError)
+		return
+	}
+
+	version, err := secretService.GetLatestSecretVersion(r.Context(), secretID, userID)
 	if err != nil {
 		c.Err = common.NewAppError("getLatestSecretVersion", "Failed to get latest version", nil, err.Error(), http.StatusNotFound)
 		return
@@ -273,53 +323,30 @@ func exportSecrets(c *Context, w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Initialize database and secrets repository
-	database := db.NewRepository(c.Logger)
-	if err := database.InitializeDB(); err != nil {
-		c.Err = common.NewAppError("exportSecrets", "Failed to initialize database", nil, err.Error(), http.StatusInternalServerError)
+	// Use service container for proper business logic orchestration
+	if c.App == nil || c.App.ServiceContainer == nil {
+		c.Err = common.NewAppError("exportSecrets", "Service container not available", nil, "", http.StatusInternalServerError)
 		return
 	}
-	defer database.GetDB().Close()
 
-	secretsRepo := repositories.NewSecretRepository(database.GetDB(), c.Logger)
-
-	// Prepare export options
-	var format domain.ExportFormat
-	if exportReq.Format == "json" {
-		format = domain.ExportFormatJSON
-	} else {
-		format = domain.ExportFormatCSV
+	secretService := c.App.ServiceContainer.GetSecretService()
+	if secretService == nil {
+		c.Err = common.NewAppError("exportSecrets", "Secret service not available", nil, "", http.StatusInternalServerError)
+		return
 	}
 
-	options := domain.ExportOptions{
-		Format:      format,
-		IncludeTags: exportReq.IncludeTags,
-		FilterTags:  exportReq.Tags,
-		Encrypt:     exportReq.Encrypt,
+	// Use service layer for export
+	serviceReq := secrets.ExportSecretsRequest{
 		UserID:      userID,
-		ExportedAt:  time.Now(),
-		ExportedBy:  userIDStr,
+		Format:      exportReq.Format,
+		FilterTags:  exportReq.Tags,
+		IncludeTags: exportReq.IncludeTags,
 	}
 
-	// Create context with database
-	ctx := r.Context()
-	ctx = context.WithValue(ctx, common.DBKey, database.GetDB())
-	ctx = context.WithValue(ctx, common.LogKey, c.Logger)
-
-	// Export secrets
-	data, err := secretsRepo.ExportSecrets(ctx, options)
+	data, err := secretService.ExportSecrets(r.Context(), serviceReq)
 	if err != nil {
 		c.Err = common.NewAppError("exportSecrets", "Failed to export secrets", nil, err.Error(), http.StatusInternalServerError)
 		return
-	}
-
-	// Count exported secrets (for JSON format)
-	var count int
-	if !exportReq.Encrypt && exportReq.Format == "json" {
-		var container domain.ExportContainer
-		if err := json.Unmarshal(data, &container); err == nil {
-			count = len(container.Secrets)
-		}
 	}
 
 	// Set response headers
@@ -338,8 +365,7 @@ func exportSecrets(c *Context, w http.ResponseWriter, r *http.Request) {
 	w.Write(data)
 
 	// Log successful export
-	c.Logger.Printf("User %s exported %d secrets in %s format (encrypted: %v)",
-		userIDStr, count, exportReq.Format, exportReq.Encrypt)
+	c.Logger.Printf("User %s exported secrets in %s format", userIDStr, exportReq.Format)
 }
 
 // importSecrets handles the import of secrets from encrypted files.
@@ -390,7 +416,6 @@ func importSecrets(c *Context, w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	encrypted := r.FormValue("encrypted") == "true"
 	overwrite := r.FormValue("overwrite") == "true"
 
 	// Get user ID from JWT claims
@@ -406,39 +431,27 @@ func importSecrets(c *Context, w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Initialize database and secrets repository
-	database := db.NewRepository(c.Logger)
-	if err := database.InitializeDB(); err != nil {
-		c.Err = common.NewAppError("importSecrets", "Failed to initialize database", nil, err.Error(), http.StatusInternalServerError)
+	// Use service container for proper business logic orchestration
+	if c.App == nil || c.App.ServiceContainer == nil {
+		c.Err = common.NewAppError("importSecrets", "Service container not available", nil, "", http.StatusInternalServerError)
 		return
 	}
-	defer database.GetDB().Close()
 
-	secretsRepo := repositories.NewSecretRepository(database.GetDB(), c.Logger)
-
-	// Prepare import options
-	var importFormat domain.ExportFormat
-	if format == "json" {
-		importFormat = domain.ExportFormatJSON
-	} else {
-		importFormat = domain.ExportFormatCSV
+	secretService := c.App.ServiceContainer.GetSecretService()
+	if secretService == nil {
+		c.Err = common.NewAppError("importSecrets", "Secret service not available", nil, "", http.StatusInternalServerError)
+		return
 	}
 
-	options := domain.ImportOptions{
-		Format:            importFormat,
-		OverwriteExisting: overwrite,
-		Encrypted:         encrypted,
-		UserID:            userID,
-		ImportedBy:        userIDStr,
+	// Use service layer for import
+	serviceReq := secrets.ImportSecretsRequest{
+		UserID:    userID,
+		Data:      data,
+		Format:    format,
+		Overwrite: overwrite,
 	}
 
-	// Create context with database
-	ctx := r.Context()
-	ctx = context.WithValue(ctx, common.DBKey, database.GetDB())
-	ctx = context.WithValue(ctx, common.LogKey, c.Logger)
-
-	// Import secrets
-	importedCount, err := secretsRepo.ImportSecrets(ctx, data, options)
+	result, err := secretService.ImportSecrets(r.Context(), serviceReq)
 	if err != nil {
 		c.Err = common.NewAppError("importSecrets", "Failed to import secrets", nil, err.Error(), http.StatusInternalServerError)
 		return
@@ -447,9 +460,9 @@ func importSecrets(c *Context, w http.ResponseWriter, r *http.Request) {
 	// Prepare response
 	response := ImportResponse{
 		Success:       true,
-		Message:       fmt.Sprintf("Successfully imported %d secrets", importedCount),
-		ImportedCount: importedCount,
-		TotalCount:    importedCount, // For now, assume all were processed
+		Message:       fmt.Sprintf("Successfully imported %d/%d secrets", result.ImportedCount, result.TotalCount),
+		ImportedCount: result.ImportedCount,
+		TotalCount:    result.TotalCount,
 		Format:        format,
 		ImportedAt:    time.Now().Format(time.RFC3339),
 	}
@@ -460,8 +473,8 @@ func importSecrets(c *Context, w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(response)
 
 	// Log successful import
-	c.Logger.Printf("User %s imported %d secrets from %s format (encrypted: %v)",
-		userIDStr, importedCount, format, encrypted)
+	c.Logger.Printf("User %s imported %d/%d secrets from %s format",
+		userIDStr, result.ImportedCount, result.TotalCount, format)
 }
 
 // createSecret handles the creation of a new secret.
@@ -574,14 +587,6 @@ func listSecrets(c *Context, w http.ResponseWriter, r *http.Request) {
 		tags = []string{tagsParam}
 	}
 
-	// Initialize database and secrets repository
-	database := db.NewRepository(c.Logger)
-	if err := database.InitializeDB(); err != nil {
-		c.Err = common.NewAppError("listSecrets", "Failed to initialize database", nil, err.Error(), http.StatusInternalServerError)
-		return
-	}
-	defer database.GetDB().Close()
-
 	// Use service container for proper business logic orchestration
 	if c.App == nil || c.App.ServiceContainer == nil {
 		c.Err = common.NewAppError("createSecret", "Service container not available", nil, "", http.StatusInternalServerError)
@@ -649,14 +654,6 @@ func getSecret(c *Context, w http.ResponseWriter, r *http.Request) {
 		c.Err = common.NewAppError("getSecret", "Invalid user ID format", nil, err.Error(), http.StatusBadRequest)
 		return
 	}
-
-	// Initialize database and secrets repository
-	database := db.NewRepository(c.Logger)
-	if err := database.InitializeDB(); err != nil {
-		c.Err = common.NewAppError("getSecret", "Failed to initialize database", nil, err.Error(), http.StatusInternalServerError)
-		return
-	}
-	defer database.GetDB().Close()
 
 	// Use service container for proper business logic orchestration
 	if c.App == nil || c.App.ServiceContainer == nil {
@@ -734,14 +731,6 @@ func updateSecret(c *Context, w http.ResponseWriter, r *http.Request) {
 		c.Err = common.NewAppError("updateSecret", "Invalid user ID format", nil, err.Error(), http.StatusBadRequest)
 		return
 	}
-
-	// Initialize database and secrets repository
-	database := db.NewRepository(c.Logger)
-	if err := database.InitializeDB(); err != nil {
-		c.Err = common.NewAppError("updateSecret", "Failed to initialize database", nil, err.Error(), http.StatusInternalServerError)
-		return
-	}
-	defer database.GetDB().Close()
 
 	// Use service container for proper business logic orchestration
 	if c.App == nil || c.App.ServiceContainer == nil {
@@ -846,31 +835,20 @@ func deleteSecret(c *Context, w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Initialize database and secrets repository
-	database := db.NewRepository(c.Logger)
-	if err := database.InitializeDB(); err != nil {
-		c.Err = common.NewAppError("deleteSecret", "Failed to initialize database", nil, err.Error(), http.StatusInternalServerError)
-		return
-	}
-	defer database.GetDB().Close()
-
-	secretsRepo := repositories.NewSecretRepository(database.GetDB(), c.Logger)
-
-	// Get secret to verify ownership
-	secret, err := secretsRepo.Read(r.Context(), secretID)
-	if err != nil {
-		c.Err = common.NewAppError("deleteSecret", "Secret not found", nil, err.Error(), http.StatusNotFound)
+	// Use service container for proper business logic orchestration
+	if c.App == nil || c.App.ServiceContainer == nil {
+		c.Err = common.NewAppError("deleteSecret", "Service container not available", nil, "", http.StatusInternalServerError)
 		return
 	}
 
-	// Verify ownership
-	if secret.UserID != userID {
-		c.Err = common.NewAppError("deleteSecret", "Access denied", nil, "", http.StatusForbidden)
+	secretService := c.App.ServiceContainer.GetSecretService()
+	if secretService == nil {
+		c.Err = common.NewAppError("deleteSecret", "Secret service not available", nil, "", http.StatusInternalServerError)
 		return
 	}
 
-	// Delete secret
-	if err := secretsRepo.Delete(r.Context(), secretID); err != nil {
+	// Use service layer for deletion with access control
+	if err := secretService.DeleteSecret(r.Context(), secretID, userID); err != nil {
 		c.Err = common.NewAppError("deleteSecret", "Failed to delete secret", nil, err.Error(), http.StatusInternalServerError)
 		return
 	}
@@ -878,14 +856,14 @@ func deleteSecret(c *Context, w http.ResponseWriter, r *http.Request) {
 	// Send response
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
-	response := map[string]interface{}{
+	response := map[string]any{
 		"message": "Secret deleted successfully",
 		"status":  "success",
 	}
 	json.NewEncoder(w).Encode(response)
 
 	// Log successful deletion
-	c.Logger.Printf("User %s deleted secret %s", userIDStr, secret.Name)
+	c.Logger.Printf("User %s deleted secret %s", userIDStr, secretID.String())
 }
 
 // generateSecret handles the generation of random passwords or secrets.
@@ -918,41 +896,6 @@ func generateSecret(c *Context, w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Set default character sets if none specified
-	if !req.UseSymbols && !req.UseNumbers && !req.UseUppercase && !req.UseLowercase {
-		req.UseUppercase = true
-		req.UseLowercase = true
-		req.UseNumbers = true
-		req.UseSymbols = true
-	}
-
-	// Build character set
-	var charset string
-	if req.UseLowercase {
-		charset += "abcdefghijklmnopqrstuvwxyz"
-	}
-	if req.UseUppercase {
-		charset += "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
-	}
-	if req.UseNumbers {
-		charset += "0123456789"
-	}
-	if req.UseSymbols {
-		charset += "!@#$%^&*()_+-=[]{}|;:,.<>?"
-	}
-
-	if charset == "" {
-		c.Err = common.NewAppError("generateSecret", "At least one character type must be selected", nil, "", http.StatusBadRequest)
-		return
-	}
-
-	// Generate password
-	password, err := common.GenerateRandomString(req.Length, charset)
-	if err != nil {
-		c.Err = common.NewAppError("generateSecret", "Failed to generate password", nil, err.Error(), http.StatusInternalServerError)
-		return
-	}
-
 	// Get user ID from JWT claims
 	userIDStr, ok := c.Claims["user_id"].(string)
 	if !ok {
@@ -966,29 +909,29 @@ func generateSecret(c *Context, w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Initialize database and secrets repository
-	database := db.NewRepository(c.Logger)
-	if err := database.InitializeDB(); err != nil {
-		c.Err = common.NewAppError("generateSecret", "Failed to initialize database", nil, err.Error(), http.StatusInternalServerError)
+	// Use service container for proper business logic orchestration
+	if c.App == nil || c.App.ServiceContainer == nil {
+		c.Err = common.NewAppError("generateSecret", "Service container not available", nil, "", http.StatusInternalServerError)
 		return
 	}
-	defer database.GetDB().Close()
 
-	secretsRepo := repositories.NewSecretRepository(database.GetDB(), c.Logger)
-
-	// Create secret with generated password
-	secret := domain.Secret{
-		ID:        uuid.New(),
-		UserID:    userID,
-		Name:      req.Name,
-		Value:     password,
-		Version:   1,
-		Tags:      []string{"generated"},
-		CreatedAt: time.Now(),
+	secretService := c.App.ServiceContainer.GetSecretService()
+	if secretService == nil {
+		c.Err = common.NewAppError("generateSecret", "Secret service not available", nil, "", http.StatusInternalServerError)
+		return
 	}
 
-	if err := secretsRepo.Create(r.Context(), &secret); err != nil {
-		c.Err = common.NewAppError("generateSecret", "Failed to create secret", nil, err.Error(), http.StatusInternalServerError)
+	secret, err := secretService.GenerateSecret(r.Context(), secrets.GenerateSecretRequest{
+		UserID:       userID,
+		Name:         req.Name,
+		Length:       req.Length,
+		UseSymbols:   req.UseSymbols,
+		UseNumbers:   req.UseNumbers,
+		UseUppercase: req.UseUppercase,
+		UseLowercase: req.UseLowercase,
+	})
+	if err != nil {
+		c.Err = common.NewAppError("generateSecret", "Failed to generate secret", nil, err.Error(), http.StatusInternalServerError)
 		return
 	}
 

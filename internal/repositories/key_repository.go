@@ -6,6 +6,7 @@ package repositories
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -158,7 +159,7 @@ func (r *KeyRepository) Read(ctx context.Context, id uuid.UUID) (*domain.Key, er
 		id.String(),
 	).Scan(&idStr, &userIDStr, &key.Name, &key.Value, &key.Type, &key.Revoked, &key.CreatedAt)
 
-	if err == sql.ErrNoRows {
+	if errors.Is(err, sql.ErrNoRows) {
 		return nil, fmt.Errorf("key not found")
 	}
 	if err != nil {

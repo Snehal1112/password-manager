@@ -11,6 +11,10 @@ import (
 	"golang.org/x/crypto/bcrypt"
 )
 
+// bcryptCost is the work factor used for password hashing.
+// Cost 12 is strong enough for production while remaining performant.
+const bcryptCost = 12
+
 // CheckPassword compares a plaintext password with a hashed password.
 func CheckPassword(password, hash string) error {
 	return bcrypt.CompareHashAndPassword([]byte(hash), []byte(password))
@@ -18,7 +22,7 @@ func CheckPassword(password, hash string) error {
 
 // HashString hashes a string using bcrypt.
 func HashString(input string) (string, error) {
-	hash, err := bcrypt.GenerateFromPassword([]byte(input), bcrypt.DefaultCost)
+	hash, err := bcrypt.GenerateFromPassword([]byte(input), bcryptCost)
 	if err != nil {
 		return "", err
 	}
