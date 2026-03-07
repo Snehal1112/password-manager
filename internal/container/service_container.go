@@ -218,12 +218,16 @@ func (c *ServiceContainer) initializeServices() error {
 	c.passwordService = authServices.NewPasswordService()
 	c.totpService = authServices.NewTOTPService()
 
-	// Initialize JWT service with configuration
+	// Initialize JWT service with configuration.
+	jwtExpiry := viper.GetDuration("jwt.expiry")
+	if jwtExpiry == 0 {
+		jwtExpiry = time.Hour // Default to 1 hour.
+	}
 	jwtConfig := authServices.JWTConfig{
 		SecretKey: viper.GetString("jwt_secret"),
 		Issuer:    "PasswordManager",
 		Audience:  "PASSWORD_MANAGER",
-		Expiry:    time.Hour, // 1 hour expiration
+		Expiry:    jwtExpiry,
 	}
 	if jwtConfig.SecretKey == "" {
 		return fmt.Errorf("JWT secret not configured")
@@ -276,7 +280,7 @@ func (c *ServiceContainer) initializeServices() error {
 		c.cryptoService,
 		c.logger,
 	)
-	c.tagService = secretServices.NewTagService(c.db, c.logger)
+	c.tagService = secretServices.NewTagService(repositories.NewSecretTagRepository(c.db), c.logger)
 	c.rotationService = secretServices.NewRotationService(
 		c.rotationRepository,
 		c.secretRepository,

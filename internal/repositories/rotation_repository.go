@@ -5,6 +5,7 @@ package repositories
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"time"
 
@@ -117,7 +118,7 @@ func (r *rotationPolicyRepository) Read(ctx context.Context, id uuid.UUID) (*dom
 		&policy.UpdatedAt,
 	)
 	if err != nil {
-		if err == sql.ErrNoRows {
+		if errors.Is(err, sql.ErrNoRows) {
 			return nil, fmt.Errorf("rotation policy not found")
 		}
 		r.log.WithError(err).Error("Failed to read rotation policy")
@@ -680,7 +681,7 @@ func (r *rotationPolicyRepository) GetReminderBySecret(ctx context.Context, secr
 		&reminder.Acknowledged,
 	)
 	if err != nil {
-		if err == sql.ErrNoRows {
+		if errors.Is(err, sql.ErrNoRows) {
 			return nil, nil // No reminder found
 		}
 		return nil, fmt.Errorf("failed to get reminder: %w", err)

@@ -132,6 +132,46 @@ func (s *CachedSecretService) GetLatestSecretVersion(ctx context.Context, secret
 	return s.secretService.GetLatestSecretVersion(ctx, secretID, userID)
 }
 
+// GenerateSecret generates a secret and caches it.
+func (s *CachedSecretService) GenerateSecret(ctx context.Context, req secrets.GenerateSecretRequest) (*domain.Secret, error) {
+	// Generate through underlying service
+	secret, err := s.secretService.GenerateSecret(ctx, req)
+	if err != nil {
+		return nil, err
+	}
+
+	// Cache the new secret
+	if err := s.cache.Set(ctx, secret); err != nil {
+		s.logger.WithError(err).Warn("Failed to cache generated secret")
+		// Don't fail the operation if caching fails
+	}
+
+	return secret, nil
+}
+
+// ExportSecrets exports secrets (not cached due to bulk operation).
+func (s *CachedSecretService) ExportSecrets(ctx context.Context, req secrets.ExportSecretsRequest) ([]byte, error) {
+	// Export operations are not cached due to bulk nature
+	return s.secretService.ExportSecrets(ctx, req)
+}
+
+// ImportSecrets imports secrets and clears cache to ensure consistency.
+func (s *CachedSecretService) ImportSecrets(ctx context.Context, req secrets.ImportSecretsRequest) (*secrets.ImportResult, error) {
+	// Import through underlying service
+	result, err := s.secretService.ImportSecrets(ctx, req)
+	if err != nil {
+		return nil, err
+	}
+
+	// Clear cache to ensure consistency after bulk import
+	if err := s.cache.Clear(ctx); err != nil {
+		s.logger.WithError(err).Warn("Failed to clear cache after import")
+		// Don't fail the operation if cache clear fails
+	}
+
+	return result, nil
+}
+
 // GetCacheStats returns cache statistics for monitoring.
 func (s *CachedSecretService) GetCacheStats() map[string]interface{} {
 	return s.cache.GetStats()

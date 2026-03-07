@@ -2,7 +2,10 @@ package secrets
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/json"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -30,6 +33,41 @@ type UpdateSecretRequest struct {
 	Tags     *[]string // Optional - nil means no change
 }
 
+// GenerateSecretRequest represents a request to generate a random secret.
+type GenerateSecretRequest struct {
+	UserID       uuid.UUID
+	Name         string
+	Length       int
+	UseSymbols   bool
+	UseNumbers   bool
+	UseUppercase bool
+	UseLowercase bool
+}
+
+// ExportSecretsRequest represents a request to export secrets.
+type ExportSecretsRequest struct {
+	UserID      uuid.UUID
+	Format      string   // "json" or "csv"
+	FilterTags  []string // Optional tag filter
+	IncludeTags bool     // Include tags in export
+}
+
+// ImportSecretsRequest represents a request to import secrets.
+type ImportSecretsRequest struct {
+	UserID    uuid.UUID
+	Data      []byte
+	Format    string // "json" or "csv"
+	Overwrite bool   // Overwrite existing secrets with same name
+}
+
+// ImportResult represents the result of importing secrets.
+type ImportResult struct {
+	ImportedCount int
+	SkippedCount  int
+	TotalCount    int
+	Errors        []string
+}
+
 // SecretService orchestrates secret management operations.
 // It coordinates encryption, versioning, tagging, and storage
 // while maintaining proper separation of concerns.
@@ -39,6 +77,9 @@ type SecretService interface {
 	GetSecret(ctx context.Context, secretID, userID uuid.UUID) (*domain.Secret, error)
 	ListSecrets(ctx context.Context, userID uuid.UUID, tags []string) ([]domain.Secret, error)
 	DeleteSecret(ctx context.Context, secretID, userID uuid.UUID) error
+	GenerateSecret(ctx context.Context, req GenerateSecretRequest) (*domain.Secret, error)
+	ExportSecrets(ctx context.Context, req ExportSecretsRequest) ([]byte, error)
+	ImportSecrets(ctx context.Context, req ImportSecretsRequest) (*ImportResult, error)
 	GetSecretVersions(ctx context.Context, secretID uuid.UUID, userID uuid.UUID) ([]domain.SecretVersion, error)
 	GetSecretVersion(ctx context.Context, secretID uuid.UUID, version int, userID uuid.UUID) (*domain.SecretVersion, error)
 	GetLatestSecretVersion(ctx context.Context, secretID uuid.UUID, userID uuid.UUID) (*domain.SecretVersion, error)
@@ -417,4 +458,330 @@ func (s *secretService) GetSecretVersion(ctx context.Context, secretID uuid.UUID
 //	The latest secret version or an error if not found.
 func (s *secretService) GetLatestSecretVersion(ctx context.Context, secretID uuid.UUID, userID uuid.UUID) (*domain.SecretVersion, error) {
 	return s.versionService.GetLatestVersion(ctx, secretID, userID)
+}
+
+// GenerateSecret generates a random password or secret with specified criteria.
+// It creates a new secret with a randomly generated value.
+//
+// Parameters:
+//
+//	ctx: The context for the operation.
+//	req: The secret generation request with password criteria.
+//
+// Returns:
+//
+//	The created secret with generated value or an error if generation fails.
+func (s *secretService) GenerateSecret(ctx context.Context, req GenerateSecretRequest) (*domain.Secret, error) {
+	logrus.WithFields(logrus.Fields{
+		"user_id": req.UserID.String(),
+		"name":    req.Name,
+		"length":  req.Length,
+	}).Info("Generating random secret")
+
+	// Validate length
+	if req.Length < 8 || req.Length > 128 {
+		s.logger.LogAuditError(req.UserID.String(), "generate_secret", "failed", "Invalid length: must be between 8 and 128", nil)
+		return nil, fmt.Errorf("invalid length: must be between 8 and 128")
+	}
+
+	// Ensure at least one character type is selected
+	if !req.UseSymbols && !req.UseNumbers && !req.UseUppercase && !req.UseLowercase {
+		s.logger.LogAuditError(req.UserID.String(), "generate_secret", "failed", "At least one character type must be selected", nil)
+		return nil, fmt.Errorf("at least one character type must be selected")
+	}
+
+	// Generate random password using common utility
+	generatedValue, err := generateRandomPassword(req.Length, req.UseSymbols, req.UseNumbers, req.UseUppercase, req.UseLowercase)
+	if err != nil {
+		s.logger.LogAuditError(req.UserID.String(), "generate_secret", "failed", "Failed to generate random password", err)
+		return nil, fmt.Errorf("failed to generate random password: %w", err)
+	}
+
+	// Create secret with generated value
+	createReq := CreateSecretRequest{
+		UserID: req.UserID,
+		Name:   req.Name,
+		Value:  generatedValue,
+		Tags:   []string{"generated"},
+	}
+
+	secret, err := s.CreateSecret(ctx, createReq)
+	if err != nil {
+		s.logger.LogAuditError(req.UserID.String(), "generate_secret", "failed", "Failed to create secret with generated value", err)
+		return nil, fmt.Errorf("failed to create secret: %w", err)
+	}
+
+	s.logger.LogAuditInfo(req.UserID.String(), "generate_secret", "success",
+		fmt.Sprintf("Generated secret: %s (length: %d)", req.Name, req.Length))
+	logrus.WithFields(logrus.Fields{
+		"secret_id": secret.ID.String(),
+		"user_id":   req.UserID.String(),
+		"name":      req.Name,
+		"length":    req.Length,
+	}).Info("Random secret generated successfully")
+
+	return secret, nil
+}
+
+// generateRandomPassword generates a random password with specified criteria.
+// This is a helper function for password generation.
+func generateRandomPassword(length int, useSymbols, useNumbers, useUppercase, useLowercase bool) (string, error) {
+	const (
+		symbols   = "!@#$%^&*()_+-=[]{}|;:,.<>?"
+		numbers   = "0123456789"
+		uppercase = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+		lowercase = "abcdefghijklmnopqrstuvwxyz"
+	)
+
+	// Build character set based on requirements
+	var charset string
+	if useSymbols {
+		charset += symbols
+	}
+	if useNumbers {
+		charset += numbers
+	}
+	if useUppercase {
+		charset += uppercase
+	}
+	if useLowercase {
+		charset += lowercase
+	}
+
+	if len(charset) == 0 {
+		return "", fmt.Errorf("no character types selected")
+	}
+
+	// Generate random password
+	password := make([]byte, length)
+	for i := range password {
+		// Use crypto/rand for secure random selection
+		randomIndex := make([]byte, 1)
+		if _, err := rand.Read(randomIndex); err != nil {
+			return "", fmt.Errorf("failed to generate random bytes: %w", err)
+		}
+		password[i] = charset[int(randomIndex[0])%len(charset)]
+	}
+
+	return string(password), nil
+}
+
+// ExportSecrets exports secrets in JSON or CSV format.
+// It retrieves secrets for the user and formats them according to the request.
+//
+// Parameters:
+//
+//	ctx: The context for the operation.
+//	req: The export request with format and filter options.
+//
+// Returns:
+//
+//	The exported data as bytes or an error if export fails.
+func (s *secretService) ExportSecrets(ctx context.Context, req ExportSecretsRequest) ([]byte, error) {
+	logrus.WithFields(logrus.Fields{
+		"user_id": req.UserID.String(),
+		"format":  req.Format,
+		"tags":    req.FilterTags,
+	}).Info("Exporting secrets")
+
+	// Validate format
+	if req.Format != "json" && req.Format != "csv" {
+		s.logger.LogAuditError(req.UserID.String(), "export_secrets", "failed", "Invalid format: must be json or csv", nil)
+		return nil, fmt.Errorf("invalid format: must be json or csv")
+	}
+
+	// List secrets with optional tag filter
+	secrets, err := s.ListSecrets(ctx, req.UserID, req.FilterTags)
+	if err != nil {
+		s.logger.LogAuditError(req.UserID.String(), "export_secrets", "failed", "Failed to list secrets", err)
+		return nil, fmt.Errorf("failed to list secrets: %w", err)
+	}
+
+	var data []byte
+	if req.Format == "json" {
+		// Export as JSON
+		type exportSecret struct {
+			Name  string   `json:"name"`
+			Value string   `json:"value"`
+			Tags  []string `json:"tags,omitempty"`
+		}
+
+		exportData := make([]exportSecret, len(secrets))
+		for i, secret := range secrets {
+			exportData[i] = exportSecret{
+				Name:  secret.Name,
+				Value: secret.Value,
+			}
+			if req.IncludeTags {
+				exportData[i].Tags = secret.Tags
+			}
+		}
+
+		data, err = json.MarshalIndent(exportData, "", "  ")
+		if err != nil {
+			s.logger.LogAuditError(req.UserID.String(), "export_secrets", "failed", "Failed to marshal JSON", err)
+			return nil, fmt.Errorf("failed to marshal JSON: %w", err)
+		}
+	} else {
+		// Export as CSV
+		var csvData string
+		if req.IncludeTags {
+			csvData = "name,value,tags\n"
+			for _, secret := range secrets {
+				tags := ""
+				if len(secret.Tags) > 0 {
+					tags = fmt.Sprintf(`"%s"`, strings.Join(secret.Tags, ","))
+				}
+				csvData += fmt.Sprintf(`"%s","%s",%s`+"\n", secret.Name, secret.Value, tags)
+			}
+		} else {
+			csvData = "name,value\n"
+			for _, secret := range secrets {
+				csvData += fmt.Sprintf(`"%s","%s"`+"\n", secret.Name, secret.Value)
+			}
+		}
+		data = []byte(csvData)
+	}
+
+	s.logger.LogAuditInfo(req.UserID.String(), "export_secrets", "success",
+		fmt.Sprintf("Exported %d secrets in %s format", len(secrets), req.Format))
+	logrus.WithFields(logrus.Fields{
+		"user_id":      req.UserID.String(),
+		"format":       req.Format,
+		"secret_count": len(secrets),
+	}).Info("Secrets exported successfully")
+
+	return data, nil
+}
+
+// ImportSecrets imports secrets from JSON or CSV format.
+// It parses the data and creates secrets for the user.
+//
+// Parameters:
+//
+//	ctx: The context for the operation.
+//	req: The import request with data and options.
+//
+// Returns:
+//
+//	The import result with counts and errors, or an error if import fails.
+func (s *secretService) ImportSecrets(ctx context.Context, req ImportSecretsRequest) (*ImportResult, error) {
+	logrus.WithFields(logrus.Fields{
+		"user_id":   req.UserID.String(),
+		"format":    req.Format,
+		"overwrite": req.Overwrite,
+	}).Info("Importing secrets")
+
+	result := &ImportResult{
+		Errors: []string{},
+	}
+
+	// Validate format
+	if req.Format != "json" && req.Format != "csv" {
+		s.logger.LogAuditError(req.UserID.String(), "import_secrets", "failed", "Invalid format: must be json or csv", nil)
+		return nil, fmt.Errorf("invalid format: must be json or csv")
+	}
+
+	type importSecret struct {
+		Name  string   `json:"name"`
+		Value string   `json:"value"`
+		Tags  []string `json:"tags,omitempty"`
+	}
+
+	var secretsToImport []importSecret
+
+	if req.Format == "json" {
+		// Parse JSON
+		if err := json.Unmarshal(req.Data, &secretsToImport); err != nil {
+			s.logger.LogAuditError(req.UserID.String(), "import_secrets", "failed", "Failed to parse JSON", err)
+			return nil, fmt.Errorf("failed to parse JSON: %w", err)
+		}
+	} else {
+		// Parse CSV (simplified - assumes CSV format: name,value or name,value,tags)
+		lines := strings.Split(string(req.Data), "\n")
+		for i, line := range lines {
+			if i == 0 || strings.TrimSpace(line) == "" {
+				continue // Skip header and empty lines
+			}
+
+			// Simple CSV parsing (handles quoted values)
+			parts := parseCSVLine(line)
+			if len(parts) < 2 {
+				result.Errors = append(result.Errors, fmt.Sprintf("Line %d: invalid format", i+1))
+				continue
+			}
+
+			secret := importSecret{
+				Name:  parts[0],
+				Value: parts[1],
+			}
+			if len(parts) > 2 && parts[2] != "" {
+				secret.Tags = strings.Split(parts[2], ",")
+			}
+			secretsToImport = append(secretsToImport, secret)
+		}
+	}
+
+	result.TotalCount = len(secretsToImport)
+
+	// Import each secret
+	for _, importSec := range secretsToImport {
+		if importSec.Name == "" || importSec.Value == "" {
+			result.Errors = append(result.Errors, fmt.Sprintf("Secret missing name or value"))
+			result.SkippedCount++
+			continue
+		}
+
+		createReq := CreateSecretRequest{
+			UserID: req.UserID,
+			Name:   importSec.Name,
+			Value:  importSec.Value,
+			Tags:   importSec.Tags,
+		}
+
+		if _, err := s.CreateSecret(ctx, createReq); err != nil {
+			result.Errors = append(result.Errors, fmt.Sprintf("Failed to import '%s': %v", importSec.Name, err))
+			result.SkippedCount++
+		} else {
+			result.ImportedCount++
+		}
+	}
+
+	s.logger.LogAuditInfo(req.UserID.String(), "import_secrets", "success",
+		fmt.Sprintf("Imported %d/%d secrets", result.ImportedCount, result.TotalCount))
+	logrus.WithFields(logrus.Fields{
+		"user_id":        req.UserID.String(),
+		"format":         req.Format,
+		"imported_count": result.ImportedCount,
+		"skipped_count":  result.SkippedCount,
+		"total_count":    result.TotalCount,
+	}).Info("Secrets import completed")
+
+	return result, nil
+}
+
+// parseCSVLine parses a CSV line handling quoted values.
+func parseCSVLine(line string) []string {
+	var parts []string
+	var current strings.Builder
+	inQuotes := false
+
+	for i := 0; i < len(line); i++ {
+		char := line[i]
+		switch char {
+		case '"':
+			inQuotes = !inQuotes
+		case ',':
+			if inQuotes {
+				current.WriteByte(char)
+			} else {
+				parts = append(parts, strings.TrimSpace(current.String()))
+				current.Reset()
+			}
+		default:
+			current.WriteByte(char)
+		}
+	}
+	parts = append(parts, strings.TrimSpace(current.String()))
+	return parts
 }

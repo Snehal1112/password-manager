@@ -110,7 +110,7 @@ func (a *App) StartServer(ctx context.Context) error {
 				interval = 1 * time.Hour // Default to 1 hour if not specified
 			}
 
-			err := scheduler.Start(interval)
+			err := scheduler.Start(ctx, interval)
 			if err != nil {
 				a.Logger.WithError(err).WithField("interval", interval).Error("Failed to start rotation scheduler")
 			} else {

@@ -22,23 +22,9 @@ services:
     networks:
       - db_network
 
-  mongodb:
-    image: mongo:latest
-    environment:
-      MONGO_INITDB_ROOT_USERNAME: admin
-      MONGO_INITDB_ROOT_PASSWORD: securepassword
-      MONGO_INITDB_DATABASE: mydatabase
-    ports:
-      - "27017:27017"
-    volumes:
-      - mongo_data:/data/db
-    networks:
-      - db_network
-
 volumes:
   postgres_data:
   sqlite_data:
-  mongo_data:
 
 networks:
   db_network:

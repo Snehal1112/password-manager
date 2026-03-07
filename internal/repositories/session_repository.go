@@ -3,6 +3,7 @@ package repositories
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"time"
 
@@ -119,7 +120,7 @@ func (r *SessionRepository) GetSessionByID(ctx context.Context, sessionID uuid.U
 	)
 
 	if err != nil {
-		if err == sql.ErrNoRows {
+		if errors.Is(err, sql.ErrNoRows) {
 			return nil, fmt.Errorf("session not found")
 		}
 		r.logger.WithFields(logrus.Fields{
@@ -171,7 +172,7 @@ func (r *SessionRepository) GetSessionByRefreshToken(ctx context.Context, refres
 	)
 
 	if err != nil {
-		if err == sql.ErrNoRows {
+		if errors.Is(err, sql.ErrNoRows) {
 			return nil, fmt.Errorf("session not found or expired")
 		}
 		r.logger.WithFields(logrus.Fields{
@@ -311,7 +312,7 @@ func (r *SessionRepository) RevokeSession(ctx context.Context, sessionID uuid.UU
 		if err != nil {
 			r.logger.WithFields(logrus.Fields{
 				"session_id": sessionID.String(),
-				"reason": reason,
+				"reason":     reason,
 			}).Errorf("Failed to revoke session: %v", err)
 			return fmt.Errorf("failed to revoke session: %w", err)
 		}
@@ -342,7 +343,7 @@ func (r *SessionRepository) RevokeAllUserSessions(ctx context.Context, userID uu
 		if err != nil {
 			r.logger.WithFields(logrus.Fields{
 				"user_id": userID.String(),
-				"reason": reason,
+				"reason":  reason,
 			}).Errorf("Failed to revoke all user sessions: %v", err)
 			return fmt.Errorf("failed to revoke all user sessions: %w", err)
 		}
@@ -353,8 +354,8 @@ func (r *SessionRepository) RevokeAllUserSessions(ctx context.Context, userID uu
 		}
 
 		r.logger.WithFields(logrus.Fields{
-			"user_id":       userID.String(),
-			"reason":        reason,
+			"user_id":        userID.String(),
+			"reason":         reason,
 			"sessions_count": rowsAffected,
 		}).Info("Revoked all user sessions")
 
@@ -417,7 +418,7 @@ func (r *SessionRepository) IsSessionRevoked(ctx context.Context, sessionID uuid
 	`
 	err := r.db.QueryRowContext(ctx, query, sessionID.String()).Scan(&revoked)
 	if err != nil {
-		if err == sql.ErrNoRows {
+		if errors.Is(err, sql.ErrNoRows) {
 			return true, nil // Non-existent session is considered revoked
 		}
 		r.logger.WithFields(logrus.Fields{
@@ -437,9 +438,9 @@ func (r *SessionRepository) executeWithMetrics(operation string, fn func() error
 	// Log slow queries (>100ms)
 	if duration > 100*time.Millisecond {
 		r.logger.WithFields(logrus.Fields{
-			"operation":  operation,
-			"duration":   duration.Milliseconds(),
-			"threshold":  100,
+			"operation": operation,
+			"duration":  duration.Milliseconds(),
+			"threshold": 100,
 		}).Warn("Slow session repository query detected")
 	}
 

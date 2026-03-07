@@ -206,7 +206,7 @@ func (vm *VersionManager) setupVersionedRoutes(router *mux.Router, version strin
 	// For now, we'll add a basic version info endpoint
 	router.HandleFunc("/version", func(w http.ResponseWriter, r *http.Request) {
 		apiVersion := vm.versions[version]
-		response := map[string]interface{}{
+		response := map[string]any{
 			"version":    apiVersion.String(),
 			"deprecated": apiVersion.Deprecated,
 		}

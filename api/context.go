@@ -24,8 +24,6 @@ package api
 
 import (
 	"encoding/json"
-	"errors"
-	"log"
 	"net/http"
 	"strings"
 	"time"
@@ -33,7 +31,6 @@ import (
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/google/uuid"
 	"github.com/gorilla/mux"
-	"github.com/spf13/viper"
 
 	"password-manager/app"
 	"password-manager/common"
@@ -82,8 +79,7 @@ func Handler(app *app.App, handler func(*Context, http.ResponseWriter, *http.Req
 			Err:            nil,
 		}
 
-		app.Logger.Println("API request started", ctx.RequestID)
-		ctx.Logger.Infoln(common.T("server.start"))
+		ctx.Logger.WithField("request_id", ctx.RequestID).Debug("API request started")
 		// Populate URL parameters
 		vars := mux.Vars(r)
 		if userID, ok := vars["user_id"]; ok {
@@ -111,9 +107,8 @@ func Handler(app *app.App, handler func(*Context, http.ResponseWriter, *http.Req
 		// Handle errors
 		if ctx.Err != nil {
 			w.Header().Set("Content-Type", "application/json")
-			log.Println("Error occurred:", w.Header().Clone())
 			w.WriteHeader(ctx.Err.StatusCode)
-			json.NewEncoder(w).Encode(map[string]interface{}{
+			json.NewEncoder(w).Encode(map[string]any{
 				"id":             ctx.Err.ID,
 				"message":        ctx.Err.Message,
 				"detailed_error": ctx.Err.DetailedError,
@@ -147,7 +142,7 @@ func SessionRequired(app *app.App, handler func(*Context, http.ResponseWriter, *
 			ctx.Err = common.NewAppError("SessionRequired", "Missing Authorization header", nil, "", http.StatusUnauthorized)
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(ctx.Err.StatusCode)
-			json.NewEncoder(w).Encode(map[string]interface{}{
+			json.NewEncoder(w).Encode(map[string]any{
 				"id":             ctx.Err.ID,
 				"message":        ctx.Err.Message,
 				"detailed_error": ctx.Err.DetailedError,
@@ -161,7 +156,7 @@ func SessionRequired(app *app.App, handler func(*Context, http.ResponseWriter, *
 			ctx.Err = common.NewAppError("SessionRequired", "Invalid Authorization header format", nil, "", http.StatusUnauthorized)
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(ctx.Err.StatusCode)
-			json.NewEncoder(w).Encode(map[string]interface{}{
+			json.NewEncoder(w).Encode(map[string]any{
 				"id":             ctx.Err.ID,
 				"message":        ctx.Err.Message,
 				"detailed_error": ctx.Err.DetailedError,
@@ -171,18 +166,26 @@ func SessionRequired(app *app.App, handler func(*Context, http.ResponseWriter, *
 		}
 
 		tokenString := parts[1]
-		token, err := jwt.ParseWithClaims(tokenString, &jwt.MapClaims{}, func(token *jwt.Token) (interface{}, error) {
-			if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
-				return nil, errors.New("unexpected signing method")
-			}
-			return []byte(viper.GetString("jwt_secret")), nil
-		})
 
-		if err != nil || !token.Valid {
+		// Validate token via the auth service — no inline JWT parsing here.
+		if app.ServiceContainer == nil {
+			ctx.Err = common.NewAppError("SessionRequired", "Service container not available", nil, "", http.StatusInternalServerError)
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(ctx.Err.StatusCode)
+			json.NewEncoder(w).Encode(map[string]any{
+				"id":          ctx.Err.ID,
+				"message":     ctx.Err.Message,
+				"status_code": ctx.Err.StatusCode,
+			})
+			return
+		}
+
+		jwtClaims, err := app.ServiceContainer.GetAuthenticationService().ValidateSession(r.Context(), tokenString)
+		if err != nil {
 			ctx.Err = common.NewAppError("SessionRequired", "Invalid or expired token", nil, err.Error(), http.StatusUnauthorized)
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(ctx.Err.StatusCode)
-			json.NewEncoder(w).Encode(map[string]interface{}{
+			json.NewEncoder(w).Encode(map[string]any{
 				"id":             ctx.Err.ID,
 				"message":        ctx.Err.Message,
 				"detailed_error": ctx.Err.DetailedError,
@@ -191,41 +194,25 @@ func SessionRequired(app *app.App, handler func(*Context, http.ResponseWriter, *
 			return
 		}
 
-		// Populate claims
-		if claims, ok := token.Claims.(*jwt.MapClaims); ok {
-			ctx.Claims = *claims
-			ctx.Token = tokenString
-		} else {
-			ctx.Err = common.NewAppError("SessionRequired", "Invalid token claims", nil, "", http.StatusUnauthorized)
-			w.Header().Set("Content-Type", "application/json")
-			w.WriteHeader(ctx.Err.StatusCode)
-			json.NewEncoder(w).Encode(map[string]interface{}{
-				"id":             ctx.Err.ID,
-				"message":        ctx.Err.Message,
-				"detailed_error": ctx.Err.DetailedError,
-				"status_code":    ctx.Err.StatusCode,
-			})
+		// Populate ctx.Claims as jwt.MapClaims for handler compatibility.
+		userID := jwtClaims.UserID.String()
+		role := jwtClaims.Role
+		ctx.Claims = jwt.MapClaims{
+			"user_id":  userID,
+			"username": jwtClaims.Username,
+			"role":     role,
+			"sub":      jwtClaims.Subject,
+		}
+		ctx.Token = tokenString
+
+		// Validate endpoint access using RBAC
+		if err := app.ServiceContainer.GetRBACService().ValidateEndpointAccess(role, r.Method, r.URL.Path); err != nil {
+			ctx.Err = common.NewAppError("SessionRequired", "Access denied", nil, err.Error(), http.StatusForbidden)
+			// ... error handling
 			return
 		}
 
-		// Validate user
-		userID, ok := ctx.Claims["sub"].(string)
-		if !ok {
-			ctx.Err = common.NewAppError("SessionRequired", "Missing user ID in token", nil, "", http.StatusUnauthorized)
-			w.Header().Set("Content-Type", "application/json")
-			w.WriteHeader(ctx.Err.StatusCode)
-			json.NewEncoder(w).Encode(map[string]interface{}{
-				"id":             ctx.Err.ID,
-				"message":        ctx.Err.Message,
-				"detailed_error": ctx.Err.DetailedError,
-				"status_code":    ctx.Err.StatusCode,
-			})
-			return
-		}
-
-		log.Println("Validating user ID:", userID)
-		// TODO: Implement user validation against database if needed
-		// Currently, we trust the JWT token validation
+		ctx.Logger.WithField("user_id", userID).Debug("Session validated via JWT.")
 
 		// Populate query parameters
 		query := r.URL.Query()
@@ -255,7 +242,7 @@ func SessionRequired(app *app.App, handler func(*Context, http.ResponseWriter, *
 		if ctx.Err != nil {
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(ctx.Err.StatusCode)
-			json.NewEncoder(w).Encode(map[string]interface{}{
+			json.NewEncoder(w).Encode(map[string]any{
 				"id":             ctx.Err.ID,
 				"message":        ctx.Err.Message,
 				"detailed_error": ctx.Err.DetailedError,

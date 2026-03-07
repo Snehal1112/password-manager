@@ -184,6 +184,7 @@ func (m *MockSessionRepository) IsSessionRevoked(ctx context.Context, sessionID 
 // Test demonstrating the new SRP-compliant architecture
 
 func TestAuthenticationService_AuthenticateUser_Success(t *testing.T) {
+	t.Parallel()
 	// Arrange
 	ctx := context.Background()
 
@@ -245,6 +246,7 @@ func TestAuthenticationService_AuthenticateUser_Success(t *testing.T) {
 }
 
 func TestAuthenticationService_AuthenticateUser_InvalidPassword(t *testing.T) {
+	t.Parallel()
 	// Arrange
 	ctx := context.Background()
 
@@ -297,6 +299,7 @@ func TestAuthenticationService_AuthenticateUser_InvalidPassword(t *testing.T) {
 }
 
 func TestAuthenticationService_AuthenticateUser_InvalidTOTP(t *testing.T) {
+	t.Parallel()
 	// Arrange
 	ctx := context.Background()
 
@@ -353,6 +356,7 @@ func TestAuthenticationService_AuthenticateUser_InvalidTOTP(t *testing.T) {
 // by allowing us to mock individual services rather than testing
 // complex methods that mix multiple responsibilities.
 func TestAuthenticationService_SeparationOfConcerns(t *testing.T) {
+	t.Parallel()
 	// This test demonstrates the benefits of SRP:
 	// 1. Each service has a single, well-defined responsibility
 	// 2. Services can be easily mocked and tested in isolation

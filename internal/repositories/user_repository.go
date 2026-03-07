@@ -6,6 +6,7 @@ package repositories
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"time"
 
@@ -99,7 +100,7 @@ func (r *UserRepository) Create(ctx context.Context, user *domain.User) error {
 		r.log.LogAuditError(user.ID.String(), "create_user", "failed", "Username already exists", nil)
 		return fmt.Errorf("username already exists")
 	}
-	if err != sql.ErrNoRows {
+	if !errors.Is(err, sql.ErrNoRows) {
 		r.log.LogAuditError(user.ID.String(), "create_user", "failed", "Failed to check existing username", err)
 		return fmt.Errorf("failed to check existing username: %w", err)
 	}
@@ -145,7 +146,7 @@ func (r *UserRepository) Read(ctx context.Context, id uuid.UUID) (*domain.User, 
 		id.String(),
 	).Scan(&idStr, &user.Username, &user.PasswordHash, &user.TOTPSecret, &user.Role, &user.CreatedAt)
 
-	if err == sql.ErrNoRows {
+	if errors.Is(err, sql.ErrNoRows) {
 		return nil, fmt.Errorf("user not found")
 	}
 	if err != nil {
@@ -280,7 +281,7 @@ func (r *UserRepository) ReadByUsername(ctx context.Context, username string) (d
 		username,
 	).Scan(&idStr, &user.Username, &user.PasswordHash, &user.TOTPSecret, &user.Role, &user.CreatedAt)
 
-	if err == sql.ErrNoRows {
+	if errors.Is(err, sql.ErrNoRows) {
 		return user, fmt.Errorf("user not found")
 	}
 	if err != nil {
@@ -389,7 +390,7 @@ func (r *UserRepository) ValidateBootstrapToken(ctx context.Context, token strin
 	// Check token in bootstrap_tokens table
 	var used bool
 	err = r.db.QueryRowContext(ctx, "SELECT used FROM bootstrap_tokens WHERE token = ?", token).Scan(&used)
-	if err == sql.ErrNoRows {
+	if errors.Is(err, sql.ErrNoRows) {
 		r.log.LogAuditError(uuid.Nil.String(), "validate_bootstrap_token", "failed", "Bootstrap token not found", nil)
 		return false, nil
 	}

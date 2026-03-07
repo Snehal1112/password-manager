@@ -361,6 +361,30 @@ func (m *MockSecretService) GetLatestSecretVersion(ctx context.Context, secretID
 	return args.Get(0).(*domain.SecretVersion), args.Error(1)
 }
 
+func (m *MockSecretService) GenerateSecret(ctx context.Context, req secretServices.GenerateSecretRequest) (*domain.Secret, error) {
+	args := m.Called(ctx, req)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).(*domain.Secret), args.Error(1)
+}
+
+func (m *MockSecretService) ExportSecrets(ctx context.Context, req secretServices.ExportSecretsRequest) ([]byte, error) {
+	args := m.Called(ctx, req)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).([]byte), args.Error(1)
+}
+
+func (m *MockSecretService) ImportSecrets(ctx context.Context, req secretServices.ImportSecretsRequest) (*secretServices.ImportResult, error) {
+	args := m.Called(ctx, req)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).(*secretServices.ImportResult), args.Error(1)
+}
+
 // Mock Authentication Service
 type MockAuthenticationService struct {
 	mock.Mock

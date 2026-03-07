@@ -9,6 +9,7 @@ import (
 )
 
 func TestRSASignAndVerify(t *testing.T) {
+	t.Parallel()
 	ops := NewCryptoOperations()
 
 	// Generate RSA key
@@ -28,6 +29,7 @@ func TestRSASignAndVerify(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			// Sign the data
 			signResult, err := ops.Sign(privateKeyPEM, "RSA", testData, tt.algorithm)
 			require.NoError(t, err)
@@ -52,6 +54,7 @@ func TestRSASignAndVerify(t *testing.T) {
 }
 
 func TestECDSASignAndVerify(t *testing.T) {
+	t.Parallel()
 	ops := NewCryptoOperations()
 
 	curves := []struct {
@@ -68,6 +71,7 @@ func TestECDSASignAndVerify(t *testing.T) {
 
 	for _, tt := range curves {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			// Generate ECDSA key
 			privateKeyPEM, err := GenerateECDSAKeyPEM(tt.curve)
 			require.NoError(t, err)
@@ -94,6 +98,7 @@ func TestECDSASignAndVerify(t *testing.T) {
 }
 
 func TestRSAEncryptDecrypt(t *testing.T) {
+	t.Parallel()
 	ops := NewCryptoOperations()
 
 	// Generate RSA key
@@ -119,6 +124,7 @@ func TestRSAEncryptDecrypt(t *testing.T) {
 }
 
 func TestAESEncryptDecrypt(t *testing.T) {
+	t.Parallel()
 	ops := NewCryptoOperations()
 
 	// Use a fixed 32-byte key for testing
@@ -144,6 +150,7 @@ func TestAESEncryptDecrypt(t *testing.T) {
 }
 
 func TestInvalidKey(t *testing.T) {
+	t.Parallel()
 	ops := NewCryptoOperations()
 
 	invalidPEM := "invalid-pem-data"
@@ -167,6 +174,7 @@ func TestInvalidKey(t *testing.T) {
 }
 
 func TestUnsupportedAlgorithm(t *testing.T) {
+	t.Parallel()
 	ops := NewCryptoOperations()
 
 	// Generate RSA key
@@ -185,6 +193,7 @@ func TestUnsupportedAlgorithm(t *testing.T) {
 }
 
 func TestRSADataSizeLimits(t *testing.T) {
+	t.Parallel()
 	ops := NewCryptoOperations()
 
 	// Generate RSA key
@@ -212,6 +221,7 @@ func TestRSADataSizeLimits(t *testing.T) {
 }
 
 func TestAESKeySize(t *testing.T) {
+	t.Parallel()
 	ops := NewCryptoOperations()
 
 	testData := []byte("test data")
