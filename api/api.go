@@ -69,6 +69,7 @@ func Init(options ...Options) *API {
 	api.BaseRoutes["Keys"] = api.BaseRoutes["ApiRoot"].PathPrefix("/keys").Subrouter()
 	api.BaseRoutes["Health"] = api.BaseRoutes["ApiRoot"].PathPrefix("/health").Subrouter()
 	api.BaseRoutes["Deleted"] = api.BaseRoutes["ApiRoot"].PathPrefix("/deleted").Subrouter()
+	api.BaseRoutes["AccessPolicies"] = api.BaseRoutes["ApiRoot"].PathPrefix("/access-policies").Subrouter()
 
 	api.InitVault(api.BaseRoutes["Vault"])
 	api.InitSecrets(api.BaseRoutes["Secrets"])
@@ -76,6 +77,7 @@ func Init(options ...Options) *API {
 	api.InitKeys(api.BaseRoutes["Keys"])
 	api.InitHealth(api.BaseRoutes["Health"])
 	api.InitDeleted(api.BaseRoutes["Deleted"])
+	api.InitAccessPolicies(api.BaseRoutes["AccessPolicies"])
 
 	var apiNames []string
 	for s := range api.BaseRoutes {
@@ -141,4 +143,23 @@ func (api *API) InitHealth(healthRouter *mux.Router) {
 	healthRouter.HandleFunc("/live", handler.LivenessCheck).Methods("GET")
 
 	api.Logger.Infoln("Health API routes initialized")
+}
+
+// InitAccessPolicies registers routes for the per-operation access policy API.
+//
+//   - GET    /access-policies                              — List all policies.
+//   - POST   /access-policies                              — Create a policy.
+//   - GET    /access-policies/{id}                         — Get a policy.
+//   - PUT    /access-policies/{id}                         — Update a policy.
+//   - DELETE /access-policies/{id}                         — Delete a policy.
+//   - GET    /access-policies/principal/{principalId}      — List policies by principal.
+func (api *API) InitAccessPolicies(r *mux.Router) {
+	r.Handle("", SessionRequired(api.App, listAccessPolicies)).Methods("GET")
+	r.Handle("", SessionRequired(api.App, createAccessPolicy)).Methods("POST")
+	r.Handle("/principal/{principalId:[A-Fa-f0-9-]+}", SessionRequired(api.App, listAccessPoliciesByPrincipal)).Methods("GET")
+	r.Handle("/{id:[A-Fa-f0-9-]+}", SessionRequired(api.App, getAccessPolicy)).Methods("GET")
+	r.Handle("/{id:[A-Fa-f0-9-]+}", SessionRequired(api.App, updateAccessPolicy)).Methods("PUT")
+	r.Handle("/{id:[A-Fa-f0-9-]+}", SessionRequired(api.App, deleteAccessPolicy)).Methods("DELETE")
+
+	api.Logger.Infoln("Access policy API routes initialized")
 }
