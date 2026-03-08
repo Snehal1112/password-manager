@@ -29,6 +29,10 @@ type CertificateRepositoryInterface interface {
 	Revoke(ctx context.Context, id uuid.UUID, serialNumber, name string) error
 	ListByUser(ctx context.Context, userID uuid.UUID, certType string, tags []string) ([]domain.Certificate, error)
 	ListRevoked(ctx context.Context, userID uuid.UUID) ([]domain.RevokedCertificate, error)
+	SoftDelete(ctx context.Context, id uuid.UUID) error
+	PurgeCertificate(ctx context.Context, id uuid.UUID) error
+	SetPurgeProtection(ctx context.Context, id uuid.UUID, enabled bool) error
+	ListSoftDeleted(ctx context.Context, userID uuid.UUID) ([]*domain.Certificate, error)
 }
 
 // CertificateRepository implements CertificateRepositoryInterface with pure CRUD operations.
@@ -157,7 +161,7 @@ func (r *CertificateRepository) Read(ctx context.Context, id uuid.UUID) (*domain
 
 	err := r.db.QueryRowContext(
 		ctx,
-		"SELECT id, user_id, name, certificate, private_key, created_at FROM certificates WHERE id = ?",
+		"SELECT id, user_id, name, certificate, private_key, created_at FROM certificates WHERE id = ? AND deleted_at IS NULL",
 		id.String(),
 	).Scan(&idStr, &userIDStr, &cert.Name, &cert.Certificate, &cert.PrivateKey, &cert.CreatedAt)
 
@@ -381,7 +385,7 @@ func (r *CertificateRepository) ListByUser(ctx context.Context, userID uuid.UUID
 	var certList []domain.Certificate
 
 	err := r.executeWithMetrics("list_certificates_by_user", func() error {
-		query := "SELECT id, user_id, name, certificate, private_key, created_at FROM certificates WHERE user_id = ?"
+		query := "SELECT id, user_id, name, certificate, private_key, created_at FROM certificates WHERE user_id = ? AND deleted_at IS NULL"
 		args := []interface{}{userID.String()}
 
 		if certType != "" {
@@ -524,4 +528,215 @@ func (r *CertificateRepository) ListRevoked(ctx context.Context, userID uuid.UUI
 	}).Debug("Revoked certificates listed successfully")
 
 	return revokedList, nil
+}
+
+// SoftDelete marks a certificate as deleted without removing it from the database.
+// The certificate is excluded from normal reads but remains available for recovery.
+//
+// Parameters:
+//   - ctx: The context for the database operation.
+//   - id: The certificate's unique identifier.
+//
+// Returns:
+//
+//	An error if the soft deletion fails.
+func (r *CertificateRepository) SoftDelete(ctx context.Context, id uuid.UUID) error {
+	return r.executeWithMetrics("soft_delete_certificate", func() error {
+		logrus.WithField("cert_id", id.String()).Debug("Soft deleting certificate from database")
+
+		now := time.Now()
+		result, err := r.db.ExecContext(ctx,
+			"UPDATE certificates SET deleted_at = ?, purge_protection = FALSE WHERE id = ? AND deleted_at IS NULL",
+			now, id.String())
+		if err != nil {
+			r.log.LogAuditError(uuid.Nil.String(), "soft_delete_certificate", "failed", "Failed to soft delete certificate", err)
+			return fmt.Errorf("failed to soft delete certificate: %w", err)
+		}
+
+		rowsAffected, err := result.RowsAffected()
+		if err != nil {
+			r.log.LogAuditError(uuid.Nil.String(), "soft_delete_certificate", "failed", "Failed to get rows affected", err)
+			return fmt.Errorf("failed to get rows affected: %w", err)
+		}
+		if rowsAffected == 0 {
+			r.log.LogAuditError(uuid.Nil.String(), "soft_delete_certificate", "failed", "Certificate not found or already deleted", nil)
+			return fmt.Errorf("certificate not found or already deleted")
+		}
+
+		r.log.LogAuditInfo(uuid.Nil.String(), "soft_delete_certificate", "success", "Certificate soft deleted successfully")
+		logrus.WithField("cert_id", id.String()).Debug("Certificate soft deleted successfully")
+
+		return nil
+	})
+}
+
+// PurgeCertificate permanently removes a soft-deleted certificate from the database.
+// It fails if the certificate has purge protection enabled.
+//
+// Parameters:
+//   - ctx: The context for the database operation.
+//   - id: The certificate's unique identifier.
+//
+// Returns:
+//
+//	An error if the purge operation fails or purge protection is enabled.
+func (r *CertificateRepository) PurgeCertificate(ctx context.Context, id uuid.UUID) error {
+	return r.executeWithMetrics("purge_certificate", func() error {
+		logrus.WithField("cert_id", id.String()).Debug("Purging certificate from database")
+
+		// Check certificate status before purging.
+		var deletedAt *time.Time
+		var purgeProtection bool
+		err := r.db.QueryRowContext(ctx,
+			"SELECT deleted_at, purge_protection FROM certificates WHERE id = ?", id.String()).
+			Scan(&deletedAt, &purgeProtection)
+		if err != nil {
+			if errors.Is(err, sql.ErrNoRows) {
+				r.log.LogAuditError(uuid.Nil.String(), "purge_certificate", "failed", "Certificate not found", nil)
+				return fmt.Errorf("certificate not found")
+			}
+			r.log.LogAuditError(uuid.Nil.String(), "purge_certificate", "failed", "Failed to check certificate status", err)
+			return fmt.Errorf("failed to check certificate status: %w", err)
+		}
+
+		if deletedAt == nil {
+			r.log.LogAuditError(uuid.Nil.String(), "purge_certificate", "failed", "Certificate is not soft-deleted", nil)
+			return fmt.Errorf("certificate is not soft-deleted")
+		}
+		if purgeProtection {
+			r.log.LogAuditError(uuid.Nil.String(), "purge_certificate", "failed", "Certificate has purge protection enabled", nil)
+			return fmt.Errorf("certificate has purge protection enabled")
+		}
+
+		result, err := r.db.ExecContext(ctx, "DELETE FROM certificates WHERE id = ?", id.String())
+		if err != nil {
+			r.log.LogAuditError(uuid.Nil.String(), "purge_certificate", "failed", "Failed to purge certificate", err)
+			return fmt.Errorf("failed to purge certificate: %w", err)
+		}
+
+		rowsAffected, err := result.RowsAffected()
+		if err != nil {
+			r.log.LogAuditError(uuid.Nil.String(), "purge_certificate", "failed", "Failed to get rows affected", err)
+			return fmt.Errorf("failed to get rows affected: %w", err)
+		}
+		if rowsAffected == 0 {
+			r.log.LogAuditError(uuid.Nil.String(), "purge_certificate", "failed", "Certificate not found for purge", nil)
+			return fmt.Errorf("certificate not found for purge")
+		}
+
+		r.log.LogAuditInfo(uuid.Nil.String(), "purge_certificate", "success", "Certificate purged successfully")
+		logrus.WithField("cert_id", id.String()).Debug("Certificate purged successfully")
+
+		return nil
+	})
+}
+
+// SetPurgeProtection enables or disables purge protection on a certificate.
+// A certificate with purge protection cannot be permanently deleted via PurgeCertificate.
+//
+// Parameters:
+//   - ctx: The context for the database operation.
+//   - id: The certificate's unique identifier.
+//   - enabled: True to enable purge protection, false to disable it.
+//
+// Returns:
+//
+//	An error if the update fails.
+func (r *CertificateRepository) SetPurgeProtection(ctx context.Context, id uuid.UUID, enabled bool) error {
+	return r.executeWithMetrics("set_purge_protection_certificate", func() error {
+		result, err := r.db.ExecContext(ctx,
+			"UPDATE certificates SET purge_protection = ? WHERE id = ?",
+			enabled, id.String())
+		if err != nil {
+			r.log.LogAuditError(uuid.Nil.String(), "set_purge_protection_certificate", "failed", "Failed to set purge protection", err)
+			return fmt.Errorf("failed to set purge protection: %w", err)
+		}
+
+		rowsAffected, err := result.RowsAffected()
+		if err != nil {
+			r.log.LogAuditError(uuid.Nil.String(), "set_purge_protection_certificate", "failed", "Failed to get rows affected", err)
+			return fmt.Errorf("failed to get rows affected: %w", err)
+		}
+		if rowsAffected == 0 {
+			r.log.LogAuditError(uuid.Nil.String(), "set_purge_protection_certificate", "failed", "Certificate not found", nil)
+			return fmt.Errorf("certificate not found")
+		}
+
+		r.log.LogAuditInfo(uuid.Nil.String(), "set_purge_protection_certificate", "success", fmt.Sprintf("Certificate purge protection set to %v", enabled))
+		return nil
+	})
+}
+
+// ListSoftDeleted retrieves all soft-deleted certificates for a given user.
+// Only certificates with deleted_at set are returned.
+//
+// Parameters:
+//   - ctx: The context for the database operation.
+//   - userID: The user's unique identifier.
+//
+// Returns:
+//
+//	A slice of soft-deleted certificate pointers, or an error if retrieval fails.
+func (r *CertificateRepository) ListSoftDeleted(ctx context.Context, userID uuid.UUID) ([]*domain.Certificate, error) {
+	var certList []*domain.Certificate
+
+	err := r.executeWithMetrics("list_soft_deleted_certificates", func() error {
+		logrus.WithField("user_id", userID.String()).Debug("Listing soft-deleted certificates for user")
+
+		rows, err := r.db.QueryContext(ctx,
+			"SELECT id, user_id, name, certificate, private_key, created_at, deleted_at, purge_protection FROM certificates WHERE user_id = ? AND deleted_at IS NOT NULL ORDER BY deleted_at DESC",
+			userID.String())
+		if err != nil {
+			r.log.LogAuditError(userID.String(), "list_soft_deleted_certificates", "failed", "Failed to query soft-deleted certificates", err)
+			return fmt.Errorf("failed to query soft-deleted certificates: %w", err)
+		}
+		defer rows.Close()
+
+		certList = make([]*domain.Certificate, 0)
+
+		for rows.Next() {
+			var cert domain.Certificate
+			var idStr, userIDStr string
+			var deletedAt *time.Time
+			var purgeProtection bool
+
+			if err := rows.Scan(&idStr, &userIDStr, &cert.Name, &cert.Certificate, &cert.PrivateKey, &cert.CreatedAt, &deletedAt, &purgeProtection); err != nil {
+				r.log.LogAuditError(userID.String(), "list_soft_deleted_certificates", "failed", "Failed to scan certificate", err)
+				return fmt.Errorf("failed to scan certificate: %w", err)
+			}
+
+			cert.ID, err = uuid.Parse(idStr)
+			if err != nil {
+				r.log.LogAuditError(userID.String(), "list_soft_deleted_certificates", "failed", "Failed to parse certificate ID", err)
+				return fmt.Errorf("failed to parse certificate ID: %w", err)
+			}
+
+			cert.UserID, err = uuid.Parse(userIDStr)
+			if err != nil {
+				r.log.LogAuditError(userID.String(), "list_soft_deleted_certificates", "failed", "Failed to parse user ID", err)
+				return fmt.Errorf("failed to parse user ID: %w", err)
+			}
+
+			cert.DeletedAt = deletedAt
+			cert.PurgeProtection = purgeProtection
+
+			certList = append(certList, &cert)
+		}
+
+		if err := rows.Err(); err != nil {
+			return fmt.Errorf("row iteration error: %w", err)
+		}
+
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	logrus.WithFields(logrus.Fields{
+		"user_id":    userID.String(),
+		"cert_count": len(certList),
+	}).Debug("Soft-deleted certificates listed successfully")
+
+	return certList, nil
 }
