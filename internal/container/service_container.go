@@ -232,12 +232,12 @@ func (c *ServiceContainer) initializeServices() error {
 	c.totpService = authServices.NewTOTPService()
 
 	// Initialize JWT service with configuration.
-	jwtExpiry := viper.GetDuration("jwt.expiry")
+	jwtExpiry := c.viper.GetDuration("jwt.expiry")
 	if jwtExpiry == 0 {
 		jwtExpiry = time.Hour // Default to 1 hour.
 	}
 	jwtConfig := authServices.JWTConfig{
-		SecretKey: viper.GetString("jwt_secret"),
+		SecretKey: c.viper.GetString("jwt_secret"),
 		Issuer:    "PasswordManager",
 		Audience:  "PASSWORD_MANAGER",
 		Expiry:    jwtExpiry,
@@ -271,7 +271,7 @@ func (c *ServiceContainer) initializeServices() error {
 	c.accessPolicyService = authzServices.NewAccessPolicyService(c.accessPolicyRepository)
 
 	// Initialize OAuth2 / service account services
-	oauth2TokenExpiry := viper.GetDuration("oauth2.token_expiry")
+	oauth2TokenExpiry := c.viper.GetDuration("oauth2.token_expiry")
 	if oauth2TokenExpiry == 0 {
 		oauth2TokenExpiry = 30 * time.Minute
 	}
@@ -281,7 +281,7 @@ func (c *ServiceContainer) initializeServices() error {
 		PasswordService: c.passwordService,
 		JWTService:      c.jwtService,
 		TokenExpiry:     oauth2TokenExpiry,
-		Issuer:          viper.GetString("oauth2.issuer"),
+		Issuer:          c.viper.GetString("oauth2.issuer"),
 	})
 
 	// Initialize user service
