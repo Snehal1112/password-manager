@@ -8,6 +8,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"strings"
 	"sync"
 	"time"
 
@@ -171,6 +172,12 @@ func (d *DBRepository) InitializeDB() error {
 		return fmt.Errorf("failed to create schema: %w", err)
 	}
 
+	// Migrate schema for existing databases (idempotent — duplicate-column errors are ignored).
+	if err := d.migrateSchema(db); err != nil {
+		db.Close()
+		return fmt.Errorf("failed to migrate schema: %w", err)
+	}
+
 	// Seed the bootstrap token from config so the first admin can be created.
 	if err := d.seedBootstrapToken(db); err != nil {
 		db.Close()
@@ -281,6 +288,9 @@ func (d *DBRepository) createOptimizedSchema(db *sql.DB) error {
 			value TEXT NOT NULL,
 			version INTEGER NOT NULL,
 			created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+			deleted_at TIMESTAMP NULL,
+			purge_protection BOOLEAN NOT NULL DEFAULT FALSE,
+			scheduled_purge_at TIMESTAMP NULL,
 			FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
 		);
 		CREATE INDEX IF NOT EXISTS idx_secrets_user_id ON secrets(user_id);
@@ -296,6 +306,9 @@ func (d *DBRepository) createOptimizedSchema(db *sql.DB) error {
 			type TEXT NOT NULL,
 			created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
 			revoked BOOLEAN NOT NULL DEFAULT FALSE,
+			deleted_at TIMESTAMP NULL,
+			purge_protection BOOLEAN NOT NULL DEFAULT FALSE,
+			scheduled_purge_at TIMESTAMP NULL,
 			FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
 		);
 		CREATE INDEX IF NOT EXISTS idx_keys_user_id ON keys(user_id);
@@ -318,6 +331,9 @@ func (d *DBRepository) createOptimizedSchema(db *sql.DB) error {
 			certificate TEXT NOT NULL,
 			private_key TEXT NOT NULL,
 			created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+			deleted_at TIMESTAMP NULL,
+			purge_protection BOOLEAN NOT NULL DEFAULT FALSE,
+			scheduled_purge_at TIMESTAMP NULL,
 			FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
 		);
 		CREATE INDEX IF NOT EXISTS idx_certificates_user_id ON certificates(user_id);
@@ -478,6 +494,45 @@ func (d *DBRepository) createOptimizedSchema(db *sql.DB) error {
 
 	d.log.Info("Database schema created successfully with optimized indexes")
 	return nil
+}
+
+// migrateSchema adds columns to existing databases that were created before
+// those columns existed. Each ALTER TABLE is idempotent: duplicate-column errors
+// are silently ignored so the function is safe to call on every startup.
+func (d *DBRepository) migrateSchema(db *sql.DB) error {
+	migrations := []string{
+		// BUG-001: soft-delete columns missing from secrets (fresh-install schema fix)
+		"ALTER TABLE secrets ADD COLUMN deleted_at TIMESTAMP NULL",
+		"ALTER TABLE secrets ADD COLUMN purge_protection BOOLEAN NOT NULL DEFAULT FALSE",
+		"ALTER TABLE secrets ADD COLUMN scheduled_purge_at TIMESTAMP NULL",
+		// Milestone 1: soft-delete columns for keys and certificates
+		"ALTER TABLE keys ADD COLUMN deleted_at TIMESTAMP NULL",
+		"ALTER TABLE keys ADD COLUMN purge_protection BOOLEAN NOT NULL DEFAULT FALSE",
+		"ALTER TABLE keys ADD COLUMN scheduled_purge_at TIMESTAMP NULL",
+		"ALTER TABLE certificates ADD COLUMN deleted_at TIMESTAMP NULL",
+		"ALTER TABLE certificates ADD COLUMN purge_protection BOOLEAN NOT NULL DEFAULT FALSE",
+		"ALTER TABLE certificates ADD COLUMN scheduled_purge_at TIMESTAMP NULL",
+	}
+	for _, stmt := range migrations {
+		if _, err := db.Exec(stmt); err != nil {
+			if !isDuplicateColumnError(err) {
+				return fmt.Errorf("migration failed (%q): %w", stmt, err)
+			}
+		}
+	}
+	d.log.Info("Schema migration completed")
+	return nil
+}
+
+// isDuplicateColumnError returns true when err represents a "column already exists"
+// error from SQLite or PostgreSQL, allowing migrateSchema to be idempotent.
+func isDuplicateColumnError(err error) bool {
+	if err == nil {
+		return false
+	}
+	msg := strings.ToLower(err.Error())
+	return strings.Contains(msg, "duplicate column name") || // SQLite
+		strings.Contains(msg, "already exists") // PostgreSQL
 }
 
 // seedBootstrapToken inserts the configured bootstrap token into the
