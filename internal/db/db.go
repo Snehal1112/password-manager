@@ -498,6 +498,17 @@ func (d *DBRepository) createOptimizedSchema(db *sql.DB) error {
 		);
 		CREATE INDEX IF NOT EXISTS idx_access_policies_principal ON access_policies(principal_id);
 		CREATE INDEX IF NOT EXISTS idx_access_policies_lookup    ON access_policies(principal_id, resource_type, operation);
+
+		CREATE TABLE IF NOT EXISTS oauth2_clients (
+			id            TEXT PRIMARY KEY,
+			name          TEXT NOT NULL UNIQUE,
+			client_secret TEXT NOT NULL,
+			description   TEXT DEFAULT '',
+			enabled       BOOLEAN DEFAULT TRUE,
+			created_at    TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+			expires_at    TIMESTAMP NULL
+		);
+		CREATE INDEX IF NOT EXISTS idx_oauth2_clients_name ON oauth2_clients(name);
 	`)
 	if err != nil {
 		d.log.Error("Failed to create tables: ", err)
