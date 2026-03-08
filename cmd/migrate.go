@@ -25,6 +25,9 @@ package cmd
 import (
 	"context"
 	"fmt"
+	"os"
+	"strconv"
+	"strings"
 	"time"
 
 	"github.com/spf13/cobra"
@@ -70,10 +73,26 @@ var migrateToCmd = &cobra.Command{
 	RunE:  migrateToVersion,
 }
 
+// migrateCreateCmd represents the migrate:create command.
+var migrateCreateCmd = &cobra.Command{
+	Use:   "migrate:create [description]",
+	Short: "Create a new migration file",
+	Long: `Create a new timestamped migration file in internal/db/migrations/.
+
+The description words are joined with underscores to form the filename.
+
+Example:
+  password-manager migrate:create add priority to secrets
+  # Creates: internal/db/migrations/20260308000001_add_priority_to_secrets.sql`,
+	Args: cobra.MinimumNArgs(1),
+	RunE: createMigration,
+}
+
 func init() {
 	rootCmd.AddCommand(migrateCmd)
 	rootCmd.AddCommand(migrateStatusCmd)
 	rootCmd.AddCommand(migrateToCmd)
+	rootCmd.AddCommand(migrateCreateCmd)
 }
 
 // runMigrations applies all pending migrations
@@ -251,4 +270,80 @@ func migrateToVersion(cmd *cobra.Command, args []string) error {
 
 	log.WithField("target_version", targetVersion).Info("Migration to target version completed successfully")
 	return nil
+}
+
+// createMigration creates a new migration file in internal/db/migrations/.
+func createMigration(cmd *cobra.Command, args []string) error {
+	const migrationsDir = "internal/db/migrations"
+
+	today := time.Now().Format("20060102")
+	slug := strings.Join(args, "_")
+
+	version, err := nextMigrationVersion(migrationsDir, today)
+	if err != nil {
+		return fmt.Errorf("failed to determine next version: %w", err)
+	}
+
+	filename := fmt.Sprintf("%s_%s.sql", version, slug)
+	path := fmt.Sprintf("%s/%s", migrationsDir, filename)
+
+	content := migrationFileContent(version, slug)
+	if err := os.WriteFile(path, []byte(content), 0644); err != nil {
+		return fmt.Errorf("failed to write migration file: %w", err)
+	}
+
+	fmt.Printf("Created: %s\n", path)
+	return nil
+}
+
+// migrationFileContent renders the template for a new migration file.
+// slug is the underscore-separated description (e.g. "add_priority_to_secrets").
+func migrationFileContent(version, slug string) string {
+	title := strings.ReplaceAll(slug, "_", " ")
+	// Title-case: capitalise first letter only (keep rest as-is).
+	if len(title) > 0 {
+		title = strings.ToUpper(title[:1]) + title[1:]
+	}
+	return fmt.Sprintf(`-- Migration: %s
+-- Description: TODO
+-- Version: %s
+
+-- TODO: Add your SQL here
+-- Example: ALTER TABLE secrets ADD COLUMN my_col TEXT DEFAULT '';
+`, title, version)
+}
+
+// nextMigrationVersion returns the next version string for a new migration.
+// It scans dir for .sql files whose names start with today, finds the highest
+// 6-digit sequence suffix, and returns today + (max+1) zero-padded to 6 digits.
+func nextMigrationVersion(dir string, today string) (string, error) {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return "", fmt.Errorf("failed to read migrations directory: %w", err)
+	}
+
+	max := 0
+	for _, e := range entries {
+		name := e.Name()
+		if e.IsDir() || !strings.HasSuffix(name, ".sql") {
+			continue
+		}
+		if !strings.HasPrefix(name, today) {
+			continue
+		}
+		// Filename format: YYYYMMDDNNNNNN_description.sql
+		// Sequence occupies characters [8:14].
+		if len(name) < 14 {
+			continue
+		}
+		seq, err := strconv.Atoi(name[8:14])
+		if err != nil {
+			continue
+		}
+		if seq > max {
+			max = seq
+		}
+	}
+
+	return fmt.Sprintf("%s%06d", today, max+1), nil
 }
