@@ -60,6 +60,7 @@ func Init(options ...Options) *API {
 	api.BaseRoutes["ApiRoot"].Use(
 		middleware.RateLimitMiddleware,
 		middleware.AuthenticationMiddleware,
+		middleware.PolicyMiddleware,
 		middleware.AuthorizationMiddleware,
 	)
 	api.BaseRoutes["Vault"] = api.BaseRoutes["ApiRoot"].PathPrefix("/vault").Subrouter()

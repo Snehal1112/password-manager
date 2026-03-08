@@ -15,6 +15,7 @@ import (
 	"github.com/stretchr/testify/mock"
 
 	"rocketvault/common"
+	"rocketvault/internal/domain"
 	"rocketvault/internal/logging"
 	authServices "rocketvault/internal/services/auth"
 	authzServices "rocketvault/internal/services/authorization"
@@ -38,6 +39,14 @@ func (m *MockServiceContainer) GetAuthenticationService() authServices.Authentic
 func (m *MockServiceContainer) GetRBACService() authzServices.RBACService {
 	args := m.Called()
 	return args.Get(0).(authzServices.RBACService)
+}
+
+func (m *MockServiceContainer) GetAccessPolicyService() authzServices.AccessPolicyService {
+	args := m.Called()
+	if args.Get(0) == nil {
+		return nil
+	}
+	return args.Get(0).(authzServices.AccessPolicyService)
 }
 
 // MockAuthenticationService is a mock implementation of AuthenticationService.
@@ -661,6 +670,170 @@ func TestMiddlewareChaining(t *testing.T) {
 	assert.NotEmpty(t, rr.Header().Get("X-Request-ID"))
 	assert.Equal(t, "nosniff", rr.Header().Get("X-Content-Type-Options"))
 	assert.Equal(t, "*", rr.Header().Get("Access-Control-Allow-Origin"))
+}
+
+// MockAccessPolicyService is a mock implementation of AccessPolicyService.
+type MockAccessPolicyService struct {
+	mock.Mock
+}
+
+func (m *MockAccessPolicyService) CheckAccess(ctx context.Context, principalID uuid.UUID, resourceType domain.PolicyResourceType, op domain.PolicyOperation) (authzServices.AccessDecision, error) {
+	args := m.Called(ctx, principalID, resourceType, op)
+	return args.Get(0).(authzServices.AccessDecision), args.Error(1)
+}
+
+func (m *MockAccessPolicyService) CreatePolicy(ctx context.Context, policy *domain.AccessPolicy) error {
+	args := m.Called(ctx, policy)
+	return args.Error(0)
+}
+
+func (m *MockAccessPolicyService) GetPolicy(ctx context.Context, id uuid.UUID) (*domain.AccessPolicy, error) {
+	args := m.Called(ctx, id)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).(*domain.AccessPolicy), args.Error(1)
+}
+
+func (m *MockAccessPolicyService) ListPolicies(ctx context.Context) ([]*domain.AccessPolicy, error) {
+	args := m.Called(ctx)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).([]*domain.AccessPolicy), args.Error(1)
+}
+
+func (m *MockAccessPolicyService) ListByPrincipal(ctx context.Context, principalID uuid.UUID) ([]*domain.AccessPolicy, error) {
+	args := m.Called(ctx, principalID)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).([]*domain.AccessPolicy), args.Error(1)
+}
+
+func (m *MockAccessPolicyService) UpdatePolicy(ctx context.Context, policy *domain.AccessPolicy) error {
+	args := m.Called(ctx, policy)
+	return args.Error(0)
+}
+
+func (m *MockAccessPolicyService) DeletePolicy(ctx context.Context, id uuid.UUID) error {
+	args := m.Called(ctx, id)
+	return args.Error(0)
+}
+
+// setupPolicyMiddlewareTest creates middleware wired with a mock AccessPolicyService.
+func setupPolicyMiddlewareTest(t *testing.T) (*Middleware, *MockServiceContainer, *MockAccessPolicyService) {
+	t.Helper()
+	logger := &logging.Logger{Logger: logrus.New()}
+	logger.SetLevel(logrus.ErrorLevel)
+
+	mockContainer := &MockServiceContainer{logger: logger}
+	mockPolicySvc := &MockAccessPolicyService{}
+
+	// Other services not needed for PolicyMiddleware tests; provide nil-safe stubs.
+	mockContainer.On("GetAccessPolicyService").Return(mockPolicySvc)
+
+	mw := NewMiddleware(mockContainer)
+	return mw, mockContainer, mockPolicySvc
+}
+
+// TestPolicyMiddleware_FallbackPassesThrough verifies that when no explicit policy
+// exists (AccessFallback) the request is allowed through unchanged.
+func TestPolicyMiddleware_FallbackPassesThrough(t *testing.T) {
+	t.Parallel()
+	mw, _, mockPolicySvc := setupPolicyMiddlewareTest(t)
+
+	userID := uuid.New()
+	mockPolicySvc.On("CheckAccess", mock.Anything, userID, domain.PolicyResourceType("secrets"), domain.PolicyOperation("get")).Return(authzServices.AccessFallback, nil)
+
+	nextCalled := false
+	nextHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		nextCalled = true
+		w.WriteHeader(http.StatusOK)
+	})
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/secrets/some-id", nil)
+	ctx := context.WithValue(req.Context(), common.UserIDKey, userID.String())
+	req = req.WithContext(ctx)
+	rr := httptest.NewRecorder()
+
+	mw.PolicyMiddleware(nextHandler).ServeHTTP(rr, req)
+
+	assert.True(t, nextCalled, "next handler should be called on fallback")
+	assert.Equal(t, http.StatusOK, rr.Code)
+}
+
+// TestPolicyMiddleware_ExplicitDenyBlocks verifies that AccessDenied returns 403.
+func TestPolicyMiddleware_ExplicitDenyBlocks(t *testing.T) {
+	t.Parallel()
+	mw, _, mockPolicySvc := setupPolicyMiddlewareTest(t)
+
+	userID := uuid.New()
+	mockPolicySvc.On("CheckAccess", mock.Anything, userID, domain.PolicyResourceType("secrets"), domain.PolicyOperation("create")).Return(authzServices.AccessDenied, nil)
+
+	nextCalled := false
+	nextHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		nextCalled = true
+	})
+
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/secrets", nil)
+	ctx := context.WithValue(req.Context(), common.UserIDKey, userID.String())
+	req = req.WithContext(ctx)
+	rr := httptest.NewRecorder()
+
+	mw.PolicyMiddleware(nextHandler).ServeHTTP(rr, req)
+
+	assert.False(t, nextCalled, "next handler should NOT be called on deny")
+	assert.Equal(t, http.StatusForbidden, rr.Code)
+}
+
+// TestPolicyMiddleware_ExplicitAllowPassesThrough verifies that AccessAllowed continues.
+func TestPolicyMiddleware_ExplicitAllowPassesThrough(t *testing.T) {
+	t.Parallel()
+	mw, _, mockPolicySvc := setupPolicyMiddlewareTest(t)
+
+	userID := uuid.New()
+	mockPolicySvc.On("CheckAccess", mock.Anything, userID, domain.PolicyResourceType("secrets"), domain.PolicyOperation("get")).Return(authzServices.AccessAllowed, nil)
+
+	nextCalled := false
+	nextHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		nextCalled = true
+		w.WriteHeader(http.StatusOK)
+	})
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/secrets/some-id", nil)
+	ctx := context.WithValue(req.Context(), common.UserIDKey, userID.String())
+	req = req.WithContext(ctx)
+	rr := httptest.NewRecorder()
+
+	mw.PolicyMiddleware(nextHandler).ServeHTTP(rr, req)
+
+	assert.True(t, nextCalled, "next handler should be called on allow")
+	assert.Equal(t, http.StatusOK, rr.Code)
+}
+
+// TestPolicyMiddleware_UnknownRoutePassesThrough verifies that unresolvable
+// routes (no matching resource type) are not blocked.
+func TestPolicyMiddleware_UnknownRoutePassesThrough(t *testing.T) {
+	t.Parallel()
+	mw, _, _ := setupPolicyMiddlewareTest(t)
+
+	userID := uuid.New()
+	nextCalled := false
+	nextHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		nextCalled = true
+		w.WriteHeader(http.StatusOK)
+	})
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/health", nil)
+	ctx := context.WithValue(req.Context(), common.UserIDKey, userID.String())
+	req = req.WithContext(ctx)
+	rr := httptest.NewRecorder()
+
+	mw.PolicyMiddleware(nextHandler).ServeHTTP(rr, req)
+
+	assert.True(t, nextCalled, "next handler should be called for unknown routes")
+	assert.Equal(t, http.StatusOK, rr.Code)
 }
 
 // TestMiddlewareArchitecturalChange documents the architectural improvement.

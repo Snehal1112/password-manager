@@ -10,11 +10,14 @@ import (
 	"strings"
 	"time"
 
+	"github.com/google/uuid"
+	"github.com/gorilla/mux"
 	"github.com/sirupsen/logrus"
 	"github.com/ulule/limiter/v3"
 	"github.com/ulule/limiter/v3/drivers/store/memory"
 
 	"rocketvault/common"
+	"rocketvault/internal/domain"
 	"rocketvault/internal/logging"
 	authServices "rocketvault/internal/services/auth"
 	authzServices "rocketvault/internal/services/authorization"
@@ -41,6 +44,7 @@ type Container interface {
 	GetLogger() *logging.Logger
 	GetAuthenticationService() authServices.AuthenticationService
 	GetRBACService() authzServices.RBACService
+	GetAccessPolicyService() authzServices.AccessPolicyService
 }
 
 // Middleware provides HTTP middleware with single responsibilities.
@@ -255,6 +259,114 @@ func (m *Middleware) AuthorizationMiddleware(next http.Handler) http.Handler {
 		}
 
 		m.logger.LogAuditInfo("", "authz", "success", "Authorization successful")
+		next.ServeHTTP(w, r)
+	})
+}
+
+// resolvePolicy maps an HTTP request's method and URL path to the
+// PolicyResourceType and PolicyOperation used for access-policy evaluation.
+// Returns ("", "") when the route does not correspond to a managed resource.
+func resolvePolicy(method, path string) (domain.PolicyResourceType, domain.PolicyOperation) {
+	// Determine resource type from path segments.
+	var resourceType domain.PolicyResourceType
+	switch {
+	case strings.Contains(path, "/secrets"):
+		resourceType = domain.PolicyResourceSecrets
+	case strings.Contains(path, "/keys"):
+		resourceType = domain.PolicyResourceKeys
+	case strings.Contains(path, "/certificates"):
+		resourceType = domain.PolicyResourceCertificates
+	default:
+		return "", ""
+	}
+
+	// Map HTTP method (and special sub-paths) to an operation.
+	var op domain.PolicyOperation
+	switch {
+	case strings.HasSuffix(path, "/purge") && method == http.MethodDelete:
+		op = domain.OpPurge
+	case strings.HasSuffix(path, "/restore") && method == http.MethodPost:
+		op = domain.OpRecover
+	case strings.HasSuffix(path, "/rotate") && method == http.MethodPost:
+		op = domain.OpRotate
+	case strings.HasSuffix(path, "/import") && method == http.MethodPost:
+		op = domain.OpImport
+	case strings.HasSuffix(path, "/renew") && method == http.MethodPost:
+		op = domain.OpRenew
+	case method == http.MethodGet:
+		op = domain.OpGet
+	case method == http.MethodPost:
+		op = domain.OpCreate
+	case method == http.MethodPut:
+		op = domain.OpSet
+	case method == http.MethodDelete:
+		op = domain.OpDelete
+	default:
+		return resourceType, ""
+	}
+
+	return resourceType, op
+}
+
+// PolicyMiddleware enforces per-operation access policies for authenticated users.
+// It must run after AuthenticationMiddleware so that common.UserIDKey is set.
+// The middleware uses AccessFallback-by-default semantics: if no explicit policy
+// exists the request continues to the next handler unchanged. Only AccessDenied
+// halts the request.
+func (m *Middleware) PolicyMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Resolve route — skip policy check for unmanaged routes (health, etc.)
+		resourceType, op := resolvePolicy(r.Method, r.URL.Path)
+		if resourceType == "" || op == "" {
+			next.ServeHTTP(w, r)
+			return
+		}
+
+		// Extract caller identity set by AuthenticationMiddleware.
+		userIDStr, ok := r.Context().Value(common.UserIDKey).(string)
+		if !ok || userIDStr == "" {
+			m.logger.LogAuditError("", "policy", "failed", "Missing user ID in context for policy check", nil)
+			http.Error(w, "Forbidden: missing identity", http.StatusForbidden)
+			return
+		}
+
+		principalID, err := uuid.Parse(userIDStr)
+		if err != nil {
+			m.logger.LogAuditError(userIDStr, "policy", "failed", "Invalid user ID format", err)
+			http.Error(w, "Forbidden: invalid identity", http.StatusForbidden)
+			return
+		}
+
+		// Evaluate access policy.
+		policySvc := m.container.GetAccessPolicyService()
+		decision, err := policySvc.CheckAccess(r.Context(), principalID, resourceType, op)
+		if err != nil {
+			// Log but don't block on evaluation errors — fail open via fallback.
+			logrus.WithError(err).Warn("PolicyMiddleware: access policy check error, allowing request")
+			next.ServeHTTP(w, r)
+			return
+		}
+
+		// Use the route template for richer audit logs when available.
+		routeTemplate := r.URL.Path
+		if route := mux.CurrentRoute(r); route != nil {
+			if tmpl, err2 := route.GetPathTemplate(); err2 == nil {
+				routeTemplate = tmpl
+			}
+		}
+
+		switch decision {
+		case authzServices.AccessDenied:
+			m.logger.LogAuditError(userIDStr, "policy", "denied",
+				fmt.Sprintf("Access denied: %s %s (resource=%s op=%s)", r.Method, routeTemplate, resourceType, op), nil)
+			http.Error(w, "Forbidden: access policy denied", http.StatusForbidden)
+			return
+		case authzServices.AccessAllowed:
+			m.logger.LogAuditInfo(userIDStr, "policy", "allowed",
+				fmt.Sprintf("Access allowed: %s %s (resource=%s op=%s)", r.Method, routeTemplate, resourceType, op))
+		default: // AccessFallback — no explicit policy; continue
+		}
+
 		next.ServeHTTP(w, r)
 	})
 }
