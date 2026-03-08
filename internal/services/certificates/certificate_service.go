@@ -407,12 +407,12 @@ func (s *certificateService) DeleteCertificate(ctx context.Context, certID, user
 		return err
 	}
 
-	if err := s.certRepo.Delete(ctx, certID); err != nil {
-		s.logger.LogAuditError(userID.String(), "delete_certificate", "failed", "Failed to delete certificate", err)
+	if err := s.certRepo.SoftDelete(ctx, certID); err != nil {
+		s.logger.LogAuditError(userID.String(), "delete_certificate", "failed", "Failed to soft delete certificate", err)
 		return fmt.Errorf("failed to delete certificate: %w", err)
 	}
 
-	s.logger.LogAuditInfo(userID.String(), "delete_certificate", "success", "Certificate deleted successfully")
+	s.logger.LogAuditInfo(userID.String(), "delete_certificate", "success", "Certificate soft deleted successfully")
 	return nil
 }
 
