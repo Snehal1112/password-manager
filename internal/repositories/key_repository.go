@@ -25,6 +25,10 @@ type KeyRepositoryInterface interface {
 	db.Repository[domain.Key]
 	ListByUser(ctx context.Context, userID *uuid.UUID, keyType string, tags []string) ([]domain.Key, error)
 	UpdateRevocationStatus(ctx context.Context, id uuid.UUID, revoked bool) error
+	SoftDelete(ctx context.Context, id uuid.UUID) error
+	PurgeKey(ctx context.Context, id uuid.UUID) error
+	SetPurgeProtection(ctx context.Context, id uuid.UUID, enabled bool) error
+	ListSoftDeleted(ctx context.Context, userID uuid.UUID) ([]*domain.Key, error)
 }
 
 // KeyRepository implements KeyRepositoryInterface with pure CRUD operations.
@@ -155,7 +159,7 @@ func (r *KeyRepository) Read(ctx context.Context, id uuid.UUID) (*domain.Key, er
 
 	err := r.db.QueryRowContext(
 		ctx,
-		"SELECT id, user_id, name, value, type, revoked, created_at FROM keys WHERE id = ?",
+		"SELECT id, user_id, name, value, type, revoked, created_at FROM keys WHERE id = ? AND deleted_at IS NULL",
 		id.String(),
 	).Scan(&idStr, &userIDStr, &key.Name, &key.Value, &key.Type, &key.Revoked, &key.CreatedAt)
 
@@ -314,8 +318,8 @@ func (r *KeyRepository) ListByUser(ctx context.Context, userID *uuid.UUID, keyTy
 		var args []interface{}
 		query := "SELECT id, user_id, name, value, type, revoked, created_at FROM keys"
 
-		// Build WHERE clauses
-		var conditions []string
+		// Build WHERE clauses — always exclude soft-deleted keys.
+		conditions := []string{"deleted_at IS NULL"}
 		if userID != nil {
 			conditions = append(conditions, "user_id = ?")
 			args = append(args, userID.String())
@@ -432,4 +436,215 @@ func (r *KeyRepository) UpdateRevocationStatus(ctx context.Context, id uuid.UUID
 		r.log.LogAuditInfo(uuid.Nil.String(), "update_key_revocation", "success", fmt.Sprintf("Key revocation status updated to %v", revoked))
 		return nil
 	})
+}
+
+// SoftDelete marks a key as deleted without removing it from the database.
+// The key is excluded from normal reads but remains available for recovery.
+//
+// Parameters:
+//   - ctx: The context for the database operation.
+//   - id: The key's unique identifier.
+//
+// Returns:
+//
+//	An error if the soft deletion fails.
+func (r *KeyRepository) SoftDelete(ctx context.Context, id uuid.UUID) error {
+	return r.executeWithMetrics("soft_delete_key", func() error {
+		logrus.WithField("key_id", id.String()).Debug("Soft deleting key from database")
+
+		now := time.Now()
+		result, err := r.db.ExecContext(ctx,
+			"UPDATE keys SET deleted_at = ?, purge_protection = FALSE WHERE id = ? AND deleted_at IS NULL",
+			now, id.String())
+		if err != nil {
+			r.log.LogAuditError(uuid.Nil.String(), "soft_delete_key", "failed", "Failed to soft delete key", err)
+			return fmt.Errorf("failed to soft delete key: %w", err)
+		}
+
+		rowsAffected, err := result.RowsAffected()
+		if err != nil {
+			r.log.LogAuditError(uuid.Nil.String(), "soft_delete_key", "failed", "Failed to get rows affected", err)
+			return fmt.Errorf("failed to get rows affected: %w", err)
+		}
+		if rowsAffected == 0 {
+			r.log.LogAuditError(uuid.Nil.String(), "soft_delete_key", "failed", "Key not found or already deleted", nil)
+			return fmt.Errorf("key not found or already deleted")
+		}
+
+		r.log.LogAuditInfo(uuid.Nil.String(), "soft_delete_key", "success", "Key soft deleted successfully")
+		logrus.WithField("key_id", id.String()).Debug("Key soft deleted successfully")
+
+		return nil
+	})
+}
+
+// PurgeKey permanently removes a soft-deleted key from the database.
+// It fails if the key has purge protection enabled.
+//
+// Parameters:
+//   - ctx: The context for the database operation.
+//   - id: The key's unique identifier.
+//
+// Returns:
+//
+//	An error if the purge operation fails or purge protection is enabled.
+func (r *KeyRepository) PurgeKey(ctx context.Context, id uuid.UUID) error {
+	return r.executeWithMetrics("purge_key", func() error {
+		logrus.WithField("key_id", id.String()).Debug("Purging key from database")
+
+		// Check key status before purging.
+		var deletedAt *time.Time
+		var purgeProtection bool
+		err := r.db.QueryRowContext(ctx,
+			"SELECT deleted_at, purge_protection FROM keys WHERE id = ?", id.String()).
+			Scan(&deletedAt, &purgeProtection)
+		if err != nil {
+			if errors.Is(err, sql.ErrNoRows) {
+				r.log.LogAuditError(uuid.Nil.String(), "purge_key", "failed", "Key not found", nil)
+				return fmt.Errorf("key not found")
+			}
+			r.log.LogAuditError(uuid.Nil.String(), "purge_key", "failed", "Failed to check key status", err)
+			return fmt.Errorf("failed to check key status: %w", err)
+		}
+
+		if deletedAt == nil {
+			r.log.LogAuditError(uuid.Nil.String(), "purge_key", "failed", "Key is not soft-deleted", nil)
+			return fmt.Errorf("key is not soft-deleted")
+		}
+		if purgeProtection {
+			r.log.LogAuditError(uuid.Nil.String(), "purge_key", "failed", "Key has purge protection enabled", nil)
+			return fmt.Errorf("key has purge protection enabled")
+		}
+
+		result, err := r.db.ExecContext(ctx, "DELETE FROM keys WHERE id = ?", id.String())
+		if err != nil {
+			r.log.LogAuditError(uuid.Nil.String(), "purge_key", "failed", "Failed to purge key", err)
+			return fmt.Errorf("failed to purge key: %w", err)
+		}
+
+		rowsAffected, err := result.RowsAffected()
+		if err != nil {
+			r.log.LogAuditError(uuid.Nil.String(), "purge_key", "failed", "Failed to get rows affected", err)
+			return fmt.Errorf("failed to get rows affected: %w", err)
+		}
+		if rowsAffected == 0 {
+			r.log.LogAuditError(uuid.Nil.String(), "purge_key", "failed", "Key not found for purge", nil)
+			return fmt.Errorf("key not found for purge")
+		}
+
+		r.log.LogAuditInfo(uuid.Nil.String(), "purge_key", "success", "Key purged successfully")
+		logrus.WithField("key_id", id.String()).Debug("Key purged successfully")
+
+		return nil
+	})
+}
+
+// SetPurgeProtection enables or disables purge protection on a key.
+// A key with purge protection cannot be permanently deleted via PurgeKey.
+//
+// Parameters:
+//   - ctx: The context for the database operation.
+//   - id: The key's unique identifier.
+//   - enabled: True to enable purge protection, false to disable it.
+//
+// Returns:
+//
+//	An error if the update fails.
+func (r *KeyRepository) SetPurgeProtection(ctx context.Context, id uuid.UUID, enabled bool) error {
+	return r.executeWithMetrics("set_purge_protection_key", func() error {
+		result, err := r.db.ExecContext(ctx,
+			"UPDATE keys SET purge_protection = ? WHERE id = ?",
+			enabled, id.String())
+		if err != nil {
+			r.log.LogAuditError(uuid.Nil.String(), "set_purge_protection_key", "failed", "Failed to set purge protection", err)
+			return fmt.Errorf("failed to set purge protection: %w", err)
+		}
+
+		rowsAffected, err := result.RowsAffected()
+		if err != nil {
+			r.log.LogAuditError(uuid.Nil.String(), "set_purge_protection_key", "failed", "Failed to get rows affected", err)
+			return fmt.Errorf("failed to get rows affected: %w", err)
+		}
+		if rowsAffected == 0 {
+			r.log.LogAuditError(uuid.Nil.String(), "set_purge_protection_key", "failed", "Key not found", nil)
+			return fmt.Errorf("key not found")
+		}
+
+		r.log.LogAuditInfo(uuid.Nil.String(), "set_purge_protection_key", "success", fmt.Sprintf("Key purge protection set to %v", enabled))
+		return nil
+	})
+}
+
+// ListSoftDeleted retrieves all soft-deleted keys for a given user.
+// Only keys with deleted_at set are returned.
+//
+// Parameters:
+//   - ctx: The context for the database operation.
+//   - userID: The user's unique identifier.
+//
+// Returns:
+//
+//	A slice of soft-deleted key pointers, or an error if retrieval fails.
+func (r *KeyRepository) ListSoftDeleted(ctx context.Context, userID uuid.UUID) ([]*domain.Key, error) {
+	var keyList []*domain.Key
+
+	err := r.executeWithMetrics("list_soft_deleted_keys", func() error {
+		logrus.WithField("user_id", userID.String()).Debug("Listing soft-deleted keys for user")
+
+		rows, err := r.db.QueryContext(ctx,
+			"SELECT id, user_id, name, value, type, revoked, created_at, deleted_at, purge_protection FROM keys WHERE user_id = ? AND deleted_at IS NOT NULL ORDER BY deleted_at DESC",
+			userID.String())
+		if err != nil {
+			r.log.LogAuditError(userID.String(), "list_soft_deleted_keys", "failed", "Failed to query soft-deleted keys", err)
+			return fmt.Errorf("failed to query soft-deleted keys: %w", err)
+		}
+		defer rows.Close()
+
+		keyList = make([]*domain.Key, 0)
+
+		for rows.Next() {
+			var key domain.Key
+			var idStr, userIDStr string
+			var deletedAt *time.Time
+			var purgeProtection bool
+
+			if err := rows.Scan(&idStr, &userIDStr, &key.Name, &key.Value, &key.Type, &key.Revoked, &key.CreatedAt, &deletedAt, &purgeProtection); err != nil {
+				r.log.LogAuditError(userID.String(), "list_soft_deleted_keys", "failed", "Failed to scan key", err)
+				return fmt.Errorf("failed to scan key: %w", err)
+			}
+
+			key.ID, err = uuid.Parse(idStr)
+			if err != nil {
+				r.log.LogAuditError(userID.String(), "list_soft_deleted_keys", "failed", "Failed to parse key ID", err)
+				return fmt.Errorf("failed to parse key ID: %w", err)
+			}
+
+			key.UserID, err = uuid.Parse(userIDStr)
+			if err != nil {
+				r.log.LogAuditError(userID.String(), "list_soft_deleted_keys", "failed", "Failed to parse user ID", err)
+				return fmt.Errorf("failed to parse user ID: %w", err)
+			}
+
+			key.DeletedAt = deletedAt
+			key.PurgeProtection = purgeProtection
+
+			keyList = append(keyList, &key)
+		}
+
+		if err := rows.Err(); err != nil {
+			return fmt.Errorf("row iteration error: %w", err)
+		}
+
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	logrus.WithFields(logrus.Fields{
+		"user_id":   userID.String(),
+		"key_count": len(keyList),
+	}).Debug("Soft-deleted keys listed successfully")
+
+	return keyList, nil
 }

@@ -40,8 +40,9 @@ type Key struct {
 	Revoked         bool       `json:"revoked"`
 	CreatedAt       time.Time  `json:"created_at"`
 	Tags            []string   `json:"tags"`
-	DeletedAt       *time.Time `json:"deleted_at,omitempty"`       // Soft delete timestamp
-	PurgeProtection bool       `json:"purge_protection"`           // Prevents permanent deletion
+	DeletedAt        *time.Time `json:"deleted_at,omitempty"`        // Soft delete timestamp
+	PurgeProtection  bool       `json:"purge_protection"`            // Prevents permanent deletion
+	ScheduledPurgeAt *time.Time `json:"scheduled_purge_at,omitempty"` // Scheduled purge time
 }
 
 // KeyType constants for supported cryptographic key types.
