@@ -22,6 +22,7 @@ type SecretRepositoryInterface interface {
 	Update(ctx context.Context, secret *domain.Secret) error
 	Delete(ctx context.Context, id uuid.UUID) error
 	SoftDelete(ctx context.Context, id uuid.UUID) error
+	RecoverSecret(ctx context.Context, id uuid.UUID) error
 	ListByUser(ctx context.Context, userID uuid.UUID, tags []string) ([]domain.Secret, error)
 	ListByUserIncludeDeleted(ctx context.Context, userID uuid.UUID, tags []string) ([]domain.Secret, error)
 	ExportSecrets(ctx context.Context, options domain.ExportOptions) ([]byte, error)
@@ -290,6 +291,43 @@ func (r *SecretRepository) SoftDelete(ctx context.Context, id uuid.UUID) error {
 
 	r.log.LogAuditInfo("", "soft_delete_secret", "success", "Secret soft deleted successfully")
 	logrus.WithField("secret_id", id.String()).Debug("Secret soft deleted successfully")
+
+	return nil
+}
+
+// RecoverSecret restores a soft-deleted secret by clearing its deleted_at timestamp.
+//
+// Parameters:
+//
+//	ctx: The context for the database operation.
+//	id: The secret's unique identifier.
+//
+// Returns:
+//
+//	An error if the secret is not found in a deleted state or the update fails.
+func (r *SecretRepository) RecoverSecret(ctx context.Context, id uuid.UUID) error {
+	logrus.WithField("secret_id", id.String()).Debug("Recovering soft-deleted secret")
+
+	result, err := r.db.ExecContext(ctx,
+		"UPDATE secrets SET deleted_at = NULL, scheduled_purge_at = NULL WHERE id = ? AND deleted_at IS NOT NULL",
+		id.String())
+	if err != nil {
+		r.log.LogAuditError("", "recover_secret", "failed", "Failed to recover secret", err)
+		return fmt.Errorf("failed to recover secret: %w", err)
+	}
+
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		r.log.LogAuditError("", "recover_secret", "failed", "Failed to get rows affected", err)
+		return fmt.Errorf("failed to get rows affected: %w", err)
+	}
+	if rowsAffected == 0 {
+		r.log.LogAuditError("", "recover_secret", "failed", "Secret not found in deleted state", nil)
+		return fmt.Errorf("secret not found in deleted state")
+	}
+
+	r.log.LogAuditInfo("", "recover_secret", "success", "Secret recovered successfully")
+	logrus.WithField("secret_id", id.String()).Debug("Secret recovered successfully")
 
 	return nil
 }

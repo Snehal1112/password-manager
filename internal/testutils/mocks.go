@@ -175,6 +175,11 @@ func (m *MockSecretRepository) GetLatestVersion(ctx context.Context, secretID uu
 	return args.Get(0).(*domain.SecretVersion), args.Error(1)
 }
 
+func (m *MockSecretRepository) RecoverSecret(ctx context.Context, id uuid.UUID) error {
+	args := m.Called(ctx, id)
+	return args.Error(0)
+}
+
 func (m *MockSecretRepository) PurgeSecret(ctx context.Context, id uuid.UUID) error {
 	args := m.Called(ctx, id)
 	return args.Error(0)

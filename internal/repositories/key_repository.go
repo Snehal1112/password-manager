@@ -26,6 +26,7 @@ type KeyRepositoryInterface interface {
 	ListByUser(ctx context.Context, userID *uuid.UUID, keyType string, tags []string) ([]domain.Key, error)
 	UpdateRevocationStatus(ctx context.Context, id uuid.UUID, revoked bool) error
 	SoftDelete(ctx context.Context, id uuid.UUID) error
+	RecoverKey(ctx context.Context, id uuid.UUID) error
 	PurgeKey(ctx context.Context, id uuid.UUID) error
 	SetPurgeProtection(ctx context.Context, id uuid.UUID, enabled bool) error
 	ListSoftDeleted(ctx context.Context, userID uuid.UUID) ([]*domain.Key, error)
@@ -473,6 +474,44 @@ func (r *KeyRepository) SoftDelete(ctx context.Context, id uuid.UUID) error {
 
 		r.log.LogAuditInfo(uuid.Nil.String(), "soft_delete_key", "success", "Key soft deleted successfully")
 		logrus.WithField("key_id", id.String()).Debug("Key soft deleted successfully")
+
+		return nil
+	})
+}
+
+// RecoverKey restores a soft-deleted key by clearing its deleted_at timestamp.
+//
+// Parameters:
+//   - ctx: The context for the database operation.
+//   - id: The key's unique identifier.
+//
+// Returns:
+//
+//	An error if the key is not found in a deleted state or the update fails.
+func (r *KeyRepository) RecoverKey(ctx context.Context, id uuid.UUID) error {
+	return r.executeWithMetrics("recover_key", func() error {
+		logrus.WithField("key_id", id.String()).Debug("Recovering soft-deleted key")
+
+		result, err := r.db.ExecContext(ctx,
+			"UPDATE keys SET deleted_at = NULL, scheduled_purge_at = NULL WHERE id = ? AND deleted_at IS NOT NULL",
+			id.String())
+		if err != nil {
+			r.log.LogAuditError(uuid.Nil.String(), "recover_key", "failed", "Failed to recover key", err)
+			return fmt.Errorf("failed to recover key: %w", err)
+		}
+
+		rowsAffected, err := result.RowsAffected()
+		if err != nil {
+			r.log.LogAuditError(uuid.Nil.String(), "recover_key", "failed", "Failed to get rows affected", err)
+			return fmt.Errorf("failed to get rows affected: %w", err)
+		}
+		if rowsAffected == 0 {
+			r.log.LogAuditError(uuid.Nil.String(), "recover_key", "failed", "Key not found in deleted state", nil)
+			return fmt.Errorf("key not found in deleted state")
+		}
+
+		r.log.LogAuditInfo(uuid.Nil.String(), "recover_key", "success", "Key recovered successfully")
+		logrus.WithField("key_id", id.String()).Debug("Key recovered successfully")
 
 		return nil
 	})

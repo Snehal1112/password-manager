@@ -63,6 +63,10 @@ func (m *mockKeyRepository) UpdateRevocationStatus(ctx context.Context, id uuid.
 	return m.Called(ctx, id, revoked).Error(0)
 }
 
+func (m *mockKeyRepository) RecoverKey(ctx context.Context, id uuid.UUID) error {
+	return m.Called(ctx, id).Error(0)
+}
+
 func (m *mockKeyRepository) ListSoftDeleted(ctx context.Context, userID uuid.UUID) ([]*domain.Key, error) {
 	args := m.Called(ctx, userID)
 	if v := args.Get(0); v != nil {

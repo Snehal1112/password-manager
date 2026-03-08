@@ -155,6 +155,13 @@ func (r *RetryRepositoryWrapper) GetLatestVersion(ctx context.Context, secretID 
 	return result, retryErr
 }
 
+// RecoverSecret wraps the RecoverSecret operation with retry logic.
+func (r *RetryRepositoryWrapper) RecoverSecret(ctx context.Context, id uuid.UUID) error {
+	return r.retryService.ExecuteDatabaseOperation(ctx, func() error {
+		return r.baseRepo.RecoverSecret(ctx, id)
+	})
+}
+
 // PurgeSecret wraps the PurgeSecret operation with retry logic
 func (r *RetryRepositoryWrapper) PurgeSecret(ctx context.Context, id uuid.UUID) error {
 	return r.retryService.ExecuteDatabaseOperation(ctx, func() error {

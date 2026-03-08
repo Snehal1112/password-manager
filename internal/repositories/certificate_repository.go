@@ -30,6 +30,7 @@ type CertificateRepositoryInterface interface {
 	ListByUser(ctx context.Context, userID uuid.UUID, certType string, tags []string) ([]domain.Certificate, error)
 	ListRevoked(ctx context.Context, userID uuid.UUID) ([]domain.RevokedCertificate, error)
 	SoftDelete(ctx context.Context, id uuid.UUID) error
+	RecoverCertificate(ctx context.Context, id uuid.UUID) error
 	PurgeCertificate(ctx context.Context, id uuid.UUID) error
 	SetPurgeProtection(ctx context.Context, id uuid.UUID, enabled bool) error
 	ListSoftDeleted(ctx context.Context, userID uuid.UUID) ([]*domain.Certificate, error)
@@ -565,6 +566,44 @@ func (r *CertificateRepository) SoftDelete(ctx context.Context, id uuid.UUID) er
 
 		r.log.LogAuditInfo(uuid.Nil.String(), "soft_delete_certificate", "success", "Certificate soft deleted successfully")
 		logrus.WithField("cert_id", id.String()).Debug("Certificate soft deleted successfully")
+
+		return nil
+	})
+}
+
+// RecoverCertificate restores a soft-deleted certificate by clearing its deleted_at timestamp.
+//
+// Parameters:
+//   - ctx: The context for the database operation.
+//   - id: The certificate's unique identifier.
+//
+// Returns:
+//
+//	An error if the certificate is not found in a deleted state or the update fails.
+func (r *CertificateRepository) RecoverCertificate(ctx context.Context, id uuid.UUID) error {
+	return r.executeWithMetrics("recover_certificate", func() error {
+		logrus.WithField("cert_id", id.String()).Debug("Recovering soft-deleted certificate")
+
+		result, err := r.db.ExecContext(ctx,
+			"UPDATE certificates SET deleted_at = NULL, scheduled_purge_at = NULL WHERE id = ? AND deleted_at IS NOT NULL",
+			id.String())
+		if err != nil {
+			r.log.LogAuditError(uuid.Nil.String(), "recover_certificate", "failed", "Failed to recover certificate", err)
+			return fmt.Errorf("failed to recover certificate: %w", err)
+		}
+
+		rowsAffected, err := result.RowsAffected()
+		if err != nil {
+			r.log.LogAuditError(uuid.Nil.String(), "recover_certificate", "failed", "Failed to get rows affected", err)
+			return fmt.Errorf("failed to get rows affected: %w", err)
+		}
+		if rowsAffected == 0 {
+			r.log.LogAuditError(uuid.Nil.String(), "recover_certificate", "failed", "Certificate not found in deleted state", nil)
+			return fmt.Errorf("certificate not found in deleted state")
+		}
+
+		r.log.LogAuditInfo(uuid.Nil.String(), "recover_certificate", "success", "Certificate recovered successfully")
+		logrus.WithField("cert_id", id.String()).Debug("Certificate recovered successfully")
 
 		return nil
 	})

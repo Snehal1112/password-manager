@@ -71,6 +71,10 @@ func (m *mockCertRepository) SetPurgeProtection(ctx context.Context, id uuid.UUI
 	return m.Called(ctx, id, enabled).Error(0)
 }
 
+func (m *mockCertRepository) RecoverCertificate(ctx context.Context, id uuid.UUID) error {
+	return m.Called(ctx, id).Error(0)
+}
+
 func (m *mockCertRepository) ListSoftDeleted(ctx context.Context, userID uuid.UUID) ([]*domain.Certificate, error) {
 	args := m.Called(ctx, userID)
 	if v := args.Get(0); v != nil {
@@ -127,6 +131,10 @@ func (m *mockKeyRepo) ListByUser(ctx context.Context, userID *uuid.UUID, keyType
 
 func (m *mockKeyRepo) UpdateRevocationStatus(ctx context.Context, id uuid.UUID, revoked bool) error {
 	return m.Called(ctx, id, revoked).Error(0)
+}
+
+func (m *mockKeyRepo) RecoverKey(ctx context.Context, id uuid.UUID) error {
+	return m.Called(ctx, id).Error(0)
 }
 
 func (m *mockKeyRepo) ListSoftDeleted(ctx context.Context, userID uuid.UUID) ([]*domain.Key, error) {
