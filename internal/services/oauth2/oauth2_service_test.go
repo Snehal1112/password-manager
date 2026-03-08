@@ -83,7 +83,6 @@ func buildService(repo *mockOAuth2ClientRepo, pw *mockPasswordService, jwt *mock
 		PasswordService: pw,
 		JWTService:      jwt,
 		TokenExpiry:     30 * time.Minute,
-		Issuer:          "rocketvault",
 	})
 }
 

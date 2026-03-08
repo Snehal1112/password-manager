@@ -42,7 +42,6 @@ type OAuth2Config struct {
 	PasswordService PasswordService
 	JWTService      JWTService
 	TokenExpiry     time.Duration
-	Issuer          string
 }
 
 // OAuth2Service manages service account lifecycle and issues OAuth2 tokens.

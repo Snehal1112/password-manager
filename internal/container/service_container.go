@@ -238,7 +238,7 @@ func (c *ServiceContainer) initializeServices() error {
 	}
 	jwtConfig := authServices.JWTConfig{
 		SecretKey: c.viper.GetString("jwt_secret"),
-		Issuer:    "PasswordManager",
+		Issuer:    c.viper.GetString("oauth2.issuer"),
 		Audience:  "PASSWORD_MANAGER",
 		Expiry:    jwtExpiry,
 	}
@@ -281,7 +281,6 @@ func (c *ServiceContainer) initializeServices() error {
 		PasswordService: c.passwordService,
 		JWTService:      c.jwtService,
 		TokenExpiry:     oauth2TokenExpiry,
-		Issuer:          c.viper.GetString("oauth2.issuer"),
 	})
 
 	// Initialize user service
