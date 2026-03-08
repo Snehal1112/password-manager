@@ -16,6 +16,7 @@ import (
 	"rocketvault/internal/container"
 	"rocketvault/internal/db"
 	"rocketvault/internal/logging"
+	"rocketvault/internal/services/softdelete"
 	"rocketvault/server"
 )
 
@@ -116,6 +117,7 @@ type bootstrap struct {
 	configValidator  *ConfigurationValidator
 	serviceContainer *container.ServiceContainer
 	cfg              *config.Config
+	purgeScheduler   *softdelete.PurgeScheduler
 }
 
 // newBootstrap creates a new bootstrap orchestrator with SRP-compliant design.
@@ -169,6 +171,14 @@ func (b *bootstrap) setup(ctx context.Context, cfg *Config) error {
 	database, err := b.dbInitializer.Initialize(b.cfg)
 	if err != nil {
 		return fmt.Errorf("database initialization failed: %w", err)
+	}
+
+	// Step 2b: Start background purge scheduler when soft-delete is enabled.
+	softDeleteCfg := config.LoadSoftDeleteConfig()
+	if softDeleteCfg.Enabled {
+		b.purgeScheduler = softdelete.NewPurgeScheduler(database.GetDB(), softDeleteCfg, b.cfg.Logger)
+		b.purgeScheduler.Start(ctx)
+		b.cfg.Logger.Info("Soft-delete purge scheduler started")
 	}
 
 	// Step 3: Initialize service container (SRP: dependency injection)
@@ -241,6 +251,11 @@ func (b *bootstrap) initializeAPI(cfg *Config, app *app.App) error {
 // This method follows SRP by handling only shutdown concerns.
 func (b *bootstrap) Shutdown(ctx context.Context) error {
 	logrus.Info("Starting application shutdown")
+
+	if b.purgeScheduler != nil {
+		b.purgeScheduler.Stop()
+		logrus.Info("Soft-delete purge scheduler stopped")
+	}
 
 	if b.serviceContainer != nil {
 		if err := b.serviceContainer.Close(); err != nil {
