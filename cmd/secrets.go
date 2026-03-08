@@ -25,7 +25,7 @@ package cmd
 import (
 	"github.com/spf13/cobra"
 
-	"password-manager/cmd/secrets"
+	"rocketvault/cmd/secrets"
 )
 
 // secretsCmd represents the secrets command

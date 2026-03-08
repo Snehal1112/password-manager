@@ -29,9 +29,9 @@ import (
 	"github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
 
-	"password-manager/common"
-	"password-manager/internal/container"
-	"password-manager/internal/services/secrets"
+	"rocketvault/common"
+	"rocketvault/internal/container"
+	"rocketvault/internal/services/secrets"
 )
 
 // createCmd represents the create command
@@ -40,7 +40,7 @@ var createCmd = &cobra.Command{
 	Aliases: []string{"add"},
 	Short:   "Create a new secret",
 	Long:    `Create a new secret in the password manager. You can specify the secret name, value, and optional tags.`,
-	Example: `password-manager secrets create my-secret my-value`,
+	Example: `rocketvault secrets create my-secret my-value`,
 	Run: func(cmd *cobra.Command, args []string) {
 		name := args[0]
 		value := args[1]

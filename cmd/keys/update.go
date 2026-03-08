@@ -32,11 +32,11 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 
-	"password-manager/common"
-	"password-manager/internal/db"
-	"password-manager/internal/domain"
-	"password-manager/internal/logging"
-	"password-manager/internal/repositories"
+	"rocketvault/common"
+	"rocketvault/internal/db"
+	"rocketvault/internal/domain"
+	"rocketvault/internal/logging"
+	"rocketvault/internal/repositories"
 )
 
 // updateCmd represents the update command
@@ -44,7 +44,7 @@ var updateCmd = &cobra.Command{
 	Use:     "update <id>",
 	Short:   "Update a cryptographic key",
 	Long:    `Update a cryptographic key's name, revocation status, or tags by its UUID. Accessible by the key's owner or users with the admin role.`,
-	Example: `password-manager keys update <key-id> --username admin --password admin123 --totp-code <code> --name newkey --revoked true --tags tag1,tag2`,
+	Example: `rocketvault keys update <key-id> --username admin --password admin123 --totp-code <code> --name newkey --revoked true --tags tag1,tag2`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		ctx := cmd.Context()
 		claims, ok := ctx.Value(common.ClaimsKey).(*domain.Claims)

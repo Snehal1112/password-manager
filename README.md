@@ -1,4 +1,4 @@
-# Password Manager
+# RocketVault
 
 A production-ready, self-hosted password manager application built in Go with enterprise-grade architecture, designed to securely store and manage secrets, keys, and certificates. This application provides functionality equivalent to Microsoft Azure Key Vault but without relying on any cloud services.
 
@@ -52,7 +52,7 @@ A production-ready, self-hosted password manager application built in Go with en
 ### Domain-Driven Design Structure
 
 ```
-password-manager/
+rocketvault/
 ├── cmd/                    # CLI commands (Cobra framework)
 │   ├── certificates/      # Certificate management commands
 │   ├── keys/              # Key management commands
@@ -143,8 +143,8 @@ password-manager/
 1. Clone the repository:
 
    ```bash
-   git clone https://github.com/snehal1112/password-manager.git
-   cd password-manager
+   git clone https://github.com/snehal1112/rocketvault.git
+   cd rocketvault
    ```
 
 2. Install dependencies:
@@ -156,7 +156,7 @@ password-manager/
 3. Build the application:
 
    ```bash
-   go build -o password-manager .
+   go build -o rocketvault .
    ```
 
 ## Building
@@ -171,7 +171,7 @@ For development, use the build script for optimized binaries with embedded versi
 # Build for current platform
 ./build.sh
 
-# Output: ./build/password-manager
+# Output: ./build/rocketvault
 ```
 
 ### Build Options
@@ -224,15 +224,15 @@ The build script supports 5 platform targets:
 
 ```
 build/
-└── password-manager              # Current platform binary (15MB)
+└── rocketvault              # Current platform binary (15MB)
 
 dist/                             # Cross-platform builds (--all, --release)
-├── password-manager-v4.0.0-linux-amd64.tar.gz
-├── password-manager-v4.0.0-linux-amd64.tar.gz.sha256
-├── password-manager-v4.0.0-darwin-arm64.tar.gz
-├── password-manager-v4.0.0-darwin-arm64.tar.gz.sha256
-├── password-manager-v4.0.0-windows-amd64.zip
-├── password-manager-v4.0.0-windows-amd64.zip.sha256
+├── rocketvault-v4.0.0-linux-amd64.tar.gz
+├── rocketvault-v4.0.0-linux-amd64.tar.gz.sha256
+├── rocketvault-v4.0.0-darwin-arm64.tar.gz
+├── rocketvault-v4.0.0-darwin-arm64.tar.gz.sha256
+├── rocketvault-v4.0.0-windows-amd64.zip
+├── rocketvault-v4.0.0-windows-amd64.zip.sha256
 └── RELEASE_NOTES.md              # Generated release documentation
 ```
 
@@ -257,13 +257,13 @@ If you prefer building manually without the script:
 
 ```bash
 # Basic build
-go build -o password-manager .
+go build -o rocketvault .
 
 # Optimized build with version injection
 go build \
   -trimpath \
   -ldflags="-s -w -X 'main.Version=v1.0.0' -X 'main.CommitHash=$(git rev-parse --short HEAD)'" \
-  -o password-manager \
+  -o rocketvault \
   .
 ```
 
@@ -302,10 +302,10 @@ Create the first admin user using the bootstrap token:
 
 ```bash
 # Initial admin setup (requires bootstrap token from config)
-./password-manager users admin --admin-username admin --admin-password admin123 --bootstrap-token <your-bootstrap-token>
+./rocketvault users admin --admin-username admin --admin-password admin123 --bootstrap-token <your-bootstrap-token>
 ```
 
-The bootstrap token must be configured in your `.password-manager.yaml` file.
+The bootstrap token must be configured in your `.rocketvault.yaml` file.
 
 ### 2. Configure Your TOTP Authenticator
 
@@ -314,14 +314,14 @@ After creating an admin user, configure the TOTP secret in your authenticator ap
 ### 3. Create Your First Secret
 
 ```bash
-./password-manager --username admin --password admin123 --totp-code <your-totp-code> \
+./rocketvault --username admin --password admin123 --totp-code <your-totp-code> \
   secrets create "database-password" "my-secret-password"
 ```
 
 ### 4. List Your Secrets
 
 ```bash
-./password-manager --username admin --password admin123 --totp-code <your-totp-code> \
+./rocketvault --username admin --password admin123 --totp-code <your-totp-code> \
   secrets list
 ```
 
@@ -332,30 +332,30 @@ After creating an admin user, configure the TOTP secret in your authenticator ap
 All commands require authentication with username, password, and TOTP code:
 
 ```bash
-./password-manager --username <username> --password <password> --totp-code <code> <command>
+./rocketvault --username <username> --password <password> --totp-code <code> <command>
 ```
 
 ### User Management
 
 ```bash
 # Create a new user
-./password-manager --username admin --password admin123 --totp-code <code> \
+./rocketvault --username admin --password admin123 --totp-code <code> \
   users create --new-username john --new-password pass123 --new-role user
 
 # List all users
-./password-manager --username admin --password admin123 --totp-code <code> \
+./rocketvault --username admin --password admin123 --totp-code <code> \
   users list
 
 # Update user (requires user ID as argument)
-./password-manager --username admin --password admin123 --totp-code <code> \
+./rocketvault --username admin --password admin123 --totp-code <code> \
   users update <user-id> --new-username john2 --new-password newpass123 --new-role admin
 
 # Get specific user
-./password-manager --username admin --password admin123 --totp-code <code> \
+./rocketvault --username admin --password admin123 --totp-code <code> \
   users get <user-id>
 
 # Delete user
-./password-manager --username admin --password admin123 --totp-code <code> \
+./rocketvault --username admin --password admin123 --totp-code <code> \
   users delete <user-id>
 ```
 
@@ -363,23 +363,23 @@ All commands require authentication with username, password, and TOTP code:
 
 ```bash
 # Create a secret (name and value as positional arguments)
-./password-manager --username admin --password admin123 --totp-code <code> \
+./rocketvault --username admin --password admin123 --totp-code <code> \
   secrets create "api-key" "secret-api-key-value"
 
 # Create a secret with tags
-./password-manager --username admin --password admin123 --totp-code <code> \
+./rocketvault --username admin --password admin123 --totp-code <code> \
   secrets create "api-key" "secret-api-key-value" --tags "production,api"
 
 # List secrets
-./password-manager --username admin --password admin123 --totp-code <code> \
+./rocketvault --username admin --password admin123 --totp-code <code> \
   secrets list
 
 # Get a specific secret (by secret ID)
-./password-manager --username admin --password admin123 --totp-code <code> \
+./rocketvault --username admin --password admin123 --totp-code <code> \
   secrets get <secret-id>
 
 # Delete a secret (by secret ID)
-./password-manager --username admin --password admin123 --totp-code <code> \
+./rocketvault --username admin --password admin123 --totp-code <code> \
   secrets delete <secret-id>
 ```
 
@@ -387,27 +387,27 @@ All commands require authentication with username, password, and TOTP code:
 
 ```bash
 # Generate an RSA key pair
-./password-manager --username admin --password admin123 --totp-code <code> \
+./rocketvault --username admin --password admin123 --totp-code <code> \
   keys create --name "my-rsa-key" --type rsa --bits 2048
 
 # Generate an ECDSA key pair
-./password-manager --username admin --password admin123 --totp-code <code> \
+./rocketvault --username admin --password admin123 --totp-code <code> \
   keys create --name "my-ecdsa-key" --type ecdsa --curve P-256
 
 # List keys
-./password-manager --username admin --password admin123 --totp-code <code> \
+./rocketvault --username admin --password admin123 --totp-code <code> \
   keys list
 
 # Get a specific key (by key ID)
-./password-manager --username admin --password admin123 --totp-code <code> \
+./rocketvault --username admin --password admin123 --totp-code <code> \
   keys get <key-id>
 
 # Rotate a key (by key ID)
-./password-manager --username admin --password admin123 --totp-code <code> \
+./rocketvault --username admin --password admin123 --totp-code <code> \
   keys rotate <key-id>
 
 # Delete a key (by key ID)
-./password-manager --username admin --password admin123 --totp-code <code> \
+./rocketvault --username admin --password admin123 --totp-code <code> \
   keys delete <key-id>
 ```
 
@@ -415,7 +415,7 @@ All commands require authentication with username, password, and TOTP code:
 
 ```bash
 # Create a self-signed certificate
-./password-manager --username admin --password admin123 --totp-code <code> \
+./rocketvault --username admin --password admin123 --totp-code <code> \
   certificates create --name "my-cert" --key-id <key-id> --validity-days 365
 ```
 
@@ -423,15 +423,15 @@ All commands require authentication with username, password, and TOTP code:
 
 ```bash
 # Create a rotation policy
-./password-manager --username admin --password admin123 --totp-code <code> \
+./rocketvault --username admin --password admin123 --totp-code <code> \
   secrets rotation create --name "monthly-rotation" --interval 30 --reminder 7
 
 # Assign policy to a secret
-./password-manager --username admin --password admin123 --totp-code <code> \
+./rocketvault --username admin --password admin123 --totp-code <code> \
   secrets rotation assign --policy-id <policy-id> --secret-id <secret-id>
 
 # Check rotation status
-./password-manager --username admin --password admin123 --totp-code <code> \
+./rocketvault --username admin --password admin123 --totp-code <code> \
   secrets rotation status
 ```
 
@@ -439,23 +439,23 @@ All commands require authentication with username, password, and TOTP code:
 
 ```bash
 # Create an encrypted backup (default)
-./password-manager --username admin --password admin123 --totp-code <code> \
+./rocketvault --username admin --password admin123 --totp-code <code> \
   backup create --output ./backup-2024.backup
 
 # Create an unencrypted backup (use --encrypt=false)
-./password-manager --username admin --password admin123 --totp-code <code> \
+./rocketvault --username admin --password admin123 --totp-code <code> \
   backup create --output ./backup-2024.backup --encrypt=false
 
 # List available backups
-./password-manager --username admin --password admin123 --totp-code <code> \
+./rocketvault --username admin --password admin123 --totp-code <code> \
   backup list --dir ./backups
 
 # Restore from encrypted backup (default)
-./password-manager --username admin --password admin123 --totp-code <code> \
+./rocketvault --username admin --password admin123 --totp-code <code> \
   backup restore --file ./backup-2024.backup
 
 # Restore from unencrypted backup (use --decrypt=false)
-./password-manager --username admin --password admin123 --totp-code <code> \
+./rocketvault --username admin --password admin123 --totp-code <code> \
   backup restore --file ./backup-2024.backup --decrypt=false
 ```
 
@@ -465,7 +465,7 @@ All commands require authentication with username, password, and TOTP code:
 
 ```bash
 # Check system health
-./password-manager health
+./rocketvault health
 ```
 
 This displays comprehensive metrics including memory usage, CPU statistics, database connections, and query performance.
@@ -474,11 +474,11 @@ This displays comprehensive metrics including memory usage, CPU statistics, data
 
 ```bash
 # List versions of a secret
-./password-manager --username admin --password admin123 --totp-code <code> \
+./rocketvault --username admin --password admin123 --totp-code <code> \
   version list --secret-id <secret-id>
 
 # Get a specific version
-./password-manager --username admin --password admin123 --totp-code <code> \
+./rocketvault --username admin --password admin123 --totp-code <code> \
   version get --secret-id <secret-id> --version 2
 ```
 
@@ -487,7 +487,7 @@ This displays comprehensive metrics including memory usage, CPU statistics, data
 ### Starting the API Server
 
 ```bash
-./password-manager serve --listen 127.0.0.1:8080
+./rocketvault serve --listen 127.0.0.1:8080
 ```
 
 ### Health Endpoints
@@ -592,7 +592,7 @@ go test ./... -v -cover -skip BenchmarkCreateSelfSigned
 1. Build the Docker image:
 
    ```bash
-   docker build -t password-manager .
+   docker build -t rocketvault .
    ```
 
 2. Run with Docker Compose:
@@ -608,12 +608,12 @@ For production deployments, use PostgreSQL and configure proper environment vari
 ```bash
 export PASSWORD_MANAGER_DATABASE_CONNECTION="host=localhost user=postgres password=secret dbname=password_manager sslmode=require"
 export PASSWORD_MANAGER_LISTEN="0.0.0.0:8080"
-./password-manager serve
+./rocketvault serve
 ```
 
 ### Configuration
 
-Create a `.password-manager.yaml` configuration file:
+Create a `.rocketvault.yaml` configuration file:
 
 ```yaml
 database:
@@ -626,7 +626,7 @@ database:
 
 logging:
   level: info
-  file: ./logs/password-manager.log  # Log directories auto-created
+  file: ./logs/rocketvault.log  # Log directories auto-created
   max_size_mb: 10
   format: text  # Options: text, json, yaml
   rotation_method: lumberjack  # Options: lumberjack, custom
@@ -734,7 +734,7 @@ For detailed security information, see the [Security Documentation](doc/security
 For questions or issues:
 
 1. Check the [Troubleshooting Guide](doc/troubleshooting.markdown)
-2. Search existing [GitHub Issues](https://github.com/snehal1112/password-manager/issues)
+2. Search existing [GitHub Issues](https://github.com/snehal1112/rocketvault/issues)
 3. Open a new issue with detailed information
 
 ## Roadmap

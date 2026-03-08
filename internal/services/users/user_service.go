@@ -11,10 +11,10 @@ import (
 	"github.com/google/uuid"
 	"github.com/sirupsen/logrus"
 
-	"password-manager/internal/domain"
-	"password-manager/internal/logging"
-	"password-manager/internal/repositories"
-	authService "password-manager/internal/services/auth"
+	"rocketvault/internal/domain"
+	"rocketvault/internal/logging"
+	"rocketvault/internal/repositories"
+	authService "rocketvault/internal/services/auth"
 )
 
 // CreateUserRequest represents a request to create a new user.

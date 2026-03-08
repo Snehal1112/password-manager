@@ -5,10 +5,10 @@ import (
 
 	"github.com/gorilla/mux"
 
-	"password-manager/app"
-	"password-manager/internal/health"
-	"password-manager/internal/logging"
-	"password-manager/internal/middleware"
+	"rocketvault/app"
+	"rocketvault/internal/health"
+	"rocketvault/internal/logging"
+	"rocketvault/internal/middleware"
 )
 
 // router is a type alias for a map where the keys are strings and the values are pointers to mux.Router.

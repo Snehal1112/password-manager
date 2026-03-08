@@ -11,9 +11,9 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 
-	"password-manager/internal/domain"
-	"password-manager/internal/logging"
-	"password-manager/internal/repositories"
+	"rocketvault/internal/domain"
+	"rocketvault/internal/logging"
+	"rocketvault/internal/repositories"
 )
 
 // Mock implementations for testing

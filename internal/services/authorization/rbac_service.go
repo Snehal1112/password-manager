@@ -9,8 +9,8 @@ import (
 
 	"github.com/sirupsen/logrus"
 
-	"password-manager/internal/domain"
-	"password-manager/internal/logging"
+	"rocketvault/internal/domain"
+	"rocketvault/internal/logging"
 )
 
 // Permission represents a specific permission that can be granted to roles.

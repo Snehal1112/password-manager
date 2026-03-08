@@ -7,10 +7,10 @@ import (
 	"github.com/google/uuid"
 	"github.com/sirupsen/logrus"
 
-	"password-manager/common"
-	"password-manager/internal/crypto"
-	"password-manager/internal/logging"
-	"password-manager/internal/repositories"
+	"rocketvault/common"
+	"rocketvault/internal/crypto"
+	"rocketvault/internal/logging"
+	"rocketvault/internal/repositories"
 )
 
 // SignRequest represents a request to sign data.

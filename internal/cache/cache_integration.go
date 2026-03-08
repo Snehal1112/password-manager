@@ -9,8 +9,8 @@ import (
 	"github.com/google/uuid"
 	"github.com/sirupsen/logrus"
 
-	"password-manager/internal/domain"
-	"password-manager/internal/services/secrets"
+	"rocketvault/internal/domain"
+	"rocketvault/internal/services/secrets"
 )
 
 // CachedSecretService wraps a SecretService with caching functionality.

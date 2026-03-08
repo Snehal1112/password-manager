@@ -32,9 +32,9 @@ import (
 	"github.com/google/uuid"
 	"github.com/gorilla/mux"
 
-	"password-manager/app"
-	"password-manager/common"
-	"password-manager/internal/logging"
+	"rocketvault/app"
+	"rocketvault/common"
+	"rocketvault/internal/logging"
 )
 
 // Context holds the contextual information for a request in the vault-service application.

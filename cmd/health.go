@@ -31,9 +31,9 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"password-manager/common"
-	"password-manager/internal/health"
-	"password-manager/internal/logging"
+	"rocketvault/common"
+	"rocketvault/internal/health"
+	"rocketvault/internal/logging"
 )
 
 // healthCmd represents the health command
@@ -42,7 +42,7 @@ var healthCmd = &cobra.Command{
 	Short: "Display system health metrics",
 	Long: `Display comprehensive system health metrics including memory usage,
 CPU statistics, database connection status, and query performance metrics.`,
-	Example: `password-manager health`,
+	Example: `rocketvault health`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		ctx := cmd.Context()
 		db := ctx.Value(common.DBKey).(*sql.DB)

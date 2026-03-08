@@ -11,8 +11,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 
-	"password-manager/internal/domain"
-	secretServices "password-manager/internal/services/secrets"
+	"rocketvault/internal/domain"
+	secretServices "rocketvault/internal/services/secrets"
 )
 
 func TestRotationCreateCommand(t *testing.T) {

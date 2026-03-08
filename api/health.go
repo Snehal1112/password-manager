@@ -26,8 +26,8 @@ import (
 	"encoding/json"
 	"net/http"
 
-	"password-manager/internal/health"
-	"password-manager/internal/logging"
+	"rocketvault/internal/health"
+	"rocketvault/internal/logging"
 )
 
 // HealthHandler handles health check endpoints

@@ -28,9 +28,9 @@ import (
 	"github.com/google/uuid"
 	"github.com/spf13/cobra"
 
-	"password-manager/common"
-	"password-manager/internal/domain"
-	"password-manager/internal/container"
+	"rocketvault/common"
+	"rocketvault/internal/domain"
+	"rocketvault/internal/container"
 )
 
 // deleteCmd represents the delete command
@@ -40,7 +40,7 @@ var deleteCmd = &cobra.Command{
 	Use:     "delete",
 	Short:   "Delete a user",
 	Long:    `Delete a user by their UUID. Accessible by the user themselves or users with the crypto_manager role. This action cannot be undone.`,
-	Example: `password-manager users delete <user-id> --username admin --password admin123 --totp-code <code>`,
+	Example: `rocketvault users delete <user-id> --username admin --password admin123 --totp-code <code>`,
 	Args:    cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		ctx := cmd.Context()

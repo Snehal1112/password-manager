@@ -29,8 +29,8 @@ import (
 	"github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
 
-	"password-manager/common"
-	"password-manager/internal/container"
+	"rocketvault/common"
+	"rocketvault/internal/container"
 )
 
 // deleteCmd represents the delete command

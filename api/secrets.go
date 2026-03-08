@@ -33,8 +33,8 @@ import (
 	"github.com/google/uuid"
 	"github.com/gorilla/mux"
 
-	"password-manager/common"
-	"password-manager/internal/services/secrets"
+	"rocketvault/common"
+	"rocketvault/internal/services/secrets"
 )
 
 // ExportRequest represents the request structure for exporting secrets.

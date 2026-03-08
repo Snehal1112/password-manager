@@ -6,7 +6,7 @@ package secrets
 import (
 	"fmt"
 
-	"password-manager/common"
+	"rocketvault/common"
 )
 
 // CryptographyService handles encryption and decryption operations for secrets.

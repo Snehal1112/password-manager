@@ -31,9 +31,9 @@ import (
 	"github.com/google/uuid"
 	"github.com/gorilla/mux"
 
-	"password-manager/common"
-	"password-manager/internal/domain"
-	keyservices "password-manager/internal/services/keys"
+	"rocketvault/common"
+	"rocketvault/internal/domain"
+	keyservices "rocketvault/internal/services/keys"
 )
 
 // CreateKeyRequest represents the request structure for creating a cryptographic key.

@@ -1,4 +1,4 @@
-# Password Manager - Claude Code Documentation
+# RocketVault - Claude Code Documentation
 
 ## Project Overview
 
@@ -6,7 +6,7 @@
 **Architecture**: Domain-driven design with clean architecture and complete dependency injection
 **Status**: Production-ready with enterprise-grade performance optimizations
 **Grade**: A+ (97/100) - Perfect architecture with type-safe interfaces and comprehensive test coverage
-**Last Updated**: October 22, 2025 - CLI type assertion fix, logging infrastructure, and middleware testing
+**Last Updated**: 2026-03-08 - Architecture review (25 tasks), config rationalisation, bootstrap + schema bug fixes
 
 ## Technology Stack
 
@@ -19,7 +19,7 @@
 ## Architecture Overview
 
 ```
-password-manager/
+rocketvault/
 ├── cmd/                    # CLI commands (Cobra-based)
 │   ├── certificates/      # Certificate management commands
 │   ├── keys/              # Key management commands
@@ -87,6 +87,14 @@ password-manager/
 - **End-to-End Integration**: Complete flow from bootstrap → container → API → middleware → services
 
 ## Key Components Documentation
+
+### 🗄️ [Database Init Patterns](.claude/database-init-patterns.md)
+- `InitializeDB()` hook order and extension points
+- `seedBootstrapToken()` — why it exists and how it works
+- `migrateSchema()` pattern for adding columns to existing databases
+
+### 🐛 [Known Bugs](.claude/known-bugs.md)
+- Open bugs with root-cause analysis and fix recipes
 
 ### 📊 [Current Architecture State](.claude/current-architecture-state.md)
 - Production-ready architecture assessment
@@ -301,6 +309,11 @@ func (m *Middleware) AuthenticationMiddleware(next http.Handler) http.Handler {
 - **Query Performance**: 90%+ improvement with strategic indexing and N+1 elimination
 - **Production Monitoring**: Real-time database performance metrics and health checks
 
+### ⚠️ **Open Bugs (as of 2026-03-08)**
+See `.claude/known-bugs.md` for details and fix patterns.
+
+1. **secrets table missing columns**: `deleted_at` and `purge_protection` absent from `createOptimizedSchema` in `internal/db/db.go`. All secret queries fail with "no such column: deleted_at" on existing databases. Fix requires both updating the `CREATE TABLE` definition and adding `ALTER TABLE` calls via `migrateSchema()`.
+
 ### 🎯 **Future Improvements**
 1. **Caching Layer** - Redis integration for high-performance operation caching
 2. **Enhanced CLI Features** - Additional command options and output formats
@@ -336,16 +349,23 @@ npm run typecheck # If available
 
 ## Configuration
 
-- **Main**: `.password-manager.yaml`
+- **Main**: `.rocketvault.yaml` — the **only** config loaded at runtime
 - **Test**: `test-config.yaml`
 - **Docker**: `docker-compose.yml`
+
+### Config facts (2026-03-08)
+- `initConfig()` in `cmd/root.go` hardcodes `.rocketvault.yaml` — no automatic env switching.
+- Three redundant env-specific files were deleted (`-test`, `-staging`, `-production`).
+- `jwt.expiry: "15m"` is required — read by `internal/container/service_container.go` via `viper.GetDuration("jwt.expiry")`.
+- Dead stubs (not yet read by code, kept as planned-feature markers): `monitoring.*`, `health.*`, `development.*`, `retry.service_operations`.
+- See `.claude/database-init-patterns.md` for `bootstrap_token` seeding details.
 
 ## Admin User Setup
 
 ### Initial Admin Creation
 ```bash
 # Create first admin user (requires bootstrap token)
-./password-manager users admin --admin-username=admin --admin-password=admin123 --bootstrap-token=test-bootstrap-token-12345
+./rocketvault users admin --admin-username=admin --admin-password=admin123 --bootstrap-token=test-bootstrap-token-12345
 ```
 
 ### Admin Credentials (Configured)

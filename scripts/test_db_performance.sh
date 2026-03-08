@@ -10,12 +10,12 @@ echo "====================================="
 
 # Configuration
 TEST_CONFIG="test-config.yaml"
-BINARY="./password-manager"
+BINARY="./rocketvault"
 
 # Ensure binary exists
 if [ ! -f "$BINARY" ]; then
     echo "🔨 Building password manager..."
-    go build -o password-manager .
+    go build -o rocketvault .
 fi
 
 echo "📊 Testing Database Performance Optimizations..."

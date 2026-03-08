@@ -14,10 +14,10 @@ import (
 	"github.com/ulule/limiter/v3"
 	"github.com/ulule/limiter/v3/drivers/store/memory"
 
-	"password-manager/common"
-	"password-manager/internal/logging"
-	authServices "password-manager/internal/services/auth"
-	authzServices "password-manager/internal/services/authorization"
+	"rocketvault/common"
+	"rocketvault/internal/logging"
+	authServices "rocketvault/internal/services/auth"
+	authzServices "rocketvault/internal/services/authorization"
 )
 
 // ResponseWriter is a custom http.ResponseWriter that captures the status code.

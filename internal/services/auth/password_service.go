@@ -6,7 +6,7 @@ package auth
 import (
 	"fmt"
 
-	"password-manager/common"
+	"rocketvault/common"
 )
 
 // PasswordService handles password hashing and validation operations.

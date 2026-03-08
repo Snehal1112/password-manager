@@ -29,9 +29,9 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 
-	"password-manager/common"
-	"password-manager/internal/container"
-	userService "password-manager/internal/services/users"
+	"rocketvault/common"
+	"rocketvault/internal/container"
+	userService "rocketvault/internal/services/users"
 )
 
 // createCmd represents the create command
@@ -39,7 +39,7 @@ var createCmd = &cobra.Command{
 	Use:     "create",
 	Short:   "Create a new user",
 	Long:    `Create a new user with a username, password, and role, generating a TOTP secret for MFA. Requires admin role for authentication.`,
-	Example: `password-manager users create --username admin --password admin123 --totp-code <code> --new-username testuser --new-password password123 --new-role user`,
+	Example: `rocketvault users create --username admin --password admin123 --totp-code <code> --new-username testuser --new-password password123 --new-role user`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		// Get service container from context (using interface for testability)
 		serviceContainer, ok := cmd.Context().Value(common.ServiceContainerKey).(container.ServiceContainerInterface)

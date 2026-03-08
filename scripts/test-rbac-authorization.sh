@@ -92,7 +92,7 @@ print_section "RBAC Authorization Test Suite"
 echo "Checking if server is running at $BASE_URL..."
 if ! curl -s "$BASE_URL/health" > /dev/null 2>&1; then
     echo -e "${RED}Error: Server is not running at $BASE_URL${NC}"
-    echo "Please start the server first: ./password-manager serve"
+    echo "Please start the server first: ./rocketvault serve"
     exit 1
 fi
 echo -e "${GREEN}✓ Server is running${NC}"
@@ -135,9 +135,9 @@ echo
 if [[ ! $REPLY =~ ^[Yy]$ ]]; then
     echo -e "${YELLOW}Skipping integration tests${NC}"
     echo "To create test users, run:"
-    echo "  ./password-manager users create --username=testuser --password=test123 --role=user"
-    echo "  ./password-manager users create --username=secretsmgr --password=test123 --role=secrets_manager"
-    echo "  ./password-manager users create --username=cryptomgr --password=test123 --role=crypto_manager"
+    echo "  ./rocketvault users create --username=testuser --password=test123 --role=user"
+    echo "  ./rocketvault users create --username=secretsmgr --password=test123 --role=secrets_manager"
+    echo "  ./rocketvault users create --username=cryptomgr --password=test123 --role=crypto_manager"
 else
     print_section "Testing Admin Permissions"
 

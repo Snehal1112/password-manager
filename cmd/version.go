@@ -31,10 +31,10 @@ import (
 	"github.com/google/uuid"
 	"github.com/spf13/cobra"
 
-	"password-manager/common"
-	"password-manager/internal/domain"
-	"password-manager/internal/logging"
-	"password-manager/internal/repositories"
+	"rocketvault/common"
+	"rocketvault/internal/domain"
+	"rocketvault/internal/logging"
+	"rocketvault/internal/repositories"
 )
 
 var (
@@ -49,13 +49,13 @@ var versionCmd = &cobra.Command{
 	Long: `View, retrieve, and manage historical versions of secrets.
 Supports listing versions, retrieving specific versions, and version history.`,
 	Example: `  # List all versions of a secret
-  password-manager version list --secret-id <uuid>
+  rocketvault version list --secret-id <uuid>
 
   # Get a specific version of a secret
-  password-manager version get --secret-id <uuid> --version 2
+  rocketvault version get --secret-id <uuid> --version 2
 
   # Get the latest version of a secret
-  password-manager version latest --secret-id <uuid>`,
+  rocketvault version latest --secret-id <uuid>`,
 }
 
 func init() {
@@ -72,7 +72,7 @@ var versionListCmd = &cobra.Command{
 	Use:     "list",
 	Short:   "List all versions of a secret",
 	Long:    `List all historical versions of a secret with their metadata.`,
-	Example: `password-manager version list --secret-id 123e4567-e89b-12d3-a456-426614174000`,
+	Example: `rocketvault version list --secret-id 123e4567-e89b-12d3-a456-426614174000`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		return runVersionList(cmd)
 	},
@@ -83,7 +83,7 @@ var versionGetCmd = &cobra.Command{
 	Use:     "get",
 	Short:   "Get a specific version of a secret",
 	Long:    `Retrieve a specific historical version of a secret.`,
-	Example: `password-manager version get --secret-id 123e4567-e89b-12d3-a456-426614174000 --version 2`,
+	Example: `rocketvault version get --secret-id 123e4567-e89b-12d3-a456-426614174000 --version 2`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		return runVersionGet(cmd)
 	},
@@ -94,7 +94,7 @@ var versionLatestCmd = &cobra.Command{
 	Use:     "latest",
 	Short:   "Get the latest version of a secret",
 	Long:    `Retrieve the most recent version of a secret.`,
-	Example: `password-manager version latest --secret-id 123e4567-e89b-12d3-a456-426614174000`,
+	Example: `rocketvault version latest --secret-id 123e4567-e89b-12d3-a456-426614174000`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		return runVersionLatest(cmd)
 	},

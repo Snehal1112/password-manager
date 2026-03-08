@@ -10,9 +10,9 @@ import (
 
 	"github.com/google/uuid"
 
-	"password-manager/internal/domain"
-	"password-manager/internal/logging"
-	"password-manager/internal/repositories"
+	"rocketvault/internal/domain"
+	"rocketvault/internal/logging"
+	"rocketvault/internal/repositories"
 )
 
 // VersioningServiceInterface defines the business logic contract for secret versioning operations.

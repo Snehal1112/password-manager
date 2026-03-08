@@ -5,7 +5,7 @@ import (
 
 	"github.com/google/uuid"
 
-	"password-manager/internal/services/auth"
+	"rocketvault/internal/services/auth"
 )
 
 // RetryAuthenticationService wraps authentication operations with retry logic

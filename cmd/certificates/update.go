@@ -12,11 +12,11 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 
-	"password-manager/common"
-	"password-manager/internal/container"
-	"password-manager/internal/domain"
-	"password-manager/internal/logging"
-	certServices "password-manager/internal/services/certificates"
+	"rocketvault/common"
+	"rocketvault/internal/container"
+	"rocketvault/internal/domain"
+	"rocketvault/internal/logging"
+	certServices "rocketvault/internal/services/certificates"
 )
 
 // updateCmd represents the update command
@@ -24,7 +24,7 @@ var updateCmd = &cobra.Command{
 	Use:     "update <id>",
 	Short:   "Update certificate metadata",
 	Long:    `Update metadata for an X.509 certificate (name, tags). Requires admin or certificate_manager role.`,
-	Example: `password-manager certs update <cert-id> --username admin --password admin123 --totp-code <code> --name "Updated name" --tags prod,secure`,
+	Example: `rocketvault certs update <cert-id> --username admin --password admin123 --totp-code <code> --name "Updated name" --tags prod,secure`,
 	Args:    cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		ctx := cmd.Context()

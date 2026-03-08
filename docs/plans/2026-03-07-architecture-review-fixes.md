@@ -27,7 +27,7 @@ SQLite/PostgreSQL via `database/sql`
 
 **Files:**
 - Modify: `.gitignore`
-- Delete from tracking: `.password-manager.yaml`, `.password-manager-production.yaml`, `.password-manager-staging.yaml`
+- Delete from tracking: `.rocketvault.yaml`, `.rocketvault-production.yaml`, `.rocketvault-staging.yaml`
 
 **Step 1: Add config files to .gitignore**
 
@@ -35,21 +35,21 @@ Open `.gitignore` and add after the existing `# Security sensitive files` block:
 
 ```
 # Config files contain secrets — never commit
-.password-manager*.yaml
+.rocketvault*.yaml
 ```
 
 **Step 2: Remove config files from git tracking (keep local copies)**
 
 ```bash
-git rm --cached .password-manager.yaml .password-manager-production.yaml .password-manager-staging.yaml
+git rm --cached .rocketvault.yaml .rocketvault-production.yaml .rocketvault-staging.yaml
 ```
 
-Expected: three lines like `rm '.password-manager.yaml'`
+Expected: three lines like `rm '.rocketvault.yaml'`
 
 **Step 3: Verify files are still on disk but untracked**
 
 ```bash
-ls -la .password-manager*.yaml
+ls -la .rocketvault*.yaml
 git status
 ```
 
@@ -70,7 +70,7 @@ openssl rand -base64 32
 openssl rand -base64 32
 ```
 
-Update `.password-manager.yaml` with the new values. Update staging and production configs too.
+Update `.rocketvault.yaml` with the new values. Update staging and production configs too.
 
 **Step 5: Commit**
 
@@ -79,7 +79,7 @@ git add .gitignore
 git commit -m "security: stop tracking config files containing secrets
 
 Config files with master_key, jwt_secret, and bootstrap_token were
-tracked in git. Remove from tracking and gitignore all .password-manager
+tracked in git. Remove from tracking and gitignore all .rocketvault
 yaml variants. Secrets rotated."
 ```
 
@@ -87,7 +87,7 @@ yaml variants. Secrets rotated."
 
 ```bash
 # Install git-filter-repo if not present: pip install git-filter-repo
-git filter-repo --path .password-manager.yaml --path .password-manager-production.yaml --path .password-manager-staging.yaml --invert-paths
+git filter-repo --path .rocketvault.yaml --path .rocketvault-production.yaml --path .rocketvault-staging.yaml --invert-paths
 ```
 
 > **Warning:** This rewrites history. Coordinate with all collaborators before force-pushing.
@@ -357,7 +357,7 @@ defer database.GetDB().Close()
 go build ./api/...
 ```
 
-Remove `"password-manager/internal/db"` and `"password-manager/internal/repositories"` from
+Remove `"rocketvault/internal/db"` and `"rocketvault/internal/repositories"` from
 `api/secrets.go` imports if the compiler reports them unused.
 
 **Step 3: Build**
@@ -493,10 +493,10 @@ import (
     "github.com/google/uuid"
     "github.com/stretchr/testify/mock"
 
-    "password-manager/internal/domain"
-    authServices "password-manager/internal/services/auth"
-    secretServices "password-manager/internal/services/secrets"
-    userServices "password-manager/internal/services/users"
+    "rocketvault/internal/domain"
+    authServices "rocketvault/internal/services/auth"
+    secretServices "rocketvault/internal/services/secrets"
+    userServices "rocketvault/internal/services/users"
 )
 
 // MockSecretService is a testify mock for SecretService.
@@ -750,9 +750,9 @@ import (
     "github.com/stretchr/testify/mock"
     "github.com/stretchr/testify/require"
 
-    "password-manager/internal/domain"
-    "password-manager/internal/logging"
-    "password-manager/internal/services/secrets"
+    "rocketvault/internal/domain"
+    "rocketvault/internal/logging"
+    "rocketvault/internal/services/secrets"
 
     "github.com/sirupsen/logrus"
 )
@@ -991,8 +991,8 @@ import (
     "github.com/stretchr/testify/assert"
     "github.com/stretchr/testify/require"
 
-    "password-manager/internal/domain"
-    "password-manager/internal/services/auth"
+    "rocketvault/internal/domain"
+    "rocketvault/internal/services/auth"
 )
 
 func TestJWTService_GenerateAndValidate_RoundTrip(t *testing.T) {

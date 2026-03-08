@@ -1,6 +1,6 @@
-# Password Manager API Integration Examples
+# RocketVault API Integration Examples
 
-This document provides practical integration examples for common use cases when working with the Password Manager API.
+This document provides practical integration examples for common use cases when working with the RocketVault API.
 
 ## Table of Contents
 
@@ -24,7 +24,7 @@ PASSWORD="your-secure-password"
 TOTP_CODE="123456"
 
 # Get JWT token
-TOKEN=$(./password-manager login --username "$USERNAME" --password "$PASSWORD" --totp-code "$TOTP_CODE" 2>/dev/null | grep -o '"token":"[^"]*"' | cut -d'"' -f4)
+TOKEN=$(./rocketvault login --username "$USERNAME" --password "$PASSWORD" --totp-code "$TOTP_CODE" 2>/dev/null | grep -o '"token":"[^"]*"' | cut -d'"' -f4)
 
 if [ -z "$TOKEN" ]; then
     echo "Authentication failed"
@@ -107,7 +107,7 @@ class TokenManager {
 #!/bin/bash
 # backup-secrets.sh - Daily automated backup of all secrets
 
-BACKUP_DIR="/var/backups/password-manager"
+BACKUP_DIR="/var/backups/rocketvault"
 TIMESTAMP=$(date +"%Y%m%d_%H%M%S")
 BACKUP_FILE="$BACKUP_DIR/secrets_backup_$TIMESTAMP.json"
 
@@ -126,7 +126,7 @@ curl -X POST \
     "encrypt": true,
     "include_tags": true
   }' \
-  "https://api.password-manager.local/api/v1/secrets/export" \
+  "https://api.rocketvault.local/api/v1/secrets/export" \
   -o "$BACKUP_FILE"
 
 # Verify backup integrity
@@ -170,7 +170,7 @@ curl -X POST \
   -F "format=json" \
   -F "encrypted=true" \
   -F "overwrite=$OVERWRITE" \
-  "https://api.password-manager.local/api/v1/secrets/import"
+  "https://api.rocketvault.local/api/v1/secrets/import"
 
 if [ $? -eq 0 ]; then
     echo "Restore completed successfully"
@@ -194,9 +194,9 @@ from datetime import datetime
 class CrossEnvironmentBackup:
     def __init__(self):
         self.environments = {
-            'dev': 'https://dev-api.password-manager.local/api/v1',
-            'staging': 'https://staging-api.password-manager.local/api/v1',
-            'prod': 'https://api.password-manager.local/api/v1'
+            'dev': 'https://dev-api.rocketvault.local/api/v1',
+            'staging': 'https://staging-api.rocketvault.local/api/v1',
+            'prod': 'https://api.rocketvault.local/api/v1'
         }
         self.tokens = {}
 
@@ -412,7 +412,7 @@ databases = {
 if __name__ == '__main__':
     # Initialize rotator
     rotator = DatabasePasswordRotator(
-        api_url='https://api.password-manager.local/api/v1',
+        api_url='https://api.rocketvault.local/api/v1',
         jwt_token='your-jwt-token'
     )
 
@@ -561,7 +561,7 @@ const services = {
 
 // Usage
 const rotator = new APIKeyRotator(
-  "https://api.password-manager.local/api/v1",
+  "https://api.rocketvault.local/api/v1",
   "your-jwt-token"
 );
 
@@ -600,7 +600,7 @@ on:
           - validate
 
 env:
-  API_URL: https://api.password-manager.local/api/v1
+  API_URL: https://api.rocketvault.local/api/v1
 
 jobs:
   secrets-management:
@@ -615,17 +615,17 @@ jobs:
         with:
           go-version: "1.21"
 
-      - name: Download Password Manager CLI
+      - name: Download RocketVault CLI
         run: |
-          wget https://github.com/snehal1112/password-manager/releases/latest/download/password-manager-linux-amd64
-          chmod +x password-manager-linux-amd64
-          sudo mv password-manager-linux-amd64 /usr/local/bin/password-manager
+          wget https://github.com/snehal1112/rocketvault/releases/latest/download/rocketvault-linux-amd64
+          chmod +x rocketvault-linux-amd64
+          sudo mv rocketvault-linux-amd64 /usr/local/bin/rocketvault
 
       - name: Authenticate
         id: auth
         run: |
           # Get JWT token
-          TOKEN=$(password-manager login \
+          TOKEN=$(rocketvault login \
             --username ${{ secrets.PM_USERNAME }} \
             --password ${{ secrets.PM_PASSWORD }} \
             --totp-code ${{ secrets.PM_TOTP_CODE }} \
@@ -709,8 +709,8 @@ pipeline {
     agent any
 
     environment {
-        API_URL = 'https://api.password-manager.local/api/v1'
-        PM_CLI = '/usr/local/bin/password-manager'
+        API_URL = 'https://api.rocketvault.local/api/v1'
+        PM_CLI = '/usr/local/bin/rocketvault'
     }
 
     parameters {
@@ -849,9 +849,9 @@ pipeline {
 #!/bin/bash
 # monitor-health.sh - Monitor password manager health and send alerts
 
-API_URL="https://api.password-manager.local/api/v1"
+API_URL="https://api.rocketvault.local/api/v1"
 ALERT_EMAIL="admin@company.com"
-LOG_FILE="/var/log/password-manager/health_monitor.log"
+LOG_FILE="/var/log/rocketvault/health_monitor.log"
 
 # Function to log messages
 log() {
@@ -883,7 +883,7 @@ check_health() {
     local status=$(echo "$response" | grep "HTTPSTATUS" | cut -d: -f2)
 
     if [ "$status" != "$expected_status" ]; then
-        send_alert "Password Manager Health Check Failed" \
+        send_alert "RocketVault Health Check Failed" \
             "Endpoint: $endpoint\nExpected status: $expected_status\nActual status: $status\nResponse: $body"
         return 1
     fi
@@ -900,7 +900,7 @@ check_detailed_health() {
 
     # Check if response is valid JSON
     if ! echo "$health_data" | jq . >/dev/null 2>&1; then
-        send_alert "Password Manager Health Check Failed" \
+        send_alert "RocketVault Health Check Failed" \
             "Invalid JSON response from health endpoint\nResponse: $health_data"
         return 1
     fi
@@ -913,20 +913,20 @@ check_detailed_health() {
 
     # Alert on unhealthy status
     if [ "$status" != "healthy" ]; then
-        send_alert "Password Manager Unhealthy" \
+        send_alert "RocketVault Unhealthy" \
             "System status: $status\nMemory usage: ${memory_usage}%\nDatabase status: $db_status"
         return 1
     fi
 
     # Alert on high memory usage
     if (( $(echo "$memory_usage > 90" | bc -l) )); then
-        send_alert "Password Manager High Memory Usage" \
+        send_alert "RocketVault High Memory Usage" \
             "Memory usage is ${memory_usage}%, which is above 90% threshold"
     fi
 
     # Alert on database issues
     if [ "$db_status" != "connected" ]; then
-        send_alert "Password Manager Database Issue" \
+        send_alert "RocketVault Database Issue" \
             "Database status: $db_status"
         return 1
     fi
@@ -1080,7 +1080,7 @@ class PasswordManagerMetricsExporter:
 
 if __name__ == '__main__':
     exporter = PasswordManagerMetricsExporter(
-        api_url='https://api.password-manager.local/api/v1',
+        api_url='https://api.rocketvault.local/api/v1',
         jwt_token='your-jwt-token',
         port=8000
     )
@@ -1104,15 +1104,15 @@ class MultiEnvironmentManager:
     def __init__(self):
         self.environments = {
             'development': {
-                'url': 'https://dev-api.password-manager.local/api/v1',
+                'url': 'https://dev-api.rocketvault.local/api/v1',
                 'token': os.getenv('DEV_JWT_TOKEN')
             },
             'staging': {
-                'url': 'https://staging-api.password-manager.local/api/v1',
+                'url': 'https://staging-api.rocketvault.local/api/v1',
                 'token': os.getenv('STAGING_JWT_TOKEN')
             },
             'production': {
-                'url': 'https://api.password-manager.local/api/v1',
+                'url': 'https://api.rocketvault.local/api/v1',
                 'token': os.getenv('PROD_JWT_TOKEN')
             }
         }
@@ -1235,7 +1235,7 @@ class MultiEnvironmentManager:
         }
 
 class PasswordManagerClient:
-    """Simple client for Password Manager API"""
+    """Simple client for RocketVault API"""
     def __init__(self, base_url: str, token: str):
         self.base_url = base_url.rstrip('/')
         self.headers = {
@@ -1300,4 +1300,4 @@ if __name__ == '__main__':
     print(f"Audit results: {audit}")
 ```
 
-This comprehensive set of integration examples covers the most common use cases for the Password Manager API, including authentication, backup/restore, rotation, CI/CD integration, monitoring, and multi-environment management. Each example includes error handling, logging, and best practices for production use.
+This comprehensive set of integration examples covers the most common use cases for the RocketVault API, including authentication, backup/restore, rotation, CI/CD integration, monitoring, and multi-environment management. Each example includes error handling, logging, and best practices for production use.

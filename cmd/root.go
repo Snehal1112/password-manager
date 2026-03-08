@@ -32,11 +32,11 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 
-	"password-manager/common"
-	"password-manager/internal/container"
-	"password-manager/internal/db"
-	"password-manager/internal/domain"
-	"password-manager/internal/logging"
+	"rocketvault/common"
+	"rocketvault/internal/container"
+	"rocketvault/internal/db"
+	"rocketvault/internal/domain"
+	"rocketvault/internal/logging"
 )
 
 // cfgFile is the config file name
@@ -44,7 +44,7 @@ var cfgFile string
 
 // rootCmd represents the base command when called without any subcommands
 var rootCmd = &cobra.Command{
-	Use:   "password-manager",
+	Use:   "rocketvault",
 	Short: "A secure password manager for secrets, keys, and certificates",
 	Long: `The password manager is a standalone application for securely managing
 secrets, cryptographic keys, and certificates. It provides a CLI for user interaction
@@ -70,7 +70,7 @@ func init() {
 	// Here you will define your flags and configuration settings.
 	// Cobra supports persistent flags, which, if defined here,
 	// will be global for your application.
-	rootCmd.PersistentFlags().StringVar(&cfgFile, "config", "", "config file (default is $HOME/.password-manager.yaml)")
+	rootCmd.PersistentFlags().StringVar(&cfgFile, "config", "", "config file (default is $HOME/.rocketvault.yaml)")
 
 	// Persistent flags for authentication.
 	rootCmd.PersistentFlags().String("username", "", "Username for authentication")
@@ -92,10 +92,10 @@ func initConfig() {
 		// home, err := os.UserHomeDir()
 		// cobra.CheckErr(err)
 
-		// Search config in home directory with name ".password-manager" (without extension).
+		// Search config in home directory with name ".rocketvault" (without extension).
 		viper.AddConfigPath(".")
 		viper.SetConfigType("yaml")
-		viper.SetConfigName(".password-manager")
+		viper.SetConfigName(".rocketvault")
 	}
 
 	viper.AutomaticEnv() // read in environment variables that match

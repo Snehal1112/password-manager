@@ -11,8 +11,8 @@ import (
 
 	"github.com/google/uuid"
 
-	"password-manager/internal/domain"
-	"password-manager/internal/logging"
+	"rocketvault/internal/domain"
+	"rocketvault/internal/logging"
 )
 
 // RotationPolicyRepositoryInterface defines the data access contract for rotation policies.

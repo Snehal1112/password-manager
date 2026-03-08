@@ -3,9 +3,9 @@ package app
 import (
 	"time"
 
-	"password-manager/internal/container"
-	"password-manager/internal/logging"
-	"password-manager/server"
+	"rocketvault/internal/container"
+	"rocketvault/internal/logging"
+	"rocketvault/server"
 )
 
 // Option represents a function that modifies the configuration or behavior of an App instance.

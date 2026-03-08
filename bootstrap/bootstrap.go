@@ -10,13 +10,13 @@ import (
 
 	"github.com/sirupsen/logrus"
 
-	"password-manager/api"
-	"password-manager/app"
-	"password-manager/config"
-	"password-manager/internal/container"
-	"password-manager/internal/db"
-	"password-manager/internal/logging"
-	"password-manager/server"
+	"rocketvault/api"
+	"rocketvault/app"
+	"rocketvault/config"
+	"rocketvault/internal/container"
+	"rocketvault/internal/db"
+	"rocketvault/internal/logging"
+	"rocketvault/server"
 )
 
 // Config holds the configuration settings for the vault service application.

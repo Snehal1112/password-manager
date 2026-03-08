@@ -1,6 +1,6 @@
 # !/bin/bash
 
-./build/password-manager secrets create $1 $2 \
+./build/rocketvault secrets create $1 $2 \
   --tags="prod,dev" \
   --password=sd101 \
   --username=sd101 \

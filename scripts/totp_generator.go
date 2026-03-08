@@ -71,12 +71,12 @@ func main() {
 
 	// Show authentication example
 	fmt.Printf("\n📖 Authentication Example:\n")
-	fmt.Printf("./password-manager --username=%s --password=<your-password> --totp-code=%s users list\n", *username, currentCode)
+	fmt.Printf("./rocketvault --username=%s --password=<your-password> --totp-code=%s users list\n", *username, currentCode)
 
 	// Show QR code setup info
 	fmt.Printf("\n📱 QR Code Setup:\n")
 	fmt.Printf("For manual entry in authenticator app:\n")
-	fmt.Printf("  Account: %s@password-manager\n", *username)
+	fmt.Printf("  Account: %s@rocketvault\n", *username)
 	fmt.Printf("  Secret: %s\n", totpSecret)
 	fmt.Printf("  Type: Time-based (TOTP)\n")
 	fmt.Printf("  Period: 30 seconds\n")

@@ -32,7 +32,7 @@ import (
 
 	"github.com/sirupsen/logrus"
 
-	"password-manager/internal/db"
+	"rocketvault/internal/db"
 )
 
 // HealthMetrics represents the system health metrics

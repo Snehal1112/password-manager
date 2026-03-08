@@ -28,9 +28,9 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"password-manager/common"
-	"password-manager/internal/domain"
-	"password-manager/internal/container"
+	"rocketvault/common"
+	"rocketvault/internal/domain"
+	"rocketvault/internal/container"
 )
 
 // listCmd represents the list command
@@ -38,7 +38,7 @@ var listCmd = &cobra.Command{
 	Use:     "list",
 	Short:   "List all users",
 	Long:    `Retrieve a list of all users in the Password Manager. Accessible only by users with the admin role.`,
-	Example: `password-manager users list --username admin --password admin123 --totp-code <code>`,
+	Example: `rocketvault users list --username admin --password admin123 --totp-code <code>`,
 	Args:    cobra.NoArgs,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		ctx := cmd.Context()

@@ -29,8 +29,8 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 
-	"password-manager/common"
-	"password-manager/internal/container"
+	"rocketvault/common"
+	"rocketvault/internal/container"
 )
 
 // loginCmd represents the login command
@@ -38,7 +38,7 @@ var loginCmd = &cobra.Command{
 	Use:     "login",
 	Short:   "Authenticate a user",
 	Long:    `Authenticate a user with their username, password, and TOTP code, returning a JWT token for subsequent operations.`,
-	Example: `password-manager users login --username admin --password admin123 --totp-code <code>`,
+	Example: `rocketvault users login --username admin --password admin123 --totp-code <code>`,
 	Args:    cobra.NoArgs,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		ctx := cmd.Context()

@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # Configuration
-CMD="password-manager secrets"
+CMD="rocketvault secrets"
 USERNAME="testuser"
 PASSWORD="testpass"
 TOTP_CODE="123456"
@@ -61,7 +61,7 @@ echo "Test completed for command: $1"
 
 # # !/bin/bash
 
-# ./build/password-manager secrets list \
+# ./build/rocketvault secrets list \
 #   --tags="prod,dev" \
 #   --password=sd101 \
 #   --username=sd101 \

@@ -9,8 +9,8 @@ import (
 	"github.com/gorilla/mux"
 	"github.com/sirupsen/logrus"
 
-	"password-manager/common"
-	"password-manager/internal/logging"
+	"rocketvault/common"
+	"rocketvault/internal/logging"
 )
 
 // Version represents an API version configuration.

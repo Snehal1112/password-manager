@@ -11,10 +11,10 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"password-manager/common"
-	"password-manager/internal/container"
-	"password-manager/internal/domain"
-	"password-manager/internal/logging"
+	"rocketvault/common"
+	"rocketvault/internal/container"
+	"rocketvault/internal/domain"
+	"rocketvault/internal/logging"
 )
 
 // listCmd represents the list command
@@ -22,7 +22,7 @@ var listCmd = &cobra.Command{
 	Use:     "list",
 	Short:   "List certificates",
 	Long:    `List all X.509 certificates for the authenticated user. Admins can list all certificates.`,
-	Example: `password-manager certs list --username admin --password admin123 --totp-code <code>`,
+	Example: `rocketvault certs list --username admin --password admin123 --totp-code <code>`,
 	Args:    cobra.NoArgs,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		ctx := cmd.Context()

@@ -24,10 +24,10 @@ package keys
 
 import (
 	"fmt"
-	"password-manager/common"
-	"password-manager/internal/container"
-	"password-manager/internal/domain"
-	"password-manager/internal/logging"
+	"rocketvault/common"
+	"rocketvault/internal/container"
+	"rocketvault/internal/domain"
+	"rocketvault/internal/logging"
 	"strings"
 	"time"
 
@@ -40,7 +40,7 @@ var listCmd = &cobra.Command{
 	Use:     "list",
 	Short:   "List cryptographic keys",
 	Long:    `List all cryptographic keys for the authenticated user. Admins can list all keys. Supports filtering by type and tags.`,
-	Example: `password-manager keys list --username admin --password admin123 --totp-code <code> --type RSA --tags prod,secure`,
+	Example: `rocketvault keys list --username admin --password admin123 --totp-code <code> --type RSA --tags prod,secure`,
 	Args:    cobra.NoArgs,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		ctx := cmd.Context()

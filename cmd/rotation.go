@@ -32,12 +32,12 @@ import (
 	"github.com/google/uuid"
 	"github.com/spf13/cobra"
 
-	"password-manager/common"
-	"password-manager/internal/container"
-	"password-manager/internal/domain"
-	"password-manager/internal/logging"
-	"password-manager/internal/repositories"
-	"password-manager/internal/services/secrets"
+	"rocketvault/common"
+	"rocketvault/internal/container"
+	"rocketvault/internal/domain"
+	"rocketvault/internal/logging"
+	"rocketvault/internal/repositories"
+	"rocketvault/internal/services/secrets"
 )
 
 var (
@@ -57,16 +57,16 @@ var rotationCmd = &cobra.Command{
 	Long: `Manage secret rotation policies including creation, assignment,
 monitoring, and automated rotation of secrets.`,
 	Example: `  # Create a new rotation policy
-  password-manager secrets rotation create --name "Monthly DB Password" --interval 30
+  rocketvault secrets rotation create --name "Monthly DB Password" --interval 30
 
   # List all rotation policies
-  password-manager secrets rotation list
+  rocketvault secrets rotation list
 
   # Assign a policy to a secret
-  password-manager secrets rotation assign --policy-id <uuid> --secret-id <uuid>
+  rocketvault secrets rotation assign --policy-id <uuid> --secret-id <uuid>
 
   # Manually rotate a secret
-  password-manager secrets rotation rotate --secret-id <uuid> --policy-id <uuid>`,
+  rocketvault secrets rotation rotate --secret-id <uuid> --policy-id <uuid>`,
 }
 
 func init() {
@@ -89,7 +89,7 @@ var rotationCreateCmd = &cobra.Command{
 	Use:     "create",
 	Short:   "Create a new rotation policy",
 	Long:    `Create a new rotation policy with specified parameters.`,
-	Example: `password-manager secrets rotation create --name "Monthly Rotation" --interval 30 --reminder 7 --auto-rotate`,
+	Example: `rocketvault secrets rotation create --name "Monthly Rotation" --interval 30 --reminder 7 --auto-rotate`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		return runRotationCreate(cmd)
 	},
@@ -100,7 +100,7 @@ var rotationListCmd = &cobra.Command{
 	Use:     "list",
 	Short:   "List all rotation policies",
 	Long:    `List all rotation policies for the current user.`,
-	Example: `password-manager secrets rotation list`,
+	Example: `rocketvault secrets rotation list`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		return runRotationList(cmd)
 	},
@@ -111,7 +111,7 @@ var rotationUpdateCmd = &cobra.Command{
 	Use:     "update",
 	Short:   "Update a rotation policy",
 	Long:    `Update an existing rotation policy.`,
-	Example: `password-manager secrets rotation update --id <uuid> --name "New Name" --interval 60`,
+	Example: `rocketvault secrets rotation update --id <uuid> --name "New Name" --interval 60`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		return runRotationUpdate(cmd)
 	},
@@ -122,7 +122,7 @@ var rotationDeleteCmd = &cobra.Command{
 	Use:     "delete",
 	Short:   "Delete a rotation policy",
 	Long:    `Delete an existing rotation policy.`,
-	Example: `password-manager secrets rotation delete --id <uuid>`,
+	Example: `rocketvault secrets rotation delete --id <uuid>`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		return runRotationDelete(cmd)
 	},
@@ -133,7 +133,7 @@ var rotationAssignCmd = &cobra.Command{
 	Use:     "assign",
 	Short:   "Assign a policy to a secret",
 	Long:    `Assign a rotation policy to a secret.`,
-	Example: `password-manager secrets rotation assign --policy-id <uuid> --secret-id <uuid>`,
+	Example: `rocketvault secrets rotation assign --policy-id <uuid> --secret-id <uuid>`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		return runRotationAssign(cmd)
 	},
@@ -144,7 +144,7 @@ var rotationUnassignCmd = &cobra.Command{
 	Use:     "unassign",
 	Short:   "Remove a policy from a secret",
 	Long:    `Remove a rotation policy from a secret.`,
-	Example: `password-manager secrets rotation unassign --policy-id <uuid> --secret-id <uuid>`,
+	Example: `rocketvault secrets rotation unassign --policy-id <uuid> --secret-id <uuid>`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		return runRotationUnassign(cmd)
 	},
@@ -155,7 +155,7 @@ var rotationRotateCmd = &cobra.Command{
 	Use:     "rotate",
 	Short:   "Manually rotate a secret",
 	Long:    `Manually rotate a secret according to its assigned policy.`,
-	Example: `password-manager secrets rotation rotate --secret-id <uuid> --policy-id <uuid>`,
+	Example: `rocketvault secrets rotation rotate --secret-id <uuid> --policy-id <uuid>`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		return runRotationRotate(cmd)
 	},
@@ -166,7 +166,7 @@ var rotationHistoryCmd = &cobra.Command{
 	Use:     "history",
 	Short:   "View rotation history for a secret",
 	Long:    `View the rotation history for a specific secret.`,
-	Example: `password-manager secrets rotation history --secret-id <uuid>`,
+	Example: `rocketvault secrets rotation history --secret-id <uuid>`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		return runRotationHistory(cmd)
 	},
@@ -177,7 +177,7 @@ var rotationStatusCmd = &cobra.Command{
 	Use:     "status",
 	Short:   "View rotation status and due rotations",
 	Long:    `View the current rotation status and secrets due for rotation.`,
-	Example: `password-manager secrets rotation status`,
+	Example: `rocketvault secrets rotation status`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		return runRotationStatus(cmd)
 	},

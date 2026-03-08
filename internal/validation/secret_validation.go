@@ -8,7 +8,7 @@ import (
 	validation "github.com/go-ozzo/ozzo-validation/v4"
 	"github.com/google/uuid"
 
-	"password-manager/internal/domain"
+	"rocketvault/internal/domain"
 )
 
 // SecretCreateRequest represents the input for creating a secret.

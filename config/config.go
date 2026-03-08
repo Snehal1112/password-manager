@@ -3,7 +3,7 @@ package config
 import (
 	"net"
 	"net/http"
-	"password-manager/internal/logging"
+	"rocketvault/internal/logging"
 )
 
 // Config holds the configuration settings for the vault service application.

@@ -10,9 +10,9 @@ import (
 	"github.com/google/uuid"
 	"github.com/sirupsen/logrus"
 
-	"password-manager/internal/db"
-	"password-manager/internal/domain"
-	"password-manager/internal/logging"
+	"rocketvault/internal/db"
+	"rocketvault/internal/domain"
+	"rocketvault/internal/logging"
 )
 
 // SecretRepositoryInterface defines the interface for secret repository operations.

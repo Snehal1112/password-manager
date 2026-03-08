@@ -1,4 +1,4 @@
-module password-manager
+module rocketvault
 
 go 1.24.2
 

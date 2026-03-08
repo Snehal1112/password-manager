@@ -14,10 +14,10 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 
-	"password-manager/common"
-	"password-manager/internal/logging"
-	authServices "password-manager/internal/services/auth"
-	authzServices "password-manager/internal/services/authorization"
+	"rocketvault/common"
+	"rocketvault/internal/logging"
+	authServices "rocketvault/internal/services/auth"
+	authzServices "rocketvault/internal/services/authorization"
 )
 
 // MockServiceContainer is a mock implementation of the service container for testing.

@@ -6,16 +6,16 @@
 
 ## Problem
 
-Four `.password-manager*.yaml` files existed in the project:
+Four `.rocketvault*.yaml` files existed in the project:
 
 | File | Purpose | Status |
 |------|---------|--------|
-| `.password-manager.yaml` | Development | Canonical file, actively loaded |
-| `.password-manager-test.yaml` | Test | Redundant — never auto-selected |
-| `.password-manager-staging.yaml` | Staging | Redundant — never auto-selected |
-| `.password-manager-production.yaml` | Production | Redundant — never auto-selected |
+| `.rocketvault.yaml` | Development | Canonical file, actively loaded |
+| `.rocketvault-test.yaml` | Test | Redundant — never auto-selected |
+| `.rocketvault-staging.yaml` | Staging | Redundant — never auto-selected |
+| `.rocketvault-production.yaml` | Production | Redundant — never auto-selected |
 
-`initConfig()` in `cmd/root.go` always loads `.password-manager.yaml` by default.
+`initConfig()` in `cmd/root.go` always loads `.rocketvault.yaml` by default.
 The only way to load another file is via `--config <path>`. There is no automatic
 environment-based file switching. The three env-specific files were therefore unused.
 
@@ -33,7 +33,7 @@ Rejected alternatives:
 
 ## Changes
 
-### 1. Add missing `jwt.expiry` key to `.password-manager.yaml`
+### 1. Add missing `jwt.expiry` key to `.rocketvault.yaml`
 
 ```yaml
 jwt:
@@ -44,13 +44,13 @@ jwt:
 
 ### 2. Delete three redundant files
 
-- `.password-manager-test.yaml`
-- `.password-manager-staging.yaml`
-- `.password-manager-production.yaml`
+- `.rocketvault-test.yaml`
+- `.rocketvault-staging.yaml`
+- `.rocketvault-production.yaml`
 
-All three were already covered by `.gitignore` (`*.password-manager*.yaml`) so they
+All three were already covered by `.gitignore` (`*.rocketvault*.yaml`) so they
 were never committed. Each environment's operator maintains their own local
-`.password-manager.yaml` with values appropriate for that machine.
+`.rocketvault.yaml` with values appropriate for that machine.
 
 ## Keys the code actually reads (viper)
 

@@ -11,8 +11,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 
-	"password-manager/internal/domain"
-	"password-manager/internal/retry"
+	"rocketvault/internal/domain"
+	"rocketvault/internal/retry"
 )
 
 // MockRepository simulates a repository that can fail for testing retry logic

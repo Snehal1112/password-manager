@@ -1,12 +1,12 @@
-# Password Manager Testing Guide
+# RocketVault Testing Guide
 
-This guide provides comprehensive steps to test the Password Manager's export functionality and related features.
+This guide provides comprehensive steps to test the RocketVault's export functionality and related features.
 
 ## Prerequisites
 
 1. **Go Environment**: Ensure Go 1.19+ is installed
 2. **Dependencies**: Run `go mod tidy` to install all dependencies
-3. **Build**: Compile the application with `go build -o password-manager`
+3. **Build**: Compile the application with `go build -o rocketvault`
 
 ## Test Configuration
 
@@ -30,7 +30,7 @@ Since this is a fresh database, you need to create the initial admin user:
 
 ```bash
 # Create admin user with bootstrap token
-./password-manager users admin \
+./rocketvault users admin \
   --admin-username admin1 \
   --admin-password admin123 \
   --bootstrap-token test-bootstrap-token-12345 \
@@ -62,7 +62,7 @@ Use this code with --totp-code flag for authentication
 ### 2.1 Create Basic Secret (No Tags)
 
 ```bash
-./password-manager secrets create "test-secret-1" "my-test-password-123" \
+./rocketvault secrets create "test-secret-1" "my-test-password-123" \
   --config test-config.yaml \
   --username admin1 \
   --password admin123 \
@@ -72,7 +72,7 @@ Use this code with --totp-code flag for authentication
 ### 2.2 Create Secret with Tags
 
 ```bash
-./password-manager secrets create "test-secret-2" "another-password-456" \
+./rocketvault secrets create "test-secret-2" "another-password-456" \
   --tags "api,test" \
   --config test-config.yaml \
   --username admin1 \
@@ -83,7 +83,7 @@ Use this code with --totp-code flag for authentication
 ### 2.3 Create Another Secret with Different Tags
 
 ```bash
-./password-manager secrets create "test-secret-3" "database-connection-string" \
+./rocketvault secrets create "test-secret-3" "database-connection-string" \
   --tags "database,production" \
   --config test-config.yaml \
   --username admin1 \
@@ -94,7 +94,7 @@ Use this code with --totp-code flag for authentication
 ### 2.4 Verify Secrets Created
 
 ```bash
-./password-manager secrets list \
+./rocketvault secrets list \
   --config test-config.yaml \
   --username admin1 \
   --password admin123 \
@@ -139,7 +139,7 @@ Use this code with --totp-code flag for authentication
 ### 3.1 JSON Export (Unencrypted)
 
 ```bash
-./password-manager secrets export \
+./rocketvault secrets export \
   --format json \
   --file test-export-unencrypted.json \
   --encrypt=false \
@@ -205,7 +205,7 @@ cat test-export-unencrypted.json | jq .
 ### 3.2 JSON Export (Encrypted)
 
 ```bash
-./password-manager secrets export \
+./rocketvault secrets export \
   --format json \
   --file test-export-encrypted.json \
   --encrypt \
@@ -232,7 +232,7 @@ head -c 100 test-export-encrypted.json
 ### 3.3 CSV Export (Unencrypted)
 
 ```bash
-./password-manager secrets export \
+./rocketvault secrets export \
   --format csv \
   --file test-export.csv \
   --encrypt=false \
@@ -268,7 +268,7 @@ uuid-3,test-secret-3,database-connection-string,1,database;production,2025-09-11
 ### 4.1 Export with Tag Filter
 
 ```bash
-./password-manager secrets export \
+./rocketvault secrets export \
   --format json \
   --file test-export-api-only.json \
   --encrypt=false \
@@ -286,7 +286,7 @@ uuid-3,test-secret-3,database-connection-string,1,database;production,2025-09-11
 ### 5.1 Invalid Authentication
 
 ```bash
-./password-manager secrets export \
+./rocketvault secrets export \
   --format json \
   --file test-export.json \
   --config test-config.yaml \
@@ -299,13 +299,13 @@ uuid-3,test-secret-3,database-connection-string,1,database;production,2025-09-11
 ```
 Error: Authentication failed - invalid credentials
 Usage:
-  password-manager secrets export [flags]
+  rocketvault secrets export [flags]
 ```
 
 ### 5.2 Missing Required File Parameter
 
 ```bash
-./password-manager secrets export \
+./rocketvault secrets export \
   --format json \
   --encrypt=false \
   --config test-config.yaml \
@@ -322,7 +322,7 @@ Error: required flag(s) "file" not set
 ### 5.3 Unsupported Format
 
 ```bash
-./password-manager secrets export \
+./rocketvault secrets export \
   --format xml \
   --file test-export.xml \
   --encrypt=false \
@@ -342,7 +342,7 @@ Error: unsupported format: xml (supported: json, csv)
 ### 6.1 List Users
 
 ```bash
-./password-manager users list \
+./rocketvault users list \
   --config test-config.yaml \
   --username admin1 \
   --password admin123 \
@@ -352,7 +352,7 @@ Error: unsupported format: xml (supported: json, csv)
 ### 6.2 Get User Information
 
 ```bash
-./password-manager users get admin1 \
+./rocketvault users get admin1 \
   --config test-config.yaml \
   --username admin1 \
   --password admin123 \
@@ -434,7 +434,7 @@ fmt.Printf("Use this code with --totp-code flag for authentication\n")
 ```bash
 # Create multiple secrets for performance testing
 for i in {1..100}; do
-  ./password-manager secrets create "bulk-secret-$i" "value-$i" \
+  ./rocketvault secrets create "bulk-secret-$i" "value-$i" \
     --config test-config.yaml \
     --username admin1 \
     --password admin123 \
@@ -442,7 +442,7 @@ for i in {1..100}; do
 done
 
 # Test export performance
-time ./password-manager secrets export \
+time ./rocketvault secrets export \
   --format json \
   --file bulk-export.json \
   --encrypt \
@@ -475,4 +475,4 @@ This testing guide covers:
 - ✅ Error handling and edge cases
 - ✅ Performance and security testing
 
-All tests should pass successfully, demonstrating the robustness of the Password Manager's export functionality.
+All tests should pass successfully, demonstrating the robustness of the RocketVault's export functionality.

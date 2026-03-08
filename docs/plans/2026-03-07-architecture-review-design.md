@@ -1,4 +1,4 @@
-# Architecture Review: password-manager
+# Architecture Review: rocketvault
 
 **Date**: 2026-03-07
 **Reviewer**: Claude Code
@@ -180,8 +180,8 @@ alias.
 
 ### [Critical] Config files containing production secrets are committed to git
 
-**Location**: `.password-manager.yaml`, `.password-manager-production.yaml`,
-`.password-manager-staging.yaml` (all tracked by `git ls-files`)
+**Location**: `.rocketvault.yaml`, `.rocketvault-production.yaml`,
+`.rocketvault-staging.yaml` (all tracked by `git ls-files`)
 
 **Root cause**: `master_key`, `jwt_secret`, and `bootstrap_token` are stored in plaintext in
 tracked YAML files. Anyone with repository access has the master encryption key for every secret

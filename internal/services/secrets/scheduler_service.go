@@ -11,9 +11,9 @@ import (
 
 	"github.com/google/uuid"
 
-	"password-manager/internal/domain"
-	"password-manager/internal/logging"
-	"password-manager/internal/repositories"
+	"rocketvault/internal/domain"
+	"rocketvault/internal/logging"
+	"rocketvault/internal/repositories"
 )
 
 // SchedulerServiceInterface defines the business logic contract for rotation scheduling.

@@ -3,8 +3,8 @@ package authorization
 import (
 	"testing"
 
-	"password-manager/internal/domain"
-	"password-manager/internal/logging"
+	"rocketvault/internal/domain"
+	"rocketvault/internal/logging"
 )
 
 // TestRBACPermissionValidation validates that each role has the correct permissions.

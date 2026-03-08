@@ -12,9 +12,9 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 
-	"password-manager/cmd/testutils"
-	"password-manager/internal/domain"
-	keyservices "password-manager/internal/services/keys"
+	"rocketvault/cmd/testutils"
+	"rocketvault/internal/domain"
+	keyservices "rocketvault/internal/services/keys"
 )
 
 // MockKeyService is a mock implementation of KeyService interface for testing.

@@ -11,17 +11,17 @@ import (
 
 	"github.com/spf13/viper"
 
-	"password-manager/internal/cache"
-	"password-manager/internal/logging"
-	"password-manager/internal/repositories"
-	authServices "password-manager/internal/services/auth"
-	authzServices "password-manager/internal/services/authorization"
-	certServices "password-manager/internal/services/certificates"
-	keyServices "password-manager/internal/services/keys"
-	retryServices "password-manager/internal/services/retry"
-	secretServices "password-manager/internal/services/secrets"
-	secrets "password-manager/internal/services/secrets"
-	userServices "password-manager/internal/services/users"
+	"rocketvault/internal/cache"
+	"rocketvault/internal/logging"
+	"rocketvault/internal/repositories"
+	authServices "rocketvault/internal/services/auth"
+	authzServices "rocketvault/internal/services/authorization"
+	certServices "rocketvault/internal/services/certificates"
+	keyServices "rocketvault/internal/services/keys"
+	retryServices "rocketvault/internal/services/retry"
+	secretServices "rocketvault/internal/services/secrets"
+	secrets "rocketvault/internal/services/secrets"
+	userServices "rocketvault/internal/services/users"
 )
 
 // ServiceContainerInterface defines the interface for the service container.

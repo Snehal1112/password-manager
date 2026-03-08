@@ -26,11 +26,11 @@ import (
 	"fmt"
 	"strings"
 
-	"password-manager/common"
-	"password-manager/internal/container"
-	"password-manager/internal/domain"
-	"password-manager/internal/logging"
-	keyServices "password-manager/internal/services/keys"
+	"rocketvault/common"
+	"rocketvault/internal/container"
+	"rocketvault/internal/domain"
+	"rocketvault/internal/logging"
+	keyServices "rocketvault/internal/services/keys"
 
 	"github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"

@@ -14,8 +14,8 @@ import (
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 
-	"password-manager/internal/domain"
-	"password-manager/internal/logging"
+	"rocketvault/internal/domain"
+	"rocketvault/internal/logging"
 )
 
 func newAuthService(

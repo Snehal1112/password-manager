@@ -9,11 +9,11 @@ import (
 	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/mock"
 
-	"password-manager/internal/domain"
-	"password-manager/internal/logging"
-	authServices "password-manager/internal/services/auth"
-	authzServices "password-manager/internal/services/authorization"
-	secretServices "password-manager/internal/services/secrets"
+	"rocketvault/internal/domain"
+	"rocketvault/internal/logging"
+	authServices "rocketvault/internal/services/auth"
+	authzServices "rocketvault/internal/services/authorization"
+	secretServices "rocketvault/internal/services/secrets"
 )
 
 // NewTestLogger returns a logger suitable for use in tests.

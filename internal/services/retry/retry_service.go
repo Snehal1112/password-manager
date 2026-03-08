@@ -6,7 +6,7 @@ import (
 
 	"github.com/spf13/viper"
 
-	"password-manager/internal/retry"
+	"rocketvault/internal/retry"
 )
 
 // RetryService provides retry functionality for application operations.

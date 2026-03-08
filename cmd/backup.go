@@ -32,9 +32,9 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"password-manager/common"
-	"password-manager/internal/backup"
-	"password-manager/internal/logging"
+	"rocketvault/common"
+	"rocketvault/internal/backup"
+	"rocketvault/internal/logging"
 )
 
 var (
@@ -52,19 +52,19 @@ var backupCmd = &cobra.Command{
 	Long: `Create, list, and restore encrypted database backups.
 Supports full database backup and restore operations with optional encryption.`,
 	Example: `  # Create encrypted backup (default)
-  password-manager backup create --output ./backups/backup-2024.backup
+  rocketvault backup create --output ./backups/backup-2024.backup
 
   # Create unencrypted backup
-  password-manager backup create --output ./backups/backup-2024.backup --encrypt=false
+  rocketvault backup create --output ./backups/backup-2024.backup --encrypt=false
 
   # List available backups
-  password-manager backup list --dir ./backups
+  rocketvault backup list --dir ./backups
 
   # Restore from encrypted backup (default)
-  password-manager backup restore --file ./backups/backup-2024.backup
+  rocketvault backup restore --file ./backups/backup-2024.backup
 
   # Restore from unencrypted backup
-  password-manager backup restore --file ./backups/backup-2024.backup --decrypt=false`,
+  rocketvault backup restore --file ./backups/backup-2024.backup --decrypt=false`,
 }
 
 func init() {
@@ -83,10 +83,10 @@ var backupCreateCmd = &cobra.Command{
 	Long: `Create a complete backup of the database including all tables and data.
 The backup is encrypted by default using the master key for security.`,
 	Example: `  # Create encrypted backup (default)
-  password-manager backup create --output ./backup-2024.backup
+  rocketvault backup create --output ./backup-2024.backup
 
   # Create unencrypted backup
-  password-manager backup create --output ./backup-2024.backup --encrypt=false`,
+  rocketvault backup create --output ./backup-2024.backup --encrypt=false`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		return runBackupCreate(cmd)
 	},
@@ -97,7 +97,7 @@ var backupListCmd = &cobra.Command{
 	Use:     "list",
 	Short:   "List available backup files",
 	Long:    `List all backup files in the specified directory with their metadata.`,
-	Example: `password-manager backup list --dir ./backups`,
+	Example: `rocketvault backup list --dir ./backups`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		return runBackupList(cmd)
 	},
@@ -109,10 +109,10 @@ var backupRestoreCmd = &cobra.Command{
 	Short: "Restore database from backup",
 	Long:  `Restore the database from a backup file. This will replace all existing data.`,
 	Example: `  # Restore from encrypted backup (default)
-  password-manager backup restore --file ./backup-2024.backup
+  rocketvault backup restore --file ./backup-2024.backup
 
   # Restore from unencrypted backup
-  password-manager backup restore --file ./backup-2024.backup --decrypt=false`,
+  rocketvault backup restore --file ./backup-2024.backup --decrypt=false`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		return runBackupRestore(cmd)
 	},

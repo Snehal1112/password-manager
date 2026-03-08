@@ -8,10 +8,10 @@ echo "======================================="
 
 # Configuration files to validate
 CONFIGS=(
-    ".password-manager.yaml"
-    ".password-manager-test.yaml"
-    ".password-manager-staging.yaml"
-    ".password-manager-production.yaml"
+    ".rocketvault.yaml"
+    ".rocketvault-test.yaml"
+    ".rocketvault-staging.yaml"
+    ".rocketvault-production.yaml"
     "test-config.yaml"
 )
 

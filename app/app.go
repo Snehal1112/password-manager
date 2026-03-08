@@ -6,10 +6,10 @@ import (
 
 	"github.com/gorilla/mux"
 
-	"password-manager/common"
-	"password-manager/internal/container"
-	"password-manager/internal/logging"
-	"password-manager/server"
+	"rocketvault/common"
+	"rocketvault/internal/container"
+	"rocketvault/internal/logging"
+	"rocketvault/server"
 )
 
 // Impl defines the interface for initializing the store and starting the server.

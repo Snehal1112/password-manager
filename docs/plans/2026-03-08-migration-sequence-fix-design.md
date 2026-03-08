@@ -6,7 +6,7 @@
 
 ## Problem
 
-`./password-manager migrate:to 20241026000003` fails with:
+`./rocketvault migrate:to 20241026000003` fails with:
 
 ```
 no such column: "tags"

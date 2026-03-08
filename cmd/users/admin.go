@@ -29,11 +29,11 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 
-	"password-manager/internal/container"
-	"password-manager/internal/db"
-	"password-manager/internal/domain"
-	"password-manager/internal/logging"
-	userService "password-manager/internal/services/users"
+	"rocketvault/internal/container"
+	"rocketvault/internal/db"
+	"rocketvault/internal/domain"
+	"rocketvault/internal/logging"
+	userService "rocketvault/internal/services/users"
 )
 
 // registerAdminCmd represents the register/admin command
@@ -41,7 +41,7 @@ var registerAdminCmd = &cobra.Command{
 	Use:     "admin",
 	Short:   "Register the initial admin user",
 	Long:    `Register the first admin user for the Password Manager using a bootstrap token. This command is only allowed when no users exist and requires a valid token.`,
-	Example: `password-manager users admin --admin-username admin --bootstrap-token <token>`,
+	Example: `rocketvault users admin --admin-username admin --bootstrap-token <token>`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		// Initialize the logger.
 		log := logging.InitLogger()

@@ -11,10 +11,10 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 
-	"password-manager/common"
-	"password-manager/internal/container"
-	"password-manager/internal/domain"
-	"password-manager/internal/logging"
+	"rocketvault/common"
+	"rocketvault/internal/container"
+	"rocketvault/internal/domain"
+	"rocketvault/internal/logging"
 )
 
 // renewCmd represents the renew command
@@ -22,7 +22,7 @@ var renewCmd = &cobra.Command{
 	Use:     "renew <id>",
 	Short:   "Renew a certificate",
 	Long:    `Renew an expiring X.509 certificate with a new validity period. Requires admin or certificate_manager role.`,
-	Example: `password-manager certs renew <cert-id> --username admin --password admin123 --totp-code <code> --validity-days 365`,
+	Example: `rocketvault certs renew <cert-id> --username admin --password admin123 --totp-code <code> --validity-days 365`,
 	Args:    cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		ctx := cmd.Context()

@@ -13,9 +13,9 @@ import (
 	"github.com/google/uuid"
 	"github.com/sirupsen/logrus"
 
-	"password-manager/internal/db"
-	"password-manager/internal/domain"
-	"password-manager/internal/logging"
+	"rocketvault/internal/db"
+	"rocketvault/internal/domain"
+	"rocketvault/internal/logging"
 )
 
 // UserRepositoryInterface is a generic repository interface for user operations.

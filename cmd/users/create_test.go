@@ -13,9 +13,9 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 
-	"password-manager/cmd/testutils"
-	"password-manager/internal/domain"
-	userServices "password-manager/internal/services/users"
+	"rocketvault/cmd/testutils"
+	"rocketvault/internal/domain"
+	userServices "rocketvault/internal/services/users"
 )
 
 func TestCreateUserCommand(t *testing.T) {
@@ -266,7 +266,7 @@ func validateCreateUserInput(username, password, role string) error {
 // Test helper to create a root command for testing
 func createTestRootCommand() *cobra.Command {
 	rootCmd := &cobra.Command{
-		Use: "password-manager",
+		Use: "rocketvault",
 	}
 
 	usersCmd := &cobra.Command{

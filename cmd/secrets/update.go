@@ -31,9 +31,9 @@ import (
 	"github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
 
-	"password-manager/common"
-	"password-manager/internal/logging"
-	"password-manager/internal/repositories"
+	"rocketvault/common"
+	"rocketvault/internal/logging"
+	"rocketvault/internal/repositories"
 )
 
 // updateCmd represents the update command
@@ -121,7 +121,7 @@ var updateCmd = &cobra.Command{
 //
 // Example command usage:
 //
-//	password-manager secrets update 123e4567-e89b-12d3-a456-426614174000 new-value --tags tag1,tag2
+//	rocketvault secrets update 123e4567-e89b-12d3-a456-426614174000 new-value --tags tag1,tag2
 //
 // Example command output:
 //

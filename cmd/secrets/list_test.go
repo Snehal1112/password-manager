@@ -11,10 +11,10 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 
-	"password-manager/cmd/testutils"
-	"password-manager/common"
-	"password-manager/internal/container"
-	"password-manager/internal/domain"
+	"rocketvault/cmd/testutils"
+	"rocketvault/common"
+	"rocketvault/internal/container"
+	"rocketvault/internal/domain"
 )
 
 func TestListSecretsCommand(t *testing.T) {

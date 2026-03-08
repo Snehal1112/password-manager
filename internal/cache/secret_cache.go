@@ -11,7 +11,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/sirupsen/logrus"
 
-	"password-manager/internal/domain"
+	"rocketvault/internal/domain"
 )
 
 // SecretCache provides thread-safe in-memory caching for secrets with TTL support.

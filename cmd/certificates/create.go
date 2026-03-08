@@ -12,11 +12,11 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 
-	"password-manager/common"
-	"password-manager/internal/container"
-	"password-manager/internal/domain"
-	"password-manager/internal/logging"
-	certServices "password-manager/internal/services/certificates"
+	"rocketvault/common"
+	"rocketvault/internal/container"
+	"rocketvault/internal/domain"
+	"rocketvault/internal/logging"
+	certServices "rocketvault/internal/services/certificates"
 )
 
 // createCmd represents the create command
@@ -25,7 +25,7 @@ var createCmd = &cobra.Command{
 	Use:     "create",
 	Short:   "Create a new X.509 certificate",
 	Long:    `Create a self-signed or CA-signed X.509 certificate using an existing key. Requires admin or certificate_manager role.`,
-	Example: `password-manager certs create --username admin --password admin123 --totp-code <code> --name mycert --key-id <key-id> --validity-days 365 --tags prod,secure [--ca-cert-id <ca-cert-id>]`,
+	Example: `rocketvault certs create --username admin --password admin123 --totp-code <code> --name mycert --key-id <key-id> --validity-days 365 --tags prod,secure [--ca-cert-id <ca-cert-id>]`,
 	Args:    cobra.NoArgs,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		ctx := cmd.Context()

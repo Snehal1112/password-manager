@@ -30,10 +30,10 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 
-	"password-manager/common"
-	"password-manager/internal/domain"
-	"password-manager/internal/container"
-	userService "password-manager/internal/services/users"
+	"rocketvault/common"
+	"rocketvault/internal/domain"
+	"rocketvault/internal/container"
+	userService "rocketvault/internal/services/users"
 )
 
 // updateCmd represents the update command
@@ -41,7 +41,7 @@ var updateCmd = &cobra.Command{
 	Use:     "update <id>",
 	Short:   "Update user information",
 	Long:    `Update a user's username, password, or role by their UUID. Accessible by the user themselves or users with the admin role.`,
-	Example: `password-manager users update <user-id> --username admin --password admin123 --totp-code <code> --new-username newuser --new-password newpass123 --new-role user`,
+	Example: `rocketvault users update <user-id> --username admin --password admin123 --totp-code <code> --new-username newuser --new-password newpass123 --new-role user`,
 	Args:    cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		ctx := cmd.Context()

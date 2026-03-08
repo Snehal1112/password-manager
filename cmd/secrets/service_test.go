@@ -10,9 +10,9 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 
-	"password-manager/cmd/testutils"
-	"password-manager/internal/domain"
-	secretServices "password-manager/internal/services/secrets"
+	"rocketvault/cmd/testutils"
+	"rocketvault/internal/domain"
+	secretServices "rocketvault/internal/services/secrets"
 )
 
 // TestSecretsCreateCommand tests the secrets create command comprehensively

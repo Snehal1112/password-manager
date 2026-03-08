@@ -9,7 +9,7 @@ import (
 	"github.com/spf13/viper"
 	"github.com/stretchr/testify/assert"
 
-	"password-manager/internal/logging"
+	"rocketvault/internal/logging"
 )
 
 // TestInitializeDB tests the InitializeDB function to ensure it opens a SQLite connection and creates tables.

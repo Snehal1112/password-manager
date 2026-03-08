@@ -18,8 +18,8 @@ NC='\033[0m' # No Color
 # Default values
 DEFAULT_ADMIN_USERNAME="sd0099"
 DEFAULT_ADMIN_PASSWORD="sd0099"
-DEFAULT_CONFIG_FILE=".password-manager.yaml"
-DEFAULT_TEST_CONFIG_FILE=".password-manager-test.yaml"
+DEFAULT_CONFIG_FILE=".rocketvault.yaml"
+DEFAULT_TEST_CONFIG_FILE=".rocketvault-test.yaml"
 
 # Script modes
 MODE_AUTO="auto"
@@ -62,7 +62,7 @@ MODES:
 OPTIONS:
     -u, --username USERNAME         New admin username (default: admin)
     -p, --password PASSWORD         New admin password (default: admin123)
-    -c, --config CONFIG_FILE        Configuration file (default: .password-manager.yaml)
+    -c, --config CONFIG_FILE        Configuration file (default: .rocketvault.yaml)
     -t, --test                      Use test configuration
     -g, --generate-totp             Generate TOTP codes after creation
     -m, --mode MODE                 Force specific mode: auto|bootstrap|authenticated
@@ -183,10 +183,10 @@ done
 check_prerequisites() {
     print_info "Checking prerequisites..."
 
-    # Check if password-manager binary exists
-    if [[ ! -f "./password-manager" ]]; then
-        print_error "password-manager binary not found. Please build the project first:"
-        echo "  go build -o password-manager"
+    # Check if rocketvault binary exists
+    if [[ ! -f "./rocketvault" ]]; then
+        print_error "rocketvault binary not found. Please build the project first:"
+        echo "  go build -o rocketvault"
         exit 1
     fi
 
@@ -363,7 +363,7 @@ create_admin_bootstrap() {
     setup_database_bootstrap
 
     # Build the command
-    CMD="./password-manager --config=\"$CONFIG_FILE\" users admin --admin-username=\"$ADMIN_USERNAME\" --admin-password=\"$ADMIN_PASSWORD\" --bootstrap-token=\"$BOOTSTRAP_TOKEN\""
+    CMD="./rocketvault --config=\"$CONFIG_FILE\" users admin --admin-username=\"$ADMIN_USERNAME\" --admin-password=\"$ADMIN_PASSWORD\" --bootstrap-token=\"$BOOTSTRAP_TOKEN\""
 
     print_info "Executing bootstrap admin creation..."
 
@@ -481,7 +481,7 @@ create_admin_authenticated() {
     fi
 
     # Build the command for user creation
-    CMD="./password-manager --config=\"$CONFIG_FILE\" --username=\"$AUTH_USERNAME\" --password=\"$AUTH_PASSWORD\" $TOTP_FLAG users create --new-username=\"$ADMIN_USERNAME\" --new-password=\"$ADMIN_PASSWORD\" --new-role=\"admin\""
+    CMD="./rocketvault --config=\"$CONFIG_FILE\" --username=\"$AUTH_USERNAME\" --password=\"$AUTH_PASSWORD\" $TOTP_FLAG users create --new-username=\"$ADMIN_USERNAME\" --new-password=\"$ADMIN_PASSWORD\" --new-role=\"admin\""
 
     print_info "Executing authenticated admin creation..."
     print_info "Authenticating as: $AUTH_USERNAME"
@@ -582,7 +582,7 @@ show_next_steps() {
     print_info "Next steps:"
     echo "  1. Configure your TOTP authenticator app with the secret shown above"
     echo "  2. Test authentication with:"
-    echo "     ./password-manager --config=\"$CONFIG_FILE\" --username=\"$ADMIN_USERNAME\" --password=\"<password>\" --totp-code=\"<code>\" users list"
+    echo "     ./rocketvault --config=\"$CONFIG_FILE\" --username=\"$ADMIN_USERNAME\" --password=\"<password>\" --totp-code=\"<code>\" users list"
     echo "  3. Create additional users as needed"
     echo ""
 

@@ -10,8 +10,8 @@ import (
 	"github.com/google/uuid"
 	"github.com/sirupsen/logrus"
 
-	"password-manager/internal/domain"
-	"password-manager/internal/logging"
+	"rocketvault/internal/domain"
+	"rocketvault/internal/logging"
 )
 
 // SessionRepositoryInterface defines the contract for session data access operations.

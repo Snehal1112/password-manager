@@ -30,8 +30,8 @@ import (
 	"path/filepath"
 	"time"
 
-	"password-manager/common"
-	"password-manager/internal/logging"
+	"rocketvault/common"
+	"rocketvault/internal/logging"
 )
 
 // BackupMetadata contains metadata about a backup

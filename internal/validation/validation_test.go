@@ -7,7 +7,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 
-	"password-manager/internal/domain"
+	"rocketvault/internal/domain"
 )
 
 // TestValidateSecretCreate tests secret creation validation.

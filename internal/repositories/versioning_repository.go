@@ -10,8 +10,8 @@ import (
 
 	"github.com/google/uuid"
 
-	"password-manager/internal/domain"
-	"password-manager/internal/logging"
+	"rocketvault/internal/domain"
+	"rocketvault/internal/logging"
 )
 
 // SecretVersionRepositoryInterface defines the data access contract for secret versions.

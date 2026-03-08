@@ -10,9 +10,9 @@ import (
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 
-	"password-manager/internal/domain"
-	"password-manager/internal/services/secrets"
-	"password-manager/internal/testutils"
+	"rocketvault/internal/domain"
+	"rocketvault/internal/services/secrets"
+	"rocketvault/internal/testutils"
 )
 
 // newService wires a secretService with the provided mocks.

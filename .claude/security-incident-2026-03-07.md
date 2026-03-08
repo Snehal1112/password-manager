@@ -8,15 +8,15 @@
 Four config files containing `master_key`, `jwt_secret`, and `bootstrap_token`
 in plaintext were tracked in git history:
 
-- `.password-manager.yaml`
-- `.password-manager-production.yaml`
-- `.password-manager-staging.yaml`
-- `.password-manager-test.yaml`
+- `.rocketvault.yaml`
+- `.rocketvault-production.yaml`
+- `.rocketvault-staging.yaml`
+- `.rocketvault-test.yaml`
 
 ## Immediate actions taken
 
 - All four files removed from git tracking (`git rm --cached`)
-- `.password-manager*.yaml` added to `.gitignore`
+- `.rocketvault*.yaml` added to `.gitignore`
 
 ## OPERATOR ACTION REQUIRED
 
@@ -41,10 +41,10 @@ Install git-filter-repo if needed: `pip install git-filter-repo`
 
 ```bash
 git filter-repo \
-  --path .password-manager.yaml \
-  --path .password-manager-production.yaml \
-  --path .password-manager-staging.yaml \
-  --path .password-manager-test.yaml \
+  --path .rocketvault.yaml \
+  --path .rocketvault-production.yaml \
+  --path .rocketvault-staging.yaml \
+  --path .rocketvault-test.yaml \
   --invert-paths
 ```
 

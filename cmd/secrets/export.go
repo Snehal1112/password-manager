@@ -33,11 +33,11 @@ import (
 	"github.com/google/uuid"
 	"github.com/spf13/cobra"
 
-	"password-manager/common"
-	"password-manager/internal/db"
-	"password-manager/internal/domain"
-	"password-manager/internal/logging"
-	"password-manager/internal/repositories"
+	"rocketvault/common"
+	"rocketvault/internal/db"
+	"rocketvault/internal/domain"
+	"rocketvault/internal/logging"
+	"rocketvault/internal/repositories"
 )
 
 var (

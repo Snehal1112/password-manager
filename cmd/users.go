@@ -25,7 +25,7 @@ package cmd
 import (
 	"github.com/spf13/cobra"
 
-	"password-manager/cmd/users"
+	"rocketvault/cmd/users"
 )
 
 // usersCmd represents the users command

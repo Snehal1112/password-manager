@@ -21,7 +21,7 @@ THE SOFTWARE.
 */
 package main
 
-import "password-manager/cmd"
+import "rocketvault/cmd"
 
 func main() {
 	cmd.Execute()

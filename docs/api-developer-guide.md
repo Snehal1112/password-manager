@@ -1,13 +1,13 @@
-# Password Manager API Developer Guide
+# RocketVault API Developer Guide
 
 ## Overview
 
-The Password Manager API provides a comprehensive REST interface for managing secrets, keys, certificates, and system health monitoring. This guide covers authentication, request/response formats, error handling, and integration patterns.
+The RocketVault API provides a comprehensive REST interface for managing secrets, keys, certificates, and system health monitoring. This guide covers authentication, request/response formats, error handling, and integration patterns.
 
 ## Base URL
 
 ```
-https://api.password-manager.local/api/v1
+https://api.rocketvault.local/api/v1
 ```
 
 ## Authentication
@@ -23,7 +23,7 @@ Authorization: Bearer <your-jwt-token>
 JWT tokens are obtained through the CLI login process:
 
 ```bash
-./password-manager login --username admin --password yourpassword --totp-code 123456
+./rocketvault login --username admin --password yourpassword --totp-code 123456
 ```
 
 The CLI will return a JWT token that can be used for API authentication.
@@ -526,7 +526,7 @@ class PasswordManagerAPI {
 
 // Usage
 const api = new PasswordManagerAPI(
-  "https://api.password-manager.local/api/v1",
+  "https://api.rocketvault.local/api/v1",
   token
 );
 
@@ -631,7 +631,7 @@ class PasswordManagerAPI:
         return self._request('GET', f'/secrets/{secret_id}/versions/latest')
 
 # Usage example
-api = PasswordManagerAPI('https://api.password-manager.local', token)
+api = PasswordManagerAPI('https://api.rocketvault.local', token)
 
 # Get health status
 health = api.get_health()
@@ -807,7 +807,7 @@ func (api *PasswordManagerAPI) ImportSecrets(filePath, format string, encrypted,
 }
 
 func main() {
-    api := NewPasswordManagerAPI("https://api.password-manager.local", "your-jwt-token")
+    api := NewPasswordManagerAPI("https://api.rocketvault.local", "your-jwt-token")
 
     // Get health status
     health, err := api.GetHealth()
@@ -885,13 +885,13 @@ Set up monitoring for the health endpoints:
 
 ```bash
 # Check readiness
-curl -f https://api.password-manager.local/api/v1/health/ready
+curl -f https://api.rocketvault.local/api/v1/health/ready
 
 # Check liveness
-curl -f https://api.password-manager.local/api/v1/health/live
+curl -f https://api.rocketvault.local/api/v1/health/live
 
 # Get detailed health metrics
-curl https://api.password-manager.local/api/v1/health | jq .
+curl https://api.rocketvault.local/api/v1/health | jq .
 ```
 
 ## Security Considerations

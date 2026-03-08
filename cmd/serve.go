@@ -29,10 +29,10 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 
-	"password-manager/bootstrap"
-	"password-manager/common"
-	"password-manager/config"
-	"password-manager/internal/logging"
+	"rocketvault/bootstrap"
+	"rocketvault/common"
+	"rocketvault/config"
+	"rocketvault/internal/logging"
 )
 
 const (

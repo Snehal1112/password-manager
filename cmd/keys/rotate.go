@@ -29,10 +29,10 @@ import (
 	"github.com/google/uuid"
 	"github.com/spf13/cobra"
 
-	"password-manager/common"
-	"password-manager/internal/container"
-	"password-manager/internal/domain"
-	"password-manager/internal/logging"
+	"rocketvault/common"
+	"rocketvault/internal/container"
+	"rocketvault/internal/domain"
+	"rocketvault/internal/logging"
 )
 
 // rotateCmd represents the rotate command
@@ -40,7 +40,7 @@ var rotateCmd = &cobra.Command{
 	Use:     "rotate <id>",
 	Short:   "Rotate a cryptographic key",
 	Long:    `Rotate a cryptographic key by generating a new key pair and revoking the old key. Accessible by the key's owner or users with the admin role.`,
-	Example: `password-manager keys rotate <key-id> --username admin --password admin123 --totp-code <code>`,
+	Example: `rocketvault keys rotate <key-id> --username admin --password admin123 --totp-code <code>`,
 	Args:    cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		ctx := cmd.Context()

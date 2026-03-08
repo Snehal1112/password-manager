@@ -32,9 +32,9 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"password-manager/internal/db"
-	"password-manager/internal/db/migrations"
-	"password-manager/internal/logging"
+	"rocketvault/internal/db"
+	"rocketvault/internal/db/migrations"
+	"rocketvault/internal/logging"
 )
 
 // migrateCmd represents the migrate command
@@ -46,13 +46,13 @@ This command applies all pending migrations in order.
 
 Examples:
   # Run all pending migrations
-  password-manager migrate
+  rocketvault migrate
 
   # Check migration status
-  password-manager migrate:status
+  rocketvault migrate:status
 
   # Migrate to specific version
-  password-manager migrate:to <version>`,
+  rocketvault migrate:to <version>`,
 	RunE: runMigrations,
 }
 
@@ -82,7 +82,7 @@ var migrateCreateCmd = &cobra.Command{
 The description words are joined with underscores to form the filename.
 
 Example:
-  password-manager migrate:create add priority to secrets
+  rocketvault migrate:create add priority to secrets
   # Creates: internal/db/migrations/20260308000001_add_priority_to_secrets.sql`,
 	Args: cobra.MinimumNArgs(1),
 	RunE: createMigration,
@@ -224,7 +224,7 @@ func showMigrationStatus(cmd *cobra.Command, args []string) error {
 	fmt.Printf("Pending: %d\n", pendingCount)
 
 	if pendingCount > 0 {
-		fmt.Printf("\n💡 Run 'password-manager migrate' to apply pending migrations\n")
+		fmt.Printf("\n💡 Run 'rocketvault migrate' to apply pending migrations\n")
 	} else {
 		fmt.Printf("\n✅ All migrations are up to date\n")
 	}

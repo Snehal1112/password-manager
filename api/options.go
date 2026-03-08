@@ -3,8 +3,8 @@ package api
 import (
 	"github.com/gorilla/mux"
 
-	"password-manager/app"
-	"password-manager/internal/logging"
+	"rocketvault/app"
+	"rocketvault/internal/logging"
 )
 
 // Options is a function type that takes a pointer to an API instance.

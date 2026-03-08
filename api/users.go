@@ -32,9 +32,9 @@ import (
 	"github.com/google/uuid"
 	"github.com/gorilla/mux"
 
-	"password-manager/common"
-	"password-manager/internal/domain"
-	userService "password-manager/internal/services/users"
+	"rocketvault/common"
+	"rocketvault/internal/domain"
+	userService "rocketvault/internal/services/users"
 )
 
 // CreateUserRequest represents the request structure for creating a user.

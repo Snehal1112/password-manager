@@ -26,9 +26,9 @@ import (
 	"fmt"
 	"time"
 
-	"password-manager/common"
-	"password-manager/internal/domain"
-	"password-manager/internal/container"
+	"rocketvault/common"
+	"rocketvault/internal/domain"
+	"rocketvault/internal/container"
 
 	"github.com/google/uuid"
 	"github.com/spf13/cobra"
@@ -39,7 +39,7 @@ var getCmd = &cobra.Command{
 	Use:     "get",
 	Short:   "Get user information",
 	Long:    `Retrieve information about a specific user by their username.`,
-	Example: `password-manager users get <id> --username admin --password admin123 --totp-code <code>`,
+	Example: `rocketvault users get <id> --username admin --password admin123 --totp-code <code>`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		ctx := cmd.Context()
 		claims, ok := ctx.Value(common.ClaimsKey).(*domain.Claims)

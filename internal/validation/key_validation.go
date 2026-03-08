@@ -3,7 +3,7 @@ package validation
 import (
 	validation "github.com/go-ozzo/ozzo-validation/v4"
 
-	"password-manager/internal/domain"
+	"rocketvault/internal/domain"
 )
 
 // KeyCreateRequest represents the input for creating a cryptographic key.

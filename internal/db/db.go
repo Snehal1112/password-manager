@@ -16,7 +16,7 @@ import (
 	_ "github.com/mattn/go-sqlite3" // SQLite driver for database/sql.
 	"github.com/spf13/viper"
 
-	"password-manager/internal/logging"
+	"rocketvault/internal/logging"
 )
 
 // DB is the global database connection for the application.

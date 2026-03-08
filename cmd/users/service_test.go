@@ -10,9 +10,9 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 
-	"password-manager/cmd/testutils"
-	"password-manager/internal/domain"
-	userServices "password-manager/internal/services/users"
+	"rocketvault/cmd/testutils"
+	"rocketvault/internal/domain"
+	userServices "rocketvault/internal/services/users"
 )
 
 // TestUsersCreateCommand tests the users create command comprehensively

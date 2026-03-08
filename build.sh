@@ -22,8 +22,8 @@ BUILD_TIME="$(date -u '+%Y-%m-%dT%H:%M:%SZ')"
 GO_VERSION="$(go version | awk '{print $3}')"
 
 # Module and binary info
-MODULE_NAME="password-manager"
-BINARY_NAME="password-manager"
+MODULE_NAME="rocketvault"
+BINARY_NAME="rocketvault"
 MAIN_PACKAGE="."
 
 # Build directories

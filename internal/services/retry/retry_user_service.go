@@ -5,8 +5,8 @@ import (
 
 	"github.com/google/uuid"
 
-	"password-manager/internal/domain"
-	"password-manager/internal/services/users"
+	"rocketvault/internal/domain"
+	"rocketvault/internal/services/users"
 )
 
 // RetryUserService wraps user operations with retry logic

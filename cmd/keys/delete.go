@@ -28,10 +28,10 @@ import (
 	"github.com/google/uuid"
 	"github.com/spf13/cobra"
 
-	"password-manager/common"
-	"password-manager/internal/container"
-	"password-manager/internal/domain"
-	"password-manager/internal/logging"
+	"rocketvault/common"
+	"rocketvault/internal/container"
+	"rocketvault/internal/domain"
+	"rocketvault/internal/logging"
 )
 
 // deleteCmd represents the delete command
@@ -39,7 +39,7 @@ var deleteCmd = &cobra.Command{
 	Use:     "delete <id>",
 	Short:   "Delete a cryptographic key",
 	Long:    `Delete a cryptographic key by its UUID, including associated tags. Accessible by the key's owner or users with the admin role.`,
-	Example: `password-manager keys delete <key-id> --username admin --password admin123 --totp-code <code>`,
+	Example: `rocketvault keys delete <key-id> --username admin --password admin123 --totp-code <code>`,
 	Args:    cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		ctx := cmd.Context()

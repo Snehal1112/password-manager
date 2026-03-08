@@ -30,10 +30,10 @@ import (
 	"github.com/google/uuid"
 	"github.com/spf13/cobra"
 
-	"password-manager/common"
-	"password-manager/internal/container"
-	"password-manager/internal/domain"
-	"password-manager/internal/logging"
+	"rocketvault/common"
+	"rocketvault/internal/container"
+	"rocketvault/internal/domain"
+	"rocketvault/internal/logging"
 )
 
 // getCmd represents the get command
@@ -41,7 +41,7 @@ var getCmd = &cobra.Command{
 	Use:     "get <id>",
 	Short:   "Retrieve a cryptographic key",
 	Long:    `Retrieve details of a cryptographic key by its UUID. Accessible by the key's owner or users with the admin role.`,
-	Example: `password-manager keys get <key-id> --username admin --password admin123 --totp-code <code>`,
+	Example: `rocketvault keys get <key-id> --username admin --password admin123 --totp-code <code>`,
 	Args:    cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		ctx := cmd.Context()

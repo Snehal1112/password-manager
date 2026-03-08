@@ -23,7 +23,7 @@ THE SOFTWARE.
 package cmd
 
 import (
-	"password-manager/cmd/certificates"
+	"rocketvault/cmd/certificates"
 
 	"github.com/spf13/cobra"
 )

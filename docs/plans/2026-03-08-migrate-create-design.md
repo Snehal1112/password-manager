@@ -23,7 +23,7 @@ Rejected alternatives:
 ## Command interface
 
 ```bash
-./password-manager migrate:create <description>
+./rocketvault migrate:create <description>
 ```
 
 - `<description>` is one or more words; spaces are joined with underscores for the filename.
@@ -34,7 +34,7 @@ Rejected alternatives:
 - Prints the created file path on success.
 
 ```
-$ ./password-manager migrate:create add priority to secrets
+$ ./rocketvault migrate:create add priority to secrets
 Created: internal/db/migrations/20260308000001_add_priority_to_secrets.sql
 ```
 
