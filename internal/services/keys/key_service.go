@@ -393,8 +393,8 @@ func (s *keyService) DeleteKey(ctx context.Context, keyID, userID uuid.UUID) err
 		return fmt.Errorf("delete key: %w", err)
 	}
 
-	if err := s.keyRepo.Delete(ctx, keyID); err != nil {
-		s.logger.LogAuditError(userID.String(), "delete_key", "failed", "Failed to delete key", err)
+	if err := s.keyRepo.SoftDelete(ctx, keyID); err != nil {
+		s.logger.LogAuditError(userID.String(), "delete_key", "failed", "Failed to soft-delete key", err)
 		return fmt.Errorf("failed to delete key: %w", err)
 	}
 
