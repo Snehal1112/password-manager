@@ -1,6 +1,6 @@
 # RocketVault
 
-A production-ready, self-hosted password manager application built in Go with enterprise-grade architecture, designed to securely store and manage secrets, keys, and certificates. This application provides functionality equivalent to Microsoft Azure Key Vault but without relying on any cloud services.
+**RocketVault** is a production-ready, self-hosted secrets manager built in Go with enterprise-grade architecture, designed to securely store and manage secrets, cryptographic keys, and X.509 certificates. It provides functionality equivalent to Microsoft Azure Key Vault — without relying on any cloud services.
 
 **Architecture Grade**: A (94/100) - Production-ready with complete domain-driven design
 **Status**: Enterprise-grade with 95% service container compatibility, comprehensive testing, and performance optimizations
@@ -143,7 +143,7 @@ rocketvault/
 1. Clone the repository:
 
    ```bash
-   git clone https://github.com/snehal1112/rocketvault.git
+   git clone https://github.com/Snehal1112/rocketvault.git
    cd rocketvault
    ```
 
@@ -606,8 +606,8 @@ go test ./... -v -cover -skip BenchmarkCreateSelfSigned
 For production deployments, use PostgreSQL and configure proper environment variables:
 
 ```bash
-export PASSWORD_MANAGER_DATABASE_CONNECTION="host=localhost user=postgres password=secret dbname=password_manager sslmode=require"
-export PASSWORD_MANAGER_LISTEN="0.0.0.0:8080"
+export ROCKETVAULT_DATABASE_CONNECTION="host=localhost user=postgres password=secret dbname=rocketvault sslmode=require"
+export ROCKETVAULT_LISTEN="0.0.0.0:8080"
 ./rocketvault serve
 ```
 
@@ -734,7 +734,7 @@ For detailed security information, see the [Security Documentation](doc/security
 For questions or issues:
 
 1. Check the [Troubleshooting Guide](doc/troubleshooting.markdown)
-2. Search existing [GitHub Issues](https://github.com/snehal1112/rocketvault/issues)
+2. Search existing [GitHub Issues](https://github.com/Snehal1112/rocketvault/issues)
 3. Open a new issue with detailed information
 
 ## Roadmap
