@@ -1,19 +1,19 @@
 package oauth2_test
 
 import (
-"context"
-"errors"
-"testing"
-"time"
+	"context"
+	"errors"
+	"testing"
+	"time"
 
-"github.com/google/uuid"
-"github.com/stretchr/testify/assert"
-"github.com/stretchr/testify/mock"
-"github.com/stretchr/testify/require"
+	"github.com/google/uuid"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/mock"
+	"github.com/stretchr/testify/require"
 
-"rocketvault/internal/domain"
-"rocketvault/internal/repositories"
-oauth2svc "rocketvault/internal/services/oauth2"
+	"rocketvault/internal/domain"
+	"rocketvault/internal/repositories"
+	oauth2svc "rocketvault/internal/services/oauth2"
 )
 
 // --- mock repo ---
@@ -79,12 +79,12 @@ func (m *mockJWTService) GenerateToken(userID uuid.UUID, username, role string) 
 
 func buildService(repo *mockOAuth2ClientRepo, pw *mockPasswordService, jwt *mockJWTService) oauth2svc.OAuth2Service {
 	return oauth2svc.NewOAuth2Service(oauth2svc.OAuth2Config{
-ClientRepo:      repo,
-PasswordService: pw,
-JWTService:      jwt,
-TokenExpiry:     30 * time.Minute,
-Issuer:          "rocketvault",
-})
+		ClientRepo:      repo,
+		PasswordService: pw,
+		JWTService:      jwt,
+		TokenExpiry:     30 * time.Minute,
+		Issuer:          "rocketvault",
+	})
 }
 
 // --- tests ---
@@ -97,9 +97,9 @@ func TestOAuth2Service_IssueToken_Success(t *testing.T) {
 
 	clientID := uuid.New()
 	client := &domain.OAuth2Client{
-		ID:      clientID,
-		Name:    "my-app",
-		Enabled: true,
+		ID:        clientID,
+		Name:      "my-app",
+		Enabled:   true,
 		CreatedAt: time.Now().UTC(),
 	}
 
@@ -153,7 +153,7 @@ func TestOAuth2Service_IssueToken_DisabledClient(t *testing.T) {
 
 	_, err := svc.IssueToken(context.Background(), "disabled", "anything")
 	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "client disabled")
+	assert.Contains(t, err.Error(), "invalid client credentials") // generic — must not hint client exists
 }
 
 func TestOAuth2Service_CreateClient_HashesSecret(t *testing.T) {
@@ -165,11 +165,33 @@ func TestOAuth2Service_CreateClient_HashesSecret(t *testing.T) {
 	pw.On("HashPassword", mock.AnythingOfType("string")).Return("hashed-secret", nil)
 	repo.On("Create", mock.Anything, mock.AnythingOfType("*domain.OAuth2Client")).Return(nil)
 
-	client, plainSecret, err := svc.CreateClient(context.Background(), "new-app", "a description")
+	client, plainSecret, err := svc.CreateClient(context.Background(), "new-app", "a description", nil)
 	require.NoError(t, err)
 	assert.NotEmpty(t, plainSecret, "plain secret should be returned on creation")
 	assert.Equal(t, "hashed-secret", client.ClientSecret)
 	assert.Equal(t, "new-app", client.Name)
+}
+
+func TestOAuth2Service_IssueToken_ExpiredClient(t *testing.T) {
+	repo := &mockOAuth2ClientRepo{}
+	pw := &mockPasswordService{}
+	jwt := &mockJWTService{}
+	svc := buildService(repo, pw, jwt)
+
+	past := time.Now().UTC().Add(-24 * time.Hour)
+	client := &domain.OAuth2Client{
+		ID:        uuid.New(),
+		Name:      "expired-svc",
+		Enabled:   true,
+		ExpiresAt: &past,
+		CreatedAt: time.Now().UTC(),
+	}
+	repo.On("FindByName", mock.Anything, "expired-svc").Return(client, nil)
+
+	_, err := svc.IssueToken(context.Background(), "expired-svc", "any-secret")
+	assert.Error(t, err)
+	// Must return the same generic message as wrong-secret to prevent enumeration.
+	assert.Contains(t, err.Error(), "invalid client credentials")
 }
 
 func TestOAuth2Service_RotateSecret_ReturnsPlainText(t *testing.T) {

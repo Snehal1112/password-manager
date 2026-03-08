@@ -3,6 +3,7 @@ package api
 import (
 	"encoding/json"
 	"net/http"
+	"time"
 
 	"github.com/gorilla/mux"
 
@@ -92,12 +93,13 @@ func (api *API) tokenHandler(w http.ResponseWriter, r *http.Request) {
 // ─── Service-account management handlers (authenticated) ─────────────────────
 
 // createServiceAccount handles POST /service-accounts.
-// Admin-only. Body: { "name": "...", "description": "..." }
+// Admin-only. Body: { "name": "...", "description": "...", "expires_at": "<RFC3339 optional>" }
 // Returns the new client object plus the one-time plain-text secret.
 func createServiceAccount(c *Context, w http.ResponseWriter, r *http.Request) {
 	var req struct {
-		Name        string `json:"name"`
-		Description string `json:"description"`
+		Name        string     `json:"name"`
+		Description string     `json:"description"`
+		ExpiresAt   *time.Time `json:"expires_at"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.Name == "" {
 		c.Err = common.NewAppError("createServiceAccount", "Invalid request body — name is required", nil, "", http.StatusBadRequest)
@@ -105,7 +107,7 @@ func createServiceAccount(c *Context, w http.ResponseWriter, r *http.Request) {
 	}
 
 	svc := c.App.ServiceContainer.GetOAuth2Service()
-	client, plainSecret, err := svc.CreateClient(r.Context(), req.Name, req.Description)
+	client, plainSecret, err := svc.CreateClient(r.Context(), req.Name, req.Description, req.ExpiresAt)
 	if err != nil {
 		c.Err = common.NewAppError("createServiceAccount", "Failed to create service account", nil, err.Error(), http.StatusInternalServerError)
 		return

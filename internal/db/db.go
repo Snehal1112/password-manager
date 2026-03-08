@@ -535,6 +535,17 @@ func (d *DBRepository) migrateSchema(db *sql.DB) error {
 		"ALTER TABLE certificates ADD COLUMN deleted_at TIMESTAMP NULL",
 		"ALTER TABLE certificates ADD COLUMN purge_protection BOOLEAN NOT NULL DEFAULT FALSE",
 		"ALTER TABLE certificates ADD COLUMN scheduled_purge_at TIMESTAMP NULL",
+		// Milestone 3: service-account / OAuth2 table (CREATE TABLE IF NOT EXISTS is idempotent)
+		`CREATE TABLE IF NOT EXISTS oauth2_clients (
+			id            TEXT PRIMARY KEY,
+			name          TEXT NOT NULL UNIQUE,
+			client_secret TEXT NOT NULL,
+			description   TEXT DEFAULT '',
+			enabled       BOOLEAN DEFAULT TRUE,
+			created_at    TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+			expires_at    TIMESTAMP NULL
+		)`,
+		"CREATE INDEX IF NOT EXISTS idx_oauth2_clients_name ON oauth2_clients(name)",
 	}
 	for _, stmt := range migrations {
 		if _, err := db.Exec(stmt); err != nil {
