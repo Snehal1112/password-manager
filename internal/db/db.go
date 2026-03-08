@@ -486,6 +486,18 @@ func (d *DBRepository) createOptimizedSchema(db *sql.DB) error {
 		CREATE INDEX IF NOT EXISTS idx_user_sessions_expires_at ON user_sessions(expires_at);
 		CREATE INDEX IF NOT EXISTS idx_user_sessions_revoked ON user_sessions(revoked);
 		CREATE INDEX IF NOT EXISTS idx_user_sessions_last_used ON user_sessions(last_used_at);
+
+		CREATE TABLE IF NOT EXISTS access_policies (
+			id             TEXT PRIMARY KEY,
+			principal_id   TEXT NOT NULL,
+			principal_type TEXT NOT NULL,
+			resource_type  TEXT NOT NULL,
+			operation      TEXT NOT NULL,
+			effect         TEXT NOT NULL,
+			created_at     TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+		);
+		CREATE INDEX IF NOT EXISTS idx_access_policies_principal ON access_policies(principal_id);
+		CREATE INDEX IF NOT EXISTS idx_access_policies_lookup    ON access_policies(principal_id, resource_type, operation);
 	`)
 	if err != nil {
 		d.log.Error("Failed to create tables: ", err)
