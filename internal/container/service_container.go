@@ -18,6 +18,7 @@ import (
 	authzServices "rocketvault/internal/services/authorization"
 	certServices "rocketvault/internal/services/certificates"
 	keyServices "rocketvault/internal/services/keys"
+	oauth2Services "rocketvault/internal/services/oauth2"
 	retryServices "rocketvault/internal/services/retry"
 	secretServices "rocketvault/internal/services/secrets"
 	secrets "rocketvault/internal/services/secrets"
@@ -50,6 +51,10 @@ type ServiceContainerInterface interface {
 	GetRBACService() authzServices.RBACService
 	GetAccessPolicyRepository() repositories.AccessPolicyRepositoryInterface
 	GetAccessPolicyService() authzServices.AccessPolicyService
+
+	// OAuth2 / service account getters
+	GetOAuth2ClientRepository() repositories.OAuth2ClientRepositoryInterface
+	GetOAuth2Service() oauth2Services.OAuth2Service
 
 	// Business service getters
 	GetUserService() userServices.UserService
@@ -117,6 +122,10 @@ type ServiceContainer struct {
 	rbacService            authzServices.RBACService
 	accessPolicyRepository repositories.AccessPolicyRepositoryInterface
 	accessPolicyService    authzServices.AccessPolicyService
+
+	// OAuth2 service account services
+	oauth2ClientRepository repositories.OAuth2ClientRepositoryInterface
+	oauth2Service          oauth2Services.OAuth2Service
 
 	// Business services
 	userService        userServices.UserService
@@ -261,6 +270,20 @@ func (c *ServiceContainer) initializeServices() error {
 	c.accessPolicyRepository = repositories.NewAccessPolicyRepository(c.db)
 	c.accessPolicyService = authzServices.NewAccessPolicyService(c.accessPolicyRepository)
 
+	// Initialize OAuth2 / service account services
+	oauth2TokenExpiry := viper.GetDuration("oauth2.token_expiry")
+	if oauth2TokenExpiry == 0 {
+		oauth2TokenExpiry = 30 * time.Minute
+	}
+	c.oauth2ClientRepository = repositories.NewOAuth2ClientRepository(c.db)
+	c.oauth2Service = oauth2Services.NewOAuth2Service(oauth2Services.OAuth2Config{
+		ClientRepo:      c.oauth2ClientRepository,
+		PasswordService: c.passwordService,
+		JWTService:      c.jwtService,
+		TokenExpiry:     oauth2TokenExpiry,
+		Issuer:          viper.GetString("oauth2.issuer"),
+	})
+
 	// Initialize user service
 	baseUserService := userServices.NewUserService(userServices.UserServiceConfig{
 		UserRepository:  c.userRepository,
@@ -389,6 +412,16 @@ func (c *ServiceContainer) GetAccessPolicyRepository() repositories.AccessPolicy
 // GetAccessPolicyService returns the access policy service.
 func (c *ServiceContainer) GetAccessPolicyService() authzServices.AccessPolicyService {
 	return c.accessPolicyService
+}
+
+// GetOAuth2ClientRepository returns the OAuth2 client repository.
+func (c *ServiceContainer) GetOAuth2ClientRepository() repositories.OAuth2ClientRepositoryInterface {
+	return c.oauth2ClientRepository
+}
+
+// GetOAuth2Service returns the OAuth2 service for token issuance and service account management.
+func (c *ServiceContainer) GetOAuth2Service() oauth2Services.OAuth2Service {
+	return c.oauth2Service
 }
 
 // GetUserService returns the user service.

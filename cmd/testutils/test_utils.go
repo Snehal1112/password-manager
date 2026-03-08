@@ -22,6 +22,7 @@ import (
 	retryServices "rocketvault/internal/services/retry"
 	secretServices "rocketvault/internal/services/secrets"
 	userServices "rocketvault/internal/services/users"
+	oauth2Services "rocketvault/internal/services/oauth2"
 )
 
 // TestContext holds common test utilities and mocks
@@ -151,6 +152,14 @@ func (m *MockServiceContainer) GetAccessPolicyRepository() repositories.AccessPo
 }
 
 func (m *MockServiceContainer) GetAccessPolicyService() authzServices.AccessPolicyService {
+	return nil
+}
+
+func (m *MockServiceContainer) GetOAuth2ClientRepository() repositories.OAuth2ClientRepositoryInterface {
+	return nil
+}
+
+func (m *MockServiceContainer) GetOAuth2Service() oauth2Services.OAuth2Service {
 	return nil
 }
 
