@@ -146,6 +146,14 @@ func (m *MockServiceContainer) GetRBACService() authzServices.RBACService {
 	return args.Get(0).(authzServices.RBACService)
 }
 
+func (m *MockServiceContainer) GetAccessPolicyRepository() repositories.AccessPolicyRepositoryInterface {
+	return nil
+}
+
+func (m *MockServiceContainer) GetAccessPolicyService() authzServices.AccessPolicyService {
+	return nil
+}
+
 // Business service getters
 func (m *MockServiceContainer) GetUserService() userServices.UserService {
 	args := m.Called()

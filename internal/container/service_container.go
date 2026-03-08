@@ -48,6 +48,8 @@ type ServiceContainerInterface interface {
 
 	// Authorization service getters
 	GetRBACService() authzServices.RBACService
+	GetAccessPolicyRepository() repositories.AccessPolicyRepositoryInterface
+	GetAccessPolicyService() authzServices.AccessPolicyService
 
 	// Business service getters
 	GetUserService() userServices.UserService
@@ -112,7 +114,9 @@ type ServiceContainer struct {
 	authenticationService authServices.AuthenticationService
 
 	// Authorization services
-	rbacService authzServices.RBACService
+	rbacService            authzServices.RBACService
+	accessPolicyRepository repositories.AccessPolicyRepositoryInterface
+	accessPolicyService    authzServices.AccessPolicyService
 
 	// Business services
 	userService        userServices.UserService
@@ -254,6 +258,8 @@ func (c *ServiceContainer) initializeServices() error {
 
 	// Initialize authorization services
 	c.rbacService = authzServices.NewRBACService(c.logger)
+	c.accessPolicyRepository = repositories.NewAccessPolicyRepository(c.db)
+	c.accessPolicyService = authzServices.NewAccessPolicyService(c.accessPolicyRepository)
 
 	// Initialize user service
 	baseUserService := userServices.NewUserService(userServices.UserServiceConfig{
@@ -373,6 +379,16 @@ func (c *ServiceContainer) GetAuthenticationService() authServices.Authenticatio
 // GetRBACService returns the RBAC service.
 func (c *ServiceContainer) GetRBACService() authzServices.RBACService {
 	return c.rbacService
+}
+
+// GetAccessPolicyRepository returns the access policy repository.
+func (c *ServiceContainer) GetAccessPolicyRepository() repositories.AccessPolicyRepositoryInterface {
+	return c.accessPolicyRepository
+}
+
+// GetAccessPolicyService returns the access policy service.
+func (c *ServiceContainer) GetAccessPolicyService() authzServices.AccessPolicyService {
+	return c.accessPolicyService
 }
 
 // GetUserService returns the user service.
