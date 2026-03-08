@@ -37,4 +37,5 @@ const (
 	RoleSecretsManager     = "secrets_manager"
 	RoleCryptoManager      = "crypto_manager"
 	RoleCertificateManager = "certificate_manager"
+	RoleServiceAccount     = "service_account"
 )

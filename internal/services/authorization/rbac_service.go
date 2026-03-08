@@ -110,6 +110,13 @@ func getDefaultRolePermissions() map[string][]Permission {
 			// Certificate manager has full certificate permissions
 			PermissionCreateCertificate, PermissionReadCertificate, PermissionUpdateCertificate, PermissionDeleteCertificate, PermissionListCertificates,
 		},
+		domain.RoleServiceAccount: {
+			// Service accounts get read-only access to secrets, keys, and certificates by default;
+			// fine-grained control is delegated to the access-policy layer (Milestone 2)
+			PermissionReadSecret, PermissionListSecrets,
+			PermissionReadKey, PermissionListKeys,
+			PermissionReadCertificate, PermissionListCertificates,
+		},
 	}
 }
 

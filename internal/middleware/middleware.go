@@ -184,7 +184,7 @@ func (m *Middleware) RateLimitMiddleware(next http.Handler) http.Handler {
 // It delegates authentication logic to the AuthenticationService.
 func (m *Middleware) AuthenticationMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// Skip authentication for public endpoints (health checks and auth endpoints)
+		// Skip authentication for public endpoints (health checks, auth endpoints, and OAuth2 token endpoint)
 		if strings.HasSuffix(r.URL.Path, "/health") ||
 			strings.HasSuffix(r.URL.Path, "/health/ready") ||
 			strings.HasSuffix(r.URL.Path, "/health/live") ||
@@ -193,7 +193,8 @@ func (m *Middleware) AuthenticationMiddleware(next http.Handler) http.Handler {
 			strings.HasSuffix(r.URL.Path, "/refresh") ||
 			strings.Contains(r.URL.Path, "/auth/login") ||
 			strings.Contains(r.URL.Path, "/auth/register") ||
-			strings.Contains(r.URL.Path, "/auth/refresh") {
+			strings.Contains(r.URL.Path, "/auth/refresh") ||
+			strings.HasSuffix(r.URL.Path, "/oauth2/token") {
 			next.ServeHTTP(w, r)
 			return
 		}

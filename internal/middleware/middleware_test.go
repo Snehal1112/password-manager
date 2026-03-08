@@ -17,8 +17,10 @@ import (
 	"rocketvault/common"
 	"rocketvault/internal/domain"
 	"rocketvault/internal/logging"
+	"rocketvault/internal/repositories"
 	authServices "rocketvault/internal/services/auth"
 	authzServices "rocketvault/internal/services/authorization"
+	oauth2Services "rocketvault/internal/services/oauth2"
 )
 
 // MockServiceContainer is a mock implementation of the service container for testing.
@@ -47,6 +49,14 @@ func (m *MockServiceContainer) GetAccessPolicyService() authzServices.AccessPoli
 		return nil
 	}
 	return args.Get(0).(authzServices.AccessPolicyService)
+}
+
+func (m *MockServiceContainer) GetOAuth2ClientRepository() repositories.OAuth2ClientRepositoryInterface {
+	return nil
+}
+
+func (m *MockServiceContainer) GetOAuth2Service() oauth2Services.OAuth2Service {
+	return nil
 }
 
 // MockAuthenticationService is a mock implementation of AuthenticationService.
