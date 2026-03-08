@@ -6,7 +6,6 @@ import (
 	"github.com/gorilla/mux"
 
 	"rocketvault/app"
-	"rocketvault/internal/health"
 	"rocketvault/internal/logging"
 	"rocketvault/internal/middleware"
 )
@@ -70,6 +69,7 @@ func Init(options ...Options) *API {
 	api.BaseRoutes["Health"] = api.BaseRoutes["ApiRoot"].PathPrefix("/health").Subrouter()
 	api.BaseRoutes["Deleted"] = api.BaseRoutes["ApiRoot"].PathPrefix("/deleted").Subrouter()
 	api.BaseRoutes["AccessPolicies"] = api.BaseRoutes["ApiRoot"].PathPrefix("/access-policies").Subrouter()
+	api.BaseRoutes["ServiceAccounts"] = api.BaseRoutes["ApiRoot"].PathPrefix("/service-accounts").Subrouter()
 
 	api.InitVault(api.BaseRoutes["Vault"])
 	api.InitSecrets(api.BaseRoutes["Secrets"])
@@ -78,6 +78,11 @@ func Init(options ...Options) *API {
 	api.InitHealth(api.BaseRoutes["Health"])
 	api.InitDeleted(api.BaseRoutes["Deleted"])
 	api.InitAccessPolicies(api.BaseRoutes["AccessPolicies"])
+	api.InitServiceAccounts(api.BaseRoutes["ServiceAccounts"])
+	// OAuth2 token endpoint is public — register directly on rootRouter so the
+	// AuthenticationMiddleware chain (on ApiRoot) is bypassed entirely.
+	api.BaseRoutes["OAuth2"] = api.rootRouter.PathPrefix(api.basePath).Subrouter()
+	api.InitOAuth2(api.BaseRoutes["OAuth2"])
 
 	var apiNames []string
 	for s := range api.BaseRoutes {
@@ -87,79 +92,4 @@ func Init(options ...Options) *API {
 	}
 	api.Logger.WithField("api", strings.Join(apiNames, ",")).Infoln("Initialized api")
 	return api
-}
-
-// InitDeleted initializes the routes for soft-delete recovery and purge operations.
-// It sets up the following endpoints:
-// - GET    /deleted/secrets                   — List soft-deleted secrets.
-// - POST   /deleted/secrets/{id}/recover      — Recover a soft-deleted secret.
-// - DELETE /deleted/secrets/{id}              — Permanently purge a soft-deleted secret.
-// - GET    /deleted/keys                      — List soft-deleted keys.
-// - POST   /deleted/keys/{id}/recover         — Recover a soft-deleted key.
-// - DELETE /deleted/keys/{id}                 — Permanently purge a soft-deleted key.
-// - GET    /deleted/certificates              — List soft-deleted certificates.
-// - POST   /deleted/certificates/{id}/recover — Recover a soft-deleted certificate.
-// - DELETE /deleted/certificates/{id}         — Permanently purge a soft-deleted certificate.
-//
-// Parameters:
-// - deletedRouter (*mux.Router): The router to which the routes will be added.
-func (api *API) InitDeleted(deletedRouter *mux.Router) {
-	// Soft-deleted secrets.
-	deletedRouter.Handle("/secrets", SessionRequired(api.App, listDeletedSecrets)).Methods("GET")
-	deletedRouter.Handle("/secrets/{id:[A-Fa-f0-9-]+}/recover", SessionRequired(api.App, recoverSecret)).Methods("POST")
-	deletedRouter.Handle("/secrets/{id:[A-Fa-f0-9-]+}", SessionRequired(api.App, purgeSecret)).Methods("DELETE")
-
-	// Soft-deleted keys.
-	deletedRouter.Handle("/keys", SessionRequired(api.App, listDeletedKeys)).Methods("GET")
-	deletedRouter.Handle("/keys/{id:[A-Fa-f0-9-]+}/recover", SessionRequired(api.App, recoverKey)).Methods("POST")
-	deletedRouter.Handle("/keys/{id:[A-Fa-f0-9-]+}", SessionRequired(api.App, purgeKey)).Methods("DELETE")
-
-	// Soft-deleted certificates.
-	deletedRouter.Handle("/certificates", SessionRequired(api.App, listDeletedCertificates)).Methods("GET")
-	deletedRouter.Handle("/certificates/{id:[A-Fa-f0-9-]+}/recover", SessionRequired(api.App, recoverCertificate)).Methods("POST")
-	deletedRouter.Handle("/certificates/{id:[A-Fa-f0-9-]+}", SessionRequired(api.App, purgeCertificate)).Methods("DELETE")
-
-	api.Logger.Infoln("Deleted resources API routes initialized")
-}
-
-// InitHealth initializes the routes for the health service API.
-// It sets up the following endpoints:
-// - GET /health: Returns comprehensive health metrics
-// - GET /health/ready: Returns readiness status
-// - GET /health/live: Returns liveness status
-//
-// Parameters:
-// - healthRouter (*mux.Router): The router to which the routes will be added.
-func (api *API) InitHealth(healthRouter *mux.Router) {
-	// Create health collector with service container database connection
-	collector := health.NewHealthCollector(api.App.ServiceContainer.GetDatabase())
-
-	// Create health handler
-	handler := NewHealthHandler(collector, api.Logger)
-
-	// Register routes
-	healthRouter.HandleFunc("", handler.HealthCheck).Methods("GET")
-	healthRouter.HandleFunc("/ready", handler.ReadinessCheck).Methods("GET")
-	healthRouter.HandleFunc("/live", handler.LivenessCheck).Methods("GET")
-
-	api.Logger.Infoln("Health API routes initialized")
-}
-
-// InitAccessPolicies registers routes for the per-operation access policy API.
-//
-//   - GET    /access-policies                              — List all policies.
-//   - POST   /access-policies                              — Create a policy.
-//   - GET    /access-policies/{id}                         — Get a policy.
-//   - PUT    /access-policies/{id}                         — Update a policy.
-//   - DELETE /access-policies/{id}                         — Delete a policy.
-//   - GET    /access-policies/principal/{principalId}      — List policies by principal.
-func (api *API) InitAccessPolicies(r *mux.Router) {
-	r.Handle("", SessionRequired(api.App, listAccessPolicies)).Methods("GET")
-	r.Handle("", SessionRequired(api.App, createAccessPolicy)).Methods("POST")
-	r.Handle("/principal/{principalId:[A-Fa-f0-9-]+}", SessionRequired(api.App, listAccessPoliciesByPrincipal)).Methods("GET")
-	r.Handle("/{id:[A-Fa-f0-9-]+}", SessionRequired(api.App, getAccessPolicy)).Methods("GET")
-	r.Handle("/{id:[A-Fa-f0-9-]+}", SessionRequired(api.App, updateAccessPolicy)).Methods("PUT")
-	r.Handle("/{id:[A-Fa-f0-9-]+}", SessionRequired(api.App, deleteAccessPolicy)).Methods("DELETE")
-
-	api.Logger.Infoln("Access policy API routes initialized")
 }
