@@ -49,6 +49,8 @@ func init() {
 	keys.InitKeysList(keysCmd)
 	keys.InitKeysUpdate(keysCmd)
 	keys.InitKeysRotate(keysCmd)
+	keys.InitKeysWrap(keysCmd)
+	keys.InitKeysUnwrap(keysCmd)
 
 	// Here you will define your flags and configuration settings.
 
