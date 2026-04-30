@@ -23,18 +23,14 @@ THE SOFTWARE.
 package cmd
 
 import (
-	"database/sql"
 	"fmt"
-	"os"
 	"text/tabwriter"
 
 	"github.com/google/uuid"
 	"github.com/spf13/cobra"
 
 	"rocketvault/common"
-	"rocketvault/internal/domain"
-	"rocketvault/internal/logging"
-	"rocketvault/internal/repositories"
+	"rocketvault/internal/container"
 )
 
 var (
@@ -118,118 +114,86 @@ func init() {
 
 func runVersionList(cmd *cobra.Command) error {
 	ctx := cmd.Context()
-	db := ctx.Value(common.DBKey).(*sql.DB)
-	logger := ctx.Value(common.LogKey).(*logging.Logger)
+	userID := ctx.Value(common.UserIDKey).(uuid.UUID)
 
-	// Parse secret ID
 	secretID, err := uuid.Parse(versionSecretID)
 	if err != nil {
 		return fmt.Errorf("invalid secret ID: %w", err)
 	}
 
-	// Create repository
-	repo := repositories.NewSecretRepository(db, logger)
+	sc, ok := ctx.Value(common.ServiceContainerKey).(container.ServiceContainerInterface)
+	if !ok || sc == nil {
+		return fmt.Errorf("service container not available in context")
+	}
 
-	// Get versions
-	versions, err := repo.GetVersions(ctx, secretID)
+	versions, err := sc.GetSecretService().GetSecretVersions(ctx, secretID, userID)
 	if err != nil {
 		return fmt.Errorf("failed to get versions: %w", err)
 	}
 
 	if len(versions) == 0 {
-		fmt.Printf("No versions found for secret %s\n", versionSecretID)
+		fmt.Fprintf(cmd.OutOrStdout(), "No versions found for secret %s\n", versionSecretID)
 		return nil
 	}
 
-	// Display results in a table
-	w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
-	fmt.Fprintln(w, "VERSION\tCREATED_AT\tNAME")
-	fmt.Fprintln(w, "-------\t----------\t----")
-
+	w := tabwriter.NewWriter(cmd.OutOrStdout(), 0, 0, 2, ' ', 0)
+	fmt.Fprintln(w, "VERSION\tCREATED_AT\tNAME\tVALUE")
+	fmt.Fprintln(w, "-------\t----------\t----\t-----")
 	for _, v := range versions {
-		fmt.Fprintf(w, "%d\t%s\t%s\n",
-			v.Version,
-			v.CreatedAt.Format("2006-01-02 15:04:05"),
-			v.Name)
+		fmt.Fprintf(w, "%d\t%s\t%s\t%s\n",
+			v.Version, v.CreatedAt.Format("2006-01-02 15:04:05"), v.Name, v.Value)
 	}
-
 	w.Flush()
-	fmt.Printf("\n📊 Found %d versions for secret %s\n", len(versions), versionSecretID)
-
+	fmt.Fprintf(cmd.OutOrStdout(), "\nFound %d versions for secret %s\n", len(versions), versionSecretID)
 	return nil
 }
 
 func runVersionGet(cmd *cobra.Command) error {
 	ctx := cmd.Context()
-	db := ctx.Value(common.DBKey).(*sql.DB)
-	logger := ctx.Value(common.LogKey).(*logging.Logger)
+	userID := ctx.Value(common.UserIDKey).(uuid.UUID)
 
-	// Parse secret ID
 	secretID, err := uuid.Parse(versionSecretID)
 	if err != nil {
 		return fmt.Errorf("invalid secret ID: %w", err)
 	}
 
-	// Create repository
-	repo := repositories.NewSecretRepository(db, logger)
+	sc, ok := ctx.Value(common.ServiceContainerKey).(container.ServiceContainerInterface)
+	if !ok || sc == nil {
+		return fmt.Errorf("service container not available in context")
+	}
 
-	// Get specific version
-	version, err := repo.GetVersion(ctx, secretID, versionNumber)
+	version, err := sc.GetSecretService().GetSecretVersion(ctx, secretID, versionNumber, userID)
 	if err != nil {
 		return fmt.Errorf("failed to get version: %w", err)
 	}
 
-	// Display version details
-	fmt.Printf("🔍 Secret Version Details\n")
-	fmt.Printf("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n")
-	fmt.Printf("Secret ID: %s\n", version.SecretID.String())
-	fmt.Printf("Version:   %d\n", version.Version)
-	fmt.Printf("Name:      %s\n", version.Name)
-	fmt.Printf("Value:     %s\n", version.Value)
-	fmt.Printf("Created:   %s\n", version.CreatedAt.Format("2006-01-02 15:04:05"))
-
+	fmt.Fprintf(cmd.OutOrStdout(), "Secret ID: %s\nVersion:   %d\nName:      %s\nValue:     %s\nCreated:   %s\n",
+		version.SecretID, version.Version, version.Name, version.Value,
+		version.CreatedAt.Format("2006-01-02 15:04:05"))
 	return nil
 }
 
 func runVersionLatest(cmd *cobra.Command) error {
 	ctx := cmd.Context()
-	db := ctx.Value(common.DBKey).(*sql.DB)
-	logger := ctx.Value(common.LogKey).(*logging.Logger)
+	userID := ctx.Value(common.UserIDKey).(uuid.UUID)
 
-	// Parse secret ID
 	secretID, err := uuid.Parse(versionSecretID)
 	if err != nil {
 		return fmt.Errorf("invalid secret ID: %w", err)
 	}
 
-	// Create repository
-	repo := repositories.NewSecretRepository(db, logger)
+	sc, ok := ctx.Value(common.ServiceContainerKey).(container.ServiceContainerInterface)
+	if !ok || sc == nil {
+		return fmt.Errorf("service container not available in context")
+	}
 
-	// Get current secret
-	currentSecret, err := repo.Read(ctx, secretID)
+	version, err := sc.GetSecretService().GetLatestSecretVersion(ctx, secretID, userID)
 	if err != nil {
-		return fmt.Errorf("failed to get current secret: %w", err)
+		return fmt.Errorf("failed to get latest version: %w", err)
 	}
 
-	// Convert to SecretVersion for display
-	version := &domain.SecretVersion{
-		SecretID:  currentSecret.ID,
-		UserID:    currentSecret.UserID,
-		Name:      currentSecret.Name,
-		Value:     currentSecret.Value,
-		Version:   currentSecret.Version,
-		CreatedAt: currentSecret.CreatedAt,
-	}
-
-	// Display version details
-	fmt.Printf("🔍 Latest Secret Version Details\n")
-	fmt.Printf("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n")
-	fmt.Printf("Secret ID: %s\n", version.SecretID.String())
-	fmt.Printf("User ID:   %s\n", version.UserID.String())
-	fmt.Printf("Version:   %d\n", version.Version)
-	fmt.Printf("Name:      %s\n", version.Name)
-	fmt.Printf("Value:     %s\n", version.Value)
-	fmt.Printf("Created:   %s\n", version.CreatedAt.Format("2006-01-02 15:04:05"))
-
+	fmt.Fprintf(cmd.OutOrStdout(), "Secret ID: %s\nVersion:   %d\nName:      %s\nValue:     %s\nCreated:   %s\n",
+		version.SecretID, version.Version, version.Name, version.Value,
+		version.CreatedAt.Format("2006-01-02 15:04:05"))
 	return nil
 }
