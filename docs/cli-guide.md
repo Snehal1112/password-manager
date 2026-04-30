@@ -323,6 +323,37 @@ go run main.go secrets delete 9b8ead4b-7e88-430a-982c-bec891eed705 \
   --username admin --password admin123 --totp-code 123456
 ```
 
+### Declare the type of a secret (content type)
+
+You can attach a media type to a secret so that any tool or service that reads it knows how to parse the value. This is optional — if you leave it out, the secret is stored without a declared type.
+
+```
+go run main.go secrets create my-pem-cert "-----BEGIN CERTIFICATE-----..." \
+  --username admin --password admin123 --totp-code 123456 \
+  --content-type application/x-pem-file
+```
+
+**Allowed content types:**
+
+| Value | When to use |
+|-------|-------------|
+| `text/plain` | Plain text passwords, passphrases |
+| `application/json` | JSON configuration blobs |
+| `application/xml` | XML configuration |
+| `application/x-pem-file` | PEM-encoded certificates or keys |
+| `application/x-pkcs12` | PKCS#12 / .pfx certificate bundles |
+| `application/octet-stream` | Binary data |
+
+**Update the content type on an existing secret:**
+
+```
+go run main.go secrets update SECRET-ID-HERE \
+  --username admin --password admin123 --totp-code 123456 \
+  --content-type application/json
+```
+
+The content type is returned whenever you `get` or `list` a secret. RocketVault does not enforce that the value matches the declared type — it is purely informational for consumers.
+
 ### Generate a strong random password
 
 Not sure what password to use? Let RocketVault create one for you:
@@ -482,6 +513,47 @@ go run main.go keys delete KEY-ID-HERE \
   --username admin --password admin123 --totp-code 123456
 ```
 
+### Wrap a key (envelope encryption)
+
+Key wrapping lets you encrypt a data encryption key (DEK) using a vault RSA key (the KEK — key encryption key). This is the standard way to protect keys at rest without exposing the vault key itself.
+
+**Step 1 — Wrap your DEK:**
+
+```
+go run main.go keys wrap \
+  --username admin --password admin123 --totp-code 123456 \
+  --key-id KEY-ID-HERE \
+  --key-material BASE64-ENCODED-DEK
+```
+
+- `--key-id` — the UUID of the RSA vault key to use as the KEK
+- `--key-material` — your DEK encoded in base64 (e.g. a 32-byte AES key)
+
+The command prints the wrapped key as a base64 string. Store it safely — it cannot be read without the vault key.
+
+**Generate a random DEK and wrap it in one step:**
+
+```
+DEK=$(openssl rand -base64 32)
+go run main.go keys wrap \
+  --username admin --password admin123 --totp-code 123456 \
+  --key-id KEY-ID-HERE \
+  --key-material "$DEK"
+```
+
+**Step 2 — Unwrap it when you need the DEK back:**
+
+```
+go run main.go keys unwrap \
+  --username admin --password admin123 --totp-code 123456 \
+  --key-id KEY-ID-HERE \
+  --wrapped-key BASE64-WRAPPED-KEY
+```
+
+The command prints the original DEK in base64.
+
+> Only the owner of the vault key (or an admin) can wrap or unwrap with it. The algorithm used is RSA-OAEP with SHA-256.
+
 ---
 
 ## Managing Certificates
@@ -499,6 +571,26 @@ go run main.go certificate create \
 ```
 
 `--validity-days 365` means the certificate is valid for one year.
+
+### Create a certificate with automatic renewal
+
+Add `--auto-renew` so RocketVault renews the certificate automatically before it expires. `--renewal-days` controls how many days before expiry the renewal triggers (default: 30).
+
+```
+go run main.go certificate create \
+  --username admin --password admin123 --totp-code 123456 \
+  --name my-tls-cert \
+  --key-id KEY-ID-HERE \
+  --validity-days 365 \
+  --auto-renew \
+  --renewal-days 30
+```
+
+**How auto-renewal works:**
+- Every 24 hours, RocketVault checks all certificates in the vault.
+- If a certificate's expiry is within the `--renewal-days` window and `--auto-renew` is on, a new certificate is created automatically with the same validity period.
+- If `--auto-renew` is off (the default), RocketVault instead logs a `cert_expiry_warning` entry — you still get notified, but renewal is manual.
+- No action is needed from you once auto-renewal is enabled. Check server logs to see renewal activity.
 
 ### Create a certificate signed by a CA
 
@@ -518,7 +610,26 @@ go run main.go certificate list \
   --username admin --password admin123 --totp-code 123456
 ```
 
-### Renew a certificate
+The output includes `expires_at`, `auto_renew`, and `renewal_days` for each certificate.
+
+### Enable or change auto-renewal on an existing certificate
+
+```
+go run main.go certificate update CERT-ID-HERE \
+  --username admin --password admin123 --totp-code 123456 \
+  --auto-renew \
+  --renewal-days 14
+```
+
+**Disable auto-renewal (switch to warning-only mode):**
+
+```
+go run main.go certificate update CERT-ID-HERE \
+  --username admin --password admin123 --totp-code 123456 \
+  --auto-renew=false
+```
+
+### Renew a certificate manually
 
 ```
 go run main.go certificate renew CERT-ID-HERE \
