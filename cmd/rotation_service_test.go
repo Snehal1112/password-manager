@@ -43,8 +43,8 @@ func (m *MockRotationSvc) UpdatePolicy(ctx context.Context, req secretServices.U
 	return args.Get(0).(*domain.RotationPolicy), args.Error(1)
 }
 
-func (m *MockRotationSvc) DeletePolicy(ctx context.Context, id uuid.UUID) error {
-	args := m.Called(ctx, id)
+func (m *MockRotationSvc) DeletePolicy(ctx context.Context, id uuid.UUID, callerID uuid.UUID) error {
+	args := m.Called(ctx, id, callerID)
 	return args.Error(0)
 }
 
@@ -61,8 +61,8 @@ func (m *MockRotationSvc) AssignPolicyToSecret(ctx context.Context, req secretSe
 	return args.Error(0)
 }
 
-func (m *MockRotationSvc) RemovePolicyFromSecret(ctx context.Context, sID, pID uuid.UUID) error {
-	args := m.Called(ctx, sID, pID)
+func (m *MockRotationSvc) RemovePolicyFromSecret(ctx context.Context, sID, pID uuid.UUID, callerID uuid.UUID) error {
+	args := m.Called(ctx, sID, pID, callerID)
 	return args.Error(0)
 }
 
@@ -79,8 +79,8 @@ func (m *MockRotationSvc) PerformManualRotation(ctx context.Context, req secretS
 	return args.Error(0)
 }
 
-func (m *MockRotationSvc) GetRotationHistory(ctx context.Context, sID uuid.UUID) ([]domain.RotationHistory, error) {
-	args := m.Called(ctx, sID)
+func (m *MockRotationSvc) GetRotationHistory(ctx context.Context, sID uuid.UUID, callerID uuid.UUID) ([]domain.RotationHistory, error) {
+	args := m.Called(ctx, sID, callerID)
 	if args.Get(0) == nil {
 		return nil, args.Error(1)
 	}

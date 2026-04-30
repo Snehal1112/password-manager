@@ -325,6 +325,7 @@ func runRotationUpdate(cmd *cobra.Command) error {
 
 func runRotationDelete(cmd *cobra.Command) error {
 	ctx := cmd.Context()
+	userID := ctx.Value(common.UserIDKey).(uuid.UUID)
 	sc, ok := ctx.Value(common.ServiceContainerKey).(container.ServiceContainerInterface)
 	if !ok || sc == nil {
 		return fmt.Errorf("service container not available in context")
@@ -333,7 +334,7 @@ func runRotationDelete(cmd *cobra.Command) error {
 	if err != nil {
 		return fmt.Errorf("invalid policy ID: %w", err)
 	}
-	if err := sc.GetRotationService().DeletePolicy(ctx, pid); err != nil {
+	if err := sc.GetRotationService().DeletePolicy(ctx, pid, userID); err != nil {
 		return fmt.Errorf("failed to delete rotation policy: %w", err)
 	}
 	fmt.Fprintln(cmd.OutOrStdout(), "Rotation policy deleted successfully.")
@@ -368,6 +369,7 @@ func runRotationAssign(cmd *cobra.Command) error {
 
 func runRotationUnassign(cmd *cobra.Command) error {
 	ctx := cmd.Context()
+	userID := ctx.Value(common.UserIDKey).(uuid.UUID)
 	sc, ok := ctx.Value(common.ServiceContainerKey).(container.ServiceContainerInterface)
 	if !ok || sc == nil {
 		return fmt.Errorf("service container not available in context")
@@ -380,7 +382,7 @@ func runRotationUnassign(cmd *cobra.Command) error {
 	if err != nil {
 		return fmt.Errorf("invalid secret ID: %w", err)
 	}
-	if err := sc.GetRotationService().RemovePolicyFromSecret(ctx, sid, pid); err != nil {
+	if err := sc.GetRotationService().RemovePolicyFromSecret(ctx, sid, pid, userID); err != nil {
 		return fmt.Errorf("failed to remove policy from secret: %w", err)
 	}
 	fmt.Fprintln(cmd.OutOrStdout(), "Policy removed from secret successfully.")
@@ -415,6 +417,7 @@ func runRotationRotate(cmd *cobra.Command) error {
 
 func runRotationHistory(cmd *cobra.Command) error {
 	ctx := cmd.Context()
+	userID := ctx.Value(common.UserIDKey).(uuid.UUID)
 	sc, ok := ctx.Value(common.ServiceContainerKey).(container.ServiceContainerInterface)
 	if !ok || sc == nil {
 		return fmt.Errorf("service container not available in context")
@@ -423,7 +426,7 @@ func runRotationHistory(cmd *cobra.Command) error {
 	if err != nil {
 		return fmt.Errorf("invalid secret ID: %w", err)
 	}
-	history, err := sc.GetRotationService().GetRotationHistory(ctx, sid)
+	history, err := sc.GetRotationService().GetRotationHistory(ctx, sid, userID)
 	if err != nil {
 		return fmt.Errorf("failed to get rotation history: %w", err)
 	}

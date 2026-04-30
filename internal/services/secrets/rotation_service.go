@@ -22,17 +22,17 @@ type RotationServiceInterface interface {
 	CreatePolicy(ctx context.Context, req CreatePolicyRequest) (*domain.RotationPolicy, error)
 	GetPolicy(ctx context.Context, id uuid.UUID) (*domain.RotationPolicy, error)
 	UpdatePolicy(ctx context.Context, req UpdatePolicyRequest) (*domain.RotationPolicy, error)
-	DeletePolicy(ctx context.Context, id uuid.UUID) error
+	DeletePolicy(ctx context.Context, id uuid.UUID, callerID uuid.UUID) error
 	ListUserPolicies(ctx context.Context, userID uuid.UUID) ([]domain.RotationPolicy, error)
 
 	// Secret-policy assignment
 	AssignPolicyToSecret(ctx context.Context, req AssignPolicyRequest) error
-	RemovePolicyFromSecret(ctx context.Context, secretID, policyID uuid.UUID) error
+	RemovePolicyFromSecret(ctx context.Context, secretID, policyID uuid.UUID, callerID uuid.UUID) error
 	GetSecretPolicies(ctx context.Context, secretID uuid.UUID) ([]domain.RotationPolicy, error)
 
 	// Rotation operations
 	PerformManualRotation(ctx context.Context, req ManualRotationRequest) error
-	GetRotationHistory(ctx context.Context, secretID uuid.UUID) ([]domain.RotationHistory, error)
+	GetRotationHistory(ctx context.Context, secretID uuid.UUID, callerID uuid.UUID) ([]domain.RotationHistory, error)
 	GetDueRotations(ctx context.Context, userID uuid.UUID) ([]domain.SecretPolicy, error)
 
 	// Reminder management
@@ -215,11 +215,14 @@ func (s *rotationService) UpdatePolicy(ctx context.Context, req UpdatePolicyRequ
 }
 
 // DeletePolicy deletes a rotation policy with ownership validation.
-func (s *rotationService) DeletePolicy(ctx context.Context, id uuid.UUID) error {
-	// Validate policy exists and get ownership info
+func (s *rotationService) DeletePolicy(ctx context.Context, id uuid.UUID, callerID uuid.UUID) error {
 	policy, err := s.rotationRepo.Read(ctx, id)
 	if err != nil {
 		return fmt.Errorf("policy not found: %w", err)
+	}
+
+	if policy.UserID != callerID {
+		return fmt.Errorf("forbidden: user does not own this policy")
 	}
 
 	err = s.rotationRepo.Delete(ctx, id)
@@ -230,7 +233,7 @@ func (s *rotationService) DeletePolicy(ctx context.Context, id uuid.UUID) error 
 
 	s.log.WithFields(map[string]interface{}{
 		"policy_id": id,
-		"user_id":   policy.UserID,
+		"user_id":   callerID,
 	}).Info("Rotation policy deleted successfully")
 
 	return nil
@@ -307,9 +310,17 @@ func (s *rotationService) AssignPolicyToSecret(ctx context.Context, req AssignPo
 	return nil
 }
 
-// RemovePolicyFromSecret removes a rotation policy from a secret.
-func (s *rotationService) RemovePolicyFromSecret(ctx context.Context, secretID, policyID uuid.UUID) error {
-	err := s.rotationRepo.RemoveFromSecret(ctx, secretID, policyID)
+// RemovePolicyFromSecret removes a rotation policy from a secret with ownership validation.
+func (s *rotationService) RemovePolicyFromSecret(ctx context.Context, secretID, policyID uuid.UUID, callerID uuid.UUID) error {
+	secret, err := s.secretRepo.Read(ctx, secretID)
+	if err != nil {
+		return fmt.Errorf("secret not found: %w", err)
+	}
+	if secret.UserID != callerID {
+		return fmt.Errorf("forbidden: user does not own this secret")
+	}
+
+	err = s.rotationRepo.RemoveFromSecret(ctx, secretID, policyID)
 	if err != nil {
 		s.log.WithError(err).Error("Failed to remove policy from secret")
 		return fmt.Errorf("failed to remove policy from secret: %w", err)
@@ -318,6 +329,7 @@ func (s *rotationService) RemovePolicyFromSecret(ctx context.Context, secretID, 
 	s.log.WithFields(map[string]interface{}{
 		"secret_id": secretID,
 		"policy_id": policyID,
+		"user_id":   callerID,
 	}).Info("Policy removed from secret successfully")
 
 	return nil
@@ -407,8 +419,16 @@ func (s *rotationService) PerformManualRotation(ctx context.Context, req ManualR
 	return nil
 }
 
-// GetRotationHistory retrieves rotation history for a secret.
-func (s *rotationService) GetRotationHistory(ctx context.Context, secretID uuid.UUID) ([]domain.RotationHistory, error) {
+// GetRotationHistory retrieves rotation history for a secret with ownership validation.
+func (s *rotationService) GetRotationHistory(ctx context.Context, secretID uuid.UUID, callerID uuid.UUID) ([]domain.RotationHistory, error) {
+	secret, err := s.secretRepo.Read(ctx, secretID)
+	if err != nil {
+		return nil, fmt.Errorf("secret not found: %w", err)
+	}
+	if secret.UserID != callerID {
+		return nil, fmt.Errorf("forbidden: user does not own this secret")
+	}
+
 	history, err := s.rotationRepo.GetRotationHistory(ctx, secretID)
 	if err != nil {
 		s.log.WithError(err).WithField("secret_id", secretID).Error("Failed to get rotation history")
