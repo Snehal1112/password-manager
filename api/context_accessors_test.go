@@ -111,3 +111,43 @@ func TestContext_CertSvc_NilContainer_SetsErr(t *testing.T) {
 	assert.NotNil(t, ctx.Err)
 	assert.Equal(t, http.StatusInternalServerError, ctx.Err.StatusCode)
 }
+
+// TestContext_AuthSvc_NilApp_SetsErr verifies that authSvc sets c.Err
+// and returns nil when c.App is nil.
+func TestContext_AuthSvc_NilApp_SetsErr(t *testing.T) {
+	ctx := &Context{App: nil}
+	svc := ctx.authSvc()
+	assert.Nil(t, svc)
+	assert.NotNil(t, ctx.Err)
+	assert.Equal(t, http.StatusInternalServerError, ctx.Err.StatusCode)
+}
+
+// TestContext_AuthSvc_NilContainer_SetsErr verifies that authSvc sets c.Err
+// and returns nil when the service container is nil.
+func TestContext_AuthSvc_NilContainer_SetsErr(t *testing.T) {
+	ctx := &Context{App: &app.App{ServiceContainer: nil}}
+	svc := ctx.authSvc()
+	assert.Nil(t, svc)
+	assert.NotNil(t, ctx.Err)
+	assert.Equal(t, http.StatusInternalServerError, ctx.Err.StatusCode)
+}
+
+// TestContext_SessionRepo_NilApp_SetsErr verifies that sessionRepo sets c.Err
+// and returns nil when c.App is nil.
+func TestContext_SessionRepo_NilApp_SetsErr(t *testing.T) {
+	ctx := &Context{App: nil}
+	repo := ctx.sessionRepo()
+	assert.Nil(t, repo)
+	assert.NotNil(t, ctx.Err)
+	assert.Equal(t, http.StatusInternalServerError, ctx.Err.StatusCode)
+}
+
+// TestContext_SessionRepo_NilContainer_SetsErr verifies that sessionRepo sets
+// c.Err and returns nil when the service container is nil.
+func TestContext_SessionRepo_NilContainer_SetsErr(t *testing.T) {
+	ctx := &Context{App: &app.App{ServiceContainer: nil}}
+	repo := ctx.sessionRepo()
+	assert.Nil(t, repo)
+	assert.NotNil(t, ctx.Err)
+	assert.Equal(t, http.StatusInternalServerError, ctx.Err.StatusCode)
+}

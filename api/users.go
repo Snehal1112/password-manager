@@ -594,12 +594,10 @@ func loginUser(c *Context, w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Use service container for authentication
-	if c.App.ServiceContainer == nil {
-		c.Err = common.NewAppError("loginUser", "Service container not available", nil, "", http.StatusInternalServerError)
+	authSvc := c.authSvc()
+	if authSvc == nil {
 		return
 	}
-
-	authSvc := c.App.ServiceContainer.GetAuthenticationService()
 	result, err := authSvc.AuthenticateUser(r.Context(), req.Username, req.Password, req.TOTPCode)
 	if err != nil {
 		c.Logger.Printf("Login failed for user %s: %v", req.Username, err)
@@ -654,12 +652,10 @@ func refreshToken(c *Context, w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Use service container for token refresh
-	if c.App.ServiceContainer == nil {
-		c.Err = common.NewAppError("refreshToken", "Service container not available", nil, "", http.StatusInternalServerError)
+	authSvc := c.authSvc()
+	if authSvc == nil {
 		return
 	}
-
-	authSvc := c.App.ServiceContainer.GetAuthenticationService()
 	result, err := authSvc.RefreshAccessToken(r.Context(), req.RefreshToken)
 	if err != nil {
 		c.Logger.Printf("Token refresh failed: %v", err)
@@ -708,12 +704,10 @@ func listUserSessions(c *Context, w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Use service container for session listing
-	if c.App.ServiceContainer == nil {
-		c.Err = common.NewAppError("listUserSessions", "Service container not available", nil, "", http.StatusInternalServerError)
+	sessionRepo := c.sessionRepo()
+	if sessionRepo == nil {
 		return
 	}
-
-	sessionRepo := c.App.ServiceContainer.GetSessionRepository()
 	sessions, err := sessionRepo.GetActiveSessionsByUserID(r.Context(), userID)
 	if err != nil {
 		c.Err = common.NewAppError("listUserSessions", "Failed to list sessions", nil, err.Error(), http.StatusInternalServerError)
@@ -765,12 +759,10 @@ func revokeSession(c *Context, w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Use service container for session revocation
-	if c.App.ServiceContainer == nil {
-		c.Err = common.NewAppError("revokeSession", "Service container not available", nil, "", http.StatusInternalServerError)
+	authSvc := c.authSvc()
+	if authSvc == nil {
 		return
 	}
-
-	authSvc := c.App.ServiceContainer.GetAuthenticationService()
 	if err := authSvc.RevokeSession(r.Context(), sessionID, "User requested revocation"); err != nil {
 		c.Err = common.NewAppError("revokeSession", "Failed to revoke session", nil, err.Error(), http.StatusInternalServerError)
 		return
@@ -810,12 +802,10 @@ func revokeAllSessions(c *Context, w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Use service container for revoking all sessions
-	if c.App.ServiceContainer == nil {
-		c.Err = common.NewAppError("revokeAllSessions", "Service container not available", nil, "", http.StatusInternalServerError)
+	authSvc := c.authSvc()
+	if authSvc == nil {
 		return
 	}
-
-	authSvc := c.App.ServiceContainer.GetAuthenticationService()
 	if err := authSvc.RevokeAllUserSessions(r.Context(), userID, "User requested revocation of all sessions"); err != nil {
 		c.Err = common.NewAppError("revokeAllSessions", "Failed to revoke all sessions", nil, err.Error(), http.StatusInternalServerError)
 		return

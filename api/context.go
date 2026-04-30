@@ -34,10 +34,12 @@ import (
 	"rocketvault/app"
 	"rocketvault/common"
 	"rocketvault/internal/logging"
+	authServices "rocketvault/internal/services/auth"
 	certServices "rocketvault/internal/services/certificates"
 	keyServices "rocketvault/internal/services/keys"
 	secretServices "rocketvault/internal/services/secrets"
 	userServices "rocketvault/internal/services/users"
+	"rocketvault/internal/repositories"
 )
 
 // Context holds the contextual information for a request in the vault-service application.
@@ -247,4 +249,22 @@ func (c *Context) certSvc() certServices.CertificateService {
 		return nil
 	}
 	return c.App.ServiceContainer.GetCertificateService()
+}
+
+// authSvc returns the authentication service, setting c.Err if unavailable.
+func (c *Context) authSvc() authServices.AuthenticationService {
+	if c.App == nil || c.App.ServiceContainer == nil {
+		c.Err = common.NewAppError("internal", "Service unavailable", nil, "service container is nil", http.StatusInternalServerError)
+		return nil
+	}
+	return c.App.ServiceContainer.GetAuthenticationService()
+}
+
+// sessionRepo returns the session repository, setting c.Err if unavailable.
+func (c *Context) sessionRepo() repositories.SessionRepositoryInterface {
+	if c.App == nil || c.App.ServiceContainer == nil {
+		c.Err = common.NewAppError("internal", "Service unavailable", nil, "service container is nil", http.StatusInternalServerError)
+		return nil
+	}
+	return c.App.ServiceContainer.GetSessionRepository()
 }
