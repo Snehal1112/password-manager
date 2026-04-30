@@ -185,7 +185,11 @@ func (m *MockServiceContainer) GetCachedSecretService() secretServices.SecretSer
 }
 
 func (m *MockServiceContainer) GetKeyService() keyServices.KeyService {
-	return nil
+	args := m.Called()
+	if len(args) == 0 || args.Get(0) == nil {
+		return nil
+	}
+	return args.Get(0).(keyServices.KeyService)
 }
 
 func (m *MockServiceContainer) GetCertificateService() certServices.CertificateService {
