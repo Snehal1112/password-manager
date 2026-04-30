@@ -221,9 +221,10 @@ func createUser(c *Context, w http.ResponseWriter, r *http.Request) {
 	}
 
 	result, err := userSvc.CreateUser(r.Context(), userService.CreateUserRequest{
-		Username: req.Username,
-		Password: req.Password,
-		Role:     req.Role,
+		Username:   req.Username,
+		Password:   req.Password,
+		Role:       req.Role,
+		CallerRole: claims,
 	})
 	if err != nil {
 		c.Err = common.NewAppError("createUser", "Failed to create user", nil, err.Error(), http.StatusInternalServerError)
