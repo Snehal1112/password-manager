@@ -46,6 +46,7 @@ var updateCmd = &cobra.Command{
 		}
 		value := args[1]
 		tags, _ := cmd.Flags().GetStringSlice("tags")
+		contentType, _ := cmd.Flags().GetString("content-type")
 
 		ctx := cmd.Context()
 		userID := ctx.Value(common.UserIDKey).(uuid.UUID)
@@ -63,6 +64,12 @@ var updateCmd = &cobra.Command{
 		if len(tags) > 0 {
 			req.Tags = &tags
 		}
+		// Only set ContentType when the flag was explicitly passed.
+		var contentTypePtr *string
+		if cmd.Flags().Changed("content-type") {
+			contentTypePtr = &contentType
+		}
+		req.ContentType = contentTypePtr
 
 		if err := sc.GetSecretService().UpdateSecret(ctx, req); err != nil {
 			return fmt.Errorf("failed to update secret: %w", err)
@@ -77,5 +84,6 @@ var updateCmd = &cobra.Command{
 func InitSecretsUpdate(secretsCmd *cobra.Command) *cobra.Command {
 	secretsCmd.AddCommand(updateCmd)
 	updateCmd.Flags().StringSlice("tags", []string{}, "Tags for the secret (comma-separated)")
+	updateCmd.Flags().String("content-type", "", "Media type of the secret value")
 	return secretsCmd
 }

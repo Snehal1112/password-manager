@@ -74,16 +74,18 @@ type ImportResponse struct {
 
 // CreateSecretRequest represents the request structure for creating a secret.
 type CreateSecretRequest struct {
-	Name  string   `json:"name"`
-	Value string   `json:"value"`
-	Tags  []string `json:"tags,omitempty"`
+	Name        string   `json:"name"`
+	Value       string   `json:"value"`
+	Tags        []string `json:"tags,omitempty"`
+	ContentType string   `json:"content_type,omitempty"`
 }
 
 // UpdateSecretRequest represents the request structure for updating a secret.
 type UpdateSecretRequest struct {
-	Name  string   `json:"name,omitempty"`
-	Value string   `json:"value,omitempty"`
-	Tags  []string `json:"tags,omitempty"`
+	Name        string   `json:"name,omitempty"`
+	Value       string   `json:"value,omitempty"`
+	Tags        []string `json:"tags,omitempty"`
+	ContentType *string  `json:"content_type,omitempty"`
 }
 
 // GenerateSecretRequest represents the request structure for generating a secret.
@@ -98,13 +100,14 @@ type GenerateSecretRequest struct {
 
 // SecretResponse represents the response structure for secret operations.
 type SecretResponse struct {
-	ID        string   `json:"id"`
-	Name      string   `json:"name"`
-	Value     string   `json:"value,omitempty"` // Only returned for get operations
-	Tags      []string `json:"tags,omitempty"`
-	Version   int      `json:"version"`
-	CreatedAt string   `json:"created_at"`
-	UpdatedAt string   `json:"updated_at,omitempty"`
+	ID          string   `json:"id"`
+	Name        string   `json:"name"`
+	Value       string   `json:"value,omitempty"` // Only returned for get operations.
+	Tags        []string `json:"tags,omitempty"`
+	Version     int      `json:"version"`
+	ContentType string   `json:"content_type,omitempty"`
+	CreatedAt   string   `json:"created_at"`
+	UpdatedAt   string   `json:"updated_at,omitempty"`
 }
 
 // ListSecretsResponse represents the response structure for listing secrets.
@@ -485,12 +488,13 @@ func createSecret(c *Context, w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Create secret using service layer (which handles encryption)
+	// Create secret using service layer (which handles encryption).
 	createReq := secrets.CreateSecretRequest{
-		UserID: userID,
-		Name:   req.Name,
-		Value:  req.Value,
-		Tags:   req.Tags,
+		UserID:      userID,
+		Name:        req.Name,
+		Value:       req.Value,
+		Tags:        req.Tags,
+		ContentType: req.ContentType,
 	}
 
 	secret, err := secretService.CreateSecret(r.Context(), createReq)
@@ -499,13 +503,14 @@ func createSecret(c *Context, w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Prepare response (without value for security)
+	// Prepare response (without value for security).
 	response := SecretResponse{
-		ID:        secret.ID.String(),
-		Name:      secret.Name,
-		Tags:      secret.Tags,
-		Version:   secret.Version,
-		CreatedAt: secret.CreatedAt.Format(time.RFC3339),
+		ID:          secret.ID.String(),
+		Name:        secret.Name,
+		Tags:        secret.Tags,
+		Version:     secret.Version,
+		ContentType: secret.ContentType,
+		CreatedAt:   secret.CreatedAt.Format(time.RFC3339),
 	}
 
 	// Send response
@@ -617,14 +622,15 @@ func getSecret(c *Context, w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Prepare response (include value for get operation)
+	// Prepare response (include value for get operation).
 	response := SecretResponse{
-		ID:        secret.ID.String(),
-		Name:      secret.Name,
-		Value:     secret.Value,
-		Tags:      secret.Tags,
-		Version:   secret.Version,
-		CreatedAt: secret.CreatedAt.Format(time.RFC3339),
+		ID:          secret.ID.String(),
+		Name:        secret.Name,
+		Value:       secret.Value,
+		Tags:        secret.Tags,
+		Version:     secret.Version,
+		ContentType: secret.ContentType,
+		CreatedAt:   secret.CreatedAt.Format(time.RFC3339),
 	}
 
 	// Send response
@@ -681,7 +687,7 @@ func updateSecret(c *Context, w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Update fields
+	// Update fields.
 	updated := false
 	if req.Name != "" && req.Name != secret.Name {
 		secret.Name = req.Name
@@ -695,34 +701,40 @@ func updateSecret(c *Context, w http.ResponseWriter, r *http.Request) {
 		secret.Tags = req.Tags
 		updated = true
 	}
+	if req.ContentType != nil && *req.ContentType != secret.ContentType {
+		secret.ContentType = *req.ContentType
+		updated = true
+	}
 
 	if !updated {
 		c.Err = common.NewAppError("updateSecret", "No changes provided", nil, "", http.StatusBadRequest)
 		return
 	}
 
-	// Increment version
+	// Increment version.
 	secret.Version++
 
-	// Update secret
+	// Update secret.
 	if err := secretService.UpdateSecret(r.Context(), secrets.UpdateSecretRequest{
-		UserID:   userID,
-		SecretID: secret.ID,
-		Name:     &secret.Name,
-		Value:    &secret.Value,
-		Tags:     &secret.Tags,
+		UserID:      userID,
+		SecretID:    secret.ID,
+		Name:        &secret.Name,
+		Value:       &secret.Value,
+		Tags:        &secret.Tags,
+		ContentType: req.ContentType,
 	}); err != nil {
 		c.Err = common.NewAppError("updateSecret", "Failed to update secret", nil, err.Error(), http.StatusInternalServerError)
 		return
 	}
 
-	// Prepare response (without value for security)
+	// Prepare response (without value for security).
 	response := SecretResponse{
-		ID:        secret.ID.String(),
-		Name:      secret.Name,
-		Tags:      secret.Tags,
-		Version:   secret.Version,
-		CreatedAt: secret.CreatedAt.Format(time.RFC3339),
+		ID:          secret.ID.String(),
+		Name:        secret.Name,
+		Tags:        secret.Tags,
+		Version:     secret.Version,
+		ContentType: secret.ContentType,
+		CreatedAt:   secret.CreatedAt.Format(time.RFC3339),
 	}
 
 	// Send response

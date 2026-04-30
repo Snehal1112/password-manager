@@ -45,6 +45,7 @@ var createCmd = &cobra.Command{
 		name := args[0]
 		value := args[1]
 		tags, _ := cmd.Flags().GetStringSlice("tags")
+		contentType, _ := cmd.Flags().GetString("content-type")
 		userID := cmd.Context().Value(common.UserIDKey).(uuid.UUID)
 
 		// Get service container and secret service
@@ -56,12 +57,13 @@ var createCmd = &cobra.Command{
 		}
 		secretService := serviceContainer.GetSecretService()
 
-		// Create secret request
+		// Create secret request.
 		req := secrets.CreateSecretRequest{
-			UserID: userID,
-			Name:   name,
-			Value:  value,
-			Tags:   tags,
+			UserID:      userID,
+			Name:        name,
+			Value:       value,
+			Tags:        tags,
+			ContentType: contentType,
 		}
 
 		// Create secret via service
@@ -98,6 +100,7 @@ func InitSecretsCreate(secretsCmd *cobra.Command) *cobra.Command {
 	secretsCmd.AddCommand(createCmd)
 
 	createCmd.Flags().StringSlice("tags", []string{}, "Tags for the secret (comma-separated)")
+	createCmd.Flags().String("content-type", "", "Media type of the secret value (e.g. application/json)")
 
 	return secretsCmd
 }
