@@ -190,6 +190,13 @@ func NewServiceContainer(config Config) (*ServiceContainer, error) {
 
 // initializeServices creates and wires all services in dependency order.
 func (c *ServiceContainer) initializeServices() error {
+	// Resolve the viper instance to use for config reads.
+	// Falls back to the global viper populated by initConfig() when none was injected.
+	viperCfg := c.viper
+	if viperCfg == nil {
+		viperCfg = viper.GetViper()
+	}
+
 	// Initialize repositories (data layer)
 	c.userRepository = repositories.NewUserRepository(c.db, c.logger)
 	c.secretRepository = repositories.NewSecretRepository(c.db, c.logger)
@@ -215,7 +222,7 @@ func (c *ServiceContainer) initializeServices() error {
 
 	// Initialize retry service before any service that wraps with retry logic.
 	if c.viper != nil {
-		retrySvc, err := retryServices.NewRetryService(c.viper)
+		retrySvc, err := retryServices.NewRetryService(viperCfg)
 		if err != nil {
 			c.logger.WithError(err).Warn("Failed to initialize retry service, continuing without retry functionality")
 			// Continue without retry service - operations will not have retry.
@@ -232,13 +239,13 @@ func (c *ServiceContainer) initializeServices() error {
 	c.totpService = authServices.NewTOTPService()
 
 	// Initialize JWT service with configuration.
-	jwtExpiry := c.viper.GetDuration("jwt.expiry")
+	jwtExpiry := viperCfg.GetDuration("jwt.expiry")
 	if jwtExpiry == 0 {
 		jwtExpiry = time.Hour // Default to 1 hour.
 	}
 	jwtConfig := authServices.JWTConfig{
-		SecretKey: c.viper.GetString("jwt_secret"),
-		Issuer:    c.viper.GetString("oauth2.issuer"),
+		SecretKey: viperCfg.GetString("jwt_secret"),
+		Issuer:    viperCfg.GetString("oauth2.issuer"),
 		Audience:  "PASSWORD_MANAGER",
 		Expiry:    jwtExpiry,
 		Logger:    c.logger.Logger, // Inject the underlying *logrus.Logger.
@@ -272,7 +279,7 @@ func (c *ServiceContainer) initializeServices() error {
 	c.accessPolicyService = authzServices.NewAccessPolicyService(c.accessPolicyRepository)
 
 	// Initialize OAuth2 / service account services
-	oauth2TokenExpiry := c.viper.GetDuration("oauth2.token_expiry")
+	oauth2TokenExpiry := viperCfg.GetDuration("oauth2.token_expiry")
 	if oauth2TokenExpiry == 0 {
 		oauth2TokenExpiry = 30 * time.Minute
 	}
