@@ -43,10 +43,12 @@ type CreateCertificateResult struct {
 
 // UpdateCertificateRequest represents a request to update an existing certificate.
 type UpdateCertificateRequest struct {
-	CertID uuid.UUID
-	Name   *string  // Optional - nil means no change
-	Tags   []string // Optional - empty means no change
-	UserID uuid.UUID
+	CertID      uuid.UUID
+	Name        *string  // Optional - nil means no change
+	Tags        []string // Optional - empty means no change
+	UserID      uuid.UUID
+	AutoRenew   *bool // Optional - nil means no change
+	RenewalDays *int  // Optional - nil means no change
 }
 
 // CertificateService handles X.509 certificate management operations.
@@ -415,6 +417,16 @@ func (s *certificateService) UpdateCertificate(ctx context.Context, req UpdateCe
 	// Update tags if provided
 	if len(req.Tags) > 0 {
 		updatedCert.Tags = req.Tags
+	}
+
+	// Update auto-renew setting if provided
+	if req.AutoRenew != nil {
+		updatedCert.AutoRenew = *req.AutoRenew
+	}
+
+	// Update renewal days if provided
+	if req.RenewalDays != nil {
+		updatedCert.RenewalDays = *req.RenewalDays
 	}
 
 	// Update certificate via repository

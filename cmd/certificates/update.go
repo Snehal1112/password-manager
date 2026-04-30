@@ -48,6 +48,20 @@ var updateCmd = &cobra.Command{
 		name := viper.GetString("cert-update-name")
 		tagsStr := viper.GetString("cert-update-tags")
 
+		// Only pass auto-renew if the flag was explicitly set by the caller.
+		var autoRenewPtr *bool
+		if cmd.Flags().Changed("auto-renew") {
+			v, _ := cmd.Flags().GetBool("auto-renew")
+			autoRenewPtr = &v
+		}
+
+		// Only pass renewal-days if the flag was explicitly set by the caller.
+		var renewalDaysPtr *int
+		if cmd.Flags().Changed("renewal-days") {
+			v, _ := cmd.Flags().GetInt("renewal-days")
+			renewalDaysPtr = &v
+		}
+
 		var tags []string
 		if tagsStr != "" {
 			tags = strings.Split(tagsStr, ",")
@@ -70,10 +84,12 @@ var updateCmd = &cobra.Command{
 		}
 
 		req := certServices.UpdateCertificateRequest{
-			CertID: certID,
-			UserID: claims.UserID,
-			Name:   namePtr,
-			Tags:   tags,
+			CertID:      certID,
+			UserID:      claims.UserID,
+			Name:        namePtr,
+			Tags:        tags,
+			AutoRenew:   autoRenewPtr,
+			RenewalDays: renewalDaysPtr,
 		}
 
 		err = certService.UpdateCertificate(ctx, req)
@@ -94,6 +110,8 @@ func InitCertificatesUpdate(certificatesCmd *cobra.Command) *cobra.Command {
 
 	updateCmd.Flags().String("name", "", "Updated name for the certificate")
 	updateCmd.Flags().String("tags", "", "Comma-separated tags for the certificate")
+	updateCmd.Flags().Bool("auto-renew", false, "Enable or disable auto-renewal")
+	updateCmd.Flags().Int("renewal-days", 0, "Days before expiry to trigger renewal")
 	viper.BindPFlag("cert-update-name", updateCmd.Flags().Lookup("name"))
 	viper.BindPFlag("cert-update-tags", updateCmd.Flags().Lookup("tags"))
 

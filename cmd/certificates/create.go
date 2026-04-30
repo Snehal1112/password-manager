@@ -45,6 +45,8 @@ var createCmd = &cobra.Command{
 		validityDays := viper.GetInt("cert-validity-days")
 		tagsStr := viper.GetString("cert-tags")
 		caCertIDStr := viper.GetString("cert-ca-cert-id")
+		autoRenew, _ := cmd.Flags().GetBool("auto-renew")
+		renewalDays, _ := cmd.Flags().GetInt("renewal-days")
 
 		if name == "" || keyIDStr == "" || validityDays <= 0 {
 			log.LogAuditError(claims.UserID.String(), "create_certificate", "failed", "name, key-id, and validity-days are required", nil)
@@ -80,6 +82,8 @@ var createCmd = &cobra.Command{
 			ValidityDays: validityDays,
 			Tags:         tags,
 			UserID:       claims.UserID,
+			AutoRenew:    autoRenew,
+			RenewalDays:  renewalDays,
 		}
 
 		var result *certServices.CreateCertificateResult
@@ -118,6 +122,8 @@ func InitCertificatesCreate(certificatesCmd *cobra.Command) *cobra.Command {
 	createCmd.Flags().Int("validity-days", 365, "Certificate validity period in days")
 	createCmd.Flags().String("tags", "", "Comma-separated tags for the certificate")
 	createCmd.Flags().String("ca-cert-id", "", "UUID of the CA certificate for CA-signed certificates (optional)")
+	createCmd.Flags().Bool("auto-renew", false, "Automatically renew certificate before expiry")
+	createCmd.Flags().Int("renewal-days", 30, "Days before expiry to trigger renewal")
 	viper.BindPFlag("cert-name", createCmd.Flags().Lookup("name"))
 	viper.BindPFlag("cert-key-id", createCmd.Flags().Lookup("key-id"))
 	viper.BindPFlag("cert-validity-days", createCmd.Flags().Lookup("validity-days"))
