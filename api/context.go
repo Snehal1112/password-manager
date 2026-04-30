@@ -25,7 +25,6 @@ package api
 import (
 	"encoding/json"
 	"net/http"
-	"strings"
 	"time"
 
 	"github.com/golang-jwt/jwt/v5"
@@ -118,127 +117,85 @@ func Handler(app *app.App, handler func(*Context, http.ResponseWriter, *http.Req
 	}
 }
 
-// SessionRequired wraps handlers requiring authentication, similar to Mattermost's SessionRequired.
-func SessionRequired(app *app.App, handler func(*Context, http.ResponseWriter, *http.Request)) http.HandlerFunc {
+// SessionRequired wraps handlers requiring an authenticated session.
+// Identity is read from r.Context() which AuthenticationMiddleware already
+// populated — the token is NOT re-validated here.
+func SessionRequired(a *app.App, handler func(*Context, http.ResponseWriter, *http.Request)) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		start := time.Now()
+
+		// Read identity set by AuthenticationMiddleware.
+		userIDStr, ok := r.Context().Value(common.UserIDKey).(string)
+		if !ok || userIDStr == "" {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusUnauthorized)
+			json.NewEncoder(w).Encode(map[string]any{
+				"id":          "Unauthorized",
+				"message":     "Unauthorized: missing session",
+				"status_code": http.StatusUnauthorized,
+			})
+			return
+		}
+
+		username, _ := r.Context().Value(common.UsernameKey).(string)
+		role, _ := r.Context().Value(common.RoleKey).(string)
+
+		// RBAC check using role already verified by middleware.
+		if a.ServiceContainer != nil {
+			if err := a.ServiceContainer.GetRBACService().ValidateEndpointAccess(role, r.Method, r.URL.Path); err != nil {
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(http.StatusForbidden)
+				json.NewEncoder(w).Encode(map[string]any{
+					"id":          "Forbidden",
+					"message":     "Access denied",
+					"status_code": http.StatusForbidden,
+				})
+				return
+			}
+		}
+
 		ctx := &Context{
-			App:            app,
-			Token:          "",
-			Claims:         nil,
+			App: a,
+			Claims: jwt.MapClaims{
+				"user_id":  userIDStr,
+				"username": username,
+				"role":     role,
+			},
 			Params:         &Params{Query: make(map[string]string)},
 			RequestID:      "req-" + uuid.New().String()[:8],
 			IPAddress:      r.RemoteAddr,
 			Path:           r.URL.Path,
 			UserAgent:      r.UserAgent(),
 			AcceptLanguage: r.Header.Get("Accept-Language"),
-			Logger:         app.Logger,
+			Logger:         a.Logger,
 			Err:            nil,
 		}
 
-		// Extract JWT token
-		authHeader := r.Header.Get("Authorization")
-		if authHeader == "" {
-			ctx.Err = common.NewAppError("SessionRequired", "Missing Authorization header", nil, "", http.StatusUnauthorized)
-			w.Header().Set("Content-Type", "application/json")
-			w.WriteHeader(ctx.Err.StatusCode)
-			json.NewEncoder(w).Encode(map[string]any{
-				"id":             ctx.Err.ID,
-				"message":        ctx.Err.Message,
-				"detailed_error": ctx.Err.DetailedError,
-				"status_code":    ctx.Err.StatusCode,
-			})
-			return
+		// Populate URL parameters.
+		vars := mux.Vars(r)
+		if uid, ok := vars["user_id"]; ok {
+			ctx.Params.UserID = uid
 		}
 
-		parts := strings.Split(authHeader, "Bearer ")
-		if len(parts) != 2 {
-			ctx.Err = common.NewAppError("SessionRequired", "Invalid Authorization header format", nil, "", http.StatusUnauthorized)
-			w.Header().Set("Content-Type", "application/json")
-			w.WriteHeader(ctx.Err.StatusCode)
-			json.NewEncoder(w).Encode(map[string]any{
-				"id":             ctx.Err.ID,
-				"message":        ctx.Err.Message,
-				"detailed_error": ctx.Err.DetailedError,
-				"status_code":    ctx.Err.StatusCode,
-			})
-			return
-		}
-
-		tokenString := parts[1]
-
-		// Validate token via the auth service — no inline JWT parsing here.
-		if app.ServiceContainer == nil {
-			ctx.Err = common.NewAppError("SessionRequired", "Service container not available", nil, "", http.StatusInternalServerError)
-			w.Header().Set("Content-Type", "application/json")
-			w.WriteHeader(ctx.Err.StatusCode)
-			json.NewEncoder(w).Encode(map[string]any{
-				"id":          ctx.Err.ID,
-				"message":     ctx.Err.Message,
-				"status_code": ctx.Err.StatusCode,
-			})
-			return
-		}
-
-		jwtClaims, err := app.ServiceContainer.GetAuthenticationService().ValidateSession(r.Context(), tokenString)
-		if err != nil {
-			ctx.Err = common.NewAppError("SessionRequired", "Invalid or expired token", nil, err.Error(), http.StatusUnauthorized)
-			w.Header().Set("Content-Type", "application/json")
-			w.WriteHeader(ctx.Err.StatusCode)
-			json.NewEncoder(w).Encode(map[string]any{
-				"id":             ctx.Err.ID,
-				"message":        ctx.Err.Message,
-				"detailed_error": ctx.Err.DetailedError,
-				"status_code":    ctx.Err.StatusCode,
-			})
-			return
-		}
-
-		// Populate ctx.Claims as jwt.MapClaims for handler compatibility.
-		userID := jwtClaims.UserID.String()
-		role := jwtClaims.Role
-		ctx.Claims = jwt.MapClaims{
-			"user_id":  userID,
-			"username": jwtClaims.Username,
-			"role":     role,
-			"sub":      jwtClaims.Subject,
-		}
-		ctx.Token = tokenString
-
-		// Validate endpoint access using RBAC
-		if err := app.ServiceContainer.GetRBACService().ValidateEndpointAccess(role, r.Method, r.URL.Path); err != nil {
-			ctx.Err = common.NewAppError("SessionRequired", "Access denied", nil, err.Error(), http.StatusForbidden)
-			// ... error handling
-			return
-		}
-
-		ctx.Logger.WithField("user_id", userID).Debug("Session validated via JWT.")
-
-		// Populate query parameters
-		query := r.URL.Query()
-		for key, values := range query {
+		// Populate query parameters.
+		for key, values := range r.URL.Query() {
 			if len(values) > 0 {
 				ctx.Params.Query[key] = values[0]
 			}
 		}
 
-		// Populate URL parameters
-		vars := mux.Vars(r)
-		if userID, ok := vars["user_id"]; ok {
-			ctx.Params.UserID = userID
+		if ctx.Logger != nil {
+			ctx.Logger.WithField("user_id", userIDStr).Debug("Session validated via context.")
+			ctx.Logger.Printf("Handling %s %s (user: %s)", r.Method, r.URL.Path, userIDStr)
 		}
 
-		// Log request
-		ctx.Logger.Printf("Handling %s %s (user: %s)", r.Method, r.URL.Path, userID)
-
-		// Execute handler
 		handler(ctx, w, r)
 
-		// Log metrics
-		elapsed := time.Since(start).Milliseconds()
-		ctx.Logger.Printf("Completed %s %s in %dms", r.Method, r.URL.Path, elapsed)
+		if ctx.Logger != nil {
+			elapsed := time.Since(start).Milliseconds()
+			ctx.Logger.Printf("Completed %s %s in %dms", r.Method, r.URL.Path, elapsed)
+		}
 
-		// Handle errors
 		if ctx.Err != nil {
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(ctx.Err.StatusCode)
@@ -246,6 +203,7 @@ func SessionRequired(app *app.App, handler func(*Context, http.ResponseWriter, *
 				"id":             ctx.Err.ID,
 				"message":        ctx.Err.Message,
 				"detailed_error": ctx.Err.DetailedError,
+				"status_code":    ctx.Err.StatusCode,
 			})
 		}
 	}

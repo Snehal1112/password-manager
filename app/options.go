@@ -93,13 +93,13 @@ func WithSchedulerEnabled(enabled bool, interval time.Duration) Option {
 //
 // Parameters:
 //
-//	container (*container.ServiceContainer): The service container with all initialized services.
+//	c (container.ServiceContainerInterface): The service container with all initialized services.
 //
 // Returns:
 //
 //	Options: A function that sets the service container for the API.
-func WithServiceContainer(container *container.ServiceContainer) Option {
+func WithServiceContainer(c container.ServiceContainerInterface) Option {
 	return func(a *App) {
-		a.ServiceContainer = container
+		a.ServiceContainer = c
 	}
 }

@@ -33,7 +33,7 @@ type App struct {
 	schedulerEnabled     bool
 	schedulerInterval    time.Duration
 
-	ServiceContainer *container.ServiceContainer
+	ServiceContainer container.ServiceContainerInterface
 	Logger           *logging.Logger
 }
 
