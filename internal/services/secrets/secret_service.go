@@ -20,19 +20,40 @@ import (
 
 // CreateSecretRequest represents a request to create a new secret.
 type CreateSecretRequest struct {
-	UserID uuid.UUID
-	Name   string
-	Value  string
-	Tags   []string
+	UserID      uuid.UUID
+	Name        string
+	Value       string
+	Tags        []string
+	ContentType string // Optional media type (e.g. "application/json").
 }
 
 // UpdateSecretRequest represents a request to update an existing secret.
 type UpdateSecretRequest struct {
-	SecretID uuid.UUID
-	UserID   uuid.UUID
-	Name     *string   // Optional - nil means no change
-	Value    *string   // Optional - nil means no change
-	Tags     *[]string // Optional - nil means no change
+	SecretID    uuid.UUID
+	UserID      uuid.UUID
+	Name        *string   // Optional - nil means no change.
+	Value       *string   // Optional - nil means no change.
+	Tags        *[]string // Optional - nil means no change.
+	ContentType *string   // Optional - nil means no change.
+}
+
+// validContentTypes is the allowlist of accepted MIME types for secret content.
+var validContentTypes = map[string]struct{}{
+	"":                         {},
+	"text/plain":               {},
+	"application/json":         {},
+	"application/xml":          {},
+	"application/x-pem-file":   {},
+	"application/x-pkcs12":     {},
+	"application/octet-stream": {},
+}
+
+// validateContentType returns an error when ct is not in the allowlist.
+func validateContentType(ct string) error {
+	if _, ok := validContentTypes[ct]; !ok {
+		return fmt.Errorf("unsupported content type: %q", ct)
+	}
+	return nil
 }
 
 // GenerateSecretRequest represents a request to generate a random secret.
@@ -146,6 +167,11 @@ func (s *secretService) CreateSecret(ctx context.Context, req CreateSecretReques
 		"name":    req.Name,
 	}).Info("Creating new secret")
 
+	// Validate content type before any I/O.
+	if err := validateContentType(req.ContentType); err != nil {
+		return nil, err
+	}
+
 	// Encrypt before touching the DB — pure CPU work.
 	encryptedValue, err := s.cryptoService.EncryptSecret(req.Value)
 	if err != nil {
@@ -154,13 +180,14 @@ func (s *secretService) CreateSecret(ctx context.Context, req CreateSecretReques
 	}
 
 	secret := &domain.Secret{
-		ID:        uuid.New(),
-		UserID:    req.UserID,
-		Name:      req.Name,
-		Value:     encryptedValue,
-		Version:   1,
-		Tags:      req.Tags,
-		CreatedAt: time.Now(),
+		ID:          uuid.New(),
+		UserID:      req.UserID,
+		Name:        req.Name,
+		Value:       encryptedValue,
+		Version:     1,
+		Tags:        req.Tags,
+		ContentType: req.ContentType,
+		CreatedAt:   time.Now(),
 	}
 
 	// doCreate runs the repository write. The repository's Create method
@@ -260,7 +287,15 @@ func (s *secretService) UpdateSecret(ctx context.Context, req UpdateSecretReques
 	updatedSecret := *currentSecret
 	updatedSecret.Version++
 
-	// Update name if provided
+	// Update content type if provided.
+	if req.ContentType != nil {
+		if err := validateContentType(*req.ContentType); err != nil {
+			return err
+		}
+		updatedSecret.ContentType = *req.ContentType
+	}
+
+	// Update name if provided.
 	if req.Name != nil {
 		updatedSecret.Name = *req.Name
 	}
