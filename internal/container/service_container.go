@@ -61,6 +61,7 @@ type ServiceContainerInterface interface {
 	GetSecretService() secretServices.SecretService
 	GetKeyService() keyServices.KeyService
 	GetCertificateService() certServices.CertificateService
+	GetCryptoService() keyServices.CryptoService
 
 	// Secret component service getters
 	GetCryptographyService() secretServices.CryptographyService
@@ -132,6 +133,7 @@ type ServiceContainer struct {
 	secretService      secrets.SecretService
 	keyService         keyServices.KeyService
 	certificateService certServices.CertificateService
+	keyCryptoService   keyServices.CryptoService
 
 	// Secret component services
 	cryptoService     secretServices.CryptographyService
@@ -367,6 +369,12 @@ func (c *ServiceContainer) initializeServices() error {
 		Logger:        c.logger,
 	})
 
+	// Initialize crypto service for wrap/unwrap operations.
+	c.keyCryptoService = keyServices.NewCryptoService(keyServices.CryptoServiceConfig{
+		KeyRepository: c.keyRepository,
+		Logger:        c.logger,
+	})
+
 	// Initialize certificate service
 	c.certificateService = certServices.NewCertificateService(certServices.CertificateServiceConfig{
 		CertificateRepository: c.certificateRepository,
@@ -510,6 +518,11 @@ func (c *ServiceContainer) GetKeyService() keyServices.KeyService {
 // GetCertificateService returns the certificate service.
 func (c *ServiceContainer) GetCertificateService() certServices.CertificateService {
 	return c.certificateService
+}
+
+// GetCryptoService returns the key crypto service for wrap/unwrap operations.
+func (c *ServiceContainer) GetCryptoService() keyServices.CryptoService {
+	return c.keyCryptoService
 }
 
 // GetSecretCache returns the secret cache (if enabled).

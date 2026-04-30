@@ -233,6 +233,15 @@ func (c *Context) keySvc() keyServices.KeyService {
 	return c.App.ServiceContainer.GetKeyService()
 }
 
+// cryptoSvc returns the key crypto service, setting c.Err if unavailable.
+func (c *Context) cryptoSvc() keyServices.CryptoService {
+	if c.App == nil || c.App.ServiceContainer == nil {
+		c.Err = common.NewAppError("internal", "Service unavailable", nil, "service container is nil", http.StatusInternalServerError)
+		return nil
+	}
+	return c.App.ServiceContainer.GetCryptoService()
+}
+
 // userSvc returns the user service, setting c.Err if unavailable.
 func (c *Context) userSvc() userServices.UserService {
 	if c.App == nil || c.App.ServiceContainer == nil {

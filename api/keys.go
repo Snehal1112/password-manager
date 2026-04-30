@@ -23,6 +23,7 @@ THE SOFTWARE.
 package api
 
 import (
+	"encoding/base64"
 	"encoding/json"
 	"net/http"
 	"strings"
@@ -68,6 +69,30 @@ type KeyListResponse struct {
 	Keys []KeyResponse `json:"keys"`
 }
 
+// WrapKeyRequest is the HTTP request body for POST /keys/{id}/wrap.
+type WrapKeyRequest struct {
+	PlaintextKey string `json:"plaintext_key"` // base64-encoded key material
+	Algorithm    string `json:"algorithm"`     // defaults to "RSA-OAEP"
+}
+
+// WrapKeyResponse is the HTTP response for a successful wrap.
+type WrapKeyResponse struct {
+	WrappedKey string `json:"wrapped_key"` // base64-encoded wrapped bytes
+	Algorithm  string `json:"algorithm"`
+}
+
+// UnwrapKeyRequest is the HTTP request body for POST /keys/{id}/unwrap.
+type UnwrapKeyRequest struct {
+	WrappedKey string `json:"wrapped_key"` // base64-encoded wrapped bytes
+	Algorithm  string `json:"algorithm"`   // defaults to "RSA-OAEP"
+}
+
+// UnwrapKeyResponse is the HTTP response for a successful unwrap.
+type UnwrapKeyResponse struct {
+	PlaintextKey string `json:"plaintext_key"` // base64-encoded recovered key
+	Algorithm    string `json:"algorithm"`
+}
+
 // InitKeys initializes the routes for cryptographic keys management API.
 // It sets up the following endpoints:
 // - POST /keys: Create a new cryptographic key.
@@ -89,6 +114,8 @@ func (api *API) InitKeys(keys *mux.Router) {
 
 	// Additional operations
 	keys.Handle("/{id:[A-Fa-f0-9-]+}/rotate", SessionRequired(api.App, rotateKey)).Methods("POST")
+	keys.Handle("/{id:[A-Fa-f0-9-]+}/wrap", SessionRequired(api.App, wrapKey)).Methods("POST")
+	keys.Handle("/{id:[A-Fa-f0-9-]+}/unwrap", SessionRequired(api.App, unwrapKey)).Methods("POST")
 
 	api.Logger.Infoln("Keys API routes initialized")
 }
@@ -482,4 +509,144 @@ func rotateKey(c *Context, w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(response)
+}
+
+// wrapKey wraps plaintext key material using the vault key identified by {id}.
+func wrapKey(c *Context, w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	keyID, err := uuid.Parse(vars["id"])
+	if err != nil {
+		c.Err = common.NewAppError("wrapKey", "Invalid key ID", nil, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	userIDStr, ok := c.Claims["user_id"].(string)
+	if !ok {
+		c.Err = common.NewAppError("wrapKey", "Invalid user claims", nil, "", http.StatusUnauthorized)
+		return
+	}
+	userID, err := uuid.Parse(userIDStr)
+	if err != nil {
+		c.Err = common.NewAppError("wrapKey", "Invalid user ID", nil, err.Error(), http.StatusUnauthorized)
+		return
+	}
+
+	var req WrapKeyRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		c.Err = common.NewAppError("wrapKey", "Invalid request body", nil, err.Error(), http.StatusBadRequest)
+		return
+	}
+	if req.PlaintextKey == "" {
+		c.Err = common.NewAppError("wrapKey", "plaintext_key is required", nil, "", http.StatusBadRequest)
+		return
+	}
+	if req.Algorithm == "" {
+		req.Algorithm = "RSA-OAEP"
+	}
+
+	plaintextBytes, err := base64.StdEncoding.DecodeString(req.PlaintextKey)
+	if err != nil {
+		c.Err = common.NewAppError("wrapKey", "plaintext_key must be valid base64", nil, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	cryptoSvc := c.cryptoSvc()
+	if cryptoSvc == nil {
+		return
+	}
+
+	result, err := cryptoSvc.WrapKey(r.Context(), keyservices.WrapKeyRequest{
+		KeyID:        keyID,
+		UserID:       userID,
+		PlaintextKey: plaintextBytes,
+		Algorithm:    req.Algorithm,
+	})
+	if err != nil {
+		status := http.StatusInternalServerError
+		if strings.Contains(err.Error(), "forbidden") {
+			status = http.StatusForbidden
+		} else if strings.Contains(err.Error(), "not found") {
+			status = http.StatusNotFound
+		} else if strings.Contains(err.Error(), "unsupported algorithm") {
+			status = http.StatusBadRequest
+		}
+		c.Err = common.NewAppError("wrapKey", "Wrap operation failed", nil, err.Error(), status)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(WrapKeyResponse{
+		WrappedKey: base64.StdEncoding.EncodeToString(result.WrappedKey),
+		Algorithm:  result.Algorithm,
+	})
+}
+
+// unwrapKey recovers plaintext key material from wrapped bytes using the vault key identified by {id}.
+func unwrapKey(c *Context, w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	keyID, err := uuid.Parse(vars["id"])
+	if err != nil {
+		c.Err = common.NewAppError("unwrapKey", "Invalid key ID", nil, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	userIDStr, ok := c.Claims["user_id"].(string)
+	if !ok {
+		c.Err = common.NewAppError("unwrapKey", "Invalid user claims", nil, "", http.StatusUnauthorized)
+		return
+	}
+	userID, err := uuid.Parse(userIDStr)
+	if err != nil {
+		c.Err = common.NewAppError("unwrapKey", "Invalid user ID", nil, err.Error(), http.StatusUnauthorized)
+		return
+	}
+
+	var req UnwrapKeyRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		c.Err = common.NewAppError("unwrapKey", "Invalid request body", nil, err.Error(), http.StatusBadRequest)
+		return
+	}
+	if req.WrappedKey == "" {
+		c.Err = common.NewAppError("unwrapKey", "wrapped_key is required", nil, "", http.StatusBadRequest)
+		return
+	}
+	if req.Algorithm == "" {
+		req.Algorithm = "RSA-OAEP"
+	}
+
+	wrappedBytes, err := base64.StdEncoding.DecodeString(req.WrappedKey)
+	if err != nil {
+		c.Err = common.NewAppError("unwrapKey", "wrapped_key must be valid base64", nil, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	cryptoSvc := c.cryptoSvc()
+	if cryptoSvc == nil {
+		return
+	}
+
+	result, err := cryptoSvc.UnwrapKey(r.Context(), keyservices.UnwrapKeyRequest{
+		KeyID:      keyID,
+		UserID:     userID,
+		WrappedKey: wrappedBytes,
+		Algorithm:  req.Algorithm,
+	})
+	if err != nil {
+		status := http.StatusInternalServerError
+		if strings.Contains(err.Error(), "forbidden") {
+			status = http.StatusForbidden
+		} else if strings.Contains(err.Error(), "not found") {
+			status = http.StatusNotFound
+		} else if strings.Contains(err.Error(), "unsupported algorithm") {
+			status = http.StatusBadRequest
+		}
+		c.Err = common.NewAppError("unwrapKey", "Unwrap operation failed", nil, err.Error(), status)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(UnwrapKeyResponse{
+		PlaintextKey: base64.StdEncoding.EncodeToString(result.PlaintextKey),
+		Algorithm:    result.Algorithm,
+	})
 }
