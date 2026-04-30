@@ -644,7 +644,10 @@ func TestRequestIDMiddleware(t *testing.T) {
 		requestID, ok := r.Context().Value(requestIDKey).(string)
 		assert.True(t, ok, "Request ID should be in context")
 		assert.NotEmpty(t, requestID, "Request ID should not be empty")
-		assert.Contains(t, requestID, "req_", "Request ID should have prefix")
+
+		// Verify it's a valid UUID.
+		_, err := uuid.Parse(requestID)
+		assert.NoError(t, err, "Request ID should be a valid UUID")
 
 		w.WriteHeader(http.StatusOK)
 	})
@@ -659,7 +662,10 @@ func TestRequestIDMiddleware(t *testing.T) {
 	// Verify request ID is in response header
 	requestID := rr.Header().Get("X-Request-ID")
 	assert.NotEmpty(t, requestID)
-	assert.Contains(t, requestID, "req_")
+
+	// Verify it's a valid UUID.
+	_, err := uuid.Parse(requestID)
+	assert.NoError(t, err, "Request ID in response header should be a valid UUID")
 	assert.Equal(t, http.StatusOK, rr.Code)
 }
 
@@ -667,14 +673,34 @@ func TestRequestIDMiddleware(t *testing.T) {
 func TestGenerateRequestID(t *testing.T) {
 	t.Parallel()
 	id1 := generateRequestID()
-	time.Sleep(1 * time.Millisecond) // Ensure different timestamp
 	id2 := generateRequestID()
 
 	assert.NotEmpty(t, id1)
 	assert.NotEmpty(t, id2)
 	assert.NotEqual(t, id1, id2, "Request IDs should be unique")
-	assert.Contains(t, id1, "req_")
-	assert.Contains(t, id2, "req_")
+
+	// Verify both are valid UUIDs.
+	_, err1 := uuid.Parse(id1)
+	assert.NoError(t, err1)
+	_, err2 := uuid.Parse(id2)
+	assert.NoError(t, err2)
+}
+
+// TestGenerateRequestID_Unique tests that request IDs are unique even when generated in rapid succession.
+func TestGenerateRequestID_Unique(t *testing.T) {
+	ids := make(map[string]bool, 1000)
+	for i := 0; i < 1000; i++ {
+		id := generateRequestID()
+		assert.False(t, ids[id], "request IDs must be unique; collision at i=%d", i)
+		ids[id] = true
+	}
+}
+
+// TestGenerateRequestID_IsUUID tests that request ID is a valid UUID.
+func TestGenerateRequestID_IsUUID(t *testing.T) {
+	id := generateRequestID()
+	_, err := uuid.Parse(id)
+	assert.NoError(t, err, "request ID must be a valid UUID")
 }
 
 // TestAuthMiddlewareDeprecated tests the deprecated auth middleware.

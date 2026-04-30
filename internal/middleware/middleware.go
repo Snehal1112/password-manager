@@ -455,8 +455,7 @@ func (m *Middleware) RequestIDMiddleware(next http.Handler) http.Handler {
 
 // generateRequestID creates a unique request identifier.
 func generateRequestID() string {
-	// Simple implementation - in production, use a more robust UUID library
-	return fmt.Sprintf("req_%d", time.Now().UnixNano())
+	return uuid.New().String()
 }
 
 // RequestBodySizeLimitMiddleware rejects requests that exceed the allowed body size.
