@@ -39,10 +39,11 @@ type CreateKeyResult struct {
 
 // UpdateKeyRequest represents a request to update an existing key.
 type UpdateKeyRequest struct {
-	KeyID  uuid.UUID
-	Name   *string   // Optional - nil means no change
-	Tags   []string  // Optional - empty means no change
-	UserID uuid.UUID // For access control
+	KeyID   uuid.UUID
+	Name    *string   // Optional - nil means no change
+	Tags    []string  // Optional - empty means no change
+	Revoked *bool     // Optional - nil means no change
+	UserID  uuid.UUID // For access control
 }
 
 // KeyService handles cryptographic key management operations.
@@ -366,6 +367,11 @@ func (s *keyService) UpdateKey(ctx context.Context, req UpdateKeyRequest) error 
 	// Update tags if provided
 	if len(req.Tags) > 0 {
 		updatedKey.Tags = req.Tags
+	}
+
+	// Update revocation status if provided.
+	if req.Revoked != nil {
+		updatedKey.Revoked = *req.Revoked
 	}
 
 	// Update key via repository
