@@ -12,6 +12,16 @@ import (
 "rocketvault/internal/domain"
 )
 
+// InitAccessPolicies registers access policy management routes on the provided router.
+func (api *API) InitAccessPolicies(r *mux.Router) {
+	r.Handle("", SessionRequired(api.App, listAccessPolicies)).Methods("GET")
+	r.Handle("", SessionRequired(api.App, createAccessPolicy)).Methods("POST")
+	r.Handle("/{id:[A-Fa-f0-9-]+}", SessionRequired(api.App, getAccessPolicy)).Methods("GET")
+	r.Handle("/{id:[A-Fa-f0-9-]+}", SessionRequired(api.App, updateAccessPolicy)).Methods("PUT")
+	r.Handle("/{id:[A-Fa-f0-9-]+}", SessionRequired(api.App, deleteAccessPolicy)).Methods("DELETE")
+	r.Handle("/principal/{principalId:[A-Fa-f0-9-]+}", SessionRequired(api.App, listAccessPoliciesByPrincipal)).Methods("GET")
+}
+
 // listAccessPolicies returns all access policies (admin operation).
 // GET /access-policies
 func listAccessPolicies(c *Context, w http.ResponseWriter, r *http.Request) {

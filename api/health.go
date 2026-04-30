@@ -26,9 +26,27 @@ import (
 	"encoding/json"
 	"net/http"
 
+	"github.com/gorilla/mux"
+
 	"rocketvault/internal/health"
 	"rocketvault/internal/logging"
 )
+
+// InitHealth registers health check routes on the provided router.
+func (api *API) InitHealth(r *mux.Router) {
+	r.Handle("/ready", Handler(api.App, func(c *Context, w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
+	})).Methods("GET")
+	r.Handle("/live", Handler(api.App, func(c *Context, w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
+	})).Methods("GET")
+	r.Handle("", Handler(api.App, func(c *Context, w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
+	})).Methods("GET")
+}
 
 // HealthHandler handles health check endpoints
 type HealthHandler struct {
