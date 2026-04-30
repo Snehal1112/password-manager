@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"testing"
 	"time"
 
@@ -13,6 +14,8 @@ import (
 	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
+	"github.com/ulule/limiter/v3"
+	"github.com/ulule/limiter/v3/drivers/store/memory"
 
 	"rocketvault/common"
 	"rocketvault/internal/domain"
@@ -273,6 +276,44 @@ func TestRateLimitMiddleware(t *testing.T) {
 		wrappedHandler.ServeHTTP(rr, req)
 		assert.Equal(t, http.StatusTooManyRequests, rr.Code, "6th request to auth endpoint should be rate limited")
 	})
+}
+
+// TestRateLimitMiddleware_UsesIPNotAddrPort verifies that rate limiting uses IP address
+// (not RemoteAddr with port) as the key. Two requests from the same IP but different ports
+// must share the rate limit counter.
+func TestRateLimitMiddleware_UsesIPNotAddrPort(t *testing.T) {
+	t.Parallel()
+	logger := &logging.Logger{Logger: logrus.New()}
+	logger.SetLevel(logrus.ErrorLevel)
+
+	m := &Middleware{
+		logger:         logger,
+		defaultLimiter: limiter.New(memory.NewStore(), limiter.Rate{Period: time.Minute, Limit: 60}),
+		authLimiter:    limiter.New(memory.NewStore(), limiter.Rate{Period: time.Minute, Limit: 5}),
+	}
+
+	handler := m.RateLimitMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+
+	// First request from 10.0.0.1:11111
+	req1 := httptest.NewRequest(http.MethodGet, "/api/vault", nil)
+	req1.RemoteAddr = "10.0.0.1:11111"
+	rr1 := httptest.NewRecorder()
+	handler.ServeHTTP(rr1, req1)
+
+	// Second request from same IP but different port (10.0.0.1:22222)
+	req2 := httptest.NewRequest(http.MethodGet, "/api/vault", nil)
+	req2.RemoteAddr = "10.0.0.1:22222"
+	rr2 := httptest.NewRecorder()
+	handler.ServeHTTP(rr2, req2)
+
+	rem1, _ := strconv.Atoi(rr1.Header().Get("X-RateLimit-Remaining"))
+	rem2, _ := strconv.Atoi(rr2.Header().Get("X-RateLimit-Remaining"))
+
+	// The second request should have one less remaining count than the first,
+	// proving they share the same rate limit counter (same IP).
+	assert.Equal(t, rem1-1, rem2, "same IP different port must share the rate limit counter")
 }
 
 // TestAuthenticationMiddleware tests JWT authentication.

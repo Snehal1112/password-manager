@@ -6,6 +6,7 @@ package middleware
 import (
 	"context"
 	"fmt"
+	"net"
 	"net/http"
 	"strings"
 	"time"
@@ -72,13 +73,14 @@ type Middleware struct {
 //
 //	A Middleware instance with injected dependencies.
 func NewMiddleware(container Container) *Middleware {
-	store := memory.NewStore()
+	defaultStore := memory.NewStore()
+	authStore := memory.NewStore()
 
-	defaultLimiter := limiter.New(store, limiter.Rate{
+	defaultLimiter := limiter.New(defaultStore, limiter.Rate{
 		Period: time.Minute,
 		Limit:  60,
 	})
-	authLimiter := limiter.New(store, limiter.Rate{
+	authLimiter := limiter.New(authStore, limiter.Rate{
 		Period: time.Minute,
 		Limit:  5,
 	})
@@ -142,8 +144,15 @@ func (m *Middleware) LoggingMiddleware(next http.Handler) http.Handler {
 // Default: 60 requests/minute, Auth endpoints: 5 requests/minute.
 func (m *Middleware) RateLimitMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// Use client IP as the key for rate limiting
-		key := r.RemoteAddr
+		// Extract IP address from RemoteAddr (which includes port).
+		// Use IP address (not RemoteAddr with port) as the rate limit key
+		// so that connections from the same IP share the rate limit counter.
+		ip, _, err := net.SplitHostPort(r.RemoteAddr)
+		if err != nil {
+			// Fallback for plain IPs without port (shouldn't happen in normal HTTP).
+			ip = r.RemoteAddr
+		}
+		key := ip
 
 		// Select appropriate limiter based on endpoint
 		selectedLimiter := m.defaultLimiter
