@@ -125,6 +125,7 @@ func persistentPreRun(cmd *cobra.Command, args []string) error {
 	systemCmds := map[string]bool{
 		"health":          true,
 		"backup":          true,
+		"serve":           true, // Server startup doesn't require prior authentication
 		"admin":           true, // Allow admin registration without prior authentication
 		"migrate":         true, // Database migrations don't require authentication
 		"migrate:status":  true, // Migration status check

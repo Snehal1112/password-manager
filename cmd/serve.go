@@ -25,7 +25,6 @@ package cmd
 import (
 	"fmt"
 
-	"github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 
@@ -56,13 +55,8 @@ var bootstrapConfig = &bootstrap.Config{}
 var serveCmd = &cobra.Command{
 	Use:   "serve",
 	Short: "Start the API server",
-	PersistentPreRun: func(cmd *cobra.Command, args []string) {
-	},
 	RunE: func(cmd *cobra.Command, args []string) error {
 		return serve(cmd)
-	},
-	PersistentPostRun: func(cmd *cobra.Command, args []string) {
-		logrus.Info("Persistent PostRun called from serve for command:", cmd.Name())
 	},
 }
 
