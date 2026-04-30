@@ -103,20 +103,20 @@ func NewAuthenticationService(config AuthenticationConfig) AuthenticationService
 //
 //	Authentication result with access token, refresh token, and user information, or an error if authentication fails.
 func (s *authenticationService) AuthenticateUser(ctx context.Context, username, password, totpCode string) (*AuthenticationResult, error) {
-	logrus.WithField("username", username).Info("Starting user authentication")
+	s.logger.WithField("username", username).Info("Starting user authentication")
 
 	// Retrieve user from repository
 	user, err := s.userRepo.ReadByUsername(ctx, username)
 	if err != nil {
 		s.logger.LogAuditError("", "authenticate_user", "failed", "User not found", err)
-		logrus.WithField("username", username).Warn("Authentication failed: user not found")
+		s.logger.WithField("username", username).Warn("Authentication failed: user not found")
 		return nil, fmt.Errorf("invalid credentials")
 	}
 
 	// Validate password
 	if err := s.passwordService.ValidatePassword(password, user.PasswordHash); err != nil {
 		s.logger.LogAuditError(user.ID.String(), "authenticate_user", "failed", "Invalid password", err)
-		logrus.WithFields(logrus.Fields{
+		s.logger.WithFields(logrus.Fields{
 			"username": username,
 			"user_id":  user.ID.String(),
 		}).Warn("Authentication failed: invalid password")
@@ -127,13 +127,13 @@ func (s *authenticationService) AuthenticateUser(ctx context.Context, username, 
 	valid, err := s.totpService.ValidateCode(totpCode, user.TOTPSecret, time.Now())
 	if err != nil {
 		s.logger.LogAuditError(user.ID.String(), "authenticate_user", "failed", "TOTP validation error", err)
-		logrus.WithError(err).Error("TOTP validation error")
+		s.logger.WithError(err).Error("TOTP validation error")
 		return nil, fmt.Errorf("authentication failed: %w", err)
 	}
 
 	if !valid {
 		s.logger.LogAuditError(user.ID.String(), "authenticate_user", "failed", "Invalid TOTP code", nil)
-		logrus.WithFields(logrus.Fields{
+		s.logger.WithFields(logrus.Fields{
 			"username": username,
 			"user_id":  user.ID.String(),
 		}).Warn("Authentication failed: invalid TOTP code")
@@ -144,7 +144,7 @@ func (s *authenticationService) AuthenticateUser(ctx context.Context, username, 
 	accessToken, err := s.jwtService.GenerateToken(user.ID, user.Username, user.Role)
 	if err != nil {
 		s.logger.LogAuditError(user.ID.String(), "authenticate_user", "failed", "Failed to generate JWT token", err)
-		logrus.WithError(err).Error("Failed to generate JWT token")
+		s.logger.WithError(err).Error("Failed to generate JWT token")
 		return nil, fmt.Errorf("authentication failed: %w", err)
 	}
 
@@ -152,7 +152,7 @@ func (s *authenticationService) AuthenticateUser(ctx context.Context, username, 
 	refreshToken, err := s.generateRefreshToken()
 	if err != nil {
 		s.logger.LogAuditError(user.ID.String(), "authenticate_user", "failed", "Failed to generate refresh token", err)
-		logrus.WithError(err).Error("Failed to generate refresh token")
+		s.logger.WithError(err).Error("Failed to generate refresh token")
 		return nil, fmt.Errorf("authentication failed: %w", err)
 	}
 
@@ -172,16 +172,16 @@ func (s *authenticationService) AuthenticateUser(ctx context.Context, username, 
 
 	if err := s.sessionRepo.CreateSession(ctx, session); err != nil {
 		s.logger.LogAuditError(user.ID.String(), "authenticate_user", "failed", "Failed to create session", err)
-		logrus.WithError(err).Error("Failed to create session")
+		s.logger.WithError(err).Error("Failed to create session")
 		return nil, fmt.Errorf("authentication failed: %w", err)
 	}
 
 	// Log successful authentication
 	s.logger.LogAuditInfo(user.ID.String(), "authenticate_user", "success", "User authenticated successfully")
-	logrus.WithFields(logrus.Fields{
-		"username": username,
-		"user_id":  user.ID.String(),
-		"role":     user.Role,
+	s.logger.WithFields(logrus.Fields{
+		"username":   username,
+		"user_id":    user.ID.String(),
+		"role":       user.Role,
 		"session_id": session.ID.String(),
 	}).Info("User authenticated successfully with session")
 
@@ -233,7 +233,7 @@ func (s *authenticationService) ValidateSession(ctx context.Context, token strin
 //
 //	Refresh token result with new access token and optional new refresh token, or an error if refresh fails.
 func (s *authenticationService) RefreshAccessToken(ctx context.Context, refreshToken string) (*RefreshTokenResult, error) {
-	logrus.Info("Starting token refresh")
+	s.logger.Info("Starting token refresh")
 
 	// Hash the refresh token for database lookup
 	refreshTokenHash := s.hashRefreshToken(refreshToken)
@@ -242,21 +242,21 @@ func (s *authenticationService) RefreshAccessToken(ctx context.Context, refreshT
 	session, err := s.sessionRepo.GetSessionByRefreshToken(ctx, refreshTokenHash)
 	if err != nil {
 		s.logger.LogAuditError("", "refresh_access_token", "failed", "Invalid or expired refresh token", err)
-		logrus.WithError(err).Warn("Token refresh failed: invalid refresh token")
+		s.logger.WithError(err).Warn("Token refresh failed: invalid refresh token")
 		return nil, fmt.Errorf("invalid refresh token")
 	}
 
 	// Check if session is revoked
 	if session.Revoked {
 		s.logger.LogAuditError(session.UserID.String(), "refresh_access_token", "failed", "Session is revoked", nil)
-		logrus.WithField("session_id", session.ID.String()).Warn("Token refresh failed: session revoked")
+		s.logger.WithField("session_id", session.ID.String()).Warn("Token refresh failed: session revoked")
 		return nil, fmt.Errorf("session revoked")
 	}
 
 	// Check if session has expired
 	if time.Now().After(session.ExpiresAt) {
 		s.logger.LogAuditError(session.UserID.String(), "refresh_access_token", "failed", "Session expired", nil)
-		logrus.WithField("session_id", session.ID.String()).Warn("Token refresh failed: session expired")
+		s.logger.WithField("session_id", session.ID.String()).Warn("Token refresh failed: session expired")
 		return nil, fmt.Errorf("session expired")
 	}
 
@@ -264,7 +264,7 @@ func (s *authenticationService) RefreshAccessToken(ctx context.Context, refreshT
 	user, err := s.userRepo.Read(ctx, session.UserID)
 	if err != nil {
 		s.logger.LogAuditError(session.UserID.String(), "refresh_access_token", "failed", "User not found", err)
-		logrus.WithError(err).Error("Token refresh failed: user not found")
+		s.logger.WithError(err).Error("Token refresh failed: user not found")
 		return nil, fmt.Errorf("user not found")
 	}
 
@@ -272,26 +272,26 @@ func (s *authenticationService) RefreshAccessToken(ctx context.Context, refreshT
 	accessToken, err := s.jwtService.GenerateToken(user.ID, user.Username, user.Role)
 	if err != nil {
 		s.logger.LogAuditError(user.ID.String(), "refresh_access_token", "failed", "Failed to generate access token", err)
-		logrus.WithError(err).Error("Token refresh failed: could not generate access token")
+		s.logger.WithError(err).Error("Token refresh failed: could not generate access token")
 		return nil, fmt.Errorf("failed to generate access token")
 	}
 
 	// Update session last used time
 	if err := s.sessionRepo.UpdateSessionLastUsed(ctx, session.ID, time.Now()); err != nil {
 		s.logger.LogAuditError(user.ID.String(), "refresh_access_token", "failed", "Failed to update session last used", err)
-		logrus.WithError(err).Warn("Token refresh failed: could not update session last used")
-		// Continue with refresh even if this fails
+		s.logger.WithError(err).Warn("Token refresh failed: could not update session last used")
+		// Continue with refresh even if this fails.
 	}
 
-	// For now, we'll keep the same refresh token (no rotation)
-	// In a production system, you might want to implement refresh token rotation
+	// For now, we'll keep the same refresh token (no rotation).
+	// In a production system, you might want to implement refresh token rotation.
 
 	// Log successful token refresh
 	s.logger.LogAuditInfo(user.ID.String(), "refresh_access_token", "success", "Access token refreshed successfully")
-	logrus.WithFields(logrus.Fields{
-		"user_id":     user.ID.String(),
-		"username":    user.Username,
-		"session_id":  session.ID.String(),
+	s.logger.WithFields(logrus.Fields{
+		"user_id":    user.ID.String(),
+		"username":   user.Username,
+		"session_id": session.ID.String(),
 	}).Info("Access token refreshed successfully")
 
 	return &RefreshTokenResult{
@@ -324,12 +324,12 @@ func (s *authenticationService) RevokeSession(ctx context.Context, sessionID str
 
 	if err := s.sessionRepo.RevokeSession(ctx, sessionIDUUID, reason); err != nil {
 		s.logger.LogAuditError(sessionID, "revoke_session", "failed", "Failed to revoke session", err)
-		logrus.WithError(err).Error("Failed to revoke session")
+		s.logger.WithError(err).Error("Failed to revoke session")
 		return fmt.Errorf("failed to revoke session: %w", err)
 	}
 
 	s.logger.LogAuditInfo(sessionID, "revoke_session", "success", fmt.Sprintf("Session revoked: %s", reason))
-	logrus.WithFields(logrus.Fields{
+	s.logger.WithFields(logrus.Fields{
 		"session_id": sessionID,
 		"reason":     reason,
 	}).Info("Session revoked successfully")
@@ -351,12 +351,12 @@ func (s *authenticationService) RevokeSession(ctx context.Context, sessionID str
 func (s *authenticationService) RevokeAllUserSessions(ctx context.Context, userID uuid.UUID, reason string) error {
 	if err := s.sessionRepo.RevokeAllUserSessions(ctx, userID, reason); err != nil {
 		s.logger.LogAuditError(userID.String(), "revoke_all_sessions", "failed", "Failed to revoke all user sessions", err)
-		logrus.WithError(err).Error("Failed to revoke all user sessions")
+		s.logger.WithError(err).Error("Failed to revoke all user sessions")
 		return fmt.Errorf("failed to revoke all user sessions: %w", err)
 	}
 
 	s.logger.LogAuditInfo(userID.String(), "revoke_all_sessions", "success", fmt.Sprintf("All sessions revoked: %s", reason))
-	logrus.WithFields(logrus.Fields{
+	s.logger.WithFields(logrus.Fields{
 		"user_id": userID.String(),
 		"reason":  reason,
 	}).Info("All user sessions revoked successfully")

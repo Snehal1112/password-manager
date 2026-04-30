@@ -34,6 +34,7 @@ type jwtService struct {
 	issuer    string
 	audience  string
 	expiry    time.Duration
+	logger    *logrus.Logger
 }
 
 // JWTConfig holds configuration for JWT service.
@@ -42,6 +43,8 @@ type JWTConfig struct {
 	Issuer    string
 	Audience  string
 	Expiry    time.Duration
+	// Logger is the logrus instance to use. Falls back to the global logger when nil.
+	Logger *logrus.Logger
 }
 
 // NewJWTService creates a new JWTService with the provided configuration.
@@ -56,11 +59,16 @@ type JWTConfig struct {
 //
 //	A JWTService implementation for token operations.
 func NewJWTService(config JWTConfig) JWTService {
+	logger := config.Logger
+	if logger == nil {
+		logger = logrus.StandardLogger()
+	}
 	return &jwtService{
 		secretKey: []byte(config.SecretKey),
 		issuer:    config.Issuer,
 		audience:  config.Audience,
 		expiry:    config.Expiry,
+		logger:    logger,
 	}
 }
 
@@ -99,7 +107,7 @@ func (s *jwtService) GenerateToken(userID uuid.UUID, username, role string) (str
 		return "", fmt.Errorf("failed to sign JWT token: %w", err)
 	}
 
-	logrus.WithFields(logrus.Fields{
+	s.logger.WithFields(logrus.Fields{
 		"user_id":  userID.String(),
 		"username": username,
 		"role":     role,
@@ -123,15 +131,15 @@ func (s *jwtService) ValidateToken(tokenString string) (*JWTClaims, error) {
 	claims := &JWTClaims{}
 
 	token, err := jwt.ParseWithClaims(tokenString, claims, func(token *jwt.Token) (interface{}, error) {
-		// Validate signing method
+		// Validate signing method.
 		if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
-			logrus.WithField("alg", token.Header["alg"]).Warn("Unexpected JWT signing method")
+			s.logger.WithField("alg", token.Header["alg"]).Warn("Unexpected JWT signing method")
 			return nil, fmt.Errorf("unexpected signing method: %v", token.Header["alg"])
 		}
 
-		// Validate issuer
+		// Validate issuer.
 		if claims.Issuer != s.issuer {
-			logrus.WithFields(logrus.Fields{
+			s.logger.WithFields(logrus.Fields{
 				"expected": s.issuer,
 				"actual":   claims.Issuer,
 			}).Warn("JWT issuer mismatch")
@@ -141,18 +149,18 @@ func (s *jwtService) ValidateToken(tokenString string) (*JWTClaims, error) {
 		return s.secretKey, nil
 	})
 	if err != nil {
-		logrus.WithError(err).Error("JWT token validation failed")
+		s.logger.WithError(err).Error("JWT token validation failed")
 		return nil, fmt.Errorf("invalid JWT token: %w", err)
 	}
 
 	if !token.Valid {
-		logrus.Error("JWT token is invalid")
+		s.logger.Error("JWT token is invalid")
 		return nil, fmt.Errorf("invalid JWT token")
 	}
 
 	validClaims, ok := token.Claims.(*JWTClaims)
 	if !ok {
-		logrus.Error("Invalid JWT claims type")
+		s.logger.Error("Invalid JWT claims type")
 		return nil, fmt.Errorf("invalid JWT claims")
 	}
 

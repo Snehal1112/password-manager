@@ -241,6 +241,7 @@ func (c *ServiceContainer) initializeServices() error {
 		Issuer:    c.viper.GetString("oauth2.issuer"),
 		Audience:  "PASSWORD_MANAGER",
 		Expiry:    jwtExpiry,
+		Logger:    c.logger.Logger, // Inject the underlying *logrus.Logger.
 	}
 	if jwtConfig.SecretKey == "" {
 		return fmt.Errorf("JWT secret not configured")
