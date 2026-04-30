@@ -23,21 +23,17 @@ THE SOFTWARE.
 package secrets
 
 import (
-	"context"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
-	"time"
 
 	"github.com/google/uuid"
 	"github.com/spf13/cobra"
 
 	"rocketvault/common"
-	"rocketvault/internal/db"
-	"rocketvault/internal/domain"
-	"rocketvault/internal/logging"
-	"rocketvault/internal/repositories"
+	"rocketvault/internal/container"
+	secretServices "rocketvault/internal/services/secrets"
 )
 
 var (
@@ -46,129 +42,67 @@ var (
 	exportEncrypt    bool
 	exportTags       []string
 	exportFilterTags []string
-	exportUsername   string
 )
 
-// secretsExportCmd represents the export command
 var secretsExportCmd = &cobra.Command{
 	Use:   "export",
-	Short: "Export secrets to encrypted file",
-	Long: `Export secrets to an encrypted JSON or CSV file format.
-The export includes all secrets for the specified user with optional tag filtering.
-The exported file is encrypted using the master key for security.`,
-	Example: `  # Export all secrets to encrypted JSON
-  secrets export --format json --file secrets.json --encrypt
-
-  # Export secrets with specific tags to CSV
-  secrets export --format csv --file secrets.csv --tags production,api --encrypt
-
-  # Export unencrypted JSON for development
-  secrets export --format json --file secrets-dev.json --username dev-user`,
+	Short: "Export secrets to a file",
+	Long: `Export secrets to an encrypted JSON or CSV file.
+The export includes all secrets for the authenticated user with optional tag filtering.`,
+	Example: `  secrets export --format json --file secrets.json
+  secrets export --format csv  --file secrets.csv --tags production`,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		return runSecretsExport(cmd)
+		ctx := cmd.Context()
+
+		userID, ok := ctx.Value(common.UserIDKey).(uuid.UUID)
+		if !ok {
+			return fmt.Errorf("user not authenticated")
+		}
+
+		sc, ok := ctx.Value(common.ServiceContainerKey).(container.ServiceContainerInterface)
+		if !ok || sc == nil {
+			return fmt.Errorf("service container not available in context")
+		}
+
+		format := strings.ToLower(exportFormat)
+		if format != "json" && format != "csv" {
+			return fmt.Errorf("unsupported format: %s (supported: json, csv)", exportFormat)
+		}
+
+		allTags := append(exportTags, exportFilterTags...)
+
+		data, err := sc.GetSecretService().ExportSecrets(ctx, secretServices.ExportSecretsRequest{
+			UserID:      userID,
+			Format:      format,
+			FilterTags:  allTags,
+			IncludeTags: true,
+		})
+		if err != nil {
+			return fmt.Errorf("failed to export secrets: %w", err)
+		}
+
+		dir := filepath.Dir(exportFile)
+		if dir != "." {
+			if err := os.MkdirAll(dir, 0o755); err != nil {
+				return fmt.Errorf("failed to create output directory: %w", err)
+			}
+		}
+		if err := os.WriteFile(exportFile, data, 0o600); err != nil {
+			return fmt.Errorf("failed to write export file: %w", err)
+		}
+
+		fmt.Printf("Secrets exported successfully\nFormat: %s\nFile: %s\n", format, exportFile)
+		return nil
 	},
 }
 
-// InitSecretsExport initializes the secrets export command.
+// InitSecretsExport registers the export sub-command under the given parent.
 func InitSecretsExport(parentCmd *cobra.Command) {
 	parentCmd.AddCommand(secretsExportCmd)
-
 	secretsExportCmd.Flags().StringVarP(&exportFormat, "format", "f", "json", "Export format (json or csv)")
 	secretsExportCmd.Flags().StringVarP(&exportFile, "file", "o", "", "Output file path (required)")
 	secretsExportCmd.Flags().BoolVarP(&exportEncrypt, "encrypt", "e", true, "Encrypt the export file")
 	secretsExportCmd.Flags().StringSliceVarP(&exportTags, "tags", "t", []string{}, "Include only secrets with these tags")
 	secretsExportCmd.Flags().StringSliceVar(&exportFilterTags, "filter-tags", []string{}, "Filter secrets by these tags")
-	secretsExportCmd.Flags().StringVarP(&exportUsername, "username", "u", "", "Username for export (defaults to current user)")
-
 	secretsExportCmd.MarkFlagRequired("file")
-}
-
-// runSecretsExport executes the secrets export command.
-func runSecretsExport(cmd *cobra.Command) error {
-	// Initialize logger
-	logger := logging.InitLogger()
-
-	// Initialize database
-	database := db.NewRepository(logger)
-	if err := database.InitializeDB(); err != nil {
-		return fmt.Errorf("failed to initialize database: %w", err)
-	}
-
-	sqlDB := database.GetDB()
-	defer sqlDB.Close()
-
-	// Initialize secrets repository
-	secretsRepo := repositories.NewSecretRepository(sqlDB, logger)
-
-	// Validate format
-	var format domain.ExportFormat
-	switch strings.ToLower(exportFormat) {
-	case "json":
-		format = domain.ExportFormatJSON
-	case "csv":
-		format = domain.ExportFormatCSV
-	default:
-		return fmt.Errorf("unsupported format: %s (supported: json, csv)", exportFormat)
-	}
-
-	// Get user ID from authentication context
-	userIDValue := cmd.Context().Value(common.UserIDKey)
-	if userIDValue == nil {
-		return fmt.Errorf("user not authenticated")
-	}
-	userID, ok := userIDValue.(uuid.UUID)
-	if !ok {
-		return fmt.Errorf("invalid user ID in context")
-	}
-
-	// Prepare export options
-	options := domain.ExportOptions{
-		Format:      format,
-		IncludeTags: true,
-		FilterTags:  append(exportTags, exportFilterTags...),
-		Encrypt:     exportEncrypt,
-		UserID:      userID,
-		ExportedAt:  time.Now(),
-		ExportedBy:  exportUsername,
-	}
-
-	// Create context
-	ctx := context.Background()
-	ctx = context.WithValue(ctx, common.DBKey, sqlDB)
-	ctx = context.WithValue(ctx, common.LogKey, logger)
-
-	// Export secrets
-	data, err := secretsRepo.ExportSecrets(ctx, options)
-	if err != nil {
-		return fmt.Errorf("failed to export secrets: %w", err)
-	}
-
-	// Ensure output directory exists
-	dir := filepath.Dir(exportFile)
-	if dir != "." {
-		if err := os.MkdirAll(dir, 0o755); err != nil {
-			return fmt.Errorf("failed to create output directory: %w", err)
-		}
-	}
-
-	// Write to file
-	if err := os.WriteFile(exportFile, data, 0o600); err != nil {
-		return fmt.Errorf("failed to write export file: %w", err)
-	}
-
-	// Success message
-	status := "encrypted"
-	if !exportEncrypt {
-		status = "unencrypted"
-	}
-
-	fmt.Printf("✅ Secrets exported successfully!\n")
-	fmt.Printf("📄 Format: %s\n", format)
-	fmt.Printf("📁 File: %s\n", exportFile)
-	fmt.Printf("🔒 Status: %s\n", status)
-	if len(options.FilterTags) > 0 {
-		fmt.Printf("🏷️  Tags: %s\n", strings.Join(options.FilterTags, ", "))
-	}
-
-	return nil
 }
