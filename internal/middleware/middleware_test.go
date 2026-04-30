@@ -498,7 +498,7 @@ func TestSecurityHeadersMiddleware(t *testing.T) {
 	})
 }
 
-// TestCORSMiddleware tests CORS headers are properly set.
+// TestCORSMiddleware tests CORS headers are properly set with configurable allowlist.
 func TestCORSMiddleware(t *testing.T) {
 	t.Parallel()
 	mw, _, _, _ := setupTestMiddleware()
@@ -539,13 +539,58 @@ func TestCORSMiddleware(t *testing.T) {
 
 			wrappedHandler.ServeHTTP(rr, req)
 
-			// Verify CORS headers
-			assert.Equal(t, "*", rr.Header().Get("Access-Control-Allow-Origin"))
-			assert.Equal(t, "GET, POST, PUT, DELETE, OPTIONS", rr.Header().Get("Access-Control-Allow-Methods"))
-			assert.Equal(t, "Content-Type, Authorization", rr.Header().Get("Access-Control-Allow-Headers"))
+			// Verify no wildcard CORS headers without Origin header
+			assert.Empty(t, rr.Header().Get("Access-Control-Allow-Origin"))
 			assert.Equal(t, tt.expectedStatus, rr.Code)
 		})
 	}
+}
+
+// TestCORSMiddleware_AllowedOrigin verifies that allowed origins receive CORS headers.
+func TestCORSMiddleware_AllowedOrigin(t *testing.T) {
+	t.Parallel()
+	m := &Middleware{
+		corsOrigins: map[string]bool{"https://app.example.com": true},
+	}
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	req.Header.Set("Origin", "https://app.example.com")
+	rr := httptest.NewRecorder()
+	m.CORSMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	})).ServeHTTP(rr, req)
+
+	assert.Equal(t, "https://app.example.com", rr.Header().Get("Access-Control-Allow-Origin"))
+	assert.Equal(t, "Origin", rr.Header().Get("Vary"))
+}
+
+// TestCORSMiddleware_DisallowedOrigin verifies that disallowed origins do not receive CORS headers.
+func TestCORSMiddleware_DisallowedOrigin(t *testing.T) {
+	t.Parallel()
+	m := &Middleware{
+		corsOrigins: map[string]bool{"https://app.example.com": true},
+	}
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	req.Header.Set("Origin", "https://evil.example.com")
+	rr := httptest.NewRecorder()
+	m.CORSMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	})).ServeHTTP(rr, req)
+
+	assert.Empty(t, rr.Header().Get("Access-Control-Allow-Origin"))
+}
+
+// TestCORSMiddleware_NoOriginHeader verifies that requests without Origin header are unaffected.
+func TestCORSMiddleware_NoOriginHeader(t *testing.T) {
+	t.Parallel()
+	m := &Middleware{corsOrigins: map[string]bool{}}
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	rr := httptest.NewRecorder()
+	m.CORSMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	})).ServeHTTP(rr, req)
+
+	assert.Empty(t, rr.Header().Get("Access-Control-Allow-Origin"))
+	assert.Equal(t, http.StatusOK, rr.Code)
 }
 
 // TestRequestIDMiddleware tests request ID generation.
@@ -679,7 +724,8 @@ func TestMiddlewareChaining(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rr.Code)
 	assert.NotEmpty(t, rr.Header().Get("X-Request-ID"))
 	assert.Equal(t, "nosniff", rr.Header().Get("X-Content-Type-Options"))
-	assert.Equal(t, "*", rr.Header().Get("Access-Control-Allow-Origin"))
+	// CORS headers are only set for allowed origins; without Origin header or allowed origin, none are set
+	assert.Empty(t, rr.Header().Get("Access-Control-Allow-Origin"))
 }
 
 // MockAccessPolicyService is a mock implementation of AccessPolicyService.

@@ -13,6 +13,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/gorilla/mux"
 	"github.com/sirupsen/logrus"
+	"github.com/spf13/viper"
 	"github.com/ulule/limiter/v3"
 	"github.com/ulule/limiter/v3/drivers/store/memory"
 
@@ -51,15 +52,17 @@ type Container interface {
 // It delegates authentication and authorization to dedicated services,
 // following the Single Responsibility Principle.
 type Middleware struct {
-	container     Container
-	logger        *logging.Logger
+	container      Container
+	logger         *logging.Logger
 	defaultLimiter *limiter.Limiter
 	authLimiter    *limiter.Limiter
+	corsOrigins    map[string]bool
 }
 
 // NewMiddleware creates a new middleware with service dependencies.
 // It uses dependency injection instead of global state access.
 // Rate limiter stores are created once here and shared across requests.
+// CORS allowed origins are loaded from configuration.
 //
 // Parameters:
 //
@@ -80,11 +83,19 @@ func NewMiddleware(container Container) *Middleware {
 		Limit:  5,
 	})
 
+	// Load CORS allowed origins from configuration.
+	allowed := viper.GetStringSlice("server.cors_allowed_origins")
+	corsOrigins := make(map[string]bool, len(allowed))
+	for _, o := range allowed {
+		corsOrigins[o] = true
+	}
+
 	return &Middleware{
 		container:      container,
 		logger:         container.GetLogger(),
 		defaultLimiter: defaultLimiter,
 		authLimiter:    authLimiter,
+		corsOrigins:    corsOrigins,
 	}
 }
 
@@ -392,15 +403,19 @@ func (m *Middleware) SecurityHeadersMiddleware(next http.Handler) http.Handler {
 }
 
 // CORSMiddleware handles Cross-Origin Resource Sharing headers.
-// It focuses solely on CORS concerns.
+// It checks the request origin against a configurable allowlist.
+// Only whitelisted origins receive CORS headers.
 func (m *Middleware) CORSMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Access-Control-Allow-Origin", "*")
-		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
-		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
+		origin := r.Header.Get("Origin")
+		if origin != "" && m.corsOrigins[origin] {
+			w.Header().Set("Access-Control-Allow-Origin", origin)
+			w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
+			w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
+			w.Header().Set("Vary", "Origin")
+		}
 
-		// Handle preflight requests
-		if r.Method == "OPTIONS" {
+		if r.Method == http.MethodOptions {
 			w.WriteHeader(http.StatusOK)
 			return
 		}
