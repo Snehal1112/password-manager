@@ -31,7 +31,8 @@ func setupSecretTestDB(t *testing.T) *sql.DB {
 		created_at       TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
 		deleted_at       TIMESTAMP NULL,
 		purge_protection BOOLEAN NOT NULL DEFAULT FALSE,
-		scheduled_purge_at TIMESTAMP NULL
+		scheduled_purge_at TIMESTAMP NULL,
+		content_type     TEXT NOT NULL DEFAULT ''
 	)`)
 	require.NoError(t, err)
 	t.Cleanup(func() { db.Close() })

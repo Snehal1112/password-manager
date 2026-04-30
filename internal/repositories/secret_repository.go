@@ -98,8 +98,8 @@ func (r *SecretRepository) Create(ctx context.Context, secret *domain.Secret) er
 	// Insert the secret into the database.
 	_, err := r.db.ExecContext(
 		ctx,
-		"INSERT INTO secrets (id, user_id, name, value, version, created_at) VALUES (?, ?, ?, ?, ?, ?)",
-		secret.ID.String(), secret.UserID.String(), secret.Name, secret.Value, secret.Version, secret.CreatedAt,
+		"INSERT INTO secrets (id, user_id, name, value, version, created_at, content_type) VALUES (?, ?, ?, ?, ?, ?, ?)",
+		secret.ID.String(), secret.UserID.String(), secret.Name, secret.Value, secret.Version, secret.CreatedAt, secret.ContentType,
 	)
 	if err != nil {
 		r.log.LogAuditError(secret.UserID.String(), "create_secret", "failed", "Failed to insert secret", err)
@@ -147,9 +147,9 @@ func (r *SecretRepository) Read(ctx context.Context, id uuid.UUID) (*domain.Secr
 
 	err := r.db.QueryRowContext(
 		ctx,
-		"SELECT id, user_id, name, value, version, created_at, deleted_at, purge_protection FROM secrets WHERE id = ? AND deleted_at IS NULL",
+		"SELECT id, user_id, name, value, version, created_at, deleted_at, purge_protection, content_type FROM secrets WHERE id = ? AND deleted_at IS NULL",
 		id.String(),
-	).Scan(&idStr, &userIDStr, &secret.Name, &secret.Value, &secret.Version, &secret.CreatedAt, &deletedAt, &purgeProtection)
+	).Scan(&idStr, &userIDStr, &secret.Name, &secret.Value, &secret.Version, &secret.CreatedAt, &deletedAt, &purgeProtection, &secret.ContentType)
 
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, fmt.Errorf("secret not found")
@@ -168,7 +168,7 @@ func (r *SecretRepository) Read(ctx context.Context, id uuid.UUID) (*domain.Secr
 		return nil, fmt.Errorf("failed to parse user ID: %w", err)
 	}
 
-	// Set soft delete fields
+	// Set soft delete fields.
 	secret.DeletedAt = deletedAt
 	secret.PurgeProtection = purgeProtection
 
@@ -195,9 +195,9 @@ func (r *SecretRepository) ReadByOwner(ctx context.Context, id, userID uuid.UUID
 
 	err := r.db.QueryRowContext(
 		ctx,
-		"SELECT id, user_id, name, value, version, created_at, deleted_at, purge_protection FROM secrets WHERE id = ? AND user_id = ? AND deleted_at IS NULL",
+		"SELECT id, user_id, name, value, version, created_at, deleted_at, purge_protection, content_type FROM secrets WHERE id = ? AND user_id = ? AND deleted_at IS NULL",
 		id.String(), userID.String(),
-	).Scan(&idStr, &userIDStr, &secret.Name, &secret.Value, &secret.Version, &secret.CreatedAt, &deletedAt, &purgeProtection)
+	).Scan(&idStr, &userIDStr, &secret.Name, &secret.Value, &secret.Version, &secret.CreatedAt, &deletedAt, &purgeProtection, &secret.ContentType)
 
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, fmt.Errorf("secret not found or access denied")
@@ -244,8 +244,8 @@ func (r *SecretRepository) Update(ctx context.Context, secret *domain.Secret) er
 
 	result, err := r.db.ExecContext(
 		ctx,
-		"UPDATE secrets SET name = ?, value = ?, version = ? WHERE id = ? AND user_id = ?",
-		secret.Name, secret.Value, secret.Version, secret.ID.String(), secret.UserID.String(),
+		"UPDATE secrets SET name = ?, value = ?, version = ?, content_type = ? WHERE id = ? AND user_id = ?",
+		secret.Name, secret.Value, secret.Version, secret.ContentType, secret.ID.String(), secret.UserID.String(),
 	)
 	if err != nil {
 		r.log.LogAuditError(secret.UserID.String(), "update_secret", "failed", "Failed to update secret", err)
@@ -466,7 +466,7 @@ func (r *SecretRepository) ListByUser(ctx context.Context, userID uuid.UUID, tag
 		// Optimized query with proper indexing and ordering - excludes soft-deleted secrets
 		rows, err := r.db.QueryContext(
 			ctx,
-			"SELECT id, user_id, name, value, version, created_at, deleted_at, purge_protection FROM secrets WHERE user_id = ? AND deleted_at IS NULL ORDER BY name ASC",
+			"SELECT id, user_id, name, value, version, created_at, deleted_at, purge_protection, content_type FROM secrets WHERE user_id = ? AND deleted_at IS NULL ORDER BY name ASC",
 			userID.String(),
 		)
 		if err != nil {
@@ -485,7 +485,7 @@ func (r *SecretRepository) ListByUser(ctx context.Context, userID uuid.UUID, tag
 			var deletedAt *time.Time
 			var purgeProtection bool
 
-			err := rows.Scan(&idStr, &userIDStr, &secret.Name, &secret.Value, &secret.Version, &secret.CreatedAt, &deletedAt, &purgeProtection)
+			err := rows.Scan(&idStr, &userIDStr, &secret.Name, &secret.Value, &secret.Version, &secret.CreatedAt, &deletedAt, &purgeProtection, &secret.ContentType)
 			if err != nil {
 				r.log.LogAuditError(userID.String(), "list_secrets", "failed", "Failed to scan secret", err)
 				return fmt.Errorf("failed to scan secret: %w", err)
@@ -550,7 +550,7 @@ func (r *SecretRepository) ListByUserIncludeDeleted(ctx context.Context, userID 
 		// Query includes soft-deleted secrets
 		rows, err := r.db.QueryContext(
 			ctx,
-			"SELECT id, user_id, name, value, version, created_at, deleted_at, purge_protection FROM secrets WHERE user_id = ? ORDER BY name ASC",
+			"SELECT id, user_id, name, value, version, created_at, deleted_at, purge_protection, content_type FROM secrets WHERE user_id = ? ORDER BY name ASC",
 			userID.String(),
 		)
 		if err != nil {
@@ -568,7 +568,7 @@ func (r *SecretRepository) ListByUserIncludeDeleted(ctx context.Context, userID 
 			var deletedAt *time.Time
 			var purgeProtection bool
 
-			err := rows.Scan(&idStr, &userIDStr, &secret.Name, &secret.Value, &secret.Version, &secret.CreatedAt, &deletedAt, &purgeProtection)
+			err := rows.Scan(&idStr, &userIDStr, &secret.Name, &secret.Value, &secret.Version, &secret.CreatedAt, &deletedAt, &purgeProtection, &secret.ContentType)
 			if err != nil {
 				r.log.LogAuditError(userID.String(), "list_secrets_include_deleted", "failed", "Failed to scan secret", err)
 				return fmt.Errorf("failed to scan secret: %w", err)
