@@ -167,15 +167,8 @@ func listSecretVersionsHandler(c *Context, w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	// Use service container for proper business logic orchestration
-	if c.App == nil || c.App.ServiceContainer == nil {
-		c.Err = common.NewAppError("listSecretVersions", "Service container not available", nil, "", http.StatusInternalServerError)
-		return
-	}
-
-	secretService := c.App.ServiceContainer.GetSecretService()
+	secretService := c.secretSvc()
 	if secretService == nil {
-		c.Err = common.NewAppError("listSecretVersions", "Secret service not available", nil, "", http.StatusInternalServerError)
 		return
 	}
 
@@ -215,15 +208,8 @@ func getSecretVersionHandler(c *Context, w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	// Use service container for proper business logic orchestration
-	if c.App == nil || c.App.ServiceContainer == nil {
-		c.Err = common.NewAppError("getSecretVersion", "Service container not available", nil, "", http.StatusInternalServerError)
-		return
-	}
-
-	secretService := c.App.ServiceContainer.GetSecretService()
+	secretService := c.secretSvc()
 	if secretService == nil {
-		c.Err = common.NewAppError("getSecretVersion", "Secret service not available", nil, "", http.StatusInternalServerError)
 		return
 	}
 
@@ -258,15 +244,8 @@ func getLatestSecretVersionHandler(c *Context, w http.ResponseWriter, r *http.Re
 		return
 	}
 
-	// Use service container for proper business logic orchestration
-	if c.App == nil || c.App.ServiceContainer == nil {
-		c.Err = common.NewAppError("getLatestSecretVersion", "Service container not available", nil, "", http.StatusInternalServerError)
-		return
-	}
-
-	secretService := c.App.ServiceContainer.GetSecretService()
+	secretService := c.secretSvc()
 	if secretService == nil {
-		c.Err = common.NewAppError("getLatestSecretVersion", "Secret service not available", nil, "", http.StatusInternalServerError)
 		return
 	}
 
@@ -323,15 +302,8 @@ func exportSecrets(c *Context, w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Use service container for proper business logic orchestration
-	if c.App == nil || c.App.ServiceContainer == nil {
-		c.Err = common.NewAppError("exportSecrets", "Service container not available", nil, "", http.StatusInternalServerError)
-		return
-	}
-
-	secretService := c.App.ServiceContainer.GetSecretService()
+	secretService := c.secretSvc()
 	if secretService == nil {
-		c.Err = common.NewAppError("exportSecrets", "Secret service not available", nil, "", http.StatusInternalServerError)
 		return
 	}
 
@@ -431,15 +403,8 @@ func importSecrets(c *Context, w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Use service container for proper business logic orchestration
-	if c.App == nil || c.App.ServiceContainer == nil {
-		c.Err = common.NewAppError("importSecrets", "Service container not available", nil, "", http.StatusInternalServerError)
-		return
-	}
-
-	secretService := c.App.ServiceContainer.GetSecretService()
+	secretService := c.secretSvc()
 	if secretService == nil {
-		c.Err = common.NewAppError("importSecrets", "Secret service not available", nil, "", http.StatusInternalServerError)
 		return
 	}
 
@@ -515,15 +480,8 @@ func createSecret(c *Context, w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Use service container for proper business logic orchestration
-	if c.App == nil || c.App.ServiceContainer == nil {
-		c.Err = common.NewAppError("createSecret", "Service container not available", nil, "", http.StatusInternalServerError)
-		return
-	}
-
-	secretService := c.App.ServiceContainer.GetSecretService()
+	secretService := c.secretSvc()
 	if secretService == nil {
-		c.Err = common.NewAppError("createSecret", "Secret service not available", nil, "", http.StatusInternalServerError)
 		return
 	}
 
@@ -587,15 +545,8 @@ func listSecrets(c *Context, w http.ResponseWriter, r *http.Request) {
 		tags = []string{tagsParam}
 	}
 
-	// Use service container for proper business logic orchestration
-	if c.App == nil || c.App.ServiceContainer == nil {
-		c.Err = common.NewAppError("createSecret", "Service container not available", nil, "", http.StatusInternalServerError)
-		return
-	}
-
-	secretService := c.App.ServiceContainer.GetSecretService()
+	secretService := c.secretSvc()
 	if secretService == nil {
-		c.Err = common.NewAppError("createSecret", "Secret service not available", nil, "", http.StatusInternalServerError)
 		return
 	}
 
@@ -655,15 +606,8 @@ func getSecret(c *Context, w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Use service container for proper business logic orchestration
-	if c.App == nil || c.App.ServiceContainer == nil {
-		c.Err = common.NewAppError("createSecret", "Service container not available", nil, "", http.StatusInternalServerError)
-		return
-	}
-
-	secretService := c.App.ServiceContainer.GetSecretService()
+	secretService := c.secretSvc()
 	if secretService == nil {
-		c.Err = common.NewAppError("createSecret", "Secret service not available", nil, "", http.StatusInternalServerError)
 		return
 	}
 
@@ -726,15 +670,8 @@ func updateSecret(c *Context, w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Use service container for proper business logic orchestration
-	if c.App == nil || c.App.ServiceContainer == nil {
-		c.Err = common.NewAppError("createSecret", "Service container not available", nil, "", http.StatusInternalServerError)
-		return
-	}
-
-	secretService := c.App.ServiceContainer.GetSecretService()
+	secretService := c.secretSvc()
 	if secretService == nil {
-		c.Err = common.NewAppError("createSecret", "Secret service not available", nil, "", http.StatusInternalServerError)
 		return
 	}
 
@@ -823,15 +760,8 @@ func deleteSecret(c *Context, w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Use service container for proper business logic orchestration
-	if c.App == nil || c.App.ServiceContainer == nil {
-		c.Err = common.NewAppError("deleteSecret", "Service container not available", nil, "", http.StatusInternalServerError)
-		return
-	}
-
-	secretService := c.App.ServiceContainer.GetSecretService()
+	secretService := c.secretSvc()
 	if secretService == nil {
-		c.Err = common.NewAppError("deleteSecret", "Secret service not available", nil, "", http.StatusInternalServerError)
 		return
 	}
 
@@ -897,15 +827,8 @@ func generateSecret(c *Context, w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Use service container for proper business logic orchestration
-	if c.App == nil || c.App.ServiceContainer == nil {
-		c.Err = common.NewAppError("generateSecret", "Service container not available", nil, "", http.StatusInternalServerError)
-		return
-	}
-
-	secretService := c.App.ServiceContainer.GetSecretService()
+	secretService := c.secretSvc()
 	if secretService == nil {
-		c.Err = common.NewAppError("generateSecret", "Secret service not available", nil, "", http.StatusInternalServerError)
 		return
 	}
 

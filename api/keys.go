@@ -133,8 +133,10 @@ func createKey(c *Context, w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Get key service from service container
-	keyService := c.App.ServiceContainer.GetKeyService()
+	keyService := c.keySvc()
+	if keyService == nil {
+		return
+	}
 
 	// Build create key request
 	createReq := keyservices.CreateKeyRequest{
@@ -217,8 +219,10 @@ func listKeys(c *Context, w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// Get key service from service container
-	keyService := c.App.ServiceContainer.GetKeyService()
+	keyService := c.keySvc()
+	if keyService == nil {
+		return
+	}
 
 	// Check if user is admin - admins can list all keys
 	roleStr, ok := c.Claims["role"].(string)
@@ -278,8 +282,10 @@ func getKey(c *Context, w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Get key service from service container
-	keyService := c.App.ServiceContainer.GetKeyService()
+	keyService := c.keySvc()
+	if keyService == nil {
+		return
+	}
 
 	// Check authorization - users can only access their own keys, admins can access all
 	roleStr, ok := c.Claims["role"].(string)
@@ -354,8 +360,10 @@ func updateKey(c *Context, w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Get key service from service container
-	keyService := c.App.ServiceContainer.GetKeyService()
+	keyService := c.keySvc()
+	if keyService == nil {
+		return
+	}
 
 	// Use service layer for update with access control
 	updateReq := keyservices.UpdateKeyRequest{
@@ -413,8 +421,10 @@ func deleteKey(c *Context, w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Get key service from service container
-	keyService := c.App.ServiceContainer.GetKeyService()
+	keyService := c.keySvc()
+	if keyService == nil {
+		return
+	}
 
 	// Use service layer for deletion with access control
 	if err := keyService.DeleteKey(r.Context(), keyID, userID); err != nil {
@@ -447,8 +457,10 @@ func rotateKey(c *Context, w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Get key service from service container
-	keyService := c.App.ServiceContainer.GetKeyService()
+	keyService := c.keySvc()
+	if keyService == nil {
+		return
+	}
 
 	// Rotate the key using service (handles authorization internally)
 	result, err := keyService.RotateKey(r.Context(), keyID, userID)

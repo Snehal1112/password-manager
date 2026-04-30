@@ -34,6 +34,10 @@ import (
 	"rocketvault/app"
 	"rocketvault/common"
 	"rocketvault/internal/logging"
+	certServices "rocketvault/internal/services/certificates"
+	keyServices "rocketvault/internal/services/keys"
+	secretServices "rocketvault/internal/services/secrets"
+	userServices "rocketvault/internal/services/users"
 )
 
 // Context holds the contextual information for a request in the vault-service application.
@@ -207,4 +211,40 @@ func SessionRequired(a *app.App, handler func(*Context, http.ResponseWriter, *ht
 			})
 		}
 	}
+}
+
+// secretSvc returns the secret service, setting c.Err if unavailable.
+func (c *Context) secretSvc() secretServices.SecretService {
+	if c.App == nil || c.App.ServiceContainer == nil {
+		c.Err = common.NewAppError("internal", "Service unavailable", nil, "service container is nil", http.StatusInternalServerError)
+		return nil
+	}
+	return c.App.ServiceContainer.GetSecretService()
+}
+
+// keySvc returns the key service, setting c.Err if unavailable.
+func (c *Context) keySvc() keyServices.KeyService {
+	if c.App == nil || c.App.ServiceContainer == nil {
+		c.Err = common.NewAppError("internal", "Service unavailable", nil, "service container is nil", http.StatusInternalServerError)
+		return nil
+	}
+	return c.App.ServiceContainer.GetKeyService()
+}
+
+// userSvc returns the user service, setting c.Err if unavailable.
+func (c *Context) userSvc() userServices.UserService {
+	if c.App == nil || c.App.ServiceContainer == nil {
+		c.Err = common.NewAppError("internal", "Service unavailable", nil, "service container is nil", http.StatusInternalServerError)
+		return nil
+	}
+	return c.App.ServiceContainer.GetUserService()
+}
+
+// certSvc returns the certificate service, setting c.Err if unavailable.
+func (c *Context) certSvc() certServices.CertificateService {
+	if c.App == nil || c.App.ServiceContainer == nil {
+		c.Err = common.NewAppError("internal", "Service unavailable", nil, "service container is nil", http.StatusInternalServerError)
+		return nil
+	}
+	return c.App.ServiceContainer.GetCertificateService()
 }

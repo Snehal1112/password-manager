@@ -215,13 +215,11 @@ func createUser(c *Context, w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Use service container for user creation
-	if c.App.ServiceContainer == nil {
-		c.Err = common.NewAppError("createUser", "Service container not available", nil, "", http.StatusInternalServerError)
+	userSvc := c.userSvc()
+	if userSvc == nil {
 		return
 	}
 
-	userSvc := c.App.ServiceContainer.GetUserService()
 	result, err := userSvc.CreateUser(r.Context(), userService.CreateUserRequest{
 		Username: req.Username,
 		Password: req.Password,
@@ -285,13 +283,11 @@ func listUsers(c *Context, w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// Use service container for user listing
-	if c.App.ServiceContainer == nil {
-		c.Err = common.NewAppError("listUsers", "Service container not available", nil, "", http.StatusInternalServerError)
+	userSvc := c.userSvc()
+	if userSvc == nil {
 		return
 	}
 
-	userSvc := c.App.ServiceContainer.GetUserService()
 	users, err := userSvc.ListUsers(r.Context())
 	if err != nil {
 		c.Err = common.NewAppError("listUsers", "Failed to list users", nil, err.Error(), http.StatusInternalServerError)
@@ -360,13 +356,11 @@ func getUser(c *Context, w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Use service container for user retrieval
-	if c.App.ServiceContainer == nil {
-		c.Err = common.NewAppError("getUser", "Service container not available", nil, "", http.StatusInternalServerError)
+	userSvc := c.userSvc()
+	if userSvc == nil {
 		return
 	}
 
-	userSvc := c.App.ServiceContainer.GetUserService()
 	user, err := userSvc.GetUser(r.Context(), userID)
 	if err != nil {
 		c.Err = common.NewAppError("getUser", "User not found", nil, err.Error(), http.StatusNotFound)
@@ -466,13 +460,10 @@ func updateUser(c *Context, w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// Use service container for user update
-	if c.App.ServiceContainer == nil {
-		c.Err = common.NewAppError("updateUser", "Service container not available", nil, "", http.StatusInternalServerError)
+	userSvc := c.userSvc()
+	if userSvc == nil {
 		return
 	}
-
-	userSvc := c.App.ServiceContainer.GetUserService()
 
 	// Convert to service request format with optional fields
 	var usernamePtr, passwordPtr, rolePtr *string
@@ -550,13 +541,10 @@ func deleteUser(c *Context, w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Use service container for user deletion
-	if c.App.ServiceContainer == nil {
-		c.Err = common.NewAppError("deleteUser", "Service container not available", nil, "", http.StatusInternalServerError)
+	userSvc := c.userSvc()
+	if userSvc == nil {
 		return
 	}
-
-	userSvc := c.App.ServiceContainer.GetUserService()
 
 	// Check if user exists by trying to get it
 	if _, err := userSvc.GetUser(r.Context(), userID); err != nil {
