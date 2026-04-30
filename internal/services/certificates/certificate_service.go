@@ -5,6 +5,8 @@ package certificates
 
 import (
 	"context"
+	"crypto/x509"
+	"encoding/pem"
 	"fmt"
 	"time"
 
@@ -25,7 +27,9 @@ type CreateCertificateRequest struct {
 	ValidityDays int
 	Tags         []string
 	UserID       uuid.UUID
-	CACertID     *uuid.UUID // Optional for CA-signed certificates
+	CACertID     *uuid.UUID // Optional for CA-signed certificates.
+	AutoRenew    bool
+	RenewalDays  int // 0 defaults to 30.
 }
 
 // CreateCertificateResult represents the result of creating a new certificate.
@@ -34,6 +38,7 @@ type CreateCertificateResult struct {
 	Name      string
 	Tags      []string
 	CreatedAt time.Time
+	ExpiresAt *time.Time
 }
 
 // UpdateCertificateRequest represents a request to update an existing certificate.
@@ -147,11 +152,23 @@ func (s *certificateService) CreateSelfSignedCertificate(ctx context.Context, re
 		return nil, fmt.Errorf("failed to generate self-signed certificate: %w", err)
 	}
 
+	// Parse the expiry date from the generated certificate.
+	expiresAt, err := extractExpiresAt(certPEM)
+	if err != nil {
+		s.logger.LogAuditError(req.UserID.String(), "create_self_signed_cert", "failed", "failed to parse certificate expiry", err)
+		return nil, fmt.Errorf("failed to determine certificate expiry: %w", err)
+	}
+
 	// Encrypt the private key for storage
 	encryptedKey, err := common.EncryptSecret(privateKeyPEM)
 	if err != nil {
 		s.logger.LogAuditError(req.UserID.String(), "create_self_signed_cert", "failed", "failed to encrypt private key", err)
 		return nil, fmt.Errorf("failed to encrypt private key: %w", err)
+	}
+
+	renewalDays := req.RenewalDays
+	if renewalDays <= 0 {
+		renewalDays = 30
 	}
 
 	// Create certificate entity
@@ -163,6 +180,9 @@ func (s *certificateService) CreateSelfSignedCertificate(ctx context.Context, re
 		PrivateKey:  encryptedKey,
 		CreatedAt:   time.Now(),
 		Tags:        req.Tags,
+		ExpiresAt:   expiresAt,
+		AutoRenew:   req.AutoRenew,
+		RenewalDays: renewalDays,
 	}
 
 	// Store in repository
@@ -183,6 +203,7 @@ func (s *certificateService) CreateSelfSignedCertificate(ctx context.Context, re
 		Name:      cert.Name,
 		Tags:      cert.Tags,
 		CreatedAt: cert.CreatedAt,
+		ExpiresAt: expiresAt,
 	}, nil
 }
 
@@ -267,11 +288,23 @@ func (s *certificateService) CreateCASignedCertificate(ctx context.Context, req 
 		return nil, fmt.Errorf("failed to generate CA-signed certificate: %w", err)
 	}
 
+	// Parse the expiry date from the generated certificate.
+	expiresAt, err := extractExpiresAt(certPEM)
+	if err != nil {
+		s.logger.LogAuditError(req.UserID.String(), "create_ca_signed_cert", "failed", "failed to parse certificate expiry", err)
+		return nil, fmt.Errorf("failed to determine certificate expiry: %w", err)
+	}
+
 	// Encrypt the private key for storage
 	encryptedKey, err := common.EncryptSecret(privateKeyPEM)
 	if err != nil {
 		s.logger.LogAuditError(req.UserID.String(), "create_ca_signed_cert", "failed", "failed to encrypt private key", err)
 		return nil, fmt.Errorf("failed to encrypt private key: %w", err)
+	}
+
+	renewalDays := req.RenewalDays
+	if renewalDays <= 0 {
+		renewalDays = 30
 	}
 
 	// Create certificate entity
@@ -283,6 +316,9 @@ func (s *certificateService) CreateCASignedCertificate(ctx context.Context, req 
 		PrivateKey:  encryptedKey,
 		CreatedAt:   time.Now(),
 		Tags:        req.Tags,
+		ExpiresAt:   expiresAt,
+		AutoRenew:   req.AutoRenew,
+		RenewalDays: renewalDays,
 	}
 
 	// Store in repository
@@ -304,6 +340,7 @@ func (s *certificateService) CreateCASignedCertificate(ctx context.Context, req 
 		Name:      cert.Name,
 		Tags:      cert.Tags,
 		CreatedAt: cert.CreatedAt,
+		ExpiresAt: expiresAt,
 	}, nil
 }
 
@@ -430,14 +467,15 @@ func (s *certificateService) DeleteCertificate(ctx context.Context, certID, user
 //
 //	The new certificate information or an error if renewal fails.
 func (s *certificateService) RenewCertificate(ctx context.Context, certID, userID uuid.UUID, validityDays int) (*CreateCertificateResult, error) {
-	// Verify certificate exists and access
-	_, err := s.GetCertificate(ctx, certID, userID)
+	// Verify certificate exists and access; original carries AutoRenew/RenewalDays.
+	original, err := s.GetCertificate(ctx, certID, userID)
 	if err != nil {
 		return nil, err
 	}
 
-	// Note: Cannot determine original KeyID from Certificate struct
-	// This would need to be tracked separately or passed as parameter
+	// Renewal requires a KeyID that is not stored on the Certificate struct.
+	// The caller must supply it; until the struct is extended this path cannot complete.
+	_ = original // AutoRenew and RenewalDays would be forwarded to the new cert here.
 	return nil, fmt.Errorf("certificate renewal requires KeyID information not available in Certificate struct")
 }
 
@@ -507,4 +545,18 @@ func (s *certificateService) ValidateKeyOwnership(ctx context.Context, keyID, us
 	}
 
 	return nil
+}
+
+// extractExpiresAt parses the NotAfter field from a PEM-encoded X.509 certificate.
+func extractExpiresAt(certPEM string) (*time.Time, error) {
+	block, _ := pem.Decode([]byte(certPEM))
+	if block == nil {
+		return nil, fmt.Errorf("failed to decode PEM block from certificate")
+	}
+	cert, err := x509.ParseCertificate(block.Bytes)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse X.509 certificate: %w", err)
+	}
+	t := cert.NotAfter
+	return &t, nil
 }
