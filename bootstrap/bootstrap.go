@@ -16,6 +16,7 @@ import (
 	"rocketvault/internal/container"
 	"rocketvault/internal/db"
 	"rocketvault/internal/logging"
+	certServices "rocketvault/internal/services/certificates"
 	"rocketvault/internal/services/softdelete"
 	"rocketvault/server"
 )
@@ -118,6 +119,7 @@ type bootstrap struct {
 	serviceContainer *container.ServiceContainer
 	cfg              *config.Config
 	purgeScheduler   *softdelete.PurgeScheduler
+	renewalScheduler *certServices.CertificateRenewalScheduler
 }
 
 // newBootstrap creates a new bootstrap orchestrator with SRP-compliant design.
@@ -191,6 +193,13 @@ func (b *bootstrap) setup(ctx context.Context, cfg *Config) error {
 	}
 	b.serviceContainer = serviceContainer
 
+	// Step 2c: Start certificate renewal scheduler.
+	if sc := b.serviceContainer.GetCertificateRenewalService(); sc != nil {
+		b.renewalScheduler = certServices.NewCertificateRenewalScheduler(sc, b.cfg.Logger, 24*time.Hour)
+		b.renewalScheduler.Start(ctx)
+		b.cfg.Logger.Info("Certificate renewal scheduler started")
+	}
+
 	// Step 4: Create application with dependency injection
 	app, err := b.createApplication(cfg)
 	if err != nil {
@@ -251,6 +260,11 @@ func (b *bootstrap) initializeAPI(cfg *Config, app *app.App) error {
 // This method follows SRP by handling only shutdown concerns.
 func (b *bootstrap) Shutdown(ctx context.Context) error {
 	logrus.Info("Starting application shutdown")
+
+	if b.renewalScheduler != nil {
+		b.renewalScheduler.Stop()
+		logrus.Info("Certificate renewal scheduler stopped")
+	}
 
 	if b.purgeScheduler != nil {
 		b.purgeScheduler.Stop()

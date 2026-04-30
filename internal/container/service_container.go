@@ -61,6 +61,7 @@ type ServiceContainerInterface interface {
 	GetSecretService() secretServices.SecretService
 	GetKeyService() keyServices.KeyService
 	GetCertificateService() certServices.CertificateService
+	GetCertificateRenewalService() certServices.CertificateRenewalService
 	GetCryptoService() keyServices.CryptoService
 
 	// Secret component service getters
@@ -129,11 +130,12 @@ type ServiceContainer struct {
 	oauth2Service          oauth2Services.OAuth2Service
 
 	// Business services
-	userService        userServices.UserService
-	secretService      secrets.SecretService
-	keyService         keyServices.KeyService
-	certificateService certServices.CertificateService
-	keyCryptoService   keyServices.CryptoService
+	userService           userServices.UserService
+	secretService         secrets.SecretService
+	keyService            keyServices.KeyService
+	certificateService    certServices.CertificateService
+	certRenewalService    certServices.CertificateRenewalService
+	keyCryptoService      keyServices.CryptoService
 
 	// Secret component services
 	cryptoService     secretServices.CryptographyService
@@ -382,6 +384,13 @@ func (c *ServiceContainer) initializeServices() error {
 		Logger:                c.logger,
 	})
 
+	// Initialize certificate renewal service.
+	c.certRenewalService = certServices.NewCertificateRenewalService(certServices.RenewalServiceConfig{
+		CertRepository:     c.certificateRepository,
+		CertificateService: c.certificateService,
+		Logger:             c.logger,
+	})
+
 	return nil
 }
 
@@ -518,6 +527,11 @@ func (c *ServiceContainer) GetKeyService() keyServices.KeyService {
 // GetCertificateService returns the certificate service.
 func (c *ServiceContainer) GetCertificateService() certServices.CertificateService {
 	return c.certificateService
+}
+
+// GetCertificateRenewalService returns the certificate renewal service.
+func (c *ServiceContainer) GetCertificateRenewalService() certServices.CertificateRenewalService {
+	return c.certRenewalService
 }
 
 // GetCryptoService returns the key crypto service for wrap/unwrap operations.

@@ -126,6 +126,12 @@ func (m *mockServiceContainer) GetKeyService() keyServices.KeyService {
 func (m *mockServiceContainer) GetCertificateService() certServices.CertificateService {
 	panic("unexpected call: GetCertificateService")
 }
+func (m *mockServiceContainer) GetCertificateRenewalService() certServices.CertificateRenewalService {
+	panic("unexpected call: GetCertificateRenewalService")
+}
+func (m *mockServiceContainer) GetCryptoService() keyServices.CryptoService {
+	panic("unexpected call: GetCryptoService")
+}
 func (m *mockServiceContainer) GetCryptographyService() secretServices.CryptographyService {
 	panic("unexpected call: GetCryptographyService")
 }

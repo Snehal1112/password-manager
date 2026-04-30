@@ -196,6 +196,10 @@ func (m *MockServiceContainer) GetCertificateService() certServices.CertificateS
 	return nil
 }
 
+func (m *MockServiceContainer) GetCertificateRenewalService() certServices.CertificateRenewalService {
+	return nil
+}
+
 // Secret component service getters - return nil for unused services
 func (m *MockServiceContainer) GetCryptographyService() secretServices.CryptographyService {
 	return nil
