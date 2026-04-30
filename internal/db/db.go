@@ -336,6 +336,9 @@ func (d *DBRepository) createOptimizedSchema(db *sql.DB) error {
 			deleted_at TIMESTAMP NULL,
 			purge_protection BOOLEAN NOT NULL DEFAULT FALSE,
 			scheduled_purge_at TIMESTAMP NULL,
+			expires_at DATETIME,
+			auto_renew BOOLEAN NOT NULL DEFAULT FALSE,
+			renewal_days INTEGER NOT NULL DEFAULT 30,
 			FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
 		);
 		CREATE INDEX IF NOT EXISTS idx_certificates_user_id ON certificates(user_id);
@@ -539,6 +542,10 @@ func (d *DBRepository) migrateSchema(db *sql.DB) error {
 		"ALTER TABLE certificates ADD COLUMN deleted_at TIMESTAMP NULL",
 		"ALTER TABLE certificates ADD COLUMN purge_protection BOOLEAN NOT NULL DEFAULT FALSE",
 		"ALTER TABLE certificates ADD COLUMN scheduled_purge_at TIMESTAMP NULL",
+		// Feature: certificate auto-renewal
+		"ALTER TABLE certificates ADD COLUMN expires_at DATETIME",
+		"ALTER TABLE certificates ADD COLUMN auto_renew BOOLEAN NOT NULL DEFAULT FALSE",
+		"ALTER TABLE certificates ADD COLUMN renewal_days INTEGER NOT NULL DEFAULT 30",
 		// Milestone 3: service-account / OAuth2 table (CREATE TABLE IF NOT EXISTS is idempotent)
 		`CREATE TABLE IF NOT EXISTS oauth2_clients (
 			id            TEXT PRIMARY KEY,

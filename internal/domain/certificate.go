@@ -42,6 +42,9 @@ type Certificate struct {
 	DeletedAt        *time.Time `json:"deleted_at,omitempty"`        // Soft delete timestamp
 	PurgeProtection  bool       `json:"purge_protection"`            // Prevents permanent deletion
 	ScheduledPurgeAt *time.Time `json:"scheduled_purge_at,omitempty"` // Planned hard-delete time
+	ExpiresAt        *time.Time `json:"expires_at,omitempty"`         // Populated from X.509 NotAfter; read-only via API
+	AutoRenew        bool       `json:"auto_renew"`                   // If true, scheduler renews before expiry
+	RenewalDays      int        `json:"renewal_days"`                 // Days before expiry to trigger renewal
 }
 
 // RevokedCertificate represents a revoked certificate in the CRL (Certificate Revocation List).
