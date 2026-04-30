@@ -7,13 +7,14 @@ package db
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/google/uuid"
-	_ "github.com/lib/pq"           // PostgreSQL driver for database/sql.
+	"github.com/lib/pq"
 	_ "github.com/mattn/go-sqlite3" // SQLite driver for database/sql.
 	"github.com/spf13/viper"
 
@@ -564,9 +565,16 @@ func isDuplicateColumnError(err error) bool {
 	if err == nil {
 		return false
 	}
-	msg := strings.ToLower(err.Error())
-	return strings.Contains(msg, "duplicate column name") || // SQLite
-		strings.Contains(msg, "already exists") // PostgreSQL
+	// SQLite reports "duplicate column name: <col>"
+	if strings.Contains(strings.ToLower(err.Error()), "duplicate column name") {
+		return true
+	}
+	// PostgreSQL error code 42701 = duplicate_column specifically
+	var pqErr *pq.Error
+	if errors.As(err, &pqErr) {
+		return pqErr.Code == "42701"
+	}
+	return false
 }
 
 // seedBootstrapToken inserts the configured bootstrap token into the

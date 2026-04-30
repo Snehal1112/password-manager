@@ -3,9 +3,11 @@
 package db
 
 import (
+	"fmt"
 	"os"
 	"testing"
 
+	"github.com/lib/pq"
 	"github.com/spf13/viper"
 	"github.com/stretchr/testify/assert"
 
@@ -69,4 +71,32 @@ func BenchmarkInitializeDB(b *testing.B) {
 		db.InitializeDB()
 		db.CloseDB()
 	}
+}
+
+// TestIsDuplicateColumnError_SQLite tests duplicate column detection for SQLite.
+func TestIsDuplicateColumnError_SQLite(t *testing.T) {
+	err := fmt.Errorf("table secrets already has column deleted_at: duplicate column name: deleted_at")
+	assert.True(t, isDuplicateColumnError(err), "SQLite duplicate column error should be detected")
+}
+
+// TestIsDuplicateColumnError_PostgreSQL_DuplicateColumn tests PostgreSQL error code 42701.
+func TestIsDuplicateColumnError_PostgreSQL_DuplicateColumn(t *testing.T) {
+	err := &pq.Error{Code: "42701", Message: "column deleted_at of relation secrets already exists"}
+	assert.True(t, isDuplicateColumnError(err), "PostgreSQL duplicate column error (42701) should be detected")
+}
+
+// TestIsDuplicateColumnError_PostgreSQL_TableAlreadyExists tests that table-exists errors are NOT silenced.
+func TestIsDuplicateColumnError_PostgreSQL_TableAlreadyExists(t *testing.T) {
+	err := &pq.Error{Code: "42P07", Message: "relation secrets already exists"}
+	assert.False(t, isDuplicateColumnError(err), "table already exists error (42P07) must not be silenced as duplicate column")
+}
+
+// TestIsDuplicateColumnError_Nil tests that nil errors are handled correctly.
+func TestIsDuplicateColumnError_Nil(t *testing.T) {
+	assert.False(t, isDuplicateColumnError(nil), "nil error should return false")
+}
+
+// TestIsDuplicateColumnError_GenericError tests that unrelated errors are not matched.
+func TestIsDuplicateColumnError_GenericError(t *testing.T) {
+	assert.False(t, isDuplicateColumnError(fmt.Errorf("connection refused")), "generic error should not match duplicate column")
 }
