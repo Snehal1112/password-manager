@@ -23,166 +23,59 @@ THE SOFTWARE.
 package secrets
 
 import (
-	"database/sql"
-	"os"
-	"time"
+	"fmt"
 
 	"github.com/google/uuid"
-	"github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
 
 	"rocketvault/common"
-	"rocketvault/internal/logging"
-	"rocketvault/internal/repositories"
+	"rocketvault/internal/container"
+	secretServices "rocketvault/internal/services/secrets"
 )
 
-// updateCmd represents the update command
+// updateCmd represents the update command.
 var updateCmd = &cobra.Command{
 	Use:   "update [id] [value]",
 	Short: "Update a secret",
-	Long:  `Update a secret’s value and tags by its ID for the authenticated user.`,
+	Long:  `Update a secret's value and tags by its ID for the authenticated user.`,
 	Args:  cobra.ExactArgs(2),
-	Run: func(cmd *cobra.Command, args []string) {
-		secretID := uuid.MustParse(args[0])
+	RunE: func(cmd *cobra.Command, args []string) error {
+		secretID, err := uuid.Parse(args[0])
+		if err != nil {
+			return fmt.Errorf("invalid secret ID: %w", err)
+		}
 		value := args[1]
 		tags, _ := cmd.Flags().GetStringSlice("tags")
 
 		ctx := cmd.Context()
 		userID := ctx.Value(common.UserIDKey).(uuid.UUID)
-		db := ctx.Value(common.DBKey).(*sql.DB)
-		logger := ctx.Value(common.LogKey).(*logging.Logger)
 
-		repo := repositories.NewSecretRepository(db, logger)
-		secret, err := repo.Read(cmd.Context(), secretID)
-		if err != nil {
-			logger.Error("Failed to read secret: ", err)
-			os.Exit(0)
-			return
-		}
-		if secret.UserID != userID {
-			logger.Warn("Unauthorized access attempt to secret")
-			os.Exit(0)
-			return
+		sc, ok := ctx.Value(common.ServiceContainerKey).(container.ServiceContainerInterface)
+		if !ok || sc == nil {
+			return fmt.Errorf("service container not available in context")
 		}
 
-		secret.Value = value
-		secret.Tags = tags
-		secret.Version++
-		secret.CreatedAt = time.Now()
-		if err := repo.Update(cmd.Context(), secret); err != nil {
-			logger.Error("Failed to update secret: ", err)
-			os.Exit(0)
-			return
+		req := secretServices.UpdateSecretRequest{
+			SecretID: secretID,
+			UserID:   userID,
+			Value:    &value,
+		}
+		if len(tags) > 0 {
+			req.Tags = &tags
 		}
 
-		logger.WithFields(logrus.Fields{
-			"secret_id": secretID.String(),
-			"user_id":   userID.String(),
-		}).Info("Secret updated successfully")
+		if err := sc.GetSecretService().UpdateSecret(ctx, req); err != nil {
+			return fmt.Errorf("failed to update secret: %w", err)
+		}
+
+		fmt.Printf("Secret %s updated successfully\n", secretID)
+		return nil
 	},
 }
 
-// InitSecretsUpdate initializes the update command for secrets
-// and adds it to the secrets command.
-// It also sets up the necessary flags and configuration settings.
-// This function is called in the main function of the application to set up the command structure.
-// It returns the modified secrets command.
-// Parameters:
-//
-//	secretsCmd: The parent command under which the update command will be added.
-//
-// Returns:
-//
-//	*cobra.Command: The modified secrets command with the update command added.
-//
-// Example usage:
-//
-//	secretsCmd := &cobra.Command{Use: "secrets"}
-//	secretsCmd = InitSecretsUpdate(secretsCmd)
-//	secretsCmd.Execute()
-//
-// Example output:
-//
-//	Secret updated successfully
-//
-// Example error handling:
-//
-//	if err := secretsCmd.Execute(); err != nil {
-//		fmt.Println("Error executing command:", err)
-//		os.Exit(1)
-//	}
-//
-// Example context usage:
-//
-//	ctx := context.Background()
-//	ctx = context.WithValue(ctx, "userID", uuid.New())
-//	secretsCmd.SetContext(ctx)
-//	secretsCmd.Execute()
-//
-// Example command usage:
-//
-//	rocketvault secrets update 123e4567-e89b-12d3-a456-426614174000 new-value --tags tag1,tag2
-//
-// Example command output:
-//
-//	Secret updated successfully
-//
-// Example command error handling:
-//
-//	if err := updateCmd.Execute(); err != nil {
-//		fmt.Println("Error executing command:", err)
-//		os.Exit(1)
-//	}
-//
-// Example command context usage:
-//
-//	ctx := context.Background()
-//	ctx = context.WithValue(ctx, "userID", uuid.New())
-//	secretsCmd.SetContext(ctx)
-//	secretsCmd.Execute()
-//
-// Example command database usage:
-//
-//	db, err := sql.Open("postgres", "user=foo dbname=bar sslmode=disable")
-//	if err != nil {
-//		log.Fatal(err)
-//	}
-//	ctx := context.WithValue(context.Background(), "db", db)
-//	secretsCmd.SetContext(ctx)
-//	secretsCmd.Execute()
-//
-// Example command logger usage:
-//
-//	logger := logging.InitLogger()
-//	ctx := context.WithValue(context.Background(), "log", logger)
-//	secretsCmd.SetContext(ctx)
-//	secretsCmd.Execute()
-//
-// Example command flags usage:
-//
-//	updateCmd.Flags().StringSlice("tags", []string{}, "Tags for the secret (comma-separated)")
-//
-// Example command flag output:
-//
-//	Tags for the secret (comma-separated): tag1,tag2
-//
-// Example command flag error handling:
-//
-//	if err := updateCmd.Execute(); err != nil {
-//		fmt.Println("Error executing command:", err)
-//		os.Exit(1)
-//	}
-//
-// Example command flag context usage:
-//
-//	ctx := context.Background()
-//	ctx = context.WithValue(ctx, "tags", []string{"tag1", "tag2"})
-//	secretsCmd.SetContext(ctx)
-//	secretsCmd.Execute()
+// InitSecretsUpdate adds the update command to the secrets command.
 func InitSecretsUpdate(secretsCmd *cobra.Command) *cobra.Command {
 	secretsCmd.AddCommand(updateCmd)
-
 	updateCmd.Flags().StringSlice("tags", []string{}, "Tags for the secret (comma-separated)")
-
 	return secretsCmd
 }
