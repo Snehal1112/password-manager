@@ -23,10 +23,10 @@ THE SOFTWARE.
 package secrets
 
 import (
+	"crypto/rand"
 	"fmt"
-	"math/rand"
+	"math/big"
 	"os"
-	"time"
 
 	"github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
@@ -100,7 +100,6 @@ func generatePassword(length int, useUpper, useLower, useNumbers, useSpecial boo
 		return "", fmt.Errorf("password length must be at least 1")
 	}
 
-	// Define character sets.
 	const (
 		upperChars   = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
 		lowerChars   = "abcdefghijklmnopqrstuvwxyz"
@@ -108,7 +107,6 @@ func generatePassword(length int, useUpper, useLower, useNumbers, useSpecial boo
 		specialChars = "!@#$%^&*()-_=+[]{}|;:,.<>?"
 	)
 
-	// Build the character pool.
 	var chars []rune
 	if useUpper {
 		chars = append(chars, []rune(upperChars)...)
@@ -127,27 +125,76 @@ func generatePassword(length int, useUpper, useLower, useNumbers, useSpecial boo
 		return "", fmt.Errorf("at least one character type must be enabled")
 	}
 
-	// Generate the password.
 	password := make([]rune, length)
-	for i := 0; i < length; i++ {
-		r := rand.New(rand.NewSource(time.Now().UnixNano()))
-		n := r.Intn(len(chars))
-		password[i] = chars[n]
+	charCount := big.NewInt(int64(len(chars)))
+
+	// Generate password, avoiding 3 consecutive identical characters.
+	for i := range password {
+		var candidate rune
+		for {
+			n, err := rand.Int(rand.Reader, charCount)
+			if err != nil {
+				return "", fmt.Errorf("failed to generate random bytes: %w", err)
+			}
+			candidate = chars[n.Int64()]
+
+			// Check if we would create 3 consecutive identical characters.
+			if i >= 2 && password[i-1] == password[i-2] && password[i-2] == candidate {
+				// Reject and try again.
+				continue
+			}
+			break
+		}
+		password[i] = candidate
 	}
 
-	// Ensure at least one character from each enabled type.
-	r := rand.New(rand.NewSource(time.Now().UnixNano()))
-	if useUpper {
-		password[0] = []rune(upperChars)[r.Intn(len(upperChars))]
+	// Guarantee at least one character from each enabled type by overwriting at random positions.
+	guaranteedChars := []struct {
+		charset string
+		enabled bool
+	}{
+		{upperChars, useUpper},
+		{lowerChars, useLower},
+		{numberChars, useNumbers},
+		{specialChars, useSpecial},
 	}
-	if useLower {
-		password[1%length] = []rune(lowerChars)[r.Intn(len(lowerChars))]
-	}
-	if useNumbers {
-		password[2%length] = []rune(numberChars)[r.Intn(len(numberChars))]
-	}
-	if useSpecial {
-		password[3%length] = []rune(specialChars)[r.Intn(len(specialChars))]
+
+	for _, gc := range guaranteedChars {
+		if !gc.enabled || length == 0 {
+			continue
+		}
+		// Pick a random position to place a guaranteed character, avoiding 3 consecutive identical chars.
+		for {
+			posIdx, err := rand.Int(rand.Reader, big.NewInt(int64(length)))
+			if err != nil {
+				return "", fmt.Errorf("failed to generate random bytes: %w", err)
+			}
+			pos := posIdx.Int64()
+
+			// Pick a random character from the guaranteed charset.
+			charIdx, err := rand.Int(rand.Reader, big.NewInt(int64(len(gc.charset))))
+			if err != nil {
+				return "", fmt.Errorf("failed to generate random bytes: %w", err)
+			}
+			candidate := []rune(gc.charset)[charIdx.Int64()]
+
+			// Check if placing this character would create 3 consecutive identical characters.
+			wouldCreate3Identical := false
+			if pos >= 2 && password[pos-1] == password[pos-2] && password[pos-2] == candidate {
+				wouldCreate3Identical = true
+			} else if pos >= 1 && pos < int64(length)-1 && password[pos-1] == password[pos+1] && password[pos+1] == candidate {
+				wouldCreate3Identical = true
+			} else if pos < int64(length)-2 && password[pos+1] == password[pos+2] && password[pos+2] == candidate {
+				wouldCreate3Identical = true
+			}
+
+			if wouldCreate3Identical {
+				continue
+			}
+
+			password[pos] = candidate
+			break
+		}
 	}
 
 	return string(password), nil
