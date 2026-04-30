@@ -4,17 +4,23 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/pquerna/otp/totp"
 )
 
+// defaultSecret is read from the environment variable ROCKETVAULT_TOTP_SECRET.
+// Set it once in your shell profile so you never need to pass -secret again:
+//
+//	export ROCKETVAULT_TOTP_SECRET="CZCBJ5TMFMCUULZS4R7ZHV5JZRIFA7TZ"
+const envSecretKey = "ROCKETVAULT_TOTP_SECRET"
+
 func main() {
-	// Command line flags
 	var (
-		secret   = flag.String("secret", "", "TOTP secret key")
-		username = flag.String("username", "admin", "Username for display")
-		count    = flag.Int("count", 3, "Number of future codes to generate")
+		secret   = flag.String("secret", "", "TOTP secret key (or set ROCKETVAULT_TOTP_SECRET env var)")
+		username = flag.String("username", "admin", "Username shown in the authentication example")
+		watch    = flag.Bool("watch", false, "Keep running and refresh the code every 30 seconds")
 		help     = flag.Bool("help", false, "Show help message")
 	)
 	flag.Parse()
@@ -24,103 +30,118 @@ func main() {
 		return
 	}
 
-	// Validate that secret is provided
-	if *secret == "" {
-		fmt.Printf("Error: TOTP secret is required. Use -secret flag to provide it.\n\n")
+	// Prefer -secret flag, fall back to environment variable.
+	resolvedSecret := strings.TrimSpace(*secret)
+	if resolvedSecret == "" {
+		resolvedSecret = strings.TrimSpace(os.Getenv(envSecretKey))
+	}
+
+	if resolvedSecret == "" {
+		fmt.Fprintf(os.Stderr, "Error: TOTP secret is required.\n")
+		fmt.Fprintf(os.Stderr, "  Option 1 (one-time): go run scripts/totp_generator.go -secret=\"YOUR_SECRET\"\n")
+		fmt.Fprintf(os.Stderr, "  Option 2 (permanent): export %s=\"YOUR_SECRET\"\n\n", envSecretKey)
 		showUsage()
 		os.Exit(1)
 	}
 
-	// Clean the secret (remove any whitespace)
-	totpSecret := trimWhitespace(*secret)
-
-	// Generate current TOTP code
-	currentCode, err := totp.GenerateCode(totpSecret, time.Now())
-	if err != nil {
-		fmt.Printf("Error generating current TOTP: %v\n", err)
+	if *watch {
+		runWatch(resolvedSecret, *username)
 		return
 	}
 
-	// Display current information
-	fmt.Printf("\n🔐 TOTP Generator for User: %s\n", *username)
-	fmt.Printf("=====================================\n")
-	fmt.Printf("Secret: %s\n", totpSecret)
-	fmt.Printf("Current Time: %s\n", time.Now().Format("15:04:05"))
-	fmt.Printf("Current TOTP Code: %s\n", currentCode)
-	fmt.Printf("\nUse this code with: --totp-code %s\n", currentCode)
-
-	// Generate future codes
-	if *count > 0 {
-		fmt.Printf("\n🕐 Next %d TOTP codes:\n", *count)
-		fmt.Printf("Time Period: 30 seconds\n")
-		fmt.Printf("---------------------\n")
-
-		for i := 1; i <= *count; i++ {
-			// Calculate future time (30-second intervals)
-			futureTime := time.Now().Add(time.Duration(i*30) * time.Second)
-			futureCode, err := totp.GenerateCode(totpSecret, futureTime)
-			if err == nil {
-				fmt.Printf("  %s (+%02d:%02d): %s\n",
-					futureTime.Format("15:04:05"),
-					i*30/60,
-					(i*30)%60,
-					futureCode)
-			}
-		}
-	}
-
-	// Show authentication example
-	fmt.Printf("\n📖 Authentication Example:\n")
-	fmt.Printf("./rocketvault --username=%s --password=<your-password> --totp-code=%s users list\n", *username, currentCode)
-
-	// Show QR code setup info
-	fmt.Printf("\n📱 QR Code Setup:\n")
-	fmt.Printf("For manual entry in authenticator app:\n")
-	fmt.Printf("  Account: %s@rocketvault\n", *username)
-	fmt.Printf("  Secret: %s\n", totpSecret)
-	fmt.Printf("  Type: Time-based (TOTP)\n")
-	fmt.Printf("  Period: 30 seconds\n")
-	fmt.Printf("  Digits: 6\n")
+	printCodes(resolvedSecret, *username)
 }
 
-// trimWhitespace removes leading/trailing whitespace and newlines
-func trimWhitespace(s string) string {
-	result := ""
-	for _, char := range s {
-		if char != ' ' && char != '\t' && char != '\n' && char != '\r' {
-			result += string(char)
+// printCodes prints the current code plus remaining validity window.
+func printCodes(secret, username string) {
+	now := time.Now()
+	currentCode, err := totp.GenerateCode(secret, now)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error generating TOTP: %v\n", err)
+		os.Exit(1)
+	}
+
+	// Seconds remaining in the current 30-second window.
+	secondsUsed := now.Unix() % 30
+	secondsLeft := 30 - secondsUsed
+
+	// Visual bar showing time remaining (15 chars wide).
+	barFilled := int(secondsLeft * 15 / 30)
+	bar := strings.Repeat("█", barFilled) + strings.Repeat("░", 15-barFilled)
+
+	fmt.Printf("\nRocketVault TOTP — user: %s\n", username)
+	fmt.Printf("─────────────────────────────────\n")
+	fmt.Printf("Current code : %s\n", currentCode)
+	fmt.Printf("Valid for    : %ds  [%s]\n", secondsLeft, bar)
+	fmt.Printf("Time         : %s\n", now.Format("15:04:05"))
+	fmt.Printf("\nReady to use:\n")
+	fmt.Printf("  --totp-code %s\n", currentCode)
+	fmt.Printf("\nFull example:\n")
+	fmt.Printf("  go run main.go secrets list --username %s --password <password> --totp-code %s\n\n", username, currentCode)
+
+	// Warn if the code is about to expire.
+	if secondsLeft <= 5 {
+		fmt.Printf("Warning: code expires in %ds — wait for the next one to be safe.\n\n", secondsLeft)
+		nextCode, err := totp.GenerateCode(secret, now.Add(30*time.Second))
+		if err == nil {
+			fmt.Printf("Next code (valid in %ds): %s\n\n", secondsLeft, nextCode)
 		}
 	}
-	return result
+}
+
+// runWatch refreshes the code on every new 30-second window until Ctrl+C.
+func runWatch(secret, username string) {
+	fmt.Printf("Watch mode — refreshing every 30 seconds. Press Ctrl+C to stop.\n\n")
+
+	// Print immediately, then wait for each window boundary.
+	printCodes(secret, username)
+
+	for {
+		now := time.Now()
+		secondsUntilNext := 30 - (now.Unix() % 30)
+		time.Sleep(time.Duration(secondsUntilNext) * time.Second)
+		// Clear last block and reprint.
+		fmt.Print("\033[10A\033[J") // Move up 10 lines and clear to end of screen.
+		printCodes(secret, username)
+	}
 }
 
 func showUsage() {
-	fmt.Printf(`🔐 TOTP Generator for Password Manager
+	fmt.Print(`RocketVault TOTP Generator — get your --totp-code without touching your phone
 
 USAGE:
-    go run scripts/totp_generator.go -secret="YOUR_SECRET" [OPTIONS]
+    go run scripts/totp_generator.go [OPTIONS]
 
 OPTIONS:
-    -secret STRING    TOTP secret key (REQUIRED)
-    -username STRING  Username for display (default: admin)
-    -count NUMBER     Number of future codes to generate (default: 3)
-    -help            Show this help message
+    -secret STRING    TOTP secret key (required if env var not set)
+    -username STRING  Username shown in the example command (default: admin)
+    -watch            Keep running and auto-refresh every 30 seconds
+    -help             Show this help message
+
+SETUP (recommended — do this once):
+    Add this line to your ~/.bashrc or ~/.zshrc:
+        export ROCKETVAULT_TOTP_SECRET="YOUR_SECRET_HERE"
+
+    Then just run:
+        go run scripts/totp_generator.go
 
 EXAMPLES:
-    # Generate codes for specific user with secret
-    go run scripts/totp_generator.go -secret="ABCD1234EFGH5678" -username="admin"
+    # One-shot with secret on command line
+    go run scripts/totp_generator.go -secret="ABCD1234EFGH5678"
 
-    # Generate only current code
-    go run scripts/totp_generator.go -secret="ABCD1234EFGH5678" -count=0
+    # One-shot using env var (after export above)
+    go run scripts/totp_generator.go
 
-    # Generate many future codes
-    go run scripts/totp_generator.go -secret="ABCD1234EFGH5678" -count=10
+    # Auto-refresh mode — keeps showing fresh codes
+    go run scripts/totp_generator.go -watch
+
+    # Different user
+    go run scripts/totp_generator.go -username=alice
 
 NOTES:
-    - TOTP secret key is required for security reasons
-    - TOTP codes are valid for 30 seconds
-    - Use the generated codes immediately for authentication
-    - Keep TOTP secrets secure and never share them
+    - TOTP codes are valid for 30 seconds.
+    - The validity bar shows how much time is left on the current code.
+    - If the bar is almost empty, use -watch or wait for the next code.
 
 `)
 }
