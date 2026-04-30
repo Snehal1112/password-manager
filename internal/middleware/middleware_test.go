@@ -846,6 +846,34 @@ func TestPolicyMiddleware_UnknownRoutePassesThrough(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rr.Code)
 }
 
+// TestPolicyMiddleware_ErrorDeniesRequest verifies that when CheckAccess returns
+// an error (e.g., DB outage), the middleware denies the request with 500, not
+// allowing it through. Fail-closed is mandatory for security.
+func TestPolicyMiddleware_ErrorDeniesRequest(t *testing.T) {
+	t.Parallel()
+	mw, _, mockPolicySvc := setupPolicyMiddlewareTest(t)
+
+	userID := uuid.New()
+	// Simulate DB outage or other error during policy evaluation.
+	mockPolicySvc.On("CheckAccess", mock.Anything, userID, domain.PolicyResourceType("secrets"), domain.PolicyOperation("get")).Return(authzServices.AccessFallback, fmt.Errorf("database connection refused"))
+
+	nextCalled := false
+	nextHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		nextCalled = true
+		w.WriteHeader(http.StatusOK)
+	})
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/secrets/some-id", nil)
+	ctx := context.WithValue(req.Context(), common.UserIDKey, userID.String())
+	req = req.WithContext(ctx)
+	rr := httptest.NewRecorder()
+
+	mw.PolicyMiddleware(nextHandler).ServeHTTP(rr, req)
+
+	assert.False(t, nextCalled, "next handler should NOT be called when policy check errors")
+	assert.Equal(t, http.StatusInternalServerError, rr.Code, "policy check error must deny request, not allow it through")
+}
+
 // TestMiddlewareArchitecturalChange documents the architectural improvement.
 func TestMiddlewareArchitecturalChange(t *testing.T) {
 	t.Parallel()

@@ -342,9 +342,9 @@ func (m *Middleware) PolicyMiddleware(next http.Handler) http.Handler {
 		policySvc := m.container.GetAccessPolicyService()
 		decision, err := policySvc.CheckAccess(r.Context(), principalID, resourceType, op)
 		if err != nil {
-			// Log but don't block on evaluation errors — fail open via fallback.
-			logrus.WithError(err).Warn("PolicyMiddleware: access policy check error, allowing request")
-			next.ServeHTTP(w, r)
+			m.logger.LogAuditError(userIDStr, "policy", "error",
+				"Access policy check failed — denying request", err)
+			http.Error(w, "Internal server error", http.StatusInternalServerError)
 			return
 		}
 
