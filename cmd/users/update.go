@@ -24,7 +24,6 @@ package users
 
 import (
 	"fmt"
-	"strings"
 
 	"github.com/google/uuid"
 	"github.com/spf13/cobra"
@@ -69,26 +68,43 @@ var updateCmd = &cobra.Command{
 			return fmt.Errorf("forbidden: cannot update other users")
 		}
 
-		newUsername := viper.GetString("new-username")
-		newPassword := viper.GetString("new-password")
-		newRole := viper.GetString("new-role")
+		// Read flags directly so tests work without viper binding.
+		newUsername, _ := cmd.Flags().GetString("new-username")
+		newPassword, _ := cmd.Flags().GetString("new-password")
+		newRole, _ := cmd.Flags().GetString("new-role")
 
 		if newUsername == "" && newPassword == "" && newRole == "" {
 			logger := serviceContainer.GetLogger()
-			logger.LogAuditError(claims.UserID.String(), "update_user", "failed", "at least one field (new-username, new-password, new-role) must be provided", nil)
+			logger.LogAuditError(claims.UserID.String(), "update_user", "failed", "at least one field must be provided", nil)
 			return fmt.Errorf("at least one field (new-username, new-password, new-role) must be provided")
 		}
 
-		if newRole != "" && !strings.Contains("admin,secrets_manager,crypto_manager,certificate_manager,user", newRole) {
+		// Only admins may change roles — including changing their own role.
+		if newRole != "" && claims.Role != domain.RoleAdmin {
 			logger := serviceContainer.GetLogger()
-			logger.LogAuditError(claims.UserID.String(), "update_user", "failed", "invalid role", nil)
-			return fmt.Errorf("invalid role: must be admin, secrets_manager, crypto_manager, certificate_manager, or user")
+			logger.LogAuditError(claims.UserID.String(), "update_user", "failed", "forbidden: only admins can change roles", nil)
+			return fmt.Errorf("forbidden: only admins can change roles")
 		}
 
-		// Use user service for update
+		// Validate role is an exact known value (not a substring match).
+		validRoles := map[string]bool{
+			domain.RoleAdmin:              true,
+			domain.RoleUser:               true,
+			domain.RoleSecretsManager:     true,
+			domain.RoleCryptoManager:      true,
+			domain.RoleCertificateManager: true,
+			domain.RoleServiceAccount:     true,
+		}
+		if newRole != "" && !validRoles[newRole] {
+			logger := serviceContainer.GetLogger()
+			logger.LogAuditError(claims.UserID.String(), "update_user", "failed", "invalid role", nil)
+			return fmt.Errorf("invalid role: must be one of admin, secrets_manager, crypto_manager, certificate_manager, user, service_account")
+		}
+
+		// Use user service for update.
 		userSvc := serviceContainer.GetUserService()
 
-		// Convert string values to pointers for optional fields
+		// Convert string values to pointers for optional fields.
 		var usernamePtr, passwordPtr, rolePtr *string
 		if newUsername != "" {
 			usernamePtr = &newUsername
@@ -101,10 +117,12 @@ var updateCmd = &cobra.Command{
 		}
 
 		if err := userSvc.UpdateUser(ctx, userService.UpdateUserRequest{
-			UserID:   id,
-			Username: usernamePtr,
-			Password: passwordPtr,
-			Role:     rolePtr,
+			UserID:     id,
+			CallerID:   claims.UserID,
+			CallerRole: claims.Role,
+			Username:   usernamePtr,
+			Password:   passwordPtr,
+			Role:       rolePtr,
 		}); err != nil {
 			logger := serviceContainer.GetLogger()
 			logger.LogAuditError(claims.UserID.String(), "update_user", "failed", fmt.Sprintf("failed to update user: %s", err), err)

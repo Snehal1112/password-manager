@@ -478,12 +478,18 @@ func updateUser(c *Context, w http.ResponseWriter, r *http.Request) {
 		rolePtr = &req.Role
 	}
 
-	// Update user using service
+	// Parse caller ID from claims for service-level enforcement.
+	callerIDStr, _ := c.Claims["user_id"].(string)
+	callerID, _ := uuid.Parse(callerIDStr)
+
+	// Update user using service.
 	if err := userSvc.UpdateUser(r.Context(), userService.UpdateUserRequest{
-		UserID:   userID,
-		Username: usernamePtr,
-		Password: passwordPtr,
-		Role:     rolePtr,
+		UserID:     userID,
+		CallerID:   callerID,
+		CallerRole: currentRole,
+		Username:   usernamePtr,
+		Password:   passwordPtr,
+		Role:       rolePtr,
 	}); err != nil {
 		c.Err = common.NewAppError("updateUser", "Failed to update user", nil, err.Error(), http.StatusInternalServerError)
 		return

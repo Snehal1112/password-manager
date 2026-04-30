@@ -36,10 +36,12 @@ type CreateUserResult struct {
 
 // UpdateUserRequest represents a request to update an existing user.
 type UpdateUserRequest struct {
-	UserID   uuid.UUID
-	Username *string // Optional - nil means no change
-	Password *string // Optional - nil means no change
-	Role     *string // Optional - nil means no change
+	UserID     uuid.UUID
+	CallerID   uuid.UUID // ID of the user performing the update
+	CallerRole string    // Role of the user performing the update
+	Username   *string   // Optional - nil means no change
+	Password   *string   // Optional - nil means no change
+	Role       *string   // Optional - nil means no change
 }
 
 // UserService handles user management operations.
@@ -174,6 +176,26 @@ func (s *userService) CreateUser(ctx context.Context, req CreateUserRequest) (*C
 //
 //	An error if the update fails.
 func (s *userService) UpdateUser(ctx context.Context, req UpdateUserRequest) error {
+	// Only admins may change any user's role.
+	if req.Role != nil && req.CallerRole != domain.RoleAdmin {
+		return fmt.Errorf("forbidden: only admins can change roles")
+	}
+
+	// Validate role value if provided.
+	if req.Role != nil {
+		validRoles := map[string]bool{
+			domain.RoleAdmin:              true,
+			domain.RoleUser:               true,
+			domain.RoleSecretsManager:     true,
+			domain.RoleCryptoManager:      true,
+			domain.RoleCertificateManager: true,
+			domain.RoleServiceAccount:     true,
+		}
+		if !validRoles[*req.Role] {
+			return fmt.Errorf("invalid role: %s", *req.Role)
+		}
+	}
+
 	logrus.WithField("user_id", req.UserID.String()).Info("Updating user")
 
 	// Get existing user
