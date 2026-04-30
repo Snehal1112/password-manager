@@ -19,9 +19,10 @@ import (
 
 // CreateUserRequest represents a request to create a new user.
 type CreateUserRequest struct {
-	Username string
-	Password string
-	Role     string
+	Username   string
+	Password   string
+	Role       string
+	CallerRole string // Required — must be domain.RoleAdmin.
 }
 
 // CreateUserResult represents the result of creating a new user.
@@ -104,6 +105,10 @@ func NewUserService(config UserServiceConfig) UserService {
 //
 //	The created user information including TOTP setup details, or an error if creation fails.
 func (s *userService) CreateUser(ctx context.Context, req CreateUserRequest) (*CreateUserResult, error) {
+	if req.CallerRole != domain.RoleAdmin {
+		return nil, fmt.Errorf("forbidden: caller must have admin role to create users")
+	}
+
 	logrus.WithFields(logrus.Fields{
 		"username": req.Username,
 		"role":     req.Role,

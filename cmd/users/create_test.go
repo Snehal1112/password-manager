@@ -2,6 +2,7 @@ package users
 
 import (
 	"bytes"
+	"context"
 	"fmt"
 	"strings"
 	"testing"
@@ -14,9 +15,23 @@ import (
 	"github.com/stretchr/testify/mock"
 
 	"rocketvault/cmd/testutils"
+	"rocketvault/common"
 	"rocketvault/internal/domain"
 	userServices "rocketvault/internal/services/users"
 )
+
+// newTestContextWithRole creates a test context with a specific caller role.
+func newTestContextWithRole(t *testing.T, role string) *testutils.TestContext {
+	tc := testutils.NewTestContext(t)
+	claims := &domain.Claims{
+		UserID:   tc.TestUserID,
+		Username: "testuser",
+		Role:     role,
+	}
+	ctx := context.WithValue(tc.Ctx, common.ClaimsKey, claims)
+	tc.Ctx = ctx
+	return tc
+}
 
 func TestCreateUserCommand(t *testing.T) {
 	tests := []struct {
@@ -40,9 +55,10 @@ func TestCreateUserCommand(t *testing.T) {
 					CreatedAt:  time.Now(),
 				}
 				tc.MockUserService.On("CreateUser", mock.Anything, userServices.CreateUserRequest{
-					Username: "newuser",
-					Password: "password123",
-					Role:     domain.RoleUser,
+					Username:   "newuser",
+					Password:   "password123",
+					Role:       domain.RoleUser,
+					CallerRole: domain.RoleAdmin,
 				}).Return(expectedResult, nil)
 			},
 			expectedOutput: "User created successfully",
@@ -70,9 +86,10 @@ func TestCreateUserCommand(t *testing.T) {
 					CreatedAt:  time.Now(),
 				}
 				tc.MockUserService.On("CreateUser", mock.Anything, userServices.CreateUserRequest{
-					Username: "newuser",
-					Password: "password123",
-					Role:     "invalid-role",
+					Username:   "newuser",
+					Password:   "password123",
+					Role:       "invalid-role",
+					CallerRole: domain.RoleAdmin,
 				}).Return(expectedResult, nil)
 			},
 			expectedOutput: "User created successfully",
@@ -83,9 +100,10 @@ func TestCreateUserCommand(t *testing.T) {
 			args: []string{"--new-username=newuser", "--new-password=password123", "--new-role=user"},
 			setupMocks: func(tc *testutils.TestContext) {
 				tc.MockUserService.On("CreateUser", mock.Anything, userServices.CreateUserRequest{
-					Username: "newuser",
-					Password: "password123",
-					Role:     "user",
+					Username:   "newuser",
+					Password:   "password123",
+					Role:       "user",
+					CallerRole: domain.RoleAdmin,
 				}).Return(nil, assert.AnError)
 			},
 			expectedOutput: "failed to create user",
@@ -134,9 +152,10 @@ func TestCreateUserCommand(t *testing.T) {
 					}
 
 					req := userServices.CreateUserRequest{
-						Username: username,
-						Password: password,
-						Role:     role,
+						Username:   username,
+						Password:   password,
+						Role:       role,
+						CallerRole: domain.RoleAdmin,
 					}
 
 					result, err := tc.MockUserService.CreateUser(cmd.Context(), req)
@@ -263,7 +282,7 @@ func validateCreateUserInput(username, password, role string) error {
 	return nil
 }
 
-// Test helper to create a root command for testing
+// Test helper to create a root command for testing.
 func createTestRootCommand() *cobra.Command {
 	rootCmd := &cobra.Command{
 		Use: "rocketvault",
@@ -277,4 +296,29 @@ func createTestRootCommand() *cobra.Command {
 	rootCmd.AddCommand(usersCmd)
 
 	return rootCmd
+}
+
+func TestCreateUserRequiresAdminRole(t *testing.T) {
+	for _, role := range []string{domain.RoleUser, domain.RoleSecretsManager, domain.RoleCryptoManager, domain.RoleCertificateManager} {
+		t.Run("blocked for role "+role, func(t *testing.T) {
+			viper.Reset()
+			tc := newTestContextWithRole(t, role)
+
+			cmd := &cobra.Command{
+				Use:  "create",
+				RunE: createCmd.RunE,
+			}
+			cmd.Flags().String("new-username", "", "")
+			cmd.Flags().String("new-password", "", "")
+			cmd.Flags().String("new-role", "", "")
+			cmd.SetContext(tc.Ctx)
+			cmd.SetArgs([]string{"--new-username=newuser", "--new-password=pw123", "--new-role=user"})
+
+			err := cmd.Execute()
+			assert.Error(t, err)
+			assert.Contains(t, err.Error(), "forbidden")
+
+			tc.MockUserService.AssertNotCalled(t, "CreateUser")
+		})
+	}
 }

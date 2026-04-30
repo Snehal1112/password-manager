@@ -31,6 +31,7 @@ import (
 
 	"rocketvault/common"
 	"rocketvault/internal/container"
+	"rocketvault/internal/domain"
 	userService "rocketvault/internal/services/users"
 )
 
@@ -41,13 +42,24 @@ var createCmd = &cobra.Command{
 	Long:    `Create a new user with a username, password, and role, generating a TOTP secret for MFA. Requires admin role for authentication.`,
 	Example: `rocketvault users create --username admin --password admin123 --totp-code <code> --new-username testuser --new-password password123 --new-role user`,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		// Get service container from context (using interface for testability)
-		serviceContainer, ok := cmd.Context().Value(common.ServiceContainerKey).(container.ServiceContainerInterface)
+		ctx := cmd.Context()
+
+		// Require admin role to create any user account.
+		claims, ok := ctx.Value(common.ClaimsKey).(*domain.Claims)
+		if !ok || claims == nil {
+			return fmt.Errorf("unauthorized: missing authentication claims")
+		}
+		if claims.Role != domain.RoleAdmin {
+			return fmt.Errorf("forbidden: only admin users can create new accounts")
+		}
+
+		// Get service container from context (using interface for testability).
+		serviceContainer, ok := ctx.Value(common.ServiceContainerKey).(container.ServiceContainerInterface)
 		if !ok || serviceContainer == nil {
 			return fmt.Errorf("service container not available in context")
 		}
 
-		// Get new user details from flags directly
+		// Get new user details from flags directly.
 		username, _ := cmd.Flags().GetString("new-username")
 		password, _ := cmd.Flags().GetString("new-password")
 		role, _ := cmd.Flags().GetString("new-role")
@@ -56,12 +68,13 @@ var createCmd = &cobra.Command{
 			return fmt.Errorf("username, password, and role are required")
 		}
 
-		// Create user using service
+		// Create user using service.
 		userSvc := serviceContainer.GetUserService()
-		result, err := userSvc.CreateUser(cmd.Context(), userService.CreateUserRequest{
-			Username: username,
-			Password: password,
-			Role:     role,
+		result, err := userSvc.CreateUser(ctx, userService.CreateUserRequest{
+			Username:   username,
+			Password:   password,
+			Role:       role,
+			CallerRole: claims.Role,
 		})
 		if err != nil {
 			return fmt.Errorf("failed to create user: %w", err)

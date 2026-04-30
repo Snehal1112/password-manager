@@ -66,9 +66,10 @@ var registerAdminCmd = &cobra.Command{
 		}
 
 		result, err := userSvc.CreateUser(ctx, userService.CreateUserRequest{
-			Username: username,
-			Password: password,
-			Role:     domain.RoleAdmin,
+			Username:   username,
+			Password:   password,
+			Role:       domain.RoleAdmin,
+			CallerRole: domain.RoleAdmin, // Bootstrap is pre-authorised.
 		})
 		if err != nil {
 			return fmt.Errorf("failed to create admin user: %w", err)
