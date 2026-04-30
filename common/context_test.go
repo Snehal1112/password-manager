@@ -6,10 +6,10 @@ import (
 )
 
 func TestContextKey_String(t *testing.T) {
-	key := UserIDKey
-	var want ContextKey = 3
-	if key != want {
-		t.Errorf("ContextKey.String() = %q, want %q", key, want)
+	// Each key must return a human-readable string for debugging.
+	want := "rocketvault/user_id"
+	if got := UserIDKey.String(); got != want {
+		t.Errorf("UserIDKey.String() = %q, want %q", got, want)
 	}
 }
 

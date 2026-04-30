@@ -1,44 +1,24 @@
 package common
 
-// ContextKey is a custom type for context keys to avoid key collisions.
-type ContextKey int
+// contextKey is an unexported type for context keys to prevent collisions
+// across packages that might share the same underlying int type.
+type contextKey struct{ name string }
 
-const (
-	// DBKey is the key used to store the database connection in the context.
-	DBKey ContextKey = iota
-	// DBClassKey is the key used to store the database class in the context.
-	DBClassKey
-	// LogKey is the key used to store the logger in the context.
-	LogKey
-	// UserIDKey is the key used to store the user ID in the context.
-	UserIDKey
-	// UsernameKey is the key used to store the username in the context.
-	UsernameKey
-	// RoleKey is the key used to store the user role in the context.
-	RoleKey
-	// TokenKey is the key used to store the authentication token in the context.
-	TokenKey
-	// ClaimsKey is the key used to store the authentication claims in the context.
-	ClaimsKey
-	// RequestIDKey is the key used to store the request ID in the context.
-	RequestIDKey
-	// ContentTypeKey is the key used to store the content type in the context.
-	ContentTypeKey
-	// APIVersionKey is the key used to store the API version in the context.
-	APIVersionKey
-	// ServiceContainerKey is the key used to store the service container in the context.
-	ServiceContainerKey
+// String makes contextKey implement Stringer for debugging.
+func (k *contextKey) String() string { return "rocketvault/" + k.name }
+
+// Context keys using pointer identity — guaranteed unique per variable.
+var (
+	DBKey               = &contextKey{"db"}
+	DBClassKey          = &contextKey{"db_class"}
+	LogKey              = &contextKey{"log"}
+	UserIDKey           = &contextKey{"user_id"}
+	UsernameKey         = &contextKey{"username"}
+	RoleKey             = &contextKey{"role"}
+	TokenKey            = &contextKey{"token"}
+	ClaimsKey           = &contextKey{"claims"}
+	RequestIDKey        = &contextKey{"request_id"}
+	ContentTypeKey      = &contextKey{"content_type"}
+	APIVersionKey       = &contextKey{"api_version"}
+	ServiceContainerKey = &contextKey{"service_container"}
 )
-
-// String returns the string representation of the ContextKey.
-// This is useful for debugging and logging purposes.
-// It returns the string value of the ContextKey.
-//
-// Example usage:
-//
-//	var ctx context.Context
-//	ctx = context.WithValue(context.Background(), common.UserIDKey, "userID")
-//	fmt.Println(ctx.Value(common.UserIDKey)) // Output: userID
-// func (k ContextKey) String() string {
-// 	return string(k)
-// }
