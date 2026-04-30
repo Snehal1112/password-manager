@@ -148,52 +148,38 @@ func generatePassword(length int, useUpper, useLower, useNumbers, useSpecial boo
 		password[i] = candidate
 	}
 
-	// Guarantee at least one character from each enabled type by overwriting at random positions.
-	guaranteedChars := []struct {
-		charset string
-		enabled bool
-	}{
-		{upperChars, useUpper},
-		{lowerChars, useLower},
-		{numberChars, useNumbers},
-		{specialChars, useSpecial},
-	}
-
-	for _, gc := range guaranteedChars {
-		if !gc.enabled || length == 0 {
-			continue
+	// Guarantee at least one character from each enabled type at dedicated positions.
+	pos := 0
+	writeGuaranteed := func(charset string) error {
+		if pos >= length {
+			return nil
 		}
-		// Pick a random position to place a guaranteed character, avoiding 3 consecutive identical chars.
-		for {
-			posIdx, err := rand.Int(rand.Reader, big.NewInt(int64(length)))
-			if err != nil {
-				return "", fmt.Errorf("failed to generate random bytes: %w", err)
-			}
-			pos := posIdx.Int64()
-
-			// Pick a random character from the guaranteed charset.
-			charIdx, err := rand.Int(rand.Reader, big.NewInt(int64(len(gc.charset))))
-			if err != nil {
-				return "", fmt.Errorf("failed to generate random bytes: %w", err)
-			}
-			candidate := []rune(gc.charset)[charIdx.Int64()]
-
-			// Check if placing this character would create 3 consecutive identical characters.
-			wouldCreate3Identical := false
-			if pos >= 2 && password[pos-1] == password[pos-2] && password[pos-2] == candidate {
-				wouldCreate3Identical = true
-			} else if pos >= 1 && pos < int64(length)-1 && password[pos-1] == password[pos+1] && password[pos+1] == candidate {
-				wouldCreate3Identical = true
-			} else if pos < int64(length)-2 && password[pos+1] == password[pos+2] && password[pos+2] == candidate {
-				wouldCreate3Identical = true
-			}
-
-			if wouldCreate3Identical {
-				continue
-			}
-
-			password[pos] = candidate
-			break
+		n, err := rand.Int(rand.Reader, big.NewInt(int64(len(charset))))
+		if err != nil {
+			return fmt.Errorf("failed to generate random bytes: %w", err)
+		}
+		password[pos] = []rune(charset)[n.Int64()]
+		pos++
+		return nil
+	}
+	if useUpper {
+		if err := writeGuaranteed(upperChars); err != nil {
+			return "", err
+		}
+	}
+	if useLower {
+		if err := writeGuaranteed(lowerChars); err != nil {
+			return "", err
+		}
+	}
+	if useNumbers {
+		if err := writeGuaranteed(numberChars); err != nil {
+			return "", err
+		}
+	}
+	if useSpecial {
+		if err := writeGuaranteed(specialChars); err != nil {
+			return "", err
 		}
 	}
 
