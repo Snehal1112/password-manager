@@ -134,9 +134,8 @@ func (s *authenticationService) AuthenticateUser(ctx context.Context, username, 
 	if !valid {
 		s.logger.LogAuditError(user.ID.String(), "authenticate_user", "failed", "Invalid TOTP code", nil)
 		logrus.WithFields(logrus.Fields{
-			"username":  username,
-			"user_id":   user.ID.String(),
-			"totp_code": totpCode,
+			"username": username,
+			"user_id":  user.ID.String(),
 		}).Warn("Authentication failed: invalid TOTP code")
 		return nil, fmt.Errorf("invalid TOTP code")
 	}

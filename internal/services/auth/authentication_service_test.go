@@ -1,15 +1,18 @@
 package auth
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
+	"os"
 	"testing"
 	"time"
 
 	"github.com/google/uuid"
 	"github.com/pquerna/otp"
+	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
@@ -376,6 +379,49 @@ func TestAuthenticationService_SeparationOfConcerns(t *testing.T) {
 	t.Log("- No global dependencies - all dependencies are injected")
 
 	assert.True(t, true, "Architecture demonstrates proper SRP compliance")
+}
+
+func TestAuthenticateUser_FailedTOTP_DoesNotLogCode(t *testing.T) {
+	t.Parallel()
+	// Capture logrus output.
+	var buf bytes.Buffer
+	logrus.SetOutput(&buf)
+	defer logrus.SetOutput(os.Stderr)
+	logrus.SetLevel(logrus.WarnLevel)
+
+	mockUserRepo := &MockUserRepository{}
+	mockSessionRepo := &MockSessionRepository{}
+	mockPasswordService := &MockPasswordService{}
+	mockTOTPService := &MockTOTPService{}
+	mockJWTService := &MockJWTService{}
+
+	testUser := domain.User{
+		ID:           uuid.New(),
+		Username:     "alice",
+		PasswordHash: "$2a$10$test",
+		TOTPSecret:   "JBSWY3DPEHPK3PXP",
+		Role:         domain.RoleUser,
+	}
+
+	mockUserRepo.On("ReadByUsername", mock.Anything, "alice").Return(testUser, nil)
+	mockPasswordService.On("ValidatePassword", "password123", testUser.PasswordHash).Return(nil)
+	mockTOTPService.On("ValidateCode", "123456", testUser.TOTPSecret, mock.AnythingOfType("time.Time")).
+		Return(false, nil)
+
+	logger := logging.InitLogger()
+	svc := NewAuthenticationService(AuthenticationConfig{
+		UserRepository:    mockUserRepo,
+		SessionRepository: mockSessionRepo,
+		PasswordService:   mockPasswordService,
+		TOTPService:       mockTOTPService,
+		JWTService:        mockJWTService,
+		Logger:            logger,
+	})
+
+	_, err := svc.AuthenticateUser(context.Background(), "alice", "password123", "123456")
+	assert.Error(t, err)
+	assert.NotContains(t, buf.String(), "123456", "TOTP code must not appear in logs")
+	assert.NotContains(t, buf.String(), "totp_code")
 }
 
 func TestHashRefreshToken_IsActualHash(t *testing.T) {
