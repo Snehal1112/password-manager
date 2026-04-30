@@ -26,6 +26,7 @@ type Secret struct {
 	ExpiresAt       *time.Time `json:"expires_at,omitempty"`       // Secret expiration timestamp
 	NotBefore       *time.Time `json:"not_before,omitempty"`       // Secret activation timestamp
 	Enabled         bool       `json:"enabled"`                     // Whether secret is enabled
+	ContentType     string     `json:"content_type,omitempty"`     // Media type of the secret value
 	ScheduledPurgeAt *time.Time `json:"scheduled_purge_at,omitempty"` // Scheduled purge timestamp
 }
 

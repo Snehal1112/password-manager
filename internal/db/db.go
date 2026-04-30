@@ -292,6 +292,7 @@ func (d *DBRepository) createOptimizedSchema(db *sql.DB) error {
 			deleted_at TIMESTAMP NULL,
 			purge_protection BOOLEAN NOT NULL DEFAULT FALSE,
 			scheduled_purge_at TIMESTAMP NULL,
+			content_type TEXT NOT NULL DEFAULT '',
 			FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
 		);
 		CREATE INDEX IF NOT EXISTS idx_secrets_user_id ON secrets(user_id);
@@ -529,6 +530,8 @@ func (d *DBRepository) migrateSchema(db *sql.DB) error {
 		"ALTER TABLE secrets ADD COLUMN deleted_at TIMESTAMP NULL",
 		"ALTER TABLE secrets ADD COLUMN purge_protection BOOLEAN NOT NULL DEFAULT FALSE",
 		"ALTER TABLE secrets ADD COLUMN scheduled_purge_at TIMESTAMP NULL",
+		// Feature: secret content types
+		"ALTER TABLE secrets ADD COLUMN content_type TEXT NOT NULL DEFAULT ''",
 		// Milestone 1: soft-delete columns for keys and certificates
 		"ALTER TABLE keys ADD COLUMN deleted_at TIMESTAMP NULL",
 		"ALTER TABLE keys ADD COLUMN purge_protection BOOLEAN NOT NULL DEFAULT FALSE",
