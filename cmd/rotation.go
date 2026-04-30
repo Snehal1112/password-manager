@@ -23,21 +23,15 @@ THE SOFTWARE.
 package cmd
 
 import (
-	"database/sql"
 	"fmt"
-	"os"
 	"text/tabwriter"
-	"time"
 
 	"github.com/google/uuid"
 	"github.com/spf13/cobra"
 
 	"rocketvault/common"
 	"rocketvault/internal/container"
-	"rocketvault/internal/domain"
-	"rocketvault/internal/logging"
-	"rocketvault/internal/repositories"
-	"rocketvault/internal/services/secrets"
+	secrets "rocketvault/internal/services/secrets"
 )
 
 var (
@@ -232,15 +226,12 @@ func init() {
 
 func runRotationCreate(cmd *cobra.Command) error {
 	ctx := cmd.Context()
-	db := ctx.Value(common.DBKey).(*sql.DB)
-	logger := ctx.Value(common.LogKey).(*logging.Logger)
 	userID := ctx.Value(common.UserIDKey).(uuid.UUID)
-
-	// Create repository
-	repo := repositories.NewRotationPolicyRepository(db, logger)
-
-	// Create policy
-	policy := &domain.RotationPolicy{
+	sc, ok := ctx.Value(common.ServiceContainerKey).(container.ServiceContainerInterface)
+	if !ok || sc == nil {
+		return fmt.Errorf("service container not available in context")
+	}
+	policy, err := sc.GetRotationService().CreatePolicy(ctx, secrets.CreatePolicyRequest{
 		UserID:       userID,
 		Name:         policyName,
 		Description:  policyDescription,
@@ -248,422 +239,268 @@ func runRotationCreate(cmd *cobra.Command) error {
 		Enabled:      true,
 		ReminderDays: policyReminder,
 		AutoRotate:   policyAutoRotate,
-	}
-
-	err := repo.Create(ctx, policy)
+	})
 	if err != nil {
 		return fmt.Errorf("failed to create rotation policy: %w", err)
 	}
-
-	fmt.Printf("✅ Rotation policy created successfully!\n")
-	fmt.Printf("Policy ID: %s\n", policy.ID)
-	fmt.Printf("Name: %s\n", policy.Name)
-	fmt.Printf("Interval: %d days\n", policy.IntervalDays)
-	fmt.Printf("Auto-rotate: %t\n", policy.AutoRotate)
-
+	fmt.Fprintf(cmd.OutOrStdout(), "Rotation policy created successfully\nPolicy ID: %s\nName: %s\nInterval: %d days\nAuto-rotate: %t\n",
+		policy.ID, policy.Name, policy.IntervalDays, policy.AutoRotate)
 	return nil
 }
 
 func runRotationList(cmd *cobra.Command) error {
 	ctx := cmd.Context()
-	db := ctx.Value(common.DBKey).(*sql.DB)
-	logger := ctx.Value(common.LogKey).(*logging.Logger)
 	userID := ctx.Value(common.UserIDKey).(uuid.UUID)
-
-	// Create repository
-	repo := repositories.NewRotationPolicyRepository(db, logger)
-
-	// Get policies
-	policies, err := repo.ListByUser(ctx, userID)
+	sc, ok := ctx.Value(common.ServiceContainerKey).(container.ServiceContainerInterface)
+	if !ok || sc == nil {
+		return fmt.Errorf("service container not available in context")
+	}
+	policies, err := sc.GetRotationService().ListUserPolicies(ctx, userID)
 	if err != nil {
 		return fmt.Errorf("failed to list rotation policies: %w", err)
 	}
-
 	if len(policies) == 0 {
-		fmt.Println("No rotation policies found.")
+		fmt.Fprintln(cmd.OutOrStdout(), "No rotation policies found.")
 		return nil
 	}
-
-	// Display results in a table
-	w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
+	w := tabwriter.NewWriter(cmd.OutOrStdout(), 0, 0, 2, ' ', 0)
 	fmt.Fprintln(w, "ID\tNAME\tINTERVAL\tAUTO-ROTATE\tENABLED\tCREATED")
 	fmt.Fprintln(w, "--\t----\t--------\t-----------\t-------\t-------")
-
 	for _, p := range policies {
 		fmt.Fprintf(w, "%s\t%s\t%d days\t%t\t%t\t%s\n",
-			p.ID.String()[:8]+"...",
-			p.Name,
-			p.IntervalDays,
-			p.AutoRotate,
-			p.Enabled,
-			p.CreatedAt.Format("2006-01-02"))
+			p.ID.String()[:8]+"...", p.Name, p.IntervalDays,
+			p.AutoRotate, p.Enabled, p.CreatedAt.Format("2006-01-02"))
 	}
-
 	w.Flush()
-	fmt.Printf("\n📊 Found %d rotation policies\n", len(policies))
-
+	fmt.Fprintf(cmd.OutOrStdout(), "\nFound %d rotation policies\n", len(policies))
 	return nil
 }
 
 func runRotationUpdate(cmd *cobra.Command) error {
 	ctx := cmd.Context()
-	db := ctx.Value(common.DBKey).(*sql.DB)
-	logger := ctx.Value(common.LogKey).(*logging.Logger)
 	userID := ctx.Value(common.UserIDKey).(uuid.UUID)
-
-	// Parse policy ID
+	sc, ok := ctx.Value(common.ServiceContainerKey).(container.ServiceContainerInterface)
+	if !ok || sc == nil {
+		return fmt.Errorf("service container not available in context")
+	}
 	pid, err := uuid.Parse(policyID)
 	if err != nil {
 		return fmt.Errorf("invalid policy ID: %w", err)
 	}
-
-	// Create repository
-	repo := repositories.NewRotationPolicyRepository(db, logger)
-
-	// Get existing policy
-	policy, err := repo.Read(ctx, pid)
+	existing, err := sc.GetRotationService().GetPolicy(ctx, pid)
 	if err != nil {
 		return fmt.Errorf("failed to read policy: %w", err)
 	}
-
-	// Verify ownership
-	if policy.UserID != userID {
-		return fmt.Errorf("you don't own this policy")
+	req := secrets.UpdatePolicyRequest{
+		ID:           pid,
+		UserID:       userID,
+		Name:         existing.Name,
+		Description:  existing.Description,
+		IntervalDays: existing.IntervalDays,
+		Enabled:      existing.Enabled,
+		ReminderDays: existing.ReminderDays,
+		AutoRotate:   existing.AutoRotate,
 	}
-
-	// Update fields if provided
 	if cmd.Flags().Changed("name") {
-		policy.Name = policyName
+		req.Name = policyName
 	}
 	if cmd.Flags().Changed("description") {
-		policy.Description = policyDescription
+		req.Description = policyDescription
 	}
 	if cmd.Flags().Changed("interval") {
-		policy.IntervalDays = policyInterval
+		req.IntervalDays = policyInterval
 	}
 	if cmd.Flags().Changed("reminder") {
-		policy.ReminderDays = policyReminder
+		req.ReminderDays = policyReminder
 	}
 	if cmd.Flags().Changed("auto-rotate") {
-		policy.AutoRotate = policyAutoRotate
+		req.AutoRotate = policyAutoRotate
 	}
-
-	// Update policy
-	err = repo.Update(ctx, policy)
-	if err != nil {
+	if _, err := sc.GetRotationService().UpdatePolicy(ctx, req); err != nil {
 		return fmt.Errorf("failed to update rotation policy: %w", err)
 	}
-
-	fmt.Printf("✅ Rotation policy updated successfully!\n")
+	fmt.Fprintln(cmd.OutOrStdout(), "Rotation policy updated successfully.")
 	return nil
 }
 
 func runRotationDelete(cmd *cobra.Command) error {
 	ctx := cmd.Context()
-	db := ctx.Value(common.DBKey).(*sql.DB)
-	logger := ctx.Value(common.LogKey).(*logging.Logger)
-	userID := ctx.Value(common.UserIDKey).(uuid.UUID)
-
-	// Parse policy ID
+	sc, ok := ctx.Value(common.ServiceContainerKey).(container.ServiceContainerInterface)
+	if !ok || sc == nil {
+		return fmt.Errorf("service container not available in context")
+	}
 	pid, err := uuid.Parse(policyID)
 	if err != nil {
 		return fmt.Errorf("invalid policy ID: %w", err)
 	}
-
-	// Create repository
-	repo := repositories.NewRotationPolicyRepository(db, logger)
-
-	// Get existing policy
-	policy, err := repo.Read(ctx, pid)
-	if err != nil {
-		return fmt.Errorf("failed to read policy: %w", err)
-	}
-
-	// Verify ownership
-	if policy.UserID != userID {
-		return fmt.Errorf("you don't own this policy")
-	}
-
-	// Delete policy
-	err = repo.Delete(ctx, pid)
-	if err != nil {
+	if err := sc.GetRotationService().DeletePolicy(ctx, pid); err != nil {
 		return fmt.Errorf("failed to delete rotation policy: %w", err)
 	}
-
-	fmt.Printf("✅ Rotation policy deleted successfully!\n")
+	fmt.Fprintln(cmd.OutOrStdout(), "Rotation policy deleted successfully.")
 	return nil
 }
 
 func runRotationAssign(cmd *cobra.Command) error {
 	ctx := cmd.Context()
-	db := ctx.Value(common.DBKey).(*sql.DB)
-	logger := ctx.Value(common.LogKey).(*logging.Logger)
 	userID := ctx.Value(common.UserIDKey).(uuid.UUID)
-
-	// Parse IDs
+	sc, ok := ctx.Value(common.ServiceContainerKey).(container.ServiceContainerInterface)
+	if !ok || sc == nil {
+		return fmt.Errorf("service container not available in context")
+	}
 	pid, err := uuid.Parse(policyID)
 	if err != nil {
 		return fmt.Errorf("invalid policy ID: %w", err)
 	}
-
 	sid, err := uuid.Parse(secretID)
 	if err != nil {
 		return fmt.Errorf("invalid secret ID: %w", err)
 	}
-
-	// Create repository
-	repo := repositories.NewRotationPolicyRepository(db, logger)
-
-	// Verify policy ownership
-	policy, err := repo.Read(ctx, pid)
-	if err != nil {
-		return fmt.Errorf("failed to read policy: %w", err)
-	}
-	if policy.UserID != userID {
-		return fmt.Errorf("you don't own this policy")
-	}
-
-	// Verify secret ownership
-	secretRepo := repositories.NewSecretRepository(db, logger)
-	secret, err := secretRepo.Read(ctx, sid)
-	if err != nil {
-		return fmt.Errorf("failed to read secret: %w", err)
-	}
-	if secret.UserID != userID {
-		return fmt.Errorf("you don't own this secret")
-	}
-
-	// Assign policy with proper timestamps
-	assignedAt := time.Now()
-	nextRotationAt := assignedAt.AddDate(0, 0, policy.IntervalDays)
-	err = repo.AssignToSecret(ctx, sid, pid, assignedAt, nextRotationAt)
-	if err != nil {
+	if err := sc.GetRotationService().AssignPolicyToSecret(ctx, secrets.AssignPolicyRequest{
+		SecretID: sid,
+		PolicyID: pid,
+		UserID:   userID,
+	}); err != nil {
 		return fmt.Errorf("failed to assign policy to secret: %w", err)
 	}
-
-	fmt.Printf("✅ Policy assigned to secret successfully!\n")
+	fmt.Fprintln(cmd.OutOrStdout(), "Policy assigned to secret successfully.")
 	return nil
 }
 
 func runRotationUnassign(cmd *cobra.Command) error {
 	ctx := cmd.Context()
-	db := ctx.Value(common.DBKey).(*sql.DB)
-	logger := ctx.Value(common.LogKey).(*logging.Logger)
-	userID := ctx.Value(common.UserIDKey).(uuid.UUID)
-
-	// Parse IDs
+	sc, ok := ctx.Value(common.ServiceContainerKey).(container.ServiceContainerInterface)
+	if !ok || sc == nil {
+		return fmt.Errorf("service container not available in context")
+	}
 	pid, err := uuid.Parse(policyID)
 	if err != nil {
 		return fmt.Errorf("invalid policy ID: %w", err)
 	}
-
 	sid, err := uuid.Parse(secretID)
 	if err != nil {
 		return fmt.Errorf("invalid secret ID: %w", err)
 	}
-
-	// Create repository
-	repo := repositories.NewRotationPolicyRepository(db, logger)
-
-	// Verify policy ownership
-	policy, err := repo.Read(ctx, pid)
-	if err != nil {
-		return fmt.Errorf("failed to read policy: %w", err)
-	}
-	if policy.UserID != userID {
-		return fmt.Errorf("you don't own this policy")
-	}
-
-	// Verify secret ownership
-	secretRepo := repositories.NewSecretRepository(db, logger)
-	secret, err := secretRepo.Read(ctx, sid)
-	if err != nil {
-		return fmt.Errorf("failed to read secret: %w", err)
-	}
-	if secret.UserID != userID {
-		return fmt.Errorf("you don't own this secret")
-	}
-
-	// Unassign policy
-	err = repo.RemoveFromSecret(ctx, sid, pid)
-	if err != nil {
+	if err := sc.GetRotationService().RemovePolicyFromSecret(ctx, sid, pid); err != nil {
 		return fmt.Errorf("failed to remove policy from secret: %w", err)
 	}
-
-	fmt.Printf("✅ Policy removed from secret successfully!\n")
+	fmt.Fprintln(cmd.OutOrStdout(), "Policy removed from secret successfully.")
 	return nil
 }
 
 func runRotationRotate(cmd *cobra.Command) error {
 	ctx := cmd.Context()
-	db := ctx.Value(common.DBKey).(*sql.DB)
-	logger := ctx.Value(common.LogKey).(*logging.Logger)
 	userID := ctx.Value(common.UserIDKey).(uuid.UUID)
-
-	// Parse IDs
+	sc, ok := ctx.Value(common.ServiceContainerKey).(container.ServiceContainerInterface)
+	if !ok || sc == nil {
+		return fmt.Errorf("service container not available in context")
+	}
 	sid, err := uuid.Parse(secretID)
 	if err != nil {
 		return fmt.Errorf("invalid secret ID: %w", err)
 	}
-
 	pid, err := uuid.Parse(policyID)
 	if err != nil {
 		return fmt.Errorf("invalid policy ID: %w", err)
 	}
-
-	// Create service container for scheduler access
-	serviceContainer, err := container.NewServiceContainer(container.Config{
-		Database: db,
-		Logger:   logger,
-	})
-	if err != nil {
-		return fmt.Errorf("failed to create service container: %w", err)
-	}
-	defer serviceContainer.Close()
-
-	// Get rotation service from container
-	rotationService := serviceContainer.GetRotationService()
-
-	// Perform manual rotation
-	err = rotationService.PerformManualRotation(ctx, secrets.ManualRotationRequest{
+	if err := sc.GetRotationService().PerformManualRotation(ctx, secrets.ManualRotationRequest{
 		SecretID: sid,
 		PolicyID: pid,
 		UserID:   userID,
-	})
-	if err != nil {
+	}); err != nil {
 		return fmt.Errorf("failed to rotate secret: %w", err)
 	}
-
-	fmt.Printf("✅ Secret rotated successfully!\n")
+	fmt.Fprintln(cmd.OutOrStdout(), "Secret rotated successfully.")
 	return nil
 }
 
 func runRotationHistory(cmd *cobra.Command) error {
 	ctx := cmd.Context()
-	db := ctx.Value(common.DBKey).(*sql.DB)
-	logger := ctx.Value(common.LogKey).(*logging.Logger)
-	userID := ctx.Value(common.UserIDKey).(uuid.UUID)
-
-	// Parse secret ID
+	sc, ok := ctx.Value(common.ServiceContainerKey).(container.ServiceContainerInterface)
+	if !ok || sc == nil {
+		return fmt.Errorf("service container not available in context")
+	}
 	sid, err := uuid.Parse(secretID)
 	if err != nil {
 		return fmt.Errorf("invalid secret ID: %w", err)
 	}
-
-	// Create repository
-	repo := repositories.NewRotationPolicyRepository(db, logger)
-
-	// Verify secret ownership
-	secretRepo := repositories.NewSecretRepository(db, logger)
-	secret, err := secretRepo.Read(ctx, sid)
-	if err != nil {
-		return fmt.Errorf("failed to read secret: %w", err)
-	}
-	if secret.UserID != userID {
-		return fmt.Errorf("you don't own this secret")
-	}
-
-	// Get rotation history
-	history, err := repo.GetRotationHistory(ctx, sid)
+	history, err := sc.GetRotationService().GetRotationHistory(ctx, sid)
 	if err != nil {
 		return fmt.Errorf("failed to get rotation history: %w", err)
 	}
-
 	if len(history) == 0 {
-		fmt.Printf("No rotation history found for secret %s\n", secretID)
+		fmt.Fprintf(cmd.OutOrStdout(), "No rotation history found for secret %s\n", secretID)
 		return nil
 	}
-
-	// Display results in a table
-	w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
+	w := tabwriter.NewWriter(cmd.OutOrStdout(), 0, 0, 2, ' ', 0)
 	fmt.Fprintln(w, "ROTATED_AT\tTRIGGERED_BY\tPREV_VERSION\tNEW_VERSION\tNOTES")
 	fmt.Fprintln(w, "----------\t------------\t------------\t-----------\t-----")
-
 	for _, h := range history {
 		notes := h.Notes
 		if len(notes) > 30 {
 			notes = notes[:27] + "..."
 		}
 		fmt.Fprintf(w, "%s\t%s\t%d\t%d\t%s\n",
-			h.RotatedAt.Format("2006-01-02 15:04"),
-			h.TriggeredBy,
-			h.PreviousVersion,
-			h.NewVersion,
-			notes)
+			h.RotatedAt.Format("2006-01-02 15:04"), h.TriggeredBy,
+			h.PreviousVersion, h.NewVersion, notes)
 	}
-
 	w.Flush()
-	fmt.Printf("\n📊 Found %d rotation events\n", len(history))
-
+	fmt.Fprintf(cmd.OutOrStdout(), "\nFound %d rotation events\n", len(history))
 	return nil
 }
 
 func runRotationStatus(cmd *cobra.Command) error {
 	ctx := cmd.Context()
-	db := ctx.Value(common.DBKey).(*sql.DB)
-	logger := ctx.Value(common.LogKey).(*logging.Logger)
 	userID := ctx.Value(common.UserIDKey).(uuid.UUID)
+	sc, ok := ctx.Value(common.ServiceContainerKey).(container.ServiceContainerInterface)
+	if !ok || sc == nil {
+		return fmt.Errorf("service container not available in context")
+	}
+	rotSvc := sc.GetRotationService()
 
-	// Create repository
-	repo := repositories.NewRotationPolicyRepository(db, logger)
-
-	// Get due rotations
-	due, err := repo.GetDueRotations(ctx, userID)
+	due, err := rotSvc.GetDueRotations(ctx, userID)
 	if err != nil {
 		return fmt.Errorf("failed to get due rotations: %w", err)
 	}
-
-	// Get upcoming reminders
-	reminders, err := repo.GetUpcomingReminders(ctx, userID)
+	reminders, err := rotSvc.GetUpcomingReminders(ctx, userID)
 	if err != nil {
 		return fmt.Errorf("failed to get upcoming reminders: %w", err)
 	}
+	policies, err := rotSvc.ListUserPolicies(ctx, userID)
+	if err != nil {
+		return fmt.Errorf("failed to list policies: %w", err)
+	}
 
-	fmt.Printf("🔄 Rotation Status\n")
-	fmt.Printf("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n")
-
+	fmt.Fprintln(cmd.OutOrStdout(), "Rotation Status")
+	fmt.Fprintln(cmd.OutOrStdout(), "────────────────────────────────────────")
 	if len(due) > 0 {
-		fmt.Printf("⚠️  Secrets due for rotation:\n")
+		fmt.Fprintln(cmd.OutOrStdout(), "Secrets due for rotation:")
 		for _, d := range due {
 			nextRotation := "Unknown"
 			if d.NextRotationAt != nil {
 				nextRotation = d.NextRotationAt.Format("2006-01-02")
 			}
-			fmt.Printf("  • Secret %s (next: %s)\n", d.SecretID.String()[:8]+"...", nextRotation)
+			fmt.Fprintf(cmd.OutOrStdout(), "  - Secret %s (next: %s)\n", d.SecretID.String()[:8]+"...", nextRotation)
 		}
-		fmt.Println()
 	} else {
-		fmt.Printf("✅ No secrets are currently due for rotation\n\n")
+		fmt.Fprintln(cmd.OutOrStdout(), "No secrets are currently due for rotation.")
 	}
-
 	if len(reminders) > 0 {
-		fmt.Printf("🔔 Upcoming reminders:\n")
+		fmt.Fprintln(cmd.OutOrStdout(), "\nUpcoming reminders:")
 		for _, r := range reminders {
-			fmt.Printf("  • Secret %s (%s reminder)\n", r.SecretID.String()[:8]+"...", r.ReminderType)
+			fmt.Fprintf(cmd.OutOrStdout(), "  - Secret %s (%s reminder)\n", r.SecretID.String()[:8]+"...", r.ReminderType)
 		}
-		fmt.Println()
-	} else {
-		fmt.Printf("✅ No upcoming reminders\n\n")
 	}
-
-	// Get all policies and their assignments
-	policies, err := repo.ListByUser(ctx, userID)
-	if err != nil {
-		return fmt.Errorf("failed to list policies: %w", err)
-	}
-
 	if len(policies) > 0 {
-		fmt.Printf("📋 Active rotation policies:\n")
+		fmt.Fprintln(cmd.OutOrStdout(), "\nActive rotation policies:")
 		for _, p := range policies {
 			if p.Enabled {
-				fmt.Printf("  • %s: every %d days", p.Name, p.IntervalDays)
+				line := fmt.Sprintf("  - %s: every %d days", p.Name, p.IntervalDays)
 				if p.AutoRotate {
-					fmt.Printf(" (auto-rotate enabled)")
+					line += " (auto-rotate enabled)"
 				}
-				fmt.Println()
+				fmt.Fprintln(cmd.OutOrStdout(), line)
 			}
 		}
 	}
-
 	return nil
 }
