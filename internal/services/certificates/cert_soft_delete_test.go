@@ -83,6 +83,14 @@ func (m *mockCertRepository) ListSoftDeleted(ctx context.Context, userID uuid.UU
 	return nil, args.Error(1)
 }
 
+func (m *mockCertRepository) ListAll(ctx context.Context) ([]domain.Certificate, error) {
+	args := m.Called(ctx)
+	if v := args.Get(0); v != nil {
+		return v.([]domain.Certificate), args.Error(1)
+	}
+	return nil, args.Error(1)
+}
+
 // mockKeyRepo is a minimal stub for KeyRepositoryInterface used in CertificateServiceConfig.
 // CertificateService only uses the key repo for ownership checks; we don't exercise it here.
 type mockKeyRepo struct {

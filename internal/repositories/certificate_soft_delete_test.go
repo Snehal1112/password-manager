@@ -34,7 +34,10 @@ func setupCertTestDB(t *testing.T) *sql.DB {
 			created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
 			deleted_at TIMESTAMP DEFAULT NULL,
 			purge_protection BOOLEAN NOT NULL DEFAULT FALSE,
-			scheduled_purge_at TIMESTAMP DEFAULT NULL
+			scheduled_purge_at TIMESTAMP DEFAULT NULL,
+			expires_at DATETIME,
+			auto_renew BOOLEAN NOT NULL DEFAULT FALSE,
+			renewal_days INTEGER NOT NULL DEFAULT 30
 		);
 		CREATE TABLE IF NOT EXISTS certificate_tags (
 			certificate_id TEXT NOT NULL,

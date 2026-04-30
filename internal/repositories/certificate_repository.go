@@ -34,6 +34,7 @@ type CertificateRepositoryInterface interface {
 	PurgeCertificate(ctx context.Context, id uuid.UUID) error
 	SetPurgeProtection(ctx context.Context, id uuid.UUID, enabled bool) error
 	ListSoftDeleted(ctx context.Context, userID uuid.UUID) ([]*domain.Certificate, error)
+	ListAll(ctx context.Context) ([]domain.Certificate, error)
 }
 
 // CertificateRepository implements CertificateRepositoryInterface with pure CRUD operations.
@@ -105,11 +106,12 @@ func (r *CertificateRepository) Create(ctx context.Context, cert *domain.Certifi
 		}
 		defer tx.Rollback()
 
-		// Insert certificate with pre-encrypted private key
+		// Insert certificate with pre-encrypted private key and renewal metadata.
 		_, err = tx.ExecContext(
 			ctx,
-			"INSERT INTO certificates (id, user_id, name, certificate, private_key, created_at) VALUES (?, ?, ?, ?, ?, ?)",
+			"INSERT INTO certificates (id, user_id, name, certificate, private_key, created_at, expires_at, auto_renew, renewal_days) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
 			cert.ID.String(), cert.UserID.String(), cert.Name, cert.Certificate, cert.PrivateKey, cert.CreatedAt,
+			cert.ExpiresAt, cert.AutoRenew, cert.RenewalDays,
 		)
 		if err != nil {
 			r.log.LogAuditError(cert.UserID.String(), "create_certificate", "failed", "Failed to insert certificate", err)
@@ -162,9 +164,10 @@ func (r *CertificateRepository) Read(ctx context.Context, id uuid.UUID) (*domain
 
 	err := r.db.QueryRowContext(
 		ctx,
-		"SELECT id, user_id, name, certificate, private_key, created_at FROM certificates WHERE id = ? AND deleted_at IS NULL",
+		"SELECT id, user_id, name, certificate, private_key, created_at, expires_at, auto_renew, renewal_days FROM certificates WHERE id = ? AND deleted_at IS NULL",
 		id.String(),
-	).Scan(&idStr, &userIDStr, &cert.Name, &cert.Certificate, &cert.PrivateKey, &cert.CreatedAt)
+	).Scan(&idStr, &userIDStr, &cert.Name, &cert.Certificate, &cert.PrivateKey, &cert.CreatedAt,
+		&cert.ExpiresAt, &cert.AutoRenew, &cert.RenewalDays)
 
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, fmt.Errorf("certificate not found")
@@ -223,8 +226,9 @@ func (r *CertificateRepository) Update(ctx context.Context, cert *domain.Certifi
 
 		result, err := tx.ExecContext(
 			ctx,
-			"UPDATE certificates SET name = ?, certificate = ?, private_key = ?, created_at = ? WHERE id = ?",
-			cert.Name, cert.Certificate, cert.PrivateKey, cert.CreatedAt, cert.ID.String(),
+			"UPDATE certificates SET name = ?, certificate = ?, private_key = ?, created_at = ?, expires_at = ?, auto_renew = ?, renewal_days = ? WHERE id = ?",
+			cert.Name, cert.Certificate, cert.PrivateKey, cert.CreatedAt,
+			cert.ExpiresAt, cert.AutoRenew, cert.RenewalDays, cert.ID.String(),
 		)
 		if err != nil {
 			r.log.LogAuditError(cert.UserID.String(), "update_certificate", "failed", "Failed to update certificate", err)
@@ -386,7 +390,7 @@ func (r *CertificateRepository) ListByUser(ctx context.Context, userID uuid.UUID
 	var certList []domain.Certificate
 
 	err := r.executeWithMetrics("list_certificates_by_user", func() error {
-		query := "SELECT id, user_id, name, certificate, private_key, created_at FROM certificates WHERE user_id = ? AND deleted_at IS NULL"
+		query := "SELECT id, user_id, name, certificate, private_key, created_at, expires_at, auto_renew, renewal_days FROM certificates WHERE user_id = ? AND deleted_at IS NULL"
 		args := []interface{}{userID.String()}
 
 		if certType != "" {
@@ -418,7 +422,8 @@ func (r *CertificateRepository) ListByUser(ctx context.Context, userID uuid.UUID
 			var cert domain.Certificate
 			var idStr, userIDStr string
 
-			if err := rows.Scan(&idStr, &userIDStr, &cert.Name, &cert.Certificate, &cert.PrivateKey, &cert.CreatedAt); err != nil {
+			if err := rows.Scan(&idStr, &userIDStr, &cert.Name, &cert.Certificate, &cert.PrivateKey, &cert.CreatedAt,
+				&cert.ExpiresAt, &cert.AutoRenew, &cert.RenewalDays); err != nil {
 				r.log.LogAuditError(userID.String(), "list_certificates", "failed", "Failed to scan certificate", err)
 				return fmt.Errorf("failed to scan certificate: %w", err)
 			}
@@ -778,4 +783,42 @@ func (r *CertificateRepository) ListSoftDeleted(ctx context.Context, userID uuid
 	}).Debug("Soft-deleted certificates listed successfully")
 
 	return certList, nil
+}
+
+// ListAll returns all non-deleted certificates across all users.
+// It is used by the renewal scheduler to find certificates that need renewal.
+//
+// Parameters:
+//   - ctx: The context for the database operation.
+//
+// Returns:
+//
+//	A slice of all active certificates, or an error if retrieval fails.
+func (r *CertificateRepository) ListAll(ctx context.Context) ([]domain.Certificate, error) {
+	var certs []domain.Certificate
+
+	err := r.executeWithMetrics("list_all_certificates", func() error {
+		rows, err := r.db.QueryContext(ctx,
+			"SELECT id, user_id, name, certificate, private_key, created_at, expires_at, auto_renew, renewal_days FROM certificates WHERE deleted_at IS NULL")
+		if err != nil {
+			return fmt.Errorf("failed to list all certificates: %w", err)
+		}
+		defer rows.Close()
+
+		for rows.Next() {
+			var cert domain.Certificate
+			var idStr, userIDStr string
+			if err := rows.Scan(&idStr, &userIDStr, &cert.Name, &cert.Certificate, &cert.PrivateKey, &cert.CreatedAt,
+				&cert.ExpiresAt, &cert.AutoRenew, &cert.RenewalDays); err != nil {
+				return fmt.Errorf("failed to scan certificate row: %w", err)
+			}
+			cert.ID = uuid.MustParse(idStr)
+			cert.UserID = uuid.MustParse(userIDStr)
+			certs = append(certs, cert)
+		}
+
+		return rows.Err()
+	})
+
+	return certs, err
 }
