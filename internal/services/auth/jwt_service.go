@@ -129,12 +129,6 @@ func (s *jwtService) ValidateToken(tokenString string) (*JWTClaims, error) {
 			return nil, fmt.Errorf("unexpected signing method: %v", token.Header["alg"])
 		}
 
-		// Validate expiration
-		if claims.ExpiresAt != nil && claims.ExpiresAt.Time.Before(time.Now()) {
-			logrus.Error("JWT token has expired")
-			return nil, jwt.ErrTokenExpired
-		}
-
 		// Validate issuer
 		if claims.Issuer != s.issuer {
 			logrus.WithFields(logrus.Fields{
