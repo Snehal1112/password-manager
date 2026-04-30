@@ -77,12 +77,42 @@ type DecryptResult struct {
 	KeyID     uuid.UUID
 }
 
+// WrapKeyRequest is a request to wrap key material with an RSA vault key.
+type WrapKeyRequest struct {
+	KeyID        uuid.UUID
+	UserID       uuid.UUID
+	PlaintextKey []byte
+	Algorithm    string // must be "RSA-OAEP"
+}
+
+// WrapKeyResult holds the wrapped key bytes.
+type WrapKeyResult struct {
+	WrappedKey []byte
+	Algorithm  string
+}
+
+// UnwrapKeyRequest is a request to unwrap key material with an RSA vault key.
+type UnwrapKeyRequest struct {
+	KeyID      uuid.UUID
+	UserID     uuid.UUID
+	WrappedKey []byte
+	Algorithm  string // must be "RSA-OAEP"
+}
+
+// UnwrapKeyResult holds the recovered plaintext key bytes.
+type UnwrapKeyResult struct {
+	PlaintextKey []byte
+	Algorithm    string
+}
+
 // CryptoService provides cryptographic operations using stored keys.
 type CryptoService interface {
 	Sign(ctx context.Context, req SignRequest) (*SignResult, error)
 	Verify(ctx context.Context, req VerifyRequest) (*VerifyResult, error)
 	Encrypt(ctx context.Context, req EncryptRequest) (*EncryptResult, error)
 	Decrypt(ctx context.Context, req DecryptRequest) (*DecryptResult, error)
+	WrapKey(ctx context.Context, req WrapKeyRequest) (*WrapKeyResult, error)
+	UnwrapKey(ctx context.Context, req UnwrapKeyRequest) (*UnwrapKeyResult, error)
 }
 
 // cryptoService implements CryptoService.
@@ -315,4 +345,74 @@ func (s *cryptoService) Decrypt(ctx context.Context, req DecryptRequest) (*Decry
 		Algorithm: decryptResult.Algorithm,
 		KeyID:     req.KeyID,
 	}, nil
+}
+
+// WrapKey encrypts plaintext key material using RSA-OAEP with the specified vault key.
+func (s *cryptoService) WrapKey(ctx context.Context, req WrapKeyRequest) (*WrapKeyResult, error) {
+	if req.Algorithm != "RSA-OAEP" {
+		return nil, fmt.Errorf("unsupported algorithm %q: only RSA-OAEP is supported", req.Algorithm)
+	}
+	key, err := s.keyRepo.Read(ctx, req.KeyID)
+	if err != nil {
+		s.logger.LogAuditError(req.UserID.String(), "wrap_key", "failed", "key not found", err)
+		return nil, fmt.Errorf("key not found: %w", err)
+	}
+	if key.UserID != req.UserID {
+		s.logger.LogAuditError(req.UserID.String(), "wrap_key", "forbidden",
+			fmt.Sprintf("unauthorized wrap attempt with key %s", req.KeyID), nil)
+		return nil, fmt.Errorf("forbidden: cannot use other users' keys")
+	}
+	if key.Revoked {
+		s.logger.LogAuditError(req.UserID.String(), "wrap_key", "failed",
+			fmt.Sprintf("attempted wrap with revoked key %s", req.KeyID), nil)
+		return nil, fmt.Errorf("cannot wrap with revoked key")
+	}
+	decryptedKey, err := common.DecryptSecret(key.Value)
+	if err != nil {
+		s.logger.LogAuditError(req.UserID.String(), "wrap_key", "failed", "failed to decrypt vault key", err)
+		return nil, fmt.Errorf("failed to decrypt vault key: %w", err)
+	}
+	result, err := s.cryptoOps.Encrypt(decryptedKey, req.PlaintextKey, crypto.AlgorithmRSAOAEP)
+	if err != nil {
+		s.logger.LogAuditError(req.UserID.String(), "wrap_key", "failed", "RSA-OAEP wrap failed", err)
+		return nil, fmt.Errorf("wrap failed: %w", err)
+	}
+	s.logger.LogAuditInfo(req.UserID.String(), "wrap_key", "success",
+		fmt.Sprintf("key material wrapped with vault key %s", req.KeyID))
+	return &WrapKeyResult{WrappedKey: result.Ciphertext, Algorithm: "RSA-OAEP"}, nil
+}
+
+// UnwrapKey decrypts wrapped key material using RSA-OAEP with the specified vault key.
+func (s *cryptoService) UnwrapKey(ctx context.Context, req UnwrapKeyRequest) (*UnwrapKeyResult, error) {
+	if req.Algorithm != "RSA-OAEP" {
+		return nil, fmt.Errorf("unsupported algorithm %q: only RSA-OAEP is supported", req.Algorithm)
+	}
+	key, err := s.keyRepo.Read(ctx, req.KeyID)
+	if err != nil {
+		s.logger.LogAuditError(req.UserID.String(), "unwrap_key", "failed", "key not found", err)
+		return nil, fmt.Errorf("key not found: %w", err)
+	}
+	if key.UserID != req.UserID {
+		s.logger.LogAuditError(req.UserID.String(), "unwrap_key", "forbidden",
+			fmt.Sprintf("unauthorized unwrap attempt with key %s", req.KeyID), nil)
+		return nil, fmt.Errorf("forbidden: cannot use other users' keys")
+	}
+	if key.Revoked {
+		s.logger.LogAuditError(req.UserID.String(), "unwrap_key", "failed",
+			fmt.Sprintf("attempted unwrap with revoked key %s", req.KeyID), nil)
+		return nil, fmt.Errorf("cannot unwrap with revoked key")
+	}
+	decryptedKey, err := common.DecryptSecret(key.Value)
+	if err != nil {
+		s.logger.LogAuditError(req.UserID.String(), "unwrap_key", "failed", "failed to decrypt vault key", err)
+		return nil, fmt.Errorf("failed to decrypt vault key: %w", err)
+	}
+	result, err := s.cryptoOps.Decrypt(decryptedKey, req.WrappedKey, nil, crypto.AlgorithmRSAOAEP)
+	if err != nil {
+		s.logger.LogAuditError(req.UserID.String(), "unwrap_key", "failed", "RSA-OAEP unwrap failed", err)
+		return nil, fmt.Errorf("unwrap failed: %w", err)
+	}
+	s.logger.LogAuditInfo(req.UserID.String(), "unwrap_key", "success",
+		fmt.Sprintf("key material unwrapped with vault key %s", req.KeyID))
+	return &UnwrapKeyResult{PlaintextKey: result.Plaintext, Algorithm: "RSA-OAEP"}, nil
 }
