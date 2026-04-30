@@ -107,6 +107,14 @@ func (m *MockSecretRepository) Read(ctx context.Context, id uuid.UUID) (*domain.
 	return args.Get(0).(*domain.Secret), args.Error(1)
 }
 
+func (m *MockSecretRepository) ReadByOwner(ctx context.Context, id, userID uuid.UUID) (*domain.Secret, error) {
+	args := m.Called(ctx, id, userID)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).(*domain.Secret), args.Error(1)
+}
+
 func (m *MockSecretRepository) Update(ctx context.Context, secret *domain.Secret) error {
 	args := m.Called(ctx, secret)
 	return args.Error(0)

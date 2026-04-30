@@ -100,7 +100,8 @@ func TestGetSecret_HappyPath(t *testing.T) {
 	ver := &testutils.MockVersioningService{}
 	tag := &testutils.MockTagService{}
 
-	repo.On("Read", ctx, secretID).Return(stored, nil)
+	// Ownership is now enforced at the SQL level via ReadByOwner.
+	repo.On("ReadByOwner", ctx, secretID, userID).Return(stored, nil)
 	crypto.On("DecryptSecret", "enc").Return("plain", nil)
 	tag.On("GetTags", ctx, secretID).Return([]string{"k:v"}, nil)
 
@@ -119,36 +120,38 @@ func TestGetSecret_WrongOwner(t *testing.T) {
 	ownerID := uuid.New()
 	otherID := uuid.New()
 
-	stored := &domain.Secret{ID: secretID, UserID: ownerID, Value: "enc"}
-
 	repo := &testutils.MockSecretRepository{}
 	crypto := &testutils.MockCryptographyService{}
 	ver := &testutils.MockVersioningService{}
 	tag := &testutils.MockTagService{}
 
-	repo.On("Read", ctx, secretID).Return(stored, nil)
+	// ReadByOwner returns an error when the user is not the owner.
+	repo.On("ReadByOwner", ctx, secretID, otherID).Return(nil, errors.New("secret not found or access denied"))
+	// ownerID is referenced only to show intent; the mock key is otherID.
+	_ = ownerID
 
 	svc := newService(repo, crypto, ver, tag, t)
 	_, err := svc.GetSecret(ctx, secretID, otherID)
 
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "access denied")
+	assert.Contains(t, err.Error(), "secret not found or access denied")
 }
 
 func TestGetSecret_NotFound(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	secretID := uuid.New()
+	callerID := uuid.New()
 
 	repo := &testutils.MockSecretRepository{}
 	crypto := &testutils.MockCryptographyService{}
 	ver := &testutils.MockVersioningService{}
 	tag := &testutils.MockTagService{}
 
-	repo.On("Read", ctx, secretID).Return(nil, errors.New("not found"))
+	repo.On("ReadByOwner", ctx, secretID, callerID).Return(nil, errors.New("secret not found or access denied"))
 
 	svc := newService(repo, crypto, ver, tag, t)
-	_, err := svc.GetSecret(ctx, secretID, uuid.New())
+	_, err := svc.GetSecret(ctx, secretID, callerID)
 
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "not found")

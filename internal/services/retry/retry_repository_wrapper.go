@@ -43,6 +43,19 @@ func (r *RetryRepositoryWrapper) Read(ctx context.Context, id uuid.UUID) (*domai
 	return result, retryErr
 }
 
+// ReadByOwner wraps the ReadByOwner operation with retry logic.
+func (r *RetryRepositoryWrapper) ReadByOwner(ctx context.Context, id, userID uuid.UUID) (*domain.Secret, error) {
+	var result *domain.Secret
+	var err error
+
+	retryErr := r.retryService.ExecuteDatabaseOperation(ctx, func() error {
+		result, err = r.baseRepo.ReadByOwner(ctx, id, userID)
+		return err
+	})
+
+	return result, retryErr
+}
+
 // Update wraps the Update operation with retry logic
 func (r *RetryRepositoryWrapper) Update(ctx context.Context, secret *domain.Secret) error {
 	return r.retryService.ExecuteDatabaseOperation(ctx, func() error {

@@ -291,20 +291,14 @@ func (s *secretService) UpdateSecret(ctx context.Context, req UpdateSecretReques
 //
 //	The decrypted secret or an error if retrieval fails.
 func (s *secretService) GetSecret(ctx context.Context, secretID, userID uuid.UUID) (*domain.Secret, error) {
-	// Get secret from repository
-	secret, err := s.secretRepo.Read(ctx, secretID)
+	// Ownership is enforced at the SQL level via ReadByOwner.
+	secret, err := s.secretRepo.ReadByOwner(ctx, secretID, userID)
 	if err != nil {
-		s.logger.LogAuditError(userID.String(), "get_secret", "failed", "Secret not found", err)
-		return nil, fmt.Errorf("secret not found: %w", err)
+		s.logger.LogAuditError(userID.String(), "get_secret", "failed", "Secret not found or access denied", err)
+		return nil, fmt.Errorf("secret not found or access denied")
 	}
 
-	// Verify ownership
-	if secret.UserID != userID {
-		s.logger.LogAuditError(userID.String(), "get_secret", "failed", "Access denied", nil)
-		return nil, fmt.Errorf("access denied")
-	}
-
-	// Decrypt value
+	// Decrypt value.
 	decryptedValue, err := s.cryptoService.DecryptSecret(secret.Value)
 	if err != nil {
 		s.logger.LogAuditError(userID.String(), "get_secret", "failed", "Failed to decrypt secret", err)
@@ -312,7 +306,7 @@ func (s *secretService) GetSecret(ctx context.Context, secretID, userID uuid.UUI
 	}
 	secret.Value = decryptedValue
 
-	// Load tags
+	// Load tags.
 	tags, err := s.tagService.GetTags(ctx, secretID)
 	if err != nil {
 		s.logger.LogAuditError(userID.String(), "get_secret", "failed", "Failed to load tags", err)

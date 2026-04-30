@@ -667,15 +667,9 @@ func getSecret(c *Context, w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	secret, err := secretService.GetSecret(r.Context(), userID, secretID)
+	secret, err := secretService.GetSecret(r.Context(), secretID, userID)
 	if err != nil {
-		c.Err = common.NewAppError("getSecret", "Failed to get secret", nil, err.Error(), http.StatusInternalServerError)
-		return
-	}
-
-	// Verify ownership
-	if secret.UserID != userID {
-		c.Err = common.NewAppError("getSecret", "Access denied", nil, "", http.StatusForbidden)
+		c.Err = common.NewAppError("getSecret", "Secret not found or access denied", nil, err.Error(), http.StatusNotFound)
 		return
 	}
 
@@ -744,15 +738,9 @@ func updateSecret(c *Context, w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	secret, err := secretService.GetSecret(r.Context(), userID, secretID)
+	secret, err := secretService.GetSecret(r.Context(), secretID, userID)
 	if err != nil {
-		c.Err = common.NewAppError("updateSecret", "Failed to get secret", nil, err.Error(), http.StatusInternalServerError)
-		return
-	}
-
-	// Verify ownership
-	if secret.UserID != userID {
-		c.Err = common.NewAppError("updateSecret", "Access denied", nil, "", http.StatusForbidden)
+		c.Err = common.NewAppError("updateSecret", "Secret not found or access denied", nil, err.Error(), http.StatusNotFound)
 		return
 	}
 

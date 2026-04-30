@@ -19,6 +19,8 @@ import (
 type SecretRepositoryInterface interface {
 	Create(ctx context.Context, secret *domain.Secret) error
 	Read(ctx context.Context, id uuid.UUID) (*domain.Secret, error)
+	// ReadByOwner fetches a secret only when id and userID both match.
+	ReadByOwner(ctx context.Context, id, userID uuid.UUID) (*domain.Secret, error)
 	Update(ctx context.Context, secret *domain.Secret) error
 	Delete(ctx context.Context, id uuid.UUID) error
 	SoftDelete(ctx context.Context, id uuid.UUID) error
@@ -167,6 +169,55 @@ func (r *SecretRepository) Read(ctx context.Context, id uuid.UUID) (*domain.Secr
 	}
 
 	// Set soft delete fields
+	secret.DeletedAt = deletedAt
+	secret.PurgeProtection = purgeProtection
+
+	return &secret, nil
+}
+
+// ReadByOwner retrieves a secret by ID only when the given userID matches the owner.
+// It returns an error if the secret does not exist or is owned by a different user.
+//
+// Parameters:
+//
+//	ctx: The context for the database operation.
+//	id: The secret's unique identifier.
+//	userID: The requesting user's identifier; must match the stored owner.
+//
+// Returns:
+//
+//	The secret entity (with encrypted value) or an error if not found / access denied.
+func (r *SecretRepository) ReadByOwner(ctx context.Context, id, userID uuid.UUID) (*domain.Secret, error) {
+	var secret domain.Secret
+	var idStr, userIDStr string
+	var deletedAt *time.Time
+	var purgeProtection bool
+
+	err := r.db.QueryRowContext(
+		ctx,
+		"SELECT id, user_id, name, value, version, created_at, deleted_at, purge_protection FROM secrets WHERE id = ? AND user_id = ? AND deleted_at IS NULL",
+		id.String(), userID.String(),
+	).Scan(&idStr, &userIDStr, &secret.Name, &secret.Value, &secret.Version, &secret.CreatedAt, &deletedAt, &purgeProtection)
+
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, fmt.Errorf("secret not found or access denied")
+	}
+	if err != nil {
+		return nil, fmt.Errorf("failed to query secret: %w", err)
+	}
+
+	var parseErr error
+	secret.ID, parseErr = uuid.Parse(idStr)
+	if parseErr != nil {
+		return nil, fmt.Errorf("failed to parse secret ID: %w", parseErr)
+	}
+
+	secret.UserID, parseErr = uuid.Parse(userIDStr)
+	if parseErr != nil {
+		return nil, fmt.Errorf("failed to parse user ID: %w", parseErr)
+	}
+
+	// Set soft delete fields.
 	secret.DeletedAt = deletedAt
 	secret.PurgeProtection = purgeProtection
 
