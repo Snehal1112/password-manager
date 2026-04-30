@@ -2,6 +2,8 @@ package auth
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"testing"
 	"time"
@@ -10,6 +12,7 @@ import (
 	"github.com/pquerna/otp"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
+	"github.com/stretchr/testify/require"
 
 	"rocketvault/internal/domain"
 	"rocketvault/internal/logging"
@@ -373,4 +376,32 @@ func TestAuthenticationService_SeparationOfConcerns(t *testing.T) {
 	t.Log("- No global dependencies - all dependencies are injected")
 
 	assert.True(t, true, "Architecture demonstrates proper SRP compliance")
+}
+
+func TestHashRefreshToken_IsActualHash(t *testing.T) {
+	svc := &authenticationService{}
+	token := "abc123plaintext"
+
+	result := svc.hashRefreshToken(token)
+
+	// fmt.Sprintf("%x", token) would equal hex.EncodeToString([]byte(token))
+	naive := hex.EncodeToString([]byte(token))
+	assert.NotEqual(t, naive, result, "hashRefreshToken must not be a naive hex encode")
+
+	// Result must equal sha256 of the token.
+	sum := sha256.Sum256([]byte(token))
+	expected := hex.EncodeToString(sum[:])
+	assert.Equal(t, expected, result)
+	assert.Len(t, result, 64, "sha256 hex is always 64 chars")
+}
+
+func TestHashRefreshToken_Deterministic(t *testing.T) {
+	svc := &authenticationService{}
+	token := "some-token-value"
+	require.Equal(t, svc.hashRefreshToken(token), svc.hashRefreshToken(token))
+}
+
+func TestHashRefreshToken_DifferentInputsDifferentOutputs(t *testing.T) {
+	svc := &authenticationService{}
+	assert.NotEqual(t, svc.hashRefreshToken("a"), svc.hashRefreshToken("b"))
 }

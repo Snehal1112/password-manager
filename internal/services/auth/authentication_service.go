@@ -3,6 +3,7 @@ package auth
 import (
 	"context"
 	"crypto/rand"
+	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
 	"time"
@@ -374,9 +375,10 @@ func (s *authenticationService) generateRefreshToken() (string, error) {
 	return hex.EncodeToString(bytes), nil
 }
 
-// hashRefreshToken creates a hash of the refresh token for secure storage.
+// hashRefreshToken produces a SHA-256 hash of the token for storage.
+// The token (32 random bytes as hex) has enough entropy that SHA-256
+// without salt is safe here.
 func (s *authenticationService) hashRefreshToken(token string) string {
-	// Simple hash for now - in production, use a proper password hashing algorithm
-	// like bcrypt or Argon2 with appropriate cost factors
-	return fmt.Sprintf("%x", token) // This is a placeholder - use proper hashing
+	sum := sha256.Sum256([]byte(token))
+	return hex.EncodeToString(sum[:])
 }
