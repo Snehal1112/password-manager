@@ -117,3 +117,8 @@ for _rv_pair in ${VAULT_SECRETS}; do
 done
 
 rm -f "${_rv_secret_body}"
+
+# Clean up all internal variables so they don't pollute the caller's environment.
+unset _rv_token _rv_curl_flags _rv_pair _rv_var _rv_uuid _rv_http_status _rv_value
+unset _rv_secret_body _rv_escaped
+unset -f _rv_error
