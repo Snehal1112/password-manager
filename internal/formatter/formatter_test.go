@@ -83,3 +83,35 @@ func TestJSONFormatter_Empty(t *testing.T) {
 		t.Errorf("expected [] for empty rows, got: %q", buf.String())
 	}
 }
+
+func TestYAMLFormatter_Output(t *testing.T) {
+	f := &yamlFormatter{}
+	var buf bytes.Buffer
+	headers := []string{"id", "name"}
+	rows := [][]string{
+		{"abc-123", "my-key"},
+	}
+	err := f.Write(&buf, headers, rows)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	out := buf.String()
+	for _, want := range []string{"id:", "abc-123", "name:", "my-key"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("expected %q in YAML output, got:\n%s", want, out)
+		}
+	}
+}
+
+func TestYAMLFormatter_Empty(t *testing.T) {
+	f := &yamlFormatter{}
+	var buf bytes.Buffer
+	err := f.Write(&buf, []string{"id"}, [][]string{})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	out := strings.TrimSpace(buf.String())
+	if out != "[]" && out != "{}" && out != "" {
+		t.Errorf("unexpected output for empty rows: %q", out)
+	}
+}
