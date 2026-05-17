@@ -758,11 +758,11 @@ For questions or issues:
 - [x] Key wrap/unwrap operations — CryptoService, HTTP endpoints, CLI subcommands
 - [x] Certificate auto-renewal — ExpiresAt field, RenewalScheduler, HTTP API, CLI flags
 - [x] Security hardening: crypto/rand enforcement, role self-promotion blocking, ownership enforcement on rotation
+- [x] GitHub Actions release workflow — matrix build for Linux/macOS/Windows, GitHub Release publish
 
 ### Planned
 - [ ] Web-based administration interface
 - [ ] Kubernetes operator for automated deployment
-- [ ] Integration with popular CI/CD pipelines (GitHub Actions, GitLab CI)
 - [ ] Advanced audit and compliance reporting (SOC 2, GDPR)
 - [ ] Multi-region replication support
 - [ ] Redis caching layer for high-performance operations
