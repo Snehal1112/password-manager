@@ -11,7 +11,7 @@ import (
 	"github.com/stretchr/testify/mock"
 
 	"rocketvault/cmd/testutils"
-	"rocketvault/internal/domain"
+	"rocketvault/model"
 	userServices "rocketvault/internal/services/users"
 )
 
@@ -31,7 +31,7 @@ func TestUsersCreateCommand(t *testing.T) {
 				result := &userServices.CreateUserResult{
 					UserID:     uuid.New(),
 					Username:   "testuser",
-					Role:       domain.RoleUser,
+					Role:       model.RoleUser,
 					TOTPSecret: "JBSWY3DPEHPK3PXP",
 				}
 				tc.MockUserService.On("CreateUser", mock.Anything, userServices.CreateUserRequest{
@@ -87,7 +87,7 @@ func TestUsersCreateCommand(t *testing.T) {
 				result := &userServices.CreateUserResult{
 					UserID:     uuid.New(),
 					Username:   "admin",
-					Role:       domain.RoleAdmin,
+					Role:       model.RoleAdmin,
 					TOTPSecret: "ABCDEFGHIJKLMNOP",
 				}
 				tc.MockUserService.On("CreateUser", mock.Anything, userServices.CreateUserRequest{
@@ -176,16 +176,16 @@ func TestUsersListCommand(t *testing.T) {
 		{
 			name: "successful user listing",
 			setupMocks: func(tc *testutils.TestContext) {
-				users := []domain.User{
+				users := []model.User{
 					{
 						ID:       uuid.New(),
 						Username: "admin",
-						Role:     domain.RoleAdmin,
+						Role:     model.RoleAdmin,
 					},
 					{
 						ID:       uuid.New(),
 						Username: "testuser",
-						Role:     domain.RoleUser,
+						Role:     model.RoleUser,
 					},
 				}
 				tc.MockUserService.On("ListUsers", mock.Anything).Return(users, nil)
@@ -196,7 +196,7 @@ func TestUsersListCommand(t *testing.T) {
 		{
 			name: "empty user list",
 			setupMocks: func(tc *testutils.TestContext) {
-				tc.MockUserService.On("ListUsers", mock.Anything).Return([]domain.User{}, nil)
+				tc.MockUserService.On("ListUsers", mock.Anything).Return([]model.User{}, nil)
 			},
 			expectedOutput: "No users found",
 			expectedError:  false,
@@ -269,7 +269,7 @@ func TestUsersCommandIntegration(t *testing.T) {
 		createResult := &userServices.CreateUserResult{
 			UserID:     uuid.New(),
 			Username:   "lifecycle-user",
-			Role:       domain.RoleUser,
+			Role:       model.RoleUser,
 			TOTPSecret: "TESTTOTP12345678",
 		}
 
@@ -280,8 +280,8 @@ func TestUsersCommandIntegration(t *testing.T) {
 		}).Return(createResult, nil)
 
 		// Step 2: List users (should include new user)
-		users := []domain.User{
-			{ID: createResult.UserID, Username: "lifecycle-user", Role: domain.RoleUser},
+		users := []model.User{
+			{ID: createResult.UserID, Username: "lifecycle-user", Role: model.RoleUser},
 		}
 		tc.MockUserService.On("ListUsers", mock.Anything).Return(users, nil)
 

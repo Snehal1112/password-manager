@@ -14,7 +14,7 @@ import (
 	"rocketvault/cmd/testutils"
 	"rocketvault/common"
 	"rocketvault/internal/container"
-	"rocketvault/internal/domain"
+	"rocketvault/model"
 )
 
 func TestListUsersCommand(t *testing.T) {
@@ -28,23 +28,23 @@ func TestListUsersCommand(t *testing.T) {
 			name: "successful users list",
 			setupMocks: func(tc *testutils.TestContext) {
 				// Create test users
-				users := []domain.User{
+				users := []model.User{
 					{
 						ID:        uuid.New(),
 						Username:  "admin",
-						Role:      domain.RoleAdmin,
+						Role:      model.RoleAdmin,
 						CreatedAt: time.Now().Add(-24 * time.Hour),
 					},
 					{
 						ID:        uuid.New(),
 						Username:  "user1",
-						Role:      domain.RoleUser,
+						Role:      model.RoleUser,
 						CreatedAt: time.Now().Add(-12 * time.Hour),
 					},
 					{
 						ID:        uuid.New(),
 						Username:  "manager",
-						Role:      domain.RoleSecretsManager,
+						Role:      model.RoleSecretsManager,
 						CreatedAt: time.Now().Add(-6 * time.Hour),
 					},
 				}
@@ -57,7 +57,7 @@ func TestListUsersCommand(t *testing.T) {
 		{
 			name: "empty users list",
 			setupMocks: func(tc *testutils.TestContext) {
-				tc.MockUserService.On("ListUsers", mock.Anything).Return([]domain.User{}, nil)
+				tc.MockUserService.On("ListUsers", mock.Anything).Return([]model.User{}, nil)
 			},
 			expectedOutput: "No users found",
 			expectedError:  false,
@@ -89,12 +89,12 @@ func TestListUsersCommand(t *testing.T) {
 					}
 
 					// Get claims from context
-					claims, ok := cmd.Context().Value(common.ClaimsKey).(*domain.Claims)
+					claims, ok := cmd.Context().Value(common.ClaimsKey).(*model.Claims)
 					if !ok {
 						return fmt.Errorf("unauthorized: missing authentication claims")
 					}
 
-					if claims.Role != domain.RoleAdmin {
+					if claims.Role != model.RoleAdmin {
 						return fmt.Errorf("forbidden: requires admin role")
 					}
 
@@ -152,17 +152,17 @@ func TestListUsersOutputFormat(t *testing.T) {
 	tc := testutils.NewTestContext(t)
 
 	// Create test users with different roles
-	users := []domain.User{
+	users := []model.User{
 		{
 			ID:        uuid.MustParse("550e8400-e29b-41d4-a716-446655440001"),
 			Username:  "admin",
-			Role:      domain.RoleAdmin,
+			Role:      model.RoleAdmin,
 			CreatedAt: time.Date(2023, 1, 1, 12, 0, 0, 0, time.UTC),
 		},
 		{
 			ID:        uuid.MustParse("550e8400-e29b-41d4-a716-446655440002"),
 			Username:  "user1",
-			Role:      domain.RoleUser,
+			Role:      model.RoleUser,
 			CreatedAt: time.Date(2023, 1, 2, 12, 0, 0, 0, time.UTC),
 		},
 	}
@@ -180,12 +180,12 @@ func TestListUsersOutputFormat(t *testing.T) {
 			}
 
 			// Get claims from context
-			claims, ok := cmd.Context().Value(common.ClaimsKey).(*domain.Claims)
+			claims, ok := cmd.Context().Value(common.ClaimsKey).(*model.Claims)
 			if !ok {
 				return fmt.Errorf("unauthorized: missing authentication claims")
 			}
 
-			if claims.Role != domain.RoleAdmin {
+			if claims.Role != model.RoleAdmin {
 				return fmt.Errorf("forbidden: requires admin role")
 			}
 
@@ -227,8 +227,8 @@ func TestListUsersOutputFormat(t *testing.T) {
 	outputStr := output.String()
 	assert.Contains(t, outputStr, "admin")
 	assert.Contains(t, outputStr, "user1")
-	assert.Contains(t, outputStr, domain.RoleAdmin)
-	assert.Contains(t, outputStr, domain.RoleUser)
+	assert.Contains(t, outputStr, model.RoleAdmin)
+	assert.Contains(t, outputStr, model.RoleUser)
 
 	// Verify mock expectations
 	tc.MockUserService.AssertExpectations(t)

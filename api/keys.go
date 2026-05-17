@@ -33,7 +33,7 @@ import (
 	"github.com/gorilla/mux"
 
 	"rocketvault/common"
-	"rocketvault/internal/domain"
+	"rocketvault/model"
 	keyservices "rocketvault/internal/services/keys"
 )
 
@@ -124,7 +124,7 @@ func (api *API) InitKeys(keys *mux.Router) {
 func createKey(c *Context, w http.ResponseWriter, r *http.Request) {
 	// Check authorization - requires admin or secrets manager role
 	claims, ok := c.Claims["role"].(string)
-	if !ok || !common.HasRequiredRole(claims, domain.RoleAdmin, domain.RoleSecretsManager) {
+	if !ok || !common.HasRequiredRole(claims, model.RoleAdmin, model.RoleSecretsManager) {
 		c.Err = common.NewAppError("createKey", "Forbidden: requires admin or secrets_manager role", nil, "", http.StatusForbidden)
 		return
 	}
@@ -253,10 +253,10 @@ func listKeys(c *Context, w http.ResponseWriter, r *http.Request) {
 
 	// Check if user is admin - admins can list all keys
 	roleStr, ok := c.Claims["role"].(string)
-	isAdmin := ok && roleStr == string(domain.RoleAdmin)
+	isAdmin := ok && roleStr == string(model.RoleAdmin)
 
 	// Use service layer with proper admin/user distinction
-	var keysList []domain.Key
+	var keysList []model.Key
 	if isAdmin {
 		// Admins list all keys with filters (userID = nil)
 		keysList, err = keyService.ListKeysWithFilters(r.Context(), nil, keyType, tags, true)
@@ -316,7 +316,7 @@ func getKey(c *Context, w http.ResponseWriter, r *http.Request) {
 
 	// Check authorization - users can only access their own keys, admins can access all
 	roleStr, ok := c.Claims["role"].(string)
-	isAdmin := ok && roleStr == string(domain.RoleAdmin)
+	isAdmin := ok && roleStr == string(model.RoleAdmin)
 
 	// Use service layer with access control validation
 	key, err := keyService.GetKey(r.Context(), keyID, userID)

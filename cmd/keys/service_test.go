@@ -13,7 +13,7 @@ import (
 	"github.com/stretchr/testify/mock"
 
 	"rocketvault/cmd/testutils"
-	"rocketvault/internal/domain"
+	"rocketvault/model"
 	keyservices "rocketvault/internal/services/keys"
 )
 
@@ -38,20 +38,20 @@ func (m *MockKeyService) CreateECDSAKey(ctx context.Context, req keyservices.Cre
 	return args.Get(0).(*keyservices.CreateKeyResult), args.Error(1)
 }
 
-func (m *MockKeyService) GetKey(ctx context.Context, keyID, userID uuid.UUID) (*domain.Key, error) {
+func (m *MockKeyService) GetKey(ctx context.Context, keyID, userID uuid.UUID) (*model.Key, error) {
 	args := m.Called(ctx, keyID, userID)
 	if args.Get(0) == nil {
 		return nil, args.Error(1)
 	}
-	return args.Get(0).(*domain.Key), args.Error(1)
+	return args.Get(0).(*model.Key), args.Error(1)
 }
 
-func (m *MockKeyService) ListKeys(ctx context.Context, userID uuid.UUID) ([]domain.Key, error) {
+func (m *MockKeyService) ListKeys(ctx context.Context, userID uuid.UUID) ([]model.Key, error) {
 	args := m.Called(ctx, userID)
 	if args.Get(0) == nil {
 		return nil, args.Error(1)
 	}
-	return args.Get(0).([]domain.Key), args.Error(1)
+	return args.Get(0).([]model.Key), args.Error(1)
 }
 
 func (m *MockKeyService) UpdateKey(ctx context.Context, req keyservices.UpdateKeyRequest) error {
@@ -190,9 +190,9 @@ func TestKeysCreateCommand(t *testing.T) {
 				Use: "create",
 				RunE: func(cmd *cobra.Command, args []string) error {
 					// Get claims for role validation
-					claims := &domain.Claims{
+					claims := &model.Claims{
 						UserID: tc.TestUserID,
-						Role:   domain.RoleAdmin, // Assume admin role for tests
+						Role:   model.RoleAdmin, // Assume admin role for tests
 					}
 
 					name, _ := cmd.Flags().GetString("name")
@@ -300,7 +300,7 @@ func TestKeysListCommand(t *testing.T) {
 			name: "successful keys listing",
 			args: []string{},
 			setupMocks: func(tc *testutils.TestContext, mockService *MockKeyService) {
-				keys := []domain.Key{
+				keys := []model.Key{
 					{
 						ID:     uuid.New(),
 						UserID: tc.TestUserID,
@@ -327,7 +327,7 @@ func TestKeysListCommand(t *testing.T) {
 			args: []string{},
 			setupMocks: func(tc *testutils.TestContext, mockService *MockKeyService) {
 				mockService.On("ListKeys", mock.Anything, tc.TestUserID).
-					Return([]domain.Key{}, nil)
+					Return([]model.Key{}, nil)
 			},
 			expectedOutput: "No keys found",
 			expectedError:  false,
@@ -605,7 +605,7 @@ func TestKeysIntegration(t *testing.T) {
 			Return(createResult, nil).Once()
 
 		// Step 2: List keys (should include new key)
-		allKeys := []domain.Key{
+		allKeys := []model.Key{
 			{
 				ID:     keyID,
 				UserID: tc.TestUserID,

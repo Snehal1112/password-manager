@@ -31,7 +31,7 @@ import (
 
 	"rocketvault/common"
 	"rocketvault/internal/container"
-	"rocketvault/internal/domain"
+	"rocketvault/model"
 	"rocketvault/internal/formatter"
 )
 
@@ -44,7 +44,7 @@ var listCmd = &cobra.Command{
 	Args:    cobra.NoArgs,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		ctx := cmd.Context()
-		claims, ok := ctx.Value(common.ClaimsKey).(*domain.Claims)
+		claims, ok := ctx.Value(common.ClaimsKey).(*model.Claims)
 		if !ok {
 			return fmt.Errorf("unauthorized: missing authentication claims")
 		}
@@ -55,7 +55,7 @@ var listCmd = &cobra.Command{
 			return fmt.Errorf("service container not available in context")
 		}
 
-		if claims.Role != domain.RoleAdmin {
+		if claims.Role != model.RoleAdmin {
 			return fmt.Errorf("forbidden: requires admin role")
 		}
 

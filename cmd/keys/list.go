@@ -34,7 +34,7 @@ import (
 
 	"rocketvault/common"
 	"rocketvault/internal/container"
-	"rocketvault/internal/domain"
+	"rocketvault/model"
 	"rocketvault/internal/formatter"
 	"rocketvault/internal/logging"
 )
@@ -48,7 +48,7 @@ var listCmd = &cobra.Command{
 	Args:    cobra.NoArgs,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		ctx := cmd.Context()
-		claims, ok := ctx.Value(common.ClaimsKey).(*domain.Claims)
+		claims, ok := ctx.Value(common.ClaimsKey).(*model.Claims)
 		if !ok {
 			return fmt.Errorf("unauthorized: missing authentication claims")
 		}
@@ -73,10 +73,10 @@ var listCmd = &cobra.Command{
 		}
 		keyService := serviceContainer.GetKeyService()
 
-		var keys []domain.Key
+		var keys []model.Key
 		var err error
 
-		if claims.Role == domain.RoleAdmin {
+		if claims.Role == model.RoleAdmin {
 			// Admins list all keys with filters - use repository directly for admin functionality
 			keyRepo := serviceContainer.GetKeyRepository()
 			keys, err = keyRepo.ListByUser(ctx, nil, keyType, tags)

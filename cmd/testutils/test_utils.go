@@ -12,7 +12,7 @@ import (
 
 	"rocketvault/common"
 	"rocketvault/internal/cache"
-	"rocketvault/internal/domain"
+	"rocketvault/model"
 	"rocketvault/internal/logging"
 	"rocketvault/internal/repositories"
 	authServices "rocketvault/internal/services/auth"
@@ -58,10 +58,10 @@ func NewTestContext(t *testing.T) *TestContext {
 	mockContainer.On("Close").Return(nil)
 
 	// Create test claims for authentication
-	testClaims := &domain.Claims{
+	testClaims := &model.Claims{
 		UserID:   testUserID,
 		Username: "testuser",
-		Role:     domain.RoleAdmin,
+		Role:     model.RoleAdmin,
 	}
 
 	// Create context with service container and authentication
@@ -283,12 +283,12 @@ func (m *MockUserService) CreateUser(ctx context.Context, req userServices.Creat
 	return args.Get(0).(*userServices.CreateUserResult), args.Error(1)
 }
 
-func (m *MockUserService) GetUser(ctx context.Context, userID uuid.UUID) (*domain.User, error) {
+func (m *MockUserService) GetUser(ctx context.Context, userID uuid.UUID) (*model.User, error) {
 	args := m.Called(ctx, userID)
 	if args.Get(0) == nil {
 		return nil, args.Error(1)
 	}
-	return args.Get(0).(*domain.User), args.Error(1)
+	return args.Get(0).(*model.User), args.Error(1)
 }
 
 func (m *MockUserService) UpdateUser(ctx context.Context, req userServices.UpdateUserRequest) error {
@@ -301,20 +301,20 @@ func (m *MockUserService) DeleteUser(ctx context.Context, userID uuid.UUID) erro
 	return args.Error(0)
 }
 
-func (m *MockUserService) GetUserByUsername(ctx context.Context, username string) (*domain.User, error) {
+func (m *MockUserService) GetUserByUsername(ctx context.Context, username string) (*model.User, error) {
 	args := m.Called(ctx, username)
 	if args.Get(0) == nil {
 		return nil, args.Error(1)
 	}
-	return args.Get(0).(*domain.User), args.Error(1)
+	return args.Get(0).(*model.User), args.Error(1)
 }
 
-func (m *MockUserService) ListUsers(ctx context.Context) ([]domain.User, error) {
+func (m *MockUserService) ListUsers(ctx context.Context) ([]model.User, error) {
 	args := m.Called(ctx)
 	if args.Get(0) == nil {
 		return nil, args.Error(1)
 	}
-	return args.Get(0).([]domain.User), args.Error(1)
+	return args.Get(0).([]model.User), args.Error(1)
 }
 
 func (m *MockUserService) ValidateBootstrapToken(ctx context.Context, token string) (bool, error) {
@@ -332,20 +332,20 @@ type MockSecretService struct {
 	mock.Mock
 }
 
-func (m *MockSecretService) CreateSecret(ctx context.Context, req secretServices.CreateSecretRequest) (*domain.Secret, error) {
+func (m *MockSecretService) CreateSecret(ctx context.Context, req secretServices.CreateSecretRequest) (*model.Secret, error) {
 	args := m.Called(ctx, req)
 	if args.Get(0) == nil {
 		return nil, args.Error(1)
 	}
-	return args.Get(0).(*domain.Secret), args.Error(1)
+	return args.Get(0).(*model.Secret), args.Error(1)
 }
 
-func (m *MockSecretService) GetSecret(ctx context.Context, secretID, userID uuid.UUID) (*domain.Secret, error) {
+func (m *MockSecretService) GetSecret(ctx context.Context, secretID, userID uuid.UUID) (*model.Secret, error) {
 	args := m.Called(ctx, secretID, userID)
 	if args.Get(0) == nil {
 		return nil, args.Error(1)
 	}
-	return args.Get(0).(*domain.Secret), args.Error(1)
+	return args.Get(0).(*model.Secret), args.Error(1)
 }
 
 func (m *MockSecretService) UpdateSecret(ctx context.Context, req secretServices.UpdateSecretRequest) error {
@@ -358,44 +358,44 @@ func (m *MockSecretService) DeleteSecret(ctx context.Context, secretID, userID u
 	return args.Error(0)
 }
 
-func (m *MockSecretService) ListSecrets(ctx context.Context, userID uuid.UUID, tags []string) ([]domain.Secret, error) {
+func (m *MockSecretService) ListSecrets(ctx context.Context, userID uuid.UUID, tags []string) ([]model.Secret, error) {
 	args := m.Called(ctx, userID, tags)
 	if args.Get(0) == nil {
 		return nil, args.Error(1)
 	}
-	return args.Get(0).([]domain.Secret), args.Error(1)
+	return args.Get(0).([]model.Secret), args.Error(1)
 }
 
-func (m *MockSecretService) GetSecretVersions(ctx context.Context, secretID uuid.UUID, userID uuid.UUID) ([]domain.SecretVersion, error) {
+func (m *MockSecretService) GetSecretVersions(ctx context.Context, secretID uuid.UUID, userID uuid.UUID) ([]model.SecretVersion, error) {
 	args := m.Called(ctx, secretID, userID)
 	if args.Get(0) == nil {
 		return nil, args.Error(1)
 	}
-	return args.Get(0).([]domain.SecretVersion), args.Error(1)
+	return args.Get(0).([]model.SecretVersion), args.Error(1)
 }
 
-func (m *MockSecretService) GetSecretVersion(ctx context.Context, secretID uuid.UUID, version int, userID uuid.UUID) (*domain.SecretVersion, error) {
+func (m *MockSecretService) GetSecretVersion(ctx context.Context, secretID uuid.UUID, version int, userID uuid.UUID) (*model.SecretVersion, error) {
 	args := m.Called(ctx, secretID, version, userID)
 	if args.Get(0) == nil {
 		return nil, args.Error(1)
 	}
-	return args.Get(0).(*domain.SecretVersion), args.Error(1)
+	return args.Get(0).(*model.SecretVersion), args.Error(1)
 }
 
-func (m *MockSecretService) GetLatestSecretVersion(ctx context.Context, secretID uuid.UUID, userID uuid.UUID) (*domain.SecretVersion, error) {
+func (m *MockSecretService) GetLatestSecretVersion(ctx context.Context, secretID uuid.UUID, userID uuid.UUID) (*model.SecretVersion, error) {
 	args := m.Called(ctx, secretID, userID)
 	if args.Get(0) == nil {
 		return nil, args.Error(1)
 	}
-	return args.Get(0).(*domain.SecretVersion), args.Error(1)
+	return args.Get(0).(*model.SecretVersion), args.Error(1)
 }
 
-func (m *MockSecretService) GenerateSecret(ctx context.Context, req secretServices.GenerateSecretRequest) (*domain.Secret, error) {
+func (m *MockSecretService) GenerateSecret(ctx context.Context, req secretServices.GenerateSecretRequest) (*model.Secret, error) {
 	args := m.Called(ctx, req)
 	if args.Get(0) == nil {
 		return nil, args.Error(1)
 	}
-	return args.Get(0).(*domain.Secret), args.Error(1)
+	return args.Get(0).(*model.Secret), args.Error(1)
 }
 
 func (m *MockSecretService) ExportSecrets(ctx context.Context, req secretServices.ExportSecretsRequest) ([]byte, error) {
@@ -474,18 +474,18 @@ func (m *MockRBACService) ValidateEndpointAccess(role, method, path string) erro
 }
 
 // Test Data Factory
-func CreateTestUser() *domain.User {
-	return &domain.User{
+func CreateTestUser() *model.User {
+	return &model.User{
 		ID:           uuid.New(),
 		Username:     "testuser",
 		PasswordHash: "$2a$10$test.hash",
-		Role:         domain.RoleUser,
+		Role:         model.RoleUser,
 		TOTPSecret:   "testsecret",
 	}
 }
 
-func CreateTestSecret() *domain.Secret {
-	return &domain.Secret{
+func CreateTestSecret() *model.Secret {
+	return &model.Secret{
 		ID:      uuid.New(),
 		UserID:  uuid.New(),
 		Name:    "test-secret",

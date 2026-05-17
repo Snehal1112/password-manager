@@ -9,7 +9,7 @@ import (
 	"github.com/stretchr/testify/mock"
 
 	"rocketvault/cmd/testutils"
-	"rocketvault/internal/domain"
+	"rocketvault/model"
 	userServices "rocketvault/internal/services/users"
 )
 
@@ -19,11 +19,11 @@ func TestAdminCommand_UsesContextContainer(t *testing.T) {
 	tc.MockUserService.On("ValidateBootstrapToken", mock.Anything, "test-token").
 		Return(true, nil)
 	tc.MockUserService.On("CreateUser", mock.Anything, mock.MatchedBy(func(r userServices.CreateUserRequest) bool {
-		return r.Username == "newadmin" && r.Role == domain.RoleAdmin
+		return r.Username == "newadmin" && r.Role == model.RoleAdmin
 	})).Return(&userServices.CreateUserResult{
 		UserID:     uuid.New(),
 		Username:   "newadmin",
-		Role:       domain.RoleAdmin,
+		Role:       model.RoleAdmin,
 		TOTPSecret: "otpauth://totp/...?secret=ABCDEF",
 	}, nil)
 	tc.MockUserService.On("InvalidateBootstrapToken", mock.Anything, "test-token").

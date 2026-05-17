@@ -9,7 +9,7 @@ import (
 "github.com/gorilla/mux"
 
 "rocketvault/common"
-"rocketvault/internal/domain"
+"rocketvault/model"
 )
 
 // InitAccessPolicies registers access policy management routes on the provided router.
@@ -33,7 +33,7 @@ func listAccessPolicies(c *Context, w http.ResponseWriter, r *http.Request) {
 	}
 
 	if policies == nil {
-		policies = []*domain.AccessPolicy{}
+		policies = []*model.AccessPolicy{}
 	}
 
 	w.Header().Set("Content-Type", "application/json")
@@ -69,13 +69,13 @@ func createAccessPolicy(c *Context, w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	policy := &domain.AccessPolicy{
+	policy := &model.AccessPolicy{
 		ID:            uuid.New(),
 		PrincipalID:   principalID,
-		PrincipalType: domain.PrincipalType(req.PrincipalType),
-		ResourceType:  domain.PolicyResourceType(req.ResourceType),
-		Operation:     domain.PolicyOperation(req.Operation),
-		Effect:        domain.PolicyEffect(req.Effect),
+		PrincipalType: model.PrincipalType(req.PrincipalType),
+		ResourceType:  model.PolicyResourceType(req.ResourceType),
+		Operation:     model.PolicyOperation(req.Operation),
+		Effect:        model.PolicyEffect(req.Effect),
 		CreatedAt:     time.Now().UTC(),
 	}
 
@@ -138,7 +138,7 @@ func updateAccessPolicy(c *Context, w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	policy.Effect = domain.PolicyEffect(req.Effect)
+	policy.Effect = model.PolicyEffect(req.Effect)
 	if err := svc.UpdatePolicy(r.Context(), policy); err != nil {
 		c.Err = common.NewAppError("updateAccessPolicy", "Failed to update access policy", nil, err.Error(), http.StatusInternalServerError)
 		return
@@ -184,7 +184,7 @@ func listAccessPoliciesByPrincipal(c *Context, w http.ResponseWriter, r *http.Re
 	}
 
 	if policies == nil {
-		policies = []*domain.AccessPolicy{}
+		policies = []*model.AccessPolicy{}
 	}
 
 	w.Header().Set("Content-Type", "application/json")

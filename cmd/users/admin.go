@@ -29,7 +29,7 @@ import (
 
 	"rocketvault/common"
 	"rocketvault/internal/container"
-	"rocketvault/internal/domain"
+	"rocketvault/model"
 	userService "rocketvault/internal/services/users"
 )
 
@@ -68,8 +68,8 @@ var registerAdminCmd = &cobra.Command{
 		result, err := userSvc.CreateUser(ctx, userService.CreateUserRequest{
 			Username:   username,
 			Password:   password,
-			Role:       domain.RoleAdmin,
-			CallerRole: domain.RoleAdmin, // Bootstrap is pre-authorised.
+			Role:       model.RoleAdmin,
+			CallerRole: model.RoleAdmin, // Bootstrap is pre-authorised.
 		})
 		if err != nil {
 			return fmt.Errorf("failed to create admin user: %w", err)

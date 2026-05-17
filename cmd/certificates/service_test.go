@@ -13,7 +13,7 @@ import (
 	"github.com/stretchr/testify/mock"
 
 	"rocketvault/cmd/testutils"
-	"rocketvault/internal/domain"
+	"rocketvault/model"
 	certservices "rocketvault/internal/services/certificates"
 )
 
@@ -38,20 +38,20 @@ func (m *MockCertificateService) CreateCASignedCertificate(ctx context.Context, 
 	return args.Get(0).(*certservices.CreateCertificateResult), args.Error(1)
 }
 
-func (m *MockCertificateService) GetCertificate(ctx context.Context, certID, userID uuid.UUID) (*domain.Certificate, error) {
+func (m *MockCertificateService) GetCertificate(ctx context.Context, certID, userID uuid.UUID) (*model.Certificate, error) {
 	args := m.Called(ctx, certID, userID)
 	if args.Get(0) == nil {
 		return nil, args.Error(1)
 	}
-	return args.Get(0).(*domain.Certificate), args.Error(1)
+	return args.Get(0).(*model.Certificate), args.Error(1)
 }
 
-func (m *MockCertificateService) ListCertificates(ctx context.Context, userID uuid.UUID) ([]domain.Certificate, error) {
+func (m *MockCertificateService) ListCertificates(ctx context.Context, userID uuid.UUID) ([]model.Certificate, error) {
 	args := m.Called(ctx, userID)
 	if args.Get(0) == nil {
 		return nil, args.Error(1)
 	}
-	return args.Get(0).([]domain.Certificate), args.Error(1)
+	return args.Get(0).([]model.Certificate), args.Error(1)
 }
 
 func (m *MockCertificateService) UpdateCertificate(ctx context.Context, req certservices.UpdateCertificateRequest) error {
@@ -287,7 +287,7 @@ func TestCertificatesListCommand(t *testing.T) {
 		{
 			name: "successful certificates listing",
 			setupMocks: func(tc *testutils.TestContext, mockService *MockCertificateService) {
-				certs := []domain.Certificate{
+				certs := []model.Certificate{
 					{
 						ID:          uuid.New(),
 						UserID:      tc.TestUserID,
@@ -313,7 +313,7 @@ func TestCertificatesListCommand(t *testing.T) {
 			name: "empty certificates list",
 			setupMocks: func(tc *testutils.TestContext, mockService *MockCertificateService) {
 				mockService.On("ListCertificates", mock.Anything, tc.TestUserID).
-					Return([]domain.Certificate{}, nil)
+					Return([]model.Certificate{}, nil)
 			},
 			expectedOutput: "No certificates found",
 			expectedError:  false,
@@ -399,7 +399,7 @@ func TestCertificatesIntegration(t *testing.T) {
 			Return(createResult, nil).Once()
 
 		// Step 2: List certificates (should include new certificate)
-		allCerts := []domain.Certificate{
+		allCerts := []model.Certificate{
 			{
 				ID:     certID,
 				UserID: tc.TestUserID,
@@ -411,7 +411,7 @@ func TestCertificatesIntegration(t *testing.T) {
 			Return(allCerts, nil).Once()
 
 		// Step 3: Get specific certificate
-		createdCert := &domain.Certificate{
+		createdCert := &model.Certificate{
 			ID:     certID,
 			UserID: tc.TestUserID,
 			Name:   "lifecycle-cert",

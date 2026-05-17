@@ -33,7 +33,7 @@ import (
 
 	"rocketvault/common"
 	"rocketvault/internal/container"
-	"rocketvault/internal/domain"
+	"rocketvault/model"
 	"rocketvault/internal/formatter"
 	"rocketvault/internal/logging"
 	keyServices "rocketvault/internal/services/keys"
@@ -47,13 +47,13 @@ var createCmd = &cobra.Command{
 	Example: `keys create --name <name> --type <type>`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		ctx := cmd.Context()
-		claims, ok := ctx.Value(common.ClaimsKey).(*domain.Claims)
+		claims, ok := ctx.Value(common.ClaimsKey).(*model.Claims)
 		if !ok {
 			return fmt.Errorf("unauthorized: missing authentication claims")
 		}
 
 		log := ctx.Value(common.LogKey).(*logging.Logger)
-		if !common.HasRequiredRole(claims.Role, domain.RoleAdmin, domain.RoleSecretsManager) {
+		if !common.HasRequiredRole(claims.Role, model.RoleAdmin, model.RoleSecretsManager) {
 			log.LogAuditError(claims.UserID.String(), "create_key", "failed", "forbidden: requires admin or secrets_manager role", nil)
 			return fmt.Errorf("forbidden: requires admin or secrets_manager role")
 		}

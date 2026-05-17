@@ -31,7 +31,7 @@ import (
 	"github.com/gorilla/mux"
 
 	"rocketvault/common"
-	"rocketvault/internal/domain"
+	"rocketvault/model"
 	certServices "rocketvault/internal/services/certificates"
 )
 
@@ -92,8 +92,8 @@ func (api *API) InitCertificates(certs *mux.Router) {
 	api.Logger.Infoln("Certificates API routes initialized")
 }
 
-// certToDomainResponse converts a domain.Certificate to a CertificateResponse.
-func certToDomainResponse(cert *domain.Certificate) CertificateResponse {
+// certToDomainResponse converts a model.Certificate to a CertificateResponse.
+func certToDomainResponse(cert *model.Certificate) CertificateResponse {
 	return CertificateResponse{
 		ID:          cert.ID,
 		Name:        cert.Name,
@@ -110,7 +110,7 @@ func certToDomainResponse(cert *domain.Certificate) CertificateResponse {
 func createCertificate(c *Context, w http.ResponseWriter, r *http.Request) {
 	// Requires admin or certificate_manager role.
 	roleStr, ok := c.Claims["role"].(string)
-	if !ok || !common.HasRequiredRole(roleStr, domain.RoleAdmin, domain.RoleCertificateManager) {
+	if !ok || !common.HasRequiredRole(roleStr, model.RoleAdmin, model.RoleCertificateManager) {
 		c.Err = common.NewAppError("createCertificate", "Forbidden: requires admin or certificate_manager role", nil, "", http.StatusForbidden)
 		return
 	}

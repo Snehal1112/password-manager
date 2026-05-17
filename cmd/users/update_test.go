@@ -11,13 +11,13 @@ import (
 
 	"rocketvault/cmd/testutils"
 	"rocketvault/common"
-	"rocketvault/internal/domain"
+	"rocketvault/model"
 )
 
 // newUpdateTestContextWithRole creates a test context where the caller has the given role and user ID.
 func newUpdateTestContextWithRole(t *testing.T, callerID uuid.UUID, role string) *testutils.TestContext {
 	tc := testutils.NewTestContext(t)
-	claims := &domain.Claims{
+	claims := &model.Claims{
 		UserID:   callerID,
 		Username: "testuser",
 		Role:     role,
@@ -40,28 +40,28 @@ func TestUpdateUserRoleEnforcement(t *testing.T) {
 	}{
 		{
 			name:        "non-admin cannot change own role",
-			callerRole:  domain.RoleUser,
+			callerRole:  model.RoleUser,
 			targetID:    ownID.String(),
-			newRole:     domain.RoleAdmin,
+			newRole:     model.RoleAdmin,
 			expectError: "forbidden",
 		},
 		{
 			name:        "non-admin cannot change other user role",
-			callerRole:  domain.RoleSecretsManager,
+			callerRole:  model.RoleSecretsManager,
 			targetID:    uuid.New().String(),
-			newRole:     domain.RoleUser,
+			newRole:     model.RoleUser,
 			expectError: "forbidden",
 		},
 		{
 			name:        "invalid role substring bypass blocked",
-			callerRole:  domain.RoleAdmin,
+			callerRole:  model.RoleAdmin,
 			targetID:    uuid.New().String(),
 			newRole:     "min",
 			expectError: "invalid role",
 		},
 		{
 			name:        "invalid role manager substring blocked",
-			callerRole:  domain.RoleAdmin,
+			callerRole:  model.RoleAdmin,
 			targetID:    uuid.New().String(),
 			newRole:     "_manager",
 			expectError: "invalid role",

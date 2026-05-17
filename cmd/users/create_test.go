@@ -16,14 +16,14 @@ import (
 
 	"rocketvault/cmd/testutils"
 	"rocketvault/common"
-	"rocketvault/internal/domain"
+	"rocketvault/model"
 	userServices "rocketvault/internal/services/users"
 )
 
 // newTestContextWithRole creates a test context with a specific caller role.
 func newTestContextWithRole(t *testing.T, role string) *testutils.TestContext {
 	tc := testutils.NewTestContext(t)
-	claims := &domain.Claims{
+	claims := &model.Claims{
 		UserID:   tc.TestUserID,
 		Username: "testuser",
 		Role:     role,
@@ -50,15 +50,15 @@ func TestCreateUserCommand(t *testing.T) {
 				expectedResult := &userServices.CreateUserResult{
 					UserID:     uuid.New(),
 					Username:   "newuser",
-					Role:       domain.RoleUser,
+					Role:       model.RoleUser,
 					TOTPSecret: "JBSWY3DPEHPK3PXP",
 					CreatedAt:  time.Now(),
 				}
 				tc.MockUserService.On("CreateUser", mock.Anything, userServices.CreateUserRequest{
 					Username:   "newuser",
 					Password:   "password123",
-					Role:       domain.RoleUser,
-					CallerRole: domain.RoleAdmin,
+					Role:       model.RoleUser,
+					CallerRole: model.RoleAdmin,
 				}).Return(expectedResult, nil)
 			},
 			expectedOutput: "User created successfully",
@@ -89,7 +89,7 @@ func TestCreateUserCommand(t *testing.T) {
 					Username:   "newuser",
 					Password:   "password123",
 					Role:       "invalid-role",
-					CallerRole: domain.RoleAdmin,
+					CallerRole: model.RoleAdmin,
 				}).Return(expectedResult, nil)
 			},
 			expectedOutput: "User created successfully",
@@ -103,7 +103,7 @@ func TestCreateUserCommand(t *testing.T) {
 					Username:   "newuser",
 					Password:   "password123",
 					Role:       "user",
-					CallerRole: domain.RoleAdmin,
+					CallerRole: model.RoleAdmin,
 				}).Return(nil, assert.AnError)
 			},
 			expectedOutput: "failed to create user",
@@ -155,7 +155,7 @@ func TestCreateUserCommand(t *testing.T) {
 						Username:   username,
 						Password:   password,
 						Role:       role,
-						CallerRole: domain.RoleAdmin,
+						CallerRole: model.RoleAdmin,
 					}
 
 					result, err := tc.MockUserService.CreateUser(cmd.Context(), req)
@@ -218,21 +218,21 @@ func TestCreateUserValidation(t *testing.T) {
 			name:          "valid input",
 			username:      "validuser",
 			password:      "password123",
-			role:          domain.RoleUser,
+			role:          model.RoleUser,
 			expectedError: "",
 		},
 		{
 			name:          "empty username",
 			username:      "",
 			password:      "password123",
-			role:          domain.RoleUser,
+			role:          model.RoleUser,
 			expectedError: "username cannot be empty",
 		},
 		{
 			name:          "empty password",
 			username:      "validuser",
 			password:      "",
-			role:          domain.RoleUser,
+			role:          model.RoleUser,
 			expectedError: "password cannot be empty",
 		},
 		{
@@ -267,7 +267,7 @@ func validateCreateUserInput(username, password, role string) error {
 		return fmt.Errorf("password cannot be empty")
 	}
 
-	validRoles := []string{domain.RoleAdmin, domain.RoleUser, domain.RoleSecretsManager, domain.RoleCryptoManager, domain.RoleCertificateManager}
+	validRoles := []string{model.RoleAdmin, model.RoleUser, model.RoleSecretsManager, model.RoleCryptoManager, model.RoleCertificateManager}
 	roleValid := false
 	for _, validRole := range validRoles {
 		if role == validRole {
@@ -299,7 +299,7 @@ func createTestRootCommand() *cobra.Command {
 }
 
 func TestCreateUserRequiresAdminRole(t *testing.T) {
-	for _, role := range []string{domain.RoleUser, domain.RoleSecretsManager, domain.RoleCryptoManager, domain.RoleCertificateManager} {
+	for _, role := range []string{model.RoleUser, model.RoleSecretsManager, model.RoleCryptoManager, model.RoleCertificateManager} {
 		t.Run("blocked for role "+role, func(t *testing.T) {
 			viper.Reset()
 			tc := newTestContextWithRole(t, role)

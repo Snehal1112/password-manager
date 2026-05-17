@@ -29,7 +29,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"rocketvault/common"
-	"rocketvault/internal/domain"
+	"rocketvault/model"
 	"rocketvault/internal/container"
 )
 
@@ -44,7 +44,7 @@ var deleteCmd = &cobra.Command{
 	Args:    cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		ctx := cmd.Context()
-		claims, ok := ctx.Value(common.ClaimsKey).(*domain.Claims)
+		claims, ok := ctx.Value(common.ClaimsKey).(*model.Claims)
 		if !ok {
 			return fmt.Errorf("unauthorized: missing authentication claims")
 		}
@@ -60,7 +60,7 @@ var deleteCmd = &cobra.Command{
 			return fmt.Errorf("invalid user ID: %w", err)
 		}
 
-		if claims.UserID != id && claims.Role != domain.RoleAdmin {
+		if claims.UserID != id && claims.Role != model.RoleAdmin {
 			return fmt.Errorf("forbidden: can only delete your own account or requires admin role")
 		}
 

@@ -15,7 +15,7 @@ import (
 	"rocketvault/cmd/testutils"
 	"rocketvault/common"
 	"rocketvault/internal/container"
-	"rocketvault/internal/domain"
+	"rocketvault/model"
 	"rocketvault/internal/formatter"
 )
 
@@ -30,7 +30,7 @@ func TestListSecretsCommand(t *testing.T) {
 		{
 			name: "successful secrets list",
 			setupMocks: func(tc *testutils.TestContext) {
-				secrets := []domain.Secret{
+				secrets := []model.Secret{
 					{
 						ID:      uuid.New(),
 						UserID:  tc.TestUserID,
@@ -57,7 +57,7 @@ func TestListSecretsCommand(t *testing.T) {
 		{
 			name: "list secrets with tag filter",
 			setupMocks: func(tc *testutils.TestContext) {
-				secrets := []domain.Secret{
+				secrets := []model.Secret{
 					{
 						ID:      uuid.New(),
 						UserID:  tc.TestUserID,
@@ -80,7 +80,7 @@ func TestListSecretsCommand(t *testing.T) {
 			name: "empty secrets list",
 			setupMocks: func(tc *testutils.TestContext) {
 				tc.MockSecretService.On("ListSecrets", mock.Anything, tc.TestUserID, []string{}).
-					Return([]domain.Secret{}, nil)
+					Return([]model.Secret{}, nil)
 			},
 			expectedOutput: "[]",
 		},
@@ -165,7 +165,7 @@ func TestListSecretsCommand(t *testing.T) {
 func TestListSecretsOutputFormat(t *testing.T) {
 	tc := testutils.NewTestContext(t)
 
-	testSecrets := []domain.Secret{
+	testSecrets := []model.Secret{
 		{
 			ID:      uuid.MustParse("550e8400-e29b-41d4-a716-446655440001"),
 			UserID:  tc.TestUserID,

@@ -13,14 +13,14 @@ import (
 
 	"rocketvault/cmd/testutils"
 	"rocketvault/common"
-	"rocketvault/internal/domain"
+	"rocketvault/model"
 )
 
 func TestVersionListCommand_ReturnsDecryptedVersions(t *testing.T) {
 	tc := testutils.NewTestContext(t)
 	secretID := uuid.New()
 
-	versions := []domain.SecretVersion{
+	versions := []model.SecretVersion{
 		{SecretID: secretID, Version: 1, Name: "my-secret", Value: "plaintext-value-1", CreatedAt: time.Now()},
 		{SecretID: secretID, Version: 2, Name: "my-secret", Value: "plaintext-value-2", CreatedAt: time.Now()},
 	}
@@ -47,7 +47,7 @@ func TestVersionGetCommand_ReturnsDecryptedVersion(t *testing.T) {
 	tc := testutils.NewTestContext(t)
 	secretID := uuid.New()
 
-	version := &domain.SecretVersion{
+	version := &model.SecretVersion{
 		SecretID: secretID, Version: 2,
 		Name: "my-secret", Value: "decrypted-value", CreatedAt: time.Now(),
 	}
@@ -76,7 +76,7 @@ func TestVersionLatestCommand_ReturnsDecryptedLatest(t *testing.T) {
 	tc := testutils.NewTestContext(t)
 	secretID := uuid.New()
 
-	version := &domain.SecretVersion{
+	version := &model.SecretVersion{
 		SecretID: secretID, Version: 3,
 		Name: "my-secret", Value: "latest-decrypted-value", CreatedAt: time.Now(),
 	}

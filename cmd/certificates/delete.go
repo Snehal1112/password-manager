@@ -12,7 +12,7 @@ import (
 
 	"rocketvault/common"
 	"rocketvault/internal/container"
-	"rocketvault/internal/domain"
+	"rocketvault/model"
 	"rocketvault/internal/logging"
 )
 
@@ -25,13 +25,13 @@ var deleteCmd = &cobra.Command{
 	Args:    cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		ctx := cmd.Context()
-		claims, ok := ctx.Value(common.ClaimsKey).(*domain.Claims)
+		claims, ok := ctx.Value(common.ClaimsKey).(*model.Claims)
 		if !ok {
 			return fmt.Errorf("unauthorized: missing authentication claims")
 		}
 
 		log := ctx.Value(common.LogKey).(*logging.Logger)
-		if !common.HasRequiredRole(claims.Role, domain.RoleAdmin, domain.RoleCertificateManager) {
+		if !common.HasRequiredRole(claims.Role, model.RoleAdmin, model.RoleCertificateManager) {
 			log.LogAuditError(claims.UserID.String(), "delete_certificate", "failed", "forbidden: requires admin or certificate_manager role", nil)
 			return fmt.Errorf("forbidden: requires admin or certificate_manager role")
 		}

@@ -31,7 +31,7 @@ import (
 
 	"rocketvault/common"
 	"rocketvault/internal/container"
-	"rocketvault/internal/domain"
+	"rocketvault/model"
 	userService "rocketvault/internal/services/users"
 )
 
@@ -45,11 +45,11 @@ var createCmd = &cobra.Command{
 		ctx := cmd.Context()
 
 		// Require admin role to create any user account.
-		claims, ok := ctx.Value(common.ClaimsKey).(*domain.Claims)
+		claims, ok := ctx.Value(common.ClaimsKey).(*model.Claims)
 		if !ok || claims == nil {
 			return fmt.Errorf("unauthorized: missing authentication claims")
 		}
-		if claims.Role != domain.RoleAdmin {
+		if claims.Role != model.RoleAdmin {
 			return fmt.Errorf("forbidden: only admin users can create new accounts")
 		}
 

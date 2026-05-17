@@ -11,7 +11,7 @@ import (
 	"rocketvault/cmd/testutils"
 	"rocketvault/common"
 	"rocketvault/internal/container"
-	"rocketvault/internal/domain"
+	"rocketvault/model"
 	secretServices "rocketvault/internal/services/secrets"
 )
 
@@ -27,7 +27,7 @@ func TestCreateSecretCommand(t *testing.T) {
 		{
 			name: "successful secret creation",
 			setupMocks: func(tc *testutils.TestContext) {
-				expectedSecret := &domain.Secret{
+				expectedSecret := &model.Secret{
 					ID:      uuid.New(),
 					UserID:  tc.TestUserID,
 					Name:    "test-secret",
@@ -148,7 +148,7 @@ func TestCreateSecretWithTags(t *testing.T) {
 	tc := testutils.NewTestContext(t)
 
 	// Mock successful secret creation with multiple tags
-	expectedSecret := &domain.Secret{
+	expectedSecret := &model.Secret{
 		ID:      tc.TestUserID,
 		UserID:  tc.TestUserID,
 		Name:    "test-secret",

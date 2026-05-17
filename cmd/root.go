@@ -36,7 +36,7 @@ import (
 	"rocketvault/common"
 	"rocketvault/internal/container"
 	"rocketvault/internal/db"
-	"rocketvault/internal/domain"
+	"rocketvault/model"
 	"rocketvault/internal/formatter"
 	"rocketvault/internal/logging"
 )
@@ -200,7 +200,7 @@ func persistentPreRun(cmd *cobra.Command, args []string) error {
 	}
 
 	// Create claims from authentication result (no need to parse JWT)
-	claims := &domain.Claims{
+	claims := &model.Claims{
 		UserID:   authResult.UserID,
 		Username: authResult.Username,
 		Role:     authResult.Role,

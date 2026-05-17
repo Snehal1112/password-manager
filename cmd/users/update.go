@@ -30,7 +30,7 @@ import (
 	"github.com/spf13/viper"
 
 	"rocketvault/common"
-	"rocketvault/internal/domain"
+	"rocketvault/model"
 	"rocketvault/internal/container"
 	userService "rocketvault/internal/services/users"
 )
@@ -44,7 +44,7 @@ var updateCmd = &cobra.Command{
 	Args:    cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		ctx := cmd.Context()
-		claims, ok := ctx.Value(common.ClaimsKey).(*domain.Claims)
+		claims, ok := ctx.Value(common.ClaimsKey).(*model.Claims)
 		if !ok {
 			return fmt.Errorf("unauthorized: missing authentication claims")
 		}
@@ -62,7 +62,7 @@ var updateCmd = &cobra.Command{
 			return fmt.Errorf("invalid user ID: %w", err)
 		}
 
-		if claims.UserID != id && claims.Role != domain.RoleAdmin {
+		if claims.UserID != id && claims.Role != model.RoleAdmin {
 			logger := serviceContainer.GetLogger()
 			logger.LogAuditError(claims.UserID.String(), "update_user", "failed", "forbidden: cannot update other users", nil)
 			return fmt.Errorf("forbidden: cannot update other users")
@@ -80,7 +80,7 @@ var updateCmd = &cobra.Command{
 		}
 
 		// Only admins may change roles — including changing their own role.
-		if newRole != "" && claims.Role != domain.RoleAdmin {
+		if newRole != "" && claims.Role != model.RoleAdmin {
 			logger := serviceContainer.GetLogger()
 			logger.LogAuditError(claims.UserID.String(), "update_user", "failed", "forbidden: only admins can change roles", nil)
 			return fmt.Errorf("forbidden: only admins can change roles")
@@ -88,12 +88,12 @@ var updateCmd = &cobra.Command{
 
 		// Validate role is an exact known value (not a substring match).
 		validRoles := map[string]bool{
-			domain.RoleAdmin:              true,
-			domain.RoleUser:               true,
-			domain.RoleSecretsManager:     true,
-			domain.RoleCryptoManager:      true,
-			domain.RoleCertificateManager: true,
-			domain.RoleServiceAccount:     true,
+			model.RoleAdmin:              true,
+			model.RoleUser:               true,
+			model.RoleSecretsManager:     true,
+			model.RoleCryptoManager:      true,
+			model.RoleCertificateManager: true,
+			model.RoleServiceAccount:     true,
 		}
 		if newRole != "" && !validRoles[newRole] {
 			logger := serviceContainer.GetLogger()

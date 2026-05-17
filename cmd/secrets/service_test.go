@@ -11,7 +11,7 @@ import (
 	"github.com/stretchr/testify/mock"
 
 	"rocketvault/cmd/testutils"
-	"rocketvault/internal/domain"
+	"rocketvault/model"
 	secretServices "rocketvault/internal/services/secrets"
 )
 
@@ -28,7 +28,7 @@ func TestSecretsCreateCommand(t *testing.T) {
 			name: "successful secret creation with args",
 			args: []string{"api-key", "super-secret-value"},
 			setupMocks: func(tc *testutils.TestContext) {
-				expectedSecret := &domain.Secret{
+				expectedSecret := &model.Secret{
 					ID:      uuid.New(),
 					UserID:  tc.TestUserID,
 					Name:    "api-key",
@@ -50,7 +50,7 @@ func TestSecretsCreateCommand(t *testing.T) {
 			name: "successful secret creation with tags",
 			args: []string{"db-password", "secret-db-pass", "--tags=database,production,critical"},
 			setupMocks: func(tc *testutils.TestContext) {
-				expectedSecret := &domain.Secret{
+				expectedSecret := &model.Secret{
 					ID:      uuid.New(),
 					UserID:  tc.TestUserID,
 					Name:    "db-password",
@@ -174,7 +174,7 @@ func TestSecretsListCommand(t *testing.T) {
 			name: "successful secrets listing",
 			args: []string{},
 			setupMocks: func(tc *testutils.TestContext) {
-				secrets := []domain.Secret{
+				secrets := []model.Secret{
 					{
 						ID:      uuid.New(),
 						UserID:  tc.TestUserID,
@@ -203,7 +203,7 @@ func TestSecretsListCommand(t *testing.T) {
 			name: "filtered secrets by tags",
 			args: []string{"--tags=database"},
 			setupMocks: func(tc *testutils.TestContext) {
-				secrets := []domain.Secret{
+				secrets := []model.Secret{
 					{
 						ID:      uuid.New(),
 						UserID:  tc.TestUserID,
@@ -225,7 +225,7 @@ func TestSecretsListCommand(t *testing.T) {
 			setupMocks: func(tc *testutils.TestContext) {
 				tc.MockSecretService.On("ListSecrets", mock.Anything, tc.TestUserID,
 					mock.MatchedBy(func(tags []string) bool { return len(tags) == 0 })).
-					Return([]domain.Secret{}, nil)
+					Return([]model.Secret{}, nil)
 			},
 			expectedOutput: "No secrets found",
 			expectedError:  false,
@@ -309,7 +309,7 @@ func TestSecretsGetCommand(t *testing.T) {
 			name: "successful secret retrieval",
 			setupMocks: func(tc *testutils.TestContext) uuid.UUID {
 				secretID := uuid.New()
-				secret := &domain.Secret{
+				secret := &model.Secret{
 					ID:      secretID,
 					UserID:  tc.TestUserID,
 					Name:    "retrieved-secret",
@@ -394,7 +394,7 @@ func TestSecretsIntegration(t *testing.T) {
 
 		// Step 1: Create secret
 		secretID := uuid.New()
-		createdSecret := &domain.Secret{
+		createdSecret := &model.Secret{
 			ID:      secretID,
 			UserID:  tc.TestUserID,
 			Name:    "lifecycle-secret",
@@ -411,7 +411,7 @@ func TestSecretsIntegration(t *testing.T) {
 		}).Return(createdSecret, nil)
 
 		// Step 2: List secrets (should include new secret)
-		allSecrets := []domain.Secret{*createdSecret}
+		allSecrets := []model.Secret{*createdSecret}
 		tc.MockSecretService.On("ListSecrets", mock.Anything, tc.TestUserID,
 			mock.MatchedBy(func(tags []string) bool { return len(tags) == 0 })).
 			Return(allSecrets, nil)

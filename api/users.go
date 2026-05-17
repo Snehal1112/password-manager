@@ -33,7 +33,7 @@ import (
 	"github.com/gorilla/mux"
 
 	"rocketvault/common"
-	"rocketvault/internal/domain"
+	"rocketvault/model"
 	userService "rocketvault/internal/services/users"
 )
 
@@ -165,7 +165,7 @@ func (api *API) InitUsers(users *mux.Router) {
 func createUser(c *Context, w http.ResponseWriter, r *http.Request) {
 	// Check admin privileges
 	claims, ok := c.Claims["role"].(string)
-	if !ok || claims != string(domain.RoleAdmin) {
+	if !ok || claims != string(model.RoleAdmin) {
 		c.Err = common.NewAppError("createUser", "Forbidden: requires admin role", nil, "", http.StatusForbidden)
 		return
 	}
@@ -186,7 +186,7 @@ func createUser(c *Context, w http.ResponseWriter, r *http.Request) {
 		c.Err = common.NewAppError("createUser", "Invalid password: must be at least 8 characters", nil, "", http.StatusBadRequest)
 		return
 	}
-	validRoles := []string{domain.RoleAdmin, domain.RoleCryptoManager, domain.RoleCertificateManager, domain.RoleSecretsManager, domain.RoleUser}
+	validRoles := []string{model.RoleAdmin, model.RoleCryptoManager, model.RoleCertificateManager, model.RoleSecretsManager, model.RoleUser}
 	roleValid := false
 
 	// Split role string by comma to support multiple roles
@@ -260,7 +260,7 @@ func createUser(c *Context, w http.ResponseWriter, r *http.Request) {
 func listUsers(c *Context, w http.ResponseWriter, r *http.Request) {
 	// Check admin privileges
 	claims, ok := c.Claims["role"].(string)
-	if !ok || claims != string(domain.RoleAdmin) {
+	if !ok || claims != string(model.RoleAdmin) {
 		c.Err = common.NewAppError("listUsers", "Forbidden: requires admin role", nil, "", http.StatusForbidden)
 		return
 	}
@@ -352,7 +352,7 @@ func getUser(c *Context, w http.ResponseWriter, r *http.Request) {
 	currentUserID, _ := c.Claims["user_id"].(string)
 	currentRole, _ := c.Claims["role"].(string)
 
-	if currentRole != string(domain.RoleAdmin) && currentUserID != userID.String() {
+	if currentRole != string(model.RoleAdmin) && currentUserID != userID.String() {
 		c.Err = common.NewAppError("getUser", "Forbidden: can only access own profile", nil, "", http.StatusForbidden)
 		return
 	}
@@ -415,7 +415,7 @@ func updateUser(c *Context, w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if req.Role != "" {
-		validRoles := []string{domain.RoleAdmin, domain.RoleCryptoManager, domain.RoleCertificateManager, domain.RoleSecretsManager, domain.RoleUser}
+		validRoles := []string{model.RoleAdmin, model.RoleCryptoManager, model.RoleCertificateManager, model.RoleSecretsManager, model.RoleUser}
 		roleValid := false
 
 		// Split role string by comma to support multiple roles
@@ -449,7 +449,7 @@ func updateUser(c *Context, w http.ResponseWriter, r *http.Request) {
 	currentUserID, _ := c.Claims["user_id"].(string)
 	currentRole, _ := c.Claims["role"].(string)
 
-	if currentRole != string(domain.RoleAdmin) {
+	if currentRole != string(model.RoleAdmin) {
 		if currentUserID != userID.String() {
 			c.Err = common.NewAppError("updateUser", "Forbidden: can only update own profile", nil, "", http.StatusForbidden)
 			return
@@ -529,7 +529,7 @@ func updateUser(c *Context, w http.ResponseWriter, r *http.Request) {
 func deleteUser(c *Context, w http.ResponseWriter, r *http.Request) {
 	// Check admin privileges
 	claims, ok := c.Claims["role"].(string)
-	if !ok || claims != string(domain.RoleAdmin) {
+	if !ok || claims != string(model.RoleAdmin) {
 		c.Err = common.NewAppError("deleteUser", "Forbidden: requires admin role", nil, "", http.StatusForbidden)
 		return
 	}

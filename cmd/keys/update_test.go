@@ -10,7 +10,7 @@ import (
 	"github.com/stretchr/testify/mock"
 
 	"rocketvault/cmd/testutils"
-	"rocketvault/internal/domain"
+	"rocketvault/model"
 	keyServices "rocketvault/internal/services/keys"
 )
 
@@ -26,13 +26,13 @@ func (m *MockKeyServiceForUpdate) CreateRSAKey(ctx context.Context, req keyServi
 func (m *MockKeyServiceForUpdate) CreateECDSAKey(ctx context.Context, req keyServices.CreateKeyRequest) (*keyServices.CreateKeyResult, error) {
 	return nil, nil
 }
-func (m *MockKeyServiceForUpdate) GetKey(ctx context.Context, keyID, userID uuid.UUID) (*domain.Key, error) {
+func (m *MockKeyServiceForUpdate) GetKey(ctx context.Context, keyID, userID uuid.UUID) (*model.Key, error) {
 	return nil, nil
 }
-func (m *MockKeyServiceForUpdate) ListKeys(ctx context.Context, userID uuid.UUID) ([]domain.Key, error) {
+func (m *MockKeyServiceForUpdate) ListKeys(ctx context.Context, userID uuid.UUID) ([]model.Key, error) {
 	return nil, nil
 }
-func (m *MockKeyServiceForUpdate) ListKeysWithFilters(ctx context.Context, userID *uuid.UUID, keyType string, tags []string, isAdmin bool) ([]domain.Key, error) {
+func (m *MockKeyServiceForUpdate) ListKeysWithFilters(ctx context.Context, userID *uuid.UUID, keyType string, tags []string, isAdmin bool) ([]model.Key, error) {
 	return nil, nil
 }
 func (m *MockKeyServiceForUpdate) DeleteKey(ctx context.Context, keyID, userID uuid.UUID) error {
