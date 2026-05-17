@@ -68,10 +68,11 @@ var getCmd = &cobra.Command{
 			return fmt.Errorf("output formatter not available in context")
 		}
 
-		headers := []string{"ID", "Name", "Version", "Enabled", "ContentType", "Tags", "Expires", "NotBefore", "Created"}
+		headers := []string{"ID", "Name", "Value", "Version", "Enabled", "ContentType", "Tags", "Expires", "NotBefore", "Created"}
 		row := []string{
 			secret.ID.String(),
 			secret.Name,
+			secret.Value,
 			strconv.Itoa(secret.Version),
 			strconv.FormatBool(secret.Enabled),
 			secret.ContentType,
