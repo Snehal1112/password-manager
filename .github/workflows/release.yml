@@ -9,6 +9,23 @@ permissions:
   contents: write
 
 jobs:
+  changelog:
+    name: Generate Changelog
+    runs-on: ubuntu-latest
+    outputs:
+      body: ${{ steps.cliff.outputs.content }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Generate changelog
+        uses: orhun/git-cliff-action@v4
+        id: cliff
+        with:
+          config: cliff.toml
+          args: --latest --strip header
+
   build:
     name: Build (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
@@ -101,7 +118,7 @@ jobs:
 
   release:
     name: Publish GitHub Release
-    needs: build
+    needs: [build, changelog]
     runs-on: ubuntu-latest
 
     steps:
@@ -119,7 +136,8 @@ jobs:
         run: |
           VERSION="${{ github.ref_name }}"
           gh release create "${VERSION}" \
+            --draft \
             --title "RocketVault ${VERSION}" \
-            --generate-notes \
+            --notes "${{ needs.changelog.outputs.body }}" \
             dist/*.tar.gz dist/*.tar.gz.sha256 \
             dist/*.zip dist/*.zip.sha256
