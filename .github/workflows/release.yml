@@ -133,11 +133,12 @@ jobs:
       - name: Create GitHub Release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          CHANGELOG_BODY: ${{ needs.changelog.outputs.body }}
         run: |
           VERSION="${{ github.ref_name }}"
           gh release create "${VERSION}" \
             --draft \
             --title "RocketVault ${VERSION}" \
-            --notes "${{ needs.changelog.outputs.body }}" \
+            --notes "${CHANGELOG_BODY}" \
             dist/*.tar.gz dist/*.tar.gz.sha256 \
             dist/*.zip dist/*.zip.sha256
