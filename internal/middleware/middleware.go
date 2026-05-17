@@ -11,12 +11,13 @@ import (
 	"strings"
 	"time"
 
+	"sync"
+
 	"github.com/google/uuid"
 	"github.com/gorilla/mux"
 	"github.com/sirupsen/logrus"
 	"github.com/spf13/viper"
-	"github.com/ulule/limiter/v3"
-	"github.com/ulule/limiter/v3/drivers/store/memory"
+	"golang.org/x/time/rate"
 
 	"rocketvault/common"
 	"rocketvault/model"
@@ -49,14 +50,46 @@ type Container interface {
 	GetAccessPolicyService() authzServices.AccessPolicyService
 }
 
+// ipRateLimiter manages per-IP token-bucket limiters.
+// Token buckets refill continuously, so steady traffic is never blocked
+// by a fixed-window reset the way a counter-based limiter would be.
+type ipRateLimiter struct {
+	mu       sync.Mutex
+	limiters sync.Map
+	r        rate.Limit // tokens added per second
+	b        int        // burst size (= configured per-minute limit)
+}
+
+func newIPRateLimiter(perMinute int64) *ipRateLimiter {
+	return &ipRateLimiter{
+		r: rate.Every(time.Minute / time.Duration(perMinute)),
+		b: int(perMinute),
+	}
+}
+
+// get returns the limiter for the given IP, creating one if it doesn't exist.
+func (l *ipRateLimiter) get(ip string) *rate.Limiter {
+	if v, ok := l.limiters.Load(ip); ok {
+		return v.(*rate.Limiter)
+	}
+	lim := rate.NewLimiter(l.r, l.b)
+	l.limiters.Store(ip, lim)
+	return lim
+}
+
+// allow reports whether the IP is within its rate limit.
+func (l *ipRateLimiter) allow(ip string) bool {
+	return l.get(ip).Allow()
+}
+
 // Middleware provides HTTP middleware with single responsibilities.
 // It delegates authentication and authorization to dedicated services,
 // following the Single Responsibility Principle.
 type Middleware struct {
 	container      Container
 	logger         *logging.Logger
-	defaultLimiter *limiter.Limiter
-	authLimiter    *limiter.Limiter
+	defaultLimiter *ipRateLimiter
+	authLimiter    *ipRateLimiter
 	corsOrigins    map[string]bool
 }
 
@@ -73,9 +106,6 @@ type Middleware struct {
 //
 //	A Middleware instance with injected dependencies.
 func NewMiddleware(container Container) *Middleware {
-	defaultStore := memory.NewStore()
-	authStore := memory.NewStore()
-
 	defaultLimit := viper.GetInt64("rate_limit.default")
 	if defaultLimit <= 0 {
 		defaultLimit = 300
@@ -84,15 +114,6 @@ func NewMiddleware(container Container) *Middleware {
 	if authLimit <= 0 {
 		authLimit = 5
 	}
-
-	defaultLimiter := limiter.New(defaultStore, limiter.Rate{
-		Period: time.Minute,
-		Limit:  defaultLimit,
-	})
-	authLimiter := limiter.New(authStore, limiter.Rate{
-		Period: time.Minute,
-		Limit:  authLimit,
-	})
 
 	// Load CORS allowed origins from configuration.
 	allowed := viper.GetStringSlice("server.cors_allowed_origins")
@@ -104,8 +125,8 @@ func NewMiddleware(container Container) *Middleware {
 	return &Middleware{
 		container:      container,
 		logger:         container.GetLogger(),
-		defaultLimiter: defaultLimiter,
-		authLimiter:    authLimiter,
+		defaultLimiter: newIPRateLimiter(defaultLimit),
+		authLimiter:    newIPRateLimiter(authLimit),
 		corsOrigins:    corsOrigins,
 	}
 }
@@ -148,9 +169,10 @@ func (m *Middleware) LoggingMiddleware(next http.Handler) http.Handler {
 	})
 }
 
-// RateLimitMiddleware applies rate limiting to HTTP requests.
-// It focuses solely on rate limiting without mixing other concerns.
-// Default: 60 requests/minute, Auth endpoints: 5 requests/minute.
+// RateLimitMiddleware applies per-IP token-bucket rate limiting.
+// Default: 300 req/min (configurable). Auth endpoints: 5 req/min.
+// Token buckets refill continuously — steady traffic is never blocked
+// by a fixed-window boundary the way a counter-based limiter would be.
 func (m *Middleware) RateLimitMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// Extract IP address from RemoteAddr (which includes port).
@@ -161,14 +183,11 @@ func (m *Middleware) RateLimitMiddleware(next http.Handler) http.Handler {
 			// Fallback for plain IPs without port (shouldn't happen in normal HTTP).
 			ip = r.RemoteAddr
 		}
-		key := ip
 
-		// Select appropriate limiter based on endpoint
+		// Select appropriate limiter based on endpoint.
+		// Matches /users/login and /users/refresh regardless of base path prefix.
 		selectedLimiter := m.defaultLimiter
 		isAuthEndpoint := false
-
-		// Apply stricter limits to authentication endpoints.
-		// Matches /users/login and /users/refresh regardless of base path prefix.
 		if strings.HasSuffix(r.URL.Path, "/users/login") ||
 			strings.HasSuffix(r.URL.Path, "/users/refresh") ||
 			strings.HasSuffix(r.URL.Path, "/oauth2/token") {
@@ -176,32 +195,25 @@ func (m *Middleware) RateLimitMiddleware(next http.Handler) http.Handler {
 			isAuthEndpoint = true
 		}
 
-		context, err := selectedLimiter.Get(r.Context(), key)
-		if err != nil {
-			m.logger.LogAuditError("", "rate_limit", "failed", "Rate limiter error", err)
-			logrus.WithError(err).Error("Rate limiter error")
-			http.Error(w, "Internal server error", http.StatusInternalServerError)
-			return
-		}
+		lim := selectedLimiter.get(ip)
+		tokens := lim.Tokens()
+		w.Header().Set("X-RateLimit-Limit", fmt.Sprintf("%d", selectedLimiter.b))
+		w.Header().Set("X-RateLimit-Remaining", fmt.Sprintf("%d", max(0, int(tokens))))
+		// Reset approximation: when the bucket will be full again.
+		w.Header().Set("X-RateLimit-Reset", fmt.Sprintf("%d", time.Now().Add(time.Minute).Unix()))
 
-		w.Header().Set("X-RateLimit-Limit", fmt.Sprintf("%d", context.Limit))
-		w.Header().Set("X-RateLimit-Remaining", fmt.Sprintf("%d", context.Remaining))
-		w.Header().Set("X-RateLimit-Reset", fmt.Sprintf("%d", context.Reset))
-
-		if context.Reached {
+		if !lim.Allow() {
 			endpoint := "default"
 			if isAuthEndpoint {
 				endpoint = "auth"
 			}
-
 			m.logger.LogAuditError("", "rate_limit", "failed",
 				fmt.Sprintf("Rate limit exceeded for %s endpoint", endpoint), nil)
 			logrus.WithFields(logrus.Fields{
-				"client_ip": key,
+				"client_ip": ip,
 				"endpoint":  r.URL.Path,
-				"limit":     context.Limit,
+				"limit":     selectedLimiter.b,
 			}).Warn("Rate limit exceeded")
-
 			http.Error(w, "Rate limit exceeded", http.StatusTooManyRequests)
 			return
 		}

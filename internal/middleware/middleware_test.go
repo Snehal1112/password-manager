@@ -8,14 +8,11 @@ import (
 	"net/http/httptest"
 	"strconv"
 	"testing"
-	"time"
 
 	"github.com/google/uuid"
 	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
-	"github.com/ulule/limiter/v3"
-	"github.com/ulule/limiter/v3/drivers/store/memory"
 
 	"rocketvault/common"
 	"rocketvault/model"
@@ -280,7 +277,7 @@ func TestRateLimitMiddleware(t *testing.T) {
 
 // TestRateLimitMiddleware_UsesIPNotAddrPort verifies that rate limiting uses IP address
 // (not RemoteAddr with port) as the key. Two requests from the same IP but different ports
-// must share the rate limit counter.
+// must share the rate limit bucket.
 func TestRateLimitMiddleware_UsesIPNotAddrPort(t *testing.T) {
 	t.Parallel()
 	logger := &logging.Logger{Logger: logrus.New()}
@@ -288,8 +285,8 @@ func TestRateLimitMiddleware_UsesIPNotAddrPort(t *testing.T) {
 
 	m := &Middleware{
 		logger:         logger,
-		defaultLimiter: limiter.New(memory.NewStore(), limiter.Rate{Period: time.Minute, Limit: 60}),
-		authLimiter:    limiter.New(memory.NewStore(), limiter.Rate{Period: time.Minute, Limit: 5}),
+		defaultLimiter: newIPRateLimiter(60),
+		authLimiter:    newIPRateLimiter(5),
 	}
 
 	handler := m.RateLimitMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -312,8 +309,8 @@ func TestRateLimitMiddleware_UsesIPNotAddrPort(t *testing.T) {
 	rem2, _ := strconv.Atoi(rr2.Header().Get("X-RateLimit-Remaining"))
 
 	// The second request should have one less remaining count than the first,
-	// proving they share the same rate limit counter (same IP).
-	assert.Equal(t, rem1-1, rem2, "same IP different port must share the rate limit counter")
+	// proving they share the same rate limit bucket (same IP, different port).
+	assert.Equal(t, rem1-1, rem2, "same IP different port must share the rate limit bucket")
 }
 
 // TestAuthenticationMiddleware tests JWT authentication.

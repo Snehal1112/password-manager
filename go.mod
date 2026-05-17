@@ -1,6 +1,6 @@
 module rocketvault
 
-go 1.24.2
+go 1.25.0
 
 require (
 	github.com/go-ozzo/ozzo-validation/v4 v4.3.0
@@ -16,6 +16,7 @@ require (
 	github.com/boombuler/barcode v1.0.1-0.20190219062509-6c824513bacc // indirect
 	github.com/pkg/errors v0.9.1 // indirect
 	github.com/stretchr/objx v0.5.2 // indirect
+	golang.org/x/time v0.15.0 // indirect
 	gopkg.in/natefinch/lumberjack.v2 v2.2.1 // indirect
 )
 
