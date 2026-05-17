@@ -127,7 +127,7 @@ func purgeSecret(c *Context, w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	w.WriteHeader(http.StatusNoContent)
+	ReturnStatusOK(w)
 }
 
 // listDeletedKeys returns all soft-deleted keys for the authenticated user.
@@ -249,7 +249,7 @@ func purgeKey(c *Context, w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	w.WriteHeader(http.StatusNoContent)
+	ReturnStatusOK(w)
 }
 
 // listDeletedCertificates returns all soft-deleted certificates for the authenticated user.
@@ -369,7 +369,7 @@ func purgeCertificate(c *Context, w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	w.WriteHeader(http.StatusNoContent)
+	ReturnStatusOK(w)
 }
 
 // userIDFromClaims extracts and parses the user UUID from JWT claims.

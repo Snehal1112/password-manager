@@ -445,8 +445,7 @@ func deleteKey(c *Context, w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Return success response.
-	w.WriteHeader(http.StatusNoContent)
+	ReturnStatusOK(w)
 }
 
 // rotateKey rotates a cryptographic key by generating a new key pair and revoking the old key.
@@ -546,15 +545,16 @@ func wrapKey(c *Context, w http.ResponseWriter, r *http.Request) {
 		Algorithm:    req.Algorithm,
 	})
 	if err != nil {
-		status := http.StatusInternalServerError
-		if strings.Contains(err.Error(), "forbidden") {
-			status = http.StatusForbidden
-		} else if strings.Contains(err.Error(), "not found") {
-			status = http.StatusNotFound
-		} else if strings.Contains(err.Error(), "unsupported algorithm") {
-			status = http.StatusBadRequest
+		switch {
+		case strings.Contains(err.Error(), "forbidden") || strings.Contains(err.Error(), "revoked"):
+			c.SetPermissionError("key_access")
+		case strings.Contains(err.Error(), "not found"):
+			c.SetNotFound("key")
+		case strings.Contains(err.Error(), "unsupported algorithm"):
+			c.SetInvalidParam("algorithm")
+		default:
+			c.SetInternalError(err)
 		}
-		c.Err = common.NewAppError("wrapKey", "Wrap operation failed", nil, err.Error(), status)
 		return
 	}
 
@@ -615,15 +615,16 @@ func unwrapKey(c *Context, w http.ResponseWriter, r *http.Request) {
 		Algorithm:  req.Algorithm,
 	})
 	if err != nil {
-		status := http.StatusInternalServerError
-		if strings.Contains(err.Error(), "forbidden") {
-			status = http.StatusForbidden
-		} else if strings.Contains(err.Error(), "not found") {
-			status = http.StatusNotFound
-		} else if strings.Contains(err.Error(), "unsupported algorithm") {
-			status = http.StatusBadRequest
+		switch {
+		case strings.Contains(err.Error(), "forbidden") || strings.Contains(err.Error(), "revoked"):
+			c.SetPermissionError("key_access")
+		case strings.Contains(err.Error(), "not found"):
+			c.SetNotFound("key")
+		case strings.Contains(err.Error(), "unsupported algorithm"):
+			c.SetInvalidParam("algorithm")
+		default:
+			c.SetInternalError(err)
 		}
-		c.Err = common.NewAppError("unwrapKey", "Unwrap operation failed", nil, err.Error(), status)
 		return
 	}
 

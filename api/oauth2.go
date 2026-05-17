@@ -171,7 +171,7 @@ func deleteServiceAccount(c *Context, w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	w.WriteHeader(http.StatusNoContent)
+	ReturnStatusOK(w)
 }
 
 // rotateServiceAccountSecret handles POST /service-accounts/{service_account_id}/rotate.

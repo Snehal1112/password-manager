@@ -156,7 +156,7 @@ func deleteAccessPolicy(c *Context, w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	w.WriteHeader(http.StatusNoContent)
+	ReturnStatusOK(w)
 }
 
 // listAccessPoliciesByPrincipal returns all policies for a given principal UUID.
