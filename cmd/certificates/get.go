@@ -6,6 +6,8 @@ package certificates
 
 import (
 	"fmt"
+	"os"
+	"strconv"
 	"strings"
 	"time"
 
@@ -15,6 +17,7 @@ import (
 	"rocketvault/common"
 	"rocketvault/internal/container"
 	"rocketvault/internal/domain"
+	"rocketvault/internal/formatter"
 	"rocketvault/internal/logging"
 )
 
@@ -54,10 +57,22 @@ var getCmd = &cobra.Command{
 		}
 
 		log.LogAuditInfo(claims.UserID.String(), "get_certificate", "success", fmt.Sprintf("certificate retrieved: %s", cert.Name))
-		fmt.Printf("Certificate: ID=%s, Name=%s, CreatedAt=%s, Tags=[%s]\n",
-			cert.ID, cert.Name, cert.CreatedAt.Format(time.RFC3339), strings.Join(cert.Tags, ", "))
-		fmt.Printf("PEM Certificate:\n%s\n", cert.Certificate)
-		return nil
+
+		fmtr, ok := ctx.Value(common.OutputFormatterKey).(formatter.Formatter)
+		if !ok {
+			return fmt.Errorf("output formatter not available in context")
+		}
+
+		headers := []string{"ID", "Name", "Tags", "Expires", "AutoRenew", "Created"}
+		row := []string{
+			cert.ID.String(),
+			cert.Name,
+			strings.Join(cert.Tags, ","),
+			formatOptionalTime(cert.ExpiresAt),
+			strconv.FormatBool(cert.AutoRenew),
+			cert.CreatedAt.Format(time.RFC3339),
+		}
+		return fmtr.Write(os.Stdout, headers, [][]string{row})
 	},
 }
 

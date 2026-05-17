@@ -6,6 +6,8 @@ package certificates
 
 import (
 	"fmt"
+	"os"
+	"strconv"
 	"strings"
 	"time"
 
@@ -14,6 +16,7 @@ import (
 	"rocketvault/common"
 	"rocketvault/internal/container"
 	"rocketvault/internal/domain"
+	"rocketvault/internal/formatter"
 	"rocketvault/internal/logging"
 )
 
@@ -48,18 +51,34 @@ var listCmd = &cobra.Command{
 		}
 
 		log.LogAuditInfo(claims.UserID.String(), "list_certificates", "success", fmt.Sprintf("listed %d certificates", len(certs)))
-		if len(certs) == 0 {
-			fmt.Println("No certificates found.")
-			return nil
+
+		fmtr, ok := ctx.Value(common.OutputFormatterKey).(formatter.Formatter)
+		if !ok {
+			return fmt.Errorf("output formatter not available in context")
 		}
 
-		fmt.Println("Certificates:")
-		for _, cert := range certs {
-			fmt.Printf("- ID=%s, Name=%s, CreatedAt=%s, Tags=[%s]\n",
-				cert.ID, cert.Name, cert.CreatedAt.Format(time.RFC3339), strings.Join(cert.Tags, ", "))
+		headers := []string{"ID", "Name", "Tags", "Expires", "AutoRenew", "Created"}
+		rows := make([][]string, len(certs))
+		for i, c := range certs {
+			rows[i] = []string{
+				c.ID.String(),
+				c.Name,
+				strings.Join(c.Tags, ","),
+				formatOptionalTime(c.ExpiresAt),
+				strconv.FormatBool(c.AutoRenew),
+				c.CreatedAt.Format(time.RFC3339),
+			}
 		}
-		return nil
+		return fmtr.Write(os.Stdout, headers, rows)
 	},
+}
+
+// formatOptionalTime formats a pointer to time.Time as RFC3339, returning empty string for nil.
+func formatOptionalTime(t *time.Time) string {
+	if t == nil {
+		return ""
+	}
+	return t.Format(time.RFC3339)
 }
 
 // InitCertificatesList initializes the list command for certificates.

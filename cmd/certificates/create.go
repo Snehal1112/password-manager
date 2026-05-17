@@ -6,7 +6,9 @@ package certificates
 
 import (
 	"fmt"
+	"os"
 	"strings"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/spf13/cobra"
@@ -15,6 +17,7 @@ import (
 	"rocketvault/common"
 	"rocketvault/internal/container"
 	"rocketvault/internal/domain"
+	"rocketvault/internal/formatter"
 	"rocketvault/internal/logging"
 	certServices "rocketvault/internal/services/certificates"
 )
@@ -108,8 +111,18 @@ var createCmd = &cobra.Command{
 		}
 
 		log.LogAuditInfo(claims.UserID.String(), "create_certificate", "success", fmt.Sprintf("certificate created: %s, ID: %s", result.Name, result.CertID))
-		fmt.Printf("Certificate created successfully, ID: %s\n", result.CertID)
-		return nil
+
+		fmtr, ok := ctx.Value(common.OutputFormatterKey).(formatter.Formatter)
+		if !ok {
+			return fmt.Errorf("output formatter not available in context")
+		}
+		headers := []string{"ID", "Name", "Created"}
+		row := []string{
+			result.CertID.String(),
+			result.Name,
+			result.CreatedAt.Format(time.RFC3339),
+		}
+		return fmtr.Write(os.Stdout, headers, [][]string{row})
 	},
 }
 
