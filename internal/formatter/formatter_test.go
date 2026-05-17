@@ -51,3 +51,35 @@ func TestTableFormatter_SeparatorLine(t *testing.T) {
 		t.Errorf("expected at least 3 lines (header, separator, data), got %d:\n%s", len(lines), buf.String())
 	}
 }
+
+func TestJSONFormatter_Output(t *testing.T) {
+	f := &jsonFormatter{}
+	var buf bytes.Buffer
+	headers := []string{"id", "name"}
+	rows := [][]string{
+		{"abc-123", "my-key"},
+		{"def-456", "other-key"},
+	}
+	err := f.Write(&buf, headers, rows)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	out := buf.String()
+	for _, want := range []string{`"id"`, `"abc-123"`, `"name"`, `"other-key"`} {
+		if !strings.Contains(out, want) {
+			t.Errorf("expected %q in JSON output, got:\n%s", want, out)
+		}
+	}
+}
+
+func TestJSONFormatter_Empty(t *testing.T) {
+	f := &jsonFormatter{}
+	var buf bytes.Buffer
+	err := f.Write(&buf, []string{"id"}, [][]string{})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if strings.TrimSpace(buf.String()) != "[]" {
+		t.Errorf("expected [] for empty rows, got: %q", buf.String())
+	}
+}
