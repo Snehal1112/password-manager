@@ -24,6 +24,8 @@ package keys
 
 import (
 	"fmt"
+	"os"
+	"strconv"
 	"strings"
 	"time"
 
@@ -33,6 +35,7 @@ import (
 	"rocketvault/common"
 	"rocketvault/internal/container"
 	"rocketvault/internal/domain"
+	"rocketvault/internal/formatter"
 	"rocketvault/internal/logging"
 )
 
@@ -74,9 +77,22 @@ var getCmd = &cobra.Command{
 		// Access control is now handled by the service layer
 
 		log.LogAuditInfo(claims.UserID.String(), "get_key", "success", fmt.Sprintf("key retrieved: %s", key.Name))
-		fmt.Printf("Key: ID=%s, Name=%s, Type=%s, Revoked=%t, CreatedAt=%s, Tags=[%s]\n",
-			key.ID, key.Name, key.Type, key.Revoked, key.CreatedAt.Format(time.RFC3339), strings.Join(key.Tags, ", "))
-		return nil
+
+		fmtr, ok := ctx.Value(common.OutputFormatterKey).(formatter.Formatter)
+		if !ok {
+			return fmt.Errorf("output formatter not available in context")
+		}
+
+		headers := []string{"ID", "Name", "Type", "Revoked", "Tags", "Created"}
+		row := []string{
+			key.ID.String(),
+			key.Name,
+			key.Type,
+			strconv.FormatBool(key.Revoked),
+			strings.Join(key.Tags, ","),
+			key.CreatedAt.Format(time.RFC3339),
+		}
+		return fmtr.Write(os.Stdout, headers, [][]string{row})
 	},
 }
 

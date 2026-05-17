@@ -24,15 +24,19 @@ package keys
 
 import (
 	"fmt"
-	"rocketvault/common"
-	"rocketvault/internal/container"
-	"rocketvault/internal/domain"
-	"rocketvault/internal/logging"
+	"os"
+	"strconv"
 	"strings"
 	"time"
 
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
+
+	"rocketvault/common"
+	"rocketvault/internal/container"
+	"rocketvault/internal/domain"
+	"rocketvault/internal/formatter"
+	"rocketvault/internal/logging"
 )
 
 // listCmd represents the list command
@@ -87,17 +91,25 @@ var listCmd = &cobra.Command{
 		}
 
 		log.LogAuditInfo(claims.UserID.String(), "list_keys", "success", fmt.Sprintf("listed %d keys", len(keys)))
-		if len(keys) == 0 {
-			fmt.Println("No keys found.")
-			return nil
+
+		fmtr, ok := ctx.Value(common.OutputFormatterKey).(formatter.Formatter)
+		if !ok {
+			return fmt.Errorf("output formatter not available in context")
 		}
 
-		fmt.Println("Keys:")
-		for _, key := range keys {
-			fmt.Printf("- ID=%s, Name=%s, Type=%s, Revoked=%t, CreatedAt=%s, Tags=[%s]\n",
-				key.ID, key.Name, key.Type, key.Revoked, key.CreatedAt.Format(time.RFC3339), strings.Join(key.Tags, ", "))
+		headers := []string{"ID", "Name", "Type", "Revoked", "Tags", "Created"}
+		rows := make([][]string, len(keys))
+		for i, k := range keys {
+			rows[i] = []string{
+				k.ID.String(),
+				k.Name,
+				k.Type,
+				strconv.FormatBool(k.Revoked),
+				strings.Join(k.Tags, ","),
+				k.CreatedAt.Format(time.RFC3339),
+			}
 		}
-		return nil
+		return fmtr.Write(os.Stdout, headers, rows)
 	},
 }
 

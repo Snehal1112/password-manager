@@ -24,17 +24,19 @@ package keys
 
 import (
 	"fmt"
+	"os"
 	"strings"
+	"time"
+
+	"github.com/spf13/cobra"
+	"github.com/spf13/viper"
 
 	"rocketvault/common"
 	"rocketvault/internal/container"
 	"rocketvault/internal/domain"
+	"rocketvault/internal/formatter"
 	"rocketvault/internal/logging"
 	keyServices "rocketvault/internal/services/keys"
-
-	"github.com/sirupsen/logrus"
-	"github.com/spf13/cobra"
-	"github.com/spf13/viper"
 )
 
 // createCmd represents the create command
@@ -114,13 +116,19 @@ var createCmd = &cobra.Command{
 
 		log.LogAuditInfo(claims.UserID.String(), "create_key", "success", fmt.Sprintf("key created: %s, ID: %s", result.Name, result.KeyID))
 
-		log.WithFields(logrus.Fields{
-			"key_id": result.KeyID,
-			"name":   result.Name,
-			"type":   result.Type,
-			"tags":   result.Tags,
-		}).Info("Key created successfully")
-		return nil
+		fmtr, ok := ctx.Value(common.OutputFormatterKey).(formatter.Formatter)
+		if !ok {
+			return fmt.Errorf("output formatter not available in context")
+		}
+		headers := []string{"ID", "Name", "Type", "Tags", "Created"}
+		row := []string{
+			result.KeyID.String(),
+			result.Name,
+			result.Type,
+			strings.Join(result.Tags, ","),
+			result.CreatedAt.Format(time.RFC3339),
+		}
+		return fmtr.Write(os.Stdout, headers, [][]string{row})
 	},
 }
 
