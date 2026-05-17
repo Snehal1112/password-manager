@@ -24,14 +24,16 @@ package users
 
 import (
 	"fmt"
+	"os"
 	"time"
-
-	"rocketvault/common"
-	"rocketvault/internal/domain"
-	"rocketvault/internal/container"
 
 	"github.com/google/uuid"
 	"github.com/spf13/cobra"
+
+	"rocketvault/common"
+	"rocketvault/internal/container"
+	"rocketvault/internal/domain"
+	"rocketvault/internal/formatter"
 )
 
 // getCmd represents the get command
@@ -70,9 +72,20 @@ var getCmd = &cobra.Command{
 
 		logger := serviceContainer.GetLogger()
 		logger.LogAuditInfo(claims.UserID.String(), "get_user", "success", fmt.Sprintf("user retrieved: %s", user.Username))
-		fmt.Printf("User: ID=%s, Username=%s, Role=%s, CreatedAt=%s\n",
-			user.ID, user.Username, user.Role, user.CreatedAt.Format(time.RFC3339))
-		return nil
+
+		fmtr, ok := ctx.Value(common.OutputFormatterKey).(formatter.Formatter)
+		if !ok {
+			return fmt.Errorf("output formatter not available in context")
+		}
+
+		headers := []string{"ID", "Username", "Role", "Created"}
+		row := []string{
+			user.ID.String(),
+			user.Username,
+			user.Role,
+			user.CreatedAt.Format(time.RFC3339),
+		}
+		return fmtr.Write(os.Stdout, headers, [][]string{row})
 	},
 }
 

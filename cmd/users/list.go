@@ -24,13 +24,15 @@ package users
 
 import (
 	"fmt"
+	"os"
 	"time"
 
 	"github.com/spf13/cobra"
 
 	"rocketvault/common"
-	"rocketvault/internal/domain"
 	"rocketvault/internal/container"
+	"rocketvault/internal/domain"
+	"rocketvault/internal/formatter"
 )
 
 // listCmd represents the list command
@@ -65,17 +67,23 @@ var listCmd = &cobra.Command{
 
 		logger := serviceContainer.GetLogger()
 		logger.LogAuditInfo(claims.UserID.String(), "list_users", "success", fmt.Sprintf("listed %d users", len(users)))
-		if len(users) == 0 {
-			fmt.Println("No users found.")
-			return nil
+
+		fmtr, ok := ctx.Value(common.OutputFormatterKey).(formatter.Formatter)
+		if !ok {
+			return fmt.Errorf("output formatter not available in context")
 		}
 
-		fmt.Println("Users:")
-		for _, user := range users {
-			fmt.Printf("- ID=%s, Username=%s, Role=%s, CreatedAt=%s\n",
-				user.ID, user.Username, user.Role, user.CreatedAt.Format(time.RFC3339))
+		headers := []string{"ID", "Username", "Role", "Created"}
+		rows := make([][]string, len(users))
+		for i, u := range users {
+			rows[i] = []string{
+				u.ID.String(),
+				u.Username,
+				u.Role,
+				u.CreatedAt.Format(time.RFC3339),
+			}
 		}
-		return nil
+		return fmtr.Write(os.Stdout, headers, rows)
 	},
 }
 
