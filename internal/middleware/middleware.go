@@ -259,6 +259,21 @@ func (m *Middleware) AuthenticationMiddleware(next http.Handler) http.Handler {
 // It delegates authorization logic to the RBACService.
 func (m *Middleware) AuthorizationMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Skip authorization for the same public endpoints skipped by AuthenticationMiddleware.
+		if strings.HasSuffix(r.URL.Path, "/health") ||
+			strings.HasSuffix(r.URL.Path, "/health/ready") ||
+			strings.HasSuffix(r.URL.Path, "/health/live") ||
+			strings.HasSuffix(r.URL.Path, "/login") ||
+			strings.HasSuffix(r.URL.Path, "/register") ||
+			strings.HasSuffix(r.URL.Path, "/refresh") ||
+			strings.Contains(r.URL.Path, "/auth/login") ||
+			strings.Contains(r.URL.Path, "/auth/register") ||
+			strings.Contains(r.URL.Path, "/auth/refresh") ||
+			strings.HasSuffix(r.URL.Path, "/oauth2/token") {
+			next.ServeHTTP(w, r)
+			return
+		}
+
 		// Get user role from context (set by authentication middleware)
 		role, ok := r.Context().Value(common.RoleKey).(string)
 		if !ok {
