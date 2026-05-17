@@ -759,6 +759,9 @@ For questions or issues:
 - [x] Certificate auto-renewal — ExpiresAt field, RenewalScheduler, HTTP API, CLI flags
 - [x] Security hardening: crypto/rand enforcement, role self-promotion blocking, ownership enforcement on rotation
 - [x] GitHub Actions release workflow — matrix build for Linux/macOS/Windows, GitHub Release publish
+- [x] git-cliff changelog generation — automatic grouped release notes via CI/CD
+- [x] Signed releases — GPG-signed commits, tags, and release.sh bump script
+- [x] First public release — v0.1.0 with verified tag and draft GitHub Release
 
 ### Planned
 - [ ] Web-based administration interface
