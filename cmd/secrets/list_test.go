@@ -2,6 +2,7 @@ package secrets
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"testing"
@@ -15,6 +16,7 @@ import (
 	"rocketvault/common"
 	"rocketvault/internal/container"
 	"rocketvault/internal/domain"
+	"rocketvault/internal/formatter"
 )
 
 func TestListSecretsCommand(t *testing.T) {
@@ -161,17 +163,16 @@ func TestListSecretsCommand(t *testing.T) {
 }
 
 func TestListSecretsOutputFormat(t *testing.T) {
-	// Create test context
 	tc := testutils.NewTestContext(t)
 
-	// Create test secrets with different attributes
-	secrets := []domain.Secret{
+	testSecrets := []domain.Secret{
 		{
 			ID:      uuid.MustParse("550e8400-e29b-41d4-a716-446655440001"),
 			UserID:  tc.TestUserID,
 			Name:    "api-key",
 			Value:   "secret-value-1",
 			Version: 1,
+			Enabled: true,
 			Tags:    []string{"api", "prod"},
 		},
 		{
@@ -180,65 +181,34 @@ func TestListSecretsOutputFormat(t *testing.T) {
 			Name:    "db-password",
 			Value:   "secret-value-2",
 			Version: 3,
+			Enabled: false,
 			Tags:    []string{"database", "staging"},
 		},
 	}
 
 	tc.MockSecretService.On("ListSecrets", mock.Anything, tc.TestUserID, []string{}).
-		Return(secrets, nil)
+		Return(testSecrets, nil)
 
-	// Create a fresh command instance to avoid flag redefinition
-	cmd := &cobra.Command{
-		Use:   "list",
-		Short: "List all secrets",
-		RunE: func(cmd *cobra.Command, args []string) error {
-			tags, _ := cmd.Flags().GetStringSlice("tags")
-
-			ctx := cmd.Context()
-			userID := ctx.Value(common.UserIDKey).(uuid.UUID)
-
-			serviceContainer, ok := ctx.Value(common.ServiceContainerKey).(container.ServiceContainerInterface)
-			if !ok || serviceContainer == nil {
-				return fmt.Errorf("service container not available")
-			}
-			secretService := serviceContainer.GetSecretService()
-
-			secretsList, err := secretService.ListSecrets(ctx, userID, tags)
-			if err != nil {
-				return fmt.Errorf("failed to list secrets: %w", err)
-			}
-
-			t, _ := json.MarshalIndent(secretsList, "", "  ")
-			cmd.Println(string(t))
-			return nil
-		},
-	}
-
-	// Set context and initialize flags
-	cmd.SetContext(tc.Ctx)
-	cmd.Flags().StringSlice("tags", []string{}, "Tags to filter secrets (comma-separated)")
-
-	// Capture output
-	var output bytes.Buffer
-	cmd.SetOut(&output)
-
-	// Execute command
-	err := cmd.Execute()
+	fmtr, err := formatter.New(formatter.FormatTable)
 	assert.NoError(t, err)
 
-	// Verify output format contains expected fields
-	outputStr := output.String()
-	assert.Contains(t, outputStr, "api-key")
-	assert.Contains(t, outputStr, "db-password")
+	ctx := context.WithValue(tc.Ctx, common.OutputFormatterKey, fmtr)
 
-	// Should show versions
-	assert.Contains(t, outputStr, `"version": 1`)
-	assert.Contains(t, outputStr, `"version": 3`)
+	var output bytes.Buffer
+	listCmd.SetOut(&output)
+	listCmd.SetErr(&output)
+	listCmd.SetContext(ctx)
+	listCmd.SetArgs([]string{})
 
-	// Should show tags
-	assert.Contains(t, outputStr, "api")
-	assert.Contains(t, outputStr, "database")
+	execErr := listCmd.Execute()
+	assert.NoError(t, execErr)
 
-	// Verify mock expectations
+	out := output.String()
+	assert.Contains(t, out, "api-key")
+	assert.Contains(t, out, "db-password")
+	assert.Contains(t, out, "ID")
+	assert.Contains(t, out, "Name")
+	assert.Contains(t, out, "Tags")
+
 	tc.MockSecretService.AssertExpectations(t)
 }
