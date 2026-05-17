@@ -6,8 +6,6 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-
-	"rocketvault/common"
 )
 
 // InitOAuth2 registers the public OAuth2 token endpoint and authenticated service-account routes.
@@ -197,12 +195,3 @@ func rotateServiceAccountSecret(c *Context, w http.ResponseWriter, r *http.Reque
 	})
 }
 
-// serviceAccountIDFromParams extracts and parses the service account UUID from context params.
-// Returns an AppError if the ID is absent or cannot be parsed.
-func serviceAccountIDFromParams(c *Context, op string) (uuid.UUID, *common.AppError) {
-	id, err := uuid.Parse(c.Params.ServiceAccountID)
-	if err != nil {
-		return uuid.Nil, common.NewAppError(op, "Invalid service account ID", nil, err.Error(), http.StatusBadRequest)
-	}
-	return id, nil
-}

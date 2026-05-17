@@ -7,7 +7,6 @@ import (
 
 	"github.com/google/uuid"
 
-	"rocketvault/common"
 	"rocketvault/model"
 )
 
@@ -186,12 +185,3 @@ func listAccessPoliciesByPrincipal(c *Context, w http.ResponseWriter, r *http.Re
 	})
 }
 
-// policyIDFromParams extracts and parses the policy UUID from context params.
-// Returns an AppError if the ID is absent or cannot be parsed.
-func policyIDFromParams(c *Context, op string) (uuid.UUID, *common.AppError) {
-	id, err := uuid.Parse(c.Params.PolicyID)
-	if err != nil {
-		return uuid.Nil, common.NewAppError(op, "Invalid policy ID", nil, err.Error(), http.StatusBadRequest)
-	}
-	return id, nil
-}

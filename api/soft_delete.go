@@ -5,15 +5,12 @@ import (
 	"net/http"
 
 	"github.com/google/uuid"
-
-	"rocketvault/common"
 )
 
 // listDeletedSecrets returns all soft-deleted secrets for the authenticated user.
 func listDeletedSecrets(c *Context, w http.ResponseWriter, r *http.Request) {
-	userID, appErr := userIDFromClaims(c, "listDeletedSecrets")
-	if appErr != nil {
-		c.Err = appErr
+	userID, ok := userIDFromClaims(c)
+	if !ok {
 		return
 	}
 
@@ -47,9 +44,8 @@ func listDeletedSecrets(c *Context, w http.ResponseWriter, r *http.Request) {
 
 // recoverSecret restores a soft-deleted secret by ID.
 func recoverSecret(c *Context, w http.ResponseWriter, r *http.Request) {
-	userID, appErr := userIDFromClaims(c, "recoverSecret")
-	if appErr != nil {
-		c.Err = appErr
+	userID, ok := userIDFromClaims(c)
+	if !ok {
 		return
 	}
 
@@ -90,9 +86,8 @@ func recoverSecret(c *Context, w http.ResponseWriter, r *http.Request) {
 
 // purgeSecret permanently deletes a soft-deleted secret by ID.
 func purgeSecret(c *Context, w http.ResponseWriter, r *http.Request) {
-	userID, appErr := userIDFromClaims(c, "purgeSecret")
-	if appErr != nil {
-		c.Err = appErr
+	userID, ok := userIDFromClaims(c)
+	if !ok {
 		return
 	}
 
@@ -132,9 +127,8 @@ func purgeSecret(c *Context, w http.ResponseWriter, r *http.Request) {
 
 // listDeletedKeys returns all soft-deleted keys for the authenticated user.
 func listDeletedKeys(c *Context, w http.ResponseWriter, r *http.Request) {
-	userID, appErr := userIDFromClaims(c, "listDeletedKeys")
-	if appErr != nil {
-		c.Err = appErr
+	userID, ok := userIDFromClaims(c)
+	if !ok {
 		return
 	}
 
@@ -169,9 +163,8 @@ func listDeletedKeys(c *Context, w http.ResponseWriter, r *http.Request) {
 
 // recoverKey restores a soft-deleted key by ID.
 func recoverKey(c *Context, w http.ResponseWriter, r *http.Request) {
-	userID, appErr := userIDFromClaims(c, "recoverKey")
-	if appErr != nil {
-		c.Err = appErr
+	userID, ok := userIDFromClaims(c)
+	if !ok {
 		return
 	}
 
@@ -212,9 +205,8 @@ func recoverKey(c *Context, w http.ResponseWriter, r *http.Request) {
 
 // purgeKey permanently deletes a soft-deleted key by ID.
 func purgeKey(c *Context, w http.ResponseWriter, r *http.Request) {
-	userID, appErr := userIDFromClaims(c, "purgeKey")
-	if appErr != nil {
-		c.Err = appErr
+	userID, ok := userIDFromClaims(c)
+	if !ok {
 		return
 	}
 
@@ -254,9 +246,8 @@ func purgeKey(c *Context, w http.ResponseWriter, r *http.Request) {
 
 // listDeletedCertificates returns all soft-deleted certificates for the authenticated user.
 func listDeletedCertificates(c *Context, w http.ResponseWriter, r *http.Request) {
-	userID, appErr := userIDFromClaims(c, "listDeletedCertificates")
-	if appErr != nil {
-		c.Err = appErr
+	userID, ok := userIDFromClaims(c)
+	if !ok {
 		return
 	}
 
@@ -289,9 +280,8 @@ func listDeletedCertificates(c *Context, w http.ResponseWriter, r *http.Request)
 
 // recoverCertificate restores a soft-deleted certificate by ID.
 func recoverCertificate(c *Context, w http.ResponseWriter, r *http.Request) {
-	userID, appErr := userIDFromClaims(c, "recoverCertificate")
-	if appErr != nil {
-		c.Err = appErr
+	userID, ok := userIDFromClaims(c)
+	if !ok {
 		return
 	}
 
@@ -332,9 +322,8 @@ func recoverCertificate(c *Context, w http.ResponseWriter, r *http.Request) {
 
 // purgeCertificate permanently deletes a soft-deleted certificate by ID.
 func purgeCertificate(c *Context, w http.ResponseWriter, r *http.Request) {
-	userID, appErr := userIDFromClaims(c, "purgeCertificate")
-	if appErr != nil {
-		c.Err = appErr
+	userID, ok := userIDFromClaims(c)
+	if !ok {
 		return
 	}
 
@@ -373,17 +362,19 @@ func purgeCertificate(c *Context, w http.ResponseWriter, r *http.Request) {
 }
 
 // userIDFromClaims extracts and parses the user UUID from JWT claims.
-// Returns an AppError if the claim is missing or cannot be parsed.
-func userIDFromClaims(c *Context, op string) (uuid.UUID, *common.AppError) {
+// Sets c.Err and returns false if the claim is missing or cannot be parsed.
+func userIDFromClaims(c *Context) (uuid.UUID, bool) {
 	str, ok := c.Claims["user_id"].(string)
 	if !ok {
-		return uuid.Nil, common.NewAppError(op, "Missing user ID in token", nil, "", http.StatusUnauthorized)
+		c.SetInvalidParam("user_id")
+		return uuid.Nil, false
 	}
 	id, err := uuid.Parse(str)
 	if err != nil {
-		return uuid.Nil, common.NewAppError(op, "Invalid user ID format", nil, err.Error(), http.StatusBadRequest)
+		c.SetInvalidParam("user_id")
+		return uuid.Nil, false
 	}
-	return id, nil
+	return id, true
 }
 
 // InitDeleted registers soft-delete management routes.
