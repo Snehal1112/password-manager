@@ -130,22 +130,24 @@ type ListSessionsResponse struct {
 //
 // Parameters:
 // - users (*mux.Router): The router to which the routes will be added.
-func (api *API) InitUsers(users *mux.Router) {
-	// Public endpoints - no authentication required
-	users.Handle("/login", Handler(api.App, loginUser)).Methods("POST")
-	users.Handle("/refresh", Handler(api.App, refreshToken)).Methods("POST")
+func (api *API) InitUsers() {
+	u := api.BaseRoutes.Users
 
-	// Session management endpoints - authenticated
-	users.Handle("/sessions", SessionRequired(api.App, listUserSessions)).Methods("GET")
-	users.Handle("/sessions/{id:[A-Fa-f0-9-]+}", SessionRequired(api.App, revokeSession)).Methods("DELETE")
-	users.Handle("/sessions", SessionRequired(api.App, revokeAllSessions)).Methods("DELETE")
+	// Public endpoints — no authentication required.
+	u.Handle("/login", ApiHandler(api.App, loginUser)).Methods("POST")
+	u.Handle("/refresh", ApiHandler(api.App, refreshToken)).Methods("POST")
 
-	// Authenticated endpoints
-	users.Handle("", SessionRequired(api.App, createUser)).Methods("POST")
-	users.Handle("", SessionRequired(api.App, listUsers)).Methods("GET")
-	users.Handle("/{id:[A-Fa-f0-9-]+}", SessionRequired(api.App, getUser)).Methods("GET")
-	users.Handle("/{id:[A-Fa-f0-9-]+}", SessionRequired(api.App, updateUser)).Methods("PUT")
-	users.Handle("/{id:[A-Fa-f0-9-]+}", SessionRequired(api.App, deleteUser)).Methods("DELETE")
+	// Session management endpoints — authenticated.
+	u.Handle("/sessions", ApiSessionRequired(api.App, listUserSessions)).Methods("GET")
+	u.Handle("/sessions/{session_id:[A-Fa-f0-9-]+}", ApiSessionRequired(api.App, revokeSession)).Methods("DELETE")
+	u.Handle("/sessions", ApiSessionRequired(api.App, revokeAllSessions)).Methods("DELETE")
+
+	// Authenticated CRUD endpoints.
+	u.Handle("", ApiSessionRequired(api.App, createUser)).Methods("POST")
+	u.Handle("", ApiSessionRequired(api.App, listUsers)).Methods("GET")
+	u.Handle("/{id:[A-Fa-f0-9-]+}", ApiSessionRequired(api.App, getUser)).Methods("GET")
+	u.Handle("/{id:[A-Fa-f0-9-]+}", ApiSessionRequired(api.App, updateUser)).Methods("PUT")
+	u.Handle("/{id:[A-Fa-f0-9-]+}", ApiSessionRequired(api.App, deleteUser)).Methods("DELETE")
 }
 
 // createUser handles the creation of a new user.

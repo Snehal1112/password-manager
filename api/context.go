@@ -1,25 +1,3 @@
-/*
-Copyright © 2025 Snehal Dangroshiya
-
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
-
-The above copyright notice and this permission notice shall be included in
-all copies or substantial portions of the Software.
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
-THE SOFTWARE.
-*/
-
 package api
 
 import (
@@ -29,114 +7,104 @@ import (
 
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/google/uuid"
-	"github.com/gorilla/mux"
 
 	"rocketvault/app"
 	"rocketvault/common"
 	"rocketvault/internal/logging"
+	"rocketvault/internal/repositories"
 	authServices "rocketvault/internal/services/auth"
 	certServices "rocketvault/internal/services/certificates"
 	keyServices "rocketvault/internal/services/keys"
 	secretServices "rocketvault/internal/services/secrets"
 	userServices "rocketvault/internal/services/users"
-	"rocketvault/internal/repositories"
 )
 
-// Context holds the contextual information for a request in the vault-service application.
-// It includes references to the application instance, translation function, error details,
-// request ID, IP address, and request path.
+// Context holds request-scoped data for every API handler.
 type Context struct {
 	App            *app.App
 	T              common.TranslateFunc
 	Err            *common.AppError
-	RequestID      string          // Unique request identifier
-	IPAddress      string          // Client IP address
-	Token          string          // JWT token
-	Claims         jwt.MapClaims   // JWT claims
-	Path           string          // Request URL path
-	UserAgent      string          // Client User-Agent
-	AcceptLanguage string          // Client Accept-Language
-	Params         *Params         // URL and query parameters
-	Logger         *logging.Logger // Logger for the request context
+	RequestID      string
+	IPAddress      string
+	Token          string
+	Claims         jwt.MapClaims
+	Path           string
+	UserAgent      string
+	AcceptLanguage string
+	Params         *ApiParams
+	Logger         *logging.Logger
 }
 
-// Params holds URL and query parameters for various endpoints.
-type Params struct {
-	UserID string            // For /users/{user_id}
-	Query  map[string]string // Query parameters (e.g., ?page=1)
+// SetInvalidParam sets a 400 error for a missing or malformed parameter.
+func (c *Context) SetInvalidParam(parameter string) {
+	c.Err = common.NewAppError("api.context.set_invalid_param",
+		"Invalid or missing parameter: "+parameter, nil, "", http.StatusBadRequest)
 }
 
-// Handler wraps handlers with common logic, similar to Mattermost's APIHandler.
-func Handler(app *app.App, handler func(*Context, http.ResponseWriter, *http.Request)) http.HandlerFunc {
+// SetPermissionError sets a 403 error for insufficient permissions.
+func (c *Context) SetPermissionError(permission string) {
+	c.Err = common.NewAppError("api.context.set_permission_error",
+		"Insufficient permissions: "+permission, nil, "", http.StatusForbidden)
+}
+
+// SetNotFound sets a 404 error for a missing resource.
+func (c *Context) SetNotFound(resource string) {
+	c.Err = common.NewAppError("api.context.set_not_found",
+		resource+" not found", nil, "", http.StatusNotFound)
+}
+
+// SetInternalError sets a 500 error for unexpected failures.
+func (c *Context) SetInternalError(err error) {
+	msg := "Internal server error"
+	detail := ""
+	if err != nil {
+		detail = err.Error()
+	}
+	c.Err = common.NewAppError("api.context.set_internal_error", msg, nil, detail, http.StatusInternalServerError)
+}
+
+// ApiHandler wraps public (unauthenticated) handlers.
+func ApiHandler(app *app.App, handler func(*Context, http.ResponseWriter, *http.Request)) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		start := time.Now()
 		ctx := &Context{
 			App:            app,
-			Token:          "",
-			Claims:         nil,
-			Params:         &Params{Query: make(map[string]string)},
+			Params:         ApiParamsFromRequest(r),
 			RequestID:      "req-" + uuid.New().String()[:8],
 			IPAddress:      r.RemoteAddr,
 			Path:           r.URL.Path,
 			UserAgent:      r.UserAgent(),
 			AcceptLanguage: r.Header.Get("Accept-Language"),
 			Logger:         app.Logger,
-			Err:            nil,
 		}
 
-		ctx.Logger.WithField("request_id", ctx.RequestID).Debug("API request started")
-		// Populate URL parameters
-		vars := mux.Vars(r)
-		if userID, ok := vars["user_id"]; ok {
-			ctx.Params.UserID = userID
+		if ctx.Logger != nil {
+			ctx.Logger.Printf("Handling %s %s", r.Method, r.URL.Path)
 		}
 
-		// Populate query parameters
-		query := r.URL.Query()
-		for key, values := range query {
-			if len(values) > 0 {
-				ctx.Params.Query[key] = values[0]
-			}
-		}
-
-		// Log request
-		ctx.Logger.Printf("Handling %s %s", r.Method, r.URL.Path)
-
-		// Execute handler
 		handler(ctx, w, r)
 
-		// Log metrics
-		elapsed := time.Since(start).Milliseconds()
-		ctx.Logger.Printf("Completed %s %s in %dms", r.Method, r.URL.Path, elapsed)
+		if ctx.Logger != nil {
+			ctx.Logger.Printf("Completed %s %s in %dms", r.Method, r.URL.Path, time.Since(start).Milliseconds())
+		}
 
-		// Handle errors
 		if ctx.Err != nil {
-			w.Header().Set("Content-Type", "application/json")
-			w.WriteHeader(ctx.Err.StatusCode)
-			json.NewEncoder(w).Encode(map[string]any{
-				"id":             ctx.Err.ID,
-				"message":        ctx.Err.Message,
-				"detailed_error": ctx.Err.DetailedError,
-				"status_code":    ctx.Err.StatusCode,
-			})
+			writeError(w, ctx)
 		}
 	}
 }
 
-// SessionRequired wraps handlers requiring an authenticated session.
-// Identity is read from r.Context() which AuthenticationMiddleware already
-// populated — the token is NOT re-validated here.
-func SessionRequired(a *app.App, handler func(*Context, http.ResponseWriter, *http.Request)) http.HandlerFunc {
+// ApiSessionRequired wraps handlers that require an authenticated session.
+func ApiSessionRequired(a *app.App, handler func(*Context, http.ResponseWriter, *http.Request)) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		start := time.Now()
 
-		// Read identity set by AuthenticationMiddleware.
 		userIDStr, ok := r.Context().Value(common.UserIDKey).(string)
 		if !ok || userIDStr == "" {
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusUnauthorized)
 			json.NewEncoder(w).Encode(map[string]any{
-				"id":          "Unauthorized",
+				"id":          "api.context.session_required",
 				"message":     "Unauthorized: missing session",
 				"status_code": http.StatusUnauthorized,
 			})
@@ -146,13 +114,12 @@ func SessionRequired(a *app.App, handler func(*Context, http.ResponseWriter, *ht
 		username, _ := r.Context().Value(common.UsernameKey).(string)
 		role, _ := r.Context().Value(common.RoleKey).(string)
 
-		// RBAC check using role already verified by middleware.
 		if a.ServiceContainer != nil {
 			if err := a.ServiceContainer.GetRBACService().ValidateEndpointAccess(role, r.Method, r.URL.Path); err != nil {
 				w.Header().Set("Content-Type", "application/json")
 				w.WriteHeader(http.StatusForbidden)
 				json.NewEncoder(w).Encode(map[string]any{
-					"id":          "Forbidden",
+					"id":          "api.context.permissions",
 					"message":     "Access denied",
 					"status_code": http.StatusForbidden,
 				})
@@ -167,112 +134,95 @@ func SessionRequired(a *app.App, handler func(*Context, http.ResponseWriter, *ht
 				"username": username,
 				"role":     role,
 			},
-			Params:         &Params{Query: make(map[string]string)},
+			Params:         ApiParamsFromRequest(r),
 			RequestID:      "req-" + uuid.New().String()[:8],
 			IPAddress:      r.RemoteAddr,
 			Path:           r.URL.Path,
 			UserAgent:      r.UserAgent(),
 			AcceptLanguage: r.Header.Get("Accept-Language"),
 			Logger:         a.Logger,
-			Err:            nil,
-		}
-
-		// Populate URL parameters.
-		vars := mux.Vars(r)
-		if uid, ok := vars["user_id"]; ok {
-			ctx.Params.UserID = uid
-		}
-
-		// Populate query parameters.
-		for key, values := range r.URL.Query() {
-			if len(values) > 0 {
-				ctx.Params.Query[key] = values[0]
-			}
 		}
 
 		if ctx.Logger != nil {
-			ctx.Logger.WithField("user_id", userIDStr).Debug("Session validated via context.")
 			ctx.Logger.Printf("Handling %s %s (user: %s)", r.Method, r.URL.Path, userIDStr)
 		}
 
 		handler(ctx, w, r)
 
 		if ctx.Logger != nil {
-			elapsed := time.Since(start).Milliseconds()
-			ctx.Logger.Printf("Completed %s %s in %dms", r.Method, r.URL.Path, elapsed)
+			ctx.Logger.Printf("Completed %s %s in %dms", r.Method, r.URL.Path, time.Since(start).Milliseconds())
 		}
 
 		if ctx.Err != nil {
-			w.Header().Set("Content-Type", "application/json")
-			w.WriteHeader(ctx.Err.StatusCode)
-			json.NewEncoder(w).Encode(map[string]any{
-				"id":             ctx.Err.ID,
-				"message":        ctx.Err.Message,
-				"detailed_error": ctx.Err.DetailedError,
-				"status_code":    ctx.Err.StatusCode,
-			})
+			writeError(w, ctx)
 		}
 	}
 }
 
-// secretSvc returns the secret service, setting c.Err if unavailable.
+// writeError writes a structured JSON error response with request_id.
+func writeError(w http.ResponseWriter, c *Context) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(c.Err.StatusCode)
+	json.NewEncoder(w).Encode(map[string]any{
+		"id":             c.Err.ID,
+		"message":        c.Err.Message,
+		"detailed_error": c.Err.DetailedError,
+		"status_code":    c.Err.StatusCode,
+		"request_id":     c.RequestID,
+	})
+}
+
 func (c *Context) secretSvc() secretServices.SecretService {
 	if c.App == nil || c.App.ServiceContainer == nil {
-		c.Err = common.NewAppError("internal", "Service unavailable", nil, "service container is nil", http.StatusInternalServerError)
+		c.SetInternalError(nil)
 		return nil
 	}
 	return c.App.ServiceContainer.GetSecretService()
 }
 
-// keySvc returns the key service, setting c.Err if unavailable.
 func (c *Context) keySvc() keyServices.KeyService {
 	if c.App == nil || c.App.ServiceContainer == nil {
-		c.Err = common.NewAppError("internal", "Service unavailable", nil, "service container is nil", http.StatusInternalServerError)
+		c.SetInternalError(nil)
 		return nil
 	}
 	return c.App.ServiceContainer.GetKeyService()
 }
 
-// cryptoSvc returns the key crypto service, setting c.Err if unavailable.
 func (c *Context) cryptoSvc() keyServices.CryptoService {
 	if c.App == nil || c.App.ServiceContainer == nil {
-		c.Err = common.NewAppError("internal", "Service unavailable", nil, "service container is nil", http.StatusInternalServerError)
+		c.SetInternalError(nil)
 		return nil
 	}
 	return c.App.ServiceContainer.GetCryptoService()
 }
 
-// userSvc returns the user service, setting c.Err if unavailable.
 func (c *Context) userSvc() userServices.UserService {
 	if c.App == nil || c.App.ServiceContainer == nil {
-		c.Err = common.NewAppError("internal", "Service unavailable", nil, "service container is nil", http.StatusInternalServerError)
+		c.SetInternalError(nil)
 		return nil
 	}
 	return c.App.ServiceContainer.GetUserService()
 }
 
-// certSvc returns the certificate service, setting c.Err if unavailable.
 func (c *Context) certSvc() certServices.CertificateService {
 	if c.App == nil || c.App.ServiceContainer == nil {
-		c.Err = common.NewAppError("internal", "Service unavailable", nil, "service container is nil", http.StatusInternalServerError)
+		c.SetInternalError(nil)
 		return nil
 	}
 	return c.App.ServiceContainer.GetCertificateService()
 }
 
-// authSvc returns the authentication service, setting c.Err if unavailable.
 func (c *Context) authSvc() authServices.AuthenticationService {
 	if c.App == nil || c.App.ServiceContainer == nil {
-		c.Err = common.NewAppError("internal", "Service unavailable", nil, "service container is nil", http.StatusInternalServerError)
+		c.SetInternalError(nil)
 		return nil
 	}
 	return c.App.ServiceContainer.GetAuthenticationService()
 }
 
-// sessionRepo returns the session repository, setting c.Err if unavailable.
 func (c *Context) sessionRepo() repositories.SessionRepositoryInterface {
 	if c.App == nil || c.App.ServiceContainer == nil {
-		c.Err = common.NewAppError("internal", "Service unavailable", nil, "service container is nil", http.StatusInternalServerError)
+		c.SetInternalError(nil)
 		return nil
 	}
 	return c.App.ServiceContainer.GetSessionRepository()

@@ -104,18 +104,20 @@ type UnwrapKeyResponse struct {
 //
 // Parameters:
 // - keys (*mux.Router): The router to which the routes will be added.
-func (api *API) InitKeys(keys *mux.Router) {
-	// Basic CRUD operations
-	keys.Handle("", SessionRequired(api.App, createKey)).Methods("POST")
-	keys.Handle("", SessionRequired(api.App, listKeys)).Methods("GET")
-	keys.Handle("/{id:[A-Fa-f0-9-]+}", SessionRequired(api.App, getKey)).Methods("GET")
-	keys.Handle("/{id:[A-Fa-f0-9-]+}", SessionRequired(api.App, updateKey)).Methods("PUT")
-	keys.Handle("/{id:[A-Fa-f0-9-]+}", SessionRequired(api.App, deleteKey)).Methods("DELETE")
+func (api *API) InitKeys() {
+	k := api.BaseRoutes.Keys
 
-	// Additional operations
-	keys.Handle("/{id:[A-Fa-f0-9-]+}/rotate", SessionRequired(api.App, rotateKey)).Methods("POST")
-	keys.Handle("/{id:[A-Fa-f0-9-]+}/wrap", SessionRequired(api.App, wrapKey)).Methods("POST")
-	keys.Handle("/{id:[A-Fa-f0-9-]+}/unwrap", SessionRequired(api.App, unwrapKey)).Methods("POST")
+	// Basic CRUD operations.
+	k.Handle("", ApiSessionRequired(api.App, createKey)).Methods("POST")
+	k.Handle("", ApiSessionRequired(api.App, listKeys)).Methods("GET")
+	k.Handle("/{id:[A-Fa-f0-9-]+}", ApiSessionRequired(api.App, getKey)).Methods("GET")
+	k.Handle("/{id:[A-Fa-f0-9-]+}", ApiSessionRequired(api.App, updateKey)).Methods("PUT")
+	k.Handle("/{id:[A-Fa-f0-9-]+}", ApiSessionRequired(api.App, deleteKey)).Methods("DELETE")
+
+	// Additional operations.
+	k.Handle("/{id:[A-Fa-f0-9-]+}/rotate", ApiSessionRequired(api.App, rotateKey)).Methods("POST")
+	k.Handle("/{id:[A-Fa-f0-9-]+}/wrap", ApiSessionRequired(api.App, wrapKey)).Methods("POST")
+	k.Handle("/{id:[A-Fa-f0-9-]+}/unwrap", ApiSessionRequired(api.App, unwrapKey)).Methods("POST")
 
 	api.Logger.Infoln("Keys API routes initialized")
 }

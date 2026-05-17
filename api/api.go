@@ -1,6 +1,8 @@
 package api
 
 import (
+	"encoding/json"
+	"net/http"
 	"strings"
 
 	"github.com/gorilla/mux"
@@ -10,88 +12,116 @@ import (
 	"rocketvault/internal/middleware"
 )
 
-// router is a type alias for a map where the keys are strings and the values are pointers to mux.Router.
-// This type alias is used to simplify the declaration and usage of maps that store mux.Router instances.
-type router = map[string]*mux.Router
+// Routes holds all subrouters for the API — typed for compile-time safety.
+type Routes struct {
+	ApiRoot         *mux.Router // /api/v1
+	Vault           *mux.Router // /api/v1/vault
+	Secrets         *mux.Router // /api/v1/secrets
+	Secret          *mux.Router // /api/v1/secrets/{secret_id}
+	Users           *mux.Router // /api/v1/users
+	User            *mux.Router // /api/v1/users/{user_id}
+	Keys            *mux.Router // /api/v1/keys
+	Key             *mux.Router // /api/v1/keys/{key_id}
+	Certificates    *mux.Router // /api/v1/certificates
+	Certificate     *mux.Router // /api/v1/certificates/{certificate_id}
+	Health          *mux.Router // /api/v1/health
+	Deleted         *mux.Router // /api/v1/deleted
+	AccessPolicies  *mux.Router // /api/v1/access-policies
+	AccessPolicy    *mux.Router // /api/v1/access-policies/{policy_id}
+	ServiceAccounts *mux.Router // /api/v1/service-accounts
+	ServiceAccount  *mux.Router // /api/v1/service-accounts/{service_account_id}
+	OAuth2          *mux.Router // /api/v1/oauth2 (public — no auth middleware)
+}
 
-// API represents the main API structure for the vault service application.
-// It contains references to the application instance, base routes, base path,
-// root router, service container, and a logger.
-//
-// Fields:
-// - App: A pointer to the main application instance.
-// - BaseRoutes: The base routes for the API.
-// - basePath: The base path for the API endpoints.
-// - rootRouter: The root router for handling HTTP requests.
-// - ServiceContainer: The service container providing access to all services.
-// - Logger: The logger used for logging API-related information.
+// API is the main API structure for the vault service.
 type API struct {
 	App        *app.App
-	BaseRoutes router
+	BaseRoutes *Routes
 	basePath   string
 	rootRouter *mux.Router
 	Logger     *logging.Logger
 }
 
-// Init initializes the API with the provided options and sets up the base routes.
-// It configures the logger with the base path and initializes the Vault routes.
-//
-// Parameters:
-//
-//	options - A variadic list of Option functions to configure the API.
-//
-// Returns:
-//
-//	*API - A pointer to the initialized API instance.
+// Init initializes the API, wires middleware, and registers all route handlers.
 func Init(options ...Options) *API {
 	api := &API{
-		BaseRoutes: make(router),
+		BaseRoutes: &Routes{},
 	}
 
 	for _, option := range options {
 		option(api)
 	}
 
-	middleware := middleware.NewMiddleware(api.App.ServiceContainer)
+	mw := middleware.NewMiddleware(api.App.ServiceContainer)
 	api.Logger.WithField("basePath", api.basePath).Infoln("Api configured with")
-	api.BaseRoutes["ApiRoot"] = api.rootRouter.PathPrefix(api.basePath).Subrouter()
 
-	api.BaseRoutes["ApiRoot"].Use(
-		middleware.RateLimitMiddleware,
-		middleware.AuthenticationMiddleware,
-		middleware.PolicyMiddleware,
-		middleware.AuthorizationMiddleware,
+	r := api.BaseRoutes
+	r.ApiRoot = api.rootRouter.PathPrefix(api.basePath).Subrouter()
+	r.ApiRoot.Use(
+		mw.RateLimitMiddleware,
+		mw.AuthenticationMiddleware,
+		mw.PolicyMiddleware,
+		mw.AuthorizationMiddleware,
 	)
-	api.BaseRoutes["Vault"] = api.BaseRoutes["ApiRoot"].PathPrefix("/vault").Subrouter()
-	api.BaseRoutes["Secrets"] = api.BaseRoutes["ApiRoot"].PathPrefix("/secrets").Subrouter()
-	api.BaseRoutes["Users"] = api.BaseRoutes["ApiRoot"].PathPrefix("/users").Subrouter()
-	api.BaseRoutes["Keys"] = api.BaseRoutes["ApiRoot"].PathPrefix("/keys").Subrouter()
-	api.BaseRoutes["Certificates"] = api.BaseRoutes["ApiRoot"].PathPrefix("/certificates").Subrouter()
-	api.BaseRoutes["Health"] = api.BaseRoutes["ApiRoot"].PathPrefix("/health").Subrouter()
-	api.BaseRoutes["Deleted"] = api.BaseRoutes["ApiRoot"].PathPrefix("/deleted").Subrouter()
-	api.BaseRoutes["AccessPolicies"] = api.BaseRoutes["ApiRoot"].PathPrefix("/access-policies").Subrouter()
-	api.BaseRoutes["ServiceAccounts"] = api.BaseRoutes["ApiRoot"].PathPrefix("/service-accounts").Subrouter()
 
-	api.InitVault(api.BaseRoutes["Vault"])
-	api.InitSecrets(api.BaseRoutes["Secrets"])
-	api.InitUsers(api.BaseRoutes["Users"])
-	api.InitKeys(api.BaseRoutes["Keys"])
-	api.InitCertificates(api.BaseRoutes["Certificates"])
-	api.InitHealth(api.BaseRoutes["Health"])
-	api.InitDeleted(api.BaseRoutes["Deleted"])
-	api.InitAccessPolicies(api.BaseRoutes["AccessPolicies"])
-	api.InitServiceAccounts(api.BaseRoutes["ServiceAccounts"])
-	// OAuth2 token endpoint is public — register directly on rootRouter so the
-	// AuthenticationMiddleware chain (on ApiRoot) is bypassed entirely.
-	api.BaseRoutes["OAuth2"] = api.rootRouter.PathPrefix(api.basePath).Subrouter()
-	api.InitOAuth2(api.BaseRoutes["OAuth2"])
+	r.Vault = r.ApiRoot.PathPrefix("/vault").Subrouter()
 
-	var apiNames []string
-	for s := range api.BaseRoutes {
-		if s != "ApiRoot" {
-			apiNames = append(apiNames, s)
-		}
-	}
-	api.Logger.WithField("api", strings.Join(apiNames, ",")).Infoln("Initialized api")
+	r.Secrets = r.ApiRoot.PathPrefix("/secrets").Subrouter()
+	r.Secret = r.Secrets.PathPrefix("/{secret_id:[A-Fa-f0-9-]+}").Subrouter()
+
+	r.Users = r.ApiRoot.PathPrefix("/users").Subrouter()
+	r.User = r.Users.PathPrefix("/{user_id:[A-Fa-f0-9-]+}").Subrouter()
+
+	r.Keys = r.ApiRoot.PathPrefix("/keys").Subrouter()
+	r.Key = r.Keys.PathPrefix("/{key_id:[A-Fa-f0-9-]+}").Subrouter()
+
+	r.Certificates = r.ApiRoot.PathPrefix("/certificates").Subrouter()
+	r.Certificate = r.Certificates.PathPrefix("/{certificate_id:[A-Fa-f0-9-]+}").Subrouter()
+
+	r.Health = r.ApiRoot.PathPrefix("/health").Subrouter()
+	r.Deleted = r.ApiRoot.PathPrefix("/deleted").Subrouter()
+
+	r.AccessPolicies = r.ApiRoot.PathPrefix("/access-policies").Subrouter()
+	r.AccessPolicy = r.AccessPolicies.PathPrefix("/{policy_id:[A-Fa-f0-9-]+}").Subrouter()
+
+	r.ServiceAccounts = r.ApiRoot.PathPrefix("/service-accounts").Subrouter()
+	r.ServiceAccount = r.ServiceAccounts.PathPrefix("/{service_account_id:[A-Fa-f0-9-]+}").Subrouter()
+
+	// OAuth2 is public — registered on rootRouter to bypass auth middleware.
+	r.OAuth2 = api.rootRouter.PathPrefix(api.basePath).Subrouter()
+
+	api.InitVault()
+	api.InitSecrets()
+	api.InitUsers()
+	api.InitKeys()
+	api.InitCertificates()
+	api.InitHealth()
+	api.InitDeleted()
+	api.InitAccessPolicies()
+	api.InitOAuth2()
+
+	// Catch-all 404 for unmatched routes.
+	api.rootRouter.NotFoundHandler = http.HandlerFunc(Handle404)
+
+	names := []string{"Vault", "Secrets", "Users", "Keys", "Certificates",
+		"Health", "Deleted", "AccessPolicies", "ServiceAccounts", "OAuth2"}
+	api.Logger.WithField("api", strings.Join(names, ",")).Infoln("Initialized api")
 	return api
+}
+
+// Handle404 returns a structured JSON 404 response for unmatched routes.
+func Handle404(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusNotFound)
+	json.NewEncoder(w).Encode(map[string]any{
+		"id":          "api.not_found",
+		"message":     "Not found",
+		"status_code": http.StatusNotFound,
+	})
+}
+
+// ReturnStatusOK writes a standard {"status":"OK"} response.
+func ReturnStatusOK(w http.ResponseWriter) {
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]string{"status": "OK"})
 }

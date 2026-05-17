@@ -82,12 +82,14 @@ type CertificateListResponse struct {
 //
 // Parameters:
 // - certs (*mux.Router): The router to which the routes will be added.
-func (api *API) InitCertificates(certs *mux.Router) {
-	certs.Handle("", SessionRequired(api.App, createCertificate)).Methods("POST")
-	certs.Handle("", SessionRequired(api.App, listCertificates)).Methods("GET")
-	certs.Handle("/{id:[A-Fa-f0-9-]+}", SessionRequired(api.App, getCertificate)).Methods("GET")
-	certs.Handle("/{id:[A-Fa-f0-9-]+}", SessionRequired(api.App, updateCertificate)).Methods("PUT")
-	certs.Handle("/{id:[A-Fa-f0-9-]+}", SessionRequired(api.App, deleteCertificate)).Methods("DELETE")
+func (api *API) InitCertificates() {
+	c := api.BaseRoutes.Certificates
+
+	c.Handle("", ApiSessionRequired(api.App, createCertificate)).Methods("POST")
+	c.Handle("", ApiSessionRequired(api.App, listCertificates)).Methods("GET")
+	c.Handle("/{id:[A-Fa-f0-9-]+}", ApiSessionRequired(api.App, getCertificate)).Methods("GET")
+	c.Handle("/{id:[A-Fa-f0-9-]+}", ApiSessionRequired(api.App, updateCertificate)).Methods("PUT")
+	c.Handle("/{id:[A-Fa-f0-9-]+}", ApiSessionRequired(api.App, deleteCertificate)).Methods("DELETE")
 
 	api.Logger.Infoln("Certificates API routes initialized")
 }

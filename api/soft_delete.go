@@ -387,17 +387,18 @@ func userIDFromClaims(c *Context, op string) (uuid.UUID, *common.AppError) {
 	return id, nil
 }
 
-// InitDeleted registers soft-delete management routes on the provided router.
-func (api *API) InitDeleted(r *mux.Router) {
-	r.Handle("/secrets", SessionRequired(api.App, listDeletedSecrets)).Methods("GET")
-	r.Handle("/secrets/{id:[A-Fa-f0-9-]+}/restore", SessionRequired(api.App, recoverSecret)).Methods("POST")
-	r.Handle("/secrets/{id:[A-Fa-f0-9-]+}/purge", SessionRequired(api.App, purgeSecret)).Methods("DELETE")
-	r.Handle("/keys", SessionRequired(api.App, listDeletedKeys)).Methods("GET")
-	r.Handle("/keys/{id:[A-Fa-f0-9-]+}/restore", SessionRequired(api.App, recoverKey)).Methods("POST")
-	r.Handle("/keys/{id:[A-Fa-f0-9-]+}/purge", SessionRequired(api.App, purgeKey)).Methods("DELETE")
-	r.Handle("/certificates", SessionRequired(api.App, listDeletedCertificates)).Methods("GET")
-	r.Handle("/certificates/{id:[A-Fa-f0-9-]+}/restore", SessionRequired(api.App, recoverCertificate)).Methods("POST")
-	r.Handle("/certificates/{id:[A-Fa-f0-9-]+}/purge", SessionRequired(api.App, purgeCertificate)).Methods("DELETE")
+// InitDeleted registers soft-delete management routes.
+func (api *API) InitDeleted() {
+	r := api.BaseRoutes.Deleted
+	r.Handle("/secrets", ApiSessionRequired(api.App, listDeletedSecrets)).Methods("GET")
+	r.Handle("/secrets/{id:[A-Fa-f0-9-]+}/restore", ApiSessionRequired(api.App, recoverSecret)).Methods("POST")
+	r.Handle("/secrets/{id:[A-Fa-f0-9-]+}/purge", ApiSessionRequired(api.App, purgeSecret)).Methods("DELETE")
+	r.Handle("/keys", ApiSessionRequired(api.App, listDeletedKeys)).Methods("GET")
+	r.Handle("/keys/{id:[A-Fa-f0-9-]+}/restore", ApiSessionRequired(api.App, recoverKey)).Methods("POST")
+	r.Handle("/keys/{id:[A-Fa-f0-9-]+}/purge", ApiSessionRequired(api.App, purgeKey)).Methods("DELETE")
+	r.Handle("/certificates", ApiSessionRequired(api.App, listDeletedCertificates)).Methods("GET")
+	r.Handle("/certificates/{id:[A-Fa-f0-9-]+}/restore", ApiSessionRequired(api.App, recoverCertificate)).Methods("POST")
+	r.Handle("/certificates/{id:[A-Fa-f0-9-]+}/purge", ApiSessionRequired(api.App, purgeCertificate)).Methods("DELETE")
 }
 
 // resourceIDFromVars extracts and parses the resource UUID from URL path variables.

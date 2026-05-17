@@ -5,36 +5,30 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/gorilla/mux"
-
 	"rocketvault/common"
 )
 
-// InitOAuth2 registers the public OAuth2 token endpoint on the provided router.
-// The token endpoint is intentionally placed outside the authenticated ApiRoot
-// subrouter so it doesn't require a pre-existing JWT (it issues one).
+// InitOAuth2 registers the public OAuth2 token endpoint and authenticated service-account routes.
+// The token endpoint is placed outside the authenticated ApiRoot subrouter so it doesn't require
+// a pre-existing JWT.
 //
 // Routes:
-//   - POST /oauth2/token — Client-credentials grant (RFC 6749 §4.4)
-func (api *API) InitOAuth2(r *mux.Router) {
-	r.HandleFunc("/oauth2/token", api.tokenHandler).Methods("POST")
+//   - POST /oauth2/token                          — Client-credentials grant (RFC 6749 §4.4)
+//   - POST   /service-accounts                    — Create a new service account
+//   - GET    /service-accounts                    — List all service accounts
+//   - GET    /service-accounts/{id}               — Get a service account by ID
+//   - DELETE /service-accounts/{id}               — Delete a service account
+//   - POST   /service-accounts/{id}/rotate        — Rotate client secret
+func (api *API) InitOAuth2() {
+	api.BaseRoutes.OAuth2.HandleFunc("/oauth2/token", api.tokenHandler).Methods("POST")
 	api.Logger.Infoln("OAuth2 token endpoint initialized")
-}
 
-// InitServiceAccounts registers the authenticated service-account management routes.
-//
-// Routes:
-//   - POST   /service-accounts                — Create a new service account
-//   - GET    /service-accounts                — List all service accounts
-//   - GET    /service-accounts/{id}           — Get a service account by ID
-//   - DELETE /service-accounts/{id}           — Delete a service account
-//   - POST   /service-accounts/{id}/rotate    — Rotate client secret
-func (api *API) InitServiceAccounts(saRouter *mux.Router) {
-	saRouter.Handle("", SessionRequired(api.App, createServiceAccount)).Methods("POST")
-	saRouter.Handle("", SessionRequired(api.App, listServiceAccounts)).Methods("GET")
-	saRouter.Handle("/{id:[A-Fa-f0-9-]+}", SessionRequired(api.App, getServiceAccount)).Methods("GET")
-	saRouter.Handle("/{id:[A-Fa-f0-9-]+}", SessionRequired(api.App, deleteServiceAccount)).Methods("DELETE")
-	saRouter.Handle("/{id:[A-Fa-f0-9-]+}/rotate", SessionRequired(api.App, rotateServiceAccountSecret)).Methods("POST")
+	sa := api.BaseRoutes.ServiceAccounts
+	sa.Handle("", ApiSessionRequired(api.App, createServiceAccount)).Methods("POST")
+	sa.Handle("", ApiSessionRequired(api.App, listServiceAccounts)).Methods("GET")
+	sa.Handle("/{id:[A-Fa-f0-9-]+}", ApiSessionRequired(api.App, getServiceAccount)).Methods("GET")
+	sa.Handle("/{id:[A-Fa-f0-9-]+}", ApiSessionRequired(api.App, deleteServiceAccount)).Methods("DELETE")
+	sa.Handle("/{id:[A-Fa-f0-9-]+}/rotate", ApiSessionRequired(api.App, rotateServiceAccountSecret)).Methods("POST")
 	api.Logger.Infoln("Service accounts API routes initialized")
 }
 

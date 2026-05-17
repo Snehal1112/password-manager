@@ -12,14 +12,15 @@ import (
 "rocketvault/model"
 )
 
-// InitAccessPolicies registers access policy management routes on the provided router.
-func (api *API) InitAccessPolicies(r *mux.Router) {
-	r.Handle("", SessionRequired(api.App, listAccessPolicies)).Methods("GET")
-	r.Handle("", SessionRequired(api.App, createAccessPolicy)).Methods("POST")
-	r.Handle("/{id:[A-Fa-f0-9-]+}", SessionRequired(api.App, getAccessPolicy)).Methods("GET")
-	r.Handle("/{id:[A-Fa-f0-9-]+}", SessionRequired(api.App, updateAccessPolicy)).Methods("PUT")
-	r.Handle("/{id:[A-Fa-f0-9-]+}", SessionRequired(api.App, deleteAccessPolicy)).Methods("DELETE")
-	r.Handle("/principal/{principalId:[A-Fa-f0-9-]+}", SessionRequired(api.App, listAccessPoliciesByPrincipal)).Methods("GET")
+// InitAccessPolicies registers access policy management routes.
+func (api *API) InitAccessPolicies() {
+	r := api.BaseRoutes.AccessPolicies
+	r.Handle("", ApiSessionRequired(api.App, listAccessPolicies)).Methods("GET")
+	r.Handle("", ApiSessionRequired(api.App, createAccessPolicy)).Methods("POST")
+	r.Handle("/{id:[A-Fa-f0-9-]+}", ApiSessionRequired(api.App, getAccessPolicy)).Methods("GET")
+	r.Handle("/{id:[A-Fa-f0-9-]+}", ApiSessionRequired(api.App, updateAccessPolicy)).Methods("PUT")
+	r.Handle("/{id:[A-Fa-f0-9-]+}", ApiSessionRequired(api.App, deleteAccessPolicy)).Methods("DELETE")
+	r.Handle("/principal/{principalId:[A-Fa-f0-9-]+}", ApiSessionRequired(api.App, listAccessPoliciesByPrincipal)).Methods("GET")
 }
 
 // listAccessPolicies returns all access policies (admin operation).
