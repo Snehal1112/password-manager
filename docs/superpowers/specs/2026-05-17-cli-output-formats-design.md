@@ -46,6 +46,23 @@ internal/domain/ (domain layer)
 
 This mirrors the existing `internal/logging` pattern: infrastructure package, consumed by delivery, invisible to domain.
 
+### Strict import boundary
+
+`internal/formatter/` is a **CLI-only** infrastructure package. It must never be imported by:
+
+- `api/` — the REST layer writes directly to `http.ResponseWriter` via `json.NewEncoder` and is unaffected by this feature
+- `internal/services/` — business logic has no formatting concern
+- `internal/domain/` — domain types must remain format-agnostic
+
+The two delivery layers remain completely independent:
+
+```
+api/     → http.ResponseWriter (json.NewEncoder) — REST, always JSON, unchanged
+cmd/     → internal/formatter/ → os.Stdout      — CLI only, --output controlled
+```
+
+No changes to `api/` are required or permitted as part of this feature.
+
 ---
 
 ## Section 1 — The Formatter Package (`internal/formatter/`)
