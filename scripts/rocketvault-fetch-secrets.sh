@@ -67,6 +67,9 @@ if [ -n "${VAULT_ENV_FILE:-}" ]; then
   chmod 600 "${VAULT_ENV_FILE}"
 fi
 
+# Temp file for curl response bodies — created once to avoid race conditions.
+_rv_secret_body=$(mktemp)
+
 # Fetch each secret and export it.
 for _rv_pair in ${VAULT_SECRETS}; do
   _rv_var="${_rv_pair%%=*}"
@@ -74,7 +77,7 @@ for _rv_pair in ${VAULT_SECRETS}; do
 
   _rv_http_status=$(
     curl -s ${_rv_curl_flags} \
-      -o /tmp/_rv_secret_body \
+      -o "${_rv_secret_body}" \
       -w "%{http_code}" \
       -H "Authorization: Bearer ${_rv_token}" \
       "${VAULT_URL}/api/v1/secrets/${_rv_uuid}"
@@ -82,25 +85,35 @@ for _rv_pair in ${VAULT_SECRETS}; do
 
   if [ "${_rv_http_status}" != "200" ]; then
     _rv_error "Failed to fetch secret for ${_rv_var} (uuid=${_rv_uuid}) — HTTP ${_rv_http_status}"
-    rm -f /tmp/_rv_secret_body
-    unset _rv_token _rv_curl_flags _rv_pair _rv_var _rv_uuid _rv_http_status
+    rm -f "${_rv_secret_body}"
+    unset _rv_token _rv_curl_flags _rv_pair _rv_var _rv_uuid _rv_http_status _rv_secret_body
     return 1 2>/dev/null || exit 1
   fi
 
-  _rv_value=$(jq -r '.value // empty' /tmp/_rv_secret_body)
-  rm -f /tmp/_rv_secret_body
+  _rv_value=$(jq -r '.value // empty' "${_rv_secret_body}")
 
   if [ -z "${_rv_value}" ]; then
     _rv_error "Secret ${_rv_var} (uuid=${_rv_uuid}) was fetched but has an empty value"
-    unset _rv_token _rv_curl_flags _rv_pair _rv_var _rv_uuid _rv_http_status _rv_value
+    rm -f "${_rv_secret_body}"
+    unset _rv_token _rv_curl_flags _rv_pair _rv_var _rv_uuid _rv_http_status _rv_value _rv_secret_body
     return 1 2>/dev/null || exit 1
   fi
+
+  case "${_rv_var}" in
+    *[!A-Za-z0-9_]*|"")
+      _rv_error "Invalid variable name '${_rv_var}' — only [A-Za-z0-9_] allowed"
+      rm -f "${_rv_secret_body}"
+      unset _rv_token _rv_curl_flags _rv_pair _rv_var _rv_uuid _rv_http_status _rv_value _rv_secret_body
+      return 1 2>/dev/null || exit 1 ;;
+  esac
 
   export "${_rv_var}=${_rv_value}"
 
   if [ -n "${VAULT_ENV_FILE:-}" ]; then
-    printf '%s=%s\n' "${_rv_var}" "${_rv_value}" >> "${VAULT_ENV_FILE}"
+    _rv_escaped=$(printf '%s' "${_rv_value}" | sed 's/\\/\\\\/g; s/"/\\"/g')
+    printf '%s="%s"\n' "${_rv_var}" "${_rv_escaped}" >> "${VAULT_ENV_FILE}"
+    unset _rv_escaped
   fi
 done
 
-rm -f /tmp/_rv_secret_body
+rm -f "${_rv_secret_body}"
