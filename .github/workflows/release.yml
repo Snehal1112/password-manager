@@ -86,7 +86,7 @@ jobs:
           BINARY="rocketvault-${VERSION}-${{ matrix.goos }}-${{ matrix.goarch }}${{ matrix.ext }}"
           ARCHIVE="rocketvault-${VERSION}-${{ matrix.goos }}-${{ matrix.goarch }}.zip"
           7z a "dist/${ARCHIVE}" "dist/${BINARY}"
-          sha256sum "dist/${ARCHIVE}" > "dist/${ARCHIVE}.sha256"
+          command -v sha256sum >/dev/null 2>&1 && sha256sum "dist/${ARCHIVE}" > "dist/${ARCHIVE}.sha256" || shasum -a 256 "dist/${ARCHIVE}" > "dist/${ARCHIVE}.sha256"
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
