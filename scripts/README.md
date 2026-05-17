@@ -220,6 +220,53 @@ rm -f .admin_totp_secret  # After configuring authenticator app
 - [Service Architecture](../.claude/service-layer-analysis.md)
 - [Security Guide](../.claude/auth-elimination-guide.md)
 
+## rocketvault-fetch-secrets.sh
+
+Fetches secrets from a running RocketVault instance using the OAuth2 client
+credentials flow and exports them as environment variables.
+
+### Prerequisites
+
+- `curl` and `jq` must be available in the shell
+- A service account must exist in RocketVault (`POST /api/v1/service-accounts`)
+- The service account must have read access to the target secrets via access policies
+
+### Required environment variables
+
+| Variable | Purpose |
+|---|---|
+| `VAULT_URL` | RocketVault base URL, e.g. `https://vault.internal:8774` |
+| `VAULT_CLIENT_ID` | Service account client ID |
+| `VAULT_CLIENT_SECRET` | Service account client secret |
+| `VAULT_SECRETS` | Space-separated `ENV_VAR_NAME=secret-uuid` pairs |
+
+### Optional environment variables
+
+| Variable | Purpose |
+|---|---|
+| `VAULT_ENV_FILE` | If set, secrets are also written to this file with `chmod 600` |
+| `VAULT_INSECURE` | Set to `1` to skip TLS verification (dev/self-signed certs only) |
+
+### Usage
+
+```sh
+export VAULT_URL=https://vault.internal:8774
+export VAULT_CLIENT_ID=ci-runner
+export VAULT_CLIENT_SECRET=$CI_VAULT_SECRET
+export VAULT_SECRETS="DB_PASSWORD=<uuid> API_KEY=<uuid>"
+export VAULT_ENV_FILE=.env   # optional
+
+source scripts/rocketvault-fetch-secrets.sh
+# $DB_PASSWORD and $API_KEY are now set
+```
+
+### Security notes
+
+- Script uses `set +x` — secret values will not appear in CI trace logs
+- `.env` file is created with `chmod 600`
+- All internal variables are unset after completion
+- Set `VAULT_INSECURE=1` only in non-production environments
+
 ---
 
 **Note**: Always test scripts in a development environment before using in production. Keep TOTP secrets secure and follow security best practices for production deployments.
