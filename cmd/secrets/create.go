@@ -23,18 +23,18 @@ THE SOFTWARE.
 package secrets
 
 import (
+	"fmt"
 	"os"
 	"strconv"
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
 
 	"rocketvault/common"
 	"rocketvault/internal/container"
 	"rocketvault/internal/formatter"
-	"rocketvault/internal/services/secrets"
+	secretsServices "rocketvault/internal/services/secrets"
 )
 
 // createCmd represents the create command
@@ -44,24 +44,28 @@ var createCmd = &cobra.Command{
 	Short:   "Create a new secret",
 	Long:    `Create a new secret in the password manager. You can specify the secret name, value, and optional tags.`,
 	Example: `rocketvault secrets create my-secret my-value`,
-	Run: func(cmd *cobra.Command, args []string) {
+	RunE: func(cmd *cobra.Command, args []string) error {
+		if len(args) < 2 {
+			return fmt.Errorf("requires <name> and <value> arguments")
+		}
 		name := args[0]
 		value := args[1]
 		tags, _ := cmd.Flags().GetStringSlice("tags")
 		contentType, _ := cmd.Flags().GetString("content-type")
-		userID := cmd.Context().Value(common.UserIDKey).(uuid.UUID)
 
-		// Get service container and secret service
-		serviceContainer, ok := cmd.Context().Value(common.ServiceContainerKey).(container.ServiceContainerInterface)
+		ctx := cmd.Context()
+		userID, ok := ctx.Value(common.UserIDKey).(uuid.UUID)
+		if !ok {
+			return fmt.Errorf("user ID not available in context")
+		}
+
+		serviceContainer, ok := ctx.Value(common.ServiceContainerKey).(container.ServiceContainerInterface)
 		if !ok || serviceContainer == nil {
-			logrus.Error("Service container not available in context")
-			os.Exit(1)
-			return
+			return fmt.Errorf("service container not available in context")
 		}
 		secretService := serviceContainer.GetSecretService()
 
-		// Create secret request.
-		req := secrets.CreateSecretRequest{
+		req := secretsServices.CreateSecretRequest{
 			UserID:      userID,
 			Name:        name,
 			Value:       value,
@@ -69,20 +73,14 @@ var createCmd = &cobra.Command{
 			ContentType: contentType,
 		}
 
-		// Create secret via service
-		secret, err := secretService.CreateSecret(cmd.Context(), req)
+		secret, err := secretService.CreateSecret(ctx, req)
 		if err != nil {
-			logrus.WithError(err).Error("Failed to create secret")
-			os.Exit(1)
-			return
+			return fmt.Errorf("failed to create secret: %w", err)
 		}
 
-		// Output formatted result
-		fmtr, ok := cmd.Context().Value(common.OutputFormatterKey).(formatter.Formatter)
+		fmtr, ok := ctx.Value(common.OutputFormatterKey).(formatter.Formatter)
 		if !ok {
-			logrus.Error("Output formatter not available in context")
-			os.Exit(1)
-			return
+			return fmt.Errorf("output formatter not available in context")
 		}
 		headers := []string{"ID", "Name", "Version", "Enabled", "Created"}
 		row := []string{
@@ -92,10 +90,7 @@ var createCmd = &cobra.Command{
 			strconv.FormatBool(secret.Enabled),
 			secret.CreatedAt.Format(time.RFC3339),
 		}
-		if err := fmtr.Write(os.Stdout, headers, [][]string{row}); err != nil {
-			logrus.WithError(err).Error("Failed to write output")
-			os.Exit(1)
-		}
+		return fmtr.Write(os.Stdout, headers, [][]string{row})
 	},
 }
 
