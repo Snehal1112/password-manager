@@ -25,6 +25,7 @@ package cmd
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log"
 	"os"
 
@@ -36,6 +37,7 @@ import (
 	"rocketvault/internal/container"
 	"rocketvault/internal/db"
 	"rocketvault/internal/domain"
+	"rocketvault/internal/formatter"
 	"rocketvault/internal/logging"
 )
 
@@ -76,6 +78,7 @@ func init() {
 	rootCmd.PersistentFlags().String("username", "", "Username for authentication")
 	rootCmd.PersistentFlags().String("password", "", "Password for authentication")
 	rootCmd.PersistentFlags().String("totp-code", "", "TOTP code for MFA")
+	rootCmd.PersistentFlags().String("output", "table", "Output format: table, json, yaml")
 
 	// Cobra also supports local flags, which will only run
 	// when this action is called directly.
@@ -162,6 +165,13 @@ func persistentPreRun(cmd *cobra.Command, args []string) error {
 	ctx = context.WithValue(ctx, common.DBClassKey, database)
 	ctx = context.WithValue(ctx, common.LogKey, log)
 	ctx = context.WithValue(ctx, common.ServiceContainerKey, serviceContainer)
+
+	outputFlag, _ := cmd.Flags().GetString("output")
+	fmtr, fmtrErr := formatter.New(formatter.Format(outputFlag))
+	if fmtrErr != nil {
+		return fmt.Errorf("invalid --output value %q: must be table, json, or yaml", outputFlag)
+	}
+	ctx = context.WithValue(ctx, common.OutputFormatterKey, fmtr)
 	cmd.SetContext(ctx)
 
 	// Skip authentication for system commands

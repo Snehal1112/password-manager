@@ -115,3 +115,22 @@ func TestYAMLFormatter_Empty(t *testing.T) {
 		t.Errorf("unexpected output for empty rows: %q", out)
 	}
 }
+
+func TestNew_ValidFormats(t *testing.T) {
+	for _, f := range []Format{FormatTable, FormatJSON, FormatYAML} {
+		got, err := New(f)
+		if err != nil {
+			t.Errorf("New(%q) unexpected error: %v", f, err)
+		}
+		if got == nil {
+			t.Errorf("New(%q) returned nil formatter", f)
+		}
+	}
+}
+
+func TestNew_InvalidFormat(t *testing.T) {
+	_, err := New("csv")
+	if err == nil {
+		t.Error("expected error for unsupported format, got nil")
+	}
+}
