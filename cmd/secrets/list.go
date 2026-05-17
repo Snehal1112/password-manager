@@ -23,16 +23,18 @@ THE SOFTWARE.
 package secrets
 
 import (
-	"encoding/json"
 	"fmt"
 	"os"
+	"strconv"
+	"strings"
+	"time"
 
 	"github.com/google/uuid"
-	"github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
 
 	"rocketvault/common"
 	"rocketvault/internal/container"
+	"rocketvault/internal/formatter"
 )
 
 // listCmd represents the list command
@@ -40,31 +42,44 @@ var listCmd = &cobra.Command{
 	Use:   "list",
 	Short: "List all secrets",
 	Long:  `List all secrets for the authenticated user, optionally filtered by tags.`,
-	Run: func(cmd *cobra.Command, args []string) {
+	RunE: func(cmd *cobra.Command, args []string) error {
 		tags, _ := cmd.Flags().GetStringSlice("tags")
 
 		ctx := cmd.Context()
-		userID := ctx.Value(common.UserIDKey).(uuid.UUID)
+		userID, ok := ctx.Value(common.UserIDKey).(uuid.UUID)
+		if !ok {
+			return fmt.Errorf("user ID not available in context")
+		}
 
-		// Get service container and secret service
 		serviceContainer, ok := ctx.Value(common.ServiceContainerKey).(container.ServiceContainerInterface)
 		if !ok || serviceContainer == nil {
-			logrus.Error("Service container not available in context")
-			os.Exit(1)
-			return
+			return fmt.Errorf("service container not available in context")
 		}
 		secretService := serviceContainer.GetSecretService()
 
-		// List secrets via service
 		secretsList, err := secretService.ListSecrets(ctx, userID, tags)
 		if err != nil {
-			logrus.WithError(err).Error("Failed to list secrets")
-			os.Exit(1)
-			return
+			return fmt.Errorf("failed to list secrets: %w", err)
 		}
 
-		t, _ := json.MarshalIndent(secretsList, "", "  ")
-		fmt.Println(string(t))
+		fmtr, ok := ctx.Value(common.OutputFormatterKey).(formatter.Formatter)
+		if !ok {
+			return fmt.Errorf("output formatter not available in context")
+		}
+
+		headers := []string{"ID", "Name", "Version", "Enabled", "Tags", "Created"}
+		rows := make([][]string, len(secretsList))
+		for i, s := range secretsList {
+			rows[i] = []string{
+				s.ID.String(),
+				s.Name,
+				strconv.Itoa(s.Version),
+				strconv.FormatBool(s.Enabled),
+				strings.Join(s.Tags, ","),
+				s.CreatedAt.Format(time.RFC3339),
+			}
+		}
+		return fmtr.Write(os.Stdout, headers, rows)
 	},
 }
 

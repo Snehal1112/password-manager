@@ -23,16 +23,18 @@ THE SOFTWARE.
 package secrets
 
 import (
-	"encoding/json"
-	"log"
+	"fmt"
 	"os"
+	"strconv"
+	"strings"
+	"time"
 
 	"github.com/google/uuid"
-	"github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
 
 	"rocketvault/common"
 	"rocketvault/internal/container"
+	"rocketvault/internal/formatter"
 )
 
 // getCmd represents the get command
@@ -41,37 +43,44 @@ var getCmd = &cobra.Command{
 	Short: "Retrieve a secret by ID",
 	Long:  `Retrieve a secret by its ID for the authenticated user.`,
 	Args:  cobra.ExactArgs(1),
-	Run: func(cmd *cobra.Command, args []string) {
+	RunE: func(cmd *cobra.Command, args []string) error {
 		secretID := uuid.MustParse(args[0])
 
 		ctx := cmd.Context()
-		userID := ctx.Value(common.UserIDKey).(uuid.UUID)
+		userID, ok := ctx.Value(common.UserIDKey).(uuid.UUID)
+		if !ok {
+			return fmt.Errorf("user ID not available in context")
+		}
 
-		// Get service container and secret service
 		serviceContainer, ok := ctx.Value(common.ServiceContainerKey).(container.ServiceContainerInterface)
 		if !ok || serviceContainer == nil {
-			logrus.Error("Service container not available in context")
-			os.Exit(1)
-			return
+			return fmt.Errorf("service container not available in context")
 		}
 		secretService := serviceContainer.GetSecretService()
 
-		// Get secret via service (includes access control)
 		secret, err := secretService.GetSecret(ctx, secretID, userID)
 		if err != nil {
-			logrus.WithError(err).Error("Failed to retrieve secret")
-			os.Exit(1)
-			return
+			return fmt.Errorf("failed to retrieve secret: %w", err)
 		}
 
-		// Log success
-		logrus.WithFields(logrus.Fields{
-			"secret_id": secret.ID.String(),
-			"user_id":   userID.String(),
-		}).Info("Secret retrieved successfully")
+		fmtr, ok := ctx.Value(common.OutputFormatterKey).(formatter.Formatter)
+		if !ok {
+			return fmt.Errorf("output formatter not available in context")
+		}
 
-		jsonData, _ := json.MarshalIndent(secret, "", "  ")
-		log.Println(string(jsonData))
+		headers := []string{"ID", "Name", "Version", "Enabled", "ContentType", "Tags", "Expires", "NotBefore", "Created"}
+		row := []string{
+			secret.ID.String(),
+			secret.Name,
+			strconv.Itoa(secret.Version),
+			strconv.FormatBool(secret.Enabled),
+			secret.ContentType,
+			strings.Join(secret.Tags, ","),
+			formatOptionalTime(secret.ExpiresAt),
+			formatOptionalTime(secret.NotBefore),
+			secret.CreatedAt.Format(time.RFC3339),
+		}
+		return fmtr.Write(os.Stdout, headers, [][]string{row})
 	},
 }
 
@@ -99,4 +108,12 @@ func InitSecretsGet(secretsCmd *cobra.Command) *cobra.Command {
 	// is called directly, e.g.:
 	// getCmd.Flags().BoolP("toggle", "t", false, "Help message for toggle")
 	return secretsCmd
+}
+
+// formatOptionalTime formats a pointer to time.Time as RFC3339, returning empty string for nil.
+func formatOptionalTime(t *time.Time) string {
+	if t == nil {
+		return ""
+	}
+	return t.Format(time.RFC3339)
 }
