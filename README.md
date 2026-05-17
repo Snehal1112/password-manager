@@ -739,17 +739,9 @@ For questions or issues:
 
 ## Roadmap
 
-### Planned Enhancements
-- [ ] Web-based administration interface
-- [ ] Kubernetes operator for automated deployment
-- [ ] Integration with popular CI/CD pipelines (GitHub Actions, GitLab CI)
-- [ ] Advanced audit and compliance reporting (SOC 2, GDPR)
-- [ ] Multi-region replication support
-- [ ] Redis caching layer for high-performance operations
-- [ ] Prometheus metrics and distributed tracing
-- [ ] Enhanced CLI features with additional output formats
+### Shipped
 
-### Recent Achievements (October 2025)
+*(Oct 2025)*
 - [x] Complete domain-driven design architecture (A grade)
 - [x] Service container integration (95% compatibility)
 - [x] Database performance optimization (90%+ improvement)
@@ -758,6 +750,22 @@ For questions or issues:
 - [x] Production-ready deployment with performance tuning
 - [x] Robust logging with automatic directory creation and graceful fallbacks
 - [x] Backup encryption flag fix for proper unencrypted backup support
+
+*(Feb–May 2026)*
+- [x] Secret `content_type` field — domain, schema, repository, service validation, API and CLI
+- [x] Key wrap/unwrap operations — CryptoService, HTTP endpoints, CLI subcommands
+- [x] Certificate auto-renewal — ExpiresAt field, RenewalScheduler, HTTP API, CLI flags
+- [x] Security hardening: crypto/rand enforcement, role self-promotion blocking, ownership enforcement on rotation
+
+### Planned
+- [ ] Web-based administration interface
+- [ ] Kubernetes operator for automated deployment
+- [ ] Integration with popular CI/CD pipelines (GitHub Actions, GitLab CI)
+- [ ] Advanced audit and compliance reporting (SOC 2, GDPR)
+- [ ] Multi-region replication support
+- [ ] Redis caching layer for high-performance operations
+- [ ] Prometheus metrics and distributed tracing
+- [ ] Enhanced CLI features with additional output formats
 
 ## Acknowledgments
 
@@ -776,4 +784,4 @@ Built with enterprise-grade architecture patterns:
 - Cobra framework for CLI
 - Testify for comprehensive testing
 
-**Status**: Production-Ready | **Architecture Grade**: A (94/100) | **Last Updated**: October 2025
+**Status**: Production-Ready | **Architecture Grade**: A (94/100) | **Last Updated**: May 2026
