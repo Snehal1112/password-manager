@@ -12,7 +12,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/sirupsen/logrus"
 
-	"rocketvault/internal/domain"
+	"rocketvault/model"
 	dbpkg "rocketvault/internal/db"
 	"rocketvault/internal/logging"
 	"rocketvault/internal/repositories"
@@ -95,17 +95,17 @@ type ImportResult struct {
 // It coordinates encryption, versioning, tagging, and storage
 // while maintaining proper separation of concerns.
 type SecretService interface {
-	CreateSecret(ctx context.Context, req CreateSecretRequest) (*domain.Secret, error)
+	CreateSecret(ctx context.Context, req CreateSecretRequest) (*model.Secret, error)
 	UpdateSecret(ctx context.Context, req UpdateSecretRequest) error
-	GetSecret(ctx context.Context, secretID, userID uuid.UUID) (*domain.Secret, error)
-	ListSecrets(ctx context.Context, userID uuid.UUID, tags []string) ([]domain.Secret, error)
+	GetSecret(ctx context.Context, secretID, userID uuid.UUID) (*model.Secret, error)
+	ListSecrets(ctx context.Context, userID uuid.UUID, tags []string) ([]model.Secret, error)
 	DeleteSecret(ctx context.Context, secretID, userID uuid.UUID) error
-	GenerateSecret(ctx context.Context, req GenerateSecretRequest) (*domain.Secret, error)
+	GenerateSecret(ctx context.Context, req GenerateSecretRequest) (*model.Secret, error)
 	ExportSecrets(ctx context.Context, req ExportSecretsRequest) ([]byte, error)
 	ImportSecrets(ctx context.Context, req ImportSecretsRequest) (*ImportResult, error)
-	GetSecretVersions(ctx context.Context, secretID uuid.UUID, userID uuid.UUID) ([]domain.SecretVersion, error)
-	GetSecretVersion(ctx context.Context, secretID uuid.UUID, version int, userID uuid.UUID) (*domain.SecretVersion, error)
-	GetLatestSecretVersion(ctx context.Context, secretID uuid.UUID, userID uuid.UUID) (*domain.SecretVersion, error)
+	GetSecretVersions(ctx context.Context, secretID uuid.UUID, userID uuid.UUID) ([]model.SecretVersion, error)
+	GetSecretVersion(ctx context.Context, secretID uuid.UUID, version int, userID uuid.UUID) (*model.SecretVersion, error)
+	GetLatestSecretVersion(ctx context.Context, secretID uuid.UUID, userID uuid.UUID) (*model.SecretVersion, error)
 }
 
 // secretService implements SecretService by coordinating multiple services.
@@ -161,7 +161,7 @@ func NewSecretService(config SecretServiceConfig) SecretService {
 // Returns:
 //
 //	The created secret or an error if creation fails.
-func (s *secretService) CreateSecret(ctx context.Context, req CreateSecretRequest) (*domain.Secret, error) {
+func (s *secretService) CreateSecret(ctx context.Context, req CreateSecretRequest) (*model.Secret, error) {
 	logrus.WithFields(logrus.Fields{
 		"user_id": req.UserID.String(),
 		"name":    req.Name,
@@ -179,7 +179,7 @@ func (s *secretService) CreateSecret(ctx context.Context, req CreateSecretReques
 		return nil, fmt.Errorf("failed to encrypt secret: %w", err)
 	}
 
-	secret := &domain.Secret{
+	secret := &model.Secret{
 		ID:          uuid.New(),
 		UserID:      req.UserID,
 		Name:        req.Name,
@@ -353,7 +353,7 @@ func (s *secretService) UpdateSecret(ctx context.Context, req UpdateSecretReques
 // Returns:
 //
 //	The decrypted secret or an error if retrieval fails.
-func (s *secretService) GetSecret(ctx context.Context, secretID, userID uuid.UUID) (*domain.Secret, error) {
+func (s *secretService) GetSecret(ctx context.Context, secretID, userID uuid.UUID) (*model.Secret, error) {
 	// Ownership is enforced at the SQL level via ReadByOwner.
 	secret, err := s.secretRepo.ReadByOwner(ctx, secretID, userID)
 	if err != nil {
@@ -391,7 +391,7 @@ func (s *secretService) GetSecret(ctx context.Context, secretID, userID uuid.UUI
 // Returns:
 //
 //	A slice of decrypted secrets or an error if retrieval fails.
-func (s *secretService) ListSecrets(ctx context.Context, userID uuid.UUID, tags []string) ([]domain.Secret, error) {
+func (s *secretService) ListSecrets(ctx context.Context, userID uuid.UUID, tags []string) ([]model.Secret, error) {
 	// Get secrets from repository
 	secretList, err := s.secretRepo.ListByUser(ctx, userID, tags)
 	if err != nil {
@@ -484,7 +484,7 @@ func (s *secretService) DeleteSecret(ctx context.Context, secretID, userID uuid.
 // Returns:
 //
 //	A slice of secret versions or an error if retrieval fails.
-func (s *secretService) GetSecretVersions(ctx context.Context, secretID uuid.UUID, userID uuid.UUID) ([]domain.SecretVersion, error) {
+func (s *secretService) GetSecretVersions(ctx context.Context, secretID uuid.UUID, userID uuid.UUID) ([]model.SecretVersion, error) {
 	return s.versionService.GetVersions(ctx, secretID, userID)
 }
 
@@ -499,7 +499,7 @@ func (s *secretService) GetSecretVersions(ctx context.Context, secretID uuid.UUI
 // Returns:
 //
 //	The secret version or an error if not found.
-func (s *secretService) GetSecretVersion(ctx context.Context, secretID uuid.UUID, version int, userID uuid.UUID) (*domain.SecretVersion, error) {
+func (s *secretService) GetSecretVersion(ctx context.Context, secretID uuid.UUID, version int, userID uuid.UUID) (*model.SecretVersion, error) {
 	return s.versionService.GetVersion(ctx, secretID, version, userID)
 }
 
@@ -513,7 +513,7 @@ func (s *secretService) GetSecretVersion(ctx context.Context, secretID uuid.UUID
 // Returns:
 //
 //	The latest secret version or an error if not found.
-func (s *secretService) GetLatestSecretVersion(ctx context.Context, secretID uuid.UUID, userID uuid.UUID) (*domain.SecretVersion, error) {
+func (s *secretService) GetLatestSecretVersion(ctx context.Context, secretID uuid.UUID, userID uuid.UUID) (*model.SecretVersion, error) {
 	return s.versionService.GetLatestVersion(ctx, secretID, userID)
 }
 
@@ -528,7 +528,7 @@ func (s *secretService) GetLatestSecretVersion(ctx context.Context, secretID uui
 // Returns:
 //
 //	The created secret with generated value or an error if generation fails.
-func (s *secretService) GenerateSecret(ctx context.Context, req GenerateSecretRequest) (*domain.Secret, error) {
+func (s *secretService) GenerateSecret(ctx context.Context, req GenerateSecretRequest) (*model.Secret, error) {
 	logrus.WithFields(logrus.Fields{
 		"user_id": req.UserID.String(),
 		"name":    req.Name,

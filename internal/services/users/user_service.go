@@ -11,7 +11,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/sirupsen/logrus"
 
-	"rocketvault/internal/domain"
+	"rocketvault/model"
 	"rocketvault/internal/logging"
 	"rocketvault/internal/repositories"
 	authService "rocketvault/internal/services/auth"
@@ -22,7 +22,7 @@ type CreateUserRequest struct {
 	Username   string
 	Password   string
 	Role       string
-	CallerRole string // Required — must be domain.RoleAdmin.
+	CallerRole string // Required — must be model.RoleAdmin.
 }
 
 // CreateUserResult represents the result of creating a new user.
@@ -50,9 +50,9 @@ type UpdateUserRequest struct {
 type UserService interface {
 	CreateUser(ctx context.Context, req CreateUserRequest) (*CreateUserResult, error)
 	UpdateUser(ctx context.Context, req UpdateUserRequest) error
-	GetUser(ctx context.Context, userID uuid.UUID) (*domain.User, error)
-	GetUserByUsername(ctx context.Context, username string) (*domain.User, error)
-	ListUsers(ctx context.Context) ([]domain.User, error)
+	GetUser(ctx context.Context, userID uuid.UUID) (*model.User, error)
+	GetUserByUsername(ctx context.Context, username string) (*model.User, error)
+	ListUsers(ctx context.Context) ([]model.User, error)
 	DeleteUser(ctx context.Context, userID uuid.UUID) error
 	ValidateBootstrapToken(ctx context.Context, token string) (bool, error)
 	InvalidateBootstrapToken(ctx context.Context, token string) error
@@ -107,7 +107,7 @@ func NewUserService(config UserServiceConfig) UserService {
 //
 //	The created user information including TOTP setup details, or an error if creation fails.
 func (s *userService) CreateUser(ctx context.Context, req CreateUserRequest) (*CreateUserResult, error) {
-	if req.CallerRole != domain.RoleAdmin {
+	if req.CallerRole != model.RoleAdmin {
 		return nil, fmt.Errorf("forbidden: caller must have admin role to create users")
 	}
 
@@ -132,7 +132,7 @@ func (s *userService) CreateUser(ctx context.Context, req CreateUserRequest) (*C
 
 	// Create user entity
 	userID := uuid.New()
-	user := &domain.User{
+	user := &model.User{
 		ID:           userID,
 		Username:     req.Username,
 		PasswordHash: hashedPassword,
@@ -177,19 +177,19 @@ func (s *userService) CreateUser(ctx context.Context, req CreateUserRequest) (*C
 //	An error if the update fails.
 func (s *userService) UpdateUser(ctx context.Context, req UpdateUserRequest) error {
 	// Only admins may change any user's role.
-	if req.Role != nil && req.CallerRole != domain.RoleAdmin {
+	if req.Role != nil && req.CallerRole != model.RoleAdmin {
 		return fmt.Errorf("forbidden: only admins can change roles")
 	}
 
 	// Validate role value if provided.
 	if req.Role != nil {
 		validRoles := map[string]bool{
-			domain.RoleAdmin:              true,
-			domain.RoleUser:               true,
-			domain.RoleSecretsManager:     true,
-			domain.RoleCryptoManager:      true,
-			domain.RoleCertificateManager: true,
-			domain.RoleServiceAccount:     true,
+			model.RoleAdmin:              true,
+			model.RoleUser:               true,
+			model.RoleSecretsManager:     true,
+			model.RoleCryptoManager:      true,
+			model.RoleCertificateManager: true,
+			model.RoleServiceAccount:     true,
 		}
 		if !validRoles[*req.Role] {
 			return fmt.Errorf("invalid role: %s", *req.Role)
@@ -253,7 +253,7 @@ func (s *userService) UpdateUser(ctx context.Context, req UpdateUserRequest) err
 // Returns:
 //
 //	The user information or an error if not found.
-func (s *userService) GetUser(ctx context.Context, userID uuid.UUID) (*domain.User, error) {
+func (s *userService) GetUser(ctx context.Context, userID uuid.UUID) (*model.User, error) {
 	return s.userRepo.Read(ctx, userID)
 }
 
@@ -267,7 +267,7 @@ func (s *userService) GetUser(ctx context.Context, userID uuid.UUID) (*domain.Us
 // Returns:
 //
 //	The user information or an error if not found.
-func (s *userService) GetUserByUsername(ctx context.Context, username string) (*domain.User, error) {
+func (s *userService) GetUserByUsername(ctx context.Context, username string) (*model.User, error) {
 	user, err := s.userRepo.ReadByUsername(ctx, username)
 	if err != nil {
 		return nil, err
@@ -284,7 +284,7 @@ func (s *userService) GetUserByUsername(ctx context.Context, username string) (*
 // Returns:
 //
 //	A slice of all users or an error if retrieval fails.
-func (s *userService) ListUsers(ctx context.Context) ([]domain.User, error) {
+func (s *userService) ListUsers(ctx context.Context) ([]model.User, error) {
 	return s.userRepo.List(ctx)
 }
 

@@ -5,7 +5,7 @@ import (
 
 	"github.com/google/uuid"
 
-	"rocketvault/internal/domain"
+	"rocketvault/model"
 	"rocketvault/internal/repositories"
 )
 
@@ -24,15 +24,15 @@ func NewRetryRepositoryWrapper(baseRepo repositories.SecretRepositoryInterface, 
 }
 
 // Create wraps the Create operation with retry logic
-func (r *RetryRepositoryWrapper) Create(ctx context.Context, secret *domain.Secret) error {
+func (r *RetryRepositoryWrapper) Create(ctx context.Context, secret *model.Secret) error {
 	return r.retryService.ExecuteDatabaseOperation(ctx, func() error {
 		return r.baseRepo.Create(ctx, secret)
 	})
 }
 
 // Read wraps the Read operation with retry logic
-func (r *RetryRepositoryWrapper) Read(ctx context.Context, id uuid.UUID) (*domain.Secret, error) {
-	var result *domain.Secret
+func (r *RetryRepositoryWrapper) Read(ctx context.Context, id uuid.UUID) (*model.Secret, error) {
+	var result *model.Secret
 	var err error
 
 	retryErr := r.retryService.ExecuteDatabaseOperation(ctx, func() error {
@@ -44,8 +44,8 @@ func (r *RetryRepositoryWrapper) Read(ctx context.Context, id uuid.UUID) (*domai
 }
 
 // ReadByOwner wraps the ReadByOwner operation with retry logic.
-func (r *RetryRepositoryWrapper) ReadByOwner(ctx context.Context, id, userID uuid.UUID) (*domain.Secret, error) {
-	var result *domain.Secret
+func (r *RetryRepositoryWrapper) ReadByOwner(ctx context.Context, id, userID uuid.UUID) (*model.Secret, error) {
+	var result *model.Secret
 	var err error
 
 	retryErr := r.retryService.ExecuteDatabaseOperation(ctx, func() error {
@@ -57,7 +57,7 @@ func (r *RetryRepositoryWrapper) ReadByOwner(ctx context.Context, id, userID uui
 }
 
 // Update wraps the Update operation with retry logic
-func (r *RetryRepositoryWrapper) Update(ctx context.Context, secret *domain.Secret) error {
+func (r *RetryRepositoryWrapper) Update(ctx context.Context, secret *model.Secret) error {
 	return r.retryService.ExecuteDatabaseOperation(ctx, func() error {
 		return r.baseRepo.Update(ctx, secret)
 	})
@@ -78,8 +78,8 @@ func (r *RetryRepositoryWrapper) SoftDelete(ctx context.Context, id uuid.UUID) e
 }
 
 // ListByUser wraps the ListByUser operation with retry logic
-func (r *RetryRepositoryWrapper) ListByUser(ctx context.Context, userID uuid.UUID, tags []string) ([]domain.Secret, error) {
-	var result []domain.Secret
+func (r *RetryRepositoryWrapper) ListByUser(ctx context.Context, userID uuid.UUID, tags []string) ([]model.Secret, error) {
+	var result []model.Secret
 	var err error
 
 	retryErr := r.retryService.ExecuteDatabaseOperation(ctx, func() error {
@@ -91,8 +91,8 @@ func (r *RetryRepositoryWrapper) ListByUser(ctx context.Context, userID uuid.UUI
 }
 
 // ListByUserIncludeDeleted wraps the ListByUserIncludeDeleted operation with retry logic
-func (r *RetryRepositoryWrapper) ListByUserIncludeDeleted(ctx context.Context, userID uuid.UUID, tags []string) ([]domain.Secret, error) {
-	var result []domain.Secret
+func (r *RetryRepositoryWrapper) ListByUserIncludeDeleted(ctx context.Context, userID uuid.UUID, tags []string) ([]model.Secret, error) {
+	var result []model.Secret
 	var err error
 
 	retryErr := r.retryService.ExecuteDatabaseOperation(ctx, func() error {
@@ -104,7 +104,7 @@ func (r *RetryRepositoryWrapper) ListByUserIncludeDeleted(ctx context.Context, u
 }
 
 // ExportSecrets wraps the ExportSecrets operation with retry logic
-func (r *RetryRepositoryWrapper) ExportSecrets(ctx context.Context, options domain.ExportOptions) ([]byte, error) {
+func (r *RetryRepositoryWrapper) ExportSecrets(ctx context.Context, options model.ExportOptions) ([]byte, error) {
 	var result []byte
 	var err error
 
@@ -117,7 +117,7 @@ func (r *RetryRepositoryWrapper) ExportSecrets(ctx context.Context, options doma
 }
 
 // ImportSecrets wraps the ImportSecrets operation with retry logic
-func (r *RetryRepositoryWrapper) ImportSecrets(ctx context.Context, data []byte, options domain.ImportOptions) (int, error) {
+func (r *RetryRepositoryWrapper) ImportSecrets(ctx context.Context, data []byte, options model.ImportOptions) (int, error) {
 	var result int
 	var err error
 
@@ -130,8 +130,8 @@ func (r *RetryRepositoryWrapper) ImportSecrets(ctx context.Context, data []byte,
 }
 
 // GetVersions wraps the GetVersions operation with retry logic
-func (r *RetryRepositoryWrapper) GetVersions(ctx context.Context, secretID uuid.UUID) ([]domain.SecretVersion, error) {
-	var result []domain.SecretVersion
+func (r *RetryRepositoryWrapper) GetVersions(ctx context.Context, secretID uuid.UUID) ([]model.SecretVersion, error) {
+	var result []model.SecretVersion
 	var err error
 
 	retryErr := r.retryService.ExecuteDatabaseOperation(ctx, func() error {
@@ -143,8 +143,8 @@ func (r *RetryRepositoryWrapper) GetVersions(ctx context.Context, secretID uuid.
 }
 
 // GetVersion wraps the GetVersion operation with retry logic
-func (r *RetryRepositoryWrapper) GetVersion(ctx context.Context, secretID uuid.UUID, version int) (*domain.SecretVersion, error) {
-	var result *domain.SecretVersion
+func (r *RetryRepositoryWrapper) GetVersion(ctx context.Context, secretID uuid.UUID, version int) (*model.SecretVersion, error) {
+	var result *model.SecretVersion
 	var err error
 
 	retryErr := r.retryService.ExecuteDatabaseOperation(ctx, func() error {
@@ -156,8 +156,8 @@ func (r *RetryRepositoryWrapper) GetVersion(ctx context.Context, secretID uuid.U
 }
 
 // GetLatestVersion wraps the GetLatestVersion operation with retry logic
-func (r *RetryRepositoryWrapper) GetLatestVersion(ctx context.Context, secretID uuid.UUID) (*domain.SecretVersion, error) {
-	var result *domain.SecretVersion
+func (r *RetryRepositoryWrapper) GetLatestVersion(ctx context.Context, secretID uuid.UUID) (*model.SecretVersion, error) {
+	var result *model.SecretVersion
 	var err error
 
 	retryErr := r.retryService.ExecuteDatabaseOperation(ctx, func() error {

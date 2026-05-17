@@ -19,7 +19,7 @@ import (
 	"github.com/ulule/limiter/v3/drivers/store/memory"
 
 	"rocketvault/common"
-	"rocketvault/internal/domain"
+	"rocketvault/model"
 	"rocketvault/internal/logging"
 	authServices "rocketvault/internal/services/auth"
 	authzServices "rocketvault/internal/services/authorization"
@@ -287,41 +287,41 @@ func (m *Middleware) AuthorizationMiddleware(next http.Handler) http.Handler {
 // resolvePolicy maps an HTTP request's method and URL path to the
 // PolicyResourceType and PolicyOperation used for access-policy evaluation.
 // Returns ("", "") when the route does not correspond to a managed resource.
-func resolvePolicy(method, path string) (domain.PolicyResourceType, domain.PolicyOperation) {
+func resolvePolicy(method, path string) (model.PolicyResourceType, model.PolicyOperation) {
 	// Determine resource type from path segments.
-	var resourceType domain.PolicyResourceType
+	var resourceType model.PolicyResourceType
 	switch {
 	case strings.Contains(path, "/secrets"):
-		resourceType = domain.PolicyResourceSecrets
+		resourceType = model.PolicyResourceSecrets
 	case strings.Contains(path, "/keys"):
-		resourceType = domain.PolicyResourceKeys
+		resourceType = model.PolicyResourceKeys
 	case strings.Contains(path, "/certificates"):
-		resourceType = domain.PolicyResourceCertificates
+		resourceType = model.PolicyResourceCertificates
 	default:
 		return "", ""
 	}
 
 	// Map HTTP method (and special sub-paths) to an operation.
-	var op domain.PolicyOperation
+	var op model.PolicyOperation
 	switch {
 	case strings.HasSuffix(path, "/purge") && method == http.MethodDelete:
-		op = domain.OpPurge
+		op = model.OpPurge
 	case strings.HasSuffix(path, "/restore") && method == http.MethodPost:
-		op = domain.OpRecover
+		op = model.OpRecover
 	case strings.HasSuffix(path, "/rotate") && method == http.MethodPost:
-		op = domain.OpRotate
+		op = model.OpRotate
 	case strings.HasSuffix(path, "/import") && method == http.MethodPost:
-		op = domain.OpImport
+		op = model.OpImport
 	case strings.HasSuffix(path, "/renew") && method == http.MethodPost:
-		op = domain.OpRenew
+		op = model.OpRenew
 	case method == http.MethodGet:
-		op = domain.OpGet
+		op = model.OpGet
 	case method == http.MethodPost:
-		op = domain.OpCreate
+		op = model.OpCreate
 	case method == http.MethodPut:
-		op = domain.OpSet
+		op = model.OpSet
 	case method == http.MethodDelete:
-		op = domain.OpDelete
+		op = model.OpDelete
 	default:
 		return resourceType, ""
 	}

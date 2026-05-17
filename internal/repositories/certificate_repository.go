@@ -15,26 +15,26 @@ import (
 	"github.com/sirupsen/logrus"
 
 	"rocketvault/internal/db"
-	"rocketvault/internal/domain"
+	"rocketvault/model"
 	"rocketvault/internal/logging"
 )
 
 // CertificateRepositoryInterface defines the interface for certificate repository operations.
 // It provides type-safe CRUD operations for the Certificate type.
 type CertificateRepositoryInterface interface {
-	Create(ctx context.Context, cert *domain.Certificate) error
-	Read(ctx context.Context, id uuid.UUID) (*domain.Certificate, error)
-	Update(ctx context.Context, cert *domain.Certificate) error
+	Create(ctx context.Context, cert *model.Certificate) error
+	Read(ctx context.Context, id uuid.UUID) (*model.Certificate, error)
+	Update(ctx context.Context, cert *model.Certificate) error
 	Delete(ctx context.Context, id uuid.UUID) error
 	Revoke(ctx context.Context, id uuid.UUID, serialNumber, name string) error
-	ListByUser(ctx context.Context, userID uuid.UUID, certType string, tags []string) ([]domain.Certificate, error)
-	ListRevoked(ctx context.Context, userID uuid.UUID) ([]domain.RevokedCertificate, error)
+	ListByUser(ctx context.Context, userID uuid.UUID, certType string, tags []string) ([]model.Certificate, error)
+	ListRevoked(ctx context.Context, userID uuid.UUID) ([]model.RevokedCertificate, error)
 	SoftDelete(ctx context.Context, id uuid.UUID) error
 	RecoverCertificate(ctx context.Context, id uuid.UUID) error
 	PurgeCertificate(ctx context.Context, id uuid.UUID) error
 	SetPurgeProtection(ctx context.Context, id uuid.UUID, enabled bool) error
-	ListSoftDeleted(ctx context.Context, userID uuid.UUID) ([]*domain.Certificate, error)
-	ListAll(ctx context.Context) ([]domain.Certificate, error)
+	ListSoftDeleted(ctx context.Context, userID uuid.UUID) ([]*model.Certificate, error)
+	ListAll(ctx context.Context) ([]model.Certificate, error)
 }
 
 // CertificateRepository implements CertificateRepositoryInterface with pure CRUD operations.
@@ -91,7 +91,7 @@ func NewCertificateRepository(db *sql.DB, log *logging.Logger) CertificateReposi
 // Returns:
 //
 //	An error if the insertion fails.
-func (r *CertificateRepository) Create(ctx context.Context, cert *domain.Certificate) error {
+func (r *CertificateRepository) Create(ctx context.Context, cert *model.Certificate) error {
 	return r.executeWithMetrics("create_certificate", func() error {
 		logrus.WithFields(logrus.Fields{
 			"cert_id": cert.ID.String(),
@@ -158,8 +158,8 @@ func (r *CertificateRepository) Create(ctx context.Context, cert *domain.Certifi
 // Returns:
 //
 //	The certificate entity (with encrypted private key) or an error if not found.
-func (r *CertificateRepository) Read(ctx context.Context, id uuid.UUID) (*domain.Certificate, error) {
-	var cert domain.Certificate
+func (r *CertificateRepository) Read(ctx context.Context, id uuid.UUID) (*model.Certificate, error) {
+	var cert model.Certificate
 	var idStr, userIDStr string
 
 	err := r.db.QueryRowContext(
@@ -188,7 +188,7 @@ func (r *CertificateRepository) Read(ctx context.Context, id uuid.UUID) (*domain
 	}
 
 	// Retrieve tags using TagRepository
-	tagRepo := db.NewTagRepository[domain.Certificate](r.db, "certificate_tags", "certificate_id")
+	tagRepo := db.NewTagRepository[model.Certificate](r.db, "certificate_tags", "certificate_id")
 	cert.Tags, err = tagRepo.GetTags(ctx, cert.ID)
 	if err != nil {
 		r.log.LogAuditError(uuid.Nil.String(), "read_certificate", "failed", "Failed to read tags", err)
@@ -209,7 +209,7 @@ func (r *CertificateRepository) Read(ctx context.Context, id uuid.UUID) (*domain
 // Returns:
 //
 //	An error if the update fails.
-func (r *CertificateRepository) Update(ctx context.Context, cert *domain.Certificate) error {
+func (r *CertificateRepository) Update(ctx context.Context, cert *model.Certificate) error {
 	return r.executeWithMetrics("update_certificate", func() error {
 		logrus.WithFields(logrus.Fields{
 			"cert_id": cert.ID.String(),
@@ -253,7 +253,7 @@ func (r *CertificateRepository) Update(ctx context.Context, cert *domain.Certifi
 				return fmt.Errorf("failed to delete existing tags: %w", err)
 			}
 
-			tagRepo := db.NewTagRepository[domain.Certificate](r.db, "certificate_tags", "certificate_id")
+			tagRepo := db.NewTagRepository[model.Certificate](r.db, "certificate_tags", "certificate_id")
 			if err := tagRepo.AddTags(ctx, cert.ID, cert.Tags); err != nil {
 				r.log.LogAuditError(cert.UserID.String(), "update_certificate", "failed", "Failed to add tags", err)
 				return fmt.Errorf("failed to add tags: %w", err)
@@ -386,8 +386,8 @@ func (r *CertificateRepository) Revoke(ctx context.Context, id uuid.UUID, serial
 // Returns:
 //
 //	A slice of certificates (with encrypted private keys) or an error if retrieval fails.
-func (r *CertificateRepository) ListByUser(ctx context.Context, userID uuid.UUID, certType string, tags []string) ([]domain.Certificate, error) {
-	var certList []domain.Certificate
+func (r *CertificateRepository) ListByUser(ctx context.Context, userID uuid.UUID, certType string, tags []string) ([]model.Certificate, error) {
+	var certList []model.Certificate
 
 	err := r.executeWithMetrics("list_certificates_by_user", func() error {
 		query := "SELECT id, user_id, name, certificate, private_key, created_at, expires_at, auto_renew, renewal_days FROM certificates WHERE user_id = ? AND deleted_at IS NULL"
@@ -416,10 +416,10 @@ func (r *CertificateRepository) ListByUser(ctx context.Context, userID uuid.UUID
 		defer rows.Close()
 
 		// Pre-allocate slice for better memory performance
-		certList = make([]domain.Certificate, 0, 50)
+		certList = make([]model.Certificate, 0, 50)
 
 		for rows.Next() {
-			var cert domain.Certificate
+			var cert model.Certificate
 			var idStr, userIDStr string
 
 			if err := rows.Scan(&idStr, &userIDStr, &cert.Name, &cert.Certificate, &cert.PrivateKey, &cert.CreatedAt,
@@ -441,7 +441,7 @@ func (r *CertificateRepository) ListByUser(ctx context.Context, userID uuid.UUID
 			}
 
 			// Retrieve tags for each certificate
-			tagRepo := db.NewTagRepository[domain.Certificate](r.db, "certificate_tags", "certificate_id")
+			tagRepo := db.NewTagRepository[model.Certificate](r.db, "certificate_tags", "certificate_id")
 			cert.Tags, err = tagRepo.GetTags(ctx, cert.ID)
 			if err != nil {
 				r.log.LogAuditError(userID.String(), "list_certificates", "failed", "Failed to read tags for certificate", err)
@@ -478,8 +478,8 @@ func (r *CertificateRepository) ListByUser(ctx context.Context, userID uuid.UUID
 // Returns:
 //
 //	A list of revoked certificates or an error if retrieval fails.
-func (r *CertificateRepository) ListRevoked(ctx context.Context, userID uuid.UUID) ([]domain.RevokedCertificate, error) {
-	var revokedList []domain.RevokedCertificate
+func (r *CertificateRepository) ListRevoked(ctx context.Context, userID uuid.UUID) ([]model.RevokedCertificate, error) {
+	var revokedList []model.RevokedCertificate
 
 	err := r.executeWithMetrics("list_revoked_certificates", func() error {
 		rows, err := r.db.QueryContext(
@@ -494,10 +494,10 @@ func (r *CertificateRepository) ListRevoked(ctx context.Context, userID uuid.UUI
 		defer rows.Close()
 
 		// Pre-allocate slice
-		revokedList = make([]domain.RevokedCertificate, 0, 20)
+		revokedList = make([]model.RevokedCertificate, 0, 20)
 
 		for rows.Next() {
-			var cert domain.RevokedCertificate
+			var cert model.RevokedCertificate
 			var idStr, userIDStr string
 
 			if err := rows.Scan(&idStr, &userIDStr, &cert.SerialNumber, &cert.Name, &cert.RevokedAt); err != nil {
@@ -721,8 +721,8 @@ func (r *CertificateRepository) SetPurgeProtection(ctx context.Context, id uuid.
 // Returns:
 //
 //	A slice of soft-deleted certificate pointers, or an error if retrieval fails.
-func (r *CertificateRepository) ListSoftDeleted(ctx context.Context, userID uuid.UUID) ([]*domain.Certificate, error) {
-	var certList []*domain.Certificate
+func (r *CertificateRepository) ListSoftDeleted(ctx context.Context, userID uuid.UUID) ([]*model.Certificate, error) {
+	var certList []*model.Certificate
 
 	err := r.executeWithMetrics("list_soft_deleted_certificates", func() error {
 		logrus.WithField("user_id", userID.String()).Debug("Listing soft-deleted certificates for user")
@@ -736,10 +736,10 @@ func (r *CertificateRepository) ListSoftDeleted(ctx context.Context, userID uuid
 		}
 		defer rows.Close()
 
-		certList = make([]*domain.Certificate, 0)
+		certList = make([]*model.Certificate, 0)
 
 		for rows.Next() {
-			var cert domain.Certificate
+			var cert model.Certificate
 			var idStr, userIDStr string
 			var deletedAt *time.Time
 			var purgeProtection bool
@@ -794,8 +794,8 @@ func (r *CertificateRepository) ListSoftDeleted(ctx context.Context, userID uuid
 // Returns:
 //
 //	A slice of all active certificates, or an error if retrieval fails.
-func (r *CertificateRepository) ListAll(ctx context.Context) ([]domain.Certificate, error) {
-	var certs []domain.Certificate
+func (r *CertificateRepository) ListAll(ctx context.Context) ([]model.Certificate, error) {
+	var certs []model.Certificate
 
 	err := r.executeWithMetrics("list_all_certificates", func() error {
 		rows, err := r.db.QueryContext(ctx,
@@ -806,7 +806,7 @@ func (r *CertificateRepository) ListAll(ctx context.Context) ([]domain.Certifica
 		defer rows.Close()
 
 		for rows.Next() {
-			var cert domain.Certificate
+			var cert model.Certificate
 			var idStr, userIDStr string
 			if err := rows.Scan(&idStr, &userIDStr, &cert.Name, &cert.Certificate, &cert.PrivateKey, &cert.CreatedAt,
 				&cert.ExpiresAt, &cert.AutoRenew, &cert.RenewalDays); err != nil {

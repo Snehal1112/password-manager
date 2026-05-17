@@ -9,7 +9,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/sirupsen/logrus"
 
-	"rocketvault/internal/domain"
+	"rocketvault/model"
 	"rocketvault/internal/services/secrets"
 )
 
@@ -31,7 +31,7 @@ func NewCachedSecretService(secretService secrets.SecretService, cache *SecretCa
 }
 
 // GetSecret retrieves a secret, using cache when available.
-func (s *CachedSecretService) GetSecret(ctx context.Context, secretID uuid.UUID, userID uuid.UUID) (*domain.Secret, error) {
+func (s *CachedSecretService) GetSecret(ctx context.Context, secretID uuid.UUID, userID uuid.UUID) (*model.Secret, error) {
 	// Try cache first
 	if cached, found := s.cache.Get(ctx, secretID); found {
 		// Verify the cached secret belongs to the requesting user
@@ -60,7 +60,7 @@ func (s *CachedSecretService) GetSecret(ctx context.Context, secretID uuid.UUID,
 }
 
 // CreateSecret creates a new secret and updates cache.
-func (s *CachedSecretService) CreateSecret(ctx context.Context, req secrets.CreateSecretRequest) (*domain.Secret, error) {
+func (s *CachedSecretService) CreateSecret(ctx context.Context, req secrets.CreateSecretRequest) (*model.Secret, error) {
 	// Create through underlying service
 	secret, err := s.secretService.CreateSecret(ctx, req)
 	if err != nil {
@@ -111,29 +111,29 @@ func (s *CachedSecretService) DeleteSecret(ctx context.Context, secretID uuid.UU
 }
 
 // ListSecrets lists secrets for a user (not cached due to filtering complexity).
-func (s *CachedSecretService) ListSecrets(ctx context.Context, userID uuid.UUID, tags []string) ([]domain.Secret, error) {
+func (s *CachedSecretService) ListSecrets(ctx context.Context, userID uuid.UUID, tags []string) ([]model.Secret, error) {
 	// List operations are not cached due to filtering complexity
 	// This could be optimized in the future with cache invalidation strategies
 	return s.secretService.ListSecrets(ctx, userID, tags)
 }
 
 // GetSecretVersions retrieves all versions of a secret.
-func (s *CachedSecretService) GetSecretVersions(ctx context.Context, secretID uuid.UUID, userID uuid.UUID) ([]domain.SecretVersion, error) {
+func (s *CachedSecretService) GetSecretVersions(ctx context.Context, secretID uuid.UUID, userID uuid.UUID) ([]model.SecretVersion, error) {
 	return s.secretService.GetSecretVersions(ctx, secretID, userID)
 }
 
 // GetSecretVersion retrieves a specific version of a secret.
-func (s *CachedSecretService) GetSecretVersion(ctx context.Context, secretID uuid.UUID, version int, userID uuid.UUID) (*domain.SecretVersion, error) {
+func (s *CachedSecretService) GetSecretVersion(ctx context.Context, secretID uuid.UUID, version int, userID uuid.UUID) (*model.SecretVersion, error) {
 	return s.secretService.GetSecretVersion(ctx, secretID, version, userID)
 }
 
 // GetLatestSecretVersion retrieves the latest version of a secret.
-func (s *CachedSecretService) GetLatestSecretVersion(ctx context.Context, secretID uuid.UUID, userID uuid.UUID) (*domain.SecretVersion, error) {
+func (s *CachedSecretService) GetLatestSecretVersion(ctx context.Context, secretID uuid.UUID, userID uuid.UUID) (*model.SecretVersion, error) {
 	return s.secretService.GetLatestSecretVersion(ctx, secretID, userID)
 }
 
 // GenerateSecret generates a secret and caches it.
-func (s *CachedSecretService) GenerateSecret(ctx context.Context, req secrets.GenerateSecretRequest) (*domain.Secret, error) {
+func (s *CachedSecretService) GenerateSecret(ctx context.Context, req secrets.GenerateSecretRequest) (*model.Secret, error) {
 	// Generate through underlying service
 	secret, err := s.secretService.GenerateSecret(ctx, req)
 	if err != nil {

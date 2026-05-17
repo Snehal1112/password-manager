@@ -9,7 +9,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 
-	"rocketvault/internal/domain"
+	"rocketvault/model"
 	"rocketvault/internal/logging"
 )
 
@@ -22,10 +22,10 @@ func TestUpdateKey_SetsRevoked(t *testing.T) {
 
 	ownerID := uuid.New()
 	keyID := uuid.New()
-	existing := &domain.Key{ID: keyID, UserID: ownerID, Name: "old-name", Type: "RSA", Revoked: false}
+	existing := &model.Key{ID: keyID, UserID: ownerID, Name: "old-name", Type: "RSA", Revoked: false}
 
 	repo.On("Read", mock.Anything, keyID).Return(existing, nil)
-	repo.On("Update", mock.Anything, mock.MatchedBy(func(k *domain.Key) bool {
+	repo.On("Update", mock.Anything, mock.MatchedBy(func(k *model.Key) bool {
 		return k.Revoked == true
 	})).Return(nil)
 
@@ -46,10 +46,10 @@ func TestUpdateKey_ClearsRevoked(t *testing.T) {
 
 	ownerID := uuid.New()
 	keyID := uuid.New()
-	existing := &domain.Key{ID: keyID, UserID: ownerID, Name: "old-name", Type: "RSA", Revoked: true}
+	existing := &model.Key{ID: keyID, UserID: ownerID, Name: "old-name", Type: "RSA", Revoked: true}
 
 	repo.On("Read", mock.Anything, keyID).Return(existing, nil)
-	repo.On("Update", mock.Anything, mock.MatchedBy(func(k *domain.Key) bool {
+	repo.On("Update", mock.Anything, mock.MatchedBy(func(k *model.Key) bool {
 		return k.Revoked == false
 	})).Return(nil)
 

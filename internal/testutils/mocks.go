@@ -9,7 +9,7 @@ import (
 	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/mock"
 
-	"rocketvault/internal/domain"
+	"rocketvault/model"
 	"rocketvault/internal/logging"
 	authServices "rocketvault/internal/services/auth"
 	authzServices "rocketvault/internal/services/authorization"
@@ -94,28 +94,28 @@ type MockSecretRepository struct {
 	mock.Mock
 }
 
-func (m *MockSecretRepository) Create(ctx context.Context, secret *domain.Secret) error {
+func (m *MockSecretRepository) Create(ctx context.Context, secret *model.Secret) error {
 	args := m.Called(ctx, secret)
 	return args.Error(0)
 }
 
-func (m *MockSecretRepository) Read(ctx context.Context, id uuid.UUID) (*domain.Secret, error) {
+func (m *MockSecretRepository) Read(ctx context.Context, id uuid.UUID) (*model.Secret, error) {
 	args := m.Called(ctx, id)
 	if args.Get(0) == nil {
 		return nil, args.Error(1)
 	}
-	return args.Get(0).(*domain.Secret), args.Error(1)
+	return args.Get(0).(*model.Secret), args.Error(1)
 }
 
-func (m *MockSecretRepository) ReadByOwner(ctx context.Context, id, userID uuid.UUID) (*domain.Secret, error) {
+func (m *MockSecretRepository) ReadByOwner(ctx context.Context, id, userID uuid.UUID) (*model.Secret, error) {
 	args := m.Called(ctx, id, userID)
 	if args.Get(0) == nil {
 		return nil, args.Error(1)
 	}
-	return args.Get(0).(*domain.Secret), args.Error(1)
+	return args.Get(0).(*model.Secret), args.Error(1)
 }
 
-func (m *MockSecretRepository) Update(ctx context.Context, secret *domain.Secret) error {
+func (m *MockSecretRepository) Update(ctx context.Context, secret *model.Secret) error {
 	args := m.Called(ctx, secret)
 	return args.Error(0)
 }
@@ -130,23 +130,23 @@ func (m *MockSecretRepository) SoftDelete(ctx context.Context, id uuid.UUID) err
 	return args.Error(0)
 }
 
-func (m *MockSecretRepository) ListByUser(ctx context.Context, userID uuid.UUID, tags []string) ([]domain.Secret, error) {
+func (m *MockSecretRepository) ListByUser(ctx context.Context, userID uuid.UUID, tags []string) ([]model.Secret, error) {
 	args := m.Called(ctx, userID, tags)
 	if args.Get(0) == nil {
 		return nil, args.Error(1)
 	}
-	return args.Get(0).([]domain.Secret), args.Error(1)
+	return args.Get(0).([]model.Secret), args.Error(1)
 }
 
-func (m *MockSecretRepository) ListByUserIncludeDeleted(ctx context.Context, userID uuid.UUID, tags []string) ([]domain.Secret, error) {
+func (m *MockSecretRepository) ListByUserIncludeDeleted(ctx context.Context, userID uuid.UUID, tags []string) ([]model.Secret, error) {
 	args := m.Called(ctx, userID, tags)
 	if args.Get(0) == nil {
 		return nil, args.Error(1)
 	}
-	return args.Get(0).([]domain.Secret), args.Error(1)
+	return args.Get(0).([]model.Secret), args.Error(1)
 }
 
-func (m *MockSecretRepository) ExportSecrets(ctx context.Context, options domain.ExportOptions) ([]byte, error) {
+func (m *MockSecretRepository) ExportSecrets(ctx context.Context, options model.ExportOptions) ([]byte, error) {
 	args := m.Called(ctx, options)
 	if args.Get(0) == nil {
 		return nil, args.Error(1)
@@ -154,33 +154,33 @@ func (m *MockSecretRepository) ExportSecrets(ctx context.Context, options domain
 	return args.Get(0).([]byte), args.Error(1)
 }
 
-func (m *MockSecretRepository) ImportSecrets(ctx context.Context, data []byte, options domain.ImportOptions) (int, error) {
+func (m *MockSecretRepository) ImportSecrets(ctx context.Context, data []byte, options model.ImportOptions) (int, error) {
 	args := m.Called(ctx, data, options)
 	return args.Int(0), args.Error(1)
 }
 
-func (m *MockSecretRepository) GetVersions(ctx context.Context, secretID uuid.UUID) ([]domain.SecretVersion, error) {
+func (m *MockSecretRepository) GetVersions(ctx context.Context, secretID uuid.UUID) ([]model.SecretVersion, error) {
 	args := m.Called(ctx, secretID)
 	if args.Get(0) == nil {
 		return nil, args.Error(1)
 	}
-	return args.Get(0).([]domain.SecretVersion), args.Error(1)
+	return args.Get(0).([]model.SecretVersion), args.Error(1)
 }
 
-func (m *MockSecretRepository) GetVersion(ctx context.Context, secretID uuid.UUID, version int) (*domain.SecretVersion, error) {
+func (m *MockSecretRepository) GetVersion(ctx context.Context, secretID uuid.UUID, version int) (*model.SecretVersion, error) {
 	args := m.Called(ctx, secretID, version)
 	if args.Get(0) == nil {
 		return nil, args.Error(1)
 	}
-	return args.Get(0).(*domain.SecretVersion), args.Error(1)
+	return args.Get(0).(*model.SecretVersion), args.Error(1)
 }
 
-func (m *MockSecretRepository) GetLatestVersion(ctx context.Context, secretID uuid.UUID) (*domain.SecretVersion, error) {
+func (m *MockSecretRepository) GetLatestVersion(ctx context.Context, secretID uuid.UUID) (*model.SecretVersion, error) {
 	args := m.Called(ctx, secretID)
 	if args.Get(0) == nil {
 		return nil, args.Error(1)
 	}
-	return args.Get(0).(*domain.SecretVersion), args.Error(1)
+	return args.Get(0).(*model.SecretVersion), args.Error(1)
 }
 
 func (m *MockSecretRepository) RecoverSecret(ctx context.Context, id uuid.UUID) error {
@@ -217,36 +217,36 @@ type MockVersioningService struct {
 	mock.Mock
 }
 
-func (m *MockVersioningService) CreateVersion(ctx context.Context, req secretServices.CreateVersionRequest) (*domain.SecretVersion, error) {
+func (m *MockVersioningService) CreateVersion(ctx context.Context, req secretServices.CreateVersionRequest) (*model.SecretVersion, error) {
 	args := m.Called(ctx, req)
 	if args.Get(0) == nil {
 		return nil, args.Error(1)
 	}
-	return args.Get(0).(*domain.SecretVersion), args.Error(1)
+	return args.Get(0).(*model.SecretVersion), args.Error(1)
 }
 
-func (m *MockVersioningService) GetVersions(ctx context.Context, secretID, userID uuid.UUID) ([]domain.SecretVersion, error) {
+func (m *MockVersioningService) GetVersions(ctx context.Context, secretID, userID uuid.UUID) ([]model.SecretVersion, error) {
 	args := m.Called(ctx, secretID, userID)
 	if args.Get(0) == nil {
 		return nil, args.Error(1)
 	}
-	return args.Get(0).([]domain.SecretVersion), args.Error(1)
+	return args.Get(0).([]model.SecretVersion), args.Error(1)
 }
 
-func (m *MockVersioningService) GetVersion(ctx context.Context, secretID uuid.UUID, version int, userID uuid.UUID) (*domain.SecretVersion, error) {
+func (m *MockVersioningService) GetVersion(ctx context.Context, secretID uuid.UUID, version int, userID uuid.UUID) (*model.SecretVersion, error) {
 	args := m.Called(ctx, secretID, version, userID)
 	if args.Get(0) == nil {
 		return nil, args.Error(1)
 	}
-	return args.Get(0).(*domain.SecretVersion), args.Error(1)
+	return args.Get(0).(*model.SecretVersion), args.Error(1)
 }
 
-func (m *MockVersioningService) GetLatestVersion(ctx context.Context, secretID, userID uuid.UUID) (*domain.SecretVersion, error) {
+func (m *MockVersioningService) GetLatestVersion(ctx context.Context, secretID, userID uuid.UUID) (*model.SecretVersion, error) {
 	args := m.Called(ctx, secretID, userID)
 	if args.Get(0) == nil {
 		return nil, args.Error(1)
 	}
-	return args.Get(0).(*domain.SecretVersion), args.Error(1)
+	return args.Get(0).(*model.SecretVersion), args.Error(1)
 }
 
 func (m *MockVersioningService) DeleteVersions(ctx context.Context, secretID, userID uuid.UUID) error {
@@ -259,12 +259,12 @@ func (m *MockVersioningService) DeleteSpecificVersion(ctx context.Context, secre
 	return args.Error(0)
 }
 
-func (m *MockVersioningService) RollbackToVersion(ctx context.Context, req secretServices.RollbackRequest) (*domain.Secret, error) {
+func (m *MockVersioningService) RollbackToVersion(ctx context.Context, req secretServices.RollbackRequest) (*model.Secret, error) {
 	args := m.Called(ctx, req)
 	if args.Get(0) == nil {
 		return nil, args.Error(1)
 	}
-	return args.Get(0).(*domain.Secret), args.Error(1)
+	return args.Get(0).(*model.Secret), args.Error(1)
 }
 
 // --- MockTagService ---
@@ -308,8 +308,8 @@ func (m *MockTagService) FindSecretsByTags(ctx context.Context, userID uuid.UUID
 // --- Test data factories ---
 
 // NewSecret returns a minimal Secret for use in tests.
-func NewSecret(userID uuid.UUID) *domain.Secret {
-	return &domain.Secret{
+func NewSecret(userID uuid.UUID) *model.Secret {
+	return &model.Secret{
 		ID:      uuid.New(),
 		UserID:  userID,
 		Name:    "test-secret",

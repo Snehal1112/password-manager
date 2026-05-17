@@ -45,7 +45,7 @@ func TestCreateSecretAcceptsValidContentType(t *testing.T) {
 	tag := &testutils.MockTagService{}
 
 	crypto.On("EncryptSecret", "{}").Return("encrypted", nil)
-	repo.On("Create", ctx, mock.AnythingOfType("*domain.Secret")).Return(nil)
+	repo.On("Create", ctx, mock.AnythingOfType("*model.Secret")).Return(nil)
 
 	svc := newService(repo, crypto, ver, tag, t)
 	got, err := svc.CreateSecret(ctx, secrets.CreateSecretRequest{

@@ -5,7 +5,7 @@ import (
 
 	"github.com/google/uuid"
 
-	"rocketvault/internal/domain"
+	"rocketvault/model"
 	"rocketvault/internal/repositories"
 )
 
@@ -24,15 +24,15 @@ func NewRetryUserRepositoryWrapper(baseRepo repositories.UserRepositoryInterface
 }
 
 // Create wraps the Create operation with retry logic
-func (r *RetryUserRepositoryWrapper) Create(ctx context.Context, user *domain.User) error {
+func (r *RetryUserRepositoryWrapper) Create(ctx context.Context, user *model.User) error {
 	return r.retryService.ExecuteDatabaseOperation(ctx, func() error {
 		return r.baseRepo.Create(ctx, user)
 	})
 }
 
 // Read wraps the Read operation with retry logic
-func (r *RetryUserRepositoryWrapper) Read(ctx context.Context, id uuid.UUID) (*domain.User, error) {
-	var result *domain.User
+func (r *RetryUserRepositoryWrapper) Read(ctx context.Context, id uuid.UUID) (*model.User, error) {
+	var result *model.User
 	var err error
 
 	retryErr := r.retryService.ExecuteDatabaseOperation(ctx, func() error {
@@ -44,7 +44,7 @@ func (r *RetryUserRepositoryWrapper) Read(ctx context.Context, id uuid.UUID) (*d
 }
 
 // Update wraps the Update operation with retry logic
-func (r *RetryUserRepositoryWrapper) Update(ctx context.Context, user *domain.User) error {
+func (r *RetryUserRepositoryWrapper) Update(ctx context.Context, user *model.User) error {
 	return r.retryService.ExecuteDatabaseOperation(ctx, func() error {
 		return r.baseRepo.Update(ctx, user)
 	})
@@ -58,8 +58,8 @@ func (r *RetryUserRepositoryWrapper) Delete(ctx context.Context, id uuid.UUID) e
 }
 
 // ReadByUsername wraps the ReadByUsername operation with retry logic
-func (r *RetryUserRepositoryWrapper) ReadByUsername(ctx context.Context, username string) (domain.User, error) {
-	var result domain.User
+func (r *RetryUserRepositoryWrapper) ReadByUsername(ctx context.Context, username string) (model.User, error) {
+	var result model.User
 	var err error
 
 	retryErr := r.retryService.ExecuteDatabaseOperation(ctx, func() error {
@@ -71,8 +71,8 @@ func (r *RetryUserRepositoryWrapper) ReadByUsername(ctx context.Context, usernam
 }
 
 // List wraps the List operation with retry logic
-func (r *RetryUserRepositoryWrapper) List(ctx context.Context) ([]domain.User, error) {
-	var result []domain.User
+func (r *RetryUserRepositoryWrapper) List(ctx context.Context) ([]model.User, error) {
+	var result []model.User
 	var err error
 
 	retryErr := r.retryService.ExecuteDatabaseOperation(ctx, func() error {

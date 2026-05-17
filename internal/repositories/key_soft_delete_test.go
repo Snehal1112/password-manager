@@ -11,7 +11,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"rocketvault/internal/domain"
+	"rocketvault/model"
 	"rocketvault/internal/logging"
 	"rocketvault/internal/repositories"
 )
@@ -64,7 +64,7 @@ func TestKeySoftDelete(t *testing.T) {
 	ctx := context.Background()
 	userID := uuid.New()
 
-	key := &domain.Key{
+	key := &model.Key{
 		ID:        uuid.New(),
 		UserID:    userID,
 		Name:      "test-key",
@@ -97,7 +97,7 @@ func TestKeyPurge(t *testing.T) {
 	ctx := context.Background()
 	userID := uuid.New()
 
-	key := &domain.Key{
+	key := &model.Key{
 		ID:        uuid.New(),
 		UserID:    userID,
 		Name:      "purge-key",
@@ -124,7 +124,7 @@ func TestKeyPurgeProtection(t *testing.T) {
 	ctx := context.Background()
 	userID := uuid.New()
 
-	key := &domain.Key{
+	key := &model.Key{
 		ID:        uuid.New(),
 		UserID:    userID,
 		Name:      "protected-key",

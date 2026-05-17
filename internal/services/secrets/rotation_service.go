@@ -10,7 +10,7 @@ import (
 
 	"github.com/google/uuid"
 
-	"rocketvault/internal/domain"
+	"rocketvault/model"
 	"rocketvault/internal/logging"
 	"rocketvault/internal/repositories"
 )
@@ -19,25 +19,25 @@ import (
 // It orchestrates rotation policies, scheduling, and history tracking.
 type RotationServiceInterface interface {
 	// Policy management
-	CreatePolicy(ctx context.Context, req CreatePolicyRequest) (*domain.RotationPolicy, error)
-	GetPolicy(ctx context.Context, id uuid.UUID) (*domain.RotationPolicy, error)
-	UpdatePolicy(ctx context.Context, req UpdatePolicyRequest) (*domain.RotationPolicy, error)
+	CreatePolicy(ctx context.Context, req CreatePolicyRequest) (*model.RotationPolicy, error)
+	GetPolicy(ctx context.Context, id uuid.UUID) (*model.RotationPolicy, error)
+	UpdatePolicy(ctx context.Context, req UpdatePolicyRequest) (*model.RotationPolicy, error)
 	DeletePolicy(ctx context.Context, id uuid.UUID, callerID uuid.UUID) error
-	ListUserPolicies(ctx context.Context, userID uuid.UUID) ([]domain.RotationPolicy, error)
+	ListUserPolicies(ctx context.Context, userID uuid.UUID) ([]model.RotationPolicy, error)
 
 	// Secret-policy assignment
 	AssignPolicyToSecret(ctx context.Context, req AssignPolicyRequest) error
 	RemovePolicyFromSecret(ctx context.Context, secretID, policyID uuid.UUID, callerID uuid.UUID) error
-	GetSecretPolicies(ctx context.Context, secretID uuid.UUID) ([]domain.RotationPolicy, error)
+	GetSecretPolicies(ctx context.Context, secretID uuid.UUID) ([]model.RotationPolicy, error)
 
 	// Rotation operations
 	PerformManualRotation(ctx context.Context, req ManualRotationRequest) error
-	GetRotationHistory(ctx context.Context, secretID uuid.UUID, callerID uuid.UUID) ([]domain.RotationHistory, error)
-	GetDueRotations(ctx context.Context, userID uuid.UUID) ([]domain.SecretPolicy, error)
+	GetRotationHistory(ctx context.Context, secretID uuid.UUID, callerID uuid.UUID) ([]model.RotationHistory, error)
+	GetDueRotations(ctx context.Context, userID uuid.UUID) ([]model.SecretPolicy, error)
 
 	// Reminder management
 	CreateRotationReminder(ctx context.Context, req CreateReminderRequest) error
-	GetUpcomingReminders(ctx context.Context, userID uuid.UUID) ([]domain.RotationReminder, error)
+	GetUpcomingReminders(ctx context.Context, userID uuid.UUID) ([]model.RotationReminder, error)
 	AcknowledgeReminder(ctx context.Context, reminderID uuid.UUID) error
 }
 
@@ -114,7 +114,7 @@ func NewRotationService(
 }
 
 // CreatePolicy creates a new rotation policy with business validation.
-func (s *rotationService) CreatePolicy(ctx context.Context, req CreatePolicyRequest) (*domain.RotationPolicy, error) {
+func (s *rotationService) CreatePolicy(ctx context.Context, req CreatePolicyRequest) (*model.RotationPolicy, error) {
 	// Validate user exists
 	user, err := s.userRepo.Read(ctx, req.UserID)
 	if err != nil {
@@ -129,7 +129,7 @@ func (s *rotationService) CreatePolicy(ctx context.Context, req CreatePolicyRequ
 
 	// Create policy domain object with generated ID and timestamps
 	now := time.Now()
-	policy := &domain.RotationPolicy{
+	policy := &model.RotationPolicy{
 		ID:           uuid.New(),
 		UserID:       user.ID,
 		Name:         req.Name,
@@ -158,7 +158,7 @@ func (s *rotationService) CreatePolicy(ctx context.Context, req CreatePolicyRequ
 }
 
 // GetPolicy retrieves a rotation policy by ID.
-func (s *rotationService) GetPolicy(ctx context.Context, id uuid.UUID) (*domain.RotationPolicy, error) {
+func (s *rotationService) GetPolicy(ctx context.Context, id uuid.UUID) (*model.RotationPolicy, error) {
 	policy, err := s.rotationRepo.Read(ctx, id)
 	if err != nil {
 		s.log.WithError(err).WithField("policy_id", id).Error("Failed to get rotation policy")
@@ -169,7 +169,7 @@ func (s *rotationService) GetPolicy(ctx context.Context, id uuid.UUID) (*domain.
 }
 
 // UpdatePolicy updates an existing rotation policy with business validation.
-func (s *rotationService) UpdatePolicy(ctx context.Context, req UpdatePolicyRequest) (*domain.RotationPolicy, error) {
+func (s *rotationService) UpdatePolicy(ctx context.Context, req UpdatePolicyRequest) (*model.RotationPolicy, error) {
 	// Validate ownership
 	existingPolicy, err := s.rotationRepo.Read(ctx, req.ID)
 	if err != nil {
@@ -186,7 +186,7 @@ func (s *rotationService) UpdatePolicy(ctx context.Context, req UpdatePolicyRequ
 	}
 
 	// Update policy with new values
-	policy := &domain.RotationPolicy{
+	policy := &model.RotationPolicy{
 		ID:           req.ID,
 		UserID:       req.UserID,
 		Name:         req.Name,
@@ -240,7 +240,7 @@ func (s *rotationService) DeletePolicy(ctx context.Context, id uuid.UUID, caller
 }
 
 // ListUserPolicies lists all rotation policies for a user.
-func (s *rotationService) ListUserPolicies(ctx context.Context, userID uuid.UUID) ([]domain.RotationPolicy, error) {
+func (s *rotationService) ListUserPolicies(ctx context.Context, userID uuid.UUID) ([]model.RotationPolicy, error) {
 	policies, err := s.rotationRepo.ListByUser(ctx, userID)
 	if err != nil {
 		s.log.WithError(err).WithField("user_id", userID).Error("Failed to list user policies")
@@ -289,7 +289,7 @@ func (s *rotationService) AssignPolicyToSecret(ctx context.Context, req AssignPo
 		reminderReq := CreateReminderRequest{
 			SecretID:       req.SecretID,
 			PolicyID:       req.PolicyID,
-			ReminderType:   domain.ReminderUpcoming,
+			ReminderType:   model.ReminderUpcoming,
 			NextReminderAt: &reminderTime,
 		}
 
@@ -336,7 +336,7 @@ func (s *rotationService) RemovePolicyFromSecret(ctx context.Context, secretID, 
 }
 
 // GetSecretPolicies gets all rotation policies assigned to a secret.
-func (s *rotationService) GetSecretPolicies(ctx context.Context, secretID uuid.UUID) ([]domain.RotationPolicy, error) {
+func (s *rotationService) GetSecretPolicies(ctx context.Context, secretID uuid.UUID) ([]model.RotationPolicy, error) {
 	policies, err := s.rotationRepo.GetPoliciesForSecret(ctx, secretID)
 	if err != nil {
 		s.log.WithError(err).WithField("secret_id", secretID).Error("Failed to get secret policies")
@@ -384,14 +384,14 @@ func (s *rotationService) PerformManualRotation(ctx context.Context, req ManualR
 
 	// Record rotation history
 	now := time.Now()
-	history := &domain.RotationHistory{
+	history := &model.RotationHistory{
 		ID:              uuid.New(),
 		SecretID:        req.SecretID,
 		PolicyID:        &req.PolicyID,
 		RotatedAt:       now,
 		PreviousVersion: previousVersion,
 		NewVersion:      secret.Version,
-		TriggeredBy:     domain.TriggerManual,
+		TriggeredBy:     model.TriggerManual,
 		Notes:           req.Notes,
 	}
 
@@ -420,7 +420,7 @@ func (s *rotationService) PerformManualRotation(ctx context.Context, req ManualR
 }
 
 // GetRotationHistory retrieves rotation history for a secret with ownership validation.
-func (s *rotationService) GetRotationHistory(ctx context.Context, secretID uuid.UUID, callerID uuid.UUID) ([]domain.RotationHistory, error) {
+func (s *rotationService) GetRotationHistory(ctx context.Context, secretID uuid.UUID, callerID uuid.UUID) ([]model.RotationHistory, error) {
 	secret, err := s.secretRepo.Read(ctx, secretID)
 	if err != nil {
 		return nil, fmt.Errorf("secret not found: %w", err)
@@ -439,7 +439,7 @@ func (s *rotationService) GetRotationHistory(ctx context.Context, secretID uuid.
 }
 
 // GetDueRotations gets secrets that are due for rotation for a user.
-func (s *rotationService) GetDueRotations(ctx context.Context, userID uuid.UUID) ([]domain.SecretPolicy, error) {
+func (s *rotationService) GetDueRotations(ctx context.Context, userID uuid.UUID) ([]model.SecretPolicy, error) {
 	due, err := s.rotationRepo.GetDueRotations(ctx, userID)
 	if err != nil {
 		s.log.WithError(err).WithField("user_id", userID).Error("Failed to get due rotations")
@@ -452,12 +452,12 @@ func (s *rotationService) GetDueRotations(ctx context.Context, userID uuid.UUID)
 // CreateRotationReminder creates a rotation reminder.
 func (s *rotationService) CreateRotationReminder(ctx context.Context, req CreateReminderRequest) error {
 	// Validate reminder type
-	if req.ReminderType != domain.ReminderUpcoming && req.ReminderType != domain.ReminderOverdue {
+	if req.ReminderType != model.ReminderUpcoming && req.ReminderType != model.ReminderOverdue {
 		return fmt.Errorf("invalid reminder type: %s", req.ReminderType)
 	}
 
 	now := time.Now()
-	reminder := &domain.RotationReminder{
+	reminder := &model.RotationReminder{
 		ID:             uuid.New(),
 		SecretID:       req.SecretID,
 		PolicyID:       req.PolicyID,
@@ -483,7 +483,7 @@ func (s *rotationService) CreateRotationReminder(ctx context.Context, req Create
 }
 
 // GetUpcomingReminders gets upcoming rotation reminders for a user.
-func (s *rotationService) GetUpcomingReminders(ctx context.Context, userID uuid.UUID) ([]domain.RotationReminder, error) {
+func (s *rotationService) GetUpcomingReminders(ctx context.Context, userID uuid.UUID) ([]model.RotationReminder, error) {
 	reminders, err := s.rotationRepo.GetUpcomingReminders(ctx, userID)
 	if err != nil {
 		s.log.WithError(err).WithField("user_id", userID).Error("Failed to get upcoming reminders")
@@ -497,7 +497,7 @@ func (s *rotationService) GetUpcomingReminders(ctx context.Context, userID uuid.
 func (s *rotationService) AcknowledgeReminder(ctx context.Context, reminderID uuid.UUID) error {
 	// This would typically fetch the reminder first, then update it
 	// For simplicity, we'll create a reminder object with just the ID and acknowledged status
-	reminder := &domain.RotationReminder{
+	reminder := &model.RotationReminder{
 		ID:           reminderID,
 		Acknowledged: true,
 	}

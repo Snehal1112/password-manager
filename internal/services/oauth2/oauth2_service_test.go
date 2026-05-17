@@ -11,7 +11,7 @@ import (
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 
-	"rocketvault/internal/domain"
+	"rocketvault/model"
 	"rocketvault/internal/repositories"
 	oauth2svc "rocketvault/internal/services/oauth2"
 )
@@ -20,31 +20,31 @@ import (
 
 type mockOAuth2ClientRepo struct{ mock.Mock }
 
-func (m *mockOAuth2ClientRepo) Create(ctx context.Context, c *domain.OAuth2Client) error {
+func (m *mockOAuth2ClientRepo) Create(ctx context.Context, c *model.OAuth2Client) error {
 	return m.Called(ctx, c).Error(0)
 }
-func (m *mockOAuth2ClientRepo) GetByID(ctx context.Context, id uuid.UUID) (*domain.OAuth2Client, error) {
+func (m *mockOAuth2ClientRepo) GetByID(ctx context.Context, id uuid.UUID) (*model.OAuth2Client, error) {
 	args := m.Called(ctx, id)
 	if args.Get(0) == nil {
 		return nil, args.Error(1)
 	}
-	return args.Get(0).(*domain.OAuth2Client), args.Error(1)
+	return args.Get(0).(*model.OAuth2Client), args.Error(1)
 }
-func (m *mockOAuth2ClientRepo) FindByName(ctx context.Context, name string) (*domain.OAuth2Client, error) {
+func (m *mockOAuth2ClientRepo) FindByName(ctx context.Context, name string) (*model.OAuth2Client, error) {
 	args := m.Called(ctx, name)
 	if args.Get(0) == nil {
 		return nil, args.Error(1)
 	}
-	return args.Get(0).(*domain.OAuth2Client), args.Error(1)
+	return args.Get(0).(*model.OAuth2Client), args.Error(1)
 }
-func (m *mockOAuth2ClientRepo) List(ctx context.Context) ([]*domain.OAuth2Client, error) {
+func (m *mockOAuth2ClientRepo) List(ctx context.Context) ([]*model.OAuth2Client, error) {
 	args := m.Called(ctx)
 	if args.Get(0) == nil {
 		return nil, args.Error(1)
 	}
-	return args.Get(0).([]*domain.OAuth2Client), args.Error(1)
+	return args.Get(0).([]*model.OAuth2Client), args.Error(1)
 }
-func (m *mockOAuth2ClientRepo) Update(ctx context.Context, c *domain.OAuth2Client) error {
+func (m *mockOAuth2ClientRepo) Update(ctx context.Context, c *model.OAuth2Client) error {
 	return m.Called(ctx, c).Error(0)
 }
 func (m *mockOAuth2ClientRepo) Delete(ctx context.Context, id uuid.UUID) error {
@@ -95,7 +95,7 @@ func TestOAuth2Service_IssueToken_Success(t *testing.T) {
 	svc := buildService(repo, pw, jwt)
 
 	clientID := uuid.New()
-	client := &domain.OAuth2Client{
+	client := &model.OAuth2Client{
 		ID:        clientID,
 		Name:      "my-app",
 		Enabled:   true,
@@ -132,7 +132,7 @@ func TestOAuth2Service_IssueToken_WrongSecret(t *testing.T) {
 	jwt := &mockJWTService{}
 	svc := buildService(repo, pw, jwt)
 
-	client := &domain.OAuth2Client{ID: uuid.New(), Name: "svc", Enabled: true, CreatedAt: time.Now().UTC()}
+	client := &model.OAuth2Client{ID: uuid.New(), Name: "svc", Enabled: true, CreatedAt: time.Now().UTC()}
 	repo.On("FindByName", mock.Anything, "svc").Return(client, nil)
 	pw.On("ValidatePassword", "wrong", client.ClientSecret).Return(errors.New("hash mismatch"))
 
@@ -147,7 +147,7 @@ func TestOAuth2Service_IssueToken_DisabledClient(t *testing.T) {
 	jwt := &mockJWTService{}
 	svc := buildService(repo, pw, jwt)
 
-	client := &domain.OAuth2Client{ID: uuid.New(), Name: "disabled", Enabled: false, CreatedAt: time.Now().UTC()}
+	client := &model.OAuth2Client{ID: uuid.New(), Name: "disabled", Enabled: false, CreatedAt: time.Now().UTC()}
 	repo.On("FindByName", mock.Anything, "disabled").Return(client, nil)
 
 	_, err := svc.IssueToken(context.Background(), "disabled", "anything")
@@ -162,7 +162,7 @@ func TestOAuth2Service_CreateClient_HashesSecret(t *testing.T) {
 	svc := buildService(repo, pw, jwt)
 
 	pw.On("HashPassword", mock.AnythingOfType("string")).Return("hashed-secret", nil)
-	repo.On("Create", mock.Anything, mock.AnythingOfType("*domain.OAuth2Client")).Return(nil)
+	repo.On("Create", mock.Anything, mock.AnythingOfType("*model.OAuth2Client")).Return(nil)
 
 	client, plainSecret, err := svc.CreateClient(context.Background(), "new-app", "a description", nil)
 	require.NoError(t, err)
@@ -178,7 +178,7 @@ func TestOAuth2Service_IssueToken_ExpiredClient(t *testing.T) {
 	svc := buildService(repo, pw, jwt)
 
 	past := time.Now().UTC().Add(-24 * time.Hour)
-	client := &domain.OAuth2Client{
+	client := &model.OAuth2Client{
 		ID:        uuid.New(),
 		Name:      "expired-svc",
 		Enabled:   true,
@@ -200,11 +200,11 @@ func TestOAuth2Service_RotateSecret_ReturnsPlainText(t *testing.T) {
 	svc := buildService(repo, pw, jwt)
 
 	clientID := uuid.New()
-	existing := &domain.OAuth2Client{ID: clientID, Name: "rotate-me", Enabled: true, CreatedAt: time.Now().UTC()}
+	existing := &model.OAuth2Client{ID: clientID, Name: "rotate-me", Enabled: true, CreatedAt: time.Now().UTC()}
 
 	repo.On("GetByID", mock.Anything, clientID).Return(existing, nil)
 	pw.On("HashPassword", mock.AnythingOfType("string")).Return("new-hash", nil)
-	repo.On("Update", mock.Anything, mock.AnythingOfType("*domain.OAuth2Client")).Return(nil)
+	repo.On("Update", mock.Anything, mock.AnythingOfType("*model.OAuth2Client")).Return(nil)
 
 	plain, err := svc.RotateSecret(context.Background(), clientID)
 	require.NoError(t, err)

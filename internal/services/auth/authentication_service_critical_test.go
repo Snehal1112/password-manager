@@ -14,7 +14,7 @@ import (
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 
-	"rocketvault/internal/domain"
+	"rocketvault/model"
 	"rocketvault/internal/logging"
 )
 
@@ -47,7 +47,7 @@ func TestAuthenticateUser_UserNotFound(t *testing.T) {
 	totp := &MockTOTPService{}
 	jwt := &MockJWTService{}
 
-	userRepo.On("ReadByUsername", ctx, "nobody").Return(domain.User{}, errors.New("not found"))
+	userRepo.On("ReadByUsername", ctx, "nobody").Return(model.User{}, errors.New("not found"))
 
 	svc := newAuthService(userRepo, sessionRepo, pwd, totp, jwt)
 	result, err := svc.AuthenticateUser(ctx, "nobody", "pass", "123456")
@@ -65,7 +65,7 @@ func TestValidateSession_HappyPath(t *testing.T) {
 	ctx := context.Background()
 	userID := uuid.New()
 
-	claims := &JWTClaims{UserID: userID, Username: "alice", Role: domain.RoleUser}
+	claims := &JWTClaims{UserID: userID, Username: "alice", Role: model.RoleUser}
 
 	userRepo := &MockUserRepository{}
 	sessionRepo := &MockSessionRepository{}
@@ -110,13 +110,13 @@ func TestRefreshAccessToken_HappyPath(t *testing.T) {
 	userID := uuid.New()
 	sessionID := uuid.New()
 
-	session := &domain.Session{
+	session := &model.Session{
 		ID:       sessionID,
 		UserID:   userID,
 		Revoked:  false,
 		ExpiresAt: time.Now().Add(time.Hour),
 	}
-	user := &domain.User{ID: userID, Username: "bob", Role: domain.RoleUser}
+	user := &model.User{ID: userID, Username: "bob", Role: model.RoleUser}
 
 	userRepo := &MockUserRepository{}
 	sessionRepo := &MockSessionRepository{}
@@ -126,7 +126,7 @@ func TestRefreshAccessToken_HappyPath(t *testing.T) {
 
 	sessionRepo.On("GetSessionByRefreshToken", ctx, mock.AnythingOfType("string")).Return(session, nil)
 	userRepo.On("Read", ctx, userID).Return(user, nil)
-	jwt.On("GenerateToken", userID, "bob", domain.RoleUser).Return("new-token", nil)
+	jwt.On("GenerateToken", userID, "bob", model.RoleUser).Return("new-token", nil)
 	sessionRepo.On("UpdateSessionLastUsed", ctx, sessionID, mock.AnythingOfType("time.Time")).Return(nil)
 
 	svc := newAuthService(userRepo, sessionRepo, pwd, totp, jwt)
@@ -142,7 +142,7 @@ func TestRefreshAccessToken_RevokedSession(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 
-	session := &domain.Session{
+	session := &model.Session{
 		ID:        uuid.New(),
 		UserID:    uuid.New(),
 		Revoked:   true,
@@ -168,7 +168,7 @@ func TestRefreshAccessToken_ExpiredSession(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 
-	session := &domain.Session{
+	session := &model.Session{
 		ID:        uuid.New(),
 		UserID:    uuid.New(),
 		Revoked:   false,

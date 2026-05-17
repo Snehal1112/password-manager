@@ -3,7 +3,7 @@ package validation
 import (
 	validation "github.com/go-ozzo/ozzo-validation/v4"
 
-	"rocketvault/internal/domain"
+	"rocketvault/model"
 )
 
 // KeyCreateRequest represents the input for creating a cryptographic key.
@@ -31,16 +31,16 @@ func ValidateKeyCreate(req KeyCreateRequest) error {
 		),
 		validation.Field(&req.Type,
 			validation.Required,
-			validation.In(domain.KeyTypeRSA, domain.KeyTypeECDSA),
+			validation.In(model.KeyTypeRSA, model.KeyTypeECDSA),
 		),
 		validation.Field(&req.Bits,
-			validation.When(req.Type == domain.KeyTypeRSA,
+			validation.When(req.Type == model.KeyTypeRSA,
 				validation.Required,
 				validation.In(2048, 4096),
 			),
 		),
 		validation.Field(&req.Curve,
-			validation.When(req.Type == domain.KeyTypeECDSA,
+			validation.When(req.Type == model.KeyTypeECDSA,
 				validation.Required,
 				validation.In("P-256", "P-384", "P-521"),
 			),
@@ -69,7 +69,7 @@ func ValidateKeyUpdate(req KeyUpdateRequest) error {
 }
 
 // ValidateKey validates a domain key entity.
-func ValidateKey(key *domain.Key) error {
+func ValidateKey(key *model.Key) error {
 	return validation.ValidateStruct(key,
 		validation.Field(&key.ID,
 			validation.Required,
@@ -86,7 +86,7 @@ func ValidateKey(key *domain.Key) error {
 		),
 		validation.Field(&key.Type,
 			validation.Required,
-			validation.In(domain.KeyTypeRSA, domain.KeyTypeECDSA),
+			validation.In(model.KeyTypeRSA, model.KeyTypeECDSA),
 		),
 		validation.Field(&key.Value,
 			validation.Required,

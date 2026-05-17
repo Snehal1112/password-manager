@@ -17,7 +17,7 @@ import (
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 
-	"rocketvault/internal/domain"
+	"rocketvault/model"
 	"rocketvault/internal/logging"
 	"rocketvault/internal/repositories"
 )
@@ -28,17 +28,17 @@ type MockUserRepository struct {
 	mock.Mock
 }
 
-func (m *MockUserRepository) Create(ctx context.Context, user *domain.User) error {
+func (m *MockUserRepository) Create(ctx context.Context, user *model.User) error {
 	args := m.Called(ctx, user)
 	return args.Error(0)
 }
 
-func (m *MockUserRepository) Read(ctx context.Context, id uuid.UUID) (*domain.User, error) {
+func (m *MockUserRepository) Read(ctx context.Context, id uuid.UUID) (*model.User, error) {
 	args := m.Called(ctx, id)
-	return args.Get(0).(*domain.User), args.Error(1)
+	return args.Get(0).(*model.User), args.Error(1)
 }
 
-func (m *MockUserRepository) Update(ctx context.Context, user *domain.User) error {
+func (m *MockUserRepository) Update(ctx context.Context, user *model.User) error {
 	args := m.Called(ctx, user)
 	return args.Error(0)
 }
@@ -48,14 +48,14 @@ func (m *MockUserRepository) Delete(ctx context.Context, id uuid.UUID) error {
 	return args.Error(0)
 }
 
-func (m *MockUserRepository) ReadByUsername(ctx context.Context, username string) (domain.User, error) {
+func (m *MockUserRepository) ReadByUsername(ctx context.Context, username string) (model.User, error) {
 	args := m.Called(ctx, username)
-	return args.Get(0).(domain.User), args.Error(1)
+	return args.Get(0).(model.User), args.Error(1)
 }
 
-func (m *MockUserRepository) List(ctx context.Context) ([]domain.User, error) {
+func (m *MockUserRepository) List(ctx context.Context) ([]model.User, error) {
 	args := m.Called(ctx)
-	return args.Get(0).([]domain.User), args.Error(1)
+	return args.Get(0).([]model.User), args.Error(1)
 }
 
 func (m *MockUserRepository) ValidateBootstrapToken(ctx context.Context, token string) (bool, error) {
@@ -128,33 +128,33 @@ type MockSessionRepository struct {
 	mock.Mock
 }
 
-func (m *MockSessionRepository) CreateSession(ctx context.Context, session *domain.Session) error {
+func (m *MockSessionRepository) CreateSession(ctx context.Context, session *model.Session) error {
 	args := m.Called(ctx, session)
 	return args.Error(0)
 }
 
-func (m *MockSessionRepository) GetSessionByID(ctx context.Context, sessionID uuid.UUID) (*domain.Session, error) {
+func (m *MockSessionRepository) GetSessionByID(ctx context.Context, sessionID uuid.UUID) (*model.Session, error) {
 	args := m.Called(ctx, sessionID)
 	if args.Get(0) == nil {
 		return nil, args.Error(1)
 	}
-	return args.Get(0).(*domain.Session), args.Error(1)
+	return args.Get(0).(*model.Session), args.Error(1)
 }
 
-func (m *MockSessionRepository) GetSessionByRefreshToken(ctx context.Context, refreshTokenHash string) (*domain.Session, error) {
+func (m *MockSessionRepository) GetSessionByRefreshToken(ctx context.Context, refreshTokenHash string) (*model.Session, error) {
 	args := m.Called(ctx, refreshTokenHash)
 	if args.Get(0) == nil {
 		return nil, args.Error(1)
 	}
-	return args.Get(0).(*domain.Session), args.Error(1)
+	return args.Get(0).(*model.Session), args.Error(1)
 }
 
-func (m *MockSessionRepository) GetActiveSessionsByUserID(ctx context.Context, userID uuid.UUID) ([]*domain.Session, error) {
+func (m *MockSessionRepository) GetActiveSessionsByUserID(ctx context.Context, userID uuid.UUID) ([]*model.Session, error) {
 	args := m.Called(ctx, userID)
 	if args.Get(0) == nil {
 		return nil, args.Error(1)
 	}
-	return args.Get(0).([]*domain.Session), args.Error(1)
+	return args.Get(0).([]*model.Session), args.Error(1)
 }
 
 func (m *MockSessionRepository) UpdateSessionLastUsed(ctx context.Context, sessionID uuid.UUID, lastUsedAt time.Time) error {
@@ -206,20 +206,20 @@ func TestAuthenticationService_AuthenticateUser_Success(t *testing.T) {
 
 	// Create test user
 	userID := uuid.New()
-	user := domain.User{
+	user := model.User{
 		ID:           userID,
 		Username:     "testuser",
 		PasswordHash: "hashedpassword",
 		TOTPSecret:   "secret123",
-		Role:         domain.RoleUser,
+		Role:         model.RoleUser,
 	}
 
 	// Setup expectations
 	mockUserRepo.On("ReadByUsername", ctx, "testuser").Return(user, nil)
 	mockPasswordService.On("ValidatePassword", "password123", "hashedpassword").Return(nil)
 	mockTOTPService.On("ValidateCode", "123456", "secret123", mock.AnythingOfType("time.Time")).Return(true, nil)
-	mockJWTService.On("GenerateToken", userID, "testuser", domain.RoleUser).Return("jwt_token", nil)
-	mockSessionRepo.On("CreateSession", ctx, mock.AnythingOfType("*domain.Session")).Return(nil)
+	mockJWTService.On("GenerateToken", userID, "testuser", model.RoleUser).Return("jwt_token", nil)
+	mockSessionRepo.On("CreateSession", ctx, mock.AnythingOfType("*model.Session")).Return(nil)
 
 	// Create service
 	service := NewAuthenticationService(AuthenticationConfig{
@@ -241,7 +241,7 @@ func TestAuthenticationService_AuthenticateUser_Success(t *testing.T) {
 	assert.NotEmpty(t, result.RefreshToken) // Should have refresh token
 	assert.Equal(t, userID, result.UserID)
 	assert.Equal(t, "testuser", result.Username)
-	assert.Equal(t, domain.RoleUser, result.Role)
+	assert.Equal(t, model.RoleUser, result.Role)
 
 	// Verify all mocks were called
 	mockUserRepo.AssertExpectations(t)
@@ -267,12 +267,12 @@ func TestAuthenticationService_AuthenticateUser_InvalidPassword(t *testing.T) {
 
 	// Create test user
 	userID := uuid.New()
-	user := domain.User{
+	user := model.User{
 		ID:           userID,
 		Username:     "testuser",
 		PasswordHash: "hashedpassword",
 		TOTPSecret:   "secret123",
-		Role:         domain.RoleUser,
+		Role:         model.RoleUser,
 	}
 
 	// Setup expectations
@@ -320,12 +320,12 @@ func TestAuthenticationService_AuthenticateUser_InvalidTOTP(t *testing.T) {
 
 	// Create test user
 	userID := uuid.New()
-	user := domain.User{
+	user := model.User{
 		ID:           userID,
 		Username:     "testuser",
 		PasswordHash: "hashedpassword",
 		TOTPSecret:   "secret123",
-		Role:         domain.RoleUser,
+		Role:         model.RoleUser,
 	}
 
 	// Setup expectations
@@ -395,12 +395,12 @@ func TestAuthenticateUser_FailedTOTP_DoesNotLogCode(t *testing.T) {
 	mockTOTPService := &MockTOTPService{}
 	mockJWTService := &MockJWTService{}
 
-	testUser := domain.User{
+	testUser := model.User{
 		ID:           uuid.New(),
 		Username:     "alice",
 		PasswordHash: "$2a$10$test",
 		TOTPSecret:   "JBSWY3DPEHPK3PXP",
-		Role:         domain.RoleUser,
+		Role:         model.RoleUser,
 	}
 
 	mockUserRepo.On("ReadByUsername", mock.Anything, "alice").Return(testUser, nil)

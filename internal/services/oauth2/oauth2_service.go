@@ -12,7 +12,7 @@ import (
 
 	"github.com/google/uuid"
 
-	"rocketvault/internal/domain"
+	"rocketvault/model"
 	"rocketvault/internal/repositories"
 )
 
@@ -50,9 +50,9 @@ type OAuth2Service interface {
 	IssueToken(ctx context.Context, clientName, clientSecret string) (*TokenResponse, error)
 	// CreateClient registers a new service account; returns the plain-text secret once.
 	// expiresAt is optional — pass nil for a non-expiring service account.
-	CreateClient(ctx context.Context, name, description string, expiresAt *time.Time) (*domain.OAuth2Client, string, error)
-	GetClient(ctx context.Context, id uuid.UUID) (*domain.OAuth2Client, error)
-	ListClients(ctx context.Context) ([]*domain.OAuth2Client, error)
+	CreateClient(ctx context.Context, name, description string, expiresAt *time.Time) (*model.OAuth2Client, string, error)
+	GetClient(ctx context.Context, id uuid.UUID) (*model.OAuth2Client, error)
+	ListClients(ctx context.Context) ([]*model.OAuth2Client, error)
 	// RotateSecret generates a new secret; returns the plain-text secret once.
 	RotateSecret(ctx context.Context, id uuid.UUID) (string, error)
 	DeleteClient(ctx context.Context, id uuid.UUID) error
@@ -101,7 +101,7 @@ func (s *oauth2Service) IssueToken(ctx context.Context, clientName, secret strin
 		return nil, fmt.Errorf("invalid client credentials")
 	}
 
-	tokenStr, err := s.jwtSvc.GenerateToken(client.ID, client.Name, domain.RoleServiceAccount)
+	tokenStr, err := s.jwtSvc.GenerateToken(client.ID, client.Name, model.RoleServiceAccount)
 	if err != nil {
 		return nil, fmt.Errorf("failed to issue token: %w", err)
 	}
@@ -116,7 +116,7 @@ func (s *oauth2Service) IssueToken(ctx context.Context, clientName, secret strin
 // CreateClient registers a new service account.
 // A cryptographically random 32-byte plain-text secret is generated, hashed,
 // stored, and returned once — it cannot be recovered after this call.
-func (s *oauth2Service) CreateClient(ctx context.Context, name, description string, expiresAt *time.Time) (*domain.OAuth2Client, string, error) {
+func (s *oauth2Service) CreateClient(ctx context.Context, name, description string, expiresAt *time.Time) (*model.OAuth2Client, string, error) {
 	plain, err := generateSecret()
 	if err != nil {
 		return nil, "", fmt.Errorf("failed to generate client secret: %w", err)
@@ -127,7 +127,7 @@ func (s *oauth2Service) CreateClient(ctx context.Context, name, description stri
 		return nil, "", fmt.Errorf("failed to hash client secret: %w", err)
 	}
 
-	client := &domain.OAuth2Client{
+	client := &model.OAuth2Client{
 		ID:           uuid.New(),
 		Name:         name,
 		ClientSecret: hash,
@@ -145,7 +145,7 @@ func (s *oauth2Service) CreateClient(ctx context.Context, name, description stri
 }
 
 // GetClient returns a single OAuth2 client by ID.
-func (s *oauth2Service) GetClient(ctx context.Context, id uuid.UUID) (*domain.OAuth2Client, error) {
+func (s *oauth2Service) GetClient(ctx context.Context, id uuid.UUID) (*model.OAuth2Client, error) {
 	c, err := s.repo.GetByID(ctx, id)
 	if err != nil {
 		return nil, fmt.Errorf("client not found: %w", err)
@@ -155,7 +155,7 @@ func (s *oauth2Service) GetClient(ctx context.Context, id uuid.UUID) (*domain.OA
 }
 
 // ListClients returns all registered service accounts (secrets redacted).
-func (s *oauth2Service) ListClients(ctx context.Context) ([]*domain.OAuth2Client, error) {
+func (s *oauth2Service) ListClients(ctx context.Context) ([]*model.OAuth2Client, error) {
 	clients, err := s.repo.List(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("failed to list clients: %w", err)

@@ -18,7 +18,7 @@ import (
 	"github.com/ulule/limiter/v3/drivers/store/memory"
 
 	"rocketvault/common"
-	"rocketvault/internal/domain"
+	"rocketvault/model"
 	"rocketvault/internal/logging"
 	"rocketvault/internal/repositories"
 	authServices "rocketvault/internal/services/auth"
@@ -800,41 +800,41 @@ type MockAccessPolicyService struct {
 	mock.Mock
 }
 
-func (m *MockAccessPolicyService) CheckAccess(ctx context.Context, principalID uuid.UUID, resourceType domain.PolicyResourceType, op domain.PolicyOperation) (authzServices.AccessDecision, error) {
+func (m *MockAccessPolicyService) CheckAccess(ctx context.Context, principalID uuid.UUID, resourceType model.PolicyResourceType, op model.PolicyOperation) (authzServices.AccessDecision, error) {
 	args := m.Called(ctx, principalID, resourceType, op)
 	return args.Get(0).(authzServices.AccessDecision), args.Error(1)
 }
 
-func (m *MockAccessPolicyService) CreatePolicy(ctx context.Context, policy *domain.AccessPolicy) error {
+func (m *MockAccessPolicyService) CreatePolicy(ctx context.Context, policy *model.AccessPolicy) error {
 	args := m.Called(ctx, policy)
 	return args.Error(0)
 }
 
-func (m *MockAccessPolicyService) GetPolicy(ctx context.Context, id uuid.UUID) (*domain.AccessPolicy, error) {
+func (m *MockAccessPolicyService) GetPolicy(ctx context.Context, id uuid.UUID) (*model.AccessPolicy, error) {
 	args := m.Called(ctx, id)
 	if args.Get(0) == nil {
 		return nil, args.Error(1)
 	}
-	return args.Get(0).(*domain.AccessPolicy), args.Error(1)
+	return args.Get(0).(*model.AccessPolicy), args.Error(1)
 }
 
-func (m *MockAccessPolicyService) ListPolicies(ctx context.Context) ([]*domain.AccessPolicy, error) {
+func (m *MockAccessPolicyService) ListPolicies(ctx context.Context) ([]*model.AccessPolicy, error) {
 	args := m.Called(ctx)
 	if args.Get(0) == nil {
 		return nil, args.Error(1)
 	}
-	return args.Get(0).([]*domain.AccessPolicy), args.Error(1)
+	return args.Get(0).([]*model.AccessPolicy), args.Error(1)
 }
 
-func (m *MockAccessPolicyService) ListByPrincipal(ctx context.Context, principalID uuid.UUID) ([]*domain.AccessPolicy, error) {
+func (m *MockAccessPolicyService) ListByPrincipal(ctx context.Context, principalID uuid.UUID) ([]*model.AccessPolicy, error) {
 	args := m.Called(ctx, principalID)
 	if args.Get(0) == nil {
 		return nil, args.Error(1)
 	}
-	return args.Get(0).([]*domain.AccessPolicy), args.Error(1)
+	return args.Get(0).([]*model.AccessPolicy), args.Error(1)
 }
 
-func (m *MockAccessPolicyService) UpdatePolicy(ctx context.Context, policy *domain.AccessPolicy) error {
+func (m *MockAccessPolicyService) UpdatePolicy(ctx context.Context, policy *model.AccessPolicy) error {
 	args := m.Called(ctx, policy)
 	return args.Error(0)
 }
@@ -867,7 +867,7 @@ func TestPolicyMiddleware_FallbackPassesThrough(t *testing.T) {
 	mw, _, mockPolicySvc := setupPolicyMiddlewareTest(t)
 
 	userID := uuid.New()
-	mockPolicySvc.On("CheckAccess", mock.Anything, userID, domain.PolicyResourceType("secrets"), domain.PolicyOperation("get")).Return(authzServices.AccessFallback, nil)
+	mockPolicySvc.On("CheckAccess", mock.Anything, userID, model.PolicyResourceType("secrets"), model.PolicyOperation("get")).Return(authzServices.AccessFallback, nil)
 
 	nextCalled := false
 	nextHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -892,7 +892,7 @@ func TestPolicyMiddleware_ExplicitDenyBlocks(t *testing.T) {
 	mw, _, mockPolicySvc := setupPolicyMiddlewareTest(t)
 
 	userID := uuid.New()
-	mockPolicySvc.On("CheckAccess", mock.Anything, userID, domain.PolicyResourceType("secrets"), domain.PolicyOperation("create")).Return(authzServices.AccessDenied, nil)
+	mockPolicySvc.On("CheckAccess", mock.Anything, userID, model.PolicyResourceType("secrets"), model.PolicyOperation("create")).Return(authzServices.AccessDenied, nil)
 
 	nextCalled := false
 	nextHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -916,7 +916,7 @@ func TestPolicyMiddleware_ExplicitAllowPassesThrough(t *testing.T) {
 	mw, _, mockPolicySvc := setupPolicyMiddlewareTest(t)
 
 	userID := uuid.New()
-	mockPolicySvc.On("CheckAccess", mock.Anything, userID, domain.PolicyResourceType("secrets"), domain.PolicyOperation("get")).Return(authzServices.AccessAllowed, nil)
+	mockPolicySvc.On("CheckAccess", mock.Anything, userID, model.PolicyResourceType("secrets"), model.PolicyOperation("get")).Return(authzServices.AccessAllowed, nil)
 
 	nextCalled := false
 	nextHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -968,7 +968,7 @@ func TestPolicyMiddleware_ErrorDeniesRequest(t *testing.T) {
 
 	userID := uuid.New()
 	// Simulate DB outage or other error during policy evaluation.
-	mockPolicySvc.On("CheckAccess", mock.Anything, userID, domain.PolicyResourceType("secrets"), domain.PolicyOperation("get")).Return(authzServices.AccessFallback, fmt.Errorf("database connection refused"))
+	mockPolicySvc.On("CheckAccess", mock.Anything, userID, model.PolicyResourceType("secrets"), model.PolicyOperation("get")).Return(authzServices.AccessFallback, fmt.Errorf("database connection refused"))
 
 	nextCalled := false
 	nextHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

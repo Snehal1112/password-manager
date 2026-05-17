@@ -13,7 +13,7 @@ import (
 
 	"rocketvault/common"
 	"rocketvault/internal/crypto"
-	"rocketvault/internal/domain"
+	"rocketvault/model"
 	"rocketvault/internal/logging"
 	"rocketvault/internal/repositories"
 )
@@ -52,9 +52,9 @@ type UpdateKeyRequest struct {
 type KeyService interface {
 	CreateRSAKey(ctx context.Context, req CreateKeyRequest) (*CreateKeyResult, error)
 	CreateECDSAKey(ctx context.Context, req CreateKeyRequest) (*CreateKeyResult, error)
-	GetKey(ctx context.Context, keyID, userID uuid.UUID) (*domain.Key, error)
-	ListKeys(ctx context.Context, userID uuid.UUID) ([]domain.Key, error)
-	ListKeysWithFilters(ctx context.Context, userID *uuid.UUID, keyType string, tags []string, isAdmin bool) ([]domain.Key, error)
+	GetKey(ctx context.Context, keyID, userID uuid.UUID) (*model.Key, error)
+	ListKeys(ctx context.Context, userID uuid.UUID) ([]model.Key, error)
+	ListKeysWithFilters(ctx context.Context, userID *uuid.UUID, keyType string, tags []string, isAdmin bool) ([]model.Key, error)
 	UpdateKey(ctx context.Context, req UpdateKeyRequest) error
 	DeleteKey(ctx context.Context, keyID, userID uuid.UUID) error
 	RotateKey(ctx context.Context, keyID, userID uuid.UUID) (*CreateKeyResult, error)
@@ -127,11 +127,11 @@ func (s *keyService) CreateRSAKey(ctx context.Context, req CreateKeyRequest) (*C
 	}
 
 	// Create key entity
-	key := &domain.Key{
+	key := &model.Key{
 		ID:        uuid.New(),
 		UserID:    req.UserID,
 		Name:      req.Name,
-		Type:      domain.KeyTypeRSA,
+		Type:      model.KeyTypeRSA,
 		Value:     encryptedKey,
 		Revoked:   false,
 		CreatedAt: time.Now(),
@@ -198,11 +198,11 @@ func (s *keyService) CreateECDSAKey(ctx context.Context, req CreateKeyRequest) (
 	}
 
 	// Create key entity
-	key := &domain.Key{
+	key := &model.Key{
 		ID:        uuid.New(),
 		UserID:    req.UserID,
 		Name:      req.Name,
-		Type:      domain.KeyTypeECDSA,
+		Type:      model.KeyTypeECDSA,
 		Value:     encryptedKey,
 		Revoked:   false,
 		CreatedAt: time.Now(),
@@ -240,7 +240,7 @@ func (s *keyService) CreateECDSAKey(ctx context.Context, req CreateKeyRequest) (
 //
 // Returns:
 //   The key information or an error if not found or access denied.
-func (s *keyService) GetKey(ctx context.Context, keyID, userID uuid.UUID) (*domain.Key, error) {
+func (s *keyService) GetKey(ctx context.Context, keyID, userID uuid.UUID) (*model.Key, error) {
 	// Log key access attempt with detailed context
 	s.logger.LogAuditInfo(userID.String(), "get_key", "attempt",
 		fmt.Sprintf("Accessing key: %s", keyID))
@@ -284,7 +284,7 @@ func (s *keyService) GetKey(ctx context.Context, keyID, userID uuid.UUID) (*doma
 //
 // Returns:
 //   A slice of user's keys or an error if retrieval fails.
-func (s *keyService) ListKeys(ctx context.Context, userID uuid.UUID) ([]domain.Key, error) {
+func (s *keyService) ListKeys(ctx context.Context, userID uuid.UUID) ([]model.Key, error) {
 	return s.keyRepo.ListByUser(ctx, &userID, "", nil)
 }
 
@@ -300,7 +300,7 @@ func (s *keyService) ListKeys(ctx context.Context, userID uuid.UUID) ([]domain.K
 //
 // Returns:
 //   A slice of keys matching the filters or an error if retrieval fails.
-func (s *keyService) ListKeysWithFilters(ctx context.Context, userID *uuid.UUID, keyType string, tags []string, isAdmin bool) ([]domain.Key, error) {
+func (s *keyService) ListKeysWithFilters(ctx context.Context, userID *uuid.UUID, keyType string, tags []string, isAdmin bool) ([]model.Key, error) {
 	// Log the filter request
 	logFields := logrus.Fields{
 		"is_admin": isAdmin,
@@ -441,10 +441,10 @@ func (s *keyService) RotateKey(ctx context.Context, keyID, userID uuid.UUID) (*C
 
 	// Set type-specific parameters and create new key
 	switch existingKey.Type {
-	case domain.KeyTypeRSA:
+	case model.KeyTypeRSA:
 		req.Bits = 2048 // Default RSA size for rotation
 		return s.CreateRSAKey(ctx, req)
-	case domain.KeyTypeECDSA:
+	case model.KeyTypeECDSA:
 		req.Curve = "P-256" // Default ECDSA curve for rotation
 		return s.CreateECDSAKey(ctx, req)
 	default:
@@ -466,7 +466,7 @@ func (s *keyService) RotateKey(ctx context.Context, keyID, userID uuid.UUID) (*C
 //   An error if access is denied.
 func (s *keyService) ValidateKeyAccess(ctx context.Context, keyID, userID uuid.UUID, role string) error {
 	// Admin users have access to all keys
-	if role == domain.RoleAdmin {
+	if role == model.RoleAdmin {
 		return nil
 	}
 

@@ -8,7 +8,7 @@ import (
 	validation "github.com/go-ozzo/ozzo-validation/v4"
 	"github.com/google/uuid"
 
-	"rocketvault/internal/domain"
+	"rocketvault/model"
 )
 
 // SecretCreateRequest represents the input for creating a secret.
@@ -81,7 +81,7 @@ func ValidateSecretUpdate(req SecretUpdateRequest) error {
 }
 
 // ValidateSecret validates a domain secret entity.
-func ValidateSecret(secret *domain.Secret) error {
+func ValidateSecret(secret *model.Secret) error {
 	return validation.ValidateStruct(secret,
 		validation.Field(&secret.ID,
 			validation.Required,

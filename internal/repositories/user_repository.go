@@ -14,16 +14,16 @@ import (
 	"github.com/sirupsen/logrus"
 
 	"rocketvault/internal/db"
-	"rocketvault/internal/domain"
+	"rocketvault/model"
 	"rocketvault/internal/logging"
 )
 
 // UserRepositoryInterface is a generic repository interface for user operations.
 // It provides type-safe CRUD operations for the User type.
 type UserRepositoryInterface interface {
-	db.Repository[domain.User]
-	ReadByUsername(ctx context.Context, username string) (domain.User, error)
-	List(ctx context.Context) ([]domain.User, error)
+	db.Repository[model.User]
+	ReadByUsername(ctx context.Context, username string) (model.User, error)
+	List(ctx context.Context) ([]model.User, error)
 	ValidateBootstrapToken(ctx context.Context, token string) (bool, error)
 	InvalidateBootstrapToken(ctx context.Context, token string) error
 }
@@ -86,7 +86,7 @@ func NewUserRepository(db *sql.DB, log *logging.Logger) UserRepositoryInterface 
 // Returns:
 //
 //	An error if the insertion fails.
-func (r *UserRepository) Create(ctx context.Context, user *domain.User) error {
+func (r *UserRepository) Create(ctx context.Context, user *model.User) error {
 	logrus.WithFields(logrus.Fields{
 		"username": user.Username,
 		"role":     user.Role,
@@ -136,8 +136,8 @@ func (r *UserRepository) Create(ctx context.Context, user *domain.User) error {
 // Returns:
 //
 //	The user entity or an error if not found.
-func (r *UserRepository) Read(ctx context.Context, id uuid.UUID) (*domain.User, error) {
-	var user domain.User
+func (r *UserRepository) Read(ctx context.Context, id uuid.UUID) (*model.User, error) {
+	var user model.User
 	var idStr string
 
 	err := r.db.QueryRowContext(
@@ -172,7 +172,7 @@ func (r *UserRepository) Read(ctx context.Context, id uuid.UUID) (*domain.User, 
 // Returns:
 //
 //	An error if the update fails.
-func (r *UserRepository) Update(ctx context.Context, user *domain.User) error {
+func (r *UserRepository) Update(ctx context.Context, user *model.User) error {
 	logrus.WithFields(logrus.Fields{
 		"user_id":  user.ID.String(),
 		"username": user.Username,
@@ -271,8 +271,8 @@ func (r *UserRepository) Delete(ctx context.Context, id uuid.UUID) error {
 // Returns:
 //
 //	The user entity or an error if not found.
-func (r *UserRepository) ReadByUsername(ctx context.Context, username string) (domain.User, error) {
-	var user domain.User
+func (r *UserRepository) ReadByUsername(ctx context.Context, username string) (model.User, error) {
+	var user model.User
 	var idStr string
 
 	err := r.db.QueryRowContext(
@@ -313,8 +313,8 @@ func (r *UserRepository) Login(ctx context.Context, username, password, totpCode
 // Returns:
 //
 //	A slice of all users or an error if retrieval fails.
-func (r *UserRepository) List(ctx context.Context) ([]domain.User, error) {
-	var users []domain.User
+func (r *UserRepository) List(ctx context.Context) ([]model.User, error) {
+	var users []model.User
 
 	err := r.queryWithMetrics("list_users", func() error {
 		// Optimized query with explicit column selection and ordering for better performance
@@ -327,10 +327,10 @@ func (r *UserRepository) List(ctx context.Context) ([]domain.User, error) {
 		defer rows.Close()
 
 		// Pre-allocate slice for better memory performance
-		users = make([]domain.User, 0, 100) // Assume max 100 users initially
+		users = make([]model.User, 0, 100) // Assume max 100 users initially
 
 		for rows.Next() {
-			var user domain.User
+			var user model.User
 			var idStr string
 
 			if err := rows.Scan(&idStr, &user.Username, &user.PasswordHash, &user.TOTPSecret, &user.Role, &user.CreatedAt); err != nil {

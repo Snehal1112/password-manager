@@ -11,7 +11,7 @@ _ "github.com/mattn/go-sqlite3"
 "github.com/stretchr/testify/assert"
 "github.com/stretchr/testify/require"
 
-"rocketvault/internal/domain"
+"rocketvault/model"
 "rocketvault/internal/repositories"
 )
 
@@ -41,7 +41,7 @@ func TestOAuth2ClientRepository_CreateAndGetByID(t *testing.T) {
 	repo := repositories.NewOAuth2ClientRepository(db)
 	ctx := context.Background()
 
-	client := &domain.OAuth2Client{
+	client := &model.OAuth2Client{
 		ID:           uuid.New(),
 		Name:         "my-service",
 		ClientSecret: "hashed-secret",
@@ -67,7 +67,7 @@ func TestOAuth2ClientRepository_FindByName(t *testing.T) {
 	repo := repositories.NewOAuth2ClientRepository(db)
 	ctx := context.Background()
 
-	client := &domain.OAuth2Client{
+	client := &model.OAuth2Client{
 		ID:           uuid.New(),
 		Name:         "find-by-name-client",
 		ClientSecret: "hash",
@@ -89,7 +89,7 @@ func TestOAuth2ClientRepository_List(t *testing.T) {
 	ctx := context.Background()
 
 	for _, name := range []string{"svc-a", "svc-b", "svc-c"} {
-		require.NoError(t, repo.Create(ctx, &domain.OAuth2Client{
+		require.NoError(t, repo.Create(ctx, &model.OAuth2Client{
 			ID:           uuid.New(),
 			Name:         name,
 			ClientSecret: "h",
@@ -109,7 +109,7 @@ func TestOAuth2ClientRepository_Update(t *testing.T) {
 	repo := repositories.NewOAuth2ClientRepository(db)
 	ctx := context.Background()
 
-	client := &domain.OAuth2Client{
+	client := &model.OAuth2Client{
 		ID:           uuid.New(),
 		Name:         "update-me",
 		ClientSecret: "old-hash",
@@ -134,7 +134,7 @@ func TestOAuth2ClientRepository_Delete(t *testing.T) {
 	repo := repositories.NewOAuth2ClientRepository(db)
 	ctx := context.Background()
 
-	client := &domain.OAuth2Client{
+	client := &model.OAuth2Client{
 		ID:           uuid.New(),
 		Name:         "delete-me",
 		ClientSecret: "h",

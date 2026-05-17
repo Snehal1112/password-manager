@@ -10,7 +10,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 
-	"rocketvault/internal/domain"
+	"rocketvault/model"
 	"rocketvault/internal/logging"
 )
 
@@ -19,19 +19,19 @@ type mockCertRepository struct {
 	mock.Mock
 }
 
-func (m *mockCertRepository) Create(ctx context.Context, cert *domain.Certificate) error {
+func (m *mockCertRepository) Create(ctx context.Context, cert *model.Certificate) error {
 	return m.Called(ctx, cert).Error(0)
 }
 
-func (m *mockCertRepository) Read(ctx context.Context, id uuid.UUID) (*domain.Certificate, error) {
+func (m *mockCertRepository) Read(ctx context.Context, id uuid.UUID) (*model.Certificate, error) {
 	args := m.Called(ctx, id)
 	if v := args.Get(0); v != nil {
-		return v.(*domain.Certificate), args.Error(1)
+		return v.(*model.Certificate), args.Error(1)
 	}
 	return nil, args.Error(1)
 }
 
-func (m *mockCertRepository) Update(ctx context.Context, cert *domain.Certificate) error {
+func (m *mockCertRepository) Update(ctx context.Context, cert *model.Certificate) error {
 	return m.Called(ctx, cert).Error(0)
 }
 
@@ -43,18 +43,18 @@ func (m *mockCertRepository) Revoke(ctx context.Context, id uuid.UUID, serialNum
 	return m.Called(ctx, id, serialNumber, name).Error(0)
 }
 
-func (m *mockCertRepository) ListByUser(ctx context.Context, userID uuid.UUID, certType string, tags []string) ([]domain.Certificate, error) {
+func (m *mockCertRepository) ListByUser(ctx context.Context, userID uuid.UUID, certType string, tags []string) ([]model.Certificate, error) {
 	args := m.Called(ctx, userID, certType, tags)
 	if v := args.Get(0); v != nil {
-		return v.([]domain.Certificate), args.Error(1)
+		return v.([]model.Certificate), args.Error(1)
 	}
 	return nil, args.Error(1)
 }
 
-func (m *mockCertRepository) ListRevoked(ctx context.Context, userID uuid.UUID) ([]domain.RevokedCertificate, error) {
+func (m *mockCertRepository) ListRevoked(ctx context.Context, userID uuid.UUID) ([]model.RevokedCertificate, error) {
 	args := m.Called(ctx, userID)
 	if v := args.Get(0); v != nil {
-		return v.([]domain.RevokedCertificate), args.Error(1)
+		return v.([]model.RevokedCertificate), args.Error(1)
 	}
 	return nil, args.Error(1)
 }
@@ -75,18 +75,18 @@ func (m *mockCertRepository) RecoverCertificate(ctx context.Context, id uuid.UUI
 	return m.Called(ctx, id).Error(0)
 }
 
-func (m *mockCertRepository) ListSoftDeleted(ctx context.Context, userID uuid.UUID) ([]*domain.Certificate, error) {
+func (m *mockCertRepository) ListSoftDeleted(ctx context.Context, userID uuid.UUID) ([]*model.Certificate, error) {
 	args := m.Called(ctx, userID)
 	if v := args.Get(0); v != nil {
-		return v.([]*domain.Certificate), args.Error(1)
+		return v.([]*model.Certificate), args.Error(1)
 	}
 	return nil, args.Error(1)
 }
 
-func (m *mockCertRepository) ListAll(ctx context.Context) ([]domain.Certificate, error) {
+func (m *mockCertRepository) ListAll(ctx context.Context) ([]model.Certificate, error) {
 	args := m.Called(ctx)
 	if v := args.Get(0); v != nil {
-		return v.([]domain.Certificate), args.Error(1)
+		return v.([]model.Certificate), args.Error(1)
 	}
 	return nil, args.Error(1)
 }
@@ -97,19 +97,19 @@ type mockKeyRepo struct {
 	mock.Mock
 }
 
-func (m *mockKeyRepo) Create(ctx context.Context, key *domain.Key) error {
+func (m *mockKeyRepo) Create(ctx context.Context, key *model.Key) error {
 	return m.Called(ctx, key).Error(0)
 }
 
-func (m *mockKeyRepo) Read(ctx context.Context, id uuid.UUID) (*domain.Key, error) {
+func (m *mockKeyRepo) Read(ctx context.Context, id uuid.UUID) (*model.Key, error) {
 	args := m.Called(ctx, id)
 	if v := args.Get(0); v != nil {
-		return v.(*domain.Key), args.Error(1)
+		return v.(*model.Key), args.Error(1)
 	}
 	return nil, args.Error(1)
 }
 
-func (m *mockKeyRepo) Update(ctx context.Context, key *domain.Key) error {
+func (m *mockKeyRepo) Update(ctx context.Context, key *model.Key) error {
 	return m.Called(ctx, key).Error(0)
 }
 
@@ -129,10 +129,10 @@ func (m *mockKeyRepo) SetPurgeProtection(ctx context.Context, id uuid.UUID, enab
 	return m.Called(ctx, id, enabled).Error(0)
 }
 
-func (m *mockKeyRepo) ListByUser(ctx context.Context, userID *uuid.UUID, keyType string, tags []string) ([]domain.Key, error) {
+func (m *mockKeyRepo) ListByUser(ctx context.Context, userID *uuid.UUID, keyType string, tags []string) ([]model.Key, error) {
 	args := m.Called(ctx, userID, keyType, tags)
 	if v := args.Get(0); v != nil {
-		return v.([]domain.Key), args.Error(1)
+		return v.([]model.Key), args.Error(1)
 	}
 	return nil, args.Error(1)
 }
@@ -145,10 +145,10 @@ func (m *mockKeyRepo) RecoverKey(ctx context.Context, id uuid.UUID) error {
 	return m.Called(ctx, id).Error(0)
 }
 
-func (m *mockKeyRepo) ListSoftDeleted(ctx context.Context, userID uuid.UUID) ([]*domain.Key, error) {
+func (m *mockKeyRepo) ListSoftDeleted(ctx context.Context, userID uuid.UUID) ([]*model.Key, error) {
 	args := m.Called(ctx, userID)
 	if v := args.Get(0); v != nil {
-		return v.([]*domain.Key), args.Error(1)
+		return v.([]*model.Key), args.Error(1)
 	}
 	return nil, args.Error(1)
 }
@@ -159,7 +159,7 @@ func TestDeleteCertificateSoftDeletes(t *testing.T) {
 	userID := uuid.New()
 	certID := uuid.New()
 
-	existingCert := &domain.Certificate{
+	existingCert := &model.Certificate{
 		ID:          certID,
 		UserID:      userID,
 		Name:        "test-cert",

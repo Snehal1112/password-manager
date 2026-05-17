@@ -11,7 +11,7 @@ import (
 
 	"github.com/google/uuid"
 
-	"rocketvault/internal/domain"
+	"rocketvault/model"
 	"rocketvault/internal/logging"
 	"rocketvault/internal/repositories"
 )
@@ -235,7 +235,7 @@ func (s *schedulerService) PerformManualRotation(ctx context.Context, req Manual
 }
 
 // performAutomaticRotation performs an automatic rotation for a secret-policy pair.
-func (s *schedulerService) performAutomaticRotation(ctx context.Context, sp domain.SecretPolicy) error {
+func (s *schedulerService) performAutomaticRotation(ctx context.Context, sp model.SecretPolicy) error {
 	// Get the policy to check if auto-rotation is enabled
 	policy, err := s.rotationSvc.GetPolicy(ctx, sp.PolicyID)
 	if err != nil {
@@ -295,7 +295,7 @@ func (s *schedulerService) performAutomaticRotation(ctx context.Context, sp doma
 }
 
 // sendReminder sends a reminder notification (placeholder implementation).
-func (s *schedulerService) sendReminder(ctx context.Context, reminder domain.RotationReminder) error {
+func (s *schedulerService) sendReminder(ctx context.Context, reminder model.RotationReminder) error {
 	// In a real implementation, this would send email/SMS notifications
 	// For now, we'll just log it and acknowledge the reminder
 	s.log.WithFields(map[string]any{

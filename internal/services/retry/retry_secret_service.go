@@ -5,7 +5,7 @@ import (
 
 	"github.com/google/uuid"
 
-	"rocketvault/internal/domain"
+	"rocketvault/model"
 	"rocketvault/internal/services/secrets"
 )
 
@@ -29,8 +29,8 @@ func NewRetrySecretService(baseService secrets.SecretService, retryService Retry
 }
 
 // CreateSecret creates a secret with retry logic for database operations
-func (s *retrySecretService) CreateSecret(ctx context.Context, req secrets.CreateSecretRequest) (*domain.Secret, error) {
-	var result *domain.Secret
+func (s *retrySecretService) CreateSecret(ctx context.Context, req secrets.CreateSecretRequest) (*model.Secret, error) {
+	var result *model.Secret
 	var err error
 
 	retryErr := s.retryService.ExecuteDatabaseOperation(ctx, func() error {
@@ -49,8 +49,8 @@ func (s *retrySecretService) UpdateSecret(ctx context.Context, req secrets.Updat
 }
 
 // GetSecret retrieves a secret with retry logic for database operations
-func (s *retrySecretService) GetSecret(ctx context.Context, secretID, userID uuid.UUID) (*domain.Secret, error) {
-	var result *domain.Secret
+func (s *retrySecretService) GetSecret(ctx context.Context, secretID, userID uuid.UUID) (*model.Secret, error) {
+	var result *model.Secret
 	var err error
 
 	retryErr := s.retryService.ExecuteDatabaseOperation(ctx, func() error {
@@ -62,8 +62,8 @@ func (s *retrySecretService) GetSecret(ctx context.Context, secretID, userID uui
 }
 
 // ListSecrets lists secrets with retry logic for database operations
-func (s *retrySecretService) ListSecrets(ctx context.Context, userID uuid.UUID, tags []string) ([]domain.Secret, error) {
-	var result []domain.Secret
+func (s *retrySecretService) ListSecrets(ctx context.Context, userID uuid.UUID, tags []string) ([]model.Secret, error) {
+	var result []model.Secret
 	var err error
 
 	retryErr := s.retryService.ExecuteDatabaseOperation(ctx, func() error {
@@ -82,8 +82,8 @@ func (s *retrySecretService) DeleteSecret(ctx context.Context, secretID, userID 
 }
 
 // GetSecretVersions retrieves secret versions with retry logic for database operations
-func (s *retrySecretService) GetSecretVersions(ctx context.Context, secretID uuid.UUID, userID uuid.UUID) ([]domain.SecretVersion, error) {
-	var result []domain.SecretVersion
+func (s *retrySecretService) GetSecretVersions(ctx context.Context, secretID uuid.UUID, userID uuid.UUID) ([]model.SecretVersion, error) {
+	var result []model.SecretVersion
 	var err error
 
 	retryErr := s.retryService.ExecuteDatabaseOperation(ctx, func() error {
@@ -95,8 +95,8 @@ func (s *retrySecretService) GetSecretVersions(ctx context.Context, secretID uui
 }
 
 // GetSecretVersion retrieves a specific secret version with retry logic for database operations
-func (s *retrySecretService) GetSecretVersion(ctx context.Context, secretID uuid.UUID, version int, userID uuid.UUID) (*domain.SecretVersion, error) {
-	var result *domain.SecretVersion
+func (s *retrySecretService) GetSecretVersion(ctx context.Context, secretID uuid.UUID, version int, userID uuid.UUID) (*model.SecretVersion, error) {
+	var result *model.SecretVersion
 	var err error
 
 	retryErr := s.retryService.ExecuteDatabaseOperation(ctx, func() error {
@@ -108,8 +108,8 @@ func (s *retrySecretService) GetSecretVersion(ctx context.Context, secretID uuid
 }
 
 // GetLatestSecretVersion retrieves the latest secret version with retry logic for database operations
-func (s *retrySecretService) GetLatestSecretVersion(ctx context.Context, secretID uuid.UUID, userID uuid.UUID) (*domain.SecretVersion, error) {
-	var result *domain.SecretVersion
+func (s *retrySecretService) GetLatestSecretVersion(ctx context.Context, secretID uuid.UUID, userID uuid.UUID) (*model.SecretVersion, error) {
+	var result *model.SecretVersion
 	var err error
 
 	retryErr := s.retryService.ExecuteDatabaseOperation(ctx, func() error {
@@ -121,8 +121,8 @@ func (s *retrySecretService) GetLatestSecretVersion(ctx context.Context, secretI
 }
 
 // GenerateSecret generates a secret with retry logic for database operations
-func (s *retrySecretService) GenerateSecret(ctx context.Context, req secrets.GenerateSecretRequest) (*domain.Secret, error) {
-	var result *domain.Secret
+func (s *retrySecretService) GenerateSecret(ctx context.Context, req secrets.GenerateSecretRequest) (*model.Secret, error) {
+	var result *model.Secret
 	var err error
 
 	retryErr := s.retryService.ExecuteDatabaseOperation(ctx, func() error {

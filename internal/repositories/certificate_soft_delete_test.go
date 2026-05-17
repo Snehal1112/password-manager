@@ -11,7 +11,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"rocketvault/internal/domain"
+	"rocketvault/model"
 	"rocketvault/internal/logging"
 	"rocketvault/internal/repositories"
 )
@@ -60,8 +60,8 @@ func setupCertTestDB(t *testing.T) *sql.DB {
 }
 
 // newTestCert builds a minimal Certificate suitable for insertion via Create.
-func newTestCert(userID uuid.UUID, name string) *domain.Certificate {
-	return &domain.Certificate{
+func newTestCert(userID uuid.UUID, name string) *model.Certificate {
+	return &model.Certificate{
 		ID:          uuid.New(),
 		UserID:      userID,
 		Name:        name,

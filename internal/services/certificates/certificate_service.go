@@ -15,7 +15,7 @@ import (
 
 	"rocketvault/common"
 	"rocketvault/internal/crypto"
-	"rocketvault/internal/domain"
+	"rocketvault/model"
 	"rocketvault/internal/logging"
 	"rocketvault/internal/repositories"
 )
@@ -57,8 +57,8 @@ type UpdateCertificateRequest struct {
 type CertificateService interface {
 	CreateSelfSignedCertificate(ctx context.Context, req CreateCertificateRequest) (*CreateCertificateResult, error)
 	CreateCASignedCertificate(ctx context.Context, req CreateCertificateRequest) (*CreateCertificateResult, error)
-	GetCertificate(ctx context.Context, certID, userID uuid.UUID) (*domain.Certificate, error)
-	ListCertificates(ctx context.Context, userID uuid.UUID) ([]domain.Certificate, error)
+	GetCertificate(ctx context.Context, certID, userID uuid.UUID) (*model.Certificate, error)
+	ListCertificates(ctx context.Context, userID uuid.UUID) ([]model.Certificate, error)
 	UpdateCertificate(ctx context.Context, req UpdateCertificateRequest) error
 	DeleteCertificate(ctx context.Context, certID, userID uuid.UUID) error
 	RenewCertificate(ctx context.Context, certID, userID uuid.UUID, validityDays int) (*CreateCertificateResult, error)
@@ -174,7 +174,7 @@ func (s *certificateService) CreateSelfSignedCertificate(ctx context.Context, re
 	}
 
 	// Create certificate entity
-	cert := &domain.Certificate{
+	cert := &model.Certificate{
 		ID:          uuid.New(),
 		UserID:      req.UserID,
 		Name:        req.Name,
@@ -310,7 +310,7 @@ func (s *certificateService) CreateCASignedCertificate(ctx context.Context, req 
 	}
 
 	// Create certificate entity
-	cert := &domain.Certificate{
+	cert := &model.Certificate{
 		ID:          uuid.New(),
 		UserID:      req.UserID,
 		Name:        req.Name,
@@ -357,7 +357,7 @@ func (s *certificateService) CreateCASignedCertificate(ctx context.Context, req 
 // Returns:
 //
 //	The certificate information or an error if not found or access denied.
-func (s *certificateService) GetCertificate(ctx context.Context, certID, userID uuid.UUID) (*domain.Certificate, error) {
+func (s *certificateService) GetCertificate(ctx context.Context, certID, userID uuid.UUID) (*model.Certificate, error) {
 	cert, err := s.certRepo.Read(ctx, certID)
 	if err != nil {
 		s.logger.LogAuditError(userID.String(), "get_certificate", "failed", fmt.Sprintf("failed to read certificate: %s", err), err)
@@ -383,7 +383,7 @@ func (s *certificateService) GetCertificate(ctx context.Context, certID, userID 
 // Returns:
 //
 //	A slice of user's certificates or an error if retrieval fails.
-func (s *certificateService) ListCertificates(ctx context.Context, userID uuid.UUID) ([]domain.Certificate, error) {
+func (s *certificateService) ListCertificates(ctx context.Context, userID uuid.UUID) ([]model.Certificate, error) {
 	return s.certRepo.ListByUser(ctx, userID, "", nil)
 }
 
@@ -506,7 +506,7 @@ func (s *certificateService) RenewCertificate(ctx context.Context, certID, userI
 //	An error if access is denied.
 func (s *certificateService) ValidateCertificateAccess(ctx context.Context, certID, userID uuid.UUID, role string) error {
 	// Admin users have access to all certificates
-	if role == domain.RoleAdmin {
+	if role == model.RoleAdmin {
 		return nil
 	}
 
@@ -540,7 +540,7 @@ func (s *certificateService) ValidateCertificateAccess(ctx context.Context, cert
 //	An error if access is denied.
 func (s *certificateService) ValidateKeyOwnership(ctx context.Context, keyID, userID uuid.UUID, role string) error {
 	// Admin users can use any key
-	if role == domain.RoleAdmin {
+	if role == model.RoleAdmin {
 		return nil
 	}
 

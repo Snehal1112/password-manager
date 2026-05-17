@@ -11,7 +11,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"rocketvault/internal/domain"
+	"rocketvault/model"
 )
 
 // TestSecretCacheBasicOperations tests basic cache operations.
@@ -22,7 +22,7 @@ func TestSecretCacheBasicOperations(t *testing.T) {
 	ctx := context.Background()
 
 	// Create a test secret
-	secret := &domain.Secret{
+	secret := &model.Secret{
 		ID:        uuid.New(),
 		UserID:    uuid.New(),
 		Name:      "test-secret",
@@ -82,7 +82,7 @@ func TestSecretCacheExpiration(t *testing.T) {
 	cache := NewSecretCache(100*time.Millisecond, logger)
 	ctx := context.Background()
 
-	secret := &domain.Secret{
+	secret := &model.Secret{
 		ID:        uuid.New(),
 		UserID:    uuid.New(),
 		Name:      "expiring-secret",
@@ -119,9 +119,9 @@ func TestSecretCacheClear(t *testing.T) {
 	ctx := context.Background()
 
 	// Create multiple test secrets
-	secrets := make([]*domain.Secret, 5)
+	secrets := make([]*model.Secret, 5)
 	for i := 0; i < 5; i++ {
-		secrets[i] = &domain.Secret{
+		secrets[i] = &model.Secret{
 			ID:        uuid.New(),
 			UserID:    uuid.New(),
 			Name:      fmt.Sprintf("secret-%d", i),
@@ -166,7 +166,7 @@ func TestSecretCacheStats(t *testing.T) {
 
 		// Add some secrets
 		for i := 0; i < 3; i++ {
-			secret := &domain.Secret{
+			secret := &model.Secret{
 				ID:        uuid.New(),
 				UserID:    uuid.New(),
 				Name:      fmt.Sprintf("secret-%d", i),
@@ -193,9 +193,9 @@ func TestSecretCacheConcurrentAccess(t *testing.T) {
 	ctx := context.Background()
 
 	secretCount := 10
-	secrets := make([]*domain.Secret, secretCount)
+	secrets := make([]*model.Secret, secretCount)
 	for i := 0; i < secretCount; i++ {
-		secrets[i] = &domain.Secret{
+		secrets[i] = &model.Secret{
 			ID:        uuid.New(),
 			UserID:    uuid.New(),
 			Name:      fmt.Sprintf("concurrent-secret-%d", i),
@@ -209,7 +209,7 @@ func TestSecretCacheConcurrentAccess(t *testing.T) {
 		// Run concurrent Set operations
 		done := make(chan bool, secretCount)
 		for i := 0; i < secretCount; i++ {
-			go func(secret *domain.Secret) {
+			go func(secret *model.Secret) {
 				err := cache.Set(ctx, secret)
 				assert.NoError(t, err)
 				done <- true
@@ -272,7 +272,7 @@ func TestSecretCacheConcurrentAccess(t *testing.T) {
 				}(secrets[i].ID)
 			} else {
 				// Set operation (update existing)
-				go func(secret *domain.Secret) {
+				go func(secret *model.Secret) {
 					err := cache.Set(ctx, secret)
 					assert.NoError(t, err)
 					done <- true
@@ -297,7 +297,7 @@ func TestSecretCacheStartCleanup(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	secret := &domain.Secret{
+	secret := &model.Secret{
 		ID:        uuid.New(),
 		UserID:    uuid.New(),
 		Name:      "cleanup-test-secret",
@@ -355,7 +355,7 @@ func TestSecretCacheEdgeCases(t *testing.T) {
 
 	t.Run("Zero TTL cache still works", func(t *testing.T) {
 		zeroTTLCache := NewSecretCache(0, logger)
-		secret := &domain.Secret{
+		secret := &model.Secret{
 			ID:        uuid.New(),
 			UserID:    uuid.New(),
 			Name:      "zero-ttl-secret",
@@ -383,7 +383,7 @@ func TestSecretCacheWithSoftDelete(t *testing.T) {
 	ctx := context.Background()
 
 	now := time.Now()
-	secret := &domain.Secret{
+	secret := &model.Secret{
 		ID:              uuid.New(),
 		UserID:          uuid.New(),
 		Name:            "soft-deleted-secret",

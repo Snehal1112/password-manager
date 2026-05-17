@@ -12,7 +12,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"rocketvault/internal/domain"
+	"rocketvault/model"
 	"rocketvault/internal/logging"
 	"rocketvault/internal/repositories"
 )
@@ -52,7 +52,7 @@ func TestCertificateRepositoryRenewalFields(t *testing.T) {
 	repo := repositories.NewCertificateRepository(db, log)
 
 	expires := time.Now().Add(90 * 24 * time.Hour).UTC().Truncate(time.Second)
-	cert := &domain.Certificate{
+	cert := &model.Certificate{
 		ID:          uuid.New(),
 		UserID:      uuid.New(),
 		Name:        "test-cert",
@@ -81,7 +81,7 @@ func TestCertificateRepositoryListAll(t *testing.T) {
 	log := logging.InitLogger()
 	repo := repositories.NewCertificateRepository(db, log)
 
-	cert := &domain.Certificate{
+	cert := &model.Certificate{
 		ID:          uuid.New(),
 		UserID:      uuid.New(),
 		Name:        "list-all-cert",

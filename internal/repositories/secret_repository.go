@@ -11,27 +11,27 @@ import (
 	"github.com/sirupsen/logrus"
 
 	"rocketvault/internal/db"
-	"rocketvault/internal/domain"
+	"rocketvault/model"
 	"rocketvault/internal/logging"
 )
 
 // SecretRepositoryInterface defines the interface for secret repository operations.
 type SecretRepositoryInterface interface {
-	Create(ctx context.Context, secret *domain.Secret) error
-	Read(ctx context.Context, id uuid.UUID) (*domain.Secret, error)
+	Create(ctx context.Context, secret *model.Secret) error
+	Read(ctx context.Context, id uuid.UUID) (*model.Secret, error)
 	// ReadByOwner fetches a secret only when id and userID both match.
-	ReadByOwner(ctx context.Context, id, userID uuid.UUID) (*domain.Secret, error)
-	Update(ctx context.Context, secret *domain.Secret) error
+	ReadByOwner(ctx context.Context, id, userID uuid.UUID) (*model.Secret, error)
+	Update(ctx context.Context, secret *model.Secret) error
 	Delete(ctx context.Context, id uuid.UUID) error
 	SoftDelete(ctx context.Context, id uuid.UUID) error
 	RecoverSecret(ctx context.Context, id uuid.UUID) error
-	ListByUser(ctx context.Context, userID uuid.UUID, tags []string) ([]domain.Secret, error)
-	ListByUserIncludeDeleted(ctx context.Context, userID uuid.UUID, tags []string) ([]domain.Secret, error)
-	ExportSecrets(ctx context.Context, options domain.ExportOptions) ([]byte, error)
-	ImportSecrets(ctx context.Context, data []byte, options domain.ImportOptions) (int, error)
-	GetVersions(ctx context.Context, secretID uuid.UUID) ([]domain.SecretVersion, error)
-	GetVersion(ctx context.Context, secretID uuid.UUID, version int) (*domain.SecretVersion, error)
-	GetLatestVersion(ctx context.Context, secretID uuid.UUID) (*domain.SecretVersion, error)
+	ListByUser(ctx context.Context, userID uuid.UUID, tags []string) ([]model.Secret, error)
+	ListByUserIncludeDeleted(ctx context.Context, userID uuid.UUID, tags []string) ([]model.Secret, error)
+	ExportSecrets(ctx context.Context, options model.ExportOptions) ([]byte, error)
+	ImportSecrets(ctx context.Context, data []byte, options model.ImportOptions) (int, error)
+	GetVersions(ctx context.Context, secretID uuid.UUID) ([]model.SecretVersion, error)
+	GetVersion(ctx context.Context, secretID uuid.UUID, version int) (*model.SecretVersion, error)
+	GetLatestVersion(ctx context.Context, secretID uuid.UUID) (*model.SecretVersion, error)
 	PurgeSecret(ctx context.Context, id uuid.UUID) error
 }
 
@@ -88,7 +88,7 @@ func NewSecretRepository(db *sql.DB, log *logging.Logger) SecretRepositoryInterf
 // Returns:
 //
 //	An error if the insertion fails.
-func (r *SecretRepository) Create(ctx context.Context, secret *domain.Secret) error {
+func (r *SecretRepository) Create(ctx context.Context, secret *model.Secret) error {
 	logrus.WithFields(logrus.Fields{
 		"secret_id": secret.ID.String(),
 		"user_id":   secret.UserID.String(),
@@ -139,8 +139,8 @@ func (r *SecretRepository) Create(ctx context.Context, secret *domain.Secret) er
 // Returns:
 //
 //	The secret entity (with encrypted value) or an error if not found.
-func (r *SecretRepository) Read(ctx context.Context, id uuid.UUID) (*domain.Secret, error) {
-	var secret domain.Secret
+func (r *SecretRepository) Read(ctx context.Context, id uuid.UUID) (*model.Secret, error) {
+	var secret model.Secret
 	var idStr, userIDStr string
 	var deletedAt *time.Time
 	var purgeProtection bool
@@ -187,8 +187,8 @@ func (r *SecretRepository) Read(ctx context.Context, id uuid.UUID) (*domain.Secr
 // Returns:
 //
 //	The secret entity (with encrypted value) or an error if not found / access denied.
-func (r *SecretRepository) ReadByOwner(ctx context.Context, id, userID uuid.UUID) (*domain.Secret, error) {
-	var secret domain.Secret
+func (r *SecretRepository) ReadByOwner(ctx context.Context, id, userID uuid.UUID) (*model.Secret, error) {
+	var secret model.Secret
 	var idStr, userIDStr string
 	var deletedAt *time.Time
 	var purgeProtection bool
@@ -235,7 +235,7 @@ func (r *SecretRepository) ReadByOwner(ctx context.Context, id, userID uuid.UUID
 // Returns:
 //
 //	An error if the update fails.
-func (r *SecretRepository) Update(ctx context.Context, secret *domain.Secret) error {
+func (r *SecretRepository) Update(ctx context.Context, secret *model.Secret) error {
 	logrus.WithFields(logrus.Fields{
 		"secret_id": secret.ID.String(),
 		"user_id":   secret.UserID.String(),
@@ -457,8 +457,8 @@ func (r *SecretRepository) PurgeSecret(ctx context.Context, id uuid.UUID) error 
 // Returns:
 //
 //	A slice of secrets (with encrypted values) or an error if retrieval fails.
-func (r *SecretRepository) ListByUser(ctx context.Context, userID uuid.UUID, tags []string) ([]domain.Secret, error) {
-	var secretList []domain.Secret
+func (r *SecretRepository) ListByUser(ctx context.Context, userID uuid.UUID, tags []string) ([]model.Secret, error) {
+	var secretList []model.Secret
 
 	err := r.executeWithMetrics("list_secrets_by_user", func() error {
 		logrus.WithField("user_id", userID.String()).Debug("Listing secrets for user")
@@ -476,10 +476,10 @@ func (r *SecretRepository) ListByUser(ctx context.Context, userID uuid.UUID, tag
 		defer rows.Close()
 
 		// Pre-allocate slice with estimated capacity for better memory performance
-		secretList = make([]domain.Secret, 0, 50) // Assume max 50 secrets per user initially
+		secretList = make([]model.Secret, 0, 50) // Assume max 50 secrets per user initially
 
 		for rows.Next() {
-			var secret domain.Secret
+			var secret model.Secret
 			var idStr, userIDStr string
 
 			var deletedAt *time.Time
@@ -541,8 +541,8 @@ func (r *SecretRepository) ListByUser(ctx context.Context, userID uuid.UUID, tag
 // Returns:
 //
 //	A slice of all secrets including soft-deleted ones, or an error if retrieval fails.
-func (r *SecretRepository) ListByUserIncludeDeleted(ctx context.Context, userID uuid.UUID, tags []string) ([]domain.Secret, error) {
-	var secretList []domain.Secret
+func (r *SecretRepository) ListByUserIncludeDeleted(ctx context.Context, userID uuid.UUID, tags []string) ([]model.Secret, error) {
+	var secretList []model.Secret
 
 	err := r.executeWithMetrics("list_secrets_by_user_include_deleted", func() error {
 		logrus.WithField("user_id", userID.String()).Debug("Listing all secrets for user including deleted")
@@ -560,10 +560,10 @@ func (r *SecretRepository) ListByUserIncludeDeleted(ctx context.Context, userID 
 		defer rows.Close()
 
 		// Pre-allocate slice with estimated capacity for better memory performance
-		secretList = make([]domain.Secret, 0, 50) // Assume max 50 secrets per user initially
+		secretList = make([]model.Secret, 0, 50) // Assume max 50 secrets per user initially
 
 		for rows.Next() {
-			var secret domain.Secret
+			var secret model.Secret
 			var idStr, userIDStr string
 			var deletedAt *time.Time
 			var purgeProtection bool
@@ -613,26 +613,26 @@ func (r *SecretRepository) ListByUserIncludeDeleted(ctx context.Context, userID 
 }
 
 // ExportSecrets is deprecated and should be moved to a dedicated export service.
-func (r *SecretRepository) ExportSecrets(ctx context.Context, options domain.ExportOptions) ([]byte, error) {
+func (r *SecretRepository) ExportSecrets(ctx context.Context, options model.ExportOptions) ([]byte, error) {
 	return nil, fmt.Errorf("export functionality has been moved to export service")
 }
 
 // ImportSecrets is deprecated and should be moved to a dedicated import service.
-func (r *SecretRepository) ImportSecrets(ctx context.Context, data []byte, options domain.ImportOptions) (int, error) {
+func (r *SecretRepository) ImportSecrets(ctx context.Context, data []byte, options model.ImportOptions) (int, error) {
 	return 0, fmt.Errorf("import functionality has been moved to import service")
 }
 
 // GetVersions is deprecated and should use the VersioningService.
-func (r *SecretRepository) GetVersions(ctx context.Context, secretID uuid.UUID) ([]domain.SecretVersion, error) {
+func (r *SecretRepository) GetVersions(ctx context.Context, secretID uuid.UUID) ([]model.SecretVersion, error) {
 	return nil, fmt.Errorf("versioning functionality has been moved to versioning service")
 }
 
 // GetVersion is deprecated and should use the VersioningService.
-func (r *SecretRepository) GetVersion(ctx context.Context, secretID uuid.UUID, version int) (*domain.SecretVersion, error) {
+func (r *SecretRepository) GetVersion(ctx context.Context, secretID uuid.UUID, version int) (*model.SecretVersion, error) {
 	return nil, fmt.Errorf("versioning functionality has been moved to versioning service")
 }
 
 // GetLatestVersion is deprecated and should use the VersioningService.
-func (r *SecretRepository) GetLatestVersion(ctx context.Context, secretID uuid.UUID) (*domain.SecretVersion, error) {
+func (r *SecretRepository) GetLatestVersion(ctx context.Context, secretID uuid.UUID) (*model.SecretVersion, error) {
 	return nil, fmt.Errorf("versioning functionality has been moved to versioning service")
 }

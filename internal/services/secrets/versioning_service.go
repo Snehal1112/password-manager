@@ -10,7 +10,7 @@ import (
 
 	"github.com/google/uuid"
 
-	"rocketvault/internal/domain"
+	"rocketvault/model"
 	"rocketvault/internal/logging"
 	"rocketvault/internal/repositories"
 )
@@ -19,15 +19,15 @@ import (
 // It orchestrates version creation, retrieval, and management with proper encryption handling.
 type VersioningServiceInterface interface {
 	// Version creation and management
-	CreateVersion(ctx context.Context, req CreateVersionRequest) (*domain.SecretVersion, error)
-	GetVersions(ctx context.Context, secretID uuid.UUID, userID uuid.UUID) ([]domain.SecretVersion, error)
-	GetVersion(ctx context.Context, secretID uuid.UUID, version int, userID uuid.UUID) (*domain.SecretVersion, error)
-	GetLatestVersion(ctx context.Context, secretID uuid.UUID, userID uuid.UUID) (*domain.SecretVersion, error)
+	CreateVersion(ctx context.Context, req CreateVersionRequest) (*model.SecretVersion, error)
+	GetVersions(ctx context.Context, secretID uuid.UUID, userID uuid.UUID) ([]model.SecretVersion, error)
+	GetVersion(ctx context.Context, secretID uuid.UUID, version int, userID uuid.UUID) (*model.SecretVersion, error)
+	GetLatestVersion(ctx context.Context, secretID uuid.UUID, userID uuid.UUID) (*model.SecretVersion, error)
 	DeleteVersions(ctx context.Context, secretID uuid.UUID, userID uuid.UUID) error
 	DeleteSpecificVersion(ctx context.Context, secretID uuid.UUID, version int, userID uuid.UUID) error
 
 	// Version rollback
-	RollbackToVersion(ctx context.Context, req RollbackRequest) (*domain.Secret, error)
+	RollbackToVersion(ctx context.Context, req RollbackRequest) (*model.Secret, error)
 }
 
 // CreateVersionRequest represents the request to create a new secret version.
@@ -74,7 +74,7 @@ func NewVersioningService(
 }
 
 // CreateVersion creates a new version of a secret with encryption and validation.
-func (s *versioningService) CreateVersion(ctx context.Context, req CreateVersionRequest) (*domain.SecretVersion, error) {
+func (s *versioningService) CreateVersion(ctx context.Context, req CreateVersionRequest) (*model.SecretVersion, error) {
 	// Validate user exists
 	user, err := s.userRepo.Read(ctx, req.UserID)
 	if err != nil {
@@ -102,7 +102,7 @@ func (s *versioningService) CreateVersion(ctx context.Context, req CreateVersion
 
 	// Create version domain object
 	now := time.Now()
-	version := &domain.SecretVersion{
+	version := &model.SecretVersion{
 		ID:        uuid.New(),
 		SecretID:  req.SecretID,
 		UserID:    user.ID,
@@ -131,7 +131,7 @@ func (s *versioningService) CreateVersion(ctx context.Context, req CreateVersion
 }
 
 // GetVersions retrieves all versions of a secret with decryption and ownership validation.
-func (s *versioningService) GetVersions(ctx context.Context, secretID uuid.UUID, userID uuid.UUID) ([]domain.SecretVersion, error) {
+func (s *versioningService) GetVersions(ctx context.Context, secretID uuid.UUID, userID uuid.UUID) ([]model.SecretVersion, error) {
 	// Validate secret exists and user owns it
 	secret, err := s.secretRepo.Read(ctx, secretID)
 	if err != nil {
@@ -150,7 +150,7 @@ func (s *versioningService) GetVersions(ctx context.Context, secretID uuid.UUID,
 	}
 
 	// Decrypt values for response
-	var versions []domain.SecretVersion
+	var versions []model.SecretVersion
 	for _, encVersion := range encryptedVersions {
 		decryptedValue, err := s.cryptoSvc.DecryptSecret(encVersion.Value)
 		if err != nil {
@@ -167,7 +167,7 @@ func (s *versioningService) GetVersions(ctx context.Context, secretID uuid.UUID,
 }
 
 // GetVersion retrieves a specific version of a secret with decryption and ownership validation.
-func (s *versioningService) GetVersion(ctx context.Context, secretID uuid.UUID, version int, userID uuid.UUID) (*domain.SecretVersion, error) {
+func (s *versioningService) GetVersion(ctx context.Context, secretID uuid.UUID, version int, userID uuid.UUID) (*model.SecretVersion, error) {
 	// Validate secret exists and user owns it
 	secret, err := s.secretRepo.Read(ctx, secretID)
 	if err != nil {
@@ -200,7 +200,7 @@ func (s *versioningService) GetVersion(ctx context.Context, secretID uuid.UUID, 
 }
 
 // GetLatestVersion retrieves the latest version of a secret with decryption and ownership validation.
-func (s *versioningService) GetLatestVersion(ctx context.Context, secretID uuid.UUID, userID uuid.UUID) (*domain.SecretVersion, error) {
+func (s *versioningService) GetLatestVersion(ctx context.Context, secretID uuid.UUID, userID uuid.UUID) (*model.SecretVersion, error) {
 	// Validate secret exists and user owns it
 	secret, err := s.secretRepo.Read(ctx, secretID)
 	if err != nil {
@@ -286,7 +286,7 @@ func (s *versioningService) DeleteSpecificVersion(ctx context.Context, secretID 
 }
 
 // RollbackToVersion rolls back a secret to a specific version.
-func (s *versioningService) RollbackToVersion(ctx context.Context, req RollbackRequest) (*domain.Secret, error) {
+func (s *versioningService) RollbackToVersion(ctx context.Context, req RollbackRequest) (*model.Secret, error) {
 	// Validate secret exists and user owns it
 	secret, err := s.secretRepo.Read(ctx, req.SecretID)
 	if err != nil {

@@ -7,7 +7,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 
-	"rocketvault/internal/domain"
+	"rocketvault/model"
 )
 
 // TestValidateSecretCreate tests secret creation validation.
@@ -99,7 +99,7 @@ func TestValidateKeyCreate(t *testing.T) {
 			name: "valid RSA key",
 			request: KeyCreateRequest{
 				Name: "my-rsa-key",
-				Type: domain.KeyTypeRSA,
+				Type: model.KeyTypeRSA,
 				Bits: 2048,
 			},
 			wantError: false,
@@ -108,7 +108,7 @@ func TestValidateKeyCreate(t *testing.T) {
 			name: "valid ECDSA key",
 			request: KeyCreateRequest{
 				Name:  "my-ecdsa-key",
-				Type:  domain.KeyTypeECDSA,
+				Type:  model.KeyTypeECDSA,
 				Curve: "P-256",
 			},
 			wantError: false,
@@ -117,7 +117,7 @@ func TestValidateKeyCreate(t *testing.T) {
 			name: "invalid RSA bits",
 			request: KeyCreateRequest{
 				Name: "my-rsa-key",
-				Type: domain.KeyTypeRSA,
+				Type: model.KeyTypeRSA,
 				Bits: 1024,
 			},
 			wantError: true,
@@ -126,7 +126,7 @@ func TestValidateKeyCreate(t *testing.T) {
 			name: "invalid ECDSA curve",
 			request: KeyCreateRequest{
 				Name:  "my-ecdsa-key",
-				Type:  domain.KeyTypeECDSA,
+				Type:  model.KeyTypeECDSA,
 				Curve: "invalid-curve",
 			},
 			wantError: true,
@@ -134,7 +134,7 @@ func TestValidateKeyCreate(t *testing.T) {
 		{
 			name: "missing name",
 			request: KeyCreateRequest{
-				Type: domain.KeyTypeRSA,
+				Type: model.KeyTypeRSA,
 				Bits: 2048,
 			},
 			wantError: true,
@@ -225,7 +225,7 @@ func TestSecretNamePattern(t *testing.T) {
 
 // TestValidateSecret tests full domain secret validation.
 func TestValidateSecret(t *testing.T) {
-	validSecret := &domain.Secret{
+	validSecret := &model.Secret{
 		ID:      uuid.New(),
 		UserID:  uuid.New(),
 		Name:    "my-secret",
@@ -237,7 +237,7 @@ func TestValidateSecret(t *testing.T) {
 
 	assert.NoError(t, ValidateSecret(validSecret))
 
-	invalidSecret := &domain.Secret{
+	invalidSecret := &model.Secret{
 		ID:     uuid.Nil,
 		UserID: uuid.Nil,
 		Name:   "",
@@ -249,18 +249,18 @@ func TestValidateSecret(t *testing.T) {
 
 // TestValidateKey tests full domain key validation.
 func TestValidateKey(t *testing.T) {
-	validKey := &domain.Key{
+	validKey := &model.Key{
 		ID:      uuid.New(),
 		UserID:  uuid.New(),
 		Name:    "my-key",
-		Type:    domain.KeyTypeRSA,
+		Type:    model.KeyTypeRSA,
 		Value:   "encrypted-key-data",
 		Revoked: false,
 	}
 
 	assert.NoError(t, ValidateKey(validKey))
 
-	invalidKey := &domain.Key{
+	invalidKey := &model.Key{
 		ID:     uuid.Nil,
 		UserID: uuid.Nil,
 		Name:   "",

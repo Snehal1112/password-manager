@@ -5,7 +5,7 @@ import (
 
 	"github.com/google/uuid"
 
-	"rocketvault/internal/domain"
+	"rocketvault/model"
 	"rocketvault/internal/services/users"
 )
 
@@ -49,8 +49,8 @@ func (s *retryUserService) UpdateUser(ctx context.Context, req users.UpdateUserR
 }
 
 // GetUser retrieves a user with retry logic for database operations
-func (s *retryUserService) GetUser(ctx context.Context, userID uuid.UUID) (*domain.User, error) {
-	var result *domain.User
+func (s *retryUserService) GetUser(ctx context.Context, userID uuid.UUID) (*model.User, error) {
+	var result *model.User
 	var err error
 
 	retryErr := s.retryService.ExecuteDatabaseOperation(ctx, func() error {
@@ -62,8 +62,8 @@ func (s *retryUserService) GetUser(ctx context.Context, userID uuid.UUID) (*doma
 }
 
 // GetUserByUsername retrieves a user by username with retry logic for database operations
-func (s *retryUserService) GetUserByUsername(ctx context.Context, username string) (*domain.User, error) {
-	var result *domain.User
+func (s *retryUserService) GetUserByUsername(ctx context.Context, username string) (*model.User, error) {
+	var result *model.User
 	var err error
 
 	retryErr := s.retryService.ExecuteDatabaseOperation(ctx, func() error {
@@ -75,8 +75,8 @@ func (s *retryUserService) GetUserByUsername(ctx context.Context, username strin
 }
 
 // ListUsers lists users with retry logic for database operations
-func (s *retryUserService) ListUsers(ctx context.Context) ([]domain.User, error) {
-	var result []domain.User
+func (s *retryUserService) ListUsers(ctx context.Context) ([]model.User, error) {
+	var result []model.User
 	var err error
 
 	retryErr := s.retryService.ExecuteDatabaseOperation(ctx, func() error {

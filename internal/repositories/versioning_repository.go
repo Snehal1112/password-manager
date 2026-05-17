@@ -10,7 +10,7 @@ import (
 
 	"github.com/google/uuid"
 
-	"rocketvault/internal/domain"
+	"rocketvault/model"
 	"rocketvault/internal/logging"
 )
 
@@ -18,10 +18,10 @@ import (
 // It follows the pure repository pattern expecting pre-processed data (encrypted values).
 type SecretVersionRepositoryInterface interface {
 	// Version operations
-	CreateVersion(ctx context.Context, version *domain.SecretVersion) error
-	GetVersions(ctx context.Context, secretID uuid.UUID) ([]domain.SecretVersion, error)
-	GetVersion(ctx context.Context, secretID uuid.UUID, version int) (*domain.SecretVersion, error)
-	GetLatestVersion(ctx context.Context, secretID uuid.UUID) (*domain.SecretVersion, error)
+	CreateVersion(ctx context.Context, version *model.SecretVersion) error
+	GetVersions(ctx context.Context, secretID uuid.UUID) ([]model.SecretVersion, error)
+	GetVersion(ctx context.Context, secretID uuid.UUID, version int) (*model.SecretVersion, error)
+	GetLatestVersion(ctx context.Context, secretID uuid.UUID) (*model.SecretVersion, error)
 	DeleteVersions(ctx context.Context, secretID uuid.UUID) error
 	DeleteSpecificVersion(ctx context.Context, secretID uuid.UUID, version int) error
 }
@@ -38,7 +38,7 @@ func NewSecretVersionRepository(db *sql.DB, log *logging.Logger) SecretVersionRe
 }
 
 // CreateVersion creates a new version of a secret (expects pre-encrypted value).
-func (r *secretVersionRepository) CreateVersion(ctx context.Context, version *domain.SecretVersion) error {
+func (r *secretVersionRepository) CreateVersion(ctx context.Context, version *model.SecretVersion) error {
 	query := `
 		INSERT INTO secret_versions (id, secret_id, user_id, name, value, version, created_at)
 		VALUES (?, ?, ?, ?, ?, ?, ?)
@@ -68,7 +68,7 @@ func (r *secretVersionRepository) CreateVersion(ctx context.Context, version *do
 }
 
 // GetVersions retrieves all versions of a secret (returns encrypted values).
-func (r *secretVersionRepository) GetVersions(ctx context.Context, secretID uuid.UUID) ([]domain.SecretVersion, error) {
+func (r *secretVersionRepository) GetVersions(ctx context.Context, secretID uuid.UUID) ([]model.SecretVersion, error) {
 	query := `
 		SELECT id, secret_id, user_id, name, value, version, created_at
 		FROM secret_versions
@@ -83,9 +83,9 @@ func (r *secretVersionRepository) GetVersions(ctx context.Context, secretID uuid
 	}
 	defer rows.Close()
 
-	var versions []domain.SecretVersion
+	var versions []model.SecretVersion
 	for rows.Next() {
-		var v domain.SecretVersion
+		var v model.SecretVersion
 		var id, secretIDStr, userIDStr string
 
 		err := rows.Scan(&id, &secretIDStr, &userIDStr, &v.Name, &v.Value, &v.Version, &v.CreatedAt)
@@ -104,14 +104,14 @@ func (r *secretVersionRepository) GetVersions(ctx context.Context, secretID uuid
 }
 
 // GetVersion retrieves a specific version of a secret (returns encrypted value).
-func (r *secretVersionRepository) GetVersion(ctx context.Context, secretID uuid.UUID, version int) (*domain.SecretVersion, error) {
+func (r *secretVersionRepository) GetVersion(ctx context.Context, secretID uuid.UUID, version int) (*model.SecretVersion, error) {
 	query := `
 		SELECT id, secret_id, user_id, name, value, version, created_at
 		FROM secret_versions
 		WHERE secret_id = ? AND version = ?
 	`
 
-	var v domain.SecretVersion
+	var v model.SecretVersion
 	var id, secretIDStr, userIDStr string
 
 	err := r.db.QueryRowContext(ctx, query, secretID.String(), version).Scan(
@@ -134,7 +134,7 @@ func (r *secretVersionRepository) GetVersion(ctx context.Context, secretID uuid.
 }
 
 // GetLatestVersion retrieves the latest version of a secret (returns encrypted value).
-func (r *secretVersionRepository) GetLatestVersion(ctx context.Context, secretID uuid.UUID) (*domain.SecretVersion, error) {
+func (r *secretVersionRepository) GetLatestVersion(ctx context.Context, secretID uuid.UUID) (*model.SecretVersion, error) {
 	query := `
 		SELECT id, secret_id, user_id, name, value, version, created_at
 		FROM secret_versions
@@ -143,7 +143,7 @@ func (r *secretVersionRepository) GetLatestVersion(ctx context.Context, secretID
 		LIMIT 1
 	`
 
-	var v domain.SecretVersion
+	var v model.SecretVersion
 	var id, secretIDStr, userIDStr string
 
 	err := r.db.QueryRowContext(ctx, query, secretID.String()).Scan(

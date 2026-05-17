@@ -8,18 +8,18 @@ import (
 
 "github.com/google/uuid"
 
-"rocketvault/internal/domain"
+"rocketvault/model"
 )
 
 // AccessPolicyRepositoryInterface defines the data access contract for access policies.
 type AccessPolicyRepositoryInterface interface {
-	Create(ctx context.Context, policy *domain.AccessPolicy) error
-	GetByID(ctx context.Context, id uuid.UUID) (*domain.AccessPolicy, error)
-	List(ctx context.Context) ([]*domain.AccessPolicy, error)
-	ListByPrincipal(ctx context.Context, principalID uuid.UUID) ([]*domain.AccessPolicy, error)
+	Create(ctx context.Context, policy *model.AccessPolicy) error
+	GetByID(ctx context.Context, id uuid.UUID) (*model.AccessPolicy, error)
+	List(ctx context.Context) ([]*model.AccessPolicy, error)
+	ListByPrincipal(ctx context.Context, principalID uuid.UUID) ([]*model.AccessPolicy, error)
 	// FindEffects returns all policies matching the exact (principal, resource, operation) triple.
-	FindEffects(ctx context.Context, principalID uuid.UUID, resourceType domain.PolicyResourceType, operation domain.PolicyOperation) ([]*domain.AccessPolicy, error)
-	Update(ctx context.Context, policy *domain.AccessPolicy) error
+	FindEffects(ctx context.Context, principalID uuid.UUID, resourceType model.PolicyResourceType, operation model.PolicyOperation) ([]*model.AccessPolicy, error)
+	Update(ctx context.Context, policy *model.AccessPolicy) error
 	Delete(ctx context.Context, id uuid.UUID) error
 }
 
@@ -32,7 +32,7 @@ func NewAccessPolicyRepository(db *sql.DB) AccessPolicyRepositoryInterface {
 	return &accessPolicyRepository{db: db}
 }
 
-func (r *accessPolicyRepository) Create(ctx context.Context, p *domain.AccessPolicy) error {
+func (r *accessPolicyRepository) Create(ctx context.Context, p *model.AccessPolicy) error {
 	if p.CreatedAt.IsZero() {
 		p.CreatedAt = time.Now()
 	}
@@ -45,14 +45,14 @@ p.ID.String(), p.PrincipalID.String(), string(p.PrincipalType),
 	return err
 }
 
-func (r *accessPolicyRepository) GetByID(ctx context.Context, id uuid.UUID) (*domain.AccessPolicy, error) {
+func (r *accessPolicyRepository) GetByID(ctx context.Context, id uuid.UUID) (*model.AccessPolicy, error) {
 	row := r.db.QueryRowContext(ctx,
 `SELECT id, principal_id, principal_type, resource_type, operation, effect, created_at
 		 FROM access_policies WHERE id = ?`, id.String())
 	return scanAccessPolicy(row)
 }
 
-func (r *accessPolicyRepository) List(ctx context.Context) ([]*domain.AccessPolicy, error) {
+func (r *accessPolicyRepository) List(ctx context.Context) ([]*model.AccessPolicy, error) {
 	rows, err := r.db.QueryContext(ctx,
 `SELECT id, principal_id, principal_type, resource_type, operation, effect, created_at
 		 FROM access_policies ORDER BY created_at DESC`)
@@ -63,7 +63,7 @@ func (r *accessPolicyRepository) List(ctx context.Context) ([]*domain.AccessPoli
 	return scanAccessPolicies(rows)
 }
 
-func (r *accessPolicyRepository) ListByPrincipal(ctx context.Context, principalID uuid.UUID) ([]*domain.AccessPolicy, error) {
+func (r *accessPolicyRepository) ListByPrincipal(ctx context.Context, principalID uuid.UUID) ([]*model.AccessPolicy, error) {
 	rows, err := r.db.QueryContext(ctx,
 `SELECT id, principal_id, principal_type, resource_type, operation, effect, created_at
 		 FROM access_policies WHERE principal_id = ? ORDER BY created_at DESC`, principalID.String())
@@ -74,7 +74,7 @@ func (r *accessPolicyRepository) ListByPrincipal(ctx context.Context, principalI
 	return scanAccessPolicies(rows)
 }
 
-func (r *accessPolicyRepository) FindEffects(ctx context.Context, principalID uuid.UUID, resourceType domain.PolicyResourceType, operation domain.PolicyOperation) ([]*domain.AccessPolicy, error) {
+func (r *accessPolicyRepository) FindEffects(ctx context.Context, principalID uuid.UUID, resourceType model.PolicyResourceType, operation model.PolicyOperation) ([]*model.AccessPolicy, error) {
 	rows, err := r.db.QueryContext(ctx,
 `SELECT id, principal_id, principal_type, resource_type, operation, effect, created_at
 		 FROM access_policies
@@ -87,7 +87,7 @@ principalID.String(), string(resourceType), string(operation))
 	return scanAccessPolicies(rows)
 }
 
-func (r *accessPolicyRepository) Update(ctx context.Context, p *domain.AccessPolicy) error {
+func (r *accessPolicyRepository) Update(ctx context.Context, p *model.AccessPolicy) error {
 	_, err := r.db.ExecContext(ctx,
 `UPDATE access_policies SET principal_type = ?, resource_type = ?, operation = ?, effect = ?
 		 WHERE id = ?`,
@@ -102,8 +102,8 @@ func (r *accessPolicyRepository) Delete(ctx context.Context, id uuid.UUID) error
 }
 
 // scanAccessPolicy scans a single row into an AccessPolicy.
-func scanAccessPolicy(row *sql.Row) (*domain.AccessPolicy, error) {
-	var p domain.AccessPolicy
+func scanAccessPolicy(row *sql.Row) (*model.AccessPolicy, error) {
+	var p model.AccessPolicy
 	var idStr, principalStr string
 	err := row.Scan(&idStr, &principalStr,
 		&p.PrincipalType, &p.ResourceType, &p.Operation, &p.Effect, &p.CreatedAt)
@@ -125,10 +125,10 @@ func scanAccessPolicy(row *sql.Row) (*domain.AccessPolicy, error) {
 }
 
 // scanAccessPolicies scans multiple rows into an AccessPolicy slice.
-func scanAccessPolicies(rows *sql.Rows) ([]*domain.AccessPolicy, error) {
-	var results []*domain.AccessPolicy
+func scanAccessPolicies(rows *sql.Rows) ([]*model.AccessPolicy, error) {
+	var results []*model.AccessPolicy
 	for rows.Next() {
-		var p domain.AccessPolicy
+		var p model.AccessPolicy
 		var idStr, principalStr string
 		if err := rows.Scan(&idStr, &principalStr,
 			&p.PrincipalType, &p.ResourceType, &p.Operation, &p.Effect, &p.CreatedAt); err != nil {

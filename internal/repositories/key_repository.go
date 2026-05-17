@@ -15,21 +15,21 @@ import (
 	"github.com/sirupsen/logrus"
 
 	"rocketvault/internal/db"
-	"rocketvault/internal/domain"
+	"rocketvault/model"
 	"rocketvault/internal/logging"
 )
 
 // KeyRepositoryInterface is a generic repository interface for key operations.
 // It provides type-safe CRUD operations for the Key type.
 type KeyRepositoryInterface interface {
-	db.Repository[domain.Key]
-	ListByUser(ctx context.Context, userID *uuid.UUID, keyType string, tags []string) ([]domain.Key, error)
+	db.Repository[model.Key]
+	ListByUser(ctx context.Context, userID *uuid.UUID, keyType string, tags []string) ([]model.Key, error)
 	UpdateRevocationStatus(ctx context.Context, id uuid.UUID, revoked bool) error
 	SoftDelete(ctx context.Context, id uuid.UUID) error
 	RecoverKey(ctx context.Context, id uuid.UUID) error
 	PurgeKey(ctx context.Context, id uuid.UUID) error
 	SetPurgeProtection(ctx context.Context, id uuid.UUID, enabled bool) error
-	ListSoftDeleted(ctx context.Context, userID uuid.UUID) ([]*domain.Key, error)
+	ListSoftDeleted(ctx context.Context, userID uuid.UUID) ([]*model.Key, error)
 }
 
 // KeyRepository implements KeyRepositoryInterface with pure CRUD operations.
@@ -86,7 +86,7 @@ func NewKeyRepository(db *sql.DB, log *logging.Logger) KeyRepositoryInterface {
 // Returns:
 //
 //	An error if the insertion fails.
-func (r *KeyRepository) Create(ctx context.Context, key *domain.Key) error {
+func (r *KeyRepository) Create(ctx context.Context, key *model.Key) error {
 	return r.executeWithMetrics("create_key", func() error {
 		logrus.WithFields(logrus.Fields{
 			"key_id":  key.ID.String(),
@@ -154,8 +154,8 @@ func (r *KeyRepository) Create(ctx context.Context, key *domain.Key) error {
 // Returns:
 //
 //	The key entity (with encrypted value) or an error if not found.
-func (r *KeyRepository) Read(ctx context.Context, id uuid.UUID) (*domain.Key, error) {
-	var key domain.Key
+func (r *KeyRepository) Read(ctx context.Context, id uuid.UUID) (*model.Key, error) {
+	var key model.Key
 	var idStr, userIDStr string
 
 	err := r.db.QueryRowContext(
@@ -183,7 +183,7 @@ func (r *KeyRepository) Read(ctx context.Context, id uuid.UUID) (*domain.Key, er
 	}
 
 	// Retrieve tags using TagRepository
-	tagRepo := db.NewTagRepository[domain.Key](r.db, "key_tags", "key_id")
+	tagRepo := db.NewTagRepository[model.Key](r.db, "key_tags", "key_id")
 	key.Tags, err = tagRepo.GetTags(ctx, id)
 	if err != nil {
 		r.log.LogAuditError(uuid.Nil.String(), "read_key", "failed", "Failed to read tags", err)
@@ -204,7 +204,7 @@ func (r *KeyRepository) Read(ctx context.Context, id uuid.UUID) (*domain.Key, er
 // Returns:
 //
 //	An error if the update fails.
-func (r *KeyRepository) Update(ctx context.Context, key *domain.Key) error {
+func (r *KeyRepository) Update(ctx context.Context, key *model.Key) error {
 	return r.executeWithMetrics("update_key", func() error {
 		logrus.WithFields(logrus.Fields{
 			"key_id":  key.ID.String(),
@@ -312,8 +312,8 @@ func (r *KeyRepository) Delete(ctx context.Context, id uuid.UUID) error {
 // Returns:
 //
 //	A slice of keys (with encrypted values) or an error if retrieval fails.
-func (r *KeyRepository) ListByUser(ctx context.Context, userID *uuid.UUID, keyType string, tags []string) ([]domain.Key, error) {
-	var keyList []domain.Key
+func (r *KeyRepository) ListByUser(ctx context.Context, userID *uuid.UUID, keyType string, tags []string) ([]model.Key, error) {
+	var keyList []model.Key
 
 	err := r.executeWithMetrics("list_keys_by_user", func() error {
 		var args []interface{}
@@ -353,10 +353,10 @@ func (r *KeyRepository) ListByUser(ctx context.Context, userID *uuid.UUID, keyTy
 		defer rows.Close()
 
 		// Pre-allocate slice for better memory performance
-		keyList = make([]domain.Key, 0, 50)
+		keyList = make([]model.Key, 0, 50)
 
 		for rows.Next() {
-			var key domain.Key
+			var key model.Key
 			var idStr, userIDStr string
 
 			if err := rows.Scan(&idStr, &userIDStr, &key.Name, &key.Value, &key.Type, &key.Revoked, &key.CreatedAt); err != nil {
@@ -377,7 +377,7 @@ func (r *KeyRepository) ListByUser(ctx context.Context, userID *uuid.UUID, keyTy
 			}
 
 			// Retrieve tags for each key
-			tagRepo := db.NewTagRepository[domain.Key](r.db, "key_tags", "key_id")
+			tagRepo := db.NewTagRepository[model.Key](r.db, "key_tags", "key_id")
 			key.Tags, err = tagRepo.GetTags(ctx, key.ID)
 			if err != nil {
 				r.log.LogAuditError(uuid.Nil.String(), "list_keys", "failed", "Failed to read tags for key", err)
@@ -624,8 +624,8 @@ func (r *KeyRepository) SetPurgeProtection(ctx context.Context, id uuid.UUID, en
 // Returns:
 //
 //	A slice of soft-deleted key pointers, or an error if retrieval fails.
-func (r *KeyRepository) ListSoftDeleted(ctx context.Context, userID uuid.UUID) ([]*domain.Key, error) {
-	var keyList []*domain.Key
+func (r *KeyRepository) ListSoftDeleted(ctx context.Context, userID uuid.UUID) ([]*model.Key, error) {
+	var keyList []*model.Key
 
 	err := r.executeWithMetrics("list_soft_deleted_keys", func() error {
 		logrus.WithField("user_id", userID.String()).Debug("Listing soft-deleted keys for user")
@@ -639,10 +639,10 @@ func (r *KeyRepository) ListSoftDeleted(ctx context.Context, userID uuid.UUID) (
 		}
 		defer rows.Close()
 
-		keyList = make([]*domain.Key, 0)
+		keyList = make([]*model.Key, 0)
 
 		for rows.Next() {
-			var key domain.Key
+			var key model.Key
 			var idStr, userIDStr string
 			var deletedAt *time.Time
 			var purgeProtection bool

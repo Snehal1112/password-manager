@@ -11,7 +11,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/sirupsen/logrus"
 
-	"rocketvault/internal/domain"
+	"rocketvault/model"
 )
 
 // SecretCache provides thread-safe in-memory caching for secrets with TTL support.
@@ -24,7 +24,7 @@ type SecretCache struct {
 
 // CachedSecret represents a cached secret with expiration time.
 type CachedSecret struct {
-	Secret    *domain.Secret
+	Secret    *model.Secret
 	ExpiresAt time.Time
 }
 
@@ -38,7 +38,7 @@ func NewSecretCache(ttl time.Duration, logger *logrus.Logger) *SecretCache {
 }
 
 // Get retrieves a secret from cache if it exists and hasn't expired.
-func (c *SecretCache) Get(ctx context.Context, secretID uuid.UUID) (*domain.Secret, bool) {
+func (c *SecretCache) Get(ctx context.Context, secretID uuid.UUID) (*model.Secret, bool) {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 
@@ -60,7 +60,7 @@ func (c *SecretCache) Get(ctx context.Context, secretID uuid.UUID) (*domain.Secr
 }
 
 // Set stores a secret in cache with TTL expiration.
-func (c *SecretCache) Set(ctx context.Context, secret *domain.Secret) error {
+func (c *SecretCache) Set(ctx context.Context, secret *model.Secret) error {
 	if secret == nil {
 		return fmt.Errorf("cannot cache nil secret")
 	}

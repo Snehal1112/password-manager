@@ -11,7 +11,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 
-	"rocketvault/internal/domain"
+	"rocketvault/model"
 	"rocketvault/internal/retry"
 )
 
@@ -22,20 +22,20 @@ type MockRepository struct {
 	maxFails  int
 }
 
-func (m *MockRepository) Create(ctx context.Context, user *domain.User) error {
+func (m *MockRepository) Create(ctx context.Context, user *model.User) error {
 	args := m.Called(ctx, user)
 	return args.Error(0)
 }
 
-func (m *MockRepository) Read(ctx context.Context, id uuid.UUID) (*domain.User, error) {
+func (m *MockRepository) Read(ctx context.Context, id uuid.UUID) (*model.User, error) {
 	args := m.Called(ctx, id)
 	if args.Get(0) == nil {
 		return nil, args.Error(1)
 	}
-	return args.Get(0).(*domain.User), args.Error(1)
+	return args.Get(0).(*model.User), args.Error(1)
 }
 
-func (m *MockRepository) Update(ctx context.Context, user *domain.User) error {
+func (m *MockRepository) Update(ctx context.Context, user *model.User) error {
 	args := m.Called(ctx, user)
 	return args.Error(0)
 }
@@ -45,20 +45,20 @@ func (m *MockRepository) Delete(ctx context.Context, id uuid.UUID) error {
 	return args.Error(0)
 }
 
-func (m *MockRepository) ReadByUsername(ctx context.Context, username string) (domain.User, error) {
+func (m *MockRepository) ReadByUsername(ctx context.Context, username string) (model.User, error) {
 	args := m.Called(ctx, username)
 	if args.Get(0) == nil {
-		return domain.User{}, args.Error(1)
+		return model.User{}, args.Error(1)
 	}
-	return args.Get(0).(domain.User), args.Error(1)
+	return args.Get(0).(model.User), args.Error(1)
 }
 
-func (m *MockRepository) List(ctx context.Context) ([]domain.User, error) {
+func (m *MockRepository) List(ctx context.Context) ([]model.User, error) {
 	args := m.Called(ctx)
 	if args.Get(0) == nil {
 		return nil, args.Error(1)
 	}
-	return args.Get(0).([]domain.User), args.Error(1)
+	return args.Get(0).([]model.User), args.Error(1)
 }
 
 func (m *MockRepository) ValidateBootstrapToken(ctx context.Context, token string) (bool, error) {
@@ -76,20 +76,20 @@ type MockUserRepository struct {
 	mock.Mock
 }
 
-func (m *MockUserRepository) Create(ctx context.Context, user *domain.User) error {
+func (m *MockUserRepository) Create(ctx context.Context, user *model.User) error {
 	args := m.Called(ctx, user)
 	return args.Error(0)
 }
 
-func (m *MockUserRepository) Read(ctx context.Context, id uuid.UUID) (*domain.User, error) {
+func (m *MockUserRepository) Read(ctx context.Context, id uuid.UUID) (*model.User, error) {
 	args := m.Called(ctx, id)
 	if args.Get(0) == nil {
 		return nil, args.Error(1)
 	}
-	return args.Get(0).(*domain.User), args.Error(1)
+	return args.Get(0).(*model.User), args.Error(1)
 }
 
-func (m *MockUserRepository) Update(ctx context.Context, user *domain.User) error {
+func (m *MockUserRepository) Update(ctx context.Context, user *model.User) error {
 	args := m.Called(ctx, user)
 	return args.Error(0)
 }
@@ -99,20 +99,20 @@ func (m *MockUserRepository) Delete(ctx context.Context, id uuid.UUID) error {
 	return args.Error(0)
 }
 
-func (m *MockUserRepository) ReadByUsername(ctx context.Context, username string) (domain.User, error) {
+func (m *MockUserRepository) ReadByUsername(ctx context.Context, username string) (model.User, error) {
 	args := m.Called(ctx, username)
 	if args.Get(0) == nil {
-		return domain.User{}, args.Error(1)
+		return model.User{}, args.Error(1)
 	}
-	return args.Get(0).(domain.User), args.Error(1)
+	return args.Get(0).(model.User), args.Error(1)
 }
 
-func (m *MockUserRepository) List(ctx context.Context) ([]domain.User, error) {
+func (m *MockUserRepository) List(ctx context.Context) ([]model.User, error) {
 	args := m.Called(ctx)
 	if args.Get(0) == nil {
 		return nil, args.Error(1)
 	}
-	return args.Get(0).([]domain.User), args.Error(1)
+	return args.Get(0).([]model.User), args.Error(1)
 }
 
 func (m *MockUserRepository) ValidateBootstrapToken(ctx context.Context, token string) (bool, error) {
@@ -215,7 +215,7 @@ func TestRetryRepositoryWrapperIntegration(t *testing.T) {
 	assert.NoError(t, err)
 
 	ctx := context.Background()
-	testUser := &domain.User{
+	testUser := &model.User{
 		ID:       uuid.New(),
 		Username: "testuser",
 		PasswordHash: "hashed_password",

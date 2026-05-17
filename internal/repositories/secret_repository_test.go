@@ -12,7 +12,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"rocketvault/internal/domain"
+	"rocketvault/model"
 	"rocketvault/internal/logging"
 	"rocketvault/internal/repositories"
 )
@@ -55,7 +55,7 @@ func TestSecretRepository_ReadByOwner_WrongUserReturnsError(t *testing.T) {
 
 	ownerID := uuid.New()
 	otherID := uuid.New()
-	secret := &domain.Secret{
+	secret := &model.Secret{
 		ID:              uuid.New(),
 		UserID:          ownerID,
 		Name:            "my-secret",
@@ -85,7 +85,7 @@ func TestSecretRepository_ReadByOwner_SoftDeletedSecretNotVisible(t *testing.T) 
 	ctx := context.Background()
 
 	ownerID := uuid.New()
-	secret := &domain.Secret{
+	secret := &model.Secret{
 		ID:              uuid.New(),
 		UserID:          ownerID,
 		Name:            "deleted-secret",

@@ -10,7 +10,7 @@ import (
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 
-	"rocketvault/internal/domain"
+	"rocketvault/model"
 	"rocketvault/internal/services/secrets"
 	"rocketvault/internal/testutils"
 )
@@ -45,7 +45,7 @@ func TestCreateSecret_HappyPath(t *testing.T) {
 	tag := &testutils.MockTagService{}
 
 	crypto.On("EncryptSecret", "plaintext").Return("encrypted", nil)
-	repo.On("Create", ctx, mock.AnythingOfType("*domain.Secret")).Return(nil)
+	repo.On("Create", ctx, mock.AnythingOfType("*model.Secret")).Return(nil)
 
 	svc := newService(repo, crypto, ver, tag, t)
 	got, err := svc.CreateSecret(ctx, secrets.CreateSecretRequest{
@@ -93,7 +93,7 @@ func TestGetSecret_HappyPath(t *testing.T) {
 	userID := uuid.New()
 	secretID := uuid.New()
 
-	stored := &domain.Secret{ID: secretID, UserID: userID, Name: "s", Value: "enc"}
+	stored := &model.Secret{ID: secretID, UserID: userID, Name: "s", Value: "enc"}
 
 	repo := &testutils.MockSecretRepository{}
 	crypto := &testutils.MockCryptographyService{}
@@ -165,7 +165,7 @@ func TestDeleteSecret_HappyPath(t *testing.T) {
 	userID := uuid.New()
 	secretID := uuid.New()
 
-	stored := &domain.Secret{ID: secretID, UserID: userID, Name: "to-delete"}
+	stored := &model.Secret{ID: secretID, UserID: userID, Name: "to-delete"}
 
 	repo := &testutils.MockSecretRepository{}
 	crypto := &testutils.MockCryptographyService{}
@@ -190,7 +190,7 @@ func TestDeleteSecret_WrongOwner(t *testing.T) {
 	secretID := uuid.New()
 	ownerID := uuid.New()
 
-	stored := &domain.Secret{ID: secretID, UserID: ownerID}
+	stored := &model.Secret{ID: secretID, UserID: ownerID}
 
 	repo := &testutils.MockSecretRepository{}
 	crypto := &testutils.MockCryptographyService{}
@@ -214,7 +214,7 @@ func TestUpdateSecret_HappyPath(t *testing.T) {
 	userID := uuid.New()
 	secretID := uuid.New()
 
-	stored := &domain.Secret{ID: secretID, UserID: userID, Name: "old", Value: "enc-old", Version: 1}
+	stored := &model.Secret{ID: secretID, UserID: userID, Name: "old", Value: "enc-old", Version: 1}
 	newValue := "new-plain"
 	newName := "new-name"
 
@@ -226,10 +226,10 @@ func TestUpdateSecret_HappyPath(t *testing.T) {
 	repo.On("Read", ctx, secretID).Return(stored, nil)
 	crypto.On("DecryptSecret", "enc-old").Return("old-plain", nil)
 	ver.On("CreateVersion", ctx, mock.AnythingOfType("secrets.CreateVersionRequest")).Return(
-		&domain.SecretVersion{Version: 1}, nil,
+		&model.SecretVersion{Version: 1}, nil,
 	)
 	crypto.On("EncryptSecret", newValue).Return("enc-new", nil)
-	repo.On("Update", ctx, mock.AnythingOfType("*domain.Secret")).Return(nil)
+	repo.On("Update", ctx, mock.AnythingOfType("*model.Secret")).Return(nil)
 
 	svc := newService(repo, crypto, ver, tag, t)
 	err := svc.UpdateSecret(ctx, secrets.UpdateSecretRequest{
@@ -250,7 +250,7 @@ func TestUpdateSecret_WrongOwner(t *testing.T) {
 	secretID := uuid.New()
 	ownerID := uuid.New()
 
-	stored := &domain.Secret{ID: secretID, UserID: ownerID, Value: "enc"}
+	stored := &model.Secret{ID: secretID, UserID: ownerID, Value: "enc"}
 
 	repo := &testutils.MockSecretRepository{}
 	crypto := &testutils.MockCryptographyService{}
@@ -277,7 +277,7 @@ func TestListSecrets_DecryptsAndLoadsTags(t *testing.T) {
 	userID := uuid.New()
 	id1, id2 := uuid.New(), uuid.New()
 
-	stored := []domain.Secret{
+	stored := []model.Secret{
 		{ID: id1, UserID: userID, Name: "a", Value: "enc-a"},
 		{ID: id2, UserID: userID, Name: "b", Value: "enc-b"},
 	}
@@ -316,7 +316,7 @@ func TestGenerateSecret_HappyPath(t *testing.T) {
 	tag := &testutils.MockTagService{}
 
 	crypto.On("EncryptSecret", mock.AnythingOfType("string")).Return("encrypted", nil)
-	repo.On("Create", ctx, mock.AnythingOfType("*domain.Secret")).Return(nil)
+	repo.On("Create", ctx, mock.AnythingOfType("*model.Secret")).Return(nil)
 
 	svc := newService(repo, crypto, ver, tag, t)
 	got, err := svc.GenerateSecret(ctx, secrets.GenerateSecretRequest{

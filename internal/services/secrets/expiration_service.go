@@ -8,7 +8,7 @@ import (
 
 	"github.com/sirupsen/logrus"
 
-	"rocketvault/internal/domain"
+	"rocketvault/model"
 	"rocketvault/internal/logging"
 	"rocketvault/internal/repositories"
 )
@@ -16,10 +16,10 @@ import (
 // ExpirationService handles secret expiration monitoring and notifications.
 // It checks for expiring secrets and triggers rotation workflows.
 type ExpirationService interface {
-	CheckExpiringSecrets(ctx context.Context) ([]domain.Secret, error)
-	GetExpiringSecrets(ctx context.Context, withinDays int) ([]domain.Secret, error)
+	CheckExpiringSecrets(ctx context.Context) ([]model.Secret, error)
+	GetExpiringSecrets(ctx context.Context, withinDays int) ([]model.Secret, error)
 	DisableExpiredSecrets(ctx context.Context) (int, error)
-	ValidateSecretLifecycle(secret *domain.Secret) error
+	ValidateSecretLifecycle(secret *model.Secret) error
 }
 
 // expirationService implements ExpirationService for lifecycle management.
@@ -43,20 +43,20 @@ func NewExpirationService(config ExpirationServiceConfig) ExpirationService {
 }
 
 // CheckExpiringSecrets finds secrets expiring within the default 7-day window.
-func (s *expirationService) CheckExpiringSecrets(ctx context.Context) ([]domain.Secret, error) {
+func (s *expirationService) CheckExpiringSecrets(ctx context.Context) ([]model.Secret, error) {
 	return s.GetExpiringSecrets(ctx, 7)
 }
 
 // GetExpiringSecrets retrieves secrets expiring within the specified number of days.
 // This enables proactive rotation and notification workflows.
 // Note: This is a system-level operation that checks all secrets across all users.
-func (s *expirationService) GetExpiringSecrets(ctx context.Context, withinDays int) ([]domain.Secret, error) {
+func (s *expirationService) GetExpiringSecrets(ctx context.Context, withinDays int) ([]model.Secret, error) {
 	logrus.WithField("within_days", withinDays).Info("Checking for expiring secrets")
 
 	// Note: We need to query secrets from all users for system-wide expiration monitoring
 	// This would typically be implemented as a new repository method or admin query
 	// For now, returning empty slice as this requires repository enhancement
-	expiringSecrets := []domain.Secret{}
+	expiringSecrets := []model.Secret{}
 
 	// TODO: Add ListAllSecrets() method to SecretRepositoryInterface for admin/system operations
 	// or implement user-specific expiration checking in the scheduler
@@ -87,7 +87,7 @@ func (s *expirationService) DisableExpiredSecrets(ctx context.Context) (int, err
 
 // ValidateSecretLifecycle validates secret lifecycle timestamps.
 // Returns an error if the secret has invalid expiration or activation dates.
-func (s *expirationService) ValidateSecretLifecycle(secret *domain.Secret) error {
+func (s *expirationService) ValidateSecretLifecycle(secret *model.Secret) error {
 	// Check if NotBefore is in the future but past ExpiresAt
 	if secret.NotBefore != nil && secret.ExpiresAt != nil {
 		if secret.NotBefore.After(*secret.ExpiresAt) {

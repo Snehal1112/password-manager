@@ -3,7 +3,7 @@ package authorization
 import (
 	"testing"
 
-	"rocketvault/internal/domain"
+	"rocketvault/model"
 	"rocketvault/internal/logging"
 )
 
@@ -19,52 +19,52 @@ func TestRBACPermissionValidation(t *testing.T) {
 		expected   bool
 	}{
 		// Admin role tests - should have all permissions
-		{"admin has secret create", domain.RoleAdmin, PermissionCreateSecret, true},
-		{"admin has secret delete", domain.RoleAdmin, PermissionDeleteSecret, true},
-		{"admin has user create", domain.RoleAdmin, PermissionCreateUser, true},
-		{"admin has key delete", domain.RoleAdmin, PermissionDeleteKey, true},
-		{"admin has cert delete", domain.RoleAdmin, PermissionDeleteCertificate, true},
-		{"admin has system manage", domain.RoleAdmin, PermissionManageSystem, true},
+		{"admin has secret create", model.RoleAdmin, PermissionCreateSecret, true},
+		{"admin has secret delete", model.RoleAdmin, PermissionDeleteSecret, true},
+		{"admin has user create", model.RoleAdmin, PermissionCreateUser, true},
+		{"admin has key delete", model.RoleAdmin, PermissionDeleteKey, true},
+		{"admin has cert delete", model.RoleAdmin, PermissionDeleteCertificate, true},
+		{"admin has system manage", model.RoleAdmin, PermissionManageSystem, true},
 
 		// Basic user role tests - should only have read permissions
-		{"user has secret read", domain.RoleUser, PermissionReadSecret, true},
-		{"user has secret list", domain.RoleUser, PermissionListSecrets, true},
-		{"user has key read", domain.RoleUser, PermissionReadKey, true},
-		{"user CANNOT create secret", domain.RoleUser, PermissionCreateSecret, false},
-		{"user CANNOT delete secret", domain.RoleUser, PermissionDeleteSecret, false},
-		{"user CANNOT create user", domain.RoleUser, PermissionCreateUser, false},
-		{"user CANNOT delete key", domain.RoleUser, PermissionDeleteKey, false},
-		{"user CANNOT manage system", domain.RoleUser, PermissionManageSystem, false},
+		{"user has secret read", model.RoleUser, PermissionReadSecret, true},
+		{"user has secret list", model.RoleUser, PermissionListSecrets, true},
+		{"user has key read", model.RoleUser, PermissionReadKey, true},
+		{"user CANNOT create secret", model.RoleUser, PermissionCreateSecret, false},
+		{"user CANNOT delete secret", model.RoleUser, PermissionDeleteSecret, false},
+		{"user CANNOT create user", model.RoleUser, PermissionCreateUser, false},
+		{"user CANNOT delete key", model.RoleUser, PermissionDeleteKey, false},
+		{"user CANNOT manage system", model.RoleUser, PermissionManageSystem, false},
 
 		// Secrets manager role tests
-		{"secrets-manager can create secret", domain.RoleSecretsManager, PermissionCreateSecret, true},
-		{"secrets-manager can update secret", domain.RoleSecretsManager, PermissionUpdateSecret, true},
-		{"secrets-manager can delete secret", domain.RoleSecretsManager, PermissionDeleteSecret, true},
-		{"secrets-manager can read secret", domain.RoleSecretsManager, PermissionReadSecret, true},
-		{"secrets-manager can list secrets", domain.RoleSecretsManager, PermissionListSecrets, true},
-		{"secrets-manager CANNOT create user", domain.RoleSecretsManager, PermissionCreateUser, false},
-		{"secrets-manager CANNOT delete key", domain.RoleSecretsManager, PermissionDeleteKey, false},
-		{"secrets-manager CANNOT manage certs", domain.RoleSecretsManager, PermissionDeleteCertificate, false},
+		{"secrets-manager can create secret", model.RoleSecretsManager, PermissionCreateSecret, true},
+		{"secrets-manager can update secret", model.RoleSecretsManager, PermissionUpdateSecret, true},
+		{"secrets-manager can delete secret", model.RoleSecretsManager, PermissionDeleteSecret, true},
+		{"secrets-manager can read secret", model.RoleSecretsManager, PermissionReadSecret, true},
+		{"secrets-manager can list secrets", model.RoleSecretsManager, PermissionListSecrets, true},
+		{"secrets-manager CANNOT create user", model.RoleSecretsManager, PermissionCreateUser, false},
+		{"secrets-manager CANNOT delete key", model.RoleSecretsManager, PermissionDeleteKey, false},
+		{"secrets-manager CANNOT manage certs", model.RoleSecretsManager, PermissionDeleteCertificate, false},
 
 		// Crypto manager role tests
-		{"crypto-manager can create key", domain.RoleCryptoManager, PermissionCreateKey, true},
-		{"crypto-manager can update key", domain.RoleCryptoManager, PermissionUpdateKey, true},
-		{"crypto-manager can delete key", domain.RoleCryptoManager, PermissionDeleteKey, true},
-		{"crypto-manager can read key", domain.RoleCryptoManager, PermissionReadKey, true},
-		{"crypto-manager can list keys", domain.RoleCryptoManager, PermissionListKeys, true},
-		{"crypto-manager CANNOT delete secret", domain.RoleCryptoManager, PermissionDeleteSecret, false},
-		{"crypto-manager CANNOT create user", domain.RoleCryptoManager, PermissionCreateUser, false},
-		{"crypto-manager CANNOT manage certs", domain.RoleCryptoManager, PermissionDeleteCertificate, false},
+		{"crypto-manager can create key", model.RoleCryptoManager, PermissionCreateKey, true},
+		{"crypto-manager can update key", model.RoleCryptoManager, PermissionUpdateKey, true},
+		{"crypto-manager can delete key", model.RoleCryptoManager, PermissionDeleteKey, true},
+		{"crypto-manager can read key", model.RoleCryptoManager, PermissionReadKey, true},
+		{"crypto-manager can list keys", model.RoleCryptoManager, PermissionListKeys, true},
+		{"crypto-manager CANNOT delete secret", model.RoleCryptoManager, PermissionDeleteSecret, false},
+		{"crypto-manager CANNOT create user", model.RoleCryptoManager, PermissionCreateUser, false},
+		{"crypto-manager CANNOT manage certs", model.RoleCryptoManager, PermissionDeleteCertificate, false},
 
 		// Certificate manager role tests
-		{"cert-manager can create cert", domain.RoleCertificateManager, PermissionCreateCertificate, true},
-		{"cert-manager can update cert", domain.RoleCertificateManager, PermissionUpdateCertificate, true},
-		{"cert-manager can delete cert", domain.RoleCertificateManager, PermissionDeleteCertificate, true},
-		{"cert-manager can read cert", domain.RoleCertificateManager, PermissionReadCertificate, true},
-		{"cert-manager can list certs", domain.RoleCertificateManager, PermissionListCertificates, true},
-		{"cert-manager CANNOT delete secret", domain.RoleCertificateManager, PermissionDeleteSecret, false},
-		{"cert-manager CANNOT delete key", domain.RoleCertificateManager, PermissionDeleteKey, false},
-		{"cert-manager CANNOT create user", domain.RoleCertificateManager, PermissionCreateUser, false},
+		{"cert-manager can create cert", model.RoleCertificateManager, PermissionCreateCertificate, true},
+		{"cert-manager can update cert", model.RoleCertificateManager, PermissionUpdateCertificate, true},
+		{"cert-manager can delete cert", model.RoleCertificateManager, PermissionDeleteCertificate, true},
+		{"cert-manager can read cert", model.RoleCertificateManager, PermissionReadCertificate, true},
+		{"cert-manager can list certs", model.RoleCertificateManager, PermissionListCertificates, true},
+		{"cert-manager CANNOT delete secret", model.RoleCertificateManager, PermissionDeleteSecret, false},
+		{"cert-manager CANNOT delete key", model.RoleCertificateManager, PermissionDeleteKey, false},
+		{"cert-manager CANNOT create user", model.RoleCertificateManager, PermissionCreateUser, false},
 
 		// Unknown role tests
 		{"unknown role has no permissions", "unknown", PermissionReadSecret, false},
@@ -94,45 +94,45 @@ func TestEndpointAccessValidation(t *testing.T) {
 		shouldAllow bool
 	}{
 		// Admin access tests
-		{"admin can POST /secrets", domain.RoleAdmin, "POST", "/api/v1/secrets", true},
-		{"admin can DELETE /secrets/123", domain.RoleAdmin, "DELETE", "/api/v1/secrets/123", true},
-		{"admin can POST /users", domain.RoleAdmin, "POST", "/api/v1/users", true},
-		{"admin can DELETE /users/123", domain.RoleAdmin, "DELETE", "/api/v1/users/123", true},
-		{"admin can DELETE /keys/123", domain.RoleAdmin, "DELETE", "/api/v1/keys/123", true},
+		{"admin can POST /secrets", model.RoleAdmin, "POST", "/api/v1/secrets", true},
+		{"admin can DELETE /secrets/123", model.RoleAdmin, "DELETE", "/api/v1/secrets/123", true},
+		{"admin can POST /users", model.RoleAdmin, "POST", "/api/v1/users", true},
+		{"admin can DELETE /users/123", model.RoleAdmin, "DELETE", "/api/v1/users/123", true},
+		{"admin can DELETE /keys/123", model.RoleAdmin, "DELETE", "/api/v1/keys/123", true},
 
 		// Basic user access tests
-		{"user can GET /secrets", domain.RoleUser, "GET", "/api/v1/secrets", true},
-		{"user can GET /secrets/123", domain.RoleUser, "GET", "/api/v1/secrets/123", true},
-		{"user CANNOT POST /secrets", domain.RoleUser, "POST", "/api/v1/secrets", false},
-		{"user CANNOT DELETE /secrets/123", domain.RoleUser, "DELETE", "/api/v1/secrets/123", false},
-		{"user CANNOT POST /users", domain.RoleUser, "POST", "/api/v1/users", false},
-		{"user CANNOT DELETE /keys/123", domain.RoleUser, "DELETE", "/api/v1/keys/123", false},
+		{"user can GET /secrets", model.RoleUser, "GET", "/api/v1/secrets", true},
+		{"user can GET /secrets/123", model.RoleUser, "GET", "/api/v1/secrets/123", true},
+		{"user CANNOT POST /secrets", model.RoleUser, "POST", "/api/v1/secrets", false},
+		{"user CANNOT DELETE /secrets/123", model.RoleUser, "DELETE", "/api/v1/secrets/123", false},
+		{"user CANNOT POST /users", model.RoleUser, "POST", "/api/v1/users", false},
+		{"user CANNOT DELETE /keys/123", model.RoleUser, "DELETE", "/api/v1/keys/123", false},
 
 		// Secrets manager access tests
-		{"secrets-manager can POST /secrets", domain.RoleSecretsManager, "POST", "/api/v1/secrets", true},
-		{"secrets-manager can PUT /secrets/123", domain.RoleSecretsManager, "PUT", "/api/v1/secrets/123", true},
-		{"secrets-manager can DELETE /secrets/123", domain.RoleSecretsManager, "DELETE", "/api/v1/secrets/123", true},
-		{"secrets-manager can GET /secrets", domain.RoleSecretsManager, "GET", "/api/v1/secrets", true},
-		{"secrets-manager CANNOT POST /users", domain.RoleSecretsManager, "POST", "/api/v1/users", false},
-		{"secrets-manager CANNOT DELETE /keys/123", domain.RoleSecretsManager, "DELETE", "/api/v1/keys/123", false},
+		{"secrets-manager can POST /secrets", model.RoleSecretsManager, "POST", "/api/v1/secrets", true},
+		{"secrets-manager can PUT /secrets/123", model.RoleSecretsManager, "PUT", "/api/v1/secrets/123", true},
+		{"secrets-manager can DELETE /secrets/123", model.RoleSecretsManager, "DELETE", "/api/v1/secrets/123", true},
+		{"secrets-manager can GET /secrets", model.RoleSecretsManager, "GET", "/api/v1/secrets", true},
+		{"secrets-manager CANNOT POST /users", model.RoleSecretsManager, "POST", "/api/v1/users", false},
+		{"secrets-manager CANNOT DELETE /keys/123", model.RoleSecretsManager, "DELETE", "/api/v1/keys/123", false},
 
 		// Crypto manager access tests
-		{"crypto-manager can POST /keys", domain.RoleCryptoManager, "POST", "/api/v1/keys", true},
-		{"crypto-manager can PUT /keys/123", domain.RoleCryptoManager, "PUT", "/api/v1/keys/123", true},
-		{"crypto-manager can DELETE /keys/123", domain.RoleCryptoManager, "DELETE", "/api/v1/keys/123", true},
-		{"crypto-manager can GET /keys", domain.RoleCryptoManager, "GET", "/api/v1/keys", true},
-		{"crypto-manager CANNOT DELETE /secrets/123", domain.RoleCryptoManager, "DELETE", "/api/v1/secrets/123", false},
-		{"crypto-manager CANNOT POST /users", domain.RoleCryptoManager, "POST", "/api/v1/users", false},
+		{"crypto-manager can POST /keys", model.RoleCryptoManager, "POST", "/api/v1/keys", true},
+		{"crypto-manager can PUT /keys/123", model.RoleCryptoManager, "PUT", "/api/v1/keys/123", true},
+		{"crypto-manager can DELETE /keys/123", model.RoleCryptoManager, "DELETE", "/api/v1/keys/123", true},
+		{"crypto-manager can GET /keys", model.RoleCryptoManager, "GET", "/api/v1/keys", true},
+		{"crypto-manager CANNOT DELETE /secrets/123", model.RoleCryptoManager, "DELETE", "/api/v1/secrets/123", false},
+		{"crypto-manager CANNOT POST /users", model.RoleCryptoManager, "POST", "/api/v1/users", false},
 
 		// Certificate manager access tests
-		{"cert-manager can POST /certificates", domain.RoleCertificateManager, "POST", "/api/v1/certificates", true},
-		{"cert-manager can DELETE /certificates/123", domain.RoleCertificateManager, "DELETE", "/api/v1/certificates/123", true},
-		{"cert-manager CANNOT DELETE /secrets/123", domain.RoleCertificateManager, "DELETE", "/api/v1/secrets/123", false},
-		{"cert-manager CANNOT POST /users", domain.RoleCertificateManager, "POST", "/api/v1/users", false},
+		{"cert-manager can POST /certificates", model.RoleCertificateManager, "POST", "/api/v1/certificates", true},
+		{"cert-manager can DELETE /certificates/123", model.RoleCertificateManager, "DELETE", "/api/v1/certificates/123", true},
+		{"cert-manager CANNOT DELETE /secrets/123", model.RoleCertificateManager, "DELETE", "/api/v1/secrets/123", false},
+		{"cert-manager CANNOT POST /users", model.RoleCertificateManager, "POST", "/api/v1/users", false},
 
 		// Public endpoint tests (no permission required - should pass for all roles)
-		{"admin can access health", domain.RoleAdmin, "GET", "/api/v1/health", true},
-		{"user can access health", domain.RoleUser, "GET", "/api/v1/health", true},
+		{"admin can access health", model.RoleAdmin, "GET", "/api/v1/health", true},
+		{"user can access health", model.RoleUser, "GET", "/api/v1/health", true},
 	}
 
 	for _, tt := range tests {
@@ -168,7 +168,7 @@ func TestGetRolePermissions(t *testing.T) {
 	}{
 		{
 			name:         "admin has all permissions",
-			role:         domain.RoleAdmin,
+			role:         model.RoleAdmin,
 			minPermCount: 15, // Should have all permissions
 			shouldInclude: []Permission{
 				PermissionCreateSecret,
@@ -180,7 +180,7 @@ func TestGetRolePermissions(t *testing.T) {
 		},
 		{
 			name:         "user has only read permissions",
-			role:         domain.RoleUser,
+			role:         model.RoleUser,
 			minPermCount: 6, // Limited permissions
 			shouldInclude: []Permission{
 				PermissionReadSecret,
@@ -196,7 +196,7 @@ func TestGetRolePermissions(t *testing.T) {
 		},
 		{
 			name:         "secrets-manager has secret permissions",
-			role:         domain.RoleSecretsManager,
+			role:         model.RoleSecretsManager,
 			minPermCount: 5, // All secret operations
 			shouldInclude: []Permission{
 				PermissionCreateSecret,
@@ -264,7 +264,7 @@ func TestRoleHierarchy(t *testing.T) {
 	logger := logging.InitLogger()
 	rbacService := NewRBACService(logger)
 
-	adminPerms := rbacService.GetRolePermissions(domain.RoleAdmin)
+	adminPerms := rbacService.GetRolePermissions(model.RoleAdmin)
 
 	// Create map for quick lookup
 	adminPermMap := make(map[Permission]bool)
@@ -273,10 +273,10 @@ func TestRoleHierarchy(t *testing.T) {
 	}
 
 	roles := []string{
-		domain.RoleUser,
-		domain.RoleSecretsManager,
-		domain.RoleCryptoManager,
-		domain.RoleCertificateManager,
+		model.RoleUser,
+		model.RoleSecretsManager,
+		model.RoleCryptoManager,
+		model.RoleCertificateManager,
 	}
 
 	for _, role := range roles {

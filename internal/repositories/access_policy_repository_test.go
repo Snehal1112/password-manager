@@ -10,7 +10,7 @@ _ "github.com/mattn/go-sqlite3"
 "github.com/stretchr/testify/assert"
 "github.com/stretchr/testify/require"
 
-"rocketvault/internal/domain"
+"rocketvault/model"
 "rocketvault/internal/repositories"
 )
 
@@ -41,13 +41,13 @@ func TestAccessPolicyRepository_CreateAndGet(t *testing.T) {
 	ctx := context.Background()
 
 	principalID := uuid.New()
-	policy := &domain.AccessPolicy{
+	policy := &model.AccessPolicy{
 		ID:            uuid.New(),
 		PrincipalID:   principalID,
-		PrincipalType: domain.PrincipalTypeUser,
-		ResourceType:  domain.PolicyResourceSecrets,
-		Operation:     domain.OpGet,
-		Effect:        domain.PolicyEffectAllow,
+		PrincipalType: model.PrincipalTypeUser,
+		ResourceType:  model.PolicyResourceSecrets,
+		Operation:     model.OpGet,
+		Effect:        model.PolicyEffectAllow,
 	}
 
 	require.NoError(t, repo.Create(ctx, policy))
@@ -55,8 +55,8 @@ func TestAccessPolicyRepository_CreateAndGet(t *testing.T) {
 	got, err := repo.GetByID(ctx, policy.ID)
 	require.NoError(t, err)
 	assert.Equal(t, policy.ID, got.ID)
-	assert.Equal(t, domain.PolicyEffectAllow, got.Effect)
-	assert.Equal(t, domain.PolicyResourceSecrets, got.ResourceType)
+	assert.Equal(t, model.PolicyEffectAllow, got.Effect)
+	assert.Equal(t, model.PolicyResourceSecrets, got.ResourceType)
 }
 
 func TestAccessPolicyRepository_ListByPrincipal(t *testing.T) {
@@ -68,17 +68,17 @@ func TestAccessPolicyRepository_ListByPrincipal(t *testing.T) {
 	principalID := uuid.New()
 	otherID := uuid.New()
 
-	p1 := &domain.AccessPolicy{
-		ID: uuid.New(), PrincipalID: principalID, PrincipalType: domain.PrincipalTypeUser,
-		ResourceType: domain.PolicyResourceSecrets, Operation: domain.OpGet, Effect: domain.PolicyEffectAllow,
+	p1 := &model.AccessPolicy{
+		ID: uuid.New(), PrincipalID: principalID, PrincipalType: model.PrincipalTypeUser,
+		ResourceType: model.PolicyResourceSecrets, Operation: model.OpGet, Effect: model.PolicyEffectAllow,
 	}
-	p2 := &domain.AccessPolicy{
-		ID: uuid.New(), PrincipalID: principalID, PrincipalType: domain.PrincipalTypeUser,
-		ResourceType: domain.PolicyResourceKeys, Operation: domain.OpList, Effect: domain.PolicyEffectDeny,
+	p2 := &model.AccessPolicy{
+		ID: uuid.New(), PrincipalID: principalID, PrincipalType: model.PrincipalTypeUser,
+		ResourceType: model.PolicyResourceKeys, Operation: model.OpList, Effect: model.PolicyEffectDeny,
 	}
-	p3 := &domain.AccessPolicy{
-		ID: uuid.New(), PrincipalID: otherID, PrincipalType: domain.PrincipalTypeUser,
-		ResourceType: domain.PolicyResourceSecrets, Operation: domain.OpList, Effect: domain.PolicyEffectAllow,
+	p3 := &model.AccessPolicy{
+		ID: uuid.New(), PrincipalID: otherID, PrincipalType: model.PrincipalTypeUser,
+		ResourceType: model.PolicyResourceSecrets, Operation: model.OpList, Effect: model.PolicyEffectAllow,
 	}
 	require.NoError(t, repo.Create(ctx, p1))
 	require.NoError(t, repo.Create(ctx, p2))
@@ -96,24 +96,24 @@ func TestAccessPolicyRepository_FindEffects(t *testing.T) {
 	ctx := context.Background()
 
 	principalID := uuid.New()
-	p1 := &domain.AccessPolicy{
-		ID: uuid.New(), PrincipalID: principalID, PrincipalType: domain.PrincipalTypeUser,
-		ResourceType: domain.PolicyResourceSecrets, Operation: domain.OpDelete, Effect: domain.PolicyEffectAllow,
+	p1 := &model.AccessPolicy{
+		ID: uuid.New(), PrincipalID: principalID, PrincipalType: model.PrincipalTypeUser,
+		ResourceType: model.PolicyResourceSecrets, Operation: model.OpDelete, Effect: model.PolicyEffectAllow,
 	}
-	p2 := &domain.AccessPolicy{
-		ID: uuid.New(), PrincipalID: principalID, PrincipalType: domain.PrincipalTypeUser,
-		ResourceType: domain.PolicyResourceSecrets, Operation: domain.OpDelete, Effect: domain.PolicyEffectDeny,
+	p2 := &model.AccessPolicy{
+		ID: uuid.New(), PrincipalID: principalID, PrincipalType: model.PrincipalTypeUser,
+		ResourceType: model.PolicyResourceSecrets, Operation: model.OpDelete, Effect: model.PolicyEffectDeny,
 	}
 	require.NoError(t, repo.Create(ctx, p1))
 	require.NoError(t, repo.Create(ctx, p2))
 
-	effects, err := repo.FindEffects(ctx, principalID, domain.PolicyResourceSecrets, domain.OpDelete)
+	effects, err := repo.FindEffects(ctx, principalID, model.PolicyResourceSecrets, model.OpDelete)
 	require.NoError(t, err)
 	assert.Len(t, effects, 2)
 
 	hasDeny := false
 	for _, e := range effects {
-		if e.Effect == domain.PolicyEffectDeny {
+		if e.Effect == model.PolicyEffectDeny {
 			hasDeny = true
 		}
 	}
@@ -126,13 +126,13 @@ func TestAccessPolicyRepository_Delete(t *testing.T) {
 	repo := repositories.NewAccessPolicyRepository(db)
 	ctx := context.Background()
 
-	policy := &domain.AccessPolicy{
+	policy := &model.AccessPolicy{
 		ID:            uuid.New(),
 		PrincipalID:   uuid.New(),
-		PrincipalType: domain.PrincipalTypeUser,
-		ResourceType:  domain.PolicyResourceCertificates,
-		Operation:     domain.OpGet,
-		Effect:        domain.PolicyEffectAllow,
+		PrincipalType: model.PrincipalTypeUser,
+		ResourceType:  model.PolicyResourceCertificates,
+		Operation:     model.OpGet,
+		Effect:        model.PolicyEffectAllow,
 	}
 	require.NoError(t, repo.Create(ctx, policy))
 	require.NoError(t, repo.Delete(ctx, policy.ID))
@@ -147,20 +147,20 @@ func TestAccessPolicyRepository_Update(t *testing.T) {
 	repo := repositories.NewAccessPolicyRepository(db)
 	ctx := context.Background()
 
-	policy := &domain.AccessPolicy{
+	policy := &model.AccessPolicy{
 		ID:            uuid.New(),
 		PrincipalID:   uuid.New(),
-		PrincipalType: domain.PrincipalTypeUser,
-		ResourceType:  domain.PolicyResourceKeys,
-		Operation:     domain.OpCreate,
-		Effect:        domain.PolicyEffectAllow,
+		PrincipalType: model.PrincipalTypeUser,
+		ResourceType:  model.PolicyResourceKeys,
+		Operation:     model.OpCreate,
+		Effect:        model.PolicyEffectAllow,
 	}
 	require.NoError(t, repo.Create(ctx, policy))
 
-	policy.Effect = domain.PolicyEffectDeny
+	policy.Effect = model.PolicyEffectDeny
 	require.NoError(t, repo.Update(ctx, policy))
 
 	updated, err := repo.GetByID(ctx, policy.ID)
 	require.NoError(t, err)
-	assert.Equal(t, domain.PolicyEffectDeny, updated.Effect)
+	assert.Equal(t, model.PolicyEffectDeny, updated.Effect)
 }

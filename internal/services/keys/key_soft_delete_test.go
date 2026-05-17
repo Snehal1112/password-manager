@@ -10,7 +10,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 
-	"rocketvault/internal/domain"
+	"rocketvault/model"
 	"rocketvault/internal/logging"
 )
 
@@ -19,19 +19,19 @@ type mockKeyRepository struct {
 	mock.Mock
 }
 
-func (m *mockKeyRepository) Create(ctx context.Context, key *domain.Key) error {
+func (m *mockKeyRepository) Create(ctx context.Context, key *model.Key) error {
 	return m.Called(ctx, key).Error(0)
 }
 
-func (m *mockKeyRepository) Read(ctx context.Context, id uuid.UUID) (*domain.Key, error) {
+func (m *mockKeyRepository) Read(ctx context.Context, id uuid.UUID) (*model.Key, error) {
 	args := m.Called(ctx, id)
 	if v := args.Get(0); v != nil {
-		return v.(*domain.Key), args.Error(1)
+		return v.(*model.Key), args.Error(1)
 	}
 	return nil, args.Error(1)
 }
 
-func (m *mockKeyRepository) Update(ctx context.Context, key *domain.Key) error {
+func (m *mockKeyRepository) Update(ctx context.Context, key *model.Key) error {
 	return m.Called(ctx, key).Error(0)
 }
 
@@ -51,10 +51,10 @@ func (m *mockKeyRepository) SetPurgeProtection(ctx context.Context, id uuid.UUID
 	return m.Called(ctx, id, enabled).Error(0)
 }
 
-func (m *mockKeyRepository) ListByUser(ctx context.Context, userID *uuid.UUID, keyType string, tags []string) ([]domain.Key, error) {
+func (m *mockKeyRepository) ListByUser(ctx context.Context, userID *uuid.UUID, keyType string, tags []string) ([]model.Key, error) {
 	args := m.Called(ctx, userID, keyType, tags)
 	if v := args.Get(0); v != nil {
-		return v.([]domain.Key), args.Error(1)
+		return v.([]model.Key), args.Error(1)
 	}
 	return nil, args.Error(1)
 }
@@ -67,10 +67,10 @@ func (m *mockKeyRepository) RecoverKey(ctx context.Context, id uuid.UUID) error 
 	return m.Called(ctx, id).Error(0)
 }
 
-func (m *mockKeyRepository) ListSoftDeleted(ctx context.Context, userID uuid.UUID) ([]*domain.Key, error) {
+func (m *mockKeyRepository) ListSoftDeleted(ctx context.Context, userID uuid.UUID) ([]*model.Key, error) {
 	args := m.Called(ctx, userID)
 	if v := args.Get(0); v != nil {
-		return v.([]*domain.Key), args.Error(1)
+		return v.([]*model.Key), args.Error(1)
 	}
 	return nil, args.Error(1)
 }
@@ -80,11 +80,11 @@ func TestDeleteKeySoftDeletes(t *testing.T) {
 	userID := uuid.New()
 	keyID := uuid.New()
 
-	existingKey := &domain.Key{
+	existingKey := &model.Key{
 		ID:        keyID,
 		UserID:    userID,
 		Name:      "test-key",
-		Type:      domain.KeyTypeRSA,
+		Type:      model.KeyTypeRSA,
 		CreatedAt: time.Now(),
 	}
 

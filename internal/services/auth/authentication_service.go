@@ -11,7 +11,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/sirupsen/logrus"
 
-	"rocketvault/internal/domain"
+	"rocketvault/model"
 	"rocketvault/internal/logging"
 	"rocketvault/internal/repositories"
 )
@@ -157,7 +157,7 @@ func (s *authenticationService) AuthenticateUser(ctx context.Context, username, 
 	}
 
 	// Create session in database
-	session := &domain.Session{
+	session := &model.Session{
 		ID:               uuid.New(),
 		UserID:           user.ID,
 		RefreshTokenHash: s.hashRefreshToken(refreshToken),

@@ -11,7 +11,7 @@ import (
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 
-	"rocketvault/internal/domain"
+	"rocketvault/model"
 	"rocketvault/internal/logging"
 	"rocketvault/internal/services/certificates"
 )
@@ -19,19 +19,19 @@ import (
 // mockCertRepoForRenewal satisfies CertificateRepositoryInterface for renewal tests.
 type mockCertRepoForRenewal struct{ mock.Mock }
 
-func (m *mockCertRepoForRenewal) Create(ctx context.Context, cert *domain.Certificate) error {
+func (m *mockCertRepoForRenewal) Create(ctx context.Context, cert *model.Certificate) error {
 	return m.Called(ctx, cert).Error(0)
 }
 
-func (m *mockCertRepoForRenewal) Read(ctx context.Context, id uuid.UUID) (*domain.Certificate, error) {
+func (m *mockCertRepoForRenewal) Read(ctx context.Context, id uuid.UUID) (*model.Certificate, error) {
 	args := m.Called(ctx, id)
 	if v := args.Get(0); v != nil {
-		return v.(*domain.Certificate), args.Error(1)
+		return v.(*model.Certificate), args.Error(1)
 	}
 	return nil, args.Error(1)
 }
 
-func (m *mockCertRepoForRenewal) Update(ctx context.Context, cert *domain.Certificate) error {
+func (m *mockCertRepoForRenewal) Update(ctx context.Context, cert *model.Certificate) error {
 	return m.Called(ctx, cert).Error(0)
 }
 
@@ -43,18 +43,18 @@ func (m *mockCertRepoForRenewal) Revoke(ctx context.Context, id uuid.UUID, seria
 	return m.Called(ctx, id, serialNumber, name).Error(0)
 }
 
-func (m *mockCertRepoForRenewal) ListByUser(ctx context.Context, userID uuid.UUID, certType string, tags []string) ([]domain.Certificate, error) {
+func (m *mockCertRepoForRenewal) ListByUser(ctx context.Context, userID uuid.UUID, certType string, tags []string) ([]model.Certificate, error) {
 	args := m.Called(ctx, userID, certType, tags)
 	if v := args.Get(0); v != nil {
-		return v.([]domain.Certificate), args.Error(1)
+		return v.([]model.Certificate), args.Error(1)
 	}
 	return nil, args.Error(1)
 }
 
-func (m *mockCertRepoForRenewal) ListRevoked(ctx context.Context, userID uuid.UUID) ([]domain.RevokedCertificate, error) {
+func (m *mockCertRepoForRenewal) ListRevoked(ctx context.Context, userID uuid.UUID) ([]model.RevokedCertificate, error) {
 	args := m.Called(ctx, userID)
 	if v := args.Get(0); v != nil {
-		return v.([]domain.RevokedCertificate), args.Error(1)
+		return v.([]model.RevokedCertificate), args.Error(1)
 	}
 	return nil, args.Error(1)
 }
@@ -75,18 +75,18 @@ func (m *mockCertRepoForRenewal) SetPurgeProtection(ctx context.Context, id uuid
 	return m.Called(ctx, id, enabled).Error(0)
 }
 
-func (m *mockCertRepoForRenewal) ListSoftDeleted(ctx context.Context, userID uuid.UUID) ([]*domain.Certificate, error) {
+func (m *mockCertRepoForRenewal) ListSoftDeleted(ctx context.Context, userID uuid.UUID) ([]*model.Certificate, error) {
 	args := m.Called(ctx, userID)
 	if v := args.Get(0); v != nil {
-		return v.([]*domain.Certificate), args.Error(1)
+		return v.([]*model.Certificate), args.Error(1)
 	}
 	return nil, args.Error(1)
 }
 
-func (m *mockCertRepoForRenewal) ListAll(ctx context.Context) ([]domain.Certificate, error) {
+func (m *mockCertRepoForRenewal) ListAll(ctx context.Context) ([]model.Certificate, error) {
 	args := m.Called(ctx)
 	if v := args.Get(0); v != nil {
-		return v.([]domain.Certificate), args.Error(1)
+		return v.([]model.Certificate), args.Error(1)
 	}
 	return nil, args.Error(1)
 }
@@ -103,11 +103,11 @@ func (m *mockCertSvcForRenewal) CreateCASignedCertificate(ctx context.Context, r
 	panic("not called")
 }
 
-func (m *mockCertSvcForRenewal) GetCertificate(ctx context.Context, certID, userID uuid.UUID) (*domain.Certificate, error) {
+func (m *mockCertSvcForRenewal) GetCertificate(ctx context.Context, certID, userID uuid.UUID) (*model.Certificate, error) {
 	panic("not called")
 }
 
-func (m *mockCertSvcForRenewal) ListCertificates(ctx context.Context, userID uuid.UUID) ([]domain.Certificate, error) {
+func (m *mockCertSvcForRenewal) ListCertificates(ctx context.Context, userID uuid.UUID) ([]model.Certificate, error) {
 	panic("not called")
 }
 
@@ -144,7 +144,7 @@ func TestCheckAndRenewCertificates_AutoRenew(t *testing.T) {
 	expires := time.Now().Add(10 * 24 * time.Hour)
 	certID := uuid.New()
 	userID := uuid.New()
-	cert := domain.Certificate{
+	cert := model.Certificate{
 		ID:          certID,
 		UserID:      userID,
 		Name:        "test-cert",
@@ -155,7 +155,7 @@ func TestCheckAndRenewCertificates_AutoRenew(t *testing.T) {
 	}
 
 	repo := &mockCertRepoForRenewal{}
-	repo.On("ListAll", mock.Anything).Return([]domain.Certificate{cert}, nil)
+	repo.On("ListAll", mock.Anything).Return([]model.Certificate{cert}, nil)
 
 	certSvc := &mockCertSvcForRenewal{}
 	certSvc.On("RenewCertificate", mock.Anything, certID, userID, mock.AnythingOfType("int")).
@@ -176,7 +176,7 @@ func TestCheckAndRenewCertificates_AutoRenew(t *testing.T) {
 
 func TestCheckAndRenewCertificates_WarnOnly(t *testing.T) {
 	expires := time.Now().Add(10 * 24 * time.Hour)
-	cert := domain.Certificate{
+	cert := model.Certificate{
 		ID:          uuid.New(),
 		UserID:      uuid.New(),
 		Name:        "warn-cert",
@@ -187,7 +187,7 @@ func TestCheckAndRenewCertificates_WarnOnly(t *testing.T) {
 	}
 
 	repo := &mockCertRepoForRenewal{}
-	repo.On("ListAll", mock.Anything).Return([]domain.Certificate{cert}, nil)
+	repo.On("ListAll", mock.Anything).Return([]model.Certificate{cert}, nil)
 
 	certSvc := &mockCertSvcForRenewal{}
 	// RenewCertificate must NOT be called.

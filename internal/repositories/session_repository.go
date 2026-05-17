@@ -10,7 +10,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/sirupsen/logrus"
 
-	"rocketvault/internal/domain"
+	"rocketvault/model"
 	"rocketvault/internal/logging"
 )
 
@@ -18,16 +18,16 @@ import (
 // It provides methods for managing user sessions, refresh tokens, and session lifecycle.
 type SessionRepositoryInterface interface {
 	// CreateSession creates a new user session with refresh token.
-	CreateSession(ctx context.Context, session *domain.Session) error
+	CreateSession(ctx context.Context, session *model.Session) error
 
 	// GetSessionByID retrieves a session by its unique identifier.
-	GetSessionByID(ctx context.Context, sessionID uuid.UUID) (*domain.Session, error)
+	GetSessionByID(ctx context.Context, sessionID uuid.UUID) (*model.Session, error)
 
 	// GetSessionByRefreshToken retrieves a session by refresh token hash.
-	GetSessionByRefreshToken(ctx context.Context, refreshTokenHash string) (*domain.Session, error)
+	GetSessionByRefreshToken(ctx context.Context, refreshTokenHash string) (*model.Session, error)
 
 	// GetActiveSessionsByUserID retrieves all active sessions for a user.
-	GetActiveSessionsByUserID(ctx context.Context, userID uuid.UUID) ([]*domain.Session, error)
+	GetActiveSessionsByUserID(ctx context.Context, userID uuid.UUID) ([]*model.Session, error)
 
 	// UpdateSessionLastUsed updates the last used timestamp for a session.
 	UpdateSessionLastUsed(ctx context.Context, sessionID uuid.UUID, lastUsedAt time.Time) error
@@ -70,7 +70,7 @@ func NewSessionRepository(config SessionRepositoryConfig) SessionRepositoryInter
 }
 
 // CreateSession creates a new user session with refresh token.
-func (r *SessionRepository) CreateSession(ctx context.Context, session *domain.Session) error {
+func (r *SessionRepository) CreateSession(ctx context.Context, session *model.Session) error {
 	return r.executeWithMetrics("create_session", func() error {
 		query := `
 			INSERT INTO user_sessions (
@@ -98,8 +98,8 @@ func (r *SessionRepository) CreateSession(ctx context.Context, session *domain.S
 }
 
 // GetSessionByID retrieves a session by its unique identifier.
-func (r *SessionRepository) GetSessionByID(ctx context.Context, sessionID uuid.UUID) (*domain.Session, error) {
-	var session domain.Session
+func (r *SessionRepository) GetSessionByID(ctx context.Context, sessionID uuid.UUID) (*model.Session, error) {
+	var session model.Session
 	var userID string
 	var revokedAt sql.NullTime
 	var revokedReason sql.NullString
@@ -150,8 +150,8 @@ func (r *SessionRepository) GetSessionByID(ctx context.Context, sessionID uuid.U
 }
 
 // GetSessionByRefreshToken retrieves a session by refresh token hash.
-func (r *SessionRepository) GetSessionByRefreshToken(ctx context.Context, refreshTokenHash string) (*domain.Session, error) {
-	var session domain.Session
+func (r *SessionRepository) GetSessionByRefreshToken(ctx context.Context, refreshTokenHash string) (*model.Session, error) {
+	var session model.Session
 	var userID string
 	var revokedAt sql.NullTime
 	var revokedReason sql.NullString
@@ -202,7 +202,7 @@ func (r *SessionRepository) GetSessionByRefreshToken(ctx context.Context, refres
 }
 
 // GetActiveSessionsByUserID retrieves all active sessions for a user.
-func (r *SessionRepository) GetActiveSessionsByUserID(ctx context.Context, userID uuid.UUID) ([]*domain.Session, error) {
+func (r *SessionRepository) GetActiveSessionsByUserID(ctx context.Context, userID uuid.UUID) ([]*model.Session, error) {
 	query := `
 		SELECT id, user_id, refresh_token_hash, device_info, ip_address,
 		       user_agent, expires_at, last_used_at, created_at, revoked,
@@ -221,9 +221,9 @@ func (r *SessionRepository) GetActiveSessionsByUserID(ctx context.Context, userI
 	}
 	defer rows.Close()
 
-	var sessions []*domain.Session
+	var sessions []*model.Session
 	for rows.Next() {
-		var session domain.Session
+		var session model.Session
 		var userIDStr string
 		var revokedAt sql.NullTime
 		var revokedReason sql.NullString

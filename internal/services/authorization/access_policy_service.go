@@ -7,7 +7,7 @@ import (
 
 "github.com/google/uuid"
 
-"rocketvault/internal/domain"
+"rocketvault/model"
 "rocketvault/internal/repositories"
 )
 
@@ -27,13 +27,13 @@ AccessDenied
 type AccessPolicyService interface {
 	// CheckAccess evaluates policies for the (principal, resourceType, operation) triple.
 	// Returns AccessAllowed, AccessDenied, or AccessFallback (use RBAC).
-	CheckAccess(ctx context.Context, principalID uuid.UUID, resourceType domain.PolicyResourceType, operation domain.PolicyOperation) (AccessDecision, error)
+	CheckAccess(ctx context.Context, principalID uuid.UUID, resourceType model.PolicyResourceType, operation model.PolicyOperation) (AccessDecision, error)
 
-	CreatePolicy(ctx context.Context, policy *domain.AccessPolicy) error
-	GetPolicy(ctx context.Context, id uuid.UUID) (*domain.AccessPolicy, error)
-	ListPolicies(ctx context.Context) ([]*domain.AccessPolicy, error)
-	ListByPrincipal(ctx context.Context, principalID uuid.UUID) ([]*domain.AccessPolicy, error)
-	UpdatePolicy(ctx context.Context, policy *domain.AccessPolicy) error
+	CreatePolicy(ctx context.Context, policy *model.AccessPolicy) error
+	GetPolicy(ctx context.Context, id uuid.UUID) (*model.AccessPolicy, error)
+	ListPolicies(ctx context.Context) ([]*model.AccessPolicy, error)
+	ListByPrincipal(ctx context.Context, principalID uuid.UUID) ([]*model.AccessPolicy, error)
+	UpdatePolicy(ctx context.Context, policy *model.AccessPolicy) error
 	DeletePolicy(ctx context.Context, id uuid.UUID) error
 }
 
@@ -48,7 +48,7 @@ func NewAccessPolicyService(repo repositories.AccessPolicyRepositoryInterface) A
 
 // CheckAccess evaluates access policies for the triple (principalID, resourceType, operation).
 // Explicit deny always wins. Falls back to RBAC when no matching policy exists.
-func (s *accessPolicyService) CheckAccess(ctx context.Context, principalID uuid.UUID, resourceType domain.PolicyResourceType, operation domain.PolicyOperation) (AccessDecision, error) {
+func (s *accessPolicyService) CheckAccess(ctx context.Context, principalID uuid.UUID, resourceType model.PolicyResourceType, operation model.PolicyOperation) (AccessDecision, error) {
 	policies, err := s.repo.FindEffects(ctx, principalID, resourceType, operation)
 	if err != nil {
 		return AccessFallback, fmt.Errorf("policy lookup: %w", err)
@@ -57,14 +57,14 @@ func (s *accessPolicyService) CheckAccess(ctx context.Context, principalID uuid.
 		return AccessFallback, nil
 	}
 	for _, p := range policies {
-		if p.Effect == domain.PolicyEffectDeny {
+		if p.Effect == model.PolicyEffectDeny {
 			return AccessDenied, nil
 		}
 	}
 	return AccessAllowed, nil
 }
 
-func (s *accessPolicyService) CreatePolicy(ctx context.Context, policy *domain.AccessPolicy) error {
+func (s *accessPolicyService) CreatePolicy(ctx context.Context, policy *model.AccessPolicy) error {
 	if policy.ID == uuid.Nil {
 		policy.ID = uuid.New()
 	}
@@ -74,19 +74,19 @@ func (s *accessPolicyService) CreatePolicy(ctx context.Context, policy *domain.A
 	return s.repo.Create(ctx, policy)
 }
 
-func (s *accessPolicyService) GetPolicy(ctx context.Context, id uuid.UUID) (*domain.AccessPolicy, error) {
+func (s *accessPolicyService) GetPolicy(ctx context.Context, id uuid.UUID) (*model.AccessPolicy, error) {
 	return s.repo.GetByID(ctx, id)
 }
 
-func (s *accessPolicyService) ListPolicies(ctx context.Context) ([]*domain.AccessPolicy, error) {
+func (s *accessPolicyService) ListPolicies(ctx context.Context) ([]*model.AccessPolicy, error) {
 	return s.repo.List(ctx)
 }
 
-func (s *accessPolicyService) ListByPrincipal(ctx context.Context, principalID uuid.UUID) ([]*domain.AccessPolicy, error) {
+func (s *accessPolicyService) ListByPrincipal(ctx context.Context, principalID uuid.UUID) ([]*model.AccessPolicy, error) {
 	return s.repo.ListByPrincipal(ctx, principalID)
 }
 
-func (s *accessPolicyService) UpdatePolicy(ctx context.Context, policy *domain.AccessPolicy) error {
+func (s *accessPolicyService) UpdatePolicy(ctx context.Context, policy *model.AccessPolicy) error {
 	return s.repo.Update(ctx, policy)
 }
 

@@ -12,7 +12,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"rocketvault/internal/domain"
+	"rocketvault/model"
 	"rocketvault/internal/logging"
 	"rocketvault/internal/repositories"
 )
@@ -59,7 +59,7 @@ func TestSecretRepositoryContentType(t *testing.T) {
 	repo := repositories.NewSecretRepository(db, log)
 
 	userID := uuid.New()
-	secret := &domain.Secret{
+	secret := &model.Secret{
 		ID:          uuid.New(),
 		UserID:      userID,
 		Name:        "my-secret",

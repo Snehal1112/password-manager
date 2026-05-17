@@ -17,7 +17,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"rocketvault/common"
-	"rocketvault/internal/domain"
+	"rocketvault/model"
 	"rocketvault/internal/logging"
 	"rocketvault/internal/services/keys"
 )
@@ -45,17 +45,17 @@ func generateTestRSAPEM(t *testing.T) string {
 // mockKeyRepoForWrap is a minimal mock of KeyRepositoryInterface for wrap tests.
 type mockKeyRepoForWrap struct{ mock.Mock }
 
-func (m *mockKeyRepoForWrap) Read(ctx context.Context, id uuid.UUID) (*domain.Key, error) {
+func (m *mockKeyRepoForWrap) Read(ctx context.Context, id uuid.UUID) (*model.Key, error) {
 	args := m.Called(ctx, id)
 	if args.Get(0) == nil {
 		return nil, args.Error(1)
 	}
-	return args.Get(0).(*domain.Key), args.Error(1)
+	return args.Get(0).(*model.Key), args.Error(1)
 }
-func (m *mockKeyRepoForWrap) Create(ctx context.Context, k *domain.Key) error { return nil }
-func (m *mockKeyRepoForWrap) Update(ctx context.Context, k *domain.Key) error { return nil }
+func (m *mockKeyRepoForWrap) Create(ctx context.Context, k *model.Key) error { return nil }
+func (m *mockKeyRepoForWrap) Update(ctx context.Context, k *model.Key) error { return nil }
 func (m *mockKeyRepoForWrap) Delete(ctx context.Context, id uuid.UUID) error  { return nil }
-func (m *mockKeyRepoForWrap) ListByUser(ctx context.Context, userID *uuid.UUID, keyType string, tags []string) ([]domain.Key, error) {
+func (m *mockKeyRepoForWrap) ListByUser(ctx context.Context, userID *uuid.UUID, keyType string, tags []string) ([]model.Key, error) {
 	return nil, nil
 }
 func (m *mockKeyRepoForWrap) UpdateRevocationStatus(ctx context.Context, id uuid.UUID, revoked bool) error {
@@ -67,7 +67,7 @@ func (m *mockKeyRepoForWrap) PurgeKey(ctx context.Context, id uuid.UUID) error  
 func (m *mockKeyRepoForWrap) SetPurgeProtection(ctx context.Context, id uuid.UUID, enabled bool) error {
 	return nil
 }
-func (m *mockKeyRepoForWrap) ListSoftDeleted(ctx context.Context, userID uuid.UUID) ([]*domain.Key, error) {
+func (m *mockKeyRepoForWrap) ListSoftDeleted(ctx context.Context, userID uuid.UUID) ([]*model.Key, error) {
 	return nil, nil
 }
 
@@ -79,7 +79,7 @@ func TestWrapAndUnwrapKey(t *testing.T) {
 
 	userID := uuid.New()
 	keyID := uuid.New()
-	vaultKey := &domain.Key{
+	vaultKey := &model.Key{
 		ID:      keyID,
 		UserID:  userID,
 		Type:    "RSA",
@@ -128,7 +128,7 @@ func TestWrapKeyForbiddenForWrongUser(t *testing.T) {
 	keyID := uuid.New()
 
 	repo := &mockKeyRepoForWrap{}
-	repo.On("Read", mock.Anything, keyID).Return(&domain.Key{
+	repo.On("Read", mock.Anything, keyID).Return(&model.Key{
 		ID: keyID, UserID: ownerID, Type: "RSA", Value: encryptedPEM,
 	}, nil)
 
@@ -157,7 +157,7 @@ func TestWrapKeyRejectsUnsupportedAlgorithm(t *testing.T) {
 	keyID := uuid.New()
 
 	repo := &mockKeyRepoForWrap{}
-	repo.On("Read", mock.Anything, keyID).Return(&domain.Key{
+	repo.On("Read", mock.Anything, keyID).Return(&model.Key{
 		ID: keyID, UserID: userID, Type: "RSA", Value: encryptedPEM,
 	}, nil)
 

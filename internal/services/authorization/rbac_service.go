@@ -9,7 +9,7 @@ import (
 
 	"github.com/sirupsen/logrus"
 
-	"rocketvault/internal/domain"
+	"rocketvault/model"
 	"rocketvault/internal/logging"
 )
 
@@ -84,7 +84,7 @@ func NewRBACService(logger *logging.Logger) RBACService {
 // getDefaultRolePermissions returns the default role-permission mappings.
 func getDefaultRolePermissions() map[string][]Permission {
 	return map[string][]Permission{
-		domain.RoleAdmin: {
+		model.RoleAdmin: {
 			// Admin has all permissions
 			PermissionCreateSecret, PermissionReadSecret, PermissionUpdateSecret, PermissionDeleteSecret, PermissionListSecrets,
 			PermissionCreateKey, PermissionReadKey, PermissionUpdateKey, PermissionDeleteKey, PermissionListKeys,
@@ -92,25 +92,25 @@ func getDefaultRolePermissions() map[string][]Permission {
 			PermissionCreateUser, PermissionReadUser, PermissionUpdateUser, PermissionDeleteUser, PermissionListUsers,
 			PermissionManageSystem,
 		},
-		domain.RoleUser: {
+		model.RoleUser: {
 			// Basic user has limited permissions
 			PermissionReadSecret, PermissionListSecrets,
 			PermissionReadKey, PermissionListKeys,
 			PermissionReadCertificate, PermissionListCertificates,
 		},
-		domain.RoleSecretsManager: {
+		model.RoleSecretsManager: {
 			// Secrets manager has full secret permissions
 			PermissionCreateSecret, PermissionReadSecret, PermissionUpdateSecret, PermissionDeleteSecret, PermissionListSecrets,
 		},
-		domain.RoleCryptoManager: {
+		model.RoleCryptoManager: {
 			// Crypto manager has full key permissions
 			PermissionCreateKey, PermissionReadKey, PermissionUpdateKey, PermissionDeleteKey, PermissionListKeys,
 		},
-		domain.RoleCertificateManager: {
+		model.RoleCertificateManager: {
 			// Certificate manager has full certificate permissions
 			PermissionCreateCertificate, PermissionReadCertificate, PermissionUpdateCertificate, PermissionDeleteCertificate, PermissionListCertificates,
 		},
-		domain.RoleServiceAccount: {
+		model.RoleServiceAccount: {
 			// Service accounts get read-only access to secrets, keys, and certificates by default;
 			// fine-grained control is delegated to the access-policy layer (Milestone 2)
 			PermissionReadSecret, PermissionListSecrets,
