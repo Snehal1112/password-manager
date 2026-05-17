@@ -10,9 +10,10 @@
 
 ---
 
-### Task 1: Update README.md Roadmap section and footer
+## Task 1: Update README.md Roadmap section and footer
 
 **Files:**
+
 - Modify: `README.md` (Roadmap section ~lines 740–761, footer line ~779)
 
 - [ ] **Step 1: Replace the Roadmap section**
@@ -109,6 +110,7 @@ Expected output (line numbers will vary):
 ```
 
 Confirm:
+
 - `### Shipped` appears before `### Planned`
 - Two `*(` date labels appear inside the Shipped block
 - No `### Planned Enhancements` or `### Recent Achievements` remain

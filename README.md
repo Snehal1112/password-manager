@@ -24,6 +24,7 @@
 ## Features
 
 ### Core Capabilities
+
 - **🔐 Secure Storage**: Encrypted storage of secrets, cryptographic keys, and X.509 certificates
 - **👥 Role-Based Access Control (RBAC)**: JWT authentication with TOTP MFA support
 - **🔄 Secret Rotation**: Automated and manual secret rotation with customizable policies
@@ -38,6 +39,7 @@
 - **🌍 Multi-tenant Architecture**: Support for multiple isolated tenants
 
 ### Enterprise-Grade Architecture
+
 - **🏗️ Domain-Driven Design**: Clean architecture with complete separation of concerns
 - **⚙️ Service Layer Pattern**: 15+ focused services with single responsibilities
 - **💉 Dependency Injection**: Complete service container with lifecycle management
@@ -78,26 +80,31 @@ rocketvault/
 ### Service Layer Architecture
 
 **Authentication Services** (`internal/services/auth/`):
+
 - `PasswordService` → Password hashing and validation
 - `TOTPService` → TOTP generation and validation
 - `JWTService` → JWT token management
 - `AuthenticationService` → Complete auth workflow orchestration
 
 **Secret Management** (`internal/services/secrets/`):
+
 - `SecretService` → Secret operations orchestration
 - `CryptographyService` → Encryption/decryption
 - `VersioningService` → Version management
 - `TagService` → Tag operations
 
 **Key & Certificate Management**:
+
 - `KeyService` → RSA/ECDSA key lifecycle
 - `CertificateService` → X.509 certificate management
 
 **User & Authorization**:
+
 - `UserService` → User management workflows
 - `RBACService` → Role-based access control
 
 ### Key Architectural Achievements
+
 ✅ Complete SRP compliance across all components
 ✅ Zero code duplication through proper patterns
 ✅ Full dependency injection (no global state)
@@ -108,6 +115,7 @@ rocketvault/
 ## Documentation
 
 ### Core Documentation
+
 - [API Specification (OpenAPI/Swagger)](docs/api-specification.yaml) - Complete OpenAPI 3.0 specification
 - [API Developer Guide](docs/api-developer-guide.md) - Comprehensive guide for developers
 - [Integration Examples](docs/integration-examples.md) - Real-world integration examples
@@ -120,6 +128,7 @@ rocketvault/
 - [Testing Guide](docs/testing-guide.md) - Testing procedures and guidelines
 
 ### Advanced Architecture Documentation
+
 - [Current Architecture State](.claude/current-architecture-state.md) - Production-ready status assessment
 - [Service Layer Analysis](.claude/service-layer-analysis.md) - Complete service architecture overview
 - [Dependency Injection Guide](.claude/dependency-injection-guide.md) - Service container patterns
@@ -130,6 +139,7 @@ rocketvault/
 - [Auth.go Elimination Guide](.claude/auth-elimination-guide.md) - Domain-driven design transformation
 
 ### Additional Resources
+
 - [API Documentation Validation](validate-api-docs.sh) - Documentation validation script
 
 ## Prerequisites
@@ -202,6 +212,7 @@ For development, use the build script for optimized binaries with embedded versi
 ### Build Features
 
 **Modern Go Optimizations**:
+
 - **Version Injection**: Automatically embeds git version, commit hash, build time, and Go version
 - **Binary Optimization**: Uses `-trimpath`, `-s`, and `-w` flags for smaller, reproducible builds
 - **CGO Support**: Enabled for SQLite3 compatibility
@@ -210,11 +221,13 @@ For development, use the build script for optimized binaries with embedded versi
 
 **Cross-Platform Compilation**:
 The build script supports 5 platform targets:
+
 - Linux (amd64, arm64)
 - macOS (amd64/Intel, arm64/Apple Silicon)
 - Windows (amd64)
 
 **Security & Verification**:
+
 - SHA256 checksums for all binaries
 - Automated dependency verification
 - Test execution before release builds
@@ -277,6 +290,7 @@ go build \
 ### Troubleshooting Build Issues
 
 **CGO Errors**:
+
 ```bash
 # Install build essentials on Linux
 sudo apt-get install build-essential
@@ -289,6 +303,7 @@ xcode-select --install
 Cross-compiling with CGO requires appropriate cross-compilers. For most use cases, build on the target platform or use the `--current` flag.
 
 **Permission Errors**:
+
 ```bash
 # Make script executable
 chmod +x build.sh
@@ -507,6 +522,7 @@ Authorization: Bearer <your-jwt-token>
 ### API Documentation
 
 Complete API documentation is available at:
+
 - [OpenAPI Specification](docs/api-specification.yaml)
 - [API Developer Guide](docs/api-developer-guide.md)
 
@@ -578,6 +594,7 @@ go test ./... -v -cover -skip BenchmarkCreateSelfSigned
 ### Test Coverage Summary
 
 **Current Status** ✅:
+
 - **CLI Commands**: 50+ test cases covering all commands
 - **Service Layer**: 94.9% coverage with comprehensive mocks
 - **Authentication**: Complete JWT + TOTP + password validation
@@ -641,6 +658,7 @@ bootstrap_token: "your-secure-bootstrap-token-here"
 #### Database Connection Pooling
 
 **Development**:
+
 ```yaml
 database:
   max_open_conns: 10
@@ -649,6 +667,7 @@ database:
 ```
 
 **Staging**:
+
 ```yaml
 database:
   max_open_conns: 50
@@ -657,6 +676,7 @@ database:
 ```
 
 **Production**:
+
 ```yaml
 database:
   max_open_conns: 100
@@ -673,17 +693,20 @@ database:
 #### Performance Monitoring
 
 Access database performance metrics at:
+
 ```bash
 curl http://localhost:8080/api/v1/health/database
 ```
 
 **Metrics include**:
+
 - Connection pool utilization
 - Query execution times
 - Slow query detection
 - Database health status
 
 For complete optimization guide, see:
+
 - [Database Optimization](.claude/database-optimization.md)
 - [Performance Monitoring Guide](docs/performance-tuning.md)
 
@@ -764,6 +787,7 @@ For questions or issues:
 - [x] First public release — v0.1.0 with verified tag and draft GitHub Release
 
 ### Planned
+
 - [ ] Web-based administration interface
 - [ ] Kubernetes operator for automated deployment
 - [ ] Advanced audit and compliance reporting (SOC 2, GDPR)
@@ -775,6 +799,7 @@ For questions or issues:
 ## Acknowledgments
 
 Built with enterprise-grade architecture patterns:
+
 - **Domain-Driven Design (DDD)**: Eric Evans' tactical patterns
 - **Clean Architecture**: Robert C. Martin's architectural principles
 - **Service Layer Pattern**: Martin Fowler's enterprise application architecture
@@ -782,6 +807,7 @@ Built with enterprise-grade architecture patterns:
 - **Dependency Injection**: Loose coupling and high testability
 
 **Technology Stack**:
+
 - Go 1.24.2 with modern practices (generics, structured logging)
 - Gorilla Mux for HTTP routing
 - SQLite (dev) / PostgreSQL (prod) with encryption

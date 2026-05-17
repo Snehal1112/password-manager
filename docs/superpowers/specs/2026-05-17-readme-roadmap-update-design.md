@@ -28,6 +28,7 @@ Replace the current two subsections (`### Planned Enhancements` and `### Recent 
 Items are grouped by wave with an inline italic date label. No per-line date — one label covers the whole group.
 
 **Wave 1 — Oct 2025** (existing items, unchanged text):
+
 - Complete domain-driven design architecture (A grade)
 - Service container integration (95% compatibility)
 - Database performance optimization (90%+ improvement)
@@ -38,6 +39,7 @@ Items are grouped by wave with an inline italic date label. No per-line date —
 - Backup encryption flag fix for proper unencrypted backup support
 
 **Wave 2 — Feb–May 2026** (new items derived from git log):
+
 - Secret `content_type` field — domain, schema, repository, service validation, API and CLI
 - Key wrap/unwrap operations — CryptoService, HTTP endpoints, CLI subcommands
 - Certificate auto-renewal — ExpiresAt field, RenewalScheduler, HTTP API, CLI flags

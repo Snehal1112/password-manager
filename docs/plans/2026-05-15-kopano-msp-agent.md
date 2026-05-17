@@ -10,9 +10,10 @@
 
 ---
 
-### Task 1: Scaffold the standalone app
+## Task 1: Scaffold the standalone app
 
 **Files:**
+
 - Create: `apps/kopano-msp-agent/README.md`
 - Create: `apps/kopano-msp-agent/docker-compose.yml`
 - Create: `apps/kopano-msp-agent/backend/go.mod`
@@ -23,6 +24,7 @@
 **Step 1: Write the failing smoke check**
 
 Create `apps/kopano-msp-agent/README.md` with a short “expected endpoints and UI routes” section that defines the initial contract:
+
 - backend health route `/health`
 - frontend routes `/leads`, `/campaigns`, `/settings`
 
@@ -34,6 +36,7 @@ Expected: no results before scaffold files exist
 **Step 3: Write minimal scaffold**
 
 Create:
+
 - backend module with an HTTP server exposing `/health`
 - frontend Vite app rendering a placeholder page with links for `Leads`, `Campaigns`, and `Settings`
 - Docker Compose file wiring frontend, backend, and SQLite volume
@@ -53,6 +56,7 @@ git commit -m "feat: scaffold kopano msp agent app"
 ### Task 2: Define the lead data model and storage
 
 **Files:**
+
 - Create: `apps/kopano-msp-agent/backend/internal/leads/model.go`
 - Create: `apps/kopano-msp-agent/backend/internal/leads/store.go`
 - Create: `apps/kopano-msp-agent/backend/internal/leads/store_test.go`
@@ -61,12 +65,14 @@ git commit -m "feat: scaffold kopano msp agent app"
 **Step 1: Write the failing test**
 
 Add tests for:
+
 - creating a lead
 - updating status
 - filtering by market
 - filtering by outreach stage
 
 Example fields to assert:
+
 - `company_name`
 - `market`
 - `company_type`
@@ -82,6 +88,7 @@ Expected: FAIL because model and store do not exist yet
 **Step 3: Write minimal implementation**
 
 Implement:
+
 - lead struct
 - SQLite table creation
 - CRUD methods
@@ -102,6 +109,7 @@ git commit -m "feat: add lead model and storage"
 ### Task 3: Build sourcing input and enrichment pipeline
 
 **Files:**
+
 - Create: `apps/kopano-msp-agent/backend/internal/sourcing/service.go`
 - Create: `apps/kopano-msp-agent/backend/internal/sourcing/service_test.go`
 - Create: `apps/kopano-msp-agent/backend/internal/sourcing/prompts.go`
@@ -110,6 +118,7 @@ git commit -m "feat: add lead model and storage"
 **Step 1: Write the failing test**
 
 Test:
+
 - ingesting a company URL
 - storing source URL
 - extracting company-level notes
@@ -123,6 +132,7 @@ Expected: FAIL because sourcing service is missing
 **Step 3: Write minimal implementation**
 
 Implement:
+
 - input endpoint accepting company URL and market hint
 - basic website fetch adapter interface
 - extraction pipeline for visible service signals
@@ -143,6 +153,7 @@ git commit -m "feat: add lead sourcing ingestion flow"
 ### Task 4: Implement qualification and lead scoring
 
 **Files:**
+
 - Create: `apps/kopano-msp-agent/backend/internal/qualification/service.go`
 - Create: `apps/kopano-msp-agent/backend/internal/qualification/service_test.go`
 - Create: `apps/kopano-msp-agent/backend/internal/qualification/rules.go`
@@ -150,6 +161,7 @@ git commit -m "feat: add lead sourcing ingestion flow"
 **Step 1: Write the failing test**
 
 Test that:
+
 - a business IT provider with cloud/email signals qualifies
 - a generic agency does not
 - EU and India market tags remain separate
@@ -163,6 +175,7 @@ Expected: FAIL because qualification service is missing
 **Step 3: Write minimal implementation**
 
 Implement:
+
 - rule-based ICP checks
 - score calculation
 - angle selection
@@ -183,6 +196,7 @@ git commit -m "feat: add qualification and scoring"
 ### Task 5: Add outreach sequence generation
 
 **Files:**
+
 - Create: `apps/kopano-msp-agent/backend/internal/outreach/service.go`
 - Create: `apps/kopano-msp-agent/backend/internal/outreach/service_test.go`
 - Create: `apps/kopano-msp-agent/backend/internal/outreach/prompts.go`
@@ -191,6 +205,7 @@ git commit -m "feat: add qualification and scoring"
 **Step 1: Write the failing test**
 
 Test:
+
 - first email includes the selected angle
 - CTA defaults to demo
 - trial is offered as secondary CTA
@@ -205,6 +220,7 @@ Expected: FAIL because outreach service is missing
 **Step 3: Write minimal implementation**
 
 Implement:
+
 - prompt builder
 - structured output parser
 - 3-email sequence generation
@@ -225,6 +241,7 @@ git commit -m "feat: add outreach generation service"
 ### Task 6: Add follow-up scheduling logic
 
 **Files:**
+
 - Create: `apps/kopano-msp-agent/backend/internal/followups/service.go`
 - Create: `apps/kopano-msp-agent/backend/internal/followups/service_test.go`
 - Modify: `apps/kopano-msp-agent/backend/internal/leads/model.go`
@@ -233,6 +250,7 @@ git commit -m "feat: add outreach generation service"
 **Step 1: Write the failing test**
 
 Test:
+
 - default follow-up dates for no-reply leads
 - different next actions for `wants demo`, `wants trial`, `not now`, and `not fit`
 - closed leads do not get rescheduled
@@ -245,6 +263,7 @@ Expected: FAIL because scheduling service is missing
 **Step 3: Write minimal implementation**
 
 Implement:
+
 - stage-based follow-up rules
 - reply classification mapping
 - next task generation
@@ -265,6 +284,7 @@ git commit -m "feat: add followup scheduling"
 ### Task 7: Build campaign content generation
 
 **Files:**
+
 - Create: `apps/kopano-msp-agent/backend/internal/campaigns/service.go`
 - Create: `apps/kopano-msp-agent/backend/internal/campaigns/service_test.go`
 - Create: `apps/kopano-msp-agent/backend/internal/campaigns/prompts.go`
@@ -273,6 +293,7 @@ git commit -m "feat: add followup scheduling"
 **Step 1: Write the failing test**
 
 Test:
+
 - generating campaign copy by market
 - generating newsletter ideas from recent lead data
 - producing weekly summaries by angle and segment
@@ -285,6 +306,7 @@ Expected: FAIL because campaign service is missing
 **Step 3: Write minimal implementation**
 
 Implement:
+
 - campaign prompt templates
 - summary generator
 - angle-based content suggestion service
@@ -304,6 +326,7 @@ git commit -m "feat: add campaign content generation"
 ### Task 8: Add review and approval UI
 
 **Files:**
+
 - Create: `apps/kopano-msp-agent/frontend/src/App.tsx`
 - Create: `apps/kopano-msp-agent/frontend/src/routes/leads.tsx`
 - Create: `apps/kopano-msp-agent/frontend/src/routes/campaigns.tsx`
@@ -313,6 +336,7 @@ git commit -m "feat: add campaign content generation"
 **Step 1: Write the failing UI expectation**
 
 Define the initial UI contract:
+
 - leads table with filters
 - lead detail with score, angle, and drafts
 - approve/reject draft controls
@@ -327,6 +351,7 @@ Expected: FAIL because routes and app files do not exist yet
 **Step 3: Write minimal implementation**
 
 Implement:
+
 - basic routed UI
 - review panel for lead and outreach draft
 - approval actions that update lead status but do not send mail
@@ -346,6 +371,7 @@ git commit -m "feat: add review ui for leads and campaigns"
 ### Task 9: Add Sheets/Airtable and email-draft connectors
 
 **Files:**
+
 - Create: `apps/kopano-msp-agent/backend/internal/integrations/sheets.go`
 - Create: `apps/kopano-msp-agent/backend/internal/integrations/email_drafts.go`
 - Create: `apps/kopano-msp-agent/backend/internal/integrations/integrations_test.go`
@@ -354,6 +380,7 @@ git commit -m "feat: add review ui for leads and campaigns"
 **Step 1: Write the failing test**
 
 Test:
+
 - exporting qualified leads to a shared table
 - creating an email draft payload from approved outreach
 - refusing to send when only draft mode is enabled
@@ -366,6 +393,7 @@ Expected: FAIL because integration adapters are missing
 **Step 3: Write minimal implementation**
 
 Implement:
+
 - connector interfaces
 - one concrete Sheets or Airtable adapter
 - one Gmail or Outlook draft adapter
@@ -386,6 +414,7 @@ git commit -m "feat: add crm and email draft integrations"
 ### Task 10: Add prompt and policy configuration
 
 **Files:**
+
 - Create: `apps/kopano-msp-agent/backend/internal/config/config.go`
 - Create: `apps/kopano-msp-agent/backend/internal/config/config_test.go`
 - Create: `apps/kopano-msp-agent/.env.example`
@@ -394,6 +423,7 @@ git commit -m "feat: add crm and email draft integrations"
 **Step 1: Write the failing test**
 
 Test:
+
 - loading region-specific prompt settings
 - loading CTA priority settings
 - loading draft-only safety policy
@@ -406,6 +436,7 @@ Expected: FAIL because config loader is missing
 **Step 3: Write minimal implementation**
 
 Implement:
+
 - environment-backed config
 - policy flags
 - prompt version fields
@@ -426,6 +457,7 @@ git commit -m "feat: add prompt and policy configuration"
 ### Task 11: Add end-to-end smoke tests and operator docs
 
 **Files:**
+
 - Create: `apps/kopano-msp-agent/backend/internal/e2e/smoke_test.go`
 - Modify: `apps/kopano-msp-agent/README.md`
 - Create: `apps/kopano-msp-agent/docs/operator-runbook.md`
@@ -433,6 +465,7 @@ git commit -m "feat: add prompt and policy configuration"
 **Step 1: Write the failing test**
 
 Create a smoke test covering:
+
 - ingest company URL
 - qualify lead
 - generate outreach
@@ -448,6 +481,7 @@ Expected: FAIL because the end-to-end workflow is incomplete
 **Step 3: Write minimal implementation**
 
 Implement:
+
 - test fixtures
 - happy-path orchestration
 - operator runbook for daily usage
@@ -471,12 +505,14 @@ git commit -m "feat: document and verify kopano msp agent v1"
 ### Task 12: Launch with a controlled pilot
 
 **Files:**
+
 - Create: `apps/kopano-msp-agent/docs/pilot-checklist.md`
 - Modify: `apps/kopano-msp-agent/docs/operator-runbook.md`
 
 **Step 1: Write the pilot checklist**
 
 Include:
+
 - first 25 target companies
 - approval owner
 - message QA checklist
@@ -490,6 +526,7 @@ Expected: no unresolved critical placeholders in the pilot path
 **Step 3: Write minimal pilot documentation**
 
 Document:
+
 - daily sourcing quota
 - approval workflow
 - follow-up cadence

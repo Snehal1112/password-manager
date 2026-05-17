@@ -22,6 +22,7 @@
 ### Task 1: Create the release workflow
 
 **Files:**
+
 - Create: `.github/workflows/release.yml`
 
 - [ ] **Step 1: Create the workflow file**
@@ -169,6 +170,7 @@ jobs:
 - [ ] **Step 2: Verify YAML syntax**
 
 Run:
+
 ```bash
 python3 -c "import yaml, sys; yaml.safe_load(open('.github/workflows/release.yml'))" && echo "YAML valid"
 ```
@@ -176,6 +178,7 @@ python3 -c "import yaml, sys; yaml.safe_load(open('.github/workflows/release.yml
 Expected: `YAML valid`
 
 If python3 is unavailable, use:
+
 ```bash
 cat .github/workflows/release.yml | head -5  # Confirm file exists and is readable
 ```
@@ -183,6 +186,7 @@ cat .github/workflows/release.yml | head -5  # Confirm file exists and is readab
 - [ ] **Step 3: Verify the existing go.yml is unchanged**
 
 Run:
+
 ```bash
 git diff .github/workflows/go.yml
 ```
@@ -201,6 +205,7 @@ git commit -m "feat(ci): add GitHub Actions release workflow for v*.*.* tags"
 ### Task 2: Validate the workflow triggers and matrix
 
 **Files:**
+
 - Read: `.github/workflows/release.yml` (no edits — validation only)
 
 This task has no code changes. It is a manual checklist to run before pushing a real tag.
@@ -208,11 +213,13 @@ This task has no code changes. It is a manual checklist to run before pushing a 
 - [ ] **Step 1: Confirm workflow trigger**
 
 Run:
+
 ```bash
 grep -A3 "^on:" .github/workflows/release.yml
 ```
 
 Expected output:
+
 ```
 on:
   push:
@@ -223,6 +230,7 @@ on:
 - [ ] **Step 2: Confirm matrix platforms**
 
 Run:
+
 ```bash
 grep -E "os:|goos:|goarch:" .github/workflows/release.yml
 ```
@@ -232,11 +240,13 @@ Expected to see three entries: `ubuntu-latest / linux / amd64`, `macos-latest / 
 - [ ] **Step 3: Confirm `permissions: contents: write` is present**
 
 Run:
+
 ```bash
 grep -A2 "^permissions:" .github/workflows/release.yml
 ```
 
 Expected:
+
 ```
 permissions:
   contents: write
@@ -276,6 +286,7 @@ No files changed in this task. Nothing to commit.
 ### Task 3: Update README Roadmap to mark CI/CD integration as shipped
 
 **Files:**
+
 - Modify: `README.md` (~line 760 — the `### Planned` section)
 
 - [ ] **Step 1: Move the CI/CD item from Planned to Shipped**
@@ -314,6 +325,7 @@ Remove that line entirely (the GitHub Actions part is now done; GitLab CI remain
 - [ ] **Step 2: Verify**
 
 Run:
+
 ```bash
 grep -n "CI/CD\|GitHub Actions release\|Integration with popular" README.md
 ```

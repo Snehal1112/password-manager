@@ -22,6 +22,7 @@
 ### Task 1: Add cliff.toml
 
 **Files:**
+
 - Create: `cliff.toml`
 
 - [ ] **Step 1: Create cliff.toml**
@@ -70,6 +71,7 @@ sort_commits = "oldest"
 - [ ] **Step 2: Verify the file exists and is valid TOML**
 
 Run:
+
 ```bash
 python3 -c "
 import tomllib, sys
@@ -81,6 +83,7 @@ print('Groups:', [p.get('group') for p in data['git']['commit_parsers'] if 'grou
 ```
 
 Expected output:
+
 ```
 TOML valid
 Groups: ['Features', 'Bug Fixes', 'Performance', 'Refactoring', 'Documentation']
@@ -98,6 +101,7 @@ git -C /home/numericlabs/data/rocket/rocketvault commit -m "feat(release): add c
 ### Task 2: Update release.yml with changelog job
 
 **Files:**
+
 - Modify: `.github/workflows/release.yml`
 
 The current `release.yml` has two jobs: `build` (matrix) and `release` (`needs: build`). This task adds a `changelog` job and wires it into `release`.
@@ -255,6 +259,7 @@ jobs:
 - [ ] **Step 2: Verify YAML syntax**
 
 Run:
+
 ```bash
 python3 -c "import yaml; yaml.safe_load(open('/home/numericlabs/data/rocket/rocketvault/.github/workflows/release.yml'))" && echo "YAML valid"
 ```
@@ -264,11 +269,13 @@ Expected: `YAML valid`
 - [ ] **Step 3: Verify key changes are present**
 
 Run:
+
 ```bash
 grep -n "changelog\|--draft\|--notes\|--generate-notes\|needs:" /home/numericlabs/data/rocket/rocketvault/.github/workflows/release.yml
 ```
 
 Expected output must show:
+
 - `changelog:` job defined
 - `needs: [build, changelog]` on the release job
 - `--draft` present
