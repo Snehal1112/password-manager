@@ -1,15 +1,14 @@
 package api
 
 import (
-"encoding/json"
-"net/http"
-"time"
+	"encoding/json"
+	"net/http"
+	"time"
 
-"github.com/google/uuid"
-"github.com/gorilla/mux"
+	"github.com/google/uuid"
 
-"rocketvault/common"
-"rocketvault/model"
+	"rocketvault/common"
+	"rocketvault/model"
 )
 
 // InitAccessPolicies registers access policy management routes.
@@ -17,10 +16,10 @@ func (api *API) InitAccessPolicies() {
 	r := api.BaseRoutes.AccessPolicies
 	r.Handle("", ApiSessionRequired(api.App, listAccessPolicies)).Methods("GET")
 	r.Handle("", ApiSessionRequired(api.App, createAccessPolicy)).Methods("POST")
-	r.Handle("/{id:[A-Fa-f0-9-]+}", ApiSessionRequired(api.App, getAccessPolicy)).Methods("GET")
-	r.Handle("/{id:[A-Fa-f0-9-]+}", ApiSessionRequired(api.App, updateAccessPolicy)).Methods("PUT")
-	r.Handle("/{id:[A-Fa-f0-9-]+}", ApiSessionRequired(api.App, deleteAccessPolicy)).Methods("DELETE")
-	r.Handle("/principal/{principalId:[A-Fa-f0-9-]+}", ApiSessionRequired(api.App, listAccessPoliciesByPrincipal)).Methods("GET")
+	r.Handle("/{policy_id:[A-Fa-f0-9-]+}", ApiSessionRequired(api.App, getAccessPolicy)).Methods("GET")
+	r.Handle("/{policy_id:[A-Fa-f0-9-]+}", ApiSessionRequired(api.App, updateAccessPolicy)).Methods("PUT")
+	r.Handle("/{policy_id:[A-Fa-f0-9-]+}", ApiSessionRequired(api.App, deleteAccessPolicy)).Methods("DELETE")
+	r.Handle("/principal/{principal_id:[A-Fa-f0-9-]+}", ApiSessionRequired(api.App, listAccessPoliciesByPrincipal)).Methods("GET")
 }
 
 // listAccessPolicies returns all access policies (admin operation).
@@ -29,7 +28,7 @@ func listAccessPolicies(c *Context, w http.ResponseWriter, r *http.Request) {
 	svc := c.App.ServiceContainer.GetAccessPolicyService()
 	policies, err := svc.ListPolicies(r.Context())
 	if err != nil {
-		c.Err = common.NewAppError("listAccessPolicies", "Failed to list access policies", nil, err.Error(), http.StatusInternalServerError)
+		c.SetInternalError(err)
 		return
 	}
 
@@ -39,34 +38,27 @@ func listAccessPolicies(c *Context, w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]any{
-"access_policies": policies,
-"total":           len(policies),
-})
+		"access_policies": policies,
+		"total":           len(policies),
+	})
 }
 
 // createAccessPolicy creates a new access policy.
 // POST /access-policies
 func createAccessPolicy(c *Context, w http.ResponseWriter, r *http.Request) {
-	var req struct {
-		PrincipalID   string `json:"principal_id"`
-		PrincipalType string `json:"principal_type"`
-		ResourceType  string `json:"resource_type"`
-		Operation     string `json:"operation"`
-		Effect        string `json:"effect"`
-	}
-
+	var req model.CreateAccessPolicyRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		c.Err = common.NewAppError("createAccessPolicy", "Invalid request body", nil, err.Error(), http.StatusBadRequest)
+		c.SetInvalidParam("request body")
 		return
 	}
 
 	principalID, err := uuid.Parse(req.PrincipalID)
 	if err != nil {
-		c.Err = common.NewAppError("createAccessPolicy", "Invalid principal_id", nil, err.Error(), http.StatusBadRequest)
+		c.SetInvalidParam("principal_id")
 		return
 	}
 	if req.ResourceType == "" || req.Operation == "" || req.Effect == "" || req.PrincipalType == "" {
-		c.Err = common.NewAppError("createAccessPolicy", "Missing required fields", nil, "", http.StatusBadRequest)
+		c.SetInvalidParam("principal_type, resource_type, operation, and effect are required")
 		return
 	}
 
@@ -82,7 +74,7 @@ func createAccessPolicy(c *Context, w http.ResponseWriter, r *http.Request) {
 
 	svc := c.App.ServiceContainer.GetAccessPolicyService()
 	if err := svc.CreatePolicy(r.Context(), policy); err != nil {
-		c.Err = common.NewAppError("createAccessPolicy", "Failed to create access policy", nil, err.Error(), http.StatusInternalServerError)
+		c.SetInternalError(err)
 		return
 	}
 
@@ -92,18 +84,18 @@ func createAccessPolicy(c *Context, w http.ResponseWriter, r *http.Request) {
 }
 
 // getAccessPolicy retrieves a single access policy by ID.
-// GET /access-policies/{id}
+// GET /access-policies/{policy_id}
 func getAccessPolicy(c *Context, w http.ResponseWriter, r *http.Request) {
-	id, appErr := resourceIDFromVars(c, r, "getAccessPolicy")
-	if appErr != nil {
-		c.Err = appErr
+	id, err := uuid.Parse(c.Params.PolicyID)
+	if err != nil {
+		c.SetInvalidParam("policy_id")
 		return
 	}
 
 	svc := c.App.ServiceContainer.GetAccessPolicyService()
 	policy, err := svc.GetPolicy(r.Context(), id)
 	if err != nil {
-		c.Err = common.NewAppError("getAccessPolicy", "Access policy not found", nil, err.Error(), http.StatusNotFound)
+		c.SetNotFound("access policy")
 		return
 	}
 
@@ -112,11 +104,11 @@ func getAccessPolicy(c *Context, w http.ResponseWriter, r *http.Request) {
 }
 
 // updateAccessPolicy updates the effect of an existing access policy.
-// PUT /access-policies/{id}
+// PUT /access-policies/{policy_id}
 func updateAccessPolicy(c *Context, w http.ResponseWriter, r *http.Request) {
-	id, appErr := resourceIDFromVars(c, r, "updateAccessPolicy")
-	if appErr != nil {
-		c.Err = appErr
+	id, err := uuid.Parse(c.Params.PolicyID)
+	if err != nil {
+		c.SetInvalidParam("policy_id")
 		return
 	}
 
@@ -124,24 +116,24 @@ func updateAccessPolicy(c *Context, w http.ResponseWriter, r *http.Request) {
 		Effect string `json:"effect"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		c.Err = common.NewAppError("updateAccessPolicy", "Invalid request body", nil, err.Error(), http.StatusBadRequest)
+		c.SetInvalidParam("request body")
 		return
 	}
 	if req.Effect == "" {
-		c.Err = common.NewAppError("updateAccessPolicy", "Missing required field: effect", nil, "", http.StatusBadRequest)
+		c.SetInvalidParam("effect is required")
 		return
 	}
 
 	svc := c.App.ServiceContainer.GetAccessPolicyService()
 	policy, err := svc.GetPolicy(r.Context(), id)
 	if err != nil {
-		c.Err = common.NewAppError("updateAccessPolicy", "Access policy not found", nil, err.Error(), http.StatusNotFound)
+		c.SetNotFound("access policy")
 		return
 	}
 
 	policy.Effect = model.PolicyEffect(req.Effect)
 	if err := svc.UpdatePolicy(r.Context(), policy); err != nil {
-		c.Err = common.NewAppError("updateAccessPolicy", "Failed to update access policy", nil, err.Error(), http.StatusInternalServerError)
+		c.SetInternalError(err)
 		return
 	}
 
@@ -150,17 +142,17 @@ func updateAccessPolicy(c *Context, w http.ResponseWriter, r *http.Request) {
 }
 
 // deleteAccessPolicy permanently removes an access policy.
-// DELETE /access-policies/{id}
+// DELETE /access-policies/{policy_id}
 func deleteAccessPolicy(c *Context, w http.ResponseWriter, r *http.Request) {
-	id, appErr := resourceIDFromVars(c, r, "deleteAccessPolicy")
-	if appErr != nil {
-		c.Err = appErr
+	id, err := uuid.Parse(c.Params.PolicyID)
+	if err != nil {
+		c.SetInvalidParam("policy_id")
 		return
 	}
 
 	svc := c.App.ServiceContainer.GetAccessPolicyService()
 	if err := svc.DeletePolicy(r.Context(), id); err != nil {
-		c.Err = common.NewAppError("deleteAccessPolicy", "Failed to delete access policy", nil, err.Error(), http.StatusInternalServerError)
+		c.SetInternalError(err)
 		return
 	}
 
@@ -168,19 +160,18 @@ func deleteAccessPolicy(c *Context, w http.ResponseWriter, r *http.Request) {
 }
 
 // listAccessPoliciesByPrincipal returns all policies for a given principal UUID.
-// GET /access-policies/principal/{principalId}
+// GET /access-policies/principal/{principal_id}
 func listAccessPoliciesByPrincipal(c *Context, w http.ResponseWriter, r *http.Request) {
-	vars := mux.Vars(r)
-	principalID, err := uuid.Parse(vars["principalId"])
+	principalID, err := uuid.Parse(c.Params.PrincipalID)
 	if err != nil {
-		c.Err = common.NewAppError("listAccessPoliciesByPrincipal", "Invalid principal ID", nil, err.Error(), http.StatusBadRequest)
+		c.SetInvalidParam("principal_id")
 		return
 	}
 
 	svc := c.App.ServiceContainer.GetAccessPolicyService()
 	policies, err := svc.ListByPrincipal(r.Context(), principalID)
 	if err != nil {
-		c.Err = common.NewAppError("listAccessPoliciesByPrincipal", "Failed to list policies for principal", nil, err.Error(), http.StatusInternalServerError)
+		c.SetInternalError(err)
 		return
 	}
 
@@ -190,7 +181,17 @@ func listAccessPoliciesByPrincipal(c *Context, w http.ResponseWriter, r *http.Re
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]any{
-"access_policies": policies,
-"total":           len(policies),
-})
+		"access_policies": policies,
+		"total":           len(policies),
+	})
+}
+
+// policyIDFromParams extracts and parses the policy UUID from context params.
+// Returns an AppError if the ID is absent or cannot be parsed.
+func policyIDFromParams(c *Context, op string) (uuid.UUID, *common.AppError) {
+	id, err := uuid.Parse(c.Params.PolicyID)
+	if err != nil {
+		return uuid.Nil, common.NewAppError(op, "Invalid policy ID", nil, err.Error(), http.StatusBadRequest)
+	}
+	return id, nil
 }

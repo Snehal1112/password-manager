@@ -5,6 +5,8 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/google/uuid"
+
 	"rocketvault/common"
 )
 
@@ -16,9 +18,9 @@ import (
 //   - POST /oauth2/token                          — Client-credentials grant (RFC 6749 §4.4)
 //   - POST   /service-accounts                    — Create a new service account
 //   - GET    /service-accounts                    — List all service accounts
-//   - GET    /service-accounts/{id}               — Get a service account by ID
-//   - DELETE /service-accounts/{id}               — Delete a service account
-//   - POST   /service-accounts/{id}/rotate        — Rotate client secret
+//   - GET    /service-accounts/{service_account_id}               — Get a service account by ID
+//   - DELETE /service-accounts/{service_account_id}               — Delete a service account
+//   - POST   /service-accounts/{service_account_id}/rotate        — Rotate client secret
 func (api *API) InitOAuth2() {
 	api.BaseRoutes.OAuth2.HandleFunc("/oauth2/token", api.tokenHandler).Methods("POST")
 	api.Logger.Infoln("OAuth2 token endpoint initialized")
@@ -26,9 +28,9 @@ func (api *API) InitOAuth2() {
 	sa := api.BaseRoutes.ServiceAccounts
 	sa.Handle("", ApiSessionRequired(api.App, createServiceAccount)).Methods("POST")
 	sa.Handle("", ApiSessionRequired(api.App, listServiceAccounts)).Methods("GET")
-	sa.Handle("/{id:[A-Fa-f0-9-]+}", ApiSessionRequired(api.App, getServiceAccount)).Methods("GET")
-	sa.Handle("/{id:[A-Fa-f0-9-]+}", ApiSessionRequired(api.App, deleteServiceAccount)).Methods("DELETE")
-	sa.Handle("/{id:[A-Fa-f0-9-]+}/rotate", ApiSessionRequired(api.App, rotateServiceAccountSecret)).Methods("POST")
+	sa.Handle("/{service_account_id:[A-Fa-f0-9-]+}", ApiSessionRequired(api.App, getServiceAccount)).Methods("GET")
+	sa.Handle("/{service_account_id:[A-Fa-f0-9-]+}", ApiSessionRequired(api.App, deleteServiceAccount)).Methods("DELETE")
+	sa.Handle("/{service_account_id:[A-Fa-f0-9-]+}/rotate", ApiSessionRequired(api.App, rotateServiceAccountSecret)).Methods("POST")
 	api.Logger.Infoln("Service accounts API routes initialized")
 }
 
@@ -96,14 +98,14 @@ func createServiceAccount(c *Context, w http.ResponseWriter, r *http.Request) {
 		ExpiresAt   *time.Time `json:"expires_at"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.Name == "" {
-		c.Err = common.NewAppError("createServiceAccount", "Invalid request body — name is required", nil, "", http.StatusBadRequest)
+		c.SetInvalidParam("name is required")
 		return
 	}
 
 	svc := c.App.ServiceContainer.GetOAuth2Service()
 	client, plainSecret, err := svc.CreateClient(r.Context(), req.Name, req.Description, req.ExpiresAt)
 	if err != nil {
-		c.Err = common.NewAppError("createServiceAccount", "Failed to create service account", nil, err.Error(), http.StatusInternalServerError)
+		c.SetInternalError(err)
 		return
 	}
 
@@ -125,7 +127,7 @@ func listServiceAccounts(c *Context, w http.ResponseWriter, r *http.Request) {
 	svc := c.App.ServiceContainer.GetOAuth2Service()
 	clients, err := svc.ListClients(r.Context())
 	if err != nil {
-		c.Err = common.NewAppError("listServiceAccounts", "Failed to list service accounts", nil, err.Error(), http.StatusInternalServerError)
+		c.SetInternalError(err)
 		return
 	}
 
@@ -136,18 +138,18 @@ func listServiceAccounts(c *Context, w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// getServiceAccount handles GET /service-accounts/{id}.
+// getServiceAccount handles GET /service-accounts/{service_account_id}.
 func getServiceAccount(c *Context, w http.ResponseWriter, r *http.Request) {
-	id, appErr := resourceIDFromVars(c, r, "getServiceAccount")
-	if appErr != nil {
-		c.Err = appErr
+	id, err := uuid.Parse(c.Params.ServiceAccountID)
+	if err != nil {
+		c.SetInvalidParam("service_account_id")
 		return
 	}
 
 	svc := c.App.ServiceContainer.GetOAuth2Service()
 	client, err := svc.GetClient(r.Context(), id)
 	if err != nil {
-		c.Err = common.NewAppError("getServiceAccount", "Service account not found", nil, err.Error(), http.StatusNotFound)
+		c.SetNotFound("service account")
 		return
 	}
 
@@ -155,36 +157,36 @@ func getServiceAccount(c *Context, w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(client)
 }
 
-// deleteServiceAccount handles DELETE /service-accounts/{id}.
+// deleteServiceAccount handles DELETE /service-accounts/{service_account_id}.
 func deleteServiceAccount(c *Context, w http.ResponseWriter, r *http.Request) {
-	id, appErr := resourceIDFromVars(c, r, "deleteServiceAccount")
-	if appErr != nil {
-		c.Err = appErr
+	id, err := uuid.Parse(c.Params.ServiceAccountID)
+	if err != nil {
+		c.SetInvalidParam("service_account_id")
 		return
 	}
 
 	svc := c.App.ServiceContainer.GetOAuth2Service()
 	if err := svc.DeleteClient(r.Context(), id); err != nil {
-		c.Err = common.NewAppError("deleteServiceAccount", "Failed to delete service account", nil, err.Error(), http.StatusInternalServerError)
+		c.SetInternalError(err)
 		return
 	}
 
 	w.WriteHeader(http.StatusNoContent)
 }
 
-// rotateServiceAccountSecret handles POST /service-accounts/{id}/rotate.
+// rotateServiceAccountSecret handles POST /service-accounts/{service_account_id}/rotate.
 // Returns the new plain-text client secret (one-time).
 func rotateServiceAccountSecret(c *Context, w http.ResponseWriter, r *http.Request) {
-	id, appErr := resourceIDFromVars(c, r, "rotateServiceAccountSecret")
-	if appErr != nil {
-		c.Err = appErr
+	id, err := uuid.Parse(c.Params.ServiceAccountID)
+	if err != nil {
+		c.SetInvalidParam("service_account_id")
 		return
 	}
 
 	svc := c.App.ServiceContainer.GetOAuth2Service()
 	newSecret, err := svc.RotateSecret(r.Context(), id)
 	if err != nil {
-		c.Err = common.NewAppError("rotateServiceAccountSecret", "Failed to rotate client secret", nil, err.Error(), http.StatusInternalServerError)
+		c.SetInternalError(err)
 		return
 	}
 
@@ -193,4 +195,14 @@ func rotateServiceAccountSecret(c *Context, w http.ResponseWriter, r *http.Reque
 		"client_secret": newSecret, // returned once only
 		"message":       "Secret rotated successfully. Store it securely — it will not be shown again.",
 	})
+}
+
+// serviceAccountIDFromParams extracts and parses the service account UUID from context params.
+// Returns an AppError if the ID is absent or cannot be parsed.
+func serviceAccountIDFromParams(c *Context, op string) (uuid.UUID, *common.AppError) {
+	id, err := uuid.Parse(c.Params.ServiceAccountID)
+	if err != nil {
+		return uuid.Nil, common.NewAppError(op, "Invalid service account ID", nil, err.Error(), http.StatusBadRequest)
+	}
+	return id, nil
 }

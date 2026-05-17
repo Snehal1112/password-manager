@@ -94,6 +94,9 @@ func ApiHandler(app *app.App, handler func(*Context, http.ResponseWriter, *http.
 	}
 }
 
+// SessionRequired is an alias for ApiSessionRequired for backward compatibility.
+var SessionRequired = ApiSessionRequired
+
 // ApiSessionRequired wraps handlers that require an authenticated session.
 func ApiSessionRequired(a *app.App, handler func(*Context, http.ResponseWriter, *http.Request)) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {

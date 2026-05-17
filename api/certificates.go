@@ -28,7 +28,6 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/gorilla/mux"
 
 	"rocketvault/common"
 	"rocketvault/model"
@@ -37,22 +36,22 @@ import (
 
 // CreateCertificateAPIRequest is the HTTP request body for POST /certificates.
 type CreateCertificateAPIRequest struct {
-	Name         string   `json:"name"`           // Certificate common name
-	KeyID        string   `json:"key_id"`         // UUID of the signing key
-	ValidityDays int      `json:"validity_days"`  // Certificate validity in days
-	Tags         []string `json:"tags,omitempty"` // Optional tags
-	AutoRenew    bool     `json:"auto_renew"`     // Schedule automatic renewal
-	RenewalDays  int      `json:"renewal_days"`   // Days before expiry to renew; defaults to 30
-	CAKeyID      string   `json:"ca_key_id,omitempty"`  // Unused; kept for future use
-	CACertID     string   `json:"ca_cert_id,omitempty"` // UUID of CA cert; triggers CA-signed path
+	Name         string   `json:"name"`           // Certificate common name.
+	KeyID        string   `json:"key_id"`         // UUID of the signing key.
+	ValidityDays int      `json:"validity_days"`  // Certificate validity in days.
+	Tags         []string `json:"tags,omitempty"` // Optional tags.
+	AutoRenew    bool     `json:"auto_renew"`     // Schedule automatic renewal.
+	RenewalDays  int      `json:"renewal_days"`   // Days before expiry to renew; defaults to 30.
+	CAKeyID      string   `json:"ca_key_id,omitempty"`  // Unused; kept for future use.
+	CACertID     string   `json:"ca_cert_id,omitempty"` // UUID of CA cert; triggers CA-signed path.
 }
 
-// UpdateCertificateAPIRequest is the HTTP request body for PUT /certificates/{id}.
+// UpdateCertificateAPIRequest is the HTTP request body for PUT /certificates/{certificate_id}.
 type UpdateCertificateAPIRequest struct {
-	Name        *string  `json:"name,omitempty"`         // New name; nil means no change
-	Tags        []string `json:"tags,omitempty"`         // Replace existing tags
-	AutoRenew   *bool    `json:"auto_renew,omitempty"`   // Enable or disable auto-renewal
-	RenewalDays *int     `json:"renewal_days,omitempty"` // Days before expiry to renew
+	Name        *string  `json:"name,omitempty"`         // New name; nil means no change.
+	Tags        []string `json:"tags,omitempty"`         // Replace existing tags.
+	AutoRenew   *bool    `json:"auto_renew,omitempty"`   // Enable or disable auto-renewal.
+	RenewalDays *int     `json:"renewal_days,omitempty"` // Days before expiry to renew.
 }
 
 // CertificateResponse is the JSON response for a single certificate.
@@ -76,20 +75,17 @@ type CertificateListResponse struct {
 // It sets up the following endpoints:
 // - POST /certificates: Create a new certificate.
 // - GET /certificates: List certificates for the authenticated user.
-// - GET /certificates/{id}: Get a specific certificate by ID.
-// - PUT /certificates/{id}: Update certificate metadata.
-// - DELETE /certificates/{id}: Delete a certificate.
-//
-// Parameters:
-// - certs (*mux.Router): The router to which the routes will be added.
+// - GET /certificates/{certificate_id}: Get a specific certificate by ID.
+// - PUT /certificates/{certificate_id}: Update certificate metadata.
+// - DELETE /certificates/{certificate_id}: Delete a certificate.
 func (api *API) InitCertificates() {
 	c := api.BaseRoutes.Certificates
 
 	c.Handle("", ApiSessionRequired(api.App, createCertificate)).Methods("POST")
 	c.Handle("", ApiSessionRequired(api.App, listCertificates)).Methods("GET")
-	c.Handle("/{id:[A-Fa-f0-9-]+}", ApiSessionRequired(api.App, getCertificate)).Methods("GET")
-	c.Handle("/{id:[A-Fa-f0-9-]+}", ApiSessionRequired(api.App, updateCertificate)).Methods("PUT")
-	c.Handle("/{id:[A-Fa-f0-9-]+}", ApiSessionRequired(api.App, deleteCertificate)).Methods("DELETE")
+	c.Handle("/{certificate_id:[A-Fa-f0-9-]+}", ApiSessionRequired(api.App, getCertificate)).Methods("GET")
+	c.Handle("/{certificate_id:[A-Fa-f0-9-]+}", ApiSessionRequired(api.App, updateCertificate)).Methods("PUT")
+	c.Handle("/{certificate_id:[A-Fa-f0-9-]+}", ApiSessionRequired(api.App, deleteCertificate)).Methods("DELETE")
 
 	api.Logger.Infoln("Certificates API routes initialized")
 }
@@ -113,35 +109,35 @@ func createCertificate(c *Context, w http.ResponseWriter, r *http.Request) {
 	// Requires admin or certificate_manager role.
 	roleStr, ok := c.Claims["role"].(string)
 	if !ok || !common.HasRequiredRole(roleStr, model.RoleAdmin, model.RoleCertificateManager) {
-		c.Err = common.NewAppError("createCertificate", "Forbidden: requires admin or certificate_manager role", nil, "", http.StatusForbidden)
+		c.SetPermissionError("admin or certificate_manager role required")
 		return
 	}
 
 	var req CreateCertificateAPIRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		c.Err = common.NewAppError("createCertificate", "Invalid JSON request body", nil, err.Error(), http.StatusBadRequest)
+		c.SetInvalidParam("request body")
 		return
 	}
 
 	if req.Name == "" || req.KeyID == "" || req.ValidityDays <= 0 {
-		c.Err = common.NewAppError("createCertificate", "name, key_id, and validity_days are required", nil, "", http.StatusBadRequest)
+		c.SetInvalidParam("name, key_id, and validity_days are required")
 		return
 	}
 
 	keyID, err := uuid.Parse(req.KeyID)
 	if err != nil {
-		c.Err = common.NewAppError("createCertificate", "Invalid key_id", nil, err.Error(), http.StatusBadRequest)
+		c.SetInvalidParam("key_id")
 		return
 	}
 
 	userIDStr, ok := c.Claims["user_id"].(string)
 	if !ok {
-		c.Err = common.NewAppError("createCertificate", "Invalid user claims", nil, "", http.StatusUnauthorized)
+		c.SetInternalError(nil)
 		return
 	}
 	userID, err := uuid.Parse(userIDStr)
 	if err != nil {
-		c.Err = common.NewAppError("createCertificate", "Invalid user ID", nil, err.Error(), http.StatusUnauthorized)
+		c.SetInvalidParam("user_id")
 		return
 	}
 
@@ -166,7 +162,7 @@ func createCertificate(c *Context, w http.ResponseWriter, r *http.Request) {
 		// CA-signed certificate path.
 		caCertID, parseErr := uuid.Parse(req.CACertID)
 		if parseErr != nil {
-			c.Err = common.NewAppError("createCertificate", "Invalid ca_cert_id", nil, parseErr.Error(), http.StatusBadRequest)
+			c.SetInvalidParam("ca_cert_id")
 			return
 		}
 		createReq.CACertID = &caCertID
@@ -176,7 +172,7 @@ func createCertificate(c *Context, w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err != nil {
-		c.Err = common.NewAppError("createCertificate", "Failed to create certificate", nil, err.Error(), http.StatusInternalServerError)
+		c.SetInternalError(err)
 		return
 	}
 
@@ -200,12 +196,12 @@ func createCertificate(c *Context, w http.ResponseWriter, r *http.Request) {
 func listCertificates(c *Context, w http.ResponseWriter, r *http.Request) {
 	userIDStr, ok := c.Claims["user_id"].(string)
 	if !ok {
-		c.Err = common.NewAppError("listCertificates", "Invalid user claims", nil, "", http.StatusUnauthorized)
+		c.SetInternalError(nil)
 		return
 	}
 	userID, err := uuid.Parse(userIDStr)
 	if err != nil {
-		c.Err = common.NewAppError("listCertificates", "Invalid user ID", nil, err.Error(), http.StatusUnauthorized)
+		c.SetInvalidParam("user_id")
 		return
 	}
 
@@ -216,7 +212,7 @@ func listCertificates(c *Context, w http.ResponseWriter, r *http.Request) {
 
 	certs, err := certService.ListCertificates(r.Context(), userID)
 	if err != nil {
-		c.Err = common.NewAppError("listCertificates", "Failed to list certificates", nil, err.Error(), http.StatusInternalServerError)
+		c.SetInternalError(err)
 		return
 	}
 
@@ -231,21 +227,20 @@ func listCertificates(c *Context, w http.ResponseWriter, r *http.Request) {
 
 // getCertificate retrieves a specific certificate by ID.
 func getCertificate(c *Context, w http.ResponseWriter, r *http.Request) {
-	vars := mux.Vars(r)
-	certID, err := uuid.Parse(vars["id"])
+	certID, err := uuid.Parse(c.Params.CertificateID)
 	if err != nil {
-		c.Err = common.NewAppError("getCertificate", "Invalid certificate ID", nil, err.Error(), http.StatusBadRequest)
+		c.SetInvalidParam("certificate_id")
 		return
 	}
 
 	userIDStr, ok := c.Claims["user_id"].(string)
 	if !ok {
-		c.Err = common.NewAppError("getCertificate", "Invalid user claims", nil, "", http.StatusUnauthorized)
+		c.SetInternalError(nil)
 		return
 	}
 	userID, err := uuid.Parse(userIDStr)
 	if err != nil {
-		c.Err = common.NewAppError("getCertificate", "Invalid user ID", nil, err.Error(), http.StatusUnauthorized)
+		c.SetInvalidParam("user_id")
 		return
 	}
 
@@ -256,7 +251,7 @@ func getCertificate(c *Context, w http.ResponseWriter, r *http.Request) {
 
 	cert, err := certService.GetCertificate(r.Context(), certID, userID)
 	if err != nil {
-		c.Err = common.NewAppError("getCertificate", "Certificate not found or access denied", nil, err.Error(), http.StatusNotFound)
+		c.SetNotFound("certificate")
 		return
 	}
 
@@ -266,32 +261,31 @@ func getCertificate(c *Context, w http.ResponseWriter, r *http.Request) {
 
 // updateCertificate updates an existing certificate's metadata.
 func updateCertificate(c *Context, w http.ResponseWriter, r *http.Request) {
-	vars := mux.Vars(r)
-	certID, err := uuid.Parse(vars["id"])
+	certID, err := uuid.Parse(c.Params.CertificateID)
 	if err != nil {
-		c.Err = common.NewAppError("updateCertificate", "Invalid certificate ID", nil, err.Error(), http.StatusBadRequest)
+		c.SetInvalidParam("certificate_id")
 		return
 	}
 
 	userIDStr, ok := c.Claims["user_id"].(string)
 	if !ok {
-		c.Err = common.NewAppError("updateCertificate", "Invalid user claims", nil, "", http.StatusUnauthorized)
+		c.SetInternalError(nil)
 		return
 	}
 	userID, err := uuid.Parse(userIDStr)
 	if err != nil {
-		c.Err = common.NewAppError("updateCertificate", "Invalid user ID", nil, err.Error(), http.StatusUnauthorized)
+		c.SetInvalidParam("user_id")
 		return
 	}
 
 	var req UpdateCertificateAPIRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		c.Err = common.NewAppError("updateCertificate", "Invalid JSON request body", nil, err.Error(), http.StatusBadRequest)
+		c.SetInvalidParam("request body")
 		return
 	}
 
 	if req.Name == nil && req.Tags == nil && req.AutoRenew == nil && req.RenewalDays == nil {
-		c.Err = common.NewAppError("updateCertificate", "At least one update field must be provided", nil, "", http.StatusBadRequest)
+		c.SetInvalidParam("at least one update field must be provided")
 		return
 	}
 
@@ -310,14 +304,14 @@ func updateCertificate(c *Context, w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := certService.UpdateCertificate(r.Context(), updateReq); err != nil {
-		c.Err = common.NewAppError("updateCertificate", "Failed to update certificate", nil, err.Error(), http.StatusInternalServerError)
+		c.SetInternalError(err)
 		return
 	}
 
 	// Fetch updated certificate for response.
 	cert, err := certService.GetCertificate(r.Context(), certID, userID)
 	if err != nil {
-		c.Err = common.NewAppError("updateCertificate", "Failed to retrieve updated certificate", nil, err.Error(), http.StatusInternalServerError)
+		c.SetInternalError(err)
 		return
 	}
 
@@ -327,21 +321,20 @@ func updateCertificate(c *Context, w http.ResponseWriter, r *http.Request) {
 
 // deleteCertificate removes a certificate from the system.
 func deleteCertificate(c *Context, w http.ResponseWriter, r *http.Request) {
-	vars := mux.Vars(r)
-	certID, err := uuid.Parse(vars["id"])
+	certID, err := uuid.Parse(c.Params.CertificateID)
 	if err != nil {
-		c.Err = common.NewAppError("deleteCertificate", "Invalid certificate ID", nil, err.Error(), http.StatusBadRequest)
+		c.SetInvalidParam("certificate_id")
 		return
 	}
 
 	userIDStr, ok := c.Claims["user_id"].(string)
 	if !ok {
-		c.Err = common.NewAppError("deleteCertificate", "Invalid user claims", nil, "", http.StatusUnauthorized)
+		c.SetInternalError(nil)
 		return
 	}
 	userID, err := uuid.Parse(userIDStr)
 	if err != nil {
-		c.Err = common.NewAppError("deleteCertificate", "Invalid user ID", nil, err.Error(), http.StatusUnauthorized)
+		c.SetInvalidParam("user_id")
 		return
 	}
 
@@ -351,7 +344,7 @@ func deleteCertificate(c *Context, w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := certService.DeleteCertificate(r.Context(), certID, userID); err != nil {
-		c.Err = common.NewAppError("deleteCertificate", "Failed to delete certificate", nil, err.Error(), http.StatusInternalServerError)
+		c.SetInternalError(err)
 		return
 	}
 

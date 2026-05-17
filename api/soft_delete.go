@@ -5,7 +5,6 @@ import (
 	"net/http"
 
 	"github.com/google/uuid"
-	"github.com/gorilla/mux"
 
 	"rocketvault/common"
 )
@@ -21,7 +20,7 @@ func listDeletedSecrets(c *Context, w http.ResponseWriter, r *http.Request) {
 	repo := c.App.ServiceContainer.GetSecretRepository()
 	secrets, err := repo.ListByUserIncludeDeleted(r.Context(), userID, nil)
 	if err != nil {
-		c.Err = common.NewAppError("listDeletedSecrets", "Failed to list deleted secrets", nil, err.Error(), http.StatusInternalServerError)
+		c.SetInternalError(err)
 		return
 	}
 
@@ -54,9 +53,9 @@ func recoverSecret(c *Context, w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	secretID, appErr := resourceIDFromVars(c, r, "recoverSecret")
-	if appErr != nil {
-		c.Err = appErr
+	secretID, err := uuid.Parse(c.Params.SecretID)
+	if err != nil {
+		c.SetInvalidParam("secret_id")
 		return
 	}
 
@@ -64,7 +63,7 @@ func recoverSecret(c *Context, w http.ResponseWriter, r *http.Request) {
 	repo := c.App.ServiceContainer.GetSecretRepository()
 	secrets, err := repo.ListByUserIncludeDeleted(r.Context(), userID, nil)
 	if err != nil {
-		c.Err = common.NewAppError("recoverSecret", "Failed to verify secret ownership", nil, err.Error(), http.StatusInternalServerError)
+		c.SetInternalError(err)
 		return
 	}
 
@@ -76,12 +75,12 @@ func recoverSecret(c *Context, w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	if !found {
-		c.Err = common.NewAppError("recoverSecret", "Secret not found or access denied", nil, "", http.StatusNotFound)
+		c.SetNotFound("secret")
 		return
 	}
 
 	if err := repo.RecoverSecret(r.Context(), secretID); err != nil {
-		c.Err = common.NewAppError("recoverSecret", "Failed to recover secret", nil, err.Error(), http.StatusInternalServerError)
+		c.SetInternalError(err)
 		return
 	}
 
@@ -97,9 +96,9 @@ func purgeSecret(c *Context, w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	secretID, appErr := resourceIDFromVars(c, r, "purgeSecret")
-	if appErr != nil {
-		c.Err = appErr
+	secretID, err := uuid.Parse(c.Params.SecretID)
+	if err != nil {
+		c.SetInvalidParam("secret_id")
 		return
 	}
 
@@ -107,7 +106,7 @@ func purgeSecret(c *Context, w http.ResponseWriter, r *http.Request) {
 	repo := c.App.ServiceContainer.GetSecretRepository()
 	secrets, err := repo.ListByUserIncludeDeleted(r.Context(), userID, nil)
 	if err != nil {
-		c.Err = common.NewAppError("purgeSecret", "Failed to verify secret ownership", nil, err.Error(), http.StatusInternalServerError)
+		c.SetInternalError(err)
 		return
 	}
 
@@ -119,12 +118,12 @@ func purgeSecret(c *Context, w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	if !found {
-		c.Err = common.NewAppError("purgeSecret", "Secret not found or access denied", nil, "", http.StatusNotFound)
+		c.SetNotFound("secret")
 		return
 	}
 
 	if err := repo.PurgeSecret(r.Context(), secretID); err != nil {
-		c.Err = common.NewAppError("purgeSecret", "Failed to purge secret", nil, err.Error(), http.StatusInternalServerError)
+		c.SetInternalError(err)
 		return
 	}
 
@@ -141,7 +140,7 @@ func listDeletedKeys(c *Context, w http.ResponseWriter, r *http.Request) {
 
 	keys, err := c.App.ServiceContainer.GetKeyRepository().ListSoftDeleted(r.Context(), userID)
 	if err != nil {
-		c.Err = common.NewAppError("listDeletedKeys", "Failed to list deleted keys", nil, err.Error(), http.StatusInternalServerError)
+		c.SetInternalError(err)
 		return
 	}
 
@@ -176,9 +175,9 @@ func recoverKey(c *Context, w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	keyID, appErr := resourceIDFromVars(c, r, "recoverKey")
-	if appErr != nil {
-		c.Err = appErr
+	keyID, err := uuid.Parse(c.Params.KeyID)
+	if err != nil {
+		c.SetInvalidParam("key_id")
 		return
 	}
 
@@ -186,7 +185,7 @@ func recoverKey(c *Context, w http.ResponseWriter, r *http.Request) {
 	repo := c.App.ServiceContainer.GetKeyRepository()
 	keys, err := repo.ListSoftDeleted(r.Context(), userID)
 	if err != nil {
-		c.Err = common.NewAppError("recoverKey", "Failed to verify key ownership", nil, err.Error(), http.StatusInternalServerError)
+		c.SetInternalError(err)
 		return
 	}
 
@@ -198,12 +197,12 @@ func recoverKey(c *Context, w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	if !found {
-		c.Err = common.NewAppError("recoverKey", "Key not found in deleted state or access denied", nil, "", http.StatusNotFound)
+		c.SetNotFound("key")
 		return
 	}
 
 	if err := repo.RecoverKey(r.Context(), keyID); err != nil {
-		c.Err = common.NewAppError("recoverKey", "Failed to recover key", nil, err.Error(), http.StatusInternalServerError)
+		c.SetInternalError(err)
 		return
 	}
 
@@ -219,9 +218,9 @@ func purgeKey(c *Context, w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	keyID, appErr := resourceIDFromVars(c, r, "purgeKey")
-	if appErr != nil {
-		c.Err = appErr
+	keyID, err := uuid.Parse(c.Params.KeyID)
+	if err != nil {
+		c.SetInvalidParam("key_id")
 		return
 	}
 
@@ -229,7 +228,7 @@ func purgeKey(c *Context, w http.ResponseWriter, r *http.Request) {
 	repo := c.App.ServiceContainer.GetKeyRepository()
 	keys, err := repo.ListSoftDeleted(r.Context(), userID)
 	if err != nil {
-		c.Err = common.NewAppError("purgeKey", "Failed to verify key ownership", nil, err.Error(), http.StatusInternalServerError)
+		c.SetInternalError(err)
 		return
 	}
 
@@ -241,12 +240,12 @@ func purgeKey(c *Context, w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	if !found {
-		c.Err = common.NewAppError("purgeKey", "Key not found in deleted state or access denied", nil, "", http.StatusNotFound)
+		c.SetNotFound("key")
 		return
 	}
 
 	if err := repo.PurgeKey(r.Context(), keyID); err != nil {
-		c.Err = common.NewAppError("purgeKey", "Failed to purge key", nil, err.Error(), http.StatusInternalServerError)
+		c.SetInternalError(err)
 		return
 	}
 
@@ -263,7 +262,7 @@ func listDeletedCertificates(c *Context, w http.ResponseWriter, r *http.Request)
 
 	certs, err := c.App.ServiceContainer.GetCertificateRepository().ListSoftDeleted(r.Context(), userID)
 	if err != nil {
-		c.Err = common.NewAppError("listDeletedCertificates", "Failed to list deleted certificates", nil, err.Error(), http.StatusInternalServerError)
+		c.SetInternalError(err)
 		return
 	}
 
@@ -296,9 +295,9 @@ func recoverCertificate(c *Context, w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	certID, appErr := resourceIDFromVars(c, r, "recoverCertificate")
-	if appErr != nil {
-		c.Err = appErr
+	certID, err := uuid.Parse(c.Params.CertificateID)
+	if err != nil {
+		c.SetInvalidParam("certificate_id")
 		return
 	}
 
@@ -306,7 +305,7 @@ func recoverCertificate(c *Context, w http.ResponseWriter, r *http.Request) {
 	repo := c.App.ServiceContainer.GetCertificateRepository()
 	certs, err := repo.ListSoftDeleted(r.Context(), userID)
 	if err != nil {
-		c.Err = common.NewAppError("recoverCertificate", "Failed to verify certificate ownership", nil, err.Error(), http.StatusInternalServerError)
+		c.SetInternalError(err)
 		return
 	}
 
@@ -318,12 +317,12 @@ func recoverCertificate(c *Context, w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	if !found {
-		c.Err = common.NewAppError("recoverCertificate", "Certificate not found in deleted state or access denied", nil, "", http.StatusNotFound)
+		c.SetNotFound("certificate")
 		return
 	}
 
 	if err := repo.RecoverCertificate(r.Context(), certID); err != nil {
-		c.Err = common.NewAppError("recoverCertificate", "Failed to recover certificate", nil, err.Error(), http.StatusInternalServerError)
+		c.SetInternalError(err)
 		return
 	}
 
@@ -339,9 +338,9 @@ func purgeCertificate(c *Context, w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	certID, appErr := resourceIDFromVars(c, r, "purgeCertificate")
-	if appErr != nil {
-		c.Err = appErr
+	certID, err := uuid.Parse(c.Params.CertificateID)
+	if err != nil {
+		c.SetInvalidParam("certificate_id")
 		return
 	}
 
@@ -349,7 +348,7 @@ func purgeCertificate(c *Context, w http.ResponseWriter, r *http.Request) {
 	repo := c.App.ServiceContainer.GetCertificateRepository()
 	certs, err := repo.ListSoftDeleted(r.Context(), userID)
 	if err != nil {
-		c.Err = common.NewAppError("purgeCertificate", "Failed to verify certificate ownership", nil, err.Error(), http.StatusInternalServerError)
+		c.SetInternalError(err)
 		return
 	}
 
@@ -361,12 +360,12 @@ func purgeCertificate(c *Context, w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	if !found {
-		c.Err = common.NewAppError("purgeCertificate", "Certificate not found in deleted state or access denied", nil, "", http.StatusNotFound)
+		c.SetNotFound("certificate")
 		return
 	}
 
 	if err := repo.PurgeCertificate(r.Context(), certID); err != nil {
-		c.Err = common.NewAppError("purgeCertificate", "Failed to purge certificate", nil, err.Error(), http.StatusInternalServerError)
+		c.SetInternalError(err)
 		return
 	}
 
@@ -374,7 +373,7 @@ func purgeCertificate(c *Context, w http.ResponseWriter, r *http.Request) {
 }
 
 // userIDFromClaims extracts and parses the user UUID from JWT claims.
-// It returns an AppError if the claim is missing or cannot be parsed.
+// Returns an AppError if the claim is missing or cannot be parsed.
 func userIDFromClaims(c *Context, op string) (uuid.UUID, *common.AppError) {
 	str, ok := c.Claims["user_id"].(string)
 	if !ok {
@@ -391,23 +390,12 @@ func userIDFromClaims(c *Context, op string) (uuid.UUID, *common.AppError) {
 func (api *API) InitDeleted() {
 	r := api.BaseRoutes.Deleted
 	r.Handle("/secrets", ApiSessionRequired(api.App, listDeletedSecrets)).Methods("GET")
-	r.Handle("/secrets/{id:[A-Fa-f0-9-]+}/restore", ApiSessionRequired(api.App, recoverSecret)).Methods("POST")
-	r.Handle("/secrets/{id:[A-Fa-f0-9-]+}/purge", ApiSessionRequired(api.App, purgeSecret)).Methods("DELETE")
+	r.Handle("/secrets/{secret_id:[A-Fa-f0-9-]+}/restore", ApiSessionRequired(api.App, recoverSecret)).Methods("POST")
+	r.Handle("/secrets/{secret_id:[A-Fa-f0-9-]+}/purge", ApiSessionRequired(api.App, purgeSecret)).Methods("DELETE")
 	r.Handle("/keys", ApiSessionRequired(api.App, listDeletedKeys)).Methods("GET")
-	r.Handle("/keys/{id:[A-Fa-f0-9-]+}/restore", ApiSessionRequired(api.App, recoverKey)).Methods("POST")
-	r.Handle("/keys/{id:[A-Fa-f0-9-]+}/purge", ApiSessionRequired(api.App, purgeKey)).Methods("DELETE")
+	r.Handle("/keys/{key_id:[A-Fa-f0-9-]+}/restore", ApiSessionRequired(api.App, recoverKey)).Methods("POST")
+	r.Handle("/keys/{key_id:[A-Fa-f0-9-]+}/purge", ApiSessionRequired(api.App, purgeKey)).Methods("DELETE")
 	r.Handle("/certificates", ApiSessionRequired(api.App, listDeletedCertificates)).Methods("GET")
-	r.Handle("/certificates/{id:[A-Fa-f0-9-]+}/restore", ApiSessionRequired(api.App, recoverCertificate)).Methods("POST")
-	r.Handle("/certificates/{id:[A-Fa-f0-9-]+}/purge", ApiSessionRequired(api.App, purgeCertificate)).Methods("DELETE")
-}
-
-// resourceIDFromVars extracts and parses the resource UUID from URL path variables.
-// It returns an AppError if the variable is missing or cannot be parsed.
-func resourceIDFromVars(c *Context, r *http.Request, op string) (uuid.UUID, *common.AppError) {
-	vars := mux.Vars(r)
-	id, err := uuid.Parse(vars["id"])
-	if err != nil {
-		return uuid.Nil, common.NewAppError(op, "Invalid resource ID", nil, err.Error(), http.StatusBadRequest)
-	}
-	return id, nil
+	r.Handle("/certificates/{certificate_id:[A-Fa-f0-9-]+}/restore", ApiSessionRequired(api.App, recoverCertificate)).Methods("POST")
+	r.Handle("/certificates/{certificate_id:[A-Fa-f0-9-]+}/purge", ApiSessionRequired(api.App, purgeCertificate)).Methods("DELETE")
 }

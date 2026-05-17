@@ -30,7 +30,6 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/gorilla/mux"
 
 	"rocketvault/common"
 	"rocketvault/model"
@@ -39,18 +38,18 @@ import (
 
 // CreateKeyRequest represents the request structure for creating a cryptographic key.
 type CreateKeyRequest struct {
-	Name  string   `json:"name"`  // Key name
-	Type  string   `json:"type"`  // Key type (RSA, ECDSA)
-	Bits  int      `json:"bits"`  // RSA key size in bits (2048 or 4096)
-	Curve string   `json:"curve"` // ECDSA curve (P-256, P-384, P-521)
-	Tags  []string `json:"tags"`  // Tags for the key
+	Name  string   `json:"name"`  // Key name.
+	Type  string   `json:"type"`  // Key type (RSA, ECDSA).
+	Bits  int      `json:"bits"`  // RSA key size in bits (2048 or 4096).
+	Curve string   `json:"curve"` // ECDSA curve (P-256, P-384, P-521).
+	Tags  []string `json:"tags"`  // Tags for the key.
 }
 
 // UpdateKeyRequest represents the request structure for updating a cryptographic key.
 type UpdateKeyRequest struct {
-	Name    *string  `json:"name,omitempty"`    // New name for the key
-	Revoked *bool    `json:"revoked,omitempty"` // Set key revocation status
-	Tags    []string `json:"tags,omitempty"`    // Replace existing tags
+	Name    *string  `json:"name,omitempty"`    // New name for the key.
+	Revoked *bool    `json:"revoked,omitempty"` // Set key revocation status.
+	Tags    []string `json:"tags,omitempty"`    // Replace existing tags.
 }
 
 // KeyResponse represents the response structure for a cryptographic key.
@@ -69,27 +68,27 @@ type KeyListResponse struct {
 	Keys []KeyResponse `json:"keys"`
 }
 
-// WrapKeyRequest is the HTTP request body for POST /keys/{id}/wrap.
+// WrapKeyRequest is the HTTP request body for POST /keys/{key_id}/wrap.
 type WrapKeyRequest struct {
-	PlaintextKey string `json:"plaintext_key"` // base64-encoded key material
-	Algorithm    string `json:"algorithm"`     // defaults to "RSA-OAEP"
+	PlaintextKey string `json:"plaintext_key"` // base64-encoded key material.
+	Algorithm    string `json:"algorithm"`     // defaults to "RSA-OAEP".
 }
 
 // WrapKeyResponse is the HTTP response for a successful wrap.
 type WrapKeyResponse struct {
-	WrappedKey string `json:"wrapped_key"` // base64-encoded wrapped bytes
+	WrappedKey string `json:"wrapped_key"` // base64-encoded wrapped bytes.
 	Algorithm  string `json:"algorithm"`
 }
 
-// UnwrapKeyRequest is the HTTP request body for POST /keys/{id}/unwrap.
+// UnwrapKeyRequest is the HTTP request body for POST /keys/{key_id}/unwrap.
 type UnwrapKeyRequest struct {
-	WrappedKey string `json:"wrapped_key"` // base64-encoded wrapped bytes
-	Algorithm  string `json:"algorithm"`   // defaults to "RSA-OAEP"
+	WrappedKey string `json:"wrapped_key"` // base64-encoded wrapped bytes.
+	Algorithm  string `json:"algorithm"`   // defaults to "RSA-OAEP".
 }
 
 // UnwrapKeyResponse is the HTTP response for a successful unwrap.
 type UnwrapKeyResponse struct {
-	PlaintextKey string `json:"plaintext_key"` // base64-encoded recovered key
+	PlaintextKey string `json:"plaintext_key"` // base64-encoded recovered key.
 	Algorithm    string `json:"algorithm"`
 }
 
@@ -97,68 +96,65 @@ type UnwrapKeyResponse struct {
 // It sets up the following endpoints:
 // - POST /keys: Create a new cryptographic key.
 // - GET /keys: List all keys for authenticated user (with filtering).
-// - GET /keys/{id}: Get a specific key by ID.
-// - PUT /keys/{id}: Update a key.
-// - DELETE /keys/{id}: Delete a key.
-// - POST /keys/{id}/rotate: Rotate a key (generate new key pair, revoke old).
-//
-// Parameters:
-// - keys (*mux.Router): The router to which the routes will be added.
+// - GET /keys/{key_id}: Get a specific key by ID.
+// - PUT /keys/{key_id}: Update a key.
+// - DELETE /keys/{key_id}: Delete a key.
+// - POST /keys/{key_id}/rotate: Rotate a key (generate new key pair, revoke old).
 func (api *API) InitKeys() {
 	k := api.BaseRoutes.Keys
 
 	// Basic CRUD operations.
 	k.Handle("", ApiSessionRequired(api.App, createKey)).Methods("POST")
 	k.Handle("", ApiSessionRequired(api.App, listKeys)).Methods("GET")
-	k.Handle("/{id:[A-Fa-f0-9-]+}", ApiSessionRequired(api.App, getKey)).Methods("GET")
-	k.Handle("/{id:[A-Fa-f0-9-]+}", ApiSessionRequired(api.App, updateKey)).Methods("PUT")
-	k.Handle("/{id:[A-Fa-f0-9-]+}", ApiSessionRequired(api.App, deleteKey)).Methods("DELETE")
+	k.Handle("/{key_id:[A-Fa-f0-9-]+}", ApiSessionRequired(api.App, getKey)).Methods("GET")
+	k.Handle("/{key_id:[A-Fa-f0-9-]+}", ApiSessionRequired(api.App, updateKey)).Methods("PUT")
+	k.Handle("/{key_id:[A-Fa-f0-9-]+}", ApiSessionRequired(api.App, deleteKey)).Methods("DELETE")
 
 	// Additional operations.
-	k.Handle("/{id:[A-Fa-f0-9-]+}/rotate", ApiSessionRequired(api.App, rotateKey)).Methods("POST")
-	k.Handle("/{id:[A-Fa-f0-9-]+}/wrap", ApiSessionRequired(api.App, wrapKey)).Methods("POST")
-	k.Handle("/{id:[A-Fa-f0-9-]+}/unwrap", ApiSessionRequired(api.App, unwrapKey)).Methods("POST")
+	k.Handle("/{key_id:[A-Fa-f0-9-]+}/rotate", ApiSessionRequired(api.App, rotateKey)).Methods("POST")
+	k.Handle("/{key_id:[A-Fa-f0-9-]+}/wrap", ApiSessionRequired(api.App, wrapKey)).Methods("POST")
+	k.Handle("/{key_id:[A-Fa-f0-9-]+}/unwrap", ApiSessionRequired(api.App, unwrapKey)).Methods("POST")
 
 	api.Logger.Infoln("Keys API routes initialized")
 }
 
 // createKey creates a new cryptographic key.
 func createKey(c *Context, w http.ResponseWriter, r *http.Request) {
-	// Check authorization - requires admin or secrets manager role
+	// Check authorization — requires admin or secrets_manager role.
 	claims, ok := c.Claims["role"].(string)
 	if !ok || !common.HasRequiredRole(claims, model.RoleAdmin, model.RoleSecretsManager) {
-		c.Err = common.NewAppError("createKey", "Forbidden: requires admin or secrets_manager role", nil, "", http.StatusForbidden)
+		c.SetPermissionError("admin or secrets_manager role required")
 		return
 	}
 
 	var req CreateKeyRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		c.Err = common.NewAppError("createKey", "Invalid JSON request body", nil, err.Error(), http.StatusBadRequest)
+		c.SetInvalidParam("request body")
 		return
 	}
 
-	// Validate required fields
+	// Validate required fields.
 	if req.Name == "" || req.Type == "" {
-		c.Err = common.NewAppError("createKey", "Name and type are required", nil, "", http.StatusBadRequest)
+		c.SetInvalidParam("name and type are required")
 		return
 	}
 
-	// Validate key type
+	// Validate key type.
 	req.Type = strings.ToUpper(req.Type)
 	if req.Type != "RSA" && req.Type != "ECDSA" {
-		c.Err = common.NewAppError("createKey", "Invalid key type: must be RSA or ECDSA", nil, "", http.StatusBadRequest)
+		c.SetInvalidParam("type: must be RSA or ECDSA")
 		return
 	}
 
-	// Get user ID from claims
+	// Get user ID from claims.
 	userIDStr, ok := c.Claims["user_id"].(string)
 	if !ok {
-		c.Err = common.NewAppError("createKey", "Invalid user claims", nil, "", http.StatusUnauthorized)
+		c.SetInternalError(nil)
 		return
 	}
 	userID, err := uuid.Parse(userIDStr)
 	if err != nil {
-		c.Err = common.NewAppError("createKey", "Invalid user ID", nil, err.Error(), http.StatusUnauthorized)
+		c.SetInvalidParam("user_id")
 		return
 	}
 
@@ -167,7 +163,7 @@ func createKey(c *Context, w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Build create key request
+	// Build create key request.
 	createReq := keyservices.CreateKeyRequest{
 		Name:   req.Name,
 		Type:   req.Type,
@@ -177,24 +173,24 @@ func createKey(c *Context, w http.ResponseWriter, r *http.Request) {
 
 	var result *keyservices.CreateKeyResult
 	if req.Type == "RSA" {
-		// Validate RSA key size
+		// Validate RSA key size.
 		if req.Bits != 2048 && req.Bits != 4096 {
 			if req.Bits == 0 {
-				req.Bits = 2048 // Default RSA key size
+				req.Bits = 2048 // Default RSA key size.
 			} else {
-				c.Err = common.NewAppError("createKey", "Invalid RSA key size: must be 2048 or 4096", nil, "", http.StatusBadRequest)
+				c.SetInvalidParam("bits: must be 2048 or 4096")
 				return
 			}
 		}
 		createReq.Bits = req.Bits
 		result, err = keyService.CreateRSAKey(r.Context(), createReq)
 	} else {
-		// Validate ECDSA curve
+		// Validate ECDSA curve.
 		if req.Curve == "" {
-			req.Curve = "P-256" // Default ECDSA curve
+			req.Curve = "P-256" // Default ECDSA curve.
 		}
 		if req.Curve != "P-256" && req.Curve != "P-384" && req.Curve != "P-521" {
-			c.Err = common.NewAppError("createKey", "Invalid ECDSA curve: must be P-256, P-384, or P-521", nil, "", http.StatusBadRequest)
+			c.SetInvalidParam("curve: must be P-256, P-384, or P-521")
 			return
 		}
 		createReq.Curve = req.Curve
@@ -202,17 +198,17 @@ func createKey(c *Context, w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err != nil {
-		c.Err = common.NewAppError("createKey", "Failed to create key", nil, err.Error(), http.StatusInternalServerError)
+		c.SetInternalError(err)
 		return
 	}
 
-	// Return success response
+	// Return success response.
 	response := KeyResponse{
 		ID:        result.KeyID,
 		Name:      result.Name,
 		Type:      result.Type,
 		UserID:    userID,
-		Revoked:   false, // New keys are never revoked
+		Revoked:   false, // New keys are never revoked.
 		CreatedAt: result.CreatedAt,
 		Tags:      result.Tags,
 	}
@@ -224,55 +220,46 @@ func createKey(c *Context, w http.ResponseWriter, r *http.Request) {
 
 // listKeys lists cryptographic keys with optional filtering.
 func listKeys(c *Context, w http.ResponseWriter, r *http.Request) {
-	// Get user ID from claims
+	// Get user ID from claims.
 	userIDStr, ok := c.Claims["user_id"].(string)
 	if !ok {
-		c.Err = common.NewAppError("listKeys", "Invalid user claims", nil, "", http.StatusUnauthorized)
+		c.SetInternalError(nil)
 		return
 	}
 	userID, err := uuid.Parse(userIDStr)
 	if err != nil {
-		c.Err = common.NewAppError("listKeys", "Invalid user ID", nil, err.Error(), http.StatusUnauthorized)
+		c.SetInvalidParam("user_id")
 		return
 	}
 
-	// Parse query parameters
+	// Parse query parameters.
 	keyType := r.URL.Query().Get("type")
-	tagsParam := r.URL.Query().Get("tags")
-
-	var tags []string
-	if tagsParam != "" {
-		tags = strings.Split(tagsParam, ",")
-		for i, tag := range tags {
-			tags[i] = strings.TrimSpace(tag)
-		}
-	}
 
 	keyService := c.keySvc()
 	if keyService == nil {
 		return
 	}
 
-	// Check if user is admin - admins can list all keys
+	// Check if user is admin — admins can list all keys.
 	roleStr, ok := c.Claims["role"].(string)
 	isAdmin := ok && roleStr == string(model.RoleAdmin)
 
-	// Use service layer with proper admin/user distinction
+	// Use service layer with proper admin/user distinction.
 	var keysList []model.Key
 	if isAdmin {
-		// Admins list all keys with filters (userID = nil)
-		keysList, err = keyService.ListKeysWithFilters(r.Context(), nil, keyType, tags, true)
+		// Admins list all keys with filters (userID = nil).
+		keysList, err = keyService.ListKeysWithFilters(r.Context(), nil, keyType, c.Params.Tags, true)
 	} else {
-		// Non-admins list only their keys
-		keysList, err = keyService.ListKeysWithFilters(r.Context(), &userID, keyType, tags, false)
+		// Non-admins list only their keys.
+		keysList, err = keyService.ListKeysWithFilters(r.Context(), &userID, keyType, c.Params.Tags, false)
 	}
 
 	if err != nil {
-		c.Err = common.NewAppError("listKeys", "Failed to list keys", nil, err.Error(), http.StatusInternalServerError)
+		c.SetInternalError(err)
 		return
 	}
 
-	// Convert to response format
+	// Convert to response format.
 	response := KeyListResponse{Keys: make([]KeyResponse, len(keysList))}
 	for i, key := range keysList {
 		response.Keys[i] = KeyResponse{
@@ -292,22 +279,21 @@ func listKeys(c *Context, w http.ResponseWriter, r *http.Request) {
 
 // getKey retrieves a specific cryptographic key by ID.
 func getKey(c *Context, w http.ResponseWriter, r *http.Request) {
-	vars := mux.Vars(r)
-	keyID, err := uuid.Parse(vars["id"])
+	keyID, err := uuid.Parse(c.Params.KeyID)
 	if err != nil {
-		c.Err = common.NewAppError("getKey", "Invalid key ID", nil, err.Error(), http.StatusBadRequest)
+		c.SetInvalidParam("key_id")
 		return
 	}
 
-	// Get user ID from claims
+	// Get user ID from claims.
 	userIDStr, ok := c.Claims["user_id"].(string)
 	if !ok {
-		c.Err = common.NewAppError("getKey", "Invalid user claims", nil, "", http.StatusUnauthorized)
+		c.SetInternalError(nil)
 		return
 	}
 	userID, err := uuid.Parse(userIDStr)
 	if err != nil {
-		c.Err = common.NewAppError("getKey", "Invalid user ID", nil, err.Error(), http.StatusUnauthorized)
+		c.SetInvalidParam("user_id")
 		return
 	}
 
@@ -316,32 +302,32 @@ func getKey(c *Context, w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Check authorization - users can only access their own keys, admins can access all
+	// Check authorization — users can only access their own keys, admins can access all.
 	roleStr, ok := c.Claims["role"].(string)
 	isAdmin := ok && roleStr == string(model.RoleAdmin)
 
-	// Use service layer with access control validation
+	// Use service layer with access control validation.
 	key, err := keyService.GetKey(r.Context(), keyID, userID)
 	if err != nil {
-		// If not admin and access denied, return forbidden
+		// If not admin and access denied, return not found.
 		if !isAdmin {
-			c.Err = common.NewAppError("getKey", "Key not found or access denied", nil, err.Error(), http.StatusNotFound)
+			c.SetNotFound("key")
 			return
 		}
-		// Admin can try to validate access with admin role
+		// Admin can try to validate access with admin role.
 		if err := keyService.ValidateKeyAccess(r.Context(), keyID, userID, roleStr); err != nil {
-			c.Err = common.NewAppError("getKey", "Key not found", nil, err.Error(), http.StatusNotFound)
+			c.SetNotFound("key")
 			return
 		}
-		// Retry get for admin
+		// Retry get for admin.
 		key, err = keyService.GetKey(r.Context(), keyID, userID)
 		if err != nil {
-			c.Err = common.NewAppError("getKey", "Key not found", nil, err.Error(), http.StatusNotFound)
+			c.SetNotFound("key")
 			return
 		}
 	}
 
-	// Return success response
+	// Return success response.
 	response := KeyResponse{
 		ID:        key.ID,
 		Name:      key.Name,
@@ -358,34 +344,33 @@ func getKey(c *Context, w http.ResponseWriter, r *http.Request) {
 
 // updateKey updates a cryptographic key.
 func updateKey(c *Context, w http.ResponseWriter, r *http.Request) {
-	vars := mux.Vars(r)
-	keyID, err := uuid.Parse(vars["id"])
+	keyID, err := uuid.Parse(c.Params.KeyID)
 	if err != nil {
-		c.Err = common.NewAppError("updateKey", "Invalid key ID", nil, err.Error(), http.StatusBadRequest)
+		c.SetInvalidParam("key_id")
 		return
 	}
 
-	// Get user ID from claims
+	// Get user ID from claims.
 	userIDStr, ok := c.Claims["user_id"].(string)
 	if !ok {
-		c.Err = common.NewAppError("updateKey", "Invalid user claims", nil, "", http.StatusUnauthorized)
+		c.SetInternalError(nil)
 		return
 	}
 	userID, err := uuid.Parse(userIDStr)
 	if err != nil {
-		c.Err = common.NewAppError("updateKey", "Invalid user ID", nil, err.Error(), http.StatusUnauthorized)
+		c.SetInvalidParam("user_id")
 		return
 	}
 
 	var req UpdateKeyRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		c.Err = common.NewAppError("updateKey", "Invalid JSON request body", nil, err.Error(), http.StatusBadRequest)
+		c.SetInvalidParam("request body")
 		return
 	}
 
-	// Validate at least one field provided
+	// Validate at least one field provided.
 	if req.Name == nil && req.Revoked == nil && req.Tags == nil {
-		c.Err = common.NewAppError("updateKey", "At least one update field (name, revoked, tags) must be provided", nil, "", http.StatusBadRequest)
+		c.SetInvalidParam("at least one update field (name, revoked, tags) must be provided")
 		return
 	}
 
@@ -394,7 +379,7 @@ func updateKey(c *Context, w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Use service layer for update with access control
+	// Use service layer for update with access control.
 	updateReq := keyservices.UpdateKeyRequest{
 		KeyID:  keyID,
 		Name:   req.Name,
@@ -403,18 +388,18 @@ func updateKey(c *Context, w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := keyService.UpdateKey(r.Context(), updateReq); err != nil {
-		c.Err = common.NewAppError("updateKey", "Failed to update key", nil, err.Error(), http.StatusInternalServerError)
+		c.SetInternalError(err)
 		return
 	}
 
-	// Get updated key for response
+	// Get updated key for response.
 	key, err := keyService.GetKey(r.Context(), keyID, userID)
 	if err != nil {
-		c.Err = common.NewAppError("updateKey", "Failed to get updated key", nil, err.Error(), http.StatusInternalServerError)
+		c.SetInternalError(err)
 		return
 	}
 
-	// Return success response
+	// Return success response.
 	response := KeyResponse{
 		ID:        key.ID,
 		Name:      key.Name,
@@ -431,22 +416,21 @@ func updateKey(c *Context, w http.ResponseWriter, r *http.Request) {
 
 // deleteKey deletes a cryptographic key.
 func deleteKey(c *Context, w http.ResponseWriter, r *http.Request) {
-	vars := mux.Vars(r)
-	keyID, err := uuid.Parse(vars["id"])
+	keyID, err := uuid.Parse(c.Params.KeyID)
 	if err != nil {
-		c.Err = common.NewAppError("deleteKey", "Invalid key ID", nil, err.Error(), http.StatusBadRequest)
+		c.SetInvalidParam("key_id")
 		return
 	}
 
-	// Get user ID from claims
+	// Get user ID from claims.
 	userIDStr, ok := c.Claims["user_id"].(string)
 	if !ok {
-		c.Err = common.NewAppError("deleteKey", "Invalid user claims", nil, "", http.StatusUnauthorized)
+		c.SetInternalError(nil)
 		return
 	}
 	userID, err := uuid.Parse(userIDStr)
 	if err != nil {
-		c.Err = common.NewAppError("deleteKey", "Invalid user ID", nil, err.Error(), http.StatusUnauthorized)
+		c.SetInvalidParam("user_id")
 		return
 	}
 
@@ -455,34 +439,33 @@ func deleteKey(c *Context, w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Use service layer for deletion with access control
+	// Use service layer for deletion with access control.
 	if err := keyService.DeleteKey(r.Context(), keyID, userID); err != nil {
-		c.Err = common.NewAppError("deleteKey", "Failed to delete key", nil, err.Error(), http.StatusInternalServerError)
+		c.SetInternalError(err)
 		return
 	}
 
-	// Return success response
+	// Return success response.
 	w.WriteHeader(http.StatusNoContent)
 }
 
 // rotateKey rotates a cryptographic key by generating a new key pair and revoking the old key.
 func rotateKey(c *Context, w http.ResponseWriter, r *http.Request) {
-	vars := mux.Vars(r)
-	keyID, err := uuid.Parse(vars["id"])
+	keyID, err := uuid.Parse(c.Params.KeyID)
 	if err != nil {
-		c.Err = common.NewAppError("rotateKey", "Invalid key ID", nil, err.Error(), http.StatusBadRequest)
+		c.SetInvalidParam("key_id")
 		return
 	}
 
-	// Get user ID from claims
+	// Get user ID from claims.
 	userIDStr, ok := c.Claims["user_id"].(string)
 	if !ok {
-		c.Err = common.NewAppError("rotateKey", "Invalid user claims", nil, "", http.StatusUnauthorized)
+		c.SetInternalError(nil)
 		return
 	}
 	userID, err := uuid.Parse(userIDStr)
 	if err != nil {
-		c.Err = common.NewAppError("rotateKey", "Invalid user ID", nil, err.Error(), http.StatusUnauthorized)
+		c.SetInvalidParam("user_id")
 		return
 	}
 
@@ -491,20 +474,20 @@ func rotateKey(c *Context, w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Rotate the key using service (handles authorization internally)
+	// Rotate the key using service (handles authorization internally).
 	result, err := keyService.RotateKey(r.Context(), keyID, userID)
 	if err != nil {
-		c.Err = common.NewAppError("rotateKey", "Failed to rotate key", nil, err.Error(), http.StatusInternalServerError)
+		c.SetInternalError(err)
 		return
 	}
 
-	// Return success response with the new key
+	// Return success response with the new key.
 	response := KeyResponse{
 		ID:        result.KeyID,
 		Name:      result.Name,
 		Type:      result.Type,
 		UserID:    userID,
-		Revoked:   false, // New rotated keys are never revoked
+		Revoked:   false, // New rotated keys are never revoked.
 		CreatedAt: result.CreatedAt,
 		Tags:      result.Tags,
 	}
@@ -513,33 +496,32 @@ func rotateKey(c *Context, w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(response)
 }
 
-// wrapKey wraps plaintext key material using the vault key identified by {id}.
+// wrapKey wraps plaintext key material using the vault key identified by {key_id}.
 func wrapKey(c *Context, w http.ResponseWriter, r *http.Request) {
-	vars := mux.Vars(r)
-	keyID, err := uuid.Parse(vars["id"])
+	keyID, err := uuid.Parse(c.Params.KeyID)
 	if err != nil {
-		c.Err = common.NewAppError("wrapKey", "Invalid key ID", nil, err.Error(), http.StatusBadRequest)
+		c.SetInvalidParam("key_id")
 		return
 	}
 
 	userIDStr, ok := c.Claims["user_id"].(string)
 	if !ok {
-		c.Err = common.NewAppError("wrapKey", "Invalid user claims", nil, "", http.StatusUnauthorized)
+		c.SetInternalError(nil)
 		return
 	}
 	userID, err := uuid.Parse(userIDStr)
 	if err != nil {
-		c.Err = common.NewAppError("wrapKey", "Invalid user ID", nil, err.Error(), http.StatusUnauthorized)
+		c.SetInvalidParam("user_id")
 		return
 	}
 
 	var req WrapKeyRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		c.Err = common.NewAppError("wrapKey", "Invalid request body", nil, err.Error(), http.StatusBadRequest)
+		c.SetInvalidParam("request body")
 		return
 	}
 	if req.PlaintextKey == "" {
-		c.Err = common.NewAppError("wrapKey", "plaintext_key is required", nil, "", http.StatusBadRequest)
+		c.SetInvalidParam("plaintext_key is required")
 		return
 	}
 	if req.Algorithm == "" {
@@ -548,7 +530,7 @@ func wrapKey(c *Context, w http.ResponseWriter, r *http.Request) {
 
 	plaintextBytes, err := base64.StdEncoding.DecodeString(req.PlaintextKey)
 	if err != nil {
-		c.Err = common.NewAppError("wrapKey", "plaintext_key must be valid base64", nil, err.Error(), http.StatusBadRequest)
+		c.SetInvalidParam("plaintext_key: must be valid base64")
 		return
 	}
 
@@ -583,33 +565,32 @@ func wrapKey(c *Context, w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// unwrapKey recovers plaintext key material from wrapped bytes using the vault key identified by {id}.
+// unwrapKey recovers plaintext key material from wrapped bytes using the vault key identified by {key_id}.
 func unwrapKey(c *Context, w http.ResponseWriter, r *http.Request) {
-	vars := mux.Vars(r)
-	keyID, err := uuid.Parse(vars["id"])
+	keyID, err := uuid.Parse(c.Params.KeyID)
 	if err != nil {
-		c.Err = common.NewAppError("unwrapKey", "Invalid key ID", nil, err.Error(), http.StatusBadRequest)
+		c.SetInvalidParam("key_id")
 		return
 	}
 
 	userIDStr, ok := c.Claims["user_id"].(string)
 	if !ok {
-		c.Err = common.NewAppError("unwrapKey", "Invalid user claims", nil, "", http.StatusUnauthorized)
+		c.SetInternalError(nil)
 		return
 	}
 	userID, err := uuid.Parse(userIDStr)
 	if err != nil {
-		c.Err = common.NewAppError("unwrapKey", "Invalid user ID", nil, err.Error(), http.StatusUnauthorized)
+		c.SetInvalidParam("user_id")
 		return
 	}
 
 	var req UnwrapKeyRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		c.Err = common.NewAppError("unwrapKey", "Invalid request body", nil, err.Error(), http.StatusBadRequest)
+		c.SetInvalidParam("request body")
 		return
 	}
 	if req.WrappedKey == "" {
-		c.Err = common.NewAppError("unwrapKey", "wrapped_key is required", nil, "", http.StatusBadRequest)
+		c.SetInvalidParam("wrapped_key is required")
 		return
 	}
 	if req.Algorithm == "" {
@@ -618,7 +599,7 @@ func unwrapKey(c *Context, w http.ResponseWriter, r *http.Request) {
 
 	wrappedBytes, err := base64.StdEncoding.DecodeString(req.WrappedKey)
 	if err != nil {
-		c.Err = common.NewAppError("unwrapKey", "wrapped_key must be valid base64", nil, err.Error(), http.StatusBadRequest)
+		c.SetInvalidParam("wrapped_key: must be valid base64")
 		return
 	}
 

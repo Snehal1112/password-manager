@@ -31,113 +31,30 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/gorilla/mux"
 
-	"rocketvault/common"
+	"rocketvault/model"
 	"rocketvault/internal/services/secrets"
 )
-
-// ExportRequest represents the request structure for exporting secrets.
-type ExportRequest struct {
-	Format      string   `json:"format"`       // "json" or "csv"
-	Encrypt     bool     `json:"encrypt"`      // Whether to encrypt the export
-	Tags        []string `json:"tags"`         // Filter by tags
-	IncludeTags bool     `json:"include_tags"` // Include tags in export
-}
-
-// ImportRequest represents the request structure for importing secrets.
-type ImportRequest struct {
-	Format    string `json:"format"`    // "json" or "csv"
-	Encrypted bool   `json:"encrypted"` // Whether the data is encrypted
-	Overwrite bool   `json:"overwrite"` // Overwrite existing secrets
-}
-
-// ExportResponse represents the response structure for export operations.
-type ExportResponse struct {
-	Success    bool   `json:"success"`
-	Message    string `json:"message"`
-	Count      int    `json:"count"`
-	Format     string `json:"format"`
-	Encrypted  bool   `json:"encrypted"`
-	ExportedAt string `json:"exported_at"`
-}
-
-// ImportResponse represents the response structure for import operations.
-type ImportResponse struct {
-	Success       bool   `json:"success"`
-	Message       string `json:"message"`
-	ImportedCount int    `json:"imported_count"`
-	TotalCount    int    `json:"total_count"`
-	Format        string `json:"format"`
-	ImportedAt    string `json:"imported_at"`
-}
-
-// CreateSecretRequest represents the request structure for creating a secret.
-type CreateSecretRequest struct {
-	Name        string   `json:"name"`
-	Value       string   `json:"value"`
-	Tags        []string `json:"tags,omitempty"`
-	ContentType string   `json:"content_type,omitempty"`
-}
-
-// UpdateSecretRequest represents the request structure for updating a secret.
-type UpdateSecretRequest struct {
-	Name        string   `json:"name,omitempty"`
-	Value       string   `json:"value,omitempty"`
-	Tags        []string `json:"tags,omitempty"`
-	ContentType *string  `json:"content_type,omitempty"`
-}
-
-// GenerateSecretRequest represents the request structure for generating a secret.
-type GenerateSecretRequest struct {
-	Length       int    `json:"length,omitempty"`        // Password length (default: 16)
-	UseSymbols   bool   `json:"use_symbols,omitempty"`   // Include symbols
-	UseNumbers   bool   `json:"use_numbers,omitempty"`   // Include numbers
-	UseUppercase bool   `json:"use_uppercase,omitempty"` // Include uppercase letters
-	UseLowercase bool   `json:"use_lowercase,omitempty"` // Include lowercase letters
-	Name         string `json:"name"`                    // Secret name
-}
-
-// SecretResponse represents the response structure for secret operations.
-type SecretResponse struct {
-	ID          string   `json:"id"`
-	Name        string   `json:"name"`
-	Value       string   `json:"value,omitempty"` // Only returned for get operations.
-	Tags        []string `json:"tags,omitempty"`
-	Version     int      `json:"version"`
-	ContentType string   `json:"content_type,omitempty"`
-	CreatedAt   string   `json:"created_at"`
-	UpdatedAt   string   `json:"updated_at,omitempty"`
-}
-
-// ListSecretsResponse represents the response structure for listing secrets.
-type ListSecretsResponse struct {
-	Secrets []SecretResponse `json:"secrets"`
-	Total   int              `json:"total"`
-}
 
 // InitSecrets initializes the routes for secrets management API.
 // It sets up the following endpoints:
 // - POST /secrets: Create a new secret.
 // - GET /secrets: List all secrets for authenticated user.
-// - GET /secrets/{id}: Get a specific secret by ID.
-// - PUT /secrets/{id}: Update a secret.
-// - DELETE /secrets/{id}: Delete a secret.
+// - GET /secrets/{secret_id}: Get a specific secret by ID.
+// - PUT /secrets/{secret_id}: Update a secret.
+// - DELETE /secrets/{secret_id}: Delete a secret.
 // - POST /secrets/generate: Generate a random password/secret.
 // - POST /secrets/export: Export secrets in JSON or CSV format.
 // - POST /secrets/import: Import secrets from JSON or CSV format.
-//
-// Parameters:
-// - secrets (*mux.Router): The router to which the routes will be added.
 func (api *API) InitSecrets() {
 	s := api.BaseRoutes.Secrets
 
 	// Basic CRUD operations on the collection.
 	s.Handle("", ApiSessionRequired(api.App, createSecret)).Methods("POST")
 	s.Handle("", ApiSessionRequired(api.App, listSecrets)).Methods("GET")
-	s.Handle("/{id:[A-Fa-f0-9-]+}", ApiSessionRequired(api.App, getSecret)).Methods("GET")
-	s.Handle("/{id:[A-Fa-f0-9-]+}", ApiSessionRequired(api.App, updateSecret)).Methods("PUT")
-	s.Handle("/{id:[A-Fa-f0-9-]+}", ApiSessionRequired(api.App, deleteSecret)).Methods("DELETE")
+	s.Handle("/{secret_id:[A-Fa-f0-9-]+}", ApiSessionRequired(api.App, getSecret)).Methods("GET")
+	s.Handle("/{secret_id:[A-Fa-f0-9-]+}", ApiSessionRequired(api.App, updateSecret)).Methods("PUT")
+	s.Handle("/{secret_id:[A-Fa-f0-9-]+}", ApiSessionRequired(api.App, deleteSecret)).Methods("DELETE")
 
 	// Additional operations.
 	s.Handle("/generate", ApiSessionRequired(api.App, generateSecret)).Methods("POST")
@@ -145,30 +62,29 @@ func (api *API) InitSecrets() {
 	s.Handle("/import", ApiSessionRequired(api.App, importSecrets)).Methods("POST")
 
 	// Secret versioning endpoints.
-	s.Handle("/{id}/versions", ApiSessionRequired(api.App, listSecretVersionsHandler)).Methods("GET")
-	s.Handle("/{id}/versions/{version:[0-9]+}", ApiSessionRequired(api.App, getSecretVersionHandler)).Methods("GET")
-	s.Handle("/{id}/versions/latest", ApiSessionRequired(api.App, getLatestSecretVersionHandler)).Methods("GET")
+	s.Handle("/{secret_id:[A-Fa-f0-9-]+}/versions", ApiSessionRequired(api.App, listSecretVersionsHandler)).Methods("GET")
+	s.Handle("/{secret_id:[A-Fa-f0-9-]+}/versions/{version:[0-9]+}", ApiSessionRequired(api.App, getSecretVersionHandler)).Methods("GET")
+	s.Handle("/{secret_id:[A-Fa-f0-9-]+}/versions/latest", ApiSessionRequired(api.App, getLatestSecretVersionHandler)).Methods("GET")
 }
 
-// Handler: List all versions of a secret
+// listSecretVersionsHandler lists all versions of a secret.
 func listSecretVersionsHandler(c *Context, w http.ResponseWriter, r *http.Request) {
-	vars := mux.Vars(r)
-	secretID, err := uuid.Parse(vars["id"])
+	secretID, err := uuid.Parse(c.Params.SecretID)
 	if err != nil {
-		c.Err = common.NewAppError("listSecretVersions", "Invalid secret ID", nil, err.Error(), http.StatusBadRequest)
+		c.SetInvalidParam("secret_id")
 		return
 	}
 
-	// Get user ID from JWT claims
+	// Get user ID from JWT claims.
 	userIDStr, ok := c.Claims["user_id"].(string)
 	if !ok {
-		c.Err = common.NewAppError("listSecretVersions", "Missing user ID in token", nil, "", http.StatusUnauthorized)
+		c.SetInternalError(nil)
 		return
 	}
 
 	userID, err := uuid.Parse(userIDStr)
 	if err != nil {
-		c.Err = common.NewAppError("listSecretVersions", "Invalid user ID format", nil, err.Error(), http.StatusBadRequest)
+		c.SetInvalidParam("user_id")
 		return
 	}
 
@@ -179,37 +95,32 @@ func listSecretVersionsHandler(c *Context, w http.ResponseWriter, r *http.Reques
 
 	versions, err := secretService.GetSecretVersions(r.Context(), secretID, userID)
 	if err != nil {
-		c.Err = common.NewAppError("listSecretVersions", "Failed to get versions", nil, err.Error(), http.StatusInternalServerError)
+		c.SetInternalError(err)
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(versions)
 }
 
-// Handler: Get a specific version of a secret
+// getSecretVersionHandler retrieves a specific version of a secret.
 func getSecretVersionHandler(c *Context, w http.ResponseWriter, r *http.Request) {
-	vars := mux.Vars(r)
-	secretID, err := uuid.Parse(vars["id"])
+	secretID, err := uuid.Parse(c.Params.SecretID)
 	if err != nil {
-		c.Err = common.NewAppError("getSecretVersion", "Invalid secret ID", nil, err.Error(), http.StatusBadRequest)
+		c.SetInvalidParam("secret_id")
 		return
 	}
-	versionNum, err := strconv.Atoi(vars["version"])
-	if err != nil {
-		c.Err = common.NewAppError("getSecretVersion", "Invalid version number", nil, err.Error(), http.StatusBadRequest)
-		return
-	}
+	versionNum := c.Params.Version
 
-	// Get user ID from JWT claims
+	// Get user ID from JWT claims.
 	userIDStr, ok := c.Claims["user_id"].(string)
 	if !ok {
-		c.Err = common.NewAppError("getSecretVersion", "Missing user ID in token", nil, "", http.StatusUnauthorized)
+		c.SetInternalError(nil)
 		return
 	}
 
 	userID, err := uuid.Parse(userIDStr)
 	if err != nil {
-		c.Err = common.NewAppError("getSecretVersion", "Invalid user ID format", nil, err.Error(), http.StatusBadRequest)
+		c.SetInvalidParam("user_id")
 		return
 	}
 
@@ -220,32 +131,31 @@ func getSecretVersionHandler(c *Context, w http.ResponseWriter, r *http.Request)
 
 	version, err := secretService.GetSecretVersion(r.Context(), secretID, versionNum, userID)
 	if err != nil {
-		c.Err = common.NewAppError("getSecretVersion", "Failed to get version", nil, err.Error(), http.StatusNotFound)
+		c.SetNotFound("secret version")
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(version)
 }
 
-// Handler: Get the latest version of a secret
+// getLatestSecretVersionHandler retrieves the latest version of a secret.
 func getLatestSecretVersionHandler(c *Context, w http.ResponseWriter, r *http.Request) {
-	vars := mux.Vars(r)
-	secretID, err := uuid.Parse(vars["id"])
+	secretID, err := uuid.Parse(c.Params.SecretID)
 	if err != nil {
-		c.Err = common.NewAppError("getLatestSecretVersion", "Invalid secret ID", nil, err.Error(), http.StatusBadRequest)
+		c.SetInvalidParam("secret_id")
 		return
 	}
 
-	// Get user ID from JWT claims
+	// Get user ID from JWT claims.
 	userIDStr, ok := c.Claims["user_id"].(string)
 	if !ok {
-		c.Err = common.NewAppError("getLatestSecretVersion", "Missing user ID in token", nil, "", http.StatusUnauthorized)
+		c.SetInternalError(nil)
 		return
 	}
 
 	userID, err := uuid.Parse(userIDStr)
 	if err != nil {
-		c.Err = common.NewAppError("getLatestSecretVersion", "Invalid user ID format", nil, err.Error(), http.StatusBadRequest)
+		c.SetInvalidParam("user_id")
 		return
 	}
 
@@ -256,7 +166,7 @@ func getLatestSecretVersionHandler(c *Context, w http.ResponseWriter, r *http.Re
 
 	version, err := secretService.GetLatestSecretVersion(r.Context(), secretID, userID)
 	if err != nil {
-		c.Err = common.NewAppError("getLatestSecretVersion", "Failed to get latest version", nil, err.Error(), http.StatusNotFound)
+		c.SetNotFound("secret version")
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
@@ -264,46 +174,31 @@ func getLatestSecretVersionHandler(c *Context, w http.ResponseWriter, r *http.Re
 }
 
 // exportSecrets handles the export of secrets to encrypted files.
-// It supports both JSON and CSV formats with optional encryption.
-//
-// Request Body:
-//
-//	{
-//	  "format": "json|csv",
-//	  "encrypt": true|false,
-//	  "tags": ["tag1", "tag2"],
-//	  "include_tags": true|false
-//	}
-//
-// Response:
-//   - 200 OK with exported data in response body
-//   - 400 Bad Request for invalid input
-//   - 401 Unauthorized for missing/invalid authentication
-//   - 500 Internal Server Error for processing errors
+// Supports JSON and CSV formats with optional encryption.
 func exportSecrets(c *Context, w http.ResponseWriter, r *http.Request) {
-	// Parse request body
-	var exportReq ExportRequest
-	if err := json.NewDecoder(r.Body).Decode(&exportReq); err != nil {
-		c.Err = common.NewAppError("exportSecrets", "Invalid request body", nil, err.Error(), http.StatusBadRequest)
+	// Parse request body using model type.
+	exportReq, err := model.ExportSecretsRequestFromJson(r.Body)
+	if err != nil {
+		c.SetInvalidParam("request body")
 		return
 	}
 
-	// Validate format
+	// Validate format.
 	if exportReq.Format != "json" && exportReq.Format != "csv" {
-		c.Err = common.NewAppError("exportSecrets", "Invalid format. Must be 'json' or 'csv'", nil, "", http.StatusBadRequest)
+		c.SetInvalidParam("format: must be 'json' or 'csv'")
 		return
 	}
 
-	// Get user ID from JWT claims
+	// Get user ID from JWT claims.
 	userIDStr, ok := c.Claims["user_id"].(string)
 	if !ok {
-		c.Err = common.NewAppError("exportSecrets", "Missing user ID in token", nil, "", http.StatusUnauthorized)
+		c.SetInternalError(nil)
 		return
 	}
 
 	userID, err := uuid.Parse(userIDStr)
 	if err != nil {
-		c.Err = common.NewAppError("exportSecrets", "Invalid user ID format", nil, err.Error(), http.StatusBadRequest)
+		c.SetInvalidParam("user_id")
 		return
 	}
 
@@ -312,7 +207,7 @@ func exportSecrets(c *Context, w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Use service layer for export
+	// Use service layer for export.
 	serviceReq := secrets.ExportSecretsRequest{
 		UserID:      userID,
 		Format:      exportReq.Format,
@@ -322,11 +217,11 @@ func exportSecrets(c *Context, w http.ResponseWriter, r *http.Request) {
 
 	data, err := secretService.ExportSecrets(r.Context(), serviceReq)
 	if err != nil {
-		c.Err = common.NewAppError("exportSecrets", "Failed to export secrets", nil, err.Error(), http.StatusInternalServerError)
+		c.SetInternalError(err)
 		return
 	}
 
-	// Set response headers
+	// Set response headers.
 	contentType := "application/json"
 	if exportReq.Format == "csv" {
 		contentType = "text/csv"
@@ -337,74 +232,56 @@ func exportSecrets(c *Context, w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=%s", filename))
 	w.Header().Set("Content-Length", strconv.Itoa(len(data)))
 
-	// Write data
+	// Write raw file bytes.
 	w.WriteHeader(http.StatusOK)
 	w.Write(data)
 
-	// Log successful export
 	c.Logger.Printf("User %s exported secrets in %s format", userIDStr, exportReq.Format)
 }
 
 // importSecrets handles the import of secrets from encrypted files.
-// It supports both JSON and CSV formats with optional decryption.
-//
-// Request: Multipart form data with:
-//   - file: The file to import
-//   - format: "json" or "csv"
-//   - encrypted: "true" or "false"
-//   - overwrite: "true" or "false"
-//
-// Response:
-//
-//	{
-//	  "success": true,
-//	  "message": "Successfully imported secrets",
-//	  "imported_count": 5,
-//	  "total_count": 5,
-//	  "format": "json",
-//	  "imported_at": "2023-01-01T12:00:00Z"
-//	}
+// Accepts multipart form data with file, format, and options.
 func importSecrets(c *Context, w http.ResponseWriter, r *http.Request) {
-	// Parse multipart form
-	if err := r.ParseMultipartForm(10 << 20); err != nil { // 10MB max
-		c.Err = common.NewAppError("importSecrets", "Failed to parse multipart form", nil, err.Error(), http.StatusBadRequest)
+	// Parse multipart form.
+	if err := r.ParseMultipartForm(10 << 20); err != nil { // 10 MB max.
+		c.SetInvalidParam("request body: failed to parse multipart form")
 		return
 	}
 
-	// Get file from form
+	// Get file from form.
 	file, _, err := r.FormFile("file")
 	if err != nil {
-		c.Err = common.NewAppError("importSecrets", "Missing or invalid file", nil, err.Error(), http.StatusBadRequest)
+		c.SetInvalidParam("file: missing or invalid")
 		return
 	}
 	defer file.Close()
 
-	// Read file data
+	// Read file data.
 	data, err := io.ReadAll(file)
 	if err != nil {
-		c.Err = common.NewAppError("importSecrets", "Failed to read file data", nil, err.Error(), http.StatusBadRequest)
+		c.SetInvalidParam("file: failed to read")
 		return
 	}
 
-	// Get form parameters
+	// Get form parameters.
 	format := r.FormValue("format")
 	if format != "json" && format != "csv" {
-		c.Err = common.NewAppError("importSecrets", "Invalid format. Must be 'json' or 'csv'", nil, "", http.StatusBadRequest)
+		c.SetInvalidParam("format: must be 'json' or 'csv'")
 		return
 	}
 
 	overwrite := r.FormValue("overwrite") == "true"
 
-	// Get user ID from JWT claims
+	// Get user ID from JWT claims.
 	userIDStr, ok := c.Claims["user_id"].(string)
 	if !ok {
-		c.Err = common.NewAppError("importSecrets", "Missing user ID in token", nil, "", http.StatusUnauthorized)
+		c.SetInternalError(nil)
 		return
 	}
 
 	userID, err := uuid.Parse(userIDStr)
 	if err != nil {
-		c.Err = common.NewAppError("importSecrets", "Invalid user ID format", nil, err.Error(), http.StatusBadRequest)
+		c.SetInvalidParam("user_id")
 		return
 	}
 
@@ -413,7 +290,7 @@ func importSecrets(c *Context, w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Use service layer for import
+	// Use service layer for import.
 	serviceReq := secrets.ImportSecretsRequest{
 		UserID:    userID,
 		Data:      data,
@@ -423,12 +300,12 @@ func importSecrets(c *Context, w http.ResponseWriter, r *http.Request) {
 
 	result, err := secretService.ImportSecrets(r.Context(), serviceReq)
 	if err != nil {
-		c.Err = common.NewAppError("importSecrets", "Failed to import secrets", nil, err.Error(), http.StatusInternalServerError)
+		c.SetInternalError(err)
 		return
 	}
 
-	// Prepare response
-	response := ImportResponse{
+	// Prepare response using model type.
+	response := model.ImportResponse{
 		Success:       true,
 		Message:       fmt.Sprintf("Successfully imported %d/%d secrets", result.ImportedCount, result.TotalCount),
 		ImportedCount: result.ImportedCount,
@@ -437,51 +314,44 @@ func importSecrets(c *Context, w http.ResponseWriter, r *http.Request) {
 		ImportedAt:    time.Now().Format(time.RFC3339),
 	}
 
-	// Send response
+	// Send response.
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(response)
+	w.Write([]byte(response.ToJson()))
 
-	// Log successful import
 	c.Logger.Printf("User %s imported %d/%d secrets from %s format",
 		userIDStr, result.ImportedCount, result.TotalCount, format)
 }
 
 // createSecret handles the creation of a new secret.
-// It reads the secret data from the request body, validates it, and creates a new secret.
-//
-// Parameters:
-//   - c: The context for the request.
-//   - w: The HTTP response writer to send the response.
-//   - r: The HTTP request containing the secret data.
 func createSecret(c *Context, w http.ResponseWriter, r *http.Request) {
-	// Parse request body
-	var req CreateSecretRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		c.Err = common.NewAppError("createSecret", "Invalid request body", nil, err.Error(), http.StatusBadRequest)
+	// Parse request body using model type.
+	req, err := model.CreateSecretRequestFromJson(r.Body)
+	if err != nil {
+		c.SetInvalidParam("request body")
 		return
 	}
 
-	// Validate request
+	// Validate required fields.
 	if req.Name == "" {
-		c.Err = common.NewAppError("createSecret", "Secret name is required", nil, "", http.StatusBadRequest)
+		c.SetInvalidParam("name is required")
 		return
 	}
 	if req.Value == "" {
-		c.Err = common.NewAppError("createSecret", "Secret value is required", nil, "", http.StatusBadRequest)
+		c.SetInvalidParam("value is required")
 		return
 	}
 
-	// Get user ID from JWT claims
+	// Get user ID from JWT claims.
 	userIDStr, ok := c.Claims["user_id"].(string)
 	if !ok {
-		c.Err = common.NewAppError("createSecret", "Missing user ID in token", nil, "", http.StatusUnauthorized)
+		c.SetInternalError(nil)
 		return
 	}
 
 	userID, err := uuid.Parse(userIDStr)
 	if err != nil {
-		c.Err = common.NewAppError("createSecret", "Invalid user ID format", nil, err.Error(), http.StatusBadRequest)
+		c.SetInvalidParam("user_id")
 		return
 	}
 
@@ -501,12 +371,12 @@ func createSecret(c *Context, w http.ResponseWriter, r *http.Request) {
 
 	secret, err := secretService.CreateSecret(r.Context(), createReq)
 	if err != nil {
-		c.Err = common.NewAppError("createSecret", "Failed to create secret", nil, err.Error(), http.StatusInternalServerError)
+		c.SetInternalError(err)
 		return
 	}
 
 	// Prepare response (without value for security).
-	response := SecretResponse{
+	response := model.SecretResponse{
 		ID:          secret.ID.String(),
 		Name:        secret.Name,
 		Tags:        secret.Tags,
@@ -515,41 +385,28 @@ func createSecret(c *Context, w http.ResponseWriter, r *http.Request) {
 		CreatedAt:   secret.CreatedAt.Format(time.RFC3339),
 	}
 
-	// Send response
+	// Send response.
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusCreated)
-	json.NewEncoder(w).Encode(response)
+	w.Write([]byte(response.ToJson()))
 
-	// Log successful creation
 	c.Logger.Printf("User %s created secret %s", userIDStr, secret.Name)
 }
 
 // listSecrets handles the HTTP request to list all secrets for the authenticated user.
-// It supports pagination and filtering by tags.
-//
-// Parameters:
-//   - c: The context containing application-specific data and error handling.
-//   - w: The HTTP response writer to send the response.
-//   - r: The HTTP request.
+// Supports pagination and filtering by tags from c.Params.
 func listSecrets(c *Context, w http.ResponseWriter, r *http.Request) {
-	// Get user ID from JWT claims
+	// Get user ID from JWT claims.
 	userIDStr, ok := c.Claims["user_id"].(string)
 	if !ok {
-		c.Err = common.NewAppError("listSecrets", "Missing user ID in token", nil, "", http.StatusUnauthorized)
+		c.SetInternalError(nil)
 		return
 	}
 
 	userID, err := uuid.Parse(userIDStr)
 	if err != nil {
-		c.Err = common.NewAppError("listSecrets", "Invalid user ID format", nil, err.Error(), http.StatusBadRequest)
+		c.SetInvalidParam("user_id")
 		return
-	}
-
-	// Parse query parameters
-	tagsParam := r.URL.Query().Get("tags")
-	var tags []string
-	if tagsParam != "" {
-		tags = []string{tagsParam}
 	}
 
 	secretService := c.secretSvc()
@@ -557,16 +414,16 @@ func listSecrets(c *Context, w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	secretsList, err := secretService.ListSecrets(r.Context(), userID, tags)
+	secretsList, err := secretService.ListSecrets(r.Context(), userID, c.Params.Tags)
 	if err != nil {
-		c.Err = common.NewAppError("listSecrets", "Failed to list secrets", nil, err.Error(), http.StatusInternalServerError)
+		c.SetInternalError(err)
 		return
 	}
 
-	// Convert to response format (without values for security)
-	secretResponses := make([]SecretResponse, len(secretsList))
+	// Convert to response format (without values for security).
+	secretResponses := make([]model.SecretResponse, len(secretsList))
 	for i, secret := range secretsList {
-		secretResponses[i] = SecretResponse{
+		secretResponses[i] = model.SecretResponse{
 			ID:        secret.ID.String(),
 			Name:      secret.Name,
 			Tags:      secret.Tags,
@@ -575,41 +432,35 @@ func listSecrets(c *Context, w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	response := ListSecretsResponse{
+	response := model.ListSecretsResponse{
 		Secrets: secretResponses,
 		Total:   len(secretsList),
 	}
 
-	// Send response
+	// Send response.
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(response)
+	w.Write([]byte(response.ToJson()))
 }
 
 // getSecret handles the HTTP request to retrieve a secret by its ID.
-// It returns the secret with its value for the authenticated user.
-//
-// Parameters:
-//   - c: The context containing application-specific data and error handling.
-//   - w: The HTTP response writer to send the response.
-//   - r: The HTTP request containing the secret ID.
+// Returns the secret with its decrypted value.
 func getSecret(c *Context, w http.ResponseWriter, r *http.Request) {
-	vars := mux.Vars(r)
-	secretID, err := uuid.Parse(vars["id"])
+	secretID, err := uuid.Parse(c.Params.SecretID)
 	if err != nil {
-		c.Err = common.NewAppError("getSecret", "Invalid secret ID", nil, err.Error(), http.StatusBadRequest)
+		c.SetInvalidParam("secret_id")
 		return
 	}
 
-	// Get user ID from JWT claims
+	// Get user ID from JWT claims.
 	userIDStr, ok := c.Claims["user_id"].(string)
 	if !ok {
-		c.Err = common.NewAppError("getSecret", "Missing user ID in token", nil, "", http.StatusUnauthorized)
+		c.SetInternalError(nil)
 		return
 	}
 
 	userID, err := uuid.Parse(userIDStr)
 	if err != nil {
-		c.Err = common.NewAppError("getSecret", "Invalid user ID format", nil, err.Error(), http.StatusBadRequest)
+		c.SetInvalidParam("user_id")
 		return
 	}
 
@@ -620,12 +471,12 @@ func getSecret(c *Context, w http.ResponseWriter, r *http.Request) {
 
 	secret, err := secretService.GetSecret(r.Context(), secretID, userID)
 	if err != nil {
-		c.Err = common.NewAppError("getSecret", "Secret not found or access denied", nil, err.Error(), http.StatusNotFound)
+		c.SetNotFound("secret")
 		return
 	}
 
 	// Prepare response (include value for get operation).
-	response := SecretResponse{
+	response := model.SecretResponse{
 		ID:          secret.ID.String(),
 		Name:        secret.Name,
 		Value:       secret.Value,
@@ -635,46 +486,39 @@ func getSecret(c *Context, w http.ResponseWriter, r *http.Request) {
 		CreatedAt:   secret.CreatedAt.Format(time.RFC3339),
 	}
 
-	// Send response
+	// Send response.
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(response)
+	w.Write([]byte(response.ToJson()))
 
-	// Log access
 	c.Logger.Printf("User %s accessed secret %s", userIDStr, secret.Name)
 }
 
 // updateSecret handles the HTTP request to update a secret by its ID.
-// It updates the secret's name, value, and/or tags and increments the version.
-//
-// Parameters:
-//   - c: The context containing application-specific data and error handling.
-//   - w: The HTTP response writer to send the response.
-//   - r: The HTTP request containing the secret ID and update data.
+// Increments the version on change.
 func updateSecret(c *Context, w http.ResponseWriter, r *http.Request) {
-	vars := mux.Vars(r)
-	secretID, err := uuid.Parse(vars["id"])
+	secretID, err := uuid.Parse(c.Params.SecretID)
 	if err != nil {
-		c.Err = common.NewAppError("updateSecret", "Invalid secret ID", nil, err.Error(), http.StatusBadRequest)
+		c.SetInvalidParam("secret_id")
 		return
 	}
 
-	// Parse request body
-	var req UpdateSecretRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		c.Err = common.NewAppError("updateSecret", "Invalid request body", nil, err.Error(), http.StatusBadRequest)
+	// Parse request body using model type.
+	req, err := model.UpdateSecretRequestFromJson(r.Body)
+	if err != nil {
+		c.SetInvalidParam("request body")
 		return
 	}
 
-	// Get user ID from JWT claims
+	// Get user ID from JWT claims.
 	userIDStr, ok := c.Claims["user_id"].(string)
 	if !ok {
-		c.Err = common.NewAppError("updateSecret", "Missing user ID in token", nil, "", http.StatusUnauthorized)
+		c.SetInternalError(nil)
 		return
 	}
 
 	userID, err := uuid.Parse(userIDStr)
 	if err != nil {
-		c.Err = common.NewAppError("updateSecret", "Invalid user ID format", nil, err.Error(), http.StatusBadRequest)
+		c.SetInvalidParam("user_id")
 		return
 	}
 
@@ -685,7 +529,7 @@ func updateSecret(c *Context, w http.ResponseWriter, r *http.Request) {
 
 	secret, err := secretService.GetSecret(r.Context(), secretID, userID)
 	if err != nil {
-		c.Err = common.NewAppError("updateSecret", "Secret not found or access denied", nil, err.Error(), http.StatusNotFound)
+		c.SetNotFound("secret")
 		return
 	}
 
@@ -709,7 +553,7 @@ func updateSecret(c *Context, w http.ResponseWriter, r *http.Request) {
 	}
 
 	if !updated {
-		c.Err = common.NewAppError("updateSecret", "No changes provided", nil, "", http.StatusBadRequest)
+		c.SetInvalidParam("no changes provided")
 		return
 	}
 
@@ -725,12 +569,12 @@ func updateSecret(c *Context, w http.ResponseWriter, r *http.Request) {
 		Tags:        &secret.Tags,
 		ContentType: req.ContentType,
 	}); err != nil {
-		c.Err = common.NewAppError("updateSecret", "Failed to update secret", nil, err.Error(), http.StatusInternalServerError)
+		c.SetInternalError(err)
 		return
 	}
 
 	// Prepare response (without value for security).
-	response := SecretResponse{
+	response := model.SecretResponse{
 		ID:          secret.ID.String(),
 		Name:        secret.Name,
 		Tags:        secret.Tags,
@@ -739,38 +583,31 @@ func updateSecret(c *Context, w http.ResponseWriter, r *http.Request) {
 		CreatedAt:   secret.CreatedAt.Format(time.RFC3339),
 	}
 
-	// Send response
+	// Send response.
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(response)
+	w.Write([]byte(response.ToJson()))
 
-	// Log successful update
 	c.Logger.Printf("User %s updated secret %s", userIDStr, secret.Name)
 }
 
 // deleteSecret handles the HTTP request to delete a secret by its ID.
-//
-// Parameters:
-//   - c: The context containing application-specific data and error handling.
-//   - w: The HTTP response writer to send the response.
-//   - r: The HTTP request containing the secret ID.
 func deleteSecret(c *Context, w http.ResponseWriter, r *http.Request) {
-	vars := mux.Vars(r)
-	secretID, err := uuid.Parse(vars["id"])
+	secretID, err := uuid.Parse(c.Params.SecretID)
 	if err != nil {
-		c.Err = common.NewAppError("deleteSecret", "Invalid secret ID", nil, err.Error(), http.StatusBadRequest)
+		c.SetInvalidParam("secret_id")
 		return
 	}
 
-	// Get user ID from JWT claims
+	// Get user ID from JWT claims.
 	userIDStr, ok := c.Claims["user_id"].(string)
 	if !ok {
-		c.Err = common.NewAppError("deleteSecret", "Missing user ID in token", nil, "", http.StatusUnauthorized)
+		c.SetInternalError(nil)
 		return
 	}
 
 	userID, err := uuid.Parse(userIDStr)
 	if err != nil {
-		c.Err = common.NewAppError("deleteSecret", "Invalid user ID format", nil, err.Error(), http.StatusBadRequest)
+		c.SetInvalidParam("user_id")
 		return
 	}
 
@@ -779,65 +616,51 @@ func deleteSecret(c *Context, w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Use service layer for deletion with access control
+	// Use service layer for deletion with access control.
 	if err := secretService.DeleteSecret(r.Context(), secretID, userID); err != nil {
-		c.Err = common.NewAppError("deleteSecret", "Failed to delete secret", nil, err.Error(), http.StatusInternalServerError)
+		c.SetInternalError(err)
 		return
 	}
 
-	// Send response
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusOK)
-	response := map[string]any{
-		"message": "Secret deleted successfully",
-		"status":  "success",
-	}
-	json.NewEncoder(w).Encode(response)
+	ReturnStatusOK(w)
 
-	// Log successful deletion
 	c.Logger.Printf("User %s deleted secret %s", userIDStr, secretID.String())
 }
 
 // generateSecret handles the generation of random passwords or secrets.
-// It creates a new secret with a randomly generated value based on the provided criteria.
-//
-// Parameters:
-//   - c: The context containing application-specific data and error handling.
-//   - w: The HTTP response writer to send the response.
-//   - r: The HTTP request containing the generation parameters.
 func generateSecret(c *Context, w http.ResponseWriter, r *http.Request) {
-	// Parse request body
-	var req GenerateSecretRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		c.Err = common.NewAppError("generateSecret", "Invalid request body", nil, err.Error(), http.StatusBadRequest)
+	// Parse request body using model type.
+	req, err := model.GenerateSecretRequestFromJson(r.Body)
+	if err != nil {
+		c.SetInvalidParam("request body")
 		return
 	}
 
-	// Validate request
+	// Validate request.
 	if req.Name == "" {
-		c.Err = common.NewAppError("generateSecret", "Secret name is required", nil, "", http.StatusBadRequest)
+		c.SetInvalidParam("name is required")
 		return
 	}
 
-	// Set defaults for password generation
+	// Set defaults for password generation.
 	if req.Length == 0 {
 		req.Length = 16
 	}
 	if req.Length < 8 || req.Length > 128 {
-		c.Err = common.NewAppError("generateSecret", "Password length must be between 8 and 128", nil, "", http.StatusBadRequest)
+		c.SetInvalidParam("length: must be between 8 and 128")
 		return
 	}
 
-	// Get user ID from JWT claims
+	// Get user ID from JWT claims.
 	userIDStr, ok := c.Claims["user_id"].(string)
 	if !ok {
-		c.Err = common.NewAppError("generateSecret", "Missing user ID in token", nil, "", http.StatusUnauthorized)
+		c.SetInternalError(nil)
 		return
 	}
 
 	userID, err := uuid.Parse(userIDStr)
 	if err != nil {
-		c.Err = common.NewAppError("generateSecret", "Invalid user ID format", nil, err.Error(), http.StatusBadRequest)
+		c.SetInvalidParam("user_id")
 		return
 	}
 
@@ -856,12 +679,12 @@ func generateSecret(c *Context, w http.ResponseWriter, r *http.Request) {
 		UseLowercase: req.UseLowercase,
 	})
 	if err != nil {
-		c.Err = common.NewAppError("generateSecret", "Failed to generate secret", nil, err.Error(), http.StatusInternalServerError)
+		c.SetInternalError(err)
 		return
 	}
 
-	// Prepare response (include value for generation operation)
-	response := SecretResponse{
+	// Prepare response (include value for generation operation).
+	response := model.SecretResponse{
 		ID:        secret.ID.String(),
 		Name:      secret.Name,
 		Value:     secret.Value,
@@ -870,11 +693,10 @@ func generateSecret(c *Context, w http.ResponseWriter, r *http.Request) {
 		CreatedAt: secret.CreatedAt.Format(time.RFC3339),
 	}
 
-	// Send response
+	// Send response.
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusCreated)
-	json.NewEncoder(w).Encode(response)
+	w.Write([]byte(response.ToJson()))
 
-	// Log successful generation
 	c.Logger.Printf("User %s generated secret %s", userIDStr, secret.Name)
 }
