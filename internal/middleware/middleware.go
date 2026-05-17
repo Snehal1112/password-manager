@@ -76,13 +76,22 @@ func NewMiddleware(container Container) *Middleware {
 	defaultStore := memory.NewStore()
 	authStore := memory.NewStore()
 
+	defaultLimit := viper.GetInt64("rate_limit.default")
+	if defaultLimit <= 0 {
+		defaultLimit = 300
+	}
+	authLimit := viper.GetInt64("rate_limit.auth")
+	if authLimit <= 0 {
+		authLimit = 5
+	}
+
 	defaultLimiter := limiter.New(defaultStore, limiter.Rate{
 		Period: time.Minute,
-		Limit:  60,
+		Limit:  defaultLimit,
 	})
 	authLimiter := limiter.New(authStore, limiter.Rate{
 		Period: time.Minute,
-		Limit:  5,
+		Limit:  authLimit,
 	})
 
 	// Load CORS allowed origins from configuration.
@@ -158,10 +167,11 @@ func (m *Middleware) RateLimitMiddleware(next http.Handler) http.Handler {
 		selectedLimiter := m.defaultLimiter
 		isAuthEndpoint := false
 
-		// Apply stricter limits to authentication endpoints
-		if strings.HasPrefix(r.URL.Path, "/api/auth/login") ||
-			strings.HasPrefix(r.URL.Path, "/api/auth/register") ||
-			strings.HasPrefix(r.URL.Path, "/api/auth/refresh") {
+		// Apply stricter limits to authentication endpoints.
+		// Matches /users/login and /users/refresh regardless of base path prefix.
+		if strings.HasSuffix(r.URL.Path, "/users/login") ||
+			strings.HasSuffix(r.URL.Path, "/users/refresh") ||
+			strings.HasSuffix(r.URL.Path, "/oauth2/token") {
 			selectedLimiter = m.authLimiter
 			isAuthEndpoint = true
 		}

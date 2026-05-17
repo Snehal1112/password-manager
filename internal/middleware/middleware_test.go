@@ -237,8 +237,8 @@ func TestRateLimitMiddleware(t *testing.T) {
 		req := httptest.NewRequest("GET", "/api/test", nil)
 		req.RemoteAddr = "192.168.1.1:12345"
 
-		// First 60 requests should succeed (default rate limit)
-		for i := 0; i < 60; i++ {
+		// First 300 requests should succeed (default rate limit)
+		for i := 0; i < 300; i++ {
 			rr := httptest.NewRecorder()
 			wrappedHandler.ServeHTTP(rr, req)
 			assert.Equal(t, http.StatusOK, rr.Code, "Request %d should succeed", i+1)
@@ -249,15 +249,15 @@ func TestRateLimitMiddleware(t *testing.T) {
 			assert.NotEmpty(t, rr.Header().Get("X-RateLimit-Reset"))
 		}
 
-		// 61st request should be rate limited
+		// 301st request should be rate limited
 		rr := httptest.NewRecorder()
 		wrappedHandler.ServeHTTP(rr, req)
-		assert.Equal(t, http.StatusTooManyRequests, rr.Code, "61st request should be rate limited")
+		assert.Equal(t, http.StatusTooManyRequests, rr.Code, "301st request should be rate limited")
 	})
 
 	t.Run("auth endpoint strict rate limit", func(t *testing.T) {
 		// Make multiple requests from same IP to auth endpoint
-		req := httptest.NewRequest("POST", "/api/auth/login", nil)
+		req := httptest.NewRequest("POST", "/api/v1/users/login", nil)
 		req.RemoteAddr = "192.168.1.2:12346"
 
 		// First 5 requests should succeed (stricter auth rate limit)
