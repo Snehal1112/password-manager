@@ -1,0 +1,100 @@
+package model
+
+import (
+	"encoding/json"
+	"io"
+	"time"
+
+	"github.com/google/uuid"
+)
+
+type PrincipalType string
+
+const (
+	PrincipalTypeUser           PrincipalType = "user"
+	PrincipalTypeServiceAccount PrincipalType = "service_account"
+)
+
+type PolicyEffect string
+
+const (
+	PolicyEffectAllow PolicyEffect = "allow"
+	PolicyEffectDeny  PolicyEffect = "deny"
+)
+
+type PolicyResourceType string
+
+const (
+	PolicyResourceSecrets      PolicyResourceType = "secrets"
+	PolicyResourceKeys         PolicyResourceType = "keys"
+	PolicyResourceCertificates PolicyResourceType = "certificates"
+)
+
+type PolicyOperation string
+
+const (
+	OpGet     PolicyOperation = "get"
+	OpList    PolicyOperation = "list"
+	OpSet     PolicyOperation = "set"
+	OpCreate  PolicyOperation = "create"
+	OpDelete  PolicyOperation = "delete"
+	OpBackup  PolicyOperation = "backup"
+	OpRestore PolicyOperation = "restore"
+	OpPurge   PolicyOperation = "purge"
+	OpRecover PolicyOperation = "recover"
+	OpRotate  PolicyOperation = "rotate"
+	OpSign    PolicyOperation = "sign"
+	OpVerify  PolicyOperation = "verify"
+	OpEncrypt PolicyOperation = "encrypt"
+	OpDecrypt PolicyOperation = "decrypt"
+	OpImport  PolicyOperation = "import"
+	OpRenew   PolicyOperation = "renew"
+)
+
+type AccessPolicy struct {
+	ID            uuid.UUID          `json:"id"`
+	PrincipalID   uuid.UUID          `json:"principal_id"`
+	PrincipalType PrincipalType      `json:"principal_type"`
+	ResourceType  PolicyResourceType `json:"resource_type"`
+	Operation     PolicyOperation    `json:"operation"`
+	Effect        PolicyEffect       `json:"effect"`
+	CreatedAt     time.Time          `json:"created_at"`
+}
+
+type CreateAccessPolicyRequest struct {
+	PrincipalID   string `json:"principal_id"`
+	PrincipalType string `json:"principal_type"`
+	ResourceType  string `json:"resource_type"`
+	Operation     string `json:"operation"`
+	Effect        string `json:"effect"`
+}
+
+func CreateAccessPolicyRequestFromJson(data io.Reader) (*CreateAccessPolicyRequest, error) {
+	var r CreateAccessPolicyRequest
+	return &r, json.NewDecoder(data).Decode(&r)
+}
+
+type AccessPolicyResponse struct {
+	ID            string `json:"id"`
+	PrincipalID   string `json:"principal_id"`
+	PrincipalType string `json:"principal_type"`
+	ResourceType  string `json:"resource_type"`
+	Operation     string `json:"operation"`
+	Effect        string `json:"effect"`
+	CreatedAt     string `json:"created_at"`
+}
+
+func (r *AccessPolicyResponse) ToJson() string {
+	b, _ := json.Marshal(r)
+	return string(b)
+}
+
+type ListAccessPoliciesResponse struct {
+	AccessPolicies []AccessPolicyResponse `json:"access_policies"`
+	Total          int                    `json:"total"`
+}
+
+func (r *ListAccessPoliciesResponse) ToJson() string {
+	b, _ := json.Marshal(r)
+	return string(b)
+}
