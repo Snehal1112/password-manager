@@ -1,0 +1,26 @@
+meta {
+  name: Create Certificate
+  type: http
+  seq: 3
+}
+
+post {
+  url: {{base_url}}/api/v1/certificates
+  body: json
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{token}}
+}
+
+body:json {
+  {
+    "name": "my-cert",
+    "key_id": "{{key_id}}",
+    "validity_days": 365,
+    "auto_renew": true,
+    "renewal_days": 30,
+    "tags": ["env:dev"]
+  }
+}

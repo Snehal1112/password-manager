@@ -1,0 +1,21 @@
+meta {
+  name: Update Access Policy
+  type: http
+  seq: 4
+}
+
+put {
+  url: {{base_url}}/api/v1/access-policies/{{policy_id}}
+  body: json
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{token}}
+}
+
+body:json {
+  {
+    "effect": "deny"
+  }
+}

@@ -1,0 +1,22 @@
+meta {
+  name: Wrap Key
+  type: http
+  seq: 7
+}
+
+post {
+  url: {{base_url}}/api/v1/keys/{{key_id}}/wrap
+  body: json
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{token}}
+}
+
+body:json {
+  {
+    "plaintext_key": "<base64-encoded-key-material>",
+    "algorithm": "RSA-OAEP"
+  }
+}

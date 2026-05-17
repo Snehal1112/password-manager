@@ -1,0 +1,15 @@
+meta {
+  name: Get Certificate
+  type: http
+  seq: 2
+}
+
+get {
+  url: {{base_url}}/api/v1/certificates/{{certificate_id}}
+  body: none
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{token}}
+}

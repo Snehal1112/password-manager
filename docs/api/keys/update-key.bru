@@ -1,0 +1,22 @@
+meta {
+  name: Update Key
+  type: http
+  seq: 4
+}
+
+put {
+  url: {{base_url}}/api/v1/keys/{{key_id}}
+  body: json
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{token}}
+}
+
+body:json {
+  {
+    "name": "my-rsa-key-updated",
+    "tags": ["env:prod"]
+  }
+}

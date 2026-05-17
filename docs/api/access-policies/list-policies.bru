@@ -1,0 +1,15 @@
+meta {
+  name: List Access Policies
+  type: http
+  seq: 1
+}
+
+get {
+  url: {{base_url}}/api/v1/access-policies
+  body: none
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{token}}
+}

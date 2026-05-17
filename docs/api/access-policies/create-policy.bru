@@ -1,0 +1,25 @@
+meta {
+  name: Create Access Policy
+  type: http
+  seq: 3
+}
+
+post {
+  url: {{base_url}}/api/v1/access-policies
+  body: json
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{token}}
+}
+
+body:json {
+  {
+    "principal_id": "{{user_id}}",
+    "principal_type": "user",
+    "resource_type": "secrets",
+    "operation": "get",
+    "effect": "allow"
+  }
+}

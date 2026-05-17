@@ -1,0 +1,15 @@
+meta {
+  name: Rotate Key
+  type: http
+  seq: 6
+}
+
+post {
+  url: {{base_url}}/api/v1/keys/{{key_id}}/rotate
+  body: none
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{token}}
+}

@@ -1,0 +1,15 @@
+meta {
+  name: List Deleted Certificates
+  type: http
+  seq: 7
+}
+
+get {
+  url: {{base_url}}/api/v1/deleted/certificates
+  body: none
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{token}}
+}

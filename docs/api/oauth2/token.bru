@@ -1,0 +1,17 @@
+meta {
+  name: OAuth2 Client Credentials Token
+  type: http
+  seq: 1
+}
+
+post {
+  url: {{base_url}}/api/v1/oauth2/token
+  body: urlencoded
+  auth: none
+}
+
+body:urlencoded {
+  grant_type: client_credentials
+  client_id: {{client_id}}
+  client_secret: {{client_secret}}
+}

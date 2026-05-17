@@ -1,0 +1,23 @@
+meta {
+  name: Update Certificate
+  type: http
+  seq: 4
+}
+
+put {
+  url: {{base_url}}/api/v1/certificates/{{certificate_id}}
+  body: json
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{token}}
+}
+
+body:json {
+  {
+    "name": "my-cert-updated",
+    "auto_renew": false,
+    "tags": ["env:prod"]
+  }
+}

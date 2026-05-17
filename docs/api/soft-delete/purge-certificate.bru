@@ -1,0 +1,15 @@
+meta {
+  name: Purge Certificate (Permanent Delete)
+  type: http
+  seq: 9
+}
+
+delete {
+  url: {{base_url}}/api/v1/deleted/certificates/{{certificate_id}}/purge
+  body: none
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{token}}
+}
