@@ -24,6 +24,8 @@ package secrets
 
 import (
 	"os"
+	"strconv"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/sirupsen/logrus"
@@ -31,6 +33,7 @@ import (
 
 	"rocketvault/common"
 	"rocketvault/internal/container"
+	"rocketvault/internal/formatter"
 	"rocketvault/internal/services/secrets"
 )
 
@@ -74,12 +77,25 @@ var createCmd = &cobra.Command{
 			return
 		}
 
-		// Log success
-		logrus.WithFields(logrus.Fields{
-			"user_id":   userID.String(),
-			"secret_id": secret.ID.String(),
-			"name":      name,
-		}).Info("Secret created successfully")
+		// Output formatted result
+		fmtr, ok := cmd.Context().Value(common.OutputFormatterKey).(formatter.Formatter)
+		if !ok {
+			logrus.Error("Output formatter not available in context")
+			os.Exit(1)
+			return
+		}
+		headers := []string{"ID", "Name", "Version", "Enabled", "Created"}
+		row := []string{
+			secret.ID.String(),
+			secret.Name,
+			strconv.Itoa(secret.Version),
+			strconv.FormatBool(secret.Enabled),
+			secret.CreatedAt.Format(time.RFC3339),
+		}
+		if err := fmtr.Write(os.Stdout, headers, [][]string{row}); err != nil {
+			logrus.WithError(err).Error("Failed to write output")
+			os.Exit(1)
+		}
 	},
 }
 
