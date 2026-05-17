@@ -23,6 +23,14 @@ package main
 
 import "rocketvault/cmd"
 
+// Build metadata injected by ldflags at release time.
+var (
+	Version    = "dev"
+	CommitHash = "unknown"
+	BuildTime  = "unknown"
+	GoVersion  = "unknown"
+)
+
 func main() {
 	cmd.Execute()
 }
