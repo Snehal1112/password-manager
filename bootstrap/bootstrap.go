@@ -6,6 +6,7 @@ package bootstrap
 import (
 	"context"
 	"fmt"
+	"os"
 	"time"
 
 	"github.com/sirupsen/logrus"
@@ -172,8 +173,15 @@ func (b *bootstrap) setup(ctx context.Context, cfg *Config) error {
 	}
 
 	// Step 1b: Fetch secrets from vault and inject them into Viper before
-	// the service container reads any config values. Skipped when vault is not configured.
-	if viper.GetString("vault_client.url") != "" && viper.GetString("vault_client.client_id") != "" {
+	// the service container reads any config values. Skipped when vault is not fully configured.
+	// client_secret is never stored in the config file — it must come from VAULT_CLIENT_SECRET env var.
+	vaultClientSecret := viper.GetString("vault_client.client_secret")
+	if vaultClientSecret == "" {
+		vaultClientSecret = os.Getenv("VAULT_CLIENT_SECRET")
+	}
+	if viper.GetString("vault_client.url") != "" &&
+		viper.GetString("vault_client.client_id") != "" &&
+		vaultClientSecret != "" {
 		vaultClient, err := vaultclient.NewFromViper()
 		if err != nil {
 			return fmt.Errorf("vault client init: %w", err)
