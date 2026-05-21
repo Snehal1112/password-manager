@@ -96,6 +96,7 @@ func Init(options ...Options) *API {
 	api.InitKeys()
 	api.InitCertificates()
 	api.InitHealth()
+	api.InitConfig()
 	api.InitDeleted()
 	api.InitAccessPolicies()
 	api.InitOAuth2()
@@ -104,9 +105,25 @@ func Init(options ...Options) *API {
 	api.rootRouter.NotFoundHandler = http.HandlerFunc(Handle404)
 
 	names := []string{"Vault", "Secrets", "Users", "Keys", "Certificates",
-		"Health", "Deleted", "AccessPolicies", "ServiceAccounts", "OAuth2"}
+		"Health", "Config", "Deleted", "AccessPolicies", "ServiceAccounts", "OAuth2"}
 	api.Logger.WithField("api", strings.Join(names, ",")).Infoln("Initialized api")
 	return api
+}
+
+// InitForTest wires a minimal API onto router for unit tests (no middleware, no auth).
+func InitForTest(application *app.App, router *mux.Router) *API {
+	a := &API{
+		App:        application,
+		BaseRoutes: &Routes{},
+		basePath:   "/api/v1",
+		rootRouter: router,
+	}
+	a.BaseRoutes.ApiRoot = router.PathPrefix("/api/v1").Subrouter()
+	// Register config handler without auth for testing.
+	a.BaseRoutes.ApiRoot.Handle("/config",
+		ApiHandler(application, getConfig),
+	).Methods("GET")
+	return a
 }
 
 // Handle404 returns a structured JSON 404 response for unmatched routes.
