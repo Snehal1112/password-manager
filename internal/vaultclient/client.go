@@ -150,7 +150,8 @@ func (c *Client) Get(ctx context.Context, uuid string) (string, error) {
 		}
 	})
 
-	// Return the original terminal error directly so errors.Is works for callers.
+	// Return the terminal sentinel directly — WithExponentialBackoff wraps NonRetryable
+	// errors, which would break errors.Is checks for ErrAuthFailed/ErrSecretNotFound.
 	if terminalErr != nil {
 		return "", terminalErr
 	}
@@ -200,9 +201,14 @@ func (c *Client) ensureToken(ctx context.Context) (string, error) {
 	if err != nil {
 		return "", err
 	}
+	// Enforce a minimum TTL so expires_in: 0 doesn't cause infinite re-fetches.
+	ttl := time.Duration(expiresIn) * time.Second
+	if ttl < 30*time.Second {
+		ttl = 30 * time.Second
+	}
 	c.token = &tokenCache{
 		token:     tok,
-		expiresAt: time.Now().Add(time.Duration(expiresIn) * time.Second),
+		expiresAt: time.Now().Add(ttl),
 	}
 	return tok, nil
 }

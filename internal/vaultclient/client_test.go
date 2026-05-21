@@ -6,7 +6,6 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
-	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -138,7 +137,7 @@ func TestTokenExpiry_RefetchedAfterExpiry(t *testing.T) {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/oauth2/token", func(w http.ResponseWriter, r *http.Request) {
 		tokenCalls++
-		json.NewEncoder(w).Encode(map[string]any{"access_token": "token", "expires_in": 1})
+		json.NewEncoder(w).Encode(map[string]any{"access_token": "token", "expires_in": 3600})
 	})
 	mux.HandleFunc("/api/v1/secrets/", func(w http.ResponseWriter, r *http.Request) {
 		json.NewEncoder(w).Encode(map[string]string{"value": "v"})
@@ -148,7 +147,28 @@ func TestTokenExpiry_RefetchedAfterExpiry(t *testing.T) {
 	client, err := vaultclient.New(vaultclient.Config{URL: srv.URL, ClientID: "id", ClientSecret: "s"})
 	require.NoError(t, err)
 	client.Get(context.Background(), "uuid-1") //nolint:errcheck
-	time.Sleep(2 * time.Second)
+	// Force the cached token to appear expired without relying on wall-clock sleep.
+	client.ExpireTokenForTest()
 	client.Get(context.Background(), "uuid-2") //nolint:errcheck
 	assert.Equal(t, 2, tokenCalls, "token should be re-fetched after expiry")
+}
+
+func TestTokenFloor_ZeroExpiresIn_DoesNotRefetch(t *testing.T) {
+	tokenCalls := 0
+	mux := http.NewServeMux()
+	mux.HandleFunc("/oauth2/token", func(w http.ResponseWriter, r *http.Request) {
+		tokenCalls++
+		// Server returns expires_in: 0; floor must kick in and prevent re-fetch.
+		json.NewEncoder(w).Encode(map[string]any{"access_token": "token", "expires_in": 0})
+	})
+	mux.HandleFunc("/api/v1/secrets/", func(w http.ResponseWriter, r *http.Request) {
+		json.NewEncoder(w).Encode(map[string]string{"value": "v"})
+	})
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+	client, err := vaultclient.New(vaultclient.Config{URL: srv.URL, ClientID: "id", ClientSecret: "s"})
+	require.NoError(t, err)
+	client.Get(context.Background(), "uuid-1") //nolint:errcheck
+	client.Get(context.Background(), "uuid-2") //nolint:errcheck
+	assert.Equal(t, 1, tokenCalls, "token with expires_in:0 should not be re-fetched on every call")
 }
