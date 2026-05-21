@@ -17,10 +17,11 @@ import (
 	"rocketvault/internal/retry"
 )
 
-// SecretMapping maps a logical name to a RocketVault secret UUID.
+// SecretMapping maps a logical name to a RocketVault secret UUID and Viper key.
 type SecretMapping struct {
-	Name string `yaml:"name" mapstructure:"name"`
-	UUID string `yaml:"uuid" mapstructure:"uuid"`
+	Name     string `yaml:"name"      mapstructure:"name"`
+	UUID     string `yaml:"uuid"      mapstructure:"uuid"`
+	ViperKey string `yaml:"viper_key" mapstructure:"viper_key"`
 }
 
 // Config holds credentials and secret mappings for the vault client.

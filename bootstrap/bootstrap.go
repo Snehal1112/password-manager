@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/sirupsen/logrus"
+	"github.com/spf13/viper"
 
 	"rocketvault/api"
 	"rocketvault/app"
@@ -18,6 +19,7 @@ import (
 	"rocketvault/internal/logging"
 	certServices "rocketvault/internal/services/certificates"
 	"rocketvault/internal/services/softdelete"
+	"rocketvault/internal/vaultclient"
 	"rocketvault/server"
 )
 
@@ -169,6 +171,24 @@ func (b *bootstrap) setup(ctx context.Context, cfg *Config) error {
 		return fmt.Errorf("configuration validation failed: %w", err)
 	}
 
+	// Step 1b: Fetch secrets from vault and inject them into Viper before
+	// the service container reads any config values. Skipped when vault is not configured.
+	if viper.GetString("vault_client.url") != "" && viper.GetString("vault_client.client_id") != "" {
+		vaultClient, err := vaultclient.NewFromViper()
+		if err != nil {
+			return fmt.Errorf("vault client init: %w", err)
+		}
+		var mappings []vaultclient.SecretMapping
+		if err := viper.UnmarshalKey("vault_client.secrets", &mappings); err != nil {
+			return fmt.Errorf("vault_client.secrets config: %w", err)
+		}
+		secretsInit := NewSecretsInitializerFromMappings(vaultClient, mappings)
+		if err := secretsInit.Initialize(ctx); err != nil {
+			return fmt.Errorf("secrets init: %w", err)
+		}
+		logrus.Info("Vault secrets injected into config")
+	}
+
 	// Step 2: Initialize database (SRP: dedicated initializer)
 	database, err := b.dbInitializer.Initialize(b.cfg)
 	if err != nil {
@@ -226,18 +246,25 @@ func (b *bootstrap) setup(ctx context.Context, cfg *Config) error {
 func (b *bootstrap) createApplication(cfg *Config) (*app.App, error) {
 	logrus.Info("Creating application instance")
 
-	app := app.NewApp(
+	fc := &app.FrontendConfig{
+		FeatureFlags: map[string]bool{},
+		PublicAPIURL: viper.GetString("frontend.public_api_url"),
+		SentryDSN:    viper.GetString("frontend.sentry_dsn"),
+	}
+
+	application := app.NewApp(
 		app.WithDBName(cfg.DatabaseName),
 		app.WithBasePath(cfg.BasePath),
 		app.WithBackendEndPoint(cfg.BackendEndPoint),
 		app.WithLogger(b.cfg.Logger),
 		app.WithServer(server.NewDefaultServer(b.cfg.Logger, cfg.Listen)),
 		app.WithServiceContainer(b.serviceContainer),
-		app.WithSchedulerEnabled(true, 1*time.Hour), // Enable scheduler with 1-hour interval
+		app.WithSchedulerEnabled(true, 1*time.Hour), // Enable scheduler with 1-hour interval.
+		app.WithFrontendConfig(fc),
 	).(*app.App)
 
 	logrus.Info("Application instance created successfully")
-	return app, nil
+	return application, nil
 }
 
 // initializeAPI sets up the API layer with proper dependency injection.

@@ -24,6 +24,19 @@ func NewSecretsInitializer(client vaultclient.Fetcher, mapping map[string]string
 	return &SecretsInitializer{client: client, mapping: mapping}
 }
 
+// NewSecretsInitializerFromMappings builds a SecretsInitializer from the
+// vault_client.secrets config entries, using each entry's ViperKey as the
+// injection target.
+func NewSecretsInitializerFromMappings(client vaultclient.Fetcher, mappings []vaultclient.SecretMapping) *SecretsInitializer {
+	m := make(map[string]string, len(mappings))
+	for _, s := range mappings {
+		if s.ViperKey != "" {
+			m[s.Name] = s.ViperKey
+		}
+	}
+	return NewSecretsInitializer(client, m)
+}
+
 // Initialize fetches the configured secrets and injects them into Viper.
 // Never logs secret values — only names.
 func (s *SecretsInitializer) Initialize(ctx context.Context) error {
