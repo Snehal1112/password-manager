@@ -1,11 +1,9 @@
 vault:
   url: "http://localhost:8774"
-  client_id: ""      # set here or via VAULT_CLIENT_ID env var
+  client_id: ""      # service account NAME (not UUID) — or set VAULT_CLIENT_ID env var
   secrets:
     - name: DB_PASSWORD
-      uuid: ""       # fill in UUID from RocketVault
-    - name: API_KEY
-      uuid: ""
+      uuid: "032198b8-ef70-4332-9dcf-0f896f9ea98b"     # fill in UUID from RocketVault
 
 server:
   listen: ":9000"
