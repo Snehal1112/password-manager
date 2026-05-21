@@ -111,9 +111,9 @@ func getDefaultRolePermissions() map[string][]Permission {
 			PermissionCreateCertificate, PermissionReadCertificate, PermissionUpdateCertificate, PermissionDeleteCertificate, PermissionListCertificates,
 		},
 		model.RoleServiceAccount: {
-			// Service accounts get read-only access to secrets, keys, and certificates by default;
-			// fine-grained control is delegated to the access-policy layer (Milestone 2)
-			PermissionReadSecret, PermissionListSecrets,
+			// Service accounts can create and read their own secrets (owner-scoped);
+			// fine-grained cross-owner access is delegated to the access-policy layer (Milestone 2)
+			PermissionCreateSecret, PermissionReadSecret, PermissionListSecrets,
 			PermissionReadKey, PermissionListKeys,
 			PermissionReadCertificate, PermissionListCertificates,
 		},
