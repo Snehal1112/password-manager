@@ -37,7 +37,7 @@ fi
 # Exchange client credentials for a short-lived Bearer token.
 _rv_token_response=$(
   curl -sf ${_rv_curl_flags} \
-    -X POST "${VAULT_URL}/oauth2/token" \
+    -X POST "${VAULT_URL}/api/v1/oauth2/token" \
     -H "Content-Type: application/x-www-form-urlencoded" \
     --data-urlencode "grant_type=client_credentials" \
     --data-urlencode "client_id=${VAULT_CLIENT_ID}" \
@@ -45,7 +45,7 @@ _rv_token_response=$(
 )
 
 if [ $? -ne 0 ] || [ -z "${_rv_token_response}" ]; then
-  _rv_error "Failed to reach ${VAULT_URL}/oauth2/token — check VAULT_URL and network access"
+  _rv_error "Failed to reach ${VAULT_URL}/api/v1/oauth2/token — check VAULT_URL and network access"
   unset _rv_token_response _rv_curl_flags
   return 1 2>/dev/null || exit 1
 fi

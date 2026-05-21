@@ -16,7 +16,7 @@ import (
 func newTestServer(t *testing.T, secret string) *httptest.Server {
 	t.Helper()
 	mux := http.NewServeMux()
-	mux.HandleFunc("/oauth2/token", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("/api/v1/oauth2/token", func(w http.ResponseWriter, r *http.Request) {
 		if err := r.ParseForm(); err != nil {
 			http.Error(w, "bad form", http.StatusBadRequest)
 			return
@@ -68,7 +68,7 @@ func TestGet_ReturnsErrAuthFailed_On401(t *testing.T) {
 
 func TestGet_ReturnsErrSecretNotFound_On404(t *testing.T) {
 	mux := http.NewServeMux()
-	mux.HandleFunc("/oauth2/token", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("/api/v1/oauth2/token", func(w http.ResponseWriter, r *http.Request) {
 		json.NewEncoder(w).Encode(map[string]any{"access_token": "fake-token", "expires_in": 3600})
 	})
 	mux.HandleFunc("/api/v1/secrets/", func(w http.ResponseWriter, r *http.Request) {
@@ -111,7 +111,7 @@ func TestGetByName_ResolvesFromMapping(t *testing.T) {
 func TestTokenCached_OnlyFetchedOnce(t *testing.T) {
 	tokenCalls := 0
 	mux := http.NewServeMux()
-	mux.HandleFunc("/oauth2/token", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("/api/v1/oauth2/token", func(w http.ResponseWriter, r *http.Request) {
 		tokenCalls++
 		json.NewEncoder(w).Encode(map[string]any{"access_token": "cached-token", "expires_in": 3600})
 	})
@@ -135,7 +135,7 @@ func TestNew_ReturnsError_WhenURLMissing(t *testing.T) {
 func TestTokenExpiry_RefetchedAfterExpiry(t *testing.T) {
 	tokenCalls := 0
 	mux := http.NewServeMux()
-	mux.HandleFunc("/oauth2/token", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("/api/v1/oauth2/token", func(w http.ResponseWriter, r *http.Request) {
 		tokenCalls++
 		json.NewEncoder(w).Encode(map[string]any{"access_token": "token", "expires_in": 3600})
 	})
@@ -156,7 +156,7 @@ func TestTokenExpiry_RefetchedAfterExpiry(t *testing.T) {
 func TestTokenFloor_ZeroExpiresIn_DoesNotRefetch(t *testing.T) {
 	tokenCalls := 0
 	mux := http.NewServeMux()
-	mux.HandleFunc("/oauth2/token", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("/api/v1/oauth2/token", func(w http.ResponseWriter, r *http.Request) {
 		tokenCalls++
 		// Server returns expires_in: 0; floor must kick in and prevent re-fetch.
 		json.NewEncoder(w).Encode(map[string]any{"access_token": "token", "expires_in": 0})

@@ -233,7 +233,7 @@ func (c *Client) fetchToken(ctx context.Context) (string, int, error) {
 	body.Set("client_secret", c.cfg.ClientSecret)
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost,
-		c.cfg.URL+"/oauth2/token", strings.NewReader(body.Encode()))
+		c.cfg.URL+"/api/v1/oauth2/token", strings.NewReader(body.Encode()))
 	if err != nil {
 		return "", 0, fmt.Errorf("vaultclient: build token request: %w", err)
 	}
