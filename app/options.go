@@ -87,6 +87,13 @@ func WithSchedulerEnabled(enabled bool, interval time.Duration) Option {
 	}
 }
 
+// WithFrontendConfig sets the non-sensitive config values exposed to the web frontend.
+func WithFrontendConfig(fc *FrontendConfig) Option {
+	return func(a *App) {
+		a.FrontendConfig = fc
+	}
+}
+
 // WithServiceContainer sets the service container for the API.
 // It provides access to all refactored services following the dependency injection pattern.
 // This enables proper integration between the API layer and the SRP-compliant service layer.

@@ -22,6 +22,14 @@ type Impl interface {
 	StartServer(ctx context.Context) error
 }
 
+// FrontendConfig holds non-sensitive config values safe to expose to web frontends.
+// Populated at startup. Never contains passwords, keys, or tokens.
+type FrontendConfig struct {
+	FeatureFlags map[string]bool `json:"feature_flags"`
+	PublicAPIURL string          `json:"public_api_url"`
+	SentryDSN    string          `json:"sentry_dsn"`
+}
+
 // App represents the main application structure.
 // It holds the server instance, store, configuration details,
 // and logger for the vault service application.
@@ -35,6 +43,7 @@ type App struct {
 
 	ServiceContainer container.ServiceContainerInterface
 	Logger           *logging.Logger
+	FrontendConfig   *FrontendConfig
 }
 
 // NewApp creates a new instance of the application with the provided options.
@@ -71,6 +80,15 @@ func newApp(options ...Option) *App {
 		a.Logger.Errorln("Unable to initialize the localization.")
 	}
 
+	return a
+}
+
+// NewTestApp creates a minimal App for use in tests.
+func NewTestApp(opts ...Option) *App {
+	a := &App{}
+	for _, o := range opts {
+		o(a)
+	}
 	return a
 }
 
