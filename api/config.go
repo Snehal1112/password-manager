@@ -5,10 +5,10 @@ import (
 	"net/http"
 )
 
-// InitConfig registers the GET /api/v1/config route.
+// InitConfig registers the GET /api/v1/config route as a public endpoint.
 func (api *API) InitConfig() {
-	api.BaseRoutes.ApiRoot.Handle("/config",
-		ApiSessionRequired(api.App, getConfig),
+	api.BaseRoutes.Config.Handle("/config",
+		ApiHandler(api.App, getConfig),
 	).Methods("GET")
 }
 
