@@ -853,12 +853,76 @@ OAUTH_TOKEN=$(curl -s -X POST $BASE/api/v1/oauth2/token \
 echo "OAuth token: $OAUTH_TOKEN"
 ```
 
-### Use the OAuth2 token like a regular JWT
+### Use the OAuth2 token to read secrets, keys, and certificates
 
 ```bash
+# Secrets
 curl -s $BASE/api/v1/secrets \
   -H "Authorization: Bearer $OAUTH_TOKEN" | jq .
+
+# A specific secret
+curl -s $BASE/api/v1/secrets/$SECRET_ID \
+  -H "Authorization: Bearer $OAUTH_TOKEN" | jq .
+
+# Keys
+curl -s $BASE/api/v1/keys \
+  -H "Authorization: Bearer $OAUTH_TOKEN" | jq .
+
+# A specific key
+curl -s $BASE/api/v1/keys/$KEY_ID \
+  -H "Authorization: Bearer $OAUTH_TOKEN" | jq .
+
+# Certificates
+curl -s $BASE/api/v1/certificates \
+  -H "Authorization: Bearer $OAUTH_TOKEN" | jq .
+
+# A specific certificate
+curl -s $BASE/api/v1/certificates/$CERT_ID \
+  -H "Authorization: Bearer $OAUTH_TOKEN" | jq .
 ```
+
+> **Note:** Service accounts only see resources they own or have an explicit access
+> policy for. If any of the above return empty results, grant access first:
+>
+> ```bash
+> # Grant read access to a specific secret
+> curl -s -X POST $BASE/api/v1/access-policies \
+>   -H "Authorization: Bearer $TOKEN" \
+>   -H "Content-Type: application/json" \
+>   -d '{
+>     "name": "ci-read-secret",
+>     "principal_id": "'$SA_ID'",
+>     "resource_type": "secret",
+>     "resource_id": "'$SECRET_ID'",
+>     "actions": ["read"]
+>   }' | jq .
+>
+> # Grant read access to a specific key
+> curl -s -X POST $BASE/api/v1/access-policies \
+>   -H "Authorization: Bearer $TOKEN" \
+>   -H "Content-Type: application/json" \
+>   -d '{
+>     "name": "ci-read-key",
+>     "principal_id": "'$SA_ID'",
+>     "resource_type": "key",
+>     "resource_id": "'$KEY_ID'",
+>     "actions": ["read"]
+>   }' | jq .
+>
+> # Grant read access to a specific certificate
+> curl -s -X POST $BASE/api/v1/access-policies \
+>   -H "Authorization: Bearer $TOKEN" \
+>   -H "Content-Type: application/json" \
+>   -d '{
+>     "name": "ci-read-cert",
+>     "principal_id": "'$SA_ID'",
+>     "resource_type": "certificate",
+>     "resource_id": "'$CERT_ID'",
+>     "actions": ["read"]
+>   }' | jq .
+> ```
+>
+> Then retry the reads with `$OAUTH_TOKEN`.
 
 ### List service accounts
 
