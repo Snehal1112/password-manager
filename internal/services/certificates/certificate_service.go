@@ -177,6 +177,7 @@ func (s *certificateService) CreateSelfSignedCertificate(ctx context.Context, re
 	cert := &model.Certificate{
 		ID:          uuid.New(),
 		UserID:      req.UserID,
+		KeyID:       req.KeyID,
 		Name:        req.Name,
 		Certificate: certPEM,
 		PrivateKey:  encryptedKey,
@@ -313,6 +314,7 @@ func (s *certificateService) CreateCASignedCertificate(ctx context.Context, req 
 	cert := &model.Certificate{
 		ID:          uuid.New(),
 		UserID:      req.UserID,
+		KeyID:       req.KeyID,
 		Name:        req.Name,
 		Certificate: certPEM,
 		PrivateKey:  encryptedKey,
@@ -485,10 +487,19 @@ func (s *certificateService) RenewCertificate(ctx context.Context, certID, userI
 		return nil, err
 	}
 
-	// Renewal requires a KeyID that is not stored on the Certificate struct.
-	// The caller must supply it; until the struct is extended this path cannot complete.
-	_ = original // AutoRenew and RenewalDays would be forwarded to the new cert here.
-	return nil, fmt.Errorf("certificate renewal requires KeyID information not available in Certificate struct")
+	if original.KeyID == (uuid.UUID{}) {
+		return nil, fmt.Errorf("certificate has no associated key ID; cannot renew")
+	}
+
+	return s.CreateSelfSignedCertificate(ctx, CreateCertificateRequest{
+		Name:         original.Name,
+		KeyID:        original.KeyID,
+		ValidityDays: validityDays,
+		Tags:         original.Tags,
+		UserID:       userID,
+		AutoRenew:    original.AutoRenew,
+		RenewalDays:  original.RenewalDays,
+	})
 }
 
 // ValidateCertificateAccess validates that a user has access to a specific certificate.
