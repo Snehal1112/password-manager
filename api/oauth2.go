@@ -8,6 +8,9 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+
+	"rocketvault/common"
+	"rocketvault/model"
 )
 
 // InitOAuth2 registers the public OAuth2 token endpoint and authenticated service-account routes.
@@ -135,6 +138,13 @@ func writeTokenError(w http.ResponseWriter, status int, errCode, description str
 // Admin-only. Body: { "name": "...", "description": "...", "expires_at": "<RFC3339 optional>" }
 // Returns the new client object plus the one-time plain-text secret.
 func createServiceAccount(c *Context, w http.ResponseWriter, r *http.Request) {
+	// Enforce admin-only access to prevent privilege escalation.
+	roleStr, _ := c.Claims["role"].(string)
+	if !common.HasRequiredRole(roleStr, model.RoleAdmin) {
+		c.SetPermissionError("admin role required to create service accounts")
+		return
+	}
+
 	var req struct {
 		Name        string     `json:"name"`
 		Description string     `json:"description"`
