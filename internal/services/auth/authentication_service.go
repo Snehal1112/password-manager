@@ -54,17 +54,19 @@ type authenticationService struct {
 	passwordService  PasswordService
 	totpService      TOTPService
 	jwtService       JWTService
+	oauth2ClientRepo repositories.OAuth2ClientRepositoryInterface
 	logger           *logging.Logger
 }
 
 // AuthenticationConfig holds the dependencies for authentication service.
 type AuthenticationConfig struct {
-	UserRepository   repositories.UserRepositoryInterface
-	SessionRepository repositories.SessionRepositoryInterface
-	PasswordService  PasswordService
-	TOTPService      TOTPService
-	JWTService       JWTService
-	Logger           *logging.Logger
+	UserRepository         repositories.UserRepositoryInterface
+	SessionRepository      repositories.SessionRepositoryInterface
+	PasswordService        PasswordService
+	TOTPService            TOTPService
+	JWTService             JWTService
+	OAuth2ClientRepository repositories.OAuth2ClientRepositoryInterface
+	Logger                 *logging.Logger
 }
 
 // NewAuthenticationService creates a new AuthenticationService with the provided dependencies.
@@ -84,6 +86,7 @@ func NewAuthenticationService(config AuthenticationConfig) AuthenticationService
 		passwordService:  config.PasswordService,
 		totpService:      config.TOTPService,
 		jwtService:       config.JWTService,
+		oauth2ClientRepo: config.OAuth2ClientRepository,
 		logger:           config.Logger,
 	}
 }
@@ -220,9 +223,26 @@ func (s *authenticationService) ValidateSession(ctx context.Context, token strin
 		return nil, fmt.Errorf("invalid session: malformed jti")
 	}
 
-	// Service account tokens use uuid.Nil as jti — they are not bound to a
-	// user_sessions row. Skip the DB revocation check for them.
-	if sessionID != uuid.Nil {
+	if claims.Role == model.RoleServiceAccount {
+		// For service accounts, verify the client still exists and is active.
+		// sessionID equals client.ID, set as jti in IssueToken.
+		if s.oauth2ClientRepo != nil {
+			client, err := s.oauth2ClientRepo.GetByID(ctx, sessionID)
+			if err != nil {
+				s.logger.LogAuditError(claims.UserID.String(), "validate_session", "failed", "Service account client not found", err)
+				return nil, fmt.Errorf("service account not found or revoked")
+			}
+			if !client.Enabled {
+				s.logger.LogAuditError(claims.UserID.String(), "validate_session", "failed", "Service account disabled", nil)
+				return nil, fmt.Errorf("service account disabled")
+			}
+			if client.ExpiresAt != nil && client.ExpiresAt.Before(time.Now()) {
+				s.logger.LogAuditError(claims.UserID.String(), "validate_session", "failed", "Service account expired", nil)
+				return nil, fmt.Errorf("service account expired")
+			}
+		}
+	} else {
+		// For user sessions, check the session revocation table.
 		revoked, err := s.sessionRepo.IsSessionRevoked(ctx, sessionID)
 		if err != nil {
 			s.logger.LogAuditError(claims.UserID.String(), "validate_session", "failed", "Could not check session revocation", err)

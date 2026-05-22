@@ -104,7 +104,8 @@ func TestOAuth2Service_IssueToken_Success(t *testing.T) {
 
 	repo.On("FindByName", mock.Anything, "my-app").Return(client, nil)
 	pw.On("ValidatePassword", "plain-secret", client.ClientSecret).Return(nil)
-	jwt.On("GenerateToken", clientID, "my-app", "service_account", uuid.Nil).Return("tok.en.str", nil)
+	// jti must now be client.ID so ValidateSession can verify the client is active.
+	jwt.On("GenerateToken", clientID, "my-app", "service_account", clientID).Return("tok.en.str", nil)
 
 	resp, err := svc.IssueToken(context.Background(), "my-app", "plain-secret")
 	require.NoError(t, err)

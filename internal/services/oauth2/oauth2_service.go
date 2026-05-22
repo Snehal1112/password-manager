@@ -101,8 +101,9 @@ func (s *oauth2Service) IssueToken(ctx context.Context, clientName, secret strin
 		return nil, fmt.Errorf("invalid client credentials")
 	}
 
-	// Service account tokens are not bound to a user session, so uuid.Nil is used as the jti.
-	tokenStr, err := s.jwtSvc.GenerateToken(client.ID, client.Name, model.RoleServiceAccount, uuid.Nil)
+	// Use client.ID as jti so ValidateSession can verify the client is still
+	// active on each request, enabling immediate revocation on delete/disable.
+	tokenStr, err := s.jwtSvc.GenerateToken(client.ID, client.Name, model.RoleServiceAccount, client.ID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to issue token: %w", err)
 	}

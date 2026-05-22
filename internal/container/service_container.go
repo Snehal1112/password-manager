@@ -288,14 +288,19 @@ func (c *ServiceContainer) initializeServices() error {
 		c.jwtService = authServices.NewJWTService(jwtConfig)
 	}
 
+	// Initialize OAuth2 client repository first — the auth service needs it to
+	// validate service-account tokens against the live client record.
+	c.oauth2ClientRepository = repositories.NewOAuth2ClientRepository(c.db)
+
 	// Initialize authentication service
 	baseAuthService := authServices.NewAuthenticationService(authServices.AuthenticationConfig{
-		UserRepository:    c.userRepository,
-		SessionRepository: c.sessionRepository,
-		PasswordService:   c.passwordService,
-		TOTPService:       c.totpService,
-		JWTService:        c.jwtService,
-		Logger:            c.logger,
+		UserRepository:         c.userRepository,
+		SessionRepository:      c.sessionRepository,
+		PasswordService:        c.passwordService,
+		TOTPService:            c.totpService,
+		JWTService:             c.jwtService,
+		OAuth2ClientRepository: c.oauth2ClientRepository,
+		Logger:                 c.logger,
 	})
 
 	// Wrap with retry logic if retry service is available.
@@ -311,12 +316,11 @@ func (c *ServiceContainer) initializeServices() error {
 	c.accessPolicyRepository = repositories.NewAccessPolicyRepository(c.db)
 	c.accessPolicyService = authzServices.NewAccessPolicyService(c.accessPolicyRepository)
 
-	// Initialize OAuth2 / service account services
+	// Initialize remaining OAuth2 services (client repo already set above).
 	oauth2TokenExpiry := viperCfg.GetDuration("oauth2.token_expiry")
 	if oauth2TokenExpiry == 0 {
 		oauth2TokenExpiry = 30 * time.Minute
 	}
-	c.oauth2ClientRepository = repositories.NewOAuth2ClientRepository(c.db)
 	c.oauth2Service = oauth2Services.NewOAuth2Service(oauth2Services.OAuth2Config{
 		ClientRepo:      c.oauth2ClientRepository,
 		PasswordService: c.passwordService,

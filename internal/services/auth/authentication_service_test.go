@@ -17,9 +17,9 @@ import (
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 
-	"rocketvault/model"
 	"rocketvault/internal/logging"
 	"rocketvault/internal/repositories"
+	"rocketvault/model"
 )
 
 // Mock implementations for testing
@@ -68,8 +68,52 @@ func (m *MockUserRepository) InvalidateBootstrapToken(ctx context.Context, token
 	return args.Error(0)
 }
 
-// Ensure MockUserRepository implements repositories.UserRepositoryInterface
+// Ensure MockUserRepository implements repositories.UserRepositoryInterface.
 var _ repositories.UserRepositoryInterface = &MockUserRepository{}
+
+// MockOAuth2ClientRepository implements OAuth2ClientRepositoryInterface for tests.
+type MockOAuth2ClientRepository struct {
+	mock.Mock
+}
+
+func (m *MockOAuth2ClientRepository) Create(ctx context.Context, c *model.OAuth2Client) error {
+	return m.Called(ctx, c).Error(0)
+}
+
+func (m *MockOAuth2ClientRepository) GetByID(ctx context.Context, id uuid.UUID) (*model.OAuth2Client, error) {
+	args := m.Called(ctx, id)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).(*model.OAuth2Client), args.Error(1)
+}
+
+func (m *MockOAuth2ClientRepository) FindByName(ctx context.Context, name string) (*model.OAuth2Client, error) {
+	args := m.Called(ctx, name)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).(*model.OAuth2Client), args.Error(1)
+}
+
+func (m *MockOAuth2ClientRepository) List(ctx context.Context) ([]*model.OAuth2Client, error) {
+	args := m.Called(ctx)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).([]*model.OAuth2Client), args.Error(1)
+}
+
+func (m *MockOAuth2ClientRepository) Update(ctx context.Context, c *model.OAuth2Client) error {
+	return m.Called(ctx, c).Error(0)
+}
+
+func (m *MockOAuth2ClientRepository) Delete(ctx context.Context, id uuid.UUID) error {
+	return m.Called(ctx, id).Error(0)
+}
+
+// Compile-time check that MockOAuth2ClientRepository satisfies the interface.
+var _ repositories.OAuth2ClientRepositoryInterface = &MockOAuth2ClientRepository{}
 
 type MockPasswordService struct {
 	mock.Mock
