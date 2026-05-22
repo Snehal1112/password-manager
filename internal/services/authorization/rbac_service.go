@@ -9,8 +9,8 @@ import (
 
 	"github.com/sirupsen/logrus"
 
-	"rocketvault/model"
 	"rocketvault/internal/logging"
+	"rocketvault/model"
 )
 
 // Permission represents a specific permission that can be granted to roles.
