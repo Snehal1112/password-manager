@@ -1,169 +1,408 @@
-# Password Manager - Admin Setup Guide
+# RocketVault - Admin Setup Guide
 
-## 🚀 Quick Start: Create Admin User
+## Overview
 
-The password manager includes comprehensive scripts for admin user creation and TOTP management.
-
-### Prerequisites
-- Password manager built: `go build -o password-manager`
-- Configuration file with bootstrap token
-- SQLite3 (optional, for database management)
-
-### 1. Automated Admin Creation
-
-```bash
-# Create admin with test configuration and TOTP generation
-./scripts/create_admin.sh --test --generate-totp
-
-# Create admin with custom credentials
-./scripts/create_admin.sh -u superadmin -p MySecurePassword123 --generate-totp
-
-# Production setup
-./scripts/create_admin.sh -u admin -p ProductionPassword --config .password-manager.yaml
-```
-
-### 2. Manual TOTP Code Generation
-
-```bash
-# Generate TOTP codes for authentication
-go run scripts/totp_generator.go -secret="YOUR_TOTP_SECRET" -username="admin"
-
-# Use saved admin secret (auto-detected)
-go run scripts/totp_generator.go
-```
-
-### 3. Complete Authentication Test
-
-```bash
-# Get current TOTP code
-TOTP_CODE=$(./totp_test -secret="SZCL7YSJ4PY3UG65B3ABIMTKZJBR5RYX" -count=0 | grep "Current TOTP Code" | awk '{print $4}')
-
-# Test authentication
-./password-manager --config=.password-manager-test.yaml \
-  --username=admin \
-  --password=admin123 \
-  --totp-code=$TOTP_CODE \
-  users list
-```
-
-## 📋 Configuration Examples
-
-### Test Configuration (`.password-manager-test.yaml`)
-```yaml
-database:
-  connection: "./test_restore.db"
-log:
-  level: "debug"
-  file: "password_manager.log"
-master_key: "***SECRET-REMOVED-2026-08-17***"
-jwt_secret: "***SECRET-REMOVED-2026-08-17***"
-bootstrap_token: "***SECRET-REMOVED-2026-08-17***"
-```
-
-### Production Configuration (`.password-manager.yaml`)
-```yaml
-database:
-  connection: "./secrets.db"
-log:
-  level: "info"
-  file: "password-manager.log"
-master_key: "YOUR_32_BYTE_BASE64_KEY"
-jwt_secret: "YOUR_JWT_SECRET"
-bootstrap_token: "YOUR_BOOTSTRAP_TOKEN"
-```
-
-## 🔧 Manual Database Setup (if needed)
-
-```bash
-# Create bootstrap token in database
-sqlite3 ./test_restore.db "INSERT OR REPLACE INTO bootstrap_tokens (token, used, created_at) VALUES ('***SECRET-REMOVED-2026-08-17***', 0, datetime('now'));"
-
-# Verify token exists
-sqlite3 ./test_restore.db "SELECT * FROM bootstrap_tokens;"
-```
-
-## 🛡️ Security Best Practices
-
-1. **Strong Passwords**: Use complex passwords for admin accounts
-2. **Bootstrap Tokens**: Generate unique tokens and invalidate after use
-3. **TOTP Secrets**: Store securely and delete temporary files
-4. **Configuration**: Keep config files secure, avoid committing secrets
-
-## 📖 Workflow Example
-
-```bash
-# 1. Build the application
-go build -o password-manager
-
-# 2. Setup test environment
-./scripts/create_admin.sh --test --generate-totp
-
-# 3. Extract TOTP secret and generate code
-TOTP_SECRET=$(grep "secret=" .admin_totp_secret | sed 's/.*secret=\([^&]*\).*/\1/')
-TOTP_CODE=$(go run scripts/totp_generator.go -secret="$TOTP_SECRET" -count=0 | grep "Current TOTP Code" | awk '{print $4}')
-
-# 4. Test authentication
-./password-manager --config=.password-manager-test.yaml \
-  --username=admin \
-  --password=admin123 \
-  --totp-code=$TOTP_CODE \
-  users list
-
-# 5. Create additional users
-./password-manager --config=.password-manager-test.yaml \
-  --username=admin \
-  --password=admin123 \
-  --totp-code=$TOTP_CODE \
-  users create --new-username=testuser --new-password=password123 --new-role=user
-
-# 6. Clean up sensitive files
-rm -f .admin_totp_secret
-```
-
-## 🔍 Troubleshooting
-
-### Bootstrap Token Issues
-```bash
-# Check if token exists in config
-grep "bootstrap_token" .password-manager-test.yaml
-
-# Check if token exists in database
-sqlite3 ./test_restore.db "SELECT * FROM bootstrap_tokens WHERE used = 0;"
-
-# Re-add token if missing
-sqlite3 ./test_restore.db "INSERT OR REPLACE INTO bootstrap_tokens (token, used, created_at) VALUES ('***SECRET-REMOVED-2026-08-17***', 0, datetime('now'));"
-```
-
-### TOTP Issues
-```bash
-# Test TOTP generation manually
-go run scripts/totp_generator.go -secret="ABCD1234EFGH5678IJKL9012MNOP3456" -count=1
-
-# Verify current time (TOTP is time-sensitive)
-date
-```
-
-### Authentication Issues
-```bash
-# Check user exists
-sqlite3 ./test_restore.db "SELECT id, username, role FROM users;"
-
-# Verify password hash
-sqlite3 ./test_restore.db "SELECT username, password_hash FROM users WHERE username='admin';"
-```
-
-## 📚 Related Files
-
-- `scripts/create_admin.sh` - Automated admin creation script
-- `scripts/totp_generator.go` - Enhanced TOTP code generator
-- `scripts/README.md` - Comprehensive script documentation
-- `test/totp_generator.go` - Original TOTP generator
-- `cmd/users/admin.go` - Admin registration command implementation
+This guide covers everything needed to get the first admin user created and
+authenticated in RocketVault. It reflects the current project structure,
+binary name, configuration file layout, and CLI command signatures.
 
 ---
 
-**Admin Credentials for Testing:**
-- Username: `admin`
-- Password: `admin123`
-- TOTP Secret: Generated dynamically (check `.admin_totp_secret` after creation)
-- Bootstrap Token: `***SECRET-REMOVED-2026-08-17***`
+## Prerequisites
+
+| Requirement | Details |
+|---|---|
+| Go 1.24+ | Required to build the binary and run scripts |
+| `rocketvault` binary | Built with `go build -o rocketvault` |
+| `.rocketvault.yaml` | Main config file, must exist in the project root |
+| `sqlite3` (optional) | Useful for manual database inspection |
+
+---
+
+## Configuration File
+
+The binary always loads `.rocketvault.yaml` from the current directory by
+default. You may override this with `--config <path>` on any command.
+
+Minimal working configuration:
+
+```yaml
+master_key: "***SECRET-REMOVED-2026-08-17***"
+jwt_secret: "***SECRET-REMOVED-2026-08-17***"
+jwt:
+  key_source: "os_store"
+  key_cn: "rocketvault"
+  expiry: "1h"
+  rotation_overlap: "1h"
+  migration_window: "24h"
+bootstrap_token: "***SECRET-REMOVED-2026-08-17***"
+environment: "development"
+database:
+  connection: "./dev-rocketvault.db"
+  driver: "sqlite3"
+log:
+  level: "debug"
+  file: "./logs/development.log"
+server:
+  listen_addr: ":8774"
+```
+
+The `bootstrap_token` field drives the initial admin creation flow. On every
+startup the application reads this value and inserts it into the
+`bootstrap_tokens` database table if it is not already present, so no manual
+SQL is required.
+
+---
+
+## Step 1 — Build the Binary
+
+```bash
+go build -o rocketvault
+```
+
+Verify it is present:
+
+```bash
+./rocketvault --help
+```
+
+---
+
+## Step 2 — Create the Initial Admin User
+
+The `users admin` command is the only command that does not require prior
+authentication. It accepts a bootstrap token (read from config or passed
+directly) and registers the very first admin account. The command also
+generates a TOTP secret and prints it to stdout.
+
+### Option A — Using the Automated Script (Recommended)
+
+`scripts/create_admin.sh` wraps the CLI command and handles auto-detection of
+whether the database is empty (bootstrap mode) or already has users
+(authenticated mode).
+
+```bash
+# Auto-detect mode (recommended for first run)
+./scripts/create_admin.sh --username admin --password admin123
+
+# Force bootstrap mode explicitly
+./scripts/create_admin.sh --mode bootstrap --username admin --password admin123
+
+# Override the bootstrap token at runtime
+./scripts/create_admin.sh \
+  --mode bootstrap \
+  --username admin \
+  --password admin123 \
+  --bootstrap-token "your-custom-token"
+
+# Generate TOTP codes immediately after creation
+./scripts/create_admin.sh --username admin --password admin123 --generate-totp
+```
+
+The script reads the `bootstrap_token` from `.rocketvault.yaml` by default.
+It prints the TOTP secret from the command output. There is no `.admin_totp_secret`
+file written by the binary itself — only the script may write that as a
+convenience, and you should delete it after configuring your authenticator.
+
+### Option B — Direct CLI Command
+
+```bash
+./rocketvault users admin \
+  --admin-username admin \
+  --admin-password admin123 \
+  --bootstrap-token "***SECRET-REMOVED-2026-08-17***"
+```
+
+Expected output:
+
+```
+Admin user admin created successfully with ID: <uuid>
+TOTP Secret: <BASE32_SECRET>
+Configure the TOTP secret in your authenticator app for MFA.
+```
+
+Copy the `TOTP Secret` value — you need it to log in and to generate codes
+from the terminal.
+
+---
+
+## Step 3 — Configure Your Authenticator App
+
+Open any TOTP-compatible authenticator (Google Authenticator, Authy, 1Password,
+etc.) and add the secret printed in step 2. The issuer name to use is
+`rocketvault`.
+
+---
+
+## Step 4 — Generate a TOTP Code from the Terminal
+
+`scripts/totp_generator.go` can generate codes without your phone. It supports
+a persistent environment variable so you never have to paste the secret again.
+
+### One-time setup (recommended)
+
+Add to `~/.bashrc` or `~/.zshrc`:
+
+```bash
+export ROCKETVAULT_TOTP_SECRET="<your_BASE32_secret_from_step_2>"
+```
+
+Reload your shell:
+
+```bash
+source ~/.zshrc   # or ~/.bashrc
+```
+
+### Generate the current code
+
+```bash
+go run scripts/totp_generator.go
+```
+
+Example output:
+
+```
+RocketVault TOTP — user: admin
+─────────────────────────────────
+Current code : 482931
+Valid for    : 22s  [███████████░░░░]
+Time         : 14:05:08
+
+Ready to use:
+  --totp-code 482931
+```
+
+### Pass the secret inline (no env var)
+
+```bash
+go run scripts/totp_generator.go -secret="<your_BASE32_secret>"
+```
+
+### Watch mode — auto-refreshes every 30 seconds
+
+```bash
+go run scripts/totp_generator.go -watch
+```
+
+### Show a code for a specific username in the example command
+
+```bash
+go run scripts/totp_generator.go -username alice
+```
+
+---
+
+## Step 5 — Log In
+
+All commands except `users admin`, `serve`, `health`, `backup`, and the
+`migrate:*` family require authentication via persistent flags on the root
+command.
+
+```bash
+./rocketvault \
+  --username admin \
+  --password admin123 \
+  --totp-code <code_from_step_4> \
+  users list
+```
+
+On success the request proceeds and the result is printed. On failure you will
+see `Error: Authentication failed`.
+
+### Dedicated login command (returns a JWT token)
+
+If you need the raw JWT for use with the REST API or scripting, use the
+`users login` sub-command:
+
+```bash
+./rocketvault users login \
+  --username admin \
+  --password admin123 \
+  --totp-code <code>
+```
+
+Output:
+
+```
+Login successful, JWT token: eyJhbGci...
+```
+
+---
+
+## Step 6 — Create Additional Users
+
+Once authenticated as admin you can create other users. Role must be `admin`
+or `user`.
+
+```bash
+./rocketvault \
+  --username admin \
+  --password admin123 \
+  --totp-code <code> \
+  users create \
+  --new-username devuser \
+  --new-password SecurePass456 \
+  --new-role user
+```
+
+To create a second admin account, use the authenticated mode of the script:
+
+```bash
+./scripts/create_admin.sh \
+  --mode authenticated \
+  --username admin2 \
+  --password Admin2Pass \
+  --auth-user admin \
+  --auth-pass admin123 \
+  --auth-totp-secret "$ROCKETVAULT_TOTP_SECRET"
+```
+
+---
+
+## Full End-to-End Workflow
+
+```bash
+# 1. Build
+go build -o rocketvault
+
+# 2. Create initial admin (bootstrap)
+./rocketvault users admin \
+  --admin-username admin \
+  --admin-password admin123 \
+  --bootstrap-token "***SECRET-REMOVED-2026-08-17***"
+
+# 3. Save the TOTP secret printed above
+export ROCKETVAULT_TOTP_SECRET="<secret_from_output>"
+
+# 4. Get a code
+go run scripts/totp_generator.go
+
+# 5. Test authentication
+./rocketvault \
+  --username admin \
+  --password admin123 \
+  --totp-code <code> \
+  users list
+
+# 6. Create a regular user
+./rocketvault \
+  --username admin \
+  --password admin123 \
+  --totp-code <code> \
+  users create \
+  --new-username alice \
+  --new-password Alice123 \
+  --new-role user
+```
+
+---
+
+## Output Formats
+
+All commands support `--output` with three values:
+
+| Flag | Description |
+|---|---|
+| `--output table` | Human-readable table (default) |
+| `--output json` | JSON — useful for scripting |
+| `--output yaml` | YAML |
+
+Example:
+
+```bash
+./rocketvault --username admin --password admin123 --totp-code <code> \
+  users list --output json
+```
+
+---
+
+## Troubleshooting
+
+### "invalid or used bootstrap token"
+
+The token has already been consumed or does not match the config. Options:
+
+1. Check `bootstrap_token` in `.rocketvault.yaml` matches what you passed.
+2. Inspect the database directly:
+
+```bash
+sqlite3 ./dev-rocketvault.db \
+  "SELECT token, used FROM bootstrap_tokens;"
+```
+
+3. If the token is marked `used=1` and no users exist (edge case after a failed
+   run), reset it:
+
+```bash
+sqlite3 ./dev-rocketvault.db \
+  "UPDATE bootstrap_tokens SET used=0 WHERE token='***SECRET-REMOVED-2026-08-17***';"
+```
+
+### "authentication failed"
+
+- Confirm username and password are correct.
+- Confirm the TOTP code is current — codes are valid for 30 seconds. Run
+  `go run scripts/totp_generator.go` and use the code immediately.
+- If the code is about to expire (less than 5 seconds on the bar), the
+  generator warns you and prints the next code.
+
+### "service container not available in context"
+
+The database failed to initialise. Check that `.rocketvault.yaml` is present
+in the current directory and the `database.connection` path is writable.
+
+### Check user table
+
+```bash
+sqlite3 ./dev-rocketvault.db "SELECT id, username, role FROM users;"
+```
+
+### Config not found
+
+If you placed the config elsewhere, pass `--config` explicitly:
+
+```bash
+./rocketvault --config /etc/rocketvault/.rocketvault.yaml users admin \
+  --admin-username admin \
+  --admin-password admin123 \
+  --bootstrap-token "<token>"
+```
+
+---
+
+## Security Recommendations
+
+1. Replace the `bootstrap_token` in `.rocketvault.yaml` with a randomly
+   generated value before first use in any shared environment:
+
+   ```bash
+   openssl rand -base64 32
+   ```
+
+2. Do not commit `.rocketvault.yaml` to version control — it contains the
+   master key, JWT secret, and bootstrap token.
+
+3. Delete any `.admin_totp_secret` files the script may have written after
+   you have configured your authenticator app.
+
+4. Unset `ROCKETVAULT_TOTP_SECRET` from your shell after testing if you are on
+   a shared machine.
+
+5. Rotate the bootstrap token after the initial admin is created — set
+   `bootstrap_token: ""` in config or remove the line entirely, since the
+   application only seeds it once.
+
+---
+
+## Related Files
+
+| File | Purpose |
+|---|---|
+| `scripts/create_admin.sh` | Automated admin creation with mode auto-detection |
+| `scripts/totp_generator.go` | Terminal TOTP code generator with watch mode |
+| `cmd/users/admin.go` | `users admin` command implementation |
+| `cmd/users/login.go` | `users login` command implementation |
+| `cmd/users/create.go` | `users create` command implementation |
+| `cmd/root.go` | Root command, config loading, and authentication pre-run |
+| `internal/db/db.go` | Database init and bootstrap token seeding |
+| `.rocketvault.yaml` | Runtime configuration (not committed) |

@@ -7,6 +7,7 @@ require (
 	github.com/google/uuid v1.6.0
 	github.com/gorilla/websocket v1.5.3
 	github.com/stretchr/testify v1.11.1
+	github.com/zalando/go-keyring v0.2.8
 	golang.org/x/net v0.34.0
 	golang.org/x/time v0.15.0
 	gopkg.in/yaml.v2 v2.4.0
@@ -18,7 +19,6 @@ require (
 	github.com/danieljoos/wincred v1.2.3 // indirect
 	github.com/godbus/dbus/v5 v5.2.2 // indirect
 	github.com/stretchr/objx v0.5.2 // indirect
-	github.com/zalando/go-keyring v0.2.8 // indirect
 	gopkg.in/natefinch/lumberjack.v2 v2.2.1 // indirect
 )
 
