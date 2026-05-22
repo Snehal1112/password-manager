@@ -6,7 +6,6 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"github.com/zalando/go-keyring"
 )
 
 type fakeKeychain struct {
@@ -21,7 +20,7 @@ func newFakeKeychain() *fakeKeychain {
 func (f *fakeKeychain) Get(service, user string) (string, error) {
 	v, ok := f.store[service+"/"+user]
 	if !ok {
-		return "", keyring.ErrNotFound
+		return "", errors.New("not found")
 	}
 	return v, nil
 }

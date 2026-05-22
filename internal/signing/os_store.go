@@ -7,6 +7,7 @@ import (
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"encoding/pem"
+	"errors"
 	"fmt"
 	"math/big"
 	"os"
@@ -65,6 +66,8 @@ func newOSStoreProviderWithKeychain(cn string, kc keychainBackend) (*OSStoreProv
 			kid:        kid,
 			publicInfo: []PublicKeyInfo{{KeyID: kid, Algorithm: osStoreAlgorithm, PublicKey: key.Public()}},
 		}, nil
+	} else if !errors.Is(err, keyring.ErrNotFound) {
+		logrus.WithError(err).Warn("OSStoreProvider: keychain read failed (not ErrNotFound), regenerating key")
 	}
 
 	logrus.WithField("cn", cn).Warn("OSStoreProvider: no key in keychain, auto-generating RSA-2048 key")
@@ -77,7 +80,7 @@ func newOSStoreProviderWithKeychain(cn string, kc keychainBackend) (*OSStoreProv
 	if err := saveToKeychain(kc, cn, key); err != nil {
 		logrus.WithError(err).Warn("OSStoreProvider: keychain unavailable, falling back to PEM file")
 		if err := persistKey(key, cert, cn); err != nil {
-			logrus.WithError(err).Warn("OSStoreProvider: could not persist key to file either (in-memory only)")
+			logrus.WithError(err).Error("OSStoreProvider: key persistence failed entirely — key is in-memory only; all sessions will be invalidated on restart")
 		}
 	}
 
@@ -101,6 +104,8 @@ func loadFromKeychain(kc keychainBackend, cn string) (*rsa.PrivateKey, error) {
 	return x509.ParsePKCS1PrivateKey(block.Bytes)
 }
 
+// saveToKeychain stores the RSA private key PEM in the OS keychain.
+// Key is stored in PKCS#1 format; loadFromKeychain must use ParsePKCS1PrivateKey.
 func saveToKeychain(kc keychainBackend, cn string, key *rsa.PrivateKey) error {
 	pemBytes := pem.EncodeToMemory(&pem.Block{
 		Type:  "RSA PRIVATE KEY",
@@ -118,16 +123,6 @@ func (p *OSStoreProvider) PublicKeys() []PublicKeyInfo  { return p.publicInfo }
 func (p *OSStoreProvider) Algorithm() string            { return osStoreAlgorithm }
 func (p *OSStoreProvider) KeyID() string                { return p.kid }
 
-// findCertInPool searches the pool for a leaf certificate whose CN matches.
-// Because x509.CertPool does not expose its contents, we rely on a known
-// system cert path on Linux; on other platforms we skip and auto-gen.
-func findCertInPool(_ *x509.CertPool, _ string) (crypto.Signer, string, bool) {
-	// System cert pools do not expose private keys — this path intentionally
-	// returns false so the auto-gen path is always taken in practice.
-	// A future implementation can query the OS keychain or PKCS#11 via cgo.
-	return nil, "", false
-}
-
 // generateSelfSignedRSA creates a new RSA-2048 key and a self-signed certificate.
 func generateSelfSignedRSA(cn string) (*rsa.PrivateKey, *x509.Certificate, error) {
 	key, err := rsa.GenerateKey(rand.Reader, 2048)
@@ -135,7 +130,10 @@ func generateSelfSignedRSA(cn string) (*rsa.PrivateKey, *x509.Certificate, error
 		return nil, nil, fmt.Errorf("rsa.GenerateKey: %w", err)
 	}
 
-	serial, _ := rand.Int(rand.Reader, new(big.Int).Lsh(big.NewInt(1), 128))
+	serial, err := rand.Int(rand.Reader, new(big.Int).Lsh(big.NewInt(1), 128))
+	if err != nil {
+		return nil, nil, fmt.Errorf("generate serial number: %w", err)
+	}
 	tmpl := &x509.Certificate{
 		SerialNumber: serial,
 		Subject:      pkix.Name{CommonName: cn},
@@ -157,7 +155,7 @@ func generateSelfSignedRSA(cn string) (*rsa.PrivateKey, *x509.Certificate, error
 	return key, cert, nil
 }
 
-// persistKey writes the key + cert PEM to the system path if writable, otherwise to user home.
+// persistKey writes the key + cert PEM to ~/.local/share/rocketvault/jwt-signing.pem.
 func persistKey(key *rsa.PrivateKey, cert *x509.Certificate, cn string) error {
 	keyPEM := pem.EncodeToMemory(&pem.Block{
 		Type:  "RSA PRIVATE KEY",
@@ -168,12 +166,6 @@ func persistKey(key *rsa.PrivateKey, cert *x509.Certificate, cn string) error {
 		Bytes: cert.Raw,
 	})
 	combined := append(certPEM, keyPEM...)
-
-	systemPath := filepath.Join("/etc/ssl/certs", cn+"-jwt.pem")
-	if err := os.WriteFile(systemPath, combined, 0600); err == nil {
-		logrus.WithField("path", systemPath).Info("OSStoreProvider: persisted auto-generated key")
-		return nil
-	}
 
 	home, err := os.UserHomeDir()
 	if err != nil {
@@ -187,6 +179,6 @@ func persistKey(key *rsa.PrivateKey, cert *x509.Certificate, cn string) error {
 	if err := os.WriteFile(userPath, combined, 0600); err != nil {
 		return fmt.Errorf("write to %s: %w", userPath, err)
 	}
-	logrus.WithField("path", userPath).Info("OSStoreProvider: persisted auto-generated key to user home")
+	logrus.WithField("path", userPath).Info("OSStoreProvider: persisted fallback key to user home")
 	return nil
 }
