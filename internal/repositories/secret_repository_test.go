@@ -102,3 +102,38 @@ func TestSecretRepository_ReadByOwner_SoftDeletedSecretNotVisible(t *testing.T) 
 	assert.Error(t, err, "ReadByOwner must not return a soft-deleted secret")
 	assert.Contains(t, err.Error(), "not found")
 }
+
+// TestSoftDelete_PreservesPurgeProtection verifies that SoftDelete does not
+// overwrite a pre-existing purge_protection = TRUE on a secret.
+func TestSoftDelete_PreservesPurgeProtection(t *testing.T) {
+	t.Parallel()
+	db := setupSecretTestDB(t)
+	repo := repositories.NewSecretRepository(db, newTestSecretLogger(t))
+	ctx := context.Background()
+
+	ownerID := uuid.New()
+	secret := &model.Secret{
+		ID:              uuid.New(),
+		UserID:          ownerID,
+		Name:            "protected-secret",
+		Value:           "encrypted-data",
+		Version:         1,
+		CreatedAt:       time.Now().UTC(),
+		PurgeProtection: false,
+	}
+	require.NoError(t, repo.Create(ctx, secret))
+
+	// Enable purge protection directly — SecretRepositoryInterface has no SetPurgeProtection.
+	_, err := db.ExecContext(ctx,
+		"UPDATE secrets SET purge_protection = TRUE WHERE id = ?", secret.ID.String())
+	require.NoError(t, err)
+
+	// SoftDelete must not reset purge_protection to FALSE.
+	require.NoError(t, repo.SoftDelete(ctx, secret.ID))
+
+	var pp bool
+	err = db.QueryRowContext(ctx,
+		"SELECT purge_protection FROM secrets WHERE id = ?", secret.ID.String()).Scan(&pp)
+	require.NoError(t, err)
+	assert.True(t, pp, "SoftDelete must not overwrite purge_protection")
+}

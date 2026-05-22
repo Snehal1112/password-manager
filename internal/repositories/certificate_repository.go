@@ -552,7 +552,7 @@ func (r *CertificateRepository) SoftDelete(ctx context.Context, id uuid.UUID) er
 
 		now := time.Now()
 		result, err := r.db.ExecContext(ctx,
-			"UPDATE certificates SET deleted_at = ?, purge_protection = FALSE WHERE id = ? AND deleted_at IS NULL",
+			"UPDATE certificates SET deleted_at = ? WHERE id = ? AND deleted_at IS NULL",
 			now, id.String())
 		if err != nil {
 			r.log.LogAuditError(uuid.Nil.String(), "soft_delete_certificate", "failed", "Failed to soft delete certificate", err)

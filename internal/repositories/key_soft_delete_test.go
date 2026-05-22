@@ -141,3 +141,36 @@ func TestKeyPurgeProtection(t *testing.T) {
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "purge protection")
 }
+
+// TestKeySoftDelete_PreservesPurgeProtection verifies that SoftDelete does not
+// overwrite a pre-existing purge_protection = TRUE on a key.
+func TestKeySoftDelete_PreservesPurgeProtection(t *testing.T) {
+	t.Parallel()
+	db := setupTestDB(t)
+	log := logging.InitLogger()
+	repo := repositories.NewKeyRepository(db, log)
+	ctx := context.Background()
+	userID := uuid.New()
+
+	key := &model.Key{
+		ID:        uuid.New(),
+		UserID:    userID,
+		Name:      "pp-key",
+		Type:      "rsa",
+		Value:     "encrypted-private-key",
+		CreatedAt: time.Now(),
+	}
+	require.NoError(t, repo.Create(ctx, key))
+
+	// Enable purge protection before soft-deleting.
+	require.NoError(t, repo.SetPurgeProtection(ctx, key.ID, true))
+
+	// SoftDelete must not reset purge_protection to FALSE.
+	require.NoError(t, repo.SoftDelete(ctx, key.ID))
+
+	var pp bool
+	err := db.QueryRowContext(ctx,
+		"SELECT purge_protection FROM keys WHERE id = ?", key.ID.String()).Scan(&pp)
+	require.NoError(t, err)
+	assert.True(t, pp, "SoftDelete must not overwrite purge_protection")
+}

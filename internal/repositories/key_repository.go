@@ -455,7 +455,7 @@ func (r *KeyRepository) SoftDelete(ctx context.Context, id uuid.UUID) error {
 
 		now := time.Now()
 		result, err := r.db.ExecContext(ctx,
-			"UPDATE keys SET deleted_at = ?, purge_protection = FALSE WHERE id = ? AND deleted_at IS NULL",
+			"UPDATE keys SET deleted_at = ? WHERE id = ? AND deleted_at IS NULL",
 			now, id.String())
 		if err != nil {
 			r.log.LogAuditError(uuid.Nil.String(), "soft_delete_key", "failed", "Failed to soft delete key", err)
