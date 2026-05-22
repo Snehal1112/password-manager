@@ -1,0 +1,27 @@
+meta {
+  name: Create Certificate (CA-Signed)
+  type: http
+  seq: 4
+}
+
+post {
+  url: {{base_url}}/api/v1/certificates
+  body: json
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{token}}
+}
+
+body:json {
+  {
+    "name": "my-ca-signed-cert",
+    "key_id": "{{key_id}}",
+    "ca_cert_id": "{{ca_cert_id}}",
+    "validity_days": 365,
+    "auto_renew": true,
+    "renewal_days": 30,
+    "tags": ["env:dev"]
+  }
+}
