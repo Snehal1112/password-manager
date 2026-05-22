@@ -2,16 +2,21 @@ package certificates
 
 import (
 	"context"
+	"encoding/base64"
 	"testing"
 	"time"
 
 	"github.com/google/uuid"
 	"github.com/sirupsen/logrus"
+	"github.com/spf13/viper"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
+	"github.com/stretchr/testify/require"
 
-	"rocketvault/model"
+	"rocketvault/common"
+	"rocketvault/internal/crypto"
 	"rocketvault/internal/logging"
+	"rocketvault/model"
 )
 
 // mockCertRepository is a minimal testify mock for CertificateRepositoryInterface.
@@ -192,4 +197,77 @@ func TestDeleteCertificateSoftDeletes(t *testing.T) {
 	certRepo.AssertCalled(t, "SoftDelete", mock.Anything, certID)
 	certRepo.AssertNotCalled(t, "Delete", mock.Anything, mock.Anything)
 	certRepo.AssertExpectations(t)
+}
+
+// TestRenewCertificate_Succeeds_WhenKeyIDSet verifies that RenewCertificate uses the KeyID
+// stored on the original certificate to create the renewed certificate.
+func TestRenewCertificate_Succeeds_WhenKeyIDSet(t *testing.T) {
+	// Configure AES master key required by common.EncryptSecret / DecryptSecret.
+	masterKeyBytes := make([]byte, 32)
+	for i := range masterKeyBytes {
+		masterKeyBytes[i] = byte(i + 1)
+	}
+	viper.Set("master_key", base64.StdEncoding.EncodeToString(masterKeyBytes))
+
+	userID := uuid.New()
+	certID := uuid.New()
+	keyID := uuid.New()
+
+	// Generate a real RSA private key and encrypt it as the service would store it.
+	privateKeyPEM, err := crypto.GenerateRSAKeyPEM(2048)
+	require.NoError(t, err)
+
+	encryptedKey, err := common.EncryptSecret(privateKeyPEM)
+	require.NoError(t, err)
+
+	existingCert := &model.Certificate{
+		ID:          certID,
+		UserID:      userID,
+		KeyID:       keyID,
+		Name:        "test-renew-cert",
+		CreatedAt:   time.Now().Add(-365 * 24 * time.Hour),
+		AutoRenew:   true,
+		RenewalDays: 30,
+	}
+
+	mockKey := &model.Key{
+		ID:     keyID,
+		UserID: userID,
+		Type:   model.KeyTypeRSA,
+		Value:  encryptedKey,
+	}
+
+	certRepo := &mockCertRepository{}
+	keyRepo := &mockKeyRepo{}
+
+	// GetCertificate calls Read internally.
+	certRepo.On("Read", mock.Anything, certID).Return(existingCert, nil)
+
+	// keyRepo.Read is called twice: once in ValidateKeyOwnership, once to get the key PEM.
+	keyRepo.On("Read", mock.Anything, keyID).Return(mockKey, nil)
+
+	// Capture the cert passed to Create so we can assert KeyID is propagated.
+	var createdCert *model.Certificate
+	certRepo.On("Create", mock.Anything, mock.AnythingOfType("*model.Certificate")).
+		Run(func(args mock.Arguments) {
+			createdCert = args.Get(1).(*model.Certificate)
+		}).
+		Return(nil)
+
+	logger := &logging.Logger{Logger: logrus.New()}
+	svc := NewCertificateService(CertificateServiceConfig{
+		CertificateRepository: certRepo,
+		KeyRepository:         keyRepo,
+		Logger:                logger,
+	})
+
+	result, err := svc.RenewCertificate(context.Background(), certID, userID, 365)
+	require.NoError(t, err)
+	assert.NotNil(t, result)
+
+	require.NotNil(t, createdCert, "certRepo.Create must have been called")
+	assert.Equal(t, keyID, createdCert.KeyID, "renewed certificate must carry the original KeyID")
+
+	certRepo.AssertExpectations(t)
+	keyRepo.AssertExpectations(t)
 }

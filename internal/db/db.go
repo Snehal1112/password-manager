@@ -329,6 +329,7 @@ func (d *DBRepository) createOptimizedSchema(db *sql.DB) error {
 		CREATE TABLE IF NOT EXISTS certificates (
 			id TEXT PRIMARY KEY,
 			user_id TEXT NOT NULL,
+			key_id TEXT NOT NULL DEFAULT '',
 			name TEXT NOT NULL,
 			certificate TEXT NOT NULL,
 			private_key TEXT NOT NULL,
@@ -542,6 +543,8 @@ func (d *DBRepository) migrateSchema(db *sql.DB) error {
 		"ALTER TABLE certificates ADD COLUMN deleted_at TIMESTAMP NULL",
 		"ALTER TABLE certificates ADD COLUMN purge_protection BOOLEAN NOT NULL DEFAULT FALSE",
 		"ALTER TABLE certificates ADD COLUMN scheduled_purge_at TIMESTAMP NULL",
+		// Bug fix: key_id column missing from certificates
+		"ALTER TABLE certificates ADD COLUMN key_id TEXT NOT NULL DEFAULT ''",
 		// Feature: certificate auto-renewal
 		"ALTER TABLE certificates ADD COLUMN expires_at DATETIME",
 		"ALTER TABLE certificates ADD COLUMN auto_renew BOOLEAN NOT NULL DEFAULT FALSE",

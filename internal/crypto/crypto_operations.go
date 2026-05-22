@@ -7,6 +7,7 @@ import (
 	"crypto/ecdsa"
 	"crypto/rand"
 	"crypto/rsa"
+	"crypto/sha1"
 	"crypto/sha256"
 	"crypto/sha512"
 	"encoding/base64"
@@ -33,8 +34,11 @@ const (
 type EncryptionAlgorithm string
 
 const (
-	AlgorithmRSAOAEP EncryptionAlgorithm = "RSA-OAEP"   // RSA-OAEP with SHA-256
-	AlgorithmAES256  EncryptionAlgorithm = "AES256-GCM" // AES-256-GCM
+	// AlgorithmRSAOAEP uses RSA-OAEP with SHA-1 — matches Azure SDK default "RSA-OAEP".
+	AlgorithmRSAOAEP    EncryptionAlgorithm = "RSA-OAEP"
+	// AlgorithmRSAOAEP256 uses RSA-OAEP with SHA-256 — matches Azure "RSA-OAEP-256".
+	AlgorithmRSAOAEP256 EncryptionAlgorithm = "RSA-OAEP-256"
+	AlgorithmAES256     EncryptionAlgorithm = "AES256-GCM" // AES-256-GCM
 )
 
 // SignResult contains the signature and metadata.
@@ -183,12 +187,12 @@ func (c *CryptoOperations) Verify(publicKeyPEM string, keyType string, data []by
 }
 
 // Encrypt encrypts data using the specified algorithm.
-// For RSA: uses RSA-OAEP with SHA-256.
-// For symmetric: uses AES-256-GCM.
 func (c *CryptoOperations) Encrypt(keyData string, data []byte, algorithm EncryptionAlgorithm) (*EncryptResult, error) {
 	switch algorithm {
 	case AlgorithmRSAOAEP:
-		return c.encryptRSA(keyData, data)
+		return c.encryptRSAOAEP(keyData, data, false) // SHA-1
+	case AlgorithmRSAOAEP256:
+		return c.encryptRSAOAEP(keyData, data, true) // SHA-256
 	case AlgorithmAES256:
 		return c.encryptAES(keyData, data)
 	default:
@@ -200,7 +204,9 @@ func (c *CryptoOperations) Encrypt(keyData string, data []byte, algorithm Encryp
 func (c *CryptoOperations) Decrypt(keyData string, ciphertext []byte, nonce []byte, algorithm EncryptionAlgorithm) (*DecryptResult, error) {
 	switch algorithm {
 	case AlgorithmRSAOAEP:
-		return c.decryptRSA(keyData, ciphertext)
+		return c.decryptRSAOAEP(keyData, ciphertext, false) // SHA-1
+	case AlgorithmRSAOAEP256:
+		return c.decryptRSAOAEP(keyData, ciphertext, true) // SHA-256
 	case AlgorithmAES256:
 		return c.decryptAES(keyData, ciphertext, nonce)
 	default:
@@ -208,50 +214,60 @@ func (c *CryptoOperations) Decrypt(keyData string, ciphertext []byte, nonce []by
 	}
 }
 
-// encryptRSA encrypts data using RSA-OAEP.
-func (c *CryptoOperations) encryptRSA(privateKeyPEM string, data []byte) (*EncryptResult, error) {
+// encryptRSAOAEP encrypts data using RSA-OAEP.
+// useSHA256=false uses SHA-1 (matches Azure "RSA-OAEP").
+// useSHA256=true  uses SHA-256 (matches Azure "RSA-OAEP-256").
+func (c *CryptoOperations) encryptRSAOAEP(privateKeyPEM string, data []byte, useSHA256 bool) (*EncryptResult, error) {
 	privateKey, err := ParsePrivateKey(privateKeyPEM, "RSA")
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse RSA key: %w", err)
 	}
-
 	rsaKey, ok := privateKey.(*rsa.PrivateKey)
 	if !ok {
 		return nil, fmt.Errorf("invalid RSA private key")
 	}
 
-	ciphertext, err := rsa.EncryptOAEP(sha256.New(), rand.Reader, &rsaKey.PublicKey, data, nil)
-	if err != nil {
-		return nil, fmt.Errorf("RSA encryption failed: %w", err)
+	var h hash.Hash
+	algo := AlgorithmRSAOAEP
+	if useSHA256 {
+		h = sha256.New()
+		algo = AlgorithmRSAOAEP256
+	} else {
+		h = sha1.New()
 	}
 
-	return &EncryptResult{
-		Ciphertext: ciphertext,
-		Algorithm:  AlgorithmRSAOAEP,
-	}, nil
+	ciphertext, err := rsa.EncryptOAEP(h, rand.Reader, &rsaKey.PublicKey, data, nil)
+	if err != nil {
+		return nil, fmt.Errorf("RSA-OAEP encryption failed: %w", err)
+	}
+	return &EncryptResult{Ciphertext: ciphertext, Algorithm: algo}, nil
 }
 
-// decryptRSA decrypts data using RSA-OAEP.
-func (c *CryptoOperations) decryptRSA(privateKeyPEM string, ciphertext []byte) (*DecryptResult, error) {
+// decryptRSAOAEP decrypts data using RSA-OAEP.
+func (c *CryptoOperations) decryptRSAOAEP(privateKeyPEM string, ciphertext []byte, useSHA256 bool) (*DecryptResult, error) {
 	privateKey, err := ParsePrivateKey(privateKeyPEM, "RSA")
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse RSA key: %w", err)
 	}
-
 	rsaKey, ok := privateKey.(*rsa.PrivateKey)
 	if !ok {
 		return nil, fmt.Errorf("invalid RSA private key")
 	}
 
-	plaintext, err := rsa.DecryptOAEP(sha256.New(), rand.Reader, rsaKey, ciphertext, nil)
-	if err != nil {
-		return nil, fmt.Errorf("RSA decryption failed: %w", err)
+	var h hash.Hash
+	algo := AlgorithmRSAOAEP
+	if useSHA256 {
+		h = sha256.New()
+		algo = AlgorithmRSAOAEP256
+	} else {
+		h = sha1.New()
 	}
 
-	return &DecryptResult{
-		Plaintext: plaintext,
-		Algorithm: AlgorithmRSAOAEP,
-	}, nil
+	plaintext, err := rsa.DecryptOAEP(h, rand.Reader, rsaKey, ciphertext, nil)
+	if err != nil {
+		return nil, fmt.Errorf("RSA-OAEP decryption failed: %w", err)
+	}
+	return &DecryptResult{Plaintext: plaintext, Algorithm: algo}, nil
 }
 
 // encryptAES encrypts data using AES-256-GCM.

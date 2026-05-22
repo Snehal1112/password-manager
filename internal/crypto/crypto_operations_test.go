@@ -201,7 +201,7 @@ func TestRSADataSizeLimits(t *testing.T) {
 	require.NoError(t, err)
 
 	// RSA-OAEP can encrypt up to (key_size - 2*hash_size - 2) bytes
-	// For 2048-bit key with SHA-256: 2048/8 - 2*32 - 2 = 190 bytes max
+	// For 2048-bit key with SHA-1: 2048/8 - 2*20 - 2 = 214 bytes max
 	largeData := make([]byte, 190)
 
 	// Should work with data at the limit
@@ -265,4 +265,48 @@ func BenchmarkAESEncrypt(b *testing.B) {
 	for i := 0; i < b.N; i++ {
 		_, _ = ops.Encrypt(keyBase64, testData, AlgorithmAES256)
 	}
+}
+
+func TestRSAOAEP_SHA1_RoundTrip(t *testing.T) {
+	ops := NewCryptoOperations()
+	pemKey, err := GenerateRSAKeyPEM(2048)
+	require.NoError(t, err)
+	plaintext := []byte("secret payload for SHA-1 OAEP")
+
+	enc, err := ops.Encrypt(pemKey, plaintext, AlgorithmRSAOAEP)
+	require.NoError(t, err)
+	assert.Equal(t, AlgorithmRSAOAEP, enc.Algorithm)
+
+	dec, err := ops.Decrypt(pemKey, enc.Ciphertext, nil, AlgorithmRSAOAEP)
+	require.NoError(t, err)
+	assert.Equal(t, plaintext, dec.Plaintext)
+}
+
+func TestRSAOAEP256_SHA256_RoundTrip(t *testing.T) {
+	ops := NewCryptoOperations()
+	pemKey, err := GenerateRSAKeyPEM(2048)
+	require.NoError(t, err)
+	plaintext := []byte("secret payload for SHA-256 OAEP")
+
+	enc, err := ops.Encrypt(pemKey, plaintext, AlgorithmRSAOAEP256)
+	require.NoError(t, err)
+	assert.Equal(t, AlgorithmRSAOAEP256, enc.Algorithm)
+
+	dec, err := ops.Decrypt(pemKey, enc.Ciphertext, nil, AlgorithmRSAOAEP256)
+	require.NoError(t, err)
+	assert.Equal(t, plaintext, dec.Plaintext)
+}
+
+func TestRSAOAEP_And_RSAOAEP256_Are_Not_Interchangeable(t *testing.T) {
+	ops := NewCryptoOperations()
+	pemKey, err := GenerateRSAKeyPEM(2048)
+	require.NoError(t, err)
+	plaintext := []byte("cross-algorithm test")
+
+	enc, err := ops.Encrypt(pemKey, plaintext, AlgorithmRSAOAEP)
+	require.NoError(t, err)
+
+	// SHA-256 path cannot decrypt what SHA-1 path encrypted
+	_, err = ops.Decrypt(pemKey, enc.Ciphertext, nil, AlgorithmRSAOAEP256)
+	assert.Error(t, err)
 }

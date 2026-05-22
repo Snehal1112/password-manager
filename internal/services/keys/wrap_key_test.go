@@ -117,6 +117,41 @@ func TestWrapAndUnwrapKey(t *testing.T) {
 	assert.Equal(t, plaintext, unwrapResult.PlaintextKey)
 }
 
+func TestWrapAndUnwrapKey_OAEP256(t *testing.T) {
+	setupWrapTestMasterKey()
+	privateKeyPEM := generateTestRSAPEM(t)
+	encryptedPEM, err := common.EncryptSecret(privateKeyPEM)
+	require.NoError(t, err)
+
+	userID := uuid.New()
+	keyID := uuid.New()
+	vaultKey := &model.Key{
+		ID: keyID, UserID: userID, Type: "RSA", Value: encryptedPEM, Revoked: false,
+	}
+
+	repo := &mockKeyRepoForWrap{}
+	repo.On("Read", mock.Anything, keyID).Return(vaultKey, nil)
+
+	svc := keys.NewCryptoService(keys.CryptoServiceConfig{
+		KeyRepository: repo,
+		Logger:        &logging.Logger{Logger: logrus.New()},
+	})
+
+	dek := []byte("32-byte-data-encryption-key-here")
+
+	wrapResult, err := svc.WrapKey(context.Background(), keys.WrapKeyRequest{
+		KeyID: keyID, UserID: userID, PlaintextKey: dek, Algorithm: "RSA-OAEP-256",
+	})
+	require.NoError(t, err)
+	assert.Equal(t, "RSA-OAEP-256", wrapResult.Algorithm)
+
+	unwrapResult, err := svc.UnwrapKey(context.Background(), keys.UnwrapKeyRequest{
+		KeyID: keyID, UserID: userID, WrappedKey: wrapResult.WrappedKey, Algorithm: "RSA-OAEP-256",
+	})
+	require.NoError(t, err)
+	assert.Equal(t, dek, unwrapResult.PlaintextKey)
+}
+
 func TestWrapKeyForbiddenForWrongUser(t *testing.T) {
 	setupWrapTestMasterKey()
 	privateKeyPEM := generateTestRSAPEM(t)
