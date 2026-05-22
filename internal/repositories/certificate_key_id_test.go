@@ -12,13 +12,12 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"rocketvault/model"
 	"rocketvault/internal/logging"
 	"rocketvault/internal/repositories"
+	"rocketvault/model"
 )
 
-// setupCertRenewalTestDB creates an in-memory SQLite DB with the renewal columns.
-func setupCertRenewalTestDB(t *testing.T) *sql.DB {
+func setupCertKeyIDTestDB(t *testing.T) *sql.DB {
 	t.Helper()
 	db, err := sql.Open("sqlite3", ":memory:")
 	require.NoError(t, err)
@@ -46,23 +45,24 @@ func setupCertRenewalTestDB(t *testing.T) *sql.DB {
 	return db
 }
 
-// TestCertificateRepositoryRenewalFields verifies that renewal fields are persisted and read back correctly.
-func TestCertificateRepositoryRenewalFields(t *testing.T) {
-	db := setupCertRenewalTestDB(t)
+// TestCertificateRepository_KeyID_Persisted verifies that a non-nil KeyID round-trips
+// through Create and Read without corruption.
+func TestCertificateRepository_KeyID_Persisted(t *testing.T) {
+	db := setupCertKeyIDTestDB(t)
 	log := logging.InitLogger()
 	repo := repositories.NewCertificateRepository(db, log)
 
-	expires := time.Now().Add(90 * 24 * time.Hour).UTC().Truncate(time.Second)
+	keyID := uuid.New()
 	cert := &model.Certificate{
 		ID:          uuid.New(),
 		UserID:      uuid.New(),
-		Name:        "test-cert",
-		Certificate: "PEM",
-		PrivateKey:  "ENCRYPTED",
-		CreatedAt:   time.Now().UTC(),
-		ExpiresAt:   &expires,
-		AutoRenew:   true,
-		RenewalDays: 14,
+		KeyID:       keyID,
+		Name:        "key-id-test-cert",
+		Certificate: "-----BEGIN CERTIFICATE-----\nMIItest\n-----END CERTIFICATE-----",
+		PrivateKey:  "encrypted-private-key",
+		CreatedAt:   time.Now().UTC().Truncate(time.Second),
+		AutoRenew:   false,
+		RenewalDays: 30,
 	}
 
 	err := repo.Create(context.Background(), cert)
@@ -70,32 +70,33 @@ func TestCertificateRepositoryRenewalFields(t *testing.T) {
 
 	got, err := repo.Read(context.Background(), cert.ID)
 	require.NoError(t, err)
-	assert.True(t, got.AutoRenew)
-	assert.Equal(t, 14, got.RenewalDays)
-	require.NotNil(t, got.ExpiresAt)
-	assert.WithinDuration(t, expires, *got.ExpiresAt, time.Second)
+	assert.Equal(t, keyID, got.KeyID, "KeyID should round-trip through Create/Read")
 }
 
-// TestCertificateRepositoryListAll verifies that ListAll returns all non-deleted certificates.
-func TestCertificateRepositoryListAll(t *testing.T) {
-	db := setupCertRenewalTestDB(t)
+// TestCertificateRepository_KeyID_NilUUID verifies that a zero-value KeyID (uuid.Nil) is
+// stored as a valid UUID string and reads back as uuid.Nil.
+func TestCertificateRepository_KeyID_NilUUID(t *testing.T) {
+	db := setupCertKeyIDTestDB(t)
 	log := logging.InitLogger()
 	repo := repositories.NewCertificateRepository(db, log)
 
 	cert := &model.Certificate{
 		ID:          uuid.New(),
 		UserID:      uuid.New(),
-		Name:        "list-all-cert",
+		KeyID:       uuid.Nil, // zero value
+		Name:        "nil-key-id-cert",
 		Certificate: "PEM",
 		PrivateKey:  "ENCRYPTED",
 		CreatedAt:   time.Now().UTC(),
 		AutoRenew:   false,
 		RenewalDays: 30,
 	}
-	require.NoError(t, repo.Create(context.Background(), cert))
 
-	all, err := repo.ListAll(context.Background())
+	err := repo.Create(context.Background(), cert)
 	require.NoError(t, err)
-	assert.Len(t, all, 1)
-	assert.Equal(t, cert.ID, all[0].ID)
+
+	got, err := repo.Read(context.Background(), cert.ID)
+	require.NoError(t, err)
+	// uuid.Nil.String() == "00000000-0000-0000-0000-000000000000", which is valid — parses back to uuid.Nil
+	assert.Equal(t, uuid.Nil, got.KeyID)
 }
