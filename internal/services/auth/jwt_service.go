@@ -131,7 +131,7 @@ func (s *jwtService) ValidateToken(tokenString string) (*JWTClaims, error) {
 	claims := &JWTClaims{}
 
 	token, err := jwt.ParseWithClaims(tokenString, claims, func(token *jwt.Token) (interface{}, error) {
-		// Validate signing method.
+		// Validate signing method — prevents alg=none and RS→HS confusion attacks.
 		if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
 			s.logger.WithField("alg", token.Header["alg"]).Warn("Unexpected JWT signing method")
 			return nil, fmt.Errorf("unexpected signing method: %v", token.Header["alg"])
@@ -144,6 +144,22 @@ func (s *jwtService) ValidateToken(tokenString string) (*JWTClaims, error) {
 				"actual":   claims.Issuer,
 			}).Warn("JWT issuer mismatch")
 			return nil, fmt.Errorf("invalid issuer")
+		}
+
+		// Validate audience — RFC 7519 §4.1.3 MUST: reject tokens not intended for this server.
+		audValid := false
+		for _, a := range claims.Audience {
+			if a == s.audience {
+				audValid = true
+				break
+			}
+		}
+		if !audValid {
+			s.logger.WithFields(logrus.Fields{
+				"expected": s.audience,
+				"actual":   claims.Audience,
+			}).Warn("JWT audience mismatch")
+			return nil, fmt.Errorf("invalid audience")
 		}
 
 		return s.secretKey, nil
