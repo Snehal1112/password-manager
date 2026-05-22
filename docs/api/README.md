@@ -35,7 +35,8 @@ The following variables are used as path parameters — set them manually in the
 | `certificate_id` | certificates/get-certificate, update-certificate, delete-certificate |
 | `policy_id` | access-policies/get-policy, update-policy, delete-policy |
 | `principal_id` | access-policies/list-by-principal |
-| `service_account_id` | oauth2/get, delete, rotate service account |
+| `service_account_id` | service-accounts/get, delete, rotate service account |
+| `ca_cert_id` | certificates/create-certificate-ca-signed |
 | `session_id` | users/revoke-session |
 | `version` | secrets/get-version |
 | `client_id` | oauth2/token |
@@ -44,14 +45,18 @@ The following variables are used as path parameters — set them manually in the
 ## Collection Structure
 
 ```
-auth/           Login and token refresh
-users/          User CRUD + session management
-secrets/        Secret CRUD + generate, export, import, versioning
-keys/           Key CRUD + rotate, wrap, unwrap
-certificates/   Certificate CRUD
-access-policies/ Policy CRUD + list by principal
-soft-delete/    List, restore, purge for secrets/keys/certificates
-oauth2/         OAuth2 token endpoint + service account management
+auth/              Login and token refresh
+users/             User CRUD + session management
+secrets/           Secret CRUD + generate, export, import, versioning
+keys/              Key CRUD + rotate, wrap, unwrap
+certificates/      Certificate CRUD (self-signed and CA-signed)
+access-policies/   Policy CRUD + list by principal
+soft-delete/       List, restore, purge for secrets/keys/certificates
+service-accounts/  Service account CRUD + secret rotation
+oauth2/            OAuth2 token endpoint (client_credentials grant)
+health/            Health, readiness, and liveness checks
+jwks/              JWKS public key set + rotation (admin)
+config/            Public frontend configuration endpoint
 ```
 
 ## Running the server locally
