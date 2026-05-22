@@ -1,0 +1,15 @@
+meta {
+  name: Rotate JWKS
+  type: http
+  seq: 2
+}
+
+post {
+  url: {{base_url}}/api/v1/jwks/rotate
+  body: none
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{token}}
+}
