@@ -32,8 +32,9 @@ import (
 
 	"github.com/google/uuid"
 
-	"rocketvault/model"
 	"rocketvault/internal/services/secrets"
+	vvalidation "rocketvault/internal/validation"
+	"rocketvault/model"
 )
 
 // InitSecrets initializes the routes for secrets management API.
@@ -339,6 +340,16 @@ func createSecret(c *Context, w http.ResponseWriter, r *http.Request) {
 	}
 	if req.Value == "" {
 		c.SetInvalidParam("value is required")
+		return
+	}
+
+	// Validate name format, value size, and tag limits.
+	if err := vvalidation.ValidateSecretCreate(vvalidation.SecretCreateRequest{
+		Name:  req.Name,
+		Value: req.Value,
+		Tags:  req.Tags,
+	}); err != nil {
+		c.SetInvalidParam(err.Error())
 		return
 	}
 

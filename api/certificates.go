@@ -30,8 +30,9 @@ import (
 	"github.com/google/uuid"
 
 	"rocketvault/common"
-	"rocketvault/model"
 	certServices "rocketvault/internal/services/certificates"
+	vvalidation "rocketvault/internal/validation"
+	"rocketvault/model"
 )
 
 // CreateCertificateAPIRequest is the HTTP request body for POST /certificates.
@@ -121,6 +122,15 @@ func createCertificate(c *Context, w http.ResponseWriter, r *http.Request) {
 
 	if req.Name == "" || req.KeyID == "" || req.ValidityDays <= 0 {
 		c.SetInvalidParam("name, key_id, and validity_days are required")
+		return
+	}
+
+	// Validate name format and tag limits.
+	if err := vvalidation.ValidateCertificateCreate(vvalidation.CertificateCreateRequest{
+		Name: req.Name,
+		Tags: req.Tags,
+	}); err != nil {
+		c.SetInvalidParam(err.Error())
 		return
 	}
 

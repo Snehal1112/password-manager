@@ -32,8 +32,9 @@ import (
 	"github.com/google/uuid"
 
 	"rocketvault/common"
-	"rocketvault/model"
 	keyservices "rocketvault/internal/services/keys"
+	vvalidation "rocketvault/internal/validation"
+	"rocketvault/model"
 )
 
 // CreateKeyRequest represents the request structure for creating a cryptographic key.
@@ -143,6 +144,18 @@ func createKey(c *Context, w http.ResponseWriter, r *http.Request) {
 	req.Type = strings.ToUpper(req.Type)
 	if req.Type != "RSA" && req.Type != "ECDSA" {
 		c.SetInvalidParam("type: must be RSA or ECDSA")
+		return
+	}
+
+	// Validate name format and tag limits.
+	if err := vvalidation.ValidateKeyCreate(vvalidation.KeyCreateRequest{
+		Name:  req.Name,
+		Type:  req.Type,
+		Bits:  req.Bits,
+		Curve: req.Curve,
+		Tags:  req.Tags,
+	}); err != nil {
+		c.SetInvalidParam(err.Error())
 		return
 	}
 
