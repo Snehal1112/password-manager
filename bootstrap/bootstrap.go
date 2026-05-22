@@ -249,6 +249,18 @@ func (b *bootstrap) setup(ctx context.Context, cfg *Config) error {
 }
 
 
+// buildServerConfigFromViper reads server TLS and feature configuration from Viper.
+func buildServerConfigFromViper() server.ServerConfig {
+	return server.ServerConfig{
+		EnableHTTP2:     viper.GetBool("server.http2.enabled"),
+		EnableTLS:       viper.GetBool("server.tls.enabled"),
+		CertFile:        viper.GetString("server.tls.cert_file"),
+		KeyFile:         viper.GetString("server.tls.key_file"),
+		EnableWebSocket: false,
+		MaxConnections:  1000,
+	}
+}
+
 // createApplication creates the main application instance with injected dependencies.
 // This method follows SRP by handling only application instance creation.
 func (b *bootstrap) createApplication(cfg *Config) (*app.App, error) {
@@ -260,12 +272,13 @@ func (b *bootstrap) createApplication(cfg *Config) (*app.App, error) {
 		SentryDSN:    viper.GetString("frontend.sentry_dsn"),
 	}
 
+	serverCfg := buildServerConfigFromViper()
 	application := app.NewApp(
 		app.WithDBName(cfg.DatabaseName),
 		app.WithBasePath(cfg.BasePath),
 		app.WithBackendEndPoint(cfg.BackendEndPoint),
 		app.WithLogger(b.cfg.Logger),
-		app.WithServer(server.NewDefaultServer(b.cfg.Logger, cfg.Listen)),
+		app.WithServer(server.NewServer(b.cfg.Logger, cfg.Listen, serverCfg)),
 		app.WithServiceContainer(b.serviceContainer),
 		app.WithSchedulerEnabled(true, 1*time.Hour), // Enable scheduler with 1-hour interval.
 		app.WithFrontendConfig(fc),
