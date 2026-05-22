@@ -15,6 +15,7 @@ import (
 	"rocketvault/model"
 	"rocketvault/internal/logging"
 	"rocketvault/internal/repositories"
+	"rocketvault/internal/signing"
 	authServices "rocketvault/internal/services/auth"
 	authzServices "rocketvault/internal/services/authorization"
 	certServices "rocketvault/internal/services/certificates"
@@ -261,6 +262,11 @@ func (m *MockServiceContainer) GetCacheConfig() *cache.CacheConfig {
 
 // Retry service getter
 func (m *MockServiceContainer) GetRetryService() retryServices.RetryService {
+	return nil
+}
+
+// GetSigningProvider returns nil — signing provider is not used in CLI tests.
+func (m *MockServiceContainer) GetSigningProvider() signing.SigningKeyProvider {
 	return nil
 }
 

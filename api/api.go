@@ -104,12 +104,13 @@ func Init(options ...Options) *API {
 	api.InitDeleted()
 	api.InitAccessPolicies()
 	api.InitOAuth2()
+	api.InitJWKS()
 
 	// Catch-all 404 for unmatched routes.
 	api.rootRouter.NotFoundHandler = http.HandlerFunc(Handle404)
 
 	names := []string{"Vault", "Secrets", "Users", "Keys", "Certificates",
-		"Health", "Config", "Deleted", "AccessPolicies", "ServiceAccounts", "OAuth2"}
+		"Health", "Config", "Deleted", "AccessPolicies", "ServiceAccounts", "OAuth2", "JWKS"}
 	api.Logger.WithField("api", strings.Join(names, ",")).Infoln("Initialized api")
 	return api
 }

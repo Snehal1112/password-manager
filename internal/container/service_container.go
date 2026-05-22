@@ -14,6 +14,7 @@ import (
 	"rocketvault/internal/cache"
 	"rocketvault/internal/logging"
 	"rocketvault/internal/repositories"
+	"rocketvault/internal/signing"
 	authServices "rocketvault/internal/services/auth"
 	authzServices "rocketvault/internal/services/authorization"
 	certServices "rocketvault/internal/services/certificates"
@@ -83,6 +84,9 @@ type ServiceContainerInterface interface {
 	// Retry service getters
 	GetRetryService() retryServices.RetryService
 
+	// Signing provider getter
+	GetSigningProvider() signing.SigningKeyProvider
+
 	// Lifecycle management
 	Close() error
 }
@@ -146,6 +150,9 @@ type ServiceContainer struct {
 
 	// Retry services
 	retryService retryServices.RetryService
+
+	// JWT signing provider
+	signingProvider signing.SigningKeyProvider
 }
 
 // Config holds configuration for the service container.
@@ -242,22 +249,44 @@ func (c *ServiceContainer) initializeServices() error {
 	c.passwordService = authServices.NewPasswordService()
 	c.totpService = authServices.NewTOTPService()
 
+	// Initialize cryptography service early — needed by SelfPKIProvider.
+	c.cryptoService = secretServices.NewCryptographyService()
+
+	// Initialize JWT signing provider.
+	signingDeps := signing.ProviderDeps{
+		CryptoService: c.cryptoService,
+		KeyRepository: c.keyRepository,
+	}
+	provider, err := signing.NewProvider(viperCfg, signingDeps)
+	if err != nil {
+		c.logger.WithError(err).Warn("Failed to initialise asymmetric JWT signing provider, falling back to HS256")
+		provider = nil
+	}
+	c.signingProvider = provider
+
 	// Initialize JWT service with configuration.
 	jwtExpiry := viperCfg.GetDuration("jwt.expiry")
 	if jwtExpiry == 0 {
 		jwtExpiry = time.Hour // Default to 1 hour.
 	}
 	jwtConfig := authServices.JWTConfig{
-		SecretKey: viperCfg.GetString("jwt_secret"),
-		Issuer:    viperCfg.GetString("oauth2.issuer"),
-		Audience:  "PASSWORD_MANAGER",
-		Expiry:    jwtExpiry,
-		Logger:    c.logger.Logger, // Inject the underlying *logrus.Logger.
+		SecretKey:       viperCfg.GetString("jwt_secret"),
+		Issuer:          viperCfg.GetString("oauth2.issuer"),
+		Audience:        "PASSWORD_MANAGER",
+		Expiry:          jwtExpiry,
+		MigrationWindow: viperCfg.GetDuration("jwt.migration_window"),
+		Logger:          c.logger.Logger,
 	}
-	if jwtConfig.SecretKey == "" {
-		return fmt.Errorf("JWT secret not configured")
+
+	if provider != nil {
+		c.jwtService = authServices.NewJWTServiceWithProvider(jwtConfig, provider)
+	} else {
+		// Asymmetric provider unavailable — fall back to legacy HS256.
+		if jwtConfig.SecretKey == "" {
+			return fmt.Errorf("JWT secret not configured and asymmetric provider unavailable")
+		}
+		c.jwtService = authServices.NewJWTService(jwtConfig)
 	}
-	c.jwtService = authServices.NewJWTService(jwtConfig)
 
 	// Initialize authentication service
 	baseAuthService := authServices.NewAuthenticationService(authServices.AuthenticationConfig{
@@ -311,8 +340,7 @@ func (c *ServiceContainer) initializeServices() error {
 		c.userService = baseUserService
 	}
 
-	// Initialize secret component services
-	c.cryptoService = secretServices.NewCryptographyService()
+	// Initialize secret component services (cryptoService already initialised above).
 	c.versioningService = secretServices.NewVersioningService(
 		c.versionRepository,
 		c.secretRepository,
@@ -557,6 +585,11 @@ func (c *ServiceContainer) GetCachedSecretService() secrets.SecretService {
 // GetRetryService returns the retry service for handling retry logic.
 func (c *ServiceContainer) GetRetryService() retryServices.RetryService {
 	return c.retryService
+}
+
+// GetSigningProvider returns the JWT signing key provider.
+func (c *ServiceContainer) GetSigningProvider() signing.SigningKeyProvider {
+	return c.signingProvider
 }
 
 // Close closes the service container and cleans up resources.
