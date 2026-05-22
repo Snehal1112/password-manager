@@ -23,7 +23,7 @@ type JWTClaims struct {
 
 // JWTService handles JWT token creation and validation operations.
 type JWTService interface {
-	GenerateToken(userID uuid.UUID, username, role string) (string, error)
+	GenerateToken(userID uuid.UUID, username, role string, sessionID uuid.UUID) (string, error)
 	ValidateToken(tokenString string) (*JWTClaims, error)
 	ParseToken(tokenString string) (*JWTClaims, error)
 }
@@ -98,14 +98,14 @@ func NewJWTService(config JWTConfig) JWTService {
 }
 
 // GenerateToken signs a new JWT using the asymmetric provider (RS256 or ES256).
-func (s *jwtService) GenerateToken(userID uuid.UUID, username, role string) (string, error) {
+func (s *jwtService) GenerateToken(userID uuid.UUID, username, role string, sessionID uuid.UUID) (string, error) {
 	now := time.Now()
 	claims := JWTClaims{
 		UserID:   userID,
 		Username: username,
 		Role:     role,
 		RegisteredClaims: jwt.RegisteredClaims{
-			ID:        uuid.New().String(),
+			ID:        sessionID.String(),
 			ExpiresAt: jwt.NewNumericDate(now.Add(s.expiry)),
 			IssuedAt:  jwt.NewNumericDate(now),
 			NotBefore: jwt.NewNumericDate(now),
@@ -249,13 +249,14 @@ func (s *jwtService) ParseToken(tokenString string) (*JWTClaims, error) {
 
 // --- legacyJWTService (HS256 only) ---
 
-func (s *legacyJWTService) GenerateToken(userID uuid.UUID, username, role string) (string, error) {
+func (s *legacyJWTService) GenerateToken(userID uuid.UUID, username, role string, sessionID uuid.UUID) (string, error) {
 	now := time.Now()
 	claims := JWTClaims{
 		UserID:   userID,
 		Username: username,
 		Role:     role,
 		RegisteredClaims: jwt.RegisteredClaims{
+			ID:        sessionID.String(),
 			ExpiresAt: jwt.NewNumericDate(now.Add(s.expiry)),
 			IssuedAt:  jwt.NewNumericDate(now),
 			NotBefore: jwt.NewNumericDate(now),

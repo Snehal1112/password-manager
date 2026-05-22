@@ -108,8 +108,8 @@ type MockJWTService struct {
 	mock.Mock
 }
 
-func (m *MockJWTService) GenerateToken(userID uuid.UUID, username, role string) (string, error) {
-	args := m.Called(userID, username, role)
+func (m *MockJWTService) GenerateToken(userID uuid.UUID, username, role string, sessionID uuid.UUID) (string, error) {
+	args := m.Called(userID, username, role, sessionID)
 	return args.String(0), args.Error(1)
 }
 
@@ -218,8 +218,8 @@ func TestAuthenticationService_AuthenticateUser_Success(t *testing.T) {
 	mockUserRepo.On("ReadByUsername", ctx, "testuser").Return(user, nil)
 	mockPasswordService.On("ValidatePassword", "password123", "hashedpassword").Return(nil)
 	mockTOTPService.On("ValidateCode", "123456", "secret123", mock.AnythingOfType("time.Time")).Return(true, nil)
-	mockJWTService.On("GenerateToken", userID, "testuser", model.RoleUser).Return("jwt_token", nil)
 	mockSessionRepo.On("CreateSession", ctx, mock.AnythingOfType("*model.Session")).Return(nil)
+	mockJWTService.On("GenerateToken", userID, "testuser", model.RoleUser, mock.AnythingOfType("uuid.UUID")).Return("jwt_token", nil)
 
 	// Create service
 	service := NewAuthenticationService(AuthenticationConfig{

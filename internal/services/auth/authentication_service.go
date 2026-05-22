@@ -140,14 +140,6 @@ func (s *authenticationService) AuthenticateUser(ctx context.Context, username, 
 		return nil, fmt.Errorf("invalid TOTP code")
 	}
 
-	// Generate access token (short-lived)
-	accessToken, err := s.jwtService.GenerateToken(user.ID, user.Username, user.Role)
-	if err != nil {
-		s.logger.LogAuditError(user.ID.String(), "authenticate_user", "failed", "Failed to generate JWT token", err)
-		s.logger.WithError(err).Error("Failed to generate JWT token")
-		return nil, fmt.Errorf("authentication failed: %w", err)
-	}
-
 	// Generate refresh token (long-lived)
 	refreshToken, err := s.generateRefreshToken()
 	if err != nil {
@@ -156,14 +148,14 @@ func (s *authenticationService) AuthenticateUser(ctx context.Context, username, 
 		return nil, fmt.Errorf("authentication failed: %w", err)
 	}
 
-	// Create session in database
+	// Create session in database first so we have a session.ID for the JWT jti.
 	session := &model.Session{
 		ID:               uuid.New(),
 		UserID:           user.ID,
 		RefreshTokenHash: s.hashRefreshToken(refreshToken),
-		DeviceInfo:       "", // Can be populated from request context
-		IPAddress:        "", // Can be populated from request context
-		UserAgent:        "", // Can be populated from request context
+		DeviceInfo:       "", // Can be populated from request context.
+		IPAddress:        "", // Can be populated from request context.
+		UserAgent:        "", // Can be populated from request context.
 		ExpiresAt:        time.Now().Add(7 * 24 * time.Hour), // 7 days
 		LastUsedAt:       time.Now(),
 		CreatedAt:        time.Now(),
@@ -173,6 +165,14 @@ func (s *authenticationService) AuthenticateUser(ctx context.Context, username, 
 	if err := s.sessionRepo.CreateSession(ctx, session); err != nil {
 		s.logger.LogAuditError(user.ID.String(), "authenticate_user", "failed", "Failed to create session", err)
 		s.logger.WithError(err).Error("Failed to create session")
+		return nil, fmt.Errorf("authentication failed: %w", err)
+	}
+
+	// Generate access token (short-lived) with session.ID as jti for revocation checks.
+	accessToken, err := s.jwtService.GenerateToken(user.ID, user.Username, user.Role, session.ID)
+	if err != nil {
+		s.logger.LogAuditError(user.ID.String(), "authenticate_user", "failed", "Failed to generate JWT token", err)
+		s.logger.WithError(err).Error("Failed to generate JWT token")
 		return nil, fmt.Errorf("authentication failed: %w", err)
 	}
 
@@ -213,8 +213,22 @@ func (s *authenticationService) ValidateSession(ctx context.Context, token strin
 		return nil, fmt.Errorf("invalid session: %w", err)
 	}
 
-	// Additional session validation could be added here
-	// (e.g., check if user is still active, check token revocation list)
+	// Check revocation using the session ID embedded in the JWT jti claim.
+	sessionID, err := uuid.Parse(claims.ID)
+	if err != nil {
+		s.logger.LogAuditError(claims.UserID.String(), "validate_session", "failed", "JWT jti is not a valid UUID", err)
+		return nil, fmt.Errorf("invalid session: malformed jti")
+	}
+
+	revoked, err := s.sessionRepo.IsSessionRevoked(ctx, sessionID)
+	if err != nil {
+		s.logger.LogAuditError(claims.UserID.String(), "validate_session", "failed", "Could not check session revocation", err)
+		return nil, fmt.Errorf("invalid session: revocation check failed")
+	}
+	if revoked {
+		s.logger.LogAuditError(claims.UserID.String(), "validate_session", "failed", "Session is revoked", nil)
+		return nil, fmt.Errorf("session revoked")
+	}
 
 	s.logger.LogAuditInfo(claims.UserID.String(), "validate_session", "success", "Session validated successfully")
 	return claims, nil
@@ -268,8 +282,8 @@ func (s *authenticationService) RefreshAccessToken(ctx context.Context, refreshT
 		return nil, fmt.Errorf("user not found")
 	}
 
-	// Generate new access token
-	accessToken, err := s.jwtService.GenerateToken(user.ID, user.Username, user.Role)
+	// Generate new access token with the existing session.ID as jti.
+	accessToken, err := s.jwtService.GenerateToken(user.ID, user.Username, user.Role, session.ID)
 	if err != nil {
 		s.logger.LogAuditError(user.ID.String(), "refresh_access_token", "failed", "Failed to generate access token", err)
 		s.logger.WithError(err).Error("Token refresh failed: could not generate access token")

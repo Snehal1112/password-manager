@@ -58,7 +58,8 @@ func TestJWTService_Provider_GenerateAndValidate_ES256(t *testing.T) {
 	svc := newProviderJWT(t)
 
 	userID := uuid.New()
-	token, err := svc.GenerateToken(userID, "alice", "admin")
+	sessionID := uuid.New()
+	token, err := svc.GenerateToken(userID, "alice", "admin", sessionID)
 	require.NoError(t, err)
 	require.NotEmpty(t, token)
 
@@ -67,6 +68,7 @@ func TestJWTService_Provider_GenerateAndValidate_ES256(t *testing.T) {
 	assert.Equal(t, userID, claims.UserID)
 	assert.Equal(t, "alice", claims.Username)
 	assert.Equal(t, "admin", claims.Role)
+	assert.Equal(t, sessionID.String(), claims.ID, "jti must match the session ID")
 }
 
 func TestJWTService_Provider_ExpiredToken_Rejected(t *testing.T) {
@@ -75,7 +77,7 @@ func TestJWTService_Provider_ExpiredToken_Rejected(t *testing.T) {
 	})
 
 	userID := uuid.New()
-	token, err := svc.GenerateToken(userID, "bob", "user")
+	token, err := svc.GenerateToken(userID, "bob", "user", uuid.New())
 	require.NoError(t, err)
 
 	time.Sleep(2 * time.Millisecond)
@@ -94,7 +96,7 @@ func TestJWTService_Provider_HS256Fallback_ActiveWindow(t *testing.T) {
 		Expiry:    time.Hour,
 	})
 	userID := uuid.New()
-	hs256Token, err := legacySvc.GenerateToken(userID, "carol", "user")
+	hs256Token, err := legacySvc.GenerateToken(userID, "carol", "user", uuid.New())
 	require.NoError(t, err)
 
 	// Provider service with a 1-hour migration window should accept the HS256 token.
@@ -116,7 +118,7 @@ func TestJWTService_Provider_HS256Fallback_ExpiredWindow_Rejected(t *testing.T) 
 		Expiry:    time.Hour,
 	})
 	userID := uuid.New()
-	hs256Token, err := legacySvc.GenerateToken(userID, "dave", "user")
+	hs256Token, err := legacySvc.GenerateToken(userID, "dave", "user", uuid.New())
 	require.NoError(t, err)
 
 	// Migration window of -1ns is already expired at construction.
@@ -141,7 +143,7 @@ func TestJWTService_Provider_UnknownKid_Rejected(t *testing.T) {
 	}, otherProvider)
 
 	userID := uuid.New()
-	token, err := otherSvc.GenerateToken(userID, "eve", "user")
+	token, err := otherSvc.GenerateToken(userID, "eve", "user", uuid.New())
 	require.NoError(t, err)
 
 	// Our service has a different kid — unknown-kid won't be in its PublicKeys().

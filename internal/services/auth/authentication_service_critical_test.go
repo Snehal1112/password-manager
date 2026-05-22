@@ -64,8 +64,10 @@ func TestValidateSession_HappyPath(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	userID := uuid.New()
+	sessionID := uuid.New()
 
 	claims := &JWTClaims{UserID: userID, Username: "alice", Role: model.RoleUser}
+	claims.ID = sessionID.String()
 
 	userRepo := &MockUserRepository{}
 	sessionRepo := &MockSessionRepository{}
@@ -74,6 +76,7 @@ func TestValidateSession_HappyPath(t *testing.T) {
 	jwt := &MockJWTService{}
 
 	jwt.On("ValidateToken", "good-token").Return(claims, nil)
+	sessionRepo.On("IsSessionRevoked", ctx, sessionID).Return(false, nil)
 
 	svc := newAuthService(userRepo, sessionRepo, pwd, totp, jwt)
 	got, err := svc.ValidateSession(ctx, "good-token")
@@ -126,7 +129,7 @@ func TestRefreshAccessToken_HappyPath(t *testing.T) {
 
 	sessionRepo.On("GetSessionByRefreshToken", ctx, mock.AnythingOfType("string")).Return(session, nil)
 	userRepo.On("Read", ctx, userID).Return(user, nil)
-	jwt.On("GenerateToken", userID, "bob", model.RoleUser).Return("new-token", nil)
+	jwt.On("GenerateToken", userID, "bob", model.RoleUser, sessionID).Return("new-token", nil)
 	sessionRepo.On("UpdateSessionLastUsed", ctx, sessionID, mock.AnythingOfType("time.Time")).Return(nil)
 
 	svc := newAuthService(userRepo, sessionRepo, pwd, totp, jwt)
@@ -247,4 +250,64 @@ func TestRevokeSession_InvalidSessionIDFormat(t *testing.T) {
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "invalid session ID format")
 	sessionRepo.AssertNotCalled(t, "RevokeSession")
+}
+
+func TestValidateSession_RevokedSession(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	sessionID := uuid.New()
+	userID := uuid.New()
+
+	claims := &JWTClaims{
+		UserID:   userID,
+		Username: "alice",
+		Role:     model.RoleUser,
+	}
+	claims.ID = sessionID.String()
+
+	userRepo := &MockUserRepository{}
+	sessionRepo := &MockSessionRepository{}
+	pwd := &MockPasswordService{}
+	totp := &MockTOTPService{}
+	jwt := &MockJWTService{}
+
+	jwt.On("ValidateToken", "revoked-token").Return(claims, nil)
+	sessionRepo.On("IsSessionRevoked", ctx, sessionID).Return(true, nil)
+
+	svc := newAuthService(userRepo, sessionRepo, pwd, totp, jwt)
+	_, err := svc.ValidateSession(ctx, "revoked-token")
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "session revoked")
+	sessionRepo.AssertExpectations(t)
+}
+
+func TestValidateSession_ActiveSession(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	sessionID := uuid.New()
+	userID := uuid.New()
+
+	claims := &JWTClaims{
+		UserID:   userID,
+		Username: "alice",
+		Role:     model.RoleUser,
+	}
+	claims.ID = sessionID.String()
+
+	userRepo := &MockUserRepository{}
+	sessionRepo := &MockSessionRepository{}
+	pwd := &MockPasswordService{}
+	totp := &MockTOTPService{}
+	jwt := &MockJWTService{}
+
+	jwt.On("ValidateToken", "good-token").Return(claims, nil)
+	sessionRepo.On("IsSessionRevoked", ctx, sessionID).Return(false, nil)
+
+	svc := newAuthService(userRepo, sessionRepo, pwd, totp, jwt)
+	got, err := svc.ValidateSession(ctx, "good-token")
+
+	require.NoError(t, err)
+	assert.Equal(t, userID, got.UserID)
+	sessionRepo.AssertExpectations(t)
 }

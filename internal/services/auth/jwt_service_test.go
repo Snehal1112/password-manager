@@ -18,7 +18,8 @@ func TestJWTService_ValidateToken_ExpiredTokenRejected(t *testing.T) {
 	})
 
 	userID := uuid.New()
-	token, err := svc.GenerateToken(userID, "alice", "user")
+	sessionID := uuid.New()
+	token, err := svc.GenerateToken(userID, "alice", "user", sessionID)
 	require.NoError(t, err)
 
 	time.Sleep(2 * time.Millisecond) // ensure we're past expiry
@@ -37,11 +38,13 @@ func TestJWTService_ValidateToken_ValidTokenAccepted(t *testing.T) {
 	})
 
 	userID := uuid.New()
-	token, err := svc.GenerateToken(userID, "bob", "admin")
+	sessionID := uuid.New()
+	token, err := svc.GenerateToken(userID, "bob", "admin", sessionID)
 	require.NoError(t, err)
 
 	claims, err := svc.ValidateToken(token)
 	require.NoError(t, err)
 	assert.Equal(t, userID, claims.UserID)
 	assert.Equal(t, "bob", claims.Username)
+	assert.Equal(t, sessionID.String(), claims.ID, "jti must match the session ID")
 }
