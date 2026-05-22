@@ -941,8 +941,8 @@ curl -s -X POST $BASE/api/v1/jwks/rotate \
 curl -s $BASE/jwks.json | jq '[.keys[].kid]'
 
 # Tokens issued before rotation still validate during the overlap window
-curl -s $BASE/api/v1/vault \
-  -H "Authorization: Bearer $TOKEN" | jq .status
+curl -s $BASE/api/v1/secrets \
+  -H "Authorization: Bearer $TOKEN" | jq .[0].name
 ```
 
 ### external_pki
