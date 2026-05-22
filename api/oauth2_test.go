@@ -30,6 +30,7 @@ import (
 	"testing"
 
 	"github.com/golang-jwt/jwt/v5"
+	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 
 	"rocketvault/model"
@@ -85,4 +86,88 @@ func TestCreateServiceAccount_AdminAllowed(t *testing.T) {
 		assert.NotEqual(t, http.StatusForbidden, c.Err.StatusCode,
 			"admin should not receive a 403 from the role guard")
 	}
+}
+
+// TestListServiceAccounts_NonAdminForbidden verifies that a non-admin user
+// receives 403 Forbidden when attempting to list service accounts.
+func TestListServiceAccounts_NonAdminForbidden(t *testing.T) {
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest(http.MethodGet, "/service-accounts", nil)
+
+	c := &Context{
+		Claims: jwt.MapClaims{
+			"role": model.RoleUser,
+		},
+	}
+
+	listServiceAccounts(c, w, r)
+
+	if c.Err != nil {
+		writeError(w, c)
+	}
+
+	assert.Equal(t, http.StatusForbidden, w.Code)
+}
+
+// TestGetServiceAccount_NonAdminForbidden verifies that a non-admin user
+// receives 403 Forbidden when attempting to retrieve a service account.
+func TestGetServiceAccount_NonAdminForbidden(t *testing.T) {
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest(http.MethodGet, "/service-accounts/"+uuid.New().String(), nil)
+
+	c := &Context{
+		Claims: jwt.MapClaims{
+			"role": model.RoleUser,
+		},
+	}
+
+	getServiceAccount(c, w, r)
+
+	if c.Err != nil {
+		writeError(w, c)
+	}
+
+	assert.Equal(t, http.StatusForbidden, w.Code)
+}
+
+// TestDeleteServiceAccount_NonAdminForbidden verifies that a non-admin user
+// receives 403 Forbidden when attempting to delete a service account.
+func TestDeleteServiceAccount_NonAdminForbidden(t *testing.T) {
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest(http.MethodDelete, "/service-accounts/"+uuid.New().String(), nil)
+
+	c := &Context{
+		Claims: jwt.MapClaims{
+			"role": model.RoleUser,
+		},
+	}
+
+	deleteServiceAccount(c, w, r)
+
+	if c.Err != nil {
+		writeError(w, c)
+	}
+
+	assert.Equal(t, http.StatusForbidden, w.Code)
+}
+
+// TestRotateServiceAccountSecret_NonAdminForbidden verifies that a non-admin
+// user receives 403 Forbidden when attempting to rotate a service account secret.
+func TestRotateServiceAccountSecret_NonAdminForbidden(t *testing.T) {
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest(http.MethodPost, "/service-accounts/"+uuid.New().String()+"/rotate", nil)
+
+	c := &Context{
+		Claims: jwt.MapClaims{
+			"role": model.RoleUser,
+		},
+	}
+
+	rotateServiceAccountSecret(c, w, r)
+
+	if c.Err != nil {
+		writeError(w, c)
+	}
+
+	assert.Equal(t, http.StatusForbidden, w.Code)
 }

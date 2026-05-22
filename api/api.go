@@ -32,6 +32,7 @@ type Routes struct {
 	ServiceAccount  *mux.Router // /api/v1/service-accounts/{service_account_id}
 	OAuth2          *mux.Router // /api/v1/oauth2 (public — no auth middleware)
 	Config          *mux.Router // /api/v1/config (public — no auth middleware)
+	JWKS            *mux.Router // /jwks.json (public — no auth middleware)
 }
 
 // API is the main API structure for the vault service.
@@ -91,9 +92,15 @@ func Init(options ...Options) *API {
 
 	// OAuth2 is public — registered on rootRouter to bypass auth middleware.
 	r.OAuth2 = api.rootRouter.PathPrefix(api.basePath).Subrouter()
+	r.OAuth2.Use(mw.CORSMiddleware)
 
 	// Config is public — registered on rootRouter to bypass auth middleware.
 	r.Config = api.rootRouter.PathPrefix(api.basePath).Subrouter()
+	r.Config.Use(mw.CORSMiddleware)
+
+	// JWKS is public — registered on rootRouter to bypass auth middleware.
+	r.JWKS = api.rootRouter.NewRoute().Subrouter()
+	r.JWKS.Use(mw.CORSMiddleware)
 
 	api.InitVault()
 	api.InitSecrets()

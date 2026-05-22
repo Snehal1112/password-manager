@@ -177,6 +177,13 @@ func createServiceAccount(c *Context, w http.ResponseWriter, r *http.Request) {
 
 // listServiceAccounts handles GET /service-accounts.
 func listServiceAccounts(c *Context, w http.ResponseWriter, r *http.Request) {
+	// Enforce admin-only access to prevent privilege escalation.
+	roleStr, _ := c.Claims["role"].(string)
+	if !common.HasRequiredRole(roleStr, model.RoleAdmin) {
+		c.SetPermissionError("admin role required to manage service accounts")
+		return
+	}
+
 	svc := c.App.ServiceContainer.GetOAuth2Service()
 	clients, err := svc.ListClients(r.Context())
 	if err != nil {
@@ -193,6 +200,13 @@ func listServiceAccounts(c *Context, w http.ResponseWriter, r *http.Request) {
 
 // getServiceAccount handles GET /service-accounts/{service_account_id}.
 func getServiceAccount(c *Context, w http.ResponseWriter, r *http.Request) {
+	// Enforce admin-only access to prevent privilege escalation.
+	roleStr, _ := c.Claims["role"].(string)
+	if !common.HasRequiredRole(roleStr, model.RoleAdmin) {
+		c.SetPermissionError("admin role required to manage service accounts")
+		return
+	}
+
 	id, err := uuid.Parse(c.Params.ServiceAccountID)
 	if err != nil {
 		c.SetInvalidParam("service_account_id")
@@ -212,6 +226,13 @@ func getServiceAccount(c *Context, w http.ResponseWriter, r *http.Request) {
 
 // deleteServiceAccount handles DELETE /service-accounts/{service_account_id}.
 func deleteServiceAccount(c *Context, w http.ResponseWriter, r *http.Request) {
+	// Enforce admin-only access to prevent privilege escalation.
+	roleStr, _ := c.Claims["role"].(string)
+	if !common.HasRequiredRole(roleStr, model.RoleAdmin) {
+		c.SetPermissionError("admin role required to manage service accounts")
+		return
+	}
+
 	id, err := uuid.Parse(c.Params.ServiceAccountID)
 	if err != nil {
 		c.SetInvalidParam("service_account_id")
@@ -230,6 +251,13 @@ func deleteServiceAccount(c *Context, w http.ResponseWriter, r *http.Request) {
 // rotateServiceAccountSecret handles POST /service-accounts/{service_account_id}/rotate.
 // Returns the new plain-text client secret (one-time).
 func rotateServiceAccountSecret(c *Context, w http.ResponseWriter, r *http.Request) {
+	// Enforce admin-only access to prevent privilege escalation.
+	roleStr, _ := c.Claims["role"].(string)
+	if !common.HasRequiredRole(roleStr, model.RoleAdmin) {
+		c.SetPermissionError("admin role required to manage service accounts")
+		return
+	}
+
 	id, err := uuid.Parse(c.Params.ServiceAccountID)
 	if err != nil {
 		c.SetInvalidParam("service_account_id")

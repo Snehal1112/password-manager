@@ -10,8 +10,8 @@ import (
 
 // InitJWKS registers the JWKS endpoints on the router.
 func (a *API) InitJWKS() {
-	// GET /jwks.json — public, no auth, registered directly on rootRouter.
-	a.rootRouter.Handle("/jwks.json", ApiHandler(a.App, getJWKS)).Methods(http.MethodGet)
+	// GET /jwks.json — public, no auth, uses the JWKS subrouter so CORS is applied.
+	a.BaseRoutes.JWKS.Handle("/jwks.json", ApiHandler(a.App, getJWKS)).Methods(http.MethodGet)
 
 	// POST /api/v1/jwks/rotate — admin only, behind the auth middleware.
 	a.BaseRoutes.ApiRoot.Handle("/jwks/rotate", ApiHandler(a.App, rotateJWKS)).Methods(http.MethodPost)
