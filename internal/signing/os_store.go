@@ -13,30 +13,53 @@ import (
 	"path/filepath"
 	"time"
 
+	keyring "github.com/zalando/go-keyring"
 	"github.com/sirupsen/logrus"
 )
 
 // OSStoreProvider looks up a certificate by CN in the OS trust store.
 // If none is found it auto-generates a self-signed RSA-2048 key and certificate,
-// persisting it to /etc/ssl/certs/ (root) or ~/.local/share/rocketvault/ (fallback).
+// persisting it to the OS keychain with PEM file as fallback.
 type OSStoreProvider struct {
 	privateKey crypto.Signer
 	publicInfo []PublicKeyInfo
 	kid        string
 }
 
-const osStoreAlgorithm = "RS256"
+const (
+	osStoreAlgorithm = "RS256"
+	keychainService  = "rocketvault"
+)
+
+// keychainBackend abstracts go-keyring so tests can inject a fake.
+type keychainBackend interface {
+	Get(service, user string) (string, error)
+	Set(service, user, secret string) error
+}
+
+// realKeychain delegates to the go-keyring package.
+type realKeychain struct{}
+
+func (r *realKeychain) Get(service, user string) (string, error) {
+	return keyring.Get(service, user)
+}
+
+func (r *realKeychain) Set(service, user, secret string) error {
+	return keyring.Set(service, user, secret)
+}
+
+// defaultKeychain is the production singleton.
+var defaultKeychain keychainBackend = &realKeychain{}
 
 // NewOSStoreProvider constructs the provider. cn is the certificate CN to search for.
 func NewOSStoreProvider(cn string) (*OSStoreProvider, error) {
-	pool, err := x509.SystemCertPool()
-	if err != nil {
-		// Non-fatal on some platforms; we fall through to auto-gen.
-		logrus.WithError(err).Warn("OSStoreProvider: could not load system cert pool, will auto-generate key")
-		pool = x509.NewCertPool()
-	}
+	return newOSStoreProviderWithKeychain(cn, defaultKeychain)
+}
 
-	if key, kid, found := findCertInPool(pool, cn); found {
+func newOSStoreProviderWithKeychain(cn string, kc keychainBackend) (*OSStoreProvider, error) {
+	if key, err := loadFromKeychain(kc, cn); err == nil {
+		kid := thumbprint(key.Public())
+		logrus.WithField("kid", kid).Info("OSStoreProvider: loaded JWT signing key from OS keychain")
 		return &OSStoreProvider{
 			privateKey: key,
 			kid:        kid,
@@ -44,15 +67,18 @@ func NewOSStoreProvider(cn string) (*OSStoreProvider, error) {
 		}, nil
 	}
 
-	logrus.WithField("cn", cn).Warn("OSStoreProvider: no matching certificate found, auto-generating RSA-2048 key")
+	logrus.WithField("cn", cn).Warn("OSStoreProvider: no key in keychain, auto-generating RSA-2048 key")
 
 	key, cert, err := generateSelfSignedRSA(cn)
 	if err != nil {
 		return nil, fmt.Errorf("OSStoreProvider: auto-generate key: %w", err)
 	}
 
-	if err := persistKey(key, cert, cn); err != nil {
-		logrus.WithError(err).Warn("OSStoreProvider: could not persist auto-generated key (non-fatal)")
+	if err := saveToKeychain(kc, cn, key); err != nil {
+		logrus.WithError(err).Warn("OSStoreProvider: keychain unavailable, falling back to PEM file")
+		if err := persistKey(key, cert, cn); err != nil {
+			logrus.WithError(err).Warn("OSStoreProvider: could not persist key to file either (in-memory only)")
+		}
 	}
 
 	kid := thumbprint(key.Public())
@@ -63,10 +89,34 @@ func NewOSStoreProvider(cn string) (*OSStoreProvider, error) {
 	}, nil
 }
 
-func (p *OSStoreProvider) PrivateKey() crypto.Signer    { return p.privateKey }
-func (p *OSStoreProvider) PublicKeys() []PublicKeyInfo   { return p.publicInfo }
-func (p *OSStoreProvider) Algorithm() string             { return osStoreAlgorithm }
-func (p *OSStoreProvider) KeyID() string                 { return p.kid }
+func loadFromKeychain(kc keychainBackend, cn string) (*rsa.PrivateKey, error) {
+	pemStr, err := kc.Get(keychainService, keychainUser(cn))
+	if err != nil {
+		return nil, err
+	}
+	block, _ := pem.Decode([]byte(pemStr))
+	if block == nil {
+		return nil, fmt.Errorf("keychain entry is not valid PEM")
+	}
+	return x509.ParsePKCS1PrivateKey(block.Bytes)
+}
+
+func saveToKeychain(kc keychainBackend, cn string, key *rsa.PrivateKey) error {
+	pemBytes := pem.EncodeToMemory(&pem.Block{
+		Type:  "RSA PRIVATE KEY",
+		Bytes: x509.MarshalPKCS1PrivateKey(key),
+	})
+	return kc.Set(keychainService, keychainUser(cn), string(pemBytes))
+}
+
+func keychainUser(cn string) string {
+	return "jwt-signing-key-" + cn
+}
+
+func (p *OSStoreProvider) PrivateKey() crypto.Signer   { return p.privateKey }
+func (p *OSStoreProvider) PublicKeys() []PublicKeyInfo  { return p.publicInfo }
+func (p *OSStoreProvider) Algorithm() string            { return osStoreAlgorithm }
+func (p *OSStoreProvider) KeyID() string                { return p.kid }
 
 // findCertInPool searches the pool for a leaf certificate whose CN matches.
 // Because x509.CertPool does not expose its contents, we rely on a known
