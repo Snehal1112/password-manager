@@ -59,6 +59,7 @@ func Init(options ...Options) *API {
 	r := api.BaseRoutes
 	r.ApiRoot = api.rootRouter.PathPrefix(api.basePath).Subrouter()
 	r.ApiRoot.Use(
+		mw.CORSMiddleware,
 		mw.RateLimitMiddleware,
 		mw.AuthenticationMiddleware,
 		mw.PolicyMiddleware,

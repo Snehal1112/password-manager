@@ -12,7 +12,6 @@ import (
 
 	"github.com/gorilla/mux"
 	"github.com/gorilla/websocket"
-	"github.com/rs/cors"
 	"github.com/sirupsen/logrus"
 	"github.com/spf13/viper"
 	"golang.org/x/net/http2"
@@ -92,7 +91,7 @@ func NewDefaultServer(logger logrus.FieldLogger, listenAddr string) *Server {
 //   - error: An error if the server fails to start or encounters an issue during runtime.
 //
 // The server listens on the address specified in the Server struct's listenAddr field.
-// It uses a CORS middleware to allow all origins. The server has configured timeouts for
+// The server has configured timeouts for
 // write, read, and idle connections, with support for HTTP/2 and WebSocket upgrades.
 //
 // The function also handles OS signals (SIGINT, SIGTERM) for graceful shutdown. Upon receiving
@@ -106,15 +105,6 @@ func (s *Server) StartServer(ctx context.Context) error {
 	errCh := make(chan error, 2)
 	exitCh := make(chan bool, 1)
 	signalCh := make(chan os.Signal, 1)
-
-	// Configure CORS
-	cc := cors.New(cors.Options{
-		AllowedOrigins:   []string{"*"},
-		AllowedMethods:   []string{"GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"},
-		AllowedHeaders:   []string{"*"},
-		AllowCredentials: true,
-		MaxAge:           86400, // 24 hours
-	})
 
 	// Get timeout configurations from viper with sensible defaults
 	writeTimeout := viper.GetDuration("server.write_timeout")
@@ -134,7 +124,7 @@ func (s *Server) StartServer(ctx context.Context) error {
 
 	// Create HTTP server with configuration from YAML
 	srv := &http.Server{
-		Handler:           cc.Handler(s.Router),
+		Handler:           s.Router,
 		WriteTimeout:      writeTimeout,
 		ReadTimeout:       readTimeout,
 		IdleTimeout:       idleTimeout,
