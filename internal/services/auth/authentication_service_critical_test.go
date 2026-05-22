@@ -311,3 +311,53 @@ func TestValidateSession_RevocationCheckError(t *testing.T) {
 	assert.Contains(t, err.Error(), "revocation check failed")
 	sessionRepo.AssertExpectations(t)
 }
+
+func TestValidateSession_ServiceAccountToken_NotCheckedForRevocation(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	userID := uuid.New()
+
+	// Service account tokens have uuid.Nil as the jti.
+	claims := &JWTClaims{UserID: userID, Username: "my-app", Role: model.RoleServiceAccount}
+	claims.ID = uuid.Nil.String()
+
+	userRepo := &MockUserRepository{}
+	sessionRepo := &MockSessionRepository{}
+	pwd := &MockPasswordService{}
+	totp := &MockTOTPService{}
+	jwt := &MockJWTService{}
+
+	jwt.On("ValidateToken", "sa-token").Return(claims, nil)
+	// sessionRepo must NOT be called for service account tokens.
+
+	svc := newAuthService(userRepo, sessionRepo, pwd, totp, jwt)
+	got, err := svc.ValidateSession(ctx, "sa-token")
+
+	require.NoError(t, err)
+	assert.Equal(t, userID, got.UserID)
+	sessionRepo.AssertNotCalled(t, "IsSessionRevoked")
+}
+
+func TestValidateSession_MalformedJti(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	userID := uuid.New()
+
+	claims := &JWTClaims{UserID: userID, Username: "alice", Role: model.RoleUser}
+	claims.ID = "not-a-uuid"
+
+	userRepo := &MockUserRepository{}
+	sessionRepo := &MockSessionRepository{}
+	pwd := &MockPasswordService{}
+	totp := &MockTOTPService{}
+	jwt := &MockJWTService{}
+
+	jwt.On("ValidateToken", "bad-jti-token").Return(claims, nil)
+
+	svc := newAuthService(userRepo, sessionRepo, pwd, totp, jwt)
+	_, err := svc.ValidateSession(ctx, "bad-jti-token")
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "malformed jti")
+	sessionRepo.AssertNotCalled(t, "IsSessionRevoked")
+}

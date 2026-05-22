@@ -18,3 +18,14 @@ func TestBuildServerConfigFromViper(t *testing.T) {
 	assert.Equal(t, "/tmp/test.crt", cfg.CertFile)
 	assert.Equal(t, "/tmp/test.key", cfg.KeyFile)
 }
+
+// TestBuildServerConfigFromViper_HTTP2Default verifies that HTTP/2 is enabled
+// even when server.http2.enabled is absent from the YAML config.
+func TestBuildServerConfigFromViper_HTTP2Default(t *testing.T) {
+	// Use a clean viper state without the http2 key set.
+	viper.Reset()
+	defer viper.Reset()
+
+	cfg := buildServerConfigFromViper()
+	assert.True(t, cfg.EnableHTTP2, "HTTP/2 must be enabled by default when key is absent")
+}

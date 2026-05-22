@@ -251,6 +251,10 @@ func (b *bootstrap) setup(ctx context.Context, cfg *Config) error {
 
 // buildServerConfigFromViper reads server TLS and feature configuration from Viper.
 func buildServerConfigFromViper() server.ServerConfig {
+	// Default HTTP/2 to enabled — matches the previous NewDefaultServer default.
+	if !viper.IsSet("server.http2.enabled") {
+		viper.SetDefault("server.http2.enabled", true)
+	}
 	return server.ServerConfig{
 		EnableHTTP2:     viper.GetBool("server.http2.enabled"),
 		EnableTLS:       viper.GetBool("server.tls.enabled"),

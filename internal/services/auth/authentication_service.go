@@ -220,14 +220,18 @@ func (s *authenticationService) ValidateSession(ctx context.Context, token strin
 		return nil, fmt.Errorf("invalid session: malformed jti")
 	}
 
-	revoked, err := s.sessionRepo.IsSessionRevoked(ctx, sessionID)
-	if err != nil {
-		s.logger.LogAuditError(claims.UserID.String(), "validate_session", "failed", "Could not check session revocation", err)
-		return nil, fmt.Errorf("invalid session: revocation check failed")
-	}
-	if revoked {
-		s.logger.LogAuditError(claims.UserID.String(), "validate_session", "failed", "Session is revoked", nil)
-		return nil, fmt.Errorf("session revoked")
+	// Service account tokens use uuid.Nil as jti — they are not bound to a
+	// user_sessions row. Skip the DB revocation check for them.
+	if sessionID != uuid.Nil {
+		revoked, err := s.sessionRepo.IsSessionRevoked(ctx, sessionID)
+		if err != nil {
+			s.logger.LogAuditError(claims.UserID.String(), "validate_session", "failed", "Could not check session revocation", err)
+			return nil, fmt.Errorf("invalid session: revocation check failed")
+		}
+		if revoked {
+			s.logger.LogAuditError(claims.UserID.String(), "validate_session", "failed", "Session is revoked", nil)
+			return nil, fmt.Errorf("session revoked")
+		}
 	}
 
 	s.logger.LogAuditInfo(claims.UserID.String(), "validate_session", "success", "Session validated successfully")
