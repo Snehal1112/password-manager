@@ -3,19 +3,21 @@ version: "2"
 linters:
   enable:
     - errcheck       # unhandled errors
-    - gosimple       # simplification suggestions
     - govet          # vet checks (shadow, printf, etc.)
     - ineffassign    # unused assignments
     - staticcheck    # broad static analysis
     - unused         # unused code
-    - gofmt          # formatting
-    - goimports      # import ordering
     - gosec          # security issues
     - misspell       # common spelling mistakes
     - noctx          # http requests without context
     - bodyclose      # unclosed http response bodies
     - errorlint      # errors.Is/As usage
     - exhaustive     # exhaustive switch/map for enums
+
+formatters:
+  enable:
+    - gofmt          # formatting
+    - goimports      # import ordering
 
 linters-settings:
   gosec:
