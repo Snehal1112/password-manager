@@ -60,32 +60,6 @@ func TestAuthenticateUser_UserNotFound(t *testing.T) {
 
 // --- ValidateSession ---
 
-func TestValidateSession_HappyPath(t *testing.T) {
-	t.Parallel()
-	ctx := context.Background()
-	userID := uuid.New()
-	sessionID := uuid.New()
-
-	claims := &JWTClaims{UserID: userID, Username: "alice", Role: model.RoleUser}
-	claims.ID = sessionID.String()
-
-	userRepo := &MockUserRepository{}
-	sessionRepo := &MockSessionRepository{}
-	pwd := &MockPasswordService{}
-	totp := &MockTOTPService{}
-	jwt := &MockJWTService{}
-
-	jwt.On("ValidateToken", "good-token").Return(claims, nil)
-	sessionRepo.On("IsSessionRevoked", ctx, sessionID).Return(false, nil)
-
-	svc := newAuthService(userRepo, sessionRepo, pwd, totp, jwt)
-	got, err := svc.ValidateSession(ctx, "good-token")
-
-	require.NoError(t, err)
-	assert.Equal(t, userID, got.UserID)
-	assert.Equal(t, "alice", got.Username)
-}
-
 func TestValidateSession_InvalidToken(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
@@ -309,5 +283,31 @@ func TestValidateSession_ActiveSession(t *testing.T) {
 
 	require.NoError(t, err)
 	assert.Equal(t, userID, got.UserID)
+	sessionRepo.AssertExpectations(t)
+}
+
+func TestValidateSession_RevocationCheckError(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	sessionID := uuid.New()
+	userID := uuid.New()
+
+	claims := &JWTClaims{UserID: userID, Username: "alice", Role: model.RoleUser}
+	claims.ID = sessionID.String()
+
+	userRepo := &MockUserRepository{}
+	sessionRepo := &MockSessionRepository{}
+	pwd := &MockPasswordService{}
+	totp := &MockTOTPService{}
+	jwt := &MockJWTService{}
+
+	jwt.On("ValidateToken", "db-error-token").Return(claims, nil)
+	sessionRepo.On("IsSessionRevoked", ctx, sessionID).Return(false, errors.New("db unavailable"))
+
+	svc := newAuthService(userRepo, sessionRepo, pwd, totp, jwt)
+	_, err := svc.ValidateSession(ctx, "db-error-token")
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "revocation check failed")
 	sessionRepo.AssertExpectations(t)
 }

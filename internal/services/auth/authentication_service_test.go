@@ -115,6 +115,9 @@ func (m *MockJWTService) GenerateToken(userID uuid.UUID, username, role string, 
 
 func (m *MockJWTService) ValidateToken(tokenString string) (*JWTClaims, error) {
 	args := m.Called(tokenString)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
 	return args.Get(0).(*JWTClaims), args.Error(1)
 }
 
