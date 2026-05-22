@@ -8,15 +8,14 @@ require (
 	github.com/gorilla/websocket v1.5.3
 	github.com/stretchr/testify v1.11.1
 	golang.org/x/net v0.34.0
+	golang.org/x/time v0.15.0
 	gopkg.in/yaml.v2 v2.4.0
 )
 
 require (
 	github.com/asaskevich/govalidator v0.0.0-20230301143203-a9d515a09cc2 // indirect
 	github.com/boombuler/barcode v1.0.1-0.20190219062509-6c824513bacc // indirect
-	github.com/pkg/errors v0.9.1 // indirect
 	github.com/stretchr/objx v0.5.2 // indirect
-	golang.org/x/time v0.15.0 // indirect
 	gopkg.in/natefinch/lumberjack.v2 v2.2.1 // indirect
 )
 
@@ -44,7 +43,6 @@ require (
 	github.com/spf13/pflag v1.0.6 // indirect
 	github.com/spf13/viper v1.20.1
 	github.com/subosito/gotenv v1.6.0 // indirect
-	github.com/ulule/limiter/v3 v3.11.2
 	go.uber.org/atomic v1.9.0 // indirect
 	go.uber.org/multierr v1.9.0 // indirect
 	golang.org/x/crypto v0.38.0
