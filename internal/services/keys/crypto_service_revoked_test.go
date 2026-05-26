@@ -15,10 +15,10 @@ import (
 )
 
 // newRevokedKeyCryptoSvc builds a CryptoService backed by a mock repo that
-// returns a revoked key for any Read call.
+// returns a revoked key for any Read call. No master key setup needed because
+// the revoked check fires before any crypto operation is attempted.
 func newRevokedKeyCryptoSvc(t *testing.T, keyID, userID uuid.UUID) keys.CryptoService {
 	t.Helper()
-	setupWrapTestMasterKey()
 
 	repo := &mockKeyRepoForWrap{}
 	repo.On("Read", mock.Anything, keyID).Return(&model.Key{
