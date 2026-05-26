@@ -59,6 +59,7 @@ func TestCreateSecret_HappyPath(t *testing.T) {
 	assert.Equal(t, "plaintext", got.Value, "returned value should be decrypted")
 	assert.Equal(t, "my-secret", got.Name)
 	assert.Equal(t, userID, got.UserID)
+	assert.True(t, got.Enabled, "new secrets must default to enabled=true")
 	crypto.AssertExpectations(t)
 	repo.AssertExpectations(t)
 }
