@@ -256,6 +256,16 @@ func TestValidateSecret(t *testing.T) {
 	assert.Error(t, ValidateSecret(invalidSecret))
 }
 
+// TestCreateRSAKey_3072Accepted verifies that 3072-bit RSA keys pass validation.
+func TestCreateRSAKey_3072Accepted(t *testing.T) {
+	err := ValidateKeyCreate(KeyCreateRequest{
+		Name: "test-3072",
+		Type: model.KeyTypeRSA,
+		Bits: 3072,
+	})
+	assert.NoError(t, err, "3072-bit RSA should be valid")
+}
+
 // TestValidateKey tests full domain key validation.
 func TestValidateKey(t *testing.T) {
 	validKey := &model.Key{
