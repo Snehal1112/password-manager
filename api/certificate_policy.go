@@ -31,7 +31,11 @@ func getCertificatePolicy(c *Context, w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	policy, err := c.certPolicyRepo().GetByCertificateID(r.Context(), certID, userID)
+	repo := c.certPolicyRepo()
+	if repo == nil {
+		return
+	}
+	policy, err := repo.GetByCertificateID(r.Context(), certID, userID)
 	if err != nil {
 		c.SetNotFound("policy")
 		return
@@ -84,13 +88,17 @@ func upsertCertificatePolicy(c *Context, w http.ResponseWriter, r *http.Request)
 		UpdatedAt:        now,
 	}
 
-	if err := c.certPolicyRepo().Upsert(r.Context(), policy); err != nil {
+	repo := c.certPolicyRepo()
+	if repo == nil {
+		return
+	}
+	if err := repo.Upsert(r.Context(), policy); err != nil {
 		c.SetInternalError(err)
 		return
 	}
 
 	// Read-after-write so the response reflects the canonical stored ID.
-	stored, err := c.certPolicyRepo().GetByCertificateID(r.Context(), certID, userID)
+	stored, err := repo.GetByCertificateID(r.Context(), certID, userID)
 	if err != nil {
 		c.SetInternalError(err)
 		return
@@ -120,7 +128,11 @@ func deleteCertificatePolicy(c *Context, w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	if err := c.certPolicyRepo().DeleteByCertificateID(r.Context(), certID, userID); err != nil {
+	repo := c.certPolicyRepo()
+	if repo == nil {
+		return
+	}
+	if err := repo.DeleteByCertificateID(r.Context(), certID, userID); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			c.SetNotFound("policy not found")
 		} else {
