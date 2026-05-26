@@ -127,6 +127,7 @@ type ServiceContainer struct {
 	certificateRepository        repositories.CertificateRepositoryInterface
 	certPolicyRepository         repositories.CertificatePolicyRepositoryInterface
 	sessionRepository            repositories.SessionRepositoryInterface
+	auditRepository              repositories.AuditRepositoryInterface
 
 	// Authentication services
 	passwordService       authServices.PasswordService
@@ -236,6 +237,8 @@ func (c *ServiceContainer) initializeServices() error {
 		DB:     c.db,
 		Logger: c.logger,
 	})
+	c.auditRepository = repositories.NewAuditRepository(c.db)
+	c.logger.SetAuditPersister(c.auditRepository)
 
 	// Initialize cache if enabled
 	if c.cacheConfig.Enabled {
