@@ -745,7 +745,7 @@ func (r *CertificateRepository) ListSoftDeleted(ctx context.Context, userID uuid
 		logrus.WithField("user_id", userID.String()).Debug("Listing soft-deleted certificates for user")
 
 		rows, err := r.db.QueryContext(ctx,
-			"SELECT id, user_id, name, certificate, private_key, created_at, deleted_at, purge_protection, key_id FROM certificates WHERE user_id = ? AND deleted_at IS NOT NULL ORDER BY deleted_at DESC",
+			"SELECT id, user_id, name, certificate, private_key, created_at, deleted_at, purge_protection, key_id, enabled, not_before FROM certificates WHERE user_id = ? AND deleted_at IS NOT NULL ORDER BY deleted_at DESC",
 			userID.String())
 		if err != nil {
 			r.log.LogAuditError(userID.String(), "list_soft_deleted_certificates", "failed", "Failed to query soft-deleted certificates", err)
@@ -762,7 +762,7 @@ func (r *CertificateRepository) ListSoftDeleted(ctx context.Context, userID uuid
 			var purgeProtection bool
 			var keyIDStr sql.NullString
 
-			if err := rows.Scan(&idStr, &userIDStr, &cert.Name, &cert.Certificate, &cert.PrivateKey, &cert.CreatedAt, &deletedAt, &purgeProtection, &keyIDStr); err != nil {
+			if err := rows.Scan(&idStr, &userIDStr, &cert.Name, &cert.Certificate, &cert.PrivateKey, &cert.CreatedAt, &deletedAt, &purgeProtection, &keyIDStr, &cert.Enabled, &cert.NotBefore); err != nil {
 				r.log.LogAuditError(userID.String(), "list_soft_deleted_certificates", "failed", "Failed to scan certificate", err)
 				return fmt.Errorf("failed to scan certificate: %w", err)
 			}
