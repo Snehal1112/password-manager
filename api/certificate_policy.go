@@ -1,7 +1,9 @@
 package api
 
 import (
+	"database/sql"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"time"
 
@@ -29,12 +31,7 @@ func getCertificatePolicy(c *Context, w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if c.App == nil || c.App.ServiceContainer == nil {
-		c.SetInternalError(nil)
-		return
-	}
-
-	policy, err := c.App.ServiceContainer.GetCertificatePolicyRepository().GetByCertificateID(r.Context(), certID, userID)
+	policy, err := c.certPolicyRepo().GetByCertificateID(r.Context(), certID, userID)
 	if err != nil {
 		c.SetNotFound("policy")
 		return
@@ -69,11 +66,6 @@ func upsertCertificatePolicy(c *Context, w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	if c.App == nil || c.App.ServiceContainer == nil {
-		c.SetInternalError(nil)
-		return
-	}
-
 	now := time.Now()
 	policy := &model.CertificatePolicy{
 		ID:               uuid.New(),
@@ -92,14 +84,21 @@ func upsertCertificatePolicy(c *Context, w http.ResponseWriter, r *http.Request)
 		UpdatedAt:        now,
 	}
 
-	if err := c.App.ServiceContainer.GetCertificatePolicyRepository().Upsert(r.Context(), policy); err != nil {
+	if err := c.certPolicyRepo().Upsert(r.Context(), policy); err != nil {
+		c.SetInternalError(err)
+		return
+	}
+
+	// Read-after-write so the response reflects the canonical stored ID.
+	stored, err := c.certPolicyRepo().GetByCertificateID(r.Context(), certID, userID)
+	if err != nil {
 		c.SetInternalError(err)
 		return
 	}
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(policy)
+	json.NewEncoder(w).Encode(stored)
 }
 
 // deleteCertificatePolicy removes the policy for a certificate.
@@ -121,13 +120,12 @@ func deleteCertificatePolicy(c *Context, w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	if c.App == nil || c.App.ServiceContainer == nil {
-		c.SetInternalError(nil)
-		return
-	}
-
-	if err := c.App.ServiceContainer.GetCertificatePolicyRepository().DeleteByCertificateID(r.Context(), certID, userID); err != nil {
-		c.SetInternalError(err)
+	if err := c.certPolicyRepo().DeleteByCertificateID(r.Context(), certID, userID); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			c.SetNotFound("policy not found")
+		} else {
+			c.SetInternalError(err)
+		}
 		return
 	}
 

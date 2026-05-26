@@ -80,10 +80,21 @@ func (r *CertificatePolicyRepository) GetByCertificateID(ctx context.Context, ce
 }
 
 // DeleteByCertificateID removes the policy owned by userID for the given certificate.
+// Returns sql.ErrNoRows when no matching policy exists.
 func (r *CertificatePolicyRepository) DeleteByCertificateID(ctx context.Context, certID, userID uuid.UUID) error {
-	_, err := r.db.ExecContext(ctx,
+	result, err := r.db.ExecContext(ctx,
 		"DELETE FROM certificate_policies WHERE certificate_id = ? AND user_id = ?",
 		certID.String(), userID.String(),
 	)
-	return err
+	if err != nil {
+		return err
+	}
+	n, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if n == 0 {
+		return sql.ErrNoRows
+	}
+	return nil
 }
