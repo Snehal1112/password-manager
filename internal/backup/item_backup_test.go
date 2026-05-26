@@ -2,6 +2,7 @@ package backup_test
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"testing"
 	"time"
@@ -283,5 +284,5 @@ func TestRestoreSecretBlobTypeMismatch(t *testing.T) {
 
 	err = svc.RestoreSecret(ctx, blob, userID, uuid.New())
 	require.Error(t, err)
-	require.Contains(t, err.Error(), "blob type mismatch")
+	require.True(t, errors.Is(err, backup.ErrInvalidBlob), "expected ErrInvalidBlob, got: %v", err)
 }

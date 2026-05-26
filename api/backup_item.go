@@ -2,8 +2,8 @@ package api
 
 import (
 	"encoding/json"
+	"errors"
 	"net/http"
-	"strings"
 
 	"github.com/google/uuid"
 
@@ -87,7 +87,7 @@ func backupSecretHandler(c *Context, w http.ResponseWriter, r *http.Request) {
 
 	blob, err := svc.BackupSecret(r.Context(), secretID, userID)
 	if err != nil {
-		if strings.Contains(err.Error(), "forbidden") {
+		if errors.Is(err, backup.ErrForbidden) {
 			c.SetPermissionError("backup_secret")
 		} else {
 			c.SetNotFound("secret")
@@ -118,7 +118,14 @@ func restoreSecretHandler(c *Context, w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := svc.RestoreSecret(r.Context(), req.Blob, userID, uuid.New()); err != nil {
-		c.SetInternalError(err)
+		switch {
+		case errors.Is(err, backup.ErrForbidden):
+			c.SetPermissionError("cannot restore: forbidden")
+		case errors.Is(err, backup.ErrInvalidBlob):
+			c.SetInvalidParam("blob")
+		default:
+			c.SetInternalError(err)
+		}
 		return
 	}
 
@@ -145,7 +152,7 @@ func backupKeyHandler(c *Context, w http.ResponseWriter, r *http.Request) {
 
 	blob, err := svc.BackupKey(r.Context(), keyID, userID)
 	if err != nil {
-		if strings.Contains(err.Error(), "forbidden") {
+		if errors.Is(err, backup.ErrForbidden) {
 			c.SetPermissionError("backup_key")
 		} else {
 			c.SetNotFound("key")
@@ -176,7 +183,14 @@ func restoreKeyHandler(c *Context, w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := svc.RestoreKey(r.Context(), req.Blob, userID, uuid.New()); err != nil {
-		c.SetInternalError(err)
+		switch {
+		case errors.Is(err, backup.ErrForbidden):
+			c.SetPermissionError("cannot restore: forbidden")
+		case errors.Is(err, backup.ErrInvalidBlob):
+			c.SetInvalidParam("blob")
+		default:
+			c.SetInternalError(err)
+		}
 		return
 	}
 
@@ -203,7 +217,7 @@ func backupCertificateHandler(c *Context, w http.ResponseWriter, r *http.Request
 
 	blob, err := svc.BackupCertificate(r.Context(), certID, userID)
 	if err != nil {
-		if strings.Contains(err.Error(), "forbidden") {
+		if errors.Is(err, backup.ErrForbidden) {
 			c.SetPermissionError("backup_certificate")
 		} else {
 			c.SetNotFound("certificate")
@@ -234,7 +248,14 @@ func restoreCertificateHandler(c *Context, w http.ResponseWriter, r *http.Reques
 	}
 
 	if err := svc.RestoreCertificate(r.Context(), req.Blob, userID, uuid.New()); err != nil {
-		c.SetInternalError(err)
+		switch {
+		case errors.Is(err, backup.ErrForbidden):
+			c.SetPermissionError("cannot restore: forbidden")
+		case errors.Is(err, backup.ErrInvalidBlob):
+			c.SetInvalidParam("blob")
+		default:
+			c.SetInternalError(err)
+		}
 		return
 	}
 

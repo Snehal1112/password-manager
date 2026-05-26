@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 
 	"github.com/google/uuid"
@@ -11,6 +12,12 @@ import (
 	"rocketvault/internal/repositories"
 	"rocketvault/model"
 )
+
+// ErrForbidden is returned when a user attempts to access a resource they do not own.
+var ErrForbidden = errors.New("forbidden")
+
+// ErrInvalidBlob is returned when the backup blob cannot be decoded.
+var ErrInvalidBlob = errors.New("invalid backup blob")
 
 // ItemBackupService provides per-item backup and restore for secrets, keys,
 // and certificates. Each backup is a base64url-encoded JSON envelope that is
@@ -50,7 +57,7 @@ func (s *ItemBackupService) BackupSecret(ctx context.Context, id, userID uuid.UU
 		return "", fmt.Errorf("backup secret: %w", err)
 	}
 	if secret.UserID != userID {
-		return "", fmt.Errorf("forbidden")
+		return "", ErrForbidden
 	}
 	return encodeBlob("secret", id.String(), secret)
 }
@@ -75,7 +82,7 @@ func (s *ItemBackupService) BackupKey(ctx context.Context, id, userID uuid.UUID)
 		return "", fmt.Errorf("backup key: %w", err)
 	}
 	if key.UserID != userID {
-		return "", fmt.Errorf("forbidden")
+		return "", ErrForbidden
 	}
 	return encodeBlob("key", id.String(), key)
 }
@@ -99,7 +106,7 @@ func (s *ItemBackupService) BackupCertificate(ctx context.Context, id, userID uu
 		return "", fmt.Errorf("backup certificate: %w", err)
 	}
 	if cert.UserID != userID {
-		return "", fmt.Errorf("forbidden")
+		return "", ErrForbidden
 	}
 	return encodeBlob("certificate", id.String(), cert)
 }
@@ -137,14 +144,14 @@ func encodeBlob(resourceType, resourceID string, data interface{}) (string, erro
 func decodeBlob(blob, expectedType string, out interface{}) error {
 	raw, err := base64.URLEncoding.DecodeString(blob)
 	if err != nil {
-		return fmt.Errorf("invalid blob encoding: %w", err)
+		return fmt.Errorf("%w: invalid encoding: %w", ErrInvalidBlob, err)
 	}
 	var envelope backupEnvelope
 	if err := json.Unmarshal(raw, &envelope); err != nil {
-		return fmt.Errorf("invalid blob format: %w", err)
+		return fmt.Errorf("%w: invalid format: %w", ErrInvalidBlob, err)
 	}
 	if envelope.ResourceType != expectedType {
-		return fmt.Errorf("blob type mismatch: expected %s, got %s", expectedType, envelope.ResourceType)
+		return fmt.Errorf("%w: type mismatch: expected %s, got %s", ErrInvalidBlob, expectedType, envelope.ResourceType)
 	}
 	return json.Unmarshal(envelope.Data, out)
 }
