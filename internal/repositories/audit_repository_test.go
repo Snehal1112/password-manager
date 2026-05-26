@@ -16,6 +16,7 @@ func openAuditTestDB(t *testing.T) *sql.DB {
 	t.Helper()
 	db, err := sql.Open("sqlite3", ":memory:")
 	require.NoError(t, err)
+	t.Cleanup(func() { db.Close() })
 	_, err = db.Exec(`CREATE TABLE IF NOT EXISTS audit_logs (
 		id      TEXT PRIMARY KEY,
 		user_id TEXT,
@@ -41,6 +42,17 @@ func TestAuditRepository_PersistAudit(t *testing.T) {
 	).Scan(&count)
 	require.NoError(t, err)
 	assert.Equal(t, 1, count)
+
+	// Verify the stored field values, not just the count.
+	var storedUserID, storedAction, storedDetails string
+	err = db.QueryRowContext(context.Background(),
+		"SELECT user_id, action, details FROM audit_logs WHERE user_id = ? AND action = ?",
+		"user-1", "create_secret",
+	).Scan(&storedUserID, &storedAction, &storedDetails)
+	require.NoError(t, err)
+	assert.Equal(t, "user-1", storedUserID)
+	assert.Equal(t, "create_secret", storedAction)
+	assert.Equal(t, "status=success message=done", storedDetails)
 }
 
 func TestAuditRepository_PersistAudit_EmptyUserID(t *testing.T) {
