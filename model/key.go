@@ -26,6 +26,7 @@ type Key struct {
 const (
 	KeyTypeRSA   = "RSA"
 	KeyTypeECDSA = "ECDSA"
+	KeyTypeES256K = "ES256K" // secp256k1 ECDSA
 )
 
 // --- HTTP request/response types ---

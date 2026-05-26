@@ -197,12 +197,18 @@ func (s *keyService) CreateECDSAKey(ctx context.Context, req CreateKeyRequest) (
 		return nil, fmt.Errorf("failed to encrypt key: %w", err)
 	}
 
+	// P-256K keys use a distinct type so the crypto layer routes them correctly.
+	keyType := model.KeyTypeECDSA
+	if req.Curve == "P-256K" {
+		keyType = model.KeyTypeES256K
+	}
+
 	// Create key entity
 	key := &model.Key{
 		ID:        uuid.New(),
 		UserID:    req.UserID,
 		Name:      req.Name,
-		Type:      model.KeyTypeECDSA,
+		Type:      keyType,
 		Value:     encryptedKey,
 		Revoked:   false,
 		CreatedAt: time.Now(),
@@ -442,10 +448,13 @@ func (s *keyService) RotateKey(ctx context.Context, keyID, userID uuid.UUID) (*C
 	// Set type-specific parameters and create new key
 	switch existingKey.Type {
 	case model.KeyTypeRSA:
-		req.Bits = 2048 // Default RSA size for rotation
+		req.Bits = 2048 // Default RSA size for rotation.
 		return s.CreateRSAKey(ctx, req)
 	case model.KeyTypeECDSA:
-		req.Curve = "P-256" // Default ECDSA curve for rotation
+		req.Curve = "P-256" // Default ECDSA curve for rotation.
+		return s.CreateECDSAKey(ctx, req)
+	case model.KeyTypeES256K:
+		req.Curve = "P-256K" // Keep the same curve family on rotation.
 		return s.CreateECDSAKey(ctx, req)
 	default:
 		s.logger.LogAuditError(userID.String(), "rotate_key", "failed", "unsupported key type for rotation", nil)
