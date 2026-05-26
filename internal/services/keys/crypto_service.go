@@ -208,7 +208,7 @@ func (s *cryptoService) Verify(ctx context.Context, req VerifyRequest) (*VerifyR
 		return nil, fmt.Errorf("forbidden: cannot use other users' keys")
 	}
 
-	// Reject revoked keys.
+	// Check if key is revoked
 	if key.Revoked {
 		s.logger.LogAuditError(req.UserID.String(), "verify", "failed",
 			fmt.Sprintf("Attempted to verify with revoked key: %s", req.KeyID), nil)
@@ -323,7 +323,7 @@ func (s *cryptoService) Decrypt(ctx context.Context, req DecryptRequest) (*Decry
 		return nil, fmt.Errorf("forbidden: cannot use other users' keys")
 	}
 
-	// Reject revoked keys.
+	// Check if key is revoked
 	if key.Revoked {
 		s.logger.LogAuditError(req.UserID.String(), "decrypt", "failed",
 			fmt.Sprintf("Attempted to decrypt with revoked key: %s", req.KeyID), nil)
