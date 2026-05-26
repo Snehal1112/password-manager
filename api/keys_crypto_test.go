@@ -41,6 +41,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"rocketvault/app"
+	"rocketvault/internal/backup"
 	"rocketvault/internal/cache"
 	"rocketvault/internal/crypto"
 	"rocketvault/internal/logging"
@@ -193,7 +194,8 @@ func (c *cryptoTestContainer) GetRetryService() retryServices.RetryService {
 	panic("unexpected call: GetRetryService")
 }
 func (c *cryptoTestContainer) GetSigningProvider() signing.SigningKeyProvider { return nil }
-func (c *cryptoTestContainer) Close() error                                   { return nil }
+func (c *cryptoTestContainer) GetItemBackupService() *backup.ItemBackupService { return nil }
+func (c *cryptoTestContainer) Close() error                                     { return nil }
 
 // --- helpers ---
 

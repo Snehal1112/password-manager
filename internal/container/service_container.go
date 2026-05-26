@@ -11,6 +11,7 @@ import (
 
 	"github.com/spf13/viper"
 
+	"rocketvault/internal/backup"
 	"rocketvault/internal/cache"
 	"rocketvault/internal/logging"
 	"rocketvault/internal/repositories"
@@ -87,6 +88,9 @@ type ServiceContainerInterface interface {
 	// Signing provider getter
 	GetSigningProvider() signing.SigningKeyProvider
 
+	// Backup service getter
+	GetItemBackupService() *backup.ItemBackupService
+
 	// Lifecycle management
 	Close() error
 }
@@ -153,6 +157,9 @@ type ServiceContainer struct {
 
 	// JWT signing provider
 	signingProvider signing.SigningKeyProvider
+
+	// Per-item backup service
+	itemBackupService *backup.ItemBackupService
 }
 
 // Config holds configuration for the service container.
@@ -423,6 +430,13 @@ func (c *ServiceContainer) initializeServices() error {
 		Logger:             c.logger,
 	})
 
+	// Initialize per-item backup service.
+	c.itemBackupService = backup.NewItemBackupService(
+		c.secretRepository,
+		c.keyRepository,
+		c.certificateRepository,
+	)
+
 	return nil
 }
 
@@ -594,6 +608,11 @@ func (c *ServiceContainer) GetRetryService() retryServices.RetryService {
 // GetSigningProvider returns the JWT signing key provider.
 func (c *ServiceContainer) GetSigningProvider() signing.SigningKeyProvider {
 	return c.signingProvider
+}
+
+// GetItemBackupService returns the per-item backup service.
+func (c *ServiceContainer) GetItemBackupService() *backup.ItemBackupService {
+	return c.itemBackupService
 }
 
 // Close closes the service container and cleans up resources.

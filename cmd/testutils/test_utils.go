@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/mock"
 
 	"rocketvault/common"
+	"rocketvault/internal/backup"
 	"rocketvault/internal/cache"
 	"rocketvault/model"
 	"rocketvault/internal/logging"
@@ -267,6 +268,11 @@ func (m *MockServiceContainer) GetRetryService() retryServices.RetryService {
 
 // GetSigningProvider returns nil — signing provider is not used in CLI tests.
 func (m *MockServiceContainer) GetSigningProvider() signing.SigningKeyProvider {
+	return nil
+}
+
+// GetItemBackupService returns nil — backup service is not used in CLI tests.
+func (m *MockServiceContainer) GetItemBackupService() *backup.ItemBackupService {
 	return nil
 }
 

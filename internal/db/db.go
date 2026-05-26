@@ -535,6 +535,17 @@ func (d *DBRepository) createOptimizedSchema(db *sql.DB) error {
 			expires_at    TIMESTAMP NULL
 		);
 		CREATE INDEX IF NOT EXISTS idx_oauth2_clients_name ON oauth2_clients(name);
+
+		CREATE TABLE IF NOT EXISTS item_backups (
+			id            TEXT PRIMARY KEY,
+			user_id       TEXT NOT NULL,
+			resource_type TEXT NOT NULL,
+			resource_id   TEXT NOT NULL,
+			blob          TEXT NOT NULL,
+			created_at    TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+			FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+		);
+		CREATE INDEX IF NOT EXISTS idx_item_backups_user_id ON item_backups(user_id);
 	`)
 	if err != nil {
 		d.log.Error("Failed to create tables: ", err)
@@ -603,6 +614,17 @@ func (d *DBRepository) migrateSchema(db *sql.DB) error {
 			FOREIGN KEY (key_id) REFERENCES keys(id) ON DELETE CASCADE
 		)`,
 		"CREATE INDEX IF NOT EXISTS idx_key_versions_key_id ON key_versions(key_id)",
+		// Feature: per-item backup table
+		`CREATE TABLE IF NOT EXISTS item_backups (
+			id            TEXT PRIMARY KEY,
+			user_id       TEXT NOT NULL,
+			resource_type TEXT NOT NULL,
+			resource_id   TEXT NOT NULL,
+			blob          TEXT NOT NULL,
+			created_at    TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+			FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+		)`,
+		"CREATE INDEX IF NOT EXISTS idx_item_backups_user_id ON item_backups(user_id)",
 	}
 	for _, stmt := range migrations {
 		if _, err := db.Exec(stmt); err != nil {
