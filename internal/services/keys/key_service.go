@@ -22,7 +22,7 @@ import (
 type CreateKeyRequest struct {
 	Name      string
 	Type      string // "RSA" or "ECDSA"
-	Bits      int    // For RSA: 2048 or 4096
+	Bits      int    // For RSA: 2048, 3072, or 4096
 	Curve     string // For ECDSA: P-256, P-384, P-521
 	Tags      []string
 	UserID    uuid.UUID
@@ -118,9 +118,9 @@ func (s *keyService) CreateRSAKey(ctx context.Context, req CreateKeyRequest) (*C
 	}).Info("Creating RSA key")
 
 	// Validate RSA-specific parameters
-	if req.Bits != 2048 && req.Bits != 4096 {
-		s.logger.LogAuditError(req.UserID.String(), "create_rsa_key", "failed", "invalid RSA key size: must be 2048 or 4096", nil)
-		return nil, fmt.Errorf("invalid RSA key size: must be 2048 or 4096")
+	if req.Bits != 2048 && req.Bits != 3072 && req.Bits != 4096 {
+		s.logger.LogAuditError(req.UserID.String(), "create_rsa_key", "failed", "invalid RSA key size: must be 2048, 3072, or 4096", nil)
+		return nil, fmt.Errorf("invalid RSA key size: must be 2048, 3072, or 4096")
 	}
 
 	// Generate key via the configured provider (software or PKCS#11 HSM).
