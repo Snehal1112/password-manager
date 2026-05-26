@@ -370,6 +370,42 @@ func TestEncryptDecrypt_AES128CBC(t *testing.T) {
 	require.Equal(t, data, dec.Plaintext)
 }
 
+func TestEncryptDecrypt_AES256KW(t *testing.T) {
+	t.Parallel()
+	c := NewCryptoOperations()
+	key := base64.StdEncoding.EncodeToString(bytes.Repeat([]byte{0x01}, 32))
+	data := bytes.Repeat([]byte{0x02}, 16)
+
+	enc, err := c.Encrypt(key, data, AlgorithmA256KW)
+	require.NoError(t, err)
+	dec, err := c.Decrypt(key, enc.Ciphertext, nil, AlgorithmA256KW)
+	require.NoError(t, err)
+	require.Equal(t, data, dec.Plaintext)
+}
+
+func TestEncryptDecrypt_AES256CBC(t *testing.T) {
+	t.Parallel()
+	c := NewCryptoOperations()
+	key := base64.StdEncoding.EncodeToString(bytes.Repeat([]byte{0x03}, 32))
+	data := bytes.Repeat([]byte{0x04}, 32)
+
+	enc, err := c.Encrypt(key, data, AlgorithmA256CBC)
+	require.NoError(t, err)
+	dec, err := c.Decrypt(key, enc.Ciphertext, enc.Nonce, AlgorithmA256CBC)
+	require.NoError(t, err)
+	require.Equal(t, data, dec.Plaintext)
+}
+
+func TestAESCBC_KeySizeMismatch(t *testing.T) {
+	t.Parallel()
+	c := NewCryptoOperations()
+	// A128CBC expects 16 bytes, give it 32.
+	key := base64.StdEncoding.EncodeToString(bytes.Repeat([]byte{0x01}, 32))
+	_, err := c.Encrypt(key, []byte("data"), AlgorithmA128CBC)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "key size mismatch")
+}
+
 func BenchmarkAESEncrypt(b *testing.B) {
 	ops := NewCryptoOperations()
 	keyBase64 := base64.StdEncoding.EncodeToString(make([]byte, 32))

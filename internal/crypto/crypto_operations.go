@@ -574,6 +574,9 @@ func (c *CryptoOperations) wrapAES(keyBase64 string, data []byte, algorithm Encr
 	if err != nil {
 		return nil, fmt.Errorf("failed to decode AES-KW key: %w", err)
 	}
+	if expected := aesKeySize(algorithm); expected != 0 && len(key) != expected {
+		return nil, fmt.Errorf("key size mismatch: algorithm %s requires %d bytes, got %d", algorithm, expected, len(key))
+	}
 	wrapped, err := aesKeyWrap(key, data)
 	if err != nil {
 		return nil, fmt.Errorf("AES-KW wrap failed: %w", err)
@@ -587,6 +590,9 @@ func (c *CryptoOperations) unwrapAES(keyBase64 string, ciphertext []byte, algori
 	if err != nil {
 		return nil, fmt.Errorf("failed to decode AES-KW key: %w", err)
 	}
+	if expected := aesKeySize(algorithm); expected != 0 && len(key) != expected {
+		return nil, fmt.Errorf("key size mismatch: algorithm %s requires %d bytes, got %d", algorithm, expected, len(key))
+	}
 	plaintext, err := aesKeyUnwrap(key, ciphertext)
 	if err != nil {
 		return nil, fmt.Errorf("AES-KW unwrap failed: %w", err)
@@ -599,6 +605,9 @@ func (c *CryptoOperations) encryptAESCBC(keyBase64 string, data []byte, algorith
 	key, err := base64.StdEncoding.DecodeString(keyBase64)
 	if err != nil {
 		return nil, fmt.Errorf("failed to decode AES-CBC key: %w", err)
+	}
+	if expected := aesKeySize(algorithm); expected != 0 && len(key) != expected {
+		return nil, fmt.Errorf("key size mismatch: algorithm %s requires %d bytes, got %d", algorithm, expected, len(key))
 	}
 	// Apply PKCS7 padding so the plaintext is a multiple of the block size.
 	bs := aes.BlockSize
@@ -627,6 +636,9 @@ func (c *CryptoOperations) decryptAESCBC(keyBase64 string, ciphertext []byte, iv
 	if err != nil {
 		return nil, fmt.Errorf("failed to decode AES-CBC key: %w", err)
 	}
+	if expected := aesKeySize(algorithm); expected != 0 && len(key) != expected {
+		return nil, fmt.Errorf("key size mismatch: algorithm %s requires %d bytes, got %d", algorithm, expected, len(key))
+	}
 	if len(ciphertext)%aes.BlockSize != 0 {
 		return nil, fmt.Errorf("ciphertext length is not a multiple of the block size")
 	}
@@ -647,7 +659,27 @@ func (c *CryptoOperations) decryptAESCBC(keyBase64 string, ciphertext []byte, iv
 	if pad == 0 || pad > aes.BlockSize {
 		return nil, fmt.Errorf("invalid PKCS7 padding")
 	}
+	for i := len(plaintext) - pad; i < len(plaintext); i++ {
+		if plaintext[i] != byte(pad) {
+			return nil, fmt.Errorf("invalid PKCS7 padding")
+		}
+	}
 	return &DecryptResult{Plaintext: plaintext[:len(plaintext)-pad], Algorithm: algorithm}, nil
+}
+
+// aesKeySize returns the expected key byte length for an AES algorithm name.
+// Returns 0 for unknown algorithms.
+func aesKeySize(alg EncryptionAlgorithm) int {
+	switch alg {
+	case AlgorithmA128KW, AlgorithmA128CBC:
+		return 16
+	case AlgorithmA192KW, AlgorithmA192CBC:
+		return 24
+	case AlgorithmA256KW, AlgorithmA256CBC:
+		return 32
+	default:
+		return 0
+	}
 }
 
 // getHasher returns the appropriate hash function for the algorithm.
