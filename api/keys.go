@@ -161,6 +161,37 @@ type DecryptKeyResponse struct {
 	Value     string `json:"value"` // base64-encoded plaintext
 }
 
+// buildKeyResponse converts a model.Key to a KeyResponse.
+// When the key's value carries a "pkcs11:" prefix the type is suffixed with
+// "-HSM" (e.g. "RSA" → "RSA-HSM", "ECDSA" → "EC-HSM") to match Azure Key
+// Vault's convention for hardware-backed keys.
+func buildKeyResponse(key *model.Key) KeyResponse {
+	kty := key.Type
+	if strings.HasPrefix(key.Value, "pkcs11:") {
+		switch kty {
+		case "ECDSA", "ES256K":
+			kty = "EC-HSM"
+		default:
+			kty = kty + "-HSM"
+		}
+	}
+	return KeyResponse{
+		ID:        key.ID,
+		Name:      key.Name,
+		Type:      kty,
+		UserID:    key.UserID,
+		Revoked:   key.Revoked,
+		CreatedAt: key.CreatedAt,
+		UpdatedAt: key.UpdatedAt,
+		Tags:      key.Tags,
+		Enabled:   key.Enabled,
+		ExpiresAt: key.ExpiresAt,
+		NotBefore: key.NotBefore,
+		Bits:      key.Bits,
+		Curve:     key.Curve,
+	}
+}
+
 // InitKeys initializes the routes for cryptographic keys management API.
 // It sets up the following endpoints:
 // - POST /keys: Create a new cryptographic key.
@@ -298,25 +329,16 @@ func createKey(c *Context, w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Return success response.
-	response := KeyResponse{
-		ID:        result.KeyID,
-		Name:      result.Name,
-		Type:      result.Type,
-		UserID:    userID,
-		Revoked:   false, // New keys are never revoked.
-		CreatedAt: result.CreatedAt,
-		Tags:      result.Tags,
-		Enabled:   *enabled,
-		ExpiresAt: createReq.ExpiresAt,
-		NotBefore: createReq.NotBefore,
-		Bits:      createReq.Bits,
-		Curve:     createReq.Curve,
+	// Fetch the full key record so buildKeyResponse can inspect the stored value.
+	key, err := keyService.GetKey(r.Context(), result.KeyID, userID)
+	if err != nil {
+		c.SetInternalError(err)
+		return
 	}
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusCreated)
-	json.NewEncoder(w).Encode(response)
+	json.NewEncoder(w).Encode(buildKeyResponse(key))
 }
 
 // listKeys lists cryptographic keys with optional filtering.
@@ -362,22 +384,8 @@ func listKeys(c *Context, w http.ResponseWriter, r *http.Request) {
 
 	// Convert to response format.
 	response := KeyListResponse{Keys: make([]KeyResponse, len(keysList))}
-	for i, key := range keysList {
-		response.Keys[i] = KeyResponse{
-			ID:        key.ID,
-			Name:      key.Name,
-			Type:      key.Type,
-			UserID:    key.UserID,
-			Revoked:   key.Revoked,
-			CreatedAt: key.CreatedAt,
-			UpdatedAt: key.UpdatedAt,
-			Tags:      key.Tags,
-			Enabled:   key.Enabled,
-			ExpiresAt: key.ExpiresAt,
-			NotBefore: key.NotBefore,
-			Bits:      key.Bits,
-			Curve:     key.Curve,
-		}
+	for i := range keysList {
+		response.Keys[i] = buildKeyResponse(&keysList[i])
 	}
 
 	w.Header().Set("Content-Type", "application/json")
@@ -434,25 +442,8 @@ func getKey(c *Context, w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// Return success response.
-	response := KeyResponse{
-		ID:        key.ID,
-		Name:      key.Name,
-		Type:      key.Type,
-		UserID:    key.UserID,
-		Revoked:   key.Revoked,
-		CreatedAt: key.CreatedAt,
-		UpdatedAt: key.UpdatedAt,
-		Tags:      key.Tags,
-		Enabled:   key.Enabled,
-		ExpiresAt: key.ExpiresAt,
-		NotBefore: key.NotBefore,
-		Bits:      key.Bits,
-		Curve:     key.Curve,
-	}
-
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(response)
+	json.NewEncoder(w).Encode(buildKeyResponse(key))
 }
 
 // updateKey updates a cryptographic key.
@@ -516,25 +507,8 @@ func updateKey(c *Context, w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Return success response.
-	response := KeyResponse{
-		ID:        key.ID,
-		Name:      key.Name,
-		Type:      key.Type,
-		UserID:    key.UserID,
-		Revoked:   key.Revoked,
-		CreatedAt: key.CreatedAt,
-		UpdatedAt: key.UpdatedAt,
-		Tags:      key.Tags,
-		Enabled:   key.Enabled,
-		ExpiresAt: key.ExpiresAt,
-		NotBefore: key.NotBefore,
-		Bits:      key.Bits,
-		Curve:     key.Curve,
-	}
-
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(response)
+	json.NewEncoder(w).Encode(buildKeyResponse(key))
 }
 
 // deleteKey deletes a cryptographic key.
@@ -603,20 +577,15 @@ func rotateKey(c *Context, w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Return success response with the new key.
-	response := KeyResponse{
-		ID:        result.KeyID,
-		Name:      result.Name,
-		Type:      result.Type,
-		UserID:    userID,
-		Revoked:   false, // New rotated keys are never revoked.
-		CreatedAt: result.CreatedAt,
-		Tags:      result.Tags,
-		Enabled:   true, // Rotated keys are always enabled at creation.
+	// Fetch the full key record so buildKeyResponse can inspect the stored value.
+	key, err := keyService.GetKey(r.Context(), result.KeyID, userID)
+	if err != nil {
+		c.SetInternalError(err)
+		return
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(response)
+	json.NewEncoder(w).Encode(buildKeyResponse(key))
 }
 
 // listKeyVersions returns the version history for a key, excluding raw key material.
