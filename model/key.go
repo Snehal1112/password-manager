@@ -26,6 +26,7 @@ type Key struct {
 	NotBefore        *time.Time `json:"not_before,omitempty"`
 	Bits             int        `json:"bits,omitempty"`
 	Curve            string     `json:"curve,omitempty"`
+	UpdatedAt        *time.Time `json:"updated_at,omitempty"`
 }
 
 // IsAccessible returns true when the key is enabled and within its validity window.
@@ -104,6 +105,7 @@ type KeyResponse struct {
 	NotBefore *time.Time `json:"not_before,omitempty"`
 	Bits      int        `json:"bits,omitempty"`
 	Curve     string     `json:"curve,omitempty"`
+	UpdatedAt *time.Time `json:"updated_at,omitempty"`
 }
 
 func (r *KeyResponse) ToJson() string {

@@ -166,10 +166,10 @@ func (r *KeyRepository) Read(ctx context.Context, id uuid.UUID) (*model.Key, err
 
 	err := r.db.QueryRowContext(
 		ctx,
-		"SELECT id, user_id, name, value, type, revoked, created_at, enabled, expires_at, not_before, bits, curve FROM keys WHERE id = ? AND deleted_at IS NULL",
+		"SELECT id, user_id, name, value, type, revoked, created_at, enabled, expires_at, not_before, bits, curve, updated_at FROM keys WHERE id = ? AND deleted_at IS NULL",
 		id.String(),
 	).Scan(&idStr, &userIDStr, &key.Name, &key.Value, &key.Type, &key.Revoked, &key.CreatedAt,
-		&key.Enabled, &key.ExpiresAt, &key.NotBefore, &key.Bits, &key.Curve)
+		&key.Enabled, &key.ExpiresAt, &key.NotBefore, &key.Bits, &key.Curve, &key.UpdatedAt)
 
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, fmt.Errorf("key not found")
@@ -219,10 +219,12 @@ func (r *KeyRepository) Update(ctx context.Context, key *model.Key) error {
 			"name":    key.Name,
 		}).Debug("Updating key in database")
 
+		now := time.Now()
+		key.UpdatedAt = &now
 		result, err := r.db.ExecContext(
 			ctx,
-			"UPDATE keys SET name = ?, value = ?, revoked = ?, created_at = ?, enabled = ?, expires_at = ?, not_before = ?, bits = ?, curve = ? WHERE id = ?",
-			key.Name, key.Value, key.Revoked, key.CreatedAt, key.Enabled, key.ExpiresAt, key.NotBefore, key.Bits, key.Curve, key.ID.String(),
+			"UPDATE keys SET name = ?, value = ?, revoked = ?, created_at = ?, enabled = ?, expires_at = ?, not_before = ?, bits = ?, curve = ?, updated_at = ? WHERE id = ?",
+			key.Name, key.Value, key.Revoked, key.CreatedAt, key.Enabled, key.ExpiresAt, key.NotBefore, key.Bits, key.Curve, now, key.ID.String(),
 		)
 		if err != nil {
 			r.log.LogAuditError(key.UserID.String(), "update_key", "failed", "Failed to update key", err)
@@ -324,7 +326,7 @@ func (r *KeyRepository) ListByUser(ctx context.Context, userID *uuid.UUID, keyTy
 
 	err := r.executeWithMetrics("list_keys_by_user", func() error {
 		var args []interface{}
-		query := "SELECT id, user_id, name, value, type, revoked, created_at, enabled, expires_at, not_before, bits, curve FROM keys"
+		query := "SELECT id, user_id, name, value, type, revoked, created_at, enabled, expires_at, not_before, bits, curve, updated_at FROM keys"
 
 		// Build WHERE clauses — always exclude soft-deleted keys.
 		conditions := []string{"deleted_at IS NULL"}
@@ -367,7 +369,7 @@ func (r *KeyRepository) ListByUser(ctx context.Context, userID *uuid.UUID, keyTy
 			var idStr, userIDStr string
 
 			if err := rows.Scan(&idStr, &userIDStr, &key.Name, &key.Value, &key.Type, &key.Revoked, &key.CreatedAt,
-				&key.Enabled, &key.ExpiresAt, &key.NotBefore, &key.Bits, &key.Curve); err != nil {
+				&key.Enabled, &key.ExpiresAt, &key.NotBefore, &key.Bits, &key.Curve, &key.UpdatedAt); err != nil {
 				r.log.LogAuditError(uuid.Nil.String(), "list_keys", "failed", "Failed to scan key", err)
 				return fmt.Errorf("failed to scan key: %w", err)
 			}
@@ -639,7 +641,7 @@ func (r *KeyRepository) ListSoftDeleted(ctx context.Context, userID uuid.UUID) (
 		logrus.WithField("user_id", userID.String()).Debug("Listing soft-deleted keys for user")
 
 		rows, err := r.db.QueryContext(ctx,
-			"SELECT id, user_id, name, value, type, revoked, created_at, enabled, expires_at, not_before, bits, curve, deleted_at, purge_protection FROM keys WHERE user_id = ? AND deleted_at IS NOT NULL ORDER BY deleted_at DESC",
+			"SELECT id, user_id, name, value, type, revoked, created_at, enabled, expires_at, not_before, bits, curve, updated_at, deleted_at, purge_protection FROM keys WHERE user_id = ? AND deleted_at IS NOT NULL ORDER BY deleted_at DESC",
 			userID.String())
 		if err != nil {
 			r.log.LogAuditError(userID.String(), "list_soft_deleted_keys", "failed", "Failed to query soft-deleted keys", err)
@@ -656,7 +658,7 @@ func (r *KeyRepository) ListSoftDeleted(ctx context.Context, userID uuid.UUID) (
 			var purgeProtection bool
 
 			if err := rows.Scan(&idStr, &userIDStr, &key.Name, &key.Value, &key.Type, &key.Revoked, &key.CreatedAt,
-				&key.Enabled, &key.ExpiresAt, &key.NotBefore, &key.Bits, &key.Curve,
+				&key.Enabled, &key.ExpiresAt, &key.NotBefore, &key.Bits, &key.Curve, &key.UpdatedAt,
 				&deletedAt, &purgeProtection); err != nil {
 				r.log.LogAuditError(userID.String(), "list_soft_deleted_keys", "failed", "Failed to scan key", err)
 				return fmt.Errorf("failed to scan key: %w", err)

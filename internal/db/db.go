@@ -319,6 +319,7 @@ func (d *DBRepository) createOptimizedSchema(db *sql.DB) error {
 			not_before TIMESTAMP NULL,
 			bits INTEGER NOT NULL DEFAULT 0,
 			curve TEXT NOT NULL DEFAULT '',
+			updated_at TIMESTAMP NULL,
 			FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
 		);
 		CREATE INDEX IF NOT EXISTS idx_keys_user_id ON keys(user_id);
@@ -601,6 +602,8 @@ func (d *DBRepository) migrateSchema(db *sql.DB) error {
 		"ALTER TABLE keys ADD COLUMN not_before TIMESTAMP NULL",
 		"ALTER TABLE keys ADD COLUMN bits INTEGER NOT NULL DEFAULT 0",
 		"ALTER TABLE keys ADD COLUMN curve TEXT NOT NULL DEFAULT ''",
+		// Feature: Azure Key Vault parity — updated_at timestamp on keys.
+		"ALTER TABLE keys ADD COLUMN updated_at TIMESTAMP NULL",
 		// Feature: lifecycle attributes for certificates
 		"ALTER TABLE certificates ADD COLUMN enabled BOOLEAN NOT NULL DEFAULT TRUE",
 		"ALTER TABLE certificates ADD COLUMN not_before TIMESTAMP NULL",

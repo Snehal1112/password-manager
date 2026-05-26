@@ -46,7 +46,8 @@ func setupTestDB(t *testing.T) *sql.DB {
 			expires_at TIMESTAMP NULL,
 			not_before TIMESTAMP NULL,
 			bits INTEGER NOT NULL DEFAULT 0,
-			curve TEXT NOT NULL DEFAULT ''
+			curve TEXT NOT NULL DEFAULT '',
+			updated_at TIMESTAMP NULL
 		);
 		CREATE TABLE IF NOT EXISTS key_tags (
 			key_id TEXT NOT NULL,
@@ -99,6 +100,44 @@ func TestKeySoftDelete(t *testing.T) {
 	require.Len(t, deleted, 1)
 	assert.Equal(t, key.ID, deleted[0].ID)
 	assert.NotNil(t, deleted[0].DeletedAt)
+}
+
+func TestKeyRepository_UpdateSetsUpdatedAt(t *testing.T) {
+	t.Parallel()
+	db := setupTestDB(t)
+	log := logging.InitLogger()
+	repo := repositories.NewKeyRepository(db, log)
+	ctx := context.Background()
+	userID := uuid.New()
+
+	key := &model.Key{
+		ID:        uuid.New(),
+		UserID:    userID,
+		Name:      "update-at-test-key",
+		Type:      "rsa",
+		Value:     "encrypted-private-key",
+		CreatedAt: time.Now(),
+	}
+	require.NoError(t, repo.Create(ctx, key))
+
+	// UpdatedAt must be nil before the first Update call.
+	created, err := repo.Read(ctx, key.ID)
+	require.NoError(t, err)
+	assert.Nil(t, created.UpdatedAt, "UpdatedAt should be nil before first update")
+
+	// Update the key and verify UpdatedAt is stamped.
+	beforeUpdate := time.Now()
+	created.Name = "update-at-test-key-renamed"
+	require.NoError(t, repo.Update(ctx, created))
+
+	updated, err := repo.Read(ctx, key.ID)
+	require.NoError(t, err)
+	require.NotNil(t, updated.UpdatedAt, "UpdatedAt must be non-nil after Update")
+	assert.True(t, !updated.UpdatedAt.Before(beforeUpdate),
+		"UpdatedAt (%v) should be at or after the time Update was called (%v)",
+		updated.UpdatedAt, beforeUpdate)
+	assert.True(t, !updated.UpdatedAt.Before(updated.CreatedAt),
+		"UpdatedAt should not be before CreatedAt")
 }
 
 func TestKeyPurge(t *testing.T) {
