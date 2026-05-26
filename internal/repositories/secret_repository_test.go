@@ -32,7 +32,10 @@ func setupSecretTestDB(t *testing.T) *sql.DB {
 		deleted_at       TIMESTAMP NULL,
 		purge_protection BOOLEAN NOT NULL DEFAULT FALSE,
 		scheduled_purge_at TIMESTAMP NULL,
-		content_type     TEXT NOT NULL DEFAULT ''
+		content_type     TEXT NOT NULL DEFAULT '',
+		enabled          BOOLEAN NOT NULL DEFAULT TRUE,
+		expires_at       TIMESTAMP NULL,
+		not_before       TIMESTAMP NULL
 	)`)
 	require.NoError(t, err)
 	t.Cleanup(func() { db.Close() })
@@ -101,6 +104,38 @@ func TestSecretRepository_ReadByOwner_SoftDeletedSecretNotVisible(t *testing.T) 
 	_, err := repo.ReadByOwner(ctx, secret.ID, ownerID)
 	assert.Error(t, err, "ReadByOwner must not return a soft-deleted secret")
 	assert.Contains(t, err.Error(), "not found")
+}
+
+// TestSecretLifecycleAttributes_PersistAndLoad verifies that enabled, expires_at,
+// and not_before are stored and loaded correctly from the database.
+func TestSecretLifecycleAttributes_PersistAndLoad(t *testing.T) {
+	t.Parallel()
+	db := setupSecretTestDB(t)
+	repo := repositories.NewSecretRepository(db, newTestSecretLogger(t))
+
+	now := time.Now()
+	exp := now.Add(24 * time.Hour)
+	nbf := now.Add(-1 * time.Hour)
+
+	s := &model.Secret{
+		ID:        uuid.New(),
+		UserID:    uuid.New(),
+		Name:      "test-lifecycle",
+		Value:     "encrypted-value",
+		Version:   1,
+		CreatedAt: now,
+		Enabled:   true,
+		ExpiresAt: &exp,
+		NotBefore: &nbf,
+	}
+	require.NoError(t, repo.Create(context.Background(), s))
+
+	loaded, err := repo.Read(context.Background(), s.ID)
+	require.NoError(t, err)
+	require.True(t, loaded.Enabled)
+	require.NotNil(t, loaded.ExpiresAt)
+	require.WithinDuration(t, exp, *loaded.ExpiresAt, time.Second)
+	require.NotNil(t, loaded.NotBefore)
 }
 
 // TestSoftDelete_PreservesPurgeProtection verifies that SoftDelete does not

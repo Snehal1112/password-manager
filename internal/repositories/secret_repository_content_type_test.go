@@ -32,7 +32,10 @@ func setupContentTypeTestDB(t *testing.T) *sql.DB {
 		deleted_at TIMESTAMP NULL,
 		purge_protection BOOLEAN NOT NULL DEFAULT FALSE,
 		scheduled_purge_at TIMESTAMP NULL,
-		content_type TEXT NOT NULL DEFAULT ''
+		content_type TEXT NOT NULL DEFAULT '',
+		enabled BOOLEAN NOT NULL DEFAULT TRUE,
+		expires_at TIMESTAMP NULL,
+		not_before TIMESTAMP NULL
 	)`)
 	require.NoError(t, err)
 	_, err = db.Exec(`CREATE TABLE IF NOT EXISTS secret_tags (

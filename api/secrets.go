@@ -486,6 +486,12 @@ func getSecret(c *Context, w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Deny access if the secret is disabled or outside its valid time window.
+	if !secret.IsAccessible() {
+		c.SetPermissionError("secret is disabled or outside its valid time window")
+		return
+	}
+
 	// Prepare response (include value for get operation).
 	response := model.SecretResponse{
 		ID:          secret.ID.String(),
