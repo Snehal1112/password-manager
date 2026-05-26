@@ -8,8 +8,11 @@ import (
 	"crypto/rand"
 	"crypto/rsa"
 	"crypto/x509"
+	"encoding/base64"
 	"encoding/pem"
 	"fmt"
+	"math/big"
+	"strings"
 
 	secp256k1 "github.com/decred/dcrd/dcrec/secp256k1/v4"
 	"github.com/sirupsen/logrus"
@@ -126,6 +129,45 @@ func ParsePrivateKey(pemData, keyType string) (any, error) {
 		return secp256k1.PrivKeyFromBytes(block.Bytes), nil
 	default:
 		return nil, fmt.Errorf("unsupported key type: %s", keyType)
+	}
+}
+
+// ExtractPublicComponents parses a PEM-encoded private key and returns the
+// base64url-encoded public key components. Returns empty strings for PKCS#11
+// keys (which carry a label, not PEM).
+func ExtractPublicComponents(pemOrHandle string, keyType string) (n, e, x, y string, err error) {
+	if strings.HasPrefix(pemOrHandle, "pkcs11:") {
+		return "", "", "", "", nil
+	}
+	block, _ := pem.Decode([]byte(pemOrHandle))
+	if block == nil {
+		return "", "", "", "", fmt.Errorf("failed to decode PEM block")
+	}
+	switch block.Type {
+	case "RSA PRIVATE KEY":
+		priv, parseErr := x509.ParsePKCS1PrivateKey(block.Bytes)
+		if parseErr != nil {
+			return "", "", "", "", fmt.Errorf("parse RSA private key: %w", parseErr)
+		}
+		n = base64.RawURLEncoding.EncodeToString(priv.PublicKey.N.Bytes())
+		eBytes := big.NewInt(int64(priv.PublicKey.E)).Bytes()
+		e = base64.RawURLEncoding.EncodeToString(eBytes)
+		return n, e, "", "", nil
+	case "EC PRIVATE KEY":
+		priv, parseErr := x509.ParseECPrivateKey(block.Bytes)
+		if parseErr != nil {
+			return "", "", "", "", fmt.Errorf("parse EC private key: %w", parseErr)
+		}
+		byteLen := (priv.PublicKey.Curve.Params().BitSize + 7) / 8
+		xb := make([]byte, byteLen)
+		yb := make([]byte, byteLen)
+		priv.PublicKey.X.FillBytes(xb)
+		priv.PublicKey.Y.FillBytes(yb)
+		x = base64.RawURLEncoding.EncodeToString(xb)
+		y = base64.RawURLEncoding.EncodeToString(yb)
+		return "", "", x, y, nil
+	default:
+		return "", "", "", "", fmt.Errorf("unsupported PEM block type: %s", block.Type)
 	}
 }
 

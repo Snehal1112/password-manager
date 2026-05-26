@@ -75,6 +75,11 @@ type KeyResponse struct {
 	NotBefore *time.Time `json:"not_before,omitempty"`
 	Bits      int        `json:"bits,omitempty"`
 	Curve     string     `json:"curve,omitempty"`
+	// JWK public components (omitted for HSM-backed keys).
+	N string `json:"n,omitempty"` // RSA modulus (base64url).
+	E string `json:"e,omitempty"` // RSA public exponent (base64url).
+	X string `json:"x,omitempty"` // EC x coordinate (base64url).
+	Y string `json:"y,omitempty"` // EC y coordinate (base64url).
 }
 
 // KeyListResponse represents the response structure for listing keys.
@@ -175,6 +180,7 @@ func buildKeyResponse(key *model.Key) KeyResponse {
 			kty = kty + "-HSM"
 		}
 	}
+	n, e, x, y, _ := crypto.ExtractPublicComponents(key.Value, key.Type)
 	return KeyResponse{
 		ID:        key.ID,
 		Name:      key.Name,
@@ -189,6 +195,10 @@ func buildKeyResponse(key *model.Key) KeyResponse {
 		NotBefore: key.NotBefore,
 		Bits:      key.Bits,
 		Curve:     key.Curve,
+		N:         n,
+		E:         e,
+		X:         x,
+		Y:         y,
 	}
 }
 
