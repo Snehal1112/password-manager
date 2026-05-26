@@ -34,7 +34,6 @@ import (
 
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/google/uuid"
-	"github.com/gorilla/mux"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -238,11 +237,6 @@ func newGetDeletedKeyContext(repo repositories.KeyRepositoryInterface) *Context 
 	}
 }
 
-// withKeyID injects a Gorilla Mux route variable "key_id" into the request.
-func withKeyID(r *http.Request, keyID string) *http.Request {
-	return mux.SetURLVars(r, map[string]string{"key_id": keyID})
-}
-
 // --- tests ---
 
 // TestGetDeletedKey_Found_Returns200 verifies that getDeletedKey returns 200
@@ -263,11 +257,9 @@ func TestGetDeletedKey_Found_Returns200(t *testing.T) {
 	}
 
 	c := newGetDeletedKeyContext(repo)
+	c.Params = &ApiParams{KeyID: targetID.String()}
 	w := httptest.NewRecorder()
-	r := withKeyID(
-		httptest.NewRequest(http.MethodGet, "/deleted/keys/"+targetID.String(), nil),
-		targetID.String(),
-	)
+	r := httptest.NewRequest(http.MethodGet, "/deleted/keys/"+targetID.String(), nil)
 
 	getDeletedKey(c, w, r)
 	if c.Err != nil {
@@ -303,11 +295,9 @@ func TestGetDeletedKey_NotFound_Returns404(t *testing.T) {
 	}
 
 	c := newGetDeletedKeyContext(repo)
+	c.Params = &ApiParams{KeyID: requestedID.String()}
 	w := httptest.NewRecorder()
-	r := withKeyID(
-		httptest.NewRequest(http.MethodGet, "/deleted/keys/"+requestedID.String(), nil),
-		requestedID.String(),
-	)
+	r := httptest.NewRequest(http.MethodGet, "/deleted/keys/"+requestedID.String(), nil)
 
 	getDeletedKey(c, w, r)
 	if c.Err != nil {

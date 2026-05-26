@@ -5,7 +5,6 @@ import (
 	"net/http"
 
 	"github.com/google/uuid"
-	"github.com/gorilla/mux"
 )
 
 // listDeletedSecrets returns all soft-deleted secrets for the authenticated user.
@@ -169,8 +168,7 @@ func getDeletedKey(c *Context, w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	keyIDStr := mux.Vars(r)["key_id"]
-	keyID, err := uuid.Parse(keyIDStr)
+	keyID, err := uuid.Parse(c.Params.KeyID)
 	if err != nil {
 		c.SetInvalidParam("key_id")
 		return
