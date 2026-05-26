@@ -5,6 +5,7 @@ import (
 	"crypto/aes"
 	"crypto/cipher"
 	"crypto/ecdsa"
+	"crypto/hmac"
 	"crypto/rand"
 	"crypto/rsa"
 	"crypto/sha1"
@@ -36,6 +37,11 @@ const (
 	AlgorithmPS256 SignatureAlgorithm = "PS256" // RSA-PSS with SHA-256
 	AlgorithmPS384 SignatureAlgorithm = "PS384" // RSA-PSS with SHA-384
 	AlgorithmPS512 SignatureAlgorithm = "PS512" // RSA-PSS with SHA-512
+
+	// HMAC signature algorithms (oct key type).
+	AlgorithmHS256 SignatureAlgorithm = "HS256" // HMAC with SHA-256
+	AlgorithmHS384 SignatureAlgorithm = "HS384" // HMAC with SHA-384
+	AlgorithmHS512 SignatureAlgorithm = "HS512" // HMAC with SHA-512
 )
 
 // EncryptionAlgorithm represents the encryption algorithm to use.
@@ -85,8 +91,27 @@ func NewCryptoOperations() *CryptoOperations {
 }
 
 // Sign signs data using the provided private key.
-// Supports RSA and ECDSA keys with various hash algorithms.
+// Supports RSA, ECDSA, and oct (HMAC) keys with various hash algorithms.
 func (c *CryptoOperations) Sign(privateKeyPEM string, keyType string, data []byte, algorithm SignatureAlgorithm) (*SignResult, error) {
+	// Handle HMAC (oct) keys directly — no PEM parsing needed.
+	if keyType == "oct" {
+		keyBytes, err := base64.StdEncoding.DecodeString(privateKeyPEM)
+		if err != nil {
+			return nil, fmt.Errorf("failed to decode oct key: %w", err)
+		}
+		var h hash.Hash
+		switch algorithm {
+		case AlgorithmHS384:
+			h = hmac.New(sha512.New384, keyBytes)
+		case AlgorithmHS512:
+			h = hmac.New(sha512.New, keyBytes)
+		default:
+			h = hmac.New(sha256.New, keyBytes)
+		}
+		h.Write(data)
+		return &SignResult{Signature: h.Sum(nil), Algorithm: algorithm}, nil
+	}
+
 	// Parse private key
 	privateKey, err := ParsePrivateKey(privateKeyPEM, keyType)
 	if err != nil {
@@ -156,6 +181,26 @@ func (c *CryptoOperations) Sign(privateKeyPEM string, keyType string, data []byt
 
 // Verify verifies a signature using the provided public key.
 func (c *CryptoOperations) Verify(publicKeyPEM string, keyType string, data []byte, signature []byte, algorithm SignatureAlgorithm) (*VerifyResult, error) {
+	// Handle HMAC (oct) keys directly — no PEM parsing needed.
+	if keyType == "oct" {
+		keyBytes, err := base64.StdEncoding.DecodeString(publicKeyPEM)
+		if err != nil {
+			return nil, fmt.Errorf("failed to decode oct key: %w", err)
+		}
+		var h hash.Hash
+		switch algorithm {
+		case AlgorithmHS384:
+			h = hmac.New(sha512.New384, keyBytes)
+		case AlgorithmHS512:
+			h = hmac.New(sha512.New, keyBytes)
+		default:
+			h = hmac.New(sha256.New, keyBytes)
+		}
+		h.Write(data)
+		expected := h.Sum(nil)
+		return &VerifyResult{Valid: hmac.Equal(expected, signature), Algorithm: algorithm}, nil
+	}
+
 	// Parse private key to extract public key
 	privateKey, err := ParsePrivateKey(publicKeyPEM, keyType)
 	if err != nil {

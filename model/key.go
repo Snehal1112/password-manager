@@ -24,9 +24,10 @@ type Key struct {
 }
 
 const (
-	KeyTypeRSA   = "RSA"
-	KeyTypeECDSA = "ECDSA"
+	KeyTypeRSA    = "RSA"
+	KeyTypeECDSA  = "ECDSA"
 	KeyTypeES256K = "ES256K" // secp256k1 ECDSA
+	KeyTypeOct    = "oct"    // Symmetric key (HMAC / AES)
 )
 
 // --- HTTP request/response types ---

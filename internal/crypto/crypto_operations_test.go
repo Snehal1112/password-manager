@@ -1,6 +1,7 @@
 package crypto
 
 import (
+	"bytes"
 	"encoding/base64"
 	"testing"
 
@@ -287,6 +288,26 @@ func TestSignVerify_ES256K(t *testing.T) {
 	result2, err := ops.Verify(privPEM, "ES256K", tampered, sig.Signature, AlgorithmES256K)
 	require.NoError(t, err)
 	assert.False(t, result2.Valid, "tampered data should not verify")
+}
+
+func TestSignVerify_HMAC(t *testing.T) {
+	t.Parallel()
+	c := NewCryptoOperations()
+	// 32-byte key encoded as base64.
+	key := base64.StdEncoding.EncodeToString(bytes.Repeat([]byte{0xAB}, 32))
+	data := []byte("hmac payload")
+
+	for _, alg := range []SignatureAlgorithm{AlgorithmHS256, AlgorithmHS384, AlgorithmHS512} {
+		alg := alg
+		t.Run(string(alg), func(t *testing.T) {
+			t.Parallel()
+			sig, err := c.Sign(key, "oct", data, alg)
+			require.NoError(t, err)
+			result, err := c.Verify(key, "oct", data, sig.Signature, alg)
+			require.NoError(t, err)
+			require.True(t, result.Valid)
+		})
+	}
 }
 
 func BenchmarkAESEncrypt(b *testing.B) {
