@@ -42,8 +42,8 @@
 | attributes.updated | Unix epoch int | missing | `model/secret.go:172` declared | none | Field in struct but never populated. |
 | attributes.recoveryLevel | `DeletionRecoveryLevel` enum | missing | none | none | No concept exposed. |
 | attributes.recoverableDays | 7–90 days | missing | none | none | `scheduled_purge_at` column exists but never written by `SoftDelete`. |
-| Name validation | `^[0-9a-zA-Z-]+$` | partial | `internal/validation/common.go:13` | `validation_test.go:201` | Stricter: must start with letter; max 127. Validator not invoked from API. |
-| Secret value size | 25 KB | exact | `secret_validation.go:44` (`Length(1, 25600)`) | none | Limit matches, but `ValidateSecretCreate` not called from `api/secrets.go`. |
+| Name validation | `^[0-9a-zA-Z-]+$` | partial | `internal/validation/common.go:13` | `validation_test.go:201` | **Fixed**: validator wired via `9b0d30f`. Stricter: must start with letter; max 127. Digit-prefixed Azure names remain unimportable. |
+| Secret value size | 25 KB | exact | `secret_validation.go:44`, `api/secrets.go:347` | none | **Fixed**: `ValidateSecretCreate` now called in handler. |
 | Error envelope | `{"error":{"code","message","innererror"}}` | missing | `api/context.go:166-176` flat envelope | none | Incompatible with Azure SDK error inspection. |
 | Versioning model | Opaque 32-char hex versions; addressable | partial | `model/secret.go:63`, `secret_versions` table | none | Integer counters; not Azure-addressable. |
 
@@ -58,7 +58,7 @@
 | GetKey | `GET /keys/{name}/{version}`; JWK public + attributes | partial | `api/keys.go:109,281-343` | `service_test.go:81` | UUID-addressed; response omits JWK public material (`n`/`e`/`x`/`y`). |
 | ListKeys | `GET /keys`; pagination | partial | `api/keys.go:108,221-278` | `service_test.go:291` | No pagination; returns full objects, not key identifiers. |
 | ListKeyVersions | `GET /keys/{name}/versions` | partial | `internal/repositories/key_repository.go:ListVersions`, `api/keys.go` | `key_versions_test.go` | **Fixed**: `key_versions` table added; `GET /keys/{id}/versions` route registered. UUID-addressed, not name-addressed. |
-| UpdateKey | `PATCH /keys/{name}/{version}`; key_ops/attributes/tags | partial | `api/keys.go:110,345-415` | `service_update_test.go:18` | Updates name/tags/revoked only; no enabled/exp/nbf. |
+| UpdateKey | `PATCH /keys/{name}/{version}`; key_ops/attributes/tags | partial | `api/keys.go:110,345-415` | `service_update_test.go:18` | **Fixed**: `enabled`/`exp`/`nbf` persisted and enforced (`f59f9ee`). No `key_ops`; UUID-addressed not name+version. |
 | DeleteKey | `DELETE /keys/{name}`; soft-delete; `DeletedKeyBundle` | partial | `api/keys.go:111,418-449`, `key_repository.go:452-480` | `key_soft_delete_test.go:59` | Response is plain 200; no recovery URI / scheduled purge date. |
 | RecoverDeletedKey | `POST /deletedkeys/{name}/recover` | partial | `api/soft_delete.go:387`, `key_repository.go:491-518` | `key_soft_delete_test.go:59` | Non-standard route `/keys/{id}/restore`. |
 | PurgeDeletedKey | `DELETE /deletedkeys/{name}` | partial | `api/soft_delete.go:388`, `key_repository.go:530-579` | `key_soft_delete_test.go:92,119` | Non-standard route; purge protection flag exists. |
@@ -80,7 +80,7 @@
 | Encrypt A128KW/A192KW/A256KW | AES Key Wrap | partial | `crypto_operations.go:AlgorithmA128KW/A192KW/A256KW` | `crypto_operations_test.go` | **Fixed**: AES Key Wrap (RFC 3394) for all three key sizes implemented. |
 | Encrypt A128CBC/A192CBC/A256CBC | AES-CBC + variants | partial | `crypto_operations.go:AlgorithmA128CBC/A192CBC/A256CBC` | `crypto_operations_test.go` | **Fixed**: AES-CBC with PKCS7 padding for all three key sizes implemented. |
 | Decrypt (all) | `POST /keys/{name}/{ver}/decrypt` | partial | `api/keys.go:189`, `crypto_service.go:Decrypt` | `crypto_operations_test.go` | **Fixed**: HTTP route `POST /keys/{id}/decrypt` added. Revoked-key guard enforced. Full algorithm coverage. |
-| WrapKey | `POST /keys/{name}/{ver}/wrapkey` | partial | `api/keys.go:115,499-566`, `crypto_service.go:351-383` | `wrap_key_test.go:74` | HTTP route exists. Only `RSA-OAEP` accepted; other 14+ Azure algorithms rejected. No `aad`/`iv`/`tag`. |
+| WrapKey | `POST /keys/{name}/{ver}/wrapkey` | partial | `api/keys.go:115,499-566`, `crypto_service.go:351-383` | `wrap_key_test.go:74` | HTTP route exists. `RSA-OAEP` and `RSA-OAEP-256` supported; other 14+ Azure algorithms rejected. No `aad`/`iv`/`tag`. |
 | UnwrapKey | `POST /keys/{name}/{ver}/unwrapkey` | partial | `api/keys.go:116,569-636`, `crypto_service.go:386-418` | `wrap_key_test.go:74` | Same limitation as WrapKey. |
 | Key attributes: enabled | Boolean | partial | `model/key.go:Enabled`, `internal/repositories/key_repository.go` | `key_soft_delete_test.go` | **Fixed**: `enabled` column added, persisted, and enforced via `IsAccessible()` in `getKey` handler. |
 | Key attributes: exp / nbf | Timestamps | partial | `model/key.go:ExpiresAt/NotBefore`, `internal/repositories/key_repository.go` | `key_soft_delete_test.go` | **Fixed**: columns added, persisted, and enforced. Returned as RFC3339, not Unix timestamp. |
@@ -101,7 +101,7 @@
 | GetCertificate | `GET /certificates/{name}/{version}`; `CertificateBundle` with cer/x5t/kid/sid/policy | partial | `api/certificates.go:86,229-260`, `certificate_service.go:360-374` | none | Response omits `cer` (DER), `x5t` (thumbprint), `kid`, `sid`, policy, `enabled`, `nbf`. No version in URL. |
 | ListCertificates | Pagination; max 25/page | partial | `api/certificates.go:85,196-226` | none | No `nextLink`; missing `x5t`/`cer`. |
 | ListCertificateVersions | All versions | missing | no version model | none | Certificates are single-version. |
-| UpdateCertificate | `PATCH`; attributes (enabled/exp/nbf), tags | partial | `api/certificates.go:87,263-319` | `cmd/certificates/update.go` | Updates name/tags/auto_renew/renewal_days; no `enabled`/`exp`/`nbf`. |
+| UpdateCertificate | `PATCH`; attributes (enabled/exp/nbf), tags | partial | `api/certificates.go:87,263-319` | `cmd/certificates/update.go` | **Fixed**: `enabled`/`exp`/`nbf` persisted and enforced (`f931fa2`). No SAN/EKU/key_usage configurability. |
 | DeleteCertificate | Soft-delete; `DeletedCertificateBundle` (recoveryId, scheduledPurgeDate) | partial | `api/certificates.go:88,323-352`, `certificate_repository.go:549-577` | `cert_soft_delete_test.go:156-195` | Response `{"status":"OK"}` only. |
 | RecoverDeletedCertificate | `POST /deletedcertificates/{name}/recover` | partial | `api/soft_delete.go:281-321,390`, `certificate_repository.go:588-615` | none | Non-standard path; response is plain JSON. |
 | PurgeDeletedCertificate | `DELETE /deletedcertificates/{name}`; 204 | partial | `api/soft_delete.go:323-361,391`, `certificate_repository.go:627-676` | none | Returns 200 JSON instead of 204; purge protection flag exists. |
@@ -138,10 +138,10 @@
 | OAuth2 grants | code, client_credentials, device, OBO | partial | `api/oauth2.go:50-99` | `oauth2_service_test.go` | Only `client_credentials` (RFC 6749 §4.4). |
 | Token format | Azure AD RS256 JWT; claims oid/tid/scp/roles/appid | partial | `jwt_service.go:118-135` | `jwt_service_test.go` | RS256/ES256-384-512 supported; claims: user_id/username/role; no scp/tid. HS256 fallback still active during migration. |
 | JWKS endpoint | `https://login.microsoftonline.com/{tenant}/discovery/v2.0/keys` | exact | `api/jwks.go:14-40` | none | RFC 7517 JWK Set; rotation via `POST /jwks/rotate`. |
-| Token validation | Bearer on every request | partial | `internal/middleware/middleware.go:225-278` | `middleware_test.go` | **Bug**: revoked sessions not checked at validate time (see security findings). |
+| Token validation | Bearer on every request | partial | `internal/middleware/middleware.go:225-278` | `middleware_test.go` | **Fixed**: `ValidateSession` now checks `sessions.revoked` via `sessionRepo.IsSessionRevoked` (`b68e787`). HS256 fallback still active. |
 | RBAC built-in roles | 11 distinct: Administrator, Reader, Purge Operator, Certificates Officer, Certificate User, Crypto Officer, Crypto Service Encryption User, Crypto User, Crypto Service Release User, Secrets Officer, Secrets User | partial | `model/user.go:31-38`, `internal/services/authorization/rbac_service.go:85-121` | `rbac_integration_test.go` | 6 roles; no Reader/Purge Operator/Crypto Service variants. |
 | Access policies (legacy) | Per-principal, per-operation, up to 1024 | partial | `model/access_policy.go:33-52`, `internal/db/db.go:495-505` | `access_policy_service_test.go:49-108` | Resource-type scoped; no per-individual-object scoping. |
-| Per-operation: secrets | get, list, set, delete, recover, backup, restore, purge | partial | `model/access_policy.go:36-52` | none | Adds `set` and `create` (Azure has only `set`); backup/restore endpoints don't exist. |
+| Per-operation: secrets | get, list, set, delete, recover, backup, restore, purge | partial | `model/access_policy.go:36-52` | none | **Fixed**: backup/restore endpoints exist (`2558b1a`). Adds `set` and `create` (Azure has only `set`); backup/restore not yet mapped in policy middleware. |
 | Per-operation: keys | 18 operations including encrypt/decrypt/wrap/unwrap/sign/verify/getRotationPolicy/setRotationPolicy/release | partial | `model/access_policy.go:33-52`, `api/keys.go:107-116` | none | Crypto operations defined as constants but **not mapped in policy middleware** at `middleware.go:327-367` — wrap/unwrap routes fall back to RBAC only. Missing getRotationPolicy/setRotationPolicy/release. |
 | Per-operation: certificates | 14 operations including managecontacts/issuers | partial | `model/access_policy.go:33-52`, `middleware.go:347-350` | none | No contacts/issuers operations. |
 | Deny-wins conflict resolution | Deny beats allow | exact | `access_policy_service.go:51-65` | `access_policy_service_test.go:64-79` (`TestCheckAccess_DenyWinsOverAllow`) | Correct and tested. |
@@ -248,9 +248,9 @@
 | Per-subscription limit | 5× vault limit | not-applicable | single-tenant | — | — |
 | 429 + `Retry-After` | Required | partial | `middleware.go:217` returns 429; `200-203` `X-RateLimit-*` set; **no `Retry-After`** | middleware tests | Body is plain text `"Rate limit exceeded"`, not JSON. |
 | Secret value size 25 KB | Enforced | exact | `secret_validation.go:44`, `api/secrets.go:347` | none | **Fixed**: `ValidateSecretCreate` now invoked in `createSecret` handler. `ValidateKeyCreate` and `ValidateCertificateCreate` also wired. |
-| Tag count limit (15) | Enforced | partial | `secret_validation.go:47`, `key_validation.go:49,65,95`, `common.go:66` | `validation_test.go:193-199` | Validator unwired. |
+| Tag count limit (15) | Enforced | partial | `secret_validation.go:47`, `key_validation.go:49,65,95`, `common.go:66` | `validation_test.go:193-199` | **Fixed**: validator wired (`9b0d30f`). Tags still `[]string` not `map[string]string`, so key/value semantics differ. |
 | Tag key/value 256 chars | Both | partial | `common.go:59-68` `Length(1,256)` | `validation_test.go:186-200` | Tags are `[]string` not `map[string]string`. |
-| Name regex `[A-Za-z][A-Za-z0-9-]{0,126}` start with letter | Stricter than Azure's `[0-9a-zA-Z-]+` | partial | `common.go:13-19` `SecretNamePattern`/`KeyNamePattern`/`CertificateNamePattern` | `validation_test.go:201-225` | Validator unwired; digit-prefixed Azure names unimportable. |
+| Name regex `[A-Za-z][A-Za-z0-9-]{0,126}` start with letter | Stricter than Azure's `[0-9a-zA-Z-]+` | partial | `common.go:13-19` `SecretNamePattern`/`KeyNamePattern`/`CertificateNamePattern` | `validation_test.go:201-225` | **Fixed**: validator wired (`9b0d30f`). Stricter pattern means digit-prefixed Azure names are unimportable. |
 | Pagination: skipToken + maxResults + nextLink | Default 25, max 25 | missing | `params.go:26-31` `?page` + `?per_page` offset-based; `listSecrets` (`secrets.go:417`) **never passes them** | none | Different model; full result set always returned. |
 | List response `{value, nextLink}` | Required | missing | `{secrets|keys|certificates}` envelope; no nextLink | none | Not Azure SDK compatible. |
 | `id` as fully-qualified vault URL | Required | missing | `secrets.go:381`, `keys.go:207` use bare UUID | none | SDK clients break. |
