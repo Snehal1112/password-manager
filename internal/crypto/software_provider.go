@@ -2,7 +2,6 @@ package crypto
 
 import (
 	"context"
-	"fmt"
 )
 
 // SoftwareKeyProvider implements KeyProvider using in-process Go crypto.
@@ -18,34 +17,51 @@ func NewSoftwareKeyProvider() *SoftwareKeyProvider {
 	return &SoftwareKeyProvider{ops: NewCryptoOperations()}
 }
 
-// GenerateRSAKey generates an RSA private key; returns the PEM as the handle.
+// GenerateRSAKey generates an RSA private key and returns the PEM as the handle.
 func (p *SoftwareKeyProvider) GenerateRSAKey(_ context.Context, bits int) (string, error) {
-	return "", fmt.Errorf("not implemented")
+	return GenerateRSAKeyPEM(bits)
 }
 
-// GenerateECDSAKey generates an ECDSA private key; returns the PEM as the handle.
+// GenerateECDSAKey generates an ECDSA private key and returns the PEM as the handle.
 func (p *SoftwareKeyProvider) GenerateECDSAKey(_ context.Context, curveName string) (string, error) {
-	return "", fmt.Errorf("not implemented")
+	return GenerateECDSAKeyPEM(curveName)
 }
 
 // Sign signs data using the key PEM stored in handle.
 func (p *SoftwareKeyProvider) Sign(_ context.Context, handle string, keyType string, data []byte, algorithm SignatureAlgorithm) ([]byte, error) {
-	return nil, fmt.Errorf("not implemented")
+	result, err := p.ops.Sign(handle, keyType, data, algorithm)
+	if err != nil {
+		return nil, err
+	}
+	return result.Signature, nil
 }
 
 // Verify verifies a signature using the key PEM stored in handle.
 func (p *SoftwareKeyProvider) Verify(_ context.Context, handle string, keyType string, data []byte, sig []byte, algorithm SignatureAlgorithm) (bool, error) {
-	return false, fmt.Errorf("not implemented")
+	result, err := p.ops.Verify(handle, keyType, data, sig, algorithm)
+	if err != nil {
+		return false, err
+	}
+	return result.Valid, nil
 }
 
 // Encrypt encrypts data using the key PEM stored in handle.
+// Returns (ciphertext, nonce, error). nonce is nil for RSA modes.
 func (p *SoftwareKeyProvider) Encrypt(_ context.Context, handle string, data []byte, algorithm EncryptionAlgorithm) ([]byte, []byte, error) {
-	return nil, nil, fmt.Errorf("not implemented")
+	result, err := p.ops.Encrypt(handle, data, algorithm)
+	if err != nil {
+		return nil, nil, err
+	}
+	return result.Ciphertext, result.Nonce, nil
 }
 
 // Decrypt decrypts ciphertext using the key PEM stored in handle.
 func (p *SoftwareKeyProvider) Decrypt(_ context.Context, handle string, data []byte, nonce []byte, algorithm EncryptionAlgorithm) ([]byte, error) {
-	return nil, fmt.Errorf("not implemented")
+	result, err := p.ops.Decrypt(handle, data, nonce, algorithm)
+	if err != nil {
+		return nil, err
+	}
+	return result.Plaintext, nil
 }
 
 // Close is a no-op for the software provider.
