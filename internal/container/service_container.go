@@ -13,6 +13,7 @@ import (
 
 	"rocketvault/internal/backup"
 	"rocketvault/internal/cache"
+	"rocketvault/internal/crypto"
 	"rocketvault/internal/logging"
 	"rocketvault/internal/repositories"
 	"rocketvault/internal/signing"
@@ -92,6 +93,9 @@ type ServiceContainerInterface interface {
 	// Backup service getter
 	GetItemBackupService() *backup.ItemBackupService
 
+	// Key provider getter
+	GetKeyProvider() crypto.KeyProvider
+
 	// Lifecycle management
 	Close() error
 }
@@ -162,6 +166,9 @@ type ServiceContainer struct {
 
 	// Per-item backup service
 	itemBackupService *backup.ItemBackupService
+
+	// Key provider (software or PKCS#11 HSM).
+	keyProvider crypto.KeyProvider
 }
 
 // Config holds configuration for the service container.
@@ -407,15 +414,36 @@ func (c *ServiceContainer) initializeServices() error {
 		c.secretService = retryEnabledSecretService
 	}
 
+	// Select key provider based on hsm.enabled config.
+	if viperCfg.GetBool("hsm.enabled") {
+		hsmCfg := crypto.PKCS11Config{
+			LibPath:    viperCfg.GetString("hsm.lib_path"),
+			TokenLabel: viperCfg.GetString("hsm.token_label"),
+			PIN:        viperCfg.GetString("hsm.pin"),
+			SlotID:     uint(viperCfg.GetUint("hsm.slot_id")),
+		}
+		p11Provider, p11Err := crypto.NewPKCS11KeyProvider(hsmCfg)
+		if p11Err != nil {
+			return fmt.Errorf("failed to initialise PKCS#11 key provider: %w", p11Err)
+		}
+		c.keyProvider = p11Provider
+		c.logger.Info("PKCS#11 HSM key provider initialised")
+	} else {
+		c.keyProvider = crypto.NewSoftwareKeyProvider()
+		c.logger.Info("Software key provider initialised (HSM disabled)")
+	}
+
 	// Initialize key service
 	c.keyService = keyServices.NewKeyService(keyServices.KeyServiceConfig{
 		KeyRepository: c.keyRepository,
+		KeyProvider:   c.keyProvider,
 		Logger:        c.logger,
 	})
 
 	// Initialize crypto service for wrap/unwrap operations.
 	c.keyCryptoService = keyServices.NewCryptoService(keyServices.CryptoServiceConfig{
 		KeyRepository: c.keyRepository,
+		KeyProvider:   c.keyProvider,
 		Logger:        c.logger,
 	})
 
@@ -630,8 +658,19 @@ func (c *ServiceContainer) Close() error {
 		c.cacheCancel()
 	}
 
+	if c.keyProvider != nil {
+		if err := c.keyProvider.Close(); err != nil {
+			c.logger.WithError(err).Warn("Failed to close key provider")
+		}
+	}
+
 	if c.db != nil {
 		return c.db.Close()
 	}
 	return nil
+}
+
+// GetKeyProvider returns the active key provider (software or PKCS#11).
+func (c *ServiceContainer) GetKeyProvider() crypto.KeyProvider {
+	return c.keyProvider
 }

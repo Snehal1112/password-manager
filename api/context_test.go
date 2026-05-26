@@ -17,6 +17,7 @@ import (
 	"rocketvault/common"
 	"rocketvault/internal/backup"
 	"rocketvault/internal/cache"
+	"rocketvault/internal/crypto"
 	"rocketvault/internal/logging"
 	"rocketvault/internal/repositories"
 	"rocketvault/internal/signing"
@@ -169,6 +170,9 @@ func (m *mockServiceContainer) GetCachedSecretService() secretServices.SecretSer
 }
 func (m *mockServiceContainer) GetRetryService() retryServices.RetryService {
 	panic("unexpected call: GetRetryService")
+}
+func (m *mockServiceContainer) GetKeyProvider() crypto.KeyProvider {
+	return nil
 }
 func (m *mockServiceContainer) GetSigningProvider() signing.SigningKeyProvider {
 	return nil

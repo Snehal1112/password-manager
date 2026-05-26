@@ -196,8 +196,9 @@ func (c *cryptoTestContainer) GetCachedSecretService() secretServices.SecretServ
 func (c *cryptoTestContainer) GetRetryService() retryServices.RetryService {
 	panic("unexpected call: GetRetryService")
 }
-func (c *cryptoTestContainer) GetSigningProvider() signing.SigningKeyProvider { return nil }
-func (c *cryptoTestContainer) GetItemBackupService() *backup.ItemBackupService { return nil }
+func (c *cryptoTestContainer) GetSigningProvider() signing.SigningKeyProvider   { return nil }
+func (c *cryptoTestContainer) GetItemBackupService() *backup.ItemBackupService  { return nil }
+func (c *cryptoTestContainer) GetKeyProvider() crypto.KeyProvider               { return nil }
 func (c *cryptoTestContainer) Close() error                                     { return nil }
 
 // --- helpers ---

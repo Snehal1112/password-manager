@@ -13,6 +13,7 @@ import (
 	"rocketvault/common"
 	"rocketvault/internal/backup"
 	"rocketvault/internal/cache"
+	"rocketvault/internal/crypto"
 	"rocketvault/model"
 	"rocketvault/internal/logging"
 	"rocketvault/internal/repositories"
@@ -277,6 +278,11 @@ func (m *MockServiceContainer) GetSigningProvider() signing.SigningKeyProvider {
 
 // GetItemBackupService returns nil — backup service is not used in CLI tests.
 func (m *MockServiceContainer) GetItemBackupService() *backup.ItemBackupService {
+	return nil
+}
+
+// GetKeyProvider returns nil — key provider is not used in CLI tests.
+func (m *MockServiceContainer) GetKeyProvider() crypto.KeyProvider {
 	return nil
 }
 
