@@ -21,6 +21,26 @@ type Key struct {
 	DeletedAt        *time.Time `json:"deleted_at,omitempty"`
 	PurgeProtection  bool       `json:"purge_protection"`
 	ScheduledPurgeAt *time.Time `json:"scheduled_purge_at,omitempty"`
+	Enabled          bool       `json:"enabled"`
+	ExpiresAt        *time.Time `json:"expires_at,omitempty"`
+	NotBefore        *time.Time `json:"not_before,omitempty"`
+	Bits             int        `json:"bits,omitempty"`
+	Curve            string     `json:"curve,omitempty"`
+}
+
+// IsAccessible returns true when the key is enabled and within its validity window.
+func (k *Key) IsAccessible() bool {
+	if !k.Enabled {
+		return false
+	}
+	now := time.Now()
+	if k.NotBefore != nil && now.Before(*k.NotBefore) {
+		return false
+	}
+	if k.ExpiresAt != nil && now.After(*k.ExpiresAt) {
+		return false
+	}
+	return true
 }
 
 const (

@@ -41,7 +41,12 @@ func setupTestDB(t *testing.T) *sql.DB {
 			created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
 			deleted_at TIMESTAMP DEFAULT NULL,
 			purge_protection BOOLEAN NOT NULL DEFAULT FALSE,
-			scheduled_purge_at TIMESTAMP DEFAULT NULL
+			scheduled_purge_at TIMESTAMP DEFAULT NULL,
+			enabled BOOLEAN NOT NULL DEFAULT TRUE,
+			expires_at TIMESTAMP NULL,
+			not_before TIMESTAMP NULL,
+			bits INTEGER NOT NULL DEFAULT 0,
+			curve TEXT NOT NULL DEFAULT ''
 		);
 		CREATE TABLE IF NOT EXISTS key_tags (
 			key_id TEXT NOT NULL,
@@ -140,6 +145,32 @@ func TestKeyPurgeProtection(t *testing.T) {
 	err := repo.PurgeKey(ctx, key.ID)
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "purge protection")
+}
+
+// TestKeyLifecycleAttributes_PersistAndLoad verifies that enabled, expires_at,
+// and not_before are stored and loaded correctly from the keys table.
+func TestKeyLifecycleAttributes_PersistAndLoad(t *testing.T) {
+	t.Parallel()
+	db := setupTestDB(t)
+	log := logging.InitLogger()
+	repo := repositories.NewKeyRepository(db, log)
+
+	exp := time.Now().Add(24 * time.Hour)
+	k := &model.Key{
+		ID:        uuid.New(),
+		UserID:    uuid.New(),
+		Name:      "test-key",
+		Type:      model.KeyTypeRSA,
+		Value:     "encrypted",
+		Enabled:   true,
+		ExpiresAt: &exp,
+	}
+	require.NoError(t, repo.Create(context.Background(), k))
+
+	loaded, err := repo.Read(context.Background(), k.ID)
+	require.NoError(t, err)
+	require.True(t, loaded.Enabled)
+	require.NotNil(t, loaded.ExpiresAt)
 }
 
 // TestKeySoftDelete_PreservesPurgeProtection verifies that SoftDelete does not

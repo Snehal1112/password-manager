@@ -314,6 +314,11 @@ func (d *DBRepository) createOptimizedSchema(db *sql.DB) error {
 			deleted_at TIMESTAMP NULL,
 			purge_protection BOOLEAN NOT NULL DEFAULT FALSE,
 			scheduled_purge_at TIMESTAMP NULL,
+			enabled BOOLEAN NOT NULL DEFAULT TRUE,
+			expires_at TIMESTAMP NULL,
+			not_before TIMESTAMP NULL,
+			bits INTEGER NOT NULL DEFAULT 0,
+			curve TEXT NOT NULL DEFAULT '',
 			FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
 		);
 		CREATE INDEX IF NOT EXISTS idx_keys_user_id ON keys(user_id);
@@ -556,6 +561,12 @@ func (d *DBRepository) migrateSchema(db *sql.DB) error {
 		"ALTER TABLE secrets ADD COLUMN enabled BOOLEAN NOT NULL DEFAULT TRUE",
 		"ALTER TABLE secrets ADD COLUMN expires_at TIMESTAMP NULL",
 		"ALTER TABLE secrets ADD COLUMN not_before TIMESTAMP NULL",
+		// Feature: lifecycle attributes for keys
+		"ALTER TABLE keys ADD COLUMN enabled BOOLEAN NOT NULL DEFAULT TRUE",
+		"ALTER TABLE keys ADD COLUMN expires_at TIMESTAMP NULL",
+		"ALTER TABLE keys ADD COLUMN not_before TIMESTAMP NULL",
+		"ALTER TABLE keys ADD COLUMN bits INTEGER NOT NULL DEFAULT 0",
+		"ALTER TABLE keys ADD COLUMN curve TEXT NOT NULL DEFAULT ''",
 		// Milestone 3: service-account / OAuth2 table (CREATE TABLE IF NOT EXISTS is idempotent)
 		`CREATE TABLE IF NOT EXISTS oauth2_clients (
 			id            TEXT PRIMARY KEY,

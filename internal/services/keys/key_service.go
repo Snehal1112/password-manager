@@ -126,7 +126,7 @@ func (s *keyService) CreateRSAKey(ctx context.Context, req CreateKeyRequest) (*C
 		return nil, fmt.Errorf("failed to encrypt key: %w", err)
 	}
 
-	// Create key entity
+	// Create key entity.
 	key := &model.Key{
 		ID:        uuid.New(),
 		UserID:    req.UserID,
@@ -136,9 +136,11 @@ func (s *keyService) CreateRSAKey(ctx context.Context, req CreateKeyRequest) (*C
 		Revoked:   false,
 		CreatedAt: time.Now(),
 		Tags:      req.Tags,
+		Enabled:   true,
+		Bits:      req.Bits,
 	}
 
-	// Store in repository
+	// Store in repository.
 	if err := s.keyRepo.Create(ctx, key); err != nil {
 		s.logger.LogAuditError(req.UserID.String(), "create_rsa_key", "failed", "failed to store key", err)
 		return nil, fmt.Errorf("failed to store RSA key: %w", err)
@@ -203,7 +205,7 @@ func (s *keyService) CreateECDSAKey(ctx context.Context, req CreateKeyRequest) (
 		keyType = model.KeyTypeES256K
 	}
 
-	// Create key entity
+	// Create key entity.
 	key := &model.Key{
 		ID:        uuid.New(),
 		UserID:    req.UserID,
@@ -213,9 +215,11 @@ func (s *keyService) CreateECDSAKey(ctx context.Context, req CreateKeyRequest) (
 		Revoked:   false,
 		CreatedAt: time.Now(),
 		Tags:      req.Tags,
+		Enabled:   true,
+		Curve:     req.Curve,
 	}
 
-	// Store in repository
+	// Store in repository.
 	if err := s.keyRepo.Create(ctx, key); err != nil {
 		s.logger.LogAuditError(req.UserID.String(), "create_ecdsa_key", "failed", "failed to store key", err)
 		return nil, fmt.Errorf("failed to store ECDSA key: %w", err)
@@ -258,12 +262,19 @@ func (s *keyService) GetKey(ctx context.Context, keyID, userID uuid.UUID) (*mode
 		return nil, fmt.Errorf("failed to read key: %w", err)
 	}
 
-	// Access control: users can only access their own keys
+	// Access control: users can only access their own keys.
 	if key.UserID != userID {
 		s.logger.LogAuditError(userID.String(), "get_key", "forbidden",
 			fmt.Sprintf("Unauthorized access attempt to key: %s (owner: %s)",
 				keyID, key.UserID), nil)
 		return nil, fmt.Errorf("forbidden: cannot access other users' keys")
+	}
+
+	// Enforce lifecycle policy: key must be enabled and within its validity window.
+	if !key.IsAccessible() {
+		s.logger.LogAuditError(userID.String(), "get_key", "denied",
+			fmt.Sprintf("Key is disabled or outside its valid time window: %s", keyID), nil)
+		return nil, fmt.Errorf("key is disabled or outside its valid time window")
 	}
 
 	// Log successful key access with key metadata (excluding sensitive data)

@@ -86,6 +86,7 @@ func TestDeleteKeySoftDeletes(t *testing.T) {
 		Name:      "test-key",
 		Type:      model.KeyTypeRSA,
 		CreatedAt: time.Now(),
+		Enabled:   true,
 	}
 
 	repo := &mockKeyRepository{}

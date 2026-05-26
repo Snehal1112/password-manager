@@ -22,7 +22,7 @@ func TestUpdateKey_SetsRevoked(t *testing.T) {
 
 	ownerID := uuid.New()
 	keyID := uuid.New()
-	existing := &model.Key{ID: keyID, UserID: ownerID, Name: "old-name", Type: "RSA", Revoked: false}
+	existing := &model.Key{ID: keyID, UserID: ownerID, Name: "old-name", Type: "RSA", Revoked: false, Enabled: true}
 
 	repo.On("Read", mock.Anything, keyID).Return(existing, nil)
 	repo.On("Update", mock.Anything, mock.MatchedBy(func(k *model.Key) bool {
@@ -46,7 +46,7 @@ func TestUpdateKey_ClearsRevoked(t *testing.T) {
 
 	ownerID := uuid.New()
 	keyID := uuid.New()
-	existing := &model.Key{ID: keyID, UserID: ownerID, Name: "old-name", Type: "RSA", Revoked: true}
+	existing := &model.Key{ID: keyID, UserID: ownerID, Name: "old-name", Type: "RSA", Revoked: true, Enabled: true}
 
 	repo.On("Read", mock.Anything, keyID).Return(existing, nil)
 	repo.On("Update", mock.Anything, mock.MatchedBy(func(k *model.Key) bool {

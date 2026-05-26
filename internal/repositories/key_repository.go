@@ -102,11 +102,12 @@ func (r *KeyRepository) Create(ctx context.Context, key *model.Key) error {
 		}
 		defer tx.Rollback()
 
-		// Insert key with pre-encrypted value
+		// Insert key with pre-encrypted value.
 		_, err = tx.ExecContext(
 			ctx,
-			"INSERT INTO keys (id, user_id, name, value, type, revoked, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+			"INSERT INTO keys (id, user_id, name, value, type, revoked, created_at, enabled, expires_at, not_before, bits, curve) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
 			key.ID.String(), key.UserID.String(), key.Name, key.Value, key.Type, key.Revoked, key.CreatedAt,
+			key.Enabled, key.ExpiresAt, key.NotBefore, key.Bits, key.Curve,
 		)
 		if err != nil {
 			r.log.LogAuditError(key.UserID.String(), "create_key", "failed", "Failed to insert key", err)
@@ -160,9 +161,10 @@ func (r *KeyRepository) Read(ctx context.Context, id uuid.UUID) (*model.Key, err
 
 	err := r.db.QueryRowContext(
 		ctx,
-		"SELECT id, user_id, name, value, type, revoked, created_at FROM keys WHERE id = ? AND deleted_at IS NULL",
+		"SELECT id, user_id, name, value, type, revoked, created_at, enabled, expires_at, not_before, bits, curve FROM keys WHERE id = ? AND deleted_at IS NULL",
 		id.String(),
-	).Scan(&idStr, &userIDStr, &key.Name, &key.Value, &key.Type, &key.Revoked, &key.CreatedAt)
+	).Scan(&idStr, &userIDStr, &key.Name, &key.Value, &key.Type, &key.Revoked, &key.CreatedAt,
+		&key.Enabled, &key.ExpiresAt, &key.NotBefore, &key.Bits, &key.Curve)
 
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, fmt.Errorf("key not found")
@@ -214,8 +216,8 @@ func (r *KeyRepository) Update(ctx context.Context, key *model.Key) error {
 
 		result, err := r.db.ExecContext(
 			ctx,
-			"UPDATE keys SET name = ?, value = ?, revoked = ?, created_at = ? WHERE id = ?",
-			key.Name, key.Value, key.Revoked, key.CreatedAt, key.ID.String(),
+			"UPDATE keys SET name = ?, value = ?, revoked = ?, created_at = ?, enabled = ?, expires_at = ?, not_before = ?, bits = ?, curve = ? WHERE id = ?",
+			key.Name, key.Value, key.Revoked, key.CreatedAt, key.Enabled, key.ExpiresAt, key.NotBefore, key.Bits, key.Curve, key.ID.String(),
 		)
 		if err != nil {
 			r.log.LogAuditError(key.UserID.String(), "update_key", "failed", "Failed to update key", err)
@@ -317,7 +319,7 @@ func (r *KeyRepository) ListByUser(ctx context.Context, userID *uuid.UUID, keyTy
 
 	err := r.executeWithMetrics("list_keys_by_user", func() error {
 		var args []interface{}
-		query := "SELECT id, user_id, name, value, type, revoked, created_at FROM keys"
+		query := "SELECT id, user_id, name, value, type, revoked, created_at, enabled, expires_at, not_before, bits, curve FROM keys"
 
 		// Build WHERE clauses — always exclude soft-deleted keys.
 		conditions := []string{"deleted_at IS NULL"}
@@ -359,7 +361,8 @@ func (r *KeyRepository) ListByUser(ctx context.Context, userID *uuid.UUID, keyTy
 			var key model.Key
 			var idStr, userIDStr string
 
-			if err := rows.Scan(&idStr, &userIDStr, &key.Name, &key.Value, &key.Type, &key.Revoked, &key.CreatedAt); err != nil {
+			if err := rows.Scan(&idStr, &userIDStr, &key.Name, &key.Value, &key.Type, &key.Revoked, &key.CreatedAt,
+				&key.Enabled, &key.ExpiresAt, &key.NotBefore, &key.Bits, &key.Curve); err != nil {
 				r.log.LogAuditError(uuid.Nil.String(), "list_keys", "failed", "Failed to scan key", err)
 				return fmt.Errorf("failed to scan key: %w", err)
 			}
