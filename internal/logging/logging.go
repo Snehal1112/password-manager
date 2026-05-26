@@ -144,6 +144,11 @@ func InitLogger() *Logger {
 	return l
 }
 
+// WrapLogrus wraps an existing logrus.Logger in a Logger.
+func WrapLogrus(l *logrus.Logger) *Logger {
+	return &Logger{Logger: l}
+}
+
 // LogAuditInfo logs an info-level audit event with standard fields.
 func (l *Logger) LogAuditInfo(userIDs, operation, status, message string) {
 	l.WithAuditFields(userIDs, operation, status).Info(message)

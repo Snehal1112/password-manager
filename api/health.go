@@ -23,6 +23,7 @@ THE SOFTWARE.
 package api
 
 import (
+	"database/sql"
 	"encoding/json"
 	"net/http"
 
@@ -33,18 +34,34 @@ import (
 // InitHealth registers health check routes.
 func (api *API) InitHealth() {
 	r := api.BaseRoutes.Health
+
+	var db *sql.DB
+	if api.App != nil && api.App.ServiceContainer != nil {
+		db = api.App.ServiceContainer.GetDatabase()
+	}
+
+	logger := api.Logger
+	if logger == nil {
+		logger = &logging.Logger{}
+	}
+
+	collector := health.NewHealthCollector(db)
+	h := NewHealthHandler(collector, logger)
+
+	r.Handle("", ApiHandler(api.App, func(c *Context, w http.ResponseWriter, r *http.Request) {
+		h.HealthCheck(w, r)
+	})).Methods("GET")
 	r.Handle("/ready", ApiHandler(api.App, func(c *Context, w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
+		h.ReadinessCheck(w, r)
 	})).Methods("GET")
 	r.Handle("/live", ApiHandler(api.App, func(c *Context, w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
+		h.LivenessCheck(w, r)
 	})).Methods("GET")
-	r.Handle("", ApiHandler(api.App, func(c *Context, w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
+	r.Handle("/database", ApiHandler(api.App, func(c *Context, w http.ResponseWriter, r *http.Request) {
+		h.DatabaseCheck(w, r)
 	})).Methods("GET")
+
+	logger.Infoln("Health API routes initialized")
 }
 
 // HealthHandler handles health check endpoints
@@ -156,4 +173,21 @@ func (h *HealthHandler) LivenessCheck(w http.ResponseWriter, r *http.Request) {
 	})
 
 	h.logger.LogAuditInfo("", "liveness_api", "success", "Liveness check passed")
+}
+
+// DatabaseCheck handles GET /health/database endpoint.
+func (h *HealthHandler) DatabaseCheck(w http.ResponseWriter, r *http.Request) {
+	result, err := h.collector.CheckDatabaseHealth(r.Context())
+
+	httpStatus := http.StatusOK
+	if s, ok := result["status"].(string); ok && (s == "critical" || s == "degraded") {
+		httpStatus = http.StatusServiceUnavailable
+	}
+	if err != nil && httpStatus == http.StatusOK {
+		httpStatus = http.StatusServiceUnavailable
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(httpStatus)
+	json.NewEncoder(w).Encode(result)
 }
