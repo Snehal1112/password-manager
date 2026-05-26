@@ -32,6 +32,7 @@ import (
 	"github.com/google/uuid"
 
 	"rocketvault/common"
+	"rocketvault/internal/crypto"
 	keyservices "rocketvault/internal/services/keys"
 	vvalidation "rocketvault/internal/validation"
 	"rocketvault/model"
@@ -93,6 +94,61 @@ type UnwrapKeyResponse struct {
 	Algorithm    string `json:"algorithm"`
 }
 
+// SignKeyRequest is the HTTP request body for POST /keys/{key_id}/sign.
+type SignKeyRequest struct {
+	Value     string `json:"value"`     // base64-encoded data to sign
+	Algorithm string `json:"algorithm"` // RS256, RS384, RS512, PS256, PS384, PS512, ES256, ES384, ES512
+}
+
+// SignKeyResponse is the HTTP response for a successful sign.
+type SignKeyResponse struct {
+	KeyID     string `json:"key_id"`
+	Algorithm string `json:"algorithm"`
+	Value     string `json:"value"` // base64-encoded signature
+}
+
+// VerifyKeyRequest is the HTTP request body for POST /keys/{key_id}/verify.
+type VerifyKeyRequest struct {
+	Value     string `json:"value"`     // base64-encoded original data
+	Signature string `json:"signature"` // base64-encoded signature
+	Algorithm string `json:"algorithm"`
+}
+
+// VerifyKeyResponse is the HTTP response for a verify operation.
+type VerifyKeyResponse struct {
+	KeyID     string `json:"key_id"`
+	Algorithm string `json:"algorithm"`
+	Valid     bool   `json:"valid"`
+}
+
+// EncryptKeyRequest is the HTTP request body for POST /keys/{key_id}/encrypt.
+type EncryptKeyRequest struct {
+	Value     string `json:"value"`     // base64-encoded plaintext
+	Algorithm string `json:"algorithm"` // RSA-OAEP, RSA-OAEP-256, AES256-GCM
+}
+
+// EncryptKeyResponse is the HTTP response for a successful encrypt.
+type EncryptKeyResponse struct {
+	KeyID     string `json:"key_id"`
+	Algorithm string `json:"algorithm"`
+	Value     string `json:"value"`           // base64-encoded ciphertext
+	Nonce     string `json:"nonce,omitempty"` // base64-encoded, for AES-GCM
+}
+
+// DecryptKeyRequest is the HTTP request body for POST /keys/{key_id}/decrypt.
+type DecryptKeyRequest struct {
+	Value     string `json:"value"`           // base64-encoded ciphertext
+	Nonce     string `json:"nonce,omitempty"` // base64-encoded, for AES-GCM
+	Algorithm string `json:"algorithm"`
+}
+
+// DecryptKeyResponse is the HTTP response for a successful decrypt.
+type DecryptKeyResponse struct {
+	KeyID     string `json:"key_id"`
+	Algorithm string `json:"algorithm"`
+	Value     string `json:"value"` // base64-encoded plaintext
+}
+
 // InitKeys initializes the routes for cryptographic keys management API.
 // It sets up the following endpoints:
 // - POST /keys: Create a new cryptographic key.
@@ -115,6 +171,10 @@ func (api *API) InitKeys() {
 	k.Handle("/{key_id:[A-Fa-f0-9-]+}/rotate", ApiSessionRequired(api.App, rotateKey)).Methods("POST")
 	k.Handle("/{key_id:[A-Fa-f0-9-]+}/wrap", ApiSessionRequired(api.App, wrapKey)).Methods("POST")
 	k.Handle("/{key_id:[A-Fa-f0-9-]+}/unwrap", ApiSessionRequired(api.App, unwrapKey)).Methods("POST")
+	k.Handle("/{key_id:[A-Fa-f0-9-]+}/sign", ApiSessionRequired(api.App, signKey)).Methods("POST")
+	k.Handle("/{key_id:[A-Fa-f0-9-]+}/verify", ApiSessionRequired(api.App, verifyKey)).Methods("POST")
+	k.Handle("/{key_id:[A-Fa-f0-9-]+}/encrypt", ApiSessionRequired(api.App, encryptKey)).Methods("POST")
+	k.Handle("/{key_id:[A-Fa-f0-9-]+}/decrypt", ApiSessionRequired(api.App, decryptKey)).Methods("POST")
 
 	api.Logger.Infoln("Keys API routes initialized")
 }
@@ -645,5 +705,300 @@ func unwrapKey(c *Context, w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(UnwrapKeyResponse{
 		PlaintextKey: base64.StdEncoding.EncodeToString(result.PlaintextKey),
 		Algorithm:    result.Algorithm,
+	})
+}
+
+// signKey signs data using the vault key identified by {key_id}.
+func signKey(c *Context, w http.ResponseWriter, r *http.Request) {
+	keyID, err := uuid.Parse(c.Params.KeyID)
+	if err != nil {
+		c.SetInvalidParam("key_id")
+		return
+	}
+
+	userIDStr, ok := c.Claims["user_id"].(string)
+	if !ok {
+		c.SetInternalError(nil)
+		return
+	}
+	userID, err := uuid.Parse(userIDStr)
+	if err != nil {
+		c.SetInvalidParam("user_id")
+		return
+	}
+
+	var req SignKeyRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		c.SetInvalidParam("request body")
+		return
+	}
+	if req.Value == "" {
+		c.SetInvalidParam("value is required")
+		return
+	}
+	if req.Algorithm == "" {
+		req.Algorithm = "RS256"
+	}
+
+	data, err := base64.StdEncoding.DecodeString(req.Value)
+	if err != nil {
+		c.SetInvalidParam("value: must be valid base64")
+		return
+	}
+
+	cryptoSvc := c.cryptoSvc()
+	if cryptoSvc == nil {
+		return
+	}
+
+	result, err := cryptoSvc.Sign(r.Context(), keyservices.SignRequest{
+		KeyID:     keyID,
+		Data:      data,
+		Algorithm: crypto.SignatureAlgorithm(req.Algorithm),
+		UserID:    userID,
+	})
+	if err != nil {
+		switch {
+		case strings.Contains(err.Error(), "forbidden") || strings.Contains(err.Error(), "revoked"):
+			c.SetPermissionError("key_access")
+		case strings.Contains(err.Error(), "not found"):
+			c.SetNotFound("key")
+		default:
+			c.SetInternalError(err)
+		}
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(SignKeyResponse{
+		KeyID:     keyID.String(),
+		Algorithm: string(result.Algorithm),
+		Value:     base64.StdEncoding.EncodeToString(result.Signature),
+	})
+}
+
+// verifyKey verifies a signature using the vault key identified by {key_id}.
+func verifyKey(c *Context, w http.ResponseWriter, r *http.Request) {
+	keyID, err := uuid.Parse(c.Params.KeyID)
+	if err != nil {
+		c.SetInvalidParam("key_id")
+		return
+	}
+
+	userIDStr, ok := c.Claims["user_id"].(string)
+	if !ok {
+		c.SetInternalError(nil)
+		return
+	}
+	userID, err := uuid.Parse(userIDStr)
+	if err != nil {
+		c.SetInvalidParam("user_id")
+		return
+	}
+
+	var req VerifyKeyRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		c.SetInvalidParam("request body")
+		return
+	}
+	if req.Value == "" || req.Signature == "" {
+		c.SetInvalidParam("value and signature are required")
+		return
+	}
+
+	data, err := base64.StdEncoding.DecodeString(req.Value)
+	if err != nil {
+		c.SetInvalidParam("value: must be valid base64")
+		return
+	}
+	sig, err := base64.StdEncoding.DecodeString(req.Signature)
+	if err != nil {
+		c.SetInvalidParam("signature: must be valid base64")
+		return
+	}
+
+	cryptoSvc := c.cryptoSvc()
+	if cryptoSvc == nil {
+		return
+	}
+
+	result, err := cryptoSvc.Verify(r.Context(), keyservices.VerifyRequest{
+		KeyID:     keyID,
+		Data:      data,
+		Signature: sig,
+		Algorithm: crypto.SignatureAlgorithm(req.Algorithm),
+		UserID:    userID,
+	})
+	if err != nil {
+		switch {
+		case strings.Contains(err.Error(), "forbidden"):
+			c.SetPermissionError("key_access")
+		case strings.Contains(err.Error(), "not found"):
+			c.SetNotFound("key")
+		default:
+			c.SetInternalError(err)
+		}
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(VerifyKeyResponse{
+		KeyID:     keyID.String(),
+		Algorithm: string(result.Algorithm),
+		Valid:     result.Valid,
+	})
+}
+
+// encryptKey encrypts data using the vault key identified by {key_id}.
+func encryptKey(c *Context, w http.ResponseWriter, r *http.Request) {
+	keyID, err := uuid.Parse(c.Params.KeyID)
+	if err != nil {
+		c.SetInvalidParam("key_id")
+		return
+	}
+
+	userIDStr, ok := c.Claims["user_id"].(string)
+	if !ok {
+		c.SetInternalError(nil)
+		return
+	}
+	userID, err := uuid.Parse(userIDStr)
+	if err != nil {
+		c.SetInvalidParam("user_id")
+		return
+	}
+
+	var req EncryptKeyRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		c.SetInvalidParam("request body")
+		return
+	}
+	if req.Value == "" {
+		c.SetInvalidParam("value is required")
+		return
+	}
+	if req.Algorithm == "" {
+		req.Algorithm = "RSA-OAEP"
+	}
+
+	plaintext, err := base64.StdEncoding.DecodeString(req.Value)
+	if err != nil {
+		c.SetInvalidParam("value: must be valid base64")
+		return
+	}
+
+	cryptoSvc := c.cryptoSvc()
+	if cryptoSvc == nil {
+		return
+	}
+
+	result, err := cryptoSvc.Encrypt(r.Context(), keyservices.EncryptRequest{
+		KeyID:     keyID,
+		Data:      plaintext,
+		Algorithm: crypto.EncryptionAlgorithm(req.Algorithm),
+		UserID:    userID,
+	})
+	if err != nil {
+		switch {
+		case strings.Contains(err.Error(), "forbidden") || strings.Contains(err.Error(), "revoked"):
+			c.SetPermissionError("key_access")
+		case strings.Contains(err.Error(), "not found"):
+			c.SetNotFound("key")
+		case strings.Contains(err.Error(), "unsupported"):
+			c.SetInvalidParam("algorithm")
+		default:
+			c.SetInternalError(err)
+		}
+		return
+	}
+
+	resp := EncryptKeyResponse{
+		KeyID:     keyID.String(),
+		Algorithm: string(result.Algorithm),
+		Value:     base64.StdEncoding.EncodeToString(result.Ciphertext),
+	}
+	if len(result.Nonce) > 0 {
+		resp.Nonce = base64.StdEncoding.EncodeToString(result.Nonce)
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(resp)
+}
+
+// decryptKey decrypts data using the vault key identified by {key_id}.
+func decryptKey(c *Context, w http.ResponseWriter, r *http.Request) {
+	keyID, err := uuid.Parse(c.Params.KeyID)
+	if err != nil {
+		c.SetInvalidParam("key_id")
+		return
+	}
+
+	userIDStr, ok := c.Claims["user_id"].(string)
+	if !ok {
+		c.SetInternalError(nil)
+		return
+	}
+	userID, err := uuid.Parse(userIDStr)
+	if err != nil {
+		c.SetInvalidParam("user_id")
+		return
+	}
+
+	var req DecryptKeyRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		c.SetInvalidParam("request body")
+		return
+	}
+	if req.Value == "" {
+		c.SetInvalidParam("value is required")
+		return
+	}
+
+	ciphertext, err := base64.StdEncoding.DecodeString(req.Value)
+	if err != nil {
+		c.SetInvalidParam("value: must be valid base64")
+		return
+	}
+
+	var nonce []byte
+	if req.Nonce != "" {
+		nonce, err = base64.StdEncoding.DecodeString(req.Nonce)
+		if err != nil {
+			c.SetInvalidParam("nonce: must be valid base64")
+			return
+		}
+	}
+
+	cryptoSvc := c.cryptoSvc()
+	if cryptoSvc == nil {
+		return
+	}
+
+	result, err := cryptoSvc.Decrypt(r.Context(), keyservices.DecryptRequest{
+		KeyID:      keyID,
+		Ciphertext: ciphertext,
+		Nonce:      nonce,
+		Algorithm:  crypto.EncryptionAlgorithm(req.Algorithm),
+		UserID:     userID,
+	})
+	if err != nil {
+		switch {
+		case strings.Contains(err.Error(), "forbidden") || strings.Contains(err.Error(), "revoked"):
+			c.SetPermissionError("key_access")
+		case strings.Contains(err.Error(), "not found"):
+			c.SetNotFound("key")
+		case strings.Contains(err.Error(), "unsupported"):
+			c.SetInvalidParam("algorithm")
+		default:
+			c.SetInternalError(err)
+		}
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(DecryptKeyResponse{
+		KeyID:     keyID.String(),
+		Algorithm: string(result.Algorithm),
+		Value:     base64.StdEncoding.EncodeToString(result.Plaintext),
 	})
 }
