@@ -28,6 +28,11 @@ const (
 	AlgorithmES256 SignatureAlgorithm = "ES256" // ECDSA with SHA-256
 	AlgorithmES384 SignatureAlgorithm = "ES384" // ECDSA with SHA-384
 	AlgorithmES512 SignatureAlgorithm = "ES512" // ECDSA with SHA-512
+
+	// RSA-PSS — Azure "PS256", "PS384", "PS512".
+	AlgorithmPS256 SignatureAlgorithm = "PS256"
+	AlgorithmPS384 SignatureAlgorithm = "PS384"
+	AlgorithmPS512 SignatureAlgorithm = "PS512"
 )
 
 // EncryptionAlgorithm represents the encryption algorithm to use.
@@ -101,13 +106,16 @@ func (c *CryptoOperations) Sign(privateKeyPEM string, keyType string, data []byt
 		if !ok {
 			return nil, fmt.Errorf("invalid RSA private key")
 		}
-
 		hashType, err := getHashType(algorithm)
 		if err != nil {
 			return nil, err
 		}
-
-		signature, err = rsa.SignPKCS1v15(rand.Reader, rsaKey, hashType, digest)
+		switch algorithm {
+		case AlgorithmPS256, AlgorithmPS384, AlgorithmPS512:
+			signature, err = rsa.SignPSS(rand.Reader, rsaKey, hashType, digest, nil)
+		default:
+			signature, err = rsa.SignPKCS1v15(rand.Reader, rsaKey, hashType, digest)
+		}
 		if err != nil {
 			return nil, fmt.Errorf("RSA signing failed: %w", err)
 		}
@@ -158,14 +166,18 @@ func (c *CryptoOperations) Verify(publicKeyPEM string, keyType string, data []by
 		if !ok {
 			return nil, fmt.Errorf("invalid RSA private key")
 		}
-
 		hashType, err := getHashType(algorithm)
 		if err != nil {
 			return nil, err
 		}
-
-		err = rsa.VerifyPKCS1v15(&rsaKey.PublicKey, hashType, digest, signature)
-		valid = (err == nil)
+		var verifyErr error
+		switch algorithm {
+		case AlgorithmPS256, AlgorithmPS384, AlgorithmPS512:
+			verifyErr = rsa.VerifyPSS(&rsaKey.PublicKey, hashType, digest, signature, nil)
+		default:
+			verifyErr = rsa.VerifyPKCS1v15(&rsaKey.PublicKey, hashType, digest, signature)
+		}
+		valid = (verifyErr == nil)
 
 	case "ECDSA":
 		ecdsaKey, ok := privateKey.(*ecdsa.PrivateKey)
@@ -342,11 +354,11 @@ func (c *CryptoOperations) decryptAES(keyBase64 string, ciphertext []byte, nonce
 // getHasher returns the appropriate hash function for the algorithm.
 func getHasher(algorithm SignatureAlgorithm) (hash.Hash, error) {
 	switch algorithm {
-	case AlgorithmRS256, AlgorithmES256:
+	case AlgorithmRS256, AlgorithmES256, AlgorithmPS256:
 		return sha256.New(), nil
-	case AlgorithmRS384, AlgorithmES384:
+	case AlgorithmRS384, AlgorithmES384, AlgorithmPS384:
 		return sha512.New384(), nil
-	case AlgorithmRS512, AlgorithmES512:
+	case AlgorithmRS512, AlgorithmES512, AlgorithmPS512:
 		return sha512.New(), nil
 	default:
 		return nil, fmt.Errorf("unsupported algorithm: %s", algorithm)
@@ -356,11 +368,11 @@ func getHasher(algorithm SignatureAlgorithm) (hash.Hash, error) {
 // getHashType returns the crypto.Hash type for RSA signature verification.
 func getHashType(algorithm SignatureAlgorithm) (crypto.Hash, error) {
 	switch algorithm {
-	case AlgorithmRS256:
+	case AlgorithmRS256, AlgorithmPS256:
 		return crypto.SHA256, nil
-	case AlgorithmRS384:
+	case AlgorithmRS384, AlgorithmPS384:
 		return crypto.SHA384, nil
-	case AlgorithmRS512:
+	case AlgorithmRS512, AlgorithmPS512:
 		return crypto.SHA512, nil
 	default:
 		return 0, fmt.Errorf("unsupported RSA algorithm: %s", algorithm)

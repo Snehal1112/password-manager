@@ -297,6 +297,31 @@ func TestRSAOAEP256_SHA256_RoundTrip(t *testing.T) {
 	assert.Equal(t, plaintext, dec.Plaintext)
 }
 
+func TestSign_RSA_PSS_Algorithms(t *testing.T) {
+	ops := NewCryptoOperations()
+	privateKeyPEM, err := GenerateRSAKeyPEM(2048)
+	require.NoError(t, err)
+	data := []byte("data to sign with PSS")
+
+	for _, alg := range []SignatureAlgorithm{AlgorithmPS256, AlgorithmPS384, AlgorithmPS512} {
+		t.Run(string(alg), func(t *testing.T) {
+			sig, err := ops.Sign(privateKeyPEM, "RSA", data, alg)
+			require.NoError(t, err)
+			assert.NotEmpty(t, sig.Signature)
+			assert.Equal(t, alg, sig.Algorithm)
+
+			v, err := ops.Verify(privateKeyPEM, "RSA", data, sig.Signature, alg)
+			require.NoError(t, err)
+			assert.True(t, v.Valid)
+
+			// Mutated data must not verify.
+			v2, err := ops.Verify(privateKeyPEM, "RSA", append(data, 0), sig.Signature, alg)
+			require.NoError(t, err)
+			assert.False(t, v2.Valid)
+		})
+	}
+}
+
 func TestRSAOAEP_And_RSAOAEP256_Are_Not_Interchangeable(t *testing.T) {
 	ops := NewCryptoOperations()
 	pemKey, err := GenerateRSAKeyPEM(2048)
