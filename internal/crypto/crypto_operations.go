@@ -13,6 +13,9 @@ import (
 	"encoding/base64"
 	"fmt"
 	"hash"
+
+	secp256k1 "github.com/decred/dcrd/dcrec/secp256k1/v4"
+	secp256k1ecdsa "github.com/decred/dcrd/dcrec/secp256k1/v4/ecdsa"
 )
 
 // SignatureAlgorithm represents the signing algorithm to use.
@@ -25,9 +28,10 @@ const (
 	AlgorithmRS512 SignatureAlgorithm = "RS512" // RSA with SHA-512
 
 	// ECDSA signature algorithms
-	AlgorithmES256 SignatureAlgorithm = "ES256" // ECDSA with SHA-256
-	AlgorithmES384 SignatureAlgorithm = "ES384" // ECDSA with SHA-384
-	AlgorithmES512 SignatureAlgorithm = "ES512" // ECDSA with SHA-512
+	AlgorithmES256  SignatureAlgorithm = "ES256"  // ECDSA with SHA-256
+	AlgorithmES384  SignatureAlgorithm = "ES384"  // ECDSA with SHA-384
+	AlgorithmES512  SignatureAlgorithm = "ES512"  // ECDSA with SHA-512
+	AlgorithmES256K SignatureAlgorithm = "ES256K" // ECDSA with SHA-256 on secp256k1
 
 	AlgorithmPS256 SignatureAlgorithm = "PS256" // RSA-PSS with SHA-256
 	AlgorithmPS384 SignatureAlgorithm = "PS384" // RSA-PSS with SHA-384
@@ -130,6 +134,15 @@ func (c *CryptoOperations) Sign(privateKeyPEM string, keyType string, data []byt
 			return nil, fmt.Errorf("ECDSA signing failed: %w", err)
 		}
 
+	case "ES256K":
+		sk256k, ok := privateKey.(*secp256k1.PrivateKey)
+		if !ok {
+			return nil, fmt.Errorf("invalid secp256k1 private key")
+		}
+		// Sign returns a deterministic DER-encoded signature.
+		sig := secp256k1ecdsa.Sign(sk256k, digest)
+		signature = sig.Serialize()
+
 	default:
 		return nil, fmt.Errorf("unsupported key type: %s", keyType)
 	}
@@ -185,6 +198,18 @@ func (c *CryptoOperations) Verify(publicKeyPEM string, keyType string, data []by
 		}
 
 		valid = ecdsa.VerifyASN1(&ecdsaKey.PublicKey, digest, signature)
+
+	case "ES256K":
+		sk256k, ok := privateKey.(*secp256k1.PrivateKey)
+		if !ok {
+			return nil, fmt.Errorf("invalid secp256k1 private key")
+		}
+		parsedSig, err := secp256k1ecdsa.ParseDERSignature(signature)
+		if err != nil {
+			valid = false
+		} else {
+			valid = parsedSig.Verify(digest, sk256k.PubKey())
+		}
 
 	default:
 		return nil, fmt.Errorf("unsupported key type: %s", keyType)
@@ -353,7 +378,7 @@ func (c *CryptoOperations) decryptAES(keyBase64 string, ciphertext []byte, nonce
 // getHasher returns the appropriate hash function for the algorithm.
 func getHasher(algorithm SignatureAlgorithm) (hash.Hash, error) {
 	switch algorithm {
-	case AlgorithmRS256, AlgorithmES256, AlgorithmPS256:
+	case AlgorithmRS256, AlgorithmES256, AlgorithmPS256, AlgorithmES256K:
 		return sha256.New(), nil
 	case AlgorithmRS384, AlgorithmES384, AlgorithmPS384:
 		return sha512.New384(), nil

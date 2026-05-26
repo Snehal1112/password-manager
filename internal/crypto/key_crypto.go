@@ -11,6 +11,7 @@ import (
 	"encoding/pem"
 	"fmt"
 
+	secp256k1 "github.com/decred/dcrd/dcrec/secp256k1/v4"
 	"github.com/sirupsen/logrus"
 )
 
@@ -48,6 +49,15 @@ func GenerateRSAKeyPEM(bits int) (string, error) {
 //
 //	The PEM-encoded ECDSA private key as a string or an error if generation fails.
 func GenerateECDSAKeyPEM(curveName string) (string, error) {
+	// Handle secp256k1 separately — it is not in the standard library.
+	if curveName == "P-256K" {
+		privKey, err := secp256k1.GeneratePrivateKey()
+		if err != nil {
+			return "", fmt.Errorf("failed to generate secp256k1 key: %w", err)
+		}
+		return MarshalSecp256k1PrivateKeyPEM(privKey)
+	}
+
 	var curve elliptic.Curve
 	switch curveName {
 	case "P-256":
@@ -111,7 +121,24 @@ func ParsePrivateKey(pemData, keyType string) (any, error) {
 			return nil, fmt.Errorf("failed to parse ECDSA private key: %w", err)
 		}
 		return privateKey, nil
+	case "ES256K":
+		// block.Bytes holds the raw 32-byte scalar written by MarshalSecp256k1PrivateKeyPEM.
+		return secp256k1.PrivKeyFromBytes(block.Bytes), nil
 	default:
 		return nil, fmt.Errorf("unsupported key type: %s", keyType)
 	}
+}
+
+// MarshalSecp256k1PrivateKeyPEM serialises a secp256k1 private key to PEM.
+// The PEM body contains the raw 32-byte key scalar (not DER/ASN.1),
+// which is what ParsePrivateKey("ES256K") expects.
+func MarshalSecp256k1PrivateKeyPEM(privKey *secp256k1.PrivateKey) (string, error) {
+	pemBlock := pem.EncodeToMemory(&pem.Block{
+		Type:  "EC PRIVATE KEY",
+		Bytes: privKey.Serialize(),
+	})
+	if pemBlock == nil {
+		return "", fmt.Errorf("failed to encode secp256k1 key to PEM")
+	}
+	return string(pemBlock), nil
 }

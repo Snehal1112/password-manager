@@ -4,6 +4,7 @@ import (
 	"encoding/base64"
 	"testing"
 
+	secp256k1 "github.com/decred/dcrd/dcrec/secp256k1/v4"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -254,6 +255,38 @@ func BenchmarkECDSASign(b *testing.B) {
 	for i := 0; i < b.N; i++ {
 		_, _ = ops.Sign(privateKeyPEM, "ECDSA", testData, AlgorithmES256)
 	}
+}
+
+func TestSignVerify_ES256K(t *testing.T) {
+	t.Parallel()
+	ops := NewCryptoOperations()
+
+	// Generate a secp256k1 key.
+	privKey, err := secp256k1.GeneratePrivateKey()
+	require.NoError(t, err)
+
+	// Serialise the key to PEM so Sign/Verify can consume it.
+	privPEM, err := MarshalSecp256k1PrivateKeyPEM(privKey)
+	require.NoError(t, err)
+
+	data := []byte("test message for secp256k1 signing")
+
+	// Sign the data with ES256K.
+	sig, err := ops.Sign(privPEM, "ES256K", data, AlgorithmES256K)
+	require.NoError(t, err)
+	require.NotEmpty(t, sig.Signature)
+	assert.Equal(t, AlgorithmES256K, sig.Algorithm)
+
+	// Verify the signature.
+	result, err := ops.Verify(privPEM, "ES256K", data, sig.Signature, AlgorithmES256K)
+	require.NoError(t, err)
+	assert.True(t, result.Valid, "signature should be valid")
+
+	// Verify that tampered data fails.
+	tampered := []byte("tampered message")
+	result2, err := ops.Verify(privPEM, "ES256K", tampered, sig.Signature, AlgorithmES256K)
+	require.NoError(t, err)
+	assert.False(t, result2.Valid, "tampered data should not verify")
 }
 
 func BenchmarkAESEncrypt(b *testing.B) {

@@ -177,10 +177,10 @@ func (s *keyService) CreateECDSAKey(ctx context.Context, req CreateKeyRequest) (
 		"user_id": req.UserID.String(),
 	}).Info("Creating ECDSA key")
 
-	// Validate ECDSA-specific parameters
-	if req.Curve != "P-256" && req.Curve != "P-384" && req.Curve != "P-521" {
-		s.logger.LogAuditError(req.UserID.String(), "create_ecdsa_key", "failed", "invalid ECDSA curve: must be P-256, P-384, or P-521", nil)
-		return nil, fmt.Errorf("invalid ECDSA curve: must be P-256, P-384, or P-521")
+	// Validate ECDSA-specific parameters.
+	if req.Curve != "P-256" && req.Curve != "P-384" && req.Curve != "P-521" && req.Curve != "P-256K" {
+		s.logger.LogAuditError(req.UserID.String(), "create_ecdsa_key", "failed", "invalid ECDSA curve: must be P-256, P-384, P-521, or P-256K", nil)
+		return nil, fmt.Errorf("invalid ECDSA curve: must be P-256, P-384, P-521, or P-256K")
 	}
 
 	// Generate ECDSA key using crypto helper
