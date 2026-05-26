@@ -41,7 +41,7 @@ import (
 // newTestLogger returns a minimal Logger backed by a discarding logrus instance.
 func newTestLogger() *logging.Logger {
 	l := logrus.New()
-	l.SetOutput(httptest.NewRecorder()) // discard output
+	l.SetOutput(httptest.NewRecorder()) // discard log output in tests
 	return logging.WrapLogrus(l)
 }
 

@@ -31,8 +31,26 @@ import (
 	"rocketvault/internal/logging"
 )
 
+// queryMetricsJSON is the JSON shape for query-level metrics in the health response.
+type queryMetricsJSON struct {
+	QueryCount    int64  `json:"query_count"`
+	TotalDuration string `json:"total_duration"`
+	AvgDuration   string `json:"avg_duration"`
+	SlowQueries   int64  `json:"slow_queries"`
+}
+
+// healthCheckResponse is the top-level JSON body for the /health endpoint.
+type healthCheckResponse struct {
+	*health.HealthMetrics
+	QueryMetrics queryMetricsJSON `json:"query_metrics"`
+}
+
 // InitHealth registers health check routes.
 func (api *API) InitHealth() {
+	if api.App == nil {
+		api.Logger.Warnln("InitHealth called with nil App; health routes will not respond correctly")
+	}
+
 	r := api.BaseRoutes.Health
 
 	var db *sql.DB
@@ -64,13 +82,13 @@ func (api *API) InitHealth() {
 	logger.Infoln("Health API routes initialized")
 }
 
-// HealthHandler handles health check endpoints
+// HealthHandler handles health check endpoints.
 type HealthHandler struct {
 	collector *health.HealthCollector
 	logger    *logging.Logger
 }
 
-// NewHealthHandler creates a new health handler
+// NewHealthHandler creates a new health handler.
 func NewHealthHandler(collector *health.HealthCollector, logger *logging.Logger) *HealthHandler {
 	return &HealthHandler{
 		collector: collector,
@@ -78,13 +96,8 @@ func NewHealthHandler(collector *health.HealthCollector, logger *logging.Logger)
 	}
 }
 
-// HealthCheck handles GET /health endpoint
+// HealthCheck handles GET /health endpoint.
 func (h *HealthHandler) HealthCheck(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodGet {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
-
 	metrics, err := h.collector.CollectMetrics(r.Context())
 	if err != nil {
 		h.logger.LogAuditError("", "health_api", "failed", "Failed to collect health metrics", err)
@@ -94,23 +107,9 @@ func (h *HealthHandler) HealthCheck(w http.ResponseWriter, r *http.Request) {
 
 	queryMetrics := h.collector.GetQueryMetrics()
 
-	// Create response struct without mutex
-	response := struct {
-		*health.HealthMetrics
-		QueryMetrics struct {
-			QueryCount    int64  `json:"query_count"`
-			TotalDuration string `json:"total_duration"`
-			AvgDuration   string `json:"avg_duration"`
-			SlowQueries   int64  `json:"slow_queries"`
-		} `json:"query_metrics"`
-	}{
+	response := healthCheckResponse{
 		HealthMetrics: metrics,
-		QueryMetrics: struct {
-			QueryCount    int64  `json:"query_count"`
-			TotalDuration string `json:"total_duration"`
-			AvgDuration   string `json:"avg_duration"`
-			SlowQueries   int64  `json:"slow_queries"`
-		}{
+		QueryMetrics: queryMetricsJSON{
 			QueryCount:    queryMetrics.QueryCount,
 			TotalDuration: health.FormatDuration(queryMetrics.TotalDuration),
 			AvgDuration:   health.FormatDuration(queryMetrics.AvgDuration),
@@ -130,17 +129,13 @@ func (h *HealthHandler) HealthCheck(w http.ResponseWriter, r *http.Request) {
 	h.logger.LogAuditInfo("", "health_api", "success", "Health metrics served via API")
 }
 
-// ReadinessCheck handles GET /health/ready endpoint
+// ReadinessCheck handles GET /health/ready endpoint.
 func (h *HealthHandler) ReadinessCheck(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodGet {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
-
-	// Basic readiness check - if we can collect metrics, we're ready
+	// Basic readiness check — if we can collect metrics, we're ready.
 	_, err := h.collector.CollectMetrics(r.Context())
 	if err != nil {
 		h.logger.LogAuditError("", "readiness_api", "failed", "System not ready", err)
+		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusServiceUnavailable)
 		json.NewEncoder(w).Encode(map[string]string{
 			"status": "not ready",
@@ -158,14 +153,9 @@ func (h *HealthHandler) ReadinessCheck(w http.ResponseWriter, r *http.Request) {
 	h.logger.LogAuditInfo("", "readiness_api", "success", "Readiness check passed")
 }
 
-// LivenessCheck handles GET /health/live endpoint
+// LivenessCheck handles GET /health/live endpoint.
 func (h *HealthHandler) LivenessCheck(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodGet {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
-
-	// Simple liveness check - if the handler is responding, we're alive
+	// Simple liveness check — if the handler is responding, we're alive.
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
 	json.NewEncoder(w).Encode(map[string]string{
@@ -180,7 +170,7 @@ func (h *HealthHandler) DatabaseCheck(w http.ResponseWriter, r *http.Request) {
 	result, err := h.collector.CheckDatabaseHealth(r.Context())
 
 	httpStatus := http.StatusOK
-	if s, ok := result["status"].(string); ok && (s == "critical" || s == "degraded") {
+	if s, ok := result["status"].(string); ok && (s == "critical" || s == "degraded" || s == "warning") {
 		httpStatus = http.StatusServiceUnavailable
 	}
 	if err != nil && httpStatus == http.StatusOK {
