@@ -112,10 +112,13 @@ type ExportContainer struct {
 // --- HTTP request/response types ---
 
 type CreateSecretRequest struct {
-	Name        string   `json:"name"`
-	Value       string   `json:"value"`
-	Tags        []string `json:"tags,omitempty"`
-	ContentType string   `json:"content_type,omitempty"`
+	Name        string     `json:"name"`
+	Value       string     `json:"value"`
+	Tags        []string   `json:"tags,omitempty"`
+	ContentType string     `json:"content_type,omitempty"`
+	Enabled     *bool      `json:"enabled,omitempty"`
+	ExpiresAt   *time.Time `json:"expires_at,omitempty"`
+	NotBefore   *time.Time `json:"not_before,omitempty"`
 }
 
 func CreateSecretRequestFromJson(data io.Reader) (*CreateSecretRequest, error) {
@@ -124,10 +127,13 @@ func CreateSecretRequestFromJson(data io.Reader) (*CreateSecretRequest, error) {
 }
 
 type UpdateSecretRequest struct {
-	Name        string   `json:"name,omitempty"`
-	Value       string   `json:"value,omitempty"`
-	Tags        []string `json:"tags,omitempty"`
-	ContentType *string  `json:"content_type,omitempty"`
+	Name        string     `json:"name,omitempty"`
+	Value       string     `json:"value,omitempty"`
+	Tags        []string   `json:"tags,omitempty"`
+	ContentType *string    `json:"content_type,omitempty"`
+	Enabled     *bool      `json:"enabled,omitempty"`
+	ExpiresAt   *time.Time `json:"expires_at,omitempty"`
+	NotBefore   *time.Time `json:"not_before,omitempty"`
 }
 
 func UpdateSecretRequestFromJson(data io.Reader) (*UpdateSecretRequest, error) {
@@ -162,14 +168,17 @@ func ExportSecretsRequestFromJson(data io.Reader) (*ExportSecretsRequest, error)
 }
 
 type SecretResponse struct {
-	ID          string   `json:"id"`
-	Name        string   `json:"name"`
-	Value       string   `json:"value,omitempty"`
-	Tags        []string `json:"tags,omitempty"`
-	Version     int      `json:"version"`
-	ContentType string   `json:"content_type,omitempty"`
-	CreatedAt   string   `json:"created_at"`
-	UpdatedAt   string   `json:"updated_at,omitempty"`
+	ID          string     `json:"id"`
+	Name        string     `json:"name"`
+	Value       string     `json:"value,omitempty"`
+	Tags        []string   `json:"tags,omitempty"`
+	Version     int        `json:"version"`
+	ContentType string     `json:"content_type,omitempty"`
+	CreatedAt   string     `json:"created_at"`
+	UpdatedAt   string     `json:"updated_at,omitempty"`
+	Enabled     bool       `json:"enabled"`
+	ExpiresAt   *time.Time `json:"expires_at,omitempty"`
+	NotBefore   *time.Time `json:"not_before,omitempty"`
 }
 
 func (r *SecretResponse) ToJson() string {

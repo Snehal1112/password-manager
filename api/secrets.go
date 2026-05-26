@@ -378,6 +378,9 @@ func createSecret(c *Context, w http.ResponseWriter, r *http.Request) {
 		Value:       req.Value,
 		Tags:        req.Tags,
 		ContentType: req.ContentType,
+		Enabled:     req.Enabled,
+		ExpiresAt:   req.ExpiresAt,
+		NotBefore:   req.NotBefore,
 	}
 
 	secret, err := secretService.CreateSecret(r.Context(), createReq)
@@ -394,6 +397,9 @@ func createSecret(c *Context, w http.ResponseWriter, r *http.Request) {
 		Version:     secret.Version,
 		ContentType: secret.ContentType,
 		CreatedAt:   secret.CreatedAt.Format(time.RFC3339),
+		Enabled:     secret.Enabled,
+		ExpiresAt:   secret.ExpiresAt,
+		NotBefore:   secret.NotBefore,
 	}
 
 	// Send response.
@@ -501,6 +507,9 @@ func getSecret(c *Context, w http.ResponseWriter, r *http.Request) {
 		Version:     secret.Version,
 		ContentType: secret.ContentType,
 		CreatedAt:   secret.CreatedAt.Format(time.RFC3339),
+		Enabled:     secret.Enabled,
+		ExpiresAt:   secret.ExpiresAt,
+		NotBefore:   secret.NotBefore,
 	}
 
 	// Send response.
@@ -568,6 +577,18 @@ func updateSecret(c *Context, w http.ResponseWriter, r *http.Request) {
 		secret.ContentType = *req.ContentType
 		updated = true
 	}
+	if req.Enabled != nil {
+		secret.Enabled = *req.Enabled
+		updated = true
+	}
+	if req.ExpiresAt != nil {
+		secret.ExpiresAt = req.ExpiresAt
+		updated = true
+	}
+	if req.NotBefore != nil {
+		secret.NotBefore = req.NotBefore
+		updated = true
+	}
 
 	if !updated {
 		c.SetInvalidParam("no changes provided")
@@ -585,6 +606,9 @@ func updateSecret(c *Context, w http.ResponseWriter, r *http.Request) {
 		Value:       &secret.Value,
 		Tags:        &secret.Tags,
 		ContentType: req.ContentType,
+		Enabled:     req.Enabled,
+		ExpiresAt:   req.ExpiresAt,
+		NotBefore:   req.NotBefore,
 	}); err != nil {
 		c.SetInternalError(err)
 		return
@@ -598,6 +622,9 @@ func updateSecret(c *Context, w http.ResponseWriter, r *http.Request) {
 		Version:     secret.Version,
 		ContentType: secret.ContentType,
 		CreatedAt:   secret.CreatedAt.Format(time.RFC3339),
+		Enabled:     secret.Enabled,
+		ExpiresAt:   secret.ExpiresAt,
+		NotBefore:   secret.NotBefore,
 	}
 
 	// Send response.

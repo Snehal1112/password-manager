@@ -24,17 +24,23 @@ type CreateSecretRequest struct {
 	Name        string
 	Value       string
 	Tags        []string
-	ContentType string // Optional media type (e.g. "application/json").
+	ContentType string     // Optional media type (e.g. "application/json").
+	Enabled     *bool      // Defaults to true when nil.
+	ExpiresAt   *time.Time // Optional expiry time.
+	NotBefore   *time.Time // Optional activation time.
 }
 
 // UpdateSecretRequest represents a request to update an existing secret.
 type UpdateSecretRequest struct {
 	SecretID    uuid.UUID
 	UserID      uuid.UUID
-	Name        *string   // Optional - nil means no change.
-	Value       *string   // Optional - nil means no change.
-	Tags        *[]string // Optional - nil means no change.
-	ContentType *string   // Optional - nil means no change.
+	Name        *string    // Optional - nil means no change.
+	Value       *string    // Optional - nil means no change.
+	Tags        *[]string  // Optional - nil means no change.
+	ContentType *string    // Optional - nil means no change.
+	Enabled     *bool      // Optional - nil means no change.
+	ExpiresAt   *time.Time // Optional - nil means no change.
+	NotBefore   *time.Time // Optional - nil means no change.
 }
 
 // validContentTypes is the allowlist of accepted MIME types for secret content.
@@ -179,6 +185,12 @@ func (s *secretService) CreateSecret(ctx context.Context, req CreateSecretReques
 		return nil, fmt.Errorf("failed to encrypt secret: %w", err)
 	}
 
+	// Default Enabled to true when the caller does not specify it.
+	enabled := true
+	if req.Enabled != nil {
+		enabled = *req.Enabled
+	}
+
 	secret := &model.Secret{
 		ID:          uuid.New(),
 		UserID:      req.UserID,
@@ -188,6 +200,9 @@ func (s *secretService) CreateSecret(ctx context.Context, req CreateSecretReques
 		Tags:        req.Tags,
 		ContentType: req.ContentType,
 		CreatedAt:   time.Now(),
+		Enabled:     enabled,
+		ExpiresAt:   req.ExpiresAt,
+		NotBefore:   req.NotBefore,
 	}
 
 	// doCreate runs the repository write. The repository's Create method
@@ -300,6 +315,17 @@ func (s *secretService) UpdateSecret(ctx context.Context, req UpdateSecretReques
 		updatedSecret.Name = *req.Name
 	}
 
+	// Update lifecycle fields if provided.
+	if req.Enabled != nil {
+		updatedSecret.Enabled = *req.Enabled
+	}
+	if req.ExpiresAt != nil {
+		updatedSecret.ExpiresAt = req.ExpiresAt
+	}
+	if req.NotBefore != nil {
+		updatedSecret.NotBefore = req.NotBefore
+	}
+
 	// Update and encrypt value if provided
 	if req.Value != nil {
 		encryptedValue, err := s.cryptoService.EncryptSecret(*req.Value)
@@ -376,6 +402,12 @@ func (s *secretService) GetSecret(ctx context.Context, secretID, userID uuid.UUI
 		return nil, fmt.Errorf("failed to load tags: %w", err)
 	}
 	secret.Tags = tags
+
+	// Enforce lifecycle policy at the service boundary.
+	if !secret.IsAccessible() {
+		s.logger.LogAuditError(userID.String(), "get_secret", "denied", "Secret is disabled or outside its valid time window", nil)
+		return nil, fmt.Errorf("secret is disabled or outside its valid time window")
+	}
 
 	return secret, nil
 }

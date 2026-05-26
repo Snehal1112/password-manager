@@ -93,7 +93,7 @@ func TestGetSecret_HappyPath(t *testing.T) {
 	userID := uuid.New()
 	secretID := uuid.New()
 
-	stored := &model.Secret{ID: secretID, UserID: userID, Name: "s", Value: "enc"}
+	stored := &model.Secret{ID: secretID, UserID: userID, Name: "s", Value: "enc", Enabled: true}
 
 	repo := &testutils.MockSecretRepository{}
 	crypto := &testutils.MockCryptographyService{}
