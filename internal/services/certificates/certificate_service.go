@@ -29,7 +29,9 @@ type CreateCertificateRequest struct {
 	UserID       uuid.UUID
 	CACertID     *uuid.UUID // Optional for CA-signed certificates.
 	AutoRenew    bool
-	RenewalDays  int // 0 defaults to 30.
+	RenewalDays  int        // 0 defaults to 30.
+	Enabled      *bool      // nil defaults to true.
+	NotBefore    *time.Time // Optional activation timestamp.
 }
 
 // CreateCertificateResult represents the result of creating a new certificate.
@@ -44,11 +46,13 @@ type CreateCertificateResult struct {
 // UpdateCertificateRequest represents a request to update an existing certificate.
 type UpdateCertificateRequest struct {
 	CertID      uuid.UUID
-	Name        *string  // Optional - nil means no change
-	Tags        []string // Optional - empty means no change
+	Name        *string    // Optional - nil means no change.
+	Tags        []string   // Optional - empty means no change.
 	UserID      uuid.UUID
-	AutoRenew   *bool // Optional - nil means no change
-	RenewalDays *int  // Optional - nil means no change
+	AutoRenew   *bool      // Optional - nil means no change.
+	RenewalDays *int       // Optional - nil means no change.
+	Enabled     *bool      // Optional - nil means no change.
+	NotBefore   *time.Time // Optional - nil means no change.
 }
 
 // CertificateService handles X.509 certificate management operations.
@@ -173,6 +177,12 @@ func (s *certificateService) CreateSelfSignedCertificate(ctx context.Context, re
 		renewalDays = 30
 	}
 
+	// Default Enabled to true when not explicitly set.
+	enabled := true
+	if req.Enabled != nil {
+		enabled = *req.Enabled
+	}
+
 	// Create certificate entity
 	cert := &model.Certificate{
 		ID:          uuid.New(),
@@ -186,6 +196,8 @@ func (s *certificateService) CreateSelfSignedCertificate(ctx context.Context, re
 		ExpiresAt:   expiresAt,
 		AutoRenew:   req.AutoRenew,
 		RenewalDays: renewalDays,
+		Enabled:     enabled,
+		NotBefore:   req.NotBefore,
 	}
 
 	// Store in repository
@@ -310,6 +322,12 @@ func (s *certificateService) CreateCASignedCertificate(ctx context.Context, req 
 		renewalDays = 30
 	}
 
+	// Default Enabled to true when not explicitly set.
+	enabled := true
+	if req.Enabled != nil {
+		enabled = *req.Enabled
+	}
+
 	// Create certificate entity
 	cert := &model.Certificate{
 		ID:          uuid.New(),
@@ -323,6 +341,8 @@ func (s *certificateService) CreateCASignedCertificate(ctx context.Context, req 
 		ExpiresAt:   expiresAt,
 		AutoRenew:   req.AutoRenew,
 		RenewalDays: renewalDays,
+		Enabled:     enabled,
+		NotBefore:   req.NotBefore,
 	}
 
 	// Store in repository
@@ -370,6 +390,12 @@ func (s *certificateService) GetCertificate(ctx context.Context, certID, userID 
 	if cert.UserID != userID {
 		s.logger.LogAuditError(userID.String(), "get_certificate", "failed", "forbidden: cannot access other users' certificates", nil)
 		return nil, fmt.Errorf("forbidden: cannot access other users' certificates")
+	}
+
+	// Enforce lifecycle policy.
+	if !cert.IsAccessible() {
+		s.logger.LogAuditError(userID.String(), "get_certificate", "failed", "certificate is disabled or outside its valid time window", nil)
+		return nil, fmt.Errorf("certificate is disabled or outside its valid time window")
 	}
 
 	return cert, nil
@@ -429,6 +455,14 @@ func (s *certificateService) UpdateCertificate(ctx context.Context, req UpdateCe
 	// Update renewal days if provided
 	if req.RenewalDays != nil {
 		updatedCert.RenewalDays = *req.RenewalDays
+	}
+
+	// Update lifecycle attributes if provided.
+	if req.Enabled != nil {
+		updatedCert.Enabled = *req.Enabled
+	}
+	if req.NotBefore != nil {
+		updatedCert.NotBefore = req.NotBefore
 	}
 
 	// Update certificate via repository

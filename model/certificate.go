@@ -24,6 +24,23 @@ type Certificate struct {
 	ExpiresAt        *time.Time `json:"expires_at,omitempty"`
 	AutoRenew        bool       `json:"auto_renew"`
 	RenewalDays      int        `json:"renewal_days"`
+	Enabled          bool       `json:"enabled"`
+	NotBefore        *time.Time `json:"not_before,omitempty"`
+}
+
+// IsAccessible returns true when the certificate is enabled and within its validity window.
+func (c *Certificate) IsAccessible() bool {
+	if !c.Enabled {
+		return false
+	}
+	now := time.Now()
+	if c.NotBefore != nil && now.Before(*c.NotBefore) {
+		return false
+	}
+	if c.ExpiresAt != nil && now.After(*c.ExpiresAt) {
+		return false
+	}
+	return true
 }
 
 // RevokedCertificate represents a revoked certificate in the CRL.
@@ -38,14 +55,16 @@ type RevokedCertificate struct {
 // --- HTTP request/response types ---
 
 type CreateCertificateRequest struct {
-	Name         string   `json:"name"`
-	KeyID        string   `json:"key_id"`
-	ValidityDays int      `json:"validity_days"`
-	Tags         []string `json:"tags,omitempty"`
-	AutoRenew    bool     `json:"auto_renew"`
-	RenewalDays  int      `json:"renewal_days"`
-	CAKeyID      string   `json:"ca_key_id,omitempty"`
-	CACertID     string   `json:"ca_cert_id,omitempty"`
+	Name         string     `json:"name"`
+	KeyID        string     `json:"key_id"`
+	ValidityDays int        `json:"validity_days"`
+	Tags         []string   `json:"tags,omitempty"`
+	AutoRenew    bool       `json:"auto_renew"`
+	RenewalDays  int        `json:"renewal_days"`
+	CAKeyID      string     `json:"ca_key_id,omitempty"`
+	CACertID     string     `json:"ca_cert_id,omitempty"`
+	Enabled      *bool      `json:"enabled,omitempty"`
+	NotBefore    *time.Time `json:"not_before,omitempty"`
 }
 
 func CreateCertificateRequestFromJson(data io.Reader) (*CreateCertificateRequest, error) {
@@ -54,10 +73,12 @@ func CreateCertificateRequestFromJson(data io.Reader) (*CreateCertificateRequest
 }
 
 type UpdateCertificateRequest struct {
-	Name        *string  `json:"name,omitempty"`
-	Tags        []string `json:"tags,omitempty"`
-	AutoRenew   *bool    `json:"auto_renew,omitempty"`
-	RenewalDays *int     `json:"renewal_days,omitempty"`
+	Name        *string    `json:"name,omitempty"`
+	Tags        []string   `json:"tags,omitempty"`
+	AutoRenew   *bool      `json:"auto_renew,omitempty"`
+	RenewalDays *int       `json:"renewal_days,omitempty"`
+	Enabled     *bool      `json:"enabled,omitempty"`
+	NotBefore   *time.Time `json:"not_before,omitempty"`
 }
 
 func UpdateCertificateRequestFromJson(data io.Reader) (*UpdateCertificateRequest, error) {
@@ -74,6 +95,8 @@ type CertificateResponse struct {
 	AutoRenew   bool       `json:"auto_renew"`
 	RenewalDays int        `json:"renewal_days"`
 	ExpiresAt   *time.Time `json:"expires_at,omitempty"`
+	Enabled     bool       `json:"enabled"`
+	NotBefore   *time.Time `json:"not_before,omitempty"`
 }
 
 func (r *CertificateResponse) ToJson() string {

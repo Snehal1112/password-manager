@@ -171,6 +171,7 @@ func TestDeleteCertificateSoftDeletes(t *testing.T) {
 		Certificate: "-----BEGIN CERTIFICATE-----\ntest\n-----END CERTIFICATE-----",
 		PrivateKey:  "encrypted-key",
 		CreatedAt:   time.Now(),
+		Enabled:     true,
 	}
 
 	certRepo := &mockCertRepository{}
@@ -228,6 +229,7 @@ func TestRenewCertificate_Succeeds_WhenKeyIDSet(t *testing.T) {
 		CreatedAt:   time.Now().Add(-365 * 24 * time.Hour),
 		AutoRenew:   true,
 		RenewalDays: 30,
+		Enabled:     true,
 	}
 
 	mockKey := &model.Key{

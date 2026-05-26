@@ -348,6 +348,8 @@ func (d *DBRepository) createOptimizedSchema(db *sql.DB) error {
 			expires_at DATETIME,
 			auto_renew BOOLEAN NOT NULL DEFAULT FALSE,
 			renewal_days INTEGER NOT NULL DEFAULT 30,
+			enabled BOOLEAN NOT NULL DEFAULT TRUE,
+			not_before TIMESTAMP NULL,
 			FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
 		);
 		CREATE INDEX IF NOT EXISTS idx_certificates_user_id ON certificates(user_id);
@@ -567,6 +569,9 @@ func (d *DBRepository) migrateSchema(db *sql.DB) error {
 		"ALTER TABLE keys ADD COLUMN not_before TIMESTAMP NULL",
 		"ALTER TABLE keys ADD COLUMN bits INTEGER NOT NULL DEFAULT 0",
 		"ALTER TABLE keys ADD COLUMN curve TEXT NOT NULL DEFAULT ''",
+		// Feature: lifecycle attributes for certificates
+		"ALTER TABLE certificates ADD COLUMN enabled BOOLEAN NOT NULL DEFAULT TRUE",
+		"ALTER TABLE certificates ADD COLUMN not_before TIMESTAMP NULL",
 		// Milestone 3: service-account / OAuth2 table (CREATE TABLE IF NOT EXISTS is idempotent)
 		`CREATE TABLE IF NOT EXISTS oauth2_clients (
 			id            TEXT PRIMARY KEY,

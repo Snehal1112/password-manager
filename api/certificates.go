@@ -37,22 +37,26 @@ import (
 
 // CreateCertificateAPIRequest is the HTTP request body for POST /certificates.
 type CreateCertificateAPIRequest struct {
-	Name         string   `json:"name"`           // Certificate common name.
-	KeyID        string   `json:"key_id"`         // UUID of the signing key.
-	ValidityDays int      `json:"validity_days"`  // Certificate validity in days.
-	Tags         []string `json:"tags,omitempty"` // Optional tags.
-	AutoRenew    bool     `json:"auto_renew"`     // Schedule automatic renewal.
-	RenewalDays  int      `json:"renewal_days"`   // Days before expiry to renew; defaults to 30.
-	CAKeyID      string   `json:"ca_key_id,omitempty"`  // Unused; kept for future use.
-	CACertID     string   `json:"ca_cert_id,omitempty"` // UUID of CA cert; triggers CA-signed path.
+	Name         string     `json:"name"`           // Certificate common name.
+	KeyID        string     `json:"key_id"`         // UUID of the signing key.
+	ValidityDays int        `json:"validity_days"`  // Certificate validity in days.
+	Tags         []string   `json:"tags,omitempty"` // Optional tags.
+	AutoRenew    bool       `json:"auto_renew"`     // Schedule automatic renewal.
+	RenewalDays  int        `json:"renewal_days"`   // Days before expiry to renew; defaults to 30.
+	CAKeyID      string     `json:"ca_key_id,omitempty"`  // Unused; kept for future use.
+	CACertID     string     `json:"ca_cert_id,omitempty"` // UUID of CA cert; triggers CA-signed path.
+	Enabled      *bool      `json:"enabled,omitempty"`    // Defaults to true when omitted.
+	NotBefore    *time.Time `json:"not_before,omitempty"` // Optional activation time.
 }
 
 // UpdateCertificateAPIRequest is the HTTP request body for PUT /certificates/{certificate_id}.
 type UpdateCertificateAPIRequest struct {
-	Name        *string  `json:"name,omitempty"`         // New name; nil means no change.
-	Tags        []string `json:"tags,omitempty"`         // Replace existing tags.
-	AutoRenew   *bool    `json:"auto_renew,omitempty"`   // Enable or disable auto-renewal.
-	RenewalDays *int     `json:"renewal_days,omitempty"` // Days before expiry to renew.
+	Name        *string    `json:"name,omitempty"`         // New name; nil means no change.
+	Tags        []string   `json:"tags,omitempty"`         // Replace existing tags.
+	AutoRenew   *bool      `json:"auto_renew,omitempty"`   // Enable or disable auto-renewal.
+	RenewalDays *int       `json:"renewal_days,omitempty"` // Days before expiry to renew.
+	Enabled     *bool      `json:"enabled,omitempty"`      // Enable or disable the certificate.
+	NotBefore   *time.Time `json:"not_before,omitempty"`   // Activation timestamp.
 }
 
 // CertificateResponse is the JSON response for a single certificate.
@@ -65,6 +69,8 @@ type CertificateResponse struct {
 	AutoRenew   bool       `json:"auto_renew"`
 	RenewalDays int        `json:"renewal_days"`
 	ExpiresAt   *time.Time `json:"expires_at,omitempty"`
+	Enabled     bool       `json:"enabled"`
+	NotBefore   *time.Time `json:"not_before,omitempty"`
 }
 
 // CertificateListResponse is the JSON response for listing certificates.
@@ -102,6 +108,8 @@ func certToDomainResponse(cert *model.Certificate) CertificateResponse {
 		AutoRenew:   cert.AutoRenew,
 		RenewalDays: cert.RenewalDays,
 		ExpiresAt:   cert.ExpiresAt,
+		Enabled:     cert.Enabled,
+		NotBefore:   cert.NotBefore,
 	}
 }
 
@@ -164,6 +172,8 @@ func createCertificate(c *Context, w http.ResponseWriter, r *http.Request) {
 		UserID:       userID,
 		AutoRenew:    req.AutoRenew,
 		RenewalDays:  req.RenewalDays,
+		Enabled:      req.Enabled,
+		NotBefore:    req.NotBefore,
 	}
 
 	var result *certServices.CreateCertificateResult
@@ -186,6 +196,12 @@ func createCertificate(c *Context, w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Resolve enabled value shown in the response.
+	enabled := true
+	if req.Enabled != nil {
+		enabled = *req.Enabled
+	}
+
 	response := CertificateResponse{
 		ID:          result.CertID,
 		Name:        result.Name,
@@ -195,6 +211,8 @@ func createCertificate(c *Context, w http.ResponseWriter, r *http.Request) {
 		AutoRenew:   req.AutoRenew,
 		RenewalDays: req.RenewalDays,
 		ExpiresAt:   result.ExpiresAt,
+		Enabled:     enabled,
+		NotBefore:   req.NotBefore,
 	}
 
 	w.Header().Set("Content-Type", "application/json")
@@ -294,7 +312,7 @@ func updateCertificate(c *Context, w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if req.Name == nil && req.Tags == nil && req.AutoRenew == nil && req.RenewalDays == nil {
+	if req.Name == nil && req.Tags == nil && req.AutoRenew == nil && req.RenewalDays == nil && req.Enabled == nil && req.NotBefore == nil {
 		c.SetInvalidParam("at least one update field must be provided")
 		return
 	}
@@ -311,6 +329,8 @@ func updateCertificate(c *Context, w http.ResponseWriter, r *http.Request) {
 		Tags:        req.Tags,
 		AutoRenew:   req.AutoRenew,
 		RenewalDays: req.RenewalDays,
+		Enabled:     req.Enabled,
+		NotBefore:   req.NotBefore,
 	}
 
 	if err := certService.UpdateCertificate(r.Context(), updateReq); err != nil {
