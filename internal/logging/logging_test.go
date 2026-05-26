@@ -250,14 +250,11 @@ func TestLogAuditInfo_PersistsToDBWhenPersisterSet(t *testing.T) {
 
 	logger.LogAuditInfo("user-abc", "create_secret", "success", "secret created")
 
-	if len(mock.calls) != 1 {
-		t.Fatalf("expected 1 PersistAudit call, got %d", len(mock.calls))
-	}
-	if mock.calls[0].userID != "user-abc" {
-		t.Errorf("expected userID user-abc, got %s", mock.calls[0].userID)
-	}
-	if mock.calls[0].action != "create_secret" {
-		t.Errorf("expected action create_secret, got %s", mock.calls[0].action)
+	assert.Len(t, mock.calls, 1, "expected 1 PersistAudit call")
+	assert.Equal(t, "user-abc", mock.calls[0].userID)
+	assert.Equal(t, "create_secret", mock.calls[0].action)
+	if !strings.Contains(mock.calls[0].details, "operation=create_secret") {
+		t.Errorf("expected details to contain 'operation=create_secret', got %s", mock.calls[0].details)
 	}
 }
 
@@ -270,11 +267,13 @@ func TestLogAuditError_PersistsToDBWhenPersisterSet(t *testing.T) {
 
 	logger.LogAuditError("user-xyz", "get_key", "failed", "key not found", errors.New("sql: no rows"))
 
-	if len(mock.calls) != 1 {
-		t.Fatalf("expected 1 PersistAudit call, got %d", len(mock.calls))
+	assert.Len(t, mock.calls, 1, "expected 1 PersistAudit call")
+	assert.Equal(t, "user-xyz", mock.calls[0].userID)
+	if mock.calls[0].action != "get_key" {
+		t.Errorf("expected action get_key, got %s", mock.calls[0].action)
 	}
-	if mock.calls[0].userID != "user-xyz" {
-		t.Errorf("expected userID user-xyz, got %s", mock.calls[0].userID)
+	if !strings.Contains(mock.calls[0].details, "operation=get_key") {
+		t.Errorf("expected details to contain 'operation=get_key', got %s", mock.calls[0].details)
 	}
 }
 
@@ -299,4 +298,7 @@ func TestLogAuditError_PersisterFailureDoesNotPanic(t *testing.T) {
 	assert.NotPanics(t, func() {
 		logger.LogAuditError("u1", "op", "failed", "msg", nil)
 	})
+	if len(mock.calls) != 1 {
+		t.Errorf("expected 1 PersistAudit call even on error, got %d", len(mock.calls))
+	}
 }
