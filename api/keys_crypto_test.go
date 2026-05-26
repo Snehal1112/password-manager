@@ -37,7 +37,6 @@ import (
 	"testing"
 
 	"github.com/golang-jwt/jwt/v5"
-	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -739,12 +738,4 @@ func TestSignKey_NilContainer_Returns500(t *testing.T) {
 	}
 
 	assert.Equal(t, http.StatusInternalServerError, w.Code)
-}
-
-// newUUID returns a UUID that is guaranteed to parse correctly.
-func newUUID(t *testing.T) uuid.UUID {
-	t.Helper()
-	id, err := uuid.Parse(testKeyIDStr)
-	require.NoError(t, err)
-	return id
 }

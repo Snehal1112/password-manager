@@ -831,7 +831,7 @@ func verifyKey(c *Context, w http.ResponseWriter, r *http.Request) {
 	})
 	if err != nil {
 		switch {
-		case strings.Contains(err.Error(), "forbidden"):
+		case strings.Contains(err.Error(), "forbidden") || strings.Contains(err.Error(), "revoked"):
 			c.SetPermissionError("key_access")
 		case strings.Contains(err.Error(), "not found"):
 			c.SetNotFound("key")
