@@ -25,6 +25,19 @@ type Logger struct {
 	maxBackups     int
 	maxAgeDays     int
 	rotationMethod string
+	auditPersister AuditPersister // optional; nil means DB writes are skipped
+}
+
+// AuditPersister is implemented by anything that can durably store an audit record.
+// Keeping the interface here avoids a circular import with the repositories package.
+type AuditPersister interface {
+	PersistAudit(userID, action, details string) error
+}
+
+// SetAuditPersister wires a durable storage backend for audit records.
+// Called once during container initialisation; safe to leave nil (log-only mode).
+func (l *Logger) SetAuditPersister(p AuditPersister) {
+	l.auditPersister = p
 }
 
 // ensureLogDirectory ensures the log file's directory exists.
@@ -152,11 +165,27 @@ func WrapLogrus(l *logrus.Logger) *Logger {
 // LogAuditInfo logs an info-level audit event with standard fields.
 func (l *Logger) LogAuditInfo(userIDs, operation, status, message string) {
 	l.WithAuditFields(userIDs, operation, status).Info(message)
+	if l.auditPersister != nil {
+		details := fmt.Sprintf("operation=%s status=%s message=%s", operation, status, message)
+		if err := l.auditPersister.PersistAudit(userIDs, operation, details); err != nil {
+			l.WithError(err).Warn("Failed to persist audit record to database")
+		}
+	}
 }
 
 // LogAuditError logs an error-level audit event with standard fields and an error.
 func (l *Logger) LogAuditError(userID string, operation, status, message string, err error) {
 	l.WithAuditFields(userID, operation, status).WithError(err).Error(message)
+	if l.auditPersister != nil {
+		errStr := ""
+		if err != nil {
+			errStr = err.Error()
+		}
+		details := fmt.Sprintf("operation=%s status=%s message=%s error=%s", operation, status, message, errStr)
+		if persistErr := l.auditPersister.PersistAudit(userID, operation, details); persistErr != nil {
+			l.WithError(persistErr).Warn("Failed to persist audit error record to database")
+		}
+	}
 }
 
 // WithAuditFields adds standard audit fields to a log entry.
