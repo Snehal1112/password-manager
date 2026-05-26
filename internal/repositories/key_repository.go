@@ -219,7 +219,7 @@ func (r *KeyRepository) Update(ctx context.Context, key *model.Key) error {
 			"name":    key.Name,
 		}).Debug("Updating key in database")
 
-		now := time.Now()
+		now := time.Now().UTC()
 		key.UpdatedAt = &now
 		result, err := r.db.ExecContext(
 			ctx,

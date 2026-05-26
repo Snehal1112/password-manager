@@ -68,6 +68,7 @@ type KeyResponse struct {
 	UserID    uuid.UUID  `json:"user_id"`
 	Revoked   bool       `json:"revoked"`
 	CreatedAt time.Time  `json:"created_at"`
+	UpdatedAt *time.Time `json:"updated_at,omitempty"`
 	Tags      []string   `json:"tags"`
 	Enabled   bool       `json:"enabled"`
 	ExpiresAt *time.Time `json:"expires_at,omitempty"`
@@ -369,6 +370,7 @@ func listKeys(c *Context, w http.ResponseWriter, r *http.Request) {
 			UserID:    key.UserID,
 			Revoked:   key.Revoked,
 			CreatedAt: key.CreatedAt,
+			UpdatedAt: key.UpdatedAt,
 			Tags:      key.Tags,
 			Enabled:   key.Enabled,
 			ExpiresAt: key.ExpiresAt,
@@ -440,6 +442,7 @@ func getKey(c *Context, w http.ResponseWriter, r *http.Request) {
 		UserID:    key.UserID,
 		Revoked:   key.Revoked,
 		CreatedAt: key.CreatedAt,
+		UpdatedAt: key.UpdatedAt,
 		Tags:      key.Tags,
 		Enabled:   key.Enabled,
 		ExpiresAt: key.ExpiresAt,
@@ -521,6 +524,7 @@ func updateKey(c *Context, w http.ResponseWriter, r *http.Request) {
 		UserID:    key.UserID,
 		Revoked:   key.Revoked,
 		CreatedAt: key.CreatedAt,
+		UpdatedAt: key.UpdatedAt,
 		Tags:      key.Tags,
 		Enabled:   key.Enabled,
 		ExpiresAt: key.ExpiresAt,
