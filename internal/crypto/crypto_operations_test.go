@@ -298,6 +298,7 @@ func TestRSAOAEP256_SHA256_RoundTrip(t *testing.T) {
 }
 
 func TestSign_RSA_PSS_Algorithms(t *testing.T) {
+	t.Parallel()
 	ops := NewCryptoOperations()
 	privateKeyPEM, err := GenerateRSAKeyPEM(2048)
 	require.NoError(t, err)
@@ -315,7 +316,10 @@ func TestSign_RSA_PSS_Algorithms(t *testing.T) {
 			assert.True(t, v.Valid)
 
 			// Mutated data must not verify.
-			v2, err := ops.Verify(privateKeyPEM, "RSA", append(data, 0), sig.Signature, alg)
+			tampered := make([]byte, len(data)+1)
+			copy(tampered, data)
+			tampered[len(data)] = 0
+			v2, err := ops.Verify(privateKeyPEM, "RSA", tampered, sig.Signature, alg)
 			require.NoError(t, err)
 			assert.False(t, v2.Valid)
 		})

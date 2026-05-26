@@ -29,10 +29,9 @@ const (
 	AlgorithmES384 SignatureAlgorithm = "ES384" // ECDSA with SHA-384
 	AlgorithmES512 SignatureAlgorithm = "ES512" // ECDSA with SHA-512
 
-	// RSA-PSS — Azure "PS256", "PS384", "PS512".
-	AlgorithmPS256 SignatureAlgorithm = "PS256"
-	AlgorithmPS384 SignatureAlgorithm = "PS384"
-	AlgorithmPS512 SignatureAlgorithm = "PS512"
+	AlgorithmPS256 SignatureAlgorithm = "PS256" // RSA-PSS with SHA-256
+	AlgorithmPS384 SignatureAlgorithm = "PS384" // RSA-PSS with SHA-384
+	AlgorithmPS512 SignatureAlgorithm = "PS512" // RSA-PSS with SHA-512
 )
 
 // EncryptionAlgorithm represents the encryption algorithm to use.
