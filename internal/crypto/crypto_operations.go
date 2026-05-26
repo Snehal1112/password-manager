@@ -56,6 +56,19 @@ const (
 	// AlgorithmRSAOAEP256 uses RSA-OAEP with SHA-256 — matches Azure "RSA-OAEP-256".
 	AlgorithmRSAOAEP256 EncryptionAlgorithm = "RSA-OAEP-256"
 	AlgorithmAES256     EncryptionAlgorithm = "AES256-GCM" // AES-256-GCM
+
+	// AlgorithmRSA1_5 uses PKCS1v15 RSA encryption.
+	AlgorithmRSA1_5 EncryptionAlgorithm = "RSA1_5"
+
+	// AES key-wrap algorithms (RFC 3394).
+	AlgorithmA128KW EncryptionAlgorithm = "A128KW"
+	AlgorithmA192KW EncryptionAlgorithm = "A192KW"
+	AlgorithmA256KW EncryptionAlgorithm = "A256KW"
+
+	// AES-CBC algorithms with PKCS7 padding.
+	AlgorithmA128CBC EncryptionAlgorithm = "A128CBC"
+	AlgorithmA192CBC EncryptionAlgorithm = "A192CBC"
+	AlgorithmA256CBC EncryptionAlgorithm = "A256CBC"
 )
 
 // SignResult contains the signature and metadata.
@@ -279,6 +292,12 @@ func (c *CryptoOperations) Encrypt(keyData string, data []byte, algorithm Encryp
 		return c.encryptRSAOAEP(keyData, data, true) // SHA-256
 	case AlgorithmAES256:
 		return c.encryptAES(keyData, data)
+	case AlgorithmRSA1_5:
+		return c.encryptRSA1_5(keyData, data)
+	case AlgorithmA128KW, AlgorithmA192KW, AlgorithmA256KW:
+		return c.wrapAES(keyData, data, algorithm)
+	case AlgorithmA128CBC, AlgorithmA192CBC, AlgorithmA256CBC:
+		return c.encryptAESCBC(keyData, data, algorithm)
 	default:
 		return nil, fmt.Errorf("unsupported encryption algorithm: %s", algorithm)
 	}
@@ -293,6 +312,12 @@ func (c *CryptoOperations) Decrypt(keyData string, ciphertext []byte, nonce []by
 		return c.decryptRSAOAEP(keyData, ciphertext, true) // SHA-256
 	case AlgorithmAES256:
 		return c.decryptAES(keyData, ciphertext, nonce)
+	case AlgorithmRSA1_5:
+		return c.decryptRSA1_5(keyData, ciphertext)
+	case AlgorithmA128KW, AlgorithmA192KW, AlgorithmA256KW:
+		return c.unwrapAES(keyData, ciphertext, algorithm)
+	case AlgorithmA128CBC, AlgorithmA192CBC, AlgorithmA256CBC:
+		return c.decryptAESCBC(keyData, ciphertext, nonce, algorithm)
 	default:
 		return nil, fmt.Errorf("unsupported decryption algorithm: %s", algorithm)
 	}
@@ -421,6 +446,208 @@ func (c *CryptoOperations) decryptAES(keyBase64 string, ciphertext []byte, nonce
 		Plaintext: plaintext,
 		Algorithm: AlgorithmAES256,
 	}, nil
+}
+
+// encryptRSA1_5 encrypts data using RSA PKCS1v15.
+func (c *CryptoOperations) encryptRSA1_5(privateKeyPEM string, data []byte) (*EncryptResult, error) {
+	key, err := ParsePrivateKey(privateKeyPEM, "RSA")
+	if err != nil {
+		return nil, err
+	}
+	rsaKey, ok := key.(*rsa.PrivateKey)
+	if !ok {
+		return nil, fmt.Errorf("invalid RSA private key")
+	}
+	ciphertext, err := rsa.EncryptPKCS1v15(rand.Reader, &rsaKey.PublicKey, data)
+	if err != nil {
+		return nil, fmt.Errorf("RSA1_5 encrypt failed: %w", err)
+	}
+	return &EncryptResult{Ciphertext: ciphertext, Algorithm: AlgorithmRSA1_5}, nil
+}
+
+// decryptRSA1_5 decrypts data using RSA PKCS1v15.
+func (c *CryptoOperations) decryptRSA1_5(privateKeyPEM string, ciphertext []byte) (*DecryptResult, error) {
+	key, err := ParsePrivateKey(privateKeyPEM, "RSA")
+	if err != nil {
+		return nil, err
+	}
+	rsaKey, ok := key.(*rsa.PrivateKey)
+	if !ok {
+		return nil, fmt.Errorf("invalid RSA private key")
+	}
+	plaintext, err := rsa.DecryptPKCS1v15(rand.Reader, rsaKey, ciphertext)
+	if err != nil {
+		return nil, fmt.Errorf("RSA1_5 decrypt failed: %w", err)
+	}
+	return &DecryptResult{Plaintext: plaintext, Algorithm: AlgorithmRSA1_5}, nil
+}
+
+// aesKeyWrap implements RFC 3394 AES key wrap.
+func aesKeyWrap(key, plaintext []byte) ([]byte, error) {
+	if len(plaintext)%8 != 0 {
+		return nil, fmt.Errorf("AES-KW plaintext must be a multiple of 8 bytes")
+	}
+	block, err := aes.NewCipher(key)
+	if err != nil {
+		return nil, err
+	}
+	// a is the running integrity check value initialised to the RFC IV.
+	a := [8]byte{0xA6, 0xA6, 0xA6, 0xA6, 0xA6, 0xA6, 0xA6, 0xA6}
+	n := len(plaintext) / 8
+	r := make([][]byte, n)
+	for i := range r {
+		r[i] = make([]byte, 8)
+		copy(r[i], plaintext[i*8:(i+1)*8])
+	}
+	buf := make([]byte, 16)
+	for j := 0; j < 6; j++ {
+		for i := 0; i < n; i++ {
+			copy(buf[:8], a[:])
+			copy(buf[8:], r[i])
+			block.Encrypt(buf, buf)
+			// XOR the high 64 bits with the step counter.
+			t := uint64(n*j + i + 1)
+			for k := 7; k >= 0; k-- {
+				buf[k] ^= byte(t)
+				t >>= 8
+			}
+			copy(a[:], buf[:8])
+			copy(r[i], buf[8:])
+		}
+	}
+	out := make([]byte, 8+len(plaintext))
+	copy(out[:8], a[:])
+	for i, ri := range r {
+		copy(out[8+i*8:], ri)
+	}
+	return out, nil
+}
+
+// aesKeyUnwrap implements RFC 3394 AES key unwrap.
+func aesKeyUnwrap(key, ciphertext []byte) ([]byte, error) {
+	if len(ciphertext) < 16 || len(ciphertext)%8 != 0 {
+		return nil, fmt.Errorf("AES-KW ciphertext has invalid length")
+	}
+	block, err := aes.NewCipher(key)
+	if err != nil {
+		return nil, err
+	}
+	n := len(ciphertext)/8 - 1
+	var a [8]byte
+	copy(a[:], ciphertext[:8])
+	r := make([][]byte, n)
+	for i := range r {
+		r[i] = make([]byte, 8)
+		copy(r[i], ciphertext[8+i*8:])
+	}
+	buf := make([]byte, 16)
+	for j := 5; j >= 0; j-- {
+		for i := n - 1; i >= 0; i-- {
+			// XOR the high 64 bits with the step counter before decryption.
+			t := uint64(n*j + i + 1)
+			copy(buf[:8], a[:])
+			for k := 7; k >= 0; k-- {
+				buf[k] ^= byte(t)
+				t >>= 8
+			}
+			copy(buf[8:], r[i])
+			block.Decrypt(buf, buf)
+			copy(a[:], buf[:8])
+			copy(r[i], buf[8:])
+		}
+	}
+	// Verify the RFC IV to detect corruption or wrong key.
+	iv := [8]byte{0xA6, 0xA6, 0xA6, 0xA6, 0xA6, 0xA6, 0xA6, 0xA6}
+	if a != iv {
+		return nil, fmt.Errorf("AES-KW integrity check failed")
+	}
+	out := make([]byte, n*8)
+	for i, ri := range r {
+		copy(out[i*8:], ri)
+	}
+	return out, nil
+}
+
+// wrapAES wraps key material using AES key wrap (RFC 3394).
+func (c *CryptoOperations) wrapAES(keyBase64 string, data []byte, algorithm EncryptionAlgorithm) (*EncryptResult, error) {
+	key, err := base64.StdEncoding.DecodeString(keyBase64)
+	if err != nil {
+		return nil, fmt.Errorf("failed to decode AES-KW key: %w", err)
+	}
+	wrapped, err := aesKeyWrap(key, data)
+	if err != nil {
+		return nil, fmt.Errorf("AES-KW wrap failed: %w", err)
+	}
+	return &EncryptResult{Ciphertext: wrapped, Algorithm: algorithm}, nil
+}
+
+// unwrapAES unwraps key material using AES key wrap (RFC 3394).
+func (c *CryptoOperations) unwrapAES(keyBase64 string, ciphertext []byte, algorithm EncryptionAlgorithm) (*DecryptResult, error) {
+	key, err := base64.StdEncoding.DecodeString(keyBase64)
+	if err != nil {
+		return nil, fmt.Errorf("failed to decode AES-KW key: %w", err)
+	}
+	plaintext, err := aesKeyUnwrap(key, ciphertext)
+	if err != nil {
+		return nil, fmt.Errorf("AES-KW unwrap failed: %w", err)
+	}
+	return &DecryptResult{Plaintext: plaintext, Algorithm: algorithm}, nil
+}
+
+// encryptAESCBC encrypts data using AES-CBC with PKCS7 padding.
+func (c *CryptoOperations) encryptAESCBC(keyBase64 string, data []byte, algorithm EncryptionAlgorithm) (*EncryptResult, error) {
+	key, err := base64.StdEncoding.DecodeString(keyBase64)
+	if err != nil {
+		return nil, fmt.Errorf("failed to decode AES-CBC key: %w", err)
+	}
+	// Apply PKCS7 padding so the plaintext is a multiple of the block size.
+	bs := aes.BlockSize
+	pad := bs - len(data)%bs
+	padded := make([]byte, len(data)+pad)
+	copy(padded, data)
+	for i := len(data); i < len(padded); i++ {
+		padded[i] = byte(pad)
+	}
+	iv := make([]byte, bs)
+	if _, err := rand.Read(iv); err != nil {
+		return nil, fmt.Errorf("failed to generate IV: %w", err)
+	}
+	block, err := aes.NewCipher(key)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create AES cipher: %w", err)
+	}
+	ciphertext := make([]byte, len(padded))
+	cipher.NewCBCEncrypter(block, iv).CryptBlocks(ciphertext, padded)
+	return &EncryptResult{Ciphertext: ciphertext, Algorithm: algorithm, Nonce: iv}, nil
+}
+
+// decryptAESCBC decrypts data using AES-CBC and strips PKCS7 padding.
+func (c *CryptoOperations) decryptAESCBC(keyBase64 string, ciphertext []byte, iv []byte, algorithm EncryptionAlgorithm) (*DecryptResult, error) {
+	key, err := base64.StdEncoding.DecodeString(keyBase64)
+	if err != nil {
+		return nil, fmt.Errorf("failed to decode AES-CBC key: %w", err)
+	}
+	if len(ciphertext)%aes.BlockSize != 0 {
+		return nil, fmt.Errorf("ciphertext length is not a multiple of the block size")
+	}
+	if len(iv) != aes.BlockSize {
+		return nil, fmt.Errorf("IV must be %d bytes", aes.BlockSize)
+	}
+	block, err := aes.NewCipher(key)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create AES cipher: %w", err)
+	}
+	plaintext := make([]byte, len(ciphertext))
+	cipher.NewCBCDecrypter(block, iv).CryptBlocks(plaintext, ciphertext)
+	// Remove PKCS7 padding.
+	if len(plaintext) == 0 {
+		return nil, fmt.Errorf("empty plaintext after decryption")
+	}
+	pad := int(plaintext[len(plaintext)-1])
+	if pad == 0 || pad > aes.BlockSize {
+		return nil, fmt.Errorf("invalid PKCS7 padding")
+	}
+	return &DecryptResult{Plaintext: plaintext[:len(plaintext)-pad], Algorithm: algorithm}, nil
 }
 
 // getHasher returns the appropriate hash function for the algorithm.

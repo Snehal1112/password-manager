@@ -316,6 +316,60 @@ func TestSignVerify_HMAC(t *testing.T) {
 	}
 }
 
+func TestEncryptDecrypt_RSA1_5(t *testing.T) {
+	t.Parallel()
+	c := NewCryptoOperations()
+
+	privPEM, err := GenerateRSAKeyPEM(2048)
+	require.NoError(t, err)
+	data := []byte("secret payload")
+
+	enc, err := c.Encrypt(privPEM, data, AlgorithmRSA1_5)
+	require.NoError(t, err)
+	require.NotEmpty(t, enc.Ciphertext)
+	require.Equal(t, AlgorithmRSA1_5, enc.Algorithm)
+
+	dec, err := c.Decrypt(privPEM, enc.Ciphertext, nil, AlgorithmRSA1_5)
+	require.NoError(t, err)
+	require.Equal(t, data, dec.Plaintext)
+}
+
+func TestEncryptDecrypt_AES128KW(t *testing.T) {
+	t.Parallel()
+	c := NewCryptoOperations()
+
+	// 16-byte key, AES-KW requires the plaintext to be a multiple of 8 bytes.
+	key := base64.StdEncoding.EncodeToString(bytes.Repeat([]byte{0x01}, 16))
+	data := bytes.Repeat([]byte{0x02}, 16)
+
+	enc, err := c.Encrypt(key, data, AlgorithmA128KW)
+	require.NoError(t, err)
+	require.NotEmpty(t, enc.Ciphertext)
+	require.Equal(t, AlgorithmA128KW, enc.Algorithm)
+
+	dec, err := c.Decrypt(key, enc.Ciphertext, nil, AlgorithmA128KW)
+	require.NoError(t, err)
+	require.Equal(t, data, dec.Plaintext)
+}
+
+func TestEncryptDecrypt_AES128CBC(t *testing.T) {
+	t.Parallel()
+	c := NewCryptoOperations()
+
+	key := base64.StdEncoding.EncodeToString(bytes.Repeat([]byte{0x03}, 16))
+	data := bytes.Repeat([]byte{0x04}, 32)
+
+	enc, err := c.Encrypt(key, data, AlgorithmA128CBC)
+	require.NoError(t, err)
+	require.NotEmpty(t, enc.Ciphertext)
+	require.NotEmpty(t, enc.Nonce)
+	require.Equal(t, AlgorithmA128CBC, enc.Algorithm)
+
+	dec, err := c.Decrypt(key, enc.Ciphertext, enc.Nonce, AlgorithmA128CBC)
+	require.NoError(t, err)
+	require.Equal(t, data, dec.Plaintext)
+}
+
 func BenchmarkAESEncrypt(b *testing.B) {
 	ops := NewCryptoOperations()
 	keyBase64 := base64.StdEncoding.EncodeToString(make([]byte, 32))
