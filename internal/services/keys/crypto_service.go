@@ -444,10 +444,15 @@ func (s *cryptoService) Decrypt(ctx context.Context, req DecryptRequest) (*Decry
 	}, nil
 }
 
-// WrapKey encrypts plaintext key material using RSA-OAEP with the specified vault key.
+// WrapKey encrypts plaintext key material using RSA-OAEP, RSA-OAEP-256, AES-KW, or AES-CBC with the specified vault key.
 func (s *cryptoService) WrapKey(ctx context.Context, req WrapKeyRequest) (*WrapKeyResult, error) {
-	if req.Algorithm != "RSA-OAEP" && req.Algorithm != "RSA-OAEP-256" {
-		return nil, fmt.Errorf("unsupported algorithm %q: only RSA-OAEP and RSA-OAEP-256 are supported", req.Algorithm)
+	validWrapAlgorithms := map[string]bool{
+		"RSA-OAEP": true, "RSA-OAEP-256": true,
+		"A128KW": true, "A192KW": true, "A256KW": true,
+		"A128CBC": true, "A192CBC": true, "A256CBC": true,
+	}
+	if !validWrapAlgorithms[req.Algorithm] {
+		return nil, fmt.Errorf("unsupported wrap algorithm %q", req.Algorithm)
 	}
 	key, err := s.keyRepo.Read(ctx, req.KeyID)
 	if err != nil {
@@ -478,10 +483,23 @@ func (s *cryptoService) WrapKey(ctx context.Context, req WrapKeyRequest) (*WrapK
 		return nil, err
 	}
 	var encAlgo crypto.EncryptionAlgorithm
-	if req.Algorithm == "RSA-OAEP-256" {
+	switch req.Algorithm {
+	case "RSA-OAEP-256":
 		encAlgo = crypto.AlgorithmRSAOAEP256
-	} else {
+	case "RSA-OAEP":
 		encAlgo = crypto.AlgorithmRSAOAEP
+	case "A128KW":
+		encAlgo = crypto.AlgorithmA128KW
+	case "A192KW":
+		encAlgo = crypto.AlgorithmA192KW
+	case "A256KW":
+		encAlgo = crypto.AlgorithmA256KW
+	case "A128CBC":
+		encAlgo = crypto.AlgorithmA128CBC
+	case "A192CBC":
+		encAlgo = crypto.AlgorithmA192CBC
+	case "A256CBC":
+		encAlgo = crypto.AlgorithmA256CBC
 	}
 	var wrappedKey []byte
 	if wrapIsPKCS11 {
@@ -502,10 +520,15 @@ func (s *cryptoService) WrapKey(ctx context.Context, req WrapKeyRequest) (*WrapK
 	return &WrapKeyResult{WrappedKey: wrappedKey, Algorithm: req.Algorithm}, nil
 }
 
-// UnwrapKey decrypts wrapped key material using RSA-OAEP with the specified vault key.
+// UnwrapKey decrypts wrapped key material using RSA-OAEP, RSA-OAEP-256, AES-KW, or AES-CBC with the specified vault key.
 func (s *cryptoService) UnwrapKey(ctx context.Context, req UnwrapKeyRequest) (*UnwrapKeyResult, error) {
-	if req.Algorithm != "RSA-OAEP" && req.Algorithm != "RSA-OAEP-256" {
-		return nil, fmt.Errorf("unsupported algorithm %q: only RSA-OAEP and RSA-OAEP-256 are supported", req.Algorithm)
+	validUnwrapAlgorithms := map[string]bool{
+		"RSA-OAEP": true, "RSA-OAEP-256": true,
+		"A128KW": true, "A192KW": true, "A256KW": true,
+		"A128CBC": true, "A192CBC": true, "A256CBC": true,
+	}
+	if !validUnwrapAlgorithms[req.Algorithm] {
+		return nil, fmt.Errorf("unsupported unwrap algorithm %q", req.Algorithm)
 	}
 	key, err := s.keyRepo.Read(ctx, req.KeyID)
 	if err != nil {
@@ -536,10 +559,23 @@ func (s *cryptoService) UnwrapKey(ctx context.Context, req UnwrapKeyRequest) (*U
 		return nil, err
 	}
 	var decAlgo crypto.EncryptionAlgorithm
-	if req.Algorithm == "RSA-OAEP-256" {
+	switch req.Algorithm {
+	case "RSA-OAEP-256":
 		decAlgo = crypto.AlgorithmRSAOAEP256
-	} else {
+	case "RSA-OAEP":
 		decAlgo = crypto.AlgorithmRSAOAEP
+	case "A128KW":
+		decAlgo = crypto.AlgorithmA128KW
+	case "A192KW":
+		decAlgo = crypto.AlgorithmA192KW
+	case "A256KW":
+		decAlgo = crypto.AlgorithmA256KW
+	case "A128CBC":
+		decAlgo = crypto.AlgorithmA128CBC
+	case "A192CBC":
+		decAlgo = crypto.AlgorithmA192CBC
+	case "A256CBC":
+		decAlgo = crypto.AlgorithmA256CBC
 	}
 	var plaintext []byte
 	if unwrapIsPKCS11 {

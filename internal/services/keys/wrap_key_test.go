@@ -217,5 +217,35 @@ func TestWrapKeyRejectsUnsupportedAlgorithm(t *testing.T) {
 		Algorithm:    "ECDH-ES",
 	})
 	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "unsupported algorithm")
+	assert.Contains(t, err.Error(), "unsupported wrap algorithm")
+}
+
+func TestWrapKey_AESKWAlgorithmNotRejectedByAllowlist(t *testing.T) {
+	setupWrapTestMasterKey()
+	privateKeyPEM := generateTestRSAPEM(t)
+	encryptedPEM, err := common.EncryptSecret(privateKeyPEM)
+	require.NoError(t, err)
+
+	userID := uuid.New()
+	keyID := uuid.New()
+
+	repo := &mockKeyRepoForWrap{}
+	repo.On("Read", mock.Anything, keyID).Return(&model.Key{
+		ID: keyID, UserID: userID, Type: "RSA", Value: encryptedPEM,
+	}, nil)
+
+	svc := keys.NewCryptoService(keys.CryptoServiceConfig{
+		KeyRepository: repo,
+		Logger:        &logging.Logger{Logger: logrus.New()},
+	})
+
+	_, err = svc.WrapKey(context.Background(), keys.WrapKeyRequest{
+		UserID:       userID,
+		KeyID:        keyID,
+		Algorithm:    "A256KW",
+		PlaintextKey: []byte("test-key-material"),
+	})
+	require.Error(t, err)
+	assert.NotContains(t, err.Error(), "unsupported algorithm",
+		"A256KW must pass the algorithm allowlist")
 }
