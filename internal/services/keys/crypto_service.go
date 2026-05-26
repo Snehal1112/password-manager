@@ -83,7 +83,7 @@ type WrapKeyRequest struct {
 	KeyID        uuid.UUID
 	UserID       uuid.UUID
 	PlaintextKey []byte
-	Algorithm    string // must be "RSA-OAEP"
+	Algorithm    string // must be one of: RSA-OAEP, RSA-OAEP-256, A128KW, A192KW, A256KW, A128CBC, A192CBC, A256CBC
 }
 
 // WrapKeyResult holds the wrapped key bytes.
@@ -97,7 +97,7 @@ type UnwrapKeyRequest struct {
 	KeyID      uuid.UUID
 	UserID     uuid.UUID
 	WrappedKey []byte
-	Algorithm  string // must be "RSA-OAEP"
+	Algorithm  string // must be one of: RSA-OAEP, RSA-OAEP-256, A128KW, A192KW, A256KW, A128CBC, A192CBC, A256CBC
 }
 
 // UnwrapKeyResult holds the recovered plaintext key bytes.
@@ -501,6 +501,10 @@ func (s *cryptoService) WrapKey(ctx context.Context, req WrapKeyRequest) (*WrapK
 	case "A256CBC":
 		encAlgo = crypto.AlgorithmA256CBC
 	}
+	// AES wrap/unwrap requires a software key; HSM keys only support RSA-OAEP variants.
+	if wrapIsPKCS11 && req.Algorithm != "RSA-OAEP" && req.Algorithm != "RSA-OAEP-256" {
+		return nil, fmt.Errorf("algorithm %q is not supported for HSM-backed keys; use RSA-OAEP or RSA-OAEP-256", req.Algorithm)
+	}
 	var wrappedKey []byte
 	if wrapIsPKCS11 {
 		wrappedKey, _, err = s.keyProvider.Encrypt(ctx, wrapHandle, req.PlaintextKey, encAlgo)
@@ -512,7 +516,7 @@ func (s *cryptoService) WrapKey(ctx context.Context, req WrapKeyRequest) (*WrapK
 		}
 	}
 	if err != nil {
-		s.logger.LogAuditError(req.UserID.String(), "wrap_key", "failed", "RSA-OAEP wrap failed", err)
+		s.logger.LogAuditError(req.UserID.String(), "wrap_key", "failed", "wrap operation failed", err)
 		return nil, fmt.Errorf("wrap failed: %w", err)
 	}
 	s.logger.LogAuditInfo(req.UserID.String(), "wrap_key", "success",
@@ -577,6 +581,10 @@ func (s *cryptoService) UnwrapKey(ctx context.Context, req UnwrapKeyRequest) (*U
 	case "A256CBC":
 		decAlgo = crypto.AlgorithmA256CBC
 	}
+	// AES wrap/unwrap requires a software key; HSM keys only support RSA-OAEP variants.
+	if unwrapIsPKCS11 && req.Algorithm != "RSA-OAEP" && req.Algorithm != "RSA-OAEP-256" {
+		return nil, fmt.Errorf("algorithm %q is not supported for HSM-backed keys; use RSA-OAEP or RSA-OAEP-256", req.Algorithm)
+	}
 	var plaintext []byte
 	if unwrapIsPKCS11 {
 		plaintext, err = s.keyProvider.Decrypt(ctx, unwrapHandle, req.WrappedKey, nil, decAlgo)
@@ -588,7 +596,7 @@ func (s *cryptoService) UnwrapKey(ctx context.Context, req UnwrapKeyRequest) (*U
 		}
 	}
 	if err != nil {
-		s.logger.LogAuditError(req.UserID.String(), "unwrap_key", "failed", "RSA-OAEP unwrap failed", err)
+		s.logger.LogAuditError(req.UserID.String(), "unwrap_key", "failed", "unwrap operation failed", err)
 		return nil, fmt.Errorf("unwrap failed: %w", err)
 	}
 	s.logger.LogAuditInfo(req.UserID.String(), "unwrap_key", "success",
