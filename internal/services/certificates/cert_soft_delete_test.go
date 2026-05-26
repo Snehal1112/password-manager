@@ -158,6 +158,10 @@ func (m *mockKeyRepo) ListSoftDeleted(ctx context.Context, userID uuid.UUID) ([]
 	return nil, args.Error(1)
 }
 
+func (m *mockKeyRepo) ReadDeleted(ctx context.Context, id uuid.UUID) (*model.Key, error) {
+	return nil, nil
+}
+
 func (m *mockKeyRepo) CreateVersion(ctx context.Context, keyID uuid.UUID, version int, value string) error {
 	return nil
 }

@@ -59,9 +59,12 @@ func (m *MockKeyService) UpdateKey(ctx context.Context, req keyservices.UpdateKe
 	return args.Error(0)
 }
 
-func (m *MockKeyService) DeleteKey(ctx context.Context, keyID, userID uuid.UUID) error {
+func (m *MockKeyService) DeleteKey(ctx context.Context, keyID, userID uuid.UUID) (*model.Key, error) {
 	args := m.Called(ctx, keyID, userID)
-	return args.Error(0)
+	if v := args.Get(0); v != nil {
+		return v.(*model.Key), args.Error(1)
+	}
+	return nil, args.Error(1)
 }
 
 func (m *MockKeyService) RotateKey(ctx context.Context, keyID, userID uuid.UUID) (*keyservices.CreateKeyResult, error) {
@@ -509,7 +512,7 @@ func TestKeysDeleteCommand(t *testing.T) {
 			setupMocks: func(tc *testutils.TestContext, mockService *MockKeyService) {
 				keyID := uuid.MustParse("550e8400-e29b-41d4-a716-446655440000")
 				mockService.On("DeleteKey", mock.Anything, keyID, tc.TestUserID).
-					Return(nil)
+					Return(nil, nil)
 			},
 			expectedOutput: "Key deleted successfully",
 			expectedError:  false,
@@ -529,7 +532,7 @@ func TestKeysDeleteCommand(t *testing.T) {
 			setupMocks: func(tc *testutils.TestContext, mockService *MockKeyService) {
 				keyID := uuid.MustParse("550e8400-e29b-41d4-a716-446655440000")
 				mockService.On("DeleteKey", mock.Anything, keyID, tc.TestUserID).
-					Return(fmt.Errorf("deletion failed"))
+					Return(nil, fmt.Errorf("deletion failed"))
 			},
 			expectedOutput: "failed to delete key",
 			expectedError:  true,
@@ -552,7 +555,7 @@ func TestKeysDeleteCommand(t *testing.T) {
 						return fmt.Errorf("invalid key ID: %w", err)
 					}
 
-					err = mockService.DeleteKey(cmd.Context(), keyID, tc.TestUserID)
+					_, err = mockService.DeleteKey(cmd.Context(), keyID, tc.TestUserID)
 					if err != nil {
 						return fmt.Errorf("failed to delete key: %w", err)
 					}
@@ -630,7 +633,7 @@ func TestKeysIntegration(t *testing.T) {
 
 		// Step 4: Delete key
 		mockService.On("DeleteKey", mock.Anything, keyID, tc.TestUserID).
-			Return(nil).Once()
+			Return(nil, nil).Once()
 
 		// Execute the lifecycle workflow
 		workflowSteps := []struct {
@@ -716,7 +719,7 @@ func TestKeysIntegration(t *testing.T) {
 					cmd := &cobra.Command{
 						Use: "delete",
 						RunE: func(cmd *cobra.Command, args []string) error {
-							err := mockService.DeleteKey(cmd.Context(), keyID, tc.TestUserID)
+							_, err := mockService.DeleteKey(cmd.Context(), keyID, tc.TestUserID)
 							if err != nil {
 								return err
 							}

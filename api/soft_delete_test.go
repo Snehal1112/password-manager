@@ -99,6 +99,9 @@ func (s *stubKeyRepo) PurgeKey(_ context.Context, _ uuid.UUID) error {
 func (s *stubKeyRepo) SetPurgeProtection(_ context.Context, _ uuid.UUID, _ bool) error {
 	panic("unexpected call: SetPurgeProtection")
 }
+func (s *stubKeyRepo) ReadDeleted(_ context.Context, _ uuid.UUID) (*model.Key, error) {
+	panic("unexpected call: ReadDeleted")
+}
 func (s *stubKeyRepo) CreateVersion(_ context.Context, _ uuid.UUID, _ int, _ string) error {
 	panic("unexpected call: CreateVersion")
 }

@@ -75,6 +75,14 @@ func (m *mockKeyRepository) ListSoftDeleted(ctx context.Context, userID uuid.UUI
 	return nil, args.Error(1)
 }
 
+func (m *mockKeyRepository) ReadDeleted(ctx context.Context, id uuid.UUID) (*model.Key, error) {
+	args := m.Called(ctx, id)
+	if v := args.Get(0); v != nil {
+		return v.(*model.Key), args.Error(1)
+	}
+	return nil, args.Error(1)
+}
+
 func (m *mockKeyRepository) CreateVersion(ctx context.Context, keyID uuid.UUID, version int, value string) error {
 	return m.Called(ctx, keyID, version, value).Error(0)
 }
@@ -92,13 +100,23 @@ func TestDeleteKeySoftDeletes(t *testing.T) {
 	userID := uuid.New()
 	keyID := uuid.New()
 
+	now := time.Now()
 	existingKey := &model.Key{
 		ID:        keyID,
 		UserID:    userID,
 		Name:      "test-key",
 		Type:      model.KeyTypeRSA,
-		CreatedAt: time.Now(),
+		CreatedAt: now,
 		Enabled:   true,
+	}
+	deletedKey := &model.Key{
+		ID:        keyID,
+		UserID:    userID,
+		Name:      "test-key",
+		Type:      model.KeyTypeRSA,
+		CreatedAt: now,
+		Enabled:   true,
+		DeletedAt: &now,
 	}
 
 	repo := &mockKeyRepository{}
@@ -109,6 +127,9 @@ func TestDeleteKeySoftDeletes(t *testing.T) {
 	// SoftDelete must be called once.
 	repo.On("SoftDelete", mock.Anything, keyID).Return(nil)
 
+	// ReadDeleted is called after SoftDelete to fetch metadata.
+	repo.On("ReadDeleted", mock.Anything, keyID).Return(deletedKey, nil)
+
 	// Delete must NOT be called — we register no expectation, and AssertNotCalled
 	// below will confirm this.
 
@@ -118,10 +139,58 @@ func TestDeleteKeySoftDeletes(t *testing.T) {
 		Logger:        logger,
 	})
 
-	err := svc.DeleteKey(context.Background(), keyID, userID)
+	result, err := svc.DeleteKey(context.Background(), keyID, userID)
 	assert.NoError(t, err)
+	assert.NotNil(t, result)
 
 	repo.AssertCalled(t, "SoftDelete", mock.Anything, keyID)
+	repo.AssertCalled(t, "ReadDeleted", mock.Anything, keyID)
 	repo.AssertNotCalled(t, "Delete", mock.Anything, mock.Anything)
+	repo.AssertExpectations(t)
+}
+
+// TestDeleteKey_ReturnsDeletedRecord verifies that DeleteKey returns a non-nil
+// *model.Key with DeletedAt populated after a successful soft-delete.
+func TestDeleteKey_ReturnsDeletedRecord(t *testing.T) {
+	userID := uuid.New()
+	keyID := uuid.New()
+
+	now := time.Now()
+	existingKey := &model.Key{
+		ID:        keyID,
+		UserID:    userID,
+		Name:      "my-key",
+		Type:      model.KeyTypeRSA,
+		CreatedAt: now,
+		Enabled:   true,
+	}
+	deletedKey := &model.Key{
+		ID:        keyID,
+		UserID:    userID,
+		Name:      "my-key",
+		Type:      model.KeyTypeRSA,
+		CreatedAt: now,
+		Enabled:   true,
+		DeletedAt: &now,
+	}
+
+	repo := &mockKeyRepository{}
+	repo.On("Read", mock.Anything, keyID).Return(existingKey, nil)
+	repo.On("SoftDelete", mock.Anything, keyID).Return(nil)
+	repo.On("ReadDeleted", mock.Anything, keyID).Return(deletedKey, nil)
+
+	logger := &logging.Logger{Logger: logrus.New()}
+	svc := NewKeyService(KeyServiceConfig{
+		KeyRepository: repo,
+		Logger:        logger,
+	})
+
+	result, err := svc.DeleteKey(context.Background(), keyID, userID)
+	assert.NoError(t, err)
+	assert.NotNil(t, result)
+	assert.NotNil(t, result.DeletedAt, "DeletedAt must be populated in the returned record")
+	assert.Equal(t, keyID, result.ID)
+	assert.Equal(t, "my-key", result.Name)
+
 	repo.AssertExpectations(t)
 }

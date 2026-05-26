@@ -30,6 +30,9 @@ type KeyRepositoryInterface interface {
 	PurgeKey(ctx context.Context, id uuid.UUID) error
 	SetPurgeProtection(ctx context.Context, id uuid.UUID, enabled bool) error
 	ListSoftDeleted(ctx context.Context, userID uuid.UUID) ([]*model.Key, error)
+	// ReadDeleted retrieves a key by ID regardless of soft-deletion state.
+	// Used to return deletion metadata after a soft-delete operation.
+	ReadDeleted(ctx context.Context, id uuid.UUID) (*model.Key, error)
 	// CreateVersion persists a versioned snapshot of a key's raw material.
 	CreateVersion(ctx context.Context, keyID uuid.UUID, version int, value string) error
 	// ListVersions returns all version records for a key, ordered by version ASC.
@@ -194,6 +197,58 @@ func (r *KeyRepository) Read(ctx context.Context, id uuid.UUID) (*model.Key, err
 	key.Tags, err = tagRepo.GetTags(ctx, id)
 	if err != nil {
 		r.log.LogAuditError(uuid.Nil.String(), "read_key", "failed", "Failed to read tags", err)
+		return nil, fmt.Errorf("failed to read tags: %w", err)
+	}
+
+	return &key, nil
+}
+
+// ReadDeleted retrieves a key by ID regardless of whether it has been soft-deleted.
+// This is used after SoftDelete to return deletion metadata to callers.
+// It follows the same scan pattern as Read but omits the "deleted_at IS NULL" filter.
+//
+// Parameters:
+//   - ctx: The context for the database operation.
+//   - id: The key's unique identifier.
+//
+// Returns:
+//
+//	The key entity (including deleted_at/scheduled_purge_at) or an error if not found.
+func (r *KeyRepository) ReadDeleted(ctx context.Context, id uuid.UUID) (*model.Key, error) {
+	var key model.Key
+	var idStr, userIDStr string
+
+	err := r.db.QueryRowContext(
+		ctx,
+		"SELECT id, user_id, name, value, type, revoked, created_at, enabled, expires_at, not_before, bits, curve, updated_at, deleted_at, scheduled_purge_at FROM keys WHERE id = ?",
+		id.String(),
+	).Scan(&idStr, &userIDStr, &key.Name, &key.Value, &key.Type, &key.Revoked, &key.CreatedAt,
+		&key.Enabled, &key.ExpiresAt, &key.NotBefore, &key.Bits, &key.Curve, &key.UpdatedAt,
+		&key.DeletedAt, &key.ScheduledPurgeAt)
+
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, fmt.Errorf("key not found")
+	}
+	if err != nil {
+		r.log.LogAuditError(uuid.Nil.String(), "read_deleted_key", "failed", "Failed to query key", err)
+		return nil, fmt.Errorf("failed to query key: %w", err)
+	}
+
+	key.ID, err = uuid.Parse(idStr)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse key ID: %w", err)
+	}
+
+	key.UserID, err = uuid.Parse(userIDStr)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse user ID: %w", err)
+	}
+
+	// Tags are not strictly needed for deletion metadata but kept for consistency.
+	tagRepo := db.NewTagRepository[model.Key](r.db, "key_tags", "key_id")
+	key.Tags, err = tagRepo.GetTags(ctx, id)
+	if err != nil {
+		r.log.LogAuditError(uuid.Nil.String(), "read_deleted_key", "failed", "Failed to read tags", err)
 		return nil, fmt.Errorf("failed to read tags: %w", err)
 	}
 

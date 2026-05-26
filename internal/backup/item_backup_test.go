@@ -250,6 +250,10 @@ func (r *stubKeyRepo) ListSoftDeleted(_ context.Context, _ uuid.UUID) ([]*model.
 	return nil, nil
 }
 
+func (r *stubKeyRepo) ReadDeleted(_ context.Context, _ uuid.UUID) (*model.Key, error) {
+	return nil, nil
+}
+
 func (r *stubKeyRepo) CreateVersion(_ context.Context, _ uuid.UUID, _ int, _ string) error {
 	return nil
 }

@@ -547,12 +547,31 @@ func deleteKey(c *Context, w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Use service layer for deletion with access control.
-	if err := keyService.DeleteKey(r.Context(), keyID, userID); err != nil {
+	deleted, err := keyService.DeleteKey(r.Context(), keyID, userID)
+	if err != nil {
 		c.SetInternalError(err)
 		return
 	}
 
-	ReturnStatusOK(w)
+	// Return deletion metadata matching Azure Key Vault's DELETE /keys/{name} response.
+	type deleteResponse struct {
+		ID               string     `json:"id"`
+		Name             string     `json:"name"`
+		DeletedAt        *time.Time `json:"deleted_at"`
+		ScheduledPurgeAt *time.Time `json:"scheduled_purge_at,omitempty"`
+		RecoveryID       string     `json:"recovery_id,omitempty"`
+	}
+
+	resp := deleteResponse{
+		ID:               deleted.ID.String(),
+		Name:             deleted.Name,
+		DeletedAt:        deleted.DeletedAt,
+		ScheduledPurgeAt: deleted.ScheduledPurgeAt,
+		RecoveryID:       "/deleted/keys/" + deleted.ID.String() + "/restore",
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(resp)
 }
 
 // rotateKey rotates a cryptographic key by generating a new key pair and revoking the old key.

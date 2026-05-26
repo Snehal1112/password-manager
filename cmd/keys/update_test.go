@@ -35,8 +35,8 @@ func (m *MockKeyServiceForUpdate) ListKeys(ctx context.Context, userID uuid.UUID
 func (m *MockKeyServiceForUpdate) ListKeysWithFilters(ctx context.Context, userID *uuid.UUID, keyType string, tags []string, isAdmin bool) ([]model.Key, error) {
 	return nil, nil
 }
-func (m *MockKeyServiceForUpdate) DeleteKey(ctx context.Context, keyID, userID uuid.UUID) error {
-	return nil
+func (m *MockKeyServiceForUpdate) DeleteKey(ctx context.Context, keyID, userID uuid.UUID) (*model.Key, error) {
+	return nil, nil
 }
 func (m *MockKeyServiceForUpdate) RotateKey(ctx context.Context, keyID, userID uuid.UUID) (*keyServices.CreateKeyResult, error) {
 	return nil, nil

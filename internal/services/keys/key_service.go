@@ -62,7 +62,7 @@ type KeyService interface {
 	ListKeys(ctx context.Context, userID uuid.UUID) ([]model.Key, error)
 	ListKeysWithFilters(ctx context.Context, userID *uuid.UUID, keyType string, tags []string, isAdmin bool) ([]model.Key, error)
 	UpdateKey(ctx context.Context, req UpdateKeyRequest) error
-	DeleteKey(ctx context.Context, keyID, userID uuid.UUID) error
+	DeleteKey(ctx context.Context, keyID, userID uuid.UUID) (*model.Key, error)
 	RotateKey(ctx context.Context, keyID, userID uuid.UUID) (*CreateKeyResult, error)
 	ValidateKeyAccess(ctx context.Context, keyID, userID uuid.UUID, role string) error
 }
@@ -450,6 +450,8 @@ func (s *keyService) UpdateKey(ctx context.Context, req UpdateKeyRequest) error 
 }
 
 // DeleteKey removes a key from the system with access control validation.
+// It returns the deleted key record so callers can inspect deletion metadata
+// (deleted_at, scheduled_purge_at) matching Azure Key Vault behaviour.
 //
 // Parameters:
 //   ctx: The context for the operation.
@@ -457,20 +459,29 @@ func (s *keyService) UpdateKey(ctx context.Context, req UpdateKeyRequest) error 
 //   userID: The requesting user's ID for access control.
 //
 // Returns:
-//   An error if deletion fails or access is denied.
-func (s *keyService) DeleteKey(ctx context.Context, keyID, userID uuid.UUID) error {
-	// Verify key exists and access
-	if _, err := s.GetKey(ctx, keyID, userID); err != nil {
-		return fmt.Errorf("delete key: %w", err)
+//   The deleted key record (with deleted_at populated) or an error if deletion fails.
+func (s *keyService) DeleteKey(ctx context.Context, keyID, userID uuid.UUID) (*model.Key, error) {
+	// Verify key exists and that the caller owns it.
+	key, err := s.GetKey(ctx, keyID, userID)
+	if err != nil {
+		return nil, fmt.Errorf("delete key: %w", err)
 	}
 
 	if err := s.keyRepo.SoftDelete(ctx, keyID); err != nil {
 		s.logger.LogAuditError(userID.String(), "delete_key", "failed", "Failed to soft-delete key", err)
-		return fmt.Errorf("failed to delete key: %w", err)
+		return nil, fmt.Errorf("failed to delete key: %w", err)
+	}
+
+	// Re-read the row so deleted_at is populated from the database.
+	deleted, err := s.keyRepo.ReadDeleted(ctx, keyID)
+	if err != nil {
+		// Non-fatal: return the pre-delete snapshot without metadata.
+		s.logger.LogAuditInfo(userID.String(), "delete_key", "success", "Key deleted (metadata unavailable)")
+		return key, nil
 	}
 
 	s.logger.LogAuditInfo(userID.String(), "delete_key", "success", "Key deleted successfully")
-	return nil
+	return deleted, nil
 }
 
 // RotateKey rotates an existing key in-place by generating new key material,
