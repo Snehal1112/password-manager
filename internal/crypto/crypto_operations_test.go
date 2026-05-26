@@ -306,6 +306,12 @@ func TestSignVerify_HMAC(t *testing.T) {
 			result, err := c.Verify(key, "oct", data, sig.Signature, alg)
 			require.NoError(t, err)
 			require.True(t, result.Valid)
+
+			// Tamper detection: corrupted data must not verify.
+			tampered := []byte("tampered payload")
+			bad, err := c.Verify(key, "oct", tampered, sig.Signature, alg)
+			require.NoError(t, err)
+			require.False(t, bad.Valid)
 		})
 	}
 }

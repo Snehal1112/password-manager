@@ -44,6 +44,9 @@ const (
 	AlgorithmHS512 SignatureAlgorithm = "HS512" // HMAC with SHA-512
 )
 
+// KeyTypeOct is the symmetric key type (raw bytes, base64-encoded).
+const KeyTypeOct = "oct"
+
 // EncryptionAlgorithm represents the encryption algorithm to use.
 type EncryptionAlgorithm string
 
@@ -94,7 +97,7 @@ func NewCryptoOperations() *CryptoOperations {
 // Supports RSA, ECDSA, and oct (HMAC) keys with various hash algorithms.
 func (c *CryptoOperations) Sign(privateKeyPEM string, keyType string, data []byte, algorithm SignatureAlgorithm) (*SignResult, error) {
 	// Handle HMAC (oct) keys directly — no PEM parsing needed.
-	if keyType == "oct" {
+	if keyType == KeyTypeOct {
 		keyBytes, err := base64.StdEncoding.DecodeString(privateKeyPEM)
 		if err != nil {
 			return nil, fmt.Errorf("failed to decode oct key: %w", err)
@@ -182,7 +185,7 @@ func (c *CryptoOperations) Sign(privateKeyPEM string, keyType string, data []byt
 // Verify verifies a signature using the provided public key.
 func (c *CryptoOperations) Verify(publicKeyPEM string, keyType string, data []byte, signature []byte, algorithm SignatureAlgorithm) (*VerifyResult, error) {
 	// Handle HMAC (oct) keys directly — no PEM parsing needed.
-	if keyType == "oct" {
+	if keyType == KeyTypeOct {
 		keyBytes, err := base64.StdEncoding.DecodeString(publicKeyPEM)
 		if err != nil {
 			return nil, fmt.Errorf("failed to decode oct key: %w", err)
