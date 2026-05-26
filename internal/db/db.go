@@ -334,6 +334,16 @@ func (d *DBRepository) createOptimizedSchema(db *sql.DB) error {
 		);
 		CREATE INDEX IF NOT EXISTS idx_key_tags_tag ON key_tags(tag);
 
+		CREATE TABLE IF NOT EXISTS key_versions (
+			key_id     TEXT NOT NULL,
+			version    INTEGER NOT NULL,
+			value      TEXT NOT NULL,
+			created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+			PRIMARY KEY (key_id, version),
+			FOREIGN KEY (key_id) REFERENCES keys(id) ON DELETE CASCADE
+		);
+		CREATE INDEX IF NOT EXISTS idx_key_versions_key_id ON key_versions(key_id);
+
 		CREATE TABLE IF NOT EXISTS certificates (
 			id TEXT PRIMARY KEY,
 			user_id TEXT NOT NULL,
@@ -583,6 +593,16 @@ func (d *DBRepository) migrateSchema(db *sql.DB) error {
 			expires_at    TIMESTAMP NULL
 		)`,
 		"CREATE INDEX IF NOT EXISTS idx_oauth2_clients_name ON oauth2_clients(name)",
+		// Feature: key versioning table for true rotation
+		`CREATE TABLE IF NOT EXISTS key_versions (
+			key_id     TEXT NOT NULL,
+			version    INTEGER NOT NULL,
+			value      TEXT NOT NULL,
+			created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+			PRIMARY KEY (key_id, version),
+			FOREIGN KEY (key_id) REFERENCES keys(id) ON DELETE CASCADE
+		)`,
+		"CREATE INDEX IF NOT EXISTS idx_key_versions_key_id ON key_versions(key_id)",
 	}
 	for _, stmt := range migrations {
 		if _, err := db.Exec(stmt); err != nil {

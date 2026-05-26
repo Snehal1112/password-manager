@@ -71,6 +71,14 @@ func (m *mockKeyRepoForWrap) ListSoftDeleted(ctx context.Context, userID uuid.UU
 	return nil, nil
 }
 
+func (m *mockKeyRepoForWrap) CreateVersion(ctx context.Context, keyID uuid.UUID, version int, value string) error {
+	return nil
+}
+
+func (m *mockKeyRepoForWrap) ListVersions(ctx context.Context, keyID, userID uuid.UUID) ([]model.KeyVersion, error) {
+	return nil, nil
+}
+
 func TestWrapAndUnwrapKey(t *testing.T) {
 	setupWrapTestMasterKey()
 	privateKeyPEM := generateTestRSAPEM(t)

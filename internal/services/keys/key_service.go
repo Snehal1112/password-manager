@@ -458,64 +458,100 @@ func (s *keyService) DeleteKey(ctx context.Context, keyID, userID uuid.UUID) err
 	return nil
 }
 
-// RotateKey creates a new key to replace an existing one.
-// It marks the old key as revoked and generates a new key with the same properties.
+// RotateKey rotates an existing key in-place by generating new key material,
+// archiving the current and new material into key_versions, and updating the
+// key's value field to the freshly generated material.
+//
+// Unlike the old implementation, rotation does NOT create a new key with a
+// "-rotated" suffix. The key identity (ID, name, tags) is preserved.
 //
 // Parameters:
 //   ctx: The context for the operation.
 //   keyID: The key to rotate.
-//   userID: The requesting user's ID for access control.
+//   userID: The requesting user's ID for ownership verification.
 //
 // Returns:
-//   The new key information or an error if rotation fails.
+//   A CreateKeyResult describing the (unchanged) key identity, or an error.
 func (s *keyService) RotateKey(ctx context.Context, keyID, userID uuid.UUID) (*CreateKeyResult, error) {
-	// Get existing key
-	existingKey, err := s.GetKey(ctx, keyID, userID)
+	// Use Read directly so rotation works even on disabled/expired keys.
+	existing, err := s.keyRepo.Read(ctx, keyID)
 	if err != nil {
 		return nil, fmt.Errorf("rotate key: %w", err)
 	}
-
-	// Mark old key as revoked
-	if err := s.keyRepo.UpdateRevocationStatus(ctx, keyID, true); err != nil {
-		s.logger.LogAuditError(userID.String(), "rotate_key", "failed", "failed to revoke old key", err)
-		return nil, fmt.Errorf("failed to revoke old key: %w", err)
+	if existing.UserID != userID {
+		s.logger.LogAuditError(userID.String(), "rotate_key", "forbidden", "key does not belong to user", nil)
+		return nil, fmt.Errorf("forbidden: key does not belong to user")
 	}
 
-	// Create rotation request based on existing key
-	req := CreateKeyRequest{
-		Name:   existingKey.Name + "-rotated",
-		Type:   existingKey.Type,
-		Tags:   existingKey.Tags,
-		UserID: userID,
+	bits := existing.Bits
+	if bits == 0 {
+		bits = 2048 // Fallback for keys without stored bit size.
+	}
+	curve := existing.Curve
+	if curve == "" {
+		curve = "P-256" // Fallback for keys without stored curve.
 	}
 
-	// Set type-specific parameters and create new key
-	switch existingKey.Type {
+	// Generate new key material for the same type.
+	var newPEM string
+	switch existing.Type {
 	case model.KeyTypeRSA:
-		bits := existingKey.Bits
-		if bits == 0 {
-			bits = 2048 // Fallback for keys created before lifecycle attributes.
-		}
-		req.Bits = bits
-		return s.CreateRSAKey(ctx, req)
+		newPEM, err = crypto.GenerateRSAKeyPEM(bits)
 	case model.KeyTypeECDSA:
-		curve := existingKey.Curve
-		if curve == "" {
-			curve = "P-256" // Fallback for keys created before lifecycle attributes.
-		}
-		req.Curve = curve
-		return s.CreateECDSAKey(ctx, req)
+		newPEM, err = crypto.GenerateECDSAKeyPEM(curve)
 	case model.KeyTypeES256K:
-		curve := existingKey.Curve
-		if curve == "" {
-			curve = "P-256K" // Fallback for keys created before lifecycle attributes.
-		}
-		req.Curve = curve
-		return s.CreateECDSAKey(ctx, req)
+		newPEM, err = crypto.GenerateECDSAKeyPEM("P-256K")
 	default:
 		s.logger.LogAuditError(userID.String(), "rotate_key", "failed", "unsupported key type for rotation", nil)
-		return nil, fmt.Errorf("unsupported key type for rotation: %s", existingKey.Type)
+		return nil, fmt.Errorf("unsupported key type for rotation: %s", existing.Type)
 	}
+	if err != nil {
+		s.logger.LogAuditError(userID.String(), "rotate_key", "failed", "key generation failed", err)
+		return nil, fmt.Errorf("key generation failed: %w", err)
+	}
+
+	encryptedNew, err := common.EncryptSecret(newPEM)
+	if err != nil {
+		s.logger.LogAuditError(userID.String(), "rotate_key", "failed", "key encryption failed", err)
+		return nil, fmt.Errorf("key encryption failed: %w", err)
+	}
+
+	// Determine next version number from existing history.
+	versions, err := s.keyRepo.ListVersions(ctx, keyID, userID)
+	if err != nil {
+		return nil, fmt.Errorf("list versions: %w", err)
+	}
+	nextVersion := len(versions) + 1
+
+	// If this is the first rotation, archive the original material as version 1 first.
+	if len(versions) == 0 {
+		if err := s.keyRepo.CreateVersion(ctx, keyID, 1, existing.Value); err != nil {
+			return nil, fmt.Errorf("archive original key version: %w", err)
+		}
+		nextVersion = 2
+	}
+
+	// Archive the new material as the next version.
+	if err := s.keyRepo.CreateVersion(ctx, keyID, nextVersion, encryptedNew); err != nil {
+		return nil, fmt.Errorf("create new key version: %w", err)
+	}
+
+	// Update the key's active value in place.
+	existing.Value = encryptedNew
+	if err := s.keyRepo.Update(ctx, existing); err != nil {
+		return nil, fmt.Errorf("update key value: %w", err)
+	}
+
+	s.logger.LogAuditInfo(userID.String(), "rotate_key", "success",
+		fmt.Sprintf("Key %s rotated to version %d.", keyID, nextVersion))
+
+	return &CreateKeyResult{
+		KeyID:     keyID,
+		Name:      existing.Name,
+		Type:      existing.Type,
+		Tags:      existing.Tags,
+		CreatedAt: existing.CreatedAt,
+	}, nil
 }
 
 // ValidateKeyAccess validates that a user has access to a specific key.

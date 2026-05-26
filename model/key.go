@@ -50,6 +50,15 @@ const (
 	KeyTypeOct    = "oct"    // Symmetric key (HMAC / AES)
 )
 
+// KeyVersion represents a single version snapshot of a cryptographic key.
+// The raw key material (Value/PEM) is intentionally omitted from this struct
+// to prevent accidental exposure in HTTP responses.
+type KeyVersion struct {
+	KeyID     uuid.UUID `json:"key_id"`
+	Version   int       `json:"version"`
+	CreatedAt time.Time `json:"created_at"`
+}
+
 // --- HTTP request/response types ---
 
 type CreateKeyRequest struct {

@@ -158,6 +158,14 @@ func (m *mockKeyRepo) ListSoftDeleted(ctx context.Context, userID uuid.UUID) ([]
 	return nil, args.Error(1)
 }
 
+func (m *mockKeyRepo) CreateVersion(ctx context.Context, keyID uuid.UUID, version int, value string) error {
+	return nil
+}
+
+func (m *mockKeyRepo) ListVersions(ctx context.Context, keyID, userID uuid.UUID) ([]model.KeyVersion, error) {
+	return nil, nil
+}
+
 // TestDeleteCertificateSoftDeletes verifies that DeleteCertificate calls SoftDelete on the
 // repository and does not call the hard Delete method.
 func TestDeleteCertificateSoftDeletes(t *testing.T) {

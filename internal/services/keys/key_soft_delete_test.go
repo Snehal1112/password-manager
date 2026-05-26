@@ -75,6 +75,18 @@ func (m *mockKeyRepository) ListSoftDeleted(ctx context.Context, userID uuid.UUI
 	return nil, args.Error(1)
 }
 
+func (m *mockKeyRepository) CreateVersion(ctx context.Context, keyID uuid.UUID, version int, value string) error {
+	return m.Called(ctx, keyID, version, value).Error(0)
+}
+
+func (m *mockKeyRepository) ListVersions(ctx context.Context, keyID, userID uuid.UUID) ([]model.KeyVersion, error) {
+	args := m.Called(ctx, keyID, userID)
+	if v := args.Get(0); v != nil {
+		return v.([]model.KeyVersion), args.Error(1)
+	}
+	return nil, args.Error(1)
+}
+
 // TestDeleteKeySoftDeletes verifies that DeleteKey calls SoftDelete and not Delete.
 func TestDeleteKeySoftDeletes(t *testing.T) {
 	userID := uuid.New()

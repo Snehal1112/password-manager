@@ -53,6 +53,13 @@ func setupTestDB(t *testing.T) *sql.DB {
 			tag TEXT NOT NULL,
 			PRIMARY KEY (key_id, tag)
 		);
+		CREATE TABLE IF NOT EXISTS key_versions (
+			key_id     TEXT NOT NULL,
+			version    INTEGER NOT NULL,
+			value      TEXT NOT NULL,
+			created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+			PRIMARY KEY (key_id, version)
+		);
 	`)
 	require.NoError(t, err, "failed to create test schema")
 

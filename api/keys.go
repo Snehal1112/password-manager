@@ -180,6 +180,7 @@ func (api *API) InitKeys() {
 
 	// Additional operations.
 	k.Handle("/{key_id:[A-Fa-f0-9-]+}/rotate", ApiSessionRequired(api.App, rotateKey)).Methods("POST")
+	k.Handle("/{key_id:[A-Fa-f0-9-]+}/versions", ApiSessionRequired(api.App, listKeyVersions)).Methods("GET")
 	k.Handle("/{key_id:[A-Fa-f0-9-]+}/wrap", ApiSessionRequired(api.App, wrapKey)).Methods("POST")
 	k.Handle("/{key_id:[A-Fa-f0-9-]+}/unwrap", ApiSessionRequired(api.App, unwrapKey)).Methods("POST")
 	k.Handle("/{key_id:[A-Fa-f0-9-]+}/sign", ApiSessionRequired(api.App, signKey)).Methods("POST")
@@ -612,6 +613,40 @@ func rotateKey(c *Context, w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(response)
+}
+
+// listKeyVersions returns the version history for a key, excluding raw key material.
+func listKeyVersions(c *Context, w http.ResponseWriter, r *http.Request) {
+	keyID, err := uuid.Parse(c.Params.KeyID)
+	if err != nil {
+		c.SetInvalidParam("key_id")
+		return
+	}
+
+	userID, ok := userIDFromClaims(c)
+	if !ok {
+		return
+	}
+
+	repo := c.App.ServiceContainer.GetKeyRepository()
+	if repo == nil {
+		c.SetInternalError(nil)
+		return
+	}
+
+	versions, err := repo.ListVersions(r.Context(), keyID, userID)
+	if err != nil {
+		c.SetInternalError(err)
+		return
+	}
+
+	// Return an empty array rather than null when no versions exist.
+	if versions == nil {
+		versions = []model.KeyVersion{}
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{"versions": versions})
 }
 
 // wrapKey wraps plaintext key material using the vault key identified by {key_id}.

@@ -30,6 +30,11 @@ type KeyRepositoryInterface interface {
 	PurgeKey(ctx context.Context, id uuid.UUID) error
 	SetPurgeProtection(ctx context.Context, id uuid.UUID, enabled bool) error
 	ListSoftDeleted(ctx context.Context, userID uuid.UUID) ([]*model.Key, error)
+	// CreateVersion persists a versioned snapshot of a key's raw material.
+	CreateVersion(ctx context.Context, keyID uuid.UUID, version int, value string) error
+	// ListVersions returns all version records for a key, ordered by version ASC.
+	// userID is used to enforce ownership before returning results.
+	ListVersions(ctx context.Context, keyID, userID uuid.UUID) ([]model.KeyVersion, error)
 }
 
 // KeyRepository implements KeyRepositoryInterface with pure CRUD operations.
@@ -691,4 +696,61 @@ func (r *KeyRepository) ListSoftDeleted(ctx context.Context, userID uuid.UUID) (
 	}).Debug("Soft-deleted keys listed successfully")
 
 	return keyList, nil
+}
+
+// CreateVersion inserts a new version row for a key into the key_versions table.
+// value is the encrypted key material for this version.
+//
+// Parameters:
+//   - ctx: The context for the database operation.
+//   - keyID: The key's unique identifier.
+//   - version: The version number (must be unique per key).
+//   - value: The encrypted PEM material for this version.
+//
+// Returns:
+//
+//	An error if the insertion fails.
+func (r *KeyRepository) CreateVersion(ctx context.Context, keyID uuid.UUID, version int, value string) error {
+	_, err := r.db.ExecContext(ctx,
+		"INSERT INTO key_versions (key_id, version, value, created_at) VALUES (?, ?, ?, ?)",
+		keyID.String(), version, value, time.Now(),
+	)
+	return err
+}
+
+// ListVersions retrieves all version metadata for a key, enforcing ownership via a JOIN.
+// Raw key material (value) is not returned; only version number and timestamp are exposed.
+//
+// Parameters:
+//   - ctx: The context for the database operation.
+//   - keyID: The key's unique identifier.
+//   - userID: The owner's user ID — rows are filtered by joining against the keys table.
+//
+// Returns:
+//
+//	An ordered (ASC) slice of KeyVersion records, or an error if retrieval fails.
+func (r *KeyRepository) ListVersions(ctx context.Context, keyID, userID uuid.UUID) ([]model.KeyVersion, error) {
+	rows, err := r.db.QueryContext(ctx, `
+		SELECT kv.version, kv.created_at
+		FROM key_versions kv
+		JOIN keys k ON k.id = kv.key_id
+		WHERE kv.key_id = ? AND k.user_id = ?
+		ORDER BY kv.version ASC`,
+		keyID.String(), userID.String(),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query key versions: %w", err)
+	}
+	defer rows.Close()
+
+	var versions []model.KeyVersion
+	for rows.Next() {
+		var v model.KeyVersion
+		v.KeyID = keyID
+		if err := rows.Scan(&v.Version, &v.CreatedAt); err != nil {
+			return nil, fmt.Errorf("failed to scan key version: %w", err)
+		}
+		versions = append(versions, v)
+	}
+	return versions, rows.Err()
 }
