@@ -5,6 +5,7 @@ import (
 	"net/http"
 
 	"github.com/google/uuid"
+	"github.com/gorilla/mux"
 )
 
 // listDeletedSecrets returns all soft-deleted secrets for the authenticated user.
@@ -159,6 +160,43 @@ func listDeletedKeys(c *Context, w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]any{"deleted_keys": items, "total": len(items)})
+}
+
+// getDeletedKey returns a single soft-deleted key by its UUID.
+func getDeletedKey(c *Context, w http.ResponseWriter, r *http.Request) {
+	userID, ok := userIDFromClaims(c)
+	if !ok {
+		return
+	}
+
+	keyIDStr := mux.Vars(r)["key_id"]
+	keyID, err := uuid.Parse(keyIDStr)
+	if err != nil {
+		c.SetInvalidParam("key_id")
+		return
+	}
+
+	repo := c.App.ServiceContainer.GetKeyRepository()
+	keys, err := repo.ListSoftDeleted(r.Context(), userID)
+	if err != nil {
+		c.SetInternalError(err)
+		return
+	}
+
+	for _, k := range keys {
+		if k.ID == keyID {
+			w.Header().Set("Content-Type", "application/json")
+			json.NewEncoder(w).Encode(map[string]any{
+				"id":               k.ID.String(),
+				"name":             k.Name,
+				"type":             k.Type,
+				"deleted_at":       k.DeletedAt,
+				"purge_protection": k.PurgeProtection,
+			})
+			return
+		}
+	}
+	c.SetNotFound("key")
 }
 
 // recoverKey restores a soft-deleted key by ID.
@@ -383,6 +421,7 @@ func (api *API) InitDeleted() {
 	r.Handle("/secrets", ApiSessionRequired(api.App, listDeletedSecrets)).Methods("GET")
 	r.Handle("/secrets/{secret_id:[A-Fa-f0-9-]+}/restore", ApiSessionRequired(api.App, recoverSecret)).Methods("POST")
 	r.Handle("/secrets/{secret_id:[A-Fa-f0-9-]+}/purge", ApiSessionRequired(api.App, purgeSecret)).Methods("DELETE")
+	r.Handle("/keys/{key_id:[A-Fa-f0-9-]+}", ApiSessionRequired(api.App, getDeletedKey)).Methods("GET")
 	r.Handle("/keys", ApiSessionRequired(api.App, listDeletedKeys)).Methods("GET")
 	r.Handle("/keys/{key_id:[A-Fa-f0-9-]+}/restore", ApiSessionRequired(api.App, recoverKey)).Methods("POST")
 	r.Handle("/keys/{key_id:[A-Fa-f0-9-]+}/purge", ApiSessionRequired(api.App, purgeKey)).Methods("DELETE")
