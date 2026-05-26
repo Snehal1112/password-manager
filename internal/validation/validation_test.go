@@ -114,6 +114,15 @@ func TestValidateKeyCreate(t *testing.T) {
 			wantError: false,
 		},
 		{
+			name: "valid 3072 bit RSA key",
+			request: KeyCreateRequest{
+				Name: "my-3072-rsa-key",
+				Type: model.KeyTypeRSA,
+				Bits: 3072,
+			},
+			wantError: false,
+		},
+		{
 			name: "invalid RSA bits",
 			request: KeyCreateRequest{
 				Name: "my-rsa-key",

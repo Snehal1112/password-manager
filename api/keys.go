@@ -42,7 +42,7 @@ import (
 type CreateKeyRequest struct {
 	Name      string     `json:"name"`              // Key name.
 	Type      string     `json:"type"`              // Key type (RSA, ECDSA).
-	Bits      int        `json:"bits"`              // RSA key size in bits (2048 or 4096).
+	Bits      int        `json:"bits"`              // RSA key size in bits (2048, 3072, or 4096).
 	Curve     string     `json:"curve"`             // ECDSA curve (P-256, P-384, P-521).
 	Tags      []string   `json:"tags"`              // Tags for the key.
 	Enabled   *bool      `json:"enabled,omitempty"` // Defaults to true if nil.
@@ -269,11 +269,11 @@ func createKey(c *Context, w http.ResponseWriter, r *http.Request) {
 	var result *keyservices.CreateKeyResult
 	if req.Type == "RSA" {
 		// Validate RSA key size.
-		if req.Bits != 2048 && req.Bits != 4096 {
+		if req.Bits != 2048 && req.Bits != 3072 && req.Bits != 4096 {
 			if req.Bits == 0 {
 				req.Bits = 2048 // Default RSA key size.
 			} else {
-				c.SetInvalidParam("bits: must be 2048 or 4096")
+				c.SetInvalidParam("bits: must be 2048, 3072, or 4096")
 				return
 			}
 		}
