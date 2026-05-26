@@ -634,7 +634,7 @@ func (r *KeyRepository) ListSoftDeleted(ctx context.Context, userID uuid.UUID) (
 		logrus.WithField("user_id", userID.String()).Debug("Listing soft-deleted keys for user")
 
 		rows, err := r.db.QueryContext(ctx,
-			"SELECT id, user_id, name, value, type, revoked, created_at, deleted_at, purge_protection FROM keys WHERE user_id = ? AND deleted_at IS NOT NULL ORDER BY deleted_at DESC",
+			"SELECT id, user_id, name, value, type, revoked, created_at, enabled, expires_at, not_before, bits, curve, deleted_at, purge_protection FROM keys WHERE user_id = ? AND deleted_at IS NOT NULL ORDER BY deleted_at DESC",
 			userID.String())
 		if err != nil {
 			r.log.LogAuditError(userID.String(), "list_soft_deleted_keys", "failed", "Failed to query soft-deleted keys", err)
@@ -650,7 +650,9 @@ func (r *KeyRepository) ListSoftDeleted(ctx context.Context, userID uuid.UUID) (
 			var deletedAt *time.Time
 			var purgeProtection bool
 
-			if err := rows.Scan(&idStr, &userIDStr, &key.Name, &key.Value, &key.Type, &key.Revoked, &key.CreatedAt, &deletedAt, &purgeProtection); err != nil {
+			if err := rows.Scan(&idStr, &userIDStr, &key.Name, &key.Value, &key.Type, &key.Revoked, &key.CreatedAt,
+				&key.Enabled, &key.ExpiresAt, &key.NotBefore, &key.Bits, &key.Curve,
+				&deletedAt, &purgeProtection); err != nil {
 				r.log.LogAuditError(userID.String(), "list_soft_deleted_keys", "failed", "Failed to scan key", err)
 				return fmt.Errorf("failed to scan key: %w", err)
 			}

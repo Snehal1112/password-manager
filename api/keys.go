@@ -40,29 +40,40 @@ import (
 
 // CreateKeyRequest represents the request structure for creating a cryptographic key.
 type CreateKeyRequest struct {
-	Name  string   `json:"name"`  // Key name.
-	Type  string   `json:"type"`  // Key type (RSA, ECDSA).
-	Bits  int      `json:"bits"`  // RSA key size in bits (2048 or 4096).
-	Curve string   `json:"curve"` // ECDSA curve (P-256, P-384, P-521).
-	Tags  []string `json:"tags"`  // Tags for the key.
+	Name      string     `json:"name"`              // Key name.
+	Type      string     `json:"type"`              // Key type (RSA, ECDSA).
+	Bits      int        `json:"bits"`              // RSA key size in bits (2048 or 4096).
+	Curve     string     `json:"curve"`             // ECDSA curve (P-256, P-384, P-521).
+	Tags      []string   `json:"tags"`              // Tags for the key.
+	Enabled   *bool      `json:"enabled,omitempty"` // Defaults to true if nil.
+	ExpiresAt *time.Time `json:"expires_at,omitempty"`
+	NotBefore *time.Time `json:"not_before,omitempty"`
 }
 
 // UpdateKeyRequest represents the request structure for updating a cryptographic key.
 type UpdateKeyRequest struct {
-	Name    *string  `json:"name,omitempty"`    // New name for the key.
-	Revoked *bool    `json:"revoked,omitempty"` // Set key revocation status.
-	Tags    []string `json:"tags,omitempty"`    // Replace existing tags.
+	Name      *string    `json:"name,omitempty"`    // New name for the key.
+	Revoked   *bool      `json:"revoked,omitempty"` // Set key revocation status.
+	Tags      []string   `json:"tags,omitempty"`    // Replace existing tags.
+	Enabled   *bool      `json:"enabled,omitempty"`
+	ExpiresAt *time.Time `json:"expires_at,omitempty"`
+	NotBefore *time.Time `json:"not_before,omitempty"`
 }
 
 // KeyResponse represents the response structure for a cryptographic key.
 type KeyResponse struct {
-	ID        uuid.UUID `json:"id"`
-	Name      string    `json:"name"`
-	Type      string    `json:"type"`
-	UserID    uuid.UUID `json:"user_id"`
-	Revoked   bool      `json:"revoked"`
-	CreatedAt time.Time `json:"created_at"`
-	Tags      []string  `json:"tags"`
+	ID        uuid.UUID  `json:"id"`
+	Name      string     `json:"name"`
+	Type      string     `json:"type"`
+	UserID    uuid.UUID  `json:"user_id"`
+	Revoked   bool       `json:"revoked"`
+	CreatedAt time.Time  `json:"created_at"`
+	Tags      []string   `json:"tags"`
+	Enabled   bool       `json:"enabled"`
+	ExpiresAt *time.Time `json:"expires_at,omitempty"`
+	NotBefore *time.Time `json:"not_before,omitempty"`
+	Bits      int        `json:"bits,omitempty"`
+	Curve     string     `json:"curve,omitempty"`
 }
 
 // KeyListResponse represents the response structure for listing keys.
@@ -236,12 +247,22 @@ func createKey(c *Context, w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Default Enabled to true when not specified.
+	enabled := req.Enabled
+	if enabled == nil {
+		t := true
+		enabled = &t
+	}
+
 	// Build create key request.
 	createReq := keyservices.CreateKeyRequest{
-		Name:   req.Name,
-		Type:   req.Type,
-		Tags:   req.Tags,
-		UserID: userID,
+		Name:      req.Name,
+		Type:      req.Type,
+		Tags:      req.Tags,
+		UserID:    userID,
+		Enabled:   enabled,
+		ExpiresAt: req.ExpiresAt,
+		NotBefore: req.NotBefore,
 	}
 
 	var result *keyservices.CreateKeyResult
@@ -284,6 +305,11 @@ func createKey(c *Context, w http.ResponseWriter, r *http.Request) {
 		Revoked:   false, // New keys are never revoked.
 		CreatedAt: result.CreatedAt,
 		Tags:      result.Tags,
+		Enabled:   *enabled,
+		ExpiresAt: createReq.ExpiresAt,
+		NotBefore: createReq.NotBefore,
+		Bits:      createReq.Bits,
+		Curve:     createReq.Curve,
 	}
 
 	w.Header().Set("Content-Type", "application/json")
@@ -343,6 +369,11 @@ func listKeys(c *Context, w http.ResponseWriter, r *http.Request) {
 			Revoked:   key.Revoked,
 			CreatedAt: key.CreatedAt,
 			Tags:      key.Tags,
+			Enabled:   key.Enabled,
+			ExpiresAt: key.ExpiresAt,
+			NotBefore: key.NotBefore,
+			Bits:      key.Bits,
+			Curve:     key.Curve,
 		}
 	}
 
@@ -409,6 +440,11 @@ func getKey(c *Context, w http.ResponseWriter, r *http.Request) {
 		Revoked:   key.Revoked,
 		CreatedAt: key.CreatedAt,
 		Tags:      key.Tags,
+		Enabled:   key.Enabled,
+		ExpiresAt: key.ExpiresAt,
+		NotBefore: key.NotBefore,
+		Bits:      key.Bits,
+		Curve:     key.Curve,
 	}
 
 	w.Header().Set("Content-Type", "application/json")
@@ -442,8 +478,8 @@ func updateKey(c *Context, w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Validate at least one field provided.
-	if req.Name == nil && req.Revoked == nil && req.Tags == nil {
-		c.SetInvalidParam("at least one update field (name, revoked, tags) must be provided")
+	if req.Name == nil && req.Revoked == nil && req.Tags == nil && req.Enabled == nil && req.ExpiresAt == nil && req.NotBefore == nil {
+		c.SetInvalidParam("at least one update field (name, revoked, tags, enabled, expires_at, not_before) must be provided")
 		return
 	}
 
@@ -454,10 +490,14 @@ func updateKey(c *Context, w http.ResponseWriter, r *http.Request) {
 
 	// Use service layer for update with access control.
 	updateReq := keyservices.UpdateKeyRequest{
-		KeyID:  keyID,
-		Name:   req.Name,
-		Tags:   req.Tags,
-		UserID: userID,
+		KeyID:     keyID,
+		Name:      req.Name,
+		Tags:      req.Tags,
+		UserID:    userID,
+		Revoked:   req.Revoked,
+		Enabled:   req.Enabled,
+		ExpiresAt: req.ExpiresAt,
+		NotBefore: req.NotBefore,
 	}
 
 	if err := keyService.UpdateKey(r.Context(), updateReq); err != nil {
@@ -481,6 +521,11 @@ func updateKey(c *Context, w http.ResponseWriter, r *http.Request) {
 		Revoked:   key.Revoked,
 		CreatedAt: key.CreatedAt,
 		Tags:      key.Tags,
+		Enabled:   key.Enabled,
+		ExpiresAt: key.ExpiresAt,
+		NotBefore: key.NotBefore,
+		Bits:      key.Bits,
+		Curve:     key.Curve,
 	}
 
 	w.Header().Set("Content-Type", "application/json")
@@ -562,6 +607,7 @@ func rotateKey(c *Context, w http.ResponseWriter, r *http.Request) {
 		Revoked:   false, // New rotated keys are never revoked.
 		CreatedAt: result.CreatedAt,
 		Tags:      result.Tags,
+		Enabled:   true, // Rotated keys are always enabled at creation.
 	}
 
 	w.Header().Set("Content-Type", "application/json")

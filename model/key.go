@@ -53,11 +53,14 @@ const (
 // --- HTTP request/response types ---
 
 type CreateKeyRequest struct {
-	Name  string   `json:"name"`
-	Type  string   `json:"type"`
-	Bits  int      `json:"bits"`
-	Curve string   `json:"curve"`
-	Tags  []string `json:"tags"`
+	Name      string     `json:"name"`
+	Type      string     `json:"type"`
+	Bits      int        `json:"bits"`
+	Curve     string     `json:"curve"`
+	Tags      []string   `json:"tags"`
+	Enabled   *bool      `json:"enabled,omitempty"`
+	ExpiresAt *time.Time `json:"expires_at,omitempty"`
+	NotBefore *time.Time `json:"not_before,omitempty"`
 }
 
 func CreateKeyRequestFromJson(data io.Reader) (*CreateKeyRequest, error) {
@@ -66,9 +69,12 @@ func CreateKeyRequestFromJson(data io.Reader) (*CreateKeyRequest, error) {
 }
 
 type UpdateKeyRequest struct {
-	Name    *string  `json:"name,omitempty"`
-	Revoked *bool    `json:"revoked,omitempty"`
-	Tags    []string `json:"tags,omitempty"`
+	Name      *string    `json:"name,omitempty"`
+	Revoked   *bool      `json:"revoked,omitempty"`
+	Tags      []string   `json:"tags,omitempty"`
+	Enabled   *bool      `json:"enabled,omitempty"`
+	ExpiresAt *time.Time `json:"expires_at,omitempty"`
+	NotBefore *time.Time `json:"not_before,omitempty"`
 }
 
 func UpdateKeyRequestFromJson(data io.Reader) (*UpdateKeyRequest, error) {
@@ -77,13 +83,18 @@ func UpdateKeyRequestFromJson(data io.Reader) (*UpdateKeyRequest, error) {
 }
 
 type KeyResponse struct {
-	ID        uuid.UUID `json:"id"`
-	Name      string    `json:"name"`
-	Type      string    `json:"type"`
-	UserID    uuid.UUID `json:"user_id"`
-	Revoked   bool      `json:"revoked"`
-	CreatedAt time.Time `json:"created_at"`
-	Tags      []string  `json:"tags"`
+	ID        uuid.UUID  `json:"id"`
+	Name      string     `json:"name"`
+	Type      string     `json:"type"`
+	UserID    uuid.UUID  `json:"user_id"`
+	Revoked   bool       `json:"revoked"`
+	CreatedAt time.Time  `json:"created_at"`
+	Tags      []string   `json:"tags"`
+	Enabled   bool       `json:"enabled"`
+	ExpiresAt *time.Time `json:"expires_at,omitempty"`
+	NotBefore *time.Time `json:"not_before,omitempty"`
+	Bits      int        `json:"bits,omitempty"`
+	Curve     string     `json:"curve,omitempty"`
 }
 
 func (r *KeyResponse) ToJson() string {

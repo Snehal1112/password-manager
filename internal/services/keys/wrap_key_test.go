@@ -85,6 +85,7 @@ func TestWrapAndUnwrapKey(t *testing.T) {
 		Type:    "RSA",
 		Value:   encryptedPEM,
 		Revoked: false,
+		Enabled: true,
 	}
 
 	repo := &mockKeyRepoForWrap{}
@@ -126,7 +127,7 @@ func TestWrapAndUnwrapKey_OAEP256(t *testing.T) {
 	userID := uuid.New()
 	keyID := uuid.New()
 	vaultKey := &model.Key{
-		ID: keyID, UserID: userID, Type: "RSA", Value: encryptedPEM, Revoked: false,
+		ID: keyID, UserID: userID, Type: "RSA", Value: encryptedPEM, Revoked: false, Enabled: true,
 	}
 
 	repo := &mockKeyRepoForWrap{}

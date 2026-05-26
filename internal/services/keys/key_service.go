@@ -20,12 +20,15 @@ import (
 
 // CreateKeyRequest represents a request to create a new cryptographic key.
 type CreateKeyRequest struct {
-	Name   string
-	Type   string // "RSA" or "ECDSA"
-	Bits   int    // For RSA: 2048 or 4096
-	Curve  string // For ECDSA: P-256, P-384, P-521
-	Tags   []string
-	UserID uuid.UUID
+	Name      string
+	Type      string // "RSA" or "ECDSA"
+	Bits      int    // For RSA: 2048 or 4096
+	Curve     string // For ECDSA: P-256, P-384, P-521
+	Tags      []string
+	UserID    uuid.UUID
+	Enabled   *bool      // Defaults to true if nil.
+	ExpiresAt *time.Time
+	NotBefore *time.Time
 }
 
 // CreateKeyResult represents the result of creating a new key.
@@ -39,11 +42,14 @@ type CreateKeyResult struct {
 
 // UpdateKeyRequest represents a request to update an existing key.
 type UpdateKeyRequest struct {
-	KeyID   uuid.UUID
-	Name    *string   // Optional - nil means no change
-	Tags    []string  // Optional - empty means no change
-	Revoked *bool     // Optional - nil means no change
-	UserID  uuid.UUID // For access control
+	KeyID     uuid.UUID
+	Name      *string    // Optional - nil means no change
+	Tags      []string   // Optional - empty means no change
+	Revoked   *bool      // Optional - nil means no change
+	UserID    uuid.UUID  // For access control
+	Enabled   *bool      // Optional - nil means no change
+	ExpiresAt *time.Time // Optional - nil means no change
+	NotBefore *time.Time // Optional - nil means no change
 }
 
 // KeyService handles cryptographic key management operations.
@@ -126,6 +132,12 @@ func (s *keyService) CreateRSAKey(ctx context.Context, req CreateKeyRequest) (*C
 		return nil, fmt.Errorf("failed to encrypt key: %w", err)
 	}
 
+	// Default to enabled when caller did not specify.
+	enabled := true
+	if req.Enabled != nil {
+		enabled = *req.Enabled
+	}
+
 	// Create key entity.
 	key := &model.Key{
 		ID:        uuid.New(),
@@ -136,8 +148,10 @@ func (s *keyService) CreateRSAKey(ctx context.Context, req CreateKeyRequest) (*C
 		Revoked:   false,
 		CreatedAt: time.Now(),
 		Tags:      req.Tags,
-		Enabled:   true,
+		Enabled:   enabled,
 		Bits:      req.Bits,
+		ExpiresAt: req.ExpiresAt,
+		NotBefore: req.NotBefore,
 	}
 
 	// Store in repository.
@@ -205,6 +219,12 @@ func (s *keyService) CreateECDSAKey(ctx context.Context, req CreateKeyRequest) (
 		keyType = model.KeyTypeES256K
 	}
 
+	// Default to enabled when caller did not specify.
+	enabled := true
+	if req.Enabled != nil {
+		enabled = *req.Enabled
+	}
+
 	// Create key entity.
 	key := &model.Key{
 		ID:        uuid.New(),
@@ -215,8 +235,10 @@ func (s *keyService) CreateECDSAKey(ctx context.Context, req CreateKeyRequest) (
 		Revoked:   false,
 		CreatedAt: time.Now(),
 		Tags:      req.Tags,
-		Enabled:   true,
+		Enabled:   enabled,
 		Curve:     req.Curve,
+		ExpiresAt: req.ExpiresAt,
+		NotBefore: req.NotBefore,
 	}
 
 	// Store in repository.
@@ -391,6 +413,17 @@ func (s *keyService) UpdateKey(ctx context.Context, req UpdateKeyRequest) error 
 		updatedKey.Revoked = *req.Revoked
 	}
 
+	// Update lifecycle fields if provided.
+	if req.Enabled != nil {
+		updatedKey.Enabled = *req.Enabled
+	}
+	if req.ExpiresAt != nil {
+		updatedKey.ExpiresAt = req.ExpiresAt
+	}
+	if req.NotBefore != nil {
+		updatedKey.NotBefore = req.NotBefore
+	}
+
 	// Update key via repository
 	if err := s.keyRepo.Update(ctx, &updatedKey); err != nil {
 		s.logger.LogAuditError(req.UserID.String(), "update_key", "failed", "Failed to update key", err)
@@ -459,13 +492,25 @@ func (s *keyService) RotateKey(ctx context.Context, keyID, userID uuid.UUID) (*C
 	// Set type-specific parameters and create new key
 	switch existingKey.Type {
 	case model.KeyTypeRSA:
-		req.Bits = 2048 // Default RSA size for rotation.
+		bits := existingKey.Bits
+		if bits == 0 {
+			bits = 2048 // Fallback for keys created before lifecycle attributes.
+		}
+		req.Bits = bits
 		return s.CreateRSAKey(ctx, req)
 	case model.KeyTypeECDSA:
-		req.Curve = "P-256" // Default ECDSA curve for rotation.
+		curve := existingKey.Curve
+		if curve == "" {
+			curve = "P-256" // Fallback for keys created before lifecycle attributes.
+		}
+		req.Curve = curve
 		return s.CreateECDSAKey(ctx, req)
 	case model.KeyTypeES256K:
-		req.Curve = "P-256K" // Keep the same curve family on rotation.
+		curve := existingKey.Curve
+		if curve == "" {
+			curve = "P-256K" // Fallback for keys created before lifecycle attributes.
+		}
+		req.Curve = curve
 		return s.CreateECDSAKey(ctx, req)
 	default:
 		s.logger.LogAuditError(userID.String(), "rotate_key", "failed", "unsupported key type for rotation", nil)

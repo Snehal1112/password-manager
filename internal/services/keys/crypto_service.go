@@ -160,6 +160,13 @@ func (s *cryptoService) Sign(ctx context.Context, req SignRequest) (*SignResult,
 		return nil, fmt.Errorf("cannot sign with revoked key")
 	}
 
+	// Check if key is accessible (enabled and within validity window).
+	if !key.IsAccessible() {
+		s.logger.LogAuditError(req.UserID.String(), "sign", "failed",
+			fmt.Sprintf("Attempted sign with inaccessible key: %s", req.KeyID), nil)
+		return nil, fmt.Errorf("cannot sign with disabled or expired key")
+	}
+
 	// Decrypt the private key
 	decryptedKey, err := common.DecryptSecret(key.Value)
 	if err != nil {
@@ -213,6 +220,13 @@ func (s *cryptoService) Verify(ctx context.Context, req VerifyRequest) (*VerifyR
 		s.logger.LogAuditError(req.UserID.String(), "verify", "failed",
 			fmt.Sprintf("Attempted to verify with revoked key: %s", req.KeyID), nil)
 		return nil, fmt.Errorf("cannot verify with revoked key")
+	}
+
+	// Check if key is accessible (enabled and within validity window).
+	if !key.IsAccessible() {
+		s.logger.LogAuditError(req.UserID.String(), "verify", "failed",
+			fmt.Sprintf("Attempted verify with inaccessible key: %s", req.KeyID), nil)
+		return nil, fmt.Errorf("cannot verify with disabled or expired key")
 	}
 
 	// Decrypt the private key (to extract public key)
@@ -275,6 +289,13 @@ func (s *cryptoService) Encrypt(ctx context.Context, req EncryptRequest) (*Encry
 		return nil, fmt.Errorf("cannot encrypt with revoked key")
 	}
 
+	// Check if key is accessible (enabled and within validity window).
+	if !key.IsAccessible() {
+		s.logger.LogAuditError(req.UserID.String(), "encrypt", "failed",
+			fmt.Sprintf("Attempted encrypt with inaccessible key: %s", req.KeyID), nil)
+		return nil, fmt.Errorf("cannot encrypt with disabled or expired key")
+	}
+
 	// Decrypt the private key
 	decryptedKey, err := common.DecryptSecret(key.Value)
 	if err != nil {
@@ -330,6 +351,13 @@ func (s *cryptoService) Decrypt(ctx context.Context, req DecryptRequest) (*Decry
 		return nil, fmt.Errorf("cannot decrypt with revoked key")
 	}
 
+	// Check if key is accessible (enabled and within validity window).
+	if !key.IsAccessible() {
+		s.logger.LogAuditError(req.UserID.String(), "decrypt", "failed",
+			fmt.Sprintf("Attempted decrypt with inaccessible key: %s", req.KeyID), nil)
+		return nil, fmt.Errorf("cannot decrypt with disabled or expired key")
+	}
+
 	// Decrypt the private key
 	decryptedKey, err := common.DecryptSecret(key.Value)
 	if err != nil {
@@ -381,6 +409,14 @@ func (s *cryptoService) WrapKey(ctx context.Context, req WrapKeyRequest) (*WrapK
 			fmt.Sprintf("attempted wrap with revoked key %s", req.KeyID), nil)
 		return nil, fmt.Errorf("cannot wrap with revoked key")
 	}
+
+	// Check if key is accessible (enabled and within validity window).
+	if !key.IsAccessible() {
+		s.logger.LogAuditError(req.UserID.String(), "wrap_key", "failed",
+			fmt.Sprintf("Attempted wrap_key with inaccessible key: %s", req.KeyID), nil)
+		return nil, fmt.Errorf("cannot wrap_key with disabled or expired key")
+	}
+
 	decryptedKey, err := common.DecryptSecret(key.Value)
 	if err != nil {
 		s.logger.LogAuditError(req.UserID.String(), "wrap_key", "failed", "failed to decrypt vault key", err)
@@ -422,6 +458,14 @@ func (s *cryptoService) UnwrapKey(ctx context.Context, req UnwrapKeyRequest) (*U
 			fmt.Sprintf("attempted unwrap with revoked key %s", req.KeyID), nil)
 		return nil, fmt.Errorf("cannot unwrap with revoked key")
 	}
+
+	// Check if key is accessible (enabled and within validity window).
+	if !key.IsAccessible() {
+		s.logger.LogAuditError(req.UserID.String(), "unwrap_key", "failed",
+			fmt.Sprintf("Attempted unwrap_key with inaccessible key: %s", req.KeyID), nil)
+		return nil, fmt.Errorf("cannot unwrap_key with disabled or expired key")
+	}
+
 	decryptedKey, err := common.DecryptSecret(key.Value)
 	if err != nil {
 		s.logger.LogAuditError(req.UserID.String(), "unwrap_key", "failed", "failed to decrypt vault key", err)
