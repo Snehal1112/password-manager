@@ -89,6 +89,9 @@ func (m *mockServiceContainer) GetKeyRepository() repositories.KeyRepositoryInte
 func (m *mockServiceContainer) GetCertificateRepository() repositories.CertificateRepositoryInterface {
 	panic("unexpected call: GetCertificateRepository")
 }
+func (m *mockServiceContainer) GetCertificatePolicyRepository() repositories.CertificatePolicyRepositoryInterface {
+	panic("unexpected call: GetCertificatePolicyRepository")
+}
 func (m *mockServiceContainer) GetSessionRepository() repositories.SessionRepositoryInterface {
 	panic("unexpected call: GetSessionRepository")
 }

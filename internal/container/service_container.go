@@ -41,6 +41,7 @@ type ServiceContainerInterface interface {
 	GetVersionRepository() repositories.SecretVersionRepositoryInterface
 	GetKeyRepository() repositories.KeyRepositoryInterface
 	GetCertificateRepository() repositories.CertificateRepositoryInterface
+	GetCertificatePolicyRepository() repositories.CertificatePolicyRepositoryInterface
 	GetSessionRepository() repositories.SessionRepositoryInterface
 
 	// Authentication service getters
@@ -114,13 +115,14 @@ type ServiceContainer struct {
 	cacheCancel         context.CancelFunc
 
 	// Repositories
-	userRepository        repositories.UserRepositoryInterface
-	secretRepository      repositories.SecretRepositoryInterface
-	rotationRepository    repositories.RotationPolicyRepositoryInterface
-	versionRepository     repositories.SecretVersionRepositoryInterface
-	keyRepository         repositories.KeyRepositoryInterface
-	certificateRepository repositories.CertificateRepositoryInterface
-	sessionRepository     repositories.SessionRepositoryInterface
+	userRepository               repositories.UserRepositoryInterface
+	secretRepository             repositories.SecretRepositoryInterface
+	rotationRepository           repositories.RotationPolicyRepositoryInterface
+	versionRepository            repositories.SecretVersionRepositoryInterface
+	keyRepository                repositories.KeyRepositoryInterface
+	certificateRepository        repositories.CertificateRepositoryInterface
+	certPolicyRepository         repositories.CertificatePolicyRepositoryInterface
+	sessionRepository            repositories.SessionRepositoryInterface
 
 	// Authentication services
 	passwordService       authServices.PasswordService
@@ -222,6 +224,7 @@ func (c *ServiceContainer) initializeServices() error {
 	c.versionRepository = repositories.NewSecretVersionRepository(c.db, c.logger)
 	c.keyRepository = repositories.NewKeyRepository(c.db, c.logger)
 	c.certificateRepository = repositories.NewCertificateRepository(c.db, c.logger)
+	c.certPolicyRepository = repositories.NewCertificatePolicyRepository(c.db, c.logger)
 	c.sessionRepository = repositories.NewSessionRepository(repositories.SessionRepositoryConfig{
 		DB:     c.db,
 		Logger: c.logger,
@@ -558,6 +561,11 @@ func (c *ServiceContainer) GetKeyRepository() repositories.KeyRepositoryInterfac
 // GetCertificateRepository returns the certificate repository.
 func (c *ServiceContainer) GetCertificateRepository() repositories.CertificateRepositoryInterface {
 	return c.certificateRepository
+}
+
+// GetCertificatePolicyRepository returns the certificate policy repository.
+func (c *ServiceContainer) GetCertificatePolicyRepository() repositories.CertificatePolicyRepositoryInterface {
+	return c.certPolicyRepository
 }
 
 // GetSessionRepository returns the session repository.

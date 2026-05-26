@@ -374,6 +374,27 @@ func (d *DBRepository) createOptimizedSchema(db *sql.DB) error {
 		);
 		CREATE INDEX IF NOT EXISTS idx_certificate_tags_tag ON certificate_tags(tag);
 
+		CREATE TABLE IF NOT EXISTS certificate_policies (
+			id                TEXT PRIMARY KEY,
+			certificate_id    TEXT NOT NULL UNIQUE,
+			user_id           TEXT NOT NULL,
+			validity_months   INTEGER NOT NULL DEFAULT 12,
+			key_type          TEXT NOT NULL DEFAULT 'RSA',
+			key_size          INTEGER NOT NULL DEFAULT 2048,
+			curve             TEXT NOT NULL DEFAULT '',
+			subject           TEXT NOT NULL DEFAULT '',
+			sans              TEXT NOT NULL DEFAULT '',
+			auto_renew        BOOLEAN NOT NULL DEFAULT FALSE,
+			days_before_expiry INTEGER NOT NULL DEFAULT 30,
+			issuer_name       TEXT NOT NULL DEFAULT '',
+			created_at        TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+			updated_at        TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+			FOREIGN KEY (certificate_id) REFERENCES certificates(id) ON DELETE CASCADE,
+			FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+		);
+		CREATE INDEX IF NOT EXISTS idx_cert_policies_cert_id ON certificate_policies(certificate_id);
+		CREATE INDEX IF NOT EXISTS idx_cert_policies_user_id ON certificate_policies(user_id);
+
 		CREATE TABLE IF NOT EXISTS crl (
 			id TEXT PRIMARY KEY,
 			user_id TEXT NOT NULL,
@@ -604,6 +625,27 @@ func (d *DBRepository) migrateSchema(db *sql.DB) error {
 			FOREIGN KEY (key_id) REFERENCES keys(id) ON DELETE CASCADE
 		)`,
 		"CREATE INDEX IF NOT EXISTS idx_key_versions_key_id ON key_versions(key_id)",
+		// Feature: certificate policy table for creation and renewal settings
+		`CREATE TABLE IF NOT EXISTS certificate_policies (
+			id                TEXT PRIMARY KEY,
+			certificate_id    TEXT NOT NULL UNIQUE,
+			user_id           TEXT NOT NULL,
+			validity_months   INTEGER NOT NULL DEFAULT 12,
+			key_type          TEXT NOT NULL DEFAULT 'RSA',
+			key_size          INTEGER NOT NULL DEFAULT 2048,
+			curve             TEXT NOT NULL DEFAULT '',
+			subject           TEXT NOT NULL DEFAULT '',
+			sans              TEXT NOT NULL DEFAULT '',
+			auto_renew        BOOLEAN NOT NULL DEFAULT FALSE,
+			days_before_expiry INTEGER NOT NULL DEFAULT 30,
+			issuer_name       TEXT NOT NULL DEFAULT '',
+			created_at        TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+			updated_at        TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+			FOREIGN KEY (certificate_id) REFERENCES certificates(id) ON DELETE CASCADE,
+			FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+		)`,
+		"CREATE INDEX IF NOT EXISTS idx_cert_policies_cert_id ON certificate_policies(certificate_id)",
+		"CREATE INDEX IF NOT EXISTS idx_cert_policies_user_id ON certificate_policies(user_id)",
 	}
 	for _, stmt := range migrations {
 		if _, err := db.Exec(stmt); err != nil {

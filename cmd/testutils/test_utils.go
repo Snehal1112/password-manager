@@ -121,6 +121,10 @@ func (m *MockServiceContainer) GetCertificateRepository() repositories.Certifica
 	return nil
 }
 
+func (m *MockServiceContainer) GetCertificatePolicyRepository() repositories.CertificatePolicyRepositoryInterface {
+	return nil
+}
+
 func (m *MockServiceContainer) GetSessionRepository() repositories.SessionRepositoryInterface {
 	return nil
 }

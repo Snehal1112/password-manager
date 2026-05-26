@@ -94,6 +94,11 @@ func (api *API) InitCertificates() {
 	c.Handle("/{certificate_id:[A-Fa-f0-9-]+}", ApiSessionRequired(api.App, updateCertificate)).Methods("PUT")
 	c.Handle("/{certificate_id:[A-Fa-f0-9-]+}", ApiSessionRequired(api.App, deleteCertificate)).Methods("DELETE")
 
+	// Policy sub-resource: GET/PUT/DELETE /certificates/{certificate_id}/policy
+	c.Handle("/{certificate_id:[A-Fa-f0-9-]+}/policy", ApiSessionRequired(api.App, getCertificatePolicy)).Methods("GET")
+	c.Handle("/{certificate_id:[A-Fa-f0-9-]+}/policy", ApiSessionRequired(api.App, upsertCertificatePolicy)).Methods("PUT")
+	c.Handle("/{certificate_id:[A-Fa-f0-9-]+}/policy", ApiSessionRequired(api.App, deleteCertificatePolicy)).Methods("DELETE")
+
 	api.Logger.Infoln("Certificates API routes initialized")
 }
 
