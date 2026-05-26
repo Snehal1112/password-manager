@@ -5,6 +5,7 @@ package logging
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"os"
@@ -14,6 +15,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/sirupsen/logrus"
 	"github.com/spf13/viper"
 	"github.com/stretchr/testify/assert"
 )
@@ -226,4 +228,75 @@ func TestRotateLogFileLumberjack(t *testing.T) {
 		assert.NoError(t, os.Remove(match), "cleanup should succeed")
 	}
 	assert.NoError(t, os.Remove(logger.logFile), "cleanup should succeed")
+}
+
+// mockAuditPersister captures PersistAudit calls for testing.
+type mockAuditPersister struct {
+	calls []struct{ userID, action, details string }
+	err   error
+}
+
+func (m *mockAuditPersister) PersistAudit(userID, action, details string) error {
+	m.calls = append(m.calls, struct{ userID, action, details string }{userID, action, details})
+	return m.err
+}
+
+// TestLogAuditInfo_PersistsToDBWhenPersisterSet verifies that LogAuditInfo
+// forwards the call to the registered AuditPersister.
+func TestLogAuditInfo_PersistsToDBWhenPersisterSet(t *testing.T) {
+	logger := WrapLogrus(logrus.New())
+	mock := &mockAuditPersister{}
+	logger.SetAuditPersister(mock)
+
+	logger.LogAuditInfo("user-abc", "create_secret", "success", "secret created")
+
+	if len(mock.calls) != 1 {
+		t.Fatalf("expected 1 PersistAudit call, got %d", len(mock.calls))
+	}
+	if mock.calls[0].userID != "user-abc" {
+		t.Errorf("expected userID user-abc, got %s", mock.calls[0].userID)
+	}
+	if mock.calls[0].action != "create_secret" {
+		t.Errorf("expected action create_secret, got %s", mock.calls[0].action)
+	}
+}
+
+// TestLogAuditError_PersistsToDBWhenPersisterSet verifies that LogAuditError
+// forwards the call to the registered AuditPersister.
+func TestLogAuditError_PersistsToDBWhenPersisterSet(t *testing.T) {
+	logger := WrapLogrus(logrus.New())
+	mock := &mockAuditPersister{}
+	logger.SetAuditPersister(mock)
+
+	logger.LogAuditError("user-xyz", "get_key", "failed", "key not found", errors.New("sql: no rows"))
+
+	if len(mock.calls) != 1 {
+		t.Fatalf("expected 1 PersistAudit call, got %d", len(mock.calls))
+	}
+	if mock.calls[0].userID != "user-xyz" {
+		t.Errorf("expected userID user-xyz, got %s", mock.calls[0].userID)
+	}
+}
+
+// TestLogAuditInfo_SkipsDBWhenNoPersister verifies that LogAuditInfo does
+// not panic when no AuditPersister has been registered.
+func TestLogAuditInfo_SkipsDBWhenNoPersister(t *testing.T) {
+	logger := WrapLogrus(logrus.New())
+	// Must not panic when no persister is set.
+	assert.NotPanics(t, func() {
+		logger.LogAuditInfo("u1", "op", "status", "msg")
+	})
+}
+
+// TestLogAuditError_PersisterFailureDoesNotPanic verifies that a persister
+// error is handled gracefully and does not propagate as a panic.
+func TestLogAuditError_PersisterFailureDoesNotPanic(t *testing.T) {
+	logger := WrapLogrus(logrus.New())
+	mock := &mockAuditPersister{err: errors.New("db connection lost")}
+	logger.SetAuditPersister(mock)
+
+	// Must not panic — persister errors are fire-and-forget.
+	assert.NotPanics(t, func() {
+		logger.LogAuditError("u1", "op", "failed", "msg", nil)
+	})
 }
