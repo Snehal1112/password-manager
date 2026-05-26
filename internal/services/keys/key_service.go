@@ -70,13 +70,15 @@ type KeyService interface {
 // keyService implements KeyService by coordinating key operations
 // and access control while delegating to repository layer.
 type keyService struct {
-	keyRepo repositories.KeyRepositoryInterface
-	logger  *logging.Logger
+	keyRepo     repositories.KeyRepositoryInterface
+	keyProvider crypto.KeyProvider
+	logger      *logging.Logger
 }
 
 // KeyServiceConfig holds the dependencies for key service.
 type KeyServiceConfig struct {
 	KeyRepository repositories.KeyRepositoryInterface
+	KeyProvider   crypto.KeyProvider
 	Logger        *logging.Logger
 }
 
@@ -84,14 +86,17 @@ type KeyServiceConfig struct {
 // It orchestrates key management operations while maintaining SRP compliance.
 //
 // Parameters:
-//   config: Configuration containing all required dependencies.
+//
+//	config: Configuration containing all required dependencies.
 //
 // Returns:
-//   A KeyService implementation for key management operations.
+//
+//	A KeyService implementation for key management operations.
 func NewKeyService(config KeyServiceConfig) KeyService {
 	return &keyService{
-		keyRepo: config.KeyRepository,
-		logger:  config.Logger,
+		keyRepo:     config.KeyRepository,
+		keyProvider: config.KeyProvider,
+		logger:      config.Logger,
 	}
 }
 
@@ -118,18 +123,24 @@ func (s *keyService) CreateRSAKey(ctx context.Context, req CreateKeyRequest) (*C
 		return nil, fmt.Errorf("invalid RSA key size: must be 2048 or 4096")
 	}
 
-	// Generate RSA key using crypto helper
-	privateKeyPEM, err := crypto.GenerateRSAKeyPEM(req.Bits)
+	// Generate key via the configured provider (software or PKCS#11 HSM).
+	handle, err := s.keyProvider.GenerateRSAKey(ctx, req.Bits)
 	if err != nil {
 		s.logger.LogAuditError(req.UserID.String(), "create_rsa_key", "failed", "failed to generate RSA key", err)
 		return nil, fmt.Errorf("failed to generate RSA key: %w", err)
 	}
 
-	// Encrypt the private key
-	encryptedKey, err := common.EncryptSecret(privateKeyPEM)
-	if err != nil {
-		s.logger.LogAuditError(req.UserID.String(), "create_rsa_key", "failed", "failed to encrypt key", err)
-		return nil, fmt.Errorf("failed to encrypt key: %w", err)
+	// For software keys, the handle is PEM — encrypt before storage.
+	// For PKCS#11 keys, the handle is a UUID label — prefix and store as-is.
+	var storedValue string
+	if isPKCS11Handle(handle) {
+		storedValue = "pkcs11:" + handle
+	} else {
+		storedValue, err = common.EncryptSecret(handle)
+		if err != nil {
+			s.logger.LogAuditError(req.UserID.String(), "create_rsa_key", "failed", "failed to encrypt key", err)
+			return nil, fmt.Errorf("failed to encrypt key: %w", err)
+		}
 	}
 
 	// Default to enabled when caller did not specify.
@@ -144,7 +155,7 @@ func (s *keyService) CreateRSAKey(ctx context.Context, req CreateKeyRequest) (*C
 		UserID:    req.UserID,
 		Name:      req.Name,
 		Type:      model.KeyTypeRSA,
-		Value:     encryptedKey,
+		Value:     storedValue,
 		Revoked:   false,
 		CreatedAt: time.Now(),
 		Tags:      req.Tags,
@@ -199,18 +210,22 @@ func (s *keyService) CreateECDSAKey(ctx context.Context, req CreateKeyRequest) (
 		return nil, fmt.Errorf("invalid ECDSA curve: must be P-256, P-384, P-521, or P-256K")
 	}
 
-	// Generate ECDSA key using crypto helper
-	privateKeyPEM, err := crypto.GenerateECDSAKeyPEM(req.Curve)
+	// Generate key via the configured provider (software or PKCS#11 HSM).
+	handle, err := s.keyProvider.GenerateECDSAKey(ctx, req.Curve)
 	if err != nil {
 		s.logger.LogAuditError(req.UserID.String(), "create_ecdsa_key", "failed", "failed to generate ECDSA key", err)
 		return nil, fmt.Errorf("failed to generate ECDSA key: %w", err)
 	}
 
-	// Encrypt the private key
-	encryptedKey, err := common.EncryptSecret(privateKeyPEM)
-	if err != nil {
-		s.logger.LogAuditError(req.UserID.String(), "create_ecdsa_key", "failed", "failed to encrypt key", err)
-		return nil, fmt.Errorf("failed to encrypt key: %w", err)
+	var storedValue string
+	if isPKCS11Handle(handle) {
+		storedValue = "pkcs11:" + handle
+	} else {
+		storedValue, err = common.EncryptSecret(handle)
+		if err != nil {
+			s.logger.LogAuditError(req.UserID.String(), "create_ecdsa_key", "failed", "failed to encrypt key", err)
+			return nil, fmt.Errorf("failed to encrypt key: %w", err)
+		}
 	}
 
 	// P-256K keys use a distinct type so the crypto layer routes them correctly.
@@ -231,7 +246,7 @@ func (s *keyService) CreateECDSAKey(ctx context.Context, req CreateKeyRequest) (
 		UserID:    req.UserID,
 		Name:      req.Name,
 		Type:      keyType,
-		Value:     encryptedKey,
+		Value:     storedValue,
 		Revoked:   false,
 		CreatedAt: time.Now(),
 		Tags:      req.Tags,
@@ -492,15 +507,15 @@ func (s *keyService) RotateKey(ctx context.Context, keyID, userID uuid.UUID) (*C
 		curve = "P-256" // Fallback for keys without stored curve.
 	}
 
-	// Generate new key material for the same type.
-	var newPEM string
+	// Generate new key material via the configured provider.
+	var newHandle string
 	switch existing.Type {
 	case model.KeyTypeRSA:
-		newPEM, err = crypto.GenerateRSAKeyPEM(bits)
+		newHandle, err = s.keyProvider.GenerateRSAKey(ctx, bits)
 	case model.KeyTypeECDSA:
-		newPEM, err = crypto.GenerateECDSAKeyPEM(curve)
+		newHandle, err = s.keyProvider.GenerateECDSAKey(ctx, curve)
 	case model.KeyTypeES256K:
-		newPEM, err = crypto.GenerateECDSAKeyPEM("P-256K")
+		newHandle, err = s.keyProvider.GenerateECDSAKey(ctx, "P-256K")
 	default:
 		s.logger.LogAuditError(userID.String(), "rotate_key", "failed", "unsupported key type for rotation", nil)
 		return nil, fmt.Errorf("unsupported key type for rotation: %s", existing.Type)
@@ -510,10 +525,15 @@ func (s *keyService) RotateKey(ctx context.Context, keyID, userID uuid.UUID) (*C
 		return nil, fmt.Errorf("key generation failed: %w", err)
 	}
 
-	encryptedNew, err := common.EncryptSecret(newPEM)
-	if err != nil {
-		s.logger.LogAuditError(userID.String(), "rotate_key", "failed", "key encryption failed", err)
-		return nil, fmt.Errorf("key encryption failed: %w", err)
+	var encryptedNew string
+	if isPKCS11Handle(newHandle) {
+		encryptedNew = "pkcs11:" + newHandle
+	} else {
+		encryptedNew, err = common.EncryptSecret(newHandle)
+		if err != nil {
+			s.logger.LogAuditError(userID.String(), "rotate_key", "failed", "key encryption failed", err)
+			return nil, fmt.Errorf("key encryption failed: %w", err)
+		}
 	}
 
 	// Determine next version number from existing history.
@@ -584,4 +604,12 @@ func (s *keyService) ValidateKeyAccess(ctx context.Context, keyID, userID uuid.U
 	}
 
 	return nil
+}
+
+// isPKCS11Handle returns true when handle is a UUID label returned by the
+// PKCS#11 provider rather than a PEM string from the software provider.
+func isPKCS11Handle(handle string) bool {
+	return len(handle) == 36 &&
+		handle[8] == '-' && handle[13] == '-' &&
+		handle[18] == '-' && handle[23] == '-'
 }

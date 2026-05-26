@@ -3,6 +3,7 @@ package keys
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"github.com/google/uuid"
 	"github.com/sirupsen/logrus"
@@ -117,24 +118,44 @@ type CryptoService interface {
 
 // cryptoService implements CryptoService.
 type cryptoService struct {
-	keyRepo    repositories.KeyRepositoryInterface
-	cryptoOps  *crypto.CryptoOperations
-	logger     *logging.Logger
+	keyRepo     repositories.KeyRepositoryInterface
+	cryptoOps   *crypto.CryptoOperations
+	keyProvider crypto.KeyProvider
+	logger      *logging.Logger
 }
 
 // CryptoServiceConfig holds dependencies for crypto service.
 type CryptoServiceConfig struct {
 	KeyRepository repositories.KeyRepositoryInterface
+	KeyProvider   crypto.KeyProvider
 	Logger        *logging.Logger
 }
 
 // NewCryptoService creates a new crypto service.
 func NewCryptoService(config CryptoServiceConfig) CryptoService {
 	return &cryptoService{
-		keyRepo:   config.KeyRepository,
-		cryptoOps: crypto.NewCryptoOperations(),
-		logger:    config.Logger,
+		keyRepo:     config.KeyRepository,
+		cryptoOps:   crypto.NewCryptoOperations(),
+		keyProvider: config.KeyProvider,
+		logger:      config.Logger,
 	}
+}
+
+const pkcs11Prefix = "pkcs11:"
+
+// resolveKeyHandle decodes the stored key value into a plain handle string.
+// For software keys, it AES-GCM decrypts the stored PEM. For PKCS#11 keys,
+// it strips the "pkcs11:" prefix and returns the bare UUID label.
+// The boolean return is true when the handle refers to a PKCS#11 key.
+func resolveKeyHandle(storedValue string) (handle string, isPKCS11 bool, err error) {
+	if strings.HasPrefix(storedValue, pkcs11Prefix) {
+		return strings.TrimPrefix(storedValue, pkcs11Prefix), true, nil
+	}
+	decrypted, decErr := common.DecryptSecret(storedValue)
+	if decErr != nil {
+		return "", false, fmt.Errorf("failed to decrypt key: %w", decErr)
+	}
+	return decrypted, false, nil
 }
 
 // Sign signs data using the specified key.
@@ -167,18 +188,27 @@ func (s *cryptoService) Sign(ctx context.Context, req SignRequest) (*SignResult,
 		return nil, fmt.Errorf("cannot sign with disabled or expired key")
 	}
 
-	// Decrypt the private key
-	decryptedKey, err := common.DecryptSecret(key.Value)
+	handle, isPKCS11, err := resolveKeyHandle(key.Value)
 	if err != nil {
-		s.logger.LogAuditError(req.UserID.String(), "sign", "failed", "Failed to decrypt key", err)
-		return nil, fmt.Errorf("failed to decrypt key: %w", err)
+		s.logger.LogAuditError(req.UserID.String(), "sign", "failed", "Failed to resolve key handle", err)
+		return nil, err
 	}
 
-	// Perform sign operation
-	signResult, err := s.cryptoOps.Sign(decryptedKey, key.Type, req.Data, req.Algorithm)
-	if err != nil {
-		s.logger.LogAuditError(req.UserID.String(), "sign", "failed", "Signing operation failed", err)
-		return nil, fmt.Errorf("signing failed: %w", err)
+	var signature, digest []byte
+	if isPKCS11 {
+		signature, err = s.keyProvider.Sign(ctx, handle, key.Type, req.Data, req.Algorithm)
+		if err != nil {
+			s.logger.LogAuditError(req.UserID.String(), "sign", "failed", "PKCS#11 signing failed", err)
+			return nil, fmt.Errorf("signing failed: %w", err)
+		}
+	} else {
+		signResult, signErr := s.cryptoOps.Sign(handle, key.Type, req.Data, req.Algorithm)
+		if signErr != nil {
+			s.logger.LogAuditError(req.UserID.String(), "sign", "failed", "Signing operation failed", signErr)
+			return nil, fmt.Errorf("signing failed: %w", signErr)
+		}
+		signature = signResult.Signature
+		digest = signResult.Digest
 	}
 
 	s.logger.LogAuditInfo(req.UserID.String(), "sign", "success",
@@ -192,9 +222,9 @@ func (s *cryptoService) Sign(ctx context.Context, req SignRequest) (*SignResult,
 	}).Info("Data signed successfully")
 
 	return &SignResult{
-		Signature: signResult.Signature,
-		Algorithm: signResult.Algorithm,
-		Digest:    signResult.Digest,
+		Signature: signature,
+		Algorithm: req.Algorithm,
+		Digest:    digest,
 		KeyID:     req.KeyID,
 	}, nil
 }
@@ -229,22 +259,30 @@ func (s *cryptoService) Verify(ctx context.Context, req VerifyRequest) (*VerifyR
 		return nil, fmt.Errorf("cannot verify with disabled or expired key")
 	}
 
-	// Decrypt the private key (to extract public key)
-	decryptedKey, err := common.DecryptSecret(key.Value)
+	handle, isPKCS11, err := resolveKeyHandle(key.Value)
 	if err != nil {
-		s.logger.LogAuditError(req.UserID.String(), "verify", "failed", "Failed to decrypt key", err)
-		return nil, fmt.Errorf("failed to decrypt key: %w", err)
+		s.logger.LogAuditError(req.UserID.String(), "verify", "failed", "Failed to resolve key handle", err)
+		return nil, err
 	}
 
-	// Perform verify operation
-	verifyResult, err := s.cryptoOps.Verify(decryptedKey, key.Type, req.Data, req.Signature, req.Algorithm)
-	if err != nil {
-		s.logger.LogAuditError(req.UserID.String(), "verify", "failed", "Verification operation failed", err)
-		return nil, fmt.Errorf("verification failed: %w", err)
+	var valid bool
+	if isPKCS11 {
+		valid, err = s.keyProvider.Verify(ctx, handle, key.Type, req.Data, req.Signature, req.Algorithm)
+		if err != nil {
+			s.logger.LogAuditError(req.UserID.String(), "verify", "failed", "PKCS#11 verification failed", err)
+			return nil, fmt.Errorf("verification failed: %w", err)
+		}
+	} else {
+		verifyResult, verifyErr := s.cryptoOps.Verify(handle, key.Type, req.Data, req.Signature, req.Algorithm)
+		if verifyErr != nil {
+			s.logger.LogAuditError(req.UserID.String(), "verify", "failed", "Verification operation failed", verifyErr)
+			return nil, fmt.Errorf("verification failed: %w", verifyErr)
+		}
+		valid = verifyResult.Valid
 	}
 
 	status := "valid"
-	if !verifyResult.Valid {
+	if !valid {
 		status = "invalid"
 	}
 
@@ -255,13 +293,13 @@ func (s *cryptoService) Verify(ctx context.Context, req VerifyRequest) (*VerifyR
 		"key_id":    req.KeyID,
 		"key_type":  key.Type,
 		"algorithm": req.Algorithm,
-		"valid":     verifyResult.Valid,
+		"valid":     valid,
 		"user_id":   req.UserID,
 	}).Info("Signature verified")
 
 	return &VerifyResult{
-		Valid:     verifyResult.Valid,
-		Algorithm: verifyResult.Algorithm,
+		Valid:     valid,
+		Algorithm: req.Algorithm,
 		KeyID:     req.KeyID,
 	}, nil
 }
@@ -296,18 +334,27 @@ func (s *cryptoService) Encrypt(ctx context.Context, req EncryptRequest) (*Encry
 		return nil, fmt.Errorf("cannot encrypt with disabled or expired key")
 	}
 
-	// Decrypt the private key
-	decryptedKey, err := common.DecryptSecret(key.Value)
+	handle, isPKCS11, err := resolveKeyHandle(key.Value)
 	if err != nil {
-		s.logger.LogAuditError(req.UserID.String(), "encrypt", "failed", "Failed to decrypt key", err)
-		return nil, fmt.Errorf("failed to decrypt key: %w", err)
+		s.logger.LogAuditError(req.UserID.String(), "encrypt", "failed", "Failed to resolve key handle", err)
+		return nil, err
 	}
 
-	// Perform encrypt operation
-	encryptResult, err := s.cryptoOps.Encrypt(decryptedKey, req.Data, req.Algorithm)
-	if err != nil {
-		s.logger.LogAuditError(req.UserID.String(), "encrypt", "failed", "Encryption operation failed", err)
-		return nil, fmt.Errorf("encryption failed: %w", err)
+	var ct, nonce []byte
+	if isPKCS11 {
+		ct, nonce, err = s.keyProvider.Encrypt(ctx, handle, req.Data, req.Algorithm)
+		if err != nil {
+			s.logger.LogAuditError(req.UserID.String(), "encrypt", "failed", "PKCS#11 encryption failed", err)
+			return nil, fmt.Errorf("encryption failed: %w", err)
+		}
+	} else {
+		encResult, encErr := s.cryptoOps.Encrypt(handle, req.Data, req.Algorithm)
+		if encErr != nil {
+			s.logger.LogAuditError(req.UserID.String(), "encrypt", "failed", "Encryption operation failed", encErr)
+			return nil, fmt.Errorf("encryption failed: %w", encErr)
+		}
+		ct = encResult.Ciphertext
+		nonce = encResult.Nonce
 	}
 
 	s.logger.LogAuditInfo(req.UserID.String(), "encrypt", "success",
@@ -321,9 +368,9 @@ func (s *cryptoService) Encrypt(ctx context.Context, req EncryptRequest) (*Encry
 	}).Info("Data encrypted successfully")
 
 	return &EncryptResult{
-		Ciphertext: encryptResult.Ciphertext,
-		Algorithm:  encryptResult.Algorithm,
-		Nonce:      encryptResult.Nonce,
+		Ciphertext: ct,
+		Algorithm:  req.Algorithm,
+		Nonce:      nonce,
 		KeyID:      req.KeyID,
 	}, nil
 }
@@ -358,18 +405,26 @@ func (s *cryptoService) Decrypt(ctx context.Context, req DecryptRequest) (*Decry
 		return nil, fmt.Errorf("cannot decrypt with disabled or expired key")
 	}
 
-	// Decrypt the private key
-	decryptedKey, err := common.DecryptSecret(key.Value)
+	handle, isPKCS11, err := resolveKeyHandle(key.Value)
 	if err != nil {
-		s.logger.LogAuditError(req.UserID.String(), "decrypt", "failed", "Failed to decrypt key", err)
-		return nil, fmt.Errorf("failed to decrypt key: %w", err)
+		s.logger.LogAuditError(req.UserID.String(), "decrypt", "failed", "Failed to resolve key handle", err)
+		return nil, err
 	}
 
-	// Perform decrypt operation
-	decryptResult, err := s.cryptoOps.Decrypt(decryptedKey, req.Ciphertext, req.Nonce, req.Algorithm)
-	if err != nil {
-		s.logger.LogAuditError(req.UserID.String(), "decrypt", "failed", "Decryption operation failed", err)
-		return nil, fmt.Errorf("decryption failed: %w", err)
+	var plaintext []byte
+	if isPKCS11 {
+		plaintext, err = s.keyProvider.Decrypt(ctx, handle, req.Ciphertext, req.Nonce, req.Algorithm)
+		if err != nil {
+			s.logger.LogAuditError(req.UserID.String(), "decrypt", "failed", "PKCS#11 decryption failed", err)
+			return nil, fmt.Errorf("decryption failed: %w", err)
+		}
+	} else {
+		decResult, decErr := s.cryptoOps.Decrypt(handle, req.Ciphertext, req.Nonce, req.Algorithm)
+		if decErr != nil {
+			s.logger.LogAuditError(req.UserID.String(), "decrypt", "failed", "Decryption operation failed", decErr)
+			return nil, fmt.Errorf("decryption failed: %w", decErr)
+		}
+		plaintext = decResult.Plaintext
 	}
 
 	s.logger.LogAuditInfo(req.UserID.String(), "decrypt", "success",
@@ -383,8 +438,8 @@ func (s *cryptoService) Decrypt(ctx context.Context, req DecryptRequest) (*Decry
 	}).Info("Data decrypted successfully")
 
 	return &DecryptResult{
-		Plaintext: decryptResult.Plaintext,
-		Algorithm: decryptResult.Algorithm,
+		Plaintext: plaintext,
+		Algorithm: req.Algorithm,
 		KeyID:     req.KeyID,
 	}, nil
 }
@@ -417,10 +472,10 @@ func (s *cryptoService) WrapKey(ctx context.Context, req WrapKeyRequest) (*WrapK
 		return nil, fmt.Errorf("cannot wrap_key with disabled or expired key")
 	}
 
-	decryptedKey, err := common.DecryptSecret(key.Value)
+	wrapHandle, wrapIsPKCS11, err := resolveKeyHandle(key.Value)
 	if err != nil {
-		s.logger.LogAuditError(req.UserID.String(), "wrap_key", "failed", "failed to decrypt vault key", err)
-		return nil, fmt.Errorf("failed to decrypt vault key: %w", err)
+		s.logger.LogAuditError(req.UserID.String(), "wrap_key", "failed", "failed to resolve vault key handle", err)
+		return nil, err
 	}
 	var encAlgo crypto.EncryptionAlgorithm
 	if req.Algorithm == "RSA-OAEP-256" {
@@ -428,14 +483,23 @@ func (s *cryptoService) WrapKey(ctx context.Context, req WrapKeyRequest) (*WrapK
 	} else {
 		encAlgo = crypto.AlgorithmRSAOAEP
 	}
-	result, err := s.cryptoOps.Encrypt(decryptedKey, req.PlaintextKey, encAlgo)
+	var wrappedKey []byte
+	if wrapIsPKCS11 {
+		wrappedKey, _, err = s.keyProvider.Encrypt(ctx, wrapHandle, req.PlaintextKey, encAlgo)
+	} else {
+		var result *crypto.EncryptResult
+		result, err = s.cryptoOps.Encrypt(wrapHandle, req.PlaintextKey, encAlgo)
+		if err == nil {
+			wrappedKey = result.Ciphertext
+		}
+	}
 	if err != nil {
 		s.logger.LogAuditError(req.UserID.String(), "wrap_key", "failed", "RSA-OAEP wrap failed", err)
 		return nil, fmt.Errorf("wrap failed: %w", err)
 	}
 	s.logger.LogAuditInfo(req.UserID.String(), "wrap_key", "success",
 		fmt.Sprintf("key material wrapped with vault key %s", req.KeyID))
-	return &WrapKeyResult{WrappedKey: result.Ciphertext, Algorithm: string(result.Algorithm)}, nil
+	return &WrapKeyResult{WrappedKey: wrappedKey, Algorithm: req.Algorithm}, nil
 }
 
 // UnwrapKey decrypts wrapped key material using RSA-OAEP with the specified vault key.
@@ -466,10 +530,10 @@ func (s *cryptoService) UnwrapKey(ctx context.Context, req UnwrapKeyRequest) (*U
 		return nil, fmt.Errorf("cannot unwrap_key with disabled or expired key")
 	}
 
-	decryptedKey, err := common.DecryptSecret(key.Value)
+	unwrapHandle, unwrapIsPKCS11, err := resolveKeyHandle(key.Value)
 	if err != nil {
-		s.logger.LogAuditError(req.UserID.String(), "unwrap_key", "failed", "failed to decrypt vault key", err)
-		return nil, fmt.Errorf("failed to decrypt vault key: %w", err)
+		s.logger.LogAuditError(req.UserID.String(), "unwrap_key", "failed", "failed to resolve vault key handle", err)
+		return nil, err
 	}
 	var decAlgo crypto.EncryptionAlgorithm
 	if req.Algorithm == "RSA-OAEP-256" {
@@ -477,12 +541,21 @@ func (s *cryptoService) UnwrapKey(ctx context.Context, req UnwrapKeyRequest) (*U
 	} else {
 		decAlgo = crypto.AlgorithmRSAOAEP
 	}
-	result, err := s.cryptoOps.Decrypt(decryptedKey, req.WrappedKey, nil, decAlgo)
+	var plaintext []byte
+	if unwrapIsPKCS11 {
+		plaintext, err = s.keyProvider.Decrypt(ctx, unwrapHandle, req.WrappedKey, nil, decAlgo)
+	} else {
+		var result *crypto.DecryptResult
+		result, err = s.cryptoOps.Decrypt(unwrapHandle, req.WrappedKey, nil, decAlgo)
+		if err == nil {
+			plaintext = result.Plaintext
+		}
+	}
 	if err != nil {
 		s.logger.LogAuditError(req.UserID.String(), "unwrap_key", "failed", "RSA-OAEP unwrap failed", err)
 		return nil, fmt.Errorf("unwrap failed: %w", err)
 	}
 	s.logger.LogAuditInfo(req.UserID.String(), "unwrap_key", "success",
 		fmt.Sprintf("key material unwrapped with vault key %s", req.KeyID))
-	return &UnwrapKeyResult{PlaintextKey: result.Plaintext, Algorithm: string(result.Algorithm)}, nil
+	return &UnwrapKeyResult{PlaintextKey: plaintext, Algorithm: req.Algorithm}, nil
 }
