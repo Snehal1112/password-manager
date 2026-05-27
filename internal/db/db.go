@@ -185,6 +185,11 @@ func (d *DBRepository) InitializeDB() error {
 		return fmt.Errorf("failed to seed bootstrap token: %w", err)
 	}
 
+	if err := d.seedAuditConfig(db); err != nil {
+		db.Close()
+		return fmt.Errorf("failed to seed audit config: %w", err)
+	}
+
 	// Assign the connection to the global DB variable.
 	DB = db
 	d.db = db
@@ -558,6 +563,15 @@ func (d *DBRepository) createOptimizedSchema(db *sql.DB) error {
 		);
 		CREATE INDEX IF NOT EXISTS idx_oauth2_clients_name ON oauth2_clients(name);
 
+		CREATE TABLE IF NOT EXISTS audit_config (
+			key   TEXT PRIMARY KEY,
+			value TEXT NOT NULL
+		);
+
+		CREATE INDEX IF NOT EXISTS idx_audit_logs_outcome ON audit_logs(outcome);
+		CREATE INDEX IF NOT EXISTS idx_audit_logs_resource ON audit_logs(resource_type, resource_id);
+		CREATE INDEX IF NOT EXISTS idx_audit_logs_source ON audit_logs(source);
+
 	`)
 	if err != nil {
 		d.log.Error("Failed to create tables: ", err)
@@ -649,6 +663,13 @@ func (d *DBRepository) migrateSchema(db *sql.DB) error {
 		)`,
 		"CREATE INDEX IF NOT EXISTS idx_cert_policies_cert_id ON certificate_policies(certificate_id)",
 		"CREATE INDEX IF NOT EXISTS idx_cert_policies_user_id ON certificate_policies(user_id)",
+		// Feature: enriched audit fields for SOC 2 / GDPR compliance
+		"ALTER TABLE audit_logs ADD COLUMN resource_type TEXT",
+		"ALTER TABLE audit_logs ADD COLUMN resource_id TEXT",
+		"ALTER TABLE audit_logs ADD COLUMN ip_address TEXT",
+		"ALTER TABLE audit_logs ADD COLUMN outcome TEXT",
+		"ALTER TABLE audit_logs ADD COLUMN source TEXT",
+		"ALTER TABLE audit_logs ADD COLUMN prev_hash TEXT",
 	}
 	for _, stmt := range migrations {
 		if _, err := db.Exec(stmt); err != nil {
@@ -703,6 +724,30 @@ func (d *DBRepository) seedBootstrapToken(db *sql.DB) error {
 		"INSERT INTO bootstrap_tokens (token, used) VALUES (?, FALSE)", token,
 	); err != nil {
 		return fmt.Errorf("failed to seed bootstrap token: %w", err)
+	}
+	return nil
+}
+
+// seedAuditConfig inserts default audit configuration values if they are not
+// already present. Safe to call on every startup.
+func (d *DBRepository) seedAuditConfig(db *sql.DB) error {
+	defaults := map[string]string{
+		"retention_days": "365",
+	}
+	for k, v := range defaults {
+		var count int
+		if err := db.QueryRow(
+			"SELECT COUNT(*) FROM audit_config WHERE key = ?", k,
+		).Scan(&count); err != nil {
+			return fmt.Errorf("failed to check audit_config key %s: %w", k, err)
+		}
+		if count == 0 {
+			if _, err := db.Exec(
+				"INSERT INTO audit_config (key, value) VALUES (?, ?)", k, v,
+			); err != nil {
+				return fmt.Errorf("failed to seed audit_config key %s: %w", k, err)
+			}
+		}
 	}
 	return nil
 }
