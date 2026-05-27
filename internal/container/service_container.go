@@ -23,6 +23,7 @@ import (
 	authzServices "rocketvault/internal/services/authorization"
 	certServices "rocketvault/internal/services/certificates"
 	keyServices "rocketvault/internal/services/keys"
+	auditServices "rocketvault/internal/services/audit"
 	oauth2Services "rocketvault/internal/services/oauth2"
 	retryServices "rocketvault/internal/services/retry"
 	secretServices "rocketvault/internal/services/secrets"
@@ -102,6 +103,10 @@ type ServiceContainerInterface interface {
 	GetKeyCache() keycache.Cache
 	GetCryptoMetrics() metrics.CryptoMetrics
 
+	// Audit service getters
+	GetAuditService() auditServices.AuditServiceInterface
+	GetComplianceReportService() auditServices.ComplianceReportServiceInterface
+
 	// Lifecycle management
 	Close() error
 }
@@ -134,6 +139,10 @@ type ServiceContainer struct {
 	certPolicyRepository         repositories.CertificatePolicyRepositoryInterface
 	sessionRepository            repositories.SessionRepositoryInterface
 	auditRepository              repositories.AuditRepositoryExtended
+
+	// Audit services
+	auditService            auditServices.AuditServiceInterface
+	complianceReportService auditServices.ComplianceReportServiceInterface
 
 	// Authentication services
 	passwordService       authServices.PasswordService
@@ -249,7 +258,20 @@ func (c *ServiceContainer) initializeServices() error {
 		Logger: c.logger,
 	})
 	c.auditRepository = repositories.NewAuditRepository(c.db)
-	c.logger.SetAuditPersister(c.auditRepository)
+	c.auditService = auditServices.NewAuditService(c.auditRepository)
+	c.complianceReportService = auditServices.NewComplianceReportService(c.auditRepository)
+	c.logger.SetAuditPersister(c.auditService)
+
+	// Start daily audit log retention purge in the background.
+	go func() {
+		ticker := time.NewTicker(24 * time.Hour)
+		defer ticker.Stop()
+		for range ticker.C {
+			if _, err := c.complianceReportService.PurgeExpiredLogs(context.Background()); err != nil {
+				c.logger.WithError(err).Warn("audit retention purge failed")
+			}
+		}
+	}()
 
 	// Initialize cache if enabled
 	if c.cacheConfig.Enabled {
@@ -729,4 +751,14 @@ func (c *ServiceContainer) GetKeyCache() keycache.Cache {
 // GetCryptoMetrics returns the Prometheus crypto metrics recorder.
 func (c *ServiceContainer) GetCryptoMetrics() metrics.CryptoMetrics {
 	return c.cryptoMetrics
+}
+
+// GetAuditService returns the audit event write-path service.
+func (c *ServiceContainer) GetAuditService() auditServices.AuditServiceInterface {
+	return c.auditService
+}
+
+// GetComplianceReportService returns the compliance report read-path service.
+func (c *ServiceContainer) GetComplianceReportService() auditServices.ComplianceReportServiceInterface {
+	return c.complianceReportService
 }
