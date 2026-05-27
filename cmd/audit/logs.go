@@ -2,7 +2,6 @@ package audit
 
 import (
 	"fmt"
-	"os"
 	"time"
 
 	"github.com/spf13/cobra"
@@ -74,10 +73,10 @@ rocketvault audit logs --user-id abc123 --resource-type secret --limit 50`,
 		}
 
 		if !integrityOK {
-			fmt.Fprintln(os.Stderr, "WARNING: hash chain integrity check failed — audit log may have been tampered with")
+			fmt.Fprintln(cmd.ErrOrStderr(), "WARNING: hash chain integrity check failed — audit log may have been tampered with")
 		}
 
-		fmt.Fprintf(os.Stdout, "Total matching: %d\n", total)
+		fmt.Fprintf(cmd.OutOrStdout(), "Total matching: %d\n", total)
 
 		fmtr, ok := ctx.Value(common.OutputFormatterKey).(formatter.Formatter)
 		if !ok {
@@ -98,7 +97,7 @@ rocketvault audit logs --user-id abc123 --resource-type secret --limit 50`,
 				l.Source,
 			}
 		}
-		return fmtr.Write(os.Stdout, headers, rows)
+		return fmtr.Write(cmd.OutOrStdout(), headers, rows)
 	},
 }
 
@@ -110,7 +109,6 @@ func init() {
 	logsCmd.Flags().String("outcome", "", "Filter by outcome (success|failure|warning)")
 	logsCmd.Flags().String("resource-type", "", "Filter by resource type (secret|key|certificate)")
 	logsCmd.Flags().Int("limit", 100, "Maximum number of log entries to return")
-	logsCmd.Flags().String("output", "table", "Output format: table|json|yaml")
 }
 
 // parseDate tries RFC3339 first, then YYYY-MM-DD.

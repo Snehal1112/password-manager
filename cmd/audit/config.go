@@ -2,7 +2,6 @@ package audit
 
 import (
 	"fmt"
-	"os"
 
 	"github.com/spf13/cobra"
 
@@ -33,13 +32,13 @@ rocketvault audit config --retention-days 90`,
 			if err := svc.SetRetentionDays(ctx, retentionDays); err != nil {
 				return fmt.Errorf("failed to update retention policy: %w", err)
 			}
-			fmt.Fprintf(os.Stdout, "Retention policy updated: %d days\n", retentionDays)
+			fmt.Fprintf(cmd.OutOrStdout(), "Retention policy updated: %d days\n", retentionDays)
 		} else {
 			days, err := svc.GetRetentionDays(ctx)
 			if err != nil {
 				return fmt.Errorf("failed to get retention policy: %w", err)
 			}
-			fmt.Fprintf(os.Stdout, "Current audit log retention: %d days\n", days)
+			fmt.Fprintf(cmd.OutOrStdout(), "Current audit log retention: %d days\n", days)
 		}
 
 		return nil
