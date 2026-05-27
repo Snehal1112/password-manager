@@ -30,6 +30,7 @@ type Routes struct {
 	AccessPolicy    *mux.Router // /api/v1/access-policies/{policy_id}
 	ServiceAccounts *mux.Router // /api/v1/service-accounts
 	ServiceAccount  *mux.Router // /api/v1/service-accounts/{service_account_id}
+	Audit           *mux.Router // /api/v1/audit
 	OAuth2          *mux.Router // /api/v1/oauth2 (public — no auth middleware)
 	Config          *mux.Router // /api/v1/config (public — no auth middleware)
 	JWKS            *mux.Router // /jwks.json (public — no auth middleware)
@@ -90,6 +91,8 @@ func Init(options ...Options) *API {
 	r.ServiceAccounts = r.ApiRoot.PathPrefix("/service-accounts").Subrouter()
 	r.ServiceAccount = r.ServiceAccounts.PathPrefix("/{service_account_id:[A-Fa-f0-9-]+}").Subrouter()
 
+	r.Audit = r.ApiRoot.PathPrefix("/audit").Subrouter()
+
 	// OAuth2 is public — registered on rootRouter to bypass auth middleware.
 	r.OAuth2 = api.rootRouter.PathPrefix(api.basePath).Subrouter()
 	r.OAuth2.Use(mw.CORSMiddleware)
@@ -114,12 +117,13 @@ func Init(options ...Options) *API {
 	api.InitOAuth2()
 	api.InitJWKS()
 	api.InitBackupItem()
+	api.InitAudit()
 
 	// Catch-all 404 for unmatched routes.
 	api.rootRouter.NotFoundHandler = http.HandlerFunc(Handle404)
 
 	names := []string{"Vault", "Secrets", "Users", "Keys", "Certificates",
-		"Health", "Config", "Deleted", "AccessPolicies", "ServiceAccounts", "OAuth2", "JWKS", "BackupItem"}
+		"Health", "Config", "Deleted", "AccessPolicies", "ServiceAccounts", "OAuth2", "JWKS", "BackupItem", "Audit"}
 	api.Logger.WithField("api", strings.Join(names, ",")).Infoln("Initialized api")
 	return api
 }

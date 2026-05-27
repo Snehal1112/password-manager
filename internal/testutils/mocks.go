@@ -3,6 +3,7 @@ package testutils
 
 import (
 	"context"
+	"database/sql"
 	"testing"
 	"time"
 
@@ -10,13 +11,24 @@ import (
 	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/mock"
 
-	"rocketvault/model"
+	"rocketvault/internal/backup"
+	"rocketvault/internal/cache"
+	"rocketvault/internal/crypto"
+	"rocketvault/internal/keycache"
 	"rocketvault/internal/logging"
+	"rocketvault/internal/metrics"
 	"rocketvault/internal/repositories"
+	"rocketvault/internal/signing"
 	auditSvc "rocketvault/internal/services/audit"
 	authServices "rocketvault/internal/services/auth"
 	authzServices "rocketvault/internal/services/authorization"
+	certServices "rocketvault/internal/services/certificates"
+	keyServices "rocketvault/internal/services/keys"
+	oauth2Services "rocketvault/internal/services/oauth2"
+	retryServices "rocketvault/internal/services/retry"
 	secretServices "rocketvault/internal/services/secrets"
+	userServices "rocketvault/internal/services/users"
+	"rocketvault/model"
 )
 
 // NewTestLogger returns a logger suitable for use in tests.
@@ -379,6 +391,200 @@ func (m *MockComplianceReportService) GetRetentionDays(ctx context.Context) (int
 func (m *MockComplianceReportService) SetRetentionDays(ctx context.Context, days int) error {
 	args := m.Called(ctx, days)
 	return args.Error(0)
+}
+
+// --- MockServiceContainer ---
+
+// MockServiceContainer is a testify mock for container.ServiceContainerInterface.
+// It is used in api package tests where the full container interface is required.
+type MockServiceContainer struct {
+	mock.Mock
+}
+
+func (m *MockServiceContainer) GetUserRepository() repositories.UserRepositoryInterface {
+	return nil
+}
+
+func (m *MockServiceContainer) GetSecretRepository() repositories.SecretRepositoryInterface {
+	return nil
+}
+
+func (m *MockServiceContainer) GetRotationRepository() repositories.RotationPolicyRepositoryInterface {
+	return nil
+}
+
+func (m *MockServiceContainer) GetVersionRepository() repositories.SecretVersionRepositoryInterface {
+	return nil
+}
+
+func (m *MockServiceContainer) GetKeyRepository() repositories.KeyRepositoryInterface {
+	return nil
+}
+
+func (m *MockServiceContainer) GetCertificateRepository() repositories.CertificateRepositoryInterface {
+	return nil
+}
+
+func (m *MockServiceContainer) GetCertificatePolicyRepository() repositories.CertificatePolicyRepositoryInterface {
+	return nil
+}
+
+func (m *MockServiceContainer) GetSessionRepository() repositories.SessionRepositoryInterface {
+	return nil
+}
+
+func (m *MockServiceContainer) GetPasswordService() authServices.PasswordService {
+	return nil
+}
+
+func (m *MockServiceContainer) GetTOTPService() authServices.TOTPService {
+	return nil
+}
+
+func (m *MockServiceContainer) GetJWTService() authServices.JWTService {
+	return nil
+}
+
+func (m *MockServiceContainer) GetAuthenticationService() authServices.AuthenticationService {
+	args := m.Called()
+	if args.Get(0) == nil {
+		return nil
+	}
+	return args.Get(0).(authServices.AuthenticationService)
+}
+
+func (m *MockServiceContainer) GetRBACService() authzServices.RBACService {
+	args := m.Called()
+	if args.Get(0) == nil {
+		return nil
+	}
+	return args.Get(0).(authzServices.RBACService)
+}
+
+func (m *MockServiceContainer) GetAccessPolicyRepository() repositories.AccessPolicyRepositoryInterface {
+	return nil
+}
+
+func (m *MockServiceContainer) GetAccessPolicyService() authzServices.AccessPolicyService {
+	return nil
+}
+
+func (m *MockServiceContainer) GetOAuth2ClientRepository() repositories.OAuth2ClientRepositoryInterface {
+	return nil
+}
+
+func (m *MockServiceContainer) GetOAuth2Service() oauth2Services.OAuth2Service {
+	return nil
+}
+
+func (m *MockServiceContainer) GetUserService() userServices.UserService {
+	return nil
+}
+
+func (m *MockServiceContainer) GetSecretService() secretServices.SecretService {
+	return nil
+}
+
+func (m *MockServiceContainer) GetKeyService() keyServices.KeyService {
+	return nil
+}
+
+func (m *MockServiceContainer) GetCertificateService() certServices.CertificateService {
+	return nil
+}
+
+func (m *MockServiceContainer) GetCertificateRenewalService() certServices.CertificateRenewalService {
+	return nil
+}
+
+func (m *MockServiceContainer) GetCryptoService() keyServices.CryptoService {
+	return nil
+}
+
+func (m *MockServiceContainer) GetCryptographyService() secretServices.CryptographyService {
+	return nil
+}
+
+func (m *MockServiceContainer) GetVersioningService() secretServices.VersioningServiceInterface {
+	return nil
+}
+
+func (m *MockServiceContainer) GetTagService() secretServices.TagService {
+	return nil
+}
+
+func (m *MockServiceContainer) GetRotationService() secretServices.RotationServiceInterface {
+	return nil
+}
+
+func (m *MockServiceContainer) GetSchedulerService() secretServices.SchedulerServiceInterface {
+	return nil
+}
+
+func (m *MockServiceContainer) GetDatabase() *sql.DB {
+	return nil
+}
+
+func (m *MockServiceContainer) GetLogger() *logging.Logger {
+	return nil
+}
+
+func (m *MockServiceContainer) GetSecretCache() *cache.SecretCache {
+	return nil
+}
+
+func (m *MockServiceContainer) GetCacheConfig() *cache.CacheConfig {
+	return nil
+}
+
+func (m *MockServiceContainer) GetCachedSecretService() secretServices.SecretService {
+	return nil
+}
+
+func (m *MockServiceContainer) GetRetryService() retryServices.RetryService {
+	return nil
+}
+
+func (m *MockServiceContainer) GetSigningProvider() signing.SigningKeyProvider {
+	return nil
+}
+
+func (m *MockServiceContainer) GetItemBackupService() *backup.ItemBackupService {
+	return nil
+}
+
+func (m *MockServiceContainer) GetKeyProvider() crypto.KeyProvider {
+	return nil
+}
+
+func (m *MockServiceContainer) GetKeyCache() keycache.Cache {
+	return nil
+}
+
+func (m *MockServiceContainer) GetCryptoMetrics() metrics.CryptoMetrics {
+	return nil
+}
+
+// GetAuditService returns the audit write-path mock.
+func (m *MockServiceContainer) GetAuditService() auditSvc.AuditServiceInterface {
+	args := m.Called()
+	if args.Get(0) == nil {
+		return nil
+	}
+	return args.Get(0).(auditSvc.AuditServiceInterface)
+}
+
+// GetComplianceReportService returns the compliance report read-path mock.
+func (m *MockServiceContainer) GetComplianceReportService() auditSvc.ComplianceReportServiceInterface {
+	args := m.Called()
+	if args.Get(0) == nil {
+		return nil
+	}
+	return args.Get(0).(auditSvc.ComplianceReportServiceInterface)
+}
+
+func (m *MockServiceContainer) Close() error {
+	return nil
 }
 
 // --- Test data factories ---
