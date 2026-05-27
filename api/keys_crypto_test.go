@@ -51,6 +51,7 @@ import (
 	"rocketvault/internal/signing"
 	authServices "rocketvault/internal/services/auth"
 	authzServices "rocketvault/internal/services/authorization"
+	auditServices "rocketvault/internal/services/audit"
 	certServices "rocketvault/internal/services/certificates"
 	keyServices "rocketvault/internal/services/keys"
 	oauth2Services "rocketvault/internal/services/oauth2"
@@ -203,7 +204,13 @@ func (c *cryptoTestContainer) GetItemBackupService() *backup.ItemBackupService  
 func (c *cryptoTestContainer) GetKeyProvider() crypto.KeyProvider               { return nil }
 func (c *cryptoTestContainer) GetKeyCache() keycache.Cache                      { return nil }
 func (c *cryptoTestContainer) GetCryptoMetrics() metrics.CryptoMetrics          { return nil }
-func (c *cryptoTestContainer) Close() error                                     { return nil }
+func (c *cryptoTestContainer) GetAuditService() auditServices.AuditServiceInterface {
+	panic("unexpected call: GetAuditService")
+}
+func (c *cryptoTestContainer) GetComplianceReportService() auditServices.ComplianceReportServiceInterface {
+	panic("unexpected call: GetComplianceReportService")
+}
+func (c *cryptoTestContainer) Close() error { return nil }
 
 // --- helpers ---
 

@@ -4,6 +4,7 @@ package testutils
 import (
 	"context"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/sirupsen/logrus"
@@ -11,6 +12,8 @@ import (
 
 	"rocketvault/model"
 	"rocketvault/internal/logging"
+	"rocketvault/internal/repositories"
+	auditSvc "rocketvault/internal/services/audit"
 	authServices "rocketvault/internal/services/auth"
 	authzServices "rocketvault/internal/services/authorization"
 	secretServices "rocketvault/internal/services/secrets"
@@ -303,6 +306,79 @@ func (m *MockTagService) FindSecretsByTags(ctx context.Context, userID uuid.UUID
 		return nil, args.Error(1)
 	}
 	return args.Get(0).([]uuid.UUID), args.Error(1)
+}
+
+// --- MockAuditService ---
+
+// MockAuditService is a testify mock for auditSvc.AuditServiceInterface.
+type MockAuditService struct {
+	mock.Mock
+}
+
+func (m *MockAuditService) RecordEvent(ctx context.Context, event auditSvc.AuditEvent) error {
+	args := m.Called(ctx, event)
+	return args.Error(0)
+}
+
+func (m *MockAuditService) PersistAudit(userID, action, details string) error {
+	args := m.Called(userID, action, details)
+	return args.Error(0)
+}
+
+// --- MockComplianceReportService ---
+
+// MockComplianceReportService is a testify mock for auditSvc.ComplianceReportServiceInterface.
+type MockComplianceReportService struct {
+	mock.Mock
+}
+
+func (m *MockComplianceReportService) QueryLogs(ctx context.Context, filter repositories.AuditFilter) ([]repositories.AuditLog, int64, bool, error) {
+	args := m.Called(ctx, filter)
+	if args.Get(0) == nil {
+		return nil, args.Get(1).(int64), args.Bool(2), args.Error(3)
+	}
+	return args.Get(0).([]repositories.AuditLog), args.Get(1).(int64), args.Bool(2), args.Error(3)
+}
+
+func (m *MockComplianceReportService) GenerateSOC2Report(ctx context.Context, from, to time.Time) (*auditSvc.SOC2Report, error) {
+	args := m.Called(ctx, from, to)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).(*auditSvc.SOC2Report), args.Error(1)
+}
+
+func (m *MockComplianceReportService) GenerateSOC2CSV(ctx context.Context, from, to time.Time) (string, error) {
+	args := m.Called(ctx, from, to)
+	return args.String(0), args.Error(1)
+}
+
+func (m *MockComplianceReportService) GenerateGDPRReport(ctx context.Context, from, to time.Time, subjectID string) (*auditSvc.GDPRReport, error) {
+	args := m.Called(ctx, from, to, subjectID)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).(*auditSvc.GDPRReport), args.Error(1)
+}
+
+func (m *MockComplianceReportService) GenerateGDPRCSV(ctx context.Context, from, to time.Time, subjectID string) (string, error) {
+	args := m.Called(ctx, from, to, subjectID)
+	return args.String(0), args.Error(1)
+}
+
+func (m *MockComplianceReportService) PurgeExpiredLogs(ctx context.Context) (int64, error) {
+	args := m.Called(ctx)
+	return args.Get(0).(int64), args.Error(1)
+}
+
+func (m *MockComplianceReportService) GetRetentionDays(ctx context.Context) (int, error) {
+	args := m.Called(ctx)
+	return args.Int(0), args.Error(1)
+}
+
+func (m *MockComplianceReportService) SetRetentionDays(ctx context.Context, days int) error {
+	args := m.Called(ctx, days)
+	return args.Error(0)
 }
 
 // --- Test data factories ---

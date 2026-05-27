@@ -25,6 +25,7 @@ import (
 	"rocketvault/internal/signing"
 	authServices "rocketvault/internal/services/auth"
 	authzServices "rocketvault/internal/services/authorization"
+	auditServices "rocketvault/internal/services/audit"
 	certServices "rocketvault/internal/services/certificates"
 	keyServices "rocketvault/internal/services/keys"
 	oauth2Services "rocketvault/internal/services/oauth2"
@@ -186,6 +187,12 @@ func (m *mockServiceContainer) GetKeyCache() keycache.Cache {
 	return nil
 }
 func (m *mockServiceContainer) GetCryptoMetrics() metrics.CryptoMetrics {
+	return nil
+}
+func (m *mockServiceContainer) GetAuditService() auditServices.AuditServiceInterface {
+	return nil
+}
+func (m *mockServiceContainer) GetComplianceReportService() auditServices.ComplianceReportServiceInterface {
 	return nil
 }
 func (m *mockServiceContainer) Close() error {

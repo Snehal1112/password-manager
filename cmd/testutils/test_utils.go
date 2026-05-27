@@ -27,6 +27,7 @@ import (
 	retryServices "rocketvault/internal/services/retry"
 	secretServices "rocketvault/internal/services/secrets"
 	userServices "rocketvault/internal/services/users"
+	auditServices "rocketvault/internal/services/audit"
 	oauth2Services "rocketvault/internal/services/oauth2"
 )
 
@@ -296,6 +297,24 @@ func (m *MockServiceContainer) GetKeyCache() keycache.Cache {
 // GetCryptoMetrics returns nil — crypto metrics are not used in CLI tests.
 func (m *MockServiceContainer) GetCryptoMetrics() metrics.CryptoMetrics {
 	return nil
+}
+
+// GetAuditService returns the audit write-path mock.
+func (m *MockServiceContainer) GetAuditService() auditServices.AuditServiceInterface {
+	args := m.Called()
+	if args.Get(0) == nil {
+		return nil
+	}
+	return args.Get(0).(auditServices.AuditServiceInterface)
+}
+
+// GetComplianceReportService returns the compliance report read-path mock.
+func (m *MockServiceContainer) GetComplianceReportService() auditServices.ComplianceReportServiceInterface {
+	args := m.Called()
+	if args.Get(0) == nil {
+		return nil
+	}
+	return args.Get(0).(auditServices.ComplianceReportServiceInterface)
 }
 
 // Lifecycle management
