@@ -20,6 +20,7 @@ require (
 	github.com/boombuler/barcode v1.0.1-0.20190219062509-6c824513bacc // indirect
 	github.com/danieljoos/wincred v1.2.3 // indirect
 	github.com/godbus/dbus/v5 v5.2.2 // indirect
+	github.com/prometheus/client_golang v1.20.0 // indirect
 	github.com/stretchr/objx v0.5.2 // indirect
 	gopkg.in/natefinch/lumberjack.v2 v2.2.1 // indirect
 )
