@@ -85,6 +85,8 @@ Whether you need to secure application secrets, manage RSA/ECDSA keys, rotate cr
 - **Zero Code Duplication**: Eliminated through proper architectural patterns
 - **Pure Repository Pattern**: Data access layer with no business logic
 - **Performance Optimizations**: Connection pooling, strategic indexing (90%+ improvement)
+- **Key Crypto Cache**: In-process decrypted key cache eliminates DB + AES-GCM + PEM-parse overhead on hot crypto paths
+- **Prometheus Metrics**: `rocketvault_crypto_op_duration_seconds` histogram with `op`, `key_type`, and `cache_hit` labels for p50/p95/p99 observability
 - **Comprehensive Testing**: 50+ test cases with 94.9% service layer coverage
 - **Graceful Error Handling**: Automatic directory creation, fallback mechanisms, no crashes on config issues
 - **Retry System**: Exponential backoff with jitter, circuit breaker, and configurable policies
@@ -934,6 +936,12 @@ soft_delete:
   retention_days: 90
   purge_protection: true
 
+key_cache:
+  enabled: true
+  ttl: "60s"
+  max_entries: 500
+  cleanup_interval: "30s"
+
 rate_limit:
   default: 300   # requests/min per IP
   auth: 5        # requests/min per IP for login/refresh
@@ -991,6 +999,44 @@ For complete optimization guide, see:
 
 - [Database Optimization](.claude/database-optimization.md)
 - [Performance Monitoring Guide](docs/performance-tuning.md)
+
+#### Key Crypto Cache
+
+Every cryptographic operation (Sign, Verify, Encrypt, Decrypt, WrapKey, UnwrapKey) previously required a database read, an AES-GCM decrypt, and a PEM parse before the actual crypto work. Under load these three steps dominated p99 latency for software keys.
+
+RocketVault now maintains an in-process decrypted key cache. On a cache hit the database round-trip and AES-GCM decrypt are skipped entirely. The cache is automatically invalidated whenever a key is rotated, updated, or deleted, so authorization and revocation semantics are always preserved.
+
+Configure it in `.rocketvault.yaml`:
+
+```yaml
+key_cache:
+  enabled: true          # set false to disable (falls back to no-op)
+  ttl: "60s"             # how long a cached entry lives
+  max_entries: 500       # maximum number of keys held in memory
+  cleanup_interval: "30s"
+```
+
+HSM / PKCS#11 keys are never cached — the hardware token enforces isolation and the handle string is already cheap to access.
+
+#### Prometheus Metrics
+
+RocketVault exposes a Prometheus histogram for all key crypto operations:
+
+```
+rocketvault_crypto_op_duration_seconds
+```
+
+Labels:
+
+| Label | Values |
+|---|---|
+| `op` | `sign`, `verify`, `encrypt`, `decrypt`, `wrap_key`, `unwrap_key` |
+| `key_type` | `RSA`, `ECDSA`, `oct`, `pkcs11` |
+| `cache_hit` | `true`, `false` |
+
+Buckets (seconds): `0.001, 0.005, 0.010, 0.025, 0.050, 0.100, 0.250, 0.500`
+
+The `cache_hit` label makes it straightforward to compare p99 latency between cache hits and misses and validate the cache is working as expected.
 
 ## Contributing
 
@@ -1082,14 +1128,20 @@ For questions or issues:
 - [x] Signed releases — GPG-signed commits, tags, and release.sh bump script
 - [x] First public release — v0.1.0 with verified tag and draft GitHub Release
 
+*(May 2026 — continued)*
+
+- [x] In-process key crypto cache — eliminates DB + AES-GCM + PEM-parse overhead on hot sign/verify/encrypt/decrypt paths
+- [x] Prometheus histogram for key crypto operations — `rocketvault_crypto_op_duration_seconds` with `op`, `key_type`, `cache_hit` labels
+- [x] PKCS#11 PSS mechanism parameters — correct `CK_RSA_PKCS_PSS_PARAMS` for PS256/PS384/PS512 algorithms
+- [x] Race-free key material zeroing — `LoadAndDelete` pattern across all cache eviction paths
+
 ### Planned
 
 - [ ] Web-based administration interface
 - [ ] Kubernetes operator for automated deployment
 - [ ] Advanced audit and compliance reporting (SOC 2, GDPR)
 - [ ] Multi-region replication support
-- [ ] Redis caching layer for high-performance operations
-- [ ] Prometheus metrics and distributed tracing
+- [ ] Redis caching layer for distributed deployments
 - [ ] Enhanced CLI features with additional output formats
 
 ## Acknowledgments
@@ -1113,4 +1165,4 @@ Built with enterprise-grade architecture patterns:
 - Cobra framework for CLI
 - Testify for comprehensive testing
 
-**Status**: Production-Ready | **Architecture Grade**: A+ (97/100) | **Last Updated**: May 2026
+**Status**: Production-Ready | **Architecture Grade**: A+ (97/100) | **Last Updated**: May 2026 | **Version**: v4.0.0
