@@ -13,9 +13,10 @@ import (
 
 	"rocketvault/common"
 	"rocketvault/internal/crypto"
-	"rocketvault/model"
+	"rocketvault/internal/keycache"
 	"rocketvault/internal/logging"
 	"rocketvault/internal/repositories"
+	"rocketvault/model"
 )
 
 // CreateKeyRequest represents a request to create a new cryptographic key.
@@ -72,6 +73,7 @@ type KeyService interface {
 type keyService struct {
 	keyRepo     repositories.KeyRepositoryInterface
 	keyProvider crypto.KeyProvider
+	keyCache    keycache.Cache
 	logger      *logging.Logger
 }
 
@@ -79,7 +81,10 @@ type keyService struct {
 type KeyServiceConfig struct {
 	KeyRepository repositories.KeyRepositoryInterface
 	KeyProvider   crypto.KeyProvider
-	Logger        *logging.Logger
+	// KeyCache is optional. When nil, a NopCache is used and mutations still
+	// call Invalidate (which is a no-op on NopCache).
+	KeyCache keycache.Cache
+	Logger   *logging.Logger
 }
 
 // NewKeyService creates a new KeyService with the provided dependencies.
@@ -93,9 +98,13 @@ type KeyServiceConfig struct {
 //
 //	A KeyService implementation for key management operations.
 func NewKeyService(config KeyServiceConfig) KeyService {
+	if config.KeyCache == nil {
+		config.KeyCache = keycache.NewNopCache()
+	}
 	return &keyService{
 		keyRepo:     config.KeyRepository,
 		keyProvider: config.KeyProvider,
+		keyCache:    config.KeyCache,
 		logger:      config.Logger,
 	}
 }
@@ -445,6 +454,11 @@ func (s *keyService) UpdateKey(ctx context.Context, req UpdateKeyRequest) error 
 		return fmt.Errorf("failed to update key: %w", err)
 	}
 
+	// Evict stale cached material (covers revoke, disable, and expiry changes).
+	if s.keyCache != nil {
+		s.keyCache.Invalidate(updatedKey.ID)
+	}
+
 	s.logger.LogAuditInfo(req.UserID.String(), "update_key", "success", fmt.Sprintf("Key updated: %s", updatedKey.Name))
 	return nil
 }
@@ -470,6 +484,11 @@ func (s *keyService) DeleteKey(ctx context.Context, keyID, userID uuid.UUID) (*m
 	if err := s.keyRepo.SoftDelete(ctx, keyID); err != nil {
 		s.logger.LogAuditError(userID.String(), "delete_key", "failed", "Failed to soft-delete key", err)
 		return nil, fmt.Errorf("failed to delete key: %w", err)
+	}
+
+	// Evict stale cached material now that the key is deleted.
+	if s.keyCache != nil {
+		s.keyCache.Invalidate(keyID)
 	}
 
 	// Re-read the row so deleted_at is populated from the database.
@@ -571,6 +590,11 @@ func (s *keyService) RotateKey(ctx context.Context, keyID, userID uuid.UUID) (*C
 	existing.Value = encryptedNew
 	if err := s.keyRepo.Update(ctx, existing); err != nil {
 		return nil, fmt.Errorf("update key value: %w", err)
+	}
+
+	// Evict stale cached material now that the key has new material.
+	if s.keyCache != nil {
+		s.keyCache.Invalidate(keyID)
 	}
 
 	s.logger.LogAuditInfo(userID.String(), "rotate_key", "success",
