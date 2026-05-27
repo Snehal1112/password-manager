@@ -14,6 +14,8 @@ import (
 	"rocketvault/internal/backup"
 	"rocketvault/internal/cache"
 	"rocketvault/internal/crypto"
+	"rocketvault/internal/keycache"
+	"rocketvault/internal/metrics"
 	"rocketvault/model"
 	"rocketvault/internal/logging"
 	"rocketvault/internal/repositories"
@@ -283,6 +285,16 @@ func (m *MockServiceContainer) GetItemBackupService() *backup.ItemBackupService 
 
 // GetKeyProvider returns nil — key provider is not used in CLI tests.
 func (m *MockServiceContainer) GetKeyProvider() crypto.KeyProvider {
+	return nil
+}
+
+// GetKeyCache returns nil — key cache is not used in CLI tests.
+func (m *MockServiceContainer) GetKeyCache() keycache.Cache {
+	return nil
+}
+
+// GetCryptoMetrics returns nil — crypto metrics are not used in CLI tests.
+func (m *MockServiceContainer) GetCryptoMetrics() metrics.CryptoMetrics {
 	return nil
 }
 
