@@ -23,6 +23,7 @@ import (
 	"rocketvault/model"
 	"rocketvault/internal/logging"
 	authServices "rocketvault/internal/services/auth"
+	auditSvc "rocketvault/internal/services/audit"
 	authzServices "rocketvault/internal/services/authorization"
 )
 
@@ -48,6 +49,7 @@ type Container interface {
 	GetAuthenticationService() authServices.AuthenticationService
 	GetRBACService() authzServices.RBACService
 	GetAccessPolicyService() authzServices.AccessPolicyService
+	GetAuditService() auditSvc.AuditServiceInterface
 }
 
 // ipRateLimiter manages per-IP token-bucket limiters.
@@ -222,6 +224,22 @@ func (m *Middleware) RateLimitMiddleware(next http.Handler) http.Handler {
 	})
 }
 
+// extractClientIP returns the client's IP address, preferring X-Forwarded-For.
+func extractClientIP(r *http.Request) string {
+	if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
+		parts := strings.SplitN(xff, ",", 2)
+		return strings.TrimSpace(parts[0])
+	}
+	if xri := r.Header.Get("X-Real-IP"); xri != "" {
+		return xri
+	}
+	host, _, err := net.SplitHostPort(r.RemoteAddr)
+	if err != nil {
+		return r.RemoteAddr
+	}
+	return host
+}
+
 // AuthenticationMiddleware handles JWT token validation and user context.
 // It delegates authentication logic to the AuthenticationService.
 func (m *Middleware) AuthenticationMiddleware(next http.Handler) http.Handler {
@@ -272,7 +290,17 @@ func (m *Middleware) AuthenticationMiddleware(next http.Handler) http.Handler {
 		ctx = context.WithValue(ctx, common.UsernameKey, claims.Username)
 		ctx = context.WithValue(ctx, common.RoleKey, claims.Role)
 
-		m.logger.LogAuditInfo(claims.UserID.String(), "auth", "success", "Authentication successful")
+		if svc := m.container.GetAuditService(); svc != nil {
+			_ = svc.RecordEvent(r.Context(), auditSvc.AuditEvent{
+				UserID:    claims.UserID.String(),
+				Action:    "auth",
+				Outcome:   "success",
+				Source:    "api",
+				IPAddress: extractClientIP(r),
+			})
+		} else {
+			m.logger.LogAuditInfo(claims.UserID.String(), "auth", "success", "Authentication successful")
+		}
 		next.ServeHTTP(w, r.WithContext(ctx))
 	})
 }

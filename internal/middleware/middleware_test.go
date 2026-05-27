@@ -19,6 +19,7 @@ import (
 	"rocketvault/internal/logging"
 	"rocketvault/internal/repositories"
 	authServices "rocketvault/internal/services/auth"
+	auditSvc "rocketvault/internal/services/audit"
 	authzServices "rocketvault/internal/services/authorization"
 	oauth2Services "rocketvault/internal/services/oauth2"
 )
@@ -49,6 +50,10 @@ func (m *MockServiceContainer) GetAccessPolicyService() authzServices.AccessPoli
 		return nil
 	}
 	return args.Get(0).(authzServices.AccessPolicyService)
+}
+
+func (m *MockServiceContainer) GetAuditService() auditSvc.AuditServiceInterface {
+	return nil
 }
 
 func (m *MockServiceContainer) GetOAuth2ClientRepository() repositories.OAuth2ClientRepositoryInterface {
