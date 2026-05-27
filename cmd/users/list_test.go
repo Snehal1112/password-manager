@@ -2,6 +2,7 @@ package users
 
 import (
 	"bytes"
+	"context"
 	"fmt"
 	"testing"
 	"time"
@@ -10,6 +11,7 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
+	"github.com/stretchr/testify/require"
 
 	"rocketvault/cmd/testutils"
 	"rocketvault/common"
@@ -235,17 +237,15 @@ func TestListUsersOutputFormat(t *testing.T) {
 }
 
 func TestListUsersWithServiceUnavailable(t *testing.T) {
-	// Create test context
-	tc := testutils.NewTestContext(t)
+	// Context with no service container — listCmd must return an error.
+	ctx := context.WithValue(context.Background(), common.ClaimsKey, &model.Claims{
+		Role: model.RoleAdmin,
+	})
 
-	// Mock service container not available
-	testCmd := listCmd
-	testCmd.SetContext(tc.Ctx)
+	listCmd.SetContext(ctx)
+	listCmd.SetArgs([]string{})
 
-	// Remove service container from context to test error handling
-	ctxWithoutContainer := tc.Ctx
-	testCmd.SetContext(ctxWithoutContainer)
-
-	// This should be handled by the actual command implementation
-	// The test verifies error handling when service container is not available
+	err := listCmd.Execute()
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "service container not available")
 }

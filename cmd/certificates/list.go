@@ -6,7 +6,6 @@ package certificates
 
 import (
 	"fmt"
-	"os"
 	"strconv"
 	"strings"
 	"time"
@@ -69,7 +68,7 @@ var listCmd = &cobra.Command{
 				c.CreatedAt.Format(time.RFC3339),
 			}
 		}
-		return fmtr.Write(os.Stdout, headers, rows)
+		return fmtr.Write(cmd.OutOrStdout(), headers, rows)
 	},
 }
 

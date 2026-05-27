@@ -6,7 +6,6 @@ package certificates
 
 import (
 	"fmt"
-	"os"
 	"strings"
 	"time"
 
@@ -122,7 +121,7 @@ var createCmd = &cobra.Command{
 			result.Name,
 			result.CreatedAt.Format(time.RFC3339),
 		}
-		return fmtr.Write(os.Stdout, headers, [][]string{row})
+		return fmtr.Write(cmd.OutOrStdout(), headers, [][]string{row})
 	},
 }
 

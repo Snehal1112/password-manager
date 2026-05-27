@@ -24,7 +24,6 @@ package users
 
 import (
 	"fmt"
-	"os"
 	"time"
 
 	"github.com/spf13/cobra"
@@ -83,7 +82,7 @@ var listCmd = &cobra.Command{
 				u.CreatedAt.Format(time.RFC3339),
 			}
 		}
-		return fmtr.Write(os.Stdout, headers, rows)
+		return fmtr.Write(cmd.OutOrStdout(), headers, rows)
 	},
 }
 

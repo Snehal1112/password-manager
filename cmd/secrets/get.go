@@ -24,7 +24,6 @@ package secrets
 
 import (
 	"fmt"
-	"os"
 	"strconv"
 	"strings"
 	"time"
@@ -81,7 +80,7 @@ var getCmd = &cobra.Command{
 			formatOptionalTime(secret.NotBefore),
 			secret.CreatedAt.Format(time.RFC3339),
 		}
-		return fmtr.Write(os.Stdout, headers, [][]string{row})
+		return fmtr.Write(cmd.OutOrStdout(), headers, [][]string{row})
 	},
 }
 
