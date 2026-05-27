@@ -118,7 +118,7 @@ func openAuditTestDBFull(t *testing.T) *sql.DB {
 func TestAuditRepository_GetLastHash_EmptyTable(t *testing.T) {
 	db := openAuditTestDBFull(t)
 	repo := repositories.NewAuditRepository(db)
-	hash, err := repo.GetLastHash()
+	hash, err := repo.GetLastHash(context.Background())
 	require.NoError(t, err)
 	assert.Equal(t, "", hash)
 }
@@ -127,17 +127,17 @@ func TestAuditRepository_QueryAuditLogs_FilterByOutcome(t *testing.T) {
 	db := openAuditTestDBFull(t)
 	repo := repositories.NewAuditRepository(db)
 
-	_ = repo.InsertAuditLog(repositories.AuditLog{
+	require.NoError(t, repo.InsertAuditLog(context.Background(), repositories.AuditLog{
 		ID: uuid.New().String(), UserID: "u1", Action: "login",
 		Outcome: "success", Source: "api", Timestamp: time.Now().UTC(),
-	})
-	_ = repo.InsertAuditLog(repositories.AuditLog{
+	}))
+	require.NoError(t, repo.InsertAuditLog(context.Background(), repositories.AuditLog{
 		ID: uuid.New().String(), UserID: "u2", Action: "login",
 		Outcome: "failure", Source: "api", Timestamp: time.Now().UTC(),
-	})
+	}))
 
 	outcome := "success"
-	logs, total, err := repo.QueryAuditLogs(repositories.AuditFilter{Outcome: &outcome, Limit: 10})
+	logs, total, err := repo.QueryAuditLogs(context.Background(), repositories.AuditFilter{Outcome: &outcome, Limit: 10})
 	require.NoError(t, err)
 	assert.Equal(t, int64(1), total)
 	assert.Len(t, logs, 1)
@@ -150,17 +150,39 @@ func TestAuditRepository_DeleteBefore(t *testing.T) {
 
 	old := time.Now().UTC().Add(-48 * time.Hour)
 	recent := time.Now().UTC()
-	_ = repo.InsertAuditLog(repositories.AuditLog{
+	require.NoError(t, repo.InsertAuditLog(context.Background(), repositories.AuditLog{
 		ID: uuid.New().String(), UserID: "u1", Action: "old_action",
 		Timestamp: old,
-	})
-	_ = repo.InsertAuditLog(repositories.AuditLog{
+	}))
+	require.NoError(t, repo.InsertAuditLog(context.Background(), repositories.AuditLog{
 		ID: uuid.New().String(), UserID: "u1", Action: "recent_action",
 		Timestamp: recent,
-	})
+	}))
 
 	cutoff := time.Now().UTC().Add(-24 * time.Hour)
-	deleted, err := repo.DeleteBefore(cutoff)
+	deleted, err := repo.DeleteBefore(context.Background(), cutoff)
 	require.NoError(t, err)
 	assert.Equal(t, int64(1), deleted)
+}
+
+func TestAuditRepository_AuditConfig_RoundTrip(t *testing.T) {
+	db := openAuditTestDBFull(t)
+	repo := repositories.NewAuditRepository(db)
+
+	// Key that doesn't exist returns "".
+	val, err := repo.GetAuditConfig(context.Background(), "retention_days")
+	require.NoError(t, err)
+	assert.Equal(t, "", val)
+
+	// Set then get.
+	require.NoError(t, repo.SetAuditConfig(context.Background(), "retention_days", "90"))
+	val, err = repo.GetAuditConfig(context.Background(), "retention_days")
+	require.NoError(t, err)
+	assert.Equal(t, "90", val)
+
+	// Upsert (set same key again).
+	require.NoError(t, repo.SetAuditConfig(context.Background(), "retention_days", "180"))
+	val, err = repo.GetAuditConfig(context.Background(), "retention_days")
+	require.NoError(t, err)
+	assert.Equal(t, "180", val)
 }

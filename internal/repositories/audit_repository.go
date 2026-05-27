@@ -1,7 +1,9 @@
 package repositories
 
 import (
+	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -35,8 +37,7 @@ type AuditFilter struct {
 	ResourceType *string
 	ResourceID   *string
 	Source       *string
-	Limit        int    // 0 defaults to 100; max 1000
-	Cursor       string // opaque: last seen timestamp|id
+	Limit        int // 0 defaults to 100; max 1000
 }
 
 // AuditRepositoryInterface is the contract for persisting audit log records.
@@ -49,12 +50,12 @@ type AuditRepositoryInterface interface {
 // by the audit service layer.
 type AuditRepositoryExtended interface {
 	AuditRepositoryInterface
-	InsertAuditLog(log AuditLog) error
-	GetLastHash() (string, error)
-	QueryAuditLogs(filter AuditFilter) ([]AuditLog, int64, error)
-	DeleteBefore(cutoff time.Time) (int64, error)
-	GetAuditConfig(key string) (string, error)
-	SetAuditConfig(key, value string) error
+	InsertAuditLog(ctx context.Context, entry AuditLog) error
+	GetLastHash(ctx context.Context) (string, error)
+	QueryAuditLogs(ctx context.Context, filter AuditFilter) ([]AuditLog, int64, error)
+	DeleteBefore(ctx context.Context, cutoff time.Time) (int64, error)
+	GetAuditConfig(ctx context.Context, key string) (string, error)
+	SetAuditConfig(ctx context.Context, key, value string) error
 }
 
 // AuditRepository writes and reads audit records from the audit_logs table.
@@ -82,34 +83,36 @@ func (r *AuditRepository) PersistAudit(userID, action, details string) error {
 }
 
 // InsertAuditLog inserts a fully-populated AuditLog row.
-func (r *AuditRepository) InsertAuditLog(log AuditLog) error {
-	if log.ID == "" {
-		log.ID = uuid.New().String()
+func (r *AuditRepository) InsertAuditLog(ctx context.Context, entry AuditLog) error {
+	if entry.ID == "" {
+		entry.ID = uuid.New().String()
 	}
-	if log.Timestamp.IsZero() {
-		log.Timestamp = time.Now().UTC()
+	if entry.Timestamp.IsZero() {
+		entry.Timestamp = time.Now().UTC()
 	}
-	_, err := r.db.Exec(
+	_, err := r.db.ExecContext(
+		ctx,
 		`INSERT INTO audit_logs
 			(id, user_id, action, details, timestamp,
 			 resource_type, resource_id, ip_address, outcome, source, prev_hash)
 		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		log.ID, log.UserID, log.Action, log.Details, log.Timestamp,
-		nullableString(log.ResourceType), nullableString(log.ResourceID),
-		nullableString(log.IPAddress), nullableString(log.Outcome),
-		nullableString(log.Source), nullableString(log.PrevHash),
+		entry.ID, entry.UserID, entry.Action, entry.Details, entry.Timestamp,
+		nullableString(entry.ResourceType), nullableString(entry.ResourceID),
+		nullableString(entry.IPAddress), nullableString(entry.Outcome),
+		nullableString(entry.Source), nullableString(entry.PrevHash),
 	)
 	return err
 }
 
 // GetLastHash returns the prev_hash of the most recently inserted row,
 // or "" if the table is empty.
-func (r *AuditRepository) GetLastHash() (string, error) {
+func (r *AuditRepository) GetLastHash(ctx context.Context) (string, error) {
 	var hash sql.NullString
-	err := r.db.QueryRow(
+	err := r.db.QueryRowContext(
+		ctx,
 		`SELECT prev_hash FROM audit_logs ORDER BY timestamp DESC, id DESC LIMIT 1`,
 	).Scan(&hash)
-	if err == sql.ErrNoRows {
+	if errors.Is(err, sql.ErrNoRows) {
 		return "", nil
 	}
 	if err != nil {
@@ -119,9 +122,8 @@ func (r *AuditRepository) GetLastHash() (string, error) {
 }
 
 // QueryAuditLogs returns audit log rows matching filter, along with the total
-// count of matching rows (before limit). Cursor-based pagination uses
-// "timestamp|id" encoded as a plain string.
-func (r *AuditRepository) QueryAuditLogs(filter AuditFilter) ([]AuditLog, int64, error) {
+// count of matching rows (before limit).
+func (r *AuditRepository) QueryAuditLogs(ctx context.Context, filter AuditFilter) ([]AuditLog, int64, error) {
 	limit := filter.Limit
 	if limit <= 0 {
 		limit = 100
@@ -135,18 +137,18 @@ func (r *AuditRepository) QueryAuditLogs(filter AuditFilter) ([]AuditLog, int64,
 	// Count total matching rows.
 	var total int64
 	countSQL := "SELECT COUNT(*) FROM audit_logs" + where
-	if err := r.db.QueryRow(countSQL, args...).Scan(&total); err != nil {
+	if err := r.db.QueryRowContext(ctx, countSQL, args...).Scan(&total); err != nil {
 		return nil, 0, fmt.Errorf("audit count query: %w", err)
 	}
 
-	// Fetch page.
+	// Fetch page using a separate args slice to avoid mutating the count args.
 	querySQL := `SELECT id, user_id, action, details, timestamp,
 					resource_type, resource_id, ip_address, outcome, source, prev_hash
 				 FROM audit_logs` + where +
 		` ORDER BY timestamp DESC, id DESC LIMIT ?`
-	args = append(args, limit)
+	queryArgs := append(args, limit)
 
-	rows, err := r.db.Query(querySQL, args...)
+	rows, err := r.db.QueryContext(ctx, querySQL, queryArgs...)
 	if err != nil {
 		return nil, 0, fmt.Errorf("audit log query: %w", err)
 	}
@@ -176,8 +178,9 @@ func (r *AuditRepository) QueryAuditLogs(filter AuditFilter) ([]AuditLog, int64,
 
 // DeleteBefore deletes all audit_logs rows with timestamp < cutoff.
 // Returns the number of deleted rows.
-func (r *AuditRepository) DeleteBefore(cutoff time.Time) (int64, error) {
-	result, err := r.db.Exec(
+func (r *AuditRepository) DeleteBefore(ctx context.Context, cutoff time.Time) (int64, error) {
+	result, err := r.db.ExecContext(
+		ctx,
 		`DELETE FROM audit_logs WHERE timestamp < ?`, cutoff,
 	)
 	if err != nil {
@@ -188,18 +191,19 @@ func (r *AuditRepository) DeleteBefore(cutoff time.Time) (int64, error) {
 
 // GetAuditConfig reads a value from audit_config by key.
 // Returns "" and no error if the key does not exist.
-func (r *AuditRepository) GetAuditConfig(key string) (string, error) {
+func (r *AuditRepository) GetAuditConfig(ctx context.Context, key string) (string, error) {
 	var value sql.NullString
-	err := r.db.QueryRow(`SELECT value FROM audit_config WHERE key = ?`, key).Scan(&value)
-	if err == sql.ErrNoRows {
+	err := r.db.QueryRowContext(ctx, `SELECT value FROM audit_config WHERE key = ?`, key).Scan(&value)
+	if errors.Is(err, sql.ErrNoRows) {
 		return "", nil
 	}
 	return value.String, err
 }
 
 // SetAuditConfig upserts a key/value pair in audit_config.
-func (r *AuditRepository) SetAuditConfig(key, value string) error {
-	_, err := r.db.Exec(
+func (r *AuditRepository) SetAuditConfig(ctx context.Context, key, value string) error {
+	_, err := r.db.ExecContext(
+		ctx,
 		`INSERT INTO audit_config (key, value) VALUES (?, ?)
 		 ON CONFLICT(key) DO UPDATE SET value = excluded.value`,
 		key, value,
