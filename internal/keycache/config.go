@@ -4,10 +4,10 @@ import "time"
 
 // KeyCacheConfig controls the in-process key cache behaviour.
 type KeyCacheConfig struct {
-	Enabled         bool
-	TTL             time.Duration
-	MaxEntries      int
-	CleanupInterval time.Duration
+	Enabled         bool          `yaml:"enabled" json:"enabled"`
+	TTL             time.Duration `yaml:"ttl" json:"ttl"`
+	MaxEntries      int           `yaml:"max_entries" json:"max_entries"`
+	CleanupInterval time.Duration `yaml:"cleanup_interval" json:"cleanup_interval"`
 }
 
 // DefaultKeyCacheConfig returns production-suitable defaults.
