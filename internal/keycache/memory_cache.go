@@ -40,10 +40,13 @@ func (c *memoryCache) Get(keyID uuid.UUID, version int) (*Entry, bool) {
 	}
 	e := v.(*Entry)
 	if time.Now().After(e.ExpiresAt) {
-		// Zero private key material before deletion to reduce in-memory exposure window.
-		e.PrivateKey = nil
-		e.PublicKey = nil
-		c.entries.Delete(k)
+		if val, loaded := c.entries.LoadAndDelete(k); loaded {
+			// Zero private key material after atomic removal to reduce in-memory exposure window.
+			if expired, ok := val.(*Entry); ok {
+				expired.PrivateKey = nil
+				expired.PublicKey = nil
+			}
+		}
 		return nil, false
 	}
 	return e, true
@@ -62,7 +65,15 @@ func (c *memoryCache) Invalidate(keyID uuid.UUID) {
 	c.entries.Range(func(k, _ any) bool {
 		if key, ok := k.(string); ok {
 			if len(key) > len(prefix) && key[:len(prefix)] == prefix {
-				c.entries.Delete(k)
+				// LoadAndDelete atomically removes the entry; zero after removal so
+				// the write is exclusive (no other goroutine holds a reference via
+				// the map at this point).
+				if v, loaded := c.entries.LoadAndDelete(k); loaded {
+					if e, ok := v.(*Entry); ok {
+						e.PrivateKey = nil
+						e.PublicKey = nil
+					}
+				}
 			}
 		}
 		return true
@@ -71,13 +82,14 @@ func (c *memoryCache) Invalidate(keyID uuid.UUID) {
 
 // InvalidateAll removes every entry.
 func (c *memoryCache) InvalidateAll() {
-	c.entries.Range(func(k, v any) bool {
-		// Zero private key material before deletion to reduce in-memory exposure window.
-		if e, ok := v.(*Entry); ok {
-			e.PrivateKey = nil
-			e.PublicKey = nil
+	c.entries.Range(func(k, _ any) bool {
+		if v, loaded := c.entries.LoadAndDelete(k); loaded {
+			// Zero private key material after atomic removal to reduce in-memory exposure window.
+			if e, ok := v.(*Entry); ok {
+				e.PrivateKey = nil
+				e.PublicKey = nil
+			}
 		}
-		c.entries.Delete(k)
 		return true
 	})
 }
@@ -114,10 +126,13 @@ func (c *memoryCache) sweep() {
 			now := time.Now()
 			c.entries.Range(func(k, v any) bool {
 				if e, ok := v.(*Entry); ok && now.After(e.ExpiresAt) {
-					// Zero private key material before deletion to reduce in-memory exposure window.
-					e.PrivateKey = nil
-					e.PublicKey = nil
-					c.entries.Delete(k)
+					if val, loaded := c.entries.LoadAndDelete(k); loaded {
+						// Zero private key material after atomic removal to reduce in-memory exposure window.
+						if expired, ok := val.(*Entry); ok {
+							expired.PrivateKey = nil
+							expired.PublicKey = nil
+						}
+					}
 				}
 				return true
 			})
