@@ -466,6 +466,21 @@ All commands require authentication with username, password, and TOTP code:
 ./rocketvault --username <username> --password <password> --totp-code <code> <command>
 ```
 
+### Output Formats
+
+All list and get commands support a global `--output` flag:
+
+```bash
+# Default human-readable table
+./rocketvault --username admin --password admin123 --totp-code <code> secrets list
+
+# JSON (suitable for scripting / jq)
+./rocketvault --username admin --password admin123 --totp-code <code> --output json secrets list
+
+# YAML
+./rocketvault --username admin --password admin123 --totp-code <code> --output yaml keys list
+```
+
 ### User Management
 
 ```bash
@@ -1142,7 +1157,7 @@ For questions or issues:
 - [ ] Advanced audit and compliance reporting (SOC 2, GDPR)
 - [ ] Multi-region replication support
 - [ ] Redis caching layer for distributed deployments
-- [ ] Enhanced CLI features with additional output formats
+- [x] Enhanced CLI output formats — `--output table|json|yaml` global flag across all commands
 
 ## Acknowledgments
 
