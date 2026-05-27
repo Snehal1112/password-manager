@@ -2,7 +2,11 @@
 
 ## Project Overview
 
-**Type**: Go-based password manager with Azure Key Vault-like functionality
+**RocketVault** is a self-hosted, open-source alternative to [Microsoft Azure Key Vault](https://azure.microsoft.com/en-us/products/key-vault), built entirely in **Go**. It is a single-vault system that brings virtually all the capabilities of Azure Key Vault — secrets management, cryptographic key operations, and X.509 certificate lifecycle management — to your own infrastructure, with no cloud dependency required.
+
+Whether you need to secure application secrets, manage RSA/ECDSA keys, rotate credentials automatically, or issue and renew TLS certificates, RocketVault provides a familiar, Azure Key Vault-compatible workflow through both a **REST API** and a full-featured **CLI**, making it easy to integrate into any environment or automation pipeline.
+
+**Type**: Self-hosted Azure Key Vault alternative built in Go
 **Architecture**: Domain-driven design with clean architecture and complete dependency injection
 **Status**: Production-ready with enterprise-grade performance optimizations
 **Grade**: A+ (97/100) - Perfect architecture with type-safe interfaces and comprehensive test coverage

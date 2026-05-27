@@ -1,8 +1,8 @@
 # RocketVault Azure Key Vault Parity Audit
 
 **Date:** 2026-05-23
-**Status:** Updated 2026-05-26 to reflect commits since `8a5d1a3`
-**Audit target:** branch `v-4.0.0` at commit `8a5d1a3` (original); updated through `26dbc49`
+**Status:** Updated 2026-05-27 to reflect commits since `8a5d1a3`
+**Audit target:** branch `v-4.0.0` at commit `8a5d1a3` (original); updated through `c0c3c05`
 **Reference:** Microsoft Azure Key Vault REST API v7.4, documentation as of 2026-05-23
 **Auditor:** Subagent-driven research across nine scope areas
 
@@ -51,8 +51,8 @@
 
 | Azure feature | Azure behavior / limit | RocketVault status | Evidence | Test evidence | Notes / gaps |
 |---|---|---|---|---|---|
-| CreateKey RSA | kty=RSA, size 2048/3072/4096 | partial | `api/keys.go:144,177-186`, `internal/crypto/key_crypto.go:25-40` | `cmd/keys/service_test.go:81` | Only 2048 and 4096 accepted; 3072 rejected. No `key_ops`, no `release_policy`. |
-| CreateKey EC | kty=EC, crv P-256/P-384/P-521/P-256K | partial | `api/keys.go:187-198`, `key_crypto.go:50-83` | `service_test.go:81` | **Fixed**: P-256K (secp256k1) added (`feat(crypto): add ES256K`). No attributes/key_ops/release_policy. |
+| CreateKey RSA | kty=RSA, size 2048/3072/4096 | partial | `api/keys.go:144,177-186`, `internal/crypto/key_crypto.go:25-40`, `internal/crypto/provider.go`, `internal/crypto/software_provider.go` | `cmd/keys/service_test.go:81` | Only 2048 and 4096 accepted; 3072 rejected. No `key_ops`, no `release_policy`. **KeyProvider abstraction**: RSA generation routed through `KeyProvider.GenerateRSAKey`; HSM path uses PKCS#11 `CKM_RSA_PKCS_KEY_PAIR_GEN`. |
+| CreateKey EC | kty=EC, crv P-256/P-384/P-521/P-256K | partial | `api/keys.go:187-198`, `key_crypto.go:50-83`, `internal/crypto/software_provider.go`, `internal/crypto/pkcs11_provider.go:170-214` | `service_test.go:81`, `internal/crypto/software_provider_test.go` | **Fixed**: P-256K (secp256k1) added (`feat(crypto): add ES256K`). No attributes/key_ops/release_policy. **HSM note**: PKCS#11 provider intentionally excludes P-256K (secp256k1 not supported by most HSM tokens); P-256/P-384/P-521 work on HSM. |
 | CreateKey oct (symmetric) | kty=oct, k bytes, key_size | missing | none in `model/key.go:27-29` | none | AES-GCM crypto exists internally but no vault-managed `oct` keys. |
 | ImportKey | `PUT /keys/{name}` JWK body | missing | none | none | No import endpoint or JWK ingestion path. |
 | GetKey | `GET /keys/{name}/{version}`; JWK public + attributes | partial | `api/keys.go:109,281-343` | `service_test.go:81` | UUID-addressed; response omits JWK public material (`n`/`e`/`x`/`y`). |
@@ -68,14 +68,14 @@
 | RotateKey | `POST /keys/{name}/rotate`; new version, same name | partial | `api/keys.go:114`, `key_service.go:RotateKey` | `service_test.go:398` | **Fixed**: true versioning — creates row in `key_versions`, preserves key identity and original key size/curve. UUID-addressed. |
 | GetKeyRotationPolicy | `GET /keys/{name}/rotationpolicy` | missing | `rotation_policies` table is secrets-only | none | Whole feature absent for keys. |
 | UpdateKeyRotationPolicy | `PUT /keys/{name}/rotationpolicy` | missing | none | none | Same. |
-| Sign RS256/RS384/RS512 | `POST /keys/{name}/{version}/sign` | partial | `api/keys.go:186`, `crypto_service.go:Sign` | `crypto_operations_test.go` | **Fixed**: HTTP route `POST /keys/{id}/sign` added. UUID-addressed; AKV expects name+version. |
-| Sign PS256/PS384/PS512 | RSA-PSS | partial | `crypto_operations.go:AlgorithmPS256/PS384/PS512` | `crypto_operations_test.go` | **Fixed**: RSA-PSS algorithms implemented and exposed via HTTP route. |
-| Sign ES256/ES384/ES512 | ECDSA | partial | `crypto_operations.go`, `api/keys.go:187` | `crypto_operations_test.go` | **Fixed**: HTTP route added. ES256K supported. |
-| Sign HS256/HS384/HS512 | HMAC | partial | `crypto_operations.go:AlgorithmHS256/HS384/HS512`, `model/key.go:KeyTypeOct` | `crypto_operations_test.go` | **Fixed**: HMAC algorithms and `oct` key type added. HTTP route via sign endpoint. |
-| Verify (all algorithms) | `POST /keys/{name}/{ver}/verify` | partial | `api/keys.go:187`, `crypto_service.go:Verify` | `crypto_operations_test.go` | **Fixed**: HTTP route `POST /keys/{id}/verify` added. Revoked-key guard enforced. |
-| Encrypt RSA-OAEP | SHA-1 MGF1 | partial | `crypto_operations.go:AlgorithmRSAOAEP`, `api/keys.go:188` | `crypto_operations_test.go` | **Fixed**: `RSA-OAEP` constant now correctly uses SHA-1. Split from `RSA-OAEP-256`. HTTP route added. |
-| Encrypt RSA-OAEP-256 | SHA-256 MGF1 | partial | `crypto_operations.go:AlgorithmRSAOAEP256`, `api/keys.go:188` | `crypto_operations_test.go` | **Fixed**: Separate constant with SHA-256. HTTP route added. |
-| Encrypt RSA1_5 | RSAES-PKCS1-v1_5 | partial | `crypto_operations.go:AlgorithmRSA1_5` | `crypto_operations_test.go` | **Fixed**: RSA1_5 implemented. Exposed via encrypt/decrypt HTTP routes. |
+| Sign RS256/RS384/RS512 | `POST /keys/{name}/{version}/sign` | partial | `api/keys.go:186`, `crypto_service.go:Sign`, `internal/crypto/pkcs11_provider.go:287` (`CKM_SHA256/384/512_RSA_PKCS`) | `crypto_operations_test.go`, `internal/crypto/software_provider_test.go` | **Fixed**: HTTP route `POST /keys/{id}/sign` added. UUID-addressed; AKV expects name+version. **HSM**: signs via PKCS#11 `CKM_SHA*_RSA_PKCS` on hardware token. |
+| Sign PS256/PS384/PS512 | RSA-PSS | partial | `crypto_operations.go:AlgorithmPS256/PS384/PS512`, `internal/crypto/pkcs11_provider.go:276-278` (`CKM_SHA*_RSA_PKCS_PSS`) | `crypto_operations_test.go` | **Fixed**: RSA-PSS algorithms implemented and exposed via HTTP route. **HSM**: PSS variants routed via PKCS#11 `CKM_SHA*_RSA_PKCS_PSS`. |
+| Sign ES256/ES384/ES512 | ECDSA | partial | `crypto_operations.go`, `api/keys.go:187`, `internal/crypto/pkcs11_provider.go:281-283` (`CKM_ECDSA` + pre-hash) | `crypto_operations_test.go` | **Fixed**: HTTP route added. ES256K supported (software only). **HSM**: ECDSA uses `CKM_ECDSA` with Go-side pre-hashing; P-256K excluded on HSM path. |
+| Sign HS256/HS384/HS512 | HMAC | partial | `crypto_operations.go:AlgorithmHS256/HS384/HS512`, `model/key.go:KeyTypeOct` | `crypto_operations_test.go` | **Fixed**: HMAC algorithms and `oct` key type added. HTTP route via sign endpoint. **HSM**: HMAC is software-only; PKCS#11 provider does not implement symmetric key signing. |
+| Verify (all algorithms) | `POST /keys/{name}/{ver}/verify` | partial | `api/keys.go:187`, `crypto_service.go:Verify`, `internal/crypto/pkcs11_provider.go:328` | `crypto_operations_test.go` | **Fixed**: HTTP route `POST /keys/{id}/verify` added. Revoked-key guard enforced. **HSM**: RSA and ECDSA verify routed through PKCS#11 `CKM_*` verify mechanisms. |
+| Encrypt RSA-OAEP | SHA-1 MGF1 | partial | `crypto_operations.go:AlgorithmRSAOAEP`, `api/keys.go:188`, `internal/crypto/pkcs11_provider.go:447-451` (`CKM_SHA_1`/`CKG_MGF1_SHA1`) | `crypto_operations_test.go` | **Fixed**: `RSA-OAEP` constant now correctly uses SHA-1. Split from `RSA-OAEP-256`. HTTP route added. **HSM**: RSA-OAEP encrypt/decrypt via `CKM_RSA_PKCS_OAEP` with SHA-1 params. |
+| Encrypt RSA-OAEP-256 | SHA-256 MGF1 | partial | `crypto_operations.go:AlgorithmRSAOAEP256`, `api/keys.go:188`, `internal/crypto/pkcs11_provider.go:452` (`CKM_SHA256`/`CKG_MGF1_SHA256`) | `crypto_operations_test.go` | **Fixed**: Separate constant with SHA-256. HTTP route added. **HSM**: RSA-OAEP-256 routed via PKCS#11 OAEP params with SHA-256. |
+| Encrypt RSA1_5 | RSAES-PKCS1-v1_5 | partial | `crypto_operations.go:AlgorithmRSA1_5` | `crypto_operations_test.go` | **Fixed**: RSA1_5 implemented. Exposed via encrypt/decrypt HTTP routes. Software-only; PKCS#11 provider does not implement RSA1_5 (intentional — deprecated). |
 | Encrypt A128GCM/A192GCM | AES-GCM with 128/192-bit keys | missing | only A256GCM | `crypto_operations_test.go` | Still only A256-GCM. |
 | Encrypt A128KW/A192KW/A256KW | AES Key Wrap | partial | `crypto_operations.go:AlgorithmA128KW/A192KW/A256KW` | `crypto_operations_test.go` | **Fixed**: AES Key Wrap (RFC 3394) for all three key sizes implemented. |
 | Encrypt A128CBC/A192CBC/A256CBC | AES-CBC + variants | partial | `crypto_operations.go:AlgorithmA128CBC/A192CBC/A256CBC` | `crypto_operations_test.go` | **Fixed**: AES-CBC with PKCS7 padding for all three key sizes implemented. |
@@ -89,7 +89,7 @@
 | Key attributes: updated | Last-updated timestamp | missing | `key_repository.go:215` UPDATE doesn't set `updated_at` | none | — |
 | key_ops per key | sign/verify/encrypt/decrypt/wrap/unwrap/import/export allowlist | missing | not modelled | none | All ops permitted on any non-revoked key. |
 | Key identifier (kid) URL | `{vaultUrl}/keys/{name}/{version}` | missing | UUID `id` only | none | Not name+version addressable. |
-| HSM key types | RSA-HSM, EC-HSM, oct-HSM | out of scope | none | none | Software-only by design. |
+| HSM key types | RSA-HSM, EC-HSM, oct-HSM | partial | `internal/crypto/provider.go` (`KeyProvider` interface), `internal/crypto/pkcs11_provider.go` (`PKCS11KeyProvider`), `internal/crypto/software_provider.go`, `internal/container/service_container.go:420-435` (provider selection via `hsm.enabled`) | `internal/crypto/software_provider_test.go`, `a250f53` (PKCS#11 integration tests with SoftHSM2 skip guard) | **New**: `KeyProvider` abstraction added. `hsm.enabled: true` in config selects `PKCS11KeyProvider` (real PKCS#11/SoftHSM2/hardware); `false` selects `SoftwareKeyProvider`. RSA-HSM and EC-HSM (P-256/P-384/P-521) fully routed. oct-HSM (symmetric) not supported on HSM path. Azure type names `RSA-HSM`/`EC-HSM` not exposed in API — key type remains `RSA`/`EC` regardless of backend. |
 
 ### Certificates
 
@@ -286,17 +286,17 @@
 | Category | Exact | Partial | Missing | Out of scope | Notes (as of 2026-05-26) |
 |---|---|---|---|---|---|
 | Secrets | 3 | 13 | 9 | — | Lifecycle attrs persisted and enforced; per-item backup/restore added; envelope gaps remain |
-| Keys | 1 | 21 | 12 | 1 | Sign/verify/encrypt/decrypt HTTP routes added; all major algorithms implemented; lifecycle attrs added; true versioning; HSM out of scope |
+| Keys | 1 | 22 | 12 | 0 | Sign/verify/encrypt/decrypt HTTP routes added; all major algorithms implemented; lifecycle attrs added; true versioning; **HSM backend added** via PKCS#11 KeyProvider abstraction (`hsm.enabled` config flag) |
 | Certificates | 1 | 15 | 16 | 1 | Auto-renew fixed; lifecycle attrs added; policy CRUD stub added; per-item backup/restore added |
 | Access control | 3 | 14 | 3 | 3 | Session revocation fixed; admin SA guard fixed; refresh rotation still missing |
 | Soft-delete | 3 | 9 | 3 | 1 | Purge protection overwrite fixed; SetPurgeProtection still no HTTP surface |
 | Networking | 3 | 5 | 2 | 4 | TLS config knob added; CORS bug fixed; firewall still missing |
-| Observability | 1 | 9 | 7 | 1 | Health handler wired; audit_logs table still unwritten |
+| Observability | 1 | 10 | 6 | 1 | Health handler wired; **audit_logs table now written** via `AuditPersister` wired in container (`a508411`) |
 | Backup/restore | 1 | 10 | 1 | — | Per-item backup/restore added for all three types; version history still single-version |
 | Limits/quotas/API | 7 | 8 | 10 | 1 | Validators wired; envelopes still incompatible |
-| **Total** | **23** | **104** | **63** | **12** | |
+| **Total** | **23** | **106** | **62** | **11** | |
 
-**Overall parity (2026-05-26):** approximately **63% partial-or-exact** of in-scope Azure data-plane behavior, up from 45% at the original audit. The security-critical findings and the medium-term parity gaps (crypto routes, lifecycle attributes, key versioning, per-item backup, certificate policy) have been addressed. Remaining gaps are primarily wire-format compatibility (envelopes, URL shape, error format) and lower-priority features.
+**Overall parity (2026-05-27):** approximately **64% partial-or-exact** of in-scope Azure data-plane behavior, up from 45% at the original audit. The HSM backend is now operational via PKCS#11 (moved from out-of-scope to partial), and the audit_logs DB table is now written. Remaining gaps are primarily wire-format compatibility (envelopes, URL shape, error format) and lower-priority features.
 
 ### Findings (ranked)
 
@@ -313,7 +313,7 @@
 | ~~**High**~~ ✅ | Keys | ~~Sign/Verify/Encrypt/Decrypt no HTTP routes~~ **FIXED** `58c0dcd` | — | `POST /keys/{id}/sign`, `/verify`, `/encrypt`, `/decrypt` registered. All PS*, ES256K, HS*, RSA1_5, AES-KW, AES-CBC algorithms implemented. |
 | **High** | API compatibility | `?api-version=7.4`, `{value,nextLink}` list envelope, `id` as vault URL, `{error:{code,message}}` error envelope — all missing | No Azure SDK can interoperate | Decide: clone Azure wire format or document as non-clone. Still open. |
 | ~~**High**~~ ✅ | Observability | ~~`HealthHandler` never registered; `/health/database` missing~~ **FIXED** `0e4552b` | — | `HealthHandler` wired in `InitHealth()`; `/health/database` route returns DB stats; 503 on warning/critical. |
-| **High** | Observability | `audit_logs` table created but never written to by any code path | DB audit trail empty | Wire `LogAuditInfo`/`LogAuditError` to also persist, or remove the table. Still open. |
+| ~~**High**~~ ✅ | Observability | ~~`audit_logs` table created but never written to by any code path~~ **FIXED** `a508411` | — | `AuditPersister` interface added to `Logger`; `AuditRepository` wired in container. Every `LogAuditInfo`/`LogAuditError` call now persists to DB. |
 | **Medium** | Soft-delete | `scheduled_purge_at` column exists but `SoftDelete` never writes it | Dead column | Drop or populate on delete. Still open. |
 | **Medium** | Secrets/Keys/Certs | Response envelopes lack `recoveryId`, `scheduledPurgeDate`, `attributes` block, `x5t`, `cer` | Client workflows fail | Tied to wire-format decision above. Still open. |
 | **Medium** | Access control | No refresh token rotation | Stolen refresh tokens reusable | Rotate on each `/refresh` call. Still open. |
@@ -351,7 +351,7 @@
 7. ~~Implement Certificate Policy CRUD stub.~~ **Done** `7582351`
 
 **Remaining open items (in priority order):**
-1. **High** — Wire `LogAuditInfo`/`LogAuditError` to also write `audit_logs` table, or drop the table.
+1. ~~**High** — Wire `LogAuditInfo`/`LogAuditError` to also write `audit_logs` table, or drop the table.~~ **Done** `a508411`
 2. **High** — Decide Azure wire-format strategy (name-based URLs, `{value,nextLink}` envelopes, error envelope). This is the single largest outstanding fork.
 3. **Medium** — Add `Retry-After` header on 429 responses.
 4. **Medium** — Expose `SetPurgeProtection` via HTTP/CLI.
@@ -364,7 +364,7 @@
 11. **Low** — Wire `RequestBodySizeLimitMiddleware` and `VersionMiddleware` or remove them.
 
 **Deferred / intentional exclusions:**
-- HSM-backed keys (RSA-HSM, EC-HSM, oct-HSM, Managed HSM).
+- HSM-backed keys (oct-HSM symmetric on HSM path; Azure Managed HSM). RSA-HSM and EC-HSM are now partially supported via PKCS#11 (`hsm.enabled` config). Azure `RSA-HSM`/`EC-HSM` key type names not yet exposed in the API response.
 - VNet service endpoints, Private Link, Trusted Services bypass, Network Security Perimeter.
 - Conditional Access, PIM, JIT.
 - Azure-Monitor-integrated metrics and SIEM forwarding (operator deploys their own agent).
