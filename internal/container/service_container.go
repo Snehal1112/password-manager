@@ -133,7 +133,7 @@ type ServiceContainer struct {
 	certificateRepository        repositories.CertificateRepositoryInterface
 	certPolicyRepository         repositories.CertificatePolicyRepositoryInterface
 	sessionRepository            repositories.SessionRepositoryInterface
-	auditRepository              repositories.AuditRepositoryInterface
+	auditRepository              repositories.AuditRepositoryExtended
 
 	// Authentication services
 	passwordService       authServices.PasswordService
