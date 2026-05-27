@@ -74,6 +74,27 @@ func TestComplianceReportService_SOC2CSV(t *testing.T) {
 	assert.True(t, strings.Contains(csv, "5"))
 }
 
+func TestComplianceReportService_QueryLogs_IntegrityCheck(t *testing.T) {
+	db := openTestDB(t)
+	repo := repositories.NewAuditRepository(db)
+	svc := auditSvc.NewAuditService(repo)
+	compSvc := auditSvc.NewComplianceReportService(repo)
+
+	// Record two events through AuditService to build a valid chain.
+	require.NoError(t, svc.RecordEvent(context.Background(), auditSvc.AuditEvent{
+		UserID: "u1", Action: "login", Outcome: "success", Source: "api",
+	}))
+	require.NoError(t, svc.RecordEvent(context.Background(), auditSvc.AuditEvent{
+		UserID: "u1", Action: "get_secret", Outcome: "success", Source: "api",
+	}))
+
+	from := time.Now().UTC().Add(-1 * time.Hour)
+	to := time.Now().UTC().Add(1 * time.Hour)
+	_, _, integrityOK, err := compSvc.QueryLogs(context.Background(), repositories.AuditFilter{From: &from, To: &to, Limit: 10})
+	require.NoError(t, err)
+	assert.True(t, integrityOK, "hash chain should be valid for events recorded by AuditService")
+}
+
 func TestComplianceReportService_PurgeExpiredLogs(t *testing.T) {
 	db := openTestDB(t)
 	repo := repositories.NewAuditRepository(db)

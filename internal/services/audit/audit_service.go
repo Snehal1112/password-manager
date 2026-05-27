@@ -5,6 +5,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"fmt"
+	"log"
 	"sync"
 	"time"
 
@@ -78,7 +79,8 @@ func (s *AuditService) RecordEvent(ctx context.Context, event AuditEvent) error 
 
 	if err := s.repo.InsertAuditLog(ctx, entry); err != nil {
 		// Audit failures must never block vault operations.
-		fmt.Printf("audit insert failed: %v\n", err)
+		// Use standard log to avoid circular dependency with the logging package.
+		log.Printf("audit insert failed: %v", err)
 	}
 	return nil
 }

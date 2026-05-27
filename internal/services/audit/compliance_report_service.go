@@ -230,13 +230,27 @@ func (s *ComplianceReportService) SetRetentionDays(ctx context.Context, days int
 	return s.repo.SetAuditConfig(ctx, "retention_days", strconv.Itoa(days))
 }
 
-// verifyChain checks for obvious hash-chain breaks in a newest-first log page.
-// Rows with empty prev_hash (pre-dating hash chaining) are skipped.
-// Returns false only if a row has a non-empty prev_hash but the chain is broken.
+// verifyChain walks logs (newest-first) and verifies the hash chain.
+// Returns false if a chain break is detected. Rows with empty PrevHash are skipped.
 func verifyChain(logs []repositories.AuditLog) bool {
-	for _, l := range logs {
-		if l.PrevHash == "" {
+	for i := 0; i < len(logs)-1; i++ {
+		newer := logs[i]
+		older := logs[i+1]
+		if newer.PrevHash == "" {
+			// Pre-dates hash chaining — skip.
 			continue
+		}
+		// newer.PrevHash should equal computeHash(older.PrevHash, newer.Timestamp, event from newer).
+		expected := computeHash(older.PrevHash, newer.Timestamp, AuditEvent{
+			UserID:       newer.UserID,
+			Action:       newer.Action,
+			Details:      newer.Details,
+			ResourceType: newer.ResourceType,
+			ResourceID:   newer.ResourceID,
+			Outcome:      newer.Outcome,
+		})
+		if newer.PrevHash != expected {
+			return false
 		}
 	}
 	return true
