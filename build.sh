@@ -142,7 +142,8 @@ run_lint() {
 
 run_tests() {
     log_info "Running tests..."
-    if go test -race -timeout 5m ./...; then
+    # -count=1 disables the test cache so every run re-executes all tests.
+    if go test -race -count=1 -timeout 5m ./...; then
         log_success "All tests passed."
     else
         log_error "Tests failed."
@@ -154,7 +155,8 @@ run_coverage() {
     log_info "Running tests with coverage..."
     mkdir -p "${COVERAGE_DIR}"
 
-    go test -race -timeout 5m \
+    # -count=1 disables the test cache; -coverprofile implies coverage instrumentation.
+    go test -race -count=1 -timeout 5m \
         -coverprofile="${COVERAGE_DIR}/coverage.out" \
         -covermode=atomic \
         ./...
