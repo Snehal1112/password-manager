@@ -266,21 +266,25 @@ type signMechanism struct {
 	preHash bool
 	// hashAlgo is used to pre-hash data for ECDSA (CKM_ECDSA takes raw digest).
 	hashAlgo SignatureAlgorithm
+	// mechParams holds required mechanism parameters (e.g. CK_RSA_PKCS_PSS_PARAMS
+	// for PSS mechanisms). nil means no params (PKCS#1 v1.5, ECDSA).
+	mechParams []byte
 }
 
 var signMechanisms = map[SignatureAlgorithm]signMechanism{
-	AlgorithmRS256: {p11.CKM_SHA256_RSA_PKCS, false, ""},
-	AlgorithmRS384: {p11.CKM_SHA384_RSA_PKCS, false, ""},
-	AlgorithmRS512: {p11.CKM_SHA512_RSA_PKCS, false, ""},
+	AlgorithmRS256: {p11.CKM_SHA256_RSA_PKCS, false, "", nil},
+	AlgorithmRS384: {p11.CKM_SHA384_RSA_PKCS, false, "", nil},
+	AlgorithmRS512: {p11.CKM_SHA512_RSA_PKCS, false, "", nil},
 
-	AlgorithmPS256: {p11.CKM_SHA256_RSA_PKCS_PSS, false, ""},
-	AlgorithmPS384: {p11.CKM_SHA384_RSA_PKCS_PSS, false, ""},
-	AlgorithmPS512: {p11.CKM_SHA512_RSA_PKCS_PSS, false, ""},
+	// PSS mechanisms require CK_RSA_PKCS_PSS_PARAMS; salt length = hash length.
+	AlgorithmPS256: {p11.CKM_SHA256_RSA_PKCS_PSS, false, "", p11.NewPSSParams(p11.CKM_SHA256, p11.CKG_MGF1_SHA256, 32)},
+	AlgorithmPS384: {p11.CKM_SHA384_RSA_PKCS_PSS, false, "", p11.NewPSSParams(p11.CKM_SHA384, p11.CKG_MGF1_SHA384, 48)},
+	AlgorithmPS512: {p11.CKM_SHA512_RSA_PKCS_PSS, false, "", p11.NewPSSParams(p11.CKM_SHA512, p11.CKG_MGF1_SHA512, 64)},
 
 	// CKM_ECDSA takes a pre-hashed digest; hash in Go before sending.
-	AlgorithmES256: {p11.CKM_ECDSA, true, AlgorithmES256},
-	AlgorithmES384: {p11.CKM_ECDSA, true, AlgorithmES384},
-	AlgorithmES512: {p11.CKM_ECDSA, true, AlgorithmES512},
+	AlgorithmES256: {p11.CKM_ECDSA, true, AlgorithmES256, nil},
+	AlgorithmES384: {p11.CKM_ECDSA, true, AlgorithmES384, nil},
+	AlgorithmES512: {p11.CKM_ECDSA, true, AlgorithmES512, nil},
 }
 
 // Sign signs data with the private key identified by handle (CKA_LABEL).
@@ -311,7 +315,7 @@ func (p *PKCS11KeyProvider) Sign(_ context.Context, handle string, _ string, dat
 		input = h.Sum(nil)
 	}
 
-	mech := []*p11.Mechanism{p11.NewMechanism(mechInfo.mech, nil)}
+	mech := []*p11.Mechanism{p11.NewMechanism(mechInfo.mech, mechInfo.mechParams)}
 	if err := p.ctx.SignInit(session, mech, privKey); err != nil {
 		return nil, fmt.Errorf("pkcs11 sign init: %w", err)
 	}
@@ -352,7 +356,7 @@ func (p *PKCS11KeyProvider) Verify(_ context.Context, handle string, _ string, d
 		input = h.Sum(nil)
 	}
 
-	mech := []*p11.Mechanism{p11.NewMechanism(mechInfo.mech, nil)}
+	mech := []*p11.Mechanism{p11.NewMechanism(mechInfo.mech, mechInfo.mechParams)}
 	if err := p.ctx.VerifyInit(session, mech, pubKey); err != nil {
 		return false, fmt.Errorf("pkcs11 verify init: %w", err)
 	}
