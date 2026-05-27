@@ -30,6 +30,7 @@ import (
 
 	"rocketvault/internal/repositories"
 	auditSvc "rocketvault/internal/services/audit"
+	"rocketvault/model"
 )
 
 // InitAudit registers the audit log and compliance-report routes.
@@ -62,6 +63,13 @@ func (c *Context) complianceSvc() auditSvc.ComplianceReportServiceInterface {
 // getAuditLogs handles GET /audit/logs.
 // It parses AuditFilter query params and returns a page of logs with an integrity flag.
 func getAuditLogs(c *Context, w http.ResponseWriter, r *http.Request) {
+	// Restrict to admin role.
+	role, ok := c.Claims["role"].(string)
+	if !ok || role != string(model.RoleAdmin) {
+		c.SetPermissionError("admin role required")
+		return
+	}
+
 	svc := c.complianceSvc()
 	if svc == nil {
 		return
@@ -80,12 +88,20 @@ func getAuditLogs(c *Context, w http.ResponseWriter, r *http.Request) {
 		"logs":         logs,
 		"total":        total,
 		"integrity_ok": integrityOK,
+		"next_cursor":  "",
 	})
 }
 
 // getSOC2Report handles GET /audit/reports/soc2.
 // Returns JSON by default; returns CSV when Accept: text/csv is set.
 func getSOC2Report(c *Context, w http.ResponseWriter, r *http.Request) {
+	// Restrict to admin role.
+	role, ok := c.Claims["role"].(string)
+	if !ok || role != string(model.RoleAdmin) {
+		c.SetPermissionError("admin role required")
+		return
+	}
+
 	svc := c.complianceSvc()
 	if svc == nil {
 		return
@@ -123,6 +139,13 @@ func getSOC2Report(c *Context, w http.ResponseWriter, r *http.Request) {
 // Requires the subject_id query parameter.
 // Returns JSON by default; returns CSV when Accept: text/csv is set.
 func getGDPRReport(c *Context, w http.ResponseWriter, r *http.Request) {
+	// Restrict to admin role.
+	role, ok := c.Claims["role"].(string)
+	if !ok || role != string(model.RoleAdmin) {
+		c.SetPermissionError("admin role required")
+		return
+	}
+
 	subjectID := r.URL.Query().Get("subject_id")
 	if subjectID == "" {
 		c.SetInvalidParam("subject_id")
@@ -164,6 +187,13 @@ func getGDPRReport(c *Context, w http.ResponseWriter, r *http.Request) {
 
 // getAuditConfig handles GET /audit/config and returns the current retention_days.
 func getAuditConfig(c *Context, w http.ResponseWriter, r *http.Request) {
+	// Restrict to admin role.
+	role, ok := c.Claims["role"].(string)
+	if !ok || role != string(model.RoleAdmin) {
+		c.SetPermissionError("admin role required")
+		return
+	}
+
 	svc := c.complianceSvc()
 	if svc == nil {
 		return
@@ -181,6 +211,13 @@ func getAuditConfig(c *Context, w http.ResponseWriter, r *http.Request) {
 
 // patchAuditConfig handles PATCH /audit/config and updates retention_days.
 func patchAuditConfig(c *Context, w http.ResponseWriter, r *http.Request) {
+	// Restrict to admin role.
+	role, ok := c.Claims["role"].(string)
+	if !ok || role != string(model.RoleAdmin) {
+		c.SetPermissionError("admin role required")
+		return
+	}
+
 	var body struct {
 		RetentionDays int `json:"retention_days"`
 	}

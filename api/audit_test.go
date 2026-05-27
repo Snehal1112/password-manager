@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	jwtv5 "github.com/golang-jwt/jwt/v5"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
@@ -16,7 +17,13 @@ import (
 	"rocketvault/internal/repositories"
 	auditSvc "rocketvault/internal/services/audit"
 	"rocketvault/internal/testutils"
+	"rocketvault/model"
 )
+
+// adminClaims returns a jwt.MapClaims with admin role set.
+func adminClaims() jwtv5.MapClaims {
+	return jwtv5.MapClaims{"role": string(model.RoleAdmin)}
+}
 
 // TestGetAuditLogs_Returns200 verifies that a valid query returns 200 with integrity_ok.
 func TestGetAuditLogs_Returns200(t *testing.T) {
@@ -30,7 +37,7 @@ func TestGetAuditLogs_Returns200(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	r := httptest.NewRequest(http.MethodGet, "/api/v1/audit/logs", nil)
-	c := &Context{App: &app.App{ServiceContainer: mockContainer}}
+	c := &Context{App: &app.App{ServiceContainer: mockContainer}, Claims: adminClaims()}
 
 	getAuditLogs(c, w, r)
 	if c.Err != nil {
@@ -54,7 +61,7 @@ func TestGetSOC2Report_Returns200(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	r := httptest.NewRequest(http.MethodGet, "/api/v1/audit/reports/soc2?from=2026-01-01T00:00:00Z&to=2026-12-31T23:59:59Z", nil)
-	c := &Context{App: &app.App{ServiceContainer: mockContainer}}
+	c := &Context{App: &app.App{ServiceContainer: mockContainer}, Claims: adminClaims()}
 
 	getSOC2Report(c, w, r)
 	if c.Err != nil {
@@ -73,7 +80,7 @@ func TestPatchAuditConfig_Returns200(t *testing.T) {
 	w := httptest.NewRecorder()
 	r := httptest.NewRequest(http.MethodPatch, "/api/v1/audit/config",
 		strings.NewReader(`{"retention_days":90}`))
-	c := &Context{App: &app.App{ServiceContainer: mockContainer}}
+	c := &Context{App: &app.App{ServiceContainer: mockContainer}, Claims: adminClaims()}
 
 	patchAuditConfig(c, w, r)
 	if c.Err != nil {
@@ -90,11 +97,33 @@ func TestGetGDPRReport_MissingSubjectID_Returns400(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	r := httptest.NewRequest(http.MethodGet, "/api/v1/audit/reports/gdpr?from=2026-01-01T00:00:00Z&to=2026-12-31T23:59:59Z", nil)
-	c := &Context{App: &app.App{ServiceContainer: mockContainer}}
+	c := &Context{App: &app.App{ServiceContainer: mockContainer}, Claims: adminClaims()}
 
 	getGDPRReport(c, w, r)
 	if c.Err != nil {
 		writeError(w, c)
 	}
 	assert.Equal(t, http.StatusBadRequest, w.Code)
+}
+
+// TestGetAuditConfig_Returns200 verifies that the config endpoint returns retention_days.
+func TestGetAuditConfig_Returns200(t *testing.T) {
+	mockCRS := &testutils.MockComplianceReportService{}
+	mockContainer := &testutils.MockServiceContainer{}
+	mockContainer.On("GetComplianceReportService").Return(mockCRS)
+	mockCRS.On("GetRetentionDays", mock.Anything).Return(365, nil)
+
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest(http.MethodGet, "/api/v1/audit/config", nil)
+	c := &Context{App: &app.App{ServiceContainer: mockContainer}, Claims: adminClaims()}
+
+	getAuditConfig(c, w, r)
+	if c.Err != nil {
+		writeError(w, c)
+	}
+	assert.Equal(t, http.StatusOK, w.Code)
+
+	var resp map[string]interface{}
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
+	assert.Equal(t, float64(365), resp["retention_days"])
 }
