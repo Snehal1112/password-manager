@@ -14,7 +14,9 @@ import (
 	"rocketvault/internal/backup"
 	"rocketvault/internal/cache"
 	"rocketvault/internal/crypto"
+	"rocketvault/internal/keycache"
 	"rocketvault/internal/logging"
+	"rocketvault/internal/metrics"
 	"rocketvault/internal/repositories"
 	"rocketvault/internal/signing"
 	authServices "rocketvault/internal/services/auth"
@@ -96,6 +98,10 @@ type ServiceContainerInterface interface {
 	// Key provider getter
 	GetKeyProvider() crypto.KeyProvider
 
+	// Key cache and metrics getters
+	GetKeyCache() keycache.Cache
+	GetCryptoMetrics() metrics.CryptoMetrics
+
 	// Lifecycle management
 	Close() error
 }
@@ -170,6 +176,11 @@ type ServiceContainer struct {
 
 	// Key provider (software or PKCS#11 HSM).
 	keyProvider crypto.KeyProvider
+
+	// Key cache for decrypted key material.
+	keyCache keycache.Cache
+	// Prometheus metrics for crypto operations.
+	cryptoMetrics metrics.CryptoMetrics
 }
 
 // Config holds configuration for the service container.
@@ -417,6 +428,30 @@ func (c *ServiceContainer) initializeServices() error {
 		c.secretService = retryEnabledSecretService
 	}
 
+	// Initialize key cache from configuration.
+	keyCacheConfig := keycache.DefaultKeyCacheConfig()
+	if viperCfg.IsSet("key_cache.enabled") {
+		keyCacheConfig.Enabled = viperCfg.GetBool("key_cache.enabled")
+	}
+	if viperCfg.IsSet("key_cache.ttl") {
+		keyCacheConfig.TTL = viperCfg.GetDuration("key_cache.ttl")
+	}
+	if viperCfg.IsSet("key_cache.max_entries") {
+		keyCacheConfig.MaxEntries = viperCfg.GetInt("key_cache.max_entries")
+	}
+	if viperCfg.IsSet("key_cache.cleanup_interval") {
+		keyCacheConfig.CleanupInterval = viperCfg.GetDuration("key_cache.cleanup_interval")
+	}
+
+	if keyCacheConfig.Enabled {
+		c.keyCache = keycache.NewMemoryCache(keyCacheConfig)
+	} else {
+		c.keyCache = keycache.NewNopCache()
+	}
+
+	// Initialize Prometheus metrics for crypto operations.
+	c.cryptoMetrics = metrics.NewDefaultPrometheusCryptoMetrics()
+
 	// Select key provider based on hsm.enabled config.
 	if viperCfg.GetBool("hsm.enabled") {
 		hsmCfg := crypto.PKCS11Config{
@@ -436,17 +471,20 @@ func (c *ServiceContainer) initializeServices() error {
 		c.logger.Info("Software key provider initialised (HSM disabled)")
 	}
 
-	// Initialize key service
+	// Initialize key service with cache for invalidation on mutations.
 	c.keyService = keyServices.NewKeyService(keyServices.KeyServiceConfig{
 		KeyRepository: c.keyRepository,
 		KeyProvider:   c.keyProvider,
+		KeyCache:      c.keyCache,
 		Logger:        c.logger,
 	})
 
-	// Initialize crypto service for wrap/unwrap operations.
+	// Initialize crypto service with cache and Prometheus metrics.
 	c.keyCryptoService = keyServices.NewCryptoService(keyServices.CryptoServiceConfig{
 		KeyRepository: c.keyRepository,
 		KeyProvider:   c.keyProvider,
+		KeyCache:      c.keyCache,
+		CryptoMetrics: c.cryptoMetrics,
 		Logger:        c.logger,
 	})
 
@@ -656,9 +694,14 @@ func (c *ServiceContainer) GetItemBackupService() *backup.ItemBackupService {
 
 // Close closes the service container and cleans up resources.
 func (c *ServiceContainer) Close() error {
-	// Cancel cache context to stop background operations
+	// Cancel cache context to stop background operations.
 	if c.cacheCancel != nil {
 		c.cacheCancel()
+	}
+
+	// Stop the key cache background sweeper.
+	if c.keyCache != nil {
+		c.keyCache.Stop()
 	}
 
 	if c.keyProvider != nil {
@@ -676,4 +719,14 @@ func (c *ServiceContainer) Close() error {
 // GetKeyProvider returns the active key provider (software or PKCS#11).
 func (c *ServiceContainer) GetKeyProvider() crypto.KeyProvider {
 	return c.keyProvider
+}
+
+// GetKeyCache returns the in-process key cache.
+func (c *ServiceContainer) GetKeyCache() keycache.Cache {
+	return c.keyCache
+}
+
+// GetCryptoMetrics returns the Prometheus crypto metrics recorder.
+func (c *ServiceContainer) GetCryptoMetrics() metrics.CryptoMetrics {
+	return c.cryptoMetrics
 }

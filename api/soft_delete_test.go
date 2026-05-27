@@ -41,7 +41,9 @@ import (
 	"rocketvault/internal/backup"
 	"rocketvault/internal/cache"
 	"rocketvault/internal/crypto"
+	"rocketvault/internal/keycache"
 	"rocketvault/internal/logging"
+	"rocketvault/internal/metrics"
 	"rocketvault/internal/repositories"
 	"rocketvault/internal/signing"
 	authServices "rocketvault/internal/services/auth"
@@ -223,6 +225,8 @@ func (c *keyRepoTestContainer) GetRetryService() retryServices.RetryService {
 func (c *keyRepoTestContainer) GetKeyProvider() crypto.KeyProvider               { return nil }
 func (c *keyRepoTestContainer) GetSigningProvider() signing.SigningKeyProvider   { return nil }
 func (c *keyRepoTestContainer) GetItemBackupService() *backup.ItemBackupService  { return nil }
+func (c *keyRepoTestContainer) GetKeyCache() keycache.Cache                      { return nil }
+func (c *keyRepoTestContainer) GetCryptoMetrics() metrics.CryptoMetrics          { return nil }
 func (c *keyRepoTestContainer) Close() error                                     { return nil }
 
 // --- helpers ---

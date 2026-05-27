@@ -18,7 +18,9 @@ import (
 	"rocketvault/internal/backup"
 	"rocketvault/internal/cache"
 	"rocketvault/internal/crypto"
+	"rocketvault/internal/keycache"
 	"rocketvault/internal/logging"
+	"rocketvault/internal/metrics"
 	"rocketvault/internal/repositories"
 	"rocketvault/internal/signing"
 	authServices "rocketvault/internal/services/auth"
@@ -178,6 +180,12 @@ func (m *mockServiceContainer) GetSigningProvider() signing.SigningKeyProvider {
 	return nil
 }
 func (m *mockServiceContainer) GetItemBackupService() *backup.ItemBackupService {
+	return nil
+}
+func (m *mockServiceContainer) GetKeyCache() keycache.Cache {
+	return nil
+}
+func (m *mockServiceContainer) GetCryptoMetrics() metrics.CryptoMetrics {
 	return nil
 }
 func (m *mockServiceContainer) Close() error {
