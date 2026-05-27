@@ -33,13 +33,17 @@ func NewMemoryCache(cfg *KeyCacheConfig) Cache {
 
 // Get returns the entry for (keyID, version) if present and unexpired.
 func (c *memoryCache) Get(keyID uuid.UUID, version int) (*Entry, bool) {
-	v, ok := c.entries.Load(cacheKey(keyID, version))
+	k := cacheKey(keyID, version)
+	v, ok := c.entries.Load(k)
 	if !ok {
 		return nil, false
 	}
 	e := v.(*Entry)
 	if time.Now().After(e.ExpiresAt) {
-		c.entries.Delete(cacheKey(keyID, version))
+		// Zero private key material before deletion to reduce in-memory exposure window.
+		e.PrivateKey = nil
+		e.PublicKey = nil
+		c.entries.Delete(k)
 		return nil, false
 	}
 	return e, true
@@ -67,7 +71,12 @@ func (c *memoryCache) Invalidate(keyID uuid.UUID) {
 
 // InvalidateAll removes every entry.
 func (c *memoryCache) InvalidateAll() {
-	c.entries.Range(func(k, _ any) bool {
+	c.entries.Range(func(k, v any) bool {
+		// Zero private key material before deletion to reduce in-memory exposure window.
+		if e, ok := v.(*Entry); ok {
+			e.PrivateKey = nil
+			e.PublicKey = nil
+		}
 		c.entries.Delete(k)
 		return true
 	})
