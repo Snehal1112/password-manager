@@ -202,8 +202,8 @@ func (s *cryptoService) resolveKeyMaterial(key *model.Key) (
 
 	// Check cache using keyID and version 0 (model.Key has no version field).
 	if entry, ok := s.keyCache.Get(key.ID, 0); ok {
-		if pem, ok := entry.PrivateKey.(string); ok {
-			handle = pem
+		if pemKey, ok := entry.PrivateKey.(keycache.PEMKey); ok {
+			handle = pemKey.PEM
 			cacheHit = true
 			return
 		}
@@ -218,7 +218,7 @@ func (s *cryptoService) resolveKeyMaterial(key *model.Key) (
 
 	// Store decrypted PEM in cache for subsequent calls.
 	s.keyCache.Set(key.ID, 0, &keycache.Entry{
-		PrivateKey: decrypted, // PEM string stored as crypto.PrivateKey (any).
+		PrivateKey: keycache.PEMKey{PEM: decrypted},
 		KeyType:    key.Type,
 		Version:    0,
 		ExpiresAt:  time.Now().Add(s.cfg.CacheConfig.TTL),
@@ -228,36 +228,67 @@ func (s *cryptoService) resolveKeyMaterial(key *model.Key) (
 	return
 }
 
+// loadAndAuthorize fetches the key by ID and enforces access control for op.
+// Returns the key if it is owned by userID, not revoked, and accessible.
+func (s *cryptoService) loadAndAuthorize(ctx context.Context, keyID, userID uuid.UUID, op string) (*model.Key, error) {
+	key, err := s.keyRepo.Read(ctx, keyID)
+	if err != nil {
+		s.logger.LogAuditError(userID.String(), op, "failed", "Key not found", err)
+		return nil, fmt.Errorf("key not found: %w", err)
+	}
+
+	if key.UserID != userID {
+		s.logger.LogAuditError(userID.String(), op, "forbidden",
+			fmt.Sprintf("Unauthorized %s attempt with key: %s", op, keyID), nil)
+		return nil, fmt.Errorf("forbidden: cannot use other users' keys")
+	}
+
+	if key.Revoked {
+		s.logger.LogAuditError(userID.String(), op, "failed",
+			fmt.Sprintf("Attempted to %s with revoked key: %s", op, keyID), nil)
+		return nil, fmt.Errorf("cannot %s with revoked key", op)
+	}
+
+	if !key.IsAccessible() {
+		s.logger.LogAuditError(userID.String(), op, "failed",
+			fmt.Sprintf("Attempted %s with inaccessible key: %s", op, keyID), nil)
+		return nil, fmt.Errorf("cannot %s with disabled or expired key", op)
+	}
+
+	return key, nil
+}
+
+// wrapAlgorithmToEncryption maps a wrap/unwrap algorithm string to the internal
+// crypto.EncryptionAlgorithm constant. The caller must have already validated the
+// algorithm string against the allowed set before calling this helper.
+func wrapAlgorithmToEncryption(algorithm string) crypto.EncryptionAlgorithm {
+	switch algorithm {
+	case "RSA-OAEP-256":
+		return crypto.AlgorithmRSAOAEP256
+	case "RSA-OAEP":
+		return crypto.AlgorithmRSAOAEP
+	case "A128KW":
+		return crypto.AlgorithmA128KW
+	case "A192KW":
+		return crypto.AlgorithmA192KW
+	case "A256KW":
+		return crypto.AlgorithmA256KW
+	case "A128CBC":
+		return crypto.AlgorithmA128CBC
+	case "A192CBC":
+		return crypto.AlgorithmA192CBC
+	default: // "A256CBC"
+		return crypto.AlgorithmA256CBC
+	}
+}
+
 // Sign signs data using the specified key.
 func (s *cryptoService) Sign(ctx context.Context, req SignRequest) (*SignResult, error) {
 	start := time.Now()
 
-	// Retrieve and validate key access.
-	key, err := s.keyRepo.Read(ctx, req.KeyID)
+	key, err := s.loadAndAuthorize(ctx, req.KeyID, req.UserID, "sign")
 	if err != nil {
-		s.logger.LogAuditError(req.UserID.String(), "sign", "failed", "Key not found", err)
-		return nil, fmt.Errorf("key not found: %w", err)
-	}
-
-	// Access control.
-	if key.UserID != req.UserID {
-		s.logger.LogAuditError(req.UserID.String(), "sign", "forbidden",
-			fmt.Sprintf("Unauthorized sign attempt with key: %s", req.KeyID), nil)
-		return nil, fmt.Errorf("forbidden: cannot use other users' keys")
-	}
-
-	// Check if key is revoked.
-	if key.Revoked {
-		s.logger.LogAuditError(req.UserID.String(), "sign", "failed",
-			fmt.Sprintf("Attempted to sign with revoked key: %s", req.KeyID), nil)
-		return nil, fmt.Errorf("cannot sign with revoked key")
-	}
-
-	// Check if key is accessible (enabled and within validity window).
-	if !key.IsAccessible() {
-		s.logger.LogAuditError(req.UserID.String(), "sign", "failed",
-			fmt.Sprintf("Attempted sign with inaccessible key: %s", req.KeyID), nil)
-		return nil, fmt.Errorf("cannot sign with disabled or expired key")
+		return nil, err
 	}
 
 	handle, isPKCS11, cacheHit, err := s.resolveKeyMaterial(key)
@@ -265,7 +296,9 @@ func (s *cryptoService) Sign(ctx context.Context, req SignRequest) (*SignResult,
 		s.logger.LogAuditError(req.UserID.String(), "sign", "failed", "Failed to resolve key handle", err)
 		return nil, err
 	}
-	defer s.cryptoMetrics.RecordOp("sign", key.Type, cacheHit, time.Since(start))
+	defer func() {
+		s.cryptoMetrics.RecordOp("sign", key.Type, cacheHit, time.Since(start))
+	}()
 
 	var signature, digest []byte
 	if isPKCS11 {
@@ -309,32 +342,9 @@ func (s *cryptoService) Sign(ctx context.Context, req SignRequest) (*SignResult,
 func (s *cryptoService) Verify(ctx context.Context, req VerifyRequest) (*VerifyResult, error) {
 	start := time.Now()
 
-	// Retrieve and validate key access.
-	key, err := s.keyRepo.Read(ctx, req.KeyID)
+	key, err := s.loadAndAuthorize(ctx, req.KeyID, req.UserID, "verify")
 	if err != nil {
-		s.logger.LogAuditError(req.UserID.String(), "verify", "failed", "Key not found", err)
-		return nil, fmt.Errorf("key not found: %w", err)
-	}
-
-	// Access control.
-	if key.UserID != req.UserID {
-		s.logger.LogAuditError(req.UserID.String(), "verify", "forbidden",
-			fmt.Sprintf("Unauthorized verify attempt with key: %s", req.KeyID), nil)
-		return nil, fmt.Errorf("forbidden: cannot use other users' keys")
-	}
-
-	// Check if key is revoked.
-	if key.Revoked {
-		s.logger.LogAuditError(req.UserID.String(), "verify", "failed",
-			fmt.Sprintf("Attempted to verify with revoked key: %s", req.KeyID), nil)
-		return nil, fmt.Errorf("cannot verify with revoked key")
-	}
-
-	// Check if key is accessible (enabled and within validity window).
-	if !key.IsAccessible() {
-		s.logger.LogAuditError(req.UserID.String(), "verify", "failed",
-			fmt.Sprintf("Attempted verify with inaccessible key: %s", req.KeyID), nil)
-		return nil, fmt.Errorf("cannot verify with disabled or expired key")
+		return nil, err
 	}
 
 	handle, isPKCS11, cacheHit, err := s.resolveKeyMaterial(key)
@@ -342,7 +352,9 @@ func (s *cryptoService) Verify(ctx context.Context, req VerifyRequest) (*VerifyR
 		s.logger.LogAuditError(req.UserID.String(), "verify", "failed", "Failed to resolve key handle", err)
 		return nil, err
 	}
-	defer s.cryptoMetrics.RecordOp("verify", key.Type, cacheHit, time.Since(start))
+	defer func() {
+		s.cryptoMetrics.RecordOp("verify", key.Type, cacheHit, time.Since(start))
+	}()
 
 	var valid bool
 	if isPKCS11 {
@@ -387,32 +399,9 @@ func (s *cryptoService) Verify(ctx context.Context, req VerifyRequest) (*VerifyR
 func (s *cryptoService) Encrypt(ctx context.Context, req EncryptRequest) (*EncryptResult, error) {
 	start := time.Now()
 
-	// Retrieve and validate key access.
-	key, err := s.keyRepo.Read(ctx, req.KeyID)
+	key, err := s.loadAndAuthorize(ctx, req.KeyID, req.UserID, "encrypt")
 	if err != nil {
-		s.logger.LogAuditError(req.UserID.String(), "encrypt", "failed", "Key not found", err)
-		return nil, fmt.Errorf("key not found: %w", err)
-	}
-
-	// Access control.
-	if key.UserID != req.UserID {
-		s.logger.LogAuditError(req.UserID.String(), "encrypt", "forbidden",
-			fmt.Sprintf("Unauthorized encrypt attempt with key: %s", req.KeyID), nil)
-		return nil, fmt.Errorf("forbidden: cannot use other users' keys")
-	}
-
-	// Check if key is revoked.
-	if key.Revoked {
-		s.logger.LogAuditError(req.UserID.String(), "encrypt", "failed",
-			fmt.Sprintf("Attempted to encrypt with revoked key: %s", req.KeyID), nil)
-		return nil, fmt.Errorf("cannot encrypt with revoked key")
-	}
-
-	// Check if key is accessible (enabled and within validity window).
-	if !key.IsAccessible() {
-		s.logger.LogAuditError(req.UserID.String(), "encrypt", "failed",
-			fmt.Sprintf("Attempted encrypt with inaccessible key: %s", req.KeyID), nil)
-		return nil, fmt.Errorf("cannot encrypt with disabled or expired key")
+		return nil, err
 	}
 
 	handle, isPKCS11, cacheHit, err := s.resolveKeyMaterial(key)
@@ -420,7 +409,9 @@ func (s *cryptoService) Encrypt(ctx context.Context, req EncryptRequest) (*Encry
 		s.logger.LogAuditError(req.UserID.String(), "encrypt", "failed", "Failed to resolve key handle", err)
 		return nil, err
 	}
-	defer s.cryptoMetrics.RecordOp("encrypt", key.Type, cacheHit, time.Since(start))
+	defer func() {
+		s.cryptoMetrics.RecordOp("encrypt", key.Type, cacheHit, time.Since(start))
+	}()
 
 	var ct, nonce []byte
 	if isPKCS11 {
@@ -461,32 +452,9 @@ func (s *cryptoService) Encrypt(ctx context.Context, req EncryptRequest) (*Encry
 func (s *cryptoService) Decrypt(ctx context.Context, req DecryptRequest) (*DecryptResult, error) {
 	start := time.Now()
 
-	// Retrieve and validate key access.
-	key, err := s.keyRepo.Read(ctx, req.KeyID)
+	key, err := s.loadAndAuthorize(ctx, req.KeyID, req.UserID, "decrypt")
 	if err != nil {
-		s.logger.LogAuditError(req.UserID.String(), "decrypt", "failed", "Key not found", err)
-		return nil, fmt.Errorf("key not found: %w", err)
-	}
-
-	// Access control.
-	if key.UserID != req.UserID {
-		s.logger.LogAuditError(req.UserID.String(), "decrypt", "forbidden",
-			fmt.Sprintf("Unauthorized decrypt attempt with key: %s", req.KeyID), nil)
-		return nil, fmt.Errorf("forbidden: cannot use other users' keys")
-	}
-
-	// Check if key is revoked.
-	if key.Revoked {
-		s.logger.LogAuditError(req.UserID.String(), "decrypt", "failed",
-			fmt.Sprintf("Attempted to decrypt with revoked key: %s", req.KeyID), nil)
-		return nil, fmt.Errorf("cannot decrypt with revoked key")
-	}
-
-	// Check if key is accessible (enabled and within validity window).
-	if !key.IsAccessible() {
-		s.logger.LogAuditError(req.UserID.String(), "decrypt", "failed",
-			fmt.Sprintf("Attempted decrypt with inaccessible key: %s", req.KeyID), nil)
-		return nil, fmt.Errorf("cannot decrypt with disabled or expired key")
+		return nil, err
 	}
 
 	handle, isPKCS11, cacheHit, err := s.resolveKeyMaterial(key)
@@ -494,7 +462,9 @@ func (s *cryptoService) Decrypt(ctx context.Context, req DecryptRequest) (*Decry
 		s.logger.LogAuditError(req.UserID.String(), "decrypt", "failed", "Failed to resolve key handle", err)
 		return nil, err
 	}
-	defer s.cryptoMetrics.RecordOp("decrypt", key.Type, cacheHit, time.Since(start))
+	defer func() {
+		s.cryptoMetrics.RecordOp("decrypt", key.Type, cacheHit, time.Since(start))
+	}()
 
 	var plaintext []byte
 	if isPKCS11 {
@@ -541,27 +511,10 @@ func (s *cryptoService) WrapKey(ctx context.Context, req WrapKeyRequest) (*WrapK
 	if !validWrapAlgorithms[req.Algorithm] {
 		return nil, fmt.Errorf("unsupported wrap algorithm %q", req.Algorithm)
 	}
-	key, err := s.keyRepo.Read(ctx, req.KeyID)
-	if err != nil {
-		s.logger.LogAuditError(req.UserID.String(), "wrap_key", "failed", "key not found", err)
-		return nil, fmt.Errorf("key not found: %w", err)
-	}
-	if key.UserID != req.UserID {
-		s.logger.LogAuditError(req.UserID.String(), "wrap_key", "forbidden",
-			fmt.Sprintf("unauthorized wrap attempt with key %s", req.KeyID), nil)
-		return nil, fmt.Errorf("forbidden: cannot use other users' keys")
-	}
-	if key.Revoked {
-		s.logger.LogAuditError(req.UserID.String(), "wrap_key", "failed",
-			fmt.Sprintf("attempted wrap with revoked key %s", req.KeyID), nil)
-		return nil, fmt.Errorf("cannot wrap with revoked key")
-	}
 
-	// Check if key is accessible (enabled and within validity window).
-	if !key.IsAccessible() {
-		s.logger.LogAuditError(req.UserID.String(), "wrap_key", "failed",
-			fmt.Sprintf("Attempted wrap_key with inaccessible key: %s", req.KeyID), nil)
-		return nil, fmt.Errorf("cannot wrap_key with disabled or expired key")
+	key, err := s.loadAndAuthorize(ctx, req.KeyID, req.UserID, "wrap_key")
+	if err != nil {
+		return nil, err
 	}
 
 	wrapHandle, wrapIsPKCS11, cacheHit, err := s.resolveKeyMaterial(key)
@@ -569,26 +522,12 @@ func (s *cryptoService) WrapKey(ctx context.Context, req WrapKeyRequest) (*WrapK
 		s.logger.LogAuditError(req.UserID.String(), "wrap_key", "failed", "failed to resolve vault key handle", err)
 		return nil, err
 	}
-	defer s.cryptoMetrics.RecordOp("wrap_key", key.Type, cacheHit, time.Since(start))
-	var encAlgo crypto.EncryptionAlgorithm
-	switch req.Algorithm {
-	case "RSA-OAEP-256":
-		encAlgo = crypto.AlgorithmRSAOAEP256
-	case "RSA-OAEP":
-		encAlgo = crypto.AlgorithmRSAOAEP
-	case "A128KW":
-		encAlgo = crypto.AlgorithmA128KW
-	case "A192KW":
-		encAlgo = crypto.AlgorithmA192KW
-	case "A256KW":
-		encAlgo = crypto.AlgorithmA256KW
-	case "A128CBC":
-		encAlgo = crypto.AlgorithmA128CBC
-	case "A192CBC":
-		encAlgo = crypto.AlgorithmA192CBC
-	case "A256CBC":
-		encAlgo = crypto.AlgorithmA256CBC
-	}
+	defer func() {
+		s.cryptoMetrics.RecordOp("wrap_key", key.Type, cacheHit, time.Since(start))
+	}()
+
+	encAlgo := wrapAlgorithmToEncryption(req.Algorithm)
+
 	// AES wrap/unwrap requires a software key; HSM keys only support RSA-OAEP variants.
 	if wrapIsPKCS11 && req.Algorithm != "RSA-OAEP" && req.Algorithm != "RSA-OAEP-256" {
 		return nil, fmt.Errorf("algorithm %q is not supported for HSM-backed keys; use RSA-OAEP or RSA-OAEP-256", req.Algorithm)
@@ -624,27 +563,10 @@ func (s *cryptoService) UnwrapKey(ctx context.Context, req UnwrapKeyRequest) (*U
 	if !validUnwrapAlgorithms[req.Algorithm] {
 		return nil, fmt.Errorf("unsupported unwrap algorithm %q", req.Algorithm)
 	}
-	key, err := s.keyRepo.Read(ctx, req.KeyID)
-	if err != nil {
-		s.logger.LogAuditError(req.UserID.String(), "unwrap_key", "failed", "key not found", err)
-		return nil, fmt.Errorf("key not found: %w", err)
-	}
-	if key.UserID != req.UserID {
-		s.logger.LogAuditError(req.UserID.String(), "unwrap_key", "forbidden",
-			fmt.Sprintf("unauthorized unwrap attempt with key %s", req.KeyID), nil)
-		return nil, fmt.Errorf("forbidden: cannot use other users' keys")
-	}
-	if key.Revoked {
-		s.logger.LogAuditError(req.UserID.String(), "unwrap_key", "failed",
-			fmt.Sprintf("attempted unwrap with revoked key %s", req.KeyID), nil)
-		return nil, fmt.Errorf("cannot unwrap with revoked key")
-	}
 
-	// Check if key is accessible (enabled and within validity window).
-	if !key.IsAccessible() {
-		s.logger.LogAuditError(req.UserID.String(), "unwrap_key", "failed",
-			fmt.Sprintf("Attempted unwrap_key with inaccessible key: %s", req.KeyID), nil)
-		return nil, fmt.Errorf("cannot unwrap_key with disabled or expired key")
+	key, err := s.loadAndAuthorize(ctx, req.KeyID, req.UserID, "unwrap_key")
+	if err != nil {
+		return nil, err
 	}
 
 	unwrapHandle, unwrapIsPKCS11, cacheHit, err := s.resolveKeyMaterial(key)
@@ -652,26 +574,12 @@ func (s *cryptoService) UnwrapKey(ctx context.Context, req UnwrapKeyRequest) (*U
 		s.logger.LogAuditError(req.UserID.String(), "unwrap_key", "failed", "failed to resolve vault key handle", err)
 		return nil, err
 	}
-	defer s.cryptoMetrics.RecordOp("unwrap_key", key.Type, cacheHit, time.Since(start))
-	var decAlgo crypto.EncryptionAlgorithm
-	switch req.Algorithm {
-	case "RSA-OAEP-256":
-		decAlgo = crypto.AlgorithmRSAOAEP256
-	case "RSA-OAEP":
-		decAlgo = crypto.AlgorithmRSAOAEP
-	case "A128KW":
-		decAlgo = crypto.AlgorithmA128KW
-	case "A192KW":
-		decAlgo = crypto.AlgorithmA192KW
-	case "A256KW":
-		decAlgo = crypto.AlgorithmA256KW
-	case "A128CBC":
-		decAlgo = crypto.AlgorithmA128CBC
-	case "A192CBC":
-		decAlgo = crypto.AlgorithmA192CBC
-	case "A256CBC":
-		decAlgo = crypto.AlgorithmA256CBC
-	}
+	defer func() {
+		s.cryptoMetrics.RecordOp("unwrap_key", key.Type, cacheHit, time.Since(start))
+	}()
+
+	decAlgo := wrapAlgorithmToEncryption(req.Algorithm)
+
 	// AES wrap/unwrap requires a software key; HSM keys only support RSA-OAEP variants.
 	if unwrapIsPKCS11 && req.Algorithm != "RSA-OAEP" && req.Algorithm != "RSA-OAEP-256" {
 		return nil, fmt.Errorf("algorithm %q is not supported for HSM-backed keys; use RSA-OAEP or RSA-OAEP-256", req.Algorithm)

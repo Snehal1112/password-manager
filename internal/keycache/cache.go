@@ -9,6 +9,10 @@ import (
 	"github.com/google/uuid"
 )
 
+// PEMKey wraps a raw PEM string stored as decrypted key material in the cache.
+// Using a named type prevents accidental misinterpretation as a parsed crypto.PrivateKey.
+type PEMKey struct{ PEM string }
+
 // Entry holds parsed key material for one (keyID, version) pair.
 type Entry struct {
 	PrivateKey crypto.PrivateKey // nil for public-only keys

@@ -114,6 +114,8 @@ func (m *mockKeyCache) Stop() {
 
 // TestCacheHit_ReducesDecryptCalls verifies that on the second Sign call for
 // the same key, the cache returns a hit so AES-GCM decryption is skipped.
+// A mock cache is used so we can assert that Set is called exactly once (on the
+// first call) and not again on the second call (cache hit path).
 // keyRepo.Read is still called each time for the authorization check.
 // Not run in parallel because setupCacheTestMasterKey writes global viper state.
 func TestCacheHit_ReducesDecryptCalls(t *testing.T) {
@@ -138,9 +140,24 @@ func TestCacheHit_ReducesDecryptCalls(t *testing.T) {
 	repo := &mockKeyRepoForWrap{}
 	repo.On("Read", mock.Anything, keyID).Return(vaultKey, nil)
 
-	// Use the real memory cache so we can observe actual cache behaviour.
-	cache := keycache.NewMemoryCache(keycache.DefaultKeyCacheConfig())
-	t.Cleanup(cache.Stop)
+	// Use a mock cache so we can assert Set/Get call counts precisely.
+	cache := &mockKeyCache{}
+
+	// Build the cached entry that the mock returns on the second Get call.
+	cachedEntry := &keycache.Entry{
+		PrivateKey: keycache.PEMKey{PEM: privateKeyPEM},
+		KeyType:    "RSA",
+		Version:    0,
+		ExpiresAt:  time.Now().Add(time.Minute),
+	}
+
+	// First call: Get returns a miss (nil, false).
+	// Second call: Get returns the cached entry (hit).
+	cache.On("Get", keyID, 0).Return(nil, false).Once()
+	cache.On("Get", keyID, 0).Return(cachedEntry, true).Once()
+
+	// Set is called exactly once — on the first call (cache miss).
+	cache.On("Set", keyID, 0, mock.AnythingOfType("*keycache.Entry")).Return().Once()
 
 	svc := keys.NewCryptoService(keys.CryptoServiceConfig{
 		KeyRepository: repo,
@@ -160,10 +177,7 @@ func TestCacheHit_ReducesDecryptCalls(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, res1)
 
-	// After the first call the cache should have exactly one entry.
-	assert.Equal(t, 1, cache.Stats().TotalEntries, "cache must contain the key after the first Sign")
-
-	// Second call: cache hit — no AES-GCM decrypt, repo.Read called for auth.
+	// Second call: cache hit — no AES-GCM decrypt, Set must NOT be called again.
 	res2, err := svc.Sign(context.Background(), keys.SignRequest{
 		KeyID:     keyID,
 		UserID:    userID,
@@ -176,9 +190,14 @@ func TestCacheHit_ReducesDecryptCalls(t *testing.T) {
 	// repo.Read is called once per Sign for the authorization check; two total.
 	repo.AssertNumberOfCalls(t, "Read", 2)
 
+	// Set must have been called exactly once (first call only).
+	cache.AssertNumberOfCalls(t, "Set", 1)
+
 	// Both signatures must be non-empty.
 	assert.NotEmpty(t, res1.Signature)
 	assert.NotEmpty(t, res2.Signature)
+
+	cache.AssertExpectations(t)
 }
 
 // TestHSMPath_NeverCallsCacheSet verifies that PKCS#11-backed keys are never
