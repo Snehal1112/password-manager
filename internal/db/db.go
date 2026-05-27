@@ -418,6 +418,12 @@ func (d *DBRepository) createOptimizedSchema(db *sql.DB) error {
 			action TEXT NOT NULL,
 			details TEXT,
 			timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+			resource_type TEXT,
+			resource_id TEXT,
+			ip_address TEXT,
+			outcome TEXT,
+			source TEXT,
+			prev_hash TEXT,
 			FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE SET NULL
 		);
 		CREATE INDEX IF NOT EXISTS idx_audit_logs_user_id ON audit_logs(user_id);
@@ -670,6 +676,8 @@ func (d *DBRepository) migrateSchema(db *sql.DB) error {
 		"ALTER TABLE audit_logs ADD COLUMN outcome TEXT",
 		"ALTER TABLE audit_logs ADD COLUMN source TEXT",
 		"ALTER TABLE audit_logs ADD COLUMN prev_hash TEXT",
+		// Feature: audit configuration table (idempotent — IF NOT EXISTS prevents errors)
+		"CREATE TABLE IF NOT EXISTS audit_config (key TEXT PRIMARY KEY, value TEXT NOT NULL)",
 	}
 	for _, stmt := range migrations {
 		if _, err := db.Exec(stmt); err != nil {
@@ -739,13 +747,13 @@ func (d *DBRepository) seedAuditConfig(db *sql.DB) error {
 		if err := db.QueryRow(
 			"SELECT COUNT(*) FROM audit_config WHERE key = ?", k,
 		).Scan(&count); err != nil {
-			return fmt.Errorf("failed to check audit_config key %s: %w", k, err)
+			return fmt.Errorf("failed to check audit_config key %q: %w", k, err)
 		}
 		if count == 0 {
 			if _, err := db.Exec(
 				"INSERT INTO audit_config (key, value) VALUES (?, ?)", k, v,
 			); err != nil {
-				return fmt.Errorf("failed to seed audit_config key %s: %w", k, err)
+				return fmt.Errorf("failed to seed audit_config key %q: %w", k, err)
 			}
 		}
 	}
