@@ -384,7 +384,6 @@ func TestGetJWKS_BuildError_Returns500(t *testing.T) {
 
 	getJWKS(c, w, r)
 
-	// Either 500 (buildJWKSet error) or something else — must not panic.
-	// We just verify no panic occurred by reaching here.
-	assert.True(t, w.Code >= 200 && w.Code < 600)
+	// buildJWKSet returns an error for an unsupported key type; the handler writes 500.
+	assert.Equal(t, http.StatusInternalServerError, w.Code)
 }

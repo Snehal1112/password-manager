@@ -466,21 +466,14 @@ func TestRestoreSecretHandler_InvalidBlob_Returns400(t *testing.T) {
 	assert.Equal(t, http.StatusBadRequest, w.Code)
 }
 
-// TestRestoreSecretHandler_ForbiddenBlob_Returns403 verifies ErrForbidden maps to 403.
-// A forbidden error occurs when the repo returns ErrForbidden during restore.
-func TestRestoreSecretHandler_ForbiddenBlob_Returns403(t *testing.T) {
+// TestRestoreSecretHandler_CreateError_Returns500 verifies that a generic repo error
+// during restore maps to 500 (ErrForbidden cannot arise from RestoreSecret).
+func TestRestoreSecretHandler_CreateError_Returns500(t *testing.T) {
 	secretID := uuid.New()
 	userID := uuid.MustParse(secretHTestUserID)
 	blob := buildValidSecretBlob(t, secretID, userID)
 
-	// Create repo returns ErrForbidden-like error pattern — but the backup service
-	// doesn't return ErrForbidden from Restore. Instead we test with a type-mismatch blob
-	// that triggers the default path. For Forbidden we use a real forbidden blob.
-
-	// Actually, restoreSecretHandler can only return ErrForbidden if the underlying
-	// restore service returns it. The ItemBackupService.RestoreSecret itself calls
-	// secretRepo.Create, which doesn't return ErrForbidden. So we test the generic
-	// error path via Create failure.
+	// The repo Create call returns a generic db error; RestoreSecret maps it to 500.
 	secretRepo := &mockSecretRepo{
 		readFn: func(_ context.Context, id uuid.UUID) (*model.Secret, error) {
 			return &model.Secret{ID: id, Name: "s", Value: "v", UserID: userID}, nil

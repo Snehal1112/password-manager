@@ -289,9 +289,9 @@ func TestInitializeVersions_RegistersBothVersions(t *testing.T) {
 	assert.Equal(t, "v1", vm.defaultVersion)
 }
 
-// TestSetupVersionedRoutes_WithSunsetDate_ReturnsSunsetInResponse verifies that a
-// deprecated version with a sunset date includes it in the /version response JSON.
-func TestSetupVersionedRoutes_WithSunsetDate_ReturnsSunsetInResponse(t *testing.T) {
+// TestSetupVersionedRoutes_WithSunsetDate_SetsSunsetHeader verifies that a
+// deprecated version with a sunset date sets the Sunset response header.
+func TestSetupVersionedRoutes_WithSunsetDate_SetsSunsetHeader(t *testing.T) {
 	vm := NewVersionManager(testVersionLogger())
 	vm.RegisterVersion(&Version{
 		Major:      1,
@@ -309,8 +309,8 @@ func TestSetupVersionedRoutes_WithSunsetDate_ReturnsSunsetInResponse(t *testing.
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, req)
 
-	// The response should include version info and not panic.
-	assert.NotEqual(t, http.StatusNotFound, w.Code)
+	assert.Equal(t, http.StatusOK, w.Code)
+	assert.Equal(t, "2025-12-31T23:59:59Z", w.Header().Get("Sunset"))
 }
 
 // TestSetupVersionedRoutes_ContentTypeHeader_SetsHeader verifies that when a
@@ -333,5 +333,6 @@ func TestSetupVersionedRoutes_ContentTypeHeader_SetsHeader(t *testing.T) {
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, req)
 
-	assert.NotEqual(t, http.StatusNotFound, w.Code)
+	assert.Equal(t, http.StatusOK, w.Code)
+	assert.Equal(t, "application/vnd.api+json", w.Header().Get("Content-Type"))
 }
