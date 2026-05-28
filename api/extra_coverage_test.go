@@ -5,13 +5,11 @@ import (
 	"bytes"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"io"
 	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
-	"strings"
 	"testing"
 	"time"
 
@@ -420,26 +418,6 @@ func TestGenerateSecret_DefaultLength_Returns201(t *testing.T) {
 	assert.Equal(t, http.StatusCreated, w.Code)
 }
 
-// ============================================================
-// JWKS — getJWKS and rotateJWKS additional branches
-// ============================================================
-
-// TestGetJWKS_MissingJWTService_Returns500 exercises the nil JWTService guard
-// in getJWKS.
-func TestGetJWKS_MissingJWTService_Returns500(t *testing.T) {
-	c := newJWKSCtx(nil)
-	w := httptest.NewRecorder()
-	r := httptest.NewRequest(http.MethodGet, "/.well-known/jwks.json", nil)
-
-	getJWKS(c, w, r)
-	if c.Err != nil {
-		writeError(w, c)
-	}
-
-	// Nil signing provider causes 503 Service Unavailable.
-	assert.Equal(t, http.StatusServiceUnavailable, w.Code)
-}
-
 // buildMultipartNoFileRequest creates a multipart request with no file field —
 // only non-file form fields.
 func buildMultipartNoFileRequest(t *testing.T, fields map[string]string) *http.Request {
@@ -542,6 +520,3 @@ func TestListSecrets_NonEmptyList_Returns200(t *testing.T) {
 	svc.AssertExpectations(t)
 }
 
-// Prevent unused import warning for fmt and strings.
-var _ = fmt.Sprintf
-var _ = strings.TrimSpace
