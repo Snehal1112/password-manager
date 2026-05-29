@@ -2,6 +2,7 @@ package vaults
 
 import (
 	"context"
+	"errors"
 	"testing"
 
 	"github.com/google/uuid"
@@ -32,5 +33,26 @@ func TestCascadeAdapter_FansOutToAllRepos(t *testing.T) {
 	}
 	if s.recoverCalls != 1 || k.recoverCalls != 1 || c.recoverCalls != 1 {
 		t.Fatalf("recover must fan out to all three repos")
+	}
+}
+
+// failingRepo fails its soft-delete to exercise the adapter's error path.
+type failingRepo struct{ err error }
+
+func (f *failingRepo) SoftDeleteVaultContents(context.Context, uuid.UUID) error { return f.err }
+func (f *failingRepo) RecoverVaultContents(context.Context, uuid.UUID) error    { return f.err }
+
+func TestCascadeAdapter_ReturnsFirstError(t *testing.T) {
+	boom := errors.New("boom")
+	failing := &failingRepo{err: boom}
+	later := &recordingRepo{}
+	ad := NewCascadeAdapter(failing, later)
+
+	err := ad.SoftDeleteVaultContents(context.Background(), uuid.New())
+	if !errors.Is(err, boom) {
+		t.Fatalf("expected the first repo's error, got %v", err)
+	}
+	if later.softCalls != 0 {
+		t.Fatalf("expected later repo not to be called after an error, got %d", later.softCalls)
 	}
 }

@@ -181,3 +181,155 @@ func TestRecoverVault_UnknownReturnsSentinel(t *testing.T) {
 		t.Fatalf("expected ErrVaultNotFound, got %v", err)
 	}
 }
+
+func boolPtr(b bool) *bool { return &b }
+func intPtr(i int) *int    { return &i }
+
+func TestListVaults_ActiveOnly(t *testing.T) {
+	repo := newFakeRepo()
+	a1 := uuid.New()
+	a2 := uuid.New()
+	repo.byName["a1"] = &model.Vault{ID: a1, Name: "a1", Enabled: true}
+	repo.byID[a1.String()] = repo.byName["a1"]
+	repo.byName["a2"] = &model.Vault{ID: a2, Name: "a2", Enabled: true}
+	repo.byID[a2.String()] = repo.byName["a2"]
+	svc := NewVaultService(repo, &noopCascade{}, nil)
+
+	vaults, err := svc.ListVaults(context.Background(), false)
+	if err != nil {
+		t.Fatalf("ListVaults: %v", err)
+	}
+	if len(vaults) != 2 {
+		t.Fatalf("expected 2 active vaults, got %d", len(vaults))
+	}
+}
+
+func TestListVaults_IncludeDeleted(t *testing.T) {
+	repo := newFakeRepo()
+	active := uuid.New()
+	deleted := uuid.New()
+	now := nowForTest()
+	repo.byName["active"] = &model.Vault{ID: active, Name: "active", Enabled: true}
+	repo.byID[active.String()] = repo.byName["active"]
+	repo.byName["gone"] = &model.Vault{ID: deleted, Name: "gone", DeletedAt: &now}
+	repo.byID[deleted.String()] = repo.byName["gone"]
+	svc := NewVaultService(repo, &noopCascade{}, nil)
+
+	vaults, err := svc.ListVaults(context.Background(), true)
+	if err != nil {
+		t.Fatalf("ListVaults: %v", err)
+	}
+	if len(vaults) != 2 {
+		t.Fatalf("expected active + deleted = 2 vaults, got %d", len(vaults))
+	}
+	names := map[string]bool{}
+	for _, v := range vaults {
+		names[v.Name] = true
+	}
+	if !names["active"] || !names["gone"] {
+		t.Fatalf("expected both active and gone, got %v", names)
+	}
+}
+
+func TestUpdateVault_AppliesNonNilFields(t *testing.T) {
+	svc := NewVaultService(newFakeRepo(), &noopCascade{}, nil)
+	created, err := svc.CreateVault(context.Background(), model.CreateVaultRequest{Name: "upd"}, uuid.New())
+	if err != nil {
+		t.Fatalf("CreateVault: %v", err)
+	}
+	if !created.Enabled || created.PurgeProtection {
+		t.Fatalf("unexpected initial state: %+v", created)
+	}
+
+	updated, err := svc.UpdateVault(context.Background(), "upd", model.UpdateVaultRequest{
+		Enabled:       boolPtr(false),
+		RetentionDays: intPtr(30),
+		// PurgeProtection left nil so it must remain unchanged.
+	})
+	if err != nil {
+		t.Fatalf("UpdateVault: %v", err)
+	}
+	if updated.Enabled {
+		t.Fatalf("expected Enabled=false")
+	}
+	if updated.RetentionDays != 30 {
+		t.Fatalf("expected RetentionDays=30, got %d", updated.RetentionDays)
+	}
+	if updated.PurgeProtection {
+		t.Fatalf("expected PurgeProtection unchanged (false)")
+	}
+}
+
+func TestUpdateVault_NotFound(t *testing.T) {
+	svc := NewVaultService(newFakeRepo(), &noopCascade{}, nil)
+	_, err := svc.UpdateVault(context.Background(), "missing", model.UpdateVaultRequest{Enabled: boolPtr(true)})
+	if !errors.Is(err, ErrVaultNotFound) {
+		t.Fatalf("expected ErrVaultNotFound, got %v", err)
+	}
+}
+
+func TestCreateVault_AppliesAllOverrides(t *testing.T) {
+	svc := NewVaultService(newFakeRepo(), &noopCascade{}, nil)
+	v, err := svc.CreateVault(context.Background(), model.CreateVaultRequest{
+		Name:            "over",
+		Enabled:         boolPtr(false),
+		PurgeProtection: boolPtr(true),
+		RetentionDays:   intPtr(7),
+	}, uuid.New())
+	if err != nil {
+		t.Fatalf("CreateVault: %v", err)
+	}
+	if v.Enabled {
+		t.Fatalf("expected Enabled=false override")
+	}
+	if !v.PurgeProtection {
+		t.Fatalf("expected PurgeProtection=true override")
+	}
+	if v.RetentionDays != 7 {
+		t.Fatalf("expected RetentionDays=7 override, got %d", v.RetentionDays)
+	}
+}
+
+func TestPurgeVault_DeletedVaultSucceeds(t *testing.T) {
+	repo := newFakeRepo()
+	id := uuid.New()
+	now := nowForTest()
+	repo.byName["d"] = &model.Vault{ID: id, Name: "d", PurgeProtection: false, DeletedAt: &now}
+	repo.byID[id.String()] = repo.byName["d"]
+	svc := NewVaultService(repo, &noopCascade{}, nil)
+
+	if err := svc.PurgeVault(context.Background(), "d"); err != nil {
+		t.Fatalf("PurgeVault: %v", err)
+	}
+	if _, ok := repo.byID[id.String()]; ok {
+		t.Fatal("expected purged vault to be removed from the repo")
+	}
+}
+
+func TestRecoverVault_RestoresFromDeleted(t *testing.T) {
+	repo := newFakeRepo()
+	id := uuid.New()
+	now := nowForTest()
+	repo.byName["rec"] = &model.Vault{ID: id, Name: "rec", DeletedAt: &now}
+	repo.byID[id.String()] = repo.byName["rec"]
+	casc := &noopCascade{}
+	svc := NewVaultService(repo, casc, nil)
+
+	if err := svc.RecoverVault(context.Background(), "rec"); err != nil {
+		t.Fatalf("RecoverVault: %v", err)
+	}
+	if repo.byID[id.String()].DeletedAt != nil {
+		t.Fatal("expected recovered vault to have DeletedAt cleared")
+	}
+	if casc.recover != 1 {
+		t.Fatalf("expected cascade recover called once, got %d", casc.recover)
+	}
+}
+
+func TestDeleteVault_NotFound(t *testing.T) {
+	svc := NewVaultService(newFakeRepo(), &noopCascade{}, nil)
+	err := svc.DeleteVault(context.Background(), "missing")
+	if !errors.Is(err, ErrVaultNotFound) {
+		t.Fatalf("expected ErrVaultNotFound, got %v", err)
+	}
+}
