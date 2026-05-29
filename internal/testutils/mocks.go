@@ -18,7 +18,6 @@ import (
 	"rocketvault/internal/logging"
 	"rocketvault/internal/metrics"
 	"rocketvault/internal/repositories"
-	"rocketvault/internal/signing"
 	auditSvc "rocketvault/internal/services/audit"
 	authServices "rocketvault/internal/services/auth"
 	authzServices "rocketvault/internal/services/authorization"
@@ -28,6 +27,7 @@ import (
 	retryServices "rocketvault/internal/services/retry"
 	secretServices "rocketvault/internal/services/secrets"
 	userServices "rocketvault/internal/services/users"
+	"rocketvault/internal/signing"
 	"rocketvault/model"
 )
 
@@ -205,6 +205,40 @@ func (m *MockSecretRepository) RecoverSecret(ctx context.Context, id uuid.UUID) 
 
 func (m *MockSecretRepository) PurgeSecret(ctx context.Context, id uuid.UUID) error {
 	args := m.Called(ctx, id)
+	return args.Error(0)
+}
+
+func (m *MockSecretRepository) ReadInVault(ctx context.Context, id, vaultID uuid.UUID) (*model.Secret, error) {
+	args := m.Called(ctx, id, vaultID)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).(*model.Secret), args.Error(1)
+}
+
+func (m *MockSecretRepository) ListInVault(ctx context.Context, vaultID uuid.UUID, tags []string) ([]model.Secret, error) {
+	args := m.Called(ctx, vaultID, tags)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).([]model.Secret), args.Error(1)
+}
+
+func (m *MockSecretRepository) ListInVaultIncludeDeleted(ctx context.Context, vaultID uuid.UUID, tags []string) ([]model.Secret, error) {
+	args := m.Called(ctx, vaultID, tags)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).([]model.Secret), args.Error(1)
+}
+
+func (m *MockSecretRepository) SoftDeleteVaultContents(ctx context.Context, vaultID uuid.UUID) error {
+	args := m.Called(ctx, vaultID)
+	return args.Error(0)
+}
+
+func (m *MockSecretRepository) RecoverVaultContents(ctx context.Context, vaultID uuid.UUID) error {
+	args := m.Called(ctx, vaultID)
 	return args.Error(0)
 }
 

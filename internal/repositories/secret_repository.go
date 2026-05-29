@@ -11,8 +11,8 @@ import (
 	"github.com/sirupsen/logrus"
 
 	"rocketvault/internal/db"
-	"rocketvault/model"
 	"rocketvault/internal/logging"
+	"rocketvault/model"
 )
 
 // SecretRepositoryInterface defines the interface for secret repository operations.
@@ -27,6 +27,16 @@ type SecretRepositoryInterface interface {
 	RecoverSecret(ctx context.Context, id uuid.UUID) error
 	ListByUser(ctx context.Context, userID uuid.UUID, tags []string) ([]model.Secret, error)
 	ListByUserIncludeDeleted(ctx context.Context, userID uuid.UUID, tags []string) ([]model.Secret, error)
+	// ReadInVault fetches a secret only when id and vaultID both match.
+	ReadInVault(ctx context.Context, id, vaultID uuid.UUID) (*model.Secret, error)
+	// ListInVault lists active secrets scoped to a vault.
+	ListInVault(ctx context.Context, vaultID uuid.UUID, tags []string) ([]model.Secret, error)
+	// ListInVaultIncludeDeleted lists all secrets in a vault including soft-deleted ones.
+	ListInVaultIncludeDeleted(ctx context.Context, vaultID uuid.UUID, tags []string) ([]model.Secret, error)
+	// SoftDeleteVaultContents soft-deletes every active secret in a vault.
+	SoftDeleteVaultContents(ctx context.Context, vaultID uuid.UUID) error
+	// RecoverVaultContents recovers every soft-deleted secret in a vault.
+	RecoverVaultContents(ctx context.Context, vaultID uuid.UUID) error
 	ExportSecrets(ctx context.Context, options model.ExportOptions) ([]byte, error)
 	ImportSecrets(ctx context.Context, data []byte, options model.ImportOptions) (int, error)
 	GetVersions(ctx context.Context, secretID uuid.UUID) ([]model.SecretVersion, error)
@@ -98,8 +108,8 @@ func (r *SecretRepository) Create(ctx context.Context, secret *model.Secret) err
 	// Insert the secret into the database.
 	_, err := r.db.ExecContext(
 		ctx,
-		"INSERT INTO secrets (id, user_id, name, value, version, created_at, content_type, enabled, expires_at, not_before) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-		secret.ID.String(), secret.UserID.String(), secret.Name, secret.Value, secret.Version, secret.CreatedAt, secret.ContentType, secret.Enabled, secret.ExpiresAt, secret.NotBefore,
+		"INSERT INTO secrets (id, user_id, vault_id, name, value, version, created_at, content_type, enabled, expires_at, not_before) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+		secret.ID.String(), secret.UserID.String(), secret.VaultID.String(), secret.Name, secret.Value, secret.Version, secret.CreatedAt, secret.ContentType, secret.Enabled, secret.ExpiresAt, secret.NotBefore,
 	)
 	if err != nil {
 		r.log.LogAuditError(secret.UserID.String(), "create_secret", "failed", "Failed to insert secret", err)
@@ -635,4 +645,271 @@ func (r *SecretRepository) GetVersion(ctx context.Context, secretID uuid.UUID, v
 // GetLatestVersion is deprecated and should use the VersioningService.
 func (r *SecretRepository) GetLatestVersion(ctx context.Context, secretID uuid.UUID) (*model.SecretVersion, error) {
 	return nil, fmt.Errorf("versioning functionality has been moved to versioning service")
+}
+
+// ReadInVault retrieves a secret by ID only when it belongs to the given vault.
+// It mirrors ReadByOwner but scopes by vault_id instead of user_id.
+//
+// Parameters:
+//
+//	ctx: The context for the database operation.
+//	id: The secret's unique identifier.
+//	vaultID: The vault the secret must belong to.
+//
+// Returns:
+//
+//	The secret entity (with encrypted value) or an error if not found / access denied.
+func (r *SecretRepository) ReadInVault(ctx context.Context, id, vaultID uuid.UUID) (*model.Secret, error) {
+	var secret model.Secret
+	var idStr, userIDStr string
+	var deletedAt *time.Time
+	var purgeProtection bool
+
+	err := r.db.QueryRowContext(
+		ctx,
+		"SELECT id, user_id, name, value, version, created_at, deleted_at, purge_protection, content_type, enabled, expires_at, not_before FROM secrets WHERE id = ? AND vault_id = ? AND deleted_at IS NULL",
+		id.String(), vaultID.String(),
+	).Scan(&idStr, &userIDStr, &secret.Name, &secret.Value, &secret.Version, &secret.CreatedAt, &deletedAt, &purgeProtection, &secret.ContentType, &secret.Enabled, &secret.ExpiresAt, &secret.NotBefore)
+
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, fmt.Errorf("secret not found or access denied")
+	}
+	if err != nil {
+		return nil, fmt.Errorf("failed to query secret: %w", err)
+	}
+
+	var parseErr error
+	secret.ID, parseErr = uuid.Parse(idStr)
+	if parseErr != nil {
+		return nil, fmt.Errorf("failed to parse secret ID: %w", parseErr)
+	}
+
+	secret.UserID, parseErr = uuid.Parse(userIDStr)
+	if parseErr != nil {
+		return nil, fmt.Errorf("failed to parse user ID: %w", parseErr)
+	}
+
+	// Set soft delete fields.
+	secret.DeletedAt = deletedAt
+	secret.PurgeProtection = purgeProtection
+
+	return &secret, nil
+}
+
+// ListInVault retrieves all active secrets for a specific vault.
+// It mirrors ListByUser but scopes by vault_id instead of user_id.
+//
+// Parameters:
+//
+//	ctx: The context for the database operation.
+//	vaultID: The vault's unique identifier.
+//	tags: Tag filter (maintained for interface compatibility but not used).
+//
+// Returns:
+//
+//	A slice of secrets (with encrypted values) or an error if retrieval fails.
+func (r *SecretRepository) ListInVault(ctx context.Context, vaultID uuid.UUID, tags []string) ([]model.Secret, error) {
+	var secretList []model.Secret
+
+	err := r.executeWithMetrics("list_secrets_by_vault", func() error {
+		logrus.WithField("vault_id", vaultID.String()).Debug("Listing secrets for vault")
+
+		// Optimized query - excludes soft-deleted secrets.
+		rows, err := r.db.QueryContext(
+			ctx,
+			"SELECT id, user_id, name, value, version, created_at, deleted_at, purge_protection, content_type, enabled, expires_at, not_before FROM secrets WHERE vault_id = ? AND deleted_at IS NULL ORDER BY name ASC",
+			vaultID.String(),
+		)
+		if err != nil {
+			r.log.LogAuditError(vaultID.String(), "list_secrets", "failed", "Failed to query secrets", err)
+			return fmt.Errorf("failed to query secrets: %w", err)
+		}
+		defer rows.Close()
+
+		// Pre-allocate slice with estimated capacity for better memory performance.
+		secretList = make([]model.Secret, 0, 50)
+
+		for rows.Next() {
+			var secret model.Secret
+			var idStr, userIDStr string
+
+			var deletedAt *time.Time
+			var purgeProtection bool
+
+			err := rows.Scan(&idStr, &userIDStr, &secret.Name, &secret.Value, &secret.Version, &secret.CreatedAt, &deletedAt, &purgeProtection, &secret.ContentType, &secret.Enabled, &secret.ExpiresAt, &secret.NotBefore)
+			if err != nil {
+				r.log.LogAuditError(vaultID.String(), "list_secrets", "failed", "Failed to scan secret", err)
+				return fmt.Errorf("failed to scan secret: %w", err)
+			}
+
+			secret.ID, err = uuid.Parse(idStr)
+			if err != nil {
+				r.log.LogAuditError(vaultID.String(), "list_secrets", "failed", "Failed to parse secret ID", err)
+				return fmt.Errorf("failed to parse secret ID: %w", err)
+			}
+
+			secret.UserID, err = uuid.Parse(userIDStr)
+			if err != nil {
+				r.log.LogAuditError(vaultID.String(), "list_secrets", "failed", "Failed to parse user ID", err)
+				return fmt.Errorf("failed to parse user ID: %w", err)
+			}
+
+			// Set soft delete fields (these should be nil/false for active secrets).
+			secret.DeletedAt = deletedAt
+			secret.PurgeProtection = purgeProtection
+
+			secretList = append(secretList, secret)
+		}
+
+		if err := rows.Err(); err != nil {
+			r.log.LogAuditError(vaultID.String(), "list_secrets", "failed", "Row iteration error", err)
+			return fmt.Errorf("row iteration error: %w", err)
+		}
+
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	logrus.WithFields(logrus.Fields{
+		"vault_id":     vaultID.String(),
+		"secret_count": len(secretList),
+	}).Debug("Secrets listed successfully")
+
+	return secretList, nil
+}
+
+// ListInVaultIncludeDeleted retrieves all secrets for a vault including soft-deleted ones.
+// It mirrors ListByUserIncludeDeleted but scopes by vault_id instead of user_id.
+//
+// Parameters:
+//
+//	ctx: The context for the database operation.
+//	vaultID: The vault's unique identifier.
+//	tags: Tag filter (maintained for interface compatibility but not used).
+//
+// Returns:
+//
+//	A slice of all secrets including soft-deleted ones, or an error if retrieval fails.
+func (r *SecretRepository) ListInVaultIncludeDeleted(ctx context.Context, vaultID uuid.UUID, tags []string) ([]model.Secret, error) {
+	var secretList []model.Secret
+
+	err := r.executeWithMetrics("list_secrets_by_vault_include_deleted", func() error {
+		logrus.WithField("vault_id", vaultID.String()).Debug("Listing all secrets for vault including deleted")
+
+		// Query includes soft-deleted secrets.
+		rows, err := r.db.QueryContext(
+			ctx,
+			"SELECT id, user_id, name, value, version, created_at, deleted_at, purge_protection, content_type, enabled, expires_at, not_before FROM secrets WHERE vault_id = ? ORDER BY name ASC",
+			vaultID.String(),
+		)
+		if err != nil {
+			r.log.LogAuditError(vaultID.String(), "list_secrets_include_deleted", "failed", "Failed to query secrets", err)
+			return fmt.Errorf("failed to query secrets: %w", err)
+		}
+		defer rows.Close()
+
+		// Pre-allocate slice with estimated capacity for better memory performance.
+		secretList = make([]model.Secret, 0, 50)
+
+		for rows.Next() {
+			var secret model.Secret
+			var idStr, userIDStr string
+			var deletedAt *time.Time
+			var purgeProtection bool
+
+			err := rows.Scan(&idStr, &userIDStr, &secret.Name, &secret.Value, &secret.Version, &secret.CreatedAt, &deletedAt, &purgeProtection, &secret.ContentType, &secret.Enabled, &secret.ExpiresAt, &secret.NotBefore)
+			if err != nil {
+				r.log.LogAuditError(vaultID.String(), "list_secrets_include_deleted", "failed", "Failed to scan secret", err)
+				return fmt.Errorf("failed to scan secret: %w", err)
+			}
+
+			secret.ID, err = uuid.Parse(idStr)
+			if err != nil {
+				r.log.LogAuditError(vaultID.String(), "list_secrets_include_deleted", "failed", "Failed to parse secret ID", err)
+				return fmt.Errorf("failed to parse secret ID: %w", err)
+			}
+
+			secret.UserID, err = uuid.Parse(userIDStr)
+			if err != nil {
+				r.log.LogAuditError(vaultID.String(), "list_secrets_include_deleted", "failed", "Failed to parse user ID", err)
+				return fmt.Errorf("failed to parse user ID: %w", err)
+			}
+
+			// Set soft delete fields.
+			secret.DeletedAt = deletedAt
+			secret.PurgeProtection = purgeProtection
+
+			secretList = append(secretList, secret)
+		}
+
+		if err := rows.Err(); err != nil {
+			r.log.LogAuditError(vaultID.String(), "list_secrets_include_deleted", "failed", "Row iteration error", err)
+			return fmt.Errorf("row iteration error: %w", err)
+		}
+
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	logrus.WithFields(logrus.Fields{
+		"vault_id":     vaultID.String(),
+		"secret_count": len(secretList),
+	}).Debug("All secrets listed successfully including deleted")
+
+	return secretList, nil
+}
+
+// SoftDeleteVaultContents marks every active secret in a vault as soft-deleted.
+//
+// Parameters:
+//
+//	ctx: The context for the database operation.
+//	vaultID: The vault whose secrets should be soft-deleted.
+//
+// Returns:
+//
+//	An error if the soft deletion fails.
+func (r *SecretRepository) SoftDeleteVaultContents(ctx context.Context, vaultID uuid.UUID) error {
+	logrus.WithField("vault_id", vaultID.String()).Debug("Soft deleting all secrets in vault")
+
+	now := time.Now()
+	_, err := r.db.ExecContext(ctx,
+		"UPDATE secrets SET deleted_at = ? WHERE vault_id = ? AND deleted_at IS NULL",
+		now, vaultID.String())
+	if err != nil {
+		r.log.LogAuditError(vaultID.String(), "soft_delete_vault_secrets", "failed", "Failed to soft delete vault secrets", err)
+		return fmt.Errorf("failed to soft delete vault secrets: %w", err)
+	}
+
+	r.log.LogAuditInfo(vaultID.String(), "soft_delete_vault_secrets", "success", "Vault secrets soft deleted successfully")
+	return nil
+}
+
+// RecoverVaultContents restores every soft-deleted secret in a vault.
+//
+// Parameters:
+//
+//	ctx: The context for the database operation.
+//	vaultID: The vault whose secrets should be recovered.
+//
+// Returns:
+//
+//	An error if the recovery fails.
+func (r *SecretRepository) RecoverVaultContents(ctx context.Context, vaultID uuid.UUID) error {
+	logrus.WithField("vault_id", vaultID.String()).Debug("Recovering all soft-deleted secrets in vault")
+
+	_, err := r.db.ExecContext(ctx,
+		"UPDATE secrets SET deleted_at = NULL, scheduled_purge_at = NULL WHERE vault_id = ? AND deleted_at IS NOT NULL",
+		vaultID.String())
+	if err != nil {
+		r.log.LogAuditError(vaultID.String(), "recover_vault_secrets", "failed", "Failed to recover vault secrets", err)
+		return fmt.Errorf("failed to recover vault secrets: %w", err)
+	}
+
+	r.log.LogAuditInfo(vaultID.String(), "recover_vault_secrets", "success", "Vault secrets recovered successfully")
+	return nil
 }

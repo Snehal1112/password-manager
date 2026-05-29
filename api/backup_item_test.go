@@ -336,6 +336,17 @@ func (m *mockSecretRepo) GetLatestVersion(_ context.Context, _ uuid.UUID) (*mode
 	return nil, nil
 }
 func (m *mockSecretRepo) PurgeSecret(_ context.Context, _ uuid.UUID) error { return nil }
+func (m *mockSecretRepo) ReadInVault(_ context.Context, _, _ uuid.UUID) (*model.Secret, error) {
+	return nil, errors.New("not implemented")
+}
+func (m *mockSecretRepo) ListInVault(_ context.Context, _ uuid.UUID, _ []string) ([]model.Secret, error) {
+	return nil, nil
+}
+func (m *mockSecretRepo) ListInVaultIncludeDeleted(_ context.Context, _ uuid.UUID, _ []string) ([]model.Secret, error) {
+	return nil, nil
+}
+func (m *mockSecretRepo) SoftDeleteVaultContents(_ context.Context, _ uuid.UUID) error { return nil }
+func (m *mockSecretRepo) RecoverVaultContents(_ context.Context, _ uuid.UUID) error    { return nil }
 
 // newBackupCtxWithSecret creates a Context backed by a real ItemBackupService
 // that uses a custom mockSecretRepo, allowing success-path testing.
@@ -579,8 +590,8 @@ func (m *mockKeyRepo) ListByUser(_ context.Context, _ *uuid.UUID, _ string, _ []
 func (m *mockKeyRepo) UpdateRevocationStatus(_ context.Context, _ uuid.UUID, _ bool) error {
 	return nil
 }
-func (m *mockKeyRepo) SoftDelete(_ context.Context, _ uuid.UUID) error { return nil }
-func (m *mockKeyRepo) RecoverKey(_ context.Context, _ uuid.UUID) error { return nil }
+func (m *mockKeyRepo) SoftDelete(_ context.Context, _ uuid.UUID) error                 { return nil }
+func (m *mockKeyRepo) RecoverKey(_ context.Context, _ uuid.UUID) error                 { return nil }
 func (m *mockKeyRepo) PurgeKey(_ context.Context, _ uuid.UUID) error                   { return nil }
 func (m *mockKeyRepo) SetPurgeProtection(_ context.Context, _ uuid.UUID, _ bool) error { return nil }
 func (m *mockKeyRepo) ListSoftDeleted(_ context.Context, _ uuid.UUID) ([]*model.Key, error) {
@@ -617,12 +628,12 @@ func (m *mockCertRepo) Read(ctx context.Context, id uuid.UUID) (*model.Certifica
 func (m *mockCertRepo) Update(_ context.Context, _ *model.Certificate) error {
 	return errors.New("not implemented")
 }
-func (m *mockCertRepo) Delete(_ context.Context, _ uuid.UUID) error    { return nil }
+func (m *mockCertRepo) Delete(_ context.Context, _ uuid.UUID) error              { return nil }
 func (m *mockCertRepo) Revoke(_ context.Context, _ uuid.UUID, _, _ string) error { return nil }
 func (m *mockCertRepo) ListByUser(_ context.Context, _ uuid.UUID, _ string, _ []string) ([]model.Certificate, error) {
 	return nil, nil
 }
-func (m *mockCertRepo) SoftDelete(_ context.Context, _ uuid.UUID) error  { return nil }
+func (m *mockCertRepo) SoftDelete(_ context.Context, _ uuid.UUID) error         { return nil }
 func (m *mockCertRepo) RecoverCertificate(_ context.Context, _ uuid.UUID) error { return nil }
 func (m *mockCertRepo) PurgeCertificate(_ context.Context, _ uuid.UUID) error   { return nil }
 func (m *mockCertRepo) ListSoftDeleted(_ context.Context, _ uuid.UUID) ([]*model.Certificate, error) {
@@ -632,7 +643,7 @@ func (m *mockCertRepo) ListRevoked(_ context.Context, _ uuid.UUID) ([]model.Revo
 	return nil, nil
 }
 func (m *mockCertRepo) SetPurgeProtection(_ context.Context, _ uuid.UUID, _ bool) error { return nil }
-func (m *mockCertRepo) ListAll(_ context.Context) ([]model.Certificate, error)           { return nil, nil }
+func (m *mockCertRepo) ListAll(_ context.Context) ([]model.Certificate, error)          { return nil, nil }
 
 // backupItemContainerWithKey provides an ItemBackupService with a key repo.
 type backupItemContainerWithKey struct {
