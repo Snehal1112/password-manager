@@ -678,6 +678,23 @@ func (d *DBRepository) migrateSchema(db *sql.DB) error {
 		"ALTER TABLE audit_logs ADD COLUMN prev_hash TEXT",
 		// Feature: audit configuration table (idempotent — IF NOT EXISTS prevents errors)
 		"CREATE TABLE IF NOT EXISTS audit_config (key TEXT PRIMARY KEY, value TEXT NOT NULL)",
+		// Multi-vault: vaults table and vault_id scoping columns.
+		`CREATE TABLE IF NOT EXISTS vaults (
+			id                 TEXT PRIMARY KEY,
+			name               TEXT UNIQUE NOT NULL,
+			enabled            BOOLEAN NOT NULL DEFAULT TRUE,
+			purge_protection   BOOLEAN NOT NULL DEFAULT FALSE,
+			retention_days     INTEGER NOT NULL DEFAULT 90,
+			created_by         TEXT NOT NULL,
+			created_at         TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+			deleted_at         TIMESTAMP NULL,
+			scheduled_purge_at TIMESTAMP NULL
+		)`,
+		"CREATE INDEX IF NOT EXISTS idx_vaults_name ON vaults(name)",
+		"ALTER TABLE secrets ADD COLUMN vault_id TEXT NOT NULL DEFAULT '00000000-0000-0000-0000-00000000efa1'",
+		"ALTER TABLE keys ADD COLUMN vault_id TEXT NOT NULL DEFAULT '00000000-0000-0000-0000-00000000efa1'",
+		"ALTER TABLE certificates ADD COLUMN vault_id TEXT NOT NULL DEFAULT '00000000-0000-0000-0000-00000000efa1'",
+		"ALTER TABLE access_policies ADD COLUMN vault_id TEXT NULL",
 	}
 	for _, stmt := range migrations {
 		if _, err := db.Exec(stmt); err != nil {
@@ -687,6 +704,28 @@ func (d *DBRepository) migrateSchema(db *sql.DB) error {
 		}
 	}
 	d.log.Info("Schema migration completed")
+	return nil
+}
+
+// finalizeVaultIndexes resolves name collisions then creates the per-vault unique
+// indexes. It is idempotent and safe to run on every startup.
+func (d *DBRepository) finalizeVaultIndexes(db *sql.DB) error {
+	ctx := context.Background()
+	for _, table := range []string{"secrets", "keys", "certificates"} {
+		if _, err := ResolveNameCollisions(ctx, db, table); err != nil {
+			return err
+		}
+	}
+	stmts := []string{
+		"CREATE UNIQUE INDEX IF NOT EXISTS idx_secrets_vault_name ON secrets(vault_id, name)",
+		"CREATE UNIQUE INDEX IF NOT EXISTS idx_keys_vault_name ON keys(vault_id, name)",
+		"CREATE UNIQUE INDEX IF NOT EXISTS idx_certificates_vault_name ON certificates(vault_id, name)",
+	}
+	for _, s := range stmts {
+		if _, err := db.Exec(s); err != nil {
+			return fmt.Errorf("create vault unique index: %w", err)
+		}
+	}
 	return nil
 }
 
