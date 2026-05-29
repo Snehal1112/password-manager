@@ -71,6 +71,16 @@ func createAccessPolicy(c *Context, w http.ResponseWriter, r *http.Request) {
 		CreatedAt:     time.Now().UTC(),
 	}
 
+	// An empty vault_id leaves the policy global; a value scopes it to that vault.
+	if req.VaultID != "" {
+		vaultID, err := uuid.Parse(req.VaultID)
+		if err != nil {
+			c.SetInvalidParam("vault_id")
+			return
+		}
+		policy.VaultID = &vaultID
+	}
+
 	svc := c.App.ServiceContainer.GetAccessPolicyService()
 	if err := svc.CreatePolicy(r.Context(), policy); err != nil {
 		c.SetInternalError(err)
@@ -184,4 +194,3 @@ func listAccessPoliciesByPrincipal(c *Context, w http.ResponseWriter, r *http.Re
 		"total":           len(policies),
 	})
 }
-

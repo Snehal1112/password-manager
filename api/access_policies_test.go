@@ -43,8 +43,8 @@ type mockAccessPolicyService struct {
 	mock.Mock
 }
 
-func (m *mockAccessPolicyService) CheckAccess(ctx context.Context, principalID uuid.UUID, resourceType model.PolicyResourceType, operation model.PolicyOperation) (authzServices.AccessDecision, error) {
-	args := m.Called(ctx, principalID, resourceType, operation)
+func (m *mockAccessPolicyService) CheckAccess(ctx context.Context, principalID uuid.UUID, resourceType model.PolicyResourceType, operation model.PolicyOperation, vaultID uuid.UUID) (authzServices.AccessDecision, error) {
+	args := m.Called(ctx, principalID, resourceType, operation, vaultID)
 	return args.Get(0).(authzServices.AccessDecision), args.Error(1)
 }
 

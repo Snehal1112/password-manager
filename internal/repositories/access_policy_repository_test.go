@@ -1,17 +1,17 @@
 package repositories_test
 
 import (
-"context"
-"database/sql"
-"testing"
+	"context"
+	"database/sql"
+	"testing"
 
-"github.com/google/uuid"
-_ "github.com/mattn/go-sqlite3"
-"github.com/stretchr/testify/assert"
-"github.com/stretchr/testify/require"
+	"github.com/google/uuid"
+	_ "github.com/mattn/go-sqlite3"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 
-"rocketvault/model"
-"rocketvault/internal/repositories"
+	"rocketvault/internal/repositories"
+	"rocketvault/model"
 )
 
 func setupAccessPolicyTestDB(t *testing.T) *sql.DB {
@@ -26,6 +26,7 @@ principal_type TEXT NOT NULL,
 resource_type  TEXT NOT NULL,
 operation      TEXT NOT NULL,
 effect         TEXT NOT NULL,
+vault_id       TEXT NULL,
 created_at     TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 )
 	`)
@@ -107,7 +108,7 @@ func TestAccessPolicyRepository_FindEffects(t *testing.T) {
 	require.NoError(t, repo.Create(ctx, p1))
 	require.NoError(t, repo.Create(ctx, p2))
 
-	effects, err := repo.FindEffects(ctx, principalID, model.PolicyResourceSecrets, model.OpDelete)
+	effects, err := repo.FindEffects(ctx, principalID, model.PolicyResourceSecrets, model.OpDelete, uuid.Nil)
 	require.NoError(t, err)
 	assert.Len(t, effects, 2)
 
@@ -118,6 +119,44 @@ func TestAccessPolicyRepository_FindEffects(t *testing.T) {
 		}
 	}
 	assert.True(t, hasDeny)
+}
+
+func TestAccessPolicyRepository_FindEffects_VaultScoping(t *testing.T) {
+	t.Parallel()
+	db := setupAccessPolicyTestDB(t)
+	repo := repositories.NewAccessPolicyRepository(db)
+	ctx := context.Background()
+
+	principalID := uuid.New()
+	vaultX := uuid.New()
+	vaultY := uuid.New()
+
+	// A GLOBAL allow (vault_id NULL) applies in any vault.
+	global := &model.AccessPolicy{
+		ID: uuid.New(), PrincipalID: principalID, PrincipalType: model.PrincipalTypeUser,
+		ResourceType: model.PolicyResourceSecrets, Operation: model.OpGet, Effect: model.PolicyEffectAllow,
+		VaultID: nil,
+	}
+	// A vault-specific deny applies only in vaultX.
+	scoped := &model.AccessPolicy{
+		ID: uuid.New(), PrincipalID: principalID, PrincipalType: model.PrincipalTypeUser,
+		ResourceType: model.PolicyResourceSecrets, Operation: model.OpGet, Effect: model.PolicyEffectDeny,
+		VaultID: &vaultX,
+	}
+	require.NoError(t, repo.Create(ctx, global))
+	require.NoError(t, repo.Create(ctx, scoped))
+
+	// vaultX sees both the global and the vault-specific policy.
+	inX, err := repo.FindEffects(ctx, principalID, model.PolicyResourceSecrets, model.OpGet, vaultX)
+	require.NoError(t, err)
+	assert.Len(t, inX, 2)
+
+	// vaultY sees only the global policy.
+	inY, err := repo.FindEffects(ctx, principalID, model.PolicyResourceSecrets, model.OpGet, vaultY)
+	require.NoError(t, err)
+	assert.Len(t, inY, 1)
+	assert.Equal(t, model.PolicyEffectAllow, inY[0].Effect)
+	assert.Nil(t, inY[0].VaultID)
 }
 
 func TestAccessPolicyRepository_Delete(t *testing.T) {

@@ -425,9 +425,14 @@ func (m *Middleware) PolicyMiddleware(next http.Handler) http.Handler {
 			return
 		}
 
+		// Resolve the target vault from context (set by VaultResolutionMiddleware).
+		// When absent, vaultID is uuid.Nil and only global (NULL-vault) policies match.
+		vaultIDStr, _ := r.Context().Value(common.VaultIDKey).(string)
+		vaultID, _ := uuid.Parse(vaultIDStr)
+
 		// Evaluate access policy.
 		policySvc := m.container.GetAccessPolicyService()
-		decision, err := policySvc.CheckAccess(r.Context(), principalID, resourceType, op)
+		decision, err := policySvc.CheckAccess(r.Context(), principalID, resourceType, op, vaultID)
 		if err != nil {
 			m.logger.LogAuditError(userIDStr, "policy", "error",
 				"Access policy check failed — denying request", err)

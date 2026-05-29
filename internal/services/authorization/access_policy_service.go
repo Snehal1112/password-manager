@@ -1,33 +1,34 @@
 package authorization
 
 import (
-"context"
-"fmt"
-"time"
+	"context"
+	"fmt"
+	"time"
 
-"github.com/google/uuid"
+	"github.com/google/uuid"
 
-"rocketvault/model"
-"rocketvault/internal/repositories"
+	"rocketvault/internal/repositories"
+	"rocketvault/model"
 )
 
 // AccessDecision is the result of CheckAccess.
 type AccessDecision int
 
 const (
-// AccessAllowed — an explicit allow policy exists and no deny policy exists.
-AccessAllowed AccessDecision = iota
-// AccessDenied — at least one explicit deny policy exists.
-AccessDenied
-// AccessFallback — no policy row found; caller should use RBAC.
+	// AccessAllowed — an explicit allow policy exists and no deny policy exists.
+	AccessAllowed AccessDecision = iota
+	// AccessDenied — at least one explicit deny policy exists.
+	AccessDenied
+	// AccessFallback — no policy row found; caller should use RBAC.
 	AccessFallback
 )
 
 // AccessPolicyService provides CRUD and access-check operations for access policies.
 type AccessPolicyService interface {
-	// CheckAccess evaluates policies for the (principal, resourceType, operation) triple.
+	// CheckAccess evaluates policies for the (principal, resourceType, operation) triple
+	// within the given vault. Global (nil vault) policies always apply.
 	// Returns AccessAllowed, AccessDenied, or AccessFallback (use RBAC).
-	CheckAccess(ctx context.Context, principalID uuid.UUID, resourceType model.PolicyResourceType, operation model.PolicyOperation) (AccessDecision, error)
+	CheckAccess(ctx context.Context, principalID uuid.UUID, resourceType model.PolicyResourceType, operation model.PolicyOperation, vaultID uuid.UUID) (AccessDecision, error)
 
 	CreatePolicy(ctx context.Context, policy *model.AccessPolicy) error
 	GetPolicy(ctx context.Context, id uuid.UUID) (*model.AccessPolicy, error)
@@ -48,8 +49,8 @@ func NewAccessPolicyService(repo repositories.AccessPolicyRepositoryInterface) A
 
 // CheckAccess evaluates access policies for the triple (principalID, resourceType, operation).
 // Explicit deny always wins. Falls back to RBAC when no matching policy exists.
-func (s *accessPolicyService) CheckAccess(ctx context.Context, principalID uuid.UUID, resourceType model.PolicyResourceType, operation model.PolicyOperation) (AccessDecision, error) {
-	policies, err := s.repo.FindEffects(ctx, principalID, resourceType, operation)
+func (s *accessPolicyService) CheckAccess(ctx context.Context, principalID uuid.UUID, resourceType model.PolicyResourceType, operation model.PolicyOperation, vaultID uuid.UUID) (AccessDecision, error) {
+	policies, err := s.repo.FindEffects(ctx, principalID, resourceType, operation, vaultID)
 	if err != nil {
 		return AccessFallback, fmt.Errorf("policy lookup: %w", err)
 	}
