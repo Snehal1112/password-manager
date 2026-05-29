@@ -185,9 +185,8 @@ func TestUpdateCertificate_MultipleFieldsUpdated_Returns200(t *testing.T) {
 // TestDeleteCertificate_Extra_ServiceError_Returns500 verifies service error on delete.
 func TestDeleteCertificate_Extra_ServiceError_Returns500(t *testing.T) {
 	certID := uuid.New()
-	userID := uuid.MustParse(certTestUserID)
 	svc := &mockCertService{}
-	svc.On("DeleteCertificate", mock.Anything, certID, userID).Return(errors.New("delete failed"))
+	svc.On("DeleteCertificateInVault", mock.Anything, certID, mock.Anything).Return(errors.New("delete failed"))
 
 	c := newCertCtx(svc, certAdminClaims())
 	c.Params = &ApiParams{CertificateID: certID.String(), PerPage: 60}
@@ -206,9 +205,8 @@ func TestDeleteCertificate_Extra_ServiceError_Returns500(t *testing.T) {
 // TestDeleteCertificate_Extra_Success_Returns200 verifies successful certificate deletion.
 func TestDeleteCertificate_Extra_Success_Returns200(t *testing.T) {
 	certID := uuid.New()
-	userID := uuid.MustParse(certTestUserID)
 	svc := &mockCertService{}
-	svc.On("DeleteCertificate", mock.Anything, certID, userID).Return(nil)
+	svc.On("DeleteCertificateInVault", mock.Anything, certID, mock.Anything).Return(nil)
 
 	c := newCertCtx(svc, certAdminClaims())
 	c.Params = &ApiParams{CertificateID: certID.String(), PerPage: 60}

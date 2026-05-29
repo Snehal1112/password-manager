@@ -30,6 +30,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/gorilla/mux"
 
 	"rocketvault/common"
 	"rocketvault/internal/crypto"
@@ -211,8 +212,15 @@ func buildKeyResponse(key *model.Key) KeyResponse {
 // - DELETE /keys/{key_id}: Delete a key.
 // - POST /keys/{key_id}/rotate: Rotate a key (generate new key pair, revoke old).
 func (api *API) InitKeys() {
-	k := api.BaseRoutes.Keys
+	api.registerKeyRoutes(api.BaseRoutes.Keys)
+	if api.BaseRoutes.VaultScoped != nil {
+		api.registerKeyRoutes(api.BaseRoutes.VaultScoped.PathPrefix("/keys").Subrouter())
+	}
+}
 
+// registerKeyRoutes registers the key handlers on the provided subrouter. It is
+// called for both the legacy flat routes and the vault-scoped routes.
+func (api *API) registerKeyRoutes(k *mux.Router) {
 	// Basic CRUD operations.
 	k.Handle("", ApiSessionRequired(api.App, createKey)).Methods("POST")
 	k.Handle("", ApiSessionRequired(api.App, listKeys)).Methods("GET")
@@ -285,6 +293,13 @@ func createKey(c *Context, w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Resolve the target vault from the request context.
+	vaultID, err := vaultIDFromRequest(r)
+	if err != nil {
+		c.SetInvalidParam("vault")
+		return
+	}
+
 	keyService := c.keySvc()
 	if keyService == nil {
 		return
@@ -303,6 +318,7 @@ func createKey(c *Context, w http.ResponseWriter, r *http.Request) {
 		Type:      req.Type,
 		Tags:      req.Tags,
 		UserID:    userID,
+		VaultID:   vaultID,
 		Enabled:   enabled,
 		ExpiresAt: req.ExpiresAt,
 		NotBefore: req.NotBefore,
@@ -351,7 +367,7 @@ func createKey(c *Context, w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(buildKeyResponse(key))
 }
 
-// listKeys lists cryptographic keys with optional filtering.
+// listKeys lists cryptographic keys for the resolved vault with optional filtering.
 func listKeys(c *Context, w http.ResponseWriter, r *http.Request) {
 	// Get user ID from claims.
 	userIDStr, ok := c.Claims["user_id"].(string)
@@ -365,6 +381,13 @@ func listKeys(c *Context, w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Resolve the target vault from the request context.
+	vaultID, err := vaultIDFromRequest(r)
+	if err != nil {
+		c.SetInvalidParam("vault")
+		return
+	}
+
 	// Parse query parameters.
 	keyType := r.URL.Query().Get("type")
 
@@ -373,23 +396,26 @@ func listKeys(c *Context, w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Check if user is admin — admins can list all keys.
+	// Check if user is admin — admins can list every key in the vault.
 	roleStr, ok := c.Claims["role"].(string)
 	isAdmin := ok && roleStr == string(model.RoleAdmin)
 
-	// Use service layer with proper admin/user distinction.
-	var keysList []model.Key
-	if isAdmin {
-		// Admins list all keys with filters (userID = nil).
-		keysList, err = keyService.ListKeysWithFilters(r.Context(), nil, keyType, c.Params.Tags, true)
-	} else {
-		// Non-admins list only their keys.
-		keysList, err = keyService.ListKeysWithFilters(r.Context(), &userID, keyType, c.Params.Tags, false)
-	}
-
+	// List keys scoped to the resolved vault.
+	keysList, err := keyService.ListKeysInVault(r.Context(), vaultID, keyType, c.Params.Tags)
 	if err != nil {
 		c.SetInternalError(err)
 		return
+	}
+
+	// Non-admins only see keys they own within the vault.
+	if !isAdmin {
+		filtered := keysList[:0]
+		for _, k := range keysList {
+			if k.UserID == userID {
+				filtered = append(filtered, k)
+			}
+		}
+		keysList = filtered
 	}
 
 	// Convert to response format.
@@ -422,34 +448,34 @@ func getKey(c *Context, w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Resolve the target vault from the request context.
+	vaultID, err := vaultIDFromRequest(r)
+	if err != nil {
+		c.SetInvalidParam("vault")
+		return
+	}
+
 	keyService := c.keySvc()
 	if keyService == nil {
 		return
 	}
 
-	// Check authorization — users can only access their own keys, admins can access all.
+	// Check authorization — users can only access their own keys, admins can
+	// access any key within the vault.
 	roleStr, ok := c.Claims["role"].(string)
 	isAdmin := ok && roleStr == string(model.RoleAdmin)
 
-	// Use service layer with access control validation.
-	key, err := keyService.GetKey(r.Context(), keyID, userID)
+	// Look up the key scoped to the resolved vault.
+	key, err := keyService.GetKeyInVault(r.Context(), keyID, vaultID)
 	if err != nil {
-		// If not admin and access denied, return not found.
-		if !isAdmin {
-			c.SetNotFound("key")
-			return
-		}
-		// Admin can try to validate access with admin role.
-		if err := keyService.ValidateKeyAccess(r.Context(), keyID, userID, roleStr); err != nil {
-			c.SetNotFound("key")
-			return
-		}
-		// Retry get for admin.
-		key, err = keyService.GetKey(r.Context(), keyID, userID)
-		if err != nil {
-			c.SetNotFound("key")
-			return
-		}
+		c.SetNotFound("key")
+		return
+	}
+
+	// Non-admins may only read keys they own.
+	if !isAdmin && key.UserID != userID {
+		c.SetNotFound("key")
+		return
 	}
 
 	w.Header().Set("Content-Type", "application/json")
@@ -540,14 +566,22 @@ func deleteKey(c *Context, w http.ResponseWriter, r *http.Request) {
 		c.SetInvalidParam("user_id")
 		return
 	}
+	_ = userID // Vault scope is authoritative for deletion.
+
+	// Resolve the target vault from the request context.
+	vaultID, err := vaultIDFromRequest(r)
+	if err != nil {
+		c.SetInvalidParam("vault")
+		return
+	}
 
 	keyService := c.keySvc()
 	if keyService == nil {
 		return
 	}
 
-	// Use service layer for deletion with access control.
-	deleted, err := keyService.DeleteKey(r.Context(), keyID, userID)
+	// Use service layer for deletion scoped to the resolved vault.
+	deleted, err := keyService.DeleteKeyInVault(r.Context(), keyID, vaultID)
 	if err != nil {
 		c.SetInternalError(err)
 		return

@@ -31,6 +31,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/gorilla/mux"
 
 	"rocketvault/internal/services/secrets"
 	vvalidation "rocketvault/internal/validation"
@@ -48,8 +49,16 @@ import (
 // - POST /secrets/export: Export secrets in JSON or CSV format.
 // - POST /secrets/import: Import secrets from JSON or CSV format.
 func (api *API) InitSecrets() {
-	s := api.BaseRoutes.Secrets
+	api.registerSecretRoutes(api.BaseRoutes.Secrets)
+	if api.BaseRoutes.VaultScoped != nil {
+		api.registerSecretRoutes(api.BaseRoutes.VaultScoped.PathPrefix("/secrets").Subrouter())
+	}
+}
 
+// registerSecretRoutes registers the secret handlers on the provided subrouter.
+// It is called once for the legacy flat routes and once for the vault-scoped
+// routes so both URL shapes resolve to the same handlers.
+func (api *API) registerSecretRoutes(s *mux.Router) {
 	// Basic CRUD operations on the collection.
 	s.Handle("", ApiSessionRequired(api.App, createSecret)).Methods("POST")
 	s.Handle("", ApiSessionRequired(api.App, listSecrets)).Methods("GET")
@@ -366,6 +375,13 @@ func createSecret(c *Context, w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Resolve the target vault from the request context.
+	vaultID, err := vaultIDFromRequest(r)
+	if err != nil {
+		c.SetInvalidParam("vault")
+		return
+	}
+
 	secretService := c.secretSvc()
 	if secretService == nil {
 		return
@@ -374,6 +390,7 @@ func createSecret(c *Context, w http.ResponseWriter, r *http.Request) {
 	// Create secret using service layer (which handles encryption).
 	createReq := secrets.CreateSecretRequest{
 		UserID:      userID,
+		VaultID:     vaultID,
 		Name:        req.Name,
 		Value:       req.Value,
 		Tags:        req.Tags,
@@ -413,16 +430,10 @@ func createSecret(c *Context, w http.ResponseWriter, r *http.Request) {
 // listSecrets handles the HTTP request to list all secrets for the authenticated user.
 // Supports pagination and filtering by tags from c.Params.
 func listSecrets(c *Context, w http.ResponseWriter, r *http.Request) {
-	// Get user ID from JWT claims.
-	userIDStr, ok := c.Claims["user_id"].(string)
-	if !ok {
-		c.SetInternalError(nil)
-		return
-	}
-
-	userID, err := uuid.Parse(userIDStr)
+	// Resolve the target vault from the request context.
+	vaultID, err := vaultIDFromRequest(r)
 	if err != nil {
-		c.SetInvalidParam("user_id")
+		c.SetInvalidParam("vault")
 		return
 	}
 
@@ -431,7 +442,7 @@ func listSecrets(c *Context, w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	secretsList, err := secretService.ListSecrets(r.Context(), userID, c.Params.Tags)
+	secretsList, err := secretService.ListSecretsInVault(r.Context(), vaultID, c.Params.Tags)
 	if err != nil {
 		c.SetInternalError(err)
 		return
@@ -475,9 +486,10 @@ func getSecret(c *Context, w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	userID, err := uuid.Parse(userIDStr)
+	// Resolve the target vault from the request context.
+	vaultID, err := vaultIDFromRequest(r)
 	if err != nil {
-		c.SetInvalidParam("user_id")
+		c.SetInvalidParam("vault")
 		return
 	}
 
@@ -486,7 +498,7 @@ func getSecret(c *Context, w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	secret, err := secretService.GetSecret(r.Context(), secretID, userID)
+	secret, err := secretService.GetSecretInVault(r.Context(), secretID, vaultID)
 	if err != nil {
 		c.SetNotFound("secret")
 		return
@@ -643,9 +655,10 @@ func deleteSecret(c *Context, w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	userID, err := uuid.Parse(userIDStr)
+	// Resolve the target vault from the request context.
+	vaultID, err := vaultIDFromRequest(r)
 	if err != nil {
-		c.SetInvalidParam("user_id")
+		c.SetInvalidParam("vault")
 		return
 	}
 
@@ -654,8 +667,8 @@ func deleteSecret(c *Context, w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Use service layer for deletion with access control.
-	if err := secretService.DeleteSecret(r.Context(), secretID, userID); err != nil {
+	// Use service layer for deletion scoped to the resolved vault.
+	if err := secretService.DeleteSecretInVault(r.Context(), secretID, vaultID); err != nil {
 		c.SetInternalError(err)
 		return
 	}

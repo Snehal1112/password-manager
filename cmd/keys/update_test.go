@@ -10,8 +10,8 @@ import (
 	"github.com/stretchr/testify/mock"
 
 	"rocketvault/cmd/testutils"
-	"rocketvault/model"
 	keyServices "rocketvault/internal/services/keys"
+	"rocketvault/model"
 )
 
 type MockKeyServiceForUpdate struct{ mock.Mock }
@@ -43,6 +43,15 @@ func (m *MockKeyServiceForUpdate) RotateKey(ctx context.Context, keyID, userID u
 }
 func (m *MockKeyServiceForUpdate) ValidateKeyAccess(ctx context.Context, keyID, userID uuid.UUID, role string) error {
 	return nil
+}
+func (m *MockKeyServiceForUpdate) GetKeyInVault(ctx context.Context, keyID, vaultID uuid.UUID) (*model.Key, error) {
+	return nil, nil
+}
+func (m *MockKeyServiceForUpdate) ListKeysInVault(ctx context.Context, vaultID uuid.UUID, keyType string, tags []string) ([]model.Key, error) {
+	return nil, nil
+}
+func (m *MockKeyServiceForUpdate) DeleteKeyInVault(ctx context.Context, keyID, vaultID uuid.UUID) (*model.Key, error) {
+	return nil, nil
 }
 
 func boolPtrKey(b bool) *bool { return &b }

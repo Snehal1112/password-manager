@@ -17,6 +17,7 @@ import (
 	keyServices "rocketvault/internal/services/keys"
 	secretServices "rocketvault/internal/services/secrets"
 	userServices "rocketvault/internal/services/users"
+	"rocketvault/model"
 )
 
 // Context holds request-scoped data for every API handler.
@@ -33,6 +34,18 @@ type Context struct {
 	AcceptLanguage string
 	Params         *ApiParams
 	Logger         *logging.Logger
+}
+
+// vaultIDFromRequest returns the vault id resolved by VaultResolutionMiddleware
+// and stored in the request context. When the value is absent or empty (for
+// example in unit tests that bypass the middleware), it falls back to the
+// well-known default vault id so legacy flat routes keep working.
+func vaultIDFromRequest(r *http.Request) (uuid.UUID, error) {
+	s, _ := r.Context().Value(common.VaultIDKey).(string)
+	if s == "" {
+		s = model.DefaultVaultID
+	}
+	return uuid.Parse(s)
 }
 
 // SetInvalidParam sets a 400 error for a missing or malformed parameter.

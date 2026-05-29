@@ -92,6 +92,27 @@ func (m *mockKeyService) DeleteKey(ctx context.Context, keyID, userID uuid.UUID)
 	return args.Get(0).(*model.Key), args.Error(1)
 }
 
+func (m *mockKeyService) GetKeyInVault(ctx context.Context, keyID, vaultID uuid.UUID) (*model.Key, error) {
+	args := m.Called(ctx, keyID, vaultID)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).(*model.Key), args.Error(1)
+}
+
+func (m *mockKeyService) ListKeysInVault(ctx context.Context, vaultID uuid.UUID, keyType string, tags []string) ([]model.Key, error) {
+	args := m.Called(ctx, vaultID, keyType, tags)
+	return args.Get(0).([]model.Key), args.Error(1)
+}
+
+func (m *mockKeyService) DeleteKeyInVault(ctx context.Context, keyID, vaultID uuid.UUID) (*model.Key, error) {
+	args := m.Called(ctx, keyID, vaultID)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).(*model.Key), args.Error(1)
+}
+
 func (m *mockKeyService) RotateKey(ctx context.Context, keyID, userID uuid.UUID) (*keyServices.CreateKeyResult, error) {
 	args := m.Called(ctx, keyID, userID)
 	if args.Get(0) == nil {
@@ -404,7 +425,7 @@ func TestCreateKey_InvalidECDSACurve_Returns400(t *testing.T) {
 
 func TestListKeys_ServiceError_Returns500(t *testing.T) {
 	svc := &mockKeyService{}
-	svc.On("ListKeysWithFilters", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).
+	svc.On("ListKeysInVault", mock.Anything, mock.Anything, mock.Anything, mock.Anything).
 		Return([]model.Key{}, errors.New("db error"))
 
 	c := newKeyCtx(svc)
@@ -423,7 +444,7 @@ func TestListKeys_ServiceError_Returns500(t *testing.T) {
 func TestListKeys_Success_Returns200(t *testing.T) {
 	keyID := uuid.New()
 	svc := &mockKeyService{}
-	svc.On("ListKeysWithFilters", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).
+	svc.On("ListKeysInVault", mock.Anything, mock.Anything, mock.Anything, mock.Anything).
 		Return([]model.Key{*makeKeyModel(keyID)}, nil)
 
 	c := newKeyCtx(svc)
@@ -460,7 +481,7 @@ func TestGetKey_InvalidKeyID_Returns400(t *testing.T) {
 func TestGetKey_NotFound_Returns404(t *testing.T) {
 	keyID := uuid.New()
 	svc := &mockKeyService{}
-	svc.On("GetKey", mock.Anything, keyID, uuid.MustParse(keyTestUserID)).Return(nil, errors.New("not found"))
+	svc.On("GetKeyInVault", mock.Anything, keyID, mock.Anything).Return(nil, errors.New("not found"))
 	// Non-admin branch — won't call ValidateKeyAccess.
 
 	c := newKeyCtx(svc)
@@ -481,7 +502,7 @@ func TestGetKey_NotFound_Returns404(t *testing.T) {
 func TestGetKey_Success_Returns200(t *testing.T) {
 	keyID := uuid.New()
 	svc := &mockKeyService{}
-	svc.On("GetKey", mock.Anything, keyID, uuid.MustParse(keyTestUserID)).Return(makeKeyModel(keyID), nil)
+	svc.On("GetKeyInVault", mock.Anything, keyID, mock.Anything).Return(makeKeyModel(keyID), nil)
 
 	c := newKeyCtx(svc)
 	c.Params = &ApiParams{KeyID: keyID.String(), PerPage: 60}
@@ -595,7 +616,7 @@ func TestDeleteKey_InvalidKeyID_Returns400(t *testing.T) {
 func TestDeleteKey_ServiceError_Returns500(t *testing.T) {
 	keyID := uuid.New()
 	svc := &mockKeyService{}
-	svc.On("DeleteKey", mock.Anything, keyID, uuid.MustParse(keyTestUserID)).Return(nil, errors.New("db error"))
+	svc.On("DeleteKeyInVault", mock.Anything, keyID, mock.Anything).Return(nil, errors.New("db error"))
 
 	c := newKeyCtx(svc)
 	c.Params = &ApiParams{KeyID: keyID.String(), PerPage: 60}
@@ -617,7 +638,7 @@ func TestDeleteKey_Success_Returns200(t *testing.T) {
 	svc := &mockKeyService{}
 	deleted := makeKeyModel(keyID)
 	deleted.DeletedAt = &now
-	svc.On("DeleteKey", mock.Anything, keyID, uuid.MustParse(keyTestUserID)).Return(deleted, nil)
+	svc.On("DeleteKeyInVault", mock.Anything, keyID, mock.Anything).Return(deleted, nil)
 
 	c := newKeyCtx(svc)
 	c.Params = &ApiParams{KeyID: keyID.String(), PerPage: 60}

@@ -12,15 +12,16 @@ import (
 	"github.com/google/uuid"
 	"github.com/sirupsen/logrus"
 
-	"rocketvault/model"
 	dbpkg "rocketvault/internal/db"
 	"rocketvault/internal/logging"
 	"rocketvault/internal/repositories"
+	"rocketvault/model"
 )
 
 // CreateSecretRequest represents a request to create a new secret.
 type CreateSecretRequest struct {
 	UserID      uuid.UUID
+	VaultID     uuid.UUID // Target vault; defaults to the default vault when nil.
 	Name        string
 	Value       string
 	Tags        []string
@@ -106,6 +107,12 @@ type SecretService interface {
 	GetSecret(ctx context.Context, secretID, userID uuid.UUID) (*model.Secret, error)
 	ListSecrets(ctx context.Context, userID uuid.UUID, tags []string) ([]model.Secret, error)
 	DeleteSecret(ctx context.Context, secretID, userID uuid.UUID) error
+	// GetSecretInVault retrieves a secret scoped to the given vault.
+	GetSecretInVault(ctx context.Context, secretID, vaultID uuid.UUID) (*model.Secret, error)
+	// ListSecretsInVault lists secrets scoped to the given vault.
+	ListSecretsInVault(ctx context.Context, vaultID uuid.UUID, tags []string) ([]model.Secret, error)
+	// DeleteSecretInVault soft-deletes a secret scoped to the given vault.
+	DeleteSecretInVault(ctx context.Context, secretID, vaultID uuid.UUID) error
 	GenerateSecret(ctx context.Context, req GenerateSecretRequest) (*model.Secret, error)
 	ExportSecrets(ctx context.Context, req ExportSecretsRequest) ([]byte, error)
 	ImportSecrets(ctx context.Context, req ImportSecretsRequest) (*ImportResult, error)
@@ -191,9 +198,17 @@ func (s *secretService) CreateSecret(ctx context.Context, req CreateSecretReques
 		enabled = *req.Enabled
 	}
 
+	// Default the vault to the well-known default vault when not specified,
+	// so legacy callers that do not set a vault keep targeting it.
+	vaultID := req.VaultID
+	if vaultID == uuid.Nil {
+		vaultID = uuid.MustParse(model.DefaultVaultID)
+	}
+
 	secret := &model.Secret{
 		ID:          uuid.New(),
 		UserID:      req.UserID,
+		VaultID:     vaultID,
 		Name:        req.Name,
 		Value:       encryptedValue,
 		Version:     1,
@@ -501,6 +516,107 @@ func (s *secretService) DeleteSecret(ctx context.Context, secretID, userID uuid.
 	logrus.WithFields(logrus.Fields{
 		"secret_id": secretID.String(),
 		"user_id":   userID.String(),
+	}).Info("Secret soft deleted successfully")
+
+	return nil
+}
+
+// GetSecretInVault retrieves a secret by ID scoped to a vault, with decryption
+// and tag loading. It mirrors GetSecret but enforces vault scope at the SQL
+// level via ReadInVault instead of ownership.
+func (s *secretService) GetSecretInVault(ctx context.Context, secretID, vaultID uuid.UUID) (*model.Secret, error) {
+	secret, err := s.secretRepo.ReadInVault(ctx, secretID, vaultID)
+	if err != nil {
+		s.logger.LogAuditError(vaultID.String(), "get_secret", "failed", "Secret not found or not in vault", err)
+		return nil, fmt.Errorf("secret not found or access denied")
+	}
+
+	// Decrypt value.
+	decryptedValue, err := s.cryptoService.DecryptSecret(secret.Value)
+	if err != nil {
+		s.logger.LogAuditError(vaultID.String(), "get_secret", "failed", "Failed to decrypt secret", err)
+		return nil, fmt.Errorf("failed to decrypt secret: %w", err)
+	}
+	secret.Value = decryptedValue
+
+	// Load tags.
+	tags, err := s.tagService.GetTags(ctx, secretID)
+	if err != nil {
+		s.logger.LogAuditError(vaultID.String(), "get_secret", "failed", "Failed to load tags", err)
+		return nil, fmt.Errorf("failed to load tags: %w", err)
+	}
+	secret.Tags = tags
+
+	// Enforce lifecycle policy at the service boundary.
+	if !secret.IsAccessible() {
+		s.logger.LogAuditError(vaultID.String(), "get_secret", "denied", "Secret is disabled or outside its valid time window", nil)
+		return nil, fmt.Errorf("secret is disabled or outside its valid time window")
+	}
+
+	return secret, nil
+}
+
+// ListSecretsInVault retrieves all active secrets in a vault with optional tag
+// filtering. It mirrors ListSecrets but scopes by vault instead of user.
+func (s *secretService) ListSecretsInVault(ctx context.Context, vaultID uuid.UUID, tags []string) ([]model.Secret, error) {
+	secretList, err := s.secretRepo.ListInVault(ctx, vaultID, tags)
+	if err != nil {
+		s.logger.LogAuditError(vaultID.String(), "list_secrets", "failed", "Failed to list secrets", err)
+		return nil, fmt.Errorf("failed to list secrets: %w", err)
+	}
+
+	for i := range secretList {
+		secret := &secretList[i]
+
+		decryptedValue, err := s.cryptoService.DecryptSecret(secret.Value)
+		if err != nil {
+			s.logger.LogAuditError(vaultID.String(), "list_secrets", "failed", "Failed to decrypt secret", err)
+			return nil, fmt.Errorf("failed to decrypt secret %s: %w", secret.ID.String(), err)
+		}
+		secret.Value = decryptedValue
+
+		secretTags, err := s.tagService.GetTags(ctx, secret.ID)
+		if err != nil {
+			s.logger.LogAuditError(vaultID.String(), "list_secrets", "failed", "Failed to load tags", err)
+			return nil, fmt.Errorf("failed to load tags for secret %s: %w", secret.ID.String(), err)
+		}
+		secret.Tags = secretTags
+	}
+
+	logrus.WithFields(logrus.Fields{
+		"vault_id":     vaultID.String(),
+		"secret_count": len(secretList),
+	}).Debug("Listed secrets for vault")
+
+	return secretList, nil
+}
+
+// DeleteSecretInVault soft-deletes a secret scoped to a vault. It mirrors
+// DeleteSecret but verifies vault scope via ReadInVault instead of ownership.
+func (s *secretService) DeleteSecretInVault(ctx context.Context, secretID, vaultID uuid.UUID) error {
+	secret, err := s.secretRepo.ReadInVault(ctx, secretID, vaultID)
+	if err != nil {
+		s.logger.LogAuditError(vaultID.String(), "delete_secret", "failed", "Secret not found or not in vault", err)
+		return fmt.Errorf("secret not found: %w", err)
+	}
+
+	// Remove all tags first.
+	if err := s.tagService.RemoveAllTags(ctx, secretID); err != nil {
+		s.logger.LogAuditError(vaultID.String(), "delete_secret", "failed", "Failed to remove tags", err)
+		return fmt.Errorf("failed to remove tags: %w", err)
+	}
+
+	// Soft delete secret via repository.
+	if err := s.secretRepo.SoftDelete(ctx, secretID); err != nil {
+		s.logger.LogAuditError(vaultID.String(), "delete_secret", "failed", "Failed to soft delete secret", err)
+		return fmt.Errorf("failed to soft delete secret: %w", err)
+	}
+
+	s.logger.LogAuditInfo(vaultID.String(), "delete_secret", "success",
+		fmt.Sprintf("Secret soft deleted: %s", secret.Name))
+	logrus.WithFields(logrus.Fields{
+		"secret_id": secretID.String(),
+		"vault_id":  vaultID.String(),
 	}).Info("Secret soft deleted successfully")
 
 	return nil

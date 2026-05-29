@@ -428,6 +428,27 @@ func (m *MockSecretService) ListSecrets(ctx context.Context, userID uuid.UUID, t
 	return args.Get(0).([]model.Secret), args.Error(1)
 }
 
+func (m *MockSecretService) GetSecretInVault(ctx context.Context, secretID, vaultID uuid.UUID) (*model.Secret, error) {
+	args := m.Called(ctx, secretID, vaultID)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).(*model.Secret), args.Error(1)
+}
+
+func (m *MockSecretService) ListSecretsInVault(ctx context.Context, vaultID uuid.UUID, tags []string) ([]model.Secret, error) {
+	args := m.Called(ctx, vaultID, tags)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).([]model.Secret), args.Error(1)
+}
+
+func (m *MockSecretService) DeleteSecretInVault(ctx context.Context, secretID, vaultID uuid.UUID) error {
+	args := m.Called(ctx, secretID, vaultID)
+	return args.Error(0)
+}
+
 func (m *MockSecretService) GetSecretVersions(ctx context.Context, secretID uuid.UUID, userID uuid.UUID) ([]model.SecretVersion, error) {
 	args := m.Called(ctx, secretID, userID)
 	if args.Get(0) == nil {

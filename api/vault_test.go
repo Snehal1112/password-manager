@@ -129,11 +129,15 @@ func (vaultNoopCascade) RecoverVaultContents(context.Context, uuid.UUID) error  
 // --- vaultSvcTestContainer ---
 
 type vaultSvcTestContainer struct {
-	vaultSvc vaultServices.VaultService
+	vaultSvc  vaultServices.VaultService
+	secretSvc secretServices.SecretService
 }
 
 func (c *vaultSvcTestContainer) GetVaultService() vaultServices.VaultService { return c.vaultSvc }
 func (c *vaultSvcTestContainer) GetSecretService() secretServices.SecretService {
+	if c.secretSvc != nil {
+		return c.secretSvc
+	}
 	panic("unexpected call: GetSecretService")
 }
 func (c *vaultSvcTestContainer) GetRBACService() authzServices.RBACService {

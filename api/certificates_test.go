@@ -75,6 +75,24 @@ func (m *mockCertService) ListCertificates(ctx context.Context, userID uuid.UUID
 	return args.Get(0).([]model.Certificate), args.Error(1)
 }
 
+func (m *mockCertService) GetCertificateInVault(ctx context.Context, certID, vaultID uuid.UUID) (*model.Certificate, error) {
+	args := m.Called(ctx, certID, vaultID)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).(*model.Certificate), args.Error(1)
+}
+
+func (m *mockCertService) ListCertificatesInVault(ctx context.Context, vaultID uuid.UUID) ([]model.Certificate, error) {
+	args := m.Called(ctx, vaultID)
+	return args.Get(0).([]model.Certificate), args.Error(1)
+}
+
+func (m *mockCertService) DeleteCertificateInVault(ctx context.Context, certID, vaultID uuid.UUID) error {
+	args := m.Called(ctx, certID, vaultID)
+	return args.Error(0)
+}
+
 func (m *mockCertService) UpdateCertificate(ctx context.Context, req certServices.UpdateCertificateRequest) error {
 	args := m.Called(ctx, req)
 	return args.Error(0)
@@ -376,7 +394,7 @@ func TestCreateCertificate_Success_Returns201(t *testing.T) {
 
 func TestListCertificates_ServiceError_Returns500(t *testing.T) {
 	svc := &mockCertService{}
-	svc.On("ListCertificates", mock.Anything, mock.Anything).Return([]model.Certificate{}, errors.New("db error"))
+	svc.On("ListCertificatesInVault", mock.Anything, mock.Anything).Return([]model.Certificate{}, errors.New("db error"))
 
 	c := newCertCtx(svc, certAdminClaims())
 	w := httptest.NewRecorder()
@@ -396,7 +414,7 @@ func TestListCertificates_Success_Returns200(t *testing.T) {
 	certs := []model.Certificate{
 		{ID: uuid.New(), Name: "cert1", CreatedAt: time.Now()},
 	}
-	svc.On("ListCertificates", mock.Anything, mock.Anything).Return(certs, nil)
+	svc.On("ListCertificatesInVault", mock.Anything, mock.Anything).Return(certs, nil)
 
 	c := newCertCtx(svc, certAdminClaims())
 	w := httptest.NewRecorder()
@@ -435,8 +453,7 @@ func TestGetCertificate_InvalidCertID_Returns400(t *testing.T) {
 func TestGetCertificate_NotFound_Returns404(t *testing.T) {
 	svc := &mockCertService{}
 	certID := uuid.New()
-	userID := uuid.MustParse(certTestUserID)
-	svc.On("GetCertificate", mock.Anything, certID, userID).Return(nil, errors.New("not found"))
+	svc.On("GetCertificateInVault", mock.Anything, certID, mock.Anything).Return(nil, errors.New("not found"))
 
 	c := newCertCtx(svc, certAdminClaims())
 	c.Params = &ApiParams{CertificateID: certID.String(), PerPage: 60}
@@ -456,7 +473,7 @@ func TestGetCertificate_Success_Returns200(t *testing.T) {
 	svc := &mockCertService{}
 	certID := uuid.New()
 	userID := uuid.MustParse(certTestUserID)
-	svc.On("GetCertificate", mock.Anything, certID, userID).Return(&model.Certificate{
+	svc.On("GetCertificateInVault", mock.Anything, certID, mock.Anything).Return(&model.Certificate{
 		ID: certID, Name: "cert1", UserID: userID, CreatedAt: time.Now(),
 	}, nil)
 
@@ -575,8 +592,7 @@ func TestDeleteCertificate_InvalidCertID_Returns400(t *testing.T) {
 func TestDeleteCertificate_ServiceError_Returns500(t *testing.T) {
 	svc := &mockCertService{}
 	certID := uuid.New()
-	userID := uuid.MustParse(certTestUserID)
-	svc.On("DeleteCertificate", mock.Anything, certID, userID).Return(errors.New("db error"))
+	svc.On("DeleteCertificateInVault", mock.Anything, certID, mock.Anything).Return(errors.New("db error"))
 
 	c := newCertCtx(svc, certAdminClaims())
 	c.Params = &ApiParams{CertificateID: certID.String(), PerPage: 60}
@@ -595,8 +611,7 @@ func TestDeleteCertificate_ServiceError_Returns500(t *testing.T) {
 func TestDeleteCertificate_Success_Returns200(t *testing.T) {
 	svc := &mockCertService{}
 	certID := uuid.New()
-	userID := uuid.MustParse(certTestUserID)
-	svc.On("DeleteCertificate", mock.Anything, certID, userID).Return(nil)
+	svc.On("DeleteCertificateInVault", mock.Anything, certID, mock.Anything).Return(nil)
 
 	c := newCertCtx(svc, certAdminClaims())
 	c.Params = &ApiParams{CertificateID: certID.String(), PerPage: 60}

@@ -5,6 +5,7 @@ import (
 	"net/http"
 
 	"github.com/google/uuid"
+	"github.com/gorilla/mux"
 )
 
 // listDeletedSecrets returns all soft-deleted secrets for the authenticated user.
@@ -415,7 +416,16 @@ func userIDFromClaims(c *Context) (uuid.UUID, bool) {
 
 // InitDeleted registers soft-delete management routes.
 func (api *API) InitDeleted() {
-	r := api.BaseRoutes.Deleted
+	api.registerDeletedRoutes(api.BaseRoutes.Deleted)
+	if api.BaseRoutes.VaultScoped != nil {
+		api.registerDeletedRoutes(api.BaseRoutes.VaultScoped.PathPrefix("/deleted").Subrouter())
+	}
+}
+
+// registerDeletedRoutes registers the soft-delete handlers on the provided
+// subrouter. It is called for both the legacy flat routes and the vault-scoped
+// routes.
+func (api *API) registerDeletedRoutes(r *mux.Router) {
 	r.Handle("/secrets", ApiSessionRequired(api.App, listDeletedSecrets)).Methods("GET")
 	r.Handle("/secrets/{secret_id:[A-Fa-f0-9-]+}/restore", ApiSessionRequired(api.App, recoverSecret)).Methods("POST")
 	r.Handle("/secrets/{secret_id:[A-Fa-f0-9-]+}/purge", ApiSessionRequired(api.App, purgeSecret)).Methods("DELETE")

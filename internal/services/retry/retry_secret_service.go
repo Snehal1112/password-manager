@@ -5,8 +5,8 @@ import (
 
 	"github.com/google/uuid"
 
-	"rocketvault/model"
 	"rocketvault/internal/services/secrets"
+	"rocketvault/model"
 )
 
 // RetrySecretService wraps secret operations with retry logic
@@ -78,6 +78,39 @@ func (s *retrySecretService) ListSecrets(ctx context.Context, userID uuid.UUID, 
 func (s *retrySecretService) DeleteSecret(ctx context.Context, secretID, userID uuid.UUID) error {
 	return s.retryService.ExecuteDatabaseOperation(ctx, func() error {
 		return s.baseService.DeleteSecret(ctx, secretID, userID)
+	})
+}
+
+// GetSecretInVault retrieves a vault-scoped secret with retry logic for database operations
+func (s *retrySecretService) GetSecretInVault(ctx context.Context, secretID, vaultID uuid.UUID) (*model.Secret, error) {
+	var result *model.Secret
+	var err error
+
+	retryErr := s.retryService.ExecuteDatabaseOperation(ctx, func() error {
+		result, err = s.baseService.GetSecretInVault(ctx, secretID, vaultID)
+		return err
+	})
+
+	return result, retryErr
+}
+
+// ListSecretsInVault lists vault-scoped secrets with retry logic for database operations
+func (s *retrySecretService) ListSecretsInVault(ctx context.Context, vaultID uuid.UUID, tags []string) ([]model.Secret, error) {
+	var result []model.Secret
+	var err error
+
+	retryErr := s.retryService.ExecuteDatabaseOperation(ctx, func() error {
+		result, err = s.baseService.ListSecretsInVault(ctx, vaultID, tags)
+		return err
+	})
+
+	return result, retryErr
+}
+
+// DeleteSecretInVault deletes a vault-scoped secret with retry logic for database operations
+func (s *retrySecretService) DeleteSecretInVault(ctx context.Context, secretID, vaultID uuid.UUID) error {
+	return s.retryService.ExecuteDatabaseOperation(ctx, func() error {
+		return s.baseService.DeleteSecretInVault(ctx, secretID, vaultID)
 	})
 }
 
