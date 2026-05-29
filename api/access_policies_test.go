@@ -23,16 +23,17 @@ import (
 	"rocketvault/internal/logging"
 	"rocketvault/internal/metrics"
 	"rocketvault/internal/repositories"
-	"rocketvault/internal/signing"
+	auditServices "rocketvault/internal/services/audit"
 	authServices "rocketvault/internal/services/auth"
 	authzServices "rocketvault/internal/services/authorization"
-	auditServices "rocketvault/internal/services/audit"
 	certServices "rocketvault/internal/services/certificates"
 	keyServices "rocketvault/internal/services/keys"
 	oauth2Services "rocketvault/internal/services/oauth2"
 	retryServices "rocketvault/internal/services/retry"
 	secretServices "rocketvault/internal/services/secrets"
 	userServices "rocketvault/internal/services/users"
+	vaultServices "rocketvault/internal/services/vaults"
+	"rocketvault/internal/signing"
 	"rocketvault/model"
 )
 
@@ -124,6 +125,12 @@ func (c *policyContainer) GetCertificatePolicyRepository() repositories.Certific
 func (c *policyContainer) GetSessionRepository() repositories.SessionRepositoryInterface {
 	panic("unexpected call: GetSessionRepository")
 }
+func (c *policyContainer) GetVaultRepository() repositories.VaultRepositoryInterface {
+	panic("unexpected call: GetVaultRepository")
+}
+func (c *policyContainer) GetVaultService() vaultServices.VaultService {
+	panic("unexpected call: GetVaultService")
+}
 func (c *policyContainer) GetPasswordService() authServices.PasswordService {
 	panic("unexpected call: GetPasswordService")
 }
@@ -178,10 +185,14 @@ func (c *policyContainer) GetRotationService() secretServices.RotationServiceInt
 func (c *policyContainer) GetSchedulerService() secretServices.SchedulerServiceInterface {
 	panic("unexpected call: GetSchedulerService")
 }
-func (c *policyContainer) GetDatabase() *sql.DB               { panic("unexpected call: GetDatabase") }
-func (c *policyContainer) GetLogger() *logging.Logger         { panic("unexpected call: GetLogger") }
-func (c *policyContainer) GetSecretCache() *cache.SecretCache { panic("unexpected call: GetSecretCache") }
-func (c *policyContainer) GetCacheConfig() *cache.CacheConfig { panic("unexpected call: GetCacheConfig") }
+func (c *policyContainer) GetDatabase() *sql.DB       { panic("unexpected call: GetDatabase") }
+func (c *policyContainer) GetLogger() *logging.Logger { panic("unexpected call: GetLogger") }
+func (c *policyContainer) GetSecretCache() *cache.SecretCache {
+	panic("unexpected call: GetSecretCache")
+}
+func (c *policyContainer) GetCacheConfig() *cache.CacheConfig {
+	panic("unexpected call: GetCacheConfig")
+}
 func (c *policyContainer) GetCachedSecretService() secretServices.SecretService {
 	panic("unexpected call: GetCachedSecretService")
 }
@@ -193,7 +204,7 @@ func (c *policyContainer) GetSigningProvider() signing.SigningKeyProvider { retu
 func (c *policyContainer) GetItemBackupService() *backup.ItemBackupService {
 	return nil
 }
-func (c *policyContainer) GetKeyCache() keycache.Cache              { return nil }
+func (c *policyContainer) GetKeyCache() keycache.Cache             { return nil }
 func (c *policyContainer) GetCryptoMetrics() metrics.CryptoMetrics { return nil }
 func (c *policyContainer) GetAuditService() auditServices.AuditServiceInterface {
 	return nil

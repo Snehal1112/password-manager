@@ -27,6 +27,7 @@ import (
 	retryServices "rocketvault/internal/services/retry"
 	secretServices "rocketvault/internal/services/secrets"
 	userServices "rocketvault/internal/services/users"
+	vaultServices "rocketvault/internal/services/vaults"
 	"rocketvault/internal/signing"
 	"rocketvault/model"
 )
@@ -464,6 +465,14 @@ func (m *MockServiceContainer) GetCertificatePolicyRepository() repositories.Cer
 }
 
 func (m *MockServiceContainer) GetSessionRepository() repositories.SessionRepositoryInterface {
+	return nil
+}
+
+func (m *MockServiceContainer) GetVaultRepository() repositories.VaultRepositoryInterface {
+	return nil
+}
+
+func (m *MockServiceContainer) GetVaultService() vaultServices.VaultService {
 	return nil
 }
 

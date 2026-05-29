@@ -24,16 +24,17 @@ import (
 	"rocketvault/internal/logging"
 	"rocketvault/internal/metrics"
 	"rocketvault/internal/repositories"
-	"rocketvault/internal/signing"
+	auditServices "rocketvault/internal/services/audit"
 	authServices "rocketvault/internal/services/auth"
 	authzServices "rocketvault/internal/services/authorization"
-	auditServices "rocketvault/internal/services/audit"
 	certServices "rocketvault/internal/services/certificates"
 	keyServices "rocketvault/internal/services/keys"
 	oauth2Services "rocketvault/internal/services/oauth2"
 	retryServices "rocketvault/internal/services/retry"
 	secretServices "rocketvault/internal/services/secrets"
 	userServices "rocketvault/internal/services/users"
+	vaultServices "rocketvault/internal/services/vaults"
+	"rocketvault/internal/signing"
 	"rocketvault/model"
 )
 
@@ -93,6 +94,12 @@ func (c *certPolicyRepoContainer) GetCertificateRepository() repositories.Certif
 }
 func (c *certPolicyRepoContainer) GetSessionRepository() repositories.SessionRepositoryInterface {
 	panic("unexpected call: GetSessionRepository")
+}
+func (c *certPolicyRepoContainer) GetVaultRepository() repositories.VaultRepositoryInterface {
+	panic("unexpected call: GetVaultRepository")
+}
+func (c *certPolicyRepoContainer) GetVaultService() vaultServices.VaultService {
+	panic("unexpected call: GetVaultService")
 }
 func (c *certPolicyRepoContainer) GetPasswordService() authServices.PasswordService {
 	panic("unexpected call: GetPasswordService")
@@ -172,7 +179,7 @@ func (c *certPolicyRepoContainer) GetSigningProvider() signing.SigningKeyProvide
 func (c *certPolicyRepoContainer) GetItemBackupService() *backup.ItemBackupService {
 	return nil
 }
-func (c *certPolicyRepoContainer) GetKeyCache() keycache.Cache              { return nil }
+func (c *certPolicyRepoContainer) GetKeyCache() keycache.Cache             { return nil }
 func (c *certPolicyRepoContainer) GetCryptoMetrics() metrics.CryptoMetrics { return nil }
 func (c *certPolicyRepoContainer) GetAuditService() auditServices.AuditServiceInterface {
 	return nil
@@ -313,9 +320,9 @@ func TestUpsertCertificatePolicy_Success_Returns200(t *testing.T) {
 	repo := &mockCertPolicyRepo{}
 	repo.On("Upsert", mock.Anything, mock.Anything).Return(nil)
 	repo.On("GetByCertificateID", mock.Anything, certID, userID).Return(&model.CertificatePolicy{
-		ID:            uuid.New(),
-		CertificateID: certID,
-		UserID:        userID,
+		ID:             uuid.New(),
+		CertificateID:  certID,
+		UserID:         userID,
 		ValidityMonths: 12,
 	}, nil)
 

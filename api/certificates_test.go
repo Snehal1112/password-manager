@@ -26,16 +26,17 @@ import (
 	"rocketvault/internal/logging"
 	"rocketvault/internal/metrics"
 	"rocketvault/internal/repositories"
-	"rocketvault/internal/signing"
+	auditServices "rocketvault/internal/services/audit"
 	authServices "rocketvault/internal/services/auth"
 	authzServices "rocketvault/internal/services/authorization"
-	auditServices "rocketvault/internal/services/audit"
 	certServices "rocketvault/internal/services/certificates"
 	keyServices "rocketvault/internal/services/keys"
 	oauth2Services "rocketvault/internal/services/oauth2"
 	retryServices "rocketvault/internal/services/retry"
 	secretServices "rocketvault/internal/services/secrets"
 	userServices "rocketvault/internal/services/users"
+	vaultServices "rocketvault/internal/services/vaults"
+	"rocketvault/internal/signing"
 	"rocketvault/model"
 )
 
@@ -136,6 +137,12 @@ func (c *certSvcContainer) GetCertificatePolicyRepository() repositories.Certifi
 func (c *certSvcContainer) GetSessionRepository() repositories.SessionRepositoryInterface {
 	panic("unexpected call: GetSessionRepository")
 }
+func (c *certSvcContainer) GetVaultRepository() repositories.VaultRepositoryInterface {
+	panic("unexpected call: GetVaultRepository")
+}
+func (c *certSvcContainer) GetVaultService() vaultServices.VaultService {
+	panic("unexpected call: GetVaultService")
+}
 func (c *certSvcContainer) GetPasswordService() authServices.PasswordService {
 	panic("unexpected call: GetPasswordService")
 }
@@ -190,10 +197,14 @@ func (c *certSvcContainer) GetRotationService() secretServices.RotationServiceIn
 func (c *certSvcContainer) GetSchedulerService() secretServices.SchedulerServiceInterface {
 	panic("unexpected call: GetSchedulerService")
 }
-func (c *certSvcContainer) GetDatabase() *sql.DB               { panic("unexpected call: GetDatabase") }
-func (c *certSvcContainer) GetLogger() *logging.Logger         { panic("unexpected call: GetLogger") }
-func (c *certSvcContainer) GetSecretCache() *cache.SecretCache { panic("unexpected call: GetSecretCache") }
-func (c *certSvcContainer) GetCacheConfig() *cache.CacheConfig { panic("unexpected call: GetCacheConfig") }
+func (c *certSvcContainer) GetDatabase() *sql.DB       { panic("unexpected call: GetDatabase") }
+func (c *certSvcContainer) GetLogger() *logging.Logger { panic("unexpected call: GetLogger") }
+func (c *certSvcContainer) GetSecretCache() *cache.SecretCache {
+	panic("unexpected call: GetSecretCache")
+}
+func (c *certSvcContainer) GetCacheConfig() *cache.CacheConfig {
+	panic("unexpected call: GetCacheConfig")
+}
 func (c *certSvcContainer) GetCachedSecretService() secretServices.SecretService {
 	panic("unexpected call: GetCachedSecretService")
 }
@@ -205,7 +216,7 @@ func (c *certSvcContainer) GetSigningProvider() signing.SigningKeyProvider { ret
 func (c *certSvcContainer) GetItemBackupService() *backup.ItemBackupService {
 	return nil
 }
-func (c *certSvcContainer) GetKeyCache() keycache.Cache              { return nil }
+func (c *certSvcContainer) GetKeyCache() keycache.Cache             { return nil }
 func (c *certSvcContainer) GetCryptoMetrics() metrics.CryptoMetrics { return nil }
 func (c *certSvcContainer) GetAuditService() auditServices.AuditServiceInterface {
 	return nil

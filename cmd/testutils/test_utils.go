@@ -15,32 +15,33 @@ import (
 	"rocketvault/internal/cache"
 	"rocketvault/internal/crypto"
 	"rocketvault/internal/keycache"
-	"rocketvault/internal/metrics"
-	"rocketvault/model"
 	"rocketvault/internal/logging"
+	"rocketvault/internal/metrics"
 	"rocketvault/internal/repositories"
-	"rocketvault/internal/signing"
+	auditServices "rocketvault/internal/services/audit"
 	authServices "rocketvault/internal/services/auth"
 	authzServices "rocketvault/internal/services/authorization"
 	certServices "rocketvault/internal/services/certificates"
 	keyServices "rocketvault/internal/services/keys"
+	oauth2Services "rocketvault/internal/services/oauth2"
 	retryServices "rocketvault/internal/services/retry"
 	secretServices "rocketvault/internal/services/secrets"
 	userServices "rocketvault/internal/services/users"
-	auditServices "rocketvault/internal/services/audit"
-	oauth2Services "rocketvault/internal/services/oauth2"
+	vaultServices "rocketvault/internal/services/vaults"
+	"rocketvault/internal/signing"
+	"rocketvault/model"
 )
 
 // TestContext holds common test utilities and mocks
 type TestContext struct {
-	Ctx              context.Context
-	MockContainer    *MockServiceContainer
-	MockUserService  *MockUserService
+	Ctx               context.Context
+	MockContainer     *MockServiceContainer
+	MockUserService   *MockUserService
 	MockSecretService *MockSecretService
 	MockAuthService   *MockAuthenticationService
 	MockRBACService   *MockRBACService
-	TestUserID       uuid.UUID
-	Logger           *logging.Logger
+	TestUserID        uuid.UUID
+	Logger            *logging.Logger
 }
 
 // NewTestContext creates a new test context with mocks
@@ -78,14 +79,14 @@ func NewTestContext(t *testing.T) *TestContext {
 	ctx = context.WithValue(ctx, common.LogKey, logger)
 
 	return &TestContext{
-		Ctx:              ctx,
-		MockContainer:    mockContainer,
-		MockUserService:  mockUserService,
+		Ctx:               ctx,
+		MockContainer:     mockContainer,
+		MockUserService:   mockUserService,
 		MockSecretService: mockSecretService,
 		MockAuthService:   mockAuthService,
 		MockRBACService:   mockRBACService,
-		TestUserID:       testUserID,
-		Logger:           logger,
+		TestUserID:        testUserID,
+		Logger:            logger,
 	}
 }
 
@@ -130,6 +131,14 @@ func (m *MockServiceContainer) GetCertificatePolicyRepository() repositories.Cer
 }
 
 func (m *MockServiceContainer) GetSessionRepository() repositories.SessionRepositoryInterface {
+	return nil
+}
+
+func (m *MockServiceContainer) GetVaultRepository() repositories.VaultRepositoryInterface {
+	return nil
+}
+
+func (m *MockServiceContainer) GetVaultService() vaultServices.VaultService {
 	return nil
 }
 

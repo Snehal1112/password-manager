@@ -18,17 +18,18 @@ import (
 	"rocketvault/internal/logging"
 	"rocketvault/internal/metrics"
 	"rocketvault/internal/repositories"
-	"rocketvault/internal/signing"
+	auditServices "rocketvault/internal/services/audit"
 	authServices "rocketvault/internal/services/auth"
 	authzServices "rocketvault/internal/services/authorization"
 	certServices "rocketvault/internal/services/certificates"
 	keyServices "rocketvault/internal/services/keys"
-	auditServices "rocketvault/internal/services/audit"
 	oauth2Services "rocketvault/internal/services/oauth2"
 	retryServices "rocketvault/internal/services/retry"
 	secretServices "rocketvault/internal/services/secrets"
 	secrets "rocketvault/internal/services/secrets"
 	userServices "rocketvault/internal/services/users"
+	vaultServices "rocketvault/internal/services/vaults"
+	"rocketvault/internal/signing"
 )
 
 // ServiceContainerInterface defines the interface for the service container.
@@ -47,6 +48,7 @@ type ServiceContainerInterface interface {
 	GetCertificateRepository() repositories.CertificateRepositoryInterface
 	GetCertificatePolicyRepository() repositories.CertificatePolicyRepositoryInterface
 	GetSessionRepository() repositories.SessionRepositoryInterface
+	GetVaultRepository() repositories.VaultRepositoryInterface
 
 	// Authentication service getters
 	GetPasswordService() authServices.PasswordService
@@ -70,6 +72,7 @@ type ServiceContainerInterface interface {
 	GetCertificateService() certServices.CertificateService
 	GetCertificateRenewalService() certServices.CertificateRenewalService
 	GetCryptoService() keyServices.CryptoService
+	GetVaultService() vaultServices.VaultService
 
 	// Secret component service getters
 	GetCryptographyService() secretServices.CryptographyService
@@ -130,15 +133,16 @@ type ServiceContainer struct {
 	cacheCancel         context.CancelFunc
 
 	// Repositories
-	userRepository               repositories.UserRepositoryInterface
-	secretRepository             repositories.SecretRepositoryInterface
-	rotationRepository           repositories.RotationPolicyRepositoryInterface
-	versionRepository            repositories.SecretVersionRepositoryInterface
-	keyRepository                repositories.KeyRepositoryInterface
-	certificateRepository        repositories.CertificateRepositoryInterface
-	certPolicyRepository         repositories.CertificatePolicyRepositoryInterface
-	sessionRepository            repositories.SessionRepositoryInterface
-	auditRepository              repositories.AuditRepositoryExtended
+	userRepository        repositories.UserRepositoryInterface
+	secretRepository      repositories.SecretRepositoryInterface
+	rotationRepository    repositories.RotationPolicyRepositoryInterface
+	versionRepository     repositories.SecretVersionRepositoryInterface
+	keyRepository         repositories.KeyRepositoryInterface
+	certificateRepository repositories.CertificateRepositoryInterface
+	certPolicyRepository  repositories.CertificatePolicyRepositoryInterface
+	sessionRepository     repositories.SessionRepositoryInterface
+	vaultRepository       repositories.VaultRepositoryInterface
+	auditRepository       repositories.AuditRepositoryExtended
 
 	// Audit services
 	auditService            auditServices.AuditServiceInterface
@@ -160,12 +164,13 @@ type ServiceContainer struct {
 	oauth2Service          oauth2Services.OAuth2Service
 
 	// Business services
-	userService           userServices.UserService
-	secretService         secrets.SecretService
-	keyService            keyServices.KeyService
-	certificateService    certServices.CertificateService
-	certRenewalService    certServices.CertificateRenewalService
-	keyCryptoService      keyServices.CryptoService
+	userService        userServices.UserService
+	secretService      secrets.SecretService
+	keyService         keyServices.KeyService
+	certificateService certServices.CertificateService
+	certRenewalService certServices.CertificateRenewalService
+	keyCryptoService   keyServices.CryptoService
+	vaultService       vaultServices.VaultService
 
 	// Secret component services
 	cryptoService     secretServices.CryptographyService
@@ -252,6 +257,9 @@ func (c *ServiceContainer) initializeServices() error {
 	c.versionRepository = repositories.NewSecretVersionRepository(c.db, c.logger)
 	c.keyRepository = repositories.NewKeyRepository(c.db, c.logger)
 	c.certificateRepository = repositories.NewCertificateRepository(c.db, c.logger)
+	c.vaultRepository = repositories.NewVaultRepository(c.db, c.logger)
+	vaultCascade := vaultServices.NewCascadeAdapter(c.secretRepository, c.keyRepository, c.certificateRepository)
+	c.vaultService = vaultServices.NewVaultService(c.vaultRepository, vaultCascade, c.logger)
 	c.certPolicyRepository = repositories.NewCertificatePolicyRepository(c.db, c.logger)
 	c.sessionRepository = repositories.NewSessionRepository(repositories.SessionRepositoryConfig{
 		DB:     c.db,
@@ -657,6 +665,16 @@ func (c *ServiceContainer) GetCertificateRepository() repositories.CertificateRe
 // GetCertificatePolicyRepository returns the certificate policy repository.
 func (c *ServiceContainer) GetCertificatePolicyRepository() repositories.CertificatePolicyRepositoryInterface {
 	return c.certPolicyRepository
+}
+
+// GetVaultRepository returns the vault repository.
+func (c *ServiceContainer) GetVaultRepository() repositories.VaultRepositoryInterface {
+	return c.vaultRepository
+}
+
+// GetVaultService returns the vault lifecycle service.
+func (c *ServiceContainer) GetVaultService() vaultServices.VaultService {
+	return c.vaultService
 }
 
 // GetSessionRepository returns the session repository.

@@ -54,6 +54,7 @@ import (
 	retryServices "rocketvault/internal/services/retry"
 	secretServices "rocketvault/internal/services/secrets"
 	userServices "rocketvault/internal/services/users"
+	vaultServices "rocketvault/internal/services/vaults"
 	"rocketvault/internal/signing"
 	"rocketvault/model"
 )
@@ -159,6 +160,12 @@ func (c *keyRepoTestContainer) GetCertificatePolicyRepository() repositories.Cer
 }
 func (c *keyRepoTestContainer) GetSessionRepository() repositories.SessionRepositoryInterface {
 	panic("unexpected call: GetSessionRepository")
+}
+func (c *keyRepoTestContainer) GetVaultRepository() repositories.VaultRepositoryInterface {
+	panic("unexpected call: GetVaultRepository")
+}
+func (c *keyRepoTestContainer) GetVaultService() vaultServices.VaultService {
+	panic("unexpected call: GetVaultService")
 }
 func (c *keyRepoTestContainer) GetPasswordService() authServices.PasswordService {
 	panic("unexpected call: GetPasswordService")

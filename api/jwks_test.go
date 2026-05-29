@@ -23,16 +23,17 @@ import (
 	"rocketvault/internal/logging"
 	"rocketvault/internal/metrics"
 	"rocketvault/internal/repositories"
-	"rocketvault/internal/signing"
+	auditServices "rocketvault/internal/services/audit"
 	authServices "rocketvault/internal/services/auth"
 	authzServices "rocketvault/internal/services/authorization"
-	auditServices "rocketvault/internal/services/audit"
 	certServices "rocketvault/internal/services/certificates"
 	keyServices "rocketvault/internal/services/keys"
 	oauth2Services "rocketvault/internal/services/oauth2"
 	retryServices "rocketvault/internal/services/retry"
 	secretServices "rocketvault/internal/services/secrets"
 	userServices "rocketvault/internal/services/users"
+	vaultServices "rocketvault/internal/services/vaults"
+	"rocketvault/internal/signing"
 )
 
 // --- stub signing providers ---
@@ -44,10 +45,10 @@ type stubSigningProvider struct {
 	keyID     string
 }
 
-func (s *stubSigningProvider) PrivateKey() crypto.Signer              { return nil }
-func (s *stubSigningProvider) PublicKeys() []signing.PublicKeyInfo    { return s.keys }
-func (s *stubSigningProvider) Algorithm() string                      { return s.algorithm }
-func (s *stubSigningProvider) KeyID() string                          { return s.keyID }
+func (s *stubSigningProvider) PrivateKey() crypto.Signer           { return nil }
+func (s *stubSigningProvider) PublicKeys() []signing.PublicKeyInfo { return s.keys }
+func (s *stubSigningProvider) Algorithm() string                   { return s.algorithm }
+func (s *stubSigningProvider) KeyID() string                       { return s.keyID }
 
 // rotatableStubProvider also implements signing.RotatableProvider.
 type rotatableStubProvider struct {
@@ -96,6 +97,12 @@ func (c *jwkContainerBase) GetCertificatePolicyRepository() repositories.Certifi
 }
 func (c *jwkContainerBase) GetSessionRepository() repositories.SessionRepositoryInterface {
 	panic("unexpected call: GetSessionRepository")
+}
+func (c *jwkContainerBase) GetVaultRepository() repositories.VaultRepositoryInterface {
+	panic("unexpected call: GetVaultRepository")
+}
+func (c *jwkContainerBase) GetVaultService() vaultServices.VaultService {
+	panic("unexpected call: GetVaultService")
 }
 func (c *jwkContainerBase) GetPasswordService() authServices.PasswordService {
 	panic("unexpected call: GetPasswordService")
@@ -176,7 +183,7 @@ func (c *jwkContainerBase) GetKeyProvider() cryptoPkg.KeyProvider { return nil }
 func (c *jwkContainerBase) GetItemBackupService() *backup.ItemBackupService {
 	return nil
 }
-func (c *jwkContainerBase) GetKeyCache() keycache.Cache              { return nil }
+func (c *jwkContainerBase) GetKeyCache() keycache.Cache             { return nil }
 func (c *jwkContainerBase) GetCryptoMetrics() metrics.CryptoMetrics { return nil }
 func (c *jwkContainerBase) GetAuditService() auditServices.AuditServiceInterface {
 	return nil
