@@ -160,6 +160,18 @@ func (s *stubCertRepo) ListSoftDeleted(_ context.Context, _ uuid.UUID) ([]*model
 func (s *stubCertRepo) ListAll(_ context.Context) ([]model.Certificate, error) {
 	panic("unexpected call: ListAll")
 }
+func (s *stubCertRepo) ListInVault(_ context.Context, _ uuid.UUID, _ string, _ []string) ([]model.Certificate, error) {
+	panic("unexpected call: ListInVault")
+}
+func (s *stubCertRepo) ReadInVault(_ context.Context, _, _ uuid.UUID) (*model.Certificate, error) {
+	panic("unexpected call: ReadInVault")
+}
+func (s *stubCertRepo) SoftDeleteVaultContents(_ context.Context, _ uuid.UUID) error {
+	panic("unexpected call: SoftDeleteVaultContents")
+}
+func (s *stubCertRepo) RecoverVaultContents(_ context.Context, _ uuid.UUID) error {
+	panic("unexpected call: RecoverVaultContents")
+}
 
 // ============================================================
 // multi-repo containers

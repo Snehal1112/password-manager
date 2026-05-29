@@ -96,6 +96,32 @@ func (m *mockCertRepository) ListAll(ctx context.Context) ([]model.Certificate, 
 	return nil, args.Error(1)
 }
 
+func (m *mockCertRepository) ListInVault(ctx context.Context, vaultID uuid.UUID, certType string, tags []string) ([]model.Certificate, error) {
+	args := m.Called(ctx, vaultID, certType, tags)
+	if v := args.Get(0); v != nil {
+		return v.([]model.Certificate), args.Error(1)
+	}
+	return nil, args.Error(1)
+}
+
+func (m *mockCertRepository) ReadInVault(ctx context.Context, id, vaultID uuid.UUID) (*model.Certificate, error) {
+	args := m.Called(ctx, id, vaultID)
+	if v := args.Get(0); v != nil {
+		return v.(*model.Certificate), args.Error(1)
+	}
+	return nil, args.Error(1)
+}
+
+func (m *mockCertRepository) SoftDeleteVaultContents(ctx context.Context, vaultID uuid.UUID) error {
+	args := m.Called(ctx, vaultID)
+	return args.Error(0)
+}
+
+func (m *mockCertRepository) RecoverVaultContents(ctx context.Context, vaultID uuid.UUID) error {
+	args := m.Called(ctx, vaultID)
+	return args.Error(0)
+}
+
 // mockKeyRepo is a minimal stub for KeyRepositoryInterface used in CertificateServiceConfig.
 // CertificateService only uses the key repo for ownership checks; we don't exercise it here.
 type mockKeyRepo struct {

@@ -21,13 +21,12 @@ import (
 func setupTestDB(t *testing.T) *sql.DB {
 	t.Helper()
 
-	db, err := sql.Open("sqlite3", ":memory:")
+	// Use a shared-cache in-memory database so every pooled connection sees the
+	// same schema. Listing keys iterates open rows while reading tags on a second
+	// connection, which would otherwise hit a fresh, empty in-memory database.
+	dsn := "file:keytest_" + uuid.NewString() + "?mode=memory&cache=shared"
+	db, err := sql.Open("sqlite3", dsn)
 	require.NoError(t, err, "failed to open in-memory database")
-
-	// Pin a single connection so the in-memory schema is shared across queries.
-	// Listing keys iterates open rows while reading tags on a second statement,
-	// which would otherwise hit a fresh, empty in-memory connection.
-	db.SetMaxOpenConns(1)
 
 	_, err = db.Exec(`
 		CREATE TABLE IF NOT EXISTS users (

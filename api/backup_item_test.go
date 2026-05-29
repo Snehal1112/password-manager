@@ -652,6 +652,14 @@ func (m *mockCertRepo) ListRevoked(_ context.Context, _ uuid.UUID) ([]model.Revo
 }
 func (m *mockCertRepo) SetPurgeProtection(_ context.Context, _ uuid.UUID, _ bool) error { return nil }
 func (m *mockCertRepo) ListAll(_ context.Context) ([]model.Certificate, error)          { return nil, nil }
+func (m *mockCertRepo) ListInVault(_ context.Context, _ uuid.UUID, _ string, _ []string) ([]model.Certificate, error) {
+	return nil, nil
+}
+func (m *mockCertRepo) ReadInVault(_ context.Context, _, _ uuid.UUID) (*model.Certificate, error) {
+	return nil, nil
+}
+func (m *mockCertRepo) SoftDeleteVaultContents(_ context.Context, _ uuid.UUID) error { return nil }
+func (m *mockCertRepo) RecoverVaultContents(_ context.Context, _ uuid.UUID) error    { return nil }
 
 // backupItemContainerWithKey provides an ItemBackupService with a key repo.
 type backupItemContainerWithKey struct {

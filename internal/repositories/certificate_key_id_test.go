@@ -19,11 +19,16 @@ import (
 
 func setupCertKeyIDTestDB(t *testing.T) *sql.DB {
 	t.Helper()
-	db, err := sql.Open("sqlite3", ":memory:")
+	// Use a shared-cache in-memory database so every pooled connection sees the
+	// same schema. Listing certificates reads tags on a second connection while
+	// rows are open, which would otherwise hit a fresh, empty in-memory database.
+	dsn := "file:certkeyidtest_" + uuid.NewString() + "?mode=memory&cache=shared"
+	db, err := sql.Open("sqlite3", dsn)
 	require.NoError(t, err)
 	_, err = db.Exec(`CREATE TABLE IF NOT EXISTS certificates (
 		id TEXT PRIMARY KEY,
 		user_id TEXT NOT NULL,
+		vault_id TEXT NOT NULL DEFAULT '00000000-0000-0000-0000-00000000efa1',
 		name TEXT NOT NULL,
 		certificate TEXT NOT NULL,
 		private_key TEXT NOT NULL,
@@ -101,4 +106,38 @@ func TestCertificateRepository_KeyID_NilUUID(t *testing.T) {
 	require.NoError(t, err)
 	// uuid.Nil.String() == "00000000-0000-0000-0000-000000000000", which is valid — parses back to uuid.Nil
 	assert.Equal(t, uuid.Nil, got.KeyID)
+}
+
+// TestCertificateRepository_ListInVault_ScopesByVault verifies that ListInVault
+// returns only certificates belonging to the requested vault.
+func TestCertificateRepository_ListInVault_ScopesByVault(t *testing.T) {
+	db := setupCertKeyIDTestDB(t)
+	log := logging.InitLogger()
+	repo := repositories.NewCertificateRepository(db, log)
+	ctx := context.Background()
+	vaultA, vaultB := uuid.New(), uuid.New()
+
+	mk := func(name string, v uuid.UUID) *model.Certificate {
+		return &model.Certificate{
+			ID:          uuid.New(),
+			UserID:      uuid.New(),
+			VaultID:     v,
+			Name:        name,
+			Certificate: "cert-pem",
+			PrivateKey:  "encrypted",
+			CreatedAt:   time.Now(),
+			RenewalDays: 30,
+			Enabled:     true,
+		}
+	}
+	require.NoError(t, repo.Create(ctx, mk("a", vaultA)))
+	require.NoError(t, repo.Create(ctx, mk("b", vaultA)))
+	require.NoError(t, repo.Create(ctx, mk("c", vaultB)))
+
+	gotA, err := repo.ListInVault(ctx, vaultA, "", nil)
+	require.NoError(t, err)
+	require.Len(t, gotA, 2)
+	gotB, err := repo.ListInVault(ctx, vaultB, "", nil)
+	require.NoError(t, err)
+	require.Len(t, gotB, 1)
 }
