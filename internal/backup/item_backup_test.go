@@ -282,6 +282,22 @@ func (r *stubKeyRepo) ListVersions(_ context.Context, _, _ uuid.UUID) ([]model.K
 	return nil, nil
 }
 
+func (r *stubKeyRepo) ListInVault(_ context.Context, _ uuid.UUID, _ string, _ []string) ([]model.Key, error) {
+	return nil, nil
+}
+
+func (r *stubKeyRepo) ReadInVault(_ context.Context, _, _ uuid.UUID) (*model.Key, error) {
+	return nil, nil
+}
+
+func (r *stubKeyRepo) SoftDeleteVaultContents(_ context.Context, _ uuid.UUID) error {
+	return nil
+}
+
+func (r *stubKeyRepo) RecoverVaultContents(_ context.Context, _ uuid.UUID) error {
+	return nil
+}
+
 func TestRestoreSecretBlobTypeMismatch(t *testing.T) {
 	t.Parallel()
 

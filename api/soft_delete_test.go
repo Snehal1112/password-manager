@@ -45,16 +45,16 @@ import (
 	"rocketvault/internal/logging"
 	"rocketvault/internal/metrics"
 	"rocketvault/internal/repositories"
-	"rocketvault/internal/signing"
+	auditServices "rocketvault/internal/services/audit"
 	authServices "rocketvault/internal/services/auth"
 	authzServices "rocketvault/internal/services/authorization"
-	auditServices "rocketvault/internal/services/audit"
 	certServices "rocketvault/internal/services/certificates"
 	keyServices "rocketvault/internal/services/keys"
 	oauth2Services "rocketvault/internal/services/oauth2"
 	retryServices "rocketvault/internal/services/retry"
 	secretServices "rocketvault/internal/services/secrets"
 	userServices "rocketvault/internal/services/users"
+	"rocketvault/internal/signing"
 	"rocketvault/model"
 )
 
@@ -110,6 +110,18 @@ func (s *stubKeyRepo) CreateVersion(_ context.Context, _ uuid.UUID, _ int, _ str
 }
 func (s *stubKeyRepo) ListVersions(_ context.Context, _, _ uuid.UUID) ([]model.KeyVersion, error) {
 	panic("unexpected call: ListVersions")
+}
+func (s *stubKeyRepo) ListInVault(_ context.Context, _ uuid.UUID, _ string, _ []string) ([]model.Key, error) {
+	panic("unexpected call: ListInVault")
+}
+func (s *stubKeyRepo) ReadInVault(_ context.Context, _, _ uuid.UUID) (*model.Key, error) {
+	panic("unexpected call: ReadInVault")
+}
+func (s *stubKeyRepo) SoftDeleteVaultContents(_ context.Context, _ uuid.UUID) error {
+	panic("unexpected call: SoftDeleteVaultContents")
+}
+func (s *stubKeyRepo) RecoverVaultContents(_ context.Context, _ uuid.UUID) error {
+	panic("unexpected call: RecoverVaultContents")
 }
 
 // --- stub service container ---
@@ -223,11 +235,11 @@ func (c *keyRepoTestContainer) GetCachedSecretService() secretServices.SecretSer
 func (c *keyRepoTestContainer) GetRetryService() retryServices.RetryService {
 	panic("unexpected call: GetRetryService")
 }
-func (c *keyRepoTestContainer) GetKeyProvider() crypto.KeyProvider               { return nil }
-func (c *keyRepoTestContainer) GetSigningProvider() signing.SigningKeyProvider   { return nil }
-func (c *keyRepoTestContainer) GetItemBackupService() *backup.ItemBackupService  { return nil }
-func (c *keyRepoTestContainer) GetKeyCache() keycache.Cache                      { return nil }
-func (c *keyRepoTestContainer) GetCryptoMetrics() metrics.CryptoMetrics { return nil }
+func (c *keyRepoTestContainer) GetKeyProvider() crypto.KeyProvider              { return nil }
+func (c *keyRepoTestContainer) GetSigningProvider() signing.SigningKeyProvider  { return nil }
+func (c *keyRepoTestContainer) GetItemBackupService() *backup.ItemBackupService { return nil }
+func (c *keyRepoTestContainer) GetKeyCache() keycache.Cache                     { return nil }
+func (c *keyRepoTestContainer) GetCryptoMetrics() metrics.CryptoMetrics         { return nil }
 func (c *keyRepoTestContainer) GetAuditService() auditServices.AuditServiceInterface {
 	panic("unexpected call: GetAuditService")
 }

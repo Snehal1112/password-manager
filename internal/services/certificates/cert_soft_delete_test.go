@@ -169,6 +169,18 @@ func (m *mockKeyRepo) CreateVersion(ctx context.Context, keyID uuid.UUID, versio
 func (m *mockKeyRepo) ListVersions(ctx context.Context, keyID, userID uuid.UUID) ([]model.KeyVersion, error) {
 	return nil, nil
 }
+func (m *mockKeyRepo) ListInVault(ctx context.Context, vaultID uuid.UUID, keyType string, tags []string) ([]model.Key, error) {
+	return nil, nil
+}
+func (m *mockKeyRepo) ReadInVault(ctx context.Context, id, vaultID uuid.UUID) (*model.Key, error) {
+	return nil, nil
+}
+func (m *mockKeyRepo) SoftDeleteVaultContents(ctx context.Context, vaultID uuid.UUID) error {
+	return nil
+}
+func (m *mockKeyRepo) RecoverVaultContents(ctx context.Context, vaultID uuid.UUID) error {
+	return nil
+}
 
 // TestDeleteCertificateSoftDeletes verifies that DeleteCertificate calls SoftDelete on the
 // repository and does not call the hard Delete method.

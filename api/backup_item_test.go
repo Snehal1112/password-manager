@@ -606,6 +606,14 @@ func (m *mockKeyRepo) CreateVersion(_ context.Context, _ uuid.UUID, _ int, _ str
 func (m *mockKeyRepo) ListVersions(_ context.Context, _, _ uuid.UUID) ([]model.KeyVersion, error) {
 	return nil, nil
 }
+func (m *mockKeyRepo) ListInVault(_ context.Context, _ uuid.UUID, _ string, _ []string) ([]model.Key, error) {
+	return nil, nil
+}
+func (m *mockKeyRepo) ReadInVault(_ context.Context, _, _ uuid.UUID) (*model.Key, error) {
+	return nil, nil
+}
+func (m *mockKeyRepo) SoftDeleteVaultContents(_ context.Context, _ uuid.UUID) error { return nil }
+func (m *mockKeyRepo) RecoverVaultContents(_ context.Context, _ uuid.UUID) error    { return nil }
 
 // mockCertRepo is a minimal CertificateRepositoryInterface for backup tests.
 type mockCertRepo struct {

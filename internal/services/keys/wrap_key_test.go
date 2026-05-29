@@ -17,9 +17,9 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"rocketvault/common"
-	"rocketvault/model"
 	"rocketvault/internal/logging"
 	"rocketvault/internal/services/keys"
+	"rocketvault/model"
 )
 
 // setupWrapTestMasterKey sets a deterministic 32-byte master key for encryption tests.
@@ -54,16 +54,16 @@ func (m *mockKeyRepoForWrap) Read(ctx context.Context, id uuid.UUID) (*model.Key
 }
 func (m *mockKeyRepoForWrap) Create(ctx context.Context, k *model.Key) error { return nil }
 func (m *mockKeyRepoForWrap) Update(ctx context.Context, k *model.Key) error { return nil }
-func (m *mockKeyRepoForWrap) Delete(ctx context.Context, id uuid.UUID) error  { return nil }
+func (m *mockKeyRepoForWrap) Delete(ctx context.Context, id uuid.UUID) error { return nil }
 func (m *mockKeyRepoForWrap) ListByUser(ctx context.Context, userID *uuid.UUID, keyType string, tags []string) ([]model.Key, error) {
 	return nil, nil
 }
 func (m *mockKeyRepoForWrap) UpdateRevocationStatus(ctx context.Context, id uuid.UUID, revoked bool) error {
 	return nil
 }
-func (m *mockKeyRepoForWrap) SoftDelete(ctx context.Context, id uuid.UUID) error  { return nil }
-func (m *mockKeyRepoForWrap) RecoverKey(ctx context.Context, id uuid.UUID) error  { return nil }
-func (m *mockKeyRepoForWrap) PurgeKey(ctx context.Context, id uuid.UUID) error    { return nil }
+func (m *mockKeyRepoForWrap) SoftDelete(ctx context.Context, id uuid.UUID) error { return nil }
+func (m *mockKeyRepoForWrap) RecoverKey(ctx context.Context, id uuid.UUID) error { return nil }
+func (m *mockKeyRepoForWrap) PurgeKey(ctx context.Context, id uuid.UUID) error   { return nil }
 func (m *mockKeyRepoForWrap) SetPurgeProtection(ctx context.Context, id uuid.UUID, enabled bool) error {
 	return nil
 }
@@ -81,6 +81,18 @@ func (m *mockKeyRepoForWrap) CreateVersion(ctx context.Context, keyID uuid.UUID,
 
 func (m *mockKeyRepoForWrap) ListVersions(ctx context.Context, keyID, userID uuid.UUID) ([]model.KeyVersion, error) {
 	return nil, nil
+}
+func (m *mockKeyRepoForWrap) ListInVault(ctx context.Context, vaultID uuid.UUID, keyType string, tags []string) ([]model.Key, error) {
+	return nil, nil
+}
+func (m *mockKeyRepoForWrap) ReadInVault(ctx context.Context, id, vaultID uuid.UUID) (*model.Key, error) {
+	return nil, nil
+}
+func (m *mockKeyRepoForWrap) SoftDeleteVaultContents(ctx context.Context, vaultID uuid.UUID) error {
+	return nil
+}
+func (m *mockKeyRepoForWrap) RecoverVaultContents(ctx context.Context, vaultID uuid.UUID) error {
+	return nil
 }
 
 func TestWrapAndUnwrapKey(t *testing.T) {

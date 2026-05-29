@@ -10,8 +10,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 
-	"rocketvault/model"
 	"rocketvault/internal/logging"
+	"rocketvault/model"
 )
 
 // mockKeyRepository is a minimal testify mock for KeyRepositoryInterface.
@@ -93,6 +93,32 @@ func (m *mockKeyRepository) ListVersions(ctx context.Context, keyID, userID uuid
 		return v.([]model.KeyVersion), args.Error(1)
 	}
 	return nil, args.Error(1)
+}
+
+func (m *mockKeyRepository) ListInVault(ctx context.Context, vaultID uuid.UUID, keyType string, tags []string) ([]model.Key, error) {
+	args := m.Called(ctx, vaultID, keyType, tags)
+	if v := args.Get(0); v != nil {
+		return v.([]model.Key), args.Error(1)
+	}
+	return nil, args.Error(1)
+}
+
+func (m *mockKeyRepository) ReadInVault(ctx context.Context, id, vaultID uuid.UUID) (*model.Key, error) {
+	args := m.Called(ctx, id, vaultID)
+	if v := args.Get(0); v != nil {
+		return v.(*model.Key), args.Error(1)
+	}
+	return nil, args.Error(1)
+}
+
+func (m *mockKeyRepository) SoftDeleteVaultContents(ctx context.Context, vaultID uuid.UUID) error {
+	args := m.Called(ctx, vaultID)
+	return args.Error(0)
+}
+
+func (m *mockKeyRepository) RecoverVaultContents(ctx context.Context, vaultID uuid.UUID) error {
+	args := m.Called(ctx, vaultID)
+	return args.Error(0)
 }
 
 // TestDeleteKeySoftDeletes verifies that DeleteKey calls SoftDelete and not Delete.

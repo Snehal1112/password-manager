@@ -15,8 +15,8 @@ import (
 	"github.com/sirupsen/logrus"
 
 	"rocketvault/internal/db"
-	"rocketvault/model"
 	"rocketvault/internal/logging"
+	"rocketvault/model"
 )
 
 // KeyRepositoryInterface is a generic repository interface for key operations.
@@ -38,6 +38,14 @@ type KeyRepositoryInterface interface {
 	// ListVersions returns all version records for a key, ordered by version ASC.
 	// userID is used to enforce ownership before returning results.
 	ListVersions(ctx context.Context, keyID, userID uuid.UUID) ([]model.KeyVersion, error)
+	// ListInVault lists keys scoped to a vault, optionally filtered by type and tags.
+	ListInVault(ctx context.Context, vaultID uuid.UUID, keyType string, tags []string) ([]model.Key, error)
+	// ReadInVault fetches a key only when id and vaultID both match.
+	ReadInVault(ctx context.Context, id, vaultID uuid.UUID) (*model.Key, error)
+	// SoftDeleteVaultContents soft-deletes every active key in a vault.
+	SoftDeleteVaultContents(ctx context.Context, vaultID uuid.UUID) error
+	// RecoverVaultContents recovers every soft-deleted key in a vault.
+	RecoverVaultContents(ctx context.Context, vaultID uuid.UUID) error
 }
 
 // KeyRepository implements KeyRepositoryInterface with pure CRUD operations.
@@ -113,8 +121,8 @@ func (r *KeyRepository) Create(ctx context.Context, key *model.Key) error {
 		// Insert key with pre-encrypted value.
 		_, err = tx.ExecContext(
 			ctx,
-			"INSERT INTO keys (id, user_id, name, value, type, revoked, created_at, enabled, expires_at, not_before, bits, curve) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-			key.ID.String(), key.UserID.String(), key.Name, key.Value, key.Type, key.Revoked, key.CreatedAt,
+			"INSERT INTO keys (id, user_id, vault_id, name, value, type, revoked, created_at, enabled, expires_at, not_before, bits, curve) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+			key.ID.String(), key.UserID.String(), key.VaultID.String(), key.Name, key.Value, key.Type, key.Revoked, key.CreatedAt,
 			key.Enabled, key.ExpiresAt, key.NotBefore, key.Bits, key.Curve,
 		)
 		if err != nil {
@@ -810,4 +818,204 @@ func (r *KeyRepository) ListVersions(ctx context.Context, keyID, userID uuid.UUI
 		versions = append(versions, v)
 	}
 	return versions, rows.Err()
+}
+
+// ListInVault retrieves keys for a vault, optionally filtered by type and tags.
+// It mirrors ListByUser but scopes by vault_id instead of user_id.
+//
+// Parameters:
+//   - ctx: The context for the database operation.
+//   - vaultID: The vault whose keys to list.
+//   - keyType: The key type to filter by (empty for all types).
+//   - tags: The tags to filter by (empty for no tag filter).
+//
+// Returns:
+//
+//	A slice of keys (with encrypted values) or an error if retrieval fails.
+func (r *KeyRepository) ListInVault(ctx context.Context, vaultID uuid.UUID, keyType string, tags []string) ([]model.Key, error) {
+	var keyList []model.Key
+
+	err := r.executeWithMetrics("list_keys_by_vault", func() error {
+		var args []interface{}
+		query := "SELECT id, user_id, name, value, type, revoked, created_at, enabled, expires_at, not_before, bits, curve, updated_at FROM keys"
+
+		// Build WHERE clauses — always exclude soft-deleted keys and scope by vault.
+		conditions := []string{"deleted_at IS NULL", "vault_id = ?"}
+		args = append(args, vaultID.String())
+
+		if keyType != "" {
+			conditions = append(conditions, "type = ?")
+			args = append(args, keyType)
+		}
+
+		if len(tags) > 0 {
+			placeholders := strings.Repeat(",?", len(tags))[1:]
+			conditions = append(conditions, fmt.Sprintf("id IN (SELECT key_id FROM key_tags WHERE tag IN (%s))", placeholders))
+			for _, tag := range tags {
+				args = append(args, tag)
+			}
+		}
+
+		query += " WHERE " + strings.Join(conditions, " AND ")
+		query += " ORDER BY created_at DESC"
+
+		rows, err := r.db.QueryContext(ctx, query, args...)
+		if err != nil {
+			r.log.LogAuditError(vaultID.String(), "list_keys", "failed", "Failed to query keys", err)
+			return fmt.Errorf("failed to query keys: %w", err)
+		}
+		defer rows.Close()
+
+		// Pre-allocate slice for better memory performance.
+		keyList = make([]model.Key, 0, 50)
+
+		for rows.Next() {
+			var key model.Key
+			var idStr, userIDStr string
+
+			if err := rows.Scan(&idStr, &userIDStr, &key.Name, &key.Value, &key.Type, &key.Revoked, &key.CreatedAt,
+				&key.Enabled, &key.ExpiresAt, &key.NotBefore, &key.Bits, &key.Curve, &key.UpdatedAt); err != nil {
+				r.log.LogAuditError(vaultID.String(), "list_keys", "failed", "Failed to scan key", err)
+				return fmt.Errorf("failed to scan key: %w", err)
+			}
+
+			key.ID, err = uuid.Parse(idStr)
+			if err != nil {
+				r.log.LogAuditError(vaultID.String(), "list_keys", "failed", "Failed to parse key ID", err)
+				return fmt.Errorf("failed to parse key ID: %w", err)
+			}
+
+			key.UserID, err = uuid.Parse(userIDStr)
+			if err != nil {
+				r.log.LogAuditError(vaultID.String(), "list_keys", "failed", "Failed to parse user ID", err)
+				return fmt.Errorf("failed to parse user ID: %w", err)
+			}
+
+			// Retrieve tags for each key.
+			tagRepo := db.NewTagRepository[model.Key](r.db, "key_tags", "key_id")
+			key.Tags, err = tagRepo.GetTags(ctx, key.ID)
+			if err != nil {
+				r.log.LogAuditError(vaultID.String(), "list_keys", "failed", "Failed to read tags for key", err)
+				return fmt.Errorf("failed to read tags for key: %w", err)
+			}
+
+			keyList = append(keyList, key)
+		}
+
+		if err := rows.Err(); err != nil {
+			return fmt.Errorf("row iteration error: %w", err)
+		}
+
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	logrus.WithField("count", len(keyList)).Debug("Keys listed successfully")
+	return keyList, nil
+}
+
+// ReadInVault retrieves a key by ID only when it belongs to the given vault.
+// It mirrors Read but adds a vault_id scope and the same deleted_at filter.
+//
+// Parameters:
+//   - ctx: The context for the database operation.
+//   - id: The key's unique identifier.
+//   - vaultID: The vault the key must belong to.
+//
+// Returns:
+//
+//	The key entity (with encrypted value) or an error if not found / access denied.
+func (r *KeyRepository) ReadInVault(ctx context.Context, id, vaultID uuid.UUID) (*model.Key, error) {
+	var key model.Key
+	var idStr, userIDStr string
+
+	err := r.db.QueryRowContext(
+		ctx,
+		"SELECT id, user_id, name, value, type, revoked, created_at, enabled, expires_at, not_before, bits, curve, updated_at FROM keys WHERE id = ? AND vault_id = ? AND deleted_at IS NULL",
+		id.String(), vaultID.String(),
+	).Scan(&idStr, &userIDStr, &key.Name, &key.Value, &key.Type, &key.Revoked, &key.CreatedAt,
+		&key.Enabled, &key.ExpiresAt, &key.NotBefore, &key.Bits, &key.Curve, &key.UpdatedAt)
+
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, fmt.Errorf("key not found or access denied")
+	}
+	if err != nil {
+		r.log.LogAuditError(uuid.Nil.String(), "read_key", "failed", "Failed to query key", err)
+		return nil, fmt.Errorf("failed to query key: %w", err)
+	}
+
+	key.ID, err = uuid.Parse(idStr)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse key ID: %w", err)
+	}
+
+	key.UserID, err = uuid.Parse(userIDStr)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse user ID: %w", err)
+	}
+
+	// Retrieve tags using TagRepository.
+	tagRepo := db.NewTagRepository[model.Key](r.db, "key_tags", "key_id")
+	key.Tags, err = tagRepo.GetTags(ctx, id)
+	if err != nil {
+		r.log.LogAuditError(uuid.Nil.String(), "read_key", "failed", "Failed to read tags", err)
+		return nil, fmt.Errorf("failed to read tags: %w", err)
+	}
+
+	return &key, nil
+}
+
+// SoftDeleteVaultContents marks every active key in a vault as soft-deleted.
+//
+// Parameters:
+//   - ctx: The context for the database operation.
+//   - vaultID: The vault whose keys should be soft-deleted.
+//
+// Returns:
+//
+//	An error if the soft deletion fails.
+func (r *KeyRepository) SoftDeleteVaultContents(ctx context.Context, vaultID uuid.UUID) error {
+	return r.executeWithMetrics("soft_delete_vault_keys", func() error {
+		logrus.WithField("vault_id", vaultID.String()).Debug("Soft deleting all keys in vault")
+
+		now := time.Now()
+		_, err := r.db.ExecContext(ctx,
+			"UPDATE keys SET deleted_at = ? WHERE vault_id = ? AND deleted_at IS NULL",
+			now, vaultID.String())
+		if err != nil {
+			r.log.LogAuditError(vaultID.String(), "soft_delete_vault_keys", "failed", "Failed to soft delete vault keys", err)
+			return fmt.Errorf("failed to soft delete vault keys: %w", err)
+		}
+
+		r.log.LogAuditInfo(vaultID.String(), "soft_delete_vault_keys", "success", "Vault keys soft deleted successfully")
+		return nil
+	})
+}
+
+// RecoverVaultContents restores every soft-deleted key in a vault.
+//
+// Parameters:
+//   - ctx: The context for the database operation.
+//   - vaultID: The vault whose keys should be recovered.
+//
+// Returns:
+//
+//	An error if the recovery fails.
+func (r *KeyRepository) RecoverVaultContents(ctx context.Context, vaultID uuid.UUID) error {
+	return r.executeWithMetrics("recover_vault_keys", func() error {
+		logrus.WithField("vault_id", vaultID.String()).Debug("Recovering all soft-deleted keys in vault")
+
+		_, err := r.db.ExecContext(ctx,
+			"UPDATE keys SET deleted_at = NULL, scheduled_purge_at = NULL WHERE vault_id = ? AND deleted_at IS NOT NULL",
+			vaultID.String())
+		if err != nil {
+			r.log.LogAuditError(vaultID.String(), "recover_vault_keys", "failed", "Failed to recover vault keys", err)
+			return fmt.Errorf("failed to recover vault keys: %w", err)
+		}
+
+		r.log.LogAuditInfo(vaultID.String(), "recover_vault_keys", "success", "Vault keys recovered successfully")
+		return nil
+	})
 }
