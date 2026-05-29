@@ -15,13 +15,16 @@ import (
 	"github.com/stretchr/testify/mock"
 
 	"rocketvault/common"
-	"rocketvault/model"
 	"rocketvault/internal/logging"
 	"rocketvault/internal/repositories"
-	authServices "rocketvault/internal/services/auth"
 	auditSvc "rocketvault/internal/services/audit"
+	authServices "rocketvault/internal/services/auth"
 	authzServices "rocketvault/internal/services/authorization"
 	oauth2Services "rocketvault/internal/services/oauth2"
+	vaultServices "rocketvault/internal/services/vaults"
+	"rocketvault/model"
+
+	"github.com/gorilla/mux"
 )
 
 // MockServiceContainer is a mock implementation of the service container for testing.
@@ -63,6 +66,34 @@ func (m *MockServiceContainer) GetOAuth2ClientRepository() repositories.OAuth2Cl
 func (m *MockServiceContainer) GetOAuth2Service() oauth2Services.OAuth2Service {
 	return nil
 }
+
+func (m *MockServiceContainer) GetVaultService() vaultServices.VaultService {
+	args := m.Called()
+	if args.Get(0) == nil {
+		return nil
+	}
+	return args.Get(0).(vaultServices.VaultService)
+}
+
+// stubVaultService is a minimal vaultServices.VaultService for middleware tests.
+type stubVaultService struct {
+	vault *model.Vault
+	err   error
+}
+
+func (s *stubVaultService) CreateVault(context.Context, model.CreateVaultRequest, uuid.UUID) (*model.Vault, error) {
+	return nil, nil
+}
+func (s *stubVaultService) GetVault(_ context.Context, _ string) (*model.Vault, error) {
+	return s.vault, s.err
+}
+func (s *stubVaultService) ListVaults(context.Context, bool) ([]model.Vault, error) { return nil, nil }
+func (s *stubVaultService) UpdateVault(context.Context, string, model.UpdateVaultRequest) (*model.Vault, error) {
+	return nil, nil
+}
+func (s *stubVaultService) DeleteVault(context.Context, string) error  { return nil }
+func (s *stubVaultService) RecoverVault(context.Context, string) error { return nil }
+func (s *stubVaultService) PurgeVault(context.Context, string) error   { return nil }
 
 // MockAuthenticationService is a mock implementation of AuthenticationService.
 type MockAuthenticationService struct {
@@ -987,6 +1018,62 @@ func TestPolicyMiddleware_ErrorDeniesRequest(t *testing.T) {
 
 	assert.False(t, nextCalled, "next handler should NOT be called when policy check errors")
 	assert.Equal(t, http.StatusInternalServerError, rr.Code, "policy check error must deny request, not allow it through")
+}
+
+// TestVaultResolutionMiddleware_FallsBackToDefault verifies that a request without
+// a {vault_name} path variable resolves to the default vault.
+func TestVaultResolutionMiddleware_FallsBackToDefault(t *testing.T) {
+	t.Parallel()
+	logger := &logging.Logger{Logger: logrus.New()}
+	logger.SetLevel(logrus.ErrorLevel)
+	mockContainer := &MockServiceContainer{logger: logger}
+	defID := uuid.MustParse(model.DefaultVaultID)
+	mockContainer.On("GetVaultService").Return(&stubVaultService{vault: &model.Vault{ID: defID, Name: "default", Enabled: true}})
+	mw := NewMiddleware(mockContainer)
+
+	var got interface{}
+	next := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		got = r.Context().Value(common.VaultIDKey)
+		w.WriteHeader(http.StatusOK)
+	})
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/secrets", nil) // no vault_name var
+	rec := httptest.NewRecorder()
+	mw.VaultResolutionMiddleware(next).ServeHTTP(rec, req)
+
+	assert.Equal(t, http.StatusOK, rec.Code)
+	assert.Equal(t, defID.String(), got)
+}
+
+// TestVaultResolutionMiddleware_NotFoundReturns404 verifies that an unresolvable
+// vault yields a 404 response.
+func TestVaultResolutionMiddleware_NotFoundReturns404(t *testing.T) {
+	t.Parallel()
+	logger := &logging.Logger{Logger: logrus.New()}
+	logger.SetLevel(logrus.ErrorLevel)
+	mockContainer := &MockServiceContainer{logger: logger}
+	mockContainer.On("GetVaultService").Return(&stubVaultService{err: vaultServices.ErrVaultNotFound})
+	mw := NewMiddleware(mockContainer)
+	next := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusOK) })
+	req := mux.SetURLVars(httptest.NewRequest(http.MethodGet, "/api/v1/vaults/ghost/secrets", nil), map[string]string{"vault_name": "ghost"})
+	rec := httptest.NewRecorder()
+	mw.VaultResolutionMiddleware(next).ServeHTTP(rec, req)
+	assert.Equal(t, http.StatusNotFound, rec.Code)
+}
+
+// TestVaultResolutionMiddleware_DisabledReturns403 verifies that a disabled vault
+// yields a 403 response.
+func TestVaultResolutionMiddleware_DisabledReturns403(t *testing.T) {
+	t.Parallel()
+	logger := &logging.Logger{Logger: logrus.New()}
+	logger.SetLevel(logrus.ErrorLevel)
+	mockContainer := &MockServiceContainer{logger: logger}
+	mockContainer.On("GetVaultService").Return(&stubVaultService{vault: &model.Vault{ID: uuid.New(), Name: "stg", Enabled: false}})
+	mw := NewMiddleware(mockContainer)
+	next := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusOK) })
+	req := mux.SetURLVars(httptest.NewRequest(http.MethodGet, "/api/v1/vaults/stg/secrets", nil), map[string]string{"vault_name": "stg"})
+	rec := httptest.NewRecorder()
+	mw.VaultResolutionMiddleware(next).ServeHTTP(rec, req)
+	assert.Equal(t, http.StatusForbidden, rec.Code)
 }
 
 // TestMiddlewareArchitecturalChange documents the architectural improvement.

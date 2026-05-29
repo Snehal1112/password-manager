@@ -20,11 +20,12 @@ import (
 	"golang.org/x/time/rate"
 
 	"rocketvault/common"
-	"rocketvault/model"
 	"rocketvault/internal/logging"
-	authServices "rocketvault/internal/services/auth"
 	auditSvc "rocketvault/internal/services/audit"
+	authServices "rocketvault/internal/services/auth"
 	authzServices "rocketvault/internal/services/authorization"
+	vaultServices "rocketvault/internal/services/vaults"
+	"rocketvault/model"
 )
 
 // ResponseWriter is a custom http.ResponseWriter that captures the status code.
@@ -50,6 +51,7 @@ type Container interface {
 	GetRBACService() authzServices.RBACService
 	GetAccessPolicyService() authzServices.AccessPolicyService
 	GetAuditService() auditSvc.AuditServiceInterface
+	GetVaultService() vaultServices.VaultService
 }
 
 // ipRateLimiter manages per-IP token-bucket limiters.
@@ -454,6 +456,33 @@ func (m *Middleware) PolicyMiddleware(next http.Handler) http.Handler {
 		}
 
 		next.ServeHTTP(w, r)
+	})
+}
+
+// VaultResolutionMiddleware resolves the target vault from the request and injects
+// its ID into the request context. Resolution order: the {vault_name} path
+// variable, then the default vault. A missing vault yields 404; a disabled vault
+// yields 403. Subdomain-based resolution is intentionally not handled here; it is
+// an optional, config-gated extension added separately.
+func (m *Middleware) VaultResolutionMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		name := model.DefaultVaultName
+		if v := mux.Vars(r)["vault_name"]; v != "" {
+			name = v
+		}
+		vault, err := m.container.GetVaultService().GetVault(r.Context(), name)
+		if err != nil {
+			m.logger.LogAuditError("", "vault_resolve", "failed", "Vault not found: "+name, err)
+			http.Error(w, `{"error":"vault not found"}`, http.StatusNotFound)
+			return
+		}
+		if !vault.Enabled {
+			m.logger.LogAuditError("", "vault_resolve", "failed", "Vault is disabled: "+name, nil)
+			http.Error(w, `{"error":"vault is disabled"}`, http.StatusForbidden)
+			return
+		}
+		ctx := context.WithValue(r.Context(), common.VaultIDKey, vault.ID.String())
+		next.ServeHTTP(w, r.WithContext(ctx))
 	})
 }
 
