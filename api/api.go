@@ -16,6 +16,7 @@ import (
 type Routes struct {
 	ApiRoot         *mux.Router // /api/v1
 	Vault           *mux.Router // /api/v1/vault
+	Vaults          *mux.Router // /api/v1/vaults (vault management)
 	Secrets         *mux.Router // /api/v1/secrets
 	Secret          *mux.Router // /api/v1/secrets/{secret_id}
 	Users           *mux.Router // /api/v1/users
@@ -64,11 +65,18 @@ func Init(options ...Options) *API {
 		mw.CORSMiddleware,
 		mw.RateLimitMiddleware,
 		mw.AuthenticationMiddleware,
+		mw.VaultResolutionMiddleware,
 		mw.PolicyMiddleware,
 		mw.AuthorizationMiddleware,
 	)
 
 	r.Vault = r.ApiRoot.PathPrefix("/vault").Subrouter()
+
+	// Vault management routes use the path var {name} (not {vault_name}) so that
+	// VaultResolutionMiddleware falls back to the default vault and never blocks
+	// management of a disabled or soft-deleted vault. The handlers read {name}
+	// themselves and do not depend on the resolved context vault.
+	r.Vaults = r.ApiRoot.PathPrefix("/vaults").Subrouter()
 
 	r.Secrets = r.ApiRoot.PathPrefix("/secrets").Subrouter()
 	r.Secret = r.Secrets.PathPrefix("/{secret_id:[A-Fa-f0-9-]+}").Subrouter()
