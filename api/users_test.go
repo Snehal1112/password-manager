@@ -27,16 +27,17 @@ import (
 	"rocketvault/internal/logging"
 	"rocketvault/internal/metrics"
 	"rocketvault/internal/repositories"
-	"rocketvault/internal/signing"
+	auditServices "rocketvault/internal/services/audit"
 	authServices "rocketvault/internal/services/auth"
 	authzServices "rocketvault/internal/services/authorization"
-	auditServices "rocketvault/internal/services/audit"
 	certServices "rocketvault/internal/services/certificates"
 	keyServices "rocketvault/internal/services/keys"
 	oauth2Services "rocketvault/internal/services/oauth2"
 	retryServices "rocketvault/internal/services/retry"
 	secretServices "rocketvault/internal/services/secrets"
 	userServices "rocketvault/internal/services/users"
+	vaultServices "rocketvault/internal/services/vaults"
+	"rocketvault/internal/signing"
 	"rocketvault/model"
 )
 
@@ -221,6 +222,12 @@ func (c *userSvcContainer) GetAuthenticationService() authServices.Authenticatio
 func (c *userSvcContainer) GetSessionRepository() repositories.SessionRepositoryInterface {
 	return c.sesRepo
 }
+func (c *userSvcContainer) GetVaultRepository() repositories.VaultRepositoryInterface {
+	panic("unexpected call: GetVaultRepository")
+}
+func (c *userSvcContainer) GetVaultService() vaultServices.VaultService {
+	panic("unexpected call: GetVaultService")
+}
 func (c *userSvcContainer) GetRBACService() authzServices.RBACService {
 	panic("unexpected call: GetRBACService")
 }
@@ -319,7 +326,7 @@ func (c *userSvcContainer) GetSigningProvider() signing.SigningKeyProvider { ret
 func (c *userSvcContainer) GetItemBackupService() *backup.ItemBackupService {
 	return nil
 }
-func (c *userSvcContainer) GetKeyCache() keycache.Cache              { return nil }
+func (c *userSvcContainer) GetKeyCache() keycache.Cache             { return nil }
 func (c *userSvcContainer) GetCryptoMetrics() metrics.CryptoMetrics { return nil }
 func (c *userSvcContainer) GetAuditService() auditServices.AuditServiceInterface {
 	return nil

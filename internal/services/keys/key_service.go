@@ -27,9 +27,19 @@ type CreateKeyRequest struct {
 	Curve     string // For ECDSA: P-256, P-384, P-521
 	Tags      []string
 	UserID    uuid.UUID
-	Enabled   *bool      // Defaults to true if nil.
+	VaultID   uuid.UUID // Target vault; defaults to the default vault when nil.
+	Enabled   *bool     // Defaults to true if nil.
 	ExpiresAt *time.Time
 	NotBefore *time.Time
+}
+
+// resolveVaultID returns the requested vault id, falling back to the default
+// vault when the caller did not specify one.
+func resolveVaultID(vaultID uuid.UUID) uuid.UUID {
+	if vaultID == uuid.Nil {
+		return uuid.MustParse(model.DefaultVaultID)
+	}
+	return vaultID
 }
 
 // CreateKeyResult represents the result of creating a new key.
@@ -64,6 +74,12 @@ type KeyService interface {
 	ListKeysWithFilters(ctx context.Context, userID *uuid.UUID, keyType string, tags []string, isAdmin bool) ([]model.Key, error)
 	UpdateKey(ctx context.Context, req UpdateKeyRequest) error
 	DeleteKey(ctx context.Context, keyID, userID uuid.UUID) (*model.Key, error)
+	// GetKeyInVault retrieves a key scoped to the given vault.
+	GetKeyInVault(ctx context.Context, keyID, vaultID uuid.UUID) (*model.Key, error)
+	// ListKeysInVault lists keys scoped to the given vault, optionally filtered by type and tags.
+	ListKeysInVault(ctx context.Context, vaultID uuid.UUID, keyType string, tags []string) ([]model.Key, error)
+	// DeleteKeyInVault soft-deletes a key scoped to the given vault.
+	DeleteKeyInVault(ctx context.Context, keyID, vaultID uuid.UUID) (*model.Key, error)
 	RotateKey(ctx context.Context, keyID, userID uuid.UUID) (*CreateKeyResult, error)
 	ValidateKeyAccess(ctx context.Context, keyID, userID uuid.UUID, role string) error
 }
@@ -113,11 +129,13 @@ func NewKeyService(config KeyServiceConfig) KeyService {
 // It validates parameters, generates the key, encrypts it, and handles storage.
 //
 // Parameters:
-//   ctx: The context for the operation.
-//   req: The key creation request with RSA-specific parameters.
+//
+//	ctx: The context for the operation.
+//	req: The key creation request with RSA-specific parameters.
 //
 // Returns:
-//   The created key information or an error if creation fails.
+//
+//	The created key information or an error if creation fails.
 func (s *keyService) CreateRSAKey(ctx context.Context, req CreateKeyRequest) (*CreateKeyResult, error) {
 	logrus.WithFields(logrus.Fields{
 		"name":    req.Name,
@@ -162,6 +180,7 @@ func (s *keyService) CreateRSAKey(ctx context.Context, req CreateKeyRequest) (*C
 	key := &model.Key{
 		ID:        uuid.New(),
 		UserID:    req.UserID,
+		VaultID:   resolveVaultID(req.VaultID),
 		Name:      req.Name,
 		Type:      model.KeyTypeRSA,
 		Value:     storedValue,
@@ -200,11 +219,13 @@ func (s *keyService) CreateRSAKey(ctx context.Context, req CreateKeyRequest) (*C
 // It validates parameters, generates the key, encrypts it, and handles storage.
 //
 // Parameters:
-//   ctx: The context for the operation.
-//   req: The key creation request with ECDSA-specific parameters.
+//
+//	ctx: The context for the operation.
+//	req: The key creation request with ECDSA-specific parameters.
 //
 // Returns:
-//   The created key information or an error if creation fails.
+//
+//	The created key information or an error if creation fails.
 func (s *keyService) CreateECDSAKey(ctx context.Context, req CreateKeyRequest) (*CreateKeyResult, error) {
 	logrus.WithFields(logrus.Fields{
 		"name":    req.Name,
@@ -253,6 +274,7 @@ func (s *keyService) CreateECDSAKey(ctx context.Context, req CreateKeyRequest) (
 	key := &model.Key{
 		ID:        uuid.New(),
 		UserID:    req.UserID,
+		VaultID:   resolveVaultID(req.VaultID),
 		Name:      req.Name,
 		Type:      keyType,
 		Value:     storedValue,
@@ -290,12 +312,14 @@ func (s *keyService) CreateECDSAKey(ctx context.Context, req CreateKeyRequest) (
 // GetKey retrieves a key by ID with access control validation.
 //
 // Parameters:
-//   ctx: The context for the operation.
-//   keyID: The key's unique identifier.
-//   userID: The requesting user's ID for access control.
+//
+//	ctx: The context for the operation.
+//	keyID: The key's unique identifier.
+//	userID: The requesting user's ID for access control.
 //
 // Returns:
-//   The key information or an error if not found or access denied.
+//
+//	The key information or an error if not found or access denied.
 func (s *keyService) GetKey(ctx context.Context, keyID, userID uuid.UUID) (*model.Key, error) {
 	// Log key access attempt with detailed context
 	s.logger.LogAuditInfo(userID.String(), "get_key", "attempt",
@@ -342,27 +366,84 @@ func (s *keyService) GetKey(ctx context.Context, keyID, userID uuid.UUID) (*mode
 // ListKeys retrieves all keys for a specific user.
 //
 // Parameters:
-//   ctx: The context for the operation.
-//   userID: The user's unique identifier.
+//
+//	ctx: The context for the operation.
+//	userID: The user's unique identifier.
 //
 // Returns:
-//   A slice of user's keys or an error if retrieval fails.
+//
+//	A slice of user's keys or an error if retrieval fails.
 func (s *keyService) ListKeys(ctx context.Context, userID uuid.UUID) ([]model.Key, error) {
 	return s.keyRepo.ListByUser(ctx, &userID, "", nil)
+}
+
+// GetKeyInVault retrieves a key by ID scoped to a vault. It mirrors GetKey but
+// enforces vault scope at the SQL level via ReadInVault and applies the same
+// lifecycle policy.
+func (s *keyService) GetKeyInVault(ctx context.Context, keyID, vaultID uuid.UUID) (*model.Key, error) {
+	key, err := s.keyRepo.ReadInVault(ctx, keyID, vaultID)
+	if err != nil {
+		s.logger.LogAuditError("", "get_key", "failed",
+			fmt.Sprintf("Key not found in vault: %s", keyID), err)
+		return nil, fmt.Errorf("failed to read key: %w", err)
+	}
+
+	if !key.IsAccessible() {
+		s.logger.LogAuditError("", "get_key", "denied",
+			fmt.Sprintf("Key is disabled or outside its valid time window: %s", keyID), nil)
+		return nil, fmt.Errorf("key is disabled or outside its valid time window")
+	}
+
+	return key, nil
+}
+
+// ListKeysInVault retrieves keys for a vault, optionally filtered by type and
+// tags. It mirrors ListKeysWithFilters but scopes by vault instead of user.
+func (s *keyService) ListKeysInVault(ctx context.Context, vaultID uuid.UUID, keyType string, tags []string) ([]model.Key, error) {
+	return s.keyRepo.ListInVault(ctx, vaultID, keyType, tags)
+}
+
+// DeleteKeyInVault soft-deletes a key scoped to a vault. It mirrors DeleteKey
+// but verifies vault scope via ReadInVault instead of ownership.
+func (s *keyService) DeleteKeyInVault(ctx context.Context, keyID, vaultID uuid.UUID) (*model.Key, error) {
+	key, err := s.keyRepo.ReadInVault(ctx, keyID, vaultID)
+	if err != nil {
+		return nil, fmt.Errorf("delete key: %w", err)
+	}
+
+	if err := s.keyRepo.SoftDelete(ctx, keyID); err != nil {
+		s.logger.LogAuditError("", "delete_key", "failed", "Failed to soft-delete key", err)
+		return nil, fmt.Errorf("failed to delete key: %w", err)
+	}
+
+	if s.keyCache != nil {
+		s.keyCache.Invalidate(keyID)
+	}
+
+	deleted, err := s.keyRepo.ReadDeleted(ctx, keyID)
+	if err != nil {
+		s.logger.LogAuditInfo("", "delete_key", "success", "Key deleted (metadata unavailable)")
+		return key, nil
+	}
+
+	s.logger.LogAuditInfo("", "delete_key", "success", "Key deleted successfully")
+	return deleted, nil
 }
 
 // ListKeysWithFilters retrieves keys with optional filtering by type and tags.
 // Supports admin mode where userID can be nil to list all keys in the system.
 //
 // Parameters:
-//   ctx: The context for the operation.
-//   userID: Optional user ID - nil for admin queries to list all keys.
-//   keyType: Optional key type filter (RSA, ECDSA) - empty string means no filter.
-//   tags: Optional tag filter - empty slice means no filter.
-//   isAdmin: Whether the requester has admin privileges.
+//
+//	ctx: The context for the operation.
+//	userID: Optional user ID - nil for admin queries to list all keys.
+//	keyType: Optional key type filter (RSA, ECDSA) - empty string means no filter.
+//	tags: Optional tag filter - empty slice means no filter.
+//	isAdmin: Whether the requester has admin privileges.
 //
 // Returns:
-//   A slice of keys matching the filters or an error if retrieval fails.
+//
+//	A slice of keys matching the filters or an error if retrieval fails.
 func (s *keyService) ListKeysWithFilters(ctx context.Context, userID *uuid.UUID, keyType string, tags []string, isAdmin bool) ([]model.Key, error) {
 	// Log the filter request
 	logFields := logrus.Fields{
@@ -405,11 +486,13 @@ func (s *keyService) ListKeysWithFilters(ctx context.Context, userID *uuid.UUID,
 // UpdateKey updates an existing key with access control validation.
 //
 // Parameters:
-//   ctx: The context for the operation.
-//   req: The key update request with optional fields.
+//
+//	ctx: The context for the operation.
+//	req: The key update request with optional fields.
 //
 // Returns:
-//   An error if the update fails or access is denied.
+//
+//	An error if the update fails or access is denied.
 func (s *keyService) UpdateKey(ctx context.Context, req UpdateKeyRequest) error {
 	logrus.WithField("key_id", req.KeyID.String()).Info("Updating key")
 
@@ -468,12 +551,14 @@ func (s *keyService) UpdateKey(ctx context.Context, req UpdateKeyRequest) error 
 // (deleted_at, scheduled_purge_at) matching Azure Key Vault behaviour.
 //
 // Parameters:
-//   ctx: The context for the operation.
-//   keyID: The key's unique identifier.
-//   userID: The requesting user's ID for access control.
+//
+//	ctx: The context for the operation.
+//	keyID: The key's unique identifier.
+//	userID: The requesting user's ID for access control.
 //
 // Returns:
-//   The deleted key record (with deleted_at populated) or an error if deletion fails.
+//
+//	The deleted key record (with deleted_at populated) or an error if deletion fails.
 func (s *keyService) DeleteKey(ctx context.Context, keyID, userID uuid.UUID) (*model.Key, error) {
 	// Verify key exists and that the caller owns it.
 	key, err := s.GetKey(ctx, keyID, userID)
@@ -511,12 +596,14 @@ func (s *keyService) DeleteKey(ctx context.Context, keyID, userID uuid.UUID) (*m
 // "-rotated" suffix. The key identity (ID, name, tags) is preserved.
 //
 // Parameters:
-//   ctx: The context for the operation.
-//   keyID: The key to rotate.
-//   userID: The requesting user's ID for ownership verification.
+//
+//	ctx: The context for the operation.
+//	keyID: The key to rotate.
+//	userID: The requesting user's ID for ownership verification.
 //
 // Returns:
-//   A CreateKeyResult describing the (unchanged) key identity, or an error.
+//
+//	A CreateKeyResult describing the (unchanged) key identity, or an error.
 func (s *keyService) RotateKey(ctx context.Context, keyID, userID uuid.UUID) (*CreateKeyResult, error) {
 	// Use Read directly so rotation works even on disabled/expired keys.
 	existing, err := s.keyRepo.Read(ctx, keyID)
@@ -613,13 +700,15 @@ func (s *keyService) RotateKey(ctx context.Context, keyID, userID uuid.UUID) (*C
 // It handles role-based access control for key operations.
 //
 // Parameters:
-//   ctx: The context for the operation.
-//   keyID: The key's unique identifier.
-//   userID: The requesting user's ID.
-//   role: The user's role for permission checking.
+//
+//	ctx: The context for the operation.
+//	keyID: The key's unique identifier.
+//	userID: The requesting user's ID.
+//	role: The user's role for permission checking.
 //
 // Returns:
-//   An error if access is denied.
+//
+//	An error if access is denied.
 func (s *keyService) ValidateKeyAccess(ctx context.Context, keyID, userID uuid.UUID, role string) error {
 	// Admin users have access to all keys
 	if role == model.RoleAdmin {

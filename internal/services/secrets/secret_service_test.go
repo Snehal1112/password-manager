@@ -10,9 +10,9 @@ import (
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 
-	"rocketvault/model"
 	"rocketvault/internal/services/secrets"
 	"rocketvault/internal/testutils"
+	"rocketvault/model"
 )
 
 // newService wires a secretService with the provided mocks.
@@ -375,4 +375,78 @@ func TestGenerateSecret_NoCharsetSelected(t *testing.T) {
 		// all charset flags false
 	})
 	require.Error(t, err)
+}
+
+// TestGenerateSecret_PersistsInResolvedVault proves a generated secret lands in
+// the vault carried by the request rather than the default vault. It captures
+// the *model.Secret passed to the repository and asserts its VaultID.
+func TestGenerateSecret_PersistsInResolvedVault(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	userID := uuid.New()
+	vaultID := uuid.New()
+
+	repo := &testutils.MockSecretRepository{}
+	crypto := &testutils.MockCryptographyService{}
+	ver := &testutils.MockVersioningService{}
+	tag := &testutils.MockTagService{}
+
+	crypto.On("EncryptSecret", mock.AnythingOfType("string")).Return("encrypted", nil)
+
+	var persisted *model.Secret
+	repo.On("Create", ctx, mock.AnythingOfType("*model.Secret")).
+		Run(func(args mock.Arguments) {
+			persisted = args.Get(1).(*model.Secret)
+		}).
+		Return(nil)
+
+	svc := newService(repo, crypto, ver, tag, t)
+	_, err := svc.GenerateSecret(ctx, secrets.GenerateSecretRequest{
+		UserID:       userID,
+		VaultID:      vaultID,
+		Name:         "gen",
+		Length:       16,
+		UseUppercase: true,
+		UseLowercase: true,
+	})
+
+	require.NoError(t, err)
+	require.NotNil(t, persisted, "repository Create must have been called")
+	assert.Equal(t, vaultID, persisted.VaultID, "generated secret must land in the resolved vault")
+	repo.AssertExpectations(t)
+}
+
+// TestGenerateSecret_DefaultsToDefaultVault proves a generated secret without an
+// explicit vault still targets the default vault, preserving legacy behaviour.
+func TestGenerateSecret_DefaultsToDefaultVault(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+
+	repo := &testutils.MockSecretRepository{}
+	crypto := &testutils.MockCryptographyService{}
+	ver := &testutils.MockVersioningService{}
+	tag := &testutils.MockTagService{}
+
+	crypto.On("EncryptSecret", mock.AnythingOfType("string")).Return("encrypted", nil)
+
+	var persisted *model.Secret
+	repo.On("Create", ctx, mock.AnythingOfType("*model.Secret")).
+		Run(func(args mock.Arguments) {
+			persisted = args.Get(1).(*model.Secret)
+		}).
+		Return(nil)
+
+	svc := newService(repo, crypto, ver, tag, t)
+	_, err := svc.GenerateSecret(ctx, secrets.GenerateSecretRequest{
+		UserID:       uuid.New(),
+		Name:         "gen",
+		Length:       16,
+		UseUppercase: true,
+	})
+
+	require.NoError(t, err)
+	require.NotNil(t, persisted, "repository Create must have been called")
+	assert.Equal(t, uuid.MustParse(model.DefaultVaultID), persisted.VaultID,
+		"generated secret without a vault must default to the default vault")
+	repo.AssertExpectations(t)
 }

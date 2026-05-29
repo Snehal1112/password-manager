@@ -25,16 +25,17 @@ import (
 	"rocketvault/internal/logging"
 	"rocketvault/internal/metrics"
 	"rocketvault/internal/repositories"
-	"rocketvault/internal/signing"
+	auditServices "rocketvault/internal/services/audit"
 	authServices "rocketvault/internal/services/auth"
 	authzServices "rocketvault/internal/services/authorization"
-	auditServices "rocketvault/internal/services/audit"
 	certServices "rocketvault/internal/services/certificates"
 	keyServices "rocketvault/internal/services/keys"
 	oauth2Services "rocketvault/internal/services/oauth2"
 	retryServices "rocketvault/internal/services/retry"
 	secretServices "rocketvault/internal/services/secrets"
 	userServices "rocketvault/internal/services/users"
+	vaultServices "rocketvault/internal/services/vaults"
+	"rocketvault/internal/signing"
 	"rocketvault/model"
 )
 
@@ -72,6 +73,24 @@ func (m *mockSecretService) ListSecrets(ctx context.Context, userID uuid.UUID, t
 
 func (m *mockSecretService) DeleteSecret(ctx context.Context, secretID, userID uuid.UUID) error {
 	args := m.Called(ctx, secretID, userID)
+	return args.Error(0)
+}
+
+func (m *mockSecretService) GetSecretInVault(ctx context.Context, secretID, vaultID uuid.UUID) (*model.Secret, error) {
+	args := m.Called(ctx, secretID, vaultID)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).(*model.Secret), args.Error(1)
+}
+
+func (m *mockSecretService) ListSecretsInVault(ctx context.Context, vaultID uuid.UUID, tags []string) ([]model.Secret, error) {
+	args := m.Called(ctx, vaultID, tags)
+	return args.Get(0).([]model.Secret), args.Error(1)
+}
+
+func (m *mockSecretService) DeleteSecretInVault(ctx context.Context, secretID, vaultID uuid.UUID) error {
+	args := m.Called(ctx, secretID, vaultID)
 	return args.Error(0)
 }
 
@@ -151,6 +170,12 @@ func (c *secretSvcTestContainer) GetCertificatePolicyRepository() repositories.C
 func (c *secretSvcTestContainer) GetSessionRepository() repositories.SessionRepositoryInterface {
 	panic("unexpected call: GetSessionRepository")
 }
+func (c *secretSvcTestContainer) GetVaultRepository() repositories.VaultRepositoryInterface {
+	panic("unexpected call: GetVaultRepository")
+}
+func (c *secretSvcTestContainer) GetVaultService() vaultServices.VaultService {
+	panic("unexpected call: GetVaultService")
+}
 func (c *secretSvcTestContainer) GetPasswordService() authServices.PasswordService {
 	panic("unexpected call: GetPasswordService")
 }
@@ -226,7 +251,7 @@ func (c *secretSvcTestContainer) GetSigningProvider() signing.SigningKeyProvider
 func (c *secretSvcTestContainer) GetItemBackupService() *backup.ItemBackupService {
 	return nil
 }
-func (c *secretSvcTestContainer) GetKeyCache() keycache.Cache              { return nil }
+func (c *secretSvcTestContainer) GetKeyCache() keycache.Cache             { return nil }
 func (c *secretSvcTestContainer) GetCryptoMetrics() metrics.CryptoMetrics { return nil }
 func (c *secretSvcTestContainer) GetAuditService() auditServices.AuditServiceInterface {
 	return nil
@@ -337,7 +362,7 @@ func TestCreateSecret_Success_Returns201(t *testing.T) {
 
 func TestListSecrets_ServiceError_Returns500(t *testing.T) {
 	svc := &mockSecretService{}
-	svc.On("ListSecrets", mock.Anything, mock.Anything, mock.Anything).Return([]model.Secret{}, errors.New("db error"))
+	svc.On("ListSecretsInVault", mock.Anything, mock.Anything, mock.Anything).Return([]model.Secret{}, errors.New("db error"))
 
 	c := newSecretCtx(svc)
 	w := httptest.NewRecorder()
@@ -355,7 +380,7 @@ func TestListSecrets_ServiceError_Returns500(t *testing.T) {
 func TestListSecrets_Success_Returns200(t *testing.T) {
 	secretID := uuid.New()
 	svc := &mockSecretService{}
-	svc.On("ListSecrets", mock.Anything, mock.Anything, mock.Anything).Return([]model.Secret{*makeSecretModel(secretID)}, nil)
+	svc.On("ListSecretsInVault", mock.Anything, mock.Anything, mock.Anything).Return([]model.Secret{*makeSecretModel(secretID)}, nil)
 
 	c := newSecretCtx(svc)
 	w := httptest.NewRecorder()
@@ -391,7 +416,7 @@ func TestGetSecret_InvalidSecretID_Returns400(t *testing.T) {
 func TestGetSecret_NotFound_Returns404(t *testing.T) {
 	secretID := uuid.New()
 	svc := &mockSecretService{}
-	svc.On("GetSecret", mock.Anything, secretID, uuid.MustParse(secretHTestUserID)).Return(nil, errors.New("not found"))
+	svc.On("GetSecretInVault", mock.Anything, secretID, mock.Anything).Return(nil, errors.New("not found"))
 
 	c := newSecretCtx(svc)
 	c.Params = &ApiParams{SecretID: secretID.String(), PerPage: 60}
@@ -410,7 +435,7 @@ func TestGetSecret_NotFound_Returns404(t *testing.T) {
 func TestGetSecret_Success_Returns200(t *testing.T) {
 	secretID := uuid.New()
 	svc := &mockSecretService{}
-	svc.On("GetSecret", mock.Anything, secretID, uuid.MustParse(secretHTestUserID)).Return(makeSecretModel(secretID), nil)
+	svc.On("GetSecretInVault", mock.Anything, secretID, mock.Anything).Return(makeSecretModel(secretID), nil)
 
 	c := newSecretCtx(svc)
 	c.Params = &ApiParams{SecretID: secretID.String(), PerPage: 60}
@@ -530,7 +555,7 @@ func TestDeleteSecret_InvalidSecretID_Returns400(t *testing.T) {
 func TestDeleteSecret_ServiceError_Returns500(t *testing.T) {
 	secretID := uuid.New()
 	svc := &mockSecretService{}
-	svc.On("DeleteSecret", mock.Anything, secretID, uuid.MustParse(secretHTestUserID)).Return(errors.New("db error"))
+	svc.On("DeleteSecretInVault", mock.Anything, secretID, mock.Anything).Return(errors.New("db error"))
 
 	c := newSecretCtx(svc)
 	c.Params = &ApiParams{SecretID: secretID.String(), PerPage: 60}
@@ -549,7 +574,7 @@ func TestDeleteSecret_ServiceError_Returns500(t *testing.T) {
 func TestDeleteSecret_Success_Returns200(t *testing.T) {
 	secretID := uuid.New()
 	svc := &mockSecretService{}
-	svc.On("DeleteSecret", mock.Anything, secretID, uuid.MustParse(secretHTestUserID)).Return(nil)
+	svc.On("DeleteSecretInVault", mock.Anything, secretID, mock.Anything).Return(nil)
 
 	c := newSecretCtx(svc)
 	c.Params = &ApiParams{SecretID: secretID.String(), PerPage: 60}

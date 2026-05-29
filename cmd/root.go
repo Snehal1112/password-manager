@@ -36,9 +36,9 @@ import (
 	"rocketvault/common"
 	"rocketvault/internal/container"
 	"rocketvault/internal/db"
-	"rocketvault/model"
 	"rocketvault/internal/formatter"
 	"rocketvault/internal/logging"
+	"rocketvault/model"
 )
 
 // cfgFile is the config file name
@@ -79,6 +79,10 @@ func init() {
 	rootCmd.PersistentFlags().String("password", "", "Password for authentication")
 	rootCmd.PersistentFlags().String("totp-code", "", "TOTP code for MFA")
 	rootCmd.PersistentFlags().String("output", "table", "Output format: table, json, yaml")
+
+	// Persistent flag selecting the target vault for resource commands.
+	rootCmd.PersistentFlags().String("vault", "", "Target vault name (default: \"default\")")
+	_ = viper.BindPFlag("vault", rootCmd.PersistentFlags().Lookup("vault"))
 
 	// Cobra also supports local flags, which will only run
 	// when this action is called directly.
@@ -126,14 +130,14 @@ func persistentPreRun(cmd *cobra.Command, args []string) error {
 
 	// System commands that don't require authentication
 	systemCmds := map[string]bool{
-		"health":          true,
-		"backup":          true,
-		"serve":           true, // Server startup doesn't require prior authentication
-		"admin":           true, // Allow admin registration without prior authentication
-		"migrate":         true, // Database migrations don't require authentication
-		"migrate:status":  true, // Migration status check
-		"migrate:to":      true, // Targeted migrations
-		"migrate:create":  true, // Migration file creation
+		"health":         true,
+		"backup":         true,
+		"serve":          true, // Server startup doesn't require prior authentication
+		"admin":          true, // Allow admin registration without prior authentication
+		"migrate":        true, // Database migrations don't require authentication
+		"migrate:status": true, // Migration status check
+		"migrate:to":     true, // Targeted migrations
+		"migrate:create": true, // Migration file creation
 	}
 
 	// Check if this is a system command (either the command itself or its parent)
@@ -238,4 +242,3 @@ func persistentPostRun(cmd *cobra.Command, args []string) error {
 	}
 	return nil
 }
-

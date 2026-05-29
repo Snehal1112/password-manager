@@ -9,8 +9,8 @@ import (
 	"github.com/google/uuid"
 	"github.com/sirupsen/logrus"
 
-	"rocketvault/model"
 	"rocketvault/internal/services/secrets"
+	"rocketvault/model"
 )
 
 // CachedSecretService wraps a SecretService with caching functionality.
@@ -115,6 +115,28 @@ func (s *CachedSecretService) ListSecrets(ctx context.Context, userID uuid.UUID,
 	// List operations are not cached due to filtering complexity
 	// This could be optimized in the future with cache invalidation strategies
 	return s.secretService.ListSecrets(ctx, userID, tags)
+}
+
+// GetSecretInVault retrieves a vault-scoped secret (delegated; not cached to keep
+// vault scoping authoritative at the service layer).
+func (s *CachedSecretService) GetSecretInVault(ctx context.Context, secretID, vaultID uuid.UUID) (*model.Secret, error) {
+	return s.secretService.GetSecretInVault(ctx, secretID, vaultID)
+}
+
+// ListSecretsInVault lists vault-scoped secrets (not cached due to filtering complexity).
+func (s *CachedSecretService) ListSecretsInVault(ctx context.Context, vaultID uuid.UUID, tags []string) ([]model.Secret, error) {
+	return s.secretService.ListSecretsInVault(ctx, vaultID, tags)
+}
+
+// DeleteSecretInVault soft-deletes a vault-scoped secret and removes it from cache.
+func (s *CachedSecretService) DeleteSecretInVault(ctx context.Context, secretID, vaultID uuid.UUID) error {
+	if err := s.secretService.DeleteSecretInVault(ctx, secretID, vaultID); err != nil {
+		return err
+	}
+	if err := s.cache.Delete(ctx, secretID); err != nil {
+		s.logger.WithError(err).Warn("Failed to remove deleted secret from cache")
+	}
+	return nil
 }
 
 // GetSecretVersions retrieves all versions of a secret.

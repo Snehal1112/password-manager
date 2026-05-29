@@ -122,6 +122,26 @@ func (r *stubSecretRepo) PurgeSecret(_ context.Context, id uuid.UUID) error {
 	return nil
 }
 
+func (r *stubSecretRepo) ReadInVault(_ context.Context, _, _ uuid.UUID) (*model.Secret, error) {
+	return nil, fmt.Errorf("not implemented")
+}
+
+func (r *stubSecretRepo) ListInVault(_ context.Context, _ uuid.UUID, _ []string) ([]model.Secret, error) {
+	return nil, nil
+}
+
+func (r *stubSecretRepo) ListInVaultIncludeDeleted(_ context.Context, _ uuid.UUID, _ []string) ([]model.Secret, error) {
+	return nil, nil
+}
+
+func (r *stubSecretRepo) SoftDeleteVaultContents(_ context.Context, _ uuid.UUID) error {
+	return nil
+}
+
+func (r *stubSecretRepo) RecoverVaultContents(_ context.Context, _ uuid.UUID) error {
+	return nil
+}
+
 func TestBackupRestoreSecret(t *testing.T) {
 	t.Parallel()
 
@@ -239,9 +259,9 @@ func (r *stubKeyRepo) UpdateRevocationStatus(_ context.Context, _ uuid.UUID, _ b
 	return nil
 }
 
-func (r *stubKeyRepo) SoftDelete(_ context.Context, _ uuid.UUID) error       { return nil }
-func (r *stubKeyRepo) RecoverKey(_ context.Context, _ uuid.UUID) error        { return nil }
-func (r *stubKeyRepo) PurgeKey(_ context.Context, _ uuid.UUID) error          { return nil }
+func (r *stubKeyRepo) SoftDelete(_ context.Context, _ uuid.UUID) error { return nil }
+func (r *stubKeyRepo) RecoverKey(_ context.Context, _ uuid.UUID) error { return nil }
+func (r *stubKeyRepo) PurgeKey(_ context.Context, _ uuid.UUID) error   { return nil }
 func (r *stubKeyRepo) SetPurgeProtection(_ context.Context, _ uuid.UUID, _ bool) error {
 	return nil
 }
@@ -260,6 +280,22 @@ func (r *stubKeyRepo) CreateVersion(_ context.Context, _ uuid.UUID, _ int, _ str
 
 func (r *stubKeyRepo) ListVersions(_ context.Context, _, _ uuid.UUID) ([]model.KeyVersion, error) {
 	return nil, nil
+}
+
+func (r *stubKeyRepo) ListInVault(_ context.Context, _ uuid.UUID, _ string, _ []string) ([]model.Key, error) {
+	return nil, nil
+}
+
+func (r *stubKeyRepo) ReadInVault(_ context.Context, _, _ uuid.UUID) (*model.Key, error) {
+	return nil, nil
+}
+
+func (r *stubKeyRepo) SoftDeleteVaultContents(_ context.Context, _ uuid.UUID) error {
+	return nil
+}
+
+func (r *stubKeyRepo) RecoverVaultContents(_ context.Context, _ uuid.UUID) error {
+	return nil
 }
 
 func TestRestoreSecretBlobTypeMismatch(t *testing.T) {

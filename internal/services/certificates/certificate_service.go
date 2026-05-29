@@ -15,9 +15,9 @@ import (
 
 	"rocketvault/common"
 	"rocketvault/internal/crypto"
-	"rocketvault/model"
 	"rocketvault/internal/logging"
 	"rocketvault/internal/repositories"
+	"rocketvault/model"
 )
 
 // CreateCertificateRequest represents a request to create a new X.509 certificate.
@@ -27,11 +27,21 @@ type CreateCertificateRequest struct {
 	ValidityDays int
 	Tags         []string
 	UserID       uuid.UUID
+	VaultID      uuid.UUID  // Target vault; defaults to the default vault when nil.
 	CACertID     *uuid.UUID // Optional for CA-signed certificates.
 	AutoRenew    bool
 	RenewalDays  int        // 0 defaults to 30.
 	Enabled      *bool      // nil defaults to true.
 	NotBefore    *time.Time // Optional activation timestamp.
+}
+
+// resolveVaultID returns the requested vault id, falling back to the default
+// vault when the caller did not specify one.
+func resolveVaultID(vaultID uuid.UUID) uuid.UUID {
+	if vaultID == uuid.Nil {
+		return uuid.MustParse(model.DefaultVaultID)
+	}
+	return vaultID
 }
 
 // CreateCertificateResult represents the result of creating a new certificate.
@@ -46,8 +56,8 @@ type CreateCertificateResult struct {
 // UpdateCertificateRequest represents a request to update an existing certificate.
 type UpdateCertificateRequest struct {
 	CertID      uuid.UUID
-	Name        *string    // Optional - nil means no change.
-	Tags        []string   // Optional - empty means no change.
+	Name        *string  // Optional - nil means no change.
+	Tags        []string // Optional - empty means no change.
 	UserID      uuid.UUID
 	AutoRenew   *bool      // Optional - nil means no change.
 	RenewalDays *int       // Optional - nil means no change.
@@ -65,6 +75,12 @@ type CertificateService interface {
 	ListCertificates(ctx context.Context, userID uuid.UUID) ([]model.Certificate, error)
 	UpdateCertificate(ctx context.Context, req UpdateCertificateRequest) error
 	DeleteCertificate(ctx context.Context, certID, userID uuid.UUID) error
+	// GetCertificateInVault retrieves a certificate scoped to the given vault.
+	GetCertificateInVault(ctx context.Context, certID, vaultID uuid.UUID) (*model.Certificate, error)
+	// ListCertificatesInVault lists certificates scoped to the given vault.
+	ListCertificatesInVault(ctx context.Context, vaultID uuid.UUID) ([]model.Certificate, error)
+	// DeleteCertificateInVault removes a certificate scoped to the given vault.
+	DeleteCertificateInVault(ctx context.Context, certID, vaultID uuid.UUID) error
 	RenewCertificate(ctx context.Context, certID, userID uuid.UUID, validityDays int) (*CreateCertificateResult, error)
 	ValidateCertificateAccess(ctx context.Context, certID, userID uuid.UUID, role string) error
 	ValidateKeyOwnership(ctx context.Context, keyID, userID uuid.UUID, role string) error
@@ -187,6 +203,7 @@ func (s *certificateService) CreateSelfSignedCertificate(ctx context.Context, re
 	cert := &model.Certificate{
 		ID:          uuid.New(),
 		UserID:      req.UserID,
+		VaultID:     resolveVaultID(req.VaultID),
 		KeyID:       req.KeyID,
 		Name:        req.Name,
 		Certificate: certPEM,
@@ -332,6 +349,7 @@ func (s *certificateService) CreateCASignedCertificate(ctx context.Context, req 
 	cert := &model.Certificate{
 		ID:          uuid.New(),
 		UserID:      req.UserID,
+		VaultID:     resolveVaultID(req.VaultID),
 		KeyID:       req.KeyID,
 		Name:        req.Name,
 		Certificate: certPEM,
@@ -498,6 +516,45 @@ func (s *certificateService) DeleteCertificate(ctx context.Context, certID, user
 	}
 
 	s.logger.LogAuditInfo(userID.String(), "delete_certificate", "success", "Certificate soft deleted successfully")
+	return nil
+}
+
+// GetCertificateInVault retrieves a certificate scoped to a vault. It mirrors
+// GetCertificate but enforces vault scope via ReadInVault instead of ownership.
+func (s *certificateService) GetCertificateInVault(ctx context.Context, certID, vaultID uuid.UUID) (*model.Certificate, error) {
+	cert, err := s.certRepo.ReadInVault(ctx, certID, vaultID)
+	if err != nil {
+		s.logger.LogAuditError("", "get_certificate", "failed", fmt.Sprintf("failed to read certificate: %s", err), err)
+		return nil, fmt.Errorf("failed to read certificate: %w", err)
+	}
+
+	if !cert.IsAccessible() {
+		s.logger.LogAuditError("", "get_certificate", "failed", "certificate is disabled or outside its valid time window", nil)
+		return nil, fmt.Errorf("certificate is disabled or outside its valid time window")
+	}
+
+	return cert, nil
+}
+
+// ListCertificatesInVault retrieves all certificates in a vault. It mirrors
+// ListCertificates but scopes by vault instead of user.
+func (s *certificateService) ListCertificatesInVault(ctx context.Context, vaultID uuid.UUID) ([]model.Certificate, error) {
+	return s.certRepo.ListInVault(ctx, vaultID, "", nil)
+}
+
+// DeleteCertificateInVault soft-deletes a certificate scoped to a vault. It
+// mirrors DeleteCertificate but verifies vault scope via ReadInVault.
+func (s *certificateService) DeleteCertificateInVault(ctx context.Context, certID, vaultID uuid.UUID) error {
+	if _, err := s.certRepo.ReadInVault(ctx, certID, vaultID); err != nil {
+		return fmt.Errorf("failed to read certificate: %w", err)
+	}
+
+	if err := s.certRepo.SoftDelete(ctx, certID); err != nil {
+		s.logger.LogAuditError("", "delete_certificate", "failed", "Failed to soft delete certificate", err)
+		return fmt.Errorf("failed to delete certificate: %w", err)
+	}
+
+	s.logger.LogAuditInfo("", "delete_certificate", "success", "Certificate soft deleted successfully")
 	return nil
 }
 

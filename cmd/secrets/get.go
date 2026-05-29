@@ -46,10 +46,6 @@ var getCmd = &cobra.Command{
 		secretID := uuid.MustParse(args[0])
 
 		ctx := cmd.Context()
-		userID, ok := ctx.Value(common.UserIDKey).(uuid.UUID)
-		if !ok {
-			return fmt.Errorf("user ID not available in context")
-		}
 
 		serviceContainer, ok := ctx.Value(common.ServiceContainerKey).(container.ServiceContainerInterface)
 		if !ok || serviceContainer == nil {
@@ -57,7 +53,12 @@ var getCmd = &cobra.Command{
 		}
 		secretService := serviceContainer.GetSecretService()
 
-		secret, err := secretService.GetSecret(ctx, secretID, userID)
+		vaultID, err := resolveVaultID(ctx, cmd, serviceContainer)
+		if err != nil {
+			return err
+		}
+
+		secret, err := secretService.GetSecretInVault(ctx, secretID, vaultID)
 		if err != nil {
 			return fmt.Errorf("failed to retrieve secret: %w", err)
 		}

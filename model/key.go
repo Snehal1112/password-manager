@@ -12,6 +12,7 @@ import (
 type Key struct {
 	ID               uuid.UUID  `json:"id"`
 	UserID           uuid.UUID  `json:"user_id"`
+	VaultID          uuid.UUID  `json:"vault_id"`
 	Name             string     `json:"name"`
 	Type             string     `json:"type"`
 	Value            string     `json:"value"`

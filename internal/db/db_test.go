@@ -100,3 +100,31 @@ func TestIsDuplicateColumnError_Nil(t *testing.T) {
 func TestIsDuplicateColumnError_GenericError(t *testing.T) {
 	assert.False(t, isDuplicateColumnError(fmt.Errorf("connection refused")), "generic error should not match duplicate column")
 }
+
+// TestInitializeDB_SeedsDefaultVault verifies the default vault is seeded on startup.
+func TestInitializeDB_SeedsDefaultVault(t *testing.T) {
+	viper.Set("database.connection", "./test_vault_seed.db")
+	defer os.Remove("./test_vault_seed.db")
+	log := logging.InitLogger()
+	d := NewRepository(log)
+	assert.NoError(t, d.InitializeDB())
+
+	var name string
+	err := DB.QueryRow("SELECT name FROM vaults WHERE id = ?", "00000000-0000-0000-0000-00000000efa1").Scan(&name)
+	assert.NoError(t, err, "default vault should be seeded")
+	assert.Equal(t, "default", name)
+}
+
+// TestSeedDefaultVault_Idempotent verifies seedDefaultVault does not error or duplicate.
+func TestSeedDefaultVault_Idempotent(t *testing.T) {
+	viper.Set("database.connection", "./test_vault_idem.db")
+	defer os.Remove("./test_vault_idem.db")
+	log := logging.InitLogger()
+	d := NewRepository(log)
+	assert.NoError(t, d.InitializeDB())
+	// Calling seedDefaultVault again must not error or duplicate.
+	assert.NoError(t, d.seedDefaultVault(DB))
+	var n int
+	assert.NoError(t, DB.QueryRow("SELECT COUNT(*) FROM vaults WHERE name='default'").Scan(&n))
+	assert.Equal(t, 1, n)
+}

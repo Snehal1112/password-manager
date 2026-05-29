@@ -22,16 +22,17 @@ import (
 	"rocketvault/internal/logging"
 	"rocketvault/internal/metrics"
 	"rocketvault/internal/repositories"
-	"rocketvault/internal/signing"
+	auditServices "rocketvault/internal/services/audit"
 	authServices "rocketvault/internal/services/auth"
 	authzServices "rocketvault/internal/services/authorization"
-	auditServices "rocketvault/internal/services/audit"
 	certServices "rocketvault/internal/services/certificates"
 	keyServices "rocketvault/internal/services/keys"
 	oauth2Services "rocketvault/internal/services/oauth2"
 	retryServices "rocketvault/internal/services/retry"
 	secretServices "rocketvault/internal/services/secrets"
 	userServices "rocketvault/internal/services/users"
+	vaultServices "rocketvault/internal/services/vaults"
+	"rocketvault/internal/signing"
 	"rocketvault/model"
 )
 
@@ -94,6 +95,21 @@ func (s *stubSecretRepo) GetLatestVersion(_ context.Context, _ uuid.UUID) (*mode
 func (s *stubSecretRepo) PurgeSecret(_ context.Context, _ uuid.UUID) error {
 	return s.purgeErr
 }
+func (s *stubSecretRepo) ReadInVault(_ context.Context, _, _ uuid.UUID) (*model.Secret, error) {
+	panic("unexpected call: ReadInVault")
+}
+func (s *stubSecretRepo) ListInVault(_ context.Context, _ uuid.UUID, _ []string) ([]model.Secret, error) {
+	panic("unexpected call: ListInVault")
+}
+func (s *stubSecretRepo) ListInVaultIncludeDeleted(_ context.Context, _ uuid.UUID, _ []string) ([]model.Secret, error) {
+	return s.listDeleted, s.listDeletedErr
+}
+func (s *stubSecretRepo) SoftDeleteVaultContents(_ context.Context, _ uuid.UUID) error {
+	panic("unexpected call: SoftDeleteVaultContents")
+}
+func (s *stubSecretRepo) RecoverVaultContents(_ context.Context, _ uuid.UUID) error {
+	panic("unexpected call: RecoverVaultContents")
+}
 
 // ============================================================
 // stub certificate repository for soft-delete tests
@@ -145,6 +161,18 @@ func (s *stubCertRepo) ListSoftDeleted(_ context.Context, _ uuid.UUID) ([]*model
 func (s *stubCertRepo) ListAll(_ context.Context) ([]model.Certificate, error) {
 	panic("unexpected call: ListAll")
 }
+func (s *stubCertRepo) ListInVault(_ context.Context, _ uuid.UUID, _ string, _ []string) ([]model.Certificate, error) {
+	panic("unexpected call: ListInVault")
+}
+func (s *stubCertRepo) ReadInVault(_ context.Context, _, _ uuid.UUID) (*model.Certificate, error) {
+	panic("unexpected call: ReadInVault")
+}
+func (s *stubCertRepo) SoftDeleteVaultContents(_ context.Context, _ uuid.UUID) error {
+	panic("unexpected call: SoftDeleteVaultContents")
+}
+func (s *stubCertRepo) RecoverVaultContents(_ context.Context, _ uuid.UUID) error {
+	panic("unexpected call: RecoverVaultContents")
+}
 
 // ============================================================
 // multi-repo containers
@@ -181,6 +209,12 @@ func (c *secretRepoTestContainer) GetCertificatePolicyRepository() repositories.
 }
 func (c *secretRepoTestContainer) GetSessionRepository() repositories.SessionRepositoryInterface {
 	panic("unexpected call: GetSessionRepository")
+}
+func (c *secretRepoTestContainer) GetVaultRepository() repositories.VaultRepositoryInterface {
+	panic("unexpected call: GetVaultRepository")
+}
+func (c *secretRepoTestContainer) GetVaultService() vaultServices.VaultService {
+	panic("unexpected call: GetVaultService")
 }
 func (c *secretRepoTestContainer) GetPasswordService() authServices.PasswordService {
 	panic("unexpected call: GetPasswordService")
@@ -260,7 +294,7 @@ func (c *secretRepoTestContainer) GetSigningProvider() signing.SigningKeyProvide
 func (c *secretRepoTestContainer) GetItemBackupService() *backup.ItemBackupService {
 	return nil
 }
-func (c *secretRepoTestContainer) GetKeyCache() keycache.Cache              { return nil }
+func (c *secretRepoTestContainer) GetKeyCache() keycache.Cache             { return nil }
 func (c *secretRepoTestContainer) GetCryptoMetrics() metrics.CryptoMetrics { return nil }
 func (c *secretRepoTestContainer) GetAuditService() auditServices.AuditServiceInterface {
 	return nil
@@ -301,6 +335,12 @@ func (c *certRepoTestContainer) GetCertificatePolicyRepository() repositories.Ce
 }
 func (c *certRepoTestContainer) GetSessionRepository() repositories.SessionRepositoryInterface {
 	panic("unexpected call: GetSessionRepository")
+}
+func (c *certRepoTestContainer) GetVaultRepository() repositories.VaultRepositoryInterface {
+	panic("unexpected call: GetVaultRepository")
+}
+func (c *certRepoTestContainer) GetVaultService() vaultServices.VaultService {
+	panic("unexpected call: GetVaultService")
 }
 func (c *certRepoTestContainer) GetPasswordService() authServices.PasswordService {
 	panic("unexpected call: GetPasswordService")
@@ -380,7 +420,7 @@ func (c *certRepoTestContainer) GetSigningProvider() signing.SigningKeyProvider 
 func (c *certRepoTestContainer) GetItemBackupService() *backup.ItemBackupService {
 	return nil
 }
-func (c *certRepoTestContainer) GetKeyCache() keycache.Cache              { return nil }
+func (c *certRepoTestContainer) GetKeyCache() keycache.Cache             { return nil }
 func (c *certRepoTestContainer) GetCryptoMetrics() metrics.CryptoMetrics { return nil }
 func (c *certRepoTestContainer) GetAuditService() auditServices.AuditServiceInterface {
 	return nil

@@ -15,6 +15,7 @@ var (
 	UserIDKey           = &contextKey{"user_id"}
 	UsernameKey         = &contextKey{"username"}
 	RoleKey             = &contextKey{"role"}
+	VaultIDKey          = &contextKey{"vault_id"}
 	TokenKey            = &contextKey{"token"}
 	ClaimsKey           = &contextKey{"claims"}
 	RequestIDKey        = &contextKey{"request_id"}

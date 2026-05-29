@@ -5,13 +5,13 @@ import (
 
 	"github.com/google/uuid"
 
-	"rocketvault/model"
 	"rocketvault/internal/repositories"
+	"rocketvault/model"
 )
 
 // RetryRepositoryWrapper wraps repository operations with retry logic
 type RetryRepositoryWrapper struct {
-	baseRepo repositories.SecretRepositoryInterface
+	baseRepo     repositories.SecretRepositoryInterface
 	retryService RetryService
 }
 
@@ -179,5 +179,58 @@ func (r *RetryRepositoryWrapper) RecoverSecret(ctx context.Context, id uuid.UUID
 func (r *RetryRepositoryWrapper) PurgeSecret(ctx context.Context, id uuid.UUID) error {
 	return r.retryService.ExecuteDatabaseOperation(ctx, func() error {
 		return r.baseRepo.PurgeSecret(ctx, id)
+	})
+}
+
+// ReadInVault wraps the ReadInVault operation with retry logic.
+func (r *RetryRepositoryWrapper) ReadInVault(ctx context.Context, id, vaultID uuid.UUID) (*model.Secret, error) {
+	var result *model.Secret
+	var err error
+
+	retryErr := r.retryService.ExecuteDatabaseOperation(ctx, func() error {
+		result, err = r.baseRepo.ReadInVault(ctx, id, vaultID)
+		return err
+	})
+
+	return result, retryErr
+}
+
+// ListInVault wraps the ListInVault operation with retry logic.
+func (r *RetryRepositoryWrapper) ListInVault(ctx context.Context, vaultID uuid.UUID, tags []string) ([]model.Secret, error) {
+	var result []model.Secret
+	var err error
+
+	retryErr := r.retryService.ExecuteDatabaseOperation(ctx, func() error {
+		result, err = r.baseRepo.ListInVault(ctx, vaultID, tags)
+		return err
+	})
+
+	return result, retryErr
+}
+
+// ListInVaultIncludeDeleted wraps the ListInVaultIncludeDeleted operation with retry logic.
+func (r *RetryRepositoryWrapper) ListInVaultIncludeDeleted(ctx context.Context, vaultID uuid.UUID, tags []string) ([]model.Secret, error) {
+	var result []model.Secret
+	var err error
+
+	retryErr := r.retryService.ExecuteDatabaseOperation(ctx, func() error {
+		result, err = r.baseRepo.ListInVaultIncludeDeleted(ctx, vaultID, tags)
+		return err
+	})
+
+	return result, retryErr
+}
+
+// SoftDeleteVaultContents wraps the SoftDeleteVaultContents operation with retry logic.
+func (r *RetryRepositoryWrapper) SoftDeleteVaultContents(ctx context.Context, vaultID uuid.UUID) error {
+	return r.retryService.ExecuteDatabaseOperation(ctx, func() error {
+		return r.baseRepo.SoftDeleteVaultContents(ctx, vaultID)
+	})
+}
+
+// RecoverVaultContents wraps the RecoverVaultContents operation with retry logic.
+func (r *RetryRepositoryWrapper) RecoverVaultContents(ctx context.Context, vaultID uuid.UUID) error {
+	return r.retryService.ExecuteDatabaseOperation(ctx, func() error {
+		return r.baseRepo.RecoverVaultContents(ctx, vaultID)
 	})
 }

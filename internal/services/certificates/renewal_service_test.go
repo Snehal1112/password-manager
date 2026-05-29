@@ -11,9 +11,9 @@ import (
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 
-	"rocketvault/model"
 	"rocketvault/internal/logging"
 	"rocketvault/internal/services/certificates"
+	"rocketvault/model"
 )
 
 // mockCertRepoForRenewal satisfies CertificateRepositoryInterface for renewal tests.
@@ -91,6 +91,32 @@ func (m *mockCertRepoForRenewal) ListAll(ctx context.Context) ([]model.Certifica
 	return nil, args.Error(1)
 }
 
+func (m *mockCertRepoForRenewal) ListInVault(ctx context.Context, vaultID uuid.UUID, certType string, tags []string) ([]model.Certificate, error) {
+	args := m.Called(ctx, vaultID, certType, tags)
+	if v := args.Get(0); v != nil {
+		return v.([]model.Certificate), args.Error(1)
+	}
+	return nil, args.Error(1)
+}
+
+func (m *mockCertRepoForRenewal) ReadInVault(ctx context.Context, id, vaultID uuid.UUID) (*model.Certificate, error) {
+	args := m.Called(ctx, id, vaultID)
+	if v := args.Get(0); v != nil {
+		return v.(*model.Certificate), args.Error(1)
+	}
+	return nil, args.Error(1)
+}
+
+func (m *mockCertRepoForRenewal) SoftDeleteVaultContents(ctx context.Context, vaultID uuid.UUID) error {
+	args := m.Called(ctx, vaultID)
+	return args.Error(0)
+}
+
+func (m *mockCertRepoForRenewal) RecoverVaultContents(ctx context.Context, vaultID uuid.UUID) error {
+	args := m.Called(ctx, vaultID)
+	return args.Error(0)
+}
+
 // mockCertSvcForRenewal satisfies CertificateService for renewal tests.
 // Only RenewCertificate is exercised; all other methods panic if called unexpectedly.
 type mockCertSvcForRenewal struct{ mock.Mock }
@@ -116,6 +142,18 @@ func (m *mockCertSvcForRenewal) UpdateCertificate(ctx context.Context, req certi
 }
 
 func (m *mockCertSvcForRenewal) DeleteCertificate(ctx context.Context, certID, userID uuid.UUID) error {
+	panic("not called")
+}
+
+func (m *mockCertSvcForRenewal) GetCertificateInVault(ctx context.Context, certID, vaultID uuid.UUID) (*model.Certificate, error) {
+	panic("not called")
+}
+
+func (m *mockCertSvcForRenewal) ListCertificatesInVault(ctx context.Context, vaultID uuid.UUID) ([]model.Certificate, error) {
+	panic("not called")
+}
+
+func (m *mockCertSvcForRenewal) DeleteCertificateInVault(ctx context.Context, certID, vaultID uuid.UUID) error {
 	panic("not called")
 }
 

@@ -12,9 +12,9 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"rocketvault/model"
 	"rocketvault/internal/logging"
 	"rocketvault/internal/repositories"
+	"rocketvault/model"
 )
 
 // setupContentTypeTestDB creates an in-memory SQLite database for content_type tests.
@@ -25,6 +25,7 @@ func setupContentTypeTestDB(t *testing.T) *sql.DB {
 	_, err = db.Exec(`CREATE TABLE IF NOT EXISTS secrets (
 		id TEXT PRIMARY KEY,
 		user_id TEXT NOT NULL,
+		vault_id TEXT NOT NULL DEFAULT '00000000-0000-0000-0000-00000000efa1',
 		name TEXT NOT NULL,
 		value TEXT NOT NULL,
 		version INTEGER NOT NULL,

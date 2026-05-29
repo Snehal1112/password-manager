@@ -92,6 +92,11 @@ rocketvault/
 
 ## Key Components Documentation
 
+### 🏛️ [Multi-Vault Architecture](.claude/multi-vault.md)
+- Vault as a routing + context-scoping layer (Azure Key Vault parity)
+- Vault-scoped resources, per-vault access policies, default-vault migration
+- Known deferrals (secondary subsystems, keys/certs CLI, subdomain addressing)
+
 ### 🗄️ [Database Init Patterns](.claude/database-init-patterns.md)
 - `InitializeDB()` hook order and extension points
 - `seedBootstrapToken()` — why it exists and how it works

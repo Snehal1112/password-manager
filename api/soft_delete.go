@@ -5,17 +5,24 @@ import (
 	"net/http"
 
 	"github.com/google/uuid"
+	"github.com/gorilla/mux"
 )
 
-// listDeletedSecrets returns all soft-deleted secrets for the authenticated user.
+// listDeletedSecrets returns all soft-deleted secrets in the resolved vault.
+// The vault is read from the request context (falling back to the default
+// vault for legacy flat routes), so the listing honours the vault-scoped
+// /vaults/{name}/deleted/secrets route. Per the visibility model, any caller
+// authorized for a vault sees all of its soft-deleted secrets.
 func listDeletedSecrets(c *Context, w http.ResponseWriter, r *http.Request) {
-	userID, ok := userIDFromClaims(c)
-	if !ok {
+	// Resolve the target vault from the request context.
+	vaultID, err := vaultIDFromRequest(r)
+	if err != nil {
+		c.SetInvalidParam("vault")
 		return
 	}
 
 	repo := c.App.ServiceContainer.GetSecretRepository()
-	secrets, err := repo.ListByUserIncludeDeleted(r.Context(), userID, nil)
+	secrets, err := repo.ListInVaultIncludeDeleted(r.Context(), vaultID, nil)
 	if err != nil {
 		c.SetInternalError(err)
 		return
@@ -414,11 +421,28 @@ func userIDFromClaims(c *Context) (uuid.UUID, bool) {
 }
 
 // InitDeleted registers soft-delete management routes.
+//
+// The secret deleted-flow handlers are vault-aware (they read the vault from
+// the request context), so they are registered on both the legacy flat routes
+// and the vault-scoped subrouter. The key and certificate deleted-flow handlers
+// are still user-scoped and are therefore registered ONLY on the legacy flat
+// routes; they are intentionally NOT exposed as vault-scoped routes so no
+// vault-scoped route silently ignores its vault. See the deferral note in
+// .claude/multi-vault.md.
 func (api *API) InitDeleted() {
-	r := api.BaseRoutes.Deleted
-	r.Handle("/secrets", ApiSessionRequired(api.App, listDeletedSecrets)).Methods("GET")
-	r.Handle("/secrets/{secret_id:[A-Fa-f0-9-]+}/restore", ApiSessionRequired(api.App, recoverSecret)).Methods("POST")
-	r.Handle("/secrets/{secret_id:[A-Fa-f0-9-]+}/purge", ApiSessionRequired(api.App, purgeSecret)).Methods("DELETE")
+	api.registerDeletedRoutes(api.BaseRoutes.Deleted)
+	if api.BaseRoutes.VaultScoped != nil {
+		api.registerVaultScopedDeletedRoutes(api.BaseRoutes.VaultScoped.PathPrefix("/deleted").Subrouter())
+	}
+}
+
+// registerDeletedRoutes registers all soft-delete handlers on the legacy flat
+// routes. These resolve to the default vault / user scope.
+func (api *API) registerDeletedRoutes(r *mux.Router) {
+	api.registerVaultScopedDeletedRoutes(r)
+
+	// Key and certificate deleted-flow handlers remain user-scoped; they are
+	// only registered on the legacy flat routes. See .claude/multi-vault.md.
 	r.Handle("/keys/{key_id:[A-Fa-f0-9-]+}", ApiSessionRequired(api.App, getDeletedKey)).Methods("GET")
 	r.Handle("/keys", ApiSessionRequired(api.App, listDeletedKeys)).Methods("GET")
 	r.Handle("/keys/{key_id:[A-Fa-f0-9-]+}/restore", ApiSessionRequired(api.App, recoverKey)).Methods("POST")
@@ -426,4 +450,13 @@ func (api *API) InitDeleted() {
 	r.Handle("/certificates", ApiSessionRequired(api.App, listDeletedCertificates)).Methods("GET")
 	r.Handle("/certificates/{certificate_id:[A-Fa-f0-9-]+}/restore", ApiSessionRequired(api.App, recoverCertificate)).Methods("POST")
 	r.Handle("/certificates/{certificate_id:[A-Fa-f0-9-]+}/purge", ApiSessionRequired(api.App, purgeCertificate)).Methods("DELETE")
+}
+
+// registerVaultScopedDeletedRoutes registers the vault-aware soft-delete
+// handlers. The list handler honours the resolved vault; restore/purge operate
+// by globally-unique ID so they already act on the correct object.
+func (api *API) registerVaultScopedDeletedRoutes(r *mux.Router) {
+	r.Handle("/secrets", ApiSessionRequired(api.App, listDeletedSecrets)).Methods("GET")
+	r.Handle("/secrets/{secret_id:[A-Fa-f0-9-]+}/restore", ApiSessionRequired(api.App, recoverSecret)).Methods("POST")
+	r.Handle("/secrets/{secret_id:[A-Fa-f0-9-]+}/purge", ApiSessionRequired(api.App, purgeSecret)).Methods("DELETE")
 }

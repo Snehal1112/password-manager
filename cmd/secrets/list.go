@@ -28,7 +28,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/google/uuid"
 	"github.com/spf13/cobra"
 
 	"rocketvault/common"
@@ -45,10 +44,6 @@ var listCmd = &cobra.Command{
 		tags, _ := cmd.Flags().GetStringSlice("tags")
 
 		ctx := cmd.Context()
-		userID, ok := ctx.Value(common.UserIDKey).(uuid.UUID)
-		if !ok {
-			return fmt.Errorf("user ID not available in context")
-		}
 
 		serviceContainer, ok := ctx.Value(common.ServiceContainerKey).(container.ServiceContainerInterface)
 		if !ok || serviceContainer == nil {
@@ -56,7 +51,12 @@ var listCmd = &cobra.Command{
 		}
 		secretService := serviceContainer.GetSecretService()
 
-		secretsList, err := secretService.ListSecrets(ctx, userID, tags)
+		vaultID, err := resolveVaultID(ctx, cmd, serviceContainer)
+		if err != nil {
+			return err
+		}
+
+		secretsList, err := secretService.ListSecretsInVault(ctx, vaultID, tags)
 		if err != nil {
 			return fmt.Errorf("failed to list secrets: %w", err)
 		}

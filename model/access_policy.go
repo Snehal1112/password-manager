@@ -28,6 +28,7 @@ const (
 	PolicyResourceSecrets      PolicyResourceType = "secrets"
 	PolicyResourceKeys         PolicyResourceType = "keys"
 	PolicyResourceCertificates PolicyResourceType = "certificates"
+	PolicyResourceVaults       PolicyResourceType = "vaults"
 )
 
 type PolicyOperation string
@@ -49,6 +50,7 @@ const (
 	OpDecrypt PolicyOperation = "decrypt"
 	OpImport  PolicyOperation = "import"
 	OpRenew   PolicyOperation = "renew"
+	OpManage  PolicyOperation = "manage"
 )
 
 type AccessPolicy struct {
@@ -58,7 +60,10 @@ type AccessPolicy struct {
 	ResourceType  PolicyResourceType `json:"resource_type"`
 	Operation     PolicyOperation    `json:"operation"`
 	Effect        PolicyEffect       `json:"effect"`
-	CreatedAt     time.Time          `json:"created_at"`
+	// VaultID scopes the policy to a single vault. A nil VaultID means the
+	// policy is GLOBAL and applies in any vault.
+	VaultID   *uuid.UUID `json:"vault_id,omitempty"`
+	CreatedAt time.Time  `json:"created_at"`
 }
 
 type CreateAccessPolicyRequest struct {
@@ -67,6 +72,8 @@ type CreateAccessPolicyRequest struct {
 	ResourceType  string `json:"resource_type"`
 	Operation     string `json:"operation"`
 	Effect        string `json:"effect"`
+	// VaultID scopes the policy to a vault; empty means GLOBAL.
+	VaultID string `json:"vault_id,omitempty"`
 }
 
 func CreateAccessPolicyRequestFromJson(data io.Reader) (*CreateAccessPolicyRequest, error) {
@@ -81,7 +88,9 @@ type AccessPolicyResponse struct {
 	ResourceType  string `json:"resource_type"`
 	Operation     string `json:"operation"`
 	Effect        string `json:"effect"`
-	CreatedAt     string `json:"created_at"`
+	// VaultID scopes the policy to a vault; empty means GLOBAL.
+	VaultID   string `json:"vault_id,omitempty"`
+	CreatedAt string `json:"created_at"`
 }
 
 func (r *AccessPolicyResponse) ToJson() string {

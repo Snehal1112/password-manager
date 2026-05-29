@@ -12,9 +12,9 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"rocketvault/model"
 	"rocketvault/internal/logging"
 	"rocketvault/internal/repositories"
+	"rocketvault/model"
 )
 
 // setupCertRenewalTestDB creates an in-memory SQLite DB with the renewal columns.
@@ -25,6 +25,7 @@ func setupCertRenewalTestDB(t *testing.T) *sql.DB {
 	_, err = db.Exec(`CREATE TABLE IF NOT EXISTS certificates (
 		id TEXT PRIMARY KEY,
 		user_id TEXT NOT NULL,
+		vault_id TEXT NOT NULL DEFAULT '00000000-0000-0000-0000-00000000efa1',
 		name TEXT NOT NULL,
 		certificate TEXT NOT NULL,
 		private_key TEXT NOT NULL,

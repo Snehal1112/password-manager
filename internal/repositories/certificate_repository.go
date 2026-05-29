@@ -15,8 +15,8 @@ import (
 	"github.com/sirupsen/logrus"
 
 	"rocketvault/internal/db"
-	"rocketvault/model"
 	"rocketvault/internal/logging"
+	"rocketvault/model"
 )
 
 // CertificateRepositoryInterface defines the interface for certificate repository operations.
@@ -35,6 +35,14 @@ type CertificateRepositoryInterface interface {
 	SetPurgeProtection(ctx context.Context, id uuid.UUID, enabled bool) error
 	ListSoftDeleted(ctx context.Context, userID uuid.UUID) ([]*model.Certificate, error)
 	ListAll(ctx context.Context) ([]model.Certificate, error)
+	// ListInVault lists certificates scoped to a vault, optionally filtered by type and tags.
+	ListInVault(ctx context.Context, vaultID uuid.UUID, certType string, tags []string) ([]model.Certificate, error)
+	// ReadInVault fetches a certificate only when id and vaultID both match.
+	ReadInVault(ctx context.Context, id, vaultID uuid.UUID) (*model.Certificate, error)
+	// SoftDeleteVaultContents soft-deletes every active certificate in a vault.
+	SoftDeleteVaultContents(ctx context.Context, vaultID uuid.UUID) error
+	// RecoverVaultContents recovers every soft-deleted certificate in a vault.
+	RecoverVaultContents(ctx context.Context, vaultID uuid.UUID) error
 }
 
 // CertificateRepository implements CertificateRepositoryInterface with pure CRUD operations.
@@ -109,8 +117,8 @@ func (r *CertificateRepository) Create(ctx context.Context, cert *model.Certific
 		// Insert certificate with pre-encrypted private key and renewal metadata.
 		_, err = tx.ExecContext(
 			ctx,
-			"INSERT INTO certificates (id, user_id, name, certificate, private_key, created_at, expires_at, auto_renew, renewal_days, key_id, enabled, not_before) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-			cert.ID.String(), cert.UserID.String(), cert.Name, cert.Certificate, cert.PrivateKey, cert.CreatedAt,
+			"INSERT INTO certificates (id, user_id, vault_id, name, certificate, private_key, created_at, expires_at, auto_renew, renewal_days, key_id, enabled, not_before) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+			cert.ID.String(), cert.UserID.String(), cert.VaultID.String(), cert.Name, cert.Certificate, cert.PrivateKey, cert.CreatedAt,
 			cert.ExpiresAt, cert.AutoRenew, cert.RenewalDays, cert.KeyID.String(), cert.Enabled, cert.NotBefore,
 		)
 		if err != nil {
@@ -851,4 +859,220 @@ func (r *CertificateRepository) ListAll(ctx context.Context) ([]model.Certificat
 	})
 
 	return certs, err
+}
+
+// ListInVault retrieves certificates for a vault, optionally filtered by type and tags.
+// It mirrors ListByUser but scopes by vault_id instead of user_id.
+//
+// Parameters:
+//   - ctx: The context for the database operation.
+//   - vaultID: The vault whose certificates to list.
+//   - certType: The certificate type to filter by (empty for all types).
+//   - tags: The tags to filter by (empty for no tag filter).
+//
+// Returns:
+//
+//	A slice of certificates (with encrypted private keys) or an error if retrieval fails.
+func (r *CertificateRepository) ListInVault(ctx context.Context, vaultID uuid.UUID, certType string, tags []string) ([]model.Certificate, error) {
+	var certList []model.Certificate
+
+	err := r.executeWithMetrics("list_certificates_by_vault", func() error {
+		query := "SELECT id, user_id, name, certificate, private_key, created_at, expires_at, auto_renew, renewal_days, key_id, enabled, not_before FROM certificates WHERE vault_id = ? AND deleted_at IS NULL"
+		args := []interface{}{vaultID.String()}
+
+		if certType != "" {
+			query += " AND type = ?"
+			args = append(args, certType)
+		}
+
+		if len(tags) > 0 {
+			placeholders := strings.Repeat(",?", len(tags))[1:]
+			query += fmt.Sprintf(" AND id IN (SELECT certificate_id FROM certificate_tags WHERE tag IN (%s))", placeholders)
+			for _, tag := range tags {
+				args = append(args, tag)
+			}
+		}
+
+		query += " ORDER BY created_at DESC"
+
+		rows, err := r.db.QueryContext(ctx, query, args...)
+		if err != nil {
+			r.log.LogAuditError(vaultID.String(), "list_certificates", "failed", "Failed to query certificates", err)
+			return fmt.Errorf("failed to query certificates: %w", err)
+		}
+		defer rows.Close()
+
+		// Pre-allocate slice for better memory performance.
+		certList = make([]model.Certificate, 0, 50)
+
+		for rows.Next() {
+			var cert model.Certificate
+			var idStr, userIDStr string
+			var keyIDStr sql.NullString
+
+			if err := rows.Scan(&idStr, &userIDStr, &cert.Name, &cert.Certificate, &cert.PrivateKey, &cert.CreatedAt,
+				&cert.ExpiresAt, &cert.AutoRenew, &cert.RenewalDays, &keyIDStr, &cert.Enabled, &cert.NotBefore); err != nil {
+				r.log.LogAuditError(vaultID.String(), "list_certificates", "failed", "Failed to scan certificate", err)
+				return fmt.Errorf("failed to scan certificate: %w", err)
+			}
+
+			cert.ID, err = uuid.Parse(idStr)
+			if err != nil {
+				r.log.LogAuditError(vaultID.String(), "list_certificates", "failed", "Failed to parse certificate ID", err)
+				return fmt.Errorf("failed to parse certificate ID: %w", err)
+			}
+
+			cert.UserID, err = uuid.Parse(userIDStr)
+			if err != nil {
+				r.log.LogAuditError(vaultID.String(), "list_certificates", "failed", "Failed to parse user ID", err)
+				return fmt.Errorf("failed to parse user ID: %w", err)
+			}
+
+			if keyIDStr.Valid {
+				cert.KeyID, err = uuid.Parse(keyIDStr.String)
+				if err != nil {
+					r.log.LogAuditError(vaultID.String(), "list_certificates", "failed", "Failed to parse key ID", err)
+					return fmt.Errorf("failed to parse key ID: %w", err)
+				}
+			}
+
+			// Retrieve tags for each certificate.
+			tagRepo := db.NewTagRepository[model.Certificate](r.db, "certificate_tags", "certificate_id")
+			cert.Tags, err = tagRepo.GetTags(ctx, cert.ID)
+			if err != nil {
+				r.log.LogAuditError(vaultID.String(), "list_certificates", "failed", "Failed to read tags for certificate", err)
+				return fmt.Errorf("failed to read tags for certificate: %w", err)
+			}
+
+			certList = append(certList, cert)
+		}
+
+		if err := rows.Err(); err != nil {
+			return fmt.Errorf("row iteration error: %w", err)
+		}
+
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	logrus.WithFields(logrus.Fields{
+		"vault_id": vaultID.String(),
+		"count":    len(certList),
+	}).Debug("Certificates listed successfully")
+
+	return certList, nil
+}
+
+// ReadInVault retrieves a certificate by ID only when it belongs to the given vault.
+// It mirrors Read but adds a vault_id scope.
+//
+// Parameters:
+//   - ctx: The context for the database operation.
+//   - id: The certificate's unique identifier.
+//   - vaultID: The vault the certificate must belong to.
+//
+// Returns:
+//
+//	The certificate entity (with encrypted private key) or an error if not found / access denied.
+func (r *CertificateRepository) ReadInVault(ctx context.Context, id, vaultID uuid.UUID) (*model.Certificate, error) {
+	var cert model.Certificate
+	var idStr, userIDStr string
+	var keyIDStr sql.NullString
+
+	err := r.db.QueryRowContext(
+		ctx,
+		"SELECT id, user_id, name, certificate, private_key, created_at, expires_at, auto_renew, renewal_days, key_id, enabled, not_before FROM certificates WHERE id = ? AND vault_id = ? AND deleted_at IS NULL",
+		id.String(), vaultID.String(),
+	).Scan(&idStr, &userIDStr, &cert.Name, &cert.Certificate, &cert.PrivateKey, &cert.CreatedAt,
+		&cert.ExpiresAt, &cert.AutoRenew, &cert.RenewalDays, &keyIDStr, &cert.Enabled, &cert.NotBefore)
+
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, fmt.Errorf("certificate not found or access denied")
+	}
+	if err != nil {
+		r.log.LogAuditError(uuid.Nil.String(), "read_certificate", "failed", "Failed to query certificate", err)
+		return nil, fmt.Errorf("failed to query certificate: %w", err)
+	}
+
+	cert.ID, err = uuid.Parse(idStr)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse certificate ID: %w", err)
+	}
+
+	cert.UserID, err = uuid.Parse(userIDStr)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse user ID: %w", err)
+	}
+
+	if keyIDStr.Valid {
+		cert.KeyID, err = uuid.Parse(keyIDStr.String)
+		if err != nil {
+			return nil, fmt.Errorf("failed to parse key ID: %w", err)
+		}
+	}
+
+	// Retrieve tags using TagRepository.
+	tagRepo := db.NewTagRepository[model.Certificate](r.db, "certificate_tags", "certificate_id")
+	cert.Tags, err = tagRepo.GetTags(ctx, cert.ID)
+	if err != nil {
+		r.log.LogAuditError(uuid.Nil.String(), "read_certificate", "failed", "Failed to read tags", err)
+		return nil, fmt.Errorf("failed to read tags: %w", err)
+	}
+
+	return &cert, nil
+}
+
+// SoftDeleteVaultContents marks every active certificate in a vault as soft-deleted.
+//
+// Parameters:
+//   - ctx: The context for the database operation.
+//   - vaultID: The vault whose certificates should be soft-deleted.
+//
+// Returns:
+//
+//	An error if the soft deletion fails.
+func (r *CertificateRepository) SoftDeleteVaultContents(ctx context.Context, vaultID uuid.UUID) error {
+	return r.executeWithMetrics("soft_delete_vault_certificates", func() error {
+		logrus.WithField("vault_id", vaultID.String()).Debug("Soft deleting all certificates in vault")
+
+		now := time.Now()
+		_, err := r.db.ExecContext(ctx,
+			"UPDATE certificates SET deleted_at = ? WHERE vault_id = ? AND deleted_at IS NULL",
+			now, vaultID.String())
+		if err != nil {
+			r.log.LogAuditError(vaultID.String(), "soft_delete_vault_certificates", "failed", "Failed to soft delete vault certificates", err)
+			return fmt.Errorf("failed to soft delete vault certificates: %w", err)
+		}
+
+		r.log.LogAuditInfo(vaultID.String(), "soft_delete_vault_certificates", "success", "Vault certificates soft deleted successfully")
+		return nil
+	})
+}
+
+// RecoverVaultContents restores every soft-deleted certificate in a vault.
+//
+// Parameters:
+//   - ctx: The context for the database operation.
+//   - vaultID: The vault whose certificates should be recovered.
+//
+// Returns:
+//
+//	An error if the recovery fails.
+func (r *CertificateRepository) RecoverVaultContents(ctx context.Context, vaultID uuid.UUID) error {
+	return r.executeWithMetrics("recover_vault_certificates", func() error {
+		logrus.WithField("vault_id", vaultID.String()).Debug("Recovering all soft-deleted certificates in vault")
+
+		_, err := r.db.ExecContext(ctx,
+			"UPDATE certificates SET deleted_at = NULL, scheduled_purge_at = NULL WHERE vault_id = ? AND deleted_at IS NOT NULL",
+			vaultID.String())
+		if err != nil {
+			r.log.LogAuditError(vaultID.String(), "recover_vault_certificates", "failed", "Failed to recover vault certificates", err)
+			return fmt.Errorf("failed to recover vault certificates: %w", err)
+		}
+
+		r.log.LogAuditInfo(vaultID.String(), "recover_vault_certificates", "success", "Vault certificates recovered successfully")
+		return nil
+	})
 }

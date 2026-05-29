@@ -7,14 +7,14 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/sirupsen/logrus"
 	_ "github.com/mattn/go-sqlite3"
+	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"rocketvault/model"
 	"rocketvault/internal/logging"
 	"rocketvault/internal/repositories"
+	"rocketvault/model"
 )
 
 // setupSecretTestDB creates an in-memory SQLite database for secret repository tests.
@@ -25,6 +25,7 @@ func setupSecretTestDB(t *testing.T) *sql.DB {
 	_, err = db.Exec(`CREATE TABLE IF NOT EXISTS secrets (
 		id               TEXT PRIMARY KEY,
 		user_id          TEXT NOT NULL,
+		vault_id         TEXT NOT NULL DEFAULT '00000000-0000-0000-0000-00000000efa1',
 		name             TEXT NOT NULL,
 		value            TEXT NOT NULL,
 		version          INTEGER NOT NULL,
@@ -136,6 +137,57 @@ func TestSecretLifecycleAttributes_PersistAndLoad(t *testing.T) {
 	require.NotNil(t, loaded.ExpiresAt)
 	require.WithinDuration(t, exp, *loaded.ExpiresAt, time.Second)
 	require.NotNil(t, loaded.NotBefore)
+}
+
+// TestSecretRepository_ListInVault_ScopesByVault verifies that ListInVault returns
+// only secrets belonging to the requested vault.
+func TestSecretRepository_ListInVault_ScopesByVault(t *testing.T) {
+	t.Parallel()
+	db := setupSecretTestDB(t)
+	repo := repositories.NewSecretRepository(db, newTestSecretLogger(t))
+	ctx := context.Background()
+	vaultA, vaultB := uuid.New(), uuid.New()
+
+	mk := func(name string, v uuid.UUID) *model.Secret {
+		return &model.Secret{ID: uuid.New(), UserID: uuid.New(), VaultID: v, Name: name, Value: "x", Version: 1, CreatedAt: time.Now(), Enabled: true}
+	}
+	require.NoError(t, repo.Create(ctx, mk("a", vaultA)))
+	require.NoError(t, repo.Create(ctx, mk("b", vaultA)))
+	require.NoError(t, repo.Create(ctx, mk("c", vaultB)))
+
+	gotA, err := repo.ListInVault(ctx, vaultA, nil)
+	require.NoError(t, err)
+	require.Len(t, gotA, 2)
+	gotB, err := repo.ListInVault(ctx, vaultB, nil)
+	require.NoError(t, err)
+	require.Len(t, gotB, 1)
+}
+
+// TestSecretRepository_SoftDeleteVaultContents_HidesFromList verifies that after
+// soft-deleting a vault's contents, ListInVault returns nothing while
+// ListInVaultIncludeDeleted still returns the rows.
+func TestSecretRepository_SoftDeleteVaultContents_HidesFromList(t *testing.T) {
+	t.Parallel()
+	db := setupSecretTestDB(t)
+	repo := repositories.NewSecretRepository(db, newTestSecretLogger(t))
+	ctx := context.Background()
+	vaultA := uuid.New()
+
+	mk := func(name string) *model.Secret {
+		return &model.Secret{ID: uuid.New(), UserID: uuid.New(), VaultID: vaultA, Name: name, Value: "x", Version: 1, CreatedAt: time.Now(), Enabled: true}
+	}
+	require.NoError(t, repo.Create(ctx, mk("a")))
+	require.NoError(t, repo.Create(ctx, mk("b")))
+
+	require.NoError(t, repo.SoftDeleteVaultContents(ctx, vaultA))
+
+	active, err := repo.ListInVault(ctx, vaultA, nil)
+	require.NoError(t, err)
+	require.Len(t, active, 0)
+
+	all, err := repo.ListInVaultIncludeDeleted(ctx, vaultA, nil)
+	require.NoError(t, err)
+	require.Len(t, all, 2)
 }
 
 // TestSoftDelete_PreservesPurgeProtection verifies that SoftDelete does not

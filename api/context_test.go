@@ -22,16 +22,17 @@ import (
 	"rocketvault/internal/logging"
 	"rocketvault/internal/metrics"
 	"rocketvault/internal/repositories"
-	"rocketvault/internal/signing"
+	auditServices "rocketvault/internal/services/audit"
 	authServices "rocketvault/internal/services/auth"
 	authzServices "rocketvault/internal/services/authorization"
-	auditServices "rocketvault/internal/services/audit"
 	certServices "rocketvault/internal/services/certificates"
 	keyServices "rocketvault/internal/services/keys"
 	oauth2Services "rocketvault/internal/services/oauth2"
 	retryServices "rocketvault/internal/services/retry"
 	secretServices "rocketvault/internal/services/secrets"
 	userServices "rocketvault/internal/services/users"
+	vaultServices "rocketvault/internal/services/vaults"
+	"rocketvault/internal/signing"
 )
 
 // testLogger returns a minimal logger for use in tests.
@@ -98,6 +99,12 @@ func (m *mockServiceContainer) GetCertificatePolicyRepository() repositories.Cer
 }
 func (m *mockServiceContainer) GetSessionRepository() repositories.SessionRepositoryInterface {
 	panic("unexpected call: GetSessionRepository")
+}
+func (m *mockServiceContainer) GetVaultRepository() repositories.VaultRepositoryInterface {
+	panic("unexpected call: GetVaultRepository")
+}
+func (m *mockServiceContainer) GetVaultService() vaultServices.VaultService {
+	panic("unexpected call: GetVaultService")
 }
 func (m *mockServiceContainer) GetPasswordService() authServices.PasswordService {
 	panic("unexpected call: GetPasswordService")

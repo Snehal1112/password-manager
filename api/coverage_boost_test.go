@@ -1265,16 +1265,13 @@ func (s *successUnwrapCryptoSvc) UnwrapKey(_ context.Context, req keyServices.Un
 // ============================================================
 
 // TestGetKey_AdminPath_GetKeyError_Returns404 exercises the admin retry path
-// when the initial GetKey fails — admin can try ValidateKeyAccess first.
+// when the vault-scoped lookup fails the handler returns 404.
 func TestGetKey_AdminPath_GetKeyFailsValidationFails_Returns404(t *testing.T) {
 	keyID := uuid.New()
-	userID := uuid.MustParse(keyTestUserID)
 
 	svc := &mockKeyService{}
-	// First GetKey fails.
-	svc.On("GetKey", mock.Anything, keyID, userID).Return((*model.Key)(nil), errors.New("not found")).Once()
-	// ValidateKeyAccess also fails — admin cannot access this key.
-	svc.On("ValidateKeyAccess", mock.Anything, keyID, userID, string(model.RoleAdmin)).Return(errors.New("access denied"))
+	// Vault-scoped lookup fails — handler returns 404.
+	svc.On("GetKeyInVault", mock.Anything, keyID, mock.Anything).Return((*model.Key)(nil), errors.New("not found"))
 
 	c := newKeyCtx(svc)
 	c.Params = &ApiParams{KeyID: keyID.String(), PerPage: 60}
@@ -1290,19 +1287,13 @@ func TestGetKey_AdminPath_GetKeyFailsValidationFails_Returns404(t *testing.T) {
 	svc.AssertExpectations(t)
 }
 
-// TestGetKey_AdminPath_RetryGetKeyFails_Returns404 verifies that if the
-// admin retry also fails, 404 is returned.
+// TestGetKey_AdminPath_RetryGetKeyFails_Returns404 verifies that an admin still
+// receives 404 when the vault-scoped lookup fails.
 func TestGetKey_AdminPath_RetryGetKeyFails_Returns404(t *testing.T) {
 	keyID := uuid.New()
-	userID := uuid.MustParse(keyTestUserID)
 
 	svc := &mockKeyService{}
-	// First GetKey fails.
-	svc.On("GetKey", mock.Anything, keyID, userID).Return((*model.Key)(nil), errors.New("not found")).Once()
-	// ValidateKeyAccess succeeds.
-	svc.On("ValidateKeyAccess", mock.Anything, keyID, userID, string(model.RoleAdmin)).Return(nil)
-	// Retry GetKey also fails.
-	svc.On("GetKey", mock.Anything, keyID, userID).Return((*model.Key)(nil), errors.New("still not found")).Once()
+	svc.On("GetKeyInVault", mock.Anything, keyID, mock.Anything).Return((*model.Key)(nil), errors.New("still not found"))
 
 	c := newKeyCtx(svc)
 	c.Params = &ApiParams{KeyID: keyID.String(), PerPage: 60}

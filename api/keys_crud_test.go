@@ -25,16 +25,17 @@ import (
 	"rocketvault/internal/logging"
 	"rocketvault/internal/metrics"
 	"rocketvault/internal/repositories"
-	"rocketvault/internal/signing"
+	auditServices "rocketvault/internal/services/audit"
 	authServices "rocketvault/internal/services/auth"
 	authzServices "rocketvault/internal/services/authorization"
-	auditServices "rocketvault/internal/services/audit"
 	certServices "rocketvault/internal/services/certificates"
 	keyServices "rocketvault/internal/services/keys"
 	oauth2Services "rocketvault/internal/services/oauth2"
 	retryServices "rocketvault/internal/services/retry"
 	secretServices "rocketvault/internal/services/secrets"
 	userServices "rocketvault/internal/services/users"
+	vaultServices "rocketvault/internal/services/vaults"
+	"rocketvault/internal/signing"
 	"rocketvault/model"
 )
 
@@ -91,6 +92,27 @@ func (m *mockKeyService) DeleteKey(ctx context.Context, keyID, userID uuid.UUID)
 	return args.Get(0).(*model.Key), args.Error(1)
 }
 
+func (m *mockKeyService) GetKeyInVault(ctx context.Context, keyID, vaultID uuid.UUID) (*model.Key, error) {
+	args := m.Called(ctx, keyID, vaultID)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).(*model.Key), args.Error(1)
+}
+
+func (m *mockKeyService) ListKeysInVault(ctx context.Context, vaultID uuid.UUID, keyType string, tags []string) ([]model.Key, error) {
+	args := m.Called(ctx, vaultID, keyType, tags)
+	return args.Get(0).([]model.Key), args.Error(1)
+}
+
+func (m *mockKeyService) DeleteKeyInVault(ctx context.Context, keyID, vaultID uuid.UUID) (*model.Key, error) {
+	args := m.Called(ctx, keyID, vaultID)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).(*model.Key), args.Error(1)
+}
+
 func (m *mockKeyService) RotateKey(ctx context.Context, keyID, userID uuid.UUID) (*keyServices.CreateKeyResult, error) {
 	args := m.Called(ctx, keyID, userID)
 	if args.Get(0) == nil {
@@ -107,11 +129,11 @@ func (m *mockKeyService) ValidateKeyAccess(ctx context.Context, keyID, userID uu
 // --- keySvcTestContainer ---
 
 type keySvcTestContainer struct {
-	keySvc    keyServices.KeyService
-	keyRepo   repositories.KeyRepositoryInterface
+	keySvc  keyServices.KeyService
+	keyRepo repositories.KeyRepositoryInterface
 }
 
-func (c *keySvcTestContainer) GetKeyService() keyServices.KeyService    { return c.keySvc }
+func (c *keySvcTestContainer) GetKeyService() keyServices.KeyService { return c.keySvc }
 func (c *keySvcTestContainer) GetKeyRepository() repositories.KeyRepositoryInterface {
 	return c.keyRepo
 }
@@ -138,6 +160,12 @@ func (c *keySvcTestContainer) GetCertificatePolicyRepository() repositories.Cert
 }
 func (c *keySvcTestContainer) GetSessionRepository() repositories.SessionRepositoryInterface {
 	panic("unexpected call: GetSessionRepository")
+}
+func (c *keySvcTestContainer) GetVaultRepository() repositories.VaultRepositoryInterface {
+	panic("unexpected call: GetVaultRepository")
+}
+func (c *keySvcTestContainer) GetVaultService() vaultServices.VaultService {
+	panic("unexpected call: GetVaultService")
 }
 func (c *keySvcTestContainer) GetPasswordService() authServices.PasswordService {
 	panic("unexpected call: GetPasswordService")
@@ -193,10 +221,14 @@ func (c *keySvcTestContainer) GetRotationService() secretServices.RotationServic
 func (c *keySvcTestContainer) GetSchedulerService() secretServices.SchedulerServiceInterface {
 	panic("unexpected call: GetSchedulerService")
 }
-func (c *keySvcTestContainer) GetDatabase() *sql.DB               { panic("unexpected call: GetDatabase") }
-func (c *keySvcTestContainer) GetLogger() *logging.Logger         { panic("unexpected call: GetLogger") }
-func (c *keySvcTestContainer) GetSecretCache() *cache.SecretCache { panic("unexpected call: GetSecretCache") }
-func (c *keySvcTestContainer) GetCacheConfig() *cache.CacheConfig { panic("unexpected call: GetCacheConfig") }
+func (c *keySvcTestContainer) GetDatabase() *sql.DB       { panic("unexpected call: GetDatabase") }
+func (c *keySvcTestContainer) GetLogger() *logging.Logger { panic("unexpected call: GetLogger") }
+func (c *keySvcTestContainer) GetSecretCache() *cache.SecretCache {
+	panic("unexpected call: GetSecretCache")
+}
+func (c *keySvcTestContainer) GetCacheConfig() *cache.CacheConfig {
+	panic("unexpected call: GetCacheConfig")
+}
 func (c *keySvcTestContainer) GetCachedSecretService() secretServices.SecretService {
 	panic("unexpected call: GetCachedSecretService")
 }
@@ -208,7 +240,7 @@ func (c *keySvcTestContainer) GetSigningProvider() signing.SigningKeyProvider { 
 func (c *keySvcTestContainer) GetItemBackupService() *backup.ItemBackupService {
 	return nil
 }
-func (c *keySvcTestContainer) GetKeyCache() keycache.Cache              { return nil }
+func (c *keySvcTestContainer) GetKeyCache() keycache.Cache             { return nil }
 func (c *keySvcTestContainer) GetCryptoMetrics() metrics.CryptoMetrics { return nil }
 func (c *keySvcTestContainer) GetAuditService() auditServices.AuditServiceInterface {
 	return nil
@@ -393,7 +425,7 @@ func TestCreateKey_InvalidECDSACurve_Returns400(t *testing.T) {
 
 func TestListKeys_ServiceError_Returns500(t *testing.T) {
 	svc := &mockKeyService{}
-	svc.On("ListKeysWithFilters", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).
+	svc.On("ListKeysInVault", mock.Anything, mock.Anything, mock.Anything, mock.Anything).
 		Return([]model.Key{}, errors.New("db error"))
 
 	c := newKeyCtx(svc)
@@ -412,7 +444,7 @@ func TestListKeys_ServiceError_Returns500(t *testing.T) {
 func TestListKeys_Success_Returns200(t *testing.T) {
 	keyID := uuid.New()
 	svc := &mockKeyService{}
-	svc.On("ListKeysWithFilters", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).
+	svc.On("ListKeysInVault", mock.Anything, mock.Anything, mock.Anything, mock.Anything).
 		Return([]model.Key{*makeKeyModel(keyID)}, nil)
 
 	c := newKeyCtx(svc)
@@ -449,8 +481,8 @@ func TestGetKey_InvalidKeyID_Returns400(t *testing.T) {
 func TestGetKey_NotFound_Returns404(t *testing.T) {
 	keyID := uuid.New()
 	svc := &mockKeyService{}
-	svc.On("GetKey", mock.Anything, keyID, uuid.MustParse(keyTestUserID)).Return(nil, errors.New("not found"))
-	// Non-admin branch — won't call ValidateKeyAccess.
+	svc.On("GetKeyInVault", mock.Anything, keyID, mock.Anything).Return(nil, errors.New("not found"))
+	// Vault-scoped lookup fails, so the handler returns 404.
 
 	c := newKeyCtx(svc)
 	c.Claims = jwt.MapClaims{"role": string(model.RoleUser), "user_id": keyTestUserID}
@@ -470,7 +502,7 @@ func TestGetKey_NotFound_Returns404(t *testing.T) {
 func TestGetKey_Success_Returns200(t *testing.T) {
 	keyID := uuid.New()
 	svc := &mockKeyService{}
-	svc.On("GetKey", mock.Anything, keyID, uuid.MustParse(keyTestUserID)).Return(makeKeyModel(keyID), nil)
+	svc.On("GetKeyInVault", mock.Anything, keyID, mock.Anything).Return(makeKeyModel(keyID), nil)
 
 	c := newKeyCtx(svc)
 	c.Params = &ApiParams{KeyID: keyID.String(), PerPage: 60}
@@ -584,7 +616,7 @@ func TestDeleteKey_InvalidKeyID_Returns400(t *testing.T) {
 func TestDeleteKey_ServiceError_Returns500(t *testing.T) {
 	keyID := uuid.New()
 	svc := &mockKeyService{}
-	svc.On("DeleteKey", mock.Anything, keyID, uuid.MustParse(keyTestUserID)).Return(nil, errors.New("db error"))
+	svc.On("DeleteKeyInVault", mock.Anything, keyID, mock.Anything).Return(nil, errors.New("db error"))
 
 	c := newKeyCtx(svc)
 	c.Params = &ApiParams{KeyID: keyID.String(), PerPage: 60}
@@ -606,7 +638,7 @@ func TestDeleteKey_Success_Returns200(t *testing.T) {
 	svc := &mockKeyService{}
 	deleted := makeKeyModel(keyID)
 	deleted.DeletedAt = &now
-	svc.On("DeleteKey", mock.Anything, keyID, uuid.MustParse(keyTestUserID)).Return(deleted, nil)
+	svc.On("DeleteKeyInVault", mock.Anything, keyID, mock.Anything).Return(deleted, nil)
 
 	c := newKeyCtx(svc)
 	c.Params = &ApiParams{KeyID: keyID.String(), PerPage: 60}

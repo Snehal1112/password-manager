@@ -26,16 +26,17 @@ import (
 	"rocketvault/internal/logging"
 	"rocketvault/internal/metrics"
 	"rocketvault/internal/repositories"
-	"rocketvault/internal/signing"
+	auditServices "rocketvault/internal/services/audit"
 	authServices "rocketvault/internal/services/auth"
 	authzServices "rocketvault/internal/services/authorization"
-	auditServices "rocketvault/internal/services/audit"
 	certServices "rocketvault/internal/services/certificates"
 	keyServices "rocketvault/internal/services/keys"
 	oauth2Services "rocketvault/internal/services/oauth2"
 	retryServices "rocketvault/internal/services/retry"
 	secretServices "rocketvault/internal/services/secrets"
 	userServices "rocketvault/internal/services/users"
+	vaultServices "rocketvault/internal/services/vaults"
+	"rocketvault/internal/signing"
 	"rocketvault/model"
 )
 
@@ -72,6 +73,24 @@ func (m *mockCertService) GetCertificate(ctx context.Context, certID, userID uui
 func (m *mockCertService) ListCertificates(ctx context.Context, userID uuid.UUID) ([]model.Certificate, error) {
 	args := m.Called(ctx, userID)
 	return args.Get(0).([]model.Certificate), args.Error(1)
+}
+
+func (m *mockCertService) GetCertificateInVault(ctx context.Context, certID, vaultID uuid.UUID) (*model.Certificate, error) {
+	args := m.Called(ctx, certID, vaultID)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).(*model.Certificate), args.Error(1)
+}
+
+func (m *mockCertService) ListCertificatesInVault(ctx context.Context, vaultID uuid.UUID) ([]model.Certificate, error) {
+	args := m.Called(ctx, vaultID)
+	return args.Get(0).([]model.Certificate), args.Error(1)
+}
+
+func (m *mockCertService) DeleteCertificateInVault(ctx context.Context, certID, vaultID uuid.UUID) error {
+	args := m.Called(ctx, certID, vaultID)
+	return args.Error(0)
 }
 
 func (m *mockCertService) UpdateCertificate(ctx context.Context, req certServices.UpdateCertificateRequest) error {
@@ -136,6 +155,12 @@ func (c *certSvcContainer) GetCertificatePolicyRepository() repositories.Certifi
 func (c *certSvcContainer) GetSessionRepository() repositories.SessionRepositoryInterface {
 	panic("unexpected call: GetSessionRepository")
 }
+func (c *certSvcContainer) GetVaultRepository() repositories.VaultRepositoryInterface {
+	panic("unexpected call: GetVaultRepository")
+}
+func (c *certSvcContainer) GetVaultService() vaultServices.VaultService {
+	panic("unexpected call: GetVaultService")
+}
 func (c *certSvcContainer) GetPasswordService() authServices.PasswordService {
 	panic("unexpected call: GetPasswordService")
 }
@@ -190,10 +215,14 @@ func (c *certSvcContainer) GetRotationService() secretServices.RotationServiceIn
 func (c *certSvcContainer) GetSchedulerService() secretServices.SchedulerServiceInterface {
 	panic("unexpected call: GetSchedulerService")
 }
-func (c *certSvcContainer) GetDatabase() *sql.DB               { panic("unexpected call: GetDatabase") }
-func (c *certSvcContainer) GetLogger() *logging.Logger         { panic("unexpected call: GetLogger") }
-func (c *certSvcContainer) GetSecretCache() *cache.SecretCache { panic("unexpected call: GetSecretCache") }
-func (c *certSvcContainer) GetCacheConfig() *cache.CacheConfig { panic("unexpected call: GetCacheConfig") }
+func (c *certSvcContainer) GetDatabase() *sql.DB       { panic("unexpected call: GetDatabase") }
+func (c *certSvcContainer) GetLogger() *logging.Logger { panic("unexpected call: GetLogger") }
+func (c *certSvcContainer) GetSecretCache() *cache.SecretCache {
+	panic("unexpected call: GetSecretCache")
+}
+func (c *certSvcContainer) GetCacheConfig() *cache.CacheConfig {
+	panic("unexpected call: GetCacheConfig")
+}
 func (c *certSvcContainer) GetCachedSecretService() secretServices.SecretService {
 	panic("unexpected call: GetCachedSecretService")
 }
@@ -205,7 +234,7 @@ func (c *certSvcContainer) GetSigningProvider() signing.SigningKeyProvider { ret
 func (c *certSvcContainer) GetItemBackupService() *backup.ItemBackupService {
 	return nil
 }
-func (c *certSvcContainer) GetKeyCache() keycache.Cache              { return nil }
+func (c *certSvcContainer) GetKeyCache() keycache.Cache             { return nil }
 func (c *certSvcContainer) GetCryptoMetrics() metrics.CryptoMetrics { return nil }
 func (c *certSvcContainer) GetAuditService() auditServices.AuditServiceInterface {
 	return nil
@@ -365,7 +394,7 @@ func TestCreateCertificate_Success_Returns201(t *testing.T) {
 
 func TestListCertificates_ServiceError_Returns500(t *testing.T) {
 	svc := &mockCertService{}
-	svc.On("ListCertificates", mock.Anything, mock.Anything).Return([]model.Certificate{}, errors.New("db error"))
+	svc.On("ListCertificatesInVault", mock.Anything, mock.Anything).Return([]model.Certificate{}, errors.New("db error"))
 
 	c := newCertCtx(svc, certAdminClaims())
 	w := httptest.NewRecorder()
@@ -385,7 +414,7 @@ func TestListCertificates_Success_Returns200(t *testing.T) {
 	certs := []model.Certificate{
 		{ID: uuid.New(), Name: "cert1", CreatedAt: time.Now()},
 	}
-	svc.On("ListCertificates", mock.Anything, mock.Anything).Return(certs, nil)
+	svc.On("ListCertificatesInVault", mock.Anything, mock.Anything).Return(certs, nil)
 
 	c := newCertCtx(svc, certAdminClaims())
 	w := httptest.NewRecorder()
@@ -424,8 +453,7 @@ func TestGetCertificate_InvalidCertID_Returns400(t *testing.T) {
 func TestGetCertificate_NotFound_Returns404(t *testing.T) {
 	svc := &mockCertService{}
 	certID := uuid.New()
-	userID := uuid.MustParse(certTestUserID)
-	svc.On("GetCertificate", mock.Anything, certID, userID).Return(nil, errors.New("not found"))
+	svc.On("GetCertificateInVault", mock.Anything, certID, mock.Anything).Return(nil, errors.New("not found"))
 
 	c := newCertCtx(svc, certAdminClaims())
 	c.Params = &ApiParams{CertificateID: certID.String(), PerPage: 60}
@@ -445,7 +473,7 @@ func TestGetCertificate_Success_Returns200(t *testing.T) {
 	svc := &mockCertService{}
 	certID := uuid.New()
 	userID := uuid.MustParse(certTestUserID)
-	svc.On("GetCertificate", mock.Anything, certID, userID).Return(&model.Certificate{
+	svc.On("GetCertificateInVault", mock.Anything, certID, mock.Anything).Return(&model.Certificate{
 		ID: certID, Name: "cert1", UserID: userID, CreatedAt: time.Now(),
 	}, nil)
 
@@ -564,8 +592,7 @@ func TestDeleteCertificate_InvalidCertID_Returns400(t *testing.T) {
 func TestDeleteCertificate_ServiceError_Returns500(t *testing.T) {
 	svc := &mockCertService{}
 	certID := uuid.New()
-	userID := uuid.MustParse(certTestUserID)
-	svc.On("DeleteCertificate", mock.Anything, certID, userID).Return(errors.New("db error"))
+	svc.On("DeleteCertificateInVault", mock.Anything, certID, mock.Anything).Return(errors.New("db error"))
 
 	c := newCertCtx(svc, certAdminClaims())
 	c.Params = &ApiParams{CertificateID: certID.String(), PerPage: 60}
@@ -584,8 +611,7 @@ func TestDeleteCertificate_ServiceError_Returns500(t *testing.T) {
 func TestDeleteCertificate_Success_Returns200(t *testing.T) {
 	svc := &mockCertService{}
 	certID := uuid.New()
-	userID := uuid.MustParse(certTestUserID)
-	svc.On("DeleteCertificate", mock.Anything, certID, userID).Return(nil)
+	svc.On("DeleteCertificateInVault", mock.Anything, certID, mock.Anything).Return(nil)
 
 	c := newCertCtx(svc, certAdminClaims())
 	c.Params = &ApiParams{CertificateID: certID.String(), PerPage: 60}

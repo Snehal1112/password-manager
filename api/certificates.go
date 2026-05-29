@@ -28,6 +28,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/gorilla/mux"
 
 	"rocketvault/common"
 	certServices "rocketvault/internal/services/certificates"
@@ -37,12 +38,12 @@ import (
 
 // CreateCertificateAPIRequest is the HTTP request body for POST /certificates.
 type CreateCertificateAPIRequest struct {
-	Name         string     `json:"name"`           // Certificate common name.
-	KeyID        string     `json:"key_id"`         // UUID of the signing key.
-	ValidityDays int        `json:"validity_days"`  // Certificate validity in days.
-	Tags         []string   `json:"tags,omitempty"` // Optional tags.
-	AutoRenew    bool       `json:"auto_renew"`     // Schedule automatic renewal.
-	RenewalDays  int        `json:"renewal_days"`   // Days before expiry to renew; defaults to 30.
+	Name         string     `json:"name"`                 // Certificate common name.
+	KeyID        string     `json:"key_id"`               // UUID of the signing key.
+	ValidityDays int        `json:"validity_days"`        // Certificate validity in days.
+	Tags         []string   `json:"tags,omitempty"`       // Optional tags.
+	AutoRenew    bool       `json:"auto_renew"`           // Schedule automatic renewal.
+	RenewalDays  int        `json:"renewal_days"`         // Days before expiry to renew; defaults to 30.
 	CAKeyID      string     `json:"ca_key_id,omitempty"`  // Unused; kept for future use.
 	CACertID     string     `json:"ca_cert_id,omitempty"` // UUID of CA cert; triggers CA-signed path.
 	Enabled      *bool      `json:"enabled,omitempty"`    // Defaults to true when omitted.
@@ -86,8 +87,16 @@ type CertificateListResponse struct {
 // - PUT /certificates/{certificate_id}: Update certificate metadata.
 // - DELETE /certificates/{certificate_id}: Delete a certificate.
 func (api *API) InitCertificates() {
-	c := api.BaseRoutes.Certificates
+	api.registerCertificateRoutes(api.BaseRoutes.Certificates)
+	if api.BaseRoutes.VaultScoped != nil {
+		api.registerCertificateRoutes(api.BaseRoutes.VaultScoped.PathPrefix("/certificates").Subrouter())
+	}
+}
 
+// registerCertificateRoutes registers the certificate handlers on the provided
+// subrouter. It is called for both the legacy flat routes and the vault-scoped
+// routes.
+func (api *API) registerCertificateRoutes(c *mux.Router) {
 	c.Handle("", ApiSessionRequired(api.App, createCertificate)).Methods("POST")
 	c.Handle("", ApiSessionRequired(api.App, listCertificates)).Methods("GET")
 	c.Handle("/{certificate_id:[A-Fa-f0-9-]+}", ApiSessionRequired(api.App, getCertificate)).Methods("GET")
@@ -164,6 +173,13 @@ func createCertificate(c *Context, w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Resolve the target vault from the request context.
+	vaultID, err := vaultIDFromRequest(r)
+	if err != nil {
+		c.SetInvalidParam("vault")
+		return
+	}
+
 	certService := c.certSvc()
 	if certService == nil {
 		return
@@ -175,6 +191,7 @@ func createCertificate(c *Context, w http.ResponseWriter, r *http.Request) {
 		ValidityDays: req.ValidityDays,
 		Tags:         req.Tags,
 		UserID:       userID,
+		VaultID:      vaultID,
 		AutoRenew:    req.AutoRenew,
 		RenewalDays:  req.RenewalDays,
 		Enabled:      req.Enabled,
@@ -227,14 +244,10 @@ func createCertificate(c *Context, w http.ResponseWriter, r *http.Request) {
 
 // listCertificates lists all certificates for the authenticated user.
 func listCertificates(c *Context, w http.ResponseWriter, r *http.Request) {
-	userIDStr, ok := c.Claims["user_id"].(string)
-	if !ok {
-		c.SetInternalError(nil)
-		return
-	}
-	userID, err := uuid.Parse(userIDStr)
+	// Resolve the target vault from the request context.
+	vaultID, err := vaultIDFromRequest(r)
 	if err != nil {
-		c.SetInvalidParam("user_id")
+		c.SetInvalidParam("vault")
 		return
 	}
 
@@ -243,7 +256,7 @@ func listCertificates(c *Context, w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	certs, err := certService.ListCertificates(r.Context(), userID)
+	certs, err := certService.ListCertificatesInVault(r.Context(), vaultID)
 	if err != nil {
 		c.SetInternalError(err)
 		return
@@ -266,14 +279,10 @@ func getCertificate(c *Context, w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	userIDStr, ok := c.Claims["user_id"].(string)
-	if !ok {
-		c.SetInternalError(nil)
-		return
-	}
-	userID, err := uuid.Parse(userIDStr)
+	// Resolve the target vault from the request context.
+	vaultID, err := vaultIDFromRequest(r)
 	if err != nil {
-		c.SetInvalidParam("user_id")
+		c.SetInvalidParam("vault")
 		return
 	}
 
@@ -282,7 +291,7 @@ func getCertificate(c *Context, w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	cert, err := certService.GetCertificate(r.Context(), certID, userID)
+	cert, err := certService.GetCertificateInVault(r.Context(), certID, vaultID)
 	if err != nil {
 		c.SetNotFound("certificate")
 		return
@@ -362,14 +371,10 @@ func deleteCertificate(c *Context, w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	userIDStr, ok := c.Claims["user_id"].(string)
-	if !ok {
-		c.SetInternalError(nil)
-		return
-	}
-	userID, err := uuid.Parse(userIDStr)
+	// Resolve the target vault from the request context.
+	vaultID, err := vaultIDFromRequest(r)
 	if err != nil {
-		c.SetInvalidParam("user_id")
+		c.SetInvalidParam("vault")
 		return
 	}
 
@@ -378,7 +383,7 @@ func deleteCertificate(c *Context, w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := certService.DeleteCertificate(r.Context(), certID, userID); err != nil {
+	if err := certService.DeleteCertificateInVault(r.Context(), certID, vaultID); err != nil {
 		c.SetInternalError(err)
 		return
 	}

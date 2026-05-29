@@ -11,9 +11,9 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"rocketvault/model"
 	"rocketvault/internal/logging"
 	"rocketvault/internal/repositories"
+	"rocketvault/model"
 )
 
 // setupTestDB creates an in-memory SQLite database with the keys table.
@@ -21,7 +21,11 @@ import (
 func setupTestDB(t *testing.T) *sql.DB {
 	t.Helper()
 
-	db, err := sql.Open("sqlite3", ":memory:")
+	// Use a shared-cache in-memory database so every pooled connection sees the
+	// same schema. Listing keys iterates open rows while reading tags on a second
+	// connection, which would otherwise hit a fresh, empty in-memory database.
+	dsn := "file:keytest_" + uuid.NewString() + "?mode=memory&cache=shared"
+	db, err := sql.Open("sqlite3", dsn)
 	require.NoError(t, err, "failed to open in-memory database")
 
 	_, err = db.Exec(`
@@ -34,6 +38,7 @@ func setupTestDB(t *testing.T) *sql.DB {
 		CREATE TABLE IF NOT EXISTS keys (
 			id TEXT PRIMARY KEY,
 			user_id TEXT NOT NULL,
+			vault_id TEXT NOT NULL DEFAULT '00000000-0000-0000-0000-00000000efa1',
 			name TEXT NOT NULL,
 			value TEXT NOT NULL,
 			type TEXT NOT NULL,
@@ -100,6 +105,31 @@ func TestKeySoftDelete(t *testing.T) {
 	require.Len(t, deleted, 1)
 	assert.Equal(t, key.ID, deleted[0].ID)
 	assert.NotNil(t, deleted[0].DeletedAt)
+}
+
+// TestKeyRepository_ListInVault_ScopesByVault verifies that ListInVault returns
+// only keys belonging to the requested vault.
+func TestKeyRepository_ListInVault_ScopesByVault(t *testing.T) {
+	t.Parallel()
+	db := setupTestDB(t)
+	log := logging.InitLogger()
+	repo := repositories.NewKeyRepository(db, log)
+	ctx := context.Background()
+	vaultA, vaultB := uuid.New(), uuid.New()
+
+	mk := func(name string, v uuid.UUID) *model.Key {
+		return &model.Key{ID: uuid.New(), UserID: uuid.New(), VaultID: v, Name: name, Type: "RSA", Value: "x", CreatedAt: time.Now(), Enabled: true}
+	}
+	require.NoError(t, repo.Create(ctx, mk("a", vaultA)))
+	require.NoError(t, repo.Create(ctx, mk("b", vaultA)))
+	require.NoError(t, repo.Create(ctx, mk("c", vaultB)))
+
+	gotA, err := repo.ListInVault(ctx, vaultA, "", nil)
+	require.NoError(t, err)
+	require.Len(t, gotA, 2)
+	gotB, err := repo.ListInVault(ctx, vaultB, "", nil)
+	require.NoError(t, err)
+	require.Len(t, gotB, 1)
 }
 
 func TestKeyRepository_UpdateSetsUpdatedAt(t *testing.T) {

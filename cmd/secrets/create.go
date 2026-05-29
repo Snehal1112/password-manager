@@ -64,8 +64,14 @@ var createCmd = &cobra.Command{
 		}
 		secretService := serviceContainer.GetSecretService()
 
+		vaultID, err := resolveVaultID(ctx, cmd, serviceContainer)
+		if err != nil {
+			return err
+		}
+
 		req := secretsServices.CreateSecretRequest{
 			UserID:      userID,
+			VaultID:     vaultID,
 			Name:        name,
 			Value:       value,
 			Tags:        tags,
