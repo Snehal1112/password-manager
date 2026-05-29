@@ -19,6 +19,7 @@ import (
 	"github.com/spf13/viper"
 
 	"rocketvault/internal/logging"
+	"rocketvault/model"
 )
 
 // DB is the global database connection for the application.
@@ -190,6 +191,18 @@ func (d *DBRepository) InitializeDB() error {
 		return fmt.Errorf("failed to seed audit config: %w", err)
 	}
 
+	// Seed the default vault before finalizing indexes so the row exists.
+	if err := d.seedDefaultVault(db); err != nil {
+		db.Close()
+		return fmt.Errorf("failed to seed default vault: %w", err)
+	}
+
+	// Resolve any name collisions and create the per-vault unique indexes.
+	if err := d.finalizeVaultIndexes(db); err != nil {
+		db.Close()
+		return fmt.Errorf("failed to finalize vault indexes: %w", err)
+	}
+
 	// Assign the connection to the global DB variable.
 	DB = db
 	d.db = db
@@ -273,7 +286,9 @@ func (d *DBRepository) configureConnectionPool(db *sql.DB, config ConnectionPool
 
 // createOptimizedSchema creates tables with proper indexes for performance.
 func (d *DBRepository) createOptimizedSchema(db *sql.DB) error {
-	// Create tables with optimized schema
+	// Create tables with optimized schema.
+	// The three vault_id column defaults below are hardcoded SQL literals and must
+	// stay equal to model.DefaultVaultID ("00000000-0000-0000-0000-00000000efa1").
 	_, err := db.Exec(`
 		CREATE TABLE IF NOT EXISTS users (
 			id TEXT PRIMARY KEY,
@@ -287,10 +302,24 @@ func (d *DBRepository) createOptimizedSchema(db *sql.DB) error {
 		CREATE INDEX IF NOT EXISTS idx_users_role ON users(role);
 		CREATE INDEX IF NOT EXISTS idx_users_created_at ON users(created_at);
 
+		CREATE TABLE IF NOT EXISTS vaults (
+			id                 TEXT PRIMARY KEY,
+			name               TEXT UNIQUE NOT NULL,
+			enabled            BOOLEAN NOT NULL DEFAULT TRUE,
+			purge_protection   BOOLEAN NOT NULL DEFAULT FALSE,
+			retention_days     INTEGER NOT NULL DEFAULT 90,
+			created_by         TEXT NOT NULL,
+			created_at         TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+			deleted_at         TIMESTAMP NULL,
+			scheduled_purge_at TIMESTAMP NULL
+		);
+		CREATE INDEX IF NOT EXISTS idx_vaults_name ON vaults(name);
+
 		CREATE TABLE IF NOT EXISTS secrets (
 			id TEXT PRIMARY KEY,
 			user_id TEXT NOT NULL,
 			name TEXT NOT NULL,
+			vault_id TEXT NOT NULL DEFAULT '00000000-0000-0000-0000-00000000efa1',
 			value TEXT NOT NULL,
 			version INTEGER NOT NULL,
 			created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -312,6 +341,7 @@ func (d *DBRepository) createOptimizedSchema(db *sql.DB) error {
 			id TEXT PRIMARY KEY,
 			user_id TEXT NOT NULL,
 			name TEXT NOT NULL,
+			vault_id TEXT NOT NULL DEFAULT '00000000-0000-0000-0000-00000000efa1',
 			value TEXT NOT NULL,
 			type TEXT NOT NULL,
 			created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -355,6 +385,7 @@ func (d *DBRepository) createOptimizedSchema(db *sql.DB) error {
 			user_id TEXT NOT NULL,
 			key_id TEXT NOT NULL DEFAULT '',
 			name TEXT NOT NULL,
+			vault_id TEXT NOT NULL DEFAULT '00000000-0000-0000-0000-00000000efa1',
 			certificate TEXT NOT NULL,
 			private_key TEXT NOT NULL,
 			created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -553,6 +584,7 @@ func (d *DBRepository) createOptimizedSchema(db *sql.DB) error {
 			resource_type  TEXT NOT NULL,
 			operation      TEXT NOT NULL,
 			effect         TEXT NOT NULL,
+			vault_id       TEXT NULL,
 			created_at     TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 		);
 		CREATE INDEX IF NOT EXISTS idx_access_policies_principal ON access_policies(principal_id);
@@ -679,6 +711,8 @@ func (d *DBRepository) migrateSchema(db *sql.DB) error {
 		// Feature: audit configuration table (idempotent — IF NOT EXISTS prevents errors)
 		"CREATE TABLE IF NOT EXISTS audit_config (key TEXT PRIMARY KEY, value TEXT NOT NULL)",
 		// Multi-vault: vaults table and vault_id scoping columns.
+		// The vault_id column defaults are hardcoded SQL literals and must stay
+		// equal to model.DefaultVaultID ("00000000-0000-0000-0000-00000000efa1").
 		`CREATE TABLE IF NOT EXISTS vaults (
 			id                 TEXT PRIMARY KEY,
 			name               TEXT UNIQUE NOT NULL,
@@ -795,6 +829,28 @@ func (d *DBRepository) seedAuditConfig(db *sql.DB) error {
 				return fmt.Errorf("failed to seed audit_config key %q: %w", k, err)
 			}
 		}
+	}
+	return nil
+}
+
+// seedDefaultVault inserts the default vault if it is absent. It is idempotent.
+// The default vault holds all pre-multi-vault data and backs the legacy flat routes.
+func (d *DBRepository) seedDefaultVault(db *sql.DB) error {
+	var count int
+	if err := db.QueryRow("SELECT COUNT(*) FROM vaults WHERE name = ?", model.DefaultVaultName).Scan(&count); err != nil {
+		return fmt.Errorf("failed to check default vault: %w", err)
+	}
+	if count > 0 {
+		return nil
+	}
+	// Choose an owner: an existing admin, else any user, else the zero UUID.
+	creator := "00000000-0000-0000-0000-000000000000"
+	_ = db.QueryRow("SELECT COALESCE((SELECT id FROM users WHERE role = 'admin' LIMIT 1), (SELECT id FROM users LIMIT 1), ?)", creator).Scan(&creator)
+	if _, err := db.Exec(
+		"INSERT INTO vaults (id, name, enabled, retention_days, created_by) VALUES (?, ?, ?, ?, ?)",
+		model.DefaultVaultID, model.DefaultVaultName, true, 90, creator,
+	); err != nil {
+		return fmt.Errorf("failed to seed default vault: %w", err)
 	}
 	return nil
 }
