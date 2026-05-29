@@ -43,6 +43,7 @@ func init() {
 	vaults.InitVaultsCreate(vaultsCmd)
 	vaults.InitVaultsList(vaultsCmd)
 	vaults.InitVaultsGet(vaultsCmd)
+	vaults.InitVaultsUpdate(vaultsCmd)
 	vaults.InitVaultsDelete(vaultsCmd)
 	vaults.InitVaultsRecover(vaultsCmd)
 	vaults.InitVaultsPurge(vaultsCmd)

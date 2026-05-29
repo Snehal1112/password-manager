@@ -1,6 +1,3 @@
-// Package vaults implements the CLI command group for vault lifecycle management.
-// Commands call the vault service in-process via the service container; they do
-// not make HTTP requests.
 package vaults
 
 import (
@@ -8,7 +5,6 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/google/uuid"
 	"github.com/spf13/cobra"
 
 	"rocketvault/common"
@@ -17,30 +13,28 @@ import (
 	"rocketvault/model"
 )
 
-// createCmd represents the vaults create command.
-var createCmd = &cobra.Command{
-	Use:     "create <name>",
-	Aliases: []string{"add"},
-	Short:   "Create a new vault",
-	Long:    `Create a new vault to hold secrets, keys, and certificates.`,
-	Example: `rocketvault vaults create my-vault`,
+// updateCmd represents the vaults update command.
+var updateCmd = &cobra.Command{
+	Use:     "update <name>",
+	Short:   "Update a vault",
+	Long:    `Update an existing vault's settings. Only the flags you set are changed.`,
+	Example: `rocketvault vaults update my-vault --enabled=false`,
 	Args:    cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		name := args[0]
 
 		ctx := cmd.Context()
-		userID, ok := ctx.Value(common.UserIDKey).(uuid.UUID)
-		if !ok {
-			return fmt.Errorf("user ID not available in context")
-		}
-
 		serviceContainer, ok := ctx.Value(common.ServiceContainerKey).(container.ServiceContainerInterface)
 		if !ok || serviceContainer == nil {
 			return fmt.Errorf("service container not available in context")
 		}
 		vaultService := serviceContainer.GetVaultService()
 
-		req := model.CreateVaultRequest{Name: name}
+		var req model.UpdateVaultRequest
+		if cmd.Flags().Changed("enabled") {
+			en, _ := cmd.Flags().GetBool("enabled")
+			req.Enabled = &en
+		}
 		if cmd.Flags().Changed("purge-protection") {
 			pp, _ := cmd.Flags().GetBool("purge-protection")
 			req.PurgeProtection = &pp
@@ -50,9 +44,9 @@ var createCmd = &cobra.Command{
 			req.RetentionDays = &rd
 		}
 
-		vault, err := vaultService.CreateVault(ctx, req, userID)
+		vault, err := vaultService.UpdateVault(ctx, name, req)
 		if err != nil {
-			return fmt.Errorf("failed to create vault: %w", err)
+			return fmt.Errorf("failed to update vault %q: %w", name, err)
 		}
 
 		fmtr, ok := ctx.Value(common.OutputFormatterKey).(formatter.Formatter)
@@ -72,12 +66,13 @@ var createCmd = &cobra.Command{
 	},
 }
 
-// InitVaultsCreate registers the create command under the vaults command group.
-func InitVaultsCreate(vaultsCmd *cobra.Command) *cobra.Command {
-	vaultsCmd.AddCommand(createCmd)
+// InitVaultsUpdate registers the update command under the vaults command group.
+func InitVaultsUpdate(vaultsCmd *cobra.Command) *cobra.Command {
+	vaultsCmd.AddCommand(updateCmd)
 
-	createCmd.Flags().Bool("purge-protection", false, "Protect the vault from being purged")
-	createCmd.Flags().Int("retention-days", 0, "Soft-delete retention period in days")
+	updateCmd.Flags().Bool("enabled", true, "Enable or disable the vault")
+	updateCmd.Flags().Bool("purge-protection", false, "Protect the vault from being purged")
+	updateCmd.Flags().Int("retention-days", 0, "Soft-delete retention period in days")
 
 	return vaultsCmd
 }

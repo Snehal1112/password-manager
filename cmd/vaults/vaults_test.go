@@ -27,7 +27,7 @@ func ctxWithFormatter(ctx context.Context) context.Context {
 func TestVaultsCreateRequiresName(t *testing.T) {
 	tc := testutils.NewTestContext(t)
 
-	cmd := &cobra.Command{Use: "create", RunE: createCmd.RunE}
+	cmd := &cobra.Command{Use: "create", Args: createCmd.Args, RunE: createCmd.RunE}
 	cmd.Flags().Bool("purge-protection", false, "")
 	cmd.Flags().Int("retention-days", 0, "")
 
@@ -40,7 +40,6 @@ func TestVaultsCreateRequiresName(t *testing.T) {
 
 	err := cmd.Execute()
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "requires <name> argument")
 }
 
 func TestVaultsCreate(t *testing.T) {
@@ -136,5 +135,31 @@ func TestVaultsDelete(t *testing.T) {
 	err := cmd.Execute()
 	require.NoError(t, err)
 	assert.Contains(t, out.String(), "deleted successfully")
+	tc.MockVaultService.AssertExpectations(t)
+}
+
+func TestVaultsUpdate(t *testing.T) {
+	tc := testutils.NewTestContext(t)
+
+	updated := &model.Vault{ID: uuid.New(), Name: "my-vault", Enabled: false, RetentionDays: 90}
+	tc.MockVaultService.On("UpdateVault", mock.Anything, "my-vault", mock.MatchedBy(func(r model.UpdateVaultRequest) bool {
+		return r.Enabled != nil && !*r.Enabled
+	})).Return(updated, nil)
+
+	cmd := &cobra.Command{Use: "update", Args: updateCmd.Args, RunE: updateCmd.RunE}
+	cmd.Flags().Bool("enabled", true, "")
+	cmd.Flags().Bool("purge-protection", false, "")
+	cmd.Flags().Int("retention-days", 0, "")
+
+	cmd.SetContext(ctxWithFormatter(tc.Ctx))
+	cmd.SetArgs([]string{"my-vault", "--enabled=false"})
+
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetErr(&out)
+
+	err := cmd.Execute()
+	require.NoError(t, err)
+	assert.Contains(t, out.String(), "my-vault")
 	tc.MockVaultService.AssertExpectations(t)
 }

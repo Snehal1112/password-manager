@@ -53,16 +53,15 @@ var deleteCmd = &cobra.Command{
 		secretService := serviceContainer.GetSecretService()
 
 		// Resolve the target vault by name.
-		vaultName := common.ResolveVaultName(cmd)
-		vault, err := serviceContainer.GetVaultService().GetVault(ctx, vaultName)
+		vaultID, err := resolveVaultID(ctx, cmd, serviceContainer)
 		if err != nil {
-			logrus.WithError(err).Errorf("Vault %q not found", vaultName)
+			logrus.WithError(err).Error("Failed to resolve vault")
 			os.Exit(1)
 			return
 		}
 
 		// Delete secret via service (includes access control).
-		err = secretService.DeleteSecretInVault(ctx, secretID, vault.ID)
+		err = secretService.DeleteSecretInVault(ctx, secretID, vaultID)
 		if err != nil {
 			logrus.WithError(err).Error("Failed to delete secret")
 			os.Exit(1)
@@ -71,7 +70,7 @@ var deleteCmd = &cobra.Command{
 
 		logrus.WithFields(logrus.Fields{
 			"secret_id": secretID.String(),
-			"vault_id":  vault.ID.String(),
+			"vault_id":  vaultID.String(),
 		}).Info("Secret deleted successfully")
 	},
 }

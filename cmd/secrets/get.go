@@ -53,13 +53,12 @@ var getCmd = &cobra.Command{
 		}
 		secretService := serviceContainer.GetSecretService()
 
-		vaultName := common.ResolveVaultName(cmd)
-		vault, err := serviceContainer.GetVaultService().GetVault(ctx, vaultName)
+		vaultID, err := resolveVaultID(ctx, cmd, serviceContainer)
 		if err != nil {
-			return fmt.Errorf("vault %q not found: %w", vaultName, err)
+			return err
 		}
 
-		secret, err := secretService.GetSecretInVault(ctx, secretID, vault.ID)
+		secret, err := secretService.GetSecretInVault(ctx, secretID, vaultID)
 		if err != nil {
 			return fmt.Errorf("failed to retrieve secret: %w", err)
 		}
