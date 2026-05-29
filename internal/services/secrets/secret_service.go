@@ -66,6 +66,7 @@ func validateContentType(ct string) error {
 // GenerateSecretRequest represents a request to generate a random secret.
 type GenerateSecretRequest struct {
 	UserID       uuid.UUID
+	VaultID      uuid.UUID // Target vault; defaults to the default vault when nil.
 	Name         string
 	Length       int
 	UseSymbols   bool
@@ -702,12 +703,15 @@ func (s *secretService) GenerateSecret(ctx context.Context, req GenerateSecretRe
 		return nil, fmt.Errorf("failed to generate random password: %w", err)
 	}
 
-	// Create secret with generated value
+	// Create secret with generated value. Thread the target vault through so
+	// the generated secret lands in the resolved vault; CreateSecret resolves
+	// uuid.Nil to the default vault, matching the legacy behaviour.
 	createReq := CreateSecretRequest{
-		UserID: req.UserID,
-		Name:   req.Name,
-		Value:  generatedValue,
-		Tags:   []string{"generated"},
+		UserID:  req.UserID,
+		VaultID: req.VaultID,
+		Name:    req.Name,
+		Value:   generatedValue,
+		Tags:    []string{"generated"},
 	}
 
 	secret, err := s.CreateSecret(ctx, createReq)

@@ -102,7 +102,7 @@ func (s *stubSecretRepo) ListInVault(_ context.Context, _ uuid.UUID, _ []string)
 	panic("unexpected call: ListInVault")
 }
 func (s *stubSecretRepo) ListInVaultIncludeDeleted(_ context.Context, _ uuid.UUID, _ []string) ([]model.Secret, error) {
-	panic("unexpected call: ListInVaultIncludeDeleted")
+	return s.listDeleted, s.listDeletedErr
 }
 func (s *stubSecretRepo) SoftDeleteVaultContents(_ context.Context, _ uuid.UUID) error {
 	panic("unexpected call: SoftDeleteVaultContents")

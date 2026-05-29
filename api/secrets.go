@@ -715,6 +715,13 @@ func generateSecret(c *Context, w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Resolve the target vault from the request context.
+	vaultID, err := vaultIDFromRequest(r)
+	if err != nil {
+		c.SetInvalidParam("vault")
+		return
+	}
+
 	secretService := c.secretSvc()
 	if secretService == nil {
 		return
@@ -722,6 +729,7 @@ func generateSecret(c *Context, w http.ResponseWriter, r *http.Request) {
 
 	secret, err := secretService.GenerateSecret(r.Context(), secrets.GenerateSecretRequest{
 		UserID:       userID,
+		VaultID:      vaultID,
 		Name:         req.Name,
 		Length:       req.Length,
 		UseSymbols:   req.UseSymbols,
