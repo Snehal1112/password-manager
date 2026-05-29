@@ -40,7 +40,9 @@ type TestContext struct {
 	MockSecretService *MockSecretService
 	MockAuthService   *MockAuthenticationService
 	MockRBACService   *MockRBACService
+	MockVaultService  *MockVaultService
 	TestUserID        uuid.UUID
+	TestVaultID       uuid.UUID
 	Logger            *logging.Logger
 }
 
@@ -55,6 +57,17 @@ func NewTestContext(t *testing.T) *TestContext {
 	mockSecretService := &MockSecretService{}
 	mockAuthService := &MockAuthenticationService{}
 	mockRBACService := &MockRBACService{}
+	mockVaultService := &MockVaultService{}
+
+	// The default vault resolves so vault-aware resource commands work in tests.
+	testVaultID := uuid.MustParse(model.DefaultVaultID)
+	defaultVault := &model.Vault{
+		ID:      testVaultID,
+		Name:    model.DefaultVaultName,
+		Enabled: true,
+	}
+	mockVaultService.On("GetVault", mock.Anything, model.DefaultVaultName).
+		Return(defaultVault, nil).Maybe()
 
 	// Setup mock container to return mock services
 	mockContainer.On("GetUserService").Return(mockUserService)
@@ -63,6 +76,7 @@ func NewTestContext(t *testing.T) *TestContext {
 	mockContainer.On("GetRBACService").Return(mockRBACService)
 	mockContainer.On("GetLogger").Return(logger)
 	mockContainer.On("Close").Return(nil)
+	mockContainer.VaultService = mockVaultService
 
 	// Create test claims for authentication
 	testClaims := &model.Claims{
@@ -85,7 +99,9 @@ func NewTestContext(t *testing.T) *TestContext {
 		MockSecretService: mockSecretService,
 		MockAuthService:   mockAuthService,
 		MockRBACService:   mockRBACService,
+		MockVaultService:  mockVaultService,
 		TestUserID:        testUserID,
+		TestVaultID:       testVaultID,
 		Logger:            logger,
 	}
 }
@@ -99,6 +115,9 @@ func (tc *TestContext) CreateTestCommand(cmd *cobra.Command) *cobra.Command {
 // Mock Service Container implements ServiceContainerInterface for testing
 type MockServiceContainer struct {
 	mock.Mock
+	// VaultService is returned by GetVaultService. It defaults to a MockVaultService
+	// that resolves the "default" vault so vault-aware resource commands work in tests.
+	VaultService vaultServices.VaultService
 }
 
 // Repository getters - return nil for unused repositories
@@ -139,7 +158,7 @@ func (m *MockServiceContainer) GetVaultRepository() repositories.VaultRepository
 }
 
 func (m *MockServiceContainer) GetVaultService() vaultServices.VaultService {
-	return nil
+	return m.VaultService
 }
 
 // Authentication service getters - return nil for unused services
@@ -495,6 +514,58 @@ func (m *MockSecretService) ImportSecrets(ctx context.Context, req secretService
 		return nil, args.Error(1)
 	}
 	return args.Get(0).(*secretServices.ImportResult), args.Error(1)
+}
+
+// MockVaultService implements vaultServices.VaultService for testing.
+type MockVaultService struct {
+	mock.Mock
+}
+
+func (m *MockVaultService) CreateVault(ctx context.Context, req model.CreateVaultRequest, createdBy uuid.UUID) (*model.Vault, error) {
+	args := m.Called(ctx, req, createdBy)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).(*model.Vault), args.Error(1)
+}
+
+func (m *MockVaultService) GetVault(ctx context.Context, name string) (*model.Vault, error) {
+	args := m.Called(ctx, name)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).(*model.Vault), args.Error(1)
+}
+
+func (m *MockVaultService) ListVaults(ctx context.Context, includeDeleted bool) ([]model.Vault, error) {
+	args := m.Called(ctx, includeDeleted)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).([]model.Vault), args.Error(1)
+}
+
+func (m *MockVaultService) UpdateVault(ctx context.Context, name string, req model.UpdateVaultRequest) (*model.Vault, error) {
+	args := m.Called(ctx, name, req)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).(*model.Vault), args.Error(1)
+}
+
+func (m *MockVaultService) DeleteVault(ctx context.Context, name string) error {
+	args := m.Called(ctx, name)
+	return args.Error(0)
+}
+
+func (m *MockVaultService) RecoverVault(ctx context.Context, name string) error {
+	args := m.Called(ctx, name)
+	return args.Error(0)
+}
+
+func (m *MockVaultService) PurgeVault(ctx context.Context, name string) error {
+	args := m.Called(ctx, name)
+	return args.Error(0)
 }
 
 // Mock Authentication Service

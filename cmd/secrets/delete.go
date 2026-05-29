@@ -42,7 +42,6 @@ var deleteCmd = &cobra.Command{
 		secretID := uuid.MustParse(args[0])
 
 		ctx := cmd.Context()
-		userID := ctx.Value(common.UserIDKey).(uuid.UUID)
 
 		// Get service container and secret service
 		serviceContainer, ok := ctx.Value(common.ServiceContainerKey).(container.ServiceContainerInterface)
@@ -53,8 +52,17 @@ var deleteCmd = &cobra.Command{
 		}
 		secretService := serviceContainer.GetSecretService()
 
-		// Delete secret via service (includes access control)
-		err := secretService.DeleteSecret(ctx, secretID, userID)
+		// Resolve the target vault by name.
+		vaultName := common.ResolveVaultName(cmd)
+		vault, err := serviceContainer.GetVaultService().GetVault(ctx, vaultName)
+		if err != nil {
+			logrus.WithError(err).Errorf("Vault %q not found", vaultName)
+			os.Exit(1)
+			return
+		}
+
+		// Delete secret via service (includes access control).
+		err = secretService.DeleteSecretInVault(ctx, secretID, vault.ID)
 		if err != nil {
 			logrus.WithError(err).Error("Failed to delete secret")
 			os.Exit(1)
@@ -63,7 +71,7 @@ var deleteCmd = &cobra.Command{
 
 		logrus.WithFields(logrus.Fields{
 			"secret_id": secretID.String(),
-			"user_id":   userID.String(),
+			"vault_id":  vault.ID.String(),
 		}).Info("Secret deleted successfully")
 	},
 }

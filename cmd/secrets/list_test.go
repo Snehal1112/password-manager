@@ -15,8 +15,8 @@ import (
 	"rocketvault/cmd/testutils"
 	"rocketvault/common"
 	"rocketvault/internal/container"
-	"rocketvault/model"
 	"rocketvault/internal/formatter"
+	"rocketvault/model"
 )
 
 func TestListSecretsCommand(t *testing.T) {
@@ -186,7 +186,7 @@ func TestListSecretsOutputFormat(t *testing.T) {
 		},
 	}
 
-	tc.MockSecretService.On("ListSecrets", mock.Anything, tc.TestUserID, []string{}).
+	tc.MockSecretService.On("ListSecretsInVault", mock.Anything, tc.TestVaultID, []string{}).
 		Return(testSecrets, nil)
 
 	fmtr, err := formatter.New(formatter.FormatTable)
