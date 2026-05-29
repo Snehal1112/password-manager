@@ -81,9 +81,18 @@ func (s *vaultService) CreateVault(ctx context.Context, req model.CreateVaultReq
 	return v, nil
 }
 
+// getByName reads a vault by name, normalizing a not-found into ErrVaultNotFound.
+func (s *vaultService) getByName(ctx context.Context, name string) (*model.Vault, error) {
+	v, err := s.repo.ReadByName(ctx, name)
+	if err != nil {
+		return nil, fmt.Errorf("vault %q: %w", name, ErrVaultNotFound)
+	}
+	return v, nil
+}
+
 // GetVault returns an active vault by name.
 func (s *vaultService) GetVault(ctx context.Context, name string) (*model.Vault, error) {
-	return s.repo.ReadByName(ctx, name)
+	return s.getByName(ctx, name)
 }
 
 // ListVaults returns active vaults, optionally including soft-deleted ones.
@@ -104,7 +113,7 @@ func (s *vaultService) ListVaults(ctx context.Context, includeDeleted bool) ([]m
 
 // UpdateVault applies the non-nil request overrides to an active vault and persists it.
 func (s *vaultService) UpdateVault(ctx context.Context, name string, req model.UpdateVaultRequest) (*model.Vault, error) {
-	v, err := s.repo.ReadByName(ctx, name)
+	v, err := s.getByName(ctx, name)
 	if err != nil {
 		return nil, err
 	}
@@ -131,7 +140,7 @@ func (s *vaultService) DeleteVault(ctx context.Context, name string) error {
 	if name == model.DefaultVaultName {
 		return fmt.Errorf("the default vault cannot be deleted")
 	}
-	v, err := s.repo.ReadByName(ctx, name)
+	v, err := s.getByName(ctx, name)
 	if err != nil {
 		return err
 	}

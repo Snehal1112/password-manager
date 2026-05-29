@@ -166,6 +166,14 @@ func TestRecoverVault_RestoresAndCascades(t *testing.T) {
 	}
 }
 
+func TestGetVault_UnknownReturnsSentinel(t *testing.T) {
+	svc := NewVaultService(newFakeRepo(), &noopCascade{}, nil)
+	_, err := svc.GetVault(context.Background(), "nope")
+	if !errors.Is(err, ErrVaultNotFound) {
+		t.Fatalf("expected ErrVaultNotFound, got %v", err)
+	}
+}
+
 func TestRecoverVault_UnknownReturnsSentinel(t *testing.T) {
 	svc := NewVaultService(newFakeRepo(), &noopCascade{}, nil)
 	err := svc.RecoverVault(context.Background(), "nope")
