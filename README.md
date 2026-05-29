@@ -56,7 +56,7 @@ Whether you need to secure application secrets, manage RSA/ECDSA keys, rotate cr
   | `crypto_manager`        | -       | Full | -            | -     | -     |
   | `certificate_manager`   | -       | -    | Full         | -     | -     |
   | `user`                  | Read    | -    | -            | -     | -     |
-  | `service_account`       | Create/Read/List | Read/List | Read/List | - | - |
+  | `service_account`       | Read/List | Read/List | Read/List | - | - |
 - **Secret Rotation**: Automated and manual secret rotation with customizable policies
 - **Version Control**: Complete version history for secrets and keys with rollback capabilities
 - **Soft Delete & Purge Protection**: Recoverable deletion with configurable retention and purge protection
@@ -1154,7 +1154,7 @@ For questions or issues:
 
 - [ ] Web-based administration interface
 - [ ] Kubernetes operator for automated deployment
-- [ ] Advanced audit and compliance reporting (SOC 2, GDPR)
+- [x] Advanced audit and compliance reporting (SOC 2, GDPR)
 - [ ] Multi-region replication support
 - [ ] Redis caching layer for distributed deployments
 - [x] Enhanced CLI output formats — `--output table|json|yaml` global flag across all commands

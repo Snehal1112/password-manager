@@ -15,13 +15,13 @@ startup and verifying the integration works.
 │                             │◄───────│    any HTTP client)          │
 │   Stores secrets            │        │                              │
 │   Issues OAuth2 tokens      │        │   1. Authenticate (OAuth2)   │
-│   Enforces ownership        │        │   2. Fetch secrets by UUID   │
+│   Enforces access policies  │        │   2. Fetch secrets by UUID   │
 │                             │        │   3. Use values at runtime   │
 └─────────────────────────────┘        └──────────────────────────────┘
 ```
 
 **Key rules:**
-- Secrets are **owner-scoped** — a service account can only read secrets it created itself.
+- Service accounts are **read-only consumers** — admins create secrets and grant access via access policies (Azure Key Vault model).
 - `client_id` in OAuth2 is the service account **name**, not its UUID.
 - `VAULT_CLIENT_SECRET` must always come from an environment variable — never a config file.
 - RocketVault's own `.rocketvault.yaml` must have `vault_client.client_id = ""` — the server never calls itself.
@@ -82,12 +82,53 @@ GitHub Actions secret, AWS Secrets Manager) — never write it to a file.
 
 ---
 
-## Step 2: Create Secrets Owned by the Service Account
+## Step 2: Create Secrets and Grant Access to the Service Account
 
-Secrets are owner-scoped: a service account can only fetch secrets it created itself.
-You must create secrets using a token issued to that service account, not the admin token.
+Service accounts are **read-only consumers** (Azure Key Vault model). An admin creates
+the secrets and then grants the service account access via an access policy.
 
-### 2a. Get a service account token
+### 2a. Create secrets as admin
+
+```bash
+# Create DB_PASSWORD secret (using the admin JWT from Step 1a)
+DB_UUID=$(curl -s -X POST http://localhost:8774/api/v1/secrets \
+  -H "Authorization: Bearer $ADMIN_JWT" \
+  -H "Content-Type: application/json" \
+  -d '{"name":"DB_PASSWORD","value":"your-database-password"}' \
+  | jq -r '.id')
+
+echo "DB_PASSWORD UUID: $DB_UUID"
+
+# Create API_KEY secret
+API_UUID=$(curl -s -X POST http://localhost:8774/api/v1/secrets \
+  -H "Authorization: Bearer $ADMIN_JWT" \
+  -H "Content-Type: application/json" \
+  -d '{"name":"API_KEY","value":"your-api-key"}' \
+  | jq -r '.id')
+
+echo "API_KEY UUID: $API_UUID"
+```
+
+### 2b. Grant the service account read access via access policies
+
+```bash
+# Get the service account ID
+SA_ID=$(echo $SA | jq -r '.id')
+
+# Grant "get" permission on secrets
+curl -s -X POST http://localhost:8774/api/v1/access-policies \
+  -H "Authorization: Bearer $ADMIN_JWT" \
+  -H "Content-Type: application/json" \
+  -d "{\"principal_id\":\"$SA_ID\",\"principal_type\":\"service_account\",\"resource_type\":\"secrets\",\"operation\":\"get\",\"effect\":\"allow\"}"
+
+# Grant "list" permission on secrets
+curl -s -X POST http://localhost:8774/api/v1/access-policies \
+  -H "Authorization: Bearer $ADMIN_JWT" \
+  -H "Content-Type: application/json" \
+  -d "{\"principal_id\":\"$SA_ID\",\"principal_type\":\"service_account\",\"resource_type\":\"secrets\",\"operation\":\"list\",\"effect\":\"allow\"}"
+```
+
+### 2c. Get a service account token
 
 ```bash
 SA_TOKEN=$(curl -s -X POST http://localhost:8774/api/v1/oauth2/token \
@@ -98,28 +139,6 @@ SA_TOKEN=$(curl -s -X POST http://localhost:8774/api/v1/oauth2/token \
   | jq -r '.access_token')
 
 echo "Token set: ${SA_TOKEN:+yes}"
-```
-
-### 2b. Create each secret using the service account token
-
-```bash
-# Create DB_PASSWORD secret
-DB_UUID=$(curl -s -X POST http://localhost:8774/api/v1/secrets \
-  -H "Authorization: Bearer $SA_TOKEN" \
-  -H "Content-Type: application/json" \
-  -d '{"name":"DB_PASSWORD","value":"your-database-password"}' \
-  | jq -r '.id')
-
-echo "DB_PASSWORD UUID: $DB_UUID"
-
-# Create API_KEY secret
-API_UUID=$(curl -s -X POST http://localhost:8774/api/v1/secrets \
-  -H "Authorization: Bearer $SA_TOKEN" \
-  -H "Content-Type: application/json" \
-  -d '{"name":"API_KEY","value":"your-api-key"}' \
-  | jq -r '.id')
-
-echo "API_KEY UUID: $API_UUID"
 ```
 
 > **Note the UUIDs** — you need them in your application config. The UUID is the stable

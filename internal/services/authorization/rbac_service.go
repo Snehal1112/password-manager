@@ -111,9 +111,9 @@ func getDefaultRolePermissions() map[string][]Permission {
 			PermissionCreateCertificate, PermissionReadCertificate, PermissionUpdateCertificate, PermissionDeleteCertificate, PermissionListCertificates,
 		},
 		model.RoleServiceAccount: {
-			// Service accounts can create and read their own secrets (owner-scoped);
-			// fine-grained cross-owner access is delegated to the access-policy layer (Milestone 2)
-			PermissionCreateSecret, PermissionReadSecret, PermissionListSecrets,
+			// Service accounts are read-only consumers (Azure Key Vault model).
+			// Admins create secrets/keys/certs and grant access via access policies.
+			PermissionReadSecret, PermissionListSecrets,
 			PermissionReadKey, PermissionListKeys,
 			PermissionReadCertificate, PermissionListCertificates,
 		},

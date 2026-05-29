@@ -66,6 +66,21 @@ func TestRBACPermissionValidation(t *testing.T) {
 		{"cert-manager CANNOT delete key", model.RoleCertificateManager, PermissionDeleteKey, false},
 		{"cert-manager CANNOT create user", model.RoleCertificateManager, PermissionCreateUser, false},
 
+		// Service account role tests - read-only consumers (Azure Key Vault model)
+		{"service-account can read secret", model.RoleServiceAccount, PermissionReadSecret, true},
+		{"service-account can list secrets", model.RoleServiceAccount, PermissionListSecrets, true},
+		{"service-account can read key", model.RoleServiceAccount, PermissionReadKey, true},
+		{"service-account can list keys", model.RoleServiceAccount, PermissionListKeys, true},
+		{"service-account can read cert", model.RoleServiceAccount, PermissionReadCertificate, true},
+		{"service-account can list certs", model.RoleServiceAccount, PermissionListCertificates, true},
+		{"service-account CANNOT create secret", model.RoleServiceAccount, PermissionCreateSecret, false},
+		{"service-account CANNOT update secret", model.RoleServiceAccount, PermissionUpdateSecret, false},
+		{"service-account CANNOT delete secret", model.RoleServiceAccount, PermissionDeleteSecret, false},
+		{"service-account CANNOT create key", model.RoleServiceAccount, PermissionCreateKey, false},
+		{"service-account CANNOT create cert", model.RoleServiceAccount, PermissionCreateCertificate, false},
+		{"service-account CANNOT create user", model.RoleServiceAccount, PermissionCreateUser, false},
+		{"service-account CANNOT manage system", model.RoleServiceAccount, PermissionManageSystem, false},
+
 		// Unknown role tests
 		{"unknown role has no permissions", "unknown", PermissionReadSecret, false},
 	}

@@ -1,0 +1,30 @@
+{
+	"date": "2026-05-28",
+	"window": "7d",
+	"metrics": {
+		"commits": 0,
+		"contributors": 0,
+		"prs_merged": 0,
+		"insertions": 0,
+		"deletions": 0,
+		"net_loc": 0,
+		"test_loc": 0,
+		"test_ratio": 0,
+		"active_days": 0,
+		"sessions": 0,
+		"deep_sessions": 0,
+		"avg_session_minutes": 0,
+		"loc_per_session_hour": 0,
+		"feat_pct": 0,
+		"fix_pct": 0,
+		"peak_hour": 0,
+		"ai_assisted_commits": 0
+	},
+	"authors": {},
+	"version_range": [
+		"N/A",
+		"N/A"
+	],
+	"streak_days": 0,
+	"tweetable": "No commits to origin/main in the last 7 days"
+}
