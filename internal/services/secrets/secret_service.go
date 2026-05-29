@@ -527,14 +527,14 @@ func (s *secretService) DeleteSecret(ctx context.Context, secretID, userID uuid.
 func (s *secretService) GetSecretInVault(ctx context.Context, secretID, vaultID uuid.UUID) (*model.Secret, error) {
 	secret, err := s.secretRepo.ReadInVault(ctx, secretID, vaultID)
 	if err != nil {
-		s.logger.LogAuditError(vaultID.String(), "get_secret", "failed", "Secret not found or not in vault", err)
+		s.logger.LogAuditError("", "get_secret", "failed", "Secret not found or not in vault", err)
 		return nil, fmt.Errorf("secret not found or access denied")
 	}
 
 	// Decrypt value.
 	decryptedValue, err := s.cryptoService.DecryptSecret(secret.Value)
 	if err != nil {
-		s.logger.LogAuditError(vaultID.String(), "get_secret", "failed", "Failed to decrypt secret", err)
+		s.logger.LogAuditError("", "get_secret", "failed", "Failed to decrypt secret", err)
 		return nil, fmt.Errorf("failed to decrypt secret: %w", err)
 	}
 	secret.Value = decryptedValue
@@ -542,14 +542,14 @@ func (s *secretService) GetSecretInVault(ctx context.Context, secretID, vaultID 
 	// Load tags.
 	tags, err := s.tagService.GetTags(ctx, secretID)
 	if err != nil {
-		s.logger.LogAuditError(vaultID.String(), "get_secret", "failed", "Failed to load tags", err)
+		s.logger.LogAuditError("", "get_secret", "failed", "Failed to load tags", err)
 		return nil, fmt.Errorf("failed to load tags: %w", err)
 	}
 	secret.Tags = tags
 
 	// Enforce lifecycle policy at the service boundary.
 	if !secret.IsAccessible() {
-		s.logger.LogAuditError(vaultID.String(), "get_secret", "denied", "Secret is disabled or outside its valid time window", nil)
+		s.logger.LogAuditError("", "get_secret", "denied", "Secret is disabled or outside its valid time window", nil)
 		return nil, fmt.Errorf("secret is disabled or outside its valid time window")
 	}
 
@@ -561,7 +561,7 @@ func (s *secretService) GetSecretInVault(ctx context.Context, secretID, vaultID 
 func (s *secretService) ListSecretsInVault(ctx context.Context, vaultID uuid.UUID, tags []string) ([]model.Secret, error) {
 	secretList, err := s.secretRepo.ListInVault(ctx, vaultID, tags)
 	if err != nil {
-		s.logger.LogAuditError(vaultID.String(), "list_secrets", "failed", "Failed to list secrets", err)
+		s.logger.LogAuditError("", "list_secrets", "failed", "Failed to list secrets", err)
 		return nil, fmt.Errorf("failed to list secrets: %w", err)
 	}
 
@@ -570,14 +570,14 @@ func (s *secretService) ListSecretsInVault(ctx context.Context, vaultID uuid.UUI
 
 		decryptedValue, err := s.cryptoService.DecryptSecret(secret.Value)
 		if err != nil {
-			s.logger.LogAuditError(vaultID.String(), "list_secrets", "failed", "Failed to decrypt secret", err)
+			s.logger.LogAuditError("", "list_secrets", "failed", "Failed to decrypt secret", err)
 			return nil, fmt.Errorf("failed to decrypt secret %s: %w", secret.ID.String(), err)
 		}
 		secret.Value = decryptedValue
 
 		secretTags, err := s.tagService.GetTags(ctx, secret.ID)
 		if err != nil {
-			s.logger.LogAuditError(vaultID.String(), "list_secrets", "failed", "Failed to load tags", err)
+			s.logger.LogAuditError("", "list_secrets", "failed", "Failed to load tags", err)
 			return nil, fmt.Errorf("failed to load tags for secret %s: %w", secret.ID.String(), err)
 		}
 		secret.Tags = secretTags
@@ -596,23 +596,23 @@ func (s *secretService) ListSecretsInVault(ctx context.Context, vaultID uuid.UUI
 func (s *secretService) DeleteSecretInVault(ctx context.Context, secretID, vaultID uuid.UUID) error {
 	secret, err := s.secretRepo.ReadInVault(ctx, secretID, vaultID)
 	if err != nil {
-		s.logger.LogAuditError(vaultID.String(), "delete_secret", "failed", "Secret not found or not in vault", err)
+		s.logger.LogAuditError("", "delete_secret", "failed", "Secret not found or not in vault", err)
 		return fmt.Errorf("secret not found: %w", err)
 	}
 
 	// Remove all tags first.
 	if err := s.tagService.RemoveAllTags(ctx, secretID); err != nil {
-		s.logger.LogAuditError(vaultID.String(), "delete_secret", "failed", "Failed to remove tags", err)
+		s.logger.LogAuditError("", "delete_secret", "failed", "Failed to remove tags", err)
 		return fmt.Errorf("failed to remove tags: %w", err)
 	}
 
 	// Soft delete secret via repository.
 	if err := s.secretRepo.SoftDelete(ctx, secretID); err != nil {
-		s.logger.LogAuditError(vaultID.String(), "delete_secret", "failed", "Failed to soft delete secret", err)
+		s.logger.LogAuditError("", "delete_secret", "failed", "Failed to soft delete secret", err)
 		return fmt.Errorf("failed to soft delete secret: %w", err)
 	}
 
-	s.logger.LogAuditInfo(vaultID.String(), "delete_secret", "success",
+	s.logger.LogAuditInfo("", "delete_secret", "success",
 		fmt.Sprintf("Secret soft deleted: %s", secret.Name))
 	logrus.WithFields(logrus.Fields{
 		"secret_id": secretID.String(),

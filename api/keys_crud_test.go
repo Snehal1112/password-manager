@@ -482,7 +482,7 @@ func TestGetKey_NotFound_Returns404(t *testing.T) {
 	keyID := uuid.New()
 	svc := &mockKeyService{}
 	svc.On("GetKeyInVault", mock.Anything, keyID, mock.Anything).Return(nil, errors.New("not found"))
-	// Non-admin branch — won't call ValidateKeyAccess.
+	// Vault-scoped lookup fails, so the handler returns 404.
 
 	c := newKeyCtx(svc)
 	c.Claims = jwt.MapClaims{"role": string(model.RoleUser), "user_id": keyTestUserID}

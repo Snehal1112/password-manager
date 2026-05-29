@@ -369,18 +369,6 @@ func createKey(c *Context, w http.ResponseWriter, r *http.Request) {
 
 // listKeys lists cryptographic keys for the resolved vault with optional filtering.
 func listKeys(c *Context, w http.ResponseWriter, r *http.Request) {
-	// Get user ID from claims.
-	userIDStr, ok := c.Claims["user_id"].(string)
-	if !ok {
-		c.SetInternalError(nil)
-		return
-	}
-	userID, err := uuid.Parse(userIDStr)
-	if err != nil {
-		c.SetInvalidParam("user_id")
-		return
-	}
-
 	// Resolve the target vault from the request context.
 	vaultID, err := vaultIDFromRequest(r)
 	if err != nil {
@@ -396,26 +384,13 @@ func listKeys(c *Context, w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Check if user is admin — admins can list every key in the vault.
-	roleStr, ok := c.Claims["role"].(string)
-	isAdmin := ok && roleStr == string(model.RoleAdmin)
-
-	// List keys scoped to the resolved vault.
+	// List keys scoped to the resolved vault. Vault-level access applies: any
+	// caller authorized for the vault sees all keys, matching secrets and
+	// certificates.
 	keysList, err := keyService.ListKeysInVault(r.Context(), vaultID, keyType, c.Params.Tags)
 	if err != nil {
 		c.SetInternalError(err)
 		return
-	}
-
-	// Non-admins only see keys they own within the vault.
-	if !isAdmin {
-		filtered := keysList[:0]
-		for _, k := range keysList {
-			if k.UserID == userID {
-				filtered = append(filtered, k)
-			}
-		}
-		keysList = filtered
 	}
 
 	// Convert to response format.
@@ -436,18 +411,6 @@ func getKey(c *Context, w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Get user ID from claims.
-	userIDStr, ok := c.Claims["user_id"].(string)
-	if !ok {
-		c.SetInternalError(nil)
-		return
-	}
-	userID, err := uuid.Parse(userIDStr)
-	if err != nil {
-		c.SetInvalidParam("user_id")
-		return
-	}
-
 	// Resolve the target vault from the request context.
 	vaultID, err := vaultIDFromRequest(r)
 	if err != nil {
@@ -460,20 +423,11 @@ func getKey(c *Context, w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Check authorization — users can only access their own keys, admins can
-	// access any key within the vault.
-	roleStr, ok := c.Claims["role"].(string)
-	isAdmin := ok && roleStr == string(model.RoleAdmin)
-
-	// Look up the key scoped to the resolved vault.
+	// Look up the key scoped to the resolved vault. Vault-level access applies:
+	// any caller authorized for the vault sees the key regardless of which user
+	// created it. A key absent from this vault yields a 404.
 	key, err := keyService.GetKeyInVault(r.Context(), keyID, vaultID)
 	if err != nil {
-		c.SetNotFound("key")
-		return
-	}
-
-	// Non-admins may only read keys they own.
-	if !isAdmin && key.UserID != userID {
 		c.SetNotFound("key")
 		return
 	}

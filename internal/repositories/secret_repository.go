@@ -693,6 +693,9 @@ func (r *SecretRepository) ReadInVault(ctx context.Context, id, vaultID uuid.UUI
 	secret.DeletedAt = deletedAt
 	secret.PurgeProtection = purgeProtection
 
+	// The vault scope is known from the query, so populate it for consistency.
+	secret.VaultID = vaultID
+
 	return &secret, nil
 }
 

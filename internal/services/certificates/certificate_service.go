@@ -524,12 +524,12 @@ func (s *certificateService) DeleteCertificate(ctx context.Context, certID, user
 func (s *certificateService) GetCertificateInVault(ctx context.Context, certID, vaultID uuid.UUID) (*model.Certificate, error) {
 	cert, err := s.certRepo.ReadInVault(ctx, certID, vaultID)
 	if err != nil {
-		s.logger.LogAuditError(vaultID.String(), "get_certificate", "failed", fmt.Sprintf("failed to read certificate: %s", err), err)
+		s.logger.LogAuditError("", "get_certificate", "failed", fmt.Sprintf("failed to read certificate: %s", err), err)
 		return nil, fmt.Errorf("failed to read certificate: %w", err)
 	}
 
 	if !cert.IsAccessible() {
-		s.logger.LogAuditError(vaultID.String(), "get_certificate", "failed", "certificate is disabled or outside its valid time window", nil)
+		s.logger.LogAuditError("", "get_certificate", "failed", "certificate is disabled or outside its valid time window", nil)
 		return nil, fmt.Errorf("certificate is disabled or outside its valid time window")
 	}
 
@@ -550,11 +550,11 @@ func (s *certificateService) DeleteCertificateInVault(ctx context.Context, certI
 	}
 
 	if err := s.certRepo.SoftDelete(ctx, certID); err != nil {
-		s.logger.LogAuditError(vaultID.String(), "delete_certificate", "failed", "Failed to soft delete certificate", err)
+		s.logger.LogAuditError("", "delete_certificate", "failed", "Failed to soft delete certificate", err)
 		return fmt.Errorf("failed to delete certificate: %w", err)
 	}
 
-	s.logger.LogAuditInfo(vaultID.String(), "delete_certificate", "success", "Certificate soft deleted successfully")
+	s.logger.LogAuditInfo("", "delete_certificate", "success", "Certificate soft deleted successfully")
 	return nil
 }
 

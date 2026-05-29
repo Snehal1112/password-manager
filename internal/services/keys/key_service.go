@@ -383,13 +383,13 @@ func (s *keyService) ListKeys(ctx context.Context, userID uuid.UUID) ([]model.Ke
 func (s *keyService) GetKeyInVault(ctx context.Context, keyID, vaultID uuid.UUID) (*model.Key, error) {
 	key, err := s.keyRepo.ReadInVault(ctx, keyID, vaultID)
 	if err != nil {
-		s.logger.LogAuditError(vaultID.String(), "get_key", "failed",
+		s.logger.LogAuditError("", "get_key", "failed",
 			fmt.Sprintf("Key not found in vault: %s", keyID), err)
 		return nil, fmt.Errorf("failed to read key: %w", err)
 	}
 
 	if !key.IsAccessible() {
-		s.logger.LogAuditError(vaultID.String(), "get_key", "denied",
+		s.logger.LogAuditError("", "get_key", "denied",
 			fmt.Sprintf("Key is disabled or outside its valid time window: %s", keyID), nil)
 		return nil, fmt.Errorf("key is disabled or outside its valid time window")
 	}
@@ -412,7 +412,7 @@ func (s *keyService) DeleteKeyInVault(ctx context.Context, keyID, vaultID uuid.U
 	}
 
 	if err := s.keyRepo.SoftDelete(ctx, keyID); err != nil {
-		s.logger.LogAuditError(vaultID.String(), "delete_key", "failed", "Failed to soft-delete key", err)
+		s.logger.LogAuditError("", "delete_key", "failed", "Failed to soft-delete key", err)
 		return nil, fmt.Errorf("failed to delete key: %w", err)
 	}
 
@@ -422,11 +422,11 @@ func (s *keyService) DeleteKeyInVault(ctx context.Context, keyID, vaultID uuid.U
 
 	deleted, err := s.keyRepo.ReadDeleted(ctx, keyID)
 	if err != nil {
-		s.logger.LogAuditInfo(vaultID.String(), "delete_key", "success", "Key deleted (metadata unavailable)")
+		s.logger.LogAuditInfo("", "delete_key", "success", "Key deleted (metadata unavailable)")
 		return key, nil
 	}
 
-	s.logger.LogAuditInfo(vaultID.String(), "delete_key", "success", "Key deleted successfully")
+	s.logger.LogAuditInfo("", "delete_key", "success", "Key deleted successfully")
 	return deleted, nil
 }
 
