@@ -282,7 +282,8 @@ func newVaultTestAPI() (*API, *vaultFakeRepo) {
 }
 
 // doVaultRequest issues an authed request through the API router and returns the recorder.
-// The request carries the user_id in context, as the real auth middleware would.
+// The request carries the user_id and an admin role in context, as the real auth
+// middleware would for an operator authorized to manage vaults (vaults:manage).
 func doVaultRequest(api *API, method, path string, body []byte) *httptest.ResponseRecorder {
 	var r *http.Request
 	if body != nil {
@@ -291,6 +292,7 @@ func doVaultRequest(api *API, method, path string, body []byte) *httptest.Respon
 		r = httptest.NewRequest(method, path, nil)
 	}
 	ctx := context.WithValue(r.Context(), common.UserIDKey, vaultTestUserID)
+	ctx = context.WithValue(ctx, common.RoleKey, string(model.RoleAdmin))
 	r = r.WithContext(ctx)
 	w := httptest.NewRecorder()
 	api.rootRouter.ServeHTTP(w, r)

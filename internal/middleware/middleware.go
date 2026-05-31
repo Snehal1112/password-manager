@@ -364,6 +364,10 @@ func resolvePolicy(method, path string) (model.PolicyResourceType, model.PolicyO
 		resourceType = model.PolicyResourceKeys
 	case strings.Contains(path, "/certificates"):
 		resourceType = model.PolicyResourceCertificates
+	case strings.Contains(path, "/vaults"):
+		// Vault management routes (resource routes are matched by the cases above,
+		// since /vaults/{name}/secrets contains "/secrets").
+		return model.PolicyResourceVaults, model.OpManage
 	default:
 		return "", ""
 	}
