@@ -123,8 +123,10 @@ func nowForVaultTest() time.Time { return time.Unix(1700000000, 0) }
 
 type vaultNoopCascade struct{}
 
-func (vaultNoopCascade) SoftDeleteVaultContents(context.Context, uuid.UUID) error { return nil }
-func (vaultNoopCascade) RecoverVaultContents(context.Context, uuid.UUID) error    { return nil }
+func (vaultNoopCascade) SoftDeleteVaultContents(context.Context, uuid.UUID, time.Time) error {
+	return nil
+}
+func (vaultNoopCascade) RecoverVaultContents(context.Context, uuid.UUID, time.Time) error { return nil }
 
 // --- vaultSvcTestContainer ---
 

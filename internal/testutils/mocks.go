@@ -233,13 +233,13 @@ func (m *MockSecretRepository) ListInVaultIncludeDeleted(ctx context.Context, va
 	return args.Get(0).([]model.Secret), args.Error(1)
 }
 
-func (m *MockSecretRepository) SoftDeleteVaultContents(ctx context.Context, vaultID uuid.UUID) error {
-	args := m.Called(ctx, vaultID)
+func (m *MockSecretRepository) SoftDeleteVaultContents(ctx context.Context, vaultID uuid.UUID, deletedAt time.Time) error {
+	args := m.Called(ctx, vaultID, deletedAt)
 	return args.Error(0)
 }
 
-func (m *MockSecretRepository) RecoverVaultContents(ctx context.Context, vaultID uuid.UUID) error {
-	args := m.Called(ctx, vaultID)
+func (m *MockSecretRepository) RecoverVaultContents(ctx context.Context, vaultID uuid.UUID, deletedAt time.Time) error {
+	args := m.Called(ctx, vaultID, deletedAt)
 	return args.Error(0)
 }
 

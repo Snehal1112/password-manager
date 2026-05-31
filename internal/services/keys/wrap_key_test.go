@@ -8,6 +8,7 @@ import (
 	"encoding/base64"
 	"encoding/pem"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/sirupsen/logrus"
@@ -88,10 +89,10 @@ func (m *mockKeyRepoForWrap) ListInVault(ctx context.Context, vaultID uuid.UUID,
 func (m *mockKeyRepoForWrap) ReadInVault(ctx context.Context, id, vaultID uuid.UUID) (*model.Key, error) {
 	return nil, nil
 }
-func (m *mockKeyRepoForWrap) SoftDeleteVaultContents(ctx context.Context, vaultID uuid.UUID) error {
+func (m *mockKeyRepoForWrap) SoftDeleteVaultContents(ctx context.Context, vaultID uuid.UUID, deletedAt time.Time) error {
 	return nil
 }
-func (m *mockKeyRepoForWrap) RecoverVaultContents(ctx context.Context, vaultID uuid.UUID) error {
+func (m *mockKeyRepoForWrap) RecoverVaultContents(ctx context.Context, vaultID uuid.UUID, deletedAt time.Time) error {
 	return nil
 }
 

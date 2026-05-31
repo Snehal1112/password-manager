@@ -43,9 +43,9 @@ type KeyRepositoryInterface interface {
 	// ReadInVault fetches a key only when id and vaultID both match.
 	ReadInVault(ctx context.Context, id, vaultID uuid.UUID) (*model.Key, error)
 	// SoftDeleteVaultContents soft-deletes every active key in a vault.
-	SoftDeleteVaultContents(ctx context.Context, vaultID uuid.UUID) error
-	// RecoverVaultContents recovers every soft-deleted key in a vault.
-	RecoverVaultContents(ctx context.Context, vaultID uuid.UUID) error
+	SoftDeleteVaultContents(ctx context.Context, vaultID uuid.UUID, deletedAt time.Time) error
+	// RecoverVaultContents recovers only the keys the cascade soft-deleted at deletedAt.
+	RecoverVaultContents(ctx context.Context, vaultID uuid.UUID, deletedAt time.Time) error
 }
 
 // KeyRepository implements KeyRepositoryInterface with pure CRUD operations.
@@ -972,18 +972,18 @@ func (r *KeyRepository) ReadInVault(ctx context.Context, id, vaultID uuid.UUID) 
 // Parameters:
 //   - ctx: The context for the database operation.
 //   - vaultID: The vault whose keys should be soft-deleted.
+//   - deletedAt: The exact deletion timestamp to stamp on each cascaded row.
 //
 // Returns:
 //
 //	An error if the soft deletion fails.
-func (r *KeyRepository) SoftDeleteVaultContents(ctx context.Context, vaultID uuid.UUID) error {
+func (r *KeyRepository) SoftDeleteVaultContents(ctx context.Context, vaultID uuid.UUID, deletedAt time.Time) error {
 	return r.executeWithMetrics("soft_delete_vault_keys", func() error {
 		logrus.WithField("vault_id", vaultID.String()).Debug("Soft deleting all keys in vault")
 
-		now := time.Now()
 		_, err := r.db.ExecContext(ctx,
 			"UPDATE keys SET deleted_at = ? WHERE vault_id = ? AND deleted_at IS NULL",
-			now, vaultID.String())
+			deletedAt, vaultID.String())
 		if err != nil {
 			r.log.LogAuditError(vaultID.String(), "soft_delete_vault_keys", "failed", "Failed to soft delete vault keys", err)
 			return fmt.Errorf("failed to soft delete vault keys: %w", err)
@@ -999,17 +999,18 @@ func (r *KeyRepository) SoftDeleteVaultContents(ctx context.Context, vaultID uui
 // Parameters:
 //   - ctx: The context for the database operation.
 //   - vaultID: The vault whose keys should be recovered.
+//   - deletedAt: The cascade deletion timestamp; only rows stamped with it are restored.
 //
 // Returns:
 //
 //	An error if the recovery fails.
-func (r *KeyRepository) RecoverVaultContents(ctx context.Context, vaultID uuid.UUID) error {
+func (r *KeyRepository) RecoverVaultContents(ctx context.Context, vaultID uuid.UUID, deletedAt time.Time) error {
 	return r.executeWithMetrics("recover_vault_keys", func() error {
-		logrus.WithField("vault_id", vaultID.String()).Debug("Recovering all soft-deleted keys in vault")
+		logrus.WithField("vault_id", vaultID.String()).Debug("Recovering cascade soft-deleted keys in vault")
 
 		_, err := r.db.ExecContext(ctx,
-			"UPDATE keys SET deleted_at = NULL, scheduled_purge_at = NULL WHERE vault_id = ? AND deleted_at IS NOT NULL",
-			vaultID.String())
+			"UPDATE keys SET deleted_at = NULL, scheduled_purge_at = NULL WHERE vault_id = ? AND deleted_at = ?",
+			vaultID.String(), deletedAt)
 		if err != nil {
 			r.log.LogAuditError(vaultID.String(), "recover_vault_keys", "failed", "Failed to recover vault keys", err)
 			return fmt.Errorf("failed to recover vault keys: %w", err)

@@ -4,17 +4,18 @@ import (
 	"context"
 	"errors"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 )
 
 type recordingRepo struct{ softCalls, recoverCalls int }
 
-func (r *recordingRepo) SoftDeleteVaultContents(context.Context, uuid.UUID) error {
+func (r *recordingRepo) SoftDeleteVaultContents(context.Context, uuid.UUID, time.Time) error {
 	r.softCalls++
 	return nil
 }
-func (r *recordingRepo) RecoverVaultContents(context.Context, uuid.UUID) error {
+func (r *recordingRepo) RecoverVaultContents(context.Context, uuid.UUID, time.Time) error {
 	r.recoverCalls++
 	return nil
 }
@@ -22,13 +23,13 @@ func (r *recordingRepo) RecoverVaultContents(context.Context, uuid.UUID) error {
 func TestCascadeAdapter_FansOutToAllRepos(t *testing.T) {
 	s, k, c := &recordingRepo{}, &recordingRepo{}, &recordingRepo{}
 	ad := NewCascadeAdapter(s, k, c)
-	if err := ad.SoftDeleteVaultContents(context.Background(), uuid.New()); err != nil {
+	if err := ad.SoftDeleteVaultContents(context.Background(), uuid.New(), time.Now()); err != nil {
 		t.Fatal(err)
 	}
 	if s.softCalls != 1 || k.softCalls != 1 || c.softCalls != 1 {
 		t.Fatalf("soft-delete must fan out to all three repos: s=%d k=%d c=%d", s.softCalls, k.softCalls, c.softCalls)
 	}
-	if err := ad.RecoverVaultContents(context.Background(), uuid.New()); err != nil {
+	if err := ad.RecoverVaultContents(context.Background(), uuid.New(), time.Now()); err != nil {
 		t.Fatal(err)
 	}
 	if s.recoverCalls != 1 || k.recoverCalls != 1 || c.recoverCalls != 1 {
@@ -39,8 +40,10 @@ func TestCascadeAdapter_FansOutToAllRepos(t *testing.T) {
 // failingRepo fails its soft-delete to exercise the adapter's error path.
 type failingRepo struct{ err error }
 
-func (f *failingRepo) SoftDeleteVaultContents(context.Context, uuid.UUID) error { return f.err }
-func (f *failingRepo) RecoverVaultContents(context.Context, uuid.UUID) error    { return f.err }
+func (f *failingRepo) SoftDeleteVaultContents(context.Context, uuid.UUID, time.Time) error {
+	return f.err
+}
+func (f *failingRepo) RecoverVaultContents(context.Context, uuid.UUID, time.Time) error { return f.err }
 
 func TestCascadeAdapter_ReturnsFirstError(t *testing.T) {
 	boom := errors.New("boom")
@@ -48,7 +51,7 @@ func TestCascadeAdapter_ReturnsFirstError(t *testing.T) {
 	later := &recordingRepo{}
 	ad := NewCascadeAdapter(failing, later)
 
-	err := ad.SoftDeleteVaultContents(context.Background(), uuid.New())
+	err := ad.SoftDeleteVaultContents(context.Background(), uuid.New(), time.Now())
 	if !errors.Is(err, boom) {
 		t.Fatalf("expected the first repo's error, got %v", err)
 	}

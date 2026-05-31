@@ -104,10 +104,10 @@ func (s *stubSecretRepo) ListInVault(_ context.Context, _ uuid.UUID, _ []string)
 func (s *stubSecretRepo) ListInVaultIncludeDeleted(_ context.Context, _ uuid.UUID, _ []string) ([]model.Secret, error) {
 	return s.listDeleted, s.listDeletedErr
 }
-func (s *stubSecretRepo) SoftDeleteVaultContents(_ context.Context, _ uuid.UUID) error {
+func (s *stubSecretRepo) SoftDeleteVaultContents(_ context.Context, _ uuid.UUID, _ time.Time) error {
 	panic("unexpected call: SoftDeleteVaultContents")
 }
-func (s *stubSecretRepo) RecoverVaultContents(_ context.Context, _ uuid.UUID) error {
+func (s *stubSecretRepo) RecoverVaultContents(_ context.Context, _ uuid.UUID, _ time.Time) error {
 	panic("unexpected call: RecoverVaultContents")
 }
 
@@ -167,10 +167,10 @@ func (s *stubCertRepo) ListInVault(_ context.Context, _ uuid.UUID, _ string, _ [
 func (s *stubCertRepo) ReadInVault(_ context.Context, _, _ uuid.UUID) (*model.Certificate, error) {
 	panic("unexpected call: ReadInVault")
 }
-func (s *stubCertRepo) SoftDeleteVaultContents(_ context.Context, _ uuid.UUID) error {
+func (s *stubCertRepo) SoftDeleteVaultContents(_ context.Context, _ uuid.UUID, _ time.Time) error {
 	panic("unexpected call: SoftDeleteVaultContents")
 }
-func (s *stubCertRepo) RecoverVaultContents(_ context.Context, _ uuid.UUID) error {
+func (s *stubCertRepo) RecoverVaultContents(_ context.Context, _ uuid.UUID, _ time.Time) error {
 	panic("unexpected call: RecoverVaultContents")
 }
 

@@ -112,13 +112,13 @@ func (m *mockCertRepository) ReadInVault(ctx context.Context, id, vaultID uuid.U
 	return nil, args.Error(1)
 }
 
-func (m *mockCertRepository) SoftDeleteVaultContents(ctx context.Context, vaultID uuid.UUID) error {
-	args := m.Called(ctx, vaultID)
+func (m *mockCertRepository) SoftDeleteVaultContents(ctx context.Context, vaultID uuid.UUID, deletedAt time.Time) error {
+	args := m.Called(ctx, vaultID, deletedAt)
 	return args.Error(0)
 }
 
-func (m *mockCertRepository) RecoverVaultContents(ctx context.Context, vaultID uuid.UUID) error {
-	args := m.Called(ctx, vaultID)
+func (m *mockCertRepository) RecoverVaultContents(ctx context.Context, vaultID uuid.UUID, deletedAt time.Time) error {
+	args := m.Called(ctx, vaultID, deletedAt)
 	return args.Error(0)
 }
 
@@ -201,10 +201,10 @@ func (m *mockKeyRepo) ListInVault(ctx context.Context, vaultID uuid.UUID, keyTyp
 func (m *mockKeyRepo) ReadInVault(ctx context.Context, id, vaultID uuid.UUID) (*model.Key, error) {
 	return nil, nil
 }
-func (m *mockKeyRepo) SoftDeleteVaultContents(ctx context.Context, vaultID uuid.UUID) error {
+func (m *mockKeyRepo) SoftDeleteVaultContents(ctx context.Context, vaultID uuid.UUID, deletedAt time.Time) error {
 	return nil
 }
-func (m *mockKeyRepo) RecoverVaultContents(ctx context.Context, vaultID uuid.UUID) error {
+func (m *mockKeyRepo) RecoverVaultContents(ctx context.Context, vaultID uuid.UUID, deletedAt time.Time) error {
 	return nil
 }
 
