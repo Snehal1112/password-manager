@@ -401,7 +401,11 @@ func updateCertificate(c *Context, w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := certService.UpdateCertificate(r.Context(), updateReq); err != nil {
-		c.SetInternalError(err)
+		if errors.Is(err, certServices.ErrCertNotFound) {
+			c.SetNotFound("certificate")
+		} else {
+			c.SetInternalError(err)
+		}
 		return
 	}
 

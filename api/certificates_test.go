@@ -7,6 +7,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -548,6 +549,29 @@ func TestUpdateCertificate_ServiceError_Returns500(t *testing.T) {
 	}
 
 	assert.Equal(t, http.StatusInternalServerError, w.Code)
+	svc.AssertExpectations(t)
+}
+
+func TestUpdateCertificate_NotFound_Returns404(t *testing.T) {
+	svc := &mockCertService{}
+	certID := uuid.New()
+	// UpdateCertificate returns GetCertificate's error, which wraps ErrCertNotFound.
+	svc.On("UpdateCertificate", mock.Anything, mock.Anything).
+		Return(fmt.Errorf("update certificate: %w", certServices.ErrCertNotFound))
+
+	c := newCertCtx(svc, certAdminClaims())
+	c.Params = &ApiParams{CertificateID: certID.String(), PerPage: 60}
+	w := httptest.NewRecorder()
+	name := "new-name"
+	body, _ := json.Marshal(UpdateCertificateAPIRequest{Name: &name})
+	r := httptest.NewRequest(http.MethodPut, "/certificates/"+certID.String(), bytes.NewReader(body))
+
+	updateCertificate(c, w, r)
+	if c.Err != nil {
+		writeError(w, c)
+	}
+
+	assert.Equal(t, http.StatusNotFound, w.Code)
 	svc.AssertExpectations(t)
 }
 

@@ -7,6 +7,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -574,6 +575,29 @@ func TestUpdateKey_ServiceError_Returns500(t *testing.T) {
 	}
 
 	assert.Equal(t, http.StatusInternalServerError, w.Code)
+	svc.AssertExpectations(t)
+}
+
+func TestUpdateKey_NotFound_Returns404(t *testing.T) {
+	keyID := uuid.New()
+	svc := &mockKeyService{}
+	// UpdateKey wraps ErrKeyNotFound; errors.Is must still match through the chain.
+	svc.On("UpdateKey", mock.Anything, mock.Anything).
+		Return(fmt.Errorf("update key: %w", keyServices.ErrKeyNotFound))
+
+	c := newKeyCtx(svc)
+	c.Params = &ApiParams{KeyID: keyID.String(), PerPage: 60}
+	w := httptest.NewRecorder()
+	name := "updated"
+	body, _ := json.Marshal(UpdateKeyRequest{Name: &name})
+	r := httptest.NewRequest(http.MethodPut, "/keys/"+keyID.String(), bytes.NewReader(body))
+
+	updateKey(c, w, r)
+	if c.Err != nil {
+		writeError(w, c)
+	}
+
+	assert.Equal(t, http.StatusNotFound, w.Code)
 	svc.AssertExpectations(t)
 }
 

@@ -606,7 +606,13 @@ func updateSecret(c *Context, w http.ResponseWriter, r *http.Request) {
 
 	secret, err := secretService.GetSecret(r.Context(), secretID, userID)
 	if err != nil {
-		c.SetNotFound("secret")
+		if errors.Is(err, secrets.ErrSecretLifecycleDenied) {
+			c.SetPermissionError("secret is disabled or outside its valid time window")
+		} else if errors.Is(err, secrets.ErrSecretNotFound) {
+			c.SetNotFound("secret")
+		} else {
+			c.SetInternalError(err)
+		}
 		return
 	}
 

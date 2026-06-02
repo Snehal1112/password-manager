@@ -517,6 +517,69 @@ func TestUpdateSecret_ServiceError_Returns500(t *testing.T) {
 	svc.AssertExpectations(t)
 }
 
+func TestUpdateSecret_NotFound_Returns404(t *testing.T) {
+	secretID := uuid.New()
+	svc := &mockSecretService{}
+	svc.On("GetSecret", mock.Anything, secretID, uuid.MustParse(secretHTestUserID)).
+		Return(nil, secretServices.ErrSecretNotFound)
+
+	c := newSecretCtx(svc)
+	c.Params = &ApiParams{SecretID: secretID.String(), PerPage: 60}
+	w := httptest.NewRecorder()
+	body, _ := json.Marshal(map[string]any{"name": "new-name"})
+	r := httptest.NewRequest(http.MethodPut, "/secrets/"+secretID.String(), bytes.NewReader(body))
+
+	updateSecret(c, w, r)
+	if c.Err != nil {
+		writeError(w, c)
+	}
+
+	assert.Equal(t, http.StatusNotFound, w.Code)
+	svc.AssertExpectations(t)
+}
+
+func TestUpdateSecret_LifecycleDenied_Returns403(t *testing.T) {
+	secretID := uuid.New()
+	svc := &mockSecretService{}
+	svc.On("GetSecret", mock.Anything, secretID, uuid.MustParse(secretHTestUserID)).
+		Return(nil, secretServices.ErrSecretLifecycleDenied)
+
+	c := newSecretCtx(svc)
+	c.Params = &ApiParams{SecretID: secretID.String(), PerPage: 60}
+	w := httptest.NewRecorder()
+	body, _ := json.Marshal(map[string]any{"name": "new-name"})
+	r := httptest.NewRequest(http.MethodPut, "/secrets/"+secretID.String(), bytes.NewReader(body))
+
+	updateSecret(c, w, r)
+	if c.Err != nil {
+		writeError(w, c)
+	}
+
+	assert.Equal(t, http.StatusForbidden, w.Code)
+	svc.AssertExpectations(t)
+}
+
+func TestUpdateSecret_GetSecretError_Returns500(t *testing.T) {
+	secretID := uuid.New()
+	svc := &mockSecretService{}
+	svc.On("GetSecret", mock.Anything, secretID, uuid.MustParse(secretHTestUserID)).
+		Return(nil, errors.New("disk I/O"))
+
+	c := newSecretCtx(svc)
+	c.Params = &ApiParams{SecretID: secretID.String(), PerPage: 60}
+	w := httptest.NewRecorder()
+	body, _ := json.Marshal(map[string]any{"name": "new-name"})
+	r := httptest.NewRequest(http.MethodPut, "/secrets/"+secretID.String(), bytes.NewReader(body))
+
+	updateSecret(c, w, r)
+	if c.Err != nil {
+		writeError(w, c)
+	}
+
+	assert.Equal(t, http.StatusInternalServerError, w.Code)
+	svc.AssertExpectations(t)
+}
+
 func TestUpdateSecret_Success_Returns200(t *testing.T) {
 	secretID := uuid.New()
 	svc := &mockSecretService{}
