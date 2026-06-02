@@ -251,7 +251,7 @@ func TestUpdateVault_AppliesNonNilFields(t *testing.T) {
 		Enabled:       boolPtr(false),
 		RetentionDays: intPtr(30),
 		// PurgeProtection left nil so it must remain unchanged.
-	})
+	}, uuid.New())
 	if err != nil {
 		t.Fatalf("UpdateVault: %v", err)
 	}
@@ -266,9 +266,30 @@ func TestUpdateVault_AppliesNonNilFields(t *testing.T) {
 	}
 }
 
+func TestUpdateVault_ReplacesTagsAndSetsUpdatedBy(t *testing.T) {
+	svc := NewVaultService(newFakeRepo(), &noopCascade{}, nil)
+	if _, err := svc.CreateVault(context.Background(), model.CreateVaultRequest{Name: "tagged"}, uuid.New()); err != nil {
+		t.Fatalf("CreateVault: %v", err)
+	}
+
+	updater := uuid.New()
+	tags := map[string]string{"env": "prod"}
+	got, err := svc.UpdateVault(context.Background(), "tagged",
+		model.UpdateVaultRequest{Tags: &tags}, updater)
+	if err != nil {
+		t.Fatalf("update: %v", err)
+	}
+	if got.Tags["env"] != "prod" {
+		t.Fatalf("tags not applied: %v", got.Tags)
+	}
+	if got.UpdatedBy == nil || *got.UpdatedBy != updater {
+		t.Fatalf("updated_by not set: %v", got.UpdatedBy)
+	}
+}
+
 func TestUpdateVault_NotFound(t *testing.T) {
 	svc := NewVaultService(newFakeRepo(), &noopCascade{}, nil)
-	_, err := svc.UpdateVault(context.Background(), "missing", model.UpdateVaultRequest{Enabled: boolPtr(true)})
+	_, err := svc.UpdateVault(context.Background(), "missing", model.UpdateVaultRequest{Enabled: boolPtr(true)}, uuid.New())
 	if !errors.Is(err, ErrVaultNotFound) {
 		t.Fatalf("expected ErrVaultNotFound, got %v", err)
 	}

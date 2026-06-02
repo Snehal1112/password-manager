@@ -31,7 +31,7 @@ type VaultService interface {
 	CreateVault(ctx context.Context, req model.CreateVaultRequest, createdBy uuid.UUID) (*model.Vault, error)
 	GetVault(ctx context.Context, name string) (*model.Vault, error)
 	ListVaults(ctx context.Context, includeDeleted bool) ([]model.Vault, error)
-	UpdateVault(ctx context.Context, name string, req model.UpdateVaultRequest) (*model.Vault, error)
+	UpdateVault(ctx context.Context, name string, req model.UpdateVaultRequest, updatedBy uuid.UUID) (*model.Vault, error)
 	DeleteVault(ctx context.Context, name string) error
 	RecoverVault(ctx context.Context, name string) error
 	PurgeVault(ctx context.Context, name string) error
@@ -53,12 +53,16 @@ func (s *vaultService) CreateVault(ctx context.Context, req model.CreateVaultReq
 	if err := model.ValidateVaultName(req.Name); err != nil {
 		return nil, err
 	}
+	if err := model.ValidateVaultTags(req.Tags); err != nil {
+		return nil, err
+	}
 
 	v := &model.Vault{
 		ID:            uuid.New(),
 		Name:          req.Name,
 		Enabled:       true,
 		RetentionDays: defaultRetentionDays,
+		Tags:          req.Tags,
 		CreatedBy:     createdBy,
 		CreatedAt:     time.Now(),
 	}
@@ -112,7 +116,7 @@ func (s *vaultService) ListVaults(ctx context.Context, includeDeleted bool) ([]m
 }
 
 // UpdateVault applies the non-nil request overrides to an active vault and persists it.
-func (s *vaultService) UpdateVault(ctx context.Context, name string, req model.UpdateVaultRequest) (*model.Vault, error) {
+func (s *vaultService) UpdateVault(ctx context.Context, name string, req model.UpdateVaultRequest, updatedBy uuid.UUID) (*model.Vault, error) {
 	v, err := s.getByName(ctx, name)
 	if err != nil {
 		return nil, err
@@ -126,11 +130,20 @@ func (s *vaultService) UpdateVault(ctx context.Context, name string, req model.U
 	if req.RetentionDays != nil {
 		v.RetentionDays = *req.RetentionDays
 	}
+	if req.Tags != nil {
+		if err := model.ValidateVaultTags(*req.Tags); err != nil {
+			return nil, err
+		}
+		v.Tags = *req.Tags
+	}
+	if updatedBy != uuid.Nil {
+		v.UpdatedBy = &updatedBy
+	}
 	if err := s.repo.Update(ctx, v); err != nil {
 		return nil, fmt.Errorf("update vault: %w", err)
 	}
 	if s.log != nil {
-		s.log.LogAuditInfo("", "update_vault", "success", fmt.Sprintf("Vault updated: %s", v.Name))
+		s.log.LogAuditInfo(updatedBy.String(), "update_vault", "success", fmt.Sprintf("Vault updated: %s", v.Name))
 	}
 	return v, nil
 }
