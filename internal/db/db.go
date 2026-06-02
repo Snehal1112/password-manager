@@ -606,10 +606,10 @@ func (d *DBRepository) createOptimizedSchema(db *sql.DB) error {
 			value TEXT NOT NULL
 		);
 
-		CREATE INDEX IF NOT EXISTS idx_audit_logs_outcome ON audit_logs(outcome);
-		CREATE INDEX IF NOT EXISTS idx_audit_logs_resource ON audit_logs(resource_type, resource_id);
-		CREATE INDEX IF NOT EXISTS idx_audit_logs_source ON audit_logs(source);
-
+		-- Indexes on the enriched audit_logs columns (outcome, resource_type,
+		-- resource_id, source) are created in migrateSchema, after the ALTER TABLE
+		-- statements that add those columns to pre-existing databases. Creating them
+		-- here would fail on upgraded DBs where the columns do not yet exist.
 	`)
 	if err != nil {
 		d.log.Error("Failed to create tables: ", err)
@@ -708,6 +708,11 @@ func (d *DBRepository) migrateSchema(db *sql.DB) error {
 		"ALTER TABLE audit_logs ADD COLUMN outcome TEXT",
 		"ALTER TABLE audit_logs ADD COLUMN source TEXT",
 		"ALTER TABLE audit_logs ADD COLUMN prev_hash TEXT",
+		// Indexes on the enriched audit_logs columns. These must run AFTER the
+		// ALTER TABLE statements above so the columns exist on upgraded databases.
+		"CREATE INDEX IF NOT EXISTS idx_audit_logs_outcome ON audit_logs(outcome)",
+		"CREATE INDEX IF NOT EXISTS idx_audit_logs_resource ON audit_logs(resource_type, resource_id)",
+		"CREATE INDEX IF NOT EXISTS idx_audit_logs_source ON audit_logs(source)",
 		// Feature: audit configuration table (idempotent — IF NOT EXISTS prevents errors)
 		"CREATE TABLE IF NOT EXISTS audit_config (key TEXT PRIMARY KEY, value TEXT NOT NULL)",
 		// Multi-vault: vaults table and vault_id scoping columns.
