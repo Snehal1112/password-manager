@@ -5,6 +5,7 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/spf13/cobra"
 
 	"rocketvault/common"
@@ -44,7 +45,8 @@ var updateCmd = &cobra.Command{
 			req.RetentionDays = &rd
 		}
 
-		vault, err := vaultService.UpdateVault(ctx, name, req)
+		// The CLI has no authenticated user context, so updated_by is left unset.
+		vault, err := vaultService.UpdateVault(ctx, name, req, uuid.Nil)
 		if err != nil {
 			return fmt.Errorf("failed to update vault %q: %w", name, err)
 		}
