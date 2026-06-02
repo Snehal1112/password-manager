@@ -144,7 +144,7 @@ func TestVaultsUpdate(t *testing.T) {
 	updated := &model.Vault{ID: uuid.New(), Name: "my-vault", Enabled: false, RetentionDays: 90}
 	tc.MockVaultService.On("UpdateVault", mock.Anything, "my-vault", mock.MatchedBy(func(r model.UpdateVaultRequest) bool {
 		return r.Enabled != nil && !*r.Enabled
-	})).Return(updated, nil)
+	}), uuid.Nil).Return(updated, nil)
 
 	cmd := &cobra.Command{Use: "update", Args: updateCmd.Args, RunE: updateCmd.RunE}
 	cmd.Flags().Bool("enabled", true, "")
