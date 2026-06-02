@@ -97,6 +97,11 @@ rocketvault/
 - Vault-scoped resources, per-vault access policies, default-vault migration
 - Known deferrals (secondary subsystems, keys/certs CLI, subdomain addressing)
 
+### 🔵 [Azure Key Vault Feature Parity](.claude/azure-keyvault-parity.md)
+- Feature-by-feature comparison (secrets, keys, certs, RBAC, soft-delete, HSM, audit)
+- Parity status per capability with code and Azure-doc sources
+- RocketVault extras and intentional gaps vs Azure Key Vault
+
 ### 🗄️ [Database Init Patterns](.claude/database-init-patterns.md)
 - `InitializeDB()` hook order and extension points
 - `seedBootstrapToken()` — why it exists and how it works

@@ -20,6 +20,7 @@ each section builds on the previous one.
 10. [Keys](#10-keys)
 11. [Certificates](#11-certificates)
 12. [Soft Delete and Purge](#12-soft-delete-and-purge)
+12.5. [Multi-Vault](#125-multi-vault)
 13. [Access Policies](#13-access-policies)
 14. [OAuth2 / Service Accounts](#14-oauth2--service-accounts)
 15. [Key Source Providers (JWT Signing)](#15-key-source-providers-jwt-signing)
@@ -753,6 +754,216 @@ curl -s -X DELETE $BASE/api/v1/deleted/certificates/$CERT_ID/purge \
 
 ---
 
+## 12.5. Multi-Vault
+
+RocketVault groups resources into **vaults** (Azure Key Vault parity). Every secret,
+key, and certificate lives in exactly one vault. A single built-in **default vault**
+(name `default`, fixed UUID `00000000-0000-0000-0000-00000000efa1`) holds everything
+created through the legacy flat routes from Sections 8–11.
+
+Two route families exist for resources, and they have **different visibility rules**:
+
+| Route family | Example | Visibility |
+|--------------|---------|------------|
+| Legacy flat | `GET /api/v1/secrets` | Per-user — caller sees only secrets they own |
+| Vault-scoped | `GET /api/v1/vaults/{vault_name}/secrets` | Members see all — any authorized caller sees every secret in the vault |
+
+The discriminator is simply whether the route carries a `{vault_name}` path segment.
+Vault names must be **3–63 lowercase alphanumerics or hyphens, with no leading or
+trailing hyphen** (e.g. `team-alpha`, not `va` or `-alpha`).
+
+> **Permissions:** Vault *management* (create/list/update/delete vaults) requires the
+> `vaults:manage` permission — **admin only**. Vault-scoped *resource* routes require
+> the same permission as their flat equivalent, so a `user` can read and list secrets
+> in a vault but not create, update, or delete them.
+
+### Create a vault
+
+Only `name` is required. `enabled`, `purge_protection`, and `retention_days` are optional.
+
+```bash
+curl -s -X POST $BASE/api/v1/vaults \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"name": "team-alpha", "enabled": true}' | jq .
+```
+
+Expected: vault object with `id`, `name`, `enabled`, `created_at`.
+
+### List vaults
+
+```bash
+curl -s $BASE/api/v1/vaults \
+  -H "Authorization: Bearer $TOKEN" | jq .
+
+# Include soft-deleted vaults
+curl -s "$BASE/api/v1/vaults?include_deleted=true" \
+  -H "Authorization: Bearer $TOKEN" | jq .
+```
+
+### Get a vault
+
+```bash
+curl -s $BASE/api/v1/vaults/team-alpha \
+  -H "Authorization: Bearer $TOKEN" | jq .
+```
+
+### Update a vault
+
+All fields are optional; omitted fields are left unchanged.
+
+```bash
+curl -s -X PATCH $BASE/api/v1/vaults/team-alpha \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"purge_protection": true, "retention_days": 7}' | jq .
+```
+
+### Delete a vault (soft delete)
+
+```bash
+curl -s -i -X DELETE $BASE/api/v1/vaults/team-alpha \
+  -H "Authorization: Bearer $TOKEN"
+# Expected: 204 No Content
+```
+
+The `default` vault cannot be deleted:
+
+```bash
+curl -s -i -X DELETE $BASE/api/v1/vaults/default \
+  -H "Authorization: Bearer $TOKEN"
+# Expected: 400 Bad Request
+```
+
+### Create and read secrets inside a vault
+
+The vault-scoped resource routes mirror the flat secret routes from Section 8, with a
+`/vaults/{vault_name}` prefix.
+
+```bash
+# (re)create team-alpha first if you deleted it above
+curl -s -X POST $BASE/api/v1/vaults \
+  -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+  -d '{"name":"team-alpha","enabled":true}' >/dev/null
+
+VAULT_SECRET_ID=$(curl -s -X POST $BASE/api/v1/vaults/team-alpha/secrets \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"name": "shared-db-password", "value": "vaultsecret123"}' | jq -r .id)
+
+curl -s $BASE/api/v1/vaults/team-alpha/secrets \
+  -H "Authorization: Bearer $TOKEN" | jq .
+
+curl -s $BASE/api/v1/vaults/team-alpha/secrets/$VAULT_SECRET_ID \
+  -H "Authorization: Bearer $TOKEN" | jq .
+```
+
+The same prefix works for `PUT` (update) and `DELETE` (soft-delete) on
+`/api/v1/vaults/{vault_name}/secrets/{id}`, and for keys and certificates at
+`/api/v1/vaults/{vault_name}/keys` and `/api/v1/vaults/{vault_name}/certificates`.
+
+### Demonstrate "members see all" vs per-user visibility
+
+This is the core multi-vault behavior. Create a second, non-admin user, then compare
+what they see through the flat route versus the vault-scoped route.
+
+```bash
+# 1. Admin creates a second user (save bob's totp_secret from the response).
+curl -s -X POST $BASE/api/v1/users \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"username":"bob","password":"bobpassword123","role":"user"}' | jq .
+
+# 2. Log bob in (mint his TOTP from his secret — see Section 4 for oathtool).
+BOB_TOTP=$(oathtool --totp --base32 "BOBS_TOTP_SECRET_HERE")
+BOB_TOKEN=$(curl -s -X POST $BASE/api/v1/users/login \
+  -H "Content-Type: application/json" \
+  -d "{\"username\":\"bob\",\"password\":\"bobpassword123\",\"totp_code\":\"$BOB_TOTP\"}" \
+  | jq -r .token)
+
+# 3. Admin creates a secret in the DEFAULT vault via the flat route (owned by admin).
+curl -s -X POST $BASE/api/v1/secrets \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"name":"admin-secret","value":"s3cr3t"}' >/dev/null
+
+# 4. Bob on the FLAT route — per-user visibility, does NOT see admin's secret.
+curl -s $BASE/api/v1/secrets \
+  -H "Authorization: Bearer $BOB_TOKEN" | jq .total
+# Expected: 0
+
+# 5. Bob on the VAULT-SCOPED default route — members-see-all, sees every secret.
+curl -s $BASE/api/v1/vaults/default/secrets \
+  -H "Authorization: Bearer $BOB_TOKEN" | jq .total
+# Expected: >= 1
+```
+
+### Vault-scoped soft-delete (restore / purge)
+
+On vault-scoped routes, restore and purge authorize by **vault membership**, not by
+who originally owned the secret — so any authorized member can restore a secret another
+user soft-deleted. (The flat `/deleted/secrets/...` routes from Section 12 keep the
+original per-user ownership check.)
+
+```bash
+SID=$(curl -s -X POST $BASE/api/v1/vaults/default/secrets \
+  -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+  -d '{"name":"to-delete","value":"x"}' | jq -r .id)
+
+curl -s -X DELETE $BASE/api/v1/vaults/default/secrets/$SID \
+  -H "Authorization: Bearer $TOKEN" >/dev/null
+
+# List soft-deleted secrets in the vault
+curl -s $BASE/api/v1/vaults/default/deleted/secrets \
+  -H "Authorization: Bearer $TOKEN" | jq .
+
+# Restore it
+curl -s -X POST $BASE/api/v1/vaults/default/deleted/secrets/$SID/restore \
+  -H "Authorization: Bearer $TOKEN" | jq .
+
+# Or purge it permanently
+curl -s -X DELETE $BASE/api/v1/vaults/default/deleted/secrets/$SID/purge \
+  -H "Authorization: Bearer $TOKEN" | jq .
+```
+
+> **Deferral:** key and certificate restore/purge are intentionally exposed only on the
+> flat `/api/v1/deleted/keys/...` and `/api/v1/deleted/certificates/...` routes (still
+> user-scoped), not as vault-scoped routes.
+
+### Status codes on vault-scoped routes
+
+The handlers distinguish not-found, forbidden, and server errors. Verify with the HTTP
+status code only:
+
+```bash
+# Unknown secret in a valid vault → 404 (GET and DELETE)
+curl -s -o /dev/null -w "%{http_code}\n" \
+  $BASE/api/v1/vaults/default/secrets/00000000-0000-0000-0000-000000000000 \
+  -H "Authorization: Bearer $TOKEN"
+# Expected: 404
+curl -s -o /dev/null -w "%{http_code}\n" -X DELETE \
+  $BASE/api/v1/vaults/default/secrets/00000000-0000-0000-0000-000000000000 \
+  -H "Authorization: Bearer $TOKEN"
+# Expected: 404
+
+# Unknown vault → 404
+curl -s -o /dev/null -w "%{http_code}\n" \
+  $BASE/api/v1/vaults/no-such-vault/secrets \
+  -H "Authorization: Bearer $TOKEN"
+# Expected: 404
+
+# Disabled vault → 403 on its resource routes
+curl -s -X PATCH $BASE/api/v1/vaults/team-alpha \
+  -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+  -d '{"enabled":false}' >/dev/null
+curl -s -o /dev/null -w "%{http_code}\n" \
+  $BASE/api/v1/vaults/team-alpha/secrets \
+  -H "Authorization: Bearer $TOKEN"
+# Expected: 403
+```
+
+---
+
 ## 13. Access Policies
 
 Access policies control which users or service accounts can access which resources.
@@ -817,6 +1028,59 @@ curl -s -X DELETE $BASE/api/v1/access-policies/$POLICY_ID \
 
 Service accounts allow non-human callers (CI pipelines, other services) to authenticate
 via OAuth2 client credentials without a TOTP code.
+
+### When to use a service account
+
+A service account is a **machine identity** — RocketVault's equivalent of an Azure Key
+Vault service principal. Reach for one whenever an **application or automation (not a
+person)** needs to **read preserved secrets**:
+
+| Scenario | Why a service account fits |
+|----------|----------------------------|
+| CI/CD pipeline pulling deploy credentials, API keys, DB passwords | No human present; cannot enter a TOTP code. |
+| Application at runtime fetching its DB connection string / API keys | Avoids hardcoding secrets in code or config files. |
+| Microservice → microservice shared secret or signing key | First-class principal, independently revocable. |
+| Scheduled jobs / cron / batch workers | Long-running automation with its own scoped identity. |
+| Per-app / per-environment isolation | e.g. `ci-prod`, `ci-staging`, `app-billing` — each scoped and revoked separately. |
+
+### What a service account can and cannot do
+
+Service accounts are **read-only consumers** (Azure Key Vault model). By RBAC they hold
+only `read`/`list` on secrets, keys, and certificates — never create, update, or delete.
+
+- **Use** a service account to *retrieve* secrets that an admin has stored.
+- **Do not** use one to author or manage secrets, keys, vaults, users, or other service
+  accounts — those are admin (or manager-role) operations.
+
+### How service accounts store and preserve secrets
+
+A service account does **not** store secrets itself (it cannot write). It is the
+least-privilege identity by which automation *retrieves* secrets that live encrypted
+inside RocketVault. The flow is:
+
+1. An **admin stores the secret** in RocketVault (encrypted at rest, AES-256-GCM).
+2. An **admin grants the service account read access** via an access policy (the service
+   account is a first-class principal in the `access_policies` table).
+3. The **application retrieves the secret at runtime** using its OAuth2 token — so the
+   secret is never embedded in application code or config.
+
+"Preserve" therefore means: the secret stays encrypted in the vault, and the service
+account is the **revocable, rotatable, auditable** identity that fetches it on demand.
+
+Preservation guarantees:
+
+| Property | Mechanism |
+|----------|-----------|
+| Secret not recoverable after creation | `client_secret` is hashed and returned only once. |
+| Instant revocation | Deleting or disabling the account invalidates all live tokens immediately (the client ID is the token `jti`, re-checked on every request). |
+| Rotatable | `POST /service-accounts/{id}/rotate` issues a new secret and invalidates the old one. |
+| Expirable | Optional `expires_at`; an expired account cannot mint tokens. |
+| Short-lived tokens | Access tokens carry `expires_in`, limiting the blast radius of a leak. |
+| Least privilege | Read-only by role; sees only resources granted by an explicit access policy. |
+| Auditable | All access is recorded in the hash-chained audit log under the service-account principal. |
+
+The end-to-end sequence below (create account → exchange credentials → grant a policy →
+retrieve the secret) demonstrates each of these steps.
 
 ### Create a service account
 
@@ -1309,6 +1573,19 @@ go run main.go backup restore --file /path/to/backup.json \
 | GET | `/api/v1/users/{id}` | JWT | Get user |
 | PUT | `/api/v1/users/{id}` | JWT (admin) | Update user |
 | DELETE | `/api/v1/users/{id}` | JWT (admin) | Delete user |
+| POST | `/api/v1/vaults` | JWT (admin) | Create vault |
+| GET | `/api/v1/vaults` | JWT (admin) | List vaults (`?include_deleted=true`) |
+| GET | `/api/v1/vaults/{name}` | JWT (admin) | Get vault |
+| PATCH | `/api/v1/vaults/{name}` | JWT (admin) | Update vault |
+| DELETE | `/api/v1/vaults/{name}` | JWT (admin) | Soft-delete vault (204; refuses `default`) |
+| POST | `/api/v1/vaults/{vault_name}/secrets` | JWT | Create secret in vault |
+| GET | `/api/v1/vaults/{vault_name}/secrets` | JWT | List vault secrets (members see all) |
+| GET | `/api/v1/vaults/{vault_name}/secrets/{id}` | JWT | Get vault secret |
+| PUT | `/api/v1/vaults/{vault_name}/secrets/{id}` | JWT | Update vault secret |
+| DELETE | `/api/v1/vaults/{vault_name}/secrets/{id}` | JWT | Soft-delete vault secret |
+| GET | `/api/v1/vaults/{vault_name}/deleted/secrets` | JWT | List soft-deleted vault secrets |
+| POST | `/api/v1/vaults/{vault_name}/deleted/secrets/{id}/restore` | JWT | Restore vault secret (by vault membership) |
+| DELETE | `/api/v1/vaults/{vault_name}/deleted/secrets/{id}/purge` | JWT | Purge vault secret |
 | POST | `/api/v1/secrets` | JWT | Create secret |
 | GET | `/api/v1/secrets` | JWT | List secrets |
 | GET | `/api/v1/secrets/{id}` | JWT | Get secret |
