@@ -311,7 +311,10 @@ func (d *DBRepository) createOptimizedSchema(db *sql.DB) error {
 			created_by         TEXT NOT NULL,
 			created_at         TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
 			deleted_at         TIMESTAMP NULL,
-			scheduled_purge_at TIMESTAMP NULL
+			scheduled_purge_at TIMESTAMP NULL,
+			tags               TEXT NOT NULL DEFAULT '{}',
+			updated_at         TIMESTAMP NULL,
+			updated_by         TEXT NULL
 		);
 		CREATE INDEX IF NOT EXISTS idx_vaults_name ON vaults(name);
 
@@ -730,6 +733,11 @@ func (d *DBRepository) migrateSchema(db *sql.DB) error {
 			scheduled_purge_at TIMESTAMP NULL
 		)`,
 		"CREATE INDEX IF NOT EXISTS idx_vaults_name ON vaults(name)",
+		// Vault tags + modification tracking (Azure parity). Tags stored as a JSON
+		// object; (de)serialization is confined to vault_repository.go.
+		"ALTER TABLE vaults ADD COLUMN tags TEXT NOT NULL DEFAULT '{}'",
+		"ALTER TABLE vaults ADD COLUMN updated_at TIMESTAMP NULL",
+		"ALTER TABLE vaults ADD COLUMN updated_by TEXT NULL",
 		"ALTER TABLE secrets ADD COLUMN vault_id TEXT NOT NULL DEFAULT '00000000-0000-0000-0000-00000000efa1'",
 		"ALTER TABLE keys ADD COLUMN vault_id TEXT NOT NULL DEFAULT '00000000-0000-0000-0000-00000000efa1'",
 		"ALTER TABLE certificates ADD COLUMN vault_id TEXT NOT NULL DEFAULT '00000000-0000-0000-0000-00000000efa1'",
