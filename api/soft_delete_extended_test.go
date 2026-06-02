@@ -12,9 +12,11 @@ import (
 
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/google/uuid"
+	"github.com/gorilla/mux"
 	"github.com/stretchr/testify/assert"
 
 	"rocketvault/app"
+	"rocketvault/common"
 	"rocketvault/internal/backup"
 	"rocketvault/internal/cache"
 	"rocketvault/internal/crypto"
@@ -48,6 +50,15 @@ type stubSecretRepo struct {
 	listDeletedErr error
 	recoverErr     error
 	purgeErr       error
+
+	// vaultDeleted, when non-nil, is returned by ListInVaultIncludeDeleted so
+	// tests can distinguish the vault-scoped authorization branch from the
+	// user-scoped one. When nil the method falls back to listDeleted.
+	vaultDeleted    []model.Secret
+	vaultDeletedSet bool
+	// Records which authorization branch the handler exercised.
+	userListCalled  bool
+	vaultListCalled bool
 }
 
 func (s *stubSecretRepo) Create(_ context.Context, _ *model.Secret) error {
@@ -75,6 +86,7 @@ func (s *stubSecretRepo) ListByUser(_ context.Context, _ uuid.UUID, _ []string) 
 	panic("unexpected call: ListByUser")
 }
 func (s *stubSecretRepo) ListByUserIncludeDeleted(_ context.Context, _ uuid.UUID, _ []string) ([]model.Secret, error) {
+	s.userListCalled = true
 	return s.listDeleted, s.listDeletedErr
 }
 func (s *stubSecretRepo) ExportSecrets(_ context.Context, _ model.ExportOptions) ([]byte, error) {
@@ -102,6 +114,10 @@ func (s *stubSecretRepo) ListInVault(_ context.Context, _ uuid.UUID, _ []string)
 	panic("unexpected call: ListInVault")
 }
 func (s *stubSecretRepo) ListInVaultIncludeDeleted(_ context.Context, _ uuid.UUID, _ []string) ([]model.Secret, error) {
+	s.vaultListCalled = true
+	if s.vaultDeletedSet {
+		return s.vaultDeleted, s.listDeletedErr
+	}
 	return s.listDeleted, s.listDeletedErr
 }
 func (s *stubSecretRepo) SoftDeleteVaultContents(_ context.Context, _ uuid.UUID, _ time.Time) error {
@@ -463,6 +479,16 @@ func newCertRepoCtx(repo repositories.CertificateRepositoryInterface) *Context {
 	}
 }
 
+// newVaultScopedRequest builds a request that looks like it was served by a
+// vault-scoped route: it carries the "vault_name" mux var (so
+// isVaultScopedRoute is true) and the resolved vault id in the request context.
+func newVaultScopedRequest(method, target, vaultName string, vaultID uuid.UUID) *http.Request {
+	r := httptest.NewRequest(method, target, nil)
+	r = mux.SetURLVars(r, map[string]string{"vault_name": vaultName})
+	ctx := context.WithValue(r.Context(), common.VaultIDKey, vaultID.String())
+	return r.WithContext(ctx)
+}
+
 // ============================================================
 // userIDFromClaims
 // ============================================================
@@ -597,6 +623,98 @@ func TestRecoverSecret_Success_Returns200(t *testing.T) {
 	assert.Equal(t, http.StatusOK, w.Code)
 }
 
+// TestRecoverSecret_VaultScoped_OtherUsersSecret_Returns200 verifies that on a
+// vault-scoped route, vault membership is sufficient: a secret that belongs to
+// the vault but to a DIFFERENT user is recoverable. The user-scoped branch
+// would 404 here because s.UserID != caller.
+func TestRecoverSecret_VaultScoped_OtherUsersSecret_Returns200(t *testing.T) {
+	secretID := uuid.New()
+	otherUser := uuid.New() // deliberately not sdExtUserID
+	vaultID := uuid.New()
+	now := time.Now()
+	repo := &stubSecretRepo{
+		// User-scoped listing is empty: if the wrong branch runs, we get 404.
+		listDeleted:     []model.Secret{},
+		vaultDeletedSet: true,
+		vaultDeleted: []model.Secret{
+			{ID: secretID, UserID: otherUser, Name: "s", DeletedAt: &now},
+		},
+	}
+	c := newSecretRepoCtx(repo)
+	c.Params = &ApiParams{SecretID: secretID.String(), PerPage: 60}
+	w := httptest.NewRecorder()
+	r := newVaultScopedRequest(http.MethodPost,
+		"/vaults/prod/deleted/secrets/"+secretID.String()+"/restore", "prod", vaultID)
+
+	recoverSecret(c, w, r)
+	if c.Err != nil {
+		writeError(w, c)
+	}
+
+	assert.Equal(t, http.StatusOK, w.Code)
+	assert.True(t, repo.vaultListCalled, "vault-scoped route must verify via ListInVaultIncludeDeleted")
+	assert.False(t, repo.userListCalled, "vault-scoped route must NOT fall back to user-ownership check")
+}
+
+// TestRecoverSecret_VaultScoped_SecretNotInVault_Returns404 verifies that a
+// secret absent from the resolved vault is not recoverable, even though it
+// would be visible to the caller via user-ownership.
+func TestRecoverSecret_VaultScoped_SecretNotInVault_Returns404(t *testing.T) {
+	secretID := uuid.New()
+	userID := uuid.MustParse(sdExtUserID)
+	vaultID := uuid.New()
+	now := time.Now()
+	repo := &stubSecretRepo{
+		// The caller owns the secret (user-scoped would pass)...
+		listDeleted: []model.Secret{
+			{ID: secretID, UserID: userID, Name: "s", DeletedAt: &now},
+		},
+		// ...but it is not present in the vault.
+		vaultDeletedSet: true,
+		vaultDeleted:    []model.Secret{},
+	}
+	c := newSecretRepoCtx(repo)
+	c.Params = &ApiParams{SecretID: secretID.String(), PerPage: 60}
+	w := httptest.NewRecorder()
+	r := newVaultScopedRequest(http.MethodPost,
+		"/vaults/prod/deleted/secrets/"+secretID.String()+"/restore", "prod", vaultID)
+
+	recoverSecret(c, w, r)
+	if c.Err != nil {
+		writeError(w, c)
+	}
+
+	assert.Equal(t, http.StatusNotFound, w.Code)
+	assert.True(t, repo.vaultListCalled, "vault-scoped route must verify via ListInVaultIncludeDeleted")
+	assert.False(t, repo.userListCalled, "vault-scoped route must NOT fall back to user-ownership check")
+}
+
+// TestRecoverSecret_VaultScoped_NotSoftDeleted_Returns404 verifies that a row
+// present in the vault but NOT soft-deleted (DeletedAt == nil) is not
+// recoverable, guarding against recovering a live secret.
+func TestRecoverSecret_VaultScoped_NotSoftDeleted_Returns404(t *testing.T) {
+	secretID := uuid.New()
+	vaultID := uuid.New()
+	repo := &stubSecretRepo{
+		vaultDeletedSet: true,
+		vaultDeleted: []model.Secret{
+			{ID: secretID, UserID: uuid.New(), Name: "s", DeletedAt: nil},
+		},
+	}
+	c := newSecretRepoCtx(repo)
+	c.Params = &ApiParams{SecretID: secretID.String(), PerPage: 60}
+	w := httptest.NewRecorder()
+	r := newVaultScopedRequest(http.MethodPost,
+		"/vaults/prod/deleted/secrets/"+secretID.String()+"/restore", "prod", vaultID)
+
+	recoverSecret(c, w, r)
+	if c.Err != nil {
+		writeError(w, c)
+	}
+
+	assert.Equal(t, http.StatusNotFound, w.Code)
+}
+
 // ============================================================
 // purgeSecret
 // ============================================================
@@ -652,6 +770,66 @@ func TestPurgeSecret_Success_Returns200(t *testing.T) {
 	}
 
 	assert.Equal(t, http.StatusOK, w.Code)
+}
+
+// TestPurgeSecret_VaultScoped_OtherUsersSecret_Returns200 verifies vault
+// membership is sufficient to purge a soft-deleted secret owned by another user.
+func TestPurgeSecret_VaultScoped_OtherUsersSecret_Returns200(t *testing.T) {
+	secretID := uuid.New()
+	otherUser := uuid.New()
+	vaultID := uuid.New()
+	now := time.Now()
+	repo := &stubSecretRepo{
+		listDeleted:     []model.Secret{},
+		vaultDeletedSet: true,
+		vaultDeleted: []model.Secret{
+			{ID: secretID, UserID: otherUser, Name: "s", DeletedAt: &now},
+		},
+	}
+	c := newSecretRepoCtx(repo)
+	c.Params = &ApiParams{SecretID: secretID.String(), PerPage: 60}
+	w := httptest.NewRecorder()
+	r := newVaultScopedRequest(http.MethodDelete,
+		"/vaults/prod/deleted/secrets/"+secretID.String()+"/purge", "prod", vaultID)
+
+	purgeSecret(c, w, r)
+	if c.Err != nil {
+		writeError(w, c)
+	}
+
+	assert.Equal(t, http.StatusOK, w.Code)
+	assert.True(t, repo.vaultListCalled, "vault-scoped route must verify via ListInVaultIncludeDeleted")
+	assert.False(t, repo.userListCalled, "vault-scoped route must NOT fall back to user-ownership check")
+}
+
+// TestPurgeSecret_VaultScoped_SecretNotInVault_Returns404 verifies a secret
+// absent from the resolved vault cannot be purged even if the caller owns it.
+func TestPurgeSecret_VaultScoped_SecretNotInVault_Returns404(t *testing.T) {
+	secretID := uuid.New()
+	userID := uuid.MustParse(sdExtUserID)
+	vaultID := uuid.New()
+	now := time.Now()
+	repo := &stubSecretRepo{
+		listDeleted: []model.Secret{
+			{ID: secretID, UserID: userID, Name: "s", DeletedAt: &now},
+		},
+		vaultDeletedSet: true,
+		vaultDeleted:    []model.Secret{},
+	}
+	c := newSecretRepoCtx(repo)
+	c.Params = &ApiParams{SecretID: secretID.String(), PerPage: 60}
+	w := httptest.NewRecorder()
+	r := newVaultScopedRequest(http.MethodDelete,
+		"/vaults/prod/deleted/secrets/"+secretID.String()+"/purge", "prod", vaultID)
+
+	purgeSecret(c, w, r)
+	if c.Err != nil {
+		writeError(w, c)
+	}
+
+	assert.Equal(t, http.StatusNotFound, w.Code)
+	assert.True(t, repo.vaultListCalled, "vault-scoped route must verify via ListInVaultIncludeDeleted")
+	assert.False(t, repo.userListCalled, "vault-scoped route must NOT fall back to user-ownership check")
 }
 
 // ============================================================
