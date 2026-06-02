@@ -139,14 +139,29 @@ func updateVault(c *Context, w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Read the acting user ID from claims. Absence is not fatal here; we fall
+	// back to the nil UUID so callers without a parseable claim still succeed.
+	var updatedBy uuid.UUID
+	if userIDStr, ok := c.Claims["user_id"].(string); ok {
+		if parsed, perr := uuid.Parse(userIDStr); perr == nil {
+			updatedBy = parsed
+		}
+	}
+
 	svc := c.vaultSvc()
 	if svc == nil {
 		return
 	}
 
-	vault, err := svc.UpdateVault(r.Context(), name, *req)
+	vault, err := svc.UpdateVault(r.Context(), name, *req, updatedBy)
 	if err != nil {
-		c.SetNotFound("vault")
+		// The not-found sentinel maps to 404; validation and other failures are
+		// client errors.
+		if errors.Is(err, vaultServices.ErrVaultNotFound) {
+			c.SetNotFound("vault")
+			return
+		}
+		c.SetInvalidParam(err.Error())
 		return
 	}
 
