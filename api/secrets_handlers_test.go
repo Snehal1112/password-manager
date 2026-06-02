@@ -362,7 +362,8 @@ func TestCreateSecret_Success_Returns201(t *testing.T) {
 
 func TestListSecrets_ServiceError_Returns500(t *testing.T) {
 	svc := &mockSecretService{}
-	svc.On("ListSecretsInVault", mock.Anything, mock.Anything, mock.Anything).Return([]model.Secret{}, errors.New("db error"))
+	// Legacy flat route (no vault_name) uses per-user visibility via ListSecrets.
+	svc.On("ListSecrets", mock.Anything, uuid.MustParse(secretHTestUserID), mock.Anything).Return([]model.Secret{}, errors.New("db error"))
 
 	c := newSecretCtx(svc)
 	w := httptest.NewRecorder()
@@ -380,7 +381,8 @@ func TestListSecrets_ServiceError_Returns500(t *testing.T) {
 func TestListSecrets_Success_Returns200(t *testing.T) {
 	secretID := uuid.New()
 	svc := &mockSecretService{}
-	svc.On("ListSecretsInVault", mock.Anything, mock.Anything, mock.Anything).Return([]model.Secret{*makeSecretModel(secretID)}, nil)
+	// Legacy flat route (no vault_name) uses per-user visibility via ListSecrets.
+	svc.On("ListSecrets", mock.Anything, uuid.MustParse(secretHTestUserID), mock.Anything).Return([]model.Secret{*makeSecretModel(secretID)}, nil)
 
 	c := newSecretCtx(svc)
 	w := httptest.NewRecorder()
@@ -416,7 +418,8 @@ func TestGetSecret_InvalidSecretID_Returns400(t *testing.T) {
 func TestGetSecret_NotFound_Returns404(t *testing.T) {
 	secretID := uuid.New()
 	svc := &mockSecretService{}
-	svc.On("GetSecretInVault", mock.Anything, secretID, mock.Anything).Return(nil, errors.New("not found"))
+	// Legacy flat route (no vault_name) uses per-user visibility via GetSecret.
+	svc.On("GetSecret", mock.Anything, secretID, uuid.MustParse(secretHTestUserID)).Return(nil, errors.New("not found"))
 
 	c := newSecretCtx(svc)
 	c.Params = &ApiParams{SecretID: secretID.String(), PerPage: 60}
@@ -435,7 +438,8 @@ func TestGetSecret_NotFound_Returns404(t *testing.T) {
 func TestGetSecret_Success_Returns200(t *testing.T) {
 	secretID := uuid.New()
 	svc := &mockSecretService{}
-	svc.On("GetSecretInVault", mock.Anything, secretID, mock.Anything).Return(makeSecretModel(secretID), nil)
+	// Legacy flat route (no vault_name) uses per-user visibility via GetSecret.
+	svc.On("GetSecret", mock.Anything, secretID, uuid.MustParse(secretHTestUserID)).Return(makeSecretModel(secretID), nil)
 
 	c := newSecretCtx(svc)
 	c.Params = &ApiParams{SecretID: secretID.String(), PerPage: 60}

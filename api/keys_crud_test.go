@@ -425,7 +425,8 @@ func TestCreateKey_InvalidECDSACurve_Returns400(t *testing.T) {
 
 func TestListKeys_ServiceError_Returns500(t *testing.T) {
 	svc := &mockKeyService{}
-	svc.On("ListKeysInVault", mock.Anything, mock.Anything, mock.Anything, mock.Anything).
+	// Legacy flat route (no vault_name) uses per-user visibility via ListKeys.
+	svc.On("ListKeys", mock.Anything, uuid.MustParse(keyTestUserID)).
 		Return([]model.Key{}, errors.New("db error"))
 
 	c := newKeyCtx(svc)
@@ -444,7 +445,8 @@ func TestListKeys_ServiceError_Returns500(t *testing.T) {
 func TestListKeys_Success_Returns200(t *testing.T) {
 	keyID := uuid.New()
 	svc := &mockKeyService{}
-	svc.On("ListKeysInVault", mock.Anything, mock.Anything, mock.Anything, mock.Anything).
+	// Legacy flat route (no vault_name) uses per-user visibility via ListKeys.
+	svc.On("ListKeys", mock.Anything, uuid.MustParse(keyTestUserID)).
 		Return([]model.Key{*makeKeyModel(keyID)}, nil)
 
 	c := newKeyCtx(svc)
@@ -481,8 +483,9 @@ func TestGetKey_InvalidKeyID_Returns400(t *testing.T) {
 func TestGetKey_NotFound_Returns404(t *testing.T) {
 	keyID := uuid.New()
 	svc := &mockKeyService{}
-	svc.On("GetKeyInVault", mock.Anything, keyID, mock.Anything).Return(nil, errors.New("not found"))
-	// Vault-scoped lookup fails, so the handler returns 404.
+	// Legacy flat route (no vault_name) uses per-user visibility via GetKey.
+	svc.On("GetKey", mock.Anything, keyID, uuid.MustParse(keyTestUserID)).Return(nil, errors.New("not found"))
+	// User-scoped lookup fails, so the handler returns 404.
 
 	c := newKeyCtx(svc)
 	c.Claims = jwt.MapClaims{"role": string(model.RoleUser), "user_id": keyTestUserID}
@@ -502,7 +505,8 @@ func TestGetKey_NotFound_Returns404(t *testing.T) {
 func TestGetKey_Success_Returns200(t *testing.T) {
 	keyID := uuid.New()
 	svc := &mockKeyService{}
-	svc.On("GetKeyInVault", mock.Anything, keyID, mock.Anything).Return(makeKeyModel(keyID), nil)
+	// Legacy flat route (no vault_name) uses per-user visibility via GetKey.
+	svc.On("GetKey", mock.Anything, keyID, uuid.MustParse(keyTestUserID)).Return(makeKeyModel(keyID), nil)
 
 	c := newKeyCtx(svc)
 	c.Params = &ApiParams{KeyID: keyID.String(), PerPage: 60}

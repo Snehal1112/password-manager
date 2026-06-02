@@ -394,7 +394,8 @@ func TestCreateCertificate_Success_Returns201(t *testing.T) {
 
 func TestListCertificates_ServiceError_Returns500(t *testing.T) {
 	svc := &mockCertService{}
-	svc.On("ListCertificatesInVault", mock.Anything, mock.Anything).Return([]model.Certificate{}, errors.New("db error"))
+	// Legacy flat route (no vault_name) uses per-user visibility via ListCertificates.
+	svc.On("ListCertificates", mock.Anything, uuid.MustParse(certTestUserID)).Return([]model.Certificate{}, errors.New("db error"))
 
 	c := newCertCtx(svc, certAdminClaims())
 	w := httptest.NewRecorder()
@@ -414,7 +415,8 @@ func TestListCertificates_Success_Returns200(t *testing.T) {
 	certs := []model.Certificate{
 		{ID: uuid.New(), Name: "cert1", CreatedAt: time.Now()},
 	}
-	svc.On("ListCertificatesInVault", mock.Anything, mock.Anything).Return(certs, nil)
+	// Legacy flat route (no vault_name) uses per-user visibility via ListCertificates.
+	svc.On("ListCertificates", mock.Anything, uuid.MustParse(certTestUserID)).Return(certs, nil)
 
 	c := newCertCtx(svc, certAdminClaims())
 	w := httptest.NewRecorder()
@@ -453,7 +455,8 @@ func TestGetCertificate_InvalidCertID_Returns400(t *testing.T) {
 func TestGetCertificate_NotFound_Returns404(t *testing.T) {
 	svc := &mockCertService{}
 	certID := uuid.New()
-	svc.On("GetCertificateInVault", mock.Anything, certID, mock.Anything).Return(nil, errors.New("not found"))
+	// Legacy flat route (no vault_name) uses per-user visibility via GetCertificate.
+	svc.On("GetCertificate", mock.Anything, certID, uuid.MustParse(certTestUserID)).Return(nil, errors.New("not found"))
 
 	c := newCertCtx(svc, certAdminClaims())
 	c.Params = &ApiParams{CertificateID: certID.String(), PerPage: 60}
@@ -473,7 +476,8 @@ func TestGetCertificate_Success_Returns200(t *testing.T) {
 	svc := &mockCertService{}
 	certID := uuid.New()
 	userID := uuid.MustParse(certTestUserID)
-	svc.On("GetCertificateInVault", mock.Anything, certID, mock.Anything).Return(&model.Certificate{
+	// Legacy flat route (no vault_name) uses per-user visibility via GetCertificate.
+	svc.On("GetCertificate", mock.Anything, certID, userID).Return(&model.Certificate{
 		ID: certID, Name: "cert1", UserID: userID, CreatedAt: time.Now(),
 	}, nil)
 

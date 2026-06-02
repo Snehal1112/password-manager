@@ -133,6 +133,8 @@ func (vaultNoopCascade) RecoverVaultContents(context.Context, uuid.UUID, time.Ti
 type vaultSvcTestContainer struct {
 	vaultSvc  vaultServices.VaultService
 	secretSvc secretServices.SecretService
+	keySvc    keyServices.KeyService
+	certSvc   certServices.CertificateService
 }
 
 func (c *vaultSvcTestContainer) GetVaultService() vaultServices.VaultService { return c.vaultSvc }
@@ -202,9 +204,15 @@ func (c *vaultSvcTestContainer) GetUserService() userServices.UserService {
 	panic("unexpected call: GetUserService")
 }
 func (c *vaultSvcTestContainer) GetKeyService() keyServices.KeyService {
+	if c.keySvc != nil {
+		return c.keySvc
+	}
 	panic("unexpected call: GetKeyService")
 }
 func (c *vaultSvcTestContainer) GetCertificateService() certServices.CertificateService {
+	if c.certSvc != nil {
+		return c.certSvc
+	}
 	panic("unexpected call: GetCertificateService")
 }
 func (c *vaultSvcTestContainer) GetCertificateRenewalService() certServices.CertificateRenewalService {
