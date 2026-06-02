@@ -6,6 +6,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/gorilla/mux"
+	"rocketvault/internal/repositories"
 )
 
 // listDeletedSecrets returns all soft-deleted secrets in the resolved vault.
@@ -49,6 +50,47 @@ func listDeletedSecrets(c *Context, w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(map[string]any{"deleted_secrets": deleted, "total": len(deleted)})
 }
 
+// authorizeSecretSoftDeleteOp verifies the caller may operate on a soft-deleted
+// secret. For vault-scoped routes it checks vault membership; for legacy flat
+// routes it checks user ownership. Sets c.Err and returns false on failure.
+func authorizeSecretSoftDeleteOp(c *Context, r *http.Request, secretID uuid.UUID,
+	repo repositories.SecretRepositoryInterface) bool {
+	if isVaultScopedRoute(r) {
+		vaultID, err := vaultIDFromRequest(r)
+		if err != nil {
+			c.SetInvalidParam("vault")
+			return false
+		}
+		secrets, err := repo.ListInVaultIncludeDeleted(r.Context(), vaultID, nil)
+		if err != nil {
+			c.SetInternalError(err)
+			return false
+		}
+		for _, s := range secrets {
+			if s.ID == secretID && s.DeletedAt != nil {
+				return true
+			}
+		}
+	} else {
+		userID, ok := userIDFromClaims(c)
+		if !ok {
+			return false
+		}
+		secrets, err := repo.ListByUserIncludeDeleted(r.Context(), userID, nil)
+		if err != nil {
+			c.SetInternalError(err)
+			return false
+		}
+		for _, s := range secrets {
+			if s.ID == secretID && s.UserID == userID && s.DeletedAt != nil {
+				return true
+			}
+		}
+	}
+	c.SetNotFound("secret")
+	return false
+}
+
 // recoverSecret restores a soft-deleted secret by ID.
 func recoverSecret(c *Context, w http.ResponseWriter, r *http.Request) {
 	secretID, err := uuid.Parse(c.Params.SecretID)
@@ -58,52 +100,8 @@ func recoverSecret(c *Context, w http.ResponseWriter, r *http.Request) {
 	}
 
 	repo := c.App.ServiceContainer.GetSecretRepository()
-
-	if isVaultScopedRoute(r) {
-		// Vault-scoped route: verify the secret belongs to this vault.
-		vaultID, err := vaultIDFromRequest(r)
-		if err != nil {
-			c.SetInvalidParam("vault")
-			return
-		}
-		secrets, err := repo.ListInVaultIncludeDeleted(r.Context(), vaultID, nil)
-		if err != nil {
-			c.SetInternalError(err)
-			return
-		}
-		found := false
-		for _, s := range secrets {
-			if s.ID == secretID {
-				found = true
-				break
-			}
-		}
-		if !found {
-			c.SetNotFound("secret")
-			return
-		}
-	} else {
-		// Legacy flat route: verify user ownership (original behaviour).
-		userID, ok := userIDFromClaims(c)
-		if !ok {
-			return
-		}
-		secrets, err := repo.ListByUserIncludeDeleted(r.Context(), userID, nil)
-		if err != nil {
-			c.SetInternalError(err)
-			return
-		}
-		found := false
-		for _, s := range secrets {
-			if s.ID == secretID && s.UserID == userID {
-				found = true
-				break
-			}
-		}
-		if !found {
-			c.SetNotFound("secret")
-			return
-		}
+	if !authorizeSecretSoftDeleteOp(c, r, secretID, repo) {
+		return
 	}
 
 	if err := repo.RecoverSecret(r.Context(), secretID); err != nil {
@@ -124,50 +122,8 @@ func purgeSecret(c *Context, w http.ResponseWriter, r *http.Request) {
 	}
 
 	repo := c.App.ServiceContainer.GetSecretRepository()
-
-	if isVaultScopedRoute(r) {
-		vaultID, err := vaultIDFromRequest(r)
-		if err != nil {
-			c.SetInvalidParam("vault")
-			return
-		}
-		secrets, err := repo.ListInVaultIncludeDeleted(r.Context(), vaultID, nil)
-		if err != nil {
-			c.SetInternalError(err)
-			return
-		}
-		found := false
-		for _, s := range secrets {
-			if s.ID == secretID {
-				found = true
-				break
-			}
-		}
-		if !found {
-			c.SetNotFound("secret")
-			return
-		}
-	} else {
-		userID, ok := userIDFromClaims(c)
-		if !ok {
-			return
-		}
-		secrets, err := repo.ListByUserIncludeDeleted(r.Context(), userID, nil)
-		if err != nil {
-			c.SetInternalError(err)
-			return
-		}
-		found := false
-		for _, s := range secrets {
-			if s.ID == secretID && s.UserID == userID {
-				found = true
-				break
-			}
-		}
-		if !found {
-			c.SetNotFound("secret")
-			return
-		}
+	if !authorizeSecretSoftDeleteOp(c, r, secretID, repo) {
+		return
 	}
 
 	if err := repo.PurgeSecret(r.Context(), secretID); err != nil {
