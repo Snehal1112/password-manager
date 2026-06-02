@@ -179,7 +179,7 @@ func TestSecretRepository_SoftDeleteVaultContents_HidesFromList(t *testing.T) {
 	require.NoError(t, repo.Create(ctx, mk("a")))
 	require.NoError(t, repo.Create(ctx, mk("b")))
 
-	require.NoError(t, repo.SoftDeleteVaultContents(ctx, vaultA))
+	require.NoError(t, repo.SoftDeleteVaultContents(ctx, vaultA, time.Now()))
 
 	active, err := repo.ListInVault(ctx, vaultA, nil)
 	require.NoError(t, err)
@@ -188,6 +188,42 @@ func TestSecretRepository_SoftDeleteVaultContents_HidesFromList(t *testing.T) {
 	all, err := repo.ListInVaultIncludeDeleted(ctx, vaultA, nil)
 	require.NoError(t, err)
 	require.Len(t, all, 2)
+}
+
+// TestSecretRepository_RecoverVaultContents_OnlyRestoresCascadeDeleted verifies that
+// recovering a vault restores ONLY the rows the vault cascade soft-deleted (matched
+// by the cascade timestamp), and does NOT resurrect a secret the user had
+// individually soft-deleted earlier.
+func TestSecretRepository_RecoverVaultContents_OnlyRestoresCascadeDeleted(t *testing.T) {
+	t.Parallel()
+	db := setupSecretTestDB(t)
+	repo := repositories.NewSecretRepository(db, newTestSecretLogger(t))
+	ctx := context.Background()
+	vaultA := uuid.New()
+
+	mk := func(name string) *model.Secret {
+		return &model.Secret{ID: uuid.New(), UserID: uuid.New(), VaultID: vaultA, Name: name, Value: "x", Version: 1, CreatedAt: time.Now(), Enabled: true}
+	}
+	keep := mk("active")        // stays active
+	indiv := mk("user-deleted") // user deletes this one individually, before vault delete
+	require.NoError(t, repo.Create(ctx, keep))
+	require.NoError(t, repo.Create(ctx, indiv))
+
+	// User individually soft-deletes "user-deleted".
+	require.NoError(t, repo.SoftDelete(ctx, indiv.ID))
+
+	// Vault is deleted: cascade soft-deletes the remaining active rows at vaultDeletedAt.
+	vaultDeletedAt := time.Now().Add(time.Hour) // distinct from the individual delete time
+	require.NoError(t, repo.SoftDeleteVaultContents(ctx, vaultA, vaultDeletedAt))
+
+	// Vault is recovered: only the cascade-deleted rows should come back.
+	require.NoError(t, repo.RecoverVaultContents(ctx, vaultA, vaultDeletedAt))
+
+	active, err := repo.ListInVault(ctx, vaultA, nil)
+	require.NoError(t, err)
+	// Only "active" should be live again; "user-deleted" must remain soft-deleted.
+	require.Len(t, active, 1)
+	require.Equal(t, "active", active[0].Name)
 }
 
 // TestSoftDelete_PreservesPurgeProtection verifies that SoftDelete does not
