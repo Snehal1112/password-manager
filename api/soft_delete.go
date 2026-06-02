@@ -51,35 +51,59 @@ func listDeletedSecrets(c *Context, w http.ResponseWriter, r *http.Request) {
 
 // recoverSecret restores a soft-deleted secret by ID.
 func recoverSecret(c *Context, w http.ResponseWriter, r *http.Request) {
-	userID, ok := userIDFromClaims(c)
-	if !ok {
-		return
-	}
-
 	secretID, err := uuid.Parse(c.Params.SecretID)
 	if err != nil {
 		c.SetInvalidParam("secret_id")
 		return
 	}
 
-	// Verify ownership before recovering.
 	repo := c.App.ServiceContainer.GetSecretRepository()
-	secrets, err := repo.ListByUserIncludeDeleted(r.Context(), userID, nil)
-	if err != nil {
-		c.SetInternalError(err)
-		return
-	}
 
-	found := false
-	for _, s := range secrets {
-		if s.ID == secretID && s.UserID == userID {
-			found = true
-			break
+	if isVaultScopedRoute(r) {
+		// Vault-scoped route: verify the secret belongs to this vault.
+		vaultID, err := vaultIDFromRequest(r)
+		if err != nil {
+			c.SetInvalidParam("vault")
+			return
 		}
-	}
-	if !found {
-		c.SetNotFound("secret")
-		return
+		secrets, err := repo.ListInVaultIncludeDeleted(r.Context(), vaultID, nil)
+		if err != nil {
+			c.SetInternalError(err)
+			return
+		}
+		found := false
+		for _, s := range secrets {
+			if s.ID == secretID {
+				found = true
+				break
+			}
+		}
+		if !found {
+			c.SetNotFound("secret")
+			return
+		}
+	} else {
+		// Legacy flat route: verify user ownership (original behaviour).
+		userID, ok := userIDFromClaims(c)
+		if !ok {
+			return
+		}
+		secrets, err := repo.ListByUserIncludeDeleted(r.Context(), userID, nil)
+		if err != nil {
+			c.SetInternalError(err)
+			return
+		}
+		found := false
+		for _, s := range secrets {
+			if s.ID == secretID && s.UserID == userID {
+				found = true
+				break
+			}
+		}
+		if !found {
+			c.SetNotFound("secret")
+			return
+		}
 	}
 
 	if err := repo.RecoverSecret(r.Context(), secretID); err != nil {
@@ -93,35 +117,57 @@ func recoverSecret(c *Context, w http.ResponseWriter, r *http.Request) {
 
 // purgeSecret permanently deletes a soft-deleted secret by ID.
 func purgeSecret(c *Context, w http.ResponseWriter, r *http.Request) {
-	userID, ok := userIDFromClaims(c)
-	if !ok {
-		return
-	}
-
 	secretID, err := uuid.Parse(c.Params.SecretID)
 	if err != nil {
 		c.SetInvalidParam("secret_id")
 		return
 	}
 
-	// Verify ownership before purging.
 	repo := c.App.ServiceContainer.GetSecretRepository()
-	secrets, err := repo.ListByUserIncludeDeleted(r.Context(), userID, nil)
-	if err != nil {
-		c.SetInternalError(err)
-		return
-	}
 
-	found := false
-	for _, s := range secrets {
-		if s.ID == secretID && s.UserID == userID {
-			found = true
-			break
+	if isVaultScopedRoute(r) {
+		vaultID, err := vaultIDFromRequest(r)
+		if err != nil {
+			c.SetInvalidParam("vault")
+			return
 		}
-	}
-	if !found {
-		c.SetNotFound("secret")
-		return
+		secrets, err := repo.ListInVaultIncludeDeleted(r.Context(), vaultID, nil)
+		if err != nil {
+			c.SetInternalError(err)
+			return
+		}
+		found := false
+		for _, s := range secrets {
+			if s.ID == secretID {
+				found = true
+				break
+			}
+		}
+		if !found {
+			c.SetNotFound("secret")
+			return
+		}
+	} else {
+		userID, ok := userIDFromClaims(c)
+		if !ok {
+			return
+		}
+		secrets, err := repo.ListByUserIncludeDeleted(r.Context(), userID, nil)
+		if err != nil {
+			c.SetInternalError(err)
+			return
+		}
+		found := false
+		for _, s := range secrets {
+			if s.ID == secretID && s.UserID == userID {
+				found = true
+				break
+			}
+		}
+		if !found {
+			c.SetNotFound("secret")
+			return
+		}
 	}
 
 	if err := repo.PurgeSecret(r.Context(), secretID); err != nil {
