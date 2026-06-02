@@ -1271,8 +1271,8 @@ func TestGetKey_AdminPath_GetKeyFailsValidationFails_Returns404(t *testing.T) {
 
 	svc := &mockKeyService{}
 	// Legacy flat route (no vault_name) uses per-user visibility via GetKey;
-	// the lookup fails so the handler returns 404.
-	svc.On("GetKey", mock.Anything, keyID, uuid.MustParse(keyTestUserID)).Return((*model.Key)(nil), errors.New("not found"))
+	// the not-found sentinel makes the handler return 404.
+	svc.On("GetKey", mock.Anything, keyID, uuid.MustParse(keyTestUserID)).Return((*model.Key)(nil), keyServices.ErrKeyNotFound)
 
 	c := newKeyCtx(svc)
 	c.Params = &ApiParams{KeyID: keyID.String(), PerPage: 60}
@@ -1294,8 +1294,9 @@ func TestGetKey_AdminPath_RetryGetKeyFails_Returns404(t *testing.T) {
 	keyID := uuid.New()
 
 	svc := &mockKeyService{}
-	// Legacy flat route (no vault_name) uses per-user visibility via GetKey.
-	svc.On("GetKey", mock.Anything, keyID, uuid.MustParse(keyTestUserID)).Return((*model.Key)(nil), errors.New("still not found"))
+	// Legacy flat route (no vault_name) uses per-user visibility via GetKey;
+	// the not-found sentinel maps to 404.
+	svc.On("GetKey", mock.Anything, keyID, uuid.MustParse(keyTestUserID)).Return((*model.Key)(nil), keyServices.ErrKeyNotFound)
 
 	c := newKeyCtx(svc)
 	c.Params = &ApiParams{KeyID: keyID.String(), PerPage: 60}

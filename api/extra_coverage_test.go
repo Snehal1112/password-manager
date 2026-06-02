@@ -17,6 +17,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 
+	certServices "rocketvault/internal/services/certificates"
 	secretServices "rocketvault/internal/services/secrets"
 	"rocketvault/model"
 )
@@ -443,7 +444,8 @@ func TestGetCertificate_ServiceError_Returns404(t *testing.T) {
 	certID := uuid.New()
 	svc := &mockCertService{}
 	// Legacy flat route (no vault_name) uses per-user visibility via GetCertificate.
-	svc.On("GetCertificate", mock.Anything, certID, uuid.MustParse(certTestUserID)).Return(nil, errors.New("not found"))
+	// The service returns the not-found sentinel, which maps to 404.
+	svc.On("GetCertificate", mock.Anything, certID, uuid.MustParse(certTestUserID)).Return(nil, certServices.ErrCertNotFound)
 
 	c := newCertCtx(svc, certAdminClaims())
 	c.Params = &ApiParams{CertificateID: certID.String(), PerPage: 60}

@@ -24,6 +24,7 @@ package api
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -515,7 +516,13 @@ func getSecret(c *Context, w http.ResponseWriter, r *http.Request) {
 		}
 		secret, err = secretService.GetSecretInVault(r.Context(), secretID, vaultID)
 		if err != nil {
-			c.SetNotFound("secret")
+			if errors.Is(err, secrets.ErrSecretLifecycleDenied) {
+				c.SetPermissionError("secret is disabled or outside its valid time window")
+			} else if errors.Is(err, secrets.ErrSecretNotFound) {
+				c.SetNotFound("secret")
+			} else {
+				c.SetInternalError(err)
+			}
 			return
 		}
 	} else {
@@ -531,7 +538,13 @@ func getSecret(c *Context, w http.ResponseWriter, r *http.Request) {
 		}
 		secret, err = secretService.GetSecret(r.Context(), secretID, userID)
 		if err != nil {
-			c.SetNotFound("secret")
+			if errors.Is(err, secrets.ErrSecretLifecycleDenied) {
+				c.SetPermissionError("secret is disabled or outside its valid time window")
+			} else if errors.Is(err, secrets.ErrSecretNotFound) {
+				c.SetNotFound("secret")
+			} else {
+				c.SetInternalError(err)
+			}
 			return
 		}
 	}
@@ -701,7 +714,11 @@ func deleteSecret(c *Context, w http.ResponseWriter, r *http.Request) {
 
 	// Use service layer for deletion scoped to the resolved vault.
 	if err := secretService.DeleteSecretInVault(r.Context(), secretID, vaultID); err != nil {
-		c.SetInternalError(err)
+		if errors.Is(err, secrets.ErrSecretNotFound) {
+			c.SetNotFound("secret")
+		} else {
+			c.SetInternalError(err)
+		}
 		return
 	}
 

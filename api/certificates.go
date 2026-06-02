@@ -24,6 +24,7 @@ package api
 
 import (
 	"encoding/json"
+	"errors"
 	"net/http"
 	"time"
 
@@ -316,7 +317,13 @@ func getCertificate(c *Context, w http.ResponseWriter, r *http.Request) {
 		}
 		cert, err = certService.GetCertificateInVault(r.Context(), certID, vaultID)
 		if err != nil {
-			c.SetNotFound("certificate")
+			if errors.Is(err, certServices.ErrCertLifecycleDenied) {
+				c.SetPermissionError("certificate is disabled or outside its valid time window")
+			} else if errors.Is(err, certServices.ErrCertNotFound) {
+				c.SetNotFound("certificate")
+			} else {
+				c.SetInternalError(err)
+			}
 			return
 		}
 	} else {
@@ -332,7 +339,13 @@ func getCertificate(c *Context, w http.ResponseWriter, r *http.Request) {
 		}
 		cert, err = certService.GetCertificate(r.Context(), certID, userID)
 		if err != nil {
-			c.SetNotFound("certificate")
+			if errors.Is(err, certServices.ErrCertLifecycleDenied) {
+				c.SetPermissionError("certificate is disabled or outside its valid time window")
+			} else if errors.Is(err, certServices.ErrCertNotFound) {
+				c.SetNotFound("certificate")
+			} else {
+				c.SetInternalError(err)
+			}
 			return
 		}
 	}
@@ -424,7 +437,11 @@ func deleteCertificate(c *Context, w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := certService.DeleteCertificateInVault(r.Context(), certID, vaultID); err != nil {
-		c.SetInternalError(err)
+		if errors.Is(err, certServices.ErrCertNotFound) {
+			c.SetNotFound("certificate")
+		} else {
+			c.SetInternalError(err)
+		}
 		return
 	}
 

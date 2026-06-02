@@ -419,7 +419,8 @@ func TestGetSecret_NotFound_Returns404(t *testing.T) {
 	secretID := uuid.New()
 	svc := &mockSecretService{}
 	// Legacy flat route (no vault_name) uses per-user visibility via GetSecret.
-	svc.On("GetSecret", mock.Anything, secretID, uuid.MustParse(secretHTestUserID)).Return(nil, errors.New("not found"))
+	// The service returns the not-found sentinel, which maps to 404.
+	svc.On("GetSecret", mock.Anything, secretID, uuid.MustParse(secretHTestUserID)).Return(nil, secretServices.ErrSecretNotFound)
 
 	c := newSecretCtx(svc)
 	c.Params = &ApiParams{SecretID: secretID.String(), PerPage: 60}
@@ -926,5 +927,97 @@ func TestExportSecrets_JSON_Success_Returns200(t *testing.T) {
 	}
 
 	assert.Equal(t, http.StatusOK, w.Code)
+	svc.AssertExpectations(t)
+}
+
+// ============================================================
+// Status-code distinction for DELETE (Issue 8) and GET (Issue 9)
+// ============================================================
+
+// TestDeleteSecret_NotFound_Returns404 verifies that a not-found sentinel from
+// the service maps to 404 rather than 500.
+func TestDeleteSecret_NotFound_Returns404(t *testing.T) {
+	secretID := uuid.New()
+	svc := &mockSecretService{}
+	svc.On("DeleteSecretInVault", mock.Anything, secretID, mock.Anything).
+		Return(secretServices.ErrSecretNotFound)
+
+	c := newSecretCtx(svc)
+	c.Params = &ApiParams{SecretID: secretID.String(), PerPage: 60}
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest(http.MethodDelete, "/secrets/"+secretID.String(), nil)
+
+	deleteSecret(c, w, r)
+	if c.Err != nil {
+		writeError(w, c)
+	}
+
+	assert.Equal(t, http.StatusNotFound, w.Code)
+	svc.AssertExpectations(t)
+}
+
+// TestGetSecret_LifecycleDenied_Returns403 verifies that a disabled/expired
+// secret yields 403 rather than 404.
+func TestGetSecret_LifecycleDenied_Returns403(t *testing.T) {
+	secretID := uuid.New()
+	svc := &mockSecretService{}
+	svc.On("GetSecret", mock.Anything, secretID, uuid.MustParse(secretHTestUserID)).
+		Return(nil, secretServices.ErrSecretLifecycleDenied)
+
+	c := newSecretCtx(svc)
+	c.Params = &ApiParams{SecretID: secretID.String(), PerPage: 60}
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest(http.MethodGet, "/secrets/"+secretID.String(), nil)
+
+	getSecret(c, w, r)
+	if c.Err != nil {
+		writeError(w, c)
+	}
+
+	assert.Equal(t, http.StatusForbidden, w.Code)
+	svc.AssertExpectations(t)
+}
+
+// TestGetSecret_DecryptError_Returns500 verifies that a genuine server fault
+// (e.g. decrypt failure) yields 500 rather than 404.
+func TestGetSecret_DecryptError_Returns500(t *testing.T) {
+	secretID := uuid.New()
+	svc := &mockSecretService{}
+	svc.On("GetSecret", mock.Anything, secretID, uuid.MustParse(secretHTestUserID)).
+		Return(nil, errors.New("disk I/O"))
+
+	c := newSecretCtx(svc)
+	c.Params = &ApiParams{SecretID: secretID.String(), PerPage: 60}
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest(http.MethodGet, "/secrets/"+secretID.String(), nil)
+
+	getSecret(c, w, r)
+	if c.Err != nil {
+		writeError(w, c)
+	}
+
+	assert.Equal(t, http.StatusInternalServerError, w.Code)
+	svc.AssertExpectations(t)
+}
+
+// TestGetSecret_NotFoundSentinel_Returns404 verifies the not-found sentinel
+// still yields 404.
+func TestGetSecret_NotFoundSentinel_Returns404(t *testing.T) {
+	secretID := uuid.New()
+	svc := &mockSecretService{}
+	svc.On("GetSecret", mock.Anything, secretID, uuid.MustParse(secretHTestUserID)).
+		Return(nil, secretServices.ErrSecretNotFound)
+
+	c := newSecretCtx(svc)
+	c.Params = &ApiParams{SecretID: secretID.String(), PerPage: 60}
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest(http.MethodGet, "/secrets/"+secretID.String(), nil)
+
+	getSecret(c, w, r)
+	if c.Err != nil {
+		writeError(w, c)
+	}
+
+	assert.Equal(t, http.StatusNotFound, w.Code)
 	svc.AssertExpectations(t)
 }

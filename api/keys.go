@@ -25,6 +25,7 @@ package api
 import (
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"strings"
 	"time"
@@ -443,7 +444,13 @@ func getKey(c *Context, w http.ResponseWriter, r *http.Request) {
 		}
 		key, err = keyService.GetKeyInVault(r.Context(), keyID, vaultID)
 		if err != nil {
-			c.SetNotFound("key")
+			if errors.Is(err, keyservices.ErrKeyLifecycleDenied) {
+				c.SetPermissionError("key is disabled or outside its valid time window")
+			} else if errors.Is(err, keyservices.ErrKeyNotFound) {
+				c.SetNotFound("key")
+			} else {
+				c.SetInternalError(err)
+			}
 			return
 		}
 	} else {
@@ -459,7 +466,13 @@ func getKey(c *Context, w http.ResponseWriter, r *http.Request) {
 		}
 		key, err = keyService.GetKey(r.Context(), keyID, userID)
 		if err != nil {
-			c.SetNotFound("key")
+			if errors.Is(err, keyservices.ErrKeyLifecycleDenied) {
+				c.SetPermissionError("key is disabled or outside its valid time window")
+			} else if errors.Is(err, keyservices.ErrKeyNotFound) {
+				c.SetNotFound("key")
+			} else {
+				c.SetInternalError(err)
+			}
 			return
 		}
 	}
@@ -569,7 +582,11 @@ func deleteKey(c *Context, w http.ResponseWriter, r *http.Request) {
 	// Use service layer for deletion scoped to the resolved vault.
 	deleted, err := keyService.DeleteKeyInVault(r.Context(), keyID, vaultID)
 	if err != nil {
-		c.SetInternalError(err)
+		if errors.Is(err, keyservices.ErrKeyNotFound) {
+			c.SetNotFound("key")
+		} else {
+			c.SetInternalError(err)
+		}
 		return
 	}
 

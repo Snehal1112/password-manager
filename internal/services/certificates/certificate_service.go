@@ -7,6 +7,7 @@ import (
 	"context"
 	"crypto/x509"
 	"encoding/pem"
+	"errors"
 	"fmt"
 	"time"
 
@@ -19,6 +20,14 @@ import (
 	"rocketvault/internal/repositories"
 	"rocketvault/model"
 )
+
+// ErrCertNotFound is returned when a certificate does not exist or is not
+// accessible within the requested scope (vault or user ownership).
+var ErrCertNotFound = errors.New("certificate not found")
+
+// ErrCertLifecycleDenied is returned when a certificate exists but is disabled
+// or outside its valid time window (not_before / expires_at).
+var ErrCertLifecycleDenied = errors.New("certificate is disabled or outside its valid time window")
 
 // CreateCertificateRequest represents a request to create a new X.509 certificate.
 type CreateCertificateRequest struct {
@@ -401,19 +410,21 @@ func (s *certificateService) GetCertificate(ctx context.Context, certID, userID 
 	cert, err := s.certRepo.Read(ctx, certID)
 	if err != nil {
 		s.logger.LogAuditError(userID.String(), "get_certificate", "failed", fmt.Sprintf("failed to read certificate: %s", err), err)
-		return nil, fmt.Errorf("failed to read certificate: %w", err)
+		return nil, fmt.Errorf("%w: %s", ErrCertNotFound, err.Error())
 	}
 
-	// Access control: users can only access their own certificates
+	// Access control: users can only access their own certificates. Treat
+	// cross-user access as not-found to avoid leaking the existence of other
+	// users' certificates.
 	if cert.UserID != userID {
 		s.logger.LogAuditError(userID.String(), "get_certificate", "failed", "forbidden: cannot access other users' certificates", nil)
-		return nil, fmt.Errorf("forbidden: cannot access other users' certificates")
+		return nil, fmt.Errorf("%w: cannot access other users' certificates", ErrCertNotFound)
 	}
 
 	// Enforce lifecycle policy.
 	if !cert.IsAccessible() {
 		s.logger.LogAuditError(userID.String(), "get_certificate", "failed", "certificate is disabled or outside its valid time window", nil)
-		return nil, fmt.Errorf("certificate is disabled or outside its valid time window")
+		return nil, fmt.Errorf("%w", ErrCertLifecycleDenied)
 	}
 
 	return cert, nil
@@ -525,12 +536,12 @@ func (s *certificateService) GetCertificateInVault(ctx context.Context, certID, 
 	cert, err := s.certRepo.ReadInVault(ctx, certID, vaultID)
 	if err != nil {
 		s.logger.LogAuditError("", "get_certificate", "failed", fmt.Sprintf("failed to read certificate: %s", err), err)
-		return nil, fmt.Errorf("failed to read certificate: %w", err)
+		return nil, fmt.Errorf("%w: %s", ErrCertNotFound, err.Error())
 	}
 
 	if !cert.IsAccessible() {
 		s.logger.LogAuditError("", "get_certificate", "failed", "certificate is disabled or outside its valid time window", nil)
-		return nil, fmt.Errorf("certificate is disabled or outside its valid time window")
+		return nil, fmt.Errorf("%w", ErrCertLifecycleDenied)
 	}
 
 	return cert, nil
@@ -546,7 +557,7 @@ func (s *certificateService) ListCertificatesInVault(ctx context.Context, vaultI
 // mirrors DeleteCertificate but verifies vault scope via ReadInVault.
 func (s *certificateService) DeleteCertificateInVault(ctx context.Context, certID, vaultID uuid.UUID) error {
 	if _, err := s.certRepo.ReadInVault(ctx, certID, vaultID); err != nil {
-		return fmt.Errorf("failed to read certificate: %w", err)
+		return fmt.Errorf("%w: %s", ErrCertNotFound, err.Error())
 	}
 
 	if err := s.certRepo.SoftDelete(ctx, certID); err != nil {
