@@ -23,15 +23,18 @@ var vaultNameRe = regexp.MustCompile(`^[a-z0-9](?:[a-z0-9-]{1,61}[a-z0-9])$`)
 
 // Vault represents a named container for secrets, keys, and certificates.
 type Vault struct {
-	ID               uuid.UUID  `json:"id"`
-	Name             string     `json:"name"`
-	Enabled          bool       `json:"enabled"`
-	PurgeProtection  bool       `json:"purge_protection"`
-	RetentionDays    int        `json:"retention_days"`
-	CreatedBy        uuid.UUID  `json:"created_by"`
-	CreatedAt        time.Time  `json:"created_at"`
-	DeletedAt        *time.Time `json:"deleted_at,omitempty"`
-	ScheduledPurgeAt *time.Time `json:"scheduled_purge_at,omitempty"`
+	ID               uuid.UUID         `json:"id"`
+	Name             string            `json:"name"`
+	Enabled          bool              `json:"enabled"`
+	PurgeProtection  bool              `json:"purge_protection"`
+	RetentionDays    int               `json:"retention_days"`
+	CreatedBy        uuid.UUID         `json:"created_by"`
+	CreatedAt        time.Time         `json:"created_at"`
+	DeletedAt        *time.Time        `json:"deleted_at,omitempty"`
+	ScheduledPurgeAt *time.Time        `json:"scheduled_purge_at,omitempty"`
+	Tags             map[string]string `json:"tags,omitempty"`
+	UpdatedAt        *time.Time        `json:"updated_at,omitempty"`
+	UpdatedBy        *uuid.UUID        `json:"updated_by,omitempty"`
 }
 
 // ValidateVaultName returns an error if name violates the vault naming rule.
@@ -42,19 +45,44 @@ func ValidateVaultName(name string) error {
 	return nil
 }
 
+// ValidateVaultTags enforces Azure Key Vault tag limits: at most 15 tags, each
+// key and value non-empty and at most 256 characters.
+func ValidateVaultTags(tags map[string]string) error {
+	if len(tags) > 15 {
+		return fmt.Errorf("too many tags: %d (max 15)", len(tags))
+	}
+	for k, val := range tags {
+		if k == "" {
+			return fmt.Errorf("tag key must not be empty")
+		}
+		if val == "" {
+			return fmt.Errorf("tag value for key %q must not be empty", k)
+		}
+		if len(k) > 256 {
+			return fmt.Errorf("tag key %q exceeds 256 characters", k)
+		}
+		if len(val) > 256 {
+			return fmt.Errorf("tag value for key %q exceeds 256 characters", k)
+		}
+	}
+	return nil
+}
+
 // CreateVaultRequest is the body of a create-vault API call.
 type CreateVaultRequest struct {
-	Name            string `json:"name"`
-	Enabled         *bool  `json:"enabled,omitempty"`
-	PurgeProtection *bool  `json:"purge_protection,omitempty"`
-	RetentionDays   *int   `json:"retention_days,omitempty"`
+	Name            string            `json:"name"`
+	Enabled         *bool             `json:"enabled,omitempty"`
+	PurgeProtection *bool             `json:"purge_protection,omitempty"`
+	RetentionDays   *int              `json:"retention_days,omitempty"`
+	Tags            map[string]string `json:"tags,omitempty"`
 }
 
 // UpdateVaultRequest is the body of an update-vault API call. Nil fields are unchanged.
 type UpdateVaultRequest struct {
-	Enabled         *bool `json:"enabled,omitempty"`
-	PurgeProtection *bool `json:"purge_protection,omitempty"`
-	RetentionDays   *int  `json:"retention_days,omitempty"`
+	Enabled         *bool              `json:"enabled,omitempty"`
+	PurgeProtection *bool              `json:"purge_protection,omitempty"`
+	RetentionDays   *int               `json:"retention_days,omitempty"`
+	Tags            *map[string]string `json:"tags,omitempty"` // nil = unchanged, {} = clear, set = replace
 }
 
 func CreateVaultRequestFromJson(data io.Reader) (*CreateVaultRequest, error) {
@@ -69,15 +97,18 @@ func UpdateVaultRequestFromJson(data io.Reader) (*UpdateVaultRequest, error) {
 
 // VaultResponse is the API representation of a vault.
 type VaultResponse struct {
-	ID               string `json:"id"`
-	Name             string `json:"name"`
-	Enabled          bool   `json:"enabled"`
-	PurgeProtection  bool   `json:"purge_protection"`
-	RetentionDays    int    `json:"retention_days"`
-	CreatedBy        string `json:"created_by"`
-	CreatedAt        string `json:"created_at"`
-	DeletedAt        string `json:"deleted_at,omitempty"`
-	ScheduledPurgeAt string `json:"scheduled_purge_at,omitempty"`
+	ID               string            `json:"id"`
+	Name             string            `json:"name"`
+	Enabled          bool              `json:"enabled"`
+	PurgeProtection  bool              `json:"purge_protection"`
+	RetentionDays    int               `json:"retention_days"`
+	CreatedBy        string            `json:"created_by"`
+	CreatedAt        string            `json:"created_at"`
+	DeletedAt        string            `json:"deleted_at,omitempty"`
+	ScheduledPurgeAt string            `json:"scheduled_purge_at,omitempty"`
+	Tags             map[string]string `json:"tags,omitempty"`
+	UpdatedAt        string            `json:"updated_at,omitempty"`
+	UpdatedBy        string            `json:"updated_by,omitempty"`
 }
 
 func (v *Vault) ToResponse() VaultResponse {
@@ -95,6 +126,15 @@ func (v *Vault) ToResponse() VaultResponse {
 	}
 	if v.ScheduledPurgeAt != nil {
 		resp.ScheduledPurgeAt = v.ScheduledPurgeAt.Format(time.RFC3339)
+	}
+	if len(v.Tags) > 0 {
+		resp.Tags = v.Tags
+	}
+	if v.UpdatedAt != nil {
+		resp.UpdatedAt = v.UpdatedAt.Format(time.RFC3339)
+	}
+	if v.UpdatedBy != nil {
+		resp.UpdatedBy = v.UpdatedBy.String()
 	}
 	return resp
 }
