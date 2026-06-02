@@ -34,9 +34,9 @@ type SecretRepositoryInterface interface {
 	// ListInVaultIncludeDeleted lists all secrets in a vault including soft-deleted ones.
 	ListInVaultIncludeDeleted(ctx context.Context, vaultID uuid.UUID, tags []string) ([]model.Secret, error)
 	// SoftDeleteVaultContents soft-deletes every active secret in a vault.
-	SoftDeleteVaultContents(ctx context.Context, vaultID uuid.UUID) error
-	// RecoverVaultContents recovers every soft-deleted secret in a vault.
-	RecoverVaultContents(ctx context.Context, vaultID uuid.UUID) error
+	SoftDeleteVaultContents(ctx context.Context, vaultID uuid.UUID, deletedAt time.Time) error
+	// RecoverVaultContents recovers only the secrets the cascade soft-deleted at deletedAt.
+	RecoverVaultContents(ctx context.Context, vaultID uuid.UUID, deletedAt time.Time) error
 	ExportSecrets(ctx context.Context, options model.ExportOptions) ([]byte, error)
 	ImportSecrets(ctx context.Context, data []byte, options model.ImportOptions) (int, error)
 	GetVersions(ctx context.Context, secretID uuid.UUID) ([]model.SecretVersion, error)
@@ -761,6 +761,9 @@ func (r *SecretRepository) ListInVault(ctx context.Context, vaultID uuid.UUID, t
 			secret.DeletedAt = deletedAt
 			secret.PurgeProtection = purgeProtection
 
+			// Populate VaultID from the queried vault for caller consistency.
+			secret.VaultID = vaultID
+
 			secretList = append(secretList, secret)
 		}
 
@@ -844,6 +847,9 @@ func (r *SecretRepository) ListInVaultIncludeDeleted(ctx context.Context, vaultI
 			secret.DeletedAt = deletedAt
 			secret.PurgeProtection = purgeProtection
 
+			// Populate VaultID from the queried vault for caller consistency.
+			secret.VaultID = vaultID
+
 			secretList = append(secretList, secret)
 		}
 
@@ -872,17 +878,17 @@ func (r *SecretRepository) ListInVaultIncludeDeleted(ctx context.Context, vaultI
 //
 //	ctx: The context for the database operation.
 //	vaultID: The vault whose secrets should be soft-deleted.
+//	deletedAt: The exact deletion timestamp to stamp on each cascaded row.
 //
 // Returns:
 //
 //	An error if the soft deletion fails.
-func (r *SecretRepository) SoftDeleteVaultContents(ctx context.Context, vaultID uuid.UUID) error {
+func (r *SecretRepository) SoftDeleteVaultContents(ctx context.Context, vaultID uuid.UUID, deletedAt time.Time) error {
 	logrus.WithField("vault_id", vaultID.String()).Debug("Soft deleting all secrets in vault")
 
-	now := time.Now()
 	_, err := r.db.ExecContext(ctx,
 		"UPDATE secrets SET deleted_at = ? WHERE vault_id = ? AND deleted_at IS NULL",
-		now, vaultID.String())
+		deletedAt, vaultID.String())
 	if err != nil {
 		r.log.LogAuditError(vaultID.String(), "soft_delete_vault_secrets", "failed", "Failed to soft delete vault secrets", err)
 		return fmt.Errorf("failed to soft delete vault secrets: %w", err)
@@ -898,16 +904,17 @@ func (r *SecretRepository) SoftDeleteVaultContents(ctx context.Context, vaultID 
 //
 //	ctx: The context for the database operation.
 //	vaultID: The vault whose secrets should be recovered.
+//	deletedAt: The cascade deletion timestamp; only rows stamped with it are restored.
 //
 // Returns:
 //
 //	An error if the recovery fails.
-func (r *SecretRepository) RecoverVaultContents(ctx context.Context, vaultID uuid.UUID) error {
-	logrus.WithField("vault_id", vaultID.String()).Debug("Recovering all soft-deleted secrets in vault")
+func (r *SecretRepository) RecoverVaultContents(ctx context.Context, vaultID uuid.UUID, deletedAt time.Time) error {
+	logrus.WithField("vault_id", vaultID.String()).Debug("Recovering cascade soft-deleted secrets in vault")
 
 	_, err := r.db.ExecContext(ctx,
-		"UPDATE secrets SET deleted_at = NULL, scheduled_purge_at = NULL WHERE vault_id = ? AND deleted_at IS NOT NULL",
-		vaultID.String())
+		"UPDATE secrets SET deleted_at = NULL, scheduled_purge_at = NULL WHERE vault_id = ? AND deleted_at = ?",
+		vaultID.String(), deletedAt)
 	if err != nil {
 		r.log.LogAuditError(vaultID.String(), "recover_vault_secrets", "failed", "Failed to recover vault secrets", err)
 		return fmt.Errorf("failed to recover vault secrets: %w", err)

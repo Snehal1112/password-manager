@@ -111,13 +111,13 @@ func (m *mockKeyRepository) ReadInVault(ctx context.Context, id, vaultID uuid.UU
 	return nil, args.Error(1)
 }
 
-func (m *mockKeyRepository) SoftDeleteVaultContents(ctx context.Context, vaultID uuid.UUID) error {
-	args := m.Called(ctx, vaultID)
+func (m *mockKeyRepository) SoftDeleteVaultContents(ctx context.Context, vaultID uuid.UUID, deletedAt time.Time) error {
+	args := m.Called(ctx, vaultID, deletedAt)
 	return args.Error(0)
 }
 
-func (m *mockKeyRepository) RecoverVaultContents(ctx context.Context, vaultID uuid.UUID) error {
-	args := m.Called(ctx, vaultID)
+func (m *mockKeyRepository) RecoverVaultContents(ctx context.Context, vaultID uuid.UUID, deletedAt time.Time) error {
+	args := m.Called(ctx, vaultID, deletedAt)
 	return args.Error(0)
 }
 

@@ -7,6 +7,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -425,7 +426,8 @@ func TestCreateKey_InvalidECDSACurve_Returns400(t *testing.T) {
 
 func TestListKeys_ServiceError_Returns500(t *testing.T) {
 	svc := &mockKeyService{}
-	svc.On("ListKeysInVault", mock.Anything, mock.Anything, mock.Anything, mock.Anything).
+	// Legacy flat route (no vault_name) uses per-user visibility via ListKeys.
+	svc.On("ListKeys", mock.Anything, uuid.MustParse(keyTestUserID)).
 		Return([]model.Key{}, errors.New("db error"))
 
 	c := newKeyCtx(svc)
@@ -444,7 +446,8 @@ func TestListKeys_ServiceError_Returns500(t *testing.T) {
 func TestListKeys_Success_Returns200(t *testing.T) {
 	keyID := uuid.New()
 	svc := &mockKeyService{}
-	svc.On("ListKeysInVault", mock.Anything, mock.Anything, mock.Anything, mock.Anything).
+	// Legacy flat route (no vault_name) uses per-user visibility via ListKeys.
+	svc.On("ListKeys", mock.Anything, uuid.MustParse(keyTestUserID)).
 		Return([]model.Key{*makeKeyModel(keyID)}, nil)
 
 	c := newKeyCtx(svc)
@@ -481,8 +484,9 @@ func TestGetKey_InvalidKeyID_Returns400(t *testing.T) {
 func TestGetKey_NotFound_Returns404(t *testing.T) {
 	keyID := uuid.New()
 	svc := &mockKeyService{}
-	svc.On("GetKeyInVault", mock.Anything, keyID, mock.Anything).Return(nil, errors.New("not found"))
-	// Vault-scoped lookup fails, so the handler returns 404.
+	// Legacy flat route (no vault_name) uses per-user visibility via GetKey.
+	// The service returns the not-found sentinel, which maps to 404.
+	svc.On("GetKey", mock.Anything, keyID, uuid.MustParse(keyTestUserID)).Return(nil, keyServices.ErrKeyNotFound)
 
 	c := newKeyCtx(svc)
 	c.Claims = jwt.MapClaims{"role": string(model.RoleUser), "user_id": keyTestUserID}
@@ -502,7 +506,8 @@ func TestGetKey_NotFound_Returns404(t *testing.T) {
 func TestGetKey_Success_Returns200(t *testing.T) {
 	keyID := uuid.New()
 	svc := &mockKeyService{}
-	svc.On("GetKeyInVault", mock.Anything, keyID, mock.Anything).Return(makeKeyModel(keyID), nil)
+	// Legacy flat route (no vault_name) uses per-user visibility via GetKey.
+	svc.On("GetKey", mock.Anything, keyID, uuid.MustParse(keyTestUserID)).Return(makeKeyModel(keyID), nil)
 
 	c := newKeyCtx(svc)
 	c.Params = &ApiParams{KeyID: keyID.String(), PerPage: 60}
@@ -570,6 +575,29 @@ func TestUpdateKey_ServiceError_Returns500(t *testing.T) {
 	}
 
 	assert.Equal(t, http.StatusInternalServerError, w.Code)
+	svc.AssertExpectations(t)
+}
+
+func TestUpdateKey_NotFound_Returns404(t *testing.T) {
+	keyID := uuid.New()
+	svc := &mockKeyService{}
+	// UpdateKey wraps ErrKeyNotFound; errors.Is must still match through the chain.
+	svc.On("UpdateKey", mock.Anything, mock.Anything).
+		Return(fmt.Errorf("update key: %w", keyServices.ErrKeyNotFound))
+
+	c := newKeyCtx(svc)
+	c.Params = &ApiParams{KeyID: keyID.String(), PerPage: 60}
+	w := httptest.NewRecorder()
+	name := "updated"
+	body, _ := json.Marshal(UpdateKeyRequest{Name: &name})
+	r := httptest.NewRequest(http.MethodPut, "/keys/"+keyID.String(), bytes.NewReader(body))
+
+	updateKey(c, w, r)
+	if c.Err != nil {
+		writeError(w, c)
+	}
+
+	assert.Equal(t, http.StatusNotFound, w.Code)
 	svc.AssertExpectations(t)
 }
 
@@ -651,6 +679,74 @@ func TestDeleteKey_Success_Returns200(t *testing.T) {
 	}
 
 	assert.Equal(t, http.StatusOK, w.Code)
+	svc.AssertExpectations(t)
+}
+
+// TestDeleteKey_NotFound_Returns404 verifies that a not-found sentinel from the
+// service maps to 404 rather than 500.
+func TestDeleteKey_NotFound_Returns404(t *testing.T) {
+	keyID := uuid.New()
+	svc := &mockKeyService{}
+	svc.On("DeleteKeyInVault", mock.Anything, keyID, mock.Anything).
+		Return(nil, keyServices.ErrKeyNotFound)
+
+	c := newKeyCtx(svc)
+	c.Params = &ApiParams{KeyID: keyID.String(), PerPage: 60}
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest(http.MethodDelete, "/keys/"+keyID.String(), nil)
+
+	deleteKey(c, w, r)
+	if c.Err != nil {
+		writeError(w, c)
+	}
+
+	assert.Equal(t, http.StatusNotFound, w.Code)
+	svc.AssertExpectations(t)
+}
+
+// TestGetKey_LifecycleDenied_Returns403 verifies that a disabled/expired key
+// yields 403 rather than 404.
+func TestGetKey_LifecycleDenied_Returns403(t *testing.T) {
+	keyID := uuid.New()
+	svc := &mockKeyService{}
+	svc.On("GetKey", mock.Anything, keyID, uuid.MustParse(keyTestUserID)).
+		Return(nil, keyServices.ErrKeyLifecycleDenied)
+
+	c := newKeyCtx(svc)
+	c.Claims = jwt.MapClaims{"role": string(model.RoleUser), "user_id": keyTestUserID}
+	c.Params = &ApiParams{KeyID: keyID.String(), PerPage: 60}
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest(http.MethodGet, "/keys/"+keyID.String(), nil)
+
+	getKey(c, w, r)
+	if c.Err != nil {
+		writeError(w, c)
+	}
+
+	assert.Equal(t, http.StatusForbidden, w.Code)
+	svc.AssertExpectations(t)
+}
+
+// TestGetKey_InternalError_Returns500 verifies a genuine server fault yields 500
+// rather than 404.
+func TestGetKey_InternalError_Returns500(t *testing.T) {
+	keyID := uuid.New()
+	svc := &mockKeyService{}
+	svc.On("GetKey", mock.Anything, keyID, uuid.MustParse(keyTestUserID)).
+		Return(nil, errors.New("disk I/O"))
+
+	c := newKeyCtx(svc)
+	c.Claims = jwt.MapClaims{"role": string(model.RoleUser), "user_id": keyTestUserID}
+	c.Params = &ApiParams{KeyID: keyID.String(), PerPage: 60}
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest(http.MethodGet, "/keys/"+keyID.String(), nil)
+
+	getKey(c, w, r)
+	if c.Err != nil {
+		writeError(w, c)
+	}
+
+	assert.Equal(t, http.StatusInternalServerError, w.Code)
 	svc.AssertExpectations(t)
 }
 

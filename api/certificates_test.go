@@ -7,6 +7,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -394,7 +395,8 @@ func TestCreateCertificate_Success_Returns201(t *testing.T) {
 
 func TestListCertificates_ServiceError_Returns500(t *testing.T) {
 	svc := &mockCertService{}
-	svc.On("ListCertificatesInVault", mock.Anything, mock.Anything).Return([]model.Certificate{}, errors.New("db error"))
+	// Legacy flat route (no vault_name) uses per-user visibility via ListCertificates.
+	svc.On("ListCertificates", mock.Anything, uuid.MustParse(certTestUserID)).Return([]model.Certificate{}, errors.New("db error"))
 
 	c := newCertCtx(svc, certAdminClaims())
 	w := httptest.NewRecorder()
@@ -414,7 +416,8 @@ func TestListCertificates_Success_Returns200(t *testing.T) {
 	certs := []model.Certificate{
 		{ID: uuid.New(), Name: "cert1", CreatedAt: time.Now()},
 	}
-	svc.On("ListCertificatesInVault", mock.Anything, mock.Anything).Return(certs, nil)
+	// Legacy flat route (no vault_name) uses per-user visibility via ListCertificates.
+	svc.On("ListCertificates", mock.Anything, uuid.MustParse(certTestUserID)).Return(certs, nil)
 
 	c := newCertCtx(svc, certAdminClaims())
 	w := httptest.NewRecorder()
@@ -453,7 +456,9 @@ func TestGetCertificate_InvalidCertID_Returns400(t *testing.T) {
 func TestGetCertificate_NotFound_Returns404(t *testing.T) {
 	svc := &mockCertService{}
 	certID := uuid.New()
-	svc.On("GetCertificateInVault", mock.Anything, certID, mock.Anything).Return(nil, errors.New("not found"))
+	// Legacy flat route (no vault_name) uses per-user visibility via GetCertificate.
+	// The service returns the not-found sentinel, which maps to 404.
+	svc.On("GetCertificate", mock.Anything, certID, uuid.MustParse(certTestUserID)).Return(nil, certServices.ErrCertNotFound)
 
 	c := newCertCtx(svc, certAdminClaims())
 	c.Params = &ApiParams{CertificateID: certID.String(), PerPage: 60}
@@ -473,7 +478,8 @@ func TestGetCertificate_Success_Returns200(t *testing.T) {
 	svc := &mockCertService{}
 	certID := uuid.New()
 	userID := uuid.MustParse(certTestUserID)
-	svc.On("GetCertificateInVault", mock.Anything, certID, mock.Anything).Return(&model.Certificate{
+	// Legacy flat route (no vault_name) uses per-user visibility via GetCertificate.
+	svc.On("GetCertificate", mock.Anything, certID, userID).Return(&model.Certificate{
 		ID: certID, Name: "cert1", UserID: userID, CreatedAt: time.Now(),
 	}, nil)
 
@@ -543,6 +549,29 @@ func TestUpdateCertificate_ServiceError_Returns500(t *testing.T) {
 	}
 
 	assert.Equal(t, http.StatusInternalServerError, w.Code)
+	svc.AssertExpectations(t)
+}
+
+func TestUpdateCertificate_NotFound_Returns404(t *testing.T) {
+	svc := &mockCertService{}
+	certID := uuid.New()
+	// UpdateCertificate returns GetCertificate's error, which wraps ErrCertNotFound.
+	svc.On("UpdateCertificate", mock.Anything, mock.Anything).
+		Return(fmt.Errorf("update certificate: %w", certServices.ErrCertNotFound))
+
+	c := newCertCtx(svc, certAdminClaims())
+	c.Params = &ApiParams{CertificateID: certID.String(), PerPage: 60}
+	w := httptest.NewRecorder()
+	name := "new-name"
+	body, _ := json.Marshal(UpdateCertificateAPIRequest{Name: &name})
+	r := httptest.NewRequest(http.MethodPut, "/certificates/"+certID.String(), bytes.NewReader(body))
+
+	updateCertificate(c, w, r)
+	if c.Err != nil {
+		writeError(w, c)
+	}
+
+	assert.Equal(t, http.StatusNotFound, w.Code)
 	svc.AssertExpectations(t)
 }
 
@@ -624,5 +653,71 @@ func TestDeleteCertificate_Success_Returns200(t *testing.T) {
 	}
 
 	assert.Equal(t, http.StatusOK, w.Code)
+	svc.AssertExpectations(t)
+}
+
+// TestDeleteCertificate_NotFound_Returns404 verifies that a not-found sentinel
+// from the service maps to 404 rather than 500.
+func TestDeleteCertificate_NotFound_Returns404(t *testing.T) {
+	svc := &mockCertService{}
+	certID := uuid.New()
+	svc.On("DeleteCertificateInVault", mock.Anything, certID, mock.Anything).
+		Return(certServices.ErrCertNotFound)
+
+	c := newCertCtx(svc, certAdminClaims())
+	c.Params = &ApiParams{CertificateID: certID.String(), PerPage: 60}
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest(http.MethodDelete, "/certificates/"+certID.String(), nil)
+
+	deleteCertificate(c, w, r)
+	if c.Err != nil {
+		writeError(w, c)
+	}
+
+	assert.Equal(t, http.StatusNotFound, w.Code)
+	svc.AssertExpectations(t)
+}
+
+// TestGetCertificate_LifecycleDenied_Returns403 verifies that a disabled/expired
+// certificate yields 403 rather than 404.
+func TestGetCertificate_LifecycleDenied_Returns403(t *testing.T) {
+	svc := &mockCertService{}
+	certID := uuid.New()
+	svc.On("GetCertificate", mock.Anything, certID, uuid.MustParse(certTestUserID)).
+		Return(nil, certServices.ErrCertLifecycleDenied)
+
+	c := newCertCtx(svc, certAdminClaims())
+	c.Params = &ApiParams{CertificateID: certID.String(), PerPage: 60}
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest(http.MethodGet, "/certificates/"+certID.String(), nil)
+
+	getCertificate(c, w, r)
+	if c.Err != nil {
+		writeError(w, c)
+	}
+
+	assert.Equal(t, http.StatusForbidden, w.Code)
+	svc.AssertExpectations(t)
+}
+
+// TestGetCertificate_InternalError_Returns500 verifies a genuine server fault
+// yields 500 rather than 404.
+func TestGetCertificate_InternalError_Returns500(t *testing.T) {
+	svc := &mockCertService{}
+	certID := uuid.New()
+	svc.On("GetCertificate", mock.Anything, certID, uuid.MustParse(certTestUserID)).
+		Return(nil, errors.New("disk I/O"))
+
+	c := newCertCtx(svc, certAdminClaims())
+	c.Params = &ApiParams{CertificateID: certID.String(), PerPage: 60}
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest(http.MethodGet, "/certificates/"+certID.String(), nil)
+
+	getCertificate(c, w, r)
+	if c.Err != nil {
+		writeError(w, c)
+	}
+
+	assert.Equal(t, http.StatusInternalServerError, w.Code)
 	svc.AssertExpectations(t)
 }

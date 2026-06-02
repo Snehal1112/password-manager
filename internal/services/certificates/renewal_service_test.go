@@ -107,13 +107,13 @@ func (m *mockCertRepoForRenewal) ReadInVault(ctx context.Context, id, vaultID uu
 	return nil, args.Error(1)
 }
 
-func (m *mockCertRepoForRenewal) SoftDeleteVaultContents(ctx context.Context, vaultID uuid.UUID) error {
-	args := m.Called(ctx, vaultID)
+func (m *mockCertRepoForRenewal) SoftDeleteVaultContents(ctx context.Context, vaultID uuid.UUID, deletedAt time.Time) error {
+	args := m.Called(ctx, vaultID, deletedAt)
 	return args.Error(0)
 }
 
-func (m *mockCertRepoForRenewal) RecoverVaultContents(ctx context.Context, vaultID uuid.UUID) error {
-	args := m.Called(ctx, vaultID)
+func (m *mockCertRepoForRenewal) RecoverVaultContents(ctx context.Context, vaultID uuid.UUID, deletedAt time.Time) error {
+	args := m.Called(ctx, vaultID, deletedAt)
 	return args.Error(0)
 }
 

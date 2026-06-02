@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -17,6 +18,14 @@ import (
 	"rocketvault/internal/repositories"
 	"rocketvault/model"
 )
+
+// ErrSecretNotFound is returned when a secret does not exist or is not accessible
+// within the requested scope (vault or user ownership).
+var ErrSecretNotFound = errors.New("secret not found")
+
+// ErrSecretLifecycleDenied is returned when a secret exists but is disabled or
+// outside its valid time window (not_before / expires_at).
+var ErrSecretLifecycleDenied = errors.New("secret is disabled or outside its valid time window")
 
 // CreateSecretRequest represents a request to create a new secret.
 type CreateSecretRequest struct {
@@ -400,7 +409,7 @@ func (s *secretService) GetSecret(ctx context.Context, secretID, userID uuid.UUI
 	secret, err := s.secretRepo.ReadByOwner(ctx, secretID, userID)
 	if err != nil {
 		s.logger.LogAuditError(userID.String(), "get_secret", "failed", "Secret not found or access denied", err)
-		return nil, fmt.Errorf("secret not found or access denied")
+		return nil, fmt.Errorf("%w", ErrSecretNotFound)
 	}
 
 	// Decrypt value.
@@ -422,7 +431,7 @@ func (s *secretService) GetSecret(ctx context.Context, secretID, userID uuid.UUI
 	// Enforce lifecycle policy at the service boundary.
 	if !secret.IsAccessible() {
 		s.logger.LogAuditError(userID.String(), "get_secret", "denied", "Secret is disabled or outside its valid time window", nil)
-		return nil, fmt.Errorf("secret is disabled or outside its valid time window")
+		return nil, fmt.Errorf("%w", ErrSecretLifecycleDenied)
 	}
 
 	return secret, nil
@@ -529,7 +538,7 @@ func (s *secretService) GetSecretInVault(ctx context.Context, secretID, vaultID 
 	secret, err := s.secretRepo.ReadInVault(ctx, secretID, vaultID)
 	if err != nil {
 		s.logger.LogAuditError("", "get_secret", "failed", "Secret not found or not in vault", err)
-		return nil, fmt.Errorf("secret not found or access denied")
+		return nil, fmt.Errorf("%w", ErrSecretNotFound)
 	}
 
 	// Decrypt value.
@@ -551,7 +560,7 @@ func (s *secretService) GetSecretInVault(ctx context.Context, secretID, vaultID 
 	// Enforce lifecycle policy at the service boundary.
 	if !secret.IsAccessible() {
 		s.logger.LogAuditError("", "get_secret", "denied", "Secret is disabled or outside its valid time window", nil)
-		return nil, fmt.Errorf("secret is disabled or outside its valid time window")
+		return nil, fmt.Errorf("%w", ErrSecretLifecycleDenied)
 	}
 
 	return secret, nil
@@ -598,7 +607,7 @@ func (s *secretService) DeleteSecretInVault(ctx context.Context, secretID, vault
 	secret, err := s.secretRepo.ReadInVault(ctx, secretID, vaultID)
 	if err != nil {
 		s.logger.LogAuditError("", "delete_secret", "failed", "Secret not found or not in vault", err)
-		return fmt.Errorf("secret not found: %w", err)
+		return fmt.Errorf("%w: %s", ErrSecretNotFound, err.Error())
 	}
 
 	// Remove all tags first.

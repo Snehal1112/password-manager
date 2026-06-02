@@ -364,6 +364,10 @@ func resolvePolicy(method, path string) (model.PolicyResourceType, model.PolicyO
 		resourceType = model.PolicyResourceKeys
 	case strings.Contains(path, "/certificates"):
 		resourceType = model.PolicyResourceCertificates
+	case strings.Contains(path, "/vaults"):
+		// Vault management routes (resource routes are matched by the cases above,
+		// since /vaults/{name}/secrets contains "/secrets").
+		return model.PolicyResourceVaults, model.OpManage
 	default:
 		return "", ""
 	}
@@ -471,6 +475,16 @@ func (m *Middleware) PolicyMiddleware(next http.Handler) http.Handler {
 // an optional, config-gated extension added separately.
 func (m *Middleware) VaultResolutionMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Skip vault resolution for health/liveness probes so they stay
+		// independent of the database and the vaults table.
+		if strings.HasSuffix(r.URL.Path, "/health") ||
+			strings.HasSuffix(r.URL.Path, "/health/ready") ||
+			strings.HasSuffix(r.URL.Path, "/health/live") ||
+			strings.HasSuffix(r.URL.Path, "/health/database") {
+			next.ServeHTTP(w, r)
+			return
+		}
+
 		name := model.DefaultVaultName
 		if v := mux.Vars(r)["vault_name"]; v != "" {
 			name = v

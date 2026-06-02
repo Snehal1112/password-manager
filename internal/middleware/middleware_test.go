@@ -77,14 +77,16 @@ func (m *MockServiceContainer) GetVaultService() vaultServices.VaultService {
 
 // stubVaultService is a minimal vaultServices.VaultService for middleware tests.
 type stubVaultService struct {
-	vault *model.Vault
-	err   error
+	vault         *model.Vault
+	err           error
+	getVaultCalls int
 }
 
 func (s *stubVaultService) CreateVault(context.Context, model.CreateVaultRequest, uuid.UUID) (*model.Vault, error) {
 	return nil, nil
 }
 func (s *stubVaultService) GetVault(_ context.Context, _ string) (*model.Vault, error) {
+	s.getVaultCalls++
 	return s.vault, s.err
 }
 func (s *stubVaultService) ListVaults(context.Context, bool) ([]model.Vault, error) { return nil, nil }
@@ -1074,6 +1076,35 @@ func TestVaultResolutionMiddleware_DisabledReturns403(t *testing.T) {
 	rec := httptest.NewRecorder()
 	mw.VaultResolutionMiddleware(next).ServeHTTP(rec, req)
 	assert.Equal(t, http.StatusForbidden, rec.Code)
+}
+
+// TestVaultResolutionMiddleware_SkipsHealthEndpoints verifies that health/liveness
+// probes pass through without touching the vault service, so the probes stay
+// independent of the database and the vaults table (which may be missing or
+// mid-migration). The stub would otherwise resolve the default vault on every call.
+func TestVaultResolutionMiddleware_SkipsHealthEndpoints(t *testing.T) {
+	t.Parallel()
+	for _, path := range []string{"/api/v1/health", "/api/v1/health/live", "/api/v1/health/ready"} {
+		logger := &logging.Logger{Logger: logrus.New()}
+		logger.SetLevel(logrus.ErrorLevel)
+		mockContainer := &MockServiceContainer{logger: logger}
+		stub := &stubVaultService{err: vaultServices.ErrVaultNotFound} // would 404 if consulted
+		mockContainer.On("GetVaultService").Return(stub).Maybe()
+		mw := NewMiddleware(mockContainer)
+
+		called := false
+		next := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			called = true
+			w.WriteHeader(http.StatusOK)
+		})
+		req := httptest.NewRequest(http.MethodGet, path, nil)
+		rec := httptest.NewRecorder()
+		mw.VaultResolutionMiddleware(next).ServeHTTP(rec, req)
+
+		assert.Equalf(t, http.StatusOK, rec.Code, "health path %s should pass through", path)
+		assert.Truef(t, called, "next handler should be reached for %s", path)
+		assert.Zerof(t, stub.getVaultCalls, "vault service must not be consulted for %s", path)
+	}
 }
 
 // TestMiddlewareArchitecturalChange documents the architectural improvement.

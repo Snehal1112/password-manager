@@ -141,3 +141,35 @@ func TestCertificateRepository_ListInVault_ScopesByVault(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, gotB, 1)
 }
+
+// TestCertificateRepository_ReadInVault_PopulatesVaultID verifies that ReadInVault
+// and ListInVault set VaultID on returned certificates to the queried vault.
+func TestCertificateRepository_ReadInVault_PopulatesVaultID(t *testing.T) {
+	db := setupCertKeyIDTestDB(t)
+	log := logging.InitLogger()
+	repo := repositories.NewCertificateRepository(db, log)
+	ctx := context.Background()
+	vaultA := uuid.New()
+
+	cert := &model.Certificate{
+		ID:          uuid.New(),
+		UserID:      uuid.New(),
+		VaultID:     vaultA,
+		Name:        "vault-id-cert",
+		Certificate: "cert-pem",
+		PrivateKey:  "encrypted",
+		CreatedAt:   time.Now(),
+		RenewalDays: 30,
+		Enabled:     true,
+	}
+	require.NoError(t, repo.Create(ctx, cert))
+
+	read, err := repo.ReadInVault(ctx, cert.ID, vaultA)
+	require.NoError(t, err)
+	assert.Equal(t, vaultA, read.VaultID, "ReadInVault must populate VaultID on returned certificate")
+
+	listed, err := repo.ListInVault(ctx, vaultA, "", nil)
+	require.NoError(t, err)
+	require.Len(t, listed, 1)
+	assert.Equal(t, vaultA, listed[0].VaultID, "ListInVault must populate VaultID on returned certificates")
+}

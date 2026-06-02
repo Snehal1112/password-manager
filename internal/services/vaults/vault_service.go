@@ -22,8 +22,8 @@ var ErrVaultNotFound = errors.New("vault not found")
 
 // CascadeRepository soft-deletes or recovers all resources belonging to a vault.
 type CascadeRepository interface {
-	SoftDeleteVaultContents(ctx context.Context, vaultID uuid.UUID) error
-	RecoverVaultContents(ctx context.Context, vaultID uuid.UUID) error
+	SoftDeleteVaultContents(ctx context.Context, vaultID uuid.UUID, deletedAt time.Time) error
+	RecoverVaultContents(ctx context.Context, vaultID uuid.UUID, deletedAt time.Time) error
 }
 
 // VaultService orchestrates the vault lifecycle.
@@ -144,11 +144,22 @@ func (s *vaultService) DeleteVault(ctx context.Context, name string) error {
 	if err != nil {
 		return err
 	}
-	if err := s.cascade.SoftDeleteVaultContents(ctx, v.ID); err != nil {
-		return fmt.Errorf("cascade soft-delete vault contents: %w", err)
-	}
+	// Soft-delete the vault row first; VaultRepository.SoftDelete stamps its own
+	// timestamp. We then read that persisted deleted_at back and stamp the contents
+	// with the SAME value, so recovery (which reads the vault row's DeletedAt) matches
+	// exactly. This avoids resurrecting items soft-deleted before the vault was deleted.
 	if err := s.repo.SoftDelete(ctx, v.ID); err != nil {
 		return err
+	}
+	deleted, err := s.repo.ReadByID(ctx, v.ID)
+	if err != nil {
+		return fmt.Errorf("read vault after soft-delete: %w", err)
+	}
+	if deleted.DeletedAt == nil {
+		return fmt.Errorf("vault %q missing deleted_at after soft-delete", name)
+	}
+	if err := s.cascade.SoftDeleteVaultContents(ctx, v.ID, *deleted.DeletedAt); err != nil {
+		return fmt.Errorf("cascade soft-delete vault contents: %w", err)
 	}
 	if s.log != nil {
 		s.log.LogAuditInfo("", "delete_vault", "success", fmt.Sprintf("Vault deleted: %s", name))
@@ -162,10 +173,17 @@ func (s *vaultService) RecoverVault(ctx context.Context, name string) error {
 	if err != nil {
 		return err
 	}
+	if v.DeletedAt == nil {
+		return fmt.Errorf("vault %q missing deleted_at", name)
+	}
+	// Capture the vault's deletion timestamp before recovery clears it. The cascade
+	// restores only the contents stamped with this exact timestamp, leaving rows the
+	// user deleted individually (different deleted_at) untouched.
+	deletedAt := *v.DeletedAt
 	if err := s.repo.Recover(ctx, v.ID); err != nil {
 		return fmt.Errorf("recover vault: %w", err)
 	}
-	if err := s.cascade.RecoverVaultContents(ctx, v.ID); err != nil {
+	if err := s.cascade.RecoverVaultContents(ctx, v.ID, deletedAt); err != nil {
 		return fmt.Errorf("cascade recover vault contents: %w", err)
 	}
 	if s.log != nil {

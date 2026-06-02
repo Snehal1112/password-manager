@@ -24,6 +24,7 @@ package api
 
 import (
 	"encoding/json"
+	"errors"
 	"net/http"
 	"time"
 
@@ -242,24 +243,45 @@ func createCertificate(c *Context, w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(response)
 }
 
-// listCertificates lists all certificates for the authenticated user.
+// listCertificates lists certificates. Legacy flat routes use per-user
+// visibility (the caller's own certificates); explicit vault-scoped routes use
+// vault-level "members see all" visibility.
 func listCertificates(c *Context, w http.ResponseWriter, r *http.Request) {
-	// Resolve the target vault from the request context.
-	vaultID, err := vaultIDFromRequest(r)
-	if err != nil {
-		c.SetInvalidParam("vault")
-		return
-	}
-
 	certService := c.certSvc()
 	if certService == nil {
 		return
 	}
 
-	certs, err := certService.ListCertificatesInVault(r.Context(), vaultID)
-	if err != nil {
-		c.SetInternalError(err)
-		return
+	var certs []model.Certificate
+	if isVaultScopedRoute(r) {
+		// Vault-scoped route: members see all certificates in the resolved vault.
+		vaultID, err := vaultIDFromRequest(r)
+		if err != nil {
+			c.SetInvalidParam("vault")
+			return
+		}
+		certs, err = certService.ListCertificatesInVault(r.Context(), vaultID)
+		if err != nil {
+			c.SetInternalError(err)
+			return
+		}
+	} else {
+		// Legacy flat route: per-user visibility (preserves pre-multi-vault behavior).
+		userIDStr, ok := c.Claims["user_id"].(string)
+		if !ok {
+			c.SetInternalError(nil)
+			return
+		}
+		userID, err := uuid.Parse(userIDStr)
+		if err != nil {
+			c.SetInvalidParam("user_id")
+			return
+		}
+		certs, err = certService.ListCertificates(r.Context(), userID)
+		if err != nil {
+			c.SetInternalError(err)
+			return
+		}
 	}
 
 	response := CertificateListResponse{Certificates: make([]CertificateResponse, len(certs))}
@@ -279,22 +301,53 @@ func getCertificate(c *Context, w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Resolve the target vault from the request context.
-	vaultID, err := vaultIDFromRequest(r)
-	if err != nil {
-		c.SetInvalidParam("vault")
-		return
-	}
-
 	certService := c.certSvc()
 	if certService == nil {
 		return
 	}
 
-	cert, err := certService.GetCertificateInVault(r.Context(), certID, vaultID)
-	if err != nil {
-		c.SetNotFound("certificate")
-		return
+	// Legacy flat routes use per-user visibility; vault-scoped routes use
+	// vault-level visibility (members see all certificates in the vault).
+	var cert *model.Certificate
+	if isVaultScopedRoute(r) {
+		vaultID, err := vaultIDFromRequest(r)
+		if err != nil {
+			c.SetInvalidParam("vault")
+			return
+		}
+		cert, err = certService.GetCertificateInVault(r.Context(), certID, vaultID)
+		if err != nil {
+			if errors.Is(err, certServices.ErrCertLifecycleDenied) {
+				c.SetPermissionError("certificate is disabled or outside its valid time window")
+			} else if errors.Is(err, certServices.ErrCertNotFound) {
+				c.SetNotFound("certificate")
+			} else {
+				c.SetInternalError(err)
+			}
+			return
+		}
+	} else {
+		userIDStr, ok := c.Claims["user_id"].(string)
+		if !ok {
+			c.SetInternalError(nil)
+			return
+		}
+		userID, err := uuid.Parse(userIDStr)
+		if err != nil {
+			c.SetInvalidParam("user_id")
+			return
+		}
+		cert, err = certService.GetCertificate(r.Context(), certID, userID)
+		if err != nil {
+			if errors.Is(err, certServices.ErrCertLifecycleDenied) {
+				c.SetPermissionError("certificate is disabled or outside its valid time window")
+			} else if errors.Is(err, certServices.ErrCertNotFound) {
+				c.SetNotFound("certificate")
+			} else {
+				c.SetInternalError(err)
+			}
+			return
+		}
 	}
 
 	w.Header().Set("Content-Type", "application/json")
@@ -348,7 +401,11 @@ func updateCertificate(c *Context, w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := certService.UpdateCertificate(r.Context(), updateReq); err != nil {
-		c.SetInternalError(err)
+		if errors.Is(err, certServices.ErrCertNotFound) {
+			c.SetNotFound("certificate")
+		} else {
+			c.SetInternalError(err)
+		}
 		return
 	}
 
@@ -384,7 +441,11 @@ func deleteCertificate(c *Context, w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := certService.DeleteCertificateInVault(r.Context(), certID, vaultID); err != nil {
-		c.SetInternalError(err)
+		if errors.Is(err, certServices.ErrCertNotFound) {
+			c.SetNotFound("certificate")
+		} else {
+			c.SetInternalError(err)
+		}
 		return
 	}
 

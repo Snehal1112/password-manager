@@ -45,6 +45,9 @@ const (
 	PermissionDeleteUser Permission = "users:delete"
 	PermissionListUsers  Permission = "users:list"
 
+	// Vault management permissions
+	PermissionManageVaults Permission = "vaults:manage"
+
 	// Admin permissions
 	PermissionManageSystem Permission = "system:manage"
 )
@@ -90,6 +93,7 @@ func getDefaultRolePermissions() map[string][]Permission {
 			PermissionCreateKey, PermissionReadKey, PermissionUpdateKey, PermissionDeleteKey, PermissionListKeys,
 			PermissionCreateCertificate, PermissionReadCertificate, PermissionUpdateCertificate, PermissionDeleteCertificate, PermissionListCertificates,
 			PermissionCreateUser, PermissionReadUser, PermissionUpdateUser, PermissionDeleteUser, PermissionListUsers,
+			PermissionManageVaults,
 			PermissionManageSystem,
 		},
 		model.RoleUser: {
@@ -218,6 +222,22 @@ func (s *rbacService) mapEndpointToPermission(method, path string) Permission {
 	// Normalize path for comparison
 	path = strings.TrimPrefix(path, "/api/v1")
 	path = strings.TrimPrefix(path, "/")
+
+	// Vault endpoints. A vault-scoped resource route looks like
+	// "vaults/{name}/secrets/...". Strip the "vaults/{name}/" prefix so the route
+	// maps to the same permission as its legacy flat equivalent. A bare
+	// "vaults" or "vaults/{name}" path is vault management and requires
+	// the vaults:manage permission.
+	if strings.HasPrefix(path, "vaults") {
+		parts := strings.SplitN(path, "/", 3)
+		if len(parts) == 3 {
+			// vaults/{name}/<resource...> — scope to the inner resource route.
+			path = parts[2]
+		} else {
+			// vaults or vaults/{name} — vault management.
+			return PermissionManageVaults
+		}
+	}
 
 	// Secrets endpoints
 	if strings.HasPrefix(path, "secrets") {

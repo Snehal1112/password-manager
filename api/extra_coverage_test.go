@@ -17,6 +17,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 
+	certServices "rocketvault/internal/services/certificates"
 	secretServices "rocketvault/internal/services/secrets"
 	"rocketvault/model"
 )
@@ -339,7 +340,8 @@ func TestDeleteSecret_InvalidSecretIDParam_Returns400(t *testing.T) {
 // to the service.
 func TestListSecrets_WithTagFilter_Returns200(t *testing.T) {
 	svc := &mockSecretService{}
-	svc.On("ListSecretsInVault", mock.Anything, mock.Anything, mock.Anything).
+	// Legacy flat route (no vault_name) uses per-user visibility via ListSecrets.
+	svc.On("ListSecrets", mock.Anything, uuid.MustParse(secretHTestUserID), mock.Anything).
 		Return([]model.Secret{}, nil)
 
 	c := newSecretCtx(svc)
@@ -441,7 +443,9 @@ func buildMultipartNoFileRequest(t *testing.T, fields map[string]string) *http.R
 func TestGetCertificate_ServiceError_Returns404(t *testing.T) {
 	certID := uuid.New()
 	svc := &mockCertService{}
-	svc.On("GetCertificateInVault", mock.Anything, certID, mock.Anything).Return(nil, errors.New("not found"))
+	// Legacy flat route (no vault_name) uses per-user visibility via GetCertificate.
+	// The service returns the not-found sentinel, which maps to 404.
+	svc.On("GetCertificate", mock.Anything, certID, uuid.MustParse(certTestUserID)).Return(nil, certServices.ErrCertNotFound)
 
 	c := newCertCtx(svc, certAdminClaims())
 	c.Params = &ApiParams{CertificateID: certID.String(), PerPage: 60}
@@ -492,7 +496,8 @@ func TestUpdateCertificate_ServiceError2_Returns500(t *testing.T) {
 func TestListSecrets_NonEmptyList_Returns200(t *testing.T) {
 	svc := &mockSecretService{}
 	secretID := uuid.New()
-	svc.On("ListSecretsInVault", mock.Anything, mock.Anything, mock.Anything).
+	// Legacy flat route (no vault_name) uses per-user visibility via ListSecrets.
+	svc.On("ListSecrets", mock.Anything, uuid.MustParse(secretHTestUserID), mock.Anything).
 		Return([]model.Secret{
 			{
 				ID:        secretID,

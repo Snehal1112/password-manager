@@ -32,3 +32,11 @@ UPDATE certificates SET vault_id = '00000000-0000-0000-0000-00000000efa1' WHERE 
 
 -- Add vault scoping to access policies (NULL means a global, all-vaults policy).
 ALTER TABLE access_policies ADD COLUMN vault_id TEXT NULL;
+
+-- Create per-vault unique name indexes. These mirror the indexes created by
+-- finalizeVaultIndexes() on server startup; IF NOT EXISTS makes both paths
+-- idempotent. Note: soft-deleted resources hold their name slot until purged,
+-- matching Azure Key Vault behaviour.
+CREATE UNIQUE INDEX IF NOT EXISTS idx_secrets_vault_name      ON secrets(vault_id, name);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_keys_vault_name         ON keys(vault_id, name);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_certificates_vault_name ON certificates(vault_id, name);

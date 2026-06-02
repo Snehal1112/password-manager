@@ -118,10 +118,10 @@ func (s *stubKeyRepo) ListInVault(_ context.Context, _ uuid.UUID, _ string, _ []
 func (s *stubKeyRepo) ReadInVault(_ context.Context, _, _ uuid.UUID) (*model.Key, error) {
 	panic("unexpected call: ReadInVault")
 }
-func (s *stubKeyRepo) SoftDeleteVaultContents(_ context.Context, _ uuid.UUID) error {
+func (s *stubKeyRepo) SoftDeleteVaultContents(_ context.Context, _ uuid.UUID, _ time.Time) error {
 	panic("unexpected call: SoftDeleteVaultContents")
 }
-func (s *stubKeyRepo) RecoverVaultContents(_ context.Context, _ uuid.UUID) error {
+func (s *stubKeyRepo) RecoverVaultContents(_ context.Context, _ uuid.UUID, _ time.Time) error {
 	panic("unexpected call: RecoverVaultContents")
 }
 

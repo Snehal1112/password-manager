@@ -135,7 +135,9 @@ func TestGetSecret_WrongOwner(t *testing.T) {
 	_, err := svc.GetSecret(ctx, secretID, otherID)
 
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "secret not found or access denied")
+	// A failed owner-scoped read now yields the ErrSecretNotFound sentinel so
+	// the API layer can map it to a 404 rather than a 500.
+	assert.ErrorIs(t, err, secrets.ErrSecretNotFound)
 }
 
 func TestGetSecret_NotFound(t *testing.T) {

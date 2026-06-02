@@ -92,8 +92,14 @@ func (f *fakeVaultRepo) Purge(_ context.Context, id uuid.UUID) error {
 
 type noopCascade struct{ soft, recover int }
 
-func (n *noopCascade) SoftDeleteVaultContents(context.Context, uuid.UUID) error { n.soft++; return nil }
-func (n *noopCascade) RecoverVaultContents(context.Context, uuid.UUID) error    { n.recover++; return nil }
+func (n *noopCascade) SoftDeleteVaultContents(context.Context, uuid.UUID, time.Time) error {
+	n.soft++
+	return nil
+}
+func (n *noopCascade) RecoverVaultContents(context.Context, uuid.UUID, time.Time) error {
+	n.recover++
+	return nil
+}
 
 func TestCreateVault_RejectsInvalidName(t *testing.T) {
 	svc := NewVaultService(newFakeRepo(), &noopCascade{}, nil)

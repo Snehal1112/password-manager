@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/google/uuid"
@@ -345,8 +346,12 @@ func (m *mockSecretRepo) ListInVault(_ context.Context, _ uuid.UUID, _ []string)
 func (m *mockSecretRepo) ListInVaultIncludeDeleted(_ context.Context, _ uuid.UUID, _ []string) ([]model.Secret, error) {
 	return nil, nil
 }
-func (m *mockSecretRepo) SoftDeleteVaultContents(_ context.Context, _ uuid.UUID) error { return nil }
-func (m *mockSecretRepo) RecoverVaultContents(_ context.Context, _ uuid.UUID) error    { return nil }
+func (m *mockSecretRepo) SoftDeleteVaultContents(_ context.Context, _ uuid.UUID, _ time.Time) error {
+	return nil
+}
+func (m *mockSecretRepo) RecoverVaultContents(_ context.Context, _ uuid.UUID, _ time.Time) error {
+	return nil
+}
 
 // newBackupCtxWithSecret creates a Context backed by a real ItemBackupService
 // that uses a custom mockSecretRepo, allowing success-path testing.
@@ -612,8 +617,12 @@ func (m *mockKeyRepo) ListInVault(_ context.Context, _ uuid.UUID, _ string, _ []
 func (m *mockKeyRepo) ReadInVault(_ context.Context, _, _ uuid.UUID) (*model.Key, error) {
 	return nil, nil
 }
-func (m *mockKeyRepo) SoftDeleteVaultContents(_ context.Context, _ uuid.UUID) error { return nil }
-func (m *mockKeyRepo) RecoverVaultContents(_ context.Context, _ uuid.UUID) error    { return nil }
+func (m *mockKeyRepo) SoftDeleteVaultContents(_ context.Context, _ uuid.UUID, _ time.Time) error {
+	return nil
+}
+func (m *mockKeyRepo) RecoverVaultContents(_ context.Context, _ uuid.UUID, _ time.Time) error {
+	return nil
+}
 
 // mockCertRepo is a minimal CertificateRepositoryInterface for backup tests.
 type mockCertRepo struct {
@@ -658,8 +667,12 @@ func (m *mockCertRepo) ListInVault(_ context.Context, _ uuid.UUID, _ string, _ [
 func (m *mockCertRepo) ReadInVault(_ context.Context, _, _ uuid.UUID) (*model.Certificate, error) {
 	return nil, nil
 }
-func (m *mockCertRepo) SoftDeleteVaultContents(_ context.Context, _ uuid.UUID) error { return nil }
-func (m *mockCertRepo) RecoverVaultContents(_ context.Context, _ uuid.UUID) error    { return nil }
+func (m *mockCertRepo) SoftDeleteVaultContents(_ context.Context, _ uuid.UUID, _ time.Time) error {
+	return nil
+}
+func (m *mockCertRepo) RecoverVaultContents(_ context.Context, _ uuid.UUID, _ time.Time) error {
+	return nil
+}
 
 // backupItemContainerWithKey provides an ItemBackupService with a key repo.
 type backupItemContainerWithKey struct {

@@ -2,6 +2,7 @@ package retry
 
 import (
 	"context"
+	"time"
 
 	"github.com/google/uuid"
 
@@ -222,15 +223,15 @@ func (r *RetryRepositoryWrapper) ListInVaultIncludeDeleted(ctx context.Context, 
 }
 
 // SoftDeleteVaultContents wraps the SoftDeleteVaultContents operation with retry logic.
-func (r *RetryRepositoryWrapper) SoftDeleteVaultContents(ctx context.Context, vaultID uuid.UUID) error {
+func (r *RetryRepositoryWrapper) SoftDeleteVaultContents(ctx context.Context, vaultID uuid.UUID, deletedAt time.Time) error {
 	return r.retryService.ExecuteDatabaseOperation(ctx, func() error {
-		return r.baseRepo.SoftDeleteVaultContents(ctx, vaultID)
+		return r.baseRepo.SoftDeleteVaultContents(ctx, vaultID, deletedAt)
 	})
 }
 
 // RecoverVaultContents wraps the RecoverVaultContents operation with retry logic.
-func (r *RetryRepositoryWrapper) RecoverVaultContents(ctx context.Context, vaultID uuid.UUID) error {
+func (r *RetryRepositoryWrapper) RecoverVaultContents(ctx context.Context, vaultID uuid.UUID, deletedAt time.Time) error {
 	return r.retryService.ExecuteDatabaseOperation(ctx, func() error {
-		return r.baseRepo.RecoverVaultContents(ctx, vaultID)
+		return r.baseRepo.RecoverVaultContents(ctx, vaultID, deletedAt)
 	})
 }

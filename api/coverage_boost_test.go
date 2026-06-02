@@ -1264,14 +1264,15 @@ func (s *successUnwrapCryptoSvc) UnwrapKey(_ context.Context, req keyServices.Un
 // keys.go — getKey admin path
 // ============================================================
 
-// TestGetKey_AdminPath_GetKeyError_Returns404 exercises the admin retry path
-// when the vault-scoped lookup fails the handler returns 404.
+// TestGetKey_AdminPath_GetKeyError_Returns404 exercises the legacy flat route
+// where a failed per-user lookup makes the handler return 404.
 func TestGetKey_AdminPath_GetKeyFailsValidationFails_Returns404(t *testing.T) {
 	keyID := uuid.New()
 
 	svc := &mockKeyService{}
-	// Vault-scoped lookup fails — handler returns 404.
-	svc.On("GetKeyInVault", mock.Anything, keyID, mock.Anything).Return((*model.Key)(nil), errors.New("not found"))
+	// Legacy flat route (no vault_name) uses per-user visibility via GetKey;
+	// the not-found sentinel makes the handler return 404.
+	svc.On("GetKey", mock.Anything, keyID, uuid.MustParse(keyTestUserID)).Return((*model.Key)(nil), keyServices.ErrKeyNotFound)
 
 	c := newKeyCtx(svc)
 	c.Params = &ApiParams{KeyID: keyID.String(), PerPage: 60}
@@ -1287,13 +1288,15 @@ func TestGetKey_AdminPath_GetKeyFailsValidationFails_Returns404(t *testing.T) {
 	svc.AssertExpectations(t)
 }
 
-// TestGetKey_AdminPath_RetryGetKeyFails_Returns404 verifies that an admin still
-// receives 404 when the vault-scoped lookup fails.
+// TestGetKey_AdminPath_RetryGetKeyFails_Returns404 verifies that the legacy flat
+// route still returns 404 when the per-user lookup fails.
 func TestGetKey_AdminPath_RetryGetKeyFails_Returns404(t *testing.T) {
 	keyID := uuid.New()
 
 	svc := &mockKeyService{}
-	svc.On("GetKeyInVault", mock.Anything, keyID, mock.Anything).Return((*model.Key)(nil), errors.New("still not found"))
+	// Legacy flat route (no vault_name) uses per-user visibility via GetKey;
+	// the not-found sentinel maps to 404.
+	svc.On("GetKey", mock.Anything, keyID, uuid.MustParse(keyTestUserID)).Return((*model.Key)(nil), keyServices.ErrKeyNotFound)
 
 	c := newKeyCtx(svc)
 	c.Params = &ApiParams{KeyID: keyID.String(), PerPage: 60}

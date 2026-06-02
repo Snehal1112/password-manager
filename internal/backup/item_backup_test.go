@@ -134,11 +134,11 @@ func (r *stubSecretRepo) ListInVaultIncludeDeleted(_ context.Context, _ uuid.UUI
 	return nil, nil
 }
 
-func (r *stubSecretRepo) SoftDeleteVaultContents(_ context.Context, _ uuid.UUID) error {
+func (r *stubSecretRepo) SoftDeleteVaultContents(_ context.Context, _ uuid.UUID, _ time.Time) error {
 	return nil
 }
 
-func (r *stubSecretRepo) RecoverVaultContents(_ context.Context, _ uuid.UUID) error {
+func (r *stubSecretRepo) RecoverVaultContents(_ context.Context, _ uuid.UUID, _ time.Time) error {
 	return nil
 }
 
@@ -290,11 +290,11 @@ func (r *stubKeyRepo) ReadInVault(_ context.Context, _, _ uuid.UUID) (*model.Key
 	return nil, nil
 }
 
-func (r *stubKeyRepo) SoftDeleteVaultContents(_ context.Context, _ uuid.UUID) error {
+func (r *stubKeyRepo) SoftDeleteVaultContents(_ context.Context, _ uuid.UUID, _ time.Time) error {
 	return nil
 }
 
-func (r *stubKeyRepo) RecoverVaultContents(_ context.Context, _ uuid.UUID) error {
+func (r *stubKeyRepo) RecoverVaultContents(_ context.Context, _ uuid.UUID, _ time.Time) error {
 	return nil
 }
 

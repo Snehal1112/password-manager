@@ -123,14 +123,18 @@ func nowForVaultTest() time.Time { return time.Unix(1700000000, 0) }
 
 type vaultNoopCascade struct{}
 
-func (vaultNoopCascade) SoftDeleteVaultContents(context.Context, uuid.UUID) error { return nil }
-func (vaultNoopCascade) RecoverVaultContents(context.Context, uuid.UUID) error    { return nil }
+func (vaultNoopCascade) SoftDeleteVaultContents(context.Context, uuid.UUID, time.Time) error {
+	return nil
+}
+func (vaultNoopCascade) RecoverVaultContents(context.Context, uuid.UUID, time.Time) error { return nil }
 
 // --- vaultSvcTestContainer ---
 
 type vaultSvcTestContainer struct {
 	vaultSvc  vaultServices.VaultService
 	secretSvc secretServices.SecretService
+	keySvc    keyServices.KeyService
+	certSvc   certServices.CertificateService
 }
 
 func (c *vaultSvcTestContainer) GetVaultService() vaultServices.VaultService { return c.vaultSvc }
@@ -200,9 +204,15 @@ func (c *vaultSvcTestContainer) GetUserService() userServices.UserService {
 	panic("unexpected call: GetUserService")
 }
 func (c *vaultSvcTestContainer) GetKeyService() keyServices.KeyService {
+	if c.keySvc != nil {
+		return c.keySvc
+	}
 	panic("unexpected call: GetKeyService")
 }
 func (c *vaultSvcTestContainer) GetCertificateService() certServices.CertificateService {
+	if c.certSvc != nil {
+		return c.certSvc
+	}
 	panic("unexpected call: GetCertificateService")
 }
 func (c *vaultSvcTestContainer) GetCertificateRenewalService() certServices.CertificateRenewalService {
@@ -282,7 +292,8 @@ func newVaultTestAPI() (*API, *vaultFakeRepo) {
 }
 
 // doVaultRequest issues an authed request through the API router and returns the recorder.
-// The request carries the user_id in context, as the real auth middleware would.
+// The request carries the user_id and an admin role in context, as the real auth
+// middleware would for an operator authorized to manage vaults (vaults:manage).
 func doVaultRequest(api *API, method, path string, body []byte) *httptest.ResponseRecorder {
 	var r *http.Request
 	if body != nil {
@@ -291,6 +302,7 @@ func doVaultRequest(api *API, method, path string, body []byte) *httptest.Respon
 		r = httptest.NewRequest(method, path, nil)
 	}
 	ctx := context.WithValue(r.Context(), common.UserIDKey, vaultTestUserID)
+	ctx = context.WithValue(ctx, common.RoleKey, string(model.RoleAdmin))
 	r = r.WithContext(ctx)
 	w := httptest.NewRecorder()
 	api.rootRouter.ServeHTTP(w, r)

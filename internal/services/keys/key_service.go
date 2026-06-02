@@ -5,6 +5,7 @@ package keys
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
@@ -18,6 +19,14 @@ import (
 	"rocketvault/internal/repositories"
 	"rocketvault/model"
 )
+
+// ErrKeyNotFound is returned when a key does not exist or is not accessible
+// within the requested scope (vault or user ownership).
+var ErrKeyNotFound = errors.New("key not found")
+
+// ErrKeyLifecycleDenied is returned when a key exists but is disabled or
+// outside its valid time window (not_before / expires_at).
+var ErrKeyLifecycleDenied = errors.New("key is disabled or outside its valid time window")
 
 // CreateKeyRequest represents a request to create a new cryptographic key.
 type CreateKeyRequest struct {
@@ -329,22 +338,23 @@ func (s *keyService) GetKey(ctx context.Context, keyID, userID uuid.UUID) (*mode
 	if err != nil {
 		s.logger.LogAuditError(userID.String(), "get_key", "failed",
 			fmt.Sprintf("Key not found: %s", keyID), err)
-		return nil, fmt.Errorf("failed to read key: %w", err)
+		return nil, fmt.Errorf("%w: %s", ErrKeyNotFound, err.Error())
 	}
 
-	// Access control: users can only access their own keys.
+	// Access control: users can only access their own keys. Treat cross-user
+	// access as not-found to avoid leaking the existence of other users' keys.
 	if key.UserID != userID {
 		s.logger.LogAuditError(userID.String(), "get_key", "forbidden",
 			fmt.Sprintf("Unauthorized access attempt to key: %s (owner: %s)",
 				keyID, key.UserID), nil)
-		return nil, fmt.Errorf("forbidden: cannot access other users' keys")
+		return nil, fmt.Errorf("%w: cannot access other users' keys", ErrKeyNotFound)
 	}
 
 	// Enforce lifecycle policy: key must be enabled and within its validity window.
 	if !key.IsAccessible() {
 		s.logger.LogAuditError(userID.String(), "get_key", "denied",
 			fmt.Sprintf("Key is disabled or outside its valid time window: %s", keyID), nil)
-		return nil, fmt.Errorf("key is disabled or outside its valid time window")
+		return nil, fmt.Errorf("%w", ErrKeyLifecycleDenied)
 	}
 
 	// Log successful key access with key metadata (excluding sensitive data)
@@ -385,13 +395,13 @@ func (s *keyService) GetKeyInVault(ctx context.Context, keyID, vaultID uuid.UUID
 	if err != nil {
 		s.logger.LogAuditError("", "get_key", "failed",
 			fmt.Sprintf("Key not found in vault: %s", keyID), err)
-		return nil, fmt.Errorf("failed to read key: %w", err)
+		return nil, fmt.Errorf("%w: %s", ErrKeyNotFound, err.Error())
 	}
 
 	if !key.IsAccessible() {
 		s.logger.LogAuditError("", "get_key", "denied",
 			fmt.Sprintf("Key is disabled or outside its valid time window: %s", keyID), nil)
-		return nil, fmt.Errorf("key is disabled or outside its valid time window")
+		return nil, fmt.Errorf("%w", ErrKeyLifecycleDenied)
 	}
 
 	return key, nil
@@ -408,7 +418,7 @@ func (s *keyService) ListKeysInVault(ctx context.Context, vaultID uuid.UUID, key
 func (s *keyService) DeleteKeyInVault(ctx context.Context, keyID, vaultID uuid.UUID) (*model.Key, error) {
 	key, err := s.keyRepo.ReadInVault(ctx, keyID, vaultID)
 	if err != nil {
-		return nil, fmt.Errorf("delete key: %w", err)
+		return nil, fmt.Errorf("%w: %s", ErrKeyNotFound, err.Error())
 	}
 
 	if err := s.keyRepo.SoftDelete(ctx, keyID); err != nil {

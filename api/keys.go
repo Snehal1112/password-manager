@@ -25,6 +25,7 @@ package api
 import (
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"strings"
 	"time"
@@ -367,30 +368,46 @@ func createKey(c *Context, w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(buildKeyResponse(key))
 }
 
-// listKeys lists cryptographic keys for the resolved vault with optional filtering.
+// listKeys lists cryptographic keys. Legacy flat routes use per-user visibility
+// (the caller's own keys); explicit vault-scoped routes use vault-level
+// "members see all" visibility, optionally filtered by type and tags.
 func listKeys(c *Context, w http.ResponseWriter, r *http.Request) {
-	// Resolve the target vault from the request context.
-	vaultID, err := vaultIDFromRequest(r)
-	if err != nil {
-		c.SetInvalidParam("vault")
-		return
-	}
-
-	// Parse query parameters.
-	keyType := r.URL.Query().Get("type")
-
 	keyService := c.keySvc()
 	if keyService == nil {
 		return
 	}
 
-	// List keys scoped to the resolved vault. Vault-level access applies: any
-	// caller authorized for the vault sees all keys, matching secrets and
-	// certificates.
-	keysList, err := keyService.ListKeysInVault(r.Context(), vaultID, keyType, c.Params.Tags)
-	if err != nil {
-		c.SetInternalError(err)
-		return
+	var keysList []model.Key
+	if isVaultScopedRoute(r) {
+		// Vault-scoped route: members see all keys in the resolved vault.
+		vaultID, err := vaultIDFromRequest(r)
+		if err != nil {
+			c.SetInvalidParam("vault")
+			return
+		}
+		keyType := r.URL.Query().Get("type")
+		keysList, err = keyService.ListKeysInVault(r.Context(), vaultID, keyType, c.Params.Tags)
+		if err != nil {
+			c.SetInternalError(err)
+			return
+		}
+	} else {
+		// Legacy flat route: per-user visibility (preserves pre-multi-vault behavior).
+		userIDStr, ok := c.Claims["user_id"].(string)
+		if !ok {
+			c.SetInternalError(nil)
+			return
+		}
+		userID, err := uuid.Parse(userIDStr)
+		if err != nil {
+			c.SetInvalidParam("user_id")
+			return
+		}
+		keysList, err = keyService.ListKeys(r.Context(), userID)
+		if err != nil {
+			c.SetInternalError(err)
+			return
+		}
 	}
 
 	// Convert to response format.
@@ -411,25 +428,53 @@ func getKey(c *Context, w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Resolve the target vault from the request context.
-	vaultID, err := vaultIDFromRequest(r)
-	if err != nil {
-		c.SetInvalidParam("vault")
-		return
-	}
-
 	keyService := c.keySvc()
 	if keyService == nil {
 		return
 	}
 
-	// Look up the key scoped to the resolved vault. Vault-level access applies:
-	// any caller authorized for the vault sees the key regardless of which user
-	// created it. A key absent from this vault yields a 404.
-	key, err := keyService.GetKeyInVault(r.Context(), keyID, vaultID)
-	if err != nil {
-		c.SetNotFound("key")
-		return
+	// Legacy flat routes use per-user visibility; vault-scoped routes use
+	// vault-level visibility (members see all keys in the vault).
+	var key *model.Key
+	if isVaultScopedRoute(r) {
+		vaultID, err := vaultIDFromRequest(r)
+		if err != nil {
+			c.SetInvalidParam("vault")
+			return
+		}
+		key, err = keyService.GetKeyInVault(r.Context(), keyID, vaultID)
+		if err != nil {
+			if errors.Is(err, keyservices.ErrKeyLifecycleDenied) {
+				c.SetPermissionError("key is disabled or outside its valid time window")
+			} else if errors.Is(err, keyservices.ErrKeyNotFound) {
+				c.SetNotFound("key")
+			} else {
+				c.SetInternalError(err)
+			}
+			return
+		}
+	} else {
+		userIDStr, ok := c.Claims["user_id"].(string)
+		if !ok {
+			c.SetInternalError(nil)
+			return
+		}
+		userID, err := uuid.Parse(userIDStr)
+		if err != nil {
+			c.SetInvalidParam("user_id")
+			return
+		}
+		key, err = keyService.GetKey(r.Context(), keyID, userID)
+		if err != nil {
+			if errors.Is(err, keyservices.ErrKeyLifecycleDenied) {
+				c.SetPermissionError("key is disabled or outside its valid time window")
+			} else if errors.Is(err, keyservices.ErrKeyNotFound) {
+				c.SetNotFound("key")
+			} else {
+				c.SetInternalError(err)
+			}
+			return
+		}
 	}
 
 	w.Header().Set("Content-Type", "application/json")
@@ -486,7 +531,11 @@ func updateKey(c *Context, w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := keyService.UpdateKey(r.Context(), updateReq); err != nil {
-		c.SetInternalError(err)
+		if errors.Is(err, keyservices.ErrKeyNotFound) {
+			c.SetNotFound("key")
+		} else {
+			c.SetInternalError(err)
+		}
 		return
 	}
 
@@ -537,7 +586,11 @@ func deleteKey(c *Context, w http.ResponseWriter, r *http.Request) {
 	// Use service layer for deletion scoped to the resolved vault.
 	deleted, err := keyService.DeleteKeyInVault(r.Context(), keyID, vaultID)
 	if err != nil {
-		c.SetInternalError(err)
+		if errors.Is(err, keyservices.ErrKeyNotFound) {
+			c.SetNotFound("key")
+		} else {
+			c.SetInternalError(err)
+		}
 		return
 	}
 
