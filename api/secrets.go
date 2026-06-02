@@ -427,25 +427,45 @@ func createSecret(c *Context, w http.ResponseWriter, r *http.Request) {
 	c.Logger.Printf("User %s created secret %s", userIDStr, secret.Name)
 }
 
-// listSecrets handles the HTTP request to list all secrets for the authenticated user.
-// Supports pagination and filtering by tags from c.Params.
+// listSecrets handles the HTTP request to list secrets. Legacy flat routes use
+// per-user visibility (the caller's own secrets); explicit vault-scoped routes
+// use vault-level "members see all" visibility. Supports filtering by tags.
 func listSecrets(c *Context, w http.ResponseWriter, r *http.Request) {
-	// Resolve the target vault from the request context.
-	vaultID, err := vaultIDFromRequest(r)
-	if err != nil {
-		c.SetInvalidParam("vault")
-		return
-	}
-
 	secretService := c.secretSvc()
 	if secretService == nil {
 		return
 	}
 
-	secretsList, err := secretService.ListSecretsInVault(r.Context(), vaultID, c.Params.Tags)
-	if err != nil {
-		c.SetInternalError(err)
-		return
+	var secretsList []model.Secret
+	if isVaultScopedRoute(r) {
+		// Vault-scoped route: members see all secrets in the resolved vault.
+		vaultID, err := vaultIDFromRequest(r)
+		if err != nil {
+			c.SetInvalidParam("vault")
+			return
+		}
+		secretsList, err = secretService.ListSecretsInVault(r.Context(), vaultID, c.Params.Tags)
+		if err != nil {
+			c.SetInternalError(err)
+			return
+		}
+	} else {
+		// Legacy flat route: per-user visibility (preserves pre-multi-vault behavior).
+		userIDStr, ok := c.Claims["user_id"].(string)
+		if !ok {
+			c.SetInternalError(nil)
+			return
+		}
+		userID, err := uuid.Parse(userIDStr)
+		if err != nil {
+			c.SetInvalidParam("user_id")
+			return
+		}
+		secretsList, err = secretService.ListSecrets(r.Context(), userID, c.Params.Tags)
+		if err != nil {
+			c.SetInternalError(err)
+			return
+		}
 	}
 
 	// Convert to response format (without values for security).
@@ -479,29 +499,41 @@ func getSecret(c *Context, w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Get user ID from JWT claims.
-	userIDStr, ok := c.Claims["user_id"].(string)
-	if !ok {
-		c.SetInternalError(nil)
-		return
-	}
-
-	// Resolve the target vault from the request context.
-	vaultID, err := vaultIDFromRequest(r)
-	if err != nil {
-		c.SetInvalidParam("vault")
-		return
-	}
-
 	secretService := c.secretSvc()
 	if secretService == nil {
 		return
 	}
 
-	secret, err := secretService.GetSecretInVault(r.Context(), secretID, vaultID)
-	if err != nil {
-		c.SetNotFound("secret")
-		return
+	// Legacy flat routes use per-user visibility; vault-scoped routes use
+	// vault-level visibility (members see all items in the vault).
+	var secret *model.Secret
+	if isVaultScopedRoute(r) {
+		vaultID, err := vaultIDFromRequest(r)
+		if err != nil {
+			c.SetInvalidParam("vault")
+			return
+		}
+		secret, err = secretService.GetSecretInVault(r.Context(), secretID, vaultID)
+		if err != nil {
+			c.SetNotFound("secret")
+			return
+		}
+	} else {
+		userIDStr, ok := c.Claims["user_id"].(string)
+		if !ok {
+			c.SetInternalError(nil)
+			return
+		}
+		userID, err := uuid.Parse(userIDStr)
+		if err != nil {
+			c.SetInvalidParam("user_id")
+			return
+		}
+		secret, err = secretService.GetSecret(r.Context(), secretID, userID)
+		if err != nil {
+			c.SetNotFound("secret")
+			return
+		}
 	}
 
 	// Prepare response (include value for get operation).
@@ -522,7 +554,7 @@ func getSecret(c *Context, w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	w.Write([]byte(response.ToJson()))
 
-	c.Logger.Printf("User %s accessed secret %s", userIDStr, secret.Name)
+	c.Logger.Printf("Secret %s accessed", secret.Name)
 }
 
 // updateSecret handles the HTTP request to update a secret by its ID.

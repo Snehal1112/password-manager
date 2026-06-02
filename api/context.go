@@ -7,6 +7,7 @@ import (
 
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/google/uuid"
+	"github.com/gorilla/mux"
 
 	"rocketvault/app"
 	"rocketvault/common"
@@ -46,6 +47,15 @@ func vaultIDFromRequest(r *http.Request) (uuid.UUID, error) {
 		s = model.DefaultVaultID
 	}
 	return uuid.Parse(s)
+}
+
+// isVaultScopedRoute reports whether the request was served by an explicit
+// vault-scoped route (/api/v1/vaults/{vault_name}/...), as opposed to a legacy
+// flat route (/api/v1/secrets/...). Vault-scoped routes carry the "vault_name"
+// path variable. Legacy routes preserve pre-multi-vault per-user visibility,
+// while vault-scoped routes use vault-level "members see all" visibility.
+func isVaultScopedRoute(r *http.Request) bool {
+	return mux.Vars(r)["vault_name"] != ""
 }
 
 // SetInvalidParam sets a 400 error for a missing or malformed parameter.

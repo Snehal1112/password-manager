@@ -30,11 +30,14 @@ func doScopedRequest(api *API, method, path string) *httptest.ResponseRecorder {
 	return w
 }
 
-// recordingSecretService records the vault id its list call receives and
-// returns an empty list. All other methods panic since they are unused here.
+// recordingSecretService records which list method was called and with what
+// scope. The legacy flat route must call the user-scoped ListSecrets; the
+// vault-scoped route must call ListSecretsInVault. Unused methods panic.
 type recordingSecretService struct {
-	listVaultID uuid.UUID
-	listCalled  bool
+	listVaultID    uuid.UUID
+	listCalled     bool
+	listUserScoped bool
+	listUserID     uuid.UUID
 }
 
 func (s *recordingSecretService) CreateSecret(context.Context, secretServices.CreateSecretRequest) (*model.Secret, error) {
@@ -46,8 +49,11 @@ func (s *recordingSecretService) UpdateSecret(context.Context, secretServices.Up
 func (s *recordingSecretService) GetSecret(context.Context, uuid.UUID, uuid.UUID) (*model.Secret, error) {
 	panic("unexpected")
 }
-func (s *recordingSecretService) ListSecrets(context.Context, uuid.UUID, []string) ([]model.Secret, error) {
-	panic("unexpected")
+func (s *recordingSecretService) ListSecrets(_ context.Context, userID uuid.UUID, _ []string) ([]model.Secret, error) {
+	s.listCalled = true
+	s.listUserScoped = true
+	s.listUserID = userID
+	return []model.Secret{}, nil
 }
 func (s *recordingSecretService) DeleteSecret(context.Context, uuid.UUID, uuid.UUID) error {
 	panic("unexpected")
@@ -57,6 +63,7 @@ func (s *recordingSecretService) GetSecretInVault(context.Context, uuid.UUID, uu
 }
 func (s *recordingSecretService) ListSecretsInVault(_ context.Context, vaultID uuid.UUID, _ []string) ([]model.Secret, error) {
 	s.listCalled = true
+	s.listUserScoped = false
 	s.listVaultID = vaultID
 	return []model.Secret{}, nil
 }
@@ -130,7 +137,8 @@ func TestVaultScopedRoutes_CoexistWithManagement(t *testing.T) {
 		t.Fatalf("management route incorrectly dispatched to the secret list handler")
 	}
 
-	// Vault-scoped resource route: GET /vaults/prod/secrets must reach listSecrets.
+	// Vault-scoped resource route: GET /vaults/prod/secrets must reach listSecrets
+	// and use vault-scoped visibility (ListSecretsInVault).
 	w = doScopedRequest(api, http.MethodGet, "/api/v1/vaults/prod/secrets")
 	if w.Code != http.StatusOK {
 		t.Fatalf("resource GET /vaults/prod/secrets: expected 200, got %d (%s)", w.Code, w.Body.String())
@@ -138,12 +146,16 @@ func TestVaultScopedRoutes_CoexistWithManagement(t *testing.T) {
 	if !rec.listCalled {
 		t.Fatalf("resource route did not dispatch to the secret list handler")
 	}
+	if rec.listUserScoped {
+		t.Fatalf("vault-scoped route must use vault-scoped (not user-scoped) listing")
+	}
 }
 
-// TestLegacyFlatRoute_UsesDefaultVault verifies that the legacy flat
-// /secrets route still works and resolves to the default vault id when no
-// vault is set in context (as in this middleware-free test).
-func TestLegacyFlatRoute_UsesDefaultVault(t *testing.T) {
+// TestLegacyFlatRoute_UsesUserScopedListing verifies that the legacy flat
+// /secrets route uses per-user visibility (ListSecrets scoped to the caller),
+// preserving pre-multi-vault behavior. Vault-level "members see all" visibility
+// applies only to the explicit /vaults/{name}/... routes.
+func TestLegacyFlatRoute_UsesUserScopedListing(t *testing.T) {
 	rec := &recordingSecretService{}
 	api, _ := newVaultScopedTestAPI(rec)
 
@@ -154,7 +166,10 @@ func TestLegacyFlatRoute_UsesDefaultVault(t *testing.T) {
 	if !rec.listCalled {
 		t.Fatalf("legacy route did not dispatch to the secret list handler")
 	}
-	if rec.listVaultID != uuid.MustParse(model.DefaultVaultID) {
-		t.Fatalf("legacy route resolved vault %s, want default %s", rec.listVaultID, model.DefaultVaultID)
+	if !rec.listUserScoped {
+		t.Fatalf("legacy route must use user-scoped listing (ListSecrets), not vault-scoped")
+	}
+	if rec.listUserID != uuid.MustParse(vaultTestUserID) {
+		t.Fatalf("legacy route scoped to user %s, want caller %s", rec.listUserID, vaultTestUserID)
 	}
 }
