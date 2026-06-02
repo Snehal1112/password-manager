@@ -3,6 +3,7 @@ package repositories
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"time"
@@ -37,7 +38,7 @@ func NewVaultRepository(db *sql.DB, log *logging.Logger) VaultRepositoryInterfac
 	return &VaultRepository{db: db, log: log}
 }
 
-const vaultCols = "id, name, enabled, purge_protection, retention_days, created_by, created_at, deleted_at, scheduled_purge_at"
+const vaultCols = "id, name, enabled, purge_protection, retention_days, created_by, created_at, deleted_at, scheduled_purge_at, tags, updated_at, updated_by"
 
 // scanRow is satisfied by both *sql.Row and *sql.Rows.
 type scanRow interface{ Scan(dest ...any) error }
@@ -45,9 +46,12 @@ type scanRow interface{ Scan(dest ...any) error }
 func scanVault(row scanRow) (*model.Vault, error) {
 	var v model.Vault
 	var idStr, createdByStr string
-	var deletedAt, scheduledPurgeAt sql.NullTime
+	var deletedAt, scheduledPurgeAt, updatedAt sql.NullTime
+	var tagsJSON string
+	var updatedByStr sql.NullString
 	if err := row.Scan(&idStr, &v.Name, &v.Enabled, &v.PurgeProtection, &v.RetentionDays,
-		&createdByStr, &v.CreatedAt, &deletedAt, &scheduledPurgeAt); err != nil {
+		&createdByStr, &v.CreatedAt, &deletedAt, &scheduledPurgeAt,
+		&tagsJSON, &updatedAt, &updatedByStr); err != nil {
 		return nil, err
 	}
 	id, err := uuid.Parse(idStr)
@@ -66,16 +70,47 @@ func scanVault(row scanRow) (*model.Vault, error) {
 	if scheduledPurgeAt.Valid {
 		v.ScheduledPurgeAt = &scheduledPurgeAt.Time
 	}
+	if tagsJSON != "" && tagsJSON != "{}" {
+		if err := json.Unmarshal([]byte(tagsJSON), &v.Tags); err != nil {
+			return nil, fmt.Errorf("invalid vault tags json: %w", err)
+		}
+	}
+	if updatedAt.Valid {
+		v.UpdatedAt = &updatedAt.Time
+	}
+	if updatedByStr.Valid && updatedByStr.String != "" {
+		ub, err := uuid.Parse(updatedByStr.String)
+		if err != nil {
+			return nil, fmt.Errorf("invalid updated_by id: %w", err)
+		}
+		v.UpdatedBy = &ub
+	}
 	return &v, nil
+}
+
+// marshalTags serializes a tag map to a JSON object string, defaulting to "{}".
+func marshalTags(tags map[string]string) (string, error) {
+	if len(tags) == 0 {
+		return "{}", nil
+	}
+	b, err := json.Marshal(tags)
+	if err != nil {
+		return "", fmt.Errorf("marshal vault tags: %w", err)
+	}
+	return string(b), nil
 }
 
 func (r *VaultRepository) Create(ctx context.Context, v *model.Vault) error {
 	if v.CreatedAt.IsZero() {
 		v.CreatedAt = time.Now()
 	}
-	_, err := r.db.ExecContext(ctx,
-		"INSERT INTO vaults (id, name, enabled, purge_protection, retention_days, created_by, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
-		v.ID.String(), v.Name, v.Enabled, v.PurgeProtection, v.RetentionDays, v.CreatedBy.String(), v.CreatedAt)
+	tagsJSON, err := marshalTags(v.Tags)
+	if err != nil {
+		return err
+	}
+	_, err = r.db.ExecContext(ctx,
+		"INSERT INTO vaults (id, name, enabled, purge_protection, retention_days, created_by, created_at, tags) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+		v.ID.String(), v.Name, v.Enabled, v.PurgeProtection, v.RetentionDays, v.CreatedBy.String(), v.CreatedAt, tagsJSON)
 	if err != nil {
 		return fmt.Errorf("failed to insert vault: %w", err)
 	}
@@ -128,9 +163,19 @@ func (r *VaultRepository) ListDeleted(ctx context.Context) ([]model.Vault, error
 }
 
 func (r *VaultRepository) Update(ctx context.Context, v *model.Vault) error {
-	_, err := r.db.ExecContext(ctx,
-		"UPDATE vaults SET enabled = ?, purge_protection = ?, retention_days = ? WHERE id = ?",
-		v.Enabled, v.PurgeProtection, v.RetentionDays, v.ID.String())
+	tagsJSON, err := marshalTags(v.Tags)
+	if err != nil {
+		return err
+	}
+	now := time.Now().UTC()
+	v.UpdatedAt = &now
+	var updatedBy any
+	if v.UpdatedBy != nil && *v.UpdatedBy != uuid.Nil {
+		updatedBy = v.UpdatedBy.String()
+	}
+	_, err = r.db.ExecContext(ctx,
+		"UPDATE vaults SET enabled = ?, purge_protection = ?, retention_days = ?, tags = ?, updated_at = ?, updated_by = ? WHERE id = ?",
+		v.Enabled, v.PurgeProtection, v.RetentionDays, tagsJSON, now, updatedBy, v.ID.String())
 	if err != nil {
 		return fmt.Errorf("failed to update vault: %w", err)
 	}

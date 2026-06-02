@@ -36,7 +36,10 @@ func newVaultTestDB(t *testing.T) *sql.DB {
 			created_by TEXT NOT NULL,
 			created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
 			deleted_at TIMESTAMP NULL,
-			scheduled_purge_at TIMESTAMP NULL
+			scheduled_purge_at TIMESTAMP NULL,
+			tags TEXT NOT NULL DEFAULT '{}',
+			updated_at TIMESTAMP NULL,
+			updated_by TEXT NULL
 		);`)
 	require.NoError(t, err)
 	t.Cleanup(func() { db.Close() })
