@@ -545,8 +545,8 @@ func (m *MockVaultService) ListVaults(ctx context.Context, includeDeleted bool) 
 	return args.Get(0).([]model.Vault), args.Error(1)
 }
 
-func (m *MockVaultService) UpdateVault(ctx context.Context, name string, req model.UpdateVaultRequest) (*model.Vault, error) {
-	args := m.Called(ctx, name, req)
+func (m *MockVaultService) UpdateVault(ctx context.Context, name string, req model.UpdateVaultRequest, updatedBy uuid.UUID) (*model.Vault, error) {
+	args := m.Called(ctx, name, req, updatedBy)
 	if args.Get(0) == nil {
 		return nil, args.Error(1)
 	}

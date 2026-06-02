@@ -90,7 +90,7 @@ func (s *stubVaultService) GetVault(_ context.Context, _ string) (*model.Vault, 
 	return s.vault, s.err
 }
 func (s *stubVaultService) ListVaults(context.Context, bool) ([]model.Vault, error) { return nil, nil }
-func (s *stubVaultService) UpdateVault(context.Context, string, model.UpdateVaultRequest) (*model.Vault, error) {
+func (s *stubVaultService) UpdateVault(context.Context, string, model.UpdateVaultRequest, uuid.UUID) (*model.Vault, error) {
 	return nil, nil
 }
 func (s *stubVaultService) DeleteVault(context.Context, string) error  { return nil }
