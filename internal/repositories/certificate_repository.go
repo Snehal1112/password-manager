@@ -944,6 +944,9 @@ func (r *CertificateRepository) ListInVault(ctx context.Context, vaultID uuid.UU
 				return fmt.Errorf("failed to read tags for certificate: %w", err)
 			}
 
+			// Populate VaultID from the queried vault for caller consistency.
+			cert.VaultID = vaultID
+
 			certList = append(certList, cert)
 		}
 
@@ -1020,6 +1023,9 @@ func (r *CertificateRepository) ReadInVault(ctx context.Context, id, vaultID uui
 		r.log.LogAuditError(uuid.Nil.String(), "read_certificate", "failed", "Failed to read tags", err)
 		return nil, fmt.Errorf("failed to read tags: %w", err)
 	}
+
+	// Populate VaultID from the queried vault for caller consistency.
+	cert.VaultID = vaultID
 
 	return &cert, nil
 }

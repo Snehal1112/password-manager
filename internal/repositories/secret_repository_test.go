@@ -163,6 +163,53 @@ func TestSecretRepository_ListInVault_ScopesByVault(t *testing.T) {
 	require.Len(t, gotB, 1)
 }
 
+// TestListInVault_PopulatesVaultID verifies that ListInVault sets VaultID on each
+// returned secret to the vault it was queried with.
+func TestListInVault_PopulatesVaultID(t *testing.T) {
+	t.Parallel()
+	db := setupSecretTestDB(t)
+	repo := repositories.NewSecretRepository(db, newTestSecretLogger(t))
+	ctx := context.Background()
+	vaultA := uuid.New()
+
+	mk := func(name string) *model.Secret {
+		return &model.Secret{ID: uuid.New(), UserID: uuid.New(), VaultID: vaultA, Name: name, Value: "x", Version: 1, CreatedAt: time.Now(), Enabled: true}
+	}
+	require.NoError(t, repo.Create(ctx, mk("a")))
+	require.NoError(t, repo.Create(ctx, mk("b")))
+
+	got, err := repo.ListInVault(ctx, vaultA, nil)
+	require.NoError(t, err)
+	require.Len(t, got, 2)
+	for _, s := range got {
+		assert.Equal(t, vaultA, s.VaultID, "ListInVault must populate VaultID on returned secrets")
+	}
+}
+
+// TestListInVaultIncludeDeleted_PopulatesVaultID verifies that
+// ListInVaultIncludeDeleted sets VaultID on each returned secret.
+func TestListInVaultIncludeDeleted_PopulatesVaultID(t *testing.T) {
+	t.Parallel()
+	db := setupSecretTestDB(t)
+	repo := repositories.NewSecretRepository(db, newTestSecretLogger(t))
+	ctx := context.Background()
+	vaultA := uuid.New()
+
+	mk := func(name string) *model.Secret {
+		return &model.Secret{ID: uuid.New(), UserID: uuid.New(), VaultID: vaultA, Name: name, Value: "x", Version: 1, CreatedAt: time.Now(), Enabled: true}
+	}
+	require.NoError(t, repo.Create(ctx, mk("a")))
+	require.NoError(t, repo.Create(ctx, mk("b")))
+	require.NoError(t, repo.SoftDeleteVaultContents(ctx, vaultA, time.Now()))
+
+	got, err := repo.ListInVaultIncludeDeleted(ctx, vaultA, nil)
+	require.NoError(t, err)
+	require.Len(t, got, 2)
+	for _, s := range got {
+		assert.Equal(t, vaultA, s.VaultID, "ListInVaultIncludeDeleted must populate VaultID on returned secrets")
+	}
+}
+
 // TestSecretRepository_SoftDeleteVaultContents_HidesFromList verifies that after
 // soft-deleting a vault's contents, ListInVault returns nothing while
 // ListInVaultIncludeDeleted still returns the rows.

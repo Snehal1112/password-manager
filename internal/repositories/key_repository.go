@@ -899,6 +899,9 @@ func (r *KeyRepository) ListInVault(ctx context.Context, vaultID uuid.UUID, keyT
 				return fmt.Errorf("failed to read tags for key: %w", err)
 			}
 
+			// Populate VaultID from the queried vault for caller consistency.
+			key.VaultID = vaultID
+
 			keyList = append(keyList, key)
 		}
 
@@ -963,6 +966,9 @@ func (r *KeyRepository) ReadInVault(ctx context.Context, id, vaultID uuid.UUID) 
 		r.log.LogAuditError(uuid.Nil.String(), "read_key", "failed", "Failed to read tags", err)
 		return nil, fmt.Errorf("failed to read tags: %w", err)
 	}
+
+	// Populate VaultID from the queried vault for caller consistency.
+	key.VaultID = vaultID
 
 	return &key, nil
 }

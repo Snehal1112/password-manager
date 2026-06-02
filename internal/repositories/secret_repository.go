@@ -761,6 +761,9 @@ func (r *SecretRepository) ListInVault(ctx context.Context, vaultID uuid.UUID, t
 			secret.DeletedAt = deletedAt
 			secret.PurgeProtection = purgeProtection
 
+			// Populate VaultID from the queried vault for caller consistency.
+			secret.VaultID = vaultID
+
 			secretList = append(secretList, secret)
 		}
 
@@ -843,6 +846,9 @@ func (r *SecretRepository) ListInVaultIncludeDeleted(ctx context.Context, vaultI
 			// Set soft delete fields.
 			secret.DeletedAt = deletedAt
 			secret.PurgeProtection = purgeProtection
+
+			// Populate VaultID from the queried vault for caller consistency.
+			secret.VaultID = vaultID
 
 			secretList = append(secretList, secret)
 		}

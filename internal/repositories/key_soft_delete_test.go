@@ -132,6 +132,29 @@ func TestKeyRepository_ListInVault_ScopesByVault(t *testing.T) {
 	require.Len(t, gotB, 1)
 }
 
+// TestKeyRepository_ReadInVault_PopulatesVaultID verifies that ReadInVault and
+// ListInVault set VaultID on returned keys to the queried vault.
+func TestKeyRepository_ReadInVault_PopulatesVaultID(t *testing.T) {
+	t.Parallel()
+	db := setupTestDB(t)
+	log := logging.InitLogger()
+	repo := repositories.NewKeyRepository(db, log)
+	ctx := context.Background()
+	vaultA := uuid.New()
+
+	key := &model.Key{ID: uuid.New(), UserID: uuid.New(), VaultID: vaultA, Name: "k", Type: "RSA", Value: "x", CreatedAt: time.Now(), Enabled: true}
+	require.NoError(t, repo.Create(ctx, key))
+
+	read, err := repo.ReadInVault(ctx, key.ID, vaultA)
+	require.NoError(t, err)
+	assert.Equal(t, vaultA, read.VaultID, "ReadInVault must populate VaultID on returned key")
+
+	listed, err := repo.ListInVault(ctx, vaultA, "", nil)
+	require.NoError(t, err)
+	require.Len(t, listed, 1)
+	assert.Equal(t, vaultA, listed[0].VaultID, "ListInVault must populate VaultID on returned keys")
+}
+
 func TestKeyRepository_UpdateSetsUpdatedAt(t *testing.T) {
 	t.Parallel()
 	db := setupTestDB(t)
