@@ -408,8 +408,7 @@ curl -s -X DELETE $BASE/api/v1/users/sessions -H "Authorization: Bearer $TOKEN"<
 <section id="jwt-signing">
   <h2>6. JWT Signing &amp; Key Sources</h2>
   <h3>What it is</h3>
-  <p>JWTs are signed asymmetrically and verifiable via JWKS at <code>/jwks.json</code>.
-    Three providers control where the signing key lives, set by <code>jwt.key_source</code>.</p>
+  <p>JWTs are signed asymmetrically and verifiable via JWKS at <code>/jwks.json</code>. Three providers control where the signing key lives, set by <code>jwt.key_source</code>.</p>
   <table>
     <thead><tr><th>Provider</th><th>Storage</th><th>Algorithm</th><th>Rotation</th></tr></thead>
     <tbody>
@@ -418,18 +417,33 @@ curl -s -X DELETE $BASE/api/v1/users/sessions -H "Authorization: Bearer $TOKEN"<
       <tr><td><code>external_pki</code></td><td>PEM from file or env var</td><td>RS256/ES256</td><td>No</td></tr>
     </tbody>
   </table>
-  <h3>Admin operations</h3>
-  <div class="op-grid">
-    <div class="op-col"><div class="op-label">Inspect JWKS</div>
-      <pre class="code">curl -s $BASE/jwks.json | jq '.keys[0].alg'</pre></div>
-    <div class="op-col"><div class="op-label">Rotate (self_pki only)</div>
-      <pre class="code">curl -X POST $BASE/api/v1/jwks/rotate \
-  -H "Authorization: Bearer $TOKEN"
-# os_store returns 400 (rotation unsupported)</pre></div>
+  <h3>Operations</h3>
+
+  <div class="ep">
+    <div class="ep-hd"><span class="meth meth-get">GET</span> /jwks.json <span class="ep-auth">none</span> <span class="ep-label">Public JWK set</span></div>
+    <div class="tabs"><button class="tab active">cURL</button><button class="tab">Response</button></div>
+    <div class="tabpane active"><pre class="code">curl -s $BASE/jwks.json | jq '.keys[0].alg'</pre></div>
+    <div class="tabpane"><pre class="code">{
+  "keys": [
+    {
+      "kty": "RSA",
+      "use": "sig",
+      "alg": "RS256",
+      "kid": "9d1c755f04ddbcfc",
+      "n": "&lt;base64url-modulus&gt;",
+      "e": "AQAB"
+    }
+  ]
+}</pre></div>
   </div>
-  <div class="note">With <code>os_store</code>, the key is stored in the OS keychain
-    (<code>secret-tool lookup service rocketvault …</code>) and never written to a
-    world-readable path. Headless hosts fall back to <code>~/.local/share/rocketvault/jwt-signing.pem</code> (mode 0600).</div>
+
+  <div class="ep">
+    <div class="ep-hd"><span class="meth meth-post">POST</span> /api/v1/jwks/rotate <span class="ep-auth">JWT · admin</span> <span class="ep-label">Rotate (self_pki only)</span></div>
+    <div class="tabs"><button class="tab active">cURL</button></div>
+    <div class="tabpane active"><pre class="code">curl -s -X POST $BASE/api/v1/jwks/rotate -H "Authorization: Bearer $TOKEN"</pre></div>
+  </div>
+
+  <div class="note">With <code>os_store</code> the key lives in the OS keychain and rotation returns 400 — only <code>self_pki</code> supports runtime rotation. Headless hosts fall back to <code>~/.local/share/rocketvault/jwt-signing.pem</code> (mode 0600).</div>
   <p class="see-also">See also: <a href="../MANUAL_TESTING.md">Manual Testing §§6,15,16</a></p>
 </section>
 
@@ -482,23 +496,46 @@ curl -s -X DELETE $BASE/api/v1/users/sessions -H "Authorization: Bearer $TOKEN"<
 <section id="access-policies">
   <h2>8. RBAC &amp; Access Policies</h2>
   <h3>What it is</h3>
-  <p>Two complementary controls: <strong>roles</strong> (admin vs user) gate broad
-    operations, and <strong>access policies</strong> grant a specific principal (user or
-    service account) access to a specific resource. A policy binds a principal to a
-    resource type/id and a set of allowed actions.</p>
-  <h3>Admin operations</h3>
-  <div class="op-grid">
-    <div class="op-col"><div class="op-label">Create a policy</div>
-      <pre class="code">curl -X POST $BASE/api/v1/access-policies \
-  -H "Authorization: Bearer $TOKEN" \
-  -d '{"name":"read-db-secret","principal_id":"&lt;id&gt;",
-       "resource_type":"secret","resource_id":"&lt;id&gt;",
-       "actions":["read"]}'</pre></div>
-    <div class="op-col"><div class="op-label">Inspect</div>
-      <pre class="code">curl $BASE/api/v1/access-policies -H "Authorization: Bearer $TOKEN"
-curl $BASE/api/v1/access-policies/principal/&lt;id&gt; \
-  -H "Authorization: Bearer $TOKEN"</pre></div>
+  <p>Two complementary controls: <strong>roles</strong> (admin vs user) gate broad operations, and <strong>access policies</strong> grant a specific principal (user or service account) access to a specific resource — a resource type/id plus allowed actions.</p>
+  <h3>Operations</h3>
+
+  <div class="ep">
+    <div class="ep-hd"><span class="meth meth-post">POST</span> /api/v1/access-policies <span class="ep-auth">JWT</span> <span class="ep-label">Create a policy</span></div>
+    <div class="tabs"><button class="tab active">cURL</button></div>
+    <div class="tabpane active"><pre class="code">curl -s -X POST $BASE/api/v1/access-policies -H "Authorization: Bearer $TOKEN" \
+  -d '{"name":"read-db-secret","principal_id":"&lt;id&gt;","resource_type":"secret","resource_id":"&lt;id&gt;","actions":["read"]}'</pre></div>
   </div>
+
+  <div class="ep">
+    <div class="ep-hd"><span class="meth meth-get">GET</span> /api/v1/access-policies <span class="ep-auth">JWT</span> <span class="ep-label">List all</span></div>
+    <div class="tabs"><button class="tab active">cURL</button></div>
+    <div class="tabpane active"><pre class="code">curl -s $BASE/api/v1/access-policies -H "Authorization: Bearer $TOKEN"</pre></div>
+  </div>
+
+  <div class="ep">
+    <div class="ep-hd"><span class="meth meth-get">GET</span> /api/v1/access-policies/{id} <span class="ep-auth">JWT</span> <span class="ep-label">Get one</span></div>
+    <div class="tabs"><button class="tab active">cURL</button></div>
+    <div class="tabpane active"><pre class="code">curl -s $BASE/api/v1/access-policies/&lt;id&gt; -H "Authorization: Bearer $TOKEN"</pre></div>
+  </div>
+
+  <div class="ep">
+    <div class="ep-hd"><span class="meth meth-put">PUT</span> /api/v1/access-policies/{id} <span class="ep-auth">JWT</span> <span class="ep-label">Update</span></div>
+    <div class="tabs"><button class="tab active">cURL</button></div>
+    <div class="tabpane active"><pre class="code">curl -s -X PUT $BASE/api/v1/access-policies/&lt;id&gt; -H "Authorization: Bearer $TOKEN" -d '{"actions":["read","update"]}'</pre></div>
+  </div>
+
+  <div class="ep">
+    <div class="ep-hd"><span class="meth meth-delete">DELETE</span> /api/v1/access-policies/{id} <span class="ep-auth">JWT</span> <span class="ep-label">Delete</span></div>
+    <div class="tabs"><button class="tab active">cURL</button></div>
+    <div class="tabpane active"><pre class="code">curl -s -X DELETE $BASE/api/v1/access-policies/&lt;id&gt; -H "Authorization: Bearer $TOKEN"</pre></div>
+  </div>
+
+  <div class="ep">
+    <div class="ep-hd"><span class="meth meth-get">GET</span> /api/v1/access-policies/principal/{id} <span class="ep-auth">JWT</span> <span class="ep-label">List by principal</span></div>
+    <div class="tabs"><button class="tab active">cURL</button></div>
+    <div class="tabpane active"><pre class="code">curl -s $BASE/api/v1/access-policies/principal/&lt;id&gt; -H "Authorization: Bearer $TOKEN"</pre></div>
+  </div>
+
   <p class="see-also">See also: <a href="../MANUAL_TESTING.md">Manual Testing §13</a></p>
 </section>
 
@@ -919,39 +956,72 @@ curl -s -X POST $BASE/api/v1/keys -H "Authorization: Bearer $TOKEN" \
 <section id="audit">
   <h2>17. Audit Logs &amp; Compliance</h2>
   <h3>What it is</h3>
-  <p>Every security-relevant action is recorded in a hash-chained audit log (tamper-evident).
-    Logs are queryable with filters, and SOC 2 / GDPR reports can be generated. Admin only.</p>
-  <h3>Admin operations</h3>
-  <div class="op-grid">
-    <div class="op-col"><div class="op-label">Query + reports (API)</div>
-      <pre class="code">curl "$BASE/api/v1/audit/logs?action=login&amp;limit=50" -H "Authorization: Bearer $TOKEN"
-curl "$BASE/api/v1/audit/reports/soc2?start_date=2026-01-01&amp;end_date=2026-06-01" -H "Authorization: Bearer $TOKEN"
-curl "$BASE/api/v1/audit/reports/gdpr?subject_id=&lt;id&gt;" -H "Authorization: Bearer $TOKEN"</pre></div>
-    <div class="op-col"><div class="op-label">Retention config</div>
-      <pre class="code">curl  $BASE/api/v1/audit/config -H "Authorization: Bearer $TOKEN"
-curl -X PATCH $BASE/api/v1/audit/config -H "Authorization: Bearer $TOKEN" \
-  -d '{"retention_days":365}'</pre></div>
+  <p>Every security-relevant action is recorded in a hash-chained audit log (tamper-evident). Logs are queryable with filters, and SOC 2 / GDPR reports can be generated. Admin only.</p>
+  <h3>Operations</h3>
+
+  <div class="ep">
+    <div class="ep-hd"><span class="meth meth-get">GET</span> /api/v1/audit/logs <span class="ep-auth">JWT · admin</span> <span class="ep-label">Query logs</span></div>
+    <div class="tabs"><button class="tab active">cURL</button><button class="tab">Response</button></div>
+    <div class="tabpane active"><pre class="code">curl -s "$BASE/api/v1/audit/logs?action=login&amp;limit=50" -H "Authorization: Bearer $TOKEN"</pre></div>
+    <div class="tabpane"><pre class="code">{
+  "logs": [ /* ... */ ],
+  "total": 42,
+  "integrity_ok": true,
+  "next_cursor": ""
+}</pre></div>
   </div>
-  <div class="note">The logs response includes an <code>integrity_ok</code> flag — the
-    result of verifying the hash chain.</div>
+
+  <div class="ep">
+    <div class="ep-hd"><span class="meth meth-get">GET</span> /api/v1/audit/reports/soc2 <span class="ep-auth">JWT · admin</span> <span class="ep-label">SOC 2 report</span></div>
+    <div class="tabs"><button class="tab active">cURL</button></div>
+    <div class="tabpane active"><pre class="code">curl -s "$BASE/api/v1/audit/reports/soc2?start_date=2026-01-01&amp;end_date=2026-06-01" -H "Authorization: Bearer $TOKEN"</pre></div>
+  </div>
+
+  <div class="ep">
+    <div class="ep-hd"><span class="meth meth-get">GET</span> /api/v1/audit/reports/gdpr <span class="ep-auth">JWT · admin</span> <span class="ep-label">GDPR data-subject export</span></div>
+    <div class="tabs"><button class="tab active">cURL</button></div>
+    <div class="tabpane active"><pre class="code">curl -s "$BASE/api/v1/audit/reports/gdpr?subject_id=&lt;id&gt;" -H "Authorization: Bearer $TOKEN"</pre></div>
+  </div>
+
+  <div class="ep">
+    <div class="ep-hd"><span class="meth meth-get">GET</span> /api/v1/audit/config <span class="ep-auth">JWT · admin</span> <span class="ep-label">Get retention config</span></div>
+    <div class="tabs"><button class="tab active">cURL</button></div>
+    <div class="tabpane active"><pre class="code">curl -s $BASE/api/v1/audit/config -H "Authorization: Bearer $TOKEN"</pre></div>
+  </div>
+
+  <div class="ep">
+    <div class="ep-hd"><span class="meth meth-patch">PATCH</span> /api/v1/audit/config <span class="ep-auth">JWT · admin</span> <span class="ep-label">Update retention</span></div>
+    <div class="tabs"><button class="tab active">cURL</button></div>
+    <div class="tabpane active"><pre class="code">curl -s -X PATCH $BASE/api/v1/audit/config -H "Authorization: Bearer $TOKEN" -d '{"retention_days":365}'</pre></div>
+  </div>
+
+  <div class="note">The logs response carries an <code>integrity_ok</code> flag — the result of verifying the hash chain.</div>
   <p class="see-also">See also: <a href="../MANUAL_TESTING.md">Manual Testing</a></p>
 </section>
 
 <section id="backup">
   <h2>18. Backup &amp; Restore</h2>
   <h3>What it is</h3>
-  <p>Two levels: full database backups via the CLI, and per-item encrypted backup/restore
-    blobs for individual secrets, keys, and certificates via the API.</p>
-  <h3>Admin operations</h3>
-  <div class="op-grid">
-    <div class="op-col"><div class="op-label">Full backup (CLI)</div>
-      <pre class="code">rocketvault backup create  --username admin --password admin123 --totp-code 123456
+  <p>Two levels: full database backups via the CLI, and per-item encrypted backup/restore blobs for individual secrets, keys, and certificates via the API.</p>
+  <h3>Full backup (CLI)</h3>
+  <pre class="code">rocketvault backup create  --username admin --password admin123 --totp-code 123456
 rocketvault backup list    --username admin --password admin123 --totp-code 123456
-rocketvault backup restore --file /path/backup.json ...</pre></div>
-    <div class="op-col"><div class="op-label">Per-item (API)</div>
-      <pre class="code">curl -X POST $BASE/api/v1/secrets/&lt;id&gt;/backup -H "Authorization: Bearer $TOKEN"
-curl -X POST $BASE/api/v1/secrets/restore    -H "Authorization: Bearer $TOKEN" -d '{...blob...}'</pre></div>
+rocketvault backup restore --file /path/backup.json ...</pre>
+  <h3>Per-item (API)</h3>
+
+  <div class="ep">
+    <div class="ep-hd"><span class="meth meth-post">POST</span> /api/v1/secrets/{id}/backup <span class="ep-auth">JWT</span> <span class="ep-label">Back up one item</span></div>
+    <div class="tabs"><button class="tab active">cURL</button></div>
+    <div class="tabpane active"><pre class="code">curl -s -X POST $BASE/api/v1/secrets/&lt;id&gt;/backup -H "Authorization: Bearer $TOKEN"</pre></div>
   </div>
+
+  <div class="ep">
+    <div class="ep-hd"><span class="meth meth-post">POST</span> /api/v1/secrets/restore <span class="ep-auth">JWT</span> <span class="ep-label">Restore from a blob</span></div>
+    <div class="tabs"><button class="tab active">cURL</button></div>
+    <div class="tabpane active"><pre class="code">curl -s -X POST $BASE/api/v1/secrets/restore -H "Authorization: Bearer $TOKEN" -d '{...blob...}'</pre></div>
+  </div>
+
+  <div class="note">Keys and certificates have the same per-item routes: <code>/keys/{id}/backup</code>, <code>/keys/restore</code>, <code>/certificates/{id}/backup</code>, <code>/certificates/restore</code>.</div>
   <p class="see-also">See also: <a href="integration-examples.md">Integration Examples — backup</a></p>
 </section>
 
@@ -985,13 +1055,44 @@ curl -X POST $BASE/api/v1/secrets/restore    -H "Authorization: Bearer $TOKEN" -
 <section id="health">
   <h2>20. Health &amp; Monitoring</h2>
   <h3>What it is</h3>
-  <p>Liveness, readiness, full health, and database-specific probes. The full endpoint
-    returns DB status and performance metrics.</p>
-  <h3>Admin operations</h3>
-  <pre class="code">curl $BASE/api/v1/health/live      # {"status":"OK"}  (no auth)
-curl $BASE/api/v1/health/ready     # (no auth)
-curl $BASE/api/v1/health           # full status + metrics (no auth)
-curl $BASE/api/v1/health/database -H "Authorization: Bearer $TOKEN"   # DB health (JWT)</pre>
+  <p>Liveness, readiness, full health, and database-specific probes. The full <code>/health</code> endpoint returns runtime and database metrics.</p>
+  <h3>Operations</h3>
+
+  <div class="ep">
+    <div class="ep-hd"><span class="meth meth-get">GET</span> /api/v1/health/live <span class="ep-auth">none</span> <span class="ep-label">Liveness</span></div>
+    <div class="tabs"><button class="tab active">cURL</button><button class="tab">Response</button></div>
+    <div class="tabpane active"><pre class="code">curl -s $BASE/api/v1/health/live</pre></div>
+    <div class="tabpane"><pre class="code">{ "status": "OK" }</pre></div>
+  </div>
+
+  <div class="ep">
+    <div class="ep-hd"><span class="meth meth-get">GET</span> /api/v1/health/ready <span class="ep-auth">none</span> <span class="ep-label">Readiness</span></div>
+    <div class="tabs"><button class="tab active">cURL</button></div>
+    <div class="tabpane active"><pre class="code">curl -s $BASE/api/v1/health/ready</pre></div>
+  </div>
+
+  <div class="ep">
+    <div class="ep-hd"><span class="meth meth-get">GET</span> /api/v1/health <span class="ep-auth">none</span> <span class="ep-label">Full health + metrics</span></div>
+    <div class="tabs"><button class="tab active">cURL</button><button class="tab">Response</button></div>
+    <div class="tabpane active"><pre class="code">curl -s $BASE/api/v1/health</pre></div>
+    <div class="tabpane"><pre class="code">{
+  "go_version": "go1.24",
+  "goroutines": 12,
+  "uptime": "1m3s",
+  "timestamp": "2026-06-03T07:44:46Z",
+  "memory_usage": { /* ... */ },
+  "cpu_stats": { /* ... */ },
+  "database_stats": { /* ... */ },
+  "query_metrics": { /* ... */ }
+}</pre></div>
+  </div>
+
+  <div class="ep">
+    <div class="ep-hd"><span class="meth meth-get">GET</span> /api/v1/health/database <span class="ep-auth">JWT</span> <span class="ep-label">Database health</span></div>
+    <div class="tabs"><button class="tab active">cURL</button></div>
+    <div class="tabpane active"><pre class="code">curl -s $BASE/api/v1/health/database -H "Authorization: Bearer $TOKEN"</pre></div>
+  </div>
+
   <p class="see-also">See also: <a href="integration-examples.md">Integration Examples — monitoring</a></p>
 </section>
 
