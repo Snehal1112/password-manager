@@ -553,21 +553,81 @@ curl $BASE/api/v1/access-policies/principal/&lt;id&gt; \
   <h3>What it is</h3>
   <p>Encrypted-at-rest key/value secrets (AES-256-GCM). Only the owner or an admin can
     read a secret via the flat routes. Secrets support tags, generation, and import/export.</p>
-  <h3>Admin operations</h3>
-  <div class="op-grid">
-    <div class="op-col"><div class="op-label">CLI</div>
-      <pre class="code">rocketvault secrets create --name db-password --value s3cret \
-  --username admin --password admin123 --totp-code 123456
-rocketvault secrets list  --username admin --password admin123 --totp-code 123456</pre></div>
-    <div class="op-col"><div class="op-label">API</div>
-      <pre class="code">curl -X POST $BASE/api/v1/secrets -H "Authorization: Bearer $TOKEN" \
-  -d '{"name":"db-password","value":"s3cret","tags":["database"]}'
-curl -X POST $BASE/api/v1/secrets/generate -H "Authorization: Bearer $TOKEN" \
+  <h3>When to use it</h3>
+  <p>Store application credentials, API keys, connection strings — anything an app needs
+    at runtime but must not hold in plaintext.</p>
+  <h3>Operations</h3>
+
+  <div class="ep">
+    <div class="ep-hd"><span class="meth meth-post">POST</span> /api/v1/secrets <span class="ep-auth">JWT</span> <span class="ep-label">Create a secret</span></div>
+    <div class="tabs"><button class="tab active">cURL</button><button class="tab">Response</button></div>
+    <div class="tabpane active"><pre class="code">curl -s -X POST $BASE/api/v1/secrets -H "Authorization: Bearer $TOKEN" \
+  -d '{"name":"db-password","value":"s3cret","tags":["database"]}'</pre></div>
+    <div class="tabpane"><pre class="code">{
+  "id": "&lt;uuid&gt;",
+  "name": "db-password",
+  "tags": ["database"],
+  "version": 1,
+  "enabled": true,
+  "created_at": "2026-06-03T07:44:46Z"
+}</pre></div>
+    <details class="collapse"><summary>Notes</summary><div class="inner">The plaintext <code>value</code> is not returned on create; read it back with GET. Updating the value creates a new version (§11).</div></details>
+  </div>
+
+  <div class="ep">
+    <div class="ep-hd"><span class="meth meth-get">GET</span> /api/v1/secrets/{id} <span class="ep-auth">JWT</span> <span class="ep-label">Get a secret (decrypted)</span></div>
+    <div class="tabs"><button class="tab active">cURL</button><button class="tab">Response</button></div>
+    <div class="tabpane active"><pre class="code">curl -s $BASE/api/v1/secrets/&lt;id&gt; -H "Authorization: Bearer $TOKEN"</pre></div>
+    <div class="tabpane"><pre class="code">{
+  "id": "&lt;uuid&gt;",
+  "name": "db-password",
+  "value": "&lt;decrypted-value&gt;",
+  "tags": ["database"],
+  "version": 1,
+  "enabled": true,
+  "created_at": "2026-06-03T07:44:46Z"
+}</pre></div>
+  </div>
+
+  <div class="ep">
+    <div class="ep-hd"><span class="meth meth-get">GET</span> /api/v1/secrets <span class="ep-auth">JWT</span> <span class="ep-label">List secrets</span></div>
+    <div class="tabs"><button class="tab active">cURL</button></div>
+    <div class="tabpane active"><pre class="code">curl -s $BASE/api/v1/secrets -H "Authorization: Bearer $TOKEN"</pre></div>
+  </div>
+
+  <div class="ep">
+    <div class="ep-hd"><span class="meth meth-put">PUT</span> /api/v1/secrets/{id} <span class="ep-auth">JWT</span> <span class="ep-label">Update (new version)</span></div>
+    <div class="tabs"><button class="tab active">cURL</button></div>
+    <div class="tabpane active"><pre class="code">curl -s -X PUT $BASE/api/v1/secrets/&lt;id&gt; -H "Authorization: Bearer $TOKEN" \
+  -d '{"value":"newpass","tags":["database"]}'</pre></div>
+  </div>
+
+  <div class="ep">
+    <div class="ep-hd"><span class="meth meth-delete">DELETE</span> /api/v1/secrets/{id} <span class="ep-auth">JWT</span> <span class="ep-label">Soft-delete</span></div>
+    <div class="tabs"><button class="tab active">cURL</button></div>
+    <div class="tabpane active"><pre class="code">curl -s -X DELETE $BASE/api/v1/secrets/&lt;id&gt; -H "Authorization: Bearer $TOKEN"</pre></div>
+  </div>
+
+  <div class="ep">
+    <div class="ep-hd"><span class="meth meth-post">POST</span> /api/v1/secrets/generate <span class="ep-auth">JWT</span> <span class="ep-label">Generate a random value</span></div>
+    <div class="tabs"><button class="tab active">cURL</button></div>
+    <div class="tabpane active"><pre class="code">curl -s -X POST $BASE/api/v1/secrets/generate -H "Authorization: Bearer $TOKEN" \
   -d '{"name":"api-key","length":32,"type":"alphanumeric"}'</pre></div>
   </div>
-  <h3>Notes &amp; troubleshooting</h3>
-  <ul><li>Updating a secret's value creates a new version (see §11).</li>
-    <li>Export/import: <code>POST /secrets/export</code>, <code>POST /secrets/import</code>.</li></ul>
+
+  <div class="ep">
+    <div class="ep-hd"><span class="meth meth-post">POST</span> /api/v1/secrets/export <span class="ep-auth">JWT</span> <span class="ep-label">Export</span></div>
+    <div class="tabs"><button class="tab active">cURL</button></div>
+    <div class="tabpane active"><pre class="code">curl -s -X POST $BASE/api/v1/secrets/export -H "Authorization: Bearer $TOKEN" -d '{"format":"json"}'</pre></div>
+  </div>
+
+  <div class="ep">
+    <div class="ep-hd"><span class="meth meth-post">POST</span> /api/v1/secrets/import <span class="ep-auth">JWT</span> <span class="ep-label">Import</span></div>
+    <div class="tabs"><button class="tab active">cURL</button></div>
+    <div class="tabpane active"><pre class="code">curl -s -X POST $BASE/api/v1/secrets/import -H "Authorization: Bearer $TOKEN" \
+  -d '{"secrets":[{"name":"imported","value":"v","tags":["x"]}]}'</pre></div>
+  </div>
+
   <p class="see-also">See also: <a href="../MANUAL_TESTING.md">Manual Testing §8</a></p>
 </section>
 
@@ -575,16 +635,28 @@ curl -X POST $BASE/api/v1/secrets/generate -H "Authorization: Bearer $TOKEN" \
   <h2>11. Secret Versions</h2>
   <h3>What it is</h3>
   <p>Every value update creates a new, retained version. Old versions stay readable.</p>
-  <h3>Admin operations</h3>
-  <div class="op-grid">
-    <div class="op-col"><div class="op-label">List / get (API)</div>
-      <pre class="code">curl $BASE/api/v1/secrets/&lt;id&gt;/versions -H "Authorization: Bearer $TOKEN"
-curl $BASE/api/v1/secrets/&lt;id&gt;/versions/1 -H "Authorization: Bearer $TOKEN"
-curl $BASE/api/v1/secrets/&lt;id&gt;/versions/latest -H "Authorization: Bearer $TOKEN"</pre></div>
-    <div class="op-col"><div class="op-label">CLI</div>
-      <pre class="code">rocketvault version list   &lt;secret-id&gt; --username admin --password admin123 --totp-code 123456
-rocketvault version latest &lt;secret-id&gt; --username admin --password admin123 --totp-code 123456</pre></div>
+  <h3>Operations</h3>
+
+  <div class="ep">
+    <div class="ep-hd"><span class="meth meth-get">GET</span> /api/v1/secrets/{id}/versions <span class="ep-auth">JWT</span> <span class="ep-label">List versions</span></div>
+    <div class="tabs"><button class="tab active">cURL</button><button class="tab">CLI</button></div>
+    <div class="tabpane active"><pre class="code">curl -s $BASE/api/v1/secrets/&lt;id&gt;/versions -H "Authorization: Bearer $TOKEN"</pre></div>
+    <div class="tabpane"><pre class="code">rocketvault version list &lt;secret-id&gt; --username admin --password admin123 --totp-code 123456</pre></div>
   </div>
+
+  <div class="ep">
+    <div class="ep-hd"><span class="meth meth-get">GET</span> /api/v1/secrets/{id}/versions/{n} <span class="ep-auth">JWT</span> <span class="ep-label">Get version n</span></div>
+    <div class="tabs"><button class="tab active">cURL</button></div>
+    <div class="tabpane active"><pre class="code">curl -s $BASE/api/v1/secrets/&lt;id&gt;/versions/1 -H "Authorization: Bearer $TOKEN"</pre></div>
+  </div>
+
+  <div class="ep">
+    <div class="ep-hd"><span class="meth meth-get">GET</span> /api/v1/secrets/{id}/versions/latest <span class="ep-auth">JWT</span> <span class="ep-label">Get latest</span></div>
+    <div class="tabs"><button class="tab active">cURL</button><button class="tab">CLI</button></div>
+    <div class="tabpane active"><pre class="code">curl -s $BASE/api/v1/secrets/&lt;id&gt;/versions/latest -H "Authorization: Bearer $TOKEN"</pre></div>
+    <div class="tabpane"><pre class="code">rocketvault version latest &lt;secret-id&gt; --username admin --password admin123 --totp-code 123456</pre></div>
+  </div>
+
   <p class="see-also">See also: <a href="../MANUAL_TESTING.md">Manual Testing §9</a></p>
 </section>
 
@@ -613,22 +685,89 @@ rocketvault secrets rotation status  ...</pre></div>
   <h3>What it is</h3>
   <p>RSA and ECDSA private keys, encrypted at rest, with cryptographic operations
     (wrap/unwrap, sign/verify, encrypt/decrypt), rotation, and version history.</p>
-  <h3>Admin operations</h3>
-  <div class="op-grid">
-    <div class="op-col"><div class="op-label">Create</div>
-      <pre class="code"># RSA: bits = 2048 | 3072 | 4096
-curl -X POST $BASE/api/v1/keys -H "Authorization: Bearer $TOKEN" \
+  <h3>When to use it</h3>
+  <p>Hold signing or encryption keys server-side so private material never leaves the vault.</p>
+  <h3>Operations</h3>
+
+  <div class="ep">
+    <div class="ep-hd"><span class="meth meth-post">POST</span> /api/v1/keys <span class="ep-auth">JWT</span> <span class="ep-label">Create a key</span></div>
+    <div class="tabs"><button class="tab active">cURL</button><button class="tab">Response</button></div>
+    <div class="tabpane active"><pre class="code"># RSA: bits = 2048 | 3072 | 4096
+curl -s -X POST $BASE/api/v1/keys -H "Authorization: Bearer $TOKEN" \
   -d '{"name":"my-rsa-key","type":"RSA","bits":2048}'
 # ECDSA: curve = P-256 | P-384 | P-521
-curl -X POST $BASE/api/v1/keys -H "Authorization: Bearer $TOKEN" \
+curl -s -X POST $BASE/api/v1/keys -H "Authorization: Bearer $TOKEN" \
   -d '{"name":"my-ec-key","type":"ECDSA","curve":"P-256"}'</pre></div>
-    <div class="op-col"><div class="op-label">Operate</div>
-      <pre class="code">curl -X POST $BASE/api/v1/keys/&lt;id&gt;/rotate  -H "Authorization: Bearer $TOKEN"
-curl -X POST $BASE/api/v1/keys/&lt;id&gt;/wrap    -H "Authorization: Bearer $TOKEN" -d '{"plaintext":"..."}'
-curl -X POST $BASE/api/v1/keys/&lt;id&gt;/sign    -H "Authorization: Bearer $TOKEN" -d '{"value":"aGVsbG8=","algorithm":"RS256"}'</pre></div>
+    <div class="tabpane"><pre class="code">{
+  "id": "&lt;uuid&gt;",
+  "name": "my-rsa-key",
+  "type": "RSA",
+  "bits": 2048,
+  "enabled": true,
+  "revoked": false,
+  "tags": [],
+  "user_id": "&lt;uuid&gt;",
+  "created_at": "2026-06-03T07:44:46Z"
+}</pre></div>
+    <details class="collapse"><summary>Notes</summary><div class="inner">Use <code>bits</code> for RSA and <code>curve</code> for ECDSA. Private key material is never returned; a GET includes only public components (RSA <code>n</code>/<code>e</code>).</div></details>
   </div>
-  <div class="note">Use <code>bits</code> for RSA and <code>curve</code> for ECDSA — the
-    earlier docs sometimes omitted <code>bits</code>.</div>
+
+  <div class="ep">
+    <div class="ep-hd"><span class="meth meth-post">POST</span> /api/v1/keys/{id}/rotate <span class="ep-auth">JWT</span> <span class="ep-label">Rotate</span></div>
+    <div class="tabs"><button class="tab active">cURL</button></div>
+    <div class="tabpane active"><pre class="code">curl -s -X POST $BASE/api/v1/keys/&lt;id&gt;/rotate -H "Authorization: Bearer $TOKEN"</pre></div>
+  </div>
+
+  <div class="ep">
+    <div class="ep-hd"><span class="meth meth-post">POST</span> /api/v1/keys/{id}/sign <span class="ep-auth">JWT</span> <span class="ep-label">Sign</span></div>
+    <div class="tabs"><button class="tab active">cURL</button></div>
+    <div class="tabpane active"><pre class="code">curl -s -X POST $BASE/api/v1/keys/&lt;id&gt;/sign -H "Authorization: Bearer $TOKEN" \
+  -d '{"value":"aGVsbG8=","algorithm":"RS256"}'</pre></div>
+  </div>
+
+  <div class="ep">
+    <div class="ep-hd"><span class="meth meth-post">POST</span> /api/v1/keys/{id}/verify <span class="ep-auth">JWT</span> <span class="ep-label">Verify</span></div>
+    <div class="tabs"><button class="tab active">cURL</button></div>
+    <div class="tabpane active"><pre class="code">curl -s -X POST $BASE/api/v1/keys/&lt;id&gt;/verify -H "Authorization: Bearer $TOKEN" \
+  -d '{"value":"aGVsbG8=","signature":"&lt;sig&gt;","algorithm":"RS256"}'</pre></div>
+  </div>
+
+  <div class="ep">
+    <div class="ep-hd"><span class="meth meth-post">POST</span> /api/v1/keys/{id}/wrap <span class="ep-auth">JWT</span> <span class="ep-label">Wrap (encrypt)</span></div>
+    <div class="tabs"><button class="tab active">cURL</button></div>
+    <div class="tabpane active"><pre class="code">curl -s -X POST $BASE/api/v1/keys/&lt;id&gt;/wrap -H "Authorization: Bearer $TOKEN" -d '{"plaintext":"..."}'</pre></div>
+  </div>
+
+  <div class="ep">
+    <div class="ep-hd"><span class="meth meth-post">POST</span> /api/v1/keys/{id}/unwrap <span class="ep-auth">JWT</span> <span class="ep-label">Unwrap (decrypt)</span></div>
+    <div class="tabs"><button class="tab active">cURL</button></div>
+    <div class="tabpane active"><pre class="code">curl -s -X POST $BASE/api/v1/keys/&lt;id&gt;/unwrap -H "Authorization: Bearer $TOKEN" -d '{"ciphertext":"&lt;ct&gt;"}'</pre></div>
+  </div>
+
+  <div class="ep">
+    <div class="ep-hd"><span class="meth meth-post">POST</span> /api/v1/keys/{id}/encrypt <span class="ep-auth">JWT</span> <span class="ep-label">Encrypt</span></div>
+    <div class="tabs"><button class="tab active">cURL</button></div>
+    <div class="tabpane active"><pre class="code">curl -s -X POST $BASE/api/v1/keys/&lt;id&gt;/encrypt -H "Authorization: Bearer $TOKEN" -d '{"value":"aGVsbG8=","algorithm":"RSA-OAEP"}'</pre></div>
+  </div>
+
+  <div class="ep">
+    <div class="ep-hd"><span class="meth meth-post">POST</span> /api/v1/keys/{id}/decrypt <span class="ep-auth">JWT</span> <span class="ep-label">Decrypt</span></div>
+    <div class="tabs"><button class="tab active">cURL</button></div>
+    <div class="tabpane active"><pre class="code">curl -s -X POST $BASE/api/v1/keys/&lt;id&gt;/decrypt -H "Authorization: Bearer $TOKEN" -d '{"value":"&lt;ct&gt;","algorithm":"RSA-OAEP"}'</pre></div>
+  </div>
+
+  <div class="ep">
+    <div class="ep-hd"><span class="meth meth-get">GET</span> /api/v1/keys/{id}/versions <span class="ep-auth">JWT</span> <span class="ep-label">List key versions</span></div>
+    <div class="tabs"><button class="tab active">cURL</button></div>
+    <div class="tabpane active"><pre class="code">curl -s $BASE/api/v1/keys/&lt;id&gt;/versions -H "Authorization: Bearer $TOKEN"</pre></div>
+  </div>
+
+  <div class="ep">
+    <div class="ep-hd"><span class="meth meth-delete">DELETE</span> /api/v1/keys/{id} <span class="ep-auth">JWT</span> <span class="ep-label">Soft-delete</span></div>
+    <div class="tabs"><button class="tab active">cURL</button></div>
+    <div class="tabpane active"><pre class="code">curl -s -X DELETE $BASE/api/v1/keys/&lt;id&gt; -H "Authorization: Bearer $TOKEN"</pre></div>
+  </div>
+
   <p class="see-also">See also: <a href="../MANUAL_TESTING.md">Manual Testing §10</a></p>
 </section>
 
@@ -636,20 +775,55 @@ curl -X POST $BASE/api/v1/keys/&lt;id&gt;/sign    -H "Authorization: Bearer $TOK
   <h2>14. Certificates &amp; Certificate Policies</h2>
   <h3>What it is</h3>
   <p>Self-signed X.509 certificate lifecycle management. Each certificate may carry a
-    <strong>policy</strong> describing auto-renewal (validity, key type/curve, SANs, issuer)
-    used by the renewal scan.</p>
-  <h3>Admin operations</h3>
-  <div class="op-grid">
-    <div class="op-col"><div class="op-label">Create + policy</div>
-      <pre class="code">curl -X POST $BASE/api/v1/certificates -H "Authorization: Bearer $TOKEN" \
-  -d '{"name":"my-tls-cert","common_name":"example.com",
-       "validity_days":365,"key_type":"RSA","key_size":2048}'
-curl -X PUT $BASE/api/v1/certificates/&lt;id&gt;/policy -H "Authorization: Bearer $TOKEN" \
-  -d '{"auto_renew":true,"days_before_expiry":30}'</pre></div>
-    <div class="op-col"><div class="op-label">CLI</div>
-      <pre class="code">rocketvault certificate list  --username admin --password admin123 --totp-code 123456
-rocketvault certificate renew &lt;id&gt; --username admin --password admin123 --totp-code 123456</pre></div>
+    policy describing auto-renewal (validity, key type/curve, SANs, issuer) used by the
+    renewal scan.</p>
+  <h3>Operations</h3>
+
+  <div class="ep">
+    <div class="ep-hd"><span class="meth meth-post">POST</span> /api/v1/certificates <span class="ep-auth">JWT</span> <span class="ep-label">Create self-signed cert</span></div>
+    <div class="tabs"><button class="tab active">cURL</button></div>
+    <div class="tabpane active"><pre class="code">curl -s -X POST $BASE/api/v1/certificates -H "Authorization: Bearer $TOKEN" \
+  -d '{"name":"my-tls-cert","common_name":"example.com","validity_days":365,"key_type":"RSA","key_size":2048}'</pre></div>
   </div>
+
+  <div class="ep">
+    <div class="ep-hd"><span class="meth meth-get">GET</span> /api/v1/certificates/{id} <span class="ep-auth">JWT</span> <span class="ep-label">Get</span></div>
+    <div class="tabs"><button class="tab active">cURL</button></div>
+    <div class="tabpane active"><pre class="code">curl -s $BASE/api/v1/certificates/&lt;id&gt; -H "Authorization: Bearer $TOKEN"</pre></div>
+  </div>
+
+  <div class="ep">
+    <div class="ep-hd"><span class="meth meth-put">PUT</span> /api/v1/certificates/{id} <span class="ep-auth">JWT</span> <span class="ep-label">Update</span></div>
+    <div class="tabs"><button class="tab active">cURL</button></div>
+    <div class="tabpane active"><pre class="code">curl -s -X PUT $BASE/api/v1/certificates/&lt;id&gt; -H "Authorization: Bearer $TOKEN" -d '{"name":"renamed"}'</pre></div>
+  </div>
+
+  <div class="ep">
+    <div class="ep-hd"><span class="meth meth-delete">DELETE</span> /api/v1/certificates/{id} <span class="ep-auth">JWT</span> <span class="ep-label">Soft-delete</span></div>
+    <div class="tabs"><button class="tab active">cURL</button></div>
+    <div class="tabpane active"><pre class="code">curl -s -X DELETE $BASE/api/v1/certificates/&lt;id&gt; -H "Authorization: Bearer $TOKEN"</pre></div>
+  </div>
+
+  <div class="ep">
+    <div class="ep-hd"><span class="meth meth-get">GET</span> /api/v1/certificates/{id}/policy <span class="ep-auth">JWT</span> <span class="ep-label">Get policy</span></div>
+    <div class="tabs"><button class="tab active">cURL</button></div>
+    <div class="tabpane active"><pre class="code">curl -s $BASE/api/v1/certificates/&lt;id&gt;/policy -H "Authorization: Bearer $TOKEN"</pre></div>
+  </div>
+
+  <div class="ep">
+    <div class="ep-hd"><span class="meth meth-put">PUT</span> /api/v1/certificates/{id}/policy <span class="ep-auth">JWT</span> <span class="ep-label">Upsert policy</span></div>
+    <div class="tabs"><button class="tab active">cURL</button></div>
+    <div class="tabpane active"><pre class="code">curl -s -X PUT $BASE/api/v1/certificates/&lt;id&gt;/policy -H "Authorization: Bearer $TOKEN" \
+  -d '{"auto_renew":true,"days_before_expiry":30}'</pre></div>
+  </div>
+
+  <div class="ep">
+    <div class="ep-hd"><span class="meth meth-delete">DELETE</span> /api/v1/certificates/{id}/policy <span class="ep-auth">JWT</span> <span class="ep-label">Delete policy</span></div>
+    <div class="tabs"><button class="tab active">cURL</button></div>
+    <div class="tabpane active"><pre class="code">curl -s -X DELETE $BASE/api/v1/certificates/&lt;id&gt;/policy -H "Authorization: Bearer $TOKEN"</pre></div>
+  </div>
+
+  <div class="note">The CLI offers <code>rocketvault certificate renew &lt;id&gt;</code> to force renewal.</div>
   <p class="see-also">See also: <a href="../MANUAL_TESTING.md">Manual Testing §11</a></p>
 </section>
 
@@ -667,19 +841,43 @@ rocketvault certificate renew &lt;id&gt; --username admin --password admin123 --
       <tr><td>Vault-scoped</td><td><code>GET /api/v1/vaults/{name}/secrets</code></td><td>Members see all</td></tr>
     </tbody>
   </table>
-  <h3>Admin operations</h3>
-  <div class="op-grid">
-    <div class="op-col"><div class="op-label">Manage vaults (admin)</div>
-      <pre class="code">curl -X POST  $BASE/api/v1/vaults -H "Authorization: Bearer $TOKEN" -d '{"name":"team-alpha"}'
-curl -X PATCH $BASE/api/v1/vaults/team-alpha -H "Authorization: Bearer $TOKEN" -d '{"retention_days":7}'
-curl -X DELETE $BASE/api/v1/vaults/team-alpha -H "Authorization: Bearer $TOKEN"  # 204; refuses 'default'</pre></div>
-    <div class="op-col"><div class="op-label">CLI</div>
-      <pre class="code">rocketvault vaults create  team-alpha ...
-rocketvault vaults recover team-alpha ...
-rocketvault vaults purge   team-alpha ...</pre></div>
+  <h3>Operations</h3>
+
+  <div class="ep">
+    <div class="ep-hd"><span class="meth meth-post">POST</span> /api/v1/vaults <span class="ep-auth">JWT · admin</span> <span class="ep-label">Create a vault</span></div>
+    <div class="tabs"><button class="tab active">cURL</button><button class="tab">Response</button></div>
+    <div class="tabpane active"><pre class="code">curl -s -X POST $BASE/api/v1/vaults -H "Authorization: Bearer $TOKEN" -d '{"name":"team-alpha"}'</pre></div>
+    <div class="tabpane"><pre class="code">{
+  "id": "&lt;uuid&gt;",
+  "name": "team-alpha",
+  "enabled": true,
+  "purge_protection": false,
+  "retention_days": 90,
+  "created_by": "&lt;uuid&gt;",
+  "created_at": "2026-06-03T07:44:46Z"
+}</pre></div>
   </div>
-  <div class="note">Vault <em>management</em> requires the <code>vaults:manage</code>
-    permission (admin only). The <code>default</code> vault cannot be deleted.</div>
+
+  <div class="ep">
+    <div class="ep-hd"><span class="meth meth-get">GET</span> /api/v1/vaults <span class="ep-auth">JWT · admin</span> <span class="ep-label">List (?include_deleted=true)</span></div>
+    <div class="tabs"><button class="tab active">cURL</button></div>
+    <div class="tabpane active"><pre class="code">curl -s "$BASE/api/v1/vaults?include_deleted=true" -H "Authorization: Bearer $TOKEN"</pre></div>
+  </div>
+
+  <div class="ep">
+    <div class="ep-hd"><span class="meth meth-patch">PATCH</span> /api/v1/vaults/{name} <span class="ep-auth">JWT · admin</span> <span class="ep-label">Update</span></div>
+    <div class="tabs"><button class="tab active">cURL</button></div>
+    <div class="tabpane active"><pre class="code">curl -s -X PATCH $BASE/api/v1/vaults/team-alpha -H "Authorization: Bearer $TOKEN" -d '{"retention_days":7}'</pre></div>
+  </div>
+
+  <div class="ep">
+    <div class="ep-hd"><span class="meth meth-delete">DELETE</span> /api/v1/vaults/{name} <span class="ep-auth">JWT · admin</span> <span class="ep-label">Soft-delete (204; refuses default)</span></div>
+    <div class="tabs"><button class="tab active">cURL</button><button class="tab">CLI</button></div>
+    <div class="tabpane active"><pre class="code">curl -s -i -X DELETE $BASE/api/v1/vaults/team-alpha -H "Authorization: Bearer $TOKEN"</pre></div>
+    <div class="tabpane"><pre class="code">rocketvault vaults create|recover|purge team-alpha ...</pre></div>
+  </div>
+
+  <div class="note">Vault <em>management</em> requires the <code>vaults:manage</code> permission (admin only). The <code>default</code> vault cannot be deleted.</div>
   <p class="see-also">See also: <a href="../MANUAL_TESTING.md">Manual Testing §12.5</a></p>
 </section>
 
@@ -688,18 +886,33 @@ rocketvault vaults purge   team-alpha ...</pre></div>
   <h3>What it is</h3>
   <p>Secrets, keys, and certificates are soft-deleted (retained, default 30 days) and can
     be restored or permanently purged. Purge protection can block permanent deletion.</p>
-  <h3>Admin operations</h3>
-  <div class="op-grid">
-    <div class="op-col"><div class="op-label">Flat (per-user)</div>
-      <pre class="code">curl $BASE/api/v1/deleted/secrets -H "Authorization: Bearer $TOKEN"
-curl -X POST   $BASE/api/v1/deleted/secrets/&lt;id&gt;/restore -H "Authorization: Bearer $TOKEN"
-curl -X DELETE $BASE/api/v1/deleted/secrets/&lt;id&gt;/purge   -H "Authorization: Bearer $TOKEN"</pre></div>
-    <div class="op-col"><div class="op-label">Vault-scoped (by membership)</div>
-      <pre class="code">curl $BASE/api/v1/vaults/default/deleted/secrets -H "Authorization: Bearer $TOKEN"
-curl -X POST $BASE/api/v1/vaults/default/deleted/secrets/&lt;id&gt;/restore -H "Authorization: Bearer $TOKEN"</pre></div>
+  <h3>Operations</h3>
+
+  <div class="ep">
+    <div class="ep-hd"><span class="meth meth-get">GET</span> /api/v1/deleted/secrets <span class="ep-auth">JWT</span> <span class="ep-label">List soft-deleted (flat, per-user)</span></div>
+    <div class="tabs"><button class="tab active">cURL</button></div>
+    <div class="tabpane active"><pre class="code">curl -s $BASE/api/v1/deleted/secrets -H "Authorization: Bearer $TOKEN"</pre></div>
   </div>
-  <div class="note">Key/certificate restore/purge are exposed only on the flat
-    <code>/deleted/keys/…</code> and <code>/deleted/certificates/…</code> routes.</div>
+
+  <div class="ep">
+    <div class="ep-hd"><span class="meth meth-post">POST</span> /api/v1/deleted/secrets/{id}/restore <span class="ep-auth">JWT</span> <span class="ep-label">Restore</span></div>
+    <div class="tabs"><button class="tab active">cURL</button></div>
+    <div class="tabpane active"><pre class="code">curl -s -X POST $BASE/api/v1/deleted/secrets/&lt;id&gt;/restore -H "Authorization: Bearer $TOKEN"</pre></div>
+  </div>
+
+  <div class="ep">
+    <div class="ep-hd"><span class="meth meth-delete">DELETE</span> /api/v1/deleted/secrets/{id}/purge <span class="ep-auth">JWT</span> <span class="ep-label">Purge permanently</span></div>
+    <div class="tabs"><button class="tab active">cURL</button></div>
+    <div class="tabpane active"><pre class="code">curl -s -X DELETE $BASE/api/v1/deleted/secrets/&lt;id&gt;/purge -H "Authorization: Bearer $TOKEN"</pre></div>
+  </div>
+
+  <div class="ep">
+    <div class="ep-hd"><span class="meth meth-get">GET</span> /api/v1/vaults/{name}/deleted/secrets <span class="ep-auth">JWT</span> <span class="ep-label">Vault-scoped list (by membership)</span></div>
+    <div class="tabs"><button class="tab active">cURL</button></div>
+    <div class="tabpane active"><pre class="code">curl -s $BASE/api/v1/vaults/default/deleted/secrets -H "Authorization: Bearer $TOKEN"</pre></div>
+  </div>
+
+  <div class="note">Key and certificate restore/purge are exposed only on the flat <code>/deleted/keys/…</code> and <code>/deleted/certificates/…</code> routes.</div>
   <p class="see-also">See also: <a href="../MANUAL_TESTING.md">Manual Testing §12</a></p>
 </section>
 
