@@ -110,6 +110,15 @@ td{color:var(--text-secondary)}
     <a class="sb-link" href="#certificates">14. Certificates</a>
     <a class="sb-link" href="#multi-vault">15. Multi-Vault</a>
     <a class="sb-link" href="#soft-delete">16. Soft-Delete &amp; Purge</a>
+    <div class="sb-group">Operations &amp; Governance</div>
+    <a class="sb-link" href="#audit">17. Audit &amp; Compliance</a>
+    <a class="sb-link" href="#backup">18. Backup &amp; Restore</a>
+    <a class="sb-link" href="#hsm">19. HSM / PKCS#11</a>
+    <a class="sb-link" href="#health">20. Health &amp; Monitoring</a>
+    <a class="sb-link" href="#rate-limiting">21. Rate Limiting</a>
+    <a class="sb-link" href="#performance">22. Performance Internals</a>
+    <a class="sb-link" href="#migrations">23. Database Migrations</a>
+    <a class="sb-link" href="#api-versioning">24. API Versioning</a>
     <!-- SIDEBAR_LINKS -->
   </nav>
 
@@ -484,6 +493,141 @@ curl -X POST $BASE/api/v1/vaults/default/deleted/secrets/&lt;id&gt;/restore -H "
   <div class="note">Key/certificate restore/purge are exposed only on the flat
     <code>/deleted/keys/…</code> and <code>/deleted/certificates/…</code> routes.</div>
   <p class="see-also">See also: <a href="../MANUAL_TESTING.md">Manual Testing §12</a></p>
+</section>
+
+<section id="audit">
+  <h2>17. Audit Logs &amp; Compliance</h2>
+  <h3>What it is</h3>
+  <p>Every security-relevant action is recorded in a hash-chained audit log (tamper-evident).
+    Logs are queryable with filters, and SOC 2 / GDPR reports can be generated. Admin only.</p>
+  <h3>Admin operations</h3>
+  <div class="op-grid">
+    <div class="op-col"><div class="op-label">Query + reports (API)</div>
+      <pre class="code">curl "$BASE/api/v1/audit/logs?action=login&amp;limit=50" -H "Authorization: Bearer $TOKEN"
+curl "$BASE/api/v1/audit/reports/soc2?start_date=2026-01-01&amp;end_date=2026-06-01" -H "Authorization: Bearer $TOKEN"
+curl "$BASE/api/v1/audit/reports/gdpr?subject_id=&lt;id&gt;" -H "Authorization: Bearer $TOKEN"</pre></div>
+    <div class="op-col"><div class="op-label">Retention config</div>
+      <pre class="code">curl  $BASE/api/v1/audit/config -H "Authorization: Bearer $TOKEN"
+curl -X PATCH $BASE/api/v1/audit/config -H "Authorization: Bearer $TOKEN" \
+  -d '{"retention_days":365}'</pre></div>
+  </div>
+  <div class="note">The logs response includes an <code>integrity_ok</code> flag — the
+    result of verifying the hash chain.</div>
+  <p class="see-also">See also: <a href="../MANUAL_TESTING.md">Manual Testing</a></p>
+</section>
+
+<section id="backup">
+  <h2>18. Backup &amp; Restore</h2>
+  <h3>What it is</h3>
+  <p>Two levels: full database backups via the CLI, and per-item encrypted backup/restore
+    blobs for individual secrets, keys, and certificates via the API.</p>
+  <h3>Admin operations</h3>
+  <div class="op-grid">
+    <div class="op-col"><div class="op-label">Full backup (CLI)</div>
+      <pre class="code">rocketvault backup create  --username admin --password admin123 --totp-code 123456
+rocketvault backup list    --username admin --password admin123 --totp-code 123456
+rocketvault backup restore --file /path/backup.json ...</pre></div>
+    <div class="op-col"><div class="op-label">Per-item (API)</div>
+      <pre class="code">curl -X POST $BASE/api/v1/secrets/&lt;id&gt;/backup -H "Authorization: Bearer $TOKEN"
+curl -X POST $BASE/api/v1/secrets/restore    -H "Authorization: Bearer $TOKEN" -d '{...blob...}'</pre></div>
+  </div>
+  <p class="see-also">See also: <a href="integration-examples.md">Integration Examples — backup</a></p>
+</section>
+
+<section id="hsm">
+  <h2>19. HSM / PKCS#11</h2>
+  <h3>What it is</h3>
+  <p>RocketVault can store and operate keys on a PKCS#11 token (hardware HSM, or SoftHSM2
+    for testing). Enable via the <code>hsm</code> config block; keys are stored as
+    <code>pkcs11:&lt;uuid&gt;</code> instead of an encrypted PEM blob.</p>
+  <h3>Configuration</h3>
+  <pre class="code">hsm:
+  enabled: true
+  lib_path: /usr/lib/softhsm/libsofthsm2.so
+  token_label: rocketvault
+  pin: "1234"
+  slot_id: 0</pre>
+  <h3>Supported algorithms</h3>
+  <table>
+    <thead><tr><th>Operation</th><th>Algorithms</th></tr></thead>
+    <tbody>
+      <tr><td>Sign / Verify</td><td>RS256/384/512, PS256/384/512, ES256/384/512</td></tr>
+      <tr><td>Encrypt / Decrypt</td><td>RSA-OAEP (SHA-1), RSA-OAEP-256 (SHA-256)</td></tr>
+      <tr><td>Key generation</td><td>RSA 2048/4096, ECDSA P-256/384/521</td></tr>
+    </tbody>
+  </table>
+  <div class="note">Look for <code>PKCS#11 HSM key provider initialised</code> in the logs.
+    P-256K (secp256k1) always uses the software provider.</div>
+  <p class="see-also">See also: <a href="hsm-softhsm2-testing.md">SoftHSM2 Testing Guide</a></p>
+</section>
+
+<section id="health">
+  <h2>20. Health &amp; Monitoring</h2>
+  <h3>What it is</h3>
+  <p>Liveness, readiness, full health, and database-specific probes. The full endpoint
+    returns DB status and performance metrics.</p>
+  <h3>Admin operations</h3>
+  <pre class="code">curl $BASE/api/v1/health/live      # {"status":"OK"}  (no auth)
+curl $BASE/api/v1/health/ready     # (no auth)
+curl $BASE/api/v1/health           # full status + metrics (no auth)
+curl $BASE/api/v1/health/database -H "Authorization: Bearer $TOKEN"   # DB health (JWT)</pre>
+  <p class="see-also">See also: <a href="integration-examples.md">Integration Examples — monitoring</a></p>
+</section>
+
+<section id="rate-limiting">
+  <h2>21. Rate Limiting</h2>
+  <h3>What it is</h3>
+  <p>Per-IP rate limits protect the API. Auth endpoints have a tighter limit than general
+    endpoints.</p>
+  <table>
+    <thead><tr><th>Endpoint group</th><th>Default (dev)</th></tr></thead>
+    <tbody>
+      <tr><td>All API endpoints</td><td>300 req/min</td></tr>
+      <tr><td>Auth (<code>/login</code>, <code>/refresh</code>, <code>/oauth2/token</code>)</td><td>5 req/min</td></tr>
+    </tbody>
+  </table>
+  <div class="note">Tune via the <code>rate_limit.default</code> and <code>rate_limit.auth</code>
+    config keys. Exceeding a limit returns <code>429 Too Many Requests</code>.</div>
+  <p class="see-also">See also: <a href="../MANUAL_TESTING.md">Manual Testing §17</a></p>
+</section>
+
+<section id="performance">
+  <h2>22. Performance Internals</h2>
+  <h3>What it is</h3>
+  <p>Two tunable subsystems run transparently. <strong>Caching</strong>: an in-memory key
+    cache (<code>key_cache.*</code>, default 60s TTL / 500 entries) and a secret cache speed
+    up reads. <strong>Retry</strong>: database and external-service operations use
+    exponential backoff with jitter and a circuit breaker (<code>retry.*</code>).</p>
+  <p>These are configuration-tuned rather than operated directly — defaults are production-safe.
+    Adjust only with measurement. The <code>key_cache</code> and <code>retry</code> blocks in
+    <a href="#configuration">§4 Configuration</a> list the tunable keys.</p>
+  <p class="see-also">See also:
+    <a href="rocketvault-architecture.html">System Architecture</a> (caching, retry, and
+    circuit-breaker internals are shown in the service-layer diagram)</p>
+</section>
+
+<section id="migrations">
+  <h2>23. Database Migrations</h2>
+  <h3>What it is</h3>
+  <p>Schema migrations run at startup, and a CLI provides explicit control: status,
+    targeted migration, and authoring new migration files.</p>
+  <h3>Admin operations</h3>
+  <pre class="code">rocketvault migrate              # apply all pending
+rocketvault migrate:status       # show applied / pending
+rocketvault migrate:to &lt;version&gt; # migrate to a specific version
+rocketvault migrate:create &lt;desc&gt;# scaffold a new migration file</pre>
+  <div class="note">Each migration is recorded in <code>schema_migrations</code> and applied
+    exactly once.</div>
+</section>
+
+<section id="api-versioning">
+  <h2>24. API Versioning</h2>
+  <h3>What it is</h3>
+  <p>The API is versioned under <code>/api/v1</code>. Versioning middleware tracks
+    deprecation and sunset dates so clients get advance notice before a version is removed.</p>
+  <h3>Notes &amp; troubleshooting</h3>
+  <ul><li>Deprecated versions emit deprecation/sunset headers; plan client migration before the sunset date.</li></ul>
+  <p class="see-also">See also: <a href="api-developer-guide.md">API Developer Guide</a></p>
 </section>
 
     <!-- CONTENT_SECTIONS -->
