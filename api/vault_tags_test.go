@@ -28,7 +28,14 @@ func TestUpdateVault_WithTags(t *testing.T) {
 		t.Fatalf("update vault: expected 200, got %d: %s", w.Code, w.Body.String())
 	}
 
-	if !strings.Contains(w.Body.String(), `"env":"prod"`) {
-		t.Fatalf("expected response body to contain tags, got: %s", w.Body.String())
+	body := w.Body.String()
+	if !strings.Contains(body, `"env":"prod"`) {
+		t.Fatalf("expected response body to contain tags, got: %s", body)
+	}
+	if !strings.Contains(body, `"updated_by"`) || !strings.Contains(body, vaultTestUserID) {
+		t.Fatalf("expected response body to contain updated_by with user id, got: %s", body)
+	}
+	if !strings.Contains(body, `"updated_at"`) {
+		t.Fatalf("expected response body to contain updated_at, got: %s", body)
 	}
 }

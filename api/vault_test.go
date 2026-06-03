@@ -92,6 +92,9 @@ func (f *vaultFakeRepo) ListDeleted(context.Context) ([]model.Vault, error) {
 	return out, nil
 }
 func (f *vaultFakeRepo) Update(_ context.Context, v *model.Vault) error {
+	// Stamp updated_at like the real VaultRepository.Update does.
+	now := nowForVaultTest()
+	v.UpdatedAt = &now
 	f.byName[v.Name] = v
 	f.byID[v.ID.String()] = v
 	return nil

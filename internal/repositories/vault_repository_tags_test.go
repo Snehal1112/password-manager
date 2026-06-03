@@ -33,6 +33,36 @@ func newVaultTagsTestDB(t *testing.T) *sql.DB {
 	return db
 }
 
+func TestVaultRepository_EmptyTagsClears(t *testing.T) {
+	db := newVaultTagsTestDB(t)
+	defer db.Close()
+	repo := NewVaultRepository(db, &logging.Logger{})
+	ctx := context.Background()
+
+	v := &model.Vault{
+		ID: uuid.New(), Name: "clearme", Enabled: true, RetentionDays: 90,
+		CreatedBy: uuid.New(), Tags: map[string]string{"env": "prod"},
+	}
+	if err := repo.Create(ctx, v); err != nil {
+		t.Fatalf("create: %v", err)
+	}
+	got, err := repo.ReadByName(ctx, "clearme")
+	if err != nil {
+		t.Fatalf("read: %v", err)
+	}
+	got.Tags = map[string]string{}
+	if err := repo.Update(ctx, got); err != nil {
+		t.Fatalf("update: %v", err)
+	}
+	after, err := repo.ReadByName(ctx, "clearme")
+	if err != nil {
+		t.Fatalf("read after: %v", err)
+	}
+	if len(after.Tags) != 0 {
+		t.Fatalf("expected tags cleared, got %v", after.Tags)
+	}
+}
+
 func TestVaultRepository_TagsRoundTripAndUpdateStamps(t *testing.T) {
 	db := newVaultTagsTestDB(t)
 	defer db.Close()
