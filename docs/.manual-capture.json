@@ -1,0 +1,122 @@
+{
+  "login": {
+    "token": "<redacted-jwt>",
+    "refresh_token": "<redacted-jwt>",
+    "user_id": "41bf1f55-c9aa-4439-9377-eb268a024213",
+    "username": "admin",
+    "role": "admin"
+  },
+  "secret_create": {
+    "id": "d81df552-6c13-4362-a8c9-087b6600e98d",
+    "name": "db-password",
+    "tags": [
+      "database"
+    ],
+    "version": 1,
+    "created_at": "2026-06-03T12:42:44+05:30",
+    "enabled": true
+  },
+  "secret_get": {
+    "id": "d81df552-6c13-4362-a8c9-087b6600e98d",
+    "name": "db-password",
+    "value": "<decrypted-value>",
+    "tags": [
+      "database"
+    ],
+    "version": 1,
+    "created_at": "2026-06-03T12:42:44+05:30",
+    "enabled": true
+  },
+  "key_create": {
+    "id": "bd92ad68-9906-48e1-bcb5-6c1bc44fe869",
+    "name": "my-rsa-key",
+    "type": "RSA",
+    "user_id": "41bf1f55-c9aa-4439-9377-eb268a024213",
+    "revoked": false,
+    "created_at": "2026-06-03T12:42:44.373740595+05:30",
+    "tags": null,
+    "enabled": true,
+    "bits": 2048
+  },
+  "vault_create": {
+    "id": "b00e9330-ebd8-4483-b4ef-25322ec841e6",
+    "name": "team-alpha",
+    "enabled": true,
+    "purge_protection": false,
+    "retention_days": 90,
+    "created_by": "41bf1f55-c9aa-4439-9377-eb268a024213",
+    "created_at": "2026-06-03T12:42:44+05:30"
+  },
+  "service_account": {
+    "client_secret": "<shown-once-redacted>",
+    "created_at": "2026-06-03T07:12:44.599814337Z",
+    "description": "CI",
+    "enabled": true,
+    "expires_at": null,
+    "id": "a8337f5f-0141-4bee-a713-49f679f792ac",
+    "name": "ci-pipeline"
+  },
+  "health": {
+    "memory_usage": {
+      "alloc_bytes": 3303112,
+      "total_alloc_bytes": 7292256,
+      "sys_bytes": 19597592,
+      "lookups": 0,
+      "mallocs": 66299,
+      "frees": 43751,
+      "heap_alloc_bytes": 3303112,
+      "heap_sys_bytes": 11698176,
+      "heap_idle_bytes": 6651904,
+      "heap_inuse_bytes": 5046272,
+      "heap_released_bytes": 6340608,
+      "heap_objects": 22548,
+      "stack_inuse_bytes": 884736,
+      "stack_sys_bytes": 884736,
+      "gc_sys_bytes": 3457792,
+      "next_gc_bytes": 4885050,
+      "last_gc_timestamp": 1780470764064987444,
+      "num_gc": 3
+    },
+    "cpu_stats": {
+      "goroutines": 22,
+      "cgo_calls": 3313
+    },
+    "database_stats": {
+      "open_connections": 2,
+      "in_use": 0,
+      "idle": 2,
+      "wait_count": 0,
+      "wait_duration": 0,
+      "max_idle_closed": 0,
+      "max_lifetime_closed": 0,
+      "utilization_percent": 0,
+      "query_count": 2,
+      "slow_query_count": 0,
+      "avg_query_time": 1710839,
+      "total_query_time": 3421679,
+      "health_status": "healthy"
+    },
+    "uptime": 1049768288,
+    "go_version": "go1.26.3",
+    "goroutines": 22,
+    "timestamp": "2026-06-03T12:42:44.616576564+05:30",
+    "query_metrics": {
+      "query_count": 0,
+      "total_duration": "0.00 μs",
+      "avg_duration": "0.00 μs",
+      "slow_queries": 0
+    }
+  },
+  "jwks": {
+    "keys": [
+      {
+        "alg": "RS256",
+        "e": "AQAB",
+        "kid": "9d1c755f04ddbcfc",
+        "kty": "RSA",
+        "n": "<base64url-modulus>",
+        "use": "sig"
+      }
+    ]
+  }
+}
