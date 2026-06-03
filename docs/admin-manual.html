@@ -170,6 +170,8 @@ details.collapse .inner{padding:2px 12px 10px}
     <div class="sb-sub">Self-hosted secrets manager · Go</div>
     <input class="sb-search" id="sb-search" type="search" placeholder="Search…  (press /)" aria-label="Search the manual"/>
     <div class="sb-group">Getting Started</div>
+    <a class="sb-link" href="#before-you-begin">0. Before You Begin</a>
+    <a class="sb-link" href="#quick-start">Quick Start (end-to-end)</a>
     <a class="sb-link" href="#introduction">1. Introduction &amp; Model</a>
     <a class="sb-link" href="#installation">2. Installation &amp; First Run</a>
     <a class="sb-link" href="#bootstrap">3. Bootstrap First Admin</a>
@@ -212,6 +214,61 @@ details.collapse .inner{padding:2px 12px 10px}
     <h1>RocketVault Administrator Manual</h1>
     <p class="lede">The authoritative operational guide to every RocketVault feature —
       installation, identity, secrets, keys, certificates, governance, and integration.</p>
+    <p style="font-family:var(--font-mono);font-size:11.5px;color:var(--text-muted);margin-top:-30px;margin-bottom:36px">
+      RocketVault · self-hosted Azure Key Vault alternative · Go · API <code>/api/v1</code> ·
+      Last updated 2026-06-03</p>
+<section id="before-you-begin">
+  <h2>0. Before You Begin</h2>
+  <h3>Prerequisites</h3>
+  <ul>
+    <li>Go 1.24+ to build and run the server (<code>go run main.go serve</code>).</li>
+    <li><code>curl</code> and <code>jq</code> for the API examples; <code>oathtool</code> to mint TOTP codes without a phone.</li>
+    <li>A populated <code>.rocketvault.yaml</code> (the only config the server reads). Key settings: <code>server.listen_addr</code> (default <code>:8774</code>), the bootstrap token, and <code>jwt.*</code>.</li>
+    <li>The server running and an admin bootstrapped (see Quick Start).</li>
+  </ul>
+  <h3>Conventions in this manual</h3>
+  <ul>
+    <li><code>$BASE</code> is <code>http://localhost:8774</code>; <code>$TOKEN</code> is an admin JWT from login.</li>
+    <li>Example responses are <strong>captured from a live server</strong>; secret values, key material, and tokens are shown as <code>&lt;redacted&gt;</code> placeholders.</li>
+    <li>Each operation shows tabs — <strong>cURL</strong>, <strong>CLI</strong>, and a real <strong>Response</strong> where applicable.</li>
+  </ul>
+</section>
+
+<section id="quick-start">
+  <h2>Quick Start — End to End</h2>
+  <p>This walkthrough goes from a fresh server to an application reading a secret. Every command
+    is copy-pasteable; responses are real (redacted).</p>
+  <h3>1. Start the server</h3>
+  <pre class="code">go run main.go serve
+export BASE=http://localhost:8774
+curl -s $BASE/api/v1/health/live      # {"status":"OK"}</pre>
+  <h3>2. Bootstrap the first admin (CLI only)</h3>
+  <pre class="code">go run main.go users admin \
+  --admin-username admin --admin-password admin123 \
+  --bootstrap-token &lt;your-bootstrap-token&gt;
+# stdout includes:  TOTP Secret: otpauth://...&amp;secret=&lt;BASE32&gt;</pre>
+  <div class="note">Register the <code>otpauth://</code> URL in an authenticator app, or mint codes
+    with <code>oathtool --totp --base32 &lt;BASE32&gt;</code>. Every login needs a TOTP code.</div>
+  <h3>3. Log in</h3>
+  <pre class="code">TOKEN=$(curl -s -X POST $BASE/api/v1/users/login -H "Content-Type: application/json" \
+  -d '{"username":"admin","password":"admin123","totp_code":"'"$(oathtool --totp --base32 &lt;BASE32&gt;)"'"}' \
+  | jq -r .token)</pre>
+  <h3>4. Store a secret</h3>
+  <pre class="code">curl -s -X POST $BASE/api/v1/secrets -H "Authorization: Bearer $TOKEN" \
+  -d '{"name":"DB_PASSWORD","value":"s3cret"}' | jq .id   # save this UUID</pre>
+  <h3>5. Create a service account and grant it read access</h3>
+  <pre class="code">SA=$(curl -s -X POST $BASE/api/v1/service-accounts -H "Authorization: Bearer $TOKEN" \
+  -d '{"name":"my-app"}')                 # client_secret shown ONCE
+SECRET=$(echo "$SA" | jq -r .client_secret); SA_ID=$(echo "$SA" | jq -r .id)
+curl -s -X POST $BASE/api/v1/access-policies -H "Authorization: Bearer $TOKEN" \
+  -d '{"name":"app-read","principal_id":"'"$SA_ID"'","resource_type":"secret","resource_id":"&lt;secret-uuid&gt;","actions":["read"]}'</pre>
+  <h3>6. Consume the secret as the application</h3>
+  <pre class="code">APP_TOKEN=$(curl -s -X POST $BASE/api/v1/oauth2/token \
+  -u "my-app:$SECRET" -d "grant_type=client_credentials" | jq -r .access_token)
+curl -s $BASE/api/v1/secrets/&lt;secret-uuid&gt; -H "Authorization: Bearer $APP_TOKEN" | jq .value</pre>
+  <p class="see-also">Each step is detailed in its own section below.</p>
+</section>
+
 <section id="introduction">
   <h2>1. Introduction &amp; Mental Model</h2>
   <h3>What it is</h3>
