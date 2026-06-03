@@ -1,0 +1,25 @@
+meta {
+  name: Create Vault
+  type: http
+  seq: 1
+}
+
+post {
+  url: {{base_url}}/api/v1/vaults
+  body: json
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{token}}
+}
+
+body:json {
+  {
+    "name": "my-vault",
+    "enabled": true,
+    "purge_protection": false,
+    "retention_days": 90,
+    "tags": ["env:dev"]
+  }
+}

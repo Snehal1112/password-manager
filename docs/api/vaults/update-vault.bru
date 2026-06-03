@@ -1,0 +1,24 @@
+meta {
+  name: Update Vault
+  type: http
+  seq: 4
+}
+
+patch {
+  url: {{base_url}}/api/v1/vaults/{{vault_name}}
+  body: json
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{token}}
+}
+
+body:json {
+  {
+    "enabled": true,
+    "purge_protection": true,
+    "retention_days": 30,
+    "tags": ["env:prod"]
+  }
+}
