@@ -123,6 +123,11 @@ td{color:var(--text-secondary)}
     <a class="sb-link" href="#consuming">25. Consuming Secrets in Apps</a>
     <a class="sb-link" href="#cicd">26. CI/CD Integration</a>
     <a class="sb-link" href="#multi-env">27. Multi-Environment &amp; Automation</a>
+    <div class="sb-group">Appendices</div>
+    <a class="sb-link" href="#appendix-endpoints">A. Endpoint Reference</a>
+    <a class="sb-link" href="#appendix-cli">B. CLI Command Tree</a>
+    <a class="sb-link" href="#appendix-troubleshooting">C. Troubleshooting</a>
+    <a class="sb-link" href="#appendix-security">D. Security Checklist</a>
     <!-- SIDEBAR_LINKS -->
   </nav>
 
@@ -685,6 +690,71 @@ curl -s $API_URL/secrets/&lt;uuid&gt; -H "Authorization: Bearer $TOKEN" | jq -r 
     examples, in the integration guide.</p>
   <p class="see-also">See also:
     <a href="integration-examples.md">Integration Examples — multi-environment, rotation, Prometheus</a></p>
+</section>
+
+<section id="appendix-endpoints">
+  <h2>Appendix A — Endpoint Reference</h2>
+  <p>The complete REST endpoint table (every method, path, auth requirement, and
+    description) is maintained in the Manual Testing Guide and kept in sync with the router.</p>
+  <p class="see-also">Full table:
+    <a href="../MANUAL_TESTING.md#quick-reference--all-endpoints">MANUAL_TESTING.md — All Endpoints</a></p>
+  <p>Subsystems: vaults, secrets (+ versions, generate, export/import, item backup), users
+    (+ sessions), keys (+ wrap/unwrap, sign/verify, encrypt/decrypt, rotate, versions),
+    certificates (+ policy), deleted (restore/purge), access-policies, service-accounts,
+    audit (logs, SOC2/GDPR, config), oauth2/token, jwks (+ rotate), config, health.</p>
+</section>
+
+<section id="appendix-cli">
+  <h2>Appendix B — CLI Command Tree</h2>
+  <pre class="code">rocketvault
+├── serve                 start the API server
+├── migrate               apply pending migrations
+│   ├── migrate:status
+│   ├── migrate:to &lt;version&gt;
+│   └── migrate:create &lt;desc&gt;
+├── health
+├── version (list | get | latest)
+├── users  (create | list | get | update | delete | admin | login)
+├── secrets (create | list | get | update | delete | generate | export | import)
+│   └── rotation (create | list | update | delete | assign | unassign | rotate | history | status)
+├── keys   (create | list | get | update | delete | rotate | wrap | unwrap)
+├── certificate (create | list | get | update | delete | renew)   # alias: cert
+├── vaults (create | list | get | update | delete | recover | purge)
+├── backup (create | list | restore)
+├── audit  (logs | report | config)
+└── env
+
+Persistent flags: --config, --username, --password, --totp-code, --output {table|json|yaml}, --vault</pre>
+</section>
+
+<section id="appendix-troubleshooting">
+  <h2>Appendix C — Troubleshooting Matrix</h2>
+  <table>
+    <thead><tr><th>Symptom</th><th>Likely cause</th><th>Fix</th></tr></thead>
+    <tbody>
+      <tr><td><code>connection refused</code></td><td>Server not running / wrong URL</td><td>Start <code>serve</code>; check <code>server.listen_addr</code></td></tr>
+      <tr><td><code>token endpoint returned 404</code></td><td>Wrong OAuth2 path</td><td>Use <code>/api/v1/oauth2/token</code></td></tr>
+      <tr><td><code>authentication failed</code> (OAuth2)</td><td>Wrong client_id</td><td><code>client_id</code> is the SA <em>name</em>, not UUID</td></tr>
+      <tr><td>JWKS rotate returns 400</td><td><code>os_store</code> provider</td><td>Rotation needs <code>self_pki</code> (§6)</td></tr>
+      <tr><td><code>429 Too Many Requests</code></td><td>Rate limit hit</td><td>Back off; tune <code>rate_limit.*</code> (§21)</td></tr>
+      <tr><td>Login rejected after restart</td><td>JWT key changed</td><td>Ensure keychain/PEM persisted (§6)</td></tr>
+    </tbody>
+  </table>
+  <p class="see-also">See also: <a href="../doc/troubleshooting.markdown">Troubleshooting</a></p>
+</section>
+
+<section id="appendix-security">
+  <h2>Appendix D — Security Checklist</h2>
+  <ul>
+    <li><code>VAULT_CLIENT_SECRET</code> in env vars only — never a config file or git.</li>
+    <li>Server's <code>vault_client.client_id</code> is empty (the server must not call itself).</li>
+    <li>Each application has its own least-privilege service account.</li>
+    <li>Rotate service-account secrets periodically (<code>/service-accounts/{id}/rotate</code>).</li>
+    <li>JWT signing key persists across restarts (keychain or 0600 PEM) — never in <code>/etc/ssl/certs</code>.</li>
+    <li>Audit retention configured; verify <code>integrity_ok</code> on audit queries.</li>
+    <li>Purge protection enabled for sensitive vaults.</li>
+  </ul>
+  <p class="see-also">See also: <a href="../doc/security.markdown">Security Notes</a></p>
 </section>
 
     <!-- CONTENT_SECTIONS -->
