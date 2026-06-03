@@ -92,6 +92,11 @@ rocketvault/
 
 ## Key Components Documentation
 
+### 📘 [Administrator Manual](docs/admin-manual.html)
+- Single authoritative, operationally-focused handbook covering every feature
+- Getting started, identity & access, core resources, operations, integration
+- Canonical entry point; older guides are linked as deep-dives
+
 ### 🏛️ [Multi-Vault Architecture](.claude/multi-vault.md)
 - Vault as a routing + context-scoping layer (Azure Key Vault parity)
 - Vault-scoped resources, per-vault access policies, default-vault migration
