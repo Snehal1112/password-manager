@@ -402,7 +402,7 @@ curl -s -X DELETE $BASE/api/v1/users/sessions -H "Authorization: Bearer $TOKEN"<
   </div>
 
   <div class="note">Auth endpoints are rate-limited (default 5 req/min) — see §21.</div>
-  <p class="see-also">See also: <a href="../MANUAL_TESTING.md">Manual Testing §5</a></p>
+  <p class="see-also">See also: <a href="../MANUAL_TESTING.md">Endpoint table — Manual Testing §5</a></p>
 </section>
 
 <section id="jwt-signing">
@@ -444,7 +444,7 @@ curl -s -X DELETE $BASE/api/v1/users/sessions -H "Authorization: Bearer $TOKEN"<
   </div>
 
   <div class="note">With <code>os_store</code> the key lives in the OS keychain and rotation returns 400 — only <code>self_pki</code> supports runtime rotation. Headless hosts fall back to <code>~/.local/share/rocketvault/jwt-signing.pem</code> (mode 0600).</div>
-  <p class="see-also">See also: <a href="../MANUAL_TESTING.md">Manual Testing §§6,15,16</a></p>
+  <p class="see-also">See also: <a href="../MANUAL_TESTING.md">Endpoint table — Manual Testing §§6,15,16</a></p>
 </section>
 
 <section id="users">
@@ -490,7 +490,7 @@ curl -s -X DELETE $BASE/api/v1/users/sessions -H "Authorization: Bearer $TOKEN"<
     <div class="tabpane active"><pre class="code">curl -s -X DELETE $BASE/api/v1/users/&lt;id&gt; -H "Authorization: Bearer $TOKEN"</pre></div>
   </div>
 
-  <p class="see-also">See also: <a href="../MANUAL_TESTING.md">Manual Testing §7</a></p>
+  <p class="see-also">See also: <a href="../MANUAL_TESTING.md">Endpoint table — Manual Testing §7</a></p>
 </section>
 
 <section id="access-policies">
@@ -536,7 +536,7 @@ curl -s -X DELETE $BASE/api/v1/users/sessions -H "Authorization: Bearer $TOKEN"<
     <div class="tabpane active"><pre class="code">curl -s $BASE/api/v1/access-policies/principal/&lt;id&gt; -H "Authorization: Bearer $TOKEN"</pre></div>
   </div>
 
-  <p class="see-also">See also: <a href="../MANUAL_TESTING.md">Manual Testing §13</a></p>
+  <p class="see-also">See also: <a href="../MANUAL_TESTING.md">Endpoint table — Manual Testing §13</a></p>
 </section>
 
 <section id="service-accounts">
@@ -582,7 +582,7 @@ curl -s -X DELETE $BASE/api/v1/users/sessions -H "Authorization: Bearer $TOKEN"<
 
   <div class="note">The <code>client_id</code> is the service-account <strong>name</strong>, not its
     UUID. Delete or rotate immediately invalidates live tokens.</div>
-  <p class="see-also">See also: <a href="consuming-secrets-guide.md">Consuming Secrets Guide</a>, <a href="../MANUAL_TESTING.md">Manual Testing §14</a></p>
+  <p class="see-also">See also: <a href="consuming-secrets-guide.md">Consuming Secrets Guide</a>, <a href="../MANUAL_TESTING.md">Endpoint table — Manual Testing §14</a></p>
 </section>
 
 <section id="secrets">
@@ -665,7 +665,7 @@ curl -s -X DELETE $BASE/api/v1/users/sessions -H "Authorization: Bearer $TOKEN"<
   -d '{"secrets":[{"name":"imported","value":"v","tags":["x"]}]}'</pre></div>
   </div>
 
-  <p class="see-also">See also: <a href="../MANUAL_TESTING.md">Manual Testing §8</a></p>
+  <p class="see-also">See also: <a href="../MANUAL_TESTING.md">Endpoint table — Manual Testing §8</a></p>
 </section>
 
 <section id="secret-versions">
@@ -694,7 +694,7 @@ curl -s -X DELETE $BASE/api/v1/users/sessions -H "Authorization: Bearer $TOKEN"<
     <div class="tabpane"><pre class="code">rocketvault version latest &lt;secret-id&gt; --username admin --password admin123 --totp-code 123456</pre></div>
   </div>
 
-  <p class="see-also">See also: <a href="../MANUAL_TESTING.md">Manual Testing §9</a></p>
+  <p class="see-also">See also: <a href="../MANUAL_TESTING.md">Endpoint table — Manual Testing §9</a></p>
 </section>
 
 <section id="secret-rotation">
@@ -805,7 +805,7 @@ curl -s -X POST $BASE/api/v1/keys -H "Authorization: Bearer $TOKEN" \
     <div class="tabpane active"><pre class="code">curl -s -X DELETE $BASE/api/v1/keys/&lt;id&gt; -H "Authorization: Bearer $TOKEN"</pre></div>
   </div>
 
-  <p class="see-also">See also: <a href="../MANUAL_TESTING.md">Manual Testing §10</a></p>
+  <p class="see-also">See also: <a href="../MANUAL_TESTING.md">Endpoint table — Manual Testing §10</a></p>
 </section>
 
 <section id="certificates">
@@ -861,7 +861,7 @@ curl -s -X POST $BASE/api/v1/keys -H "Authorization: Bearer $TOKEN" \
   </div>
 
   <div class="note">The CLI offers <code>rocketvault certificate renew &lt;id&gt;</code> to force renewal.</div>
-  <p class="see-also">See also: <a href="../MANUAL_TESTING.md">Manual Testing §11</a></p>
+  <p class="see-also">See also: <a href="../MANUAL_TESTING.md">Endpoint table — Manual Testing §11</a></p>
 </section>
 
 <section id="multi-vault">
@@ -915,7 +915,7 @@ curl -s -X POST $BASE/api/v1/keys -H "Authorization: Bearer $TOKEN" \
   </div>
 
   <div class="note">Vault <em>management</em> requires the <code>vaults:manage</code> permission (admin only). The <code>default</code> vault cannot be deleted.</div>
-  <p class="see-also">See also: <a href="../MANUAL_TESTING.md">Manual Testing §12.5</a></p>
+  <p class="see-also">See also: <a href="../MANUAL_TESTING.md">Endpoint table — Manual Testing §12.5</a></p>
 </section>
 
 <section id="soft-delete">
@@ -950,7 +950,7 @@ curl -s -X POST $BASE/api/v1/keys -H "Authorization: Bearer $TOKEN" \
   </div>
 
   <div class="note">Key and certificate restore/purge are exposed only on the flat <code>/deleted/keys/…</code> and <code>/deleted/certificates/…</code> routes.</div>
-  <p class="see-also">See also: <a href="../MANUAL_TESTING.md">Manual Testing §12</a></p>
+  <p class="see-also">See also: <a href="../MANUAL_TESTING.md">Endpoint table — Manual Testing §12</a></p>
 </section>
 
 <section id="audit">
@@ -1110,7 +1110,7 @@ rocketvault backup restore --file /path/backup.json ...</pre>
   </table>
   <div class="note">Tune via the <code>rate_limit.default</code> and <code>rate_limit.auth</code>
     config keys. Exceeding a limit returns <code>429 Too Many Requests</code>.</div>
-  <p class="see-also">See also: <a href="../MANUAL_TESTING.md">Manual Testing §17</a></p>
+  <p class="see-also">See also: <a href="../MANUAL_TESTING.md">Endpoint table — Manual Testing §17</a></p>
 </section>
 
 <section id="performance">
