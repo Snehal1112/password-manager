@@ -147,19 +147,13 @@ curl -s $BASE/api/v1/health/live</pre></div>
     the token is consumed. The response returns a TOTP secret you must register in an
     authenticator app — every login requires a TOTP code.</p>
   <h3>Admin operations</h3>
-  <div class="op-grid">
-    <div class="op-col"><div class="op-label">CLI</div>
-      <pre class="code">rocketvault users admin \
+  <p>Bootstrap is a <strong>CLI-only</strong> operation — there is no HTTP endpoint. The
+    command talks to the service container directly, validates the token, creates the admin,
+    and then invalidates the token.</p>
+  <pre class="code">rocketvault users admin \
   --admin-username admin \
   --admin-password admin123 \
-  --bootstrap-token &lt;token&gt;</pre></div>
-    <div class="op-col"><div class="op-label">API</div>
-      <pre class="code">curl -X POST $BASE/api/v1/users/admin \
-  -H "Content-Type: application/json" \
-  -d '{"admin_username":"admin",
-       "admin_password":"admin123",
-       "bootstrap_token":"&lt;token&gt;"}'</pre></div>
-  </div>
+  --bootstrap-token &lt;token&gt;</pre>
   <div class="note">Register the returned <code>totp_qr_url</code> before logging in.
     You can mint codes with <code>oathtool --totp --base32 &lt;secret&gt;</code>.</div>
   <p class="see-also">See also: <a href="../doc/README_ADMIN_SETUP.md">Admin Setup Guide</a></p>
@@ -173,7 +167,7 @@ curl -s $BASE/api/v1/health/live</pre></div>
   <table class="cfg">
     <thead><tr><th>Section</th><th>Purpose</th></tr></thead>
     <tbody>
-      <tr><td><code>security</code></td><td><code>master_key</code> (AES-256-GCM derivation), <code>jwt_secret</code> (legacy), <code>bootstrap_token</code></td></tr>
+      <tr><td><code>master_key</code>, <code>jwt_secret</code>, <code>bootstrap_token</code> (top-level keys)</td><td>Master AES-256-GCM key, legacy JWT secret, and one-time bootstrap token</td></tr>
       <tr><td><code>jwt</code></td><td><code>key_source</code> (os_store/self_pki/external_pki), <code>key_cn</code>, <code>expiry</code>, <code>rotation_overlap</code>, <code>signing_key_file</code></td></tr>
       <tr><td><code>environment</code></td><td><code>development</code> | <code>production</code> — sets DB pool defaults</td></tr>
       <tr><td><code>database</code></td><td><code>connection</code>, <code>driver</code>, pool sizing (<code>max_open_conns</code>, …)</td></tr>
