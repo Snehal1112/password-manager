@@ -74,6 +74,51 @@ td{color:var(--text-secondary)}
 .tag{display:inline-block;font-size:10.5px;font-family:var(--font-mono);padding:2px 8px;
   border-radius:999px;background:var(--green-bg);border:1px solid var(--green-bd);color:#065F46}
 
+/* Search box */
+.sb-search{width:100%;padding:7px 10px;margin-bottom:14px;border:1px solid var(--border-strong);
+  border-radius:var(--r-sm);font-size:13px;font-family:var(--font-sans);background:var(--surface)}
+.sb-link.hidden,.sb-group.hidden{display:none}
+.search-empty{font-size:12px;color:var(--text-muted);padding:6px 10px}
+
+/* Endpoint cards */
+.ep{border:1px solid var(--border);border-radius:var(--r-md);margin:12px 0;overflow:hidden}
+.ep-hd{display:flex;align-items:center;gap:8px;padding:9px 12px;background:var(--surface-alt);
+  border-bottom:1px solid var(--border);font-family:var(--font-mono);font-size:12.5px;flex-wrap:wrap}
+.meth{font-family:var(--font-mono);font-size:11px;font-weight:600;color:#fff;padding:1px 7px;border-radius:4px}
+.meth-get{background:#16A34A}.meth-post{background:#2563A8}.meth-put{background:#B97D0D}
+.meth-patch{background:#6B5ED4}.meth-delete{background:#C2460C}
+.ep-auth{font-size:10.5px;font-family:var(--font-mono);padding:1px 8px;border-radius:999px;
+  background:var(--green-bg);border:1px solid var(--green-bd);color:#065F46}
+.ep-label{color:var(--text-muted)}
+.tabs{display:flex;gap:0;padding:0 8px;border-bottom:1px solid var(--border);background:var(--surface)}
+.tab{padding:6px 13px;font-size:12px;cursor:pointer;border:none;background:none;
+  border-bottom:2px solid transparent;color:var(--text-secondary);font-family:var(--font-sans)}
+.tab.active{border-bottom-color:var(--accent);color:var(--accent);font-weight:600}
+.tabpane{display:none}.tabpane.active{display:block}
+
+/* Copy button on code blocks */
+.codewrap{position:relative}
+.copy-btn{position:absolute;top:6px;right:6px;font-size:10.5px;font-family:var(--font-sans);
+  border:1px solid var(--border-strong);border-radius:5px;padding:2px 8px;background:var(--surface);
+  color:var(--text-secondary);cursor:pointer;opacity:0;transition:opacity .15s}
+.codewrap:hover .copy-btn,.copy-btn:focus{opacity:1}
+.copy-btn.done{color:var(--green-bd);border-color:var(--green-bd)}
+
+/* Collapsibles */
+details.collapse{border:1px solid var(--border);border-radius:var(--r-sm);margin:8px 0}
+details.collapse>summary{cursor:pointer;padding:8px 12px;font-size:12.5px;font-weight:600;
+  background:var(--surface-alt);list-style:none}
+details.collapse>summary::-webkit-details-marker{display:none}
+details.collapse>summary::before{content:"\25B8  ";color:var(--text-muted)}
+details.collapse[open]>summary::before{content:"\25BE  "}
+details.collapse .inner{padding:2px 12px 10px}
+
+/* Back to top */
+#to-top{position:fixed;bottom:22px;right:22px;z-index:30;display:none;border:1px solid var(--border-strong);
+  background:var(--surface);border-radius:50%;width:40px;height:40px;font-size:16px;cursor:pointer;
+  box-shadow:0 2px 10px rgba(0,0,0,.12)}
+#to-top.show{display:block}
+
 /* Markdown doc viewer (slides in when a .md link is clicked) */
 #doc-overlay{position:fixed;inset:0;background:rgba(0,0,0,.35);opacity:0;visibility:hidden;
   transition:opacity .2s;z-index:40}
@@ -117,11 +162,13 @@ td{color:var(--text-secondary)}
 </head>
 <body>
 <button id="sb-toggle" aria-label="Toggle navigation">☰ Menu</button>
+<button id="to-top" aria-label="Back to top" title="Back to top">↑</button>
 <div class="layout">
 
   <nav class="sidebar" id="sidebar">
     <div class="sb-title">RocketVault Admin Manual</div>
     <div class="sb-sub">Self-hosted secrets manager · Go</div>
+    <input class="sb-search" id="sb-search" type="search" placeholder="Search…  (press /)" aria-label="Search the manual"/>
     <div class="sb-group">Getting Started</div>
     <a class="sb-link" href="#introduction">1. Introduction &amp; Model</a>
     <a class="sb-link" href="#installation">2. Installation &amp; First Run</a>
@@ -901,6 +948,65 @@ document.addEventListener('click', (e) => {
 document.getElementById('doc-close').addEventListener('click', closeDoc);
 overlay.addEventListener('click', closeDoc);
 document.addEventListener('keydown', e => { if(e.key === 'Escape') closeDoc(); });
+
+// --- Sidebar search: filter links and groups by text. ---
+const search = document.getElementById('sb-search');
+if(search){
+  const allLinks = [...document.querySelectorAll('.sb-link')];
+  const groups = [...document.querySelectorAll('.sb-group')];
+  search.addEventListener('input', () => {
+    const q = search.value.trim().toLowerCase();
+    allLinks.forEach(l => l.classList.toggle('hidden', q && !l.textContent.toLowerCase().includes(q)));
+    groups.forEach(g => {
+      let n = g.nextElementSibling, anyVisible = false;
+      while(n && !n.classList.contains('sb-group')){
+        if(n.classList.contains('sb-link') && !n.classList.contains('hidden')) anyVisible = true;
+        n = n.nextElementSibling;
+      }
+      g.classList.toggle('hidden', q && !anyVisible);
+    });
+  });
+  document.addEventListener('keydown', e => {
+    if(e.key === '/' && document.activeElement.tagName !== 'INPUT' && document.activeElement.tagName !== 'TEXTAREA'){
+      e.preventDefault(); search.focus();
+    }
+  });
+}
+
+// --- Tab switchers inside endpoint cards. ---
+document.querySelectorAll('.tabs').forEach(tabbar => {
+  const tabs = [...tabbar.querySelectorAll('.tab')];
+  const panes = [...tabbar.parentElement.querySelectorAll('.tabpane')];
+  tabs.forEach((tab, i) => tab.addEventListener('click', () => {
+    tabs.forEach(t => t.classList.remove('active'));
+    panes.forEach(p => p.classList.remove('active'));
+    tab.classList.add('active');
+    if(panes[i]) panes[i].classList.add('active');
+  }));
+});
+
+// --- Copy-to-clipboard on every code block. ---
+document.querySelectorAll('pre.code').forEach(pre => {
+  const wrap = document.createElement('div');
+  wrap.className = 'codewrap';
+  pre.parentNode.insertBefore(wrap, pre);
+  wrap.appendChild(pre);
+  const btn = document.createElement('button');
+  btn.className = 'copy-btn'; btn.type = 'button'; btn.textContent = 'Copy';
+  btn.addEventListener('click', async () => {
+    try { await navigator.clipboard.writeText(pre.textContent); btn.textContent = 'Copied'; btn.classList.add('done'); }
+    catch { btn.textContent = 'Select & copy'; }
+    setTimeout(() => { btn.textContent = 'Copy'; btn.classList.remove('done'); }, 1500);
+  });
+  wrap.appendChild(btn);
+});
+
+// --- Back to top. ---
+const toTop = document.getElementById('to-top');
+if(toTop){
+  window.addEventListener('scroll', () => toTop.classList.toggle('show', window.scrollY > 600));
+  toTop.addEventListener('click', () => window.scrollTo({top:0, behavior:'smooth'}));
+}
 </script>
 </body>
 </html>
