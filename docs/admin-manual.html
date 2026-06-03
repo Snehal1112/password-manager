@@ -460,8 +460,11 @@ curl -s -X DELETE $BASE/api/v1/users/sessions -H "Authorization: Bearer $TOKEN"<
     <div class="tabs"><button class="tab active">cURL</button><button class="tab">CLI</button><button class="tab">Response</button></div>
     <div class="tabpane active"><pre class="code">curl -s -X POST $BASE/api/v1/users -H "Authorization: Bearer $TOKEN" \
   -d '{"username":"alice","password":"alicepassword123","role":"user"}'</pre></div>
-    <div class="tabpane"><pre class="code">rocketvault users create --username alice --role user \
-  --username admin --password admin123 --totp-code 123456</pre></div>
+    <div class="tabpane"><pre class="code"># --username/--password/--totp-code authenticate the calling admin;
+# --new-* describe the user being created.
+rocketvault users create \
+  --username admin --password admin123 --totp-code 123456 \
+  --new-username alice --new-password alicepassword123 --new-role user</pre></div>
     <div class="tabpane"><pre class="code">{
   "id": "&lt;uuid&gt;",
   "username": "alice",
