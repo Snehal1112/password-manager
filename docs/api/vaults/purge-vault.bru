@@ -1,0 +1,15 @@
+meta {
+  name: Purge Vault (Permanent Delete)
+  type: http
+  seq: 7
+}
+
+delete {
+  url: {{base_url}}/api/v1/vaults/{{vault_name}}/purge
+  body: none
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{token}}
+}

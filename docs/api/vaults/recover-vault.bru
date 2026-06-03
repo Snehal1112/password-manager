@@ -1,0 +1,15 @@
+meta {
+  name: Recover Vault
+  type: http
+  seq: 6
+}
+
+post {
+  url: {{base_url}}/api/v1/vaults/{{vault_name}}/recover
+  body: none
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{token}}
+}
