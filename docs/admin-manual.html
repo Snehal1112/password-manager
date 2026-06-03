@@ -74,6 +74,37 @@ td{color:var(--text-secondary)}
 .tag{display:inline-block;font-size:10.5px;font-family:var(--font-mono);padding:2px 8px;
   border-radius:999px;background:var(--green-bg);border:1px solid var(--green-bd);color:#065F46}
 
+/* Markdown doc viewer (slides in when a .md link is clicked) */
+#doc-overlay{position:fixed;inset:0;background:rgba(0,0,0,.35);opacity:0;visibility:hidden;
+  transition:opacity .2s;z-index:40}
+#doc-overlay.open{opacity:1;visibility:visible}
+#doc-panel{position:fixed;top:0;right:0;height:100vh;width:min(820px,92vw);background:var(--surface);
+  border-left:1px solid var(--border-strong);box-shadow:-8px 0 28px rgba(0,0,0,.12);
+  transform:translateX(100%);transition:transform .22s;z-index:41;display:flex;flex-direction:column}
+#doc-panel.open{transform:none}
+.doc-head{display:flex;align-items:center;justify-content:space-between;gap:12px;
+  padding:14px 20px;border-bottom:1px solid var(--border);background:var(--surface-alt)}
+.doc-head-title{font-size:13px;font-family:var(--font-mono);color:var(--text-secondary);
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.doc-close{background:none;border:1px solid var(--border-strong);border-radius:var(--r-sm);
+  padding:4px 10px;font-size:13px;cursor:pointer;color:var(--text-primary);flex:0 0 auto}
+.doc-body{overflow-y:auto;padding:28px 32px;line-height:1.65}
+/* Rendered Markdown inside the panel. */
+.doc-body h1{font-size:24px;margin:18px 0 10px}
+.doc-body h2{font-size:19px;margin:22px 0 10px;padding-bottom:6px;border-bottom:1px solid var(--border)}
+.doc-body h3{font-size:15px;margin:18px 0 6px;color:var(--text-primary)}
+.doc-body p,.doc-body li{color:var(--text-secondary)}
+.doc-body pre{font-family:var(--font-mono);font-size:12px;background:var(--surface-alt);
+  border:1px solid var(--border);border-radius:var(--r-sm);padding:12px 14px;overflow-x:auto;margin:8px 0}
+.doc-body code{font-family:var(--font-mono);font-size:12.5px;background:var(--surface-alt);
+  padding:1px 5px;border-radius:4px}
+.doc-body pre code{background:none;padding:0}
+.doc-body table{width:100%;border-collapse:collapse;margin:10px 0;font-size:12.5px}
+.doc-body th,.doc-body td{border:1px solid var(--border);padding:6px 9px;text-align:left}
+.doc-body a{color:var(--accent)}
+.doc-error{color:#92400E;background:#FFFBEB;border:1px solid #FDE68A;border-radius:var(--r-sm);
+  padding:12px 14px;font-size:13px}
+
 /* Mobile toggle */
 #sb-toggle{display:none}
 @media(max-width:900px){
@@ -760,6 +791,17 @@ Persistent flags: --config, --username, --password, --totp-code, --output {table
 
 </div>
 
+<!-- Markdown doc viewer overlay and slide-in panel. -->
+<div id="doc-overlay"></div>
+<aside id="doc-panel" aria-hidden="true">
+  <div class="doc-head">
+    <span class="doc-head-title" id="doc-title"></span>
+    <button class="doc-close" id="doc-close" aria-label="Close document">✕ Close</button>
+  </div>
+  <div class="doc-body" id="doc-body"></div>
+</aside>
+
+<script src="https://cdn.jsdelivr.net/npm/marked@15/marked.min.js"></script>
 <script>
 // Scroll-spy: highlight the sidebar link for the section currently in view.
 const links = [...document.querySelectorAll('.sb-link')];
@@ -780,6 +822,85 @@ const sidebar = document.getElementById('sidebar');
 document.getElementById('sb-toggle').addEventListener('click', () => sidebar.classList.toggle('open'));
 document.querySelectorAll('.sb-link').forEach(l =>
   l.addEventListener('click', () => sidebar.classList.remove('open')));
+
+// Markdown doc viewer: render linked .md/.markdown files in-page instead of
+// letting the browser show their raw source.
+const overlay = document.getElementById('doc-overlay');
+const panel = document.getElementById('doc-panel');
+const docBody = document.getElementById('doc-body');
+const docTitle = document.getElementById('doc-title');
+
+function closeDoc(){
+  overlay.classList.remove('open');
+  panel.classList.remove('open');
+  panel.setAttribute('aria-hidden', 'true');
+}
+function openDoc(){
+  overlay.classList.add('open');
+  panel.classList.add('open');
+  panel.setAttribute('aria-hidden', 'false');
+}
+
+// Slugify a heading's text the way GitHub does, so "#anchor" links can scroll
+// to the matching rendered heading. Punctuation (including em-dashes) is removed,
+// then each remaining space becomes a hyphen — note spaces are NOT collapsed, so
+// "A — B" yields "a--b", matching GitHub's anchor generation.
+function slugify(text){
+  return text.toLowerCase().trim()
+    .replace(/[^\w\- ]+/g, '').replace(/ /g, '-');
+}
+
+async function showMarkdown(url, frag){
+  docTitle.textContent = url.split('/').pop();
+  docBody.innerHTML = '<p>Loading…</p>';
+  openDoc();
+  try {
+    const res = await fetch(url);
+    if(!res.ok) throw new Error('HTTP ' + res.status);
+    const md = await res.text();
+    docBody.innerHTML = window.marked ? marked.parse(md)
+      : '<pre>' + md.replace(/[&<>]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;'}[c])) + '</pre>';
+    // Give rendered headings ids so in-document anchors resolve.
+    docBody.querySelectorAll('h1,h2,h3,h4').forEach(h => { if(!h.id) h.id = slugify(h.textContent); });
+    if(frag){
+      // Exact id first; fall back to a hyphen-collapsed match so minor slug
+      // differences (e.g. double hyphens) still resolve.
+      let target = docBody.querySelector('#' + CSS.escape(frag));
+      if(!target){
+        const norm = s => s.replace(/-+/g, '-');
+        target = [...docBody.querySelectorAll('h1,h2,h3,h4')]
+          .find(h => norm(h.id) === norm(frag));
+      }
+      if(target) target.scrollIntoView(); else docBody.scrollTop = 0;
+    } else {
+      docBody.scrollTop = 0;
+    }
+  } catch(err) {
+    docBody.innerHTML = '<div class="doc-error">Could not load <code>' + url + '</code>: '
+      + err.message + '.<br><br>The in-page viewer needs the manual to be served over '
+      + '<code>http://</code> (browsers block <code>fetch()</code> on <code>file://</code>). '
+      + 'Try <code>python3 -m http.server</code> from the repo root, then open '
+      + '<code>http://localhost:8000/docs/admin-manual.html</code>.</div>';
+  }
+}
+
+// Intercept clicks on links to local Markdown files.
+document.addEventListener('click', (e) => {
+  const a = e.target.closest('a');
+  if(!a) return;
+  const href = a.getAttribute('href') || '';
+  if(/^https?:|^#|^mailto:/.test(href)) return;          // external or in-page anchors: leave alone.
+  const [path, frag] = href.split('#');
+  if(!/\.(md|markdown)$/i.test(path)) return;            // non-Markdown (e.g. .html): leave alone.
+  // On file://, fetch() is blocked — let the browser handle it (degrades to raw view).
+  if(location.protocol === 'file:') return;
+  e.preventDefault();
+  showMarkdown(path, frag);
+});
+
+document.getElementById('doc-close').addEventListener('click', closeDoc);
+overlay.addEventListener('click', closeDoc);
+document.addEventListener('keydown', e => { if(e.key === 'Escape') closeDoc(); });
 </script>
 </body>
 </html>
