@@ -5,7 +5,7 @@ meta {
 }
 
 delete {
-  url: {{base_url}}/api/v1/deleted/certificates/{{certificate_id}}/purge
+  url: {{base_url}}/api/v1/vaults/{{vault_name}}/deleted/certificates/{{certificate_id}}/purge
   body: none
   auth: bearer
 }
