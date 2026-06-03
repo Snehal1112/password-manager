@@ -110,3 +110,4 @@ npm-debug.log*
 .worktrees/
 .admin_totp_secret
 totp_gen
+.superpowers/
