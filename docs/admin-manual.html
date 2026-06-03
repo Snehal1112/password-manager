@@ -119,6 +119,10 @@ td{color:var(--text-secondary)}
     <a class="sb-link" href="#performance">22. Performance Internals</a>
     <a class="sb-link" href="#migrations">23. Database Migrations</a>
     <a class="sb-link" href="#api-versioning">24. API Versioning</a>
+    <div class="sb-group">Integration</div>
+    <a class="sb-link" href="#consuming">25. Consuming Secrets in Apps</a>
+    <a class="sb-link" href="#cicd">26. CI/CD Integration</a>
+    <a class="sb-link" href="#multi-env">27. Multi-Environment &amp; Automation</a>
     <!-- SIDEBAR_LINKS -->
   </nav>
 
@@ -628,6 +632,59 @@ rocketvault migrate:create &lt;desc&gt;# scaffold a new migration file</pre>
   <h3>Notes &amp; troubleshooting</h3>
   <ul><li>Deprecated versions emit deprecation/sunset headers; plan client migration before the sunset date.</li></ul>
   <p class="see-also">See also: <a href="api-developer-guide.md">API Developer Guide</a></p>
+</section>
+
+<section id="consuming">
+  <h2>25. Consuming Secrets in Your Application</h2>
+  <h3>What it is</h3>
+  <p>Applications retrieve secrets at runtime using a service-account OAuth2 token, so
+    secrets never live in code or config. Three integration styles are supported.</p>
+  <h3>Options</h3>
+  <div class="op-grid">
+    <div class="op-col"><div class="op-label">Go (vaultclient)</div>
+      <pre class="code">client, _ := vaultclient.New(vaultclient.Config{
+  URL:          "http://localhost:8774",
+  ClientID:     "my-app",                 // SA name
+  ClientSecret: os.Getenv("VAULT_CLIENT_SECRET"),
+  Secrets: []vaultclient.SecretMapping{
+    {Name:"DB_PASSWORD", UUID:"&lt;uuid&gt;"}},
+})
+secrets, _ := client.GetMany(ctx, []string{"DB_PASSWORD"})</pre></div>
+    <div class="op-col"><div class="op-label">Shell / direct HTTP</div>
+      <pre class="code"># Get token
+curl -X POST $BASE/api/v1/oauth2/token \
+  -d "grant_type=client_credentials&amp;client_id=my-app&amp;client_secret=$SEC"
+# Fetch a secret by UUID
+curl $BASE/api/v1/secrets/&lt;uuid&gt; -H "Authorization: Bearer &lt;access_token&gt;"</pre></div>
+  </div>
+  <div class="note"><code>VAULT_CLIENT_SECRET</code> must come from an environment variable,
+    never a config file. The server's own <code>vault_client.client_id</code> must be empty.</div>
+  <p class="see-also">See also: <a href="consuming-secrets-guide.md">Consuming Secrets Guide</a></p>
+</section>
+
+<section id="cicd">
+  <h2>26. CI/CD Integration</h2>
+  <h3>What it is</h3>
+  <p>Pipelines authenticate with a service account (or admin credentials stored as CI
+    secrets) to back up, validate, or fetch secrets during builds and deploys.</p>
+  <h3>Pattern</h3>
+  <pre class="code"># GitHub Actions / Jenkins — fetch a token, then call the API
+TOKEN=$(curl -s -X POST $API_URL/oauth2/token \
+  -d "grant_type=client_credentials&amp;client_id=$CI_SA&amp;client_secret=$CI_SECRET" | jq -r .access_token)
+curl -s $API_URL/secrets/&lt;uuid&gt; -H "Authorization: Bearer $TOKEN" | jq -r .value</pre>
+  <p class="see-also">See also:
+    <a href="integration-examples.md">Integration Examples — GitHub Actions &amp; Jenkins</a></p>
+</section>
+
+<section id="multi-env">
+  <h2>27. Multi-Environment &amp; Automation</h2>
+  <h3>What it is</h3>
+  <p>For dev/staging/prod fleets, common automations include promoting secrets between
+    environments, scheduled rotation scripts, and exporting health metrics to Prometheus.
+    These are scripted against the public API and are documented in full, with runnable
+    examples, in the integration guide.</p>
+  <p class="see-also">See also:
+    <a href="integration-examples.md">Integration Examples — multi-environment, rotation, Prometheus</a></p>
 </section>
 
     <!-- CONTENT_SECTIONS -->
