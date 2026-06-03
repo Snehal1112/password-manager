@@ -29,6 +29,7 @@ The following variables are used as path parameters — set them manually in the
 
 | Variable | Used in |
 |---|---|
+| `vault_name` | All vault-scoped resource routes (secrets, keys, certificates, access-policies, soft-delete) |
 | `user_id` | users/get-user, update-user, delete-user |
 | `secret_id` | secrets/get-secret, update-secret, delete-secret, versions |
 | `key_id` | keys/get-key, update-key, delete-key, rotate, wrap, unwrap |
@@ -45,13 +46,14 @@ The following variables are used as path parameters — set them manually in the
 ## Collection Structure
 
 ```
+vaults/            Vault CRUD + recover, purge, list-deleted
 auth/              Login and token refresh
 users/             User CRUD + session management
-secrets/           Secret CRUD + generate, export, import, versioning
-keys/              Key CRUD + rotate, wrap, unwrap
-certificates/      Certificate CRUD (self-signed and CA-signed)
-access-policies/   Policy CRUD + list by principal
-soft-delete/       List, restore, purge for secrets/keys/certificates
+secrets/           Secret CRUD + generate, export, import, versioning (vault-scoped)
+keys/              Key CRUD + rotate, wrap, unwrap (vault-scoped)
+certificates/      Certificate CRUD, self-signed and CA-signed (vault-scoped)
+access-policies/   Policy CRUD + list by principal (vault-scoped)
+soft-delete/       List, restore, purge for secrets/keys/certificates (vault-scoped)
 service-accounts/  Service account CRUD + secret rotation
 oauth2/            OAuth2 token endpoint (client_credentials grant)
 health/            Health, readiness, and liveness checks
