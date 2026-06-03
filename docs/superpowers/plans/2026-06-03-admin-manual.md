@@ -1,0 +1,1198 @@
+# RocketVault Administrator Manual Implementation Plan
+
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+
+**Goal:** Build `docs/admin-manual.html` — a single self-contained styled HTML handbook covering every RocketVault feature operationally, with a 5-part grouped sidebar.
+
+**Architecture:** One static HTML file. CSS inline in `<style>`, reusing the design tokens (IBM Plex fonts, `:root` color palette, surfaces, tags, code blocks) from `docs/rocketvault-architecture.html`. A fixed left sidebar (`<nav>`) with scroll-spy + a `<main>` content column of `<section id="…">` blocks. Minimal vanilla JS for scroll-spy and mobile sidebar toggle. No build step, no runtime framework — only Google Fonts (same external dep as the architecture page).
+
+**Tech Stack:** HTML5, CSS3 (custom properties), vanilla JavaScript (IntersectionObserver). No tooling.
+
+**Spec:** `docs/superpowers/specs/2026-06-03-admin-manual-design.md`
+
+---
+
+## File Structure
+
+- `docs/admin-manual.html` — the entire deliverable. Built incrementally: scaffold first
+  (Task 1), then content sections appended part-by-part (Tasks 2–6), then appendices
+  (Task 7), then final verification (Task 8).
+
+There is no test framework for static HTML in this repo. **Verification for every content
+task is the same two-step manual check**, run after each task:
+
+1. **Structural lint** — confirm the file is well-formed and every sidebar link has a
+   matching section id (command given in each task).
+2. **Visual check** — open `docs/admin-manual.html` in a browser and confirm the new
+   sections render, appear in the sidebar, and scroll-spy highlights them.
+
+Commit after each task so the manual grows in reviewable increments.
+
+---
+
+## Conventions used in every content section
+
+Each feature `<section>` MUST follow this exact HTML pattern (the per-section template
+from the spec). Copy this skeleton and fill it for each feature:
+
+```html
+<section id="SECTION_ID">
+  <h2>SECTION NUMBER. SECTION TITLE</h2>
+
+  <h3>What it is</h3>
+  <p>...</p>
+
+  <h3>When to use it</h3>
+  <p>...</p>
+
+  <h3>Admin operations</h3>
+  <div class="op-grid">
+    <div class="op-col">
+      <div class="op-label">CLI</div>
+      <pre class="code">rocketvault ...</pre>
+    </div>
+    <div class="op-col">
+      <div class="op-label">API</div>
+      <pre class="code">curl -X POST $BASE/api/v1/... </pre>
+    </div>
+  </div>
+
+  <h3>Configuration</h3>
+  <table class="cfg">
+    <thead><tr><th>Key</th><th>Purpose</th><th>Default</th></tr></thead>
+    <tbody><tr><td><code>...</code></td><td>...</td><td><code>...</code></td></tr></tbody>
+  </table>
+
+  <h3>Notes &amp; troubleshooting</h3>
+  <ul><li>...</li></ul>
+
+  <p class="see-also">See also:
+    <a href="../MANUAL_TESTING.md">Manual Testing Guide</a></p>
+</section>
+```
+
+Sections that are summary + deep-link (Performance Internals §22, Multi-Environment §27)
+omit the `op-grid` and instead give a short prose summary plus a prominent `see-also`.
+
+---
+
+## Task 1: Scaffold — HTML shell, design system, sidebar, scroll-spy
+
+**Files:**
+- Create: `docs/admin-manual.html`
+
+- [ ] **Step 1: Create the file with the full shell**
+
+Create `docs/admin-manual.html` with this exact content. The `:root` block and font
+links are copied verbatim from `docs/rocketvault-architecture.html` so the manual shares
+its design system; the layout (sidebar + content) is new.
+
+```html
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>RocketVault — Administrator Manual</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"/>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:ital,wght@0,300;0,400;0,500;0,600;1,400&display=swap" rel="stylesheet"/>
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --bg:#F7F6F2; --surface:#FFFFFF; --surface-alt:#F2F1EC;
+  --border:rgba(0,0,0,.09); --border-strong:rgba(0,0,0,.20);
+  --text-primary:#1A1A18; --text-secondary:#5A5956; --text-muted:#8A8884;
+  --accent:#C2460C; --accent-soft:#FFF4EE;
+  --green-bg:#ECFDF5; --green-bd:#16A34A;
+  --font-sans:'IBM Plex Sans',system-ui,sans-serif;
+  --font-mono:'IBM Plex Mono',monospace;
+  --r-sm:6px;--r-md:10px;--r-lg:14px;
+  --sidebar-w:288px;
+}
+html{scroll-behavior:smooth}
+body{font-family:var(--font-sans);background:var(--bg);color:var(--text-primary);line-height:1.6}
+
+/* Layout */
+.layout{display:flex;align-items:flex-start}
+nav.sidebar{position:sticky;top:0;height:100vh;width:var(--sidebar-w);flex:0 0 var(--sidebar-w);
+  overflow-y:auto;background:var(--surface);border-right:1px solid var(--border);padding:24px 16px}
+main{flex:1;max-width:920px;margin:0 auto;padding:48px 40px 120px}
+
+/* Sidebar */
+.sb-title{font-weight:600;font-size:15px;margin-bottom:4px}
+.sb-sub{font-size:11px;color:var(--text-muted);font-family:var(--font-mono);margin-bottom:20px}
+.sb-group{font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:var(--text-muted);
+  margin:18px 0 6px;font-weight:600}
+.sb-link{display:block;font-size:13px;color:var(--text-secondary);text-decoration:none;
+  padding:5px 10px;border-radius:var(--r-sm);border-left:2px solid transparent}
+.sb-link:hover{background:var(--surface-alt);color:var(--text-primary)}
+.sb-link.active{background:var(--accent-soft);color:var(--accent);border-left-color:var(--accent);font-weight:500}
+
+/* Content */
+section{margin-bottom:56px;scroll-margin-top:24px}
+h1{font-size:28px;font-weight:600;margin-bottom:8px}
+.lede{color:var(--text-secondary);margin-bottom:40px;font-size:15px}
+h2{font-size:21px;font-weight:600;margin:8px 0 16px;padding-bottom:8px;border-bottom:1px solid var(--border)}
+h3{font-size:14px;font-weight:600;margin:22px 0 8px;color:var(--text-primary)}
+p{margin-bottom:10px;color:var(--text-secondary)}
+ul{margin:0 0 10px 20px;color:var(--text-secondary)}
+li{margin-bottom:4px}
+a{color:var(--accent)}
+code{font-family:var(--font-mono);font-size:12.5px;background:var(--surface-alt);
+  padding:1px 5px;border-radius:4px;color:var(--text-primary)}
+pre.code{font-family:var(--font-mono);font-size:12px;line-height:1.6;background:var(--surface);
+  border:1px solid var(--border);border-radius:var(--r-sm);padding:12px 14px;overflow-x:auto;
+  color:var(--text-primary);white-space:pre;margin:6px 0}
+
+/* Operation grid (CLI + API side by side) */
+.op-grid{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin:8px 0}
+.op-label{font-size:10px;text-transform:uppercase;letter-spacing:.06em;color:var(--text-muted);
+  font-weight:600;margin-bottom:4px}
+@media(max-width:780px){.op-grid{grid-template-columns:1fr}}
+
+/* Tables */
+table{width:100%;border-collapse:collapse;margin:8px 0;font-size:12.5px}
+th,td{text-align:left;padding:7px 10px;border-bottom:1px solid var(--border);vertical-align:top}
+th{font-size:11px;text-transform:uppercase;letter-spacing:.04em;color:var(--text-muted)}
+td{color:var(--text-secondary)}
+
+/* Callouts */
+.see-also{font-size:12.5px;background:var(--surface-alt);border-radius:var(--r-sm);
+  padding:8px 12px;margin-top:14px;color:var(--text-secondary)}
+.note{background:#FFFBEB;border:1px solid #FDE68A;border-radius:var(--r-sm);
+  padding:10px 13px;font-size:12.5px;color:#92400E;margin:10px 0}
+.tag{display:inline-block;font-size:10.5px;font-family:var(--font-mono);padding:2px 8px;
+  border-radius:999px;background:var(--green-bg);border:1px solid var(--green-bd);color:#065F46}
+
+/* Mobile toggle */
+#sb-toggle{display:none}
+@media(max-width:900px){
+  nav.sidebar{position:fixed;left:0;top:0;z-index:20;transform:translateX(-100%);transition:transform .2s}
+  nav.sidebar.open{transform:none}
+  #sb-toggle{display:block;position:fixed;top:12px;left:12px;z-index:30;background:var(--surface);
+    border:1px solid var(--border-strong);border-radius:var(--r-sm);padding:6px 11px;font-size:13px;cursor:pointer}
+}
+</style>
+</head>
+<body>
+<button id="sb-toggle" aria-label="Toggle navigation">☰ Menu</button>
+<div class="layout">
+
+  <nav class="sidebar" id="sidebar">
+    <div class="sb-title">RocketVault Admin Manual</div>
+    <div class="sb-sub">Self-hosted secrets manager · Go</div>
+    <!-- SIDEBAR_LINKS -->
+  </nav>
+
+  <main>
+    <h1>RocketVault Administrator Manual</h1>
+    <p class="lede">The authoritative operational guide to every RocketVault feature —
+      installation, identity, secrets, keys, certificates, governance, and integration.</p>
+    <!-- CONTENT_SECTIONS -->
+  </main>
+
+</div>
+
+<script>
+// Scroll-spy: highlight the sidebar link for the section currently in view.
+const links = [...document.querySelectorAll('.sb-link')];
+const byId = id => links.find(l => l.getAttribute('href') === '#' + id);
+const observer = new IntersectionObserver((entries) => {
+  entries.forEach(e => {
+    if(e.isIntersecting){
+      links.forEach(l => l.classList.remove('active'));
+      const link = byId(e.target.id);
+      if(link) link.classList.add('active');
+    }
+  });
+}, {rootMargin: '0px 0px -70% 0px', threshold: 0});
+document.querySelectorAll('main section[id]').forEach(s => observer.observe(s));
+
+// Mobile sidebar toggle.
+const sidebar = document.getElementById('sidebar');
+document.getElementById('sb-toggle').addEventListener('click', () => sidebar.classList.toggle('open'));
+document.querySelectorAll('.sb-link').forEach(l =>
+  l.addEventListener('click', () => sidebar.classList.remove('open')));
+</script>
+</body>
+</html>
+```
+
+- [ ] **Step 2: Verify the shell opens and is well-formed**
+
+Run:
+```bash
+cd /home/numericlabs/data/rocket/rocketvault
+grep -c "SIDEBAR_LINKS\|CONTENT_SECTIONS" docs/admin-manual.html
+```
+Expected: `2` (both placeholder comments present, ready for content).
+
+Open `docs/admin-manual.html` in a browser. Expected: title bar, lede paragraph, empty
+sidebar with "RocketVault Admin Manual" heading, no console errors.
+
+- [ ] **Step 3: Commit**
+
+```bash
+git add docs/admin-manual.html
+git commit -S -m "docs(manual): scaffold admin manual HTML shell and design system"
+```
+
+---
+
+## Task 2: Part I — Getting Started (4 sections)
+
+**Files:**
+- Modify: `docs/admin-manual.html`
+
+Add the Part I sidebar group and its four sections. Replace the `<!-- SIDEBAR_LINKS -->`
+comment by inserting BEFORE it (keep the comment in place for later tasks):
+
+- [ ] **Step 1: Add the Part I sidebar group**
+
+Insert immediately above `<!-- SIDEBAR_LINKS -->`:
+
+```html
+    <div class="sb-group">Getting Started</div>
+    <a class="sb-link" href="#introduction">1. Introduction &amp; Model</a>
+    <a class="sb-link" href="#installation">2. Installation &amp; First Run</a>
+    <a class="sb-link" href="#bootstrap">3. Bootstrap First Admin</a>
+    <a class="sb-link" href="#configuration">4. Configuration Reference</a>
+```
+
+- [ ] **Step 2: Add the four Part I sections**
+
+Insert immediately above `<!-- CONTENT_SECTIONS -->` (content below is the authored copy;
+facts verified against the codebase — note the correct admin route and config keys):
+
+```html
+<section id="introduction">
+  <h2>1. Introduction &amp; Mental Model</h2>
+  <h3>What it is</h3>
+  <p>RocketVault is a self-hosted, open-source alternative to Azure Key Vault, written in
+    Go. It manages secrets, RSA/ECDSA keys, and X.509 certificates through a REST API and
+    a Cobra CLI, with JWT+TOTP authentication and RBAC. <span class="tag">Azure Key Vault parity</span></p>
+  <h3>The layers</h3>
+  <p>Requests flow through a security gateway (auth, RBAC, rate limiting) into the REST API,
+    then into a service container (business logic), down to pure repositories (data access),
+    and finally SQLite (dev) or PostgreSQL (prod). The CLI calls the same service container
+    directly. Secrets, keys, and certificates are encrypted at rest with AES-256-GCM.</p>
+  <p class="see-also">See also:
+    <a href="rocketvault-architecture.html">System Architecture (interactive)</a></p>
+</section>
+
+<section id="installation">
+  <h2>2. Installation &amp; First Run</h2>
+  <h3>What it is</h3>
+  <p>RocketVault runs as a single Go binary. The server reads exactly one config file,
+    <code>.rocketvault.yaml</code>, from the working directory or <code>--config</code>.</p>
+  <h3>Admin operations</h3>
+  <div class="op-grid">
+    <div class="op-col"><div class="op-label">Run from source</div>
+      <pre class="code">go run main.go serve
+go run main.go serve --config /path/custom.yaml</pre></div>
+    <div class="op-col"><div class="op-label">Verify it is up</div>
+      <pre class="code">export BASE=http://localhost:8774
+curl -s $BASE/api/v1/health/live</pre></div>
+  </div>
+  <h3>Notes &amp; troubleshooting</h3>
+  <ul>
+    <li>The server listens on <code>:8774</code> by default (see <code>server.listen_addr</code>).</li>
+    <li><code>environment: development | production</code> selects database pool defaults.</li>
+  </ul>
+  <p class="see-also">See also: <a href="../doc/setup.md">Setup Guide</a></p>
+</section>
+
+<section id="bootstrap">
+  <h2>3. Bootstrap — First Admin User</h2>
+  <h3>What it is</h3>
+  <p>A one-time bootstrap token creates the first admin without authentication. After use,
+    the token is consumed. The response returns a TOTP secret you must register in an
+    authenticator app — every login requires a TOTP code.</p>
+  <h3>Admin operations</h3>
+  <div class="op-grid">
+    <div class="op-col"><div class="op-label">CLI</div>
+      <pre class="code">rocketvault users admin \
+  --admin-username admin \
+  --admin-password admin123 \
+  --bootstrap-token &lt;token&gt;</pre></div>
+    <div class="op-col"><div class="op-label">API</div>
+      <pre class="code">curl -X POST $BASE/api/v1/users/admin \
+  -H "Content-Type: application/json" \
+  -d '{"admin_username":"admin",
+       "admin_password":"admin123",
+       "bootstrap_token":"&lt;token&gt;"}'</pre></div>
+  </div>
+  <div class="note">Register the returned <code>totp_qr_url</code> before logging in.
+    You can mint codes with <code>oathtool --totp --base32 &lt;secret&gt;</code>.</div>
+  <p class="see-also">See also: <a href="../doc/README_ADMIN_SETUP.md">Admin Setup Guide</a></p>
+</section>
+
+<section id="configuration">
+  <h2>4. Configuration Reference</h2>
+  <h3>What it is</h3>
+  <p>All runtime behavior is driven by <code>.rocketvault.yaml</code>. The top-level
+    sections below are read by the server at startup.</p>
+  <table class="cfg">
+    <thead><tr><th>Section</th><th>Purpose</th></tr></thead>
+    <tbody>
+      <tr><td><code>security</code></td><td><code>master_key</code> (AES-256-GCM derivation), <code>jwt_secret</code> (legacy), <code>bootstrap_token</code></td></tr>
+      <tr><td><code>jwt</code></td><td><code>key_source</code> (os_store/self_pki/external_pki), <code>key_cn</code>, <code>expiry</code>, <code>rotation_overlap</code>, <code>signing_key_file</code></td></tr>
+      <tr><td><code>environment</code></td><td><code>development</code> | <code>production</code> — sets DB pool defaults</td></tr>
+      <tr><td><code>database</code></td><td><code>connection</code>, <code>driver</code>, pool sizing (<code>max_open_conns</code>, …)</td></tr>
+      <tr><td><code>log</code></td><td>level, file, format, rotation (<code>max_backups</code>, <code>max_age_days</code>, <code>max_size_mb</code>)</td></tr>
+      <tr><td><code>rate_limit</code></td><td><code>default</code> (req/min) and <code>auth</code> (login endpoints)</td></tr>
+      <tr><td><code>server</code></td><td><code>listen_addr</code>, timeouts, <code>cors_allowed_origins</code>, <code>http2</code>, <code>tls</code></td></tr>
+      <tr><td><code>retry</code></td><td>database / external_services / circuit_breaker backoff config</td></tr>
+      <tr><td><code>soft_delete</code></td><td><code>enabled</code>, <code>retention_days</code>, <code>purge_protection</code></td></tr>
+      <tr><td><code>key_cache</code></td><td><code>enabled</code>, <code>ttl</code>, <code>max_entries</code>, <code>cleanup_interval</code></td></tr>
+      <tr><td><code>oauth2</code></td><td><code>token_expiry</code>, <code>issuer</code></td></tr>
+      <tr><td><code>vault_client</code></td><td><code>url</code>, <code>client_id</code>, <code>secrets[]</code> (consumer side; empty on the server)</td></tr>
+      <tr><td><code>frontend</code></td><td><code>public_api_url</code>, <code>sentry_dsn</code> (exposed at <code>/api/v1/config</code>)</td></tr>
+      <tr><td><code>hsm</code></td><td><code>enabled</code>, <code>lib_path</code>, <code>token_label</code>, <code>pin</code>, <code>slot_id</code></td></tr>
+    </tbody>
+  </table>
+  <div class="note"><code>jwt.expiry</code> is required — the service container reads it via
+    <code>viper.GetDuration("jwt.expiry")</code>.</div>
+</section>
+```
+
+- [ ] **Step 3: Verify sidebar links match section ids**
+
+Run this consistency check (extracts every `href="#..."` and every `section id="..."`,
+then reports links with no matching section):
+```bash
+cd /home/numericlabs/data/rocket/rocketvault
+python3 - <<'PY'
+import re
+html = open('docs/admin-manual.html').read()
+links = set(re.findall(r'class="sb-link" href="#([^"]+)"', html))
+ids   = set(re.findall(r'<section id="([^"]+)"', html))
+missing = links - ids
+print("links:", len(links), "sections:", len(ids))
+print("links with no section:", missing or "NONE")
+PY
+```
+Expected: `links with no section: NONE`.
+
+Open in a browser: Part I appears in the sidebar; clicking each link jumps to its section;
+scroll-spy highlights the active link.
+
+- [ ] **Step 4: Commit**
+
+```bash
+git add docs/admin-manual.html
+git commit -S -m "docs(manual): add Part I — Getting Started"
+```
+
+---
+
+## Task 3: Part II — Identity & Access (5 sections)
+
+**Files:**
+- Modify: `docs/admin-manual.html`
+
+- [ ] **Step 1: Add the Part II sidebar group**
+
+Insert immediately above `<!-- SIDEBAR_LINKS -->`:
+
+```html
+    <div class="sb-group">Identity &amp; Access</div>
+    <a class="sb-link" href="#authentication">5. Authentication</a>
+    <a class="sb-link" href="#jwt-signing">6. JWT Signing &amp; Key Sources</a>
+    <a class="sb-link" href="#users">7. User Management</a>
+    <a class="sb-link" href="#access-policies">8. RBAC &amp; Access Policies</a>
+    <a class="sb-link" href="#service-accounts">9. OAuth2 Service Accounts</a>
+```
+
+- [ ] **Step 2: Add the five Part II sections**
+
+Insert immediately above `<!-- CONTENT_SECTIONS -->`:
+
+```html
+<section id="authentication">
+  <h2>5. Authentication</h2>
+  <h3>What it is</h3>
+  <p>Login requires username + password + a TOTP code, and returns a short-lived JWT plus
+    a refresh token. Sessions are tracked and individually revocable.</p>
+  <h3>Admin operations</h3>
+  <div class="op-grid">
+    <div class="op-col"><div class="op-label">Login (API)</div>
+      <pre class="code">TOKEN=$(curl -s -X POST $BASE/api/v1/users/login \
+  -H "Content-Type: application/json" \
+  -d '{"username":"admin","password":"admin123",
+       "totp_code":"123456"}' | jq -r .token)</pre></div>
+    <div class="op-col"><div class="op-label">Sessions (API)</div>
+      <pre class="code"># Refresh
+curl -X POST $BASE/api/v1/users/refresh \
+  -d '{"refresh_token":"&lt;rt&gt;"}'
+# List / revoke
+curl $BASE/api/v1/users/sessions -H "Authorization: Bearer $TOKEN"
+curl -X DELETE $BASE/api/v1/users/sessions/&lt;id&gt; -H "Authorization: Bearer $TOKEN"</pre></div>
+  </div>
+  <h3>Notes &amp; troubleshooting</h3>
+  <ul><li>Auth endpoints are rate-limited (default 5 req/min) — see §21.</li>
+    <li><code>DELETE /api/v1/users/sessions</code> revokes all sessions for the caller.</li></ul>
+  <p class="see-also">See also: <a href="../MANUAL_TESTING.md">Manual Testing §5</a></p>
+</section>
+
+<section id="jwt-signing">
+  <h2>6. JWT Signing &amp; Key Sources</h2>
+  <h3>What it is</h3>
+  <p>JWTs are signed asymmetrically and verifiable via JWKS at <code>/jwks.json</code>.
+    Three providers control where the signing key lives, set by <code>jwt.key_source</code>.</p>
+  <table>
+    <thead><tr><th>Provider</th><th>Storage</th><th>Algorithm</th><th>Rotation</th></tr></thead>
+    <tbody>
+      <tr><td><code>os_store</code> (default)</td><td>OS keychain, PEM-file fallback</td><td>RS256</td><td>No</td></tr>
+      <tr><td><code>self_pki</code></td><td>RocketVault's own encrypted DB</td><td>ES256</td><td>Yes (runtime)</td></tr>
+      <tr><td><code>external_pki</code></td><td>PEM from file or env var</td><td>RS256/ES256</td><td>No</td></tr>
+    </tbody>
+  </table>
+  <h3>Admin operations</h3>
+  <div class="op-grid">
+    <div class="op-col"><div class="op-label">Inspect JWKS</div>
+      <pre class="code">curl -s $BASE/jwks.json | jq '.keys[0].alg'</pre></div>
+    <div class="op-col"><div class="op-label">Rotate (self_pki only)</div>
+      <pre class="code">curl -X POST $BASE/api/v1/jwks/rotate \
+  -H "Authorization: Bearer $TOKEN"
+# os_store returns 400 (rotation unsupported)</pre></div>
+  </div>
+  <div class="note">With <code>os_store</code>, the key is stored in the OS keychain
+    (<code>secret-tool lookup service rocketvault …</code>) and never written to a
+    world-readable path. Headless hosts fall back to <code>~/.local/share/rocketvault/jwt-signing.pem</code> (mode 0600).</div>
+  <p class="see-also">See also: <a href="../MANUAL_TESTING.md">Manual Testing §§6,15,16</a></p>
+</section>
+
+<section id="users">
+  <h2>7. User Management</h2>
+  <h3>What it is</h3>
+  <p>Admins create, list, update, and delete users. Each user has a role (<code>admin</code>
+    or <code>user</code>) and a TOTP secret issued at creation.</p>
+  <h3>Admin operations</h3>
+  <div class="op-grid">
+    <div class="op-col"><div class="op-label">CLI</div>
+      <pre class="code">rocketvault users create --username alice --role user \
+  --username admin --password admin123 --totp-code 123456
+rocketvault users list --username admin --password admin123 --totp-code 123456</pre></div>
+    <div class="op-col"><div class="op-label">API</div>
+      <pre class="code">curl -X POST $BASE/api/v1/users -H "Authorization: Bearer $TOKEN" \
+  -d '{"username":"alice","password":"alicepassword123","role":"user"}'
+curl -X PUT $BASE/api/v1/users/&lt;id&gt; -H "Authorization: Bearer $TOKEN" \
+  -d '{"role":"admin"}'</pre></div>
+  </div>
+  <h3>Notes &amp; troubleshooting</h3>
+  <ul><li>Create/list/update/delete require the <code>admin</code> role.</li></ul>
+  <p class="see-also">See also: <a href="../MANUAL_TESTING.md">Manual Testing §7</a></p>
+</section>
+
+<section id="access-policies">
+  <h2>8. RBAC &amp; Access Policies</h2>
+  <h3>What it is</h3>
+  <p>Two complementary controls: <strong>roles</strong> (admin vs user) gate broad
+    operations, and <strong>access policies</strong> grant a specific principal (user or
+    service account) access to a specific resource. A policy binds a principal to a
+    resource type/id and a set of allowed actions.</p>
+  <h3>Admin operations</h3>
+  <div class="op-grid">
+    <div class="op-col"><div class="op-label">Create a policy</div>
+      <pre class="code">curl -X POST $BASE/api/v1/access-policies \
+  -H "Authorization: Bearer $TOKEN" \
+  -d '{"name":"read-db-secret","principal_id":"&lt;id&gt;",
+       "resource_type":"secret","resource_id":"&lt;id&gt;",
+       "actions":["read"]}'</pre></div>
+    <div class="op-col"><div class="op-label">Inspect</div>
+      <pre class="code">curl $BASE/api/v1/access-policies -H "Authorization: Bearer $TOKEN"
+curl $BASE/api/v1/access-policies/principal/&lt;id&gt; \
+  -H "Authorization: Bearer $TOKEN"</pre></div>
+  </div>
+  <p class="see-also">See also: <a href="../MANUAL_TESTING.md">Manual Testing §13</a></p>
+</section>
+
+<section id="service-accounts">
+  <h2>9. OAuth2 Service Accounts</h2>
+  <h3>What it is</h3>
+  <p>A service account is a machine identity (Azure KV service-principal equivalent) that
+    authenticates via the OAuth2 client-credentials flow — no TOTP. Service accounts are
+    <strong>read-only consumers</strong>: they retrieve secrets/keys/certs an admin stored
+    and granted them, never create or manage.</p>
+  <h3>When to use it</h3>
+  <p>CI/CD pipelines, applications fetching their own config at runtime, service-to-service
+    secret sharing, scheduled jobs — any non-human caller.</p>
+  <h3>Admin operations</h3>
+  <div class="op-grid">
+    <div class="op-col"><div class="op-label">Create + token</div>
+      <pre class="code">SA=$(curl -s -X POST $BASE/api/v1/service-accounts \
+  -H "Authorization: Bearer $TOKEN" \
+  -d '{"name":"ci-pipeline"}')
+# client_secret is shown ONCE
+curl -X POST $BASE/api/v1/oauth2/token \
+  -u "ci-pipeline:$SECRET" -d "grant_type=client_credentials"</pre></div>
+    <div class="op-col"><div class="op-label">Rotate / delete</div>
+      <pre class="code">curl -X POST $BASE/api/v1/service-accounts/&lt;id&gt;/rotate \
+  -H "Authorization: Bearer $TOKEN"
+curl -X DELETE $BASE/api/v1/service-accounts/&lt;id&gt; \
+  -H "Authorization: Bearer $TOKEN"</pre></div>
+  </div>
+  <div class="note">The <code>client_id</code> is the service-account <strong>name</strong>,
+    not its UUID. Deleting or rotating immediately invalidates live tokens.</div>
+  <p class="see-also">See also: <a href="consuming-secrets-guide.md">Consuming Secrets Guide</a>,
+    <a href="../MANUAL_TESTING.md">Manual Testing §14</a></p>
+</section>
+```
+
+- [ ] **Step 3: Verify links match sections**
+
+Run the same Python consistency check from Task 2 Step 3.
+Expected: `links with no section: NONE`. Open in a browser and confirm Part II renders.
+
+- [ ] **Step 4: Commit**
+
+```bash
+git add docs/admin-manual.html
+git commit -S -m "docs(manual): add Part II — Identity & Access"
+```
+
+---
+
+## Task 4: Part III — Core Resources (7 sections)
+
+**Files:**
+- Modify: `docs/admin-manual.html`
+
+- [ ] **Step 1: Add the Part III sidebar group**
+
+Insert immediately above `<!-- SIDEBAR_LINKS -->`:
+
+```html
+    <div class="sb-group">Core Resources</div>
+    <a class="sb-link" href="#secrets">10. Secrets</a>
+    <a class="sb-link" href="#secret-versions">11. Secret Versions</a>
+    <a class="sb-link" href="#secret-rotation">12. Secret Rotation</a>
+    <a class="sb-link" href="#keys">13. Keys</a>
+    <a class="sb-link" href="#certificates">14. Certificates</a>
+    <a class="sb-link" href="#multi-vault">15. Multi-Vault</a>
+    <a class="sb-link" href="#soft-delete">16. Soft-Delete &amp; Purge</a>
+```
+
+- [ ] **Step 2: Add the seven Part III sections**
+
+Insert immediately above `<!-- CONTENT_SECTIONS -->`:
+
+```html
+<section id="secrets">
+  <h2>10. Secrets</h2>
+  <h3>What it is</h3>
+  <p>Encrypted-at-rest key/value secrets (AES-256-GCM). Only the owner or an admin can
+    read a secret via the flat routes. Secrets support tags, generation, and import/export.</p>
+  <h3>Admin operations</h3>
+  <div class="op-grid">
+    <div class="op-col"><div class="op-label">CLI</div>
+      <pre class="code">rocketvault secrets create --name db-password --value s3cret \
+  --username admin --password admin123 --totp-code 123456
+rocketvault secrets list  --username admin --password admin123 --totp-code 123456</pre></div>
+    <div class="op-col"><div class="op-label">API</div>
+      <pre class="code">curl -X POST $BASE/api/v1/secrets -H "Authorization: Bearer $TOKEN" \
+  -d '{"name":"db-password","value":"s3cret","tags":["database"]}'
+curl -X POST $BASE/api/v1/secrets/generate -H "Authorization: Bearer $TOKEN" \
+  -d '{"name":"api-key","length":32,"type":"alphanumeric"}'</pre></div>
+  </div>
+  <h3>Notes &amp; troubleshooting</h3>
+  <ul><li>Updating a secret's value creates a new version (see §11).</li>
+    <li>Export/import: <code>POST /secrets/export</code>, <code>POST /secrets/import</code>.</li></ul>
+  <p class="see-also">See also: <a href="../MANUAL_TESTING.md">Manual Testing §8</a></p>
+</section>
+
+<section id="secret-versions">
+  <h2>11. Secret Versions</h2>
+  <h3>What it is</h3>
+  <p>Every value update creates a new, retained version. Old versions stay readable.</p>
+  <h3>Admin operations</h3>
+  <div class="op-grid">
+    <div class="op-col"><div class="op-label">List / get (API)</div>
+      <pre class="code">curl $BASE/api/v1/secrets/&lt;id&gt;/versions -H "Authorization: Bearer $TOKEN"
+curl $BASE/api/v1/secrets/&lt;id&gt;/versions/1 -H "Authorization: Bearer $TOKEN"
+curl $BASE/api/v1/secrets/&lt;id&gt;/versions/latest -H "Authorization: Bearer $TOKEN"</pre></div>
+    <div class="op-col"><div class="op-label">CLI</div>
+      <pre class="code">rocketvault version list   &lt;secret-id&gt; --username admin --password admin123 --totp-code 123456
+rocketvault version latest &lt;secret-id&gt; --username admin --password admin123 --totp-code 123456</pre></div>
+  </div>
+  <p class="see-also">See also: <a href="../MANUAL_TESTING.md">Manual Testing §9</a></p>
+</section>
+
+<section id="secret-rotation">
+  <h2>12. Secret Rotation</h2>
+  <h3>What it is</h3>
+  <p>Rotation policies define how often a secret should rotate, with reminder windows and
+    optional auto-rotate. History is tracked, and due rotations can be queried. Managed
+    primarily through the CLI.</p>
+  <h3>Admin operations</h3>
+  <div class="op-grid">
+    <div class="op-col"><div class="op-label">Manage policies</div>
+      <pre class="code">rocketvault secrets rotation create --secret-id &lt;id&gt; --interval 30d \
+  --username admin --password admin123 --totp-code 123456
+rocketvault secrets rotation list   --username admin --password admin123 --totp-code 123456</pre></div>
+    <div class="op-col"><div class="op-label">Operate</div>
+      <pre class="code">rocketvault secrets rotation rotate  --secret-id &lt;id&gt; ...
+rocketvault secrets rotation history --secret-id &lt;id&gt; ...
+rocketvault secrets rotation status  ...</pre></div>
+  </div>
+  <p class="see-also">See also: <a href="integration-examples.md">Integration Examples — rotation</a></p>
+</section>
+
+<section id="keys">
+  <h2>13. Keys</h2>
+  <h3>What it is</h3>
+  <p>RSA and ECDSA private keys, encrypted at rest, with cryptographic operations
+    (wrap/unwrap, sign/verify, encrypt/decrypt), rotation, and version history.</p>
+  <h3>Admin operations</h3>
+  <div class="op-grid">
+    <div class="op-col"><div class="op-label">Create</div>
+      <pre class="code"># RSA: bits = 2048 | 3072 | 4096
+curl -X POST $BASE/api/v1/keys -H "Authorization: Bearer $TOKEN" \
+  -d '{"name":"my-rsa-key","type":"RSA","bits":2048}'
+# ECDSA: curve = P-256 | P-384 | P-521
+curl -X POST $BASE/api/v1/keys -H "Authorization: Bearer $TOKEN" \
+  -d '{"name":"my-ec-key","type":"ECDSA","curve":"P-256"}'</pre></div>
+    <div class="op-col"><div class="op-label">Operate</div>
+      <pre class="code">curl -X POST $BASE/api/v1/keys/&lt;id&gt;/rotate  -H "Authorization: Bearer $TOKEN"
+curl -X POST $BASE/api/v1/keys/&lt;id&gt;/wrap    -H "Authorization: Bearer $TOKEN" -d '{"plaintext":"..."}'
+curl -X POST $BASE/api/v1/keys/&lt;id&gt;/sign    -H "Authorization: Bearer $TOKEN" -d '{"value":"aGVsbG8=","algorithm":"RS256"}'</pre></div>
+  </div>
+  <div class="note">Use <code>bits</code> for RSA and <code>curve</code> for ECDSA — the
+    earlier docs sometimes omitted <code>bits</code>.</div>
+  <p class="see-also">See also: <a href="../MANUAL_TESTING.md">Manual Testing §10</a></p>
+</section>
+
+<section id="certificates">
+  <h2>14. Certificates &amp; Certificate Policies</h2>
+  <h3>What it is</h3>
+  <p>Self-signed X.509 certificate lifecycle management. Each certificate may carry a
+    <strong>policy</strong> describing auto-renewal (validity, key type/curve, SANs, issuer)
+    used by the renewal scan.</p>
+  <h3>Admin operations</h3>
+  <div class="op-grid">
+    <div class="op-col"><div class="op-label">Create + policy</div>
+      <pre class="code">curl -X POST $BASE/api/v1/certificates -H "Authorization: Bearer $TOKEN" \
+  -d '{"name":"my-tls-cert","common_name":"example.com",
+       "validity_days":365,"key_type":"RSA","key_size":2048}'
+curl -X PUT $BASE/api/v1/certificates/&lt;id&gt;/policy -H "Authorization: Bearer $TOKEN" \
+  -d '{"auto_renew":true,"days_before_expiry":30}'</pre></div>
+    <div class="op-col"><div class="op-label">CLI</div>
+      <pre class="code">rocketvault certificate list  --username admin --password admin123 --totp-code 123456
+rocketvault certificate renew &lt;id&gt; --username admin --password admin123 --totp-code 123456</pre></div>
+  </div>
+  <p class="see-also">See also: <a href="../MANUAL_TESTING.md">Manual Testing §11</a></p>
+</section>
+
+<section id="multi-vault">
+  <h2>15. Multi-Vault</h2>
+  <h3>What it is</h3>
+  <p>Resources live in named vaults (Azure KV parity). A built-in <code>default</code> vault
+    holds everything created via the flat routes. Vault names are 3–63 lowercase
+    alphanumerics/hyphens, no leading/trailing hyphen.</p>
+  <h3>Visibility model</h3>
+  <table>
+    <thead><tr><th>Route family</th><th>Example</th><th>Visibility</th></tr></thead>
+    <tbody>
+      <tr><td>Flat</td><td><code>GET /api/v1/secrets</code></td><td>Per-user (owner only)</td></tr>
+      <tr><td>Vault-scoped</td><td><code>GET /api/v1/vaults/{name}/secrets</code></td><td>Members see all</td></tr>
+    </tbody>
+  </table>
+  <h3>Admin operations</h3>
+  <div class="op-grid">
+    <div class="op-col"><div class="op-label">Manage vaults (admin)</div>
+      <pre class="code">curl -X POST  $BASE/api/v1/vaults -H "Authorization: Bearer $TOKEN" -d '{"name":"team-alpha"}'
+curl -X PATCH $BASE/api/v1/vaults/team-alpha -H "Authorization: Bearer $TOKEN" -d '{"retention_days":7}'
+curl -X DELETE $BASE/api/v1/vaults/team-alpha -H "Authorization: Bearer $TOKEN"  # 204; refuses 'default'</pre></div>
+    <div class="op-col"><div class="op-label">CLI</div>
+      <pre class="code">rocketvault vaults create  team-alpha ...
+rocketvault vaults recover team-alpha ...
+rocketvault vaults purge   team-alpha ...</pre></div>
+  </div>
+  <div class="note">Vault <em>management</em> requires the <code>vaults:manage</code>
+    permission (admin only). The <code>default</code> vault cannot be deleted.</div>
+  <p class="see-also">See also: <a href="../MANUAL_TESTING.md">Manual Testing §12.5</a></p>
+</section>
+
+<section id="soft-delete">
+  <h2>16. Soft-Delete, Restore &amp; Purge</h2>
+  <h3>What it is</h3>
+  <p>Secrets, keys, and certificates are soft-deleted (retained, default 30 days) and can
+    be restored or permanently purged. Purge protection can block permanent deletion.</p>
+  <h3>Admin operations</h3>
+  <div class="op-grid">
+    <div class="op-col"><div class="op-label">Flat (per-user)</div>
+      <pre class="code">curl $BASE/api/v1/deleted/secrets -H "Authorization: Bearer $TOKEN"
+curl -X POST   $BASE/api/v1/deleted/secrets/&lt;id&gt;/restore -H "Authorization: Bearer $TOKEN"
+curl -X DELETE $BASE/api/v1/deleted/secrets/&lt;id&gt;/purge   -H "Authorization: Bearer $TOKEN"</pre></div>
+    <div class="op-col"><div class="op-label">Vault-scoped (by membership)</div>
+      <pre class="code">curl $BASE/api/v1/vaults/default/deleted/secrets -H "Authorization: Bearer $TOKEN"
+curl -X POST $BASE/api/v1/vaults/default/deleted/secrets/&lt;id&gt;/restore -H "Authorization: Bearer $TOKEN"</pre></div>
+  </div>
+  <div class="note">Key/certificate restore/purge are exposed only on the flat
+    <code>/deleted/keys/…</code> and <code>/deleted/certificates/…</code> routes.</div>
+  <p class="see-also">See also: <a href="../MANUAL_TESTING.md">Manual Testing §12</a></p>
+</section>
+```
+
+- [ ] **Step 3: Verify links match sections**
+
+Run the Python consistency check from Task 2 Step 3. Expected: `NONE`. Browser-check Part III.
+
+- [ ] **Step 4: Commit**
+
+```bash
+git add docs/admin-manual.html
+git commit -S -m "docs(manual): add Part III — Core Resources"
+```
+
+---
+
+## Task 5: Part IV — Operations & Governance (8 sections)
+
+**Files:**
+- Modify: `docs/admin-manual.html`
+
+- [ ] **Step 1: Add the Part IV sidebar group**
+
+Insert immediately above `<!-- SIDEBAR_LINKS -->`:
+
+```html
+    <div class="sb-group">Operations &amp; Governance</div>
+    <a class="sb-link" href="#audit">17. Audit &amp; Compliance</a>
+    <a class="sb-link" href="#backup">18. Backup &amp; Restore</a>
+    <a class="sb-link" href="#hsm">19. HSM / PKCS#11</a>
+    <a class="sb-link" href="#health">20. Health &amp; Monitoring</a>
+    <a class="sb-link" href="#rate-limiting">21. Rate Limiting</a>
+    <a class="sb-link" href="#performance">22. Performance Internals</a>
+    <a class="sb-link" href="#migrations">23. Database Migrations</a>
+    <a class="sb-link" href="#api-versioning">24. API Versioning</a>
+```
+
+- [ ] **Step 2: Add the eight Part IV sections**
+
+Insert immediately above `<!-- CONTENT_SECTIONS -->`:
+
+```html
+<section id="audit">
+  <h2>17. Audit Logs &amp; Compliance</h2>
+  <h3>What it is</h3>
+  <p>Every security-relevant action is recorded in a hash-chained audit log (tamper-evident).
+    Logs are queryable with filters, and SOC 2 / GDPR reports can be generated. Admin only.</p>
+  <h3>Admin operations</h3>
+  <div class="op-grid">
+    <div class="op-col"><div class="op-label">Query + reports (API)</div>
+      <pre class="code">curl "$BASE/api/v1/audit/logs?action=login&amp;limit=50" -H "Authorization: Bearer $TOKEN"
+curl "$BASE/api/v1/audit/reports/soc2?start_date=2026-01-01&amp;end_date=2026-06-01" -H "Authorization: Bearer $TOKEN"
+curl "$BASE/api/v1/audit/reports/gdpr?subject_id=&lt;id&gt;" -H "Authorization: Bearer $TOKEN"</pre></div>
+    <div class="op-col"><div class="op-label">Retention config</div>
+      <pre class="code">curl  $BASE/api/v1/audit/config -H "Authorization: Bearer $TOKEN"
+curl -X PATCH $BASE/api/v1/audit/config -H "Authorization: Bearer $TOKEN" \
+  -d '{"retention_days":365}'</pre></div>
+  </div>
+  <div class="note">The logs response includes an <code>integrity_ok</code> flag — the
+    result of verifying the hash chain.</div>
+  <p class="see-also">See also: <a href="../MANUAL_TESTING.md">Manual Testing</a></p>
+</section>
+
+<section id="backup">
+  <h2>18. Backup &amp; Restore</h2>
+  <h3>What it is</h3>
+  <p>Two levels: full database backups via the CLI, and per-item encrypted backup/restore
+    blobs for individual secrets, keys, and certificates via the API.</p>
+  <h3>Admin operations</h3>
+  <div class="op-grid">
+    <div class="op-col"><div class="op-label">Full backup (CLI)</div>
+      <pre class="code">rocketvault backup create  --username admin --password admin123 --totp-code 123456
+rocketvault backup list    --username admin --password admin123 --totp-code 123456
+rocketvault backup restore --file /path/backup.json ...</pre></div>
+    <div class="op-col"><div class="op-label">Per-item (API)</div>
+      <pre class="code">curl -X POST $BASE/api/v1/secrets/&lt;id&gt;/backup -H "Authorization: Bearer $TOKEN"
+curl -X POST $BASE/api/v1/secrets/restore    -H "Authorization: Bearer $TOKEN" -d '{...blob...}'</pre></div>
+  </div>
+  <p class="see-also">See also: <a href="integration-examples.md">Integration Examples — backup</a></p>
+</section>
+
+<section id="hsm">
+  <h2>19. HSM / PKCS#11</h2>
+  <h3>What it is</h3>
+  <p>RocketVault can store and operate keys on a PKCS#11 token (hardware HSM, or SoftHSM2
+    for testing). Enable via the <code>hsm</code> config block; keys are stored as
+    <code>pkcs11:&lt;uuid&gt;</code> instead of an encrypted PEM blob.</p>
+  <h3>Configuration</h3>
+  <pre class="code">hsm:
+  enabled: true
+  lib_path: /usr/lib/softhsm/libsofthsm2.so
+  token_label: rocketvault
+  pin: "1234"
+  slot_id: 0</pre>
+  <h3>Supported algorithms</h3>
+  <table>
+    <thead><tr><th>Operation</th><th>Algorithms</th></tr></thead>
+    <tbody>
+      <tr><td>Sign / Verify</td><td>RS256/384/512, PS256/384/512, ES256/384/512</td></tr>
+      <tr><td>Encrypt / Decrypt</td><td>RSA-OAEP (SHA-1), RSA-OAEP-256 (SHA-256)</td></tr>
+      <tr><td>Key generation</td><td>RSA 2048/4096, ECDSA P-256/384/521</td></tr>
+    </tbody>
+  </table>
+  <div class="note">Look for <code>PKCS#11 HSM key provider initialised</code> in the logs.
+    P-256K (secp256k1) always uses the software provider.</div>
+  <p class="see-also">See also: <a href="hsm-softhsm2-testing.md">SoftHSM2 Testing Guide</a></p>
+</section>
+
+<section id="health">
+  <h2>20. Health &amp; Monitoring</h2>
+  <h3>What it is</h3>
+  <p>Liveness, readiness, full health, and database-specific probes. The full endpoint
+    returns DB status and performance metrics.</p>
+  <h3>Admin operations</h3>
+  <pre class="code">curl $BASE/api/v1/health/live      # {"status":"OK"}  (no auth)
+curl $BASE/api/v1/health/ready     # (no auth)
+curl $BASE/api/v1/health           # full status + metrics (no auth)
+curl $BASE/api/v1/health/database -H "Authorization: Bearer $TOKEN"   # DB health (JWT)</pre>
+  <p class="see-also">See also: <a href="integration-examples.md">Integration Examples — monitoring</a></p>
+</section>
+
+<section id="rate-limiting">
+  <h2>21. Rate Limiting</h2>
+  <h3>What it is</h3>
+  <p>Per-IP rate limits protect the API. Auth endpoints have a tighter limit than general
+    endpoints.</p>
+  <table>
+    <thead><tr><th>Endpoint group</th><th>Default (dev)</th></tr></thead>
+    <tbody>
+      <tr><td>All API endpoints</td><td>300 req/min</td></tr>
+      <tr><td>Auth (<code>/login</code>, <code>/refresh</code>, <code>/oauth2/token</code>)</td><td>5 req/min</td></tr>
+    </tbody>
+  </table>
+  <div class="note">Tune via the <code>rate_limit.default</code> and <code>rate_limit.auth</code>
+    config keys. Exceeding a limit returns <code>429 Too Many Requests</code>.</div>
+  <p class="see-also">See also: <a href="../MANUAL_TESTING.md">Manual Testing §17</a></p>
+</section>
+
+<section id="performance">
+  <h2>22. Performance Internals</h2>
+  <h3>What it is</h3>
+  <p>Two tunable subsystems run transparently. <strong>Caching</strong>: an in-memory key
+    cache (<code>key_cache.*</code>, default 60s TTL / 500 entries) and a secret cache speed
+    up reads. <strong>Retry</strong>: database and external-service operations use
+    exponential backoff with jitter and a circuit breaker (<code>retry.*</code>).</p>
+  <p>These are configuration-tuned rather than operated directly — defaults are production-safe.
+    Adjust only with measurement. The <code>key_cache</code> and <code>retry</code> blocks in
+    <a href="#configuration">§4 Configuration</a> list the tunable keys.</p>
+  <p class="see-also">See also:
+    <a href="rocketvault-architecture.html">System Architecture</a> (caching, retry, and
+    circuit-breaker internals are shown in the service-layer diagram)</p>
+</section>
+
+<section id="migrations">
+  <h2>23. Database Migrations</h2>
+  <h3>What it is</h3>
+  <p>Schema migrations run at startup, and a CLI provides explicit control: status,
+    targeted migration, and authoring new migration files.</p>
+  <h3>Admin operations</h3>
+  <pre class="code">rocketvault migrate              # apply all pending
+rocketvault migrate:status       # show applied / pending
+rocketvault migrate:to &lt;version&gt; # migrate to a specific version
+rocketvault migrate:create &lt;desc&gt;# scaffold a new migration file</pre>
+  <div class="note">Each migration is recorded in <code>schema_migrations</code> and applied
+    exactly once.</div>
+</section>
+
+<section id="api-versioning">
+  <h2>24. API Versioning</h2>
+  <h3>What it is</h3>
+  <p>The API is versioned under <code>/api/v1</code>. Versioning middleware tracks
+    deprecation and sunset dates so clients get advance notice before a version is removed.</p>
+  <h3>Notes &amp; troubleshooting</h3>
+  <ul><li>Deprecated versions emit deprecation/sunset headers; plan client migration before the sunset date.</li></ul>
+  <p class="see-also">See also: <a href="api-developer-guide.md">API Developer Guide</a></p>
+</section>
+```
+
+- [ ] **Step 3: Verify links match sections**
+
+Run the Python consistency check from Task 2 Step 3. Expected: `NONE`. Browser-check Part IV.
+
+- [ ] **Step 4: Commit**
+
+```bash
+git add docs/admin-manual.html
+git commit -S -m "docs(manual): add Part IV — Operations & Governance"
+```
+
+---
+
+## Task 6: Part V — Integration (3 sections)
+
+**Files:**
+- Modify: `docs/admin-manual.html`
+
+- [ ] **Step 1: Add the Part V sidebar group**
+
+Insert immediately above `<!-- SIDEBAR_LINKS -->`:
+
+```html
+    <div class="sb-group">Integration</div>
+    <a class="sb-link" href="#consuming">25. Consuming Secrets in Apps</a>
+    <a class="sb-link" href="#cicd">26. CI/CD Integration</a>
+    <a class="sb-link" href="#multi-env">27. Multi-Environment &amp; Automation</a>
+```
+
+- [ ] **Step 2: Add the three Part V sections**
+
+Insert immediately above `<!-- CONTENT_SECTIONS -->`:
+
+```html
+<section id="consuming">
+  <h2>25. Consuming Secrets in Your Application</h2>
+  <h3>What it is</h3>
+  <p>Applications retrieve secrets at runtime using a service-account OAuth2 token, so
+    secrets never live in code or config. Three integration styles are supported.</p>
+  <h3>Options</h3>
+  <div class="op-grid">
+    <div class="op-col"><div class="op-label">Go (vaultclient)</div>
+      <pre class="code">client, _ := vaultclient.New(vaultclient.Config{
+  URL:          "http://localhost:8774",
+  ClientID:     "my-app",                 // SA name
+  ClientSecret: os.Getenv("VAULT_CLIENT_SECRET"),
+  Secrets: []vaultclient.SecretMapping{
+    {Name:"DB_PASSWORD", UUID:"&lt;uuid&gt;"}},
+})
+secrets, _ := client.GetMany(ctx, []string{"DB_PASSWORD"})</pre></div>
+    <div class="op-col"><div class="op-label">Shell / direct HTTP</div>
+      <pre class="code"># Get token
+curl -X POST $BASE/api/v1/oauth2/token \
+  -d "grant_type=client_credentials&amp;client_id=my-app&amp;client_secret=$SEC"
+# Fetch a secret by UUID
+curl $BASE/api/v1/secrets/&lt;uuid&gt; -H "Authorization: Bearer &lt;access_token&gt;"</pre></div>
+  </div>
+  <div class="note"><code>VAULT_CLIENT_SECRET</code> must come from an environment variable,
+    never a config file. The server's own <code>vault_client.client_id</code> must be empty.</div>
+  <p class="see-also">See also: <a href="consuming-secrets-guide.md">Consuming Secrets Guide</a></p>
+</section>
+
+<section id="cicd">
+  <h2>26. CI/CD Integration</h2>
+  <h3>What it is</h3>
+  <p>Pipelines authenticate with a service account (or admin credentials stored as CI
+    secrets) to back up, validate, or fetch secrets during builds and deploys.</p>
+  <h3>Pattern</h3>
+  <pre class="code"># GitHub Actions / Jenkins — fetch a token, then call the API
+TOKEN=$(curl -s -X POST $API_URL/oauth2/token \
+  -d "grant_type=client_credentials&amp;client_id=$CI_SA&amp;client_secret=$CI_SECRET" | jq -r .access_token)
+curl -s $API_URL/secrets/&lt;uuid&gt; -H "Authorization: Bearer $TOKEN" | jq -r .value</pre>
+  <p class="see-also">See also:
+    <a href="integration-examples.md">Integration Examples — GitHub Actions &amp; Jenkins</a></p>
+</section>
+
+<section id="multi-env">
+  <h2>27. Multi-Environment &amp; Automation</h2>
+  <h3>What it is</h3>
+  <p>For dev/staging/prod fleets, common automations include promoting secrets between
+    environments, scheduled rotation scripts, and exporting health metrics to Prometheus.
+    These are scripted against the public API and are documented in full, with runnable
+    examples, in the integration guide.</p>
+  <p class="see-also">See also:
+    <a href="integration-examples.md">Integration Examples — multi-environment, rotation, Prometheus</a></p>
+</section>
+```
+
+- [ ] **Step 3: Verify links match sections**
+
+Run the Python consistency check from Task 2 Step 3. Expected: `NONE`. Browser-check Part V.
+
+- [ ] **Step 4: Commit**
+
+```bash
+git add docs/admin-manual.html
+git commit -S -m "docs(manual): add Part V — Integration"
+```
+
+---
+
+## Task 7: Appendices (A–D)
+
+**Files:**
+- Modify: `docs/admin-manual.html`
+
+- [ ] **Step 1: Add the Appendices sidebar group**
+
+Insert immediately above `<!-- SIDEBAR_LINKS -->`:
+
+```html
+    <div class="sb-group">Appendices</div>
+    <a class="sb-link" href="#appendix-endpoints">A. Endpoint Reference</a>
+    <a class="sb-link" href="#appendix-cli">B. CLI Command Tree</a>
+    <a class="sb-link" href="#appendix-troubleshooting">C. Troubleshooting</a>
+    <a class="sb-link" href="#appendix-security">D. Security Checklist</a>
+```
+
+- [ ] **Step 2: Add the four appendix sections**
+
+Insert immediately above `<!-- CONTENT_SECTIONS -->`. Appendix A links to the existing full
+table to avoid duplicating 90 rows that would drift; B gives the verified command tree;
+C/D consolidate.
+
+```html
+<section id="appendix-endpoints">
+  <h2>Appendix A — Endpoint Reference</h2>
+  <p>The complete REST endpoint table (every method, path, auth requirement, and
+    description) is maintained in the Manual Testing Guide and kept in sync with the router.</p>
+  <p class="see-also">Full table:
+    <a href="../MANUAL_TESTING.md#quick-reference--all-endpoints">MANUAL_TESTING.md — All Endpoints</a></p>
+  <p>Subsystems: vaults, secrets (+ versions, generate, export/import, item backup), users
+    (+ sessions), keys (+ wrap/unwrap, sign/verify, encrypt/decrypt, rotate, versions),
+    certificates (+ policy), deleted (restore/purge), access-policies, service-accounts,
+    audit (logs, SOC2/GDPR, config), oauth2/token, jwks (+ rotate), config, health.</p>
+</section>
+
+<section id="appendix-cli">
+  <h2>Appendix B — CLI Command Tree</h2>
+  <pre class="code">rocketvault
+├── serve                 start the API server
+├── migrate               apply pending migrations
+│   ├── migrate:status
+│   ├── migrate:to &lt;version&gt;
+│   └── migrate:create &lt;desc&gt;
+├── health
+├── version (list | get | latest)
+├── users  (create | list | get | update | delete | admin | login)
+├── secrets (create | list | get | update | delete | generate | export | import)
+│   └── rotation (create | list | update | delete | assign | unassign | rotate | history | status)
+├── keys   (create | list | get | update | delete | rotate | wrap | unwrap)
+├── certificate (create | list | get | update | delete | renew)   # alias: cert
+├── vaults (create | list | get | update | delete | recover | purge)
+├── backup (create | list | restore)
+├── audit  (logs | report | config)
+└── env
+
+Persistent flags: --config, --username, --password, --totp-code, --output {table|json|yaml}, --vault</pre>
+</section>
+
+<section id="appendix-troubleshooting">
+  <h2>Appendix C — Troubleshooting Matrix</h2>
+  <table>
+    <thead><tr><th>Symptom</th><th>Likely cause</th><th>Fix</th></tr></thead>
+    <tbody>
+      <tr><td><code>connection refused</code></td><td>Server not running / wrong URL</td><td>Start <code>serve</code>; check <code>server.listen_addr</code></td></tr>
+      <tr><td><code>token endpoint returned 404</code></td><td>Wrong OAuth2 path</td><td>Use <code>/api/v1/oauth2/token</code></td></tr>
+      <tr><td><code>authentication failed</code> (OAuth2)</td><td>Wrong client_id</td><td><code>client_id</code> is the SA <em>name</em>, not UUID</td></tr>
+      <tr><td>JWKS rotate returns 400</td><td><code>os_store</code> provider</td><td>Rotation needs <code>self_pki</code> (§6)</td></tr>
+      <tr><td><code>429 Too Many Requests</code></td><td>Rate limit hit</td><td>Back off; tune <code>rate_limit.*</code> (§21)</td></tr>
+      <tr><td>Login rejected after restart</td><td>JWT key changed</td><td>Ensure keychain/PEM persisted (§6)</td></tr>
+    </tbody>
+  </table>
+  <p class="see-also">See also: <a href="../doc/troubleshooting.markdown">Troubleshooting</a></p>
+</section>
+
+<section id="appendix-security">
+  <h2>Appendix D — Security Checklist</h2>
+  <ul>
+    <li><code>VAULT_CLIENT_SECRET</code> in env vars only — never a config file or git.</li>
+    <li>Server's <code>vault_client.client_id</code> is empty (the server must not call itself).</li>
+    <li>Each application has its own least-privilege service account.</li>
+    <li>Rotate service-account secrets periodically (<code>/service-accounts/{id}/rotate</code>).</li>
+    <li>JWT signing key persists across restarts (keychain or 0600 PEM) — never in <code>/etc/ssl/certs</code>.</li>
+    <li>Audit retention configured; verify <code>integrity_ok</code> on audit queries.</li>
+    <li>Purge protection enabled for sensitive vaults.</li>
+  </ul>
+  <p class="see-also">See also: <a href="../doc/security.markdown">Security Notes</a></p>
+</section>
+```
+
+- [ ] **Step 3: Verify links match sections (full document)**
+
+Run the Python consistency check from Task 2 Step 3 against the now-complete file.
+Expected: `links: 31 sections: 31` and `links with no section: NONE`.
+
+Also confirm no leftover placeholder text remains in authored content:
+```bash
+grep -n "TBD\|TODO\|FIXME\|lorem" docs/admin-manual.html || echo "no placeholders"
+```
+Expected: `no placeholders`.
+
+- [ ] **Step 4: Commit**
+
+```bash
+git add docs/admin-manual.html
+git commit -S -m "docs(manual): add appendices (endpoints, CLI, troubleshooting, security)"
+```
+
+---
+
+## Task 8: Final verification and cross-link from project docs
+
+**Files:**
+- Modify: `docs/admin-manual.html` (only if verification finds issues)
+- Modify: `CLAUDE.md` (add a doc pointer)
+
+- [ ] **Step 1: Full structural verification**
+
+```bash
+cd /home/numericlabs/data/rocket/rocketvault
+# 1. Every sidebar link resolves to a section.
+python3 - <<'PY'
+import re
+html = open('docs/admin-manual.html').read()
+links = re.findall(r'class="sb-link" href="#([^"]+)"', html)
+ids   = re.findall(r'<section id="([^"]+)"', html)
+assert len(links) == len(set(links)), "duplicate sidebar links"
+assert len(ids)   == len(set(ids)),   "duplicate section ids"
+assert set(links) == set(ids), f"mismatch: {set(links)^set(ids)}"
+print(f"OK — {len(ids)} sections, all linked, no duplicates")
+PY
+# 2. Tags balance check for <section>.
+echo "open sections:  $(grep -c '<section' docs/admin-manual.html)"
+echo "close sections: $(grep -c '</section>' docs/admin-manual.html)"
+# 3. Referenced sibling docs exist.
+for f in MANUAL_TESTING.md docs/consuming-secrets-guide.md docs/hsm-softhsm2-testing.md \
+         docs/integration-examples.md docs/rocketvault-architecture.html \
+         docs/api-developer-guide.md doc/README_ADMIN_SETUP.md doc/setup.md \
+         doc/troubleshooting.markdown doc/security.markdown; do
+  [ -f "$f" ] && echo "OK  $f" || echo "MISSING  $f"
+done
+```
+Expected: "OK — 31 sections, all linked, no duplicates"; open == close section counts;
+every referenced doc prints `OK` (no `MISSING`). If a referenced doc is MISSING, fix the
+`href` in `docs/admin-manual.html` to the correct relative path and re-run.
+
+- [ ] **Step 2: Visual smoke test in a browser**
+
+Open `docs/admin-manual.html`. Confirm: all 5 sidebar groups + Appendices render;
+clicking any link jumps to the section; scrolling updates the active highlight; the
+CLI/API two-column blocks render side by side on a wide window and stack on a narrow one;
+no console errors.
+
+- [ ] **Step 3: Add a pointer from CLAUDE.md**
+
+In `CLAUDE.md`, under the "Key Components Documentation" section, add this line near the
+top of that list (after the heading, before the multi-vault entry):
+
+```markdown
+### 📘 [Administrator Manual](docs/admin-manual.html)
+- Single authoritative, operationally-focused handbook covering every feature
+- Getting started, identity & access, core resources, operations, integration
+- Canonical entry point; older guides are linked as deep-dives
+```
+
+- [ ] **Step 4: Commit**
+
+```bash
+git add docs/admin-manual.html CLAUDE.md
+git commit -S -m "docs(manual): final verification and link from CLAUDE.md"
+```
+
+---
+
+## Self-Review notes (for the implementer)
+
+- **Spec coverage:** all 24 feature sections + 4 appendices from the spec map to Tasks 2–7;
+  the 5-part sidebar grouping matches the spec; §22 and §27 are summary + deep-link as
+  specified. Scaffold (Task 1) and verification/cross-link (Task 8) bracket the content.
+- **Section count invariant:** 4 + 5 + 7 + 8 + 3 + 4 = **31** `<section>` blocks and 31
+  sidebar links. Task 7/8 assert exactly this.
+- **Insertion convention:** every content task inserts ABOVE the `<!-- SIDEBAR_LINKS -->`
+  and `<!-- CONTENT_SECTIONS -->` markers, which stay in place until the end. Because
+  sections are inserted in order, they render top-to-bottom 1→27→appendices.
+- **GPG:** all commits use `-S` per the maintainer's signing requirement.
