@@ -96,6 +96,12 @@ td{color:var(--text-secondary)}
     <a class="sb-link" href="#installation">2. Installation &amp; First Run</a>
     <a class="sb-link" href="#bootstrap">3. Bootstrap First Admin</a>
     <a class="sb-link" href="#configuration">4. Configuration Reference</a>
+    <div class="sb-group">Identity &amp; Access</div>
+    <a class="sb-link" href="#authentication">5. Authentication</a>
+    <a class="sb-link" href="#jwt-signing">6. JWT Signing &amp; Key Sources</a>
+    <a class="sb-link" href="#users">7. User Management</a>
+    <a class="sb-link" href="#access-policies">8. RBAC &amp; Access Policies</a>
+    <a class="sb-link" href="#service-accounts">9. OAuth2 Service Accounts</a>
     <!-- SIDEBAR_LINKS -->
   </nav>
 
@@ -185,6 +191,136 @@ curl -s $BASE/api/v1/health/live</pre></div>
   </table>
   <div class="note"><code>jwt.expiry</code> is required — the service container reads it via
     <code>viper.GetDuration("jwt.expiry")</code>.</div>
+</section>
+
+<section id="authentication">
+  <h2>5. Authentication</h2>
+  <h3>What it is</h3>
+  <p>Login requires username + password + a TOTP code, and returns a short-lived JWT plus
+    a refresh token. Sessions are tracked and individually revocable.</p>
+  <h3>Admin operations</h3>
+  <div class="op-grid">
+    <div class="op-col"><div class="op-label">Login (API)</div>
+      <pre class="code">TOKEN=$(curl -s -X POST $BASE/api/v1/users/login \
+  -H "Content-Type: application/json" \
+  -d '{"username":"admin","password":"admin123",
+       "totp_code":"123456"}' | jq -r .token)</pre></div>
+    <div class="op-col"><div class="op-label">Sessions (API)</div>
+      <pre class="code"># Refresh
+curl -X POST $BASE/api/v1/users/refresh \
+  -d '{"refresh_token":"&lt;rt&gt;"}'
+# List / revoke
+curl $BASE/api/v1/users/sessions -H "Authorization: Bearer $TOKEN"
+curl -X DELETE $BASE/api/v1/users/sessions/&lt;id&gt; -H "Authorization: Bearer $TOKEN"</pre></div>
+  </div>
+  <h3>Notes &amp; troubleshooting</h3>
+  <ul><li>Auth endpoints are rate-limited (default 5 req/min) — see §21.</li>
+    <li><code>DELETE /api/v1/users/sessions</code> revokes all sessions for the caller.</li></ul>
+  <p class="see-also">See also: <a href="../MANUAL_TESTING.md">Manual Testing §5</a></p>
+</section>
+
+<section id="jwt-signing">
+  <h2>6. JWT Signing &amp; Key Sources</h2>
+  <h3>What it is</h3>
+  <p>JWTs are signed asymmetrically and verifiable via JWKS at <code>/jwks.json</code>.
+    Three providers control where the signing key lives, set by <code>jwt.key_source</code>.</p>
+  <table>
+    <thead><tr><th>Provider</th><th>Storage</th><th>Algorithm</th><th>Rotation</th></tr></thead>
+    <tbody>
+      <tr><td><code>os_store</code> (default)</td><td>OS keychain, PEM-file fallback</td><td>RS256</td><td>No</td></tr>
+      <tr><td><code>self_pki</code></td><td>RocketVault's own encrypted DB</td><td>ES256</td><td>Yes (runtime)</td></tr>
+      <tr><td><code>external_pki</code></td><td>PEM from file or env var</td><td>RS256/ES256</td><td>No</td></tr>
+    </tbody>
+  </table>
+  <h3>Admin operations</h3>
+  <div class="op-grid">
+    <div class="op-col"><div class="op-label">Inspect JWKS</div>
+      <pre class="code">curl -s $BASE/jwks.json | jq '.keys[0].alg'</pre></div>
+    <div class="op-col"><div class="op-label">Rotate (self_pki only)</div>
+      <pre class="code">curl -X POST $BASE/api/v1/jwks/rotate \
+  -H "Authorization: Bearer $TOKEN"
+# os_store returns 400 (rotation unsupported)</pre></div>
+  </div>
+  <div class="note">With <code>os_store</code>, the key is stored in the OS keychain
+    (<code>secret-tool lookup service rocketvault …</code>) and never written to a
+    world-readable path. Headless hosts fall back to <code>~/.local/share/rocketvault/jwt-signing.pem</code> (mode 0600).</div>
+  <p class="see-also">See also: <a href="../MANUAL_TESTING.md">Manual Testing §§6,15,16</a></p>
+</section>
+
+<section id="users">
+  <h2>7. User Management</h2>
+  <h3>What it is</h3>
+  <p>Admins create, list, update, and delete users. Each user has a role (<code>admin</code>
+    or <code>user</code>) and a TOTP secret issued at creation.</p>
+  <h3>Admin operations</h3>
+  <div class="op-grid">
+    <div class="op-col"><div class="op-label">CLI</div>
+      <pre class="code">rocketvault users create --username alice --role user \
+  --username admin --password admin123 --totp-code 123456
+rocketvault users list --username admin --password admin123 --totp-code 123456</pre></div>
+    <div class="op-col"><div class="op-label">API</div>
+      <pre class="code">curl -X POST $BASE/api/v1/users -H "Authorization: Bearer $TOKEN" \
+  -d '{"username":"alice","password":"alicepassword123","role":"user"}'
+curl -X PUT $BASE/api/v1/users/&lt;id&gt; -H "Authorization: Bearer $TOKEN" \
+  -d '{"role":"admin"}'</pre></div>
+  </div>
+  <h3>Notes &amp; troubleshooting</h3>
+  <ul><li>Create/list/update/delete require the <code>admin</code> role.</li></ul>
+  <p class="see-also">See also: <a href="../MANUAL_TESTING.md">Manual Testing §7</a></p>
+</section>
+
+<section id="access-policies">
+  <h2>8. RBAC &amp; Access Policies</h2>
+  <h3>What it is</h3>
+  <p>Two complementary controls: <strong>roles</strong> (admin vs user) gate broad
+    operations, and <strong>access policies</strong> grant a specific principal (user or
+    service account) access to a specific resource. A policy binds a principal to a
+    resource type/id and a set of allowed actions.</p>
+  <h3>Admin operations</h3>
+  <div class="op-grid">
+    <div class="op-col"><div class="op-label">Create a policy</div>
+      <pre class="code">curl -X POST $BASE/api/v1/access-policies \
+  -H "Authorization: Bearer $TOKEN" \
+  -d '{"name":"read-db-secret","principal_id":"&lt;id&gt;",
+       "resource_type":"secret","resource_id":"&lt;id&gt;",
+       "actions":["read"]}'</pre></div>
+    <div class="op-col"><div class="op-label">Inspect</div>
+      <pre class="code">curl $BASE/api/v1/access-policies -H "Authorization: Bearer $TOKEN"
+curl $BASE/api/v1/access-policies/principal/&lt;id&gt; \
+  -H "Authorization: Bearer $TOKEN"</pre></div>
+  </div>
+  <p class="see-also">See also: <a href="../MANUAL_TESTING.md">Manual Testing §13</a></p>
+</section>
+
+<section id="service-accounts">
+  <h2>9. OAuth2 Service Accounts</h2>
+  <h3>What it is</h3>
+  <p>A service account is a machine identity (Azure KV service-principal equivalent) that
+    authenticates via the OAuth2 client-credentials flow — no TOTP. Service accounts are
+    <strong>read-only consumers</strong>: they retrieve secrets/keys/certs an admin stored
+    and granted them, never create or manage.</p>
+  <h3>When to use it</h3>
+  <p>CI/CD pipelines, applications fetching their own config at runtime, service-to-service
+    secret sharing, scheduled jobs — any non-human caller.</p>
+  <h3>Admin operations</h3>
+  <div class="op-grid">
+    <div class="op-col"><div class="op-label">Create + token</div>
+      <pre class="code">SA=$(curl -s -X POST $BASE/api/v1/service-accounts \
+  -H "Authorization: Bearer $TOKEN" \
+  -d '{"name":"ci-pipeline"}')
+# client_secret is shown ONCE
+curl -X POST $BASE/api/v1/oauth2/token \
+  -u "ci-pipeline:$SECRET" -d "grant_type=client_credentials"</pre></div>
+    <div class="op-col"><div class="op-label">Rotate / delete</div>
+      <pre class="code">curl -X POST $BASE/api/v1/service-accounts/&lt;id&gt;/rotate \
+  -H "Authorization: Bearer $TOKEN"
+curl -X DELETE $BASE/api/v1/service-accounts/&lt;id&gt; \
+  -H "Authorization: Bearer $TOKEN"</pre></div>
+  </div>
+  <div class="note">The <code>client_id</code> is the service-account <strong>name</strong>,
+    not its UUID. Deleting or rotating immediately invalidates live tokens.</div>
+  <p class="see-also">See also: <a href="consuming-secrets-guide.md">Consuming Secrets Guide</a>,
+    <a href="../MANUAL_TESTING.md">Manual Testing §14</a></p>
 </section>
 
     <!-- CONTENT_SECTIONS -->
