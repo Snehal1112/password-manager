@@ -355,27 +355,53 @@ curl -s $BASE/api/v1/health/live</pre></div>
 
 <section id="authentication">
   <h2>5. Authentication</h2>
-  <h3>What it is</h3>
-  <p>Login requires username + password + a TOTP code, and returns a short-lived JWT plus
+  <p>Login requires username + password + a TOTP code and returns a short-lived JWT plus
     a refresh token. Sessions are tracked and individually revocable.</p>
-  <h3>Admin operations</h3>
-  <div class="op-grid">
-    <div class="op-col"><div class="op-label">Login (API)</div>
-      <pre class="code">TOKEN=$(curl -s -X POST $BASE/api/v1/users/login \
-  -H "Content-Type: application/json" \
-  -d '{"username":"admin","password":"admin123",
-       "totp_code":"123456"}' | jq -r .token)</pre></div>
-    <div class="op-col"><div class="op-label">Sessions (API)</div>
-      <pre class="code"># Refresh
-curl -X POST $BASE/api/v1/users/refresh \
-  -d '{"refresh_token":"&lt;rt&gt;"}'
-# List / revoke
-curl $BASE/api/v1/users/sessions -H "Authorization: Bearer $TOKEN"
-curl -X DELETE $BASE/api/v1/users/sessions/&lt;id&gt; -H "Authorization: Bearer $TOKEN"</pre></div>
+  <h3>When to use it</h3>
+  <p>Every human caller authenticates here. Machine callers use service accounts (§9) instead.</p>
+  <h3>Operations</h3>
+
+  <div class="ep">
+    <div class="ep-hd"><span class="meth meth-post">POST</span> /api/v1/users/login <span class="ep-label">Authenticate, get a JWT</span></div>
+    <div class="tabs"><button class="tab active">cURL</button><button class="tab">CLI</button><button class="tab">Response</button></div>
+    <div class="tabpane active"><pre class="code">curl -s -X POST $BASE/api/v1/users/login -H "Content-Type: application/json" \
+  -d '{"username":"admin","password":"admin123","totp_code":"123456"}'</pre></div>
+    <div class="tabpane"><pre class="code">rocketvault users login \
+  --username admin --password admin123 --totp-code 123456</pre></div>
+    <div class="tabpane"><pre class="code">{
+  "token": "&lt;redacted-jwt&gt;",
+  "refresh_token": "&lt;redacted-jwt&gt;",
+  "user_id": "f99945c6-ded6-4d6d-96be-7a10a1fbe6fe",
+  "username": "admin",
+  "role": "admin"
+}</pre></div>
+    <details class="collapse"><summary>Errors</summary><div class="inner">401 bad credentials or TOTP · 429 rate-limited (5/min)</div></details>
   </div>
-  <h3>Notes &amp; troubleshooting</h3>
-  <ul><li>Auth endpoints are rate-limited (default 5 req/min) — see §21.</li>
-    <li><code>DELETE /api/v1/users/sessions</code> revokes all sessions for the caller.</li></ul>
+
+  <div class="ep">
+    <div class="ep-hd"><span class="meth meth-post">POST</span> /api/v1/users/refresh <span class="ep-label">Exchange a refresh token</span></div>
+    <div class="tabs"><button class="tab active">cURL</button><button class="tab">Response</button></div>
+    <div class="tabpane active"><pre class="code">curl -s -X POST $BASE/api/v1/users/refresh -H "Content-Type: application/json" \
+  -d '{"refresh_token":"&lt;rt&gt;"}'</pre></div>
+    <div class="tabpane"><pre class="code">{ "token": "&lt;redacted-jwt&gt;", "refresh_token": "&lt;redacted-jwt&gt;" }</pre></div>
+  </div>
+
+  <div class="ep">
+    <div class="ep-hd"><span class="meth meth-get">GET</span> /api/v1/users/sessions <span class="ep-auth">JWT</span> <span class="ep-label">List active sessions</span></div>
+    <div class="tabs"><button class="tab active">cURL</button></div>
+    <div class="tabpane active"><pre class="code">curl -s $BASE/api/v1/users/sessions -H "Authorization: Bearer $TOKEN"</pre></div>
+  </div>
+
+  <div class="ep">
+    <div class="ep-hd"><span class="meth meth-delete">DELETE</span> /api/v1/users/sessions/{id} <span class="ep-auth">JWT</span> <span class="ep-label">Revoke one (or all with no id)</span></div>
+    <div class="tabs"><button class="tab active">cURL</button></div>
+    <div class="tabpane active"><pre class="code"># one session
+curl -s -X DELETE $BASE/api/v1/users/sessions/&lt;id&gt; -H "Authorization: Bearer $TOKEN"
+# all sessions for the caller
+curl -s -X DELETE $BASE/api/v1/users/sessions -H "Authorization: Bearer $TOKEN"</pre></div>
+  </div>
+
+  <div class="note">Auth endpoints are rate-limited (default 5 req/min) — see §21.</div>
   <p class="see-also">See also: <a href="../MANUAL_TESTING.md">Manual Testing §5</a></p>
 </section>
 
@@ -409,23 +435,47 @@ curl -X DELETE $BASE/api/v1/users/sessions/&lt;id&gt; -H "Authorization: Bearer 
 
 <section id="users">
   <h2>7. User Management</h2>
-  <h3>What it is</h3>
-  <p>Admins create, list, update, and delete users. Each user has a role (<code>admin</code>
-    or <code>user</code>) and a TOTP secret issued at creation.</p>
-  <h3>Admin operations</h3>
-  <div class="op-grid">
-    <div class="op-col"><div class="op-label">CLI</div>
-      <pre class="code">rocketvault users create --username alice --role user \
-  --username admin --password admin123 --totp-code 123456
-rocketvault users list --username admin --password admin123 --totp-code 123456</pre></div>
-    <div class="op-col"><div class="op-label">API</div>
-      <pre class="code">curl -X POST $BASE/api/v1/users -H "Authorization: Bearer $TOKEN" \
-  -d '{"username":"alice","password":"alicepassword123","role":"user"}'
-curl -X PUT $BASE/api/v1/users/&lt;id&gt; -H "Authorization: Bearer $TOKEN" \
+  <p>Admins create, list, update, and delete users. Each user has a role (<code>admin</code>,
+    <code>user</code>, or a scoped manager role) and a TOTP secret issued at creation.</p>
+  <h3>When to use it</h3>
+  <p>Onboard human operators. For automation, prefer a service account (§9).</p>
+  <h3>Operations</h3>
+
+  <div class="ep">
+    <div class="ep-hd"><span class="meth meth-post">POST</span> /api/v1/users <span class="ep-auth">JWT · admin</span> <span class="ep-label">Create a user</span></div>
+    <div class="tabs"><button class="tab active">cURL</button><button class="tab">CLI</button><button class="tab">Response</button></div>
+    <div class="tabpane active"><pre class="code">curl -s -X POST $BASE/api/v1/users -H "Authorization: Bearer $TOKEN" \
+  -d '{"username":"alice","password":"alicepassword123","role":"user"}'</pre></div>
+    <div class="tabpane"><pre class="code">rocketvault users create --username alice --role user \
+  --username admin --password admin123 --totp-code 123456</pre></div>
+    <div class="tabpane"><pre class="code">{
+  "id": "&lt;uuid&gt;",
+  "username": "alice",
+  "role": "user",
+  "totp_secret": "&lt;base32-secret&gt;"
+}</pre></div>
+    <details class="collapse"><summary>Errors</summary><div class="inner">400 invalid role (one of secrets_manager, crypto_manager, certificate_manager, admin, user) · 401/403 non-admin caller</div></details>
+  </div>
+
+  <div class="ep">
+    <div class="ep-hd"><span class="meth meth-get">GET</span> /api/v1/users <span class="ep-auth">JWT · admin</span> <span class="ep-label">List users</span></div>
+    <div class="tabs"><button class="tab active">cURL</button></div>
+    <div class="tabpane active"><pre class="code">curl -s $BASE/api/v1/users -H "Authorization: Bearer $TOKEN"</pre></div>
+  </div>
+
+  <div class="ep">
+    <div class="ep-hd"><span class="meth meth-put">PUT</span> /api/v1/users/{id} <span class="ep-auth">JWT · admin</span> <span class="ep-label">Update a user</span></div>
+    <div class="tabs"><button class="tab active">cURL</button></div>
+    <div class="tabpane active"><pre class="code">curl -s -X PUT $BASE/api/v1/users/&lt;id&gt; -H "Authorization: Bearer $TOKEN" \
   -d '{"role":"admin"}'</pre></div>
   </div>
-  <h3>Notes &amp; troubleshooting</h3>
-  <ul><li>Create/list/update/delete require the <code>admin</code> role.</li></ul>
+
+  <div class="ep">
+    <div class="ep-hd"><span class="meth meth-delete">DELETE</span> /api/v1/users/{id} <span class="ep-auth">JWT · admin</span> <span class="ep-label">Delete a user</span></div>
+    <div class="tabs"><button class="tab active">cURL</button></div>
+    <div class="tabpane active"><pre class="code">curl -s -X DELETE $BASE/api/v1/users/&lt;id&gt; -H "Authorization: Bearer $TOKEN"</pre></div>
+  </div>
+
   <p class="see-also">See also: <a href="../MANUAL_TESTING.md">Manual Testing §7</a></p>
 </section>
 
@@ -454,33 +504,48 @@ curl $BASE/api/v1/access-policies/principal/&lt;id&gt; \
 
 <section id="service-accounts">
   <h2>9. OAuth2 Service Accounts</h2>
-  <h3>What it is</h3>
   <p>A service account is a machine identity (Azure KV service-principal equivalent) that
     authenticates via the OAuth2 client-credentials flow — no TOTP. Service accounts are
-    <strong>read-only consumers</strong>: they retrieve secrets/keys/certs an admin stored
-    and granted them, never create or manage.</p>
+    <strong>read-only consumers</strong>: they retrieve secrets/keys/certs an admin granted them.</p>
   <h3>When to use it</h3>
-  <p>CI/CD pipelines, applications fetching their own config at runtime, service-to-service
-    secret sharing, scheduled jobs — any non-human caller.</p>
-  <h3>Admin operations</h3>
-  <div class="op-grid">
-    <div class="op-col"><div class="op-label">Create + token</div>
-      <pre class="code">SA=$(curl -s -X POST $BASE/api/v1/service-accounts \
-  -H "Authorization: Bearer $TOKEN" \
-  -d '{"name":"ci-pipeline"}')
-# client_secret is shown ONCE
-curl -X POST $BASE/api/v1/oauth2/token \
-  -u "ci-pipeline:$SECRET" -d "grant_type=client_credentials"</pre></div>
-    <div class="op-col"><div class="op-label">Rotate / delete</div>
-      <pre class="code">curl -X POST $BASE/api/v1/service-accounts/&lt;id&gt;/rotate \
-  -H "Authorization: Bearer $TOKEN"
-curl -X DELETE $BASE/api/v1/service-accounts/&lt;id&gt; \
-  -H "Authorization: Bearer $TOKEN"</pre></div>
+  <p>CI/CD pipelines, apps fetching config at runtime, service-to-service secrets, scheduled jobs.</p>
+  <h3>Operations</h3>
+
+  <div class="ep">
+    <div class="ep-hd"><span class="meth meth-post">POST</span> /api/v1/service-accounts <span class="ep-auth">JWT · admin</span> <span class="ep-label">Create (secret shown once)</span></div>
+    <div class="tabs"><button class="tab active">cURL</button><button class="tab">Response</button></div>
+    <div class="tabpane active"><pre class="code">curl -s -X POST $BASE/api/v1/service-accounts -H "Authorization: Bearer $TOKEN" \
+  -d '{"name":"ci-pipeline","description":"CI/CD"}'</pre></div>
+    <div class="tabpane"><pre class="code">{
+  "id": "&lt;uuid&gt;",
+  "name": "ci-pipeline",
+  "client_secret": "&lt;shown-once-redacted&gt;"
+}</pre></div>
   </div>
-  <div class="note">The <code>client_id</code> is the service-account <strong>name</strong>,
-    not its UUID. Deleting or rotating immediately invalidates live tokens.</div>
-  <p class="see-also">See also: <a href="consuming-secrets-guide.md">Consuming Secrets Guide</a>,
-    <a href="../MANUAL_TESTING.md">Manual Testing §14</a></p>
+
+  <div class="ep">
+    <div class="ep-hd"><span class="meth meth-post">POST</span> /api/v1/oauth2/token <span class="ep-auth">Basic</span> <span class="ep-label">Client-credentials token</span></div>
+    <div class="tabs"><button class="tab active">cURL</button><button class="tab">Response</button></div>
+    <div class="tabpane active"><pre class="code">curl -s -X POST $BASE/api/v1/oauth2/token \
+  -u "ci-pipeline:$SECRET" -d "grant_type=client_credentials"</pre></div>
+    <div class="tabpane"><pre class="code">{ "access_token": "&lt;redacted-jwt&gt;", "token_type": "Bearer", "expires_in": 3600 }</pre></div>
+  </div>
+
+  <div class="ep">
+    <div class="ep-hd"><span class="meth meth-post">POST</span> /api/v1/service-accounts/{id}/rotate <span class="ep-auth">JWT · admin</span> <span class="ep-label">Rotate the secret</span></div>
+    <div class="tabs"><button class="tab active">cURL</button></div>
+    <div class="tabpane active"><pre class="code">curl -s -X POST $BASE/api/v1/service-accounts/&lt;id&gt;/rotate -H "Authorization: Bearer $TOKEN"</pre></div>
+  </div>
+
+  <div class="ep">
+    <div class="ep-hd"><span class="meth meth-delete">DELETE</span> /api/v1/service-accounts/{id} <span class="ep-auth">JWT · admin</span> <span class="ep-label">Delete (invalidates tokens)</span></div>
+    <div class="tabs"><button class="tab active">cURL</button></div>
+    <div class="tabpane active"><pre class="code">curl -s -X DELETE $BASE/api/v1/service-accounts/&lt;id&gt; -H "Authorization: Bearer $TOKEN"</pre></div>
+  </div>
+
+  <div class="note">The <code>client_id</code> is the service-account <strong>name</strong>, not its
+    UUID. Delete or rotate immediately invalidates live tokens.</div>
+  <p class="see-also">See also: <a href="consuming-secrets-guide.md">Consuming Secrets Guide</a>, <a href="../MANUAL_TESTING.md">Manual Testing §14</a></p>
 </section>
 
 <section id="secrets">
