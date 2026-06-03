@@ -102,6 +102,14 @@ td{color:var(--text-secondary)}
     <a class="sb-link" href="#users">7. User Management</a>
     <a class="sb-link" href="#access-policies">8. RBAC &amp; Access Policies</a>
     <a class="sb-link" href="#service-accounts">9. OAuth2 Service Accounts</a>
+    <div class="sb-group">Core Resources</div>
+    <a class="sb-link" href="#secrets">10. Secrets</a>
+    <a class="sb-link" href="#secret-versions">11. Secret Versions</a>
+    <a class="sb-link" href="#secret-rotation">12. Secret Rotation</a>
+    <a class="sb-link" href="#keys">13. Keys</a>
+    <a class="sb-link" href="#certificates">14. Certificates</a>
+    <a class="sb-link" href="#multi-vault">15. Multi-Vault</a>
+    <a class="sb-link" href="#soft-delete">16. Soft-Delete &amp; Purge</a>
     <!-- SIDEBAR_LINKS -->
   </nav>
 
@@ -321,6 +329,161 @@ curl -X DELETE $BASE/api/v1/service-accounts/&lt;id&gt; \
     not its UUID. Deleting or rotating immediately invalidates live tokens.</div>
   <p class="see-also">See also: <a href="consuming-secrets-guide.md">Consuming Secrets Guide</a>,
     <a href="../MANUAL_TESTING.md">Manual Testing §14</a></p>
+</section>
+
+<section id="secrets">
+  <h2>10. Secrets</h2>
+  <h3>What it is</h3>
+  <p>Encrypted-at-rest key/value secrets (AES-256-GCM). Only the owner or an admin can
+    read a secret via the flat routes. Secrets support tags, generation, and import/export.</p>
+  <h3>Admin operations</h3>
+  <div class="op-grid">
+    <div class="op-col"><div class="op-label">CLI</div>
+      <pre class="code">rocketvault secrets create --name db-password --value s3cret \
+  --username admin --password admin123 --totp-code 123456
+rocketvault secrets list  --username admin --password admin123 --totp-code 123456</pre></div>
+    <div class="op-col"><div class="op-label">API</div>
+      <pre class="code">curl -X POST $BASE/api/v1/secrets -H "Authorization: Bearer $TOKEN" \
+  -d '{"name":"db-password","value":"s3cret","tags":["database"]}'
+curl -X POST $BASE/api/v1/secrets/generate -H "Authorization: Bearer $TOKEN" \
+  -d '{"name":"api-key","length":32,"type":"alphanumeric"}'</pre></div>
+  </div>
+  <h3>Notes &amp; troubleshooting</h3>
+  <ul><li>Updating a secret's value creates a new version (see §11).</li>
+    <li>Export/import: <code>POST /secrets/export</code>, <code>POST /secrets/import</code>.</li></ul>
+  <p class="see-also">See also: <a href="../MANUAL_TESTING.md">Manual Testing §8</a></p>
+</section>
+
+<section id="secret-versions">
+  <h2>11. Secret Versions</h2>
+  <h3>What it is</h3>
+  <p>Every value update creates a new, retained version. Old versions stay readable.</p>
+  <h3>Admin operations</h3>
+  <div class="op-grid">
+    <div class="op-col"><div class="op-label">List / get (API)</div>
+      <pre class="code">curl $BASE/api/v1/secrets/&lt;id&gt;/versions -H "Authorization: Bearer $TOKEN"
+curl $BASE/api/v1/secrets/&lt;id&gt;/versions/1 -H "Authorization: Bearer $TOKEN"
+curl $BASE/api/v1/secrets/&lt;id&gt;/versions/latest -H "Authorization: Bearer $TOKEN"</pre></div>
+    <div class="op-col"><div class="op-label">CLI</div>
+      <pre class="code">rocketvault version list   &lt;secret-id&gt; --username admin --password admin123 --totp-code 123456
+rocketvault version latest &lt;secret-id&gt; --username admin --password admin123 --totp-code 123456</pre></div>
+  </div>
+  <p class="see-also">See also: <a href="../MANUAL_TESTING.md">Manual Testing §9</a></p>
+</section>
+
+<section id="secret-rotation">
+  <h2>12. Secret Rotation</h2>
+  <h3>What it is</h3>
+  <p>Rotation policies define how often a secret should rotate, with reminder windows and
+    optional auto-rotate. History is tracked, and due rotations can be queried. Managed
+    primarily through the CLI.</p>
+  <h3>Admin operations</h3>
+  <div class="op-grid">
+    <div class="op-col"><div class="op-label">Manage policies</div>
+      <pre class="code">rocketvault secrets rotation create --secret-id &lt;id&gt; --interval 30d \
+  --username admin --password admin123 --totp-code 123456
+rocketvault secrets rotation list   --username admin --password admin123 --totp-code 123456</pre></div>
+    <div class="op-col"><div class="op-label">Operate</div>
+      <pre class="code">rocketvault secrets rotation rotate  --secret-id &lt;id&gt; ...
+rocketvault secrets rotation history --secret-id &lt;id&gt; ...
+rocketvault secrets rotation status  ...</pre></div>
+  </div>
+  <p class="see-also">See also: <a href="integration-examples.md">Integration Examples — rotation</a></p>
+</section>
+
+<section id="keys">
+  <h2>13. Keys</h2>
+  <h3>What it is</h3>
+  <p>RSA and ECDSA private keys, encrypted at rest, with cryptographic operations
+    (wrap/unwrap, sign/verify, encrypt/decrypt), rotation, and version history.</p>
+  <h3>Admin operations</h3>
+  <div class="op-grid">
+    <div class="op-col"><div class="op-label">Create</div>
+      <pre class="code"># RSA: bits = 2048 | 3072 | 4096
+curl -X POST $BASE/api/v1/keys -H "Authorization: Bearer $TOKEN" \
+  -d '{"name":"my-rsa-key","type":"RSA","bits":2048}'
+# ECDSA: curve = P-256 | P-384 | P-521
+curl -X POST $BASE/api/v1/keys -H "Authorization: Bearer $TOKEN" \
+  -d '{"name":"my-ec-key","type":"ECDSA","curve":"P-256"}'</pre></div>
+    <div class="op-col"><div class="op-label">Operate</div>
+      <pre class="code">curl -X POST $BASE/api/v1/keys/&lt;id&gt;/rotate  -H "Authorization: Bearer $TOKEN"
+curl -X POST $BASE/api/v1/keys/&lt;id&gt;/wrap    -H "Authorization: Bearer $TOKEN" -d '{"plaintext":"..."}'
+curl -X POST $BASE/api/v1/keys/&lt;id&gt;/sign    -H "Authorization: Bearer $TOKEN" -d '{"value":"aGVsbG8=","algorithm":"RS256"}'</pre></div>
+  </div>
+  <div class="note">Use <code>bits</code> for RSA and <code>curve</code> for ECDSA — the
+    earlier docs sometimes omitted <code>bits</code>.</div>
+  <p class="see-also">See also: <a href="../MANUAL_TESTING.md">Manual Testing §10</a></p>
+</section>
+
+<section id="certificates">
+  <h2>14. Certificates &amp; Certificate Policies</h2>
+  <h3>What it is</h3>
+  <p>Self-signed X.509 certificate lifecycle management. Each certificate may carry a
+    <strong>policy</strong> describing auto-renewal (validity, key type/curve, SANs, issuer)
+    used by the renewal scan.</p>
+  <h3>Admin operations</h3>
+  <div class="op-grid">
+    <div class="op-col"><div class="op-label">Create + policy</div>
+      <pre class="code">curl -X POST $BASE/api/v1/certificates -H "Authorization: Bearer $TOKEN" \
+  -d '{"name":"my-tls-cert","common_name":"example.com",
+       "validity_days":365,"key_type":"RSA","key_size":2048}'
+curl -X PUT $BASE/api/v1/certificates/&lt;id&gt;/policy -H "Authorization: Bearer $TOKEN" \
+  -d '{"auto_renew":true,"days_before_expiry":30}'</pre></div>
+    <div class="op-col"><div class="op-label">CLI</div>
+      <pre class="code">rocketvault certificate list  --username admin --password admin123 --totp-code 123456
+rocketvault certificate renew &lt;id&gt; --username admin --password admin123 --totp-code 123456</pre></div>
+  </div>
+  <p class="see-also">See also: <a href="../MANUAL_TESTING.md">Manual Testing §11</a></p>
+</section>
+
+<section id="multi-vault">
+  <h2>15. Multi-Vault</h2>
+  <h3>What it is</h3>
+  <p>Resources live in named vaults (Azure KV parity). A built-in <code>default</code> vault
+    holds everything created via the flat routes. Vault names are 3–63 lowercase
+    alphanumerics/hyphens, no leading/trailing hyphen.</p>
+  <h3>Visibility model</h3>
+  <table>
+    <thead><tr><th>Route family</th><th>Example</th><th>Visibility</th></tr></thead>
+    <tbody>
+      <tr><td>Flat</td><td><code>GET /api/v1/secrets</code></td><td>Per-user (owner only)</td></tr>
+      <tr><td>Vault-scoped</td><td><code>GET /api/v1/vaults/{name}/secrets</code></td><td>Members see all</td></tr>
+    </tbody>
+  </table>
+  <h3>Admin operations</h3>
+  <div class="op-grid">
+    <div class="op-col"><div class="op-label">Manage vaults (admin)</div>
+      <pre class="code">curl -X POST  $BASE/api/v1/vaults -H "Authorization: Bearer $TOKEN" -d '{"name":"team-alpha"}'
+curl -X PATCH $BASE/api/v1/vaults/team-alpha -H "Authorization: Bearer $TOKEN" -d '{"retention_days":7}'
+curl -X DELETE $BASE/api/v1/vaults/team-alpha -H "Authorization: Bearer $TOKEN"  # 204; refuses 'default'</pre></div>
+    <div class="op-col"><div class="op-label">CLI</div>
+      <pre class="code">rocketvault vaults create  team-alpha ...
+rocketvault vaults recover team-alpha ...
+rocketvault vaults purge   team-alpha ...</pre></div>
+  </div>
+  <div class="note">Vault <em>management</em> requires the <code>vaults:manage</code>
+    permission (admin only). The <code>default</code> vault cannot be deleted.</div>
+  <p class="see-also">See also: <a href="../MANUAL_TESTING.md">Manual Testing §12.5</a></p>
+</section>
+
+<section id="soft-delete">
+  <h2>16. Soft-Delete, Restore &amp; Purge</h2>
+  <h3>What it is</h3>
+  <p>Secrets, keys, and certificates are soft-deleted (retained, default 30 days) and can
+    be restored or permanently purged. Purge protection can block permanent deletion.</p>
+  <h3>Admin operations</h3>
+  <div class="op-grid">
+    <div class="op-col"><div class="op-label">Flat (per-user)</div>
+      <pre class="code">curl $BASE/api/v1/deleted/secrets -H "Authorization: Bearer $TOKEN"
+curl -X POST   $BASE/api/v1/deleted/secrets/&lt;id&gt;/restore -H "Authorization: Bearer $TOKEN"
+curl -X DELETE $BASE/api/v1/deleted/secrets/&lt;id&gt;/purge   -H "Authorization: Bearer $TOKEN"</pre></div>
+    <div class="op-col"><div class="op-label">Vault-scoped (by membership)</div>
+      <pre class="code">curl $BASE/api/v1/vaults/default/deleted/secrets -H "Authorization: Bearer $TOKEN"
+curl -X POST $BASE/api/v1/vaults/default/deleted/secrets/&lt;id&gt;/restore -H "Authorization: Bearer $TOKEN"</pre></div>
+  </div>
+  <div class="note">Key/certificate restore/purge are exposed only on the flat
+    <code>/deleted/keys/…</code> and <code>/deleted/certificates/…</code> routes.</div>
+  <p class="see-also">See also: <a href="../MANUAL_TESTING.md">Manual Testing §12</a></p>
 </section>
 
     <!-- CONTENT_SECTIONS -->
