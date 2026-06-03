@@ -91,6 +91,11 @@ td{color:var(--text-secondary)}
   <nav class="sidebar" id="sidebar">
     <div class="sb-title">RocketVault Admin Manual</div>
     <div class="sb-sub">Self-hosted secrets manager · Go</div>
+    <div class="sb-group">Getting Started</div>
+    <a class="sb-link" href="#introduction">1. Introduction &amp; Model</a>
+    <a class="sb-link" href="#installation">2. Installation &amp; First Run</a>
+    <a class="sb-link" href="#bootstrap">3. Bootstrap First Admin</a>
+    <a class="sb-link" href="#configuration">4. Configuration Reference</a>
     <!-- SIDEBAR_LINKS -->
   </nav>
 
@@ -98,6 +103,96 @@ td{color:var(--text-secondary)}
     <h1>RocketVault Administrator Manual</h1>
     <p class="lede">The authoritative operational guide to every RocketVault feature —
       installation, identity, secrets, keys, certificates, governance, and integration.</p>
+<section id="introduction">
+  <h2>1. Introduction &amp; Mental Model</h2>
+  <h3>What it is</h3>
+  <p>RocketVault is a self-hosted, open-source alternative to Azure Key Vault, written in
+    Go. It manages secrets, RSA/ECDSA keys, and X.509 certificates through a REST API and
+    a Cobra CLI, with JWT+TOTP authentication and RBAC. <span class="tag">Azure Key Vault parity</span></p>
+  <h3>The layers</h3>
+  <p>Requests flow through a security gateway (auth, RBAC, rate limiting) into the REST API,
+    then into a service container (business logic), down to pure repositories (data access),
+    and finally SQLite (dev) or PostgreSQL (prod). The CLI calls the same service container
+    directly. Secrets, keys, and certificates are encrypted at rest with AES-256-GCM.</p>
+  <p class="see-also">See also:
+    <a href="rocketvault-architecture.html">System Architecture (interactive)</a></p>
+</section>
+
+<section id="installation">
+  <h2>2. Installation &amp; First Run</h2>
+  <h3>What it is</h3>
+  <p>RocketVault runs as a single Go binary. The server reads exactly one config file,
+    <code>.rocketvault.yaml</code>, from the working directory or <code>--config</code>.</p>
+  <h3>Admin operations</h3>
+  <div class="op-grid">
+    <div class="op-col"><div class="op-label">Run from source</div>
+      <pre class="code">go run main.go serve
+go run main.go serve --config /path/custom.yaml</pre></div>
+    <div class="op-col"><div class="op-label">Verify it is up</div>
+      <pre class="code">export BASE=http://localhost:8774
+curl -s $BASE/api/v1/health/live</pre></div>
+  </div>
+  <h3>Notes &amp; troubleshooting</h3>
+  <ul>
+    <li>The server listens on <code>:8774</code> by default (see <code>server.listen_addr</code>).</li>
+    <li><code>environment: development | production</code> selects database pool defaults.</li>
+  </ul>
+  <p class="see-also">See also: <a href="../doc/setup.md">Setup Guide</a></p>
+</section>
+
+<section id="bootstrap">
+  <h2>3. Bootstrap — First Admin User</h2>
+  <h3>What it is</h3>
+  <p>A one-time bootstrap token creates the first admin without authentication. After use,
+    the token is consumed. The response returns a TOTP secret you must register in an
+    authenticator app — every login requires a TOTP code.</p>
+  <h3>Admin operations</h3>
+  <div class="op-grid">
+    <div class="op-col"><div class="op-label">CLI</div>
+      <pre class="code">rocketvault users admin \
+  --admin-username admin \
+  --admin-password admin123 \
+  --bootstrap-token &lt;token&gt;</pre></div>
+    <div class="op-col"><div class="op-label">API</div>
+      <pre class="code">curl -X POST $BASE/api/v1/users/admin \
+  -H "Content-Type: application/json" \
+  -d '{"admin_username":"admin",
+       "admin_password":"admin123",
+       "bootstrap_token":"&lt;token&gt;"}'</pre></div>
+  </div>
+  <div class="note">Register the returned <code>totp_qr_url</code> before logging in.
+    You can mint codes with <code>oathtool --totp --base32 &lt;secret&gt;</code>.</div>
+  <p class="see-also">See also: <a href="../doc/README_ADMIN_SETUP.md">Admin Setup Guide</a></p>
+</section>
+
+<section id="configuration">
+  <h2>4. Configuration Reference</h2>
+  <h3>What it is</h3>
+  <p>All runtime behavior is driven by <code>.rocketvault.yaml</code>. The top-level
+    sections below are read by the server at startup.</p>
+  <table class="cfg">
+    <thead><tr><th>Section</th><th>Purpose</th></tr></thead>
+    <tbody>
+      <tr><td><code>security</code></td><td><code>master_key</code> (AES-256-GCM derivation), <code>jwt_secret</code> (legacy), <code>bootstrap_token</code></td></tr>
+      <tr><td><code>jwt</code></td><td><code>key_source</code> (os_store/self_pki/external_pki), <code>key_cn</code>, <code>expiry</code>, <code>rotation_overlap</code>, <code>signing_key_file</code></td></tr>
+      <tr><td><code>environment</code></td><td><code>development</code> | <code>production</code> — sets DB pool defaults</td></tr>
+      <tr><td><code>database</code></td><td><code>connection</code>, <code>driver</code>, pool sizing (<code>max_open_conns</code>, …)</td></tr>
+      <tr><td><code>log</code></td><td>level, file, format, rotation (<code>max_backups</code>, <code>max_age_days</code>, <code>max_size_mb</code>)</td></tr>
+      <tr><td><code>rate_limit</code></td><td><code>default</code> (req/min) and <code>auth</code> (login endpoints)</td></tr>
+      <tr><td><code>server</code></td><td><code>listen_addr</code>, timeouts, <code>cors_allowed_origins</code>, <code>http2</code>, <code>tls</code></td></tr>
+      <tr><td><code>retry</code></td><td>database / external_services / circuit_breaker backoff config</td></tr>
+      <tr><td><code>soft_delete</code></td><td><code>enabled</code>, <code>retention_days</code>, <code>purge_protection</code></td></tr>
+      <tr><td><code>key_cache</code></td><td><code>enabled</code>, <code>ttl</code>, <code>max_entries</code>, <code>cleanup_interval</code></td></tr>
+      <tr><td><code>oauth2</code></td><td><code>token_expiry</code>, <code>issuer</code></td></tr>
+      <tr><td><code>vault_client</code></td><td><code>url</code>, <code>client_id</code>, <code>secrets[]</code> (consumer side; empty on the server)</td></tr>
+      <tr><td><code>frontend</code></td><td><code>public_api_url</code>, <code>sentry_dsn</code> (exposed at <code>/api/v1/config</code>)</td></tr>
+      <tr><td><code>hsm</code></td><td><code>enabled</code>, <code>lib_path</code>, <code>token_label</code>, <code>pin</code>, <code>slot_id</code></td></tr>
+    </tbody>
+  </table>
+  <div class="note"><code>jwt.expiry</code> is required — the service container reads it via
+    <code>viper.GetDuration("jwt.expiry")</code>.</div>
+</section>
+
     <!-- CONTENT_SECTIONS -->
   </main>
 
