@@ -234,7 +234,7 @@ func TestWrapKeyRejectsUnsupportedAlgorithm(t *testing.T) {
 		Algorithm:    "ECDH-ES",
 	})
 	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "unsupported wrap algorithm")
+	assert.ErrorIs(t, err, keys.ErrUnsupportedAlgorithm)
 }
 
 func TestWrapKey_AESKWAlgorithmNotRejectedByAllowlist(t *testing.T) {

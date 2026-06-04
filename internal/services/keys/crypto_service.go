@@ -24,6 +24,7 @@ type SignRequest struct {
 	Data      []byte
 	Algorithm crypto.SignatureAlgorithm
 	UserID    uuid.UUID
+	VaultID   uuid.UUID
 }
 
 // SignResult represents the result of a sign operation.
@@ -41,6 +42,7 @@ type VerifyRequest struct {
 	Signature []byte
 	Algorithm crypto.SignatureAlgorithm
 	UserID    uuid.UUID
+	VaultID   uuid.UUID
 }
 
 // VerifyResult represents the result of a verify operation.
@@ -56,6 +58,7 @@ type EncryptRequest struct {
 	Data      []byte
 	Algorithm crypto.EncryptionAlgorithm
 	UserID    uuid.UUID
+	VaultID   uuid.UUID
 }
 
 // EncryptResult represents the result of an encrypt operation.
@@ -73,6 +76,7 @@ type DecryptRequest struct {
 	Nonce      []byte
 	Algorithm  crypto.EncryptionAlgorithm
 	UserID     uuid.UUID
+	VaultID    uuid.UUID
 }
 
 // DecryptResult represents the result of a decrypt operation.
@@ -86,6 +90,7 @@ type DecryptResult struct {
 type WrapKeyRequest struct {
 	KeyID        uuid.UUID
 	UserID       uuid.UUID
+	VaultID      uuid.UUID
 	PlaintextKey []byte
 	Algorithm    string // must be one of: RSA-OAEP, RSA-OAEP-256, A128KW, A192KW, A256KW, A128CBC, A192CBC, A256CBC
 }
@@ -100,6 +105,7 @@ type WrapKeyResult struct {
 type UnwrapKeyRequest struct {
 	KeyID      uuid.UUID
 	UserID     uuid.UUID
+	VaultID    uuid.UUID
 	WrappedKey []byte
 	Algorithm  string // must be one of: RSA-OAEP, RSA-OAEP-256, A128KW, A192KW, A256KW, A128CBC, A192CBC, A256CBC
 }
@@ -230,55 +236,62 @@ func (s *cryptoService) resolveKeyMaterial(key *model.Key) (
 
 // loadAndAuthorize fetches the key by ID and enforces access control for op.
 // Returns the key if it is owned by userID, not revoked, and accessible.
-func (s *cryptoService) loadAndAuthorize(ctx context.Context, keyID, userID uuid.UUID, op string) (*model.Key, error) {
+func (s *cryptoService) loadAndAuthorize(ctx context.Context, keyID, userID, vaultID uuid.UUID, op string) (*model.Key, error) {
 	key, err := s.keyRepo.Read(ctx, keyID)
 	if err != nil {
 		s.logger.LogAuditError(userID.String(), op, "failed", "Key not found", err)
 		return nil, fmt.Errorf("key not found: %w", err)
 	}
 
+	if key.VaultID != vaultID {
+		s.logger.LogAuditError(userID.String(), op, "forbidden",
+			fmt.Sprintf("Unauthorized %s attempt: key %s not in vault %s", op, keyID, vaultID), nil)
+		return nil, fmt.Errorf("%w: key does not belong to the requested vault", ErrKeyForbidden)
+	}
+
 	if key.UserID != userID {
 		s.logger.LogAuditError(userID.String(), op, "forbidden",
 			fmt.Sprintf("Unauthorized %s attempt with key: %s", op, keyID), nil)
-		return nil, fmt.Errorf("forbidden: cannot use other users' keys")
+		return nil, fmt.Errorf("%w: cannot use other users' keys", ErrKeyForbidden)
 	}
 
 	if key.Revoked {
 		s.logger.LogAuditError(userID.String(), op, "failed",
 			fmt.Sprintf("Attempted to %s with revoked key: %s", op, keyID), nil)
-		return nil, fmt.Errorf("cannot %s with revoked key", op)
+		return nil, fmt.Errorf("%w: %s", ErrKeyRevoked, keyID)
 	}
 
 	if !key.IsAccessible() {
 		s.logger.LogAuditError(userID.String(), op, "failed",
 			fmt.Sprintf("Attempted %s with inaccessible key: %s", op, keyID), nil)
-		return nil, fmt.Errorf("cannot %s with disabled or expired key", op)
+		return nil, fmt.Errorf("%w", ErrKeyLifecycleDenied)
 	}
 
 	return key, nil
 }
 
 // wrapAlgorithmToEncryption maps a wrap/unwrap algorithm string to the internal
-// crypto.EncryptionAlgorithm constant. The caller must have already validated the
-// algorithm string against the allowed set before calling this helper.
-func wrapAlgorithmToEncryption(algorithm string) crypto.EncryptionAlgorithm {
+// crypto.EncryptionAlgorithm constant. Returns an error for unrecognised algorithms.
+func wrapAlgorithmToEncryption(algorithm string) (crypto.EncryptionAlgorithm, error) {
 	switch algorithm {
 	case "RSA-OAEP-256":
-		return crypto.AlgorithmRSAOAEP256
+		return crypto.AlgorithmRSAOAEP256, nil
 	case "RSA-OAEP":
-		return crypto.AlgorithmRSAOAEP
+		return crypto.AlgorithmRSAOAEP, nil
 	case "A128KW":
-		return crypto.AlgorithmA128KW
+		return crypto.AlgorithmA128KW, nil
 	case "A192KW":
-		return crypto.AlgorithmA192KW
+		return crypto.AlgorithmA192KW, nil
 	case "A256KW":
-		return crypto.AlgorithmA256KW
+		return crypto.AlgorithmA256KW, nil
 	case "A128CBC":
-		return crypto.AlgorithmA128CBC
+		return crypto.AlgorithmA128CBC, nil
 	case "A192CBC":
-		return crypto.AlgorithmA192CBC
-	default: // "A256CBC"
-		return crypto.AlgorithmA256CBC
+		return crypto.AlgorithmA192CBC, nil
+	case "A256CBC":
+		return crypto.AlgorithmA256CBC, nil
+	default:
+		return "", fmt.Errorf("%w: %q", ErrUnsupportedAlgorithm, algorithm)
 	}
 }
 
@@ -286,7 +299,7 @@ func wrapAlgorithmToEncryption(algorithm string) crypto.EncryptionAlgorithm {
 func (s *cryptoService) Sign(ctx context.Context, req SignRequest) (*SignResult, error) {
 	start := time.Now()
 
-	key, err := s.loadAndAuthorize(ctx, req.KeyID, req.UserID, "sign")
+	key, err := s.loadAndAuthorize(ctx, req.KeyID, req.UserID, req.VaultID, "sign")
 	if err != nil {
 		return nil, err
 	}
@@ -342,7 +355,7 @@ func (s *cryptoService) Sign(ctx context.Context, req SignRequest) (*SignResult,
 func (s *cryptoService) Verify(ctx context.Context, req VerifyRequest) (*VerifyResult, error) {
 	start := time.Now()
 
-	key, err := s.loadAndAuthorize(ctx, req.KeyID, req.UserID, "verify")
+	key, err := s.loadAndAuthorize(ctx, req.KeyID, req.UserID, req.VaultID, "verify")
 	if err != nil {
 		return nil, err
 	}
@@ -399,7 +412,7 @@ func (s *cryptoService) Verify(ctx context.Context, req VerifyRequest) (*VerifyR
 func (s *cryptoService) Encrypt(ctx context.Context, req EncryptRequest) (*EncryptResult, error) {
 	start := time.Now()
 
-	key, err := s.loadAndAuthorize(ctx, req.KeyID, req.UserID, "encrypt")
+	key, err := s.loadAndAuthorize(ctx, req.KeyID, req.UserID, req.VaultID, "encrypt")
 	if err != nil {
 		return nil, err
 	}
@@ -452,7 +465,7 @@ func (s *cryptoService) Encrypt(ctx context.Context, req EncryptRequest) (*Encry
 func (s *cryptoService) Decrypt(ctx context.Context, req DecryptRequest) (*DecryptResult, error) {
 	start := time.Now()
 
-	key, err := s.loadAndAuthorize(ctx, req.KeyID, req.UserID, "decrypt")
+	key, err := s.loadAndAuthorize(ctx, req.KeyID, req.UserID, req.VaultID, "decrypt")
 	if err != nil {
 		return nil, err
 	}
@@ -509,10 +522,10 @@ func (s *cryptoService) WrapKey(ctx context.Context, req WrapKeyRequest) (*WrapK
 		"A128CBC": true, "A192CBC": true, "A256CBC": true,
 	}
 	if !validWrapAlgorithms[req.Algorithm] {
-		return nil, fmt.Errorf("unsupported wrap algorithm %q", req.Algorithm)
+		return nil, fmt.Errorf("%w: %q", ErrUnsupportedAlgorithm, req.Algorithm)
 	}
 
-	key, err := s.loadAndAuthorize(ctx, req.KeyID, req.UserID, "wrap_key")
+	key, err := s.loadAndAuthorize(ctx, req.KeyID, req.UserID, req.VaultID, "wrap_key")
 	if err != nil {
 		return nil, err
 	}
@@ -526,7 +539,10 @@ func (s *cryptoService) WrapKey(ctx context.Context, req WrapKeyRequest) (*WrapK
 		s.cryptoMetrics.RecordOp("wrap_key", key.Type, cacheHit, time.Since(start))
 	}()
 
-	encAlgo := wrapAlgorithmToEncryption(req.Algorithm)
+	encAlgo, err := wrapAlgorithmToEncryption(req.Algorithm)
+	if err != nil {
+		return nil, err
+	}
 
 	// AES wrap/unwrap requires a software key; HSM keys only support RSA-OAEP variants.
 	if wrapIsPKCS11 && req.Algorithm != "RSA-OAEP" && req.Algorithm != "RSA-OAEP-256" {
@@ -561,10 +577,10 @@ func (s *cryptoService) UnwrapKey(ctx context.Context, req UnwrapKeyRequest) (*U
 		"A128CBC": true, "A192CBC": true, "A256CBC": true,
 	}
 	if !validUnwrapAlgorithms[req.Algorithm] {
-		return nil, fmt.Errorf("unsupported unwrap algorithm %q", req.Algorithm)
+		return nil, fmt.Errorf("%w: %q", ErrUnsupportedAlgorithm, req.Algorithm)
 	}
 
-	key, err := s.loadAndAuthorize(ctx, req.KeyID, req.UserID, "unwrap_key")
+	key, err := s.loadAndAuthorize(ctx, req.KeyID, req.UserID, req.VaultID, "unwrap_key")
 	if err != nil {
 		return nil, err
 	}
@@ -578,7 +594,10 @@ func (s *cryptoService) UnwrapKey(ctx context.Context, req UnwrapKeyRequest) (*U
 		s.cryptoMetrics.RecordOp("unwrap_key", key.Type, cacheHit, time.Since(start))
 	}()
 
-	decAlgo := wrapAlgorithmToEncryption(req.Algorithm)
+	decAlgo, err := wrapAlgorithmToEncryption(req.Algorithm)
+	if err != nil {
+		return nil, err
+	}
 
 	// AES wrap/unwrap requires a software key; HSM keys only support RSA-OAEP variants.
 	if unwrapIsPKCS11 && req.Algorithm != "RSA-OAEP" && req.Algorithm != "RSA-OAEP-256" {

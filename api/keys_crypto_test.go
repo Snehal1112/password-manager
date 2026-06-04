@@ -313,7 +313,7 @@ func TestSignKey_InvalidBase64_Returns400(t *testing.T) {
 func TestSignKey_KeyNotFound_Returns404(t *testing.T) {
 	svc := &stubCryptoSvc{
 		signFn: func(_ context.Context, _ keyServices.SignRequest) (*keyServices.SignResult, error) {
-			return nil, fmt.Errorf("key not found: %w", errors.New("sql: no rows"))
+			return nil, fmt.Errorf("%w: sql: no rows", keyServices.ErrKeyNotFound)
 		},
 	}
 
@@ -334,7 +334,7 @@ func TestSignKey_KeyNotFound_Returns404(t *testing.T) {
 func TestSignKey_Forbidden_Returns403(t *testing.T) {
 	svc := &stubCryptoSvc{
 		signFn: func(_ context.Context, _ keyServices.SignRequest) (*keyServices.SignResult, error) {
-			return nil, errors.New("forbidden: cannot use other users' keys")
+			return nil, fmt.Errorf("%w: cannot use other users' keys", keyServices.ErrKeyForbidden)
 		},
 	}
 
@@ -572,7 +572,7 @@ func TestEncryptKey_MissingValue_Returns400(t *testing.T) {
 func TestEncryptKey_UnsupportedAlgorithm_Returns400(t *testing.T) {
 	svc := &stubCryptoSvc{
 		encryptFn: func(_ context.Context, _ keyServices.EncryptRequest) (*keyServices.EncryptResult, error) {
-			return nil, errors.New("unsupported algorithm: FOOBAR")
+			return nil, fmt.Errorf("%w: FOOBAR", keyServices.ErrUnsupportedAlgorithm)
 		},
 	}
 
@@ -681,7 +681,7 @@ func TestDecryptKey_MissingValue_Returns400(t *testing.T) {
 func TestDecryptKey_KeyNotFound_Returns404(t *testing.T) {
 	svc := &stubCryptoSvc{
 		decryptFn: func(_ context.Context, _ keyServices.DecryptRequest) (*keyServices.DecryptResult, error) {
-			return nil, errors.New("key not found: sql: no rows")
+			return nil, fmt.Errorf("%w: sql: no rows", keyServices.ErrKeyNotFound)
 		},
 	}
 
@@ -703,7 +703,7 @@ func TestDecryptKey_KeyNotFound_Returns404(t *testing.T) {
 func TestDecryptKey_RevokedKey_Returns403(t *testing.T) {
 	svc := &stubCryptoSvc{
 		decryptFn: func(_ context.Context, _ keyServices.DecryptRequest) (*keyServices.DecryptResult, error) {
-			return nil, errors.New("cannot decrypt with revoked key")
+			return nil, fmt.Errorf("%w: decrypt operation", keyServices.ErrKeyRevoked)
 		},
 	}
 

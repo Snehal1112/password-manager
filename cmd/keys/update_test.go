@@ -50,7 +50,7 @@ func (m *MockKeyServiceForUpdate) GetKeyInVault(ctx context.Context, keyID, vaul
 func (m *MockKeyServiceForUpdate) ListKeysInVault(ctx context.Context, vaultID uuid.UUID, keyType string, tags []string) ([]model.Key, error) {
 	return nil, nil
 }
-func (m *MockKeyServiceForUpdate) DeleteKeyInVault(ctx context.Context, keyID, vaultID uuid.UUID) (*model.Key, error) {
+func (m *MockKeyServiceForUpdate) DeleteKeyInVault(ctx context.Context, keyID, vaultID, userID uuid.UUID) (*model.Key, error) {
 	return nil, nil
 }
 

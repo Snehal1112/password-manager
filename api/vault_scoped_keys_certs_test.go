@@ -69,7 +69,7 @@ func (s *recordingKeyService) ListKeysInVault(_ context.Context, vaultID uuid.UU
 	s.listVaultID = vaultID
 	return []model.Key{}, nil
 }
-func (s *recordingKeyService) DeleteKeyInVault(context.Context, uuid.UUID, uuid.UUID) (*model.Key, error) {
+func (s *recordingKeyService) DeleteKeyInVault(_ context.Context, _, _, _ uuid.UUID) (*model.Key, error) {
 	panic("unexpected")
 }
 func (s *recordingKeyService) RotateKey(context.Context, uuid.UUID, uuid.UUID) (*keyServices.CreateKeyResult, error) {

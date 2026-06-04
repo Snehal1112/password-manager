@@ -343,8 +343,8 @@ func createKey(c *Context, w http.ResponseWriter, r *http.Request) {
 		if req.Curve == "" {
 			req.Curve = "P-256" // Default ECDSA curve.
 		}
-		if req.Curve != "P-256" && req.Curve != "P-384" && req.Curve != "P-521" {
-			c.SetInvalidParam("curve: must be P-256, P-384, or P-521")
+		if req.Curve != "P-256" && req.Curve != "P-384" && req.Curve != "P-521" && req.Curve != "P-256K" {
+			c.SetInvalidParam("curve: must be P-256, P-384, P-521, or P-256K")
 			return
 		}
 		createReq.Curve = req.Curve
@@ -569,8 +569,6 @@ func deleteKey(c *Context, w http.ResponseWriter, r *http.Request) {
 		c.SetInvalidParam("user_id")
 		return
 	}
-	_ = userID // Vault scope is authoritative for deletion.
-
 	// Resolve the target vault from the request context.
 	vaultID, err := vaultIDFromRequest(r)
 	if err != nil {
@@ -583,8 +581,8 @@ func deleteKey(c *Context, w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Use service layer for deletion scoped to the resolved vault.
-	deleted, err := keyService.DeleteKeyInVault(r.Context(), keyID, vaultID)
+	// Use service layer for deletion; userID enforces ownership within the vault.
+	deleted, err := keyService.DeleteKeyInVault(r.Context(), keyID, vaultID, userID)
 	if err != nil {
 		if errors.Is(err, keyservices.ErrKeyNotFound) {
 			c.SetNotFound("key")
@@ -711,6 +709,12 @@ func wrapKey(c *Context, w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	vaultID, err := vaultIDFromRequest(r)
+	if err != nil {
+		c.SetInvalidParam("vault")
+		return
+	}
+
 	var req WrapKeyRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		c.SetInvalidParam("request body")
@@ -738,16 +742,19 @@ func wrapKey(c *Context, w http.ResponseWriter, r *http.Request) {
 	result, err := cryptoSvc.WrapKey(r.Context(), keyservices.WrapKeyRequest{
 		KeyID:        keyID,
 		UserID:       userID,
+		VaultID:      vaultID,
 		PlaintextKey: plaintextBytes,
 		Algorithm:    req.Algorithm,
 	})
 	if err != nil {
 		switch {
-		case strings.Contains(err.Error(), "forbidden") || strings.Contains(err.Error(), "revoked"):
+		case errors.Is(err, keyservices.ErrKeyForbidden) || errors.Is(err, keyservices.ErrKeyRevoked):
 			c.SetPermissionError("key_access")
-		case strings.Contains(err.Error(), "not found"):
+		case errors.Is(err, keyservices.ErrKeyNotFound):
 			c.SetNotFound("key")
-		case strings.Contains(err.Error(), "unsupported algorithm"):
+		case errors.Is(err, keyservices.ErrKeyLifecycleDenied):
+			c.SetPermissionError("key is disabled or outside its valid time window")
+		case errors.Is(err, keyservices.ErrUnsupportedAlgorithm):
 			c.SetInvalidParam("algorithm")
 		default:
 			c.SetInternalError(err)
@@ -781,6 +788,12 @@ func unwrapKey(c *Context, w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	vaultID, err := vaultIDFromRequest(r)
+	if err != nil {
+		c.SetInvalidParam("vault")
+		return
+	}
+
 	var req UnwrapKeyRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		c.SetInvalidParam("request body")
@@ -808,16 +821,19 @@ func unwrapKey(c *Context, w http.ResponseWriter, r *http.Request) {
 	result, err := cryptoSvc.UnwrapKey(r.Context(), keyservices.UnwrapKeyRequest{
 		KeyID:      keyID,
 		UserID:     userID,
+		VaultID:    vaultID,
 		WrappedKey: wrappedBytes,
 		Algorithm:  req.Algorithm,
 	})
 	if err != nil {
 		switch {
-		case strings.Contains(err.Error(), "forbidden") || strings.Contains(err.Error(), "revoked"):
+		case errors.Is(err, keyservices.ErrKeyForbidden) || errors.Is(err, keyservices.ErrKeyRevoked):
 			c.SetPermissionError("key_access")
-		case strings.Contains(err.Error(), "not found"):
+		case errors.Is(err, keyservices.ErrKeyNotFound):
 			c.SetNotFound("key")
-		case strings.Contains(err.Error(), "unsupported algorithm"):
+		case errors.Is(err, keyservices.ErrKeyLifecycleDenied):
+			c.SetPermissionError("key is disabled or outside its valid time window")
+		case errors.Is(err, keyservices.ErrUnsupportedAlgorithm):
 			c.SetInvalidParam("algorithm")
 		default:
 			c.SetInternalError(err)
@@ -851,6 +867,12 @@ func signKey(c *Context, w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	vaultID, err := vaultIDFromRequest(r)
+	if err != nil {
+		c.SetInvalidParam("vault")
+		return
+	}
+
 	var req SignKeyRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		c.SetInvalidParam("request body")
@@ -880,13 +902,18 @@ func signKey(c *Context, w http.ResponseWriter, r *http.Request) {
 		Data:      data,
 		Algorithm: crypto.SignatureAlgorithm(req.Algorithm),
 		UserID:    userID,
+		VaultID:   vaultID,
 	})
 	if err != nil {
 		switch {
-		case strings.Contains(err.Error(), "forbidden") || strings.Contains(err.Error(), "revoked"):
+		case errors.Is(err, keyservices.ErrKeyForbidden) || errors.Is(err, keyservices.ErrKeyRevoked):
 			c.SetPermissionError("key_access")
-		case strings.Contains(err.Error(), "not found"):
+		case errors.Is(err, keyservices.ErrKeyNotFound):
 			c.SetNotFound("key")
+		case errors.Is(err, keyservices.ErrKeyLifecycleDenied):
+			c.SetPermissionError("key is disabled or outside its valid time window")
+		case errors.Is(err, keyservices.ErrUnsupportedAlgorithm):
+			c.SetInvalidParam("algorithm")
 		default:
 			c.SetInternalError(err)
 		}
@@ -917,6 +944,12 @@ func verifyKey(c *Context, w http.ResponseWriter, r *http.Request) {
 	userID, err := uuid.Parse(userIDStr)
 	if err != nil {
 		c.SetInvalidParam("user_id")
+		return
+	}
+
+	vaultID, err := vaultIDFromRequest(r)
+	if err != nil {
+		c.SetInvalidParam("vault")
 		return
 	}
 
@@ -952,13 +985,18 @@ func verifyKey(c *Context, w http.ResponseWriter, r *http.Request) {
 		Signature: sig,
 		Algorithm: crypto.SignatureAlgorithm(req.Algorithm),
 		UserID:    userID,
+		VaultID:   vaultID,
 	})
 	if err != nil {
 		switch {
-		case strings.Contains(err.Error(), "forbidden") || strings.Contains(err.Error(), "revoked"):
+		case errors.Is(err, keyservices.ErrKeyForbidden) || errors.Is(err, keyservices.ErrKeyRevoked):
 			c.SetPermissionError("key_access")
-		case strings.Contains(err.Error(), "not found"):
+		case errors.Is(err, keyservices.ErrKeyNotFound):
 			c.SetNotFound("key")
+		case errors.Is(err, keyservices.ErrKeyLifecycleDenied):
+			c.SetPermissionError("key is disabled or outside its valid time window")
+		case errors.Is(err, keyservices.ErrUnsupportedAlgorithm):
+			c.SetInvalidParam("algorithm")
 		default:
 			c.SetInternalError(err)
 		}
@@ -992,6 +1030,12 @@ func encryptKey(c *Context, w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	vaultID, err := vaultIDFromRequest(r)
+	if err != nil {
+		c.SetInvalidParam("vault")
+		return
+	}
+
 	var req EncryptKeyRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		c.SetInvalidParam("request body")
@@ -1021,14 +1065,17 @@ func encryptKey(c *Context, w http.ResponseWriter, r *http.Request) {
 		Data:      plaintext,
 		Algorithm: crypto.EncryptionAlgorithm(req.Algorithm),
 		UserID:    userID,
+		VaultID:   vaultID,
 	})
 	if err != nil {
 		switch {
-		case strings.Contains(err.Error(), "forbidden") || strings.Contains(err.Error(), "revoked"):
+		case errors.Is(err, keyservices.ErrKeyForbidden) || errors.Is(err, keyservices.ErrKeyRevoked):
 			c.SetPermissionError("key_access")
-		case strings.Contains(err.Error(), "not found"):
+		case errors.Is(err, keyservices.ErrKeyNotFound):
 			c.SetNotFound("key")
-		case strings.Contains(err.Error(), "unsupported"):
+		case errors.Is(err, keyservices.ErrKeyLifecycleDenied):
+			c.SetPermissionError("key is disabled or outside its valid time window")
+		case errors.Is(err, keyservices.ErrUnsupportedAlgorithm):
 			c.SetInvalidParam("algorithm")
 		default:
 			c.SetInternalError(err)
@@ -1068,6 +1115,12 @@ func decryptKey(c *Context, w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	vaultID, err := vaultIDFromRequest(r)
+	if err != nil {
+		c.SetInvalidParam("vault")
+		return
+	}
+
 	var req DecryptKeyRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		c.SetInvalidParam("request body")
@@ -1104,14 +1157,17 @@ func decryptKey(c *Context, w http.ResponseWriter, r *http.Request) {
 		Nonce:      nonce,
 		Algorithm:  crypto.EncryptionAlgorithm(req.Algorithm),
 		UserID:     userID,
+		VaultID:    vaultID,
 	})
 	if err != nil {
 		switch {
-		case strings.Contains(err.Error(), "forbidden") || strings.Contains(err.Error(), "revoked"):
+		case errors.Is(err, keyservices.ErrKeyForbidden) || errors.Is(err, keyservices.ErrKeyRevoked):
 			c.SetPermissionError("key_access")
-		case strings.Contains(err.Error(), "not found"):
+		case errors.Is(err, keyservices.ErrKeyNotFound):
 			c.SetNotFound("key")
-		case strings.Contains(err.Error(), "unsupported"):
+		case errors.Is(err, keyservices.ErrKeyLifecycleDenied):
+			c.SetPermissionError("key is disabled or outside its valid time window")
+		case errors.Is(err, keyservices.ErrUnsupportedAlgorithm):
 			c.SetInvalidParam("algorithm")
 		default:
 			c.SetInternalError(err)

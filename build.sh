@@ -191,6 +191,12 @@ build_current() {
 
     command -v file &>/dev/null && file "${output}"
     log_info "Binary size: $(du -h "${output}" | cut -f1)"
+
+    # Convenience symlink in the project root (skip on Windows).
+    if [[ "$OSTYPE" != "msys" && "$OSTYPE" != "win32" ]]; then
+        ln -sf "${BUILD_DIR}/${BINARY_NAME}" "./${BINARY_NAME}"
+        log_info "Symlink: ./${BINARY_NAME} -> ${BUILD_DIR}/${BINARY_NAME}"
+    fi
 }
 
 build_all() {
@@ -304,6 +310,7 @@ EOF
 clean() {
     log_info "Cleaning build artifacts..."
     rm -rf "${BUILD_DIR}" "${DIST_DIR}" "${COVERAGE_DIR}"
+    rm -f "./${BINARY_NAME}"
     go clean -cache -testcache
     log_success "Clean complete."
 }

@@ -1043,7 +1043,7 @@ func TestUnwrapKey_ServiceSuccess_Returns200(t *testing.T) {
 func TestVerifyKey_Forbidden_Returns403(t *testing.T) {
 	svc := &stubCryptoSvc{
 		verifyFn: func(_ context.Context, _ keyServices.VerifyRequest) (*keyServices.VerifyResult, error) {
-			return nil, errors.New("forbidden: key access denied")
+			return nil, fmt.Errorf("%w: key access denied", keyServices.ErrKeyForbidden)
 		},
 	}
 	c := newCryptoContext(svc)
@@ -1108,7 +1108,7 @@ func TestVerifyKey_InvalidValueBase64_Returns400(t *testing.T) {
 func TestEncryptKey_Forbidden_Returns403(t *testing.T) {
 	svc := &stubCryptoSvc{
 		encryptFn: func(_ context.Context, _ keyServices.EncryptRequest) (*keyServices.EncryptResult, error) {
-			return nil, errors.New("forbidden: cannot encrypt with revoked key")
+			return nil, fmt.Errorf("%w: cannot encrypt with revoked key", keyServices.ErrKeyForbidden)
 		},
 	}
 	c := newCryptoContext(svc)
@@ -1129,7 +1129,7 @@ func TestEncryptKey_Forbidden_Returns403(t *testing.T) {
 func TestEncryptKey_NotFound_Returns404(t *testing.T) {
 	svc := &stubCryptoSvc{
 		encryptFn: func(_ context.Context, _ keyServices.EncryptRequest) (*keyServices.EncryptResult, error) {
-			return nil, errors.New("key not found: no rows in result set")
+			return nil, fmt.Errorf("%w: no rows in result set", keyServices.ErrKeyNotFound)
 		},
 	}
 	c := newCryptoContext(svc)
@@ -1186,7 +1186,7 @@ func TestDecryptKey_InvalidValueBase64_Returns400(t *testing.T) {
 func TestDecryptKey_UnsupportedAlgorithm_Returns400(t *testing.T) {
 	svc := &stubCryptoSvc{
 		decryptFn: func(_ context.Context, _ keyServices.DecryptRequest) (*keyServices.DecryptResult, error) {
-			return nil, fmt.Errorf("unsupported algorithm: FOOBAR")
+			return nil, fmt.Errorf("%w: FOOBAR", keyServices.ErrUnsupportedAlgorithm)
 		},
 	}
 	c := newCryptoContext(svc)
@@ -1212,21 +1212,21 @@ func TestDecryptKey_UnsupportedAlgorithm_Returns400(t *testing.T) {
 type forbiddenWrapCryptoSvc struct{ stubCryptoSvc }
 
 func (s *forbiddenWrapCryptoSvc) WrapKey(_ context.Context, _ keyServices.WrapKeyRequest) (*keyServices.WrapKeyResult, error) {
-	return nil, errors.New("forbidden: key access denied")
+	return nil, fmt.Errorf("%w: key access denied", keyServices.ErrKeyForbidden)
 }
 
 // notFoundWrapCryptoSvc returns "not found" from WrapKey.
 type notFoundWrapCryptoSvc struct{ stubCryptoSvc }
 
 func (s *notFoundWrapCryptoSvc) WrapKey(_ context.Context, _ keyServices.WrapKeyRequest) (*keyServices.WrapKeyResult, error) {
-	return nil, errors.New("key not found: no rows")
+	return nil, fmt.Errorf("%w: no rows", keyServices.ErrKeyNotFound)
 }
 
 // unsupportedAlgWrapCryptoSvc returns "unsupported algorithm" from WrapKey.
 type unsupportedAlgWrapCryptoSvc struct{ stubCryptoSvc }
 
 func (s *unsupportedAlgWrapCryptoSvc) WrapKey(_ context.Context, _ keyServices.WrapKeyRequest) (*keyServices.WrapKeyResult, error) {
-	return nil, errors.New("unsupported algorithm: BADALGXYZ")
+	return nil, fmt.Errorf("%w: BADALGXYZ", keyServices.ErrUnsupportedAlgorithm)
 }
 
 // successWrapCryptoSvc returns a valid result from WrapKey.
@@ -1243,7 +1243,7 @@ func (s *successWrapCryptoSvc) WrapKey(_ context.Context, req keyServices.WrapKe
 type forbiddenUnwrapCryptoSvc struct{ stubCryptoSvc }
 
 func (s *forbiddenUnwrapCryptoSvc) UnwrapKey(_ context.Context, _ keyServices.UnwrapKeyRequest) (*keyServices.UnwrapKeyResult, error) {
-	return nil, errors.New("forbidden: key access revoked")
+	return nil, fmt.Errorf("%w: key access revoked", keyServices.ErrKeyForbidden)
 }
 
 // successUnwrapCryptoSvc returns a valid result from UnwrapKey.

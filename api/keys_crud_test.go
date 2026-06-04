@@ -106,7 +106,7 @@ func (m *mockKeyService) ListKeysInVault(ctx context.Context, vaultID uuid.UUID,
 	return args.Get(0).([]model.Key), args.Error(1)
 }
 
-func (m *mockKeyService) DeleteKeyInVault(ctx context.Context, keyID, vaultID uuid.UUID) (*model.Key, error) {
+func (m *mockKeyService) DeleteKeyInVault(ctx context.Context, keyID, vaultID, userID uuid.UUID) (*model.Key, error) {
 	args := m.Called(ctx, keyID, vaultID)
 	if args.Get(0) == nil {
 		return nil, args.Error(1)

@@ -28,6 +28,16 @@ var ErrKeyNotFound = errors.New("key not found")
 // outside its valid time window (not_before / expires_at).
 var ErrKeyLifecycleDenied = errors.New("key is disabled or outside its valid time window")
 
+// ErrKeyForbidden is returned when the caller does not own the key or the key
+// does not belong to the requested vault.
+var ErrKeyForbidden = errors.New("forbidden: key access denied")
+
+// ErrKeyRevoked is returned when the caller attempts to use a revoked key.
+var ErrKeyRevoked = errors.New("key is revoked")
+
+// ErrUnsupportedAlgorithm is returned when an unsupported algorithm is requested.
+var ErrUnsupportedAlgorithm = errors.New("unsupported algorithm")
+
 // CreateKeyRequest represents a request to create a new cryptographic key.
 type CreateKeyRequest struct {
 	Name      string
@@ -88,7 +98,8 @@ type KeyService interface {
 	// ListKeysInVault lists keys scoped to the given vault, optionally filtered by type and tags.
 	ListKeysInVault(ctx context.Context, vaultID uuid.UUID, keyType string, tags []string) ([]model.Key, error)
 	// DeleteKeyInVault soft-deletes a key scoped to the given vault.
-	DeleteKeyInVault(ctx context.Context, keyID, vaultID uuid.UUID) (*model.Key, error)
+	// userID is used to enforce ownership; pass uuid.Nil to skip the check (admin/cascade ops).
+	DeleteKeyInVault(ctx context.Context, keyID, vaultID, userID uuid.UUID) (*model.Key, error)
 	RotateKey(ctx context.Context, keyID, userID uuid.UUID) (*CreateKeyResult, error)
 	ValidateKeyAccess(ctx context.Context, keyID, userID uuid.UUID, role string) error
 }
@@ -415,10 +426,16 @@ func (s *keyService) ListKeysInVault(ctx context.Context, vaultID uuid.UUID, key
 
 // DeleteKeyInVault soft-deletes a key scoped to a vault. It mirrors DeleteKey
 // but verifies vault scope via ReadInVault instead of ownership.
-func (s *keyService) DeleteKeyInVault(ctx context.Context, keyID, vaultID uuid.UUID) (*model.Key, error) {
+func (s *keyService) DeleteKeyInVault(ctx context.Context, keyID, vaultID, userID uuid.UUID) (*model.Key, error) {
 	key, err := s.keyRepo.ReadInVault(ctx, keyID, vaultID)
 	if err != nil {
 		return nil, fmt.Errorf("%w: %s", ErrKeyNotFound, err.Error())
+	}
+
+	// Enforce ownership unless caller explicitly opts out (uuid.Nil = admin/cascade).
+	if userID != uuid.Nil && key.UserID != userID {
+		s.logger.LogAuditError(userID.String(), "delete_key", "forbidden", "key does not belong to user", nil)
+		return nil, fmt.Errorf("%w", ErrKeyForbidden)
 	}
 
 	if err := s.keyRepo.SoftDelete(ctx, keyID); err != nil {
@@ -506,10 +523,14 @@ func (s *keyService) ListKeysWithFilters(ctx context.Context, userID *uuid.UUID,
 func (s *keyService) UpdateKey(ctx context.Context, req UpdateKeyRequest) error {
 	logrus.WithField("key_id", req.KeyID.String()).Info("Updating key")
 
-	// Verify key exists and access
-	key, err := s.GetKey(ctx, req.KeyID, req.UserID)
+	// Read directly so operators can update disabled/expired keys (e.g. re-enable them).
+	key, err := s.keyRepo.Read(ctx, req.KeyID)
 	if err != nil {
-		return fmt.Errorf("update key: %w", err)
+		return fmt.Errorf("%w: %s", ErrKeyNotFound, err.Error())
+	}
+	if key.UserID != req.UserID {
+		s.logger.LogAuditError(req.UserID.String(), "update_key", "forbidden", "key does not belong to user", nil)
+		return fmt.Errorf("%w", ErrKeyForbidden)
 	}
 
 	// Prepare updated key
@@ -520,8 +541,8 @@ func (s *keyService) UpdateKey(ctx context.Context, req UpdateKeyRequest) error 
 		updatedKey.Name = *req.Name
 	}
 
-	// Update tags if provided
-	if len(req.Tags) > 0 {
+	// Update tags if provided; non-nil empty slice clears all tags.
+	if req.Tags != nil {
 		updatedKey.Tags = req.Tags
 	}
 
