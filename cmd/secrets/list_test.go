@@ -198,9 +198,8 @@ func TestListSecretsOutputFormat(t *testing.T) {
 	listCmd.SetOut(&output)
 	listCmd.SetErr(&output)
 	listCmd.SetContext(ctx)
-	listCmd.SetArgs([]string{})
 
-	execErr := listCmd.Execute()
+	execErr := listCmd.RunE(listCmd, []string{})
 	assert.NoError(t, execErr)
 
 	out := output.String()

@@ -371,8 +371,8 @@ func (r *CertificateRepository) Revoke(ctx context.Context, id uuid.UUID, serial
 
 		_, err = r.db.ExecContext(
 			ctx,
-			"INSERT INTO crl (user_id, serial_number, name, revoked_at) VALUES (?, ?, ?, ?)",
-			cert.UserID.String(), serialNumber, name, time.Now(),
+			"INSERT INTO crl (id, user_id, serial_number, name, revoked_at) VALUES (?, ?, ?, ?, ?)",
+			uuid.New().String(), cert.UserID.String(), serialNumber, name, time.Now(),
 		)
 		if err != nil {
 			r.log.LogAuditError(cert.UserID.String(), "revoke_certificate", "failed", "Failed to insert into CRL", err)

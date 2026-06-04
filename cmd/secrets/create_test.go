@@ -88,9 +88,8 @@ func TestCreateSecretCommand(t *testing.T) {
 			createCmd.SetContext(ctx)
 			createCmd.SetOut(&out)
 			createCmd.SetErr(&out)
-			createCmd.SetArgs(tt.args)
 
-			err := createCmd.Execute()
+			err := createCmd.RunE(createCmd, tt.args)
 
 			if tt.wantErr != "" {
 				require.Error(t, err)

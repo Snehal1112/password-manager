@@ -5,6 +5,7 @@ import (
 	"context"
 	"database/sql"
 	"testing"
+	"time"
 
 	_ "github.com/mattn/go-sqlite3"
 	"github.com/sirupsen/logrus"
@@ -14,6 +15,7 @@ import (
 
 	"rocketvault/config"
 	"rocketvault/internal/logging"
+	certServices "rocketvault/internal/services/certificates"
 	"rocketvault/internal/services/softdelete"
 )
 
@@ -216,4 +218,106 @@ func TestShutdown_WithPurgeScheduler_StopsCleanly(t *testing.T) {
 	bs := &bootstrap{purgeScheduler: ps}
 	err = bs.Shutdown(context.Background())
 	assert.NoError(t, err)
+}
+
+// TestShutdown_WithRenewalScheduler covers the renewalScheduler != nil branch.
+// We create the scheduler but do NOT Start() it so there is no goroutine that
+// would dereference the nil svc field; Stop() simply closes the done channel.
+func TestShutdown_WithRenewalScheduler_StopsCleanly(t *testing.T) {
+	t.Parallel()
+
+	logger := newTestLogger()
+	sched := certServices.NewCertificateRenewalScheduler(nil, logger, 24*time.Hour)
+
+	bs := &bootstrap{renewalScheduler: sched}
+	err := bs.Shutdown(context.Background())
+	assert.NoError(t, err)
+}
+
+// TestDatabaseInitializer_Initialize covers the Initialize method with a valid SQLite DB.
+func TestDatabaseInitializer_Initialize_WithSQLite(t *testing.T) {
+	viper.Set("database.connection", ":memory:")
+	defer viper.Reset()
+
+	logger := newTestLogger()
+	di := NewDatabaseInitializer(logger)
+	serverCfg := &config.Config{Logger: logger}
+
+	repo, err := di.Initialize(serverCfg)
+	require.NoError(t, err)
+	require.NotNil(t, repo)
+}
+
+// TestDatabaseInitializer_Initialize_MissingConnection covers the error path.
+func TestDatabaseInitializer_Initialize_MissingConnection(t *testing.T) {
+	viper.Reset()
+	defer viper.Reset()
+
+	logger := newTestLogger()
+	di := NewDatabaseInitializer(logger)
+	serverCfg := &config.Config{Logger: logger}
+
+	_, err := di.Initialize(serverCfg)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "failed to initialize database")
+}
+
+// TestBoot_ValidationFailure covers Boot + early-exit path through setup.
+func TestBoot_ValidationFailure(t *testing.T) {
+	logger := newTestLogger()
+	serverCfg := &config.Config{Logger: logger}
+
+	// DatabaseName empty → Validate returns an error.
+	cfg := &Config{
+		DatabaseName: "",
+		Listen:       ":8080",
+		Logger:       logrus.New(),
+	}
+
+	shutdownFn, err := Boot(context.Background(), cfg, serverCfg)
+	require.Error(t, err)
+	assert.Nil(t, shutdownFn)
+	assert.Contains(t, err.Error(), "database name is required")
+}
+
+// TestBoot_FullStack exercises the complete happy path of setup() by using a
+// SQLite in-memory database and a listen address that immediately fails
+// (ServerStarter.Start ignores the error, so Boot still succeeds).
+func TestBoot_FullStack(t *testing.T) {
+	viper.Reset()
+	viper.Set("database.connection", ":memory:")
+	viper.Set("jwt_secret", "test-super-secret-jwt-key-at-least-32-chars")
+	viper.Set("jwt.expiry", "15m")
+	viper.Set("soft_delete.enabled", false) // Skip purge scheduler goroutine.
+	defer viper.Reset()
+
+	logger := newTestLogger()
+	serverCfg := &config.Config{
+		Logger: logger,
+		SoftDelete: config.SoftDeleteConfig{
+			Enabled:       false,
+			RetentionDays: 30,
+		},
+	}
+
+	cfg := &Config{
+		DatabaseName: "test-db",
+		// Port 99999 is out of valid range — net.Listen fails immediately and
+		// the error is swallowed by ServerStarter.Start, so Boot returns nil.
+		Listen:   "localhost:99999",
+		BasePath: "/",
+		Logger:   logrus.New(),
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	shutdownFn, err := Boot(ctx, cfg, serverCfg)
+	require.NoError(t, err)
+	require.NotNil(t, shutdownFn)
+
+	// Trigger graceful shutdown and verify it completes without error.
+	cancel()
+	shutdownErr := shutdownFn(context.Background())
+	assert.NoError(t, shutdownErr)
 }
