@@ -32,6 +32,8 @@ func (m *mockFetcher) GetMany(_ context.Context, names []string) (map[string]str
 	return out, nil
 }
 
+// ----- NewSecretsInitializer -----
+
 func TestSecretsInitializer_InjectsIntoViper(t *testing.T) {
 	t.Cleanup(func() {
 		viper.Reset()
@@ -73,4 +75,70 @@ func TestSecretsInitializer_ErrAuthFailed_IsUnwrappable(t *testing.T) {
 
 	require.Error(t, err)
 	assert.ErrorIs(t, err, vaultclient.ErrAuthFailed)
+}
+
+// ----- NewSecretsInitializerFromMappings -----
+
+func TestNewSecretsInitializerFromMappings_Success(t *testing.T) {
+	t.Cleanup(func() { viper.Reset() })
+
+	mock := &mockFetcher{results: map[string]string{
+		"DB_PASS": "secret-db",
+	}}
+
+	mappings := []vaultclient.SecretMapping{
+		{Name: "DB_PASS", UUID: "some-uuid", ViperKey: "database.password"},
+		// Entry with empty ViperKey should be ignored.
+		{Name: "IGNORED", UUID: "another-uuid", ViperKey: ""},
+	}
+
+	si := bootstrap.NewSecretsInitializerFromMappings(mock, mappings)
+	require.NotNil(t, si)
+
+	err := si.Initialize(context.Background())
+	require.NoError(t, err)
+	assert.Equal(t, "secret-db", viper.GetString("database.password"))
+}
+
+func TestNewSecretsInitializerFromMappings_EmptyMappings(t *testing.T) {
+	t.Cleanup(func() { viper.Reset() })
+
+	mock := &mockFetcher{results: map[string]string{}}
+	si := bootstrap.NewSecretsInitializerFromMappings(mock, nil)
+	require.NotNil(t, si)
+
+	// Initialize with zero mappings is a no-op — no error expected.
+	err := si.Initialize(context.Background())
+	require.NoError(t, err)
+}
+
+func TestNewSecretsInitializerFromMappings_FetcherError(t *testing.T) {
+	t.Cleanup(func() { viper.Reset() })
+
+	mock := &mockFetcher{err: errors.New("connection refused")}
+	mappings := []vaultclient.SecretMapping{
+		{Name: "JWT_SECRET", UUID: "uuid-1", ViperKey: "jwt_secret"},
+	}
+
+	si := bootstrap.NewSecretsInitializerFromMappings(mock, mappings)
+	err := si.Initialize(context.Background())
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "secrets initializer")
+}
+
+func TestNewSecretsInitializerFromMappings_IgnoresEntryWithoutViperKey(t *testing.T) {
+	t.Cleanup(func() { viper.Reset() })
+
+	// Fetcher returns nothing for empty-ViperKey entries (they're skipped at
+	// construction time, so GetMany won't even be called for them).
+	mock := &mockFetcher{results: map[string]string{}}
+
+	mappings := []vaultclient.SecretMapping{
+		{Name: "NO_KEY", UUID: "uuid-x", ViperKey: ""},
+	}
+
+	si := bootstrap.NewSecretsInitializerFromMappings(mock, mappings)
+	// All mappings filtered out → GetMany is called with an empty slice → no error.
+	err := si.Initialize(context.Background())
+	require.NoError(t, err)
 }

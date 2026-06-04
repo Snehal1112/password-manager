@@ -1,0 +1,743 @@
+package users
+
+import (
+	"context"
+	"errors"
+	"testing"
+	"time"
+
+	"github.com/google/uuid"
+	"github.com/pquerna/otp"
+	"github.com/pquerna/otp/totp"
+	"github.com/sirupsen/logrus"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/mock"
+	"github.com/stretchr/testify/require"
+
+	"rocketvault/internal/logging"
+	"rocketvault/model"
+)
+
+// ---------------------------------------------------------------------------
+// Mock: UserRepositoryInterface
+// ---------------------------------------------------------------------------
+
+type mockUserRepository struct {
+	mock.Mock
+}
+
+func (m *mockUserRepository) Create(ctx context.Context, user *model.User) error {
+	return m.Called(ctx, user).Error(0)
+}
+
+func (m *mockUserRepository) Read(ctx context.Context, id uuid.UUID) (*model.User, error) {
+	args := m.Called(ctx, id)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).(*model.User), args.Error(1)
+}
+
+func (m *mockUserRepository) Update(ctx context.Context, user *model.User) error {
+	return m.Called(ctx, user).Error(0)
+}
+
+func (m *mockUserRepository) Delete(ctx context.Context, id uuid.UUID) error {
+	return m.Called(ctx, id).Error(0)
+}
+
+func (m *mockUserRepository) ReadByUsername(ctx context.Context, username string) (model.User, error) {
+	args := m.Called(ctx, username)
+	return args.Get(0).(model.User), args.Error(1)
+}
+
+func (m *mockUserRepository) List(ctx context.Context) ([]model.User, error) {
+	args := m.Called(ctx)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).([]model.User), args.Error(1)
+}
+
+func (m *mockUserRepository) ValidateBootstrapToken(ctx context.Context, token string) (bool, error) {
+	args := m.Called(ctx, token)
+	return args.Bool(0), args.Error(1)
+}
+
+func (m *mockUserRepository) InvalidateBootstrapToken(ctx context.Context, token string) error {
+	return m.Called(ctx, token).Error(0)
+}
+
+// ---------------------------------------------------------------------------
+// Mock: PasswordService
+// ---------------------------------------------------------------------------
+
+type mockPasswordService struct {
+	mock.Mock
+}
+
+func (m *mockPasswordService) HashPassword(password string) (string, error) {
+	args := m.Called(password)
+	return args.String(0), args.Error(1)
+}
+
+func (m *mockPasswordService) ValidatePassword(password, hash string) error {
+	return m.Called(password, hash).Error(0)
+}
+
+// ---------------------------------------------------------------------------
+// Mock: TOTPService
+// ---------------------------------------------------------------------------
+
+type mockTOTPService struct {
+	mock.Mock
+}
+
+func (m *mockTOTPService) GenerateSecret(issuer, accountName string) (*otp.Key, error) {
+	args := m.Called(issuer, accountName)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).(*otp.Key), args.Error(1)
+}
+
+func (m *mockTOTPService) ValidateCode(code, secret string, currentTime time.Time) (bool, error) {
+	args := m.Called(code, secret, currentTime)
+	return args.Bool(0), args.Error(1)
+}
+
+func (m *mockTOTPService) GenerateCode(secret string, currentTime time.Time) (string, error) {
+	args := m.Called(secret, currentTime)
+	return args.String(0), args.Error(1)
+}
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+func testLogger() *logging.Logger {
+	return &logging.Logger{Logger: logrus.New()}
+}
+
+// realTOTPKey generates a genuine *otp.Key so the mock can return something
+// the service can call .Secret() and .URL() on.
+func realTOTPKey(t *testing.T) *otp.Key {
+	t.Helper()
+	key, err := totp.Generate(totp.GenerateOpts{
+		Issuer:      "Test",
+		AccountName: "user",
+	})
+	require.NoError(t, err)
+	return key
+}
+
+func newService(
+	repo *mockUserRepository,
+	pw *mockPasswordService,
+	totpSvc *mockTOTPService,
+) UserService {
+	return NewUserService(UserServiceConfig{
+		UserRepository:  repo,
+		PasswordService: pw,
+		TOTPService:     totpSvc,
+		Logger:          testLogger(),
+	})
+}
+
+// ---------------------------------------------------------------------------
+// CreateUser tests
+// ---------------------------------------------------------------------------
+
+// 1. Non-admin caller is forbidden.
+func TestCreateUser_NonAdmin_Forbidden(t *testing.T) {
+	t.Parallel()
+	repo := &mockUserRepository{}
+	pw := &mockPasswordService{}
+	totpSvc := &mockTOTPService{}
+	svc := newService(repo, pw, totpSvc)
+
+	req := CreateUserRequest{
+		Username:   "bob",
+		Password:   "pass",
+		Role:       model.RoleUser,
+		CallerRole: model.RoleUser, // not admin
+	}
+
+	result, err := svc.CreateUser(context.Background(), req)
+
+	assert.Nil(t, result)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "forbidden")
+	repo.AssertNotCalled(t, "Create")
+}
+
+// 2. HashPassword failure propagates.
+func TestCreateUser_HashPasswordFails(t *testing.T) {
+	t.Parallel()
+	repo := &mockUserRepository{}
+	pw := &mockPasswordService{}
+	totpSvc := &mockTOTPService{}
+	svc := newService(repo, pw, totpSvc)
+
+	pw.On("HashPassword", "pass").Return("", errors.New("bcrypt error"))
+
+	req := CreateUserRequest{
+		Username:   "alice",
+		Password:   "pass",
+		Role:       model.RoleUser,
+		CallerRole: model.RoleAdmin,
+	}
+
+	result, err := svc.CreateUser(context.Background(), req)
+
+	assert.Nil(t, result)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "failed to prepare user")
+	repo.AssertNotCalled(t, "Create")
+}
+
+// 3. GenerateSecret failure propagates.
+func TestCreateUser_GenerateSecretFails(t *testing.T) {
+	t.Parallel()
+	repo := &mockUserRepository{}
+	pw := &mockPasswordService{}
+	totpSvc := &mockTOTPService{}
+	svc := newService(repo, pw, totpSvc)
+
+	pw.On("HashPassword", "pass").Return("hashed", nil)
+	totpSvc.On("GenerateSecret", "PasswordManager", "alice").Return(nil, errors.New("totp error"))
+
+	req := CreateUserRequest{
+		Username:   "alice",
+		Password:   "pass",
+		Role:       model.RoleUser,
+		CallerRole: model.RoleAdmin,
+	}
+
+	result, err := svc.CreateUser(context.Background(), req)
+
+	assert.Nil(t, result)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "failed to generate TOTP secret")
+	repo.AssertNotCalled(t, "Create")
+}
+
+// 4. Repository Create failure propagates.
+func TestCreateUser_RepoCreateFails(t *testing.T) {
+	t.Parallel()
+	repo := &mockUserRepository{}
+	pw := &mockPasswordService{}
+	totpSvc := &mockTOTPService{}
+	svc := newService(repo, pw, totpSvc)
+
+	key := realTOTPKey(t)
+	pw.On("HashPassword", "pass").Return("hashed", nil)
+	totpSvc.On("GenerateSecret", "PasswordManager", "alice").Return(key, nil)
+	repo.On("Create", mock.Anything, mock.AnythingOfType("*model.User")).Return(errors.New("db error"))
+
+	req := CreateUserRequest{
+		Username:   "alice",
+		Password:   "pass",
+		Role:       model.RoleUser,
+		CallerRole: model.RoleAdmin,
+	}
+
+	result, err := svc.CreateUser(context.Background(), req)
+
+	assert.Nil(t, result)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "failed to create user")
+}
+
+// 5. Success path returns populated result.
+func TestCreateUser_Success(t *testing.T) {
+	t.Parallel()
+	repo := &mockUserRepository{}
+	pw := &mockPasswordService{}
+	totpSvc := &mockTOTPService{}
+	svc := newService(repo, pw, totpSvc)
+
+	key := realTOTPKey(t)
+	pw.On("HashPassword", "pass").Return("hashed", nil)
+	totpSvc.On("GenerateSecret", "PasswordManager", "alice").Return(key, nil)
+	repo.On("Create", mock.Anything, mock.AnythingOfType("*model.User")).Return(nil)
+
+	req := CreateUserRequest{
+		Username:   "alice",
+		Password:   "pass",
+		Role:       model.RoleAdmin,
+		CallerRole: model.RoleAdmin,
+	}
+
+	result, err := svc.CreateUser(context.Background(), req)
+
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	assert.Equal(t, "alice", result.Username)
+	assert.Equal(t, model.RoleAdmin, result.Role)
+	assert.NotEmpty(t, result.TOTPSecret)
+	assert.NotEqual(t, uuid.Nil, result.UserID)
+	repo.AssertExpectations(t)
+}
+
+// ---------------------------------------------------------------------------
+// UpdateUser tests
+// ---------------------------------------------------------------------------
+
+// 6. Role change by non-admin is forbidden.
+func TestUpdateUser_RoleChangeByNonAdmin_Forbidden(t *testing.T) {
+	t.Parallel()
+	repo := &mockUserRepository{}
+	pw := &mockPasswordService{}
+	totpSvc := &mockTOTPService{}
+	svc := newService(repo, pw, totpSvc)
+
+	newRole := model.RoleSecretsManager
+	req := UpdateUserRequest{
+		UserID:     uuid.New(),
+		CallerRole: model.RoleUser,
+		Role:       &newRole,
+	}
+
+	err := svc.UpdateUser(context.Background(), req)
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "forbidden")
+	repo.AssertNotCalled(t, "Read")
+}
+
+// 7. Invalid role value rejected.
+func TestUpdateUser_InvalidRole(t *testing.T) {
+	t.Parallel()
+	repo := &mockUserRepository{}
+	pw := &mockPasswordService{}
+	totpSvc := &mockTOTPService{}
+	svc := newService(repo, pw, totpSvc)
+
+	newRole := "super_hacker"
+	req := UpdateUserRequest{
+		UserID:     uuid.New(),
+		CallerRole: model.RoleAdmin,
+		Role:       &newRole,
+	}
+
+	err := svc.UpdateUser(context.Background(), req)
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "invalid role")
+}
+
+// 8. User not found (repo.Read fails).
+func TestUpdateUser_UserNotFound(t *testing.T) {
+	t.Parallel()
+	repo := &mockUserRepository{}
+	pw := &mockPasswordService{}
+	totpSvc := &mockTOTPService{}
+	svc := newService(repo, pw, totpSvc)
+
+	userID := uuid.New()
+	repo.On("Read", mock.Anything, userID).Return(nil, errors.New("user not found"))
+
+	req := UpdateUserRequest{
+		UserID:     userID,
+		CallerRole: model.RoleUser,
+	}
+
+	err := svc.UpdateUser(context.Background(), req)
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "user not found")
+}
+
+// 9. Password hash fails during update.
+func TestUpdateUser_PasswordHashFails(t *testing.T) {
+	t.Parallel()
+	repo := &mockUserRepository{}
+	pw := &mockPasswordService{}
+	totpSvc := &mockTOTPService{}
+	svc := newService(repo, pw, totpSvc)
+
+	userID := uuid.New()
+	existing := &model.User{
+		ID:       userID,
+		Username: "alice",
+		Role:     model.RoleUser,
+	}
+	repo.On("Read", mock.Anything, userID).Return(existing, nil)
+
+	newPw := "newpass"
+	pw.On("HashPassword", "newpass").Return("", errors.New("hash error"))
+
+	req := UpdateUserRequest{
+		UserID:     userID,
+		CallerRole: model.RoleUser,
+		Password:   &newPw,
+	}
+
+	err := svc.UpdateUser(context.Background(), req)
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "failed to hash password")
+}
+
+// 10. repo.Update fails.
+func TestUpdateUser_RepoUpdateFails(t *testing.T) {
+	t.Parallel()
+	repo := &mockUserRepository{}
+	pw := &mockPasswordService{}
+	totpSvc := &mockTOTPService{}
+	svc := newService(repo, pw, totpSvc)
+
+	userID := uuid.New()
+	existing := &model.User{
+		ID:       userID,
+		Username: "alice",
+		Role:     model.RoleUser,
+	}
+	repo.On("Read", mock.Anything, userID).Return(existing, nil)
+	repo.On("Update", mock.Anything, mock.AnythingOfType("*model.User")).Return(errors.New("db error"))
+
+	req := UpdateUserRequest{
+		UserID:     userID,
+		CallerRole: model.RoleUser,
+	}
+
+	err := svc.UpdateUser(context.Background(), req)
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "failed to update user")
+}
+
+// 11. Success with username change.
+func TestUpdateUser_SuccessUsernameChange(t *testing.T) {
+	t.Parallel()
+	repo := &mockUserRepository{}
+	pw := &mockPasswordService{}
+	totpSvc := &mockTOTPService{}
+	svc := newService(repo, pw, totpSvc)
+
+	userID := uuid.New()
+	existing := &model.User{
+		ID:       userID,
+		Username: "alice",
+		Role:     model.RoleUser,
+	}
+	repo.On("Read", mock.Anything, userID).Return(existing, nil)
+	repo.On("Update", mock.Anything, mock.MatchedBy(func(u *model.User) bool {
+		return u.Username == "alice_new"
+	})).Return(nil)
+
+	newUsername := "alice_new"
+	req := UpdateUserRequest{
+		UserID:     userID,
+		CallerRole: model.RoleUser,
+		Username:   &newUsername,
+	}
+
+	err := svc.UpdateUser(context.Background(), req)
+	require.NoError(t, err)
+	repo.AssertExpectations(t)
+}
+
+// 12. Success with role change (admin caller).
+func TestUpdateUser_SuccessRoleChange(t *testing.T) {
+	t.Parallel()
+	repo := &mockUserRepository{}
+	pw := &mockPasswordService{}
+	totpSvc := &mockTOTPService{}
+	svc := newService(repo, pw, totpSvc)
+
+	userID := uuid.New()
+	existing := &model.User{
+		ID:       userID,
+		Username: "alice",
+		Role:     model.RoleUser,
+	}
+	repo.On("Read", mock.Anything, userID).Return(existing, nil)
+	repo.On("Update", mock.Anything, mock.MatchedBy(func(u *model.User) bool {
+		return u.Role == model.RoleSecretsManager
+	})).Return(nil)
+
+	newRole := model.RoleSecretsManager
+	req := UpdateUserRequest{
+		UserID:     userID,
+		CallerRole: model.RoleAdmin,
+		Role:       &newRole,
+	}
+
+	err := svc.UpdateUser(context.Background(), req)
+	require.NoError(t, err)
+	repo.AssertExpectations(t)
+}
+
+// ---------------------------------------------------------------------------
+// GetUser tests
+// ---------------------------------------------------------------------------
+
+// 13. GetUser success.
+func TestGetUser_Success(t *testing.T) {
+	t.Parallel()
+	repo := &mockUserRepository{}
+	pw := &mockPasswordService{}
+	totpSvc := &mockTOTPService{}
+	svc := newService(repo, pw, totpSvc)
+
+	userID := uuid.New()
+	expected := &model.User{
+		ID:        userID,
+		Username:  "alice",
+		Role:      model.RoleUser,
+		CreatedAt: time.Now(),
+	}
+	repo.On("Read", mock.Anything, userID).Return(expected, nil)
+
+	result, err := svc.GetUser(context.Background(), userID)
+
+	require.NoError(t, err)
+	assert.Equal(t, expected, result)
+}
+
+// 14. GetUser not found.
+func TestGetUser_NotFound(t *testing.T) {
+	t.Parallel()
+	repo := &mockUserRepository{}
+	pw := &mockPasswordService{}
+	totpSvc := &mockTOTPService{}
+	svc := newService(repo, pw, totpSvc)
+
+	userID := uuid.New()
+	repo.On("Read", mock.Anything, userID).Return(nil, errors.New("user not found"))
+
+	result, err := svc.GetUser(context.Background(), userID)
+
+	assert.Nil(t, result)
+	require.Error(t, err)
+}
+
+// ---------------------------------------------------------------------------
+// GetUserByUsername tests
+// ---------------------------------------------------------------------------
+
+// 15. GetUserByUsername success.
+func TestGetUserByUsername_Success(t *testing.T) {
+	t.Parallel()
+	repo := &mockUserRepository{}
+	pw := &mockPasswordService{}
+	totpSvc := &mockTOTPService{}
+	svc := newService(repo, pw, totpSvc)
+
+	expected := model.User{
+		ID:       uuid.New(),
+		Username: "alice",
+		Role:     model.RoleUser,
+	}
+	repo.On("ReadByUsername", mock.Anything, "alice").Return(expected, nil)
+
+	result, err := svc.GetUserByUsername(context.Background(), "alice")
+
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	assert.Equal(t, expected.Username, result.Username)
+}
+
+// 16. GetUserByUsername not found.
+func TestGetUserByUsername_NotFound(t *testing.T) {
+	t.Parallel()
+	repo := &mockUserRepository{}
+	pw := &mockPasswordService{}
+	totpSvc := &mockTOTPService{}
+	svc := newService(repo, pw, totpSvc)
+
+	repo.On("ReadByUsername", mock.Anything, "ghost").Return(model.User{}, errors.New("user not found"))
+
+	result, err := svc.GetUserByUsername(context.Background(), "ghost")
+
+	assert.Nil(t, result)
+	require.Error(t, err)
+}
+
+// ---------------------------------------------------------------------------
+// ListUsers tests
+// ---------------------------------------------------------------------------
+
+// 17. ListUsers success with multiple users.
+func TestListUsers_Success(t *testing.T) {
+	t.Parallel()
+	repo := &mockUserRepository{}
+	pw := &mockPasswordService{}
+	totpSvc := &mockTOTPService{}
+	svc := newService(repo, pw, totpSvc)
+
+	users := []model.User{
+		{ID: uuid.New(), Username: "alice", Role: model.RoleAdmin},
+		{ID: uuid.New(), Username: "bob", Role: model.RoleUser},
+	}
+	repo.On("List", mock.Anything).Return(users, nil)
+
+	result, err := svc.ListUsers(context.Background())
+
+	require.NoError(t, err)
+	assert.Len(t, result, 2)
+}
+
+// 18. ListUsers returns empty slice.
+func TestListUsers_Empty(t *testing.T) {
+	t.Parallel()
+	repo := &mockUserRepository{}
+	pw := &mockPasswordService{}
+	totpSvc := &mockTOTPService{}
+	svc := newService(repo, pw, totpSvc)
+
+	repo.On("List", mock.Anything).Return([]model.User{}, nil)
+
+	result, err := svc.ListUsers(context.Background())
+
+	require.NoError(t, err)
+	assert.Empty(t, result)
+}
+
+// ---------------------------------------------------------------------------
+// DeleteUser tests
+// ---------------------------------------------------------------------------
+
+// 19. DeleteUser success.
+func TestDeleteUser_Success(t *testing.T) {
+	t.Parallel()
+	repo := &mockUserRepository{}
+	pw := &mockPasswordService{}
+	totpSvc := &mockTOTPService{}
+	svc := newService(repo, pw, totpSvc)
+
+	userID := uuid.New()
+	repo.On("Delete", mock.Anything, userID).Return(nil)
+
+	err := svc.DeleteUser(context.Background(), userID)
+	require.NoError(t, err)
+}
+
+// 20. DeleteUser repo delete fails.
+func TestDeleteUser_RepoFails(t *testing.T) {
+	t.Parallel()
+	repo := &mockUserRepository{}
+	pw := &mockPasswordService{}
+	totpSvc := &mockTOTPService{}
+	svc := newService(repo, pw, totpSvc)
+
+	userID := uuid.New()
+	repo.On("Delete", mock.Anything, userID).Return(errors.New("constraint error"))
+
+	err := svc.DeleteUser(context.Background(), userID)
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "failed to delete user")
+}
+
+// ---------------------------------------------------------------------------
+// ValidateBootstrapToken tests
+// ---------------------------------------------------------------------------
+
+// 21. ValidateBootstrapToken returns true for valid token.
+func TestValidateBootstrapToken_Valid(t *testing.T) {
+	t.Parallel()
+	repo := &mockUserRepository{}
+	pw := &mockPasswordService{}
+	totpSvc := &mockTOTPService{}
+	svc := newService(repo, pw, totpSvc)
+
+	repo.On("ValidateBootstrapToken", mock.Anything, "secret-token").Return(true, nil)
+
+	ok, err := svc.ValidateBootstrapToken(context.Background(), "secret-token")
+
+	require.NoError(t, err)
+	assert.True(t, ok)
+}
+
+// 22. ValidateBootstrapToken returns false for invalid/used token.
+func TestValidateBootstrapToken_Invalid(t *testing.T) {
+	t.Parallel()
+	repo := &mockUserRepository{}
+	pw := &mockPasswordService{}
+	totpSvc := &mockTOTPService{}
+	svc := newService(repo, pw, totpSvc)
+
+	repo.On("ValidateBootstrapToken", mock.Anything, "used-token").Return(false, nil)
+
+	ok, err := svc.ValidateBootstrapToken(context.Background(), "used-token")
+
+	require.NoError(t, err)
+	assert.False(t, ok)
+}
+
+// ---------------------------------------------------------------------------
+// InvalidateBootstrapToken tests
+// ---------------------------------------------------------------------------
+
+// 23. InvalidateBootstrapToken success.
+func TestInvalidateBootstrapToken_Success(t *testing.T) {
+	t.Parallel()
+	repo := &mockUserRepository{}
+	pw := &mockPasswordService{}
+	totpSvc := &mockTOTPService{}
+	svc := newService(repo, pw, totpSvc)
+
+	repo.On("InvalidateBootstrapToken", mock.Anything, "secret-token").Return(nil)
+
+	err := svc.InvalidateBootstrapToken(context.Background(), "secret-token")
+	require.NoError(t, err)
+}
+
+// 24. InvalidateBootstrapToken propagates error.
+func TestInvalidateBootstrapToken_Error(t *testing.T) {
+	t.Parallel()
+	repo := &mockUserRepository{}
+	pw := &mockPasswordService{}
+	totpSvc := &mockTOTPService{}
+	svc := newService(repo, pw, totpSvc)
+
+	repo.On("InvalidateBootstrapToken", mock.Anything, "bad-token").Return(errors.New("db error"))
+
+	err := svc.InvalidateBootstrapToken(context.Background(), "bad-token")
+	require.Error(t, err)
+}
+
+// ---------------------------------------------------------------------------
+// Additional all-valid-roles coverage for UpdateUser role validation.
+// ---------------------------------------------------------------------------
+
+func TestUpdateUser_AllValidRoles_Accepted(t *testing.T) {
+	t.Parallel()
+
+	validRoles := []string{
+		model.RoleAdmin,
+		model.RoleUser,
+		model.RoleSecretsManager,
+		model.RoleCryptoManager,
+		model.RoleCertificateManager,
+		model.RoleServiceAccount,
+	}
+
+	for _, role := range validRoles {
+		role := role // capture
+		t.Run(role, func(t *testing.T) {
+			t.Parallel()
+			repo := &mockUserRepository{}
+			pw := &mockPasswordService{}
+			totpSvc := &mockTOTPService{}
+			svc := newService(repo, pw, totpSvc)
+
+			userID := uuid.New()
+			existing := &model.User{ID: userID, Username: "alice", Role: model.RoleUser}
+			repo.On("Read", mock.Anything, userID).Return(existing, nil)
+			repo.On("Update", mock.Anything, mock.AnythingOfType("*model.User")).Return(nil)
+
+			r := role
+			req := UpdateUserRequest{
+				UserID:     userID,
+				CallerRole: model.RoleAdmin,
+				Role:       &r,
+			}
+			err := svc.UpdateUser(context.Background(), req)
+			require.NoError(t, err)
+		})
+	}
+}
