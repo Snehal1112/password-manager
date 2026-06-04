@@ -242,10 +242,11 @@ func TestListUsersWithServiceUnavailable(t *testing.T) {
 		Role: model.RoleAdmin,
 	})
 
-	listCmd.SetContext(ctx)
-	listCmd.SetArgs([]string{})
+	cmd := &cobra.Command{Use: "list", Args: cobra.NoArgs, RunE: listCmd.RunE}
+	cmd.SetContext(ctx)
+	cmd.SetArgs([]string{})
 
-	err := listCmd.Execute()
+	err := cmd.Execute()
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "service container not available")
 }
