@@ -66,6 +66,10 @@ func TestInitLogger_FileOpenFailure(t *testing.T) {
 	viper.Set("log.file", "/proc/nonexistent_dir/test.log")
 	logger := InitLogger()
 	require.NotNil(t, logger)
+	// Verify logger still functions after fallback — must not panic.
+	assert.NotPanics(t, func() {
+		logger.Info("fallback logger is operational")
+	})
 }
 
 // TestInitLogger_LumberjackFileOpenFailure verifies graceful fallback when a
@@ -135,22 +139,28 @@ func TestRotateLogFile_EmptyFileNoOp(t *testing.T) {
 }
 
 // TestRotateLogFile_StatError verifies that a stat error (not IsNotExist) is
-// returned as an error.
+// returned as an error. We create a file inside a mode-000 directory so that
+// os.Stat returns EACCES rather than ENOENT.
 func TestRotateLogFile_StatError(t *testing.T) {
-	// /proc/1/fd is a directory; statting it won't be NotExist but the
-	// subsequent open-for-append will fail, so we use a known-invalid path
-	// that os.Stat returns an error other than IsNotExist for.
-	// The simplest approach: use a path under /proc where stat fails non-ENOENT.
-	// Actually on Linux, /proc/1/mem exists but may fail with EPERM — use that.
+	dir := t.TempDir()
+	logPath := dir + "/locked/test.log"
+
+	// Create the sub-directory and the file, then lock the sub-directory.
+	require.NoError(t, os.MkdirAll(dir+"/locked", 0o755))
+	require.NoError(t, os.WriteFile(logPath, []byte("data"), 0o600))
+	require.NoError(t, os.Chmod(dir+"/locked", 0o000))
+	t.Cleanup(func() { _ = os.Chmod(dir+"/locked", 0o755) })
+
 	l := &Logger{
 		Logger:         logrus.New(),
-		logFile:        "/proc/1/mem",
+		logFile:        logPath,
 		maxSizeBytes:   1,
 		rotationMethod: "custom",
 	}
 	err := l.RotateLogFile()
-	// Either no error (file under size) or an error — we just verify no panic.
-	_ = err
+	// os.Stat must fail with EACCES (not IsNotExist), so RotateLogFile must
+	// propagate that as an error.
+	assert.Error(t, err)
 }
 
 // TestRotateLogFile_UnderSizeNoOp verifies no rotation when file is under limit.
@@ -224,8 +234,11 @@ func TestStartPeriodicRotation_ExitsImmediatelyForEmptyFile(t *testing.T) {
 }
 
 // TestStartPeriodicRotation_CanBeCancelled verifies that the periodic rotation
-// goroutine stops when the context (indirectly via goroutine exit) is cancelled.
-// We start it in a goroutine and just ensure it doesn't panic at startup.
+// goroutine initialises without panic. StartPeriodicRotation blocks on a
+// 10-minute ticker indefinitely, so we run it in a goroutine and confirm it
+// reaches the blocking select within a short window. The goroutine itself is
+// intentionally left to the runtime GC — it holds no test-local state and the
+// ticker fires only after 10 minutes, so no race-detector violations occur.
 func TestStartPeriodicRotation_CanBeCancelled(t *testing.T) {
 	f, err := os.CreateTemp(t.TempDir(), "test*.log")
 	require.NoError(t, err)
@@ -240,14 +253,21 @@ func TestStartPeriodicRotation_CanBeCancelled(t *testing.T) {
 		rotationMethod: "custom",
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+	started := make(chan struct{})
+	go func() {
+		close(started) // Signal that the goroutine has been scheduled.
+		l.StartPeriodicRotation()
+	}()
+
+	// Wait until the goroutine is scheduled before returning from the test.
+	ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
 	defer cancel()
-
-	// Run in goroutine; the test just ensures no panic during startup.
-	go l.StartPeriodicRotation()
-
-	// Wait for context timeout.
-	<-ctx.Done()
+	select {
+	case <-started:
+		// Goroutine started successfully; no panic occurred.
+	case <-ctx.Done():
+		t.Fatal("goroutine did not start within timeout")
+	}
 }
 
 // TestYAMLFormatter_FormatEdge verifies that the formatter produces valid YAML output.
