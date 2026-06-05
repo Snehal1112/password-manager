@@ -90,10 +90,9 @@ func TestOpenDatabase_PoolConfigureInvalidMaxOpen(t *testing.T) {
 		},
 	}
 	db, err := repo.OpenDatabase(cfg)
-	if err == nil {
-		require.NotNil(t, db)
-		db.Close()
-	}
+	require.NoError(t, err)
+	require.NotNil(t, db)
+	db.Close()
 }
 
 // ---------------------------------------------------------------------------

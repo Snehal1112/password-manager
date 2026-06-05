@@ -26,12 +26,13 @@ func testLogger() *logging.Logger {
 	return &logging.Logger{Logger: logrus.New()}
 }
 
-func setupMasterKey() {
+func setupMasterKey(t *testing.T) {
 	k := make([]byte, 32)
 	for i := range k {
 		k[i] = byte(i + 1)
 	}
 	viper.Set("master_key", base64.StdEncoding.EncodeToString(k))
+	t.Cleanup(viper.Reset)
 }
 
 // ─── UpdateKey ───────────────────────────────────────────────────────────────
@@ -207,7 +208,7 @@ func TestRotateKey_GenerationError(t *testing.T) {
 }
 
 func TestRotateKey_ListVersionsError(t *testing.T) {
-	setupMasterKey()
+	setupMasterKey(t)
 
 	repo := &mockKeyRepository{}
 	keyID := uuid.New()
@@ -225,7 +226,7 @@ func TestRotateKey_ListVersionsError(t *testing.T) {
 }
 
 func TestRotateKey_SuccessWithVersionArchive(t *testing.T) {
-	setupMasterKey()
+	setupMasterKey(t)
 
 	repo := &mockKeyRepository{}
 	keyID := uuid.New()
@@ -253,7 +254,7 @@ func TestRotateKey_SuccessWithVersionArchive(t *testing.T) {
 }
 
 func TestRotateKey_ECDSAKey(t *testing.T) {
-	setupMasterKey()
+	setupMasterKey(t)
 
 	repo := &mockKeyRepository{}
 	keyID := uuid.New()
@@ -278,7 +279,7 @@ func TestRotateKey_ECDSAKey(t *testing.T) {
 }
 
 func TestRotateKey_ES256KKey(t *testing.T) {
-	setupMasterKey()
+	setupMasterKey(t)
 
 	repo := &mockKeyRepository{}
 	keyID := uuid.New()
@@ -305,7 +306,7 @@ func TestRotateKey_ES256KKey(t *testing.T) {
 // ─── CryptoService error paths ───────────────────────────────────────────────
 
 func TestCryptoService_Sign_ResolveKeyMaterialError(t *testing.T) {
-	setupMasterKey()
+	setupMasterKey(t)
 
 	repo := &mockKeyRepoForExtendedCrypto{}
 	keyID := uuid.New()
@@ -326,7 +327,7 @@ func TestCryptoService_Sign_ResolveKeyMaterialError(t *testing.T) {
 }
 
 func TestCryptoService_Verify_ResolveKeyMaterialError(t *testing.T) {
-	setupMasterKey()
+	setupMasterKey(t)
 
 	repo := &mockKeyRepoForExtendedCrypto{}
 	keyID := uuid.New()
@@ -346,7 +347,7 @@ func TestCryptoService_Verify_ResolveKeyMaterialError(t *testing.T) {
 }
 
 func TestCryptoService_Encrypt_ResolveKeyMaterialError(t *testing.T) {
-	setupMasterKey()
+	setupMasterKey(t)
 
 	repo := &mockKeyRepoForExtendedCrypto{}
 	keyID := uuid.New()
@@ -366,7 +367,7 @@ func TestCryptoService_Encrypt_ResolveKeyMaterialError(t *testing.T) {
 }
 
 func TestCryptoService_Decrypt_ResolveKeyMaterialError(t *testing.T) {
-	setupMasterKey()
+	setupMasterKey(t)
 
 	repo := &mockKeyRepoForExtendedCrypto{}
 	keyID := uuid.New()
@@ -430,7 +431,7 @@ func TestCryptoService_UnwrapKey_KeyNotFound(t *testing.T) {
 }
 
 func TestCryptoService_WrapKey_OperationFails(t *testing.T) {
-	setupMasterKey()
+	setupMasterKey(t)
 
 	repo := &mockKeyRepoForExtendedCrypto{}
 	keyID := uuid.New()
@@ -447,7 +448,7 @@ func TestCryptoService_WrapKey_OperationFails(t *testing.T) {
 }
 
 func TestCryptoService_UnwrapKey_OperationFails(t *testing.T) {
-	setupMasterKey()
+	setupMasterKey(t)
 
 	repo := &mockKeyRepoForExtendedCrypto{}
 	keyID := uuid.New()
