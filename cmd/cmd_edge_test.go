@@ -20,6 +20,7 @@ import (
 
 	"rocketvault/common"
 	"rocketvault/internal/backup"
+	"rocketvault/internal/db"
 	"rocketvault/internal/logging"
 )
 
@@ -57,41 +58,48 @@ func backupContext(db *sql.DB, logger *logging.Logger) context.Context {
 // ---------------------------------------------------------------------------
 
 func TestRunBackupList_EmptyDir(t *testing.T) {
-	db := newTestDB(t)
+	sqlDB := newTestDB(t)
 	logger := newTestLogger()
 	dir := t.TempDir()
+
+	orig := backupListDir
+	t.Cleanup(func() { backupListDir = orig })
 	backupListDir = dir
 
 	cmd := &cobra.Command{Use: "list", RunE: backupListCmd.RunE}
 	cmd.Flags().StringVarP(&backupListDir, "dir", "d", dir, "")
-	cmd.SetContext(backupContext(db, logger))
+	cmd.SetContext(backupContext(sqlDB, logger))
 
 	// Redirect stdout to suppress output.
 	origStdout := os.Stdout
-	devNull, _ := os.Open(os.DevNull)
+	devNull, err := os.Open(os.DevNull)
+	require.NoError(t, err)
 	os.Stdout = devNull
 	defer func() {
 		os.Stdout = origStdout
 		devNull.Close()
 	}()
 
-	err := cmd.RunE(cmd, []string{})
+	err = cmd.RunE(cmd, []string{})
 	assert.NoError(t, err)
 }
 
 func TestRunBackupList_NonExistentDir(t *testing.T) {
-	db := newTestDB(t)
+	sqlDB := newTestDB(t)
 	logger := newTestLogger()
 	// A path that does not exist; ListBackups uses filepath.Glob which returns
 	// no matches rather than an error on a missing dir, so we still expect no error.
+	origListDir := backupListDir
+	t.Cleanup(func() { backupListDir = origListDir })
 	backupListDir = filepath.Join(t.TempDir(), "does_not_exist")
 
 	cmd := &cobra.Command{Use: "list", RunE: backupListCmd.RunE}
 	cmd.Flags().StringVarP(&backupListDir, "dir", "d", backupListDir, "")
-	cmd.SetContext(backupContext(db, logger))
+	cmd.SetContext(backupContext(sqlDB, logger))
 
 	origStdout := os.Stdout
-	devNull, _ := os.Open(os.DevNull)
+	devNull, err := os.Open(os.DevNull)
+	require.NoError(t, err)
 	os.Stdout = devNull
 	defer func() {
 		os.Stdout = origStdout
@@ -100,7 +108,7 @@ func TestRunBackupList_NonExistentDir(t *testing.T) {
 
 	// filepath.Glob returns nil,nil for a pattern that matches nothing, so this
 	// should succeed without error.
-	err := cmd.RunE(cmd, []string{})
+	err = cmd.RunE(cmd, []string{})
 	assert.NoError(t, err)
 }
 
@@ -109,34 +117,42 @@ func TestRunBackupList_NonExistentDir(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestRunBackupCreate_UnencryptedToTempDir(t *testing.T) {
-	db := newTestDB(t)
+	sqlDB := newTestDB(t)
 	logger := newTestLogger()
 	tmpDir := t.TempDir()
 	outFile := filepath.Join(tmpDir, "test.backup")
+
+	origOutput := backupOutput
+	origEncrypt := backupEncrypt
+	t.Cleanup(func() {
+		backupOutput = origOutput
+		backupEncrypt = origEncrypt
+	})
 	backupOutput = outFile
 	backupEncrypt = false
 
 	cmd := &cobra.Command{Use: "create", RunE: backupCreateCmd.RunE}
 	cmd.Flags().StringVarP(&backupOutput, "output", "o", outFile, "")
 	cmd.Flags().BoolVar(&backupEncrypt, "encrypt", false, "")
-	cmd.SetContext(backupContext(db, logger))
+	cmd.SetContext(backupContext(sqlDB, logger))
 
 	origStdout := os.Stdout
-	devNull, _ := os.Open(os.DevNull)
+	devNull, err := os.Open(os.DevNull)
+	require.NoError(t, err)
 	os.Stdout = devNull
 	defer func() {
 		os.Stdout = origStdout
 		devNull.Close()
 	}()
 
-	err := cmd.RunE(cmd, []string{})
+	err = cmd.RunE(cmd, []string{})
 	assert.NoError(t, err)
 	_, statErr := os.Stat(outFile)
 	assert.NoError(t, statErr, "backup file should have been created")
 }
 
 func TestRunBackupCreate_DefaultOutputName(t *testing.T) {
-	db := newTestDB(t)
+	sqlDB := newTestDB(t)
 	logger := newTestLogger()
 	// Use a temp working dir so the auto-generated file lands somewhere safe.
 	tmpDir := t.TempDir()
@@ -145,23 +161,30 @@ func TestRunBackupCreate_DefaultOutputName(t *testing.T) {
 	defer os.Chdir(origDir) //nolint:errcheck
 
 	// Blank output triggers timestamp-based name generation.
+	origOutput := backupOutput
+	origEncrypt := backupEncrypt
+	t.Cleanup(func() {
+		backupOutput = origOutput
+		backupEncrypt = origEncrypt
+	})
 	backupOutput = ""
 	backupEncrypt = false
 
 	cmd := &cobra.Command{Use: "create", RunE: backupCreateCmd.RunE}
 	cmd.Flags().StringVarP(&backupOutput, "output", "o", "", "")
 	cmd.Flags().BoolVar(&backupEncrypt, "encrypt", false, "")
-	cmd.SetContext(backupContext(db, logger))
+	cmd.SetContext(backupContext(sqlDB, logger))
 
 	origStdout := os.Stdout
-	devNull, _ := os.Open(os.DevNull)
+	devNull, err := os.Open(os.DevNull)
+	require.NoError(t, err)
 	os.Stdout = devNull
 	defer func() {
 		os.Stdout = origStdout
 		devNull.Close()
 	}()
 
-	err := cmd.RunE(cmd, []string{})
+	err = cmd.RunE(cmd, []string{})
 	assert.NoError(t, err)
 }
 
@@ -186,6 +209,12 @@ func TestRunBackupRestore_CancelledByUser(t *testing.T) {
 		r.Close()
 	}()
 
+	origRestoreFile := backupRestoreFile
+	origRestoreDecrypt := backupRestoreDecrypt
+	t.Cleanup(func() {
+		backupRestoreFile = origRestoreFile
+		backupRestoreDecrypt = origRestoreDecrypt
+	})
 	backupRestoreFile = "/some/nonexistent/file.backup"
 	backupRestoreDecrypt = true
 
@@ -196,7 +225,8 @@ func TestRunBackupRestore_CancelledByUser(t *testing.T) {
 
 	// Suppress stdout output from the warning messages.
 	origStdout := os.Stdout
-	devNull, _ := os.Open(os.DevNull)
+	devNull, err2 := os.Open(os.DevNull)
+	require.NoError(t, err2)
 	os.Stdout = devNull
 	defer func() {
 		os.Stdout = origStdout
@@ -224,6 +254,12 @@ func TestRunBackupRestore_FileNotFound(t *testing.T) {
 		r.Close()
 	}()
 
+	origRestoreFile2 := backupRestoreFile
+	origRestoreDecrypt2 := backupRestoreDecrypt
+	t.Cleanup(func() {
+		backupRestoreFile = origRestoreFile2
+		backupRestoreDecrypt = origRestoreDecrypt2
+	})
 	backupRestoreFile = filepath.Join(t.TempDir(), "totally_missing.backup")
 	backupRestoreDecrypt = false
 
@@ -233,7 +269,8 @@ func TestRunBackupRestore_FileNotFound(t *testing.T) {
 	cmd.SetContext(backupContext(db, logger))
 
 	origStdout := os.Stdout
-	devNull, _ := os.Open(os.DevNull)
+	devNull, err2 := os.Open(os.DevNull)
+	require.NoError(t, err2)
 	os.Stdout = devNull
 	defer func() {
 		os.Stdout = origStdout
@@ -316,14 +353,18 @@ func TestCreateMigration_MissingMigrationsDir(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestPersistentPostRun_WithDBRepoInContext(t *testing.T) {
-	// A *db.DBRepository would close properly, but creating one requires full
-	// initialisation. Instead, verify that a non-matching value is silently
-	// ignored (the ok=false branch).
+	// Build a real *db.DBRepository and place it in the context so the
+	// ok=true branch is exercised. The internal sql.DB is nil (no full
+	// InitializeDB), so CloseDB() is a documented no-op — but the type
+	// assertion succeeds and the real code path runs.
+	logger := newTestLogger()
+	repo := db.NewRepository(logger)
+
 	cmd := &cobra.Command{}
-	// Put a value that is NOT *db.DBRepository so the ok=false branch is hit.
-	ctx := context.WithValue(context.Background(), common.DBClassKey, "not-a-repo")
+	ctx := context.WithValue(context.Background(), common.DBClassKey, repo)
 	cmd.SetContext(ctx)
 
+	// persistentPostRun must return no error when CloseDB is a no-op.
 	err := persistentPostRun(cmd, nil)
 	assert.NoError(t, err)
 }
@@ -364,6 +405,8 @@ func TestRunBackupList_WithResults(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "test.backup"), raw, 0o644))
 
+	origListDir2 := backupListDir
+	t.Cleanup(func() { backupListDir = origListDir2 })
 	backupListDir = dir
 
 	cmd := &cobra.Command{Use: "list", RunE: backupListCmd.RunE}
@@ -371,7 +414,8 @@ func TestRunBackupList_WithResults(t *testing.T) {
 	cmd.SetContext(backupContext(db, logger))
 
 	origStdout := os.Stdout
-	devNull, _ := os.Open(os.DevNull)
+	devNull, err2 := os.Open(os.DevNull)
+	require.NoError(t, err2)
 	os.Stdout = devNull
 	defer func() {
 		os.Stdout = origStdout
@@ -420,7 +464,8 @@ func TestShowMigrationStatus_WithRealSQLite(t *testing.T) {
 	setViperSQLite(t, dbPath)
 
 	origStdout := os.Stdout
-	devNull, _ := os.Open(os.DevNull)
+	devNull, devNullErr := os.Open(os.DevNull)
+	require.NoError(t, devNullErr)
 	os.Stdout = devNull
 	defer func() {
 		os.Stdout = origStdout
