@@ -103,10 +103,10 @@ func TestCreateRSAKey_InvalidBits(t *testing.T) {
 	})
 
 	_, err := svc.CreateRSAKey(context.Background(), CreateKeyRequest{
-		Name:    "bad-bits",
-		Bits:    1024, // invalid
-		UserID:  uuid.New(),
-		Type:    "RSA",
+		Name:   "bad-bits",
+		Bits:   1024, // invalid
+		UserID: uuid.New(),
+		Type:   "RSA",
 	})
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "invalid RSA key size")
@@ -575,7 +575,7 @@ func TestDeleteKeyInVault_Success(t *testing.T) {
 	repo.On("ReadDeleted", mock.Anything, keyID).Return(deletedKey, nil)
 
 	svc := NewKeyService(KeyServiceConfig{KeyRepository: repo, Logger: newKeyLogger()})
-	got, err := svc.DeleteKeyInVault(context.Background(), keyID, vaultID)
+	got, err := svc.DeleteKeyInVault(context.Background(), keyID, vaultID, uuid.Nil)
 	require.NoError(t, err)
 	assert.NotNil(t, got)
 	assert.NotNil(t, got.DeletedAt)
@@ -590,7 +590,7 @@ func TestDeleteKeyInVault_NotFound(t *testing.T) {
 	repo.On("ReadInVault", mock.Anything, keyID, vaultID).Return(nil, errors.New("not found"))
 
 	svc := NewKeyService(KeyServiceConfig{KeyRepository: repo, Logger: newKeyLogger()})
-	_, err := svc.DeleteKeyInVault(context.Background(), keyID, vaultID)
+	_, err := svc.DeleteKeyInVault(context.Background(), keyID, vaultID, uuid.Nil)
 	require.Error(t, err)
 	assert.ErrorIs(t, err, ErrKeyNotFound)
 }
@@ -605,7 +605,7 @@ func TestDeleteKeyInVault_SoftDeleteFails(t *testing.T) {
 	repo.On("SoftDelete", mock.Anything, keyID).Return(errors.New("db error"))
 
 	svc := NewKeyService(KeyServiceConfig{KeyRepository: repo, Logger: newKeyLogger()})
-	_, err := svc.DeleteKeyInVault(context.Background(), keyID, vaultID)
+	_, err := svc.DeleteKeyInVault(context.Background(), keyID, vaultID, uuid.Nil)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "failed to delete key")
 }
@@ -621,7 +621,7 @@ func TestDeleteKeyInVault_ReadDeletedFails_ReturnsSnapshot(t *testing.T) {
 	repo.On("ReadDeleted", mock.Anything, keyID).Return(nil, errors.New("metadata unavailable"))
 
 	svc := NewKeyService(KeyServiceConfig{KeyRepository: repo, Logger: newKeyLogger()})
-	got, err := svc.DeleteKeyInVault(context.Background(), keyID, vaultID)
+	got, err := svc.DeleteKeyInVault(context.Background(), keyID, vaultID, uuid.Nil)
 	require.NoError(t, err)
 	// Returns the pre-delete snapshot
 	assert.Equal(t, keyID, got.ID)
@@ -980,15 +980,16 @@ func TestWrapAlgorithmToEncryption_AllCases(t *testing.T) {
 	cases := map[string]crypto.EncryptionAlgorithm{
 		"RSA-OAEP-256": crypto.AlgorithmRSAOAEP256,
 		"RSA-OAEP":     crypto.AlgorithmRSAOAEP,
-		"A128KW":        crypto.AlgorithmA128KW,
-		"A192KW":        crypto.AlgorithmA192KW,
-		"A256KW":        crypto.AlgorithmA256KW,
-		"A128CBC":       crypto.AlgorithmA128CBC,
-		"A192CBC":       crypto.AlgorithmA192CBC,
-		"A256CBC":       crypto.AlgorithmA256CBC,
+		"A128KW":       crypto.AlgorithmA128KW,
+		"A192KW":       crypto.AlgorithmA192KW,
+		"A256KW":       crypto.AlgorithmA256KW,
+		"A128CBC":      crypto.AlgorithmA128CBC,
+		"A192CBC":      crypto.AlgorithmA192CBC,
+		"A256CBC":      crypto.AlgorithmA256CBC,
 	}
 	for input, expected := range cases {
-		got := wrapAlgorithmToEncryption(input)
+		got, err := wrapAlgorithmToEncryption(input)
+		require.NoError(t, err)
 		assert.Equal(t, expected, got, "algorithm: "+input)
 	}
 }
@@ -1061,7 +1062,7 @@ func TestCryptoService_Sign_InaccessibleKey(t *testing.T) {
 		Data: []byte("data"), Algorithm: crypto.AlgorithmRS256,
 	})
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "disabled or expired")
+	assert.Contains(t, err.Error(), "disabled or outside its valid time window")
 }
 
 // ─── mockKeyRepoForExtendedCrypto ─────────────────────────────────────────────
@@ -1089,9 +1090,13 @@ func (m *mockKeyRepoForExtendedCrypto) ListByUser(ctx context.Context, userID *u
 func (m *mockKeyRepoForExtendedCrypto) UpdateRevocationStatus(ctx context.Context, id uuid.UUID, revoked bool) error {
 	return nil
 }
-func (m *mockKeyRepoForExtendedCrypto) SoftDelete(ctx context.Context, id uuid.UUID) error { return nil }
-func (m *mockKeyRepoForExtendedCrypto) RecoverKey(ctx context.Context, id uuid.UUID) error { return nil }
-func (m *mockKeyRepoForExtendedCrypto) PurgeKey(ctx context.Context, id uuid.UUID) error   { return nil }
+func (m *mockKeyRepoForExtendedCrypto) SoftDelete(ctx context.Context, id uuid.UUID) error {
+	return nil
+}
+func (m *mockKeyRepoForExtendedCrypto) RecoverKey(ctx context.Context, id uuid.UUID) error {
+	return nil
+}
+func (m *mockKeyRepoForExtendedCrypto) PurgeKey(ctx context.Context, id uuid.UUID) error { return nil }
 func (m *mockKeyRepoForExtendedCrypto) SetPurgeProtection(ctx context.Context, id uuid.UUID, enabled bool) error {
 	return nil
 }
