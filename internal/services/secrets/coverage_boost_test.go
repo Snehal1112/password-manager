@@ -1240,14 +1240,24 @@ func TestSchedulerServiceBackgroundTickProcessesAllUsers(t *testing.T) {
 	rotationRepo := &mockRotationPolicyRepository{}
 	svc := secrets.NewSchedulerService(rotationSvc, versionSvc, userRepo, secretRepo, rotationRepo, testutils.NewTestLogger(t))
 
-	userRepo.On("List", mock.Anything).Return([]model.User{{ID: userID, Username: "alice"}}, nil).Maybe()
+	listed := make(chan struct{})
+	userRepo.On("List", mock.Anything).Return([]model.User{{ID: userID, Username: "alice"}}, nil).
+		Run(func(mock.Arguments) {
+			select {
+			case <-listed:
+			default:
+				close(listed)
+			}
+		}).Maybe()
 	rotationSvc.On("GetDueRotations", mock.Anything, userID).Return([]model.SecretPolicy{}, nil).Maybe()
 	rotationSvc.On("GetUpcomingReminders", mock.Anything, userID).Return([]model.RotationReminder{}, nil).Maybe()
 
 	require.NoError(t, svc.Start(ctx, time.Millisecond))
-	require.Eventually(t, func() bool {
-		return len(userRepo.Calls) > 0
-	}, 100*time.Millisecond, time.Millisecond)
+	select {
+	case <-listed:
+	case <-time.After(100 * time.Millisecond):
+		t.Fatal("List was not called within 100ms")
+	}
 	require.NoError(t, svc.Stop())
 
 	userRepo.AssertExpectations(t)

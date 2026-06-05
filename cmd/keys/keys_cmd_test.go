@@ -106,7 +106,7 @@ func (m *keyCmdKeyService) GetKeyInVault(ctx context.Context, keyID, vaultID uui
 func (m *keyCmdKeyService) ListKeysInVault(ctx context.Context, vaultID uuid.UUID, keyType string, tags []string) ([]model.Key, error) {
 	return nil, nil
 }
-func (m *keyCmdKeyService) DeleteKeyInVault(ctx context.Context, keyID, vaultID uuid.UUID) (*model.Key, error) {
+func (m *keyCmdKeyService) DeleteKeyInVault(ctx context.Context, keyID, vaultID, userID uuid.UUID) (*model.Key, error) {
 	return nil, nil
 }
 

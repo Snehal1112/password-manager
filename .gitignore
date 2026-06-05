@@ -82,9 +82,9 @@ bootstrap.token
 *.db-wal
 
 # Application binaries
-password-manager
-password-manager.exe
-password-manager-*
+rocketvault
+rocketvault.exe
+rocketvault-*
 
 # Test artifacts
 test_data/
