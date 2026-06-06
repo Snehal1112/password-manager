@@ -6,13 +6,11 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
-	"os"
 	"testing"
 	"time"
 
 	"github.com/google/uuid"
 	"github.com/pquerna/otp"
-	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
@@ -429,12 +427,10 @@ func TestAuthenticationService_SeparationOfConcerns(t *testing.T) {
 }
 
 func TestAuthenticateUser_FailedTOTP_DoesNotLogCode(t *testing.T) {
-	t.Parallel()
-	// Capture logrus output.
+	// No t.Parallel(): the log buffer is bound to this test's own logger, but
+	// keeping the assertion deterministic and avoiding any shared global logrus
+	// state keeps this test isolated from the parallel suite.
 	var buf bytes.Buffer
-	logrus.SetOutput(&buf)
-	defer logrus.SetOutput(os.Stderr)
-	logrus.SetLevel(logrus.WarnLevel)
 
 	mockUserRepo := &MockUserRepository{}
 	mockSessionRepo := &MockSessionRepository{}
@@ -455,7 +451,10 @@ func TestAuthenticateUser_FailedTOTP_DoesNotLogCode(t *testing.T) {
 	mockTOTPService.On("ValidateCode", "123456", testUser.TOTPSecret, mock.AnythingOfType("time.Time")).
 		Return(false, nil)
 
+	// Bind the service's own logger to a local buffer so we capture exactly
+	// what this service writes, with no shared global logrus state.
 	logger := logging.InitLogger()
+	logger.SetOutput(&buf)
 	svc := NewAuthenticationService(AuthenticationConfig{
 		UserRepository:    mockUserRepo,
 		SessionRepository: mockSessionRepo,

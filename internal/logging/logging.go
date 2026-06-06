@@ -89,7 +89,7 @@ func InitLogger() *Logger {
 			FullTimestamp:   true,
 		})
 	default:
-		logrus.WithField("format", viper.GetString("log.format")).Infoln("Default log format is used by logrus")
+		logger.WithField("format", viper.GetString("log.format")).Infoln("Default log format is used by logrus")
 	}
 
 	// Set log level from config.yaml.
