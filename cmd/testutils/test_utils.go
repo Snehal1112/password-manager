@@ -572,6 +572,10 @@ func (m *MockVaultService) PurgeVault(ctx context.Context, name string) error {
 	return args.Error(0)
 }
 
+func (m *MockVaultService) SetPolicyCleaner(p vaultServices.PolicyCleaner) {
+	m.Called(p)
+}
+
 // Mock Authentication Service
 type MockAuthenticationService struct {
 	mock.Mock

@@ -379,6 +379,9 @@ func (c *ServiceContainer) initializeServices() error {
 	c.rbacService = authzServices.NewRBACService(c.logger)
 	c.accessPolicyRepository = repositories.NewAccessPolicyRepository(c.db)
 	c.accessPolicyService = authzServices.NewAccessPolicyService(c.accessPolicyRepository)
+	// Wire the policy cleaner now that the access-policy repository exists; the vault
+	// service deletes vault-scoped policies on purge since access_policies has no FK to vaults.
+	c.vaultService.SetPolicyCleaner(c.accessPolicyRepository)
 	c.roleAssignmentRepository = repositories.NewRoleAssignmentRepository(c.db)
 	c.roleAssignmentService = authzServices.NewRoleAssignmentService(
 		c.roleAssignmentRepository,

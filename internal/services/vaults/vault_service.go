@@ -26,6 +26,11 @@ type CascadeRepository interface {
 	RecoverVaultContents(ctx context.Context, vaultID uuid.UUID, deletedAt time.Time) error
 }
 
+// PolicyCleaner removes access policies scoped to a vault (used on purge).
+type PolicyCleaner interface {
+	DeleteByVault(ctx context.Context, vaultID uuid.UUID) error
+}
+
 // VaultService orchestrates the vault lifecycle.
 type VaultService interface {
 	CreateVault(ctx context.Context, req model.CreateVaultRequest, createdBy uuid.UUID) (*model.Vault, error)
@@ -35,18 +40,23 @@ type VaultService interface {
 	DeleteVault(ctx context.Context, name string) error
 	RecoverVault(ctx context.Context, name string) error
 	PurgeVault(ctx context.Context, name string) error
+	SetPolicyCleaner(p PolicyCleaner)
 }
 
 type vaultService struct {
-	repo    repositories.VaultRepositoryInterface
-	cascade CascadeRepository
-	log     *logging.Logger
+	repo     repositories.VaultRepositoryInterface
+	cascade  CascadeRepository
+	policies PolicyCleaner
+	log      *logging.Logger
 }
 
 // NewVaultService constructs a VaultService backed by the given repository and cascade handler.
 func NewVaultService(repo repositories.VaultRepositoryInterface, cascade CascadeRepository, log *logging.Logger) VaultService {
 	return &vaultService{repo: repo, cascade: cascade, log: log}
 }
+
+// SetPolicyCleaner attaches an optional cleaner that removes vault-scoped access policies on purge.
+func (s *vaultService) SetPolicyCleaner(p PolicyCleaner) { s.policies = p }
 
 // CreateVault validates the request, applies defaults and overrides, and persists a new vault.
 func (s *vaultService) CreateVault(ctx context.Context, req model.CreateVaultRequest, createdBy uuid.UUID) (*model.Vault, error) {
@@ -225,6 +235,13 @@ func (s *vaultService) PurgeVault(ctx context.Context, name string) error {
 	}
 	if err := s.repo.Purge(ctx, v.ID); err != nil {
 		return err
+	}
+	// access_policies has no FK to vaults, so vault-scoped policy rows must be
+	// removed explicitly to avoid orphaning them after the vault is purged.
+	if s.policies != nil {
+		if err := s.policies.DeleteByVault(ctx, v.ID); err != nil {
+			return fmt.Errorf("delete vault policies: %w", err)
+		}
 	}
 	if s.log != nil {
 		s.log.LogAuditInfo("", "purge_vault", "success", fmt.Sprintf("Vault purged: %s", name))

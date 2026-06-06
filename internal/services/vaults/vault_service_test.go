@@ -333,6 +333,39 @@ func TestPurgeVault_DeletedVaultSucceeds(t *testing.T) {
 	}
 }
 
+type fakePolicyCleaner struct {
+	called   bool
+	gotVault uuid.UUID
+}
+
+func (f *fakePolicyCleaner) DeleteByVault(_ context.Context, vid uuid.UUID) error {
+	f.called = true
+	f.gotVault = vid
+	return nil
+}
+
+func TestPurgeVault_DeletesVaultPolicies(t *testing.T) {
+	repo := newFakeRepo()
+	id := uuid.New()
+	now := nowForTest()
+	repo.byName["prod"] = &model.Vault{ID: id, Name: "prod", PurgeProtection: false, DeletedAt: &now}
+	repo.byID[id.String()] = repo.byName["prod"]
+	svc := NewVaultService(repo, &noopCascade{}, nil)
+
+	cleaner := &fakePolicyCleaner{}
+	svc.SetPolicyCleaner(cleaner)
+
+	if err := svc.PurgeVault(context.Background(), "prod"); err != nil {
+		t.Fatalf("purge: %v", err)
+	}
+	if !cleaner.called {
+		t.Fatal("expected vault policies to be deleted on purge")
+	}
+	if cleaner.gotVault != id {
+		t.Fatalf("expected policies deleted for vault %s, got %s", id, cleaner.gotVault)
+	}
+}
+
 func TestRecoverVault_RestoresFromDeleted(t *testing.T) {
 	repo := newFakeRepo()
 	id := uuid.New()
