@@ -138,6 +138,7 @@ func persistentPreRun(cmd *cobra.Command, args []string) error {
 		"migrate:status": true, // Migration status check
 		"migrate:to":     true, // Targeted migrations
 		"migrate:create": true, // Migration file creation
+		"roles":          true, // Lists built-in vault roles; pure client-side, no auth needed
 	}
 
 	// Check if this is a system command (either the command itself or its parent)
