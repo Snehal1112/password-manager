@@ -6,11 +6,12 @@
 
 ## Problem
 
-RocketVault has roughly 200 cobra commands across `cmd/`. Only about 57 carry
-an `Example:` field; roughly 140 are blank. Users running `<command> --help`
-get no usage guidance for most commands. The existing examples are also
-inconsistent — some include the `rocketvault` binary prefix and auth flags,
-some omit both, and only a few use the richer multi-line form.
+RocketVault has 75 cobra commands across `cmd/` (counting real `Use:` fields
+only, excluding test files and commented examples). 55 carry an `Example:`
+field; 20 are blank. Users running `<command> --help` on the blank ones get no
+usage guidance. The existing examples are also inconsistent — some include the
+`rocketvault` binary prefix and auth flags, some omit both, and only a few use
+the richer multi-line form.
 
 ## Goal
 
@@ -24,7 +25,7 @@ real, copy-paste-runnable usage. Help output is consistent across the whole CLI.
 - **Leaf commands** (actions: create, get, list, delete, rotate, etc.).
 - **Parent/group commands** (bare `keys`, `secrets`, `audit`) — these get an
   example pointing at their most common subcommands, aiding discovery.
-- **Normalize existing examples**: the ~57 commands that already have an
+- **Normalize existing examples**: the 55 commands that already have an
   `Example:` field are rewritten into the standard format below.
 - **One-time fill only.** No test guard and no CI check are added. Future
   commands may again ship without examples; that is accepted.
@@ -65,16 +66,18 @@ Rules:
 Each cobra command is self-contained, so work splits cleanly by file. Natural
 batches, largest first:
 
-| Batch | Files | ~Commands |
-|-------|-------|-----------|
-| 1 | `cmd/secrets/` | 46 |
-| 2 | `cmd/users/` | 44 |
-| 3 | `cmd/vaults/` | 28 |
-| 4 | `cmd/keys/` | 21 |
-| 5 | `cmd/certificates/` | 18 |
-| 6 | `cmd/audit/` | 11 |
-| 7 | `cmd/vault-access/` | 5 |
-| 8 | top-level `cmd/*.go` (root, serve, migrate, rotation, version, etc.) | remainder |
+| Batch | Files | Commands | Blank | Normalize |
+|-------|-------|----------|-------|-----------|
+| 1 | `cmd/secrets/` | 8 | 5 | 3 |
+| 2 | `cmd/vaults/` | 7 | 5 | 2 |
+| 3 | `cmd/keys/` | 8 | 0 | 8 |
+| 4 | `cmd/certificates/` | 6 | 0 | 6 |
+| 5 | `cmd/users/` | 7 | 0 | 7 |
+| 6 | `cmd/audit/` | 4 | 1 | 3 |
+| 7 | `cmd/vault-access/` | 4 | 3 | 1 |
+| 8 | top-level `cmd/*.go` (root, serve, migrate, rotation, version, backup, etc.) | 31 | 6 | 25 |
+
+Totals: 75 commands, 20 blank, 55 normalized.
 
 ## Data Flow
 
