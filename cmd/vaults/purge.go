@@ -14,7 +14,10 @@ var purgeCmd = &cobra.Command{
 	Use:   "purge <name>",
 	Short: "Permanently purge a vault by name",
 	Long:  `Permanently remove a vault by name. This operation cannot be undone.`,
-	Args:  cobra.ExactArgs(1),
+	Example: `  # Permanently purge a soft-deleted vault
+  rocketvault vaults purge <name> \
+    --username admin --password admin123 --totp-code <code>`,
+	Args: cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		name := args[0]
 

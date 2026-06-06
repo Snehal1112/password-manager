@@ -17,6 +17,13 @@ var listCmd = &cobra.Command{
 	Use:   "list",
 	Short: "List vaults",
 	Long:  `List vaults, optionally including soft-deleted ones.`,
+	Example: `  # List vaults
+  rocketvault vaults list \
+    --username admin --password admin123 --totp-code <code>
+
+  # Include soft-deleted vaults
+  rocketvault vaults list --include-deleted \
+    --username admin --password admin123 --totp-code <code>`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		includeDeleted, _ := cmd.Flags().GetBool("include-deleted")
 

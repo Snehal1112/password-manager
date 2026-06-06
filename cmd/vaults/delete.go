@@ -14,7 +14,10 @@ var deleteCmd = &cobra.Command{
 	Use:   "delete <name>",
 	Short: "Soft-delete a vault by name",
 	Long:  `Soft-delete a vault and its contents by name.`,
-	Args:  cobra.ExactArgs(1),
+	Example: `  # Soft-delete a vault by name
+  rocketvault vaults delete <name> \
+    --username admin --password admin123 --totp-code <code>`,
+	Args: cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		name := args[0]
 

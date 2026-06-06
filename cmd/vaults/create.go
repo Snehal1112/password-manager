@@ -23,8 +23,14 @@ var createCmd = &cobra.Command{
 	Aliases: []string{"add"},
 	Short:   "Create a new vault",
 	Long:    `Create a new vault to hold secrets, keys, and certificates.`,
-	Example: `rocketvault vaults create my-vault`,
-	Args:    cobra.ExactArgs(1),
+	Example: `  # Create a new vault
+  rocketvault vaults create <name> \
+    --username admin --password admin123 --totp-code <code>
+
+  # Create with purge protection and retention
+  rocketvault vaults create <name> --purge-protection --retention-days 30 \
+    --username admin --password admin123 --totp-code <code>`,
+	Args: cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		name := args[0]
 

@@ -16,11 +16,17 @@ import (
 
 // updateCmd represents the vaults update command.
 var updateCmd = &cobra.Command{
-	Use:     "update <name>",
-	Short:   "Update a vault",
-	Long:    `Update an existing vault's settings. Only the flags you set are changed.`,
-	Example: `rocketvault vaults update my-vault --enabled=false`,
-	Args:    cobra.ExactArgs(1),
+	Use:   "update <name>",
+	Short: "Update a vault",
+	Long:  `Update an existing vault's settings. Only the flags you set are changed.`,
+	Example: `  # Disable a vault
+  rocketvault vaults update <name> --enabled=false \
+    --username admin --password admin123 --totp-code <code>
+
+  # Update purge protection and retention
+  rocketvault vaults update <name> --purge-protection --retention-days 60 \
+    --username admin --password admin123 --totp-code <code>`,
+	Args: cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		name := args[0]
 

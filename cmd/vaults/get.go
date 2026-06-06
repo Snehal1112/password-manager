@@ -17,7 +17,10 @@ var getCmd = &cobra.Command{
 	Use:   "get <name>",
 	Short: "Retrieve a vault by name",
 	Long:  `Retrieve a vault by its name.`,
-	Args:  cobra.ExactArgs(1),
+	Example: `  # Get a vault by name
+  rocketvault vaults get <name> \
+    --username admin --password admin123 --totp-code <code>`,
+	Args: cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		name := args[0]
 

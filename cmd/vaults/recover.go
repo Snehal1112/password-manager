@@ -14,7 +14,10 @@ var recoverCmd = &cobra.Command{
 	Use:   "recover <name>",
 	Short: "Recover a soft-deleted vault by name",
 	Long:  `Recover a soft-deleted vault and its contents by name.`,
-	Args:  cobra.ExactArgs(1),
+	Example: `  # Recover a soft-deleted vault
+  rocketvault vaults recover <name> \
+    --username admin --password admin123 --totp-code <code>`,
+	Args: cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		name := args[0]
 
