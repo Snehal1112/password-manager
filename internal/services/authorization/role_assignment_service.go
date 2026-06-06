@@ -7,6 +7,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"rocketvault/internal/logging"
 	"rocketvault/model"
 )
 
@@ -56,11 +57,12 @@ type roleAssignmentService struct {
 	roleRepo   roleAssignmentRepo
 	policyRepo policyWriter
 	users      userLookup
+	log        *logging.Logger
 }
 
-// NewRoleAssignmentService constructs the service.
-func NewRoleAssignmentService(rr roleAssignmentRepo, pr policyWriter, ul userLookup) RoleAssignmentService {
-	return &roleAssignmentService{roleRepo: rr, policyRepo: pr, users: ul}
+// NewRoleAssignmentService constructs the service. The logger is optional and may be nil.
+func NewRoleAssignmentService(rr roleAssignmentRepo, pr policyWriter, ul userLookup, log *logging.Logger) RoleAssignmentService {
+	return &roleAssignmentService{roleRepo: rr, policyRepo: pr, users: ul, log: log}
 }
 
 func (s *roleAssignmentService) AssignRole(ctx context.Context, in AssignRoleInput) (*model.RoleAssignment, error) {
@@ -77,9 +79,11 @@ func (s *roleAssignmentService) AssignRole(ctx context.Context, in AssignRoleInp
 		return nil, err
 	}
 
-	if existing, err := s.roleRepo.FindByTuple(ctx, principalID, in.Role, in.VaultID); err != nil {
+	existing, err := s.roleRepo.FindByTuple(ctx, principalID, in.Role, in.VaultID)
+	if err != nil {
 		return nil, err
-	} else if existing != nil {
+	}
+	if existing != nil {
 		return existing, nil
 	}
 
@@ -98,13 +102,19 @@ func (s *roleAssignmentService) AssignRole(ctx context.Context, in AssignRoleInp
 
 	policies, err := ExpandRole(in.Role, principalID, pType, in.VaultID, assignmentID)
 	if err != nil {
-		_ = s.roleRepo.Delete(ctx, assignmentID)
+		if delErr := s.roleRepo.Delete(ctx, assignmentID); delErr != nil && s.log != nil {
+			s.log.LogAuditError("", "assign_role", "rollback", fmt.Sprintf("rollback: failed to delete assignment %s", assignmentID), delErr)
+		}
 		return nil, err
 	}
 	for _, p := range policies {
 		if err := s.policyRepo.Create(ctx, p); err != nil {
-			_ = s.policyRepo.DeleteByAssignmentID(ctx, assignmentID)
-			_ = s.roleRepo.Delete(ctx, assignmentID)
+			if delErr := s.policyRepo.DeleteByAssignmentID(ctx, assignmentID); delErr != nil && s.log != nil {
+				s.log.LogAuditError("", "assign_role", "rollback", fmt.Sprintf("rollback: failed to delete policies for assignment %s", assignmentID), delErr)
+			}
+			if delErr := s.roleRepo.Delete(ctx, assignmentID); delErr != nil && s.log != nil {
+				s.log.LogAuditError("", "assign_role", "rollback", fmt.Sprintf("rollback: failed to delete assignment %s", assignmentID), delErr)
+			}
 			return nil, fmt.Errorf("expand role policies: %w", err)
 		}
 	}

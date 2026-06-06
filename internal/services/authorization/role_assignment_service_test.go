@@ -53,6 +53,7 @@ func (f *fakePolicyRepo) Create(_ context.Context, p *model.AccessPolicy) error 
 	if f.failWrite {
 		return errors.New("boom")
 	}
+	// failAfter=N makes the Nth Create (1-based) and all later ones fail; earlier ones succeed.
 	if f.failAfter > 0 && len(f.created)+1 >= f.failAfter {
 		return errors.New("boom-midway")
 	}
@@ -82,7 +83,7 @@ func (f *fakeUserLookup) ReadByUsername(_ context.Context, name string) (model.U
 }
 
 func newSvc(rr *fakeRoleRepo, pr *fakePolicyRepo, ul *fakeUserLookup) RoleAssignmentService {
-	return NewRoleAssignmentService(rr, pr, ul)
+	return NewRoleAssignmentService(rr, pr, ul, nil)
 }
 
 func TestAssignRole_HappyPath(t *testing.T) {
