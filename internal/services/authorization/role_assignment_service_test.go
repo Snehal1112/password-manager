@@ -44,6 +44,7 @@ func (f *fakeRoleRepo) Delete(_ context.Context, id uuid.UUID) error { delete(f.
 type fakePolicyRepo struct {
 	created   []*model.AccessPolicy
 	failWrite bool
+	failAfter int // if >0, the Nth Create (1-based) and beyond fail; 0 = use failWrite
 	deleted   map[uuid.UUID]bool
 }
 
@@ -51,6 +52,9 @@ func newFakePolicyRepo() *fakePolicyRepo { return &fakePolicyRepo{deleted: map[u
 func (f *fakePolicyRepo) Create(_ context.Context, p *model.AccessPolicy) error {
 	if f.failWrite {
 		return errors.New("boom")
+	}
+	if f.failAfter > 0 && len(f.created)+1 >= f.failAfter {
+		return errors.New("boom-midway")
 	}
 	f.created = append(f.created, p)
 	return nil
@@ -176,5 +180,56 @@ func TestRevokeAssignment_CrossVault(t *testing.T) {
 	err := svc.RevokeAssignment(context.Background(), ra.ID, otherVault)
 	if !errors.Is(err, ErrAssignmentNotFound) {
 		t.Fatalf("cross-vault revoke should be not-found, got %v", err)
+	}
+}
+
+func TestRevokeAssignment_HappyPath(t *testing.T) {
+	rr, pr := newFakeRoleRepo(), newFakePolicyRepo()
+	uid := uuid.New()
+	vid := uuid.New()
+	ul := &fakeUserLookup{users: map[string]model.User{"alice": {ID: uid, Username: "alice"}}}
+	svc := newSvc(rr, pr, ul)
+
+	ra, err := svc.AssignRole(context.Background(), AssignRoleInput{
+		Principal: "alice", PrincipalType: model.PrincipalTypeUser,
+		Role: "secrets-user", VaultID: vid, CreatedBy: uuid.New(),
+	})
+	if err != nil {
+		t.Fatalf("assign: %v", err)
+	}
+	if len(pr.created) != 2 || len(rr.rows) != 1 {
+		t.Fatalf("precondition: expected 2 policies + 1 assignment, got %d/%d", len(pr.created), len(rr.rows))
+	}
+
+	if err := svc.RevokeAssignment(context.Background(), ra.ID, vid); err != nil {
+		t.Fatalf("revoke: %v", err)
+	}
+	if len(rr.rows) != 0 {
+		t.Fatalf("assignment row should be deleted, have %d", len(rr.rows))
+	}
+	if len(pr.created) != 0 {
+		t.Fatalf("policy rows should be deleted, have %d", len(pr.created))
+	}
+}
+
+func TestAssignRole_RollbackMidSequence(t *testing.T) {
+	rr, pr := newFakeRoleRepo(), newFakePolicyRepo()
+	pr.failAfter = 2 // first policy write succeeds, second fails (secrets-user expands to 2)
+	uid := uuid.New()
+	ul := &fakeUserLookup{users: map[string]model.User{"alice": {ID: uid, Username: "alice"}}}
+	svc := newSvc(rr, pr, ul)
+
+	_, err := svc.AssignRole(context.Background(), AssignRoleInput{
+		Principal: "alice", PrincipalType: model.PrincipalTypeUser,
+		Role: "secrets-user", VaultID: uuid.New(), CreatedBy: uuid.New(),
+	})
+	if err == nil {
+		t.Fatal("expected error on mid-sequence policy failure")
+	}
+	if len(pr.created) != 0 {
+		t.Fatalf("already-written policies must be cleaned up, have %d", len(pr.created))
+	}
+	if len(rr.rows) != 0 {
+		t.Fatalf("assignment row must be rolled back, have %d", len(rr.rows))
 	}
 }
