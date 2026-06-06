@@ -60,6 +60,7 @@ type ServiceContainerInterface interface {
 	GetRBACService() authzServices.RBACService
 	GetAccessPolicyRepository() repositories.AccessPolicyRepositoryInterface
 	GetAccessPolicyService() authzServices.AccessPolicyService
+	GetRoleAssignmentService() authzServices.RoleAssignmentService
 
 	// OAuth2 / service account getters
 	GetOAuth2ClientRepository() repositories.OAuth2ClientRepositoryInterface
@@ -155,9 +156,11 @@ type ServiceContainer struct {
 	authenticationService authServices.AuthenticationService
 
 	// Authorization services
-	rbacService            authzServices.RBACService
-	accessPolicyRepository repositories.AccessPolicyRepositoryInterface
-	accessPolicyService    authzServices.AccessPolicyService
+	rbacService              authzServices.RBACService
+	accessPolicyRepository   repositories.AccessPolicyRepositoryInterface
+	accessPolicyService      authzServices.AccessPolicyService
+	roleAssignmentRepository repositories.RoleAssignmentRepositoryInterface
+	roleAssignmentService    authzServices.RoleAssignmentService
 
 	// OAuth2 service account services
 	oauth2ClientRepository repositories.OAuth2ClientRepositoryInterface
@@ -376,6 +379,13 @@ func (c *ServiceContainer) initializeServices() error {
 	c.rbacService = authzServices.NewRBACService(c.logger)
 	c.accessPolicyRepository = repositories.NewAccessPolicyRepository(c.db)
 	c.accessPolicyService = authzServices.NewAccessPolicyService(c.accessPolicyRepository)
+	c.roleAssignmentRepository = repositories.NewRoleAssignmentRepository(c.db)
+	c.roleAssignmentService = authzServices.NewRoleAssignmentService(
+		c.roleAssignmentRepository,
+		c.accessPolicyRepository,
+		c.userRepository,
+		c.logger,
+	)
 
 	// Initialize remaining OAuth2 services (client repo already set above).
 	oauth2TokenExpiry := viperCfg.GetDuration("oauth2.token_expiry")
@@ -585,6 +595,11 @@ func (c *ServiceContainer) GetAccessPolicyRepository() repositories.AccessPolicy
 // GetAccessPolicyService returns the access policy service.
 func (c *ServiceContainer) GetAccessPolicyService() authzServices.AccessPolicyService {
 	return c.accessPolicyService
+}
+
+// GetRoleAssignmentService returns the role assignment service.
+func (c *ServiceContainer) GetRoleAssignmentService() authzServices.RoleAssignmentService {
+	return c.roleAssignmentService
 }
 
 // GetOAuth2ClientRepository returns the OAuth2 client repository.
