@@ -62,8 +62,11 @@ type AccessPolicy struct {
 	Effect        PolicyEffect       `json:"effect"`
 	// VaultID scopes the policy to a single vault. A nil VaultID means the
 	// policy is GLOBAL and applies in any vault.
-	VaultID   *uuid.UUID `json:"vault_id,omitempty"`
-	CreatedAt time.Time  `json:"created_at"`
+	VaultID *uuid.UUID `json:"vault_id,omitempty"`
+	// AssignmentID links this policy to a role assignment. Nil means the policy
+	// was created directly (hand-written), not via a role grant.
+	AssignmentID *uuid.UUID `json:"assignment_id,omitempty"`
+	CreatedAt    time.Time  `json:"created_at"`
 }
 
 type CreateAccessPolicyRequest struct {
