@@ -606,7 +606,6 @@ func (d *DBRepository) createOptimizedSchema(db *sql.DB) error {
 			FOREIGN KEY (vault_id) REFERENCES vaults(id) ON DELETE CASCADE
 		);
 		CREATE INDEX IF NOT EXISTS idx_role_assignments_vault ON role_assignments(vault_id);
-		CREATE INDEX IF NOT EXISTS idx_access_policies_assignment ON access_policies(assignment_id);
 
 		CREATE TABLE IF NOT EXISTS oauth2_clients (
 			id            TEXT PRIMARY KEY,
