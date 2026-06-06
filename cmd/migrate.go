@@ -42,16 +42,14 @@ var migrateCmd = &cobra.Command{
 	Use:   "migrate",
 	Short: "Run database migrations",
 	Long: `Run database migrations to update the database schema.
-This command applies all pending migrations in order.
-
-Examples:
-  # Run all pending migrations
+This command applies all pending migrations in order.`,
+	Example: `  # Run all pending migrations
   rocketvault migrate
 
   # Check migration status
   rocketvault migrate:status
 
-  # Migrate to specific version
+  # Migrate to a specific version
   rocketvault migrate:to <version>`,
 	RunE: runMigrations,
 }
