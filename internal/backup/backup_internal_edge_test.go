@@ -6,7 +6,6 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/spf13/viper"
 	"github.com/stretchr/testify/require"
 
 	"rocketvault/internal/logging"
@@ -17,8 +16,6 @@ func TestReadBackupFileEncrypted(t *testing.T) {
 
 	db, cleanup := setupTestDB(t)
 	defer cleanup()
-
-	viper.Set("master_key", "***SECRET-REMOVED-2026-08-17***")
 
 	tmpDir := t.TempDir()
 	backupPath := filepath.Join(tmpDir, "enc.backup")
@@ -93,8 +90,6 @@ func TestValidateBackupDataTableCountMismatch(t *testing.T) {
 func TestListBackupsWithEncryptedFile(t *testing.T) {
 	t.Parallel()
 
-	viper.Set("master_key", "***SECRET-REMOVED-2026-08-17***")
-
 	db, cleanup := setupTestDB(t)
 	defer cleanup()
 
@@ -112,8 +107,6 @@ func TestListBackupsWithEncryptedFile(t *testing.T) {
 
 func TestGetBackupMetadataEncryptedFile(t *testing.T) {
 	t.Parallel()
-
-	viper.Set("master_key", "***SECRET-REMOVED-2026-08-17***")
 
 	db, cleanup := setupTestDB(t)
 	defer cleanup()

@@ -35,6 +35,14 @@ import (
 	"rocketvault/internal/logging"
 )
 
+func TestMain(m *testing.M) {
+	// Set master_key once before any test runs so parallel tests don't race on
+	// the global viper map. All backup tests use the same test key.
+	os.Setenv("MASTER_KEY", "***SECRET-REMOVED-2026-08-17***") //nolint:errcheck
+	viper.AutomaticEnv()
+	os.Exit(m.Run())
+}
+
 func setupTestDB(t *testing.T) (*sql.DB, func()) {
 	// Create temporary database
 	tmpDir, err := os.MkdirTemp("", "backup_test_*")
@@ -81,9 +89,6 @@ func setupTestDB(t *testing.T) (*sql.DB, func()) {
 	if err != nil {
 		t.Fatalf("Failed to insert test data: %v", err)
 	}
-
-	// Setup viper for encryption
-	viper.Set("master_key", "***SECRET-REMOVED-2026-08-17***")
 
 	cleanup := func() {
 		db.Close()
