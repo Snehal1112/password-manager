@@ -14,8 +14,24 @@ var reportCmd = &cobra.Command{
 	Use:   "report",
 	Short: "Generate a compliance report",
 	Long:  "Generate a SOC 2 or GDPR compliance report for the specified time range.",
-	Example: `rocketvault audit report --type soc2 --from 2026-01-01 --to 2026-03-31
-rocketvault audit report --type gdpr --from 2026-01-01 --to 2026-03-31 --subject-id user123 --format csv`,
+	Example: `  # Generate a SOC 2 compliance report
+  rocketvault audit report --type soc2 --from 2026-01-01 --to 2026-03-31 \
+    --username admin --password admin123 --totp-code <code>
+
+  # Generate a SOC 2 report in CSV format
+  rocketvault audit report --type soc2 --from 2026-01-01 --to 2026-03-31 \
+    --format csv \
+    --username admin --password admin123 --totp-code <code>
+
+  # Generate a GDPR report for a data subject
+  rocketvault audit report --type gdpr --from 2026-01-01 --to 2026-03-31 \
+    --subject-id user123 \
+    --username admin --password admin123 --totp-code <code>
+
+  # Generate a GDPR report in CSV format
+  rocketvault audit report --type gdpr --from 2026-01-01 --to 2026-03-31 \
+    --subject-id user123 --format csv \
+    --username admin --password admin123 --totp-code <code>`,
 	Args: cobra.NoArgs,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		ctx := cmd.Context()

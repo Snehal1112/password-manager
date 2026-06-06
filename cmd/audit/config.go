@@ -14,8 +14,13 @@ var configCmd = &cobra.Command{
 	Use:   "config",
 	Short: "View or update audit log configuration",
 	Long:  "View or update audit log configuration. Pass --retention-days to set a new value; omit it to show the current value.",
-	Example: `rocketvault audit config
-rocketvault audit config --retention-days 90`,
+	Example: `  # Show current audit log retention policy
+  rocketvault audit config \
+    --username admin --password admin123 --totp-code <code>
+
+  # Update audit log retention to 90 days
+  rocketvault audit config --retention-days 90 \
+    --username admin --password admin123 --totp-code <code>`,
 	Args: cobra.NoArgs,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		ctx := cmd.Context()

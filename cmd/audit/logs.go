@@ -17,8 +17,18 @@ var logsCmd = &cobra.Command{
 	Use:   "logs",
 	Short: "Query audit log entries",
 	Long:  "Query audit log entries with optional filters for time range, user, action, outcome, and resource type.",
-	Example: `rocketvault audit logs --from 2026-01-01 --to 2026-01-31 --action authenticate --outcome failure
-rocketvault audit logs --user-id abc123 --resource-type secret --limit 50`,
+	Example: `  # View recent audit logs
+  rocketvault audit logs \
+    --username admin --password admin123 --totp-code <code>
+
+  # Filter by date range and action
+  rocketvault audit logs --from 2026-01-01 --to 2026-01-31 \
+    --action authenticate --outcome failure \
+    --username admin --password admin123 --totp-code <code>
+
+  # Filter by user and resource type
+  rocketvault audit logs --user-id abc123 --resource-type secret --limit 50 \
+    --username admin --password admin123 --totp-code <code>`,
 	Args: cobra.NoArgs,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		ctx := cmd.Context()
