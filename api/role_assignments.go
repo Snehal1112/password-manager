@@ -44,6 +44,10 @@ func requireVaultManage(c *Context, r *http.Request, vaultID uuid.UUID) bool {
 // createRoleAssignment grants a built-in role to a principal within a vault.
 // POST /vaults/{vault_name}/role-assignments
 func createRoleAssignment(c *Context, w http.ResponseWriter, r *http.Request) {
+	if c.App == nil || c.App.ServiceContainer == nil {
+		c.SetInternalError(nil)
+		return
+	}
 	vaultID, err := vaultIDFromRequest(r)
 	if err != nil {
 		c.SetInvalidParam("vault")
@@ -98,6 +102,10 @@ func createRoleAssignment(c *Context, w http.ResponseWriter, r *http.Request) {
 // listRoleAssignments returns all role assignments scoped to a vault.
 // GET /vaults/{vault_name}/role-assignments
 func listRoleAssignments(c *Context, w http.ResponseWriter, r *http.Request) {
+	if c.App == nil || c.App.ServiceContainer == nil {
+		c.SetInternalError(nil)
+		return
+	}
 	vaultID, err := vaultIDFromRequest(r)
 	if err != nil {
 		c.SetInvalidParam("vault")
@@ -119,6 +127,10 @@ func listRoleAssignments(c *Context, w http.ResponseWriter, r *http.Request) {
 // getRoleAssignment returns a single role assignment by id within a vault.
 // GET /vaults/{vault_name}/role-assignments/{assignment_id}
 func getRoleAssignment(c *Context, w http.ResponseWriter, r *http.Request) {
+	if c.App == nil || c.App.ServiceContainer == nil {
+		c.SetInternalError(nil)
+		return
+	}
 	vaultID, err := vaultIDFromRequest(r)
 	if err != nil {
 		c.SetInvalidParam("vault")
@@ -148,6 +160,10 @@ func getRoleAssignment(c *Context, w http.ResponseWriter, r *http.Request) {
 // deleteRoleAssignment revokes a role assignment within a vault.
 // DELETE /vaults/{vault_name}/role-assignments/{assignment_id}
 func deleteRoleAssignment(c *Context, w http.ResponseWriter, r *http.Request) {
+	if c.App == nil || c.App.ServiceContainer == nil {
+		c.SetInternalError(nil)
+		return
+	}
 	vaultID, err := vaultIDFromRequest(r)
 	if err != nil {
 		c.SetInvalidParam("vault")
