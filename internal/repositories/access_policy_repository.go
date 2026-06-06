@@ -41,25 +41,29 @@ func (r *accessPolicyRepository) Create(ctx context.Context, p *model.AccessPoli
 	if p.VaultID != nil {
 		vaultArg = p.VaultID.String()
 	}
+	var assignArg any
+	if p.AssignmentID != nil {
+		assignArg = p.AssignmentID.String()
+	}
 	_, err := r.db.ExecContext(ctx,
-		`INSERT INTO access_policies (id, principal_id, principal_type, resource_type, operation, effect, vault_id, created_at)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+		`INSERT INTO access_policies (id, principal_id, principal_type, resource_type, operation, effect, vault_id, assignment_id, created_at)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		p.ID.String(), p.PrincipalID.String(), string(p.PrincipalType),
-		string(p.ResourceType), string(p.Operation), string(p.Effect), vaultArg, p.CreatedAt,
+		string(p.ResourceType), string(p.Operation), string(p.Effect), vaultArg, assignArg, p.CreatedAt,
 	)
 	return err
 }
 
 func (r *accessPolicyRepository) GetByID(ctx context.Context, id uuid.UUID) (*model.AccessPolicy, error) {
 	row := r.db.QueryRowContext(ctx,
-		`SELECT id, principal_id, principal_type, resource_type, operation, effect, vault_id, created_at
+		`SELECT id, principal_id, principal_type, resource_type, operation, effect, vault_id, assignment_id, created_at
 		 FROM access_policies WHERE id = ?`, id.String())
 	return scanAccessPolicy(row)
 }
 
 func (r *accessPolicyRepository) List(ctx context.Context) ([]*model.AccessPolicy, error) {
 	rows, err := r.db.QueryContext(ctx,
-		`SELECT id, principal_id, principal_type, resource_type, operation, effect, vault_id, created_at
+		`SELECT id, principal_id, principal_type, resource_type, operation, effect, vault_id, assignment_id, created_at
 		 FROM access_policies ORDER BY created_at DESC`)
 	if err != nil {
 		return nil, err
@@ -70,7 +74,7 @@ func (r *accessPolicyRepository) List(ctx context.Context) ([]*model.AccessPolic
 
 func (r *accessPolicyRepository) ListByPrincipal(ctx context.Context, principalID uuid.UUID) ([]*model.AccessPolicy, error) {
 	rows, err := r.db.QueryContext(ctx,
-		`SELECT id, principal_id, principal_type, resource_type, operation, effect, vault_id, created_at
+		`SELECT id, principal_id, principal_type, resource_type, operation, effect, vault_id, assignment_id, created_at
 		 FROM access_policies WHERE principal_id = ? ORDER BY created_at DESC`, principalID.String())
 	if err != nil {
 		return nil, err
@@ -81,7 +85,7 @@ func (r *accessPolicyRepository) ListByPrincipal(ctx context.Context, principalI
 
 func (r *accessPolicyRepository) FindEffects(ctx context.Context, principalID uuid.UUID, resourceType model.PolicyResourceType, operation model.PolicyOperation, vaultID uuid.UUID) ([]*model.AccessPolicy, error) {
 	rows, err := r.db.QueryContext(ctx,
-		`SELECT id, principal_id, principal_type, resource_type, operation, effect, vault_id, created_at
+		`SELECT id, principal_id, principal_type, resource_type, operation, effect, vault_id, assignment_id, created_at
 		 FROM access_policies
 		 WHERE principal_id = ? AND resource_type = ? AND operation = ?
 		   AND (vault_id = ? OR vault_id IS NULL)`,
@@ -116,8 +120,9 @@ func scanAccessPolicy(row *sql.Row) (*model.AccessPolicy, error) {
 	var p model.AccessPolicy
 	var idStr, principalStr string
 	var vaultStr sql.NullString
+	var assignStr sql.NullString
 	err := row.Scan(&idStr, &principalStr,
-		&p.PrincipalType, &p.ResourceType, &p.Operation, &p.Effect, &vaultStr, &p.CreatedAt)
+		&p.PrincipalType, &p.ResourceType, &p.Operation, &p.Effect, &vaultStr, &assignStr, &p.CreatedAt)
 	if err == sql.ErrNoRows {
 		return nil, fmt.Errorf("access policy not found")
 	}
@@ -139,6 +144,13 @@ func scanAccessPolicy(row *sql.Row) (*model.AccessPolicy, error) {
 		}
 		p.VaultID = &vid
 	}
+	if assignStr.Valid && assignStr.String != "" {
+		aid, err := uuid.Parse(assignStr.String)
+		if err != nil {
+			return nil, fmt.Errorf("invalid assignment id: %w", err)
+		}
+		p.AssignmentID = &aid
+	}
 	return &p, nil
 }
 
@@ -149,8 +161,9 @@ func scanAccessPolicies(rows *sql.Rows) ([]*model.AccessPolicy, error) {
 		var p model.AccessPolicy
 		var idStr, principalStr string
 		var vaultStr sql.NullString
+		var assignStr sql.NullString
 		if err := rows.Scan(&idStr, &principalStr,
-			&p.PrincipalType, &p.ResourceType, &p.Operation, &p.Effect, &vaultStr, &p.CreatedAt); err != nil {
+			&p.PrincipalType, &p.ResourceType, &p.Operation, &p.Effect, &vaultStr, &assignStr, &p.CreatedAt); err != nil {
 			return nil, err
 		}
 		var err error
@@ -168,6 +181,13 @@ func scanAccessPolicies(rows *sql.Rows) ([]*model.AccessPolicy, error) {
 				return nil, fmt.Errorf("invalid vault id: %w", err)
 			}
 			p.VaultID = &vid
+		}
+		if assignStr.Valid && assignStr.String != "" {
+			aid, err := uuid.Parse(assignStr.String)
+			if err != nil {
+				return nil, fmt.Errorf("invalid assignment id: %w", err)
+			}
+			p.AssignmentID = &aid
 		}
 		results = append(results, &p)
 	}

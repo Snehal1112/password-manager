@@ -588,6 +588,7 @@ func (d *DBRepository) createOptimizedSchema(db *sql.DB) error {
 			operation      TEXT NOT NULL,
 			effect         TEXT NOT NULL,
 			vault_id       TEXT NULL,
+			assignment_id  TEXT NULL,
 			created_at     TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 		);
 		CREATE INDEX IF NOT EXISTS idx_access_policies_principal ON access_policies(principal_id);
@@ -742,6 +743,7 @@ func (d *DBRepository) migrateSchema(db *sql.DB) error {
 		"ALTER TABLE keys ADD COLUMN vault_id TEXT NOT NULL DEFAULT '00000000-0000-0000-0000-00000000efa1'",
 		"ALTER TABLE certificates ADD COLUMN vault_id TEXT NOT NULL DEFAULT '00000000-0000-0000-0000-00000000efa1'",
 		"ALTER TABLE access_policies ADD COLUMN vault_id TEXT NULL",
+		"ALTER TABLE access_policies ADD COLUMN assignment_id TEXT NULL",
 	}
 	for _, stmt := range migrations {
 		if _, err := db.Exec(stmt); err != nil {
