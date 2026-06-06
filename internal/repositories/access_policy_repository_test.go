@@ -234,3 +234,34 @@ func TestAccessPolicyRepository_Update(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, model.PolicyEffectDeny, updated.Effect)
 }
+
+func TestAccessPolicy_DeleteByAssignmentID(t *testing.T) {
+	t.Parallel()
+	db := setupAccessPolicyTestDB(t)
+	repo := repositories.NewAccessPolicyRepository(db)
+	ctx := context.Background()
+
+	aid := uuid.New()
+	vid := uuid.New()
+	for i := 0; i < 3; i++ {
+		_ = repo.Create(ctx, &model.AccessPolicy{
+			ID: uuid.New(), PrincipalID: uuid.New(), PrincipalType: model.PrincipalTypeUser,
+			ResourceType: model.PolicyResourceSecrets, Operation: model.OpGet,
+			Effect: model.PolicyEffectAllow, VaultID: &vid, AssignmentID: &aid,
+		})
+	}
+	keep := &model.AccessPolicy{
+		ID: uuid.New(), PrincipalID: uuid.New(), PrincipalType: model.PrincipalTypeUser,
+		ResourceType: model.PolicyResourceSecrets, Operation: model.OpGet,
+		Effect: model.PolicyEffectAllow, VaultID: &vid,
+	}
+	_ = repo.Create(ctx, keep)
+
+	if err := repo.DeleteByAssignmentID(ctx, aid); err != nil {
+		t.Fatalf("delete: %v", err)
+	}
+	got, _ := repo.ListByVault(ctx, vid)
+	if len(got) != 1 || got[0].ID != keep.ID {
+		t.Fatalf("expected only the hand-written policy to remain, got %d", len(got))
+	}
+}

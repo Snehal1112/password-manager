@@ -20,8 +20,11 @@ type AccessPolicyRepositoryInterface interface {
 	// FindEffects returns all policies matching the exact (principal, resource, operation)
 	// triple that are either scoped to vaultID or global (vault_id IS NULL).
 	FindEffects(ctx context.Context, principalID uuid.UUID, resourceType model.PolicyResourceType, operation model.PolicyOperation, vaultID uuid.UUID) ([]*model.AccessPolicy, error)
+	ListByVault(ctx context.Context, vaultID uuid.UUID) ([]*model.AccessPolicy, error)
 	Update(ctx context.Context, policy *model.AccessPolicy) error
 	Delete(ctx context.Context, id uuid.UUID) error
+	DeleteByAssignmentID(ctx context.Context, assignmentID uuid.UUID) error
+	DeleteByVault(ctx context.Context, vaultID uuid.UUID) error
 }
 
 type accessPolicyRepository struct {
@@ -97,6 +100,17 @@ func (r *accessPolicyRepository) FindEffects(ctx context.Context, principalID uu
 	return scanAccessPolicies(rows)
 }
 
+func (r *accessPolicyRepository) ListByVault(ctx context.Context, vaultID uuid.UUID) ([]*model.AccessPolicy, error) {
+	rows, err := r.db.QueryContext(ctx,
+		`SELECT id, principal_id, principal_type, resource_type, operation, effect, vault_id, assignment_id, created_at
+		 FROM access_policies WHERE vault_id = ? ORDER BY created_at DESC`, vaultID.String())
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	return scanAccessPolicies(rows)
+}
+
 func (r *accessPolicyRepository) Update(ctx context.Context, p *model.AccessPolicy) error {
 	var vaultArg any
 	if p.VaultID != nil {
@@ -112,6 +126,16 @@ func (r *accessPolicyRepository) Update(ctx context.Context, p *model.AccessPoli
 
 func (r *accessPolicyRepository) Delete(ctx context.Context, id uuid.UUID) error {
 	_, err := r.db.ExecContext(ctx, `DELETE FROM access_policies WHERE id = ?`, id.String())
+	return err
+}
+
+func (r *accessPolicyRepository) DeleteByAssignmentID(ctx context.Context, assignmentID uuid.UUID) error {
+	_, err := r.db.ExecContext(ctx, `DELETE FROM access_policies WHERE assignment_id = ?`, assignmentID.String())
+	return err
+}
+
+func (r *accessPolicyRepository) DeleteByVault(ctx context.Context, vaultID uuid.UUID) error {
+	_, err := r.db.ExecContext(ctx, `DELETE FROM access_policies WHERE vault_id = ?`, vaultID.String())
 	return err
 }
 
