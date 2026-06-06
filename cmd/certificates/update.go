@@ -14,18 +14,21 @@ import (
 
 	"rocketvault/common"
 	"rocketvault/internal/container"
-	"rocketvault/model"
 	"rocketvault/internal/logging"
 	certServices "rocketvault/internal/services/certificates"
+	"rocketvault/model"
 )
 
 // updateCmd represents the update command
 var updateCmd = &cobra.Command{
-	Use:     "update <id>",
-	Short:   "Update certificate metadata",
-	Long:    `Update metadata for an X.509 certificate (name, tags). Requires admin or certificate_manager role.`,
-	Example: `rocketvault certs update <cert-id> --username admin --password admin123 --totp-code <code> --name "Updated name" --tags prod,secure`,
-	Args:    cobra.ExactArgs(1),
+	Use:   "update <id>",
+	Short: "Update certificate metadata",
+	Long:  `Update metadata for an X.509 certificate (name, tags). Requires admin or certificate_manager role.`,
+	Example: `  # Update certificate metadata
+  rocketvault certificates update <cert-id> --name "Updated name" \
+    --tags prod,secure \
+    --username admin --password admin123 --totp-code <code>`,
+	Args: cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		ctx := cmd.Context()
 		claims, ok := ctx.Value(common.ClaimsKey).(*model.Claims)

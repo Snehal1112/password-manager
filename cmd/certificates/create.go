@@ -15,20 +15,28 @@ import (
 
 	"rocketvault/common"
 	"rocketvault/internal/container"
-	"rocketvault/model"
 	"rocketvault/internal/formatter"
 	"rocketvault/internal/logging"
 	certServices "rocketvault/internal/services/certificates"
+	"rocketvault/model"
 )
 
 // createCmd represents the create command
 // createCmd represents the create command
 var createCmd = &cobra.Command{
-	Use:     "create",
-	Short:   "Create a new X.509 certificate",
-	Long:    `Create a self-signed or CA-signed X.509 certificate using an existing key. Requires admin or certificate_manager role.`,
-	Example: `rocketvault certs create --username admin --password admin123 --totp-code <code> --name mycert --key-id <key-id> --validity-days 365 --tags prod,secure [--ca-cert-id <ca-cert-id>]`,
-	Args:    cobra.NoArgs,
+	Use:   "create",
+	Short: "Create a new X.509 certificate",
+	Long:  `Create a self-signed or CA-signed X.509 certificate using an existing key. Requires admin or certificate_manager role.`,
+	Example: `  # Create a self-signed certificate
+  rocketvault certificates create --name mycert --key-id <key-id> \
+    --validity-days 365 --tags prod,secure \
+    --username admin --password admin123 --totp-code <code>
+
+  # Create a CA-signed certificate
+  rocketvault certificates create --name mycert --key-id <key-id> \
+    --validity-days 365 --tags prod,secure --ca-cert-id <ca-cert-id> \
+    --username admin --password admin123 --totp-code <code>`,
+	Args: cobra.NoArgs,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		ctx := cmd.Context()
 		claims, ok := ctx.Value(common.ClaimsKey).(*model.Claims)

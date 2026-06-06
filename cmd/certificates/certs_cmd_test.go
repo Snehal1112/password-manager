@@ -304,11 +304,11 @@ func TestCertCreateCmd_SelfSignedSuccess(t *testing.T) {
 	}
 	ctx := buildCertAdminCtx(sc)
 	cleanup := viperSetCert(map[string]interface{}{
-		"cert-name":         "mycert",
-		"cert-key-id":       keyID.String(),
+		"cert-name":          "mycert",
+		"cert-key-id":        keyID.String(),
 		"cert-validity-days": 365,
-		"cert-tags":         "prod",
-		"cert-ca-cert-id":   "",
+		"cert-tags":          "prod",
+		"cert-ca-cert-id":    "",
 	})
 	defer cleanup()
 
@@ -341,11 +341,11 @@ func TestCertCreateCmd_CASignedSuccess(t *testing.T) {
 	}
 	ctx := buildCertAdminCtx(sc)
 	cleanup := viperSetCert(map[string]interface{}{
-		"cert-name":         "casignedcert",
-		"cert-key-id":       keyID.String(),
+		"cert-name":          "casignedcert",
+		"cert-key-id":        keyID.String(),
 		"cert-validity-days": 180,
-		"cert-tags":         "",
-		"cert-ca-cert-id":   caCertID.String(),
+		"cert-tags":          "",
+		"cert-ca-cert-id":    caCertID.String(),
 	})
 	defer cleanup()
 
@@ -363,11 +363,11 @@ func TestCertCreateCmd_InvalidCACertID(t *testing.T) {
 	sc := &certsTestContainer{MockServiceContainer: &testutils.MockServiceContainer{}}
 	ctx := buildCertAdminCtx(sc)
 	cleanup := viperSetCert(map[string]interface{}{
-		"cert-name":         "mycert",
-		"cert-key-id":       uuid.New().String(),
+		"cert-name":          "mycert",
+		"cert-key-id":        uuid.New().String(),
 		"cert-validity-days": 365,
-		"cert-tags":         "",
-		"cert-ca-cert-id":   "bad-uuid",
+		"cert-tags":          "",
+		"cert-ca-cert-id":    "bad-uuid",
 	})
 	defer cleanup()
 
@@ -389,11 +389,11 @@ func TestCertCreateCmd_ServiceError(t *testing.T) {
 	}
 	ctx := buildCertAdminCtx(sc)
 	cleanup := viperSetCert(map[string]interface{}{
-		"cert-name":         "failcert",
-		"cert-key-id":       uuid.New().String(),
+		"cert-name":          "failcert",
+		"cert-key-id":        uuid.New().String(),
 		"cert-validity-days": 365,
-		"cert-tags":         "",
-		"cert-ca-cert-id":   "",
+		"cert-tags":          "",
+		"cert-ca-cert-id":    "",
 	})
 	defer cleanup()
 
@@ -423,11 +423,11 @@ func TestCertCreateCmd_NoFormatter(t *testing.T) {
 	ctx = context.WithValue(ctx, common.ServiceContainerKey, sc)
 
 	cleanup := viperSetCert(map[string]interface{}{
-		"cert-name":         "k",
-		"cert-key-id":       keyID.String(),
+		"cert-name":          "k",
+		"cert-key-id":        keyID.String(),
 		"cert-validity-days": 365,
-		"cert-tags":         "",
-		"cert-ca-cert-id":   "",
+		"cert-tags":          "",
+		"cert-ca-cert-id":    "",
 	})
 	defer cleanup()
 
@@ -452,11 +452,11 @@ func TestCertCreateCmd_CertificateManagerRoleAllowed(t *testing.T) {
 	}
 	ctx := buildCertRoleCtx(sc, model.RoleCertificateManager)
 	cleanup := viperSetCert(map[string]interface{}{
-		"cert-name":         "cert",
-		"cert-key-id":       keyID.String(),
+		"cert-name":          "cert",
+		"cert-key-id":        keyID.String(),
 		"cert-validity-days": 365,
-		"cert-tags":         "",
-		"cert-ca-cert-id":   "",
+		"cert-tags":          "",
+		"cert-ca-cert-id":    "",
 	})
 	defer cleanup()
 

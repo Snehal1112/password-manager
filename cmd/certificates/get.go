@@ -15,18 +15,20 @@ import (
 
 	"rocketvault/common"
 	"rocketvault/internal/container"
-	"rocketvault/model"
 	"rocketvault/internal/formatter"
 	"rocketvault/internal/logging"
+	"rocketvault/model"
 )
 
 // getCmd represents the get command
 var getCmd = &cobra.Command{
-	Use:     "get <id>",
-	Short:   "Retrieve a certificate",
-	Long:    `Retrieve details of an X.509 certificate by its UUID. Accessible by the certificate's owner or users with the admin role.`,
-	Example: `rocketvault certs get <cert-id> --username admin --password admin123 --totp-code <code>`,
-	Args:    cobra.ExactArgs(1),
+	Use:   "get <id>",
+	Short: "Retrieve a certificate",
+	Long:  `Retrieve details of an X.509 certificate by its UUID. Accessible by the certificate's owner or users with the admin role.`,
+	Example: `  # Get a certificate by ID
+  rocketvault certificates get <cert-id> \
+    --username admin --password admin123 --totp-code <code>`,
+	Args: cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		ctx := cmd.Context()
 		claims, ok := ctx.Value(common.ClaimsKey).(*model.Claims)

@@ -13,8 +13,8 @@ import (
 	"github.com/stretchr/testify/mock"
 
 	"rocketvault/cmd/testutils"
-	"rocketvault/model"
 	certservices "rocketvault/internal/services/certificates"
+	"rocketvault/model"
 )
 
 // MockCertificateService is a mock implementation of CertificateService interface for testing.

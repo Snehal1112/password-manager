@@ -13,17 +13,19 @@ import (
 
 	"rocketvault/common"
 	"rocketvault/internal/container"
-	"rocketvault/model"
 	"rocketvault/internal/logging"
+	"rocketvault/model"
 )
 
 // renewCmd represents the renew command
 var renewCmd = &cobra.Command{
-	Use:     "renew <id>",
-	Short:   "Renew a certificate",
-	Long:    `Renew an expiring X.509 certificate with a new validity period. Requires admin or certificate_manager role.`,
-	Example: `rocketvault certs renew <cert-id> --username admin --password admin123 --totp-code <code> --validity-days 365`,
-	Args:    cobra.ExactArgs(1),
+	Use:   "renew <id>",
+	Short: "Renew a certificate",
+	Long:  `Renew an expiring X.509 certificate with a new validity period. Requires admin or certificate_manager role.`,
+	Example: `  # Renew a certificate
+  rocketvault certificates renew <cert-id> --validity-days 365 \
+    --username admin --password admin123 --totp-code <code>`,
+	Args: cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		ctx := cmd.Context()
 		claims, ok := ctx.Value(common.ClaimsKey).(*model.Claims)
