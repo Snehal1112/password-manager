@@ -1,0 +1,1451 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>RocketVault — Administrator Manual</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"/>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:ital,wght@0,300;0,400;0,500;0,600;1,400&display=swap" rel="stylesheet"/>
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --bg:#F7F6F2; --surface:#FFFFFF; --surface-alt:#F2F1EC;
+  --border:rgba(0,0,0,.09); --border-strong:rgba(0,0,0,.20);
+  --text-primary:#1A1A18; --text-secondary:#5A5956; --text-muted:#8A8884;
+  --accent:#C2460C; --accent-soft:#FFF4EE;
+  --green-bg:#ECFDF5; --green-bd:#16A34A;
+  --font-sans:'IBM Plex Sans',system-ui,sans-serif;
+  --font-mono:'IBM Plex Mono',monospace;
+  --r-sm:6px;--r-md:10px;--r-lg:14px;
+  --sidebar-w:288px;
+}
+html{scroll-behavior:smooth}
+body{font-family:var(--font-sans);background:var(--bg);color:var(--text-primary);line-height:1.6}
+
+/* Layout */
+.layout{display:flex;align-items:flex-start}
+nav.sidebar{position:sticky;top:0;height:100vh;width:var(--sidebar-w);flex:0 0 var(--sidebar-w);
+  overflow-y:auto;background:var(--surface);border-right:1px solid var(--border);padding:24px 16px}
+main{flex:1;max-width:920px;margin:0 auto;padding:48px 40px 120px}
+
+/* Sidebar */
+.sb-title{font-weight:600;font-size:15px;margin-bottom:4px}
+.sb-sub{font-size:11px;color:var(--text-muted);font-family:var(--font-mono);margin-bottom:20px}
+.sb-group{font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:var(--text-muted);
+  margin:18px 0 6px;font-weight:600}
+.sb-link{display:block;font-size:13px;color:var(--text-secondary);text-decoration:none;
+  padding:5px 10px;border-radius:var(--r-sm);border-left:2px solid transparent}
+.sb-link:hover{background:var(--surface-alt);color:var(--text-primary)}
+.sb-link.active{background:var(--accent-soft);color:var(--accent);border-left-color:var(--accent);font-weight:500}
+
+/* Content */
+section{margin-bottom:56px;scroll-margin-top:24px}
+h1{font-size:28px;font-weight:600;margin-bottom:8px}
+.lede{color:var(--text-secondary);margin-bottom:40px;font-size:15px}
+h2{font-size:21px;font-weight:600;margin:8px 0 16px;padding-bottom:8px;border-bottom:1px solid var(--border)}
+h3{font-size:14px;font-weight:600;margin:22px 0 8px;color:var(--text-primary)}
+p{margin-bottom:10px;color:var(--text-secondary)}
+ul{margin:0 0 10px 20px;color:var(--text-secondary)}
+li{margin-bottom:4px}
+a{color:var(--accent)}
+code{font-family:var(--font-mono);font-size:12.5px;background:var(--surface-alt);
+  padding:1px 5px;border-radius:4px;color:var(--text-primary)}
+pre.code{font-family:var(--font-mono);font-size:12px;line-height:1.6;background:var(--surface);
+  border:1px solid var(--border);border-radius:var(--r-sm);padding:12px 14px;overflow-x:auto;
+  color:var(--text-primary);white-space:pre;margin:6px 0}
+
+/* Operation grid (CLI + API side by side) */
+.op-grid{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin:8px 0}
+.op-label{font-size:10px;text-transform:uppercase;letter-spacing:.06em;color:var(--text-muted);
+  font-weight:600;margin-bottom:4px}
+@media(max-width:780px){.op-grid{grid-template-columns:1fr}}
+
+/* Tables */
+table{width:100%;border-collapse:collapse;margin:8px 0;font-size:12.5px}
+th,td{text-align:left;padding:7px 10px;border-bottom:1px solid var(--border);vertical-align:top}
+th{font-size:11px;text-transform:uppercase;letter-spacing:.04em;color:var(--text-muted)}
+td{color:var(--text-secondary)}
+
+/* Callouts */
+.see-also{font-size:12.5px;background:var(--surface-alt);border-radius:var(--r-sm);
+  padding:8px 12px;margin-top:14px;color:var(--text-secondary)}
+.note{background:#FFFBEB;border:1px solid #FDE68A;border-radius:var(--r-sm);
+  padding:10px 13px;font-size:12.5px;color:#92400E;margin:10px 0}
+.tag{display:inline-block;font-size:10.5px;font-family:var(--font-mono);padding:2px 8px;
+  border-radius:999px;background:var(--green-bg);border:1px solid var(--green-bd);color:#065F46}
+
+/* Search box */
+.sb-search{width:100%;padding:7px 10px;margin-bottom:14px;border:1px solid var(--border-strong);
+  border-radius:var(--r-sm);font-size:13px;font-family:var(--font-sans);background:var(--surface)}
+.sb-link.hidden,.sb-group.hidden{display:none}
+.search-empty{font-size:12px;color:var(--text-muted);padding:6px 10px}
+
+/* Endpoint cards */
+.ep{border:1px solid var(--border);border-radius:var(--r-md);margin:12px 0;overflow:hidden}
+.ep-hd{display:flex;align-items:center;gap:8px;padding:9px 12px;background:var(--surface-alt);
+  border-bottom:1px solid var(--border);font-family:var(--font-mono);font-size:12.5px;flex-wrap:wrap}
+.meth{font-family:var(--font-mono);font-size:11px;font-weight:600;color:#fff;padding:1px 7px;border-radius:4px}
+.meth-get{background:#16A34A}.meth-post{background:#2563A8}.meth-put{background:#B97D0D}
+.meth-patch{background:#6B5ED4}.meth-delete{background:#C2460C}
+.ep-auth{font-size:10.5px;font-family:var(--font-mono);padding:1px 8px;border-radius:999px;
+  background:var(--green-bg);border:1px solid var(--green-bd);color:#065F46}
+.ep-label{color:var(--text-muted)}
+.tabs{display:flex;gap:0;padding:0 8px;border-bottom:1px solid var(--border);background:var(--surface)}
+.tab{padding:6px 13px;font-size:12px;cursor:pointer;border:none;background:none;
+  border-bottom:2px solid transparent;color:var(--text-secondary);font-family:var(--font-sans)}
+.tab.active{border-bottom-color:var(--accent);color:var(--accent);font-weight:600}
+.tabpane{display:none}.tabpane.active{display:block}
+
+/* Copy button on code blocks */
+.codewrap{position:relative}
+.copy-btn{position:absolute;top:6px;right:6px;font-size:10.5px;font-family:var(--font-sans);
+  border:1px solid var(--border-strong);border-radius:5px;padding:2px 8px;background:var(--surface);
+  color:var(--text-secondary);cursor:pointer;opacity:0;transition:opacity .15s}
+.codewrap:hover .copy-btn,.copy-btn:focus{opacity:1}
+.copy-btn.done{color:var(--green-bd);border-color:var(--green-bd)}
+
+/* Collapsibles */
+details.collapse{border:1px solid var(--border);border-radius:var(--r-sm);margin:8px 0}
+details.collapse>summary{cursor:pointer;padding:8px 12px;font-size:12.5px;font-weight:600;
+  background:var(--surface-alt);list-style:none}
+details.collapse>summary::-webkit-details-marker{display:none}
+details.collapse>summary::before{content:"\25B8  ";color:var(--text-muted)}
+details.collapse[open]>summary::before{content:"\25BE  "}
+details.collapse .inner{padding:2px 12px 10px}
+
+/* Back to top */
+#to-top{position:fixed;bottom:22px;right:22px;z-index:30;display:none;border:1px solid var(--border-strong);
+  background:var(--surface);border-radius:50%;width:40px;height:40px;font-size:16px;cursor:pointer;
+  box-shadow:0 2px 10px rgba(0,0,0,.12)}
+#to-top.show{display:block}
+
+/* Markdown doc viewer (slides in when a .md link is clicked) */
+#doc-overlay{position:fixed;inset:0;background:rgba(0,0,0,.35);opacity:0;visibility:hidden;
+  transition:opacity .2s;z-index:40}
+#doc-overlay.open{opacity:1;visibility:visible}
+#doc-panel{position:fixed;top:0;right:0;height:100vh;width:min(820px,92vw);background:var(--surface);
+  border-left:1px solid var(--border-strong);box-shadow:-8px 0 28px rgba(0,0,0,.12);
+  transform:translateX(100%);transition:transform .22s;z-index:41;display:flex;flex-direction:column}
+#doc-panel.open{transform:none}
+.doc-head{display:flex;align-items:center;justify-content:space-between;gap:12px;
+  padding:14px 20px;border-bottom:1px solid var(--border);background:var(--surface-alt)}
+.doc-head-title{font-size:13px;font-family:var(--font-mono);color:var(--text-secondary);
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.doc-close{background:none;border:1px solid var(--border-strong);border-radius:var(--r-sm);
+  padding:4px 10px;font-size:13px;cursor:pointer;color:var(--text-primary);flex:0 0 auto}
+.doc-body{overflow-y:auto;padding:28px 32px;line-height:1.65}
+/* Rendered Markdown inside the panel. */
+.doc-body h1{font-size:24px;margin:18px 0 10px}
+.doc-body h2{font-size:19px;margin:22px 0 10px;padding-bottom:6px;border-bottom:1px solid var(--border)}
+.doc-body h3{font-size:15px;margin:18px 0 6px;color:var(--text-primary)}
+.doc-body p,.doc-body li{color:var(--text-secondary)}
+.doc-body pre{font-family:var(--font-mono);font-size:12px;background:var(--surface-alt);
+  border:1px solid var(--border);border-radius:var(--r-sm);padding:12px 14px;overflow-x:auto;margin:8px 0}
+.doc-body code{font-family:var(--font-mono);font-size:12.5px;background:var(--surface-alt);
+  padding:1px 5px;border-radius:4px}
+.doc-body pre code{background:none;padding:0}
+.doc-body table{width:100%;border-collapse:collapse;margin:10px 0;font-size:12.5px}
+.doc-body th,.doc-body td{border:1px solid var(--border);padding:6px 9px;text-align:left}
+.doc-body a{color:var(--accent)}
+.doc-error{color:#92400E;background:#FFFBEB;border:1px solid #FDE68A;border-radius:var(--r-sm);
+  padding:12px 14px;font-size:13px}
+
+/* Mobile toggle */
+#sb-toggle{display:none}
+@media(max-width:900px){
+  nav.sidebar{position:fixed;left:0;top:0;z-index:20;transform:translateX(-100%);transition:transform .2s}
+  nav.sidebar.open{transform:none}
+  #sb-toggle{display:block;position:fixed;top:12px;left:12px;z-index:30;background:var(--surface);
+    border:1px solid var(--border-strong);border-radius:var(--r-sm);padding:6px 11px;font-size:13px;cursor:pointer}
+}
+</style>
+</head>
+<body>
+<button id="sb-toggle" aria-label="Toggle navigation">☰ Menu</button>
+<button id="to-top" aria-label="Back to top" title="Back to top">↑</button>
+<div class="layout">
+
+  <nav class="sidebar" id="sidebar">
+    <div class="sb-title">RocketVault Admin Manual</div>
+    <div class="sb-sub">Self-hosted secrets manager · Go</div>
+    <input class="sb-search" id="sb-search" type="search" placeholder="Search…  (press /)" aria-label="Search the manual"/>
+    <div class="sb-group">Getting Started</div>
+    <a class="sb-link" href="#before-you-begin">0. Before You Begin</a>
+    <a class="sb-link" href="#quick-start">Quick Start (end-to-end)</a>
+    <a class="sb-link" href="#introduction">1. Introduction &amp; Model</a>
+    <a class="sb-link" href="#installation">2. Installation &amp; First Run</a>
+    <a class="sb-link" href="#bootstrap">3. Bootstrap First Admin</a>
+    <a class="sb-link" href="#configuration">4. Configuration Reference</a>
+    <div class="sb-group">Identity &amp; Access</div>
+    <a class="sb-link" href="#authentication">5. Authentication</a>
+    <a class="sb-link" href="#jwt-signing">6. JWT Signing &amp; Key Sources</a>
+    <a class="sb-link" href="#users">7. User Management</a>
+    <a class="sb-link" href="#access-policies">8. RBAC &amp; Access Policies</a>
+    <a class="sb-link" href="#service-accounts">9. OAuth2 Service Accounts</a>
+    <div class="sb-group">Core Resources</div>
+    <a class="sb-link" href="#secrets">10. Secrets</a>
+    <a class="sb-link" href="#secret-versions">11. Secret Versions</a>
+    <a class="sb-link" href="#secret-rotation">12. Secret Rotation</a>
+    <a class="sb-link" href="#keys">13. Keys</a>
+    <a class="sb-link" href="#certificates">14. Certificates</a>
+    <a class="sb-link" href="#multi-vault">15. Multi-Vault</a>
+    <a class="sb-link" href="#soft-delete">16. Soft-Delete &amp; Purge</a>
+    <div class="sb-group">Operations &amp; Governance</div>
+    <a class="sb-link" href="#audit">17. Audit &amp; Compliance</a>
+    <a class="sb-link" href="#backup">18. Backup &amp; Restore</a>
+    <a class="sb-link" href="#hsm">19. HSM / PKCS#11</a>
+    <a class="sb-link" href="#health">20. Health &amp; Monitoring</a>
+    <a class="sb-link" href="#rate-limiting">21. Rate Limiting</a>
+    <a class="sb-link" href="#performance">22. Performance Internals</a>
+    <a class="sb-link" href="#migrations">23. Database Migrations</a>
+    <a class="sb-link" href="#api-versioning">24. API Versioning</a>
+    <div class="sb-group">Integration</div>
+    <a class="sb-link" href="#consuming">25. Consuming Secrets in Apps</a>
+    <a class="sb-link" href="#cicd">26. CI/CD Integration</a>
+    <a class="sb-link" href="#multi-env">27. Multi-Environment &amp; Automation</a>
+    <div class="sb-group">Appendices</div>
+    <a class="sb-link" href="#appendix-endpoints">A. Endpoint Reference</a>
+    <a class="sb-link" href="#appendix-cli">B. CLI Command Tree</a>
+    <a class="sb-link" href="#appendix-troubleshooting">C. Troubleshooting</a>
+    <a class="sb-link" href="#appendix-security">D. Security Checklist</a>
+  </nav>
+
+  <main>
+    <h1>RocketVault Administrator Manual</h1>
+    <p class="lede">The authoritative operational guide to every RocketVault feature —
+      installation, identity, secrets, keys, certificates, governance, and integration.</p>
+    <p style="font-family:var(--font-mono);font-size:11.5px;color:var(--text-muted);margin-top:-30px;margin-bottom:36px">
+      RocketVault · self-hosted Azure Key Vault alternative · Go · API <code>/api/v1</code> ·
+      Last updated 2026-06-03</p>
+<section id="before-you-begin">
+  <h2>0. Before You Begin</h2>
+  <h3>Prerequisites</h3>
+  <ul>
+    <li>Go 1.24+ to build and run the server (<code>go run main.go serve</code>).</li>
+    <li><code>curl</code> and <code>jq</code> for the API examples; <code>oathtool</code> to mint TOTP codes without a phone.</li>
+    <li>A populated <code>.rocketvault.yaml</code> (the only config the server reads). Key settings: <code>server.listen_addr</code> (default <code>:8774</code>), the bootstrap token, and <code>jwt.*</code>.</li>
+    <li>The server running and an admin bootstrapped (see Quick Start).</li>
+  </ul>
+  <h3>Conventions in this manual</h3>
+  <ul>
+    <li><code>$BASE</code> is <code>http://localhost:8774</code>; <code>$TOKEN</code> is an admin JWT from login.</li>
+    <li>Example responses are <strong>captured from a live server</strong>; secret values, key material, and tokens are shown as <code>&lt;redacted&gt;</code> placeholders.</li>
+    <li>Each operation shows tabs — <strong>cURL</strong>, <strong>CLI</strong>, and a real <strong>Response</strong> where applicable.</li>
+  </ul>
+</section>
+
+<section id="quick-start">
+  <h2>Quick Start — End to End</h2>
+  <p>This walkthrough goes from a fresh server to an application reading a secret. Every command
+    is copy-pasteable; responses are real (redacted).</p>
+  <h3>1. Start the server</h3>
+  <pre class="code">go run main.go serve
+export BASE=http://localhost:8774
+curl -s $BASE/api/v1/health/live      # {"status":"OK"}</pre>
+  <h3>2. Bootstrap the first admin (CLI only)</h3>
+  <pre class="code">go run main.go users admin \
+  --admin-username admin --admin-password admin123 \
+  --bootstrap-token &lt;your-bootstrap-token&gt;
+# stdout includes:  TOTP Secret: otpauth://...&amp;secret=&lt;BASE32&gt;</pre>
+  <div class="note">Register the <code>otpauth://</code> URL in an authenticator app, or mint codes
+    with <code>oathtool --totp --base32 &lt;BASE32&gt;</code>. Every login needs a TOTP code.</div>
+  <h3>3. Log in</h3>
+  <pre class="code">TOKEN=$(curl -s -X POST $BASE/api/v1/users/login -H "Content-Type: application/json" \
+  -d '{"username":"admin","password":"admin123","totp_code":"'"$(oathtool --totp --base32 &lt;BASE32&gt;)"'"}' \
+  | jq -r .token)</pre>
+  <h3>4. Store a secret</h3>
+  <pre class="code">curl -s -X POST $BASE/api/v1/secrets -H "Authorization: Bearer $TOKEN" \
+  -d '{"name":"DB_PASSWORD","value":"s3cret"}' | jq .id   # save this UUID</pre>
+  <h3>5. Create a service account and grant it read access</h3>
+  <pre class="code">SA=$(curl -s -X POST $BASE/api/v1/service-accounts -H "Authorization: Bearer $TOKEN" \
+  -d '{"name":"my-app"}')                 # client_secret shown ONCE
+SECRET=$(echo "$SA" | jq -r .client_secret); SA_ID=$(echo "$SA" | jq -r .id)
+curl -s -X POST $BASE/api/v1/access-policies -H "Authorization: Bearer $TOKEN" \
+  -d '{"name":"app-read","principal_id":"'"$SA_ID"'","resource_type":"secret","resource_id":"&lt;secret-uuid&gt;","actions":["read"]}'</pre>
+  <h3>6. Consume the secret as the application</h3>
+  <pre class="code">APP_TOKEN=$(curl -s -X POST $BASE/api/v1/oauth2/token \
+  -u "my-app:$SECRET" -d "grant_type=client_credentials" | jq -r .access_token)
+curl -s $BASE/api/v1/secrets/&lt;secret-uuid&gt; -H "Authorization: Bearer $APP_TOKEN" | jq .value</pre>
+  <p class="see-also">Each step is detailed in its own section below.</p>
+</section>
+
+<section id="introduction">
+  <h2>1. Introduction &amp; Mental Model</h2>
+  <h3>What it is</h3>
+  <p>RocketVault is a self-hosted, open-source alternative to Azure Key Vault, written in
+    Go. It manages secrets, RSA/ECDSA keys, and X.509 certificates through a REST API and
+    a Cobra CLI, with JWT+TOTP authentication and RBAC. <span class="tag">Azure Key Vault parity</span></p>
+  <h3>The layers</h3>
+  <p>Requests flow through a security gateway (auth, RBAC, rate limiting) into the REST API,
+    then into a service container (business logic), down to pure repositories (data access),
+    and finally SQLite (dev) or PostgreSQL (prod). The CLI calls the same service container
+    directly. Secrets, keys, and certificates are encrypted at rest with AES-256-GCM.</p>
+  <p class="see-also">See also:
+    <a href="rocketvault-architecture.html">System Architecture (interactive)</a></p>
+</section>
+
+<section id="installation">
+  <h2>2. Installation &amp; First Run</h2>
+  <h3>What it is</h3>
+  <p>RocketVault runs as a single Go binary. The server reads exactly one config file,
+    <code>.rocketvault.yaml</code>, from the working directory or <code>--config</code>.</p>
+  <h3>Admin operations</h3>
+  <div class="op-grid">
+    <div class="op-col"><div class="op-label">Run from source</div>
+      <pre class="code">go run main.go serve
+go run main.go serve --config /path/custom.yaml</pre></div>
+    <div class="op-col"><div class="op-label">Verify it is up</div>
+      <pre class="code">export BASE=http://localhost:8774
+curl -s $BASE/api/v1/health/live</pre></div>
+  </div>
+  <h3>Notes &amp; troubleshooting</h3>
+  <ul>
+    <li>The server listens on <code>:8774</code> by default (see <code>server.listen_addr</code>).</li>
+    <li><code>environment: development | production</code> selects database pool defaults.</li>
+  </ul>
+  <p class="see-also">See also: <a href="../doc/setup.md">Setup Guide</a></p>
+</section>
+
+<section id="bootstrap">
+  <h2>3. Bootstrap — First Admin User</h2>
+  <h3>What it is</h3>
+  <p>A one-time bootstrap token creates the first admin without authentication. After use,
+    the token is consumed. The response returns a TOTP secret you must register in an
+    authenticator app — every login requires a TOTP code.</p>
+  <h3>Admin operations</h3>
+  <p>Bootstrap is a <strong>CLI-only</strong> operation — there is no HTTP endpoint. The
+    command talks to the service container directly, validates the token, creates the admin,
+    and then invalidates the token.</p>
+  <pre class="code">rocketvault users admin \
+  --admin-username admin \
+  --admin-password admin123 \
+  --bootstrap-token &lt;token&gt;</pre>
+  <div class="note">Register the returned <code>totp_qr_url</code> before logging in.
+    You can mint codes with <code>oathtool --totp --base32 &lt;secret&gt;</code>.</div>
+  <p class="see-also">See also: <a href="../doc/README_ADMIN_SETUP.md">Admin Setup Guide</a></p>
+</section>
+
+<section id="configuration">
+  <h2>4. Configuration Reference</h2>
+  <h3>What it is</h3>
+  <p>All runtime behavior is driven by <code>.rocketvault.yaml</code>. The top-level
+    sections below are read by the server at startup.</p>
+  <table class="cfg">
+    <thead><tr><th>Section</th><th>Purpose</th></tr></thead>
+    <tbody>
+      <tr><td><code>master_key</code>, <code>jwt_secret</code>, <code>bootstrap_token</code> (top-level keys)</td><td>Master AES-256-GCM key, legacy JWT secret, and one-time bootstrap token</td></tr>
+      <tr><td><code>jwt</code></td><td><code>key_source</code> (os_store/self_pki/external_pki), <code>key_cn</code>, <code>expiry</code>, <code>rotation_overlap</code>, <code>signing_key_file</code></td></tr>
+      <tr><td><code>environment</code></td><td><code>development</code> | <code>production</code> — sets DB pool defaults</td></tr>
+      <tr><td><code>database</code></td><td><code>connection</code>, <code>driver</code>, pool sizing (<code>max_open_conns</code>, …)</td></tr>
+      <tr><td><code>log</code></td><td>level, file, format, rotation (<code>max_backups</code>, <code>max_age_days</code>, <code>max_size_mb</code>)</td></tr>
+      <tr><td><code>rate_limit</code></td><td><code>default</code> (req/min) and <code>auth</code> (login endpoints)</td></tr>
+      <tr><td><code>server</code></td><td><code>listen_addr</code>, timeouts, <code>cors_allowed_origins</code>, <code>http2</code>, <code>tls</code></td></tr>
+      <tr><td><code>retry</code></td><td>database / external_services / circuit_breaker backoff config</td></tr>
+      <tr><td><code>soft_delete</code></td><td><code>enabled</code>, <code>retention_days</code>, <code>purge_protection</code></td></tr>
+      <tr><td><code>key_cache</code></td><td><code>enabled</code>, <code>ttl</code>, <code>max_entries</code>, <code>cleanup_interval</code></td></tr>
+      <tr><td><code>oauth2</code></td><td><code>token_expiry</code>, <code>issuer</code></td></tr>
+      <tr><td><code>vault_client</code></td><td><code>url</code>, <code>client_id</code>, <code>secrets[]</code> (consumer side; empty on the server)</td></tr>
+      <tr><td><code>frontend</code></td><td><code>public_api_url</code>, <code>sentry_dsn</code> (exposed at <code>/api/v1/config</code>)</td></tr>
+      <tr><td><code>hsm</code></td><td><code>enabled</code>, <code>lib_path</code>, <code>token_label</code>, <code>pin</code>, <code>slot_id</code></td></tr>
+    </tbody>
+  </table>
+  <div class="note"><code>jwt.expiry</code> is required — the service container reads it via
+    <code>viper.GetDuration("jwt.expiry")</code>.</div>
+</section>
+
+<section id="authentication">
+  <h2>5. Authentication</h2>
+  <p>Login requires username + password + a TOTP code and returns a short-lived JWT plus
+    a refresh token. Sessions are tracked and individually revocable.</p>
+  <h3>When to use it</h3>
+  <p>Every human caller authenticates here. Machine callers use service accounts (§9) instead.</p>
+  <h3>Operations</h3>
+
+  <div class="ep">
+    <div class="ep-hd"><span class="meth meth-post">POST</span> /api/v1/users/login <span class="ep-label">Authenticate, get a JWT</span></div>
+    <div class="tabs"><button class="tab active">cURL</button><button class="tab">CLI</button><button class="tab">Response</button></div>
+    <div class="tabpane active"><pre class="code">curl -s -X POST $BASE/api/v1/users/login -H "Content-Type: application/json" \
+  -d '{"username":"admin","password":"admin123","totp_code":"123456"}'</pre></div>
+    <div class="tabpane"><pre class="code">rocketvault users login \
+  --username admin --password admin123 --totp-code 123456</pre></div>
+    <div class="tabpane"><pre class="code">{
+  "token": "&lt;redacted-jwt&gt;",
+  "refresh_token": "&lt;redacted-jwt&gt;",
+  "user_id": "f99945c6-ded6-4d6d-96be-7a10a1fbe6fe",
+  "username": "admin",
+  "role": "admin"
+}</pre></div>
+    <details class="collapse"><summary>Errors</summary><div class="inner">401 bad credentials or TOTP · 429 rate-limited (5/min)</div></details>
+  </div>
+
+  <div class="ep">
+    <div class="ep-hd"><span class="meth meth-post">POST</span> /api/v1/users/refresh <span class="ep-label">Exchange a refresh token</span></div>
+    <div class="tabs"><button class="tab active">cURL</button><button class="tab">Response</button></div>
+    <div class="tabpane active"><pre class="code">curl -s -X POST $BASE/api/v1/users/refresh -H "Content-Type: application/json" \
+  -d '{"refresh_token":"&lt;rt&gt;"}'</pre></div>
+    <div class="tabpane"><pre class="code">{ "token": "&lt;redacted-jwt&gt;", "refresh_token": "&lt;redacted-jwt&gt;" }</pre></div>
+  </div>
+
+  <div class="ep">
+    <div class="ep-hd"><span class="meth meth-get">GET</span> /api/v1/users/sessions <span class="ep-auth">JWT</span> <span class="ep-label">List active sessions</span></div>
+    <div class="tabs"><button class="tab active">cURL</button></div>
+    <div class="tabpane active"><pre class="code">curl -s $BASE/api/v1/users/sessions -H "Authorization: Bearer $TOKEN"</pre></div>
+  </div>
+
+  <div class="ep">
+    <div class="ep-hd"><span class="meth meth-delete">DELETE</span> /api/v1/users/sessions/{id} <span class="ep-auth">JWT</span> <span class="ep-label">Revoke one (or all with no id)</span></div>
+    <div class="tabs"><button class="tab active">cURL</button></div>
+    <div class="tabpane active"><pre class="code"># one session
+curl -s -X DELETE $BASE/api/v1/users/sessions/&lt;id&gt; -H "Authorization: Bearer $TOKEN"
+# all sessions for the caller
+curl -s -X DELETE $BASE/api/v1/users/sessions -H "Authorization: Bearer $TOKEN"</pre></div>
+  </div>
+
+  <div class="note">Auth endpoints are rate-limited (default 5 req/min) — see §21.</div>
+  <p class="see-also">See also: <a href="../MANUAL_TESTING.md">Endpoint table — Manual Testing §5</a></p>
+</section>
+
+<section id="jwt-signing">
+  <h2>6. JWT Signing &amp; Key Sources</h2>
+  <h3>What it is</h3>
+  <p>JWTs are signed asymmetrically and verifiable via JWKS at <code>/jwks.json</code>. Three providers control where the signing key lives, set by <code>jwt.key_source</code>.</p>
+  <table>
+    <thead><tr><th>Provider</th><th>Storage</th><th>Algorithm</th><th>Rotation</th></tr></thead>
+    <tbody>
+      <tr><td><code>os_store</code> (default)</td><td>OS keychain, PEM-file fallback</td><td>RS256</td><td>No</td></tr>
+      <tr><td><code>self_pki</code></td><td>RocketVault's own encrypted DB</td><td>ES256</td><td>Yes (runtime)</td></tr>
+      <tr><td><code>external_pki</code></td><td>PEM from file or env var</td><td>RS256/ES256</td><td>No</td></tr>
+    </tbody>
+  </table>
+  <h3>Operations</h3>
+
+  <div class="ep">
+    <div class="ep-hd"><span class="meth meth-get">GET</span> /jwks.json <span class="ep-auth">none</span> <span class="ep-label">Public JWK set</span></div>
+    <div class="tabs"><button class="tab active">cURL</button><button class="tab">Response</button></div>
+    <div class="tabpane active"><pre class="code">curl -s $BASE/jwks.json | jq '.keys[0].alg'</pre></div>
+    <div class="tabpane"><pre class="code">{
+  "keys": [
+    {
+      "kty": "RSA",
+      "use": "sig",
+      "alg": "RS256",
+      "kid": "9d1c755f04ddbcfc",
+      "n": "&lt;base64url-modulus&gt;",
+      "e": "AQAB"
+    }
+  ]
+}</pre></div>
+  </div>
+
+  <div class="ep">
+    <div class="ep-hd"><span class="meth meth-post">POST</span> /api/v1/jwks/rotate <span class="ep-auth">JWT · admin</span> <span class="ep-label">Rotate (self_pki only)</span></div>
+    <div class="tabs"><button class="tab active">cURL</button></div>
+    <div class="tabpane active"><pre class="code">curl -s -X POST $BASE/api/v1/jwks/rotate -H "Authorization: Bearer $TOKEN"</pre></div>
+  </div>
+
+  <div class="note">With <code>os_store</code> the key lives in the OS keychain and rotation returns 400 — only <code>self_pki</code> supports runtime rotation. Headless hosts fall back to <code>~/.local/share/rocketvault/jwt-signing.pem</code> (mode 0600).</div>
+  <p class="see-also">See also: <a href="../MANUAL_TESTING.md">Endpoint table — Manual Testing §§6,15,16</a></p>
+</section>
+
+<section id="users">
+  <h2>7. User Management</h2>
+  <p>Admins create, list, update, and delete users. Each user has a role (<code>admin</code>,
+    <code>user</code>, or a scoped manager role) and a TOTP secret issued at creation.</p>
+  <h3>When to use it</h3>
+  <p>Onboard human operators. For automation, prefer a service account (§9).</p>
+  <h3>Operations</h3>
+
+  <div class="ep">
+    <div class="ep-hd"><span class="meth meth-post">POST</span> /api/v1/users <span class="ep-auth">JWT · admin</span> <span class="ep-label">Create a user</span></div>
+    <div class="tabs"><button class="tab active">cURL</button><button class="tab">CLI</button><button class="tab">Response</button></div>
+    <div class="tabpane active"><pre class="code">curl -s -X POST $BASE/api/v1/users -H "Authorization: Bearer $TOKEN" \
+  -d '{"username":"alice","password":"alicepassword123","role":"user"}'</pre></div>
+    <div class="tabpane"><pre class="code"># --username/--password/--totp-code authenticate the calling admin;
+# --new-* describe the user being created.
+rocketvault users create \
+  --username admin --password admin123 --totp-code 123456 \
+  --new-username alice --new-password alicepassword123 --new-role user</pre></div>
+    <div class="tabpane"><pre class="code">{
+  "id": "&lt;uuid&gt;",
+  "username": "alice",
+  "role": "user",
+  "totp_secret": "&lt;base32-secret&gt;"
+}</pre></div>
+    <details class="collapse"><summary>Errors</summary><div class="inner">400 invalid role (one of secrets_manager, crypto_manager, certificate_manager, admin, user) · 401/403 non-admin caller</div></details>
+  </div>
+
+  <div class="ep">
+    <div class="ep-hd"><span class="meth meth-get">GET</span> /api/v1/users <span class="ep-auth">JWT · admin</span> <span class="ep-label">List users</span></div>
+    <div class="tabs"><button class="tab active">cURL</button></div>
+    <div class="tabpane active"><pre class="code">curl -s $BASE/api/v1/users -H "Authorization: Bearer $TOKEN"</pre></div>
+  </div>
+
+  <div class="ep">
+    <div class="ep-hd"><span class="meth meth-put">PUT</span> /api/v1/users/{id} <span class="ep-auth">JWT · admin</span> <span class="ep-label">Update a user</span></div>
+    <div class="tabs"><button class="tab active">cURL</button></div>
+    <div class="tabpane active"><pre class="code">curl -s -X PUT $BASE/api/v1/users/&lt;id&gt; -H "Authorization: Bearer $TOKEN" \
+  -d '{"role":"admin"}'</pre></div>
+  </div>
+
+  <div class="ep">
+    <div class="ep-hd"><span class="meth meth-delete">DELETE</span> /api/v1/users/{id} <span class="ep-auth">JWT · admin</span> <span class="ep-label">Delete a user</span></div>
+    <div class="tabs"><button class="tab active">cURL</button></div>
+    <div class="tabpane active"><pre class="code">curl -s -X DELETE $BASE/api/v1/users/&lt;id&gt; -H "Authorization: Bearer $TOKEN"</pre></div>
+  </div>
+
+  <p class="see-also">See also: <a href="../MANUAL_TESTING.md">Endpoint table — Manual Testing §7</a></p>
+</section>
+
+<section id="access-policies">
+  <h2>8. RBAC &amp; Access Policies</h2>
+  <h3>What it is</h3>
+  <p>Two complementary controls: <strong>roles</strong> (admin vs user) gate broad operations, and <strong>access policies</strong> grant a specific principal (user or service account) access to a specific resource — a resource type/id plus allowed actions.</p>
+  <h3>Operations</h3>
+
+  <div class="ep">
+    <div class="ep-hd"><span class="meth meth-post">POST</span> /api/v1/access-policies <span class="ep-auth">JWT</span> <span class="ep-label">Create a policy</span></div>
+    <div class="tabs"><button class="tab active">cURL</button></div>
+    <div class="tabpane active"><pre class="code">curl -s -X POST $BASE/api/v1/access-policies -H "Authorization: Bearer $TOKEN" \
+  -d '{"name":"read-db-secret","principal_id":"&lt;id&gt;","resource_type":"secret","resource_id":"&lt;id&gt;","actions":["read"]}'</pre></div>
+  </div>
+
+  <div class="ep">
+    <div class="ep-hd"><span class="meth meth-get">GET</span> /api/v1/access-policies <span class="ep-auth">JWT</span> <span class="ep-label">List all</span></div>
+    <div class="tabs"><button class="tab active">cURL</button></div>
+    <div class="tabpane active"><pre class="code">curl -s $BASE/api/v1/access-policies -H "Authorization: Bearer $TOKEN"</pre></div>
+  </div>
+
+  <div class="ep">
+    <div class="ep-hd"><span class="meth meth-get">GET</span> /api/v1/access-policies/{id} <span class="ep-auth">JWT</span> <span class="ep-label">Get one</span></div>
+    <div class="tabs"><button class="tab active">cURL</button></div>
+    <div class="tabpane active"><pre class="code">curl -s $BASE/api/v1/access-policies/&lt;id&gt; -H "Authorization: Bearer $TOKEN"</pre></div>
+  </div>
+
+  <div class="ep">
+    <div class="ep-hd"><span class="meth meth-put">PUT</span> /api/v1/access-policies/{id} <span class="ep-auth">JWT</span> <span class="ep-label">Update</span></div>
+    <div class="tabs"><button class="tab active">cURL</button></div>
+    <div class="tabpane active"><pre class="code">curl -s -X PUT $BASE/api/v1/access-policies/&lt;id&gt; -H "Authorization: Bearer $TOKEN" -d '{"actions":["read","update"]}'</pre></div>
+  </div>
+
+  <div class="ep">
+    <div class="ep-hd"><span class="meth meth-delete">DELETE</span> /api/v1/access-policies/{id} <span class="ep-auth">JWT</span> <span class="ep-label">Delete</span></div>
+    <div class="tabs"><button class="tab active">cURL</button></div>
+    <div class="tabpane active"><pre class="code">curl -s -X DELETE $BASE/api/v1/access-policies/&lt;id&gt; -H "Authorization: Bearer $TOKEN"</pre></div>
+  </div>
+
+  <div class="ep">
+    <div class="ep-hd"><span class="meth meth-get">GET</span> /api/v1/access-policies/principal/{id} <span class="ep-auth">JWT</span> <span class="ep-label">List by principal</span></div>
+    <div class="tabs"><button class="tab active">cURL</button></div>
+    <div class="tabpane active"><pre class="code">curl -s $BASE/api/v1/access-policies/principal/&lt;id&gt; -H "Authorization: Bearer $TOKEN"</pre></div>
+  </div>
+
+  <p class="see-also">See also: <a href="../MANUAL_TESTING.md">Endpoint table — Manual Testing §13</a></p>
+</section>
+
+<section id="service-accounts">
+  <h2>9. OAuth2 Service Accounts</h2>
+  <p>A service account is a machine identity (Azure KV service-principal equivalent) that
+    authenticates via the OAuth2 client-credentials flow — no TOTP. Service accounts are
+    <strong>read-only consumers</strong>: they retrieve secrets/keys/certs an admin granted them.</p>
+  <h3>When to use it</h3>
+  <p>CI/CD pipelines, apps fetching config at runtime, service-to-service secrets, scheduled jobs.</p>
+  <h3>Operations</h3>
+
+  <div class="ep">
+    <div class="ep-hd"><span class="meth meth-post">POST</span> /api/v1/service-accounts <span class="ep-auth">JWT · admin</span> <span class="ep-label">Create (secret shown once)</span></div>
+    <div class="tabs"><button class="tab active">cURL</button><button class="tab">Response</button></div>
+    <div class="tabpane active"><pre class="code">curl -s -X POST $BASE/api/v1/service-accounts -H "Authorization: Bearer $TOKEN" \
+  -d '{"name":"ci-pipeline","description":"CI/CD"}'</pre></div>
+    <div class="tabpane"><pre class="code">{
+  "id": "&lt;uuid&gt;",
+  "name": "ci-pipeline",
+  "client_secret": "&lt;shown-once-redacted&gt;"
+}</pre></div>
+  </div>
+
+  <div class="ep">
+    <div class="ep-hd"><span class="meth meth-post">POST</span> /api/v1/oauth2/token <span class="ep-auth">Basic</span> <span class="ep-label">Client-credentials token</span></div>
+    <div class="tabs"><button class="tab active">cURL</button><button class="tab">Response</button></div>
+    <div class="tabpane active"><pre class="code">curl -s -X POST $BASE/api/v1/oauth2/token \
+  -u "ci-pipeline:$SECRET" -d "grant_type=client_credentials"</pre></div>
+    <div class="tabpane"><pre class="code">{ "access_token": "&lt;redacted-jwt&gt;", "token_type": "Bearer", "expires_in": 3600 }</pre></div>
+  </div>
+
+  <div class="ep">
+    <div class="ep-hd"><span class="meth meth-post">POST</span> /api/v1/service-accounts/{id}/rotate <span class="ep-auth">JWT · admin</span> <span class="ep-label">Rotate the secret</span></div>
+    <div class="tabs"><button class="tab active">cURL</button></div>
+    <div class="tabpane active"><pre class="code">curl -s -X POST $BASE/api/v1/service-accounts/&lt;id&gt;/rotate -H "Authorization: Bearer $TOKEN"</pre></div>
+  </div>
+
+  <div class="ep">
+    <div class="ep-hd"><span class="meth meth-delete">DELETE</span> /api/v1/service-accounts/{id} <span class="ep-auth">JWT · admin</span> <span class="ep-label">Delete (invalidates tokens)</span></div>
+    <div class="tabs"><button class="tab active">cURL</button></div>
+    <div class="tabpane active"><pre class="code">curl -s -X DELETE $BASE/api/v1/service-accounts/&lt;id&gt; -H "Authorization: Bearer $TOKEN"</pre></div>
+  </div>
+
+  <div class="note">The <code>client_id</code> is the service-account <strong>name</strong>, not its
+    UUID. Delete or rotate immediately invalidates live tokens.</div>
+  <p class="see-also">See also: <a href="consuming-secrets-guide.md">Consuming Secrets Guide</a>, <a href="../MANUAL_TESTING.md">Endpoint table — Manual Testing §14</a></p>
+</section>
+
+<section id="secrets">
+  <h2>10. Secrets</h2>
+  <h3>What it is</h3>
+  <p>Encrypted-at-rest key/value secrets (AES-256-GCM). Only the owner or an admin can
+    read a secret via the flat routes. Secrets support tags, generation, and import/export.</p>
+  <h3>When to use it</h3>
+  <p>Store application credentials, API keys, connection strings — anything an app needs
+    at runtime but must not hold in plaintext.</p>
+  <h3>Operations</h3>
+
+  <div class="ep">
+    <div class="ep-hd"><span class="meth meth-post">POST</span> /api/v1/secrets <span class="ep-auth">JWT</span> <span class="ep-label">Create a secret</span></div>
+    <div class="tabs"><button class="tab active">cURL</button><button class="tab">Response</button></div>
+    <div class="tabpane active"><pre class="code">curl -s -X POST $BASE/api/v1/secrets -H "Authorization: Bearer $TOKEN" \
+  -d '{"name":"db-password","value":"s3cret","tags":["database"]}'</pre></div>
+    <div class="tabpane"><pre class="code">{
+  "id": "&lt;uuid&gt;",
+  "name": "db-password",
+  "tags": ["database"],
+  "version": 1,
+  "enabled": true,
+  "created_at": "2026-06-03T07:44:46Z"
+}</pre></div>
+    <details class="collapse"><summary>Notes</summary><div class="inner">The plaintext <code>value</code> is not returned on create; read it back with GET. Updating the value creates a new version (§11).</div></details>
+  </div>
+
+  <div class="ep">
+    <div class="ep-hd"><span class="meth meth-get">GET</span> /api/v1/secrets/{id} <span class="ep-auth">JWT</span> <span class="ep-label">Get a secret (decrypted)</span></div>
+    <div class="tabs"><button class="tab active">cURL</button><button class="tab">Response</button></div>
+    <div class="tabpane active"><pre class="code">curl -s $BASE/api/v1/secrets/&lt;id&gt; -H "Authorization: Bearer $TOKEN"</pre></div>
+    <div class="tabpane"><pre class="code">{
+  "id": "&lt;uuid&gt;",
+  "name": "db-password",
+  "value": "&lt;decrypted-value&gt;",
+  "tags": ["database"],
+  "version": 1,
+  "enabled": true,
+  "created_at": "2026-06-03T07:44:46Z"
+}</pre></div>
+  </div>
+
+  <div class="ep">
+    <div class="ep-hd"><span class="meth meth-get">GET</span> /api/v1/secrets <span class="ep-auth">JWT</span> <span class="ep-label">List secrets</span></div>
+    <div class="tabs"><button class="tab active">cURL</button></div>
+    <div class="tabpane active"><pre class="code">curl -s $BASE/api/v1/secrets -H "Authorization: Bearer $TOKEN"</pre></div>
+  </div>
+
+  <div class="ep">
+    <div class="ep-hd"><span class="meth meth-put">PUT</span> /api/v1/secrets/{id} <span class="ep-auth">JWT</span> <span class="ep-label">Update (new version)</span></div>
+    <div class="tabs"><button class="tab active">cURL</button></div>
+    <div class="tabpane active"><pre class="code">curl -s -X PUT $BASE/api/v1/secrets/&lt;id&gt; -H "Authorization: Bearer $TOKEN" \
+  -d '{"value":"newpass","tags":["database"]}'</pre></div>
+  </div>
+
+  <div class="ep">
+    <div class="ep-hd"><span class="meth meth-delete">DELETE</span> /api/v1/secrets/{id} <span class="ep-auth">JWT</span> <span class="ep-label">Soft-delete</span></div>
+    <div class="tabs"><button class="tab active">cURL</button></div>
+    <div class="tabpane active"><pre class="code">curl -s -X DELETE $BASE/api/v1/secrets/&lt;id&gt; -H "Authorization: Bearer $TOKEN"</pre></div>
+  </div>
+
+  <div class="ep">
+    <div class="ep-hd"><span class="meth meth-post">POST</span> /api/v1/secrets/generate <span class="ep-auth">JWT</span> <span class="ep-label">Generate a random value</span></div>
+    <div class="tabs"><button class="tab active">cURL</button></div>
+    <div class="tabpane active"><pre class="code">curl -s -X POST $BASE/api/v1/secrets/generate -H "Authorization: Bearer $TOKEN" \
+  -d '{"name":"api-key","length":32,"type":"alphanumeric"}'</pre></div>
+  </div>
+
+  <div class="ep">
+    <div class="ep-hd"><span class="meth meth-post">POST</span> /api/v1/secrets/export <span class="ep-auth">JWT</span> <span class="ep-label">Export</span></div>
+    <div class="tabs"><button class="tab active">cURL</button></div>
+    <div class="tabpane active"><pre class="code">curl -s -X POST $BASE/api/v1/secrets/export -H "Authorization: Bearer $TOKEN" -d '{"format":"json"}'</pre></div>
+  </div>
+
+  <div class="ep">
+    <div class="ep-hd"><span class="meth meth-post">POST</span> /api/v1/secrets/import <span class="ep-auth">JWT</span> <span class="ep-label">Import</span></div>
+    <div class="tabs"><button class="tab active">cURL</button></div>
+    <div class="tabpane active"><pre class="code">curl -s -X POST $BASE/api/v1/secrets/import -H "Authorization: Bearer $TOKEN" \
+  -d '{"secrets":[{"name":"imported","value":"v","tags":["x"]}]}'</pre></div>
+  </div>
+
+  <p class="see-also">See also: <a href="../MANUAL_TESTING.md">Endpoint table — Manual Testing §8</a></p>
+</section>
+
+<section id="secret-versions">
+  <h2>11. Secret Versions</h2>
+  <h3>What it is</h3>
+  <p>Every value update creates a new, retained version. Old versions stay readable.</p>
+  <h3>Operations</h3>
+
+  <div class="ep">
+    <div class="ep-hd"><span class="meth meth-get">GET</span> /api/v1/secrets/{id}/versions <span class="ep-auth">JWT</span> <span class="ep-label">List versions</span></div>
+    <div class="tabs"><button class="tab active">cURL</button><button class="tab">CLI</button></div>
+    <div class="tabpane active"><pre class="code">curl -s $BASE/api/v1/secrets/&lt;id&gt;/versions -H "Authorization: Bearer $TOKEN"</pre></div>
+    <div class="tabpane"><pre class="code">rocketvault version list &lt;secret-id&gt; --username admin --password admin123 --totp-code 123456</pre></div>
+  </div>
+
+  <div class="ep">
+    <div class="ep-hd"><span class="meth meth-get">GET</span> /api/v1/secrets/{id}/versions/{n} <span class="ep-auth">JWT</span> <span class="ep-label">Get version n</span></div>
+    <div class="tabs"><button class="tab active">cURL</button></div>
+    <div class="tabpane active"><pre class="code">curl -s $BASE/api/v1/secrets/&lt;id&gt;/versions/1 -H "Authorization: Bearer $TOKEN"</pre></div>
+  </div>
+
+  <div class="ep">
+    <div class="ep-hd"><span class="meth meth-get">GET</span> /api/v1/secrets/{id}/versions/latest <span class="ep-auth">JWT</span> <span class="ep-label">Get latest</span></div>
+    <div class="tabs"><button class="tab active">cURL</button><button class="tab">CLI</button></div>
+    <div class="tabpane active"><pre class="code">curl -s $BASE/api/v1/secrets/&lt;id&gt;/versions/latest -H "Authorization: Bearer $TOKEN"</pre></div>
+    <div class="tabpane"><pre class="code">rocketvault version latest &lt;secret-id&gt; --username admin --password admin123 --totp-code 123456</pre></div>
+  </div>
+
+  <p class="see-also">See also: <a href="../MANUAL_TESTING.md">Endpoint table — Manual Testing §9</a></p>
+</section>
+
+<section id="secret-rotation">
+  <h2>12. Secret Rotation</h2>
+  <h3>What it is</h3>
+  <p>Rotation policies define how often a secret should rotate, with reminder windows and
+    optional auto-rotate. History is tracked, and due rotations can be queried. Managed
+    primarily through the CLI.</p>
+  <h3>Admin operations</h3>
+  <div class="op-grid">
+    <div class="op-col"><div class="op-label">Manage policies</div>
+      <pre class="code">rocketvault secrets rotation create --secret-id &lt;id&gt; --interval 30d \
+  --username admin --password admin123 --totp-code 123456
+rocketvault secrets rotation list   --username admin --password admin123 --totp-code 123456</pre></div>
+    <div class="op-col"><div class="op-label">Operate</div>
+      <pre class="code">rocketvault secrets rotation rotate  --secret-id &lt;id&gt; ...
+rocketvault secrets rotation history --secret-id &lt;id&gt; ...
+rocketvault secrets rotation status  ...</pre></div>
+  </div>
+  <p class="see-also">See also: <a href="integration-examples.md">Integration Examples — rotation</a></p>
+</section>
+
+<section id="keys">
+  <h2>13. Keys</h2>
+  <h3>What it is</h3>
+  <p>RSA and ECDSA private keys, encrypted at rest, with cryptographic operations
+    (wrap/unwrap, sign/verify, encrypt/decrypt), rotation, and version history.</p>
+  <h3>When to use it</h3>
+  <p>Hold signing or encryption keys server-side so private material never leaves the vault.</p>
+  <h3>Operations</h3>
+
+  <div class="ep">
+    <div class="ep-hd"><span class="meth meth-post">POST</span> /api/v1/keys <span class="ep-auth">JWT</span> <span class="ep-label">Create a key</span></div>
+    <div class="tabs"><button class="tab active">cURL</button><button class="tab">Response</button></div>
+    <div class="tabpane active"><pre class="code"># RSA: bits = 2048 | 3072 | 4096
+curl -s -X POST $BASE/api/v1/keys -H "Authorization: Bearer $TOKEN" \
+  -d '{"name":"my-rsa-key","type":"RSA","bits":2048}'
+# ECDSA: curve = P-256 | P-384 | P-521
+curl -s -X POST $BASE/api/v1/keys -H "Authorization: Bearer $TOKEN" \
+  -d '{"name":"my-ec-key","type":"ECDSA","curve":"P-256"}'</pre></div>
+    <div class="tabpane"><pre class="code">{
+  "id": "&lt;uuid&gt;",
+  "name": "my-rsa-key",
+  "type": "RSA",
+  "bits": 2048,
+  "enabled": true,
+  "revoked": false,
+  "tags": [],
+  "user_id": "&lt;uuid&gt;",
+  "created_at": "2026-06-03T07:44:46Z"
+}</pre></div>
+    <details class="collapse"><summary>Notes</summary><div class="inner">Use <code>bits</code> for RSA and <code>curve</code> for ECDSA. Private key material is never returned; a GET includes only public components (RSA <code>n</code>/<code>e</code>).</div></details>
+  </div>
+
+  <div class="ep">
+    <div class="ep-hd"><span class="meth meth-post">POST</span> /api/v1/keys/{id}/rotate <span class="ep-auth">JWT</span> <span class="ep-label">Rotate</span></div>
+    <div class="tabs"><button class="tab active">cURL</button></div>
+    <div class="tabpane active"><pre class="code">curl -s -X POST $BASE/api/v1/keys/&lt;id&gt;/rotate -H "Authorization: Bearer $TOKEN"</pre></div>
+  </div>
+
+  <div class="ep">
+    <div class="ep-hd"><span class="meth meth-post">POST</span> /api/v1/keys/{id}/sign <span class="ep-auth">JWT</span> <span class="ep-label">Sign</span></div>
+    <div class="tabs"><button class="tab active">cURL</button></div>
+    <div class="tabpane active"><pre class="code">curl -s -X POST $BASE/api/v1/keys/&lt;id&gt;/sign -H "Authorization: Bearer $TOKEN" \
+  -d '{"value":"aGVsbG8=","algorithm":"RS256"}'</pre></div>
+  </div>
+
+  <div class="ep">
+    <div class="ep-hd"><span class="meth meth-post">POST</span> /api/v1/keys/{id}/verify <span class="ep-auth">JWT</span> <span class="ep-label">Verify</span></div>
+    <div class="tabs"><button class="tab active">cURL</button></div>
+    <div class="tabpane active"><pre class="code">curl -s -X POST $BASE/api/v1/keys/&lt;id&gt;/verify -H "Authorization: Bearer $TOKEN" \
+  -d '{"value":"aGVsbG8=","signature":"&lt;sig&gt;","algorithm":"RS256"}'</pre></div>
+  </div>
+
+  <div class="ep">
+    <div class="ep-hd"><span class="meth meth-post">POST</span> /api/v1/keys/{id}/wrap <span class="ep-auth">JWT</span> <span class="ep-label">Wrap (encrypt)</span></div>
+    <div class="tabs"><button class="tab active">cURL</button></div>
+    <div class="tabpane active"><pre class="code">curl -s -X POST $BASE/api/v1/keys/&lt;id&gt;/wrap -H "Authorization: Bearer $TOKEN" -d '{"plaintext":"..."}'</pre></div>
+  </div>
+
+  <div class="ep">
+    <div class="ep-hd"><span class="meth meth-post">POST</span> /api/v1/keys/{id}/unwrap <span class="ep-auth">JWT</span> <span class="ep-label">Unwrap (decrypt)</span></div>
+    <div class="tabs"><button class="tab active">cURL</button></div>
+    <div class="tabpane active"><pre class="code">curl -s -X POST $BASE/api/v1/keys/&lt;id&gt;/unwrap -H "Authorization: Bearer $TOKEN" -d '{"ciphertext":"&lt;ct&gt;"}'</pre></div>
+  </div>
+
+  <div class="ep">
+    <div class="ep-hd"><span class="meth meth-post">POST</span> /api/v1/keys/{id}/encrypt <span class="ep-auth">JWT</span> <span class="ep-label">Encrypt</span></div>
+    <div class="tabs"><button class="tab active">cURL</button></div>
+    <div class="tabpane active"><pre class="code">curl -s -X POST $BASE/api/v1/keys/&lt;id&gt;/encrypt -H "Authorization: Bearer $TOKEN" -d '{"value":"aGVsbG8=","algorithm":"RSA-OAEP"}'</pre></div>
+  </div>
+
+  <div class="ep">
+    <div class="ep-hd"><span class="meth meth-post">POST</span> /api/v1/keys/{id}/decrypt <span class="ep-auth">JWT</span> <span class="ep-label">Decrypt</span></div>
+    <div class="tabs"><button class="tab active">cURL</button></div>
+    <div class="tabpane active"><pre class="code">curl -s -X POST $BASE/api/v1/keys/&lt;id&gt;/decrypt -H "Authorization: Bearer $TOKEN" -d '{"value":"&lt;ct&gt;","algorithm":"RSA-OAEP"}'</pre></div>
+  </div>
+
+  <div class="ep">
+    <div class="ep-hd"><span class="meth meth-get">GET</span> /api/v1/keys/{id}/versions <span class="ep-auth">JWT</span> <span class="ep-label">List key versions</span></div>
+    <div class="tabs"><button class="tab active">cURL</button></div>
+    <div class="tabpane active"><pre class="code">curl -s $BASE/api/v1/keys/&lt;id&gt;/versions -H "Authorization: Bearer $TOKEN"</pre></div>
+  </div>
+
+  <div class="ep">
+    <div class="ep-hd"><span class="meth meth-delete">DELETE</span> /api/v1/keys/{id} <span class="ep-auth">JWT</span> <span class="ep-label">Soft-delete</span></div>
+    <div class="tabs"><button class="tab active">cURL</button></div>
+    <div class="tabpane active"><pre class="code">curl -s -X DELETE $BASE/api/v1/keys/&lt;id&gt; -H "Authorization: Bearer $TOKEN"</pre></div>
+  </div>
+
+  <p class="see-also">See also: <a href="../MANUAL_TESTING.md">Endpoint table — Manual Testing §10</a></p>
+</section>
+
+<section id="certificates">
+  <h2>14. Certificates &amp; Certificate Policies</h2>
+  <h3>What it is</h3>
+  <p>Self-signed X.509 certificate lifecycle management. Each certificate may carry a
+    policy describing auto-renewal (validity, key type/curve, SANs, issuer) used by the
+    renewal scan.</p>
+  <h3>Operations</h3>
+
+  <div class="ep">
+    <div class="ep-hd"><span class="meth meth-post">POST</span> /api/v1/certificates <span class="ep-auth">JWT</span> <span class="ep-label">Create self-signed cert</span></div>
+    <div class="tabs"><button class="tab active">cURL</button></div>
+    <div class="tabpane active"><pre class="code">curl -s -X POST $BASE/api/v1/certificates -H "Authorization: Bearer $TOKEN" \
+  -d '{"name":"my-tls-cert","common_name":"example.com","validity_days":365,"key_type":"RSA","key_size":2048}'</pre></div>
+  </div>
+
+  <div class="ep">
+    <div class="ep-hd"><span class="meth meth-get">GET</span> /api/v1/certificates/{id} <span class="ep-auth">JWT</span> <span class="ep-label">Get</span></div>
+    <div class="tabs"><button class="tab active">cURL</button></div>
+    <div class="tabpane active"><pre class="code">curl -s $BASE/api/v1/certificates/&lt;id&gt; -H "Authorization: Bearer $TOKEN"</pre></div>
+  </div>
+
+  <div class="ep">
+    <div class="ep-hd"><span class="meth meth-put">PUT</span> /api/v1/certificates/{id} <span class="ep-auth">JWT</span> <span class="ep-label">Update</span></div>
+    <div class="tabs"><button class="tab active">cURL</button></div>
+    <div class="tabpane active"><pre class="code">curl -s -X PUT $BASE/api/v1/certificates/&lt;id&gt; -H "Authorization: Bearer $TOKEN" -d '{"name":"renamed"}'</pre></div>
+  </div>
+
+  <div class="ep">
+    <div class="ep-hd"><span class="meth meth-delete">DELETE</span> /api/v1/certificates/{id} <span class="ep-auth">JWT</span> <span class="ep-label">Soft-delete</span></div>
+    <div class="tabs"><button class="tab active">cURL</button></div>
+    <div class="tabpane active"><pre class="code">curl -s -X DELETE $BASE/api/v1/certificates/&lt;id&gt; -H "Authorization: Bearer $TOKEN"</pre></div>
+  </div>
+
+  <div class="ep">
+    <div class="ep-hd"><span class="meth meth-get">GET</span> /api/v1/certificates/{id}/policy <span class="ep-auth">JWT</span> <span class="ep-label">Get policy</span></div>
+    <div class="tabs"><button class="tab active">cURL</button></div>
+    <div class="tabpane active"><pre class="code">curl -s $BASE/api/v1/certificates/&lt;id&gt;/policy -H "Authorization: Bearer $TOKEN"</pre></div>
+  </div>
+
+  <div class="ep">
+    <div class="ep-hd"><span class="meth meth-put">PUT</span> /api/v1/certificates/{id}/policy <span class="ep-auth">JWT</span> <span class="ep-label">Upsert policy</span></div>
+    <div class="tabs"><button class="tab active">cURL</button></div>
+    <div class="tabpane active"><pre class="code">curl -s -X PUT $BASE/api/v1/certificates/&lt;id&gt;/policy -H "Authorization: Bearer $TOKEN" \
+  -d '{"auto_renew":true,"days_before_expiry":30}'</pre></div>
+  </div>
+
+  <div class="ep">
+    <div class="ep-hd"><span class="meth meth-delete">DELETE</span> /api/v1/certificates/{id}/policy <span class="ep-auth">JWT</span> <span class="ep-label">Delete policy</span></div>
+    <div class="tabs"><button class="tab active">cURL</button></div>
+    <div class="tabpane active"><pre class="code">curl -s -X DELETE $BASE/api/v1/certificates/&lt;id&gt;/policy -H "Authorization: Bearer $TOKEN"</pre></div>
+  </div>
+
+  <div class="note">The CLI offers <code>rocketvault certificate renew &lt;id&gt;</code> to force renewal.</div>
+  <p class="see-also">See also: <a href="../MANUAL_TESTING.md">Endpoint table — Manual Testing §11</a></p>
+</section>
+
+<section id="multi-vault">
+  <h2>15. Multi-Vault</h2>
+  <h3>What it is</h3>
+  <p>Resources live in named vaults (Azure KV parity). A built-in <code>default</code> vault
+    holds everything created via the flat routes. Vault names are 3–63 lowercase
+    alphanumerics/hyphens, no leading/trailing hyphen.</p>
+  <h3>Visibility model</h3>
+  <table>
+    <thead><tr><th>Route family</th><th>Example</th><th>Visibility</th></tr></thead>
+    <tbody>
+      <tr><td>Flat</td><td><code>GET /api/v1/secrets</code></td><td>Per-user (owner only)</td></tr>
+      <tr><td>Vault-scoped</td><td><code>GET /api/v1/vaults/{name}/secrets</code></td><td>Members see all</td></tr>
+    </tbody>
+  </table>
+  <h3>Operations</h3>
+
+  <div class="ep">
+    <div class="ep-hd"><span class="meth meth-post">POST</span> /api/v1/vaults <span class="ep-auth">JWT · admin</span> <span class="ep-label">Create a vault</span></div>
+    <div class="tabs"><button class="tab active">cURL</button><button class="tab">Response</button></div>
+    <div class="tabpane active"><pre class="code">curl -s -X POST $BASE/api/v1/vaults -H "Authorization: Bearer $TOKEN" -d '{"name":"team-alpha"}'</pre></div>
+    <div class="tabpane"><pre class="code">{
+  "id": "&lt;uuid&gt;",
+  "name": "team-alpha",
+  "enabled": true,
+  "purge_protection": false,
+  "retention_days": 90,
+  "created_by": "&lt;uuid&gt;",
+  "created_at": "2026-06-03T07:44:46Z"
+}</pre></div>
+  </div>
+
+  <div class="ep">
+    <div class="ep-hd"><span class="meth meth-get">GET</span> /api/v1/vaults <span class="ep-auth">JWT · admin</span> <span class="ep-label">List (?include_deleted=true)</span></div>
+    <div class="tabs"><button class="tab active">cURL</button></div>
+    <div class="tabpane active"><pre class="code">curl -s "$BASE/api/v1/vaults?include_deleted=true" -H "Authorization: Bearer $TOKEN"</pre></div>
+  </div>
+
+  <div class="ep">
+    <div class="ep-hd"><span class="meth meth-patch">PATCH</span> /api/v1/vaults/{name} <span class="ep-auth">JWT · admin</span> <span class="ep-label">Update</span></div>
+    <div class="tabs"><button class="tab active">cURL</button></div>
+    <div class="tabpane active"><pre class="code">curl -s -X PATCH $BASE/api/v1/vaults/team-alpha -H "Authorization: Bearer $TOKEN" -d '{"retention_days":7}'</pre></div>
+  </div>
+
+  <div class="ep">
+    <div class="ep-hd"><span class="meth meth-delete">DELETE</span> /api/v1/vaults/{name} <span class="ep-auth">JWT · admin</span> <span class="ep-label">Soft-delete (204; refuses default)</span></div>
+    <div class="tabs"><button class="tab active">cURL</button><button class="tab">CLI</button></div>
+    <div class="tabpane active"><pre class="code">curl -s -i -X DELETE $BASE/api/v1/vaults/team-alpha -H "Authorization: Bearer $TOKEN"</pre></div>
+    <div class="tabpane"><pre class="code">rocketvault vaults create|recover|purge team-alpha ...</pre></div>
+  </div>
+
+  <div class="note">Vault <em>management</em> requires the <code>vaults:manage</code> permission (admin only). The <code>default</code> vault cannot be deleted.</div>
+  <p class="see-also">See also: <a href="../MANUAL_TESTING.md">Endpoint table — Manual Testing §12.5</a></p>
+</section>
+
+<section id="soft-delete">
+  <h2>16. Soft-Delete, Restore &amp; Purge</h2>
+  <h3>What it is</h3>
+  <p>Secrets, keys, and certificates are soft-deleted (retained, default 30 days) and can
+    be restored or permanently purged. Purge protection can block permanent deletion.</p>
+  <h3>Operations</h3>
+
+  <div class="ep">
+    <div class="ep-hd"><span class="meth meth-get">GET</span> /api/v1/deleted/secrets <span class="ep-auth">JWT</span> <span class="ep-label">List soft-deleted (flat, per-user)</span></div>
+    <div class="tabs"><button class="tab active">cURL</button></div>
+    <div class="tabpane active"><pre class="code">curl -s $BASE/api/v1/deleted/secrets -H "Authorization: Bearer $TOKEN"</pre></div>
+  </div>
+
+  <div class="ep">
+    <div class="ep-hd"><span class="meth meth-post">POST</span> /api/v1/deleted/secrets/{id}/restore <span class="ep-auth">JWT</span> <span class="ep-label">Restore</span></div>
+    <div class="tabs"><button class="tab active">cURL</button></div>
+    <div class="tabpane active"><pre class="code">curl -s -X POST $BASE/api/v1/deleted/secrets/&lt;id&gt;/restore -H "Authorization: Bearer $TOKEN"</pre></div>
+  </div>
+
+  <div class="ep">
+    <div class="ep-hd"><span class="meth meth-delete">DELETE</span> /api/v1/deleted/secrets/{id}/purge <span class="ep-auth">JWT</span> <span class="ep-label">Purge permanently</span></div>
+    <div class="tabs"><button class="tab active">cURL</button></div>
+    <div class="tabpane active"><pre class="code">curl -s -X DELETE $BASE/api/v1/deleted/secrets/&lt;id&gt;/purge -H "Authorization: Bearer $TOKEN"</pre></div>
+  </div>
+
+  <div class="ep">
+    <div class="ep-hd"><span class="meth meth-get">GET</span> /api/v1/vaults/{name}/deleted/secrets <span class="ep-auth">JWT</span> <span class="ep-label">Vault-scoped list (by membership)</span></div>
+    <div class="tabs"><button class="tab active">cURL</button></div>
+    <div class="tabpane active"><pre class="code">curl -s $BASE/api/v1/vaults/default/deleted/secrets -H "Authorization: Bearer $TOKEN"</pre></div>
+  </div>
+
+  <div class="note">Key and certificate restore/purge are exposed only on the flat <code>/deleted/keys/…</code> and <code>/deleted/certificates/…</code> routes.</div>
+  <p class="see-also">See also: <a href="../MANUAL_TESTING.md">Endpoint table — Manual Testing §12</a></p>
+</section>
+
+<section id="audit">
+  <h2>17. Audit Logs &amp; Compliance</h2>
+  <h3>What it is</h3>
+  <p>Every security-relevant action is recorded in a hash-chained audit log (tamper-evident). Logs are queryable with filters, and SOC 2 / GDPR reports can be generated. Admin only.</p>
+  <h3>Operations</h3>
+
+  <div class="ep">
+    <div class="ep-hd"><span class="meth meth-get">GET</span> /api/v1/audit/logs <span class="ep-auth">JWT · admin</span> <span class="ep-label">Query logs</span></div>
+    <div class="tabs"><button class="tab active">cURL</button><button class="tab">Response</button></div>
+    <div class="tabpane active"><pre class="code">curl -s "$BASE/api/v1/audit/logs?action=login&amp;limit=50" -H "Authorization: Bearer $TOKEN"</pre></div>
+    <div class="tabpane"><pre class="code">{
+  "logs": [ /* ... */ ],
+  "total": 42,
+  "integrity_ok": true,
+  "next_cursor": ""
+}</pre></div>
+  </div>
+
+  <div class="ep">
+    <div class="ep-hd"><span class="meth meth-get">GET</span> /api/v1/audit/reports/soc2 <span class="ep-auth">JWT · admin</span> <span class="ep-label">SOC 2 report</span></div>
+    <div class="tabs"><button class="tab active">cURL</button></div>
+    <div class="tabpane active"><pre class="code">curl -s "$BASE/api/v1/audit/reports/soc2?start_date=2026-01-01&amp;end_date=2026-06-01" -H "Authorization: Bearer $TOKEN"</pre></div>
+  </div>
+
+  <div class="ep">
+    <div class="ep-hd"><span class="meth meth-get">GET</span> /api/v1/audit/reports/gdpr <span class="ep-auth">JWT · admin</span> <span class="ep-label">GDPR data-subject export</span></div>
+    <div class="tabs"><button class="tab active">cURL</button></div>
+    <div class="tabpane active"><pre class="code">curl -s "$BASE/api/v1/audit/reports/gdpr?subject_id=&lt;id&gt;" -H "Authorization: Bearer $TOKEN"</pre></div>
+  </div>
+
+  <div class="ep">
+    <div class="ep-hd"><span class="meth meth-get">GET</span> /api/v1/audit/config <span class="ep-auth">JWT · admin</span> <span class="ep-label">Get retention config</span></div>
+    <div class="tabs"><button class="tab active">cURL</button></div>
+    <div class="tabpane active"><pre class="code">curl -s $BASE/api/v1/audit/config -H "Authorization: Bearer $TOKEN"</pre></div>
+  </div>
+
+  <div class="ep">
+    <div class="ep-hd"><span class="meth meth-patch">PATCH</span> /api/v1/audit/config <span class="ep-auth">JWT · admin</span> <span class="ep-label">Update retention</span></div>
+    <div class="tabs"><button class="tab active">cURL</button></div>
+    <div class="tabpane active"><pre class="code">curl -s -X PATCH $BASE/api/v1/audit/config -H "Authorization: Bearer $TOKEN" -d '{"retention_days":365}'</pre></div>
+  </div>
+
+  <div class="note">The logs response carries an <code>integrity_ok</code> flag — the result of verifying the hash chain.</div>
+  <p class="see-also">See also: <a href="../MANUAL_TESTING.md">Manual Testing</a></p>
+</section>
+
+<section id="backup">
+  <h2>18. Backup &amp; Restore</h2>
+  <h3>What it is</h3>
+  <p>Two levels: full database backups via the CLI, and per-item encrypted backup/restore blobs for individual secrets, keys, and certificates via the API.</p>
+  <h3>Full backup (CLI)</h3>
+  <pre class="code">rocketvault backup create  --username admin --password admin123 --totp-code 123456
+rocketvault backup list    --username admin --password admin123 --totp-code 123456
+rocketvault backup restore --file /path/backup.json ...</pre>
+  <h3>Per-item (API)</h3>
+
+  <div class="ep">
+    <div class="ep-hd"><span class="meth meth-post">POST</span> /api/v1/secrets/{id}/backup <span class="ep-auth">JWT</span> <span class="ep-label">Back up one item</span></div>
+    <div class="tabs"><button class="tab active">cURL</button></div>
+    <div class="tabpane active"><pre class="code">curl -s -X POST $BASE/api/v1/secrets/&lt;id&gt;/backup -H "Authorization: Bearer $TOKEN"</pre></div>
+  </div>
+
+  <div class="ep">
+    <div class="ep-hd"><span class="meth meth-post">POST</span> /api/v1/secrets/restore <span class="ep-auth">JWT</span> <span class="ep-label">Restore from a blob</span></div>
+    <div class="tabs"><button class="tab active">cURL</button></div>
+    <div class="tabpane active"><pre class="code">curl -s -X POST $BASE/api/v1/secrets/restore -H "Authorization: Bearer $TOKEN" -d '{...blob...}'</pre></div>
+  </div>
+
+  <div class="note">Keys and certificates have the same per-item routes: <code>/keys/{id}/backup</code>, <code>/keys/restore</code>, <code>/certificates/{id}/backup</code>, <code>/certificates/restore</code>.</div>
+  <p class="see-also">See also: <a href="integration-examples.md">Integration Examples — backup</a></p>
+</section>
+
+<section id="hsm">
+  <h2>19. HSM / PKCS#11</h2>
+  <h3>What it is</h3>
+  <p>RocketVault can store and operate keys on a PKCS#11 token (hardware HSM, or SoftHSM2
+    for testing). Enable via the <code>hsm</code> config block; keys are stored as
+    <code>pkcs11:&lt;uuid&gt;</code> instead of an encrypted PEM blob.</p>
+  <h3>Configuration</h3>
+  <pre class="code">hsm:
+  enabled: true
+  lib_path: /usr/lib/softhsm/libsofthsm2.so
+  token_label: rocketvault
+  pin: "1234"
+  slot_id: 0</pre>
+  <h3>Supported algorithms</h3>
+  <table>
+    <thead><tr><th>Operation</th><th>Algorithms</th></tr></thead>
+    <tbody>
+      <tr><td>Sign / Verify</td><td>RS256/384/512, PS256/384/512, ES256/384/512</td></tr>
+      <tr><td>Encrypt / Decrypt</td><td>RSA-OAEP (SHA-1), RSA-OAEP-256 (SHA-256)</td></tr>
+      <tr><td>Key generation</td><td>RSA 2048/4096, ECDSA P-256/384/521</td></tr>
+    </tbody>
+  </table>
+  <div class="note">Look for <code>PKCS#11 HSM key provider initialised</code> in the logs.
+    P-256K (secp256k1) always uses the software provider.</div>
+  <p class="see-also">See also: <a href="hsm-softhsm2-testing.md">SoftHSM2 Testing Guide</a></p>
+</section>
+
+<section id="health">
+  <h2>20. Health &amp; Monitoring</h2>
+  <h3>What it is</h3>
+  <p>Liveness, readiness, full health, and database-specific probes. The full <code>/health</code> endpoint returns runtime and database metrics.</p>
+  <h3>Operations</h3>
+
+  <div class="ep">
+    <div class="ep-hd"><span class="meth meth-get">GET</span> /api/v1/health/live <span class="ep-auth">none</span> <span class="ep-label">Liveness</span></div>
+    <div class="tabs"><button class="tab active">cURL</button><button class="tab">Response</button></div>
+    <div class="tabpane active"><pre class="code">curl -s $BASE/api/v1/health/live</pre></div>
+    <div class="tabpane"><pre class="code">{ "status": "OK" }</pre></div>
+  </div>
+
+  <div class="ep">
+    <div class="ep-hd"><span class="meth meth-get">GET</span> /api/v1/health/ready <span class="ep-auth">none</span> <span class="ep-label">Readiness</span></div>
+    <div class="tabs"><button class="tab active">cURL</button></div>
+    <div class="tabpane active"><pre class="code">curl -s $BASE/api/v1/health/ready</pre></div>
+  </div>
+
+  <div class="ep">
+    <div class="ep-hd"><span class="meth meth-get">GET</span> /api/v1/health <span class="ep-auth">none</span> <span class="ep-label">Full health + metrics</span></div>
+    <div class="tabs"><button class="tab active">cURL</button><button class="tab">Response</button></div>
+    <div class="tabpane active"><pre class="code">curl -s $BASE/api/v1/health</pre></div>
+    <div class="tabpane"><pre class="code">{
+  "go_version": "go1.24",
+  "goroutines": 12,
+  "uptime": "1m3s",
+  "timestamp": "2026-06-03T07:44:46Z",
+  "memory_usage": { /* ... */ },
+  "cpu_stats": { /* ... */ },
+  "database_stats": { /* ... */ },
+  "query_metrics": { /* ... */ }
+}</pre></div>
+  </div>
+
+  <div class="ep">
+    <div class="ep-hd"><span class="meth meth-get">GET</span> /api/v1/health/database <span class="ep-auth">JWT</span> <span class="ep-label">Database health</span></div>
+    <div class="tabs"><button class="tab active">cURL</button></div>
+    <div class="tabpane active"><pre class="code">curl -s $BASE/api/v1/health/database -H "Authorization: Bearer $TOKEN"</pre></div>
+  </div>
+
+  <p class="see-also">See also: <a href="integration-examples.md">Integration Examples — monitoring</a></p>
+</section>
+
+<section id="rate-limiting">
+  <h2>21. Rate Limiting</h2>
+  <h3>What it is</h3>
+  <p>Per-IP rate limits protect the API. Auth endpoints have a tighter limit than general
+    endpoints.</p>
+  <table>
+    <thead><tr><th>Endpoint group</th><th>Default (dev)</th></tr></thead>
+    <tbody>
+      <tr><td>All API endpoints</td><td>300 req/min</td></tr>
+      <tr><td>Auth (<code>/login</code>, <code>/refresh</code>, <code>/oauth2/token</code>)</td><td>5 req/min</td></tr>
+    </tbody>
+  </table>
+  <div class="note">Tune via the <code>rate_limit.default</code> and <code>rate_limit.auth</code>
+    config keys. Exceeding a limit returns <code>429 Too Many Requests</code>.</div>
+  <p class="see-also">See also: <a href="../MANUAL_TESTING.md">Endpoint table — Manual Testing §17</a></p>
+</section>
+
+<section id="performance">
+  <h2>22. Performance Internals</h2>
+  <h3>What it is</h3>
+  <p>Two tunable subsystems run transparently. <strong>Caching</strong>: an in-memory key
+    cache (<code>key_cache.*</code>, default 60s TTL / 500 entries) and a secret cache speed
+    up reads. <strong>Retry</strong>: database and external-service operations use
+    exponential backoff with jitter and a circuit breaker (<code>retry.*</code>).</p>
+  <p>These are configuration-tuned rather than operated directly — defaults are production-safe.
+    Adjust only with measurement. The <code>key_cache</code> and <code>retry</code> blocks in
+    <a href="#configuration">§4 Configuration</a> list the tunable keys.</p>
+  <p class="see-also">See also:
+    <a href="rocketvault-architecture.html">System Architecture</a> (caching, retry, and
+    circuit-breaker internals are shown in the service-layer diagram)</p>
+</section>
+
+<section id="migrations">
+  <h2>23. Database Migrations</h2>
+  <h3>What it is</h3>
+  <p>Schema migrations run at startup, and a CLI provides explicit control: status,
+    targeted migration, and authoring new migration files.</p>
+  <h3>Admin operations</h3>
+  <pre class="code">rocketvault migrate              # apply all pending
+rocketvault migrate:status       # show applied / pending
+rocketvault migrate:to &lt;version&gt; # migrate to a specific version
+rocketvault migrate:create &lt;desc&gt;# scaffold a new migration file</pre>
+  <div class="note">Each migration is recorded in <code>schema_migrations</code> and applied
+    exactly once.</div>
+</section>
+
+<section id="api-versioning">
+  <h2>24. API Versioning</h2>
+  <h3>What it is</h3>
+  <p>The API is versioned under <code>/api/v1</code>. Versioning middleware tracks
+    deprecation and sunset dates so clients get advance notice before a version is removed.</p>
+  <h3>Notes &amp; troubleshooting</h3>
+  <ul><li>Deprecated versions emit deprecation/sunset headers; plan client migration before the sunset date.</li></ul>
+  <p class="see-also">See also: <a href="api-developer-guide.md">API Developer Guide</a></p>
+</section>
+
+<section id="consuming">
+  <h2>25. Consuming Secrets in Your Application</h2>
+  <h3>What it is</h3>
+  <p>Applications retrieve secrets at runtime using a service-account OAuth2 token, so
+    secrets never live in code or config. Three integration styles are supported.</p>
+  <h3>Options</h3>
+  <div class="op-grid">
+    <div class="op-col"><div class="op-label">Go (vaultclient)</div>
+      <pre class="code">client, _ := vaultclient.New(vaultclient.Config{
+  URL:          "http://localhost:8774",
+  ClientID:     "my-app",                 // SA name
+  ClientSecret: os.Getenv("VAULT_CLIENT_SECRET"),
+  Secrets: []vaultclient.SecretMapping{
+    {Name:"DB_PASSWORD", UUID:"&lt;uuid&gt;"}},
+})
+secrets, _ := client.GetMany(ctx, []string{"DB_PASSWORD"})</pre></div>
+    <div class="op-col"><div class="op-label">Shell / direct HTTP</div>
+      <pre class="code"># Get token
+curl -X POST $BASE/api/v1/oauth2/token \
+  -d "grant_type=client_credentials&amp;client_id=my-app&amp;client_secret=$SEC"
+# Fetch a secret by UUID
+curl $BASE/api/v1/secrets/&lt;uuid&gt; -H "Authorization: Bearer &lt;access_token&gt;"</pre></div>
+  </div>
+  <div class="note"><code>VAULT_CLIENT_SECRET</code> must come from an environment variable,
+    never a config file. The server's own <code>vault_client.client_id</code> must be empty.</div>
+  <p class="see-also">See also: <a href="consuming-secrets-guide.md">Consuming Secrets Guide</a></p>
+</section>
+
+<section id="cicd">
+  <h2>26. CI/CD Integration</h2>
+  <h3>What it is</h3>
+  <p>Pipelines authenticate with a service account (or admin credentials stored as CI
+    secrets) to back up, validate, or fetch secrets during builds and deploys.</p>
+  <h3>Pattern</h3>
+  <pre class="code"># GitHub Actions / Jenkins — fetch a token, then call the API
+TOKEN=$(curl -s -X POST $API_URL/oauth2/token \
+  -d "grant_type=client_credentials&amp;client_id=$CI_SA&amp;client_secret=$CI_SECRET" | jq -r .access_token)
+curl -s $API_URL/secrets/&lt;uuid&gt; -H "Authorization: Bearer $TOKEN" | jq -r .value</pre>
+  <p class="see-also">See also:
+    <a href="integration-examples.md">Integration Examples — GitHub Actions &amp; Jenkins</a></p>
+</section>
+
+<section id="multi-env">
+  <h2>27. Multi-Environment &amp; Automation</h2>
+  <h3>What it is</h3>
+  <p>For dev/staging/prod fleets, common automations include promoting secrets between
+    environments, scheduled rotation scripts, and exporting health metrics to Prometheus.
+    These are scripted against the public API and are documented in full, with runnable
+    examples, in the integration guide.</p>
+  <p class="see-also">See also:
+    <a href="integration-examples.md">Integration Examples — multi-environment, rotation, Prometheus</a></p>
+</section>
+
+<section id="appendix-endpoints">
+  <h2>Appendix A — Endpoint Reference</h2>
+  <p>The complete REST endpoint table (every method, path, auth requirement, and
+    description) is maintained in the Manual Testing Guide and kept in sync with the router.</p>
+  <p class="see-also">Full table:
+    <a href="../MANUAL_TESTING.md#quick-reference--all-endpoints">MANUAL_TESTING.md — All Endpoints</a></p>
+  <p>Subsystems: vaults, secrets (+ versions, generate, export/import, item backup), users
+    (+ sessions), keys (+ wrap/unwrap, sign/verify, encrypt/decrypt, rotate, versions),
+    certificates (+ policy), deleted (restore/purge), access-policies, service-accounts,
+    audit (logs, SOC2/GDPR, config), oauth2/token, jwks (+ rotate), config, health.</p>
+</section>
+
+<section id="appendix-cli">
+  <h2>Appendix B — CLI Command Tree</h2>
+  <pre class="code">rocketvault
+├── serve                 start the API server
+├── migrate               apply pending migrations
+│   ├── migrate:status
+│   ├── migrate:to &lt;version&gt;
+│   └── migrate:create &lt;desc&gt;
+├── health
+├── version (list | get | latest)
+├── users  (create | list | get | update | delete | admin | login)
+├── secrets (create | list | get | update | delete | generate | export | import)
+│   └── rotation (create | list | update | delete | assign | unassign | rotate | history | status)
+├── keys   (create | list | get | update | delete | rotate | wrap | unwrap)
+├── certificate (create | list | get | update | delete | renew)
+├── vaults (create | list | get | update | delete | recover | purge)
+├── backup (create | list | restore)
+├── audit  (logs | report | config)
+└── env
+
+Persistent flags: --config, --username, --password, --totp-code, --output {table|json|yaml}, --vault</pre>
+</section>
+
+<section id="appendix-troubleshooting">
+  <h2>Appendix C — Troubleshooting Matrix</h2>
+  <table>
+    <thead><tr><th>Symptom</th><th>Likely cause</th><th>Fix</th></tr></thead>
+    <tbody>
+      <tr><td><code>connection refused</code></td><td>Server not running / wrong URL</td><td>Start <code>serve</code>; check <code>server.listen_addr</code></td></tr>
+      <tr><td><code>token endpoint returned 404</code></td><td>Wrong OAuth2 path</td><td>Use <code>/api/v1/oauth2/token</code></td></tr>
+      <tr><td><code>authentication failed</code> (OAuth2)</td><td>Wrong client_id</td><td><code>client_id</code> is the SA <em>name</em>, not UUID</td></tr>
+      <tr><td>JWKS rotate returns 400</td><td><code>os_store</code> provider</td><td>Rotation needs <code>self_pki</code> (§6)</td></tr>
+      <tr><td><code>429 Too Many Requests</code></td><td>Rate limit hit</td><td>Back off; tune <code>rate_limit.*</code> (§21)</td></tr>
+      <tr><td>Login rejected after restart</td><td>JWT key changed</td><td>Ensure keychain/PEM persisted (§6)</td></tr>
+    </tbody>
+  </table>
+  <p class="see-also">See also: <a href="../doc/troubleshooting.markdown">Troubleshooting</a></p>
+</section>
+
+<section id="appendix-security">
+  <h2>Appendix D — Security Checklist</h2>
+  <ul>
+    <li><code>VAULT_CLIENT_SECRET</code> in env vars only — never a config file or git.</li>
+    <li>Server's <code>vault_client.client_id</code> is empty (the server must not call itself).</li>
+    <li>Each application has its own least-privilege service account.</li>
+    <li>Rotate service-account secrets periodically (<code>/service-accounts/{id}/rotate</code>).</li>
+    <li>JWT signing key persists across restarts (keychain or 0600 PEM) — never in <code>/etc/ssl/certs</code>.</li>
+    <li>Audit retention configured; verify <code>integrity_ok</code> on audit queries.</li>
+    <li>Purge protection enabled for sensitive vaults.</li>
+  </ul>
+  <p class="see-also">See also: <a href="../doc/security.markdown">Security Notes</a></p>
+</section>
+
+  </main>
+
+</div>
+
+<!-- Markdown doc viewer overlay and slide-in panel. -->
+<div id="doc-overlay"></div>
+<aside id="doc-panel" aria-hidden="true">
+  <div class="doc-head">
+    <span class="doc-head-title" id="doc-title"></span>
+    <button class="doc-close" id="doc-close" aria-label="Close document">✕ Close</button>
+  </div>
+  <div class="doc-body" id="doc-body"></div>
+</aside>
+
+<script src="https://cdn.jsdelivr.net/npm/marked@15/marked.min.js"></script>
+<script>
+// Scroll-spy: highlight the sidebar link for the section currently in view.
+const links = [...document.querySelectorAll('.sb-link')];
+const byId = id => links.find(l => l.getAttribute('href') === '#' + id);
+const observer = new IntersectionObserver((entries) => {
+  entries.forEach(e => {
+    if(e.isIntersecting){
+      links.forEach(l => l.classList.remove('active'));
+      const link = byId(e.target.id);
+      if(link) link.classList.add('active');
+    }
+  });
+}, {rootMargin: '0px 0px -70% 0px', threshold: 0});
+document.querySelectorAll('main section[id]').forEach(s => observer.observe(s));
+
+// Mobile sidebar toggle.
+const sidebar = document.getElementById('sidebar');
+document.getElementById('sb-toggle').addEventListener('click', () => sidebar.classList.toggle('open'));
+document.querySelectorAll('.sb-link').forEach(l =>
+  l.addEventListener('click', () => sidebar.classList.remove('open')));
+
+// Markdown doc viewer: render linked .md/.markdown files in-page instead of
+// letting the browser show their raw source.
+const overlay = document.getElementById('doc-overlay');
+const panel = document.getElementById('doc-panel');
+const docBody = document.getElementById('doc-body');
+const docTitle = document.getElementById('doc-title');
+
+function closeDoc(){
+  overlay.classList.remove('open');
+  panel.classList.remove('open');
+  panel.setAttribute('aria-hidden', 'true');
+}
+function openDoc(){
+  overlay.classList.add('open');
+  panel.classList.add('open');
+  panel.setAttribute('aria-hidden', 'false');
+}
+
+// Slugify a heading's text the way GitHub does, so "#anchor" links can scroll
+// to the matching rendered heading. Punctuation (including em-dashes) is removed,
+// then each remaining space becomes a hyphen — note spaces are NOT collapsed, so
+// "A — B" yields "a--b", matching GitHub's anchor generation.
+function slugify(text){
+  return text.toLowerCase().trim()
+    .replace(/[^\w\- ]+/g, '').replace(/ /g, '-');
+}
+
+async function showMarkdown(url, frag){
+  docTitle.textContent = url.split('/').pop();
+  docBody.innerHTML = '<p>Loading…</p>';
+  openDoc();
+  try {
+    const res = await fetch(url);
+    if(!res.ok) throw new Error('HTTP ' + res.status);
+    const md = await res.text();
+    docBody.innerHTML = window.marked ? marked.parse(md)
+      : '<pre>' + md.replace(/[&<>]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;'}[c])) + '</pre>';
+    // Give rendered headings ids so in-document anchors resolve.
+    docBody.querySelectorAll('h1,h2,h3,h4').forEach(h => { if(!h.id) h.id = slugify(h.textContent); });
+    if(frag){
+      // Exact id first; fall back to a hyphen-collapsed match so minor slug
+      // differences (e.g. double hyphens) still resolve.
+      let target = docBody.querySelector('#' + CSS.escape(frag));
+      if(!target){
+        const norm = s => s.replace(/-+/g, '-');
+        target = [...docBody.querySelectorAll('h1,h2,h3,h4')]
+          .find(h => norm(h.id) === norm(frag));
+      }
+      if(target) target.scrollIntoView(); else docBody.scrollTop = 0;
+    } else {
+      docBody.scrollTop = 0;
+    }
+  } catch(err) {
+    docBody.innerHTML = '<div class="doc-error">Could not load <code>' + url + '</code>: '
+      + err.message + '.<br><br>The in-page viewer needs the manual to be served over '
+      + '<code>http://</code> (browsers block <code>fetch()</code> on <code>file://</code>). '
+      + 'Try <code>python3 -m http.server</code> from the repo root, then open '
+      + '<code>http://localhost:8000/docs/admin-manual.html</code>.</div>';
+  }
+}
+
+// Intercept clicks on links to local Markdown files.
+document.addEventListener('click', (e) => {
+  const a = e.target.closest('a');
+  if(!a) return;
+  const href = a.getAttribute('href') || '';
+  if(/^https?:|^#|^mailto:/.test(href)) return;          // external or in-page anchors: leave alone.
+  const [path, frag] = href.split('#');
+  if(!/\.(md|markdown)$/i.test(path)) return;            // non-Markdown (e.g. .html): leave alone.
+  // On file://, fetch() is blocked — let the browser handle it (degrades to raw view).
+  if(location.protocol === 'file:') return;
+  e.preventDefault();
+  showMarkdown(path, frag);
+});
+
+document.getElementById('doc-close').addEventListener('click', closeDoc);
+overlay.addEventListener('click', closeDoc);
+document.addEventListener('keydown', e => { if(e.key === 'Escape') closeDoc(); });
+
+// --- Sidebar search: filter links and groups by text. ---
+const search = document.getElementById('sb-search');
+if(search){
+  const allLinks = [...document.querySelectorAll('.sb-link')];
+  const groups = [...document.querySelectorAll('.sb-group')];
+  search.addEventListener('input', () => {
+    const q = search.value.trim().toLowerCase();
+    allLinks.forEach(l => l.classList.toggle('hidden', q && !l.textContent.toLowerCase().includes(q)));
+    groups.forEach(g => {
+      let n = g.nextElementSibling, anyVisible = false;
+      while(n && !n.classList.contains('sb-group')){
+        if(n.classList.contains('sb-link') && !n.classList.contains('hidden')) anyVisible = true;
+        n = n.nextElementSibling;
+      }
+      g.classList.toggle('hidden', q && !anyVisible);
+    });
+  });
+  document.addEventListener('keydown', e => {
+    if(e.key === '/' && document.activeElement.tagName !== 'INPUT' && document.activeElement.tagName !== 'TEXTAREA'){
+      e.preventDefault(); search.focus();
+    }
+  });
+}
+
+// --- Tab switchers inside endpoint cards. ---
+document.querySelectorAll('.tabs').forEach(tabbar => {
+  const tabs = [...tabbar.querySelectorAll('.tab')];
+  const panes = [...tabbar.parentElement.querySelectorAll('.tabpane')];
+  tabs.forEach((tab, i) => tab.addEventListener('click', () => {
+    tabs.forEach(t => t.classList.remove('active'));
+    panes.forEach(p => p.classList.remove('active'));
+    tab.classList.add('active');
+    if(panes[i]) panes[i].classList.add('active');
+  }));
+});
+
+// --- Copy-to-clipboard on every code block. ---
+document.querySelectorAll('pre.code').forEach(pre => {
+  const wrap = document.createElement('div');
+  wrap.className = 'codewrap';
+  pre.parentNode.insertBefore(wrap, pre);
+  wrap.appendChild(pre);
+  const btn = document.createElement('button');
+  btn.className = 'copy-btn'; btn.type = 'button'; btn.textContent = 'Copy';
+  btn.addEventListener('click', async () => {
+    try { await navigator.clipboard.writeText(pre.textContent); btn.textContent = 'Copied'; btn.classList.add('done'); }
+    catch { btn.textContent = 'Select & copy'; }
+    setTimeout(() => { btn.textContent = 'Copy'; btn.classList.remove('done'); }, 1500);
+  });
+  wrap.appendChild(btn);
+});
+
+// --- Back to top. ---
+const toTop = document.getElementById('to-top');
+if(toTop){
+  window.addEventListener('scroll', () => toTop.classList.toggle('show', window.scrollY > 600));
+  toTop.addEventListener('click', () => window.scrollTo({top:0, behavior:'smooth'}));
+}
+</script>
+</body>
+</html>
