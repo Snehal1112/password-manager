@@ -42,7 +42,13 @@ var createCmd = &cobra.Command{
 	Aliases: []string{"add"},
 	Short:   "Create a new secret",
 	Long:    `Create a new secret in the password manager. You can specify the secret name, value, and optional tags.`,
-	Example: `rocketvault secrets create my-secret my-value`,
+	Example: `  # Create a simple secret
+  rocketvault secrets create my-secret my-value \
+    --username admin --password admin123 --totp-code <code>
+
+  # Create a secret with tags and content type
+  rocketvault secrets create my-secret my-value --tags prod,db --content-type application/json \
+    --username admin --password admin123 --totp-code <code>`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		if len(args) < 2 {
 			return fmt.Errorf("requires <name> and <value> arguments")

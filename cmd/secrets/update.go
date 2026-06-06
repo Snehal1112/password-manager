@@ -38,7 +38,14 @@ var updateCmd = &cobra.Command{
 	Use:   "update [id] [value]",
 	Short: "Update a secret",
 	Long:  `Update a secret's value and tags by its ID for the authenticated user.`,
-	Args:  cobra.ExactArgs(2),
+	Example: `  # Update a secret's value
+  rocketvault secrets update <id> <new-value> \
+    --username admin --password admin123 --totp-code <code>
+
+  # Update value, tags and content type
+  rocketvault secrets update <id> <new-value> --tags prod,db --content-type text/plain \
+    --username admin --password admin123 --totp-code <code>`,
+	Args: cobra.ExactArgs(2),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		secretID, err := uuid.Parse(args[0])
 		if err != nil {

@@ -38,6 +38,9 @@ var deleteCmd = &cobra.Command{
 	Use:   "delete [id]",
 	Short: "Delete a secret by ID",
 	Long:  `Delete a secret by its ID for the authenticated user.`,
+	Example: `  # Soft-delete a secret by id
+  rocketvault secrets delete <id> \
+    --username admin --password admin123 --totp-code <code>`,
 	Run: func(cmd *cobra.Command, args []string) {
 		secretID := uuid.MustParse(args[0])
 

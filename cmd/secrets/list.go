@@ -40,6 +40,13 @@ var listCmd = &cobra.Command{
 	Use:   "list",
 	Short: "List all secrets",
 	Long:  `List all secrets for the authenticated user, optionally filtered by tags.`,
+	Example: `  # List all secrets
+  rocketvault secrets list \
+    --username admin --password admin123 --totp-code <code>
+
+  # List secrets filtered by tags, as JSON
+  rocketvault secrets list --tags prod,db --output json \
+    --username admin --password admin123 --totp-code <code>`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		tags, _ := cmd.Flags().GetStringSlice("tags")
 

@@ -37,6 +37,13 @@ var generateCmd = &cobra.Command{
 	Use:   "generate-password",
 	Short: "Generate a random password",
 	Long:  `Generate a random password with configurable length and character types.`,
+	Example: `  # Generate a 16-character password (default)
+  rocketvault secrets generate-password \
+    --username admin --password admin123 --totp-code <code>
+
+  # Generate a 32-character password without special characters
+  rocketvault secrets generate-password --length 32 --special=false \
+    --username admin --password admin123 --totp-code <code>`,
 	Run: func(cmd *cobra.Command, args []string) {
 		length, _ := cmd.Flags().GetInt("length")
 		useUpper, _ := cmd.Flags().GetBool("uppercase")

@@ -48,8 +48,13 @@ var secretsImportCmd = &cobra.Command{
 	Short: "Import secrets from a file",
 	Long: `Import secrets from a JSON or CSV file.
 The file must be compatible with the export format produced by the export command.`,
-	Example: `  secrets import --file secrets.json
-  secrets import --file secrets.json --overwrite`,
+	Example: `  # Import secrets from JSON file
+  rocketvault secrets import --file secrets.json \
+    --username admin --password admin123 --totp-code <code>
+
+  # Import and overwrite existing secrets
+  rocketvault secrets import --file secrets.json --overwrite \
+    --username admin --password admin123 --totp-code <code>`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		ctx := cmd.Context()
 

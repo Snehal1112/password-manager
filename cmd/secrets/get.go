@@ -41,7 +41,14 @@ var getCmd = &cobra.Command{
 	Use:   "get [id]",
 	Short: "Retrieve a secret by ID",
 	Long:  `Retrieve a secret by its ID for the authenticated user.`,
-	Args:  cobra.ExactArgs(1),
+	Example: `  # Get a secret by id
+  rocketvault secrets get <id> \
+    --username admin --password admin123 --totp-code <code>
+
+  # Get a secret as JSON
+  rocketvault secrets get <id> --output json \
+    --username admin --password admin123 --totp-code <code>`,
+	Args: cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		secretID := uuid.MustParse(args[0])
 
