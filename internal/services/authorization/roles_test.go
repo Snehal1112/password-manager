@@ -62,3 +62,50 @@ func TestExpandRole_Unknown(t *testing.T) {
 		t.Fatal("expected error for unknown role")
 	}
 }
+
+func TestBuiltInRoleNames(t *testing.T) {
+	names := BuiltInRoleNames()
+	want := map[string]bool{"vault-admin": false, "secrets-user": false, "crypto-user": false}
+	for _, n := range names {
+		if _, ok := want[n]; ok {
+			want[n] = true
+		}
+	}
+	for k, seen := range want {
+		if !seen {
+			t.Fatalf("missing role %q", k)
+		}
+	}
+	for i := 1; i < len(names); i++ {
+		if names[i-1] > names[i] {
+			t.Fatalf("not sorted: %v", names)
+		}
+	}
+}
+
+func TestRolePermissions(t *testing.T) {
+	perms, err := RolePermissions("secrets-user")
+	if err != nil || len(perms) == 0 {
+		t.Fatalf("expected perms, got %v err=%v", perms, err)
+	}
+	for _, p := range perms {
+		if p[0] != string(model.PolicyResourceSecrets) {
+			t.Fatalf("unexpected resource %q", p[0])
+		}
+		if p[1] == "" {
+			t.Fatalf("empty operation in pair %v", p)
+		}
+	}
+	if _, err := RolePermissions("nope"); err == nil {
+		t.Fatal("expected error for unknown role")
+	}
+}
+
+func TestIsValidRole_EdgeCases(t *testing.T) {
+	if !IsValidRole("vault-admin") {
+		t.Fatal("vault-admin valid")
+	}
+	if IsValidRole("") {
+		t.Fatal("empty invalid")
+	}
+}

@@ -15,7 +15,9 @@ type fakeRoleRepo struct {
 	byTuple *model.RoleAssignment
 }
 
-func newFakeRoleRepo() *fakeRoleRepo { return &fakeRoleRepo{rows: map[uuid.UUID]*model.RoleAssignment{}} }
+func newFakeRoleRepo() *fakeRoleRepo {
+	return &fakeRoleRepo{rows: map[uuid.UUID]*model.RoleAssignment{}}
+}
 func (f *fakeRoleRepo) Create(_ context.Context, ra *model.RoleAssignment) error {
 	f.rows[ra.ID] = ra
 	return nil
@@ -210,6 +212,55 @@ func TestRevokeAssignment_HappyPath(t *testing.T) {
 	}
 	if len(pr.created) != 0 {
 		t.Fatalf("policy rows should be deleted, have %d", len(pr.created))
+	}
+}
+
+func TestAssignRole_PrincipalIsUUID(t *testing.T) {
+	rr, pr := newFakeRoleRepo(), newFakePolicyRepo()
+	// Empty users map proves no username lookup happens when a raw UUID is passed.
+	svc := newSvc(rr, pr, &fakeUserLookup{users: map[string]model.User{}})
+	pid := uuid.New()
+	ra, err := svc.AssignRole(context.Background(), AssignRoleInput{
+		Principal: pid.String(), PrincipalType: model.PrincipalTypeUser,
+		Role: "secrets-user", VaultID: uuid.New(), CreatedBy: uuid.New(),
+	})
+	if err != nil {
+		t.Fatalf("assign: %v", err)
+	}
+	if ra.PrincipalID != pid {
+		t.Fatalf("uuid principal should be used directly, got %v", ra.PrincipalID)
+	}
+}
+
+func TestRevokeAssignment_NotFound(t *testing.T) {
+	rr, pr := newFakeRoleRepo(), newFakePolicyRepo()
+	svc := newSvc(rr, pr, &fakeUserLookup{users: map[string]model.User{}})
+	err := svc.RevokeAssignment(context.Background(), uuid.New(), uuid.New())
+	if !errors.Is(err, ErrAssignmentNotFound) {
+		t.Fatalf("expected ErrAssignmentNotFound, got %v", err)
+	}
+}
+
+func TestListAssignments_ScopedToVault(t *testing.T) {
+	rr, pr := newFakeRoleRepo(), newFakePolicyRepo()
+	uid := uuid.New()
+	svc := newSvc(rr, pr, &fakeUserLookup{users: map[string]model.User{"a": {ID: uid, Username: "a"}}})
+	v1, v2 := uuid.New(), uuid.New()
+	_, _ = svc.AssignRole(context.Background(), AssignRoleInput{Principal: "a", PrincipalType: model.PrincipalTypeUser, Role: "secrets-user", VaultID: v1, CreatedBy: uid})
+
+	got, err := svc.ListAssignments(context.Background(), v1)
+	if err != nil {
+		t.Fatalf("list: %v", err)
+	}
+	if len(got) != 1 {
+		t.Fatalf("expected 1 in v1, got %d", len(got))
+	}
+	got2, err := svc.ListAssignments(context.Background(), v2)
+	if err != nil {
+		t.Fatalf("list v2: %v", err)
+	}
+	if len(got2) != 0 {
+		t.Fatalf("expected 0 in v2, got %d", len(got2))
 	}
 }
 
