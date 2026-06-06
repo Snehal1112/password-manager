@@ -266,7 +266,249 @@ details.collapse .inner{padding:8px 12px;font-size:12.5px;color:var(--text2)}
 </nav>
 
 <main id="main">
-  <!-- CONTENT GOES HERE — added in Tasks 2–8 -->
+  <section id="quick-start">
+  <div class="page-header">
+    <div class="page-title">Quick Start</div>
+    <div class="page-meta">
+      <span class="chip chip-green">5 min</span>
+      <span class="chip chip-blue">New admin</span>
+      <span class="chip chip-warn">App developer</span>
+    </div>
+  </div>
+
+  <div class="paths">
+    <div class="path-card">
+      <div class="path-icon">🔧</div>
+      <div class="path-title">I'm setting up RocketVault</div>
+      <div class="path-desc">Install, bootstrap admin, configure vault for your team.</div>
+      <div class="path-steps">
+        <span class="path-step">install</span>
+        <span class="path-step">bootstrap</span>
+        <span class="path-step">configure</span>
+        <span class="path-step">first secret</span>
+      </div>
+    </div>
+    <div class="path-card">
+      <div class="path-icon">⚡</div>
+      <div class="path-title">I'm building an app that reads secrets</div>
+      <div class="path-desc">Create a service account and read secrets from your app.</div>
+      <div class="path-steps">
+        <span class="path-step">service account</span>
+        <span class="path-step">access policy</span>
+        <span class="path-step">fetch secret</span>
+      </div>
+    </div>
+  </div>
+
+  <div class="callout callout-accent">
+    <div class="callout-label">What you'll build</div>
+    <p>Running vault server → bootstrap first admin → store a secret → create a service account → app reads it via OAuth2 client credentials. Every command is copy-pasteable; responses are real (redacted).</p>
+  </div>
+
+  <div class="flow">
+    <div class="flow-title">How it fits together</div>
+    <div class="flow-nodes">
+      <div class="flow-node">Your App</div>
+      <div class="flow-arrow">→</div>
+      <div class="flow-node">OAuth2 Token</div>
+      <div class="flow-arrow">→</div>
+      <div class="flow-node hl">RocketVault API</div>
+      <div class="flow-arrow">→</div>
+      <div class="flow-node">AES-256 Store</div>
+    </div>
+    <div class="flow-caption">Admins authenticate with JWT + TOTP. Apps authenticate as service accounts via client credentials — no TOTP needed.</div>
+  </div>
+
+  <h3>End-to-end walkthrough</h3>
+  <div class="steps">
+    <div class="step">
+      <div class="step-num">1</div>
+      <div class="step-body">
+        <div class="step-title">Start the server <span class="step-time">~10s</span></div>
+        <div class="step-desc">Run from source. The server reads <code>.rocketvault.yaml</code> from the working directory.</div>
+        <div class="codewrap">
+          <div class="code-hd"><span class="code-lang">bash</span><button class="copy-btn">Copy</button></div>
+          <pre class="code with-hd">go run main.go serve
+export BASE=http://localhost:8774
+curl -s $BASE/api/v1/health/live   # → {"status":"OK"}</pre>
+        </div>
+      </div>
+    </div>
+    <div class="step">
+      <div class="step-num">2</div>
+      <div class="step-body">
+        <div class="step-title">Bootstrap the first admin <span class="step-time">~30s</span></div>
+        <div class="step-desc">CLI-only, one-time. Uses the <code>bootstrap_token</code> from your config. The response includes a TOTP secret — register it before step 3.</div>
+        <div class="codewrap">
+          <div class="code-hd"><span class="code-lang">bash</span><button class="copy-btn">Copy</button></div>
+          <pre class="code with-hd">go run main.go users admin \
+  --admin-username admin --admin-password admin123 \
+  --bootstrap-token &lt;your-bootstrap-token&gt;
+# stdout → TOTP Secret: otpauth://totp/...&secret=&lt;BASE32&gt;</pre>
+        </div>
+        <div class="callout callout-warn" style="margin-top:10px">
+          <div class="callout-label">Register TOTP now</div>
+          <p>Scan the <code>otpauth://</code> URL in Google Authenticator, Authy, or 1Password. Or mint codes on the CLI: <code>oathtool --totp --base32 &lt;BASE32&gt;</code>. Every login requires a TOTP code.</p>
+        </div>
+      </div>
+    </div>
+    <div class="step">
+      <div class="step-num">3</div>
+      <div class="step-body">
+        <div class="step-title">Log in and capture the JWT <span class="step-time">~15s</span></div>
+        <div class="step-desc">Returns a short-lived access token and a refresh token. Store the access token in <code>$TOKEN</code>.</div>
+        <div class="ep">
+          <div class="ep-hd"><span class="meth meth-post">POST</span> <span class="ep-path">/api/v1/users/login</span> <span class="ep-label">Authenticate, get a JWT</span></div>
+          <div class="tab-bar">
+            <button class="tab-btn active">cURL</button>
+            <button class="tab-btn">CLI</button>
+            <button class="tab-btn">Response</button>
+          </div>
+          <div class="tab-pane active"><pre class="code">TOKEN=$(curl -s -X POST $BASE/api/v1/users/login \
+  -H "Content-Type: application/json" \
+  -d '{"username":"admin","password":"admin123","totp_code":"123456"}' \
+  | jq -r .token)</pre></div>
+          <div class="tab-pane"><pre class="code">rocketvault users login \
+  --username admin --password admin123 --totp-code 123456</pre></div>
+          <div class="tab-pane"><pre class="code">{
+  "token": "&lt;redacted-jwt&gt;",
+  "refresh_token": "&lt;redacted-jwt&gt;",
+  "user_id": "f99945c6-ded6-4d6d-96be-7a10a1fbe6fe",
+  "username": "admin",
+  "role": "admin"
+}</pre></div>
+        </div>
+      </div>
+    </div>
+    <div class="step">
+      <div class="step-num">4</div>
+      <div class="step-body">
+        <div class="step-title">Store a secret <span class="step-time">~10s</span></div>
+        <div class="step-desc">Secrets are encrypted at rest with AES-256-GCM. Only the owner or admin can read them without an access policy.</div>
+        <div class="codewrap">
+          <div class="code-hd"><span class="code-lang">bash</span><button class="copy-btn">Copy</button></div>
+          <pre class="code with-hd">SECRET_ID=$(curl -s -X POST $BASE/api/v1/secrets \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"name":"DB_PASSWORD","value":"s3cret"}' | jq -r .id)
+echo $SECRET_ID</pre>
+        </div>
+      </div>
+    </div>
+    <div class="step">
+      <div class="step-num">5</div>
+      <div class="step-body">
+        <div class="step-title">Create a service account and grant read access <span class="step-time">~30s</span></div>
+        <div class="step-desc">Service accounts are machine identities — no TOTP, authenticate via OAuth2 client credentials. The <code>client_secret</code> is shown only once.</div>
+        <div class="codewrap">
+          <div class="code-hd"><span class="code-lang">bash</span><button class="copy-btn">Copy</button></div>
+          <pre class="code with-hd">SA=$(curl -s -X POST $BASE/api/v1/service-accounts \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"name":"my-app","description":"reads DB_PASSWORD"}')
+CLIENT_SECRET=$(echo "$SA" | jq -r .client_secret)
+SA_ID=$(echo "$SA" | jq -r .id)
+
+curl -s -X POST $BASE/api/v1/access-policies \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"name":"app-read","principal_id":"'"$SA_ID"'","resource_type":"secret","resource_id":"'"$SECRET_ID"'","actions":["read"]}'</pre>
+        </div>
+        <div class="callout callout-info" style="margin-top:10px">
+          <div class="callout-label">Why access policies?</div>
+          <p>Roles gate broad operations. Access policies grant a specific principal access to a specific resource. A service account with no policies can authenticate but read nothing — principle of least privilege.</p>
+        </div>
+      </div>
+    </div>
+    <div class="step">
+      <div class="step-num">6</div>
+      <div class="step-body">
+        <div class="step-title">Consume the secret as your app <span class="step-time">~15s</span></div>
+        <div class="step-desc">Exchange client credentials for a bearer token, then read the secret. This is the pattern your app repeats at runtime.</div>
+        <div class="codewrap">
+          <div class="code-hd"><span class="code-lang">bash</span><button class="copy-btn">Copy</button></div>
+          <pre class="code with-hd">APP_TOKEN=$(curl -s -X POST $BASE/api/v1/oauth2/token \
+  -u "my-app:$CLIENT_SECRET" \
+  -d "grant_type=client_credentials" | jq -r .access_token)
+
+curl -s $BASE/api/v1/secrets/$SECRET_ID \
+  -H "Authorization: Bearer $APP_TOKEN" | jq .value
+# → "s3cret"</pre>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="callout callout-accent" style="margin-top:24px">
+    <div class="callout-label">What's next</div>
+    <p><strong style="color:var(--text)">New admins:</strong> Configure users → <a href="#users">User Management</a>, set up RBAC → <a href="#access-policies">RBAC &amp; Policies</a>, enable audit logging → <a href="#audit">Audit &amp; Compliance</a>.<br>
+    <strong style="color:var(--text)">Developers:</strong> Multiple secrets → <a href="#consuming">Consuming Secrets</a>, rotate credentials → <a href="#secret-rotation">Secret Rotation</a>, CI/CD → <a href="#cicd">CI/CD</a>.</p>
+  </div>
+</section>
+
+<section id="before-you-begin">
+  <h2>Before You Begin</h2>
+  <h3>Prerequisites</h3>
+  <ul>
+    <li>Go 1.24+ to build and run the server (<code>go run main.go serve</code>).</li>
+    <li><code>curl</code> and <code>jq</code> for the API examples; <code>oathtool</code> to mint TOTP codes without a phone.</li>
+    <li>A populated <code>.rocketvault.yaml</code> (the only config the server reads). Key settings: <code>server.listen_addr</code> (default <code>:8774</code>), the bootstrap token, and <code>jwt.*</code>.</li>
+    <li>The server running and an admin bootstrapped (see Quick Start above).</li>
+  </ul>
+  <h3>Conventions in this manual</h3>
+  <ul>
+    <li><code>$BASE</code> is <code>http://localhost:8774</code>; <code>$TOKEN</code> is an admin JWT from login.</li>
+    <li>Example responses are <strong>captured from a live server</strong>; secret values, key material, and tokens are shown as <code>&lt;redacted&gt;</code> placeholders.</li>
+    <li>Each operation shows tabs — <strong>cURL</strong>, <strong>CLI</strong>, and a real <strong>Response</strong> where applicable.</li>
+  </ul>
+</section>
+
+<section id="installation">
+  <h2>Installation &amp; First Run</h2>
+  <h3>What it is</h3>
+  <p>RocketVault runs as a single Go binary. The server reads exactly one config file, <code>.rocketvault.yaml</code>, from the working directory or <code>--config</code>.</p>
+  <div class="op-grid">
+    <div>
+      <div class="op-label">Run from source</div>
+      <pre class="code no-hd">go run main.go serve
+go run main.go serve --config /path/custom.yaml</pre>
+    </div>
+    <div>
+      <div class="op-label">Verify it is up</div>
+      <pre class="code no-hd">export BASE=http://localhost:8774
+curl -s $BASE/api/v1/health/live</pre>
+    </div>
+  </div>
+  <div class="callout callout-info">
+    <div class="callout-label">Config notes</div>
+    <p>The server listens on <code>:8774</code> by default (see <code>server.listen_addr</code>). Set <code>environment: development</code> or <code>production</code> to select DB pool defaults.</p>
+  </div>
+  <p class="see-also">See also: <a href="../doc/setup.md">Setup Guide</a></p>
+</section>
+
+<section id="introduction">
+  <h2>Mental Model</h2>
+  <h3>What it is</h3>
+  <p>RocketVault is a self-hosted, open-source alternative to Azure Key Vault, written in Go. It manages secrets, RSA/ECDSA keys, and X.509 certificates through a REST API and a Cobra CLI, with JWT+TOTP authentication and RBAC.</p>
+  <div class="flow">
+    <div class="flow-title">Request flow</div>
+    <div class="flow-nodes">
+      <div class="flow-node hl">HTTP Request</div>
+      <div class="flow-arrow">→</div>
+      <div class="flow-node">Auth + RBAC Middleware</div>
+      <div class="flow-arrow">→</div>
+      <div class="flow-node">REST API Handlers</div>
+      <div class="flow-arrow">→</div>
+      <div class="flow-node">Service Container</div>
+      <div class="flow-arrow">→</div>
+      <div class="flow-node">Repositories</div>
+      <div class="flow-arrow">→</div>
+      <div class="flow-node">SQLite / PostgreSQL</div>
+    </div>
+    <div class="flow-caption">Secrets, keys, and certificates are encrypted at rest with AES-256-GCM. The CLI calls the service container directly, bypassing the HTTP layer.</div>
+  </div>
+  <p class="see-also">See also: <a href="rocketvault-architecture.html">System Architecture (interactive)</a></p>
+</section>
 </main>
 </div>
 
