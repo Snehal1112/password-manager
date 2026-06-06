@@ -76,6 +76,58 @@ func TestMigrateSchema_AddsAssignmentIDIdempotent(t *testing.T) {
 	require.Equal(t, "assignment_id", name)
 }
 
+// TestMigrate_CreatesRoleAssignmentsTable verifies that migrateSchema creates the
+// vault-scoped role_assignments table on a pre-existing (old-shape) database.
+func TestMigrate_CreatesRoleAssignmentsTable(t *testing.T) {
+	conn, err := sql.Open("sqlite3", ":memory:")
+	require.NoError(t, err)
+	defer conn.Close()
+
+	// Create the prerequisite tables in their old shape so the ALTER TABLE
+	// statements in migrateSchema have targets to operate on.
+	_, err = conn.Exec(`
+		CREATE TABLE secrets (
+			id   TEXT PRIMARY KEY,
+			name TEXT NOT NULL
+		);
+		CREATE TABLE keys (
+			id   TEXT PRIMARY KEY,
+			name TEXT NOT NULL
+		);
+		CREATE TABLE certificates (
+			id   TEXT PRIMARY KEY,
+			name TEXT NOT NULL
+		);
+		CREATE TABLE audit_logs (
+			id TEXT PRIMARY KEY
+		);
+		CREATE TABLE access_policies (
+			id             TEXT PRIMARY KEY,
+			principal_id   TEXT NOT NULL,
+			principal_type TEXT NOT NULL,
+			resource_type  TEXT NOT NULL,
+			operation      TEXT NOT NULL,
+			effect         TEXT NOT NULL,
+			created_at     TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+		);
+	`)
+	require.NoError(t, err)
+
+	repo := NewRepository(logging.InitLogger())
+
+	// migrateSchema must create the vaults table and then role_assignments.
+	require.NoError(t, repo.migrateSchema(conn), "migrateSchema run should succeed")
+
+	// A second run must be idempotent.
+	require.NoError(t, repo.migrateSchema(conn), "second migrateSchema run should be idempotent")
+
+	var name string
+	row := conn.QueryRow(`SELECT name FROM sqlite_master WHERE type='table' AND name='role_assignments'`)
+	if err := row.Scan(&name); err != nil {
+		t.Fatalf("role_assignments table missing: %v", err)
+	}
+}
+
 // columnExists reports whether the named column is present on the given table.
 func columnExists(t *testing.T, conn *sql.DB, table, column string) bool {
 	t.Helper()

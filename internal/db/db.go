@@ -594,6 +594,20 @@ func (d *DBRepository) createOptimizedSchema(db *sql.DB) error {
 		CREATE INDEX IF NOT EXISTS idx_access_policies_principal ON access_policies(principal_id);
 		CREATE INDEX IF NOT EXISTS idx_access_policies_lookup    ON access_policies(principal_id, resource_type, operation);
 
+		CREATE TABLE IF NOT EXISTS role_assignments (
+			id             TEXT PRIMARY KEY,
+			principal_id   TEXT NOT NULL,
+			principal_type TEXT NOT NULL,
+			role           TEXT NOT NULL,
+			vault_id       TEXT NOT NULL,
+			created_by     TEXT NOT NULL,
+			created_at     TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+			UNIQUE (principal_id, role, vault_id),
+			FOREIGN KEY (vault_id) REFERENCES vaults(id) ON DELETE CASCADE
+		);
+		CREATE INDEX IF NOT EXISTS idx_role_assignments_vault ON role_assignments(vault_id);
+		CREATE INDEX IF NOT EXISTS idx_access_policies_assignment ON access_policies(assignment_id);
+
 		CREATE TABLE IF NOT EXISTS oauth2_clients (
 			id            TEXT PRIMARY KEY,
 			name          TEXT NOT NULL UNIQUE,
@@ -752,6 +766,29 @@ func (d *DBRepository) migrateSchema(db *sql.DB) error {
 			}
 		}
 	}
+
+	// Feature: vault-scoped role assignments table (idempotent).
+	// Runs after the loop so the vaults table (created above) already exists.
+	if _, err := db.Exec(`CREATE TABLE IF NOT EXISTS role_assignments (
+		id             TEXT PRIMARY KEY,
+		principal_id   TEXT NOT NULL,
+		principal_type TEXT NOT NULL,
+		role           TEXT NOT NULL,
+		vault_id       TEXT NOT NULL,
+		created_by     TEXT NOT NULL,
+		created_at     TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+		UNIQUE (principal_id, role, vault_id),
+		FOREIGN KEY (vault_id) REFERENCES vaults(id) ON DELETE CASCADE
+	)`); err != nil {
+		return fmt.Errorf("create role_assignments: %w", err)
+	}
+	if _, err := db.Exec(`CREATE INDEX IF NOT EXISTS idx_role_assignments_vault ON role_assignments(vault_id)`); err != nil {
+		return fmt.Errorf("index role_assignments vault: %w", err)
+	}
+	if _, err := db.Exec(`CREATE INDEX IF NOT EXISTS idx_access_policies_assignment ON access_policies(assignment_id)`); err != nil {
+		return fmt.Errorf("index access_policies assignment: %w", err)
+	}
+
 	d.log.Info("Schema migration completed")
 	return nil
 }
