@@ -193,6 +193,10 @@ func (m *MockServiceContainer) GetAccessPolicyService() authzServices.AccessPoli
 	return nil
 }
 
+func (m *MockServiceContainer) GetRoleAssignmentService() authzServices.RoleAssignmentService {
+	return nil
+}
+
 func (m *MockServiceContainer) GetOAuth2ClientRepository() repositories.OAuth2ClientRepositoryInterface {
 	return nil
 }

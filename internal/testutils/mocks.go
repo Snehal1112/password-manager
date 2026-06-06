@@ -512,6 +512,15 @@ func (m *MockServiceContainer) GetAccessPolicyService() authzServices.AccessPoli
 	return nil
 }
 
+// GetRoleAssignmentService returns the mocked role assignment service.
+func (m *MockServiceContainer) GetRoleAssignmentService() authzServices.RoleAssignmentService {
+	args := m.Called()
+	if v, ok := args.Get(0).(authzServices.RoleAssignmentService); ok {
+		return v
+	}
+	return nil
+}
+
 func (m *MockServiceContainer) GetOAuth2ClientRepository() repositories.OAuth2ClientRepositoryInterface {
 	return nil
 }

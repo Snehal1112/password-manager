@@ -122,6 +122,9 @@ func (c *jwkContainerBase) GetAccessPolicyRepository() repositories.AccessPolicy
 func (c *jwkContainerBase) GetAccessPolicyService() authzServices.AccessPolicyService {
 	panic("unexpected call: GetAccessPolicyService")
 }
+func (c *jwkContainerBase) GetRoleAssignmentService() authzServices.RoleAssignmentService {
+	return nil
+}
 func (c *jwkContainerBase) GetOAuth2ClientRepository() repositories.OAuth2ClientRepositoryInterface {
 	panic("unexpected call: GetOAuth2ClientRepository")
 }
