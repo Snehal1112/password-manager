@@ -111,3 +111,7 @@ npm-debug.log*
 .admin_totp_secret
 totp_gen
 .superpowers/
+
+graphify-out
+
+*.db.*
