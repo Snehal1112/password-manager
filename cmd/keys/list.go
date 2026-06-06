@@ -33,18 +33,24 @@ import (
 
 	"rocketvault/common"
 	"rocketvault/internal/container"
-	"rocketvault/model"
 	"rocketvault/internal/formatter"
 	"rocketvault/internal/logging"
+	"rocketvault/model"
 )
 
 // listCmd represents the list command
 var listCmd = &cobra.Command{
-	Use:     "list",
-	Short:   "List cryptographic keys",
-	Long:    `List all cryptographic keys for the authenticated user. Admins can list all keys. Supports filtering by type and tags.`,
-	Example: `rocketvault keys list --username admin --password admin123 --totp-code <code> --type RSA --tags prod,secure`,
-	Args:    cobra.NoArgs,
+	Use:   "list",
+	Short: "List cryptographic keys",
+	Long:  `List all cryptographic keys for the authenticated user. Admins can list all keys. Supports filtering by type and tags.`,
+	Example: `  # List all keys
+  rocketvault keys list \
+    --username admin --password admin123 --totp-code <code>
+
+  # Filter by type and tags
+  rocketvault keys list --type RSA --tags prod,secure \
+    --username admin --password admin123 --totp-code <code>`,
+	Args: cobra.NoArgs,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		ctx := cmd.Context()
 		claims, ok := ctx.Value(common.ClaimsKey).(*model.Claims)

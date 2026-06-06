@@ -13,8 +13,8 @@ import (
 	"github.com/stretchr/testify/mock"
 
 	"rocketvault/cmd/testutils"
-	"rocketvault/model"
 	keyservices "rocketvault/internal/services/keys"
+	"rocketvault/model"
 )
 
 // MockKeyService is a mock implementation of KeyService interface for testing.

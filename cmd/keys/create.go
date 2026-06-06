@@ -32,18 +32,24 @@ import (
 
 	"rocketvault/common"
 	"rocketvault/internal/container"
-	"rocketvault/model"
 	"rocketvault/internal/formatter"
 	"rocketvault/internal/logging"
 	keyServices "rocketvault/internal/services/keys"
+	"rocketvault/model"
 )
 
 // createCmd represents the create command
 var createCmd = &cobra.Command{
-	Use:     "create",
-	Short:   "Create a new key",
-	Long:    `Create a new key with the specified details.`,
-	Example: `keys create --name <name> --type <type>`,
+	Use:   "create",
+	Short: "Create a new key",
+	Long:  `Create a new key with the specified details.`,
+	Example: `  # Create an RSA key
+  rocketvault keys create --name mykey --type RSA --bits 2048 \
+    --username admin --password admin123 --totp-code <code>
+
+  # Create an ECDSA key with tags
+  rocketvault keys create --name eckey --type ECDSA --curve P-256 --tags prod,secure \
+    --username admin --password admin123 --totp-code <code>`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		ctx := cmd.Context()
 		claims, ok := ctx.Value(common.ClaimsKey).(*model.Claims)

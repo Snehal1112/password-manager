@@ -30,17 +30,19 @@ import (
 
 	"rocketvault/common"
 	"rocketvault/internal/container"
-	"rocketvault/model"
 	"rocketvault/internal/logging"
+	"rocketvault/model"
 )
 
 // deleteCmd represents the delete command
 var deleteCmd = &cobra.Command{
-	Use:     "delete <id>",
-	Short:   "Delete a cryptographic key",
-	Long:    `Delete a cryptographic key by its UUID, including associated tags. Accessible by the key's owner or users with the admin role.`,
-	Example: `rocketvault keys delete <key-id> --username admin --password admin123 --totp-code <code>`,
-	Args:    cobra.ExactArgs(1),
+	Use:   "delete <id>",
+	Short: "Delete a cryptographic key",
+	Long:  `Delete a cryptographic key by its UUID, including associated tags. Accessible by the key's owner or users with the admin role.`,
+	Example: `  # Delete a key
+  rocketvault keys delete <key-id> \
+    --username admin --password admin123 --totp-code <code>`,
+	Args: cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		ctx := cmd.Context()
 		claims, ok := ctx.Value(common.ClaimsKey).(*model.Claims)

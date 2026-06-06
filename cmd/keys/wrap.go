@@ -32,17 +32,19 @@ import (
 
 	"rocketvault/common"
 	"rocketvault/internal/container"
-	"rocketvault/model"
 	"rocketvault/internal/logging"
 	keyServices "rocketvault/internal/services/keys"
+	"rocketvault/model"
 )
 
 // wrapCmd represents the wrap subcommand.
 var wrapCmd = &cobra.Command{
-	Use:     "wrap",
-	Short:   "Wrap key material using a vault RSA key",
-	Long:    `Encrypt plaintext key material with RSA-OAEP using an existing vault key. The input key material must be base64-encoded.`,
-	Example: `rocketvault keys wrap --key-id <uuid> --key-material <base64>`,
+	Use:   "wrap",
+	Short: "Wrap key material using a vault RSA key",
+	Long:  `Encrypt plaintext key material with RSA-OAEP using an existing vault key. The input key material must be base64-encoded.`,
+	Example: `  # Wrap key material with RSA key
+  rocketvault keys wrap --key-id <uuid> --key-material <base64> \
+    --username admin --password admin123 --totp-code <code>`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		ctx := cmd.Context()
 		claims, ok := ctx.Value(common.ClaimsKey).(*model.Claims)

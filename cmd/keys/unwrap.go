@@ -32,17 +32,19 @@ import (
 
 	"rocketvault/common"
 	"rocketvault/internal/container"
-	"rocketvault/model"
 	"rocketvault/internal/logging"
 	keyServices "rocketvault/internal/services/keys"
+	"rocketvault/model"
 )
 
 // unwrapCmd represents the unwrap subcommand.
 var unwrapCmd = &cobra.Command{
-	Use:     "unwrap",
-	Short:   "Unwrap key material using a vault RSA key",
-	Long:    `Decrypt wrapped key material with RSA-OAEP using an existing vault key. The wrapped key must be base64-encoded.`,
-	Example: `rocketvault keys unwrap --key-id <uuid> --wrapped-key <base64>`,
+	Use:   "unwrap",
+	Short: "Unwrap key material using a vault RSA key",
+	Long:  `Decrypt wrapped key material with RSA-OAEP using an existing vault key. The wrapped key must be base64-encoded.`,
+	Example: `  # Unwrap key material with RSA key
+  rocketvault keys unwrap --key-id <uuid> --wrapped-key <base64> \
+    --username admin --password admin123 --totp-code <code>`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		ctx := cmd.Context()
 		claims, ok := ctx.Value(common.ClaimsKey).(*model.Claims)

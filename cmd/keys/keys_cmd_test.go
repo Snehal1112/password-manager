@@ -143,10 +143,10 @@ func (m *keyCmdCryptoService) UnwrapKey(ctx context.Context, req keyServices.Unw
 // keyCmdKeyRepo is a minimal mock for repositories.KeyRepositoryInterface (admin list path).
 type keyCmdKeyRepo struct{ mock.Mock }
 
-func (r *keyCmdKeyRepo) Create(ctx context.Context, entity *model.Key) error           { return nil }
-func (r *keyCmdKeyRepo) Read(ctx context.Context, id uuid.UUID) (*model.Key, error)    { return nil, nil }
-func (r *keyCmdKeyRepo) Update(ctx context.Context, entity *model.Key) error           { return nil }
-func (r *keyCmdKeyRepo) Delete(ctx context.Context, id uuid.UUID) error                { return nil }
+func (r *keyCmdKeyRepo) Create(ctx context.Context, entity *model.Key) error        { return nil }
+func (r *keyCmdKeyRepo) Read(ctx context.Context, id uuid.UUID) (*model.Key, error) { return nil, nil }
+func (r *keyCmdKeyRepo) Update(ctx context.Context, entity *model.Key) error        { return nil }
+func (r *keyCmdKeyRepo) Delete(ctx context.Context, id uuid.UUID) error             { return nil }
 func (r *keyCmdKeyRepo) UpdateRevocationStatus(ctx context.Context, id uuid.UUID, revoked bool) error {
 	return nil
 }
@@ -197,7 +197,7 @@ type keysTestContainer struct {
 	keyRepo   repositories.KeyRepositoryInterface
 }
 
-func (c *keysTestContainer) GetKeyService() keyServices.KeyService    { return c.keySvc }
+func (c *keysTestContainer) GetKeyService() keyServices.KeyService       { return c.keySvc }
 func (c *keysTestContainer) GetCryptoService() keyServices.CryptoService { return c.cryptoSvc }
 func (c *keysTestContainer) GetKeyRepository() repositories.KeyRepositoryInterface {
 	if c.keyRepo != nil {
@@ -1013,7 +1013,7 @@ func TestWrapCmd_Success(t *testing.T) {
 	ctx = context.WithValue(ctx, common.ServiceContainerKey, sc)
 
 	cleanup := viperSet(map[string]interface{}{
-		"wrap-key-id":      keyID.String(),
+		"wrap-key-id":       keyID.String(),
 		"wrap-key-material": base64.StdEncoding.EncodeToString(plaintext),
 	})
 	defer cleanup()
@@ -1042,7 +1042,7 @@ func TestWrapCmd_ServiceError(t *testing.T) {
 	ctx = context.WithValue(ctx, common.ServiceContainerKey, sc)
 
 	cleanup := viperSet(map[string]interface{}{
-		"wrap-key-id":      keyID.String(),
+		"wrap-key-id":       keyID.String(),
 		"wrap-key-material": base64.StdEncoding.EncodeToString([]byte("plaintext")),
 	})
 	defer cleanup()
@@ -1146,7 +1146,7 @@ func TestUnwrapCmd_Success(t *testing.T) {
 	ctx = context.WithValue(ctx, common.ServiceContainerKey, sc)
 
 	cleanup := viperSet(map[string]interface{}{
-		"unwrap-key-id":    keyID.String(),
+		"unwrap-key-id":      keyID.String(),
 		"unwrap-wrapped-key": base64.StdEncoding.EncodeToString(wrappedBytes),
 	})
 	defer cleanup()
@@ -1175,7 +1175,7 @@ func TestUnwrapCmd_ServiceError(t *testing.T) {
 	ctx = context.WithValue(ctx, common.ServiceContainerKey, sc)
 
 	cleanup := viperSet(map[string]interface{}{
-		"unwrap-key-id":    keyID.String(),
+		"unwrap-key-id":      keyID.String(),
 		"unwrap-wrapped-key": base64.StdEncoding.EncodeToString([]byte("wrapped")),
 	})
 	defer cleanup()

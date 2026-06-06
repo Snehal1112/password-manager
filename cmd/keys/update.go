@@ -33,17 +33,23 @@ import (
 
 	"rocketvault/common"
 	"rocketvault/internal/container"
-	"rocketvault/model"
 	keyServices "rocketvault/internal/services/keys"
+	"rocketvault/model"
 )
 
 // updateCmd represents the update command for cryptographic keys.
 var updateCmd = &cobra.Command{
-	Use:     "update <id>",
-	Short:   "Update a cryptographic key",
-	Long:    `Update a cryptographic key's name, revocation status, or tags by its UUID.`,
-	Example: `rocketvault keys update <key-id> --username admin --password admin123 --totp-code <code> --name newkey --revoked true`,
-	Args:    cobra.ExactArgs(1),
+	Use:   "update <id>",
+	Short: "Update a cryptographic key",
+	Long:  `Update a cryptographic key's name, revocation status, or tags by its UUID.`,
+	Example: `  # Update key name
+  rocketvault keys update <key-id> --name newname \
+    --username admin --password admin123 --totp-code <code>
+
+  # Revoke a key
+  rocketvault keys update <key-id> --revoked \
+    --username admin --password admin123 --totp-code <code>`,
+	Args: cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		ctx := cmd.Context()
 		claims, ok := ctx.Value(common.ClaimsKey).(*model.Claims)

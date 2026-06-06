@@ -33,18 +33,24 @@ import (
 
 	"rocketvault/common"
 	"rocketvault/internal/container"
-	"rocketvault/model"
 	"rocketvault/internal/formatter"
 	"rocketvault/internal/logging"
+	"rocketvault/model"
 )
 
 // getCmd represents the get command
 var getCmd = &cobra.Command{
-	Use:     "get <id>",
-	Short:   "Retrieve a cryptographic key",
-	Long:    `Retrieve details of a cryptographic key by its UUID. Accessible by the key's owner or users with the admin role.`,
-	Example: `rocketvault keys get <key-id> --username admin --password admin123 --totp-code <code>`,
-	Args:    cobra.ExactArgs(1),
+	Use:   "get <id>",
+	Short: "Retrieve a cryptographic key",
+	Long:  `Retrieve details of a cryptographic key by its UUID. Accessible by the key's owner or users with the admin role.`,
+	Example: `  # Get a key by id
+  rocketvault keys get <key-id> \
+    --username admin --password admin123 --totp-code <code>
+
+  # Get a key as JSON
+  rocketvault keys get <key-id> --output json \
+    --username admin --password admin123 --totp-code <code>`,
+	Args: cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		ctx := cmd.Context()
 		claims, ok := ctx.Value(common.ClaimsKey).(*model.Claims)
