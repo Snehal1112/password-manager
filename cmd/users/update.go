@@ -30,18 +30,21 @@ import (
 	"github.com/spf13/viper"
 
 	"rocketvault/common"
-	"rocketvault/model"
 	"rocketvault/internal/container"
 	userService "rocketvault/internal/services/users"
+	"rocketvault/model"
 )
 
 // updateCmd represents the update command
 var updateCmd = &cobra.Command{
-	Use:     "update <id>",
-	Short:   "Update user information",
-	Long:    `Update a user's username, password, or role by their UUID. Accessible by the user themselves or users with the admin role.`,
-	Example: `rocketvault users update <user-id> --username admin --password admin123 --totp-code <code> --new-username newuser --new-password newpass123 --new-role user`,
-	Args:    cobra.ExactArgs(1),
+	Use:   "update <id>",
+	Short: "Update user information",
+	Long:  `Update a user's username, password, or role by their UUID. Accessible by the user themselves or users with the admin role.`,
+	Example: `  # Update user information by ID
+  rocketvault users update <user-id> \
+    --username admin --password admin123 --totp-code <code> \
+    --new-username newuser --new-password newpass123 --new-role user`,
+	Args: cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		ctx := cmd.Context()
 		claims, ok := ctx.Value(common.ClaimsKey).(*model.Claims)

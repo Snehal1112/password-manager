@@ -16,8 +16,8 @@ import (
 
 	"rocketvault/cmd/testutils"
 	"rocketvault/common"
-	"rocketvault/model"
 	userServices "rocketvault/internal/services/users"
+	"rocketvault/model"
 )
 
 // newTestContextWithRole creates a test context with a specific caller role.

@@ -11,8 +11,8 @@ import (
 	"github.com/stretchr/testify/mock"
 
 	"rocketvault/cmd/testutils"
-	"rocketvault/model"
 	userServices "rocketvault/internal/services/users"
+	"rocketvault/model"
 )
 
 // TestUsersCreateCommand tests the users create command comprehensively

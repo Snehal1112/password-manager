@@ -9,8 +9,8 @@ import (
 	"github.com/stretchr/testify/mock"
 
 	"rocketvault/cmd/testutils"
-	"rocketvault/model"
 	userServices "rocketvault/internal/services/users"
+	"rocketvault/model"
 )
 
 func TestAdminCommand_UsesContextContainer(t *testing.T) {

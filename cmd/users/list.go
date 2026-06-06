@@ -30,17 +30,19 @@ import (
 
 	"rocketvault/common"
 	"rocketvault/internal/container"
-	"rocketvault/model"
 	"rocketvault/internal/formatter"
+	"rocketvault/model"
 )
 
 // listCmd represents the list command
 var listCmd = &cobra.Command{
-	Use:     "list",
-	Short:   "List all users",
-	Long:    `Retrieve a list of all users in the Password Manager. Accessible only by users with the admin role.`,
-	Example: `rocketvault users list --username admin --password admin123 --totp-code <code>`,
-	Args:    cobra.NoArgs,
+	Use:   "list",
+	Short: "List all users",
+	Long:  `Retrieve a list of all users in the Password Manager. Accessible only by users with the admin role.`,
+	Example: `  # List all users (requires admin role)
+  rocketvault users list \
+    --username admin --password admin123 --totp-code <code>`,
+	Args: cobra.NoArgs,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		ctx := cmd.Context()
 		claims, ok := ctx.Value(common.ClaimsKey).(*model.Claims)

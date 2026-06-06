@@ -31,16 +31,18 @@ import (
 
 	"rocketvault/common"
 	"rocketvault/internal/container"
-	"rocketvault/model"
 	"rocketvault/internal/formatter"
+	"rocketvault/model"
 )
 
 // getCmd represents the get command
 var getCmd = &cobra.Command{
-	Use:     "get",
-	Short:   "Get user information",
-	Long:    `Retrieve information about a specific user by their username.`,
-	Example: `rocketvault users get <id> --username admin --password admin123 --totp-code <code>`,
+	Use:   "get",
+	Short: "Get user information",
+	Long:  `Retrieve information about a specific user by their username.`,
+	Example: `  # Get user information by ID
+  rocketvault users get <id> \
+    --username admin --password admin123 --totp-code <code>`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		ctx := cmd.Context()
 		claims, ok := ctx.Value(common.ClaimsKey).(*model.Claims)

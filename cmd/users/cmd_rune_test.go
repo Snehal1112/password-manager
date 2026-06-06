@@ -19,8 +19,8 @@ import (
 
 	"rocketvault/cmd/testutils"
 	"rocketvault/common"
-	"rocketvault/model"
 	userServices "rocketvault/internal/services/users"
+	"rocketvault/model"
 )
 
 // newCreateTestCmd returns a fresh cobra.Command with createCmd.RunE and the

@@ -29,19 +29,21 @@ import (
 	"github.com/spf13/cobra"
 
 	"rocketvault/common"
-	"rocketvault/model"
 	"rocketvault/internal/container"
+	"rocketvault/model"
 )
 
 // deleteCmd represents the delete command
 // The delete command allows users to delete an existing user by ID.
 // It requires the user ID to be specified as an argument.
 var deleteCmd = &cobra.Command{
-	Use:     "delete",
-	Short:   "Delete a user",
-	Long:    `Delete a user by their UUID. Accessible by the user themselves or users with the crypto_manager role. This action cannot be undone.`,
-	Example: `rocketvault users delete <user-id> --username admin --password admin123 --totp-code <code>`,
-	Args:    cobra.ExactArgs(1),
+	Use:   "delete",
+	Short: "Delete a user",
+	Long:  `Delete a user by their UUID. Accessible by the user themselves or users with the crypto_manager role. This action cannot be undone.`,
+	Example: `  # Delete a user by ID
+  rocketvault users delete <user-id> \
+    --username admin --password admin123 --totp-code <code>`,
+	Args: cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		ctx := cmd.Context()
 		claims, ok := ctx.Value(common.ClaimsKey).(*model.Claims)

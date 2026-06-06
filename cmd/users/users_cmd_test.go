@@ -18,8 +18,8 @@ import (
 	"rocketvault/common"
 	"rocketvault/internal/formatter"
 	"rocketvault/internal/logging"
-	"rocketvault/model"
 	authServices "rocketvault/internal/services/auth"
+	"rocketvault/model"
 )
 
 // TestMain runs the Init functions so their code paths are covered, then runs all tests.

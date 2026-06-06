@@ -29,16 +29,19 @@ import (
 
 	"rocketvault/common"
 	"rocketvault/internal/container"
-	"rocketvault/model"
 	userService "rocketvault/internal/services/users"
+	"rocketvault/model"
 )
 
 // registerAdminCmd registers the initial admin user using the context service container.
 var registerAdminCmd = &cobra.Command{
-	Use:     "admin",
-	Short:   "Register the initial admin user",
-	Long:    `Register the first admin user for the Password Manager using a bootstrap token. This command is only allowed when no users exist and requires a valid token.`,
-	Example: `rocketvault users admin --admin-username admin --bootstrap-token <token>`,
+	Use:   "admin",
+	Short: "Register the initial admin user",
+	Long:  `Register the first admin user for the Password Manager using a bootstrap token. This command is only allowed when no users exist and requires a valid token.`,
+	Example: `  # Create the first admin user
+  rocketvault users admin \
+    --admin-username admin --admin-password admin123 \
+    --bootstrap-token <token>`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		ctx := cmd.Context()
 

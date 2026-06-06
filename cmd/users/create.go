@@ -31,16 +31,19 @@ import (
 
 	"rocketvault/common"
 	"rocketvault/internal/container"
-	"rocketvault/model"
 	userService "rocketvault/internal/services/users"
+	"rocketvault/model"
 )
 
 // createCmd represents the create command
 var createCmd = &cobra.Command{
-	Use:     "create",
-	Short:   "Create a new user",
-	Long:    `Create a new user with a username, password, and role, generating a TOTP secret for MFA. Requires admin role for authentication.`,
-	Example: `rocketvault users create --username admin --password admin123 --totp-code <code> --new-username testuser --new-password password123 --new-role user`,
+	Use:   "create",
+	Short: "Create a new user",
+	Long:  `Create a new user with a username, password, and role, generating a TOTP secret for MFA. Requires admin role for authentication.`,
+	Example: `  # Create a new user (requires admin role)
+  rocketvault users create \
+    --username admin --password admin123 --totp-code <code> \
+    --new-username testuser --new-password password123 --new-role user`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		ctx := cmd.Context()
 

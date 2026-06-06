@@ -35,11 +35,13 @@ import (
 
 // loginCmd represents the login command
 var loginCmd = &cobra.Command{
-	Use:     "login",
-	Short:   "Authenticate a user",
-	Long:    `Authenticate a user with their username, password, and TOTP code, returning a JWT token for subsequent operations.`,
-	Example: `rocketvault users login --username admin --password admin123 --totp-code <code>`,
-	Args:    cobra.NoArgs,
+	Use:   "login",
+	Short: "Authenticate a user",
+	Long:  `Authenticate a user with their username, password, and TOTP code, returning a JWT token for subsequent operations.`,
+	Example: `  # Log in and obtain a session token
+  rocketvault users login \
+    --username admin --password admin123 --totp-code <code>`,
+	Args: cobra.NoArgs,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		ctx := cmd.Context()
 
