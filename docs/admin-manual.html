@@ -39,7 +39,7 @@ body{font-family:var(--font);background:var(--bg);color:var(--text);line-height:
 .layout{display:flex;min-height:100vh}
 nav.sidebar{position:sticky;top:0;height:100vh;width:var(--sidebar-w);flex:0 0 var(--sidebar-w);
   overflow-y:auto;background:var(--surface);border-right:1px solid var(--border);padding:20px 0}
-main{flex:1;max-width:880px;padding:48px 52px 120px;
+main{flex:1;max-width:880px;margin-inline:auto;padding:48px 52px 120px;
   background-image:
     radial-gradient(ellipse 80% 40% at 60% -10%,rgba(78,204,163,.07),transparent 60%),
     radial-gradient(ellipse 50% 30% at 90% 80%,rgba(88,166,255,.05),transparent 55%),
@@ -110,7 +110,7 @@ code{font-family:var(--mono);font-size:12px;background:var(--surface2);padding:1
 .copy-btn:hover{color:var(--text);border-color:var(--text2)}
 .copy-btn.done{color:var(--accent);border-color:var(--accent-border)}
 pre.code{font-family:var(--mono);font-size:12.5px;line-height:1.65;background:var(--surface2);
-  border:1px solid var(--border);border-radius:6px;padding:12px 16px;overflow-x:auto;color:var(--accent);margin:0}
+  border:1px solid var(--border);border-radius:6px;padding:12px 16px;overflow-x:auto;color:var(--text);margin:0}
 pre.code.no-hd{border-radius:6px}
 pre.code.with-hd{border-top:none;border-radius:0 0 6px 6px}
 
@@ -292,7 +292,7 @@ document.querySelectorAll('.copy-btn').forEach(btn => {
     navigator.clipboard.writeText(pre.innerText).then(() => {
       btn.textContent = 'Copied!'; btn.classList.add('done');
       setTimeout(() => { btn.textContent = 'Copy'; btn.classList.remove('done'); }, 1500);
-    });
+    }).catch(() => { btn.textContent = 'Failed'; setTimeout(() => { btn.textContent = 'Copy'; }, 1500); });
   });
 });
 
