@@ -509,6 +509,311 @@ curl -s $BASE/api/v1/health/live</pre>
   </div>
   <p class="see-also">See also: <a href="rocketvault-architecture.html">System Architecture (interactive)</a></p>
 </section>
+
+<section id="bootstrap">
+  <h2>Bootstrap — First Admin User</h2>
+  <h3>What it is</h3>
+  <p>A one-time bootstrap token creates the first admin without authentication. After use, the token is consumed. The response returns a TOTP secret you must register in an authenticator app — every login requires a TOTP code.</p>
+  <h3>When to use it</h3>
+  <ul>
+    <li>Fresh install — no admin user exists yet.</li>
+    <li>Emergency recovery — locked out with no active admin sessions.</li>
+  </ul>
+  <p>Bootstrap is a <strong>CLI-only</strong> operation — there is no HTTP endpoint.</p>
+  <div class="codewrap">
+    <div class="code-hd"><span class="code-lang">bash</span><button class="copy-btn">Copy</button></div>
+    <pre class="code with-hd">rocketvault users admin \
+  --admin-username admin \
+  --admin-password admin123 \
+  --bootstrap-token &lt;token&gt;</pre>
+  </div>
+  <div class="callout callout-warn">
+    <div class="callout-label">Register TOTP before logging in</div>
+    <p>Register the returned <code>totp_qr_url</code> in your authenticator app. You can mint codes with <code>oathtool --totp --base32 &lt;secret&gt;</code>.</p>
+  </div>
+  <p class="see-also">See also: <a href="../doc/README_ADMIN_SETUP.md">Admin Setup Guide</a></p>
+</section>
+
+<section id="configuration">
+  <h2>Configuration Reference</h2>
+  <h3>What it is</h3>
+  <p>All runtime behavior is driven by <code>.rocketvault.yaml</code>. The top-level sections below are read by the server at startup.</p>
+  <table>
+    <thead><tr><th>Section</th><th>Purpose</th></tr></thead>
+    <tbody>
+      <tr><td><code>master_key</code>, <code>jwt_secret</code>, <code>bootstrap_token</code></td><td>Master AES-256-GCM key, legacy JWT secret, and one-time bootstrap token</td></tr>
+      <tr><td><code>jwt</code></td><td><code>key_source</code> (os_store/self_pki/external_pki), <code>key_cn</code>, <code>expiry</code>, <code>rotation_overlap</code>, <code>signing_key_file</code></td></tr>
+      <tr><td><code>environment</code></td><td><code>development</code> | <code>production</code> — sets DB pool defaults</td></tr>
+      <tr><td><code>database</code></td><td><code>connection</code>, <code>driver</code>, pool sizing (<code>max_open_conns</code>, …)</td></tr>
+      <tr><td><code>log</code></td><td>level, file, format, rotation (<code>max_backups</code>, <code>max_age_days</code>, <code>max_size_mb</code>)</td></tr>
+      <tr><td><code>rate_limit</code></td><td><code>default</code> (req/min) and <code>auth</code> (login endpoints)</td></tr>
+      <tr><td><code>server</code></td><td><code>listen_addr</code>, timeouts, <code>cors_allowed_origins</code>, <code>http2</code>, <code>tls</code></td></tr>
+      <tr><td><code>retry</code></td><td>database / external_services / circuit_breaker backoff config</td></tr>
+      <tr><td><code>soft_delete</code></td><td><code>enabled</code>, <code>retention_days</code>, <code>purge_protection</code></td></tr>
+      <tr><td><code>key_cache</code></td><td><code>enabled</code>, <code>ttl</code>, <code>max_entries</code>, <code>cleanup_interval</code></td></tr>
+      <tr><td><code>oauth2</code></td><td><code>token_expiry</code>, <code>issuer</code></td></tr>
+      <tr><td><code>hsm</code></td><td><code>enabled</code>, <code>lib_path</code>, <code>token_label</code>, <code>pin</code>, <code>slot_id</code></td></tr>
+    </tbody>
+  </table>
+  <div class="callout callout-warn">
+    <div class="callout-label">Required field</div>
+    <p><code>jwt.expiry</code> is required — the service container reads it via <code>viper.GetDuration("jwt.expiry")</code>. Server fails to start without it.</p>
+  </div>
+</section>
+
+<section id="authentication">
+  <h2>Authentication</h2>
+  <h3>What it is</h3>
+  <p>Login requires username + password + a TOTP code and returns a short-lived JWT plus a refresh token. Sessions are tracked and individually revocable.</p>
+  <h3>When to use it</h3>
+  <ul>
+    <li>Every human caller (admins, operators) authenticates here.</li>
+    <li>Machine callers use service accounts (see <a href="#service-accounts">Service Accounts</a>) instead — no TOTP required.</li>
+  </ul>
+  <div class="flow">
+    <div class="flow-title">JWT token lifecycle</div>
+    <div class="flow-nodes">
+      <div class="flow-node hl">POST /login</div>
+      <div class="flow-arrow">→</div>
+      <div class="flow-node">access_token (15 min)</div>
+      <div class="flow-arrow">+</div>
+      <div class="flow-node">refresh_token</div>
+    </div>
+    <div class="flow-nodes" style="margin-top:8px">
+      <div class="flow-node">POST /refresh</div>
+      <div class="flow-arrow">→</div>
+      <div class="flow-node hl">new access_token</div>
+      <div class="flow-arrow">·</div>
+      <div class="flow-node">DELETE /sessions/{id}</div>
+      <div class="flow-arrow">→</div>
+      <div class="flow-node">revoked</div>
+    </div>
+    <div class="flow-caption">Refresh tokens are stored as hashes — never in plaintext. Sessions are tracked by JTI; revoking one session doesn't affect others.</div>
+  </div>
+
+  <div class="ep">
+    <div class="ep-hd"><span class="meth meth-post">POST</span> <span class="ep-path">/api/v1/users/login</span> <span class="ep-label">Authenticate, get a JWT</span></div>
+    <div class="tab-bar"><button class="tab-btn active">cURL</button><button class="tab-btn">CLI</button><button class="tab-btn">Response</button></div>
+    <div class="tab-pane active"><pre class="code">curl -s -X POST $BASE/api/v1/users/login -H "Content-Type: application/json" \
+  -d '{"username":"admin","password":"admin123","totp_code":"123456"}'</pre></div>
+    <div class="tab-pane"><pre class="code">rocketvault users login \
+  --username admin --password admin123 --totp-code 123456</pre></div>
+    <div class="tab-pane"><pre class="code">{
+  "token": "&lt;redacted-jwt&gt;",
+  "refresh_token": "&lt;redacted-jwt&gt;",
+  "user_id": "f99945c6-ded6-4d6d-96be-7a10a1fbe6fe",
+  "username": "admin",
+  "role": "admin"
+}</pre></div>
+    <details class="collapse"><summary>Errors</summary><div class="inner">401 bad credentials or TOTP · 429 rate-limited (5/min)</div></details>
+  </div>
+
+  <div class="ep">
+    <div class="ep-hd"><span class="meth meth-post">POST</span> <span class="ep-path">/api/v1/users/refresh</span> <span class="ep-label">Exchange a refresh token</span></div>
+    <div class="tab-bar"><button class="tab-btn active">cURL</button><button class="tab-btn">Response</button></div>
+    <div class="tab-pane active"><pre class="code">curl -s -X POST $BASE/api/v1/users/refresh -H "Content-Type: application/json" \
+  -d '{"refresh_token":"&lt;rt&gt;"}'</pre></div>
+    <div class="tab-pane"><pre class="code">{ "token": "&lt;redacted-jwt&gt;", "refresh_token": "&lt;redacted-jwt&gt;" }</pre></div>
+  </div>
+
+  <div class="ep">
+    <div class="ep-hd"><span class="meth meth-get">GET</span> <span class="ep-path">/api/v1/users/sessions</span> <span class="ep-auth">JWT</span> <span class="ep-label">List active sessions</span></div>
+    <div class="tab-bar"><button class="tab-btn active">cURL</button></div>
+    <div class="tab-pane active"><pre class="code">curl -s $BASE/api/v1/users/sessions -H "Authorization: Bearer $TOKEN"</pre></div>
+  </div>
+
+  <div class="ep">
+    <div class="ep-hd"><span class="meth meth-delete">DELETE</span> <span class="ep-path">/api/v1/users/sessions/{id}</span> <span class="ep-auth">JWT</span> <span class="ep-label">Revoke one session (omit id to revoke all)</span></div>
+    <div class="tab-bar"><button class="tab-btn active">cURL</button></div>
+    <div class="tab-pane active"><pre class="code"># one session
+curl -s -X DELETE $BASE/api/v1/users/sessions/&lt;id&gt; -H "Authorization: Bearer $TOKEN"
+# all sessions for the caller
+curl -s -X DELETE $BASE/api/v1/users/sessions -H "Authorization: Bearer $TOKEN"</pre></div>
+  </div>
+
+  <div class="callout callout-warn">
+    <div class="callout-label">Rate limiting</div>
+    <p>Auth endpoints are rate-limited (default 5 req/min) — see <a href="#rate-limiting">Rate Limiting</a>.</p>
+  </div>
+  <p class="see-also">See also: <a href="../MANUAL_TESTING.md">Manual Testing §5</a></p>
+</section>
+
+<section id="jwt-signing">
+  <h2>JWT Signing &amp; Key Sources</h2>
+  <h3>What it is</h3>
+  <p>JWTs are signed asymmetrically and verifiable via JWKS at <code>/jwks.json</code>. Three providers control where the signing key lives, set by <code>jwt.key_source</code>.</p>
+  <table>
+    <thead><tr><th>Provider</th><th>Storage</th><th>Algorithm</th><th>Rotation</th></tr></thead>
+    <tbody>
+      <tr><td><code>os_store</code> (default)</td><td>OS keychain, PEM-file fallback</td><td>RS256</td><td>No</td></tr>
+      <tr><td><code>self_pki</code></td><td>RocketVault's own encrypted DB</td><td>ES256</td><td>Yes (runtime)</td></tr>
+      <tr><td><code>external_pki</code></td><td>PEM from file or env var</td><td>RS256/ES256</td><td>No</td></tr>
+    </tbody>
+  </table>
+  <div class="ep">
+    <div class="ep-hd"><span class="meth meth-get">GET</span> <span class="ep-path">/jwks.json</span> <span class="ep-label">Public JWK set (no auth)</span></div>
+    <div class="tab-bar"><button class="tab-btn active">cURL</button><button class="tab-btn">Response</button></div>
+    <div class="tab-pane active"><pre class="code">curl -s $BASE/jwks.json | jq '.keys[0].alg'</pre></div>
+    <div class="tab-pane"><pre class="code">{
+  "keys": [{
+    "kty": "RSA", "use": "sig", "alg": "RS256",
+    "kid": "9d1c755f04ddbcfc",
+    "n": "&lt;base64url-modulus&gt;", "e": "AQAB"
+  }]
+}</pre></div>
+  </div>
+  <div class="ep">
+    <div class="ep-hd"><span class="meth meth-post">POST</span> <span class="ep-path">/api/v1/jwks/rotate</span> <span class="ep-auth">JWT · admin</span> <span class="ep-label">Rotate (self_pki only)</span></div>
+    <div class="tab-bar"><button class="tab-btn active">cURL</button></div>
+    <div class="tab-pane active"><pre class="code">curl -s -X POST $BASE/api/v1/jwks/rotate -H "Authorization: Bearer $TOKEN"</pre></div>
+  </div>
+  <div class="callout callout-info">
+    <div class="callout-label">Why this works</div>
+    <p>With <code>os_store</code> the key lives in the OS keychain and rotation returns 400 — only <code>self_pki</code> supports runtime rotation. Headless hosts fall back to <code>~/.local/share/rocketvault/jwt-signing.pem</code> (mode 0600).</p>
+  </div>
+  <p class="see-also">See also: <a href="../MANUAL_TESTING.md">Manual Testing §§6,15,16</a></p>
+</section>
+
+<section id="users">
+  <h2>User Management</h2>
+  <h3>What it is</h3>
+  <p>Admins create, list, update, and delete users. Each user has a role and a TOTP secret issued at creation.</p>
+  <h3>When to use it</h3>
+  <ul>
+    <li>Onboard human operators who need CLI or API access.</li>
+    <li>For automation and apps, prefer a <a href="#service-accounts">service account</a> — no TOTP overhead.</li>
+  </ul>
+  <div class="ep">
+    <div class="ep-hd"><span class="meth meth-post">POST</span> <span class="ep-path">/api/v1/users</span> <span class="ep-auth">JWT · admin</span> <span class="ep-label">Create a user</span></div>
+    <div class="tab-bar"><button class="tab-btn active">cURL</button><button class="tab-btn">CLI</button><button class="tab-btn">Response</button></div>
+    <div class="tab-pane active"><pre class="code">curl -s -X POST $BASE/api/v1/users -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"username":"alice","password":"alicepassword123","role":"user"}'</pre></div>
+    <div class="tab-pane"><pre class="code">rocketvault users create \
+  --username admin --password admin123 --totp-code 123456 \
+  --new-username alice --new-password alicepassword123 --new-role user</pre></div>
+    <div class="tab-pane"><pre class="code">{
+  "id": "&lt;uuid&gt;",
+  "username": "alice",
+  "role": "user",
+  "totp_secret": "&lt;base32-secret&gt;"
+}</pre></div>
+    <details class="collapse"><summary>Errors</summary><div class="inner">400 invalid role (one of secrets_manager, crypto_manager, certificate_manager, admin, user) · 401/403 non-admin caller</div></details>
+  </div>
+  <div class="ep">
+    <div class="ep-hd"><span class="meth meth-get">GET</span> <span class="ep-path">/api/v1/users</span> <span class="ep-auth">JWT · admin</span> <span class="ep-label">List users</span></div>
+    <div class="tab-bar"><button class="tab-btn active">cURL</button></div>
+    <div class="tab-pane active"><pre class="code">curl -s $BASE/api/v1/users -H "Authorization: Bearer $TOKEN"</pre></div>
+  </div>
+  <div class="ep">
+    <div class="ep-hd"><span class="meth meth-put">PUT</span> <span class="ep-path">/api/v1/users/{id}</span> <span class="ep-auth">JWT · admin</span> <span class="ep-label">Update a user</span></div>
+    <div class="tab-bar"><button class="tab-btn active">cURL</button></div>
+    <div class="tab-pane active"><pre class="code">curl -s -X PUT $BASE/api/v1/users/&lt;id&gt; -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"role":"admin"}'</pre></div>
+  </div>
+  <div class="ep">
+    <div class="ep-hd"><span class="meth meth-delete">DELETE</span> <span class="ep-path">/api/v1/users/{id}</span> <span class="ep-auth">JWT · admin</span> <span class="ep-label">Delete a user</span></div>
+    <div class="tab-bar"><button class="tab-btn active">cURL</button></div>
+    <div class="tab-pane active"><pre class="code">curl -s -X DELETE $BASE/api/v1/users/&lt;id&gt; -H "Authorization: Bearer $TOKEN"</pre></div>
+  </div>
+  <p class="see-also">See also: <a href="../MANUAL_TESTING.md">Manual Testing §7</a></p>
+</section>
+
+<section id="access-policies">
+  <h2>RBAC &amp; Access Policies</h2>
+  <h3>What it is</h3>
+  <p>Two complementary controls: <strong>roles</strong> gate broad operations, and <strong>access policies</strong> grant a specific principal access to a specific resource — a resource type/id plus allowed actions.</p>
+  <h3>When to use it</h3>
+  <ul>
+    <li>Use a <strong>role</strong> when you want to broadly allow/deny a class of operations (e.g. a user who can manage all secrets).</li>
+    <li>Use an <strong>access policy</strong> when you need fine-grained per-resource control (e.g. a service account that can only read one specific secret).</li>
+  </ul>
+  <div class="ep">
+    <div class="ep-hd"><span class="meth meth-post">POST</span> <span class="ep-path">/api/v1/access-policies</span> <span class="ep-auth">JWT</span> <span class="ep-label">Create a policy</span></div>
+    <div class="tab-bar"><button class="tab-btn active">cURL</button></div>
+    <div class="tab-pane active"><pre class="code">curl -s -X POST $BASE/api/v1/access-policies -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"name":"read-db-secret","principal_id":"&lt;id&gt;","resource_type":"secret","resource_id":"&lt;id&gt;","actions":["read"]}'</pre></div>
+  </div>
+  <div class="ep">
+    <div class="ep-hd"><span class="meth meth-get">GET</span> <span class="ep-path">/api/v1/access-policies</span> <span class="ep-auth">JWT</span> <span class="ep-label">List all</span></div>
+    <div class="tab-bar"><button class="tab-btn active">cURL</button></div>
+    <div class="tab-pane active"><pre class="code">curl -s $BASE/api/v1/access-policies -H "Authorization: Bearer $TOKEN"</pre></div>
+  </div>
+  <div class="ep">
+    <div class="ep-hd"><span class="meth meth-get">GET</span> <span class="ep-path">/api/v1/access-policies/{id}</span> <span class="ep-auth">JWT</span> <span class="ep-label">Get one</span></div>
+    <div class="tab-bar"><button class="tab-btn active">cURL</button></div>
+    <div class="tab-pane active"><pre class="code">curl -s $BASE/api/v1/access-policies/&lt;id&gt; -H "Authorization: Bearer $TOKEN"</pre></div>
+  </div>
+  <div class="ep">
+    <div class="ep-hd"><span class="meth meth-put">PUT</span> <span class="ep-path">/api/v1/access-policies/{id}</span> <span class="ep-auth">JWT</span> <span class="ep-label">Update</span></div>
+    <div class="tab-bar"><button class="tab-btn active">cURL</button></div>
+    <div class="tab-pane active"><pre class="code">curl -s -X PUT $BASE/api/v1/access-policies/&lt;id&gt; -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"actions":["read","update"]}'</pre></div>
+  </div>
+  <div class="ep">
+    <div class="ep-hd"><span class="meth meth-delete">DELETE</span> <span class="ep-path">/api/v1/access-policies/{id}</span> <span class="ep-auth">JWT</span> <span class="ep-label">Delete</span></div>
+    <div class="tab-bar"><button class="tab-btn active">cURL</button></div>
+    <div class="tab-pane active"><pre class="code">curl -s -X DELETE $BASE/api/v1/access-policies/&lt;id&gt; -H "Authorization: Bearer $TOKEN"</pre></div>
+  </div>
+  <div class="ep">
+    <div class="ep-hd"><span class="meth meth-get">GET</span> <span class="ep-path">/api/v1/access-policies/principal/{id}</span> <span class="ep-auth">JWT</span> <span class="ep-label">List by principal</span></div>
+    <div class="tab-bar"><button class="tab-btn active">cURL</button></div>
+    <div class="tab-pane active"><pre class="code">curl -s $BASE/api/v1/access-policies/principal/&lt;id&gt; -H "Authorization: Bearer $TOKEN"</pre></div>
+  </div>
+  <p class="see-also">See also: <a href="../MANUAL_TESTING.md">Manual Testing §13</a></p>
+</section>
+
+<section id="service-accounts">
+  <h2>OAuth2 Service Accounts</h2>
+  <h3>What it is</h3>
+  <p>A service account is a machine identity that authenticates via OAuth2 client-credentials flow — no TOTP. Service accounts are <strong>read-only consumers</strong>: they retrieve secrets/keys/certs an admin granted them via access policies.</p>
+  <h3>When to use it</h3>
+  <ul>
+    <li>CI/CD pipelines, apps fetching config at runtime, service-to-service secrets, scheduled jobs.</li>
+    <li>Any automated caller — prefer service accounts over human user credentials for machine access.</li>
+  </ul>
+  <div class="callout callout-info">
+    <div class="callout-label">Why no TOTP?</div>
+    <p>TOTP requires a human to read a time-based code. Service accounts use a long client secret instead — machine-readable, rotatable, and revocable without user involvement. The tradeoff is that the secret must be stored securely by the caller (e.g. in a CI secret store).</p>
+  </div>
+  <div class="ep">
+    <div class="ep-hd"><span class="meth meth-post">POST</span> <span class="ep-path">/api/v1/service-accounts</span> <span class="ep-auth">JWT · admin</span> <span class="ep-label">Create (client_secret shown once)</span></div>
+    <div class="tab-bar"><button class="tab-btn active">cURL</button><button class="tab-btn">Response</button></div>
+    <div class="tab-pane active"><pre class="code">curl -s -X POST $BASE/api/v1/service-accounts -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"name":"ci-pipeline","description":"CI/CD"}'</pre></div>
+    <div class="tab-pane"><pre class="code">{
+  "id": "&lt;uuid&gt;",
+  "name": "ci-pipeline",
+  "client_secret": "&lt;shown-once-redacted&gt;"
+}</pre></div>
+  </div>
+  <div class="ep">
+    <div class="ep-hd"><span class="meth meth-post">POST</span> <span class="ep-path">/api/v1/oauth2/token</span> <span class="ep-auth">Basic</span> <span class="ep-label">Client-credentials token</span></div>
+    <div class="tab-bar"><button class="tab-btn active">cURL</button><button class="tab-btn">Response</button></div>
+    <div class="tab-pane active"><pre class="code">curl -s -X POST $BASE/api/v1/oauth2/token \
+  -u "ci-pipeline:$SECRET" -d "grant_type=client_credentials"</pre></div>
+    <div class="tab-pane"><pre class="code">{ "access_token": "&lt;redacted-jwt&gt;", "token_type": "Bearer", "expires_in": 3600 }</pre></div>
+  </div>
+  <div class="ep">
+    <div class="ep-hd"><span class="meth meth-post">POST</span> <span class="ep-path">/api/v1/service-accounts/{id}/rotate</span> <span class="ep-auth">JWT · admin</span> <span class="ep-label">Rotate the secret</span></div>
+    <div class="tab-bar"><button class="tab-btn active">cURL</button></div>
+    <div class="tab-pane active"><pre class="code">curl -s -X POST $BASE/api/v1/service-accounts/&lt;id&gt;/rotate -H "Authorization: Bearer $TOKEN"</pre></div>
+  </div>
+  <div class="ep">
+    <div class="ep-hd"><span class="meth meth-delete">DELETE</span> <span class="ep-path">/api/v1/service-accounts/{id}</span> <span class="ep-auth">JWT · admin</span> <span class="ep-label">Delete (invalidates tokens immediately)</span></div>
+    <div class="tab-bar"><button class="tab-btn active">cURL</button></div>
+    <div class="tab-pane active"><pre class="code">curl -s -X DELETE $BASE/api/v1/service-accounts/&lt;id&gt; -H "Authorization: Bearer $TOKEN"</pre></div>
+  </div>
+  <div class="callout callout-warn">
+    <div class="callout-label">client_id is the name, not the UUID</div>
+    <p>The <code>client_id</code> in the Basic auth header is the service-account <strong>name</strong> (e.g. <code>ci-pipeline</code>), not its UUID. Delete or rotate immediately invalidates live tokens.</p>
+  </div>
+  <p class="see-also">See also: <a href="consuming-secrets-guide.md">Consuming Secrets Guide</a>, <a href="../MANUAL_TESTING.md">Manual Testing §14</a></p>
+</section>
 </main>
 </div>
 
