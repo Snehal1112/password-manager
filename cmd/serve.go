@@ -55,6 +55,11 @@ var bootstrapConfig = &bootstrap.Config{}
 var serveCmd = &cobra.Command{
 	Use:   "serve",
 	Short: "Start the API server",
+	Example: `  # Start the API server on the default address
+  rocketvault serve
+
+  # Start on a custom listen address with debug logging
+  rocketvault serve --listen :9000 --log-level debug`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		return serve(cmd)
 	},

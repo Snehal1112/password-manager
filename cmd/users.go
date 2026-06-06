@@ -34,8 +34,16 @@ var usersCmd = &cobra.Command{
 	Short: "Manage users in the password manager",
 	Long: `A command group for creating, retrieving, updating, listing, and deleting users,
 as well as generating TOTP secrets for MFA.`,
-	Example: `users create --username <username> --password <password> --totp-secret <totp-secret>`,
-	Args:    cobra.NoArgs,
+	Example: `  # Log in and obtain a session token
+  rocketvault users login --username admin --password admin123 --totp-code <code>
+
+  # Create a new user
+  rocketvault users create --new-username <username> --new-password <password> --new-role secrets_manager \
+    --username admin --password admin123 --totp-code <code>
+
+  # List users
+  rocketvault users list --username admin --password admin123 --totp-code <code>`,
+	Args: cobra.NoArgs,
 }
 
 func init() {

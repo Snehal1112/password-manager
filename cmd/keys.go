@@ -30,10 +30,18 @@ import (
 
 // keysCmd represents the keys command
 var keysCmd = &cobra.Command{
-	Use:     "keys",
-	Short:   "Manage keys",
-	Long:    `Manage keys for the application, including creating, updating, and deleting keys.`,
-	Example: `keys create --name <name> --type <type>`,
+	Use:   "keys",
+	Short: "Manage keys",
+	Long:  `Manage keys for the application, including creating, updating, and deleting keys.`,
+	Example: `  # Create an RSA key
+  rocketvault keys create --name <name> --type RSA --bits 2048 \
+    --username admin --password admin123 --totp-code <code>
+
+  # Get a key by id
+  rocketvault keys get <id> --username admin --password admin123 --totp-code <code>
+
+  # List keys
+  rocketvault keys list --username admin --password admin123 --totp-code <code>`,
 	Run: func(cmd *cobra.Command, args []string) {
 		// Show help when command is called without subcommands
 		cmd.Help()

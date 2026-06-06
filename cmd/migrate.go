@@ -61,7 +61,9 @@ var migrateStatusCmd = &cobra.Command{
 	Use:   "migrate:status",
 	Short: "Show migration status",
 	Long:  `Display the current database schema version and list all migrations with their status.`,
-	RunE:  showMigrationStatus,
+	Example: `  # Show pending and applied migrations
+  rocketvault migrate:status`,
+	RunE: showMigrationStatus,
 }
 
 // migrateToCmd represents the migrate:to command
@@ -69,8 +71,10 @@ var migrateToCmd = &cobra.Command{
 	Use:   "migrate:to [version]",
 	Short: "Migrate to a specific version",
 	Long:  `Apply migrations up to and including the specified version.`,
-	Args:  cobra.ExactArgs(1),
-	RunE:  migrateToVersion,
+	Example: `  # Migrate the database to a specific version
+  rocketvault migrate:to <version>`,
+	Args: cobra.ExactArgs(1),
+	RunE: migrateToVersion,
 }
 
 // migrateCreateCmd represents the migrate:create command.
@@ -79,11 +83,9 @@ var migrateCreateCmd = &cobra.Command{
 	Short: "Create a new migration file",
 	Long: `Create a new timestamped migration file in internal/db/migrations/.
 
-The description words are joined with underscores to form the filename.
-
-Example:
-  rocketvault migrate:create add priority to secrets
-  # Creates: internal/db/migrations/20260308000001_add_priority_to_secrets.sql`,
+The description words are joined with underscores to form the filename.`,
+	Example: `  # Create a new migration file
+  rocketvault migrate:create "add purge_protection column"`,
 	Args: cobra.MinimumNArgs(1),
 	RunE: createMigration,
 }

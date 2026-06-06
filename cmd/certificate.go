@@ -30,10 +30,18 @@ import (
 
 // certificateCmd represents the certificate command
 var certificateCmd = &cobra.Command{
-	Use:     "certificate",
-	Short:   "Manage certificates",
-	Long:    `Manage certificates for the application, including creating, updating, and deleting certificates.`,
-	Example: `certificate create --name <name> --type <type>`,
+	Use:   "certificate",
+	Short: "Manage certificates",
+	Long:  `Manage certificates for the application, including creating, updating, and deleting certificates.`,
+	Example: `  # Create a certificate backed by an existing key
+  rocketvault certificate create --name <name> --key-id <key-id> --validity-days 365 \
+    --username admin --password admin123 --totp-code <code>
+
+  # Get a certificate by id
+  rocketvault certificate get <id> --username admin --password admin123 --totp-code <code>
+
+  # List certificates
+  rocketvault certificate list --username admin --password admin123 --totp-code <code>`,
 	Run: func(cmd *cobra.Command, args []string) {
 		// Show help when command is called without subcommands
 		cmd.Help()

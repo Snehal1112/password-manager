@@ -51,6 +51,15 @@ var rootCmd = &cobra.Command{
 	Long: `The password manager is a standalone application for securely managing
 secrets, cryptographic keys, and certificates. It provides a CLI for user interaction
 and a RESTful API for programmatic access, with features like MFA and secret rotation.`,
+	Example: `  # Log in
+  rocketvault users login --username admin --password admin123 --totp-code <code>
+
+  # Create and read a secret
+  rocketvault secrets create <name> <value> --username admin --password admin123 --totp-code <code>
+  rocketvault secrets get <id> --username admin --password admin123 --totp-code <code>
+
+  # Start the API server
+  rocketvault serve`,
 	PersistentPreRunE:  persistentPreRun,
 	PersistentPostRunE: persistentPostRun,
 	// Run: func(cmd *cobra.Command, args []string) {},

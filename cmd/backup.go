@@ -51,19 +51,19 @@ var backupCmd = &cobra.Command{
 	Short: "Manage database backups",
 	Long: `Create, list, and restore encrypted database backups.
 Supports full database backup and restore operations with optional encryption.`,
-	Example: `  # Create encrypted backup (default)
+	Example: `  # Create an encrypted backup (default)
   rocketvault backup create --output ./backups/backup-2024.backup
 
-  # Create unencrypted backup
+  # Create an unencrypted backup
   rocketvault backup create --output ./backups/backup-2024.backup --encrypt=false
 
   # List available backups
   rocketvault backup list --dir ./backups
 
-  # Restore from encrypted backup (default)
+  # Restore from an encrypted backup (default)
   rocketvault backup restore --file ./backups/backup-2024.backup
 
-  # Restore from unencrypted backup
+  # Restore from an unencrypted backup
   rocketvault backup restore --file ./backups/backup-2024.backup --decrypt=false`,
 }
 
@@ -82,10 +82,10 @@ var backupCreateCmd = &cobra.Command{
 	Short: "Create a database backup",
 	Long: `Create a complete backup of the database including all tables and data.
 The backup is encrypted by default using the master key for security.`,
-	Example: `  # Create encrypted backup (default)
+	Example: `  # Create an encrypted backup (default)
   rocketvault backup create --output ./backup-2024.backup
 
-  # Create unencrypted backup
+  # Create an unencrypted backup
   rocketvault backup create --output ./backup-2024.backup --encrypt=false`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		return runBackupCreate(cmd)
@@ -94,10 +94,11 @@ The backup is encrypted by default using the master key for security.`,
 
 // backupListCmd represents the backup list command
 var backupListCmd = &cobra.Command{
-	Use:     "list",
-	Short:   "List available backup files",
-	Long:    `List all backup files in the specified directory with their metadata.`,
-	Example: `rocketvault backup list --dir ./backups`,
+	Use:   "list",
+	Short: "List available backup files",
+	Long:  `List all backup files in the specified directory with their metadata.`,
+	Example: `  # List available backups in a directory
+  rocketvault backup list --dir ./backups`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		return runBackupList(cmd)
 	},
@@ -108,10 +109,10 @@ var backupRestoreCmd = &cobra.Command{
 	Use:   "restore",
 	Short: "Restore database from backup",
 	Long:  `Restore the database from a backup file. This will replace all existing data.`,
-	Example: `  # Restore from encrypted backup (default)
+	Example: `  # Restore from an encrypted backup (default)
   rocketvault backup restore --file ./backup-2024.backup
 
-  # Restore from unencrypted backup
+  # Restore from an unencrypted backup
   rocketvault backup restore --file ./backup-2024.backup --decrypt=false`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		return runBackupRestore(cmd)

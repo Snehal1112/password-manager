@@ -10,6 +10,13 @@ import (
 var vaultAccessCmd = &cobra.Command{
 	Use:   "vault-access",
 	Short: "Manage vault-scoped role assignments",
+	Example: `  # Grant a role to a principal in a vault
+  rocketvault vault-access grant alice --role secrets-user --vault prod \
+    --username admin --password admin123 --totp-code <code>
+
+  # List built-in roles
+  rocketvault vault-access roles \
+    --username admin --password admin123 --totp-code <code>`,
 }
 
 func init() {

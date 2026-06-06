@@ -34,7 +34,14 @@ var vaultsCmd = &cobra.Command{
 	Short: "Manage vaults",
 	Long: `A command group for creating, retrieving, listing, deleting, recovering,
 and purging vaults that hold secrets, keys, and certificates.`,
-	Example: `rocketvault vaults create my-vault`,
+	Example: `  # Create a vault
+  rocketvault vaults create my-vault --username admin --password admin123 --totp-code <code>
+
+  # Get a vault by name
+  rocketvault vaults get my-vault --username admin --password admin123 --totp-code <code>
+
+  # List vaults
+  rocketvault vaults list --username admin --password admin123 --totp-code <code>`,
 }
 
 func init() {

@@ -34,7 +34,14 @@ var secretsCmd = &cobra.Command{
 	Short: "Manage secrets in the password manager",
 	Long: `A command group for creating, retrieving, updating, listing, and deleting secrets,
 as well as generating random passwords.`,
-	Example: `secrets create --name <name> --value <value>`,
+	Example: `  # Create a secret
+  rocketvault secrets create <name> <value> --username admin --password admin123 --totp-code <code>
+
+  # Get a secret by id
+  rocketvault secrets get <id> --username admin --password admin123 --totp-code <code>
+
+  # List secrets
+  rocketvault secrets list --username admin --password admin123 --totp-code <code>`,
 }
 
 func init() {

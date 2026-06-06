@@ -9,8 +9,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 
-	"rocketvault/model"
 	secretServices "rocketvault/internal/services/secrets"
+	"rocketvault/model"
 )
 
 type mockRotationService struct {

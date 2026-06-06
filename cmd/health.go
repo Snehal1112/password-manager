@@ -42,7 +42,8 @@ var healthCmd = &cobra.Command{
 	Short: "Display system health metrics",
 	Long: `Display comprehensive system health metrics including memory usage,
 CPU statistics, database connection status, and query performance metrics.`,
-	Example: `rocketvault health`,
+	Example: `  # Display system health metrics
+  rocketvault health`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		ctx := cmd.Context()
 		db := ctx.Value(common.DBKey).(*sql.DB)

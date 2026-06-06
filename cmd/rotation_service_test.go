@@ -12,8 +12,8 @@ import (
 	"github.com/stretchr/testify/mock"
 
 	"rocketvault/cmd/testutils"
-	"rocketvault/model"
 	secretServices "rocketvault/internal/services/secrets"
+	"rocketvault/model"
 )
 
 // MockRotationSvc is a testify mock that satisfies RotationServiceInterface.

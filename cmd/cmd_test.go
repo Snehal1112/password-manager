@@ -17,8 +17,8 @@ import (
 	"rocketvault/cmd/testutils"
 	"rocketvault/common"
 	"rocketvault/internal/health"
-	"rocketvault/model"
 	secretServices "rocketvault/internal/services/secrets"
+	"rocketvault/model"
 )
 
 // ---------------------------------------------------------------------------
