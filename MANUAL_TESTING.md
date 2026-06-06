@@ -108,3 +108,32 @@
 | DELETE | `/api/v1/service-accounts/{id}` | JWT (admin) | Delete service account |
 | POST | `/api/v1/service-accounts/{id}/rotate` | JWT (admin) | Rotate SA secret |
 | POST | `/api/v1/jwks/rotate` | JWT (admin) | Rotate JWT signing key |
+
+---
+
+## Account Roles & Permissions
+
+Every user account carries one global role. It controls the coarse, account-level
+permissions checked by the RBAC service. Vault-scoped roles (`vault-reader`,
+`secrets-officer`, etc.) are a separate, finer-grained layer assigned per vault.
+
+Source of truth: `internal/services/authorization/rbac_service.go`.
+
+| Role | Secrets | Keys | Certificates | Users | System |
+|------|---------|------|--------------|-------|--------|
+| `admin` | full CRUD + list | full CRUD + list | full CRUD + list | full CRUD + list | manage vaults + system |
+| `user` | read, list | read, list | read, list | — | — |
+| `secrets_manager` | full CRUD + list | — | — | — | — |
+| `crypto_manager` | — | full CRUD + list | — | — | — |
+| `certificate_manager` | — | — | full CRUD + list | — | — |
+| `service_account` | read, list | read, list | read, list | — | — |
+
+Notes:
+- "full CRUD" = create, read, update, delete.
+- `user` and `service_account` are read-only across all three resource types.
+  They differ only in intent: `user` is a human login, `service_account` is a
+  machine identity (Azure Key Vault model — admins create resources and grant
+  finer access via access policies).
+- A manager role grants full CRUD on its one resource type and nothing on the
+  others. `secrets_manager` cannot even read keys or certificates.
+- Unknown roles get zero permissions (deny by default).

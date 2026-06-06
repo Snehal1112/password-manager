@@ -324,6 +324,7 @@ details.collapse .inner{padding:8px 12px;font-size:12.5px;color:var(--text2)}
     <a class="sb-item" href="#jwt-signing">JWT Signing</a>
     <a class="sb-item" href="#users">Users</a>
     <a class="sb-item" href="#access-policies">RBAC &amp; Policies</a>
+    <a class="sb-item" href="#account-roles">Account Roles</a>
     <a class="sb-item" href="#service-accounts">Service Accounts</a>
 
     <div class="sb-group">Core Resources</div>
@@ -857,6 +858,34 @@ curl -s -X DELETE $BASE/api/v1/users/sessions -H "Authorization: Bearer $TOKEN"<
     <div class="tab-pane active"><pre class="code">curl -s $BASE/api/v1/access-policies/principal/&lt;id&gt; -H "Authorization: Bearer $TOKEN"</pre></div>
   </div>
   <p class="see-also">See also: <a href="../MANUAL_TESTING.md">Manual Testing §13</a></p>
+</section>
+
+<section id="account-roles">
+  <h2>Account Roles &amp; Permissions</h2>
+  <h3>What it is</h3>
+  <p>Every user account carries exactly one <strong>global role</strong>. It gates coarse, account-level operations across the three resource types. This is distinct from the per-vault <strong>vault-scoped roles</strong> (<code>vault-reader</code>, <code>secrets-officer</code>, and so on), which add finer control inside a single vault.</p>
+  <h3>The six roles</h3>
+  <table>
+    <thead>
+      <tr><th>Role</th><th>Secrets</th><th>Keys</th><th>Certificates</th><th>Users</th><th>System</th></tr>
+    </thead>
+    <tbody>
+      <tr><td><code>admin</code></td><td>full CRUD + list</td><td>full CRUD + list</td><td>full CRUD + list</td><td>full CRUD + list</td><td>manage vaults + system</td></tr>
+      <tr><td><code>user</code></td><td>read, list</td><td>read, list</td><td>read, list</td><td>—</td><td>—</td></tr>
+      <tr><td><code>secrets_manager</code></td><td>full CRUD + list</td><td>—</td><td>—</td><td>—</td><td>—</td></tr>
+      <tr><td><code>crypto_manager</code></td><td>—</td><td>full CRUD + list</td><td>—</td><td>—</td><td>—</td></tr>
+      <tr><td><code>certificate_manager</code></td><td>—</td><td>—</td><td>full CRUD + list</td><td>—</td><td>—</td></tr>
+      <tr><td><code>service_account</code></td><td>read, list</td><td>read, list</td><td>read, list</td><td>—</td><td>—</td></tr>
+    </tbody>
+  </table>
+  <h3>Notes</h3>
+  <ul>
+    <li>"Full CRUD" means create, read, update, and delete.</li>
+    <li><code>user</code> and <code>service_account</code> are read-only across all three resource types. They differ only in intent: <code>user</code> is a human login, <code>service_account</code> is a machine identity. Admins create resources and grant finer access via access policies.</li>
+    <li>A manager role grants full CRUD on its one resource type and nothing on the others. <code>secrets_manager</code> cannot even read keys or certificates.</li>
+    <li>Unknown roles get zero permissions. The check denies by default.</li>
+  </ul>
+  <p class="see-also">See also: <a href="#access-policies">RBAC &amp; Access Policies</a></p>
 </section>
 
 <section id="service-accounts">
