@@ -15,10 +15,16 @@ import (
 // InitVaultAccessGrant registers the grant command, which assigns a built-in role to a principal.
 func InitVaultAccessGrant(parent *cobra.Command) {
 	cmd := &cobra.Command{
-		Use:     "grant <principal>",
-		Short:   "Grant a built-in role to a principal in a vault",
-		Example: "rocketvault vault-access grant alice --role secrets-user --vault prod",
-		Args:    cobra.ExactArgs(1),
+		Use:   "grant <principal>",
+		Short: "Grant a built-in role to a principal in a vault",
+		Example: `  # Grant a built-in role to a user in a vault
+  rocketvault vault-access grant alice --role secrets-user --vault prod \
+    --username admin --password admin123 --totp-code <code>
+
+  # Grant a role to a service account
+  rocketvault vault-access grant my-svc --role crypto-user --principal-type service_account --vault prod \
+    --username admin --password admin123 --totp-code <code>`,
+		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			principal := args[0]
 			role, _ := cmd.Flags().GetString("role")

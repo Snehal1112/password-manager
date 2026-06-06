@@ -15,7 +15,10 @@ func InitVaultAccessRevoke(parent *cobra.Command) {
 	cmd := &cobra.Command{
 		Use:   "revoke <assignment-id>",
 		Short: "Revoke a role assignment in a vault",
-		Args:  cobra.ExactArgs(1),
+		Example: `  # Revoke a role assignment by id
+  rocketvault vault-access revoke <assignment-id> --vault prod \
+    --username admin --password admin123 --totp-code <code>`,
+		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			id, err := uuid.Parse(args[0])
 			if err != nil {

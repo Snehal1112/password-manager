@@ -13,6 +13,9 @@ func InitVaultAccessRoles(parent *cobra.Command) {
 	cmd := &cobra.Command{
 		Use:   "roles",
 		Short: "List built-in vault roles and their permissions",
+		Example: `  # List built-in vault roles and their permissions
+  rocketvault vault-access roles \
+    --username admin --password admin123 --totp-code <code>`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			out := cmd.OutOrStdout()
 			for _, name := range authz.BuiltInRoleNames() {

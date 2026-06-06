@@ -14,6 +14,9 @@ func InitVaultAccessList(parent *cobra.Command) {
 	cmd := &cobra.Command{
 		Use:   "list",
 		Short: "List role assignments in a vault",
+		Example: `  # List role assignments in a vault
+  rocketvault vault-access list --vault prod \
+    --username admin --password admin123 --totp-code <code>`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			ctx := cmd.Context()
 			sc, ok := ctx.Value(common.ServiceContainerKey).(container.ServiceContainerInterface)
