@@ -145,6 +145,9 @@ func (c *oauth2HTestContainer) GetAccessPolicyRepository() repositories.AccessPo
 func (c *oauth2HTestContainer) GetAccessPolicyService() authzServices.AccessPolicyService {
 	panic("unexpected call: GetAccessPolicyService")
 }
+func (c *oauth2HTestContainer) GetRoleAssignmentService() authzServices.RoleAssignmentService {
+	return nil
+}
 func (c *oauth2HTestContainer) GetOAuth2ClientRepository() repositories.OAuth2ClientRepositoryInterface {
 	panic("unexpected call: GetOAuth2ClientRepository")
 }

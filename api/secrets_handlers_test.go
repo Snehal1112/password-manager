@@ -194,6 +194,9 @@ func (c *secretSvcTestContainer) GetAccessPolicyRepository() repositories.Access
 func (c *secretSvcTestContainer) GetAccessPolicyService() authzServices.AccessPolicyService {
 	panic("unexpected call: GetAccessPolicyService")
 }
+func (c *secretSvcTestContainer) GetRoleAssignmentService() authzServices.RoleAssignmentService {
+	return nil
+}
 func (c *secretSvcTestContainer) GetOAuth2ClientRepository() repositories.OAuth2ClientRepositoryInterface {
 	panic("unexpected call: GetOAuth2ClientRepository")
 }

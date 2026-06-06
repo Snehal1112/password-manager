@@ -152,6 +152,9 @@ func (c *cryptoTestContainer) GetAccessPolicyRepository() repositories.AccessPol
 func (c *cryptoTestContainer) GetAccessPolicyService() authzServices.AccessPolicyService {
 	panic("unexpected call: GetAccessPolicyService")
 }
+func (c *cryptoTestContainer) GetRoleAssignmentService() authzServices.RoleAssignmentService {
+	return nil
+}
 func (c *cryptoTestContainer) GetOAuth2ClientRepository() repositories.OAuth2ClientRepositoryInterface {
 	panic("unexpected call: GetOAuth2ClientRepository")
 }

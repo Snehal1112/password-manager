@@ -18,6 +18,8 @@ type Routes struct {
 	Vault           *mux.Router // /api/v1/vault
 	Vaults          *mux.Router // /api/v1/vaults (vault management)
 	VaultScoped     *mux.Router // /api/v1/vaults/{vault_name} (vault-scoped resources)
+	RoleAssignments *mux.Router // /api/v1/vaults/{vault_name}/role-assignments
+	RoleAssignment  *mux.Router // /api/v1/vaults/{vault_name}/role-assignments/{assignment_id}
 	Secrets         *mux.Router // /api/v1/secrets
 	Secret          *mux.Router // /api/v1/secrets/{secret_id}
 	Users           *mux.Router // /api/v1/users
@@ -85,6 +87,9 @@ func Init(options ...Options) *API {
 	// {vault_name} and resolves that vault for these routes.
 	r.VaultScoped = r.Vaults.PathPrefix("/{vault_name:[a-z0-9-]+}").Subrouter()
 
+	r.RoleAssignments = r.VaultScoped.PathPrefix("/role-assignments").Subrouter()
+	r.RoleAssignment = r.RoleAssignments.PathPrefix("/{assignment_id:[A-Fa-f0-9-]+}").Subrouter()
+
 	r.Secrets = r.ApiRoot.PathPrefix("/secrets").Subrouter()
 	r.Secret = r.Secrets.PathPrefix("/{secret_id:[A-Fa-f0-9-]+}").Subrouter()
 
@@ -129,6 +134,7 @@ func Init(options ...Options) *API {
 	api.InitConfig()
 	api.InitDeleted()
 	api.InitAccessPolicies()
+	api.InitRoleAssignments()
 	api.InitOAuth2()
 	api.InitJWKS()
 	api.InitBackupItem()

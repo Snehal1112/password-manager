@@ -124,6 +124,9 @@ func (m *mockServiceContainer) GetAccessPolicyRepository() repositories.AccessPo
 func (m *mockServiceContainer) GetAccessPolicyService() authzServices.AccessPolicyService {
 	panic("unexpected call: GetAccessPolicyService")
 }
+func (m *mockServiceContainer) GetRoleAssignmentService() authzServices.RoleAssignmentService {
+	return nil
+}
 func (m *mockServiceContainer) GetOAuth2ClientRepository() repositories.OAuth2ClientRepositoryInterface {
 	panic("unexpected call: GetOAuth2ClientRepository")
 }

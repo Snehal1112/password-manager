@@ -98,6 +98,9 @@ type policyContainer struct {
 func (c *policyContainer) GetAccessPolicyService() authzServices.AccessPolicyService {
 	return c.policySvc
 }
+func (c *policyContainer) GetRoleAssignmentService() authzServices.RoleAssignmentService {
+	return nil
+}
 func (c *policyContainer) GetRBACService() authzServices.RBACService {
 	panic("unexpected call: GetRBACService")
 }

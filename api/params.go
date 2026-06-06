@@ -20,6 +20,8 @@ type ApiParams struct {
 	ServiceAccountID string
 	SessionID        string
 	PrincipalID      string
+	VaultName        string
+	AssignmentID     string
 	Version          int // {version} parsed to int; 0 if absent
 
 	// Pagination
@@ -43,6 +45,8 @@ func ApiParamsFromRequest(r *http.Request) *ApiParams {
 		ServiceAccountID: vars["service_account_id"],
 		SessionID:        vars["session_id"],
 		PrincipalID:      vars["principal_id"],
+		VaultName:        vars["vault_name"],
+		AssignmentID:     vars["assignment_id"],
 	}
 
 	if v, err := strconv.Atoi(vars["version"]); err == nil {

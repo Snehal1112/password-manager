@@ -39,11 +39,21 @@ func (m *mockPolicyRepo) FindEffects(ctx context.Context, pid uuid.UUID, rt mode
 	args := m.Called(ctx, pid, rt, op, vaultID)
 	return args.Get(0).([]*model.AccessPolicy), args.Error(1)
 }
+func (m *mockPolicyRepo) ListByVault(ctx context.Context, vaultID uuid.UUID) ([]*model.AccessPolicy, error) {
+	args := m.Called(ctx, vaultID)
+	return args.Get(0).([]*model.AccessPolicy), args.Error(1)
+}
 func (m *mockPolicyRepo) Update(ctx context.Context, p *model.AccessPolicy) error {
 	return m.Called(ctx, p).Error(0)
 }
 func (m *mockPolicyRepo) Delete(ctx context.Context, id uuid.UUID) error {
 	return m.Called(ctx, id).Error(0)
+}
+func (m *mockPolicyRepo) DeleteByAssignmentID(ctx context.Context, assignmentID uuid.UUID) error {
+	return m.Called(ctx, assignmentID).Error(0)
+}
+func (m *mockPolicyRepo) DeleteByVault(ctx context.Context, vaultID uuid.UUID) error {
+	return m.Called(ctx, vaultID).Error(0)
 }
 
 func TestCheckAccess_AllowWhenPolicyExists(t *testing.T) {

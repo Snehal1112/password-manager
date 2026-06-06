@@ -250,6 +250,9 @@ func (c *secretRepoTestContainer) GetAccessPolicyRepository() repositories.Acces
 func (c *secretRepoTestContainer) GetAccessPolicyService() authzServices.AccessPolicyService {
 	panic("unexpected call: GetAccessPolicyService")
 }
+func (c *secretRepoTestContainer) GetRoleAssignmentService() authzServices.RoleAssignmentService {
+	return nil
+}
 func (c *secretRepoTestContainer) GetOAuth2ClientRepository() repositories.OAuth2ClientRepositoryInterface {
 	panic("unexpected call: GetOAuth2ClientRepository")
 }
@@ -375,6 +378,9 @@ func (c *certRepoTestContainer) GetAccessPolicyRepository() repositories.AccessP
 }
 func (c *certRepoTestContainer) GetAccessPolicyService() authzServices.AccessPolicyService {
 	panic("unexpected call: GetAccessPolicyService")
+}
+func (c *certRepoTestContainer) GetRoleAssignmentService() authzServices.RoleAssignmentService {
+	return nil
 }
 func (c *certRepoTestContainer) GetOAuth2ClientRepository() repositories.OAuth2ClientRepositoryInterface {
 	panic("unexpected call: GetOAuth2ClientRepository")
