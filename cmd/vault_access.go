@@ -14,9 +14,8 @@ var vaultAccessCmd = &cobra.Command{
   rocketvault vault-access grant alice --role secrets-user --vault prod \
     --username admin --password admin123 --totp-code <code>
 
-  # List built-in roles
-  rocketvault vault-access roles \
-    --username admin --password admin123 --totp-code <code>`,
+  # List built-in roles (no auth required)
+  rocketvault vault-access roles`,
 }
 
 func init() {
