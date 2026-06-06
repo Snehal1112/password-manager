@@ -93,9 +93,10 @@ func (s *stubVaultService) ListVaults(context.Context, bool) ([]model.Vault, err
 func (s *stubVaultService) UpdateVault(context.Context, string, model.UpdateVaultRequest, uuid.UUID) (*model.Vault, error) {
 	return nil, nil
 }
-func (s *stubVaultService) DeleteVault(context.Context, string) error  { return nil }
-func (s *stubVaultService) RecoverVault(context.Context, string) error { return nil }
-func (s *stubVaultService) PurgeVault(context.Context, string) error   { return nil }
+func (s *stubVaultService) DeleteVault(context.Context, string) error      { return nil }
+func (s *stubVaultService) RecoverVault(context.Context, string) error     { return nil }
+func (s *stubVaultService) PurgeVault(context.Context, string) error       { return nil }
+func (s *stubVaultService) SetPolicyCleaner(_ vaultServices.PolicyCleaner) {}
 
 // MockAuthenticationService is a mock implementation of AuthenticationService.
 type MockAuthenticationService struct {
