@@ -172,45 +172,47 @@ func (d *DBRepository) InitializeDB() error {
 		return fmt.Errorf("failed to ping database: %w", err)
 	}
 
-	// Create optimized tables with proper indexes if they don't exist.
-	if err := d.createOptimizedSchema(db); err != nil {
+	// Create schema, migrate, and seed using the resolved dialect.
+	if err := d.SetupSchema(db, d.dialect); err != nil {
 		db.Close()
-		return fmt.Errorf("failed to create schema: %w", err)
-	}
-
-	// Migrate schema for existing databases (idempotent — duplicate-column errors are ignored).
-	if err := d.migrateSchema(db); err != nil {
-		db.Close()
-		return fmt.Errorf("failed to migrate schema: %w", err)
-	}
-
-	// Seed the bootstrap token from config so the first admin can be created.
-	if err := d.seedBootstrapToken(db); err != nil {
-		db.Close()
-		return fmt.Errorf("failed to seed bootstrap token: %w", err)
-	}
-
-	if err := d.seedAuditConfig(db); err != nil {
-		db.Close()
-		return fmt.Errorf("failed to seed audit config: %w", err)
-	}
-
-	// Seed the default vault before finalizing indexes so the row exists.
-	if err := d.seedDefaultVault(db); err != nil {
-		db.Close()
-		return fmt.Errorf("failed to seed default vault: %w", err)
-	}
-
-	// Resolve any name collisions and create the per-vault unique indexes.
-	if err := d.finalizeVaultIndexes(db); err != nil {
-		db.Close()
-		return fmt.Errorf("failed to finalize vault indexes: %w", err)
+		return err
 	}
 
 	// Assign the connection to the global DB variable.
 	globalDB = db
 	d.db = db
 	d.log.Info("Database initialized successfully with connection pooling")
+	return nil
+}
+
+// SetupSchema creates the schema, runs migrations, and seeds defaults on the
+// given connection using the given dialect. InitializeDB calls it; integration
+// tests call it directly against a Postgres container. It is idempotent.
+func (d *DBRepository) SetupSchema(db *sql.DB, dialect Dialect) error {
+	d.dialect = dialect
+
+	if err := d.createOptimizedSchema(db); err != nil {
+		return fmt.Errorf("failed to create schema: %w", err)
+	}
+	// Migrate schema for existing databases (idempotent — duplicate-column errors are ignored).
+	if err := d.migrateSchema(db); err != nil {
+		return fmt.Errorf("failed to migrate schema: %w", err)
+	}
+	// Seed the bootstrap token from config so the first admin can be created.
+	if err := d.seedBootstrapToken(db); err != nil {
+		return fmt.Errorf("failed to seed bootstrap token: %w", err)
+	}
+	if err := d.seedAuditConfig(db); err != nil {
+		return fmt.Errorf("failed to seed audit config: %w", err)
+	}
+	// Seed the default vault before finalizing indexes so the row exists.
+	if err := d.seedDefaultVault(db); err != nil {
+		return fmt.Errorf("failed to seed default vault: %w", err)
+	}
+	// Resolve any name collisions and create the per-vault unique indexes.
+	if err := d.finalizeVaultIndexes(db); err != nil {
+		return fmt.Errorf("failed to finalize vault indexes: %w", err)
+	}
 	return nil
 }
 
