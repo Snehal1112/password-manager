@@ -8,6 +8,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"strings"
 	"sync"
 	"time"
 
@@ -228,12 +229,12 @@ func (d *DBRepository) loadDatabaseConfig() (*DatabaseConfig, error) {
 		return nil, fmt.Errorf("database connection string not configured")
 	}
 
-	// Determine driver based on connection string or explicit config
-	driverName := "sqlite3" // default
-	if viper.GetString("database.driver") != "" {
-		driverName = viper.GetString("database.driver")
-	} else if len(connStr) > 10 && connStr[:10] == "postgres://" {
-		driverName = "postgres"
+	// Determine and validate the driver from explicit config or the
+	// connection string shape.
+	driverName, err := resolveDriver(viper.GetString("database.driver"), connStr)
+	if err != nil {
+		d.log.Error("Invalid database driver: ", err)
+		return nil, err
 	}
 
 	// Get environment-specific pool configuration
@@ -250,6 +251,48 @@ func (d *DBRepository) loadDatabaseConfig() (*DatabaseConfig, error) {
 		PoolConfig:       poolConfig,
 		Environment:      env,
 	}, nil
+}
+
+// resolveDriver determines the database/sql driver name from an explicit config
+// value, falling back to sniffing the connection string. It validates the result
+// against the supported set so a typo fails fast with a clear message instead of
+// a late "unknown driver" from sql.Open.
+func resolveDriver(explicit, connStr string) (string, error) {
+	driver := explicit
+	if driver == "" {
+		driver = sniffDriver(connStr)
+	}
+
+	switch driver {
+	case "sqlite3", "postgres":
+		return driver, nil
+	case "sqlite":
+		// Accept the common alias for the registered "sqlite3" driver name.
+		return "sqlite3", nil
+	case "postgresql":
+		// Accept the alternate spelling for the registered "postgres" driver.
+		return "postgres", nil
+	default:
+		return "", fmt.Errorf(
+			"unsupported database driver %q: must be \"sqlite3\" or \"postgres\"", driver,
+		)
+	}
+}
+
+// sniffDriver guesses the driver from the connection string when none is set.
+// It recognizes both Postgres URL schemes and the DSN keyword form; anything
+// else defaults to SQLite (a file path).
+func sniffDriver(connStr string) string {
+	lower := strings.ToLower(strings.TrimSpace(connStr))
+	switch {
+	case strings.HasPrefix(lower, "postgres://"), strings.HasPrefix(lower, "postgresql://"):
+		return "postgres"
+	case strings.Contains(lower, "host=") && strings.Contains(lower, "dbname="):
+		// Postgres DSN keyword form, e.g. "host=... dbname=... sslmode=...".
+		return "postgres"
+	default:
+		return "sqlite3"
+	}
 }
 
 // getEnvironmentPoolConfig returns optimized pool config for each environment.
