@@ -11,6 +11,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
 
+	rvdb "rocketvault/internal/db"
 	"rocketvault/internal/logging"
 	"rocketvault/internal/repositories"
 	"rocketvault/model"
@@ -54,7 +55,7 @@ func TestCertLifecycleAttributes_PersistAndLoad(t *testing.T) {
 	t.Parallel()
 	db := setupCertLifecycleTestDB(t)
 	log := logging.InitLogger()
-	repo := repositories.NewCertificateRepository(db, log)
+	repo := repositories.NewCertificateRepository(rvdb.NewConn(db, rvdb.SQLite), log)
 
 	now := time.Now().UTC().Truncate(time.Second)
 	nbf := now.Add(-1 * time.Hour)

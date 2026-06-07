@@ -49,7 +49,7 @@ type CertificateRepositoryInterface interface {
 // It focuses solely on database interactions without business logic like X.509 generation or encryption.
 // All crypto operations (encryption, certificate generation) are handled by the service layer.
 type CertificateRepository struct {
-	db  *sql.DB
+	db  db.DB
 	log *logging.Logger
 }
 
@@ -84,7 +84,7 @@ func (r *CertificateRepository) executeWithMetrics(operation string, fn func() e
 // Returns:
 //
 //	A CertificateRepositoryInterface implementation for certificate database operations.
-func NewCertificateRepository(db *sql.DB, log *logging.Logger) CertificateRepositoryInterface {
+func NewCertificateRepository(db db.DB, log *logging.Logger) CertificateRepositoryInterface {
 	return &CertificateRepository{db: db, log: log}
 }
 

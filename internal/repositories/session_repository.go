@@ -10,8 +10,9 @@ import (
 	"github.com/google/uuid"
 	"github.com/sirupsen/logrus"
 
-	"rocketvault/model"
+	"rocketvault/internal/db"
 	"rocketvault/internal/logging"
+	"rocketvault/model"
 )
 
 // SessionRepositoryInterface defines the contract for session data access operations.
@@ -51,13 +52,13 @@ type SessionRepositoryInterface interface {
 // SessionRepository implements SessionRepositoryInterface for database operations.
 // It provides CRUD operations for user sessions with performance monitoring.
 type SessionRepository struct {
-	db     *sql.DB
+	db     db.DB
 	logger *logging.Logger
 }
 
 // SessionRepositoryConfig holds configuration for session repository.
 type SessionRepositoryConfig struct {
-	DB     *sql.DB
+	DB     db.DB
 	Logger *logging.Logger
 }
 

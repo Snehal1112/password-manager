@@ -11,8 +11,9 @@ import (
 
 	"github.com/google/uuid"
 
-	"rocketvault/model"
+	"rocketvault/internal/db"
 	"rocketvault/internal/logging"
+	"rocketvault/model"
 )
 
 // RotationPolicyRepositoryInterface defines the data access contract for rotation policies.
@@ -50,12 +51,12 @@ type RotationPolicyRepositoryInterface interface {
 
 // rotationPolicyRepository implements RotationPolicyRepositoryInterface.
 type rotationPolicyRepository struct {
-	db  *sql.DB
+	db  db.DB
 	log *logging.Logger
 }
 
 // NewRotationPolicyRepository creates a new rotation policy repository.
-func NewRotationPolicyRepository(db *sql.DB, log *logging.Logger) RotationPolicyRepositoryInterface {
+func NewRotationPolicyRepository(db db.DB, log *logging.Logger) RotationPolicyRepositoryInterface {
 	return &rotationPolicyRepository{
 		db:  db,
 		log: log,

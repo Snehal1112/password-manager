@@ -236,13 +236,13 @@ func TestResetPerformanceMetrics(t *testing.T) {
 
 func TestGetConnectionPoolStats_NoDBInitialized(t *testing.T) {
 	// Save and restore global DB
-	prev := DB
-	DB = nil
-	defer func() { DB = prev }()
+	prev := globalDB
+	globalDB = nil
+	defer func() { globalDB = prev }()
 
 	stats := GetConnectionPoolStats()
 	errVal, ok := stats["error"]
-	assert.True(t, ok, "should return error key when DB is nil")
+	assert.True(t, ok, "should return error key when globalDB is nil")
 	assert.Equal(t, "database not initialized", errVal)
 }
 
@@ -253,7 +253,7 @@ func TestGetConnectionPoolStats_WithDB(t *testing.T) {
 	stats := GetConnectionPoolStats()
 	// When DB is non-nil the error key must be absent
 	_, hasErr := stats["error"]
-	assert.False(t, hasErr, "no error key expected when DB is initialized")
+	assert.False(t, hasErr, "no error key expected when globalDB is initialized")
 	_, hasOpen := stats["open_connections"]
 	assert.True(t, hasOpen)
 }
@@ -263,9 +263,9 @@ func TestGetConnectionPoolStats_WithDB(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestHealthCheck_NilDB(t *testing.T) {
-	prev := DB
-	DB = nil
-	defer func() { DB = prev }()
+	prev := globalDB
+	globalDB = nil
+	defer func() { globalDB = prev }()
 
 	err := HealthCheck(context.Background())
 	assert.Error(t, err)
@@ -294,7 +294,7 @@ func TestSeedBootstrapToken_EmptyToken(t *testing.T) {
 	require.NoError(t, repo.InitializeDB())
 	// No rows in bootstrap_tokens but no error
 	var n int
-	require.NoError(t, DB.QueryRow("SELECT COUNT(*) FROM bootstrap_tokens").Scan(&n))
+	require.NoError(t, globalDB.QueryRow("SELECT COUNT(*) FROM bootstrap_tokens").Scan(&n))
 	assert.Equal(t, 0, n)
 }
 
@@ -309,7 +309,7 @@ func TestSeedBootstrapToken_Seeded(t *testing.T) {
 	require.NoError(t, repo.InitializeDB())
 
 	var n int
-	require.NoError(t, DB.QueryRow("SELECT COUNT(*) FROM bootstrap_tokens WHERE token = ?", token).Scan(&n))
+	require.NoError(t, globalDB.QueryRow("SELECT COUNT(*) FROM bootstrap_tokens WHERE token = ?", token).Scan(&n))
 	assert.Equal(t, 1, n)
 }
 
@@ -324,10 +324,10 @@ func TestSeedBootstrapToken_Idempotent(t *testing.T) {
 	require.NoError(t, repo.InitializeDB())
 
 	// Calling seedBootstrapToken again must not error or duplicate
-	require.NoError(t, repo.seedBootstrapToken(DB))
+	require.NoError(t, repo.seedBootstrapToken(globalDB))
 
 	var n int
-	require.NoError(t, DB.QueryRow("SELECT COUNT(*) FROM bootstrap_tokens WHERE token = ?", token).Scan(&n))
+	require.NoError(t, globalDB.QueryRow("SELECT COUNT(*) FROM bootstrap_tokens WHERE token = ?", token).Scan(&n))
 	assert.Equal(t, 1, n)
 }
 
@@ -339,10 +339,10 @@ func TestSeedAuditConfig_Idempotent(t *testing.T) {
 	repo := newInitializedRepo(t)
 
 	// Call again — must not error or duplicate
-	require.NoError(t, repo.seedAuditConfig(DB))
+	require.NoError(t, repo.seedAuditConfig(globalDB))
 
 	var n int
-	require.NoError(t, DB.QueryRow("SELECT COUNT(*) FROM audit_config WHERE key = 'retention_days'").Scan(&n))
+	require.NoError(t, globalDB.QueryRow("SELECT COUNT(*) FROM audit_config WHERE key = 'retention_days'").Scan(&n))
 	assert.Equal(t, 1, n)
 }
 
@@ -370,7 +370,7 @@ type testEntity struct{}
 
 func TestTagRepository_ReplaceTags_AddsNew(t *testing.T) {
 	db := newTagDB(t)
-	repo := NewTagRepository[testEntity](db, "test_tags", "entity_id")
+	repo := NewTagRepository[testEntity](NewConn(db, SQLite), "test_tags", "entity_id")
 	ctx := context.Background()
 
 	id := uuid.New()
@@ -383,7 +383,7 @@ func TestTagRepository_ReplaceTags_AddsNew(t *testing.T) {
 
 func TestTagRepository_ReplaceTags_Deduplicates(t *testing.T) {
 	db := newTagDB(t)
-	repo := NewTagRepository[testEntity](db, "test_tags", "entity_id")
+	repo := NewTagRepository[testEntity](NewConn(db, SQLite), "test_tags", "entity_id")
 	ctx := context.Background()
 
 	id := uuid.New()
@@ -396,7 +396,7 @@ func TestTagRepository_ReplaceTags_Deduplicates(t *testing.T) {
 
 func TestTagRepository_ReplaceTags_OverwritesPrevious(t *testing.T) {
 	db := newTagDB(t)
-	repo := NewTagRepository[testEntity](db, "test_tags", "entity_id")
+	repo := NewTagRepository[testEntity](NewConn(db, SQLite), "test_tags", "entity_id")
 	ctx := context.Background()
 
 	id := uuid.New()
@@ -410,7 +410,7 @@ func TestTagRepository_ReplaceTags_OverwritesPrevious(t *testing.T) {
 
 func TestTagRepository_ReplaceTags_EmptySliceClearsTags(t *testing.T) {
 	db := newTagDB(t)
-	repo := NewTagRepository[testEntity](db, "test_tags", "entity_id")
+	repo := NewTagRepository[testEntity](NewConn(db, SQLite), "test_tags", "entity_id")
 	ctx := context.Background()
 
 	id := uuid.New()
@@ -481,7 +481,7 @@ func TestInitializeDB_InMemory(t *testing.T) {
 	tables := []string{"users", "secrets", "keys", "certificates", "audit_logs", "vaults"}
 	for _, tbl := range tables {
 		var name string
-		err := DB.QueryRow(
+		err := globalDB.QueryRow(
 			"SELECT name FROM sqlite_master WHERE type='table' AND name=?", tbl,
 		).Scan(&name)
 		assert.NoError(t, err, "table %s should exist", tbl)
@@ -500,7 +500,7 @@ func TestInitializeDB_WithBootstrapToken(t *testing.T) {
 	require.NoError(t, repo.InitializeDB())
 
 	var n int
-	require.NoError(t, DB.QueryRow(
+	require.NoError(t, globalDB.QueryRow(
 		"SELECT COUNT(*) FROM bootstrap_tokens WHERE token = ?", token,
 	).Scan(&n))
 	assert.Equal(t, 1, n)

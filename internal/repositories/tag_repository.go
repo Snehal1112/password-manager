@@ -3,9 +3,10 @@ package repositories
 
 import (
 	"context"
-	"database/sql"
 	"fmt"
 	"strings"
+
+	"rocketvault/internal/db"
 
 	"github.com/google/uuid"
 )
@@ -22,11 +23,11 @@ type SecretTagRepositoryInterface interface {
 
 // secretTagRepository implements SecretTagRepositoryInterface with direct SQL.
 type secretTagRepository struct {
-	db *sql.DB
+	db db.DB
 }
 
 // NewSecretTagRepository creates a SecretTagRepository backed by the given connection.
-func NewSecretTagRepository(db *sql.DB) SecretTagRepositoryInterface {
+func NewSecretTagRepository(db db.DB) SecretTagRepositoryInterface {
 	return &secretTagRepository{db: db}
 }
 

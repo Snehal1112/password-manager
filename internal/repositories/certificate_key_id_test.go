@@ -12,6 +12,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	rvdb "rocketvault/internal/db"
 	"rocketvault/internal/logging"
 	"rocketvault/internal/repositories"
 	"rocketvault/model"
@@ -57,7 +58,7 @@ func setupCertKeyIDTestDB(t *testing.T) *sql.DB {
 func TestCertificateRepository_KeyID_Persisted(t *testing.T) {
 	db := setupCertKeyIDTestDB(t)
 	log := logging.InitLogger()
-	repo := repositories.NewCertificateRepository(db, log)
+	repo := repositories.NewCertificateRepository(rvdb.NewConn(db, rvdb.SQLite), log)
 
 	keyID := uuid.New()
 	cert := &model.Certificate{
@@ -85,7 +86,7 @@ func TestCertificateRepository_KeyID_Persisted(t *testing.T) {
 func TestCertificateRepository_KeyID_NilUUID(t *testing.T) {
 	db := setupCertKeyIDTestDB(t)
 	log := logging.InitLogger()
-	repo := repositories.NewCertificateRepository(db, log)
+	repo := repositories.NewCertificateRepository(rvdb.NewConn(db, rvdb.SQLite), log)
 
 	cert := &model.Certificate{
 		ID:          uuid.New(),
@@ -113,7 +114,7 @@ func TestCertificateRepository_KeyID_NilUUID(t *testing.T) {
 func TestCertificateRepository_ListInVault_ScopesByVault(t *testing.T) {
 	db := setupCertKeyIDTestDB(t)
 	log := logging.InitLogger()
-	repo := repositories.NewCertificateRepository(db, log)
+	repo := repositories.NewCertificateRepository(rvdb.NewConn(db, rvdb.SQLite), log)
 	ctx := context.Background()
 	vaultA, vaultB := uuid.New(), uuid.New()
 
@@ -147,7 +148,7 @@ func TestCertificateRepository_ListInVault_ScopesByVault(t *testing.T) {
 func TestCertificateRepository_ReadInVault_PopulatesVaultID(t *testing.T) {
 	db := setupCertKeyIDTestDB(t)
 	log := logging.InitLogger()
-	repo := repositories.NewCertificateRepository(db, log)
+	repo := repositories.NewCertificateRepository(rvdb.NewConn(db, rvdb.SQLite), log)
 	ctx := context.Background()
 	vaultA := uuid.New()
 

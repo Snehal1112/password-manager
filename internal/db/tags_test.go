@@ -24,7 +24,7 @@ func setupTagTestDB(t *testing.T) (*sql.DB, func()) {
 	assert.NoError(t, err)
 	return sqlDB, func() {
 		sqlDB.Close()
-		DB = nil
+		globalDB = nil
 	}
 }
 
@@ -32,7 +32,7 @@ func TestTagRepository_AddTagsAndGetTags(t *testing.T) {
 	db, cleanup := setupTagTestDB(t)
 	defer cleanup()
 
-	repo := NewTagRepository[struct{}](db, "secret_tags", "secret_id")
+	repo := NewTagRepository[struct{}](NewConn(db, SQLite), "secret_tags", "secret_id")
 	ctx := context.Background()
 	id := uuid.New()
 	tags := []string{"prod", "api", "dev"}
@@ -56,7 +56,7 @@ func TestTagRepository_GetTags_Empty(t *testing.T) {
 	db, cleanup := setupTagTestDB(t)
 	defer cleanup()
 
-	repo := NewTagRepository[struct{}](db, "secret_tags", "secret_id")
+	repo := NewTagRepository[struct{}](NewConn(db, SQLite), "secret_tags", "secret_id")
 	ctx := context.Background()
 	id := uuid.New()
 
@@ -68,7 +68,7 @@ func TestTagRepository_GetTags_Empty(t *testing.T) {
 func TestTagRepository_AddTags_DBError(t *testing.T) {
 	db, cleanup := setupTagTestDB(t)
 	defer cleanup()
-	repo := NewTagRepository[struct{}](db, "secret_tags", "secret_id")
+	repo := NewTagRepository[struct{}](NewConn(db, SQLite), "secret_tags", "secret_id")
 	ctx := context.Background()
 	id := uuid.New()
 	_ = db.Close() // force DB error
@@ -80,7 +80,7 @@ func TestTagRepository_AddTags_DBError(t *testing.T) {
 func TestTagRepository_GetTags_DBError(t *testing.T) {
 	db, cleanup := setupTagTestDB(t)
 	defer cleanup()
-	repo := NewTagRepository[struct{}](db, "secret_tags", "secret_id")
+	repo := NewTagRepository[struct{}](NewConn(db, SQLite), "secret_tags", "secret_id")
 	ctx := context.Background()
 	id := uuid.New()
 	_ = db.Close() // force DB error

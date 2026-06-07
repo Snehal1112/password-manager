@@ -8,6 +8,7 @@ import (
 	"github.com/google/uuid"
 	_ "github.com/mattn/go-sqlite3"
 
+	rvdb "rocketvault/internal/db"
 	"rocketvault/internal/logging"
 	"rocketvault/model"
 )
@@ -36,7 +37,7 @@ func newVaultTagsTestDB(t *testing.T) *sql.DB {
 func TestVaultRepository_EmptyTagsClears(t *testing.T) {
 	db := newVaultTagsTestDB(t)
 	defer db.Close()
-	repo := NewVaultRepository(db, &logging.Logger{})
+	repo := NewVaultRepository(rvdb.NewConn(db, rvdb.SQLite), &logging.Logger{})
 	ctx := context.Background()
 
 	v := &model.Vault{
@@ -66,7 +67,7 @@ func TestVaultRepository_EmptyTagsClears(t *testing.T) {
 func TestVaultRepository_TagsRoundTripAndUpdateStamps(t *testing.T) {
 	db := newVaultTagsTestDB(t)
 	defer db.Close()
-	repo := NewVaultRepository(db, &logging.Logger{})
+	repo := NewVaultRepository(rvdb.NewConn(db, rvdb.SQLite), &logging.Logger{})
 	ctx := context.Background()
 
 	creator := uuid.New()

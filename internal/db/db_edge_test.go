@@ -7,8 +7,8 @@ import (
 	"testing"
 
 	"github.com/google/uuid"
-	"github.com/spf13/viper"
 	_ "github.com/mattn/go-sqlite3"
+	"github.com/spf13/viper"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -21,7 +21,7 @@ import (
 
 func TestTagRepository_ReplaceTags_DBError(t *testing.T) {
 	db := newTagDB(t)
-	repo := NewTagRepository[testEntity](db, "test_tags", "entity_id")
+	repo := NewTagRepository[testEntity](NewConn(db, SQLite), "test_tags", "entity_id")
 	id := uuid.New()
 
 	// Prime a tag so there is something to delete.
@@ -49,7 +49,7 @@ func TestTagRepository_AddTags_DBClosed(t *testing.T) {
 	require.NoError(t, err)
 	sqlDB.Close() // Force failure.
 
-	repo := NewTagRepository[testEntity](sqlDB, "tight_tags2", "entity_id")
+	repo := NewTagRepository[testEntity](NewConn(sqlDB, SQLite), "tight_tags2", "entity_id")
 	id := uuid.New()
 
 	err = repo.AddTags(context.Background(), id, []string{"atag"})
@@ -108,7 +108,7 @@ func TestSeedDefaultVault_CalledTwice(t *testing.T) {
 	require.NoError(t, repo.InitializeDB())
 
 	// seedDefaultVault is already called by InitializeDB; calling it again must be a no-op.
-	require.NoError(t, repo.seedDefaultVault(DB))
+	require.NoError(t, repo.seedDefaultVault(globalDB))
 }
 
 // ---------------------------------------------------------------------------
@@ -124,7 +124,7 @@ func TestFinalizeVaultIndexes_Idempotent(t *testing.T) {
 	require.NoError(t, repo.InitializeDB())
 
 	// Indexes already exist; calling again must be a no-op (CREATE INDEX IF NOT EXISTS).
-	require.NoError(t, repo.finalizeVaultIndexes(DB))
+	require.NoError(t, repo.finalizeVaultIndexes(globalDB))
 }
 
 // ---------------------------------------------------------------------------
@@ -137,9 +137,9 @@ func TestHealthCheck_ClosedDB(t *testing.T) {
 	require.NoError(t, err)
 	closed.Close()
 
-	prev := DB
-	DB = closed
-	defer func() { DB = prev }()
+	prev := globalDB
+	globalDB = closed
+	defer func() { globalDB = prev }()
 
 	err = HealthCheck(context.Background())
 	assert.Error(t, err)

@@ -8,16 +8,17 @@ import (
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
 
-	"rocketvault/model"
+	rvdb "rocketvault/internal/db"
 	"rocketvault/internal/logging"
 	"rocketvault/internal/repositories"
+	"rocketvault/model"
 )
 
 func TestKeyVersions_CreateAndList(t *testing.T) {
 	t.Parallel()
 	db := setupTestDB(t)
 	log := logging.InitLogger()
-	repo := repositories.NewKeyRepository(db, log)
+	repo := repositories.NewKeyRepository(rvdb.NewConn(db, rvdb.SQLite), log)
 
 	keyID := uuid.New()
 	userID := uuid.New()

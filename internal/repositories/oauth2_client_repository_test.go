@@ -1,18 +1,19 @@
 package repositories_test
 
 import (
-"context"
-"database/sql"
-"testing"
-"time"
+	"context"
+	"database/sql"
+	"testing"
+	"time"
 
-"github.com/google/uuid"
-_ "github.com/mattn/go-sqlite3"
-"github.com/stretchr/testify/assert"
-"github.com/stretchr/testify/require"
+	"github.com/google/uuid"
+	_ "github.com/mattn/go-sqlite3"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 
-"rocketvault/model"
-"rocketvault/internal/repositories"
+	rvdb "rocketvault/internal/db"
+	"rocketvault/internal/repositories"
+	"rocketvault/model"
 )
 
 func setupOAuth2TestDB(t *testing.T) *sql.DB {
@@ -38,7 +39,7 @@ expires_at    TIMESTAMP NULL
 func TestOAuth2ClientRepository_CreateAndGetByID(t *testing.T) {
 	t.Parallel()
 	db := setupOAuth2TestDB(t)
-	repo := repositories.NewOAuth2ClientRepository(db)
+	repo := repositories.NewOAuth2ClientRepository(rvdb.NewConn(db, rvdb.SQLite))
 	ctx := context.Background()
 
 	client := &model.OAuth2Client{
@@ -64,7 +65,7 @@ func TestOAuth2ClientRepository_CreateAndGetByID(t *testing.T) {
 func TestOAuth2ClientRepository_FindByName(t *testing.T) {
 	t.Parallel()
 	db := setupOAuth2TestDB(t)
-	repo := repositories.NewOAuth2ClientRepository(db)
+	repo := repositories.NewOAuth2ClientRepository(rvdb.NewConn(db, rvdb.SQLite))
 	ctx := context.Background()
 
 	client := &model.OAuth2Client{
@@ -85,7 +86,7 @@ func TestOAuth2ClientRepository_FindByName(t *testing.T) {
 func TestOAuth2ClientRepository_List(t *testing.T) {
 	t.Parallel()
 	db := setupOAuth2TestDB(t)
-	repo := repositories.NewOAuth2ClientRepository(db)
+	repo := repositories.NewOAuth2ClientRepository(rvdb.NewConn(db, rvdb.SQLite))
 	ctx := context.Background()
 
 	for _, name := range []string{"svc-a", "svc-b", "svc-c"} {
@@ -106,7 +107,7 @@ func TestOAuth2ClientRepository_List(t *testing.T) {
 func TestOAuth2ClientRepository_Update(t *testing.T) {
 	t.Parallel()
 	db := setupOAuth2TestDB(t)
-	repo := repositories.NewOAuth2ClientRepository(db)
+	repo := repositories.NewOAuth2ClientRepository(rvdb.NewConn(db, rvdb.SQLite))
 	ctx := context.Background()
 
 	client := &model.OAuth2Client{
@@ -131,7 +132,7 @@ func TestOAuth2ClientRepository_Update(t *testing.T) {
 func TestOAuth2ClientRepository_Delete(t *testing.T) {
 	t.Parallel()
 	db := setupOAuth2TestDB(t)
-	repo := repositories.NewOAuth2ClientRepository(db)
+	repo := repositories.NewOAuth2ClientRepository(rvdb.NewConn(db, rvdb.SQLite))
 	ctx := context.Background()
 
 	client := &model.OAuth2Client{

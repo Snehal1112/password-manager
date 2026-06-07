@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	rvdb "rocketvault/internal/db"
 	"rocketvault/internal/logging"
 	"rocketvault/internal/repositories"
 	"rocketvault/model"
@@ -78,7 +79,7 @@ func TestKeySoftDelete(t *testing.T) {
 	t.Parallel()
 	db := setupTestDB(t)
 	log := logging.InitLogger()
-	repo := repositories.NewKeyRepository(db, log)
+	repo := repositories.NewKeyRepository(rvdb.NewConn(db, rvdb.SQLite), log)
 	ctx := context.Background()
 	userID := uuid.New()
 
@@ -113,7 +114,7 @@ func TestKeyRepository_ListInVault_ScopesByVault(t *testing.T) {
 	t.Parallel()
 	db := setupTestDB(t)
 	log := logging.InitLogger()
-	repo := repositories.NewKeyRepository(db, log)
+	repo := repositories.NewKeyRepository(rvdb.NewConn(db, rvdb.SQLite), log)
 	ctx := context.Background()
 	vaultA, vaultB := uuid.New(), uuid.New()
 
@@ -138,7 +139,7 @@ func TestKeyRepository_ReadInVault_PopulatesVaultID(t *testing.T) {
 	t.Parallel()
 	db := setupTestDB(t)
 	log := logging.InitLogger()
-	repo := repositories.NewKeyRepository(db, log)
+	repo := repositories.NewKeyRepository(rvdb.NewConn(db, rvdb.SQLite), log)
 	ctx := context.Background()
 	vaultA := uuid.New()
 
@@ -159,7 +160,7 @@ func TestKeyRepository_UpdateSetsUpdatedAt(t *testing.T) {
 	t.Parallel()
 	db := setupTestDB(t)
 	log := logging.InitLogger()
-	repo := repositories.NewKeyRepository(db, log)
+	repo := repositories.NewKeyRepository(rvdb.NewConn(db, rvdb.SQLite), log)
 	ctx := context.Background()
 	userID := uuid.New()
 
@@ -197,7 +198,7 @@ func TestKeyPurge(t *testing.T) {
 	t.Parallel()
 	db := setupTestDB(t)
 	log := logging.InitLogger()
-	repo := repositories.NewKeyRepository(db, log)
+	repo := repositories.NewKeyRepository(rvdb.NewConn(db, rvdb.SQLite), log)
 	ctx := context.Background()
 	userID := uuid.New()
 
@@ -224,7 +225,7 @@ func TestKeyPurgeProtection(t *testing.T) {
 	t.Parallel()
 	db := setupTestDB(t)
 	log := logging.InitLogger()
-	repo := repositories.NewKeyRepository(db, log)
+	repo := repositories.NewKeyRepository(rvdb.NewConn(db, rvdb.SQLite), log)
 	ctx := context.Background()
 	userID := uuid.New()
 
@@ -252,7 +253,7 @@ func TestKeyLifecycleAttributes_PersistAndLoad(t *testing.T) {
 	t.Parallel()
 	db := setupTestDB(t)
 	log := logging.InitLogger()
-	repo := repositories.NewKeyRepository(db, log)
+	repo := repositories.NewKeyRepository(rvdb.NewConn(db, rvdb.SQLite), log)
 
 	exp := time.Now().Add(24 * time.Hour)
 	k := &model.Key{
@@ -278,7 +279,7 @@ func TestKeySoftDelete_PreservesPurgeProtection(t *testing.T) {
 	t.Parallel()
 	db := setupTestDB(t)
 	log := logging.InitLogger()
-	repo := repositories.NewKeyRepository(db, log)
+	repo := repositories.NewKeyRepository(rvdb.NewConn(db, rvdb.SQLite), log)
 	ctx := context.Background()
 	userID := uuid.New()
 

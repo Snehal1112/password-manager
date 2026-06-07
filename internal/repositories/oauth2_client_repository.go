@@ -1,14 +1,15 @@
 package repositories
 
 import (
-"context"
-"database/sql"
-"fmt"
-"time"
+	"context"
+	"database/sql"
+	"fmt"
+	"time"
 
-"github.com/google/uuid"
+	"github.com/google/uuid"
 
-"rocketvault/model"
+	"rocketvault/internal/db"
+	"rocketvault/model"
 )
 
 // OAuth2ClientRepositoryInterface defines CRUD operations for OAuth2 clients.
@@ -24,19 +25,19 @@ type OAuth2ClientRepositoryInterface interface {
 }
 
 type oauth2ClientRepository struct {
-	db *sql.DB
+	db db.DB
 }
 
 // NewOAuth2ClientRepository creates a new OAuth2ClientRepositoryInterface backed by db.
-func NewOAuth2ClientRepository(db *sql.DB) OAuth2ClientRepositoryInterface {
+func NewOAuth2ClientRepository(db db.DB) OAuth2ClientRepositoryInterface {
 	return &oauth2ClientRepository{db: db}
 }
 
 func (r *oauth2ClientRepository) Create(ctx context.Context, c *model.OAuth2Client) error {
 	_, err := r.db.ExecContext(ctx,
-`INSERT INTO oauth2_clients (id, name, client_secret, description, enabled, created_at, expires_at)
+		`INSERT INTO oauth2_clients (id, name, client_secret, description, enabled, created_at, expires_at)
 		 VALUES (?, ?, ?, ?, ?, ?, ?)`,
-c.ID.String(), c.Name, c.ClientSecret, c.Description, c.Enabled, c.CreatedAt, c.ExpiresAt,
+		c.ID.String(), c.Name, c.ClientSecret, c.Description, c.Enabled, c.CreatedAt, c.ExpiresAt,
 	)
 	if err != nil {
 		return fmt.Errorf("oauth2ClientRepository.Create: %w", err)
@@ -46,21 +47,21 @@ c.ID.String(), c.Name, c.ClientSecret, c.Description, c.Enabled, c.CreatedAt, c.
 
 func (r *oauth2ClientRepository) GetByID(ctx context.Context, id uuid.UUID) (*model.OAuth2Client, error) {
 	row := r.db.QueryRowContext(ctx,
-`SELECT id, name, client_secret, description, enabled, created_at, expires_at
+		`SELECT id, name, client_secret, description, enabled, created_at, expires_at
 		 FROM oauth2_clients WHERE id = ?`, id.String())
 	return scanOAuth2Client(row)
 }
 
 func (r *oauth2ClientRepository) FindByName(ctx context.Context, name string) (*model.OAuth2Client, error) {
 	row := r.db.QueryRowContext(ctx,
-`SELECT id, name, client_secret, description, enabled, created_at, expires_at
+		`SELECT id, name, client_secret, description, enabled, created_at, expires_at
 		 FROM oauth2_clients WHERE name = ?`, name)
 	return scanOAuth2Client(row)
 }
 
 func (r *oauth2ClientRepository) List(ctx context.Context) ([]*model.OAuth2Client, error) {
 	rows, err := r.db.QueryContext(ctx,
-`SELECT id, name, client_secret, description, enabled, created_at, expires_at
+		`SELECT id, name, client_secret, description, enabled, created_at, expires_at
 		 FROM oauth2_clients ORDER BY created_at DESC`)
 	if err != nil {
 		return nil, fmt.Errorf("oauth2ClientRepository.List: %w", err)
@@ -80,9 +81,9 @@ func (r *oauth2ClientRepository) List(ctx context.Context) ([]*model.OAuth2Clien
 
 func (r *oauth2ClientRepository) Update(ctx context.Context, c *model.OAuth2Client) error {
 	_, err := r.db.ExecContext(ctx,
-`UPDATE oauth2_clients SET name=?, client_secret=?, description=?, enabled=?, expires_at=?
+		`UPDATE oauth2_clients SET name=?, client_secret=?, description=?, enabled=?, expires_at=?
 		 WHERE id=?`,
-c.Name, c.ClientSecret, c.Description, c.Enabled, c.ExpiresAt, c.ID.String(),
+		c.Name, c.ClientSecret, c.Description, c.Enabled, c.ExpiresAt, c.ID.String(),
 	)
 	if err != nil {
 		return fmt.Errorf("oauth2ClientRepository.Update: %w", err)

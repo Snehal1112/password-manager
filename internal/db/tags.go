@@ -3,7 +3,6 @@ package db
 
 import (
 	"context"
-	"database/sql"
 	"fmt"
 
 	"github.com/google/uuid"
@@ -19,7 +18,7 @@ type TagRepository[T any] interface {
 
 // TagRepository manages tags for a specific entity type.
 type tagRepository[T any] struct {
-	db       *sql.DB
+	db       DB
 	table    string
 	idColumn string
 }
@@ -32,7 +31,7 @@ type tagRepository[T any] struct {
 // - table: The name of the table storing tags (e.g., "key_tags").
 // - idColumn: The column name for the entity ID (e.g., "key_id").
 // Returns: A pointer to the initialized TagRepository.
-func NewTagRepository[T any](db *sql.DB, table, idColumn string) *tagRepository[T] {
+func NewTagRepository[T any](db DB, table, idColumn string) *tagRepository[T] {
 	return &tagRepository[T]{
 		db:       db,
 		table:    table,

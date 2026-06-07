@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	rvdb "rocketvault/internal/db"
 	"rocketvault/internal/repositories"
 	auditSvc "rocketvault/internal/services/audit"
 )
@@ -31,7 +32,7 @@ func seedLogs(t *testing.T, repo repositories.AuditRepositoryExtended) {
 
 func TestComplianceReportService_SOC2Report(t *testing.T) {
 	db := openTestDB(t)
-	repo := repositories.NewAuditRepository(db)
+	repo := repositories.NewAuditRepository(rvdb.NewConn(db, rvdb.SQLite))
 	seedLogs(t, repo)
 	svc := auditSvc.NewComplianceReportService(repo)
 
@@ -48,7 +49,7 @@ func TestComplianceReportService_SOC2Report(t *testing.T) {
 
 func TestComplianceReportService_GDPRReport(t *testing.T) {
 	db := openTestDB(t)
-	repo := repositories.NewAuditRepository(db)
+	repo := repositories.NewAuditRepository(rvdb.NewConn(db, rvdb.SQLite))
 	seedLogs(t, repo)
 	svc := auditSvc.NewComplianceReportService(repo)
 
@@ -62,7 +63,7 @@ func TestComplianceReportService_GDPRReport(t *testing.T) {
 
 func TestComplianceReportService_SOC2CSV(t *testing.T) {
 	db := openTestDB(t)
-	repo := repositories.NewAuditRepository(db)
+	repo := repositories.NewAuditRepository(rvdb.NewConn(db, rvdb.SQLite))
 	seedLogs(t, repo)
 	svc := auditSvc.NewComplianceReportService(repo)
 
@@ -76,7 +77,7 @@ func TestComplianceReportService_SOC2CSV(t *testing.T) {
 
 func TestComplianceReportService_QueryLogs_IntegrityCheck(t *testing.T) {
 	db := openTestDB(t)
-	repo := repositories.NewAuditRepository(db)
+	repo := repositories.NewAuditRepository(rvdb.NewConn(db, rvdb.SQLite))
 	svc := auditSvc.NewAuditService(repo)
 	compSvc := auditSvc.NewComplianceReportService(repo)
 
@@ -97,7 +98,7 @@ func TestComplianceReportService_QueryLogs_IntegrityCheck(t *testing.T) {
 
 func TestComplianceReportService_PurgeExpiredLogs(t *testing.T) {
 	db := openTestDB(t)
-	repo := repositories.NewAuditRepository(db)
+	repo := repositories.NewAuditRepository(rvdb.NewConn(db, rvdb.SQLite))
 	require.NoError(t, repo.SetAuditConfig(context.Background(), "retention_days", "1"))
 
 	// Insert one old and one recent log.

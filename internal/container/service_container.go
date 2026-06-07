@@ -14,6 +14,7 @@ import (
 	"rocketvault/internal/backup"
 	"rocketvault/internal/cache"
 	"rocketvault/internal/crypto"
+	"rocketvault/internal/db"
 	"rocketvault/internal/keycache"
 	"rocketvault/internal/logging"
 	"rocketvault/internal/metrics"
@@ -122,7 +123,8 @@ type ServiceContainerInterface interface {
 // ServiceContainer implements ServiceContainerInterface.
 type ServiceContainer struct {
 	// Core infrastructure
-	db     *sql.DB
+	db     *sql.DB  // raw handle for health checks, transactions, and Close
+	conn   *db.Conn // dialect-aware wrapper repositories use for all queries
 	logger *logging.Logger
 	viper  *viper.Viper // Configuration manager
 
@@ -222,8 +224,20 @@ func NewServiceContainer(config Config) (*ServiceContainer, error) {
 	// Create cache context for background operations
 	cacheCtx, cacheCancel := context.WithCancel(context.Background())
 
+	// Resolve the SQL dialect from configuration so repositories rebind "?"
+	// placeholders correctly for the active engine. Defaults to SQLite.
+	dialect := db.DialectFromDriver(viper.GetString("database.driver"))
+
+	// Wrap the raw handle so every repository query routes through the dialect.
+	// config.Database may be nil on the unit-test path; conn stays nil then.
+	var conn *db.Conn
+	if config.Database != nil {
+		conn = db.NewConn(config.Database, dialect)
+	}
+
 	container := &ServiceContainer{
 		db:           config.Database,
+		conn:         conn,
 		logger:       config.Logger,
 		viper:        config.Viper,
 		cacheContext: cacheCtx,
@@ -253,22 +267,23 @@ func (c *ServiceContainer) initializeServices() error {
 		viperCfg = viper.GetViper()
 	}
 
-	// Initialize repositories (data layer)
-	c.userRepository = repositories.NewUserRepository(c.db, c.logger)
-	c.secretRepository = repositories.NewSecretRepository(c.db, c.logger)
-	c.rotationRepository = repositories.NewRotationPolicyRepository(c.db, c.logger)
-	c.versionRepository = repositories.NewSecretVersionRepository(c.db, c.logger)
-	c.keyRepository = repositories.NewKeyRepository(c.db, c.logger)
-	c.certificateRepository = repositories.NewCertificateRepository(c.db, c.logger)
-	c.vaultRepository = repositories.NewVaultRepository(c.db, c.logger)
+	// Initialize repositories (data layer). They receive the dialect-aware conn
+	// so every query is rebound for the active engine.
+	c.userRepository = repositories.NewUserRepository(c.conn, c.logger)
+	c.secretRepository = repositories.NewSecretRepository(c.conn, c.logger)
+	c.rotationRepository = repositories.NewRotationPolicyRepository(c.conn, c.logger)
+	c.versionRepository = repositories.NewSecretVersionRepository(c.conn, c.logger)
+	c.keyRepository = repositories.NewKeyRepository(c.conn, c.logger)
+	c.certificateRepository = repositories.NewCertificateRepository(c.conn, c.logger)
+	c.vaultRepository = repositories.NewVaultRepository(c.conn, c.logger)
 	vaultCascade := vaultServices.NewCascadeAdapter(c.secretRepository, c.keyRepository, c.certificateRepository)
 	c.vaultService = vaultServices.NewVaultService(c.vaultRepository, vaultCascade, c.logger)
-	c.certPolicyRepository = repositories.NewCertificatePolicyRepository(c.db, c.logger)
+	c.certPolicyRepository = repositories.NewCertificatePolicyRepository(c.conn, c.logger)
 	c.sessionRepository = repositories.NewSessionRepository(repositories.SessionRepositoryConfig{
-		DB:     c.db,
+		DB:     c.conn,
 		Logger: c.logger,
 	})
-	c.auditRepository = repositories.NewAuditRepository(c.db)
+	c.auditRepository = repositories.NewAuditRepository(c.conn)
 	c.auditService = auditServices.NewAuditService(c.auditRepository)
 	c.complianceReportService = auditServices.NewComplianceReportService(c.auditRepository)
 	c.logger.SetAuditPersister(c.auditService)
@@ -354,7 +369,7 @@ func (c *ServiceContainer) initializeServices() error {
 
 	// Initialize OAuth2 client repository first — the auth service needs it to
 	// validate service-account tokens against the live client record.
-	c.oauth2ClientRepository = repositories.NewOAuth2ClientRepository(c.db)
+	c.oauth2ClientRepository = repositories.NewOAuth2ClientRepository(c.conn)
 
 	// Initialize authentication service
 	baseAuthService := authServices.NewAuthenticationService(authServices.AuthenticationConfig{
@@ -377,12 +392,12 @@ func (c *ServiceContainer) initializeServices() error {
 
 	// Initialize authorization services
 	c.rbacService = authzServices.NewRBACService(c.logger)
-	c.accessPolicyRepository = repositories.NewAccessPolicyRepository(c.db)
+	c.accessPolicyRepository = repositories.NewAccessPolicyRepository(c.conn)
 	c.accessPolicyService = authzServices.NewAccessPolicyService(c.accessPolicyRepository)
 	// Wire the policy cleaner now that the access-policy repository exists; the vault
 	// service deletes vault-scoped policies on purge since access_policies has no FK to vaults.
 	c.vaultService.SetPolicyCleaner(c.accessPolicyRepository)
-	c.roleAssignmentRepository = repositories.NewRoleAssignmentRepository(c.db)
+	c.roleAssignmentRepository = repositories.NewRoleAssignmentRepository(c.conn)
 	c.roleAssignmentService = authzServices.NewRoleAssignmentService(
 		c.roleAssignmentRepository,
 		c.accessPolicyRepository,
@@ -426,7 +441,7 @@ func (c *ServiceContainer) initializeServices() error {
 		c.cryptoService,
 		c.logger,
 	)
-	c.tagService = secretServices.NewTagService(repositories.NewSecretTagRepository(c.db), c.logger)
+	c.tagService = secretServices.NewTagService(repositories.NewSecretTagRepository(c.conn), c.logger)
 	c.rotationService = secretServices.NewRotationService(
 		c.rotationRepository,
 		c.secretRepository,

@@ -8,6 +8,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"rocketvault/internal/db"
 	"rocketvault/model"
 )
 
@@ -21,11 +22,11 @@ type RoleAssignmentRepositoryInterface interface {
 }
 
 type roleAssignmentRepository struct {
-	db *sql.DB
+	db db.DB
 }
 
 // NewRoleAssignmentRepository creates a RoleAssignmentRepository.
-func NewRoleAssignmentRepository(db *sql.DB) RoleAssignmentRepositoryInterface {
+func NewRoleAssignmentRepository(db db.DB) RoleAssignmentRepositoryInterface {
 	return &roleAssignmentRepository{db: db}
 }
 

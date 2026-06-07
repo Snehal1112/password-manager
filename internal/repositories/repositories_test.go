@@ -17,6 +17,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	rvdb "rocketvault/internal/db"
 	"rocketvault/internal/logging"
 	"rocketvault/internal/repositories"
 	"rocketvault/model"
@@ -208,7 +209,7 @@ func TestKeyRepository_Delete_RemovesKey(t *testing.T) {
 	t.Parallel()
 	db := setupFullKeyDB(t)
 	log := logging.InitLogger()
-	repo := repositories.NewKeyRepository(db, log)
+	repo := repositories.NewKeyRepository(rvdb.NewConn(db, rvdb.SQLite), log)
 	ctx := context.Background()
 
 	userID := uuid.New()
@@ -225,7 +226,7 @@ func TestKeyRepository_Delete_NotFound(t *testing.T) {
 	t.Parallel()
 	db := setupFullKeyDB(t)
 	log := logging.InitLogger()
-	repo := repositories.NewKeyRepository(db, log)
+	repo := repositories.NewKeyRepository(rvdb.NewConn(db, rvdb.SQLite), log)
 	ctx := context.Background()
 
 	err := repo.Delete(ctx, uuid.New())
@@ -237,7 +238,7 @@ func TestKeyRepository_ListByUser_FiltersCorrectly(t *testing.T) {
 	t.Parallel()
 	db := setupFullKeyDB(t)
 	log := logging.InitLogger()
-	repo := repositories.NewKeyRepository(db, log)
+	repo := repositories.NewKeyRepository(rvdb.NewConn(db, rvdb.SQLite), log)
 	ctx := context.Background()
 
 	userA := uuid.New()
@@ -275,7 +276,7 @@ func TestKeyRepository_ListByUser_FiltersByTag(t *testing.T) {
 	t.Parallel()
 	db := setupFullKeyDB(t)
 	log := logging.InitLogger()
-	repo := repositories.NewKeyRepository(db, log)
+	repo := repositories.NewKeyRepository(rvdb.NewConn(db, rvdb.SQLite), log)
 	ctx := context.Background()
 
 	userID := uuid.New()
@@ -298,7 +299,7 @@ func TestKeyRepository_UpdateRevocationStatus(t *testing.T) {
 	t.Parallel()
 	db := setupFullKeyDB(t)
 	log := logging.InitLogger()
-	repo := repositories.NewKeyRepository(db, log)
+	repo := repositories.NewKeyRepository(rvdb.NewConn(db, rvdb.SQLite), log)
 	ctx := context.Background()
 
 	k := newKey(uuid.New(), uuid.New(), "revoke-me")
@@ -315,7 +316,7 @@ func TestKeyRepository_UpdateRevocationStatus_NotFound(t *testing.T) {
 	t.Parallel()
 	db := setupFullKeyDB(t)
 	log := logging.InitLogger()
-	repo := repositories.NewKeyRepository(db, log)
+	repo := repositories.NewKeyRepository(rvdb.NewConn(db, rvdb.SQLite), log)
 	ctx := context.Background()
 
 	err := repo.UpdateRevocationStatus(ctx, uuid.New(), true)
@@ -326,7 +327,7 @@ func TestKeyRepository_RecoverKey(t *testing.T) {
 	t.Parallel()
 	db := setupFullKeyDB(t)
 	log := logging.InitLogger()
-	repo := repositories.NewKeyRepository(db, log)
+	repo := repositories.NewKeyRepository(rvdb.NewConn(db, rvdb.SQLite), log)
 	ctx := context.Background()
 
 	userID := uuid.New()
@@ -351,7 +352,7 @@ func TestKeyRepository_RecoverKey_NotDeleted(t *testing.T) {
 	t.Parallel()
 	db := setupFullKeyDB(t)
 	log := logging.InitLogger()
-	repo := repositories.NewKeyRepository(db, log)
+	repo := repositories.NewKeyRepository(rvdb.NewConn(db, rvdb.SQLite), log)
 	ctx := context.Background()
 
 	k := newKey(uuid.New(), uuid.New(), "live-key")
@@ -367,7 +368,7 @@ func TestKeyRepository_ReadDeleted(t *testing.T) {
 	t.Parallel()
 	db := setupFullKeyDB(t)
 	log := logging.InitLogger()
-	repo := repositories.NewKeyRepository(db, log)
+	repo := repositories.NewKeyRepository(rvdb.NewConn(db, rvdb.SQLite), log)
 	ctx := context.Background()
 
 	k := newKey(uuid.New(), uuid.New(), "read-deleted-key")
@@ -384,7 +385,7 @@ func TestKeyRepository_ReadDeleted_NotFound(t *testing.T) {
 	t.Parallel()
 	db := setupFullKeyDB(t)
 	log := logging.InitLogger()
-	repo := repositories.NewKeyRepository(db, log)
+	repo := repositories.NewKeyRepository(rvdb.NewConn(db, rvdb.SQLite), log)
 	ctx := context.Background()
 
 	_, err := repo.ReadDeleted(ctx, uuid.New())
@@ -395,7 +396,7 @@ func TestKeyRepository_SoftDeleteVaultContents(t *testing.T) {
 	t.Parallel()
 	db := setupFullKeyDB(t)
 	log := logging.InitLogger()
-	repo := repositories.NewKeyRepository(db, log)
+	repo := repositories.NewKeyRepository(rvdb.NewConn(db, rvdb.SQLite), log)
 	ctx := context.Background()
 
 	vaultID := uuid.New()
@@ -426,7 +427,7 @@ func TestKeyRepository_RecoverVaultContents(t *testing.T) {
 	t.Parallel()
 	db := setupFullKeyDB(t)
 	log := logging.InitLogger()
-	repo := repositories.NewKeyRepository(db, log)
+	repo := repositories.NewKeyRepository(rvdb.NewConn(db, rvdb.SQLite), log)
 	ctx := context.Background()
 
 	vaultID := uuid.New()
@@ -458,7 +459,7 @@ func TestKeyRepository_Update_NotFound(t *testing.T) {
 	t.Parallel()
 	db := setupFullKeyDB(t)
 	log := logging.InitLogger()
-	repo := repositories.NewKeyRepository(db, log)
+	repo := repositories.NewKeyRepository(rvdb.NewConn(db, rvdb.SQLite), log)
 	ctx := context.Background()
 
 	k := newKey(uuid.New(), uuid.New(), "ghost")
@@ -472,7 +473,7 @@ func TestKeyRepository_ListByUser_ExcludesSoftDeleted(t *testing.T) {
 	t.Parallel()
 	db := setupFullKeyDB(t)
 	log := logging.InitLogger()
-	repo := repositories.NewKeyRepository(db, log)
+	repo := repositories.NewKeyRepository(rvdb.NewConn(db, rvdb.SQLite), log)
 	ctx := context.Background()
 
 	userID := uuid.New()
@@ -495,7 +496,7 @@ func TestCertificateRepository_Update(t *testing.T) {
 	t.Parallel()
 	db := setupFullCertDB(t)
 	log := logging.InitLogger()
-	repo := repositories.NewCertificateRepository(db, log)
+	repo := repositories.NewCertificateRepository(rvdb.NewConn(db, rvdb.SQLite), log)
 	ctx := context.Background()
 
 	userID := uuid.New()
@@ -518,7 +519,7 @@ func TestCertificateRepository_Update_NotFound(t *testing.T) {
 	t.Parallel()
 	db := setupFullCertDB(t)
 	log := logging.InitLogger()
-	repo := repositories.NewCertificateRepository(db, log)
+	repo := repositories.NewCertificateRepository(rvdb.NewConn(db, rvdb.SQLite), log)
 	ctx := context.Background()
 
 	cert := newCert(uuid.New(), uuid.New(), "ghost-cert")
@@ -531,7 +532,7 @@ func TestCertificateRepository_Delete(t *testing.T) {
 	t.Parallel()
 	db := setupFullCertDB(t)
 	log := logging.InitLogger()
-	repo := repositories.NewCertificateRepository(db, log)
+	repo := repositories.NewCertificateRepository(rvdb.NewConn(db, rvdb.SQLite), log)
 	ctx := context.Background()
 
 	cert := newCert(uuid.New(), uuid.New(), "delete-cert")
@@ -547,7 +548,7 @@ func TestCertificateRepository_Delete_NotFound(t *testing.T) {
 	t.Parallel()
 	db := setupFullCertDB(t)
 	log := logging.InitLogger()
-	repo := repositories.NewCertificateRepository(db, log)
+	repo := repositories.NewCertificateRepository(rvdb.NewConn(db, rvdb.SQLite), log)
 	ctx := context.Background()
 
 	err := repo.Delete(ctx, uuid.New())
@@ -559,7 +560,7 @@ func TestCertificateRepository_ListByUser(t *testing.T) {
 	t.Parallel()
 	db := setupFullCertDB(t)
 	log := logging.InitLogger()
-	repo := repositories.NewCertificateRepository(db, log)
+	repo := repositories.NewCertificateRepository(rvdb.NewConn(db, rvdb.SQLite), log)
 	ctx := context.Background()
 
 	userA := uuid.New()
@@ -587,7 +588,7 @@ func TestCertificateRepository_ListByUser_FiltersByTag(t *testing.T) {
 	t.Parallel()
 	db := setupFullCertDB(t)
 	log := logging.InitLogger()
-	repo := repositories.NewCertificateRepository(db, log)
+	repo := repositories.NewCertificateRepository(rvdb.NewConn(db, rvdb.SQLite), log)
 	ctx := context.Background()
 
 	userID := uuid.New()
@@ -610,7 +611,7 @@ func TestCertificateRepository_Revoke(t *testing.T) {
 	t.Parallel()
 	db := setupFullCertDB(t)
 	log := logging.InitLogger()
-	repo := repositories.NewCertificateRepository(db, log)
+	repo := repositories.NewCertificateRepository(rvdb.NewConn(db, rvdb.SQLite), log)
 	ctx := context.Background()
 
 	cert := newCert(uuid.New(), uuid.New(), "revoke-cert")
@@ -628,7 +629,7 @@ func TestCertificateRepository_ListRevoked_Empty(t *testing.T) {
 	t.Parallel()
 	db := setupFullCertDB(t)
 	log := logging.InitLogger()
-	repo := repositories.NewCertificateRepository(db, log)
+	repo := repositories.NewCertificateRepository(rvdb.NewConn(db, rvdb.SQLite), log)
 	ctx := context.Background()
 
 	revoked, err := repo.ListRevoked(ctx, uuid.New())
@@ -640,7 +641,7 @@ func TestCertificateRepository_RecoverCertificate(t *testing.T) {
 	t.Parallel()
 	db := setupFullCertDB(t)
 	log := logging.InitLogger()
-	repo := repositories.NewCertificateRepository(db, log)
+	repo := repositories.NewCertificateRepository(rvdb.NewConn(db, rvdb.SQLite), log)
 	ctx := context.Background()
 
 	cert := newCert(uuid.New(), uuid.New(), "recover-cert")
@@ -664,7 +665,7 @@ func TestCertificateRepository_RecoverCertificate_NotDeleted(t *testing.T) {
 	t.Parallel()
 	db := setupFullCertDB(t)
 	log := logging.InitLogger()
-	repo := repositories.NewCertificateRepository(db, log)
+	repo := repositories.NewCertificateRepository(rvdb.NewConn(db, rvdb.SQLite), log)
 	ctx := context.Background()
 
 	cert := newCert(uuid.New(), uuid.New(), "live-cert")
@@ -679,7 +680,7 @@ func TestCertificateRepository_SoftDeleteVaultContents(t *testing.T) {
 	t.Parallel()
 	db := setupFullCertDB(t)
 	log := logging.InitLogger()
-	repo := repositories.NewCertificateRepository(db, log)
+	repo := repositories.NewCertificateRepository(rvdb.NewConn(db, rvdb.SQLite), log)
 	ctx := context.Background()
 
 	vaultID := uuid.New()
@@ -709,7 +710,7 @@ func TestCertificateRepository_RecoverVaultContents(t *testing.T) {
 	t.Parallel()
 	db := setupFullCertDB(t)
 	log := logging.InitLogger()
-	repo := repositories.NewCertificateRepository(db, log)
+	repo := repositories.NewCertificateRepository(rvdb.NewConn(db, rvdb.SQLite), log)
 	ctx := context.Background()
 
 	vaultID := uuid.New()
@@ -738,7 +739,7 @@ func TestCertificateRepository_ListAll(t *testing.T) {
 	t.Parallel()
 	db := setupFullCertDB(t)
 	log := logging.InitLogger()
-	repo := repositories.NewCertificateRepository(db, log)
+	repo := repositories.NewCertificateRepository(rvdb.NewConn(db, rvdb.SQLite), log)
 	ctx := context.Background()
 
 	userID := uuid.New()
@@ -762,7 +763,7 @@ func TestCertificateRepository_ListInVault_ReturnsAll(t *testing.T) {
 	t.Parallel()
 	db := setupFullCertDB(t)
 	log := logging.InitLogger()
-	repo := repositories.NewCertificateRepository(db, log)
+	repo := repositories.NewCertificateRepository(rvdb.NewConn(db, rvdb.SQLite), log)
 	ctx := context.Background()
 
 	vaultID := uuid.New()
@@ -783,7 +784,7 @@ func TestCertificateRepository_ReadInVault_WrongVault(t *testing.T) {
 	t.Parallel()
 	db := setupFullCertDB(t)
 	log := logging.InitLogger()
-	repo := repositories.NewCertificateRepository(db, log)
+	repo := repositories.NewCertificateRepository(rvdb.NewConn(db, rvdb.SQLite), log)
 	ctx := context.Background()
 
 	vaultA := uuid.New()
@@ -803,7 +804,7 @@ func TestCertificateRepository_ReadInVault_WrongVault(t *testing.T) {
 func TestAccessPolicyRepository_List(t *testing.T) {
 	t.Parallel()
 	db := setupAccessPolicyTestDB(t)
-	repo := repositories.NewAccessPolicyRepository(db)
+	repo := repositories.NewAccessPolicyRepository(rvdb.NewConn(db, rvdb.SQLite))
 	ctx := context.Background()
 
 	// Ensure list on empty table works
@@ -839,7 +840,7 @@ func TestAccessPolicyRepository_List(t *testing.T) {
 func TestAccessPolicyRepository_List_WithVaultScoped(t *testing.T) {
 	t.Parallel()
 	db := setupAccessPolicyTestDB(t)
-	repo := repositories.NewAccessPolicyRepository(db)
+	repo := repositories.NewAccessPolicyRepository(rvdb.NewConn(db, rvdb.SQLite))
 	ctx := context.Background()
 
 	vaultID := uuid.New()
@@ -902,7 +903,7 @@ func setupAuditDBFull(t *testing.T) *sql.DB {
 func TestAuditRepository_InsertAuditLog_FullEntry(t *testing.T) {
 	t.Parallel()
 	db := setupAuditDBFull(t)
-	repo := repositories.NewAuditRepository(db)
+	repo := repositories.NewAuditRepository(rvdb.NewConn(db, rvdb.SQLite))
 	ctx := context.Background()
 
 	entry := repositories.AuditLog{
@@ -930,7 +931,7 @@ func TestAuditRepository_InsertAuditLog_FullEntry(t *testing.T) {
 func TestAuditRepository_InsertAuditLog_PreservesProvidedID(t *testing.T) {
 	t.Parallel()
 	db := setupAuditDBFull(t)
-	repo := repositories.NewAuditRepository(db)
+	repo := repositories.NewAuditRepository(rvdb.NewConn(db, rvdb.SQLite))
 	ctx := context.Background()
 
 	id := uuid.New().String()
@@ -949,7 +950,7 @@ func TestAuditRepository_InsertAuditLog_PreservesProvidedID(t *testing.T) {
 func TestAuditRepository_GetLastHash_ReturnsLatest(t *testing.T) {
 	t.Parallel()
 	db := setupAuditDBFull(t)
-	repo := repositories.NewAuditRepository(db)
+	repo := repositories.NewAuditRepository(rvdb.NewConn(db, rvdb.SQLite))
 	ctx := context.Background()
 
 	require.NoError(t, repo.InsertAuditLog(ctx, repositories.AuditLog{Action: "a1", PrevHash: "hash1"}))
@@ -964,7 +965,7 @@ func TestAuditRepository_GetLastHash_ReturnsLatest(t *testing.T) {
 func TestAuditRepository_QueryAuditLogs_AllFilters(t *testing.T) {
 	t.Parallel()
 	db := setupAuditDBFull(t)
-	repo := repositories.NewAuditRepository(db)
+	repo := repositories.NewAuditRepository(rvdb.NewConn(db, rvdb.SQLite))
 	ctx := context.Background()
 
 	userID := uuid.New().String()
@@ -1013,7 +1014,7 @@ func TestAuditRepository_QueryAuditLogs_AllFilters(t *testing.T) {
 func TestAuditRepository_DeleteBefore_MultipleOld(t *testing.T) {
 	t.Parallel()
 	db := setupAuditDBFull(t)
-	repo := repositories.NewAuditRepository(db)
+	repo := repositories.NewAuditRepository(rvdb.NewConn(db, rvdb.SQLite))
 	ctx := context.Background()
 
 	base := time.Now().UTC()
@@ -1053,7 +1054,7 @@ func TestAuditRepository_DeleteBefore_MultipleOld(t *testing.T) {
 func TestAuditRepository_SetAndGetConfig(t *testing.T) {
 	t.Parallel()
 	db := setupAuditDBFull(t)
-	repo := repositories.NewAuditRepository(db)
+	repo := repositories.NewAuditRepository(rvdb.NewConn(db, rvdb.SQLite))
 	ctx := context.Background()
 
 	require.NoError(t, repo.SetAuditConfig(ctx, "retention_days", "90"))
@@ -1072,7 +1073,7 @@ func TestAuditRepository_SetAndGetConfig(t *testing.T) {
 func TestAuditRepository_GetConfig_Missing(t *testing.T) {
 	t.Parallel()
 	db := setupAuditDBFull(t)
-	repo := repositories.NewAuditRepository(db)
+	repo := repositories.NewAuditRepository(rvdb.NewConn(db, rvdb.SQLite))
 	ctx := context.Background()
 
 	val, err := repo.GetAuditConfig(ctx, "nonexistent_key")
@@ -1083,7 +1084,7 @@ func TestAuditRepository_GetConfig_Missing(t *testing.T) {
 func TestAuditRepository_QueryAuditLogs_LimitCap(t *testing.T) {
 	t.Parallel()
 	db := setupAuditDBFull(t)
-	repo := repositories.NewAuditRepository(db)
+	repo := repositories.NewAuditRepository(rvdb.NewConn(db, rvdb.SQLite))
 	ctx := context.Background()
 
 	// Requesting > 1000 should be capped at 1000 (no panic)
@@ -1099,7 +1100,7 @@ func TestRotationPolicyRepository_CRUD(t *testing.T) {
 	t.Parallel()
 	db := setupRotationDB(t)
 	log := logging.InitLogger()
-	repo := repositories.NewRotationPolicyRepository(db, log)
+	repo := repositories.NewRotationPolicyRepository(rvdb.NewConn(db, rvdb.SQLite), log)
 	ctx := context.Background()
 
 	userID := uuid.New()
@@ -1147,7 +1148,7 @@ func TestRotationPolicyRepository_Read_NotFound(t *testing.T) {
 	t.Parallel()
 	db := setupRotationDB(t)
 	log := logging.InitLogger()
-	repo := repositories.NewRotationPolicyRepository(db, log)
+	repo := repositories.NewRotationPolicyRepository(rvdb.NewConn(db, rvdb.SQLite), log)
 	ctx := context.Background()
 
 	_, err := repo.Read(ctx, uuid.New())
@@ -1159,7 +1160,7 @@ func TestRotationPolicyRepository_Update_NotFound(t *testing.T) {
 	t.Parallel()
 	db := setupRotationDB(t)
 	log := logging.InitLogger()
-	repo := repositories.NewRotationPolicyRepository(db, log)
+	repo := repositories.NewRotationPolicyRepository(rvdb.NewConn(db, rvdb.SQLite), log)
 	ctx := context.Background()
 
 	policy := &model.RotationPolicy{
@@ -1177,7 +1178,7 @@ func TestRotationPolicyRepository_Delete_NotFound(t *testing.T) {
 	t.Parallel()
 	db := setupRotationDB(t)
 	log := logging.InitLogger()
-	repo := repositories.NewRotationPolicyRepository(db, log)
+	repo := repositories.NewRotationPolicyRepository(rvdb.NewConn(db, rvdb.SQLite), log)
 	ctx := context.Background()
 
 	err := repo.Delete(ctx, uuid.New())
@@ -1188,7 +1189,7 @@ func TestRotationPolicyRepository_ListByUser(t *testing.T) {
 	t.Parallel()
 	db := setupRotationDB(t)
 	log := logging.InitLogger()
-	repo := repositories.NewRotationPolicyRepository(db, log)
+	repo := repositories.NewRotationPolicyRepository(rvdb.NewConn(db, rvdb.SQLite), log)
 	ctx := context.Background()
 
 	userA := uuid.New()
@@ -1216,7 +1217,7 @@ func TestRotationPolicyRepository_AssignAndRemoveFromSecret(t *testing.T) {
 	t.Parallel()
 	db := setupRotationDB(t)
 	log := logging.InitLogger()
-	repo := repositories.NewRotationPolicyRepository(db, log)
+	repo := repositories.NewRotationPolicyRepository(rvdb.NewConn(db, rvdb.SQLite), log)
 	ctx := context.Background()
 
 	now := time.Now()
@@ -1268,7 +1269,7 @@ func TestRotationPolicyRepository_RecordAndGetHistory(t *testing.T) {
 	t.Parallel()
 	db := setupRotationDB(t)
 	log := logging.InitLogger()
-	repo := repositories.NewRotationPolicyRepository(db, log)
+	repo := repositories.NewRotationPolicyRepository(rvdb.NewConn(db, rvdb.SQLite), log)
 	ctx := context.Background()
 
 	secretID := uuid.New()
@@ -1295,7 +1296,7 @@ func TestRotationPolicyRepository_CreateAndGetReminder(t *testing.T) {
 	t.Parallel()
 	db := setupRotationDB(t)
 	log := logging.InitLogger()
-	repo := repositories.NewRotationPolicyRepository(db, log)
+	repo := repositories.NewRotationPolicyRepository(rvdb.NewConn(db, rvdb.SQLite), log)
 	ctx := context.Background()
 
 	now := time.Now()
@@ -1352,7 +1353,7 @@ func TestRotationPolicyRepository_GetDueRotations(t *testing.T) {
 	t.Parallel()
 	db := setupRotationDB(t)
 	log := logging.InitLogger()
-	repo := repositories.NewRotationPolicyRepository(db, log)
+	repo := repositories.NewRotationPolicyRepository(rvdb.NewConn(db, rvdb.SQLite), log)
 	ctx := context.Background()
 
 	now := time.Now()

@@ -11,6 +11,7 @@ import (
 	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/require"
 
+	rvdb "rocketvault/internal/db"
 	"rocketvault/internal/logging"
 	"rocketvault/internal/repositories"
 	"rocketvault/model"
@@ -75,7 +76,7 @@ func newCertPolicyTestLogger(t *testing.T) *logging.Logger {
 // TestCertificatePolicy_UpsertAndGet verifies that a policy can be persisted and loaded.
 func TestCertificatePolicy_UpsertAndGet(t *testing.T) {
 	db := setupCertPolicyTestDB(t)
-	repo := repositories.NewCertificatePolicyRepository(db, newCertPolicyTestLogger(t))
+	repo := repositories.NewCertificatePolicyRepository(rvdb.NewConn(db, rvdb.SQLite), newCertPolicyTestLogger(t))
 
 	certID := uuid.New()
 	userID := uuid.New()
@@ -103,7 +104,7 @@ func TestCertificatePolicy_UpsertAndGet(t *testing.T) {
 // TestCertificatePolicy_UpsertUpdatesExisting verifies that a second Upsert replaces the policy.
 func TestCertificatePolicy_UpsertUpdatesExisting(t *testing.T) {
 	db := setupCertPolicyTestDB(t)
-	repo := repositories.NewCertificatePolicyRepository(db, newCertPolicyTestLogger(t))
+	repo := repositories.NewCertificatePolicyRepository(rvdb.NewConn(db, rvdb.SQLite), newCertPolicyTestLogger(t))
 
 	certID := uuid.New()
 	userID := uuid.New()
@@ -149,7 +150,7 @@ func TestCertificatePolicy_UpsertUpdatesExisting(t *testing.T) {
 // TestCertificatePolicy_DeleteByCertificateID verifies that a policy can be deleted.
 func TestCertificatePolicy_DeleteByCertificateID(t *testing.T) {
 	db := setupCertPolicyTestDB(t)
-	repo := repositories.NewCertificatePolicyRepository(db, newCertPolicyTestLogger(t))
+	repo := repositories.NewCertificatePolicyRepository(rvdb.NewConn(db, rvdb.SQLite), newCertPolicyTestLogger(t))
 
 	certID := uuid.New()
 	userID := uuid.New()

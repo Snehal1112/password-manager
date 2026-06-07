@@ -8,6 +8,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"rocketvault/internal/db"
 	"rocketvault/model"
 )
 
@@ -28,11 +29,11 @@ type AccessPolicyRepositoryInterface interface {
 }
 
 type accessPolicyRepository struct {
-	db *sql.DB
+	db db.DB
 }
 
 // NewAccessPolicyRepository creates a new AccessPolicyRepository.
-func NewAccessPolicyRepository(db *sql.DB) AccessPolicyRepositoryInterface {
+func NewAccessPolicyRepository(db db.DB) AccessPolicyRepositoryInterface {
 	return &accessPolicyRepository{db: db}
 }
 

@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	rvdb "rocketvault/internal/db"
 	"rocketvault/internal/logging"
 	"rocketvault/internal/repositories"
 	"rocketvault/model"
@@ -81,7 +82,7 @@ func TestCertificateSoftDelete(t *testing.T) {
 	t.Parallel()
 	db := setupCertTestDB(t)
 	log := logging.InitLogger()
-	repo := repositories.NewCertificateRepository(db, log)
+	repo := repositories.NewCertificateRepository(rvdb.NewConn(db, rvdb.SQLite), log)
 	ctx := context.Background()
 	userID := uuid.New()
 
@@ -108,7 +109,7 @@ func TestCertificatePurge(t *testing.T) {
 	t.Parallel()
 	db := setupCertTestDB(t)
 	log := logging.InitLogger()
-	repo := repositories.NewCertificateRepository(db, log)
+	repo := repositories.NewCertificateRepository(rvdb.NewConn(db, rvdb.SQLite), log)
 	ctx := context.Background()
 	userID := uuid.New()
 
@@ -129,7 +130,7 @@ func TestCertificatePurgeProtection(t *testing.T) {
 	t.Parallel()
 	db := setupCertTestDB(t)
 	log := logging.InitLogger()
-	repo := repositories.NewCertificateRepository(db, log)
+	repo := repositories.NewCertificateRepository(rvdb.NewConn(db, rvdb.SQLite), log)
 	ctx := context.Background()
 	userID := uuid.New()
 
@@ -150,7 +151,7 @@ func TestCertificateSoftDelete_PreservesPurgeProtection(t *testing.T) {
 	t.Parallel()
 	db := setupCertTestDB(t)
 	log := logging.InitLogger()
-	repo := repositories.NewCertificateRepository(db, log)
+	repo := repositories.NewCertificateRepository(rvdb.NewConn(db, rvdb.SQLite), log)
 	ctx := context.Background()
 	userID := uuid.New()
 

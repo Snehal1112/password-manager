@@ -14,8 +14,8 @@ import (
 	"github.com/sirupsen/logrus"
 
 	"rocketvault/internal/db"
-	"rocketvault/model"
 	"rocketvault/internal/logging"
+	"rocketvault/model"
 )
 
 // UserRepositoryInterface is a generic repository interface for user operations.
@@ -31,7 +31,7 @@ type UserRepositoryInterface interface {
 // UserRepository implements UserRepositoryInterface with pure CRUD operations.
 // It focuses solely on database interactions without business logic with performance monitoring.
 type UserRepository struct {
-	db  *sql.DB
+	db  db.DB
 	log *logging.Logger
 }
 
@@ -71,7 +71,7 @@ func (r *UserRepository) queryWithMetrics(operation string, fn func() error) err
 // Returns:
 //
 //	A UserRepository implementation for user database operations.
-func NewUserRepository(db *sql.DB, log *logging.Logger) UserRepositoryInterface {
+func NewUserRepository(db db.DB, log *logging.Logger) UserRepositoryInterface {
 	return &UserRepository{db: db, log: log}
 }
 

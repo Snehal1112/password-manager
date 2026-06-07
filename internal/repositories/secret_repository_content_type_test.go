@@ -12,6 +12,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	rvdb "rocketvault/internal/db"
 	"rocketvault/internal/logging"
 	"rocketvault/internal/repositories"
 	"rocketvault/model"
@@ -60,7 +61,7 @@ func newContentTypeTestLogger(t *testing.T) *logging.Logger {
 func TestSecretRepositoryContentType(t *testing.T) {
 	db := setupContentTypeTestDB(t)
 	log := newContentTypeTestLogger(t)
-	repo := repositories.NewSecretRepository(db, log)
+	repo := repositories.NewSecretRepository(rvdb.NewConn(db, rvdb.SQLite), log)
 
 	userID := uuid.New()
 	secret := &model.Secret{

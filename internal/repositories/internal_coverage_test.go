@@ -15,6 +15,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	rvdb "rocketvault/internal/db"
 	"rocketvault/internal/logging"
 	"rocketvault/model"
 )
@@ -222,7 +223,7 @@ func TestSecretRepo_Create_DBError(t *testing.T) {
 	_, err := db.Exec("DROP TABLE secrets")
 	require.NoError(t, err)
 
-	repo := &SecretRepository{db: db, log: newInternalLogger()}
+	repo := &SecretRepository{db: rvdb.NewConn(db, rvdb.SQLite), log: newInternalLogger()}
 	s := newTestSecret(uuid.New())
 	err = repo.Create(context.Background(), s)
 	assert.Error(t, err)
@@ -236,7 +237,7 @@ func TestSecretRepo_Create_TagInsertError(t *testing.T) {
 	_, err := db.Exec("DROP TABLE secret_tags")
 	require.NoError(t, err)
 
-	repo := &SecretRepository{db: db, log: newInternalLogger()}
+	repo := &SecretRepository{db: rvdb.NewConn(db, rvdb.SQLite), log: newInternalLogger()}
 	s := newTestSecret(uuid.New())
 	s.Tags = []string{"env:prod"}
 	err = repo.Create(context.Background(), s)
@@ -250,7 +251,7 @@ func TestSecretRepo_Update_DBError(t *testing.T) {
 	_, err := db.Exec("DROP TABLE secrets")
 	require.NoError(t, err)
 
-	repo := &SecretRepository{db: db, log: newInternalLogger()}
+	repo := &SecretRepository{db: rvdb.NewConn(db, rvdb.SQLite), log: newInternalLogger()}
 	s := newTestSecret(uuid.New())
 	err = repo.Update(context.Background(), s)
 	assert.Error(t, err)
@@ -263,7 +264,7 @@ func TestSecretRepo_Delete_DBError(t *testing.T) {
 	_, err := db.Exec("DROP TABLE secrets")
 	require.NoError(t, err)
 
-	repo := &SecretRepository{db: db, log: newInternalLogger()}
+	repo := &SecretRepository{db: rvdb.NewConn(db, rvdb.SQLite), log: newInternalLogger()}
 	err = repo.Delete(context.Background(), uuid.New())
 	assert.Error(t, err)
 }
@@ -275,7 +276,7 @@ func TestSecretRepo_SoftDelete_DBError(t *testing.T) {
 	_, err := db.Exec("DROP TABLE secrets")
 	require.NoError(t, err)
 
-	repo := &SecretRepository{db: db, log: newInternalLogger()}
+	repo := &SecretRepository{db: rvdb.NewConn(db, rvdb.SQLite), log: newInternalLogger()}
 	err = repo.SoftDelete(context.Background(), uuid.New())
 	assert.Error(t, err)
 }
@@ -285,7 +286,7 @@ func TestSecretRepo_SoftDelete_NotFound(t *testing.T) {
 	db := openMemDB(t)
 	makeSecretsTable(t, db)
 
-	repo := &SecretRepository{db: db, log: newInternalLogger()}
+	repo := &SecretRepository{db: rvdb.NewConn(db, rvdb.SQLite), log: newInternalLogger()}
 	err := repo.SoftDelete(context.Background(), uuid.New())
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "not found")
@@ -298,7 +299,7 @@ func TestSecretRepo_Read_DBError(t *testing.T) {
 	_, err := db.Exec("DROP TABLE secrets")
 	require.NoError(t, err)
 
-	repo := &SecretRepository{db: db, log: newInternalLogger()}
+	repo := &SecretRepository{db: rvdb.NewConn(db, rvdb.SQLite), log: newInternalLogger()}
 	_, err = repo.Read(context.Background(), uuid.New())
 	assert.Error(t, err)
 }
@@ -308,7 +309,7 @@ func TestSecretRepo_Read_DBError(t *testing.T) {
 // a closure calling the helper directly — instead we verify it returns the inner error.
 func TestSecretRepo_executeWithMetrics_Passthrough(t *testing.T) {
 	db := openMemDB(t)
-	repo := &SecretRepository{db: db, log: newInternalLogger()}
+	repo := &SecretRepository{db: rvdb.NewConn(db, rvdb.SQLite), log: newInternalLogger()}
 	sentinel := assert.AnError
 	err := repo.executeWithMetrics("test-op", func() error { return sentinel })
 	assert.ErrorIs(t, err, sentinel)
@@ -325,7 +326,7 @@ func TestKeyRepo_Create_DBError(t *testing.T) {
 	_, err := db.Exec("DROP TABLE keys")
 	require.NoError(t, err)
 
-	repo := &KeyRepository{db: db, log: newInternalLogger()}
+	repo := &KeyRepository{db: rvdb.NewConn(db, rvdb.SQLite), log: newInternalLogger()}
 	k := newTestKey(uuid.New())
 	err = repo.Create(context.Background(), k)
 	assert.Error(t, err)
@@ -340,7 +341,7 @@ func TestKeyRepo_Create_TagInsertError(t *testing.T) {
 	_, err := db.Exec("DROP TABLE key_tags")
 	require.NoError(t, err)
 
-	repo := &KeyRepository{db: db, log: newInternalLogger()}
+	repo := &KeyRepository{db: rvdb.NewConn(db, rvdb.SQLite), log: newInternalLogger()}
 	k := newTestKey(uuid.New())
 	k.Tags = []string{"env:prod"}
 	err = repo.Create(context.Background(), k)
@@ -354,7 +355,7 @@ func TestKeyRepo_Read_DBError(t *testing.T) {
 	_, err := db.Exec("DROP TABLE keys")
 	require.NoError(t, err)
 
-	repo := &KeyRepository{db: db, log: newInternalLogger()}
+	repo := &KeyRepository{db: rvdb.NewConn(db, rvdb.SQLite), log: newInternalLogger()}
 	_, err = repo.Read(context.Background(), uuid.New())
 	assert.Error(t, err)
 }
@@ -366,7 +367,7 @@ func TestKeyRepo_Delete_DBError(t *testing.T) {
 	_, err := db.Exec("DROP TABLE keys")
 	require.NoError(t, err)
 
-	repo := &KeyRepository{db: db, log: newInternalLogger()}
+	repo := &KeyRepository{db: rvdb.NewConn(db, rvdb.SQLite), log: newInternalLogger()}
 	err = repo.Delete(context.Background(), uuid.New())
 	assert.Error(t, err)
 }
@@ -376,7 +377,7 @@ func TestKeyRepo_Delete_NotFound(t *testing.T) {
 	db := openMemDB(t)
 	makeKeysTable(t, db)
 
-	repo := &KeyRepository{db: db, log: newInternalLogger()}
+	repo := &KeyRepository{db: rvdb.NewConn(db, rvdb.SQLite), log: newInternalLogger()}
 	err := repo.Delete(context.Background(), uuid.New())
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "not found")
@@ -385,7 +386,7 @@ func TestKeyRepo_Delete_NotFound(t *testing.T) {
 // TestKeyRepo_executeWithMetrics_Passthrough verifies the helper returns inner error.
 func TestKeyRepo_executeWithMetrics_Passthrough(t *testing.T) {
 	db := openMemDB(t)
-	repo := &KeyRepository{db: db, log: newInternalLogger()}
+	repo := &KeyRepository{db: rvdb.NewConn(db, rvdb.SQLite), log: newInternalLogger()}
 	sentinel := assert.AnError
 	err := repo.executeWithMetrics("test-op", func() error { return sentinel })
 	assert.ErrorIs(t, err, sentinel)
@@ -402,7 +403,7 @@ func TestCertRepo_Create_DBError(t *testing.T) {
 	_, err := db.Exec("DROP TABLE certificates")
 	require.NoError(t, err)
 
-	repo := &CertificateRepository{db: db, log: newInternalLogger()}
+	repo := &CertificateRepository{db: rvdb.NewConn(db, rvdb.SQLite), log: newInternalLogger()}
 	c := newTestCert(uuid.New())
 	err = repo.Create(context.Background(), c)
 	assert.Error(t, err)
@@ -416,7 +417,7 @@ func TestCertRepo_Create_TagInsertError(t *testing.T) {
 	_, err := db.Exec("DROP TABLE certificate_tags")
 	require.NoError(t, err)
 
-	repo := &CertificateRepository{db: db, log: newInternalLogger()}
+	repo := &CertificateRepository{db: rvdb.NewConn(db, rvdb.SQLite), log: newInternalLogger()}
 	c := newTestCert(uuid.New())
 	c.Tags = []string{"env:prod"}
 	err = repo.Create(context.Background(), c)
@@ -428,7 +429,7 @@ func TestCertRepo_Update_NotFound(t *testing.T) {
 	db := openMemDB(t)
 	makeCertsTable(t, db)
 
-	repo := &CertificateRepository{db: db, log: newInternalLogger()}
+	repo := &CertificateRepository{db: rvdb.NewConn(db, rvdb.SQLite), log: newInternalLogger()}
 	c := newTestCert(uuid.New())
 	err := repo.Update(context.Background(), c)
 	assert.Error(t, err)
@@ -442,7 +443,7 @@ func TestCertRepo_Update_DBError(t *testing.T) {
 	_, err := db.Exec("DROP TABLE certificates")
 	require.NoError(t, err)
 
-	repo := &CertificateRepository{db: db, log: newInternalLogger()}
+	repo := &CertificateRepository{db: rvdb.NewConn(db, rvdb.SQLite), log: newInternalLogger()}
 	c := newTestCert(uuid.New())
 	err = repo.Update(context.Background(), c)
 	assert.Error(t, err)
@@ -453,7 +454,7 @@ func TestCertRepo_Delete_NotFound(t *testing.T) {
 	db := openMemDB(t)
 	makeCertsTable(t, db)
 
-	repo := &CertificateRepository{db: db, log: newInternalLogger()}
+	repo := &CertificateRepository{db: rvdb.NewConn(db, rvdb.SQLite), log: newInternalLogger()}
 	err := repo.Delete(context.Background(), uuid.New())
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "not found")
@@ -466,7 +467,7 @@ func TestCertRepo_Delete_DBError(t *testing.T) {
 	_, err := db.Exec("DROP TABLE certificates")
 	require.NoError(t, err)
 
-	repo := &CertificateRepository{db: db, log: newInternalLogger()}
+	repo := &CertificateRepository{db: rvdb.NewConn(db, rvdb.SQLite), log: newInternalLogger()}
 	err = repo.Delete(context.Background(), uuid.New())
 	assert.Error(t, err)
 }
@@ -474,7 +475,7 @@ func TestCertRepo_Delete_DBError(t *testing.T) {
 // TestCertRepo_executeWithMetrics_Passthrough verifies error passthrough.
 func TestCertRepo_executeWithMetrics_Passthrough(t *testing.T) {
 	db := openMemDB(t)
-	repo := &CertificateRepository{db: db, log: newInternalLogger()}
+	repo := &CertificateRepository{db: rvdb.NewConn(db, rvdb.SQLite), log: newInternalLogger()}
 	sentinel := assert.AnError
 	err := repo.executeWithMetrics("test-op", func() error { return sentinel })
 	assert.ErrorIs(t, err, sentinel)
@@ -491,7 +492,7 @@ func TestUserRepo_Delete_DBError(t *testing.T) {
 	_, err := db.Exec("DROP TABLE users")
 	require.NoError(t, err)
 
-	repo := &UserRepository{db: db, log: newInternalLogger()}
+	repo := &UserRepository{db: rvdb.NewConn(db, rvdb.SQLite), log: newInternalLogger()}
 	err = repo.Delete(context.Background(), uuid.New())
 	assert.Error(t, err)
 }
@@ -503,7 +504,7 @@ func TestUserRepo_ReadByUsername_DBError(t *testing.T) {
 	_, err := db.Exec("DROP TABLE users")
 	require.NoError(t, err)
 
-	repo := &UserRepository{db: db, log: newInternalLogger()}
+	repo := &UserRepository{db: rvdb.NewConn(db, rvdb.SQLite), log: newInternalLogger()}
 	_, err = repo.ReadByUsername(context.Background(), "nonexistent")
 	assert.Error(t, err)
 }
@@ -515,7 +516,7 @@ func TestUserRepo_List_DBError(t *testing.T) {
 	_, err := db.Exec("DROP TABLE users")
 	require.NoError(t, err)
 
-	repo := &UserRepository{db: db, log: newInternalLogger()}
+	repo := &UserRepository{db: rvdb.NewConn(db, rvdb.SQLite), log: newInternalLogger()}
 	_, err = repo.List(context.Background())
 	assert.Error(t, err)
 }
@@ -526,7 +527,7 @@ func TestUserRepo_InvalidateBootstrapToken_InsertPath(t *testing.T) {
 	db := openMemDB(t)
 	makeUsersTable(t, db)
 
-	repo := &UserRepository{db: db, log: newInternalLogger()}
+	repo := &UserRepository{db: rvdb.NewConn(db, rvdb.SQLite), log: newInternalLogger()}
 	// Token does not exist yet; should INSERT it as used.
 	err := repo.InvalidateBootstrapToken(context.Background(), "new-token-xyz")
 	assert.NoError(t, err)
@@ -546,7 +547,7 @@ func TestUserRepo_InvalidateBootstrapToken_UpdateError(t *testing.T) {
 	_, err := db.Exec("DROP TABLE bootstrap_tokens")
 	require.NoError(t, err)
 
-	repo := &UserRepository{db: db, log: newInternalLogger()}
+	repo := &UserRepository{db: rvdb.NewConn(db, rvdb.SQLite), log: newInternalLogger()}
 	err = repo.InvalidateBootstrapToken(context.Background(), "token")
 	assert.Error(t, err)
 }
@@ -554,7 +555,7 @@ func TestUserRepo_InvalidateBootstrapToken_UpdateError(t *testing.T) {
 // TestUserRepo_executeWithMetrics_Passthrough verifies error passthrough.
 func TestUserRepo_executeWithMetrics_Passthrough(t *testing.T) {
 	db := openMemDB(t)
-	repo := &UserRepository{db: db, log: newInternalLogger()}
+	repo := &UserRepository{db: rvdb.NewConn(db, rvdb.SQLite), log: newInternalLogger()}
 	sentinel := assert.AnError
 	err := repo.executeWithMetrics("test-op", func() error { return sentinel })
 	assert.ErrorIs(t, err, sentinel)
@@ -593,7 +594,7 @@ func TestSessionRepo_CreateSession_DBError(t *testing.T) {
 	_, err := db.Exec("DROP TABLE user_sessions")
 	require.NoError(t, err)
 
-	repo := &SessionRepository{db: db, logger: newInternalLogger()}
+	repo := &SessionRepository{db: rvdb.NewConn(db, rvdb.SQLite), logger: newInternalLogger()}
 	s := &model.Session{
 		ID:               uuid.New(),
 		UserID:           uuid.New(),
@@ -614,7 +615,7 @@ func TestSessionRepo_GetActiveSessionsByUserID_DBError(t *testing.T) {
 	_, err := db.Exec("DROP TABLE user_sessions")
 	require.NoError(t, err)
 
-	repo := &SessionRepository{db: db, logger: newInternalLogger()}
+	repo := &SessionRepository{db: rvdb.NewConn(db, rvdb.SQLite), logger: newInternalLogger()}
 	_, err = repo.GetActiveSessionsByUserID(context.Background(), uuid.New())
 	assert.Error(t, err)
 }
@@ -626,7 +627,7 @@ func TestSessionRepo_CountActiveSessions_DBError(t *testing.T) {
 	_, err := db.Exec("DROP TABLE user_sessions")
 	require.NoError(t, err)
 
-	repo := &SessionRepository{db: db, logger: newInternalLogger()}
+	repo := &SessionRepository{db: rvdb.NewConn(db, rvdb.SQLite), logger: newInternalLogger()}
 	_, err = repo.CountActiveSessions(context.Background(), uuid.New())
 	assert.Error(t, err)
 }
@@ -634,7 +635,7 @@ func TestSessionRepo_CountActiveSessions_DBError(t *testing.T) {
 // TestSessionRepo_executeWithMetrics_Passthrough verifies error passthrough.
 func TestSessionRepo_executeWithMetrics_Passthrough(t *testing.T) {
 	db := openMemDB(t)
-	repo := &SessionRepository{db: db, logger: newInternalLogger()}
+	repo := &SessionRepository{db: rvdb.NewConn(db, rvdb.SQLite), logger: newInternalLogger()}
 	sentinel := assert.AnError
 	err := repo.executeWithMetrics("test-op", func() error { return sentinel })
 	assert.ErrorIs(t, err, sentinel)
@@ -699,7 +700,7 @@ func TestRotationRepo_Create_DBError(t *testing.T) {
 	_, err := db.Exec("DROP TABLE rotation_policies")
 	require.NoError(t, err)
 
-	repo := &rotationPolicyRepository{db: db, log: newInternalLogger()}
+	repo := &rotationPolicyRepository{db: rvdb.NewConn(db, rvdb.SQLite), log: newInternalLogger()}
 	policy := &model.RotationPolicy{
 		ID:           uuid.New(),
 		UserID:       uuid.New(),
@@ -722,7 +723,7 @@ func TestRotationRepo_AssignToSecret_DBError(t *testing.T) {
 	_, err := db.Exec("DROP TABLE secret_policies")
 	require.NoError(t, err)
 
-	repo := &rotationPolicyRepository{db: db, log: newInternalLogger()}
+	repo := &rotationPolicyRepository{db: rvdb.NewConn(db, rvdb.SQLite), log: newInternalLogger()}
 	err = repo.AssignToSecret(context.Background(), uuid.New(), uuid.New(), time.Now(), time.Now().Add(24*time.Hour))
 	assert.Error(t, err)
 }
@@ -734,7 +735,7 @@ func TestRotationRepo_Read_DBError(t *testing.T) {
 	_, err := db.Exec("DROP TABLE rotation_policies")
 	require.NoError(t, err)
 
-	repo := &rotationPolicyRepository{db: db, log: newInternalLogger()}
+	repo := &rotationPolicyRepository{db: rvdb.NewConn(db, rvdb.SQLite), log: newInternalLogger()}
 	_, err = repo.Read(context.Background(), uuid.New())
 	assert.Error(t, err)
 }
@@ -767,7 +768,7 @@ func TestVersionRepo_CreateVersion_DBError(t *testing.T) {
 	_, err := db.Exec("DROP TABLE secret_versions")
 	require.NoError(t, err)
 
-	repo := &secretVersionRepository{db: db, log: newInternalLogger()}
+	repo := &secretVersionRepository{db: rvdb.NewConn(db, rvdb.SQLite), log: newInternalLogger()}
 	v := &model.SecretVersion{
 		ID:        uuid.New(),
 		SecretID:  uuid.New(),
@@ -788,7 +789,7 @@ func TestVersionRepo_GetVersion_DBError(t *testing.T) {
 	_, err := db.Exec("DROP TABLE secret_versions")
 	require.NoError(t, err)
 
-	repo := &secretVersionRepository{db: db, log: newInternalLogger()}
+	repo := &secretVersionRepository{db: rvdb.NewConn(db, rvdb.SQLite), log: newInternalLogger()}
 	_, err = repo.GetVersion(context.Background(), uuid.New(), 1)
 	assert.Error(t, err)
 }
@@ -800,7 +801,7 @@ func TestVersionRepo_GetLatestVersion_DBError(t *testing.T) {
 	_, err := db.Exec("DROP TABLE secret_versions")
 	require.NoError(t, err)
 
-	repo := &secretVersionRepository{db: db, log: newInternalLogger()}
+	repo := &secretVersionRepository{db: rvdb.NewConn(db, rvdb.SQLite), log: newInternalLogger()}
 	_, err = repo.GetLatestVersion(context.Background(), uuid.New())
 	assert.Error(t, err)
 }
@@ -816,7 +817,7 @@ func TestKeyRepo_UpdateRevocationStatus_DBError(t *testing.T) {
 	_, err := db.Exec("DROP TABLE keys")
 	require.NoError(t, err)
 
-	repo := &KeyRepository{db: db, log: newInternalLogger()}
+	repo := &KeyRepository{db: rvdb.NewConn(db, rvdb.SQLite), log: newInternalLogger()}
 	err = repo.UpdateRevocationStatus(context.Background(), uuid.New(), true)
 	assert.Error(t, err)
 }
@@ -828,7 +829,7 @@ func TestKeyRepo_SetPurgeProtection_DBError(t *testing.T) {
 	_, err := db.Exec("DROP TABLE keys")
 	require.NoError(t, err)
 
-	repo := &KeyRepository{db: db, log: newInternalLogger()}
+	repo := &KeyRepository{db: rvdb.NewConn(db, rvdb.SQLite), log: newInternalLogger()}
 	err = repo.SetPurgeProtection(context.Background(), uuid.New(), true)
 	assert.Error(t, err)
 }
@@ -838,7 +839,7 @@ func TestKeyRepo_SetPurgeProtection_NotFound(t *testing.T) {
 	db := openMemDB(t)
 	makeKeysTable(t, db)
 
-	repo := &KeyRepository{db: db, log: newInternalLogger()}
+	repo := &KeyRepository{db: rvdb.NewConn(db, rvdb.SQLite), log: newInternalLogger()}
 	err := repo.SetPurgeProtection(context.Background(), uuid.New(), true)
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "not found")
@@ -851,7 +852,7 @@ func TestKeyRepo_ListSoftDeleted_DBError(t *testing.T) {
 	_, err := db.Exec("DROP TABLE keys")
 	require.NoError(t, err)
 
-	repo := &KeyRepository{db: db, log: newInternalLogger()}
+	repo := &KeyRepository{db: rvdb.NewConn(db, rvdb.SQLite), log: newInternalLogger()}
 	_, err = repo.ListSoftDeleted(context.Background(), uuid.New())
 	assert.Error(t, err)
 }
@@ -863,7 +864,7 @@ func TestKeyRepo_ReadInVault_DBError(t *testing.T) {
 	_, err := db.Exec("DROP TABLE keys")
 	require.NoError(t, err)
 
-	repo := &KeyRepository{db: db, log: newInternalLogger()}
+	repo := &KeyRepository{db: rvdb.NewConn(db, rvdb.SQLite), log: newInternalLogger()}
 	_, err = repo.ReadInVault(context.Background(), uuid.New(), uuid.New())
 	assert.Error(t, err)
 }
@@ -875,7 +876,7 @@ func TestKeyRepo_ReadDeleted_DBError(t *testing.T) {
 	_, err := db.Exec("DROP TABLE keys")
 	require.NoError(t, err)
 
-	repo := &KeyRepository{db: db, log: newInternalLogger()}
+	repo := &KeyRepository{db: rvdb.NewConn(db, rvdb.SQLite), log: newInternalLogger()}
 	_, err = repo.ReadDeleted(context.Background(), uuid.New())
 	assert.Error(t, err)
 }
@@ -888,7 +889,7 @@ func TestKeyRepo_Delete_TagsDBError(t *testing.T) {
 	_, err := db.Exec("DROP TABLE key_tags")
 	require.NoError(t, err)
 
-	repo := &KeyRepository{db: db, log: newInternalLogger()}
+	repo := &KeyRepository{db: rvdb.NewConn(db, rvdb.SQLite), log: newInternalLogger()}
 	// key_tags is gone but keys still exists — DELETE FROM key_tags will fail.
 	err = repo.Delete(context.Background(), uuid.New())
 	assert.Error(t, err)
@@ -905,7 +906,7 @@ func TestCertRepo_SetPurgeProtection_DBError(t *testing.T) {
 	_, err := db.Exec("DROP TABLE certificates")
 	require.NoError(t, err)
 
-	repo := &CertificateRepository{db: db, log: newInternalLogger()}
+	repo := &CertificateRepository{db: rvdb.NewConn(db, rvdb.SQLite), log: newInternalLogger()}
 	err = repo.SetPurgeProtection(context.Background(), uuid.New(), true)
 	assert.Error(t, err)
 }
@@ -915,7 +916,7 @@ func TestCertRepo_SetPurgeProtection_NotFound(t *testing.T) {
 	db := openMemDB(t)
 	makeCertsTable(t, db)
 
-	repo := &CertificateRepository{db: db, log: newInternalLogger()}
+	repo := &CertificateRepository{db: rvdb.NewConn(db, rvdb.SQLite), log: newInternalLogger()}
 	err := repo.SetPurgeProtection(context.Background(), uuid.New(), true)
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "not found")
@@ -928,7 +929,7 @@ func TestCertRepo_ListSoftDeleted_DBError(t *testing.T) {
 	_, err := db.Exec("DROP TABLE certificates")
 	require.NoError(t, err)
 
-	repo := &CertificateRepository{db: db, log: newInternalLogger()}
+	repo := &CertificateRepository{db: rvdb.NewConn(db, rvdb.SQLite), log: newInternalLogger()}
 	_, err = repo.ListSoftDeleted(context.Background(), uuid.New())
 	assert.Error(t, err)
 }
@@ -940,7 +941,7 @@ func TestCertRepo_ListRevoked_DBError(t *testing.T) {
 	_, err := db.Exec("DROP TABLE crl")
 	require.NoError(t, err)
 
-	repo := &CertificateRepository{db: db, log: newInternalLogger()}
+	repo := &CertificateRepository{db: rvdb.NewConn(db, rvdb.SQLite), log: newInternalLogger()}
 	_, err = repo.ListRevoked(context.Background(), uuid.New())
 	assert.Error(t, err)
 }
@@ -952,7 +953,7 @@ func TestCertRepo_ListByUser_DBError(t *testing.T) {
 	_, err := db.Exec("DROP TABLE certificates")
 	require.NoError(t, err)
 
-	repo := &CertificateRepository{db: db, log: newInternalLogger()}
+	repo := &CertificateRepository{db: rvdb.NewConn(db, rvdb.SQLite), log: newInternalLogger()}
 	_, err = repo.ListByUser(context.Background(), uuid.New(), "", nil)
 	assert.Error(t, err)
 }
@@ -964,7 +965,7 @@ func TestCertRepo_ListInVault_DBError(t *testing.T) {
 	_, err := db.Exec("DROP TABLE certificates")
 	require.NoError(t, err)
 
-	repo := &CertificateRepository{db: db, log: newInternalLogger()}
+	repo := &CertificateRepository{db: rvdb.NewConn(db, rvdb.SQLite), log: newInternalLogger()}
 	_, err = repo.ListInVault(context.Background(), uuid.New(), "", nil)
 	assert.Error(t, err)
 }
@@ -977,7 +978,7 @@ func TestCertRepo_Delete_TagsDBError(t *testing.T) {
 	_, err := db.Exec("DROP TABLE certificate_tags")
 	require.NoError(t, err)
 
-	repo := &CertificateRepository{db: db, log: newInternalLogger()}
+	repo := &CertificateRepository{db: rvdb.NewConn(db, rvdb.SQLite), log: newInternalLogger()}
 	err = repo.Delete(context.Background(), uuid.New())
 	assert.Error(t, err)
 }
@@ -993,7 +994,7 @@ func TestSecretRepo_ListByUser_DBError(t *testing.T) {
 	_, err := db.Exec("DROP TABLE secrets")
 	require.NoError(t, err)
 
-	repo := &SecretRepository{db: db, log: newInternalLogger()}
+	repo := &SecretRepository{db: rvdb.NewConn(db, rvdb.SQLite), log: newInternalLogger()}
 	_, err = repo.ListByUser(context.Background(), uuid.New(), nil)
 	assert.Error(t, err)
 }
@@ -1005,7 +1006,7 @@ func TestSecretRepo_ListInVault_DBError(t *testing.T) {
 	_, err := db.Exec("DROP TABLE secrets")
 	require.NoError(t, err)
 
-	repo := &SecretRepository{db: db, log: newInternalLogger()}
+	repo := &SecretRepository{db: rvdb.NewConn(db, rvdb.SQLite), log: newInternalLogger()}
 	_, err = repo.ListInVault(context.Background(), uuid.New(), nil)
 	assert.Error(t, err)
 }
@@ -1017,7 +1018,7 @@ func TestSecretRepo_SoftDeleteVaultContents_DBError(t *testing.T) {
 	_, err := db.Exec("DROP TABLE secrets")
 	require.NoError(t, err)
 
-	repo := &SecretRepository{db: db, log: newInternalLogger()}
+	repo := &SecretRepository{db: rvdb.NewConn(db, rvdb.SQLite), log: newInternalLogger()}
 	err = repo.SoftDeleteVaultContents(context.Background(), uuid.New(), time.Now())
 	assert.Error(t, err)
 }
@@ -1029,7 +1030,7 @@ func TestSecretRepo_RecoverVaultContents_DBError(t *testing.T) {
 	_, err := db.Exec("DROP TABLE secrets")
 	require.NoError(t, err)
 
-	repo := &SecretRepository{db: db, log: newInternalLogger()}
+	repo := &SecretRepository{db: rvdb.NewConn(db, rvdb.SQLite), log: newInternalLogger()}
 	err = repo.RecoverVaultContents(context.Background(), uuid.New(), time.Now())
 	assert.Error(t, err)
 }

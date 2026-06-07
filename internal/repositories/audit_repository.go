@@ -8,6 +8,8 @@ import (
 	"strings"
 	"time"
 
+	"rocketvault/internal/db"
+
 	"github.com/google/uuid"
 )
 
@@ -60,13 +62,13 @@ type AuditRepositoryExtended interface {
 
 // AuditRepository writes and reads audit records from the audit_logs table.
 type AuditRepository struct {
-	db *sql.DB
+	db db.DB
 }
 
 // NewAuditRepository creates an AuditRepository backed by db.
 // The returned value implements both AuditRepositoryInterface and
 // AuditRepositoryExtended.
-func NewAuditRepository(db *sql.DB) AuditRepositoryExtended {
+func NewAuditRepository(db db.DB) AuditRepositoryExtended {
 	return &AuditRepository{db: db}
 }
 
@@ -75,7 +77,8 @@ func NewAuditRepository(db *sql.DB) AuditRepositoryExtended {
 func (r *AuditRepository) PersistAudit(userID, action, details string) error {
 	id := uuid.New().String()
 	now := time.Now().UTC()
-	_, err := r.db.Exec(
+	_, err := r.db.ExecContext(
+		context.Background(),
 		`INSERT INTO audit_logs (id, user_id, action, details, timestamp) VALUES (?, ?, ?, ?, ?)`,
 		id, userID, action, details, now,
 	)

@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	rvdb "rocketvault/internal/db"
 	"rocketvault/internal/repositories"
 )
 
@@ -32,7 +33,7 @@ func openAuditTestDB(t *testing.T) *sql.DB {
 
 func TestAuditRepository_PersistAudit(t *testing.T) {
 	db := openAuditTestDB(t)
-	repo := repositories.NewAuditRepository(db)
+	repo := repositories.NewAuditRepository(rvdb.NewConn(db, rvdb.SQLite))
 
 	err := repo.PersistAudit("user-1", "create_secret", "status=success message=done")
 	require.NoError(t, err)
@@ -59,7 +60,7 @@ func TestAuditRepository_PersistAudit(t *testing.T) {
 
 func TestAuditRepository_PersistAudit_EmptyUserID(t *testing.T) {
 	db := openAuditTestDB(t)
-	repo := repositories.NewAuditRepository(db)
+	repo := repositories.NewAuditRepository(rvdb.NewConn(db, rvdb.SQLite))
 
 	// Empty user_id is valid (unauthenticated events like auth failures).
 	err := repo.PersistAudit("", "auth", "status=failed message=missing token")
@@ -75,7 +76,7 @@ func TestAuditRepository_PersistAudit_EmptyUserID(t *testing.T) {
 
 func TestAuditRepository_PersistAudit_MultipleRecords(t *testing.T) {
 	db := openAuditTestDB(t)
-	repo := repositories.NewAuditRepository(db)
+	repo := repositories.NewAuditRepository(rvdb.NewConn(db, rvdb.SQLite))
 
 	for i := 0; i < 5; i++ {
 		err := repo.PersistAudit("user-2", "get_key", "status=success")
@@ -117,7 +118,7 @@ func openAuditTestDBFull(t *testing.T) *sql.DB {
 
 func TestAuditRepository_GetLastHash_EmptyTable(t *testing.T) {
 	db := openAuditTestDBFull(t)
-	repo := repositories.NewAuditRepository(db)
+	repo := repositories.NewAuditRepository(rvdb.NewConn(db, rvdb.SQLite))
 	hash, err := repo.GetLastHash(context.Background())
 	require.NoError(t, err)
 	assert.Equal(t, "", hash)
@@ -125,7 +126,7 @@ func TestAuditRepository_GetLastHash_EmptyTable(t *testing.T) {
 
 func TestAuditRepository_QueryAuditLogs_FilterByOutcome(t *testing.T) {
 	db := openAuditTestDBFull(t)
-	repo := repositories.NewAuditRepository(db)
+	repo := repositories.NewAuditRepository(rvdb.NewConn(db, rvdb.SQLite))
 
 	require.NoError(t, repo.InsertAuditLog(context.Background(), repositories.AuditLog{
 		ID: uuid.New().String(), UserID: "u1", Action: "login",
@@ -146,7 +147,7 @@ func TestAuditRepository_QueryAuditLogs_FilterByOutcome(t *testing.T) {
 
 func TestAuditRepository_DeleteBefore(t *testing.T) {
 	db := openAuditTestDBFull(t)
-	repo := repositories.NewAuditRepository(db)
+	repo := repositories.NewAuditRepository(rvdb.NewConn(db, rvdb.SQLite))
 
 	old := time.Now().UTC().Add(-48 * time.Hour)
 	recent := time.Now().UTC()
@@ -167,7 +168,7 @@ func TestAuditRepository_DeleteBefore(t *testing.T) {
 
 func TestAuditRepository_AuditConfig_RoundTrip(t *testing.T) {
 	db := openAuditTestDBFull(t)
-	repo := repositories.NewAuditRepository(db)
+	repo := repositories.NewAuditRepository(rvdb.NewConn(db, rvdb.SQLite))
 
 	// Key that doesn't exist returns "".
 	val, err := repo.GetAuditConfig(context.Background(), "retention_days")

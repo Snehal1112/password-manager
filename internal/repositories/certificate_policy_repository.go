@@ -6,6 +6,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"rocketvault/internal/db"
 	"rocketvault/internal/logging"
 	"rocketvault/model"
 )
@@ -22,12 +23,12 @@ type CertificatePolicyRepositoryInterface interface {
 
 // CertificatePolicyRepository is the default database-backed implementation.
 type CertificatePolicyRepository struct {
-	db  *sql.DB
+	db  db.DB
 	log *logging.Logger
 }
 
 // NewCertificatePolicyRepository creates a new CertificatePolicyRepository.
-func NewCertificatePolicyRepository(db *sql.DB, log *logging.Logger) CertificatePolicyRepositoryInterface {
+func NewCertificatePolicyRepository(db db.DB, log *logging.Logger) CertificatePolicyRepositoryInterface {
 	return &CertificatePolicyRepository{db: db, log: log}
 }
 

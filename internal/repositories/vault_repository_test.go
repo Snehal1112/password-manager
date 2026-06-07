@@ -10,6 +10,7 @@ import (
 	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/require"
 
+	rvdb "rocketvault/internal/db"
 	"rocketvault/internal/logging"
 	"rocketvault/internal/repositories"
 	"rocketvault/model"
@@ -48,7 +49,7 @@ func newVaultTestDB(t *testing.T) *sql.DB {
 
 func TestVaultRepository_CreateAndReadByName(t *testing.T) {
 	db := newVaultTestDB(t)
-	repo := repositories.NewVaultRepository(db, newTestVaultLogger(t))
+	repo := repositories.NewVaultRepository(rvdb.NewConn(db, rvdb.SQLite), newTestVaultLogger(t))
 	ctx := context.Background()
 
 	v := &model.Vault{ID: uuid.New(), Name: "prod", Enabled: true, RetentionDays: 90, CreatedBy: uuid.New()}
@@ -62,7 +63,7 @@ func TestVaultRepository_CreateAndReadByName(t *testing.T) {
 
 func TestVaultRepository_SoftDeleteHidesFromReadByName(t *testing.T) {
 	db := newVaultTestDB(t)
-	repo := repositories.NewVaultRepository(db, newTestVaultLogger(t))
+	repo := repositories.NewVaultRepository(rvdb.NewConn(db, rvdb.SQLite), newTestVaultLogger(t))
 	ctx := context.Background()
 	id := uuid.New()
 	require.NoError(t, repo.Create(ctx, &model.Vault{ID: id, Name: "stg", Enabled: true, RetentionDays: 90, CreatedBy: uuid.New()}))
@@ -74,7 +75,7 @@ func TestVaultRepository_SoftDeleteHidesFromReadByName(t *testing.T) {
 
 func TestVaultRepository_ListAndListDeleted(t *testing.T) {
 	db := newVaultTestDB(t)
-	repo := repositories.NewVaultRepository(db, newTestVaultLogger(t))
+	repo := repositories.NewVaultRepository(rvdb.NewConn(db, rvdb.SQLite), newTestVaultLogger(t))
 	ctx := context.Background()
 	a, b := uuid.New(), uuid.New()
 	require.NoError(t, repo.Create(ctx, &model.Vault{ID: a, Name: "alpha", Enabled: true, RetentionDays: 90, CreatedBy: uuid.New()}))
@@ -94,7 +95,7 @@ func TestVaultRepository_ListAndListDeleted(t *testing.T) {
 
 func TestVaultRepository_RecoverRestoresSoftDeleted(t *testing.T) {
 	db := newVaultTestDB(t)
-	repo := repositories.NewVaultRepository(db, newTestVaultLogger(t))
+	repo := repositories.NewVaultRepository(rvdb.NewConn(db, rvdb.SQLite), newTestVaultLogger(t))
 	ctx := context.Background()
 	id := uuid.New()
 	require.NoError(t, repo.Create(ctx, &model.Vault{ID: id, Name: "rec", Enabled: true, RetentionDays: 90, CreatedBy: uuid.New()}))

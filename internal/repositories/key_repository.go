@@ -52,7 +52,7 @@ type KeyRepositoryInterface interface {
 // It focuses solely on database interactions without business logic like encryption or key generation.
 // All crypto operations (encryption, key generation) are handled by the service layer.
 type KeyRepository struct {
-	db  *sql.DB
+	db  db.DB
 	log *logging.Logger
 }
 
@@ -87,7 +87,7 @@ func (r *KeyRepository) executeWithMetrics(operation string, fn func() error) er
 // Returns:
 //
 //	A KeyRepositoryInterface implementation for key database operations.
-func NewKeyRepository(db *sql.DB, log *logging.Logger) KeyRepositoryInterface {
+func NewKeyRepository(db db.DB, log *logging.Logger) KeyRepositoryInterface {
 	return &KeyRepository{db: db, log: log}
 }
 

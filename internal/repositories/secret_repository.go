@@ -48,7 +48,7 @@ type SecretRepositoryInterface interface {
 // SecretRepository implements SecretRepositoryInterface with pure CRUD operations.
 // It focuses solely on database interactions without business logic like encryption or versioning with performance monitoring.
 type SecretRepository struct {
-	db  *sql.DB
+	db  db.DB
 	log *logging.Logger
 }
 
@@ -83,7 +83,7 @@ func (r *SecretRepository) executeWithMetrics(operation string, fn func() error)
 // Returns:
 //
 //	A SecretRepositoryInterface implementation for secret database operations.
-func NewSecretRepository(db *sql.DB, log *logging.Logger) SecretRepositoryInterface {
+func NewSecretRepository(db db.DB, log *logging.Logger) SecretRepositoryInterface {
 	return &SecretRepository{db: db, log: log}
 }
 

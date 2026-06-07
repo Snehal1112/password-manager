@@ -10,8 +10,9 @@ import (
 
 	"github.com/google/uuid"
 
-	"rocketvault/model"
+	"rocketvault/internal/db"
 	"rocketvault/internal/logging"
+	"rocketvault/model"
 )
 
 // SecretVersionRepositoryInterface defines the data access contract for secret versions.
@@ -28,12 +29,12 @@ type SecretVersionRepositoryInterface interface {
 
 // secretVersionRepository implements SecretVersionRepositoryInterface.
 type secretVersionRepository struct {
-	db  *sql.DB
+	db  db.DB
 	log *logging.Logger
 }
 
 // NewSecretVersionRepository creates a new SecretVersionRepository.
-func NewSecretVersionRepository(db *sql.DB, log *logging.Logger) SecretVersionRepositoryInterface {
+func NewSecretVersionRepository(db db.DB, log *logging.Logger) SecretVersionRepositoryInterface {
 	return &secretVersionRepository{db: db, log: log}
 }
 

@@ -13,6 +13,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	rvdb "rocketvault/internal/db"
 	"rocketvault/internal/repositories"
 	auditSvc "rocketvault/internal/services/audit"
 )
@@ -36,7 +37,7 @@ func openTestDB(t *testing.T) *sql.DB {
 
 func TestAuditService_RecordEvent_HashChain(t *testing.T) {
 	db := openTestDB(t)
-	repo := repositories.NewAuditRepository(db)
+	repo := repositories.NewAuditRepository(rvdb.NewConn(db, rvdb.SQLite))
 	svc := auditSvc.NewAuditService(repo)
 
 	err := svc.RecordEvent(context.Background(), auditSvc.AuditEvent{
@@ -62,7 +63,7 @@ func TestAuditService_RecordEvent_ErrorSwallowed(t *testing.T) {
 	db := openTestDB(t)
 	// Drop the table to force insert failures.
 	_, _ = db.Exec(`DROP TABLE audit_logs`)
-	repo := repositories.NewAuditRepository(db)
+	repo := repositories.NewAuditRepository(rvdb.NewConn(db, rvdb.SQLite))
 	svc := auditSvc.NewAuditService(repo)
 
 	// Must not return an error even when insert fails.
@@ -74,7 +75,7 @@ func TestAuditService_RecordEvent_ErrorSwallowed(t *testing.T) {
 
 func TestAuditService_RecordEvent_ConcurrentSafety(t *testing.T) {
 	db := openTestDB(t)
-	repo := repositories.NewAuditRepository(db)
+	repo := repositories.NewAuditRepository(rvdb.NewConn(db, rvdb.SQLite))
 	svc := auditSvc.NewAuditService(repo)
 
 	var wg sync.WaitGroup

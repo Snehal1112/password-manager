@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	rvdb "rocketvault/internal/db"
 	"rocketvault/internal/repositories"
 	"rocketvault/model"
 )
@@ -39,7 +40,7 @@ created_at     TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 func TestAccessPolicyRepository_CreateAndGet(t *testing.T) {
 	t.Parallel()
 	db := setupAccessPolicyTestDB(t)
-	repo := repositories.NewAccessPolicyRepository(db)
+	repo := repositories.NewAccessPolicyRepository(rvdb.NewConn(db, rvdb.SQLite))
 	ctx := context.Background()
 
 	principalID := uuid.New()
@@ -64,7 +65,7 @@ func TestAccessPolicyRepository_CreateAndGet(t *testing.T) {
 func TestAccessPolicyRepository_ListByPrincipal(t *testing.T) {
 	t.Parallel()
 	db := setupAccessPolicyTestDB(t)
-	repo := repositories.NewAccessPolicyRepository(db)
+	repo := repositories.NewAccessPolicyRepository(rvdb.NewConn(db, rvdb.SQLite))
 	ctx := context.Background()
 
 	principalID := uuid.New()
@@ -94,7 +95,7 @@ func TestAccessPolicyRepository_ListByPrincipal(t *testing.T) {
 func TestAccessPolicyRepository_FindEffects(t *testing.T) {
 	t.Parallel()
 	db := setupAccessPolicyTestDB(t)
-	repo := repositories.NewAccessPolicyRepository(db)
+	repo := repositories.NewAccessPolicyRepository(rvdb.NewConn(db, rvdb.SQLite))
 	ctx := context.Background()
 
 	principalID := uuid.New()
@@ -125,7 +126,7 @@ func TestAccessPolicyRepository_FindEffects(t *testing.T) {
 func TestAccessPolicyRepository_FindEffects_VaultScoping(t *testing.T) {
 	t.Parallel()
 	db := setupAccessPolicyTestDB(t)
-	repo := repositories.NewAccessPolicyRepository(db)
+	repo := repositories.NewAccessPolicyRepository(rvdb.NewConn(db, rvdb.SQLite))
 	ctx := context.Background()
 
 	principalID := uuid.New()
@@ -163,7 +164,7 @@ func TestAccessPolicyRepository_FindEffects_VaultScoping(t *testing.T) {
 func TestAccessPolicyRepository_Delete(t *testing.T) {
 	t.Parallel()
 	db := setupAccessPolicyTestDB(t)
-	repo := repositories.NewAccessPolicyRepository(db)
+	repo := repositories.NewAccessPolicyRepository(rvdb.NewConn(db, rvdb.SQLite))
 	ctx := context.Background()
 
 	policy := &model.AccessPolicy{
@@ -184,7 +185,7 @@ func TestAccessPolicyRepository_Delete(t *testing.T) {
 func TestAccessPolicy_AssignmentIDRoundTrip(t *testing.T) {
 	t.Parallel()
 	db := setupAccessPolicyTestDB(t)
-	repo := repositories.NewAccessPolicyRepository(db)
+	repo := repositories.NewAccessPolicyRepository(rvdb.NewConn(db, rvdb.SQLite))
 	ctx := context.Background()
 
 	assignID := uuid.New()
@@ -214,7 +215,7 @@ func TestAccessPolicy_AssignmentIDRoundTrip(t *testing.T) {
 func TestAccessPolicyRepository_Update(t *testing.T) {
 	t.Parallel()
 	db := setupAccessPolicyTestDB(t)
-	repo := repositories.NewAccessPolicyRepository(db)
+	repo := repositories.NewAccessPolicyRepository(rvdb.NewConn(db, rvdb.SQLite))
 	ctx := context.Background()
 
 	policy := &model.AccessPolicy{
@@ -238,7 +239,7 @@ func TestAccessPolicyRepository_Update(t *testing.T) {
 func TestAccessPolicy_DeleteByAssignmentID(t *testing.T) {
 	t.Parallel()
 	db := setupAccessPolicyTestDB(t)
-	repo := repositories.NewAccessPolicyRepository(db)
+	repo := repositories.NewAccessPolicyRepository(rvdb.NewConn(db, rvdb.SQLite))
 	ctx := context.Background()
 
 	aid := uuid.New()

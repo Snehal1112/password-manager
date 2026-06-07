@@ -12,6 +12,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	rvdb "rocketvault/internal/db"
 	"rocketvault/internal/logging"
 	"rocketvault/internal/repositories"
 	"rocketvault/model"
@@ -53,7 +54,7 @@ func setupCertRenewalTestDB(t *testing.T) *sql.DB {
 func TestCertificateRepositoryRenewalFields(t *testing.T) {
 	db := setupCertRenewalTestDB(t)
 	log := logging.InitLogger()
-	repo := repositories.NewCertificateRepository(db, log)
+	repo := repositories.NewCertificateRepository(rvdb.NewConn(db, rvdb.SQLite), log)
 
 	expires := time.Now().Add(90 * 24 * time.Hour).UTC().Truncate(time.Second)
 	cert := &model.Certificate{
@@ -83,7 +84,7 @@ func TestCertificateRepositoryRenewalFields(t *testing.T) {
 func TestCertificateRepositoryListAll(t *testing.T) {
 	db := setupCertRenewalTestDB(t)
 	log := logging.InitLogger()
-	repo := repositories.NewCertificateRepository(db, log)
+	repo := repositories.NewCertificateRepository(rvdb.NewConn(db, rvdb.SQLite), log)
 
 	cert := &model.Certificate{
 		ID:          uuid.New(),

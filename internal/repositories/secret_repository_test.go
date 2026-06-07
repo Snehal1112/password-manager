@@ -12,6 +12,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	rvdb "rocketvault/internal/db"
 	"rocketvault/internal/logging"
 	"rocketvault/internal/repositories"
 	"rocketvault/model"
@@ -54,7 +55,7 @@ func newTestSecretLogger(t *testing.T) *logging.Logger {
 func TestSecretRepository_ReadByOwner_WrongUserReturnsError(t *testing.T) {
 	t.Parallel()
 	db := setupSecretTestDB(t)
-	repo := repositories.NewSecretRepository(db, newTestSecretLogger(t))
+	repo := repositories.NewSecretRepository(rvdb.NewConn(db, rvdb.SQLite), newTestSecretLogger(t))
 	ctx := context.Background()
 
 	ownerID := uuid.New()
@@ -85,7 +86,7 @@ func TestSecretRepository_ReadByOwner_WrongUserReturnsError(t *testing.T) {
 func TestSecretRepository_ReadByOwner_SoftDeletedSecretNotVisible(t *testing.T) {
 	t.Parallel()
 	db := setupSecretTestDB(t)
-	repo := repositories.NewSecretRepository(db, newTestSecretLogger(t))
+	repo := repositories.NewSecretRepository(rvdb.NewConn(db, rvdb.SQLite), newTestSecretLogger(t))
 	ctx := context.Background()
 
 	ownerID := uuid.New()
@@ -112,7 +113,7 @@ func TestSecretRepository_ReadByOwner_SoftDeletedSecretNotVisible(t *testing.T) 
 func TestSecretLifecycleAttributes_PersistAndLoad(t *testing.T) {
 	t.Parallel()
 	db := setupSecretTestDB(t)
-	repo := repositories.NewSecretRepository(db, newTestSecretLogger(t))
+	repo := repositories.NewSecretRepository(rvdb.NewConn(db, rvdb.SQLite), newTestSecretLogger(t))
 
 	now := time.Now()
 	exp := now.Add(24 * time.Hour)
@@ -144,7 +145,7 @@ func TestSecretLifecycleAttributes_PersistAndLoad(t *testing.T) {
 func TestSecretRepository_ListInVault_ScopesByVault(t *testing.T) {
 	t.Parallel()
 	db := setupSecretTestDB(t)
-	repo := repositories.NewSecretRepository(db, newTestSecretLogger(t))
+	repo := repositories.NewSecretRepository(rvdb.NewConn(db, rvdb.SQLite), newTestSecretLogger(t))
 	ctx := context.Background()
 	vaultA, vaultB := uuid.New(), uuid.New()
 
@@ -168,7 +169,7 @@ func TestSecretRepository_ListInVault_ScopesByVault(t *testing.T) {
 func TestListInVault_PopulatesVaultID(t *testing.T) {
 	t.Parallel()
 	db := setupSecretTestDB(t)
-	repo := repositories.NewSecretRepository(db, newTestSecretLogger(t))
+	repo := repositories.NewSecretRepository(rvdb.NewConn(db, rvdb.SQLite), newTestSecretLogger(t))
 	ctx := context.Background()
 	vaultA := uuid.New()
 
@@ -191,7 +192,7 @@ func TestListInVault_PopulatesVaultID(t *testing.T) {
 func TestListInVaultIncludeDeleted_PopulatesVaultID(t *testing.T) {
 	t.Parallel()
 	db := setupSecretTestDB(t)
-	repo := repositories.NewSecretRepository(db, newTestSecretLogger(t))
+	repo := repositories.NewSecretRepository(rvdb.NewConn(db, rvdb.SQLite), newTestSecretLogger(t))
 	ctx := context.Background()
 	vaultA := uuid.New()
 
@@ -216,7 +217,7 @@ func TestListInVaultIncludeDeleted_PopulatesVaultID(t *testing.T) {
 func TestSecretRepository_SoftDeleteVaultContents_HidesFromList(t *testing.T) {
 	t.Parallel()
 	db := setupSecretTestDB(t)
-	repo := repositories.NewSecretRepository(db, newTestSecretLogger(t))
+	repo := repositories.NewSecretRepository(rvdb.NewConn(db, rvdb.SQLite), newTestSecretLogger(t))
 	ctx := context.Background()
 	vaultA := uuid.New()
 
@@ -244,7 +245,7 @@ func TestSecretRepository_SoftDeleteVaultContents_HidesFromList(t *testing.T) {
 func TestSecretRepository_RecoverVaultContents_OnlyRestoresCascadeDeleted(t *testing.T) {
 	t.Parallel()
 	db := setupSecretTestDB(t)
-	repo := repositories.NewSecretRepository(db, newTestSecretLogger(t))
+	repo := repositories.NewSecretRepository(rvdb.NewConn(db, rvdb.SQLite), newTestSecretLogger(t))
 	ctx := context.Background()
 	vaultA := uuid.New()
 
@@ -278,7 +279,7 @@ func TestSecretRepository_RecoverVaultContents_OnlyRestoresCascadeDeleted(t *tes
 func TestSoftDelete_PreservesPurgeProtection(t *testing.T) {
 	t.Parallel()
 	db := setupSecretTestDB(t)
-	repo := repositories.NewSecretRepository(db, newTestSecretLogger(t))
+	repo := repositories.NewSecretRepository(rvdb.NewConn(db, rvdb.SQLite), newTestSecretLogger(t))
 	ctx := context.Background()
 
 	ownerID := uuid.New()

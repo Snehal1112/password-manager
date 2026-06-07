@@ -8,6 +8,7 @@ import (
 	"github.com/google/uuid"
 	_ "github.com/mattn/go-sqlite3"
 
+	rvdb "rocketvault/internal/db"
 	"rocketvault/model"
 )
 
@@ -24,7 +25,7 @@ func newRoleAssignmentRepo(t *testing.T) RoleAssignmentRepositoryInterface {
 	if err != nil {
 		t.Fatal(err)
 	}
-	return NewRoleAssignmentRepository(conn)
+	return NewRoleAssignmentRepository(rvdb.NewConn(conn, rvdb.SQLite))
 }
 
 func TestRoleAssignment_CreateGetListDelete(t *testing.T) {

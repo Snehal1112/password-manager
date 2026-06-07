@@ -12,7 +12,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	_ "github.com/lib/pq"            // PostgreSQL driver for database/sql.
+	_ "github.com/lib/pq"           // PostgreSQL driver for database/sql.
 	_ "github.com/mattn/go-sqlite3" // SQLite driver for database/sql.
 	"github.com/spf13/viper"
 
@@ -20,8 +20,9 @@ import (
 	"rocketvault/model"
 )
 
-// DB is the global database connection for the application.
-var DB *sql.DB
+// globalDB is the global database connection for the application. It is kept
+// unexported so the exported DB interface (see conn.go) can use that name.
+var globalDB *sql.DB
 
 // ConnectionPoolConfig holds database connection pool configuration.
 type ConnectionPoolConfig struct {
@@ -202,7 +203,7 @@ func (d *DBRepository) InitializeDB() error {
 	}
 
 	// Assign the connection to the global DB variable.
-	DB = db
+	globalDB = db
 	d.db = db
 	d.log.Info("Database initialized successfully with connection pooling")
 	return nil
@@ -962,8 +963,8 @@ func GetPerformanceMetrics() PerformanceMetricsSnapshot {
 	}
 
 	// Add current connection stats if DB is available
-	if DB != nil {
-		result.ConnectionStats = DB.Stats()
+	if globalDB != nil {
+		result.ConnectionStats = globalDB.Stats()
 	}
 
 	return result
@@ -982,11 +983,11 @@ func ResetPerformanceMetrics() {
 
 // GetConnectionPoolStats returns detailed connection pool statistics.
 func GetConnectionPoolStats() map[string]interface{} {
-	if DB == nil {
+	if globalDB == nil {
 		return map[string]interface{}{"error": "database not initialized"}
 	}
 
-	stats := DB.Stats()
+	stats := globalDB.Stats()
 	return map[string]interface{}{
 		"open_connections":    stats.OpenConnections,
 		"in_use":              stats.InUse,
@@ -1001,7 +1002,7 @@ func GetConnectionPoolStats() map[string]interface{} {
 
 // HealthCheck performs comprehensive database health validation.
 func HealthCheck(ctx context.Context) error {
-	if DB == nil {
+	if globalDB == nil {
 		return fmt.Errorf("database not initialized")
 	}
 
@@ -1010,7 +1011,7 @@ func HealthCheck(ctx context.Context) error {
 	defer cancel()
 
 	start := time.Now()
-	if err := DB.PingContext(ctx); err != nil {
+	if err := globalDB.PingContext(ctx); err != nil {
 		return fmt.Errorf("database ping failed: %w", err)
 	}
 	duration := time.Since(start)
@@ -1019,7 +1020,7 @@ func HealthCheck(ctx context.Context) error {
 	RecordQueryExecution(duration)
 
 	// Check connection pool health
-	stats := DB.Stats()
+	stats := globalDB.Stats()
 	if stats.OpenConnections == 0 {
 		return fmt.Errorf("no open database connections")
 	}

@@ -10,6 +10,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"rocketvault/internal/db"
 	"rocketvault/internal/logging"
 	"rocketvault/model"
 )
@@ -29,12 +30,12 @@ type VaultRepositoryInterface interface {
 
 // VaultRepository implements VaultRepositoryInterface with pure CRUD operations.
 type VaultRepository struct {
-	db  *sql.DB
+	db  db.DB
 	log *logging.Logger
 }
 
 // NewVaultRepository creates a new VaultRepository.
-func NewVaultRepository(db *sql.DB, log *logging.Logger) VaultRepositoryInterface {
+func NewVaultRepository(db db.DB, log *logging.Logger) VaultRepositoryInterface {
 	return &VaultRepository{db: db, log: log}
 }
 
