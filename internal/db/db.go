@@ -7,14 +7,12 @@ package db
 import (
 	"context"
 	"database/sql"
-	"errors"
 	"fmt"
-	"strings"
 	"sync"
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/lib/pq"
+	_ "github.com/lib/pq"            // PostgreSQL driver for database/sql.
 	_ "github.com/mattn/go-sqlite3" // SQLite driver for database/sql.
 	"github.com/spf13/viper"
 
@@ -816,20 +814,11 @@ func (d *DBRepository) finalizeVaultIndexes(db *sql.DB) error {
 
 // isDuplicateColumnError returns true when err represents a "column already exists"
 // error from SQLite or PostgreSQL, allowing migrateSchema to be idempotent.
+// The logic now lives on Dialect; this shim keeps existing call sites unchanged.
 func isDuplicateColumnError(err error) bool {
-	if err == nil {
-		return false
-	}
-	// SQLite reports "duplicate column name: <col>"
-	if strings.Contains(strings.ToLower(err.Error()), "duplicate column name") {
-		return true
-	}
-	// PostgreSQL error code 42701 = duplicate_column specifically
-	var pqErr *pq.Error
-	if errors.As(err, &pqErr) {
-		return pqErr.Code == "42701"
-	}
-	return false
+	// The check is dialect-agnostic (string match plus pq code), so either
+	// dialect value produces the same result here.
+	return SQLite.IsDuplicateColumnErr(err)
 }
 
 // seedBootstrapToken inserts the configured bootstrap token into the
