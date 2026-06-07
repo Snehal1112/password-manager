@@ -74,8 +74,9 @@ type Repository[T any] interface {
 // The repository is designed to work with various database backends, including SQLite and PostgreSQL.
 // The database connection is managed through the global DB variable.
 type DBRepository struct {
-	db  *sql.DB
-	log *logging.Logger
+	db      *sql.DB
+	dialect Dialect // resolved at InitializeDB; drives bootstrap-query rebinding
+	log     *logging.Logger
 }
 
 // NewRepository creates a new instance of DBRepository.
@@ -144,6 +145,9 @@ func (d *DBRepository) InitializeDB() error {
 	if err != nil {
 		return fmt.Errorf("failed to load database config: %w", err)
 	}
+
+	// Resolve the dialect so bootstrap queries (seeds) rebind correctly.
+	d.dialect = DialectFromDriver(dbConfig.DriverName)
 
 	// Open a connection to the database.
 	db, err := sql.Open(dbConfig.DriverName, dbConfig.ConnectionString)
@@ -394,7 +398,7 @@ func (d *DBRepository) createOptimizedSchema(db *sql.DB) error {
 			deleted_at TIMESTAMP NULL,
 			purge_protection BOOLEAN NOT NULL DEFAULT FALSE,
 			scheduled_purge_at TIMESTAMP NULL,
-			expires_at DATETIME,
+			expires_at TIMESTAMP,
 			auto_renew BOOLEAN NOT NULL DEFAULT FALSE,
 			renewal_days INTEGER NOT NULL DEFAULT 30,
 			enabled BOOLEAN NOT NULL DEFAULT TRUE,
@@ -657,7 +661,7 @@ func (d *DBRepository) migrateSchema(db *sql.DB) error {
 		// Bug fix: key_id column missing from certificates
 		"ALTER TABLE certificates ADD COLUMN key_id TEXT NOT NULL DEFAULT ''",
 		// Feature: certificate auto-renewal
-		"ALTER TABLE certificates ADD COLUMN expires_at DATETIME",
+		"ALTER TABLE certificates ADD COLUMN expires_at TIMESTAMP",
 		"ALTER TABLE certificates ADD COLUMN auto_renew BOOLEAN NOT NULL DEFAULT FALSE",
 		"ALTER TABLE certificates ADD COLUMN renewal_days INTEGER NOT NULL DEFAULT 30",
 		// Feature: lifecycle attributes for secrets
@@ -796,7 +800,7 @@ func (d *DBRepository) migrateSchema(db *sql.DB) error {
 func (d *DBRepository) finalizeVaultIndexes(db *sql.DB) error {
 	ctx := context.Background()
 	for _, table := range []string{"secrets", "keys", "certificates"} {
-		if _, err := ResolveNameCollisions(ctx, db, table); err != nil {
+		if _, err := ResolveNameCollisions(ctx, db, d.dialect, table); err != nil {
 			return err
 		}
 	}
@@ -833,7 +837,7 @@ func (d *DBRepository) seedBootstrapToken(db *sql.DB) error {
 
 	var count int
 	if err := db.QueryRow(
-		"SELECT COUNT(*) FROM bootstrap_tokens WHERE token = ?", token,
+		d.dialect.Rebind("SELECT COUNT(*) FROM bootstrap_tokens WHERE token = ?"), token,
 	).Scan(&count); err != nil {
 		return fmt.Errorf("failed to check bootstrap token: %w", err)
 	}
@@ -843,7 +847,7 @@ func (d *DBRepository) seedBootstrapToken(db *sql.DB) error {
 	}
 
 	if _, err := db.Exec(
-		"INSERT INTO bootstrap_tokens (token, used) VALUES (?, FALSE)", token,
+		d.dialect.Rebind("INSERT INTO bootstrap_tokens (token, used) VALUES (?, FALSE)"), token,
 	); err != nil {
 		return fmt.Errorf("failed to seed bootstrap token: %w", err)
 	}
@@ -859,13 +863,13 @@ func (d *DBRepository) seedAuditConfig(db *sql.DB) error {
 	for k, v := range defaults {
 		var count int
 		if err := db.QueryRow(
-			"SELECT COUNT(*) FROM audit_config WHERE key = ?", k,
+			d.dialect.Rebind("SELECT COUNT(*) FROM audit_config WHERE key = ?"), k,
 		).Scan(&count); err != nil {
 			return fmt.Errorf("failed to check audit_config key %q: %w", k, err)
 		}
 		if count == 0 {
 			if _, err := db.Exec(
-				"INSERT INTO audit_config (key, value) VALUES (?, ?)", k, v,
+				d.dialect.Rebind("INSERT INTO audit_config (key, value) VALUES (?, ?)"), k, v,
 			); err != nil {
 				return fmt.Errorf("failed to seed audit_config key %q: %w", k, err)
 			}
@@ -878,7 +882,7 @@ func (d *DBRepository) seedAuditConfig(db *sql.DB) error {
 // The default vault holds all pre-multi-vault data and backs the legacy flat routes.
 func (d *DBRepository) seedDefaultVault(db *sql.DB) error {
 	var count int
-	if err := db.QueryRow("SELECT COUNT(*) FROM vaults WHERE name = ?", model.DefaultVaultName).Scan(&count); err != nil {
+	if err := db.QueryRow(d.dialect.Rebind("SELECT COUNT(*) FROM vaults WHERE name = ?"), model.DefaultVaultName).Scan(&count); err != nil {
 		return fmt.Errorf("failed to check default vault: %w", err)
 	}
 	if count > 0 {
@@ -886,9 +890,9 @@ func (d *DBRepository) seedDefaultVault(db *sql.DB) error {
 	}
 	// Choose an owner: an existing admin, else any user, else the zero UUID.
 	creator := "00000000-0000-0000-0000-000000000000"
-	_ = db.QueryRow("SELECT COALESCE((SELECT id FROM users WHERE role = 'admin' LIMIT 1), (SELECT id FROM users LIMIT 1), ?)", creator).Scan(&creator)
+	_ = db.QueryRow(d.dialect.Rebind("SELECT COALESCE((SELECT id FROM users WHERE role = 'admin' LIMIT 1), (SELECT id FROM users LIMIT 1), ?)"), creator).Scan(&creator)
 	if _, err := db.Exec(
-		"INSERT INTO vaults (id, name, enabled, retention_days, created_by) VALUES (?, ?, ?, ?, ?)",
+		d.dialect.Rebind("INSERT INTO vaults (id, name, enabled, retention_days, created_by) VALUES (?, ?, ?, ?, ?)"),
 		model.DefaultVaultID, model.DefaultVaultName, true, 90, creator,
 	); err != nil {
 		return fmt.Errorf("failed to seed default vault: %w", err)

@@ -32,6 +32,7 @@ import (
 	_ "github.com/mattn/go-sqlite3"
 	"github.com/spf13/viper"
 
+	rvdb "rocketvault/internal/db"
 	"rocketvault/internal/logging"
 )
 
@@ -103,7 +104,7 @@ func TestBackupManager(t *testing.T) {
 	defer cleanup()
 
 	logger := logging.InitLogger()
-	manager := NewManager(db, logger)
+	manager := NewManager(db, rvdb.SQLite, logger)
 
 	t.Run("CreateBackup", func(t *testing.T) {
 		tmpDir, err := os.MkdirTemp("", "backup_test_*")
@@ -242,7 +243,7 @@ func TestBackupMetadata(t *testing.T) {
 	defer cleanup()
 
 	logger := logging.InitLogger()
-	manager := NewManager(db, logger)
+	manager := NewManager(db, rvdb.SQLite, logger)
 
 	tmpDir, err := os.MkdirTemp("", "backup_test_*")
 	if err != nil {

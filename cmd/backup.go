@@ -31,11 +31,19 @@ import (
 	"time"
 
 	"github.com/spf13/cobra"
+	"github.com/spf13/viper"
 
 	"rocketvault/common"
 	"rocketvault/internal/backup"
+	"rocketvault/internal/db"
 	"rocketvault/internal/logging"
 )
+
+// backupDialect resolves the SQL dialect from configuration for backup
+// introspection queries. Defaults to SQLite.
+func backupDialect() db.Dialect {
+	return db.DialectFromDriver(viper.GetString("database.driver"))
+}
 
 var (
 	backupOutput         string
@@ -152,7 +160,7 @@ func runBackupCreate(cmd *cobra.Command) error {
 	}
 
 	// Create backup manager
-	manager := backup.NewManager(db, logger)
+	manager := backup.NewManager(db, backupDialect(), logger)
 
 	// Create backup
 	if err := manager.CreateBackup(backupOutput, backupEncrypt); err != nil {
@@ -172,7 +180,7 @@ func runBackupList(cmd *cobra.Command) error {
 	logger := ctx.Value(common.LogKey).(*logging.Logger)
 
 	// Create backup manager
-	manager := backup.NewManager(db, logger)
+	manager := backup.NewManager(db, backupDialect(), logger)
 
 	// List backups
 	backups, err := manager.ListBackups(backupListDir)
@@ -231,7 +239,7 @@ func runBackupRestore(cmd *cobra.Command) error {
 	}
 
 	// Create backup manager
-	manager := backup.NewManager(db, logger)
+	manager := backup.NewManager(db, backupDialect(), logger)
 
 	// Perform restore
 	if err := manager.RestoreBackup(backupRestoreFile, backupRestoreDecrypt); err != nil {

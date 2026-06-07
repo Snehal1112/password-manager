@@ -33,12 +33,11 @@ func NewSecretTagRepository(db db.DB) SecretTagRepositoryInterface {
 
 // AddTags inserts new tag associations for a secret, ignoring duplicates.
 func (r *secretTagRepository) AddTags(ctx context.Context, secretID uuid.UUID, tags []string) error {
+	query := r.db.Dialect().UpsertIgnore(
+		"secret_tags", "secret_id, tag", "?, ?", "secret_id, tag",
+	)
 	for _, tag := range tags {
-		_, err := r.db.ExecContext(
-			ctx,
-			"INSERT OR IGNORE INTO secret_tags (secret_id, tag) VALUES (?, ?)",
-			secretID.String(), tag,
-		)
+		_, err := r.db.ExecContext(ctx, query, secretID.String(), tag)
 		if err != nil {
 			return fmt.Errorf("add tag %s: %w", tag, err)
 		}

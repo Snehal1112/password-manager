@@ -8,6 +8,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
+	rvdb "rocketvault/internal/db"
 	"rocketvault/internal/logging"
 )
 
@@ -20,7 +21,7 @@ func TestReadBackupFileEncrypted(t *testing.T) {
 	tmpDir := t.TempDir()
 	backupPath := filepath.Join(tmpDir, "enc.backup")
 
-	mgr := NewManager(db, logging.InitLogger())
+	mgr := NewManager(db, rvdb.SQLite, logging.InitLogger())
 	require.NoError(t, mgr.CreateBackup(backupPath, true))
 
 	// Restoring an encrypted backup with encrypted=true must succeed.
@@ -33,7 +34,7 @@ func TestRestoreBackupBadFile(t *testing.T) {
 	db, cleanup := setupTestDB(t)
 	defer cleanup()
 
-	mgr := NewManager(db, logging.InitLogger())
+	mgr := NewManager(db, rvdb.SQLite, logging.InitLogger())
 	err := mgr.RestoreBackup("/nonexistent/path/backup.bak", false)
 	require.Error(t, err)
 }
@@ -48,7 +49,7 @@ func TestRestoreBackupInvalidJSON(t *testing.T) {
 	badPath := filepath.Join(tmpDir, "bad.backup")
 	require.NoError(t, os.WriteFile(badPath, []byte("{not json}"), 0600))
 
-	mgr := NewManager(db, logging.InitLogger())
+	mgr := NewManager(db, rvdb.SQLite, logging.InitLogger())
 	err := mgr.RestoreBackup(badPath, false)
 	require.Error(t, err)
 }
@@ -64,7 +65,7 @@ func TestValidateBackupDataMissingVersion(t *testing.T) {
 	content := `{"metadata":{"version":"","table_count":0},"tables":[]}`
 	require.NoError(t, os.WriteFile(backupPath, []byte(content), 0600))
 
-	mgr := NewManager(db, logging.InitLogger())
+	mgr := NewManager(db, rvdb.SQLite, logging.InitLogger())
 	err := mgr.RestoreBackup(backupPath, false)
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "missing backup version")
@@ -81,7 +82,7 @@ func TestValidateBackupDataTableCountMismatch(t *testing.T) {
 	content := `{"metadata":{"version":"1.0","table_count":3},"tables":[]}`
 	require.NoError(t, os.WriteFile(backupPath, []byte(content), 0600))
 
-	mgr := NewManager(db, logging.InitLogger())
+	mgr := NewManager(db, rvdb.SQLite, logging.InitLogger())
 	err := mgr.RestoreBackup(backupPath, false)
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "table count mismatch")
@@ -94,7 +95,7 @@ func TestListBackupsWithEncryptedFile(t *testing.T) {
 	defer cleanup()
 
 	tmpDir := t.TempDir()
-	mgr := NewManager(db, logging.InitLogger())
+	mgr := NewManager(db, rvdb.SQLite, logging.InitLogger())
 
 	// One plain backup that can be read, one encrypted that will be skipped.
 	require.NoError(t, mgr.CreateBackup(filepath.Join(tmpDir, "good.backup"), false))
@@ -113,7 +114,7 @@ func TestGetBackupMetadataEncryptedFile(t *testing.T) {
 
 	tmpDir := t.TempDir()
 	encPath := filepath.Join(tmpDir, "enc.backup")
-	mgr := NewManager(db, logging.InitLogger())
+	mgr := NewManager(db, rvdb.SQLite, logging.InitLogger())
 	require.NoError(t, mgr.CreateBackup(encPath, true))
 
 	_, err := mgr.getBackupMetadata(encPath)

@@ -12,6 +12,9 @@ import (
 type DB interface {
 	DBTX
 	BeginTx(ctx context.Context, opts *sql.TxOptions) (*Tx, error)
+	// Dialect exposes the active SQL dialect so repositories can build
+	// engine-specific statements (e.g. upserts) where rebinding is not enough.
+	Dialect() Dialect
 }
 
 // Conn wraps a *sql.DB with a Dialect, rebinding queries on every call.

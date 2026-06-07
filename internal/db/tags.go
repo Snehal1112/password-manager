@@ -6,7 +6,6 @@ import (
 	"fmt"
 
 	"github.com/google/uuid"
-	"github.com/mattn/go-sqlite3"
 	"github.com/sirupsen/logrus"
 )
 
@@ -61,7 +60,9 @@ func (r *tagRepository[T]) AddTags(ctx context.Context, id uuid.UUID, tags []str
 			id.String(), tag,
 		)
 		if err != nil {
-			if sqliteErr, ok := err.(sqlite3.Error); ok && sqliteErr.Code == sqlite3.ErrConstraint {
+			// A unique-constraint violation means the tag already exists; skip it.
+			// IsConstraintErr handles both SQLite and Postgres error shapes.
+			if SQLite.IsConstraintErr(err) {
 				logrus.Warnf("Skipping duplicate tag %s for %s %s", tag, r.idColumn, id.String())
 				continue
 			}
@@ -87,7 +88,7 @@ func (r *tagRepository[T]) AddTags(ctx context.Context, id uuid.UUID, tags []str
 func (r *tagRepository[T]) GetTags(ctx context.Context, id uuid.UUID) ([]string, error) {
 	rows, err := r.db.QueryContext(ctx,
 		fmt.Sprintf("SELECT tag FROM %s WHERE %s = ?", r.table, r.idColumn),
-		id,
+		id.String(),
 	)
 	if err != nil {
 		logrus.Error("Failed to query tags: ", err)

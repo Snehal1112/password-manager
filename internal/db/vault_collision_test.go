@@ -21,7 +21,7 @@ func TestResolveNameCollisions_RenamesDuplicates(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	renamed, err := ResolveNameCollisions(context.Background(), d, "secrets")
+	renamed, err := ResolveNameCollisions(context.Background(), d, SQLite, "secrets")
 	if err != nil {
 		t.Fatalf("ResolveNameCollisions: %v", err)
 	}
@@ -49,7 +49,7 @@ func TestResolveNameCollisions_NoDuplicatesIsNoop(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	renamed, err := ResolveNameCollisions(context.Background(), d, "keys")
+	renamed, err := ResolveNameCollisions(context.Background(), d, SQLite, "keys")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -70,7 +70,7 @@ func TestResolveNameCollisions_DifferentVaultsNotRenamed(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	renamed, err := ResolveNameCollisions(context.Background(), d, "secrets")
+	renamed, err := ResolveNameCollisions(context.Background(), d, SQLite, "secrets")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -92,7 +92,7 @@ func TestResolveNameCollisions_ShortIDCollisionStillUnique(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := ResolveNameCollisions(context.Background(), d, "secrets"); err != nil {
+	if _, err := ResolveNameCollisions(context.Background(), d, SQLite, "secrets"); err != nil {
 		t.Fatal(err)
 	}
 	var distinct int

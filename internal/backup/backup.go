@@ -31,6 +31,7 @@ import (
 	"time"
 
 	"rocketvault/common"
+	"rocketvault/internal/db"
 	"rocketvault/internal/logging"
 )
 
@@ -61,15 +62,18 @@ type BackupData struct {
 
 // Manager handles backup and restore operations
 type Manager struct {
-	db     *sql.DB
-	logger *logging.Logger
+	db      *sql.DB
+	dialect db.Dialect
+	logger  *logging.Logger
 }
 
-// NewManager creates a new backup manager
-func NewManager(db *sql.DB, logger *logging.Logger) *Manager {
+// NewManager creates a new backup manager. The dialect drives engine-specific
+// introspection queries (table and column listing).
+func NewManager(sqlDB *sql.DB, dialect db.Dialect, logger *logging.Logger) *Manager {
 	return &Manager{
-		db:     db,
-		logger: logger,
+		db:      sqlDB,
+		dialect: dialect,
+		logger:  logger,
 	}
 }
 
@@ -192,11 +196,19 @@ func (m *Manager) ListBackups(backupDir string) ([]BackupMetadata, error) {
 
 // getTableNames retrieves all table names from the database
 func (m *Manager) getTableNames() ([]string, error) {
-	rows, err := m.db.Query(`
+	query := `
 		SELECT name FROM sqlite_master
 		WHERE type='table' AND name NOT LIKE 'sqlite_%'
 		ORDER BY name
-	`)
+	`
+	if m.dialect == db.Postgres {
+		query = `
+			SELECT table_name FROM information_schema.tables
+			WHERE table_schema = 'public' AND table_type = 'BASE TABLE'
+			ORDER BY table_name
+		`
+	}
+	rows, err := m.db.Query(query)
 	if err != nil {
 		return nil, err
 	}
@@ -264,6 +276,10 @@ func (m *Manager) exportTableData(tableName string) (*TableData, error) {
 
 // getTableColumns gets column names for a table
 func (m *Manager) getTableColumns(tableName string) ([]string, error) {
+	if m.dialect == db.Postgres {
+		return m.getTableColumnsPostgres(tableName)
+	}
+
 	query := fmt.Sprintf("PRAGMA table_info(%s)", tableName)
 	rows, err := m.db.Query(query)
 	if err != nil {
@@ -279,6 +295,31 @@ func (m *Manager) getTableColumns(tableName string) ([]string, error) {
 		var dfltValue interface{}
 
 		if err := rows.Scan(&cid, &name, &ctype, &notnull, &dfltValue, &pk); err != nil {
+			return nil, err
+		}
+		columns = append(columns, name)
+	}
+
+	return columns, rows.Err()
+}
+
+// getTableColumnsPostgres lists columns via information_schema for PostgreSQL.
+func (m *Manager) getTableColumnsPostgres(tableName string) ([]string, error) {
+	rows, err := m.db.Query(
+		`SELECT column_name FROM information_schema.columns
+		 WHERE table_schema = 'public' AND table_name = $1
+		 ORDER BY ordinal_position`,
+		tableName,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var columns []string
+	for rows.Next() {
+		var name string
+		if err := rows.Scan(&name); err != nil {
 			return nil, err
 		}
 		columns = append(columns, name)
@@ -398,6 +439,9 @@ func (m *Manager) restoreTableData(tx *sql.Tx, tableData *TableData) error {
 
 	query = fmt.Sprintf("INSERT INTO %s (%s) VALUES (%s)",
 		tableData.Name, columnsStr, placeholdersStr)
+
+	// Rebind "?" placeholders for the active engine before preparing.
+	query = m.dialect.Rebind(query)
 
 	stmt, err := tx.Prepare(query)
 	if err != nil {
