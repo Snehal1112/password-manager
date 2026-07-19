@@ -142,6 +142,7 @@ func TestVaultRepository_SoftDeleteTx_CommitsWithSharedTx(t *testing.T) {
 	sqlDB := newVaultTestDB(t)
 	conn := rvdb.NewConn(sqlDB, rvdb.SQLite)
 	repo := repositories.NewVaultRepository(conn, newTestVaultLogger(t))
+	concrete := repo.(*repositories.VaultRepository)
 	ctx := context.Background()
 
 	id := uuid.New()
@@ -149,8 +150,8 @@ func TestVaultRepository_SoftDeleteTx_CommitsWithSharedTx(t *testing.T) {
 
 	tx, err := conn.BeginTx(ctx, nil)
 	require.NoError(t, err)
-	require.NoError(t, repo.SoftDeleteTx(ctx, tx, id))
-	got, err := repo.ReadByIDTx(ctx, tx, id)
+	require.NoError(t, concrete.SoftDeleteTx(ctx, tx, id))
+	got, err := concrete.ReadByIDTx(ctx, tx, id)
 	require.NoError(t, err)
 	require.NotNil(t, got.DeletedAt)
 	require.NoError(t, tx.Commit())
@@ -163,6 +164,7 @@ func TestVaultRepository_SoftDeleteTx_RollsBackWithSharedTx(t *testing.T) {
 	sqlDB := newVaultTestDB(t)
 	conn := rvdb.NewConn(sqlDB, rvdb.SQLite)
 	repo := repositories.NewVaultRepository(conn, newTestVaultLogger(t))
+	concrete := repo.(*repositories.VaultRepository)
 	ctx := context.Background()
 
 	id := uuid.New()
@@ -170,7 +172,7 @@ func TestVaultRepository_SoftDeleteTx_RollsBackWithSharedTx(t *testing.T) {
 
 	tx, err := conn.BeginTx(ctx, nil)
 	require.NoError(t, err)
-	require.NoError(t, repo.SoftDeleteTx(ctx, tx, id))
+	require.NoError(t, concrete.SoftDeleteTx(ctx, tx, id))
 	require.NoError(t, tx.Rollback())
 
 	got, err := repo.ReadByName(ctx, "txr")

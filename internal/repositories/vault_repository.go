@@ -20,18 +20,11 @@ type VaultRepositoryInterface interface {
 	Create(ctx context.Context, v *model.Vault) error
 	ReadByName(ctx context.Context, name string) (*model.Vault, error)
 	ReadByID(ctx context.Context, id uuid.UUID) (*model.Vault, error)
-	// ReadByIDTx is ReadByID scoped to an explicit executor (e.g. a shared
-	// transaction), used by the vault delete/recover cascade.
-	ReadByIDTx(ctx context.Context, ex db.DBTX, id uuid.UUID) (*model.Vault, error)
 	List(ctx context.Context) ([]model.Vault, error)
 	ListDeleted(ctx context.Context) ([]model.Vault, error)
 	Update(ctx context.Context, v *model.Vault) error
 	SoftDelete(ctx context.Context, id uuid.UUID) error
-	// SoftDeleteTx is SoftDelete scoped to an explicit executor.
-	SoftDeleteTx(ctx context.Context, ex db.DBTX, id uuid.UUID) error
 	Recover(ctx context.Context, id uuid.UUID) error
-	// RecoverTx is Recover scoped to an explicit executor.
-	RecoverTx(ctx context.Context, ex db.DBTX, id uuid.UUID) error
 	Purge(ctx context.Context, id uuid.UUID) error
 }
 
