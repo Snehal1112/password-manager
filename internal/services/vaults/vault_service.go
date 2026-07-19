@@ -3,6 +3,7 @@ package vaults
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"fmt"
 	"time"
@@ -36,6 +37,29 @@ type PolicyCleaner interface {
 	DeleteByVault(ctx context.Context, vaultID uuid.UUID) error
 }
 
+// TxBeginner begins a transaction usable by the Tx-scoped repository/cascade
+// methods. Satisfied by *db.Conn. Injected via SetTxBeginner so unit tests
+// that construct a vaultService without a real database (every existing test
+// in this package) keep exercising the pre-existing non-transactional path.
+type TxBeginner interface {
+	BeginTx(ctx context.Context, opts *sql.TxOptions) (*db.Tx, error)
+}
+
+// txCapableVaultRepo is implemented by VaultRepositoryInterface's concrete
+// type when it also supports the Tx-scoped delete/recover cascade. The
+// Tx-scoped methods live only on the concrete VaultRepository struct (Task
+// 6's Step 0), not on the exported VaultRepositoryInterface, so adding them
+// doesn't ripple to every test double implementing that interface. A type
+// assertion recovers the capability from s.repo's dynamic type -- always
+// present for the real *repositories.VaultRepository, never exercised by
+// test fakes (which never call SetTxBeginner, so this branch never runs
+// for them).
+type txCapableVaultRepo interface {
+	ReadByIDTx(ctx context.Context, ex db.DBTX, id uuid.UUID) (*model.Vault, error)
+	SoftDeleteTx(ctx context.Context, ex db.DBTX, id uuid.UUID) error
+	RecoverTx(ctx context.Context, ex db.DBTX, id uuid.UUID) error
+}
+
 // VaultService orchestrates the vault lifecycle.
 type VaultService interface {
 	CreateVault(ctx context.Context, req model.CreateVaultRequest, createdBy uuid.UUID) (*model.Vault, error)
@@ -46,13 +70,15 @@ type VaultService interface {
 	RecoverVault(ctx context.Context, name string) error
 	PurgeVault(ctx context.Context, name string) error
 	SetPolicyCleaner(p PolicyCleaner)
+	SetTxBeginner(tb TxBeginner)
 }
 
 type vaultService struct {
-	repo     repositories.VaultRepositoryInterface
-	cascade  CascadeRepository
-	policies PolicyCleaner
-	log      *logging.Logger
+	repo       repositories.VaultRepositoryInterface
+	cascade    CascadeRepository
+	policies   PolicyCleaner
+	txBeginner TxBeginner
+	log        *logging.Logger
 }
 
 // NewVaultService constructs a VaultService backed by the given repository and cascade handler.
@@ -62,6 +88,30 @@ func NewVaultService(repo repositories.VaultRepositoryInterface, cascade Cascade
 
 // SetPolicyCleaner attaches an optional cleaner that removes vault-scoped access policies on purge.
 func (s *vaultService) SetPolicyCleaner(p PolicyCleaner) { s.policies = p }
+
+// SetTxBeginner attaches an optional transaction beginner. When set,
+// DeleteVault/RecoverVault run their cascade atomically inside one
+// transaction; when unset, they run the pre-existing non-transactional
+// sequence.
+func (s *vaultService) SetTxBeginner(tb TxBeginner) { s.txBeginner = tb }
+
+// withTx runs fn inside a transaction begun via txBeginner, committing on
+// success and rolling back on error. Mirrors db.WithTx's commit/rollback
+// semantics but operates on the dialect-aware db.Tx the repository layer
+// uses, rather than a raw *sql.Tx.
+func (s *vaultService) withTx(ctx context.Context, fn func(tx *db.Tx) error) error {
+	tx, err := s.txBeginner.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("begin transaction: %w", err)
+	}
+	if err := fn(tx); err != nil {
+		if rbErr := tx.Rollback(); rbErr != nil {
+			return fmt.Errorf("rollback failed: %w (original: %v)", rbErr, err)
+		}
+		return err
+	}
+	return tx.Commit()
+}
 
 // CreateVault validates the request, applies defaults and overrides, and persists a new vault.
 func (s *vaultService) CreateVault(ctx context.Context, req model.CreateVaultRequest, createdBy uuid.UUID) (*model.Vault, error) {
@@ -178,23 +228,51 @@ func (s *vaultService) DeleteVault(ctx context.Context, name string) error {
 	if err != nil {
 		return err
 	}
-	// Soft-delete the vault row first; VaultRepository.SoftDelete stamps its own
-	// timestamp. We then read that persisted deleted_at back and stamp the contents
-	// with the SAME value, so recovery (which reads the vault row's DeletedAt) matches
-	// exactly. This avoids resurrecting items soft-deleted before the vault was deleted.
-	if err := s.repo.SoftDelete(ctx, v.ID); err != nil {
-		return err
+
+	if s.txBeginner == nil {
+		// No transaction support configured (e.g. unit tests against fakes);
+		// fall back to the pre-existing non-transactional sequence.
+		if err := s.repo.SoftDelete(ctx, v.ID); err != nil {
+			return err
+		}
+		deleted, err := s.repo.ReadByID(ctx, v.ID)
+		if err != nil {
+			return fmt.Errorf("read vault after soft-delete: %w", err)
+		}
+		if deleted.DeletedAt == nil {
+			return fmt.Errorf("vault %q missing deleted_at after soft-delete", name)
+		}
+		if err := s.cascade.SoftDeleteVaultContents(ctx, v.ID, *deleted.DeletedAt); err != nil {
+			return fmt.Errorf("cascade soft-delete vault contents: %w", err)
+		}
+	} else {
+		txRepo, ok := s.repo.(txCapableVaultRepo)
+		if !ok {
+			return fmt.Errorf("vault repository %T does not support transactional operations", s.repo)
+		}
+		// Soft-delete the vault row and cascade its contents atomically: if the
+		// cascade fails partway, the whole transaction rolls back and the vault
+		// row itself is never left soft-deleted without its contents following.
+		if err := s.withTx(ctx, func(tx *db.Tx) error {
+			if err := txRepo.SoftDeleteTx(ctx, tx, v.ID); err != nil {
+				return err
+			}
+			deleted, err := txRepo.ReadByIDTx(ctx, tx, v.ID)
+			if err != nil {
+				return fmt.Errorf("read vault after soft-delete: %w", err)
+			}
+			if deleted.DeletedAt == nil {
+				return fmt.Errorf("vault %q missing deleted_at after soft-delete", name)
+			}
+			if err := s.cascade.SoftDeleteVaultContentsTx(ctx, tx, v.ID, *deleted.DeletedAt); err != nil {
+				return fmt.Errorf("cascade soft-delete vault contents: %w", err)
+			}
+			return nil
+		}); err != nil {
+			return err
+		}
 	}
-	deleted, err := s.repo.ReadByID(ctx, v.ID)
-	if err != nil {
-		return fmt.Errorf("read vault after soft-delete: %w", err)
-	}
-	if deleted.DeletedAt == nil {
-		return fmt.Errorf("vault %q missing deleted_at after soft-delete", name)
-	}
-	if err := s.cascade.SoftDeleteVaultContents(ctx, v.ID, *deleted.DeletedAt); err != nil {
-		return fmt.Errorf("cascade soft-delete vault contents: %w", err)
-	}
+
 	if s.log != nil {
 		s.log.LogAuditInfo("", "delete_vault", "success", fmt.Sprintf("Vault deleted: %s", name))
 	}
@@ -214,12 +292,32 @@ func (s *vaultService) RecoverVault(ctx context.Context, name string) error {
 	// restores only the contents stamped with this exact timestamp, leaving rows the
 	// user deleted individually (different deleted_at) untouched.
 	deletedAt := *v.DeletedAt
-	if err := s.repo.Recover(ctx, v.ID); err != nil {
-		return fmt.Errorf("recover vault: %w", err)
+
+	if s.txBeginner == nil {
+		if err := s.repo.Recover(ctx, v.ID); err != nil {
+			return fmt.Errorf("recover vault: %w", err)
+		}
+		if err := s.cascade.RecoverVaultContents(ctx, v.ID, deletedAt); err != nil {
+			return fmt.Errorf("cascade recover vault contents: %w", err)
+		}
+	} else {
+		txRepo, ok := s.repo.(txCapableVaultRepo)
+		if !ok {
+			return fmt.Errorf("vault repository %T does not support transactional operations", s.repo)
+		}
+		if err := s.withTx(ctx, func(tx *db.Tx) error {
+			if err := txRepo.RecoverTx(ctx, tx, v.ID); err != nil {
+				return fmt.Errorf("recover vault: %w", err)
+			}
+			if err := s.cascade.RecoverVaultContentsTx(ctx, tx, v.ID, deletedAt); err != nil {
+				return fmt.Errorf("cascade recover vault contents: %w", err)
+			}
+			return nil
+		}); err != nil {
+			return err
+		}
 	}
-	if err := s.cascade.RecoverVaultContents(ctx, v.ID, deletedAt); err != nil {
-		return fmt.Errorf("cascade recover vault contents: %w", err)
-	}
+
 	if s.log != nil {
 		s.log.LogAuditInfo("", "recover_vault", "success", fmt.Sprintf("Vault recovered: %s", name))
 	}

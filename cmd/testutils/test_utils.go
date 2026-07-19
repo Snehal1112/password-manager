@@ -576,6 +576,10 @@ func (m *MockVaultService) SetPolicyCleaner(p vaultServices.PolicyCleaner) {
 	m.Called(p)
 }
 
+func (m *MockVaultService) SetTxBeginner(tb vaultServices.TxBeginner) {
+	m.Called(tb)
+}
+
 // Mock Authentication Service
 type MockAuthenticationService struct {
 	mock.Mock

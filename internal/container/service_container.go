@@ -278,6 +278,7 @@ func (c *ServiceContainer) initializeServices() error {
 	c.vaultRepository = repositories.NewVaultRepository(c.conn, c.logger)
 	vaultCascade := vaultServices.NewCascadeAdapter(c.secretRepository, c.keyRepository, c.certificateRepository)
 	c.vaultService = vaultServices.NewVaultService(c.vaultRepository, vaultCascade, c.logger)
+	c.vaultService.SetTxBeginner(c.conn)
 	c.certPolicyRepository = repositories.NewCertificatePolicyRepository(c.conn, c.logger)
 	c.sessionRepository = repositories.NewSessionRepository(repositories.SessionRepositoryConfig{
 		DB:     c.conn,

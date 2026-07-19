@@ -429,3 +429,10 @@ func TestDeleteVault_NotFound(t *testing.T) {
 		t.Fatalf("expected ErrVaultNotFound, got %v", err)
 	}
 }
+
+func TestVaultService_SetTxBeginnerIsPartOfTheInterface(t *testing.T) {
+	svc := NewVaultService(newFakeRepo(), &noopCascade{}, nil)
+	var _ interface {
+		SetTxBeginner(tb TxBeginner)
+	} = svc
+}
