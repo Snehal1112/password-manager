@@ -173,13 +173,13 @@ func (r *KeyRepository) Create(ctx context.Context, key *model.Key) error {
 //	The key entity (with encrypted value) or an error if not found.
 func (r *KeyRepository) Read(ctx context.Context, id uuid.UUID) (*model.Key, error) {
 	var key model.Key
-	var idStr, userIDStr string
+	var idStr, userIDStr, vaultIDStr string
 
 	err := r.db.QueryRowContext(
 		ctx,
-		"SELECT id, user_id, name, value, type, revoked, created_at, enabled, expires_at, not_before, bits, curve, updated_at FROM keys WHERE id = ? AND deleted_at IS NULL",
+		"SELECT id, user_id, vault_id, name, value, type, revoked, created_at, enabled, expires_at, not_before, bits, curve, updated_at FROM keys WHERE id = ? AND deleted_at IS NULL",
 		id.String(),
-	).Scan(&idStr, &userIDStr, &key.Name, &key.Value, &key.Type, &key.Revoked, &key.CreatedAt,
+	).Scan(&idStr, &userIDStr, &vaultIDStr, &key.Name, &key.Value, &key.Type, &key.Revoked, &key.CreatedAt,
 		&key.Enabled, &key.ExpiresAt, &key.NotBefore, &key.Bits, &key.Curve, &key.UpdatedAt)
 
 	if errors.Is(err, sql.ErrNoRows) {
@@ -198,6 +198,11 @@ func (r *KeyRepository) Read(ctx context.Context, id uuid.UUID) (*model.Key, err
 	key.UserID, err = uuid.Parse(userIDStr)
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse user ID: %w", err)
+	}
+
+	key.VaultID, err = uuid.Parse(vaultIDStr)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse vault ID: %w", err)
 	}
 
 	// Retrieve tags using TagRepository
@@ -224,13 +229,13 @@ func (r *KeyRepository) Read(ctx context.Context, id uuid.UUID) (*model.Key, err
 //	The key entity (including deleted_at/scheduled_purge_at) or an error if not found.
 func (r *KeyRepository) ReadDeleted(ctx context.Context, id uuid.UUID) (*model.Key, error) {
 	var key model.Key
-	var idStr, userIDStr string
+	var idStr, userIDStr, vaultIDStr string
 
 	err := r.db.QueryRowContext(
 		ctx,
-		"SELECT id, user_id, name, value, type, revoked, created_at, enabled, expires_at, not_before, bits, curve, updated_at, deleted_at, scheduled_purge_at FROM keys WHERE id = ?",
+		"SELECT id, user_id, vault_id, name, value, type, revoked, created_at, enabled, expires_at, not_before, bits, curve, updated_at, deleted_at, scheduled_purge_at FROM keys WHERE id = ?",
 		id.String(),
-	).Scan(&idStr, &userIDStr, &key.Name, &key.Value, &key.Type, &key.Revoked, &key.CreatedAt,
+	).Scan(&idStr, &userIDStr, &vaultIDStr, &key.Name, &key.Value, &key.Type, &key.Revoked, &key.CreatedAt,
 		&key.Enabled, &key.ExpiresAt, &key.NotBefore, &key.Bits, &key.Curve, &key.UpdatedAt,
 		&key.DeletedAt, &key.ScheduledPurgeAt)
 
@@ -250,6 +255,11 @@ func (r *KeyRepository) ReadDeleted(ctx context.Context, id uuid.UUID) (*model.K
 	key.UserID, err = uuid.Parse(userIDStr)
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse user ID: %w", err)
+	}
+
+	key.VaultID, err = uuid.Parse(vaultIDStr)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse vault ID: %w", err)
 	}
 
 	// Tags are not strictly needed for deletion metadata but kept for consistency.
