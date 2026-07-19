@@ -22,6 +22,7 @@ import (
 	"rocketvault/internal/container"
 	"rocketvault/internal/cache"
 	"rocketvault/internal/crypto"
+	"rocketvault/internal/db"
 	"rocketvault/internal/keycache"
 	"rocketvault/internal/logging"
 	"rocketvault/internal/metrics"
@@ -140,6 +141,12 @@ func (vaultNoopCascade) SoftDeleteVaultContents(context.Context, uuid.UUID, time
 	return nil
 }
 func (vaultNoopCascade) RecoverVaultContents(context.Context, uuid.UUID, time.Time) error { return nil }
+func (vaultNoopCascade) SoftDeleteVaultContentsTx(context.Context, db.DBTX, uuid.UUID, time.Time) error {
+	return nil
+}
+func (vaultNoopCascade) RecoverVaultContentsTx(context.Context, db.DBTX, uuid.UUID, time.Time) error {
+	return nil
+}
 
 // --- vaultSvcTestContainer ---
 

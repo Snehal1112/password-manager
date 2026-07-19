@@ -2,15 +2,34 @@ package vaults
 
 import (
 	"context"
+	"fmt"
 	"time"
 
 	"github.com/google/uuid"
+
+	"rocketvault/internal/db"
 )
 
 // vaultContentRepo is the subset of a resource repository the cascade needs.
+// Deliberately unchanged by the Tx work below: this interface's production
+// values arrive as SecretRepositoryInterface/KeyRepositoryInterface/
+// CertificateRepositoryInterface, which are implemented by many test doubles
+// across the codebase -- adding methods here would ripple to all of them.
 type vaultContentRepo interface {
 	SoftDeleteVaultContents(ctx context.Context, vaultID uuid.UUID, deletedAt time.Time) error
 	RecoverVaultContents(ctx context.Context, vaultID uuid.UUID, deletedAt time.Time) error
+}
+
+// txCapableContentRepo is implemented by a vaultContentRepo's concrete type
+// when it also supports running inside a caller-supplied transaction. The
+// Tx-scoped methods live only on the concrete Secret/Key/CertificateRepository
+// structs (Task 5), not on their exported *RepositoryInterface types. A type
+// assertion recovers the capability from the stored interface value's dynamic
+// type -- present for the real repositories, never for a plain test double
+// that only implements the two non-Tx methods above.
+type txCapableContentRepo interface {
+	SoftDeleteVaultContentsTx(ctx context.Context, ex db.DBTX, vaultID uuid.UUID, deletedAt time.Time) error
+	RecoverVaultContentsTx(ctx context.Context, ex db.DBTX, vaultID uuid.UUID, deletedAt time.Time) error
 }
 
 // cascadeAdapter fans cascade operations out to the secret, key, and cert repos.
@@ -35,6 +54,32 @@ func (a *cascadeAdapter) SoftDeleteVaultContents(ctx context.Context, vaultID uu
 func (a *cascadeAdapter) RecoverVaultContents(ctx context.Context, vaultID uuid.UUID, deletedAt time.Time) error {
 	for _, r := range a.repos {
 		if err := r.RecoverVaultContents(ctx, vaultID, deletedAt); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (a *cascadeAdapter) SoftDeleteVaultContentsTx(ctx context.Context, ex db.DBTX, vaultID uuid.UUID, deletedAt time.Time) error {
+	for _, r := range a.repos {
+		txRepo, ok := r.(txCapableContentRepo)
+		if !ok {
+			return fmt.Errorf("repository %T does not support transactional vault cascade", r)
+		}
+		if err := txRepo.SoftDeleteVaultContentsTx(ctx, ex, vaultID, deletedAt); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (a *cascadeAdapter) RecoverVaultContentsTx(ctx context.Context, ex db.DBTX, vaultID uuid.UUID, deletedAt time.Time) error {
+	for _, r := range a.repos {
+		txRepo, ok := r.(txCapableContentRepo)
+		if !ok {
+			return fmt.Errorf("repository %T does not support transactional vault cascade", r)
+		}
+		if err := txRepo.RecoverVaultContentsTx(ctx, ex, vaultID, deletedAt); err != nil {
 			return err
 		}
 	}

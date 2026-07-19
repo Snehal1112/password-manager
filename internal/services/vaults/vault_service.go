@@ -9,6 +9,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"rocketvault/internal/db"
 	"rocketvault/internal/logging"
 	"rocketvault/internal/repositories"
 	"rocketvault/model"
@@ -24,6 +25,10 @@ var ErrVaultNotFound = errors.New("vault not found")
 type CascadeRepository interface {
 	SoftDeleteVaultContents(ctx context.Context, vaultID uuid.UUID, deletedAt time.Time) error
 	RecoverVaultContents(ctx context.Context, vaultID uuid.UUID, deletedAt time.Time) error
+	// SoftDeleteVaultContentsTx is SoftDeleteVaultContents scoped to an explicit executor.
+	SoftDeleteVaultContentsTx(ctx context.Context, ex db.DBTX, vaultID uuid.UUID, deletedAt time.Time) error
+	// RecoverVaultContentsTx is RecoverVaultContents scoped to an explicit executor.
+	RecoverVaultContentsTx(ctx context.Context, ex db.DBTX, vaultID uuid.UUID, deletedAt time.Time) error
 }
 
 // PolicyCleaner removes access policies scoped to a vault (used on purge).

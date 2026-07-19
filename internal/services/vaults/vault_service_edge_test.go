@@ -9,6 +9,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"rocketvault/internal/db"
 	"rocketvault/model"
 )
 
@@ -251,5 +252,11 @@ func (f *failingCascade) SoftDeleteVaultContents(context.Context, uuid.UUID, tim
 	return f.err
 }
 func (f *failingCascade) RecoverVaultContents(context.Context, uuid.UUID, time.Time) error {
+	return f.err
+}
+func (f *failingCascade) SoftDeleteVaultContentsTx(context.Context, db.DBTX, uuid.UUID, time.Time) error {
+	return f.err
+}
+func (f *failingCascade) RecoverVaultContentsTx(context.Context, db.DBTX, uuid.UUID, time.Time) error {
 	return f.err
 }

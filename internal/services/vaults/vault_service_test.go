@@ -8,6 +8,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"rocketvault/internal/db"
 	"rocketvault/internal/repositories"
 	"rocketvault/model"
 )
@@ -108,6 +109,14 @@ func (n *noopCascade) SoftDeleteVaultContents(context.Context, uuid.UUID, time.T
 	return nil
 }
 func (n *noopCascade) RecoverVaultContents(context.Context, uuid.UUID, time.Time) error {
+	n.recover++
+	return nil
+}
+func (n *noopCascade) SoftDeleteVaultContentsTx(context.Context, db.DBTX, uuid.UUID, time.Time) error {
+	n.soft++
+	return nil
+}
+func (n *noopCascade) RecoverVaultContentsTx(context.Context, db.DBTX, uuid.UUID, time.Time) error {
 	n.recover++
 	return nil
 }
