@@ -141,6 +141,26 @@ func getVault(c *Context, w http.ResponseWriter, r *http.Request) {
 func updateVault(c *Context, w http.ResponseWriter, r *http.Request) {
 	name := mux.Vars(r)["name"]
 
+	svc := c.vaultSvc()
+	if svc == nil {
+		return
+	}
+
+	// Resolve the target vault first (404), then authorize against it (403), before
+	// reading the body or mutating anything. These {name} routes bypass
+	// VaultResolutionMiddleware, so the ambient policy check covered only the
+	// default vault. UpdateVault re-reads the vault internally; the extra read here
+	// is deliberate and cheap.
+	target, err := svc.GetVault(r.Context(), name)
+	if err != nil {
+		c.SetNotFound("vault")
+		return
+	}
+	if !requireVaultManage(c, r, target.ID) {
+		c.SetPermissionError("admin or vaults/manage required")
+		return
+	}
+
 	req, err := model.UpdateVaultRequestFromJson(r.Body)
 	if err != nil {
 		c.SetInvalidParam("request body")
@@ -156,15 +176,11 @@ func updateVault(c *Context, w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	svc := c.vaultSvc()
-	if svc == nil {
-		return
-	}
-
 	vault, err := svc.UpdateVault(r.Context(), name, *req, updatedBy)
 	if err != nil {
 		// The not-found sentinel maps to 404; validation and other failures are
-		// client errors.
+		// client errors. GetVault above already covers the common not-found case;
+		// this branch remains as defense in depth against a concurrent delete.
 		if errors.Is(err, vaultServices.ErrVaultNotFound) {
 			c.SetNotFound("vault")
 			return
@@ -186,6 +202,19 @@ func deleteVault(c *Context, w http.ResponseWriter, r *http.Request) {
 
 	svc := c.vaultSvc()
 	if svc == nil {
+		return
+	}
+
+	// Resolve the target (404) and authorize (403) before deleting. The default
+	// vault resolves successfully here; the "cannot delete the default vault"
+	// refusal is still enforced by DeleteVault below and surfaces as a 400.
+	target, err := svc.GetVault(r.Context(), name)
+	if err != nil {
+		c.SetNotFound("vault")
+		return
+	}
+	if !requireVaultManage(c, r, target.ID) {
+		c.SetPermissionError("admin or vaults/manage required")
 		return
 	}
 

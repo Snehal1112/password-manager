@@ -76,3 +76,41 @@ func TestGetVault_NotFoundBeforeForbidden(t *testing.T) {
 	w := doVaultRequestAs(api, string(model.RoleUser), http.MethodGet, "/api/v1/vaults/ghost", nil)
 	assert.Equal(t, http.StatusNotFound, w.Code)
 }
+
+// TestUpdateVault_ForbiddenWhenNotScopedToTargetVault proves PATCH is gated.
+func TestUpdateVault_ForbiddenWhenNotScopedToTargetVault(t *testing.T) {
+	policySvc := &mockAccessPolicyService{}
+	policySvc.On("CheckAccess", mock.Anything, mock.Anything,
+		model.PolicyResourceVaults, model.OpManage, mock.Anything).
+		Return(authzServices.AccessFallback, nil)
+	api, _ := buildAuthzVaultAPI(policySvc)
+
+	body := []byte(`{"enabled":false}`)
+	w := doVaultRequestAs(api, string(model.RoleUser), http.MethodPatch, "/api/v1/vaults/prod", body)
+	assert.Equal(t, http.StatusForbidden, w.Code)
+}
+
+// TestUpdateVault_NotFoundBeforeForbidden proves a missing target yields 404, and
+// the gate runs before the update mutates anything.
+func TestUpdateVault_NotFoundBeforeForbidden(t *testing.T) {
+	policySvc := &mockAccessPolicyService{}
+	policySvc.On("CheckAccess", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).
+		Return(authzServices.AccessFallback, nil)
+	api, _ := buildAuthzVaultAPI(policySvc)
+
+	body := []byte(`{"enabled":false}`)
+	w := doVaultRequestAs(api, string(model.RoleUser), http.MethodPatch, "/api/v1/vaults/ghost", body)
+	assert.Equal(t, http.StatusNotFound, w.Code)
+}
+
+// TestDeleteVault_ForbiddenWhenNotScopedToTargetVault proves DELETE is gated.
+func TestDeleteVault_ForbiddenWhenNotScopedToTargetVault(t *testing.T) {
+	policySvc := &mockAccessPolicyService{}
+	policySvc.On("CheckAccess", mock.Anything, mock.Anything,
+		model.PolicyResourceVaults, model.OpManage, mock.Anything).
+		Return(authzServices.AccessFallback, nil)
+	api, _ := buildAuthzVaultAPI(policySvc)
+
+	w := doVaultRequestAs(api, string(model.RoleUser), http.MethodDelete, "/api/v1/vaults/prod", nil)
+	assert.Equal(t, http.StatusForbidden, w.Code)
+}
