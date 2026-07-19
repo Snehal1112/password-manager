@@ -22,6 +22,10 @@ const defaultRetentionDays = 90
 // ErrVaultNotFound is returned when a vault cannot be found by name.
 var ErrVaultNotFound = errors.New("vault not found")
 
+// ErrDefaultVaultProtected is returned when an operation refuses to act on
+// the default vault (e.g. delete, purge).
+var ErrDefaultVaultProtected = errors.New("default vault is protected from this operation")
+
 // CascadeRepository soft-deletes or recovers all resources belonging to a vault.
 type CascadeRepository interface {
 	SoftDeleteVaultContents(ctx context.Context, vaultID uuid.UUID, deletedAt time.Time) error
@@ -222,7 +226,7 @@ func (s *vaultService) UpdateVault(ctx context.Context, name string, req model.U
 // DeleteVault soft-deletes a vault and cascades the soft-delete to its contents.
 func (s *vaultService) DeleteVault(ctx context.Context, name string) error {
 	if name == model.DefaultVaultName {
-		return fmt.Errorf("the default vault cannot be deleted")
+		return fmt.Errorf("the default vault cannot be deleted: %w", ErrDefaultVaultProtected)
 	}
 	v, err := s.getByName(ctx, name)
 	if err != nil {

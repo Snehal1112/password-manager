@@ -128,6 +128,55 @@ func TestDeleteVault_CascadeFailureRollsBackEverything(t *testing.T) {
 	require.Nil(t, deletedAtColumn(t, sqlDB, "secrets", secretID), "secret soft-delete must have rolled back with it")
 }
 
+// TestRecoverVault_CascadeFailureRollsBackEverything proves RecoverVault's
+// transactional path -- structurally identical to DeleteVault's (RecoverTx +
+// RecoverVaultContentsTx inside one withTx) -- rolls back the vault row's
+// recovery when the cascade fails, against a real SQLite database. Unlike the
+// delete tests, the fixture starts from an ALREADY soft-deleted vault and
+// secret sharing the same deleted_at, mirroring what DeleteVault's own
+// cascade would have produced in production.
+func TestRecoverVault_CascadeFailureRollsBackEverything(t *testing.T) {
+	sqlDB := newTxTestDB(t)
+	conn := rvdb.NewConn(sqlDB, rvdb.SQLite)
+	log := newTxTestLogger(t)
+	ctx := context.Background()
+
+	vaultRepo := repositories.NewVaultRepository(conn, log)
+	secretRepo := repositories.NewSecretRepository(conn, log)
+
+	vaultID := uuid.New()
+	require.NoError(t, vaultRepo.Create(ctx, &model.Vault{
+		ID: vaultID, Name: "prod", Enabled: true, RetentionDays: 90, CreatedBy: uuid.New(),
+	}))
+	secretID := uuid.New()
+	require.NoError(t, secretRepo.Create(ctx, &model.Secret{
+		ID: secretID, UserID: uuid.New(), VaultID: vaultID, Name: "s1", Value: "enc",
+		Version: 1, CreatedAt: time.Now().UTC(), Enabled: true,
+	}))
+
+	// Soft-delete the vault, then stamp the secret with the EXACT same
+	// deleted_at the vault ended up with -- exactly what DeleteVault's own
+	// cascade does in production -- so RecoverVault's cascade query (which
+	// matches on that timestamp) picks the secret back up too.
+	require.NoError(t, vaultRepo.SoftDelete(ctx, vaultID))
+	deletedAt := deletedAtColumn(t, sqlDB, "vaults", vaultID)
+	require.NotNil(t, deletedAt, "vault must be soft-deleted before the recover test begins")
+	require.NoError(t, secretRepo.SoftDeleteVaultContents(ctx, vaultID, *deletedAt))
+	require.NotNil(t, deletedAtColumn(t, sqlDB, "secrets", secretID), "secret must be soft-deleted before the recover test begins")
+
+	boom := errors.New("cert recover cascade boom")
+	cascade := vaultServices.NewCascadeAdapter(secretRepo, &explodingContentRepo{err: boom})
+	svc := vaultServices.NewVaultService(vaultRepo, cascade, log)
+	svc.SetTxBeginner(conn)
+
+	err := svc.RecoverVault(ctx, "prod")
+	require.Error(t, err)
+	require.ErrorIs(t, err, boom)
+
+	require.NotNil(t, deletedAtColumn(t, sqlDB, "vaults", vaultID), "vault recovery must have rolled back, leaving it soft-deleted")
+	require.NotNil(t, deletedAtColumn(t, sqlDB, "secrets", secretID), "secret recovery must have rolled back with it, leaving it soft-deleted")
+}
+
 func TestDeleteVault_CascadeSuccessCommitsEverything(t *testing.T) {
 	sqlDB := newTxTestDB(t)
 	conn := rvdb.NewConn(sqlDB, rvdb.SQLite)

@@ -49,6 +49,10 @@ type vaultFakeRepo struct {
 	// readErr, when set, is returned by ReadByName/ReadByID instead of the
 	// normal not-found sentinel -- simulates a real failure (e.g. DB outage).
 	readErr error
+	// deleteErr, when set, is returned by SoftDelete instead of succeeding --
+	// simulates a real failure in the post-mutation path (e.g. a transaction
+	// or DB error during DeleteVault).
+	deleteErr error
 }
 
 func newVaultFakeRepo() *vaultFakeRepo {
@@ -111,6 +115,9 @@ func (f *vaultFakeRepo) Update(_ context.Context, v *model.Vault) error {
 	return nil
 }
 func (f *vaultFakeRepo) SoftDelete(_ context.Context, id uuid.UUID) error {
+	if f.deleteErr != nil {
+		return f.deleteErr
+	}
 	if v, ok := f.byID[id.String()]; ok {
 		now := nowForVaultTest()
 		v.DeletedAt = &now
@@ -409,6 +416,22 @@ func TestDeleteVault_InternalErrorIsNotReportedAsNotFound(t *testing.T) {
 	repo.readErr = errors.New("connection refused")
 
 	w := doVaultRequest(api, http.MethodDelete, "/api/v1/vaults/anything", nil)
+	assert.Equal(t, http.StatusInternalServerError, w.Code)
+}
+
+// TestDeleteVault_PostMutationInternalErrorIsNotReportedAsBadRequest proves
+// that a genuine internal failure occurring AFTER the precheck (e.g. inside
+// DeleteVault's own SoftDelete/transaction call) surfaces as 500, not the
+// misleading 400 that would result from treating every DeleteVault error as
+// a client-side refusal.
+func TestDeleteVault_PostMutationInternalErrorIsNotReportedAsBadRequest(t *testing.T) {
+	api, repo := newVaultTestAPI()
+	id := uuid.New()
+	repo.byName["stg"] = &model.Vault{ID: id, Name: "stg", Enabled: true}
+	repo.byID[id.String()] = repo.byName["stg"]
+	repo.deleteErr = errors.New("begin transaction: connection refused")
+
+	w := doVaultRequest(api, http.MethodDelete, "/api/v1/vaults/stg", nil)
 	assert.Equal(t, http.StatusInternalServerError, w.Code)
 }
 

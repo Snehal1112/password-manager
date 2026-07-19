@@ -236,13 +236,19 @@ func deleteVault(c *Context, w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := svc.DeleteVault(r.Context(), name); err != nil {
-		// The not-found sentinel maps to 404; all other failures (such as the
-		// refusal to delete the default vault) are client errors.
+		// The not-found sentinel maps to 404; the protected-vault refusal is a
+		// client error (400). Anything else (a transaction/DB failure) is an
+		// internal error (500) -- it must not be reported as if the caller did
+		// something wrong.
 		if errors.Is(err, vaultServices.ErrVaultNotFound) {
 			c.SetNotFound("vault")
 			return
 		}
-		c.SetInvalidParam(err.Error())
+		if errors.Is(err, vaultServices.ErrDefaultVaultProtected) {
+			c.SetInvalidParam(err.Error())
+			return
+		}
+		c.SetInternalError(err)
 		return
 	}
 
