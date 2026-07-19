@@ -19,6 +19,7 @@ import (
 	"rocketvault/app"
 	"rocketvault/common"
 	"rocketvault/internal/backup"
+	"rocketvault/internal/container"
 	"rocketvault/internal/cache"
 	"rocketvault/internal/crypto"
 	"rocketvault/internal/keycache"
@@ -138,6 +139,9 @@ type vaultSvcTestContainer struct {
 	secretSvc secretServices.SecretService
 	keySvc    keyServices.KeyService
 	certSvc   certServices.CertificateService
+	policySvc authzServices.AccessPolicyService
+	rbacSvc   authzServices.RBACService
+	logger    *logging.Logger
 }
 
 func (c *vaultSvcTestContainer) GetVaultService() vaultServices.VaultService { return c.vaultSvc }
@@ -148,6 +152,9 @@ func (c *vaultSvcTestContainer) GetSecretService() secretServices.SecretService 
 	panic("unexpected call: GetSecretService")
 }
 func (c *vaultSvcTestContainer) GetRBACService() authzServices.RBACService {
+	if c.rbacSvc != nil {
+		return c.rbacSvc
+	}
 	// The vault management routes map to no specific permission, so a real RBAC
 	// service grants access regardless of role.
 	return authzServices.NewRBACService(nil)
@@ -195,6 +202,9 @@ func (c *vaultSvcTestContainer) GetAccessPolicyRepository() repositories.AccessP
 	panic("unexpected call: GetAccessPolicyRepository")
 }
 func (c *vaultSvcTestContainer) GetAccessPolicyService() authzServices.AccessPolicyService {
+	if c.policySvc != nil {
+		return c.policySvc
+	}
 	panic("unexpected call: GetAccessPolicyService")
 }
 func (c *vaultSvcTestContainer) GetRoleAssignmentService() authzServices.RoleAssignmentService {
@@ -244,6 +254,9 @@ func (c *vaultSvcTestContainer) GetSchedulerService() secretServices.SchedulerSe
 }
 func (c *vaultSvcTestContainer) GetDatabase() *sql.DB { panic("unexpected call: GetDatabase") }
 func (c *vaultSvcTestContainer) GetLogger() *logging.Logger {
+	if c.logger != nil {
+		return c.logger
+	}
 	panic("unexpected call: GetLogger")
 }
 func (c *vaultSvcTestContainer) GetSecretCache() *cache.SecretCache {
@@ -365,4 +378,59 @@ func TestDeleteVault_Success(t *testing.T) {
 
 	w := doVaultRequest(api, http.MethodDelete, "/api/v1/vaults/stg", nil)
 	assert.Equal(t, http.StatusNoContent, w.Code)
+}
+
+// --- permissiveRBAC: an RBAC service that allows everything ---
+
+type permissiveRBAC struct{}
+
+func (p permissiveRBAC) HasPermission(role string, permission authzServices.Permission) bool {
+	return true
+}
+
+func (p permissiveRBAC) GetRolePermissions(role string) []authzServices.Permission {
+	return []authzServices.Permission{}
+}
+
+func (p permissiveRBAC) ValidateEndpointAccess(role, method, path string) error {
+	return nil
+}
+
+// --- newVaultTestAPIWithContainer ---
+
+// newVaultTestAPIWithContainer builds an API using the provided test container.
+func newVaultTestAPIWithContainer(cont container.ServiceContainerInterface) *API {
+	a := &app.App{ServiceContainer: cont}
+	a.Logger = userTestLog()
+
+	router := mux.NewRouter()
+	api := &API{
+		App:        a,
+		BaseRoutes: &Routes{},
+		basePath:   "/api/v1",
+		rootRouter: router,
+		Logger:     userTestLog(),
+	}
+	api.BaseRoutes.ApiRoot = router.PathPrefix("/api/v1").Subrouter()
+	api.BaseRoutes.Vaults = api.BaseRoutes.ApiRoot.PathPrefix("/vaults").Subrouter()
+	api.InitVault()
+	return api
+}
+
+// --- doVaultRequestAs ---
+
+// doVaultRequestAs issues an authed request through the API router with a specific role.
+func doVaultRequestAs(api *API, role, method, path string, body []byte) *httptest.ResponseRecorder {
+	var r *http.Request
+	if body != nil {
+		r = httptest.NewRequest(method, path, bytes.NewReader(body))
+	} else {
+		r = httptest.NewRequest(method, path, nil)
+	}
+	ctx := context.WithValue(r.Context(), common.UserIDKey, vaultTestUserID)
+	ctx = context.WithValue(ctx, common.RoleKey, role)
+	r = r.WithContext(ctx)
+	w := httptest.NewRecorder()
+	api.rootRouter.ServeHTTP(w, r)
+	return w
 }

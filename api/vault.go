@@ -124,6 +124,14 @@ func getVault(c *Context, w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Authorize against the TARGET vault named in the path. These {name} routes
+	// bypass VaultResolutionMiddleware, so PolicyMiddleware only evaluated the
+	// default vault; re-check vaults:manage against this vault's own ID.
+	if !requireVaultManage(c, r, vault.ID) {
+		c.SetPermissionError("admin or vaults/manage required")
+		return
+	}
+
 	response := vault.ToResponse()
 	w.Header().Set("Content-Type", "application/json")
 	w.Write([]byte(response.ToJson()))
