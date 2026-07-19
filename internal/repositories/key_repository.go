@@ -985,19 +985,30 @@ func (r *KeyRepository) ReadInVault(ctx context.Context, id, vaultID uuid.UUID) 
 //	An error if the soft deletion fails.
 func (r *KeyRepository) SoftDeleteVaultContents(ctx context.Context, vaultID uuid.UUID, deletedAt time.Time) error {
 	return r.executeWithMetrics("soft_delete_vault_keys", func() error {
-		logrus.WithField("vault_id", vaultID.String()).Debug("Soft deleting all keys in vault")
-
-		_, err := r.db.ExecContext(ctx,
-			"UPDATE keys SET deleted_at = ? WHERE vault_id = ? AND deleted_at IS NULL",
-			deletedAt, vaultID.String())
-		if err != nil {
-			r.log.LogAuditError(vaultID.String(), "soft_delete_vault_keys", "failed", "Failed to soft delete vault keys", err)
-			return fmt.Errorf("failed to soft delete vault keys: %w", err)
-		}
-
-		r.log.LogAuditInfo(vaultID.String(), "soft_delete_vault_keys", "success", "Vault keys soft deleted successfully")
-		return nil
+		return r.softDeleteVaultContents(ctx, r.db, vaultID, deletedAt)
 	})
+}
+
+// SoftDeleteVaultContentsTx is SoftDeleteVaultContents scoped to an explicit executor.
+func (r *KeyRepository) SoftDeleteVaultContentsTx(ctx context.Context, ex db.DBTX, vaultID uuid.UUID, deletedAt time.Time) error {
+	return r.executeWithMetrics("soft_delete_vault_keys", func() error {
+		return r.softDeleteVaultContents(ctx, ex, vaultID, deletedAt)
+	})
+}
+
+func (r *KeyRepository) softDeleteVaultContents(ctx context.Context, ex db.DBTX, vaultID uuid.UUID, deletedAt time.Time) error {
+	logrus.WithField("vault_id", vaultID.String()).Debug("Soft deleting all keys in vault")
+
+	_, err := ex.ExecContext(ctx,
+		"UPDATE keys SET deleted_at = ? WHERE vault_id = ? AND deleted_at IS NULL",
+		deletedAt, vaultID.String())
+	if err != nil {
+		r.log.LogAuditError(vaultID.String(), "soft_delete_vault_keys", "failed", "Failed to soft delete vault keys", err)
+		return fmt.Errorf("failed to soft delete vault keys: %w", err)
+	}
+
+	r.log.LogAuditInfo(vaultID.String(), "soft_delete_vault_keys", "success", "Vault keys soft deleted successfully")
+	return nil
 }
 
 // RecoverVaultContents restores every soft-deleted key in a vault.
@@ -1012,17 +1023,28 @@ func (r *KeyRepository) SoftDeleteVaultContents(ctx context.Context, vaultID uui
 //	An error if the recovery fails.
 func (r *KeyRepository) RecoverVaultContents(ctx context.Context, vaultID uuid.UUID, deletedAt time.Time) error {
 	return r.executeWithMetrics("recover_vault_keys", func() error {
-		logrus.WithField("vault_id", vaultID.String()).Debug("Recovering cascade soft-deleted keys in vault")
-
-		_, err := r.db.ExecContext(ctx,
-			"UPDATE keys SET deleted_at = NULL, scheduled_purge_at = NULL WHERE vault_id = ? AND deleted_at = ?",
-			vaultID.String(), deletedAt)
-		if err != nil {
-			r.log.LogAuditError(vaultID.String(), "recover_vault_keys", "failed", "Failed to recover vault keys", err)
-			return fmt.Errorf("failed to recover vault keys: %w", err)
-		}
-
-		r.log.LogAuditInfo(vaultID.String(), "recover_vault_keys", "success", "Vault keys recovered successfully")
-		return nil
+		return r.recoverVaultContents(ctx, r.db, vaultID, deletedAt)
 	})
+}
+
+// RecoverVaultContentsTx is RecoverVaultContents scoped to an explicit executor.
+func (r *KeyRepository) RecoverVaultContentsTx(ctx context.Context, ex db.DBTX, vaultID uuid.UUID, deletedAt time.Time) error {
+	return r.executeWithMetrics("recover_vault_keys", func() error {
+		return r.recoverVaultContents(ctx, ex, vaultID, deletedAt)
+	})
+}
+
+func (r *KeyRepository) recoverVaultContents(ctx context.Context, ex db.DBTX, vaultID uuid.UUID, deletedAt time.Time) error {
+	logrus.WithField("vault_id", vaultID.String()).Debug("Recovering cascade soft-deleted keys in vault")
+
+	_, err := ex.ExecContext(ctx,
+		"UPDATE keys SET deleted_at = NULL, scheduled_purge_at = NULL WHERE vault_id = ? AND deleted_at = ?",
+		vaultID.String(), deletedAt)
+	if err != nil {
+		r.log.LogAuditError(vaultID.String(), "recover_vault_keys", "failed", "Failed to recover vault keys", err)
+		return fmt.Errorf("failed to recover vault keys: %w", err)
+	}
+
+	r.log.LogAuditInfo(vaultID.String(), "recover_vault_keys", "success", "Vault keys recovered successfully")
+	return nil
 }

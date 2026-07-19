@@ -1042,19 +1042,30 @@ func (r *CertificateRepository) ReadInVault(ctx context.Context, id, vaultID uui
 //	An error if the soft deletion fails.
 func (r *CertificateRepository) SoftDeleteVaultContents(ctx context.Context, vaultID uuid.UUID, deletedAt time.Time) error {
 	return r.executeWithMetrics("soft_delete_vault_certificates", func() error {
-		logrus.WithField("vault_id", vaultID.String()).Debug("Soft deleting all certificates in vault")
-
-		_, err := r.db.ExecContext(ctx,
-			"UPDATE certificates SET deleted_at = ? WHERE vault_id = ? AND deleted_at IS NULL",
-			deletedAt, vaultID.String())
-		if err != nil {
-			r.log.LogAuditError(vaultID.String(), "soft_delete_vault_certificates", "failed", "Failed to soft delete vault certificates", err)
-			return fmt.Errorf("failed to soft delete vault certificates: %w", err)
-		}
-
-		r.log.LogAuditInfo(vaultID.String(), "soft_delete_vault_certificates", "success", "Vault certificates soft deleted successfully")
-		return nil
+		return r.softDeleteVaultContents(ctx, r.db, vaultID, deletedAt)
 	})
+}
+
+// SoftDeleteVaultContentsTx is SoftDeleteVaultContents scoped to an explicit executor.
+func (r *CertificateRepository) SoftDeleteVaultContentsTx(ctx context.Context, ex db.DBTX, vaultID uuid.UUID, deletedAt time.Time) error {
+	return r.executeWithMetrics("soft_delete_vault_certificates", func() error {
+		return r.softDeleteVaultContents(ctx, ex, vaultID, deletedAt)
+	})
+}
+
+func (r *CertificateRepository) softDeleteVaultContents(ctx context.Context, ex db.DBTX, vaultID uuid.UUID, deletedAt time.Time) error {
+	logrus.WithField("vault_id", vaultID.String()).Debug("Soft deleting all certificates in vault")
+
+	_, err := ex.ExecContext(ctx,
+		"UPDATE certificates SET deleted_at = ? WHERE vault_id = ? AND deleted_at IS NULL",
+		deletedAt, vaultID.String())
+	if err != nil {
+		r.log.LogAuditError(vaultID.String(), "soft_delete_vault_certificates", "failed", "Failed to soft delete vault certificates", err)
+		return fmt.Errorf("failed to soft delete vault certificates: %w", err)
+	}
+
+	r.log.LogAuditInfo(vaultID.String(), "soft_delete_vault_certificates", "success", "Vault certificates soft deleted successfully")
+	return nil
 }
 
 // RecoverVaultContents restores every soft-deleted certificate in a vault.
@@ -1069,17 +1080,28 @@ func (r *CertificateRepository) SoftDeleteVaultContents(ctx context.Context, vau
 //	An error if the recovery fails.
 func (r *CertificateRepository) RecoverVaultContents(ctx context.Context, vaultID uuid.UUID, deletedAt time.Time) error {
 	return r.executeWithMetrics("recover_vault_certificates", func() error {
-		logrus.WithField("vault_id", vaultID.String()).Debug("Recovering cascade soft-deleted certificates in vault")
-
-		_, err := r.db.ExecContext(ctx,
-			"UPDATE certificates SET deleted_at = NULL, scheduled_purge_at = NULL WHERE vault_id = ? AND deleted_at = ?",
-			vaultID.String(), deletedAt)
-		if err != nil {
-			r.log.LogAuditError(vaultID.String(), "recover_vault_certificates", "failed", "Failed to recover vault certificates", err)
-			return fmt.Errorf("failed to recover vault certificates: %w", err)
-		}
-
-		r.log.LogAuditInfo(vaultID.String(), "recover_vault_certificates", "success", "Vault certificates recovered successfully")
-		return nil
+		return r.recoverVaultContents(ctx, r.db, vaultID, deletedAt)
 	})
+}
+
+// RecoverVaultContentsTx is RecoverVaultContents scoped to an explicit executor.
+func (r *CertificateRepository) RecoverVaultContentsTx(ctx context.Context, ex db.DBTX, vaultID uuid.UUID, deletedAt time.Time) error {
+	return r.executeWithMetrics("recover_vault_certificates", func() error {
+		return r.recoverVaultContents(ctx, ex, vaultID, deletedAt)
+	})
+}
+
+func (r *CertificateRepository) recoverVaultContents(ctx context.Context, ex db.DBTX, vaultID uuid.UUID, deletedAt time.Time) error {
+	logrus.WithField("vault_id", vaultID.String()).Debug("Recovering cascade soft-deleted certificates in vault")
+
+	_, err := ex.ExecContext(ctx,
+		"UPDATE certificates SET deleted_at = NULL, scheduled_purge_at = NULL WHERE vault_id = ? AND deleted_at = ?",
+		vaultID.String(), deletedAt)
+	if err != nil {
+		r.log.LogAuditError(vaultID.String(), "recover_vault_certificates", "failed", "Failed to recover vault certificates", err)
+		return fmt.Errorf("failed to recover vault certificates: %w", err)
+	}
+
+	r.log.LogAuditInfo(vaultID.String(), "recover_vault_certificates", "success", "Vault certificates recovered successfully")
+	return nil
 }

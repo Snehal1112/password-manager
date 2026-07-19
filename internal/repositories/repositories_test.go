@@ -1380,3 +1380,103 @@ func TestRotationPolicyRepository_GetDueRotations(t *testing.T) {
 	assert.Len(t, due, 1)
 	assert.Equal(t, secretID, due[0].SecretID)
 }
+
+// ---------------------------------------------------------------------------
+// KeyRepository / CertificateRepository -- vault-cascade Tx-scoped methods
+// ---------------------------------------------------------------------------
+
+func TestKeyRepository_SoftDeleteVaultContentsTx_CommitsWithSharedTx(t *testing.T) {
+	t.Parallel()
+	db := setupFullKeyDB(t)
+	log := logging.InitLogger()
+	conn := rvdb.NewConn(db, rvdb.SQLite)
+	// SoftDeleteVaultContentsTx is intentionally not part of KeyRepositoryInterface
+	// (see internal/repositories/key_repository.go); assert to the concrete type
+	// to reach it, the way a same-package cascade caller would.
+	repo := repositories.NewKeyRepository(conn, log).(*repositories.KeyRepository)
+	ctx := context.Background()
+
+	vaultID := uuid.New()
+	k := newKey(uuid.New(), vaultID, "tx-key")
+	require.NoError(t, repo.Create(ctx, k))
+
+	tx, err := conn.BeginTx(ctx, nil)
+	require.NoError(t, err)
+	require.NoError(t, repo.SoftDeleteVaultContentsTx(ctx, tx, vaultID, time.Now().UTC()))
+	require.NoError(t, tx.Commit())
+
+	_, err = repo.Read(ctx, k.ID)
+	assert.Error(t, err, "key must be hidden after the transaction commits")
+}
+
+func TestKeyRepository_SoftDeleteVaultContentsTx_RollsBackWithSharedTx(t *testing.T) {
+	t.Parallel()
+	db := setupFullKeyDB(t)
+	log := logging.InitLogger()
+	conn := rvdb.NewConn(db, rvdb.SQLite)
+	// SoftDeleteVaultContentsTx is intentionally not part of KeyRepositoryInterface
+	// (see internal/repositories/key_repository.go); assert to the concrete type
+	// to reach it, the way a same-package cascade caller would.
+	repo := repositories.NewKeyRepository(conn, log).(*repositories.KeyRepository)
+	ctx := context.Background()
+
+	vaultID := uuid.New()
+	k := newKey(uuid.New(), vaultID, "tx-key-rb")
+	require.NoError(t, repo.Create(ctx, k))
+
+	tx, err := conn.BeginTx(ctx, nil)
+	require.NoError(t, err)
+	require.NoError(t, repo.SoftDeleteVaultContentsTx(ctx, tx, vaultID, time.Now().UTC()))
+	require.NoError(t, tx.Rollback())
+
+	_, err = repo.Read(ctx, k.ID)
+	require.NoError(t, err, "key must still be active after rollback")
+}
+
+func TestCertificateRepository_SoftDeleteVaultContentsTx_CommitsWithSharedTx(t *testing.T) {
+	t.Parallel()
+	db := setupFullCertDB(t)
+	log := logging.InitLogger()
+	conn := rvdb.NewConn(db, rvdb.SQLite)
+	// SoftDeleteVaultContentsTx is intentionally not part of CertificateRepositoryInterface
+	// (see internal/repositories/certificate_repository.go); assert to the concrete type
+	// to reach it, the way a same-package cascade caller would.
+	repo := repositories.NewCertificateRepository(conn, log).(*repositories.CertificateRepository)
+	ctx := context.Background()
+
+	vaultID := uuid.New()
+	c := newCert(uuid.New(), vaultID, "tx-cert")
+	require.NoError(t, repo.Create(ctx, c))
+
+	tx, err := conn.BeginTx(ctx, nil)
+	require.NoError(t, err)
+	require.NoError(t, repo.SoftDeleteVaultContentsTx(ctx, tx, vaultID, time.Now().UTC()))
+	require.NoError(t, tx.Commit())
+
+	_, err = repo.Read(ctx, c.ID)
+	assert.Error(t, err, "certificate must be hidden after the transaction commits")
+}
+
+func TestCertificateRepository_SoftDeleteVaultContentsTx_RollsBackWithSharedTx(t *testing.T) {
+	t.Parallel()
+	db := setupFullCertDB(t)
+	log := logging.InitLogger()
+	conn := rvdb.NewConn(db, rvdb.SQLite)
+	// SoftDeleteVaultContentsTx is intentionally not part of CertificateRepositoryInterface
+	// (see internal/repositories/certificate_repository.go); assert to the concrete type
+	// to reach it, the way a same-package cascade caller would.
+	repo := repositories.NewCertificateRepository(conn, log).(*repositories.CertificateRepository)
+	ctx := context.Background()
+
+	vaultID := uuid.New()
+	c := newCert(uuid.New(), vaultID, "tx-cert-rb")
+	require.NoError(t, repo.Create(ctx, c))
+
+	tx, err := conn.BeginTx(ctx, nil)
+	require.NoError(t, err)
+	require.NoError(t, repo.SoftDeleteVaultContentsTx(ctx, tx, vaultID, time.Now().UTC()))
+	require.NoError(t, tx.Rollback())
+
+	_, err = repo.Read(ctx, c.ID)
+	require.NoError(t, err, "certificate must still be active after rollback")
+}

@@ -308,3 +308,51 @@ func TestSoftDelete_PreservesPurgeProtection(t *testing.T) {
 	require.NoError(t, err)
 	assert.True(t, pp, "SoftDelete must not overwrite purge_protection")
 }
+
+func TestSecretRepository_SoftDeleteVaultContentsTx_CommitsWithSharedTx(t *testing.T) {
+	db := setupSecretTestDB(t)
+	conn := rvdb.NewConn(db, rvdb.SQLite)
+	// SoftDeleteVaultContentsTx is intentionally not part of SecretRepositoryInterface
+	// (see internal/repositories/secret_repository.go); assert to the concrete type
+	// to reach it, the way a same-package cascade caller would.
+	repo := repositories.NewSecretRepository(conn, newTestSecretLogger(t)).(*repositories.SecretRepository)
+	ctx := context.Background()
+
+	vaultID := uuid.New()
+	secret := &model.Secret{
+		ID: uuid.New(), UserID: uuid.New(), VaultID: vaultID, Name: "s", Value: "enc",
+		Version: 1, CreatedAt: time.Now().UTC(), Enabled: true,
+	}
+	require.NoError(t, repo.Create(ctx, secret))
+
+	tx, err := conn.BeginTx(ctx, nil)
+	require.NoError(t, err)
+	require.NoError(t, repo.SoftDeleteVaultContentsTx(ctx, tx, vaultID, time.Now().UTC()))
+	require.NoError(t, tx.Commit())
+
+	_, err = repo.Read(ctx, secret.ID)
+	require.Error(t, err, "secret must be hidden after commit")
+}
+
+func TestSecretRepository_SoftDeleteVaultContentsTx_RollsBackWithSharedTx(t *testing.T) {
+	db := setupSecretTestDB(t)
+	conn := rvdb.NewConn(db, rvdb.SQLite)
+	// See the comment in the Commits variant above for why we assert to the concrete type.
+	repo := repositories.NewSecretRepository(conn, newTestSecretLogger(t)).(*repositories.SecretRepository)
+	ctx := context.Background()
+
+	vaultID := uuid.New()
+	secret := &model.Secret{
+		ID: uuid.New(), UserID: uuid.New(), VaultID: vaultID, Name: "s", Value: "enc",
+		Version: 1, CreatedAt: time.Now().UTC(), Enabled: true,
+	}
+	require.NoError(t, repo.Create(ctx, secret))
+
+	tx, err := conn.BeginTx(ctx, nil)
+	require.NoError(t, err)
+	require.NoError(t, repo.SoftDeleteVaultContentsTx(ctx, tx, vaultID, time.Now().UTC()))
+	require.NoError(t, tx.Rollback())
+
+	_, err = repo.Read(ctx, secret.ID)
+	require.NoError(t, err, "secret must still be active after rollback")
+}

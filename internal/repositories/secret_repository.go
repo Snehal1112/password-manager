@@ -884,9 +884,18 @@ func (r *SecretRepository) ListInVaultIncludeDeleted(ctx context.Context, vaultI
 //
 //	An error if the soft deletion fails.
 func (r *SecretRepository) SoftDeleteVaultContents(ctx context.Context, vaultID uuid.UUID, deletedAt time.Time) error {
+	return r.softDeleteVaultContents(ctx, r.db, vaultID, deletedAt)
+}
+
+// SoftDeleteVaultContentsTx is SoftDeleteVaultContents scoped to an explicit executor.
+func (r *SecretRepository) SoftDeleteVaultContentsTx(ctx context.Context, ex db.DBTX, vaultID uuid.UUID, deletedAt time.Time) error {
+	return r.softDeleteVaultContents(ctx, ex, vaultID, deletedAt)
+}
+
+func (r *SecretRepository) softDeleteVaultContents(ctx context.Context, ex db.DBTX, vaultID uuid.UUID, deletedAt time.Time) error {
 	logrus.WithField("vault_id", vaultID.String()).Debug("Soft deleting all secrets in vault")
 
-	_, err := r.db.ExecContext(ctx,
+	_, err := ex.ExecContext(ctx,
 		"UPDATE secrets SET deleted_at = ? WHERE vault_id = ? AND deleted_at IS NULL",
 		deletedAt, vaultID.String())
 	if err != nil {
@@ -910,9 +919,18 @@ func (r *SecretRepository) SoftDeleteVaultContents(ctx context.Context, vaultID 
 //
 //	An error if the recovery fails.
 func (r *SecretRepository) RecoverVaultContents(ctx context.Context, vaultID uuid.UUID, deletedAt time.Time) error {
+	return r.recoverVaultContents(ctx, r.db, vaultID, deletedAt)
+}
+
+// RecoverVaultContentsTx is RecoverVaultContents scoped to an explicit executor.
+func (r *SecretRepository) RecoverVaultContentsTx(ctx context.Context, ex db.DBTX, vaultID uuid.UUID, deletedAt time.Time) error {
+	return r.recoverVaultContents(ctx, ex, vaultID, deletedAt)
+}
+
+func (r *SecretRepository) recoverVaultContents(ctx context.Context, ex db.DBTX, vaultID uuid.UUID, deletedAt time.Time) error {
 	logrus.WithField("vault_id", vaultID.String()).Debug("Recovering cascade soft-deleted secrets in vault")
 
-	_, err := r.db.ExecContext(ctx,
+	_, err := ex.ExecContext(ctx,
 		"UPDATE secrets SET deleted_at = NULL, scheduled_purge_at = NULL WHERE vault_id = ? AND deleted_at = ?",
 		vaultID.String(), deletedAt)
 	if err != nil {
