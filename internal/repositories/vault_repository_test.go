@@ -137,3 +137,43 @@ func TestVaultRepository_ReadByName_NonNotFoundErrorIsNotErrNotFound(t *testing.
 	require.Error(t, err)
 	require.False(t, errors.Is(err, repositories.ErrNotFound), "a closed-DB error must not look like not-found")
 }
+
+func TestVaultRepository_SoftDeleteTx_CommitsWithSharedTx(t *testing.T) {
+	sqlDB := newVaultTestDB(t)
+	conn := rvdb.NewConn(sqlDB, rvdb.SQLite)
+	repo := repositories.NewVaultRepository(conn, newTestVaultLogger(t))
+	ctx := context.Background()
+
+	id := uuid.New()
+	require.NoError(t, repo.Create(ctx, &model.Vault{ID: id, Name: "txc", Enabled: true, RetentionDays: 90, CreatedBy: uuid.New()}))
+
+	tx, err := conn.BeginTx(ctx, nil)
+	require.NoError(t, err)
+	require.NoError(t, repo.SoftDeleteTx(ctx, tx, id))
+	got, err := repo.ReadByIDTx(ctx, tx, id)
+	require.NoError(t, err)
+	require.NotNil(t, got.DeletedAt)
+	require.NoError(t, tx.Commit())
+
+	_, err = repo.ReadByName(ctx, "txc")
+	require.Error(t, err, "vault must be hidden after commit")
+}
+
+func TestVaultRepository_SoftDeleteTx_RollsBackWithSharedTx(t *testing.T) {
+	sqlDB := newVaultTestDB(t)
+	conn := rvdb.NewConn(sqlDB, rvdb.SQLite)
+	repo := repositories.NewVaultRepository(conn, newTestVaultLogger(t))
+	ctx := context.Background()
+
+	id := uuid.New()
+	require.NoError(t, repo.Create(ctx, &model.Vault{ID: id, Name: "txr", Enabled: true, RetentionDays: 90, CreatedBy: uuid.New()}))
+
+	tx, err := conn.BeginTx(ctx, nil)
+	require.NoError(t, err)
+	require.NoError(t, repo.SoftDeleteTx(ctx, tx, id))
+	require.NoError(t, tx.Rollback())
+
+	got, err := repo.ReadByName(ctx, "txr")
+	require.NoError(t, err, "vault must still be active after rollback")
+	require.Nil(t, got.DeletedAt)
+}

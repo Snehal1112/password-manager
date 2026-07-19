@@ -20,11 +20,18 @@ type VaultRepositoryInterface interface {
 	Create(ctx context.Context, v *model.Vault) error
 	ReadByName(ctx context.Context, name string) (*model.Vault, error)
 	ReadByID(ctx context.Context, id uuid.UUID) (*model.Vault, error)
+	// ReadByIDTx is ReadByID scoped to an explicit executor (e.g. a shared
+	// transaction), used by the vault delete/recover cascade.
+	ReadByIDTx(ctx context.Context, ex db.DBTX, id uuid.UUID) (*model.Vault, error)
 	List(ctx context.Context) ([]model.Vault, error)
 	ListDeleted(ctx context.Context) ([]model.Vault, error)
 	Update(ctx context.Context, v *model.Vault) error
 	SoftDelete(ctx context.Context, id uuid.UUID) error
+	// SoftDeleteTx is SoftDelete scoped to an explicit executor.
+	SoftDeleteTx(ctx context.Context, ex db.DBTX, id uuid.UUID) error
 	Recover(ctx context.Context, id uuid.UUID) error
+	// RecoverTx is Recover scoped to an explicit executor.
+	RecoverTx(ctx context.Context, ex db.DBTX, id uuid.UUID) error
 	Purge(ctx context.Context, id uuid.UUID) error
 }
 
@@ -129,7 +136,15 @@ func (r *VaultRepository) ReadByName(ctx context.Context, name string) (*model.V
 }
 
 func (r *VaultRepository) ReadByID(ctx context.Context, id uuid.UUID) (*model.Vault, error) {
-	row := r.db.QueryRowContext(ctx,
+	return r.readByID(ctx, r.db, id)
+}
+
+func (r *VaultRepository) ReadByIDTx(ctx context.Context, ex db.DBTX, id uuid.UUID) (*model.Vault, error) {
+	return r.readByID(ctx, ex, id)
+}
+
+func (r *VaultRepository) readByID(ctx context.Context, ex db.DBTX, id uuid.UUID) (*model.Vault, error) {
+	row := ex.QueryRowContext(ctx,
 		"SELECT "+vaultCols+" FROM vaults WHERE id = ?", id.String())
 	v, err := scanVault(row)
 	if errors.Is(err, sql.ErrNoRows) {
@@ -184,7 +199,15 @@ func (r *VaultRepository) Update(ctx context.Context, v *model.Vault) error {
 }
 
 func (r *VaultRepository) SoftDelete(ctx context.Context, id uuid.UUID) error {
-	_, err := r.db.ExecContext(ctx,
+	return r.softDelete(ctx, r.db, id)
+}
+
+func (r *VaultRepository) SoftDeleteTx(ctx context.Context, ex db.DBTX, id uuid.UUID) error {
+	return r.softDelete(ctx, ex, id)
+}
+
+func (r *VaultRepository) softDelete(ctx context.Context, ex db.DBTX, id uuid.UUID) error {
+	_, err := ex.ExecContext(ctx,
 		"UPDATE vaults SET deleted_at = ? WHERE id = ? AND deleted_at IS NULL", time.Now(), id.String())
 	if err != nil {
 		return fmt.Errorf("failed to soft-delete vault: %w", err)
@@ -193,7 +216,15 @@ func (r *VaultRepository) SoftDelete(ctx context.Context, id uuid.UUID) error {
 }
 
 func (r *VaultRepository) Recover(ctx context.Context, id uuid.UUID) error {
-	_, err := r.db.ExecContext(ctx,
+	return r.recover(ctx, r.db, id)
+}
+
+func (r *VaultRepository) RecoverTx(ctx context.Context, ex db.DBTX, id uuid.UUID) error {
+	return r.recover(ctx, ex, id)
+}
+
+func (r *VaultRepository) recover(ctx context.Context, ex db.DBTX, id uuid.UUID) error {
+	_, err := ex.ExecContext(ctx,
 		"UPDATE vaults SET deleted_at = NULL, scheduled_purge_at = NULL WHERE id = ? AND deleted_at IS NOT NULL", id.String())
 	if err != nil {
 		return fmt.Errorf("failed to recover vault: %w", err)
