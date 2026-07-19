@@ -1,0 +1,41 @@
+# Caddyfile — TLS-terminating reverse proxy for RocketVault
+#
+# Usage (docker compose):
+#   Add the caddy service from docker-compose.yml to your stack, then:
+#     docker compose up --build
+#
+# Caddy automatically obtains and renews a Let's Encrypt certificate for
+# the domain below. Ensure DNS points to this server before starting.
+#
+# Replace vault.yourdomain.com with your actual domain.
+
+vault.yourdomain.com {
+    # Forward all traffic to the RocketVault container on the internal network.
+    # "rocketvault" resolves via Docker's internal DNS when using compose.
+    reverse_proxy rocketvault:8774
+
+    # Security headers
+    header {
+        Strict-Transport-Security "max-age=31536000; includeSubDomains; preload"
+        X-Content-Type-Options    "nosniff"
+        X-Frame-Options           "DENY"
+        Referrer-Policy           "strict-origin-when-cross-origin"
+        -Server
+    }
+
+    # Rate-limit at the proxy layer as a first line of defence.
+    # RocketVault also enforces its own rate limits (rate_limit.auth: 5).
+    rate_limit {
+        zone static {
+            key    {remote_host}
+            events 300
+            window 1m
+        }
+    }
+
+    # Access log in JSON for structured log aggregation.
+    log {
+        output file /var/log/caddy/access.log
+        format json
+    }
+}

@@ -1,0 +1,149 @@
+# Docker / Fly.io Runtime Configuration Template
+#
+# docker-entrypoint.sh renders this into /app/.rocketvault.yaml at container
+# startup via envsubst, substituting all ${VAR} placeholders from the
+# container environment. Never put real secrets in this file — it is
+# committed to version control. Set values via .env (compose) or
+# `fly secrets set` (Fly.io).
+
+master_key: "${RV_MASTER_KEY}"
+jwt_secret: "${RV_JWT_SECRET}"
+
+# JWT signing configuration. key_source is "self_pki" (not "os_store")
+# because containers have no OS keychain to back github.com/zalando/go-keyring;
+# self_pki stores the signing key in the database via CryptoService/KeyRepository.
+jwt:
+  key_source: "self_pki"
+  key_cn: "rocketvault"
+  expiry: "1h"
+  rotation_overlap: "1h"
+  migration_window: "24h"
+  signing_key_file: ""
+
+bootstrap_token: "${RV_BOOTSTRAP_TOKEN}"
+
+environment: "production"
+
+# Database Configuration
+#
+# driver/connection mirror the Postgres URL form documented in
+# internal/db/db.go (sniffDriver) and internal/db/dialect.go: a
+# "postgres://" prefix or "host=...dbname=..." DSN is auto-detected as the
+# "postgres" driver even without an explicit driver key, but we set it
+# explicitly here for clarity. "postgres" is the compose service name, which
+# resolves via Docker's internal DNS once the postgres service is healthy.
+database:
+  connection: "postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}?sslmode=disable"
+  driver: "postgres"
+
+log:
+  level: "info"
+  file: "./logs/rocketvault.log"
+  format: "json"
+  pretty_print: false
+  max_backups: 3
+  max_age_days: 7
+  max_size_mb: 10
+  rotation_method: "size"
+
+rate_limit:
+  default: 300
+  auth: 5
+
+server:
+  listen_addr: ":8774"
+  read_timeout: "30s"
+  write_timeout: "30s"
+  idle_timeout: "120s"
+  cors_allowed_origins:
+    - "${RV_CORS_ORIGINS}"
+  http2:
+    enabled: true
+  tls:
+    enabled: false
+    cert_file: ""
+    key_file: ""
+
+monitoring:
+  enable_metrics: true
+  metrics_interval: "60s"
+  slow_query_threshold: "500ms"
+
+health:
+  check_interval: "60s"
+  database_timeout: "10s"
+  enable_detailed_metrics: true
+
+retry:
+  database:
+    enabled: true
+    max_attempts: 3
+    initial_delay: "100ms"
+    max_delay: "5s"
+    backoff_multiplier: 2.0
+    retryable_errors:
+      - "connection refused"
+      - "database is locked"
+      - "busy"
+      - "timeout"
+    jitter_enabled: true
+  external_services:
+    enabled: true
+    max_attempts: 3
+    initial_delay: "1s"
+    max_delay: "30s"
+    backoff_multiplier: 2.0
+    retryable_errors:
+      - "connection refused"
+      - "no such host"
+      - "timeout"
+      - "temporary failure"
+      - "service unavailable"
+      - "too many requests"
+    jitter_enabled: true
+  service_operations:
+    enabled: true
+    max_attempts: 2
+    initial_delay: "100ms"
+    max_delay: "1s"
+    backoff_multiplier: 1.5
+    retryable_errors:
+      - "connection refused"
+      - "timeout"
+      - "temporary failure"
+    jitter_enabled: true
+  circuit_breaker:
+    failure_threshold: 3
+    timeout: "30s"
+    half_open_requests: 2
+
+soft_delete:
+  enabled: true
+  retention_days: 30
+  purge_protection: false
+
+key_cache:
+  enabled: true
+  ttl: "60s"
+  max_entries: 500
+  cleanup_interval: "30s"
+
+oauth2:
+  token_expiry: "30m"
+  issuer: "${RV_ISSUER}"
+
+vault_client:
+  url: "http://localhost:8774"
+  client_id: ""
+  secrets: []
+
+frontend:
+  public_api_url: "http://localhost:8774"
+  sentry_dsn: ""
+
+hsm:
+  enabled: false
+  lib_path: /usr/lib/softhsm/libsofthsm2.so
+  token_label: rocketvault
+  pin: "1234"
+  slot_id: 0

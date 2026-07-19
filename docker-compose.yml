@@ -1,31 +1,89 @@
-version: '3.8'
+# Runs RocketVault against PostgreSQL.
+#
+# Connection string format: the rocketvault service renders
+# .rocketvault.docker.yaml.tmpl into .rocketvault.yaml at startup (see
+# docker-entrypoint.sh), producing a "postgres://" URL DSN. That prefix is
+# recognized by sniffDriver() in internal/db/db.go and routes the connection
+# through the Postgres Dialect in internal/db/dialect.go (placeholder
+# rebinding, upsert syntax, column-existence checks, etc).
+#
+# Quick start:
+#   cp .env.example .env   # then fill in every value (see .env.example)
+#   docker compose up --build
+#
+# Then create the first admin user (see CLAUDE.md "Admin User Setup"),
+# using the RV_BOOTSTRAP_TOKEN value from your .env:
+#   docker compose exec rocketvault /app/rocketvault users admin \
+#     --admin-username=admin --admin-password=<password> \
+#     --bootstrap-token=<RV_BOOTSTRAP_TOKEN from .env>
 
 services:
   postgres:
-    image: postgres:latest
+    image: postgres:16-alpine
+    restart: unless-stopped
     environment:
-      POSTGRES_USER: admin
-      POSTGRES_PASSWORD: securepassword
-      POSTGRES_DB: mydatabase
-    ports:
-      - "5432:5432"
+      POSTGRES_USER: ${POSTGRES_USER:-rocketvault}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required, see .env.example}
+      POSTGRES_DB: ${POSTGRES_DB:-rocketvault}
     volumes:
       - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-rocketvault} -d ${POSTGRES_DB:-rocketvault}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
     networks:
-      - db_network
+      - rocketvault_net
 
-  sqlite:
-    image: nouchka/sqlite3:latest
+  rocketvault:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    # NOTE: --listen is passed explicitly because cmd/serve.go reads
+    # server.listen_addr in its init() function, which runs before viper has
+    # loaded the config file (cobra.OnInitialize fires later). The YAML value
+    # is therefore silently ignored and the binary falls back to its
+    # hardcoded default "127.0.0.1:8774", which is unreachable from outside
+    # the container. This is a pre-existing app bug independent of Postgres
+    # support; --listen on the CLI takes precedence and works around it.
+    command: ["/app/rocketvault", "serve", "--listen", ":8774"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      # Consumed by docker-entrypoint.sh to render the Postgres DSN and
+      # secrets into .rocketvault.yaml. POSTGRES_* must match the postgres
+      # service above. The entrypoint refuses to start if any are unset.
+      POSTGRES_USER: ${POSTGRES_USER:-rocketvault}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required, see .env.example}
+      POSTGRES_DB: ${POSTGRES_DB:-rocketvault}
+      RV_MASTER_KEY: ${RV_MASTER_KEY:?RV_MASTER_KEY is required, see .env.example}
+      RV_JWT_SECRET: ${RV_JWT_SECRET:?RV_JWT_SECRET is required, see .env.example}
+      RV_BOOTSTRAP_TOKEN: ${RV_BOOTSTRAP_TOKEN:?RV_BOOTSTRAP_TOKEN is required, see .env.example}
+      RV_ISSUER: ${RV_ISSUER:-http://localhost:8774}
+      RV_CORS_ORIGINS: ${RV_CORS_ORIGINS:-http://localhost:8774}
     volumes:
-      - ~/sqlite_data:/sqlite_data
-    command: /bin/sh -c "sqlite3 /sqlite_data/mydatabase.db"
+      - ./.rocketvault.docker.yaml.tmpl:/app/.rocketvault.docker.yaml.tmpl:ro
+      - rocketvault_logs:/app/logs
+    ports:
+      - "${ROCKETVAULT_PORT:-8774}:8774"
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8774/api/v1/health/live"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
     networks:
-      - db_network
+      - rocketvault_net
 
 volumes:
   postgres_data:
-  sqlite_data:
+  rocketvault_logs:
 
 networks:
-  db_network:
+  rocketvault_net:
     driver: bridge
