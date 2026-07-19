@@ -125,7 +125,11 @@ func getVault(c *Context, w http.ResponseWriter, r *http.Request) {
 
 	vault, err := svc.GetVault(r.Context(), name)
 	if err != nil {
-		c.SetNotFound("vault")
+		if errors.Is(err, vaultServices.ErrVaultNotFound) {
+			c.SetNotFound("vault")
+			return
+		}
+		c.SetInternalError(err)
 		return
 	}
 
@@ -158,7 +162,11 @@ func updateVault(c *Context, w http.ResponseWriter, r *http.Request) {
 	// is deliberate and cheap.
 	target, err := svc.GetVault(r.Context(), name)
 	if err != nil {
-		c.SetNotFound("vault")
+		if errors.Is(err, vaultServices.ErrVaultNotFound) {
+			c.SetNotFound("vault")
+			return
+		}
+		c.SetInternalError(err)
 		return
 	}
 	if !requireVaultManage(c, r, target.ID) {
@@ -215,7 +223,11 @@ func deleteVault(c *Context, w http.ResponseWriter, r *http.Request) {
 	// refusal is still enforced by DeleteVault below and surfaces as a 400.
 	target, err := svc.GetVault(r.Context(), name)
 	if err != nil {
-		c.SetNotFound("vault")
+		if errors.Is(err, vaultServices.ErrVaultNotFound) {
+			c.SetNotFound("vault")
+			return
+		}
+		c.SetInternalError(err)
 		return
 	}
 	if !requireVaultManage(c, r, target.ID) {

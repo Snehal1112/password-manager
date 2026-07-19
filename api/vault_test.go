@@ -45,13 +45,16 @@ import (
 type vaultFakeRepo struct {
 	byName map[string]*model.Vault
 	byID   map[string]*model.Vault
+	// readErr, when set, is returned by ReadByName/ReadByID instead of the
+	// normal not-found sentinel -- simulates a real failure (e.g. DB outage).
+	readErr error
 }
 
 func newVaultFakeRepo() *vaultFakeRepo {
 	return &vaultFakeRepo{byName: map[string]*model.Vault{}, byID: map[string]*model.Vault{}}
 }
 
-var errVaultFakeNotFound = errors.New("not found")
+var errVaultFakeNotFound = repositories.ErrNotFound
 
 func (f *vaultFakeRepo) Create(_ context.Context, v *model.Vault) error {
 	if _, ok := f.byName[v.Name]; ok {
@@ -63,12 +66,18 @@ func (f *vaultFakeRepo) Create(_ context.Context, v *model.Vault) error {
 	return nil
 }
 func (f *vaultFakeRepo) ReadByName(_ context.Context, n string) (*model.Vault, error) {
+	if f.readErr != nil {
+		return nil, f.readErr
+	}
 	if v, ok := f.byName[n]; ok && v.DeletedAt == nil {
 		return v, nil
 	}
 	return nil, errVaultFakeNotFound
 }
 func (f *vaultFakeRepo) ReadByID(_ context.Context, id uuid.UUID) (*model.Vault, error) {
+	if f.readErr != nil {
+		return nil, f.readErr
+	}
 	if v, ok := f.byID[id.String()]; ok {
 		return v, nil
 	}
@@ -367,6 +376,33 @@ func TestDeleteVault_RefusesDefault(t *testing.T) {
 
 	w := doVaultRequest(api, http.MethodDelete, "/api/v1/vaults/"+model.DefaultVaultName, nil)
 	assert.Equal(t, http.StatusBadRequest, w.Code)
+}
+
+// TestGetVault_InternalErrorIsNotReportedAsNotFound proves a genuine repository
+// failure (e.g. a DB outage) surfaces as 500, not a misleading 404.
+func TestGetVault_InternalErrorIsNotReportedAsNotFound(t *testing.T) {
+	api, repo := newVaultTestAPI()
+	repo.readErr = errors.New("connection refused")
+
+	w := doVaultRequest(api, http.MethodGet, "/api/v1/vaults/anything", nil)
+	assert.Equal(t, http.StatusInternalServerError, w.Code)
+}
+
+func TestUpdateVault_InternalErrorIsNotReportedAsNotFound(t *testing.T) {
+	api, repo := newVaultTestAPI()
+	repo.readErr = errors.New("connection refused")
+
+	body := []byte(`{"enabled":false}`)
+	w := doVaultRequest(api, http.MethodPatch, "/api/v1/vaults/anything", body)
+	assert.Equal(t, http.StatusInternalServerError, w.Code)
+}
+
+func TestDeleteVault_InternalErrorIsNotReportedAsNotFound(t *testing.T) {
+	api, repo := newVaultTestAPI()
+	repo.readErr = errors.New("connection refused")
+
+	w := doVaultRequest(api, http.MethodDelete, "/api/v1/vaults/anything", nil)
+	assert.Equal(t, http.StatusInternalServerError, w.Code)
 }
 
 // TestDeleteVault_Success soft-deletes an existing vault and returns 204.
