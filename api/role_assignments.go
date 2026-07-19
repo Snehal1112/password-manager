@@ -22,6 +22,25 @@ func (api *API) InitRoleAssignments() {
 	one.Handle("", ApiSessionRequired(api.App, deleteRoleAssignment)).Methods("DELETE")
 }
 
+// buildRoleAssignmentResponse maps a RoleAssignment onto its enriched API
+// representation: vault name from the URL, principal username resolved via
+// the user repository, and the policy count implied by the role bundle.
+// Username resolution failure is non-fatal (the field is omitempty) so a
+// stale/deleted principal doesn't block the response.
+func buildRoleAssignmentResponse(c *Context, r *http.Request, ra *model.RoleAssignment) model.RoleAssignmentResponse {
+	resp := ra.ToResponse()
+	resp.VaultName = c.Params.VaultName
+	if userRepo := c.App.ServiceContainer.GetUserRepository(); userRepo != nil {
+		if user, err := userRepo.Read(r.Context(), ra.PrincipalID); err == nil && user != nil {
+			resp.PrincipalUsername = user.Username
+		}
+	}
+	if perms, err := authzServices.RolePermissions(ra.Role); err == nil {
+		resp.ExpandedPolicyCount = len(perms)
+	}
+	return resp
+}
+
 // requireVaultManage gates assignment management to global admins or vault managers.
 func requireVaultManage(c *Context, r *http.Request, vaultID uuid.UUID) bool {
 	role, _ := c.Claims["role"].(string)
@@ -96,7 +115,7 @@ func createRoleAssignment(c *Context, w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusCreated)
-	json.NewEncoder(w).Encode(ra)
+	json.NewEncoder(w).Encode(buildRoleAssignmentResponse(c, r, ra))
 }
 
 // listRoleAssignments returns all role assignments scoped to a vault.
@@ -117,11 +136,12 @@ func listRoleAssignments(c *Context, w http.ResponseWriter, r *http.Request) {
 		c.SetInternalError(err)
 		return
 	}
-	if list == nil {
-		list = []*model.RoleAssignment{}
+	responses := make([]model.RoleAssignmentResponse, 0, len(list))
+	for _, ra := range list {
+		responses = append(responses, buildRoleAssignmentResponse(c, r, ra))
 	}
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]any{"role_assignments": list, "total": len(list)})
+	json.NewEncoder(w).Encode(model.ListRoleAssignmentsResponse{RoleAssignments: responses, Total: len(responses)})
 }
 
 // getRoleAssignment returns a single role assignment by id within a vault.
@@ -150,7 +170,7 @@ func getRoleAssignment(c *Context, w http.ResponseWriter, r *http.Request) {
 	for _, ra := range list {
 		if ra.ID == id {
 			w.Header().Set("Content-Type", "application/json")
-			json.NewEncoder(w).Encode(ra)
+			json.NewEncoder(w).Encode(buildRoleAssignmentResponse(c, r, ra))
 			return
 		}
 	}

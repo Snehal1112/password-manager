@@ -50,6 +50,21 @@ func (r *RoleAssignmentResponse) ToJson() string {
 	return string(b)
 }
 
+// ToResponse maps the direct fields of a RoleAssignment onto its API
+// representation. Cross-entity fields (PrincipalUsername, VaultName,
+// ExpandedPolicyCount) are not derivable from this struct alone and are
+// left zero for the caller to populate.
+func (ra *RoleAssignment) ToResponse() RoleAssignmentResponse {
+	return RoleAssignmentResponse{
+		ID:            ra.ID.String(),
+		PrincipalID:   ra.PrincipalID.String(),
+		PrincipalType: string(ra.PrincipalType),
+		Role:          ra.Role,
+		VaultID:       ra.VaultID.String(),
+		CreatedAt:     ra.CreatedAt.Format(time.RFC3339),
+	}
+}
+
 type ListRoleAssignmentsResponse struct {
 	RoleAssignments []RoleAssignmentResponse `json:"role_assignments"`
 	Total           int                      `json:"total"`
