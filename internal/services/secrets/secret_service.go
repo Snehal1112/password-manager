@@ -3,7 +3,6 @@ package secrets
 import (
 	"context"
 	"crypto/rand"
-	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -13,7 +12,6 @@ import (
 	"github.com/google/uuid"
 	"github.com/sirupsen/logrus"
 
-	dbpkg "rocketvault/internal/db"
 	"rocketvault/internal/logging"
 	"rocketvault/internal/repositories"
 	"rocketvault/model"
@@ -138,7 +136,6 @@ type secretService struct {
 	versionService VersioningServiceInterface
 	tagService     TagService
 	logger         *logging.Logger
-	db             *sql.DB // used to wrap writes in a transaction
 }
 
 // SecretServiceConfig holds the dependencies for secret service.
@@ -148,7 +145,6 @@ type SecretServiceConfig struct {
 	VersionService   VersioningServiceInterface
 	TagService       TagService
 	Logger           *logging.Logger
-	DB               *sql.DB // for transaction support
 }
 
 // NewSecretService creates a new SecretService with the provided dependencies.
@@ -168,7 +164,6 @@ func NewSecretService(config SecretServiceConfig) SecretService {
 		versionService: config.VersionService,
 		tagService:     config.TagService,
 		logger:         config.Logger,
-		db:             config.DB,
 	}
 }
 
@@ -230,35 +225,11 @@ func (s *secretService) CreateSecret(ctx context.Context, req CreateSecretReques
 		NotBefore:   req.NotBefore,
 	}
 
-	// doCreate runs the repository write. The repository's Create method
-	// already inserts the secret row and its tags in a single logical unit.
-	// When s.db is set, we wrap this in a transaction so any partial failure
-	// inside Create is rolled back atomically.
-	doCreate := func() error {
-		if err := s.secretRepo.Create(ctx, secret); err != nil {
-			return fmt.Errorf("failed to store secret: %w", err)
-		}
-		return nil
-	}
-
-	if s.db != nil {
-		// Wrap the repository write in an explicit transaction. This ensures
-		// the secret row and its tags are committed together or not at all.
-		// Note: repositories currently use *sql.DB directly; the WithTx call
-		// here begins a transaction on the same pool and also defers rollback
-		// on any error, providing a safety net for future DBTX refactoring.
-		if err = dbpkg.WithTx(ctx, s.db, func(_ *sql.Tx) error {
-			return doCreate()
-		}); err != nil {
-			s.logger.LogAuditError(req.UserID.String(), "create_secret", "failed", "Transaction failed", err)
-			return nil, fmt.Errorf("failed to create secret: %w", err)
-		}
-	} else {
-		// No real DB available (unit test path) — call repository directly.
-		if err = doCreate(); err != nil {
-			s.logger.LogAuditError(req.UserID.String(), "create_secret", "failed", "Failed to create secret", err)
-			return nil, fmt.Errorf("failed to create secret: %w", err)
-		}
+	// Persist the secret. The repository's Create method inserts the secret
+	// row and its tags as a single logical unit via its own db.DB handle.
+	if err = s.secretRepo.Create(ctx, secret); err != nil {
+		s.logger.LogAuditError(req.UserID.String(), "create_secret", "failed", "Failed to store secret", err)
+		return nil, fmt.Errorf("failed to create secret: %w", err)
 	}
 
 	// Return plaintext to the caller.

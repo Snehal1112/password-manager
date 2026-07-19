@@ -466,7 +466,6 @@ func (c *ServiceContainer) initializeServices() error {
 		VersionService:   c.versioningService,
 		TagService:       c.tagService,
 		Logger:           c.logger,
-		DB:               c.db, // enables transactional secret creation
 	})
 
 	// Wrap with retry logic if retry service is available

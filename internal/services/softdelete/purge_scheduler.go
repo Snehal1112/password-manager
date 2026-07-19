@@ -4,25 +4,25 @@ package softdelete
 
 import (
 	"context"
-	"database/sql"
 	"fmt"
 	"time"
 
 	"rocketvault/config"
+	rvdb "rocketvault/internal/db"
 	"rocketvault/internal/logging"
 )
 
 // PurgeScheduler runs daily and permanently deletes soft-deleted items
 // whose retention period has expired and purge_protection is false.
 type PurgeScheduler struct {
-	db   *sql.DB
+	db   rvdb.DB
 	cfg  config.SoftDeleteConfig
 	log  *logging.Logger
 	done chan struct{}
 }
 
 // NewPurgeScheduler creates a new PurgeScheduler.
-func NewPurgeScheduler(db *sql.DB, cfg config.SoftDeleteConfig, log *logging.Logger) *PurgeScheduler {
+func NewPurgeScheduler(db rvdb.DB, cfg config.SoftDeleteConfig, log *logging.Logger) *PurgeScheduler {
 	return &PurgeScheduler{db: db, cfg: cfg, log: log, done: make(chan struct{})}
 }
 

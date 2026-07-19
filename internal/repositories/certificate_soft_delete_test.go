@@ -37,7 +37,7 @@ func setupCertTestDB(t *testing.T) *sql.DB {
 			deleted_at TIMESTAMP DEFAULT NULL,
 			purge_protection BOOLEAN NOT NULL DEFAULT FALSE,
 			scheduled_purge_at TIMESTAMP DEFAULT NULL,
-			expires_at DATETIME,
+			expires_at TIMESTAMP,
 			auto_renew BOOLEAN NOT NULL DEFAULT FALSE,
 			renewal_days INTEGER NOT NULL DEFAULT 30,
 			key_id TEXT,
@@ -50,7 +50,7 @@ func setupCertTestDB(t *testing.T) *sql.DB {
 			PRIMARY KEY (certificate_id, tag)
 		);
 		CREATE TABLE IF NOT EXISTS crl (
-			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			id TEXT PRIMARY KEY,
 			user_id TEXT NOT NULL,
 			serial_number TEXT NOT NULL,
 			name TEXT NOT NULL,

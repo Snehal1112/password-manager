@@ -2,7 +2,6 @@ package db
 
 import (
 	"context"
-	"database/sql"
 	"fmt"
 
 	"github.com/sirupsen/logrus"
@@ -15,7 +14,7 @@ import (
 //
 // The table name comes only from internal callers using constant table names,
 // never from user input, so the fmt.Sprintf into SQL is safe here.
-func ResolveNameCollisions(ctx context.Context, d *sql.DB, dialect Dialect, table string) (int, error) {
+func ResolveNameCollisions(ctx context.Context, d DB, table string) (int, error) {
 	rows, err := d.QueryContext(ctx, fmt.Sprintf(
 		"SELECT id, name, vault_id FROM %s ORDER BY vault_id, name, id", table))
 	if err != nil {
@@ -56,7 +55,7 @@ func ResolveNameCollisions(ctx context.Context, d *sql.DB, dialect Dialect, tabl
 			newName = fmt.Sprintf("%s-%d", candidate, i)
 		}
 		if _, err := d.ExecContext(ctx,
-			dialect.Rebind(fmt.Sprintf("UPDATE %s SET name = ? WHERE id = ?", table)), newName, r.id); err != nil {
+			fmt.Sprintf("UPDATE %s SET name = ? WHERE id = ?", table), newName, r.id); err != nil {
 			return renamed, fmt.Errorf("rename collision in %s: %w", table, err)
 		}
 		logrus.WithFields(logrus.Fields{

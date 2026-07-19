@@ -206,7 +206,9 @@ func (b *bootstrap) setup(ctx context.Context, cfg *Config) error {
 	// Step 2b: Start background purge scheduler when soft-delete is enabled.
 	softDeleteCfg := config.LoadSoftDeleteConfig()
 	if softDeleteCfg.Enabled {
-		b.purgeScheduler = softdelete.NewPurgeScheduler(database.GetDB(), softDeleteCfg, b.cfg.Logger)
+		dialect := db.DialectFromDriver(viper.GetString("database.driver"))
+		conn := db.NewConn(database.GetDB(), dialect)
+		b.purgeScheduler = softdelete.NewPurgeScheduler(conn, softDeleteCfg, b.cfg.Logger)
 		b.purgeScheduler.Start(ctx)
 		b.cfg.Logger.Info("Soft-delete purge scheduler started")
 	}

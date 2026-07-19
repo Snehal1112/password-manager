@@ -14,6 +14,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"rocketvault/config"
+	rvdb "rocketvault/internal/db"
 	"rocketvault/internal/logging"
 	certServices "rocketvault/internal/services/certificates"
 	"rocketvault/internal/services/softdelete"
@@ -204,15 +205,17 @@ func TestShutdown_NilSchedulers_NoError(t *testing.T) {
 func TestShutdown_WithPurgeScheduler_StopsCleanly(t *testing.T) {
 	t.Parallel()
 
-	// Open an in-memory SQLite DB — PurgeScheduler just needs a *sql.DB;
-	// it will fail silently on the purge query but that is acceptable here.
-	db, err := sql.Open("sqlite3", ":memory:")
+	// Open an in-memory SQLite DB and wrap it in a dialect-aware Conn.
+	// The scheduler will fail silently on the purge query (no tables), which
+	// is acceptable here since we are only testing Shutdown.
+	rawDB, err := sql.Open("sqlite3", ":memory:")
 	require.NoError(t, err)
-	defer db.Close()
+	defer rawDB.Close()
+	conn := rvdb.NewConn(rawDB, rvdb.SQLite)
 
 	logger := newTestLogger()
 	sdCfg := config.SoftDeleteConfig{RetentionDays: 30}
-	ps := softdelete.NewPurgeScheduler(db, sdCfg, logger)
+	ps := softdelete.NewPurgeScheduler(conn, sdCfg, logger)
 	ps.Start(context.Background())
 
 	bs := &bootstrap{purgeScheduler: ps}

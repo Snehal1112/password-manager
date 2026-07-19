@@ -122,8 +122,8 @@ func (d Dialect) ColumnExists(ctx context.Context, q DBTX, table, column string)
 	if d == Postgres {
 		var n int
 		err := q.QueryRowContext(ctx,
-			`SELECT COUNT(*) FROM information_schema.columns
-			 WHERE table_name = ? AND column_name = ?`,
+			d.Rebind(`SELECT COUNT(*) FROM information_schema.columns
+			 WHERE table_name = ? AND column_name = ?`),
 			table, column,
 		).Scan(&n)
 		if err != nil {

@@ -845,7 +845,7 @@ func (d *DBRepository) migrateSchema(db *sql.DB) error {
 func (d *DBRepository) finalizeVaultIndexes(db *sql.DB) error {
 	ctx := context.Background()
 	for _, table := range []string{"secrets", "keys", "certificates"} {
-		if _, err := ResolveNameCollisions(ctx, db, d.dialect, table); err != nil {
+		if _, err := ResolveNameCollisions(ctx, NewConn(db, d.dialect), table); err != nil {
 			return err
 		}
 	}
