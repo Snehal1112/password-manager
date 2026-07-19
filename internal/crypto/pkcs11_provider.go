@@ -47,7 +47,11 @@ type PKCS11KeyProvider struct {
 func NewPKCS11KeyProvider(cfg PKCS11Config) (*PKCS11KeyProvider, error) {
 	ctx := p11.New(cfg.LibPath)
 	if err := ctx.Initialize(); err != nil {
-		return nil, fmt.Errorf("pkcs11 initialize: %w", err)
+		// CKR_CRYPTOKI_ALREADY_INITIALIZED (0x191) means another process in this
+		// address space already called C_Initialize — safe to continue.
+		if err.Error() != "pkcs11: 0x191: CKR_CRYPTOKI_ALREADY_INITIALIZED" {
+			return nil, fmt.Errorf("pkcs11 initialize: %w", err)
+		}
 	}
 
 	slotID, err := findSlot(ctx, cfg)
