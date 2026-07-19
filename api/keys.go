@@ -513,6 +513,15 @@ func updateKey(c *Context, w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Validate name format and tag limits.
+	if err := vvalidation.ValidateKeyUpdate(vvalidation.KeyUpdateRequest{
+		Name: req.Name,
+		Tags: req.Tags,
+	}); err != nil {
+		c.SetInvalidParam(err.Error())
+		return
+	}
+
 	keyService := c.keySvc()
 	if keyService == nil {
 		return

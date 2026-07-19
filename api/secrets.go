@@ -586,6 +586,25 @@ func updateSecret(c *Context, w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Validate name format, value size, and tag limits.
+	var updateName, updateValue *string
+	if req.Name != "" {
+		updateName = &req.Name
+	}
+	if req.Value != "" {
+		updateValue = &req.Value
+	}
+	if err := vvalidation.ValidateSecretUpdate(vvalidation.SecretUpdateRequest{
+		Name:      updateName,
+		Value:     updateValue,
+		Tags:      req.Tags,
+		ExpiresAt: req.ExpiresAt,
+		NotBefore: req.NotBefore,
+	}); err != nil {
+		c.SetInvalidParam(err.Error())
+		return
+	}
+
 	// Get user ID from JWT claims.
 	userIDStr, ok := c.Claims["user_id"].(string)
 	if !ok {
