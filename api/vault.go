@@ -14,7 +14,12 @@ import (
 // InitVault initializes the routes for vault management.
 // Management routes use the {name} path variable rather than {vault_name} so
 // that VaultResolutionMiddleware falls back to the default vault and does not
-// interfere with managing a disabled or soft-deleted vault.
+// interfere with managing a disabled or soft-deleted vault. Because that
+// fallback means PolicyMiddleware only ever evaluates the default vault for
+// these routes, getVault/updateVault/deleteVault each re-resolve the target
+// vault by name and call requireVaultManage against its own ID before doing
+// anything observable to the caller — restoring at the handler layer the
+// per-vault authorization the middleware layer intentionally skips here.
 // It sets up the following endpoints:
 //   - POST   /vaults         : Create a new vault.
 //   - GET    /vaults         : List vaults (honors ?include_deleted=true).
