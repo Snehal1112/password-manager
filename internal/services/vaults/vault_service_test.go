@@ -8,6 +8,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"rocketvault/internal/repositories"
 	"rocketvault/model"
 )
 
@@ -17,13 +18,17 @@ func nowForTest() time.Time { return time.Unix(1700000000, 0) }
 type fakeVaultRepo struct {
 	byName map[string]*model.Vault
 	byID   map[string]*model.Vault
+	// readErr, when set, is returned by ReadByName/ReadByID instead of the
+	// normal not-found sentinel — simulates a real failure (e.g. DB outage)
+	// distinct from an honest missing row.
+	readErr error
 }
 
 func newFakeRepo() *fakeVaultRepo {
 	return &fakeVaultRepo{byName: map[string]*model.Vault{}, byID: map[string]*model.Vault{}}
 }
 
-var errFakeNotFound = errors.New("not found")
+var errFakeNotFound = repositories.ErrNotFound
 
 func (f *fakeVaultRepo) Create(_ context.Context, v *model.Vault) error {
 	if _, ok := f.byName[v.Name]; ok {
@@ -35,12 +40,18 @@ func (f *fakeVaultRepo) Create(_ context.Context, v *model.Vault) error {
 	return nil
 }
 func (f *fakeVaultRepo) ReadByName(_ context.Context, n string) (*model.Vault, error) {
+	if f.readErr != nil {
+		return nil, f.readErr
+	}
 	if v, ok := f.byName[n]; ok && v.DeletedAt == nil {
 		return v, nil
 	}
 	return nil, errFakeNotFound
 }
 func (f *fakeVaultRepo) ReadByID(_ context.Context, id uuid.UUID) (*model.Vault, error) {
+	if f.readErr != nil {
+		return nil, f.readErr
+	}
 	if v, ok := f.byID[id.String()]; ok {
 		return v, nil
 	}
@@ -177,6 +188,22 @@ func TestGetVault_UnknownReturnsSentinel(t *testing.T) {
 	_, err := svc.GetVault(context.Background(), "nope")
 	if !errors.Is(err, ErrVaultNotFound) {
 		t.Fatalf("expected ErrVaultNotFound, got %v", err)
+	}
+}
+
+// TestGetVault_NonNotFoundRepoErrorIsNotMaskedAsSentinel proves a real repo
+// failure (e.g. a DB outage) is NOT reported as ErrVaultNotFound.
+func TestGetVault_NonNotFoundRepoErrorIsNotMaskedAsSentinel(t *testing.T) {
+	repo := newFakeRepo()
+	repo.readErr = errors.New("connection refused")
+	svc := NewVaultService(repo, &noopCascade{}, nil)
+
+	_, err := svc.GetVault(context.Background(), "prod")
+	if err == nil {
+		t.Fatal("expected an error")
+	}
+	if errors.Is(err, ErrVaultNotFound) {
+		t.Fatalf("a DB-outage error must not be reported as ErrVaultNotFound, got %v", err)
 	}
 }
 

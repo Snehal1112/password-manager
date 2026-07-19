@@ -95,11 +95,17 @@ func (s *vaultService) CreateVault(ctx context.Context, req model.CreateVaultReq
 	return v, nil
 }
 
-// getByName reads a vault by name, normalizing a not-found into ErrVaultNotFound.
+// getByName reads a vault by name, normalizing a genuine not-found into
+// ErrVaultNotFound while propagating any other repository error (e.g. a DB
+// outage) unchanged, so callers can tell "vault doesn't exist" (404) apart
+// from "the lookup itself failed" (500).
 func (s *vaultService) getByName(ctx context.Context, name string) (*model.Vault, error) {
 	v, err := s.repo.ReadByName(ctx, name)
 	if err != nil {
-		return nil, fmt.Errorf("vault %q: %w", name, ErrVaultNotFound)
+		if errors.Is(err, repositories.ErrNotFound) {
+			return nil, fmt.Errorf("vault %q: %w", name, ErrVaultNotFound)
+		}
+		return nil, fmt.Errorf("get vault %q: %w", name, err)
 	}
 	return v, nil
 }
@@ -224,8 +230,14 @@ func (s *vaultService) PurgeVault(ctx context.Context, name string) error {
 	// Normally a vault is purged after a soft-delete, so check there first.
 	v, err := s.findDeleted(ctx, name)
 	if err != nil {
+		if !errors.Is(err, ErrVaultNotFound) {
+			// findDeleted failed for a reason other than "no match" (e.g. the
+			// underlying ListDeleted call hit a DB error) -- don't mask it by
+			// falling through to a second lookup.
+			return err
+		}
 		// Fall back to an active vault when no soft-deleted match exists.
-		v, err = s.repo.ReadByName(ctx, name)
+		v, err = s.getByName(ctx, name)
 		if err != nil {
 			return err
 		}
