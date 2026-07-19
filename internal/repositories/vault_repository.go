@@ -123,7 +123,7 @@ func (r *VaultRepository) ReadByName(ctx context.Context, name string) (*model.V
 		"SELECT "+vaultCols+" FROM vaults WHERE name = ? AND deleted_at IS NULL", name)
 	v, err := scanVault(row)
 	if errors.Is(err, sql.ErrNoRows) {
-		return nil, fmt.Errorf("vault %q not found", name)
+		return nil, fmt.Errorf("vault %q: %w", name, ErrNotFound)
 	}
 	return v, err
 }
@@ -133,7 +133,7 @@ func (r *VaultRepository) ReadByID(ctx context.Context, id uuid.UUID) (*model.Va
 		"SELECT "+vaultCols+" FROM vaults WHERE id = ?", id.String())
 	v, err := scanVault(row)
 	if errors.Is(err, sql.ErrNoRows) {
-		return nil, fmt.Errorf("vault %s not found", id)
+		return nil, fmt.Errorf("vault %s: %w", id, ErrNotFound)
 	}
 	return v, err
 }

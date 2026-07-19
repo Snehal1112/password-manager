@@ -3,6 +3,7 @@ package repositories_test
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"testing"
 
 	"github.com/google/uuid"
@@ -107,4 +108,32 @@ func TestVaultRepository_RecoverRestoresSoftDeleted(t *testing.T) {
 	got, err := repo.ReadByName(ctx, "rec")
 	require.NoError(t, err) // visible again after recover
 	require.Equal(t, "rec", got.Name)
+}
+
+func TestVaultRepository_ReadByName_UnknownReturnsErrNotFound(t *testing.T) {
+	db := newVaultTestDB(t)
+	repo := repositories.NewVaultRepository(rvdb.NewConn(db, rvdb.SQLite), newTestVaultLogger(t))
+
+	_, err := repo.ReadByName(context.Background(), "ghost")
+	require.True(t, errors.Is(err, repositories.ErrNotFound), "expected ErrNotFound, got %v", err)
+}
+
+func TestVaultRepository_ReadByID_UnknownReturnsErrNotFound(t *testing.T) {
+	db := newVaultTestDB(t)
+	repo := repositories.NewVaultRepository(rvdb.NewConn(db, rvdb.SQLite), newTestVaultLogger(t))
+
+	_, err := repo.ReadByID(context.Background(), uuid.New())
+	require.True(t, errors.Is(err, repositories.ErrNotFound), "expected ErrNotFound, got %v", err)
+}
+
+// TestVaultRepository_ReadByName_NonNotFoundErrorIsNotErrNotFound proves a real
+// DB failure (here: a closed connection) is NOT mistaken for a missing row.
+func TestVaultRepository_ReadByName_NonNotFoundErrorIsNotErrNotFound(t *testing.T) {
+	db := newVaultTestDB(t)
+	repo := repositories.NewVaultRepository(rvdb.NewConn(db, rvdb.SQLite), newTestVaultLogger(t))
+	require.NoError(t, db.Close())
+
+	_, err := repo.ReadByName(context.Background(), "prod")
+	require.Error(t, err)
+	require.False(t, errors.Is(err, repositories.ErrNotFound), "a closed-DB error must not look like not-found")
 }
