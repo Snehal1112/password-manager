@@ -916,7 +916,7 @@ func (s *secretService) ImportSecrets(ctx context.Context, req ImportSecretsRequ
 	// Import each secret
 	for _, importSec := range secretsToImport {
 		if importSec.Name == "" || importSec.Value == "" {
-			result.Errors = append(result.Errors, fmt.Sprintf("Secret missing name or value"))
+			result.Errors = append(result.Errors, "Secret missing name or value")
 			result.SkippedCount++
 			continue
 		}
