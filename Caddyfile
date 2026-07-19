@@ -1,13 +1,12 @@
 # Caddyfile — TLS-terminating reverse proxy for RocketVault
 #
 # Usage (docker compose):
-#   Add the caddy service from docker-compose.yml to your stack, then:
-#     docker compose up --build
+#   Replace vault.yourdomain.com below with your actual domain, ensure DNS
+#   points to this server, then bring up the "proxy" profile:
+#     docker compose --profile proxy up --build
 #
 # Caddy automatically obtains and renews a Let's Encrypt certificate for
-# the domain below. Ensure DNS points to this server before starting.
-#
-# Replace vault.yourdomain.com with your actual domain.
+# the domain below.
 
 vault.yourdomain.com {
     # Forward all traffic to the RocketVault container on the internal network.

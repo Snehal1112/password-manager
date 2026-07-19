@@ -16,6 +16,11 @@
 #   docker compose exec rocketvault /app/rocketvault users admin \
 #     --admin-username=admin --admin-password=<password> \
 #     --bootstrap-token=<RV_BOOTSTRAP_TOKEN from .env>
+#
+# Optional TLS-terminating reverse proxy (bare VPS deployments; skip this on
+# Fly.io, which terminates TLS itself). Edit Caddyfile's placeholder domain
+# first, then bring it up with the "proxy" profile:
+#   docker compose --profile proxy up --build
 
 services:
   postgres:
@@ -80,9 +85,34 @@ services:
     networks:
       - rocketvault_net
 
+  # Optional TLS-terminating reverse proxy. Not started by a plain
+  # "docker compose up" -- requires --profile proxy, since Caddyfile's
+  # placeholder domain must be edited to a real one first (Caddy will
+  # otherwise fail to obtain a Let's Encrypt certificate).
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    profiles: ["proxy"]
+    depends_on:
+      rocketvault:
+        condition: service_healthy
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+      - caddy_logs:/var/log/caddy
+    networks:
+      - rocketvault_net
+
 volumes:
   postgres_data:
   rocketvault_logs:
+  caddy_data:
+  caddy_config:
+  caddy_logs:
 
 networks:
   rocketvault_net:
