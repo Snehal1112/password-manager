@@ -420,21 +420,6 @@ func TestGenerateSecret_DefaultLength_Returns201(t *testing.T) {
 	assert.Equal(t, http.StatusCreated, w.Code)
 }
 
-// buildMultipartNoFileRequest creates a multipart request with no file field —
-// only non-file form fields.
-func buildMultipartNoFileRequest(t *testing.T, fields map[string]string) *http.Request {
-	t.Helper()
-	var buf bytes.Buffer
-	mw := multipart.NewWriter(&buf)
-	for k, v := range fields {
-		mw.WriteField(k, v)
-	}
-	mw.Close()
-	r := httptest.NewRequest(http.MethodPost, "/secrets/import", &buf)
-	r.Header.Set("Content-Type", mw.FormDataContentType())
-	return r
-}
-
 // ============================================================
 // certificates — getCertificate additional branch
 // ============================================================

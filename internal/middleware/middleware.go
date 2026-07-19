@@ -58,7 +58,6 @@ type Container interface {
 // Token buckets refill continuously, so steady traffic is never blocked
 // by a fixed-window reset the way a counter-based limiter would be.
 type ipRateLimiter struct {
-	mu       sync.Mutex
 	limiters sync.Map
 	r        rate.Limit // tokens added per second
 	b        int        // burst size (= configured per-minute limit)
@@ -79,11 +78,6 @@ func (l *ipRateLimiter) get(ip string) *rate.Limiter {
 	lim := rate.NewLimiter(l.r, l.b)
 	l.limiters.Store(ip, lim)
 	return lim
-}
-
-// allow reports whether the IP is within its rate limit.
-func (l *ipRateLimiter) allow(ip string) bool {
-	return l.get(ip).Allow()
 }
 
 // Middleware provides HTTP middleware with single responsibilities.

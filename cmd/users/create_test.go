@@ -282,22 +282,6 @@ func validateCreateUserInput(username, password, role string) error {
 	return nil
 }
 
-// Test helper to create a root command for testing.
-func createTestRootCommand() *cobra.Command {
-	rootCmd := &cobra.Command{
-		Use: "rocketvault",
-	}
-
-	usersCmd := &cobra.Command{
-		Use: "users",
-	}
-
-	usersCmd.AddCommand(createCmd)
-	rootCmd.AddCommand(usersCmd)
-
-	return rootCmd
-}
-
 func TestCreateUserRequiresAdminRole(t *testing.T) {
 	for _, role := range []string{model.RoleUser, model.RoleSecretsManager, model.RoleCryptoManager, model.RoleCertificateManager} {
 		t.Run("blocked for role "+role, func(t *testing.T) {

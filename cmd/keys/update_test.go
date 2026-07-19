@@ -54,8 +54,6 @@ func (m *MockKeyServiceForUpdate) DeleteKeyInVault(ctx context.Context, keyID, v
 	return nil, nil
 }
 
-func boolPtrKey(b bool) *bool { return &b }
-
 func TestUpdateKeyCommand_CallsServiceUpdate(t *testing.T) {
 	tc := testutils.NewTestContext(t)
 	mockKeySvc := &MockKeyServiceForUpdate{}

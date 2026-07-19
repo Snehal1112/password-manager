@@ -18,8 +18,6 @@ import (
 // MockRepository simulates a repository that can fail for testing retry logic
 type MockRepository struct {
 	mock.Mock
-	failCount int
-	maxFails  int
 }
 
 func (m *MockRepository) Create(ctx context.Context, user *model.User) error {
