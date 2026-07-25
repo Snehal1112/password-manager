@@ -105,7 +105,7 @@ if [ "$count" -gt 0 ]; then
       joined="$joined, $k"
     fi
   done
-  echo "usage-guide.md may be stale (${count} section(s) affected: ${joined}) - run the usage-guide-refresh skill"
+  echo "usage-guide.md may be stale (${count} section(s) affected: ${joined}) - refresh it (see .claude/skills/usage-guide-refresh/SKILL.md if present, or update docs/usage-guide.md manually)"
 fi
 
 exit 0

@@ -8,23 +8,11 @@ Throughout this guide, `http://localhost:8774` is used as the server address. Th
 
 ## Known gaps in the surrounding documentation
 
-An audit of the other docs in this repo turned up the following inaccuracies. They are **not** fixed here — this callout exists so you trust this guide over the older ones where they disagree. Fixes to those documents are tracked separately.
+An earlier audit of the other docs in this repo found a batch of inaccuracies; that audit has since been used to fix `docs/api-developer-guide.md`, `docs/admin-manual.html`, `README.md`, and `docs/consuming-secrets-guide.md`, so this callout no longer lists them. One item remains open, tracked in a project doc rather than in this guide:
 
 | Document | Claim | Reality |
 | --- | --- | --- |
-| `docs/api-developer-guide.md` | `./rocketvault login ...` | There is no top-level `login` command; it is `./rocketvault users login ...` |
-| `docs/api-developer-guide.md` | "JWT tokens expire after 24 hours" | Token TTL comes from `jwt.expiry` (`1h` in the shipped config, 1 h code fallback). The same passage also contains stray leftover `// vault.Handle("/tenant"...)` code comments embedded in the prose. |
-| `docs/api-developer-guide.md` | "Vault Endpoints": `GET /api/v1/vault/tenant`, `GET /api/v1/vault/tenant/{id}` | These routes do not exist anywhere in the codebase. The real vault endpoints are `POST /api/v1/vaults`, `GET /api/v1/vaults`, `PATCH /api/v1/vaults/{name}`, `DELETE /api/v1/vaults/{name}`. |
-| `docs/api-developer-guide.md` | "Default limit: 100 requests per minute per IP" | Actual defaults are 300 req/min for general endpoints and 5 req/min for auth endpoints (`rate_limit.default` / `rate_limit.auth`). |
-| `docs/api-developer-guide.md` | Generic `{"data": ..., "message": ..., "status": "success"}` success envelope | Handlers write the resource object directly as the response body, with no wrapper — consistent with every other JSON example in that same file. |
-| `docs/admin-manual.html` | "access_token (15 min)" in the JWT lifecycle diagram | The configured and default `jwt.expiry` is 1 hour. |
-| `docs/admin-manual.html` | OAuth2 example response with `"expires_in": 3600` | `oauth2.token_expiry` is `30m` (and the code fallback is 30 minutes), i.e. `1800`. |
-| `docs/admin-manual.html` | `rocketvault version list <secret-id> ...` | There is no top-level `version` command, and the ID is a flag: `rocketvault secrets version list --secret-id <secret-id> ...` |
-| `docs/admin-manual.html` | `rocketvault secrets rotation create --secret-id <id> --interval 30d` | `rotation create` takes `--name`, `--description`, `--interval` (a plain integer number of days), `--reminder`, `--auto-rotate`. A secret is attached separately with `rotation assign --policy-id <id> --secret-id <id>`. |
-| `README.md` | `certificates create ...` | The registered command is singular: `certificate create ...` (no alias exists). |
-| `README.md` | `version list --secret-id ...` (Version History section) | Must be `secrets version list --secret-id ...` / `secrets version get --secret-id ... --version 2`. |
-| `docs/consuming-secrets-guide.md` | Troubleshooting table: "Service accounts have `PermissionCreateSecret` and `PermissionReadSecret`" | Service accounts are read-only: `PermissionReadSecret`, `PermissionListSecrets`, and the equivalent read/list permissions for keys and certificates. |
-| `.claude/known-bugs.md` | B1 ("secrets table missing columns") marked **Open** | Stale — fixed in commit `b46000b` (2026-03-08), which added the columns to both `createOptimizedSchema` and `migrateSchema()`. |
+| `CLAUDE.md` | "Open Bugs (as of 2026-03-08)" lists "secrets table missing columns" (`deleted_at` / `purge_protection`) as open | Stale — `.claude/known-bugs.md` (entry B1) already tracks this as fixed in commit `b46000b`, which added the columns to both `createOptimizedSchema` and `migrateSchema()`. `CLAUDE.md`'s "Open Bugs" section just hasn't been updated to match. |
 
 ## Table of contents
 
@@ -165,7 +153,7 @@ When the access token expires, exchange the refresh token via the also-public `P
 - Most resource routes exist in two shapes: the legacy flat form (e.g. `/api/v1/secrets`) and a vault-scoped form (e.g. `/api/v1/vaults/{vault_name}/secrets`), registered by the same handlers (`api.registerSecretRoutes` in `api/secrets.go`). Both work, but vault-scoped calls resolve to that vault's context instead of the default vault.
 - All IDs in path parameters (`secret_id`, `key_id`, `certificate_id`, `user_id`, `policy_id`, `service_account_id`, `assignment_id`) must match the hex/UUID pattern `[A-Fa-f0-9-]+` enforced by the Gorilla Mux route regex, or the router returns a 404 before your handler even runs.
 
-**Deep dive:** [docs/api-developer-guide.md](api-developer-guide.md) — full endpoint reference, error format, and JavaScript/Python/Go SDK examples. Its token-expiry claim, rate-limit default, success-envelope example, and "Vault Endpoints" section are accurate as of the current codebase (the [Known gaps](#known-gaps-in-the-surrounding-documentation) table describing those as wrong is itself stale); the one remaining discrepancy is its "Base URL" section, which shows a placeholder `https://api.rocketvault.local` domain rather than the real default `http://localhost:8774`.
+**Deep dive:** [docs/api-developer-guide.md](api-developer-guide.md) — full endpoint reference, error format, and JavaScript/Python/Go SDK examples. Its one remaining discrepancy is its "Base URL" section, which shows a placeholder `https://api.rocketvault.local` domain rather than the real default `http://localhost:8774`.
 
 ---
 

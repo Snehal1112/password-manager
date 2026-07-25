@@ -1066,6 +1066,8 @@ Contributions are welcome! This project follows enterprise-grade standards.
 4. **Documentation**: Update relevant documentation with changes
 5. **Code Quality**: Run linters and tests before committing
 
+Run `./scripts/install-hooks.sh` once after cloning to enable a local git hook that reminds you when `docs/usage-guide.md` may need refreshing after you touch source it documents. This is standard practice (similar to husky or pre-commit) — opting in means a repo-controlled shell script runs on your next commit.
+
 ### Contribution Process
 
 1. Fork the repository
