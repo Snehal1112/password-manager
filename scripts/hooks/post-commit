@@ -1,0 +1,111 @@
+#!/usr/bin/env bash
+# post-commit: warns if docs/usage-guide.md may be stale relative to the
+# last-verified commit recorded in docs/.usage-guide-map.json.
+# This is a reminder only -- it must never block or fail a commit.
+
+MAP_FILE="docs/.usage-guide-map.json"
+
+if [ ! -f "$MAP_FILE" ]; then
+  exit 0
+fi
+
+if command -v jq >/dev/null 2>&1; then
+  last_verified_commit=$(jq -r '.lastVerifiedCommit' "$MAP_FILE")
+else
+  last_verified_commit=$(grep -o '"lastVerifiedCommit"[[:space:]]*:[[:space:]]*"[^"]*"' "$MAP_FILE" | sed -E 's/.*:[[:space:]]*"([^"]*)"/\1/')
+fi
+
+if [ -z "$last_verified_commit" ] || [ "$last_verified_commit" = "null" ]; then
+  exit 0
+fi
+
+changed_files=$(git diff --name-only "$last_verified_commit" HEAD 2>/dev/null)
+
+if [ -z "$changed_files" ]; then
+  exit 0
+fi
+
+if command -v jq >/dev/null 2>&1; then
+  section_keys=$(jq -r '.sections[].key' "$MAP_FILE")
+else
+  section_keys=$(grep -o '"key"[[:space:]]*:[[:space:]]*"[^"]*"' "$MAP_FILE" | sed -E 's/.*:[[:space:]]*"([^"]*)"/\1/')
+  # The "sections" array may be written as a single physical line containing
+  # all section objects (one JSON array, not one object per line). Normalize
+  # it to one section object per line so the per-key glob lookup below
+  # matches exactly one object instead of greedily matching through to the
+  # last "globs" array on the line, which would return the wrong section's
+  # globs for every key but the last.
+  normalized_map=$(sed -E 's/\},\{/}\n{/g' "$MAP_FILE")
+fi
+
+affected_keys=()
+
+while IFS= read -r key; do
+  [ -z "$key" ] && continue
+
+  if command -v jq >/dev/null 2>&1; then
+    globs=$(jq -r --arg k "$key" '.sections[] | select(.key == $k) | .globs[]' "$MAP_FILE")
+  else
+    globs=$(awk -v k="\"$key\"" '
+      $0 ~ ("\"key\"[[:space:]]*:[[:space:]]*" k) { found=1 }
+      found && /"globs"/ {
+        line=$0
+        gsub(/.*"globs"[[:space:]]*:[[:space:]]*\[/, "", line)
+        gsub(/\].*/, "", line)
+        n = split(line, arr, ",")
+        for (i = 1; i <= n; i++) {
+          g = arr[i]
+          gsub(/^[[:space:]]*"/, "", g)
+          gsub(/"[[:space:]]*$/, "", g)
+          print g
+        }
+        found=0
+      }
+    ' <<< "$normalized_map")
+  fi
+
+  matched=0
+  while IFS= read -r changed_file; do
+    [ -z "$changed_file" ] && continue
+    while IFS= read -r glob; do
+      [ -z "$glob" ] && continue
+      case "$glob" in
+        */\*\*)
+          prefix="${glob%/\*\*}"
+          case "$changed_file" in
+            "$prefix"/*)
+              matched=1
+              ;;
+          esac
+          ;;
+        *)
+          if [ "$changed_file" = "$glob" ]; then
+            matched=1
+          fi
+          ;;
+      esac
+      [ "$matched" -eq 1 ] && break
+    done <<< "$globs"
+    [ "$matched" -eq 1 ] && break
+  done <<< "$changed_files"
+
+  if [ "$matched" -eq 1 ]; then
+    affected_keys+=("$key")
+  fi
+done <<< "$section_keys"
+
+count=${#affected_keys[@]}
+
+if [ "$count" -gt 0 ]; then
+  joined=""
+  for k in "${affected_keys[@]}"; do
+    if [ -z "$joined" ]; then
+      joined="$k"
+    else
+      joined="$joined, $k"
+    fi
+  done
+  echo "usage-guide.md may be stale (${count} section(s) affected: ${joined}) - run the usage-guide-refresh skill"
+fi
+
+exit 0
