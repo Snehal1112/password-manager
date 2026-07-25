@@ -165,7 +165,7 @@ When the access token expires, exchange the refresh token via the also-public `P
 - Most resource routes exist in two shapes: the legacy flat form (e.g. `/api/v1/secrets`) and a vault-scoped form (e.g. `/api/v1/vaults/{vault_name}/secrets`), registered by the same handlers (`api.registerSecretRoutes` in `api/secrets.go`). Both work, but vault-scoped calls resolve to that vault's context instead of the default vault.
 - All IDs in path parameters (`secret_id`, `key_id`, `certificate_id`, `user_id`, `policy_id`, `service_account_id`, `assignment_id`) must match the hex/UUID pattern `[A-Fa-f0-9-]+` enforced by the Gorilla Mux route regex, or the router returns a 404 before your handler even runs.
 
-**Deep dive:** [docs/api-developer-guide.md](api-developer-guide.md) — full endpoint reference, error format, and JavaScript/Python/Go SDK examples. Note that its token-expiry claim, rate-limit default, success-envelope example, and "Vault Endpoints" section are inaccurate (see [Known gaps](#known-gaps-in-the-surrounding-documentation)), and its "Base URL" section shows a placeholder `https://api.rocketvault.local` domain rather than the real default `http://localhost:8774`.
+**Deep dive:** [docs/api-developer-guide.md](api-developer-guide.md) — full endpoint reference, error format, and JavaScript/Python/Go SDK examples. Its token-expiry claim, rate-limit default, success-envelope example, and "Vault Endpoints" section are accurate as of the current codebase (the [Known gaps](#known-gaps-in-the-surrounding-documentation) table describing those as wrong is itself stale); the one remaining discrepancy is its "Base URL" section, which shows a placeholder `https://api.rocketvault.local` domain rather than the real default `http://localhost:8774`.
 
 ---
 
@@ -334,7 +334,7 @@ RocketVault's own bootstrap (`bootstrap/bootstrap.go`) uses this exact pattern t
 - `client_secret` is deliberately absent from `SecretMapping` and the YAML example above — it must come from the `VAULT_CLIENT_SECRET` environment variable (or `vault_client.client_secret` in Viper, which `NewFromViper` prefers before falling back to the env var).
 - Secret values are never logged by the client; only names are used in log and error messages.
 
-**Deep dive:** [docs/consuming-secrets-guide.md](consuming-secrets-guide.md) — see "Option A — Go application using the `vaultclient` package", plus the full service-account creation and access-policy walkthrough and the Troubleshooting table. (Note the troubleshooting table's incorrect `PermissionCreateSecret` claim, listed under [Known gaps](#known-gaps-in-the-surrounding-documentation).)
+**Deep dive:** [docs/consuming-secrets-guide.md](consuming-secrets-guide.md) — see "Option A — Go application using the `vaultclient` package", plus the full service-account creation and access-policy walkthrough and the Troubleshooting table.
 
 ---
 
