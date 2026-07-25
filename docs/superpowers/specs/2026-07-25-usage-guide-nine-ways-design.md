@@ -24,6 +24,7 @@ those, by design (see Decisions).
 | Gaps (ways with no existing deep-dive) | Written in full inline: OAuth2/service accounts, JWKS consumption, backup/restore, health/monitoring integration, deployment modes |
 | Existing-docs maintenance | Spot-check `admin-manual.html`, `cli-guide.md`, `consuming-secrets-guide.md`, `api-developer-guide.md`, `README.md` for drift vs. current code; fix concrete inaccuracies only, no rewrite |
 | Execution mechanism | Workflow tool, multi-agent, per user's explicit request |
+| Long-term maintenance | Manual diff-based refresh skill (modeled on the existing `kb-refresh` skill) + a git `post-commit` hook that reminds (never auto-edits) when doc-relevant paths drift. No CronCreate (recurring jobs auto-expire after 7 days — not durable enough) and no CI/API-key automation for this iteration. |
 
 ## The 9 ways (canonical list, in doc order)
 
@@ -100,16 +101,58 @@ guide against actual source, flagging anything fabricated, outdated, or wrong.
 - 1 Sonnet agent does a final consistency/readability pass across both new files, and
   adds a link to `docs/getting-started.md` from `README.md`'s Documentation section.
 
-Total: ~16 agents. Exceeds the session's "under 15" guideline slightly; justified by the
-scope (9 independently-researched sections plus audit/verify/fix passes across three
-categories of output).
+**Phase 6 — Long-term maintenance setup** *(after Phase 5 finalize; needs the finishing commit)*
+1 Sonnet agent builds the three artifacts below, seeding the manifest's `globs` per
+section from the source paths each Phase 2 agent actually cited, and its
+`lastVerifiedCommit` from the commit that lands `docs/usage-guide.md` +
+`docs/getting-started.md`.
+
+Total: ~17 agents. Exceeds the session's "under 15" guideline slightly; justified by the
+scope (9 independently-researched sections, audit/verify/fix passes across three
+categories of output, plus one-time maintenance-pipeline setup).
+
+## Long-term maintenance (regeneration pipeline)
+
+Three artifacts, built once in Phase 6, that together let the guide be kept current
+without a full re-run of Phases 1-5:
+
+**1. Manifest — `docs/.usage-guide-map.json`**
+Mirrors the existing `.kb-map.json` pattern: `lastVerifiedCommit`, `lastVerifiedDate`,
+and a per-section table `{ section: "3-oauth2-service-accounts", file: "docs/usage-guide.md",
+globs: ["api/**/oauth2*", "internal/services/auth/**", ...] }` for all 9 sections plus
+`getting-started` (globs = the union of all section globs, since it's derived from them).
+
+**2. Refresh skill — `.claude/skills/usage-guide-refresh/SKILL.md`**
+Project-scoped skill (this repo already has `.claude/skills/migration-add` and
+`.claude/skills/coverage-check` as precedent for project skills). On invocation
+("refresh the usage guide"):
+- Diff `lastVerifiedCommit..HEAD`, map changed files to affected sections via the
+  manifest's globs (same matching logic as `kb-refresh`).
+- No affected sections → report up to date, stop, don't touch the manifest.
+- Affected sections → one Sonnet agent per section, re-verify against current source and
+  patch surgically (preserve untouched content, no full-section rewrites).
+- Regenerate `getting-started.md` only if a section's heading/summary changed enough to
+  affect its routing table entry.
+- Rewrite the manifest with the new `lastVerifiedCommit` (HEAD) and today's date.
+- Report which sections were refreshed and why, and which were skipped as unaffected.
+
+**3. Drift reminder — git `post-commit` hook**
+Pure shell, no AI call, no API cost, no expiry:
+- `scripts/hooks/post-commit` reads the manifest, diffs `lastVerifiedCommit..HEAD`, checks
+  the changed files against every section's globs, and if any match, prints one line:
+  `usage-guide.md may be stale (N section(s) affected) — run the usage-guide-refresh skill`.
+  Silent if nothing matches.
+- `scripts/install-hooks.sh` runs `git config core.hooksPath scripts/hooks` so the hook is
+  version-controlled and shared across clones (raw `.git/hooks/` isn't tracked by git).
+  One-time step per clone; documented in the README's Contributing section.
 
 ## Non-goals
 
 - No changes to RocketVault application code.
 - No rewrite of `admin-manual.html` or the other existing guides — only concrete drift
   fixes identified by the Phase 1 audit.
-- No automated regeneration pipeline; this is a one-time authored pair of docs.
+- No CI-based or CronCreate-based automation for this iteration (see Decisions table) —
+  the hook only reminds, it never edits or commits on its own.
 
 ## Success criteria
 
@@ -122,3 +165,9 @@ categories of output).
   reported.
 - README.md's Documentation section links to the new `getting-started.md` as an entry
   point.
+- `docs/.usage-guide-map.json` exists, covers all 9 sections + getting-started, and its
+  `lastVerifiedCommit` matches the commit that lands the guide.
+- Running the `usage-guide-refresh` skill with no drift reports "up to date" and makes no
+  edits; run against a synthetic drifted commit, it refreshes only the affected section(s).
+- `scripts/install-hooks.sh` correctly wires the post-commit hook; a commit touching a
+  doc-relevant path prints the reminder, an unrelated commit stays silent.
