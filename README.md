@@ -164,6 +164,7 @@ rocketvault/
 
 ### Core Documentation
 
+- [Getting Started — Pick Your Path](docs/getting-started.md) - Which of the 9 ways to use RocketVault fits your use case
 - [API Specification (OpenAPI/Swagger)](docs/api-specification.yaml) - Complete OpenAPI 3.0 specification
 - [API Developer Guide](docs/api-developer-guide.md) - Comprehensive guide for developers
 - [Integration Examples](docs/integration-examples.md) - Real-world integration examples
@@ -563,7 +564,7 @@ All list and get commands support a global `--output` flag:
 ```bash
 # Create a self-signed certificate
 ./rocketvault --username admin --password admin123 --totp-code <code> \
-  certificates create --name "my-cert" --key-id <key-id> --validity-days 365
+  certificate create --name "my-cert" --key-id <key-id> --validity-days 365
 
 # Get/update certificate policy (renewal rules)
 # Use the REST API: GET/PUT /api/v1/certificates/{id}/policy
@@ -625,11 +626,11 @@ This displays comprehensive metrics including memory usage, CPU statistics, data
 ```bash
 # List versions of a secret
 ./rocketvault --username admin --password admin123 --totp-code <code> \
-  version list --secret-id <secret-id>
+  secrets version list --secret-id <secret-id>
 
 # Get a specific version
 ./rocketvault --username admin --password admin123 --totp-code <code> \
-  version get --secret-id <secret-id> --version 2
+  secrets version get --secret-id <secret-id> --version 2
 ```
 
 ## API

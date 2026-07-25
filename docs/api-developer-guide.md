@@ -23,16 +23,14 @@ Authorization: Bearer <your-jwt-token>
 JWT tokens are obtained through the CLI login process:
 
 ```bash
-./rocketvault login --username admin --password yourpassword --totp-code 123456
+./rocketvault users login --username admin --password yourpassword --totp-code 123456
 ```
 
 The CLI will return a JWT token that can be used for API authentication.
 
 ### Token Expiration
 
-- JWT tokens expire after 24 hours
-	// vault.Handle("/tenant", Handler(api.App, createTenant)).Methods("GET")
-	// vault.Handle("/tenant/{id:[A-Za-z0-9_-]+}", Handler(api.App, getTenant)).Methods("GET")
+- JWT tokens expire after 1 hour (configurable via `jwt.expiry` in `.rocketvault.yaml`)
 - Include the token in all authenticated requests
 - Handle 401 responses by re-authenticating
 
@@ -51,11 +49,15 @@ Accept: application/json
 
 #### Success Response
 
+Endpoints return the resource object directly in the response body, with no
+`data`/`message`/`status` wrapper. For example, a secret creation response:
+
 ```json
 {
-  "data": { ... },
-  "message": "Operation completed successfully",
-  "status": "success"
+  "id": "3f1b2c4a-...",
+  "name": "my-secret",
+  "value": "...",
+  "created_at": "2023-12-01T10:30:00Z"
 }
 ```
 
@@ -145,41 +147,37 @@ GET /api/v1/health/live
 
 ### Vault Endpoints
 
-#### Create Tenant
+#### Create Vault
 
 ```http
-GET /api/v1/vault/tenant
+POST /api/v1/vaults
 ```
 
-**Response:**
+Requires JWT authentication with the `vaults:manage` permission (admin only).
 
-```json
-{
-  "message": "Tenant created successfully",
-  "status": "success"
-}
-```
-
-#### Get Tenant
+#### List Vaults
 
 ```http
-GET /api/v1/vault/tenant/{id}
+GET /api/v1/vaults
 ```
 
-**Parameters:**
+Supports `?include_deleted=true` to include soft-deleted vaults.
 
-- `id`: Tenant identifier (alphanumeric, hyphens, underscores)
+#### Update Vault
 
-**Response:**
-
-```json
-{
-  "id": "tenant-123",
-  "name": "Production Tenant",
-  "created_at": "2023-12-01T10:30:00Z",
-  "updated_at": "2023-12-01T10:30:00Z"
-}
+```http
+PATCH /api/v1/vaults/{name}
 ```
+
+#### Delete Vault
+
+```http
+DELETE /api/v1/vaults/{name}
+```
+
+Soft-deletes the vault (returns 204). The `default` vault cannot be deleted.
+
+See the [Administrator Manual](admin-manual.html) for full request/response examples.
 
 ### Secrets Endpoints
 
@@ -342,7 +340,7 @@ Authorization: Bearer <token>
 
 The API implements rate limiting to prevent abuse:
 
-- Default limit: 100 requests per minute per IP
+- Default limit: 300 requests per minute per IP for general endpoints, 5 requests per minute for auth endpoints (login/refresh/oauth2)
 - Headers included in responses:
   - `X-RateLimit-Limit`: Maximum requests per minute
   - `X-RateLimit-Remaining`: Remaining requests

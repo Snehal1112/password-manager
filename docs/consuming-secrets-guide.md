@@ -329,7 +329,7 @@ frontend:
 | `token endpoint returned 404` | Wrong OAuth2 path | Must be `/api/v1/oauth2/token`, not `/oauth2/token` |
 | `authentication failed` | Wrong `client_id` or `client_secret` | `client_id` is the service account **name**, not UUID |
 | `secret not found` | UUID belongs to a different owner | Create the secret using the service account token (Step 2b), not the admin token |
-| `insufficient permissions` | Role missing permission | Service accounts have `PermissionCreateSecret` and `PermissionReadSecret` |
+| `insufficient permissions` | Role missing permission | Service accounts have `PermissionReadSecret` and `PermissionListSecrets` |
 | `vault client init: Config.ClientSecret is required` | `VAULT_CLIENT_SECRET` env var not set | `export VAULT_CLIENT_SECRET="..."` |
 | Server errors on `./rocketvault serve` | `vault_client.client_id` set in `.rocketvault.yaml` | Clear `client_id` — the server must not call itself |
 

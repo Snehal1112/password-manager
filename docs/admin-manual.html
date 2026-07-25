@@ -669,7 +669,7 @@ curl -s $BASE/api/v1/health/live</pre>
     <div class="flow-nodes">
       <div class="flow-node hl">POST /login</div>
       <div class="flow-arrow">→</div>
-      <div class="flow-node">access_token (15 min)</div>
+      <div class="flow-node">access_token (1 hour)</div>
       <div class="flow-arrow">+</div>
       <div class="flow-node">refresh_token</div>
     </div>
@@ -918,7 +918,7 @@ curl -s -X DELETE $BASE/api/v1/users/sessions -H "Authorization: Bearer $TOKEN"<
     <div class="tab-bar"><button class="tab-btn active">cURL</button><button class="tab-btn">Response</button></div>
     <div class="tab-pane active"><pre class="code">curl -s -X POST $BASE/api/v1/oauth2/token \
   -u "ci-pipeline:$SECRET" -d "grant_type=client_credentials"</pre></div>
-    <div class="tab-pane"><pre class="code">{ "access_token": "&lt;redacted-jwt&gt;", "token_type": "Bearer", "expires_in": 3600 }</pre></div>
+    <div class="tab-pane"><pre class="code">{ "access_token": "&lt;redacted-jwt&gt;", "token_type": "Bearer", "expires_in": 1800 }</pre></div>
   </div>
   <div class="ep">
     <div class="ep-hd"><span class="meth meth-post">POST</span> <span class="ep-path">/api/v1/service-accounts/{id}/rotate</span> <span class="ep-auth">JWT · admin</span> <span class="ep-label">Rotate the secret</span></div>
@@ -1028,7 +1028,7 @@ curl -s -X DELETE $BASE/api/v1/users/sessions -H "Authorization: Bearer $TOKEN"<
     <div class="ep-hd"><span class="meth meth-get">GET</span> <span class="ep-path">/api/v1/secrets/{id}/versions</span> <span class="ep-label">List versions</span></div>
     <div class="tab-bar"><button class="tab-btn active">cURL</button><button class="tab-btn">CLI</button></div>
     <div class="tab-pane active"><pre class="code">curl -s $BASE/api/v1/secrets/&lt;id&gt;/versions -H "Authorization: Bearer $TOKEN"</pre></div>
-    <div class="tab-pane"><pre class="code">rocketvault version list &lt;secret-id&gt; --username admin --password admin123 --totp-code 123456</pre></div>
+    <div class="tab-pane"><pre class="code">rocketvault secrets version list --secret-id &lt;secret-id&gt; --username admin --password admin123 --totp-code 123456</pre></div>
   </div>
   <div class="ep">
     <div class="ep-hd"><span class="meth meth-get">GET</span> <span class="ep-path">/api/v1/secrets/{id}/versions/{n}</span> <span class="ep-label">Get version n</span></div>
@@ -1039,7 +1039,7 @@ curl -s -X DELETE $BASE/api/v1/users/sessions -H "Authorization: Bearer $TOKEN"<
     <div class="ep-hd"><span class="meth meth-get">GET</span> <span class="ep-path">/api/v1/secrets/{id}/versions/latest</span> <span class="ep-label">Get latest</span></div>
     <div class="tab-bar"><button class="tab-btn active">cURL</button><button class="tab-btn">CLI</button></div>
     <div class="tab-pane active"><pre class="code">curl -s $BASE/api/v1/secrets/&lt;id&gt;/versions/latest -H "Authorization: Bearer $TOKEN"</pre></div>
-    <div class="tab-pane"><pre class="code">rocketvault version latest &lt;secret-id&gt; --username admin --password admin123 --totp-code 123456</pre></div>
+    <div class="tab-pane"><pre class="code">rocketvault secrets version latest --secret-id &lt;secret-id&gt; --username admin --password admin123 --totp-code 123456</pre></div>
   </div>
   <p class="see-also">See also: <a href="../MANUAL_TESTING.md">Manual Testing §9</a></p>
 </section>
@@ -1051,7 +1051,9 @@ curl -s -X DELETE $BASE/api/v1/users/sessions -H "Authorization: Bearer $TOKEN"<
   <div class="op-grid">
     <div>
       <div class="op-label">Manage policies</div>
-      <pre class="code no-hd">rocketvault secrets rotation create --secret-id &lt;id&gt; --interval 30d \
+      <pre class="code no-hd">rocketvault secrets rotation create --name "Monthly DB Password" --interval 30 --reminder 7 --auto-rotate \
+  --username admin --password admin123 --totp-code 123456
+rocketvault secrets rotation assign --policy-id &lt;id&gt; --secret-id &lt;id&gt; \
   --username admin --password admin123 --totp-code 123456
 rocketvault secrets rotation list   --username admin --password admin123 --totp-code 123456</pre>
     </div>
