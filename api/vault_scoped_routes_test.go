@@ -3,7 +3,9 @@
 package api
 
 import (
+	"bytes"
 	"context"
+	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -45,6 +47,10 @@ type recordingSecretService struct {
 	versionsCalled      bool
 	versionsVaultScoped bool
 	versionsVaultID     uuid.UUID
+	exportCalled        bool
+	exportVaultID       uuid.UUID
+	importCalled        bool
+	importVaultID       uuid.UUID
 }
 
 func (s *recordingSecretService) CreateSecret(context.Context, secretServices.CreateSecretRequest) (*model.Secret, error) {
@@ -89,11 +95,15 @@ func (s *recordingSecretService) DeleteSecretInVault(context.Context, uuid.UUID,
 func (s *recordingSecretService) GenerateSecret(context.Context, secretServices.GenerateSecretRequest) (*model.Secret, error) {
 	panic("unexpected")
 }
-func (s *recordingSecretService) ExportSecrets(context.Context, secretServices.ExportSecretsRequest) ([]byte, error) {
-	panic("unexpected")
+func (s *recordingSecretService) ExportSecrets(_ context.Context, req secretServices.ExportSecretsRequest) ([]byte, error) {
+	s.exportCalled = true
+	s.exportVaultID = req.VaultID
+	return []byte("[]"), nil
 }
-func (s *recordingSecretService) ImportSecrets(context.Context, secretServices.ImportSecretsRequest) (*secretServices.ImportResult, error) {
-	panic("unexpected")
+func (s *recordingSecretService) ImportSecrets(_ context.Context, req secretServices.ImportSecretsRequest) (*secretServices.ImportResult, error) {
+	s.importCalled = true
+	s.importVaultID = req.VaultID
+	return &secretServices.ImportResult{}, nil
 }
 func (s *recordingSecretService) GetSecretVersions(_ context.Context, secretID, userID uuid.UUID) ([]model.SecretVersion, error) {
 	s.versionsCalled = true
@@ -326,5 +336,90 @@ func TestLegacyFlatRoute_UsesUserScopedVersionsList(t *testing.T) {
 	}
 	if rec.versionsVaultScoped {
 		t.Fatalf("legacy .../versions GET must use owner-scoped lookup (GetSecretVersions), not vault-scoped")
+	}
+}
+
+// TestVaultScopedRoute_UsesVaultScopedExport verifies that POST on the
+// explicit /vaults/{name}/secrets/export route threads the resolved vault's
+// ID into ExportSecretsRequest.
+func TestVaultScopedRoute_UsesVaultScopedExport(t *testing.T) {
+	rec := &recordingSecretService{}
+	api, repo := newVaultScopedTestAPI(rec)
+
+	id := uuid.New()
+	repo.byName["prod"] = &model.Vault{ID: id, Name: "prod", Enabled: true}
+	repo.byID[id.String()] = repo.byName["prod"]
+
+	body := []byte(`{"format":"json"}`)
+	w := doVaultRequest(api, http.MethodPost, "/api/v1/vaults/prod/secrets/export", body)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("vault-scoped POST .../export: expected 200, got %d (%s)", w.Code, w.Body.String())
+	}
+	if !rec.exportCalled {
+		t.Fatalf("vault-scoped route did not dispatch to the export handler")
+	}
+	if rec.exportVaultID != id {
+		t.Fatalf("export dispatched with vault ID %s, want %s", rec.exportVaultID, id)
+	}
+}
+
+// TestLegacyFlatRoute_ExportOmitsVaultID verifies that POST on the legacy
+// flat /secrets/export route leaves VaultID unset (owner-scoped export).
+func TestLegacyFlatRoute_ExportOmitsVaultID(t *testing.T) {
+	rec := &recordingSecretService{}
+	api, _ := newVaultScopedTestAPI(rec)
+
+	body := []byte(`{"format":"json"}`)
+	w := doVaultRequest(api, http.MethodPost, "/api/v1/secrets/export", body)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("legacy POST /secrets/export: expected 200, got %d (%s)", w.Code, w.Body.String())
+	}
+	if !rec.exportCalled {
+		t.Fatalf("legacy route did not dispatch to the export handler")
+	}
+	if rec.exportVaultID != uuid.Nil {
+		t.Fatalf("legacy /secrets/export must not set VaultID, got %s", rec.exportVaultID)
+	}
+}
+
+// TestVaultScopedRoute_UsesVaultScopedImport verifies that POST on the
+// explicit /vaults/{name}/secrets/import route threads the resolved vault's
+// ID into ImportSecretsRequest.
+func TestVaultScopedRoute_UsesVaultScopedImport(t *testing.T) {
+	rec := &recordingSecretService{}
+	api, repo := newVaultScopedTestAPI(rec)
+
+	id := uuid.New()
+	repo.byName["prod"] = &model.Vault{ID: id, Name: "prod", Enabled: true}
+	repo.byID[id.String()] = repo.byName["prod"]
+
+	var buf bytes.Buffer
+	mw := multipart.NewWriter(&buf)
+	fw, err := mw.CreateFormFile("file", "secrets.json")
+	if err != nil {
+		t.Fatalf("failed to create form file: %v", err)
+	}
+	fw.Write([]byte(`[{"name":"n1","value":"v1"}]`))
+	mw.WriteField("format", "json")
+	mw.Close()
+
+	r := httptest.NewRequest(http.MethodPost, "/api/v1/vaults/prod/secrets/import", &buf)
+	r.Header.Set("Content-Type", mw.FormDataContentType())
+	ctx := context.WithValue(r.Context(), common.UserIDKey, vaultTestUserID)
+	ctx = context.WithValue(ctx, common.RoleKey, string(model.RoleAdmin))
+	r = r.WithContext(ctx)
+	w := httptest.NewRecorder()
+	api.rootRouter.ServeHTTP(w, r)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("vault-scoped POST .../import: expected 200, got %d (%s)", w.Code, w.Body.String())
+	}
+	if !rec.importCalled {
+		t.Fatalf("vault-scoped route did not dispatch to the import handler")
+	}
+	if rec.importVaultID != id {
+		t.Fatalf("import dispatched with vault ID %s, want %s", rec.importVaultID, id)
 	}
 }

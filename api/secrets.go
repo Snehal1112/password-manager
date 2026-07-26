@@ -258,6 +258,14 @@ func exportSecrets(c *Context, w http.ResponseWriter, r *http.Request) {
 		FilterTags:  exportReq.Tags,
 		IncludeTags: exportReq.IncludeTags,
 	}
+	if isVaultScopedRoute(r) {
+		vaultID, err := vaultIDFromRequest(r)
+		if err != nil {
+			c.SetInvalidParam("vault")
+			return
+		}
+		serviceReq.VaultID = vaultID
+	}
 
 	data, err := secretService.ExportSecrets(r.Context(), serviceReq)
 	if err != nil {
@@ -340,6 +348,14 @@ func importSecrets(c *Context, w http.ResponseWriter, r *http.Request) {
 		Data:      data,
 		Format:    format,
 		Overwrite: overwrite,
+	}
+	if isVaultScopedRoute(r) {
+		vaultID, err := vaultIDFromRequest(r)
+		if err != nil {
+			c.SetInvalidParam("vault")
+			return
+		}
+		serviceReq.VaultID = vaultID
 	}
 
 	result, err := secretService.ImportSecrets(r.Context(), serviceReq)
