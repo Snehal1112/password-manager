@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"rocketvault/internal/logging"
+	"rocketvault/internal/repositories/mocks"
 	"rocketvault/internal/services/keys"
 	"rocketvault/model"
 )
@@ -20,7 +21,7 @@ import (
 func newRevokedKeyCryptoSvc(t *testing.T, keyID, userID uuid.UUID) keys.CryptoService {
 	t.Helper()
 
-	repo := &mockKeyRepoForWrap{}
+	repo := mocks.NewMockKeyRepositoryInterface(t)
 	repo.On("Read", mock.Anything, keyID).Return(&model.Key{
 		ID:      keyID,
 		UserID:  userID,

@@ -22,6 +22,7 @@ import (
 	"rocketvault/internal/crypto"
 	"rocketvault/internal/keycache"
 	"rocketvault/internal/logging"
+	"rocketvault/internal/repositories/mocks"
 	"rocketvault/internal/services/keys"
 	"rocketvault/model"
 )
@@ -137,7 +138,7 @@ func TestCacheHit_ReducesDecryptCalls(t *testing.T) {
 	}
 
 	// keyRepo.Read is called on every Sign for the authorization check.
-	repo := &mockKeyRepoForWrap{}
+	repo := mocks.NewMockKeyRepositoryInterface(t)
 	repo.On("Read", mock.Anything, keyID).Return(vaultKey, nil)
 
 	// Use a mock cache so we can assert Set/Get call counts precisely.
@@ -217,7 +218,7 @@ func TestHSMPath_NeverCallsCacheSet(t *testing.T) {
 		Enabled: true,
 	}
 
-	repo := &mockKeyRepoForWrap{}
+	repo := mocks.NewMockKeyRepositoryInterface(t)
 	repo.On("Read", mock.Anything, keyID).Return(hsmKey, nil)
 
 	// Use a mock KeyProvider that returns a dummy signature for the HSM call.
@@ -254,7 +255,7 @@ func TestHSMPath_NeverCallsCacheSet(t *testing.T) {
 func TestNilCacheAndMetrics_DoNotPanic(t *testing.T) {
 	t.Parallel()
 
-	repo := &mockKeyRepoForWrap{}
+	repo := mocks.NewMockKeyRepositoryInterface(t)
 
 	assert.NotPanics(t, func() {
 		_ = keys.NewCryptoService(keys.CryptoServiceConfig{
@@ -286,7 +287,7 @@ func TestCacheHit_TTLExpiry(t *testing.T) {
 		Enabled: true,
 	}
 
-	repo := &mockKeyRepoForWrap{}
+	repo := mocks.NewMockKeyRepositoryInterface(t)
 	repo.On("Read", mock.Anything, keyID).Return(vaultKey, nil)
 
 	// Use a very short TTL so entries expire quickly.
