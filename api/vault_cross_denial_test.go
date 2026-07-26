@@ -368,3 +368,100 @@ func seedCrossVaultPair(repo *vaultFakeRepo) (vaultAID, vaultBID uuid.UUID) {
 	repo.byID[vaultBID.String()] = repo.byName["vault-b"]
 	return
 }
+
+// TestCrossVaultDenial_SecretVersions_RealSQLite seeds a secret in vault B
+// and requests its version endpoints via /vaults/vault-a/secrets/{id}/...,
+// asserting denial on all three.
+func TestCrossVaultDenial_SecretVersions_RealSQLite(t *testing.T) {
+	api, vrepo, secretRepo := newCrossVaultSecretVersionsTestAPI(t)
+	_, vaultBID := seedCrossVaultPair(vrepo)
+
+	secretID := uuid.New()
+	if err := secretRepo.Create(context.Background(), &model.Secret{
+		ID: secretID, UserID: uuid.New(), VaultID: vaultBID,
+		Name: "api-key", Value: "ciphertext", Version: 1,
+	}); err != nil {
+		t.Fatalf("seed secret in vault B: %v", err)
+	}
+
+	// listSecretVersionsHandler's vault-scoped branch (api/secrets.go:101-105)
+	// maps every error to 500, not 404 -- a known, deliberately-deferred
+	// defect (design spec 2026-07-26, section 5.3, P1 Phase 4: "the
+	// listSecretVersionsHandler 500->404 correction"). P0 pins the current
+	// behavior; fixing it is P1's job, not this plan's.
+	w := doVaultRequest(api, http.MethodGet, "/api/v1/vaults/vault-a/secrets/"+secretID.String()+"/versions", nil)
+	if w.Code != http.StatusInternalServerError {
+		t.Fatalf("cross-vault GET .../versions: expected 500 (pinned pending P1), got %d (%s)", w.Code, w.Body.String())
+	}
+
+	w = doVaultRequest(api, http.MethodGet, "/api/v1/vaults/vault-a/secrets/"+secretID.String()+"/versions/1", nil)
+	if w.Code != http.StatusNotFound {
+		t.Fatalf("cross-vault GET .../versions/1: expected 404, got %d (%s)", w.Code, w.Body.String())
+	}
+
+	w = doVaultRequest(api, http.MethodGet, "/api/v1/vaults/vault-a/secrets/"+secretID.String()+"/versions/latest", nil)
+	if w.Code != http.StatusNotFound {
+		t.Fatalf("cross-vault GET .../versions/latest: expected 404, got %d (%s)", w.Code, w.Body.String())
+	}
+}
+
+// newCrossVaultSecretVersionsTestAPI mirrors newCrossVaultSecretsTestAPI but
+// wires a real VersioningService (backed by the same real SecretRepository)
+// into SecretServiceConfig.VersionService, since the version-endpoint
+// handlers delegate straight through to it. versionRepo/userRepo/cryptoSvc
+// stay nil: every vault-scoped versioning method checks
+// secretRepo.ReadInVault first and returns before touching them.
+func newCrossVaultSecretVersionsTestAPI(t *testing.T) (*API, *vaultFakeRepo, repositories.SecretRepositoryInterface) {
+	t.Helper()
+
+	sqlDB, err := sql.Open("sqlite3", ":memory:")
+	if err != nil {
+		t.Fatalf("open sqlite: %v", err)
+	}
+	t.Cleanup(func() { sqlDB.Close() })
+
+	_, err = sqlDB.Exec(`CREATE TABLE IF NOT EXISTS secrets (
+		id               TEXT PRIMARY KEY,
+		user_id          TEXT NOT NULL,
+		vault_id         TEXT NOT NULL DEFAULT '00000000-0000-0000-0000-00000000efa1',
+		name             TEXT NOT NULL,
+		value            TEXT NOT NULL,
+		version          INTEGER NOT NULL,
+		created_at       TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+		deleted_at       TIMESTAMP NULL,
+		purge_protection BOOLEAN NOT NULL DEFAULT FALSE,
+		scheduled_purge_at TIMESTAMP NULL,
+		content_type     TEXT NOT NULL DEFAULT '',
+		enabled          BOOLEAN NOT NULL DEFAULT TRUE,
+		expires_at       TIMESTAMP NULL,
+		not_before       TIMESTAMP NULL
+	)`)
+	if err != nil {
+		t.Fatalf("create secrets schema: %v", err)
+	}
+
+	secretRepo := repositories.NewSecretRepository(rvdb.NewConn(sqlDB, rvdb.SQLite), userTestLog())
+	versionSvc := secretServices.NewVersioningService(nil, secretRepo, nil, nil, userTestLog())
+	secretSvc := secretServices.NewSecretService(secretServices.SecretServiceConfig{
+		SecretRepository: secretRepo,
+		VersionService:   versionSvc,
+		Logger:           userTestLog(),
+	})
+
+	vrepo := newVaultFakeRepo()
+	vsvc := vaultServices.NewVaultService(vrepo, vaultNoopCascade{}, nil)
+	a := &app.App{ServiceContainer: &vaultSvcTestContainer{vaultSvc: vsvc, secretSvc: secretSvc, logger: userTestLog()}}
+	a.Logger = userTestLog()
+
+	router := mux.NewRouter()
+	api := &API{App: a, BaseRoutes: &Routes{}, basePath: "/api/v1", rootRouter: router, Logger: userTestLog()}
+	r := api.BaseRoutes
+	r.ApiRoot = router.PathPrefix("/api/v1").Subrouter()
+	r.Vaults = r.ApiRoot.PathPrefix("/vaults").Subrouter()
+	r.VaultScoped = r.Vaults.PathPrefix("/{vault_name:[a-z0-9-]+}").Subrouter()
+	r.VaultScoped.Use(vaultResolutionTestMiddleware(vrepo))
+	r.Secrets = r.ApiRoot.PathPrefix("/secrets").Subrouter()
+	api.InitVault()
+	api.InitSecrets()
+	return api, vrepo, secretRepo
+}
