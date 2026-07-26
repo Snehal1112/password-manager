@@ -394,9 +394,12 @@ func (s *secretService) UpdateSecretInVault(ctx context.Context, req UpdateSecre
 		return fmt.Errorf("failed to decrypt current secret: %w", err)
 	}
 
+	// CreateVersion gates on secret.UserID == UserID; pass the secret's real
+	// owner here, not the caller, so a legitimate vault-scoped update by a
+	// non-owner member is not rejected by CreateVersion's internal check.
 	versionReq := CreateVersionRequest{
 		SecretID: currentSecret.ID,
-		UserID:   req.UserID,
+		UserID:   currentSecret.UserID,
 		Name:     currentSecret.Name,
 		Value:    currentValue,
 		Version:  currentSecret.Version,

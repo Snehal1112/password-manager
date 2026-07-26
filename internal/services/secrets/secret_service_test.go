@@ -573,3 +573,51 @@ func TestImportSecrets_VaultScoped_ThreadsVaultIDIntoCreatedSecrets(t *testing.T
 	require.Equal(t, 1, result.ImportedCount)
 	repo.AssertExpectations(t)
 }
+
+// TestUpdateSecretInVault_NonOwnerVaultMember_CreateVersionUsesSecretOwner
+// proves that a vault member who is not the secret's owner can still update
+// it: CreateVersion must be invoked with the secret's actual owner, not the
+// caller, or its internal ownership check rejects a legitimate update.
+func TestUpdateSecretInVault_NonOwnerVaultMember_CreateVersionUsesSecretOwner(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	ownerID := uuid.New()
+	callerID := uuid.New() // vault member who does not own the secret
+	vaultID := uuid.New()
+	secretID := uuid.New()
+
+	current := &model.Secret{
+		ID: secretID, UserID: ownerID, VaultID: vaultID,
+		Name: "shared-secret", Value: "encrypted-current", Version: 1, Enabled: true,
+	}
+
+	repo := &testutils.MockSecretRepository{}
+	crypto := &testutils.MockCryptographyService{}
+	ver := &testutils.MockVersioningService{}
+	tag := &testutils.MockTagService{}
+
+	repo.On("ReadInVault", ctx, secretID, vaultID).Return(current, nil)
+	crypto.On("DecryptSecret", "encrypted-current").Return("plaintext-current", nil)
+	crypto.On("EncryptSecret", "new-plaintext").Return("encrypted-new", nil)
+
+	var gotVersionReq secrets.CreateVersionRequest
+	ver.On("CreateVersion", ctx, mock.AnythingOfType("secrets.CreateVersionRequest")).
+		Run(func(args mock.Arguments) {
+			gotVersionReq = args.Get(1).(secrets.CreateVersionRequest)
+		}).
+		Return(&model.SecretVersion{}, nil)
+	repo.On("UpdateInVault", ctx, mock.AnythingOfType("*model.Secret")).Return(nil)
+
+	svc := newService(repo, crypto, ver, tag, t)
+	newValue := "new-plaintext"
+	err := svc.UpdateSecretInVault(ctx, secrets.UpdateSecretRequest{
+		SecretID: secretID,
+		VaultID:  vaultID,
+		UserID:   callerID,
+		Value:    &newValue,
+	})
+
+	require.NoError(t, err, "a vault member updating a secret they do not own must succeed")
+	assert.Equal(t, ownerID, gotVersionReq.UserID,
+		"CreateVersion must be called with the secret's owner, not the caller, so its internal ownership gate does not reject a legitimate vault-scoped update")
+}
