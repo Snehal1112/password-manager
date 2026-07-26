@@ -73,10 +73,11 @@ type CreateKeyResult struct {
 // UpdateKeyRequest represents a request to update an existing key.
 type UpdateKeyRequest struct {
 	KeyID     uuid.UUID
+	VaultID   uuid.UUID  // Set only for vault-scoped updates; ignored by UpdateKey.
 	Name      *string    // Optional - nil means no change
 	Tags      []string   // Optional - empty means no change
 	Revoked   *bool      // Optional - nil means no change
-	UserID    uuid.UUID  // For access control
+	UserID    uuid.UUID  // For access control (legacy path only)
 	Enabled   *bool      // Optional - nil means no change
 	ExpiresAt *time.Time // Optional - nil means no change
 	NotBefore *time.Time // Optional - nil means no change
@@ -92,6 +93,9 @@ type KeyService interface {
 	ListKeys(ctx context.Context, userID uuid.UUID) ([]model.Key, error)
 	ListKeysWithFilters(ctx context.Context, userID *uuid.UUID, keyType string, tags []string, isAdmin bool) ([]model.Key, error)
 	UpdateKey(ctx context.Context, req UpdateKeyRequest) error
+	// UpdateKeyInVault updates a key scoped to a vault. Any vault member may
+	// update any key in the vault (no ownership check).
+	UpdateKeyInVault(ctx context.Context, req UpdateKeyRequest) error
 	DeleteKey(ctx context.Context, keyID, userID uuid.UUID) (*model.Key, error)
 	// GetKeyInVault retrieves a key scoped to the given vault.
 	GetKeyInVault(ctx context.Context, keyID, vaultID uuid.UUID) (*model.Key, error)
@@ -574,6 +578,54 @@ func (s *keyService) UpdateKey(ctx context.Context, req UpdateKeyRequest) error 
 	}
 
 	s.logger.LogAuditInfo(req.UserID.String(), "update_key", "success", fmt.Sprintf("Key updated: %s", updatedKey.Name))
+	return nil
+}
+
+// UpdateKeyInVault updates a key scoped to a vault instead of ownership. It
+// mirrors UpdateKey but verifies vault membership via ReadInVault — any vault
+// member may update any key in the vault.
+func (s *keyService) UpdateKeyInVault(ctx context.Context, req UpdateKeyRequest) error {
+	logrus.WithFields(logrus.Fields{
+		"key_id":   req.KeyID.String(),
+		"vault_id": req.VaultID.String(),
+	}).Info("Updating key (vault-scoped)")
+
+	key, err := s.keyRepo.ReadInVault(ctx, req.KeyID, req.VaultID)
+	if err != nil {
+		return fmt.Errorf("%w: %s", ErrKeyNotFound, err.Error())
+	}
+
+	updatedKey := *key
+
+	if req.Name != nil {
+		updatedKey.Name = *req.Name
+	}
+	if req.Tags != nil {
+		updatedKey.Tags = req.Tags
+	}
+	if req.Revoked != nil {
+		updatedKey.Revoked = *req.Revoked
+	}
+	if req.Enabled != nil {
+		updatedKey.Enabled = *req.Enabled
+	}
+	if req.ExpiresAt != nil {
+		updatedKey.ExpiresAt = req.ExpiresAt
+	}
+	if req.NotBefore != nil {
+		updatedKey.NotBefore = req.NotBefore
+	}
+
+	if err := s.keyRepo.Update(ctx, &updatedKey); err != nil {
+		s.logger.LogAuditError("", "update_key", "failed", "Failed to update key", err)
+		return fmt.Errorf("failed to update key: %w", err)
+	}
+
+	if s.keyCache != nil {
+		s.keyCache.Invalidate(updatedKey.ID)
+	}
+
+	s.logger.LogAuditInfo("", "update_key", "success", fmt.Sprintf("Key updated: %s", updatedKey.Name))
 	return nil
 }
 

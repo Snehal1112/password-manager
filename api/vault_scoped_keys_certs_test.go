@@ -54,6 +54,9 @@ func (s *recordingKeyService) ListKeysWithFilters(context.Context, *uuid.UUID, s
 func (s *recordingKeyService) UpdateKey(context.Context, keyServices.UpdateKeyRequest) error {
 	panic("unexpected")
 }
+func (s *recordingKeyService) UpdateKeyInVault(context.Context, keyServices.UpdateKeyRequest) error {
+	panic("unexpected")
+}
 func (s *recordingKeyService) DeleteKey(context.Context, uuid.UUID, uuid.UUID) (*model.Key, error) {
 	panic("unexpected")
 }

@@ -83,6 +83,10 @@ func (m *keyCmdKeyService) UpdateKey(ctx context.Context, req keyServices.Update
 	args := m.Called(ctx, req)
 	return args.Error(0)
 }
+func (m *keyCmdKeyService) UpdateKeyInVault(ctx context.Context, req keyServices.UpdateKeyRequest) error {
+	args := m.Called(ctx, req)
+	return args.Error(0)
+}
 func (m *keyCmdKeyService) DeleteKey(ctx context.Context, keyID, userID uuid.UUID) (*model.Key, error) {
 	args := m.Called(ctx, keyID, userID)
 	if args.Get(0) == nil {

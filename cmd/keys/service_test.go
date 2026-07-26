@@ -59,6 +59,11 @@ func (m *MockKeyService) UpdateKey(ctx context.Context, req keyservices.UpdateKe
 	return args.Error(0)
 }
 
+func (m *MockKeyService) UpdateKeyInVault(ctx context.Context, req keyservices.UpdateKeyRequest) error {
+	args := m.Called(ctx, req)
+	return args.Error(0)
+}
+
 func (m *MockKeyService) DeleteKey(ctx context.Context, keyID, userID uuid.UUID) (*model.Key, error) {
 	args := m.Called(ctx, keyID, userID)
 	if v := args.Get(0); v != nil {

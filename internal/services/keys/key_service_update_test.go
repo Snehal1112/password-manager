@@ -2,6 +2,7 @@ package keys
 
 import (
 	"context"
+	"errors"
 	"testing"
 
 	"github.com/google/uuid"
@@ -61,4 +62,50 @@ func TestUpdateKey_ClearsRevoked(t *testing.T) {
 
 	assert.NoError(t, err)
 	repo.AssertExpectations(t)
+}
+
+func TestUpdateKeyInVault_HappyPath(t *testing.T) {
+	repo := &mockKeyRepository{}
+	logger := &logging.Logger{Logger: logrus.New()}
+
+	keyID := uuid.New()
+	vaultID := uuid.New()
+	ownerID := uuid.New()
+	callerID := uuid.New() // a different vault member than the key's owner
+
+	stored := &model.Key{ID: keyID, UserID: ownerID, VaultID: vaultID, Name: "old"}
+	repo.On("ReadInVault", mock.Anything, keyID, vaultID).Return(stored, nil)
+	repo.On("Update", mock.Anything, mock.AnythingOfType("*model.Key")).Return(nil)
+
+	svc := &keyService{keyRepo: repo, logger: logger}
+
+	newName := "new-name"
+	err := svc.UpdateKeyInVault(context.Background(), UpdateKeyRequest{
+		KeyID:   keyID,
+		UserID:  callerID,
+		VaultID: vaultID,
+		Name:    &newName,
+	})
+
+	assert.NoError(t, err)
+	repo.AssertExpectations(t)
+}
+
+func TestUpdateKeyInVault_WrongVault(t *testing.T) {
+	repo := &mockKeyRepository{}
+	logger := &logging.Logger{Logger: logrus.New()}
+
+	keyID := uuid.New()
+	vaultID := uuid.New()
+
+	repo.On("ReadInVault", mock.Anything, keyID, vaultID).Return(nil, errors.New("key not found or access denied"))
+
+	svc := &keyService{keyRepo: repo, logger: logger}
+	err := svc.UpdateKeyInVault(context.Background(), UpdateKeyRequest{
+		KeyID:   keyID,
+		UserID:  uuid.New(),
+		VaultID: vaultID,
+	})
+
+	assert.ErrorIs(t, err, ErrKeyNotFound)
 }

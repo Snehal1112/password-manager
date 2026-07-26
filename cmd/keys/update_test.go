@@ -20,6 +20,10 @@ func (m *MockKeyServiceForUpdate) UpdateKey(ctx context.Context, req keyServices
 	args := m.Called(ctx, req)
 	return args.Error(0)
 }
+func (m *MockKeyServiceForUpdate) UpdateKeyInVault(ctx context.Context, req keyServices.UpdateKeyRequest) error {
+	args := m.Called(ctx, req)
+	return args.Error(0)
+}
 func (m *MockKeyServiceForUpdate) CreateRSAKey(ctx context.Context, req keyServices.CreateKeyRequest) (*keyServices.CreateKeyResult, error) {
 	return nil, nil
 }
