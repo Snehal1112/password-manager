@@ -136,6 +136,11 @@ func (m *MockSecretRepository) Update(ctx context.Context, secret *model.Secret)
 	return args.Error(0)
 }
 
+func (m *MockSecretRepository) UpdateInVault(ctx context.Context, secret *model.Secret) error {
+	args := m.Called(ctx, secret)
+	return args.Error(0)
+}
+
 func (m *MockSecretRepository) Delete(ctx context.Context, id uuid.UUID) error {
 	args := m.Called(ctx, id)
 	return args.Error(0)

@@ -64,6 +64,13 @@ func (r *RetryRepositoryWrapper) Update(ctx context.Context, secret *model.Secre
 	})
 }
 
+// UpdateInVault wraps the UpdateInVault operation with retry logic
+func (r *RetryRepositoryWrapper) UpdateInVault(ctx context.Context, secret *model.Secret) error {
+	return r.retryService.ExecuteDatabaseOperation(ctx, func() error {
+		return r.baseRepo.UpdateInVault(ctx, secret)
+	})
+}
+
 // Delete wraps the Delete operation with retry logic
 func (r *RetryRepositoryWrapper) Delete(ctx context.Context, id uuid.UUID) error {
 	return r.retryService.ExecuteDatabaseOperation(ctx, func() error {

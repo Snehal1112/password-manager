@@ -59,6 +59,10 @@ func (r *stubSecretRepo) Update(_ context.Context, s *model.Secret) error {
 	return nil
 }
 
+func (r *stubSecretRepo) UpdateInVault(_ context.Context, _ *model.Secret) error {
+	return fmt.Errorf("not implemented")
+}
+
 func (r *stubSecretRepo) Delete(_ context.Context, id uuid.UUID) error {
 	delete(r.secrets, id)
 	return nil

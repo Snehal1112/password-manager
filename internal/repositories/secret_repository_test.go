@@ -211,6 +211,60 @@ func TestListInVaultIncludeDeleted_PopulatesVaultID(t *testing.T) {
 	}
 }
 
+// TestSecretRepository_UpdateInVault_UpdatesWhenVaultMatches verifies that
+// UpdateInVault applies the update when the secret belongs to the given vault.
+func TestSecretRepository_UpdateInVault_UpdatesWhenVaultMatches(t *testing.T) {
+	t.Parallel()
+	db := setupSecretTestDB(t)
+	repo := repositories.NewSecretRepository(rvdb.NewConn(db, rvdb.SQLite), newTestSecretLogger(t))
+	ctx := context.Background()
+
+	vaultID := uuid.New()
+	secret := &model.Secret{
+		ID: uuid.New(), UserID: uuid.New(), VaultID: vaultID,
+		Name: "s1", Value: "enc-v1", Version: 1, CreatedAt: time.Now(), Enabled: true,
+	}
+	require.NoError(t, repo.Create(ctx, secret))
+
+	secret.Name = "s1-renamed"
+	secret.Value = "enc-v2"
+	secret.Version = 2
+	err := repo.UpdateInVault(ctx, secret)
+	require.NoError(t, err)
+
+	got, err := repo.ReadInVault(ctx, secret.ID, vaultID)
+	require.NoError(t, err)
+	assert.Equal(t, "s1-renamed", got.Name)
+	assert.Equal(t, "enc-v2", got.Value)
+	assert.Equal(t, 2, got.Version)
+}
+
+// TestSecretRepository_UpdateInVault_NoOpWhenVaultMismatch verifies that
+// UpdateInVault fails (and leaves the row unchanged) when the vault ID on
+// the secret does not match the vault the row actually belongs to.
+func TestSecretRepository_UpdateInVault_NoOpWhenVaultMismatch(t *testing.T) {
+	t.Parallel()
+	db := setupSecretTestDB(t)
+	repo := repositories.NewSecretRepository(rvdb.NewConn(db, rvdb.SQLite), newTestSecretLogger(t))
+	ctx := context.Background()
+
+	realVault := uuid.New()
+	secret := &model.Secret{
+		ID: uuid.New(), UserID: uuid.New(), VaultID: realVault,
+		Name: "s1", Value: "enc-v1", Version: 1, CreatedAt: time.Now(), Enabled: true,
+	}
+	require.NoError(t, repo.Create(ctx, secret))
+
+	secret.VaultID = uuid.New() // wrong vault
+	secret.Name = "should-not-apply"
+	err := repo.UpdateInVault(ctx, secret)
+	require.Error(t, err)
+
+	got, err := repo.ReadInVault(ctx, secret.ID, realVault)
+	require.NoError(t, err)
+	assert.Equal(t, "s1", got.Name) // unchanged
+}
+
 // TestSecretRepository_SoftDeleteVaultContents_HidesFromList verifies that after
 // soft-deleting a vault's contents, ListInVault returns nothing while
 // ListInVaultIncludeDeleted still returns the rows.

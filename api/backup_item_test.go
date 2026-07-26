@@ -308,6 +308,9 @@ func (m *mockSecretRepo) ReadByOwner(_ context.Context, _, _ uuid.UUID) (*model.
 func (m *mockSecretRepo) Update(_ context.Context, _ *model.Secret) error {
 	return errors.New("not implemented")
 }
+func (m *mockSecretRepo) UpdateInVault(_ context.Context, _ *model.Secret) error {
+	return errors.New("not implemented")
+}
 func (m *mockSecretRepo) Delete(_ context.Context, _ uuid.UUID) error { return nil }
 func (m *mockSecretRepo) SoftDelete(_ context.Context, _ uuid.UUID) error {
 	return errors.New("not implemented")

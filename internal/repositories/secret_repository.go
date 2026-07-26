@@ -29,6 +29,9 @@ type SecretRepositoryInterface interface {
 	ListByUserIncludeDeleted(ctx context.Context, userID uuid.UUID, tags []string) ([]model.Secret, error)
 	// ReadInVault fetches a secret only when id and vaultID both match.
 	ReadInVault(ctx context.Context, id, vaultID uuid.UUID) (*model.Secret, error)
+	// UpdateInVault updates a secret only when it belongs to the given vault.
+	// It mirrors Update but scopes by vault_id instead of user_id.
+	UpdateInVault(ctx context.Context, secret *model.Secret) error
 	// ListInVault lists active secrets scoped to a vault.
 	ListInVault(ctx context.Context, vaultID uuid.UUID, tags []string) ([]model.Secret, error)
 	// ListInVaultIncludeDeleted lists all secrets in a vault including soft-deleted ones.
@@ -697,6 +700,55 @@ func (r *SecretRepository) ReadInVault(ctx context.Context, id, vaultID uuid.UUI
 	secret.VaultID = vaultID
 
 	return &secret, nil
+}
+
+// UpdateInVault updates a secret in the database, scoped to a vault instead
+// of an owner. It mirrors Update but the WHERE clause matches vault_id
+// instead of user_id, so any vault member's update succeeds.
+//
+// Parameters:
+//
+//	ctx: The context for the database operation.
+//	secret: The secret entity with updated fields; VaultID must be set.
+//
+// Returns:
+//
+//	An error if the update fails or no row matches id+vault_id.
+func (r *SecretRepository) UpdateInVault(ctx context.Context, secret *model.Secret) error {
+	logrus.WithFields(logrus.Fields{
+		"secret_id": secret.ID.String(),
+		"vault_id":  secret.VaultID.String(),
+		"version":   secret.Version,
+	}).Debug("Updating secret in database (vault-scoped)")
+
+	result, err := r.db.ExecContext(
+		ctx,
+		"UPDATE secrets SET name = ?, value = ?, version = ?, content_type = ?, enabled = ?, expires_at = ?, not_before = ? WHERE id = ? AND vault_id = ?",
+		secret.Name, secret.Value, secret.Version, secret.ContentType, secret.Enabled, secret.ExpiresAt, secret.NotBefore, secret.ID.String(), secret.VaultID.String(),
+	)
+	if err != nil {
+		r.log.LogAuditError("", "update_secret", "failed", "Failed to update secret", err)
+		return fmt.Errorf("failed to update secret: %w", err)
+	}
+
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		r.log.LogAuditError("", "update_secret", "failed", "Failed to get rows affected", err)
+		return fmt.Errorf("failed to get rows affected: %w", err)
+	}
+	if rowsAffected == 0 {
+		r.log.LogAuditError("", "update_secret", "failed", "Secret not found for update", nil)
+		return fmt.Errorf("secret not found")
+	}
+
+	r.log.LogAuditInfo("", "update_secret", "success", fmt.Sprintf("Secret updated: %s", secret.Name))
+	logrus.WithFields(logrus.Fields{
+		"secret_id": secret.ID.String(),
+		"vault_id":  secret.VaultID.String(),
+		"version":   secret.Version,
+	}).Debug("Secret updated successfully")
+
+	return nil
 }
 
 // ListInVault retrieves all active secrets for a specific vault.

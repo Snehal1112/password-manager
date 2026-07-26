@@ -73,6 +73,9 @@ func (s *stubSecretRepo) ReadByOwner(_ context.Context, _, _ uuid.UUID) (*model.
 func (s *stubSecretRepo) Update(_ context.Context, _ *model.Secret) error {
 	panic("unexpected call: Update")
 }
+func (s *stubSecretRepo) UpdateInVault(_ context.Context, _ *model.Secret) error {
+	panic("unexpected call: UpdateInVault")
+}
 func (s *stubSecretRepo) Delete(_ context.Context, _ uuid.UUID) error {
 	panic("unexpected call: Delete")
 }
