@@ -53,6 +53,11 @@ func (m *mockSecretService) CreateSecret(ctx context.Context, req secretServices
 	return args.Get(0).(*model.Secret), args.Error(1)
 }
 
+func (m *mockSecretService) UpdateSecretScoped(ctx context.Context, req secretServices.UpdateSecretRequest) error {
+	args := m.Called(ctx, req)
+	return args.Error(0)
+}
+
 func (m *mockSecretService) UpdateSecret(ctx context.Context, req secretServices.UpdateSecretRequest) error {
 	args := m.Called(ctx, req)
 	return args.Error(0)

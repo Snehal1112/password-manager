@@ -44,6 +44,11 @@ func (m *MockSecretRepository) ListScoped(ctx context.Context, scope model.Scope
 	return args.Get(0).([]model.Secret), args.Error(1)
 }
 
+func (m *MockSecretRepository) UpdateScoped(ctx context.Context, secret *model.Secret, scope model.Scope) error {
+	args := m.Called(ctx, secret, scope)
+	return args.Error(0)
+}
+
 func (m *MockSecretRepository) SoftDelete(ctx context.Context, id uuid.UUID) error {
 	args := m.Called(ctx, id)
 	return args.Error(0)
@@ -71,11 +76,21 @@ func (m *MockTagService) RemoveAllTags(ctx context.Context, secretID uuid.UUID) 
 }
 
 // MockVersioningService is a minimal test double for VersioningServiceInterface.
-// None of the tests in this file exercise versioning, so no methods are
-// overridden; it exists only to satisfy secretService.versionService's type.
+// CreateVersion is overridden because UpdateSecretScoped calls it on every
+// update; no other method is exercised by tests in this file, so those fall
+// through to the nil embedded interface, which is the correct failure mode
+// for an unstubbed call.
 type MockVersioningService struct {
 	mock.Mock
 	VersioningServiceInterface
+}
+
+func (m *MockVersioningService) CreateVersion(ctx context.Context, req CreateVersionRequest) (*model.SecretVersion, error) {
+	args := m.Called(ctx, req)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).(*model.SecretVersion), args.Error(1)
 }
 
 // newTestLogger returns a logger suitable for use in tests. Mirrors
@@ -110,10 +125,13 @@ func newScopeServiceFixture(t *testing.T) (*MockSecretRepository, *secretService
 	tags.On("GetTags", mock.Anything, mock.Anything).Return([]string{}, nil).Maybe()
 	tags.On("RemoveAllTags", mock.Anything, mock.Anything).Return(nil).Maybe()
 
+	versions := new(MockVersioningService)
+	versions.On("CreateVersion", mock.Anything, mock.Anything).Return(&model.SecretVersion{}, nil).Maybe()
+
 	svc := &secretService{
 		secretRepo:     repo,
 		cryptoService:  fakeCrypto{},
-		versionService: new(MockVersioningService),
+		versionService: versions,
 		tagService:     tags,
 		logger:         newTestLogger(t),
 	}
@@ -197,6 +215,86 @@ func TestLegacyShimsBuildTheRightScope(t *testing.T) {
 		Return(&model.Secret{ID: secretID, Value: "ENC(v)", Enabled: true}, nil).Once()
 	_, err = svc.GetSecretInVault(ctx, secretID, vaultID)
 	require.NoError(t, err)
+
+	repo.AssertExpectations(t)
+}
+
+func TestUpdateSecretScopedUsesTheSameScopeForReadAndWrite(t *testing.T) {
+	repo, svc := newScopeServiceFixture(t)
+	ctx := context.Background()
+
+	secretID := uuid.New()
+	vaultID := uuid.New()
+	actorID := uuid.New()
+	scope := model.NewVaultScope(vaultID, actorID)
+	newName := "renamed"
+
+	current := &model.Secret{
+		ID: secretID, UserID: uuid.New(), VaultID: vaultID,
+		Name: "original", Value: "ENC(v1)", Version: 1, Enabled: true,
+	}
+
+	repo.On("ReadScoped", ctx, secretID, scope).Return(current, nil).Once()
+	repo.On("UpdateScoped", ctx, mock.MatchedBy(func(s *model.Secret) bool {
+		return s.Name == "renamed" && s.Version == 2
+	}), scope).Return(nil).Once()
+
+	err := svc.UpdateSecretScoped(ctx, UpdateSecretRequest{
+		SecretID: secretID,
+		Scope:    scope,
+		Name:     &newName,
+	})
+	require.NoError(t, err)
+	repo.AssertExpectations(t)
+}
+
+func TestUpdateSecretScopedDeniesOutOfScope(t *testing.T) {
+	repo, svc := newScopeServiceFixture(t)
+	ctx := context.Background()
+
+	secretID := uuid.New()
+	scope := model.NewVaultScope(uuid.New(), uuid.New())
+
+	repo.On("ReadScoped", ctx, secretID, scope).Return(nil, assert.AnError).Once()
+
+	err := svc.UpdateSecretScoped(ctx, UpdateSecretRequest{SecretID: secretID, Scope: scope})
+	assert.ErrorIs(t, err, ErrSecretNotFound)
+	repo.AssertNotCalled(t, "UpdateScoped", mock.Anything, mock.Anything, mock.Anything)
+}
+
+func TestUpdateSecretScopedRejectsAnInvalidScope(t *testing.T) {
+	repo, svc := newScopeServiceFixture(t)
+	ctx := context.Background()
+
+	// A half-migrated caller that forgot to set Scope must not reach the repo
+	// with an admin-equivalent predicate.
+	var zero model.Scope
+	repo.On("ReadScoped", mock.Anything, mock.Anything, zero).
+		Return(nil, repositories.ErrInvalidScope).Once()
+
+	err := svc.UpdateSecretScoped(ctx, UpdateSecretRequest{SecretID: uuid.New()})
+	require.Error(t, err)
+	repo.AssertNotCalled(t, "UpdateScoped", mock.Anything, mock.Anything, mock.Anything)
+}
+
+func TestUpdateSecretLegacyShimsBuildTheRightScope(t *testing.T) {
+	repo, svc := newScopeServiceFixture(t)
+	ctx := context.Background()
+
+	secretID := uuid.New()
+	userID := uuid.New()
+	vaultID := uuid.New()
+	current := &model.Secret{ID: secretID, UserID: userID, VaultID: vaultID, Value: "ENC(v)", Version: 1, Enabled: true}
+
+	ownerScope := model.NewOwnerScope(uuid.Nil, userID)
+	repo.On("ReadScoped", ctx, secretID, ownerScope).Return(current, nil).Once()
+	repo.On("UpdateScoped", ctx, mock.Anything, ownerScope).Return(nil).Once()
+	require.NoError(t, svc.UpdateSecret(ctx, UpdateSecretRequest{SecretID: secretID, UserID: userID}))
+
+	vaultScope := model.NewVaultScope(vaultID, userID)
+	repo.On("ReadScoped", ctx, secretID, vaultScope).Return(current, nil).Once()
+	repo.On("UpdateScoped", ctx, mock.Anything, vaultScope).Return(nil).Once()
+	require.NoError(t, svc.UpdateSecretInVault(ctx, UpdateSecretRequest{SecretID: secretID, UserID: userID, VaultID: vaultID}))
 
 	repo.AssertExpectations(t)
 }

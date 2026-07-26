@@ -462,6 +462,11 @@ func (m *MockSecretService) ListDeletedSecretsScoped(ctx context.Context, scope 
 	return args.Get(0).([]model.Secret), args.Error(1)
 }
 
+func (m *MockSecretService) UpdateSecretScoped(ctx context.Context, req secretServices.UpdateSecretRequest) error {
+	args := m.Called(ctx, req)
+	return args.Error(0)
+}
+
 func (m *MockSecretService) UpdateSecret(ctx context.Context, req secretServices.UpdateSecretRequest) error {
 	args := m.Called(ctx, req)
 	return args.Error(0)

@@ -1281,6 +1281,53 @@ func (_c *MockSecretService_UpdateSecretInVault_Call) RunAndReturn(run func(cont
 	return _c
 }
 
+// UpdateSecretScoped provides a mock function with given fields: ctx, req
+func (_m *MockSecretService) UpdateSecretScoped(ctx context.Context, req secrets.UpdateSecretRequest) error {
+	ret := _m.Called(ctx, req)
+
+	if len(ret) == 0 {
+		panic("no return value specified for UpdateSecretScoped")
+	}
+
+	var r0 error
+	if rf, ok := ret.Get(0).(func(context.Context, secrets.UpdateSecretRequest) error); ok {
+		r0 = rf(ctx, req)
+	} else {
+		r0 = ret.Error(0)
+	}
+
+	return r0
+}
+
+// MockSecretService_UpdateSecretScoped_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'UpdateSecretScoped'
+type MockSecretService_UpdateSecretScoped_Call struct {
+	*mock.Call
+}
+
+// UpdateSecretScoped is a helper method to define mock.On call
+//   - ctx context.Context
+//   - req secrets.UpdateSecretRequest
+func (_e *MockSecretService_Expecter) UpdateSecretScoped(ctx interface{}, req interface{}) *MockSecretService_UpdateSecretScoped_Call {
+	return &MockSecretService_UpdateSecretScoped_Call{Call: _e.mock.On("UpdateSecretScoped", ctx, req)}
+}
+
+func (_c *MockSecretService_UpdateSecretScoped_Call) Run(run func(ctx context.Context, req secrets.UpdateSecretRequest)) *MockSecretService_UpdateSecretScoped_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(secrets.UpdateSecretRequest))
+	})
+	return _c
+}
+
+func (_c *MockSecretService_UpdateSecretScoped_Call) Return(_a0 error) *MockSecretService_UpdateSecretScoped_Call {
+	_c.Call.Return(_a0)
+	return _c
+}
+
+func (_c *MockSecretService_UpdateSecretScoped_Call) RunAndReturn(run func(context.Context, secrets.UpdateSecretRequest) error) *MockSecretService_UpdateSecretScoped_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // NewMockSecretService creates a new instance of MockSecretService. It also registers a testing interface on the mock and a cleanup function to assert the mocks expectations.
 // The first argument is typically a *testing.T value.
 func NewMockSecretService(t interface {

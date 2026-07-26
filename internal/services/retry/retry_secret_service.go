@@ -81,6 +81,13 @@ func (s *retrySecretService) CreateSecret(ctx context.Context, req secrets.Creat
 	return result, retryErr
 }
 
+// UpdateSecretScoped updates a scoped secret with retry logic.
+func (s *retrySecretService) UpdateSecretScoped(ctx context.Context, req secrets.UpdateSecretRequest) error {
+	return s.retryService.ExecuteDatabaseOperation(ctx, func() error {
+		return s.baseService.UpdateSecretScoped(ctx, req)
+	})
+}
+
 // UpdateSecret updates a secret with retry logic for database operations
 func (s *retrySecretService) UpdateSecret(ctx context.Context, req secrets.UpdateSecretRequest) error {
 	return s.retryService.ExecuteDatabaseOperation(ctx, func() error {

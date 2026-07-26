@@ -56,6 +56,17 @@ type recordingSecretService struct {
 func (s *recordingSecretService) CreateSecret(context.Context, secretServices.CreateSecretRequest) (*model.Secret, error) {
 	panic("unexpected")
 }
+func (s *recordingSecretService) UpdateSecretScoped(_ context.Context, req secretServices.UpdateSecretRequest) error {
+	s.updateCalled = true
+	if vaultID := req.Scope.VaultID(); vaultID != uuid.Nil {
+		s.updateVaultScoped = true
+		s.updateVaultID = vaultID
+		return nil
+	}
+	s.updateVaultScoped = false
+	s.updateUserID = req.Scope.ActorID()
+	return nil
+}
 func (s *recordingSecretService) UpdateSecret(_ context.Context, req secretServices.UpdateSecretRequest) error {
 	s.updateCalled = true
 	s.updateVaultScoped = false

@@ -560,30 +560,32 @@ func TestSecretServiceCoreErrorBranches(t *testing.T) {
 		tag := &testutils.MockTagService{}
 		svc := newService(repo, crypto, ver, tag, t)
 
-		repo.On("Read", ctx, secretID).Return(nil, errors.New("missing")).Once()
-		err := svc.UpdateSecret(ctx, secrets.UpdateSecretRequest{SecretID: secretID, UserID: userID})
-		assert.ErrorContains(t, err, "secret not found")
+		ownerScope := model.NewOwnerScope(uuid.Nil, userID)
 
-		repo.On("Read", ctx, secretID).Return(current, nil).Once()
+		repo.On("ReadScoped", ctx, secretID, ownerScope).Return(nil, errors.New("missing")).Once()
+		err := svc.UpdateSecret(ctx, secrets.UpdateSecretRequest{SecretID: secretID, UserID: userID})
+		assert.ErrorIs(t, err, secrets.ErrSecretNotFound)
+
+		repo.On("ReadScoped", ctx, secretID, ownerScope).Return(current, nil).Once()
 		crypto.On("DecryptSecret", "encrypted-old").Return("", errors.New("decrypt failed")).Once()
 		err = svc.UpdateSecret(ctx, secrets.UpdateSecretRequest{SecretID: secretID, UserID: userID})
 		assert.ErrorContains(t, err, "failed to decrypt current secret")
 
-		repo.On("Read", ctx, secretID).Return(current, nil).Once()
+		repo.On("ReadScoped", ctx, secretID, ownerScope).Return(current, nil).Once()
 		crypto.On("DecryptSecret", "encrypted-old").Return("plain-old", nil).Once()
 		ver.On("CreateVersion", ctx, mock.AnythingOfType("secrets.CreateVersionRequest")).Return(nil, errors.New("version failed")).Once()
 		err = svc.UpdateSecret(ctx, secrets.UpdateSecretRequest{SecretID: secretID, UserID: userID})
 		assert.ErrorContains(t, err, "failed to create version")
 
 		badContentType := "application/zip"
-		repo.On("Read", ctx, secretID).Return(current, nil).Once()
+		repo.On("ReadScoped", ctx, secretID, ownerScope).Return(current, nil).Once()
 		crypto.On("DecryptSecret", "encrypted-old").Return("plain-old", nil).Once()
 		ver.On("CreateVersion", ctx, mock.AnythingOfType("secrets.CreateVersionRequest")).Return(&model.SecretVersion{Version: 1}, nil).Once()
 		err = svc.UpdateSecret(ctx, secrets.UpdateSecretRequest{SecretID: secretID, UserID: userID, ContentType: &badContentType})
 		assert.ErrorContains(t, err, "unsupported content type")
 
 		newValue := "new-value"
-		repo.On("Read", ctx, secretID).Return(current, nil).Once()
+		repo.On("ReadScoped", ctx, secretID, ownerScope).Return(current, nil).Once()
 		crypto.On("DecryptSecret", "encrypted-old").Return("plain-old", nil).Once()
 		ver.On("CreateVersion", ctx, mock.AnythingOfType("secrets.CreateVersionRequest")).Return(&model.SecretVersion{Version: 1}, nil).Once()
 		crypto.On("EncryptSecret", newValue).Return("", errors.New("encrypt failed")).Once()
