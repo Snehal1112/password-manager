@@ -300,21 +300,22 @@ func (r *KeyRepository) Update(ctx context.Context, key *model.Key) error {
 			key.Name, key.Value, key.Revoked, key.CreatedAt, key.Enabled, key.ExpiresAt, key.NotBefore, key.Bits, key.Curve, now, key.ID.String(),
 		)
 		if err != nil {
-			r.log.LogAuditError(key.UserID.String(), "update_key", "failed", "Failed to update key", err)
 			return fmt.Errorf("failed to update key: %w", err)
 		}
 
 		rowsAffected, err := result.RowsAffected()
 		if err != nil {
-			r.log.LogAuditError(key.UserID.String(), "update_key", "failed", "Failed to get rows affected", err)
 			return fmt.Errorf("failed to get rows affected: %w", err)
 		}
 		if rowsAffected == 0 {
-			r.log.LogAuditError(key.UserID.String(), "update_key", "failed", "Key not found for update", nil)
 			return fmt.Errorf("key not found")
 		}
 
-		r.log.LogAuditInfo(key.UserID.String(), "update_key", "success", fmt.Sprintf("Key updated: %s", key.Name))
+		// Audit attribution belongs to the caller (service layer), which
+		// knows the acting principal; this pure-CRUD method receives none,
+		// and key.UserID is the row's owner, not necessarily the actor. Both
+		// UpdateKey and UpdateKeyInVault already emit their own audit rows
+		// after calling Update.
 		logrus.WithFields(logrus.Fields{
 			"key_id":  key.ID.String(),
 			"user_id": key.UserID.String(),
