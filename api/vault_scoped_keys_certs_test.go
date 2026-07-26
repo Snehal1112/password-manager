@@ -4,13 +4,16 @@ package api
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 	"testing"
 
 	"github.com/google/uuid"
 	"github.com/gorilla/mux"
+	"github.com/stretchr/testify/mock"
 
 	"rocketvault/app"
+	"rocketvault/internal/repositories"
 	certServices "rocketvault/internal/services/certificates"
 	keyServices "rocketvault/internal/services/keys"
 	vaultServices "rocketvault/internal/services/vaults"
@@ -102,6 +105,11 @@ type recordingCertService struct {
 	listVaultID    uuid.UUID
 	getCalled      bool
 	getUserScoped  bool
+
+	// getInVaultErr, when set, is returned by GetCertificateInVault instead of
+	// a synthetic certificate -- simulates the vault-membership pre-check
+	// failing (e.g. the certificate does not belong to the resolved vault).
+	getInVaultErr error
 }
 
 func (s *recordingCertService) CreateSelfSignedCertificate(context.Context, certServices.CreateCertificateRequest) (*certServices.CreateCertificateResult, error) {
@@ -132,6 +140,9 @@ func (s *recordingCertService) GetCertificateInVault(_ context.Context, _, vault
 	s.getCalled = true
 	s.getUserScoped = false
 	s.listVaultID = vaultID
+	if s.getInVaultErr != nil {
+		return nil, s.getInVaultErr
+	}
 	return &model.Certificate{ID: uuid.New(), Name: "c"}, nil
 }
 func (s *recordingCertService) ListCertificatesInVault(_ context.Context, vaultID uuid.UUID) ([]model.Certificate, error) {
@@ -181,6 +192,105 @@ func newVaultScopedKeyCertTestAPI(keySvc keyServices.KeyService, certSvc certSer
 	api.InitKeys()
 	api.InitCertificates()
 	return api, repo
+}
+
+// newVaultScopedCertPolicyTestAPI wires vault management and vault-scoped
+// certificate routes (including the policy sub-resource) onto one router,
+// backed by a recording cert service and a certificate policy repository.
+func newVaultScopedCertPolicyTestAPI(certSvc certServices.CertificateService, policyRepo repositories.CertificatePolicyRepositoryInterface) (*API, *vaultFakeRepo) {
+	repo := newVaultFakeRepo()
+	vsvc := vaultServices.NewVaultService(repo, vaultNoopCascade{}, nil)
+	a := &app.App{ServiceContainer: &vaultSvcTestContainer{vaultSvc: vsvc, certSvc: certSvc, certPolicyRepo: policyRepo}}
+	a.Logger = userTestLog()
+
+	router := mux.NewRouter()
+	api := &API{
+		App:        a,
+		BaseRoutes: &Routes{},
+		basePath:   "/api/v1",
+		rootRouter: router,
+		Logger:     userTestLog(),
+	}
+	r := api.BaseRoutes
+	r.ApiRoot = router.PathPrefix("/api/v1").Subrouter()
+	r.Vaults = r.ApiRoot.PathPrefix("/vaults").Subrouter()
+	r.VaultScoped = r.Vaults.PathPrefix("/{vault_name:[a-z0-9-]+}").Subrouter()
+	r.VaultScoped.Use(vaultResolutionTestMiddleware(repo))
+	r.Certificates = r.ApiRoot.PathPrefix("/certificates").Subrouter()
+	api.InitVault()
+	api.InitCertificates()
+	return api, repo
+}
+
+// TestGetCertificatePolicy_VaultScopedRoute_UsesGetByCertificateIDAny verifies
+// that GET on the explicit /vaults/{name}/certificates/{id}/policy route
+// succeeds even when the stored policy's owner differs from the caller,
+// proving vault-wide access rather than ownership-gated access.
+func TestGetCertificatePolicy_VaultScopedRoute_UsesGetByCertificateIDAny(t *testing.T) {
+	certSvc := &recordingCertService{}
+	policyRepo := &mockCertPolicyRepo{}
+	api, repo := newVaultScopedCertPolicyTestAPI(certSvc, policyRepo)
+
+	id := uuid.New()
+	repo.byName["prod"] = &model.Vault{ID: id, Name: "prod", Enabled: true}
+	repo.byID[id.String()] = repo.byName["prod"]
+
+	certID := uuid.New()
+	otherOwnerID := uuid.New() // different from the caller (vaultTestUserID)
+	stored := &model.CertificatePolicy{ID: uuid.New(), CertificateID: certID, UserID: otherOwnerID, ValidityMonths: 12}
+	policyRepo.On("GetByCertificateIDAny", mock.Anything, certID).Return(stored, nil)
+
+	w := doVaultRequest(api, http.MethodGet, "/api/v1/vaults/prod/certificates/"+certID.String()+"/policy", nil)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("vault-scoped GET .../policy: expected 200, got %d (%s)", w.Code, w.Body.String())
+	}
+	policyRepo.AssertExpectations(t)
+}
+
+// TestUpsertCertificatePolicy_VaultScopedRoute_VerifiesCertInVaultFirst
+// verifies that PUT on the vault-scoped policy route 404s (and never calls
+// Upsert) when the certificate does not belong to the resolved vault.
+func TestUpsertCertificatePolicy_VaultScopedRoute_VerifiesCertInVaultFirst(t *testing.T) {
+	certSvc := &recordingCertService{getInVaultErr: fmt.Errorf("%w: not in vault", certServices.ErrCertNotFound)}
+	policyRepo := &mockCertPolicyRepo{}
+	api, repo := newVaultScopedCertPolicyTestAPI(certSvc, policyRepo)
+
+	id := uuid.New()
+	repo.byName["prod"] = &model.Vault{ID: id, Name: "prod", Enabled: true}
+	repo.byID[id.String()] = repo.byName["prod"]
+
+	certID := uuid.New()
+	body := []byte(`{"validity_months":12,"key_type":"RSA","key_size":2048}`)
+	w := doVaultRequest(api, http.MethodPut, "/api/v1/vaults/prod/certificates/"+certID.String()+"/policy", body)
+
+	if w.Code != http.StatusNotFound {
+		t.Fatalf("vault-scoped PUT .../policy for cert not in vault: expected 404, got %d (%s)", w.Code, w.Body.String())
+	}
+	policyRepo.AssertNotCalled(t, "Upsert", mock.Anything, mock.Anything)
+}
+
+// TestDeleteCertificatePolicy_VaultScopedRoute_UsesDeleteByCertificateIDAny verifies
+// that DELETE on the explicit vault-scoped policy route succeeds even when
+// the stored policy's owner differs from the caller.
+func TestDeleteCertificatePolicy_VaultScopedRoute_UsesDeleteByCertificateIDAny(t *testing.T) {
+	certSvc := &recordingCertService{}
+	policyRepo := &mockCertPolicyRepo{}
+	api, repo := newVaultScopedCertPolicyTestAPI(certSvc, policyRepo)
+
+	id := uuid.New()
+	repo.byName["prod"] = &model.Vault{ID: id, Name: "prod", Enabled: true}
+	repo.byID[id.String()] = repo.byName["prod"]
+
+	certID := uuid.New()
+	policyRepo.On("DeleteByCertificateIDAny", mock.Anything, certID).Return(nil)
+
+	w := doVaultRequest(api, http.MethodDelete, "/api/v1/vaults/prod/certificates/"+certID.String()+"/policy", nil)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("vault-scoped DELETE .../policy: expected 200, got %d (%s)", w.Code, w.Body.String())
+	}
+	policyRepo.AssertExpectations(t)
 }
 
 // TestLegacyFlatKeyRoute_UsesUserScopedListing verifies the legacy flat /keys

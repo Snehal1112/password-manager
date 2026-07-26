@@ -158,13 +158,14 @@ func (vaultNoopCascade) RecoverVaultContentsTx(context.Context, db.DBTX, uuid.UU
 // --- vaultSvcTestContainer ---
 
 type vaultSvcTestContainer struct {
-	vaultSvc  vaultServices.VaultService
-	secretSvc secretServices.SecretService
-	keySvc    keyServices.KeyService
-	certSvc   certServices.CertificateService
-	policySvc authzServices.AccessPolicyService
-	rbacSvc   authzServices.RBACService
-	logger    *logging.Logger
+	vaultSvc       vaultServices.VaultService
+	secretSvc      secretServices.SecretService
+	keySvc         keyServices.KeyService
+	certSvc        certServices.CertificateService
+	certPolicyRepo repositories.CertificatePolicyRepositoryInterface
+	policySvc      authzServices.AccessPolicyService
+	rbacSvc        authzServices.RBACService
+	logger         *logging.Logger
 }
 
 func (c *vaultSvcTestContainer) GetVaultService() vaultServices.VaultService { return c.vaultSvc }
@@ -201,6 +202,9 @@ func (c *vaultSvcTestContainer) GetCertificateRepository() repositories.Certific
 	panic("unexpected call: GetCertificateRepository")
 }
 func (c *vaultSvcTestContainer) GetCertificatePolicyRepository() repositories.CertificatePolicyRepositoryInterface {
+	if c.certPolicyRepo != nil {
+		return c.certPolicyRepo
+	}
 	panic("unexpected call: GetCertificatePolicyRepository")
 }
 func (c *vaultSvcTestContainer) GetSessionRepository() repositories.SessionRepositoryInterface {
