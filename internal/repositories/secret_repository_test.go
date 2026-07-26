@@ -410,3 +410,47 @@ func TestSecretRepository_SoftDeleteVaultContentsTx_RollsBackWithSharedTx(t *tes
 	_, err = repo.Read(ctx, secret.ID)
 	require.NoError(t, err, "secret must still be active after rollback")
 }
+
+// fakeAuditPersister records every persisted audit event's actor (userID)
+// for assertions. It implements logging.AuditPersister.
+type fakeAuditPersister struct {
+	actors []string
+}
+
+func (f *fakeAuditPersister) PersistAudit(userID, action, details string) error {
+	f.actors = append(f.actors, userID)
+	return nil
+}
+
+// TestSecretRepository_UpdateInVault_AttributesOwnerNotVaultID proves that
+// UpdateInVault's audit rows are attributed to the secret's user, never the
+// vault ID.
+func TestSecretRepository_UpdateInVault_AttributesOwnerNotVaultID(t *testing.T) {
+	t.Parallel()
+	db := setupSecretTestDB(t)
+	logger := newTestSecretLogger(t)
+	persister := &fakeAuditPersister{}
+	logger.SetAuditPersister(persister)
+
+	repo := repositories.NewSecretRepository(rvdb.NewConn(db, rvdb.SQLite), logger)
+	ctx := context.Background()
+
+	ownerID := uuid.New()
+	vaultID := uuid.New()
+	secretID := uuid.New()
+	require.NoError(t, repo.Create(ctx, &model.Secret{
+		ID: secretID, UserID: ownerID, VaultID: vaultID, Name: "s", Value: "enc", Version: 1,
+	}))
+
+	err := repo.UpdateInVault(ctx, &model.Secret{
+		ID: secretID, UserID: ownerID, VaultID: vaultID, Name: "s2", Value: "enc2", Version: 2,
+	})
+	require.NoError(t, err)
+
+	require.NotEmpty(t, persister.actors)
+	for _, actor := range persister.actors {
+		assert.Equal(t, ownerID.String(), actor,
+			"UpdateInVault must attribute audit rows to the secret's user, not the vault ID")
+		assert.NotEqual(t, vaultID.String(), actor)
+	}
+}

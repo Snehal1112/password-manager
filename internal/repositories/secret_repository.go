@@ -727,21 +727,21 @@ func (r *SecretRepository) UpdateInVault(ctx context.Context, secret *model.Secr
 		secret.Name, secret.Value, secret.Version, secret.ContentType, secret.Enabled, secret.ExpiresAt, secret.NotBefore, secret.ID.String(), secret.VaultID.String(),
 	)
 	if err != nil {
-		r.log.LogAuditError(secret.VaultID.String(), "update_secret", "failed", "Failed to update secret", err)
+		r.log.LogAuditError(secret.UserID.String(), "update_secret", "failed", "Failed to update secret", err)
 		return fmt.Errorf("failed to update secret: %w", err)
 	}
 
 	rowsAffected, err := result.RowsAffected()
 	if err != nil {
-		r.log.LogAuditError(secret.VaultID.String(), "update_secret", "failed", "Failed to get rows affected", err)
+		r.log.LogAuditError(secret.UserID.String(), "update_secret", "failed", "Failed to get rows affected", err)
 		return fmt.Errorf("failed to get rows affected: %w", err)
 	}
 	if rowsAffected == 0 {
-		r.log.LogAuditError(secret.VaultID.String(), "update_secret", "failed", "Secret not found for update", nil)
+		r.log.LogAuditError(secret.UserID.String(), "update_secret", "failed", "Secret not found for update", nil)
 		return fmt.Errorf("secret not found")
 	}
 
-	r.log.LogAuditInfo(secret.VaultID.String(), "update_secret", "success", fmt.Sprintf("Secret updated: %s", secret.Name))
+	r.log.LogAuditInfo(secret.UserID.String(), "update_secret", "success", fmt.Sprintf("Secret updated: %s", secret.Name))
 	logrus.WithFields(logrus.Fields{
 		"secret_id": secret.ID.String(),
 		"vault_id":  secret.VaultID.String(),
