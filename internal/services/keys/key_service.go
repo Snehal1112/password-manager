@@ -617,7 +617,7 @@ func (s *keyService) UpdateKeyInVault(ctx context.Context, req UpdateKeyRequest)
 	}
 
 	if err := s.keyRepo.Update(ctx, &updatedKey); err != nil {
-		s.logger.LogAuditError("", "update_key", "failed", "Failed to update key", err)
+		s.logger.LogAuditError(req.UserID.String(), "update_key", "failed", "Failed to update key", err)
 		return fmt.Errorf("failed to update key: %w", err)
 	}
 
@@ -625,7 +625,7 @@ func (s *keyService) UpdateKeyInVault(ctx context.Context, req UpdateKeyRequest)
 		s.keyCache.Invalidate(updatedKey.ID)
 	}
 
-	s.logger.LogAuditInfo("", "update_key", "success", fmt.Sprintf("Key updated: %s", updatedKey.Name))
+	s.logger.LogAuditInfo(req.UserID.String(), "update_key", "success", fmt.Sprintf("Key updated: %s", updatedKey.Name))
 	return nil
 }
 

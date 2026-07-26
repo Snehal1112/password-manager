@@ -537,6 +537,7 @@ func updateKey(c *Context, w http.ResponseWriter, r *http.Request) {
 			VaultID:   vaultID,
 			Name:      req.Name,
 			Tags:      req.Tags,
+			UserID:    userID,
 			Revoked:   req.Revoked,
 			Enabled:   req.Enabled,
 			ExpiresAt: req.ExpiresAt,
