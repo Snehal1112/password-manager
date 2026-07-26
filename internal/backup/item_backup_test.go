@@ -361,6 +361,18 @@ func (r *stubKeyRepo) RecoverVaultContents(_ context.Context, _ uuid.UUID, _ tim
 	return nil
 }
 
+func (r *stubKeyRepo) ReadScoped(_ context.Context, _ uuid.UUID, _ model.Scope) (*model.Key, error) {
+	return nil, nil
+}
+
+func (r *stubKeyRepo) UpdateScoped(_ context.Context, _ *model.Key, _ model.Scope) error {
+	return nil
+}
+
+func (r *stubKeyRepo) ListScoped(_ context.Context, _ model.Scope, _ repositories.KeyFilter) ([]model.Key, error) {
+	return nil, nil
+}
+
 func TestRestoreSecretBlobTypeMismatch(t *testing.T) {
 	t.Parallel()
 

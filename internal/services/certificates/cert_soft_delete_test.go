@@ -16,6 +16,7 @@ import (
 	"rocketvault/common"
 	"rocketvault/internal/crypto"
 	"rocketvault/internal/logging"
+	"rocketvault/internal/repositories"
 	"rocketvault/model"
 )
 
@@ -206,6 +207,15 @@ func (m *mockKeyRepo) SoftDeleteVaultContents(ctx context.Context, vaultID uuid.
 }
 func (m *mockKeyRepo) RecoverVaultContents(ctx context.Context, vaultID uuid.UUID, deletedAt time.Time) error {
 	return nil
+}
+func (m *mockKeyRepo) ReadScoped(ctx context.Context, id uuid.UUID, scope model.Scope) (*model.Key, error) {
+	return nil, nil
+}
+func (m *mockKeyRepo) UpdateScoped(ctx context.Context, key *model.Key, scope model.Scope) error {
+	return nil
+}
+func (m *mockKeyRepo) ListScoped(ctx context.Context, scope model.Scope, filter repositories.KeyFilter) ([]model.Key, error) {
+	return nil, nil
 }
 
 // TestDeleteCertificateSoftDeletes verifies that DeleteCertificate calls SoftDelete on the

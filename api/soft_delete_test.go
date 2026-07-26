@@ -124,6 +124,15 @@ func (s *stubKeyRepo) SoftDeleteVaultContents(_ context.Context, _ uuid.UUID, _ 
 func (s *stubKeyRepo) RecoverVaultContents(_ context.Context, _ uuid.UUID, _ time.Time) error {
 	panic("unexpected call: RecoverVaultContents")
 }
+func (s *stubKeyRepo) ReadScoped(_ context.Context, _ uuid.UUID, _ model.Scope) (*model.Key, error) {
+	panic("unexpected call: ReadScoped")
+}
+func (s *stubKeyRepo) UpdateScoped(_ context.Context, _ *model.Key, _ model.Scope) error {
+	panic("unexpected call: UpdateScoped")
+}
+func (s *stubKeyRepo) ListScoped(_ context.Context, _ model.Scope, _ repositories.KeyFilter) ([]model.Key, error) {
+	panic("unexpected call: ListScoped")
+}
 
 // --- stub service container ---
 

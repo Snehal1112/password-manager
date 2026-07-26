@@ -24,6 +24,7 @@ import (
 	"rocketvault/common"
 	"rocketvault/internal/crypto"
 	"rocketvault/internal/logging"
+	"rocketvault/internal/repositories"
 	"rocketvault/model"
 )
 
@@ -1123,4 +1124,13 @@ func (m *mockKeyRepoForExtendedCrypto) SoftDeleteVaultContents(ctx context.Conte
 }
 func (m *mockKeyRepoForExtendedCrypto) RecoverVaultContents(ctx context.Context, vaultID uuid.UUID, deletedAt time.Time) error {
 	return nil
+}
+func (m *mockKeyRepoForExtendedCrypto) ReadScoped(ctx context.Context, id uuid.UUID, scope model.Scope) (*model.Key, error) {
+	return nil, nil
+}
+func (m *mockKeyRepoForExtendedCrypto) UpdateScoped(ctx context.Context, key *model.Key, scope model.Scope) error {
+	return nil
+}
+func (m *mockKeyRepoForExtendedCrypto) ListScoped(ctx context.Context, scope model.Scope, filter repositories.KeyFilter) ([]model.Key, error) {
+	return nil, nil
 }

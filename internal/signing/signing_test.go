@@ -20,6 +20,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"rocketvault/internal/repositories"
 	"rocketvault/model"
 )
 
@@ -145,6 +146,18 @@ func (m *mockKeyRepo) SoftDeleteVaultContents(_ context.Context, _ uuid.UUID, _ 
 
 func (m *mockKeyRepo) RecoverVaultContents(_ context.Context, _ uuid.UUID, _ time.Time) error {
 	return fmt.Errorf("not implemented")
+}
+
+func (m *mockKeyRepo) ReadScoped(_ context.Context, _ uuid.UUID, _ model.Scope) (*model.Key, error) {
+	return nil, fmt.Errorf("not implemented")
+}
+
+func (m *mockKeyRepo) UpdateScoped(_ context.Context, _ *model.Key, _ model.Scope) error {
+	return fmt.Errorf("not implemented")
+}
+
+func (m *mockKeyRepo) ListScoped(_ context.Context, _ model.Scope, _ repositories.KeyFilter) ([]model.Key, error) {
+	return nil, fmt.Errorf("not implemented")
 }
 
 // ---------------------------------------------------------------------------

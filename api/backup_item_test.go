@@ -636,6 +636,15 @@ func (m *mockKeyRepo) SoftDeleteVaultContents(_ context.Context, _ uuid.UUID, _ 
 func (m *mockKeyRepo) RecoverVaultContents(_ context.Context, _ uuid.UUID, _ time.Time) error {
 	return nil
 }
+func (m *mockKeyRepo) ReadScoped(_ context.Context, _ uuid.UUID, _ model.Scope) (*model.Key, error) {
+	return nil, nil
+}
+func (m *mockKeyRepo) UpdateScoped(_ context.Context, _ *model.Key, _ model.Scope) error {
+	return nil
+}
+func (m *mockKeyRepo) ListScoped(_ context.Context, _ model.Scope, _ repositories.KeyFilter) ([]model.Key, error) {
+	return nil, nil
+}
 
 // mockCertRepo is a minimal CertificateRepositoryInterface for backup tests.
 type mockCertRepo struct {

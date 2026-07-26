@@ -184,6 +184,15 @@ func (r *keyCmdKeyRepo) SoftDeleteVaultContents(ctx context.Context, vaultID uui
 func (r *keyCmdKeyRepo) RecoverVaultContents(ctx context.Context, vaultID uuid.UUID, deletedAt time.Time) error {
 	return nil
 }
+func (r *keyCmdKeyRepo) ReadScoped(ctx context.Context, id uuid.UUID, scope model.Scope) (*model.Key, error) {
+	return nil, nil
+}
+func (r *keyCmdKeyRepo) UpdateScoped(ctx context.Context, key *model.Key, scope model.Scope) error {
+	return nil
+}
+func (r *keyCmdKeyRepo) ListScoped(ctx context.Context, scope model.Scope, filter repositories.KeyFilter) ([]model.Key, error) {
+	return nil, nil
+}
 func (r *keyCmdKeyRepo) ListByUser(ctx context.Context, userID *uuid.UUID, keyType string, tags []string) ([]model.Key, error) {
 	args := r.Called(ctx, userID, keyType, tags)
 	if args.Get(0) == nil {

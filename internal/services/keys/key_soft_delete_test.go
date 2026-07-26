@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/mock"
 
 	"rocketvault/internal/logging"
+	"rocketvault/internal/repositories"
 	"rocketvault/model"
 )
 
@@ -119,6 +120,27 @@ func (m *mockKeyRepository) SoftDeleteVaultContents(ctx context.Context, vaultID
 func (m *mockKeyRepository) RecoverVaultContents(ctx context.Context, vaultID uuid.UUID, deletedAt time.Time) error {
 	args := m.Called(ctx, vaultID, deletedAt)
 	return args.Error(0)
+}
+
+func (m *mockKeyRepository) ReadScoped(ctx context.Context, id uuid.UUID, scope model.Scope) (*model.Key, error) {
+	args := m.Called(ctx, id, scope)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).(*model.Key), args.Error(1)
+}
+
+func (m *mockKeyRepository) UpdateScoped(ctx context.Context, key *model.Key, scope model.Scope) error {
+	args := m.Called(ctx, key, scope)
+	return args.Error(0)
+}
+
+func (m *mockKeyRepository) ListScoped(ctx context.Context, scope model.Scope, filter repositories.KeyFilter) ([]model.Key, error) {
+	args := m.Called(ctx, scope, filter)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).([]model.Key), args.Error(1)
 }
 
 // TestDeleteKeySoftDeletes verifies that DeleteKey calls SoftDelete and not Delete.

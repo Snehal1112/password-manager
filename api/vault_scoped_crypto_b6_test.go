@@ -18,6 +18,7 @@ import (
 	"github.com/gorilla/mux"
 
 	"rocketvault/app"
+	"rocketvault/internal/repositories"
 	keyServices "rocketvault/internal/services/keys"
 	vaultServices "rocketvault/internal/services/vaults"
 	"rocketvault/model"
@@ -143,6 +144,15 @@ func (f *b6FakeKeyRepo) SoftDeleteVaultContents(ctx context.Context, vaultID uui
 }
 func (f *b6FakeKeyRepo) RecoverVaultContents(ctx context.Context, vaultID uuid.UUID, deletedAt time.Time) error {
 	return nil
+}
+func (f *b6FakeKeyRepo) ReadScoped(ctx context.Context, id uuid.UUID, scope model.Scope) (*model.Key, error) {
+	return nil, nil
+}
+func (f *b6FakeKeyRepo) UpdateScoped(ctx context.Context, k *model.Key, scope model.Scope) error {
+	return nil
+}
+func (f *b6FakeKeyRepo) ListScoped(ctx context.Context, scope model.Scope, filter repositories.KeyFilter) ([]model.Key, error) {
+	return nil, nil
 }
 
 // newB6TestAPI wires the vault-scoped key routes onto a real KeyService and

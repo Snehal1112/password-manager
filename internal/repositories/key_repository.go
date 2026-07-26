@@ -23,6 +23,14 @@ import (
 // It provides type-safe CRUD operations for the Key type.
 type KeyRepositoryInterface interface {
 	db.Repository[model.Key]
+	// ReadScoped fetches a key authorized by scope. Canonical; Read and
+	// ReadInVault are shims over it.
+	ReadScoped(ctx context.Context, id uuid.UUID, scope model.Scope) (*model.Key, error)
+	// UpdateScoped updates a key authorized by scope. The predicate comes from
+	// the scope argument, never from the entity.
+	UpdateScoped(ctx context.Context, key *model.Key, scope model.Scope) error
+	// ListScoped lists keys authorized by scope and narrowed by filter.
+	ListScoped(ctx context.Context, scope model.Scope, filter KeyFilter) ([]model.Key, error)
 	ListByUser(ctx context.Context, userID *uuid.UUID, keyType string, tags []string) ([]model.Key, error)
 	UpdateRevocationStatus(ctx context.Context, id uuid.UUID, revoked bool) error
 	SoftDelete(ctx context.Context, id uuid.UUID) error
