@@ -799,11 +799,10 @@ func TestCachedSecretService_ImportSecrets_ClearsCache(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, 3, got.ImportedCount)
 
-	// The cache Clear only removes expired entries; the pre-populated entry with
-	// 5-minute TTL should be cleared by the explicit cache clear on import.
-	// Note: SecretCache.Clear() only removes *expired* entries; however the
-	// implementation calls c.cache.Clear() which removes expired ones. To keep
-	// the test deterministic we verify the import result was returned correctly.
+	// ImportSecrets calls Flush (not Clear) to invalidate the cache; that
+	// behavior is asserted separately in
+	// TestCachedSecretService_ImportSecrets_FlushesLiveCacheEntries below.
+	// This test only verifies the import result is returned correctly.
 }
 
 func TestCachedSecretService_ImportSecrets_FlushesLiveCacheEntries(t *testing.T) {

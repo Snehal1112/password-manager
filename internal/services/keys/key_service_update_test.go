@@ -189,6 +189,7 @@ func TestUpdateKeyInVault_AuditRowsAttributeTheActor_NotTheOwner(t *testing.T) {
 	})
 	require.NoError(t, err)
 
+	require.NotEmpty(t, persister.actors)
 	for _, actor := range persister.actors {
 		assert.Equal(t, callerID.String(), actor,
 			"every audit row for a vault-scoped key update must attribute the actor (caller), not the key's owner")

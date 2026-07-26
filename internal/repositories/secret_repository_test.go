@@ -423,8 +423,10 @@ func (f *fakeAuditPersister) PersistAudit(userID, action, details string) error 
 }
 
 // TestSecretRepository_UpdateInVault_AttributesOwnerNotVaultID proves that
-// UpdateInVault's audit rows are attributed to the secret's user, never the
-// vault ID.
+// UpdateInVault emits no audit rows at all. Audit attribution for this path
+// belongs entirely to the service layer (UpdateSecretInVault), which knows
+// the acting principal; the repository only receives the secret's owner, so
+// it must stay silent to avoid misattributing the update to the owner.
 func TestSecretRepository_UpdateInVault_AttributesOwnerNotVaultID(t *testing.T) {
 	t.Parallel()
 	db := setupSecretTestDB(t)
@@ -442,15 +444,15 @@ func TestSecretRepository_UpdateInVault_AttributesOwnerNotVaultID(t *testing.T) 
 		ID: secretID, UserID: ownerID, VaultID: vaultID, Name: "s", Value: "enc", Version: 1,
 	}))
 
+	// Create() legitimately attributes its own audit row to the owner; reset
+	// here so the assertion below only covers the UpdateInVault call under test.
+	persister.actors = nil
+
 	err := repo.UpdateInVault(ctx, &model.Secret{
 		ID: secretID, UserID: ownerID, VaultID: vaultID, Name: "s2", Value: "enc2", Version: 2,
 	})
 	require.NoError(t, err)
 
-	require.NotEmpty(t, persister.actors)
-	for _, actor := range persister.actors {
-		assert.Equal(t, ownerID.String(), actor,
-			"UpdateInVault must attribute audit rows to the secret's user, not the vault ID")
-		assert.NotEqual(t, vaultID.String(), actor)
-	}
+	assert.Empty(t, persister.actors,
+		"UpdateInVault must not emit its own audit rows; attribution is the service layer's job")
 }
