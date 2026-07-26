@@ -623,7 +623,21 @@ func updateSecret(c *Context, w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	secret, err := secretService.GetSecret(r.Context(), secretID, userID)
+	// Legacy flat routes use per-user visibility; vault-scoped routes use
+	// vault-level visibility (members see all items in the vault).
+	vaultScoped := isVaultScopedRoute(r)
+	var vaultID uuid.UUID
+	var secret *model.Secret
+	if vaultScoped {
+		vaultID, err = vaultIDFromRequest(r)
+		if err != nil {
+			c.SetInvalidParam("vault")
+			return
+		}
+		secret, err = secretService.GetSecretInVault(r.Context(), secretID, vaultID)
+	} else {
+		secret, err = secretService.GetSecret(r.Context(), secretID, userID)
+	}
 	if err != nil {
 		if errors.Is(err, secrets.ErrSecretLifecycleDenied) {
 			c.SetPermissionError("secret is disabled or outside its valid time window")
@@ -675,7 +689,7 @@ func updateSecret(c *Context, w http.ResponseWriter, r *http.Request) {
 	secret.Version++
 
 	// Update secret.
-	if err := secretService.UpdateSecret(r.Context(), secrets.UpdateSecretRequest{
+	updateReq := secrets.UpdateSecretRequest{
 		UserID:      userID,
 		SecretID:    secret.ID,
 		Name:        &secret.Name,
@@ -685,7 +699,14 @@ func updateSecret(c *Context, w http.ResponseWriter, r *http.Request) {
 		Enabled:     req.Enabled,
 		ExpiresAt:   req.ExpiresAt,
 		NotBefore:   req.NotBefore,
-	}); err != nil {
+	}
+	if vaultScoped {
+		updateReq.VaultID = vaultID
+		err = secretService.UpdateSecretInVault(r.Context(), updateReq)
+	} else {
+		err = secretService.UpdateSecret(r.Context(), updateReq)
+	}
+	if err != nil {
 		c.SetInternalError(err)
 		return
 	}

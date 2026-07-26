@@ -34,20 +34,27 @@ func doScopedRequest(api *API, method, path string) *httptest.ResponseRecorder {
 // scope. The legacy flat route must call the user-scoped ListSecrets; the
 // vault-scoped route must call ListSecretsInVault. Unused methods panic.
 type recordingSecretService struct {
-	listVaultID    uuid.UUID
-	listCalled     bool
-	listUserScoped bool
-	listUserID     uuid.UUID
+	listVaultID       uuid.UUID
+	listCalled        bool
+	listUserScoped    bool
+	listUserID        uuid.UUID
+	updateCalled      bool
+	updateVaultScoped bool
+	updateVaultID     uuid.UUID
+	updateUserID      uuid.UUID
 }
 
 func (s *recordingSecretService) CreateSecret(context.Context, secretServices.CreateSecretRequest) (*model.Secret, error) {
 	panic("unexpected")
 }
-func (s *recordingSecretService) UpdateSecret(context.Context, secretServices.UpdateSecretRequest) error {
-	panic("unexpected")
+func (s *recordingSecretService) UpdateSecret(_ context.Context, req secretServices.UpdateSecretRequest) error {
+	s.updateCalled = true
+	s.updateVaultScoped = false
+	s.updateUserID = req.UserID
+	return nil
 }
-func (s *recordingSecretService) GetSecret(context.Context, uuid.UUID, uuid.UUID) (*model.Secret, error) {
-	panic("unexpected")
+func (s *recordingSecretService) GetSecret(_ context.Context, secretID, userID uuid.UUID) (*model.Secret, error) {
+	return &model.Secret{ID: secretID, UserID: userID, Name: "existing", Value: "plain-value", Version: 1}, nil
 }
 func (s *recordingSecretService) ListSecrets(_ context.Context, userID uuid.UUID, _ []string) ([]model.Secret, error) {
 	s.listCalled = true
@@ -58,8 +65,14 @@ func (s *recordingSecretService) ListSecrets(_ context.Context, userID uuid.UUID
 func (s *recordingSecretService) DeleteSecret(context.Context, uuid.UUID, uuid.UUID) error {
 	panic("unexpected")
 }
-func (s *recordingSecretService) GetSecretInVault(context.Context, uuid.UUID, uuid.UUID) (*model.Secret, error) {
-	panic("unexpected")
+func (s *recordingSecretService) GetSecretInVault(_ context.Context, secretID, vaultID uuid.UUID) (*model.Secret, error) {
+	return &model.Secret{ID: secretID, VaultID: vaultID, Name: "existing", Value: "plain-value", Version: 1}, nil
+}
+func (s *recordingSecretService) UpdateSecretInVault(_ context.Context, req secretServices.UpdateSecretRequest) error {
+	s.updateCalled = true
+	s.updateVaultScoped = true
+	s.updateVaultID = req.VaultID
+	return nil
 }
 func (s *recordingSecretService) ListSecretsInVault(_ context.Context, vaultID uuid.UUID, _ []string) ([]model.Secret, error) {
 	s.listCalled = true
@@ -89,6 +102,28 @@ func (s *recordingSecretService) GetLatestSecretVersion(context.Context, uuid.UU
 	panic("unexpected")
 }
 
+// vaultResolutionTestMiddleware mimics middleware.VaultResolutionMiddleware
+// for this lightweight test harness, which does not wire the full
+// service-container-backed middleware chain. It resolves the {vault_name}
+// path variable against the fake vault repo and injects the vault ID into
+// the request context the same way the real middleware does, so handlers
+// exercising vaultIDFromRequest see the actual seeded vault's ID rather than
+// always falling back to the default vault.
+func vaultResolutionTestMiddleware(repo *vaultFakeRepo) mux.MiddlewareFunc {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			name := mux.Vars(r)["vault_name"]
+			vault, ok := repo.byName[name]
+			if !ok {
+				http.Error(w, `{"error":"vault not found"}`, http.StatusNotFound)
+				return
+			}
+			ctx := context.WithValue(r.Context(), common.VaultIDKey, vault.ID.String())
+			next.ServeHTTP(w, r.WithContext(ctx))
+		})
+	}
+}
+
 // newVaultScopedTestAPI wires both the vault management routes and the
 // vault-scoped resource routes onto one router, backed by an in-memory vault
 // repo and a recording secret service.
@@ -110,6 +145,7 @@ func newVaultScopedTestAPI(secretSvc secretServices.SecretService) (*API, *vault
 	r.ApiRoot = router.PathPrefix("/api/v1").Subrouter()
 	r.Vaults = r.ApiRoot.PathPrefix("/vaults").Subrouter()
 	r.VaultScoped = r.Vaults.PathPrefix("/{vault_name:[a-z0-9-]+}").Subrouter()
+	r.VaultScoped.Use(vaultResolutionTestMiddleware(repo))
 	r.Secrets = r.ApiRoot.PathPrefix("/secrets").Subrouter()
 	api.InitVault()
 	api.InitSecrets()
@@ -171,5 +207,58 @@ func TestLegacyFlatRoute_UsesUserScopedListing(t *testing.T) {
 	}
 	if rec.listUserID != uuid.MustParse(vaultTestUserID) {
 		t.Fatalf("legacy route scoped to user %s, want caller %s", rec.listUserID, vaultTestUserID)
+	}
+}
+
+// TestVaultScopedRoute_UsesVaultScopedUpdate verifies that PUT on the
+// explicit /vaults/{name}/secrets/{id} route dispatches to
+// UpdateSecretInVault, not the owner-scoped UpdateSecret.
+func TestVaultScopedRoute_UsesVaultScopedUpdate(t *testing.T) {
+	rec := &recordingSecretService{}
+	api, repo := newVaultScopedTestAPI(rec)
+
+	id := uuid.New()
+	repo.byName["prod"] = &model.Vault{ID: id, Name: "prod", Enabled: true}
+	repo.byID[id.String()] = repo.byName["prod"]
+
+	secretID := uuid.New()
+	body := []byte(`{"name":"new-name"}`)
+	w := doVaultRequest(api, http.MethodPut, "/api/v1/vaults/prod/secrets/"+secretID.String(), body)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("vault-scoped PUT /vaults/prod/secrets/%s: expected 200, got %d (%s)", secretID, w.Code, w.Body.String())
+	}
+	if !rec.updateCalled {
+		t.Fatalf("vault-scoped route did not dispatch to the secret update handler")
+	}
+	if !rec.updateVaultScoped {
+		t.Fatalf("vault-scoped /secrets/{id} PUT must use vault-scoped update (UpdateSecretInVault)")
+	}
+	if rec.updateVaultID != id {
+		t.Fatalf("update dispatched with vault ID %s, want %s", rec.updateVaultID, id)
+	}
+}
+
+// TestLegacyFlatRoute_UsesUserScopedUpdate verifies that PUT on the legacy
+// flat /secrets/{id} route still dispatches to the owner-scoped UpdateSecret.
+func TestLegacyFlatRoute_UsesUserScopedUpdate(t *testing.T) {
+	rec := &recordingSecretService{}
+	api, _ := newVaultScopedTestAPI(rec)
+
+	secretID := uuid.New()
+	body := []byte(`{"name":"new-name"}`)
+	w := doVaultRequest(api, http.MethodPut, "/api/v1/secrets/"+secretID.String(), body)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("legacy PUT /secrets/%s: expected 200, got %d (%s)", secretID, w.Code, w.Body.String())
+	}
+	if !rec.updateCalled {
+		t.Fatalf("legacy route did not dispatch to the secret update handler")
+	}
+	if rec.updateVaultScoped {
+		t.Fatalf("legacy /secrets/{id} PUT must use owner-scoped update (UpdateSecret), not vault-scoped")
+	}
+	if rec.updateUserID != uuid.MustParse(vaultTestUserID) {
+		t.Fatalf("legacy route scoped update to user %s, want caller %s", rec.updateUserID, vaultTestUserID)
 	}
 }

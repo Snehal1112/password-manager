@@ -21,21 +21,21 @@ import (
 
 type mockSecretService struct {
 	// per-call return values
-	getSecretFn             func(ctx context.Context, secretID, userID uuid.UUID) (*model.Secret, error)
-	createSecretFn          func(ctx context.Context, req secrets.CreateSecretRequest) (*model.Secret, error)
-	updateSecretFn          func(ctx context.Context, req secrets.UpdateSecretRequest) error
-	updateSecretInVaultFn   func(ctx context.Context, req secrets.UpdateSecretRequest) error
-	deleteSecretFn          func(ctx context.Context, secretID, userID uuid.UUID) error
-	listSecretsFn           func(ctx context.Context, userID uuid.UUID, tags []string) ([]model.Secret, error)
-	getSecretInVaultFn      func(ctx context.Context, secretID, vaultID uuid.UUID) (*model.Secret, error)
-	listSecretsInVaultFn    func(ctx context.Context, vaultID uuid.UUID, tags []string) ([]model.Secret, error)
-	deleteSecretInVaultFn   func(ctx context.Context, secretID, vaultID uuid.UUID) error
-	getSecretVersionsFn     func(ctx context.Context, secretID, userID uuid.UUID) ([]model.SecretVersion, error)
-	getSecretVersionFn      func(ctx context.Context, secretID uuid.UUID, version int, userID uuid.UUID) (*model.SecretVersion, error)
+	getSecretFn              func(ctx context.Context, secretID, userID uuid.UUID) (*model.Secret, error)
+	createSecretFn           func(ctx context.Context, req secrets.CreateSecretRequest) (*model.Secret, error)
+	updateSecretFn           func(ctx context.Context, req secrets.UpdateSecretRequest) error
+	updateSecretInVaultFn    func(ctx context.Context, req secrets.UpdateSecretRequest) error
+	deleteSecretFn           func(ctx context.Context, secretID, userID uuid.UUID) error
+	listSecretsFn            func(ctx context.Context, userID uuid.UUID, tags []string) ([]model.Secret, error)
+	getSecretInVaultFn       func(ctx context.Context, secretID, vaultID uuid.UUID) (*model.Secret, error)
+	listSecretsInVaultFn     func(ctx context.Context, vaultID uuid.UUID, tags []string) ([]model.Secret, error)
+	deleteSecretInVaultFn    func(ctx context.Context, secretID, vaultID uuid.UUID) error
+	getSecretVersionsFn      func(ctx context.Context, secretID, userID uuid.UUID) ([]model.SecretVersion, error)
+	getSecretVersionFn       func(ctx context.Context, secretID uuid.UUID, version int, userID uuid.UUID) (*model.SecretVersion, error)
 	getLatestSecretVersionFn func(ctx context.Context, secretID, userID uuid.UUID) (*model.SecretVersion, error)
-	generateSecretFn        func(ctx context.Context, req secrets.GenerateSecretRequest) (*model.Secret, error)
-	exportSecretsFn         func(ctx context.Context, req secrets.ExportSecretsRequest) ([]byte, error)
-	importSecretsFn         func(ctx context.Context, req secrets.ImportSecretsRequest) (*secrets.ImportResult, error)
+	generateSecretFn         func(ctx context.Context, req secrets.GenerateSecretRequest) (*model.Secret, error)
+	exportSecretsFn          func(ctx context.Context, req secrets.ExportSecretsRequest) ([]byte, error)
+	importSecretsFn          func(ctx context.Context, req secrets.ImportSecretsRequest) (*secrets.ImportResult, error)
 }
 
 // compile-time check
