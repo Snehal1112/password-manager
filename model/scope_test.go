@@ -67,3 +67,70 @@ func TestScopeStringNeverLeaksSecretMaterial(t *testing.T) {
 	assert.Equal(t, "owner("+ownerID.String()+")", NewOwnerScope(vaultID, ownerID).String())
 	assert.Equal(t, "admin("+actorID.String()+")", NewAdminScope(actorID).String())
 }
+
+// TestScopeZeroValueFailsClosed pins the highest-severity invariant in the
+// refactor: an uninitialised Scope must never be mistaken for admin. This file
+// is the only place a Scope composite literal is permitted.
+func TestScopeZeroValueFailsClosed(t *testing.T) {
+	var zero Scope
+
+	assert.Equal(t, ScopeInvalid, zero.Kind())
+	assert.Equal(t, ScopeKind(0), ScopeInvalid, "ScopeInvalid must be the zero value")
+	assert.NotEqual(t, ScopeAdmin, zero.Kind(), "the zero value must not be admin")
+
+	err := zero.Validate()
+	require.Error(t, err)
+	assert.ErrorIs(t, err, ErrScopeInvalid)
+	assert.Equal(t, "invalid", zero.String())
+
+	_, ok := zero.OwnerID()
+	assert.False(t, ok)
+}
+
+func TestScopeStructLiteralWithoutKindFailsClosed(t *testing.T) {
+	// A partially-populated literal — the exact shape a half-migrated call site
+	// or a zero-valued mock return produces.
+	s := Scope{vaultID: uuid.New(), actorID: uuid.New()}
+
+	assert.Equal(t, ScopeInvalid, s.Kind())
+	assert.ErrorIs(t, s.Validate(), ErrScopeInvalid)
+}
+
+func TestScopeValidateRejectsIncompleteConstructions(t *testing.T) {
+	cases := []struct {
+		name    string
+		scope   Scope
+		wantErr bool
+	}{
+		{"vault scope without vault id", NewVaultScope(uuid.Nil, uuid.New()), true},
+		{"vault scope with vault id", NewVaultScope(uuid.New(), uuid.New()), false},
+		{"owner scope without owner id", NewOwnerScope(uuid.New(), uuid.Nil), true},
+		{"owner scope with owner id", NewOwnerScope(uuid.New(), uuid.New()), false},
+		{"admin scope with nil actor", NewAdminScope(uuid.Nil), false},
+		{"unknown kind", Scope{kind: ScopeKind(99)}, true},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			err := c.scope.Validate()
+			if c.wantErr {
+				assert.ErrorIs(t, err, ErrScopeInvalid)
+				return
+			}
+			assert.NoError(t, err)
+		})
+	}
+}
+
+func TestScopeOwnerIDNeverOverloadsNil(t *testing.T) {
+	// Regression pin for DeleteKeyInVault's documented "pass uuid.Nil to skip
+	// the check". A vault or admin scope reports ok=false, not a Nil owner that
+	// a caller could misread as "no check needed".
+	for _, s := range []Scope{
+		NewVaultScope(uuid.New(), uuid.New()),
+		NewAdminScope(uuid.New()),
+	} {
+		id, ok := s.OwnerID()
+		assert.False(t, ok, "scope %s must not report an owner", s)
+		assert.Equal(t, uuid.Nil, id)
+	}
+}
