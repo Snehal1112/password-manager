@@ -501,6 +501,30 @@ func (m *MockSecretService) GetLatestSecretVersion(ctx context.Context, secretID
 	return args.Get(0).(*model.SecretVersion), args.Error(1)
 }
 
+func (m *MockSecretService) GetSecretVersionsInVault(ctx context.Context, secretID, vaultID uuid.UUID) ([]model.SecretVersion, error) {
+	args := m.Called(ctx, secretID, vaultID)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).([]model.SecretVersion), args.Error(1)
+}
+
+func (m *MockSecretService) GetSecretVersionInVault(ctx context.Context, secretID uuid.UUID, version int, vaultID uuid.UUID) (*model.SecretVersion, error) {
+	args := m.Called(ctx, secretID, version, vaultID)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).(*model.SecretVersion), args.Error(1)
+}
+
+func (m *MockSecretService) GetLatestSecretVersionInVault(ctx context.Context, secretID, vaultID uuid.UUID) (*model.SecretVersion, error) {
+	args := m.Called(ctx, secretID, vaultID)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).(*model.SecretVersion), args.Error(1)
+}
+
 func (m *MockSecretService) GenerateSecret(ctx context.Context, req secretServices.GenerateSecretRequest) (*model.Secret, error) {
 	args := m.Called(ctx, req)
 	if args.Get(0) == nil {
