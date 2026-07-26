@@ -489,3 +489,30 @@ func TestDefaultCacheConfigs(t *testing.T) {
 		assert.Equal(t, 5000, config.MaxEntries)
 	})
 }
+
+// TestSecretCacheFlush proves Flush empties the cache unconditionally,
+// unlike Clear, which only prunes expired entries.
+func TestSecretCacheFlush(t *testing.T) {
+	logger := logrus.New()
+	logger.SetLevel(logrus.DebugLevel)
+	cache := NewSecretCache(5*time.Minute, logger)
+	ctx := context.Background()
+
+	for i := 0; i < 5; i++ {
+		secret := &model.Secret{
+			ID:        uuid.New(),
+			UserID:    uuid.New(),
+			Name:      fmt.Sprintf("secret-%d", i),
+			Value:     "encrypted-value",
+			Version:   1,
+			CreatedAt: time.Now(),
+		}
+		require.NoError(t, cache.Set(ctx, secret))
+	}
+
+	err := cache.Flush(ctx)
+	assert.NoError(t, err)
+
+	stats := cache.GetStats()
+	assert.Equal(t, 0, stats["total_entries"], "Flush must remove all live entries, not just expired ones")
+}

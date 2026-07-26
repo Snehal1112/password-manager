@@ -208,7 +208,7 @@ func (s *CachedSecretService) ExportSecrets(ctx context.Context, req secrets.Exp
 	return s.secretService.ExportSecrets(ctx, req)
 }
 
-// ImportSecrets imports secrets and clears cache to ensure consistency.
+// ImportSecrets imports secrets and flushes the cache to ensure consistency.
 func (s *CachedSecretService) ImportSecrets(ctx context.Context, req secrets.ImportSecretsRequest) (*secrets.ImportResult, error) {
 	// Import through underlying service
 	result, err := s.secretService.ImportSecrets(ctx, req)
@@ -216,10 +216,12 @@ func (s *CachedSecretService) ImportSecrets(ctx context.Context, req secrets.Imp
 		return nil, err
 	}
 
-	// Clear cache to ensure consistency after bulk import
-	if err := s.cache.Clear(ctx); err != nil {
-		s.logger.WithError(err).Warn("Failed to clear cache after import")
-		// Don't fail the operation if cache clear fails
+	// Flush (not Clear) so live, non-expired cache entries are also
+	// removed -- a bulk import can change or delete secrets that are
+	// still cached.
+	if err := s.cache.Flush(ctx); err != nil {
+		s.logger.WithError(err).Warn("Failed to flush cache after import")
+		// Don't fail the operation if cache flush fails.
 	}
 
 	return result, nil

@@ -806,6 +806,33 @@ func TestCachedSecretService_ImportSecrets_ClearsCache(t *testing.T) {
 	// the test deterministic we verify the import result was returned correctly.
 }
 
+func TestCachedSecretService_ImportSecrets_FlushesLiveCacheEntries(t *testing.T) {
+	ctx := context.Background()
+	userID := uuid.New()
+
+	// Pre-populate cache with a live (non-expired) secret.
+	secret := makeSecret(userID)
+	c := newTestCache(t)
+	require.NoError(t, c.Set(ctx, secret))
+
+	svc := &mockSecretService{
+		importSecretsFn: func(_ context.Context, _ secrets.ImportSecretsRequest) (*secrets.ImportResult, error) {
+			return &secrets.ImportResult{ImportedCount: 1, TotalCount: 1}, nil
+		},
+	}
+	logger := newTestLogger()
+	cached := NewCachedSecretService(svc, c, logger)
+
+	_, err := cached.ImportSecrets(ctx, secrets.ImportSecretsRequest{UserID: userID})
+	require.NoError(t, err)
+
+	// SecretCache.Clear only prunes expired entries, so a live entry
+	// surviving import means "clear cache to ensure consistency" is a no-op
+	// for anything still within its TTL. Flush must be used instead.
+	_, found := c.Get(ctx, secret.ID)
+	assert.False(t, found, "ImportSecrets must flush live cache entries, not just expired ones")
+}
+
 func TestCachedSecretService_ImportSecrets_BaseError(t *testing.T) {
 	ctx := context.Background()
 

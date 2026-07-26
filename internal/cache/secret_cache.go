@@ -114,6 +114,21 @@ func (c *SecretCache) Clear(ctx context.Context) error {
 	return nil
 }
 
+// Flush removes every entry from the cache unconditionally, live or
+// expired. Unlike Clear, which only prunes expired entries, Flush is the
+// correct primitive for callers that need a guaranteed-empty cache (e.g.
+// bulk import, where secrets may change or be removed outside their TTL).
+func (c *SecretCache) Flush(ctx context.Context) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	removed := len(c.cache)
+	c.cache = make(map[string]*CachedSecret)
+
+	c.logger.WithField("removed_count", removed).Debug("Cache flushed")
+	return nil
+}
+
 // StartCleanup starts a background goroutine that periodically clears expired entries.
 func (c *SecretCache) StartCleanup(ctx context.Context, interval time.Duration) {
 	ticker := time.NewTicker(interval)
