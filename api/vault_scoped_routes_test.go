@@ -34,14 +34,17 @@ func doScopedRequest(api *API, method, path string) *httptest.ResponseRecorder {
 // scope. The legacy flat route must call the user-scoped ListSecrets; the
 // vault-scoped route must call ListSecretsInVault. Unused methods panic.
 type recordingSecretService struct {
-	listVaultID       uuid.UUID
-	listCalled        bool
-	listUserScoped    bool
-	listUserID        uuid.UUID
-	updateCalled      bool
-	updateVaultScoped bool
-	updateVaultID     uuid.UUID
-	updateUserID      uuid.UUID
+	listVaultID         uuid.UUID
+	listCalled          bool
+	listUserScoped      bool
+	listUserID          uuid.UUID
+	updateCalled        bool
+	updateVaultScoped   bool
+	updateVaultID       uuid.UUID
+	updateUserID        uuid.UUID
+	versionsCalled      bool
+	versionsVaultScoped bool
+	versionsVaultID     uuid.UUID
 }
 
 func (s *recordingSecretService) CreateSecret(context.Context, secretServices.CreateSecretRequest) (*model.Secret, error) {
@@ -92,13 +95,27 @@ func (s *recordingSecretService) ExportSecrets(context.Context, secretServices.E
 func (s *recordingSecretService) ImportSecrets(context.Context, secretServices.ImportSecretsRequest) (*secretServices.ImportResult, error) {
 	panic("unexpected")
 }
-func (s *recordingSecretService) GetSecretVersions(context.Context, uuid.UUID, uuid.UUID) ([]model.SecretVersion, error) {
-	panic("unexpected")
+func (s *recordingSecretService) GetSecretVersions(_ context.Context, secretID, userID uuid.UUID) ([]model.SecretVersion, error) {
+	s.versionsCalled = true
+	s.versionsVaultScoped = false
+	return []model.SecretVersion{}, nil
+}
+func (s *recordingSecretService) GetSecretVersionsInVault(_ context.Context, secretID, vaultID uuid.UUID) ([]model.SecretVersion, error) {
+	s.versionsCalled = true
+	s.versionsVaultScoped = true
+	s.versionsVaultID = vaultID
+	return []model.SecretVersion{}, nil
 }
 func (s *recordingSecretService) GetSecretVersion(context.Context, uuid.UUID, int, uuid.UUID) (*model.SecretVersion, error) {
 	panic("unexpected")
 }
 func (s *recordingSecretService) GetLatestSecretVersion(context.Context, uuid.UUID, uuid.UUID) (*model.SecretVersion, error) {
+	panic("unexpected")
+}
+func (s *recordingSecretService) GetSecretVersionInVault(context.Context, uuid.UUID, int, uuid.UUID) (*model.SecretVersion, error) {
+	panic("unexpected")
+}
+func (s *recordingSecretService) GetLatestSecretVersionInVault(context.Context, uuid.UUID, uuid.UUID) (*model.SecretVersion, error) {
 	panic("unexpected")
 }
 
@@ -260,5 +277,54 @@ func TestLegacyFlatRoute_UsesUserScopedUpdate(t *testing.T) {
 	}
 	if rec.updateUserID != uuid.MustParse(vaultTestUserID) {
 		t.Fatalf("legacy route scoped update to user %s, want caller %s", rec.updateUserID, vaultTestUserID)
+	}
+}
+
+// TestVaultScopedRoute_UsesVaultScopedVersionsList verifies that GET on the
+// explicit /vaults/{name}/secrets/{id}/versions route dispatches to
+// GetSecretVersionsInVault, not the owner-scoped GetSecretVersions.
+func TestVaultScopedRoute_UsesVaultScopedVersionsList(t *testing.T) {
+	rec := &recordingSecretService{}
+	api, repo := newVaultScopedTestAPI(rec)
+
+	id := uuid.New()
+	repo.byName["prod"] = &model.Vault{ID: id, Name: "prod", Enabled: true}
+	repo.byID[id.String()] = repo.byName["prod"]
+
+	secretID := uuid.New()
+	w := doVaultRequest(api, http.MethodGet, "/api/v1/vaults/prod/secrets/"+secretID.String()+"/versions", nil)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("vault-scoped GET .../versions: expected 200, got %d (%s)", w.Code, w.Body.String())
+	}
+	if !rec.versionsCalled {
+		t.Fatalf("vault-scoped route did not dispatch to the versions list handler")
+	}
+	if !rec.versionsVaultScoped {
+		t.Fatalf("vault-scoped .../versions GET must use vault-scoped lookup (GetSecretVersionsInVault)")
+	}
+	if rec.versionsVaultID != id {
+		t.Fatalf("versions lookup dispatched with vault ID %s, want %s", rec.versionsVaultID, id)
+	}
+}
+
+// TestLegacyFlatRoute_UsesUserScopedVersionsList verifies that GET on the
+// legacy flat /secrets/{id}/versions route still dispatches to the
+// owner-scoped GetSecretVersions.
+func TestLegacyFlatRoute_UsesUserScopedVersionsList(t *testing.T) {
+	rec := &recordingSecretService{}
+	api, _ := newVaultScopedTestAPI(rec)
+
+	secretID := uuid.New()
+	w := doVaultRequest(api, http.MethodGet, "/api/v1/secrets/"+secretID.String()+"/versions", nil)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("legacy GET .../versions: expected 200, got %d (%s)", w.Code, w.Body.String())
+	}
+	if !rec.versionsCalled {
+		t.Fatalf("legacy route did not dispatch to the versions list handler")
+	}
+	if rec.versionsVaultScoped {
+		t.Fatalf("legacy .../versions GET must use owner-scoped lookup (GetSecretVersions), not vault-scoped")
 	}
 }

@@ -86,28 +86,39 @@ func listSecretVersionsHandler(c *Context, w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	// Get user ID from JWT claims.
-	userIDStr, ok := c.Claims["user_id"].(string)
-	if !ok {
-		c.SetInternalError(nil)
-		return
-	}
-
-	userID, err := uuid.Parse(userIDStr)
-	if err != nil {
-		c.SetInvalidParam("user_id")
-		return
-	}
-
 	secretService := c.secretSvc()
 	if secretService == nil {
 		return
 	}
 
-	versions, err := secretService.GetSecretVersions(r.Context(), secretID, userID)
-	if err != nil {
-		c.SetInternalError(err)
-		return
+	var versions []model.SecretVersion
+	if isVaultScopedRoute(r) {
+		vaultID, err := vaultIDFromRequest(r)
+		if err != nil {
+			c.SetInvalidParam("vault")
+			return
+		}
+		versions, err = secretService.GetSecretVersionsInVault(r.Context(), secretID, vaultID)
+		if err != nil {
+			c.SetInternalError(err)
+			return
+		}
+	} else {
+		userIDStr, ok := c.Claims["user_id"].(string)
+		if !ok {
+			c.SetInternalError(nil)
+			return
+		}
+		userID, err := uuid.Parse(userIDStr)
+		if err != nil {
+			c.SetInvalidParam("user_id")
+			return
+		}
+		versions, err = secretService.GetSecretVersions(r.Context(), secretID, userID)
+		if err != nil {
+			c.SetInternalError(err)
+			return
+		}
 	}
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(versions)
@@ -122,28 +133,39 @@ func getSecretVersionHandler(c *Context, w http.ResponseWriter, r *http.Request)
 	}
 	versionNum := c.Params.Version
 
-	// Get user ID from JWT claims.
-	userIDStr, ok := c.Claims["user_id"].(string)
-	if !ok {
-		c.SetInternalError(nil)
-		return
-	}
-
-	userID, err := uuid.Parse(userIDStr)
-	if err != nil {
-		c.SetInvalidParam("user_id")
-		return
-	}
-
 	secretService := c.secretSvc()
 	if secretService == nil {
 		return
 	}
 
-	version, err := secretService.GetSecretVersion(r.Context(), secretID, versionNum, userID)
-	if err != nil {
-		c.SetNotFound("secret version")
-		return
+	var version *model.SecretVersion
+	if isVaultScopedRoute(r) {
+		vaultID, err := vaultIDFromRequest(r)
+		if err != nil {
+			c.SetInvalidParam("vault")
+			return
+		}
+		version, err = secretService.GetSecretVersionInVault(r.Context(), secretID, versionNum, vaultID)
+		if err != nil {
+			c.SetNotFound("secret version")
+			return
+		}
+	} else {
+		userIDStr, ok := c.Claims["user_id"].(string)
+		if !ok {
+			c.SetInternalError(nil)
+			return
+		}
+		userID, err := uuid.Parse(userIDStr)
+		if err != nil {
+			c.SetInvalidParam("user_id")
+			return
+		}
+		version, err = secretService.GetSecretVersion(r.Context(), secretID, versionNum, userID)
+		if err != nil {
+			c.SetNotFound("secret version")
+			return
+		}
 	}
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(version)
@@ -157,28 +179,39 @@ func getLatestSecretVersionHandler(c *Context, w http.ResponseWriter, r *http.Re
 		return
 	}
 
-	// Get user ID from JWT claims.
-	userIDStr, ok := c.Claims["user_id"].(string)
-	if !ok {
-		c.SetInternalError(nil)
-		return
-	}
-
-	userID, err := uuid.Parse(userIDStr)
-	if err != nil {
-		c.SetInvalidParam("user_id")
-		return
-	}
-
 	secretService := c.secretSvc()
 	if secretService == nil {
 		return
 	}
 
-	version, err := secretService.GetLatestSecretVersion(r.Context(), secretID, userID)
-	if err != nil {
-		c.SetNotFound("secret version")
-		return
+	var version *model.SecretVersion
+	if isVaultScopedRoute(r) {
+		vaultID, err := vaultIDFromRequest(r)
+		if err != nil {
+			c.SetInvalidParam("vault")
+			return
+		}
+		version, err = secretService.GetLatestSecretVersionInVault(r.Context(), secretID, vaultID)
+		if err != nil {
+			c.SetNotFound("secret version")
+			return
+		}
+	} else {
+		userIDStr, ok := c.Claims["user_id"].(string)
+		if !ok {
+			c.SetInternalError(nil)
+			return
+		}
+		userID, err := uuid.Parse(userIDStr)
+		if err != nil {
+			c.SetInvalidParam("user_id")
+			return
+		}
+		version, err = secretService.GetLatestSecretVersion(r.Context(), secretID, userID)
+		if err != nil {
+			c.SetNotFound("secret version")
+			return
+		}
 	}
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(version)
