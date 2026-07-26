@@ -48,6 +48,13 @@ func (s *retrySecretService) UpdateSecret(ctx context.Context, req secrets.Updat
 	})
 }
 
+// UpdateSecretInVault updates a vault-scoped secret with retry logic.
+func (s *retrySecretService) UpdateSecretInVault(ctx context.Context, req secrets.UpdateSecretRequest) error {
+	return s.retryService.ExecuteDatabaseOperation(ctx, func() error {
+		return s.baseService.UpdateSecretInVault(ctx, req)
+	})
+}
+
 // GetSecret retrieves a secret with retry logic for database operations
 func (s *retrySecretService) GetSecret(ctx context.Context, secretID, userID uuid.UUID) (*model.Secret, error) {
 	var result *model.Secret

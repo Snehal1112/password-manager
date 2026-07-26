@@ -438,6 +438,11 @@ func (m *MockSecretService) UpdateSecret(ctx context.Context, req secretServices
 	return args.Error(0)
 }
 
+func (m *MockSecretService) UpdateSecretInVault(ctx context.Context, req secretServices.UpdateSecretRequest) error {
+	args := m.Called(ctx, req)
+	return args.Error(0)
+}
+
 func (m *MockSecretService) DeleteSecret(ctx context.Context, secretID, userID uuid.UUID) error {
 	args := m.Called(ctx, secretID, userID)
 	return args.Error(0)

@@ -24,6 +24,7 @@ type mockSecretService struct {
 	getSecretFn             func(ctx context.Context, secretID, userID uuid.UUID) (*model.Secret, error)
 	createSecretFn          func(ctx context.Context, req secrets.CreateSecretRequest) (*model.Secret, error)
 	updateSecretFn          func(ctx context.Context, req secrets.UpdateSecretRequest) error
+	updateSecretInVaultFn   func(ctx context.Context, req secrets.UpdateSecretRequest) error
 	deleteSecretFn          func(ctx context.Context, secretID, userID uuid.UUID) error
 	listSecretsFn           func(ctx context.Context, userID uuid.UUID, tags []string) ([]model.Secret, error)
 	getSecretInVaultFn      func(ctx context.Context, secretID, vaultID uuid.UUID) (*model.Secret, error)
@@ -57,6 +58,13 @@ func (m *mockSecretService) CreateSecret(ctx context.Context, req secrets.Create
 func (m *mockSecretService) UpdateSecret(ctx context.Context, req secrets.UpdateSecretRequest) error {
 	if m.updateSecretFn != nil {
 		return m.updateSecretFn(ctx, req)
+	}
+	return errors.New("not implemented")
+}
+
+func (m *mockSecretService) UpdateSecretInVault(ctx context.Context, req secrets.UpdateSecretRequest) error {
+	if m.updateSecretInVaultFn != nil {
+		return m.updateSecretInVaultFn(ctx, req)
 	}
 	return errors.New("not implemented")
 }

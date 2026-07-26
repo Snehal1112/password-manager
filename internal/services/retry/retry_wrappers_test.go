@@ -164,6 +164,11 @@ func (m *MockSecretService) UpdateSecret(ctx context.Context, req secrets.Update
 	return args.Error(0)
 }
 
+func (m *MockSecretService) UpdateSecretInVault(ctx context.Context, req secrets.UpdateSecretRequest) error {
+	args := m.Called(ctx, req)
+	return args.Error(0)
+}
+
 func (m *MockSecretService) GetSecret(ctx context.Context, secretID, userID uuid.UUID) (*model.Secret, error) {
 	args := m.Called(ctx, secretID, userID)
 	if args.Get(0) == nil {

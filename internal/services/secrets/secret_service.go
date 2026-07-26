@@ -42,6 +42,7 @@ type CreateSecretRequest struct {
 type UpdateSecretRequest struct {
 	SecretID    uuid.UUID
 	UserID      uuid.UUID
+	VaultID     uuid.UUID  // Set only for vault-scoped updates; ignored by UpdateSecret.
 	Name        *string    // Optional - nil means no change.
 	Value       *string    // Optional - nil means no change.
 	Tags        *[]string  // Optional - nil means no change.
@@ -112,6 +113,9 @@ type ImportResult struct {
 type SecretService interface {
 	CreateSecret(ctx context.Context, req CreateSecretRequest) (*model.Secret, error)
 	UpdateSecret(ctx context.Context, req UpdateSecretRequest) error
+	// UpdateSecretInVault updates a secret scoped to a vault. Any vault
+	// member may update any secret in the vault (no ownership check).
+	UpdateSecretInVault(ctx context.Context, req UpdateSecretRequest) error
 	GetSecret(ctx context.Context, secretID, userID uuid.UUID) (*model.Secret, error)
 	ListSecrets(ctx context.Context, userID uuid.UUID, tags []string) ([]model.Secret, error)
 	DeleteSecret(ctx context.Context, secretID, userID uuid.UUID) error
@@ -360,6 +364,97 @@ func (s *secretService) UpdateSecret(ctx context.Context, req UpdateSecretReques
 		"user_id":   req.UserID.String(),
 		"version":   updatedSecret.Version,
 	}).Info("Secret updated successfully")
+
+	return nil
+}
+
+// UpdateSecretInVault updates a secret scoped to a vault, with versioning
+// support. It mirrors UpdateSecret but verifies vault scope via ReadInVault
+// instead of ownership — any vault member may update any secret in the vault.
+func (s *secretService) UpdateSecretInVault(ctx context.Context, req UpdateSecretRequest) error {
+	logrus.WithFields(logrus.Fields{
+		"secret_id": req.SecretID.String(),
+		"vault_id":  req.VaultID.String(),
+	}).Info("Updating secret (vault-scoped)")
+
+	currentSecret, err := s.secretRepo.ReadInVault(ctx, req.SecretID, req.VaultID)
+	if err != nil {
+		s.logger.LogAuditError(req.UserID.String(), "update_secret", "failed", "Secret not found or not in vault", err)
+		return fmt.Errorf("%w: %s", ErrSecretNotFound, err.Error())
+	}
+
+	currentValue, err := s.cryptoService.DecryptSecret(currentSecret.Value)
+	if err != nil {
+		s.logger.LogAuditError(req.UserID.String(), "update_secret", "failed", "Failed to decrypt current secret", err)
+		return fmt.Errorf("failed to decrypt current secret: %w", err)
+	}
+
+	versionReq := CreateVersionRequest{
+		SecretID: currentSecret.ID,
+		UserID:   req.UserID,
+		Name:     currentSecret.Name,
+		Value:    currentValue,
+		Version:  currentSecret.Version,
+	}
+	if _, err = s.versionService.CreateVersion(ctx, versionReq); err != nil {
+		s.logger.LogAuditError(req.UserID.String(), "update_secret", "failed", "Failed to create version", err)
+		return fmt.Errorf("failed to create version: %w", err)
+	}
+
+	updatedSecret := *currentSecret
+	updatedSecret.Version++
+
+	if req.ContentType != nil {
+		if err := validateContentType(*req.ContentType); err != nil {
+			return err
+		}
+		updatedSecret.ContentType = *req.ContentType
+	}
+	if req.Name != nil {
+		updatedSecret.Name = *req.Name
+	}
+	if req.Enabled != nil {
+		updatedSecret.Enabled = *req.Enabled
+	}
+	if req.ExpiresAt != nil {
+		updatedSecret.ExpiresAt = req.ExpiresAt
+	}
+	if req.NotBefore != nil {
+		updatedSecret.NotBefore = req.NotBefore
+	}
+	if req.Value != nil {
+		encryptedValue, err := s.cryptoService.EncryptSecret(*req.Value)
+		if err != nil {
+			s.logger.LogAuditError(req.UserID.String(), "update_secret", "failed", "Failed to encrypt updated secret", err)
+			return fmt.Errorf("failed to encrypt updated secret: %w", err)
+		}
+		updatedSecret.Value = encryptedValue
+	}
+
+	if err := s.secretRepo.UpdateInVault(ctx, &updatedSecret); err != nil {
+		s.logger.LogAuditError(req.UserID.String(), "update_secret", "failed", "Failed to update secret", err)
+		return fmt.Errorf("failed to update secret: %w", err)
+	}
+
+	if req.Tags != nil {
+		if err := s.tagService.RemoveAllTags(ctx, req.SecretID); err != nil {
+			s.logger.LogAuditError(req.UserID.String(), "update_secret", "failed", "Failed to remove old tags", err)
+			return fmt.Errorf("failed to remove old tags: %w", err)
+		}
+		if len(*req.Tags) > 0 {
+			if err := s.tagService.AddTags(ctx, req.SecretID, *req.Tags); err != nil {
+				s.logger.LogAuditError(req.UserID.String(), "update_secret", "failed", "Failed to add new tags", err)
+				return fmt.Errorf("failed to add new tags: %w", err)
+			}
+		}
+	}
+
+	s.logger.LogAuditInfo(req.UserID.String(), "update_secret", "success", fmt.Sprintf("Secret updated: %s", updatedSecret.Name))
+	logrus.WithFields(logrus.Fields{
+		"secret_id": req.SecretID.String(),
+		"vault_id":  req.VaultID.String(),
+		"version":   updatedSecret.Version,
+	}).Info("Secret updated successfully (vault-scoped)")
 
 	return nil
 }

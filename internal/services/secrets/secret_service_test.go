@@ -272,6 +272,69 @@ func TestUpdateSecret_WrongOwner(t *testing.T) {
 	assert.Contains(t, err.Error(), "access denied")
 }
 
+func TestUpdateSecretInVault_HappyPath(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	callerID := uuid.New() // a different vault member than the secret's original owner
+	ownerID := uuid.New()
+	vaultID := uuid.New()
+	secretID := uuid.New()
+
+	stored := &model.Secret{ID: secretID, UserID: ownerID, VaultID: vaultID, Name: "old", Value: "enc-old", Version: 1}
+	newValue := "new-plain"
+	newName := "new-name"
+
+	repo := &testutils.MockSecretRepository{}
+	crypto := &testutils.MockCryptographyService{}
+	ver := &testutils.MockVersioningService{}
+	tag := &testutils.MockTagService{}
+
+	repo.On("ReadInVault", ctx, secretID, vaultID).Return(stored, nil)
+	crypto.On("DecryptSecret", "enc-old").Return("old-plain", nil)
+	ver.On("CreateVersion", ctx, mock.AnythingOfType("secrets.CreateVersionRequest")).Return(
+		&model.SecretVersion{Version: 1}, nil,
+	)
+	crypto.On("EncryptSecret", newValue).Return("enc-new", nil)
+	repo.On("UpdateInVault", ctx, mock.AnythingOfType("*model.Secret")).Return(nil)
+
+	svc := newService(repo, crypto, ver, tag, t)
+	err := svc.UpdateSecretInVault(ctx, secrets.UpdateSecretRequest{
+		SecretID: secretID,
+		UserID:   callerID,
+		VaultID:  vaultID,
+		Name:     &newName,
+		Value:    &newValue,
+	})
+
+	require.NoError(t, err)
+	ver.AssertExpectations(t)
+	repo.AssertExpectations(t)
+}
+
+func TestUpdateSecretInVault_WrongVault(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	secretID := uuid.New()
+	vaultID := uuid.New()
+
+	repo := &testutils.MockSecretRepository{}
+	crypto := &testutils.MockCryptographyService{}
+	ver := &testutils.MockVersioningService{}
+	tag := &testutils.MockTagService{}
+
+	repo.On("ReadInVault", ctx, secretID, vaultID).Return(nil, errors.New("secret not found or access denied"))
+
+	svc := newService(repo, crypto, ver, tag, t)
+	err := svc.UpdateSecretInVault(ctx, secrets.UpdateSecretRequest{
+		SecretID: secretID,
+		UserID:   uuid.New(),
+		VaultID:  vaultID,
+	})
+
+	require.Error(t, err)
+	assert.ErrorIs(t, err, secrets.ErrSecretNotFound)
+}
+
 // --- ListSecrets ---
 
 func TestListSecrets_DecryptsAndLoadsTags(t *testing.T) {

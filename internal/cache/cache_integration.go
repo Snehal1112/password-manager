@@ -93,6 +93,11 @@ func (s *CachedSecretService) UpdateSecret(ctx context.Context, req secrets.Upda
 	return nil
 }
 
+// UpdateSecretInVault updates a vault-scoped secret (not cached).
+func (s *CachedSecretService) UpdateSecretInVault(ctx context.Context, req secrets.UpdateSecretRequest) error {
+	return s.secretService.UpdateSecretInVault(ctx, req)
+}
+
 // DeleteSecret soft deletes a secret and removes from cache.
 func (s *CachedSecretService) DeleteSecret(ctx context.Context, secretID uuid.UUID, userID uuid.UUID) error {
 	// Delete through underlying service
