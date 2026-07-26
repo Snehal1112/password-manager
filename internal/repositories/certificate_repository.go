@@ -45,6 +45,200 @@ type CertificateRepositoryInterface interface {
 	RecoverVaultContents(ctx context.Context, vaultID uuid.UUID, deletedAt time.Time) error
 }
 
+// CertificateFilter narrows a scoped certificate listing. There is no Type
+// field: the certificates table has no type column.
+type CertificateFilter struct {
+	Tags           []string
+	IncludeDeleted bool
+	OnlyDeleted    bool
+}
+
+// certificateColumns is the canonical SELECT list shared by every scoped query.
+const certificateColumns = "id, user_id, vault_id, name, certificate, private_key, created_at, expires_at, auto_renew, renewal_days, key_id, enabled, not_before"
+
+// scanCertificateRow scans one certificates row in the canonical column order.
+func scanCertificateRow(scan func(dest ...any) error) (model.Certificate, error) {
+	var cert model.Certificate
+	var idStr, userIDStr, vaultIDStr string
+	var keyIDStr sql.NullString
+
+	if err := scan(&idStr, &userIDStr, &vaultIDStr, &cert.Name, &cert.Certificate, &cert.PrivateKey,
+		&cert.CreatedAt, &cert.ExpiresAt, &cert.AutoRenew, &cert.RenewalDays, &keyIDStr,
+		&cert.Enabled, &cert.NotBefore); err != nil {
+		return cert, err
+	}
+
+	var err error
+	if cert.ID, err = uuid.Parse(idStr); err != nil {
+		return cert, fmt.Errorf("failed to parse certificate ID: %w", err)
+	}
+	if cert.UserID, err = uuid.Parse(userIDStr); err != nil {
+		return cert, fmt.Errorf("failed to parse user ID: %w", err)
+	}
+	if cert.VaultID, err = uuid.Parse(vaultIDStr); err != nil {
+		return cert, fmt.Errorf("failed to parse vault ID: %w", err)
+	}
+	if keyIDStr.Valid && keyIDStr.String != "" {
+		if cert.KeyID, err = uuid.Parse(keyIDStr.String); err != nil {
+			return cert, fmt.Errorf("failed to parse key ID: %w", err)
+		}
+	}
+	return cert, nil
+}
+
+// ReadScoped retrieves a certificate by ID, authorized by scope.
+func (r *CertificateRepository) ReadScoped(ctx context.Context, id uuid.UUID, scope model.Scope) (*model.Certificate, error) {
+	predicate, args, err := scopePredicate(scope)
+	if err != nil {
+		return nil, err
+	}
+
+	query := "SELECT " + certificateColumns + " FROM certificates WHERE id = ? AND " + predicate + " AND deleted_at IS NULL"
+	queryArgs := append([]any{id.String()}, args...)
+
+	cert, err := scanCertificateRow(r.db.QueryRowContext(ctx, query, queryArgs...).Scan)
+	if errors.Is(err, sql.ErrNoRows) {
+		if scope.Kind() == model.ScopeAdmin {
+			return nil, fmt.Errorf("certificate not found")
+		}
+		return nil, fmt.Errorf("certificate not found or access denied")
+	}
+	if err != nil {
+		return nil, fmt.Errorf("failed to query certificate: %w", err)
+	}
+
+	tagRepo := db.NewTagRepository[model.Certificate](r.db, "certificate_tags", "certificate_id")
+	cert.Tags, err = tagRepo.GetTags(ctx, cert.ID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read tags: %w", err)
+	}
+	return &cert, nil
+}
+
+// UpdateScoped updates a certificate, authorized by scope. The predicate is
+// built from the scope argument, never from the entity.
+//
+// This method does not emit audit rows: audit attribution belongs to the
+// caller (service layer), which knows the acting principal from the request.
+// UpdateCertificateScoped already logs its own audit row after calling this,
+// for every error path and on success — logging here too would duplicate
+// every scoped update into two audit_logs rows.
+func (r *CertificateRepository) UpdateScoped(ctx context.Context, cert *model.Certificate, scope model.Scope) error {
+	predicate, args, err := scopePredicate(scope)
+	if err != nil {
+		return err
+	}
+
+	return r.executeWithMetrics("update_certificate_scoped", func() error {
+		tx, txErr := r.db.BeginTx(ctx, nil)
+		if txErr != nil {
+			return fmt.Errorf("failed to begin transaction: %w", txErr)
+		}
+		defer tx.Rollback()
+
+		query := "UPDATE certificates SET name = ?, certificate = ?, private_key = ?, created_at = ?, expires_at = ?, auto_renew = ?, renewal_days = ?, enabled = ?, not_before = ? WHERE id = ? AND " + predicate
+		execArgs := append([]any{
+			cert.Name, cert.Certificate, cert.PrivateKey, cert.CreatedAt, cert.ExpiresAt,
+			cert.AutoRenew, cert.RenewalDays, cert.Enabled, cert.NotBefore, cert.ID.String(),
+		}, args...)
+
+		result, execErr := tx.ExecContext(ctx, query, execArgs...)
+		if execErr != nil {
+			return fmt.Errorf("failed to update certificate: %w", execErr)
+		}
+
+		rowsAffected, rowsErr := result.RowsAffected()
+		if rowsErr != nil {
+			return fmt.Errorf("failed to get rows affected: %w", rowsErr)
+		}
+		if rowsAffected == 0 {
+			return fmt.Errorf("certificate not found")
+		}
+
+		if len(cert.Tags) > 0 {
+			if _, delErr := tx.ExecContext(ctx, "DELETE FROM certificate_tags WHERE certificate_id = ?", cert.ID.String()); delErr != nil {
+				return fmt.Errorf("failed to delete existing tags: %w", delErr)
+			}
+			tagRepo := db.NewTagRepository[model.Certificate](r.db, "certificate_tags", "certificate_id")
+			if tagErr := tagRepo.AddTags(ctx, cert.ID, cert.Tags); tagErr != nil {
+				return fmt.Errorf("failed to add tags: %w", tagErr)
+			}
+		}
+
+		if commitErr := tx.Commit(); commitErr != nil {
+			return fmt.Errorf("failed to commit transaction: %w", commitErr)
+		}
+
+		logrus.WithFields(logrus.Fields{
+			"certificate_id": cert.ID.String(),
+			"scope":          scope.String(),
+		}).Debug("Certificate updated successfully")
+		return nil
+	})
+}
+
+// ListScoped lists certificates authorized by scope and narrowed by filter.
+func (r *CertificateRepository) ListScoped(ctx context.Context, scope model.Scope, filter CertificateFilter) ([]model.Certificate, error) {
+	predicate, args, err := scopePredicate(scope)
+	if err != nil {
+		return nil, err
+	}
+
+	conditions := []string{predicate}
+	switch {
+	case filter.OnlyDeleted:
+		conditions = append(conditions, "deleted_at IS NOT NULL")
+	case filter.IncludeDeleted:
+		// No deleted_at constraint.
+	default:
+		conditions = append(conditions, "deleted_at IS NULL")
+	}
+
+	if len(filter.Tags) > 0 {
+		placeholders := strings.Repeat(",?", len(filter.Tags))[1:]
+		conditions = append(conditions, fmt.Sprintf("id IN (SELECT certificate_id FROM certificate_tags WHERE tag IN (%s))", placeholders))
+		for _, tag := range filter.Tags {
+			args = append(args, tag)
+		}
+	}
+
+	query := "SELECT " + certificateColumns + " FROM certificates WHERE " +
+		strings.Join(conditions, " AND ") + " ORDER BY created_at DESC"
+
+	var certList []model.Certificate
+	err = r.executeWithMetrics("list_certificates_scoped", func() error {
+		rows, queryErr := r.db.QueryContext(ctx, query, args...)
+		if queryErr != nil {
+			return fmt.Errorf("failed to query certificates: %w", queryErr)
+		}
+		defer rows.Close()
+
+		tagRepo := db.NewTagRepository[model.Certificate](r.db, "certificate_tags", "certificate_id")
+		certList = make([]model.Certificate, 0, 50)
+		for rows.Next() {
+			cert, scanErr := scanCertificateRow(rows.Scan)
+			if scanErr != nil {
+				return fmt.Errorf("failed to scan certificate: %w", scanErr)
+			}
+			cert.Tags, scanErr = tagRepo.GetTags(ctx, cert.ID)
+			if scanErr != nil {
+				return fmt.Errorf("failed to read tags for certificate: %w", scanErr)
+			}
+			certList = append(certList, cert)
+		}
+		if rowsErr := rows.Err(); rowsErr != nil {
+			return fmt.Errorf("row iteration error: %w", rowsErr)
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	logrus.WithField("count", len(certList)).Debug("Certificates listed successfully")
+	return certList, nil
+}
+
 // CertificateRepository implements CertificateRepositoryInterface with pure CRUD operations.
 // It focuses solely on database interactions without business logic like X.509 generation or encryption.
 // All crypto operations (encryption, certificate generation) are handled by the service layer.
@@ -166,52 +360,10 @@ func (r *CertificateRepository) Create(ctx context.Context, cert *model.Certific
 // Returns:
 //
 //	The certificate entity (with encrypted private key) or an error if not found.
+//
+// Deprecated: shim over ReadScoped; removed in Phase 6.
 func (r *CertificateRepository) Read(ctx context.Context, id uuid.UUID) (*model.Certificate, error) {
-	var cert model.Certificate
-	var idStr, userIDStr string
-	var keyIDStr sql.NullString
-
-	err := r.db.QueryRowContext(
-		ctx,
-		"SELECT id, user_id, name, certificate, private_key, created_at, expires_at, auto_renew, renewal_days, key_id, enabled, not_before FROM certificates WHERE id = ? AND deleted_at IS NULL",
-		id.String(),
-	).Scan(&idStr, &userIDStr, &cert.Name, &cert.Certificate, &cert.PrivateKey, &cert.CreatedAt,
-		&cert.ExpiresAt, &cert.AutoRenew, &cert.RenewalDays, &keyIDStr, &cert.Enabled, &cert.NotBefore)
-
-	if errors.Is(err, sql.ErrNoRows) {
-		return nil, fmt.Errorf("certificate not found")
-	}
-	if err != nil {
-		r.log.LogAuditError(uuid.Nil.String(), "read_certificate", "failed", "Failed to query certificate", err)
-		return nil, fmt.Errorf("failed to query certificate: %w", err)
-	}
-
-	cert.ID, err = uuid.Parse(idStr)
-	if err != nil {
-		return nil, fmt.Errorf("failed to parse certificate ID: %w", err)
-	}
-
-	cert.UserID, err = uuid.Parse(userIDStr)
-	if err != nil {
-		return nil, fmt.Errorf("failed to parse user ID: %w", err)
-	}
-
-	if keyIDStr.Valid {
-		cert.KeyID, err = uuid.Parse(keyIDStr.String)
-		if err != nil {
-			return nil, fmt.Errorf("failed to parse key ID: %w", err)
-		}
-	}
-
-	// Retrieve tags using TagRepository
-	tagRepo := db.NewTagRepository[model.Certificate](r.db, "certificate_tags", "certificate_id")
-	cert.Tags, err = tagRepo.GetTags(ctx, cert.ID)
-	if err != nil {
-		r.log.LogAuditError(uuid.Nil.String(), "read_certificate", "failed", "Failed to read tags", err)
-		return nil, fmt.Errorf("failed to read tags: %w", err)
-	}
-
-	return &cert, nil
+	return r.ReadScoped(ctx, id, model.NewAdminScope(uuid.Nil))
 }
 
 // Update updates a certificate in the database.
@@ -225,71 +377,14 @@ func (r *CertificateRepository) Read(ctx context.Context, id uuid.UUID) (*model.
 // Returns:
 //
 //	An error if the update fails.
+//
+// Deprecated: shim over UpdateScoped; removed in Phase 6.
+//
+// Update's shim uses an admin scope because the legacy `UPDATE certificates
+// … WHERE id = ?` had no ownership predicate; ownership for the legacy path
+// stays in certificateService.UpdateCertificate.
 func (r *CertificateRepository) Update(ctx context.Context, cert *model.Certificate) error {
-	return r.executeWithMetrics("update_certificate", func() error {
-		logrus.WithFields(logrus.Fields{
-			"cert_id": cert.ID.String(),
-			"user_id": cert.UserID.String(),
-			"name":    cert.Name,
-		}).Debug("Updating certificate in database")
-
-		tx, err := r.db.BeginTx(ctx, nil)
-		if err != nil {
-			r.log.LogAuditError(cert.UserID.String(), "update_certificate", "failed", "Failed to begin transaction", err)
-			return fmt.Errorf("failed to begin transaction: %w", err)
-		}
-		defer tx.Rollback()
-
-		result, err := tx.ExecContext(
-			ctx,
-			"UPDATE certificates SET name = ?, certificate = ?, private_key = ?, created_at = ?, expires_at = ?, auto_renew = ?, renewal_days = ?, enabled = ?, not_before = ? WHERE id = ?",
-			cert.Name, cert.Certificate, cert.PrivateKey, cert.CreatedAt,
-			cert.ExpiresAt, cert.AutoRenew, cert.RenewalDays, cert.Enabled, cert.NotBefore, cert.ID.String(),
-		)
-		if err != nil {
-			r.log.LogAuditError(cert.UserID.String(), "update_certificate", "failed", "Failed to update certificate", err)
-			return fmt.Errorf("failed to update certificate: %w", err)
-		}
-
-		rowsAffected, err := result.RowsAffected()
-		if err != nil {
-			r.log.LogAuditError(cert.UserID.String(), "update_certificate", "failed", "Failed to get rows affected", err)
-			return fmt.Errorf("failed to get rows affected: %w", err)
-		}
-		if rowsAffected == 0 {
-			r.log.LogAuditError(cert.UserID.String(), "update_certificate", "failed", "Certificate not found for update", nil)
-			return fmt.Errorf("certificate not found")
-		}
-
-		// Update tags if provided
-		if len(cert.Tags) > 0 {
-			_, err = tx.ExecContext(ctx, "DELETE FROM certificate_tags WHERE certificate_id = ?", cert.ID.String())
-			if err != nil {
-				r.log.LogAuditError(cert.UserID.String(), "update_certificate", "failed", "Failed to delete existing tags", err)
-				return fmt.Errorf("failed to delete existing tags: %w", err)
-			}
-
-			tagRepo := db.NewTagRepository[model.Certificate](r.db, "certificate_tags", "certificate_id")
-			if err := tagRepo.AddTags(ctx, cert.ID, cert.Tags); err != nil {
-				r.log.LogAuditError(cert.UserID.String(), "update_certificate", "failed", "Failed to add tags", err)
-				return fmt.Errorf("failed to add tags: %w", err)
-			}
-		}
-
-		if err := tx.Commit(); err != nil {
-			r.log.LogAuditError(cert.UserID.String(), "update_certificate", "failed", "Failed to commit transaction", err)
-			return fmt.Errorf("failed to commit transaction: %w", err)
-		}
-
-		r.log.LogAuditInfo(cert.UserID.String(), "update_certificate", "success", fmt.Sprintf("Certificate updated: %s", cert.Name))
-		logrus.WithFields(logrus.Fields{
-			"cert_id": cert.ID.String(),
-			"user_id": cert.UserID.String(),
-			"name":    cert.Name,
-		}).Debug("Certificate updated successfully")
-
-		return nil
-	})
+	return r.UpdateScoped(ctx, cert, model.NewAdminScope(cert.UserID))
 }
 
 // Delete removes a certificate from the database.
@@ -401,96 +496,10 @@ func (r *CertificateRepository) Revoke(ctx context.Context, id uuid.UUID, serial
 // Returns:
 //
 //	A slice of certificates (with encrypted private keys) or an error if retrieval fails.
+//
+// Deprecated: shim over ListScoped; removed in Phase 6.
 func (r *CertificateRepository) ListByUser(ctx context.Context, userID uuid.UUID, tags []string) ([]model.Certificate, error) {
-	var certList []model.Certificate
-
-	err := r.executeWithMetrics("list_certificates_by_user", func() error {
-		query := "SELECT id, user_id, vault_id, name, certificate, private_key, created_at, expires_at, auto_renew, renewal_days, key_id, enabled, not_before FROM certificates WHERE user_id = ? AND deleted_at IS NULL"
-		args := []interface{}{userID.String()}
-
-		if len(tags) > 0 {
-			placeholders := strings.Repeat(",?", len(tags))[1:]
-			query += fmt.Sprintf(" AND id IN (SELECT certificate_id FROM certificate_tags WHERE tag IN (%s))", placeholders)
-			for _, tag := range tags {
-				args = append(args, tag)
-			}
-		}
-
-		query += " ORDER BY created_at DESC"
-
-		rows, err := r.db.QueryContext(ctx, query, args...)
-		if err != nil {
-			r.log.LogAuditError(userID.String(), "list_certificates", "failed", "Failed to query certificates", err)
-			return fmt.Errorf("failed to query certificates: %w", err)
-		}
-		defer rows.Close()
-
-		// Pre-allocate slice for better memory performance
-		certList = make([]model.Certificate, 0, 50)
-
-		for rows.Next() {
-			var cert model.Certificate
-			var idStr, userIDStr, vaultIDStr string
-			var keyIDStr sql.NullString
-
-			if err := rows.Scan(&idStr, &userIDStr, &vaultIDStr, &cert.Name, &cert.Certificate, &cert.PrivateKey, &cert.CreatedAt,
-				&cert.ExpiresAt, &cert.AutoRenew, &cert.RenewalDays, &keyIDStr, &cert.Enabled, &cert.NotBefore); err != nil {
-				r.log.LogAuditError(userID.String(), "list_certificates", "failed", "Failed to scan certificate", err)
-				return fmt.Errorf("failed to scan certificate: %w", err)
-			}
-
-			cert.ID, err = uuid.Parse(idStr)
-			if err != nil {
-				r.log.LogAuditError(userID.String(), "list_certificates", "failed", "Failed to parse certificate ID", err)
-				return fmt.Errorf("failed to parse certificate ID: %w", err)
-			}
-
-			cert.UserID, err = uuid.Parse(userIDStr)
-			if err != nil {
-				r.log.LogAuditError(userID.String(), "list_certificates", "failed", "Failed to parse user ID", err)
-				return fmt.Errorf("failed to parse user ID: %w", err)
-			}
-
-			cert.VaultID, err = uuid.Parse(vaultIDStr)
-			if err != nil {
-				return fmt.Errorf("failed to parse vault ID: %w", err)
-			}
-
-			if keyIDStr.Valid {
-				cert.KeyID, err = uuid.Parse(keyIDStr.String)
-				if err != nil {
-					r.log.LogAuditError(userID.String(), "list_certificates", "failed", "Failed to parse key ID", err)
-					return fmt.Errorf("failed to parse key ID: %w", err)
-				}
-			}
-
-			// Retrieve tags for each certificate
-			tagRepo := db.NewTagRepository[model.Certificate](r.db, "certificate_tags", "certificate_id")
-			cert.Tags, err = tagRepo.GetTags(ctx, cert.ID)
-			if err != nil {
-				r.log.LogAuditError(userID.String(), "list_certificates", "failed", "Failed to read tags for certificate", err)
-				return fmt.Errorf("failed to read tags for certificate: %w", err)
-			}
-
-			certList = append(certList, cert)
-		}
-
-		if err := rows.Err(); err != nil {
-			return fmt.Errorf("row iteration error: %w", err)
-		}
-
-		return nil
-	})
-	if err != nil {
-		return nil, err
-	}
-
-	logrus.WithFields(logrus.Fields{
-		"user_id": userID.String(),
-		"count":   len(certList),
-	}).Debug("Certificates listed successfully")
-
-	return certList, nil
+	return r.ListScoped(ctx, model.NewOwnerScope(uuid.Nil, userID), CertificateFilter{Tags: tags})
 }
 
 // ListRevoked retrieves all revoked certificates for a user from the CRL.
@@ -871,94 +880,10 @@ func (r *CertificateRepository) ListAll(ctx context.Context) ([]model.Certificat
 // Returns:
 //
 //	A slice of certificates (with encrypted private keys) or an error if retrieval fails.
+//
+// Deprecated: shim over ListScoped; removed in Phase 6.
 func (r *CertificateRepository) ListInVault(ctx context.Context, vaultID uuid.UUID, tags []string) ([]model.Certificate, error) {
-	var certList []model.Certificate
-
-	err := r.executeWithMetrics("list_certificates_by_vault", func() error {
-		query := "SELECT id, user_id, name, certificate, private_key, created_at, expires_at, auto_renew, renewal_days, key_id, enabled, not_before FROM certificates WHERE vault_id = ? AND deleted_at IS NULL"
-		args := []interface{}{vaultID.String()}
-
-		if len(tags) > 0 {
-			placeholders := strings.Repeat(",?", len(tags))[1:]
-			query += fmt.Sprintf(" AND id IN (SELECT certificate_id FROM certificate_tags WHERE tag IN (%s))", placeholders)
-			for _, tag := range tags {
-				args = append(args, tag)
-			}
-		}
-
-		query += " ORDER BY created_at DESC"
-
-		rows, err := r.db.QueryContext(ctx, query, args...)
-		if err != nil {
-			r.log.LogAuditError(vaultID.String(), "list_certificates", "failed", "Failed to query certificates", err)
-			return fmt.Errorf("failed to query certificates: %w", err)
-		}
-		defer rows.Close()
-
-		// Pre-allocate slice for better memory performance.
-		certList = make([]model.Certificate, 0, 50)
-
-		for rows.Next() {
-			var cert model.Certificate
-			var idStr, userIDStr string
-			var keyIDStr sql.NullString
-
-			if err := rows.Scan(&idStr, &userIDStr, &cert.Name, &cert.Certificate, &cert.PrivateKey, &cert.CreatedAt,
-				&cert.ExpiresAt, &cert.AutoRenew, &cert.RenewalDays, &keyIDStr, &cert.Enabled, &cert.NotBefore); err != nil {
-				r.log.LogAuditError(vaultID.String(), "list_certificates", "failed", "Failed to scan certificate", err)
-				return fmt.Errorf("failed to scan certificate: %w", err)
-			}
-
-			cert.ID, err = uuid.Parse(idStr)
-			if err != nil {
-				r.log.LogAuditError(vaultID.String(), "list_certificates", "failed", "Failed to parse certificate ID", err)
-				return fmt.Errorf("failed to parse certificate ID: %w", err)
-			}
-
-			cert.UserID, err = uuid.Parse(userIDStr)
-			if err != nil {
-				r.log.LogAuditError(vaultID.String(), "list_certificates", "failed", "Failed to parse user ID", err)
-				return fmt.Errorf("failed to parse user ID: %w", err)
-			}
-
-			if keyIDStr.Valid {
-				cert.KeyID, err = uuid.Parse(keyIDStr.String)
-				if err != nil {
-					r.log.LogAuditError(vaultID.String(), "list_certificates", "failed", "Failed to parse key ID", err)
-					return fmt.Errorf("failed to parse key ID: %w", err)
-				}
-			}
-
-			// Retrieve tags for each certificate.
-			tagRepo := db.NewTagRepository[model.Certificate](r.db, "certificate_tags", "certificate_id")
-			cert.Tags, err = tagRepo.GetTags(ctx, cert.ID)
-			if err != nil {
-				r.log.LogAuditError(vaultID.String(), "list_certificates", "failed", "Failed to read tags for certificate", err)
-				return fmt.Errorf("failed to read tags for certificate: %w", err)
-			}
-
-			// Populate VaultID from the queried vault for caller consistency.
-			cert.VaultID = vaultID
-
-			certList = append(certList, cert)
-		}
-
-		if err := rows.Err(); err != nil {
-			return fmt.Errorf("row iteration error: %w", err)
-		}
-
-		return nil
-	})
-	if err != nil {
-		return nil, err
-	}
-
-	logrus.WithFields(logrus.Fields{
-		"vault_id": vaultID.String(),
-		"count":    len(certList),
-	}).Debug("Certificates listed successfully")
-
-	return certList, nil
+	return r.ListScoped(ctx, model.NewVaultScope(vaultID, uuid.Nil), CertificateFilter{Tags: tags})
 }
 
 // ReadInVault retrieves a certificate by ID only when it belongs to the given vault.
@@ -972,55 +897,10 @@ func (r *CertificateRepository) ListInVault(ctx context.Context, vaultID uuid.UU
 // Returns:
 //
 //	The certificate entity (with encrypted private key) or an error if not found / access denied.
+//
+// Deprecated: shim over ReadScoped; removed in Phase 6.
 func (r *CertificateRepository) ReadInVault(ctx context.Context, id, vaultID uuid.UUID) (*model.Certificate, error) {
-	var cert model.Certificate
-	var idStr, userIDStr string
-	var keyIDStr sql.NullString
-
-	err := r.db.QueryRowContext(
-		ctx,
-		"SELECT id, user_id, name, certificate, private_key, created_at, expires_at, auto_renew, renewal_days, key_id, enabled, not_before FROM certificates WHERE id = ? AND vault_id = ? AND deleted_at IS NULL",
-		id.String(), vaultID.String(),
-	).Scan(&idStr, &userIDStr, &cert.Name, &cert.Certificate, &cert.PrivateKey, &cert.CreatedAt,
-		&cert.ExpiresAt, &cert.AutoRenew, &cert.RenewalDays, &keyIDStr, &cert.Enabled, &cert.NotBefore)
-
-	if errors.Is(err, sql.ErrNoRows) {
-		return nil, fmt.Errorf("certificate not found or access denied")
-	}
-	if err != nil {
-		r.log.LogAuditError(uuid.Nil.String(), "read_certificate", "failed", "Failed to query certificate", err)
-		return nil, fmt.Errorf("failed to query certificate: %w", err)
-	}
-
-	cert.ID, err = uuid.Parse(idStr)
-	if err != nil {
-		return nil, fmt.Errorf("failed to parse certificate ID: %w", err)
-	}
-
-	cert.UserID, err = uuid.Parse(userIDStr)
-	if err != nil {
-		return nil, fmt.Errorf("failed to parse user ID: %w", err)
-	}
-
-	if keyIDStr.Valid {
-		cert.KeyID, err = uuid.Parse(keyIDStr.String)
-		if err != nil {
-			return nil, fmt.Errorf("failed to parse key ID: %w", err)
-		}
-	}
-
-	// Retrieve tags using TagRepository.
-	tagRepo := db.NewTagRepository[model.Certificate](r.db, "certificate_tags", "certificate_id")
-	cert.Tags, err = tagRepo.GetTags(ctx, cert.ID)
-	if err != nil {
-		r.log.LogAuditError(uuid.Nil.String(), "read_certificate", "failed", "Failed to read tags", err)
-		return nil, fmt.Errorf("failed to read tags: %w", err)
-	}
-
-	// Populate VaultID from the queried vault for caller consistency.
-	cert.VaultID = vaultID
-
-	return &cert, nil
+	return r.ReadScoped(ctx, id, model.NewVaultScope(vaultID, uuid.Nil))
 }
 
 // SoftDeleteVaultContents marks every active certificate in a vault as soft-deleted.
