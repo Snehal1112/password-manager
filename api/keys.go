@@ -489,7 +489,6 @@ func updateKey(c *Context, w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Get user ID from claims.
 	userIDStr, ok := c.Claims["user_id"].(string)
 	if !ok {
 		c.SetInternalError(nil)
@@ -507,13 +506,11 @@ func updateKey(c *Context, w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Validate at least one field provided.
 	if req.Name == nil && req.Revoked == nil && req.Tags == nil && req.Enabled == nil && req.ExpiresAt == nil && req.NotBefore == nil {
 		c.SetInvalidParam("at least one update field (name, revoked, tags, enabled, expires_at, not_before) must be provided")
 		return
 	}
 
-	// Validate name format and tag limits.
 	if err := vvalidation.ValidateKeyUpdate(vvalidation.KeyUpdateRequest{
 		Name: req.Name,
 		Tags: req.Tags,
@@ -527,29 +524,60 @@ func updateKey(c *Context, w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Use service layer for update with access control.
-	updateReq := keyservices.UpdateKeyRequest{
-		KeyID:     keyID,
-		Name:      req.Name,
-		Tags:      req.Tags,
-		UserID:    userID,
-		Revoked:   req.Revoked,
-		Enabled:   req.Enabled,
-		ExpiresAt: req.ExpiresAt,
-		NotBefore: req.NotBefore,
-	}
-
-	if err := keyService.UpdateKey(r.Context(), updateReq); err != nil {
-		if errors.Is(err, keyservices.ErrKeyNotFound) {
-			c.SetNotFound("key")
-		} else {
-			c.SetInternalError(err)
+	vaultScoped := isVaultScopedRoute(r)
+	var vaultID uuid.UUID
+	if vaultScoped {
+		vaultID, err = vaultIDFromRequest(r)
+		if err != nil {
+			c.SetInvalidParam("vault")
+			return
 		}
-		return
+		updateReq := keyservices.UpdateKeyRequest{
+			KeyID:     keyID,
+			VaultID:   vaultID,
+			Name:      req.Name,
+			Tags:      req.Tags,
+			Revoked:   req.Revoked,
+			Enabled:   req.Enabled,
+			ExpiresAt: req.ExpiresAt,
+			NotBefore: req.NotBefore,
+		}
+		if err := keyService.UpdateKeyInVault(r.Context(), updateReq); err != nil {
+			if errors.Is(err, keyservices.ErrKeyNotFound) {
+				c.SetNotFound("key")
+			} else {
+				c.SetInternalError(err)
+			}
+			return
+		}
+	} else {
+		updateReq := keyservices.UpdateKeyRequest{
+			KeyID:     keyID,
+			Name:      req.Name,
+			Tags:      req.Tags,
+			UserID:    userID,
+			Revoked:   req.Revoked,
+			Enabled:   req.Enabled,
+			ExpiresAt: req.ExpiresAt,
+			NotBefore: req.NotBefore,
+		}
+		if err := keyService.UpdateKey(r.Context(), updateReq); err != nil {
+			if errors.Is(err, keyservices.ErrKeyNotFound) {
+				c.SetNotFound("key")
+			} else {
+				c.SetInternalError(err)
+			}
+			return
+		}
 	}
 
-	// Get updated key for response.
-	key, err := keyService.GetKey(r.Context(), keyID, userID)
+	// Get updated key for response, using the same scope as the update.
+	var key *model.Key
+	if vaultScoped {
+		key, err = keyService.GetKeyInVault(r.Context(), keyID, vaultID)
+	} else {
+		key, err = keyService.GetKey(r.Context(), keyID, userID)
+	}
 	if err != nil {
 		c.SetInternalError(err)
 		return

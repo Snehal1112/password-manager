@@ -28,6 +28,11 @@ type recordingKeyService struct {
 	listVaultID    uuid.UUID
 	getCalled      bool
 	getUserScoped  bool
+
+	updateCalled      bool
+	updateVaultScoped bool
+	updateVaultID     uuid.UUID
+	updateUserID      uuid.UUID
 }
 
 func (s *recordingKeyService) CreateRSAKey(context.Context, keyServices.CreateKeyRequest) (*keyServices.CreateKeyResult, error) {
@@ -51,11 +56,17 @@ func (s *recordingKeyService) ListKeys(_ context.Context, userID uuid.UUID) ([]m
 func (s *recordingKeyService) ListKeysWithFilters(context.Context, *uuid.UUID, string, []string, bool) ([]model.Key, error) {
 	panic("unexpected")
 }
-func (s *recordingKeyService) UpdateKey(context.Context, keyServices.UpdateKeyRequest) error {
-	panic("unexpected")
+func (s *recordingKeyService) UpdateKey(_ context.Context, req keyServices.UpdateKeyRequest) error {
+	s.updateCalled = true
+	s.updateVaultScoped = false
+	s.updateUserID = req.UserID
+	return nil
 }
-func (s *recordingKeyService) UpdateKeyInVault(context.Context, keyServices.UpdateKeyRequest) error {
-	panic("unexpected")
+func (s *recordingKeyService) UpdateKeyInVault(_ context.Context, req keyServices.UpdateKeyRequest) error {
+	s.updateCalled = true
+	s.updateVaultScoped = true
+	s.updateVaultID = req.VaultID
+	return nil
 }
 func (s *recordingKeyService) DeleteKey(context.Context, uuid.UUID, uuid.UUID) (*model.Key, error) {
 	panic("unexpected")
@@ -163,6 +174,7 @@ func newVaultScopedKeyCertTestAPI(keySvc keyServices.KeyService, certSvc certSer
 	r.ApiRoot = router.PathPrefix("/api/v1").Subrouter()
 	r.Vaults = r.ApiRoot.PathPrefix("/vaults").Subrouter()
 	r.VaultScoped = r.Vaults.PathPrefix("/{vault_name:[a-z0-9-]+}").Subrouter()
+	r.VaultScoped.Use(vaultResolutionTestMiddleware(repo))
 	r.Keys = r.ApiRoot.PathPrefix("/keys").Subrouter()
 	r.Certificates = r.ApiRoot.PathPrefix("/certificates").Subrouter()
 	api.InitVault()
@@ -211,6 +223,59 @@ func TestVaultScopedKeyRoute_UsesVaultScopedListing(t *testing.T) {
 	}
 	if rec.listUserScoped {
 		t.Fatalf("vault-scoped /keys must use vault-scoped listing (ListKeysInVault)")
+	}
+}
+
+// TestVaultScopedKeyRoute_UsesVaultScopedUpdate verifies that PUT on the
+// explicit /vaults/{name}/keys/{id} route dispatches to UpdateKeyInVault,
+// not the owner-scoped UpdateKey.
+func TestVaultScopedKeyRoute_UsesVaultScopedUpdate(t *testing.T) {
+	rec := &recordingKeyService{}
+	api, repo := newVaultScopedKeyCertTestAPI(rec, nil)
+
+	id := uuid.New()
+	repo.byName["prod"] = &model.Vault{ID: id, Name: "prod", Enabled: true}
+	repo.byID[id.String()] = repo.byName["prod"]
+
+	keyID := uuid.New()
+	body := []byte(`{"name":"new-name"}`)
+	w := doVaultRequest(api, http.MethodPut, "/api/v1/vaults/prod/keys/"+keyID.String(), body)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("vault-scoped PUT /vaults/prod/keys/%s: expected 200, got %d (%s)", keyID, w.Code, w.Body.String())
+	}
+	if !rec.updateCalled {
+		t.Fatalf("vault-scoped route did not dispatch to the key update handler")
+	}
+	if !rec.updateVaultScoped {
+		t.Fatalf("vault-scoped /keys/{id} PUT must use vault-scoped update (UpdateKeyInVault)")
+	}
+	if rec.updateVaultID != id {
+		t.Fatalf("update dispatched with vault ID %s, want %s", rec.updateVaultID, id)
+	}
+}
+
+// TestLegacyFlatKeyRoute_UsesUserScopedUpdate verifies that PUT on the legacy
+// flat /keys/{id} route still dispatches to the owner-scoped UpdateKey.
+func TestLegacyFlatKeyRoute_UsesUserScopedUpdate(t *testing.T) {
+	rec := &recordingKeyService{}
+	api, _ := newVaultScopedKeyCertTestAPI(rec, nil)
+
+	keyID := uuid.New()
+	body := []byte(`{"name":"new-name"}`)
+	w := doVaultRequest(api, http.MethodPut, "/api/v1/keys/"+keyID.String(), body)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("legacy PUT /keys/%s: expected 200, got %d (%s)", keyID, w.Code, w.Body.String())
+	}
+	if !rec.updateCalled {
+		t.Fatalf("legacy route did not dispatch to the key update handler")
+	}
+	if rec.updateVaultScoped {
+		t.Fatalf("legacy /keys/{id} PUT must use owner-scoped update (UpdateKey), not vault-scoped")
+	}
+	if rec.updateUserID != uuid.MustParse(vaultTestUserID) {
+		t.Fatalf("legacy route scoped update to user %s, want caller %s", rec.updateUserID, vaultTestUserID)
 	}
 }
 
