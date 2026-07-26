@@ -153,6 +153,15 @@ type stubCertRepo struct {
 func (s *stubCertRepo) Create(_ context.Context, _ *model.Certificate) error {
 	panic("unexpected call: Create")
 }
+func (s *stubCertRepo) ReadScoped(_ context.Context, _ uuid.UUID, _ model.Scope) (*model.Certificate, error) {
+	panic("unexpected call: ReadScoped")
+}
+func (s *stubCertRepo) UpdateScoped(_ context.Context, _ *model.Certificate, _ model.Scope) error {
+	panic("unexpected call: UpdateScoped")
+}
+func (s *stubCertRepo) ListScoped(_ context.Context, _ model.Scope, _ repositories.CertificateFilter) ([]model.Certificate, error) {
+	panic("unexpected call: ListScoped")
+}
 func (s *stubCertRepo) Read(_ context.Context, _ uuid.UUID) (*model.Certificate, error) {
 	panic("unexpected call: Read")
 }

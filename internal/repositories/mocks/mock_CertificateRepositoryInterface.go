@@ -8,6 +8,8 @@ import (
 
 	mock "github.com/stretchr/testify/mock"
 
+	repositories "rocketvault/internal/repositories"
+
 	time "time"
 
 	uuid "github.com/google/uuid"
@@ -357,6 +359,66 @@ func (_c *MockCertificateRepositoryInterface_ListRevoked_Call) RunAndReturn(run 
 	return _c
 }
 
+// ListScoped provides a mock function with given fields: ctx, scope, filter
+func (_m *MockCertificateRepositoryInterface) ListScoped(ctx context.Context, scope model.Scope, filter repositories.CertificateFilter) ([]model.Certificate, error) {
+	ret := _m.Called(ctx, scope, filter)
+
+	if len(ret) == 0 {
+		panic("no return value specified for ListScoped")
+	}
+
+	var r0 []model.Certificate
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, model.Scope, repositories.CertificateFilter) ([]model.Certificate, error)); ok {
+		return rf(ctx, scope, filter)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, model.Scope, repositories.CertificateFilter) []model.Certificate); ok {
+		r0 = rf(ctx, scope, filter)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).([]model.Certificate)
+		}
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context, model.Scope, repositories.CertificateFilter) error); ok {
+		r1 = rf(ctx, scope, filter)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// MockCertificateRepositoryInterface_ListScoped_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'ListScoped'
+type MockCertificateRepositoryInterface_ListScoped_Call struct {
+	*mock.Call
+}
+
+// ListScoped is a helper method to define mock.On call
+//   - ctx context.Context
+//   - scope model.Scope
+//   - filter repositories.CertificateFilter
+func (_e *MockCertificateRepositoryInterface_Expecter) ListScoped(ctx interface{}, scope interface{}, filter interface{}) *MockCertificateRepositoryInterface_ListScoped_Call {
+	return &MockCertificateRepositoryInterface_ListScoped_Call{Call: _e.mock.On("ListScoped", ctx, scope, filter)}
+}
+
+func (_c *MockCertificateRepositoryInterface_ListScoped_Call) Run(run func(ctx context.Context, scope model.Scope, filter repositories.CertificateFilter)) *MockCertificateRepositoryInterface_ListScoped_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(model.Scope), args[2].(repositories.CertificateFilter))
+	})
+	return _c
+}
+
+func (_c *MockCertificateRepositoryInterface_ListScoped_Call) Return(_a0 []model.Certificate, _a1 error) *MockCertificateRepositoryInterface_ListScoped_Call {
+	_c.Call.Return(_a0, _a1)
+	return _c
+}
+
+func (_c *MockCertificateRepositoryInterface_ListScoped_Call) RunAndReturn(run func(context.Context, model.Scope, repositories.CertificateFilter) ([]model.Certificate, error)) *MockCertificateRepositoryInterface_ListScoped_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // ListSoftDeleted provides a mock function with given fields: ctx, userID
 func (_m *MockCertificateRepositoryInterface) ListSoftDeleted(ctx context.Context, userID uuid.UUID) ([]*model.Certificate, error) {
 	ret := _m.Called(ctx, userID)
@@ -578,6 +640,66 @@ func (_c *MockCertificateRepositoryInterface_ReadInVault_Call) Return(_a0 *model
 }
 
 func (_c *MockCertificateRepositoryInterface_ReadInVault_Call) RunAndReturn(run func(context.Context, uuid.UUID, uuid.UUID) (*model.Certificate, error)) *MockCertificateRepositoryInterface_ReadInVault_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// ReadScoped provides a mock function with given fields: ctx, id, scope
+func (_m *MockCertificateRepositoryInterface) ReadScoped(ctx context.Context, id uuid.UUID, scope model.Scope) (*model.Certificate, error) {
+	ret := _m.Called(ctx, id, scope)
+
+	if len(ret) == 0 {
+		panic("no return value specified for ReadScoped")
+	}
+
+	var r0 *model.Certificate
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, uuid.UUID, model.Scope) (*model.Certificate, error)); ok {
+		return rf(ctx, id, scope)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, uuid.UUID, model.Scope) *model.Certificate); ok {
+		r0 = rf(ctx, id, scope)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).(*model.Certificate)
+		}
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context, uuid.UUID, model.Scope) error); ok {
+		r1 = rf(ctx, id, scope)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// MockCertificateRepositoryInterface_ReadScoped_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'ReadScoped'
+type MockCertificateRepositoryInterface_ReadScoped_Call struct {
+	*mock.Call
+}
+
+// ReadScoped is a helper method to define mock.On call
+//   - ctx context.Context
+//   - id uuid.UUID
+//   - scope model.Scope
+func (_e *MockCertificateRepositoryInterface_Expecter) ReadScoped(ctx interface{}, id interface{}, scope interface{}) *MockCertificateRepositoryInterface_ReadScoped_Call {
+	return &MockCertificateRepositoryInterface_ReadScoped_Call{Call: _e.mock.On("ReadScoped", ctx, id, scope)}
+}
+
+func (_c *MockCertificateRepositoryInterface_ReadScoped_Call) Run(run func(ctx context.Context, id uuid.UUID, scope model.Scope)) *MockCertificateRepositoryInterface_ReadScoped_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(uuid.UUID), args[2].(model.Scope))
+	})
+	return _c
+}
+
+func (_c *MockCertificateRepositoryInterface_ReadScoped_Call) Return(_a0 *model.Certificate, _a1 error) *MockCertificateRepositoryInterface_ReadScoped_Call {
+	_c.Call.Return(_a0, _a1)
+	return _c
+}
+
+func (_c *MockCertificateRepositoryInterface_ReadScoped_Call) RunAndReturn(run func(context.Context, uuid.UUID, model.Scope) (*model.Certificate, error)) *MockCertificateRepositoryInterface_ReadScoped_Call {
 	_c.Call.Return(run)
 	return _c
 }
@@ -912,6 +1034,54 @@ func (_c *MockCertificateRepositoryInterface_Update_Call) Return(_a0 error) *Moc
 }
 
 func (_c *MockCertificateRepositoryInterface_Update_Call) RunAndReturn(run func(context.Context, *model.Certificate) error) *MockCertificateRepositoryInterface_Update_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// UpdateScoped provides a mock function with given fields: ctx, cert, scope
+func (_m *MockCertificateRepositoryInterface) UpdateScoped(ctx context.Context, cert *model.Certificate, scope model.Scope) error {
+	ret := _m.Called(ctx, cert, scope)
+
+	if len(ret) == 0 {
+		panic("no return value specified for UpdateScoped")
+	}
+
+	var r0 error
+	if rf, ok := ret.Get(0).(func(context.Context, *model.Certificate, model.Scope) error); ok {
+		r0 = rf(ctx, cert, scope)
+	} else {
+		r0 = ret.Error(0)
+	}
+
+	return r0
+}
+
+// MockCertificateRepositoryInterface_UpdateScoped_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'UpdateScoped'
+type MockCertificateRepositoryInterface_UpdateScoped_Call struct {
+	*mock.Call
+}
+
+// UpdateScoped is a helper method to define mock.On call
+//   - ctx context.Context
+//   - cert *model.Certificate
+//   - scope model.Scope
+func (_e *MockCertificateRepositoryInterface_Expecter) UpdateScoped(ctx interface{}, cert interface{}, scope interface{}) *MockCertificateRepositoryInterface_UpdateScoped_Call {
+	return &MockCertificateRepositoryInterface_UpdateScoped_Call{Call: _e.mock.On("UpdateScoped", ctx, cert, scope)}
+}
+
+func (_c *MockCertificateRepositoryInterface_UpdateScoped_Call) Run(run func(ctx context.Context, cert *model.Certificate, scope model.Scope)) *MockCertificateRepositoryInterface_UpdateScoped_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(*model.Certificate), args[2].(model.Scope))
+	})
+	return _c
+}
+
+func (_c *MockCertificateRepositoryInterface_UpdateScoped_Call) Return(_a0 error) *MockCertificateRepositoryInterface_UpdateScoped_Call {
+	_c.Call.Return(_a0)
+	return _c
+}
+
+func (_c *MockCertificateRepositoryInterface_UpdateScoped_Call) RunAndReturn(run func(context.Context, *model.Certificate, model.Scope) error) *MockCertificateRepositoryInterface_UpdateScoped_Call {
 	_c.Call.Return(run)
 	return _c
 }

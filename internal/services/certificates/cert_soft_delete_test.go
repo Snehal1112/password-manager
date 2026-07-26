@@ -29,6 +29,27 @@ func (m *mockCertRepository) Create(ctx context.Context, cert *model.Certificate
 	return m.Called(ctx, cert).Error(0)
 }
 
+func (m *mockCertRepository) ReadScoped(ctx context.Context, id uuid.UUID, scope model.Scope) (*model.Certificate, error) {
+	args := m.Called(ctx, id, scope)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).(*model.Certificate), args.Error(1)
+}
+
+func (m *mockCertRepository) UpdateScoped(ctx context.Context, cert *model.Certificate, scope model.Scope) error {
+	args := m.Called(ctx, cert, scope)
+	return args.Error(0)
+}
+
+func (m *mockCertRepository) ListScoped(ctx context.Context, scope model.Scope, filter repositories.CertificateFilter) ([]model.Certificate, error) {
+	args := m.Called(ctx, scope, filter)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).([]model.Certificate), args.Error(1)
+}
+
 func (m *mockCertRepository) Read(ctx context.Context, id uuid.UUID) (*model.Certificate, error) {
 	args := m.Called(ctx, id)
 	if v := args.Get(0); v != nil {

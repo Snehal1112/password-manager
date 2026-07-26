@@ -658,6 +658,15 @@ func (m *mockCertRepo) Create(ctx context.Context, cert *model.Certificate) erro
 	}
 	return nil
 }
+func (m *mockCertRepo) ReadScoped(_ context.Context, _ uuid.UUID, _ model.Scope) (*model.Certificate, error) {
+	return nil, nil
+}
+func (m *mockCertRepo) UpdateScoped(_ context.Context, _ *model.Certificate, _ model.Scope) error {
+	return nil
+}
+func (m *mockCertRepo) ListScoped(_ context.Context, _ model.Scope, _ repositories.CertificateFilter) ([]model.Certificate, error) {
+	return nil, nil
+}
 func (m *mockCertRepo) Read(ctx context.Context, id uuid.UUID) (*model.Certificate, error) {
 	if m.readFn != nil {
 		return m.readFn(ctx, id)

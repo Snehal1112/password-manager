@@ -23,6 +23,14 @@ import (
 // It provides type-safe CRUD operations for the Certificate type.
 type CertificateRepositoryInterface interface {
 	Create(ctx context.Context, cert *model.Certificate) error
+	// ReadScoped fetches a certificate authorized by scope. Canonical; Read and
+	// ReadInVault are shims over it.
+	ReadScoped(ctx context.Context, id uuid.UUID, scope model.Scope) (*model.Certificate, error)
+	// UpdateScoped updates a certificate authorized by scope. The predicate
+	// comes from the scope argument, never from the entity.
+	UpdateScoped(ctx context.Context, cert *model.Certificate, scope model.Scope) error
+	// ListScoped lists certificates authorized by scope and narrowed by filter.
+	ListScoped(ctx context.Context, scope model.Scope, filter CertificateFilter) ([]model.Certificate, error)
 	Read(ctx context.Context, id uuid.UUID) (*model.Certificate, error)
 	Update(ctx context.Context, cert *model.Certificate) error
 	Delete(ctx context.Context, id uuid.UUID) error

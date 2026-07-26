@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"rocketvault/internal/backup"
+	"rocketvault/internal/repositories"
 	"rocketvault/model"
 )
 
@@ -44,6 +45,26 @@ func (r *stubCertRepo) Read(_ context.Context, id uuid.UUID) (*model.Certificate
 	}
 	cp := *c
 	return &cp, nil
+}
+
+func (r *stubCertRepo) ReadScoped(_ context.Context, id uuid.UUID, _ model.Scope) (*model.Certificate, error) {
+	if r.err != nil {
+		return nil, r.err
+	}
+	c, ok := r.certs[id]
+	if !ok {
+		return nil, fmt.Errorf("cert not found")
+	}
+	cp := *c
+	return &cp, nil
+}
+
+func (r *stubCertRepo) UpdateScoped(_ context.Context, _ *model.Certificate, _ model.Scope) error {
+	return r.err
+}
+
+func (r *stubCertRepo) ListScoped(_ context.Context, _ model.Scope, _ repositories.CertificateFilter) ([]model.Certificate, error) {
+	return nil, r.err
 }
 
 func (r *stubCertRepo) Update(_ context.Context, _ *model.Certificate) error      { return r.err }
