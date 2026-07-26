@@ -1411,7 +1411,7 @@ func TestCertificateRepository_ListInVault_ExcludesSoftDeleted(t *testing.T) {
 	require.NoError(t, repo.Create(ctx, c2))
 	require.NoError(t, repo.SoftDelete(ctx, c2.ID))
 
-	active, err := repo.ListInVault(ctx, vaultID, "", nil)
+	active, err := repo.ListInVault(ctx, vaultID, nil)
 	require.NoError(t, err)
 	assert.Len(t, active, 1)
 	assert.Equal(t, c1.ID, active[0].ID)
@@ -1522,7 +1522,7 @@ func TestCertificateRepository_ListInVault_WithType(t *testing.T) {
 	require.NoError(t, repo.Create(ctx, c1))
 	require.NoError(t, repo.Create(ctx, c2))
 
-	all, err := repo.ListInVault(ctx, vaultID, "", nil)
+	all, err := repo.ListInVault(ctx, vaultID, nil)
 	require.NoError(t, err)
 	assert.Len(t, all, 2)
 }
@@ -1560,7 +1560,7 @@ func TestCertificateRepository_ListInVault_WithTags(t *testing.T) {
 	require.NoError(t, repo.Create(ctx, c1))
 	require.NoError(t, repo.Create(ctx, c2))
 
-	tagged, err := repo.ListInVault(ctx, vaultID, "", []string{"env:staging"})
+	tagged, err := repo.ListInVault(ctx, vaultID, []string{"env:staging"})
 	require.NoError(t, err)
 	assert.Len(t, tagged, 1)
 	assert.Equal(t, c1.ID, tagged[0].ID)
@@ -1580,7 +1580,7 @@ func TestCertificateRepository_ListByUser_ExcludesSoftDeleted(t *testing.T) {
 	require.NoError(t, repo.Create(ctx, c2))
 	require.NoError(t, repo.SoftDelete(ctx, c2.ID))
 
-	list, err := repo.ListByUser(ctx, userID, "", nil)
+	list, err := repo.ListByUser(ctx, userID, nil)
 	require.NoError(t, err)
 	assert.Len(t, list, 1)
 	assert.Equal(t, c1.ID, list[0].ID)

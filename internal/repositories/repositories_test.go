@@ -575,11 +575,11 @@ func TestCertificateRepository_ListByUser(t *testing.T) {
 	require.NoError(t, repo.Create(ctx, c2))
 	require.NoError(t, repo.Create(ctx, c3))
 
-	listA, err := repo.ListByUser(ctx, userA, "", nil)
+	listA, err := repo.ListByUser(ctx, userA, nil)
 	require.NoError(t, err)
 	assert.Len(t, listA, 2)
 
-	listB, err := repo.ListByUser(ctx, userB, "", nil)
+	listB, err := repo.ListByUser(ctx, userB, nil)
 	require.NoError(t, err)
 	assert.Len(t, listB, 1)
 }
@@ -601,7 +601,7 @@ func TestCertificateRepository_ListByUser_FiltersByTag(t *testing.T) {
 	require.NoError(t, repo.Create(ctx, c1))
 	require.NoError(t, repo.Create(ctx, c2))
 
-	tagged, err := repo.ListByUser(ctx, userID, "", []string{"env:staging"})
+	tagged, err := repo.ListByUser(ctx, userID, []string{"env:staging"})
 	require.NoError(t, err)
 	assert.Len(t, tagged, 1)
 	assert.Equal(t, c1.ID, tagged[0].ID)
@@ -697,7 +697,7 @@ func TestCertificateRepository_SoftDeleteVaultContents(t *testing.T) {
 	deletedAt := time.Now()
 	require.NoError(t, repo.SoftDeleteVaultContents(ctx, vaultID, deletedAt))
 
-	inVault, err := repo.ListInVault(ctx, vaultID, "", nil)
+	inVault, err := repo.ListInVault(ctx, vaultID, nil)
 	require.NoError(t, err)
 	assert.Empty(t, inVault)
 
@@ -724,13 +724,13 @@ func TestCertificateRepository_RecoverVaultContents(t *testing.T) {
 	deletedAt := time.Now().Truncate(time.Second)
 	require.NoError(t, repo.SoftDeleteVaultContents(ctx, vaultID, deletedAt))
 
-	inVault, err := repo.ListInVault(ctx, vaultID, "", nil)
+	inVault, err := repo.ListInVault(ctx, vaultID, nil)
 	require.NoError(t, err)
 	assert.Empty(t, inVault)
 
 	require.NoError(t, repo.RecoverVaultContents(ctx, vaultID, deletedAt))
 
-	inVault, err = repo.ListInVault(ctx, vaultID, "", nil)
+	inVault, err = repo.ListInVault(ctx, vaultID, nil)
 	require.NoError(t, err)
 	assert.Len(t, inVault, 2)
 }
@@ -775,7 +775,7 @@ func TestCertificateRepository_ListInVault_ReturnsAll(t *testing.T) {
 	require.NoError(t, repo.Create(ctx, c2))
 
 	// No type filter returns all
-	all, err := repo.ListInVault(ctx, vaultID, "", nil)
+	all, err := repo.ListInVault(ctx, vaultID, nil)
 	require.NoError(t, err)
 	assert.Len(t, all, 2)
 }

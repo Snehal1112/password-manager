@@ -27,7 +27,7 @@ type CertificateRepositoryInterface interface {
 	Update(ctx context.Context, cert *model.Certificate) error
 	Delete(ctx context.Context, id uuid.UUID) error
 	Revoke(ctx context.Context, id uuid.UUID, serialNumber, name string) error
-	ListByUser(ctx context.Context, userID uuid.UUID, certType string, tags []string) ([]model.Certificate, error)
+	ListByUser(ctx context.Context, userID uuid.UUID, tags []string) ([]model.Certificate, error)
 	ListRevoked(ctx context.Context, userID uuid.UUID) ([]model.RevokedCertificate, error)
 	SoftDelete(ctx context.Context, id uuid.UUID) error
 	RecoverCertificate(ctx context.Context, id uuid.UUID) error
@@ -35,8 +35,8 @@ type CertificateRepositoryInterface interface {
 	SetPurgeProtection(ctx context.Context, id uuid.UUID, enabled bool) error
 	ListSoftDeleted(ctx context.Context, userID uuid.UUID) ([]*model.Certificate, error)
 	ListAll(ctx context.Context) ([]model.Certificate, error)
-	// ListInVault lists certificates scoped to a vault, optionally filtered by type and tags.
-	ListInVault(ctx context.Context, vaultID uuid.UUID, certType string, tags []string) ([]model.Certificate, error)
+	// ListInVault lists certificates scoped to a vault, optionally filtered by tags.
+	ListInVault(ctx context.Context, vaultID uuid.UUID, tags []string) ([]model.Certificate, error)
 	// ReadInVault fetches a certificate only when id and vaultID both match.
 	ReadInVault(ctx context.Context, id, vaultID uuid.UUID) (*model.Certificate, error)
 	// SoftDeleteVaultContents soft-deletes every active certificate in a vault.
@@ -390,29 +390,23 @@ func (r *CertificateRepository) Revoke(ctx context.Context, id uuid.UUID, serial
 	})
 }
 
-// ListByUser retrieves certificates for a user, optionally filtered by type and tags.
+// ListByUser retrieves certificates for a user, optionally filtered by tags.
 // It returns certificates with encrypted private keys - NO decryption happens here.
 //
 // Parameters:
 //   - ctx: The context for the database operation.
 //   - userID: The ID of the user whose certificates to list.
-//   - certType: The certificate type to filter by (empty for all types).
 //   - tags: The tags to filter by (empty for no tag filter).
 //
 // Returns:
 //
 //	A slice of certificates (with encrypted private keys) or an error if retrieval fails.
-func (r *CertificateRepository) ListByUser(ctx context.Context, userID uuid.UUID, certType string, tags []string) ([]model.Certificate, error) {
+func (r *CertificateRepository) ListByUser(ctx context.Context, userID uuid.UUID, tags []string) ([]model.Certificate, error) {
 	var certList []model.Certificate
 
 	err := r.executeWithMetrics("list_certificates_by_user", func() error {
-		query := "SELECT id, user_id, name, certificate, private_key, created_at, expires_at, auto_renew, renewal_days, key_id, enabled, not_before FROM certificates WHERE user_id = ? AND deleted_at IS NULL"
+		query := "SELECT id, user_id, vault_id, name, certificate, private_key, created_at, expires_at, auto_renew, renewal_days, key_id, enabled, not_before FROM certificates WHERE user_id = ? AND deleted_at IS NULL"
 		args := []interface{}{userID.String()}
-
-		if certType != "" {
-			query += " AND type = ?"
-			args = append(args, certType)
-		}
 
 		if len(tags) > 0 {
 			placeholders := strings.Repeat(",?", len(tags))[1:]
@@ -436,10 +430,10 @@ func (r *CertificateRepository) ListByUser(ctx context.Context, userID uuid.UUID
 
 		for rows.Next() {
 			var cert model.Certificate
-			var idStr, userIDStr string
+			var idStr, userIDStr, vaultIDStr string
 			var keyIDStr sql.NullString
 
-			if err := rows.Scan(&idStr, &userIDStr, &cert.Name, &cert.Certificate, &cert.PrivateKey, &cert.CreatedAt,
+			if err := rows.Scan(&idStr, &userIDStr, &vaultIDStr, &cert.Name, &cert.Certificate, &cert.PrivateKey, &cert.CreatedAt,
 				&cert.ExpiresAt, &cert.AutoRenew, &cert.RenewalDays, &keyIDStr, &cert.Enabled, &cert.NotBefore); err != nil {
 				r.log.LogAuditError(userID.String(), "list_certificates", "failed", "Failed to scan certificate", err)
 				return fmt.Errorf("failed to scan certificate: %w", err)
@@ -455,6 +449,11 @@ func (r *CertificateRepository) ListByUser(ctx context.Context, userID uuid.UUID
 			if err != nil {
 				r.log.LogAuditError(userID.String(), "list_certificates", "failed", "Failed to parse user ID", err)
 				return fmt.Errorf("failed to parse user ID: %w", err)
+			}
+
+			cert.VaultID, err = uuid.Parse(vaultIDStr)
+			if err != nil {
+				return fmt.Errorf("failed to parse vault ID: %w", err)
 			}
 
 			if keyIDStr.Valid {
@@ -861,29 +860,23 @@ func (r *CertificateRepository) ListAll(ctx context.Context) ([]model.Certificat
 	return certs, err
 }
 
-// ListInVault retrieves certificates for a vault, optionally filtered by type and tags.
+// ListInVault retrieves certificates for a vault, optionally filtered by tags.
 // It mirrors ListByUser but scopes by vault_id instead of user_id.
 //
 // Parameters:
 //   - ctx: The context for the database operation.
 //   - vaultID: The vault whose certificates to list.
-//   - certType: The certificate type to filter by (empty for all types).
 //   - tags: The tags to filter by (empty for no tag filter).
 //
 // Returns:
 //
 //	A slice of certificates (with encrypted private keys) or an error if retrieval fails.
-func (r *CertificateRepository) ListInVault(ctx context.Context, vaultID uuid.UUID, certType string, tags []string) ([]model.Certificate, error) {
+func (r *CertificateRepository) ListInVault(ctx context.Context, vaultID uuid.UUID, tags []string) ([]model.Certificate, error) {
 	var certList []model.Certificate
 
 	err := r.executeWithMetrics("list_certificates_by_vault", func() error {
 		query := "SELECT id, user_id, name, certificate, private_key, created_at, expires_at, auto_renew, renewal_days, key_id, enabled, not_before FROM certificates WHERE vault_id = ? AND deleted_at IS NULL"
 		args := []interface{}{vaultID.String()}
-
-		if certType != "" {
-			query += " AND type = ?"
-			args = append(args, certType)
-		}
 
 		if len(tags) > 0 {
 			placeholders := strings.Repeat(",?", len(tags))[1:]

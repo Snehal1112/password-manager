@@ -168,7 +168,7 @@ func (s *stubCertRepo) PurgeCertificate(_ context.Context, _ uuid.UUID) error {
 func (s *stubCertRepo) SetPurgeProtection(_ context.Context, _ uuid.UUID, _ bool) error {
 	panic("unexpected call: SetPurgeProtection")
 }
-func (s *stubCertRepo) ListByUser(_ context.Context, _ uuid.UUID, _ string, _ []string) ([]model.Certificate, error) {
+func (s *stubCertRepo) ListByUser(_ context.Context, _ uuid.UUID, _ []string) ([]model.Certificate, error) {
 	panic("unexpected call: ListByUser")
 }
 func (s *stubCertRepo) ListRevoked(_ context.Context, _ uuid.UUID) ([]model.RevokedCertificate, error) {
@@ -180,7 +180,7 @@ func (s *stubCertRepo) ListSoftDeleted(_ context.Context, _ uuid.UUID) ([]*model
 func (s *stubCertRepo) ListAll(_ context.Context) ([]model.Certificate, error) {
 	panic("unexpected call: ListAll")
 }
-func (s *stubCertRepo) ListInVault(_ context.Context, _ uuid.UUID, _ string, _ []string) ([]model.Certificate, error) {
+func (s *stubCertRepo) ListInVault(_ context.Context, _ uuid.UUID, _ []string) ([]model.Certificate, error) {
 	panic("unexpected call: ListInVault")
 }
 func (s *stubCertRepo) ReadInVault(_ context.Context, _, _ uuid.UUID) (*model.Certificate, error) {

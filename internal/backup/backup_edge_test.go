@@ -55,7 +55,7 @@ func (r *stubCertRepo) PurgeCertificate(_ context.Context, _ uuid.UUID) error   
 func (r *stubCertRepo) SetPurgeProtection(_ context.Context, _ uuid.UUID, _ bool) error {
 	return r.err
 }
-func (r *stubCertRepo) ListByUser(_ context.Context, _ uuid.UUID, _ string, _ []string) ([]model.Certificate, error) {
+func (r *stubCertRepo) ListByUser(_ context.Context, _ uuid.UUID, _ []string) ([]model.Certificate, error) {
 	return nil, r.err
 }
 func (r *stubCertRepo) ListRevoked(_ context.Context, _ uuid.UUID) ([]model.RevokedCertificate, error) {
@@ -65,7 +65,7 @@ func (r *stubCertRepo) ListSoftDeleted(_ context.Context, _ uuid.UUID) ([]*model
 	return nil, r.err
 }
 func (r *stubCertRepo) ListAll(_ context.Context) ([]model.Certificate, error) { return nil, r.err }
-func (r *stubCertRepo) ListInVault(_ context.Context, _ uuid.UUID, _ string, _ []string) ([]model.Certificate, error) {
+func (r *stubCertRepo) ListInVault(_ context.Context, _ uuid.UUID, _ []string) ([]model.Certificate, error) {
 	return nil, r.err
 }
 func (r *stubCertRepo) ReadInVault(_ context.Context, _, _ uuid.UUID) (*model.Certificate, error) {

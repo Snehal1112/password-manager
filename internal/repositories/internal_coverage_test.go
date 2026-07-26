@@ -954,7 +954,7 @@ func TestCertRepo_ListByUser_DBError(t *testing.T) {
 	require.NoError(t, err)
 
 	repo := &CertificateRepository{db: rvdb.NewConn(db, rvdb.SQLite), log: newInternalLogger()}
-	_, err = repo.ListByUser(context.Background(), uuid.New(), "", nil)
+	_, err = repo.ListByUser(context.Background(), uuid.New(), nil)
 	assert.Error(t, err)
 }
 
@@ -966,7 +966,7 @@ func TestCertRepo_ListInVault_DBError(t *testing.T) {
 	require.NoError(t, err)
 
 	repo := &CertificateRepository{db: rvdb.NewConn(db, rvdb.SQLite), log: newInternalLogger()}
-	_, err = repo.ListInVault(context.Background(), uuid.New(), "", nil)
+	_, err = repo.ListInVault(context.Background(), uuid.New(), nil)
 	assert.Error(t, err)
 }
 

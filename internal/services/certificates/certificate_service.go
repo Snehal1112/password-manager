@@ -441,7 +441,7 @@ func (s *certificateService) GetCertificate(ctx context.Context, certID, userID 
 //
 //	A slice of user's certificates or an error if retrieval fails.
 func (s *certificateService) ListCertificates(ctx context.Context, userID uuid.UUID) ([]model.Certificate, error) {
-	return s.certRepo.ListByUser(ctx, userID, "", nil)
+	return s.certRepo.ListByUser(ctx, userID, nil)
 }
 
 // UpdateCertificate updates an existing certificate with access control validation.
@@ -550,7 +550,7 @@ func (s *certificateService) GetCertificateInVault(ctx context.Context, certID, 
 // ListCertificatesInVault retrieves all certificates in a vault. It mirrors
 // ListCertificates but scopes by vault instead of user.
 func (s *certificateService) ListCertificatesInVault(ctx context.Context, vaultID uuid.UUID) ([]model.Certificate, error) {
-	return s.certRepo.ListInVault(ctx, vaultID, "", nil)
+	return s.certRepo.ListInVault(ctx, vaultID, nil)
 }
 
 // DeleteCertificateInVault soft-deletes a certificate scoped to a vault. It

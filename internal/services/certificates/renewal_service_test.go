@@ -43,8 +43,8 @@ func (m *mockCertRepoForRenewal) Revoke(ctx context.Context, id uuid.UUID, seria
 	return m.Called(ctx, id, serialNumber, name).Error(0)
 }
 
-func (m *mockCertRepoForRenewal) ListByUser(ctx context.Context, userID uuid.UUID, certType string, tags []string) ([]model.Certificate, error) {
-	args := m.Called(ctx, userID, certType, tags)
+func (m *mockCertRepoForRenewal) ListByUser(ctx context.Context, userID uuid.UUID, tags []string) ([]model.Certificate, error) {
+	args := m.Called(ctx, userID, tags)
 	if v := args.Get(0); v != nil {
 		return v.([]model.Certificate), args.Error(1)
 	}
@@ -91,8 +91,8 @@ func (m *mockCertRepoForRenewal) ListAll(ctx context.Context) ([]model.Certifica
 	return nil, args.Error(1)
 }
 
-func (m *mockCertRepoForRenewal) ListInVault(ctx context.Context, vaultID uuid.UUID, certType string, tags []string) ([]model.Certificate, error) {
-	args := m.Called(ctx, vaultID, certType, tags)
+func (m *mockCertRepoForRenewal) ListInVault(ctx context.Context, vaultID uuid.UUID, tags []string) ([]model.Certificate, error) {
+	args := m.Called(ctx, vaultID, tags)
 	if v := args.Get(0); v != nil {
 		return v.([]model.Certificate), args.Error(1)
 	}

@@ -650,7 +650,7 @@ func (m *mockCertRepo) Update(_ context.Context, _ *model.Certificate) error {
 }
 func (m *mockCertRepo) Delete(_ context.Context, _ uuid.UUID) error              { return nil }
 func (m *mockCertRepo) Revoke(_ context.Context, _ uuid.UUID, _, _ string) error { return nil }
-func (m *mockCertRepo) ListByUser(_ context.Context, _ uuid.UUID, _ string, _ []string) ([]model.Certificate, error) {
+func (m *mockCertRepo) ListByUser(_ context.Context, _ uuid.UUID, _ []string) ([]model.Certificate, error) {
 	return nil, nil
 }
 func (m *mockCertRepo) SoftDelete(_ context.Context, _ uuid.UUID) error         { return nil }
@@ -664,7 +664,7 @@ func (m *mockCertRepo) ListRevoked(_ context.Context, _ uuid.UUID) ([]model.Revo
 }
 func (m *mockCertRepo) SetPurgeProtection(_ context.Context, _ uuid.UUID, _ bool) error { return nil }
 func (m *mockCertRepo) ListAll(_ context.Context) ([]model.Certificate, error)          { return nil, nil }
-func (m *mockCertRepo) ListInVault(_ context.Context, _ uuid.UUID, _ string, _ []string) ([]model.Certificate, error) {
+func (m *mockCertRepo) ListInVault(_ context.Context, _ uuid.UUID, _ []string) ([]model.Certificate, error) {
 	return nil, nil
 }
 func (m *mockCertRepo) ReadInVault(_ context.Context, _, _ uuid.UUID) (*model.Certificate, error) {

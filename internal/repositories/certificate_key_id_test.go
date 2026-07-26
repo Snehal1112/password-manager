@@ -135,10 +135,10 @@ func TestCertificateRepository_ListInVault_ScopesByVault(t *testing.T) {
 	require.NoError(t, repo.Create(ctx, mk("b", vaultA)))
 	require.NoError(t, repo.Create(ctx, mk("c", vaultB)))
 
-	gotA, err := repo.ListInVault(ctx, vaultA, "", nil)
+	gotA, err := repo.ListInVault(ctx, vaultA, nil)
 	require.NoError(t, err)
 	require.Len(t, gotA, 2)
-	gotB, err := repo.ListInVault(ctx, vaultB, "", nil)
+	gotB, err := repo.ListInVault(ctx, vaultB, nil)
 	require.NoError(t, err)
 	require.Len(t, gotB, 1)
 }
@@ -169,7 +169,7 @@ func TestCertificateRepository_ReadInVault_PopulatesVaultID(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, vaultA, read.VaultID, "ReadInVault must populate VaultID on returned certificate")
 
-	listed, err := repo.ListInVault(ctx, vaultA, "", nil)
+	listed, err := repo.ListInVault(ctx, vaultA, nil)
 	require.NoError(t, err)
 	require.Len(t, listed, 1)
 	assert.Equal(t, vaultA, listed[0].VaultID, "ListInVault must populate VaultID on returned certificates")

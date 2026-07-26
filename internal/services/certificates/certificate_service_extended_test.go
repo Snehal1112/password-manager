@@ -74,7 +74,7 @@ func TestListCertificates_Success(t *testing.T) {
 	keyRepo := &mockKeyRepo{}
 
 	expected := []model.Certificate{{ID: uuid.New(), UserID: userID, Name: "c1", Enabled: true}}
-	certRepo.On("ListByUser", mock.Anything, userID, "", ([]string)(nil)).Return(expected, nil)
+	certRepo.On("ListByUser", mock.Anything, userID, ([]string)(nil)).Return(expected, nil)
 
 	svc := newCertSvc(certRepo, keyRepo)
 	got, err := svc.ListCertificates(context.Background(), userID)
@@ -88,7 +88,7 @@ func TestListCertificates_RepositoryError(t *testing.T) {
 	certRepo := &mockCertRepository{}
 	keyRepo := &mockKeyRepo{}
 
-	certRepo.On("ListByUser", mock.Anything, userID, "", ([]string)(nil)).
+	certRepo.On("ListByUser", mock.Anything, userID, ([]string)(nil)).
 		Return(nil, errors.New("db error"))
 
 	svc := newCertSvc(certRepo, keyRepo)
@@ -324,7 +324,7 @@ func TestListCertificatesInVault_Success(t *testing.T) {
 	keyRepo := &mockKeyRepo{}
 
 	certs := []model.Certificate{{ID: uuid.New(), Name: "c1", Enabled: true}}
-	certRepo.On("ListInVault", mock.Anything, vaultID, "", ([]string)(nil)).Return(certs, nil)
+	certRepo.On("ListInVault", mock.Anything, vaultID, ([]string)(nil)).Return(certs, nil)
 
 	svc := newCertSvc(certRepo, keyRepo)
 	got, err := svc.ListCertificatesInVault(context.Background(), vaultID)
@@ -338,7 +338,7 @@ func TestListCertificatesInVault_RepositoryError(t *testing.T) {
 	certRepo := &mockCertRepository{}
 	keyRepo := &mockKeyRepo{}
 
-	certRepo.On("ListInVault", mock.Anything, vaultID, "", ([]string)(nil)).
+	certRepo.On("ListInVault", mock.Anything, vaultID, ([]string)(nil)).
 		Return(nil, errors.New("db error"))
 
 	svc := newCertSvc(certRepo, keyRepo)
