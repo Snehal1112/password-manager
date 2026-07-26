@@ -23,6 +23,9 @@ type VersioningServiceInterface interface {
 	GetVersions(ctx context.Context, secretID uuid.UUID, userID uuid.UUID) ([]model.SecretVersion, error)
 	GetVersion(ctx context.Context, secretID uuid.UUID, version int, userID uuid.UUID) (*model.SecretVersion, error)
 	GetLatestVersion(ctx context.Context, secretID uuid.UUID, userID uuid.UUID) (*model.SecretVersion, error)
+	GetVersionsInVault(ctx context.Context, secretID, vaultID uuid.UUID) ([]model.SecretVersion, error)
+	GetVersionInVault(ctx context.Context, secretID uuid.UUID, version int, vaultID uuid.UUID) (*model.SecretVersion, error)
+	GetLatestVersionInVault(ctx context.Context, secretID, vaultID uuid.UUID) (*model.SecretVersion, error)
 	DeleteVersions(ctx context.Context, secretID uuid.UUID, userID uuid.UUID) error
 	DeleteSpecificVersion(ctx context.Context, secretID uuid.UUID, version int, userID uuid.UUID) error
 
@@ -219,6 +222,86 @@ func (s *versioningService) GetLatestVersion(ctx context.Context, secretID uuid.
 	}
 
 	// Decrypt value for response
+	decryptedValue, err := s.cryptoSvc.DecryptSecret(encryptedVersion.Value)
+	if err != nil {
+		s.log.WithError(err).WithField("version_id", encryptedVersion.ID).Error("Failed to decrypt secret version")
+		return nil, fmt.Errorf("failed to decrypt secret version: %w", err)
+	}
+
+	encryptedVersion.Value = decryptedValue
+	return encryptedVersion, nil
+}
+
+// GetVersionsInVault retrieves all versions of a secret scoped to a vault
+// instead of ownership. It mirrors GetVersions but verifies vault membership
+// via ReadInVault.
+func (s *versioningService) GetVersionsInVault(ctx context.Context, secretID, vaultID uuid.UUID) ([]model.SecretVersion, error) {
+	if _, err := s.secretRepo.ReadInVault(ctx, secretID, vaultID); err != nil {
+		return nil, fmt.Errorf("secret not found or not in vault: %w", err)
+	}
+
+	encryptedVersions, err := s.versionRepo.GetVersions(ctx, secretID)
+	if err != nil {
+		s.log.WithError(err).WithField("secret_id", secretID).Error("Failed to get secret versions")
+		return nil, fmt.Errorf("failed to get secret versions: %w", err)
+	}
+
+	var versions []model.SecretVersion
+	for _, encVersion := range encryptedVersions {
+		decryptedValue, err := s.cryptoSvc.DecryptSecret(encVersion.Value)
+		if err != nil {
+			s.log.WithError(err).WithField("version_id", encVersion.ID).Error("Failed to decrypt secret version")
+			return nil, fmt.Errorf("failed to decrypt secret version: %w", err)
+		}
+		decVersion := encVersion
+		decVersion.Value = decryptedValue
+		versions = append(versions, decVersion)
+	}
+
+	return versions, nil
+}
+
+// GetVersionInVault retrieves a specific version of a secret scoped to a
+// vault instead of ownership. It mirrors GetVersion but verifies vault
+// membership via ReadInVault.
+func (s *versioningService) GetVersionInVault(ctx context.Context, secretID uuid.UUID, version int, vaultID uuid.UUID) (*model.SecretVersion, error) {
+	if _, err := s.secretRepo.ReadInVault(ctx, secretID, vaultID); err != nil {
+		return nil, fmt.Errorf("secret not found or not in vault: %w", err)
+	}
+
+	encryptedVersion, err := s.versionRepo.GetVersion(ctx, secretID, version)
+	if err != nil {
+		s.log.WithError(err).WithFields(map[string]any{
+			"secret_id": secretID,
+			"version":   version,
+		}).Error("Failed to get secret version")
+		return nil, fmt.Errorf("failed to get secret version: %w", err)
+	}
+
+	decryptedValue, err := s.cryptoSvc.DecryptSecret(encryptedVersion.Value)
+	if err != nil {
+		s.log.WithError(err).WithField("version_id", encryptedVersion.ID).Error("Failed to decrypt secret version")
+		return nil, fmt.Errorf("failed to decrypt secret version: %w", err)
+	}
+
+	encryptedVersion.Value = decryptedValue
+	return encryptedVersion, nil
+}
+
+// GetLatestVersionInVault retrieves the latest version of a secret scoped to
+// a vault instead of ownership. It mirrors GetLatestVersion but verifies
+// vault membership via ReadInVault.
+func (s *versioningService) GetLatestVersionInVault(ctx context.Context, secretID, vaultID uuid.UUID) (*model.SecretVersion, error) {
+	if _, err := s.secretRepo.ReadInVault(ctx, secretID, vaultID); err != nil {
+		return nil, fmt.Errorf("secret not found or not in vault: %w", err)
+	}
+
+	encryptedVersion, err := s.versionRepo.GetLatestVersion(ctx, secretID)
+	if err != nil {
+		s.log.WithError(err).WithField("secret_id", secretID).Error("Failed to get latest secret version")
+		return nil, fmt.Errorf("failed to get latest secret version: %w", err)
+	}
+
 	decryptedValue, err := s.cryptoSvc.DecryptSecret(encryptedVersion.Value)
 	if err != nil {
 		s.log.WithError(err).WithField("version_id", encryptedVersion.ID).Error("Failed to decrypt secret version")

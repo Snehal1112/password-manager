@@ -304,6 +304,30 @@ func (m *MockVersioningService) GetLatestVersion(ctx context.Context, secretID, 
 	return args.Get(0).(*model.SecretVersion), args.Error(1)
 }
 
+func (m *MockVersioningService) GetVersionsInVault(ctx context.Context, secretID, vaultID uuid.UUID) ([]model.SecretVersion, error) {
+	args := m.Called(ctx, secretID, vaultID)
+	if v := args.Get(0); v != nil {
+		return v.([]model.SecretVersion), args.Error(1)
+	}
+	return nil, args.Error(1)
+}
+
+func (m *MockVersioningService) GetVersionInVault(ctx context.Context, secretID uuid.UUID, version int, vaultID uuid.UUID) (*model.SecretVersion, error) {
+	args := m.Called(ctx, secretID, version, vaultID)
+	if v := args.Get(0); v != nil {
+		return v.(*model.SecretVersion), args.Error(1)
+	}
+	return nil, args.Error(1)
+}
+
+func (m *MockVersioningService) GetLatestVersionInVault(ctx context.Context, secretID, vaultID uuid.UUID) (*model.SecretVersion, error) {
+	args := m.Called(ctx, secretID, vaultID)
+	if v := args.Get(0); v != nil {
+		return v.(*model.SecretVersion), args.Error(1)
+	}
+	return nil, args.Error(1)
+}
+
 func (m *MockVersioningService) DeleteVersions(ctx context.Context, secretID, userID uuid.UUID) error {
 	args := m.Called(ctx, secretID, userID)
 	return args.Error(0)
@@ -320,6 +344,108 @@ func (m *MockVersioningService) RollbackToVersion(ctx context.Context, req secre
 		return nil, args.Error(1)
 	}
 	return args.Get(0).(*model.Secret), args.Error(1)
+}
+
+// --- MockUserRepository ---
+
+// MockUserRepository mocks repositories.UserRepositoryInterface.
+type MockUserRepository struct {
+	mock.Mock
+}
+
+func (m *MockUserRepository) Create(ctx context.Context, user *model.User) error {
+	args := m.Called(ctx, user)
+	return args.Error(0)
+}
+
+func (m *MockUserRepository) Read(ctx context.Context, id uuid.UUID) (*model.User, error) {
+	args := m.Called(ctx, id)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).(*model.User), args.Error(1)
+}
+
+func (m *MockUserRepository) Update(ctx context.Context, user *model.User) error {
+	args := m.Called(ctx, user)
+	return args.Error(0)
+}
+
+func (m *MockUserRepository) Delete(ctx context.Context, id uuid.UUID) error {
+	args := m.Called(ctx, id)
+	return args.Error(0)
+}
+
+func (m *MockUserRepository) ReadByUsername(ctx context.Context, username string) (model.User, error) {
+	args := m.Called(ctx, username)
+	if args.Get(0) == nil {
+		return model.User{}, args.Error(1)
+	}
+	return args.Get(0).(model.User), args.Error(1)
+}
+
+func (m *MockUserRepository) List(ctx context.Context) ([]model.User, error) {
+	args := m.Called(ctx)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).([]model.User), args.Error(1)
+}
+
+func (m *MockUserRepository) ValidateBootstrapToken(ctx context.Context, token string) (bool, error) {
+	args := m.Called(ctx, token)
+	return args.Bool(0), args.Error(1)
+}
+
+func (m *MockUserRepository) InvalidateBootstrapToken(ctx context.Context, token string) error {
+	args := m.Called(ctx, token)
+	return args.Error(0)
+}
+
+// --- MockSecretVersionRepository ---
+
+// MockSecretVersionRepository mocks repositories.SecretVersionRepositoryInterface.
+type MockSecretVersionRepository struct {
+	mock.Mock
+}
+
+func (m *MockSecretVersionRepository) CreateVersion(ctx context.Context, version *model.SecretVersion) error {
+	args := m.Called(ctx, version)
+	return args.Error(0)
+}
+
+func (m *MockSecretVersionRepository) GetVersions(ctx context.Context, secretID uuid.UUID) ([]model.SecretVersion, error) {
+	args := m.Called(ctx, secretID)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).([]model.SecretVersion), args.Error(1)
+}
+
+func (m *MockSecretVersionRepository) GetVersion(ctx context.Context, secretID uuid.UUID, version int) (*model.SecretVersion, error) {
+	args := m.Called(ctx, secretID, version)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).(*model.SecretVersion), args.Error(1)
+}
+
+func (m *MockSecretVersionRepository) GetLatestVersion(ctx context.Context, secretID uuid.UUID) (*model.SecretVersion, error) {
+	args := m.Called(ctx, secretID)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).(*model.SecretVersion), args.Error(1)
+}
+
+func (m *MockSecretVersionRepository) DeleteVersions(ctx context.Context, secretID uuid.UUID) error {
+	args := m.Called(ctx, secretID)
+	return args.Error(0)
+}
+
+func (m *MockSecretVersionRepository) DeleteSpecificVersion(ctx context.Context, secretID uuid.UUID, version int) error {
+	args := m.Called(ctx, secretID, version)
+	return args.Error(0)
 }
 
 // --- MockTagService ---
