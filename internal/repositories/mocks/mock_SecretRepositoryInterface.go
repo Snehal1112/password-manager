@@ -8,6 +8,8 @@ import (
 
 	mock "github.com/stretchr/testify/mock"
 
+	repositories "rocketvault/internal/repositories"
+
 	time "time"
 
 	uuid "github.com/google/uuid"
@@ -655,6 +657,66 @@ func (_c *MockSecretRepositoryInterface_ListInVaultIncludeDeleted_Call) RunAndRe
 	return _c
 }
 
+// ListScoped provides a mock function with given fields: ctx, scope, filter
+func (_m *MockSecretRepositoryInterface) ListScoped(ctx context.Context, scope model.Scope, filter repositories.SecretFilter) ([]model.Secret, error) {
+	ret := _m.Called(ctx, scope, filter)
+
+	if len(ret) == 0 {
+		panic("no return value specified for ListScoped")
+	}
+
+	var r0 []model.Secret
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, model.Scope, repositories.SecretFilter) ([]model.Secret, error)); ok {
+		return rf(ctx, scope, filter)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, model.Scope, repositories.SecretFilter) []model.Secret); ok {
+		r0 = rf(ctx, scope, filter)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).([]model.Secret)
+		}
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context, model.Scope, repositories.SecretFilter) error); ok {
+		r1 = rf(ctx, scope, filter)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// MockSecretRepositoryInterface_ListScoped_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'ListScoped'
+type MockSecretRepositoryInterface_ListScoped_Call struct {
+	*mock.Call
+}
+
+// ListScoped is a helper method to define mock.On call
+//   - ctx context.Context
+//   - scope model.Scope
+//   - filter repositories.SecretFilter
+func (_e *MockSecretRepositoryInterface_Expecter) ListScoped(ctx interface{}, scope interface{}, filter interface{}) *MockSecretRepositoryInterface_ListScoped_Call {
+	return &MockSecretRepositoryInterface_ListScoped_Call{Call: _e.mock.On("ListScoped", ctx, scope, filter)}
+}
+
+func (_c *MockSecretRepositoryInterface_ListScoped_Call) Run(run func(ctx context.Context, scope model.Scope, filter repositories.SecretFilter)) *MockSecretRepositoryInterface_ListScoped_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(model.Scope), args[2].(repositories.SecretFilter))
+	})
+	return _c
+}
+
+func (_c *MockSecretRepositoryInterface_ListScoped_Call) Return(_a0 []model.Secret, _a1 error) *MockSecretRepositoryInterface_ListScoped_Call {
+	_c.Call.Return(_a0, _a1)
+	return _c
+}
+
+func (_c *MockSecretRepositoryInterface_ListScoped_Call) RunAndReturn(run func(context.Context, model.Scope, repositories.SecretFilter) ([]model.Secret, error)) *MockSecretRepositoryInterface_ListScoped_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // PurgeSecret provides a mock function with given fields: ctx, id
 func (_m *MockSecretRepositoryInterface) PurgeSecret(ctx context.Context, id uuid.UUID) error {
 	ret := _m.Called(ctx, id)
@@ -877,6 +939,66 @@ func (_c *MockSecretRepositoryInterface_ReadInVault_Call) Return(_a0 *model.Secr
 }
 
 func (_c *MockSecretRepositoryInterface_ReadInVault_Call) RunAndReturn(run func(context.Context, uuid.UUID, uuid.UUID) (*model.Secret, error)) *MockSecretRepositoryInterface_ReadInVault_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// ReadScoped provides a mock function with given fields: ctx, id, scope
+func (_m *MockSecretRepositoryInterface) ReadScoped(ctx context.Context, id uuid.UUID, scope model.Scope) (*model.Secret, error) {
+	ret := _m.Called(ctx, id, scope)
+
+	if len(ret) == 0 {
+		panic("no return value specified for ReadScoped")
+	}
+
+	var r0 *model.Secret
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, uuid.UUID, model.Scope) (*model.Secret, error)); ok {
+		return rf(ctx, id, scope)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, uuid.UUID, model.Scope) *model.Secret); ok {
+		r0 = rf(ctx, id, scope)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).(*model.Secret)
+		}
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context, uuid.UUID, model.Scope) error); ok {
+		r1 = rf(ctx, id, scope)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// MockSecretRepositoryInterface_ReadScoped_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'ReadScoped'
+type MockSecretRepositoryInterface_ReadScoped_Call struct {
+	*mock.Call
+}
+
+// ReadScoped is a helper method to define mock.On call
+//   - ctx context.Context
+//   - id uuid.UUID
+//   - scope model.Scope
+func (_e *MockSecretRepositoryInterface_Expecter) ReadScoped(ctx interface{}, id interface{}, scope interface{}) *MockSecretRepositoryInterface_ReadScoped_Call {
+	return &MockSecretRepositoryInterface_ReadScoped_Call{Call: _e.mock.On("ReadScoped", ctx, id, scope)}
+}
+
+func (_c *MockSecretRepositoryInterface_ReadScoped_Call) Run(run func(ctx context.Context, id uuid.UUID, scope model.Scope)) *MockSecretRepositoryInterface_ReadScoped_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(uuid.UUID), args[2].(model.Scope))
+	})
+	return _c
+}
+
+func (_c *MockSecretRepositoryInterface_ReadScoped_Call) Return(_a0 *model.Secret, _a1 error) *MockSecretRepositoryInterface_ReadScoped_Call {
+	_c.Call.Return(_a0, _a1)
+	return _c
+}
+
+func (_c *MockSecretRepositoryInterface_ReadScoped_Call) RunAndReturn(run func(context.Context, uuid.UUID, model.Scope) (*model.Secret, error)) *MockSecretRepositoryInterface_ReadScoped_Call {
 	_c.Call.Return(run)
 	return _c
 }
@@ -1161,6 +1283,54 @@ func (_c *MockSecretRepositoryInterface_UpdateInVault_Call) Return(_a0 error) *M
 }
 
 func (_c *MockSecretRepositoryInterface_UpdateInVault_Call) RunAndReturn(run func(context.Context, *model.Secret) error) *MockSecretRepositoryInterface_UpdateInVault_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// UpdateScoped provides a mock function with given fields: ctx, secret, scope
+func (_m *MockSecretRepositoryInterface) UpdateScoped(ctx context.Context, secret *model.Secret, scope model.Scope) error {
+	ret := _m.Called(ctx, secret, scope)
+
+	if len(ret) == 0 {
+		panic("no return value specified for UpdateScoped")
+	}
+
+	var r0 error
+	if rf, ok := ret.Get(0).(func(context.Context, *model.Secret, model.Scope) error); ok {
+		r0 = rf(ctx, secret, scope)
+	} else {
+		r0 = ret.Error(0)
+	}
+
+	return r0
+}
+
+// MockSecretRepositoryInterface_UpdateScoped_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'UpdateScoped'
+type MockSecretRepositoryInterface_UpdateScoped_Call struct {
+	*mock.Call
+}
+
+// UpdateScoped is a helper method to define mock.On call
+//   - ctx context.Context
+//   - secret *model.Secret
+//   - scope model.Scope
+func (_e *MockSecretRepositoryInterface_Expecter) UpdateScoped(ctx interface{}, secret interface{}, scope interface{}) *MockSecretRepositoryInterface_UpdateScoped_Call {
+	return &MockSecretRepositoryInterface_UpdateScoped_Call{Call: _e.mock.On("UpdateScoped", ctx, secret, scope)}
+}
+
+func (_c *MockSecretRepositoryInterface_UpdateScoped_Call) Run(run func(ctx context.Context, secret *model.Secret, scope model.Scope)) *MockSecretRepositoryInterface_UpdateScoped_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(*model.Secret), args[2].(model.Scope))
+	})
+	return _c
+}
+
+func (_c *MockSecretRepositoryInterface_UpdateScoped_Call) Return(_a0 error) *MockSecretRepositoryInterface_UpdateScoped_Call {
+	_c.Call.Return(_a0)
+	return _c
+}
+
+func (_c *MockSecretRepositoryInterface_UpdateScoped_Call) RunAndReturn(run func(context.Context, *model.Secret, model.Scope) error) *MockSecretRepositoryInterface_UpdateScoped_Call {
 	_c.Call.Return(run)
 	return _c
 }

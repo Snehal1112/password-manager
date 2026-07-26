@@ -17,6 +17,7 @@ import (
 
 	"rocketvault/app"
 	"rocketvault/internal/backup"
+	"rocketvault/internal/repositories"
 	"rocketvault/model"
 )
 
@@ -304,6 +305,15 @@ func (m *mockSecretRepo) Read(ctx context.Context, id uuid.UUID) (*model.Secret,
 }
 func (m *mockSecretRepo) ReadByOwner(_ context.Context, _, _ uuid.UUID) (*model.Secret, error) {
 	return nil, errors.New("not implemented")
+}
+func (m *mockSecretRepo) ReadScoped(_ context.Context, _ uuid.UUID, _ model.Scope) (*model.Secret, error) {
+	return nil, errors.New("not implemented")
+}
+func (m *mockSecretRepo) UpdateScoped(_ context.Context, _ *model.Secret, _ model.Scope) error {
+	return errors.New("not implemented")
+}
+func (m *mockSecretRepo) ListScoped(_ context.Context, _ model.Scope, _ repositories.SecretFilter) ([]model.Secret, error) {
+	return nil, nil
 }
 func (m *mockSecretRepo) Update(_ context.Context, _ *model.Secret) error {
 	return errors.New("not implemented")

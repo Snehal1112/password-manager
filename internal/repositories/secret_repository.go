@@ -19,6 +19,14 @@ import (
 // SecretRepositoryInterface defines the interface for secret repository operations.
 type SecretRepositoryInterface interface {
 	Create(ctx context.Context, secret *model.Secret) error
+	// ReadScoped fetches a secret authorized by scope. Canonical; the Read,
+	// ReadByOwner and ReadInVault methods below are shims over it.
+	ReadScoped(ctx context.Context, id uuid.UUID, scope model.Scope) (*model.Secret, error)
+	// UpdateScoped updates a secret authorized by scope. The predicate comes
+	// from the scope argument, never from the entity.
+	UpdateScoped(ctx context.Context, secret *model.Secret, scope model.Scope) error
+	// ListScoped lists secrets authorized by scope and narrowed by filter.
+	ListScoped(ctx context.Context, scope model.Scope, filter SecretFilter) ([]model.Secret, error)
 	Read(ctx context.Context, id uuid.UUID) (*model.Secret, error)
 	// ReadByOwner fetches a secret only when id and userID both match.
 	ReadByOwner(ctx context.Context, id, userID uuid.UUID) (*model.Secret, error)

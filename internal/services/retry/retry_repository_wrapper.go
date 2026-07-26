@@ -242,3 +242,36 @@ func (r *RetryRepositoryWrapper) RecoverVaultContents(ctx context.Context, vault
 		return r.baseRepo.RecoverVaultContents(ctx, vaultID, deletedAt)
 	})
 }
+
+// ReadScoped wraps the ReadScoped operation with retry logic.
+func (r *RetryRepositoryWrapper) ReadScoped(ctx context.Context, id uuid.UUID, scope model.Scope) (*model.Secret, error) {
+	var result *model.Secret
+	var err error
+
+	retryErr := r.retryService.ExecuteDatabaseOperation(ctx, func() error {
+		result, err = r.baseRepo.ReadScoped(ctx, id, scope)
+		return err
+	})
+
+	return result, retryErr
+}
+
+// UpdateScoped wraps the UpdateScoped operation with retry logic.
+func (r *RetryRepositoryWrapper) UpdateScoped(ctx context.Context, secret *model.Secret, scope model.Scope) error {
+	return r.retryService.ExecuteDatabaseOperation(ctx, func() error {
+		return r.baseRepo.UpdateScoped(ctx, secret, scope)
+	})
+}
+
+// ListScoped wraps the ListScoped operation with retry logic.
+func (r *RetryRepositoryWrapper) ListScoped(ctx context.Context, scope model.Scope, filter repositories.SecretFilter) ([]model.Secret, error) {
+	var result []model.Secret
+	var err error
+
+	retryErr := r.retryService.ExecuteDatabaseOperation(ctx, func() error {
+		result, err = r.baseRepo.ListScoped(ctx, scope, filter)
+		return err
+	})
+
+	return result, retryErr
+}

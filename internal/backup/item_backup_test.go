@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"rocketvault/internal/backup"
+	"rocketvault/internal/repositories"
 	"rocketvault/model"
 )
 
@@ -50,9 +51,44 @@ func (r *stubSecretRepo) ReadByOwner(_ context.Context, id, userID uuid.UUID) (*
 	return &cp, nil
 }
 
+// scopeAuthorizes mirrors the real repository's scopePredicate: it decides
+// whether a secret is reachable under the given scope.
+func scopeAuthorizes(s *model.Secret, scope model.Scope) bool {
+	switch scope.Kind() {
+	case model.ScopeVault:
+		return s.VaultID == scope.VaultID()
+	case model.ScopeOwner:
+		ownerID, ok := scope.OwnerID()
+		return ok && s.UserID == ownerID
+	case model.ScopeAdmin:
+		return true
+	default:
+		return false
+	}
+}
+
+func (r *stubSecretRepo) ReadScoped(_ context.Context, id uuid.UUID, scope model.Scope) (*model.Secret, error) {
+	s, ok := r.secrets[id]
+	if !ok || !scopeAuthorizes(s, scope) {
+		return nil, fmt.Errorf("secret not found or access denied")
+	}
+	cp := *s
+	return &cp, nil
+}
+
 func (r *stubSecretRepo) Update(_ context.Context, s *model.Secret) error {
 	if _, ok := r.secrets[s.ID]; !ok {
 		return fmt.Errorf("secret not found")
+	}
+	cp := *s
+	r.secrets[s.ID] = &cp
+	return nil
+}
+
+func (r *stubSecretRepo) UpdateScoped(_ context.Context, s *model.Secret, scope model.Scope) error {
+	existing, ok := r.secrets[s.ID]
+	if !ok || !scopeAuthorizes(existing, scope) {
+		return fmt.Errorf("secret not found or access denied")
 	}
 	cp := *s
 	r.secrets[s.ID] = &cp
@@ -99,6 +135,29 @@ func (r *stubSecretRepo) ListByUser(_ context.Context, userID uuid.UUID, _ []str
 
 func (r *stubSecretRepo) ListByUserIncludeDeleted(_ context.Context, userID uuid.UUID, _ []string) ([]model.Secret, error) {
 	return r.ListByUser(context.Background(), userID, nil)
+}
+
+func (r *stubSecretRepo) ListScoped(_ context.Context, scope model.Scope, filter repositories.SecretFilter) ([]model.Secret, error) {
+	var out []model.Secret
+	for _, s := range r.secrets {
+		if !scopeAuthorizes(s, scope) {
+			continue
+		}
+		switch {
+		case filter.OnlyDeleted:
+			if s.DeletedAt == nil {
+				continue
+			}
+		case filter.IncludeDeleted:
+			// No deleted_at constraint.
+		default:
+			if s.DeletedAt != nil {
+				continue
+			}
+		}
+		out = append(out, *s)
+	}
+	return out, nil
 }
 
 func (r *stubSecretRepo) ExportSecrets(_ context.Context, _ model.ExportOptions) ([]byte, error) {

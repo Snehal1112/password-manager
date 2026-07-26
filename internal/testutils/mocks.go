@@ -115,6 +115,27 @@ func (m *MockSecretRepository) Create(ctx context.Context, secret *model.Secret)
 	return args.Error(0)
 }
 
+func (m *MockSecretRepository) ReadScoped(ctx context.Context, id uuid.UUID, scope model.Scope) (*model.Secret, error) {
+	args := m.Called(ctx, id, scope)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).(*model.Secret), args.Error(1)
+}
+
+func (m *MockSecretRepository) UpdateScoped(ctx context.Context, secret *model.Secret, scope model.Scope) error {
+	args := m.Called(ctx, secret, scope)
+	return args.Error(0)
+}
+
+func (m *MockSecretRepository) ListScoped(ctx context.Context, scope model.Scope, filter repositories.SecretFilter) ([]model.Secret, error) {
+	args := m.Called(ctx, scope, filter)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).([]model.Secret), args.Error(1)
+}
+
 func (m *MockSecretRepository) Read(ctx context.Context, id uuid.UUID) (*model.Secret, error) {
 	args := m.Called(ctx, id)
 	if args.Get(0) == nil {

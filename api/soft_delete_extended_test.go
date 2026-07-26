@@ -70,8 +70,14 @@ func (s *stubSecretRepo) Read(_ context.Context, _ uuid.UUID) (*model.Secret, er
 func (s *stubSecretRepo) ReadByOwner(_ context.Context, _, _ uuid.UUID) (*model.Secret, error) {
 	panic("unexpected call: ReadByOwner")
 }
+func (s *stubSecretRepo) ReadScoped(_ context.Context, _ uuid.UUID, _ model.Scope) (*model.Secret, error) {
+	panic("unexpected call: ReadScoped")
+}
 func (s *stubSecretRepo) Update(_ context.Context, _ *model.Secret) error {
 	panic("unexpected call: Update")
+}
+func (s *stubSecretRepo) UpdateScoped(_ context.Context, _ *model.Secret, _ model.Scope) error {
+	panic("unexpected call: UpdateScoped")
 }
 func (s *stubSecretRepo) UpdateInVault(_ context.Context, _ *model.Secret) error {
 	panic("unexpected call: UpdateInVault")
@@ -87,6 +93,9 @@ func (s *stubSecretRepo) RecoverSecret(_ context.Context, _ uuid.UUID) error {
 }
 func (s *stubSecretRepo) ListByUser(_ context.Context, _ uuid.UUID, _ []string) ([]model.Secret, error) {
 	panic("unexpected call: ListByUser")
+}
+func (s *stubSecretRepo) ListScoped(_ context.Context, _ model.Scope, _ repositories.SecretFilter) ([]model.Secret, error) {
+	panic("unexpected call: ListScoped")
 }
 func (s *stubSecretRepo) ListByUserIncludeDeleted(_ context.Context, _ uuid.UUID, _ []string) ([]model.Secret, error) {
 	s.userListCalled = true

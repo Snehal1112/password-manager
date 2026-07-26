@@ -178,9 +178,9 @@ func (_c *MockCertificateRepositoryInterface_ListAll_Call) RunAndReturn(run func
 	return _c
 }
 
-// ListByUser provides a mock function with given fields: ctx, userID, certType, tags
-func (_m *MockCertificateRepositoryInterface) ListByUser(ctx context.Context, userID uuid.UUID, certType string, tags []string) ([]model.Certificate, error) {
-	ret := _m.Called(ctx, userID, certType, tags)
+// ListByUser provides a mock function with given fields: ctx, userID, tags
+func (_m *MockCertificateRepositoryInterface) ListByUser(ctx context.Context, userID uuid.UUID, tags []string) ([]model.Certificate, error) {
+	ret := _m.Called(ctx, userID, tags)
 
 	if len(ret) == 0 {
 		panic("no return value specified for ListByUser")
@@ -188,19 +188,19 @@ func (_m *MockCertificateRepositoryInterface) ListByUser(ctx context.Context, us
 
 	var r0 []model.Certificate
 	var r1 error
-	if rf, ok := ret.Get(0).(func(context.Context, uuid.UUID, string, []string) ([]model.Certificate, error)); ok {
-		return rf(ctx, userID, certType, tags)
+	if rf, ok := ret.Get(0).(func(context.Context, uuid.UUID, []string) ([]model.Certificate, error)); ok {
+		return rf(ctx, userID, tags)
 	}
-	if rf, ok := ret.Get(0).(func(context.Context, uuid.UUID, string, []string) []model.Certificate); ok {
-		r0 = rf(ctx, userID, certType, tags)
+	if rf, ok := ret.Get(0).(func(context.Context, uuid.UUID, []string) []model.Certificate); ok {
+		r0 = rf(ctx, userID, tags)
 	} else {
 		if ret.Get(0) != nil {
 			r0 = ret.Get(0).([]model.Certificate)
 		}
 	}
 
-	if rf, ok := ret.Get(1).(func(context.Context, uuid.UUID, string, []string) error); ok {
-		r1 = rf(ctx, userID, certType, tags)
+	if rf, ok := ret.Get(1).(func(context.Context, uuid.UUID, []string) error); ok {
+		r1 = rf(ctx, userID, tags)
 	} else {
 		r1 = ret.Error(1)
 	}
@@ -216,15 +216,14 @@ type MockCertificateRepositoryInterface_ListByUser_Call struct {
 // ListByUser is a helper method to define mock.On call
 //   - ctx context.Context
 //   - userID uuid.UUID
-//   - certType string
 //   - tags []string
-func (_e *MockCertificateRepositoryInterface_Expecter) ListByUser(ctx interface{}, userID interface{}, certType interface{}, tags interface{}) *MockCertificateRepositoryInterface_ListByUser_Call {
-	return &MockCertificateRepositoryInterface_ListByUser_Call{Call: _e.mock.On("ListByUser", ctx, userID, certType, tags)}
+func (_e *MockCertificateRepositoryInterface_Expecter) ListByUser(ctx interface{}, userID interface{}, tags interface{}) *MockCertificateRepositoryInterface_ListByUser_Call {
+	return &MockCertificateRepositoryInterface_ListByUser_Call{Call: _e.mock.On("ListByUser", ctx, userID, tags)}
 }
 
-func (_c *MockCertificateRepositoryInterface_ListByUser_Call) Run(run func(ctx context.Context, userID uuid.UUID, certType string, tags []string)) *MockCertificateRepositoryInterface_ListByUser_Call {
+func (_c *MockCertificateRepositoryInterface_ListByUser_Call) Run(run func(ctx context.Context, userID uuid.UUID, tags []string)) *MockCertificateRepositoryInterface_ListByUser_Call {
 	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(context.Context), args[1].(uuid.UUID), args[2].(string), args[3].([]string))
+		run(args[0].(context.Context), args[1].(uuid.UUID), args[2].([]string))
 	})
 	return _c
 }
@@ -234,14 +233,14 @@ func (_c *MockCertificateRepositoryInterface_ListByUser_Call) Return(_a0 []model
 	return _c
 }
 
-func (_c *MockCertificateRepositoryInterface_ListByUser_Call) RunAndReturn(run func(context.Context, uuid.UUID, string, []string) ([]model.Certificate, error)) *MockCertificateRepositoryInterface_ListByUser_Call {
+func (_c *MockCertificateRepositoryInterface_ListByUser_Call) RunAndReturn(run func(context.Context, uuid.UUID, []string) ([]model.Certificate, error)) *MockCertificateRepositoryInterface_ListByUser_Call {
 	_c.Call.Return(run)
 	return _c
 }
 
-// ListInVault provides a mock function with given fields: ctx, vaultID, certType, tags
-func (_m *MockCertificateRepositoryInterface) ListInVault(ctx context.Context, vaultID uuid.UUID, certType string, tags []string) ([]model.Certificate, error) {
-	ret := _m.Called(ctx, vaultID, certType, tags)
+// ListInVault provides a mock function with given fields: ctx, vaultID, tags
+func (_m *MockCertificateRepositoryInterface) ListInVault(ctx context.Context, vaultID uuid.UUID, tags []string) ([]model.Certificate, error) {
+	ret := _m.Called(ctx, vaultID, tags)
 
 	if len(ret) == 0 {
 		panic("no return value specified for ListInVault")
@@ -249,19 +248,19 @@ func (_m *MockCertificateRepositoryInterface) ListInVault(ctx context.Context, v
 
 	var r0 []model.Certificate
 	var r1 error
-	if rf, ok := ret.Get(0).(func(context.Context, uuid.UUID, string, []string) ([]model.Certificate, error)); ok {
-		return rf(ctx, vaultID, certType, tags)
+	if rf, ok := ret.Get(0).(func(context.Context, uuid.UUID, []string) ([]model.Certificate, error)); ok {
+		return rf(ctx, vaultID, tags)
 	}
-	if rf, ok := ret.Get(0).(func(context.Context, uuid.UUID, string, []string) []model.Certificate); ok {
-		r0 = rf(ctx, vaultID, certType, tags)
+	if rf, ok := ret.Get(0).(func(context.Context, uuid.UUID, []string) []model.Certificate); ok {
+		r0 = rf(ctx, vaultID, tags)
 	} else {
 		if ret.Get(0) != nil {
 			r0 = ret.Get(0).([]model.Certificate)
 		}
 	}
 
-	if rf, ok := ret.Get(1).(func(context.Context, uuid.UUID, string, []string) error); ok {
-		r1 = rf(ctx, vaultID, certType, tags)
+	if rf, ok := ret.Get(1).(func(context.Context, uuid.UUID, []string) error); ok {
+		r1 = rf(ctx, vaultID, tags)
 	} else {
 		r1 = ret.Error(1)
 	}
@@ -277,15 +276,14 @@ type MockCertificateRepositoryInterface_ListInVault_Call struct {
 // ListInVault is a helper method to define mock.On call
 //   - ctx context.Context
 //   - vaultID uuid.UUID
-//   - certType string
 //   - tags []string
-func (_e *MockCertificateRepositoryInterface_Expecter) ListInVault(ctx interface{}, vaultID interface{}, certType interface{}, tags interface{}) *MockCertificateRepositoryInterface_ListInVault_Call {
-	return &MockCertificateRepositoryInterface_ListInVault_Call{Call: _e.mock.On("ListInVault", ctx, vaultID, certType, tags)}
+func (_e *MockCertificateRepositoryInterface_Expecter) ListInVault(ctx interface{}, vaultID interface{}, tags interface{}) *MockCertificateRepositoryInterface_ListInVault_Call {
+	return &MockCertificateRepositoryInterface_ListInVault_Call{Call: _e.mock.On("ListInVault", ctx, vaultID, tags)}
 }
 
-func (_c *MockCertificateRepositoryInterface_ListInVault_Call) Run(run func(ctx context.Context, vaultID uuid.UUID, certType string, tags []string)) *MockCertificateRepositoryInterface_ListInVault_Call {
+func (_c *MockCertificateRepositoryInterface_ListInVault_Call) Run(run func(ctx context.Context, vaultID uuid.UUID, tags []string)) *MockCertificateRepositoryInterface_ListInVault_Call {
 	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(context.Context), args[1].(uuid.UUID), args[2].(string), args[3].([]string))
+		run(args[0].(context.Context), args[1].(uuid.UUID), args[2].([]string))
 	})
 	return _c
 }
@@ -295,7 +293,7 @@ func (_c *MockCertificateRepositoryInterface_ListInVault_Call) Return(_a0 []mode
 	return _c
 }
 
-func (_c *MockCertificateRepositoryInterface_ListInVault_Call) RunAndReturn(run func(context.Context, uuid.UUID, string, []string) ([]model.Certificate, error)) *MockCertificateRepositoryInterface_ListInVault_Call {
+func (_c *MockCertificateRepositoryInterface_ListInVault_Call) RunAndReturn(run func(context.Context, uuid.UUID, []string) ([]model.Certificate, error)) *MockCertificateRepositoryInterface_ListInVault_Call {
 	_c.Call.Return(run)
 	return _c
 }
