@@ -212,13 +212,18 @@ func (r *SecretRepository) ReadScoped(ctx context.Context, id uuid.UUID, scope m
 // UpdateScoped updates a secret, authorized by scope. The predicate is built
 // from the scope argument, never from the entity, so a caller cannot widen its
 // own authorization by mutating secret.VaultID or secret.UserID.
+//
+// This method does not emit audit rows: audit attribution belongs to the
+// caller (service layer), which knows the acting principal from the request,
+// not just the scope it was handed. UpdateSecretScoped already logs its own
+// audit row after calling this, for every error path and on success — logging
+// here too would duplicate every scoped update into two audit_logs rows.
 func (r *SecretRepository) UpdateScoped(ctx context.Context, secret *model.Secret, scope model.Scope) error {
 	predicate, args, err := scopePredicate(scope)
 	if err != nil {
 		return err
 	}
 
-	actor := scope.ActorID().String()
 	logrus.WithFields(logrus.Fields{
 		"secret_id": secret.ID.String(),
 		"scope":     scope.String(),
@@ -233,21 +238,22 @@ func (r *SecretRepository) UpdateScoped(ctx context.Context, secret *model.Secre
 
 	result, err := r.db.ExecContext(ctx, query, execArgs...)
 	if err != nil {
-		r.log.LogAuditError(actor, "update_secret", "failed", "Failed to update secret", err)
 		return fmt.Errorf("failed to update secret: %w", err)
 	}
 
 	rowsAffected, err := result.RowsAffected()
 	if err != nil {
-		r.log.LogAuditError(actor, "update_secret", "failed", "Failed to get rows affected", err)
 		return fmt.Errorf("failed to get rows affected: %w", err)
 	}
 	if rowsAffected == 0 {
-		r.log.LogAuditError(actor, "update_secret", "failed", "Secret not found for update", nil)
 		return fmt.Errorf("secret not found")
 	}
 
-	r.log.LogAuditInfo(actor, "update_secret", "success", fmt.Sprintf("Secret updated: %s", secret.Name))
+	logrus.WithFields(logrus.Fields{
+		"secret_id": secret.ID.String(),
+		"scope":     scope.String(),
+		"version":   secret.Version,
+	}).Debug("Secret updated successfully")
 	return nil
 }
 
@@ -276,7 +282,6 @@ func (r *SecretRepository) ListScoped(ctx context.Context, scope model.Scope, fi
 	err = r.executeWithMetrics("list_secrets_scoped", func() error {
 		rows, queryErr := r.db.QueryContext(ctx, query, args...)
 		if queryErr != nil {
-			r.log.LogAuditError(scope.ActorID().String(), "list_secrets", "failed", "Failed to query secrets", queryErr)
 			return fmt.Errorf("failed to query secrets: %w", queryErr)
 		}
 		defer rows.Close()
@@ -285,7 +290,6 @@ func (r *SecretRepository) ListScoped(ctx context.Context, scope model.Scope, fi
 		for rows.Next() {
 			secret, scanErr := scanSecretRow(rows.Scan)
 			if scanErr != nil {
-				r.log.LogAuditError(scope.ActorID().String(), "list_secrets", "failed", "Failed to scan secret", scanErr)
 				return fmt.Errorf("failed to scan secret: %w", scanErr)
 			}
 			secretList = append(secretList, secret)

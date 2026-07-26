@@ -422,13 +422,12 @@ func (f *fakeAuditPersister) PersistAudit(userID, action, details string) error 
 	return nil
 }
 
-// TestSecretRepository_UpdateInVault_AttributesOwnerNotVaultID proves that
-// UpdateInVault attributes its audit row to the scope's actor, not to a raw
-// vault UUID. UpdateInVault is now a shim over UpdateScoped (Phase 6), which
-// builds its scope as model.NewVaultScope(secret.VaultID, secret.UserID); the
-// scope's ActorID is therefore the secret's owner, and that owner is who the
-// audit row is attributed to (spec §4.2).
-func TestSecretRepository_UpdateInVault_AttributesOwnerNotVaultID(t *testing.T) {
+// TestSecretRepository_UpdateInVault_DoesNotAudit proves that UpdateInVault
+// (a shim over UpdateScoped, Phase 6) emits no repository-level audit row.
+// Audit attribution belongs solely to the service layer, which knows the
+// real acting principal from the request; the repository only has a Scope.
+// See UpdateScoped's doc comment in secret_repository.go.
+func TestSecretRepository_UpdateInVault_DoesNotAudit(t *testing.T) {
 	t.Parallel()
 	db := setupSecretTestDB(t)
 	logger := newTestSecretLogger(t)
@@ -454,8 +453,8 @@ func TestSecretRepository_UpdateInVault_AttributesOwnerNotVaultID(t *testing.T) 
 	})
 	require.NoError(t, err)
 
-	assert.Equal(t, []string{ownerID.String()}, persister.actors,
-		"UpdateInVault's shim scope carries the owner as ActorID, so the audit row must attribute to the owner, not the vault ID")
+	assert.Empty(t, persister.actors,
+		"UpdateInVault must not emit a repository-level audit row; attribution lives solely in the service layer")
 }
 
 // TestSecretRepository_Read_PopulatesVaultID pins the prerequisite fix from the
