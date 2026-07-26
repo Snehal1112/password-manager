@@ -11,8 +11,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 
-	internalRetry "rocketvault/internal/retry"
 	"rocketvault/internal/repositories"
+	internalRetry "rocketvault/internal/retry"
 	"rocketvault/internal/services/auth"
 	"rocketvault/internal/services/secrets"
 	"rocketvault/internal/services/users"
@@ -37,9 +37,13 @@ func (n *noopRetryService) ExecuteServiceOperation(_ context.Context, op func() 
 	return op()
 }
 
-func (n *noopRetryService) GetDatabasePolicy() internalRetry.Policy        { return internalRetry.Policy{} }
-func (n *noopRetryService) GetExternalServicesPolicy() internalRetry.Policy { return internalRetry.Policy{} }
-func (n *noopRetryService) GetServiceOperationsPolicy() internalRetry.Policy { return internalRetry.Policy{} }
+func (n *noopRetryService) GetDatabasePolicy() internalRetry.Policy { return internalRetry.Policy{} }
+func (n *noopRetryService) GetExternalServicesPolicy() internalRetry.Policy {
+	return internalRetry.Policy{}
+}
+func (n *noopRetryService) GetServiceOperationsPolicy() internalRetry.Policy {
+	return internalRetry.Policy{}
+}
 
 // ---------------------------------------------------------------------------
 // MockAuthService
@@ -175,6 +179,35 @@ func (m *MockSecretService) GetSecret(ctx context.Context, secretID, userID uuid
 		return nil, args.Error(1)
 	}
 	return args.Get(0).(*model.Secret), args.Error(1)
+}
+
+func (m *MockSecretService) GetSecretScoped(ctx context.Context, secretID uuid.UUID, scope model.Scope) (*model.Secret, error) {
+	args := m.Called(ctx, secretID, scope)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).(*model.Secret), args.Error(1)
+}
+
+func (m *MockSecretService) ListSecretsScoped(ctx context.Context, scope model.Scope, tags []string) ([]model.Secret, error) {
+	args := m.Called(ctx, scope, tags)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).([]model.Secret), args.Error(1)
+}
+
+func (m *MockSecretService) DeleteSecretScoped(ctx context.Context, secretID uuid.UUID, scope model.Scope) error {
+	args := m.Called(ctx, secretID, scope)
+	return args.Error(0)
+}
+
+func (m *MockSecretService) ListDeletedSecretsScoped(ctx context.Context, scope model.Scope) ([]model.Secret, error) {
+	args := m.Called(ctx, scope)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).([]model.Secret), args.Error(1)
 }
 
 func (m *MockSecretService) ListSecrets(ctx context.Context, userID uuid.UUID, tags []string) ([]model.Secret, error) {

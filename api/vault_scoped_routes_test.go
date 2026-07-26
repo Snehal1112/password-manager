@@ -65,6 +65,18 @@ func (s *recordingSecretService) UpdateSecret(_ context.Context, req secretServi
 func (s *recordingSecretService) GetSecret(_ context.Context, secretID, userID uuid.UUID) (*model.Secret, error) {
 	return &model.Secret{ID: secretID, UserID: userID, Name: "existing", Value: "plain-value", Version: 1}, nil
 }
+func (s *recordingSecretService) GetSecretScoped(context.Context, uuid.UUID, model.Scope) (*model.Secret, error) {
+	panic("unexpected")
+}
+func (s *recordingSecretService) ListSecretsScoped(context.Context, model.Scope, []string) ([]model.Secret, error) {
+	panic("unexpected")
+}
+func (s *recordingSecretService) DeleteSecretScoped(context.Context, uuid.UUID, model.Scope) error {
+	panic("unexpected")
+}
+func (s *recordingSecretService) ListDeletedSecretsScoped(context.Context, model.Scope) ([]model.Secret, error) {
+	panic("unexpected")
+}
 func (s *recordingSecretService) ListSecrets(_ context.Context, userID uuid.UUID, _ []string) ([]model.Secret, error) {
 	s.listCalled = true
 	s.listUserScoped = true

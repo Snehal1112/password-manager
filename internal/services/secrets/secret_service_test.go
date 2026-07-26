@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 
+	"rocketvault/internal/repositories"
 	"rocketvault/internal/services/secrets"
 	"rocketvault/internal/testutils"
 	"rocketvault/model"
@@ -101,8 +102,8 @@ func TestGetSecret_HappyPath(t *testing.T) {
 	ver := &testutils.MockVersioningService{}
 	tag := &testutils.MockTagService{}
 
-	// Ownership is now enforced at the SQL level via ReadByOwner.
-	repo.On("ReadByOwner", ctx, secretID, userID).Return(stored, nil)
+	// Ownership is now enforced at the SQL level via the scoped read.
+	repo.On("ReadScoped", ctx, secretID, model.NewOwnerScope(uuid.Nil, userID)).Return(stored, nil)
 	crypto.On("DecryptSecret", "enc").Return("plain", nil)
 	tag.On("GetTags", ctx, secretID).Return([]string{"k:v"}, nil)
 
@@ -126,8 +127,8 @@ func TestGetSecret_WrongOwner(t *testing.T) {
 	ver := &testutils.MockVersioningService{}
 	tag := &testutils.MockTagService{}
 
-	// ReadByOwner returns an error when the user is not the owner.
-	repo.On("ReadByOwner", ctx, secretID, otherID).Return(nil, errors.New("secret not found or access denied"))
+	// The scoped read returns an error when the user is not the owner.
+	repo.On("ReadScoped", ctx, secretID, model.NewOwnerScope(uuid.Nil, otherID)).Return(nil, errors.New("secret not found or access denied"))
 	// ownerID is referenced only to show intent; the mock key is otherID.
 	_ = ownerID
 
@@ -151,7 +152,7 @@ func TestGetSecret_NotFound(t *testing.T) {
 	ver := &testutils.MockVersioningService{}
 	tag := &testutils.MockTagService{}
 
-	repo.On("ReadByOwner", ctx, secretID, callerID).Return(nil, errors.New("secret not found or access denied"))
+	repo.On("ReadScoped", ctx, secretID, model.NewOwnerScope(uuid.Nil, callerID)).Return(nil, errors.New("secret not found or access denied"))
 
 	svc := newService(repo, crypto, ver, tag, t)
 	_, err := svc.GetSecret(ctx, secretID, callerID)
@@ -175,7 +176,7 @@ func TestDeleteSecret_HappyPath(t *testing.T) {
 	ver := &testutils.MockVersioningService{}
 	tag := &testutils.MockTagService{}
 
-	repo.On("Read", ctx, secretID).Return(stored, nil)
+	repo.On("ReadScoped", ctx, secretID, model.NewOwnerScope(uuid.Nil, userID)).Return(stored, nil)
 	tag.On("RemoveAllTags", ctx, secretID).Return(nil)
 	repo.On("SoftDelete", ctx, secretID).Return(nil)
 
@@ -191,22 +192,24 @@ func TestDeleteSecret_WrongOwner(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	secretID := uuid.New()
-	ownerID := uuid.New()
-
-	stored := &model.Secret{ID: secretID, UserID: ownerID}
+	callerID := uuid.New()
 
 	repo := &testutils.MockSecretRepository{}
 	crypto := &testutils.MockCryptographyService{}
 	ver := &testutils.MockVersioningService{}
 	tag := &testutils.MockTagService{}
 
-	repo.On("Read", ctx, secretID).Return(stored, nil)
+	// A non-owner's scoped read finds no matching row, same as the SQL
+	// predicate excluding it; the access check happens at the scoped read,
+	// not via a separate Go-level ownership comparison.
+	repo.On("ReadScoped", ctx, secretID, model.NewOwnerScope(uuid.Nil, callerID)).
+		Return(nil, errors.New("secret not found or access denied"))
 
 	svc := newService(repo, crypto, ver, tag, t)
-	err := svc.DeleteSecret(ctx, secretID, uuid.New())
+	err := svc.DeleteSecret(ctx, secretID, callerID)
 
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "access denied")
+	assert.ErrorIs(t, err, secrets.ErrSecretNotFound)
 }
 
 // --- UpdateSecret ---
@@ -353,7 +356,7 @@ func TestListSecrets_DecryptsAndLoadsTags(t *testing.T) {
 	ver := &testutils.MockVersioningService{}
 	tag := &testutils.MockTagService{}
 
-	repo.On("ListByUser", ctx, userID, []string(nil)).Return(stored, nil)
+	repo.On("ListScoped", ctx, model.NewOwnerScope(uuid.Nil, userID), repositories.SecretFilter{Tags: nil}).Return(stored, nil)
 	crypto.On("DecryptSecret", "enc-a").Return("plain-a", nil)
 	crypto.On("DecryptSecret", "enc-b").Return("plain-b", nil)
 	tag.On("GetTags", ctx, id1).Return([]string{"x"}, nil)
@@ -529,7 +532,7 @@ func TestExportSecrets_VaultScoped_UsesListSecretsInVault(t *testing.T) {
 	tag := &testutils.MockTagService{}
 
 	stored := []model.Secret{{ID: uuid.New(), VaultID: vaultID, Name: "s1", Value: "enc-v1"}}
-	repo.On("ListInVault", ctx, vaultID, []string(nil)).Return(stored, nil)
+	repo.On("ListScoped", ctx, model.NewVaultScope(vaultID, uuid.Nil), repositories.SecretFilter{Tags: nil}).Return(stored, nil)
 	crypto.On("DecryptSecret", "enc-v1").Return("plain-v1", nil)
 	tag.On("GetTags", ctx, stored[0].ID).Return([]string{}, nil)
 

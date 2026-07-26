@@ -28,6 +28,46 @@ func NewRetrySecretService(baseService secrets.SecretService, retryService Retry
 	}
 }
 
+// GetSecretScoped retrieves a scoped secret with retry logic.
+func (s *retrySecretService) GetSecretScoped(ctx context.Context, secretID uuid.UUID, scope model.Scope) (*model.Secret, error) {
+	var result *model.Secret
+	var err error
+	retryErr := s.retryService.ExecuteDatabaseOperation(ctx, func() error {
+		result, err = s.baseService.GetSecretScoped(ctx, secretID, scope)
+		return err
+	})
+	return result, retryErr
+}
+
+// ListSecretsScoped lists scoped secrets with retry logic.
+func (s *retrySecretService) ListSecretsScoped(ctx context.Context, scope model.Scope, tags []string) ([]model.Secret, error) {
+	var result []model.Secret
+	var err error
+	retryErr := s.retryService.ExecuteDatabaseOperation(ctx, func() error {
+		result, err = s.baseService.ListSecretsScoped(ctx, scope, tags)
+		return err
+	})
+	return result, retryErr
+}
+
+// DeleteSecretScoped deletes a scoped secret with retry logic.
+func (s *retrySecretService) DeleteSecretScoped(ctx context.Context, secretID uuid.UUID, scope model.Scope) error {
+	return s.retryService.ExecuteDatabaseOperation(ctx, func() error {
+		return s.baseService.DeleteSecretScoped(ctx, secretID, scope)
+	})
+}
+
+// ListDeletedSecretsScoped lists scoped deleted secrets with retry logic.
+func (s *retrySecretService) ListDeletedSecretsScoped(ctx context.Context, scope model.Scope) ([]model.Secret, error) {
+	var result []model.Secret
+	var err error
+	retryErr := s.retryService.ExecuteDatabaseOperation(ctx, func() error {
+		result, err = s.baseService.ListDeletedSecretsScoped(ctx, scope)
+		return err
+	})
+	return result, retryErr
+}
+
 // CreateSecret creates a secret with retry logic for database operations
 func (s *retrySecretService) CreateSecret(ctx context.Context, req secrets.CreateSecretRequest) (*model.Secret, error) {
 	var result *model.Secret

@@ -30,34 +30,38 @@ func NewCachedSecretService(secretService secrets.SecretService, cache *SecretCa
 	}
 }
 
-// GetSecret retrieves a secret, using cache when available.
+// GetSecret retrieves a secret. Caching is disabled here from Phase 3 until
+// Phase 5 lands the compound scopeCacheKey.
 func (s *CachedSecretService) GetSecret(ctx context.Context, secretID uuid.UUID, userID uuid.UUID) (*model.Secret, error) {
-	// Try cache first
-	if cached, found := s.cache.Get(ctx, secretID); found {
-		// Verify the cached secret belongs to the requesting user and is
-		// still accessible (a secret can expire or be disabled while cached).
-		if cached.UserID == userID && cached.IsAccessible() {
-			s.logger.WithFields(logrus.Fields{
-				"secret_id": secretID,
-				"user_id":   userID,
-			}).Debug("Cache hit for secret")
-			return cached, nil
-		}
-	}
+	return s.secretService.GetSecret(ctx, secretID, userID)
+}
 
-	// Cache miss - get from service
-	secret, err := s.secretService.GetSecret(ctx, secretID, userID)
-	if err != nil {
-		return nil, err
-	}
+// GetSecretScoped retrieves a scoped secret. Caching is deliberately disabled
+// here until Phase 5 introduces the compound scopeCacheKey: an ID-keyed cache
+// would serve an owner-scoped caller a value admitted under a vault scope.
+func (s *CachedSecretService) GetSecretScoped(ctx context.Context, secretID uuid.UUID, scope model.Scope) (*model.Secret, error) {
+	return s.secretService.GetSecretScoped(ctx, secretID, scope)
+}
 
-	// Cache the result
-	if err := s.cache.Set(ctx, secret); err != nil {
-		s.logger.WithError(err).Warn("Failed to cache secret")
-		// Don't fail the operation if caching fails
-	}
+// ListSecretsScoped lists scoped secrets (not cached).
+func (s *CachedSecretService) ListSecretsScoped(ctx context.Context, scope model.Scope, tags []string) ([]model.Secret, error) {
+	return s.secretService.ListSecretsScoped(ctx, scope, tags)
+}
 
-	return secret, nil
+// DeleteSecretScoped soft-deletes a scoped secret and evicts it from cache.
+func (s *CachedSecretService) DeleteSecretScoped(ctx context.Context, secretID uuid.UUID, scope model.Scope) error {
+	if err := s.secretService.DeleteSecretScoped(ctx, secretID, scope); err != nil {
+		return err
+	}
+	if err := s.cache.Delete(ctx, secretID); err != nil {
+		s.logger.WithError(err).Warn("Failed to remove deleted secret from cache")
+	}
+	return nil
+}
+
+// ListDeletedSecretsScoped lists scoped soft-deleted secrets (not cached).
+func (s *CachedSecretService) ListDeletedSecretsScoped(ctx context.Context, scope model.Scope) ([]model.Secret, error) {
+	return s.secretService.ListDeletedSecretsScoped(ctx, scope)
 }
 
 // CreateSecret creates a new secret and updates cache.

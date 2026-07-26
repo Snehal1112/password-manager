@@ -22,6 +22,10 @@ import (
 type mockSecretService struct {
 	// per-call return values
 	getSecretFn                     func(ctx context.Context, secretID, userID uuid.UUID) (*model.Secret, error)
+	getSecretScopedFn               func(ctx context.Context, secretID uuid.UUID, scope model.Scope) (*model.Secret, error)
+	listSecretsScopedFn             func(ctx context.Context, scope model.Scope, tags []string) ([]model.Secret, error)
+	deleteSecretScopedFn            func(ctx context.Context, secretID uuid.UUID, scope model.Scope) error
+	listDeletedSecretsScopedFn      func(ctx context.Context, scope model.Scope) ([]model.Secret, error)
 	createSecretFn                  func(ctx context.Context, req secrets.CreateSecretRequest) (*model.Secret, error)
 	updateSecretFn                  func(ctx context.Context, req secrets.UpdateSecretRequest) error
 	updateSecretInVaultFn           func(ctx context.Context, req secrets.UpdateSecretRequest) error
@@ -47,6 +51,34 @@ var _ secrets.SecretService = (*mockSecretService)(nil)
 func (m *mockSecretService) GetSecret(ctx context.Context, secretID, userID uuid.UUID) (*model.Secret, error) {
 	if m.getSecretFn != nil {
 		return m.getSecretFn(ctx, secretID, userID)
+	}
+	return nil, errors.New("not implemented")
+}
+
+func (m *mockSecretService) GetSecretScoped(ctx context.Context, secretID uuid.UUID, scope model.Scope) (*model.Secret, error) {
+	if m.getSecretScopedFn != nil {
+		return m.getSecretScopedFn(ctx, secretID, scope)
+	}
+	return nil, errors.New("not implemented")
+}
+
+func (m *mockSecretService) ListSecretsScoped(ctx context.Context, scope model.Scope, tags []string) ([]model.Secret, error) {
+	if m.listSecretsScopedFn != nil {
+		return m.listSecretsScopedFn(ctx, scope, tags)
+	}
+	return nil, errors.New("not implemented")
+}
+
+func (m *mockSecretService) DeleteSecretScoped(ctx context.Context, secretID uuid.UUID, scope model.Scope) error {
+	if m.deleteSecretScopedFn != nil {
+		return m.deleteSecretScopedFn(ctx, secretID, scope)
+	}
+	return errors.New("not implemented")
+}
+
+func (m *mockSecretService) ListDeletedSecretsScoped(ctx context.Context, scope model.Scope) ([]model.Secret, error) {
+	if m.listDeletedSecretsScopedFn != nil {
+		return m.listDeletedSecretsScopedFn(ctx, scope)
 	}
 	return nil, errors.New("not implemented")
 }
@@ -216,13 +248,19 @@ func TestNewCachedSecretService(t *testing.T) {
 // GetSecret
 // ---------------------------------------------------------------------------
 
-func TestCachedSecretService_GetSecret_CacheMiss_ThenHit(t *testing.T) {
+// Re-enabled in Phase 5. Caching on GetSecret is deliberately disabled from
+// Phase 3 (see CachedSecretService.GetSecret) until the compound
+// scopeCacheKey lands, so every call is a pass-through to the base service
+// rather than a cache hit.
+func TestCachedSecretService_GetSecret_PassesThroughEveryCall(t *testing.T) {
 	ctx := context.Background()
 	userID := uuid.New()
 	secret := makeSecret(userID)
 
+	callCount := 0
 	svc := &mockSecretService{
 		getSecretFn: func(_ context.Context, sid, uid uuid.UUID) (*model.Secret, error) {
+			callCount++
 			assert.Equal(t, secret.ID, sid)
 			assert.Equal(t, userID, uid)
 			return secret, nil
@@ -232,21 +270,16 @@ func TestCachedSecretService_GetSecret_CacheMiss_ThenHit(t *testing.T) {
 	logger := newTestLogger()
 	cached := NewCachedSecretService(svc, c, logger)
 
-	// First call — cache miss, delegates to base service.
+	// First call — delegates to base service.
 	got, err := cached.GetSecret(ctx, secret.ID, userID)
 	require.NoError(t, err)
 	assert.Equal(t, secret.ID, got.ID)
 
-	// Second call — cache hit, base service NOT called again.
-	callCount := 0
-	svc.getSecretFn = func(_ context.Context, _, _ uuid.UUID) (*model.Secret, error) {
-		callCount++
-		return nil, errors.New("should not be called")
-	}
+	// Second call — still delegates to base service; caching is off.
 	got2, err := cached.GetSecret(ctx, secret.ID, userID)
 	require.NoError(t, err)
 	assert.Equal(t, secret.ID, got2.ID)
-	assert.Equal(t, 0, callCount)
+	assert.Equal(t, 2, callCount, "GetSecret must pass through to the base service on every call while caching is disabled")
 }
 
 // ---------------------------------------------------------------------------

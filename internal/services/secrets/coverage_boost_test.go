@@ -13,6 +13,7 @@ import (
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 
+	"rocketvault/internal/repositories"
 	"rocketvault/internal/services/secrets"
 	"rocketvault/internal/testutils"
 	"rocketvault/model"
@@ -461,7 +462,7 @@ func TestSecretServiceVaultScopedOperations(t *testing.T) {
 	tag := &testutils.MockTagService{}
 	svc := newService(repo, crypto, ver, tag, t)
 
-	repo.On("ReadInVault", ctx, secretID, vaultID).Return(&model.Secret{
+	repo.On("ReadScoped", ctx, secretID, model.NewVaultScope(vaultID, uuid.Nil)).Return(&model.Secret{
 		ID:      secretID,
 		UserID:  userID,
 		VaultID: vaultID,
@@ -477,7 +478,7 @@ func TestSecretServiceVaultScopedOperations(t *testing.T) {
 	assert.Equal(t, "plain", got.Value)
 	assert.Equal(t, []string{"vault"}, got.Tags)
 
-	repo.On("ListInVault", ctx, vaultID, []string{"vault"}).Return([]model.Secret{{
+	repo.On("ListScoped", ctx, model.NewVaultScope(vaultID, uuid.Nil), repositories.SecretFilter{Tags: []string{"vault"}}).Return([]model.Secret{{
 		ID:      secretID,
 		UserID:  userID,
 		VaultID: vaultID,
@@ -493,7 +494,7 @@ func TestSecretServiceVaultScopedOperations(t *testing.T) {
 	require.Len(t, list, 1)
 	assert.Equal(t, "plain-list", list[0].Value)
 
-	repo.On("ReadInVault", ctx, secretID, vaultID).Return(&model.Secret{
+	repo.On("ReadScoped", ctx, secretID, model.NewVaultScope(vaultID, uuid.Nil)).Return(&model.Secret{
 		ID:      secretID,
 		UserID:  userID,
 		VaultID: vaultID,
@@ -603,7 +604,9 @@ func TestSecretServiceCoreErrorBranches(t *testing.T) {
 		tag := &testutils.MockTagService{}
 		svc := newService(repo, crypto, ver, tag, t)
 
-		repo.On("ReadByOwner", ctx, secretID, userID).Return(&model.Secret{
+		ownerScope := model.NewOwnerScope(uuid.Nil, userID)
+
+		repo.On("ReadScoped", ctx, secretID, ownerScope).Return(&model.Secret{
 			ID:      secretID,
 			UserID:  userID,
 			Value:   "encrypted",
@@ -613,7 +616,7 @@ func TestSecretServiceCoreErrorBranches(t *testing.T) {
 		_, err := svc.GetSecret(ctx, secretID, userID)
 		assert.ErrorContains(t, err, "failed to decrypt secret")
 
-		repo.On("ReadByOwner", ctx, secretID, userID).Return(&model.Secret{
+		repo.On("ReadScoped", ctx, secretID, ownerScope).Return(&model.Secret{
 			ID:      secretID,
 			UserID:  userID,
 			Value:   "encrypted",
@@ -624,7 +627,7 @@ func TestSecretServiceCoreErrorBranches(t *testing.T) {
 		_, err = svc.GetSecret(ctx, secretID, userID)
 		assert.ErrorContains(t, err, "failed to load tags")
 
-		repo.On("ReadByOwner", ctx, secretID, userID).Return(&model.Secret{
+		repo.On("ReadScoped", ctx, secretID, ownerScope).Return(&model.Secret{
 			ID:      secretID,
 			UserID:  userID,
 			Value:   "encrypted",
@@ -635,12 +638,12 @@ func TestSecretServiceCoreErrorBranches(t *testing.T) {
 		_, err = svc.GetSecret(ctx, secretID, userID)
 		assert.ErrorIs(t, err, secrets.ErrSecretLifecycleDenied)
 
-		repo.On("Read", ctx, secretID).Return(&model.Secret{ID: secretID, UserID: userID}, nil).Once()
+		repo.On("ReadScoped", ctx, secretID, ownerScope).Return(&model.Secret{ID: secretID, UserID: userID}, nil).Once()
 		tag.On("RemoveAllTags", ctx, secretID).Return(errors.New("tags failed")).Once()
 		err = svc.DeleteSecret(ctx, secretID, userID)
 		assert.ErrorContains(t, err, "failed to remove tags")
 
-		repo.On("Read", ctx, secretID).Return(&model.Secret{ID: secretID, UserID: userID}, nil).Once()
+		repo.On("ReadScoped", ctx, secretID, ownerScope).Return(&model.Secret{ID: secretID, UserID: userID}, nil).Once()
 		tag.On("RemoveAllTags", ctx, secretID).Return(nil).Once()
 		repo.On("SoftDelete", ctx, secretID).Return(errors.New("soft delete failed")).Once()
 		err = svc.DeleteSecret(ctx, secretID, userID)
@@ -664,7 +667,7 @@ func TestSecretServiceExportAndImport(t *testing.T) {
 	tag := &testutils.MockTagService{}
 	svc := newService(repo, crypto, ver, tag, t)
 
-	repo.On("ListByUser", ctx, userID, []string{"prod"}).Return([]model.Secret{{
+	repo.On("ListScoped", ctx, model.NewOwnerScope(uuid.Nil, userID), repositories.SecretFilter{Tags: []string{"prod"}}).Return([]model.Secret{{
 		ID:      secretID,
 		UserID:  userID,
 		Name:    "db",
@@ -684,7 +687,7 @@ func TestSecretServiceExportAndImport(t *testing.T) {
 	assert.Contains(t, string(jsonData), `"name": "db"`)
 	assert.Contains(t, string(jsonData), `"tags"`)
 
-	repo.On("ListByUser", ctx, userID, []string(nil)).Return([]model.Secret{{
+	repo.On("ListScoped", ctx, model.NewOwnerScope(uuid.Nil, userID), repositories.SecretFilter{Tags: nil}).Return([]model.Secret{{
 		ID:      secretID,
 		UserID:  userID,
 		Name:    "csv-db",

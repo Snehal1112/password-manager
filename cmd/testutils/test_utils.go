@@ -433,6 +433,35 @@ func (m *MockSecretService) GetSecret(ctx context.Context, secretID, userID uuid
 	return args.Get(0).(*model.Secret), args.Error(1)
 }
 
+func (m *MockSecretService) GetSecretScoped(ctx context.Context, secretID uuid.UUID, scope model.Scope) (*model.Secret, error) {
+	args := m.Called(ctx, secretID, scope)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).(*model.Secret), args.Error(1)
+}
+
+func (m *MockSecretService) ListSecretsScoped(ctx context.Context, scope model.Scope, tags []string) ([]model.Secret, error) {
+	args := m.Called(ctx, scope, tags)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).([]model.Secret), args.Error(1)
+}
+
+func (m *MockSecretService) DeleteSecretScoped(ctx context.Context, secretID uuid.UUID, scope model.Scope) error {
+	args := m.Called(ctx, secretID, scope)
+	return args.Error(0)
+}
+
+func (m *MockSecretService) ListDeletedSecretsScoped(ctx context.Context, scope model.Scope) ([]model.Secret, error) {
+	args := m.Called(ctx, scope)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).([]model.Secret), args.Error(1)
+}
+
 func (m *MockSecretService) UpdateSecret(ctx context.Context, req secretServices.UpdateSecretRequest) error {
 	args := m.Called(ctx, req)
 	return args.Error(0)

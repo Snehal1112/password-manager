@@ -114,6 +114,15 @@ type ImportResult struct {
 // while maintaining proper separation of concerns.
 type SecretService interface {
 	CreateSecret(ctx context.Context, req CreateSecretRequest) (*model.Secret, error)
+	// GetSecretScoped retrieves a decrypted secret authorized by scope.
+	// Canonical; GetSecret and GetSecretInVault are shims over it.
+	GetSecretScoped(ctx context.Context, secretID uuid.UUID, scope model.Scope) (*model.Secret, error)
+	// ListSecretsScoped lists decrypted secrets authorized by scope.
+	ListSecretsScoped(ctx context.Context, scope model.Scope, tags []string) ([]model.Secret, error)
+	// DeleteSecretScoped soft-deletes a secret authorized by scope.
+	DeleteSecretScoped(ctx context.Context, secretID uuid.UUID, scope model.Scope) error
+	// ListDeletedSecretsScoped lists soft-deleted secrets authorized by scope.
+	ListDeletedSecretsScoped(ctx context.Context, scope model.Scope) ([]model.Secret, error)
 	UpdateSecret(ctx context.Context, req UpdateSecretRequest) error
 	// UpdateSecretInVault updates a secret scoped to a vault. Any vault
 	// member may update any secret in the vault (no ownership check).
@@ -467,6 +476,113 @@ func (s *secretService) UpdateSecretInVault(ctx context.Context, req UpdateSecre
 	return nil
 }
 
+// GetSecretScoped retrieves a secret authorized by scope, decrypts it, loads
+// its tags, and enforces the lifecycle policy. The scoped read is the access
+// check — there is no separate in-Go ownership comparison.
+func (s *secretService) GetSecretScoped(ctx context.Context, secretID uuid.UUID, scope model.Scope) (*model.Secret, error) {
+	actor := scope.ActorID().String()
+
+	secret, err := s.secretRepo.ReadScoped(ctx, secretID, scope)
+	if err != nil {
+		s.logger.LogAuditError(actor, "get_secret", "failed", "Secret not found or access denied", err)
+		return nil, fmt.Errorf("%w", ErrSecretNotFound)
+	}
+
+	decryptedValue, err := s.cryptoService.DecryptSecret(secret.Value)
+	if err != nil {
+		s.logger.LogAuditError(actor, "get_secret", "failed", "Failed to decrypt secret", err)
+		return nil, fmt.Errorf("failed to decrypt secret: %w", err)
+	}
+	secret.Value = decryptedValue
+
+	tags, err := s.tagService.GetTags(ctx, secretID)
+	if err != nil {
+		s.logger.LogAuditError(actor, "get_secret", "failed", "Failed to load tags", err)
+		return nil, fmt.Errorf("failed to load tags: %w", err)
+	}
+	secret.Tags = tags
+
+	if !secret.IsAccessible() {
+		s.logger.LogAuditError(actor, "get_secret", "denied", "Secret is disabled or outside its valid time window", nil)
+		return nil, fmt.Errorf("%w", ErrSecretLifecycleDenied)
+	}
+
+	return secret, nil
+}
+
+// ListSecretsScoped lists secrets authorized by scope, decrypting values and
+// loading tags for each.
+func (s *secretService) ListSecretsScoped(ctx context.Context, scope model.Scope, tags []string) ([]model.Secret, error) {
+	actor := scope.ActorID().String()
+
+	secretList, err := s.secretRepo.ListScoped(ctx, scope, repositories.SecretFilter{Tags: tags})
+	if err != nil {
+		s.logger.LogAuditError(actor, "list_secrets", "failed", "Failed to list secrets", err)
+		return nil, fmt.Errorf("failed to list secrets: %w", err)
+	}
+
+	for i := range secretList {
+		secret := &secretList[i]
+
+		decryptedValue, decErr := s.cryptoService.DecryptSecret(secret.Value)
+		if decErr != nil {
+			s.logger.LogAuditError(actor, "list_secrets", "failed", "Failed to decrypt secret", decErr)
+			return nil, fmt.Errorf("failed to decrypt secret %s: %w", secret.ID.String(), decErr)
+		}
+		secret.Value = decryptedValue
+
+		secretTags, tagErr := s.tagService.GetTags(ctx, secret.ID)
+		if tagErr != nil {
+			s.logger.LogAuditError(actor, "list_secrets", "failed", "Failed to load tags", tagErr)
+			return nil, fmt.Errorf("failed to load tags for secret %s: %w", secret.ID.String(), tagErr)
+		}
+		secret.Tags = secretTags
+	}
+
+	logrus.WithFields(logrus.Fields{
+		"scope":        scope.String(),
+		"secret_count": len(secretList),
+	}).Debug("Listed secrets")
+
+	return secretList, nil
+}
+
+// DeleteSecretScoped soft-deletes a secret authorized by scope. The scoped read
+// is the access check.
+func (s *secretService) DeleteSecretScoped(ctx context.Context, secretID uuid.UUID, scope model.Scope) error {
+	actor := scope.ActorID().String()
+
+	secret, err := s.secretRepo.ReadScoped(ctx, secretID, scope)
+	if err != nil {
+		s.logger.LogAuditError(actor, "delete_secret", "failed", "Secret not found or access denied", err)
+		return fmt.Errorf("%w: %s", ErrSecretNotFound, err.Error())
+	}
+
+	if err := s.tagService.RemoveAllTags(ctx, secretID); err != nil {
+		s.logger.LogAuditError(actor, "delete_secret", "failed", "Failed to remove tags", err)
+		return fmt.Errorf("failed to remove tags: %w", err)
+	}
+
+	if err := s.secretRepo.SoftDelete(ctx, secretID); err != nil {
+		s.logger.LogAuditError(actor, "delete_secret", "failed", "Failed to soft delete secret", err)
+		return fmt.Errorf("failed to soft delete secret: %w", err)
+	}
+
+	s.logger.LogAuditInfo(actor, "delete_secret", "success", fmt.Sprintf("Secret soft deleted: %s", secret.Name))
+	return nil
+}
+
+// ListDeletedSecretsScoped lists soft-deleted secrets authorized by scope. The
+// filter runs in SQL rather than pulling every secret into memory to discard
+// most of them.
+func (s *secretService) ListDeletedSecretsScoped(ctx context.Context, scope model.Scope) ([]model.Secret, error) {
+	secretList, err := s.secretRepo.ListScoped(ctx, scope, repositories.SecretFilter{OnlyDeleted: true})
+	if err != nil {
+		return nil, fmt.Errorf("failed to list deleted secrets: %w", err)
+	}
+	return secretList, nil
+}
+
 // GetSecret retrieves a secret by ID with decryption and tag loading.
 //
 // Parameters:
@@ -478,37 +594,10 @@ func (s *secretService) UpdateSecretInVault(ctx context.Context, req UpdateSecre
 // Returns:
 //
 //	The decrypted secret or an error if retrieval fails.
+//
+// Deprecated: shim over GetSecretScoped; removed in Phase 6.
 func (s *secretService) GetSecret(ctx context.Context, secretID, userID uuid.UUID) (*model.Secret, error) {
-	// Ownership is enforced at the SQL level via ReadByOwner.
-	secret, err := s.secretRepo.ReadByOwner(ctx, secretID, userID)
-	if err != nil {
-		s.logger.LogAuditError(userID.String(), "get_secret", "failed", "Secret not found or access denied", err)
-		return nil, fmt.Errorf("%w", ErrSecretNotFound)
-	}
-
-	// Decrypt value.
-	decryptedValue, err := s.cryptoService.DecryptSecret(secret.Value)
-	if err != nil {
-		s.logger.LogAuditError(userID.String(), "get_secret", "failed", "Failed to decrypt secret", err)
-		return nil, fmt.Errorf("failed to decrypt secret: %w", err)
-	}
-	secret.Value = decryptedValue
-
-	// Load tags.
-	tags, err := s.tagService.GetTags(ctx, secretID)
-	if err != nil {
-		s.logger.LogAuditError(userID.String(), "get_secret", "failed", "Failed to load tags", err)
-		return nil, fmt.Errorf("failed to load tags: %w", err)
-	}
-	secret.Tags = tags
-
-	// Enforce lifecycle policy at the service boundary.
-	if !secret.IsAccessible() {
-		s.logger.LogAuditError(userID.String(), "get_secret", "denied", "Secret is disabled or outside its valid time window", nil)
-		return nil, fmt.Errorf("%w", ErrSecretLifecycleDenied)
-	}
-
-	return secret, nil
+	return s.GetSecretScoped(ctx, secretID, model.NewOwnerScope(uuid.Nil, userID))
 }
 
 // ListSecrets retrieves all secrets for a user with optional tag filtering.
@@ -522,41 +611,10 @@ func (s *secretService) GetSecret(ctx context.Context, secretID, userID uuid.UUI
 // Returns:
 //
 //	A slice of decrypted secrets or an error if retrieval fails.
+//
+// Deprecated: shim over ListSecretsScoped; removed in Phase 6.
 func (s *secretService) ListSecrets(ctx context.Context, userID uuid.UUID, tags []string) ([]model.Secret, error) {
-	// Get secrets from repository
-	secretList, err := s.secretRepo.ListByUser(ctx, userID, tags)
-	if err != nil {
-		s.logger.LogAuditError(userID.String(), "list_secrets", "failed", "Failed to list secrets", err)
-		return nil, fmt.Errorf("failed to list secrets: %w", err)
-	}
-
-	// Decrypt values and load tags for each secret
-	for i := range secretList {
-		secret := &secretList[i]
-
-		// Decrypt value
-		decryptedValue, err := s.cryptoService.DecryptSecret(secret.Value)
-		if err != nil {
-			s.logger.LogAuditError(userID.String(), "list_secrets", "failed", "Failed to decrypt secret", err)
-			return nil, fmt.Errorf("failed to decrypt secret %s: %w", secret.ID.String(), err)
-		}
-		secret.Value = decryptedValue
-
-		// Load tags
-		secretTags, err := s.tagService.GetTags(ctx, secret.ID)
-		if err != nil {
-			s.logger.LogAuditError(userID.String(), "list_secrets", "failed", "Failed to load tags", err)
-			return nil, fmt.Errorf("failed to load tags for secret %s: %w", secret.ID.String(), err)
-		}
-		secret.Tags = secretTags
-	}
-
-	logrus.WithFields(logrus.Fields{
-		"user_id":      userID.String(),
-		"secret_count": len(secretList),
-	}).Debug("Listed secrets for user")
-
-	return secretList, nil
+	return s.ListSecretsScoped(ctx, model.NewOwnerScope(uuid.Nil, userID), tags)
 }
 
 // DeleteSecret removes a secret and its associated data.
@@ -570,140 +628,42 @@ func (s *secretService) ListSecrets(ctx context.Context, userID uuid.UUID, tags 
 // Returns:
 //
 //	An error if deletion fails.
+//
+// Deprecated: shim over DeleteSecretScoped; removed in Phase 6.
 func (s *secretService) DeleteSecret(ctx context.Context, secretID, userID uuid.UUID) error {
-	// Verify secret exists and ownership
-	secret, err := s.secretRepo.Read(ctx, secretID)
-	if err != nil {
-		s.logger.LogAuditError(userID.String(), "delete_secret", "failed", "Secret not found", err)
-		return fmt.Errorf("secret not found: %w", err)
-	}
-
-	if secret.UserID != userID {
-		s.logger.LogAuditError(userID.String(), "delete_secret", "failed", "Access denied", nil)
-		return fmt.Errorf("access denied")
-	}
-
-	// Remove all tags first
-	if err := s.tagService.RemoveAllTags(ctx, secretID); err != nil {
-		s.logger.LogAuditError(userID.String(), "delete_secret", "failed", "Failed to remove tags", err)
-		return fmt.Errorf("failed to remove tags: %w", err)
-	}
-
-	// Soft delete secret via repository (instead of hard delete)
-	if err := s.secretRepo.SoftDelete(ctx, secretID); err != nil {
-		s.logger.LogAuditError(userID.String(), "delete_secret", "failed", "Failed to soft delete secret", err)
-		return fmt.Errorf("failed to soft delete secret: %w", err)
-	}
-
-	s.logger.LogAuditInfo(userID.String(), "delete_secret", "success",
-		fmt.Sprintf("Secret soft deleted: %s", secret.Name))
-	logrus.WithFields(logrus.Fields{
-		"secret_id": secretID.String(),
-		"user_id":   userID.String(),
-	}).Info("Secret soft deleted successfully")
-
-	return nil
+	return s.DeleteSecretScoped(ctx, secretID, model.NewOwnerScope(uuid.Nil, userID))
 }
 
 // GetSecretInVault retrieves a secret by ID scoped to a vault, with decryption
 // and tag loading. It mirrors GetSecret but enforces vault scope at the SQL
 // level via ReadInVault instead of ownership.
+//
+// Deprecated: shim over GetSecretScoped; removed in Phase 6.
 func (s *secretService) GetSecretInVault(ctx context.Context, secretID, vaultID uuid.UUID) (*model.Secret, error) {
-	secret, err := s.secretRepo.ReadInVault(ctx, secretID, vaultID)
-	if err != nil {
-		s.logger.LogAuditError("", "get_secret", "failed", "Secret not found or not in vault", err)
-		return nil, fmt.Errorf("%w", ErrSecretNotFound)
-	}
-
-	// Decrypt value.
-	decryptedValue, err := s.cryptoService.DecryptSecret(secret.Value)
-	if err != nil {
-		s.logger.LogAuditError("", "get_secret", "failed", "Failed to decrypt secret", err)
-		return nil, fmt.Errorf("failed to decrypt secret: %w", err)
-	}
-	secret.Value = decryptedValue
-
-	// Load tags.
-	tags, err := s.tagService.GetTags(ctx, secretID)
-	if err != nil {
-		s.logger.LogAuditError("", "get_secret", "failed", "Failed to load tags", err)
-		return nil, fmt.Errorf("failed to load tags: %w", err)
-	}
-	secret.Tags = tags
-
-	// Enforce lifecycle policy at the service boundary.
-	if !secret.IsAccessible() {
-		s.logger.LogAuditError("", "get_secret", "denied", "Secret is disabled or outside its valid time window", nil)
-		return nil, fmt.Errorf("%w", ErrSecretLifecycleDenied)
-	}
-
-	return secret, nil
+	return s.GetSecretScoped(ctx, secretID, model.NewVaultScope(vaultID, uuid.Nil))
 }
 
 // ListSecretsInVault retrieves all active secrets in a vault with optional tag
 // filtering. It mirrors ListSecrets but scopes by vault instead of user.
+//
+// Deprecated: shim over ListSecretsScoped; removed in Phase 6.
 func (s *secretService) ListSecretsInVault(ctx context.Context, vaultID uuid.UUID, tags []string) ([]model.Secret, error) {
-	secretList, err := s.secretRepo.ListInVault(ctx, vaultID, tags)
-	if err != nil {
-		s.logger.LogAuditError("", "list_secrets", "failed", "Failed to list secrets", err)
-		return nil, fmt.Errorf("failed to list secrets: %w", err)
-	}
-
-	for i := range secretList {
-		secret := &secretList[i]
-
-		decryptedValue, err := s.cryptoService.DecryptSecret(secret.Value)
-		if err != nil {
-			s.logger.LogAuditError("", "list_secrets", "failed", "Failed to decrypt secret", err)
-			return nil, fmt.Errorf("failed to decrypt secret %s: %w", secret.ID.String(), err)
-		}
-		secret.Value = decryptedValue
-
-		secretTags, err := s.tagService.GetTags(ctx, secret.ID)
-		if err != nil {
-			s.logger.LogAuditError("", "list_secrets", "failed", "Failed to load tags", err)
-			return nil, fmt.Errorf("failed to load tags for secret %s: %w", secret.ID.String(), err)
-		}
-		secret.Tags = secretTags
-	}
-
-	logrus.WithFields(logrus.Fields{
-		"vault_id":     vaultID.String(),
-		"secret_count": len(secretList),
-	}).Debug("Listed secrets for vault")
-
-	return secretList, nil
+	return s.ListSecretsScoped(ctx, model.NewVaultScope(vaultID, uuid.Nil), tags)
 }
 
 // DeleteSecretInVault soft-deletes a secret scoped to a vault. It mirrors
 // DeleteSecret but verifies vault scope via ReadInVault instead of ownership.
+//
+// Deprecated: shim over DeleteSecretScoped; removed in Phase 6.
 func (s *secretService) DeleteSecretInVault(ctx context.Context, secretID, vaultID uuid.UUID) error {
-	secret, err := s.secretRepo.ReadInVault(ctx, secretID, vaultID)
-	if err != nil {
-		s.logger.LogAuditError("", "delete_secret", "failed", "Secret not found or not in vault", err)
-		return fmt.Errorf("%w: %s", ErrSecretNotFound, err.Error())
-	}
+	return s.DeleteSecretScoped(ctx, secretID, model.NewVaultScope(vaultID, uuid.Nil))
+}
 
-	// Remove all tags first.
-	if err := s.tagService.RemoveAllTags(ctx, secretID); err != nil {
-		s.logger.LogAuditError("", "delete_secret", "failed", "Failed to remove tags", err)
-		return fmt.Errorf("failed to remove tags: %w", err)
-	}
-
-	// Soft delete secret via repository.
-	if err := s.secretRepo.SoftDelete(ctx, secretID); err != nil {
-		s.logger.LogAuditError("", "delete_secret", "failed", "Failed to soft delete secret", err)
-		return fmt.Errorf("failed to soft delete secret: %w", err)
-	}
-
-	s.logger.LogAuditInfo("", "delete_secret", "success",
-		fmt.Sprintf("Secret soft deleted: %s", secret.Name))
-	logrus.WithFields(logrus.Fields{
-		"secret_id": secretID.String(),
-		"vault_id":  vaultID.String(),
-	}).Info("Secret soft deleted successfully")
-
-	return nil
+// ListDeletedSecretsInVault lists soft-deleted secrets scoped to a vault.
+//
+// Deprecated: shim over ListDeletedSecretsScoped; removed in Phase 6.
+func (s *secretService) ListDeletedSecretsInVault(ctx context.Context, vaultID uuid.UUID) ([]model.Secret, error) {
+	return s.ListDeletedSecretsScoped(ctx, model.NewVaultScope(vaultID, uuid.Nil))
 }
 
 // GetSecretVersions retrieves all versions of a secret.
