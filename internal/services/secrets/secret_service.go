@@ -86,14 +86,16 @@ type GenerateSecretRequest struct {
 // ExportSecretsRequest represents a request to export secrets.
 type ExportSecretsRequest struct {
 	UserID      uuid.UUID
-	Format      string   // "json" or "csv"
-	FilterTags  []string // Optional tag filter
-	IncludeTags bool     // Include tags in export
+	VaultID     uuid.UUID // Set only for vault-scoped export; zero value exports by owner.
+	Format      string    // "json" or "csv"
+	FilterTags  []string  // Optional tag filter
+	IncludeTags bool      // Include tags in export
 }
 
 // ImportSecretsRequest represents a request to import secrets.
 type ImportSecretsRequest struct {
 	UserID    uuid.UUID
+	VaultID   uuid.UUID // Set only for vault-scoped import; zero value uses CreateSecret's default-vault fallback.
 	Data      []byte
 	Format    string // "json" or "csv"
 	Overwrite bool   // Overwrite existing secrets with same name
@@ -893,7 +895,13 @@ func (s *secretService) ExportSecrets(ctx context.Context, req ExportSecretsRequ
 	}
 
 	// List secrets with optional tag filter
-	secrets, err := s.ListSecrets(ctx, req.UserID, req.FilterTags)
+	var secretsList []model.Secret
+	var err error
+	if req.VaultID != uuid.Nil {
+		secretsList, err = s.ListSecretsInVault(ctx, req.VaultID, req.FilterTags)
+	} else {
+		secretsList, err = s.ListSecrets(ctx, req.UserID, req.FilterTags)
+	}
 	if err != nil {
 		s.logger.LogAuditError(req.UserID.String(), "export_secrets", "failed", "Failed to list secrets", err)
 		return nil, fmt.Errorf("failed to list secrets: %w", err)
@@ -908,8 +916,8 @@ func (s *secretService) ExportSecrets(ctx context.Context, req ExportSecretsRequ
 			Tags  []string `json:"tags,omitempty"`
 		}
 
-		exportData := make([]exportSecret, len(secrets))
-		for i, secret := range secrets {
+		exportData := make([]exportSecret, len(secretsList))
+		for i, secret := range secretsList {
 			exportData[i] = exportSecret{
 				Name:  secret.Name,
 				Value: secret.Value,
@@ -929,7 +937,7 @@ func (s *secretService) ExportSecrets(ctx context.Context, req ExportSecretsRequ
 		var csvData string
 		if req.IncludeTags {
 			csvData = "name,value,tags\n"
-			for _, secret := range secrets {
+			for _, secret := range secretsList {
 				tags := ""
 				if len(secret.Tags) > 0 {
 					tags = fmt.Sprintf(`"%s"`, strings.Join(secret.Tags, ","))
@@ -938,7 +946,7 @@ func (s *secretService) ExportSecrets(ctx context.Context, req ExportSecretsRequ
 			}
 		} else {
 			csvData = "name,value\n"
-			for _, secret := range secrets {
+			for _, secret := range secretsList {
 				csvData += fmt.Sprintf(`"%s","%s"`+"\n", secret.Name, secret.Value)
 			}
 		}
@@ -946,11 +954,11 @@ func (s *secretService) ExportSecrets(ctx context.Context, req ExportSecretsRequ
 	}
 
 	s.logger.LogAuditInfo(req.UserID.String(), "export_secrets", "success",
-		fmt.Sprintf("Exported %d secrets in %s format", len(secrets), req.Format))
+		fmt.Sprintf("Exported %d secrets in %s format", len(secretsList), req.Format))
 	logrus.WithFields(logrus.Fields{
 		"user_id":      req.UserID.String(),
 		"format":       req.Format,
-		"secret_count": len(secrets),
+		"secret_count": len(secretsList),
 	}).Info("Secrets exported successfully")
 
 	return data, nil
@@ -1035,10 +1043,11 @@ func (s *secretService) ImportSecrets(ctx context.Context, req ImportSecretsRequ
 		}
 
 		createReq := CreateSecretRequest{
-			UserID: req.UserID,
-			Name:   importSec.Name,
-			Value:  importSec.Value,
-			Tags:   importSec.Tags,
+			UserID:  req.UserID,
+			VaultID: req.VaultID,
+			Name:    importSec.Name,
+			Value:   importSec.Value,
+			Tags:    importSec.Tags,
 		}
 
 		if _, err := s.CreateSecret(ctx, createReq); err != nil {

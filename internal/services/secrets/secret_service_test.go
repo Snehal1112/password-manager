@@ -515,3 +515,61 @@ func TestGenerateSecret_DefaultsToDefaultVault(t *testing.T) {
 		"generated secret without a vault must default to the default vault")
 	repo.AssertExpectations(t)
 }
+
+// --- ExportSecrets / ImportSecrets ---
+
+func TestExportSecrets_VaultScoped_UsesListSecretsInVault(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	vaultID := uuid.New()
+
+	repo := &testutils.MockSecretRepository{}
+	crypto := &testutils.MockCryptographyService{}
+	ver := &testutils.MockVersioningService{}
+	tag := &testutils.MockTagService{}
+
+	stored := []model.Secret{{ID: uuid.New(), VaultID: vaultID, Name: "s1", Value: "enc-v1"}}
+	repo.On("ListInVault", ctx, vaultID, []string(nil)).Return(stored, nil)
+	crypto.On("DecryptSecret", "enc-v1").Return("plain-v1", nil)
+	tag.On("GetTags", ctx, stored[0].ID).Return([]string{}, nil)
+
+	svc := newService(repo, crypto, ver, tag, t)
+	data, err := svc.ExportSecrets(ctx, secrets.ExportSecretsRequest{
+		UserID:  uuid.New(),
+		VaultID: vaultID,
+		Format:  "json",
+	})
+
+	require.NoError(t, err)
+	require.Contains(t, string(data), "plain-v1")
+	repo.AssertExpectations(t)
+}
+
+func TestImportSecrets_VaultScoped_ThreadsVaultIDIntoCreatedSecrets(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	vaultID := uuid.New()
+
+	repo := &testutils.MockSecretRepository{}
+	crypto := &testutils.MockCryptographyService{}
+	ver := &testutils.MockVersioningService{}
+	tag := &testutils.MockTagService{}
+
+	crypto.On("EncryptSecret", "v1").Return("enc-v1", nil)
+	repo.On("Create", ctx, mock.MatchedBy(func(s *model.Secret) bool {
+		return s.VaultID == vaultID && s.Name == "n1"
+	})).Return(nil)
+
+	svc := newService(repo, crypto, ver, tag, t)
+	data := []byte(`[{"name":"n1","value":"v1"}]`)
+	result, err := svc.ImportSecrets(ctx, secrets.ImportSecretsRequest{
+		UserID:  uuid.New(),
+		VaultID: vaultID,
+		Data:    data,
+		Format:  "json",
+	})
+
+	require.NoError(t, err)
+	require.Equal(t, 1, result.ImportedCount)
+	repo.AssertExpectations(t)
+}
