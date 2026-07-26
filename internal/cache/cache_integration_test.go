@@ -195,6 +195,7 @@ func makeSecret(userID uuid.UUID) *model.Secret {
 		Value:     "encrypted-value",
 		Version:   1,
 		CreatedAt: time.Now(),
+		Enabled:   true, // accessible by default; individual tests override as needed.
 	}
 }
 
@@ -303,6 +304,30 @@ func TestCachedSecretService_GetSecret_CacheHitWrongUser(t *testing.T) {
 	_, err := cached.GetSecret(ctx, secret.ID, otherID)
 	assert.Error(t, err)
 	assert.Equal(t, 1, fetchCount, "base service should have been called for wrong-user cache hit")
+}
+
+func TestCachedSecretService_GetSecret_CacheHitInaccessible_FallsThrough(t *testing.T) {
+	ctx := context.Background()
+	userID := uuid.New()
+	secret := makeSecret(userID)
+	secret.Enabled = false // disabled while cached
+
+	c := newTestCache(t)
+	require.NoError(t, c.Set(ctx, secret))
+
+	fetchCount := 0
+	svc := &mockSecretService{
+		getSecretFn: func(_ context.Context, _, _ uuid.UUID) (*model.Secret, error) {
+			fetchCount++
+			return nil, errors.New("secret is disabled or outside its valid time window")
+		},
+	}
+	logger := newTestLogger()
+	cached := NewCachedSecretService(svc, c, logger)
+
+	_, err := cached.GetSecret(ctx, secret.ID, userID)
+	assert.Error(t, err)
+	assert.Equal(t, 1, fetchCount, "a disabled cached secret must fall through to the base service, not be served from cache")
 }
 
 func TestCachedSecretService_GetSecret_BaseServiceError(t *testing.T) {

@@ -34,8 +34,9 @@ func NewCachedSecretService(secretService secrets.SecretService, cache *SecretCa
 func (s *CachedSecretService) GetSecret(ctx context.Context, secretID uuid.UUID, userID uuid.UUID) (*model.Secret, error) {
 	// Try cache first
 	if cached, found := s.cache.Get(ctx, secretID); found {
-		// Verify the cached secret belongs to the requesting user
-		if cached.UserID == userID {
+		// Verify the cached secret belongs to the requesting user and is
+		// still accessible (a secret can expire or be disabled while cached).
+		if cached.UserID == userID && cached.IsAccessible() {
 			s.logger.WithFields(logrus.Fields{
 				"secret_id": secretID,
 				"user_id":   userID,
