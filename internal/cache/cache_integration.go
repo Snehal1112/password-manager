@@ -159,6 +159,21 @@ func (s *CachedSecretService) GetLatestSecretVersion(ctx context.Context, secret
 	return s.secretService.GetLatestSecretVersion(ctx, secretID, userID)
 }
 
+// GetSecretVersionsInVault retrieves all versions of a secret scoped to a vault.
+func (s *CachedSecretService) GetSecretVersionsInVault(ctx context.Context, secretID, vaultID uuid.UUID) ([]model.SecretVersion, error) {
+	return s.secretService.GetSecretVersionsInVault(ctx, secretID, vaultID)
+}
+
+// GetSecretVersionInVault retrieves a specific version of a secret scoped to a vault.
+func (s *CachedSecretService) GetSecretVersionInVault(ctx context.Context, secretID uuid.UUID, version int, vaultID uuid.UUID) (*model.SecretVersion, error) {
+	return s.secretService.GetSecretVersionInVault(ctx, secretID, version, vaultID)
+}
+
+// GetLatestSecretVersionInVault retrieves the latest version of a secret scoped to a vault.
+func (s *CachedSecretService) GetLatestSecretVersionInVault(ctx context.Context, secretID, vaultID uuid.UUID) (*model.SecretVersion, error) {
+	return s.secretService.GetLatestSecretVersionInVault(ctx, secretID, vaultID)
+}
+
 // GenerateSecret generates a secret and caches it.
 func (s *CachedSecretService) GenerateSecret(ctx context.Context, req secrets.GenerateSecretRequest) (*model.Secret, error) {
 	// Generate through underlying service

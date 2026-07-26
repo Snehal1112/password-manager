@@ -160,6 +160,45 @@ func (s *retrySecretService) GetLatestSecretVersion(ctx context.Context, secretI
 	return result, retryErr
 }
 
+// GetSecretVersionsInVault retrieves vault-scoped secret versions with retry logic for database operations
+func (s *retrySecretService) GetSecretVersionsInVault(ctx context.Context, secretID, vaultID uuid.UUID) ([]model.SecretVersion, error) {
+	var result []model.SecretVersion
+	var err error
+
+	retryErr := s.retryService.ExecuteDatabaseOperation(ctx, func() error {
+		result, err = s.baseService.GetSecretVersionsInVault(ctx, secretID, vaultID)
+		return err
+	})
+
+	return result, retryErr
+}
+
+// GetSecretVersionInVault retrieves a specific vault-scoped secret version with retry logic for database operations
+func (s *retrySecretService) GetSecretVersionInVault(ctx context.Context, secretID uuid.UUID, version int, vaultID uuid.UUID) (*model.SecretVersion, error) {
+	var result *model.SecretVersion
+	var err error
+
+	retryErr := s.retryService.ExecuteDatabaseOperation(ctx, func() error {
+		result, err = s.baseService.GetSecretVersionInVault(ctx, secretID, version, vaultID)
+		return err
+	})
+
+	return result, retryErr
+}
+
+// GetLatestSecretVersionInVault retrieves the latest vault-scoped secret version with retry logic for database operations
+func (s *retrySecretService) GetLatestSecretVersionInVault(ctx context.Context, secretID, vaultID uuid.UUID) (*model.SecretVersion, error) {
+	var result *model.SecretVersion
+	var err error
+
+	retryErr := s.retryService.ExecuteDatabaseOperation(ctx, func() error {
+		result, err = s.baseService.GetLatestSecretVersionInVault(ctx, secretID, vaultID)
+		return err
+	})
+
+	return result, retryErr
+}
+
 // GenerateSecret generates a secret with retry logic for database operations
 func (s *retrySecretService) GenerateSecret(ctx context.Context, req secrets.GenerateSecretRequest) (*model.Secret, error) {
 	var result *model.Secret

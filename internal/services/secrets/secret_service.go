@@ -131,6 +131,9 @@ type SecretService interface {
 	GetSecretVersions(ctx context.Context, secretID uuid.UUID, userID uuid.UUID) ([]model.SecretVersion, error)
 	GetSecretVersion(ctx context.Context, secretID uuid.UUID, version int, userID uuid.UUID) (*model.SecretVersion, error)
 	GetLatestSecretVersion(ctx context.Context, secretID uuid.UUID, userID uuid.UUID) (*model.SecretVersion, error)
+	GetSecretVersionsInVault(ctx context.Context, secretID, vaultID uuid.UUID) ([]model.SecretVersion, error)
+	GetSecretVersionInVault(ctx context.Context, secretID uuid.UUID, version int, vaultID uuid.UUID) (*model.SecretVersion, error)
+	GetLatestSecretVersionInVault(ctx context.Context, secretID, vaultID uuid.UUID) (*model.SecretVersion, error)
 }
 
 // secretService implements SecretService by coordinating multiple services.
@@ -739,6 +742,21 @@ func (s *secretService) GetSecretVersion(ctx context.Context, secretID uuid.UUID
 //	The latest secret version or an error if not found.
 func (s *secretService) GetLatestSecretVersion(ctx context.Context, secretID uuid.UUID, userID uuid.UUID) (*model.SecretVersion, error) {
 	return s.versionService.GetLatestVersion(ctx, secretID, userID)
+}
+
+// GetSecretVersionsInVault retrieves all versions of a secret scoped to a vault.
+func (s *secretService) GetSecretVersionsInVault(ctx context.Context, secretID, vaultID uuid.UUID) ([]model.SecretVersion, error) {
+	return s.versionService.GetVersionsInVault(ctx, secretID, vaultID)
+}
+
+// GetSecretVersionInVault retrieves a specific version of a secret scoped to a vault.
+func (s *secretService) GetSecretVersionInVault(ctx context.Context, secretID uuid.UUID, version int, vaultID uuid.UUID) (*model.SecretVersion, error) {
+	return s.versionService.GetVersionInVault(ctx, secretID, version, vaultID)
+}
+
+// GetLatestSecretVersionInVault retrieves the latest version of a secret scoped to a vault.
+func (s *secretService) GetLatestSecretVersionInVault(ctx context.Context, secretID, vaultID uuid.UUID) (*model.SecretVersion, error) {
+	return s.versionService.GetLatestVersionInVault(ctx, secretID, vaultID)
 }
 
 // GenerateSecret generates a random password or secret with specified criteria.

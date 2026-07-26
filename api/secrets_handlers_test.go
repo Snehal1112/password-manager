@@ -141,6 +141,27 @@ func (m *mockSecretService) GetLatestSecretVersion(ctx context.Context, secretID
 	return args.Get(0).(*model.SecretVersion), args.Error(1)
 }
 
+func (m *mockSecretService) GetSecretVersionsInVault(ctx context.Context, secretID, vaultID uuid.UUID) ([]model.SecretVersion, error) {
+	args := m.Called(ctx, secretID, vaultID)
+	return args.Get(0).([]model.SecretVersion), args.Error(1)
+}
+
+func (m *mockSecretService) GetSecretVersionInVault(ctx context.Context, secretID uuid.UUID, version int, vaultID uuid.UUID) (*model.SecretVersion, error) {
+	args := m.Called(ctx, secretID, version, vaultID)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).(*model.SecretVersion), args.Error(1)
+}
+
+func (m *mockSecretService) GetLatestSecretVersionInVault(ctx context.Context, secretID, vaultID uuid.UUID) (*model.SecretVersion, error) {
+	args := m.Called(ctx, secretID, vaultID)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).(*model.SecretVersion), args.Error(1)
+}
+
 // --- secretSvcTestContainer ---
 
 type secretSvcTestContainer struct {
