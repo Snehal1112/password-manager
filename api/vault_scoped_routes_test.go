@@ -151,6 +151,12 @@ func (s *recordingSecretService) GetSecretVersionInVault(context.Context, uuid.U
 func (s *recordingSecretService) GetLatestSecretVersionInVault(context.Context, uuid.UUID, uuid.UUID) (*model.SecretVersion, error) {
 	panic("unexpected")
 }
+func (s *recordingSecretService) RecoverSecretScoped(context.Context, uuid.UUID, model.Scope) error {
+	panic("unexpected")
+}
+func (s *recordingSecretService) PurgeSecretScoped(context.Context, uuid.UUID, model.Scope) error {
+	panic("unexpected")
+}
 
 // vaultResolutionTestMiddleware mimics middleware.VaultResolutionMiddleware
 // for this lightweight test harness, which does not wire the full

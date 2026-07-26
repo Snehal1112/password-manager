@@ -150,6 +150,10 @@ type SecretService interface {
 	GetSecretVersionsInVault(ctx context.Context, secretID, vaultID uuid.UUID) ([]model.SecretVersion, error)
 	GetSecretVersionInVault(ctx context.Context, secretID uuid.UUID, version int, vaultID uuid.UUID) (*model.SecretVersion, error)
 	GetLatestSecretVersionInVault(ctx context.Context, secretID, vaultID uuid.UUID) (*model.SecretVersion, error)
+	// RecoverSecretScoped restores a soft-deleted secret authorized by scope.
+	RecoverSecretScoped(ctx context.Context, secretID uuid.UUID, scope model.Scope) error
+	// PurgeSecretScoped permanently deletes a soft-deleted secret authorized by scope.
+	PurgeSecretScoped(ctx context.Context, secretID uuid.UUID, scope model.Scope) error
 }
 
 // secretService implements SecretService by coordinating multiple services.
@@ -903,6 +907,76 @@ func (s *secretService) ImportSecrets(ctx context.Context, req ImportSecretsRequ
 	}).Info("Secrets import completed")
 
 	return result, nil
+}
+
+// softDeletedInScope reports whether secretID names a soft-deleted secret the
+// scope authorizes. It replaces the handler-level IsSecretSoftDeleted* checks,
+// which used a different scope from the mutation that followed them.
+func (s *secretService) softDeletedInScope(ctx context.Context, secretID uuid.UUID, scope model.Scope) (bool, error) {
+	deleted, err := s.secretRepo.ListScoped(ctx, scope, repositories.SecretFilter{OnlyDeleted: true})
+	if err != nil {
+		return false, fmt.Errorf("failed to list deleted secrets: %w", err)
+	}
+	for _, secret := range deleted {
+		if secret.ID == secretID {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
+// RecoverSecretScoped restores a soft-deleted secret authorized by scope.
+func (s *secretService) RecoverSecretScoped(ctx context.Context, secretID uuid.UUID, scope model.Scope) error {
+	inScope, err := s.softDeletedInScope(ctx, secretID, scope)
+	if err != nil {
+		return err
+	}
+	if !inScope {
+		s.logger.LogAuditError(scope.ActorID().String(), "recover_secret", "failed",
+			"Secret not found in deleted state within scope", nil)
+		return fmt.Errorf("%w", ErrSecretNotFound)
+	}
+	if err := s.secretRepo.RecoverSecret(ctx, secretID); err != nil {
+		return fmt.Errorf("failed to recover secret: %w", err)
+	}
+	return nil
+}
+
+// PurgeSecretScoped permanently deletes a soft-deleted secret authorized by scope.
+func (s *secretService) PurgeSecretScoped(ctx context.Context, secretID uuid.UUID, scope model.Scope) error {
+	inScope, err := s.softDeletedInScope(ctx, secretID, scope)
+	if err != nil {
+		return err
+	}
+	if !inScope {
+		s.logger.LogAuditError(scope.ActorID().String(), "purge_secret", "failed",
+			"Secret not found in deleted state within scope", nil)
+		return fmt.Errorf("%w", ErrSecretNotFound)
+	}
+	if err := s.secretRepo.PurgeSecret(ctx, secretID); err != nil {
+		return fmt.Errorf("failed to purge secret: %w", err)
+	}
+	return nil
+}
+
+// Deprecated: shim over softDeletedInScope; removed in Phase 6.
+func (s *secretService) IsSecretSoftDeletedInVault(ctx context.Context, secretID, vaultID uuid.UUID) (bool, error) {
+	return s.softDeletedInScope(ctx, secretID, model.NewVaultScope(vaultID, uuid.Nil))
+}
+
+// Deprecated: shim over softDeletedInScope; removed in Phase 6.
+func (s *secretService) IsSecretSoftDeletedForUser(ctx context.Context, secretID, userID uuid.UUID) (bool, error) {
+	return s.softDeletedInScope(ctx, secretID, model.NewOwnerScope(uuid.Nil, userID))
+}
+
+// Deprecated: shim over RecoverSecretScoped; removed in Phase 6.
+func (s *secretService) RecoverSecret(ctx context.Context, secretID uuid.UUID) error {
+	return s.RecoverSecretScoped(ctx, secretID, model.NewAdminScope(uuid.Nil))
+}
+
+// Deprecated: shim over PurgeSecretScoped; removed in Phase 6.
+func (s *secretService) PurgeSecret(ctx context.Context, secretID uuid.UUID) error {
+	return s.PurgeSecretScoped(ctx, secretID, model.NewAdminScope(uuid.Nil))
 }
 
 // parseCSVLine parses a CSV line handling quoted values.

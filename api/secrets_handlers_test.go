@@ -196,6 +196,16 @@ func (m *mockSecretService) GetLatestSecretVersionInVault(ctx context.Context, s
 	return args.Get(0).(*model.SecretVersion), args.Error(1)
 }
 
+func (m *mockSecretService) RecoverSecretScoped(ctx context.Context, secretID uuid.UUID, scope model.Scope) error {
+	args := m.Called(ctx, secretID, scope)
+	return args.Error(0)
+}
+
+func (m *mockSecretService) PurgeSecretScoped(ctx context.Context, secretID uuid.UUID, scope model.Scope) error {
+	args := m.Called(ctx, secretID, scope)
+	return args.Error(0)
+}
+
 // --- secretSvcTestContainer ---
 
 type secretSvcTestContainer struct {

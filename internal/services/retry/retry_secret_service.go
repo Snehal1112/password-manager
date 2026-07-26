@@ -284,3 +284,17 @@ func (s *retrySecretService) ImportSecrets(ctx context.Context, req secrets.Impo
 
 	return result, retryErr
 }
+
+// RecoverSecretScoped recovers a scoped soft-deleted secret with retry logic.
+func (s *retrySecretService) RecoverSecretScoped(ctx context.Context, secretID uuid.UUID, scope model.Scope) error {
+	return s.retryService.ExecuteDatabaseOperation(ctx, func() error {
+		return s.baseService.RecoverSecretScoped(ctx, secretID, scope)
+	})
+}
+
+// PurgeSecretScoped purges a scoped soft-deleted secret with retry logic.
+func (s *retrySecretService) PurgeSecretScoped(ctx context.Context, secretID uuid.UUID, scope model.Scope) error {
+	return s.retryService.ExecuteDatabaseOperation(ctx, func() error {
+		return s.baseService.PurgeSecretScoped(ctx, secretID, scope)
+	})
+}

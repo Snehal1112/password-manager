@@ -583,6 +583,16 @@ func (m *MockSecretService) ImportSecrets(ctx context.Context, req secretService
 	return args.Get(0).(*secretServices.ImportResult), args.Error(1)
 }
 
+func (m *MockSecretService) RecoverSecretScoped(ctx context.Context, secretID uuid.UUID, scope model.Scope) error {
+	args := m.Called(ctx, secretID, scope)
+	return args.Error(0)
+}
+
+func (m *MockSecretService) PurgeSecretScoped(ctx context.Context, secretID uuid.UUID, scope model.Scope) error {
+	args := m.Called(ctx, secretID, scope)
+	return args.Error(0)
+}
+
 // MockVaultService implements vaultServices.VaultService for testing.
 type MockVaultService struct {
 	mock.Mock

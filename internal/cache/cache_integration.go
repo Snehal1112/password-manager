@@ -242,6 +242,28 @@ func (s *CachedSecretService) ImportSecrets(ctx context.Context, req secrets.Imp
 	return result, nil
 }
 
+// RecoverSecretScoped recovers a scoped soft-deleted secret and evicts it from cache.
+func (s *CachedSecretService) RecoverSecretScoped(ctx context.Context, secretID uuid.UUID, scope model.Scope) error {
+	if err := s.secretService.RecoverSecretScoped(ctx, secretID, scope); err != nil {
+		return err
+	}
+	if err := s.cache.Delete(ctx, secretID); err != nil {
+		s.logger.WithError(err).Warn("Failed to invalidate cached secret")
+	}
+	return nil
+}
+
+// PurgeSecretScoped purges a scoped soft-deleted secret and evicts it from cache.
+func (s *CachedSecretService) PurgeSecretScoped(ctx context.Context, secretID uuid.UUID, scope model.Scope) error {
+	if err := s.secretService.PurgeSecretScoped(ctx, secretID, scope); err != nil {
+		return err
+	}
+	if err := s.cache.Delete(ctx, secretID); err != nil {
+		s.logger.WithError(err).Warn("Failed to remove purged secret from cache")
+	}
+	return nil
+}
+
 // GetCacheStats returns cache statistics for monitoring.
 func (s *CachedSecretService) GetCacheStats() map[string]interface{} {
 	return s.cache.GetStats()

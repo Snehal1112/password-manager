@@ -1187,6 +1187,102 @@ func (_c *MockSecretService_ListSecretsScoped_Call) RunAndReturn(run func(contex
 	return _c
 }
 
+// PurgeSecretScoped provides a mock function with given fields: ctx, secretID, scope
+func (_m *MockSecretService) PurgeSecretScoped(ctx context.Context, secretID uuid.UUID, scope model.Scope) error {
+	ret := _m.Called(ctx, secretID, scope)
+
+	if len(ret) == 0 {
+		panic("no return value specified for PurgeSecretScoped")
+	}
+
+	var r0 error
+	if rf, ok := ret.Get(0).(func(context.Context, uuid.UUID, model.Scope) error); ok {
+		r0 = rf(ctx, secretID, scope)
+	} else {
+		r0 = ret.Error(0)
+	}
+
+	return r0
+}
+
+// MockSecretService_PurgeSecretScoped_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'PurgeSecretScoped'
+type MockSecretService_PurgeSecretScoped_Call struct {
+	*mock.Call
+}
+
+// PurgeSecretScoped is a helper method to define mock.On call
+//   - ctx context.Context
+//   - secretID uuid.UUID
+//   - scope model.Scope
+func (_e *MockSecretService_Expecter) PurgeSecretScoped(ctx interface{}, secretID interface{}, scope interface{}) *MockSecretService_PurgeSecretScoped_Call {
+	return &MockSecretService_PurgeSecretScoped_Call{Call: _e.mock.On("PurgeSecretScoped", ctx, secretID, scope)}
+}
+
+func (_c *MockSecretService_PurgeSecretScoped_Call) Run(run func(ctx context.Context, secretID uuid.UUID, scope model.Scope)) *MockSecretService_PurgeSecretScoped_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(uuid.UUID), args[2].(model.Scope))
+	})
+	return _c
+}
+
+func (_c *MockSecretService_PurgeSecretScoped_Call) Return(_a0 error) *MockSecretService_PurgeSecretScoped_Call {
+	_c.Call.Return(_a0)
+	return _c
+}
+
+func (_c *MockSecretService_PurgeSecretScoped_Call) RunAndReturn(run func(context.Context, uuid.UUID, model.Scope) error) *MockSecretService_PurgeSecretScoped_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// RecoverSecretScoped provides a mock function with given fields: ctx, secretID, scope
+func (_m *MockSecretService) RecoverSecretScoped(ctx context.Context, secretID uuid.UUID, scope model.Scope) error {
+	ret := _m.Called(ctx, secretID, scope)
+
+	if len(ret) == 0 {
+		panic("no return value specified for RecoverSecretScoped")
+	}
+
+	var r0 error
+	if rf, ok := ret.Get(0).(func(context.Context, uuid.UUID, model.Scope) error); ok {
+		r0 = rf(ctx, secretID, scope)
+	} else {
+		r0 = ret.Error(0)
+	}
+
+	return r0
+}
+
+// MockSecretService_RecoverSecretScoped_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'RecoverSecretScoped'
+type MockSecretService_RecoverSecretScoped_Call struct {
+	*mock.Call
+}
+
+// RecoverSecretScoped is a helper method to define mock.On call
+//   - ctx context.Context
+//   - secretID uuid.UUID
+//   - scope model.Scope
+func (_e *MockSecretService_Expecter) RecoverSecretScoped(ctx interface{}, secretID interface{}, scope interface{}) *MockSecretService_RecoverSecretScoped_Call {
+	return &MockSecretService_RecoverSecretScoped_Call{Call: _e.mock.On("RecoverSecretScoped", ctx, secretID, scope)}
+}
+
+func (_c *MockSecretService_RecoverSecretScoped_Call) Run(run func(ctx context.Context, secretID uuid.UUID, scope model.Scope)) *MockSecretService_RecoverSecretScoped_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(uuid.UUID), args[2].(model.Scope))
+	})
+	return _c
+}
+
+func (_c *MockSecretService_RecoverSecretScoped_Call) Return(_a0 error) *MockSecretService_RecoverSecretScoped_Call {
+	_c.Call.Return(_a0)
+	return _c
+}
+
+func (_c *MockSecretService_RecoverSecretScoped_Call) RunAndReturn(run func(context.Context, uuid.UUID, model.Scope) error) *MockSecretService_RecoverSecretScoped_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // UpdateSecret provides a mock function with given fields: ctx, req
 func (_m *MockSecretService) UpdateSecret(ctx context.Context, req secrets.UpdateSecretRequest) error {
 	ret := _m.Called(ctx, req)

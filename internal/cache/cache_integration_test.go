@@ -44,6 +44,8 @@ type mockSecretService struct {
 	generateSecretFn                func(ctx context.Context, req secrets.GenerateSecretRequest) (*model.Secret, error)
 	exportSecretsFn                 func(ctx context.Context, req secrets.ExportSecretsRequest) ([]byte, error)
 	importSecretsFn                 func(ctx context.Context, req secrets.ImportSecretsRequest) (*secrets.ImportResult, error)
+	recoverSecretScopedFn           func(ctx context.Context, secretID uuid.UUID, scope model.Scope) error
+	purgeSecretScopedFn             func(ctx context.Context, secretID uuid.UUID, scope model.Scope) error
 }
 
 // compile-time check
@@ -208,6 +210,20 @@ func (m *mockSecretService) ImportSecrets(ctx context.Context, req secrets.Impor
 		return m.importSecretsFn(ctx, req)
 	}
 	return nil, errors.New("not implemented")
+}
+
+func (m *mockSecretService) RecoverSecretScoped(ctx context.Context, secretID uuid.UUID, scope model.Scope) error {
+	if m.recoverSecretScopedFn != nil {
+		return m.recoverSecretScopedFn(ctx, secretID, scope)
+	}
+	return errors.New("not implemented")
+}
+
+func (m *mockSecretService) PurgeSecretScoped(ctx context.Context, secretID uuid.UUID, scope model.Scope) error {
+	if m.purgeSecretScopedFn != nil {
+		return m.purgeSecretScopedFn(ctx, secretID, scope)
+	}
+	return errors.New("not implemented")
 }
 
 // ---------------------------------------------------------------------------

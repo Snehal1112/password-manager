@@ -321,6 +321,16 @@ func (m *MockSecretService) ImportSecrets(ctx context.Context, req secrets.Impor
 	return args.Get(0).(*secrets.ImportResult), args.Error(1)
 }
 
+func (m *MockSecretService) RecoverSecretScoped(ctx context.Context, secretID uuid.UUID, scope model.Scope) error {
+	args := m.Called(ctx, secretID, scope)
+	return args.Error(0)
+}
+
+func (m *MockSecretService) PurgeSecretScoped(ctx context.Context, secretID uuid.UUID, scope model.Scope) error {
+	args := m.Called(ctx, secretID, scope)
+	return args.Error(0)
+}
+
 // ---------------------------------------------------------------------------
 // MockSecretRepo (repositories.SecretRepositoryInterface)
 // ---------------------------------------------------------------------------

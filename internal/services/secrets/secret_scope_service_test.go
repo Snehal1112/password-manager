@@ -3,6 +3,7 @@ package secrets
 import (
 	"context"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/sirupsen/logrus"
@@ -50,6 +51,16 @@ func (m *MockSecretRepository) UpdateScoped(ctx context.Context, secret *model.S
 }
 
 func (m *MockSecretRepository) SoftDelete(ctx context.Context, id uuid.UUID) error {
+	args := m.Called(ctx, id)
+	return args.Error(0)
+}
+
+func (m *MockSecretRepository) RecoverSecret(ctx context.Context, id uuid.UUID) error {
+	args := m.Called(ctx, id)
+	return args.Error(0)
+}
+
+func (m *MockSecretRepository) PurgeSecret(ctx context.Context, id uuid.UUID) error {
 	args := m.Called(ctx, id)
 	return args.Error(0)
 }
@@ -296,5 +307,65 @@ func TestUpdateSecretLegacyShimsBuildTheRightScope(t *testing.T) {
 	repo.On("UpdateScoped", ctx, mock.Anything, vaultScope).Return(nil).Once()
 	require.NoError(t, svc.UpdateSecretInVault(ctx, UpdateSecretRequest{SecretID: secretID, UserID: userID, VaultID: vaultID}))
 
+	repo.AssertExpectations(t)
+}
+
+func TestRecoverSecretScopedRequiresTheSecretToBeInScope(t *testing.T) {
+	repo, svc := newScopeServiceFixture(t)
+	ctx := context.Background()
+
+	secretID := uuid.New()
+	scope := model.NewVaultScope(uuid.New(), uuid.New())
+
+	repo.On("ListScoped", ctx, scope, repositories.SecretFilter{OnlyDeleted: true}).
+		Return([]model.Secret{}, nil).Once()
+
+	err := svc.RecoverSecretScoped(ctx, secretID, scope)
+	assert.ErrorIs(t, err, ErrSecretNotFound)
+	repo.AssertNotCalled(t, "RecoverSecret", mock.Anything, mock.Anything)
+}
+
+func TestRecoverSecretScopedRecoversWhenInScope(t *testing.T) {
+	repo, svc := newScopeServiceFixture(t)
+	ctx := context.Background()
+
+	secretID := uuid.New()
+	scope := model.NewVaultScope(uuid.New(), uuid.New())
+	deletedAt := time.Now().UTC()
+
+	repo.On("ListScoped", ctx, scope, repositories.SecretFilter{OnlyDeleted: true}).
+		Return([]model.Secret{{ID: secretID, DeletedAt: &deletedAt}}, nil).Once()
+	repo.On("RecoverSecret", ctx, secretID).Return(nil).Once()
+
+	require.NoError(t, svc.RecoverSecretScoped(ctx, secretID, scope))
+	repo.AssertExpectations(t)
+}
+
+func TestPurgeSecretScopedRequiresTheSecretToBeInScope(t *testing.T) {
+	repo, svc := newScopeServiceFixture(t)
+	ctx := context.Background()
+
+	scope := model.NewOwnerScope(uuid.Nil, uuid.New())
+	repo.On("ListScoped", ctx, scope, repositories.SecretFilter{OnlyDeleted: true}).
+		Return([]model.Secret{}, nil).Once()
+
+	err := svc.PurgeSecretScoped(ctx, uuid.New(), scope)
+	assert.ErrorIs(t, err, ErrSecretNotFound)
+	repo.AssertNotCalled(t, "PurgeSecret", mock.Anything, mock.Anything)
+}
+
+func TestPurgeSecretScopedPurgesWhenInScope(t *testing.T) {
+	repo, svc := newScopeServiceFixture(t)
+	ctx := context.Background()
+
+	secretID := uuid.New()
+	scope := model.NewOwnerScope(uuid.Nil, uuid.New())
+	deletedAt := time.Now().UTC()
+
+	repo.On("ListScoped", ctx, scope, repositories.SecretFilter{OnlyDeleted: true}).
+		Return([]model.Secret{{ID: secretID, DeletedAt: &deletedAt}}, nil).Once()
+	repo.On("PurgeSecret", ctx, secretID).Return(nil).Once()
+
+	require.NoError(t, svc.PurgeSecretScoped(ctx, secretID, scope))
 	repo.AssertExpectations(t)
 }
