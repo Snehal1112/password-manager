@@ -58,8 +58,8 @@ func (m *mockRotationService) RemovePolicyFromSecret(ctx context.Context, secret
 	return m.Called(ctx, secretID, policyID, callerID).Error(0)
 }
 
-func (m *mockRotationService) GetSecretPolicies(ctx context.Context, secretID uuid.UUID) ([]model.RotationPolicy, error) {
-	args := m.Called(ctx, secretID)
+func (m *mockRotationService) GetSecretPolicies(ctx context.Context, secretID, userID uuid.UUID) ([]model.RotationPolicy, error) {
+	args := m.Called(ctx, secretID, userID)
 	return args.Get(0).([]model.RotationPolicy), args.Error(1)
 }
 
@@ -86,8 +86,8 @@ func (m *mockRotationService) GetUpcomingReminders(ctx context.Context, userID u
 	return args.Get(0).([]model.RotationReminder), args.Error(1)
 }
 
-func (m *mockRotationService) AcknowledgeReminder(ctx context.Context, reminderID uuid.UUID) error {
-	return m.Called(ctx, reminderID).Error(0)
+func (m *mockRotationService) AcknowledgeReminder(ctx context.Context, reminderID, secretID, userID uuid.UUID) error {
+	return m.Called(ctx, reminderID, secretID, userID).Error(0)
 }
 
 func TestRotationDeletePassesCallerID(t *testing.T) {

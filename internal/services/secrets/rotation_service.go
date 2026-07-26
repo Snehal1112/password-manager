@@ -28,7 +28,7 @@ type RotationServiceInterface interface {
 	// Secret-policy assignment
 	AssignPolicyToSecret(ctx context.Context, req AssignPolicyRequest) error
 	RemovePolicyFromSecret(ctx context.Context, secretID, policyID uuid.UUID, callerID uuid.UUID) error
-	GetSecretPolicies(ctx context.Context, secretID uuid.UUID) ([]model.RotationPolicy, error)
+	GetSecretPolicies(ctx context.Context, secretID, userID uuid.UUID) ([]model.RotationPolicy, error)
 
 	// Rotation operations
 	PerformManualRotation(ctx context.Context, req ManualRotationRequest) error
@@ -38,7 +38,11 @@ type RotationServiceInterface interface {
 	// Reminder management
 	CreateRotationReminder(ctx context.Context, req CreateReminderRequest) error
 	GetUpcomingReminders(ctx context.Context, userID uuid.UUID) ([]model.RotationReminder, error)
-	AcknowledgeReminder(ctx context.Context, reminderID uuid.UUID) error
+	// AcknowledgeReminder marks a reminder as acknowledged. secretID
+	// identifies the secret the reminder belongs to. userID enforces
+	// ownership before the update; pass uuid.Nil to skip the check
+	// (system/scheduler callers), mirroring KeyService.DeleteKeyInVault.
+	AcknowledgeReminder(ctx context.Context, reminderID, secretID, userID uuid.UUID) error
 }
 
 // CreatePolicyRequest represents the request to create a rotation policy.
@@ -335,8 +339,19 @@ func (s *rotationService) RemovePolicyFromSecret(ctx context.Context, secretID, 
 	return nil
 }
 
-// GetSecretPolicies gets all rotation policies assigned to a secret.
-func (s *rotationService) GetSecretPolicies(ctx context.Context, secretID uuid.UUID) ([]model.RotationPolicy, error) {
+// GetSecretPolicies gets all rotation policies assigned to a secret. userID
+// enforces ownership; pass uuid.Nil to skip the check (admin/system callers).
+func (s *rotationService) GetSecretPolicies(ctx context.Context, secretID, userID uuid.UUID) ([]model.RotationPolicy, error) {
+	if userID != uuid.Nil {
+		secret, err := s.secretRepo.Read(ctx, secretID)
+		if err != nil {
+			return nil, fmt.Errorf("secret not found: %w", err)
+		}
+		if secret.UserID != userID {
+			return nil, fmt.Errorf("user does not own this secret")
+		}
+	}
+
 	policies, err := s.rotationRepo.GetPoliciesForSecret(ctx, secretID)
 	if err != nil {
 		s.log.WithError(err).WithField("secret_id", secretID).Error("Failed to get secret policies")
@@ -493,10 +508,24 @@ func (s *rotationService) GetUpcomingReminders(ctx context.Context, userID uuid.
 	return reminders, nil
 }
 
-// AcknowledgeReminder marks a reminder as acknowledged.
-func (s *rotationService) AcknowledgeReminder(ctx context.Context, reminderID uuid.UUID) error {
-	// This would typically fetch the reminder first, then update it
-	// For simplicity, we'll create a reminder object with just the ID and acknowledged status
+// AcknowledgeReminder marks a reminder as acknowledged. secretID identifies
+// the secret the reminder belongs to; userID enforces ownership before the
+// update. Pass uuid.Nil for userID to skip the check (system/scheduler
+// callers).
+func (s *rotationService) AcknowledgeReminder(ctx context.Context, reminderID, secretID, userID uuid.UUID) error {
+	if userID != uuid.Nil {
+		secret, err := s.secretRepo.Read(ctx, secretID)
+		if err != nil {
+			return fmt.Errorf("secret not found: %w", err)
+		}
+		if secret.UserID != userID {
+			return fmt.Errorf("user does not own this secret")
+		}
+	}
+
+	// This would typically fetch the reminder first, then update it.
+	// For simplicity, we'll create a reminder object with just the ID and
+	// acknowledged status.
 	reminder := &model.RotationReminder{
 		ID:           reminderID,
 		Acknowledged: true,

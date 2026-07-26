@@ -66,8 +66,8 @@ func (m *MockRotationSvc) RemovePolicyFromSecret(ctx context.Context, sID, pID u
 	return args.Error(0)
 }
 
-func (m *MockRotationSvc) GetSecretPolicies(ctx context.Context, secretID uuid.UUID) ([]model.RotationPolicy, error) {
-	args := m.Called(ctx, secretID)
+func (m *MockRotationSvc) GetSecretPolicies(ctx context.Context, secretID, userID uuid.UUID) ([]model.RotationPolicy, error) {
+	args := m.Called(ctx, secretID, userID)
 	if args.Get(0) == nil {
 		return nil, args.Error(1)
 	}
@@ -107,7 +107,7 @@ func (m *MockRotationSvc) GetUpcomingReminders(ctx context.Context, userID uuid.
 	return args.Get(0).([]model.RotationReminder), args.Error(1)
 }
 
-func (m *MockRotationSvc) AcknowledgeReminder(ctx context.Context, reminderID uuid.UUID) error {
+func (m *MockRotationSvc) AcknowledgeReminder(ctx context.Context, reminderID, secretID, userID uuid.UUID) error {
 	return nil
 }
 

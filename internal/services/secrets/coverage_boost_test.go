@@ -288,8 +288,8 @@ func (m *mockRotationService) RemovePolicyFromSecret(ctx context.Context, secret
 	return m.Called(ctx, secretID, policyID, callerID).Error(0)
 }
 
-func (m *mockRotationService) GetSecretPolicies(ctx context.Context, secretID uuid.UUID) ([]model.RotationPolicy, error) {
-	args := m.Called(ctx, secretID)
+func (m *mockRotationService) GetSecretPolicies(ctx context.Context, secretID, userID uuid.UUID) ([]model.RotationPolicy, error) {
+	args := m.Called(ctx, secretID, userID)
 	if args.Get(0) == nil {
 		return nil, args.Error(1)
 	}
@@ -328,8 +328,8 @@ func (m *mockRotationService) GetUpcomingReminders(ctx context.Context, userID u
 	return args.Get(0).([]model.RotationReminder), args.Error(1)
 }
 
-func (m *mockRotationService) AcknowledgeReminder(ctx context.Context, reminderID uuid.UUID) error {
-	return m.Called(ctx, reminderID).Error(0)
+func (m *mockRotationService) AcknowledgeReminder(ctx context.Context, reminderID, secretID, userID uuid.UUID) error {
+	return m.Called(ctx, reminderID, secretID, userID).Error(0)
 }
 
 func TestTagServiceDelegatesAndHandlesEmptyInputs(t *testing.T) {
@@ -969,7 +969,7 @@ func TestRotationServiceAssignmentRotationAndReminders(t *testing.T) {
 
 	policies := []model.RotationPolicy{*policy}
 	repo.On("GetPoliciesForSecret", ctx, secretID).Return(policies, nil).Once()
-	gotPolicies, err := svc.GetSecretPolicies(ctx, secretID)
+	gotPolicies, err := svc.GetSecretPolicies(ctx, secretID, uuid.Nil)
 	require.NoError(t, err)
 	assert.Equal(t, policies, gotPolicies)
 
@@ -1018,7 +1018,7 @@ func TestRotationServiceAssignmentRotationAndReminders(t *testing.T) {
 	gotReminders, err := svc.GetUpcomingReminders(ctx, userID)
 	require.NoError(t, err)
 	assert.Equal(t, reminders, gotReminders)
-	require.NoError(t, svc.AcknowledgeReminder(ctx, reminders[0].ID))
+	require.NoError(t, svc.AcknowledgeReminder(ctx, reminders[0].ID, secretID, uuid.Nil))
 
 	err = svc.CreateRotationReminder(ctx, secrets.CreateReminderRequest{
 		SecretID:     secretID,
@@ -1120,7 +1120,7 @@ func TestRotationServiceErrorBranches(t *testing.T) {
 	assert.ErrorContains(t, err, "failed to remove policy")
 
 	repo.On("GetPoliciesForSecret", ctx, secretID).Return(nil, errors.New("policies failed")).Once()
-	_, err = svc.GetSecretPolicies(ctx, secretID)
+	_, err = svc.GetSecretPolicies(ctx, secretID, uuid.Nil)
 	assert.ErrorContains(t, err, "failed to get secret policies")
 
 	secretRepo.On("Read", ctx, secretID).Return(nil, errors.New("missing secret")).Once()
@@ -1159,7 +1159,7 @@ func TestRotationServiceErrorBranches(t *testing.T) {
 	assert.ErrorContains(t, err, "failed to get upcoming reminders")
 
 	repo.On("UpdateReminder", ctx, mock.AnythingOfType("*model.RotationReminder")).Return(errors.New("ack failed")).Once()
-	err = svc.AcknowledgeReminder(ctx, uuid.New())
+	err = svc.AcknowledgeReminder(ctx, uuid.New(), secretID, uuid.Nil)
 	assert.ErrorContains(t, err, "failed to acknowledge reminder")
 
 	repo.AssertExpectations(t)
@@ -1211,7 +1211,7 @@ func TestSchedulerServiceProcessesRotationsRemindersAndLifecycle(t *testing.T) {
 
 	reminders := []model.RotationReminder{{ID: reminderID, SecretID: secretID, PolicyID: policyID, ReminderType: model.ReminderUpcoming}}
 	rotationSvc.On("GetUpcomingReminders", ctx, userID).Return(reminders, nil).Once()
-	rotationSvc.On("AcknowledgeReminder", ctx, reminderID).Return(nil).Once()
+	rotationSvc.On("AcknowledgeReminder", ctx, reminderID, secretID, uuid.Nil).Return(nil).Once()
 	require.NoError(t, svc.ProcessUserReminders(ctx, userID))
 
 	manualReq := secrets.ManualSchedulerRotationRequest{SecretID: secretID, PolicyID: policyID, UserID: userID, Notes: "manual"}
