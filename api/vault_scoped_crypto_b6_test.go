@@ -177,3 +177,26 @@ func newB6TestAPI(repo *b6FakeKeyRepo) (*API, *vaultFakeRepo) {
 	api.InitKeys()
 	return api, vrepo
 }
+
+// TestB6_KeyDelete_NonOwnerVaultMember_Returns403 asserts that DELETE on the
+// vault-scoped key route is forbidden for a non-owner vault member, matching
+// the crypto operations tested above.
+func TestB6_KeyDelete_NonOwnerVaultMember_Returns403(t *testing.T) {
+	repo := newB6FakeKeyRepo()
+	ownerID := uuid.New()
+	vaultID := uuid.New()
+	keyID := uuid.New()
+	repo.keys[keyID] = &model.Key{
+		ID: keyID, UserID: ownerID, VaultID: vaultID,
+		Name: "k1", Type: "RSA", Value: "irrelevant", Enabled: true,
+	}
+
+	api, vrepo := newB6TestAPI(repo)
+	vrepo.byName["prod"] = &model.Vault{ID: vaultID, Name: "prod", Enabled: true}
+	vrepo.byID[vaultID.String()] = vrepo.byName["prod"]
+
+	w := doVaultRequest(api, http.MethodDelete, "/api/v1/vaults/prod/keys/"+keyID.String(), nil)
+	if w.Code != http.StatusForbidden {
+		t.Fatalf("DELETE non-owner key via vault route: expected 403, got %d (%s)", w.Code, w.Body.String())
+	}
+}

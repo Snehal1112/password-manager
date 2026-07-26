@@ -622,9 +622,12 @@ func deleteKey(c *Context, w http.ResponseWriter, r *http.Request) {
 	// Use service layer for deletion; userID enforces ownership within the vault.
 	deleted, err := keyService.DeleteKeyInVault(r.Context(), keyID, vaultID, userID)
 	if err != nil {
-		if errors.Is(err, keyservices.ErrKeyNotFound) {
+		switch {
+		case errors.Is(err, keyservices.ErrKeyNotFound):
 			c.SetNotFound("key")
-		} else {
+		case errors.Is(err, keyservices.ErrKeyForbidden):
+			c.SetPermissionError("key_access")
+		default:
 			c.SetInternalError(err)
 		}
 		return
