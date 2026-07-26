@@ -16,6 +16,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/gorilla/mux"
 	_ "github.com/mattn/go-sqlite3"
+	"github.com/stretchr/testify/mock"
 
 	"rocketvault/app"
 	rvdb "rocketvault/internal/db"
@@ -265,6 +266,94 @@ func newCrossVaultCertsTestAPI(t *testing.T) (*API, *vaultFakeRepo, repositories
 	api.InitVault()
 	api.InitCertificates()
 	return api, vrepo, certRepo
+}
+
+// TestCrossVaultDenial_CertificatePolicy_RealSQLite seeds a certificate (with
+// its policy sub-resource) in vault B and requests the policy via
+// /vaults/vault-a/certificates/{id}/policy, asserting 404 and that the
+// policy repository is never consulted.
+func TestCrossVaultDenial_CertificatePolicy_RealSQLite(t *testing.T) {
+	api, vrepo, certRepo, policyRepo := newCrossVaultCertPolicyTestAPI(t)
+	_, vaultBID := seedCrossVaultPair(vrepo)
+
+	certID := uuid.New()
+	if err := certRepo.Create(context.Background(), &model.Certificate{
+		ID: certID, UserID: uuid.New(), VaultID: vaultBID,
+		Name:        "tls-cert",
+		Certificate: "-----BEGIN CERTIFICATE-----\nMIItest\n-----END CERTIFICATE-----",
+		PrivateKey:  "encrypted-private-key",
+	}); err != nil {
+		t.Fatalf("seed certificate in vault B: %v", err)
+	}
+
+	w := doVaultRequest(api, http.MethodGet, "/api/v1/vaults/vault-a/certificates/"+certID.String()+"/policy", nil)
+	if w.Code != http.StatusNotFound {
+		t.Fatalf("cross-vault GET .../policy: expected 404, got %d (%s)", w.Code, w.Body.String())
+	}
+	policyRepo.AssertNotCalled(t, "GetByCertificateIDAny", mock.Anything, mock.Anything)
+}
+
+// newCrossVaultCertPolicyTestAPI wires the vault management routes and the
+// vault-scoped certificate + policy routes onto a real CertificateService
+// (real CertificateRepository over SQLite) and a mock certificate policy
+// repository, so the test can assert the policy repository is never
+// consulted once GetCertificateInVault denies the request.
+func newCrossVaultCertPolicyTestAPI(t *testing.T) (*API, *vaultFakeRepo, repositories.CertificateRepositoryInterface, *mockCertPolicyRepo) {
+	t.Helper()
+
+	sqlDB, err := sql.Open("sqlite3", ":memory:")
+	if err != nil {
+		t.Fatalf("open sqlite: %v", err)
+	}
+	t.Cleanup(func() { sqlDB.Close() })
+
+	_, err = sqlDB.Exec(`CREATE TABLE IF NOT EXISTS certificates (
+		id TEXT PRIMARY KEY,
+		user_id TEXT NOT NULL,
+		vault_id TEXT NOT NULL DEFAULT '00000000-0000-0000-0000-00000000efa1',
+		name TEXT NOT NULL,
+		certificate TEXT NOT NULL,
+		private_key TEXT NOT NULL,
+		created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+		deleted_at TIMESTAMP DEFAULT NULL,
+		purge_protection BOOLEAN NOT NULL DEFAULT FALSE,
+		scheduled_purge_at TIMESTAMP DEFAULT NULL,
+		expires_at TIMESTAMP,
+		auto_renew BOOLEAN NOT NULL DEFAULT FALSE,
+		renewal_days INTEGER NOT NULL DEFAULT 30,
+		key_id TEXT,
+		enabled BOOLEAN NOT NULL DEFAULT TRUE,
+		not_before TIMESTAMP NULL
+	)`)
+	if err != nil {
+		t.Fatalf("create certificates schema: %v", err)
+	}
+
+	certRepo := repositories.NewCertificateRepository(rvdb.NewConn(sqlDB, rvdb.SQLite), userTestLog())
+	certSvc := certServices.NewCertificateService(certServices.CertificateServiceConfig{
+		CertificateRepository: certRepo,
+		Logger:                userTestLog(),
+	})
+	policyRepo := &mockCertPolicyRepo{}
+
+	vrepo := newVaultFakeRepo()
+	vsvc := vaultServices.NewVaultService(vrepo, vaultNoopCascade{}, nil)
+	a := &app.App{ServiceContainer: &vaultSvcTestContainer{
+		vaultSvc: vsvc, certSvc: certSvc, certPolicyRepo: policyRepo, logger: userTestLog(),
+	}}
+	a.Logger = userTestLog()
+
+	router := mux.NewRouter()
+	api := &API{App: a, BaseRoutes: &Routes{}, basePath: "/api/v1", rootRouter: router, Logger: userTestLog()}
+	r := api.BaseRoutes
+	r.ApiRoot = router.PathPrefix("/api/v1").Subrouter()
+	r.Vaults = r.ApiRoot.PathPrefix("/vaults").Subrouter()
+	r.VaultScoped = r.Vaults.PathPrefix("/{vault_name:[a-z0-9-]+}").Subrouter()
+	r.VaultScoped.Use(vaultResolutionTestMiddleware(vrepo))
+	r.Certificates = r.ApiRoot.PathPrefix("/certificates").Subrouter()
+	api.InitVault()
+	api.InitCertificates()
+	return api, vrepo, certRepo, policyRepo
 }
 
 // seedCrossVaultPair seeds two enabled vaults ("vault-a", "vault-b") into
