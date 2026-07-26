@@ -154,15 +154,15 @@ func (r *SecretRepository) Create(ctx context.Context, secret *model.Secret) err
 //	The secret entity (with encrypted value) or an error if not found.
 func (r *SecretRepository) Read(ctx context.Context, id uuid.UUID) (*model.Secret, error) {
 	var secret model.Secret
-	var idStr, userIDStr string
+	var idStr, userIDStr, vaultIDStr string
 	var deletedAt *time.Time
 	var purgeProtection bool
 
 	err := r.db.QueryRowContext(
 		ctx,
-		"SELECT id, user_id, name, value, version, created_at, deleted_at, purge_protection, content_type, enabled, expires_at, not_before FROM secrets WHERE id = ? AND deleted_at IS NULL",
+		"SELECT id, user_id, vault_id, name, value, version, created_at, deleted_at, purge_protection, content_type, enabled, expires_at, not_before FROM secrets WHERE id = ? AND deleted_at IS NULL",
 		id.String(),
-	).Scan(&idStr, &userIDStr, &secret.Name, &secret.Value, &secret.Version, &secret.CreatedAt, &deletedAt, &purgeProtection, &secret.ContentType, &secret.Enabled, &secret.ExpiresAt, &secret.NotBefore)
+	).Scan(&idStr, &userIDStr, &vaultIDStr, &secret.Name, &secret.Value, &secret.Version, &secret.CreatedAt, &deletedAt, &purgeProtection, &secret.ContentType, &secret.Enabled, &secret.ExpiresAt, &secret.NotBefore)
 
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, fmt.Errorf("secret not found")
@@ -179,6 +179,11 @@ func (r *SecretRepository) Read(ctx context.Context, id uuid.UUID) (*model.Secre
 	secret.UserID, err = uuid.Parse(userIDStr)
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse user ID: %w", err)
+	}
+
+	secret.VaultID, err = uuid.Parse(vaultIDStr)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse vault ID: %w", err)
 	}
 
 	// Set soft delete fields.
@@ -202,15 +207,15 @@ func (r *SecretRepository) Read(ctx context.Context, id uuid.UUID) (*model.Secre
 //	The secret entity (with encrypted value) or an error if not found / access denied.
 func (r *SecretRepository) ReadByOwner(ctx context.Context, id, userID uuid.UUID) (*model.Secret, error) {
 	var secret model.Secret
-	var idStr, userIDStr string
+	var idStr, userIDStr, vaultIDStr string
 	var deletedAt *time.Time
 	var purgeProtection bool
 
 	err := r.db.QueryRowContext(
 		ctx,
-		"SELECT id, user_id, name, value, version, created_at, deleted_at, purge_protection, content_type, enabled, expires_at, not_before FROM secrets WHERE id = ? AND user_id = ? AND deleted_at IS NULL",
+		"SELECT id, user_id, vault_id, name, value, version, created_at, deleted_at, purge_protection, content_type, enabled, expires_at, not_before FROM secrets WHERE id = ? AND user_id = ? AND deleted_at IS NULL",
 		id.String(), userID.String(),
-	).Scan(&idStr, &userIDStr, &secret.Name, &secret.Value, &secret.Version, &secret.CreatedAt, &deletedAt, &purgeProtection, &secret.ContentType, &secret.Enabled, &secret.ExpiresAt, &secret.NotBefore)
+	).Scan(&idStr, &userIDStr, &vaultIDStr, &secret.Name, &secret.Value, &secret.Version, &secret.CreatedAt, &deletedAt, &purgeProtection, &secret.ContentType, &secret.Enabled, &secret.ExpiresAt, &secret.NotBefore)
 
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, fmt.Errorf("secret not found or access denied")
@@ -228,6 +233,11 @@ func (r *SecretRepository) ReadByOwner(ctx context.Context, id, userID uuid.UUID
 	secret.UserID, parseErr = uuid.Parse(userIDStr)
 	if parseErr != nil {
 		return nil, fmt.Errorf("failed to parse user ID: %w", parseErr)
+	}
+
+	secret.VaultID, parseErr = uuid.Parse(vaultIDStr)
+	if parseErr != nil {
+		return nil, fmt.Errorf("failed to parse vault ID: %w", parseErr)
 	}
 
 	// Set soft delete fields.

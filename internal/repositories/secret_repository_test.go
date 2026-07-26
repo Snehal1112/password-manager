@@ -456,3 +456,35 @@ func TestSecretRepository_UpdateInVault_AttributesOwnerNotVaultID(t *testing.T) 
 	assert.Empty(t, persister.actors,
 		"UpdateInVault must not emit its own audit rows; attribution is the service layer's job")
 }
+
+// TestSecretRepository_Read_PopulatesVaultID pins the prerequisite fix from the
+// P1 spec: Read and ReadByOwner must select vault_id, so a scope-aware write can
+// never be handed an entity with a zero VaultID.
+func TestSecretRepository_Read_PopulatesVaultID(t *testing.T) {
+	t.Parallel()
+	db := setupSecretTestDB(t)
+	repo := repositories.NewSecretRepository(rvdb.NewConn(db, rvdb.SQLite), newTestSecretLogger(t))
+	ctx := context.Background()
+
+	ownerID := uuid.New()
+	vaultID := uuid.New()
+	secret := &model.Secret{
+		ID:        uuid.New(),
+		UserID:    ownerID,
+		VaultID:   vaultID,
+		Name:      "vault-scoped-secret",
+		Value:     "encrypted-data",
+		Version:   1,
+		CreatedAt: time.Now().UTC(),
+		Enabled:   true,
+	}
+	require.NoError(t, repo.Create(ctx, secret))
+
+	byID, err := repo.Read(ctx, secret.ID)
+	require.NoError(t, err)
+	assert.Equal(t, vaultID, byID.VaultID, "Read must populate VaultID")
+
+	byOwner, err := repo.ReadByOwner(ctx, secret.ID, ownerID)
+	require.NoError(t, err)
+	assert.Equal(t, vaultID, byOwner.VaultID, "ReadByOwner must populate VaultID")
+}
