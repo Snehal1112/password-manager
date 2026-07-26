@@ -85,6 +85,7 @@ var unwrapCmd = &cobra.Command{
 		result, err := cryptoService.UnwrapKey(ctx, keyServices.UnwrapKeyRequest{
 			KeyID:      keyID,
 			UserID:     claims.UserID,
+			VaultID:    uuid.MustParse(model.DefaultVaultID),
 			WrappedKey: wrappedKey,
 			Algorithm:  "RSA-OAEP",
 		})

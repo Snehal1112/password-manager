@@ -1190,5 +1190,69 @@ func TestUnwrapCmd_ServiceError(t *testing.T) {
 	assert.ErrorContains(t, err, "unwrap failed")
 }
 
+func TestWrapCmd_SetsDefaultVaultID(t *testing.T) {
+	cryptoSvc := &keyCmdCryptoService{}
+	userID := uuid.New()
+	keyID := uuid.New()
+	plaintext := []byte("my-secret-key-material")
+	wrapped := []byte("wrapped-bytes")
+	cryptoSvc.On("WrapKey", mock.Anything, mock.MatchedBy(func(r keyServices.WrapKeyRequest) bool {
+		return r.VaultID == uuid.MustParse(model.DefaultVaultID)
+	})).Return(&keyServices.WrapKeyResult{WrappedKey: wrapped}, nil)
+
+	sc := &keysTestContainer{
+		MockServiceContainer: &testutils.MockServiceContainer{},
+		cryptoSvc:            cryptoSvc,
+	}
+	claims := &model.Claims{UserID: userID, Role: model.RoleAdmin}
+	ctx := context.WithValue(context.Background(), common.ClaimsKey, claims)
+	ctx = context.WithValue(ctx, common.LogKey, newLogger())
+	ctx = context.WithValue(ctx, common.ServiceContainerKey, sc)
+
+	cleanup := viperSet(map[string]interface{}{
+		"wrap-key-id":       keyID.String(),
+		"wrap-key-material": base64.StdEncoding.EncodeToString(plaintext),
+	})
+	defer cleanup()
+
+	cmd, _ := newTestCmd(wrapCmd.RunE, nil)
+	cmd.SetContext(ctx)
+	err := cmd.Execute()
+	assert.NoError(t, err)
+	cryptoSvc.AssertExpectations(t)
+}
+
+func TestUnwrapCmd_SetsDefaultVaultID(t *testing.T) {
+	cryptoSvc := &keyCmdCryptoService{}
+	userID := uuid.New()
+	keyID := uuid.New()
+	wrapped := []byte("wrapped-bytes")
+	plaintext := []byte("recovered-key-material")
+	cryptoSvc.On("UnwrapKey", mock.Anything, mock.MatchedBy(func(r keyServices.UnwrapKeyRequest) bool {
+		return r.VaultID == uuid.MustParse(model.DefaultVaultID)
+	})).Return(&keyServices.UnwrapKeyResult{PlaintextKey: plaintext}, nil)
+
+	sc := &keysTestContainer{
+		MockServiceContainer: &testutils.MockServiceContainer{},
+		cryptoSvc:            cryptoSvc,
+	}
+	claims := &model.Claims{UserID: userID, Role: model.RoleAdmin}
+	ctx := context.WithValue(context.Background(), common.ClaimsKey, claims)
+	ctx = context.WithValue(ctx, common.LogKey, newLogger())
+	ctx = context.WithValue(ctx, common.ServiceContainerKey, sc)
+
+	cleanup := viperSet(map[string]interface{}{
+		"unwrap-key-id":      keyID.String(),
+		"unwrap-wrapped-key": base64.StdEncoding.EncodeToString(wrapped),
+	})
+	defer cleanup()
+
+	cmd, _ := newTestCmd(unwrapCmd.RunE, nil)
+	cmd.SetContext(ctx)
+	err := cmd.Execute()
+	assert.NoError(t, err)
+	cryptoSvc.AssertExpectations(t)
+}
+
 // ---- verify unused imports are gone ----
 var _ io.Writer = (*bytes.Buffer)(nil)
