@@ -93,9 +93,19 @@ func (s *CachedSecretService) UpdateSecret(ctx context.Context, req secrets.Upda
 	return nil
 }
 
-// UpdateSecretInVault updates a vault-scoped secret (not cached).
+// UpdateSecretInVault updates a vault-scoped secret and invalidates cache.
 func (s *CachedSecretService) UpdateSecretInVault(ctx context.Context, req secrets.UpdateSecretRequest) error {
-	return s.secretService.UpdateSecretInVault(ctx, req)
+	if err := s.secretService.UpdateSecretInVault(ctx, req); err != nil {
+		return err
+	}
+
+	// Invalidate cache - the secret will be re-cached on next read.
+	if err := s.cache.Delete(ctx, req.SecretID); err != nil {
+		s.logger.WithError(err).Warn("Failed to invalidate cached secret")
+		// Don't fail the operation if cache invalidation fails.
+	}
+
+	return nil
 }
 
 // DeleteSecret soft deletes a secret and removes from cache.

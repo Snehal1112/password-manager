@@ -248,6 +248,36 @@ func TestCachedSecretService_GetSecret_CacheMiss_ThenHit(t *testing.T) {
 	assert.Equal(t, 0, callCount)
 }
 
+// ---------------------------------------------------------------------------
+// UpdateSecret
+// ---------------------------------------------------------------------------
+
+func TestCachedSecretService_UpdateSecretInVault_InvalidatesCache(t *testing.T) {
+	ctx := context.Background()
+	userID := uuid.New()
+	secret := makeSecret(userID)
+
+	// Pre-populate cache.
+	c := newTestCache(t)
+	require.NoError(t, c.Set(ctx, secret))
+
+	svc := &mockSecretService{
+		updateSecretInVaultFn: func(_ context.Context, _ secrets.UpdateSecretRequest) error {
+			return nil
+		},
+	}
+	logger := newTestLogger()
+	cached := NewCachedSecretService(svc, c, logger)
+
+	req := secrets.UpdateSecretRequest{SecretID: secret.ID, VaultID: uuid.New()}
+	err := cached.UpdateSecretInVault(ctx, req)
+	require.NoError(t, err)
+
+	// Cache should be invalidated, same as the owner-scoped UpdateSecret.
+	_, found := c.Get(ctx, secret.ID)
+	assert.False(t, found, "vault-scoped update must invalidate the cache so GET does not serve stale plaintext")
+}
+
 func TestCachedSecretService_GetSecret_CacheHitWrongUser(t *testing.T) {
 	ctx := context.Background()
 	ownerID := uuid.New()
