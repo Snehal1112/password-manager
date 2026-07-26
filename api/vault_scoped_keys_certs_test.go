@@ -245,6 +245,9 @@ func TestGetCertificatePolicy_VaultScopedRoute_UsesGetByCertificateIDAny(t *test
 	if w.Code != http.StatusOK {
 		t.Fatalf("vault-scoped GET .../policy: expected 200, got %d (%s)", w.Code, w.Body.String())
 	}
+	if certSvc.listVaultID != id {
+		t.Fatalf("policy operation dispatched with vault ID %s, want %s", certSvc.listVaultID, id)
+	}
 	policyRepo.AssertExpectations(t)
 }
 
@@ -266,6 +269,9 @@ func TestUpsertCertificatePolicy_VaultScopedRoute_VerifiesCertInVaultFirst(t *te
 
 	if w.Code != http.StatusNotFound {
 		t.Fatalf("vault-scoped PUT .../policy for cert not in vault: expected 404, got %d (%s)", w.Code, w.Body.String())
+	}
+	if certSvc.listVaultID != id {
+		t.Fatalf("policy operation dispatched with vault ID %s, want %s", certSvc.listVaultID, id)
 	}
 	policyRepo.AssertNotCalled(t, "Upsert", mock.Anything, mock.Anything)
 }
@@ -289,6 +295,9 @@ func TestDeleteCertificatePolicy_VaultScopedRoute_UsesDeleteByCertificateIDAny(t
 
 	if w.Code != http.StatusOK {
 		t.Fatalf("vault-scoped DELETE .../policy: expected 200, got %d (%s)", w.Code, w.Body.String())
+	}
+	if certSvc.listVaultID != id {
+		t.Fatalf("policy operation dispatched with vault ID %s, want %s", certSvc.listVaultID, id)
 	}
 	policyRepo.AssertExpectations(t)
 }
