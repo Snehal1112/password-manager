@@ -19,6 +19,14 @@ type CertificatePolicyRepositoryInterface interface {
 	GetByCertificateID(ctx context.Context, certID, userID uuid.UUID) (*model.CertificatePolicy, error)
 	// DeleteByCertificateID removes the policy for a given certificate and owner.
 	DeleteByCertificateID(ctx context.Context, certID, userID uuid.UUID) error
+	// GetByCertificateIDAny retrieves the policy for a certificate regardless
+	// of owner. Callers must independently verify the caller's access to the
+	// certificate (e.g. vault membership) before calling this.
+	GetByCertificateIDAny(ctx context.Context, certID uuid.UUID) (*model.CertificatePolicy, error)
+	// DeleteByCertificateIDAny removes the policy for a certificate regardless
+	// of owner. Callers must independently verify the caller's access to the
+	// certificate before calling this.
+	DeleteByCertificateIDAny(ctx context.Context, certID uuid.UUID) error
 }
 
 // CertificatePolicyRepository is the default database-backed implementation.
@@ -86,6 +94,52 @@ func (r *CertificatePolicyRepository) DeleteByCertificateID(ctx context.Context,
 	result, err := r.db.ExecContext(ctx,
 		"DELETE FROM certificate_policies WHERE certificate_id = ? AND user_id = ?",
 		certID.String(), userID.String(),
+	)
+	if err != nil {
+		return err
+	}
+	n, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if n == 0 {
+		return sql.ErrNoRows
+	}
+	return nil
+}
+
+// GetByCertificateIDAny retrieves the policy for a certificate, ignoring
+// owner. Callers are responsible for verifying access to the certificate
+// (e.g. vault membership) before calling this.
+func (r *CertificatePolicyRepository) GetByCertificateIDAny(ctx context.Context, certID uuid.UUID) (*model.CertificatePolicy, error) {
+	row := r.db.QueryRowContext(ctx, `
+		SELECT id, certificate_id, user_id, validity_months, key_type, key_size, curve,
+		       subject, sans, auto_renew, days_before_expiry, issuer_name, created_at, updated_at
+		FROM certificate_policies
+		WHERE certificate_id = ?`,
+		certID.String(),
+	)
+	var p model.CertificatePolicy
+	var idStr, cidStr, uidStr string
+	if err := row.Scan(&idStr, &cidStr, &uidStr,
+		&p.ValidityMonths, &p.KeyType, &p.KeySize, &p.Curve,
+		&p.Subject, &p.SANs, &p.AutoRenew, &p.DaysBeforeExpiry,
+		&p.IssuerName, &p.CreatedAt, &p.UpdatedAt); err != nil {
+		return nil, err
+	}
+	p.ID, _ = uuid.Parse(idStr)
+	p.CertificateID, _ = uuid.Parse(cidStr)
+	p.UserID, _ = uuid.Parse(uidStr)
+	return &p, nil
+}
+
+// DeleteByCertificateIDAny removes the policy for a certificate, ignoring
+// owner. Callers are responsible for verifying access to the certificate
+// before calling this. Returns sql.ErrNoRows when no matching policy exists.
+func (r *CertificatePolicyRepository) DeleteByCertificateIDAny(ctx context.Context, certID uuid.UUID) error {
+	result, err := r.db.ExecContext(ctx,
+		"DELETE FROM certificate_policies WHERE certificate_id = ?",
+		certID.String(),
 	)
 	if err != nil {
 		return err

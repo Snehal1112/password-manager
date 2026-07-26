@@ -62,6 +62,19 @@ func (m *mockCertPolicyRepo) DeleteByCertificateID(ctx context.Context, certID, 
 	return args.Error(0)
 }
 
+func (m *mockCertPolicyRepo) GetByCertificateIDAny(ctx context.Context, certID uuid.UUID) (*model.CertificatePolicy, error) {
+	args := m.Called(ctx, certID)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).(*model.CertificatePolicy), args.Error(1)
+}
+
+func (m *mockCertPolicyRepo) DeleteByCertificateIDAny(ctx context.Context, certID uuid.UUID) error {
+	args := m.Called(ctx, certID)
+	return args.Error(0)
+}
+
 // --- certPolicyRepoContainer ---
 
 type certPolicyRepoContainer struct {

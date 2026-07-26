@@ -175,3 +175,49 @@ func TestCertificatePolicy_DeleteByCertificateID(t *testing.T) {
 	_, err := repo.GetByCertificateID(context.Background(), certID, userID)
 	require.Error(t, err)
 }
+
+// TestCertificatePolicyRepository_GetByCertificateIDAny_IgnoresOwner verifies
+// that GetByCertificateIDAny retrieves a policy regardless of which user owns
+// it, unlike the owner-scoped GetByCertificateID.
+func TestCertificatePolicyRepository_GetByCertificateIDAny_IgnoresOwner(t *testing.T) {
+	db := setupCertPolicyTestDB(t)
+	repo := repositories.NewCertificatePolicyRepository(rvdb.NewConn(db, rvdb.SQLite), newCertPolicyTestLogger(t))
+	ctx := context.Background()
+
+	certID := uuid.New()
+	ownerID := uuid.New()
+	policy := &model.CertificatePolicy{
+		ID: uuid.New(), CertificateID: certID, UserID: ownerID,
+		ValidityMonths: 12, KeyType: "RSA", KeySize: 2048,
+		CreatedAt: time.Now(), UpdatedAt: time.Now(),
+	}
+	require.NoError(t, repo.Upsert(ctx, policy))
+
+	got, err := repo.GetByCertificateIDAny(ctx, certID) // no ownerID passed
+	require.NoError(t, err)
+	require.Equal(t, certID, got.CertificateID)
+}
+
+// TestCertificatePolicyRepository_DeleteByCertificateIDAny_IgnoresOwner
+// verifies that DeleteByCertificateIDAny removes a policy regardless of which
+// user owns it, unlike the owner-scoped DeleteByCertificateID.
+func TestCertificatePolicyRepository_DeleteByCertificateIDAny_IgnoresOwner(t *testing.T) {
+	db := setupCertPolicyTestDB(t)
+	repo := repositories.NewCertificatePolicyRepository(rvdb.NewConn(db, rvdb.SQLite), newCertPolicyTestLogger(t))
+	ctx := context.Background()
+
+	certID := uuid.New()
+	ownerID := uuid.New()
+	policy := &model.CertificatePolicy{
+		ID: uuid.New(), CertificateID: certID, UserID: ownerID,
+		ValidityMonths: 12, KeyType: "RSA", KeySize: 2048,
+		CreatedAt: time.Now(), UpdatedAt: time.Now(),
+	}
+	require.NoError(t, repo.Upsert(ctx, policy))
+
+	err := repo.DeleteByCertificateIDAny(ctx, certID) // no ownerID passed
+	require.NoError(t, err)
+
+	_, err = repo.GetByCertificateIDAny(ctx, certID)
+	require.Error(t, err)
+}
