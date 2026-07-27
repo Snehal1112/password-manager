@@ -35,6 +35,7 @@ import (
 
 	"rocketvault/common"
 	"rocketvault/internal/crypto"
+	"rocketvault/internal/repositories"
 	keyservices "rocketvault/internal/services/keys"
 	vvalidation "rocketvault/internal/validation"
 	"rocketvault/model"
@@ -377,37 +378,18 @@ func listKeys(c *Context, w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var keysList []model.Key
-	if isVaultScopedRoute(r) {
-		// Vault-scoped route: members see all keys in the resolved vault.
-		vaultID, err := vaultIDFromRequest(r)
-		if err != nil {
-			c.SetInvalidParam("vault")
-			return
-		}
-		keyType := r.URL.Query().Get("type")
-		keysList, err = keyService.ListKeysInVault(r.Context(), vaultID, keyType, c.Params.Tags)
-		if err != nil {
-			c.SetInternalError(err)
-			return
-		}
-	} else {
-		// Legacy flat route: per-user visibility (preserves pre-multi-vault behavior).
-		userIDStr, ok := c.Claims["user_id"].(string)
-		if !ok {
-			c.SetInternalError(nil)
-			return
-		}
-		userID, err := uuid.Parse(userIDStr)
-		if err != nil {
-			c.SetInvalidParam("user_id")
-			return
-		}
-		keysList, err = keyService.ListKeys(r.Context(), userID)
-		if err != nil {
-			c.SetInternalError(err)
-			return
-		}
+	scope, ok := scopeFromRequest(c, r)
+	if !ok {
+		return
+	}
+
+	keysList, err := keyService.ListKeysScoped(r.Context(), scope, repositories.KeyFilter{
+		Type: r.URL.Query().Get("type"),
+		Tags: c.Params.Tags,
+	})
+	if err != nil {
+		c.SetInternalError(err)
+		return
 	}
 
 	// Convert to response format.
@@ -433,48 +415,21 @@ func getKey(c *Context, w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Legacy flat routes use per-user visibility; vault-scoped routes use
-	// vault-level visibility (members see all keys in the vault).
-	var key *model.Key
-	if isVaultScopedRoute(r) {
-		vaultID, err := vaultIDFromRequest(r)
-		if err != nil {
-			c.SetInvalidParam("vault")
-			return
+	scope, ok := scopeFromRequest(c, r)
+	if !ok {
+		return
+	}
+
+	key, err := keyService.GetKeyScoped(r.Context(), keyID, scope)
+	if err != nil {
+		if errors.Is(err, keyservices.ErrKeyLifecycleDenied) {
+			c.SetPermissionError("key is disabled or outside its valid time window")
+		} else if errors.Is(err, keyservices.ErrKeyNotFound) {
+			c.SetNotFound("key")
+		} else {
+			c.SetInternalError(err)
 		}
-		key, err = keyService.GetKeyInVault(r.Context(), keyID, vaultID)
-		if err != nil {
-			if errors.Is(err, keyservices.ErrKeyLifecycleDenied) {
-				c.SetPermissionError("key is disabled or outside its valid time window")
-			} else if errors.Is(err, keyservices.ErrKeyNotFound) {
-				c.SetNotFound("key")
-			} else {
-				c.SetInternalError(err)
-			}
-			return
-		}
-	} else {
-		userIDStr, ok := c.Claims["user_id"].(string)
-		if !ok {
-			c.SetInternalError(nil)
-			return
-		}
-		userID, err := uuid.Parse(userIDStr)
-		if err != nil {
-			c.SetInvalidParam("user_id")
-			return
-		}
-		key, err = keyService.GetKey(r.Context(), keyID, userID)
-		if err != nil {
-			if errors.Is(err, keyservices.ErrKeyLifecycleDenied) {
-				c.SetPermissionError("key is disabled or outside its valid time window")
-			} else if errors.Is(err, keyservices.ErrKeyNotFound) {
-				c.SetNotFound("key")
-			} else {
-				c.SetInternalError(err)
-			}
-			return
-		}
+		return
 	}
 
 	w.Header().Set("Content-Type", "application/json")
@@ -486,17 +441,6 @@ func updateKey(c *Context, w http.ResponseWriter, r *http.Request) {
 	keyID, err := uuid.Parse(c.Params.KeyID)
 	if err != nil {
 		c.SetInvalidParam("key_id")
-		return
-	}
-
-	userIDStr, ok := c.Claims["user_id"].(string)
-	if !ok {
-		c.SetInternalError(nil)
-		return
-	}
-	userID, err := uuid.Parse(userIDStr)
-	if err != nil {
-		c.SetInvalidParam("user_id")
 		return
 	}
 
@@ -524,61 +468,31 @@ func updateKey(c *Context, w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	vaultScoped := isVaultScopedRoute(r)
-	var vaultID uuid.UUID
-	if vaultScoped {
-		vaultID, err = vaultIDFromRequest(r)
-		if err != nil {
-			c.SetInvalidParam("vault")
-			return
+	scope, ok := scopeFromRequest(c, r)
+	if !ok {
+		return
+	}
+
+	if err := keyService.UpdateKeyScoped(r.Context(), keyservices.UpdateKeyRequest{
+		KeyID:     keyID,
+		Scope:     scope,
+		Name:      req.Name,
+		Tags:      req.Tags,
+		Revoked:   req.Revoked,
+		Enabled:   req.Enabled,
+		ExpiresAt: req.ExpiresAt,
+		NotBefore: req.NotBefore,
+	}); err != nil {
+		if errors.Is(err, keyservices.ErrKeyNotFound) {
+			c.SetNotFound("key")
+		} else {
+			c.SetInternalError(err)
 		}
-		updateReq := keyservices.UpdateKeyRequest{
-			KeyID:     keyID,
-			VaultID:   vaultID,
-			Name:      req.Name,
-			Tags:      req.Tags,
-			UserID:    userID,
-			Revoked:   req.Revoked,
-			Enabled:   req.Enabled,
-			ExpiresAt: req.ExpiresAt,
-			NotBefore: req.NotBefore,
-		}
-		if err := keyService.UpdateKeyInVault(r.Context(), updateReq); err != nil {
-			if errors.Is(err, keyservices.ErrKeyNotFound) {
-				c.SetNotFound("key")
-			} else {
-				c.SetInternalError(err)
-			}
-			return
-		}
-	} else {
-		updateReq := keyservices.UpdateKeyRequest{
-			KeyID:     keyID,
-			Name:      req.Name,
-			Tags:      req.Tags,
-			UserID:    userID,
-			Revoked:   req.Revoked,
-			Enabled:   req.Enabled,
-			ExpiresAt: req.ExpiresAt,
-			NotBefore: req.NotBefore,
-		}
-		if err := keyService.UpdateKey(r.Context(), updateReq); err != nil {
-			if errors.Is(err, keyservices.ErrKeyNotFound) {
-				c.SetNotFound("key")
-			} else {
-				c.SetInternalError(err)
-			}
-			return
-		}
+		return
 	}
 
 	// Get updated key for response, using the same scope as the update.
-	var key *model.Key
-	if vaultScoped {
-		key, err = keyService.GetKeyInVault(r.Context(), keyID, vaultID)
-	} else {
-		key, err = keyService.GetKey(r.Context(), keyID, userID)
-	}
+	key, err := keyService.GetKeyScoped(r.Context(), keyID, scope)
 	if err != nil {
 		c.SetInternalError(err)
 		return
@@ -596,38 +510,23 @@ func deleteKey(c *Context, w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Get user ID from claims.
-	userIDStr, ok := c.Claims["user_id"].(string)
-	if !ok {
-		c.SetInternalError(nil)
-		return
-	}
-	userID, err := uuid.Parse(userIDStr)
-	if err != nil {
-		c.SetInvalidParam("user_id")
-		return
-	}
-	// Resolve the target vault from the request context.
-	vaultID, err := vaultIDFromRequest(r)
-	if err != nil {
-		c.SetInvalidParam("vault")
-		return
-	}
-
 	keyService := c.keySvc()
 	if keyService == nil {
 		return
 	}
 
-	// Use service layer for deletion; userID enforces ownership within the vault.
-	deleted, err := keyService.DeleteKeyInVault(r.Context(), keyID, vaultID, userID)
+	// B6: key delete stays owner-gated on both route shapes. Removed in P2,
+	// where Key Vault Crypto Officer at vault scope replaces it.
+	scope, ok := ownerScopeFromRequest(c, r)
+	if !ok {
+		return
+	}
+
+	deleted, err := keyService.DeleteKeyScoped(r.Context(), keyID, scope)
 	if err != nil {
-		switch {
-		case errors.Is(err, keyservices.ErrKeyNotFound):
+		if errors.Is(err, keyservices.ErrKeyNotFound) {
 			c.SetNotFound("key")
-		case errors.Is(err, keyservices.ErrKeyForbidden):
-			c.SetPermissionError("key_access")
-		default:
+		} else {
 			c.SetInternalError(err)
 		}
 		return
@@ -739,20 +638,10 @@ func wrapKey(c *Context, w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	userIDStr, ok := c.Claims["user_id"].(string)
+	// B6: crypto operations stay owner-gated. Removed in P2, where Key Vault
+	// Crypto User at vault scope replaces the ownership check.
+	scope, ok := ownerScopeFromRequest(c, r)
 	if !ok {
-		c.SetInternalError(nil)
-		return
-	}
-	userID, err := uuid.Parse(userIDStr)
-	if err != nil {
-		c.SetInvalidParam("user_id")
-		return
-	}
-
-	vaultID, err := vaultIDFromRequest(r)
-	if err != nil {
-		c.SetInvalidParam("vault")
 		return
 	}
 
@@ -782,8 +671,8 @@ func wrapKey(c *Context, w http.ResponseWriter, r *http.Request) {
 
 	result, err := cryptoSvc.WrapKey(r.Context(), keyservices.WrapKeyRequest{
 		KeyID:        keyID,
-		UserID:       userID,
-		VaultID:      vaultID,
+		UserID:       scope.ActorID(),
+		VaultID:      scope.VaultID(),
 		PlaintextKey: plaintextBytes,
 		Algorithm:    req.Algorithm,
 	})
@@ -818,20 +707,10 @@ func unwrapKey(c *Context, w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	userIDStr, ok := c.Claims["user_id"].(string)
+	// B6: crypto operations stay owner-gated. Removed in P2, where Key Vault
+	// Crypto User at vault scope replaces the ownership check.
+	scope, ok := ownerScopeFromRequest(c, r)
 	if !ok {
-		c.SetInternalError(nil)
-		return
-	}
-	userID, err := uuid.Parse(userIDStr)
-	if err != nil {
-		c.SetInvalidParam("user_id")
-		return
-	}
-
-	vaultID, err := vaultIDFromRequest(r)
-	if err != nil {
-		c.SetInvalidParam("vault")
 		return
 	}
 
@@ -861,8 +740,8 @@ func unwrapKey(c *Context, w http.ResponseWriter, r *http.Request) {
 
 	result, err := cryptoSvc.UnwrapKey(r.Context(), keyservices.UnwrapKeyRequest{
 		KeyID:      keyID,
-		UserID:     userID,
-		VaultID:    vaultID,
+		UserID:     scope.ActorID(),
+		VaultID:    scope.VaultID(),
 		WrappedKey: wrappedBytes,
 		Algorithm:  req.Algorithm,
 	})
@@ -897,20 +776,10 @@ func signKey(c *Context, w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	userIDStr, ok := c.Claims["user_id"].(string)
+	// B6: crypto operations stay owner-gated. Removed in P2, where Key Vault
+	// Crypto User at vault scope replaces the ownership check.
+	scope, ok := ownerScopeFromRequest(c, r)
 	if !ok {
-		c.SetInternalError(nil)
-		return
-	}
-	userID, err := uuid.Parse(userIDStr)
-	if err != nil {
-		c.SetInvalidParam("user_id")
-		return
-	}
-
-	vaultID, err := vaultIDFromRequest(r)
-	if err != nil {
-		c.SetInvalidParam("vault")
 		return
 	}
 
@@ -942,8 +811,8 @@ func signKey(c *Context, w http.ResponseWriter, r *http.Request) {
 		KeyID:     keyID,
 		Data:      data,
 		Algorithm: crypto.SignatureAlgorithm(req.Algorithm),
-		UserID:    userID,
-		VaultID:   vaultID,
+		UserID:    scope.ActorID(),
+		VaultID:   scope.VaultID(),
 	})
 	if err != nil {
 		switch {
@@ -977,20 +846,10 @@ func verifyKey(c *Context, w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	userIDStr, ok := c.Claims["user_id"].(string)
+	// B6: crypto operations stay owner-gated. Removed in P2, where Key Vault
+	// Crypto User at vault scope replaces the ownership check.
+	scope, ok := ownerScopeFromRequest(c, r)
 	if !ok {
-		c.SetInternalError(nil)
-		return
-	}
-	userID, err := uuid.Parse(userIDStr)
-	if err != nil {
-		c.SetInvalidParam("user_id")
-		return
-	}
-
-	vaultID, err := vaultIDFromRequest(r)
-	if err != nil {
-		c.SetInvalidParam("vault")
 		return
 	}
 
@@ -1025,8 +884,8 @@ func verifyKey(c *Context, w http.ResponseWriter, r *http.Request) {
 		Data:      data,
 		Signature: sig,
 		Algorithm: crypto.SignatureAlgorithm(req.Algorithm),
-		UserID:    userID,
-		VaultID:   vaultID,
+		UserID:    scope.ActorID(),
+		VaultID:   scope.VaultID(),
 	})
 	if err != nil {
 		switch {
@@ -1060,20 +919,10 @@ func encryptKey(c *Context, w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	userIDStr, ok := c.Claims["user_id"].(string)
+	// B6: crypto operations stay owner-gated. Removed in P2, where Key Vault
+	// Crypto User at vault scope replaces the ownership check.
+	scope, ok := ownerScopeFromRequest(c, r)
 	if !ok {
-		c.SetInternalError(nil)
-		return
-	}
-	userID, err := uuid.Parse(userIDStr)
-	if err != nil {
-		c.SetInvalidParam("user_id")
-		return
-	}
-
-	vaultID, err := vaultIDFromRequest(r)
-	if err != nil {
-		c.SetInvalidParam("vault")
 		return
 	}
 
@@ -1105,8 +954,8 @@ func encryptKey(c *Context, w http.ResponseWriter, r *http.Request) {
 		KeyID:     keyID,
 		Data:      plaintext,
 		Algorithm: crypto.EncryptionAlgorithm(req.Algorithm),
-		UserID:    userID,
-		VaultID:   vaultID,
+		UserID:    scope.ActorID(),
+		VaultID:   scope.VaultID(),
 	})
 	if err != nil {
 		switch {
@@ -1145,20 +994,10 @@ func decryptKey(c *Context, w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	userIDStr, ok := c.Claims["user_id"].(string)
+	// B6: crypto operations stay owner-gated. Removed in P2, where Key Vault
+	// Crypto User at vault scope replaces the ownership check.
+	scope, ok := ownerScopeFromRequest(c, r)
 	if !ok {
-		c.SetInternalError(nil)
-		return
-	}
-	userID, err := uuid.Parse(userIDStr)
-	if err != nil {
-		c.SetInvalidParam("user_id")
-		return
-	}
-
-	vaultID, err := vaultIDFromRequest(r)
-	if err != nil {
-		c.SetInvalidParam("vault")
 		return
 	}
 
@@ -1197,8 +1036,8 @@ func decryptKey(c *Context, w http.ResponseWriter, r *http.Request) {
 		Ciphertext: ciphertext,
 		Nonce:      nonce,
 		Algorithm:  crypto.EncryptionAlgorithm(req.Algorithm),
-		UserID:     userID,
-		VaultID:    vaultID,
+		UserID:     scope.ActorID(),
+		VaultID:    scope.VaultID(),
 	})
 	if err != nil {
 		switch {

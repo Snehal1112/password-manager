@@ -95,14 +95,26 @@ func (s *recordingKeyService) RotateKey(context.Context, uuid.UUID, uuid.UUID) (
 func (s *recordingKeyService) ValidateKeyAccess(context.Context, uuid.UUID, uuid.UUID, string) error {
 	panic("unexpected")
 }
-func (s *recordingKeyService) GetKeyScoped(context.Context, uuid.UUID, model.Scope) (*model.Key, error) {
-	panic("unexpected")
+func (s *recordingKeyService) GetKeyScoped(_ context.Context, _ uuid.UUID, scope model.Scope) (*model.Key, error) {
+	s.getCalled = true
+	s.getUserScoped = scope.Kind() == model.ScopeOwner
+	s.listUserID = scope.ActorID()
+	s.listVaultID = scope.VaultID()
+	return &model.Key{ID: uuid.New(), Name: "k", Type: model.KeyTypeRSA, UserID: scope.ActorID()}, nil
 }
-func (s *recordingKeyService) ListKeysScoped(context.Context, model.Scope, repositories.KeyFilter) ([]model.Key, error) {
-	panic("unexpected")
+func (s *recordingKeyService) ListKeysScoped(_ context.Context, scope model.Scope, _ repositories.KeyFilter) ([]model.Key, error) {
+	s.listCalled = true
+	s.listUserScoped = scope.Kind() == model.ScopeOwner
+	s.listUserID = scope.ActorID()
+	s.listVaultID = scope.VaultID()
+	return []model.Key{}, nil
 }
-func (s *recordingKeyService) UpdateKeyScoped(context.Context, keyServices.UpdateKeyRequest) error {
-	panic("unexpected")
+func (s *recordingKeyService) UpdateKeyScoped(_ context.Context, req keyServices.UpdateKeyRequest) error {
+	s.updateCalled = true
+	s.updateVaultScoped = req.Scope.Kind() == model.ScopeVault
+	s.updateVaultID = req.Scope.VaultID()
+	s.updateUserID = req.Scope.ActorID()
+	return nil
 }
 func (s *recordingKeyService) DeleteKeyScoped(context.Context, uuid.UUID, model.Scope) (*model.Key, error) {
 	panic("unexpected")

@@ -463,8 +463,8 @@ func TestCreateKey_InvalidECDSACurve_Returns400(t *testing.T) {
 
 func TestListKeys_ServiceError_Returns500(t *testing.T) {
 	svc := &mockKeyService{}
-	// Legacy flat route (no vault_name) uses per-user visibility via ListKeys.
-	svc.On("ListKeys", mock.Anything, uuid.MustParse(keyTestUserID)).
+	// Legacy flat route (no vault_name) yields an owner scope.
+	svc.On("ListKeysScoped", mock.Anything, mock.Anything, mock.Anything).
 		Return([]model.Key{}, errors.New("db error"))
 
 	c := newKeyCtx(svc)
@@ -483,8 +483,8 @@ func TestListKeys_ServiceError_Returns500(t *testing.T) {
 func TestListKeys_Success_Returns200(t *testing.T) {
 	keyID := uuid.New()
 	svc := &mockKeyService{}
-	// Legacy flat route (no vault_name) uses per-user visibility via ListKeys.
-	svc.On("ListKeys", mock.Anything, uuid.MustParse(keyTestUserID)).
+	// Legacy flat route (no vault_name) yields an owner scope.
+	svc.On("ListKeysScoped", mock.Anything, mock.Anything, mock.Anything).
 		Return([]model.Key{*makeKeyModel(keyID)}, nil)
 
 	c := newKeyCtx(svc)
@@ -521,9 +521,9 @@ func TestGetKey_InvalidKeyID_Returns400(t *testing.T) {
 func TestGetKey_NotFound_Returns404(t *testing.T) {
 	keyID := uuid.New()
 	svc := &mockKeyService{}
-	// Legacy flat route (no vault_name) uses per-user visibility via GetKey.
+	// Legacy flat route (no vault_name) yields an owner scope.
 	// The service returns the not-found sentinel, which maps to 404.
-	svc.On("GetKey", mock.Anything, keyID, uuid.MustParse(keyTestUserID)).Return(nil, keyServices.ErrKeyNotFound)
+	svc.On("GetKeyScoped", mock.Anything, keyID, mock.Anything).Return(nil, keyServices.ErrKeyNotFound)
 
 	c := newKeyCtx(svc)
 	c.Claims = jwt.MapClaims{"role": string(model.RoleUser), "user_id": keyTestUserID}
@@ -543,8 +543,8 @@ func TestGetKey_NotFound_Returns404(t *testing.T) {
 func TestGetKey_Success_Returns200(t *testing.T) {
 	keyID := uuid.New()
 	svc := &mockKeyService{}
-	// Legacy flat route (no vault_name) uses per-user visibility via GetKey.
-	svc.On("GetKey", mock.Anything, keyID, uuid.MustParse(keyTestUserID)).Return(makeKeyModel(keyID), nil)
+	// Legacy flat route (no vault_name) yields an owner scope.
+	svc.On("GetKeyScoped", mock.Anything, keyID, mock.Anything).Return(makeKeyModel(keyID), nil)
 
 	c := newKeyCtx(svc)
 	c.Params = &ApiParams{KeyID: keyID.String(), PerPage: 60}
@@ -597,7 +597,7 @@ func TestUpdateKey_NoFieldsProvided_Returns400(t *testing.T) {
 func TestUpdateKey_ServiceError_Returns500(t *testing.T) {
 	keyID := uuid.New()
 	svc := &mockKeyService{}
-	svc.On("UpdateKey", mock.Anything, mock.Anything).Return(errors.New("db error"))
+	svc.On("UpdateKeyScoped", mock.Anything, mock.Anything).Return(errors.New("db error"))
 
 	c := newKeyCtx(svc)
 	c.Params = &ApiParams{KeyID: keyID.String(), PerPage: 60}
@@ -618,8 +618,8 @@ func TestUpdateKey_ServiceError_Returns500(t *testing.T) {
 func TestUpdateKey_NotFound_Returns404(t *testing.T) {
 	keyID := uuid.New()
 	svc := &mockKeyService{}
-	// UpdateKey wraps ErrKeyNotFound; errors.Is must still match through the chain.
-	svc.On("UpdateKey", mock.Anything, mock.Anything).
+	// UpdateKeyScoped wraps ErrKeyNotFound; errors.Is must still match through the chain.
+	svc.On("UpdateKeyScoped", mock.Anything, mock.Anything).
 		Return(fmt.Errorf("update key: %w", keyServices.ErrKeyNotFound))
 
 	c := newKeyCtx(svc)
@@ -641,8 +641,8 @@ func TestUpdateKey_NotFound_Returns404(t *testing.T) {
 func TestUpdateKey_Success_Returns200(t *testing.T) {
 	keyID := uuid.New()
 	svc := &mockKeyService{}
-	svc.On("UpdateKey", mock.Anything, mock.Anything).Return(nil)
-	svc.On("GetKey", mock.Anything, keyID, uuid.MustParse(keyTestUserID)).Return(makeKeyModel(keyID), nil)
+	svc.On("UpdateKeyScoped", mock.Anything, mock.Anything).Return(nil)
+	svc.On("GetKeyScoped", mock.Anything, keyID, mock.Anything).Return(makeKeyModel(keyID), nil)
 
 	c := newKeyCtx(svc)
 	c.Params = &ApiParams{KeyID: keyID.String(), PerPage: 60}
@@ -681,7 +681,7 @@ func TestDeleteKey_InvalidKeyID_Returns400(t *testing.T) {
 func TestDeleteKey_ServiceError_Returns500(t *testing.T) {
 	keyID := uuid.New()
 	svc := &mockKeyService{}
-	svc.On("DeleteKeyInVault", mock.Anything, keyID, mock.Anything).Return(nil, errors.New("db error"))
+	svc.On("DeleteKeyScoped", mock.Anything, keyID, mock.Anything).Return(nil, errors.New("db error"))
 
 	c := newKeyCtx(svc)
 	c.Params = &ApiParams{KeyID: keyID.String(), PerPage: 60}
@@ -703,7 +703,7 @@ func TestDeleteKey_Success_Returns200(t *testing.T) {
 	svc := &mockKeyService{}
 	deleted := makeKeyModel(keyID)
 	deleted.DeletedAt = &now
-	svc.On("DeleteKeyInVault", mock.Anything, keyID, mock.Anything).Return(deleted, nil)
+	svc.On("DeleteKeyScoped", mock.Anything, keyID, mock.Anything).Return(deleted, nil)
 
 	c := newKeyCtx(svc)
 	c.Params = &ApiParams{KeyID: keyID.String(), PerPage: 60}
@@ -724,7 +724,7 @@ func TestDeleteKey_Success_Returns200(t *testing.T) {
 func TestDeleteKey_NotFound_Returns404(t *testing.T) {
 	keyID := uuid.New()
 	svc := &mockKeyService{}
-	svc.On("DeleteKeyInVault", mock.Anything, keyID, mock.Anything).
+	svc.On("DeleteKeyScoped", mock.Anything, keyID, mock.Anything).
 		Return(nil, keyServices.ErrKeyNotFound)
 
 	c := newKeyCtx(svc)
@@ -746,7 +746,7 @@ func TestDeleteKey_NotFound_Returns404(t *testing.T) {
 func TestGetKey_LifecycleDenied_Returns403(t *testing.T) {
 	keyID := uuid.New()
 	svc := &mockKeyService{}
-	svc.On("GetKey", mock.Anything, keyID, uuid.MustParse(keyTestUserID)).
+	svc.On("GetKeyScoped", mock.Anything, keyID, mock.Anything).
 		Return(nil, keyServices.ErrKeyLifecycleDenied)
 
 	c := newKeyCtx(svc)
@@ -769,7 +769,7 @@ func TestGetKey_LifecycleDenied_Returns403(t *testing.T) {
 func TestGetKey_InternalError_Returns500(t *testing.T) {
 	keyID := uuid.New()
 	svc := &mockKeyService{}
-	svc.On("GetKey", mock.Anything, keyID, uuid.MustParse(keyTestUserID)).
+	svc.On("GetKeyScoped", mock.Anything, keyID, mock.Anything).
 		Return(nil, errors.New("disk I/O"))
 
 	c := newKeyCtx(svc)
