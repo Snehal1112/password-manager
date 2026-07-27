@@ -39,6 +39,11 @@ type mockSecretService struct {
 	generateSecretFn                func(ctx context.Context, req secrets.GenerateSecretRequest) (*model.Secret, error)
 	exportSecretsFn                 func(ctx context.Context, req secrets.ExportSecretsRequest) ([]byte, error)
 	importSecretsFn                 func(ctx context.Context, req secrets.ImportSecretsRequest) (*secrets.ImportResult, error)
+	listDeletedSecretsInVaultFn     func(ctx context.Context, vaultID uuid.UUID) ([]model.Secret, error)
+	isSecretSoftDeletedInVaultFn    func(ctx context.Context, secretID, vaultID uuid.UUID) (bool, error)
+	isSecretSoftDeletedForUserFn    func(ctx context.Context, secretID, userID uuid.UUID) (bool, error)
+	recoverSecretFn                 func(ctx context.Context, secretID uuid.UUID) error
+	purgeSecretFn                   func(ctx context.Context, secretID uuid.UUID) error
 }
 
 // compile-time check
@@ -168,6 +173,41 @@ func (m *mockSecretService) ImportSecrets(ctx context.Context, req secrets.Impor
 		return m.importSecretsFn(ctx, req)
 	}
 	return nil, errors.New("not implemented")
+}
+
+func (m *mockSecretService) ListDeletedSecretsInVault(ctx context.Context, vaultID uuid.UUID) ([]model.Secret, error) {
+	if m.listDeletedSecretsInVaultFn != nil {
+		return m.listDeletedSecretsInVaultFn(ctx, vaultID)
+	}
+	return nil, errors.New("not implemented")
+}
+
+func (m *mockSecretService) IsSecretSoftDeletedInVault(ctx context.Context, secretID, vaultID uuid.UUID) (bool, error) {
+	if m.isSecretSoftDeletedInVaultFn != nil {
+		return m.isSecretSoftDeletedInVaultFn(ctx, secretID, vaultID)
+	}
+	return false, errors.New("not implemented")
+}
+
+func (m *mockSecretService) IsSecretSoftDeletedForUser(ctx context.Context, secretID, userID uuid.UUID) (bool, error) {
+	if m.isSecretSoftDeletedForUserFn != nil {
+		return m.isSecretSoftDeletedForUserFn(ctx, secretID, userID)
+	}
+	return false, errors.New("not implemented")
+}
+
+func (m *mockSecretService) RecoverSecret(ctx context.Context, secretID uuid.UUID) error {
+	if m.recoverSecretFn != nil {
+		return m.recoverSecretFn(ctx, secretID)
+	}
+	return errors.New("not implemented")
+}
+
+func (m *mockSecretService) PurgeSecret(ctx context.Context, secretID uuid.UUID) error {
+	if m.purgeSecretFn != nil {
+		return m.purgeSecretFn(ctx, secretID)
+	}
+	return errors.New("not implemented")
 }
 
 // ---------------------------------------------------------------------------

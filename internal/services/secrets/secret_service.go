@@ -127,6 +127,16 @@ type SecretService interface {
 	ListSecretsInVault(ctx context.Context, vaultID uuid.UUID, tags []string) ([]model.Secret, error)
 	// DeleteSecretInVault soft-deletes a secret scoped to the given vault.
 	DeleteSecretInVault(ctx context.Context, secretID, vaultID uuid.UUID) error
+	// ListDeletedSecretsInVault lists all soft-deleted secrets in the given vault.
+	ListDeletedSecretsInVault(ctx context.Context, vaultID uuid.UUID) ([]model.Secret, error)
+	// IsSecretSoftDeletedInVault reports whether secretID identifies a soft-deleted secret within vaultID.
+	IsSecretSoftDeletedInVault(ctx context.Context, secretID, vaultID uuid.UUID) (bool, error)
+	// IsSecretSoftDeletedForUser reports whether secretID identifies a soft-deleted secret owned by userID.
+	IsSecretSoftDeletedForUser(ctx context.Context, secretID, userID uuid.UUID) (bool, error)
+	// RecoverSecret restores a soft-deleted secret by clearing its deleted_at timestamp.
+	RecoverSecret(ctx context.Context, secretID uuid.UUID) error
+	// PurgeSecret permanently deletes a soft-deleted secret.
+	PurgeSecret(ctx context.Context, secretID uuid.UUID) error
 	GenerateSecret(ctx context.Context, req GenerateSecretRequest) (*model.Secret, error)
 	ExportSecrets(ctx context.Context, req ExportSecretsRequest) ([]byte, error)
 	ImportSecrets(ctx context.Context, req ImportSecretsRequest) (*ImportResult, error)
@@ -700,6 +710,74 @@ func (s *secretService) DeleteSecretInVault(ctx context.Context, secretID, vault
 		"vault_id":  vaultID.String(),
 	}).Info("Secret soft deleted successfully")
 
+	return nil
+}
+
+// ListDeletedSecretsInVault lists all soft-deleted secrets in the given vault.
+// It mirrors ListSecretsInVault but returns only entries whose DeletedAt is set.
+func (s *secretService) ListDeletedSecretsInVault(ctx context.Context, vaultID uuid.UUID) ([]model.Secret, error) {
+	secretList, err := s.secretRepo.ListInVaultIncludeDeleted(ctx, vaultID, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to list deleted secrets: %w", err)
+	}
+
+	deleted := make([]model.Secret, 0, len(secretList))
+	for _, secret := range secretList {
+		if secret.DeletedAt != nil {
+			deleted = append(deleted, secret)
+		}
+	}
+
+	return deleted, nil
+}
+
+// IsSecretSoftDeletedInVault reports whether secretID identifies a soft-deleted
+// secret within vaultID.
+func (s *secretService) IsSecretSoftDeletedInVault(ctx context.Context, secretID, vaultID uuid.UUID) (bool, error) {
+	secretList, err := s.secretRepo.ListInVaultIncludeDeleted(ctx, vaultID, nil)
+	if err != nil {
+		return false, fmt.Errorf("failed to list deleted secrets: %w", err)
+	}
+
+	for _, secret := range secretList {
+		if secret.ID == secretID && secret.DeletedAt != nil {
+			return true, nil
+		}
+	}
+
+	return false, nil
+}
+
+// IsSecretSoftDeletedForUser reports whether secretID identifies a soft-deleted
+// secret owned by userID.
+func (s *secretService) IsSecretSoftDeletedForUser(ctx context.Context, secretID, userID uuid.UUID) (bool, error) {
+	secretList, err := s.secretRepo.ListByUserIncludeDeleted(ctx, userID, nil)
+	if err != nil {
+		return false, fmt.Errorf("failed to list deleted secrets: %w", err)
+	}
+
+	for _, secret := range secretList {
+		if secret.ID == secretID && secret.UserID == userID && secret.DeletedAt != nil {
+			return true, nil
+		}
+	}
+
+	return false, nil
+}
+
+// RecoverSecret restores a soft-deleted secret by clearing its deleted_at timestamp.
+func (s *secretService) RecoverSecret(ctx context.Context, secretID uuid.UUID) error {
+	if err := s.secretRepo.RecoverSecret(ctx, secretID); err != nil {
+		return fmt.Errorf("failed to recover secret: %w", err)
+	}
+	return nil
+}
+
+// PurgeSecret permanently deletes a soft-deleted secret.
+func (s *secretService) PurgeSecret(ctx context.Context, secretID uuid.UUID) error {
+	if err := s.secretRepo.PurgeSecret(ctx, secretID); err != nil {
+		return fmt.Errorf("failed to purge secret: %w", err)
+	}
 	return nil
 }
 

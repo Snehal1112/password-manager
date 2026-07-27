@@ -162,6 +162,34 @@ func (m *mockSecretService) GetLatestSecretVersionInVault(ctx context.Context, s
 	return args.Get(0).(*model.SecretVersion), args.Error(1)
 }
 
+func (m *mockSecretService) ListDeletedSecretsInVault(ctx context.Context, vaultID uuid.UUID) ([]model.Secret, error) {
+	args := m.Called(ctx, vaultID)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).([]model.Secret), args.Error(1)
+}
+
+func (m *mockSecretService) IsSecretSoftDeletedInVault(ctx context.Context, secretID, vaultID uuid.UUID) (bool, error) {
+	args := m.Called(ctx, secretID, vaultID)
+	return args.Bool(0), args.Error(1)
+}
+
+func (m *mockSecretService) IsSecretSoftDeletedForUser(ctx context.Context, secretID, userID uuid.UUID) (bool, error) {
+	args := m.Called(ctx, secretID, userID)
+	return args.Bool(0), args.Error(1)
+}
+
+func (m *mockSecretService) RecoverSecret(ctx context.Context, secretID uuid.UUID) error {
+	args := m.Called(ctx, secretID)
+	return args.Error(0)
+}
+
+func (m *mockSecretService) PurgeSecret(ctx context.Context, secretID uuid.UUID) error {
+	args := m.Called(ctx, secretID)
+	return args.Error(0)
+}
+
 // --- secretSvcTestContainer ---
 
 type secretSvcTestContainer struct {

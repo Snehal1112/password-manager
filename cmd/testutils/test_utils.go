@@ -549,6 +549,34 @@ func (m *MockSecretService) ImportSecrets(ctx context.Context, req secretService
 	return args.Get(0).(*secretServices.ImportResult), args.Error(1)
 }
 
+func (m *MockSecretService) ListDeletedSecretsInVault(ctx context.Context, vaultID uuid.UUID) ([]model.Secret, error) {
+	args := m.Called(ctx, vaultID)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).([]model.Secret), args.Error(1)
+}
+
+func (m *MockSecretService) IsSecretSoftDeletedInVault(ctx context.Context, secretID, vaultID uuid.UUID) (bool, error) {
+	args := m.Called(ctx, secretID, vaultID)
+	return args.Bool(0), args.Error(1)
+}
+
+func (m *MockSecretService) IsSecretSoftDeletedForUser(ctx context.Context, secretID, userID uuid.UUID) (bool, error) {
+	args := m.Called(ctx, secretID, userID)
+	return args.Bool(0), args.Error(1)
+}
+
+func (m *MockSecretService) RecoverSecret(ctx context.Context, secretID uuid.UUID) error {
+	args := m.Called(ctx, secretID)
+	return args.Error(0)
+}
+
+func (m *MockSecretService) PurgeSecret(ctx context.Context, secretID uuid.UUID) error {
+	args := m.Called(ctx, secretID)
+	return args.Error(0)
+}
+
 // MockVaultService implements vaultServices.VaultService for testing.
 type MockVaultService struct {
 	mock.Mock

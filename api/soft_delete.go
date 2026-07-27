@@ -6,7 +6,8 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/gorilla/mux"
-	"rocketvault/internal/repositories"
+
+	secretServices "rocketvault/internal/services/secrets"
 )
 
 // listDeletedSecrets returns all soft-deleted secrets in the resolved vault.
@@ -22,25 +23,27 @@ func listDeletedSecrets(c *Context, w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	repo := c.App.ServiceContainer.GetSecretRepository()
-	secrets, err := repo.ListInVaultIncludeDeleted(r.Context(), vaultID, nil)
+	secretSvc := c.secretSvc()
+	if secretSvc == nil {
+		return
+	}
+
+	secrets, err := secretSvc.ListDeletedSecretsInVault(r.Context(), vaultID)
 	if err != nil {
 		c.SetInternalError(err)
 		return
 	}
 
-	// Filter to only soft-deleted entries.
+	// The service already filters to soft-deleted entries only.
 	var deleted []map[string]any
 	for _, s := range secrets {
-		if s.DeletedAt != nil {
-			deleted = append(deleted, map[string]any{
-				"id":         s.ID.String(),
-				"name":       s.Name,
-				"version":    s.Version,
-				"deleted_at": s.DeletedAt,
-				"created_at": s.CreatedAt,
-			})
-		}
+		deleted = append(deleted, map[string]any{
+			"id":         s.ID.String(),
+			"name":       s.Name,
+			"version":    s.Version,
+			"deleted_at": s.DeletedAt,
+			"created_at": s.CreatedAt,
+		})
 	}
 	if deleted == nil {
 		deleted = []map[string]any{}
@@ -54,37 +57,33 @@ func listDeletedSecrets(c *Context, w http.ResponseWriter, r *http.Request) {
 // secret. For vault-scoped routes it checks vault membership; for legacy flat
 // routes it checks user ownership. Sets c.Err and returns false on failure.
 func authorizeSecretSoftDeleteOp(c *Context, r *http.Request, secretID uuid.UUID,
-	repo repositories.SecretRepositoryInterface) bool {
+	secretSvc secretServices.SecretService) bool {
 	if isVaultScopedRoute(r) {
 		vaultID, err := vaultIDFromRequest(r)
 		if err != nil {
 			c.SetInvalidParam("vault")
 			return false
 		}
-		secrets, err := repo.ListInVaultIncludeDeleted(r.Context(), vaultID, nil)
+		ok, err := secretSvc.IsSecretSoftDeletedInVault(r.Context(), secretID, vaultID)
 		if err != nil {
 			c.SetInternalError(err)
 			return false
 		}
-		for _, s := range secrets {
-			if s.ID == secretID && s.DeletedAt != nil {
-				return true
-			}
+		if ok {
+			return true
 		}
 	} else {
 		userID, ok := userIDFromClaims(c)
 		if !ok {
 			return false
 		}
-		secrets, err := repo.ListByUserIncludeDeleted(r.Context(), userID, nil)
+		deleted, err := secretSvc.IsSecretSoftDeletedForUser(r.Context(), secretID, userID)
 		if err != nil {
 			c.SetInternalError(err)
 			return false
 		}
-		for _, s := range secrets {
-			if s.ID == secretID && s.UserID == userID && s.DeletedAt != nil {
-				return true
-			}
+		if deleted {
+			return true
 		}
 	}
 	c.SetNotFound("secret")
@@ -99,12 +98,16 @@ func recoverSecret(c *Context, w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	repo := c.App.ServiceContainer.GetSecretRepository()
-	if !authorizeSecretSoftDeleteOp(c, r, secretID, repo) {
+	secretSvc := c.secretSvc()
+	if secretSvc == nil {
 		return
 	}
 
-	if err := repo.RecoverSecret(r.Context(), secretID); err != nil {
+	if !authorizeSecretSoftDeleteOp(c, r, secretID, secretSvc) {
+		return
+	}
+
+	if err := secretSvc.RecoverSecret(r.Context(), secretID); err != nil {
 		c.SetInternalError(err)
 		return
 	}
@@ -121,12 +124,16 @@ func purgeSecret(c *Context, w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	repo := c.App.ServiceContainer.GetSecretRepository()
-	if !authorizeSecretSoftDeleteOp(c, r, secretID, repo) {
+	secretSvc := c.secretSvc()
+	if secretSvc == nil {
 		return
 	}
 
-	if err := repo.PurgeSecret(r.Context(), secretID); err != nil {
+	if !authorizeSecretSoftDeleteOp(c, r, secretID, secretSvc) {
+		return
+	}
+
+	if err := secretSvc.PurgeSecret(r.Context(), secretID); err != nil {
 		c.SetInternalError(err)
 		return
 	}

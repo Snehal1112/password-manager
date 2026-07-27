@@ -237,3 +237,56 @@ func (s *retrySecretService) ImportSecrets(ctx context.Context, req secrets.Impo
 
 	return result, retryErr
 }
+
+// ListDeletedSecretsInVault lists deleted secrets in a vault with retry logic for database operations
+func (s *retrySecretService) ListDeletedSecretsInVault(ctx context.Context, vaultID uuid.UUID) ([]model.Secret, error) {
+	var result []model.Secret
+	var err error
+
+	retryErr := s.retryService.ExecuteDatabaseOperation(ctx, func() error {
+		result, err = s.baseService.ListDeletedSecretsInVault(ctx, vaultID)
+		return err
+	})
+
+	return result, retryErr
+}
+
+// IsSecretSoftDeletedInVault checks if a secret is soft deleted in a vault with retry logic for database operations
+func (s *retrySecretService) IsSecretSoftDeletedInVault(ctx context.Context, secretID, vaultID uuid.UUID) (bool, error) {
+	var result bool
+	var err error
+
+	retryErr := s.retryService.ExecuteDatabaseOperation(ctx, func() error {
+		result, err = s.baseService.IsSecretSoftDeletedInVault(ctx, secretID, vaultID)
+		return err
+	})
+
+	return result, retryErr
+}
+
+// IsSecretSoftDeletedForUser checks if a secret is soft deleted for a user with retry logic for database operations
+func (s *retrySecretService) IsSecretSoftDeletedForUser(ctx context.Context, secretID, userID uuid.UUID) (bool, error) {
+	var result bool
+	var err error
+
+	retryErr := s.retryService.ExecuteDatabaseOperation(ctx, func() error {
+		result, err = s.baseService.IsSecretSoftDeletedForUser(ctx, secretID, userID)
+		return err
+	})
+
+	return result, retryErr
+}
+
+// RecoverSecret recovers a soft-deleted secret with retry logic for database operations
+func (s *retrySecretService) RecoverSecret(ctx context.Context, secretID uuid.UUID) error {
+	return s.retryService.ExecuteDatabaseOperation(ctx, func() error {
+		return s.baseService.RecoverSecret(ctx, secretID)
+	})
+}
+
+// PurgeSecret permanently deletes a soft-deleted secret with retry logic for database operations
+func (s *retrySecretService) PurgeSecret(ctx context.Context, secretID uuid.UUID) error {
+	return s.retryService.ExecuteDatabaseOperation(ctx, func() error {
+		return s.baseService.PurgeSecret(ctx, secretID)
+	})
+}

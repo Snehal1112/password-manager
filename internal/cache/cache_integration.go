@@ -229,3 +229,52 @@ func (s *CachedSecretService) StartCacheCleanup(ctx context.Context, interval ti
 	s.cache.StartCleanup(ctx, interval)
 	s.logger.WithField("interval", interval).Info("Started cache cleanup process")
 }
+
+// ListDeletedSecretsInVault lists deleted secrets in a vault (delegated; not cached).
+func (s *CachedSecretService) ListDeletedSecretsInVault(ctx context.Context, vaultID uuid.UUID) ([]model.Secret, error) {
+	return s.secretService.ListDeletedSecretsInVault(ctx, vaultID)
+}
+
+// IsSecretSoftDeletedInVault checks if a secret is soft deleted in a vault (delegated; not cached).
+func (s *CachedSecretService) IsSecretSoftDeletedInVault(ctx context.Context, secretID, vaultID uuid.UUID) (bool, error) {
+	return s.secretService.IsSecretSoftDeletedInVault(ctx, secretID, vaultID)
+}
+
+// IsSecretSoftDeletedForUser checks if a secret is soft deleted for a user (delegated; not cached).
+func (s *CachedSecretService) IsSecretSoftDeletedForUser(ctx context.Context, secretID, userID uuid.UUID) (bool, error) {
+	return s.secretService.IsSecretSoftDeletedForUser(ctx, secretID, userID)
+}
+
+// RecoverSecret recovers a soft-deleted secret and removes it from cache.
+func (s *CachedSecretService) RecoverSecret(ctx context.Context, secretID uuid.UUID) error {
+	// Recover through underlying service
+	err := s.secretService.RecoverSecret(ctx, secretID)
+	if err != nil {
+		return err
+	}
+
+	// Invalidate cache - the secret will be re-cached on next read
+	if err := s.cache.Delete(ctx, secretID); err != nil {
+		s.logger.WithError(err).Warn("Failed to invalidate cached secret")
+		// Don't fail the operation if cache invalidation fails
+	}
+
+	return nil
+}
+
+// PurgeSecret permanently deletes a soft-deleted secret and removes it from cache.
+func (s *CachedSecretService) PurgeSecret(ctx context.Context, secretID uuid.UUID) error {
+	// Purge through underlying service
+	err := s.secretService.PurgeSecret(ctx, secretID)
+	if err != nil {
+		return err
+	}
+
+	// Remove from cache
+	if err := s.cache.Delete(ctx, secretID); err != nil {
+		s.logger.WithError(err).Warn("Failed to remove purged secret from cache")
+		// Don't fail the operation if cache deletion fails
+	}
+
+	return nil
+}
