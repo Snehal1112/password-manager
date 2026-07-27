@@ -151,6 +151,15 @@ func (s *recordingSecretService) GetSecretVersionInVault(context.Context, uuid.U
 func (s *recordingSecretService) GetLatestSecretVersionInVault(context.Context, uuid.UUID, uuid.UUID) (*model.SecretVersion, error) {
 	panic("unexpected")
 }
+func (s *recordingSecretService) GetSecretVersionsScoped(context.Context, uuid.UUID, model.Scope) ([]model.SecretVersion, error) {
+	panic("unexpected")
+}
+func (s *recordingSecretService) GetSecretVersionScoped(context.Context, uuid.UUID, int, model.Scope) (*model.SecretVersion, error) {
+	panic("unexpected")
+}
+func (s *recordingSecretService) GetLatestSecretVersionScoped(context.Context, uuid.UUID, model.Scope) (*model.SecretVersion, error) {
+	panic("unexpected")
+}
 func (s *recordingSecretService) RecoverSecretScoped(context.Context, uuid.UUID, model.Scope) error {
 	panic("unexpected")
 }

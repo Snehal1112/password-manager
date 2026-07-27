@@ -766,7 +766,7 @@ func TestVersioningServiceHappyPathAndOwnershipErrors(t *testing.T) {
 	assert.Equal(t, "plain-v1", created.Value)
 
 	encryptedVersions := []model.SecretVersion{{ID: uuid.New(), SecretID: secretID, UserID: userID, Value: "encrypted-v1", Version: 1}}
-	secretRepo.On("Read", ctx, secretID).Return(secret, nil).Once()
+	secretRepo.On("ReadScoped", ctx, secretID, model.NewOwnerScope(uuid.Nil, userID)).Return(secret, nil).Once()
 	versionRepo.On("GetVersions", ctx, secretID).Return(encryptedVersions, nil).Once()
 	crypto.On("DecryptSecret", "encrypted-v1").Return("plain-v1", nil).Once()
 
@@ -822,7 +822,7 @@ func TestVersioningServiceGetLatestAndDeleteMethods(t *testing.T) {
 	svc := secrets.NewVersioningService(versionRepo, secretRepo, userRepo, crypto, testutils.NewTestLogger(t))
 
 	encryptedV2 := &model.SecretVersion{ID: uuid.New(), SecretID: secretID, UserID: userID, Value: "encrypted-v2", Version: 2}
-	secretRepo.On("Read", ctx, secretID).Return(secret, nil).Once()
+	secretRepo.On("ReadScoped", ctx, secretID, model.NewOwnerScope(uuid.Nil, userID)).Return(secret, nil).Once()
 	versionRepo.On("GetVersion", ctx, secretID, 2).Return(encryptedV2, nil).Once()
 	crypto.On("DecryptSecret", "encrypted-v2").Return("plain-v2", nil).Once()
 
@@ -831,7 +831,7 @@ func TestVersioningServiceGetLatestAndDeleteMethods(t *testing.T) {
 	assert.Equal(t, "plain-v2", gotVersion.Value)
 
 	encryptedLatest := &model.SecretVersion{ID: uuid.New(), SecretID: secretID, UserID: userID, Value: "encrypted-latest", Version: 3}
-	secretRepo.On("Read", ctx, secretID).Return(secret, nil).Once()
+	secretRepo.On("ReadScoped", ctx, secretID, model.NewOwnerScope(uuid.Nil, userID)).Return(secret, nil).Once()
 	versionRepo.On("GetLatestVersion", ctx, secretID).Return(encryptedLatest, nil).Once()
 	crypto.On("DecryptSecret", "encrypted-latest").Return("plain-latest", nil).Once()
 
@@ -847,7 +847,7 @@ func TestVersioningServiceGetLatestAndDeleteMethods(t *testing.T) {
 	versionRepo.On("DeleteSpecificVersion", ctx, secretID, 2).Return(nil).Once()
 	require.NoError(t, svc.DeleteSpecificVersion(ctx, secretID, 2, userID))
 
-	secretRepo.On("Read", ctx, secretID).Return(nil, errors.New("missing")).Once()
+	secretRepo.On("ReadScoped", ctx, secretID, model.NewOwnerScope(uuid.Nil, userID)).Return(nil, errors.New("missing")).Once()
 	_, err = svc.GetVersion(ctx, secretID, 99, userID)
 	assert.ErrorContains(t, err, "secret not found")
 

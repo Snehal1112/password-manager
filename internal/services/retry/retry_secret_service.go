@@ -246,6 +246,45 @@ func (s *retrySecretService) GetLatestSecretVersionInVault(ctx context.Context, 
 	return result, retryErr
 }
 
+// GetSecretVersionsScoped retrieves every version of a secret the scope authorizes, with retry logic for database operations.
+func (s *retrySecretService) GetSecretVersionsScoped(ctx context.Context, secretID uuid.UUID, scope model.Scope) ([]model.SecretVersion, error) {
+	var result []model.SecretVersion
+	var err error
+
+	retryErr := s.retryService.ExecuteDatabaseOperation(ctx, func() error {
+		result, err = s.baseService.GetSecretVersionsScoped(ctx, secretID, scope)
+		return err
+	})
+
+	return result, retryErr
+}
+
+// GetSecretVersionScoped retrieves one version of a secret the scope authorizes, with retry logic for database operations.
+func (s *retrySecretService) GetSecretVersionScoped(ctx context.Context, secretID uuid.UUID, version int, scope model.Scope) (*model.SecretVersion, error) {
+	var result *model.SecretVersion
+	var err error
+
+	retryErr := s.retryService.ExecuteDatabaseOperation(ctx, func() error {
+		result, err = s.baseService.GetSecretVersionScoped(ctx, secretID, version, scope)
+		return err
+	})
+
+	return result, retryErr
+}
+
+// GetLatestSecretVersionScoped retrieves the newest version of a secret the scope authorizes, with retry logic for database operations.
+func (s *retrySecretService) GetLatestSecretVersionScoped(ctx context.Context, secretID uuid.UUID, scope model.Scope) (*model.SecretVersion, error) {
+	var result *model.SecretVersion
+	var err error
+
+	retryErr := s.retryService.ExecuteDatabaseOperation(ctx, func() error {
+		result, err = s.baseService.GetLatestSecretVersionScoped(ctx, secretID, scope)
+		return err
+	})
+
+	return result, retryErr
+}
+
 // GenerateSecret generates a secret with retry logic for database operations
 func (s *retrySecretService) GenerateSecret(ctx context.Context, req secrets.GenerateSecretRequest) (*model.Secret, error) {
 	var result *model.Secret

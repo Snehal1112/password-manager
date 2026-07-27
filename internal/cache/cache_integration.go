@@ -200,6 +200,21 @@ func (s *CachedSecretService) GetLatestSecretVersionInVault(ctx context.Context,
 	return s.secretService.GetLatestSecretVersionInVault(ctx, secretID, vaultID)
 }
 
+// GetSecretVersionsScoped retrieves every version of a secret the scope authorizes (not cached).
+func (s *CachedSecretService) GetSecretVersionsScoped(ctx context.Context, secretID uuid.UUID, scope model.Scope) ([]model.SecretVersion, error) {
+	return s.secretService.GetSecretVersionsScoped(ctx, secretID, scope)
+}
+
+// GetSecretVersionScoped retrieves one version of a secret the scope authorizes (not cached).
+func (s *CachedSecretService) GetSecretVersionScoped(ctx context.Context, secretID uuid.UUID, version int, scope model.Scope) (*model.SecretVersion, error) {
+	return s.secretService.GetSecretVersionScoped(ctx, secretID, version, scope)
+}
+
+// GetLatestSecretVersionScoped retrieves the newest version of a secret the scope authorizes (not cached).
+func (s *CachedSecretService) GetLatestSecretVersionScoped(ctx context.Context, secretID uuid.UUID, scope model.Scope) (*model.SecretVersion, error) {
+	return s.secretService.GetLatestSecretVersionScoped(ctx, secretID, scope)
+}
+
 // GenerateSecret generates a secret and caches it.
 func (s *CachedSecretService) GenerateSecret(ctx context.Context, req secrets.GenerateSecretRequest) (*model.Secret, error) {
 	// Generate through underlying service

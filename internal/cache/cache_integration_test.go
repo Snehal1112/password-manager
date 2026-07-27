@@ -41,6 +41,9 @@ type mockSecretService struct {
 	getSecretVersionsInVaultFn      func(ctx context.Context, secretID, vaultID uuid.UUID) ([]model.SecretVersion, error)
 	getSecretVersionInVaultFn       func(ctx context.Context, secretID uuid.UUID, version int, vaultID uuid.UUID) (*model.SecretVersion, error)
 	getLatestSecretVersionInVaultFn func(ctx context.Context, secretID, vaultID uuid.UUID) (*model.SecretVersion, error)
+	getSecretVersionsScopedFn       func(ctx context.Context, secretID uuid.UUID, scope model.Scope) ([]model.SecretVersion, error)
+	getSecretVersionScopedFn        func(ctx context.Context, secretID uuid.UUID, version int, scope model.Scope) (*model.SecretVersion, error)
+	getLatestSecretVersionScopedFn  func(ctx context.Context, secretID uuid.UUID, scope model.Scope) (*model.SecretVersion, error)
 	generateSecretFn                func(ctx context.Context, req secrets.GenerateSecretRequest) (*model.Secret, error)
 	exportSecretsFn                 func(ctx context.Context, req secrets.ExportSecretsRequest) ([]byte, error)
 	importSecretsFn                 func(ctx context.Context, req secrets.ImportSecretsRequest) (*secrets.ImportResult, error)
@@ -187,6 +190,27 @@ func (m *mockSecretService) GetSecretVersionInVault(ctx context.Context, secretI
 func (m *mockSecretService) GetLatestSecretVersionInVault(ctx context.Context, secretID, vaultID uuid.UUID) (*model.SecretVersion, error) {
 	if m.getLatestSecretVersionInVaultFn != nil {
 		return m.getLatestSecretVersionInVaultFn(ctx, secretID, vaultID)
+	}
+	return nil, errors.New("not implemented")
+}
+
+func (m *mockSecretService) GetSecretVersionsScoped(ctx context.Context, secretID uuid.UUID, scope model.Scope) ([]model.SecretVersion, error) {
+	if m.getSecretVersionsScopedFn != nil {
+		return m.getSecretVersionsScopedFn(ctx, secretID, scope)
+	}
+	return nil, errors.New("not implemented")
+}
+
+func (m *mockSecretService) GetSecretVersionScoped(ctx context.Context, secretID uuid.UUID, version int, scope model.Scope) (*model.SecretVersion, error) {
+	if m.getSecretVersionScopedFn != nil {
+		return m.getSecretVersionScopedFn(ctx, secretID, version, scope)
+	}
+	return nil, errors.New("not implemented")
+}
+
+func (m *mockSecretService) GetLatestSecretVersionScoped(ctx context.Context, secretID uuid.UUID, scope model.Scope) (*model.SecretVersion, error) {
+	if m.getLatestSecretVersionScopedFn != nil {
+		return m.getLatestSecretVersionScopedFn(ctx, secretID, scope)
 	}
 	return nil, errors.New("not implemented")
 }

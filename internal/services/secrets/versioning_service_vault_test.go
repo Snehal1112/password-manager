@@ -24,7 +24,7 @@ func TestGetVersionsInVault_HappyPath(t *testing.T) {
 	versionRepo := &testutils.MockSecretVersionRepository{}
 	crypto := &testutils.MockCryptographyService{}
 
-	secretRepo.On("ReadInVault", ctx, secretID, vaultID).Return(
+	secretRepo.On("ReadScoped", ctx, secretID, model.NewVaultScope(vaultID, uuid.Nil)).Return(
 		&model.Secret{ID: secretID, VaultID: vaultID}, nil,
 	)
 	versionRepo.On("GetVersions", ctx, secretID).Return(
@@ -51,7 +51,7 @@ func TestGetVersionsInVault_WrongVault(t *testing.T) {
 	versionRepo := &testutils.MockSecretVersionRepository{}
 	crypto := &testutils.MockCryptographyService{}
 
-	secretRepo.On("ReadInVault", ctx, secretID, vaultID).Return(nil, errors.New("secret not found or access denied"))
+	secretRepo.On("ReadScoped", ctx, secretID, model.NewVaultScope(vaultID, uuid.Nil)).Return(nil, errors.New("secret not found or access denied"))
 
 	svc := secrets.NewVersioningService(versionRepo, secretRepo, userRepo, crypto, testutils.NewTestLogger(t))
 	_, err := svc.GetVersionsInVault(ctx, secretID, vaultID)

@@ -150,6 +150,12 @@ type SecretService interface {
 	GetSecretVersionsInVault(ctx context.Context, secretID, vaultID uuid.UUID) ([]model.SecretVersion, error)
 	GetSecretVersionInVault(ctx context.Context, secretID uuid.UUID, version int, vaultID uuid.UUID) (*model.SecretVersion, error)
 	GetLatestSecretVersionInVault(ctx context.Context, secretID, vaultID uuid.UUID) (*model.SecretVersion, error)
+	// GetSecretVersionsScoped returns every version of a secret the scope authorizes.
+	GetSecretVersionsScoped(ctx context.Context, secretID uuid.UUID, scope model.Scope) ([]model.SecretVersion, error)
+	// GetSecretVersionScoped returns one version the scope authorizes.
+	GetSecretVersionScoped(ctx context.Context, secretID uuid.UUID, version int, scope model.Scope) (*model.SecretVersion, error)
+	// GetLatestSecretVersionScoped returns the newest version the scope authorizes.
+	GetLatestSecretVersionScoped(ctx context.Context, secretID uuid.UUID, scope model.Scope) (*model.SecretVersion, error)
 	// RecoverSecretScoped restores a soft-deleted secret authorized by scope.
 	RecoverSecretScoped(ctx context.Context, secretID uuid.UUID, scope model.Scope) error
 	// PurgeSecretScoped permanently deletes a soft-deleted secret authorized by scope.
@@ -597,6 +603,18 @@ func (s *secretService) GetSecretVersionInVault(ctx context.Context, secretID uu
 // GetLatestSecretVersionInVault retrieves the latest version of a secret scoped to a vault.
 func (s *secretService) GetLatestSecretVersionInVault(ctx context.Context, secretID, vaultID uuid.UUID) (*model.SecretVersion, error) {
 	return s.versionService.GetLatestVersionInVault(ctx, secretID, vaultID)
+}
+
+func (s *secretService) GetSecretVersionsScoped(ctx context.Context, secretID uuid.UUID, scope model.Scope) ([]model.SecretVersion, error) {
+	return s.versionService.GetVersionsScoped(ctx, secretID, scope)
+}
+
+func (s *secretService) GetSecretVersionScoped(ctx context.Context, secretID uuid.UUID, version int, scope model.Scope) (*model.SecretVersion, error) {
+	return s.versionService.GetVersionScoped(ctx, secretID, version, scope)
+}
+
+func (s *secretService) GetLatestSecretVersionScoped(ctx context.Context, secretID uuid.UUID, scope model.Scope) (*model.SecretVersion, error) {
+	return s.versionService.GetLatestVersionScoped(ctx, secretID, scope)
 }
 
 // GenerateSecret generates a random password or secret with specified criteria.

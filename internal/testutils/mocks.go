@@ -349,6 +349,30 @@ func (m *MockVersioningService) GetLatestVersionInVault(ctx context.Context, sec
 	return nil, args.Error(1)
 }
 
+func (m *MockVersioningService) GetVersionsScoped(ctx context.Context, secretID uuid.UUID, scope model.Scope) ([]model.SecretVersion, error) {
+	args := m.Called(ctx, secretID, scope)
+	if v := args.Get(0); v != nil {
+		return v.([]model.SecretVersion), args.Error(1)
+	}
+	return nil, args.Error(1)
+}
+
+func (m *MockVersioningService) GetVersionScoped(ctx context.Context, secretID uuid.UUID, version int, scope model.Scope) (*model.SecretVersion, error) {
+	args := m.Called(ctx, secretID, version, scope)
+	if v := args.Get(0); v != nil {
+		return v.(*model.SecretVersion), args.Error(1)
+	}
+	return nil, args.Error(1)
+}
+
+func (m *MockVersioningService) GetLatestVersionScoped(ctx context.Context, secretID uuid.UUID, scope model.Scope) (*model.SecretVersion, error) {
+	args := m.Called(ctx, secretID, scope)
+	if v := args.Get(0); v != nil {
+		return v.(*model.SecretVersion), args.Error(1)
+	}
+	return nil, args.Error(1)
+}
+
 func (m *MockVersioningService) DeleteVersions(ctx context.Context, secretID, userID uuid.UUID) error {
 	args := m.Called(ctx, secretID, userID)
 	return args.Error(0)

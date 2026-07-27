@@ -321,6 +321,30 @@ func (m *MockSecretService) ImportSecrets(ctx context.Context, req secrets.Impor
 	return args.Get(0).(*secrets.ImportResult), args.Error(1)
 }
 
+func (m *MockSecretService) GetSecretVersionsScoped(ctx context.Context, secretID uuid.UUID, scope model.Scope) ([]model.SecretVersion, error) {
+	args := m.Called(ctx, secretID, scope)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).([]model.SecretVersion), args.Error(1)
+}
+
+func (m *MockSecretService) GetSecretVersionScoped(ctx context.Context, secretID uuid.UUID, version int, scope model.Scope) (*model.SecretVersion, error) {
+	args := m.Called(ctx, secretID, version, scope)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).(*model.SecretVersion), args.Error(1)
+}
+
+func (m *MockSecretService) GetLatestSecretVersionScoped(ctx context.Context, secretID uuid.UUID, scope model.Scope) (*model.SecretVersion, error) {
+	args := m.Called(ctx, secretID, scope)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).(*model.SecretVersion), args.Error(1)
+}
+
 func (m *MockSecretService) RecoverSecretScoped(ctx context.Context, secretID uuid.UUID, scope model.Scope) error {
 	args := m.Called(ctx, secretID, scope)
 	return args.Error(0)

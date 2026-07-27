@@ -467,6 +467,66 @@ func (_c *MockSecretService_GetLatestSecretVersionInVault_Call) RunAndReturn(run
 	return _c
 }
 
+// GetLatestSecretVersionScoped provides a mock function with given fields: ctx, secretID, scope
+func (_m *MockSecretService) GetLatestSecretVersionScoped(ctx context.Context, secretID uuid.UUID, scope model.Scope) (*model.SecretVersion, error) {
+	ret := _m.Called(ctx, secretID, scope)
+
+	if len(ret) == 0 {
+		panic("no return value specified for GetLatestSecretVersionScoped")
+	}
+
+	var r0 *model.SecretVersion
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, uuid.UUID, model.Scope) (*model.SecretVersion, error)); ok {
+		return rf(ctx, secretID, scope)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, uuid.UUID, model.Scope) *model.SecretVersion); ok {
+		r0 = rf(ctx, secretID, scope)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).(*model.SecretVersion)
+		}
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context, uuid.UUID, model.Scope) error); ok {
+		r1 = rf(ctx, secretID, scope)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// MockSecretService_GetLatestSecretVersionScoped_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'GetLatestSecretVersionScoped'
+type MockSecretService_GetLatestSecretVersionScoped_Call struct {
+	*mock.Call
+}
+
+// GetLatestSecretVersionScoped is a helper method to define mock.On call
+//   - ctx context.Context
+//   - secretID uuid.UUID
+//   - scope model.Scope
+func (_e *MockSecretService_Expecter) GetLatestSecretVersionScoped(ctx interface{}, secretID interface{}, scope interface{}) *MockSecretService_GetLatestSecretVersionScoped_Call {
+	return &MockSecretService_GetLatestSecretVersionScoped_Call{Call: _e.mock.On("GetLatestSecretVersionScoped", ctx, secretID, scope)}
+}
+
+func (_c *MockSecretService_GetLatestSecretVersionScoped_Call) Run(run func(ctx context.Context, secretID uuid.UUID, scope model.Scope)) *MockSecretService_GetLatestSecretVersionScoped_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(uuid.UUID), args[2].(model.Scope))
+	})
+	return _c
+}
+
+func (_c *MockSecretService_GetLatestSecretVersionScoped_Call) Return(_a0 *model.SecretVersion, _a1 error) *MockSecretService_GetLatestSecretVersionScoped_Call {
+	_c.Call.Return(_a0, _a1)
+	return _c
+}
+
+func (_c *MockSecretService_GetLatestSecretVersionScoped_Call) RunAndReturn(run func(context.Context, uuid.UUID, model.Scope) (*model.SecretVersion, error)) *MockSecretService_GetLatestSecretVersionScoped_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // GetSecret provides a mock function with given fields: ctx, secretID, userID
 func (_m *MockSecretService) GetSecret(ctx context.Context, secretID uuid.UUID, userID uuid.UUID) (*model.Secret, error) {
 	ret := _m.Called(ctx, secretID, userID)
@@ -769,6 +829,67 @@ func (_c *MockSecretService_GetSecretVersionInVault_Call) RunAndReturn(run func(
 	return _c
 }
 
+// GetSecretVersionScoped provides a mock function with given fields: ctx, secretID, version, scope
+func (_m *MockSecretService) GetSecretVersionScoped(ctx context.Context, secretID uuid.UUID, version int, scope model.Scope) (*model.SecretVersion, error) {
+	ret := _m.Called(ctx, secretID, version, scope)
+
+	if len(ret) == 0 {
+		panic("no return value specified for GetSecretVersionScoped")
+	}
+
+	var r0 *model.SecretVersion
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, uuid.UUID, int, model.Scope) (*model.SecretVersion, error)); ok {
+		return rf(ctx, secretID, version, scope)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, uuid.UUID, int, model.Scope) *model.SecretVersion); ok {
+		r0 = rf(ctx, secretID, version, scope)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).(*model.SecretVersion)
+		}
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context, uuid.UUID, int, model.Scope) error); ok {
+		r1 = rf(ctx, secretID, version, scope)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// MockSecretService_GetSecretVersionScoped_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'GetSecretVersionScoped'
+type MockSecretService_GetSecretVersionScoped_Call struct {
+	*mock.Call
+}
+
+// GetSecretVersionScoped is a helper method to define mock.On call
+//   - ctx context.Context
+//   - secretID uuid.UUID
+//   - version int
+//   - scope model.Scope
+func (_e *MockSecretService_Expecter) GetSecretVersionScoped(ctx interface{}, secretID interface{}, version interface{}, scope interface{}) *MockSecretService_GetSecretVersionScoped_Call {
+	return &MockSecretService_GetSecretVersionScoped_Call{Call: _e.mock.On("GetSecretVersionScoped", ctx, secretID, version, scope)}
+}
+
+func (_c *MockSecretService_GetSecretVersionScoped_Call) Run(run func(ctx context.Context, secretID uuid.UUID, version int, scope model.Scope)) *MockSecretService_GetSecretVersionScoped_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(uuid.UUID), args[2].(int), args[3].(model.Scope))
+	})
+	return _c
+}
+
+func (_c *MockSecretService_GetSecretVersionScoped_Call) Return(_a0 *model.SecretVersion, _a1 error) *MockSecretService_GetSecretVersionScoped_Call {
+	_c.Call.Return(_a0, _a1)
+	return _c
+}
+
+func (_c *MockSecretService_GetSecretVersionScoped_Call) RunAndReturn(run func(context.Context, uuid.UUID, int, model.Scope) (*model.SecretVersion, error)) *MockSecretService_GetSecretVersionScoped_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // GetSecretVersions provides a mock function with given fields: ctx, secretID, userID
 func (_m *MockSecretService) GetSecretVersions(ctx context.Context, secretID uuid.UUID, userID uuid.UUID) ([]model.SecretVersion, error) {
 	ret := _m.Called(ctx, secretID, userID)
@@ -885,6 +1006,66 @@ func (_c *MockSecretService_GetSecretVersionsInVault_Call) Return(_a0 []model.Se
 }
 
 func (_c *MockSecretService_GetSecretVersionsInVault_Call) RunAndReturn(run func(context.Context, uuid.UUID, uuid.UUID) ([]model.SecretVersion, error)) *MockSecretService_GetSecretVersionsInVault_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// GetSecretVersionsScoped provides a mock function with given fields: ctx, secretID, scope
+func (_m *MockSecretService) GetSecretVersionsScoped(ctx context.Context, secretID uuid.UUID, scope model.Scope) ([]model.SecretVersion, error) {
+	ret := _m.Called(ctx, secretID, scope)
+
+	if len(ret) == 0 {
+		panic("no return value specified for GetSecretVersionsScoped")
+	}
+
+	var r0 []model.SecretVersion
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, uuid.UUID, model.Scope) ([]model.SecretVersion, error)); ok {
+		return rf(ctx, secretID, scope)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, uuid.UUID, model.Scope) []model.SecretVersion); ok {
+		r0 = rf(ctx, secretID, scope)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).([]model.SecretVersion)
+		}
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context, uuid.UUID, model.Scope) error); ok {
+		r1 = rf(ctx, secretID, scope)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// MockSecretService_GetSecretVersionsScoped_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'GetSecretVersionsScoped'
+type MockSecretService_GetSecretVersionsScoped_Call struct {
+	*mock.Call
+}
+
+// GetSecretVersionsScoped is a helper method to define mock.On call
+//   - ctx context.Context
+//   - secretID uuid.UUID
+//   - scope model.Scope
+func (_e *MockSecretService_Expecter) GetSecretVersionsScoped(ctx interface{}, secretID interface{}, scope interface{}) *MockSecretService_GetSecretVersionsScoped_Call {
+	return &MockSecretService_GetSecretVersionsScoped_Call{Call: _e.mock.On("GetSecretVersionsScoped", ctx, secretID, scope)}
+}
+
+func (_c *MockSecretService_GetSecretVersionsScoped_Call) Run(run func(ctx context.Context, secretID uuid.UUID, scope model.Scope)) *MockSecretService_GetSecretVersionsScoped_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(uuid.UUID), args[2].(model.Scope))
+	})
+	return _c
+}
+
+func (_c *MockSecretService_GetSecretVersionsScoped_Call) Return(_a0 []model.SecretVersion, _a1 error) *MockSecretService_GetSecretVersionsScoped_Call {
+	_c.Call.Return(_a0, _a1)
+	return _c
+}
+
+func (_c *MockSecretService_GetSecretVersionsScoped_Call) RunAndReturn(run func(context.Context, uuid.UUID, model.Scope) ([]model.SecretVersion, error)) *MockSecretService_GetSecretVersionsScoped_Call {
 	_c.Call.Return(run)
 	return _c
 }
