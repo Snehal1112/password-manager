@@ -58,6 +58,51 @@ func isVaultScopedRoute(r *http.Request) bool {
 	return mux.Vars(r)["vault_name"] != ""
 }
 
+// scopeFromRequest builds the authorization scope for a resource operation.
+//
+// Vault-scoped routes (/api/v1/vaults/{vault_name}/...) yield a vault scope, so
+// any vault member may act. Legacy flat routes yield an owner scope, preserving
+// pre-multi-vault per-user visibility. P2 collapses both onto the vault scope.
+//
+// It sets c.Err and returns false when the caller's identity cannot be
+// determined, so a handler can never proceed with an invalid scope.
+func scopeFromRequest(c *Context, r *http.Request) (model.Scope, bool) {
+	userID, ok := userIDFromClaims(c)
+	if !ok {
+		return model.Scope{}, false
+	}
+
+	vaultID, err := vaultIDFromRequest(r)
+	if err != nil {
+		c.SetInvalidParam("vault")
+		return model.Scope{}, false
+	}
+
+	if isVaultScopedRoute(r) {
+		return model.NewVaultScope(vaultID, userID), true
+	}
+	return model.NewOwnerScope(vaultID, userID), true
+}
+
+// ownerScopeFromRequest always yields an owner scope, regardless of route shape.
+// It marks the B6 handlers — key crypto operations and key delete — which are
+// owner-gated on both route shapes today. The advisory vault id carries the
+// vault half of that conjunction. Removed in P2.
+func ownerScopeFromRequest(c *Context, r *http.Request) (model.Scope, bool) {
+	userID, ok := userIDFromClaims(c)
+	if !ok {
+		return model.Scope{}, false
+	}
+
+	vaultID, err := vaultIDFromRequest(r)
+	if err != nil {
+		c.SetInvalidParam("vault")
+		return model.Scope{}, false
+	}
+
+	return model.NewOwnerScope(vaultID, userID), true
+}
+
 // SetInvalidParam sets a 400 error for a missing or malformed parameter.
 func (c *Context) SetInvalidParam(parameter string) {
 	c.Err = common.NewAppError("api.context.set_invalid_param",
