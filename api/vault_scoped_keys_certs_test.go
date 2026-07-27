@@ -166,6 +166,18 @@ func (s *recordingCertService) ListCertificatesInVault(_ context.Context, vaultI
 func (s *recordingCertService) DeleteCertificateInVault(context.Context, uuid.UUID, uuid.UUID) error {
 	panic("unexpected")
 }
+func (s *recordingCertService) GetCertificateScoped(context.Context, uuid.UUID, model.Scope) (*model.Certificate, error) {
+	panic("unexpected")
+}
+func (s *recordingCertService) ListCertificatesScoped(context.Context, model.Scope, repositories.CertificateFilter) ([]model.Certificate, error) {
+	panic("unexpected")
+}
+func (s *recordingCertService) UpdateCertificateScoped(context.Context, certServices.UpdateCertificateRequest) error {
+	panic("unexpected")
+}
+func (s *recordingCertService) DeleteCertificateScoped(context.Context, uuid.UUID, model.Scope) error {
+	panic("unexpected")
+}
 func (s *recordingCertService) RenewCertificate(context.Context, uuid.UUID, uuid.UUID, int) (*certServices.CreateCertificateResult, error) {
 	panic("unexpected")
 }

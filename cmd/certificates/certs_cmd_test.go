@@ -19,6 +19,7 @@ import (
 	"rocketvault/common"
 	"rocketvault/internal/formatter"
 	"rocketvault/internal/logging"
+	"rocketvault/internal/repositories"
 	certServices "rocketvault/internal/services/certificates"
 	"rocketvault/model"
 )
@@ -91,6 +92,22 @@ func (m *certCmdCertService) ListCertificatesInVault(ctx context.Context, vaultI
 }
 
 func (m *certCmdCertService) DeleteCertificateInVault(ctx context.Context, certID, vaultID uuid.UUID) error {
+	return nil
+}
+
+func (m *certCmdCertService) GetCertificateScoped(ctx context.Context, certID uuid.UUID, scope model.Scope) (*model.Certificate, error) {
+	return nil, nil
+}
+
+func (m *certCmdCertService) ListCertificatesScoped(ctx context.Context, scope model.Scope, filter repositories.CertificateFilter) ([]model.Certificate, error) {
+	return nil, nil
+}
+
+func (m *certCmdCertService) UpdateCertificateScoped(ctx context.Context, req certServices.UpdateCertificateRequest) error {
+	return nil
+}
+
+func (m *certCmdCertService) DeleteCertificateScoped(ctx context.Context, certID uuid.UUID, scope model.Scope) error {
 	return nil
 }
 

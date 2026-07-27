@@ -179,6 +179,22 @@ func (m *mockCertSvcForRenewal) DeleteCertificateInVault(ctx context.Context, ce
 	panic("not called")
 }
 
+func (m *mockCertSvcForRenewal) GetCertificateScoped(ctx context.Context, certID uuid.UUID, scope model.Scope) (*model.Certificate, error) {
+	panic("not called")
+}
+
+func (m *mockCertSvcForRenewal) ListCertificatesScoped(ctx context.Context, scope model.Scope, filter repositories.CertificateFilter) ([]model.Certificate, error) {
+	panic("not called")
+}
+
+func (m *mockCertSvcForRenewal) UpdateCertificateScoped(ctx context.Context, req certificates.UpdateCertificateRequest) error {
+	panic("not called")
+}
+
+func (m *mockCertSvcForRenewal) DeleteCertificateScoped(ctx context.Context, certID uuid.UUID, scope model.Scope) error {
+	panic("not called")
+}
+
 func (m *mockCertSvcForRenewal) RenewCertificate(ctx context.Context, certID, userID uuid.UUID, validityDays int) (*certificates.CreateCertificateResult, error) {
 	args := m.Called(ctx, certID, userID, validityDays)
 	if args.Get(0) == nil {

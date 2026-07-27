@@ -104,6 +104,32 @@ func (m *mockCertService) DeleteCertificate(ctx context.Context, certID, userID 
 	return args.Error(0)
 }
 
+func (m *mockCertService) GetCertificateScoped(ctx context.Context, certID uuid.UUID, scope model.Scope) (*model.Certificate, error) {
+	args := m.Called(ctx, certID, scope)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).(*model.Certificate), args.Error(1)
+}
+
+func (m *mockCertService) ListCertificatesScoped(ctx context.Context, scope model.Scope, filter repositories.CertificateFilter) ([]model.Certificate, error) {
+	args := m.Called(ctx, scope, filter)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).([]model.Certificate), args.Error(1)
+}
+
+func (m *mockCertService) UpdateCertificateScoped(ctx context.Context, req certServices.UpdateCertificateRequest) error {
+	args := m.Called(ctx, req)
+	return args.Error(0)
+}
+
+func (m *mockCertService) DeleteCertificateScoped(ctx context.Context, certID uuid.UUID, scope model.Scope) error {
+	args := m.Called(ctx, certID, scope)
+	return args.Error(0)
+}
+
 func (m *mockCertService) RenewCertificate(ctx context.Context, certID, userID uuid.UUID, validityDays int) (*certServices.CreateCertificateResult, error) {
 	args := m.Called(ctx, certID, userID, validityDays)
 	if args.Get(0) == nil {

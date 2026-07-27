@@ -21,6 +21,7 @@ import (
 	"rocketvault/common"
 	"rocketvault/internal/crypto"
 	"rocketvault/internal/logging"
+	"rocketvault/internal/repositories"
 	"rocketvault/model"
 )
 
@@ -74,7 +75,7 @@ func TestListCertificates_Success(t *testing.T) {
 	keyRepo := &mockKeyRepo{}
 
 	expected := []model.Certificate{{ID: uuid.New(), UserID: userID, Name: "c1", Enabled: true}}
-	certRepo.On("ListByUser", mock.Anything, userID, ([]string)(nil)).Return(expected, nil)
+	certRepo.On("ListScoped", mock.Anything, model.NewOwnerScope(uuid.Nil, userID), repositories.CertificateFilter{}).Return(expected, nil)
 
 	svc := newCertSvc(certRepo, keyRepo)
 	got, err := svc.ListCertificates(context.Background(), userID)
@@ -88,7 +89,7 @@ func TestListCertificates_RepositoryError(t *testing.T) {
 	certRepo := &mockCertRepository{}
 	keyRepo := &mockKeyRepo{}
 
-	certRepo.On("ListByUser", mock.Anything, userID, ([]string)(nil)).
+	certRepo.On("ListScoped", mock.Anything, model.NewOwnerScope(uuid.Nil, userID), repositories.CertificateFilter{}).
 		Return(nil, errors.New("db error"))
 
 	svc := newCertSvc(certRepo, keyRepo)
@@ -107,7 +108,7 @@ func TestGetCertificate_NotFound(t *testing.T) {
 	certRepo := &mockCertRepository{}
 	keyRepo := &mockKeyRepo{}
 
-	certRepo.On("Read", mock.Anything, certID).Return(nil, errors.New("not found"))
+	certRepo.On("ReadScoped", mock.Anything, certID, model.NewOwnerScope(uuid.Nil, userID)).Return(nil, errors.New("not found"))
 
 	svc := newCertSvc(certRepo, keyRepo)
 	_, err := svc.GetCertificate(context.Background(), certID, userID)
@@ -115,19 +116,19 @@ func TestGetCertificate_NotFound(t *testing.T) {
 	assert.ErrorIs(t, err, ErrCertNotFound)
 }
 
+// TestGetCertificate_WrongOwner verifies that a certificate owned by a
+// different user is treated as not-found. Authorization is now enforced by
+// the repository's ReadScoped predicate rather than a post-fetch Go
+// comparison, so the mock simulates the repository finding no row that
+// matches the caller's scope.
 func TestGetCertificate_WrongOwner(t *testing.T) {
-	ownerID := uuid.New()
 	callerID := uuid.New()
 	certID := uuid.New()
 	certRepo := &mockCertRepository{}
 	keyRepo := &mockKeyRepo{}
 
-	certRepo.On("Read", mock.Anything, certID).Return(&model.Certificate{
-		ID:      certID,
-		UserID:  ownerID,
-		Name:    "cert",
-		Enabled: true,
-	}, nil)
+	certRepo.On("ReadScoped", mock.Anything, certID, model.NewOwnerScope(uuid.Nil, callerID)).
+		Return(nil, errors.New("not found"))
 
 	svc := newCertSvc(certRepo, keyRepo)
 	_, err := svc.GetCertificate(context.Background(), certID, callerID)
@@ -142,7 +143,7 @@ func TestGetCertificate_LifecycleDenied(t *testing.T) {
 	keyRepo := &mockKeyRepo{}
 
 	// disabled cert
-	certRepo.On("Read", mock.Anything, certID).Return(&model.Certificate{
+	certRepo.On("ReadScoped", mock.Anything, certID, model.NewOwnerScope(uuid.Nil, userID)).Return(&model.Certificate{
 		ID:      certID,
 		UserID:  userID,
 		Name:    "cert",
@@ -166,8 +167,9 @@ func TestUpdateCertificate_AllFields(t *testing.T) {
 	keyRepo := &mockKeyRepo{}
 
 	existing := accessibleCert(userID, certID)
-	certRepo.On("Read", mock.Anything, certID).Return(existing, nil)
-	certRepo.On("Update", mock.Anything, mock.AnythingOfType("*model.Certificate")).Return(nil)
+	scope := model.NewOwnerScope(uuid.Nil, userID)
+	certRepo.On("ReadScoped", mock.Anything, certID, scope).Return(existing, nil)
+	certRepo.On("UpdateScoped", mock.Anything, mock.AnythingOfType("*model.Certificate"), scope).Return(nil)
 
 	newName := "updated-cert"
 	autoRenew := true
@@ -197,8 +199,9 @@ func TestUpdateCertificate_NoOptionalFields(t *testing.T) {
 	keyRepo := &mockKeyRepo{}
 
 	existing := accessibleCert(userID, certID)
-	certRepo.On("Read", mock.Anything, certID).Return(existing, nil)
-	certRepo.On("Update", mock.Anything, mock.AnythingOfType("*model.Certificate")).Return(nil)
+	scope := model.NewOwnerScope(uuid.Nil, userID)
+	certRepo.On("ReadScoped", mock.Anything, certID, scope).Return(existing, nil)
+	certRepo.On("UpdateScoped", mock.Anything, mock.AnythingOfType("*model.Certificate"), scope).Return(nil)
 
 	svc := newCertSvc(certRepo, keyRepo)
 	err := svc.UpdateCertificate(context.Background(), UpdateCertificateRequest{
@@ -216,7 +219,7 @@ func TestUpdateCertificate_GetCertificateFails(t *testing.T) {
 	certRepo := &mockCertRepository{}
 	keyRepo := &mockKeyRepo{}
 
-	certRepo.On("Read", mock.Anything, certID).Return(nil, errors.New("not found"))
+	certRepo.On("ReadScoped", mock.Anything, certID, model.NewOwnerScope(uuid.Nil, userID)).Return(nil, errors.New("not found"))
 
 	svc := newCertSvc(certRepo, keyRepo)
 	err := svc.UpdateCertificate(context.Background(), UpdateCertificateRequest{
@@ -233,8 +236,9 @@ func TestUpdateCertificate_RepositoryUpdateFails(t *testing.T) {
 	keyRepo := &mockKeyRepo{}
 
 	existing := accessibleCert(userID, certID)
-	certRepo.On("Read", mock.Anything, certID).Return(existing, nil)
-	certRepo.On("Update", mock.Anything, mock.AnythingOfType("*model.Certificate")).
+	scope := model.NewOwnerScope(uuid.Nil, userID)
+	certRepo.On("ReadScoped", mock.Anything, certID, scope).Return(existing, nil)
+	certRepo.On("UpdateScoped", mock.Anything, mock.AnythingOfType("*model.Certificate"), scope).
 		Return(errors.New("update failed"))
 
 	svc := newCertSvc(certRepo, keyRepo)
@@ -256,7 +260,7 @@ func TestDeleteCertificate_SoftDeleteFails(t *testing.T) {
 	certRepo := &mockCertRepository{}
 	keyRepo := &mockKeyRepo{}
 
-	certRepo.On("Read", mock.Anything, certID).Return(accessibleCert(userID, certID), nil)
+	certRepo.On("ReadScoped", mock.Anything, certID, model.NewOwnerScope(uuid.Nil, userID)).Return(accessibleCert(userID, certID), nil)
 	certRepo.On("SoftDelete", mock.Anything, certID).Return(errors.New("db error"))
 
 	svc := newCertSvc(certRepo, keyRepo)
@@ -276,7 +280,7 @@ func TestGetCertificateInVault_Success(t *testing.T) {
 	keyRepo := &mockKeyRepo{}
 
 	cert := &model.Certificate{ID: certID, UserID: uuid.New(), Name: "vc", Enabled: true}
-	certRepo.On("ReadInVault", mock.Anything, certID, vaultID).Return(cert, nil)
+	certRepo.On("ReadScoped", mock.Anything, certID, model.NewVaultScope(vaultID, uuid.Nil)).Return(cert, nil)
 
 	svc := newCertSvc(certRepo, keyRepo)
 	got, err := svc.GetCertificateInVault(context.Background(), certID, vaultID)
@@ -291,7 +295,7 @@ func TestGetCertificateInVault_NotFound(t *testing.T) {
 	certRepo := &mockCertRepository{}
 	keyRepo := &mockKeyRepo{}
 
-	certRepo.On("ReadInVault", mock.Anything, certID, vaultID).Return(nil, errors.New("not found"))
+	certRepo.On("ReadScoped", mock.Anything, certID, model.NewVaultScope(vaultID, uuid.Nil)).Return(nil, errors.New("not found"))
 
 	svc := newCertSvc(certRepo, keyRepo)
 	_, err := svc.GetCertificateInVault(context.Background(), certID, vaultID)
@@ -306,7 +310,7 @@ func TestGetCertificateInVault_LifecycleDenied(t *testing.T) {
 	keyRepo := &mockKeyRepo{}
 
 	cert := &model.Certificate{ID: certID, UserID: uuid.New(), Name: "vc", Enabled: false}
-	certRepo.On("ReadInVault", mock.Anything, certID, vaultID).Return(cert, nil)
+	certRepo.On("ReadScoped", mock.Anything, certID, model.NewVaultScope(vaultID, uuid.Nil)).Return(cert, nil)
 
 	svc := newCertSvc(certRepo, keyRepo)
 	_, err := svc.GetCertificateInVault(context.Background(), certID, vaultID)
@@ -324,7 +328,7 @@ func TestListCertificatesInVault_Success(t *testing.T) {
 	keyRepo := &mockKeyRepo{}
 
 	certs := []model.Certificate{{ID: uuid.New(), Name: "c1", Enabled: true}}
-	certRepo.On("ListInVault", mock.Anything, vaultID, ([]string)(nil)).Return(certs, nil)
+	certRepo.On("ListScoped", mock.Anything, model.NewVaultScope(vaultID, uuid.Nil), repositories.CertificateFilter{}).Return(certs, nil)
 
 	svc := newCertSvc(certRepo, keyRepo)
 	got, err := svc.ListCertificatesInVault(context.Background(), vaultID)
@@ -338,7 +342,7 @@ func TestListCertificatesInVault_RepositoryError(t *testing.T) {
 	certRepo := &mockCertRepository{}
 	keyRepo := &mockKeyRepo{}
 
-	certRepo.On("ListInVault", mock.Anything, vaultID, ([]string)(nil)).
+	certRepo.On("ListScoped", mock.Anything, model.NewVaultScope(vaultID, uuid.Nil), repositories.CertificateFilter{}).
 		Return(nil, errors.New("db error"))
 
 	svc := newCertSvc(certRepo, keyRepo)
@@ -357,7 +361,7 @@ func TestDeleteCertificateInVault_Success(t *testing.T) {
 	keyRepo := &mockKeyRepo{}
 
 	cert := &model.Certificate{ID: certID, UserID: uuid.New(), Name: "vc", Enabled: true}
-	certRepo.On("ReadInVault", mock.Anything, certID, vaultID).Return(cert, nil)
+	certRepo.On("ReadScoped", mock.Anything, certID, model.NewVaultScope(vaultID, uuid.Nil)).Return(cert, nil)
 	certRepo.On("SoftDelete", mock.Anything, certID).Return(nil)
 
 	svc := newCertSvc(certRepo, keyRepo)
@@ -373,7 +377,7 @@ func TestDeleteCertificateInVault_NotFound(t *testing.T) {
 	certRepo := &mockCertRepository{}
 	keyRepo := &mockKeyRepo{}
 
-	certRepo.On("ReadInVault", mock.Anything, certID, vaultID).Return(nil, errors.New("not found"))
+	certRepo.On("ReadScoped", mock.Anything, certID, model.NewVaultScope(vaultID, uuid.Nil)).Return(nil, errors.New("not found"))
 
 	svc := newCertSvc(certRepo, keyRepo)
 	err := svc.DeleteCertificateInVault(context.Background(), certID, vaultID)
@@ -388,7 +392,7 @@ func TestDeleteCertificateInVault_SoftDeleteFails(t *testing.T) {
 	keyRepo := &mockKeyRepo{}
 
 	cert := &model.Certificate{ID: certID, UserID: uuid.New(), Enabled: true}
-	certRepo.On("ReadInVault", mock.Anything, certID, vaultID).Return(cert, nil)
+	certRepo.On("ReadScoped", mock.Anything, certID, model.NewVaultScope(vaultID, uuid.Nil)).Return(cert, nil)
 	certRepo.On("SoftDelete", mock.Anything, certID).Return(errors.New("db error"))
 
 	svc := newCertSvc(certRepo, keyRepo)
@@ -532,7 +536,7 @@ func TestRenewCertificate_NoKeyID(t *testing.T) {
 	certRepo := &mockCertRepository{}
 	keyRepo := &mockKeyRepo{}
 
-	certRepo.On("Read", mock.Anything, certID).Return(&model.Certificate{
+	certRepo.On("ReadScoped", mock.Anything, certID, model.NewOwnerScope(uuid.Nil, userID)).Return(&model.Certificate{
 		ID:      certID,
 		UserID:  userID,
 		Enabled: true,
@@ -551,7 +555,7 @@ func TestRenewCertificate_GetCertificateFails(t *testing.T) {
 	certRepo := &mockCertRepository{}
 	keyRepo := &mockKeyRepo{}
 
-	certRepo.On("Read", mock.Anything, certID).Return(nil, errors.New("not found"))
+	certRepo.On("ReadScoped", mock.Anything, certID, model.NewOwnerScope(uuid.Nil, userID)).Return(nil, errors.New("not found"))
 
 	svc := newCertSvc(certRepo, keyRepo)
 	_, err := svc.RenewCertificate(context.Background(), certID, userID, 365)
@@ -818,6 +822,18 @@ func (m *mockRenewalCertSvc) ListCertificatesInVault(ctx context.Context, vaultI
 	panic("not called")
 }
 func (m *mockRenewalCertSvc) DeleteCertificateInVault(ctx context.Context, certID, vaultID uuid.UUID) error {
+	panic("not called")
+}
+func (m *mockRenewalCertSvc) GetCertificateScoped(ctx context.Context, certID uuid.UUID, scope model.Scope) (*model.Certificate, error) {
+	panic("not called")
+}
+func (m *mockRenewalCertSvc) ListCertificatesScoped(ctx context.Context, scope model.Scope, filter repositories.CertificateFilter) ([]model.Certificate, error) {
+	panic("not called")
+}
+func (m *mockRenewalCertSvc) UpdateCertificateScoped(ctx context.Context, req UpdateCertificateRequest) error {
+	panic("not called")
+}
+func (m *mockRenewalCertSvc) DeleteCertificateScoped(ctx context.Context, certID uuid.UUID, scope model.Scope) error {
 	panic("not called")
 }
 func (m *mockRenewalCertSvc) RenewCertificate(ctx context.Context, certID, userID uuid.UUID, validityDays int) (*CreateCertificateResult, error) {

@@ -258,8 +258,9 @@ func TestDeleteCertificateSoftDeletes(t *testing.T) {
 	certRepo := &mockCertRepository{}
 	keyRepo := &mockKeyRepo{}
 
-	// GetCertificate calls Read internally — return the cert so access check passes.
-	certRepo.On("Read", mock.Anything, certID).Return(existingCert, nil)
+	// DeleteCertificate shims to DeleteCertificateScoped, which calls ReadScoped
+	// internally — return the cert so access check passes.
+	certRepo.On("ReadScoped", mock.Anything, certID, model.NewOwnerScope(uuid.Nil, userID)).Return(existingCert, nil)
 
 	// SoftDelete must be called exactly once.
 	certRepo.On("SoftDelete", mock.Anything, certID).Return(nil)
@@ -323,8 +324,9 @@ func TestRenewCertificate_Succeeds_WhenKeyIDSet(t *testing.T) {
 	certRepo := &mockCertRepository{}
 	keyRepo := &mockKeyRepo{}
 
-	// GetCertificate calls Read internally.
-	certRepo.On("Read", mock.Anything, certID).Return(existingCert, nil)
+	// RenewCertificate shims GetCertificate to GetCertificateScoped, which calls
+	// ReadScoped internally.
+	certRepo.On("ReadScoped", mock.Anything, certID, model.NewOwnerScope(uuid.Nil, userID)).Return(existingCert, nil)
 
 	// keyRepo.Read is called twice: once in ValidateKeyOwnership, once to get the key PEM.
 	keyRepo.On("Read", mock.Anything, keyID).Return(mockKey, nil)
