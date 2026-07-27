@@ -610,9 +610,8 @@ func buildUpdateSecretCtx(svc *mockSecretService, secretIDStr string) *Context {
 // TestUpdateSecret_NoChangesProvided_Returns400 verifies that an empty update is rejected.
 func TestUpdateSecret_NoChangesProvided_Returns400(t *testing.T) {
 	secretID := uuid.New()
-	userID := uuid.MustParse(secretHTestUserID)
 	svc := &mockSecretService{}
-	svc.On("GetSecret", mock.Anything, secretID, userID).Return(makeSecretModel(secretID), nil)
+	svc.On("GetSecretScoped", mock.Anything, secretID, mock.Anything).Return(makeSecretModel(secretID), nil)
 
 	c := buildUpdateSecretCtx(svc, secretID.String())
 	w := httptest.NewRecorder()
@@ -631,11 +630,10 @@ func TestUpdateSecret_NoChangesProvided_Returns400(t *testing.T) {
 // TestUpdateSecret_UpdateServiceError_Returns500 verifies service errors are handled.
 func TestUpdateSecret_UpdateServiceError_Returns500(t *testing.T) {
 	secretID := uuid.New()
-	userID := uuid.MustParse(secretHTestUserID)
 	svc := &mockSecretService{}
 	existing := makeSecretModel(secretID)
-	svc.On("GetSecret", mock.Anything, secretID, userID).Return(existing, nil)
-	svc.On("UpdateSecret", mock.Anything, mock.Anything).Return(errors.New("db error"))
+	svc.On("GetSecretScoped", mock.Anything, secretID, mock.Anything).Return(existing, nil)
+	svc.On("UpdateSecretScoped", mock.Anything, mock.Anything).Return(errors.New("db error"))
 
 	c := buildUpdateSecretCtx(svc, secretID.String())
 	w := httptest.NewRecorder()
@@ -653,11 +651,10 @@ func TestUpdateSecret_UpdateServiceError_Returns500(t *testing.T) {
 // TestUpdateSecret_NameChange_Returns200 verifies that updating the name succeeds.
 func TestUpdateSecret_NameChange_Returns200(t *testing.T) {
 	secretID := uuid.New()
-	userID := uuid.MustParse(secretHTestUserID)
 	svc := &mockSecretService{}
 	existing := makeSecretModel(secretID)
-	svc.On("GetSecret", mock.Anything, secretID, userID).Return(existing, nil)
-	svc.On("UpdateSecret", mock.Anything, mock.Anything).Return(nil)
+	svc.On("GetSecretScoped", mock.Anything, secretID, mock.Anything).Return(existing, nil)
+	svc.On("UpdateSecretScoped", mock.Anything, mock.Anything).Return(nil)
 
 	c := buildUpdateSecretCtx(svc, secretID.String())
 	w := httptest.NewRecorder()
@@ -1319,11 +1316,10 @@ func TestGetKey_AdminPath_RetryGetKeyFails_Returns404(t *testing.T) {
 // TestUpdateSecret_ValueChange_Returns200 verifies that updating the value succeeds.
 func TestUpdateSecret_ValueChange_Returns200(t *testing.T) {
 	secretID := uuid.New()
-	userID := uuid.MustParse(secretHTestUserID)
 	svc := &mockSecretService{}
 	existing := makeSecretModel(secretID)
-	svc.On("GetSecret", mock.Anything, secretID, userID).Return(existing, nil)
-	svc.On("UpdateSecret", mock.Anything, mock.Anything).Return(nil)
+	svc.On("GetSecretScoped", mock.Anything, secretID, mock.Anything).Return(existing, nil)
+	svc.On("UpdateSecretScoped", mock.Anything, mock.Anything).Return(nil)
 
 	c := buildUpdateSecretCtx(svc, secretID.String())
 	w := httptest.NewRecorder()
@@ -1341,11 +1337,10 @@ func TestUpdateSecret_ValueChange_Returns200(t *testing.T) {
 // TestUpdateSecret_TagsChange_Returns200 verifies that updating tags succeeds.
 func TestUpdateSecret_TagsChange_Returns200(t *testing.T) {
 	secretID := uuid.New()
-	userID := uuid.MustParse(secretHTestUserID)
 	svc := &mockSecretService{}
 	existing := makeSecretModel(secretID)
-	svc.On("GetSecret", mock.Anything, secretID, userID).Return(existing, nil)
-	svc.On("UpdateSecret", mock.Anything, mock.Anything).Return(nil)
+	svc.On("GetSecretScoped", mock.Anything, secretID, mock.Anything).Return(existing, nil)
+	svc.On("UpdateSecretScoped", mock.Anything, mock.Anything).Return(nil)
 
 	c := buildUpdateSecretCtx(svc, secretID.String())
 	w := httptest.NewRecorder()

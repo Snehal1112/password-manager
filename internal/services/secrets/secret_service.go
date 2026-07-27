@@ -87,16 +87,18 @@ type GenerateSecretRequest struct {
 // ExportSecretsRequest represents a request to export secrets.
 type ExportSecretsRequest struct {
 	UserID      uuid.UUID
-	VaultID     uuid.UUID // Set only for vault-scoped export; zero value exports by owner.
-	Format      string    // "json" or "csv"
-	FilterTags  []string  // Optional tag filter
-	IncludeTags bool      // Include tags in export
+	Scope       model.Scope // Authorization scope for the listing.
+	VaultID     uuid.UUID   // Deprecated: shim field for legacy callers that don't set Scope; removed in Phase 6.
+	Format      string      // "json" or "csv"
+	FilterTags  []string    // Optional tag filter
+	IncludeTags bool        // Include tags in export
 }
 
 // ImportSecretsRequest represents a request to import secrets.
 type ImportSecretsRequest struct {
 	UserID    uuid.UUID
-	VaultID   uuid.UUID // Set only for vault-scoped import; zero value uses CreateSecret's default-vault fallback.
+	Scope     model.Scope // Authorization scope; its resolved vault id targets created secrets.
+	VaultID   uuid.UUID   // Deprecated: shim field for legacy callers that don't set Scope; removed in Phase 6.
 	Data      []byte
 	Format    string // "json" or "csv"
 	Overwrite bool   // Overwrite existing secrets with same name
@@ -750,14 +752,19 @@ func (s *secretService) ExportSecrets(ctx context.Context, req ExportSecretsRequ
 		return nil, fmt.Errorf("invalid format: must be json or csv")
 	}
 
-	// List secrets with optional tag filter
-	var secretsList []model.Secret
-	var err error
-	if req.VaultID != uuid.Nil {
-		secretsList, err = s.ListSecretsInVault(ctx, req.VaultID, req.FilterTags)
-	} else {
-		secretsList, err = s.ListSecrets(ctx, req.UserID, req.FilterTags)
+	// Legacy VaultID-only callers don't set Scope; fall back so they keep
+	// working until the shim fields are removed in Phase 6.
+	scope := req.Scope
+	if scope.Validate() != nil {
+		if req.VaultID != uuid.Nil {
+			scope = model.NewVaultScope(req.VaultID, req.UserID)
+		} else {
+			scope = model.NewOwnerScope(uuid.Nil, req.UserID)
+		}
 	}
+
+	// List secrets with optional tag filter, authorized by scope.
+	secretsList, err := s.ListSecretsScoped(ctx, scope, req.FilterTags)
 	if err != nil {
 		s.logger.LogAuditError(req.UserID.String(), "export_secrets", "failed", "Failed to list secrets", err)
 		return nil, fmt.Errorf("failed to list secrets: %w", err)
@@ -848,6 +855,17 @@ func (s *secretService) ImportSecrets(ctx context.Context, req ImportSecretsRequ
 		return nil, fmt.Errorf("invalid format: must be json or csv")
 	}
 
+	// Legacy VaultID-only callers don't set Scope; fall back so they keep
+	// working until the shim fields are removed in Phase 6.
+	scope := req.Scope
+	if scope.Validate() != nil {
+		if req.VaultID != uuid.Nil {
+			scope = model.NewVaultScope(req.VaultID, req.UserID)
+		} else {
+			scope = model.NewOwnerScope(uuid.Nil, req.UserID)
+		}
+	}
+
 	type importSecret struct {
 		Name  string   `json:"name"`
 		Value string   `json:"value"`
@@ -900,7 +918,7 @@ func (s *secretService) ImportSecrets(ctx context.Context, req ImportSecretsRequ
 
 		createReq := CreateSecretRequest{
 			UserID:  req.UserID,
-			VaultID: req.VaultID,
+			VaultID: scope.ResolvedVaultID(),
 			Name:    importSec.Name,
 			Value:   importSec.Value,
 			Tags:    importSec.Tags,

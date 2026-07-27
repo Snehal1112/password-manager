@@ -24,7 +24,6 @@ package api
 
 import (
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -91,34 +90,15 @@ func listSecretVersionsHandler(c *Context, w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	var versions []model.SecretVersion
-	if isVaultScopedRoute(r) {
-		vaultID, err := vaultIDFromRequest(r)
-		if err != nil {
-			c.SetInvalidParam("vault")
-			return
-		}
-		versions, err = secretService.GetSecretVersionsInVault(r.Context(), secretID, vaultID)
-		if err != nil {
-			c.SetInternalError(err)
-			return
-		}
-	} else {
-		userIDStr, ok := c.Claims["user_id"].(string)
-		if !ok {
-			c.SetInternalError(nil)
-			return
-		}
-		userID, err := uuid.Parse(userIDStr)
-		if err != nil {
-			c.SetInvalidParam("user_id")
-			return
-		}
-		versions, err = secretService.GetSecretVersions(r.Context(), secretID, userID)
-		if err != nil {
-			c.SetInternalError(err)
-			return
-		}
+	scope, ok := scopeFromRequest(c, r)
+	if !ok {
+		return
+	}
+
+	versions, err := secretService.GetSecretVersionsScoped(r.Context(), secretID, scope)
+	if err != nil {
+		writeSecretError(c, err)
+		return
 	}
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(versions)
@@ -138,34 +118,15 @@ func getSecretVersionHandler(c *Context, w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	var version *model.SecretVersion
-	if isVaultScopedRoute(r) {
-		vaultID, err := vaultIDFromRequest(r)
-		if err != nil {
-			c.SetInvalidParam("vault")
-			return
-		}
-		version, err = secretService.GetSecretVersionInVault(r.Context(), secretID, versionNum, vaultID)
-		if err != nil {
-			c.SetNotFound("secret version")
-			return
-		}
-	} else {
-		userIDStr, ok := c.Claims["user_id"].(string)
-		if !ok {
-			c.SetInternalError(nil)
-			return
-		}
-		userID, err := uuid.Parse(userIDStr)
-		if err != nil {
-			c.SetInvalidParam("user_id")
-			return
-		}
-		version, err = secretService.GetSecretVersion(r.Context(), secretID, versionNum, userID)
-		if err != nil {
-			c.SetNotFound("secret version")
-			return
-		}
+	scope, ok := scopeFromRequest(c, r)
+	if !ok {
+		return
+	}
+
+	version, err := secretService.GetSecretVersionScoped(r.Context(), secretID, versionNum, scope)
+	if err != nil {
+		writeSecretError(c, err)
+		return
 	}
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(version)
@@ -184,34 +145,15 @@ func getLatestSecretVersionHandler(c *Context, w http.ResponseWriter, r *http.Re
 		return
 	}
 
-	var version *model.SecretVersion
-	if isVaultScopedRoute(r) {
-		vaultID, err := vaultIDFromRequest(r)
-		if err != nil {
-			c.SetInvalidParam("vault")
-			return
-		}
-		version, err = secretService.GetLatestSecretVersionInVault(r.Context(), secretID, vaultID)
-		if err != nil {
-			c.SetNotFound("secret version")
-			return
-		}
-	} else {
-		userIDStr, ok := c.Claims["user_id"].(string)
-		if !ok {
-			c.SetInternalError(nil)
-			return
-		}
-		userID, err := uuid.Parse(userIDStr)
-		if err != nil {
-			c.SetInvalidParam("user_id")
-			return
-		}
-		version, err = secretService.GetLatestSecretVersion(r.Context(), secretID, userID)
-		if err != nil {
-			c.SetNotFound("secret version")
-			return
-		}
+	scope, ok := scopeFromRequest(c, r)
+	if !ok {
+		return
+	}
+
+	version, err := secretService.GetLatestSecretVersionScoped(r.Context(), secretID, scope)
+	if err != nil {
+		writeSecretError(c, err)
+		return
 	}
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(version)
@@ -251,20 +193,18 @@ func exportSecrets(c *Context, w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	scope, ok := scopeFromRequest(c, r)
+	if !ok {
+		return
+	}
+
 	// Use service layer for export.
 	serviceReq := secrets.ExportSecretsRequest{
 		UserID:      userID,
+		Scope:       scope,
 		Format:      exportReq.Format,
 		FilterTags:  exportReq.Tags,
 		IncludeTags: exportReq.IncludeTags,
-	}
-	if isVaultScopedRoute(r) {
-		vaultID, err := vaultIDFromRequest(r)
-		if err != nil {
-			c.SetInvalidParam("vault")
-			return
-		}
-		serviceReq.VaultID = vaultID
 	}
 
 	data, err := secretService.ExportSecrets(r.Context(), serviceReq)
@@ -342,20 +282,18 @@ func importSecrets(c *Context, w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	scope, ok := scopeFromRequest(c, r)
+	if !ok {
+		return
+	}
+
 	// Use service layer for import.
 	serviceReq := secrets.ImportSecretsRequest{
 		UserID:    userID,
+		Scope:     scope,
 		Data:      data,
 		Format:    format,
 		Overwrite: overwrite,
-	}
-	if isVaultScopedRoute(r) {
-		vaultID, err := vaultIDFromRequest(r)
-		if err != nil {
-			c.SetInvalidParam("vault")
-			return
-		}
-		serviceReq.VaultID = vaultID
 	}
 
 	result, err := secretService.ImportSecrets(r.Context(), serviceReq)
@@ -486,36 +424,15 @@ func listSecrets(c *Context, w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var secretsList []model.Secret
-	if isVaultScopedRoute(r) {
-		// Vault-scoped route: members see all secrets in the resolved vault.
-		vaultID, err := vaultIDFromRequest(r)
-		if err != nil {
-			c.SetInvalidParam("vault")
-			return
-		}
-		secretsList, err = secretService.ListSecretsInVault(r.Context(), vaultID, c.Params.Tags)
-		if err != nil {
-			c.SetInternalError(err)
-			return
-		}
-	} else {
-		// Legacy flat route: per-user visibility (preserves pre-multi-vault behavior).
-		userIDStr, ok := c.Claims["user_id"].(string)
-		if !ok {
-			c.SetInternalError(nil)
-			return
-		}
-		userID, err := uuid.Parse(userIDStr)
-		if err != nil {
-			c.SetInvalidParam("user_id")
-			return
-		}
-		secretsList, err = secretService.ListSecrets(r.Context(), userID, c.Params.Tags)
-		if err != nil {
-			c.SetInternalError(err)
-			return
-		}
+	scope, ok := scopeFromRequest(c, r)
+	if !ok {
+		return
+	}
+
+	secretsList, err := secretService.ListSecretsScoped(r.Context(), scope, c.Params.Tags)
+	if err != nil {
+		writeSecretError(c, err)
+		return
 	}
 
 	// Convert to response format (without values for security).
@@ -554,48 +471,15 @@ func getSecret(c *Context, w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Legacy flat routes use per-user visibility; vault-scoped routes use
-	// vault-level visibility (members see all items in the vault).
-	var secret *model.Secret
-	if isVaultScopedRoute(r) {
-		vaultID, err := vaultIDFromRequest(r)
-		if err != nil {
-			c.SetInvalidParam("vault")
-			return
-		}
-		secret, err = secretService.GetSecretInVault(r.Context(), secretID, vaultID)
-		if err != nil {
-			if errors.Is(err, secrets.ErrSecretLifecycleDenied) {
-				c.SetPermissionError("secret is disabled or outside its valid time window")
-			} else if errors.Is(err, secrets.ErrSecretNotFound) {
-				c.SetNotFound("secret")
-			} else {
-				c.SetInternalError(err)
-			}
-			return
-		}
-	} else {
-		userIDStr, ok := c.Claims["user_id"].(string)
-		if !ok {
-			c.SetInternalError(nil)
-			return
-		}
-		userID, err := uuid.Parse(userIDStr)
-		if err != nil {
-			c.SetInvalidParam("user_id")
-			return
-		}
-		secret, err = secretService.GetSecret(r.Context(), secretID, userID)
-		if err != nil {
-			if errors.Is(err, secrets.ErrSecretLifecycleDenied) {
-				c.SetPermissionError("secret is disabled or outside its valid time window")
-			} else if errors.Is(err, secrets.ErrSecretNotFound) {
-				c.SetNotFound("secret")
-			} else {
-				c.SetInternalError(err)
-			}
-			return
-		}
+	scope, ok := scopeFromRequest(c, r)
+	if !ok {
+		return
+	}
+
+	secret, err := secretService.GetSecretScoped(r.Context(), secretID, scope)
+	if err != nil {
+		writeSecretError(c, err)
+		return
 	}
 
 	// Prepare response (include value for get operation).
@@ -654,47 +538,19 @@ func updateSecret(c *Context, w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Get user ID from JWT claims.
-	userIDStr, ok := c.Claims["user_id"].(string)
-	if !ok {
-		c.SetInternalError(nil)
-		return
-	}
-
-	userID, err := uuid.Parse(userIDStr)
-	if err != nil {
-		c.SetInvalidParam("user_id")
-		return
-	}
-
 	secretService := c.secretSvc()
 	if secretService == nil {
 		return
 	}
 
-	// Legacy flat routes use per-user visibility; vault-scoped routes use
-	// vault-level visibility (members see all items in the vault).
-	vaultScoped := isVaultScopedRoute(r)
-	var vaultID uuid.UUID
-	var secret *model.Secret
-	if vaultScoped {
-		vaultID, err = vaultIDFromRequest(r)
-		if err != nil {
-			c.SetInvalidParam("vault")
-			return
-		}
-		secret, err = secretService.GetSecretInVault(r.Context(), secretID, vaultID)
-	} else {
-		secret, err = secretService.GetSecret(r.Context(), secretID, userID)
+	scope, ok := scopeFromRequest(c, r)
+	if !ok {
+		return
 	}
+
+	secret, err := secretService.GetSecretScoped(r.Context(), secretID, scope)
 	if err != nil {
-		if errors.Is(err, secrets.ErrSecretLifecycleDenied) {
-			c.SetPermissionError("secret is disabled or outside its valid time window")
-		} else if errors.Is(err, secrets.ErrSecretNotFound) {
-			c.SetNotFound("secret")
-		} else {
-			c.SetInternalError(err)
-		}
+		writeSecretError(c, err)
 		return
 	}
 
@@ -739,8 +595,8 @@ func updateSecret(c *Context, w http.ResponseWriter, r *http.Request) {
 
 	// Update secret.
 	updateReq := secrets.UpdateSecretRequest{
-		UserID:      userID,
 		SecretID:    secret.ID,
+		Scope:       scope,
 		Name:        &secret.Name,
 		Value:       &secret.Value,
 		Tags:        &secret.Tags,
@@ -749,14 +605,8 @@ func updateSecret(c *Context, w http.ResponseWriter, r *http.Request) {
 		ExpiresAt:   req.ExpiresAt,
 		NotBefore:   req.NotBefore,
 	}
-	if vaultScoped {
-		updateReq.VaultID = vaultID
-		err = secretService.UpdateSecretInVault(r.Context(), updateReq)
-	} else {
-		err = secretService.UpdateSecret(r.Context(), updateReq)
-	}
-	if err != nil {
-		c.SetInternalError(err)
+	if err := secretService.UpdateSecretScoped(r.Context(), updateReq); err != nil {
+		writeSecretError(c, err)
 		return
 	}
 
@@ -777,7 +627,7 @@ func updateSecret(c *Context, w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	w.Write([]byte(response.ToJson()))
 
-	c.Logger.Printf("User %s updated secret %s", userIDStr, secret.Name)
+	c.Logger.Printf("User %s updated secret %s", scope.ActorID(), secret.Name)
 }
 
 // deleteSecret handles the HTTP request to delete a secret by its ID.
@@ -788,38 +638,33 @@ func deleteSecret(c *Context, w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Get user ID from JWT claims.
-	userIDStr, ok := c.Claims["user_id"].(string)
-	if !ok {
-		c.SetInternalError(nil)
-		return
-	}
-
-	// Resolve the target vault from the request context.
-	vaultID, err := vaultIDFromRequest(r)
-	if err != nil {
-		c.SetInvalidParam("vault")
-		return
-	}
-
 	secretService := c.secretSvc()
 	if secretService == nil {
 		return
 	}
 
-	// Use service layer for deletion scoped to the resolved vault.
-	if err := secretService.DeleteSecretInVault(r.Context(), secretID, vaultID); err != nil {
-		if errors.Is(err, secrets.ErrSecretNotFound) {
-			c.SetNotFound("secret")
-		} else {
-			c.SetInternalError(err)
-		}
+	// deleteSecret stays vault-scoped on both route shapes (unlike the other
+	// handlers above): the scope is built explicitly rather than derived from
+	// scopeFromRequest, so a flat-route caller cannot get an owner scope here.
+	vaultID, err := vaultIDFromRequest(r)
+	if err != nil {
+		c.SetInvalidParam("vault")
+		return
+	}
+	userID, ok := userIDFromClaims(c)
+	if !ok {
+		return
+	}
+	scope := model.NewVaultScope(vaultID, userID)
+
+	if err := secretService.DeleteSecretScoped(r.Context(), secretID, scope); err != nil {
+		writeSecretError(c, err)
 		return
 	}
 
 	ReturnStatusOK(w)
 
-	c.Logger.Printf("User %s deleted secret %s", userIDStr, secretID.String())
+	c.Logger.Printf("User %s deleted secret %s", userID, secretID.String())
 }
 
 // generateSecret handles the generation of random passwords or secrets.

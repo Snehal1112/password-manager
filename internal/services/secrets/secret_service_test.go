@@ -532,6 +532,7 @@ func TestExportSecrets_VaultScoped_UsesListSecretsInVault(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	vaultID := uuid.New()
+	userID := uuid.New()
 
 	repo := &testutils.MockSecretRepository{}
 	crypto := &testutils.MockCryptographyService{}
@@ -539,13 +540,15 @@ func TestExportSecrets_VaultScoped_UsesListSecretsInVault(t *testing.T) {
 	tag := &testutils.MockTagService{}
 
 	stored := []model.Secret{{ID: uuid.New(), VaultID: vaultID, Name: "s1", Value: "enc-v1"}}
-	repo.On("ListScoped", ctx, model.NewVaultScope(vaultID, uuid.Nil), repositories.SecretFilter{Tags: nil}).Return(stored, nil)
+	// ExportSecrets falls back to a vault scope built from the legacy VaultID
+	// shim field, with UserID carried through as the actor for audit purposes.
+	repo.On("ListScoped", ctx, model.NewVaultScope(vaultID, userID), repositories.SecretFilter{Tags: nil}).Return(stored, nil)
 	crypto.On("DecryptSecret", "enc-v1").Return("plain-v1", nil)
 	tag.On("GetTags", ctx, stored[0].ID).Return([]string{}, nil)
 
 	svc := newService(repo, crypto, ver, tag, t)
 	data, err := svc.ExportSecrets(ctx, secrets.ExportSecretsRequest{
-		UserID:  uuid.New(),
+		UserID:  userID,
 		VaultID: vaultID,
 		Format:  "json",
 	})

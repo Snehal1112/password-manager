@@ -10,9 +10,9 @@ import (
 
 	"github.com/google/uuid"
 
-	"rocketvault/model"
 	"rocketvault/internal/logging"
 	"rocketvault/internal/repositories"
+	"rocketvault/model"
 )
 
 // VersioningServiceInterface defines the business logic contract for secret versioning operations.
@@ -144,7 +144,7 @@ func (s *versioningService) CreateVersion(ctx context.Context, req CreateVersion
 // The scoped read on the parent secret is the access check.
 func (s *versioningService) GetVersionsScoped(ctx context.Context, secretID uuid.UUID, scope model.Scope) ([]model.SecretVersion, error) {
 	if _, err := s.secretRepo.ReadScoped(ctx, secretID, scope); err != nil {
-		return nil, fmt.Errorf("secret not found: %w", err)
+		return nil, fmt.Errorf("%w: %s", ErrSecretNotFound, err.Error())
 	}
 
 	encryptedVersions, err := s.versionRepo.GetVersions(ctx, secretID)
@@ -170,7 +170,7 @@ func (s *versioningService) GetVersionsScoped(ctx context.Context, secretID uuid
 // GetVersionScoped retrieves one version of a secret the scope authorizes.
 func (s *versioningService) GetVersionScoped(ctx context.Context, secretID uuid.UUID, version int, scope model.Scope) (*model.SecretVersion, error) {
 	if _, err := s.secretRepo.ReadScoped(ctx, secretID, scope); err != nil {
-		return nil, fmt.Errorf("secret not found: %w", err)
+		return nil, fmt.Errorf("%w: %s", ErrSecretNotFound, err.Error())
 	}
 
 	encryptedVersion, err := s.versionRepo.GetVersion(ctx, secretID, version)
@@ -192,7 +192,7 @@ func (s *versioningService) GetVersionScoped(ctx context.Context, secretID uuid.
 // GetLatestVersionScoped retrieves the newest version the scope authorizes.
 func (s *versioningService) GetLatestVersionScoped(ctx context.Context, secretID uuid.UUID, scope model.Scope) (*model.SecretVersion, error) {
 	if _, err := s.secretRepo.ReadScoped(ctx, secretID, scope); err != nil {
-		return nil, fmt.Errorf("secret not found: %w", err)
+		return nil, fmt.Errorf("%w: %s", ErrSecretNotFound, err.Error())
 	}
 
 	encryptedVersion, err := s.versionRepo.GetLatestVersion(ctx, secretID)

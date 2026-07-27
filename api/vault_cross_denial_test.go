@@ -384,14 +384,14 @@ func TestCrossVaultDenial_SecretVersions_RealSQLite(t *testing.T) {
 		t.Fatalf("seed secret in vault B: %v", err)
 	}
 
-	// listSecretVersionsHandler's vault-scoped branch (api/secrets.go:101-105)
-	// maps every error to 500, not 404 -- a known, deliberately-deferred
-	// defect (design spec 2026-07-26, section 5.3, P1 Phase 4: "the
-	// listSecretVersionsHandler 500->404 correction"). P0 pins the current
-	// behavior; fixing it is P1's job, not this plan's.
+	// listSecretVersionsHandler now drives its vault-scoped branch through
+	// scopeFromRequest + GetSecretVersionsScoped + writeSecretError, the same
+	// path its two siblings below already used (design spec 2026-07-26,
+	// section 5.3, P1 Phase 4: "the listSecretVersionsHandler 500->404
+	// correction"). The 500-for-wrong-vault defect P0 pinned is now fixed.
 	w := doVaultRequest(api, http.MethodGet, "/api/v1/vaults/vault-a/secrets/"+secretID.String()+"/versions", nil)
-	if w.Code != http.StatusInternalServerError {
-		t.Fatalf("cross-vault GET .../versions: expected 500 (pinned pending P1), got %d (%s)", w.Code, w.Body.String())
+	if w.Code != http.StatusNotFound {
+		t.Fatalf("cross-vault GET .../versions: expected 404, got %d (%s)", w.Code, w.Body.String())
 	}
 
 	w = doVaultRequest(api, http.MethodGet, "/api/v1/vaults/vault-a/secrets/"+secretID.String()+"/versions/1", nil)

@@ -459,8 +459,8 @@ func TestCreateSecret_Success_Returns201(t *testing.T) {
 
 func TestListSecrets_ServiceError_Returns500(t *testing.T) {
 	svc := &mockSecretService{}
-	// Legacy flat route (no vault_name) uses per-user visibility via ListSecrets.
-	svc.On("ListSecrets", mock.Anything, uuid.MustParse(secretHTestUserID), mock.Anything).Return([]model.Secret{}, errors.New("db error"))
+	// Legacy flat route (no vault_name) yields an owner scope via ListSecretsScoped.
+	svc.On("ListSecretsScoped", mock.Anything, mock.Anything, mock.Anything).Return([]model.Secret{}, errors.New("db error"))
 
 	c := newSecretCtx(svc)
 	w := httptest.NewRecorder()
@@ -478,8 +478,8 @@ func TestListSecrets_ServiceError_Returns500(t *testing.T) {
 func TestListSecrets_Success_Returns200(t *testing.T) {
 	secretID := uuid.New()
 	svc := &mockSecretService{}
-	// Legacy flat route (no vault_name) uses per-user visibility via ListSecrets.
-	svc.On("ListSecrets", mock.Anything, uuid.MustParse(secretHTestUserID), mock.Anything).Return([]model.Secret{*makeSecretModel(secretID)}, nil)
+	// Legacy flat route (no vault_name) yields an owner scope via ListSecretsScoped.
+	svc.On("ListSecretsScoped", mock.Anything, mock.Anything, mock.Anything).Return([]model.Secret{*makeSecretModel(secretID)}, nil)
 
 	c := newSecretCtx(svc)
 	w := httptest.NewRecorder()
@@ -515,9 +515,9 @@ func TestGetSecret_InvalidSecretID_Returns400(t *testing.T) {
 func TestGetSecret_NotFound_Returns404(t *testing.T) {
 	secretID := uuid.New()
 	svc := &mockSecretService{}
-	// Legacy flat route (no vault_name) uses per-user visibility via GetSecret.
+	// Legacy flat route (no vault_name) yields an owner scope via GetSecretScoped.
 	// The service returns the not-found sentinel, which maps to 404.
-	svc.On("GetSecret", mock.Anything, secretID, uuid.MustParse(secretHTestUserID)).Return(nil, secretServices.ErrSecretNotFound)
+	svc.On("GetSecretScoped", mock.Anything, secretID, mock.Anything).Return(nil, secretServices.ErrSecretNotFound)
 
 	c := newSecretCtx(svc)
 	c.Params = &ApiParams{SecretID: secretID.String(), PerPage: 60}
@@ -536,8 +536,8 @@ func TestGetSecret_NotFound_Returns404(t *testing.T) {
 func TestGetSecret_Success_Returns200(t *testing.T) {
 	secretID := uuid.New()
 	svc := &mockSecretService{}
-	// Legacy flat route (no vault_name) uses per-user visibility via GetSecret.
-	svc.On("GetSecret", mock.Anything, secretID, uuid.MustParse(secretHTestUserID)).Return(makeSecretModel(secretID), nil)
+	// Legacy flat route (no vault_name) yields an owner scope via GetSecretScoped.
+	svc.On("GetSecretScoped", mock.Anything, secretID, mock.Anything).Return(makeSecretModel(secretID), nil)
 
 	c := newSecretCtx(svc)
 	c.Params = &ApiParams{SecretID: secretID.String(), PerPage: 60}
@@ -574,7 +574,7 @@ func TestUpdateSecret_InvalidSecretID_Returns400(t *testing.T) {
 func TestUpdateSecret_NoChanges_Returns400(t *testing.T) {
 	secretID := uuid.New()
 	svc := &mockSecretService{}
-	svc.On("GetSecret", mock.Anything, secretID, uuid.MustParse(secretHTestUserID)).Return(makeSecretModel(secretID), nil)
+	svc.On("GetSecretScoped", mock.Anything, secretID, mock.Anything).Return(makeSecretModel(secretID), nil)
 
 	c := newSecretCtx(svc)
 	c.Params = &ApiParams{SecretID: secretID.String(), PerPage: 60}
@@ -596,8 +596,8 @@ func TestUpdateSecret_ServiceError_Returns500(t *testing.T) {
 	secretID := uuid.New()
 	svc := &mockSecretService{}
 	original := makeSecretModel(secretID)
-	svc.On("GetSecret", mock.Anything, secretID, uuid.MustParse(secretHTestUserID)).Return(original, nil)
-	svc.On("UpdateSecret", mock.Anything, mock.Anything).Return(errors.New("db error"))
+	svc.On("GetSecretScoped", mock.Anything, secretID, mock.Anything).Return(original, nil)
+	svc.On("UpdateSecretScoped", mock.Anything, mock.Anything).Return(errors.New("db error"))
 
 	c := newSecretCtx(svc)
 	c.Params = &ApiParams{SecretID: secretID.String(), PerPage: 60}
@@ -617,7 +617,7 @@ func TestUpdateSecret_ServiceError_Returns500(t *testing.T) {
 func TestUpdateSecret_NotFound_Returns404(t *testing.T) {
 	secretID := uuid.New()
 	svc := &mockSecretService{}
-	svc.On("GetSecret", mock.Anything, secretID, uuid.MustParse(secretHTestUserID)).
+	svc.On("GetSecretScoped", mock.Anything, secretID, mock.Anything).
 		Return(nil, secretServices.ErrSecretNotFound)
 
 	c := newSecretCtx(svc)
@@ -638,7 +638,7 @@ func TestUpdateSecret_NotFound_Returns404(t *testing.T) {
 func TestUpdateSecret_LifecycleDenied_Returns403(t *testing.T) {
 	secretID := uuid.New()
 	svc := &mockSecretService{}
-	svc.On("GetSecret", mock.Anything, secretID, uuid.MustParse(secretHTestUserID)).
+	svc.On("GetSecretScoped", mock.Anything, secretID, mock.Anything).
 		Return(nil, secretServices.ErrSecretLifecycleDenied)
 
 	c := newSecretCtx(svc)
@@ -659,7 +659,7 @@ func TestUpdateSecret_LifecycleDenied_Returns403(t *testing.T) {
 func TestUpdateSecret_GetSecretError_Returns500(t *testing.T) {
 	secretID := uuid.New()
 	svc := &mockSecretService{}
-	svc.On("GetSecret", mock.Anything, secretID, uuid.MustParse(secretHTestUserID)).
+	svc.On("GetSecretScoped", mock.Anything, secretID, mock.Anything).
 		Return(nil, errors.New("disk I/O"))
 
 	c := newSecretCtx(svc)
@@ -681,8 +681,8 @@ func TestUpdateSecret_Success_Returns200(t *testing.T) {
 	secretID := uuid.New()
 	svc := &mockSecretService{}
 	original := makeSecretModel(secretID)
-	svc.On("GetSecret", mock.Anything, secretID, uuid.MustParse(secretHTestUserID)).Return(original, nil)
-	svc.On("UpdateSecret", mock.Anything, mock.Anything).Return(nil)
+	svc.On("GetSecretScoped", mock.Anything, secretID, mock.Anything).Return(original, nil)
+	svc.On("UpdateSecretScoped", mock.Anything, mock.Anything).Return(nil)
 
 	c := newSecretCtx(svc)
 	c.Params = &ApiParams{SecretID: secretID.String(), PerPage: 60}
@@ -720,7 +720,7 @@ func TestDeleteSecret_InvalidSecretID_Returns400(t *testing.T) {
 func TestDeleteSecret_ServiceError_Returns500(t *testing.T) {
 	secretID := uuid.New()
 	svc := &mockSecretService{}
-	svc.On("DeleteSecretInVault", mock.Anything, secretID, mock.Anything).Return(errors.New("db error"))
+	svc.On("DeleteSecretScoped", mock.Anything, secretID, mock.Anything).Return(errors.New("db error"))
 
 	c := newSecretCtx(svc)
 	c.Params = &ApiParams{SecretID: secretID.String(), PerPage: 60}
@@ -739,7 +739,7 @@ func TestDeleteSecret_ServiceError_Returns500(t *testing.T) {
 func TestDeleteSecret_Success_Returns200(t *testing.T) {
 	secretID := uuid.New()
 	svc := &mockSecretService{}
-	svc.On("DeleteSecretInVault", mock.Anything, secretID, mock.Anything).Return(nil)
+	svc.On("DeleteSecretScoped", mock.Anything, secretID, mock.Anything).Return(nil)
 
 	c := newSecretCtx(svc)
 	c.Params = &ApiParams{SecretID: secretID.String(), PerPage: 60}
@@ -755,15 +755,17 @@ func TestDeleteSecret_Success_Returns200(t *testing.T) {
 	svc.AssertExpectations(t)
 }
 
-// TestDeleteSecret_MissingUserIDClaim_Returns500 verifies the missing user_id claim path.
-func TestDeleteSecret_MissingUserIDClaim_Returns500(t *testing.T) {
+// TestDeleteSecret_MissingUserIDClaim_Returns400 verifies the missing user_id
+// claim path. deleteSecret builds its scope via userIDFromClaims, which fails
+// closed with SetInvalidParam (400) rather than the ad hoc SetInternalError
+// (500) the handler used before the scope refactor.
+func TestDeleteSecret_MissingUserIDClaim_Returns400(t *testing.T) {
 	secretID := uuid.New()
-	// Context with no user_id claim.
-	c := &Context{
-		App:    &app.App{},
-		Claims: jwt.MapClaims{},
-		Params: &ApiParams{SecretID: secretID.String(), PerPage: 60},
-	}
+	// A valid service container, so the assertion below exercises the
+	// missing-claim path itself rather than the unrelated nil-container guard.
+	c := newSecretCtx(&mockSecretService{})
+	c.Claims = jwt.MapClaims{}
+	c.Params = &ApiParams{SecretID: secretID.String(), PerPage: 60}
 	w := httptest.NewRecorder()
 	r := httptest.NewRequest(http.MethodDelete, "/secrets/"+secretID.String(), nil)
 
@@ -772,16 +774,19 @@ func TestDeleteSecret_MissingUserIDClaim_Returns500(t *testing.T) {
 		writeError(w, c)
 	}
 
-	assert.Equal(t, http.StatusInternalServerError, w.Code)
+	assert.Equal(t, http.StatusBadRequest, w.Code)
 }
 
-// TestListSecrets_MissingUserIDClaim_Returns500 verifies the missing user_id claim path.
-func TestListSecrets_MissingUserIDClaim_Returns500(t *testing.T) {
-	c := &Context{
-		App:    &app.App{},
-		Claims: jwt.MapClaims{},
-		Params: &ApiParams{PerPage: 60},
-	}
+// TestListSecrets_MissingUserIDClaim_Returns400 verifies the missing user_id
+// claim path. listSecrets builds its scope via scopeFromRequest, which fails
+// closed with SetInvalidParam (400) rather than the ad hoc SetInternalError
+// (500) the handler used before the scope refactor.
+func TestListSecrets_MissingUserIDClaim_Returns400(t *testing.T) {
+	// A valid service container, so the assertion below exercises the
+	// missing-claim path itself rather than the unrelated nil-container guard.
+	c := newSecretCtx(&mockSecretService{})
+	c.Claims = jwt.MapClaims{}
+	c.Params = &ApiParams{PerPage: 60}
 	w := httptest.NewRecorder()
 	r := httptest.NewRequest(http.MethodGet, "/secrets", nil)
 
@@ -790,7 +795,7 @@ func TestListSecrets_MissingUserIDClaim_Returns500(t *testing.T) {
 		writeError(w, c)
 	}
 
-	assert.Equal(t, http.StatusInternalServerError, w.Code)
+	assert.Equal(t, http.StatusBadRequest, w.Code)
 }
 
 // ============================================================
@@ -883,7 +888,7 @@ func TestListSecretVersionsHandler_InvalidSecretID_Returns400(t *testing.T) {
 func TestListSecretVersionsHandler_ServiceError_Returns500(t *testing.T) {
 	secretID := uuid.New()
 	svc := &mockSecretService{}
-	svc.On("GetSecretVersions", mock.Anything, secretID, uuid.MustParse(secretHTestUserID)).Return([]model.SecretVersion{}, errors.New("db error"))
+	svc.On("GetSecretVersionsScoped", mock.Anything, secretID, mock.Anything).Return([]model.SecretVersion{}, errors.New("db error"))
 
 	c := newSecretCtx(svc)
 	c.Params = &ApiParams{SecretID: secretID.String(), PerPage: 60}
@@ -902,7 +907,7 @@ func TestListSecretVersionsHandler_ServiceError_Returns500(t *testing.T) {
 func TestListSecretVersionsHandler_Success_Returns200(t *testing.T) {
 	secretID := uuid.New()
 	svc := &mockSecretService{}
-	svc.On("GetSecretVersions", mock.Anything, secretID, uuid.MustParse(secretHTestUserID)).Return([]model.SecretVersion{
+	svc.On("GetSecretVersionsScoped", mock.Anything, secretID, mock.Anything).Return([]model.SecretVersion{
 		{SecretID: secretID, Version: 1},
 	}, nil)
 
@@ -941,7 +946,10 @@ func TestGetSecretVersionHandler_InvalidSecretID_Returns400(t *testing.T) {
 func TestGetSecretVersionHandler_NotFound_Returns404(t *testing.T) {
 	secretID := uuid.New()
 	svc := &mockSecretService{}
-	svc.On("GetSecretVersion", mock.Anything, secretID, 1, uuid.MustParse(secretHTestUserID)).Return(nil, errors.New("not found"))
+	// writeSecretError only maps the not-found sentinel to 404; a generic
+	// error now maps to 500 (see TestListSecretVersionsWrongVaultReturns404's
+	// sibling coverage in secrets_scope_test.go for the unified mapping).
+	svc.On("GetSecretVersionScoped", mock.Anything, secretID, 1, mock.Anything).Return(nil, secretServices.ErrSecretNotFound)
 
 	c := newSecretCtx(svc)
 	c.Params = &ApiParams{SecretID: secretID.String(), Version: 1, PerPage: 60}
@@ -960,7 +968,7 @@ func TestGetSecretVersionHandler_NotFound_Returns404(t *testing.T) {
 func TestGetSecretVersionHandler_Success_Returns200(t *testing.T) {
 	secretID := uuid.New()
 	svc := &mockSecretService{}
-	svc.On("GetSecretVersion", mock.Anything, secretID, 1, uuid.MustParse(secretHTestUserID)).Return(&model.SecretVersion{
+	svc.On("GetSecretVersionScoped", mock.Anything, secretID, 1, mock.Anything).Return(&model.SecretVersion{
 		SecretID: secretID, Version: 1, Value: "val",
 	}, nil)
 
@@ -999,7 +1007,8 @@ func TestGetLatestSecretVersionHandler_InvalidSecretID_Returns400(t *testing.T) 
 func TestGetLatestSecretVersionHandler_NotFound_Returns404(t *testing.T) {
 	secretID := uuid.New()
 	svc := &mockSecretService{}
-	svc.On("GetLatestSecretVersion", mock.Anything, secretID, uuid.MustParse(secretHTestUserID)).Return(nil, errors.New("not found"))
+	// writeSecretError only maps the not-found sentinel to 404.
+	svc.On("GetLatestSecretVersionScoped", mock.Anything, secretID, mock.Anything).Return(nil, secretServices.ErrSecretNotFound)
 
 	c := newSecretCtx(svc)
 	c.Params = &ApiParams{SecretID: secretID.String(), PerPage: 60}
@@ -1018,7 +1027,7 @@ func TestGetLatestSecretVersionHandler_NotFound_Returns404(t *testing.T) {
 func TestGetLatestSecretVersionHandler_Success_Returns200(t *testing.T) {
 	secretID := uuid.New()
 	svc := &mockSecretService{}
-	svc.On("GetLatestSecretVersion", mock.Anything, secretID, uuid.MustParse(secretHTestUserID)).Return(&model.SecretVersion{
+	svc.On("GetLatestSecretVersionScoped", mock.Anything, secretID, mock.Anything).Return(&model.SecretVersion{
 		SecretID: secretID, Version: 2, Value: "latest",
 	}, nil)
 
@@ -1099,7 +1108,7 @@ func TestExportSecrets_JSON_Success_Returns200(t *testing.T) {
 func TestDeleteSecret_NotFound_Returns404(t *testing.T) {
 	secretID := uuid.New()
 	svc := &mockSecretService{}
-	svc.On("DeleteSecretInVault", mock.Anything, secretID, mock.Anything).
+	svc.On("DeleteSecretScoped", mock.Anything, secretID, mock.Anything).
 		Return(secretServices.ErrSecretNotFound)
 
 	c := newSecretCtx(svc)
@@ -1121,7 +1130,7 @@ func TestDeleteSecret_NotFound_Returns404(t *testing.T) {
 func TestGetSecret_LifecycleDenied_Returns403(t *testing.T) {
 	secretID := uuid.New()
 	svc := &mockSecretService{}
-	svc.On("GetSecret", mock.Anything, secretID, uuid.MustParse(secretHTestUserID)).
+	svc.On("GetSecretScoped", mock.Anything, secretID, mock.Anything).
 		Return(nil, secretServices.ErrSecretLifecycleDenied)
 
 	c := newSecretCtx(svc)
@@ -1143,7 +1152,7 @@ func TestGetSecret_LifecycleDenied_Returns403(t *testing.T) {
 func TestGetSecret_DecryptError_Returns500(t *testing.T) {
 	secretID := uuid.New()
 	svc := &mockSecretService{}
-	svc.On("GetSecret", mock.Anything, secretID, uuid.MustParse(secretHTestUserID)).
+	svc.On("GetSecretScoped", mock.Anything, secretID, mock.Anything).
 		Return(nil, errors.New("disk I/O"))
 
 	c := newSecretCtx(svc)
@@ -1165,7 +1174,7 @@ func TestGetSecret_DecryptError_Returns500(t *testing.T) {
 func TestGetSecret_NotFoundSentinel_Returns404(t *testing.T) {
 	secretID := uuid.New()
 	svc := &mockSecretService{}
-	svc.On("GetSecret", mock.Anything, secretID, uuid.MustParse(secretHTestUserID)).
+	svc.On("GetSecretScoped", mock.Anything, secretID, mock.Anything).
 		Return(nil, secretServices.ErrSecretNotFound)
 
 	c := newSecretCtx(svc)
