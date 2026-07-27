@@ -30,24 +30,16 @@ func NewRetrySecretService(baseService secrets.SecretService, retryService Retry
 
 // GetSecretScoped retrieves a scoped secret with retry logic.
 func (s *retrySecretService) GetSecretScoped(ctx context.Context, secretID uuid.UUID, scope model.Scope) (*model.Secret, error) {
-	var result *model.Secret
-	var err error
-	retryErr := s.retryService.ExecuteDatabaseOperation(ctx, func() error {
-		result, err = s.baseService.GetSecretScoped(ctx, secretID, scope)
-		return err
+	return retried(ctx, s.retryService, func() (*model.Secret, error) {
+		return s.baseService.GetSecretScoped(ctx, secretID, scope)
 	})
-	return result, retryErr
 }
 
 // ListSecretsScoped lists scoped secrets with retry logic.
 func (s *retrySecretService) ListSecretsScoped(ctx context.Context, scope model.Scope, tags []string) ([]model.Secret, error) {
-	var result []model.Secret
-	var err error
-	retryErr := s.retryService.ExecuteDatabaseOperation(ctx, func() error {
-		result, err = s.baseService.ListSecretsScoped(ctx, scope, tags)
-		return err
+	return retried(ctx, s.retryService, func() ([]model.Secret, error) {
+		return s.baseService.ListSecretsScoped(ctx, scope, tags)
 	})
-	return result, retryErr
 }
 
 // DeleteSecretScoped deletes a scoped secret with retry logic.
@@ -59,26 +51,16 @@ func (s *retrySecretService) DeleteSecretScoped(ctx context.Context, secretID uu
 
 // ListDeletedSecretsScoped lists scoped deleted secrets with retry logic.
 func (s *retrySecretService) ListDeletedSecretsScoped(ctx context.Context, scope model.Scope) ([]model.Secret, error) {
-	var result []model.Secret
-	var err error
-	retryErr := s.retryService.ExecuteDatabaseOperation(ctx, func() error {
-		result, err = s.baseService.ListDeletedSecretsScoped(ctx, scope)
-		return err
+	return retried(ctx, s.retryService, func() ([]model.Secret, error) {
+		return s.baseService.ListDeletedSecretsScoped(ctx, scope)
 	})
-	return result, retryErr
 }
 
 // CreateSecret creates a secret with retry logic for database operations
 func (s *retrySecretService) CreateSecret(ctx context.Context, req secrets.CreateSecretRequest) (*model.Secret, error) {
-	var result *model.Secret
-	var err error
-
-	retryErr := s.retryService.ExecuteDatabaseOperation(ctx, func() error {
-		result, err = s.baseService.CreateSecret(ctx, req)
-		return err
+	return retried(ctx, s.retryService, func() (*model.Secret, error) {
+		return s.baseService.CreateSecret(ctx, req)
 	})
-
-	return result, retryErr
 }
 
 // UpdateSecretScoped updates a scoped secret with retry logic.
@@ -104,28 +86,16 @@ func (s *retrySecretService) UpdateSecretInVault(ctx context.Context, req secret
 
 // GetSecret retrieves a secret with retry logic for database operations
 func (s *retrySecretService) GetSecret(ctx context.Context, secretID, userID uuid.UUID) (*model.Secret, error) {
-	var result *model.Secret
-	var err error
-
-	retryErr := s.retryService.ExecuteDatabaseOperation(ctx, func() error {
-		result, err = s.baseService.GetSecret(ctx, secretID, userID)
-		return err
+	return retried(ctx, s.retryService, func() (*model.Secret, error) {
+		return s.baseService.GetSecret(ctx, secretID, userID)
 	})
-
-	return result, retryErr
 }
 
 // ListSecrets lists secrets with retry logic for database operations
 func (s *retrySecretService) ListSecrets(ctx context.Context, userID uuid.UUID, tags []string) ([]model.Secret, error) {
-	var result []model.Secret
-	var err error
-
-	retryErr := s.retryService.ExecuteDatabaseOperation(ctx, func() error {
-		result, err = s.baseService.ListSecrets(ctx, userID, tags)
-		return err
+	return retried(ctx, s.retryService, func() ([]model.Secret, error) {
+		return s.baseService.ListSecrets(ctx, userID, tags)
 	})
-
-	return result, retryErr
 }
 
 // DeleteSecret deletes a secret with retry logic for database operations
@@ -137,28 +107,16 @@ func (s *retrySecretService) DeleteSecret(ctx context.Context, secretID, userID 
 
 // GetSecretInVault retrieves a vault-scoped secret with retry logic for database operations
 func (s *retrySecretService) GetSecretInVault(ctx context.Context, secretID, vaultID uuid.UUID) (*model.Secret, error) {
-	var result *model.Secret
-	var err error
-
-	retryErr := s.retryService.ExecuteDatabaseOperation(ctx, func() error {
-		result, err = s.baseService.GetSecretInVault(ctx, secretID, vaultID)
-		return err
+	return retried(ctx, s.retryService, func() (*model.Secret, error) {
+		return s.baseService.GetSecretInVault(ctx, secretID, vaultID)
 	})
-
-	return result, retryErr
 }
 
 // ListSecretsInVault lists vault-scoped secrets with retry logic for database operations
 func (s *retrySecretService) ListSecretsInVault(ctx context.Context, vaultID uuid.UUID, tags []string) ([]model.Secret, error) {
-	var result []model.Secret
-	var err error
-
-	retryErr := s.retryService.ExecuteDatabaseOperation(ctx, func() error {
-		result, err = s.baseService.ListSecretsInVault(ctx, vaultID, tags)
-		return err
+	return retried(ctx, s.retryService, func() ([]model.Secret, error) {
+		return s.baseService.ListSecretsInVault(ctx, vaultID, tags)
 	})
-
-	return result, retryErr
 }
 
 // DeleteSecretInVault deletes a vault-scoped secret with retry logic for database operations
@@ -170,158 +128,86 @@ func (s *retrySecretService) DeleteSecretInVault(ctx context.Context, secretID, 
 
 // GetSecretVersions retrieves secret versions with retry logic for database operations
 func (s *retrySecretService) GetSecretVersions(ctx context.Context, secretID uuid.UUID, userID uuid.UUID) ([]model.SecretVersion, error) {
-	var result []model.SecretVersion
-	var err error
-
-	retryErr := s.retryService.ExecuteDatabaseOperation(ctx, func() error {
-		result, err = s.baseService.GetSecretVersions(ctx, secretID, userID)
-		return err
+	return retried(ctx, s.retryService, func() ([]model.SecretVersion, error) {
+		return s.baseService.GetSecretVersions(ctx, secretID, userID)
 	})
-
-	return result, retryErr
 }
 
 // GetSecretVersion retrieves a specific secret version with retry logic for database operations
 func (s *retrySecretService) GetSecretVersion(ctx context.Context, secretID uuid.UUID, version int, userID uuid.UUID) (*model.SecretVersion, error) {
-	var result *model.SecretVersion
-	var err error
-
-	retryErr := s.retryService.ExecuteDatabaseOperation(ctx, func() error {
-		result, err = s.baseService.GetSecretVersion(ctx, secretID, version, userID)
-		return err
+	return retried(ctx, s.retryService, func() (*model.SecretVersion, error) {
+		return s.baseService.GetSecretVersion(ctx, secretID, version, userID)
 	})
-
-	return result, retryErr
 }
 
 // GetLatestSecretVersion retrieves the latest secret version with retry logic for database operations
 func (s *retrySecretService) GetLatestSecretVersion(ctx context.Context, secretID uuid.UUID, userID uuid.UUID) (*model.SecretVersion, error) {
-	var result *model.SecretVersion
-	var err error
-
-	retryErr := s.retryService.ExecuteDatabaseOperation(ctx, func() error {
-		result, err = s.baseService.GetLatestSecretVersion(ctx, secretID, userID)
-		return err
+	return retried(ctx, s.retryService, func() (*model.SecretVersion, error) {
+		return s.baseService.GetLatestSecretVersion(ctx, secretID, userID)
 	})
-
-	return result, retryErr
 }
 
 // GetSecretVersionsInVault retrieves vault-scoped secret versions with retry logic for database operations
 func (s *retrySecretService) GetSecretVersionsInVault(ctx context.Context, secretID, vaultID uuid.UUID) ([]model.SecretVersion, error) {
-	var result []model.SecretVersion
-	var err error
-
-	retryErr := s.retryService.ExecuteDatabaseOperation(ctx, func() error {
-		result, err = s.baseService.GetSecretVersionsInVault(ctx, secretID, vaultID)
-		return err
+	return retried(ctx, s.retryService, func() ([]model.SecretVersion, error) {
+		return s.baseService.GetSecretVersionsInVault(ctx, secretID, vaultID)
 	})
-
-	return result, retryErr
 }
 
 // GetSecretVersionInVault retrieves a specific vault-scoped secret version with retry logic for database operations
 func (s *retrySecretService) GetSecretVersionInVault(ctx context.Context, secretID uuid.UUID, version int, vaultID uuid.UUID) (*model.SecretVersion, error) {
-	var result *model.SecretVersion
-	var err error
-
-	retryErr := s.retryService.ExecuteDatabaseOperation(ctx, func() error {
-		result, err = s.baseService.GetSecretVersionInVault(ctx, secretID, version, vaultID)
-		return err
+	return retried(ctx, s.retryService, func() (*model.SecretVersion, error) {
+		return s.baseService.GetSecretVersionInVault(ctx, secretID, version, vaultID)
 	})
-
-	return result, retryErr
 }
 
 // GetLatestSecretVersionInVault retrieves the latest vault-scoped secret version with retry logic for database operations
 func (s *retrySecretService) GetLatestSecretVersionInVault(ctx context.Context, secretID, vaultID uuid.UUID) (*model.SecretVersion, error) {
-	var result *model.SecretVersion
-	var err error
-
-	retryErr := s.retryService.ExecuteDatabaseOperation(ctx, func() error {
-		result, err = s.baseService.GetLatestSecretVersionInVault(ctx, secretID, vaultID)
-		return err
+	return retried(ctx, s.retryService, func() (*model.SecretVersion, error) {
+		return s.baseService.GetLatestSecretVersionInVault(ctx, secretID, vaultID)
 	})
-
-	return result, retryErr
 }
 
 // GetSecretVersionsScoped retrieves every version of a secret the scope authorizes, with retry logic for database operations.
 func (s *retrySecretService) GetSecretVersionsScoped(ctx context.Context, secretID uuid.UUID, scope model.Scope) ([]model.SecretVersion, error) {
-	var result []model.SecretVersion
-	var err error
-
-	retryErr := s.retryService.ExecuteDatabaseOperation(ctx, func() error {
-		result, err = s.baseService.GetSecretVersionsScoped(ctx, secretID, scope)
-		return err
+	return retried(ctx, s.retryService, func() ([]model.SecretVersion, error) {
+		return s.baseService.GetSecretVersionsScoped(ctx, secretID, scope)
 	})
-
-	return result, retryErr
 }
 
 // GetSecretVersionScoped retrieves one version of a secret the scope authorizes, with retry logic for database operations.
 func (s *retrySecretService) GetSecretVersionScoped(ctx context.Context, secretID uuid.UUID, version int, scope model.Scope) (*model.SecretVersion, error) {
-	var result *model.SecretVersion
-	var err error
-
-	retryErr := s.retryService.ExecuteDatabaseOperation(ctx, func() error {
-		result, err = s.baseService.GetSecretVersionScoped(ctx, secretID, version, scope)
-		return err
+	return retried(ctx, s.retryService, func() (*model.SecretVersion, error) {
+		return s.baseService.GetSecretVersionScoped(ctx, secretID, version, scope)
 	})
-
-	return result, retryErr
 }
 
 // GetLatestSecretVersionScoped retrieves the newest version of a secret the scope authorizes, with retry logic for database operations.
 func (s *retrySecretService) GetLatestSecretVersionScoped(ctx context.Context, secretID uuid.UUID, scope model.Scope) (*model.SecretVersion, error) {
-	var result *model.SecretVersion
-	var err error
-
-	retryErr := s.retryService.ExecuteDatabaseOperation(ctx, func() error {
-		result, err = s.baseService.GetLatestSecretVersionScoped(ctx, secretID, scope)
-		return err
+	return retried(ctx, s.retryService, func() (*model.SecretVersion, error) {
+		return s.baseService.GetLatestSecretVersionScoped(ctx, secretID, scope)
 	})
-
-	return result, retryErr
 }
 
 // GenerateSecret generates a secret with retry logic for database operations
 func (s *retrySecretService) GenerateSecret(ctx context.Context, req secrets.GenerateSecretRequest) (*model.Secret, error) {
-	var result *model.Secret
-	var err error
-
-	retryErr := s.retryService.ExecuteDatabaseOperation(ctx, func() error {
-		result, err = s.baseService.GenerateSecret(ctx, req)
-		return err
+	return retried(ctx, s.retryService, func() (*model.Secret, error) {
+		return s.baseService.GenerateSecret(ctx, req)
 	})
-
-	return result, retryErr
 }
 
 // ExportSecrets exports secrets with retry logic for database operations
 func (s *retrySecretService) ExportSecrets(ctx context.Context, req secrets.ExportSecretsRequest) ([]byte, error) {
-	var result []byte
-	var err error
-
-	retryErr := s.retryService.ExecuteDatabaseOperation(ctx, func() error {
-		result, err = s.baseService.ExportSecrets(ctx, req)
-		return err
+	return retried(ctx, s.retryService, func() ([]byte, error) {
+		return s.baseService.ExportSecrets(ctx, req)
 	})
-
-	return result, retryErr
 }
 
 // ImportSecrets imports secrets with retry logic for database operations
 func (s *retrySecretService) ImportSecrets(ctx context.Context, req secrets.ImportSecretsRequest) (*secrets.ImportResult, error) {
-	var result *secrets.ImportResult
-	var err error
-
-	retryErr := s.retryService.ExecuteDatabaseOperation(ctx, func() error {
-		result, err = s.baseService.ImportSecrets(ctx, req)
-		return err
+	return retried(ctx, s.retryService, func() (*secrets.ImportResult, error) {
+		return s.baseService.ImportSecrets(ctx, req)
 	})
-
-	return result, retryErr
 }
 
 // RecoverSecretScoped recovers a scoped soft-deleted secret with retry logic.
