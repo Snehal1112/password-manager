@@ -317,7 +317,7 @@ func TestCryptoService_Sign_ResolveKeyMaterialError(t *testing.T) {
 	keyID := uuid.New()
 	userID := uuid.New()
 	// Value is not a valid encrypted string or PKCS11 handle.
-	repo.On("Read", mock.Anything, keyID).Return(&model.Key{
+	repo.On("ReadScoped", mock.Anything, keyID, model.NewOwnerScope(uuid.Nil, userID)).Return(&model.Key{
 		ID: keyID, UserID: userID, Type: model.KeyTypeRSA, Value: "bad-value", Enabled: true,
 	}, nil)
 
@@ -337,7 +337,7 @@ func TestCryptoService_Verify_ResolveKeyMaterialError(t *testing.T) {
 	repo := &mockKeyRepoForExtendedCrypto{}
 	keyID := uuid.New()
 	userID := uuid.New()
-	repo.On("Read", mock.Anything, keyID).Return(&model.Key{
+	repo.On("ReadScoped", mock.Anything, keyID, model.NewOwnerScope(uuid.Nil, userID)).Return(&model.Key{
 		ID: keyID, UserID: userID, Type: model.KeyTypeRSA, Value: "bad-value", Enabled: true,
 	}, nil)
 
@@ -357,7 +357,7 @@ func TestCryptoService_Encrypt_ResolveKeyMaterialError(t *testing.T) {
 	repo := &mockKeyRepoForExtendedCrypto{}
 	keyID := uuid.New()
 	userID := uuid.New()
-	repo.On("Read", mock.Anything, keyID).Return(&model.Key{
+	repo.On("ReadScoped", mock.Anything, keyID, model.NewOwnerScope(uuid.Nil, userID)).Return(&model.Key{
 		ID: keyID, UserID: userID, Type: model.KeyTypeRSA, Value: "bad-value", Enabled: true,
 	}, nil)
 
@@ -377,7 +377,7 @@ func TestCryptoService_Decrypt_ResolveKeyMaterialError(t *testing.T) {
 	repo := &mockKeyRepoForExtendedCrypto{}
 	keyID := uuid.New()
 	userID := uuid.New()
-	repo.On("Read", mock.Anything, keyID).Return(&model.Key{
+	repo.On("ReadScoped", mock.Anything, keyID, model.NewOwnerScope(uuid.Nil, userID)).Return(&model.Key{
 		ID: keyID, UserID: userID, Type: model.KeyTypeRSA, Value: "bad-value", Enabled: true,
 	}, nil)
 
@@ -414,11 +414,12 @@ func TestCryptoService_UnwrapKey_InvalidAlgorithm(t *testing.T) {
 func TestCryptoService_WrapKey_KeyNotFound(t *testing.T) {
 	repo := &mockKeyRepoForExtendedCrypto{}
 	keyID := uuid.New()
-	repo.On("Read", mock.Anything, keyID).Return(nil, errors.New("not found"))
+	userID := uuid.New()
+	repo.On("ReadScoped", mock.Anything, keyID, model.NewOwnerScope(uuid.Nil, userID)).Return(nil, errors.New("not found"))
 
 	svc := NewCryptoService(CryptoServiceConfig{KeyRepository: repo, Logger: testLogger()})
 	_, err := svc.WrapKey(context.Background(), WrapKeyRequest{
-		KeyID: keyID, UserID: uuid.New(), Algorithm: "RSA-OAEP",
+		KeyID: keyID, UserID: userID, Algorithm: "RSA-OAEP",
 	})
 	require.Error(t, err)
 }
@@ -426,11 +427,12 @@ func TestCryptoService_WrapKey_KeyNotFound(t *testing.T) {
 func TestCryptoService_UnwrapKey_KeyNotFound(t *testing.T) {
 	repo := &mockKeyRepoForExtendedCrypto{}
 	keyID := uuid.New()
-	repo.On("Read", mock.Anything, keyID).Return(nil, errors.New("not found"))
+	userID := uuid.New()
+	repo.On("ReadScoped", mock.Anything, keyID, model.NewOwnerScope(uuid.Nil, userID)).Return(nil, errors.New("not found"))
 
 	svc := NewCryptoService(CryptoServiceConfig{KeyRepository: repo, Logger: testLogger()})
 	_, err := svc.UnwrapKey(context.Background(), UnwrapKeyRequest{
-		KeyID: keyID, UserID: uuid.New(), Algorithm: "RSA-OAEP",
+		KeyID: keyID, UserID: userID, Algorithm: "RSA-OAEP",
 	})
 	require.Error(t, err)
 }
@@ -441,7 +443,7 @@ func TestCryptoService_WrapKey_OperationFails(t *testing.T) {
 	repo := &mockKeyRepoForExtendedCrypto{}
 	keyID := uuid.New()
 	userID := uuid.New()
-	repo.On("Read", mock.Anything, keyID).Return(&model.Key{
+	repo.On("ReadScoped", mock.Anything, keyID, model.NewOwnerScope(uuid.Nil, userID)).Return(&model.Key{
 		ID: keyID, UserID: userID, Type: model.KeyTypeRSA, Value: "bad-value", Enabled: true,
 	}, nil)
 
@@ -458,7 +460,7 @@ func TestCryptoService_UnwrapKey_OperationFails(t *testing.T) {
 	repo := &mockKeyRepoForExtendedCrypto{}
 	keyID := uuid.New()
 	userID := uuid.New()
-	repo.On("Read", mock.Anything, keyID).Return(&model.Key{
+	repo.On("ReadScoped", mock.Anything, keyID, model.NewOwnerScope(uuid.Nil, userID)).Return(&model.Key{
 		ID: keyID, UserID: userID, Type: model.KeyTypeRSA, Value: "bad-value", Enabled: true,
 	}, nil)
 

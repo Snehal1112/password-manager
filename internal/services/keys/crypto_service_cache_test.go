@@ -117,7 +117,7 @@ func (m *mockKeyCache) Stop() {
 // the same key, the cache returns a hit so AES-GCM decryption is skipped.
 // A mock cache is used so we can assert that Set is called exactly once (on the
 // first call) and not again on the second call (cache hit path).
-// keyRepo.Read is still called each time for the authorization check.
+// keyRepo.ReadScoped is still called each time for the authorization check.
 // Not run in parallel because setupCacheTestMasterKey writes global viper state.
 func TestCacheHit_ReducesDecryptCalls(t *testing.T) {
 	setupCacheTestMasterKey()
@@ -137,9 +137,9 @@ func TestCacheHit_ReducesDecryptCalls(t *testing.T) {
 		Enabled: true,
 	}
 
-	// keyRepo.Read is called on every Sign for the authorization check.
+	// keyRepo.ReadScoped is called on every Sign for the authorization check.
 	repo := mocks.NewMockKeyRepositoryInterface(t)
-	repo.On("Read", mock.Anything, keyID).Return(vaultKey, nil)
+	repo.On("ReadScoped", mock.Anything, keyID, model.NewOwnerScope(uuid.Nil, userID)).Return(vaultKey, nil)
 
 	// Use a mock cache so we can assert Set/Get call counts precisely.
 	cache := &mockKeyCache{}
@@ -188,8 +188,8 @@ func TestCacheHit_ReducesDecryptCalls(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, res2)
 
-	// repo.Read is called once per Sign for the authorization check; two total.
-	repo.AssertNumberOfCalls(t, "Read", 2)
+	// repo.ReadScoped is called once per Sign for the authorization check; two total.
+	repo.AssertNumberOfCalls(t, "ReadScoped", 2)
 
 	// Set must have been called exactly once (first call only).
 	cache.AssertNumberOfCalls(t, "Set", 1)
@@ -219,7 +219,7 @@ func TestHSMPath_NeverCallsCacheSet(t *testing.T) {
 	}
 
 	repo := mocks.NewMockKeyRepositoryInterface(t)
-	repo.On("Read", mock.Anything, keyID).Return(hsmKey, nil)
+	repo.On("ReadScoped", mock.Anything, keyID, model.NewOwnerScope(uuid.Nil, userID)).Return(hsmKey, nil)
 
 	// Use a mock KeyProvider that returns a dummy signature for the HSM call.
 	provider := &mockKeyProvider{}
@@ -288,7 +288,7 @@ func TestCacheHit_TTLExpiry(t *testing.T) {
 	}
 
 	repo := mocks.NewMockKeyRepositoryInterface(t)
-	repo.On("Read", mock.Anything, keyID).Return(vaultKey, nil)
+	repo.On("ReadScoped", mock.Anything, keyID, model.NewOwnerScope(uuid.Nil, userID)).Return(vaultKey, nil)
 
 	// Use a very short TTL so entries expire quickly.
 	shortTTLConfig := &keycache.KeyCacheConfig{
@@ -331,6 +331,6 @@ func TestCacheHit_TTLExpiry(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	// repo.Read is called once per Sign for the authorization check.
-	repo.AssertNumberOfCalls(t, "Read", 2)
+	// repo.ReadScoped is called once per Sign for the authorization check.
+	repo.AssertNumberOfCalls(t, "ReadScoped", 2)
 }

@@ -234,35 +234,49 @@ func (s *cryptoService) resolveKeyMaterial(key *model.Key) (
 	return
 }
 
-// loadAndAuthorize fetches the key by ID and enforces access control for op.
-// Returns the key if it is owned by userID, not revoked, and accessible.
-func (s *cryptoService) loadAndAuthorize(ctx context.Context, keyID, userID, vaultID uuid.UUID, op string) (*model.Key, error) {
-	key, err := s.keyRepo.Read(ctx, keyID)
+// loadAndAuthorize fetches the key authorized by scope and enforces the
+// remaining lifecycle rules for op. Authorization (vault membership or
+// ownership) lives in the scope; revocation and the validity window do not.
+//
+// Deviation from the task brief: the not-found branch wraps the exported
+// ErrKeyNotFound sentinel (fmt.Errorf("%w: %s", ErrKeyNotFound, err.Error()))
+// rather than the brief's literal fmt.Errorf("key not found: %w", err).
+// ReadScoped's own error (repositories.KeyRepository.ReadScoped) does not
+// wrap any sentinel, so the brief's literal form leaves a cross-user key
+// unmatched by every case in the six API handlers' error switches (they all
+// test errors.Is against the exported Err* vars), falling through to the
+// generic 500 branch. That is a real regression for what is fundamentally an
+// authorization denial. Task 19's GetKeyScoped/DeleteKeyScoped already
+// established this exact pattern for the identical class of problem, so this
+// keeps loadAndAuthorize consistent with it: a cross-user key now reports 404
+// via ErrKeyNotFound, same as the non-crypto scoped key paths. See
+// api/vault_scoped_crypto_b6_test.go for the regression test this updates.
+func (s *cryptoService) loadAndAuthorize(ctx context.Context, keyID uuid.UUID, scope model.Scope, op string) (*model.Key, error) {
+	actor := scope.ActorID().String()
+
+	key, err := s.keyRepo.ReadScoped(ctx, keyID, scope)
 	if err != nil {
-		s.logger.LogAuditError(userID.String(), op, "failed", "Key not found", err)
-		return nil, fmt.Errorf("key not found: %w", err)
+		s.logger.LogAuditError(actor, op, "failed", "Key not found", err)
+		return nil, fmt.Errorf("%w: %s", ErrKeyNotFound, err.Error())
 	}
 
-	if key.VaultID != vaultID {
-		s.logger.LogAuditError(userID.String(), op, "forbidden",
-			fmt.Sprintf("Unauthorized %s attempt: key %s not in vault %s", op, keyID, vaultID), nil)
+	// B6 conjunction, P1 only: crypto operations required BOTH vault membership
+	// and ownership. A Scope cannot express AND, so the vault half stays in Go
+	// until P2 gates crypto by Key Vault Crypto User at vault scope.
+	if _, ownerScoped := scope.OwnerID(); ownerScoped && scope.VaultID() != uuid.Nil && key.VaultID != scope.VaultID() {
+		s.logger.LogAuditError(actor, op, "forbidden",
+			fmt.Sprintf("Unauthorized %s attempt: key %s not in vault %s", op, keyID, scope.VaultID()), nil)
 		return nil, fmt.Errorf("%w: key does not belong to the requested vault", ErrKeyForbidden)
 	}
 
-	if key.UserID != userID {
-		s.logger.LogAuditError(userID.String(), op, "forbidden",
-			fmt.Sprintf("Unauthorized %s attempt with key: %s", op, keyID), nil)
-		return nil, fmt.Errorf("%w: cannot use other users' keys", ErrKeyForbidden)
-	}
-
 	if key.Revoked {
-		s.logger.LogAuditError(userID.String(), op, "failed",
+		s.logger.LogAuditError(actor, op, "failed",
 			fmt.Sprintf("Attempted to %s with revoked key: %s", op, keyID), nil)
 		return nil, fmt.Errorf("%w: %s", ErrKeyRevoked, keyID)
 	}
 
 	if !key.IsAccessible() {
-		s.logger.LogAuditError(userID.String(), op, "failed",
+		s.logger.LogAuditError(actor, op, "failed",
 			fmt.Sprintf("Attempted %s with inaccessible key: %s", op, keyID), nil)
 		return nil, fmt.Errorf("%w", ErrKeyLifecycleDenied)
 	}
@@ -299,7 +313,7 @@ func wrapAlgorithmToEncryption(algorithm string) (crypto.EncryptionAlgorithm, er
 func (s *cryptoService) Sign(ctx context.Context, req SignRequest) (*SignResult, error) {
 	start := time.Now()
 
-	key, err := s.loadAndAuthorize(ctx, req.KeyID, req.UserID, req.VaultID, "sign")
+	key, err := s.loadAndAuthorize(ctx, req.KeyID, model.NewOwnerScope(req.VaultID, req.UserID), "sign")
 	if err != nil {
 		return nil, err
 	}
@@ -355,7 +369,7 @@ func (s *cryptoService) Sign(ctx context.Context, req SignRequest) (*SignResult,
 func (s *cryptoService) Verify(ctx context.Context, req VerifyRequest) (*VerifyResult, error) {
 	start := time.Now()
 
-	key, err := s.loadAndAuthorize(ctx, req.KeyID, req.UserID, req.VaultID, "verify")
+	key, err := s.loadAndAuthorize(ctx, req.KeyID, model.NewOwnerScope(req.VaultID, req.UserID), "verify")
 	if err != nil {
 		return nil, err
 	}
@@ -412,7 +426,7 @@ func (s *cryptoService) Verify(ctx context.Context, req VerifyRequest) (*VerifyR
 func (s *cryptoService) Encrypt(ctx context.Context, req EncryptRequest) (*EncryptResult, error) {
 	start := time.Now()
 
-	key, err := s.loadAndAuthorize(ctx, req.KeyID, req.UserID, req.VaultID, "encrypt")
+	key, err := s.loadAndAuthorize(ctx, req.KeyID, model.NewOwnerScope(req.VaultID, req.UserID), "encrypt")
 	if err != nil {
 		return nil, err
 	}
@@ -465,7 +479,7 @@ func (s *cryptoService) Encrypt(ctx context.Context, req EncryptRequest) (*Encry
 func (s *cryptoService) Decrypt(ctx context.Context, req DecryptRequest) (*DecryptResult, error) {
 	start := time.Now()
 
-	key, err := s.loadAndAuthorize(ctx, req.KeyID, req.UserID, req.VaultID, "decrypt")
+	key, err := s.loadAndAuthorize(ctx, req.KeyID, model.NewOwnerScope(req.VaultID, req.UserID), "decrypt")
 	if err != nil {
 		return nil, err
 	}
@@ -525,7 +539,7 @@ func (s *cryptoService) WrapKey(ctx context.Context, req WrapKeyRequest) (*WrapK
 		return nil, fmt.Errorf("%w: %q", ErrUnsupportedAlgorithm, req.Algorithm)
 	}
 
-	key, err := s.loadAndAuthorize(ctx, req.KeyID, req.UserID, req.VaultID, "wrap_key")
+	key, err := s.loadAndAuthorize(ctx, req.KeyID, model.NewOwnerScope(req.VaultID, req.UserID), "wrap_key")
 	if err != nil {
 		return nil, err
 	}
@@ -580,7 +594,7 @@ func (s *cryptoService) UnwrapKey(ctx context.Context, req UnwrapKeyRequest) (*U
 		return nil, fmt.Errorf("%w: %q", ErrUnsupportedAlgorithm, req.Algorithm)
 	}
 
-	key, err := s.loadAndAuthorize(ctx, req.KeyID, req.UserID, req.VaultID, "unwrap_key")
+	key, err := s.loadAndAuthorize(ctx, req.KeyID, model.NewOwnerScope(req.VaultID, req.UserID), "unwrap_key")
 	if err != nil {
 		return nil, err
 	}

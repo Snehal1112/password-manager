@@ -802,7 +802,7 @@ func TestCryptoService_Verify_Success(t *testing.T) {
 	key := &model.Key{ID: keyID, UserID: userID, Type: model.KeyTypeRSA, Value: encryptedPEM, Enabled: true}
 
 	repo := &mockKeyRepoForExtendedCrypto{}
-	repo.On("Read", mock.Anything, keyID).Return(key, nil)
+	repo.On("ReadScoped", mock.Anything, keyID, model.NewOwnerScope(uuid.Nil, userID)).Return(key, nil)
 
 	svc := NewCryptoService(CryptoServiceConfig{
 		KeyRepository: repo,
@@ -847,7 +847,7 @@ func TestCryptoService_Verify_KeyNotFound(t *testing.T) {
 	repo := &mockKeyRepoForExtendedCrypto{}
 	keyID := uuid.New()
 	userID := uuid.New()
-	repo.On("Read", mock.Anything, keyID).Return(nil, errors.New("not found"))
+	repo.On("ReadScoped", mock.Anything, keyID, model.NewOwnerScope(uuid.Nil, userID)).Return(nil, errors.New("not found"))
 
 	svc := NewCryptoService(CryptoServiceConfig{
 		KeyRepository: repo,
@@ -879,7 +879,7 @@ func TestCryptoService_Encrypt_Success(t *testing.T) {
 	key := &model.Key{ID: keyID, UserID: userID, Type: model.KeyTypeRSA, Value: encryptedPEM, Enabled: true}
 
 	repo := &mockKeyRepoForExtendedCrypto{}
-	repo.On("Read", mock.Anything, keyID).Return(key, nil)
+	repo.On("ReadScoped", mock.Anything, keyID, model.NewOwnerScope(uuid.Nil, userID)).Return(key, nil)
 
 	svc := NewCryptoService(CryptoServiceConfig{
 		KeyRepository: repo,
@@ -914,7 +914,7 @@ func TestCryptoService_Decrypt_Success(t *testing.T) {
 	key := &model.Key{ID: keyID, UserID: userID, Type: model.KeyTypeRSA, Value: encryptedPEM, Enabled: true}
 
 	repo := &mockKeyRepoForExtendedCrypto{}
-	repo.On("Read", mock.Anything, keyID).Return(key, nil)
+	repo.On("ReadScoped", mock.Anything, keyID, model.NewOwnerScope(uuid.Nil, userID)).Return(key, nil)
 
 	svc := NewCryptoService(CryptoServiceConfig{
 		KeyRepository: repo,
@@ -948,7 +948,7 @@ func TestCryptoService_Encrypt_KeyNotFound(t *testing.T) {
 	repo := &mockKeyRepoForExtendedCrypto{}
 	keyID := uuid.New()
 	userID := uuid.New()
-	repo.On("Read", mock.Anything, keyID).Return(nil, errors.New("not found"))
+	repo.On("ReadScoped", mock.Anything, keyID, model.NewOwnerScope(uuid.Nil, userID)).Return(nil, errors.New("not found"))
 
 	svc := NewCryptoService(CryptoServiceConfig{
 		KeyRepository: repo,
@@ -965,7 +965,7 @@ func TestCryptoService_Decrypt_KeyNotFound(t *testing.T) {
 	repo := &mockKeyRepoForExtendedCrypto{}
 	keyID := uuid.New()
 	userID := uuid.New()
-	repo.On("Read", mock.Anything, keyID).Return(nil, errors.New("not found"))
+	repo.On("ReadScoped", mock.Anything, keyID, model.NewOwnerScope(uuid.Nil, userID)).Return(nil, errors.New("not found"))
 
 	svc := NewCryptoService(CryptoServiceConfig{
 		KeyRepository: repo,
@@ -1033,7 +1033,7 @@ func TestCryptoService_Sign_RevokedKey(t *testing.T) {
 	repo := &mockKeyRepoForExtendedCrypto{}
 	keyID := uuid.New()
 	userID := uuid.New()
-	repo.On("Read", mock.Anything, keyID).Return(&model.Key{
+	repo.On("ReadScoped", mock.Anything, keyID, model.NewOwnerScope(uuid.Nil, userID)).Return(&model.Key{
 		ID: keyID, UserID: userID, Revoked: true, Enabled: true,
 	}, nil)
 
@@ -1053,7 +1053,7 @@ func TestCryptoService_Sign_InaccessibleKey(t *testing.T) {
 	repo := &mockKeyRepoForExtendedCrypto{}
 	keyID := uuid.New()
 	userID := uuid.New()
-	repo.On("Read", mock.Anything, keyID).Return(&model.Key{
+	repo.On("ReadScoped", mock.Anything, keyID, model.NewOwnerScope(uuid.Nil, userID)).Return(&model.Key{
 		ID: keyID, UserID: userID, Revoked: false, Enabled: false,
 	}, nil)
 
@@ -1129,7 +1129,11 @@ func (m *mockKeyRepoForExtendedCrypto) RecoverVaultContents(ctx context.Context,
 	return nil
 }
 func (m *mockKeyRepoForExtendedCrypto) ReadScoped(ctx context.Context, id uuid.UUID, scope model.Scope) (*model.Key, error) {
-	return nil, nil
+	args := m.Called(ctx, id, scope)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).(*model.Key), args.Error(1)
 }
 func (m *mockKeyRepoForExtendedCrypto) UpdateScoped(ctx context.Context, key *model.Key, scope model.Scope) error {
 	return nil
