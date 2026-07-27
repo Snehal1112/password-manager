@@ -132,6 +132,35 @@ func (m *mockKeyService) ValidateKeyAccess(ctx context.Context, keyID, userID uu
 	return args.Error(0)
 }
 
+func (m *mockKeyService) GetKeyScoped(ctx context.Context, keyID uuid.UUID, scope model.Scope) (*model.Key, error) {
+	args := m.Called(ctx, keyID, scope)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).(*model.Key), args.Error(1)
+}
+
+func (m *mockKeyService) ListKeysScoped(ctx context.Context, scope model.Scope, filter repositories.KeyFilter) ([]model.Key, error) {
+	args := m.Called(ctx, scope, filter)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).([]model.Key), args.Error(1)
+}
+
+func (m *mockKeyService) UpdateKeyScoped(ctx context.Context, req keyServices.UpdateKeyRequest) error {
+	args := m.Called(ctx, req)
+	return args.Error(0)
+}
+
+func (m *mockKeyService) DeleteKeyScoped(ctx context.Context, keyID uuid.UUID, scope model.Scope) (*model.Key, error) {
+	args := m.Called(ctx, keyID, scope)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).(*model.Key), args.Error(1)
+}
+
 // --- keySvcTestContainer ---
 
 type keySvcTestContainer struct {

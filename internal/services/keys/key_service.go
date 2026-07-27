@@ -73,14 +73,15 @@ type CreateKeyResult struct {
 // UpdateKeyRequest represents a request to update an existing key.
 type UpdateKeyRequest struct {
 	KeyID     uuid.UUID
-	VaultID   uuid.UUID  // Set only for vault-scoped updates; ignored by UpdateKey.
-	Name      *string    // Optional - nil means no change
-	Tags      []string   // Optional - empty means no change
-	Revoked   *bool      // Optional - nil means no change
-	UserID    uuid.UUID  // For access control (legacy path only)
-	Enabled   *bool      // Optional - nil means no change
-	ExpiresAt *time.Time // Optional - nil means no change
-	NotBefore *time.Time // Optional - nil means no change
+	Scope     model.Scope // Authorization scope for the read and the write.
+	VaultID   uuid.UUID   // Deprecated: shim field; removed in Phase 6.
+	UserID    uuid.UUID   // Deprecated: shim field; removed in Phase 6.
+	Name      *string     // Optional - nil means no change
+	Tags      []string    // Optional - nil means no change; empty slice clears
+	Revoked   *bool       // Optional - nil means no change
+	Enabled   *bool       // Optional - nil means no change
+	ExpiresAt *time.Time  // Optional - nil means no change
+	NotBefore *time.Time  // Optional - nil means no change
 }
 
 // KeyService handles cryptographic key management operations.
@@ -89,6 +90,14 @@ type UpdateKeyRequest struct {
 type KeyService interface {
 	CreateRSAKey(ctx context.Context, req CreateKeyRequest) (*CreateKeyResult, error)
 	CreateECDSAKey(ctx context.Context, req CreateKeyRequest) (*CreateKeyResult, error)
+	// GetKeyScoped retrieves a key authorized by scope and enforces its lifecycle.
+	GetKeyScoped(ctx context.Context, keyID uuid.UUID, scope model.Scope) (*model.Key, error)
+	// ListKeysScoped lists keys authorized by scope and narrowed by filter.
+	ListKeysScoped(ctx context.Context, scope model.Scope, filter repositories.KeyFilter) ([]model.Key, error)
+	// UpdateKeyScoped updates a key authorized by req.Scope.
+	UpdateKeyScoped(ctx context.Context, req UpdateKeyRequest) error
+	// DeleteKeyScoped soft-deletes a key authorized by scope.
+	DeleteKeyScoped(ctx context.Context, keyID uuid.UUID, scope model.Scope) (*model.Key, error)
 	GetKey(ctx context.Context, keyID, userID uuid.UUID) (*model.Key, error)
 	ListKeys(ctx context.Context, userID uuid.UUID) ([]model.Key, error)
 	ListKeysWithFilters(ctx context.Context, userID *uuid.UUID, keyType string, tags []string, isAdmin bool) ([]model.Key, error)
@@ -333,242 +342,72 @@ func (s *keyService) CreateECDSAKey(ctx context.Context, req CreateKeyRequest) (
 	}, nil
 }
 
-// GetKey retrieves a key by ID with access control validation.
-//
-// Parameters:
-//
-//	ctx: The context for the operation.
-//	keyID: The key's unique identifier.
-//	userID: The requesting user's ID for access control.
-//
-// Returns:
-//
-//	The key information or an error if not found or access denied.
-func (s *keyService) GetKey(ctx context.Context, keyID, userID uuid.UUID) (*model.Key, error) {
-	// Log key access attempt with detailed context
-	s.logger.LogAuditInfo(userID.String(), "get_key", "attempt",
-		fmt.Sprintf("Accessing key: %s", keyID))
+// GetKeyScoped retrieves a key authorized by scope. The scoped read is the
+// access check; a key outside the scope is reported as not found so the
+// endpoint is not an existence oracle.
+func (s *keyService) GetKeyScoped(ctx context.Context, keyID uuid.UUID, scope model.Scope) (*model.Key, error) {
+	actor := scope.ActorID().String()
+	s.logger.LogAuditInfo(actor, "get_key", "attempt", fmt.Sprintf("Accessing key: %s", keyID))
 
-	key, err := s.keyRepo.Read(ctx, keyID)
+	key, err := s.keyRepo.ReadScoped(ctx, keyID, scope)
 	if err != nil {
-		s.logger.LogAuditError(userID.String(), "get_key", "failed",
-			fmt.Sprintf("Key not found: %s", keyID), err)
+		s.logger.LogAuditError(actor, "get_key", "failed", fmt.Sprintf("Key not found: %s", keyID), err)
 		return nil, fmt.Errorf("%w: %s", ErrKeyNotFound, err.Error())
 	}
 
-	// Access control: users can only access their own keys. Treat cross-user
-	// access as not-found to avoid leaking the existence of other users' keys.
-	if key.UserID != userID {
-		s.logger.LogAuditError(userID.String(), "get_key", "forbidden",
-			fmt.Sprintf("Unauthorized access attempt to key: %s (owner: %s)",
-				keyID, key.UserID), nil)
-		return nil, fmt.Errorf("%w: cannot access other users' keys", ErrKeyNotFound)
-	}
-
-	// Enforce lifecycle policy: key must be enabled and within its validity window.
 	if !key.IsAccessible() {
-		s.logger.LogAuditError(userID.String(), "get_key", "denied",
+		s.logger.LogAuditError(actor, "get_key", "denied",
 			fmt.Sprintf("Key is disabled or outside its valid time window: %s", keyID), nil)
 		return nil, fmt.Errorf("%w", ErrKeyLifecycleDenied)
 	}
 
-	// Log successful key access with key metadata (excluding sensitive data)
 	logrus.WithFields(logrus.Fields{
 		"key_id":   key.ID,
 		"key_name": key.Name,
 		"key_type": key.Type,
-		"user_id":  userID,
+		"scope":    scope.String(),
 		"revoked":  key.Revoked,
 	}).Info("Key accessed successfully")
 
-	s.logger.LogAuditInfo(userID.String(), "get_key", "success",
-		fmt.Sprintf("Key accessed: %s (name: %s, type: %s, revoked: %t)",
-			key.ID, key.Name, key.Type, key.Revoked))
+	s.logger.LogAuditInfo(actor, "get_key", "success",
+		fmt.Sprintf("Key accessed: %s (name: %s, type: %s, revoked: %t)", key.ID, key.Name, key.Type, key.Revoked))
 
 	return key, nil
 }
 
-// ListKeys retrieves all keys for a specific user.
-//
-// Parameters:
-//
-//	ctx: The context for the operation.
-//	userID: The user's unique identifier.
-//
-// Returns:
-//
-//	A slice of user's keys or an error if retrieval fails.
-func (s *keyService) ListKeys(ctx context.Context, userID uuid.UUID) ([]model.Key, error) {
-	return s.keyRepo.ListByUser(ctx, &userID, "", nil)
-}
-
-// GetKeyInVault retrieves a key by ID scoped to a vault. It mirrors GetKey but
-// enforces vault scope at the SQL level via ReadInVault and applies the same
-// lifecycle policy.
-func (s *keyService) GetKeyInVault(ctx context.Context, keyID, vaultID uuid.UUID) (*model.Key, error) {
-	key, err := s.keyRepo.ReadInVault(ctx, keyID, vaultID)
+// ListKeysScoped lists keys authorized by scope and narrowed by filter.
+func (s *keyService) ListKeysScoped(ctx context.Context, scope model.Scope, filter repositories.KeyFilter) ([]model.Key, error) {
+	keys, err := s.keyRepo.ListScoped(ctx, scope, filter)
 	if err != nil {
-		s.logger.LogAuditError("", "get_key", "failed",
-			fmt.Sprintf("Key not found in vault: %s", keyID), err)
-		return nil, fmt.Errorf("%w: %s", ErrKeyNotFound, err.Error())
-	}
-
-	if !key.IsAccessible() {
-		s.logger.LogAuditError("", "get_key", "denied",
-			fmt.Sprintf("Key is disabled or outside its valid time window: %s", keyID), nil)
-		return nil, fmt.Errorf("%w", ErrKeyLifecycleDenied)
-	}
-
-	return key, nil
-}
-
-// ListKeysInVault retrieves keys for a vault, optionally filtered by type and
-// tags. It mirrors ListKeysWithFilters but scopes by vault instead of user.
-func (s *keyService) ListKeysInVault(ctx context.Context, vaultID uuid.UUID, keyType string, tags []string) ([]model.Key, error) {
-	return s.keyRepo.ListInVault(ctx, vaultID, keyType, tags)
-}
-
-// DeleteKeyInVault soft-deletes a key scoped to a vault. It mirrors DeleteKey
-// but verifies vault scope via ReadInVault instead of ownership.
-func (s *keyService) DeleteKeyInVault(ctx context.Context, keyID, vaultID, userID uuid.UUID) (*model.Key, error) {
-	key, err := s.keyRepo.ReadInVault(ctx, keyID, vaultID)
-	if err != nil {
-		return nil, fmt.Errorf("%w: %s", ErrKeyNotFound, err.Error())
-	}
-
-	// Enforce ownership unless caller explicitly opts out (uuid.Nil = admin/cascade).
-	if userID != uuid.Nil && key.UserID != userID {
-		s.logger.LogAuditError(userID.String(), "delete_key", "forbidden", "key does not belong to user", nil)
-		return nil, fmt.Errorf("%w", ErrKeyForbidden)
-	}
-
-	if err := s.keyRepo.SoftDelete(ctx, keyID); err != nil {
-		s.logger.LogAuditError("", "delete_key", "failed", "Failed to soft-delete key", err)
-		return nil, fmt.Errorf("failed to delete key: %w", err)
-	}
-
-	if s.keyCache != nil {
-		s.keyCache.Invalidate(keyID)
-	}
-
-	deleted, err := s.keyRepo.ReadDeleted(ctx, keyID)
-	if err != nil {
-		s.logger.LogAuditInfo("", "delete_key", "success", "Key deleted (metadata unavailable)")
-		return key, nil
-	}
-
-	s.logger.LogAuditInfo("", "delete_key", "success", "Key deleted successfully")
-	return deleted, nil
-}
-
-// ListKeysWithFilters retrieves keys with optional filtering by type and tags.
-// Supports admin mode where userID can be nil to list all keys in the system.
-//
-// Parameters:
-//
-//	ctx: The context for the operation.
-//	userID: Optional user ID - nil for admin queries to list all keys.
-//	keyType: Optional key type filter (RSA, ECDSA) - empty string means no filter.
-//	tags: Optional tag filter - empty slice means no filter.
-//	isAdmin: Whether the requester has admin privileges.
-//
-// Returns:
-//
-//	A slice of keys matching the filters or an error if retrieval fails.
-func (s *keyService) ListKeysWithFilters(ctx context.Context, userID *uuid.UUID, keyType string, tags []string, isAdmin bool) ([]model.Key, error) {
-	// Log the filter request
-	logFields := logrus.Fields{
-		"is_admin": isAdmin,
-		"key_type": keyType,
-		"tags":     tags,
-	}
-	if userID != nil {
-		logFields["user_id"] = userID.String()
-	} else {
-		logFields["user_id"] = "all (admin)"
-	}
-	logrus.WithFields(logFields).Info("Listing keys with filters")
-
-	// Non-admin users can only list their own keys
-	if !isAdmin && userID == nil {
-		s.logger.LogAuditError("unknown", "list_keys_with_filters", "failed", "Non-admin users cannot list all keys", nil)
-		return nil, fmt.Errorf("forbidden: non-admin users cannot list all keys")
-	}
-
-	// Delegate to repository with filters
-	keys, err := s.keyRepo.ListByUser(ctx, userID, keyType, tags)
-	if err != nil {
-		userIDStr := "all"
-		if userID != nil {
-			userIDStr = userID.String()
-		}
-		s.logger.LogAuditError(userIDStr, "list_keys_with_filters", "failed", "Failed to list keys", err)
+		s.logger.LogAuditError(scope.ActorID().String(), "list_keys", "failed", "Failed to list keys", err)
 		return nil, fmt.Errorf("failed to list keys: %w", err)
 	}
-
-	logrus.WithFields(logrus.Fields{
-		"key_count": len(keys),
-		"is_admin":  isAdmin,
-	}).Info("Keys listed successfully")
-
+	logrus.WithFields(logrus.Fields{"scope": scope.String(), "key_count": len(keys)}).Info("Keys listed successfully")
 	return keys, nil
 }
 
-// UpdateKey updates an existing key with access control validation.
-//
-// Parameters:
-//
-//	ctx: The context for the operation.
-//	req: The key update request with optional fields.
-//
-// Returns:
-//
-//	An error if the update fails or access is denied.
-func (s *keyService) UpdateKey(ctx context.Context, req UpdateKeyRequest) error {
-	logrus.WithField("key_id", req.KeyID.String()).Info("Updating key")
+// UpdateKeyScoped updates a key authorized by req.Scope. It reads with the
+// scope directly rather than through GetKeyScoped so operators can still
+// re-enable a disabled or expired key.
+func (s *keyService) UpdateKeyScoped(ctx context.Context, req UpdateKeyRequest) error {
+	actor := req.Scope.ActorID().String()
+	logrus.WithFields(logrus.Fields{
+		"key_id": req.KeyID.String(),
+		"scope":  req.Scope.String(),
+	}).Info("Updating key")
 
-	// Read directly so operators can update disabled/expired keys (e.g. re-enable them).
-	key, err := s.keyRepo.Read(ctx, req.KeyID)
+	key, err := s.keyRepo.ReadScoped(ctx, req.KeyID, req.Scope)
 	if err != nil {
 		return fmt.Errorf("%w: %s", ErrKeyNotFound, err.Error())
 	}
-	if key.UserID != req.UserID {
-		s.logger.LogAuditError(req.UserID.String(), "update_key", "forbidden", "key does not belong to user", nil)
-		return fmt.Errorf("%w", ErrKeyForbidden)
+
+	updatedKey, err := applyKeyUpdate(key, req)
+	if err != nil {
+		return err
 	}
 
-	// Prepare updated key
-	updatedKey := *key
-
-	// Update name if provided
-	if req.Name != nil {
-		updatedKey.Name = *req.Name
-	}
-
-	// Update tags if provided; non-nil empty slice clears all tags.
-	if req.Tags != nil {
-		updatedKey.Tags = req.Tags
-	}
-
-	// Update revocation status if provided.
-	if req.Revoked != nil {
-		updatedKey.Revoked = *req.Revoked
-	}
-
-	// Update lifecycle fields if provided.
-	if req.Enabled != nil {
-		updatedKey.Enabled = *req.Enabled
-	}
-	if req.ExpiresAt != nil {
-		updatedKey.ExpiresAt = req.ExpiresAt
-	}
-	if req.NotBefore != nil {
-		updatedKey.NotBefore = req.NotBefore
-	}
-
-	// Update key via repository
-	if err := s.keyRepo.Update(ctx, &updatedKey); err != nil {
-		s.logger.LogAuditError(req.UserID.String(), "update_key", "failed", "Failed to update key", err)
+	if err := s.keyRepo.UpdateScoped(ctx, updatedKey, req.Scope); err != nil {
+		s.logger.LogAuditError(actor, "update_key", "failed", "Failed to update key", err)
 		return fmt.Errorf("failed to update key: %w", err)
 	}
 
@@ -577,98 +416,107 @@ func (s *keyService) UpdateKey(ctx context.Context, req UpdateKeyRequest) error 
 		s.keyCache.Invalidate(updatedKey.ID)
 	}
 
-	s.logger.LogAuditInfo(req.UserID.String(), "update_key", "success", fmt.Sprintf("Key updated: %s", updatedKey.Name))
+	s.logger.LogAuditInfo(actor, "update_key", "success", fmt.Sprintf("Key updated: %s", updatedKey.Name))
 	return nil
 }
 
-// UpdateKeyInVault updates a key scoped to a vault instead of ownership. It
-// mirrors UpdateKey but verifies vault membership via ReadInVault — any vault
-// member may update any key in the vault.
-func (s *keyService) UpdateKeyInVault(ctx context.Context, req UpdateKeyRequest) error {
-	logrus.WithFields(logrus.Fields{
-		"key_id":   req.KeyID.String(),
-		"vault_id": req.VaultID.String(),
-	}).Info("Updating key (vault-scoped)")
+// DeleteKeyScoped soft-deletes a key authorized by scope and returns the
+// deleted record so callers can read Azure-style deletion metadata.
+func (s *keyService) DeleteKeyScoped(ctx context.Context, keyID uuid.UUID, scope model.Scope) (*model.Key, error) {
+	actor := scope.ActorID().String()
 
-	key, err := s.keyRepo.ReadInVault(ctx, req.KeyID, req.VaultID)
+	key, err := s.keyRepo.ReadScoped(ctx, keyID, scope)
 	if err != nil {
-		return fmt.Errorf("%w: %s", ErrKeyNotFound, err.Error())
+		return nil, fmt.Errorf("%w: %s", ErrKeyNotFound, err.Error())
 	}
 
-	updatedKey := *key
-
-	if req.Name != nil {
-		updatedKey.Name = *req.Name
-	}
-	if req.Tags != nil {
-		updatedKey.Tags = req.Tags
-	}
-	if req.Revoked != nil {
-		updatedKey.Revoked = *req.Revoked
-	}
-	if req.Enabled != nil {
-		updatedKey.Enabled = *req.Enabled
-	}
-	if req.ExpiresAt != nil {
-		updatedKey.ExpiresAt = req.ExpiresAt
-	}
-	if req.NotBefore != nil {
-		updatedKey.NotBefore = req.NotBefore
-	}
-
-	if err := s.keyRepo.Update(ctx, &updatedKey); err != nil {
-		s.logger.LogAuditError(req.UserID.String(), "update_key", "failed", "Failed to update key", err)
-		return fmt.Errorf("failed to update key: %w", err)
-	}
-
-	if s.keyCache != nil {
-		s.keyCache.Invalidate(updatedKey.ID)
-	}
-
-	s.logger.LogAuditInfo(req.UserID.String(), "update_key", "success", fmt.Sprintf("Key updated: %s", updatedKey.Name))
-	return nil
-}
-
-// DeleteKey removes a key from the system with access control validation.
-// It returns the deleted key record so callers can inspect deletion metadata
-// (deleted_at, scheduled_purge_at) matching Azure Key Vault behaviour.
-//
-// Parameters:
-//
-//	ctx: The context for the operation.
-//	keyID: The key's unique identifier.
-//	userID: The requesting user's ID for access control.
-//
-// Returns:
-//
-//	The deleted key record (with deleted_at populated) or an error if deletion fails.
-func (s *keyService) DeleteKey(ctx context.Context, keyID, userID uuid.UUID) (*model.Key, error) {
-	// Verify key exists and that the caller owns it.
-	key, err := s.GetKey(ctx, keyID, userID)
-	if err != nil {
-		return nil, fmt.Errorf("delete key: %w", err)
+	// B6 conjunction, P1 only: an owner scope may carry an advisory vault id,
+	// and the pre-refactor DeleteKeyInVault required BOTH predicates. A Scope
+	// cannot express AND, so the vault half stays in Go until P2 retires
+	// ScopeOwner from the data plane.
+	if _, ownerScoped := scope.OwnerID(); ownerScoped && scope.VaultID() != uuid.Nil && key.VaultID != scope.VaultID() {
+		s.logger.LogAuditError(actor, "delete_key", "forbidden", "key does not belong to the requested vault", nil)
+		return nil, fmt.Errorf("%w: key does not belong to the requested vault", ErrKeyNotFound)
 	}
 
 	if err := s.keyRepo.SoftDelete(ctx, keyID); err != nil {
-		s.logger.LogAuditError(userID.String(), "delete_key", "failed", "Failed to soft-delete key", err)
+		s.logger.LogAuditError(actor, "delete_key", "failed", "Failed to soft-delete key", err)
 		return nil, fmt.Errorf("failed to delete key: %w", err)
 	}
 
-	// Evict stale cached material now that the key is deleted.
 	if s.keyCache != nil {
 		s.keyCache.Invalidate(keyID)
 	}
 
-	// Re-read the row so deleted_at is populated from the database.
 	deleted, err := s.keyRepo.ReadDeleted(ctx, keyID)
 	if err != nil {
-		// Non-fatal: return the pre-delete snapshot without metadata.
-		s.logger.LogAuditInfo(userID.String(), "delete_key", "success", "Key deleted (metadata unavailable)")
+		s.logger.LogAuditInfo(actor, "delete_key", "success", "Key deleted (metadata unavailable)")
 		return key, nil
 	}
 
-	s.logger.LogAuditInfo(userID.String(), "delete_key", "success", "Key deleted successfully")
+	s.logger.LogAuditInfo(actor, "delete_key", "success", "Key deleted successfully")
 	return deleted, nil
+}
+
+// Deprecated: shim over GetKeyScoped; removed in Phase 6.
+func (s *keyService) GetKey(ctx context.Context, keyID, userID uuid.UUID) (*model.Key, error) {
+	return s.GetKeyScoped(ctx, keyID, model.NewOwnerScope(uuid.Nil, userID))
+}
+
+// Deprecated: shim over GetKeyScoped; removed in Phase 6.
+func (s *keyService) GetKeyInVault(ctx context.Context, keyID, vaultID uuid.UUID) (*model.Key, error) {
+	return s.GetKeyScoped(ctx, keyID, model.NewVaultScope(vaultID, uuid.Nil))
+}
+
+// Deprecated: shim over ListKeysScoped; removed in Phase 6.
+func (s *keyService) ListKeys(ctx context.Context, userID uuid.UUID) ([]model.Key, error) {
+	return s.ListKeysScoped(ctx, model.NewOwnerScope(uuid.Nil, userID), repositories.KeyFilter{})
+}
+
+// Deprecated: shim over ListKeysScoped; removed in Phase 6.
+func (s *keyService) ListKeysInVault(ctx context.Context, vaultID uuid.UUID, keyType string, tags []string) ([]model.Key, error) {
+	return s.ListKeysScoped(ctx, model.NewVaultScope(vaultID, uuid.Nil), repositories.KeyFilter{Type: keyType, Tags: tags})
+}
+
+// Deprecated: shim over DeleteKeyScoped; removed in Phase 6.
+func (s *keyService) DeleteKey(ctx context.Context, keyID, userID uuid.UUID) (*model.Key, error) {
+	return s.DeleteKeyScoped(ctx, keyID, model.NewOwnerScope(uuid.Nil, userID))
+}
+
+// Deprecated: shim over DeleteKeyScoped; removed in Phase 6. The uuid.Nil
+// userID sentinel ("skip the ownership check") maps to a plain vault scope.
+func (s *keyService) DeleteKeyInVault(ctx context.Context, keyID, vaultID, userID uuid.UUID) (*model.Key, error) {
+	if userID == uuid.Nil {
+		return s.DeleteKeyScoped(ctx, keyID, model.NewVaultScope(vaultID, uuid.Nil))
+	}
+	return s.DeleteKeyScoped(ctx, keyID, model.NewOwnerScope(vaultID, userID))
+}
+
+// Deprecated: shim over ListKeysScoped; removed in Phase 6. The isAdmin guard
+// is a runtime re-derivation of what the caller already knew; callers migrate
+// to model.NewAdminScope in Phase 4.
+func (s *keyService) ListKeysWithFilters(ctx context.Context, userID *uuid.UUID, keyType string, tags []string, isAdmin bool) ([]model.Key, error) {
+	if !isAdmin && userID == nil {
+		s.logger.LogAuditError("unknown", "list_keys_with_filters", "failed", "Non-admin users cannot list all keys", nil)
+		return nil, fmt.Errorf("forbidden: non-admin users cannot list all keys")
+	}
+	scope := model.NewAdminScope(uuid.Nil)
+	if userID != nil {
+		scope = model.NewOwnerScope(uuid.Nil, *userID)
+	}
+	return s.ListKeysScoped(ctx, scope, repositories.KeyFilter{Type: keyType, Tags: tags})
+}
+
+// Deprecated: shim over UpdateKeyScoped; removed in Phase 6.
+func (s *keyService) UpdateKey(ctx context.Context, req UpdateKeyRequest) error {
+	req.Scope = model.NewOwnerScope(uuid.Nil, req.UserID)
+	return s.UpdateKeyScoped(ctx, req)
+}
+
+// Deprecated: shim over UpdateKeyScoped; removed in Phase 6.
+func (s *keyService) UpdateKeyInVault(ctx context.Context, req UpdateKeyRequest) error {
+	req.Scope = model.NewVaultScope(req.VaultID, req.UserID)
+	return s.UpdateKeyScoped(ctx, req)
 }
 
 // RotateKey rotates an existing key in-place by generating new key material,

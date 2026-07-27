@@ -95,6 +95,18 @@ func (s *recordingKeyService) RotateKey(context.Context, uuid.UUID, uuid.UUID) (
 func (s *recordingKeyService) ValidateKeyAccess(context.Context, uuid.UUID, uuid.UUID, string) error {
 	panic("unexpected")
 }
+func (s *recordingKeyService) GetKeyScoped(context.Context, uuid.UUID, model.Scope) (*model.Key, error) {
+	panic("unexpected")
+}
+func (s *recordingKeyService) ListKeysScoped(context.Context, model.Scope, repositories.KeyFilter) ([]model.Key, error) {
+	panic("unexpected")
+}
+func (s *recordingKeyService) UpdateKeyScoped(context.Context, keyServices.UpdateKeyRequest) error {
+	panic("unexpected")
+}
+func (s *recordingKeyService) DeleteKeyScoped(context.Context, uuid.UUID, model.Scope) (*model.Key, error) {
+	panic("unexpected")
+}
 
 // recordingCertService records which list/get method was called and with what
 // scope, mirroring recordingKeyService for certificates.

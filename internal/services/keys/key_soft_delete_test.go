@@ -169,8 +169,8 @@ func TestDeleteKeySoftDeletes(t *testing.T) {
 
 	repo := &mockKeyRepository{}
 
-	// GetKey calls Read internally — return the key so access check passes.
-	repo.On("Read", mock.Anything, keyID).Return(existingKey, nil)
+	// DeleteKey reads via the scoped read — return the key so access check passes.
+	repo.On("ReadScoped", mock.Anything, keyID, model.NewOwnerScope(uuid.Nil, userID)).Return(existingKey, nil)
 
 	// SoftDelete must be called once.
 	repo.On("SoftDelete", mock.Anything, keyID).Return(nil)
@@ -223,7 +223,7 @@ func TestDeleteKey_ReturnsDeletedRecord(t *testing.T) {
 	}
 
 	repo := &mockKeyRepository{}
-	repo.On("Read", mock.Anything, keyID).Return(existingKey, nil)
+	repo.On("ReadScoped", mock.Anything, keyID, model.NewOwnerScope(uuid.Nil, userID)).Return(existingKey, nil)
 	repo.On("SoftDelete", mock.Anything, keyID).Return(nil)
 	repo.On("ReadDeleted", mock.Anything, keyID).Return(deletedKey, nil)
 

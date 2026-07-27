@@ -113,6 +113,18 @@ func (m *keyCmdKeyService) ListKeysInVault(ctx context.Context, vaultID uuid.UUI
 func (m *keyCmdKeyService) DeleteKeyInVault(ctx context.Context, keyID, vaultID, userID uuid.UUID) (*model.Key, error) {
 	return nil, nil
 }
+func (m *keyCmdKeyService) GetKeyScoped(ctx context.Context, keyID uuid.UUID, scope model.Scope) (*model.Key, error) {
+	return nil, nil
+}
+func (m *keyCmdKeyService) ListKeysScoped(ctx context.Context, scope model.Scope, filter repositories.KeyFilter) ([]model.Key, error) {
+	return nil, nil
+}
+func (m *keyCmdKeyService) UpdateKeyScoped(ctx context.Context, req keyServices.UpdateKeyRequest) error {
+	return nil
+}
+func (m *keyCmdKeyService) DeleteKeyScoped(ctx context.Context, keyID uuid.UUID, scope model.Scope) (*model.Key, error) {
+	return nil, nil
+}
 
 // keyCmdCryptoService is a full mock for keyServices.CryptoService.
 type keyCmdCryptoService struct{ mock.Mock }

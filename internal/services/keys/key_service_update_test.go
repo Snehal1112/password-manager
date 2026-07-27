@@ -30,10 +30,10 @@ func TestUpdateKey_SetsRevoked(t *testing.T) {
 	keyID := uuid.New()
 	existing := &model.Key{ID: keyID, UserID: ownerID, Name: "old-name", Type: "RSA", Revoked: false, Enabled: true}
 
-	repo.On("Read", mock.Anything, keyID).Return(existing, nil)
-	repo.On("Update", mock.Anything, mock.MatchedBy(func(k *model.Key) bool {
+	repo.On("ReadScoped", mock.Anything, keyID, model.NewOwnerScope(uuid.Nil, ownerID)).Return(existing, nil)
+	repo.On("UpdateScoped", mock.Anything, mock.MatchedBy(func(k *model.Key) bool {
 		return k.Revoked == true
-	})).Return(nil)
+	}), model.NewOwnerScope(uuid.Nil, ownerID)).Return(nil)
 
 	err := svc.UpdateKey(context.Background(), UpdateKeyRequest{
 		KeyID:   keyID,
@@ -54,10 +54,10 @@ func TestUpdateKey_ClearsRevoked(t *testing.T) {
 	keyID := uuid.New()
 	existing := &model.Key{ID: keyID, UserID: ownerID, Name: "old-name", Type: "RSA", Revoked: true, Enabled: true}
 
-	repo.On("Read", mock.Anything, keyID).Return(existing, nil)
-	repo.On("Update", mock.Anything, mock.MatchedBy(func(k *model.Key) bool {
+	repo.On("ReadScoped", mock.Anything, keyID, model.NewOwnerScope(uuid.Nil, ownerID)).Return(existing, nil)
+	repo.On("UpdateScoped", mock.Anything, mock.MatchedBy(func(k *model.Key) bool {
 		return k.Revoked == false
-	})).Return(nil)
+	}), model.NewOwnerScope(uuid.Nil, ownerID)).Return(nil)
 
 	err := svc.UpdateKey(context.Background(), UpdateKeyRequest{
 		KeyID:   keyID,
@@ -79,8 +79,8 @@ func TestUpdateKeyInVault_HappyPath(t *testing.T) {
 	callerID := uuid.New() // a different vault member than the key's owner
 
 	stored := &model.Key{ID: keyID, UserID: ownerID, VaultID: vaultID, Name: "old"}
-	repo.On("ReadInVault", mock.Anything, keyID, vaultID).Return(stored, nil)
-	repo.On("Update", mock.Anything, mock.AnythingOfType("*model.Key")).Return(nil)
+	repo.On("ReadScoped", mock.Anything, keyID, model.NewVaultScope(vaultID, callerID)).Return(stored, nil)
+	repo.On("UpdateScoped", mock.Anything, mock.AnythingOfType("*model.Key"), model.NewVaultScope(vaultID, callerID)).Return(nil)
 
 	svc := &keyService{keyRepo: repo, logger: logger}
 
@@ -102,13 +102,14 @@ func TestUpdateKeyInVault_WrongVault(t *testing.T) {
 
 	keyID := uuid.New()
 	vaultID := uuid.New()
+	callerID := uuid.New()
 
-	repo.On("ReadInVault", mock.Anything, keyID, vaultID).Return(nil, errors.New("key not found or access denied"))
+	repo.On("ReadScoped", mock.Anything, keyID, model.NewVaultScope(vaultID, callerID)).Return(nil, errors.New("key not found or access denied"))
 
 	svc := &keyService{keyRepo: repo, logger: logger}
 	err := svc.UpdateKeyInVault(context.Background(), UpdateKeyRequest{
 		KeyID:   keyID,
-		UserID:  uuid.New(),
+		UserID:  callerID,
 		VaultID: vaultID,
 	})
 

@@ -146,7 +146,26 @@ func (f *b6FakeKeyRepo) RecoverVaultContents(ctx context.Context, vaultID uuid.U
 	return nil
 }
 func (f *b6FakeKeyRepo) ReadScoped(ctx context.Context, id uuid.UUID, scope model.Scope) (*model.Key, error) {
-	return nil, nil
+	k, ok := f.keys[id]
+	if !ok {
+		return nil, errors.New("key not found")
+	}
+	switch scope.Kind() {
+	case model.ScopeVault:
+		if k.VaultID != scope.VaultID() {
+			return nil, errors.New("key not found or access denied")
+		}
+	case model.ScopeOwner:
+		ownerID, _ := scope.OwnerID()
+		if k.UserID != ownerID {
+			return nil, errors.New("key not found or access denied")
+		}
+	case model.ScopeAdmin:
+		// No predicate.
+	default:
+		return nil, errors.New("key not found or access denied")
+	}
+	return k, nil
 }
 func (f *b6FakeKeyRepo) UpdateScoped(ctx context.Context, k *model.Key, scope model.Scope) error {
 	return nil
@@ -188,10 +207,16 @@ func newB6TestAPI(repo *b6FakeKeyRepo) (*API, *vaultFakeRepo) {
 	return api, vrepo
 }
 
-// TestB6_KeyDelete_NonOwnerVaultMember_Returns403 asserts that DELETE on the
-// vault-scoped key route is forbidden for a non-owner vault member, matching
-// the crypto operations tested above.
-func TestB6_KeyDelete_NonOwnerVaultMember_Returns403(t *testing.T) {
+// TestB6_KeyDelete_NonOwnerVaultMember_Returns404 asserts that DELETE on the
+// vault-scoped key route is not found for a non-owner vault member. Unlike
+// the crypto operations above (still gated by an explicit 403 ownership
+// check), DeleteKeyScoped authorizes through ReadScoped: a non-owner's owner
+// scope simply fails to resolve the key, so the handler's existing
+// ErrKeyNotFound mapping reports 404 rather than 403. This is the spec's
+// intentional "404, not 403" decision for the delete path (P1 scope refactor,
+// Task 19); it does not change the crypto-op tests, which use a separate
+// authorization path.
+func TestB6_KeyDelete_NonOwnerVaultMember_Returns404(t *testing.T) {
 	repo := newB6FakeKeyRepo()
 	ownerID := uuid.New()
 	vaultID := uuid.New()
@@ -206,7 +231,7 @@ func TestB6_KeyDelete_NonOwnerVaultMember_Returns403(t *testing.T) {
 	vrepo.byID[vaultID.String()] = vrepo.byName["prod"]
 
 	w := doVaultRequest(api, http.MethodDelete, "/api/v1/vaults/prod/keys/"+keyID.String(), nil)
-	if w.Code != http.StatusForbidden {
-		t.Fatalf("DELETE non-owner key via vault route: expected 403, got %d (%s)", w.Code, w.Body.String())
+	if w.Code != http.StatusNotFound {
+		t.Fatalf("DELETE non-owner key via vault route: expected 404, got %d (%s)", w.Code, w.Body.String())
 	}
 }

@@ -40,37 +40,41 @@ func setupMasterKey(t *testing.T) {
 func TestUpdateKey_KeyNotFound(t *testing.T) {
 	repo := &mockKeyRepository{}
 	keyID := uuid.New()
-	repo.On("Read", mock.Anything, keyID).Return(nil, errors.New("not found"))
+	userID := uuid.New()
+	repo.On("ReadScoped", mock.Anything, keyID, model.NewOwnerScope(uuid.Nil, userID)).Return(nil, errors.New("not found"))
 
 	svc := &keyService{keyRepo: repo, logger: testLogger()}
-	err := svc.UpdateKey(context.Background(), UpdateKeyRequest{KeyID: keyID, UserID: uuid.New()})
+	err := svc.UpdateKey(context.Background(), UpdateKeyRequest{KeyID: keyID, UserID: userID})
 	require.Error(t, err)
 	assert.ErrorIs(t, err, ErrKeyNotFound)
 }
 
-func TestUpdateKey_Forbidden(t *testing.T) {
+// TestUpdateKey_WrongOwner asserts that a non-owner's scoped read finds no
+// matching row, same as the SQL predicate excluding it. The access check
+// happens at the scoped read, not via a separate Go-level ownership
+// comparison, so the caller sees not-found rather than forbidden.
+func TestUpdateKey_WrongOwner(t *testing.T) {
 	repo := &mockKeyRepository{}
 	keyID := uuid.New()
-	ownerID := uuid.New()
 	callerID := uuid.New()
-	repo.On("Read", mock.Anything, keyID).Return(
-		&model.Key{ID: keyID, UserID: ownerID, Enabled: true}, nil,
-	)
+	repo.On("ReadScoped", mock.Anything, keyID, model.NewOwnerScope(uuid.Nil, callerID)).
+		Return(nil, errors.New("key not found or access denied"))
 
 	svc := &keyService{keyRepo: repo, logger: testLogger()}
 	err := svc.UpdateKey(context.Background(), UpdateKeyRequest{KeyID: keyID, UserID: callerID})
 	require.Error(t, err)
-	assert.ErrorIs(t, err, ErrKeyForbidden)
+	assert.ErrorIs(t, err, ErrKeyNotFound)
 }
 
 func TestUpdateKey_RepoUpdateError(t *testing.T) {
 	repo := &mockKeyRepository{}
 	keyID := uuid.New()
 	ownerID := uuid.New()
-	repo.On("Read", mock.Anything, keyID).Return(
+	scope := model.NewOwnerScope(uuid.Nil, ownerID)
+	repo.On("ReadScoped", mock.Anything, keyID, scope).Return(
 		&model.Key{ID: keyID, UserID: ownerID, Enabled: true}, nil,
 	)
-	repo.On("Update", mock.Anything, mock.AnythingOfType("*model.Key")).
+	repo.On("UpdateScoped", mock.Anything, mock.AnythingOfType("*model.Key"), scope).
 		Return(errors.New("db error"))
 
 	svc := &keyService{keyRepo: repo, logger: testLogger()}
@@ -83,10 +87,11 @@ func TestUpdateKey_WithCacheInvalidation(t *testing.T) {
 	repo := &mockKeyRepository{}
 	keyID := uuid.New()
 	ownerID := uuid.New()
-	repo.On("Read", mock.Anything, keyID).Return(
+	scope := model.NewOwnerScope(uuid.Nil, ownerID)
+	repo.On("ReadScoped", mock.Anything, keyID, scope).Return(
 		&model.Key{ID: keyID, UserID: ownerID, Enabled: true}, nil,
 	)
-	repo.On("Update", mock.Anything, mock.AnythingOfType("*model.Key")).Return(nil)
+	repo.On("UpdateScoped", mock.Anything, mock.AnythingOfType("*model.Key"), scope).Return(nil)
 
 	// Use a real NopCache so Invalidate is exercised.
 	cache := &testKeyCache{}
@@ -102,7 +107,7 @@ func TestDeleteKey_SoftDeleteFails(t *testing.T) {
 	repo := &mockKeyRepository{}
 	keyID := uuid.New()
 	ownerID := uuid.New()
-	repo.On("Read", mock.Anything, keyID).Return(
+	repo.On("ReadScoped", mock.Anything, keyID, model.NewOwnerScope(uuid.Nil, ownerID)).Return(
 		&model.Key{ID: keyID, UserID: ownerID, Enabled: true}, nil,
 	)
 	repo.On("SoftDelete", mock.Anything, keyID).Return(errors.New("db error"))
@@ -117,7 +122,7 @@ func TestDeleteKey_ReadDeletedFails_ReturnsSnapshot(t *testing.T) {
 	repo := &mockKeyRepository{}
 	keyID := uuid.New()
 	ownerID := uuid.New()
-	repo.On("Read", mock.Anything, keyID).Return(
+	repo.On("ReadScoped", mock.Anything, keyID, model.NewOwnerScope(uuid.Nil, ownerID)).Return(
 		&model.Key{ID: keyID, UserID: ownerID, Enabled: true}, nil,
 	)
 	repo.On("SoftDelete", mock.Anything, keyID).Return(nil)
@@ -134,7 +139,7 @@ func TestDeleteKey_CacheInvalidated(t *testing.T) {
 	keyID := uuid.New()
 	ownerID := uuid.New()
 	now := time.Now()
-	repo.On("Read", mock.Anything, keyID).Return(
+	repo.On("ReadScoped", mock.Anything, keyID, model.NewOwnerScope(uuid.Nil, ownerID)).Return(
 		&model.Key{ID: keyID, UserID: ownerID, Enabled: true}, nil,
 	)
 	repo.On("SoftDelete", mock.Anything, keyID).Return(nil)

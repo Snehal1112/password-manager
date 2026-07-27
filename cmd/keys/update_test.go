@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/mock"
 
 	"rocketvault/cmd/testutils"
+	"rocketvault/internal/repositories"
 	keyServices "rocketvault/internal/services/keys"
 	"rocketvault/model"
 )
@@ -55,6 +56,18 @@ func (m *MockKeyServiceForUpdate) ListKeysInVault(ctx context.Context, vaultID u
 	return nil, nil
 }
 func (m *MockKeyServiceForUpdate) DeleteKeyInVault(ctx context.Context, keyID, vaultID, userID uuid.UUID) (*model.Key, error) {
+	return nil, nil
+}
+func (m *MockKeyServiceForUpdate) GetKeyScoped(ctx context.Context, keyID uuid.UUID, scope model.Scope) (*model.Key, error) {
+	return nil, nil
+}
+func (m *MockKeyServiceForUpdate) ListKeysScoped(ctx context.Context, scope model.Scope, filter repositories.KeyFilter) ([]model.Key, error) {
+	return nil, nil
+}
+func (m *MockKeyServiceForUpdate) UpdateKeyScoped(ctx context.Context, req keyServices.UpdateKeyRequest) error {
+	return nil
+}
+func (m *MockKeyServiceForUpdate) DeleteKeyScoped(ctx context.Context, keyID uuid.UUID, scope model.Scope) (*model.Key, error) {
 	return nil, nil
 }
 
