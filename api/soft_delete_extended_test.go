@@ -12,11 +12,10 @@ import (
 
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/google/uuid"
-	"github.com/gorilla/mux"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/mock"
 
 	"rocketvault/app"
-	"rocketvault/common"
 	"rocketvault/internal/backup"
 	"rocketvault/internal/cache"
 	"rocketvault/internal/crypto"
@@ -40,104 +39,6 @@ import (
 
 // errTest is a sentinel error used by stub repositories in soft-delete tests.
 var errTest = errors.New("test error")
-
-// ============================================================
-// stub secret repository for soft-delete tests
-// ============================================================
-
-type stubSecretRepo struct {
-	listDeleted    []model.Secret
-	listDeletedErr error
-	recoverErr     error
-	purgeErr       error
-
-	// vaultDeleted, when non-nil, is returned by ListInVaultIncludeDeleted so
-	// tests can distinguish the vault-scoped authorization branch from the
-	// user-scoped one. When nil the method falls back to listDeleted.
-	vaultDeleted    []model.Secret
-	vaultDeletedSet bool
-	// Records which authorization branch the handler exercised.
-	userListCalled  bool
-	vaultListCalled bool
-}
-
-func (s *stubSecretRepo) Create(_ context.Context, _ *model.Secret) error {
-	panic("unexpected call: Create")
-}
-func (s *stubSecretRepo) Read(_ context.Context, _ uuid.UUID) (*model.Secret, error) {
-	panic("unexpected call: Read")
-}
-func (s *stubSecretRepo) ReadByOwner(_ context.Context, _, _ uuid.UUID) (*model.Secret, error) {
-	panic("unexpected call: ReadByOwner")
-}
-func (s *stubSecretRepo) ReadScoped(_ context.Context, _ uuid.UUID, _ model.Scope) (*model.Secret, error) {
-	panic("unexpected call: ReadScoped")
-}
-func (s *stubSecretRepo) Update(_ context.Context, _ *model.Secret) error {
-	panic("unexpected call: Update")
-}
-func (s *stubSecretRepo) UpdateScoped(_ context.Context, _ *model.Secret, _ model.Scope) error {
-	panic("unexpected call: UpdateScoped")
-}
-func (s *stubSecretRepo) UpdateInVault(_ context.Context, _ *model.Secret) error {
-	panic("unexpected call: UpdateInVault")
-}
-func (s *stubSecretRepo) Delete(_ context.Context, _ uuid.UUID) error {
-	panic("unexpected call: Delete")
-}
-func (s *stubSecretRepo) SoftDelete(_ context.Context, _ uuid.UUID) error {
-	panic("unexpected call: SoftDelete")
-}
-func (s *stubSecretRepo) RecoverSecret(_ context.Context, _ uuid.UUID) error {
-	return s.recoverErr
-}
-func (s *stubSecretRepo) ListByUser(_ context.Context, _ uuid.UUID, _ []string) ([]model.Secret, error) {
-	panic("unexpected call: ListByUser")
-}
-func (s *stubSecretRepo) ListScoped(_ context.Context, _ model.Scope, _ repositories.SecretFilter) ([]model.Secret, error) {
-	panic("unexpected call: ListScoped")
-}
-func (s *stubSecretRepo) ListByUserIncludeDeleted(_ context.Context, _ uuid.UUID, _ []string) ([]model.Secret, error) {
-	s.userListCalled = true
-	return s.listDeleted, s.listDeletedErr
-}
-func (s *stubSecretRepo) ExportSecrets(_ context.Context, _ model.ExportOptions) ([]byte, error) {
-	panic("unexpected call: ExportSecrets")
-}
-func (s *stubSecretRepo) ImportSecrets(_ context.Context, _ []byte, _ model.ImportOptions) (int, error) {
-	panic("unexpected call: ImportSecrets")
-}
-func (s *stubSecretRepo) GetVersions(_ context.Context, _ uuid.UUID) ([]model.SecretVersion, error) {
-	panic("unexpected call: GetVersions")
-}
-func (s *stubSecretRepo) GetVersion(_ context.Context, _ uuid.UUID, _ int) (*model.SecretVersion, error) {
-	panic("unexpected call: GetVersion")
-}
-func (s *stubSecretRepo) GetLatestVersion(_ context.Context, _ uuid.UUID) (*model.SecretVersion, error) {
-	panic("unexpected call: GetLatestVersion")
-}
-func (s *stubSecretRepo) PurgeSecret(_ context.Context, _ uuid.UUID) error {
-	return s.purgeErr
-}
-func (s *stubSecretRepo) ReadInVault(_ context.Context, _, _ uuid.UUID) (*model.Secret, error) {
-	panic("unexpected call: ReadInVault")
-}
-func (s *stubSecretRepo) ListInVault(_ context.Context, _ uuid.UUID, _ []string) ([]model.Secret, error) {
-	panic("unexpected call: ListInVault")
-}
-func (s *stubSecretRepo) ListInVaultIncludeDeleted(_ context.Context, _ uuid.UUID, _ []string) ([]model.Secret, error) {
-	s.vaultListCalled = true
-	if s.vaultDeletedSet {
-		return s.vaultDeleted, s.listDeletedErr
-	}
-	return s.listDeleted, s.listDeletedErr
-}
-func (s *stubSecretRepo) SoftDeleteVaultContents(_ context.Context, _ uuid.UUID, _ time.Time) error {
-	panic("unexpected call: SoftDeleteVaultContents")
-}
-func (s *stubSecretRepo) RecoverVaultContents(_ context.Context, _ uuid.UUID, _ time.Time) error {
-	panic("unexpected call: RecoverVaultContents")
-}
 
 // ============================================================
 // stub certificate repository for soft-delete tests
@@ -214,135 +115,6 @@ func (s *stubCertRepo) RecoverVaultContents(_ context.Context, _ uuid.UUID, _ ti
 // ============================================================
 // multi-repo containers
 // ============================================================
-
-// secretRepoTestContainer wires only GetSecretRepository.
-type secretRepoTestContainer struct {
-	secretRepo repositories.SecretRepositoryInterface
-}
-
-func (c *secretRepoTestContainer) GetSecretRepository() repositories.SecretRepositoryInterface {
-	return c.secretRepo
-}
-func (c *secretRepoTestContainer) GetRBACService() authzServices.RBACService {
-	panic("unexpected call: GetRBACService")
-}
-func (c *secretRepoTestContainer) GetUserRepository() repositories.UserRepositoryInterface {
-	panic("unexpected call: GetUserRepository")
-}
-func (c *secretRepoTestContainer) GetRotationRepository() repositories.RotationPolicyRepositoryInterface {
-	panic("unexpected call: GetRotationRepository")
-}
-func (c *secretRepoTestContainer) GetVersionRepository() repositories.SecretVersionRepositoryInterface {
-	panic("unexpected call: GetVersionRepository")
-}
-func (c *secretRepoTestContainer) GetKeyRepository() repositories.KeyRepositoryInterface {
-	panic("unexpected call: GetKeyRepository")
-}
-func (c *secretRepoTestContainer) GetCertificateRepository() repositories.CertificateRepositoryInterface {
-	panic("unexpected call: GetCertificateRepository")
-}
-func (c *secretRepoTestContainer) GetCertificatePolicyRepository() repositories.CertificatePolicyRepositoryInterface {
-	panic("unexpected call: GetCertificatePolicyRepository")
-}
-func (c *secretRepoTestContainer) GetSessionRepository() repositories.SessionRepositoryInterface {
-	panic("unexpected call: GetSessionRepository")
-}
-func (c *secretRepoTestContainer) GetVaultRepository() repositories.VaultRepositoryInterface {
-	panic("unexpected call: GetVaultRepository")
-}
-func (c *secretRepoTestContainer) GetVaultService() vaultServices.VaultService {
-	panic("unexpected call: GetVaultService")
-}
-func (c *secretRepoTestContainer) GetPasswordService() authServices.PasswordService {
-	panic("unexpected call: GetPasswordService")
-}
-func (c *secretRepoTestContainer) GetTOTPService() authServices.TOTPService {
-	panic("unexpected call: GetTOTPService")
-}
-func (c *secretRepoTestContainer) GetJWTService() authServices.JWTService {
-	panic("unexpected call: GetJWTService")
-}
-func (c *secretRepoTestContainer) GetAuthenticationService() authServices.AuthenticationService {
-	panic("unexpected call: GetAuthenticationService")
-}
-func (c *secretRepoTestContainer) GetAccessPolicyRepository() repositories.AccessPolicyRepositoryInterface {
-	panic("unexpected call: GetAccessPolicyRepository")
-}
-func (c *secretRepoTestContainer) GetAccessPolicyService() authzServices.AccessPolicyService {
-	panic("unexpected call: GetAccessPolicyService")
-}
-func (c *secretRepoTestContainer) GetRoleAssignmentService() authzServices.RoleAssignmentService {
-	return nil
-}
-func (c *secretRepoTestContainer) GetOAuth2ClientRepository() repositories.OAuth2ClientRepositoryInterface {
-	panic("unexpected call: GetOAuth2ClientRepository")
-}
-func (c *secretRepoTestContainer) GetOAuth2Service() oauth2Services.OAuth2Service {
-	panic("unexpected call: GetOAuth2Service")
-}
-func (c *secretRepoTestContainer) GetUserService() userServices.UserService {
-	panic("unexpected call: GetUserService")
-}
-func (c *secretRepoTestContainer) GetSecretService() secretServices.SecretService {
-	panic("unexpected call: GetSecretService")
-}
-func (c *secretRepoTestContainer) GetKeyService() keyServices.KeyService {
-	panic("unexpected call: GetKeyService")
-}
-func (c *secretRepoTestContainer) GetCertificateService() certServices.CertificateService {
-	panic("unexpected call: GetCertificateService")
-}
-func (c *secretRepoTestContainer) GetCertificateRenewalService() certServices.CertificateRenewalService {
-	panic("unexpected call: GetCertificateRenewalService")
-}
-func (c *secretRepoTestContainer) GetCryptoService() keyServices.CryptoService {
-	panic("unexpected call: GetCryptoService")
-}
-func (c *secretRepoTestContainer) GetCryptographyService() secretServices.CryptographyService {
-	panic("unexpected call: GetCryptographyService")
-}
-func (c *secretRepoTestContainer) GetVersioningService() secretServices.VersioningServiceInterface {
-	panic("unexpected call: GetVersioningService")
-}
-func (c *secretRepoTestContainer) GetTagService() secretServices.TagService {
-	panic("unexpected call: GetTagService")
-}
-func (c *secretRepoTestContainer) GetRotationService() secretServices.RotationServiceInterface {
-	panic("unexpected call: GetRotationService")
-}
-func (c *secretRepoTestContainer) GetSchedulerService() secretServices.SchedulerServiceInterface {
-	panic("unexpected call: GetSchedulerService")
-}
-func (c *secretRepoTestContainer) GetDatabase() *sql.DB { panic("unexpected call: GetDatabase") }
-func (c *secretRepoTestContainer) GetLogger() *logging.Logger {
-	panic("unexpected call: GetLogger")
-}
-func (c *secretRepoTestContainer) GetSecretCache() *cache.SecretCache {
-	panic("unexpected call: GetSecretCache")
-}
-func (c *secretRepoTestContainer) GetCacheConfig() *cache.CacheConfig {
-	panic("unexpected call: GetCacheConfig")
-}
-func (c *secretRepoTestContainer) GetCachedSecretService() secretServices.SecretService {
-	panic("unexpected call: GetCachedSecretService")
-}
-func (c *secretRepoTestContainer) GetRetryService() retryServices.RetryService {
-	panic("unexpected call: GetRetryService")
-}
-func (c *secretRepoTestContainer) GetKeyProvider() crypto.KeyProvider             { return nil }
-func (c *secretRepoTestContainer) GetSigningProvider() signing.SigningKeyProvider { return nil }
-func (c *secretRepoTestContainer) GetItemBackupService() *backup.ItemBackupService {
-	return nil
-}
-func (c *secretRepoTestContainer) GetKeyCache() keycache.Cache             { return nil }
-func (c *secretRepoTestContainer) GetCryptoMetrics() metrics.CryptoMetrics { return nil }
-func (c *secretRepoTestContainer) GetAuditService() auditServices.AuditServiceInterface {
-	return nil
-}
-func (c *secretRepoTestContainer) GetComplianceReportService() auditServices.ComplianceReportServiceInterface {
-	return nil
-}
-func (c *secretRepoTestContainer) Close() error { return nil }
 
 // certRepoTestContainer wires only GetCertificateRepository.
 type certRepoTestContainer struct {
@@ -479,15 +251,6 @@ func (c *certRepoTestContainer) Close() error { return nil }
 
 const sdExtUserID = "c3d4e5f6-a7b8-9012-cdef-123456789012"
 
-func newSecretRepoCtx(repo repositories.SecretRepositoryInterface) *Context {
-	a := &app.App{ServiceContainer: &secretRepoTestContainer{secretRepo: repo}}
-	return &Context{
-		App:    a,
-		Claims: jwt.MapClaims{"user_id": sdExtUserID},
-		Params: &ApiParams{PerPage: 60},
-	}
-}
-
 func newKeyRepoCtxExt(repo repositories.KeyRepositoryInterface) *Context {
 	a := &app.App{ServiceContainer: &keyRepoTestContainer{keyRepo: repo}}
 	return &Context{
@@ -504,16 +267,6 @@ func newCertRepoCtx(repo repositories.CertificateRepositoryInterface) *Context {
 		Claims: jwt.MapClaims{"user_id": sdExtUserID},
 		Params: &ApiParams{PerPage: 60},
 	}
-}
-
-// newVaultScopedRequest builds a request that looks like it was served by a
-// vault-scoped route: it carries the "vault_name" mux var (so
-// isVaultScopedRoute is true) and the resolved vault id in the request context.
-func newVaultScopedRequest(method, target, vaultName string, vaultID uuid.UUID) *http.Request {
-	r := httptest.NewRequest(method, target, nil)
-	r = mux.SetURLVars(r, map[string]string{"vault_name": vaultName})
-	ctx := context.WithValue(r.Context(), common.VaultIDKey, vaultID.String())
-	return r.WithContext(ctx)
 }
 
 // ============================================================
@@ -543,11 +296,19 @@ func TestUserIDFromClaims_ValidUUID_ReturnsTrue(t *testing.T) {
 
 // ============================================================
 // listDeletedSecrets
+//
+// These handlers now delegate entirely to the SecretService (see
+// soft_delete_scope_test.go for the scope-routing proof, and
+// secret_scope_service_test.go for the authorization-branch coverage that
+// used to live here against a stub repository). What remains here is the
+// equivalence proof that the handler still wires status codes correctly
+// through the SecretService, mirroring secrets_handlers_test.go's pattern.
 // ============================================================
 
-func TestListDeletedSecrets_RepoError_Returns500(t *testing.T) {
-	repo := &stubSecretRepo{listDeletedErr: errTest}
-	c := newSecretRepoCtx(repo)
+func TestListDeletedSecrets_ServiceError_Returns500(t *testing.T) {
+	svc := &mockSecretService{}
+	svc.On("ListDeletedSecretsScoped", mock.Anything, mock.Anything).Return(nil, errTest)
+	c := newSecretCtx(svc)
 	w := httptest.NewRecorder()
 	r := httptest.NewRequest(http.MethodGet, "/deleted/secrets", nil)
 
@@ -557,11 +318,13 @@ func TestListDeletedSecrets_RepoError_Returns500(t *testing.T) {
 	}
 
 	assert.Equal(t, http.StatusInternalServerError, w.Code)
+	svc.AssertExpectations(t)
 }
 
 func TestListDeletedSecrets_EmptyList_Returns200(t *testing.T) {
-	repo := &stubSecretRepo{listDeleted: []model.Secret{}}
-	c := newSecretRepoCtx(repo)
+	svc := &mockSecretService{}
+	svc.On("ListDeletedSecretsScoped", mock.Anything, mock.Anything).Return([]model.Secret{}, nil)
+	c := newSecretCtx(svc)
 	w := httptest.NewRecorder()
 	r := httptest.NewRequest(http.MethodGet, "/deleted/secrets", nil)
 
@@ -571,16 +334,16 @@ func TestListDeletedSecrets_EmptyList_Returns200(t *testing.T) {
 	}
 
 	assert.Equal(t, http.StatusOK, w.Code)
+	svc.AssertExpectations(t)
 }
 
 func TestListDeletedSecrets_WithDeletedItems_Returns200(t *testing.T) {
 	now := time.Now()
-	repo := &stubSecretRepo{
-		listDeleted: []model.Secret{
-			{ID: uuid.New(), Name: "deleted-secret", DeletedAt: &now},
-		},
-	}
-	c := newSecretRepoCtx(repo)
+	svc := &mockSecretService{}
+	svc.On("ListDeletedSecretsScoped", mock.Anything, mock.Anything).Return([]model.Secret{
+		{ID: uuid.New(), Name: "deleted-secret", DeletedAt: &now},
+	}, nil)
+	c := newSecretCtx(svc)
 	w := httptest.NewRecorder()
 	r := httptest.NewRequest(http.MethodGet, "/deleted/secrets", nil)
 
@@ -590,6 +353,7 @@ func TestListDeletedSecrets_WithDeletedItems_Returns200(t *testing.T) {
 	}
 
 	assert.Equal(t, http.StatusOK, w.Code)
+	svc.AssertExpectations(t)
 }
 
 // ============================================================
@@ -597,8 +361,7 @@ func TestListDeletedSecrets_WithDeletedItems_Returns200(t *testing.T) {
 // ============================================================
 
 func TestRecoverSecret_InvalidID_Returns400(t *testing.T) {
-	repo := &stubSecretRepo{}
-	c := newSecretRepoCtx(repo)
+	c := newSecretCtx(&mockSecretService{})
 	c.Params = &ApiParams{SecretID: "bad", PerPage: 60}
 	w := httptest.NewRecorder()
 	r := httptest.NewRequest(http.MethodPost, "/deleted/secrets/bad/restore", nil)
@@ -613,9 +376,9 @@ func TestRecoverSecret_InvalidID_Returns400(t *testing.T) {
 
 func TestRecoverSecret_NotFound_Returns404(t *testing.T) {
 	secretID := uuid.New()
-	// List returns entries but none matching secretID+userID.
-	repo := &stubSecretRepo{listDeleted: []model.Secret{}}
-	c := newSecretRepoCtx(repo)
+	svc := &mockSecretService{}
+	svc.On("RecoverSecretScoped", mock.Anything, secretID, mock.Anything).Return(secretServices.ErrSecretNotFound)
+	c := newSecretCtx(svc)
 	c.Params = &ApiParams{SecretID: secretID.String(), PerPage: 60}
 	w := httptest.NewRecorder()
 	r := httptest.NewRequest(http.MethodPost, "/deleted/secrets/"+secretID.String()+"/restore", nil)
@@ -626,18 +389,14 @@ func TestRecoverSecret_NotFound_Returns404(t *testing.T) {
 	}
 
 	assert.Equal(t, http.StatusNotFound, w.Code)
+	svc.AssertExpectations(t)
 }
 
 func TestRecoverSecret_Success_Returns200(t *testing.T) {
 	secretID := uuid.New()
-	userID := uuid.MustParse(sdExtUserID)
-	now := time.Now()
-	repo := &stubSecretRepo{
-		listDeleted: []model.Secret{
-			{ID: secretID, UserID: userID, Name: "s", DeletedAt: &now},
-		},
-	}
-	c := newSecretRepoCtx(repo)
+	svc := &mockSecretService{}
+	svc.On("RecoverSecretScoped", mock.Anything, secretID, mock.Anything).Return(nil)
+	c := newSecretCtx(svc)
 	c.Params = &ApiParams{SecretID: secretID.String(), PerPage: 60}
 	w := httptest.NewRecorder()
 	r := httptest.NewRequest(http.MethodPost, "/deleted/secrets/"+secretID.String()+"/restore", nil)
@@ -648,98 +407,7 @@ func TestRecoverSecret_Success_Returns200(t *testing.T) {
 	}
 
 	assert.Equal(t, http.StatusOK, w.Code)
-}
-
-// TestRecoverSecret_VaultScoped_OtherUsersSecret_Returns200 verifies that on a
-// vault-scoped route, vault membership is sufficient: a secret that belongs to
-// the vault but to a DIFFERENT user is recoverable. The user-scoped branch
-// would 404 here because s.UserID != caller.
-func TestRecoverSecret_VaultScoped_OtherUsersSecret_Returns200(t *testing.T) {
-	secretID := uuid.New()
-	otherUser := uuid.New() // deliberately not sdExtUserID
-	vaultID := uuid.New()
-	now := time.Now()
-	repo := &stubSecretRepo{
-		// User-scoped listing is empty: if the wrong branch runs, we get 404.
-		listDeleted:     []model.Secret{},
-		vaultDeletedSet: true,
-		vaultDeleted: []model.Secret{
-			{ID: secretID, UserID: otherUser, Name: "s", DeletedAt: &now},
-		},
-	}
-	c := newSecretRepoCtx(repo)
-	c.Params = &ApiParams{SecretID: secretID.String(), PerPage: 60}
-	w := httptest.NewRecorder()
-	r := newVaultScopedRequest(http.MethodPost,
-		"/vaults/prod/deleted/secrets/"+secretID.String()+"/restore", "prod", vaultID)
-
-	recoverSecret(c, w, r)
-	if c.Err != nil {
-		writeError(w, c)
-	}
-
-	assert.Equal(t, http.StatusOK, w.Code)
-	assert.True(t, repo.vaultListCalled, "vault-scoped route must verify via ListInVaultIncludeDeleted")
-	assert.False(t, repo.userListCalled, "vault-scoped route must NOT fall back to user-ownership check")
-}
-
-// TestRecoverSecret_VaultScoped_SecretNotInVault_Returns404 verifies that a
-// secret absent from the resolved vault is not recoverable, even though it
-// would be visible to the caller via user-ownership.
-func TestRecoverSecret_VaultScoped_SecretNotInVault_Returns404(t *testing.T) {
-	secretID := uuid.New()
-	userID := uuid.MustParse(sdExtUserID)
-	vaultID := uuid.New()
-	now := time.Now()
-	repo := &stubSecretRepo{
-		// The caller owns the secret (user-scoped would pass)...
-		listDeleted: []model.Secret{
-			{ID: secretID, UserID: userID, Name: "s", DeletedAt: &now},
-		},
-		// ...but it is not present in the vault.
-		vaultDeletedSet: true,
-		vaultDeleted:    []model.Secret{},
-	}
-	c := newSecretRepoCtx(repo)
-	c.Params = &ApiParams{SecretID: secretID.String(), PerPage: 60}
-	w := httptest.NewRecorder()
-	r := newVaultScopedRequest(http.MethodPost,
-		"/vaults/prod/deleted/secrets/"+secretID.String()+"/restore", "prod", vaultID)
-
-	recoverSecret(c, w, r)
-	if c.Err != nil {
-		writeError(w, c)
-	}
-
-	assert.Equal(t, http.StatusNotFound, w.Code)
-	assert.True(t, repo.vaultListCalled, "vault-scoped route must verify via ListInVaultIncludeDeleted")
-	assert.False(t, repo.userListCalled, "vault-scoped route must NOT fall back to user-ownership check")
-}
-
-// TestRecoverSecret_VaultScoped_NotSoftDeleted_Returns404 verifies that a row
-// present in the vault but NOT soft-deleted (DeletedAt == nil) is not
-// recoverable, guarding against recovering a live secret.
-func TestRecoverSecret_VaultScoped_NotSoftDeleted_Returns404(t *testing.T) {
-	secretID := uuid.New()
-	vaultID := uuid.New()
-	repo := &stubSecretRepo{
-		vaultDeletedSet: true,
-		vaultDeleted: []model.Secret{
-			{ID: secretID, UserID: uuid.New(), Name: "s", DeletedAt: nil},
-		},
-	}
-	c := newSecretRepoCtx(repo)
-	c.Params = &ApiParams{SecretID: secretID.String(), PerPage: 60}
-	w := httptest.NewRecorder()
-	r := newVaultScopedRequest(http.MethodPost,
-		"/vaults/prod/deleted/secrets/"+secretID.String()+"/restore", "prod", vaultID)
-
-	recoverSecret(c, w, r)
-	if c.Err != nil {
-		writeError(w, c)
-	}
-
-	assert.Equal(t, http.StatusNotFound, w.Code)
+	svc.AssertExpectations(t)
 }
 
 // ============================================================
@@ -747,8 +415,7 @@ func TestRecoverSecret_VaultScoped_NotSoftDeleted_Returns404(t *testing.T) {
 // ============================================================
 
 func TestPurgeSecret_InvalidID_Returns400(t *testing.T) {
-	repo := &stubSecretRepo{}
-	c := newSecretRepoCtx(repo)
+	c := newSecretCtx(&mockSecretService{})
 	c.Params = &ApiParams{SecretID: "bad", PerPage: 60}
 	w := httptest.NewRecorder()
 	r := httptest.NewRequest(http.MethodDelete, "/deleted/secrets/bad/purge", nil)
@@ -763,8 +430,9 @@ func TestPurgeSecret_InvalidID_Returns400(t *testing.T) {
 
 func TestPurgeSecret_NotFound_Returns404(t *testing.T) {
 	secretID := uuid.New()
-	repo := &stubSecretRepo{listDeleted: []model.Secret{}}
-	c := newSecretRepoCtx(repo)
+	svc := &mockSecretService{}
+	svc.On("PurgeSecretScoped", mock.Anything, secretID, mock.Anything).Return(secretServices.ErrSecretNotFound)
+	c := newSecretCtx(svc)
 	c.Params = &ApiParams{SecretID: secretID.String(), PerPage: 60}
 	w := httptest.NewRecorder()
 	r := httptest.NewRequest(http.MethodDelete, "/deleted/secrets/"+secretID.String()+"/purge", nil)
@@ -775,18 +443,14 @@ func TestPurgeSecret_NotFound_Returns404(t *testing.T) {
 	}
 
 	assert.Equal(t, http.StatusNotFound, w.Code)
+	svc.AssertExpectations(t)
 }
 
 func TestPurgeSecret_Success_Returns200(t *testing.T) {
 	secretID := uuid.New()
-	userID := uuid.MustParse(sdExtUserID)
-	now := time.Now()
-	repo := &stubSecretRepo{
-		listDeleted: []model.Secret{
-			{ID: secretID, UserID: userID, Name: "s", DeletedAt: &now},
-		},
-	}
-	c := newSecretRepoCtx(repo)
+	svc := &mockSecretService{}
+	svc.On("PurgeSecretScoped", mock.Anything, secretID, mock.Anything).Return(nil)
+	c := newSecretCtx(svc)
 	c.Params = &ApiParams{SecretID: secretID.String(), PerPage: 60}
 	w := httptest.NewRecorder()
 	r := httptest.NewRequest(http.MethodDelete, "/deleted/secrets/"+secretID.String()+"/purge", nil)
@@ -797,66 +461,7 @@ func TestPurgeSecret_Success_Returns200(t *testing.T) {
 	}
 
 	assert.Equal(t, http.StatusOK, w.Code)
-}
-
-// TestPurgeSecret_VaultScoped_OtherUsersSecret_Returns200 verifies vault
-// membership is sufficient to purge a soft-deleted secret owned by another user.
-func TestPurgeSecret_VaultScoped_OtherUsersSecret_Returns200(t *testing.T) {
-	secretID := uuid.New()
-	otherUser := uuid.New()
-	vaultID := uuid.New()
-	now := time.Now()
-	repo := &stubSecretRepo{
-		listDeleted:     []model.Secret{},
-		vaultDeletedSet: true,
-		vaultDeleted: []model.Secret{
-			{ID: secretID, UserID: otherUser, Name: "s", DeletedAt: &now},
-		},
-	}
-	c := newSecretRepoCtx(repo)
-	c.Params = &ApiParams{SecretID: secretID.String(), PerPage: 60}
-	w := httptest.NewRecorder()
-	r := newVaultScopedRequest(http.MethodDelete,
-		"/vaults/prod/deleted/secrets/"+secretID.String()+"/purge", "prod", vaultID)
-
-	purgeSecret(c, w, r)
-	if c.Err != nil {
-		writeError(w, c)
-	}
-
-	assert.Equal(t, http.StatusOK, w.Code)
-	assert.True(t, repo.vaultListCalled, "vault-scoped route must verify via ListInVaultIncludeDeleted")
-	assert.False(t, repo.userListCalled, "vault-scoped route must NOT fall back to user-ownership check")
-}
-
-// TestPurgeSecret_VaultScoped_SecretNotInVault_Returns404 verifies a secret
-// absent from the resolved vault cannot be purged even if the caller owns it.
-func TestPurgeSecret_VaultScoped_SecretNotInVault_Returns404(t *testing.T) {
-	secretID := uuid.New()
-	userID := uuid.MustParse(sdExtUserID)
-	vaultID := uuid.New()
-	now := time.Now()
-	repo := &stubSecretRepo{
-		listDeleted: []model.Secret{
-			{ID: secretID, UserID: userID, Name: "s", DeletedAt: &now},
-		},
-		vaultDeletedSet: true,
-		vaultDeleted:    []model.Secret{},
-	}
-	c := newSecretRepoCtx(repo)
-	c.Params = &ApiParams{SecretID: secretID.String(), PerPage: 60}
-	w := httptest.NewRecorder()
-	r := newVaultScopedRequest(http.MethodDelete,
-		"/vaults/prod/deleted/secrets/"+secretID.String()+"/purge", "prod", vaultID)
-
-	purgeSecret(c, w, r)
-	if c.Err != nil {
-		writeError(w, c)
-	}
-
-	assert.Equal(t, http.StatusNotFound, w.Code)
-	assert.True(t, repo.vaultListCalled, "vault-scoped route must verify via ListInVaultIncludeDeleted")
-	assert.False(t, repo.userListCalled, "vault-scoped route must NOT fall back to user-ownership check")
+	svc.AssertExpectations(t)
 }
 
 // ============================================================
