@@ -5,6 +5,7 @@ package secrets
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
@@ -177,6 +178,11 @@ func (s *versioningService) GetVersionScoped(ctx context.Context, secretID uuid.
 	if err != nil {
 		s.log.WithError(err).WithFields(map[string]any{"secret_id": secretID, "version": version}).
 			Error("Failed to get secret version")
+		// A missing version row is a 404, same as a missing parent secret; any
+		// other repository failure (e.g. a real DB error) stays a 500.
+		if errors.Is(err, repositories.ErrNotFound) {
+			return nil, fmt.Errorf("%w: %s", ErrSecretNotFound, err.Error())
+		}
 		return nil, fmt.Errorf("failed to get secret version: %w", err)
 	}
 
@@ -198,6 +204,11 @@ func (s *versioningService) GetLatestVersionScoped(ctx context.Context, secretID
 	encryptedVersion, err := s.versionRepo.GetLatestVersion(ctx, secretID)
 	if err != nil {
 		s.log.WithError(err).WithField("secret_id", secretID).Error("Failed to get latest secret version")
+		// No version rows at all is a 404, same as a missing parent secret;
+		// any other repository failure (e.g. a real DB error) stays a 500.
+		if errors.Is(err, repositories.ErrNotFound) {
+			return nil, fmt.Errorf("%w: %s", ErrSecretNotFound, err.Error())
+		}
 		return nil, fmt.Errorf("failed to get latest secret version: %w", err)
 	}
 

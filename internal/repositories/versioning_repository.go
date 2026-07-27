@@ -120,7 +120,7 @@ func (r *secretVersionRepository) GetVersion(ctx context.Context, secretID uuid.
 	)
 
 	if errors.Is(err, sql.ErrNoRows) {
-		return nil, fmt.Errorf("version %d not found for secret %s", version, secretID.String())
+		return nil, fmt.Errorf("version %d not found for secret %s: %w", version, secretID.String(), ErrNotFound)
 	}
 	if err != nil {
 		r.log.WithError(err).Error("Failed to query secret version")
@@ -152,7 +152,7 @@ func (r *secretVersionRepository) GetLatestVersion(ctx context.Context, secretID
 	)
 
 	if errors.Is(err, sql.ErrNoRows) {
-		return nil, fmt.Errorf("no versions found for secret %s", secretID.String())
+		return nil, fmt.Errorf("no versions found for secret %s: %w", secretID.String(), ErrNotFound)
 	}
 	if err != nil {
 		r.log.WithError(err).Error("Failed to query latest secret version")

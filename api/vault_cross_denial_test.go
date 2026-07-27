@@ -405,6 +405,47 @@ func TestCrossVaultDenial_SecretVersions_RealSQLite(t *testing.T) {
 	}
 }
 
+// TestInScopeSecretMissingVersion_RealSQLite is a regression test (found in
+// code review of the 500->404 fix above): a secret that IS in scope, but has
+// no matching secret_versions row for the requested version number (or none
+// at all for "latest"), must still 404 — not 500. This is an entirely
+// ordinary case (e.g. iterating version numbers, or after old versions were
+// pruned), distinct from the cross-vault-denial case above. Real
+// SecretRepository + SecretVersionRepository + VersioningService over
+// in-memory SQLite: no secret_versions rows are ever inserted for this
+// secret, so versionRepo.GetVersion/GetLatestVersion hit the real
+// sql.ErrNoRows path.
+func TestInScopeSecretMissingVersion_RealSQLite(t *testing.T) {
+	api, vrepo, secretRepo := newCrossVaultSecretVersionsTestAPI(t)
+	vaultAID, _ := seedCrossVaultPair(vrepo)
+
+	secretID := uuid.New()
+	if err := secretRepo.Create(context.Background(), &model.Secret{
+		ID: secretID, UserID: uuid.New(), VaultID: vaultAID,
+		Name: "no-versions-yet", Value: "ciphertext", Version: 1,
+	}); err != nil {
+		t.Fatalf("seed secret in vault A: %v", err)
+	}
+
+	// Listing versions of an in-scope secret with zero rows is a valid empty
+	// result, not a 404 (Azure Key Vault parity: listing an existing
+	// resource's sub-collection returns an empty array, not not-found).
+	w := doVaultRequest(api, http.MethodGet, "/api/v1/vaults/vault-a/secrets/"+secretID.String()+"/versions", nil)
+	if w.Code != http.StatusOK {
+		t.Fatalf("in-scope GET .../versions with no versions: expected 200, got %d (%s)", w.Code, w.Body.String())
+	}
+
+	w = doVaultRequest(api, http.MethodGet, "/api/v1/vaults/vault-a/secrets/"+secretID.String()+"/versions/1", nil)
+	if w.Code != http.StatusNotFound {
+		t.Fatalf("in-scope GET .../versions/1 with no such version: expected 404, got %d (%s)", w.Code, w.Body.String())
+	}
+
+	w = doVaultRequest(api, http.MethodGet, "/api/v1/vaults/vault-a/secrets/"+secretID.String()+"/versions/latest", nil)
+	if w.Code != http.StatusNotFound {
+		t.Fatalf("in-scope GET .../versions/latest with no versions: expected 404, got %d (%s)", w.Code, w.Body.String())
+	}
+}
+
 // newCrossVaultSecretVersionsTestAPI mirrors newCrossVaultSecretsTestAPI but
 // wires a real VersioningService (backed by the same real SecretRepository)
 // into SecretServiceConfig.VersionService, since the version-endpoint
@@ -440,8 +481,29 @@ func newCrossVaultSecretVersionsTestAPI(t *testing.T) (*API, *vaultFakeRepo, rep
 		t.Fatalf("create secrets schema: %v", err)
 	}
 
+	_, err = sqlDB.Exec(`CREATE TABLE IF NOT EXISTS secret_versions (
+		id         TEXT PRIMARY KEY,
+		secret_id  TEXT NOT NULL,
+		user_id    TEXT NOT NULL,
+		name       TEXT NOT NULL,
+		value      TEXT NOT NULL,
+		version    INTEGER NOT NULL,
+		created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+	)`)
+	if err != nil {
+		t.Fatalf("create secret_versions schema: %v", err)
+	}
+
 	secretRepo := repositories.NewSecretRepository(rvdb.NewConn(sqlDB, rvdb.SQLite), userTestLog())
-	versionSvc := secretServices.NewVersioningService(nil, secretRepo, nil, nil, userTestLog())
+	// versionRepo is real (not nil): TestInScopeSecretMissingVersion_RealSQLite
+	// below reaches it (an in-scope secret with no matching version row), so
+	// it must actually query a real secret_versions table rather than panic.
+	// cryptoSvc stays nil: every path this fixture exercises returns before
+	// touching it (the cross-vault denial's ReadScoped failure, and the
+	// missing-version/no-versions "not found" returns in versioning_service.go
+	// both return before any DecryptSecret call).
+	versionRepo := repositories.NewSecretVersionRepository(rvdb.NewConn(sqlDB, rvdb.SQLite), userTestLog())
+	versionSvc := secretServices.NewVersioningService(versionRepo, secretRepo, nil, nil, userTestLog())
 	secretSvc := secretServices.NewSecretService(secretServices.SecretServiceConfig{
 		SecretRepository: secretRepo,
 		VersionService:   versionSvc,

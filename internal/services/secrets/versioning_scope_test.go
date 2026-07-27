@@ -2,6 +2,8 @@ package secrets
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"testing"
 	"time"
 
@@ -121,4 +123,81 @@ func TestGetVersionScopedAndLatestVersionScoped(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "v3", latest.Value)
 	secretRepo.AssertExpectations(t)
+}
+
+// TestGetVersionScopedMissingVersionMapsToErrSecretNotFound is a regression
+// test for a gap found in code review: the parent secret is in scope (so
+// ReadScoped succeeds), but the requested version number does not exist. The
+// repository returns a wrapped repositories.ErrNotFound in that case, and
+// GetVersionScoped must translate it to secrets.ErrSecretNotFound so
+// writeSecretError maps it to 404, not 500 — an entirely ordinary case (e.g.
+// iterating version numbers, or after old versions were pruned).
+func TestGetVersionScopedMissingVersionMapsToErrSecretNotFound(t *testing.T) {
+	secretRepo, versionRepo, svc := newVersioningScopeFixture(t)
+	ctx := context.Background()
+
+	secretID := uuid.New()
+	scope := model.NewVaultScope(uuid.New(), uuid.New())
+	secretRepo.On("ReadScoped", ctx, secretID, scope).Return(&model.Secret{ID: secretID}, nil).Once()
+	versionRepo.On("GetVersion", ctx, secretID, 99).
+		Return(nil, fmt.Errorf("version %d not found for secret %s: %w", 99, secretID, repositories.ErrNotFound)).Once()
+
+	_, err := svc.GetVersionScoped(ctx, secretID, 99, scope)
+	require.Error(t, err)
+	assert.True(t, errors.Is(err, ErrSecretNotFound), "missing version must map to ErrSecretNotFound, got: %v", err)
+}
+
+// TestGetVersionScopedRealDBErrorStaysGeneric proves the fix does not
+// overcorrect: a genuine repository failure (not a "no such version" case)
+// must NOT be reported as ErrSecretNotFound, so it still maps to 500.
+func TestGetVersionScopedRealDBErrorStaysGeneric(t *testing.T) {
+	secretRepo, versionRepo, svc := newVersioningScopeFixture(t)
+	ctx := context.Background()
+
+	secretID := uuid.New()
+	scope := model.NewVaultScope(uuid.New(), uuid.New())
+	secretRepo.On("ReadScoped", ctx, secretID, scope).Return(&model.Secret{ID: secretID}, nil).Once()
+	versionRepo.On("GetVersion", ctx, secretID, 1).
+		Return(nil, fmt.Errorf("failed to query secret version: %w", assert.AnError)).Once()
+
+	_, err := svc.GetVersionScoped(ctx, secretID, 1, scope)
+	require.Error(t, err)
+	assert.False(t, errors.Is(err, ErrSecretNotFound), "a genuine DB error must not be reported as ErrSecretNotFound, got: %v", err)
+}
+
+// TestGetLatestVersionScopedNoVersionsMapsToErrSecretNotFound mirrors
+// TestGetVersionScopedMissingVersionMapsToErrSecretNotFound for the "latest
+// version" lookup: a secret in scope with zero versions must yield 404, not
+// 500.
+func TestGetLatestVersionScopedNoVersionsMapsToErrSecretNotFound(t *testing.T) {
+	secretRepo, versionRepo, svc := newVersioningScopeFixture(t)
+	ctx := context.Background()
+
+	secretID := uuid.New()
+	scope := model.NewVaultScope(uuid.New(), uuid.New())
+	secretRepo.On("ReadScoped", ctx, secretID, scope).Return(&model.Secret{ID: secretID}, nil).Once()
+	versionRepo.On("GetLatestVersion", ctx, secretID).
+		Return(nil, fmt.Errorf("no versions found for secret %s: %w", secretID, repositories.ErrNotFound)).Once()
+
+	_, err := svc.GetLatestVersionScoped(ctx, secretID, scope)
+	require.Error(t, err)
+	assert.True(t, errors.Is(err, ErrSecretNotFound), "no versions must map to ErrSecretNotFound, got: %v", err)
+}
+
+// TestGetLatestVersionScopedRealDBErrorStaysGeneric mirrors
+// TestGetVersionScopedRealDBErrorStaysGeneric for the "latest version"
+// lookup.
+func TestGetLatestVersionScopedRealDBErrorStaysGeneric(t *testing.T) {
+	secretRepo, versionRepo, svc := newVersioningScopeFixture(t)
+	ctx := context.Background()
+
+	secretID := uuid.New()
+	scope := model.NewVaultScope(uuid.New(), uuid.New())
+	secretRepo.On("ReadScoped", ctx, secretID, scope).Return(&model.Secret{ID: secretID}, nil).Once()
+	versionRepo.On("GetLatestVersion", ctx, secretID).
+		Return(nil, fmt.Errorf("failed to query latest secret version: %w", assert.AnError)).Once()
+
+	_, err := svc.GetLatestVersionScoped(ctx, secretID, scope)
+	require.Error(t, err)
+	assert.False(t, errors.Is(err, ErrSecretNotFound), "a genuine DB error must not be reported as ErrSecretNotFound, got: %v", err)
 }
