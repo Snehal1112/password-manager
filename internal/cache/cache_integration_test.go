@@ -296,21 +296,22 @@ func TestNewCachedSecretService(t *testing.T) {
 // GetSecret
 // ---------------------------------------------------------------------------
 
-// Re-enabled in Phase 5. Caching on GetSecret is deliberately disabled from
-// Phase 3 (see CachedSecretService.GetSecret) until the compound
-// scopeCacheKey lands, so every call is a pass-through to the base service
-// rather than a cache hit.
-func TestCachedSecretService_GetSecret_PassesThroughEveryCall(t *testing.T) {
+// Re-enabled in Phase 5: GetSecret is a shim over GetSecretScoped, which now
+// caches. The first call delegates to the base service; the second is served
+// from cache.
+func TestCachedSecretService_GetSecret_CachesOnFirstCall(t *testing.T) {
 	ctx := context.Background()
 	userID := uuid.New()
 	secret := makeSecret(userID)
 
 	callCount := 0
 	svc := &mockSecretService{
-		getSecretFn: func(_ context.Context, sid, uid uuid.UUID) (*model.Secret, error) {
+		getSecretScopedFn: func(_ context.Context, sid uuid.UUID, scope model.Scope) (*model.Secret, error) {
 			callCount++
 			assert.Equal(t, secret.ID, sid)
-			assert.Equal(t, userID, uid)
+			ownerID, ok := scope.OwnerID()
+			require.True(t, ok)
+			assert.Equal(t, userID, ownerID)
 			return secret, nil
 		},
 	}
@@ -318,16 +319,16 @@ func TestCachedSecretService_GetSecret_PassesThroughEveryCall(t *testing.T) {
 	logger := newTestLogger()
 	cached := NewCachedSecretService(svc, c, logger)
 
-	// First call — delegates to base service.
+	// First call — delegates to base service and populates the cache.
 	got, err := cached.GetSecret(ctx, secret.ID, userID)
 	require.NoError(t, err)
 	assert.Equal(t, secret.ID, got.ID)
 
-	// Second call — still delegates to base service; caching is off.
+	// Second call — served from cache; base service is not consulted again.
 	got2, err := cached.GetSecret(ctx, secret.ID, userID)
 	require.NoError(t, err)
 	assert.Equal(t, secret.ID, got2.ID)
-	assert.Equal(t, 2, callCount, "GetSecret must pass through to the base service on every call while caching is disabled")
+	assert.Equal(t, 1, callCount, "GetSecret must serve the second call from cache")
 }
 
 // ---------------------------------------------------------------------------
@@ -338,10 +339,11 @@ func TestCachedSecretService_UpdateSecretInVault_InvalidatesCache(t *testing.T) 
 	ctx := context.Background()
 	userID := uuid.New()
 	secret := makeSecret(userID)
+	scope := model.NewVaultScope(uuid.New(), uuid.New())
 
 	// Pre-populate cache.
 	c := newTestCache(t)
-	require.NoError(t, c.Set(ctx, secret))
+	require.NoError(t, c.Set(ctx, secret, scope))
 
 	svc := &mockSecretService{
 		updateSecretInVaultFn: func(_ context.Context, _ secrets.UpdateSecretRequest) error {
@@ -356,7 +358,7 @@ func TestCachedSecretService_UpdateSecretInVault_InvalidatesCache(t *testing.T) 
 	require.NoError(t, err)
 
 	// Cache should be invalidated, same as the owner-scoped UpdateSecret.
-	_, found := c.Get(ctx, secret.ID)
+	_, found := c.Get(ctx, secret.ID, scope)
 	assert.False(t, found, "vault-scoped update must invalidate the cache so GET does not serve stale plaintext")
 }
 
@@ -366,13 +368,13 @@ func TestCachedSecretService_GetSecret_CacheHitWrongUser(t *testing.T) {
 	otherID := uuid.New()
 	secret := makeSecret(ownerID)
 
-	// Pre-populate the cache with a secret owned by ownerID.
+	// Pre-populate the cache under ownerID's owner scope.
 	c := newTestCache(t)
-	require.NoError(t, c.Set(ctx, secret))
+	require.NoError(t, c.Set(ctx, secret, model.NewOwnerScope(uuid.Nil, ownerID)))
 
 	fetchCount := 0
 	svc := &mockSecretService{
-		getSecretFn: func(_ context.Context, _, _ uuid.UUID) (*model.Secret, error) {
+		getSecretScopedFn: func(_ context.Context, _ uuid.UUID, _ model.Scope) (*model.Secret, error) {
 			fetchCount++
 			return nil, errors.New("no access")
 		},
@@ -380,8 +382,9 @@ func TestCachedSecretService_GetSecret_CacheHitWrongUser(t *testing.T) {
 	logger := newTestLogger()
 	cached := NewCachedSecretService(svc, c, logger)
 
-	// Request from a different user — cache entry exists but belongs to ownerID,
-	// so the service must fall through to the base service.
+	// Request from a different user — the compound key means the entry
+	// cached under ownerID's scope does not satisfy otherID's scope, so the
+	// service must fall through to the base service.
 	_, err := cached.GetSecret(ctx, secret.ID, otherID)
 	assert.Error(t, err)
 	assert.Equal(t, 1, fetchCount, "base service should have been called for wrong-user cache hit")
@@ -394,11 +397,11 @@ func TestCachedSecretService_GetSecret_CacheHitInaccessible_FallsThrough(t *test
 	secret.Enabled = false // disabled while cached
 
 	c := newTestCache(t)
-	require.NoError(t, c.Set(ctx, secret))
+	require.NoError(t, c.Set(ctx, secret, model.NewOwnerScope(uuid.Nil, userID)))
 
 	fetchCount := 0
 	svc := &mockSecretService{
-		getSecretFn: func(_ context.Context, _, _ uuid.UUID) (*model.Secret, error) {
+		getSecretScopedFn: func(_ context.Context, _ uuid.UUID, _ model.Scope) (*model.Secret, error) {
 			fetchCount++
 			return nil, errors.New("secret is disabled or outside its valid time window")
 		},
@@ -417,7 +420,7 @@ func TestCachedSecretService_GetSecret_BaseServiceError(t *testing.T) {
 	secretID := uuid.New()
 
 	svc := &mockSecretService{
-		getSecretFn: func(_ context.Context, _, _ uuid.UUID) (*model.Secret, error) {
+		getSecretScopedFn: func(_ context.Context, _ uuid.UUID, _ model.Scope) (*model.Secret, error) {
 			return nil, errors.New("db error")
 		},
 	}
@@ -452,10 +455,10 @@ func TestCachedSecretService_CreateSecret_Success(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, secret.ID, got.ID)
 
-	// The newly created secret should now be in the cache.
-	cachedSec, found := c.Get(ctx, secret.ID)
-	assert.True(t, found)
-	assert.Equal(t, secret.ID, cachedSec.ID)
+	// CreateSecret does not know the reading scope, so it must not populate
+	// the cache; the first read does that instead.
+	_, found := c.Get(ctx, secret.ID, model.NewOwnerScope(uuid.Nil, userID))
+	assert.False(t, found, "CreateSecret must not cache on write")
 }
 
 func TestCachedSecretService_CreateSecret_BaseError(t *testing.T) {
@@ -483,10 +486,11 @@ func TestCachedSecretService_UpdateSecret_InvalidatesCache(t *testing.T) {
 	ctx := context.Background()
 	userID := uuid.New()
 	secret := makeSecret(userID)
+	scope := model.NewVaultScope(uuid.New(), uuid.New())
 
 	// Pre-populate cache.
 	c := newTestCache(t)
-	require.NoError(t, c.Set(ctx, secret))
+	require.NoError(t, c.Set(ctx, secret, scope))
 
 	svc := &mockSecretService{
 		updateSecretFn: func(_ context.Context, _ secrets.UpdateSecretRequest) error {
@@ -501,7 +505,7 @@ func TestCachedSecretService_UpdateSecret_InvalidatesCache(t *testing.T) {
 	require.NoError(t, err)
 
 	// Cache should be invalidated.
-	_, found := c.Get(ctx, secret.ID)
+	_, found := c.Get(ctx, secret.ID, scope)
 	assert.False(t, found)
 }
 
@@ -531,10 +535,11 @@ func TestCachedSecretService_DeleteSecret_RemovesFromCache(t *testing.T) {
 	ctx := context.Background()
 	userID := uuid.New()
 	secret := makeSecret(userID)
+	scope := model.NewVaultScope(uuid.New(), uuid.New())
 
 	// Pre-populate cache.
 	c := newTestCache(t)
-	require.NoError(t, c.Set(ctx, secret))
+	require.NoError(t, c.Set(ctx, secret, scope))
 
 	svc := &mockSecretService{
 		deleteSecretFn: func(_ context.Context, _, _ uuid.UUID) error {
@@ -547,7 +552,7 @@ func TestCachedSecretService_DeleteSecret_RemovesFromCache(t *testing.T) {
 	err := cached.DeleteSecret(ctx, secret.ID, userID)
 	require.NoError(t, err)
 
-	_, found := c.Get(ctx, secret.ID)
+	_, found := c.Get(ctx, secret.ID, scope)
 	assert.False(t, found)
 }
 
@@ -659,10 +664,11 @@ func TestCachedSecretService_DeleteSecretInVault_RemovesFromCache(t *testing.T) 
 	ctx := context.Background()
 	vaultID := uuid.New()
 	secret := makeSecret(uuid.New())
+	scope := model.NewVaultScope(vaultID, uuid.New())
 
 	// Pre-populate cache.
 	c := newTestCache(t)
-	require.NoError(t, c.Set(ctx, secret))
+	require.NoError(t, c.Set(ctx, secret, scope))
 
 	svc := &mockSecretService{
 		deleteSecretInVaultFn: func(_ context.Context, sid, vid uuid.UUID) error {
@@ -677,7 +683,7 @@ func TestCachedSecretService_DeleteSecretInVault_RemovesFromCache(t *testing.T) 
 	err := cached.DeleteSecretInVault(ctx, secret.ID, vaultID)
 	require.NoError(t, err)
 
-	_, found := c.Get(ctx, secret.ID)
+	_, found := c.Get(ctx, secret.ID, scope)
 	assert.False(t, found)
 }
 
@@ -772,7 +778,7 @@ func TestCachedSecretService_GetLatestSecretVersion_Delegates(t *testing.T) {
 // GenerateSecret
 // ---------------------------------------------------------------------------
 
-func TestCachedSecretService_GenerateSecret_CachesResult(t *testing.T) {
+func TestCachedSecretService_GenerateSecret_DoesNotCacheOnWrite(t *testing.T) {
 	ctx := context.Background()
 	userID := uuid.New()
 	secret := makeSecret(userID)
@@ -791,9 +797,10 @@ func TestCachedSecretService_GenerateSecret_CachesResult(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, secret.ID, got.ID)
 
-	cachedSec, found := c.Get(ctx, secret.ID)
-	assert.True(t, found)
-	assert.Equal(t, secret.ID, cachedSec.ID)
+	// GenerateSecret does not know the reading scope, so it must not
+	// populate the cache; the first read does that instead.
+	_, found := c.Get(ctx, secret.ID, model.NewOwnerScope(uuid.Nil, userID))
+	assert.False(t, found, "GenerateSecret must not cache on write")
 }
 
 func TestCachedSecretService_GenerateSecret_BaseError(t *testing.T) {
@@ -864,7 +871,7 @@ func TestCachedSecretService_ImportSecrets_ClearsCache(t *testing.T) {
 	// Pre-populate cache with a secret.
 	secret := makeSecret(userID)
 	c := newTestCache(t)
-	require.NoError(t, c.Set(ctx, secret))
+	require.NoError(t, c.Set(ctx, secret, model.NewVaultScope(uuid.New(), uuid.New())))
 
 	result := &secrets.ImportResult{ImportedCount: 3, TotalCount: 3}
 	svc := &mockSecretService{
@@ -892,8 +899,9 @@ func TestCachedSecretService_ImportSecrets_FlushesLiveCacheEntries(t *testing.T)
 
 	// Pre-populate cache with a live (non-expired) secret.
 	secret := makeSecret(userID)
+	scope := model.NewVaultScope(uuid.New(), uuid.New())
 	c := newTestCache(t)
-	require.NoError(t, c.Set(ctx, secret))
+	require.NoError(t, c.Set(ctx, secret, scope))
 
 	svc := &mockSecretService{
 		importSecretsFn: func(_ context.Context, _ secrets.ImportSecretsRequest) (*secrets.ImportResult, error) {
@@ -909,7 +917,7 @@ func TestCachedSecretService_ImportSecrets_FlushesLiveCacheEntries(t *testing.T)
 	// SecretCache.Clear only prunes expired entries, so a live entry
 	// surviving import means "clear cache to ensure consistency" is a no-op
 	// for anything still within its TTL. Flush must be used instead.
-	_, found := c.Get(ctx, secret.ID)
+	_, found := c.Get(ctx, secret.ID, scope)
 	assert.False(t, found, "ImportSecrets must flush live cache entries, not just expired ones")
 }
 
@@ -939,7 +947,7 @@ func TestCachedSecretService_GetCacheStats(t *testing.T) {
 	secret := makeSecret(userID)
 
 	c := newTestCache(t)
-	require.NoError(t, c.Set(ctx, secret))
+	require.NoError(t, c.Set(ctx, secret, model.NewVaultScope(uuid.New(), uuid.New())))
 
 	svc := &mockSecretService{}
 	logger := newTestLogger()
@@ -976,4 +984,114 @@ func TestCachedSecretService_StartCacheCleanup(t *testing.T) {
 
 	// Give the goroutine a moment to start, then cancel to stop it.
 	time.Sleep(10 * time.Millisecond)
+}
+
+// ---------------------------------------------------------------------------
+// countingSecretService: a minimal SecretService stub for the scoped-caching
+// tests below. It counts GetSecretScoped calls and mirrors the real
+// service's behavior of erroring once the secret is no longer accessible.
+// ---------------------------------------------------------------------------
+
+type countingSecretService struct {
+	secrets.SecretService
+	secret         *model.Secret
+	getScopedCalls int
+}
+
+func (c *countingSecretService) GetSecretScoped(ctx context.Context, secretID uuid.UUID, scope model.Scope) (*model.Secret, error) {
+	c.getScopedCalls++
+	if !c.secret.IsAccessible() {
+		return nil, errors.New("secret is disabled or outside its valid time window")
+	}
+	return c.secret, nil
+}
+
+func (c *countingSecretService) ImportSecrets(ctx context.Context, req secrets.ImportSecretsRequest) (*secrets.ImportResult, error) {
+	return &secrets.ImportResult{}, nil
+}
+
+func newQuietLogger(t *testing.T) *logrus.Logger {
+	t.Helper()
+	l := logrus.New()
+	l.SetLevel(logrus.PanicLevel)
+	return l
+}
+
+// ---------------------------------------------------------------------------
+// GetSecretScoped caching (Task 31)
+// ---------------------------------------------------------------------------
+
+// TestCachedGetSecretScopedServesAHitUnderTheSameScope confirms caching is back
+// on after Phase 3's deliberate pass-through.
+func TestCachedGetSecretScopedServesAHitUnderTheSameScope(t *testing.T) {
+	inner := &countingSecretService{secret: &model.Secret{
+		ID: uuid.New(), Name: "s", Value: "plaintext", Enabled: true,
+	}}
+	svc := NewCachedSecretService(inner, newScopeCache(t, time.Minute), newQuietLogger(t))
+	ctx := context.Background()
+	scope := model.NewVaultScope(uuid.New(), uuid.New())
+
+	_, err := svc.GetSecretScoped(ctx, inner.secret.ID, scope)
+	require.NoError(t, err)
+	_, err = svc.GetSecretScoped(ctx, inner.secret.ID, scope)
+	require.NoError(t, err)
+
+	assert.Equal(t, 1, inner.getScopedCalls, "the second read is served from cache")
+}
+
+func TestCachedGetSecretScopedDoesNotCrossScopes(t *testing.T) {
+	inner := &countingSecretService{secret: &model.Secret{
+		ID: uuid.New(), Name: "s", Value: "plaintext", Enabled: true,
+	}}
+	svc := NewCachedSecretService(inner, newScopeCache(t, time.Minute), newQuietLogger(t))
+	ctx := context.Background()
+
+	_, err := svc.GetSecretScoped(ctx, inner.secret.ID, model.NewVaultScope(uuid.New(), uuid.New()))
+	require.NoError(t, err)
+	_, err = svc.GetSecretScoped(ctx, inner.secret.ID, model.NewOwnerScope(uuid.Nil, uuid.New()))
+	require.NoError(t, err)
+
+	assert.Equal(t, 2, inner.getScopedCalls, "a different scope must miss")
+}
+
+// TestCachedHitRechecksIsAccessible pins the defect where a secret that expired
+// or was disabled while cached was served anyway.
+func TestCachedHitRechecksIsAccessible(t *testing.T) {
+	expiry := time.Now().Add(50 * time.Millisecond)
+	inner := &countingSecretService{secret: &model.Secret{
+		ID: uuid.New(), Name: "s", Value: "plaintext", Enabled: true, ExpiresAt: &expiry,
+	}}
+	svc := NewCachedSecretService(inner, newScopeCache(t, time.Minute), newQuietLogger(t))
+	ctx := context.Background()
+	scope := model.NewVaultScope(uuid.New(), uuid.New())
+
+	_, err := svc.GetSecretScoped(ctx, inner.secret.ID, scope)
+	require.NoError(t, err)
+
+	time.Sleep(100 * time.Millisecond)
+
+	_, err = svc.GetSecretScoped(ctx, inner.secret.ID, scope)
+	require.Error(t, err, "an expired secret must not be served from cache")
+	assert.Equal(t, 2, inner.getScopedCalls, "the stale entry is dropped and the service re-consulted")
+}
+
+// TestImportSecretsFlushesRatherThanPrunes pins the defect where ImportSecrets'
+// "clear cache to ensure consistency" was a no-op for live entries.
+func TestImportSecretsFlushesRatherThanPrunes(t *testing.T) {
+	inner := &countingSecretService{secret: &model.Secret{
+		ID: uuid.New(), Name: "s", Value: "plaintext", Enabled: true,
+	}}
+	cache := newScopeCache(t, time.Minute)
+	svc := NewCachedSecretService(inner, cache, newQuietLogger(t))
+	ctx := context.Background()
+	scope := model.NewVaultScope(uuid.New(), uuid.New())
+
+	_, err := svc.GetSecretScoped(ctx, inner.secret.ID, scope)
+	require.NoError(t, err)
+
+	_, err = svc.ImportSecrets(ctx, secrets.ImportSecretsRequest{Format: "json", Data: []byte("[]")})
+	require.NoError(t, err)
+
+	_, found := cache.Get(ctx, inner.secret.ID, scope)
+	assert.False(t, found, "ImportSecrets must flush live entries")
 }
