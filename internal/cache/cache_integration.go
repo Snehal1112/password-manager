@@ -281,6 +281,12 @@ func (s *CachedSecretService) RecoverSecretScoped(ctx context.Context, secretID 
 	return nil
 }
 
+// RecoverSecret restores a soft-deleted secret.
+// Deprecated: shim over RecoverSecretScoped; removed in Phase 6.
+func (s *CachedSecretService) RecoverSecret(ctx context.Context, secretID uuid.UUID) error {
+	return s.RecoverSecretScoped(ctx, secretID, model.NewAdminScope(uuid.Nil))
+}
+
 // PurgeSecretScoped purges a scoped soft-deleted secret and evicts it from cache.
 func (s *CachedSecretService) PurgeSecretScoped(ctx context.Context, secretID uuid.UUID, scope model.Scope) error {
 	if err := s.secretService.PurgeSecretScoped(ctx, secretID, scope); err != nil {
@@ -290,6 +296,12 @@ func (s *CachedSecretService) PurgeSecretScoped(ctx context.Context, secretID uu
 		s.logger.WithError(err).Warn("Failed to remove purged secret from cache")
 	}
 	return nil
+}
+
+// PurgeSecret permanently deletes a soft-deleted secret.
+// Deprecated: shim over PurgeSecretScoped; removed in Phase 6.
+func (s *CachedSecretService) PurgeSecret(ctx context.Context, secretID uuid.UUID) error {
+	return s.PurgeSecretScoped(ctx, secretID, model.NewAdminScope(uuid.Nil))
 }
 
 // GetCacheStats returns cache statistics for monitoring.

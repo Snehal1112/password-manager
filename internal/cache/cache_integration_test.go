@@ -1006,6 +1006,44 @@ func (c *countingSecretService) GetSecretScoped(ctx context.Context, secretID uu
 	return c.secret, nil
 }
 
+// The stubs below make countingSecretService a complete, always-succeeding
+// SecretService for Task 32's mutator-invalidation table (internal/cache/
+// mutator_invalidation_test.go): every mutating method the table invokes must
+// return nil so the test can isolate cache-invalidation behavior from
+// business-logic failures.
+
+func (c *countingSecretService) UpdateSecret(ctx context.Context, req secrets.UpdateSecretRequest) error {
+	return nil
+}
+
+func (c *countingSecretService) UpdateSecretInVault(ctx context.Context, req secrets.UpdateSecretRequest) error {
+	return nil
+}
+
+func (c *countingSecretService) UpdateSecretScoped(ctx context.Context, req secrets.UpdateSecretRequest) error {
+	return nil
+}
+
+func (c *countingSecretService) DeleteSecret(ctx context.Context, secretID, userID uuid.UUID) error {
+	return nil
+}
+
+func (c *countingSecretService) DeleteSecretInVault(ctx context.Context, secretID, vaultID uuid.UUID) error {
+	return nil
+}
+
+func (c *countingSecretService) DeleteSecretScoped(ctx context.Context, secretID uuid.UUID, scope model.Scope) error {
+	return nil
+}
+
+func (c *countingSecretService) RecoverSecretScoped(ctx context.Context, secretID uuid.UUID, scope model.Scope) error {
+	return nil
+}
+
+func (c *countingSecretService) PurgeSecretScoped(ctx context.Context, secretID uuid.UUID, scope model.Scope) error {
+	return nil
+}
+
 func (c *countingSecretService) ImportSecrets(ctx context.Context, req secrets.ImportSecretsRequest) (*secrets.ImportResult, error) {
 	return &secrets.ImportResult{}, nil
 }
