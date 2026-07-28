@@ -178,11 +178,22 @@ func (s *recordingCertService) ListCertificatesInVault(_ context.Context, vaultI
 func (s *recordingCertService) DeleteCertificateInVault(context.Context, uuid.UUID, uuid.UUID) error {
 	panic("unexpected")
 }
-func (s *recordingCertService) GetCertificateScoped(context.Context, uuid.UUID, model.Scope) (*model.Certificate, error) {
-	panic("unexpected")
+func (s *recordingCertService) GetCertificateScoped(_ context.Context, _ uuid.UUID, scope model.Scope) (*model.Certificate, error) {
+	s.getCalled = true
+	s.getUserScoped = scope.Kind() == model.ScopeOwner
+	s.listUserID = scope.ActorID()
+	s.listVaultID = scope.VaultID()
+	if s.getInVaultErr != nil {
+		return nil, s.getInVaultErr
+	}
+	return &model.Certificate{ID: uuid.New(), Name: "c", UserID: scope.ActorID()}, nil
 }
-func (s *recordingCertService) ListCertificatesScoped(context.Context, model.Scope, repositories.CertificateFilter) ([]model.Certificate, error) {
-	panic("unexpected")
+func (s *recordingCertService) ListCertificatesScoped(_ context.Context, scope model.Scope, _ repositories.CertificateFilter) ([]model.Certificate, error) {
+	s.listCalled = true
+	s.listUserScoped = scope.Kind() == model.ScopeOwner
+	s.listUserID = scope.ActorID()
+	s.listVaultID = scope.VaultID()
+	return []model.Certificate{}, nil
 }
 func (s *recordingCertService) UpdateCertificateScoped(context.Context, certServices.UpdateCertificateRequest) error {
 	panic("unexpected")

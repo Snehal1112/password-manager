@@ -25,42 +25,24 @@ func getCertificatePolicy(c *Context, w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var policy *model.CertificatePolicy
-	if isVaultScopedRoute(r) {
-		vaultID, err := vaultIDFromRequest(r)
-		if err != nil {
-			c.SetInvalidParam("vault")
-			return
-		}
-		certService := c.certSvc()
-		if certService == nil {
-			return
-		}
-		if _, err := certService.GetCertificateInVault(r.Context(), certID, vaultID); err != nil {
-			c.SetNotFound("certificate")
-			return
-		}
-		policy, err = repo.GetByCertificateIDAny(r.Context(), certID)
-		if err != nil {
-			c.SetNotFound("policy")
-			return
-		}
-	} else {
-		userIDStr, ok := c.Claims["user_id"].(string)
-		if !ok {
-			c.SetInternalError(nil)
-			return
-		}
-		userID, err := uuid.Parse(userIDStr)
-		if err != nil {
-			c.SetInvalidParam("user_id")
-			return
-		}
-		policy, err = repo.GetByCertificateID(r.Context(), certID, userID)
-		if err != nil {
-			c.SetNotFound("policy")
-			return
-		}
+	scope, ok := scopeFromRequest(c, r)
+	if !ok {
+		return
+	}
+
+	certService := c.certSvc()
+	if certService == nil {
+		return
+	}
+	if _, err := certService.GetCertificateScoped(r.Context(), certID, scope); err != nil {
+		c.SetNotFound("certificate")
+		return
+	}
+
+	policy, err := repo.GetByCertificateIDAny(r.Context(), certID)
+	if err != nil {
+		c.SetNotFound("policy")
+		return
 	}
 
 	w.Header().Set("Content-Type", "application/json")
@@ -75,17 +57,6 @@ func upsertCertificatePolicy(c *Context, w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	userIDStr, ok := c.Claims["user_id"].(string)
-	if !ok {
-		c.SetInternalError(nil)
-		return
-	}
-	userID, err := uuid.Parse(userIDStr)
-	if err != nil {
-		c.SetInvalidParam("user_id")
-		return
-	}
-
 	req, err := model.UpsertCertificatePolicyRequestFromJson(r.Body)
 	if err != nil {
 		c.SetInvalidParam("request body")
@@ -97,28 +68,25 @@ func upsertCertificatePolicy(c *Context, w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	vaultScoped := isVaultScopedRoute(r)
-	if vaultScoped {
-		vaultID, err := vaultIDFromRequest(r)
-		if err != nil {
-			c.SetInvalidParam("vault")
-			return
-		}
-		certService := c.certSvc()
-		if certService == nil {
-			return
-		}
-		if _, err := certService.GetCertificateInVault(r.Context(), certID, vaultID); err != nil {
-			c.SetNotFound("certificate")
-			return
-		}
+	scope, ok := scopeFromRequest(c, r)
+	if !ok {
+		return
+	}
+
+	certService := c.certSvc()
+	if certService == nil {
+		return
+	}
+	if _, err := certService.GetCertificateScoped(r.Context(), certID, scope); err != nil {
+		c.SetNotFound("certificate")
+		return
 	}
 
 	now := time.Now()
 	policy := &model.CertificatePolicy{
 		ID:               uuid.New(),
 		CertificateID:    certID,
-		UserID:           userID,
+		UserID:           scope.ActorID(),
 		ValidityMonths:   req.ValidityMonths,
 		KeyType:          req.KeyType,
 		KeySize:          req.KeySize,
@@ -137,13 +105,10 @@ func upsertCertificatePolicy(c *Context, w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	// Read-after-write so the response reflects the canonical stored ID.
-	var stored *model.CertificatePolicy
-	if vaultScoped {
-		stored, err = repo.GetByCertificateIDAny(r.Context(), certID)
-	} else {
-		stored, err = repo.GetByCertificateID(r.Context(), certID, userID)
-	}
+	// Read-after-write so the response reflects the canonical stored ID. The
+	// scope has already authorized the parent certificate, so the
+	// owner-agnostic lookup is safe here too.
+	stored, err := repo.GetByCertificateIDAny(r.Context(), certID)
 	if err != nil {
 		c.SetInternalError(err)
 		return
@@ -167,47 +132,27 @@ func deleteCertificatePolicy(c *Context, w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	if isVaultScopedRoute(r) {
-		vaultID, err := vaultIDFromRequest(r)
-		if err != nil {
-			c.SetInvalidParam("vault")
-			return
+	scope, ok := scopeFromRequest(c, r)
+	if !ok {
+		return
+	}
+
+	certService := c.certSvc()
+	if certService == nil {
+		return
+	}
+	if _, err := certService.GetCertificateScoped(r.Context(), certID, scope); err != nil {
+		c.SetNotFound("certificate")
+		return
+	}
+
+	if err := repo.DeleteByCertificateIDAny(r.Context(), certID); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			c.SetNotFound("policy not found")
+		} else {
+			c.SetInternalError(err)
 		}
-		certService := c.certSvc()
-		if certService == nil {
-			return
-		}
-		if _, err := certService.GetCertificateInVault(r.Context(), certID, vaultID); err != nil {
-			c.SetNotFound("certificate")
-			return
-		}
-		if err := repo.DeleteByCertificateIDAny(r.Context(), certID); err != nil {
-			if errors.Is(err, sql.ErrNoRows) {
-				c.SetNotFound("policy not found")
-			} else {
-				c.SetInternalError(err)
-			}
-			return
-		}
-	} else {
-		userIDStr, ok := c.Claims["user_id"].(string)
-		if !ok {
-			c.SetInternalError(nil)
-			return
-		}
-		userID, err := uuid.Parse(userIDStr)
-		if err != nil {
-			c.SetInvalidParam("user_id")
-			return
-		}
-		if err := repo.DeleteByCertificateID(r.Context(), certID, userID); err != nil {
-			if errors.Is(err, sql.ErrNoRows) {
-				c.SetNotFound("policy not found")
-			} else {
-				c.SetInternalError(err)
-			}
-			return
-		}
+		return
 	}
 
 	ReturnStatusOK(w)

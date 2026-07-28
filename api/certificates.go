@@ -32,6 +32,7 @@ import (
 	"github.com/gorilla/mux"
 
 	"rocketvault/common"
+	"rocketvault/internal/repositories"
 	certServices "rocketvault/internal/services/certificates"
 	vvalidation "rocketvault/internal/validation"
 	"rocketvault/model"
@@ -252,36 +253,15 @@ func listCertificates(c *Context, w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var certs []model.Certificate
-	if isVaultScopedRoute(r) {
-		// Vault-scoped route: members see all certificates in the resolved vault.
-		vaultID, err := vaultIDFromRequest(r)
-		if err != nil {
-			c.SetInvalidParam("vault")
-			return
-		}
-		certs, err = certService.ListCertificatesInVault(r.Context(), vaultID)
-		if err != nil {
-			c.SetInternalError(err)
-			return
-		}
-	} else {
-		// Legacy flat route: per-user visibility (preserves pre-multi-vault behavior).
-		userIDStr, ok := c.Claims["user_id"].(string)
-		if !ok {
-			c.SetInternalError(nil)
-			return
-		}
-		userID, err := uuid.Parse(userIDStr)
-		if err != nil {
-			c.SetInvalidParam("user_id")
-			return
-		}
-		certs, err = certService.ListCertificates(r.Context(), userID)
-		if err != nil {
-			c.SetInternalError(err)
-			return
-		}
+	scope, ok := scopeFromRequest(c, r)
+	if !ok {
+		return
+	}
+
+	certs, err := certService.ListCertificatesScoped(r.Context(), scope, repositories.CertificateFilter{})
+	if err != nil {
+		c.SetInternalError(err)
+		return
 	}
 
 	response := CertificateListResponse{Certificates: make([]CertificateResponse, len(certs))}
@@ -306,48 +286,21 @@ func getCertificate(c *Context, w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Legacy flat routes use per-user visibility; vault-scoped routes use
-	// vault-level visibility (members see all certificates in the vault).
-	var cert *model.Certificate
-	if isVaultScopedRoute(r) {
-		vaultID, err := vaultIDFromRequest(r)
-		if err != nil {
-			c.SetInvalidParam("vault")
-			return
+	scope, ok := scopeFromRequest(c, r)
+	if !ok {
+		return
+	}
+
+	cert, err := certService.GetCertificateScoped(r.Context(), certID, scope)
+	if err != nil {
+		if errors.Is(err, certServices.ErrCertLifecycleDenied) {
+			c.SetPermissionError("certificate is disabled or outside its valid time window")
+		} else if errors.Is(err, certServices.ErrCertNotFound) {
+			c.SetNotFound("certificate")
+		} else {
+			c.SetInternalError(err)
 		}
-		cert, err = certService.GetCertificateInVault(r.Context(), certID, vaultID)
-		if err != nil {
-			if errors.Is(err, certServices.ErrCertLifecycleDenied) {
-				c.SetPermissionError("certificate is disabled or outside its valid time window")
-			} else if errors.Is(err, certServices.ErrCertNotFound) {
-				c.SetNotFound("certificate")
-			} else {
-				c.SetInternalError(err)
-			}
-			return
-		}
-	} else {
-		userIDStr, ok := c.Claims["user_id"].(string)
-		if !ok {
-			c.SetInternalError(nil)
-			return
-		}
-		userID, err := uuid.Parse(userIDStr)
-		if err != nil {
-			c.SetInvalidParam("user_id")
-			return
-		}
-		cert, err = certService.GetCertificate(r.Context(), certID, userID)
-		if err != nil {
-			if errors.Is(err, certServices.ErrCertLifecycleDenied) {
-				c.SetPermissionError("certificate is disabled or outside its valid time window")
-			} else if errors.Is(err, certServices.ErrCertNotFound) {
-				c.SetNotFound("certificate")
-			} else {
-				c.SetInternalError(err)
-			}
-			return
-		}
+		return
 	}
 
 	w.Header().Set("Content-Type", "application/json")

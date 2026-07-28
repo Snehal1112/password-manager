@@ -78,7 +78,8 @@ func (m *mockCertPolicyRepo) DeleteByCertificateIDAny(ctx context.Context, certI
 // --- certPolicyRepoContainer ---
 
 type certPolicyRepoContainer struct {
-	repo repositories.CertificatePolicyRepositoryInterface
+	repo    repositories.CertificatePolicyRepositoryInterface
+	certSvc certServices.CertificateService
 }
 
 func (c *certPolicyRepoContainer) GetCertificatePolicyRepository() repositories.CertificatePolicyRepositoryInterface {
@@ -151,7 +152,7 @@ func (c *certPolicyRepoContainer) GetKeyService() keyServices.KeyService {
 	panic("unexpected call: GetKeyService")
 }
 func (c *certPolicyRepoContainer) GetCertificateService() certServices.CertificateService {
-	panic("unexpected call: GetCertificateService")
+	return c.certSvc
 }
 func (c *certPolicyRepoContainer) GetCertificateRenewalService() certServices.CertificateRenewalService {
 	panic("unexpected call: GetCertificateRenewalService")
@@ -207,9 +208,12 @@ func (c *certPolicyRepoContainer) Close() error { return nil }
 
 const cpTestUserID = "a1b2c3d4-e5f6-7890-abcd-ef1234567890"
 
-// newCertPolicyCtx builds a Context backed by the given policy repo mock.
+// newCertPolicyCtx builds a Context backed by the given policy repo mock. The
+// certificate service defaults to a scope stub that reports the certificate
+// as found, since these tests exercise the policy repository, not the
+// certificate pre-check.
 func newCertPolicyCtx(repo repositories.CertificatePolicyRepositoryInterface, certIDStr string) *Context {
-	a := &app.App{ServiceContainer: &certPolicyRepoContainer{repo: repo}}
+	a := &app.App{ServiceContainer: &certPolicyRepoContainer{repo: repo, certSvc: &scopeStubCertService{}}}
 	return &Context{
 		App:    a,
 		Claims: jwt.MapClaims{"user_id": cpTestUserID},
@@ -236,9 +240,8 @@ func TestGetCertificatePolicy_InvalidCertID_Returns400(t *testing.T) {
 
 func TestGetCertificatePolicy_NotFound_Returns404(t *testing.T) {
 	certID := uuid.New()
-	userID := uuid.MustParse(cpTestUserID)
 	repo := &mockCertPolicyRepo{}
-	repo.On("GetByCertificateID", mock.Anything, certID, userID).Return(nil, errors.New("not found"))
+	repo.On("GetByCertificateIDAny", mock.Anything, certID).Return(nil, errors.New("not found"))
 
 	c := newCertPolicyCtx(repo, certID.String())
 	w := httptest.NewRecorder()
@@ -257,7 +260,7 @@ func TestGetCertificatePolicy_Success_Returns200(t *testing.T) {
 	certID := uuid.New()
 	userID := uuid.MustParse(cpTestUserID)
 	repo := &mockCertPolicyRepo{}
-	repo.On("GetByCertificateID", mock.Anything, certID, userID).Return(&model.CertificatePolicy{
+	repo.On("GetByCertificateIDAny", mock.Anything, certID).Return(&model.CertificatePolicy{
 		ID:            uuid.New(),
 		CertificateID: certID,
 		UserID:        userID,
@@ -335,7 +338,7 @@ func TestUpsertCertificatePolicy_Success_Returns200(t *testing.T) {
 	userID := uuid.MustParse(cpTestUserID)
 	repo := &mockCertPolicyRepo{}
 	repo.On("Upsert", mock.Anything, mock.Anything).Return(nil)
-	repo.On("GetByCertificateID", mock.Anything, certID, userID).Return(&model.CertificatePolicy{
+	repo.On("GetByCertificateIDAny", mock.Anything, certID).Return(&model.CertificatePolicy{
 		ID:             uuid.New(),
 		CertificateID:  certID,
 		UserID:         userID,
@@ -375,9 +378,8 @@ func TestDeleteCertificatePolicy_InvalidCertID_Returns400(t *testing.T) {
 
 func TestDeleteCertificatePolicy_ServiceError_Returns500(t *testing.T) {
 	certID := uuid.New()
-	userID := uuid.MustParse(cpTestUserID)
 	repo := &mockCertPolicyRepo{}
-	repo.On("DeleteByCertificateID", mock.Anything, certID, userID).Return(errors.New("db error"))
+	repo.On("DeleteByCertificateIDAny", mock.Anything, certID).Return(errors.New("db error"))
 
 	c := newCertPolicyCtx(repo, certID.String())
 	w := httptest.NewRecorder()
@@ -394,9 +396,8 @@ func TestDeleteCertificatePolicy_ServiceError_Returns500(t *testing.T) {
 
 func TestDeleteCertificatePolicy_Success_Returns200(t *testing.T) {
 	certID := uuid.New()
-	userID := uuid.MustParse(cpTestUserID)
 	repo := &mockCertPolicyRepo{}
-	repo.On("DeleteByCertificateID", mock.Anything, certID, userID).Return(nil)
+	repo.On("DeleteByCertificateIDAny", mock.Anything, certID).Return(nil)
 
 	c := newCertPolicyCtx(repo, certID.String())
 	w := httptest.NewRecorder()
