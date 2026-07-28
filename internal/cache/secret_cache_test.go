@@ -20,6 +20,7 @@ func TestSecretCacheBasicOperations(t *testing.T) {
 	logger.SetLevel(logrus.DebugLevel)
 	cache := NewSecretCache(5*time.Minute, logger)
 	ctx := context.Background()
+	scope := model.NewVaultScope(uuid.New(), uuid.New())
 
 	// Create a test secret
 	secret := &model.Secret{
@@ -34,18 +35,18 @@ func TestSecretCacheBasicOperations(t *testing.T) {
 
 	t.Run("Get returns false for non-existent secret", func(t *testing.T) {
 		nonExistentID := uuid.New()
-		cached, found := cache.Get(ctx, nonExistentID)
+		cached, found := cache.Get(ctx, nonExistentID, scope)
 		assert.False(t, found)
 		assert.Nil(t, cached)
 	})
 
 	t.Run("Set and Get work correctly", func(t *testing.T) {
 		// Set the secret
-		err := cache.Set(ctx, secret)
+		err := cache.Set(ctx, secret, scope)
 		assert.NoError(t, err)
 
 		// Get the secret
-		cached, found := cache.Get(ctx, secret.ID)
+		cached, found := cache.Get(ctx, secret.ID, scope)
 		assert.True(t, found)
 		require.NotNil(t, cached)
 		assert.Equal(t, secret.ID, cached.ID)
@@ -55,19 +56,19 @@ func TestSecretCacheBasicOperations(t *testing.T) {
 		assert.Equal(t, secret.Tags, cached.Tags)
 	})
 
-	t.Run("Delete removes secret from cache", func(t *testing.T) {
+	t.Run("DeleteByID removes secret from cache", func(t *testing.T) {
 		// Delete the secret
-		err := cache.Delete(ctx, secret.ID)
+		err := cache.DeleteByID(ctx, secret.ID)
 		assert.NoError(t, err)
 
 		// Verify it's gone
-		cached, found := cache.Get(ctx, secret.ID)
+		cached, found := cache.Get(ctx, secret.ID, scope)
 		assert.False(t, found)
 		assert.Nil(t, cached)
 	})
 
 	t.Run("Set nil secret returns error", func(t *testing.T) {
-		err := cache.Set(ctx, nil)
+		err := cache.Set(ctx, nil, scope)
 		assert.Error(t, err)
 		assert.Contains(t, err.Error(), "cannot cache nil secret")
 	})
@@ -81,6 +82,7 @@ func TestSecretCacheExpiration(t *testing.T) {
 	// Use a very short TTL for testing
 	cache := NewSecretCache(100*time.Millisecond, logger)
 	ctx := context.Background()
+	scope := model.NewVaultScope(uuid.New(), uuid.New())
 
 	secret := &model.Secret{
 		ID:        uuid.New(),
@@ -93,11 +95,11 @@ func TestSecretCacheExpiration(t *testing.T) {
 
 	t.Run("Secret expires after TTL", func(t *testing.T) {
 		// Set the secret
-		err := cache.Set(ctx, secret)
+		err := cache.Set(ctx, secret, scope)
 		require.NoError(t, err)
 
 		// Verify it's cached immediately
-		cached, found := cache.Get(ctx, secret.ID)
+		cached, found := cache.Get(ctx, secret.ID, scope)
 		assert.True(t, found)
 		assert.NotNil(t, cached)
 
@@ -105,7 +107,7 @@ func TestSecretCacheExpiration(t *testing.T) {
 		time.Sleep(150 * time.Millisecond)
 
 		// Verify it's expired
-		cached, found = cache.Get(ctx, secret.ID)
+		cached, found = cache.Get(ctx, secret.ID, scope)
 		assert.False(t, found)
 		assert.Nil(t, cached)
 	})
@@ -117,6 +119,7 @@ func TestSecretCacheClear(t *testing.T) {
 	logger.SetLevel(logrus.DebugLevel)
 	cache := NewSecretCache(5*time.Minute, logger)
 	ctx := context.Background()
+	scope := model.NewVaultScope(uuid.New(), uuid.New())
 
 	// Create multiple test secrets
 	secrets := make([]*model.Secret, 5)
@@ -129,7 +132,7 @@ func TestSecretCacheClear(t *testing.T) {
 			Version:   1,
 			CreatedAt: time.Now(),
 		}
-		err := cache.Set(ctx, secrets[i])
+		err := cache.Set(ctx, secrets[i], scope)
 		require.NoError(t, err)
 	}
 
@@ -143,7 +146,7 @@ func TestSecretCacheClear(t *testing.T) {
 
 		// All secrets should still be there (none expired due to TTL)
 		for _, secret := range secrets {
-			cached, found := cache.Get(ctx, secret.ID)
+			cached, found := cache.Get(ctx, secret.ID, scope)
 			assert.True(t, found)
 			assert.NotNil(t, cached)
 		}
@@ -156,6 +159,7 @@ func TestSecretCacheStats(t *testing.T) {
 	logger.SetLevel(logrus.DebugLevel)
 	cache := NewSecretCache(5*time.Minute, logger)
 	ctx := context.Background()
+	scope := model.NewVaultScope(uuid.New(), uuid.New())
 
 	t.Run("Stats returns correct information", func(t *testing.T) {
 		// Initially empty
@@ -174,7 +178,7 @@ func TestSecretCacheStats(t *testing.T) {
 				Version:   1,
 				CreatedAt: time.Now(),
 			}
-			err := cache.Set(ctx, secret)
+			err := cache.Set(ctx, secret, scope)
 			require.NoError(t, err)
 		}
 
@@ -191,6 +195,7 @@ func TestSecretCacheConcurrentAccess(t *testing.T) {
 	logger.SetLevel(logrus.DebugLevel)
 	cache := NewSecretCache(5*time.Minute, logger)
 	ctx := context.Background()
+	scope := model.NewVaultScope(uuid.New(), uuid.New())
 
 	secretCount := 10
 	secrets := make([]*model.Secret, secretCount)
@@ -210,7 +215,7 @@ func TestSecretCacheConcurrentAccess(t *testing.T) {
 		done := make(chan bool, secretCount)
 		for i := 0; i < secretCount; i++ {
 			go func(secret *model.Secret) {
-				err := cache.Set(ctx, secret)
+				err := cache.Set(ctx, secret, scope)
 				assert.NoError(t, err)
 				done <- true
 			}(secrets[i])
@@ -223,7 +228,7 @@ func TestSecretCacheConcurrentAccess(t *testing.T) {
 
 		// Verify all secrets are cached
 		for _, secret := range secrets {
-			cached, found := cache.Get(ctx, secret.ID)
+			cached, found := cache.Get(ctx, secret.ID, scope)
 			assert.True(t, found)
 			assert.NotNil(t, cached)
 			assert.Equal(t, secret.ID, cached.ID)
@@ -233,7 +238,7 @@ func TestSecretCacheConcurrentAccess(t *testing.T) {
 	t.Run("Concurrent Get operations", func(t *testing.T) {
 		// Pre-populate cache
 		for _, secret := range secrets {
-			err := cache.Set(ctx, secret)
+			err := cache.Set(ctx, secret, scope)
 			require.NoError(t, err)
 		}
 
@@ -241,7 +246,7 @@ func TestSecretCacheConcurrentAccess(t *testing.T) {
 		done := make(chan bool, secretCount)
 		for i := 0; i < secretCount; i++ {
 			go func(secretID uuid.UUID) {
-				cached, found := cache.Get(ctx, secretID)
+				cached, found := cache.Get(ctx, secretID, scope)
 				assert.True(t, found)
 				assert.NotNil(t, cached)
 				assert.Equal(t, secretID, cached.ID)
@@ -264,7 +269,7 @@ func TestSecretCacheConcurrentAccess(t *testing.T) {
 			if i%2 == 0 {
 				// Get operation
 				go func(secretID uuid.UUID) {
-					cached, found := cache.Get(ctx, secretID)
+					cached, found := cache.Get(ctx, secretID, scope)
 					if found {
 						assert.NotNil(t, cached)
 					}
@@ -273,7 +278,7 @@ func TestSecretCacheConcurrentAccess(t *testing.T) {
 			} else {
 				// Set operation (update existing)
 				go func(secret *model.Secret) {
-					err := cache.Set(ctx, secret)
+					err := cache.Set(ctx, secret, scope)
 					assert.NoError(t, err)
 					done <- true
 				}(secrets[i])
@@ -296,6 +301,7 @@ func TestSecretCacheStartCleanup(t *testing.T) {
 	cache := NewSecretCache(200*time.Millisecond, logger)
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
+	scope := model.NewVaultScope(uuid.New(), uuid.New())
 
 	secret := &model.Secret{
 		ID:        uuid.New(),
@@ -308,14 +314,14 @@ func TestSecretCacheStartCleanup(t *testing.T) {
 
 	t.Run("Background cleanup removes expired entries", func(t *testing.T) {
 		// Set the secret
-		err := cache.Set(ctx, secret)
+		err := cache.Set(ctx, secret, scope)
 		require.NoError(t, err)
 
 		// Start background cleanup
 		cache.StartCleanup(ctx, 100*time.Millisecond)
 
 		// Verify secret is cached initially
-		cached, found := cache.Get(ctx, secret.ID)
+		cached, found := cache.Get(ctx, secret.ID, scope)
 		assert.True(t, found)
 		assert.NotNil(t, cached)
 
@@ -323,7 +329,7 @@ func TestSecretCacheStartCleanup(t *testing.T) {
 		time.Sleep(350 * time.Millisecond)
 
 		// Verify secret is removed by cleanup
-		cached, found = cache.Get(ctx, secret.ID)
+		cached, found = cache.Get(ctx, secret.ID, scope)
 		assert.False(t, found)
 		assert.Nil(t, cached)
 	})
@@ -335,10 +341,11 @@ func TestSecretCacheEdgeCases(t *testing.T) {
 	logger.SetLevel(logrus.DebugLevel)
 	cache := NewSecretCache(5*time.Minute, logger)
 	ctx := context.Background()
+	scope := model.NewVaultScope(uuid.New(), uuid.New())
 
-	t.Run("Delete non-existent secret is no-op", func(t *testing.T) {
+	t.Run("DeleteByID for non-existent secret is no-op", func(t *testing.T) {
 		nonExistentID := uuid.New()
-		err := cache.Delete(ctx, nonExistentID)
+		err := cache.DeleteByID(ctx, nonExistentID)
 		assert.NoError(t, err) // Should not return error
 	})
 
@@ -365,11 +372,11 @@ func TestSecretCacheEdgeCases(t *testing.T) {
 		}
 
 		// Set should work
-		err := zeroTTLCache.Set(ctx, secret)
+		err := zeroTTLCache.Set(ctx, secret, scope)
 		assert.NoError(t, err)
 
 		// Get should immediately return not found due to zero TTL
-		cached, found := zeroTTLCache.Get(ctx, secret.ID)
+		cached, found := zeroTTLCache.Get(ctx, secret.ID, scope)
 		assert.False(t, found)
 		assert.Nil(t, cached)
 	})
@@ -381,6 +388,7 @@ func TestSecretCacheWithSoftDelete(t *testing.T) {
 	logger.SetLevel(logrus.DebugLevel)
 	cache := NewSecretCache(5*time.Minute, logger)
 	ctx := context.Background()
+	scope := model.NewVaultScope(uuid.New(), uuid.New())
 
 	now := time.Now()
 	secret := &model.Secret{
@@ -397,11 +405,11 @@ func TestSecretCacheWithSoftDelete(t *testing.T) {
 
 	t.Run("Cache handles soft-deleted secrets", func(t *testing.T) {
 		// Set a soft-deleted secret
-		err := cache.Set(ctx, secret)
+		err := cache.Set(ctx, secret, scope)
 		assert.NoError(t, err)
 
 		// Should be retrievable from cache
-		cached, found := cache.Get(ctx, secret.ID)
+		cached, found := cache.Get(ctx, secret.ID, scope)
 		assert.True(t, found)
 		assert.NotNil(t, cached)
 		assert.Equal(t, secret.DeletedAt, cached.DeletedAt)
@@ -497,6 +505,7 @@ func TestSecretCacheFlush(t *testing.T) {
 	logger.SetLevel(logrus.DebugLevel)
 	cache := NewSecretCache(5*time.Minute, logger)
 	ctx := context.Background()
+	scope := model.NewVaultScope(uuid.New(), uuid.New())
 
 	for i := 0; i < 5; i++ {
 		secret := &model.Secret{
@@ -507,7 +516,7 @@ func TestSecretCacheFlush(t *testing.T) {
 			Version:   1,
 			CreatedAt: time.Now(),
 		}
-		require.NoError(t, cache.Set(ctx, secret))
+		require.NoError(t, cache.Set(ctx, secret, scope))
 	}
 
 	err := cache.Flush(ctx)
