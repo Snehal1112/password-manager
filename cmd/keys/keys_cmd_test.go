@@ -117,7 +117,11 @@ func (m *keyCmdKeyService) GetKeyScoped(ctx context.Context, keyID uuid.UUID, sc
 	return nil, nil
 }
 func (m *keyCmdKeyService) ListKeysScoped(ctx context.Context, scope model.Scope, filter repositories.KeyFilter) ([]model.Key, error) {
-	return nil, nil
+	args := m.Called(ctx, scope, filter)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).([]model.Key), args.Error(1)
 }
 func (m *keyCmdKeyService) UpdateKeyScoped(ctx context.Context, req keyServices.UpdateKeyRequest) error {
 	return nil
@@ -156,80 +160,16 @@ func (m *keyCmdCryptoService) UnwrapKey(ctx context.Context, req keyServices.Unw
 	return args.Get(0).(*keyServices.UnwrapKeyResult), args.Error(1)
 }
 
-// keyCmdKeyRepo is a minimal mock for repositories.KeyRepositoryInterface (admin list path).
-type keyCmdKeyRepo struct{ mock.Mock }
-
-func (r *keyCmdKeyRepo) Create(ctx context.Context, entity *model.Key) error        { return nil }
-func (r *keyCmdKeyRepo) Read(ctx context.Context, id uuid.UUID) (*model.Key, error) { return nil, nil }
-func (r *keyCmdKeyRepo) Update(ctx context.Context, entity *model.Key) error        { return nil }
-func (r *keyCmdKeyRepo) Delete(ctx context.Context, id uuid.UUID) error             { return nil }
-func (r *keyCmdKeyRepo) UpdateRevocationStatus(ctx context.Context, id uuid.UUID, revoked bool) error {
-	return nil
-}
-func (r *keyCmdKeyRepo) SoftDelete(ctx context.Context, id uuid.UUID) error { return nil }
-func (r *keyCmdKeyRepo) RecoverKey(ctx context.Context, id uuid.UUID) error { return nil }
-func (r *keyCmdKeyRepo) PurgeKey(ctx context.Context, id uuid.UUID) error   { return nil }
-func (r *keyCmdKeyRepo) SetPurgeProtection(ctx context.Context, id uuid.UUID, enabled bool) error {
-	return nil
-}
-func (r *keyCmdKeyRepo) ListSoftDeleted(ctx context.Context, userID uuid.UUID) ([]*model.Key, error) {
-	return nil, nil
-}
-func (r *keyCmdKeyRepo) ReadDeleted(ctx context.Context, id uuid.UUID) (*model.Key, error) {
-	return nil, nil
-}
-func (r *keyCmdKeyRepo) CreateVersion(ctx context.Context, keyID uuid.UUID, version int, value string) error {
-	return nil
-}
-func (r *keyCmdKeyRepo) ListVersions(ctx context.Context, keyID, userID uuid.UUID) ([]model.KeyVersion, error) {
-	return nil, nil
-}
-func (r *keyCmdKeyRepo) ListInVault(ctx context.Context, vaultID uuid.UUID, keyType string, tags []string) ([]model.Key, error) {
-	return nil, nil
-}
-func (r *keyCmdKeyRepo) ReadInVault(ctx context.Context, id, vaultID uuid.UUID) (*model.Key, error) {
-	return nil, nil
-}
-func (r *keyCmdKeyRepo) SoftDeleteVaultContents(ctx context.Context, vaultID uuid.UUID, deletedAt time.Time) error {
-	return nil
-}
-func (r *keyCmdKeyRepo) RecoverVaultContents(ctx context.Context, vaultID uuid.UUID, deletedAt time.Time) error {
-	return nil
-}
-func (r *keyCmdKeyRepo) ReadScoped(ctx context.Context, id uuid.UUID, scope model.Scope) (*model.Key, error) {
-	return nil, nil
-}
-func (r *keyCmdKeyRepo) UpdateScoped(ctx context.Context, key *model.Key, scope model.Scope) error {
-	return nil
-}
-func (r *keyCmdKeyRepo) ListScoped(ctx context.Context, scope model.Scope, filter repositories.KeyFilter) ([]model.Key, error) {
-	return nil, nil
-}
-func (r *keyCmdKeyRepo) ListByUser(ctx context.Context, userID *uuid.UUID, keyType string, tags []string) ([]model.Key, error) {
-	args := r.Called(ctx, userID, keyType, tags)
-	if args.Get(0) == nil {
-		return nil, args.Error(1)
-	}
-	return args.Get(0).([]model.Key), args.Error(1)
-}
-
 // keysTestContainer wraps MockServiceContainer and allows overriding
-// GetKeyService, GetCryptoService, and GetKeyRepository per test.
+// GetKeyService and GetCryptoService per test.
 type keysTestContainer struct {
 	*testutils.MockServiceContainer
 	keySvc    keyServices.KeyService
 	cryptoSvc keyServices.CryptoService
-	keyRepo   repositories.KeyRepositoryInterface
 }
 
 func (c *keysTestContainer) GetKeyService() keyServices.KeyService       { return c.keySvc }
 func (c *keysTestContainer) GetCryptoService() keyServices.CryptoService { return c.cryptoSvc }
-func (c *keysTestContainer) GetKeyRepository() repositories.KeyRepositoryInterface {
-	if c.keyRepo != nil {
-		return c.keyRepo
-	}
-	return c.MockServiceContainer.GetKeyRepository()
-}
 
 // ---- context helpers ----
 
@@ -553,7 +493,8 @@ func TestListCmd_NonAdminSuccess(t *testing.T) {
 		{ID: uuid.New(), UserID: userID, Name: "k1", Type: "RSA"},
 		{ID: uuid.New(), UserID: userID, Name: "k2", Type: "ECDSA"},
 	}
-	keySvc.On("ListKeys", mock.Anything, userID).Return(keys, nil)
+	keySvc.On("ListKeysScoped", mock.Anything, model.NewOwnerScope(uuid.Nil, userID), repositories.KeyFilter{Type: "", Tags: nil}).
+		Return(keys, nil)
 
 	sc := &keysTestContainer{
 		MockServiceContainer: &testutils.MockServiceContainer{},
@@ -579,7 +520,8 @@ func TestListCmd_NonAdminSuccess(t *testing.T) {
 func TestListCmd_NonAdminWithTags(t *testing.T) {
 	keySvc := &keyCmdKeyService{}
 	userID := uuid.New()
-	keySvc.On("ListKeys", mock.Anything, userID).Return([]model.Key{}, nil)
+	keySvc.On("ListKeysScoped", mock.Anything, model.NewOwnerScope(uuid.Nil, userID), repositories.KeyFilter{Type: "RSA", Tags: []string{"prod", "secure"}}).
+		Return([]model.Key{}, nil)
 
 	sc := &keysTestContainer{
 		MockServiceContainer: &testutils.MockServiceContainer{},
@@ -602,17 +544,16 @@ func TestListCmd_NonAdminWithTags(t *testing.T) {
 }
 
 func TestListCmd_AdminPath(t *testing.T) {
-	keyRepo := &keyCmdKeyRepo{}
 	keyID := uuid.New()
 	userID := uuid.New()
-	keyRepo.On("ListByUser", mock.Anything, (*uuid.UUID)(nil), "", []string(nil)).
-		Return([]model.Key{{ID: keyID, UserID: userID, Name: "admin-key", Type: "RSA"}}, nil)
 
 	keySvc := &keyCmdKeyService{}
+	keySvc.On("ListKeysScoped", mock.Anything, model.NewAdminScope(userID), repositories.KeyFilter{Type: "", Tags: nil}).
+		Return([]model.Key{{ID: keyID, UserID: userID, Name: "admin-key", Type: "RSA"}}, nil)
+
 	sc := &keysTestContainer{
 		MockServiceContainer: &testutils.MockServiceContainer{},
 		keySvc:               keySvc,
-		keyRepo:              keyRepo,
 	}
 	claims := &model.Claims{UserID: userID, Role: model.RoleAdmin}
 	ctx := context.WithValue(context.Background(), common.ClaimsKey, claims)
@@ -628,13 +569,14 @@ func TestListCmd_AdminPath(t *testing.T) {
 	err := cmd.Execute()
 	assert.NoError(t, err)
 	assert.NotEmpty(t, buf.String())
-	keyRepo.AssertExpectations(t)
+	keySvc.AssertExpectations(t)
 }
 
 func TestListCmd_ServiceError(t *testing.T) {
 	keySvc := &keyCmdKeyService{}
 	userID := uuid.New()
-	keySvc.On("ListKeys", mock.Anything, userID).Return(nil, fmt.Errorf("db error"))
+	keySvc.On("ListKeysScoped", mock.Anything, model.NewOwnerScope(uuid.Nil, userID), repositories.KeyFilter{Type: "", Tags: nil}).
+		Return(nil, fmt.Errorf("db error"))
 
 	sc := &keysTestContainer{
 		MockServiceContainer: &testutils.MockServiceContainer{},
@@ -658,7 +600,8 @@ func TestListCmd_ServiceError(t *testing.T) {
 func TestListCmd_NoFormatter(t *testing.T) {
 	keySvc := &keyCmdKeyService{}
 	userID := uuid.New()
-	keySvc.On("ListKeys", mock.Anything, userID).Return([]model.Key{}, nil)
+	keySvc.On("ListKeysScoped", mock.Anything, model.NewOwnerScope(uuid.Nil, userID), repositories.KeyFilter{Type: "", Tags: nil}).
+		Return([]model.Key{}, nil)
 
 	sc := &keysTestContainer{
 		MockServiceContainer: &testutils.MockServiceContainer{},

@@ -114,7 +114,7 @@ func TestGetCmd_Success_WithFormatter(t *testing.T) {
 		Tags:      []string{"env:prod"},
 	}
 
-	tc.MockSecretService.On("GetSecretInVault", mock.Anything, secretID, tc.TestVaultID).Return(secret, nil)
+	tc.MockSecretService.On("GetSecretScoped", mock.Anything, secretID, model.NewVaultScope(tc.TestVaultID, uuid.Nil)).Return(secret, nil)
 	tc.MockContainer.On("GetSecretService").Return(tc.MockSecretService)
 
 	ctx := buildSecCtx(tc.MockContainer, tc.TestUserID)
@@ -133,7 +133,7 @@ func TestGetCmd_ServiceError(t *testing.T) {
 	tc := testutils.NewTestContext(t)
 	secretID := uuid.New()
 
-	tc.MockSecretService.On("GetSecretInVault", mock.Anything, secretID, tc.TestVaultID).
+	tc.MockSecretService.On("GetSecretScoped", mock.Anything, secretID, model.NewVaultScope(tc.TestVaultID, uuid.Nil)).
 		Return(nil, fmt.Errorf("not found"))
 	tc.MockContainer.On("GetSecretService").Return(tc.MockSecretService)
 
@@ -161,7 +161,7 @@ func TestGetCmd_NoFormatter(t *testing.T) {
 		CreatedAt: now,
 	}
 
-	tc.MockSecretService.On("GetSecretInVault", mock.Anything, secretID, tc.TestVaultID).Return(secret, nil)
+	tc.MockSecretService.On("GetSecretScoped", mock.Anything, secretID, model.NewVaultScope(tc.TestVaultID, uuid.Nil)).Return(secret, nil)
 	tc.MockContainer.On("GetSecretService").Return(tc.MockSecretService)
 
 	ctx := buildSecCtxNoFormatter(tc.MockContainer, tc.TestUserID)
@@ -177,15 +177,15 @@ func TestGetCmd_NoFormatter(t *testing.T) {
 
 // ---- deleteCmd: deleteCmd uses Run (not RunE) and calls os.Exit on failure.
 // We validate the service contract by exercising the mock directly, which still
-// covers the DeleteSecretInVault interface path used by the production code.
+// covers the DeleteSecretScoped interface path used by the production code.
 
 func TestDeleteCmd_ServiceContract_Success(t *testing.T) {
 	tc := testutils.NewTestContext(t)
 	secretID := uuid.New()
 
-	tc.MockSecretService.On("DeleteSecretInVault", mock.Anything, secretID, tc.TestVaultID).Return(nil)
+	tc.MockSecretService.On("DeleteSecretScoped", mock.Anything, secretID, model.NewVaultScope(tc.TestVaultID, uuid.Nil)).Return(nil)
 
-	err := tc.MockSecretService.DeleteSecretInVault(context.Background(), secretID, tc.TestVaultID)
+	err := tc.MockSecretService.DeleteSecretScoped(context.Background(), secretID, model.NewVaultScope(tc.TestVaultID, uuid.Nil))
 	assert.NoError(t, err)
 	tc.MockSecretService.AssertExpectations(t)
 }
@@ -194,10 +194,10 @@ func TestDeleteCmd_ServiceContract_Error(t *testing.T) {
 	tc := testutils.NewTestContext(t)
 	secretID := uuid.New()
 
-	tc.MockSecretService.On("DeleteSecretInVault", mock.Anything, secretID, tc.TestVaultID).
+	tc.MockSecretService.On("DeleteSecretScoped", mock.Anything, secretID, model.NewVaultScope(tc.TestVaultID, uuid.Nil)).
 		Return(fmt.Errorf("delete failed"))
 
-	err := tc.MockSecretService.DeleteSecretInVault(context.Background(), secretID, tc.TestVaultID)
+	err := tc.MockSecretService.DeleteSecretScoped(context.Background(), secretID, model.NewVaultScope(tc.TestVaultID, uuid.Nil))
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "delete failed")
 	tc.MockSecretService.AssertExpectations(t)
@@ -229,7 +229,7 @@ func TestListCmd_Success_WithFormatter(t *testing.T) {
 		{ID: uuid.New(), Name: "secret-beta", Version: 2, Enabled: false, CreatedAt: time.Now()},
 	}
 
-	tc.MockSecretService.On("ListSecretsInVault", mock.Anything, tc.TestVaultID, []string{}).
+	tc.MockSecretService.On("ListSecretsScoped", mock.Anything, model.NewVaultScope(tc.TestVaultID, uuid.Nil), []string{}).
 		Return(secrets, nil)
 	tc.MockContainer.On("GetSecretService").Return(tc.MockSecretService)
 
@@ -254,7 +254,7 @@ func TestListCmd_Success_WithFormatter(t *testing.T) {
 func TestListCmd_ServiceError_FullRunE(t *testing.T) {
 	tc := testutils.NewTestContext(t)
 
-	tc.MockSecretService.On("ListSecretsInVault", mock.Anything, tc.TestVaultID, []string{}).
+	tc.MockSecretService.On("ListSecretsScoped", mock.Anything, model.NewVaultScope(tc.TestVaultID, uuid.Nil), []string{}).
 		Return(nil, fmt.Errorf("database error"))
 	tc.MockContainer.On("GetSecretService").Return(tc.MockSecretService)
 
@@ -273,7 +273,7 @@ func TestListCmd_ServiceError_FullRunE(t *testing.T) {
 func TestListCmd_NoFormatter_FullRunE(t *testing.T) {
 	tc := testutils.NewTestContext(t)
 
-	tc.MockSecretService.On("ListSecretsInVault", mock.Anything, tc.TestVaultID, []string{}).
+	tc.MockSecretService.On("ListSecretsScoped", mock.Anything, model.NewVaultScope(tc.TestVaultID, uuid.Nil), []string{}).
 		Return([]model.Secret{}, nil)
 	tc.MockContainer.On("GetSecretService").Return(tc.MockSecretService)
 

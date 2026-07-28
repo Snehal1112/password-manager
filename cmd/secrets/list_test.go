@@ -186,7 +186,7 @@ func TestListSecretsOutputFormat(t *testing.T) {
 		},
 	}
 
-	tc.MockSecretService.On("ListSecretsInVault", mock.Anything, tc.TestVaultID, []string{}).
+	tc.MockSecretService.On("ListSecretsScoped", mock.Anything, model.NewVaultScope(tc.TestVaultID, uuid.Nil), []string{}).
 		Return(testSecrets, nil)
 
 	fmtr, err := formatter.New(formatter.FormatTable)

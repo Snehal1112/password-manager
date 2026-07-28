@@ -34,6 +34,7 @@ import (
 	"rocketvault/common"
 	"rocketvault/internal/container"
 	"rocketvault/internal/formatter"
+	"rocketvault/model"
 )
 
 // getCmd represents the get command
@@ -65,7 +66,7 @@ var getCmd = &cobra.Command{
 			return err
 		}
 
-		secret, err := secretService.GetSecretInVault(ctx, secretID, vaultID)
+		secret, err := secretService.GetSecretScoped(ctx, secretID, model.NewVaultScope(vaultID, uuid.Nil))
 		if err != nil {
 			return fmt.Errorf("failed to retrieve secret: %w", err)
 		}
