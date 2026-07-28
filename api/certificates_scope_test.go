@@ -95,9 +95,9 @@ func TestGetCertificatePolicyResolvesTheCertificateThroughTheScope(t *testing.T)
 
 // --- Flat-route certificate-policy ownership boundary ---
 //
-// Collapsing the isVaultScopedRoute branches onto scopeFromRequest had a
-// second, intentional effect on the three certificate-policy handlers, not
-// just a mechanical rename. Before this task:
+// Inlining the route-type check into scopeFromRequest had a second, intentional
+// effect on the three certificate-policy handlers, not just a mechanical rename.
+// Before this task:
 //
 //   - getCertificatePolicy/deleteCertificatePolicy's flat-route branch
 //     authorized on repo.GetByCertificateID(ctx, certID, userID) /

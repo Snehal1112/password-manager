@@ -49,15 +49,6 @@ func vaultIDFromRequest(r *http.Request) (uuid.UUID, error) {
 	return uuid.Parse(s)
 }
 
-// isVaultScopedRoute reports whether the request was served by an explicit
-// vault-scoped route (/api/v1/vaults/{vault_name}/...), as opposed to a legacy
-// flat route (/api/v1/secrets/...). Vault-scoped routes carry the "vault_name"
-// path variable. Legacy routes preserve pre-multi-vault per-user visibility,
-// while vault-scoped routes use vault-level "members see all" visibility.
-func isVaultScopedRoute(r *http.Request) bool {
-	return mux.Vars(r)["vault_name"] != ""
-}
-
 // scopeFromRequest builds the authorization scope for a resource operation.
 //
 // Vault-scoped routes (/api/v1/vaults/{vault_name}/...) yield a vault scope, so
@@ -78,7 +69,7 @@ func scopeFromRequest(c *Context, r *http.Request) (model.Scope, bool) {
 		return model.Scope{}, false
 	}
 
-	if isVaultScopedRoute(r) {
+	if mux.Vars(r)["vault_name"] != "" {
 		return model.NewVaultScope(vaultID, userID), true
 	}
 	return model.NewOwnerScope(vaultID, userID), true
