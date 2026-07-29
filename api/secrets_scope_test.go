@@ -20,32 +20,32 @@ import (
 type scopeStubSecretService struct {
 	secrets.SecretService
 
-	secret            *model.Secret
-	secretErr         error
-	list              []model.Secret
-	listErr           error
-	versionsScopedErr error
-	lastScope         model.Scope
+	secret      *model.Secret
+	secretErr   error
+	list        []model.Secret
+	listErr     error
+	versionsErr error
+	lastScope   model.Scope
 }
 
-func (s *scopeStubSecretService) GetSecretScoped(_ context.Context, _ uuid.UUID, scope model.Scope) (*model.Secret, error) {
+func (s *scopeStubSecretService) GetSecret(_ context.Context, _ uuid.UUID, scope model.Scope) (*model.Secret, error) {
 	s.lastScope = scope
 	return s.secret, s.secretErr
 }
 
-func (s *scopeStubSecretService) ListSecretsScoped(_ context.Context, scope model.Scope, _ []string) ([]model.Secret, error) {
+func (s *scopeStubSecretService) ListSecrets(_ context.Context, scope model.Scope, _ []string) ([]model.Secret, error) {
 	s.lastScope = scope
 	return s.list, s.listErr
 }
 
-func (s *scopeStubSecretService) DeleteSecretScoped(_ context.Context, _ uuid.UUID, scope model.Scope) error {
+func (s *scopeStubSecretService) DeleteSecret(_ context.Context, _ uuid.UUID, scope model.Scope) error {
 	s.lastScope = scope
 	return nil
 }
 
-func (s *scopeStubSecretService) GetSecretVersionsScoped(_ context.Context, _ uuid.UUID, scope model.Scope) ([]model.SecretVersion, error) {
+func (s *scopeStubSecretService) GetSecretVersions(_ context.Context, _ uuid.UUID, scope model.Scope) ([]model.SecretVersion, error) {
 	s.lastScope = scope
-	return nil, s.versionsScopedErr
+	return nil, s.versionsErr
 }
 
 // newSecretHandlerFixture wires a Context whose service container returns svc,
@@ -68,7 +68,7 @@ func newSecretHandlerFixture(t *testing.T, svc secrets.SecretService, secretID u
 func TestListSecretVersionsWrongVaultReturns404(t *testing.T) {
 	secretID := uuid.New()
 	svc := &scopeStubSecretService{
-		versionsScopedErr: secrets.ErrSecretNotFound,
+		versionsErr: secrets.ErrSecretNotFound,
 	}
 	c, w, r := newSecretHandlerFixture(t, svc, secretID, "team-a")
 

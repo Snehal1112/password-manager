@@ -13,7 +13,7 @@ import (
 	"rocketvault/model"
 )
 
-func TestGetVersionsInVault_HappyPath(t *testing.T) {
+func TestGetVersions_VaultScope_HappyPath(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	secretID := uuid.New()
@@ -24,7 +24,8 @@ func TestGetVersionsInVault_HappyPath(t *testing.T) {
 	versionRepo := &testutils.MockSecretVersionRepository{}
 	crypto := &testutils.MockCryptographyService{}
 
-	secretRepo.On("ReadScoped", ctx, secretID, model.NewVaultScope(vaultID, uuid.Nil)).Return(
+	scope := model.NewVaultScope(vaultID, uuid.Nil)
+	secretRepo.On("Read", ctx, secretID, scope).Return(
 		&model.Secret{ID: secretID, VaultID: vaultID}, nil,
 	)
 	versionRepo.On("GetVersions", ctx, secretID).Return(
@@ -33,14 +34,14 @@ func TestGetVersionsInVault_HappyPath(t *testing.T) {
 	crypto.On("DecryptSecret", "enc-v1").Return("plain-v1", nil)
 
 	svc := secrets.NewVersioningService(versionRepo, secretRepo, userRepo, crypto, testutils.NewTestLogger(t))
-	versions, err := svc.GetVersionsInVault(ctx, secretID, vaultID)
+	versions, err := svc.GetVersions(ctx, secretID, scope)
 
 	require.NoError(t, err)
 	require.Len(t, versions, 1)
 	require.Equal(t, "plain-v1", versions[0].Value)
 }
 
-func TestGetVersionsInVault_WrongVault(t *testing.T) {
+func TestGetVersions_VaultScope_WrongVault(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	secretID := uuid.New()
@@ -51,10 +52,11 @@ func TestGetVersionsInVault_WrongVault(t *testing.T) {
 	versionRepo := &testutils.MockSecretVersionRepository{}
 	crypto := &testutils.MockCryptographyService{}
 
-	secretRepo.On("ReadScoped", ctx, secretID, model.NewVaultScope(vaultID, uuid.Nil)).Return(nil, errors.New("secret not found or access denied"))
+	scope := model.NewVaultScope(vaultID, uuid.Nil)
+	secretRepo.On("Read", ctx, secretID, scope).Return(nil, errors.New("secret not found or access denied"))
 
 	svc := secrets.NewVersioningService(versionRepo, secretRepo, userRepo, crypto, testutils.NewTestLogger(t))
-	_, err := svc.GetVersionsInVault(ctx, secretID, vaultID)
+	_, err := svc.GetVersions(ctx, secretID, scope)
 
 	require.Error(t, err)
 }

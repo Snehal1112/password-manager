@@ -33,24 +33,6 @@ func (r *stubSecretRepo) Create(_ context.Context, s *model.Secret) error {
 	return nil
 }
 
-func (r *stubSecretRepo) Read(_ context.Context, id uuid.UUID) (*model.Secret, error) {
-	s, ok := r.secrets[id]
-	if !ok {
-		return nil, fmt.Errorf("secret not found")
-	}
-	cp := *s
-	return &cp, nil
-}
-
-func (r *stubSecretRepo) ReadByOwner(_ context.Context, id, userID uuid.UUID) (*model.Secret, error) {
-	s, ok := r.secrets[id]
-	if !ok || s.UserID != userID {
-		return nil, fmt.Errorf("secret not found or access denied")
-	}
-	cp := *s
-	return &cp, nil
-}
-
 // scopeAuthorizes mirrors the real repository's scopePredicate: it decides
 // whether a secret is reachable under the given scope.
 func scopeAuthorizes(s *model.Secret, scope model.Scope) bool {
@@ -67,7 +49,7 @@ func scopeAuthorizes(s *model.Secret, scope model.Scope) bool {
 	}
 }
 
-func (r *stubSecretRepo) ReadScoped(_ context.Context, id uuid.UUID, scope model.Scope) (*model.Secret, error) {
+func (r *stubSecretRepo) Read(_ context.Context, id uuid.UUID, scope model.Scope) (*model.Secret, error) {
 	s, ok := r.secrets[id]
 	if !ok || !scopeAuthorizes(s, scope) {
 		return nil, fmt.Errorf("secret not found or access denied")
@@ -76,16 +58,7 @@ func (r *stubSecretRepo) ReadScoped(_ context.Context, id uuid.UUID, scope model
 	return &cp, nil
 }
 
-func (r *stubSecretRepo) Update(_ context.Context, s *model.Secret) error {
-	if _, ok := r.secrets[s.ID]; !ok {
-		return fmt.Errorf("secret not found")
-	}
-	cp := *s
-	r.secrets[s.ID] = &cp
-	return nil
-}
-
-func (r *stubSecretRepo) UpdateScoped(_ context.Context, s *model.Secret, scope model.Scope) error {
+func (r *stubSecretRepo) Update(_ context.Context, s *model.Secret, scope model.Scope) error {
 	existing, ok := r.secrets[s.ID]
 	if !ok || !scopeAuthorizes(existing, scope) {
 		return fmt.Errorf("secret not found or access denied")
@@ -93,10 +66,6 @@ func (r *stubSecretRepo) UpdateScoped(_ context.Context, s *model.Secret, scope 
 	cp := *s
 	r.secrets[s.ID] = &cp
 	return nil
-}
-
-func (r *stubSecretRepo) UpdateInVault(_ context.Context, _ *model.Secret) error {
-	return fmt.Errorf("not implemented")
 }
 
 func (r *stubSecretRepo) Delete(_ context.Context, id uuid.UUID) error {
@@ -123,21 +92,7 @@ func (r *stubSecretRepo) RecoverSecret(_ context.Context, id uuid.UUID) error {
 	return nil
 }
 
-func (r *stubSecretRepo) ListByUser(_ context.Context, userID uuid.UUID, _ []string) ([]model.Secret, error) {
-	var out []model.Secret
-	for _, s := range r.secrets {
-		if s.UserID == userID {
-			out = append(out, *s)
-		}
-	}
-	return out, nil
-}
-
-func (r *stubSecretRepo) ListByUserIncludeDeleted(_ context.Context, userID uuid.UUID, _ []string) ([]model.Secret, error) {
-	return r.ListByUser(context.Background(), userID, nil)
-}
-
-func (r *stubSecretRepo) ListScoped(_ context.Context, scope model.Scope, filter repositories.SecretFilter) ([]model.Secret, error) {
+func (r *stubSecretRepo) List(_ context.Context, scope model.Scope, filter repositories.SecretFilter) ([]model.Secret, error) {
 	var out []model.Secret
 	for _, s := range r.secrets {
 		if !scopeAuthorizes(s, scope) {
@@ -185,18 +140,6 @@ func (r *stubSecretRepo) PurgeSecret(_ context.Context, id uuid.UUID) error {
 	return nil
 }
 
-func (r *stubSecretRepo) ReadInVault(_ context.Context, _, _ uuid.UUID) (*model.Secret, error) {
-	return nil, fmt.Errorf("not implemented")
-}
-
-func (r *stubSecretRepo) ListInVault(_ context.Context, _ uuid.UUID, _ []string) ([]model.Secret, error) {
-	return nil, nil
-}
-
-func (r *stubSecretRepo) ListInVaultIncludeDeleted(_ context.Context, _ uuid.UUID, _ []string) ([]model.Secret, error) {
-	return nil, nil
-}
-
 func (r *stubSecretRepo) SoftDeleteVaultContents(_ context.Context, _ uuid.UUID, _ time.Time) error {
 	return nil
 }
@@ -239,7 +182,7 @@ func TestBackupRestoreSecret(t *testing.T) {
 	require.NoError(t, err)
 
 	// Verify the restored secret matches the original data.
-	restored, err := repo.ListByUser(ctx, userID, nil)
+	restored, err := repo.List(ctx, model.NewOwnerScope(uuid.Nil, userID), repositories.SecretFilter{})
 	require.NoError(t, err)
 	require.Len(t, restored, 1)
 	require.Equal(t, original.Name, restored[0].Name)

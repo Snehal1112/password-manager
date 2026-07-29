@@ -52,7 +52,9 @@ type backupEnvelope struct {
 // BackupSecret creates a base64url-encoded backup blob for the given secret.
 // It returns an error when the secret does not belong to userID.
 func (s *ItemBackupService) BackupSecret(ctx context.Context, id, userID uuid.UUID) (string, error) {
-	secret, err := s.secretRepo.Read(ctx, id)
+	// The read itself is unchecked (admin scope); the explicit ownership
+	// check below is the actual gate, matching the pre-scope behaviour.
+	secret, err := s.secretRepo.Read(ctx, id, model.NewAdminScope(userID))
 	if err != nil {
 		return "", fmt.Errorf("backup secret: %w", err)
 	}

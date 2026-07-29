@@ -29,7 +29,7 @@ type MockSecretRepository struct {
 	repositories.SecretRepositoryInterface
 }
 
-func (m *MockSecretRepository) ReadScoped(ctx context.Context, id uuid.UUID, scope model.Scope) (*model.Secret, error) {
+func (m *MockSecretRepository) Read(ctx context.Context, id uuid.UUID, scope model.Scope) (*model.Secret, error) {
 	args := m.Called(ctx, id, scope)
 	if args.Get(0) == nil {
 		return nil, args.Error(1)
@@ -37,7 +37,7 @@ func (m *MockSecretRepository) ReadScoped(ctx context.Context, id uuid.UUID, sco
 	return args.Get(0).(*model.Secret), args.Error(1)
 }
 
-func (m *MockSecretRepository) ListScoped(ctx context.Context, scope model.Scope, filter repositories.SecretFilter) ([]model.Secret, error) {
+func (m *MockSecretRepository) List(ctx context.Context, scope model.Scope, filter repositories.SecretFilter) ([]model.Secret, error) {
 	args := m.Called(ctx, scope, filter)
 	if args.Get(0) == nil {
 		return nil, args.Error(1)
@@ -45,7 +45,7 @@ func (m *MockSecretRepository) ListScoped(ctx context.Context, scope model.Scope
 	return args.Get(0).([]model.Secret), args.Error(1)
 }
 
-func (m *MockSecretRepository) UpdateScoped(ctx context.Context, secret *model.Secret, scope model.Scope) error {
+func (m *MockSecretRepository) Update(ctx context.Context, secret *model.Secret, scope model.Scope) error {
 	args := m.Called(ctx, secret, scope)
 	return args.Error(0)
 }
@@ -87,7 +87,7 @@ func (m *MockTagService) RemoveAllTags(ctx context.Context, secretID uuid.UUID) 
 }
 
 // MockVersioningService is a minimal test double for VersioningServiceInterface.
-// CreateVersion is overridden because UpdateSecretScoped calls it on every
+// CreateVersion is overridden because UpdateSecret calls it on every
 // update; no other method is exercised by tests in this file, so those fall
 // through to the nil embedded interface, which is the correct failure mode
 // for an unstubbed call.
@@ -149,7 +149,7 @@ func newScopeServiceFixture(t *testing.T) (*MockSecretRepository, *secretService
 	return repo, svc
 }
 
-func TestGetSecretScopedPassesTheScopeStraightToTheRepository(t *testing.T) {
+func TestGetSecretPassesTheScopeStraightToTheRepository(t *testing.T) {
 	repo, svc := newScopeServiceFixture(t)
 	ctx := context.Background()
 
@@ -158,79 +158,58 @@ func TestGetSecretScopedPassesTheScopeStraightToTheRepository(t *testing.T) {
 	actorID := uuid.New()
 	scope := model.NewVaultScope(vaultID, actorID)
 
-	repo.On("ReadScoped", ctx, secretID, scope).Return(&model.Secret{
+	repo.On("Read", ctx, secretID, scope).Return(&model.Secret{
 		ID: secretID, VaultID: vaultID, Name: "s", Value: "ENC(v)", Enabled: true,
 	}, nil).Once()
 
-	got, err := svc.GetSecretScoped(ctx, secretID, scope)
+	got, err := svc.GetSecret(ctx, secretID, scope)
 	require.NoError(t, err)
 	assert.Equal(t, secretID, got.ID)
 	assert.Equal(t, "v", got.Value, "the service decrypts before returning")
 	repo.AssertExpectations(t)
 }
 
-func TestGetSecretScopedMapsNotFoundToErrSecretNotFound(t *testing.T) {
+func TestGetSecretMapsNotFoundToErrSecretNotFound(t *testing.T) {
 	repo, svc := newScopeServiceFixture(t)
 	ctx := context.Background()
 	scope := model.NewVaultScope(uuid.New(), uuid.New())
 
-	repo.On("ReadScoped", ctx, mock.Anything, scope).
+	repo.On("Read", ctx, mock.Anything, scope).
 		Return(nil, assert.AnError).Once()
 
-	_, err := svc.GetSecretScoped(ctx, uuid.New(), scope)
+	_, err := svc.GetSecret(ctx, uuid.New(), scope)
 	assert.ErrorIs(t, err, ErrSecretNotFound)
 }
 
-func TestListDeletedSecretsScopedFiltersInSQLNotInGo(t *testing.T) {
+func TestListDeletedSecretsFiltersInSQLNotInGo(t *testing.T) {
 	repo, svc := newScopeServiceFixture(t)
 	ctx := context.Background()
 	scope := model.NewVaultScope(uuid.New(), uuid.New())
 
-	repo.On("ListScoped", ctx, scope, repositories.SecretFilter{OnlyDeleted: true}).
+	repo.On("List", ctx, scope, repositories.SecretFilter{OnlyDeleted: true}).
 		Return([]model.Secret{{ID: uuid.New()}}, nil).Once()
 
-	got, err := svc.ListDeletedSecretsScoped(ctx, scope)
+	got, err := svc.ListDeletedSecrets(ctx, scope)
 	require.NoError(t, err)
 	assert.Len(t, got, 1)
 	repo.AssertExpectations(t)
 }
 
-func TestDeleteSecretScopedChecksScopeBeforeSoftDeleting(t *testing.T) {
+func TestDeleteSecretChecksScopeBeforeSoftDeleting(t *testing.T) {
 	repo, svc := newScopeServiceFixture(t)
 	ctx := context.Background()
 
 	secretID := uuid.New()
 	scope := model.NewVaultScope(uuid.New(), uuid.New())
 
-	repo.On("ReadScoped", ctx, secretID, scope).Return(nil, assert.AnError).Once()
+	repo.On("Read", ctx, secretID, scope).Return(nil, assert.AnError).Once()
 
-	err := svc.DeleteSecretScoped(ctx, secretID, scope)
+	err := svc.DeleteSecret(ctx, secretID, scope)
 	assert.ErrorIs(t, err, ErrSecretNotFound)
 	repo.AssertNotCalled(t, "SoftDelete", mock.Anything, mock.Anything)
 }
 
-func TestLegacyShimsBuildTheRightScope(t *testing.T) {
-	repo, svc := newScopeServiceFixture(t)
-	ctx := context.Background()
-
-	secretID := uuid.New()
-	userID := uuid.New()
-	vaultID := uuid.New()
-
-	repo.On("ReadScoped", ctx, secretID, model.NewOwnerScope(uuid.Nil, userID)).
-		Return(&model.Secret{ID: secretID, Value: "ENC(v)", Enabled: true}, nil).Once()
-	_, err := svc.GetSecret(ctx, secretID, userID)
-	require.NoError(t, err)
-
-	repo.On("ReadScoped", ctx, secretID, model.NewVaultScope(vaultID, uuid.Nil)).
-		Return(&model.Secret{ID: secretID, Value: "ENC(v)", Enabled: true}, nil).Once()
-	_, err = svc.GetSecretInVault(ctx, secretID, vaultID)
-	require.NoError(t, err)
-
-	repo.AssertExpectations(t)
-}
-
-func TestUpdateSecretScopedUsesTheSameScopeForReadAndWrite(t *testing.T) {
+func TestUpdateSecretUsesTheSameScopeForReadAndWrite(t *testing.T) {
 	repo, svc := newScopeServiceFixture(t)
 	ctx := context.Background()
 
@@ -245,12 +224,12 @@ func TestUpdateSecretScopedUsesTheSameScopeForReadAndWrite(t *testing.T) {
 		Name: "original", Value: "ENC(v1)", Version: 1, Enabled: true,
 	}
 
-	repo.On("ReadScoped", ctx, secretID, scope).Return(current, nil).Once()
-	repo.On("UpdateScoped", ctx, mock.MatchedBy(func(s *model.Secret) bool {
+	repo.On("Read", ctx, secretID, scope).Return(current, nil).Once()
+	repo.On("Update", ctx, mock.MatchedBy(func(s *model.Secret) bool {
 		return s.Name == "renamed" && s.Version == 2
 	}), scope).Return(nil).Once()
 
-	err := svc.UpdateSecretScoped(ctx, UpdateSecretRequest{
+	err := svc.UpdateSecret(ctx, UpdateSecretRequest{
 		SecretID: secretID,
 		Scope:    scope,
 		Name:     &newName,
@@ -259,73 +238,51 @@ func TestUpdateSecretScopedUsesTheSameScopeForReadAndWrite(t *testing.T) {
 	repo.AssertExpectations(t)
 }
 
-func TestUpdateSecretScopedDeniesOutOfScope(t *testing.T) {
+func TestUpdateSecretDeniesOutOfScope(t *testing.T) {
 	repo, svc := newScopeServiceFixture(t)
 	ctx := context.Background()
 
 	secretID := uuid.New()
 	scope := model.NewVaultScope(uuid.New(), uuid.New())
 
-	repo.On("ReadScoped", ctx, secretID, scope).Return(nil, assert.AnError).Once()
+	repo.On("Read", ctx, secretID, scope).Return(nil, assert.AnError).Once()
 
-	err := svc.UpdateSecretScoped(ctx, UpdateSecretRequest{SecretID: secretID, Scope: scope})
+	err := svc.UpdateSecret(ctx, UpdateSecretRequest{SecretID: secretID, Scope: scope})
 	assert.ErrorIs(t, err, ErrSecretNotFound)
-	repo.AssertNotCalled(t, "UpdateScoped", mock.Anything, mock.Anything, mock.Anything)
+	repo.AssertNotCalled(t, "Update", mock.Anything, mock.Anything, mock.Anything)
 }
 
-func TestUpdateSecretScopedRejectsAnInvalidScope(t *testing.T) {
+func TestUpdateSecretRejectsAnInvalidScope(t *testing.T) {
 	repo, svc := newScopeServiceFixture(t)
 	ctx := context.Background()
 
 	// A half-migrated caller that forgot to set Scope must not reach the repo
 	// with an admin-equivalent predicate.
 	var zero model.Scope
-	repo.On("ReadScoped", mock.Anything, mock.Anything, zero).
+	repo.On("Read", mock.Anything, mock.Anything, zero).
 		Return(nil, repositories.ErrInvalidScope).Once()
 
-	err := svc.UpdateSecretScoped(ctx, UpdateSecretRequest{SecretID: uuid.New()})
+	err := svc.UpdateSecret(ctx, UpdateSecretRequest{SecretID: uuid.New()})
 	require.Error(t, err)
-	repo.AssertNotCalled(t, "UpdateScoped", mock.Anything, mock.Anything, mock.Anything)
+	repo.AssertNotCalled(t, "Update", mock.Anything, mock.Anything, mock.Anything)
 }
 
-func TestUpdateSecretLegacyShimsBuildTheRightScope(t *testing.T) {
-	repo, svc := newScopeServiceFixture(t)
-	ctx := context.Background()
-
-	secretID := uuid.New()
-	userID := uuid.New()
-	vaultID := uuid.New()
-	current := &model.Secret{ID: secretID, UserID: userID, VaultID: vaultID, Value: "ENC(v)", Version: 1, Enabled: true}
-
-	ownerScope := model.NewOwnerScope(uuid.Nil, userID)
-	repo.On("ReadScoped", ctx, secretID, ownerScope).Return(current, nil).Once()
-	repo.On("UpdateScoped", ctx, mock.Anything, ownerScope).Return(nil).Once()
-	require.NoError(t, svc.UpdateSecret(ctx, UpdateSecretRequest{SecretID: secretID, UserID: userID}))
-
-	vaultScope := model.NewVaultScope(vaultID, userID)
-	repo.On("ReadScoped", ctx, secretID, vaultScope).Return(current, nil).Once()
-	repo.On("UpdateScoped", ctx, mock.Anything, vaultScope).Return(nil).Once()
-	require.NoError(t, svc.UpdateSecretInVault(ctx, UpdateSecretRequest{SecretID: secretID, UserID: userID, VaultID: vaultID}))
-
-	repo.AssertExpectations(t)
-}
-
-func TestRecoverSecretScopedRequiresTheSecretToBeInScope(t *testing.T) {
+func TestRecoverSecretRequiresTheSecretToBeInScope(t *testing.T) {
 	repo, svc := newScopeServiceFixture(t)
 	ctx := context.Background()
 
 	secretID := uuid.New()
 	scope := model.NewVaultScope(uuid.New(), uuid.New())
 
-	repo.On("ListScoped", ctx, scope, repositories.SecretFilter{OnlyDeleted: true}).
+	repo.On("List", ctx, scope, repositories.SecretFilter{OnlyDeleted: true}).
 		Return([]model.Secret{}, nil).Once()
 
-	err := svc.RecoverSecretScoped(ctx, secretID, scope)
+	err := svc.RecoverSecret(ctx, secretID, scope)
 	assert.ErrorIs(t, err, ErrSecretNotFound)
 	repo.AssertNotCalled(t, "RecoverSecret", mock.Anything, mock.Anything)
 }
 
-func TestRecoverSecretScopedRecoversWhenInScope(t *testing.T) {
+func TestRecoverSecretRecoversWhenInScope(t *testing.T) {
 	repo, svc := newScopeServiceFixture(t)
 	ctx := context.Background()
 
@@ -333,28 +290,28 @@ func TestRecoverSecretScopedRecoversWhenInScope(t *testing.T) {
 	scope := model.NewVaultScope(uuid.New(), uuid.New())
 	deletedAt := time.Now().UTC()
 
-	repo.On("ListScoped", ctx, scope, repositories.SecretFilter{OnlyDeleted: true}).
+	repo.On("List", ctx, scope, repositories.SecretFilter{OnlyDeleted: true}).
 		Return([]model.Secret{{ID: secretID, DeletedAt: &deletedAt}}, nil).Once()
 	repo.On("RecoverSecret", ctx, secretID).Return(nil).Once()
 
-	require.NoError(t, svc.RecoverSecretScoped(ctx, secretID, scope))
+	require.NoError(t, svc.RecoverSecret(ctx, secretID, scope))
 	repo.AssertExpectations(t)
 }
 
-func TestPurgeSecretScopedRequiresTheSecretToBeInScope(t *testing.T) {
+func TestPurgeSecretRequiresTheSecretToBeInScope(t *testing.T) {
 	repo, svc := newScopeServiceFixture(t)
 	ctx := context.Background()
 
 	scope := model.NewOwnerScope(uuid.Nil, uuid.New())
-	repo.On("ListScoped", ctx, scope, repositories.SecretFilter{OnlyDeleted: true}).
+	repo.On("List", ctx, scope, repositories.SecretFilter{OnlyDeleted: true}).
 		Return([]model.Secret{}, nil).Once()
 
-	err := svc.PurgeSecretScoped(ctx, uuid.New(), scope)
+	err := svc.PurgeSecret(ctx, uuid.New(), scope)
 	assert.ErrorIs(t, err, ErrSecretNotFound)
 	repo.AssertNotCalled(t, "PurgeSecret", mock.Anything, mock.Anything)
 }
 
-func TestPurgeSecretScopedPurgesWhenInScope(t *testing.T) {
+func TestPurgeSecretPurgesWhenInScope(t *testing.T) {
 	repo, svc := newScopeServiceFixture(t)
 	ctx := context.Background()
 
@@ -362,10 +319,10 @@ func TestPurgeSecretScopedPurgesWhenInScope(t *testing.T) {
 	scope := model.NewOwnerScope(uuid.Nil, uuid.New())
 	deletedAt := time.Now().UTC()
 
-	repo.On("ListScoped", ctx, scope, repositories.SecretFilter{OnlyDeleted: true}).
+	repo.On("List", ctx, scope, repositories.SecretFilter{OnlyDeleted: true}).
 		Return([]model.Secret{{ID: secretID, DeletedAt: &deletedAt}}, nil).Once()
 	repo.On("PurgeSecret", ctx, secretID).Return(nil).Once()
 
-	require.NoError(t, svc.PurgeSecretScoped(ctx, secretID, scope))
+	require.NoError(t, svc.PurgeSecret(ctx, secretID, scope))
 	repo.AssertExpectations(t)
 }

@@ -21,19 +21,12 @@ import (
 type VersioningServiceInterface interface {
 	// Version creation and management
 	CreateVersion(ctx context.Context, req CreateVersionRequest) (*model.SecretVersion, error)
-	GetVersions(ctx context.Context, secretID uuid.UUID, userID uuid.UUID) ([]model.SecretVersion, error)
-	GetVersion(ctx context.Context, secretID uuid.UUID, version int, userID uuid.UUID) (*model.SecretVersion, error)
-	GetLatestVersion(ctx context.Context, secretID uuid.UUID, userID uuid.UUID) (*model.SecretVersion, error)
-	GetVersionsInVault(ctx context.Context, secretID, vaultID uuid.UUID) ([]model.SecretVersion, error)
-	GetVersionInVault(ctx context.Context, secretID uuid.UUID, version int, vaultID uuid.UUID) (*model.SecretVersion, error)
-	GetLatestVersionInVault(ctx context.Context, secretID, vaultID uuid.UUID) (*model.SecretVersion, error)
-	// GetVersionsScoped returns every decrypted version of a secret the scope
-	// authorizes. Canonical; GetVersions and GetVersionsInVault are shims.
-	GetVersionsScoped(ctx context.Context, secretID uuid.UUID, scope model.Scope) ([]model.SecretVersion, error)
-	// GetVersionScoped returns one decrypted version the scope authorizes.
-	GetVersionScoped(ctx context.Context, secretID uuid.UUID, version int, scope model.Scope) (*model.SecretVersion, error)
-	// GetLatestVersionScoped returns the newest decrypted version the scope authorizes.
-	GetLatestVersionScoped(ctx context.Context, secretID uuid.UUID, scope model.Scope) (*model.SecretVersion, error)
+	// GetVersions returns every decrypted version of a secret the scope authorizes.
+	GetVersions(ctx context.Context, secretID uuid.UUID, scope model.Scope) ([]model.SecretVersion, error)
+	// GetVersion returns one decrypted version the scope authorizes.
+	GetVersion(ctx context.Context, secretID uuid.UUID, version int, scope model.Scope) (*model.SecretVersion, error)
+	// GetLatestVersion returns the newest decrypted version the scope authorizes.
+	GetLatestVersion(ctx context.Context, secretID uuid.UUID, scope model.Scope) (*model.SecretVersion, error)
 	DeleteVersions(ctx context.Context, secretID uuid.UUID, userID uuid.UUID) error
 	DeleteSpecificVersion(ctx context.Context, secretID uuid.UUID, version int, userID uuid.UUID) error
 
@@ -93,8 +86,11 @@ func (s *versioningService) CreateVersion(ctx context.Context, req CreateVersion
 		return nil, fmt.Errorf("user not found: %w", err)
 	}
 
-	// Validate secret exists and user owns it
-	secret, err := s.secretRepo.Read(ctx, req.SecretID)
+	// Validate secret exists and user owns it. The read itself is unchecked
+	// (admin scope): CreateVersion is called both directly by owner-scoped
+	// callers and internally by UpdateSecret with the secret's real owner, so
+	// the explicit ownership check below is the actual authorization gate.
+	secret, err := s.secretRepo.Read(ctx, req.SecretID, model.NewAdminScope(req.UserID))
 	if err != nil {
 		s.log.WithError(err).WithField("secret_id", req.SecretID).Error("Secret not found for version creation")
 		return nil, fmt.Errorf("secret not found: %w", err)
@@ -141,10 +137,10 @@ func (s *versioningService) CreateVersion(ctx context.Context, req CreateVersion
 	return version, nil
 }
 
-// GetVersionsScoped retrieves all versions of a secret the scope authorizes.
+// GetVersions retrieves all versions of a secret the scope authorizes.
 // The scoped read on the parent secret is the access check.
-func (s *versioningService) GetVersionsScoped(ctx context.Context, secretID uuid.UUID, scope model.Scope) ([]model.SecretVersion, error) {
-	if _, err := s.secretRepo.ReadScoped(ctx, secretID, scope); err != nil {
+func (s *versioningService) GetVersions(ctx context.Context, secretID uuid.UUID, scope model.Scope) ([]model.SecretVersion, error) {
+	if _, err := s.secretRepo.Read(ctx, secretID, scope); err != nil {
 		return nil, fmt.Errorf("%w: %s", ErrSecretNotFound, err.Error())
 	}
 
@@ -168,9 +164,9 @@ func (s *versioningService) GetVersionsScoped(ctx context.Context, secretID uuid
 	return versions, nil
 }
 
-// GetVersionScoped retrieves one version of a secret the scope authorizes.
-func (s *versioningService) GetVersionScoped(ctx context.Context, secretID uuid.UUID, version int, scope model.Scope) (*model.SecretVersion, error) {
-	if _, err := s.secretRepo.ReadScoped(ctx, secretID, scope); err != nil {
+// GetVersion retrieves one version of a secret the scope authorizes.
+func (s *versioningService) GetVersion(ctx context.Context, secretID uuid.UUID, version int, scope model.Scope) (*model.SecretVersion, error) {
+	if _, err := s.secretRepo.Read(ctx, secretID, scope); err != nil {
 		return nil, fmt.Errorf("%w: %s", ErrSecretNotFound, err.Error())
 	}
 
@@ -195,9 +191,9 @@ func (s *versioningService) GetVersionScoped(ctx context.Context, secretID uuid.
 	return encryptedVersion, nil
 }
 
-// GetLatestVersionScoped retrieves the newest version the scope authorizes.
-func (s *versioningService) GetLatestVersionScoped(ctx context.Context, secretID uuid.UUID, scope model.Scope) (*model.SecretVersion, error) {
-	if _, err := s.secretRepo.ReadScoped(ctx, secretID, scope); err != nil {
+// GetLatestVersion retrieves the newest version the scope authorizes.
+func (s *versioningService) GetLatestVersion(ctx context.Context, secretID uuid.UUID, scope model.Scope) (*model.SecretVersion, error) {
+	if _, err := s.secretRepo.Read(ctx, secretID, scope); err != nil {
 		return nil, fmt.Errorf("%w: %s", ErrSecretNotFound, err.Error())
 	}
 
@@ -221,40 +217,11 @@ func (s *versioningService) GetLatestVersionScoped(ctx context.Context, secretID
 	return encryptedVersion, nil
 }
 
-// Deprecated: shim over GetVersionsScoped; removed in Phase 6.
-func (s *versioningService) GetVersions(ctx context.Context, secretID uuid.UUID, userID uuid.UUID) ([]model.SecretVersion, error) {
-	return s.GetVersionsScoped(ctx, secretID, model.NewOwnerScope(uuid.Nil, userID))
-}
-
-// Deprecated: shim over GetVersionScoped; removed in Phase 6.
-func (s *versioningService) GetVersion(ctx context.Context, secretID uuid.UUID, version int, userID uuid.UUID) (*model.SecretVersion, error) {
-	return s.GetVersionScoped(ctx, secretID, version, model.NewOwnerScope(uuid.Nil, userID))
-}
-
-// Deprecated: shim over GetLatestVersionScoped; removed in Phase 6.
-func (s *versioningService) GetLatestVersion(ctx context.Context, secretID uuid.UUID, userID uuid.UUID) (*model.SecretVersion, error) {
-	return s.GetLatestVersionScoped(ctx, secretID, model.NewOwnerScope(uuid.Nil, userID))
-}
-
-// Deprecated: shim over GetVersionsScoped; removed in Phase 6.
-func (s *versioningService) GetVersionsInVault(ctx context.Context, secretID, vaultID uuid.UUID) ([]model.SecretVersion, error) {
-	return s.GetVersionsScoped(ctx, secretID, model.NewVaultScope(vaultID, uuid.Nil))
-}
-
-// Deprecated: shim over GetVersionScoped; removed in Phase 6.
-func (s *versioningService) GetVersionInVault(ctx context.Context, secretID uuid.UUID, version int, vaultID uuid.UUID) (*model.SecretVersion, error) {
-	return s.GetVersionScoped(ctx, secretID, version, model.NewVaultScope(vaultID, uuid.Nil))
-}
-
-// Deprecated: shim over GetLatestVersionScoped; removed in Phase 6.
-func (s *versioningService) GetLatestVersionInVault(ctx context.Context, secretID, vaultID uuid.UUID) (*model.SecretVersion, error) {
-	return s.GetLatestVersionScoped(ctx, secretID, model.NewVaultScope(vaultID, uuid.Nil))
-}
-
 // DeleteVersions deletes all versions of a secret with ownership validation.
 func (s *versioningService) DeleteVersions(ctx context.Context, secretID uuid.UUID, userID uuid.UUID) error {
-	// Validate secret exists and user owns it
-	secret, err := s.secretRepo.Read(ctx, secretID)
+	// Validate secret exists and user owns it. The read itself is unchecked
+	// (admin scope); the explicit ownership check below is the actual gate.
+	secret, err := s.secretRepo.Read(ctx, secretID, model.NewAdminScope(userID))
 	if err != nil {
 		return fmt.Errorf("secret not found: %w", err)
 	}
@@ -279,8 +246,9 @@ func (s *versioningService) DeleteVersions(ctx context.Context, secretID uuid.UU
 
 // DeleteSpecificVersion deletes a specific version of a secret with ownership validation.
 func (s *versioningService) DeleteSpecificVersion(ctx context.Context, secretID uuid.UUID, version int, userID uuid.UUID) error {
-	// Validate secret exists and user owns it
-	secret, err := s.secretRepo.Read(ctx, secretID)
+	// Validate secret exists and user owns it. The read itself is unchecked
+	// (admin scope); the explicit ownership check below is the actual gate.
+	secret, err := s.secretRepo.Read(ctx, secretID, model.NewAdminScope(userID))
 	if err != nil {
 		return fmt.Errorf("secret not found: %w", err)
 	}
@@ -309,8 +277,9 @@ func (s *versioningService) DeleteSpecificVersion(ctx context.Context, secretID 
 
 // RollbackToVersion rolls back a secret to a specific version.
 func (s *versioningService) RollbackToVersion(ctx context.Context, req RollbackRequest) (*model.Secret, error) {
-	// Validate secret exists and user owns it
-	secret, err := s.secretRepo.Read(ctx, req.SecretID)
+	// Validate secret exists and user owns it. The read itself is unchecked
+	// (admin scope); the explicit ownership check below is the actual gate.
+	secret, err := s.secretRepo.Read(ctx, req.SecretID, model.NewAdminScope(req.UserID))
 	if err != nil {
 		return nil, fmt.Errorf("secret not found: %w", err)
 	}
@@ -351,7 +320,7 @@ func (s *versioningService) RollbackToVersion(ctx context.Context, req RollbackR
 	secret.Value = decryptedValue
 	secret.Version = secret.Version + 2 // Increment beyond backup version
 
-	err = s.secretRepo.Update(ctx, secret)
+	err = s.secretRepo.Update(ctx, secret, model.NewOwnerScope(secret.VaultID, secret.UserID))
 	if err != nil {
 		s.log.WithError(err).Error("Failed to update secret during rollback")
 		return nil, fmt.Errorf("failed to update secret during rollback: %w", err)

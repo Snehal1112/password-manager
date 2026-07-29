@@ -115,7 +115,7 @@ func (m *MockSecretRepository) Create(ctx context.Context, secret *model.Secret)
 	return args.Error(0)
 }
 
-func (m *MockSecretRepository) ReadScoped(ctx context.Context, id uuid.UUID, scope model.Scope) (*model.Secret, error) {
+func (m *MockSecretRepository) Read(ctx context.Context, id uuid.UUID, scope model.Scope) (*model.Secret, error) {
 	args := m.Called(ctx, id, scope)
 	if args.Get(0) == nil {
 		return nil, args.Error(1)
@@ -123,43 +123,17 @@ func (m *MockSecretRepository) ReadScoped(ctx context.Context, id uuid.UUID, sco
 	return args.Get(0).(*model.Secret), args.Error(1)
 }
 
-func (m *MockSecretRepository) UpdateScoped(ctx context.Context, secret *model.Secret, scope model.Scope) error {
+func (m *MockSecretRepository) Update(ctx context.Context, secret *model.Secret, scope model.Scope) error {
 	args := m.Called(ctx, secret, scope)
 	return args.Error(0)
 }
 
-func (m *MockSecretRepository) ListScoped(ctx context.Context, scope model.Scope, filter repositories.SecretFilter) ([]model.Secret, error) {
+func (m *MockSecretRepository) List(ctx context.Context, scope model.Scope, filter repositories.SecretFilter) ([]model.Secret, error) {
 	args := m.Called(ctx, scope, filter)
 	if args.Get(0) == nil {
 		return nil, args.Error(1)
 	}
 	return args.Get(0).([]model.Secret), args.Error(1)
-}
-
-func (m *MockSecretRepository) Read(ctx context.Context, id uuid.UUID) (*model.Secret, error) {
-	args := m.Called(ctx, id)
-	if args.Get(0) == nil {
-		return nil, args.Error(1)
-	}
-	return args.Get(0).(*model.Secret), args.Error(1)
-}
-
-func (m *MockSecretRepository) ReadByOwner(ctx context.Context, id, userID uuid.UUID) (*model.Secret, error) {
-	args := m.Called(ctx, id, userID)
-	if args.Get(0) == nil {
-		return nil, args.Error(1)
-	}
-	return args.Get(0).(*model.Secret), args.Error(1)
-}
-
-func (m *MockSecretRepository) Update(ctx context.Context, secret *model.Secret) error {
-	args := m.Called(ctx, secret)
-	return args.Error(0)
-}
-
-func (m *MockSecretRepository) UpdateInVault(ctx context.Context, secret *model.Secret) error {
-	args := m.Called(ctx, secret)
-	return args.Error(0)
 }
 
 func (m *MockSecretRepository) Delete(ctx context.Context, id uuid.UUID) error {
@@ -170,22 +144,6 @@ func (m *MockSecretRepository) Delete(ctx context.Context, id uuid.UUID) error {
 func (m *MockSecretRepository) SoftDelete(ctx context.Context, id uuid.UUID) error {
 	args := m.Called(ctx, id)
 	return args.Error(0)
-}
-
-func (m *MockSecretRepository) ListByUser(ctx context.Context, userID uuid.UUID, tags []string) ([]model.Secret, error) {
-	args := m.Called(ctx, userID, tags)
-	if args.Get(0) == nil {
-		return nil, args.Error(1)
-	}
-	return args.Get(0).([]model.Secret), args.Error(1)
-}
-
-func (m *MockSecretRepository) ListByUserIncludeDeleted(ctx context.Context, userID uuid.UUID, tags []string) ([]model.Secret, error) {
-	args := m.Called(ctx, userID, tags)
-	if args.Get(0) == nil {
-		return nil, args.Error(1)
-	}
-	return args.Get(0).([]model.Secret), args.Error(1)
 }
 
 func (m *MockSecretRepository) ExportSecrets(ctx context.Context, options model.ExportOptions) ([]byte, error) {
@@ -235,30 +193,6 @@ func (m *MockSecretRepository) PurgeSecret(ctx context.Context, id uuid.UUID) er
 	return args.Error(0)
 }
 
-func (m *MockSecretRepository) ReadInVault(ctx context.Context, id, vaultID uuid.UUID) (*model.Secret, error) {
-	args := m.Called(ctx, id, vaultID)
-	if args.Get(0) == nil {
-		return nil, args.Error(1)
-	}
-	return args.Get(0).(*model.Secret), args.Error(1)
-}
-
-func (m *MockSecretRepository) ListInVault(ctx context.Context, vaultID uuid.UUID, tags []string) ([]model.Secret, error) {
-	args := m.Called(ctx, vaultID, tags)
-	if args.Get(0) == nil {
-		return nil, args.Error(1)
-	}
-	return args.Get(0).([]model.Secret), args.Error(1)
-}
-
-func (m *MockSecretRepository) ListInVaultIncludeDeleted(ctx context.Context, vaultID uuid.UUID, tags []string) ([]model.Secret, error) {
-	args := m.Called(ctx, vaultID, tags)
-	if args.Get(0) == nil {
-		return nil, args.Error(1)
-	}
-	return args.Get(0).([]model.Secret), args.Error(1)
-}
-
 func (m *MockSecretRepository) SoftDeleteVaultContents(ctx context.Context, vaultID uuid.UUID, deletedAt time.Time) error {
 	args := m.Called(ctx, vaultID, deletedAt)
 	return args.Error(0)
@@ -301,55 +235,7 @@ func (m *MockVersioningService) CreateVersion(ctx context.Context, req secretSer
 	return args.Get(0).(*model.SecretVersion), args.Error(1)
 }
 
-func (m *MockVersioningService) GetVersions(ctx context.Context, secretID, userID uuid.UUID) ([]model.SecretVersion, error) {
-	args := m.Called(ctx, secretID, userID)
-	if args.Get(0) == nil {
-		return nil, args.Error(1)
-	}
-	return args.Get(0).([]model.SecretVersion), args.Error(1)
-}
-
-func (m *MockVersioningService) GetVersion(ctx context.Context, secretID uuid.UUID, version int, userID uuid.UUID) (*model.SecretVersion, error) {
-	args := m.Called(ctx, secretID, version, userID)
-	if args.Get(0) == nil {
-		return nil, args.Error(1)
-	}
-	return args.Get(0).(*model.SecretVersion), args.Error(1)
-}
-
-func (m *MockVersioningService) GetLatestVersion(ctx context.Context, secretID, userID uuid.UUID) (*model.SecretVersion, error) {
-	args := m.Called(ctx, secretID, userID)
-	if args.Get(0) == nil {
-		return nil, args.Error(1)
-	}
-	return args.Get(0).(*model.SecretVersion), args.Error(1)
-}
-
-func (m *MockVersioningService) GetVersionsInVault(ctx context.Context, secretID, vaultID uuid.UUID) ([]model.SecretVersion, error) {
-	args := m.Called(ctx, secretID, vaultID)
-	if v := args.Get(0); v != nil {
-		return v.([]model.SecretVersion), args.Error(1)
-	}
-	return nil, args.Error(1)
-}
-
-func (m *MockVersioningService) GetVersionInVault(ctx context.Context, secretID uuid.UUID, version int, vaultID uuid.UUID) (*model.SecretVersion, error) {
-	args := m.Called(ctx, secretID, version, vaultID)
-	if v := args.Get(0); v != nil {
-		return v.(*model.SecretVersion), args.Error(1)
-	}
-	return nil, args.Error(1)
-}
-
-func (m *MockVersioningService) GetLatestVersionInVault(ctx context.Context, secretID, vaultID uuid.UUID) (*model.SecretVersion, error) {
-	args := m.Called(ctx, secretID, vaultID)
-	if v := args.Get(0); v != nil {
-		return v.(*model.SecretVersion), args.Error(1)
-	}
-	return nil, args.Error(1)
-}
-
-func (m *MockVersioningService) GetVersionsScoped(ctx context.Context, secretID uuid.UUID, scope model.Scope) ([]model.SecretVersion, error) {
+func (m *MockVersioningService) GetVersions(ctx context.Context, secretID uuid.UUID, scope model.Scope) ([]model.SecretVersion, error) {
 	args := m.Called(ctx, secretID, scope)
 	if v := args.Get(0); v != nil {
 		return v.([]model.SecretVersion), args.Error(1)
@@ -357,7 +243,7 @@ func (m *MockVersioningService) GetVersionsScoped(ctx context.Context, secretID 
 	return nil, args.Error(1)
 }
 
-func (m *MockVersioningService) GetVersionScoped(ctx context.Context, secretID uuid.UUID, version int, scope model.Scope) (*model.SecretVersion, error) {
+func (m *MockVersioningService) GetVersion(ctx context.Context, secretID uuid.UUID, version int, scope model.Scope) (*model.SecretVersion, error) {
 	args := m.Called(ctx, secretID, version, scope)
 	if v := args.Get(0); v != nil {
 		return v.(*model.SecretVersion), args.Error(1)
@@ -365,7 +251,7 @@ func (m *MockVersioningService) GetVersionScoped(ctx context.Context, secretID u
 	return nil, args.Error(1)
 }
 
-func (m *MockVersioningService) GetLatestVersionScoped(ctx context.Context, secretID uuid.UUID, scope model.Scope) (*model.SecretVersion, error) {
+func (m *MockVersioningService) GetLatestVersion(ctx context.Context, secretID uuid.UUID, scope model.Scope) (*model.SecretVersion, error) {
 	args := m.Called(ctx, secretID, scope)
 	if v := args.Get(0); v != nil {
 		return v.(*model.SecretVersion), args.Error(1)

@@ -307,7 +307,7 @@ func TestUserIDFromClaims_ValidUUID_ReturnsTrue(t *testing.T) {
 
 func TestListDeletedSecrets_ServiceError_Returns500(t *testing.T) {
 	svc := &mockSecretService{}
-	svc.On("ListDeletedSecretsScoped", mock.Anything, mock.Anything).Return(nil, errTest)
+	svc.On("ListDeletedSecrets", mock.Anything, mock.Anything).Return(nil, errTest)
 	c := newSecretCtx(svc)
 	w := httptest.NewRecorder()
 	r := httptest.NewRequest(http.MethodGet, "/deleted/secrets", nil)
@@ -323,7 +323,7 @@ func TestListDeletedSecrets_ServiceError_Returns500(t *testing.T) {
 
 func TestListDeletedSecrets_EmptyList_Returns200(t *testing.T) {
 	svc := &mockSecretService{}
-	svc.On("ListDeletedSecretsScoped", mock.Anything, mock.Anything).Return([]model.Secret{}, nil)
+	svc.On("ListDeletedSecrets", mock.Anything, mock.Anything).Return([]model.Secret{}, nil)
 	c := newSecretCtx(svc)
 	w := httptest.NewRecorder()
 	r := httptest.NewRequest(http.MethodGet, "/deleted/secrets", nil)
@@ -340,7 +340,7 @@ func TestListDeletedSecrets_EmptyList_Returns200(t *testing.T) {
 func TestListDeletedSecrets_WithDeletedItems_Returns200(t *testing.T) {
 	now := time.Now()
 	svc := &mockSecretService{}
-	svc.On("ListDeletedSecretsScoped", mock.Anything, mock.Anything).Return([]model.Secret{
+	svc.On("ListDeletedSecrets", mock.Anything, mock.Anything).Return([]model.Secret{
 		{ID: uuid.New(), Name: "deleted-secret", DeletedAt: &now},
 	}, nil)
 	c := newSecretCtx(svc)
@@ -377,7 +377,7 @@ func TestRecoverSecret_InvalidID_Returns400(t *testing.T) {
 func TestRecoverSecret_NotFound_Returns404(t *testing.T) {
 	secretID := uuid.New()
 	svc := &mockSecretService{}
-	svc.On("RecoverSecretScoped", mock.Anything, secretID, mock.Anything).Return(secretServices.ErrSecretNotFound)
+	svc.On("RecoverSecret", mock.Anything, secretID, mock.Anything).Return(secretServices.ErrSecretNotFound)
 	c := newSecretCtx(svc)
 	c.Params = &ApiParams{SecretID: secretID.String(), PerPage: 60}
 	w := httptest.NewRecorder()
@@ -395,7 +395,7 @@ func TestRecoverSecret_NotFound_Returns404(t *testing.T) {
 func TestRecoverSecret_Success_Returns200(t *testing.T) {
 	secretID := uuid.New()
 	svc := &mockSecretService{}
-	svc.On("RecoverSecretScoped", mock.Anything, secretID, mock.Anything).Return(nil)
+	svc.On("RecoverSecret", mock.Anything, secretID, mock.Anything).Return(nil)
 	c := newSecretCtx(svc)
 	c.Params = &ApiParams{SecretID: secretID.String(), PerPage: 60}
 	w := httptest.NewRecorder()
@@ -431,7 +431,7 @@ func TestPurgeSecret_InvalidID_Returns400(t *testing.T) {
 func TestPurgeSecret_NotFound_Returns404(t *testing.T) {
 	secretID := uuid.New()
 	svc := &mockSecretService{}
-	svc.On("PurgeSecretScoped", mock.Anything, secretID, mock.Anything).Return(secretServices.ErrSecretNotFound)
+	svc.On("PurgeSecret", mock.Anything, secretID, mock.Anything).Return(secretServices.ErrSecretNotFound)
 	c := newSecretCtx(svc)
 	c.Params = &ApiParams{SecretID: secretID.String(), PerPage: 60}
 	w := httptest.NewRecorder()
@@ -449,7 +449,7 @@ func TestPurgeSecret_NotFound_Returns404(t *testing.T) {
 func TestPurgeSecret_Success_Returns200(t *testing.T) {
 	secretID := uuid.New()
 	svc := &mockSecretService{}
-	svc.On("PurgeSecretScoped", mock.Anything, secretID, mock.Anything).Return(nil)
+	svc.On("PurgeSecret", mock.Anything, secretID, mock.Anything).Return(nil)
 	c := newSecretCtx(svc)
 	c.Params = &ApiParams{SecretID: secretID.String(), PerPage: 60}
 	w := httptest.NewRecorder()

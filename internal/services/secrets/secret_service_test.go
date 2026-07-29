@@ -103,12 +103,13 @@ func TestGetSecret_HappyPath(t *testing.T) {
 	tag := &testutils.MockTagService{}
 
 	// Ownership is now enforced at the SQL level via the scoped read.
-	repo.On("ReadScoped", ctx, secretID, model.NewOwnerScope(uuid.Nil, userID)).Return(stored, nil)
+	scope := model.NewOwnerScope(uuid.Nil, userID)
+	repo.On("Read", ctx, secretID, scope).Return(stored, nil)
 	crypto.On("DecryptSecret", "enc").Return("plain", nil)
 	tag.On("GetTags", ctx, secretID).Return([]string{"k:v"}, nil)
 
 	svc := newService(repo, crypto, ver, tag, t)
-	got, err := svc.GetSecret(ctx, secretID, userID)
+	got, err := svc.GetSecret(ctx, secretID, scope)
 
 	require.NoError(t, err)
 	assert.Equal(t, "plain", got.Value)
@@ -128,12 +129,12 @@ func TestGetSecret_WrongOwner(t *testing.T) {
 	tag := &testutils.MockTagService{}
 
 	// The scoped read returns an error when the user is not the owner.
-	repo.On("ReadScoped", ctx, secretID, model.NewOwnerScope(uuid.Nil, otherID)).Return(nil, errors.New("secret not found or access denied"))
+	repo.On("Read", ctx, secretID, model.NewOwnerScope(uuid.Nil, otherID)).Return(nil, errors.New("secret not found or access denied"))
 	// ownerID is referenced only to show intent; the mock key is otherID.
 	_ = ownerID
 
 	svc := newService(repo, crypto, ver, tag, t)
-	_, err := svc.GetSecret(ctx, secretID, otherID)
+	_, err := svc.GetSecret(ctx, secretID, model.NewOwnerScope(uuid.Nil, otherID))
 
 	require.Error(t, err)
 	// A failed owner-scoped read now yields the ErrSecretNotFound sentinel so
@@ -152,10 +153,10 @@ func TestGetSecret_NotFound(t *testing.T) {
 	ver := &testutils.MockVersioningService{}
 	tag := &testutils.MockTagService{}
 
-	repo.On("ReadScoped", ctx, secretID, model.NewOwnerScope(uuid.Nil, callerID)).Return(nil, errors.New("secret not found or access denied"))
+	repo.On("Read", ctx, secretID, model.NewOwnerScope(uuid.Nil, callerID)).Return(nil, errors.New("secret not found or access denied"))
 
 	svc := newService(repo, crypto, ver, tag, t)
-	_, err := svc.GetSecret(ctx, secretID, callerID)
+	_, err := svc.GetSecret(ctx, secretID, model.NewOwnerScope(uuid.Nil, callerID))
 
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "not found")
@@ -176,12 +177,12 @@ func TestDeleteSecret_HappyPath(t *testing.T) {
 	ver := &testutils.MockVersioningService{}
 	tag := &testutils.MockTagService{}
 
-	repo.On("ReadScoped", ctx, secretID, model.NewOwnerScope(uuid.Nil, userID)).Return(stored, nil)
+	repo.On("Read", ctx, secretID, model.NewOwnerScope(uuid.Nil, userID)).Return(stored, nil)
 	tag.On("RemoveAllTags", ctx, secretID).Return(nil)
 	repo.On("SoftDelete", ctx, secretID).Return(nil)
 
 	svc := newService(repo, crypto, ver, tag, t)
-	err := svc.DeleteSecret(ctx, secretID, userID)
+	err := svc.DeleteSecret(ctx, secretID, model.NewOwnerScope(uuid.Nil, userID))
 
 	require.NoError(t, err)
 	tag.AssertExpectations(t)
@@ -202,11 +203,11 @@ func TestDeleteSecret_WrongOwner(t *testing.T) {
 	// A non-owner's scoped read finds no matching row, same as the SQL
 	// predicate excluding it; the access check happens at the scoped read,
 	// not via a separate Go-level ownership comparison.
-	repo.On("ReadScoped", ctx, secretID, model.NewOwnerScope(uuid.Nil, callerID)).
+	repo.On("Read", ctx, secretID, model.NewOwnerScope(uuid.Nil, callerID)).
 		Return(nil, errors.New("secret not found or access denied"))
 
 	svc := newService(repo, crypto, ver, tag, t)
-	err := svc.DeleteSecret(ctx, secretID, callerID)
+	err := svc.DeleteSecret(ctx, secretID, model.NewOwnerScope(uuid.Nil, callerID))
 
 	require.Error(t, err)
 	assert.ErrorIs(t, err, secrets.ErrSecretNotFound)
@@ -231,18 +232,18 @@ func TestUpdateSecret_HappyPath(t *testing.T) {
 
 	// Ownership is now enforced at the SQL level via the scoped read/write.
 	scope := model.NewOwnerScope(uuid.Nil, userID)
-	repo.On("ReadScoped", ctx, secretID, scope).Return(stored, nil)
+	repo.On("Read", ctx, secretID, scope).Return(stored, nil)
 	crypto.On("DecryptSecret", "enc-old").Return("old-plain", nil)
 	ver.On("CreateVersion", ctx, mock.AnythingOfType("secrets.CreateVersionRequest")).Return(
 		&model.SecretVersion{Version: 1}, nil,
 	)
 	crypto.On("EncryptSecret", newValue).Return("enc-new", nil)
-	repo.On("UpdateScoped", ctx, mock.AnythingOfType("*model.Secret"), scope).Return(nil)
+	repo.On("Update", ctx, mock.AnythingOfType("*model.Secret"), scope).Return(nil)
 
 	svc := newService(repo, crypto, ver, tag, t)
 	err := svc.UpdateSecret(ctx, secrets.UpdateSecretRequest{
 		SecretID: secretID,
-		UserID:   userID,
+		Scope:    scope,
 		Name:     &newName,
 		Value:    &newValue,
 	})
@@ -266,20 +267,20 @@ func TestUpdateSecret_WrongOwner(t *testing.T) {
 	// A non-owner's scoped read finds no matching row, same as the SQL
 	// predicate excluding it; the access check happens at the scoped read,
 	// not via a separate Go-level ownership comparison.
-	repo.On("ReadScoped", ctx, secretID, model.NewOwnerScope(uuid.Nil, callerID)).
+	repo.On("Read", ctx, secretID, model.NewOwnerScope(uuid.Nil, callerID)).
 		Return(nil, errors.New("secret not found or access denied"))
 
 	svc := newService(repo, crypto, ver, tag, t)
 	err := svc.UpdateSecret(ctx, secrets.UpdateSecretRequest{
 		SecretID: secretID,
-		UserID:   callerID,
+		Scope:    model.NewOwnerScope(uuid.Nil, callerID),
 	})
 
 	require.Error(t, err)
 	assert.ErrorIs(t, err, secrets.ErrSecretNotFound)
 }
 
-func TestUpdateSecretInVault_HappyPath(t *testing.T) {
+func TestUpdateSecret_VaultScope_HappyPath(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	callerID := uuid.New() // a different vault member than the secret's original owner
@@ -297,19 +298,18 @@ func TestUpdateSecretInVault_HappyPath(t *testing.T) {
 	tag := &testutils.MockTagService{}
 
 	scope := model.NewVaultScope(vaultID, callerID)
-	repo.On("ReadScoped", ctx, secretID, scope).Return(stored, nil)
+	repo.On("Read", ctx, secretID, scope).Return(stored, nil)
 	crypto.On("DecryptSecret", "enc-old").Return("old-plain", nil)
 	ver.On("CreateVersion", ctx, mock.AnythingOfType("secrets.CreateVersionRequest")).Return(
 		&model.SecretVersion{Version: 1}, nil,
 	)
 	crypto.On("EncryptSecret", newValue).Return("enc-new", nil)
-	repo.On("UpdateScoped", ctx, mock.AnythingOfType("*model.Secret"), scope).Return(nil)
+	repo.On("Update", ctx, mock.AnythingOfType("*model.Secret"), scope).Return(nil)
 
 	svc := newService(repo, crypto, ver, tag, t)
-	err := svc.UpdateSecretInVault(ctx, secrets.UpdateSecretRequest{
+	err := svc.UpdateSecret(ctx, secrets.UpdateSecretRequest{
 		SecretID: secretID,
-		UserID:   callerID,
-		VaultID:  vaultID,
+		Scope:    scope,
 		Name:     &newName,
 		Value:    &newValue,
 	})
@@ -319,7 +319,7 @@ func TestUpdateSecretInVault_HappyPath(t *testing.T) {
 	repo.AssertExpectations(t)
 }
 
-func TestUpdateSecretInVault_WrongVault(t *testing.T) {
+func TestUpdateSecret_VaultScope_WrongVault(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	secretID := uuid.New()
@@ -331,14 +331,13 @@ func TestUpdateSecretInVault_WrongVault(t *testing.T) {
 	ver := &testutils.MockVersioningService{}
 	tag := &testutils.MockTagService{}
 
-	repo.On("ReadScoped", ctx, secretID, model.NewVaultScope(vaultID, callerID)).
+	repo.On("Read", ctx, secretID, model.NewVaultScope(vaultID, callerID)).
 		Return(nil, errors.New("secret not found or access denied"))
 
 	svc := newService(repo, crypto, ver, tag, t)
-	err := svc.UpdateSecretInVault(ctx, secrets.UpdateSecretRequest{
+	err := svc.UpdateSecret(ctx, secrets.UpdateSecretRequest{
 		SecretID: secretID,
-		UserID:   callerID,
-		VaultID:  vaultID,
+		Scope:    model.NewVaultScope(vaultID, callerID),
 	})
 
 	require.Error(t, err)
@@ -363,14 +362,14 @@ func TestListSecrets_DecryptsAndLoadsTags(t *testing.T) {
 	ver := &testutils.MockVersioningService{}
 	tag := &testutils.MockTagService{}
 
-	repo.On("ListScoped", ctx, model.NewOwnerScope(uuid.Nil, userID), repositories.SecretFilter{Tags: nil}).Return(stored, nil)
+	repo.On("List", ctx, model.NewOwnerScope(uuid.Nil, userID), repositories.SecretFilter{Tags: nil}).Return(stored, nil)
 	crypto.On("DecryptSecret", "enc-a").Return("plain-a", nil)
 	crypto.On("DecryptSecret", "enc-b").Return("plain-b", nil)
 	tag.On("GetTags", ctx, id1).Return([]string{"x"}, nil)
 	tag.On("GetTags", ctx, id2).Return([]string{}, nil)
 
 	svc := newService(repo, crypto, ver, tag, t)
-	got, err := svc.ListSecrets(ctx, userID, nil)
+	got, err := svc.ListSecrets(ctx, model.NewOwnerScope(uuid.Nil, userID), nil)
 
 	require.NoError(t, err)
 	require.Len(t, got, 2)
@@ -540,17 +539,14 @@ func TestExportSecrets_VaultScoped_UsesListSecretsInVault(t *testing.T) {
 	tag := &testutils.MockTagService{}
 
 	stored := []model.Secret{{ID: uuid.New(), VaultID: vaultID, Name: "s1", Value: "enc-v1"}}
-	// ExportSecrets falls back to a vault scope built from the legacy VaultID
-	// shim field, with UserID carried through as the actor for audit purposes.
-	repo.On("ListScoped", ctx, model.NewVaultScope(vaultID, userID), repositories.SecretFilter{Tags: nil}).Return(stored, nil)
+	repo.On("List", ctx, model.NewVaultScope(vaultID, userID), repositories.SecretFilter{Tags: nil}).Return(stored, nil)
 	crypto.On("DecryptSecret", "enc-v1").Return("plain-v1", nil)
 	tag.On("GetTags", ctx, stored[0].ID).Return([]string{}, nil)
 
 	svc := newService(repo, crypto, ver, tag, t)
 	data, err := svc.ExportSecrets(ctx, secrets.ExportSecretsRequest{
-		UserID:  userID,
-		VaultID: vaultID,
-		Format:  "json",
+		Scope:  model.NewVaultScope(vaultID, userID),
+		Format: "json",
 	})
 
 	require.NoError(t, err)
@@ -576,10 +572,9 @@ func TestImportSecrets_VaultScoped_ThreadsVaultIDIntoCreatedSecrets(t *testing.T
 	svc := newService(repo, crypto, ver, tag, t)
 	data := []byte(`[{"name":"n1","value":"v1"}]`)
 	result, err := svc.ImportSecrets(ctx, secrets.ImportSecretsRequest{
-		UserID:  uuid.New(),
-		VaultID: vaultID,
-		Data:    data,
-		Format:  "json",
+		Scope:  model.NewVaultScope(vaultID, uuid.New()),
+		Data:   data,
+		Format: "json",
 	})
 
 	require.NoError(t, err)
@@ -587,11 +582,11 @@ func TestImportSecrets_VaultScoped_ThreadsVaultIDIntoCreatedSecrets(t *testing.T
 	repo.AssertExpectations(t)
 }
 
-// TestUpdateSecretInVault_NonOwnerVaultMember_CreateVersionUsesSecretOwner
+// TestUpdateSecret_VaultScope_NonOwnerVaultMember_CreateVersionUsesSecretOwner
 // proves that a vault member who is not the secret's owner can still update
 // it: CreateVersion must be invoked with the secret's actual owner, not the
 // caller, or its internal ownership check rejects a legitimate update.
-func TestUpdateSecretInVault_NonOwnerVaultMember_CreateVersionUsesSecretOwner(t *testing.T) {
+func TestUpdateSecret_VaultScope_NonOwnerVaultMember_CreateVersionUsesSecretOwner(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	ownerID := uuid.New()
@@ -610,7 +605,7 @@ func TestUpdateSecretInVault_NonOwnerVaultMember_CreateVersionUsesSecretOwner(t 
 	tag := &testutils.MockTagService{}
 
 	scope := model.NewVaultScope(vaultID, callerID)
-	repo.On("ReadScoped", ctx, secretID, scope).Return(current, nil)
+	repo.On("Read", ctx, secretID, scope).Return(current, nil)
 	crypto.On("DecryptSecret", "encrypted-current").Return("plaintext-current", nil)
 	crypto.On("EncryptSecret", "new-plaintext").Return("encrypted-new", nil)
 
@@ -620,14 +615,13 @@ func TestUpdateSecretInVault_NonOwnerVaultMember_CreateVersionUsesSecretOwner(t 
 			gotVersionReq = args.Get(1).(secrets.CreateVersionRequest)
 		}).
 		Return(&model.SecretVersion{}, nil)
-	repo.On("UpdateScoped", ctx, mock.AnythingOfType("*model.Secret"), scope).Return(nil)
+	repo.On("Update", ctx, mock.AnythingOfType("*model.Secret"), scope).Return(nil)
 
 	svc := newService(repo, crypto, ver, tag, t)
 	newValue := "new-plaintext"
-	err := svc.UpdateSecretInVault(ctx, secrets.UpdateSecretRequest{
+	err := svc.UpdateSecret(ctx, secrets.UpdateSecretRequest{
 		SecretID: secretID,
-		VaultID:  vaultID,
-		UserID:   callerID,
+		Scope:    scope,
 		Value:    &newValue,
 	})
 

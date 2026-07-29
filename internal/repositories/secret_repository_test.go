@@ -52,7 +52,7 @@ func newTestSecretLogger(t *testing.T) *logging.Logger {
 	return &logging.Logger{Logger: l}
 }
 
-func TestSecretRepository_ReadByOwner_WrongUserReturnsError(t *testing.T) {
+func TestSecretRepository_Read_OwnerScope_WrongUserReturnsError(t *testing.T) {
 	t.Parallel()
 	db := setupSecretTestDB(t)
 	repo := repositories.NewSecretRepository(rvdb.NewConn(db, rvdb.SQLite), newTestSecretLogger(t))
@@ -72,18 +72,18 @@ func TestSecretRepository_ReadByOwner_WrongUserReturnsError(t *testing.T) {
 	require.NoError(t, repo.Create(ctx, secret))
 
 	// Owner can read their own secret.
-	found, err := repo.ReadByOwner(ctx, secret.ID, ownerID)
+	found, err := repo.Read(ctx, secret.ID, model.NewOwnerScope(uuid.Nil, ownerID))
 	require.NoError(t, err)
 	assert.Equal(t, secret.ID, found.ID)
 	assert.Equal(t, ownerID, found.UserID)
 
 	// Non-owner must receive an error — no data returned.
-	_, err = repo.ReadByOwner(ctx, secret.ID, otherID)
-	assert.Error(t, err, "ReadByOwner must fail for a wrong user_id")
+	_, err = repo.Read(ctx, secret.ID, model.NewOwnerScope(uuid.Nil, otherID))
+	assert.Error(t, err, "an owner scope must fail for a wrong user_id")
 	assert.Contains(t, err.Error(), "not found")
 }
 
-func TestSecretRepository_ReadByOwner_SoftDeletedSecretNotVisible(t *testing.T) {
+func TestSecretRepository_Read_OwnerScope_SoftDeletedSecretNotVisible(t *testing.T) {
 	t.Parallel()
 	db := setupSecretTestDB(t)
 	repo := repositories.NewSecretRepository(rvdb.NewConn(db, rvdb.SQLite), newTestSecretLogger(t))
@@ -102,9 +102,9 @@ func TestSecretRepository_ReadByOwner_SoftDeletedSecretNotVisible(t *testing.T) 
 	require.NoError(t, repo.Create(ctx, secret))
 	require.NoError(t, repo.SoftDelete(ctx, secret.ID))
 
-	// Even the owner cannot read a soft-deleted secret via ReadByOwner.
-	_, err := repo.ReadByOwner(ctx, secret.ID, ownerID)
-	assert.Error(t, err, "ReadByOwner must not return a soft-deleted secret")
+	// Even the owner cannot read a soft-deleted secret via an owner scope.
+	_, err := repo.Read(ctx, secret.ID, model.NewOwnerScope(uuid.Nil, ownerID))
+	assert.Error(t, err, "an owner scope must not return a soft-deleted secret")
 	assert.Contains(t, err.Error(), "not found")
 }
 
@@ -132,7 +132,7 @@ func TestSecretLifecycleAttributes_PersistAndLoad(t *testing.T) {
 	}
 	require.NoError(t, repo.Create(context.Background(), s))
 
-	loaded, err := repo.Read(context.Background(), s.ID)
+	loaded, err := repo.Read(context.Background(), s.ID, model.NewAdminScope(uuid.Nil))
 	require.NoError(t, err)
 	require.True(t, loaded.Enabled)
 	require.NotNil(t, loaded.ExpiresAt)
@@ -140,9 +140,9 @@ func TestSecretLifecycleAttributes_PersistAndLoad(t *testing.T) {
 	require.NotNil(t, loaded.NotBefore)
 }
 
-// TestSecretRepository_ListInVault_ScopesByVault verifies that ListInVault returns
-// only secrets belonging to the requested vault.
-func TestSecretRepository_ListInVault_ScopesByVault(t *testing.T) {
+// TestSecretRepository_List_VaultScope_ScopesByVault verifies that a vault
+// scope returns only secrets belonging to the requested vault.
+func TestSecretRepository_List_VaultScope_ScopesByVault(t *testing.T) {
 	t.Parallel()
 	db := setupSecretTestDB(t)
 	repo := repositories.NewSecretRepository(rvdb.NewConn(db, rvdb.SQLite), newTestSecretLogger(t))
@@ -156,17 +156,17 @@ func TestSecretRepository_ListInVault_ScopesByVault(t *testing.T) {
 	require.NoError(t, repo.Create(ctx, mk("b", vaultA)))
 	require.NoError(t, repo.Create(ctx, mk("c", vaultB)))
 
-	gotA, err := repo.ListInVault(ctx, vaultA, nil)
+	gotA, err := repo.List(ctx, model.NewVaultScope(vaultA, uuid.Nil), repositories.SecretFilter{})
 	require.NoError(t, err)
 	require.Len(t, gotA, 2)
-	gotB, err := repo.ListInVault(ctx, vaultB, nil)
+	gotB, err := repo.List(ctx, model.NewVaultScope(vaultB, uuid.Nil), repositories.SecretFilter{})
 	require.NoError(t, err)
 	require.Len(t, gotB, 1)
 }
 
-// TestListInVault_PopulatesVaultID verifies that ListInVault sets VaultID on each
-// returned secret to the vault it was queried with.
-func TestListInVault_PopulatesVaultID(t *testing.T) {
+// TestListVaultScope_PopulatesVaultID verifies that a vault-scoped List sets
+// VaultID on each returned secret to the vault it was queried with.
+func TestListVaultScope_PopulatesVaultID(t *testing.T) {
 	t.Parallel()
 	db := setupSecretTestDB(t)
 	repo := repositories.NewSecretRepository(rvdb.NewConn(db, rvdb.SQLite), newTestSecretLogger(t))
@@ -179,17 +179,17 @@ func TestListInVault_PopulatesVaultID(t *testing.T) {
 	require.NoError(t, repo.Create(ctx, mk("a")))
 	require.NoError(t, repo.Create(ctx, mk("b")))
 
-	got, err := repo.ListInVault(ctx, vaultA, nil)
+	got, err := repo.List(ctx, model.NewVaultScope(vaultA, uuid.Nil), repositories.SecretFilter{})
 	require.NoError(t, err)
 	require.Len(t, got, 2)
 	for _, s := range got {
-		assert.Equal(t, vaultA, s.VaultID, "ListInVault must populate VaultID on returned secrets")
+		assert.Equal(t, vaultA, s.VaultID, "a vault-scoped List must populate VaultID on returned secrets")
 	}
 }
 
-// TestListInVaultIncludeDeleted_PopulatesVaultID verifies that
-// ListInVaultIncludeDeleted sets VaultID on each returned secret.
-func TestListInVaultIncludeDeleted_PopulatesVaultID(t *testing.T) {
+// TestListVaultScopeIncludeDeleted_PopulatesVaultID verifies that a
+// vault-scoped List with IncludeDeleted sets VaultID on each returned secret.
+func TestListVaultScopeIncludeDeleted_PopulatesVaultID(t *testing.T) {
 	t.Parallel()
 	db := setupSecretTestDB(t)
 	repo := repositories.NewSecretRepository(rvdb.NewConn(db, rvdb.SQLite), newTestSecretLogger(t))
@@ -203,17 +203,17 @@ func TestListInVaultIncludeDeleted_PopulatesVaultID(t *testing.T) {
 	require.NoError(t, repo.Create(ctx, mk("b")))
 	require.NoError(t, repo.SoftDeleteVaultContents(ctx, vaultA, time.Now()))
 
-	got, err := repo.ListInVaultIncludeDeleted(ctx, vaultA, nil)
+	got, err := repo.List(ctx, model.NewVaultScope(vaultA, uuid.Nil), repositories.SecretFilter{IncludeDeleted: true})
 	require.NoError(t, err)
 	require.Len(t, got, 2)
 	for _, s := range got {
-		assert.Equal(t, vaultA, s.VaultID, "ListInVaultIncludeDeleted must populate VaultID on returned secrets")
+		assert.Equal(t, vaultA, s.VaultID, "a vault-scoped List must populate VaultID on returned secrets")
 	}
 }
 
-// TestSecretRepository_UpdateInVault_UpdatesWhenVaultMatches verifies that
-// UpdateInVault applies the update when the secret belongs to the given vault.
-func TestSecretRepository_UpdateInVault_UpdatesWhenVaultMatches(t *testing.T) {
+// TestSecretRepository_Update_VaultScope_UpdatesWhenVaultMatches verifies that
+// a vault-scoped Update applies when the secret belongs to the given vault.
+func TestSecretRepository_Update_VaultScope_UpdatesWhenVaultMatches(t *testing.T) {
 	t.Parallel()
 	db := setupSecretTestDB(t)
 	repo := repositories.NewSecretRepository(rvdb.NewConn(db, rvdb.SQLite), newTestSecretLogger(t))
@@ -229,20 +229,20 @@ func TestSecretRepository_UpdateInVault_UpdatesWhenVaultMatches(t *testing.T) {
 	secret.Name = "s1-renamed"
 	secret.Value = "enc-v2"
 	secret.Version = 2
-	err := repo.UpdateInVault(ctx, secret)
+	err := repo.Update(ctx, secret, model.NewVaultScope(vaultID, uuid.Nil))
 	require.NoError(t, err)
 
-	got, err := repo.ReadInVault(ctx, secret.ID, vaultID)
+	got, err := repo.Read(ctx, secret.ID, model.NewVaultScope(vaultID, uuid.Nil))
 	require.NoError(t, err)
 	assert.Equal(t, "s1-renamed", got.Name)
 	assert.Equal(t, "enc-v2", got.Value)
 	assert.Equal(t, 2, got.Version)
 }
 
-// TestSecretRepository_UpdateInVault_NoOpWhenVaultMismatch verifies that
-// UpdateInVault fails (and leaves the row unchanged) when the vault ID on
-// the secret does not match the vault the row actually belongs to.
-func TestSecretRepository_UpdateInVault_NoOpWhenVaultMismatch(t *testing.T) {
+// TestSecretRepository_Update_VaultScope_NoOpWhenVaultMismatch verifies that
+// a vault-scoped Update fails (and leaves the row unchanged) when the scope's
+// vault does not match the vault the row actually belongs to.
+func TestSecretRepository_Update_VaultScope_NoOpWhenVaultMismatch(t *testing.T) {
 	t.Parallel()
 	db := setupSecretTestDB(t)
 	repo := repositories.NewSecretRepository(rvdb.NewConn(db, rvdb.SQLite), newTestSecretLogger(t))
@@ -255,19 +255,18 @@ func TestSecretRepository_UpdateInVault_NoOpWhenVaultMismatch(t *testing.T) {
 	}
 	require.NoError(t, repo.Create(ctx, secret))
 
-	secret.VaultID = uuid.New() // wrong vault
 	secret.Name = "should-not-apply"
-	err := repo.UpdateInVault(ctx, secret)
+	err := repo.Update(ctx, secret, model.NewVaultScope(uuid.New(), uuid.Nil)) // wrong vault
 	require.Error(t, err)
 
-	got, err := repo.ReadInVault(ctx, secret.ID, realVault)
+	got, err := repo.Read(ctx, secret.ID, model.NewVaultScope(realVault, uuid.Nil))
 	require.NoError(t, err)
 	assert.Equal(t, "s1", got.Name) // unchanged
 }
 
 // TestSecretRepository_SoftDeleteVaultContents_HidesFromList verifies that after
-// soft-deleting a vault's contents, ListInVault returns nothing while
-// ListInVaultIncludeDeleted still returns the rows.
+// soft-deleting a vault's contents, a vault-scoped List returns nothing while
+// IncludeDeleted still returns the rows.
 func TestSecretRepository_SoftDeleteVaultContents_HidesFromList(t *testing.T) {
 	t.Parallel()
 	db := setupSecretTestDB(t)
@@ -283,11 +282,11 @@ func TestSecretRepository_SoftDeleteVaultContents_HidesFromList(t *testing.T) {
 
 	require.NoError(t, repo.SoftDeleteVaultContents(ctx, vaultA, time.Now()))
 
-	active, err := repo.ListInVault(ctx, vaultA, nil)
+	active, err := repo.List(ctx, model.NewVaultScope(vaultA, uuid.Nil), repositories.SecretFilter{})
 	require.NoError(t, err)
 	require.Len(t, active, 0)
 
-	all, err := repo.ListInVaultIncludeDeleted(ctx, vaultA, nil)
+	all, err := repo.List(ctx, model.NewVaultScope(vaultA, uuid.Nil), repositories.SecretFilter{IncludeDeleted: true})
 	require.NoError(t, err)
 	require.Len(t, all, 2)
 }
@@ -321,7 +320,7 @@ func TestSecretRepository_RecoverVaultContents_OnlyRestoresCascadeDeleted(t *tes
 	// Vault is recovered: only the cascade-deleted rows should come back.
 	require.NoError(t, repo.RecoverVaultContents(ctx, vaultA, vaultDeletedAt))
 
-	active, err := repo.ListInVault(ctx, vaultA, nil)
+	active, err := repo.List(ctx, model.NewVaultScope(vaultA, uuid.Nil), repositories.SecretFilter{})
 	require.NoError(t, err)
 	// Only "active" should be live again; "user-deleted" must remain soft-deleted.
 	require.Len(t, active, 1)
@@ -384,7 +383,7 @@ func TestSecretRepository_SoftDeleteVaultContentsTx_CommitsWithSharedTx(t *testi
 	require.NoError(t, repo.SoftDeleteVaultContentsTx(ctx, tx, vaultID, time.Now().UTC()))
 	require.NoError(t, tx.Commit())
 
-	_, err = repo.Read(ctx, secret.ID)
+	_, err = repo.Read(ctx, secret.ID, model.NewAdminScope(uuid.Nil))
 	require.Error(t, err, "secret must be hidden after commit")
 }
 
@@ -407,7 +406,7 @@ func TestSecretRepository_SoftDeleteVaultContentsTx_RollsBackWithSharedTx(t *tes
 	require.NoError(t, repo.SoftDeleteVaultContentsTx(ctx, tx, vaultID, time.Now().UTC()))
 	require.NoError(t, tx.Rollback())
 
-	_, err = repo.Read(ctx, secret.ID)
+	_, err = repo.Read(ctx, secret.ID, model.NewAdminScope(uuid.Nil))
 	require.NoError(t, err, "secret must still be active after rollback")
 }
 
@@ -422,12 +421,11 @@ func (f *fakeAuditPersister) PersistAudit(userID, action, details string) error 
 	return nil
 }
 
-// TestSecretRepository_UpdateInVault_DoesNotAudit proves that UpdateInVault
-// (a shim over UpdateScoped, Phase 6) emits no repository-level audit row.
-// Audit attribution belongs solely to the service layer, which knows the
-// real acting principal from the request; the repository only has a Scope.
-// See UpdateScoped's doc comment in secret_repository.go.
-func TestSecretRepository_UpdateInVault_DoesNotAudit(t *testing.T) {
+// TestSecretRepository_Update_VaultScope_DoesNotAudit proves that a
+// vault-scoped Update emits no repository-level audit row. Audit attribution
+// belongs solely to the service layer, which knows the real acting principal
+// from the request; the repository only has a Scope.
+func TestSecretRepository_Update_VaultScope_DoesNotAudit(t *testing.T) {
 	t.Parallel()
 	db := setupSecretTestDB(t)
 	logger := newTestSecretLogger(t)
@@ -445,21 +443,22 @@ func TestSecretRepository_UpdateInVault_DoesNotAudit(t *testing.T) {
 	}))
 
 	// Create() legitimately attributes its own audit row to the owner; reset
-	// here so the assertion below only covers the UpdateInVault call under test.
+	// here so the assertion below only covers the Update call under test.
 	persister.actors = nil
 
-	err := repo.UpdateInVault(ctx, &model.Secret{
+	err := repo.Update(ctx, &model.Secret{
 		ID: secretID, UserID: ownerID, VaultID: vaultID, Name: "s2", Value: "enc2", Version: 2,
-	})
+	}, model.NewVaultScope(vaultID, uuid.Nil))
 	require.NoError(t, err)
 
 	assert.Empty(t, persister.actors,
-		"UpdateInVault must not emit a repository-level audit row; attribution lives solely in the service layer")
+		"Update must not emit a repository-level audit row; attribution lives solely in the service layer")
 }
 
 // TestSecretRepository_Read_PopulatesVaultID pins the prerequisite fix from the
-// P1 spec: Read and ReadByOwner must select vault_id, so a scope-aware write can
-// never be handed an entity with a zero VaultID.
+// P1 spec: Read must select vault_id under both a vault scope and an owner
+// scope, so a scope-aware write can never be handed an entity with a zero
+// VaultID.
 func TestSecretRepository_Read_PopulatesVaultID(t *testing.T) {
 	t.Parallel()
 	db := setupSecretTestDB(t)
@@ -480,11 +479,11 @@ func TestSecretRepository_Read_PopulatesVaultID(t *testing.T) {
 	}
 	require.NoError(t, repo.Create(ctx, secret))
 
-	byID, err := repo.Read(ctx, secret.ID)
+	byID, err := repo.Read(ctx, secret.ID, model.NewAdminScope(uuid.Nil))
 	require.NoError(t, err)
 	assert.Equal(t, vaultID, byID.VaultID, "Read must populate VaultID")
 
-	byOwner, err := repo.ReadByOwner(ctx, secret.ID, ownerID)
+	byOwner, err := repo.Read(ctx, secret.ID, model.NewOwnerScope(uuid.Nil, ownerID))
 	require.NoError(t, err)
-	assert.Equal(t, vaultID, byOwner.VaultID, "ReadByOwner must populate VaultID")
+	assert.Equal(t, vaultID, byOwner.VaultID, "an owner-scoped Read must populate VaultID")
 }

@@ -182,132 +182,12 @@ func (_c *MockVersioningServiceInterface_DeleteVersions_Call) RunAndReturn(run f
 	return _c
 }
 
-// GetLatestVersion provides a mock function with given fields: ctx, secretID, userID
-func (_m *MockVersioningServiceInterface) GetLatestVersion(ctx context.Context, secretID uuid.UUID, userID uuid.UUID) (*model.SecretVersion, error) {
-	ret := _m.Called(ctx, secretID, userID)
-
-	if len(ret) == 0 {
-		panic("no return value specified for GetLatestVersion")
-	}
-
-	var r0 *model.SecretVersion
-	var r1 error
-	if rf, ok := ret.Get(0).(func(context.Context, uuid.UUID, uuid.UUID) (*model.SecretVersion, error)); ok {
-		return rf(ctx, secretID, userID)
-	}
-	if rf, ok := ret.Get(0).(func(context.Context, uuid.UUID, uuid.UUID) *model.SecretVersion); ok {
-		r0 = rf(ctx, secretID, userID)
-	} else {
-		if ret.Get(0) != nil {
-			r0 = ret.Get(0).(*model.SecretVersion)
-		}
-	}
-
-	if rf, ok := ret.Get(1).(func(context.Context, uuid.UUID, uuid.UUID) error); ok {
-		r1 = rf(ctx, secretID, userID)
-	} else {
-		r1 = ret.Error(1)
-	}
-
-	return r0, r1
-}
-
-// MockVersioningServiceInterface_GetLatestVersion_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'GetLatestVersion'
-type MockVersioningServiceInterface_GetLatestVersion_Call struct {
-	*mock.Call
-}
-
-// GetLatestVersion is a helper method to define mock.On call
-//   - ctx context.Context
-//   - secretID uuid.UUID
-//   - userID uuid.UUID
-func (_e *MockVersioningServiceInterface_Expecter) GetLatestVersion(ctx interface{}, secretID interface{}, userID interface{}) *MockVersioningServiceInterface_GetLatestVersion_Call {
-	return &MockVersioningServiceInterface_GetLatestVersion_Call{Call: _e.mock.On("GetLatestVersion", ctx, secretID, userID)}
-}
-
-func (_c *MockVersioningServiceInterface_GetLatestVersion_Call) Run(run func(ctx context.Context, secretID uuid.UUID, userID uuid.UUID)) *MockVersioningServiceInterface_GetLatestVersion_Call {
-	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(context.Context), args[1].(uuid.UUID), args[2].(uuid.UUID))
-	})
-	return _c
-}
-
-func (_c *MockVersioningServiceInterface_GetLatestVersion_Call) Return(_a0 *model.SecretVersion, _a1 error) *MockVersioningServiceInterface_GetLatestVersion_Call {
-	_c.Call.Return(_a0, _a1)
-	return _c
-}
-
-func (_c *MockVersioningServiceInterface_GetLatestVersion_Call) RunAndReturn(run func(context.Context, uuid.UUID, uuid.UUID) (*model.SecretVersion, error)) *MockVersioningServiceInterface_GetLatestVersion_Call {
-	_c.Call.Return(run)
-	return _c
-}
-
-// GetLatestVersionInVault provides a mock function with given fields: ctx, secretID, vaultID
-func (_m *MockVersioningServiceInterface) GetLatestVersionInVault(ctx context.Context, secretID uuid.UUID, vaultID uuid.UUID) (*model.SecretVersion, error) {
-	ret := _m.Called(ctx, secretID, vaultID)
-
-	if len(ret) == 0 {
-		panic("no return value specified for GetLatestVersionInVault")
-	}
-
-	var r0 *model.SecretVersion
-	var r1 error
-	if rf, ok := ret.Get(0).(func(context.Context, uuid.UUID, uuid.UUID) (*model.SecretVersion, error)); ok {
-		return rf(ctx, secretID, vaultID)
-	}
-	if rf, ok := ret.Get(0).(func(context.Context, uuid.UUID, uuid.UUID) *model.SecretVersion); ok {
-		r0 = rf(ctx, secretID, vaultID)
-	} else {
-		if ret.Get(0) != nil {
-			r0 = ret.Get(0).(*model.SecretVersion)
-		}
-	}
-
-	if rf, ok := ret.Get(1).(func(context.Context, uuid.UUID, uuid.UUID) error); ok {
-		r1 = rf(ctx, secretID, vaultID)
-	} else {
-		r1 = ret.Error(1)
-	}
-
-	return r0, r1
-}
-
-// MockVersioningServiceInterface_GetLatestVersionInVault_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'GetLatestVersionInVault'
-type MockVersioningServiceInterface_GetLatestVersionInVault_Call struct {
-	*mock.Call
-}
-
-// GetLatestVersionInVault is a helper method to define mock.On call
-//   - ctx context.Context
-//   - secretID uuid.UUID
-//   - vaultID uuid.UUID
-func (_e *MockVersioningServiceInterface_Expecter) GetLatestVersionInVault(ctx interface{}, secretID interface{}, vaultID interface{}) *MockVersioningServiceInterface_GetLatestVersionInVault_Call {
-	return &MockVersioningServiceInterface_GetLatestVersionInVault_Call{Call: _e.mock.On("GetLatestVersionInVault", ctx, secretID, vaultID)}
-}
-
-func (_c *MockVersioningServiceInterface_GetLatestVersionInVault_Call) Run(run func(ctx context.Context, secretID uuid.UUID, vaultID uuid.UUID)) *MockVersioningServiceInterface_GetLatestVersionInVault_Call {
-	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(context.Context), args[1].(uuid.UUID), args[2].(uuid.UUID))
-	})
-	return _c
-}
-
-func (_c *MockVersioningServiceInterface_GetLatestVersionInVault_Call) Return(_a0 *model.SecretVersion, _a1 error) *MockVersioningServiceInterface_GetLatestVersionInVault_Call {
-	_c.Call.Return(_a0, _a1)
-	return _c
-}
-
-func (_c *MockVersioningServiceInterface_GetLatestVersionInVault_Call) RunAndReturn(run func(context.Context, uuid.UUID, uuid.UUID) (*model.SecretVersion, error)) *MockVersioningServiceInterface_GetLatestVersionInVault_Call {
-	_c.Call.Return(run)
-	return _c
-}
-
-// GetLatestVersionScoped provides a mock function with given fields: ctx, secretID, scope
-func (_m *MockVersioningServiceInterface) GetLatestVersionScoped(ctx context.Context, secretID uuid.UUID, scope model.Scope) (*model.SecretVersion, error) {
+// GetLatestVersion provides a mock function with given fields: ctx, secretID, scope
+func (_m *MockVersioningServiceInterface) GetLatestVersion(ctx context.Context, secretID uuid.UUID, scope model.Scope) (*model.SecretVersion, error) {
 	ret := _m.Called(ctx, secretID, scope)
 
 	if len(ret) == 0 {
-		panic("no return value specified for GetLatestVersionScoped")
+		panic("no return value specified for GetLatestVersion")
 	}
 
 	var r0 *model.SecretVersion
@@ -332,164 +212,42 @@ func (_m *MockVersioningServiceInterface) GetLatestVersionScoped(ctx context.Con
 	return r0, r1
 }
 
-// MockVersioningServiceInterface_GetLatestVersionScoped_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'GetLatestVersionScoped'
-type MockVersioningServiceInterface_GetLatestVersionScoped_Call struct {
+// MockVersioningServiceInterface_GetLatestVersion_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'GetLatestVersion'
+type MockVersioningServiceInterface_GetLatestVersion_Call struct {
 	*mock.Call
 }
 
-// GetLatestVersionScoped is a helper method to define mock.On call
+// GetLatestVersion is a helper method to define mock.On call
 //   - ctx context.Context
 //   - secretID uuid.UUID
 //   - scope model.Scope
-func (_e *MockVersioningServiceInterface_Expecter) GetLatestVersionScoped(ctx interface{}, secretID interface{}, scope interface{}) *MockVersioningServiceInterface_GetLatestVersionScoped_Call {
-	return &MockVersioningServiceInterface_GetLatestVersionScoped_Call{Call: _e.mock.On("GetLatestVersionScoped", ctx, secretID, scope)}
+func (_e *MockVersioningServiceInterface_Expecter) GetLatestVersion(ctx interface{}, secretID interface{}, scope interface{}) *MockVersioningServiceInterface_GetLatestVersion_Call {
+	return &MockVersioningServiceInterface_GetLatestVersion_Call{Call: _e.mock.On("GetLatestVersion", ctx, secretID, scope)}
 }
 
-func (_c *MockVersioningServiceInterface_GetLatestVersionScoped_Call) Run(run func(ctx context.Context, secretID uuid.UUID, scope model.Scope)) *MockVersioningServiceInterface_GetLatestVersionScoped_Call {
+func (_c *MockVersioningServiceInterface_GetLatestVersion_Call) Run(run func(ctx context.Context, secretID uuid.UUID, scope model.Scope)) *MockVersioningServiceInterface_GetLatestVersion_Call {
 	_c.Call.Run(func(args mock.Arguments) {
 		run(args[0].(context.Context), args[1].(uuid.UUID), args[2].(model.Scope))
 	})
 	return _c
 }
 
-func (_c *MockVersioningServiceInterface_GetLatestVersionScoped_Call) Return(_a0 *model.SecretVersion, _a1 error) *MockVersioningServiceInterface_GetLatestVersionScoped_Call {
+func (_c *MockVersioningServiceInterface_GetLatestVersion_Call) Return(_a0 *model.SecretVersion, _a1 error) *MockVersioningServiceInterface_GetLatestVersion_Call {
 	_c.Call.Return(_a0, _a1)
 	return _c
 }
 
-func (_c *MockVersioningServiceInterface_GetLatestVersionScoped_Call) RunAndReturn(run func(context.Context, uuid.UUID, model.Scope) (*model.SecretVersion, error)) *MockVersioningServiceInterface_GetLatestVersionScoped_Call {
+func (_c *MockVersioningServiceInterface_GetLatestVersion_Call) RunAndReturn(run func(context.Context, uuid.UUID, model.Scope) (*model.SecretVersion, error)) *MockVersioningServiceInterface_GetLatestVersion_Call {
 	_c.Call.Return(run)
 	return _c
 }
 
-// GetVersion provides a mock function with given fields: ctx, secretID, version, userID
-func (_m *MockVersioningServiceInterface) GetVersion(ctx context.Context, secretID uuid.UUID, version int, userID uuid.UUID) (*model.SecretVersion, error) {
-	ret := _m.Called(ctx, secretID, version, userID)
-
-	if len(ret) == 0 {
-		panic("no return value specified for GetVersion")
-	}
-
-	var r0 *model.SecretVersion
-	var r1 error
-	if rf, ok := ret.Get(0).(func(context.Context, uuid.UUID, int, uuid.UUID) (*model.SecretVersion, error)); ok {
-		return rf(ctx, secretID, version, userID)
-	}
-	if rf, ok := ret.Get(0).(func(context.Context, uuid.UUID, int, uuid.UUID) *model.SecretVersion); ok {
-		r0 = rf(ctx, secretID, version, userID)
-	} else {
-		if ret.Get(0) != nil {
-			r0 = ret.Get(0).(*model.SecretVersion)
-		}
-	}
-
-	if rf, ok := ret.Get(1).(func(context.Context, uuid.UUID, int, uuid.UUID) error); ok {
-		r1 = rf(ctx, secretID, version, userID)
-	} else {
-		r1 = ret.Error(1)
-	}
-
-	return r0, r1
-}
-
-// MockVersioningServiceInterface_GetVersion_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'GetVersion'
-type MockVersioningServiceInterface_GetVersion_Call struct {
-	*mock.Call
-}
-
-// GetVersion is a helper method to define mock.On call
-//   - ctx context.Context
-//   - secretID uuid.UUID
-//   - version int
-//   - userID uuid.UUID
-func (_e *MockVersioningServiceInterface_Expecter) GetVersion(ctx interface{}, secretID interface{}, version interface{}, userID interface{}) *MockVersioningServiceInterface_GetVersion_Call {
-	return &MockVersioningServiceInterface_GetVersion_Call{Call: _e.mock.On("GetVersion", ctx, secretID, version, userID)}
-}
-
-func (_c *MockVersioningServiceInterface_GetVersion_Call) Run(run func(ctx context.Context, secretID uuid.UUID, version int, userID uuid.UUID)) *MockVersioningServiceInterface_GetVersion_Call {
-	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(context.Context), args[1].(uuid.UUID), args[2].(int), args[3].(uuid.UUID))
-	})
-	return _c
-}
-
-func (_c *MockVersioningServiceInterface_GetVersion_Call) Return(_a0 *model.SecretVersion, _a1 error) *MockVersioningServiceInterface_GetVersion_Call {
-	_c.Call.Return(_a0, _a1)
-	return _c
-}
-
-func (_c *MockVersioningServiceInterface_GetVersion_Call) RunAndReturn(run func(context.Context, uuid.UUID, int, uuid.UUID) (*model.SecretVersion, error)) *MockVersioningServiceInterface_GetVersion_Call {
-	_c.Call.Return(run)
-	return _c
-}
-
-// GetVersionInVault provides a mock function with given fields: ctx, secretID, version, vaultID
-func (_m *MockVersioningServiceInterface) GetVersionInVault(ctx context.Context, secretID uuid.UUID, version int, vaultID uuid.UUID) (*model.SecretVersion, error) {
-	ret := _m.Called(ctx, secretID, version, vaultID)
-
-	if len(ret) == 0 {
-		panic("no return value specified for GetVersionInVault")
-	}
-
-	var r0 *model.SecretVersion
-	var r1 error
-	if rf, ok := ret.Get(0).(func(context.Context, uuid.UUID, int, uuid.UUID) (*model.SecretVersion, error)); ok {
-		return rf(ctx, secretID, version, vaultID)
-	}
-	if rf, ok := ret.Get(0).(func(context.Context, uuid.UUID, int, uuid.UUID) *model.SecretVersion); ok {
-		r0 = rf(ctx, secretID, version, vaultID)
-	} else {
-		if ret.Get(0) != nil {
-			r0 = ret.Get(0).(*model.SecretVersion)
-		}
-	}
-
-	if rf, ok := ret.Get(1).(func(context.Context, uuid.UUID, int, uuid.UUID) error); ok {
-		r1 = rf(ctx, secretID, version, vaultID)
-	} else {
-		r1 = ret.Error(1)
-	}
-
-	return r0, r1
-}
-
-// MockVersioningServiceInterface_GetVersionInVault_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'GetVersionInVault'
-type MockVersioningServiceInterface_GetVersionInVault_Call struct {
-	*mock.Call
-}
-
-// GetVersionInVault is a helper method to define mock.On call
-//   - ctx context.Context
-//   - secretID uuid.UUID
-//   - version int
-//   - vaultID uuid.UUID
-func (_e *MockVersioningServiceInterface_Expecter) GetVersionInVault(ctx interface{}, secretID interface{}, version interface{}, vaultID interface{}) *MockVersioningServiceInterface_GetVersionInVault_Call {
-	return &MockVersioningServiceInterface_GetVersionInVault_Call{Call: _e.mock.On("GetVersionInVault", ctx, secretID, version, vaultID)}
-}
-
-func (_c *MockVersioningServiceInterface_GetVersionInVault_Call) Run(run func(ctx context.Context, secretID uuid.UUID, version int, vaultID uuid.UUID)) *MockVersioningServiceInterface_GetVersionInVault_Call {
-	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(context.Context), args[1].(uuid.UUID), args[2].(int), args[3].(uuid.UUID))
-	})
-	return _c
-}
-
-func (_c *MockVersioningServiceInterface_GetVersionInVault_Call) Return(_a0 *model.SecretVersion, _a1 error) *MockVersioningServiceInterface_GetVersionInVault_Call {
-	_c.Call.Return(_a0, _a1)
-	return _c
-}
-
-func (_c *MockVersioningServiceInterface_GetVersionInVault_Call) RunAndReturn(run func(context.Context, uuid.UUID, int, uuid.UUID) (*model.SecretVersion, error)) *MockVersioningServiceInterface_GetVersionInVault_Call {
-	_c.Call.Return(run)
-	return _c
-}
-
-// GetVersionScoped provides a mock function with given fields: ctx, secretID, version, scope
-func (_m *MockVersioningServiceInterface) GetVersionScoped(ctx context.Context, secretID uuid.UUID, version int, scope model.Scope) (*model.SecretVersion, error) {
+// GetVersion provides a mock function with given fields: ctx, secretID, version, scope
+func (_m *MockVersioningServiceInterface) GetVersion(ctx context.Context, secretID uuid.UUID, version int, scope model.Scope) (*model.SecretVersion, error) {
 	ret := _m.Called(ctx, secretID, version, scope)
 
 	if len(ret) == 0 {
-		panic("no return value specified for GetVersionScoped")
+		panic("no return value specified for GetVersion")
 	}
 
 	var r0 *model.SecretVersion
@@ -514,163 +272,43 @@ func (_m *MockVersioningServiceInterface) GetVersionScoped(ctx context.Context, 
 	return r0, r1
 }
 
-// MockVersioningServiceInterface_GetVersionScoped_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'GetVersionScoped'
-type MockVersioningServiceInterface_GetVersionScoped_Call struct {
+// MockVersioningServiceInterface_GetVersion_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'GetVersion'
+type MockVersioningServiceInterface_GetVersion_Call struct {
 	*mock.Call
 }
 
-// GetVersionScoped is a helper method to define mock.On call
+// GetVersion is a helper method to define mock.On call
 //   - ctx context.Context
 //   - secretID uuid.UUID
 //   - version int
 //   - scope model.Scope
-func (_e *MockVersioningServiceInterface_Expecter) GetVersionScoped(ctx interface{}, secretID interface{}, version interface{}, scope interface{}) *MockVersioningServiceInterface_GetVersionScoped_Call {
-	return &MockVersioningServiceInterface_GetVersionScoped_Call{Call: _e.mock.On("GetVersionScoped", ctx, secretID, version, scope)}
+func (_e *MockVersioningServiceInterface_Expecter) GetVersion(ctx interface{}, secretID interface{}, version interface{}, scope interface{}) *MockVersioningServiceInterface_GetVersion_Call {
+	return &MockVersioningServiceInterface_GetVersion_Call{Call: _e.mock.On("GetVersion", ctx, secretID, version, scope)}
 }
 
-func (_c *MockVersioningServiceInterface_GetVersionScoped_Call) Run(run func(ctx context.Context, secretID uuid.UUID, version int, scope model.Scope)) *MockVersioningServiceInterface_GetVersionScoped_Call {
+func (_c *MockVersioningServiceInterface_GetVersion_Call) Run(run func(ctx context.Context, secretID uuid.UUID, version int, scope model.Scope)) *MockVersioningServiceInterface_GetVersion_Call {
 	_c.Call.Run(func(args mock.Arguments) {
 		run(args[0].(context.Context), args[1].(uuid.UUID), args[2].(int), args[3].(model.Scope))
 	})
 	return _c
 }
 
-func (_c *MockVersioningServiceInterface_GetVersionScoped_Call) Return(_a0 *model.SecretVersion, _a1 error) *MockVersioningServiceInterface_GetVersionScoped_Call {
+func (_c *MockVersioningServiceInterface_GetVersion_Call) Return(_a0 *model.SecretVersion, _a1 error) *MockVersioningServiceInterface_GetVersion_Call {
 	_c.Call.Return(_a0, _a1)
 	return _c
 }
 
-func (_c *MockVersioningServiceInterface_GetVersionScoped_Call) RunAndReturn(run func(context.Context, uuid.UUID, int, model.Scope) (*model.SecretVersion, error)) *MockVersioningServiceInterface_GetVersionScoped_Call {
+func (_c *MockVersioningServiceInterface_GetVersion_Call) RunAndReturn(run func(context.Context, uuid.UUID, int, model.Scope) (*model.SecretVersion, error)) *MockVersioningServiceInterface_GetVersion_Call {
 	_c.Call.Return(run)
 	return _c
 }
 
-// GetVersions provides a mock function with given fields: ctx, secretID, userID
-func (_m *MockVersioningServiceInterface) GetVersions(ctx context.Context, secretID uuid.UUID, userID uuid.UUID) ([]model.SecretVersion, error) {
-	ret := _m.Called(ctx, secretID, userID)
-
-	if len(ret) == 0 {
-		panic("no return value specified for GetVersions")
-	}
-
-	var r0 []model.SecretVersion
-	var r1 error
-	if rf, ok := ret.Get(0).(func(context.Context, uuid.UUID, uuid.UUID) ([]model.SecretVersion, error)); ok {
-		return rf(ctx, secretID, userID)
-	}
-	if rf, ok := ret.Get(0).(func(context.Context, uuid.UUID, uuid.UUID) []model.SecretVersion); ok {
-		r0 = rf(ctx, secretID, userID)
-	} else {
-		if ret.Get(0) != nil {
-			r0 = ret.Get(0).([]model.SecretVersion)
-		}
-	}
-
-	if rf, ok := ret.Get(1).(func(context.Context, uuid.UUID, uuid.UUID) error); ok {
-		r1 = rf(ctx, secretID, userID)
-	} else {
-		r1 = ret.Error(1)
-	}
-
-	return r0, r1
-}
-
-// MockVersioningServiceInterface_GetVersions_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'GetVersions'
-type MockVersioningServiceInterface_GetVersions_Call struct {
-	*mock.Call
-}
-
-// GetVersions is a helper method to define mock.On call
-//   - ctx context.Context
-//   - secretID uuid.UUID
-//   - userID uuid.UUID
-func (_e *MockVersioningServiceInterface_Expecter) GetVersions(ctx interface{}, secretID interface{}, userID interface{}) *MockVersioningServiceInterface_GetVersions_Call {
-	return &MockVersioningServiceInterface_GetVersions_Call{Call: _e.mock.On("GetVersions", ctx, secretID, userID)}
-}
-
-func (_c *MockVersioningServiceInterface_GetVersions_Call) Run(run func(ctx context.Context, secretID uuid.UUID, userID uuid.UUID)) *MockVersioningServiceInterface_GetVersions_Call {
-	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(context.Context), args[1].(uuid.UUID), args[2].(uuid.UUID))
-	})
-	return _c
-}
-
-func (_c *MockVersioningServiceInterface_GetVersions_Call) Return(_a0 []model.SecretVersion, _a1 error) *MockVersioningServiceInterface_GetVersions_Call {
-	_c.Call.Return(_a0, _a1)
-	return _c
-}
-
-func (_c *MockVersioningServiceInterface_GetVersions_Call) RunAndReturn(run func(context.Context, uuid.UUID, uuid.UUID) ([]model.SecretVersion, error)) *MockVersioningServiceInterface_GetVersions_Call {
-	_c.Call.Return(run)
-	return _c
-}
-
-// GetVersionsInVault provides a mock function with given fields: ctx, secretID, vaultID
-func (_m *MockVersioningServiceInterface) GetVersionsInVault(ctx context.Context, secretID uuid.UUID, vaultID uuid.UUID) ([]model.SecretVersion, error) {
-	ret := _m.Called(ctx, secretID, vaultID)
-
-	if len(ret) == 0 {
-		panic("no return value specified for GetVersionsInVault")
-	}
-
-	var r0 []model.SecretVersion
-	var r1 error
-	if rf, ok := ret.Get(0).(func(context.Context, uuid.UUID, uuid.UUID) ([]model.SecretVersion, error)); ok {
-		return rf(ctx, secretID, vaultID)
-	}
-	if rf, ok := ret.Get(0).(func(context.Context, uuid.UUID, uuid.UUID) []model.SecretVersion); ok {
-		r0 = rf(ctx, secretID, vaultID)
-	} else {
-		if ret.Get(0) != nil {
-			r0 = ret.Get(0).([]model.SecretVersion)
-		}
-	}
-
-	if rf, ok := ret.Get(1).(func(context.Context, uuid.UUID, uuid.UUID) error); ok {
-		r1 = rf(ctx, secretID, vaultID)
-	} else {
-		r1 = ret.Error(1)
-	}
-
-	return r0, r1
-}
-
-// MockVersioningServiceInterface_GetVersionsInVault_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'GetVersionsInVault'
-type MockVersioningServiceInterface_GetVersionsInVault_Call struct {
-	*mock.Call
-}
-
-// GetVersionsInVault is a helper method to define mock.On call
-//   - ctx context.Context
-//   - secretID uuid.UUID
-//   - vaultID uuid.UUID
-func (_e *MockVersioningServiceInterface_Expecter) GetVersionsInVault(ctx interface{}, secretID interface{}, vaultID interface{}) *MockVersioningServiceInterface_GetVersionsInVault_Call {
-	return &MockVersioningServiceInterface_GetVersionsInVault_Call{Call: _e.mock.On("GetVersionsInVault", ctx, secretID, vaultID)}
-}
-
-func (_c *MockVersioningServiceInterface_GetVersionsInVault_Call) Run(run func(ctx context.Context, secretID uuid.UUID, vaultID uuid.UUID)) *MockVersioningServiceInterface_GetVersionsInVault_Call {
-	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(context.Context), args[1].(uuid.UUID), args[2].(uuid.UUID))
-	})
-	return _c
-}
-
-func (_c *MockVersioningServiceInterface_GetVersionsInVault_Call) Return(_a0 []model.SecretVersion, _a1 error) *MockVersioningServiceInterface_GetVersionsInVault_Call {
-	_c.Call.Return(_a0, _a1)
-	return _c
-}
-
-func (_c *MockVersioningServiceInterface_GetVersionsInVault_Call) RunAndReturn(run func(context.Context, uuid.UUID, uuid.UUID) ([]model.SecretVersion, error)) *MockVersioningServiceInterface_GetVersionsInVault_Call {
-	_c.Call.Return(run)
-	return _c
-}
-
-// GetVersionsScoped provides a mock function with given fields: ctx, secretID, scope
-func (_m *MockVersioningServiceInterface) GetVersionsScoped(ctx context.Context, secretID uuid.UUID, scope model.Scope) ([]model.SecretVersion, error) {
+// GetVersions provides a mock function with given fields: ctx, secretID, scope
+func (_m *MockVersioningServiceInterface) GetVersions(ctx context.Context, secretID uuid.UUID, scope model.Scope) ([]model.SecretVersion, error) {
 	ret := _m.Called(ctx, secretID, scope)
 
 	if len(ret) == 0 {
-		panic("no return value specified for GetVersionsScoped")
+		panic("no return value specified for GetVersions")
 	}
 
 	var r0 []model.SecretVersion
@@ -695,32 +333,32 @@ func (_m *MockVersioningServiceInterface) GetVersionsScoped(ctx context.Context,
 	return r0, r1
 }
 
-// MockVersioningServiceInterface_GetVersionsScoped_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'GetVersionsScoped'
-type MockVersioningServiceInterface_GetVersionsScoped_Call struct {
+// MockVersioningServiceInterface_GetVersions_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'GetVersions'
+type MockVersioningServiceInterface_GetVersions_Call struct {
 	*mock.Call
 }
 
-// GetVersionsScoped is a helper method to define mock.On call
+// GetVersions is a helper method to define mock.On call
 //   - ctx context.Context
 //   - secretID uuid.UUID
 //   - scope model.Scope
-func (_e *MockVersioningServiceInterface_Expecter) GetVersionsScoped(ctx interface{}, secretID interface{}, scope interface{}) *MockVersioningServiceInterface_GetVersionsScoped_Call {
-	return &MockVersioningServiceInterface_GetVersionsScoped_Call{Call: _e.mock.On("GetVersionsScoped", ctx, secretID, scope)}
+func (_e *MockVersioningServiceInterface_Expecter) GetVersions(ctx interface{}, secretID interface{}, scope interface{}) *MockVersioningServiceInterface_GetVersions_Call {
+	return &MockVersioningServiceInterface_GetVersions_Call{Call: _e.mock.On("GetVersions", ctx, secretID, scope)}
 }
 
-func (_c *MockVersioningServiceInterface_GetVersionsScoped_Call) Run(run func(ctx context.Context, secretID uuid.UUID, scope model.Scope)) *MockVersioningServiceInterface_GetVersionsScoped_Call {
+func (_c *MockVersioningServiceInterface_GetVersions_Call) Run(run func(ctx context.Context, secretID uuid.UUID, scope model.Scope)) *MockVersioningServiceInterface_GetVersions_Call {
 	_c.Call.Run(func(args mock.Arguments) {
 		run(args[0].(context.Context), args[1].(uuid.UUID), args[2].(model.Scope))
 	})
 	return _c
 }
 
-func (_c *MockVersioningServiceInterface_GetVersionsScoped_Call) Return(_a0 []model.SecretVersion, _a1 error) *MockVersioningServiceInterface_GetVersionsScoped_Call {
+func (_c *MockVersioningServiceInterface_GetVersions_Call) Return(_a0 []model.SecretVersion, _a1 error) *MockVersioningServiceInterface_GetVersions_Call {
 	_c.Call.Return(_a0, _a1)
 	return _c
 }
 
-func (_c *MockVersioningServiceInterface_GetVersionsScoped_Call) RunAndReturn(run func(context.Context, uuid.UUID, model.Scope) ([]model.SecretVersion, error)) *MockVersioningServiceInterface_GetVersionsScoped_Call {
+func (_c *MockVersioningServiceInterface_GetVersions_Call) RunAndReturn(run func(context.Context, uuid.UUID, model.Scope) ([]model.SecretVersion, error)) *MockVersioningServiceInterface_GetVersions_Call {
 	_c.Call.Return(run)
 	return _c
 }

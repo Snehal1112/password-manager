@@ -163,8 +163,8 @@ func TestUpdateSecret_ContentTypeChange_Returns200(t *testing.T) {
 	secret := makeSecretModel(secretID)
 	secret.ContentType = "text/plain"
 
-	svc.On("GetSecretScoped", mock.Anything, secretID, mock.Anything).Return(secret, nil)
-	svc.On("UpdateSecretScoped", mock.Anything, mock.Anything).Return(nil)
+	svc.On("GetSecret", mock.Anything, secretID, mock.Anything).Return(secret, nil)
+	svc.On("UpdateSecret", mock.Anything, mock.Anything).Return(nil)
 
 	c := newSecretCtx(svc)
 	c.Params = &ApiParams{SecretID: secretID.String(), PerPage: 60}
@@ -189,8 +189,8 @@ func TestUpdateSecret_EnabledChange_Returns200(t *testing.T) {
 	secret := makeSecretModel(secretID)
 	secret.Enabled = true
 
-	svc.On("GetSecretScoped", mock.Anything, secretID, mock.Anything).Return(secret, nil)
-	svc.On("UpdateSecretScoped", mock.Anything, mock.Anything).Return(nil)
+	svc.On("GetSecret", mock.Anything, secretID, mock.Anything).Return(secret, nil)
+	svc.On("UpdateSecret", mock.Anything, mock.Anything).Return(nil)
 
 	c := newSecretCtx(svc)
 	c.Params = &ApiParams{SecretID: secretID.String(), PerPage: 60}
@@ -214,8 +214,8 @@ func TestUpdateSecret_ExpiresAtChange_Returns200(t *testing.T) {
 	svc := &mockSecretService{}
 	secret := makeSecretModel(secretID)
 
-	svc.On("GetSecretScoped", mock.Anything, secretID, mock.Anything).Return(secret, nil)
-	svc.On("UpdateSecretScoped", mock.Anything, mock.Anything).Return(nil)
+	svc.On("GetSecret", mock.Anything, secretID, mock.Anything).Return(secret, nil)
+	svc.On("UpdateSecret", mock.Anything, mock.Anything).Return(nil)
 
 	c := newSecretCtx(svc)
 	c.Params = &ApiParams{SecretID: secretID.String(), PerPage: 60}
@@ -341,7 +341,7 @@ func TestDeleteSecret_InvalidSecretIDParam_Returns400(t *testing.T) {
 func TestListSecrets_WithTagFilter_Returns200(t *testing.T) {
 	svc := &mockSecretService{}
 	// Legacy flat route (no vault_name) uses per-user visibility via ListSecrets.
-	svc.On("ListSecretsScoped", mock.Anything, mock.Anything, mock.Anything).
+	svc.On("ListSecrets", mock.Anything, mock.Anything, mock.Anything).
 		Return([]model.Secret{}, nil)
 
 	c := newSecretCtx(svc)
@@ -482,7 +482,7 @@ func TestListSecrets_NonEmptyList_Returns200(t *testing.T) {
 	svc := &mockSecretService{}
 	secretID := uuid.New()
 	// Legacy flat route (no vault_name) uses per-user visibility via ListSecrets.
-	svc.On("ListSecretsScoped", mock.Anything, mock.Anything, mock.Anything).
+	svc.On("ListSecrets", mock.Anything, mock.Anything, mock.Anything).
 		Return([]model.Secret{
 			{
 				ID:        secretID,

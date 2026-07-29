@@ -66,7 +66,7 @@ var getCmd = &cobra.Command{
 			return err
 		}
 
-		secret, err := secretService.GetSecretScoped(ctx, secretID, model.NewVaultScope(vaultID, uuid.Nil))
+		secret, err := secretService.GetSecret(ctx, secretID, model.NewVaultScope(vaultID, uuid.Nil))
 		if err != nil {
 			return fmt.Errorf("failed to retrieve secret: %w", err)
 		}

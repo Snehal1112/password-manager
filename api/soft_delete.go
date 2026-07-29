@@ -32,7 +32,7 @@ func listDeletedSecrets(c *Context, w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	secrets, err := secretSvc.ListDeletedSecretsScoped(r.Context(), model.NewVaultScope(vaultID, userID))
+	secrets, err := secretSvc.ListDeletedSecrets(r.Context(), model.NewVaultScope(vaultID, userID))
 	if err != nil {
 		c.SetInternalError(err)
 		return
@@ -77,7 +77,7 @@ func recoverSecret(c *Context, w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := secretSvc.RecoverSecretScoped(r.Context(), secretID, scope); err != nil {
+	if err := secretSvc.RecoverSecret(r.Context(), secretID, scope); err != nil {
 		writeSecretError(c, err)
 		return
 	}
@@ -104,7 +104,7 @@ func purgeSecret(c *Context, w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := secretSvc.PurgeSecretScoped(r.Context(), secretID, scope); err != nil {
+	if err := secretSvc.PurgeSecret(r.Context(), secretID, scope); err != nil {
 		writeSecretError(c, err)
 		return
 	}

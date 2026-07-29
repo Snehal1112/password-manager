@@ -23,25 +23,25 @@ func TestZeroScopeRejectedByEveryRepositoryMethod(t *testing.T) {
 		repo := newScopeTestSecretRepo(t)
 		secret := seedScopeSecret(t, repo, uuid.New(), uuid.New(), "zero-scope")
 
-		t.Run("ReadScoped", func(t *testing.T) {
-			got, err := repo.ReadScoped(ctx, secret.ID, zero)
+		t.Run("Read", func(t *testing.T) {
+			got, err := repo.Read(ctx, secret.ID, zero)
 			require.Error(t, err)
 			assert.ErrorIs(t, err, ErrInvalidScope)
 			assert.Nil(t, got, "no row may be returned for an invalid scope")
 		})
-		t.Run("UpdateScoped", func(t *testing.T) {
+		t.Run("Update", func(t *testing.T) {
 			mutated := *secret
 			mutated.Name = "zero-scope-write"
-			err := repo.UpdateScoped(ctx, &mutated, zero)
+			err := repo.Update(ctx, &mutated, zero)
 			require.Error(t, err)
 			assert.ErrorIs(t, err, ErrInvalidScope)
 
-			after, readErr := repo.ReadScoped(ctx, secret.ID, model.NewAdminScope(uuid.Nil))
+			after, readErr := repo.Read(ctx, secret.ID, model.NewAdminScope(uuid.Nil))
 			require.NoError(t, readErr)
 			assert.Equal(t, "zero-scope", after.Name, "the row must be untouched")
 		})
-		t.Run("ListScoped", func(t *testing.T) {
-			rows, err := repo.ListScoped(ctx, zero, SecretFilter{})
+		t.Run("List", func(t *testing.T) {
+			rows, err := repo.List(ctx, zero, SecretFilter{})
 			require.Error(t, err)
 			assert.ErrorIs(t, err, ErrInvalidScope)
 			assert.Empty(t, rows)

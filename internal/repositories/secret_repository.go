@@ -19,32 +19,18 @@ import (
 // SecretRepositoryInterface defines the interface for secret repository operations.
 type SecretRepositoryInterface interface {
 	Create(ctx context.Context, secret *model.Secret) error
-	// ReadScoped fetches a secret authorized by scope. Canonical; the Read,
-	// ReadByOwner and ReadInVault methods below are shims over it.
-	ReadScoped(ctx context.Context, id uuid.UUID, scope model.Scope) (*model.Secret, error)
-	// UpdateScoped updates a secret authorized by scope. The predicate comes
+	// Read fetches a secret authorized by scope. The scoped read is the
+	// access check: a row outside the scope is indistinguishable from a row
+	// that does not exist.
+	Read(ctx context.Context, id uuid.UUID, scope model.Scope) (*model.Secret, error)
+	// Update updates a secret authorized by scope. The predicate comes
 	// from the scope argument, never from the entity.
-	UpdateScoped(ctx context.Context, secret *model.Secret, scope model.Scope) error
-	// ListScoped lists secrets authorized by scope and narrowed by filter.
-	ListScoped(ctx context.Context, scope model.Scope, filter SecretFilter) ([]model.Secret, error)
-	Read(ctx context.Context, id uuid.UUID) (*model.Secret, error)
-	// ReadByOwner fetches a secret only when id and userID both match.
-	ReadByOwner(ctx context.Context, id, userID uuid.UUID) (*model.Secret, error)
-	Update(ctx context.Context, secret *model.Secret) error
+	Update(ctx context.Context, secret *model.Secret, scope model.Scope) error
+	// List lists secrets authorized by scope and narrowed by filter.
+	List(ctx context.Context, scope model.Scope, filter SecretFilter) ([]model.Secret, error)
 	Delete(ctx context.Context, id uuid.UUID) error
 	SoftDelete(ctx context.Context, id uuid.UUID) error
 	RecoverSecret(ctx context.Context, id uuid.UUID) error
-	ListByUser(ctx context.Context, userID uuid.UUID, tags []string) ([]model.Secret, error)
-	ListByUserIncludeDeleted(ctx context.Context, userID uuid.UUID, tags []string) ([]model.Secret, error)
-	// ReadInVault fetches a secret only when id and vaultID both match.
-	ReadInVault(ctx context.Context, id, vaultID uuid.UUID) (*model.Secret, error)
-	// UpdateInVault updates a secret only when it belongs to the given vault.
-	// It mirrors Update but scopes by vault_id instead of user_id.
-	UpdateInVault(ctx context.Context, secret *model.Secret) error
-	// ListInVault lists active secrets scoped to a vault.
-	ListInVault(ctx context.Context, vaultID uuid.UUID, tags []string) ([]model.Secret, error)
-	// ListInVaultIncludeDeleted lists all secrets in a vault including soft-deleted ones.
-	ListInVaultIncludeDeleted(ctx context.Context, vaultID uuid.UUID, tags []string) ([]model.Secret, error)
 	// SoftDeleteVaultContents soft-deletes every active secret in a vault.
 	SoftDeleteVaultContents(ctx context.Context, vaultID uuid.UUID, deletedAt time.Time) error
 	// RecoverVaultContents recovers only the secrets the cascade soft-deleted at deletedAt.
@@ -192,10 +178,10 @@ func (r *SecretRepository) Create(ctx context.Context, secret *model.Secret) err
 	return nil
 }
 
-// ReadScoped retrieves a secret by ID, authorized by scope. The scoped read is
+// Read retrieves a secret by ID, authorized by scope. The scoped read is
 // the access check: a row outside the scope is indistinguishable from a row
 // that does not exist.
-func (r *SecretRepository) ReadScoped(ctx context.Context, id uuid.UUID, scope model.Scope) (*model.Secret, error) {
+func (r *SecretRepository) Read(ctx context.Context, id uuid.UUID, scope model.Scope) (*model.Secret, error) {
 	predicate, args, err := scopePredicate(scope)
 	if err != nil {
 		return nil, err
@@ -217,16 +203,16 @@ func (r *SecretRepository) ReadScoped(ctx context.Context, id uuid.UUID, scope m
 	return &secret, nil
 }
 
-// UpdateScoped updates a secret, authorized by scope. The predicate is built
+// Update updates a secret, authorized by scope. The predicate is built
 // from the scope argument, never from the entity, so a caller cannot widen its
 // own authorization by mutating secret.VaultID or secret.UserID.
 //
 // This method does not emit audit rows: audit attribution belongs to the
 // caller (service layer), which knows the acting principal from the request,
-// not just the scope it was handed. UpdateSecretScoped already logs its own
+// not just the scope it was handed. UpdateSecret already logs its own
 // audit row after calling this, for every error path and on success — logging
 // here too would duplicate every scoped update into two audit_logs rows.
-func (r *SecretRepository) UpdateScoped(ctx context.Context, secret *model.Secret, scope model.Scope) error {
+func (r *SecretRepository) Update(ctx context.Context, secret *model.Secret, scope model.Scope) error {
 	predicate, args, err := scopePredicate(scope)
 	if err != nil {
 		return err
@@ -265,9 +251,9 @@ func (r *SecretRepository) UpdateScoped(ctx context.Context, secret *model.Secre
 	return nil
 }
 
-// ListScoped lists secrets authorized by scope and narrowed by filter. The
+// List lists secrets authorized by scope and narrowed by filter. The
 // soft-delete predicate is applied in SQL rather than by discarding rows in Go.
-func (r *SecretRepository) ListScoped(ctx context.Context, scope model.Scope, filter SecretFilter) ([]model.Secret, error) {
+func (r *SecretRepository) List(ctx context.Context, scope model.Scope, filter SecretFilter) ([]model.Secret, error) {
 	predicate, args, err := scopePredicate(scope)
 	if err != nil {
 		return nil, err
@@ -317,57 +303,6 @@ func (r *SecretRepository) ListScoped(ctx context.Context, scope model.Scope, fi
 	}).Debug("Secrets listed successfully")
 
 	return secretList, nil
-}
-
-// Read retrieves a secret by ID from the database.
-//
-// Parameters:
-//
-//	ctx: The context for the database operation.
-//	id: The secret's unique identifier.
-//
-// Returns:
-//
-//	The secret entity (with encrypted value) or an error if not found.
-//
-// Deprecated: shim over ReadScoped; removed in Phase 6.
-func (r *SecretRepository) Read(ctx context.Context, id uuid.UUID) (*model.Secret, error) {
-	return r.ReadScoped(ctx, id, model.NewAdminScope(uuid.Nil))
-}
-
-// ReadByOwner retrieves a secret by ID only when the given userID matches the owner.
-// It returns an error if the secret does not exist or is owned by a different user.
-//
-// Parameters:
-//
-//	ctx: The context for the database operation.
-//	id: The secret's unique identifier.
-//	userID: The requesting user's identifier; must match the stored owner.
-//
-// Returns:
-//
-//	The secret entity (with encrypted value) or an error if not found / access denied.
-//
-// Deprecated: shim over ReadScoped; removed in Phase 6.
-func (r *SecretRepository) ReadByOwner(ctx context.Context, id, userID uuid.UUID) (*model.Secret, error) {
-	return r.ReadScoped(ctx, id, model.NewOwnerScope(uuid.Nil, userID))
-}
-
-// Update updates a secret in the database.
-// It expects the secret value to be already encrypted and version to be pre-incremented.
-//
-// Parameters:
-//
-//	ctx: The context for the database operation.
-//	secret: The secret entity with updated fields.
-//
-// Returns:
-//
-//	An error if the update fails.
-//
-// Deprecated: shim over UpdateScoped; removed in Phase 6.
-func (r *SecretRepository) Update(ctx context.Context, secret *model.Secret) error {
-	return r.UpdateScoped(ctx, secret, model.NewOwnerScope(secret.VaultID, secret.UserID))
 }
 
 // Delete removes a secret from the database.
@@ -543,42 +478,6 @@ func (r *SecretRepository) PurgeSecret(ctx context.Context, id uuid.UUID) error 
 	return nil
 }
 
-// ListByUser retrieves all secrets for a specific user with optimized query and monitoring.
-// Note: Tag filtering has been moved to the TagService.
-//
-// Parameters:
-//
-//	ctx: The context for the database operation.
-//	userID: The user's unique identifier.
-//	tags: Tag filter (maintained for interface compatibility but not used).
-//
-// Returns:
-//
-//	A slice of secrets (with encrypted values) or an error if retrieval fails.
-//
-// Deprecated: shim over ListScoped; removed in Phase 6.
-func (r *SecretRepository) ListByUser(ctx context.Context, userID uuid.UUID, tags []string) ([]model.Secret, error) {
-	return r.ListScoped(ctx, model.NewOwnerScope(uuid.Nil, userID), SecretFilter{Tags: tags})
-}
-
-// ListByUserIncludeDeleted retrieves all secrets for a user including soft-deleted ones.
-// This is useful for administrative operations and recovery scenarios.
-//
-// Parameters:
-//
-//	ctx: The context for the database operation.
-//	userID: The user's unique identifier.
-//	tags: Tag filter (maintained for interface compatibility but not used).
-//
-// Returns:
-//
-//	A slice of all secrets including soft-deleted ones, or an error if retrieval fails.
-//
-// Deprecated: shim over ListScoped; removed in Phase 6.
-func (r *SecretRepository) ListByUserIncludeDeleted(ctx context.Context, userID uuid.UUID, tags []string) ([]model.Secret, error) {
-	return r.ListScoped(ctx, model.NewOwnerScope(uuid.Nil, userID), SecretFilter{Tags: tags, IncludeDeleted: true})
-}
-
 // ExportSecrets is deprecated and should be moved to a dedicated export service.
 func (r *SecretRepository) ExportSecrets(ctx context.Context, options model.ExportOptions) ([]byte, error) {
 	return nil, fmt.Errorf("export functionality has been moved to export service")
@@ -602,78 +501,6 @@ func (r *SecretRepository) GetVersion(ctx context.Context, secretID uuid.UUID, v
 // GetLatestVersion is deprecated and should use the VersioningService.
 func (r *SecretRepository) GetLatestVersion(ctx context.Context, secretID uuid.UUID) (*model.SecretVersion, error) {
 	return nil, fmt.Errorf("versioning functionality has been moved to versioning service")
-}
-
-// ReadInVault retrieves a secret by ID only when it belongs to the given vault.
-// It mirrors ReadByOwner but scopes by vault_id instead of user_id.
-//
-// Parameters:
-//
-//	ctx: The context for the database operation.
-//	id: The secret's unique identifier.
-//	vaultID: The vault the secret must belong to.
-//
-// Returns:
-//
-//	The secret entity (with encrypted value) or an error if not found / access denied.
-//
-// Deprecated: shim over ReadScoped; removed in Phase 6.
-func (r *SecretRepository) ReadInVault(ctx context.Context, id, vaultID uuid.UUID) (*model.Secret, error) {
-	return r.ReadScoped(ctx, id, model.NewVaultScope(vaultID, uuid.Nil))
-}
-
-// UpdateInVault updates a secret in the database, scoped to a vault instead
-// of an owner. It mirrors Update but the WHERE clause matches vault_id
-// instead of user_id, so any vault member's update succeeds.
-//
-// Parameters:
-//
-//	ctx: The context for the database operation.
-//	secret: The secret entity with updated fields; VaultID must be set.
-//
-// Returns:
-//
-//	An error if the update fails or no row matches id+vault_id.
-//
-// Deprecated: shim over UpdateScoped; removed in Phase 6.
-func (r *SecretRepository) UpdateInVault(ctx context.Context, secret *model.Secret) error {
-	return r.UpdateScoped(ctx, secret, model.NewVaultScope(secret.VaultID, secret.UserID))
-}
-
-// ListInVault retrieves all active secrets for a specific vault.
-// It mirrors ListByUser but scopes by vault_id instead of user_id.
-//
-// Parameters:
-//
-//	ctx: The context for the database operation.
-//	vaultID: The vault's unique identifier.
-//	tags: Tag filter (maintained for interface compatibility but not used).
-//
-// Returns:
-//
-//	A slice of secrets (with encrypted values) or an error if retrieval fails.
-//
-// Deprecated: shim over ListScoped; removed in Phase 6.
-func (r *SecretRepository) ListInVault(ctx context.Context, vaultID uuid.UUID, tags []string) ([]model.Secret, error) {
-	return r.ListScoped(ctx, model.NewVaultScope(vaultID, uuid.Nil), SecretFilter{Tags: tags})
-}
-
-// ListInVaultIncludeDeleted retrieves all secrets for a vault including soft-deleted ones.
-// It mirrors ListByUserIncludeDeleted but scopes by vault_id instead of user_id.
-//
-// Parameters:
-//
-//	ctx: The context for the database operation.
-//	vaultID: The vault's unique identifier.
-//	tags: Tag filter (maintained for interface compatibility but not used).
-//
-// Returns:
-//
-//	A slice of all secrets including soft-deleted ones, or an error if retrieval fails.
-//
-// Deprecated: shim over ListScoped; removed in Phase 6.
-func (r *SecretRepository) ListInVaultIncludeDeleted(ctx context.Context, vaultID uuid.UUID, tags []string) ([]model.Secret, error) {
-	return r.ListScoped(ctx, model.NewVaultScope(vaultID, uuid.Nil), SecretFilter{Tags: tags, IncludeDeleted: true})
 }
 
 // SoftDeleteVaultContents marks every active secret in a vault as soft-deleted.

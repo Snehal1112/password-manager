@@ -58,7 +58,7 @@ The file must be compatible with the export format produced by the export comman
 	RunE: func(cmd *cobra.Command, args []string) error {
 		ctx := cmd.Context()
 
-		userID, ok := ctx.Value(common.UserIDKey).(uuid.UUID)
+		_, ok := ctx.Value(common.UserIDKey).(uuid.UUID)
 		if !ok {
 			return fmt.Errorf("user not authenticated")
 		}
@@ -83,7 +83,6 @@ The file must be compatible with the export format produced by the export comman
 		}
 
 		result, err := sc.GetSecretService().ImportSecrets(ctx, secretServices.ImportSecretsRequest{
-			UserID:    userID,
 			Data:      data,
 			Format:    format,
 			Overwrite: importOverwrite,

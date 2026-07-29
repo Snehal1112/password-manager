@@ -11,6 +11,7 @@ import (
 
 	"rocketvault/cmd/testutils"
 	secretServices "rocketvault/internal/services/secrets"
+	"rocketvault/model"
 )
 
 func TestUpdateCommand_CallsServiceUpdate(t *testing.T) {
@@ -20,7 +21,7 @@ func TestUpdateCommand_CallsServiceUpdate(t *testing.T) {
 
 	tc.MockSecretService.On("UpdateSecret", mock.Anything, mock.MatchedBy(func(r secretServices.UpdateSecretRequest) bool {
 		return r.SecretID == secretID &&
-			r.UserID == tc.TestUserID &&
+			r.Scope == model.NewVaultScope(tc.TestVaultID, uuid.Nil) &&
 			r.Value != nil && *r.Value == newValue
 	})).Return(nil)
 	tc.MockContainer.On("GetSecretService").Return(tc.MockSecretService)

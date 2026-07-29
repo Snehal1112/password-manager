@@ -297,29 +297,17 @@ func (m *mockSecretRepo) Create(ctx context.Context, secret *model.Secret) error
 	}
 	return nil
 }
-func (m *mockSecretRepo) Read(ctx context.Context, id uuid.UUID) (*model.Secret, error) {
+func (m *mockSecretRepo) Read(ctx context.Context, id uuid.UUID, _ model.Scope) (*model.Secret, error) {
 	if m.readFn != nil {
 		return m.readFn(ctx, id)
 	}
 	return nil, errors.New("not found")
 }
-func (m *mockSecretRepo) ReadByOwner(_ context.Context, _, _ uuid.UUID) (*model.Secret, error) {
-	return nil, errors.New("not implemented")
-}
-func (m *mockSecretRepo) ReadScoped(_ context.Context, _ uuid.UUID, _ model.Scope) (*model.Secret, error) {
-	return nil, errors.New("not implemented")
-}
-func (m *mockSecretRepo) UpdateScoped(_ context.Context, _ *model.Secret, _ model.Scope) error {
+func (m *mockSecretRepo) Update(_ context.Context, _ *model.Secret, _ model.Scope) error {
 	return errors.New("not implemented")
 }
-func (m *mockSecretRepo) ListScoped(_ context.Context, _ model.Scope, _ repositories.SecretFilter) ([]model.Secret, error) {
+func (m *mockSecretRepo) List(_ context.Context, _ model.Scope, _ repositories.SecretFilter) ([]model.Secret, error) {
 	return nil, nil
-}
-func (m *mockSecretRepo) Update(_ context.Context, _ *model.Secret) error {
-	return errors.New("not implemented")
-}
-func (m *mockSecretRepo) UpdateInVault(_ context.Context, _ *model.Secret) error {
-	return errors.New("not implemented")
 }
 func (m *mockSecretRepo) Delete(_ context.Context, _ uuid.UUID) error { return nil }
 func (m *mockSecretRepo) SoftDelete(_ context.Context, _ uuid.UUID) error {
@@ -327,12 +315,6 @@ func (m *mockSecretRepo) SoftDelete(_ context.Context, _ uuid.UUID) error {
 }
 func (m *mockSecretRepo) RecoverSecret(_ context.Context, _ uuid.UUID) error {
 	return errors.New("not implemented")
-}
-func (m *mockSecretRepo) ListByUser(_ context.Context, _ uuid.UUID, _ []string) ([]model.Secret, error) {
-	return nil, nil
-}
-func (m *mockSecretRepo) ListByUserIncludeDeleted(_ context.Context, _ uuid.UUID, _ []string) ([]model.Secret, error) {
-	return nil, nil
 }
 func (m *mockSecretRepo) ExportSecrets(_ context.Context, _ model.ExportOptions) ([]byte, error) {
 	return nil, nil
@@ -350,15 +332,6 @@ func (m *mockSecretRepo) GetLatestVersion(_ context.Context, _ uuid.UUID) (*mode
 	return nil, nil
 }
 func (m *mockSecretRepo) PurgeSecret(_ context.Context, _ uuid.UUID) error { return nil }
-func (m *mockSecretRepo) ReadInVault(_ context.Context, _, _ uuid.UUID) (*model.Secret, error) {
-	return nil, errors.New("not implemented")
-}
-func (m *mockSecretRepo) ListInVault(_ context.Context, _ uuid.UUID, _ []string) ([]model.Secret, error) {
-	return nil, nil
-}
-func (m *mockSecretRepo) ListInVaultIncludeDeleted(_ context.Context, _ uuid.UUID, _ []string) ([]model.Secret, error) {
-	return nil, nil
-}
 func (m *mockSecretRepo) SoftDeleteVaultContents(_ context.Context, _ uuid.UUID, _ time.Time) error {
 	return nil
 }

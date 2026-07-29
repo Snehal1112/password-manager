@@ -59,7 +59,7 @@ The export includes all secrets for the authenticated user with optional tag fil
 	RunE: func(cmd *cobra.Command, args []string) error {
 		ctx := cmd.Context()
 
-		userID, ok := ctx.Value(common.UserIDKey).(uuid.UUID)
+		_, ok := ctx.Value(common.UserIDKey).(uuid.UUID)
 		if !ok {
 			return fmt.Errorf("user not authenticated")
 		}
@@ -77,7 +77,6 @@ The export includes all secrets for the authenticated user with optional tag fil
 		allTags := append(exportTags, exportFilterTags...)
 
 		data, err := sc.GetSecretService().ExportSecrets(ctx, secretServices.ExportSecretsRequest{
-			UserID:      userID,
 			Format:      format,
 			FilterTags:  allTags,
 			IncludeTags: true,

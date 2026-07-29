@@ -77,7 +77,7 @@ func TestSecretRepositoryContentType(t *testing.T) {
 	err := repo.Create(context.Background(), secret)
 	require.NoError(t, err)
 
-	got, err := repo.Read(context.Background(), secret.ID)
+	got, err := repo.Read(context.Background(), secret.ID, model.NewOwnerScope(uuid.Nil, userID))
 	require.NoError(t, err)
 	assert.Equal(t, "application/json", got.ContentType)
 }

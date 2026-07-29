@@ -42,8 +42,6 @@ type CreateSecretRequest struct {
 type UpdateSecretRequest struct {
 	SecretID    uuid.UUID
 	Scope       model.Scope // Authorization scope for the read and the write.
-	UserID      uuid.UUID   // Deprecated: shim field; removed in Phase 6.
-	VaultID     uuid.UUID   // Deprecated: shim field; removed in Phase 6.
 	Name        *string     // Optional - nil means no change.
 	Value       *string     // Optional - nil means no change.
 	Tags        *[]string   // Optional - nil means no change.
@@ -86,9 +84,7 @@ type GenerateSecretRequest struct {
 
 // ExportSecretsRequest represents a request to export secrets.
 type ExportSecretsRequest struct {
-	UserID      uuid.UUID
-	Scope       model.Scope // Authorization scope for the listing.
-	VaultID     uuid.UUID   // Deprecated: shim field for legacy callers that don't set Scope; removed in Phase 6.
+	Scope       model.Scope // Authorization scope for the listing and the audit actor.
 	Format      string      // "json" or "csv"
 	FilterTags  []string    // Optional tag filter
 	IncludeTags bool        // Include tags in export
@@ -96,9 +92,7 @@ type ExportSecretsRequest struct {
 
 // ImportSecretsRequest represents a request to import secrets.
 type ImportSecretsRequest struct {
-	UserID    uuid.UUID
-	Scope     model.Scope // Authorization scope; its resolved vault id targets created secrets.
-	VaultID   uuid.UUID   // Deprecated: shim field for legacy callers that don't set Scope; removed in Phase 6.
+	Scope     model.Scope // Authorization scope; its resolved vault id targets created secrets and its actor id is the audit actor.
 	Data      []byte
 	Format    string // "json" or "csv"
 	Overwrite bool   // Overwrite existing secrets with same name
@@ -117,51 +111,31 @@ type ImportResult struct {
 // while maintaining proper separation of concerns.
 type SecretService interface {
 	CreateSecret(ctx context.Context, req CreateSecretRequest) (*model.Secret, error)
-	// GetSecretScoped retrieves a decrypted secret authorized by scope.
-	// Canonical; GetSecret and GetSecretInVault are shims over it.
-	GetSecretScoped(ctx context.Context, secretID uuid.UUID, scope model.Scope) (*model.Secret, error)
-	// ListSecretsScoped lists decrypted secrets authorized by scope.
-	ListSecretsScoped(ctx context.Context, scope model.Scope, tags []string) ([]model.Secret, error)
-	// DeleteSecretScoped soft-deletes a secret authorized by scope.
-	DeleteSecretScoped(ctx context.Context, secretID uuid.UUID, scope model.Scope) error
-	// ListDeletedSecretsScoped lists soft-deleted secrets authorized by scope.
-	ListDeletedSecretsScoped(ctx context.Context, scope model.Scope) ([]model.Secret, error)
-	// UpdateSecretScoped updates a secret authorized by req.Scope. The scoped
+	// GetSecret retrieves a decrypted secret authorized by scope.
+	GetSecret(ctx context.Context, secretID uuid.UUID, scope model.Scope) (*model.Secret, error)
+	// ListSecrets lists decrypted secrets authorized by scope.
+	ListSecrets(ctx context.Context, scope model.Scope, tags []string) ([]model.Secret, error)
+	// DeleteSecret soft-deletes a secret authorized by scope.
+	DeleteSecret(ctx context.Context, secretID uuid.UUID, scope model.Scope) error
+	// ListDeletedSecrets lists soft-deleted secrets authorized by scope.
+	ListDeletedSecrets(ctx context.Context, scope model.Scope) ([]model.Secret, error)
+	// UpdateSecret updates a secret authorized by req.Scope. The scoped
 	// read is the check and the write repeats the same predicate, so there is
 	// no TOCTOU window even if the row's vault changes between them.
-	UpdateSecretScoped(ctx context.Context, req UpdateSecretRequest) error
 	UpdateSecret(ctx context.Context, req UpdateSecretRequest) error
-	// UpdateSecretInVault updates a secret scoped to a vault. Any vault
-	// member may update any secret in the vault (no ownership check).
-	UpdateSecretInVault(ctx context.Context, req UpdateSecretRequest) error
-	GetSecret(ctx context.Context, secretID, userID uuid.UUID) (*model.Secret, error)
-	ListSecrets(ctx context.Context, userID uuid.UUID, tags []string) ([]model.Secret, error)
-	DeleteSecret(ctx context.Context, secretID, userID uuid.UUID) error
-	// GetSecretInVault retrieves a secret scoped to the given vault.
-	GetSecretInVault(ctx context.Context, secretID, vaultID uuid.UUID) (*model.Secret, error)
-	// ListSecretsInVault lists secrets scoped to the given vault.
-	ListSecretsInVault(ctx context.Context, vaultID uuid.UUID, tags []string) ([]model.Secret, error)
-	// DeleteSecretInVault soft-deletes a secret scoped to the given vault.
-	DeleteSecretInVault(ctx context.Context, secretID, vaultID uuid.UUID) error
 	GenerateSecret(ctx context.Context, req GenerateSecretRequest) (*model.Secret, error)
 	ExportSecrets(ctx context.Context, req ExportSecretsRequest) ([]byte, error)
 	ImportSecrets(ctx context.Context, req ImportSecretsRequest) (*ImportResult, error)
-	GetSecretVersions(ctx context.Context, secretID uuid.UUID, userID uuid.UUID) ([]model.SecretVersion, error)
-	GetSecretVersion(ctx context.Context, secretID uuid.UUID, version int, userID uuid.UUID) (*model.SecretVersion, error)
-	GetLatestSecretVersion(ctx context.Context, secretID uuid.UUID, userID uuid.UUID) (*model.SecretVersion, error)
-	GetSecretVersionsInVault(ctx context.Context, secretID, vaultID uuid.UUID) ([]model.SecretVersion, error)
-	GetSecretVersionInVault(ctx context.Context, secretID uuid.UUID, version int, vaultID uuid.UUID) (*model.SecretVersion, error)
-	GetLatestSecretVersionInVault(ctx context.Context, secretID, vaultID uuid.UUID) (*model.SecretVersion, error)
-	// GetSecretVersionsScoped returns every version of a secret the scope authorizes.
-	GetSecretVersionsScoped(ctx context.Context, secretID uuid.UUID, scope model.Scope) ([]model.SecretVersion, error)
-	// GetSecretVersionScoped returns one version the scope authorizes.
-	GetSecretVersionScoped(ctx context.Context, secretID uuid.UUID, version int, scope model.Scope) (*model.SecretVersion, error)
-	// GetLatestSecretVersionScoped returns the newest version the scope authorizes.
-	GetLatestSecretVersionScoped(ctx context.Context, secretID uuid.UUID, scope model.Scope) (*model.SecretVersion, error)
-	// RecoverSecretScoped restores a soft-deleted secret authorized by scope.
-	RecoverSecretScoped(ctx context.Context, secretID uuid.UUID, scope model.Scope) error
-	// PurgeSecretScoped permanently deletes a soft-deleted secret authorized by scope.
-	PurgeSecretScoped(ctx context.Context, secretID uuid.UUID, scope model.Scope) error
+	// GetSecretVersions returns every version of a secret the scope authorizes.
+	GetSecretVersions(ctx context.Context, secretID uuid.UUID, scope model.Scope) ([]model.SecretVersion, error)
+	// GetSecretVersion returns one version the scope authorizes.
+	GetSecretVersion(ctx context.Context, secretID uuid.UUID, version int, scope model.Scope) (*model.SecretVersion, error)
+	// GetLatestSecretVersion returns the newest version the scope authorizes.
+	GetLatestSecretVersion(ctx context.Context, secretID uuid.UUID, scope model.Scope) (*model.SecretVersion, error)
+	// RecoverSecret restores a soft-deleted secret authorized by scope.
+	RecoverSecret(ctx context.Context, secretID uuid.UUID, scope model.Scope) error
+	// PurgeSecret permanently deletes a soft-deleted secret authorized by scope.
+	PurgeSecret(ctx context.Context, secretID uuid.UUID, scope model.Scope) error
 }
 
 // secretService implements SecretService by coordinating multiple services.
@@ -281,17 +255,17 @@ func (s *secretService) CreateSecret(ctx context.Context, req CreateSecretReques
 	return secret, nil
 }
 
-// UpdateSecretScoped updates a secret with versioning support, authorized by
+// UpdateSecret updates a secret with versioning support, authorized by
 // req.Scope. Authorization lives entirely in the scope: the scoped read is the
 // check, and the write repeats the same predicate.
-func (s *secretService) UpdateSecretScoped(ctx context.Context, req UpdateSecretRequest) error {
+func (s *secretService) UpdateSecret(ctx context.Context, req UpdateSecretRequest) error {
 	actor := req.Scope.ActorID().String()
 	logrus.WithFields(logrus.Fields{
 		"secret_id": req.SecretID.String(),
 		"scope":     req.Scope.String(),
 	}).Info("Updating secret")
 
-	currentSecret, err := s.secretRepo.ReadScoped(ctx, req.SecretID, req.Scope)
+	currentSecret, err := s.secretRepo.Read(ctx, req.SecretID, req.Scope)
 	if err != nil {
 		s.logger.LogAuditError(actor, "update_secret", "failed", "Secret not found or access denied", err)
 		return fmt.Errorf("%w: %s", ErrSecretNotFound, err.Error())
@@ -325,7 +299,7 @@ func (s *secretService) UpdateSecretScoped(ctx context.Context, req UpdateSecret
 		return err
 	}
 
-	if err := s.secretRepo.UpdateScoped(ctx, updatedSecret, req.Scope); err != nil {
+	if err := s.secretRepo.Update(ctx, updatedSecret, req.Scope); err != nil {
 		s.logger.LogAuditError(actor, "update_secret", "failed", "Failed to update secret", err)
 		return fmt.Errorf("failed to update secret: %w", err)
 	}
@@ -347,25 +321,13 @@ func (s *secretService) UpdateSecretScoped(ctx context.Context, req UpdateSecret
 	return nil
 }
 
-// Deprecated: shim over UpdateSecretScoped; removed in Phase 6.
-func (s *secretService) UpdateSecret(ctx context.Context, req UpdateSecretRequest) error {
-	req.Scope = model.NewOwnerScope(uuid.Nil, req.UserID)
-	return s.UpdateSecretScoped(ctx, req)
-}
-
-// Deprecated: shim over UpdateSecretScoped; removed in Phase 6.
-func (s *secretService) UpdateSecretInVault(ctx context.Context, req UpdateSecretRequest) error {
-	req.Scope = model.NewVaultScope(req.VaultID, req.UserID)
-	return s.UpdateSecretScoped(ctx, req)
-}
-
-// GetSecretScoped retrieves a secret authorized by scope, decrypts it, loads
+// GetSecret retrieves a secret authorized by scope, decrypts it, loads
 // its tags, and enforces the lifecycle policy. The scoped read is the access
 // check — there is no separate in-Go ownership comparison.
-func (s *secretService) GetSecretScoped(ctx context.Context, secretID uuid.UUID, scope model.Scope) (*model.Secret, error) {
+func (s *secretService) GetSecret(ctx context.Context, secretID uuid.UUID, scope model.Scope) (*model.Secret, error) {
 	actor := scope.ActorID().String()
 
-	secret, err := s.secretRepo.ReadScoped(ctx, secretID, scope)
+	secret, err := s.secretRepo.Read(ctx, secretID, scope)
 	if err != nil {
 		s.logger.LogAuditError(actor, "get_secret", "failed", "Secret not found or access denied", err)
 		return nil, fmt.Errorf("%w", ErrSecretNotFound)
@@ -393,12 +355,12 @@ func (s *secretService) GetSecretScoped(ctx context.Context, secretID uuid.UUID,
 	return secret, nil
 }
 
-// ListSecretsScoped lists secrets authorized by scope, decrypting values and
+// ListSecrets lists secrets authorized by scope, decrypting values and
 // loading tags for each.
-func (s *secretService) ListSecretsScoped(ctx context.Context, scope model.Scope, tags []string) ([]model.Secret, error) {
+func (s *secretService) ListSecrets(ctx context.Context, scope model.Scope, tags []string) ([]model.Secret, error) {
 	actor := scope.ActorID().String()
 
-	secretList, err := s.secretRepo.ListScoped(ctx, scope, repositories.SecretFilter{Tags: tags})
+	secretList, err := s.secretRepo.List(ctx, scope, repositories.SecretFilter{Tags: tags})
 	if err != nil {
 		s.logger.LogAuditError(actor, "list_secrets", "failed", "Failed to list secrets", err)
 		return nil, fmt.Errorf("failed to list secrets: %w", err)
@@ -430,12 +392,12 @@ func (s *secretService) ListSecretsScoped(ctx context.Context, scope model.Scope
 	return secretList, nil
 }
 
-// DeleteSecretScoped soft-deletes a secret authorized by scope. The scoped read
+// DeleteSecret soft-deletes a secret authorized by scope. The scoped read
 // is the access check.
-func (s *secretService) DeleteSecretScoped(ctx context.Context, secretID uuid.UUID, scope model.Scope) error {
+func (s *secretService) DeleteSecret(ctx context.Context, secretID uuid.UUID, scope model.Scope) error {
 	actor := scope.ActorID().String()
 
-	secret, err := s.secretRepo.ReadScoped(ctx, secretID, scope)
+	secret, err := s.secretRepo.Read(ctx, secretID, scope)
 	if err != nil {
 		s.logger.LogAuditError(actor, "delete_secret", "failed", "Secret not found or access denied", err)
 		return fmt.Errorf("%w: %s", ErrSecretNotFound, err.Error())
@@ -455,168 +417,30 @@ func (s *secretService) DeleteSecretScoped(ctx context.Context, secretID uuid.UU
 	return nil
 }
 
-// ListDeletedSecretsScoped lists soft-deleted secrets authorized by scope. The
+// ListDeletedSecrets lists soft-deleted secrets authorized by scope. The
 // filter runs in SQL rather than pulling every secret into memory to discard
 // most of them.
-func (s *secretService) ListDeletedSecretsScoped(ctx context.Context, scope model.Scope) ([]model.Secret, error) {
-	secretList, err := s.secretRepo.ListScoped(ctx, scope, repositories.SecretFilter{OnlyDeleted: true})
+func (s *secretService) ListDeletedSecrets(ctx context.Context, scope model.Scope) ([]model.Secret, error) {
+	secretList, err := s.secretRepo.List(ctx, scope, repositories.SecretFilter{OnlyDeleted: true})
 	if err != nil {
 		return nil, fmt.Errorf("failed to list deleted secrets: %w", err)
 	}
 	return secretList, nil
 }
 
-// GetSecret retrieves a secret by ID with decryption and tag loading.
-//
-// Parameters:
-//
-//	ctx: The context for the operation.
-//	secretID: The secret's unique identifier.
-//	userID: The user's unique identifier for access control.
-//
-// Returns:
-//
-//	The decrypted secret or an error if retrieval fails.
-//
-// Deprecated: shim over GetSecretScoped; removed in Phase 6.
-func (s *secretService) GetSecret(ctx context.Context, secretID, userID uuid.UUID) (*model.Secret, error) {
-	return s.GetSecretScoped(ctx, secretID, model.NewOwnerScope(uuid.Nil, userID))
+// GetSecretVersions returns every version of a secret the scope authorizes.
+func (s *secretService) GetSecretVersions(ctx context.Context, secretID uuid.UUID, scope model.Scope) ([]model.SecretVersion, error) {
+	return s.versionService.GetVersions(ctx, secretID, scope)
 }
 
-// ListSecrets retrieves all secrets for a user with optional tag filtering.
-//
-// Parameters:
-//
-//	ctx: The context for the operation.
-//	userID: The user's unique identifier.
-//	tags: Optional tags to filter by.
-//
-// Returns:
-//
-//	A slice of decrypted secrets or an error if retrieval fails.
-//
-// Deprecated: shim over ListSecretsScoped; removed in Phase 6.
-func (s *secretService) ListSecrets(ctx context.Context, userID uuid.UUID, tags []string) ([]model.Secret, error) {
-	return s.ListSecretsScoped(ctx, model.NewOwnerScope(uuid.Nil, userID), tags)
+// GetSecretVersion returns one version the scope authorizes.
+func (s *secretService) GetSecretVersion(ctx context.Context, secretID uuid.UUID, version int, scope model.Scope) (*model.SecretVersion, error) {
+	return s.versionService.GetVersion(ctx, secretID, version, scope)
 }
 
-// DeleteSecret removes a secret and its associated data.
-//
-// Parameters:
-//
-//	ctx: The context for the operation.
-//	secretID: The secret's unique identifier.
-//	userID: The user's unique identifier for access control.
-//
-// Returns:
-//
-//	An error if deletion fails.
-//
-// Deprecated: shim over DeleteSecretScoped; removed in Phase 6.
-func (s *secretService) DeleteSecret(ctx context.Context, secretID, userID uuid.UUID) error {
-	return s.DeleteSecretScoped(ctx, secretID, model.NewOwnerScope(uuid.Nil, userID))
-}
-
-// GetSecretInVault retrieves a secret by ID scoped to a vault, with decryption
-// and tag loading. It mirrors GetSecret but enforces vault scope at the SQL
-// level via ReadInVault instead of ownership.
-//
-// Deprecated: shim over GetSecretScoped; removed in Phase 6.
-func (s *secretService) GetSecretInVault(ctx context.Context, secretID, vaultID uuid.UUID) (*model.Secret, error) {
-	return s.GetSecretScoped(ctx, secretID, model.NewVaultScope(vaultID, uuid.Nil))
-}
-
-// ListSecretsInVault retrieves all active secrets in a vault with optional tag
-// filtering. It mirrors ListSecrets but scopes by vault instead of user.
-//
-// Deprecated: shim over ListSecretsScoped; removed in Phase 6.
-func (s *secretService) ListSecretsInVault(ctx context.Context, vaultID uuid.UUID, tags []string) ([]model.Secret, error) {
-	return s.ListSecretsScoped(ctx, model.NewVaultScope(vaultID, uuid.Nil), tags)
-}
-
-// DeleteSecretInVault soft-deletes a secret scoped to a vault. It mirrors
-// DeleteSecret but verifies vault scope via ReadInVault instead of ownership.
-//
-// Deprecated: shim over DeleteSecretScoped; removed in Phase 6.
-func (s *secretService) DeleteSecretInVault(ctx context.Context, secretID, vaultID uuid.UUID) error {
-	return s.DeleteSecretScoped(ctx, secretID, model.NewVaultScope(vaultID, uuid.Nil))
-}
-
-// ListDeletedSecretsInVault lists soft-deleted secrets scoped to a vault.
-//
-// Deprecated: shim over ListDeletedSecretsScoped; removed in Phase 6.
-func (s *secretService) ListDeletedSecretsInVault(ctx context.Context, vaultID uuid.UUID) ([]model.Secret, error) {
-	return s.ListDeletedSecretsScoped(ctx, model.NewVaultScope(vaultID, uuid.Nil))
-}
-
-// GetSecretVersions retrieves all versions of a secret.
-//
-// Parameters:
-//
-//	ctx: The context for the operation.
-//	secretID: The secret's unique identifier.
-//
-// Returns:
-//
-//	A slice of secret versions or an error if retrieval fails.
-func (s *secretService) GetSecretVersions(ctx context.Context, secretID uuid.UUID, userID uuid.UUID) ([]model.SecretVersion, error) {
-	return s.versionService.GetVersions(ctx, secretID, userID)
-}
-
-// GetSecretVersion retrieves a specific version of a secret.
-//
-// Parameters:
-//
-//	ctx: The context for the operation.
-//	secretID: The secret's unique identifier.
-//	version: The version number to retrieve.
-//
-// Returns:
-//
-//	The secret version or an error if not found.
-func (s *secretService) GetSecretVersion(ctx context.Context, secretID uuid.UUID, version int, userID uuid.UUID) (*model.SecretVersion, error) {
-	return s.versionService.GetVersion(ctx, secretID, version, userID)
-}
-
-// GetLatestSecretVersion retrieves the latest version of a secret.
-//
-// Parameters:
-//
-//	ctx: The context for the operation.
-//	secretID: The secret's unique identifier.
-//
-// Returns:
-//
-//	The latest secret version or an error if not found.
-func (s *secretService) GetLatestSecretVersion(ctx context.Context, secretID uuid.UUID, userID uuid.UUID) (*model.SecretVersion, error) {
-	return s.versionService.GetLatestVersion(ctx, secretID, userID)
-}
-
-// GetSecretVersionsInVault retrieves all versions of a secret scoped to a vault.
-func (s *secretService) GetSecretVersionsInVault(ctx context.Context, secretID, vaultID uuid.UUID) ([]model.SecretVersion, error) {
-	return s.versionService.GetVersionsInVault(ctx, secretID, vaultID)
-}
-
-// GetSecretVersionInVault retrieves a specific version of a secret scoped to a vault.
-func (s *secretService) GetSecretVersionInVault(ctx context.Context, secretID uuid.UUID, version int, vaultID uuid.UUID) (*model.SecretVersion, error) {
-	return s.versionService.GetVersionInVault(ctx, secretID, version, vaultID)
-}
-
-// GetLatestSecretVersionInVault retrieves the latest version of a secret scoped to a vault.
-func (s *secretService) GetLatestSecretVersionInVault(ctx context.Context, secretID, vaultID uuid.UUID) (*model.SecretVersion, error) {
-	return s.versionService.GetLatestVersionInVault(ctx, secretID, vaultID)
-}
-
-func (s *secretService) GetSecretVersionsScoped(ctx context.Context, secretID uuid.UUID, scope model.Scope) ([]model.SecretVersion, error) {
-	return s.versionService.GetVersionsScoped(ctx, secretID, scope)
-}
-
-func (s *secretService) GetSecretVersionScoped(ctx context.Context, secretID uuid.UUID, version int, scope model.Scope) (*model.SecretVersion, error) {
-	return s.versionService.GetVersionScoped(ctx, secretID, version, scope)
-}
-
-func (s *secretService) GetLatestSecretVersionScoped(ctx context.Context, secretID uuid.UUID, scope model.Scope) (*model.SecretVersion, error) {
-	return s.versionService.GetLatestVersionScoped(ctx, secretID, scope)
+// GetLatestSecretVersion returns the newest version the scope authorizes.
+func (s *secretService) GetLatestSecretVersion(ctx context.Context, secretID uuid.UUID, scope model.Scope) (*model.SecretVersion, error) {
+	return s.versionService.GetLatestVersion(ctx, secretID, scope)
 }
 
 // GenerateSecret generates a random password or secret with specified criteria.
@@ -741,32 +565,21 @@ func generateRandomPassword(length int, useSymbols, useNumbers, useUppercase, us
 //	The exported data as bytes or an error if export fails.
 func (s *secretService) ExportSecrets(ctx context.Context, req ExportSecretsRequest) ([]byte, error) {
 	logrus.WithFields(logrus.Fields{
-		"user_id": req.UserID.String(),
+		"user_id": req.Scope.ActorID().String(),
 		"format":  req.Format,
 		"tags":    req.FilterTags,
 	}).Info("Exporting secrets")
 
 	// Validate format
 	if req.Format != "json" && req.Format != "csv" {
-		s.logger.LogAuditError(req.UserID.String(), "export_secrets", "failed", "Invalid format: must be json or csv", nil)
+		s.logger.LogAuditError(req.Scope.ActorID().String(), "export_secrets", "failed", "Invalid format: must be json or csv", nil)
 		return nil, fmt.Errorf("invalid format: must be json or csv")
 	}
 
-	// Legacy VaultID-only callers don't set Scope; fall back so they keep
-	// working until the shim fields are removed in Phase 6.
-	scope := req.Scope
-	if scope.Validate() != nil {
-		if req.VaultID != uuid.Nil {
-			scope = model.NewVaultScope(req.VaultID, req.UserID)
-		} else {
-			scope = model.NewOwnerScope(uuid.Nil, req.UserID)
-		}
-	}
-
 	// List secrets with optional tag filter, authorized by scope.
-	secretsList, err := s.ListSecretsScoped(ctx, scope, req.FilterTags)
+	secretsList, err := s.ListSecrets(ctx, req.Scope, req.FilterTags)
 	if err != nil {
-		s.logger.LogAuditError(req.UserID.String(), "export_secrets", "failed", "Failed to list secrets", err)
+		s.logger.LogAuditError(req.Scope.ActorID().String(), "export_secrets", "failed", "Failed to list secrets", err)
 		return nil, fmt.Errorf("failed to list secrets: %w", err)
 	}
 
@@ -792,7 +605,7 @@ func (s *secretService) ExportSecrets(ctx context.Context, req ExportSecretsRequ
 
 		data, err = json.MarshalIndent(exportData, "", "  ")
 		if err != nil {
-			s.logger.LogAuditError(req.UserID.String(), "export_secrets", "failed", "Failed to marshal JSON", err)
+			s.logger.LogAuditError(req.Scope.ActorID().String(), "export_secrets", "failed", "Failed to marshal JSON", err)
 			return nil, fmt.Errorf("failed to marshal JSON: %w", err)
 		}
 	} else {
@@ -816,10 +629,10 @@ func (s *secretService) ExportSecrets(ctx context.Context, req ExportSecretsRequ
 		data = []byte(csvData)
 	}
 
-	s.logger.LogAuditInfo(req.UserID.String(), "export_secrets", "success",
+	s.logger.LogAuditInfo(req.Scope.ActorID().String(), "export_secrets", "success",
 		fmt.Sprintf("Exported %d secrets in %s format", len(secretsList), req.Format))
 	logrus.WithFields(logrus.Fields{
-		"user_id":      req.UserID.String(),
+		"user_id":      req.Scope.ActorID().String(),
 		"format":       req.Format,
 		"secret_count": len(secretsList),
 	}).Info("Secrets exported successfully")
@@ -840,7 +653,7 @@ func (s *secretService) ExportSecrets(ctx context.Context, req ExportSecretsRequ
 //	The import result with counts and errors, or an error if import fails.
 func (s *secretService) ImportSecrets(ctx context.Context, req ImportSecretsRequest) (*ImportResult, error) {
 	logrus.WithFields(logrus.Fields{
-		"user_id":   req.UserID.String(),
+		"user_id":   req.Scope.ActorID().String(),
 		"format":    req.Format,
 		"overwrite": req.Overwrite,
 	}).Info("Importing secrets")
@@ -851,19 +664,8 @@ func (s *secretService) ImportSecrets(ctx context.Context, req ImportSecretsRequ
 
 	// Validate format
 	if req.Format != "json" && req.Format != "csv" {
-		s.logger.LogAuditError(req.UserID.String(), "import_secrets", "failed", "Invalid format: must be json or csv", nil)
+		s.logger.LogAuditError(req.Scope.ActorID().String(), "import_secrets", "failed", "Invalid format: must be json or csv", nil)
 		return nil, fmt.Errorf("invalid format: must be json or csv")
-	}
-
-	// Legacy VaultID-only callers don't set Scope; fall back so they keep
-	// working until the shim fields are removed in Phase 6.
-	scope := req.Scope
-	if scope.Validate() != nil {
-		if req.VaultID != uuid.Nil {
-			scope = model.NewVaultScope(req.VaultID, req.UserID)
-		} else {
-			scope = model.NewOwnerScope(uuid.Nil, req.UserID)
-		}
 	}
 
 	type importSecret struct {
@@ -877,7 +679,7 @@ func (s *secretService) ImportSecrets(ctx context.Context, req ImportSecretsRequ
 	if req.Format == "json" {
 		// Parse JSON
 		if err := json.Unmarshal(req.Data, &secretsToImport); err != nil {
-			s.logger.LogAuditError(req.UserID.String(), "import_secrets", "failed", "Failed to parse JSON", err)
+			s.logger.LogAuditError(req.Scope.ActorID().String(), "import_secrets", "failed", "Failed to parse JSON", err)
 			return nil, fmt.Errorf("failed to parse JSON: %w", err)
 		}
 	} else {
@@ -917,8 +719,8 @@ func (s *secretService) ImportSecrets(ctx context.Context, req ImportSecretsRequ
 		}
 
 		createReq := CreateSecretRequest{
-			UserID:  req.UserID,
-			VaultID: scope.ResolvedVaultID(),
+			UserID:  req.Scope.ActorID(),
+			VaultID: req.Scope.ResolvedVaultID(),
 			Name:    importSec.Name,
 			Value:   importSec.Value,
 			Tags:    importSec.Tags,
@@ -932,10 +734,10 @@ func (s *secretService) ImportSecrets(ctx context.Context, req ImportSecretsRequ
 		}
 	}
 
-	s.logger.LogAuditInfo(req.UserID.String(), "import_secrets", "success",
+	s.logger.LogAuditInfo(req.Scope.ActorID().String(), "import_secrets", "success",
 		fmt.Sprintf("Imported %d/%d secrets", result.ImportedCount, result.TotalCount))
 	logrus.WithFields(logrus.Fields{
-		"user_id":        req.UserID.String(),
+		"user_id":        req.Scope.ActorID().String(),
 		"format":         req.Format,
 		"imported_count": result.ImportedCount,
 		"skipped_count":  result.SkippedCount,
@@ -949,7 +751,7 @@ func (s *secretService) ImportSecrets(ctx context.Context, req ImportSecretsRequ
 // scope authorizes. It replaces the handler-level IsSecretSoftDeleted* checks,
 // which used a different scope from the mutation that followed them.
 func (s *secretService) softDeletedInScope(ctx context.Context, secretID uuid.UUID, scope model.Scope) (bool, error) {
-	deleted, err := s.secretRepo.ListScoped(ctx, scope, repositories.SecretFilter{OnlyDeleted: true})
+	deleted, err := s.secretRepo.List(ctx, scope, repositories.SecretFilter{OnlyDeleted: true})
 	if err != nil {
 		return false, fmt.Errorf("failed to list deleted secrets: %w", err)
 	}
@@ -961,8 +763,8 @@ func (s *secretService) softDeletedInScope(ctx context.Context, secretID uuid.UU
 	return false, nil
 }
 
-// RecoverSecretScoped restores a soft-deleted secret authorized by scope.
-func (s *secretService) RecoverSecretScoped(ctx context.Context, secretID uuid.UUID, scope model.Scope) error {
+// RecoverSecret restores a soft-deleted secret authorized by scope.
+func (s *secretService) RecoverSecret(ctx context.Context, secretID uuid.UUID, scope model.Scope) error {
 	inScope, err := s.softDeletedInScope(ctx, secretID, scope)
 	if err != nil {
 		return err
@@ -978,8 +780,8 @@ func (s *secretService) RecoverSecretScoped(ctx context.Context, secretID uuid.U
 	return nil
 }
 
-// PurgeSecretScoped permanently deletes a soft-deleted secret authorized by scope.
-func (s *secretService) PurgeSecretScoped(ctx context.Context, secretID uuid.UUID, scope model.Scope) error {
+// PurgeSecret permanently deletes a soft-deleted secret authorized by scope.
+func (s *secretService) PurgeSecret(ctx context.Context, secretID uuid.UUID, scope model.Scope) error {
 	inScope, err := s.softDeletedInScope(ctx, secretID, scope)
 	if err != nil {
 		return err
@@ -993,26 +795,6 @@ func (s *secretService) PurgeSecretScoped(ctx context.Context, secretID uuid.UUI
 		return fmt.Errorf("failed to purge secret: %w", err)
 	}
 	return nil
-}
-
-// Deprecated: shim over softDeletedInScope; removed in Phase 6.
-func (s *secretService) IsSecretSoftDeletedInVault(ctx context.Context, secretID, vaultID uuid.UUID) (bool, error) {
-	return s.softDeletedInScope(ctx, secretID, model.NewVaultScope(vaultID, uuid.Nil))
-}
-
-// Deprecated: shim over softDeletedInScope; removed in Phase 6.
-func (s *secretService) IsSecretSoftDeletedForUser(ctx context.Context, secretID, userID uuid.UUID) (bool, error) {
-	return s.softDeletedInScope(ctx, secretID, model.NewOwnerScope(uuid.Nil, userID))
-}
-
-// Deprecated: shim over RecoverSecretScoped; removed in Phase 6.
-func (s *secretService) RecoverSecret(ctx context.Context, secretID uuid.UUID) error {
-	return s.RecoverSecretScoped(ctx, secretID, model.NewAdminScope(uuid.Nil))
-}
-
-// Deprecated: shim over PurgeSecretScoped; removed in Phase 6.
-func (s *secretService) PurgeSecret(ctx context.Context, secretID uuid.UUID) error {
-	return s.PurgeSecretScoped(ctx, secretID, model.NewAdminScope(uuid.Nil))
 }
 
 // parseCSVLine parses a CSV line handling quoted values.

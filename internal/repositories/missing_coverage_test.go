@@ -464,9 +464,9 @@ func TestSecretRepository_Update(t *testing.T) {
 
 	s.Value = "new-value"
 	s.Version = 2
-	require.NoError(t, repo.Update(ctx, s))
+	require.NoError(t, repo.Update(ctx, s, model.NewAdminScope(uuid.Nil)))
 
-	got, err := repo.Read(ctx, s.ID)
+	got, err := repo.Read(ctx, s.ID, model.NewAdminScope(uuid.Nil))
 	require.NoError(t, err)
 	assert.Equal(t, "new-value", got.Value)
 	assert.Equal(t, 2, got.Version)
@@ -485,7 +485,7 @@ func TestSecretRepository_Update_NotFound(t *testing.T) {
 		Value:   "val",
 		Version: 1,
 	}
-	err := repo.Update(ctx, s)
+	err := repo.Update(ctx, s, model.NewAdminScope(uuid.Nil))
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "not found")
 }
@@ -501,7 +501,7 @@ func TestSecretRepository_Delete(t *testing.T) {
 
 	require.NoError(t, repo.Delete(ctx, s.ID))
 
-	_, err := repo.Read(ctx, s.ID)
+	_, err := repo.Read(ctx, s.ID, model.NewAdminScope(uuid.Nil))
 	assert.Error(t, err)
 }
 
@@ -528,13 +528,13 @@ func TestSecretRepository_RecoverSecret(t *testing.T) {
 	require.NoError(t, repo.SoftDelete(ctx, s.ID))
 
 	// Confirm hidden.
-	_, err := repo.Read(ctx, s.ID)
+	_, err := repo.Read(ctx, s.ID, model.NewAdminScope(uuid.Nil))
 	require.Error(t, err)
 
 	// Recover.
 	require.NoError(t, repo.RecoverSecret(ctx, s.ID))
 
-	got, err := repo.Read(ctx, s.ID)
+	got, err := repo.Read(ctx, s.ID, model.NewAdminScope(uuid.Nil))
 	require.NoError(t, err)
 	assert.Equal(t, s.ID, got.ID)
 }
@@ -631,11 +631,11 @@ func TestSecretRepository_ListByUser(t *testing.T) {
 	require.NoError(t, repo.Create(ctx, mk(userA, "s2")))
 	require.NoError(t, repo.Create(ctx, mk(userB, "s3")))
 
-	listA, err := repo.ListByUser(ctx, userA, nil)
+	listA, err := repo.List(ctx, model.NewOwnerScope(uuid.Nil, userA), repositories.SecretFilter{})
 	require.NoError(t, err)
 	assert.Len(t, listA, 2)
 
-	listB, err := repo.ListByUser(ctx, userB, nil)
+	listB, err := repo.List(ctx, model.NewOwnerScope(uuid.Nil, userB), repositories.SecretFilter{})
 	require.NoError(t, err)
 	assert.Len(t, listB, 1)
 }
@@ -651,7 +651,7 @@ func TestSecretRepository_ListByUser_ExcludesSoftDeleted(t *testing.T) {
 	require.NoError(t, repo.Create(ctx, s))
 	require.NoError(t, repo.SoftDelete(ctx, s.ID))
 
-	list, err := repo.ListByUser(ctx, userID, nil)
+	list, err := repo.List(ctx, model.NewOwnerScope(uuid.Nil, userID), repositories.SecretFilter{})
 	require.NoError(t, err)
 	assert.Empty(t, list)
 }
@@ -669,7 +669,7 @@ func TestSecretRepository_ListByUserIncludeDeleted(t *testing.T) {
 	require.NoError(t, repo.Create(ctx, s2))
 	require.NoError(t, repo.SoftDelete(ctx, s2.ID))
 
-	all, err := repo.ListByUserIncludeDeleted(ctx, userID, nil)
+	all, err := repo.List(ctx, model.NewOwnerScope(uuid.Nil, userID), repositories.SecretFilter{IncludeDeleted: true})
 	require.NoError(t, err)
 	assert.Len(t, all, 2)
 }
@@ -684,7 +684,7 @@ func TestSecretRepository_ReadInVault(t *testing.T) {
 	s := &model.Secret{ID: uuid.New(), UserID: uuid.New(), VaultID: vaultID, Name: "in-vault", Value: "v", Version: 1, CreatedAt: time.Now(), Enabled: true}
 	require.NoError(t, repo.Create(ctx, s))
 
-	got, err := repo.ReadInVault(ctx, s.ID, vaultID)
+	got, err := repo.Read(ctx, s.ID, model.NewVaultScope(vaultID, uuid.Nil))
 	require.NoError(t, err)
 	assert.Equal(t, s.ID, got.ID)
 	assert.Equal(t, vaultID, got.VaultID)
@@ -700,7 +700,7 @@ func TestSecretRepository_ReadInVault_WrongVault(t *testing.T) {
 	s := &model.Secret{ID: uuid.New(), UserID: uuid.New(), VaultID: vaultA, Name: "s", Value: "v", Version: 1, CreatedAt: time.Now()}
 	require.NoError(t, repo.Create(ctx, s))
 
-	_, err := repo.ReadInVault(ctx, s.ID, uuid.New())
+	_, err := repo.Read(ctx, s.ID, model.NewVaultScope(uuid.New(), uuid.Nil))
 	assert.Error(t, err)
 }
 

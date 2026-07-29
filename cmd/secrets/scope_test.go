@@ -46,7 +46,7 @@ func TestSecretsGetBuildsAVaultScope(t *testing.T) {
 	})
 	secretID := uuid.New()
 
-	svc.On("GetSecretScoped", mock.Anything, secretID, model.NewVaultScope(vaultID, uuid.Nil)).
+	svc.On("GetSecret", mock.Anything, secretID, model.NewVaultScope(vaultID, uuid.Nil)).
 		Return(&model.Secret{ID: secretID, Name: "s", Value: "v", Version: 1}, nil).Once()
 
 	cmd.SetArgs([]string{secretID.String()})
@@ -61,7 +61,7 @@ func TestSecretsListBuildsAVaultScope(t *testing.T) {
 		return c
 	})
 
-	svc.On("ListSecretsScoped", mock.Anything, model.NewVaultScope(vaultID, uuid.Nil), mock.Anything).
+	svc.On("ListSecrets", mock.Anything, model.NewVaultScope(vaultID, uuid.Nil), mock.Anything).
 		Return([]model.Secret{{ID: uuid.New(), Name: "a"}}, nil).Once()
 
 	require.NoError(t, cmd.Execute())
@@ -74,7 +74,7 @@ func TestSecretsDeleteBuildsAVaultScope(t *testing.T) {
 	})
 	secretID := uuid.New()
 
-	svc.On("DeleteSecretScoped", mock.Anything, secretID, model.NewVaultScope(vaultID, uuid.Nil)).
+	svc.On("DeleteSecret", mock.Anything, secretID, model.NewVaultScope(vaultID, uuid.Nil)).
 		Return(nil).Once()
 
 	cmd.SetArgs([]string{secretID.String()})

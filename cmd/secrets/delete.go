@@ -65,7 +65,7 @@ var deleteCmd = &cobra.Command{
 		}
 
 		// Delete secret via service (includes access control).
-		err = secretService.DeleteSecretScoped(ctx, secretID, model.NewVaultScope(vaultID, uuid.Nil))
+		err = secretService.DeleteSecret(ctx, secretID, model.NewVaultScope(vaultID, uuid.Nil))
 		if err != nil {
 			logrus.WithError(err).Error("Failed to delete secret")
 			os.Exit(1)

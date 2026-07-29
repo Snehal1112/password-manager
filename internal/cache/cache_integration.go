@@ -30,11 +30,11 @@ func NewCachedSecretService(secretService secrets.SecretService, cache *SecretCa
 	}
 }
 
-// GetSecretScoped retrieves a scoped secret, using cache when available. The
+// GetSecret retrieves a scoped secret, using cache when available. The
 // entry is keyed by (scope, id), so a value admitted under one scope can never
 // satisfy a read under another, and the hit path rechecks IsAccessible so a
 // secret that expired or was disabled while cached is not served anyway.
-func (s *CachedSecretService) GetSecretScoped(ctx context.Context, secretID uuid.UUID, scope model.Scope) (*model.Secret, error) {
+func (s *CachedSecretService) GetSecret(ctx context.Context, secretID uuid.UUID, scope model.Scope) (*model.Secret, error) {
 	if cached, found := s.cache.Get(ctx, secretID, scope); found {
 		if cached.IsAccessible() {
 			s.logger.WithFields(logrus.Fields{
@@ -48,7 +48,7 @@ func (s *CachedSecretService) GetSecretScoped(ctx context.Context, secretID uuid
 		}
 	}
 
-	secret, err := s.secretService.GetSecretScoped(ctx, secretID, scope)
+	secret, err := s.secretService.GetSecret(ctx, secretID, scope)
 	if err != nil {
 		return nil, err
 	}
@@ -60,20 +60,14 @@ func (s *CachedSecretService) GetSecretScoped(ctx context.Context, secretID uuid
 	return secret, nil
 }
 
-// GetSecret retrieves a secret for its owner, using cache when available.
-// Deprecated: shim over GetSecretScoped; removed in Phase 6.
-func (s *CachedSecretService) GetSecret(ctx context.Context, secretID uuid.UUID, userID uuid.UUID) (*model.Secret, error) {
-	return s.GetSecretScoped(ctx, secretID, model.NewOwnerScope(uuid.Nil, userID))
+// ListSecrets lists scoped secrets (not cached).
+func (s *CachedSecretService) ListSecrets(ctx context.Context, scope model.Scope, tags []string) ([]model.Secret, error) {
+	return s.secretService.ListSecrets(ctx, scope, tags)
 }
 
-// ListSecretsScoped lists scoped secrets (not cached).
-func (s *CachedSecretService) ListSecretsScoped(ctx context.Context, scope model.Scope, tags []string) ([]model.Secret, error) {
-	return s.secretService.ListSecretsScoped(ctx, scope, tags)
-}
-
-// DeleteSecretScoped soft-deletes a scoped secret and evicts it from cache.
-func (s *CachedSecretService) DeleteSecretScoped(ctx context.Context, secretID uuid.UUID, scope model.Scope) error {
-	if err := s.secretService.DeleteSecretScoped(ctx, secretID, scope); err != nil {
+// DeleteSecret soft-deletes a scoped secret and evicts it from cache.
+func (s *CachedSecretService) DeleteSecret(ctx context.Context, secretID uuid.UUID, scope model.Scope) error {
+	if err := s.secretService.DeleteSecret(ctx, secretID, scope); err != nil {
 		return err
 	}
 	if err := s.cache.DeleteByID(ctx, secretID); err != nil {
@@ -82,9 +76,9 @@ func (s *CachedSecretService) DeleteSecretScoped(ctx context.Context, secretID u
 	return nil
 }
 
-// ListDeletedSecretsScoped lists scoped soft-deleted secrets (not cached).
-func (s *CachedSecretService) ListDeletedSecretsScoped(ctx context.Context, scope model.Scope) ([]model.Secret, error) {
-	return s.secretService.ListDeletedSecretsScoped(ctx, scope)
+// ListDeletedSecrets lists scoped soft-deleted secrets (not cached).
+func (s *CachedSecretService) ListDeletedSecrets(ctx context.Context, scope model.Scope) ([]model.Secret, error) {
+	return s.secretService.ListDeletedSecrets(ctx, scope)
 }
 
 // CreateSecret creates a new secret. The reading scope is not known at write
@@ -99,138 +93,30 @@ func (s *CachedSecretService) CreateSecret(ctx context.Context, req secrets.Crea
 	return secret, nil
 }
 
-// UpdateSecret updates a secret and invalidates cache.
+// UpdateSecret updates a scoped secret and invalidates the cache entry.
 func (s *CachedSecretService) UpdateSecret(ctx context.Context, req secrets.UpdateSecretRequest) error {
-	// Update through underlying service
-	err := s.secretService.UpdateSecret(ctx, req)
-	if err != nil {
-		return err
-	}
-
-	// Invalidate cache - the secret will be re-cached on next read
-	if err := s.cache.DeleteByID(ctx, req.SecretID); err != nil {
-		s.logger.WithError(err).Warn("Failed to invalidate cached secret")
-		// Don't fail the operation if cache invalidation fails
-	}
-
-	return nil
-}
-
-// UpdateSecretScoped updates a scoped secret and invalidates the cache entry.
-func (s *CachedSecretService) UpdateSecretScoped(ctx context.Context, req secrets.UpdateSecretRequest) error {
-	if err := s.secretService.UpdateSecretScoped(ctx, req); err != nil {
+	if err := s.secretService.UpdateSecret(ctx, req); err != nil {
 		return err
 	}
 	if err := s.cache.DeleteByID(ctx, req.SecretID); err != nil {
 		s.logger.WithError(err).Warn("Failed to invalidate cached secret")
-	}
-	return nil
-}
-
-// UpdateSecretInVault updates a vault-scoped secret and invalidates cache.
-func (s *CachedSecretService) UpdateSecretInVault(ctx context.Context, req secrets.UpdateSecretRequest) error {
-	if err := s.secretService.UpdateSecretInVault(ctx, req); err != nil {
-		return err
-	}
-
-	// Invalidate cache - the secret will be re-cached on next read.
-	if err := s.cache.DeleteByID(ctx, req.SecretID); err != nil {
-		s.logger.WithError(err).Warn("Failed to invalidate cached secret")
-		// Don't fail the operation if cache invalidation fails.
-	}
-
-	return nil
-}
-
-// DeleteSecret soft deletes a secret and removes from cache.
-func (s *CachedSecretService) DeleteSecret(ctx context.Context, secretID uuid.UUID, userID uuid.UUID) error {
-	// Delete through underlying service
-	err := s.secretService.DeleteSecret(ctx, secretID, userID)
-	if err != nil {
-		return err
-	}
-
-	// Remove from cache
-	if err := s.cache.DeleteByID(ctx, secretID); err != nil {
-		s.logger.WithError(err).Warn("Failed to remove deleted secret from cache")
-		// Don't fail the operation if cache deletion fails
-	}
-
-	return nil
-}
-
-// ListSecrets lists secrets for a user (not cached due to filtering complexity).
-func (s *CachedSecretService) ListSecrets(ctx context.Context, userID uuid.UUID, tags []string) ([]model.Secret, error) {
-	// List operations are not cached due to filtering complexity
-	// This could be optimized in the future with cache invalidation strategies
-	return s.secretService.ListSecrets(ctx, userID, tags)
-}
-
-// GetSecretInVault retrieves a vault-scoped secret (delegated; not cached to keep
-// vault scoping authoritative at the service layer).
-func (s *CachedSecretService) GetSecretInVault(ctx context.Context, secretID, vaultID uuid.UUID) (*model.Secret, error) {
-	return s.secretService.GetSecretInVault(ctx, secretID, vaultID)
-}
-
-// ListSecretsInVault lists vault-scoped secrets (not cached due to filtering complexity).
-func (s *CachedSecretService) ListSecretsInVault(ctx context.Context, vaultID uuid.UUID, tags []string) ([]model.Secret, error) {
-	return s.secretService.ListSecretsInVault(ctx, vaultID, tags)
-}
-
-// DeleteSecretInVault soft-deletes a vault-scoped secret and removes it from cache.
-func (s *CachedSecretService) DeleteSecretInVault(ctx context.Context, secretID, vaultID uuid.UUID) error {
-	if err := s.secretService.DeleteSecretInVault(ctx, secretID, vaultID); err != nil {
-		return err
-	}
-	if err := s.cache.DeleteByID(ctx, secretID); err != nil {
-		s.logger.WithError(err).Warn("Failed to remove deleted secret from cache")
 	}
 	return nil
 }
 
 // GetSecretVersions retrieves all versions of a secret.
-func (s *CachedSecretService) GetSecretVersions(ctx context.Context, secretID uuid.UUID, userID uuid.UUID) ([]model.SecretVersion, error) {
-	return s.secretService.GetSecretVersions(ctx, secretID, userID)
+func (s *CachedSecretService) GetSecretVersions(ctx context.Context, secretID uuid.UUID, scope model.Scope) ([]model.SecretVersion, error) {
+	return s.secretService.GetSecretVersions(ctx, secretID, scope)
 }
 
 // GetSecretVersion retrieves a specific version of a secret.
-func (s *CachedSecretService) GetSecretVersion(ctx context.Context, secretID uuid.UUID, version int, userID uuid.UUID) (*model.SecretVersion, error) {
-	return s.secretService.GetSecretVersion(ctx, secretID, version, userID)
+func (s *CachedSecretService) GetSecretVersion(ctx context.Context, secretID uuid.UUID, version int, scope model.Scope) (*model.SecretVersion, error) {
+	return s.secretService.GetSecretVersion(ctx, secretID, version, scope)
 }
 
 // GetLatestSecretVersion retrieves the latest version of a secret.
-func (s *CachedSecretService) GetLatestSecretVersion(ctx context.Context, secretID uuid.UUID, userID uuid.UUID) (*model.SecretVersion, error) {
-	return s.secretService.GetLatestSecretVersion(ctx, secretID, userID)
-}
-
-// GetSecretVersionsInVault retrieves all versions of a secret scoped to a vault.
-func (s *CachedSecretService) GetSecretVersionsInVault(ctx context.Context, secretID, vaultID uuid.UUID) ([]model.SecretVersion, error) {
-	return s.secretService.GetSecretVersionsInVault(ctx, secretID, vaultID)
-}
-
-// GetSecretVersionInVault retrieves a specific version of a secret scoped to a vault.
-func (s *CachedSecretService) GetSecretVersionInVault(ctx context.Context, secretID uuid.UUID, version int, vaultID uuid.UUID) (*model.SecretVersion, error) {
-	return s.secretService.GetSecretVersionInVault(ctx, secretID, version, vaultID)
-}
-
-// GetLatestSecretVersionInVault retrieves the latest version of a secret scoped to a vault.
-func (s *CachedSecretService) GetLatestSecretVersionInVault(ctx context.Context, secretID, vaultID uuid.UUID) (*model.SecretVersion, error) {
-	return s.secretService.GetLatestSecretVersionInVault(ctx, secretID, vaultID)
-}
-
-// GetSecretVersionsScoped retrieves every version of a secret the scope authorizes (not cached).
-func (s *CachedSecretService) GetSecretVersionsScoped(ctx context.Context, secretID uuid.UUID, scope model.Scope) ([]model.SecretVersion, error) {
-	return s.secretService.GetSecretVersionsScoped(ctx, secretID, scope)
-}
-
-// GetSecretVersionScoped retrieves one version of a secret the scope authorizes (not cached).
-func (s *CachedSecretService) GetSecretVersionScoped(ctx context.Context, secretID uuid.UUID, version int, scope model.Scope) (*model.SecretVersion, error) {
-	return s.secretService.GetSecretVersionScoped(ctx, secretID, version, scope)
-}
-
-// GetLatestSecretVersionScoped retrieves the newest version of a secret the scope authorizes (not cached).
-func (s *CachedSecretService) GetLatestSecretVersionScoped(ctx context.Context, secretID uuid.UUID, scope model.Scope) (*model.SecretVersion, error) {
-	return s.secretService.GetLatestSecretVersionScoped(ctx, secretID, scope)
+func (s *CachedSecretService) GetLatestSecretVersion(ctx context.Context, secretID uuid.UUID, scope model.Scope) (*model.SecretVersion, error) {
+	return s.secretService.GetLatestSecretVersion(ctx, secretID, scope)
 }
 
 // GenerateSecret generates a secret. The reading scope is not known at write
@@ -270,9 +156,9 @@ func (s *CachedSecretService) ImportSecrets(ctx context.Context, req secrets.Imp
 	return result, nil
 }
 
-// RecoverSecretScoped recovers a scoped soft-deleted secret and evicts it from cache.
-func (s *CachedSecretService) RecoverSecretScoped(ctx context.Context, secretID uuid.UUID, scope model.Scope) error {
-	if err := s.secretService.RecoverSecretScoped(ctx, secretID, scope); err != nil {
+// RecoverSecret recovers a scoped soft-deleted secret and evicts it from cache.
+func (s *CachedSecretService) RecoverSecret(ctx context.Context, secretID uuid.UUID, scope model.Scope) error {
+	if err := s.secretService.RecoverSecret(ctx, secretID, scope); err != nil {
 		return err
 	}
 	if err := s.cache.DeleteByID(ctx, secretID); err != nil {
@@ -281,27 +167,15 @@ func (s *CachedSecretService) RecoverSecretScoped(ctx context.Context, secretID 
 	return nil
 }
 
-// RecoverSecret restores a soft-deleted secret.
-// Deprecated: shim over RecoverSecretScoped; removed in Phase 6.
-func (s *CachedSecretService) RecoverSecret(ctx context.Context, secretID uuid.UUID) error {
-	return s.RecoverSecretScoped(ctx, secretID, model.NewAdminScope(uuid.Nil))
-}
-
-// PurgeSecretScoped purges a scoped soft-deleted secret and evicts it from cache.
-func (s *CachedSecretService) PurgeSecretScoped(ctx context.Context, secretID uuid.UUID, scope model.Scope) error {
-	if err := s.secretService.PurgeSecretScoped(ctx, secretID, scope); err != nil {
+// PurgeSecret purges a scoped soft-deleted secret and evicts it from cache.
+func (s *CachedSecretService) PurgeSecret(ctx context.Context, secretID uuid.UUID, scope model.Scope) error {
+	if err := s.secretService.PurgeSecret(ctx, secretID, scope); err != nil {
 		return err
 	}
 	if err := s.cache.DeleteByID(ctx, secretID); err != nil {
 		s.logger.WithError(err).Warn("Failed to remove purged secret from cache")
 	}
 	return nil
-}
-
-// PurgeSecret permanently deletes a soft-deleted secret.
-// Deprecated: shim over PurgeSecretScoped; removed in Phase 6.
-func (s *CachedSecretService) PurgeSecret(ctx context.Context, secretID uuid.UUID) error {
-	return s.PurgeSecretScoped(ctx, secretID, model.NewAdminScope(uuid.Nil))
 }
 
 // GetCacheStats returns cache statistics for monitoring.

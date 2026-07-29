@@ -24,7 +24,7 @@ func TestVersionListCommand_ReturnsDecryptedVersions(t *testing.T) {
 		{SecretID: secretID, Version: 1, Name: "my-secret", Value: "plaintext-value-1", CreatedAt: time.Now()},
 		{SecretID: secretID, Version: 2, Name: "my-secret", Value: "plaintext-value-2", CreatedAt: time.Now()},
 	}
-	tc.MockSecretService.On("GetSecretVersions", mock.Anything, secretID, tc.TestUserID).
+	tc.MockSecretService.On("GetSecretVersions", mock.Anything, secretID, model.NewOwnerScope(uuid.Nil, tc.TestUserID)).
 		Return(versions, nil)
 	tc.MockContainer.On("GetSecretService").Return(tc.MockSecretService)
 
@@ -51,7 +51,7 @@ func TestVersionGetCommand_ReturnsDecryptedVersion(t *testing.T) {
 		SecretID: secretID, Version: 2,
 		Name: "my-secret", Value: "decrypted-value", CreatedAt: time.Now(),
 	}
-	tc.MockSecretService.On("GetSecretVersion", mock.Anything, secretID, 2, tc.TestUserID).
+	tc.MockSecretService.On("GetSecretVersion", mock.Anything, secretID, 2, model.NewOwnerScope(uuid.Nil, tc.TestUserID)).
 		Return(version, nil)
 	tc.MockContainer.On("GetSecretService").Return(tc.MockSecretService)
 
@@ -80,7 +80,7 @@ func TestVersionLatestCommand_ReturnsDecryptedLatest(t *testing.T) {
 		SecretID: secretID, Version: 3,
 		Name: "my-secret", Value: "latest-decrypted-value", CreatedAt: time.Now(),
 	}
-	tc.MockSecretService.On("GetLatestSecretVersion", mock.Anything, secretID, tc.TestUserID).
+	tc.MockSecretService.On("GetLatestSecretVersion", mock.Anything, secretID, model.NewOwnerScope(uuid.Nil, tc.TestUserID)).
 		Return(version, nil)
 	tc.MockContainer.On("GetSecretService").Return(tc.MockSecretService)
 

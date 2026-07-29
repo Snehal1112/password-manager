@@ -110,7 +110,7 @@ func TestGetSecretPolicies_NonOwner_Forbidden(t *testing.T) {
 	secretID := uuid.New()
 
 	secretRepo := &testutils.MockSecretRepository{}
-	secretRepo.On("Read", ctx, secretID).Return(&model.Secret{ID: secretID, UserID: ownerID}, nil)
+	secretRepo.On("Read", ctx, secretID, model.NewAdminScope(callerID)).Return(&model.Secret{ID: secretID, UserID: ownerID}, nil)
 	rotationRepo := &mockRotationPolicyRepo{}
 
 	svc := secrets.NewRotationService(rotationRepo, secretRepo, nil, nil, testutils.NewTestLogger(t))
@@ -128,7 +128,7 @@ func TestGetSecretPolicies_Owner_Succeeds(t *testing.T) {
 	secretID := uuid.New()
 
 	secretRepo := &testutils.MockSecretRepository{}
-	secretRepo.On("Read", ctx, secretID).Return(&model.Secret{ID: secretID, UserID: ownerID}, nil)
+	secretRepo.On("Read", ctx, secretID, model.NewAdminScope(ownerID)).Return(&model.Secret{ID: secretID, UserID: ownerID}, nil)
 	rotationRepo := &mockRotationPolicyRepo{}
 	rotationRepo.On("GetPoliciesForSecret", ctx, secretID).Return([]model.RotationPolicy{{ID: uuid.New()}}, nil)
 
@@ -164,7 +164,7 @@ func TestAcknowledgeReminder_NonOwner_Forbidden(t *testing.T) {
 	reminderID := uuid.New()
 
 	secretRepo := &testutils.MockSecretRepository{}
-	secretRepo.On("Read", ctx, secretID).Return(&model.Secret{ID: secretID, UserID: ownerID}, nil)
+	secretRepo.On("Read", ctx, secretID, model.NewAdminScope(callerID)).Return(&model.Secret{ID: secretID, UserID: ownerID}, nil)
 	rotationRepo := &mockRotationPolicyRepo{}
 
 	svc := secrets.NewRotationService(rotationRepo, secretRepo, nil, nil, testutils.NewTestLogger(t))

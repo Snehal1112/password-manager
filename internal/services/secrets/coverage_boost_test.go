@@ -462,7 +462,9 @@ func TestSecretServiceVaultScopedOperations(t *testing.T) {
 	tag := &testutils.MockTagService{}
 	svc := newService(repo, crypto, ver, tag, t)
 
-	repo.On("ReadScoped", ctx, secretID, model.NewVaultScope(vaultID, uuid.Nil)).Return(&model.Secret{
+	vaultScope := model.NewVaultScope(vaultID, uuid.Nil)
+
+	repo.On("Read", ctx, secretID, vaultScope).Return(&model.Secret{
 		ID:      secretID,
 		UserID:  userID,
 		VaultID: vaultID,
@@ -473,12 +475,12 @@ func TestSecretServiceVaultScopedOperations(t *testing.T) {
 	crypto.On("DecryptSecret", "encrypted").Return("plain", nil).Once()
 	tag.On("GetTags", ctx, secretID).Return([]string{"vault"}, nil).Once()
 
-	got, err := svc.GetSecretInVault(ctx, secretID, vaultID)
+	got, err := svc.GetSecret(ctx, secretID, vaultScope)
 	require.NoError(t, err)
 	assert.Equal(t, "plain", got.Value)
 	assert.Equal(t, []string{"vault"}, got.Tags)
 
-	repo.On("ListScoped", ctx, model.NewVaultScope(vaultID, uuid.Nil), repositories.SecretFilter{Tags: []string{"vault"}}).Return([]model.Secret{{
+	repo.On("List", ctx, vaultScope, repositories.SecretFilter{Tags: []string{"vault"}}).Return([]model.Secret{{
 		ID:      secretID,
 		UserID:  userID,
 		VaultID: vaultID,
@@ -489,12 +491,12 @@ func TestSecretServiceVaultScopedOperations(t *testing.T) {
 	crypto.On("DecryptSecret", "encrypted-list").Return("plain-list", nil).Once()
 	tag.On("GetTags", ctx, secretID).Return([]string{"vault"}, nil).Once()
 
-	list, err := svc.ListSecretsInVault(ctx, vaultID, []string{"vault"})
+	list, err := svc.ListSecrets(ctx, vaultScope, []string{"vault"})
 	require.NoError(t, err)
 	require.Len(t, list, 1)
 	assert.Equal(t, "plain-list", list[0].Value)
 
-	repo.On("ReadScoped", ctx, secretID, model.NewVaultScope(vaultID, uuid.Nil)).Return(&model.Secret{
+	repo.On("Read", ctx, secretID, vaultScope).Return(&model.Secret{
 		ID:      secretID,
 		UserID:  userID,
 		VaultID: vaultID,
@@ -503,7 +505,7 @@ func TestSecretServiceVaultScopedOperations(t *testing.T) {
 	tag.On("RemoveAllTags", ctx, secretID).Return(nil).Once()
 	repo.On("SoftDelete", ctx, secretID).Return(nil).Once()
 
-	require.NoError(t, svc.DeleteSecretInVault(ctx, secretID, vaultID))
+	require.NoError(t, svc.DeleteSecret(ctx, secretID, vaultScope))
 	repo.AssertExpectations(t)
 	crypto.AssertExpectations(t)
 	tag.AssertExpectations(t)
@@ -523,19 +525,20 @@ func TestSecretServiceVersionDelegates(t *testing.T) {
 	tag := &testutils.MockTagService{}
 	svc := newService(repo, crypto, ver, tag, t)
 
-	ver.On("GetVersions", ctx, secretID, userID).Return(versions, nil)
-	ver.On("GetVersion", ctx, secretID, 2, userID).Return(version, nil)
-	ver.On("GetLatestVersion", ctx, secretID, userID).Return(version, nil)
+	scope := model.NewOwnerScope(uuid.Nil, userID)
+	ver.On("GetVersions", ctx, secretID, scope).Return(versions, nil)
+	ver.On("GetVersion", ctx, secretID, 2, scope).Return(version, nil)
+	ver.On("GetLatestVersion", ctx, secretID, scope).Return(version, nil)
 
-	gotVersions, err := svc.GetSecretVersions(ctx, secretID, userID)
+	gotVersions, err := svc.GetSecretVersions(ctx, secretID, scope)
 	require.NoError(t, err)
 	assert.Equal(t, versions, gotVersions)
 
-	gotVersion, err := svc.GetSecretVersion(ctx, secretID, 2, userID)
+	gotVersion, err := svc.GetSecretVersion(ctx, secretID, 2, scope)
 	require.NoError(t, err)
 	assert.Equal(t, version, gotVersion)
 
-	gotLatest, err := svc.GetLatestSecretVersion(ctx, secretID, userID)
+	gotLatest, err := svc.GetLatestSecretVersion(ctx, secretID, scope)
 	require.NoError(t, err)
 	assert.Equal(t, version, gotLatest)
 
@@ -562,34 +565,34 @@ func TestSecretServiceCoreErrorBranches(t *testing.T) {
 
 		ownerScope := model.NewOwnerScope(uuid.Nil, userID)
 
-		repo.On("ReadScoped", ctx, secretID, ownerScope).Return(nil, errors.New("missing")).Once()
-		err := svc.UpdateSecret(ctx, secrets.UpdateSecretRequest{SecretID: secretID, UserID: userID})
+		repo.On("Read", ctx, secretID, ownerScope).Return(nil, errors.New("missing")).Once()
+		err := svc.UpdateSecret(ctx, secrets.UpdateSecretRequest{SecretID: secretID, Scope: ownerScope})
 		assert.ErrorIs(t, err, secrets.ErrSecretNotFound)
 
-		repo.On("ReadScoped", ctx, secretID, ownerScope).Return(current, nil).Once()
+		repo.On("Read", ctx, secretID, ownerScope).Return(current, nil).Once()
 		crypto.On("DecryptSecret", "encrypted-old").Return("", errors.New("decrypt failed")).Once()
-		err = svc.UpdateSecret(ctx, secrets.UpdateSecretRequest{SecretID: secretID, UserID: userID})
+		err = svc.UpdateSecret(ctx, secrets.UpdateSecretRequest{SecretID: secretID, Scope: ownerScope})
 		assert.ErrorContains(t, err, "failed to decrypt current secret")
 
-		repo.On("ReadScoped", ctx, secretID, ownerScope).Return(current, nil).Once()
+		repo.On("Read", ctx, secretID, ownerScope).Return(current, nil).Once()
 		crypto.On("DecryptSecret", "encrypted-old").Return("plain-old", nil).Once()
 		ver.On("CreateVersion", ctx, mock.AnythingOfType("secrets.CreateVersionRequest")).Return(nil, errors.New("version failed")).Once()
-		err = svc.UpdateSecret(ctx, secrets.UpdateSecretRequest{SecretID: secretID, UserID: userID})
+		err = svc.UpdateSecret(ctx, secrets.UpdateSecretRequest{SecretID: secretID, Scope: ownerScope})
 		assert.ErrorContains(t, err, "failed to create version")
 
 		badContentType := "application/zip"
-		repo.On("ReadScoped", ctx, secretID, ownerScope).Return(current, nil).Once()
+		repo.On("Read", ctx, secretID, ownerScope).Return(current, nil).Once()
 		crypto.On("DecryptSecret", "encrypted-old").Return("plain-old", nil).Once()
 		ver.On("CreateVersion", ctx, mock.AnythingOfType("secrets.CreateVersionRequest")).Return(&model.SecretVersion{Version: 1}, nil).Once()
-		err = svc.UpdateSecret(ctx, secrets.UpdateSecretRequest{SecretID: secretID, UserID: userID, ContentType: &badContentType})
+		err = svc.UpdateSecret(ctx, secrets.UpdateSecretRequest{SecretID: secretID, Scope: ownerScope, ContentType: &badContentType})
 		assert.ErrorContains(t, err, "unsupported content type")
 
 		newValue := "new-value"
-		repo.On("ReadScoped", ctx, secretID, ownerScope).Return(current, nil).Once()
+		repo.On("Read", ctx, secretID, ownerScope).Return(current, nil).Once()
 		crypto.On("DecryptSecret", "encrypted-old").Return("plain-old", nil).Once()
 		ver.On("CreateVersion", ctx, mock.AnythingOfType("secrets.CreateVersionRequest")).Return(&model.SecretVersion{Version: 1}, nil).Once()
 		crypto.On("EncryptSecret", newValue).Return("", errors.New("encrypt failed")).Once()
-		err = svc.UpdateSecret(ctx, secrets.UpdateSecretRequest{SecretID: secretID, UserID: userID, Value: &newValue})
+		err = svc.UpdateSecret(ctx, secrets.UpdateSecretRequest{SecretID: secretID, Scope: ownerScope, Value: &newValue})
 		assert.ErrorContains(t, err, "failed to encrypt updated secret")
 
 		repo.AssertExpectations(t)
@@ -608,17 +611,17 @@ func TestSecretServiceCoreErrorBranches(t *testing.T) {
 
 		ownerScope := model.NewOwnerScope(uuid.Nil, userID)
 
-		repo.On("ReadScoped", ctx, secretID, ownerScope).Return(&model.Secret{
+		repo.On("Read", ctx, secretID, ownerScope).Return(&model.Secret{
 			ID:      secretID,
 			UserID:  userID,
 			Value:   "encrypted",
 			Enabled: true,
 		}, nil).Once()
 		crypto.On("DecryptSecret", "encrypted").Return("", errors.New("decrypt failed")).Once()
-		_, err := svc.GetSecret(ctx, secretID, userID)
+		_, err := svc.GetSecret(ctx, secretID, ownerScope)
 		assert.ErrorContains(t, err, "failed to decrypt secret")
 
-		repo.On("ReadScoped", ctx, secretID, ownerScope).Return(&model.Secret{
+		repo.On("Read", ctx, secretID, ownerScope).Return(&model.Secret{
 			ID:      secretID,
 			UserID:  userID,
 			Value:   "encrypted",
@@ -626,10 +629,10 @@ func TestSecretServiceCoreErrorBranches(t *testing.T) {
 		}, nil).Once()
 		crypto.On("DecryptSecret", "encrypted").Return("plain", nil).Once()
 		tag.On("GetTags", ctx, secretID).Return(nil, errors.New("tags failed")).Once()
-		_, err = svc.GetSecret(ctx, secretID, userID)
+		_, err = svc.GetSecret(ctx, secretID, ownerScope)
 		assert.ErrorContains(t, err, "failed to load tags")
 
-		repo.On("ReadScoped", ctx, secretID, ownerScope).Return(&model.Secret{
+		repo.On("Read", ctx, secretID, ownerScope).Return(&model.Secret{
 			ID:      secretID,
 			UserID:  userID,
 			Value:   "encrypted",
@@ -637,18 +640,18 @@ func TestSecretServiceCoreErrorBranches(t *testing.T) {
 		}, nil).Once()
 		crypto.On("DecryptSecret", "encrypted").Return("plain", nil).Once()
 		tag.On("GetTags", ctx, secretID).Return([]string{}, nil).Once()
-		_, err = svc.GetSecret(ctx, secretID, userID)
+		_, err = svc.GetSecret(ctx, secretID, ownerScope)
 		assert.ErrorIs(t, err, secrets.ErrSecretLifecycleDenied)
 
-		repo.On("ReadScoped", ctx, secretID, ownerScope).Return(&model.Secret{ID: secretID, UserID: userID}, nil).Once()
+		repo.On("Read", ctx, secretID, ownerScope).Return(&model.Secret{ID: secretID, UserID: userID}, nil).Once()
 		tag.On("RemoveAllTags", ctx, secretID).Return(errors.New("tags failed")).Once()
-		err = svc.DeleteSecret(ctx, secretID, userID)
+		err = svc.DeleteSecret(ctx, secretID, ownerScope)
 		assert.ErrorContains(t, err, "failed to remove tags")
 
-		repo.On("ReadScoped", ctx, secretID, ownerScope).Return(&model.Secret{ID: secretID, UserID: userID}, nil).Once()
+		repo.On("Read", ctx, secretID, ownerScope).Return(&model.Secret{ID: secretID, UserID: userID}, nil).Once()
 		tag.On("RemoveAllTags", ctx, secretID).Return(nil).Once()
 		repo.On("SoftDelete", ctx, secretID).Return(errors.New("soft delete failed")).Once()
-		err = svc.DeleteSecret(ctx, secretID, userID)
+		err = svc.DeleteSecret(ctx, secretID, ownerScope)
 		assert.ErrorContains(t, err, "failed to soft delete secret")
 
 		repo.AssertExpectations(t)
@@ -669,7 +672,7 @@ func TestSecretServiceExportAndImport(t *testing.T) {
 	tag := &testutils.MockTagService{}
 	svc := newService(repo, crypto, ver, tag, t)
 
-	repo.On("ListScoped", ctx, model.NewOwnerScope(uuid.Nil, userID), repositories.SecretFilter{Tags: []string{"prod"}}).Return([]model.Secret{{
+	repo.On("List", ctx, model.NewOwnerScope(uuid.Nil, userID), repositories.SecretFilter{Tags: []string{"prod"}}).Return([]model.Secret{{
 		ID:      secretID,
 		UserID:  userID,
 		Name:    "db",
@@ -680,7 +683,7 @@ func TestSecretServiceExportAndImport(t *testing.T) {
 	tag.On("GetTags", ctx, secretID).Return([]string{"prod"}, nil).Once()
 
 	jsonData, err := svc.ExportSecrets(ctx, secrets.ExportSecretsRequest{
-		UserID:      userID,
+		Scope:       model.NewOwnerScope(uuid.Nil, userID),
 		Format:      "json",
 		FilterTags:  []string{"prod"},
 		IncludeTags: true,
@@ -689,7 +692,7 @@ func TestSecretServiceExportAndImport(t *testing.T) {
 	assert.Contains(t, string(jsonData), `"name": "db"`)
 	assert.Contains(t, string(jsonData), `"tags"`)
 
-	repo.On("ListScoped", ctx, model.NewOwnerScope(uuid.Nil, userID), repositories.SecretFilter{Tags: nil}).Return([]model.Secret{{
+	repo.On("List", ctx, model.NewOwnerScope(uuid.Nil, userID), repositories.SecretFilter{Tags: nil}).Return([]model.Secret{{
 		ID:      secretID,
 		UserID:  userID,
 		Name:    "csv-db",
@@ -700,7 +703,7 @@ func TestSecretServiceExportAndImport(t *testing.T) {
 	tag.On("GetTags", ctx, secretID).Return([]string{"csv", "prod"}, nil).Once()
 
 	csvData, err := svc.ExportSecrets(ctx, secrets.ExportSecretsRequest{
-		UserID:      userID,
+		Scope:       model.NewOwnerScope(uuid.Nil, userID),
 		Format:      "csv",
 		IncludeTags: true,
 	})
@@ -708,7 +711,7 @@ func TestSecretServiceExportAndImport(t *testing.T) {
 	assert.Contains(t, string(csvData), "name,value,tags")
 	assert.Contains(t, string(csvData), `"csv-db","csv-plain","csv,prod"`)
 
-	_, err = svc.ExportSecrets(ctx, secrets.ExportSecretsRequest{UserID: userID, Format: "yaml"})
+	_, err = svc.ExportSecrets(ctx, secrets.ExportSecretsRequest{Scope: model.NewOwnerScope(uuid.Nil, userID), Format: "yaml"})
 	assert.ErrorContains(t, err, "invalid format")
 
 	crypto.On("EncryptSecret", "one").Return("encrypted-one", nil).Once()
@@ -717,7 +720,7 @@ func TestSecretServiceExportAndImport(t *testing.T) {
 	})).Return(nil).Once()
 
 	result, err := svc.ImportSecrets(ctx, secrets.ImportSecretsRequest{
-		UserID: userID,
+		Scope:  model.NewOwnerScope(uuid.Nil, userID),
 		Format: "csv",
 		Data:   []byte("name,value,tags\napi,one,\"prod,api\"\nmissing,\n"),
 	})
@@ -726,7 +729,7 @@ func TestSecretServiceExportAndImport(t *testing.T) {
 	assert.Equal(t, 1, result.SkippedCount)
 	assert.Equal(t, 2, result.TotalCount)
 
-	_, err = svc.ImportSecrets(ctx, secrets.ImportSecretsRequest{UserID: userID, Format: "xml"})
+	_, err = svc.ImportSecrets(ctx, secrets.ImportSecretsRequest{Scope: model.NewOwnerScope(uuid.Nil, userID), Format: "xml"})
 	assert.ErrorContains(t, err, "invalid format")
 
 	repo.AssertExpectations(t)
@@ -748,8 +751,10 @@ func TestVersioningServiceHappyPathAndOwnershipErrors(t *testing.T) {
 	crypto := &testutils.MockCryptographyService{}
 	svc := secrets.NewVersioningService(versionRepo, secretRepo, userRepo, crypto, testutils.NewTestLogger(t))
 
+	adminScope := model.NewAdminScope(userID)
+
 	userRepo.On("Read", ctx, userID).Return(&model.User{ID: userID, Username: "alice"}, nil).Once()
-	secretRepo.On("Read", ctx, secretID).Return(secret, nil).Once()
+	secretRepo.On("Read", ctx, secretID, adminScope).Return(secret, nil).Once()
 	crypto.On("EncryptSecret", "plain-v1").Return("encrypted-v1", nil).Once()
 	versionRepo.On("CreateVersion", ctx, mock.MatchedBy(func(version *model.SecretVersion) bool {
 		return version.SecretID == secretID && version.UserID == userID && version.Value == "encrypted-v1"
@@ -766,28 +771,29 @@ func TestVersioningServiceHappyPathAndOwnershipErrors(t *testing.T) {
 	assert.Equal(t, "plain-v1", created.Value)
 
 	encryptedVersions := []model.SecretVersion{{ID: uuid.New(), SecretID: secretID, UserID: userID, Value: "encrypted-v1", Version: 1}}
-	secretRepo.On("ReadScoped", ctx, secretID, model.NewOwnerScope(uuid.Nil, userID)).Return(secret, nil).Once()
+	ownerScope := model.NewOwnerScope(uuid.Nil, userID)
+	secretRepo.On("Read", ctx, secretID, ownerScope).Return(secret, nil).Once()
 	versionRepo.On("GetVersions", ctx, secretID).Return(encryptedVersions, nil).Once()
 	crypto.On("DecryptSecret", "encrypted-v1").Return("plain-v1", nil).Once()
 
-	versions, err := svc.GetVersions(ctx, secretID, userID)
+	versions, err := svc.GetVersions(ctx, secretID, ownerScope)
 	require.NoError(t, err)
 	require.Len(t, versions, 1)
 	assert.Equal(t, "plain-v1", versions[0].Value)
 
 	target := &model.SecretVersion{ID: uuid.New(), SecretID: secretID, UserID: userID, Value: "encrypted-target", Version: 1}
-	secretRepo.On("Read", ctx, secretID).Return(secret, nil).Once()
+	secretRepo.On("Read", ctx, secretID, adminScope).Return(secret, nil).Once()
 	versionRepo.On("GetVersion", ctx, secretID, 1).Return(target, nil).Once()
 	crypto.On("DecryptSecret", "encrypted-target").Return("rolled-back", nil).Once()
 	userRepo.On("Read", ctx, userID).Return(&model.User{ID: userID, Username: "alice"}, nil).Once()
-	secretRepo.On("Read", ctx, secretID).Return(secret, nil).Once()
+	secretRepo.On("Read", ctx, secretID, adminScope).Return(secret, nil).Once()
 	crypto.On("EncryptSecret", "current").Return("encrypted-current", nil).Once()
 	versionRepo.On("CreateVersion", ctx, mock.MatchedBy(func(version *model.SecretVersion) bool {
 		return version.SecretID == secretID && version.UserID == userID && version.Value == "encrypted-current"
 	})).Return(nil).Once()
 	secretRepo.On("Update", ctx, mock.MatchedBy(func(updated *model.Secret) bool {
 		return updated.Value == "rolled-back" && updated.Version == 4
-	})).Return(nil).Once()
+	}), model.NewOwnerScope(secret.VaultID, secret.UserID)).Return(nil).Once()
 
 	rolledBack, err := svc.RollbackToVersion(ctx, secrets.RollbackRequest{
 		SecretID:      secretID,
@@ -798,7 +804,7 @@ func TestVersioningServiceHappyPathAndOwnershipErrors(t *testing.T) {
 	assert.Equal(t, "rolled-back", rolledBack.Value)
 	assert.Equal(t, 4, rolledBack.Version)
 
-	secretRepo.On("Read", ctx, secretID).Return(&model.Secret{ID: secretID, UserID: otherID}, nil).Once()
+	secretRepo.On("Read", ctx, secretID, model.NewAdminScope(userID)).Return(&model.Secret{ID: secretID, UserID: otherID}, nil).Once()
 	err = svc.DeleteVersions(ctx, secretID, userID)
 	assert.ErrorContains(t, err, "does not own")
 
@@ -821,34 +827,37 @@ func TestVersioningServiceGetLatestAndDeleteMethods(t *testing.T) {
 	crypto := &testutils.MockCryptographyService{}
 	svc := secrets.NewVersioningService(versionRepo, secretRepo, userRepo, crypto, testutils.NewTestLogger(t))
 
+	ownerScope := model.NewOwnerScope(uuid.Nil, userID)
+	adminScope := model.NewAdminScope(userID)
+
 	encryptedV2 := &model.SecretVersion{ID: uuid.New(), SecretID: secretID, UserID: userID, Value: "encrypted-v2", Version: 2}
-	secretRepo.On("ReadScoped", ctx, secretID, model.NewOwnerScope(uuid.Nil, userID)).Return(secret, nil).Once()
+	secretRepo.On("Read", ctx, secretID, ownerScope).Return(secret, nil).Once()
 	versionRepo.On("GetVersion", ctx, secretID, 2).Return(encryptedV2, nil).Once()
 	crypto.On("DecryptSecret", "encrypted-v2").Return("plain-v2", nil).Once()
 
-	gotVersion, err := svc.GetVersion(ctx, secretID, 2, userID)
+	gotVersion, err := svc.GetVersion(ctx, secretID, 2, ownerScope)
 	require.NoError(t, err)
 	assert.Equal(t, "plain-v2", gotVersion.Value)
 
 	encryptedLatest := &model.SecretVersion{ID: uuid.New(), SecretID: secretID, UserID: userID, Value: "encrypted-latest", Version: 3}
-	secretRepo.On("ReadScoped", ctx, secretID, model.NewOwnerScope(uuid.Nil, userID)).Return(secret, nil).Once()
+	secretRepo.On("Read", ctx, secretID, ownerScope).Return(secret, nil).Once()
 	versionRepo.On("GetLatestVersion", ctx, secretID).Return(encryptedLatest, nil).Once()
 	crypto.On("DecryptSecret", "encrypted-latest").Return("plain-latest", nil).Once()
 
-	gotLatest, err := svc.GetLatestVersion(ctx, secretID, userID)
+	gotLatest, err := svc.GetLatestVersion(ctx, secretID, ownerScope)
 	require.NoError(t, err)
 	assert.Equal(t, "plain-latest", gotLatest.Value)
 
-	secretRepo.On("Read", ctx, secretID).Return(secret, nil).Once()
+	secretRepo.On("Read", ctx, secretID, adminScope).Return(secret, nil).Once()
 	versionRepo.On("DeleteVersions", ctx, secretID).Return(nil).Once()
 	require.NoError(t, svc.DeleteVersions(ctx, secretID, userID))
 
-	secretRepo.On("Read", ctx, secretID).Return(secret, nil).Once()
+	secretRepo.On("Read", ctx, secretID, adminScope).Return(secret, nil).Once()
 	versionRepo.On("DeleteSpecificVersion", ctx, secretID, 2).Return(nil).Once()
 	require.NoError(t, svc.DeleteSpecificVersion(ctx, secretID, 2, userID))
 
-	secretRepo.On("ReadScoped", ctx, secretID, model.NewOwnerScope(uuid.Nil, userID)).Return(nil, errors.New("missing")).Once()
-	_, err = svc.GetVersion(ctx, secretID, 99, userID)
+	secretRepo.On("Read", ctx, secretID, ownerScope).Return(nil, errors.New("missing")).Once()
+	_, err = svc.GetVersion(ctx, secretID, 99, ownerScope)
 	assert.ErrorContains(t, err, "secret not found")
 
 	secretRepo.AssertExpectations(t)
@@ -955,7 +964,7 @@ func TestRotationServiceAssignmentRotationAndReminders(t *testing.T) {
 	crypto := &testutils.MockCryptographyService{}
 	svc := secrets.NewRotationService(repo, secretRepo, userRepo, crypto, testutils.NewTestLogger(t))
 
-	secretRepo.On("Read", ctx, secretID).Return(secret, nil).Once()
+	secretRepo.On("Read", ctx, secretID, model.NewAdminScope(userID)).Return(secret, nil).Once()
 	repo.On("Read", ctx, policyID).Return(policy, nil).Once()
 	repo.On("AssignToSecret", ctx, secretID, policyID, mock.AnythingOfType("time.Time"), mock.AnythingOfType("time.Time")).Return(nil).Once()
 	repo.On("CreateReminder", ctx, mock.MatchedBy(func(reminder *model.RotationReminder) bool {
@@ -968,7 +977,7 @@ func TestRotationServiceAssignmentRotationAndReminders(t *testing.T) {
 		UserID:   userID,
 	}))
 
-	secretRepo.On("Read", ctx, secretID).Return(secret, nil).Once()
+	secretRepo.On("Read", ctx, secretID, model.NewAdminScope(userID)).Return(secret, nil).Once()
 	repo.On("RemoveFromSecret", ctx, secretID, policyID).Return(nil).Once()
 	require.NoError(t, svc.RemovePolicyFromSecret(ctx, secretID, policyID, userID))
 
@@ -978,11 +987,11 @@ func TestRotationServiceAssignmentRotationAndReminders(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, policies, gotPolicies)
 
-	secretRepo.On("Read", ctx, secretID).Return(secret, nil).Once()
+	secretRepo.On("Read", ctx, secretID, model.NewAdminScope(userID)).Return(secret, nil).Once()
 	repo.On("Read", ctx, policyID).Return(policy, nil).Once()
 	secretRepo.On("Update", ctx, mock.MatchedBy(func(updated *model.Secret) bool {
 		return updated.ID == secretID && updated.Version == 4 && updated.Value != "current"
-	})).Return(nil).Once()
+	}), model.NewOwnerScope(secret.VaultID, secret.UserID)).Return(nil).Once()
 	repo.On("RecordRotation", ctx, mock.MatchedBy(func(history *model.RotationHistory) bool {
 		return history.SecretID == secretID && *history.PolicyID == policyID && history.PreviousVersion == 3 && history.NewVersion == 4
 	})).Return(nil).Once()
@@ -998,7 +1007,7 @@ func TestRotationServiceAssignmentRotationAndReminders(t *testing.T) {
 	history := []model.RotationHistory{{ID: uuid.New(), SecretID: secretID}}
 	due := []model.SecretPolicy{{SecretID: secretID, PolicyID: policyID}}
 	reminders := []model.RotationReminder{{ID: uuid.New(), SecretID: secretID, PolicyID: policyID}}
-	secretRepo.On("Read", ctx, secretID).Return(secret, nil).Once()
+	secretRepo.On("Read", ctx, secretID, model.NewAdminScope(userID)).Return(secret, nil).Once()
 	repo.On("GetRotationHistory", ctx, secretID).Return(history, nil).Once()
 	repo.On("GetDueRotations", ctx, userID).Return(due, nil).Once()
 	repo.On("CreateReminder", ctx, mock.MatchedBy(func(reminder *model.RotationReminder) bool {
@@ -1087,39 +1096,39 @@ func TestRotationServiceErrorBranches(t *testing.T) {
 	_, err = svc.ListUserPolicies(ctx, userID)
 	assert.ErrorContains(t, err, "failed to list user policies")
 
-	secretRepo.On("Read", ctx, secretID).Return(nil, errors.New("missing secret")).Once()
+	secretRepo.On("Read", ctx, secretID, model.NewAdminScope(userID)).Return(nil, errors.New("missing secret")).Once()
 	err = svc.AssignPolicyToSecret(ctx, secrets.AssignPolicyRequest{SecretID: secretID, PolicyID: policyID, UserID: userID})
 	assert.ErrorContains(t, err, "secret not found")
 
-	secretRepo.On("Read", ctx, secretID).Return(&model.Secret{ID: secretID, UserID: otherID}, nil).Once()
+	secretRepo.On("Read", ctx, secretID, model.NewAdminScope(userID)).Return(&model.Secret{ID: secretID, UserID: otherID}, nil).Once()
 	err = svc.AssignPolicyToSecret(ctx, secrets.AssignPolicyRequest{SecretID: secretID, PolicyID: policyID, UserID: userID})
 	assert.ErrorContains(t, err, "does not own this secret")
 
-	secretRepo.On("Read", ctx, secretID).Return(secret, nil).Once()
+	secretRepo.On("Read", ctx, secretID, model.NewAdminScope(userID)).Return(secret, nil).Once()
 	repo.On("Read", ctx, policyID).Return(nil, errors.New("missing policy")).Once()
 	err = svc.AssignPolicyToSecret(ctx, secrets.AssignPolicyRequest{SecretID: secretID, PolicyID: policyID, UserID: userID})
 	assert.ErrorContains(t, err, "policy not found")
 
-	secretRepo.On("Read", ctx, secretID).Return(secret, nil).Once()
+	secretRepo.On("Read", ctx, secretID, model.NewAdminScope(userID)).Return(secret, nil).Once()
 	repo.On("Read", ctx, policyID).Return(&model.RotationPolicy{ID: policyID, UserID: otherID}, nil).Once()
 	err = svc.AssignPolicyToSecret(ctx, secrets.AssignPolicyRequest{SecretID: secretID, PolicyID: policyID, UserID: userID})
 	assert.ErrorContains(t, err, "does not own this policy")
 
-	secretRepo.On("Read", ctx, secretID).Return(secret, nil).Once()
+	secretRepo.On("Read", ctx, secretID, model.NewAdminScope(userID)).Return(secret, nil).Once()
 	repo.On("Read", ctx, policyID).Return(policy, nil).Once()
 	repo.On("AssignToSecret", ctx, secretID, policyID, mock.AnythingOfType("time.Time"), mock.AnythingOfType("time.Time")).Return(errors.New("assign failed")).Once()
 	err = svc.AssignPolicyToSecret(ctx, secrets.AssignPolicyRequest{SecretID: secretID, PolicyID: policyID, UserID: userID})
 	assert.ErrorContains(t, err, "failed to assign policy")
 
-	secretRepo.On("Read", ctx, secretID).Return(nil, errors.New("missing secret")).Once()
+	secretRepo.On("Read", ctx, secretID, model.NewAdminScope(userID)).Return(nil, errors.New("missing secret")).Once()
 	err = svc.RemovePolicyFromSecret(ctx, secretID, policyID, userID)
 	assert.ErrorContains(t, err, "secret not found")
 
-	secretRepo.On("Read", ctx, secretID).Return(&model.Secret{ID: secretID, UserID: otherID}, nil).Once()
+	secretRepo.On("Read", ctx, secretID, model.NewAdminScope(userID)).Return(&model.Secret{ID: secretID, UserID: otherID}, nil).Once()
 	err = svc.RemovePolicyFromSecret(ctx, secretID, policyID, userID)
 	assert.ErrorContains(t, err, "forbidden")
 
-	secretRepo.On("Read", ctx, secretID).Return(secret, nil).Once()
+	secretRepo.On("Read", ctx, secretID, model.NewAdminScope(userID)).Return(secret, nil).Once()
 	repo.On("RemoveFromSecret", ctx, secretID, policyID).Return(errors.New("remove failed")).Once()
 	err = svc.RemovePolicyFromSecret(ctx, secretID, policyID, userID)
 	assert.ErrorContains(t, err, "failed to remove policy")
@@ -1128,21 +1137,21 @@ func TestRotationServiceErrorBranches(t *testing.T) {
 	_, err = svc.GetSecretPolicies(ctx, secretID, uuid.Nil)
 	assert.ErrorContains(t, err, "failed to get secret policies")
 
-	secretRepo.On("Read", ctx, secretID).Return(nil, errors.New("missing secret")).Once()
+	secretRepo.On("Read", ctx, secretID, model.NewAdminScope(userID)).Return(nil, errors.New("missing secret")).Once()
 	err = svc.PerformManualRotation(ctx, secrets.ManualRotationRequest{SecretID: secretID, PolicyID: policyID, UserID: userID})
 	assert.ErrorContains(t, err, "secret not found")
 
-	secretRepo.On("Read", ctx, secretID).Return(secret, nil).Once()
+	secretRepo.On("Read", ctx, secretID, model.NewAdminScope(userID)).Return(secret, nil).Once()
 	repo.On("Read", ctx, policyID).Return(policy, nil).Once()
-	secretRepo.On("Update", ctx, mock.AnythingOfType("*model.Secret")).Return(errors.New("update failed")).Once()
+	secretRepo.On("Update", ctx, mock.AnythingOfType("*model.Secret"), model.NewOwnerScope(secret.VaultID, secret.UserID)).Return(errors.New("update failed")).Once()
 	err = svc.PerformManualRotation(ctx, secrets.ManualRotationRequest{SecretID: secretID, PolicyID: policyID, UserID: userID})
 	assert.ErrorContains(t, err, "failed to update secret during rotation")
 
-	secretRepo.On("Read", ctx, secretID).Return(nil, errors.New("missing secret")).Once()
+	secretRepo.On("Read", ctx, secretID, model.NewAdminScope(userID)).Return(nil, errors.New("missing secret")).Once()
 	_, err = svc.GetRotationHistory(ctx, secretID, userID)
 	assert.ErrorContains(t, err, "secret not found")
 
-	secretRepo.On("Read", ctx, secretID).Return(secret, nil).Once()
+	secretRepo.On("Read", ctx, secretID, model.NewAdminScope(userID)).Return(secret, nil).Once()
 	repo.On("GetRotationHistory", ctx, secretID).Return(nil, errors.New("history failed")).Once()
 	_, err = svc.GetRotationHistory(ctx, secretID, userID)
 	assert.ErrorContains(t, err, "failed to get rotation history")
@@ -1202,7 +1211,7 @@ func TestSchedulerServiceProcessesRotationsRemindersAndLifecycle(t *testing.T) {
 
 	rotationSvc.On("GetDueRotations", ctx, userID).Return(due, nil).Once()
 	rotationSvc.On("GetPolicy", ctx, policyID).Return(&model.RotationPolicy{ID: policyID, UserID: userID, AutoRotate: true}, nil).Once()
-	secretRepo.On("Read", ctx, secretID).Return(&model.Secret{ID: secretID, UserID: userID, Name: "api", Value: "current", Version: 1}, nil).Once()
+	secretRepo.On("Read", ctx, secretID, model.NewAdminScope(uuid.Nil)).Return(&model.Secret{ID: secretID, UserID: userID, Name: "api", Value: "current", Version: 1}, nil).Once()
 	versionSvc.On("CreateVersion", ctx, mock.MatchedBy(func(req secrets.CreateVersionRequest) bool {
 		return req.SecretID == secretID && req.UserID == userID && req.Version == 2
 	})).Return(&model.SecretVersion{ID: uuid.New()}, nil).Once()

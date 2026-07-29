@@ -256,8 +256,9 @@ func (s *rotationService) ListUserPolicies(ctx context.Context, userID uuid.UUID
 
 // AssignPolicyToSecret assigns a rotation policy to a secret with validation.
 func (s *rotationService) AssignPolicyToSecret(ctx context.Context, req AssignPolicyRequest) error {
-	// Validate secret exists and user owns it
-	secret, err := s.secretRepo.Read(ctx, req.SecretID)
+	// Validate secret exists and user owns it. The read itself is unchecked
+	// (admin scope); the explicit ownership check below is the actual gate.
+	secret, err := s.secretRepo.Read(ctx, req.SecretID, model.NewAdminScope(req.UserID))
 	if err != nil {
 		return fmt.Errorf("secret not found: %w", err)
 	}
@@ -316,7 +317,9 @@ func (s *rotationService) AssignPolicyToSecret(ctx context.Context, req AssignPo
 
 // RemovePolicyFromSecret removes a rotation policy from a secret with ownership validation.
 func (s *rotationService) RemovePolicyFromSecret(ctx context.Context, secretID, policyID uuid.UUID, callerID uuid.UUID) error {
-	secret, err := s.secretRepo.Read(ctx, secretID)
+	// The read itself is unchecked (admin scope); the explicit ownership
+	// check below is the actual gate.
+	secret, err := s.secretRepo.Read(ctx, secretID, model.NewAdminScope(callerID))
 	if err != nil {
 		return fmt.Errorf("secret not found: %w", err)
 	}
@@ -343,7 +346,9 @@ func (s *rotationService) RemovePolicyFromSecret(ctx context.Context, secretID, 
 // enforces ownership; pass uuid.Nil to skip the check (admin/system callers).
 func (s *rotationService) GetSecretPolicies(ctx context.Context, secretID, userID uuid.UUID) ([]model.RotationPolicy, error) {
 	if userID != uuid.Nil {
-		secret, err := s.secretRepo.Read(ctx, secretID)
+		// The read itself is unchecked (admin scope); the explicit ownership
+		// check below is the actual gate.
+		secret, err := s.secretRepo.Read(ctx, secretID, model.NewAdminScope(userID))
 		if err != nil {
 			return nil, fmt.Errorf("secret not found: %w", err)
 		}
@@ -363,8 +368,9 @@ func (s *rotationService) GetSecretPolicies(ctx context.Context, secretID, userI
 
 // PerformManualRotation performs manual rotation with full business logic.
 func (s *rotationService) PerformManualRotation(ctx context.Context, req ManualRotationRequest) error {
-	// Validate secret exists and user owns it
-	secret, err := s.secretRepo.Read(ctx, req.SecretID)
+	// Validate secret exists and user owns it. The read itself is unchecked
+	// (admin scope); the explicit ownership check below is the actual gate.
+	secret, err := s.secretRepo.Read(ctx, req.SecretID, model.NewAdminScope(req.UserID))
 	if err != nil {
 		return fmt.Errorf("secret not found: %w", err)
 	}
@@ -391,7 +397,7 @@ func (s *rotationService) PerformManualRotation(ctx context.Context, req ManualR
 	secret.Value = newValue
 	secret.Version++
 
-	err = s.secretRepo.Update(ctx, secret)
+	err = s.secretRepo.Update(ctx, secret, model.NewOwnerScope(secret.VaultID, secret.UserID))
 	if err != nil {
 		s.log.WithError(err).Error("Failed to update secret during rotation")
 		return fmt.Errorf("failed to update secret during rotation: %w", err)
@@ -436,7 +442,9 @@ func (s *rotationService) PerformManualRotation(ctx context.Context, req ManualR
 
 // GetRotationHistory retrieves rotation history for a secret with ownership validation.
 func (s *rotationService) GetRotationHistory(ctx context.Context, secretID uuid.UUID, callerID uuid.UUID) ([]model.RotationHistory, error) {
-	secret, err := s.secretRepo.Read(ctx, secretID)
+	// The read itself is unchecked (admin scope); the explicit ownership
+	// check below is the actual gate.
+	secret, err := s.secretRepo.Read(ctx, secretID, model.NewAdminScope(callerID))
 	if err != nil {
 		return nil, fmt.Errorf("secret not found: %w", err)
 	}
@@ -514,7 +522,9 @@ func (s *rotationService) GetUpcomingReminders(ctx context.Context, userID uuid.
 // callers).
 func (s *rotationService) AcknowledgeReminder(ctx context.Context, reminderID, secretID, userID uuid.UUID) error {
 	if userID != uuid.Nil {
-		secret, err := s.secretRepo.Read(ctx, secretID)
+		// The read itself is unchecked (admin scope); the explicit ownership
+		// check below is the actual gate.
+		secret, err := s.secretRepo.Read(ctx, secretID, model.NewAdminScope(userID))
 		if err != nil {
 			return fmt.Errorf("secret not found: %w", err)
 		}

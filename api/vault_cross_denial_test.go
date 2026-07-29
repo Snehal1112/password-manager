@@ -385,7 +385,7 @@ func TestCrossVaultDenial_SecretVersions_RealSQLite(t *testing.T) {
 	}
 
 	// listSecretVersionsHandler now drives its vault-scoped branch through
-	// scopeFromRequest + GetSecretVersionsScoped + writeSecretError, the same
+	// scopeFromRequest + GetSecretVersions + writeSecretError, the same
 	// path its two siblings below already used (design spec 2026-07-26,
 	// section 5.3, P1 Phase 4: "the listSecretVersionsHandler 500->404
 	// correction"). The 500-for-wrong-vault defect P0 pinned is now fixed.
@@ -499,7 +499,7 @@ func newCrossVaultSecretVersionsTestAPI(t *testing.T) (*API, *vaultFakeRepo, rep
 	// below reaches it (an in-scope secret with no matching version row), so
 	// it must actually query a real secret_versions table rather than panic.
 	// cryptoSvc stays nil: every path this fixture exercises returns before
-	// touching it (the cross-vault denial's ReadScoped failure, and the
+	// touching it (the cross-vault denial's scoped Read failure, and the
 	// missing-version/no-versions "not found" returns in versioning_service.go
 	// both return before any DecryptSecret call).
 	versionRepo := repositories.NewSecretVersionRepository(rvdb.NewConn(sqlDB, rvdb.SQLite), userTestLog())

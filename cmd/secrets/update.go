@@ -31,6 +31,7 @@ import (
 	"rocketvault/common"
 	"rocketvault/internal/container"
 	secretServices "rocketvault/internal/services/secrets"
+	"rocketvault/model"
 )
 
 // updateCmd represents the update command.
@@ -56,16 +57,21 @@ var updateCmd = &cobra.Command{
 		contentType, _ := cmd.Flags().GetString("content-type")
 
 		ctx := cmd.Context()
-		userID := ctx.Value(common.UserIDKey).(uuid.UUID)
 
 		sc, ok := ctx.Value(common.ServiceContainerKey).(container.ServiceContainerInterface)
 		if !ok || sc == nil {
 			return fmt.Errorf("service container not available in context")
 		}
 
+		// Resolve the target vault by name, matching the get/list/delete commands.
+		vaultID, err := resolveVaultID(ctx, cmd, sc)
+		if err != nil {
+			return err
+		}
+
 		req := secretServices.UpdateSecretRequest{
 			SecretID: secretID,
-			UserID:   userID,
+			Scope:    model.NewVaultScope(vaultID, uuid.Nil),
 			Value:    &value,
 		}
 		if len(tags) > 0 {

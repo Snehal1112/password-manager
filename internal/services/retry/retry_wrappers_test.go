@@ -163,30 +163,12 @@ func (m *MockSecretService) CreateSecret(ctx context.Context, req secrets.Create
 	return args.Get(0).(*model.Secret), args.Error(1)
 }
 
-func (m *MockSecretService) UpdateSecretScoped(ctx context.Context, req secrets.UpdateSecretRequest) error {
-	args := m.Called(ctx, req)
-	return args.Error(0)
-}
-
 func (m *MockSecretService) UpdateSecret(ctx context.Context, req secrets.UpdateSecretRequest) error {
 	args := m.Called(ctx, req)
 	return args.Error(0)
 }
 
-func (m *MockSecretService) UpdateSecretInVault(ctx context.Context, req secrets.UpdateSecretRequest) error {
-	args := m.Called(ctx, req)
-	return args.Error(0)
-}
-
-func (m *MockSecretService) GetSecret(ctx context.Context, secretID, userID uuid.UUID) (*model.Secret, error) {
-	args := m.Called(ctx, secretID, userID)
-	if args.Get(0) == nil {
-		return nil, args.Error(1)
-	}
-	return args.Get(0).(*model.Secret), args.Error(1)
-}
-
-func (m *MockSecretService) GetSecretScoped(ctx context.Context, secretID uuid.UUID, scope model.Scope) (*model.Secret, error) {
+func (m *MockSecretService) GetSecret(ctx context.Context, secretID uuid.UUID, scope model.Scope) (*model.Secret, error) {
 	args := m.Called(ctx, secretID, scope)
 	if args.Get(0) == nil {
 		return nil, args.Error(1)
@@ -194,7 +176,7 @@ func (m *MockSecretService) GetSecretScoped(ctx context.Context, secretID uuid.U
 	return args.Get(0).(*model.Secret), args.Error(1)
 }
 
-func (m *MockSecretService) ListSecretsScoped(ctx context.Context, scope model.Scope, tags []string) ([]model.Secret, error) {
+func (m *MockSecretService) ListSecrets(ctx context.Context, scope model.Scope, tags []string) ([]model.Secret, error) {
 	args := m.Called(ctx, scope, tags)
 	if args.Get(0) == nil {
 		return nil, args.Error(1)
@@ -202,12 +184,12 @@ func (m *MockSecretService) ListSecretsScoped(ctx context.Context, scope model.S
 	return args.Get(0).([]model.Secret), args.Error(1)
 }
 
-func (m *MockSecretService) DeleteSecretScoped(ctx context.Context, secretID uuid.UUID, scope model.Scope) error {
+func (m *MockSecretService) DeleteSecret(ctx context.Context, secretID uuid.UUID, scope model.Scope) error {
 	args := m.Called(ctx, secretID, scope)
 	return args.Error(0)
 }
 
-func (m *MockSecretService) ListDeletedSecretsScoped(ctx context.Context, scope model.Scope) ([]model.Secret, error) {
+func (m *MockSecretService) ListDeletedSecrets(ctx context.Context, scope model.Scope) ([]model.Secret, error) {
 	args := m.Called(ctx, scope)
 	if args.Get(0) == nil {
 		return nil, args.Error(1)
@@ -215,82 +197,24 @@ func (m *MockSecretService) ListDeletedSecretsScoped(ctx context.Context, scope 
 	return args.Get(0).([]model.Secret), args.Error(1)
 }
 
-func (m *MockSecretService) ListSecrets(ctx context.Context, userID uuid.UUID, tags []string) ([]model.Secret, error) {
-	args := m.Called(ctx, userID, tags)
-	if args.Get(0) == nil {
-		return nil, args.Error(1)
-	}
-	return args.Get(0).([]model.Secret), args.Error(1)
-}
-
-func (m *MockSecretService) DeleteSecret(ctx context.Context, secretID, userID uuid.UUID) error {
-	args := m.Called(ctx, secretID, userID)
-	return args.Error(0)
-}
-
-func (m *MockSecretService) GetSecretInVault(ctx context.Context, secretID, vaultID uuid.UUID) (*model.Secret, error) {
-	args := m.Called(ctx, secretID, vaultID)
-	if args.Get(0) == nil {
-		return nil, args.Error(1)
-	}
-	return args.Get(0).(*model.Secret), args.Error(1)
-}
-
-func (m *MockSecretService) ListSecretsInVault(ctx context.Context, vaultID uuid.UUID, tags []string) ([]model.Secret, error) {
-	args := m.Called(ctx, vaultID, tags)
-	if args.Get(0) == nil {
-		return nil, args.Error(1)
-	}
-	return args.Get(0).([]model.Secret), args.Error(1)
-}
-
-func (m *MockSecretService) DeleteSecretInVault(ctx context.Context, secretID, vaultID uuid.UUID) error {
-	args := m.Called(ctx, secretID, vaultID)
-	return args.Error(0)
-}
-
-func (m *MockSecretService) GetSecretVersions(ctx context.Context, secretID uuid.UUID, userID uuid.UUID) ([]model.SecretVersion, error) {
-	args := m.Called(ctx, secretID, userID)
+func (m *MockSecretService) GetSecretVersions(ctx context.Context, secretID uuid.UUID, scope model.Scope) ([]model.SecretVersion, error) {
+	args := m.Called(ctx, secretID, scope)
 	if args.Get(0) == nil {
 		return nil, args.Error(1)
 	}
 	return args.Get(0).([]model.SecretVersion), args.Error(1)
 }
 
-func (m *MockSecretService) GetSecretVersion(ctx context.Context, secretID uuid.UUID, version int, userID uuid.UUID) (*model.SecretVersion, error) {
-	args := m.Called(ctx, secretID, version, userID)
+func (m *MockSecretService) GetSecretVersion(ctx context.Context, secretID uuid.UUID, version int, scope model.Scope) (*model.SecretVersion, error) {
+	args := m.Called(ctx, secretID, version, scope)
 	if args.Get(0) == nil {
 		return nil, args.Error(1)
 	}
 	return args.Get(0).(*model.SecretVersion), args.Error(1)
 }
 
-func (m *MockSecretService) GetLatestSecretVersion(ctx context.Context, secretID uuid.UUID, userID uuid.UUID) (*model.SecretVersion, error) {
-	args := m.Called(ctx, secretID, userID)
-	if args.Get(0) == nil {
-		return nil, args.Error(1)
-	}
-	return args.Get(0).(*model.SecretVersion), args.Error(1)
-}
-
-func (m *MockSecretService) GetSecretVersionsInVault(ctx context.Context, secretID, vaultID uuid.UUID) ([]model.SecretVersion, error) {
-	args := m.Called(ctx, secretID, vaultID)
-	if args.Get(0) == nil {
-		return nil, args.Error(1)
-	}
-	return args.Get(0).([]model.SecretVersion), args.Error(1)
-}
-
-func (m *MockSecretService) GetSecretVersionInVault(ctx context.Context, secretID uuid.UUID, version int, vaultID uuid.UUID) (*model.SecretVersion, error) {
-	args := m.Called(ctx, secretID, version, vaultID)
-	if args.Get(0) == nil {
-		return nil, args.Error(1)
-	}
-	return args.Get(0).(*model.SecretVersion), args.Error(1)
-}
-
-func (m *MockSecretService) GetLatestSecretVersionInVault(ctx context.Context, secretID, vaultID uuid.UUID) (*model.SecretVersion, error) {
-	args := m.Called(ctx, secretID, vaultID)
+func (m *MockSecretService) GetLatestSecretVersion(ctx context.Context, secretID uuid.UUID, scope model.Scope) (*model.SecretVersion, error) {
+	args := m.Called(ctx, secretID, scope)
 	if args.Get(0) == nil {
 		return nil, args.Error(1)
 	}
@@ -321,36 +245,12 @@ func (m *MockSecretService) ImportSecrets(ctx context.Context, req secrets.Impor
 	return args.Get(0).(*secrets.ImportResult), args.Error(1)
 }
 
-func (m *MockSecretService) GetSecretVersionsScoped(ctx context.Context, secretID uuid.UUID, scope model.Scope) ([]model.SecretVersion, error) {
-	args := m.Called(ctx, secretID, scope)
-	if args.Get(0) == nil {
-		return nil, args.Error(1)
-	}
-	return args.Get(0).([]model.SecretVersion), args.Error(1)
-}
-
-func (m *MockSecretService) GetSecretVersionScoped(ctx context.Context, secretID uuid.UUID, version int, scope model.Scope) (*model.SecretVersion, error) {
-	args := m.Called(ctx, secretID, version, scope)
-	if args.Get(0) == nil {
-		return nil, args.Error(1)
-	}
-	return args.Get(0).(*model.SecretVersion), args.Error(1)
-}
-
-func (m *MockSecretService) GetLatestSecretVersionScoped(ctx context.Context, secretID uuid.UUID, scope model.Scope) (*model.SecretVersion, error) {
-	args := m.Called(ctx, secretID, scope)
-	if args.Get(0) == nil {
-		return nil, args.Error(1)
-	}
-	return args.Get(0).(*model.SecretVersion), args.Error(1)
-}
-
-func (m *MockSecretService) RecoverSecretScoped(ctx context.Context, secretID uuid.UUID, scope model.Scope) error {
+func (m *MockSecretService) RecoverSecret(ctx context.Context, secretID uuid.UUID, scope model.Scope) error {
 	args := m.Called(ctx, secretID, scope)
 	return args.Error(0)
 }
 
-func (m *MockSecretService) PurgeSecretScoped(ctx context.Context, secretID uuid.UUID, scope model.Scope) error {
+func (m *MockSecretService) PurgeSecret(ctx context.Context, secretID uuid.UUID, scope model.Scope) error {
 	args := m.Called(ctx, secretID, scope)
 	return args.Error(0)
 }
@@ -368,30 +268,25 @@ func (m *MockSecretRepo) Create(ctx context.Context, secret *model.Secret) error
 	return args.Error(0)
 }
 
-func (m *MockSecretRepo) Read(ctx context.Context, id uuid.UUID) (*model.Secret, error) {
-	args := m.Called(ctx, id)
+func (m *MockSecretRepo) Read(ctx context.Context, id uuid.UUID, scope model.Scope) (*model.Secret, error) {
+	args := m.Called(ctx, id, scope)
 	if args.Get(0) == nil {
 		return nil, args.Error(1)
 	}
 	return args.Get(0).(*model.Secret), args.Error(1)
 }
 
-func (m *MockSecretRepo) ReadByOwner(ctx context.Context, id, userID uuid.UUID) (*model.Secret, error) {
-	args := m.Called(ctx, id, userID)
+func (m *MockSecretRepo) Update(ctx context.Context, secret *model.Secret, scope model.Scope) error {
+	args := m.Called(ctx, secret, scope)
+	return args.Error(0)
+}
+
+func (m *MockSecretRepo) List(ctx context.Context, scope model.Scope, filter repositories.SecretFilter) ([]model.Secret, error) {
+	args := m.Called(ctx, scope, filter)
 	if args.Get(0) == nil {
 		return nil, args.Error(1)
 	}
-	return args.Get(0).(*model.Secret), args.Error(1)
-}
-
-func (m *MockSecretRepo) Update(ctx context.Context, secret *model.Secret) error {
-	args := m.Called(ctx, secret)
-	return args.Error(0)
-}
-
-func (m *MockSecretRepo) UpdateInVault(ctx context.Context, secret *model.Secret) error {
-	args := m.Called(ctx, secret)
-	return args.Error(0)
+	return args.Get(0).([]model.Secret), args.Error(1)
 }
 
 func (m *MockSecretRepo) Delete(ctx context.Context, id uuid.UUID) error {
@@ -407,46 +302,6 @@ func (m *MockSecretRepo) SoftDelete(ctx context.Context, id uuid.UUID) error {
 func (m *MockSecretRepo) RecoverSecret(ctx context.Context, id uuid.UUID) error {
 	args := m.Called(ctx, id)
 	return args.Error(0)
-}
-
-func (m *MockSecretRepo) ListByUser(ctx context.Context, userID uuid.UUID, tags []string) ([]model.Secret, error) {
-	args := m.Called(ctx, userID, tags)
-	if args.Get(0) == nil {
-		return nil, args.Error(1)
-	}
-	return args.Get(0).([]model.Secret), args.Error(1)
-}
-
-func (m *MockSecretRepo) ListByUserIncludeDeleted(ctx context.Context, userID uuid.UUID, tags []string) ([]model.Secret, error) {
-	args := m.Called(ctx, userID, tags)
-	if args.Get(0) == nil {
-		return nil, args.Error(1)
-	}
-	return args.Get(0).([]model.Secret), args.Error(1)
-}
-
-func (m *MockSecretRepo) ReadInVault(ctx context.Context, id, vaultID uuid.UUID) (*model.Secret, error) {
-	args := m.Called(ctx, id, vaultID)
-	if args.Get(0) == nil {
-		return nil, args.Error(1)
-	}
-	return args.Get(0).(*model.Secret), args.Error(1)
-}
-
-func (m *MockSecretRepo) ListInVault(ctx context.Context, vaultID uuid.UUID, tags []string) ([]model.Secret, error) {
-	args := m.Called(ctx, vaultID, tags)
-	if args.Get(0) == nil {
-		return nil, args.Error(1)
-	}
-	return args.Get(0).([]model.Secret), args.Error(1)
-}
-
-func (m *MockSecretRepo) ListInVaultIncludeDeleted(ctx context.Context, vaultID uuid.UUID, tags []string) ([]model.Secret, error) {
-	args := m.Called(ctx, vaultID, tags)
-	if args.Get(0) == nil {
-		return nil, args.Error(1)
-	}
-	return args.Get(0).([]model.Secret), args.Error(1)
 }
 
 func (m *MockSecretRepo) SoftDeleteVaultContents(ctx context.Context, vaultID uuid.UUID, deletedAt time.Time) error {
@@ -499,27 +354,6 @@ func (m *MockSecretRepo) GetLatestVersion(ctx context.Context, secretID uuid.UUI
 func (m *MockSecretRepo) PurgeSecret(ctx context.Context, id uuid.UUID) error {
 	args := m.Called(ctx, id)
 	return args.Error(0)
-}
-
-func (m *MockSecretRepo) ReadScoped(ctx context.Context, id uuid.UUID, scope model.Scope) (*model.Secret, error) {
-	args := m.Called(ctx, id, scope)
-	if args.Get(0) == nil {
-		return nil, args.Error(1)
-	}
-	return args.Get(0).(*model.Secret), args.Error(1)
-}
-
-func (m *MockSecretRepo) UpdateScoped(ctx context.Context, secret *model.Secret, scope model.Scope) error {
-	args := m.Called(ctx, secret, scope)
-	return args.Error(0)
-}
-
-func (m *MockSecretRepo) ListScoped(ctx context.Context, scope model.Scope, filter repositories.SecretFilter) ([]model.Secret, error) {
-	args := m.Called(ctx, scope, filter)
-	if args.Get(0) == nil {
-		return nil, args.Error(1)
-	}
-	return args.Get(0).([]model.Secret), args.Error(1)
 }
 
 // Compile-time check that MockSecretRepo satisfies the interface.
@@ -1100,7 +934,7 @@ func TestRetrySecret_CreateSecret_Error(t *testing.T) {
 
 func TestRetrySecret_UpdateSecret_Success(t *testing.T) {
 	base := &MockSecretService{}
-	req := secrets.UpdateSecretRequest{SecretID: uuid.New(), UserID: uuid.New()}
+	req := secrets.UpdateSecretRequest{SecretID: uuid.New(), Scope: model.NewOwnerScope(uuid.Nil, uuid.New())}
 	base.On("UpdateSecret", mock.Anything, req).Return(nil)
 
 	svc := NewRetrySecretService(base, newNoop())
@@ -1111,7 +945,7 @@ func TestRetrySecret_UpdateSecret_Success(t *testing.T) {
 
 func TestRetrySecret_UpdateSecret_Error(t *testing.T) {
 	base := &MockSecretService{}
-	req := secrets.UpdateSecretRequest{SecretID: uuid.New(), UserID: uuid.New()}
+	req := secrets.UpdateSecretRequest{SecretID: uuid.New(), Scope: model.NewOwnerScope(uuid.Nil, uuid.New())}
 	base.On("UpdateSecret", mock.Anything, req).Return(fmt.Errorf("update failed"))
 
 	svc := NewRetrySecretService(base, newNoop())
@@ -1123,12 +957,12 @@ func TestRetrySecret_UpdateSecret_Error(t *testing.T) {
 func TestRetrySecret_GetSecret_Success(t *testing.T) {
 	base := &MockSecretService{}
 	secretID := uuid.New()
-	userID := uuid.New()
+	scope := model.NewOwnerScope(uuid.Nil, uuid.New())
 	expected := &model.Secret{ID: secretID, Name: "my-secret"}
-	base.On("GetSecret", mock.Anything, secretID, userID).Return(expected, nil)
+	base.On("GetSecret", mock.Anything, secretID, scope).Return(expected, nil)
 
 	svc := NewRetrySecretService(base, newNoop())
-	result, err := svc.GetSecret(ctx, secretID, userID)
+	result, err := svc.GetSecret(ctx, secretID, scope)
 	assert.NoError(t, err)
 	assert.Equal(t, expected, result)
 	base.AssertExpectations(t)
@@ -1137,11 +971,11 @@ func TestRetrySecret_GetSecret_Success(t *testing.T) {
 func TestRetrySecret_GetSecret_Error(t *testing.T) {
 	base := &MockSecretService{}
 	secretID := uuid.New()
-	userID := uuid.New()
-	base.On("GetSecret", mock.Anything, secretID, userID).Return(nil, fmt.Errorf("not found"))
+	scope := model.NewOwnerScope(uuid.Nil, uuid.New())
+	base.On("GetSecret", mock.Anything, secretID, scope).Return(nil, fmt.Errorf("not found"))
 
 	svc := NewRetrySecretService(base, newNoop())
-	result, err := svc.GetSecret(ctx, secretID, userID)
+	result, err := svc.GetSecret(ctx, secretID, scope)
 	assert.Nil(t, result)
 	assert.Error(t, err)
 	base.AssertExpectations(t)
@@ -1149,12 +983,12 @@ func TestRetrySecret_GetSecret_Error(t *testing.T) {
 
 func TestRetrySecret_ListSecrets_Success(t *testing.T) {
 	base := &MockSecretService{}
-	userID := uuid.New()
+	scope := model.NewOwnerScope(uuid.Nil, uuid.New())
 	expected := []model.Secret{{Name: "sec1"}, {Name: "sec2"}}
-	base.On("ListSecrets", mock.Anything, userID, []string{"tag1"}).Return(expected, nil)
+	base.On("ListSecrets", mock.Anything, scope, []string{"tag1"}).Return(expected, nil)
 
 	svc := NewRetrySecretService(base, newNoop())
-	result, err := svc.ListSecrets(ctx, userID, []string{"tag1"})
+	result, err := svc.ListSecrets(ctx, scope, []string{"tag1"})
 	assert.NoError(t, err)
 	assert.Equal(t, expected, result)
 	base.AssertExpectations(t)
@@ -1162,11 +996,11 @@ func TestRetrySecret_ListSecrets_Success(t *testing.T) {
 
 func TestRetrySecret_ListSecrets_Error(t *testing.T) {
 	base := &MockSecretService{}
-	userID := uuid.New()
-	base.On("ListSecrets", mock.Anything, userID, []string(nil)).Return(nil, fmt.Errorf("list failed"))
+	scope := model.NewOwnerScope(uuid.Nil, uuid.New())
+	base.On("ListSecrets", mock.Anything, scope, []string(nil)).Return(nil, fmt.Errorf("list failed"))
 
 	svc := NewRetrySecretService(base, newNoop())
-	result, err := svc.ListSecrets(ctx, userID, nil)
+	result, err := svc.ListSecrets(ctx, scope, nil)
 	assert.Nil(t, result)
 	assert.Error(t, err)
 	base.AssertExpectations(t)
@@ -1175,11 +1009,11 @@ func TestRetrySecret_ListSecrets_Error(t *testing.T) {
 func TestRetrySecret_DeleteSecret_Success(t *testing.T) {
 	base := &MockSecretService{}
 	secretID := uuid.New()
-	userID := uuid.New()
-	base.On("DeleteSecret", mock.Anything, secretID, userID).Return(nil)
+	scope := model.NewOwnerScope(uuid.Nil, uuid.New())
+	base.On("DeleteSecret", mock.Anything, secretID, scope).Return(nil)
 
 	svc := NewRetrySecretService(base, newNoop())
-	err := svc.DeleteSecret(ctx, secretID, userID)
+	err := svc.DeleteSecret(ctx, secretID, scope)
 	assert.NoError(t, err)
 	base.AssertExpectations(t)
 }
@@ -1187,87 +1021,11 @@ func TestRetrySecret_DeleteSecret_Success(t *testing.T) {
 func TestRetrySecret_DeleteSecret_Error(t *testing.T) {
 	base := &MockSecretService{}
 	secretID := uuid.New()
-	userID := uuid.New()
-	base.On("DeleteSecret", mock.Anything, secretID, userID).Return(fmt.Errorf("delete failed"))
+	scope := model.NewOwnerScope(uuid.Nil, uuid.New())
+	base.On("DeleteSecret", mock.Anything, secretID, scope).Return(fmt.Errorf("delete failed"))
 
 	svc := NewRetrySecretService(base, newNoop())
-	err := svc.DeleteSecret(ctx, secretID, userID)
-	assert.Error(t, err)
-	base.AssertExpectations(t)
-}
-
-func TestRetrySecret_GetSecretInVault_Success(t *testing.T) {
-	base := &MockSecretService{}
-	secretID := uuid.New()
-	vaultID := uuid.New()
-	expected := &model.Secret{ID: secretID}
-	base.On("GetSecretInVault", mock.Anything, secretID, vaultID).Return(expected, nil)
-
-	svc := NewRetrySecretService(base, newNoop())
-	result, err := svc.GetSecretInVault(ctx, secretID, vaultID)
-	assert.NoError(t, err)
-	assert.Equal(t, expected, result)
-	base.AssertExpectations(t)
-}
-
-func TestRetrySecret_GetSecretInVault_Error(t *testing.T) {
-	base := &MockSecretService{}
-	secretID := uuid.New()
-	vaultID := uuid.New()
-	base.On("GetSecretInVault", mock.Anything, secretID, vaultID).Return(nil, fmt.Errorf("not found"))
-
-	svc := NewRetrySecretService(base, newNoop())
-	result, err := svc.GetSecretInVault(ctx, secretID, vaultID)
-	assert.Nil(t, result)
-	assert.Error(t, err)
-	base.AssertExpectations(t)
-}
-
-func TestRetrySecret_ListSecretsInVault_Success(t *testing.T) {
-	base := &MockSecretService{}
-	vaultID := uuid.New()
-	expected := []model.Secret{{Name: "sec1"}}
-	base.On("ListSecretsInVault", mock.Anything, vaultID, []string(nil)).Return(expected, nil)
-
-	svc := NewRetrySecretService(base, newNoop())
-	result, err := svc.ListSecretsInVault(ctx, vaultID, nil)
-	assert.NoError(t, err)
-	assert.Equal(t, expected, result)
-	base.AssertExpectations(t)
-}
-
-func TestRetrySecret_ListSecretsInVault_Error(t *testing.T) {
-	base := &MockSecretService{}
-	vaultID := uuid.New()
-	base.On("ListSecretsInVault", mock.Anything, vaultID, []string(nil)).Return(nil, fmt.Errorf("list failed"))
-
-	svc := NewRetrySecretService(base, newNoop())
-	result, err := svc.ListSecretsInVault(ctx, vaultID, nil)
-	assert.Nil(t, result)
-	assert.Error(t, err)
-	base.AssertExpectations(t)
-}
-
-func TestRetrySecret_DeleteSecretInVault_Success(t *testing.T) {
-	base := &MockSecretService{}
-	secretID := uuid.New()
-	vaultID := uuid.New()
-	base.On("DeleteSecretInVault", mock.Anything, secretID, vaultID).Return(nil)
-
-	svc := NewRetrySecretService(base, newNoop())
-	err := svc.DeleteSecretInVault(ctx, secretID, vaultID)
-	assert.NoError(t, err)
-	base.AssertExpectations(t)
-}
-
-func TestRetrySecret_DeleteSecretInVault_Error(t *testing.T) {
-	base := &MockSecretService{}
-	secretID := uuid.New()
-	vaultID := uuid.New()
-	base.On("DeleteSecretInVault", mock.Anything, secretID, vaultID).Return(fmt.Errorf("delete failed"))
-
-	svc := NewRetrySecretService(base, newNoop())
-	err := svc.DeleteSecretInVault(ctx, secretID, vaultID)
+	err := svc.DeleteSecret(ctx, secretID, scope)
 	assert.Error(t, err)
 	base.AssertExpectations(t)
 }
@@ -1275,12 +1033,12 @@ func TestRetrySecret_DeleteSecretInVault_Error(t *testing.T) {
 func TestRetrySecret_GetSecretVersions_Success(t *testing.T) {
 	base := &MockSecretService{}
 	secretID := uuid.New()
-	userID := uuid.New()
+	scope := model.NewOwnerScope(uuid.Nil, uuid.New())
 	expected := []model.SecretVersion{{Version: 1}, {Version: 2}}
-	base.On("GetSecretVersions", mock.Anything, secretID, userID).Return(expected, nil)
+	base.On("GetSecretVersions", mock.Anything, secretID, scope).Return(expected, nil)
 
 	svc := NewRetrySecretService(base, newNoop())
-	result, err := svc.GetSecretVersions(ctx, secretID, userID)
+	result, err := svc.GetSecretVersions(ctx, secretID, scope)
 	assert.NoError(t, err)
 	assert.Equal(t, expected, result)
 	base.AssertExpectations(t)
@@ -1289,11 +1047,11 @@ func TestRetrySecret_GetSecretVersions_Success(t *testing.T) {
 func TestRetrySecret_GetSecretVersions_Error(t *testing.T) {
 	base := &MockSecretService{}
 	secretID := uuid.New()
-	userID := uuid.New()
-	base.On("GetSecretVersions", mock.Anything, secretID, userID).Return(nil, fmt.Errorf("versions failed"))
+	scope := model.NewOwnerScope(uuid.Nil, uuid.New())
+	base.On("GetSecretVersions", mock.Anything, secretID, scope).Return(nil, fmt.Errorf("versions failed"))
 
 	svc := NewRetrySecretService(base, newNoop())
-	result, err := svc.GetSecretVersions(ctx, secretID, userID)
+	result, err := svc.GetSecretVersions(ctx, secretID, scope)
 	assert.Nil(t, result)
 	assert.Error(t, err)
 	base.AssertExpectations(t)
@@ -1302,12 +1060,12 @@ func TestRetrySecret_GetSecretVersions_Error(t *testing.T) {
 func TestRetrySecret_GetSecretVersion_Success(t *testing.T) {
 	base := &MockSecretService{}
 	secretID := uuid.New()
-	userID := uuid.New()
+	scope := model.NewOwnerScope(uuid.Nil, uuid.New())
 	expected := &model.SecretVersion{Version: 3}
-	base.On("GetSecretVersion", mock.Anything, secretID, 3, userID).Return(expected, nil)
+	base.On("GetSecretVersion", mock.Anything, secretID, 3, scope).Return(expected, nil)
 
 	svc := NewRetrySecretService(base, newNoop())
-	result, err := svc.GetSecretVersion(ctx, secretID, 3, userID)
+	result, err := svc.GetSecretVersion(ctx, secretID, 3, scope)
 	assert.NoError(t, err)
 	assert.Equal(t, expected, result)
 	base.AssertExpectations(t)
@@ -1316,11 +1074,11 @@ func TestRetrySecret_GetSecretVersion_Success(t *testing.T) {
 func TestRetrySecret_GetSecretVersion_Error(t *testing.T) {
 	base := &MockSecretService{}
 	secretID := uuid.New()
-	userID := uuid.New()
-	base.On("GetSecretVersion", mock.Anything, secretID, 99, userID).Return(nil, fmt.Errorf("version not found"))
+	scope := model.NewOwnerScope(uuid.Nil, uuid.New())
+	base.On("GetSecretVersion", mock.Anything, secretID, 99, scope).Return(nil, fmt.Errorf("version not found"))
 
 	svc := NewRetrySecretService(base, newNoop())
-	result, err := svc.GetSecretVersion(ctx, secretID, 99, userID)
+	result, err := svc.GetSecretVersion(ctx, secretID, 99, scope)
 	assert.Nil(t, result)
 	assert.Error(t, err)
 	base.AssertExpectations(t)
@@ -1329,12 +1087,12 @@ func TestRetrySecret_GetSecretVersion_Error(t *testing.T) {
 func TestRetrySecret_GetLatestSecretVersion_Success(t *testing.T) {
 	base := &MockSecretService{}
 	secretID := uuid.New()
-	userID := uuid.New()
+	scope := model.NewOwnerScope(uuid.Nil, uuid.New())
 	expected := &model.SecretVersion{Version: 5}
-	base.On("GetLatestSecretVersion", mock.Anything, secretID, userID).Return(expected, nil)
+	base.On("GetLatestSecretVersion", mock.Anything, secretID, scope).Return(expected, nil)
 
 	svc := NewRetrySecretService(base, newNoop())
-	result, err := svc.GetLatestSecretVersion(ctx, secretID, userID)
+	result, err := svc.GetLatestSecretVersion(ctx, secretID, scope)
 	assert.NoError(t, err)
 	assert.Equal(t, expected, result)
 	base.AssertExpectations(t)
@@ -1343,11 +1101,11 @@ func TestRetrySecret_GetLatestSecretVersion_Success(t *testing.T) {
 func TestRetrySecret_GetLatestSecretVersion_Error(t *testing.T) {
 	base := &MockSecretService{}
 	secretID := uuid.New()
-	userID := uuid.New()
-	base.On("GetLatestSecretVersion", mock.Anything, secretID, userID).Return(nil, fmt.Errorf("no versions"))
+	scope := model.NewOwnerScope(uuid.Nil, uuid.New())
+	base.On("GetLatestSecretVersion", mock.Anything, secretID, scope).Return(nil, fmt.Errorf("no versions"))
 
 	svc := NewRetrySecretService(base, newNoop())
-	result, err := svc.GetLatestSecretVersion(ctx, secretID, userID)
+	result, err := svc.GetLatestSecretVersion(ctx, secretID, scope)
 	assert.Nil(t, result)
 	assert.Error(t, err)
 	base.AssertExpectations(t)
@@ -1380,7 +1138,7 @@ func TestRetrySecret_GenerateSecret_Error(t *testing.T) {
 
 func TestRetrySecret_ExportSecrets_Success(t *testing.T) {
 	base := &MockSecretService{}
-	req := secrets.ExportSecretsRequest{UserID: uuid.New(), Format: "json"}
+	req := secrets.ExportSecretsRequest{Scope: model.NewOwnerScope(uuid.Nil, uuid.New()), Format: "json"}
 	expected := []byte(`[{"name":"s1"}]`)
 	base.On("ExportSecrets", mock.Anything, req).Return(expected, nil)
 
@@ -1393,7 +1151,7 @@ func TestRetrySecret_ExportSecrets_Success(t *testing.T) {
 
 func TestRetrySecret_ExportSecrets_Error(t *testing.T) {
 	base := &MockSecretService{}
-	req := secrets.ExportSecretsRequest{UserID: uuid.New(), Format: "bad"}
+	req := secrets.ExportSecretsRequest{Scope: model.NewOwnerScope(uuid.Nil, uuid.New()), Format: "bad"}
 	base.On("ExportSecrets", mock.Anything, req).Return(nil, fmt.Errorf("invalid format"))
 
 	svc := NewRetrySecretService(base, newNoop())
@@ -1405,7 +1163,7 @@ func TestRetrySecret_ExportSecrets_Error(t *testing.T) {
 
 func TestRetrySecret_ImportSecrets_Success(t *testing.T) {
 	base := &MockSecretService{}
-	req := secrets.ImportSecretsRequest{UserID: uuid.New(), Format: "json", Data: []byte(`[]`)}
+	req := secrets.ImportSecretsRequest{Scope: model.NewOwnerScope(uuid.Nil, uuid.New()), Format: "json", Data: []byte(`[]`)}
 	expected := &secrets.ImportResult{ImportedCount: 2}
 	base.On("ImportSecrets", mock.Anything, req).Return(expected, nil)
 
@@ -1418,7 +1176,7 @@ func TestRetrySecret_ImportSecrets_Success(t *testing.T) {
 
 func TestRetrySecret_ImportSecrets_Error(t *testing.T) {
 	base := &MockSecretService{}
-	req := secrets.ImportSecretsRequest{UserID: uuid.New(), Format: "csv", Data: []byte(`bad`)}
+	req := secrets.ImportSecretsRequest{Scope: model.NewOwnerScope(uuid.Nil, uuid.New()), Format: "csv", Data: []byte(`bad`)}
 	base.On("ImportSecrets", mock.Anything, req).Return(nil, fmt.Errorf("parse failed"))
 
 	svc := NewRetrySecretService(base, newNoop())
@@ -1463,11 +1221,12 @@ func TestRetryRepo_Create_Error(t *testing.T) {
 func TestRetryRepo_Read_Success(t *testing.T) {
 	base := &MockSecretRepo{}
 	id := uuid.New()
+	scope := model.NewOwnerScope(uuid.Nil, uuid.New())
 	expected := &model.Secret{ID: id}
-	base.On("Read", mock.Anything, id).Return(expected, nil)
+	base.On("Read", mock.Anything, id, scope).Return(expected, nil)
 
 	w := NewRetryRepositoryWrapper(base, newNoop())
-	result, err := w.Read(ctx, id)
+	result, err := w.Read(ctx, id, scope)
 	assert.NoError(t, err)
 	assert.Equal(t, expected, result)
 	base.AssertExpectations(t)
@@ -1476,37 +1235,11 @@ func TestRetryRepo_Read_Success(t *testing.T) {
 func TestRetryRepo_Read_Error(t *testing.T) {
 	base := &MockSecretRepo{}
 	id := uuid.New()
-	base.On("Read", mock.Anything, id).Return(nil, fmt.Errorf("not found"))
+	scope := model.NewOwnerScope(uuid.Nil, uuid.New())
+	base.On("Read", mock.Anything, id, scope).Return(nil, fmt.Errorf("not found"))
 
 	w := NewRetryRepositoryWrapper(base, newNoop())
-	result, err := w.Read(ctx, id)
-	assert.Nil(t, result)
-	assert.Error(t, err)
-	base.AssertExpectations(t)
-}
-
-func TestRetryRepo_ReadByOwner_Success(t *testing.T) {
-	base := &MockSecretRepo{}
-	id := uuid.New()
-	userID := uuid.New()
-	expected := &model.Secret{ID: id}
-	base.On("ReadByOwner", mock.Anything, id, userID).Return(expected, nil)
-
-	w := NewRetryRepositoryWrapper(base, newNoop())
-	result, err := w.ReadByOwner(ctx, id, userID)
-	assert.NoError(t, err)
-	assert.Equal(t, expected, result)
-	base.AssertExpectations(t)
-}
-
-func TestRetryRepo_ReadByOwner_Error(t *testing.T) {
-	base := &MockSecretRepo{}
-	id := uuid.New()
-	userID := uuid.New()
-	base.On("ReadByOwner", mock.Anything, id, userID).Return(nil, fmt.Errorf("access denied"))
-
-	w := NewRetryRepositoryWrapper(base, newNoop())
-	result, err := w.ReadByOwner(ctx, id, userID)
+	result, err := w.Read(ctx, id, scope)
 	assert.Nil(t, result)
 	assert.Error(t, err)
 	base.AssertExpectations(t)
@@ -1515,10 +1248,11 @@ func TestRetryRepo_ReadByOwner_Error(t *testing.T) {
 func TestRetryRepo_Update_Success(t *testing.T) {
 	base := &MockSecretRepo{}
 	secret := &model.Secret{ID: uuid.New()}
-	base.On("Update", mock.Anything, secret).Return(nil)
+	scope := model.NewOwnerScope(uuid.Nil, uuid.New())
+	base.On("Update", mock.Anything, secret, scope).Return(nil)
 
 	w := NewRetryRepositoryWrapper(base, newNoop())
-	err := w.Update(ctx, secret)
+	err := w.Update(ctx, secret, scope)
 	assert.NoError(t, err)
 	base.AssertExpectations(t)
 }
@@ -1526,10 +1260,11 @@ func TestRetryRepo_Update_Success(t *testing.T) {
 func TestRetryRepo_Update_Error(t *testing.T) {
 	base := &MockSecretRepo{}
 	secret := &model.Secret{ID: uuid.New()}
-	base.On("Update", mock.Anything, secret).Return(fmt.Errorf("update error"))
+	scope := model.NewOwnerScope(uuid.Nil, uuid.New())
+	base.On("Update", mock.Anything, secret, scope).Return(fmt.Errorf("update error"))
 
 	w := NewRetryRepositoryWrapper(base, newNoop())
-	err := w.Update(ctx, secret)
+	err := w.Update(ctx, secret, scope)
 	assert.Error(t, err)
 	base.AssertExpectations(t)
 }
@@ -1578,51 +1313,28 @@ func TestRetryRepo_SoftDelete_Error(t *testing.T) {
 	base.AssertExpectations(t)
 }
 
-func TestRetryRepo_ListByUser_Success(t *testing.T) {
+func TestRetryRepo_List_Success(t *testing.T) {
 	base := &MockSecretRepo{}
-	userID := uuid.New()
+	scope := model.NewOwnerScope(uuid.Nil, uuid.New())
+	filter := repositories.SecretFilter{}
 	expected := []model.Secret{{Name: "s1"}}
-	base.On("ListByUser", mock.Anything, userID, []string(nil)).Return(expected, nil)
+	base.On("List", mock.Anything, scope, filter).Return(expected, nil)
 
 	w := NewRetryRepositoryWrapper(base, newNoop())
-	result, err := w.ListByUser(ctx, userID, nil)
+	result, err := w.List(ctx, scope, filter)
 	assert.NoError(t, err)
 	assert.Equal(t, expected, result)
 	base.AssertExpectations(t)
 }
 
-func TestRetryRepo_ListByUser_Error(t *testing.T) {
+func TestRetryRepo_List_Error(t *testing.T) {
 	base := &MockSecretRepo{}
-	userID := uuid.New()
-	base.On("ListByUser", mock.Anything, userID, []string(nil)).Return(nil, fmt.Errorf("list error"))
+	scope := model.NewOwnerScope(uuid.Nil, uuid.New())
+	filter := repositories.SecretFilter{}
+	base.On("List", mock.Anything, scope, filter).Return(nil, fmt.Errorf("list error"))
 
 	w := NewRetryRepositoryWrapper(base, newNoop())
-	result, err := w.ListByUser(ctx, userID, nil)
-	assert.Nil(t, result)
-	assert.Error(t, err)
-	base.AssertExpectations(t)
-}
-
-func TestRetryRepo_ListByUserIncludeDeleted_Success(t *testing.T) {
-	base := &MockSecretRepo{}
-	userID := uuid.New()
-	expected := []model.Secret{{Name: "s1"}, {Name: "s2-deleted"}}
-	base.On("ListByUserIncludeDeleted", mock.Anything, userID, []string(nil)).Return(expected, nil)
-
-	w := NewRetryRepositoryWrapper(base, newNoop())
-	result, err := w.ListByUserIncludeDeleted(ctx, userID, nil)
-	assert.NoError(t, err)
-	assert.Equal(t, expected, result)
-	base.AssertExpectations(t)
-}
-
-func TestRetryRepo_ListByUserIncludeDeleted_Error(t *testing.T) {
-	base := &MockSecretRepo{}
-	userID := uuid.New()
-	base.On("ListByUserIncludeDeleted", mock.Anything, userID, []string(nil)).Return(nil, fmt.Errorf("list error"))
-
-	w := NewRetryRepositoryWrapper(base, newNoop())
-	result, err := w.ListByUserIncludeDeleted(ctx, userID, nil)
+	result, err := w.List(ctx, scope, filter)
 	assert.Nil(t, result)
 	assert.Error(t, err)
 	base.AssertExpectations(t)
@@ -1794,83 +1506,6 @@ func TestRetryRepo_PurgeSecret_Error(t *testing.T) {
 
 	w := NewRetryRepositoryWrapper(base, newNoop())
 	err := w.PurgeSecret(ctx, id)
-	assert.Error(t, err)
-	base.AssertExpectations(t)
-}
-
-func TestRetryRepo_ReadInVault_Success(t *testing.T) {
-	base := &MockSecretRepo{}
-	id := uuid.New()
-	vaultID := uuid.New()
-	expected := &model.Secret{ID: id}
-	base.On("ReadInVault", mock.Anything, id, vaultID).Return(expected, nil)
-
-	w := NewRetryRepositoryWrapper(base, newNoop())
-	result, err := w.ReadInVault(ctx, id, vaultID)
-	assert.NoError(t, err)
-	assert.Equal(t, expected, result)
-	base.AssertExpectations(t)
-}
-
-func TestRetryRepo_ReadInVault_Error(t *testing.T) {
-	base := &MockSecretRepo{}
-	id := uuid.New()
-	vaultID := uuid.New()
-	base.On("ReadInVault", mock.Anything, id, vaultID).Return(nil, fmt.Errorf("not in vault"))
-
-	w := NewRetryRepositoryWrapper(base, newNoop())
-	result, err := w.ReadInVault(ctx, id, vaultID)
-	assert.Nil(t, result)
-	assert.Error(t, err)
-	base.AssertExpectations(t)
-}
-
-func TestRetryRepo_ListInVault_Success(t *testing.T) {
-	base := &MockSecretRepo{}
-	vaultID := uuid.New()
-	expected := []model.Secret{{Name: "s1"}}
-	base.On("ListInVault", mock.Anything, vaultID, []string(nil)).Return(expected, nil)
-
-	w := NewRetryRepositoryWrapper(base, newNoop())
-	result, err := w.ListInVault(ctx, vaultID, nil)
-	assert.NoError(t, err)
-	assert.Equal(t, expected, result)
-	base.AssertExpectations(t)
-}
-
-func TestRetryRepo_ListInVault_Error(t *testing.T) {
-	base := &MockSecretRepo{}
-	vaultID := uuid.New()
-	base.On("ListInVault", mock.Anything, vaultID, []string(nil)).Return(nil, fmt.Errorf("list error"))
-
-	w := NewRetryRepositoryWrapper(base, newNoop())
-	result, err := w.ListInVault(ctx, vaultID, nil)
-	assert.Nil(t, result)
-	assert.Error(t, err)
-	base.AssertExpectations(t)
-}
-
-func TestRetryRepo_ListInVaultIncludeDeleted_Success(t *testing.T) {
-	base := &MockSecretRepo{}
-	vaultID := uuid.New()
-	expected := []model.Secret{{Name: "s1"}, {Name: "deleted"}}
-	base.On("ListInVaultIncludeDeleted", mock.Anything, vaultID, []string(nil)).Return(expected, nil)
-
-	w := NewRetryRepositoryWrapper(base, newNoop())
-	result, err := w.ListInVaultIncludeDeleted(ctx, vaultID, nil)
-	assert.NoError(t, err)
-	assert.Equal(t, expected, result)
-	base.AssertExpectations(t)
-}
-
-func TestRetryRepo_ListInVaultIncludeDeleted_Error(t *testing.T) {
-	base := &MockSecretRepo{}
-	vaultID := uuid.New()
-	base.On("ListInVaultIncludeDeleted", mock.Anything, vaultID, []string(nil)).Return(nil, fmt.Errorf("list error"))
-
-	w := NewRetryRepositoryWrapper(base, newNoop())
-	result, err := w.ListInVaultIncludeDeleted(ctx, vaultID, nil)
-	assert.Nil(t, result)
 	assert.Error(t, err)
 	base.AssertExpectations(t)
 }

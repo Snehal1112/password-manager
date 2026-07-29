@@ -251,8 +251,10 @@ func (s *schedulerService) performAutomaticRotation(ctx context.Context, sp mode
 		return nil
 	}
 
-	// Get the secret to determine user
-	secret, err := s.secretRepo.Read(ctx, sp.SecretID)
+	// Get the secret to determine user. Automatic rotation is a background
+	// scheduler job with no per-request actor, so it reads with an admin
+	// scope; the secret's own owner drives the version and rotation that follow.
+	secret, err := s.secretRepo.Read(ctx, sp.SecretID, model.NewAdminScope(uuid.Nil))
 	if err != nil {
 		return fmt.Errorf("failed to get secret: %w", err)
 	}

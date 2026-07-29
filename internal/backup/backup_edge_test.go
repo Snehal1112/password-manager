@@ -105,7 +105,7 @@ type errSecretRepo struct{ *stubSecretRepo }
 
 func newErrSecretRepo() *errSecretRepo { return &errSecretRepo{newStubSecretRepo()} }
 
-func (r *errSecretRepo) Read(_ context.Context, _ uuid.UUID) (*model.Secret, error) {
+func (r *errSecretRepo) Read(_ context.Context, _ uuid.UUID, _ model.Scope) (*model.Secret, error) {
 	return nil, errors.New("db failure")
 }
 

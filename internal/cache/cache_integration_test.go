@@ -21,70 +21,49 @@ import (
 
 type mockSecretService struct {
 	// per-call return values
-	getSecretFn                     func(ctx context.Context, secretID, userID uuid.UUID) (*model.Secret, error)
-	getSecretScopedFn               func(ctx context.Context, secretID uuid.UUID, scope model.Scope) (*model.Secret, error)
-	listSecretsScopedFn             func(ctx context.Context, scope model.Scope, tags []string) ([]model.Secret, error)
-	deleteSecretScopedFn            func(ctx context.Context, secretID uuid.UUID, scope model.Scope) error
-	listDeletedSecretsScopedFn      func(ctx context.Context, scope model.Scope) ([]model.Secret, error)
-	createSecretFn                  func(ctx context.Context, req secrets.CreateSecretRequest) (*model.Secret, error)
-	updateSecretScopedFn            func(ctx context.Context, req secrets.UpdateSecretRequest) error
-	updateSecretFn                  func(ctx context.Context, req secrets.UpdateSecretRequest) error
-	updateSecretInVaultFn           func(ctx context.Context, req secrets.UpdateSecretRequest) error
-	deleteSecretFn                  func(ctx context.Context, secretID, userID uuid.UUID) error
-	listSecretsFn                   func(ctx context.Context, userID uuid.UUID, tags []string) ([]model.Secret, error)
-	getSecretInVaultFn              func(ctx context.Context, secretID, vaultID uuid.UUID) (*model.Secret, error)
-	listSecretsInVaultFn            func(ctx context.Context, vaultID uuid.UUID, tags []string) ([]model.Secret, error)
-	deleteSecretInVaultFn           func(ctx context.Context, secretID, vaultID uuid.UUID) error
-	getSecretVersionsFn             func(ctx context.Context, secretID, userID uuid.UUID) ([]model.SecretVersion, error)
-	getSecretVersionFn              func(ctx context.Context, secretID uuid.UUID, version int, userID uuid.UUID) (*model.SecretVersion, error)
-	getLatestSecretVersionFn        func(ctx context.Context, secretID, userID uuid.UUID) (*model.SecretVersion, error)
-	getSecretVersionsInVaultFn      func(ctx context.Context, secretID, vaultID uuid.UUID) ([]model.SecretVersion, error)
-	getSecretVersionInVaultFn       func(ctx context.Context, secretID uuid.UUID, version int, vaultID uuid.UUID) (*model.SecretVersion, error)
-	getLatestSecretVersionInVaultFn func(ctx context.Context, secretID, vaultID uuid.UUID) (*model.SecretVersion, error)
-	getSecretVersionsScopedFn       func(ctx context.Context, secretID uuid.UUID, scope model.Scope) ([]model.SecretVersion, error)
-	getSecretVersionScopedFn        func(ctx context.Context, secretID uuid.UUID, version int, scope model.Scope) (*model.SecretVersion, error)
-	getLatestSecretVersionScopedFn  func(ctx context.Context, secretID uuid.UUID, scope model.Scope) (*model.SecretVersion, error)
-	generateSecretFn                func(ctx context.Context, req secrets.GenerateSecretRequest) (*model.Secret, error)
-	exportSecretsFn                 func(ctx context.Context, req secrets.ExportSecretsRequest) ([]byte, error)
-	importSecretsFn                 func(ctx context.Context, req secrets.ImportSecretsRequest) (*secrets.ImportResult, error)
-	recoverSecretScopedFn           func(ctx context.Context, secretID uuid.UUID, scope model.Scope) error
-	purgeSecretScopedFn             func(ctx context.Context, secretID uuid.UUID, scope model.Scope) error
+	getSecretFn              func(ctx context.Context, secretID uuid.UUID, scope model.Scope) (*model.Secret, error)
+	listSecretsFn            func(ctx context.Context, scope model.Scope, tags []string) ([]model.Secret, error)
+	deleteSecretFn           func(ctx context.Context, secretID uuid.UUID, scope model.Scope) error
+	listDeletedSecretsFn     func(ctx context.Context, scope model.Scope) ([]model.Secret, error)
+	createSecretFn           func(ctx context.Context, req secrets.CreateSecretRequest) (*model.Secret, error)
+	updateSecretFn           func(ctx context.Context, req secrets.UpdateSecretRequest) error
+	getSecretVersionsFn      func(ctx context.Context, secretID uuid.UUID, scope model.Scope) ([]model.SecretVersion, error)
+	getSecretVersionFn       func(ctx context.Context, secretID uuid.UUID, version int, scope model.Scope) (*model.SecretVersion, error)
+	getLatestSecretVersionFn func(ctx context.Context, secretID uuid.UUID, scope model.Scope) (*model.SecretVersion, error)
+	generateSecretFn         func(ctx context.Context, req secrets.GenerateSecretRequest) (*model.Secret, error)
+	exportSecretsFn          func(ctx context.Context, req secrets.ExportSecretsRequest) ([]byte, error)
+	importSecretsFn          func(ctx context.Context, req secrets.ImportSecretsRequest) (*secrets.ImportResult, error)
+	recoverSecretFn          func(ctx context.Context, secretID uuid.UUID, scope model.Scope) error
+	purgeSecretFn            func(ctx context.Context, secretID uuid.UUID, scope model.Scope) error
 }
 
 // compile-time check
 var _ secrets.SecretService = (*mockSecretService)(nil)
 
-func (m *mockSecretService) GetSecret(ctx context.Context, secretID, userID uuid.UUID) (*model.Secret, error) {
+func (m *mockSecretService) GetSecret(ctx context.Context, secretID uuid.UUID, scope model.Scope) (*model.Secret, error) {
 	if m.getSecretFn != nil {
-		return m.getSecretFn(ctx, secretID, userID)
+		return m.getSecretFn(ctx, secretID, scope)
 	}
 	return nil, errors.New("not implemented")
 }
 
-func (m *mockSecretService) GetSecretScoped(ctx context.Context, secretID uuid.UUID, scope model.Scope) (*model.Secret, error) {
-	if m.getSecretScopedFn != nil {
-		return m.getSecretScopedFn(ctx, secretID, scope)
+func (m *mockSecretService) ListSecrets(ctx context.Context, scope model.Scope, tags []string) ([]model.Secret, error) {
+	if m.listSecretsFn != nil {
+		return m.listSecretsFn(ctx, scope, tags)
 	}
 	return nil, errors.New("not implemented")
 }
 
-func (m *mockSecretService) ListSecretsScoped(ctx context.Context, scope model.Scope, tags []string) ([]model.Secret, error) {
-	if m.listSecretsScopedFn != nil {
-		return m.listSecretsScopedFn(ctx, scope, tags)
-	}
-	return nil, errors.New("not implemented")
-}
-
-func (m *mockSecretService) DeleteSecretScoped(ctx context.Context, secretID uuid.UUID, scope model.Scope) error {
-	if m.deleteSecretScopedFn != nil {
-		return m.deleteSecretScopedFn(ctx, secretID, scope)
+func (m *mockSecretService) DeleteSecret(ctx context.Context, secretID uuid.UUID, scope model.Scope) error {
+	if m.deleteSecretFn != nil {
+		return m.deleteSecretFn(ctx, secretID, scope)
 	}
 	return errors.New("not implemented")
 }
 
-func (m *mockSecretService) ListDeletedSecretsScoped(ctx context.Context, scope model.Scope) ([]model.Secret, error) {
-	if m.listDeletedSecretsScopedFn != nil {
-		return m.listDeletedSecretsScopedFn(ctx, scope)
+func (m *mockSecretService) ListDeletedSecrets(ctx context.Context, scope model.Scope) ([]model.Secret, error) {
+	if m.listDeletedSecretsFn != nil {
+		return m.listDeletedSecretsFn(ctx, scope)
 	}
 	return nil, errors.New("not implemented")
 }
@@ -96,13 +75,6 @@ func (m *mockSecretService) CreateSecret(ctx context.Context, req secrets.Create
 	return nil, errors.New("not implemented")
 }
 
-func (m *mockSecretService) UpdateSecretScoped(ctx context.Context, req secrets.UpdateSecretRequest) error {
-	if m.updateSecretScopedFn != nil {
-		return m.updateSecretScopedFn(ctx, req)
-	}
-	return errors.New("not implemented")
-}
-
 func (m *mockSecretService) UpdateSecret(ctx context.Context, req secrets.UpdateSecretRequest) error {
 	if m.updateSecretFn != nil {
 		return m.updateSecretFn(ctx, req)
@@ -110,107 +82,23 @@ func (m *mockSecretService) UpdateSecret(ctx context.Context, req secrets.Update
 	return errors.New("not implemented")
 }
 
-func (m *mockSecretService) UpdateSecretInVault(ctx context.Context, req secrets.UpdateSecretRequest) error {
-	if m.updateSecretInVaultFn != nil {
-		return m.updateSecretInVaultFn(ctx, req)
-	}
-	return errors.New("not implemented")
-}
-
-func (m *mockSecretService) DeleteSecret(ctx context.Context, secretID, userID uuid.UUID) error {
-	if m.deleteSecretFn != nil {
-		return m.deleteSecretFn(ctx, secretID, userID)
-	}
-	return errors.New("not implemented")
-}
-
-func (m *mockSecretService) ListSecrets(ctx context.Context, userID uuid.UUID, tags []string) ([]model.Secret, error) {
-	if m.listSecretsFn != nil {
-		return m.listSecretsFn(ctx, userID, tags)
-	}
-	return nil, errors.New("not implemented")
-}
-
-func (m *mockSecretService) GetSecretInVault(ctx context.Context, secretID, vaultID uuid.UUID) (*model.Secret, error) {
-	if m.getSecretInVaultFn != nil {
-		return m.getSecretInVaultFn(ctx, secretID, vaultID)
-	}
-	return nil, errors.New("not implemented")
-}
-
-func (m *mockSecretService) ListSecretsInVault(ctx context.Context, vaultID uuid.UUID, tags []string) ([]model.Secret, error) {
-	if m.listSecretsInVaultFn != nil {
-		return m.listSecretsInVaultFn(ctx, vaultID, tags)
-	}
-	return nil, errors.New("not implemented")
-}
-
-func (m *mockSecretService) DeleteSecretInVault(ctx context.Context, secretID, vaultID uuid.UUID) error {
-	if m.deleteSecretInVaultFn != nil {
-		return m.deleteSecretInVaultFn(ctx, secretID, vaultID)
-	}
-	return errors.New("not implemented")
-}
-
-func (m *mockSecretService) GetSecretVersions(ctx context.Context, secretID, userID uuid.UUID) ([]model.SecretVersion, error) {
+func (m *mockSecretService) GetSecretVersions(ctx context.Context, secretID uuid.UUID, scope model.Scope) ([]model.SecretVersion, error) {
 	if m.getSecretVersionsFn != nil {
-		return m.getSecretVersionsFn(ctx, secretID, userID)
+		return m.getSecretVersionsFn(ctx, secretID, scope)
 	}
 	return nil, errors.New("not implemented")
 }
 
-func (m *mockSecretService) GetSecretVersion(ctx context.Context, secretID uuid.UUID, version int, userID uuid.UUID) (*model.SecretVersion, error) {
+func (m *mockSecretService) GetSecretVersion(ctx context.Context, secretID uuid.UUID, version int, scope model.Scope) (*model.SecretVersion, error) {
 	if m.getSecretVersionFn != nil {
-		return m.getSecretVersionFn(ctx, secretID, version, userID)
+		return m.getSecretVersionFn(ctx, secretID, version, scope)
 	}
 	return nil, errors.New("not implemented")
 }
 
-func (m *mockSecretService) GetLatestSecretVersion(ctx context.Context, secretID, userID uuid.UUID) (*model.SecretVersion, error) {
+func (m *mockSecretService) GetLatestSecretVersion(ctx context.Context, secretID uuid.UUID, scope model.Scope) (*model.SecretVersion, error) {
 	if m.getLatestSecretVersionFn != nil {
-		return m.getLatestSecretVersionFn(ctx, secretID, userID)
-	}
-	return nil, errors.New("not implemented")
-}
-
-func (m *mockSecretService) GetSecretVersionsInVault(ctx context.Context, secretID, vaultID uuid.UUID) ([]model.SecretVersion, error) {
-	if m.getSecretVersionsInVaultFn != nil {
-		return m.getSecretVersionsInVaultFn(ctx, secretID, vaultID)
-	}
-	return nil, errors.New("not implemented")
-}
-
-func (m *mockSecretService) GetSecretVersionInVault(ctx context.Context, secretID uuid.UUID, version int, vaultID uuid.UUID) (*model.SecretVersion, error) {
-	if m.getSecretVersionInVaultFn != nil {
-		return m.getSecretVersionInVaultFn(ctx, secretID, version, vaultID)
-	}
-	return nil, errors.New("not implemented")
-}
-
-func (m *mockSecretService) GetLatestSecretVersionInVault(ctx context.Context, secretID, vaultID uuid.UUID) (*model.SecretVersion, error) {
-	if m.getLatestSecretVersionInVaultFn != nil {
-		return m.getLatestSecretVersionInVaultFn(ctx, secretID, vaultID)
-	}
-	return nil, errors.New("not implemented")
-}
-
-func (m *mockSecretService) GetSecretVersionsScoped(ctx context.Context, secretID uuid.UUID, scope model.Scope) ([]model.SecretVersion, error) {
-	if m.getSecretVersionsScopedFn != nil {
-		return m.getSecretVersionsScopedFn(ctx, secretID, scope)
-	}
-	return nil, errors.New("not implemented")
-}
-
-func (m *mockSecretService) GetSecretVersionScoped(ctx context.Context, secretID uuid.UUID, version int, scope model.Scope) (*model.SecretVersion, error) {
-	if m.getSecretVersionScopedFn != nil {
-		return m.getSecretVersionScopedFn(ctx, secretID, version, scope)
-	}
-	return nil, errors.New("not implemented")
-}
-
-func (m *mockSecretService) GetLatestSecretVersionScoped(ctx context.Context, secretID uuid.UUID, scope model.Scope) (*model.SecretVersion, error) {
-	if m.getLatestSecretVersionScopedFn != nil {
-		return m.getLatestSecretVersionScopedFn(ctx, secretID, scope)
+		return m.getLatestSecretVersionFn(ctx, secretID, scope)
 	}
 	return nil, errors.New("not implemented")
 }
@@ -236,16 +124,16 @@ func (m *mockSecretService) ImportSecrets(ctx context.Context, req secrets.Impor
 	return nil, errors.New("not implemented")
 }
 
-func (m *mockSecretService) RecoverSecretScoped(ctx context.Context, secretID uuid.UUID, scope model.Scope) error {
-	if m.recoverSecretScopedFn != nil {
-		return m.recoverSecretScopedFn(ctx, secretID, scope)
+func (m *mockSecretService) RecoverSecret(ctx context.Context, secretID uuid.UUID, scope model.Scope) error {
+	if m.recoverSecretFn != nil {
+		return m.recoverSecretFn(ctx, secretID, scope)
 	}
 	return errors.New("not implemented")
 }
 
-func (m *mockSecretService) PurgeSecretScoped(ctx context.Context, secretID uuid.UUID, scope model.Scope) error {
-	if m.purgeSecretScopedFn != nil {
-		return m.purgeSecretScopedFn(ctx, secretID, scope)
+func (m *mockSecretService) PurgeSecret(ctx context.Context, secretID uuid.UUID, scope model.Scope) error {
+	if m.purgeSecretFn != nil {
+		return m.purgeSecretFn(ctx, secretID, scope)
 	}
 	return errors.New("not implemented")
 }
@@ -296,17 +184,18 @@ func TestNewCachedSecretService(t *testing.T) {
 // GetSecret
 // ---------------------------------------------------------------------------
 
-// Re-enabled in Phase 5: GetSecret is a shim over GetSecretScoped, which now
-// caches. The first call delegates to the base service; the second is served
-// from cache.
+// TestCachedSecretService_GetSecret_CachesOnFirstCall confirms the first call
+// delegates to the base service and populates the cache, and the second call
+// is served from cache.
 func TestCachedSecretService_GetSecret_CachesOnFirstCall(t *testing.T) {
 	ctx := context.Background()
 	userID := uuid.New()
 	secret := makeSecret(userID)
+	scope := model.NewOwnerScope(uuid.Nil, userID)
 
 	callCount := 0
 	svc := &mockSecretService{
-		getSecretScopedFn: func(_ context.Context, sid uuid.UUID, scope model.Scope) (*model.Secret, error) {
+		getSecretFn: func(_ context.Context, sid uuid.UUID, scope model.Scope) (*model.Secret, error) {
 			callCount++
 			assert.Equal(t, secret.ID, sid)
 			ownerID, ok := scope.OwnerID()
@@ -320,46 +209,15 @@ func TestCachedSecretService_GetSecret_CachesOnFirstCall(t *testing.T) {
 	cached := NewCachedSecretService(svc, c, logger)
 
 	// First call — delegates to base service and populates the cache.
-	got, err := cached.GetSecret(ctx, secret.ID, userID)
+	got, err := cached.GetSecret(ctx, secret.ID, scope)
 	require.NoError(t, err)
 	assert.Equal(t, secret.ID, got.ID)
 
 	// Second call — served from cache; base service is not consulted again.
-	got2, err := cached.GetSecret(ctx, secret.ID, userID)
+	got2, err := cached.GetSecret(ctx, secret.ID, scope)
 	require.NoError(t, err)
 	assert.Equal(t, secret.ID, got2.ID)
 	assert.Equal(t, 1, callCount, "GetSecret must serve the second call from cache")
-}
-
-// ---------------------------------------------------------------------------
-// UpdateSecret
-// ---------------------------------------------------------------------------
-
-func TestCachedSecretService_UpdateSecretInVault_InvalidatesCache(t *testing.T) {
-	ctx := context.Background()
-	userID := uuid.New()
-	secret := makeSecret(userID)
-	scope := model.NewVaultScope(uuid.New(), uuid.New())
-
-	// Pre-populate cache.
-	c := newTestCache(t)
-	require.NoError(t, c.Set(ctx, secret, scope))
-
-	svc := &mockSecretService{
-		updateSecretInVaultFn: func(_ context.Context, _ secrets.UpdateSecretRequest) error {
-			return nil
-		},
-	}
-	logger := newTestLogger()
-	cached := NewCachedSecretService(svc, c, logger)
-
-	req := secrets.UpdateSecretRequest{SecretID: secret.ID, VaultID: uuid.New()}
-	err := cached.UpdateSecretInVault(ctx, req)
-	require.NoError(t, err)
-
-	// Cache should be invalidated, same as the owner-scoped UpdateSecret.
-	_, found := c.Get(ctx, secret.ID, scope)
-	assert.False(t, found, "vault-scoped update must invalidate the cache so GET does not serve stale plaintext")
 }
 
 func TestCachedSecretService_GetSecret_CacheHitWrongUser(t *testing.T) {
@@ -374,7 +232,7 @@ func TestCachedSecretService_GetSecret_CacheHitWrongUser(t *testing.T) {
 
 	fetchCount := 0
 	svc := &mockSecretService{
-		getSecretScopedFn: func(_ context.Context, _ uuid.UUID, _ model.Scope) (*model.Secret, error) {
+		getSecretFn: func(_ context.Context, _ uuid.UUID, _ model.Scope) (*model.Secret, error) {
 			fetchCount++
 			return nil, errors.New("no access")
 		},
@@ -385,7 +243,7 @@ func TestCachedSecretService_GetSecret_CacheHitWrongUser(t *testing.T) {
 	// Request from a different user — the compound key means the entry
 	// cached under ownerID's scope does not satisfy otherID's scope, so the
 	// service must fall through to the base service.
-	_, err := cached.GetSecret(ctx, secret.ID, otherID)
+	_, err := cached.GetSecret(ctx, secret.ID, model.NewOwnerScope(uuid.Nil, otherID))
 	assert.Error(t, err)
 	assert.Equal(t, 1, fetchCount, "base service should have been called for wrong-user cache hit")
 }
@@ -401,7 +259,7 @@ func TestCachedSecretService_GetSecret_CacheHitInaccessible_FallsThrough(t *test
 
 	fetchCount := 0
 	svc := &mockSecretService{
-		getSecretScopedFn: func(_ context.Context, _ uuid.UUID, _ model.Scope) (*model.Secret, error) {
+		getSecretFn: func(_ context.Context, _ uuid.UUID, _ model.Scope) (*model.Secret, error) {
 			fetchCount++
 			return nil, errors.New("secret is disabled or outside its valid time window")
 		},
@@ -409,7 +267,7 @@ func TestCachedSecretService_GetSecret_CacheHitInaccessible_FallsThrough(t *test
 	logger := newTestLogger()
 	cached := NewCachedSecretService(svc, c, logger)
 
-	_, err := cached.GetSecret(ctx, secret.ID, userID)
+	_, err := cached.GetSecret(ctx, secret.ID, model.NewOwnerScope(uuid.Nil, userID))
 	assert.Error(t, err)
 	assert.Equal(t, 1, fetchCount, "a disabled cached secret must fall through to the base service, not be served from cache")
 }
@@ -420,7 +278,7 @@ func TestCachedSecretService_GetSecret_BaseServiceError(t *testing.T) {
 	secretID := uuid.New()
 
 	svc := &mockSecretService{
-		getSecretScopedFn: func(_ context.Context, _ uuid.UUID, _ model.Scope) (*model.Secret, error) {
+		getSecretFn: func(_ context.Context, _ uuid.UUID, _ model.Scope) (*model.Secret, error) {
 			return nil, errors.New("db error")
 		},
 	}
@@ -428,7 +286,7 @@ func TestCachedSecretService_GetSecret_BaseServiceError(t *testing.T) {
 	logger := newTestLogger()
 	cached := NewCachedSecretService(svc, c, logger)
 
-	_, err := cached.GetSecret(ctx, secretID, userID)
+	_, err := cached.GetSecret(ctx, secretID, model.NewOwnerScope(uuid.Nil, userID))
 	assert.Error(t, err)
 }
 
@@ -500,7 +358,7 @@ func TestCachedSecretService_UpdateSecret_InvalidatesCache(t *testing.T) {
 	logger := newTestLogger()
 	cached := NewCachedSecretService(svc, c, logger)
 
-	req := secrets.UpdateSecretRequest{SecretID: secret.ID, UserID: userID}
+	req := secrets.UpdateSecretRequest{SecretID: secret.ID, Scope: scope}
 	err := cached.UpdateSecret(ctx, req)
 	require.NoError(t, err)
 
@@ -523,7 +381,7 @@ func TestCachedSecretService_UpdateSecret_BaseError(t *testing.T) {
 	logger := newTestLogger()
 	cached := NewCachedSecretService(svc, c, logger)
 
-	err := cached.UpdateSecret(ctx, secrets.UpdateSecretRequest{SecretID: secretID, UserID: userID})
+	err := cached.UpdateSecret(ctx, secrets.UpdateSecretRequest{SecretID: secretID, Scope: model.NewOwnerScope(uuid.Nil, userID)})
 	assert.Error(t, err)
 }
 
@@ -542,14 +400,14 @@ func TestCachedSecretService_DeleteSecret_RemovesFromCache(t *testing.T) {
 	require.NoError(t, c.Set(ctx, secret, scope))
 
 	svc := &mockSecretService{
-		deleteSecretFn: func(_ context.Context, _, _ uuid.UUID) error {
+		deleteSecretFn: func(_ context.Context, _ uuid.UUID, _ model.Scope) error {
 			return nil
 		},
 	}
 	logger := newTestLogger()
 	cached := NewCachedSecretService(svc, c, logger)
 
-	err := cached.DeleteSecret(ctx, secret.ID, userID)
+	err := cached.DeleteSecret(ctx, secret.ID, scope)
 	require.NoError(t, err)
 
 	_, found := c.Get(ctx, secret.ID, scope)
@@ -562,7 +420,7 @@ func TestCachedSecretService_DeleteSecret_BaseError(t *testing.T) {
 	secretID := uuid.New()
 
 	svc := &mockSecretService{
-		deleteSecretFn: func(_ context.Context, _, _ uuid.UUID) error {
+		deleteSecretFn: func(_ context.Context, _ uuid.UUID, _ model.Scope) error {
 			return errors.New("delete failed")
 		},
 	}
@@ -570,7 +428,7 @@ func TestCachedSecretService_DeleteSecret_BaseError(t *testing.T) {
 	logger := newTestLogger()
 	cached := NewCachedSecretService(svc, c, logger)
 
-	err := cached.DeleteSecret(ctx, secretID, userID)
+	err := cached.DeleteSecret(ctx, secretID, model.NewOwnerScope(uuid.Nil, userID))
 	assert.Error(t, err)
 }
 
@@ -581,11 +439,12 @@ func TestCachedSecretService_DeleteSecret_BaseError(t *testing.T) {
 func TestCachedSecretService_ListSecrets_DelegatesToBase(t *testing.T) {
 	ctx := context.Background()
 	userID := uuid.New()
+	scope := model.NewOwnerScope(uuid.Nil, userID)
 	expected := []model.Secret{{ID: uuid.New(), UserID: userID, Name: "s1"}}
 
 	svc := &mockSecretService{
-		listSecretsFn: func(_ context.Context, uid uuid.UUID, tags []string) ([]model.Secret, error) {
-			assert.Equal(t, userID, uid)
+		listSecretsFn: func(_ context.Context, gotScope model.Scope, tags []string) ([]model.Secret, error) {
+			assert.Equal(t, scope, gotScope)
 			return expected, nil
 		},
 	}
@@ -593,7 +452,7 @@ func TestCachedSecretService_ListSecrets_DelegatesToBase(t *testing.T) {
 	logger := newTestLogger()
 	cached := NewCachedSecretService(svc, c, logger)
 
-	got, err := cached.ListSecrets(ctx, userID, nil)
+	got, err := cached.ListSecrets(ctx, scope, nil)
 	require.NoError(t, err)
 	assert.Len(t, got, 1)
 	assert.Equal(t, expected[0].ID, got[0].ID)
@@ -603,7 +462,7 @@ func TestCachedSecretService_ListSecrets_BaseError(t *testing.T) {
 	ctx := context.Background()
 
 	svc := &mockSecretService{
-		listSecretsFn: func(_ context.Context, _ uuid.UUID, _ []string) ([]model.Secret, error) {
+		listSecretsFn: func(_ context.Context, _ model.Scope, _ []string) ([]model.Secret, error) {
 			return nil, errors.New("list error")
 		},
 	}
@@ -611,95 +470,7 @@ func TestCachedSecretService_ListSecrets_BaseError(t *testing.T) {
 	logger := newTestLogger()
 	cached := NewCachedSecretService(svc, c, logger)
 
-	_, err := cached.ListSecrets(ctx, uuid.New(), nil)
-	assert.Error(t, err)
-}
-
-// ---------------------------------------------------------------------------
-// Vault-scoped methods
-// ---------------------------------------------------------------------------
-
-func TestCachedSecretService_GetSecretInVault_Delegates(t *testing.T) {
-	ctx := context.Background()
-	vaultID := uuid.New()
-	secret := makeSecret(uuid.New())
-
-	svc := &mockSecretService{
-		getSecretInVaultFn: func(_ context.Context, sid, vid uuid.UUID) (*model.Secret, error) {
-			assert.Equal(t, secret.ID, sid)
-			assert.Equal(t, vaultID, vid)
-			return secret, nil
-		},
-	}
-	c := newTestCache(t)
-	logger := newTestLogger()
-	cached := NewCachedSecretService(svc, c, logger)
-
-	got, err := cached.GetSecretInVault(ctx, secret.ID, vaultID)
-	require.NoError(t, err)
-	assert.Equal(t, secret.ID, got.ID)
-}
-
-func TestCachedSecretService_ListSecretsInVault_Delegates(t *testing.T) {
-	ctx := context.Background()
-	vaultID := uuid.New()
-	expected := []model.Secret{{ID: uuid.New(), Name: "vault-secret"}}
-
-	svc := &mockSecretService{
-		listSecretsInVaultFn: func(_ context.Context, vid uuid.UUID, tags []string) ([]model.Secret, error) {
-			assert.Equal(t, vaultID, vid)
-			return expected, nil
-		},
-	}
-	c := newTestCache(t)
-	logger := newTestLogger()
-	cached := NewCachedSecretService(svc, c, logger)
-
-	got, err := cached.ListSecretsInVault(ctx, vaultID, nil)
-	require.NoError(t, err)
-	assert.Len(t, got, 1)
-}
-
-func TestCachedSecretService_DeleteSecretInVault_RemovesFromCache(t *testing.T) {
-	ctx := context.Background()
-	vaultID := uuid.New()
-	secret := makeSecret(uuid.New())
-	scope := model.NewVaultScope(vaultID, uuid.New())
-
-	// Pre-populate cache.
-	c := newTestCache(t)
-	require.NoError(t, c.Set(ctx, secret, scope))
-
-	svc := &mockSecretService{
-		deleteSecretInVaultFn: func(_ context.Context, sid, vid uuid.UUID) error {
-			assert.Equal(t, secret.ID, sid)
-			assert.Equal(t, vaultID, vid)
-			return nil
-		},
-	}
-	logger := newTestLogger()
-	cached := NewCachedSecretService(svc, c, logger)
-
-	err := cached.DeleteSecretInVault(ctx, secret.ID, vaultID)
-	require.NoError(t, err)
-
-	_, found := c.Get(ctx, secret.ID, scope)
-	assert.False(t, found)
-}
-
-func TestCachedSecretService_DeleteSecretInVault_BaseError(t *testing.T) {
-	ctx := context.Background()
-
-	svc := &mockSecretService{
-		deleteSecretInVaultFn: func(_ context.Context, _, _ uuid.UUID) error {
-			return errors.New("vault delete error")
-		},
-	}
-	c := newTestCache(t)
-	logger := newTestLogger()
-	cached := NewCachedSecretService(svc, c, logger)
-
-	err := cached.DeleteSecretInVault(ctx, uuid.New(), uuid.New())
+	_, err := cached.ListSecrets(ctx, model.NewOwnerScope(uuid.Nil, uuid.New()), nil)
 	assert.Error(t, err)
 }
 
@@ -710,13 +481,13 @@ func TestCachedSecretService_DeleteSecretInVault_BaseError(t *testing.T) {
 func TestCachedSecretService_GetSecretVersions_Delegates(t *testing.T) {
 	ctx := context.Background()
 	secretID := uuid.New()
-	userID := uuid.New()
+	scope := model.NewOwnerScope(uuid.Nil, uuid.New())
 	versions := []model.SecretVersion{{SecretID: secretID, Version: 1}}
 
 	svc := &mockSecretService{
-		getSecretVersionsFn: func(_ context.Context, sid, uid uuid.UUID) ([]model.SecretVersion, error) {
+		getSecretVersionsFn: func(_ context.Context, sid uuid.UUID, gotScope model.Scope) ([]model.SecretVersion, error) {
 			assert.Equal(t, secretID, sid)
-			assert.Equal(t, userID, uid)
+			assert.Equal(t, scope, gotScope)
 			return versions, nil
 		},
 	}
@@ -724,7 +495,7 @@ func TestCachedSecretService_GetSecretVersions_Delegates(t *testing.T) {
 	logger := newTestLogger()
 	cached := NewCachedSecretService(svc, c, logger)
 
-	got, err := cached.GetSecretVersions(ctx, secretID, userID)
+	got, err := cached.GetSecretVersions(ctx, secretID, scope)
 	require.NoError(t, err)
 	assert.Len(t, got, 1)
 }
@@ -732,14 +503,14 @@ func TestCachedSecretService_GetSecretVersions_Delegates(t *testing.T) {
 func TestCachedSecretService_GetSecretVersion_Delegates(t *testing.T) {
 	ctx := context.Background()
 	secretID := uuid.New()
-	userID := uuid.New()
+	scope := model.NewOwnerScope(uuid.Nil, uuid.New())
 	sv := &model.SecretVersion{SecretID: secretID, Version: 2}
 
 	svc := &mockSecretService{
-		getSecretVersionFn: func(_ context.Context, sid uuid.UUID, ver int, uid uuid.UUID) (*model.SecretVersion, error) {
+		getSecretVersionFn: func(_ context.Context, sid uuid.UUID, ver int, gotScope model.Scope) (*model.SecretVersion, error) {
 			assert.Equal(t, secretID, sid)
 			assert.Equal(t, 2, ver)
-			assert.Equal(t, userID, uid)
+			assert.Equal(t, scope, gotScope)
 			return sv, nil
 		},
 	}
@@ -747,7 +518,7 @@ func TestCachedSecretService_GetSecretVersion_Delegates(t *testing.T) {
 	logger := newTestLogger()
 	cached := NewCachedSecretService(svc, c, logger)
 
-	got, err := cached.GetSecretVersion(ctx, secretID, 2, userID)
+	got, err := cached.GetSecretVersion(ctx, secretID, 2, scope)
 	require.NoError(t, err)
 	assert.Equal(t, 2, got.Version)
 }
@@ -755,13 +526,13 @@ func TestCachedSecretService_GetSecretVersion_Delegates(t *testing.T) {
 func TestCachedSecretService_GetLatestSecretVersion_Delegates(t *testing.T) {
 	ctx := context.Background()
 	secretID := uuid.New()
-	userID := uuid.New()
+	scope := model.NewOwnerScope(uuid.Nil, uuid.New())
 	sv := &model.SecretVersion{SecretID: secretID, Version: 5}
 
 	svc := &mockSecretService{
-		getLatestSecretVersionFn: func(_ context.Context, sid, uid uuid.UUID) (*model.SecretVersion, error) {
+		getLatestSecretVersionFn: func(_ context.Context, sid uuid.UUID, gotScope model.Scope) (*model.SecretVersion, error) {
 			assert.Equal(t, secretID, sid)
-			assert.Equal(t, userID, uid)
+			assert.Equal(t, scope, gotScope)
 			return sv, nil
 		},
 	}
@@ -769,7 +540,7 @@ func TestCachedSecretService_GetLatestSecretVersion_Delegates(t *testing.T) {
 	logger := newTestLogger()
 	cached := NewCachedSecretService(svc, c, logger)
 
-	got, err := cached.GetLatestSecretVersion(ctx, secretID, userID)
+	got, err := cached.GetLatestSecretVersion(ctx, secretID, scope)
 	require.NoError(t, err)
 	assert.Equal(t, 5, got.Version)
 }
@@ -825,12 +596,12 @@ func TestCachedSecretService_GenerateSecret_BaseError(t *testing.T) {
 
 func TestCachedSecretService_ExportSecrets_Delegates(t *testing.T) {
 	ctx := context.Background()
-	userID := uuid.New()
+	scope := model.NewOwnerScope(uuid.Nil, uuid.New())
 	payload := []byte(`{"secrets":[]}`)
 
 	svc := &mockSecretService{
 		exportSecretsFn: func(_ context.Context, req secrets.ExportSecretsRequest) ([]byte, error) {
-			assert.Equal(t, userID, req.UserID)
+			assert.Equal(t, scope, req.Scope)
 			return payload, nil
 		},
 	}
@@ -838,7 +609,7 @@ func TestCachedSecretService_ExportSecrets_Delegates(t *testing.T) {
 	logger := newTestLogger()
 	cached := NewCachedSecretService(svc, c, logger)
 
-	req := secrets.ExportSecretsRequest{UserID: userID}
+	req := secrets.ExportSecretsRequest{Scope: scope}
 	got, err := cached.ExportSecrets(ctx, req)
 	require.NoError(t, err)
 	assert.Equal(t, payload, got)
@@ -882,7 +653,7 @@ func TestCachedSecretService_ImportSecrets_ClearsCache(t *testing.T) {
 	logger := newTestLogger()
 	cached := NewCachedSecretService(svc, c, logger)
 
-	req := secrets.ImportSecretsRequest{UserID: userID}
+	req := secrets.ImportSecretsRequest{Scope: model.NewOwnerScope(uuid.Nil, userID)}
 	got, err := cached.ImportSecrets(ctx, req)
 	require.NoError(t, err)
 	assert.Equal(t, 3, got.ImportedCount)
@@ -911,7 +682,7 @@ func TestCachedSecretService_ImportSecrets_FlushesLiveCacheEntries(t *testing.T)
 	logger := newTestLogger()
 	cached := NewCachedSecretService(svc, c, logger)
 
-	_, err := cached.ImportSecrets(ctx, secrets.ImportSecretsRequest{UserID: userID})
+	_, err := cached.ImportSecrets(ctx, secrets.ImportSecretsRequest{Scope: model.NewOwnerScope(uuid.Nil, userID)})
 	require.NoError(t, err)
 
 	// SecretCache.Clear only prunes expired entries, so a live entry
@@ -988,18 +759,18 @@ func TestCachedSecretService_StartCacheCleanup(t *testing.T) {
 
 // ---------------------------------------------------------------------------
 // countingSecretService: a minimal SecretService stub for the scoped-caching
-// tests below. It counts GetSecretScoped calls and mirrors the real
-// service's behavior of erroring once the secret is no longer accessible.
+// tests below. It counts GetSecret calls and mirrors the real service's
+// behavior of erroring once the secret is no longer accessible.
 // ---------------------------------------------------------------------------
 
 type countingSecretService struct {
 	secrets.SecretService
-	secret         *model.Secret
-	getScopedCalls int
+	secret   *model.Secret
+	getCalls int
 }
 
-func (c *countingSecretService) GetSecretScoped(ctx context.Context, secretID uuid.UUID, scope model.Scope) (*model.Secret, error) {
-	c.getScopedCalls++
+func (c *countingSecretService) GetSecret(ctx context.Context, secretID uuid.UUID, scope model.Scope) (*model.Secret, error) {
+	c.getCalls++
 	if !c.secret.IsAccessible() {
 		return nil, errors.New("secret is disabled or outside its valid time window")
 	}
@@ -1016,31 +787,15 @@ func (c *countingSecretService) UpdateSecret(ctx context.Context, req secrets.Up
 	return nil
 }
 
-func (c *countingSecretService) UpdateSecretInVault(ctx context.Context, req secrets.UpdateSecretRequest) error {
+func (c *countingSecretService) DeleteSecret(ctx context.Context, secretID uuid.UUID, scope model.Scope) error {
 	return nil
 }
 
-func (c *countingSecretService) UpdateSecretScoped(ctx context.Context, req secrets.UpdateSecretRequest) error {
+func (c *countingSecretService) RecoverSecret(ctx context.Context, secretID uuid.UUID, scope model.Scope) error {
 	return nil
 }
 
-func (c *countingSecretService) DeleteSecret(ctx context.Context, secretID, userID uuid.UUID) error {
-	return nil
-}
-
-func (c *countingSecretService) DeleteSecretInVault(ctx context.Context, secretID, vaultID uuid.UUID) error {
-	return nil
-}
-
-func (c *countingSecretService) DeleteSecretScoped(ctx context.Context, secretID uuid.UUID, scope model.Scope) error {
-	return nil
-}
-
-func (c *countingSecretService) RecoverSecretScoped(ctx context.Context, secretID uuid.UUID, scope model.Scope) error {
-	return nil
-}
-
-func (c *countingSecretService) PurgeSecretScoped(ctx context.Context, secretID uuid.UUID, scope model.Scope) error {
+func (c *countingSecretService) PurgeSecret(ctx context.Context, secretID uuid.UUID, scope model.Scope) error {
 	return nil
 }
 
@@ -1056,12 +811,12 @@ func newQuietLogger(t *testing.T) *logrus.Logger {
 }
 
 // ---------------------------------------------------------------------------
-// GetSecretScoped caching (Task 31)
+// GetSecret caching (Task 31)
 // ---------------------------------------------------------------------------
 
-// TestCachedGetSecretScopedServesAHitUnderTheSameScope confirms caching is back
+// TestCachedGetSecretServesAHitUnderTheSameScope confirms caching is back
 // on after Phase 3's deliberate pass-through.
-func TestCachedGetSecretScopedServesAHitUnderTheSameScope(t *testing.T) {
+func TestCachedGetSecretServesAHitUnderTheSameScope(t *testing.T) {
 	inner := &countingSecretService{secret: &model.Secret{
 		ID: uuid.New(), Name: "s", Value: "plaintext", Enabled: true,
 	}}
@@ -1069,27 +824,27 @@ func TestCachedGetSecretScopedServesAHitUnderTheSameScope(t *testing.T) {
 	ctx := context.Background()
 	scope := model.NewVaultScope(uuid.New(), uuid.New())
 
-	_, err := svc.GetSecretScoped(ctx, inner.secret.ID, scope)
+	_, err := svc.GetSecret(ctx, inner.secret.ID, scope)
 	require.NoError(t, err)
-	_, err = svc.GetSecretScoped(ctx, inner.secret.ID, scope)
+	_, err = svc.GetSecret(ctx, inner.secret.ID, scope)
 	require.NoError(t, err)
 
-	assert.Equal(t, 1, inner.getScopedCalls, "the second read is served from cache")
+	assert.Equal(t, 1, inner.getCalls, "the second read is served from cache")
 }
 
-func TestCachedGetSecretScopedDoesNotCrossScopes(t *testing.T) {
+func TestCachedGetSecretDoesNotCrossScopes(t *testing.T) {
 	inner := &countingSecretService{secret: &model.Secret{
 		ID: uuid.New(), Name: "s", Value: "plaintext", Enabled: true,
 	}}
 	svc := NewCachedSecretService(inner, newScopeCache(t, time.Minute), newQuietLogger(t))
 	ctx := context.Background()
 
-	_, err := svc.GetSecretScoped(ctx, inner.secret.ID, model.NewVaultScope(uuid.New(), uuid.New()))
+	_, err := svc.GetSecret(ctx, inner.secret.ID, model.NewVaultScope(uuid.New(), uuid.New()))
 	require.NoError(t, err)
-	_, err = svc.GetSecretScoped(ctx, inner.secret.ID, model.NewOwnerScope(uuid.Nil, uuid.New()))
+	_, err = svc.GetSecret(ctx, inner.secret.ID, model.NewOwnerScope(uuid.Nil, uuid.New()))
 	require.NoError(t, err)
 
-	assert.Equal(t, 2, inner.getScopedCalls, "a different scope must miss")
+	assert.Equal(t, 2, inner.getCalls, "a different scope must miss")
 }
 
 // TestCachedHitRechecksIsAccessible pins the defect where a secret that expired
@@ -1103,14 +858,14 @@ func TestCachedHitRechecksIsAccessible(t *testing.T) {
 	ctx := context.Background()
 	scope := model.NewVaultScope(uuid.New(), uuid.New())
 
-	_, err := svc.GetSecretScoped(ctx, inner.secret.ID, scope)
+	_, err := svc.GetSecret(ctx, inner.secret.ID, scope)
 	require.NoError(t, err)
 
 	time.Sleep(100 * time.Millisecond)
 
-	_, err = svc.GetSecretScoped(ctx, inner.secret.ID, scope)
+	_, err = svc.GetSecret(ctx, inner.secret.ID, scope)
 	require.Error(t, err, "an expired secret must not be served from cache")
-	assert.Equal(t, 2, inner.getScopedCalls, "the stale entry is dropped and the service re-consulted")
+	assert.Equal(t, 2, inner.getCalls, "the stale entry is dropped and the service re-consulted")
 }
 
 // TestImportSecretsFlushesRatherThanPrunes pins the defect where ImportSecrets'
@@ -1124,7 +879,7 @@ func TestImportSecretsFlushesRatherThanPrunes(t *testing.T) {
 	ctx := context.Background()
 	scope := model.NewVaultScope(uuid.New(), uuid.New())
 
-	_, err := svc.GetSecretScoped(ctx, inner.secret.ID, scope)
+	_, err := svc.GetSecret(ctx, inner.secret.ID, scope)
 	require.NoError(t, err)
 
 	_, err = svc.ImportSecrets(ctx, secrets.ImportSecretsRequest{Format: "json", Data: []byte("[]")})

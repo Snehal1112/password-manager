@@ -69,7 +69,7 @@ func seedScopeSecret(t *testing.T, repo *SecretRepository, ownerID, vaultID uuid
 	return s
 }
 
-func TestSecretReadScoped(t *testing.T) {
+func TestSecretRead(t *testing.T) {
 	repo := newScopeTestSecretRepo(t)
 	ctx := context.Background()
 
@@ -78,32 +78,32 @@ func TestSecretReadScoped(t *testing.T) {
 	secret := seedScopeSecret(t, repo, ownerID, vaultA, "alpha")
 
 	t.Run("vault scope matches", func(t *testing.T) {
-		got, err := repo.ReadScoped(ctx, secret.ID, model.NewVaultScope(vaultA, otherUser))
+		got, err := repo.Read(ctx, secret.ID, model.NewVaultScope(vaultA, otherUser))
 		require.NoError(t, err)
 		assert.Equal(t, secret.ID, got.ID)
 		assert.Equal(t, vaultA, got.VaultID)
 	})
 	t.Run("wrong vault denies", func(t *testing.T) {
-		_, err := repo.ReadScoped(ctx, secret.ID, model.NewVaultScope(vaultB, otherUser))
+		_, err := repo.Read(ctx, secret.ID, model.NewVaultScope(vaultB, otherUser))
 		assert.Error(t, err)
 	})
 	t.Run("owner scope matches", func(t *testing.T) {
-		got, err := repo.ReadScoped(ctx, secret.ID, model.NewOwnerScope(vaultA, ownerID))
+		got, err := repo.Read(ctx, secret.ID, model.NewOwnerScope(vaultA, ownerID))
 		require.NoError(t, err)
 		assert.Equal(t, secret.ID, got.ID)
 	})
 	t.Run("wrong owner denies", func(t *testing.T) {
-		_, err := repo.ReadScoped(ctx, secret.ID, model.NewOwnerScope(vaultA, otherUser))
+		_, err := repo.Read(ctx, secret.ID, model.NewOwnerScope(vaultA, otherUser))
 		assert.Error(t, err)
 	})
 	t.Run("admin scope sees everything", func(t *testing.T) {
-		got, err := repo.ReadScoped(ctx, secret.ID, model.NewAdminScope(otherUser))
+		got, err := repo.Read(ctx, secret.ID, model.NewAdminScope(otherUser))
 		require.NoError(t, err)
 		assert.Equal(t, secret.ID, got.ID)
 	})
 }
 
-func TestSecretUpdateScoped(t *testing.T) {
+func TestSecretUpdate(t *testing.T) {
 	repo := newScopeTestSecretRepo(t)
 	ctx := context.Background()
 
@@ -115,19 +115,19 @@ func TestSecretUpdateScoped(t *testing.T) {
 		updated := *secret
 		updated.Name = "beta-renamed"
 		updated.Version = 2
-		require.NoError(t, repo.UpdateScoped(ctx, &updated, model.NewVaultScope(vaultA, otherUser)))
+		require.NoError(t, repo.Update(ctx, &updated, model.NewVaultScope(vaultA, otherUser)))
 
-		got, err := repo.ReadScoped(ctx, secret.ID, model.NewAdminScope(uuid.Nil))
+		got, err := repo.Read(ctx, secret.ID, model.NewAdminScope(uuid.Nil))
 		require.NoError(t, err)
 		assert.Equal(t, "beta-renamed", got.Name)
 	})
 	t.Run("wrong vault write is rejected", func(t *testing.T) {
 		updated := *secret
 		updated.Name = "should-not-land"
-		err := repo.UpdateScoped(ctx, &updated, model.NewVaultScope(vaultB, otherUser))
+		err := repo.Update(ctx, &updated, model.NewVaultScope(vaultB, otherUser))
 		require.Error(t, err)
 
-		got, readErr := repo.ReadScoped(ctx, secret.ID, model.NewAdminScope(uuid.Nil))
+		got, readErr := repo.Read(ctx, secret.ID, model.NewAdminScope(uuid.Nil))
 		require.NoError(t, readErr)
 		assert.NotEqual(t, "should-not-land", got.Name)
 	})
@@ -136,11 +136,11 @@ func TestSecretUpdateScoped(t *testing.T) {
 		updated := *secret
 		updated.VaultID = vaultA
 		updated.Name = "entity-wins"
-		assert.Error(t, repo.UpdateScoped(ctx, &updated, model.NewVaultScope(vaultB, otherUser)))
+		assert.Error(t, repo.Update(ctx, &updated, model.NewVaultScope(vaultB, otherUser)))
 	})
 }
 
-func TestSecretListScoped(t *testing.T) {
+func TestSecretList(t *testing.T) {
 	repo := newScopeTestSecretRepo(t)
 	ctx := context.Background()
 
@@ -152,31 +152,31 @@ func TestSecretListScoped(t *testing.T) {
 	require.NoError(t, repo.SoftDelete(ctx, gone.ID))
 
 	t.Run("vault scope excludes deleted by default", func(t *testing.T) {
-		got, err := repo.ListScoped(ctx, model.NewVaultScope(vaultA, ownerB), SecretFilter{})
+		got, err := repo.List(ctx, model.NewVaultScope(vaultA, ownerB), SecretFilter{})
 		require.NoError(t, err)
 		require.Len(t, got, 1)
 		assert.Equal(t, live.ID, got[0].ID)
 		assert.Equal(t, vaultA, got[0].VaultID)
 	})
 	t.Run("include deleted", func(t *testing.T) {
-		got, err := repo.ListScoped(ctx, model.NewVaultScope(vaultA, ownerB), SecretFilter{IncludeDeleted: true})
+		got, err := repo.List(ctx, model.NewVaultScope(vaultA, ownerB), SecretFilter{IncludeDeleted: true})
 		require.NoError(t, err)
 		assert.Len(t, got, 2)
 	})
 	t.Run("only deleted filters in SQL", func(t *testing.T) {
-		got, err := repo.ListScoped(ctx, model.NewVaultScope(vaultA, ownerB), SecretFilter{OnlyDeleted: true})
+		got, err := repo.List(ctx, model.NewVaultScope(vaultA, ownerB), SecretFilter{OnlyDeleted: true})
 		require.NoError(t, err)
 		require.Len(t, got, 1)
 		assert.Equal(t, gone.ID, got[0].ID)
 		assert.NotNil(t, got[0].DeletedAt)
 	})
 	t.Run("owner scope ignores vault", func(t *testing.T) {
-		got, err := repo.ListScoped(ctx, model.NewOwnerScope(vaultB, ownerA), SecretFilter{})
+		got, err := repo.List(ctx, model.NewOwnerScope(vaultB, ownerA), SecretFilter{})
 		require.NoError(t, err)
 		assert.Len(t, got, 1, "owner scope must not constrain vault_id")
 	})
 	t.Run("admin scope sees every vault", func(t *testing.T) {
-		got, err := repo.ListScoped(ctx, model.NewAdminScope(uuid.Nil), SecretFilter{})
+		got, err := repo.List(ctx, model.NewAdminScope(uuid.Nil), SecretFilter{})
 		require.NoError(t, err)
 		assert.Len(t, got, 2)
 	})

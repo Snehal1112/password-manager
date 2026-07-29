@@ -24,18 +24,18 @@ type scopeStubSoftDeleteService struct {
 	purgeCalls   int
 }
 
-func (s *scopeStubSoftDeleteService) ListDeletedSecretsScoped(_ context.Context, scope model.Scope) ([]model.Secret, error) {
+func (s *scopeStubSoftDeleteService) ListDeletedSecrets(_ context.Context, scope model.Scope) ([]model.Secret, error) {
 	s.lastScope = scope
 	return s.deleted, nil
 }
 
-func (s *scopeStubSoftDeleteService) RecoverSecretScoped(_ context.Context, _ uuid.UUID, scope model.Scope) error {
+func (s *scopeStubSoftDeleteService) RecoverSecret(_ context.Context, _ uuid.UUID, scope model.Scope) error {
 	s.lastScope = scope
 	s.recoverCalls++
 	return s.recoverErr
 }
 
-func (s *scopeStubSoftDeleteService) PurgeSecretScoped(_ context.Context, _ uuid.UUID, scope model.Scope) error {
+func (s *scopeStubSoftDeleteService) PurgeSecret(_ context.Context, _ uuid.UUID, scope model.Scope) error {
 	s.lastScope = scope
 	s.purgeCalls++
 	return s.purgeErr

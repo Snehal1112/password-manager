@@ -16,7 +16,8 @@ import (
 )
 
 // TestSecretRepositoryInterfaceExposesScopedMethods pins that service callers
-// can reach the scope-aware API through the interface, not just the struct.
+// can reach the scope-aware Read/Update/List through the interface, not just
+// the struct.
 func TestSecretRepositoryInterfaceExposesScopedMethods(t *testing.T) {
 	t.Parallel()
 	db := setupSecretTestDB(t)
@@ -37,15 +38,15 @@ func TestSecretRepositoryInterfaceExposesScopedMethods(t *testing.T) {
 	}
 	require.NoError(t, repo.Create(ctx, secret))
 
-	got, err := repo.ReadScoped(ctx, secret.ID, model.NewVaultScope(vaultID, uuid.New()))
+	got, err := repo.Read(ctx, secret.ID, model.NewVaultScope(vaultID, uuid.New()))
 	require.NoError(t, err)
 	assert.Equal(t, secret.ID, got.ID)
 
 	got.Name = "iface-secret-renamed"
 	got.Version = 2
-	require.NoError(t, repo.UpdateScoped(ctx, got, model.NewVaultScope(vaultID, ownerID)))
+	require.NoError(t, repo.Update(ctx, got, model.NewVaultScope(vaultID, ownerID)))
 
-	list, err := repo.ListScoped(ctx, model.NewVaultScope(vaultID, ownerID), repositories.SecretFilter{})
+	list, err := repo.List(ctx, model.NewVaultScope(vaultID, ownerID), repositories.SecretFilter{})
 	require.NoError(t, err)
 	require.Len(t, list, 1)
 	assert.Equal(t, "iface-secret-renamed", list[0].Name)

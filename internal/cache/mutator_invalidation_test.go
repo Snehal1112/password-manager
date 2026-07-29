@@ -32,34 +32,16 @@ func TestEveryMutatorInvalidates(t *testing.T) {
 		invoke func(ctx context.Context, svc *CachedSecretService) error
 	}{
 		{"UpdateSecret", func(ctx context.Context, svc *CachedSecretService) error {
-			return svc.UpdateSecret(ctx, secrets.UpdateSecretRequest{SecretID: secretID, UserID: ownerID})
-		}},
-		{"UpdateSecretInVault", func(ctx context.Context, svc *CachedSecretService) error {
-			return svc.UpdateSecretInVault(ctx, secrets.UpdateSecretRequest{SecretID: secretID, UserID: ownerID, VaultID: vaultID})
-		}},
-		{"UpdateSecretScoped", func(ctx context.Context, svc *CachedSecretService) error {
-			return svc.UpdateSecretScoped(ctx, secrets.UpdateSecretRequest{SecretID: secretID, Scope: vaultScope})
+			return svc.UpdateSecret(ctx, secrets.UpdateSecretRequest{SecretID: secretID, Scope: vaultScope})
 		}},
 		{"DeleteSecret", func(ctx context.Context, svc *CachedSecretService) error {
-			return svc.DeleteSecret(ctx, secretID, ownerID)
-		}},
-		{"DeleteSecretInVault", func(ctx context.Context, svc *CachedSecretService) error {
-			return svc.DeleteSecretInVault(ctx, secretID, vaultID)
-		}},
-		{"DeleteSecretScoped", func(ctx context.Context, svc *CachedSecretService) error {
-			return svc.DeleteSecretScoped(ctx, secretID, vaultScope)
+			return svc.DeleteSecret(ctx, secretID, vaultScope)
 		}},
 		{"RecoverSecret", func(ctx context.Context, svc *CachedSecretService) error {
-			return svc.RecoverSecret(ctx, secretID)
-		}},
-		{"RecoverSecretScoped", func(ctx context.Context, svc *CachedSecretService) error {
-			return svc.RecoverSecretScoped(ctx, secretID, vaultScope)
+			return svc.RecoverSecret(ctx, secretID, vaultScope)
 		}},
 		{"PurgeSecret", func(ctx context.Context, svc *CachedSecretService) error {
-			return svc.PurgeSecret(ctx, secretID)
-		}},
-		{"PurgeSecretScoped", func(ctx context.Context, svc *CachedSecretService) error {
-			return svc.PurgeSecretScoped(ctx, secretID, vaultScope)
+			return svc.PurgeSecret(ctx, secretID, vaultScope)
 		}},
 		{"ImportSecrets", func(ctx context.Context, svc *CachedSecretService) error {
 			_, err := svc.ImportSecrets(ctx, secrets.ImportSecretsRequest{Format: "json", Data: []byte("[]")})

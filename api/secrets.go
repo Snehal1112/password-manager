@@ -95,7 +95,7 @@ func listSecretVersionsHandler(c *Context, w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	versions, err := secretService.GetSecretVersionsScoped(r.Context(), secretID, scope)
+	versions, err := secretService.GetSecretVersions(r.Context(), secretID, scope)
 	if err != nil {
 		writeSecretError(c, err)
 		return
@@ -123,7 +123,7 @@ func getSecretVersionHandler(c *Context, w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	version, err := secretService.GetSecretVersionScoped(r.Context(), secretID, versionNum, scope)
+	version, err := secretService.GetSecretVersion(r.Context(), secretID, versionNum, scope)
 	if err != nil {
 		writeSecretError(c, err)
 		return
@@ -150,7 +150,7 @@ func getLatestSecretVersionHandler(c *Context, w http.ResponseWriter, r *http.Re
 		return
 	}
 
-	version, err := secretService.GetLatestSecretVersionScoped(r.Context(), secretID, scope)
+	version, err := secretService.GetLatestSecretVersion(r.Context(), secretID, scope)
 	if err != nil {
 		writeSecretError(c, err)
 		return
@@ -175,16 +175,10 @@ func exportSecrets(c *Context, w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Get user ID from JWT claims.
+	// Get user ID from JWT claims for the trailing log line.
 	userIDStr, ok := c.Claims["user_id"].(string)
 	if !ok {
 		c.SetInternalError(nil)
-		return
-	}
-
-	userID, err := uuid.Parse(userIDStr)
-	if err != nil {
-		c.SetInvalidParam("user_id")
 		return
 	}
 
@@ -200,7 +194,6 @@ func exportSecrets(c *Context, w http.ResponseWriter, r *http.Request) {
 
 	// Use service layer for export.
 	serviceReq := secrets.ExportSecretsRequest{
-		UserID:      userID,
 		Scope:       scope,
 		Format:      exportReq.Format,
 		FilterTags:  exportReq.Tags,
@@ -264,16 +257,10 @@ func importSecrets(c *Context, w http.ResponseWriter, r *http.Request) {
 
 	overwrite := r.FormValue("overwrite") == "true"
 
-	// Get user ID from JWT claims.
+	// Get user ID from JWT claims for the trailing log line.
 	userIDStr, ok := c.Claims["user_id"].(string)
 	if !ok {
 		c.SetInternalError(nil)
-		return
-	}
-
-	userID, err := uuid.Parse(userIDStr)
-	if err != nil {
-		c.SetInvalidParam("user_id")
 		return
 	}
 
@@ -289,7 +276,6 @@ func importSecrets(c *Context, w http.ResponseWriter, r *http.Request) {
 
 	// Use service layer for import.
 	serviceReq := secrets.ImportSecretsRequest{
-		UserID:    userID,
 		Scope:     scope,
 		Data:      data,
 		Format:    format,
@@ -429,7 +415,7 @@ func listSecrets(c *Context, w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	secretsList, err := secretService.ListSecretsScoped(r.Context(), scope, c.Params.Tags)
+	secretsList, err := secretService.ListSecrets(r.Context(), scope, c.Params.Tags)
 	if err != nil {
 		writeSecretError(c, err)
 		return
@@ -476,7 +462,7 @@ func getSecret(c *Context, w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	secret, err := secretService.GetSecretScoped(r.Context(), secretID, scope)
+	secret, err := secretService.GetSecret(r.Context(), secretID, scope)
 	if err != nil {
 		writeSecretError(c, err)
 		return
@@ -548,7 +534,7 @@ func updateSecret(c *Context, w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	secret, err := secretService.GetSecretScoped(r.Context(), secretID, scope)
+	secret, err := secretService.GetSecret(r.Context(), secretID, scope)
 	if err != nil {
 		writeSecretError(c, err)
 		return
@@ -605,7 +591,7 @@ func updateSecret(c *Context, w http.ResponseWriter, r *http.Request) {
 		ExpiresAt:   req.ExpiresAt,
 		NotBefore:   req.NotBefore,
 	}
-	if err := secretService.UpdateSecretScoped(r.Context(), updateReq); err != nil {
+	if err := secretService.UpdateSecret(r.Context(), updateReq); err != nil {
 		writeSecretError(c, err)
 		return
 	}
@@ -657,7 +643,7 @@ func deleteSecret(c *Context, w http.ResponseWriter, r *http.Request) {
 	}
 	scope := model.NewVaultScope(vaultID, userID)
 
-	if err := secretService.DeleteSecretScoped(r.Context(), secretID, scope); err != nil {
+	if err := secretService.DeleteSecret(r.Context(), secretID, scope); err != nil {
 		writeSecretError(c, err)
 		return
 	}
