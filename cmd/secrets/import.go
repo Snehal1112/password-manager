@@ -33,6 +33,7 @@ import (
 	"rocketvault/common"
 	"rocketvault/internal/container"
 	secretServices "rocketvault/internal/services/secrets"
+	"rocketvault/model"
 )
 
 var (
@@ -82,7 +83,14 @@ The file must be compatible with the export format produced by the export comman
 			return fmt.Errorf("failed to read import file: %w", err)
 		}
 
+		// Resolve the target vault by name, matching the get/list/update/delete commands.
+		vaultID, err := resolveVaultID(ctx, cmd, sc)
+		if err != nil {
+			return err
+		}
+
 		result, err := sc.GetSecretService().ImportSecrets(ctx, secretServices.ImportSecretsRequest{
+			Scope:     model.NewVaultScope(vaultID, uuid.Nil),
 			Data:      data,
 			Format:    format,
 			Overwrite: importOverwrite,

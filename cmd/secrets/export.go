@@ -34,6 +34,7 @@ import (
 	"rocketvault/common"
 	"rocketvault/internal/container"
 	secretServices "rocketvault/internal/services/secrets"
+	"rocketvault/model"
 )
 
 var (
@@ -74,9 +75,16 @@ The export includes all secrets for the authenticated user with optional tag fil
 			return fmt.Errorf("unsupported format: %s (supported: json, csv)", exportFormat)
 		}
 
+		// Resolve the target vault by name, matching the get/list/update/delete commands.
+		vaultID, err := resolveVaultID(ctx, cmd, sc)
+		if err != nil {
+			return err
+		}
+
 		allTags := append(exportTags, exportFilterTags...)
 
 		data, err := sc.GetSecretService().ExportSecrets(ctx, secretServices.ExportSecretsRequest{
+			Scope:       model.NewVaultScope(vaultID, uuid.Nil),
 			Format:      format,
 			FilterTags:  allTags,
 			IncludeTags: true,
