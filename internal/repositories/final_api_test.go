@@ -22,3 +22,26 @@ func TestSecretRepositoryFinalAPIShape(t *testing.T) {
 		_, _ = repo.List(ctx, model.NewAdminScope(uuid.Nil), repositories.SecretFilter{})
 	}
 }
+
+// TestKeyRepositoryFinalAPIShape is a compile-time gate for the key repository.
+func TestKeyRepositoryFinalAPIShape(t *testing.T) {
+	var repo repositories.KeyRepositoryInterface
+	if repo != nil {
+		ctx := context.Background()
+		_, _ = repo.Read(ctx, uuid.New(), model.NewAdminScope(uuid.Nil))
+		_ = repo.Update(ctx, &model.Key{}, model.NewAdminScope(uuid.Nil))
+		_, _ = repo.List(ctx, model.NewAdminScope(uuid.Nil), repositories.KeyFilter{})
+	}
+}
+
+// TestCertificateRepositoryFinalAPIShape is a compile-time gate for the
+// certificate repository.
+func TestCertificateRepositoryFinalAPIShape(t *testing.T) {
+	var repo repositories.CertificateRepositoryInterface
+	if repo != nil {
+		ctx := context.Background()
+		_, _ = repo.Read(ctx, uuid.New(), model.NewAdminScope(uuid.Nil))
+		_ = repo.Update(ctx, &model.Certificate{}, model.NewAdminScope(uuid.Nil))
+		_, _ = repo.List(ctx, model.NewAdminScope(uuid.Nil), repositories.CertificateFilter{})
+	}
+}

@@ -62,33 +62,26 @@ func (m *keyCmdKeyService) CreateECDSAKey(ctx context.Context, req keyServices.C
 	}
 	return args.Get(0).(*keyServices.CreateKeyResult), args.Error(1)
 }
-func (m *keyCmdKeyService) GetKey(ctx context.Context, keyID, userID uuid.UUID) (*model.Key, error) {
-	args := m.Called(ctx, keyID, userID)
+func (m *keyCmdKeyService) GetKey(ctx context.Context, keyID uuid.UUID, scope model.Scope) (*model.Key, error) {
+	args := m.Called(ctx, keyID, scope)
 	if args.Get(0) == nil {
 		return nil, args.Error(1)
 	}
 	return args.Get(0).(*model.Key), args.Error(1)
 }
-func (m *keyCmdKeyService) ListKeys(ctx context.Context, userID uuid.UUID) ([]model.Key, error) {
-	args := m.Called(ctx, userID)
+func (m *keyCmdKeyService) ListKeys(ctx context.Context, scope model.Scope, filter repositories.KeyFilter) ([]model.Key, error) {
+	args := m.Called(ctx, scope, filter)
 	if args.Get(0) == nil {
 		return nil, args.Error(1)
 	}
 	return args.Get(0).([]model.Key), args.Error(1)
 }
-func (m *keyCmdKeyService) ListKeysWithFilters(ctx context.Context, userID *uuid.UUID, keyType string, tags []string, isAdmin bool) ([]model.Key, error) {
-	return nil, nil
-}
 func (m *keyCmdKeyService) UpdateKey(ctx context.Context, req keyServices.UpdateKeyRequest) error {
 	args := m.Called(ctx, req)
 	return args.Error(0)
 }
-func (m *keyCmdKeyService) UpdateKeyInVault(ctx context.Context, req keyServices.UpdateKeyRequest) error {
-	args := m.Called(ctx, req)
-	return args.Error(0)
-}
-func (m *keyCmdKeyService) DeleteKey(ctx context.Context, keyID, userID uuid.UUID) (*model.Key, error) {
-	args := m.Called(ctx, keyID, userID)
+func (m *keyCmdKeyService) DeleteKey(ctx context.Context, keyID uuid.UUID, scope model.Scope) (*model.Key, error) {
+	args := m.Called(ctx, keyID, scope)
 	if args.Get(0) == nil {
 		return nil, args.Error(1)
 	}
@@ -103,31 +96,6 @@ func (m *keyCmdKeyService) RotateKey(ctx context.Context, keyID, userID uuid.UUI
 }
 func (m *keyCmdKeyService) ValidateKeyAccess(ctx context.Context, keyID, userID uuid.UUID, role string) error {
 	return nil
-}
-func (m *keyCmdKeyService) GetKeyInVault(ctx context.Context, keyID, vaultID uuid.UUID) (*model.Key, error) {
-	return nil, nil
-}
-func (m *keyCmdKeyService) ListKeysInVault(ctx context.Context, vaultID uuid.UUID, keyType string, tags []string) ([]model.Key, error) {
-	return nil, nil
-}
-func (m *keyCmdKeyService) DeleteKeyInVault(ctx context.Context, keyID, vaultID, userID uuid.UUID) (*model.Key, error) {
-	return nil, nil
-}
-func (m *keyCmdKeyService) GetKeyScoped(ctx context.Context, keyID uuid.UUID, scope model.Scope) (*model.Key, error) {
-	return nil, nil
-}
-func (m *keyCmdKeyService) ListKeysScoped(ctx context.Context, scope model.Scope, filter repositories.KeyFilter) ([]model.Key, error) {
-	args := m.Called(ctx, scope, filter)
-	if args.Get(0) == nil {
-		return nil, args.Error(1)
-	}
-	return args.Get(0).([]model.Key), args.Error(1)
-}
-func (m *keyCmdKeyService) UpdateKeyScoped(ctx context.Context, req keyServices.UpdateKeyRequest) error {
-	return nil
-}
-func (m *keyCmdKeyService) DeleteKeyScoped(ctx context.Context, keyID uuid.UUID, scope model.Scope) (*model.Key, error) {
-	return nil, nil
 }
 
 // keyCmdCryptoService is a full mock for keyServices.CryptoService.
@@ -493,7 +461,7 @@ func TestListCmd_NonAdminSuccess(t *testing.T) {
 		{ID: uuid.New(), UserID: userID, Name: "k1", Type: "RSA"},
 		{ID: uuid.New(), UserID: userID, Name: "k2", Type: "ECDSA"},
 	}
-	keySvc.On("ListKeysScoped", mock.Anything, model.NewOwnerScope(uuid.Nil, userID), repositories.KeyFilter{Type: "", Tags: nil}).
+	keySvc.On("ListKeys", mock.Anything, model.NewOwnerScope(uuid.Nil, userID), repositories.KeyFilter{Type: "", Tags: nil}).
 		Return(keys, nil)
 
 	sc := &keysTestContainer{
@@ -520,7 +488,7 @@ func TestListCmd_NonAdminSuccess(t *testing.T) {
 func TestListCmd_NonAdminWithTags(t *testing.T) {
 	keySvc := &keyCmdKeyService{}
 	userID := uuid.New()
-	keySvc.On("ListKeysScoped", mock.Anything, model.NewOwnerScope(uuid.Nil, userID), repositories.KeyFilter{Type: "RSA", Tags: []string{"prod", "secure"}}).
+	keySvc.On("ListKeys", mock.Anything, model.NewOwnerScope(uuid.Nil, userID), repositories.KeyFilter{Type: "RSA", Tags: []string{"prod", "secure"}}).
 		Return([]model.Key{}, nil)
 
 	sc := &keysTestContainer{
@@ -548,7 +516,7 @@ func TestListCmd_AdminPath(t *testing.T) {
 	userID := uuid.New()
 
 	keySvc := &keyCmdKeyService{}
-	keySvc.On("ListKeysScoped", mock.Anything, model.NewAdminScope(userID), repositories.KeyFilter{Type: "", Tags: nil}).
+	keySvc.On("ListKeys", mock.Anything, model.NewAdminScope(userID), repositories.KeyFilter{Type: "", Tags: nil}).
 		Return([]model.Key{{ID: keyID, UserID: userID, Name: "admin-key", Type: "RSA"}}, nil)
 
 	sc := &keysTestContainer{
@@ -575,7 +543,7 @@ func TestListCmd_AdminPath(t *testing.T) {
 func TestListCmd_ServiceError(t *testing.T) {
 	keySvc := &keyCmdKeyService{}
 	userID := uuid.New()
-	keySvc.On("ListKeysScoped", mock.Anything, model.NewOwnerScope(uuid.Nil, userID), repositories.KeyFilter{Type: "", Tags: nil}).
+	keySvc.On("ListKeys", mock.Anything, model.NewOwnerScope(uuid.Nil, userID), repositories.KeyFilter{Type: "", Tags: nil}).
 		Return(nil, fmt.Errorf("db error"))
 
 	sc := &keysTestContainer{
@@ -600,7 +568,7 @@ func TestListCmd_ServiceError(t *testing.T) {
 func TestListCmd_NoFormatter(t *testing.T) {
 	keySvc := &keyCmdKeyService{}
 	userID := uuid.New()
-	keySvc.On("ListKeysScoped", mock.Anything, model.NewOwnerScope(uuid.Nil, userID), repositories.KeyFilter{Type: "", Tags: nil}).
+	keySvc.On("ListKeys", mock.Anything, model.NewOwnerScope(uuid.Nil, userID), repositories.KeyFilter{Type: "", Tags: nil}).
 		Return([]model.Key{}, nil)
 
 	sc := &keysTestContainer{
@@ -660,7 +628,7 @@ func TestGetCmd_Success(t *testing.T) {
 	userID := uuid.New()
 	keyID := uuid.New()
 	key := &model.Key{ID: keyID, UserID: userID, Name: "my-key", Type: "RSA", CreatedAt: time.Now()}
-	keySvc.On("GetKey", mock.Anything, keyID, userID).Return(key, nil)
+	keySvc.On("GetKey", mock.Anything, keyID, model.NewOwnerScope(uuid.Nil, userID)).Return(key, nil)
 
 	sc := &keysTestContainer{
 		MockServiceContainer: &testutils.MockServiceContainer{},
@@ -685,7 +653,7 @@ func TestGetCmd_ServiceError(t *testing.T) {
 	keySvc := &keyCmdKeyService{}
 	userID := uuid.New()
 	keyID := uuid.New()
-	keySvc.On("GetKey", mock.Anything, keyID, userID).Return(nil, fmt.Errorf("not found"))
+	keySvc.On("GetKey", mock.Anything, keyID, model.NewOwnerScope(uuid.Nil, userID)).Return(nil, fmt.Errorf("not found"))
 
 	sc := &keysTestContainer{
 		MockServiceContainer: &testutils.MockServiceContainer{},
@@ -709,7 +677,7 @@ func TestGetCmd_NoFormatter(t *testing.T) {
 	userID := uuid.New()
 	keyID := uuid.New()
 	key := &model.Key{ID: keyID, UserID: userID, Name: "k", Type: "RSA", CreatedAt: time.Now()}
-	keySvc.On("GetKey", mock.Anything, keyID, userID).Return(key, nil)
+	keySvc.On("GetKey", mock.Anything, keyID, model.NewOwnerScope(uuid.Nil, userID)).Return(key, nil)
 
 	sc := &keysTestContainer{
 		MockServiceContainer: &testutils.MockServiceContainer{},
@@ -765,7 +733,7 @@ func TestDeleteCmd_Success(t *testing.T) {
 	keySvc := &keyCmdKeyService{}
 	userID := uuid.New()
 	keyID := uuid.New()
-	keySvc.On("DeleteKey", mock.Anything, keyID, userID).Return(nil, nil)
+	keySvc.On("DeleteKey", mock.Anything, keyID, model.NewOwnerScope(uuid.Nil, userID)).Return(nil, nil)
 
 	sc := &keysTestContainer{
 		MockServiceContainer: &testutils.MockServiceContainer{},
@@ -788,7 +756,7 @@ func TestDeleteCmd_ServiceError(t *testing.T) {
 	keySvc := &keyCmdKeyService{}
 	userID := uuid.New()
 	keyID := uuid.New()
-	keySvc.On("DeleteKey", mock.Anything, keyID, userID).Return(nil, fmt.Errorf("delete failed"))
+	keySvc.On("DeleteKey", mock.Anything, keyID, model.NewOwnerScope(uuid.Nil, userID)).Return(nil, fmt.Errorf("delete failed"))
 
 	sc := &keysTestContainer{
 		MockServiceContainer: &testutils.MockServiceContainer{},

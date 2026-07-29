@@ -33,60 +33,60 @@ func newCertScopeFixture(t *testing.T) (*mockCertRepository, *certificateService
 	}
 }
 
-func TestGetCertificateScopedPassesTheScopeToTheRepository(t *testing.T) {
+func TestGetCertificatePassesTheScopeToTheRepository(t *testing.T) {
 	repo, svc := newCertScopeFixture(t)
 	ctx := context.Background()
 
 	certID, vaultID := uuid.New(), uuid.New()
 	scope := model.NewVaultScope(vaultID, uuid.New())
-	repo.On("ReadScoped", ctx, certID, scope).
+	repo.On("Read", ctx, certID, scope).
 		Return(&model.Certificate{ID: certID, VaultID: vaultID, Enabled: true}, nil).Once()
 
-	got, err := svc.GetCertificateScoped(ctx, certID, scope)
+	got, err := svc.GetCertificate(ctx, certID, scope)
 	require.NoError(t, err)
 	assert.Equal(t, certID, got.ID)
 	repo.AssertExpectations(t)
 }
 
-func TestGetCertificateScopedEnforcesLifecycle(t *testing.T) {
+func TestGetCertificateEnforcesLifecycle(t *testing.T) {
 	repo, svc := newCertScopeFixture(t)
 	ctx := context.Background()
 
 	certID := uuid.New()
 	scope := model.NewVaultScope(uuid.New(), uuid.New())
-	repo.On("ReadScoped", ctx, certID, scope).
+	repo.On("Read", ctx, certID, scope).
 		Return(&model.Certificate{ID: certID, Enabled: false}, nil).Once()
 
-	_, err := svc.GetCertificateScoped(ctx, certID, scope)
+	_, err := svc.GetCertificate(ctx, certID, scope)
 	assert.ErrorIs(t, err, ErrCertLifecycleDenied)
 }
 
-func TestGetCertificateScopedDeniesOutOfScope(t *testing.T) {
+func TestGetCertificateDeniesOutOfScope(t *testing.T) {
 	repo, svc := newCertScopeFixture(t)
 	ctx := context.Background()
 
 	scope := model.NewVaultScope(uuid.New(), uuid.New())
-	repo.On("ReadScoped", ctx, mock.Anything, scope).Return(nil, assert.AnError).Once()
+	repo.On("Read", ctx, mock.Anything, scope).Return(nil, assert.AnError).Once()
 
-	_, err := svc.GetCertificateScoped(ctx, uuid.New(), scope)
+	_, err := svc.GetCertificate(ctx, uuid.New(), scope)
 	assert.ErrorIs(t, err, ErrCertNotFound)
 }
 
-func TestListCertificatesScopedForwardsTheFilter(t *testing.T) {
+func TestListCertificatesForwardsTheFilter(t *testing.T) {
 	repo, svc := newCertScopeFixture(t)
 	ctx := context.Background()
 
 	scope := model.NewOwnerScope(uuid.Nil, uuid.New())
 	filter := repositories.CertificateFilter{Tags: []string{"tls"}}
-	repo.On("ListScoped", ctx, scope, filter).Return([]model.Certificate{{ID: uuid.New()}}, nil).Once()
+	repo.On("List", ctx, scope, filter).Return([]model.Certificate{{ID: uuid.New()}}, nil).Once()
 
-	got, err := svc.ListCertificatesScoped(ctx, scope, filter)
+	got, err := svc.ListCertificates(ctx, scope, filter)
 	require.NoError(t, err)
 	assert.Len(t, got, 1)
 	repo.AssertExpectations(t)
 }
 
-func TestUpdateCertificateScopedUsesTheSameScopeForReadAndWrite(t *testing.T) {
+func TestUpdateCertificateUsesTheSameScopeForReadAndWrite(t *testing.T) {
 	repo, svc := newCertScopeFixture(t)
 	ctx := context.Background()
 
@@ -94,25 +94,25 @@ func TestUpdateCertificateScopedUsesTheSameScopeForReadAndWrite(t *testing.T) {
 	scope := model.NewVaultScope(vaultID, uuid.New())
 	name := "renamed"
 
-	repo.On("ReadScoped", ctx, certID, scope).
+	repo.On("Read", ctx, certID, scope).
 		Return(&model.Certificate{ID: certID, VaultID: vaultID, Name: "original", Enabled: true, RenewalDays: 30}, nil).Once()
-	repo.On("UpdateScoped", ctx, mock.MatchedBy(func(c *model.Certificate) bool {
+	repo.On("Update", ctx, mock.MatchedBy(func(c *model.Certificate) bool {
 		return c.Name == "renamed"
 	}), scope).Return(nil).Once()
 
-	require.NoError(t, svc.UpdateCertificateScoped(ctx, UpdateCertificateRequest{CertID: certID, Scope: scope, Name: &name}))
+	require.NoError(t, svc.UpdateCertificate(ctx, UpdateCertificateRequest{CertID: certID, Scope: scope, Name: &name}))
 	repo.AssertExpectations(t)
 }
 
-func TestDeleteCertificateScopedChecksScopeFirst(t *testing.T) {
+func TestDeleteCertificateChecksScopeFirst(t *testing.T) {
 	repo, svc := newCertScopeFixture(t)
 	ctx := context.Background()
 
 	certID := uuid.New()
 	scope := model.NewVaultScope(uuid.New(), uuid.New())
-	repo.On("ReadScoped", ctx, certID, scope).Return(nil, assert.AnError).Once()
+	repo.On("Read", ctx, certID, scope).Return(nil, assert.AnError).Once()
 
-	err := svc.DeleteCertificateScoped(ctx, certID, scope)
+	err := svc.DeleteCertificate(ctx, certID, scope)
 	assert.ErrorIs(t, err, ErrCertNotFound)
 	repo.AssertNotCalled(t, "SoftDelete", mock.Anything, mock.Anything)
 }

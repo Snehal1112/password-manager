@@ -24,7 +24,7 @@ func (m *mockCertRepoForRenewal) Create(ctx context.Context, cert *model.Certifi
 	return m.Called(ctx, cert).Error(0)
 }
 
-func (m *mockCertRepoForRenewal) ReadScoped(ctx context.Context, id uuid.UUID, scope model.Scope) (*model.Certificate, error) {
+func (m *mockCertRepoForRenewal) Read(ctx context.Context, id uuid.UUID, scope model.Scope) (*model.Certificate, error) {
 	args := m.Called(ctx, id, scope)
 	if args.Get(0) == nil {
 		return nil, args.Error(1)
@@ -32,29 +32,17 @@ func (m *mockCertRepoForRenewal) ReadScoped(ctx context.Context, id uuid.UUID, s
 	return args.Get(0).(*model.Certificate), args.Error(1)
 }
 
-func (m *mockCertRepoForRenewal) UpdateScoped(ctx context.Context, cert *model.Certificate, scope model.Scope) error {
+func (m *mockCertRepoForRenewal) Update(ctx context.Context, cert *model.Certificate, scope model.Scope) error {
 	args := m.Called(ctx, cert, scope)
 	return args.Error(0)
 }
 
-func (m *mockCertRepoForRenewal) ListScoped(ctx context.Context, scope model.Scope, filter repositories.CertificateFilter) ([]model.Certificate, error) {
+func (m *mockCertRepoForRenewal) List(ctx context.Context, scope model.Scope, filter repositories.CertificateFilter) ([]model.Certificate, error) {
 	args := m.Called(ctx, scope, filter)
 	if args.Get(0) == nil {
 		return nil, args.Error(1)
 	}
 	return args.Get(0).([]model.Certificate), args.Error(1)
-}
-
-func (m *mockCertRepoForRenewal) Read(ctx context.Context, id uuid.UUID) (*model.Certificate, error) {
-	args := m.Called(ctx, id)
-	if v := args.Get(0); v != nil {
-		return v.(*model.Certificate), args.Error(1)
-	}
-	return nil, args.Error(1)
-}
-
-func (m *mockCertRepoForRenewal) Update(ctx context.Context, cert *model.Certificate) error {
-	return m.Called(ctx, cert).Error(0)
 }
 
 func (m *mockCertRepoForRenewal) Delete(ctx context.Context, id uuid.UUID) error {
@@ -63,14 +51,6 @@ func (m *mockCertRepoForRenewal) Delete(ctx context.Context, id uuid.UUID) error
 
 func (m *mockCertRepoForRenewal) Revoke(ctx context.Context, id uuid.UUID, serialNumber, name string) error {
 	return m.Called(ctx, id, serialNumber, name).Error(0)
-}
-
-func (m *mockCertRepoForRenewal) ListByUser(ctx context.Context, userID uuid.UUID, tags []string) ([]model.Certificate, error) {
-	args := m.Called(ctx, userID, tags)
-	if v := args.Get(0); v != nil {
-		return v.([]model.Certificate), args.Error(1)
-	}
-	return nil, args.Error(1)
 }
 
 func (m *mockCertRepoForRenewal) ListRevoked(ctx context.Context, userID uuid.UUID) ([]model.RevokedCertificate, error) {
@@ -113,22 +93,6 @@ func (m *mockCertRepoForRenewal) ListAll(ctx context.Context) ([]model.Certifica
 	return nil, args.Error(1)
 }
 
-func (m *mockCertRepoForRenewal) ListInVault(ctx context.Context, vaultID uuid.UUID, tags []string) ([]model.Certificate, error) {
-	args := m.Called(ctx, vaultID, tags)
-	if v := args.Get(0); v != nil {
-		return v.([]model.Certificate), args.Error(1)
-	}
-	return nil, args.Error(1)
-}
-
-func (m *mockCertRepoForRenewal) ReadInVault(ctx context.Context, id, vaultID uuid.UUID) (*model.Certificate, error) {
-	args := m.Called(ctx, id, vaultID)
-	if v := args.Get(0); v != nil {
-		return v.(*model.Certificate), args.Error(1)
-	}
-	return nil, args.Error(1)
-}
-
 func (m *mockCertRepoForRenewal) SoftDeleteVaultContents(ctx context.Context, vaultID uuid.UUID, deletedAt time.Time) error {
 	args := m.Called(ctx, vaultID, deletedAt)
 	return args.Error(0)
@@ -151,11 +115,11 @@ func (m *mockCertSvcForRenewal) CreateCASignedCertificate(ctx context.Context, r
 	panic("not called")
 }
 
-func (m *mockCertSvcForRenewal) GetCertificate(ctx context.Context, certID, userID uuid.UUID) (*model.Certificate, error) {
+func (m *mockCertSvcForRenewal) GetCertificate(ctx context.Context, certID uuid.UUID, scope model.Scope) (*model.Certificate, error) {
 	panic("not called")
 }
 
-func (m *mockCertSvcForRenewal) ListCertificates(ctx context.Context, userID uuid.UUID) ([]model.Certificate, error) {
+func (m *mockCertSvcForRenewal) ListCertificates(ctx context.Context, scope model.Scope, filter repositories.CertificateFilter) ([]model.Certificate, error) {
 	panic("not called")
 }
 
@@ -163,35 +127,7 @@ func (m *mockCertSvcForRenewal) UpdateCertificate(ctx context.Context, req certi
 	panic("not called")
 }
 
-func (m *mockCertSvcForRenewal) DeleteCertificate(ctx context.Context, certID, userID uuid.UUID) error {
-	panic("not called")
-}
-
-func (m *mockCertSvcForRenewal) GetCertificateInVault(ctx context.Context, certID, vaultID uuid.UUID) (*model.Certificate, error) {
-	panic("not called")
-}
-
-func (m *mockCertSvcForRenewal) ListCertificatesInVault(ctx context.Context, vaultID uuid.UUID) ([]model.Certificate, error) {
-	panic("not called")
-}
-
-func (m *mockCertSvcForRenewal) DeleteCertificateInVault(ctx context.Context, certID, vaultID uuid.UUID) error {
-	panic("not called")
-}
-
-func (m *mockCertSvcForRenewal) GetCertificateScoped(ctx context.Context, certID uuid.UUID, scope model.Scope) (*model.Certificate, error) {
-	panic("not called")
-}
-
-func (m *mockCertSvcForRenewal) ListCertificatesScoped(ctx context.Context, scope model.Scope, filter repositories.CertificateFilter) ([]model.Certificate, error) {
-	panic("not called")
-}
-
-func (m *mockCertSvcForRenewal) UpdateCertificateScoped(ctx context.Context, req certificates.UpdateCertificateRequest) error {
-	panic("not called")
-}
-
-func (m *mockCertSvcForRenewal) DeleteCertificateScoped(ctx context.Context, certID uuid.UUID, scope model.Scope) error {
+func (m *mockCertSvcForRenewal) DeleteCertificate(ctx context.Context, certID uuid.UUID, scope model.Scope) error {
 	panic("not called")
 }
 

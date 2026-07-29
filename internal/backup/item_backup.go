@@ -79,7 +79,9 @@ func (s *ItemBackupService) RestoreSecret(ctx context.Context, blob string, user
 // BackupKey creates a base64url-encoded backup blob for the given key.
 // It returns an error when the key does not belong to userID.
 func (s *ItemBackupService) BackupKey(ctx context.Context, id, userID uuid.UUID) (string, error) {
-	key, err := s.keyRepo.Read(ctx, id)
+	// The read itself is unchecked (admin scope); the explicit ownership
+	// check below is the actual gate, matching the pre-scope behaviour.
+	key, err := s.keyRepo.Read(ctx, id, model.NewAdminScope(userID))
 	if err != nil {
 		return "", fmt.Errorf("backup key: %w", err)
 	}
@@ -103,7 +105,9 @@ func (s *ItemBackupService) RestoreKey(ctx context.Context, blob string, userID 
 // BackupCertificate creates a base64url-encoded backup blob for the given certificate.
 // It returns an error when the certificate does not belong to userID.
 func (s *ItemBackupService) BackupCertificate(ctx context.Context, id, userID uuid.UUID) (string, error) {
-	cert, err := s.certRepo.Read(ctx, id)
+	// The read itself is unchecked (admin scope); the explicit ownership
+	// check below is the actual gate, matching the pre-scope behaviour.
+	cert, err := s.certRepo.Read(ctx, id, model.NewAdminScope(userID))
 	if err != nil {
 		return "", fmt.Errorf("backup certificate: %w", err)
 	}

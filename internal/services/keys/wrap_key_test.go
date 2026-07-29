@@ -62,7 +62,7 @@ func TestWrapAndUnwrapKey(t *testing.T) {
 	}
 
 	repo := mocks.NewMockKeyRepositoryInterface(t)
-	repo.On("ReadScoped", mock.Anything, keyID, model.NewOwnerScope(uuid.Nil, userID)).Return(vaultKey, nil)
+	repo.On("Read", mock.Anything, keyID, model.NewOwnerScope(uuid.Nil, userID)).Return(vaultKey, nil)
 
 	svc := keys.NewCryptoService(keys.CryptoServiceConfig{
 		KeyRepository: repo,
@@ -104,7 +104,7 @@ func TestWrapAndUnwrapKey_OAEP256(t *testing.T) {
 	}
 
 	repo := mocks.NewMockKeyRepositoryInterface(t)
-	repo.On("ReadScoped", mock.Anything, keyID, model.NewOwnerScope(uuid.Nil, userID)).Return(vaultKey, nil)
+	repo.On("Read", mock.Anything, keyID, model.NewOwnerScope(uuid.Nil, userID)).Return(vaultKey, nil)
 
 	svc := keys.NewCryptoService(keys.CryptoServiceConfig{
 		KeyRepository: repo,
@@ -131,12 +131,12 @@ func TestWrapAndUnwrapKey_OAEP256(t *testing.T) {
 //
 // Renamed from TestWrapKeyForbiddenForWrongUser (P1 scope refactor, Task 20).
 // loadAndAuthorize no longer performs a Go-level owner comparison: ownership
-// is now enforced by the scope predicate inside ReadScoped itself. A real
-// KeyRepository.ReadScoped filters cross-owner reads out in SQL and reports
+// is now enforced by the scope predicate inside Read itself. A real
+// KeyRepository.Read filters cross-owner reads out in SQL and reports
 // them as not found, so this mock is updated to simulate that behaviour
 // (rather than returning the other user's key and letting a Go check catch
 // it, which no longer exists). This mirrors Task 19's identical change for
-// GetKeyScoped/DeleteKeyScoped and the B6 regression test in
+// GetKey/DeleteKey and the B6 regression test in
 // api/vault_scoped_crypto_b6_test.go.
 func TestWrapKeyNotFoundForWrongUser(t *testing.T) {
 	setupWrapTestMasterKey()
@@ -145,7 +145,7 @@ func TestWrapKeyNotFoundForWrongUser(t *testing.T) {
 	keyID := uuid.New()
 
 	repo := mocks.NewMockKeyRepositoryInterface(t)
-	repo.On("ReadScoped", mock.Anything, keyID, model.NewOwnerScope(uuid.Nil, callerID)).
+	repo.On("Read", mock.Anything, keyID, model.NewOwnerScope(uuid.Nil, callerID)).
 		Return(nil, errors.New("key not found or access denied"))
 
 	svc := keys.NewCryptoService(keys.CryptoServiceConfig{
@@ -198,7 +198,7 @@ func TestWrapKey_AESKWAlgorithmNotRejectedByAllowlist(t *testing.T) {
 	keyID := uuid.New()
 
 	repo := mocks.NewMockKeyRepositoryInterface(t)
-	repo.On("ReadScoped", mock.Anything, keyID, model.NewOwnerScope(uuid.Nil, userID)).Return(&model.Key{
+	repo.On("Read", mock.Anything, keyID, model.NewOwnerScope(uuid.Nil, userID)).Return(&model.Key{
 		ID: keyID, UserID: userID, Type: "RSA", Value: encryptedPEM,
 	}, nil)
 

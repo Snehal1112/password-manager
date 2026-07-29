@@ -30,14 +30,14 @@ func TestUpdateKey_SetsRevoked(t *testing.T) {
 	keyID := uuid.New()
 	existing := &model.Key{ID: keyID, UserID: ownerID, Name: "old-name", Type: "RSA", Revoked: false, Enabled: true}
 
-	repo.On("ReadScoped", mock.Anything, keyID, model.NewOwnerScope(uuid.Nil, ownerID)).Return(existing, nil)
-	repo.On("UpdateScoped", mock.Anything, mock.MatchedBy(func(k *model.Key) bool {
+	repo.On("Read", mock.Anything, keyID, model.NewOwnerScope(uuid.Nil, ownerID)).Return(existing, nil)
+	repo.On("Update", mock.Anything, mock.MatchedBy(func(k *model.Key) bool {
 		return k.Revoked == true
 	}), model.NewOwnerScope(uuid.Nil, ownerID)).Return(nil)
 
 	err := svc.UpdateKey(context.Background(), UpdateKeyRequest{
 		KeyID:   keyID,
-		UserID:  ownerID,
+		Scope:   model.NewOwnerScope(uuid.Nil, ownerID),
 		Revoked: boolPtr(true),
 	})
 
@@ -54,14 +54,14 @@ func TestUpdateKey_ClearsRevoked(t *testing.T) {
 	keyID := uuid.New()
 	existing := &model.Key{ID: keyID, UserID: ownerID, Name: "old-name", Type: "RSA", Revoked: true, Enabled: true}
 
-	repo.On("ReadScoped", mock.Anything, keyID, model.NewOwnerScope(uuid.Nil, ownerID)).Return(existing, nil)
-	repo.On("UpdateScoped", mock.Anything, mock.MatchedBy(func(k *model.Key) bool {
+	repo.On("Read", mock.Anything, keyID, model.NewOwnerScope(uuid.Nil, ownerID)).Return(existing, nil)
+	repo.On("Update", mock.Anything, mock.MatchedBy(func(k *model.Key) bool {
 		return k.Revoked == false
 	}), model.NewOwnerScope(uuid.Nil, ownerID)).Return(nil)
 
 	err := svc.UpdateKey(context.Background(), UpdateKeyRequest{
 		KeyID:   keyID,
-		UserID:  ownerID,
+		Scope:   model.NewOwnerScope(uuid.Nil, ownerID),
 		Revoked: boolPtr(false),
 	})
 
@@ -69,7 +69,7 @@ func TestUpdateKey_ClearsRevoked(t *testing.T) {
 	repo.AssertExpectations(t)
 }
 
-func TestUpdateKeyInVault_HappyPath(t *testing.T) {
+func TestUpdateKey_VaultScope_HappyPath(t *testing.T) {
 	repo := &mockKeyRepository{}
 	logger := &logging.Logger{Logger: logrus.New()}
 
@@ -79,24 +79,23 @@ func TestUpdateKeyInVault_HappyPath(t *testing.T) {
 	callerID := uuid.New() // a different vault member than the key's owner
 
 	stored := &model.Key{ID: keyID, UserID: ownerID, VaultID: vaultID, Name: "old"}
-	repo.On("ReadScoped", mock.Anything, keyID, model.NewVaultScope(vaultID, callerID)).Return(stored, nil)
-	repo.On("UpdateScoped", mock.Anything, mock.AnythingOfType("*model.Key"), model.NewVaultScope(vaultID, callerID)).Return(nil)
+	repo.On("Read", mock.Anything, keyID, model.NewVaultScope(vaultID, callerID)).Return(stored, nil)
+	repo.On("Update", mock.Anything, mock.AnythingOfType("*model.Key"), model.NewVaultScope(vaultID, callerID)).Return(nil)
 
 	svc := &keyService{keyRepo: repo, logger: logger}
 
 	newName := "new-name"
-	err := svc.UpdateKeyInVault(context.Background(), UpdateKeyRequest{
-		KeyID:   keyID,
-		UserID:  callerID,
-		VaultID: vaultID,
-		Name:    &newName,
+	err := svc.UpdateKey(context.Background(), UpdateKeyRequest{
+		KeyID: keyID,
+		Scope: model.NewVaultScope(vaultID, callerID),
+		Name:  &newName,
 	})
 
 	assert.NoError(t, err)
 	repo.AssertExpectations(t)
 }
 
-func TestUpdateKeyInVault_WrongVault(t *testing.T) {
+func TestUpdateKey_VaultScope_WrongVault(t *testing.T) {
 	repo := &mockKeyRepository{}
 	logger := &logging.Logger{Logger: logrus.New()}
 
@@ -104,13 +103,12 @@ func TestUpdateKeyInVault_WrongVault(t *testing.T) {
 	vaultID := uuid.New()
 	callerID := uuid.New()
 
-	repo.On("ReadScoped", mock.Anything, keyID, model.NewVaultScope(vaultID, callerID)).Return(nil, errors.New("key not found or access denied"))
+	repo.On("Read", mock.Anything, keyID, model.NewVaultScope(vaultID, callerID)).Return(nil, errors.New("key not found or access denied"))
 
 	svc := &keyService{keyRepo: repo, logger: logger}
-	err := svc.UpdateKeyInVault(context.Background(), UpdateKeyRequest{
-		KeyID:   keyID,
-		UserID:  callerID,
-		VaultID: vaultID,
+	err := svc.UpdateKey(context.Background(), UpdateKeyRequest{
+		KeyID: keyID,
+		Scope: model.NewVaultScope(vaultID, callerID),
 	})
 
 	assert.ErrorIs(t, err, ErrKeyNotFound)
@@ -127,10 +125,10 @@ func (f *fakeAuditPersister) PersistAudit(userID, action, details string) error 
 	return nil
 }
 
-// TestUpdateKeyInVault_AuditRowsAttributeTheActor_NotTheOwner uses a real
+// TestUpdateKey_VaultScope_AuditRowsAttributeTheActor_NotTheOwner uses a real
 // KeyRepository (not a mock) so both the service-layer and repository-layer
 // audit calls actually fire, proving they no longer disagree.
-func TestUpdateKeyInVault_AuditRowsAttributeTheActor_NotTheOwner(t *testing.T) {
+func TestUpdateKey_VaultScope_AuditRowsAttributeTheActor_NotTheOwner(t *testing.T) {
 	sqlDB, err := sql.Open("sqlite3", ":memory:")
 	require.NoError(t, err)
 	defer sqlDB.Close()
@@ -182,11 +180,10 @@ func TestUpdateKeyInVault_AuditRowsAttributeTheActor_NotTheOwner(t *testing.T) {
 	svc := NewKeyService(KeyServiceConfig{KeyRepository: keyRepo, Logger: logger})
 
 	newName := "new-name"
-	err = svc.UpdateKeyInVault(context.Background(), UpdateKeyRequest{
-		KeyID:   keyID,
-		UserID:  callerID,
-		VaultID: vaultID,
-		Name:    &newName,
+	err = svc.UpdateKey(context.Background(), UpdateKeyRequest{
+		KeyID: keyID,
+		Scope: model.NewVaultScope(vaultID, callerID),
+		Name:  &newName,
 	})
 	require.NoError(t, err)
 

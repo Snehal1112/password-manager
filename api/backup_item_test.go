@@ -565,19 +565,19 @@ func (m *mockKeyRepo) Create(ctx context.Context, key *model.Key) error {
 	}
 	return nil
 }
-func (m *mockKeyRepo) Read(ctx context.Context, id uuid.UUID) (*model.Key, error) {
+func (m *mockKeyRepo) Read(ctx context.Context, id uuid.UUID, _ model.Scope) (*model.Key, error) {
 	if m.readFn != nil {
 		return m.readFn(ctx, id)
 	}
 	return nil, errors.New("not found")
 }
-func (m *mockKeyRepo) Update(_ context.Context, _ *model.Key) error {
+func (m *mockKeyRepo) Update(_ context.Context, _ *model.Key, _ model.Scope) error {
 	return errors.New("not implemented")
 }
-func (m *mockKeyRepo) Delete(_ context.Context, _ uuid.UUID) error { return nil }
-func (m *mockKeyRepo) ListByUser(_ context.Context, _ *uuid.UUID, _ string, _ []string) ([]model.Key, error) {
+func (m *mockKeyRepo) List(_ context.Context, _ model.Scope, _ repositories.KeyFilter) ([]model.Key, error) {
 	return nil, nil
 }
+func (m *mockKeyRepo) Delete(_ context.Context, _ uuid.UUID) error { return nil }
 func (m *mockKeyRepo) UpdateRevocationStatus(_ context.Context, _ uuid.UUID, _ bool) error {
 	return nil
 }
@@ -597,26 +597,11 @@ func (m *mockKeyRepo) CreateVersion(_ context.Context, _ uuid.UUID, _ int, _ str
 func (m *mockKeyRepo) ListVersions(_ context.Context, _, _ uuid.UUID) ([]model.KeyVersion, error) {
 	return nil, nil
 }
-func (m *mockKeyRepo) ListInVault(_ context.Context, _ uuid.UUID, _ string, _ []string) ([]model.Key, error) {
-	return nil, nil
-}
-func (m *mockKeyRepo) ReadInVault(_ context.Context, _, _ uuid.UUID) (*model.Key, error) {
-	return nil, nil
-}
 func (m *mockKeyRepo) SoftDeleteVaultContents(_ context.Context, _ uuid.UUID, _ time.Time) error {
 	return nil
 }
 func (m *mockKeyRepo) RecoverVaultContents(_ context.Context, _ uuid.UUID, _ time.Time) error {
 	return nil
-}
-func (m *mockKeyRepo) ReadScoped(_ context.Context, _ uuid.UUID, _ model.Scope) (*model.Key, error) {
-	return nil, nil
-}
-func (m *mockKeyRepo) UpdateScoped(_ context.Context, _ *model.Key, _ model.Scope) error {
-	return nil
-}
-func (m *mockKeyRepo) ListScoped(_ context.Context, _ model.Scope, _ repositories.KeyFilter) ([]model.Key, error) {
-	return nil, nil
 }
 
 // mockCertRepo is a minimal CertificateRepositoryInterface for backup tests.
@@ -631,29 +616,20 @@ func (m *mockCertRepo) Create(ctx context.Context, cert *model.Certificate) erro
 	}
 	return nil
 }
-func (m *mockCertRepo) ReadScoped(_ context.Context, _ uuid.UUID, _ model.Scope) (*model.Certificate, error) {
-	return nil, nil
-}
-func (m *mockCertRepo) UpdateScoped(_ context.Context, _ *model.Certificate, _ model.Scope) error {
-	return nil
-}
-func (m *mockCertRepo) ListScoped(_ context.Context, _ model.Scope, _ repositories.CertificateFilter) ([]model.Certificate, error) {
-	return nil, nil
-}
-func (m *mockCertRepo) Read(ctx context.Context, id uuid.UUID) (*model.Certificate, error) {
+func (m *mockCertRepo) Read(ctx context.Context, id uuid.UUID, _ model.Scope) (*model.Certificate, error) {
 	if m.readFn != nil {
 		return m.readFn(ctx, id)
 	}
 	return nil, errors.New("not found")
 }
-func (m *mockCertRepo) Update(_ context.Context, _ *model.Certificate) error {
+func (m *mockCertRepo) Update(_ context.Context, _ *model.Certificate, _ model.Scope) error {
 	return errors.New("not implemented")
+}
+func (m *mockCertRepo) List(_ context.Context, _ model.Scope, _ repositories.CertificateFilter) ([]model.Certificate, error) {
+	return nil, nil
 }
 func (m *mockCertRepo) Delete(_ context.Context, _ uuid.UUID) error              { return nil }
 func (m *mockCertRepo) Revoke(_ context.Context, _ uuid.UUID, _, _ string) error { return nil }
-func (m *mockCertRepo) ListByUser(_ context.Context, _ uuid.UUID, _ []string) ([]model.Certificate, error) {
-	return nil, nil
-}
 func (m *mockCertRepo) SoftDelete(_ context.Context, _ uuid.UUID) error         { return nil }
 func (m *mockCertRepo) RecoverCertificate(_ context.Context, _ uuid.UUID) error { return nil }
 func (m *mockCertRepo) PurgeCertificate(_ context.Context, _ uuid.UUID) error   { return nil }
@@ -665,12 +641,6 @@ func (m *mockCertRepo) ListRevoked(_ context.Context, _ uuid.UUID) ([]model.Revo
 }
 func (m *mockCertRepo) SetPurgeProtection(_ context.Context, _ uuid.UUID, _ bool) error { return nil }
 func (m *mockCertRepo) ListAll(_ context.Context) ([]model.Certificate, error)          { return nil, nil }
-func (m *mockCertRepo) ListInVault(_ context.Context, _ uuid.UUID, _ []string) ([]model.Certificate, error) {
-	return nil, nil
-}
-func (m *mockCertRepo) ReadInVault(_ context.Context, _, _ uuid.UUID) (*model.Certificate, error) {
-	return nil, nil
-}
 func (m *mockCertRepo) SoftDeleteVaultContents(_ context.Context, _ uuid.UUID, _ time.Time) error {
 	return nil
 }

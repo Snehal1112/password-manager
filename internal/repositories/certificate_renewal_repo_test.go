@@ -72,7 +72,7 @@ func TestCertificateRepositoryRenewalFields(t *testing.T) {
 	err := repo.Create(context.Background(), cert)
 	require.NoError(t, err)
 
-	got, err := repo.Read(context.Background(), cert.ID)
+	got, err := repo.Read(context.Background(), cert.ID, model.NewAdminScope(uuid.Nil))
 	require.NoError(t, err)
 	assert.True(t, got.AutoRenew)
 	assert.Equal(t, 14, got.RenewalDays)

@@ -258,7 +258,7 @@ func listCertificates(c *Context, w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	certs, err := certService.ListCertificatesScoped(r.Context(), scope, repositories.CertificateFilter{})
+	certs, err := certService.ListCertificates(r.Context(), scope, repositories.CertificateFilter{})
 	if err != nil {
 		c.SetInternalError(err)
 		return
@@ -291,7 +291,7 @@ func getCertificate(c *Context, w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	cert, err := certService.GetCertificateScoped(r.Context(), certID, scope)
+	cert, err := certService.GetCertificate(r.Context(), certID, scope)
 	if err != nil {
 		if errors.Is(err, certServices.ErrCertLifecycleDenied) {
 			c.SetPermissionError("certificate is disabled or outside its valid time window")
@@ -342,9 +342,14 @@ func updateCertificate(c *Context, w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Preserves the pre-refactor owner-scope semantics of the deleted
+	// UpdateCertificate shim: this handler is not yet vault-scope aware (see
+	// .claude/multi-vault.md's keys/certs deferral).
+	scope := model.NewOwnerScope(uuid.Nil, userID)
+
 	updateReq := certServices.UpdateCertificateRequest{
 		CertID:      certID,
-		UserID:      userID,
+		Scope:       scope,
 		Name:        req.Name,
 		Tags:        req.Tags,
 		AutoRenew:   req.AutoRenew,
@@ -363,7 +368,7 @@ func updateCertificate(c *Context, w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Fetch updated certificate for response.
-	cert, err := certService.GetCertificate(r.Context(), certID, userID)
+	cert, err := certService.GetCertificate(r.Context(), certID, scope)
 	if err != nil {
 		c.SetInternalError(err)
 		return
@@ -393,7 +398,7 @@ func deleteCertificate(c *Context, w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := certService.DeleteCertificateInVault(r.Context(), certID, vaultID); err != nil {
+	if err := certService.DeleteCertificate(r.Context(), certID, model.NewVaultScope(vaultID, uuid.Nil)); err != nil {
 		if errors.Is(err, certServices.ErrCertNotFound) {
 			c.SetNotFound("certificate")
 		} else {

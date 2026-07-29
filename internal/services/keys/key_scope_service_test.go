@@ -28,49 +28,49 @@ func newKeyScopeFixture(t *testing.T) (*mockKeyRepository, *keyService) {
 	}
 }
 
-func TestGetKeyScopedPassesTheScopeToTheRepository(t *testing.T) {
+func TestGetKeyPassesTheScopeToTheRepository(t *testing.T) {
 	repo, svc := newKeyScopeFixture(t)
 	ctx := context.Background()
 
 	keyID, vaultID := uuid.New(), uuid.New()
 	scope := model.NewVaultScope(vaultID, uuid.New())
-	repo.On("ReadScoped", ctx, keyID, scope).
+	repo.On("Read", ctx, keyID, scope).
 		Return(&model.Key{ID: keyID, VaultID: vaultID, Enabled: true}, nil).Once()
 
-	got, err := svc.GetKeyScoped(ctx, keyID, scope)
+	got, err := svc.GetKey(ctx, keyID, scope)
 	require.NoError(t, err)
 	assert.Equal(t, keyID, got.ID)
 	repo.AssertExpectations(t)
 }
 
-func TestGetKeyScopedEnforcesLifecycle(t *testing.T) {
+func TestGetKeyEnforcesLifecycle(t *testing.T) {
 	repo, svc := newKeyScopeFixture(t)
 	ctx := context.Background()
 
 	keyID := uuid.New()
 	scope := model.NewVaultScope(uuid.New(), uuid.New())
-	repo.On("ReadScoped", ctx, keyID, scope).
+	repo.On("Read", ctx, keyID, scope).
 		Return(&model.Key{ID: keyID, Enabled: false}, nil).Once()
 
-	_, err := svc.GetKeyScoped(ctx, keyID, scope)
+	_, err := svc.GetKey(ctx, keyID, scope)
 	assert.ErrorIs(t, err, ErrKeyLifecycleDenied)
 }
 
-func TestListKeysScopedForwardsTheFilter(t *testing.T) {
+func TestListKeysForwardsTheFilter(t *testing.T) {
 	repo, svc := newKeyScopeFixture(t)
 	ctx := context.Background()
 
 	scope := model.NewVaultScope(uuid.New(), uuid.New())
 	filter := repositories.KeyFilter{Type: model.KeyTypeRSA, Tags: []string{"prod"}}
-	repo.On("ListScoped", ctx, scope, filter).Return([]model.Key{{ID: uuid.New()}}, nil).Once()
+	repo.On("List", ctx, scope, filter).Return([]model.Key{{ID: uuid.New()}}, nil).Once()
 
-	got, err := svc.ListKeysScoped(ctx, scope, filter)
+	got, err := svc.ListKeys(ctx, scope, filter)
 	require.NoError(t, err)
 	assert.Len(t, got, 1)
 	repo.AssertExpectations(t)
 }
 
-func TestUpdateKeyScopedUsesTheSameScopeForReadAndWrite(t *testing.T) {
+func TestUpdateKeyUsesTheSameScopeForReadAndWrite(t *testing.T) {
 	repo, svc := newKeyScopeFixture(t)
 	ctx := context.Background()
 
@@ -78,17 +78,17 @@ func TestUpdateKeyScopedUsesTheSameScopeForReadAndWrite(t *testing.T) {
 	scope := model.NewVaultScope(vaultID, uuid.New())
 	name := "renamed"
 
-	repo.On("ReadScoped", ctx, keyID, scope).
+	repo.On("Read", ctx, keyID, scope).
 		Return(&model.Key{ID: keyID, VaultID: vaultID, Name: "original", Enabled: true}, nil).Once()
-	repo.On("UpdateScoped", ctx, mock.MatchedBy(func(k *model.Key) bool {
+	repo.On("Update", ctx, mock.MatchedBy(func(k *model.Key) bool {
 		return k.Name == "renamed"
 	}), scope).Return(nil).Once()
 
-	require.NoError(t, svc.UpdateKeyScoped(ctx, UpdateKeyRequest{KeyID: keyID, Scope: scope, Name: &name}))
+	require.NoError(t, svc.UpdateKey(ctx, UpdateKeyRequest{KeyID: keyID, Scope: scope, Name: &name}))
 	repo.AssertExpectations(t)
 }
 
-func TestDeleteKeyScopedKeepsTheB6VaultConjunction(t *testing.T) {
+func TestDeleteKeyKeepsTheB6VaultConjunction(t *testing.T) {
 	repo, svc := newKeyScopeFixture(t)
 	ctx := context.Background()
 
@@ -98,27 +98,27 @@ func TestDeleteKeyScopedKeepsTheB6VaultConjunction(t *testing.T) {
 	scope := model.NewOwnerScope(requestedVault, ownerID)
 
 	// The owner predicate matches, but the key lives in another vault.
-	repo.On("ReadScoped", ctx, keyID, scope).
+	repo.On("Read", ctx, keyID, scope).
 		Return(&model.Key{ID: keyID, UserID: ownerID, VaultID: actualVault, Enabled: true}, nil).Once()
 
-	_, err := svc.DeleteKeyScoped(ctx, keyID, scope)
+	_, err := svc.DeleteKey(ctx, keyID, scope)
 	assert.ErrorIs(t, err, ErrKeyNotFound)
 	repo.AssertNotCalled(t, "SoftDelete", mock.Anything, mock.Anything)
 }
 
-func TestDeleteKeyScopedSoftDeletesInScope(t *testing.T) {
+func TestDeleteKeySoftDeletesInScope(t *testing.T) {
 	repo, svc := newKeyScopeFixture(t)
 	ctx := context.Background()
 
 	keyID, vaultID := uuid.New(), uuid.New()
 	scope := model.NewVaultScope(vaultID, uuid.New())
 
-	repo.On("ReadScoped", ctx, keyID, scope).
+	repo.On("Read", ctx, keyID, scope).
 		Return(&model.Key{ID: keyID, VaultID: vaultID, Enabled: true}, nil).Once()
 	repo.On("SoftDelete", ctx, keyID).Return(nil).Once()
 	repo.On("ReadDeleted", ctx, keyID).Return(&model.Key{ID: keyID}, nil).Once()
 
-	deleted, err := svc.DeleteKeyScoped(ctx, keyID, scope)
+	deleted, err := svc.DeleteKey(ctx, keyID, scope)
 	require.NoError(t, err)
 	assert.Equal(t, keyID, deleted.ID)
 	repo.AssertExpectations(t)

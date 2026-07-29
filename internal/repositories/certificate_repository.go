@@ -23,19 +23,17 @@ import (
 // It provides type-safe CRUD operations for the Certificate type.
 type CertificateRepositoryInterface interface {
 	Create(ctx context.Context, cert *model.Certificate) error
-	// ReadScoped fetches a certificate authorized by scope. Canonical; Read and
-	// ReadInVault are shims over it.
-	ReadScoped(ctx context.Context, id uuid.UUID, scope model.Scope) (*model.Certificate, error)
-	// UpdateScoped updates a certificate authorized by scope. The predicate
-	// comes from the scope argument, never from the entity.
-	UpdateScoped(ctx context.Context, cert *model.Certificate, scope model.Scope) error
-	// ListScoped lists certificates authorized by scope and narrowed by filter.
-	ListScoped(ctx context.Context, scope model.Scope, filter CertificateFilter) ([]model.Certificate, error)
-	Read(ctx context.Context, id uuid.UUID) (*model.Certificate, error)
-	Update(ctx context.Context, cert *model.Certificate) error
+	// Read fetches a certificate authorized by scope. The scoped read is the
+	// access check: a row outside the scope is indistinguishable from a row
+	// that does not exist.
+	Read(ctx context.Context, id uuid.UUID, scope model.Scope) (*model.Certificate, error)
+	// Update updates a certificate authorized by scope. The predicate comes
+	// from the scope argument, never from the entity.
+	Update(ctx context.Context, cert *model.Certificate, scope model.Scope) error
+	// List lists certificates authorized by scope and narrowed by filter.
+	List(ctx context.Context, scope model.Scope, filter CertificateFilter) ([]model.Certificate, error)
 	Delete(ctx context.Context, id uuid.UUID) error
 	Revoke(ctx context.Context, id uuid.UUID, serialNumber, name string) error
-	ListByUser(ctx context.Context, userID uuid.UUID, tags []string) ([]model.Certificate, error)
 	ListRevoked(ctx context.Context, userID uuid.UUID) ([]model.RevokedCertificate, error)
 	SoftDelete(ctx context.Context, id uuid.UUID) error
 	RecoverCertificate(ctx context.Context, id uuid.UUID) error
@@ -43,10 +41,6 @@ type CertificateRepositoryInterface interface {
 	SetPurgeProtection(ctx context.Context, id uuid.UUID, enabled bool) error
 	ListSoftDeleted(ctx context.Context, userID uuid.UUID) ([]*model.Certificate, error)
 	ListAll(ctx context.Context) ([]model.Certificate, error)
-	// ListInVault lists certificates scoped to a vault, optionally filtered by tags.
-	ListInVault(ctx context.Context, vaultID uuid.UUID, tags []string) ([]model.Certificate, error)
-	// ReadInVault fetches a certificate only when id and vaultID both match.
-	ReadInVault(ctx context.Context, id, vaultID uuid.UUID) (*model.Certificate, error)
 	// SoftDeleteVaultContents soft-deletes every active certificate in a vault.
 	SoftDeleteVaultContents(ctx context.Context, vaultID uuid.UUID, deletedAt time.Time) error
 	// RecoverVaultContents recovers only the certificates the cascade soft-deleted at deletedAt.
@@ -94,8 +88,8 @@ func scanCertificateRow(scan func(dest ...any) error) (model.Certificate, error)
 	return cert, nil
 }
 
-// ReadScoped retrieves a certificate by ID, authorized by scope.
-func (r *CertificateRepository) ReadScoped(ctx context.Context, id uuid.UUID, scope model.Scope) (*model.Certificate, error) {
+// Read retrieves a certificate by ID, authorized by scope.
+func (r *CertificateRepository) Read(ctx context.Context, id uuid.UUID, scope model.Scope) (*model.Certificate, error) {
 	predicate, args, err := scopePredicate(scope)
 	if err != nil {
 		return nil, err
@@ -123,15 +117,15 @@ func (r *CertificateRepository) ReadScoped(ctx context.Context, id uuid.UUID, sc
 	return &cert, nil
 }
 
-// UpdateScoped updates a certificate, authorized by scope. The predicate is
+// Update updates a certificate, authorized by scope. The predicate is
 // built from the scope argument, never from the entity.
 //
 // This method does not emit audit rows: audit attribution belongs to the
 // caller (service layer), which knows the acting principal from the request.
-// UpdateCertificateScoped already logs its own audit row after calling this,
+// UpdateCertificate already logs its own audit row after calling this,
 // for every error path and on success — logging here too would duplicate
 // every scoped update into two audit_logs rows.
-func (r *CertificateRepository) UpdateScoped(ctx context.Context, cert *model.Certificate, scope model.Scope) error {
+func (r *CertificateRepository) Update(ctx context.Context, cert *model.Certificate, scope model.Scope) error {
 	predicate, args, err := scopePredicate(scope)
 	if err != nil {
 		return err
@@ -185,8 +179,8 @@ func (r *CertificateRepository) UpdateScoped(ctx context.Context, cert *model.Ce
 	})
 }
 
-// ListScoped lists certificates authorized by scope and narrowed by filter.
-func (r *CertificateRepository) ListScoped(ctx context.Context, scope model.Scope, filter CertificateFilter) ([]model.Certificate, error) {
+// List lists certificates authorized by scope and narrowed by filter.
+func (r *CertificateRepository) List(ctx context.Context, scope model.Scope, filter CertificateFilter) ([]model.Certificate, error) {
 	predicate, args, err := scopePredicate(scope)
 	if err != nil {
 		return nil, err
@@ -358,43 +352,6 @@ func (r *CertificateRepository) Create(ctx context.Context, cert *model.Certific
 	})
 }
 
-// Read retrieves a certificate by ID from the database.
-// It returns the certificate with encrypted private key - NO decryption happens here.
-//
-// Parameters:
-//   - ctx: The context for the database operation.
-//   - id: The certificate's unique identifier.
-//
-// Returns:
-//
-//	The certificate entity (with encrypted private key) or an error if not found.
-//
-// Deprecated: shim over ReadScoped; removed in Phase 6.
-func (r *CertificateRepository) Read(ctx context.Context, id uuid.UUID) (*model.Certificate, error) {
-	return r.ReadScoped(ctx, id, model.NewAdminScope(uuid.Nil))
-}
-
-// Update updates a certificate in the database.
-// It expects the private key to be already encrypted if changed.
-// NO encryption or X.509 generation happens here - pure data access only.
-//
-// Parameters:
-//   - ctx: The context for the database operation.
-//   - cert: The certificate entity with updated fields (pre-encrypted private key).
-//
-// Returns:
-//
-//	An error if the update fails.
-//
-// Deprecated: shim over UpdateScoped; removed in Phase 6.
-//
-// Update's shim uses an admin scope because the legacy `UPDATE certificates
-// … WHERE id = ?` had no ownership predicate; ownership for the legacy path
-// stays in certificateService.UpdateCertificate.
-func (r *CertificateRepository) Update(ctx context.Context, cert *model.Certificate) error {
-	return r.UpdateScoped(ctx, cert, model.NewAdminScope(cert.UserID))
-}
-
 // Delete removes a certificate from the database.
 // It removes the certificate, its private key, and associated tags within a transaction.
 //
@@ -467,7 +424,7 @@ func (r *CertificateRepository) Delete(ctx context.Context, id uuid.UUID) error 
 func (r *CertificateRepository) Revoke(ctx context.Context, id uuid.UUID, serialNumber, name string) error {
 	return r.executeWithMetrics("revoke_certificate", func() error {
 		// Read certificate to get user ID
-		cert, err := r.Read(ctx, id)
+		cert, err := r.Read(ctx, id, model.NewAdminScope(uuid.Nil))
 		if err != nil {
 			return fmt.Errorf("failed to read certificate: %w", err)
 		}
@@ -491,23 +448,6 @@ func (r *CertificateRepository) Revoke(ctx context.Context, id uuid.UUID, serial
 
 		return nil
 	})
-}
-
-// ListByUser retrieves certificates for a user, optionally filtered by tags.
-// It returns certificates with encrypted private keys - NO decryption happens here.
-//
-// Parameters:
-//   - ctx: The context for the database operation.
-//   - userID: The ID of the user whose certificates to list.
-//   - tags: The tags to filter by (empty for no tag filter).
-//
-// Returns:
-//
-//	A slice of certificates (with encrypted private keys) or an error if retrieval fails.
-//
-// Deprecated: shim over ListScoped; removed in Phase 6.
-func (r *CertificateRepository) ListByUser(ctx context.Context, userID uuid.UUID, tags []string) ([]model.Certificate, error) {
-	return r.ListScoped(ctx, model.NewOwnerScope(uuid.Nil, userID), CertificateFilter{Tags: tags})
 }
 
 // ListRevoked retrieves all revoked certificates for a user from the CRL.
@@ -875,40 +815,6 @@ func (r *CertificateRepository) ListAll(ctx context.Context) ([]model.Certificat
 	})
 
 	return certs, err
-}
-
-// ListInVault retrieves certificates for a vault, optionally filtered by tags.
-// It mirrors ListByUser but scopes by vault_id instead of user_id.
-//
-// Parameters:
-//   - ctx: The context for the database operation.
-//   - vaultID: The vault whose certificates to list.
-//   - tags: The tags to filter by (empty for no tag filter).
-//
-// Returns:
-//
-//	A slice of certificates (with encrypted private keys) or an error if retrieval fails.
-//
-// Deprecated: shim over ListScoped; removed in Phase 6.
-func (r *CertificateRepository) ListInVault(ctx context.Context, vaultID uuid.UUID, tags []string) ([]model.Certificate, error) {
-	return r.ListScoped(ctx, model.NewVaultScope(vaultID, uuid.Nil), CertificateFilter{Tags: tags})
-}
-
-// ReadInVault retrieves a certificate by ID only when it belongs to the given vault.
-// It mirrors Read but adds a vault_id scope.
-//
-// Parameters:
-//   - ctx: The context for the database operation.
-//   - id: The certificate's unique identifier.
-//   - vaultID: The vault the certificate must belong to.
-//
-// Returns:
-//
-//	The certificate entity (with encrypted private key) or an error if not found / access denied.
-//
-// Deprecated: shim over ReadScoped; removed in Phase 6.
-func (r *CertificateRepository) ReadInVault(ctx context.Context, id, vaultID uuid.UUID) (*model.Certificate, error) {
-	return r.ReadScoped(ctx, id, model.NewVaultScope(vaultID, uuid.Nil))
 }
 
 // SoftDeleteVaultContents marks every active certificate in a vault as soft-deleted.

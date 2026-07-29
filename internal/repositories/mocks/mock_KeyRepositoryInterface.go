@@ -28,9 +28,9 @@ func (_m *MockKeyRepositoryInterface) EXPECT() *MockKeyRepositoryInterface_Expec
 	return &MockKeyRepositoryInterface_Expecter{mock: &_m.Mock}
 }
 
-// Create provides a mock function with given fields: ctx, entity
-func (_m *MockKeyRepositoryInterface) Create(ctx context.Context, entity *model.Key) error {
-	ret := _m.Called(ctx, entity)
+// Create provides a mock function with given fields: ctx, key
+func (_m *MockKeyRepositoryInterface) Create(ctx context.Context, key *model.Key) error {
+	ret := _m.Called(ctx, key)
 
 	if len(ret) == 0 {
 		panic("no return value specified for Create")
@@ -38,7 +38,7 @@ func (_m *MockKeyRepositoryInterface) Create(ctx context.Context, entity *model.
 
 	var r0 error
 	if rf, ok := ret.Get(0).(func(context.Context, *model.Key) error); ok {
-		r0 = rf(ctx, entity)
+		r0 = rf(ctx, key)
 	} else {
 		r0 = ret.Error(0)
 	}
@@ -53,12 +53,12 @@ type MockKeyRepositoryInterface_Create_Call struct {
 
 // Create is a helper method to define mock.On call
 //   - ctx context.Context
-//   - entity *model.Key
-func (_e *MockKeyRepositoryInterface_Expecter) Create(ctx interface{}, entity interface{}) *MockKeyRepositoryInterface_Create_Call {
-	return &MockKeyRepositoryInterface_Create_Call{Call: _e.mock.On("Create", ctx, entity)}
+//   - key *model.Key
+func (_e *MockKeyRepositoryInterface_Expecter) Create(ctx interface{}, key interface{}) *MockKeyRepositoryInterface_Create_Call {
+	return &MockKeyRepositoryInterface_Create_Call{Call: _e.mock.On("Create", ctx, key)}
 }
 
-func (_c *MockKeyRepositoryInterface_Create_Call) Run(run func(ctx context.Context, entity *model.Key)) *MockKeyRepositoryInterface_Create_Call {
+func (_c *MockKeyRepositoryInterface_Create_Call) Run(run func(ctx context.Context, key *model.Key)) *MockKeyRepositoryInterface_Create_Call {
 	_c.Call.Run(func(args mock.Arguments) {
 		run(args[0].(context.Context), args[1].(*model.Key))
 	})
@@ -171,134 +171,12 @@ func (_c *MockKeyRepositoryInterface_Delete_Call) RunAndReturn(run func(context.
 	return _c
 }
 
-// ListByUser provides a mock function with given fields: ctx, userID, keyType, tags
-func (_m *MockKeyRepositoryInterface) ListByUser(ctx context.Context, userID *uuid.UUID, keyType string, tags []string) ([]model.Key, error) {
-	ret := _m.Called(ctx, userID, keyType, tags)
-
-	if len(ret) == 0 {
-		panic("no return value specified for ListByUser")
-	}
-
-	var r0 []model.Key
-	var r1 error
-	if rf, ok := ret.Get(0).(func(context.Context, *uuid.UUID, string, []string) ([]model.Key, error)); ok {
-		return rf(ctx, userID, keyType, tags)
-	}
-	if rf, ok := ret.Get(0).(func(context.Context, *uuid.UUID, string, []string) []model.Key); ok {
-		r0 = rf(ctx, userID, keyType, tags)
-	} else {
-		if ret.Get(0) != nil {
-			r0 = ret.Get(0).([]model.Key)
-		}
-	}
-
-	if rf, ok := ret.Get(1).(func(context.Context, *uuid.UUID, string, []string) error); ok {
-		r1 = rf(ctx, userID, keyType, tags)
-	} else {
-		r1 = ret.Error(1)
-	}
-
-	return r0, r1
-}
-
-// MockKeyRepositoryInterface_ListByUser_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'ListByUser'
-type MockKeyRepositoryInterface_ListByUser_Call struct {
-	*mock.Call
-}
-
-// ListByUser is a helper method to define mock.On call
-//   - ctx context.Context
-//   - userID *uuid.UUID
-//   - keyType string
-//   - tags []string
-func (_e *MockKeyRepositoryInterface_Expecter) ListByUser(ctx interface{}, userID interface{}, keyType interface{}, tags interface{}) *MockKeyRepositoryInterface_ListByUser_Call {
-	return &MockKeyRepositoryInterface_ListByUser_Call{Call: _e.mock.On("ListByUser", ctx, userID, keyType, tags)}
-}
-
-func (_c *MockKeyRepositoryInterface_ListByUser_Call) Run(run func(ctx context.Context, userID *uuid.UUID, keyType string, tags []string)) *MockKeyRepositoryInterface_ListByUser_Call {
-	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(context.Context), args[1].(*uuid.UUID), args[2].(string), args[3].([]string))
-	})
-	return _c
-}
-
-func (_c *MockKeyRepositoryInterface_ListByUser_Call) Return(_a0 []model.Key, _a1 error) *MockKeyRepositoryInterface_ListByUser_Call {
-	_c.Call.Return(_a0, _a1)
-	return _c
-}
-
-func (_c *MockKeyRepositoryInterface_ListByUser_Call) RunAndReturn(run func(context.Context, *uuid.UUID, string, []string) ([]model.Key, error)) *MockKeyRepositoryInterface_ListByUser_Call {
-	_c.Call.Return(run)
-	return _c
-}
-
-// ListInVault provides a mock function with given fields: ctx, vaultID, keyType, tags
-func (_m *MockKeyRepositoryInterface) ListInVault(ctx context.Context, vaultID uuid.UUID, keyType string, tags []string) ([]model.Key, error) {
-	ret := _m.Called(ctx, vaultID, keyType, tags)
-
-	if len(ret) == 0 {
-		panic("no return value specified for ListInVault")
-	}
-
-	var r0 []model.Key
-	var r1 error
-	if rf, ok := ret.Get(0).(func(context.Context, uuid.UUID, string, []string) ([]model.Key, error)); ok {
-		return rf(ctx, vaultID, keyType, tags)
-	}
-	if rf, ok := ret.Get(0).(func(context.Context, uuid.UUID, string, []string) []model.Key); ok {
-		r0 = rf(ctx, vaultID, keyType, tags)
-	} else {
-		if ret.Get(0) != nil {
-			r0 = ret.Get(0).([]model.Key)
-		}
-	}
-
-	if rf, ok := ret.Get(1).(func(context.Context, uuid.UUID, string, []string) error); ok {
-		r1 = rf(ctx, vaultID, keyType, tags)
-	} else {
-		r1 = ret.Error(1)
-	}
-
-	return r0, r1
-}
-
-// MockKeyRepositoryInterface_ListInVault_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'ListInVault'
-type MockKeyRepositoryInterface_ListInVault_Call struct {
-	*mock.Call
-}
-
-// ListInVault is a helper method to define mock.On call
-//   - ctx context.Context
-//   - vaultID uuid.UUID
-//   - keyType string
-//   - tags []string
-func (_e *MockKeyRepositoryInterface_Expecter) ListInVault(ctx interface{}, vaultID interface{}, keyType interface{}, tags interface{}) *MockKeyRepositoryInterface_ListInVault_Call {
-	return &MockKeyRepositoryInterface_ListInVault_Call{Call: _e.mock.On("ListInVault", ctx, vaultID, keyType, tags)}
-}
-
-func (_c *MockKeyRepositoryInterface_ListInVault_Call) Run(run func(ctx context.Context, vaultID uuid.UUID, keyType string, tags []string)) *MockKeyRepositoryInterface_ListInVault_Call {
-	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(context.Context), args[1].(uuid.UUID), args[2].(string), args[3].([]string))
-	})
-	return _c
-}
-
-func (_c *MockKeyRepositoryInterface_ListInVault_Call) Return(_a0 []model.Key, _a1 error) *MockKeyRepositoryInterface_ListInVault_Call {
-	_c.Call.Return(_a0, _a1)
-	return _c
-}
-
-func (_c *MockKeyRepositoryInterface_ListInVault_Call) RunAndReturn(run func(context.Context, uuid.UUID, string, []string) ([]model.Key, error)) *MockKeyRepositoryInterface_ListInVault_Call {
-	_c.Call.Return(run)
-	return _c
-}
-
-// ListScoped provides a mock function with given fields: ctx, scope, filter
-func (_m *MockKeyRepositoryInterface) ListScoped(ctx context.Context, scope model.Scope, filter repositories.KeyFilter) ([]model.Key, error) {
+// List provides a mock function with given fields: ctx, scope, filter
+func (_m *MockKeyRepositoryInterface) List(ctx context.Context, scope model.Scope, filter repositories.KeyFilter) ([]model.Key, error) {
 	ret := _m.Called(ctx, scope, filter)
 
 	if len(ret) == 0 {
-		panic("no return value specified for ListScoped")
+		panic("no return value specified for List")
 	}
 
 	var r0 []model.Key
@@ -323,32 +201,32 @@ func (_m *MockKeyRepositoryInterface) ListScoped(ctx context.Context, scope mode
 	return r0, r1
 }
 
-// MockKeyRepositoryInterface_ListScoped_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'ListScoped'
-type MockKeyRepositoryInterface_ListScoped_Call struct {
+// MockKeyRepositoryInterface_List_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'List'
+type MockKeyRepositoryInterface_List_Call struct {
 	*mock.Call
 }
 
-// ListScoped is a helper method to define mock.On call
+// List is a helper method to define mock.On call
 //   - ctx context.Context
 //   - scope model.Scope
 //   - filter repositories.KeyFilter
-func (_e *MockKeyRepositoryInterface_Expecter) ListScoped(ctx interface{}, scope interface{}, filter interface{}) *MockKeyRepositoryInterface_ListScoped_Call {
-	return &MockKeyRepositoryInterface_ListScoped_Call{Call: _e.mock.On("ListScoped", ctx, scope, filter)}
+func (_e *MockKeyRepositoryInterface_Expecter) List(ctx interface{}, scope interface{}, filter interface{}) *MockKeyRepositoryInterface_List_Call {
+	return &MockKeyRepositoryInterface_List_Call{Call: _e.mock.On("List", ctx, scope, filter)}
 }
 
-func (_c *MockKeyRepositoryInterface_ListScoped_Call) Run(run func(ctx context.Context, scope model.Scope, filter repositories.KeyFilter)) *MockKeyRepositoryInterface_ListScoped_Call {
+func (_c *MockKeyRepositoryInterface_List_Call) Run(run func(ctx context.Context, scope model.Scope, filter repositories.KeyFilter)) *MockKeyRepositoryInterface_List_Call {
 	_c.Call.Run(func(args mock.Arguments) {
 		run(args[0].(context.Context), args[1].(model.Scope), args[2].(repositories.KeyFilter))
 	})
 	return _c
 }
 
-func (_c *MockKeyRepositoryInterface_ListScoped_Call) Return(_a0 []model.Key, _a1 error) *MockKeyRepositoryInterface_ListScoped_Call {
+func (_c *MockKeyRepositoryInterface_List_Call) Return(_a0 []model.Key, _a1 error) *MockKeyRepositoryInterface_List_Call {
 	_c.Call.Return(_a0, _a1)
 	return _c
 }
 
-func (_c *MockKeyRepositoryInterface_ListScoped_Call) RunAndReturn(run func(context.Context, model.Scope, repositories.KeyFilter) ([]model.Key, error)) *MockKeyRepositoryInterface_ListScoped_Call {
+func (_c *MockKeyRepositoryInterface_List_Call) RunAndReturn(run func(context.Context, model.Scope, repositories.KeyFilter) ([]model.Key, error)) *MockKeyRepositoryInterface_List_Call {
 	_c.Call.Return(run)
 	return _c
 }
@@ -519,9 +397,9 @@ func (_c *MockKeyRepositoryInterface_PurgeKey_Call) RunAndReturn(run func(contex
 	return _c
 }
 
-// Read provides a mock function with given fields: ctx, id
-func (_m *MockKeyRepositoryInterface) Read(ctx context.Context, id uuid.UUID) (*model.Key, error) {
-	ret := _m.Called(ctx, id)
+// Read provides a mock function with given fields: ctx, id, scope
+func (_m *MockKeyRepositoryInterface) Read(ctx context.Context, id uuid.UUID, scope model.Scope) (*model.Key, error) {
+	ret := _m.Called(ctx, id, scope)
 
 	if len(ret) == 0 {
 		panic("no return value specified for Read")
@@ -529,19 +407,19 @@ func (_m *MockKeyRepositoryInterface) Read(ctx context.Context, id uuid.UUID) (*
 
 	var r0 *model.Key
 	var r1 error
-	if rf, ok := ret.Get(0).(func(context.Context, uuid.UUID) (*model.Key, error)); ok {
-		return rf(ctx, id)
+	if rf, ok := ret.Get(0).(func(context.Context, uuid.UUID, model.Scope) (*model.Key, error)); ok {
+		return rf(ctx, id, scope)
 	}
-	if rf, ok := ret.Get(0).(func(context.Context, uuid.UUID) *model.Key); ok {
-		r0 = rf(ctx, id)
+	if rf, ok := ret.Get(0).(func(context.Context, uuid.UUID, model.Scope) *model.Key); ok {
+		r0 = rf(ctx, id, scope)
 	} else {
 		if ret.Get(0) != nil {
 			r0 = ret.Get(0).(*model.Key)
 		}
 	}
 
-	if rf, ok := ret.Get(1).(func(context.Context, uuid.UUID) error); ok {
-		r1 = rf(ctx, id)
+	if rf, ok := ret.Get(1).(func(context.Context, uuid.UUID, model.Scope) error); ok {
+		r1 = rf(ctx, id, scope)
 	} else {
 		r1 = ret.Error(1)
 	}
@@ -557,13 +435,14 @@ type MockKeyRepositoryInterface_Read_Call struct {
 // Read is a helper method to define mock.On call
 //   - ctx context.Context
 //   - id uuid.UUID
-func (_e *MockKeyRepositoryInterface_Expecter) Read(ctx interface{}, id interface{}) *MockKeyRepositoryInterface_Read_Call {
-	return &MockKeyRepositoryInterface_Read_Call{Call: _e.mock.On("Read", ctx, id)}
+//   - scope model.Scope
+func (_e *MockKeyRepositoryInterface_Expecter) Read(ctx interface{}, id interface{}, scope interface{}) *MockKeyRepositoryInterface_Read_Call {
+	return &MockKeyRepositoryInterface_Read_Call{Call: _e.mock.On("Read", ctx, id, scope)}
 }
 
-func (_c *MockKeyRepositoryInterface_Read_Call) Run(run func(ctx context.Context, id uuid.UUID)) *MockKeyRepositoryInterface_Read_Call {
+func (_c *MockKeyRepositoryInterface_Read_Call) Run(run func(ctx context.Context, id uuid.UUID, scope model.Scope)) *MockKeyRepositoryInterface_Read_Call {
 	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(context.Context), args[1].(uuid.UUID))
+		run(args[0].(context.Context), args[1].(uuid.UUID), args[2].(model.Scope))
 	})
 	return _c
 }
@@ -573,7 +452,7 @@ func (_c *MockKeyRepositoryInterface_Read_Call) Return(_a0 *model.Key, _a1 error
 	return _c
 }
 
-func (_c *MockKeyRepositoryInterface_Read_Call) RunAndReturn(run func(context.Context, uuid.UUID) (*model.Key, error)) *MockKeyRepositoryInterface_Read_Call {
+func (_c *MockKeyRepositoryInterface_Read_Call) RunAndReturn(run func(context.Context, uuid.UUID, model.Scope) (*model.Key, error)) *MockKeyRepositoryInterface_Read_Call {
 	_c.Call.Return(run)
 	return _c
 }
@@ -633,126 +512,6 @@ func (_c *MockKeyRepositoryInterface_ReadDeleted_Call) Return(_a0 *model.Key, _a
 }
 
 func (_c *MockKeyRepositoryInterface_ReadDeleted_Call) RunAndReturn(run func(context.Context, uuid.UUID) (*model.Key, error)) *MockKeyRepositoryInterface_ReadDeleted_Call {
-	_c.Call.Return(run)
-	return _c
-}
-
-// ReadInVault provides a mock function with given fields: ctx, id, vaultID
-func (_m *MockKeyRepositoryInterface) ReadInVault(ctx context.Context, id uuid.UUID, vaultID uuid.UUID) (*model.Key, error) {
-	ret := _m.Called(ctx, id, vaultID)
-
-	if len(ret) == 0 {
-		panic("no return value specified for ReadInVault")
-	}
-
-	var r0 *model.Key
-	var r1 error
-	if rf, ok := ret.Get(0).(func(context.Context, uuid.UUID, uuid.UUID) (*model.Key, error)); ok {
-		return rf(ctx, id, vaultID)
-	}
-	if rf, ok := ret.Get(0).(func(context.Context, uuid.UUID, uuid.UUID) *model.Key); ok {
-		r0 = rf(ctx, id, vaultID)
-	} else {
-		if ret.Get(0) != nil {
-			r0 = ret.Get(0).(*model.Key)
-		}
-	}
-
-	if rf, ok := ret.Get(1).(func(context.Context, uuid.UUID, uuid.UUID) error); ok {
-		r1 = rf(ctx, id, vaultID)
-	} else {
-		r1 = ret.Error(1)
-	}
-
-	return r0, r1
-}
-
-// MockKeyRepositoryInterface_ReadInVault_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'ReadInVault'
-type MockKeyRepositoryInterface_ReadInVault_Call struct {
-	*mock.Call
-}
-
-// ReadInVault is a helper method to define mock.On call
-//   - ctx context.Context
-//   - id uuid.UUID
-//   - vaultID uuid.UUID
-func (_e *MockKeyRepositoryInterface_Expecter) ReadInVault(ctx interface{}, id interface{}, vaultID interface{}) *MockKeyRepositoryInterface_ReadInVault_Call {
-	return &MockKeyRepositoryInterface_ReadInVault_Call{Call: _e.mock.On("ReadInVault", ctx, id, vaultID)}
-}
-
-func (_c *MockKeyRepositoryInterface_ReadInVault_Call) Run(run func(ctx context.Context, id uuid.UUID, vaultID uuid.UUID)) *MockKeyRepositoryInterface_ReadInVault_Call {
-	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(context.Context), args[1].(uuid.UUID), args[2].(uuid.UUID))
-	})
-	return _c
-}
-
-func (_c *MockKeyRepositoryInterface_ReadInVault_Call) Return(_a0 *model.Key, _a1 error) *MockKeyRepositoryInterface_ReadInVault_Call {
-	_c.Call.Return(_a0, _a1)
-	return _c
-}
-
-func (_c *MockKeyRepositoryInterface_ReadInVault_Call) RunAndReturn(run func(context.Context, uuid.UUID, uuid.UUID) (*model.Key, error)) *MockKeyRepositoryInterface_ReadInVault_Call {
-	_c.Call.Return(run)
-	return _c
-}
-
-// ReadScoped provides a mock function with given fields: ctx, id, scope
-func (_m *MockKeyRepositoryInterface) ReadScoped(ctx context.Context, id uuid.UUID, scope model.Scope) (*model.Key, error) {
-	ret := _m.Called(ctx, id, scope)
-
-	if len(ret) == 0 {
-		panic("no return value specified for ReadScoped")
-	}
-
-	var r0 *model.Key
-	var r1 error
-	if rf, ok := ret.Get(0).(func(context.Context, uuid.UUID, model.Scope) (*model.Key, error)); ok {
-		return rf(ctx, id, scope)
-	}
-	if rf, ok := ret.Get(0).(func(context.Context, uuid.UUID, model.Scope) *model.Key); ok {
-		r0 = rf(ctx, id, scope)
-	} else {
-		if ret.Get(0) != nil {
-			r0 = ret.Get(0).(*model.Key)
-		}
-	}
-
-	if rf, ok := ret.Get(1).(func(context.Context, uuid.UUID, model.Scope) error); ok {
-		r1 = rf(ctx, id, scope)
-	} else {
-		r1 = ret.Error(1)
-	}
-
-	return r0, r1
-}
-
-// MockKeyRepositoryInterface_ReadScoped_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'ReadScoped'
-type MockKeyRepositoryInterface_ReadScoped_Call struct {
-	*mock.Call
-}
-
-// ReadScoped is a helper method to define mock.On call
-//   - ctx context.Context
-//   - id uuid.UUID
-//   - scope model.Scope
-func (_e *MockKeyRepositoryInterface_Expecter) ReadScoped(ctx interface{}, id interface{}, scope interface{}) *MockKeyRepositoryInterface_ReadScoped_Call {
-	return &MockKeyRepositoryInterface_ReadScoped_Call{Call: _e.mock.On("ReadScoped", ctx, id, scope)}
-}
-
-func (_c *MockKeyRepositoryInterface_ReadScoped_Call) Run(run func(ctx context.Context, id uuid.UUID, scope model.Scope)) *MockKeyRepositoryInterface_ReadScoped_Call {
-	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(context.Context), args[1].(uuid.UUID), args[2].(model.Scope))
-	})
-	return _c
-}
-
-func (_c *MockKeyRepositoryInterface_ReadScoped_Call) Return(_a0 *model.Key, _a1 error) *MockKeyRepositoryInterface_ReadScoped_Call {
-	_c.Call.Return(_a0, _a1)
-	return _c
-}
-
-func (_c *MockKeyRepositoryInterface_ReadScoped_Call) RunAndReturn(run func(context.Context, uuid.UUID, model.Scope) (*model.Key, error)) *MockKeyRepositoryInterface_ReadScoped_Call {
 	_c.Call.Return(run)
 	return _c
 }
@@ -995,17 +754,17 @@ func (_c *MockKeyRepositoryInterface_SoftDeleteVaultContents_Call) RunAndReturn(
 	return _c
 }
 
-// Update provides a mock function with given fields: ctx, entity
-func (_m *MockKeyRepositoryInterface) Update(ctx context.Context, entity *model.Key) error {
-	ret := _m.Called(ctx, entity)
+// Update provides a mock function with given fields: ctx, key, scope
+func (_m *MockKeyRepositoryInterface) Update(ctx context.Context, key *model.Key, scope model.Scope) error {
+	ret := _m.Called(ctx, key, scope)
 
 	if len(ret) == 0 {
 		panic("no return value specified for Update")
 	}
 
 	var r0 error
-	if rf, ok := ret.Get(0).(func(context.Context, *model.Key) error); ok {
-		r0 = rf(ctx, entity)
+	if rf, ok := ret.Get(0).(func(context.Context, *model.Key, model.Scope) error); ok {
+		r0 = rf(ctx, key, scope)
 	} else {
 		r0 = ret.Error(0)
 	}
@@ -1020,14 +779,15 @@ type MockKeyRepositoryInterface_Update_Call struct {
 
 // Update is a helper method to define mock.On call
 //   - ctx context.Context
-//   - entity *model.Key
-func (_e *MockKeyRepositoryInterface_Expecter) Update(ctx interface{}, entity interface{}) *MockKeyRepositoryInterface_Update_Call {
-	return &MockKeyRepositoryInterface_Update_Call{Call: _e.mock.On("Update", ctx, entity)}
+//   - key *model.Key
+//   - scope model.Scope
+func (_e *MockKeyRepositoryInterface_Expecter) Update(ctx interface{}, key interface{}, scope interface{}) *MockKeyRepositoryInterface_Update_Call {
+	return &MockKeyRepositoryInterface_Update_Call{Call: _e.mock.On("Update", ctx, key, scope)}
 }
 
-func (_c *MockKeyRepositoryInterface_Update_Call) Run(run func(ctx context.Context, entity *model.Key)) *MockKeyRepositoryInterface_Update_Call {
+func (_c *MockKeyRepositoryInterface_Update_Call) Run(run func(ctx context.Context, key *model.Key, scope model.Scope)) *MockKeyRepositoryInterface_Update_Call {
 	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(context.Context), args[1].(*model.Key))
+		run(args[0].(context.Context), args[1].(*model.Key), args[2].(model.Scope))
 	})
 	return _c
 }
@@ -1037,7 +797,7 @@ func (_c *MockKeyRepositoryInterface_Update_Call) Return(_a0 error) *MockKeyRepo
 	return _c
 }
 
-func (_c *MockKeyRepositoryInterface_Update_Call) RunAndReturn(run func(context.Context, *model.Key) error) *MockKeyRepositoryInterface_Update_Call {
+func (_c *MockKeyRepositoryInterface_Update_Call) RunAndReturn(run func(context.Context, *model.Key, model.Scope) error) *MockKeyRepositoryInterface_Update_Call {
 	_c.Call.Return(run)
 	return _c
 }
@@ -1086,54 +846,6 @@ func (_c *MockKeyRepositoryInterface_UpdateRevocationStatus_Call) Return(_a0 err
 }
 
 func (_c *MockKeyRepositoryInterface_UpdateRevocationStatus_Call) RunAndReturn(run func(context.Context, uuid.UUID, bool) error) *MockKeyRepositoryInterface_UpdateRevocationStatus_Call {
-	_c.Call.Return(run)
-	return _c
-}
-
-// UpdateScoped provides a mock function with given fields: ctx, key, scope
-func (_m *MockKeyRepositoryInterface) UpdateScoped(ctx context.Context, key *model.Key, scope model.Scope) error {
-	ret := _m.Called(ctx, key, scope)
-
-	if len(ret) == 0 {
-		panic("no return value specified for UpdateScoped")
-	}
-
-	var r0 error
-	if rf, ok := ret.Get(0).(func(context.Context, *model.Key, model.Scope) error); ok {
-		r0 = rf(ctx, key, scope)
-	} else {
-		r0 = ret.Error(0)
-	}
-
-	return r0
-}
-
-// MockKeyRepositoryInterface_UpdateScoped_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'UpdateScoped'
-type MockKeyRepositoryInterface_UpdateScoped_Call struct {
-	*mock.Call
-}
-
-// UpdateScoped is a helper method to define mock.On call
-//   - ctx context.Context
-//   - key *model.Key
-//   - scope model.Scope
-func (_e *MockKeyRepositoryInterface_Expecter) UpdateScoped(ctx interface{}, key interface{}, scope interface{}) *MockKeyRepositoryInterface_UpdateScoped_Call {
-	return &MockKeyRepositoryInterface_UpdateScoped_Call{Call: _e.mock.On("UpdateScoped", ctx, key, scope)}
-}
-
-func (_c *MockKeyRepositoryInterface_UpdateScoped_Call) Run(run func(ctx context.Context, key *model.Key, scope model.Scope)) *MockKeyRepositoryInterface_UpdateScoped_Call {
-	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(context.Context), args[1].(*model.Key), args[2].(model.Scope))
-	})
-	return _c
-}
-
-func (_c *MockKeyRepositoryInterface_UpdateScoped_Call) Return(_a0 error) *MockKeyRepositoryInterface_UpdateScoped_Call {
-	_c.Call.Return(_a0)
-	return _c
-}
-
-func (_c *MockKeyRepositoryInterface_UpdateScoped_Call) RunAndReturn(run func(context.Context, *model.Key, model.Scope) error) *MockKeyRepositoryInterface_UpdateScoped_Call {
 	_c.Call.Return(run)
 	return _c
 }

@@ -430,7 +430,7 @@ func TestGetCertificate_ServiceError_Returns404(t *testing.T) {
 	svc := &mockCertService{}
 	// Legacy flat route (no vault_name) yields an owner scope.
 	// The service returns the not-found sentinel, which maps to 404.
-	svc.On("GetCertificateScoped", mock.Anything, certID, mock.Anything).Return(nil, certServices.ErrCertNotFound)
+	svc.On("GetCertificate", mock.Anything, certID, certLegacyOwnerScope()).Return(nil, certServices.ErrCertNotFound)
 
 	c := newCertCtx(svc, certAdminClaims())
 	c.Params = &ApiParams{CertificateID: certID.String(), PerPage: 60}

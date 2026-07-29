@@ -77,7 +77,7 @@ func TestKeyService_DeleteKey_InvalidatesCache(t *testing.T) {
 	}
 
 	repo := &mockKeyRepository{}
-	repo.On("ReadScoped", mock.Anything, keyID, model.NewOwnerScope(uuid.Nil, userID)).Return(existingKey, nil)
+	repo.On("Read", mock.Anything, keyID, model.NewOwnerScope(uuid.Nil, userID)).Return(existingKey, nil)
 	repo.On("SoftDelete", mock.Anything, keyID).Return(nil)
 	repo.On("ReadDeleted", mock.Anything, keyID).Return(deletedKey, nil)
 
@@ -91,7 +91,7 @@ func TestKeyService_DeleteKey_InvalidatesCache(t *testing.T) {
 		Logger:        logger,
 	})
 
-	result, err := svc.DeleteKey(context.Background(), keyID, userID)
+	result, err := svc.DeleteKey(context.Background(), keyID, model.NewOwnerScope(uuid.Nil, userID))
 	assert.NoError(t, err)
 	assert.NotNil(t, result)
 
@@ -117,8 +117,8 @@ func TestKeyService_UpdateKey_InvalidatesCache(t *testing.T) {
 	}
 
 	repo := &mockKeyRepository{}
-	repo.On("ReadScoped", mock.Anything, keyID, model.NewOwnerScope(uuid.Nil, userID)).Return(existing, nil)
-	repo.On("UpdateScoped", mock.Anything, mock.MatchedBy(func(k *model.Key) bool {
+	repo.On("Read", mock.Anything, keyID, model.NewOwnerScope(uuid.Nil, userID)).Return(existing, nil)
+	repo.On("Update", mock.Anything, mock.MatchedBy(func(k *model.Key) bool {
 		return k.ID == keyID && k.Revoked
 	}), model.NewOwnerScope(uuid.Nil, userID)).Return(nil)
 
@@ -134,7 +134,7 @@ func TestKeyService_UpdateKey_InvalidatesCache(t *testing.T) {
 
 	err := svc.UpdateKey(context.Background(), UpdateKeyRequest{
 		KeyID:   keyID,
-		UserID:  userID,
+		Scope:   model.NewOwnerScope(uuid.Nil, userID),
 		Revoked: boolPtr(true),
 	})
 	assert.NoError(t, err)
@@ -167,7 +167,7 @@ func TestKeyService_RotateKey_InvalidatesCache(t *testing.T) {
 	}
 
 	repo := &mockKeyRepository{}
-	repo.On("Read", mock.Anything, keyID).Return(existing, nil)
+	repo.On("Read", mock.Anything, keyID, model.NewAdminScope(userID)).Return(existing, nil)
 	repo.On("ListVersions", mock.Anything, keyID, userID).Return([]model.KeyVersion{}, nil)
 	// Archive original as version 1 (first rotation).
 	repo.On("CreateVersion", mock.Anything, keyID, 1, existing.Value).Return(nil)
@@ -175,7 +175,7 @@ func TestKeyService_RotateKey_InvalidatesCache(t *testing.T) {
 	repo.On("CreateVersion", mock.Anything, keyID, 2, "pkcs11:"+hsmHandle).Return(nil)
 	repo.On("Update", mock.Anything, mock.MatchedBy(func(k *model.Key) bool {
 		return k.ID == keyID
-	})).Return(nil)
+	}), model.NewAdminScope(userID)).Return(nil)
 
 	// Mock provider returns a PKCS#11 UUID handle so no encryption is needed.
 	provider := &mockKeyProviderForRotate{handle: hsmHandle}

@@ -99,22 +99,9 @@ func (f *b6FakeKeyRepo) Create(ctx context.Context, k *model.Key) error {
 	f.keys[k.ID] = k
 	return nil
 }
-func (f *b6FakeKeyRepo) Read(ctx context.Context, id uuid.UUID) (*model.Key, error) {
-	if k, ok := f.keys[id]; ok {
-		return k, nil
-	}
-	return nil, errors.New("key not found")
-}
-func (f *b6FakeKeyRepo) Update(ctx context.Context, k *model.Key) error {
-	f.keys[k.ID] = k
-	return nil
-}
 func (f *b6FakeKeyRepo) Delete(ctx context.Context, id uuid.UUID) error {
 	delete(f.keys, id)
 	return nil
-}
-func (f *b6FakeKeyRepo) ListByUser(ctx context.Context, userID *uuid.UUID, keyType string, tags []string) ([]model.Key, error) {
-	return nil, nil
 }
 func (f *b6FakeKeyRepo) UpdateRevocationStatus(ctx context.Context, id uuid.UUID, revoked bool) error {
 	return nil
@@ -146,23 +133,13 @@ func (f *b6FakeKeyRepo) CreateVersion(ctx context.Context, keyID uuid.UUID, vers
 func (f *b6FakeKeyRepo) ListVersions(ctx context.Context, keyID, userID uuid.UUID) ([]model.KeyVersion, error) {
 	return nil, nil
 }
-func (f *b6FakeKeyRepo) ListInVault(ctx context.Context, vaultID uuid.UUID, keyType string, tags []string) ([]model.Key, error) {
-	return nil, nil
-}
-func (f *b6FakeKeyRepo) ReadInVault(ctx context.Context, id, vaultID uuid.UUID) (*model.Key, error) {
-	k, ok := f.keys[id]
-	if !ok || k.VaultID != vaultID {
-		return nil, errors.New("key not found in vault")
-	}
-	return k, nil
-}
 func (f *b6FakeKeyRepo) SoftDeleteVaultContents(ctx context.Context, vaultID uuid.UUID, deletedAt time.Time) error {
 	return nil
 }
 func (f *b6FakeKeyRepo) RecoverVaultContents(ctx context.Context, vaultID uuid.UUID, deletedAt time.Time) error {
 	return nil
 }
-func (f *b6FakeKeyRepo) ReadScoped(ctx context.Context, id uuid.UUID, scope model.Scope) (*model.Key, error) {
+func (f *b6FakeKeyRepo) Read(ctx context.Context, id uuid.UUID, scope model.Scope) (*model.Key, error) {
 	k, ok := f.keys[id]
 	if !ok {
 		return nil, errors.New("key not found")
@@ -184,10 +161,11 @@ func (f *b6FakeKeyRepo) ReadScoped(ctx context.Context, id uuid.UUID, scope mode
 	}
 	return k, nil
 }
-func (f *b6FakeKeyRepo) UpdateScoped(ctx context.Context, k *model.Key, scope model.Scope) error {
+func (f *b6FakeKeyRepo) Update(ctx context.Context, k *model.Key, scope model.Scope) error {
+	f.keys[k.ID] = k
 	return nil
 }
-func (f *b6FakeKeyRepo) ListScoped(ctx context.Context, scope model.Scope, filter repositories.KeyFilter) ([]model.Key, error) {
+func (f *b6FakeKeyRepo) List(ctx context.Context, scope model.Scope, filter repositories.KeyFilter) ([]model.Key, error) {
 	return nil, nil
 }
 

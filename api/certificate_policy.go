@@ -34,7 +34,7 @@ func getCertificatePolicy(c *Context, w http.ResponseWriter, r *http.Request) {
 	if certService == nil {
 		return
 	}
-	if _, err := certService.GetCertificateScoped(r.Context(), certID, scope); err != nil {
+	if _, err := certService.GetCertificate(r.Context(), certID, scope); err != nil {
 		c.SetNotFound("certificate")
 		return
 	}
@@ -77,7 +77,7 @@ func upsertCertificatePolicy(c *Context, w http.ResponseWriter, r *http.Request)
 	if certService == nil {
 		return
 	}
-	if _, err := certService.GetCertificateScoped(r.Context(), certID, scope); err != nil {
+	if _, err := certService.GetCertificate(r.Context(), certID, scope); err != nil {
 		c.SetNotFound("certificate")
 		return
 	}
@@ -141,7 +141,7 @@ func deleteCertificatePolicy(c *Context, w http.ResponseWriter, r *http.Request)
 	if certService == nil {
 		return
 	}
-	if _, err := certService.GetCertificateScoped(r.Context(), certID, scope); err != nil {
+	if _, err := certService.GetCertificate(r.Context(), certID, scope); err != nil {
 		c.SetNotFound("certificate")
 		return
 	}

@@ -1,8 +1,7 @@
 package keys
 
 // Extended tests for KeyService covering CreateRSAKey, CreateECDSAKey,
-// ListKeys, GetKeyInVault, ListKeysInVault, DeleteKeyInVault,
-// ListKeysWithFilters, ValidateKeyAccess, and resolveVaultID.
+// ListKeys, ValidateKeyAccess, and resolveVaultID.
 //
 // These tests run in the same package so they can reuse the
 // mockKeyRepository defined in key_soft_delete_test.go.
@@ -470,10 +469,10 @@ func TestListKeys_Success(t *testing.T) {
 	userID := uuid.New()
 	repo := &mockKeyRepository{}
 	expected := []model.Key{{ID: uuid.New(), UserID: userID, Name: "k1", Enabled: true}}
-	repo.On("ListScoped", mock.Anything, model.NewOwnerScope(uuid.Nil, userID), repositories.KeyFilter{}).Return(expected, nil)
+	repo.On("List", mock.Anything, model.NewOwnerScope(uuid.Nil, userID), repositories.KeyFilter{}).Return(expected, nil)
 
 	svc := NewKeyService(KeyServiceConfig{KeyRepository: repo, Logger: newKeyLogger()})
-	got, err := svc.ListKeys(context.Background(), userID)
+	got, err := svc.ListKeys(context.Background(), model.NewOwnerScope(uuid.Nil, userID), repositories.KeyFilter{})
 	require.NoError(t, err)
 	assert.Equal(t, expected, got)
 	repo.AssertExpectations(t)
@@ -482,206 +481,11 @@ func TestListKeys_Success(t *testing.T) {
 func TestListKeys_RepositoryError(t *testing.T) {
 	userID := uuid.New()
 	repo := &mockKeyRepository{}
-	repo.On("ListScoped", mock.Anything, model.NewOwnerScope(uuid.Nil, userID), repositories.KeyFilter{}).Return(nil, errors.New("db error"))
+	repo.On("List", mock.Anything, model.NewOwnerScope(uuid.Nil, userID), repositories.KeyFilter{}).Return(nil, errors.New("db error"))
 
 	svc := NewKeyService(KeyServiceConfig{KeyRepository: repo, Logger: newKeyLogger()})
-	_, err := svc.ListKeys(context.Background(), userID)
+	_, err := svc.ListKeys(context.Background(), model.NewOwnerScope(uuid.Nil, userID), repositories.KeyFilter{})
 	assert.Error(t, err)
-}
-
-// ─── GetKeyInVault ────────────────────────────────────────────────────────────
-
-func TestGetKeyInVault_Success(t *testing.T) {
-	vaultID := uuid.New()
-	keyID := uuid.New()
-	repo := &mockKeyRepository{}
-
-	key := &model.Key{ID: keyID, Name: "vk", Enabled: true}
-	repo.On("ReadScoped", mock.Anything, keyID, model.NewVaultScope(vaultID, uuid.Nil)).Return(key, nil)
-
-	svc := NewKeyService(KeyServiceConfig{KeyRepository: repo, Logger: newKeyLogger()})
-	got, err := svc.GetKeyInVault(context.Background(), keyID, vaultID)
-	require.NoError(t, err)
-	assert.Equal(t, keyID, got.ID)
-	repo.AssertExpectations(t)
-}
-
-func TestGetKeyInVault_NotFound(t *testing.T) {
-	vaultID := uuid.New()
-	keyID := uuid.New()
-	repo := &mockKeyRepository{}
-	repo.On("ReadScoped", mock.Anything, keyID, model.NewVaultScope(vaultID, uuid.Nil)).Return(nil, errors.New("not found"))
-
-	svc := NewKeyService(KeyServiceConfig{KeyRepository: repo, Logger: newKeyLogger()})
-	_, err := svc.GetKeyInVault(context.Background(), keyID, vaultID)
-	require.Error(t, err)
-	assert.ErrorIs(t, err, ErrKeyNotFound)
-}
-
-func TestGetKeyInVault_LifecycleDenied(t *testing.T) {
-	vaultID := uuid.New()
-	keyID := uuid.New()
-	repo := &mockKeyRepository{}
-
-	key := &model.Key{ID: keyID, Name: "vk", Enabled: false}
-	repo.On("ReadScoped", mock.Anything, keyID, model.NewVaultScope(vaultID, uuid.Nil)).Return(key, nil)
-
-	svc := NewKeyService(KeyServiceConfig{KeyRepository: repo, Logger: newKeyLogger()})
-	_, err := svc.GetKeyInVault(context.Background(), keyID, vaultID)
-	require.Error(t, err)
-	assert.ErrorIs(t, err, ErrKeyLifecycleDenied)
-}
-
-// ─── ListKeysInVault ──────────────────────────────────────────────────────────
-
-func TestListKeysInVault_Success(t *testing.T) {
-	vaultID := uuid.New()
-	repo := &mockKeyRepository{}
-	keys := []model.Key{{ID: uuid.New(), Name: "k1", Enabled: true}}
-	repo.On("ListScoped", mock.Anything, model.NewVaultScope(vaultID, uuid.Nil), repositories.KeyFilter{}).Return(keys, nil)
-
-	svc := NewKeyService(KeyServiceConfig{KeyRepository: repo, Logger: newKeyLogger()})
-	got, err := svc.ListKeysInVault(context.Background(), vaultID, "", nil)
-	require.NoError(t, err)
-	assert.Len(t, got, 1)
-	repo.AssertExpectations(t)
-}
-
-func TestListKeysInVault_WithFilter(t *testing.T) {
-	vaultID := uuid.New()
-	repo := &mockKeyRepository{}
-	repo.On("ListScoped", mock.Anything, model.NewVaultScope(vaultID, uuid.Nil), repositories.KeyFilter{Type: "RSA", Tags: []string{"env:prod"}}).
-		Return([]model.Key{}, nil)
-
-	svc := NewKeyService(KeyServiceConfig{KeyRepository: repo, Logger: newKeyLogger()})
-	got, err := svc.ListKeysInVault(context.Background(), vaultID, "RSA", []string{"env:prod"})
-	require.NoError(t, err)
-	assert.Len(t, got, 0)
-	repo.AssertExpectations(t)
-}
-
-// ─── DeleteKeyInVault ─────────────────────────────────────────────────────────
-
-func TestDeleteKeyInVault_Success(t *testing.T) {
-	vaultID := uuid.New()
-	keyID := uuid.New()
-	repo := &mockKeyRepository{}
-
-	now := time.Now()
-	key := &model.Key{ID: keyID, Name: "vk", Enabled: true}
-	deletedKey := &model.Key{ID: keyID, Name: "vk", DeletedAt: &now}
-
-	repo.On("ReadScoped", mock.Anything, keyID, model.NewVaultScope(vaultID, uuid.Nil)).Return(key, nil)
-	repo.On("SoftDelete", mock.Anything, keyID).Return(nil)
-	repo.On("ReadDeleted", mock.Anything, keyID).Return(deletedKey, nil)
-
-	svc := NewKeyService(KeyServiceConfig{KeyRepository: repo, Logger: newKeyLogger()})
-	got, err := svc.DeleteKeyInVault(context.Background(), keyID, vaultID, uuid.Nil)
-	require.NoError(t, err)
-	assert.NotNil(t, got)
-	assert.NotNil(t, got.DeletedAt)
-	repo.AssertCalled(t, "SoftDelete", mock.Anything, keyID)
-	repo.AssertExpectations(t)
-}
-
-func TestDeleteKeyInVault_NotFound(t *testing.T) {
-	vaultID := uuid.New()
-	keyID := uuid.New()
-	repo := &mockKeyRepository{}
-	repo.On("ReadScoped", mock.Anything, keyID, model.NewVaultScope(vaultID, uuid.Nil)).Return(nil, errors.New("not found"))
-
-	svc := NewKeyService(KeyServiceConfig{KeyRepository: repo, Logger: newKeyLogger()})
-	_, err := svc.DeleteKeyInVault(context.Background(), keyID, vaultID, uuid.Nil)
-	require.Error(t, err)
-	assert.ErrorIs(t, err, ErrKeyNotFound)
-}
-
-func TestDeleteKeyInVault_SoftDeleteFails(t *testing.T) {
-	vaultID := uuid.New()
-	keyID := uuid.New()
-	repo := &mockKeyRepository{}
-
-	key := &model.Key{ID: keyID, Name: "vk", Enabled: true}
-	repo.On("ReadScoped", mock.Anything, keyID, model.NewVaultScope(vaultID, uuid.Nil)).Return(key, nil)
-	repo.On("SoftDelete", mock.Anything, keyID).Return(errors.New("db error"))
-
-	svc := NewKeyService(KeyServiceConfig{KeyRepository: repo, Logger: newKeyLogger()})
-	_, err := svc.DeleteKeyInVault(context.Background(), keyID, vaultID, uuid.Nil)
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "failed to delete key")
-}
-
-func TestDeleteKeyInVault_ReadDeletedFails_ReturnsSnapshot(t *testing.T) {
-	vaultID := uuid.New()
-	keyID := uuid.New()
-	repo := &mockKeyRepository{}
-
-	key := &model.Key{ID: keyID, Name: "vk", Enabled: true}
-	repo.On("ReadScoped", mock.Anything, keyID, model.NewVaultScope(vaultID, uuid.Nil)).Return(key, nil)
-	repo.On("SoftDelete", mock.Anything, keyID).Return(nil)
-	repo.On("ReadDeleted", mock.Anything, keyID).Return(nil, errors.New("metadata unavailable"))
-
-	svc := NewKeyService(KeyServiceConfig{KeyRepository: repo, Logger: newKeyLogger()})
-	got, err := svc.DeleteKeyInVault(context.Background(), keyID, vaultID, uuid.Nil)
-	require.NoError(t, err)
-	// Returns the pre-delete snapshot
-	assert.Equal(t, keyID, got.ID)
-}
-
-// ─── ListKeysWithFilters ──────────────────────────────────────────────────────
-
-func TestListKeysWithFilters_AdminCanListAll(t *testing.T) {
-	repo := &mockKeyRepository{}
-	keys := []model.Key{{ID: uuid.New(), Name: "k1"}}
-	repo.On("ListScoped", mock.Anything, model.NewAdminScope(uuid.Nil), repositories.KeyFilter{}).Return(keys, nil)
-
-	svc := NewKeyService(KeyServiceConfig{KeyRepository: repo, Logger: newKeyLogger()})
-	got, err := svc.ListKeysWithFilters(context.Background(), nil, "", nil, true)
-	require.NoError(t, err)
-	assert.Len(t, got, 1)
-	repo.AssertExpectations(t)
-}
-
-func TestListKeysWithFilters_NonAdminWithUserID(t *testing.T) {
-	userID := uuid.New()
-	repo := &mockKeyRepository{}
-	keys := []model.Key{{ID: uuid.New(), UserID: userID, Name: "k1"}}
-	repo.On("ListScoped", mock.Anything, model.NewOwnerScope(uuid.Nil, userID), repositories.KeyFilter{Type: "RSA", Tags: []string{"env:test"}}).Return(keys, nil)
-
-	svc := NewKeyService(KeyServiceConfig{KeyRepository: repo, Logger: newKeyLogger()})
-	got, err := svc.ListKeysWithFilters(context.Background(), &userID, "RSA", []string{"env:test"}, false)
-	require.NoError(t, err)
-	assert.Len(t, got, 1)
-	repo.AssertExpectations(t)
-}
-
-func TestListKeysWithFilters_NonAdminNilUserIDForbidden(t *testing.T) {
-	repo := &mockKeyRepository{}
-	svc := NewKeyService(KeyServiceConfig{KeyRepository: repo, Logger: newKeyLogger()})
-
-	_, err := svc.ListKeysWithFilters(context.Background(), nil, "", nil, false)
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "forbidden")
-}
-
-func TestListKeysWithFilters_RepositoryError(t *testing.T) {
-	userID := uuid.New()
-	repo := &mockKeyRepository{}
-	repo.On("ListScoped", mock.Anything, model.NewOwnerScope(uuid.Nil, userID), repositories.KeyFilter{}).Return(nil, errors.New("db error"))
-
-	svc := NewKeyService(KeyServiceConfig{KeyRepository: repo, Logger: newKeyLogger()})
-	_, err := svc.ListKeysWithFilters(context.Background(), &userID, "", nil, false)
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "failed to list keys")
-}
-
-func TestListKeysWithFilters_AdminRepositoryError(t *testing.T) {
-	repo := &mockKeyRepository{}
-	repo.On("ListScoped", mock.Anything, model.NewAdminScope(uuid.Nil), repositories.KeyFilter{}).Return(nil, errors.New("db error"))
-
-	svc := NewKeyService(KeyServiceConfig{KeyRepository: repo, Logger: newKeyLogger()})
-	_, err := svc.ListKeysWithFilters(context.Background(), nil, "", nil, true)
-	require.Error(t, err)
 }
 
 // ─── ValidateKeyAccess ────────────────────────────────────────────────────────
@@ -701,7 +505,7 @@ func TestValidateKeyAccess_OwnerGranted(t *testing.T) {
 	userID := uuid.New()
 	keyID := uuid.New()
 	repo := &mockKeyRepository{}
-	repo.On("Read", mock.Anything, keyID).Return(accessibleKey(userID, keyID), nil)
+	repo.On("Read", mock.Anything, keyID, model.NewAdminScope(userID)).Return(accessibleKey(userID, keyID), nil)
 
 	svc := NewKeyService(KeyServiceConfig{KeyRepository: repo, Logger: newKeyLogger()})
 	err := svc.ValidateKeyAccess(context.Background(), keyID, userID, "")
@@ -713,7 +517,7 @@ func TestValidateKeyAccess_ForbiddenForOtherUser(t *testing.T) {
 	callerID := uuid.New()
 	keyID := uuid.New()
 	repo := &mockKeyRepository{}
-	repo.On("Read", mock.Anything, keyID).Return(accessibleKey(ownerID, keyID), nil)
+	repo.On("Read", mock.Anything, keyID, model.NewAdminScope(callerID)).Return(accessibleKey(ownerID, keyID), nil)
 
 	svc := NewKeyService(KeyServiceConfig{KeyRepository: repo, Logger: newKeyLogger()})
 	err := svc.ValidateKeyAccess(context.Background(), keyID, callerID, "")
@@ -725,7 +529,7 @@ func TestValidateKeyAccess_KeyNotFound(t *testing.T) {
 	keyID := uuid.New()
 	userID := uuid.New()
 	repo := &mockKeyRepository{}
-	repo.On("Read", mock.Anything, keyID).Return(nil, errors.New("not found"))
+	repo.On("Read", mock.Anything, keyID, model.NewAdminScope(userID)).Return(nil, errors.New("not found"))
 
 	svc := NewKeyService(KeyServiceConfig{KeyRepository: repo, Logger: newKeyLogger()})
 	err := svc.ValidateKeyAccess(context.Background(), keyID, userID, "")
@@ -742,11 +546,11 @@ func TestGetKey_WrongOwner(t *testing.T) {
 	// A non-owner's scoped read finds no matching row, same as the SQL
 	// predicate excluding it; the access check happens at the scoped read,
 	// not via a separate Go-level ownership comparison.
-	repo.On("ReadScoped", mock.Anything, keyID, model.NewOwnerScope(uuid.Nil, callerID)).
+	repo.On("Read", mock.Anything, keyID, model.NewOwnerScope(uuid.Nil, callerID)).
 		Return(nil, errors.New("key not found or access denied"))
 
 	svc := NewKeyService(KeyServiceConfig{KeyRepository: repo, Logger: newKeyLogger()})
-	_, err := svc.GetKey(context.Background(), keyID, callerID)
+	_, err := svc.GetKey(context.Background(), keyID, model.NewOwnerScope(uuid.Nil, callerID))
 	require.Error(t, err)
 	assert.ErrorIs(t, err, ErrKeyNotFound)
 }
@@ -755,14 +559,14 @@ func TestGetKey_LifecycleDenied(t *testing.T) {
 	userID := uuid.New()
 	keyID := uuid.New()
 	repo := &mockKeyRepository{}
-	repo.On("ReadScoped", mock.Anything, keyID, model.NewOwnerScope(uuid.Nil, userID)).Return(&model.Key{
+	repo.On("Read", mock.Anything, keyID, model.NewOwnerScope(uuid.Nil, userID)).Return(&model.Key{
 		ID:      keyID,
 		UserID:  userID,
 		Enabled: false,
 	}, nil)
 
 	svc := NewKeyService(KeyServiceConfig{KeyRepository: repo, Logger: newKeyLogger()})
-	_, err := svc.GetKey(context.Background(), keyID, userID)
+	_, err := svc.GetKey(context.Background(), keyID, model.NewOwnerScope(uuid.Nil, userID))
 	require.Error(t, err)
 	assert.ErrorIs(t, err, ErrKeyLifecycleDenied)
 }
@@ -802,7 +606,7 @@ func TestCryptoService_Verify_Success(t *testing.T) {
 	key := &model.Key{ID: keyID, UserID: userID, Type: model.KeyTypeRSA, Value: encryptedPEM, Enabled: true}
 
 	repo := &mockKeyRepoForExtendedCrypto{}
-	repo.On("ReadScoped", mock.Anything, keyID, model.NewOwnerScope(uuid.Nil, userID)).Return(key, nil)
+	repo.On("Read", mock.Anything, keyID, model.NewOwnerScope(uuid.Nil, userID)).Return(key, nil)
 
 	svc := NewCryptoService(CryptoServiceConfig{
 		KeyRepository: repo,
@@ -847,7 +651,7 @@ func TestCryptoService_Verify_KeyNotFound(t *testing.T) {
 	repo := &mockKeyRepoForExtendedCrypto{}
 	keyID := uuid.New()
 	userID := uuid.New()
-	repo.On("ReadScoped", mock.Anything, keyID, model.NewOwnerScope(uuid.Nil, userID)).Return(nil, errors.New("not found"))
+	repo.On("Read", mock.Anything, keyID, model.NewOwnerScope(uuid.Nil, userID)).Return(nil, errors.New("not found"))
 
 	svc := NewCryptoService(CryptoServiceConfig{
 		KeyRepository: repo,
@@ -879,7 +683,7 @@ func TestCryptoService_Encrypt_Success(t *testing.T) {
 	key := &model.Key{ID: keyID, UserID: userID, Type: model.KeyTypeRSA, Value: encryptedPEM, Enabled: true}
 
 	repo := &mockKeyRepoForExtendedCrypto{}
-	repo.On("ReadScoped", mock.Anything, keyID, model.NewOwnerScope(uuid.Nil, userID)).Return(key, nil)
+	repo.On("Read", mock.Anything, keyID, model.NewOwnerScope(uuid.Nil, userID)).Return(key, nil)
 
 	svc := NewCryptoService(CryptoServiceConfig{
 		KeyRepository: repo,
@@ -914,7 +718,7 @@ func TestCryptoService_Decrypt_Success(t *testing.T) {
 	key := &model.Key{ID: keyID, UserID: userID, Type: model.KeyTypeRSA, Value: encryptedPEM, Enabled: true}
 
 	repo := &mockKeyRepoForExtendedCrypto{}
-	repo.On("ReadScoped", mock.Anything, keyID, model.NewOwnerScope(uuid.Nil, userID)).Return(key, nil)
+	repo.On("Read", mock.Anything, keyID, model.NewOwnerScope(uuid.Nil, userID)).Return(key, nil)
 
 	svc := NewCryptoService(CryptoServiceConfig{
 		KeyRepository: repo,
@@ -948,7 +752,7 @@ func TestCryptoService_Encrypt_KeyNotFound(t *testing.T) {
 	repo := &mockKeyRepoForExtendedCrypto{}
 	keyID := uuid.New()
 	userID := uuid.New()
-	repo.On("ReadScoped", mock.Anything, keyID, model.NewOwnerScope(uuid.Nil, userID)).Return(nil, errors.New("not found"))
+	repo.On("Read", mock.Anything, keyID, model.NewOwnerScope(uuid.Nil, userID)).Return(nil, errors.New("not found"))
 
 	svc := NewCryptoService(CryptoServiceConfig{
 		KeyRepository: repo,
@@ -965,7 +769,7 @@ func TestCryptoService_Decrypt_KeyNotFound(t *testing.T) {
 	repo := &mockKeyRepoForExtendedCrypto{}
 	keyID := uuid.New()
 	userID := uuid.New()
-	repo.On("ReadScoped", mock.Anything, keyID, model.NewOwnerScope(uuid.Nil, userID)).Return(nil, errors.New("not found"))
+	repo.On("Read", mock.Anything, keyID, model.NewOwnerScope(uuid.Nil, userID)).Return(nil, errors.New("not found"))
 
 	svc := NewCryptoService(CryptoServiceConfig{
 		KeyRepository: repo,
@@ -1033,7 +837,7 @@ func TestCryptoService_Sign_RevokedKey(t *testing.T) {
 	repo := &mockKeyRepoForExtendedCrypto{}
 	keyID := uuid.New()
 	userID := uuid.New()
-	repo.On("ReadScoped", mock.Anything, keyID, model.NewOwnerScope(uuid.Nil, userID)).Return(&model.Key{
+	repo.On("Read", mock.Anything, keyID, model.NewOwnerScope(uuid.Nil, userID)).Return(&model.Key{
 		ID: keyID, UserID: userID, Revoked: true, Enabled: true,
 	}, nil)
 
@@ -1053,7 +857,7 @@ func TestCryptoService_Sign_InaccessibleKey(t *testing.T) {
 	repo := &mockKeyRepoForExtendedCrypto{}
 	keyID := uuid.New()
 	userID := uuid.New()
-	repo.On("ReadScoped", mock.Anything, keyID, model.NewOwnerScope(uuid.Nil, userID)).Return(&model.Key{
+	repo.On("Read", mock.Anything, keyID, model.NewOwnerScope(uuid.Nil, userID)).Return(&model.Key{
 		ID: keyID, UserID: userID, Revoked: false, Enabled: false,
 	}, nil)
 
@@ -1078,19 +882,8 @@ func TestCryptoService_Sign_InaccessibleKey(t *testing.T) {
 
 type mockKeyRepoForExtendedCrypto struct{ mock.Mock }
 
-func (m *mockKeyRepoForExtendedCrypto) Read(ctx context.Context, id uuid.UUID) (*model.Key, error) {
-	args := m.Called(ctx, id)
-	if args.Get(0) == nil {
-		return nil, args.Error(1)
-	}
-	return args.Get(0).(*model.Key), args.Error(1)
-}
 func (m *mockKeyRepoForExtendedCrypto) Create(ctx context.Context, k *model.Key) error { return nil }
-func (m *mockKeyRepoForExtendedCrypto) Update(ctx context.Context, k *model.Key) error { return nil }
 func (m *mockKeyRepoForExtendedCrypto) Delete(ctx context.Context, id uuid.UUID) error { return nil }
-func (m *mockKeyRepoForExtendedCrypto) ListByUser(ctx context.Context, userID *uuid.UUID, keyType string, tags []string) ([]model.Key, error) {
-	return nil, nil
-}
 func (m *mockKeyRepoForExtendedCrypto) UpdateRevocationStatus(ctx context.Context, id uuid.UUID, revoked bool) error {
 	return nil
 }
@@ -1116,28 +909,22 @@ func (m *mockKeyRepoForExtendedCrypto) CreateVersion(ctx context.Context, keyID 
 func (m *mockKeyRepoForExtendedCrypto) ListVersions(ctx context.Context, keyID, userID uuid.UUID) ([]model.KeyVersion, error) {
 	return nil, nil
 }
-func (m *mockKeyRepoForExtendedCrypto) ListInVault(ctx context.Context, vaultID uuid.UUID, keyType string, tags []string) ([]model.Key, error) {
-	return nil, nil
-}
-func (m *mockKeyRepoForExtendedCrypto) ReadInVault(ctx context.Context, id, vaultID uuid.UUID) (*model.Key, error) {
-	return nil, nil
-}
 func (m *mockKeyRepoForExtendedCrypto) SoftDeleteVaultContents(ctx context.Context, vaultID uuid.UUID, deletedAt time.Time) error {
 	return nil
 }
 func (m *mockKeyRepoForExtendedCrypto) RecoverVaultContents(ctx context.Context, vaultID uuid.UUID, deletedAt time.Time) error {
 	return nil
 }
-func (m *mockKeyRepoForExtendedCrypto) ReadScoped(ctx context.Context, id uuid.UUID, scope model.Scope) (*model.Key, error) {
+func (m *mockKeyRepoForExtendedCrypto) Read(ctx context.Context, id uuid.UUID, scope model.Scope) (*model.Key, error) {
 	args := m.Called(ctx, id, scope)
 	if args.Get(0) == nil {
 		return nil, args.Error(1)
 	}
 	return args.Get(0).(*model.Key), args.Error(1)
 }
-func (m *mockKeyRepoForExtendedCrypto) UpdateScoped(ctx context.Context, key *model.Key, scope model.Scope) error {
+func (m *mockKeyRepoForExtendedCrypto) Update(ctx context.Context, key *model.Key, scope model.Scope) error {
 	return nil
 }
-func (m *mockKeyRepoForExtendedCrypto) ListScoped(ctx context.Context, scope model.Scope, filter repositories.KeyFilter) ([]model.Key, error) {
+func (m *mockKeyRepoForExtendedCrypto) List(ctx context.Context, scope model.Scope, filter repositories.KeyFilter) ([]model.Key, error) {
 	return nil, nil
 }

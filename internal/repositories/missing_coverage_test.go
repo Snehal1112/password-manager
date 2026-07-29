@@ -1261,7 +1261,7 @@ func TestKeyRepository_ListInVault_WithType(t *testing.T) {
 	require.NoError(t, repo.Create(ctx, k1))
 	require.NoError(t, repo.Create(ctx, k2))
 
-	rsaOnly, err := repo.ListInVault(ctx, vaultID, model.KeyTypeRSA, nil)
+	rsaOnly, err := repo.List(ctx, model.NewVaultScope(vaultID, uuid.Nil), repositories.KeyFilter{Type: model.KeyTypeRSA})
 	require.NoError(t, err)
 	assert.Len(t, rsaOnly, 1)
 	assert.Equal(t, model.KeyTypeRSA, rsaOnly[0].Type)
@@ -1278,7 +1278,7 @@ func TestKeyRepository_ReadInVault(t *testing.T) {
 	k := newKey(uuid.New(), vaultID, "vault-key")
 	require.NoError(t, repo.Create(ctx, k))
 
-	got, err := repo.ReadInVault(ctx, k.ID, vaultID)
+	got, err := repo.Read(ctx, k.ID, model.NewVaultScope(vaultID, uuid.Nil))
 	require.NoError(t, err)
 	assert.Equal(t, k.ID, got.ID)
 }
@@ -1294,7 +1294,7 @@ func TestKeyRepository_ReadInVault_WrongVault(t *testing.T) {
 	k := newKey(uuid.New(), vaultA, "vault-key-a")
 	require.NoError(t, repo.Create(ctx, k))
 
-	_, err := repo.ReadInVault(ctx, k.ID, uuid.New())
+	_, err := repo.Read(ctx, k.ID, model.NewVaultScope(uuid.New(), uuid.Nil))
 	assert.Error(t, err)
 }
 
@@ -1411,7 +1411,7 @@ func TestCertificateRepository_ListInVault_ExcludesSoftDeleted(t *testing.T) {
 	require.NoError(t, repo.Create(ctx, c2))
 	require.NoError(t, repo.SoftDelete(ctx, c2.ID))
 
-	active, err := repo.ListInVault(ctx, vaultID, nil)
+	active, err := repo.List(ctx, model.NewVaultScope(vaultID, uuid.Nil), repositories.CertificateFilter{})
 	require.NoError(t, err)
 	assert.Len(t, active, 1)
 	assert.Equal(t, c1.ID, active[0].ID)
@@ -1468,7 +1468,7 @@ func TestKeyRepository_ListInVault_WithTags(t *testing.T) {
 	require.NoError(t, repo.Create(ctx, k1))
 	require.NoError(t, repo.Create(ctx, k2))
 
-	tagged, err := repo.ListInVault(ctx, vaultID, "", []string{"env:prod"})
+	tagged, err := repo.List(ctx, model.NewVaultScope(vaultID, uuid.Nil), repositories.KeyFilter{Tags: []string{"env:prod"}})
 	require.NoError(t, err)
 	assert.Len(t, tagged, 1)
 	assert.Equal(t, k1.ID, tagged[0].ID)
@@ -1522,7 +1522,7 @@ func TestCertificateRepository_ListInVault_WithType(t *testing.T) {
 	require.NoError(t, repo.Create(ctx, c1))
 	require.NoError(t, repo.Create(ctx, c2))
 
-	all, err := repo.ListInVault(ctx, vaultID, nil)
+	all, err := repo.List(ctx, model.NewVaultScope(vaultID, uuid.Nil), repositories.CertificateFilter{})
 	require.NoError(t, err)
 	assert.Len(t, all, 2)
 }
@@ -1538,7 +1538,7 @@ func TestCertificateRepository_ReadInVault_Correct(t *testing.T) {
 	cert := newCert(uuid.New(), vaultID, "in-vault-cert")
 	require.NoError(t, repo.Create(ctx, cert))
 
-	got, err := repo.ReadInVault(ctx, cert.ID, vaultID)
+	got, err := repo.Read(ctx, cert.ID, model.NewVaultScope(vaultID, uuid.Nil))
 	require.NoError(t, err)
 	assert.Equal(t, cert.ID, got.ID)
 }
@@ -1560,7 +1560,7 @@ func TestCertificateRepository_ListInVault_WithTags(t *testing.T) {
 	require.NoError(t, repo.Create(ctx, c1))
 	require.NoError(t, repo.Create(ctx, c2))
 
-	tagged, err := repo.ListInVault(ctx, vaultID, []string{"env:staging"})
+	tagged, err := repo.List(ctx, model.NewVaultScope(vaultID, uuid.Nil), repositories.CertificateFilter{Tags: []string{"env:staging"}})
 	require.NoError(t, err)
 	assert.Len(t, tagged, 1)
 	assert.Equal(t, c1.ID, tagged[0].ID)
@@ -1580,7 +1580,7 @@ func TestCertificateRepository_ListByUser_ExcludesSoftDeleted(t *testing.T) {
 	require.NoError(t, repo.Create(ctx, c2))
 	require.NoError(t, repo.SoftDelete(ctx, c2.ID))
 
-	list, err := repo.ListByUser(ctx, userID, nil)
+	list, err := repo.List(ctx, model.NewOwnerScope(uuid.Nil, userID), repositories.CertificateFilter{})
 	require.NoError(t, err)
 	assert.Len(t, list, 1)
 	assert.Equal(t, c1.ID, list[0].ID)

@@ -146,17 +146,17 @@ func (_c *MockCertificateService_CreateSelfSignedCertificate_Call) RunAndReturn(
 	return _c
 }
 
-// DeleteCertificate provides a mock function with given fields: ctx, certID, userID
-func (_m *MockCertificateService) DeleteCertificate(ctx context.Context, certID uuid.UUID, userID uuid.UUID) error {
-	ret := _m.Called(ctx, certID, userID)
+// DeleteCertificate provides a mock function with given fields: ctx, certID, scope
+func (_m *MockCertificateService) DeleteCertificate(ctx context.Context, certID uuid.UUID, scope model.Scope) error {
+	ret := _m.Called(ctx, certID, scope)
 
 	if len(ret) == 0 {
 		panic("no return value specified for DeleteCertificate")
 	}
 
 	var r0 error
-	if rf, ok := ret.Get(0).(func(context.Context, uuid.UUID, uuid.UUID) error); ok {
-		r0 = rf(ctx, certID, userID)
+	if rf, ok := ret.Get(0).(func(context.Context, uuid.UUID, model.Scope) error); ok {
+		r0 = rf(ctx, certID, scope)
 	} else {
 		r0 = ret.Error(0)
 	}
@@ -172,14 +172,14 @@ type MockCertificateService_DeleteCertificate_Call struct {
 // DeleteCertificate is a helper method to define mock.On call
 //   - ctx context.Context
 //   - certID uuid.UUID
-//   - userID uuid.UUID
-func (_e *MockCertificateService_Expecter) DeleteCertificate(ctx interface{}, certID interface{}, userID interface{}) *MockCertificateService_DeleteCertificate_Call {
-	return &MockCertificateService_DeleteCertificate_Call{Call: _e.mock.On("DeleteCertificate", ctx, certID, userID)}
+//   - scope model.Scope
+func (_e *MockCertificateService_Expecter) DeleteCertificate(ctx interface{}, certID interface{}, scope interface{}) *MockCertificateService_DeleteCertificate_Call {
+	return &MockCertificateService_DeleteCertificate_Call{Call: _e.mock.On("DeleteCertificate", ctx, certID, scope)}
 }
 
-func (_c *MockCertificateService_DeleteCertificate_Call) Run(run func(ctx context.Context, certID uuid.UUID, userID uuid.UUID)) *MockCertificateService_DeleteCertificate_Call {
+func (_c *MockCertificateService_DeleteCertificate_Call) Run(run func(ctx context.Context, certID uuid.UUID, scope model.Scope)) *MockCertificateService_DeleteCertificate_Call {
 	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(context.Context), args[1].(uuid.UUID), args[2].(uuid.UUID))
+		run(args[0].(context.Context), args[1].(uuid.UUID), args[2].(model.Scope))
 	})
 	return _c
 }
@@ -189,233 +189,17 @@ func (_c *MockCertificateService_DeleteCertificate_Call) Return(_a0 error) *Mock
 	return _c
 }
 
-func (_c *MockCertificateService_DeleteCertificate_Call) RunAndReturn(run func(context.Context, uuid.UUID, uuid.UUID) error) *MockCertificateService_DeleteCertificate_Call {
+func (_c *MockCertificateService_DeleteCertificate_Call) RunAndReturn(run func(context.Context, uuid.UUID, model.Scope) error) *MockCertificateService_DeleteCertificate_Call {
 	_c.Call.Return(run)
 	return _c
 }
 
-// DeleteCertificateInVault provides a mock function with given fields: ctx, certID, vaultID
-func (_m *MockCertificateService) DeleteCertificateInVault(ctx context.Context, certID uuid.UUID, vaultID uuid.UUID) error {
-	ret := _m.Called(ctx, certID, vaultID)
-
-	if len(ret) == 0 {
-		panic("no return value specified for DeleteCertificateInVault")
-	}
-
-	var r0 error
-	if rf, ok := ret.Get(0).(func(context.Context, uuid.UUID, uuid.UUID) error); ok {
-		r0 = rf(ctx, certID, vaultID)
-	} else {
-		r0 = ret.Error(0)
-	}
-
-	return r0
-}
-
-// MockCertificateService_DeleteCertificateInVault_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'DeleteCertificateInVault'
-type MockCertificateService_DeleteCertificateInVault_Call struct {
-	*mock.Call
-}
-
-// DeleteCertificateInVault is a helper method to define mock.On call
-//   - ctx context.Context
-//   - certID uuid.UUID
-//   - vaultID uuid.UUID
-func (_e *MockCertificateService_Expecter) DeleteCertificateInVault(ctx interface{}, certID interface{}, vaultID interface{}) *MockCertificateService_DeleteCertificateInVault_Call {
-	return &MockCertificateService_DeleteCertificateInVault_Call{Call: _e.mock.On("DeleteCertificateInVault", ctx, certID, vaultID)}
-}
-
-func (_c *MockCertificateService_DeleteCertificateInVault_Call) Run(run func(ctx context.Context, certID uuid.UUID, vaultID uuid.UUID)) *MockCertificateService_DeleteCertificateInVault_Call {
-	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(context.Context), args[1].(uuid.UUID), args[2].(uuid.UUID))
-	})
-	return _c
-}
-
-func (_c *MockCertificateService_DeleteCertificateInVault_Call) Return(_a0 error) *MockCertificateService_DeleteCertificateInVault_Call {
-	_c.Call.Return(_a0)
-	return _c
-}
-
-func (_c *MockCertificateService_DeleteCertificateInVault_Call) RunAndReturn(run func(context.Context, uuid.UUID, uuid.UUID) error) *MockCertificateService_DeleteCertificateInVault_Call {
-	_c.Call.Return(run)
-	return _c
-}
-
-// DeleteCertificateScoped provides a mock function with given fields: ctx, certID, scope
-func (_m *MockCertificateService) DeleteCertificateScoped(ctx context.Context, certID uuid.UUID, scope model.Scope) error {
+// GetCertificate provides a mock function with given fields: ctx, certID, scope
+func (_m *MockCertificateService) GetCertificate(ctx context.Context, certID uuid.UUID, scope model.Scope) (*model.Certificate, error) {
 	ret := _m.Called(ctx, certID, scope)
-
-	if len(ret) == 0 {
-		panic("no return value specified for DeleteCertificateScoped")
-	}
-
-	var r0 error
-	if rf, ok := ret.Get(0).(func(context.Context, uuid.UUID, model.Scope) error); ok {
-		r0 = rf(ctx, certID, scope)
-	} else {
-		r0 = ret.Error(0)
-	}
-
-	return r0
-}
-
-// MockCertificateService_DeleteCertificateScoped_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'DeleteCertificateScoped'
-type MockCertificateService_DeleteCertificateScoped_Call struct {
-	*mock.Call
-}
-
-// DeleteCertificateScoped is a helper method to define mock.On call
-//   - ctx context.Context
-//   - certID uuid.UUID
-//   - scope model.Scope
-func (_e *MockCertificateService_Expecter) DeleteCertificateScoped(ctx interface{}, certID interface{}, scope interface{}) *MockCertificateService_DeleteCertificateScoped_Call {
-	return &MockCertificateService_DeleteCertificateScoped_Call{Call: _e.mock.On("DeleteCertificateScoped", ctx, certID, scope)}
-}
-
-func (_c *MockCertificateService_DeleteCertificateScoped_Call) Run(run func(ctx context.Context, certID uuid.UUID, scope model.Scope)) *MockCertificateService_DeleteCertificateScoped_Call {
-	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(context.Context), args[1].(uuid.UUID), args[2].(model.Scope))
-	})
-	return _c
-}
-
-func (_c *MockCertificateService_DeleteCertificateScoped_Call) Return(_a0 error) *MockCertificateService_DeleteCertificateScoped_Call {
-	_c.Call.Return(_a0)
-	return _c
-}
-
-func (_c *MockCertificateService_DeleteCertificateScoped_Call) RunAndReturn(run func(context.Context, uuid.UUID, model.Scope) error) *MockCertificateService_DeleteCertificateScoped_Call {
-	_c.Call.Return(run)
-	return _c
-}
-
-// GetCertificate provides a mock function with given fields: ctx, certID, userID
-func (_m *MockCertificateService) GetCertificate(ctx context.Context, certID uuid.UUID, userID uuid.UUID) (*model.Certificate, error) {
-	ret := _m.Called(ctx, certID, userID)
 
 	if len(ret) == 0 {
 		panic("no return value specified for GetCertificate")
-	}
-
-	var r0 *model.Certificate
-	var r1 error
-	if rf, ok := ret.Get(0).(func(context.Context, uuid.UUID, uuid.UUID) (*model.Certificate, error)); ok {
-		return rf(ctx, certID, userID)
-	}
-	if rf, ok := ret.Get(0).(func(context.Context, uuid.UUID, uuid.UUID) *model.Certificate); ok {
-		r0 = rf(ctx, certID, userID)
-	} else {
-		if ret.Get(0) != nil {
-			r0 = ret.Get(0).(*model.Certificate)
-		}
-	}
-
-	if rf, ok := ret.Get(1).(func(context.Context, uuid.UUID, uuid.UUID) error); ok {
-		r1 = rf(ctx, certID, userID)
-	} else {
-		r1 = ret.Error(1)
-	}
-
-	return r0, r1
-}
-
-// MockCertificateService_GetCertificate_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'GetCertificate'
-type MockCertificateService_GetCertificate_Call struct {
-	*mock.Call
-}
-
-// GetCertificate is a helper method to define mock.On call
-//   - ctx context.Context
-//   - certID uuid.UUID
-//   - userID uuid.UUID
-func (_e *MockCertificateService_Expecter) GetCertificate(ctx interface{}, certID interface{}, userID interface{}) *MockCertificateService_GetCertificate_Call {
-	return &MockCertificateService_GetCertificate_Call{Call: _e.mock.On("GetCertificate", ctx, certID, userID)}
-}
-
-func (_c *MockCertificateService_GetCertificate_Call) Run(run func(ctx context.Context, certID uuid.UUID, userID uuid.UUID)) *MockCertificateService_GetCertificate_Call {
-	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(context.Context), args[1].(uuid.UUID), args[2].(uuid.UUID))
-	})
-	return _c
-}
-
-func (_c *MockCertificateService_GetCertificate_Call) Return(_a0 *model.Certificate, _a1 error) *MockCertificateService_GetCertificate_Call {
-	_c.Call.Return(_a0, _a1)
-	return _c
-}
-
-func (_c *MockCertificateService_GetCertificate_Call) RunAndReturn(run func(context.Context, uuid.UUID, uuid.UUID) (*model.Certificate, error)) *MockCertificateService_GetCertificate_Call {
-	_c.Call.Return(run)
-	return _c
-}
-
-// GetCertificateInVault provides a mock function with given fields: ctx, certID, vaultID
-func (_m *MockCertificateService) GetCertificateInVault(ctx context.Context, certID uuid.UUID, vaultID uuid.UUID) (*model.Certificate, error) {
-	ret := _m.Called(ctx, certID, vaultID)
-
-	if len(ret) == 0 {
-		panic("no return value specified for GetCertificateInVault")
-	}
-
-	var r0 *model.Certificate
-	var r1 error
-	if rf, ok := ret.Get(0).(func(context.Context, uuid.UUID, uuid.UUID) (*model.Certificate, error)); ok {
-		return rf(ctx, certID, vaultID)
-	}
-	if rf, ok := ret.Get(0).(func(context.Context, uuid.UUID, uuid.UUID) *model.Certificate); ok {
-		r0 = rf(ctx, certID, vaultID)
-	} else {
-		if ret.Get(0) != nil {
-			r0 = ret.Get(0).(*model.Certificate)
-		}
-	}
-
-	if rf, ok := ret.Get(1).(func(context.Context, uuid.UUID, uuid.UUID) error); ok {
-		r1 = rf(ctx, certID, vaultID)
-	} else {
-		r1 = ret.Error(1)
-	}
-
-	return r0, r1
-}
-
-// MockCertificateService_GetCertificateInVault_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'GetCertificateInVault'
-type MockCertificateService_GetCertificateInVault_Call struct {
-	*mock.Call
-}
-
-// GetCertificateInVault is a helper method to define mock.On call
-//   - ctx context.Context
-//   - certID uuid.UUID
-//   - vaultID uuid.UUID
-func (_e *MockCertificateService_Expecter) GetCertificateInVault(ctx interface{}, certID interface{}, vaultID interface{}) *MockCertificateService_GetCertificateInVault_Call {
-	return &MockCertificateService_GetCertificateInVault_Call{Call: _e.mock.On("GetCertificateInVault", ctx, certID, vaultID)}
-}
-
-func (_c *MockCertificateService_GetCertificateInVault_Call) Run(run func(ctx context.Context, certID uuid.UUID, vaultID uuid.UUID)) *MockCertificateService_GetCertificateInVault_Call {
-	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(context.Context), args[1].(uuid.UUID), args[2].(uuid.UUID))
-	})
-	return _c
-}
-
-func (_c *MockCertificateService_GetCertificateInVault_Call) Return(_a0 *model.Certificate, _a1 error) *MockCertificateService_GetCertificateInVault_Call {
-	_c.Call.Return(_a0, _a1)
-	return _c
-}
-
-func (_c *MockCertificateService_GetCertificateInVault_Call) RunAndReturn(run func(context.Context, uuid.UUID, uuid.UUID) (*model.Certificate, error)) *MockCertificateService_GetCertificateInVault_Call {
-	_c.Call.Return(run)
-	return _c
-}
-
-// GetCertificateScoped provides a mock function with given fields: ctx, certID, scope
-func (_m *MockCertificateService) GetCertificateScoped(ctx context.Context, certID uuid.UUID, scope model.Scope) (*model.Certificate, error) {
-	ret := _m.Called(ctx, certID, scope)
-
-	if len(ret) == 0 {
-		panic("no return value specified for GetCertificateScoped")
 	}
 
 	var r0 *model.Certificate
@@ -440,160 +224,42 @@ func (_m *MockCertificateService) GetCertificateScoped(ctx context.Context, cert
 	return r0, r1
 }
 
-// MockCertificateService_GetCertificateScoped_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'GetCertificateScoped'
-type MockCertificateService_GetCertificateScoped_Call struct {
+// MockCertificateService_GetCertificate_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'GetCertificate'
+type MockCertificateService_GetCertificate_Call struct {
 	*mock.Call
 }
 
-// GetCertificateScoped is a helper method to define mock.On call
+// GetCertificate is a helper method to define mock.On call
 //   - ctx context.Context
 //   - certID uuid.UUID
 //   - scope model.Scope
-func (_e *MockCertificateService_Expecter) GetCertificateScoped(ctx interface{}, certID interface{}, scope interface{}) *MockCertificateService_GetCertificateScoped_Call {
-	return &MockCertificateService_GetCertificateScoped_Call{Call: _e.mock.On("GetCertificateScoped", ctx, certID, scope)}
+func (_e *MockCertificateService_Expecter) GetCertificate(ctx interface{}, certID interface{}, scope interface{}) *MockCertificateService_GetCertificate_Call {
+	return &MockCertificateService_GetCertificate_Call{Call: _e.mock.On("GetCertificate", ctx, certID, scope)}
 }
 
-func (_c *MockCertificateService_GetCertificateScoped_Call) Run(run func(ctx context.Context, certID uuid.UUID, scope model.Scope)) *MockCertificateService_GetCertificateScoped_Call {
+func (_c *MockCertificateService_GetCertificate_Call) Run(run func(ctx context.Context, certID uuid.UUID, scope model.Scope)) *MockCertificateService_GetCertificate_Call {
 	_c.Call.Run(func(args mock.Arguments) {
 		run(args[0].(context.Context), args[1].(uuid.UUID), args[2].(model.Scope))
 	})
 	return _c
 }
 
-func (_c *MockCertificateService_GetCertificateScoped_Call) Return(_a0 *model.Certificate, _a1 error) *MockCertificateService_GetCertificateScoped_Call {
+func (_c *MockCertificateService_GetCertificate_Call) Return(_a0 *model.Certificate, _a1 error) *MockCertificateService_GetCertificate_Call {
 	_c.Call.Return(_a0, _a1)
 	return _c
 }
 
-func (_c *MockCertificateService_GetCertificateScoped_Call) RunAndReturn(run func(context.Context, uuid.UUID, model.Scope) (*model.Certificate, error)) *MockCertificateService_GetCertificateScoped_Call {
+func (_c *MockCertificateService_GetCertificate_Call) RunAndReturn(run func(context.Context, uuid.UUID, model.Scope) (*model.Certificate, error)) *MockCertificateService_GetCertificate_Call {
 	_c.Call.Return(run)
 	return _c
 }
 
-// ListCertificates provides a mock function with given fields: ctx, userID
-func (_m *MockCertificateService) ListCertificates(ctx context.Context, userID uuid.UUID) ([]model.Certificate, error) {
-	ret := _m.Called(ctx, userID)
-
-	if len(ret) == 0 {
-		panic("no return value specified for ListCertificates")
-	}
-
-	var r0 []model.Certificate
-	var r1 error
-	if rf, ok := ret.Get(0).(func(context.Context, uuid.UUID) ([]model.Certificate, error)); ok {
-		return rf(ctx, userID)
-	}
-	if rf, ok := ret.Get(0).(func(context.Context, uuid.UUID) []model.Certificate); ok {
-		r0 = rf(ctx, userID)
-	} else {
-		if ret.Get(0) != nil {
-			r0 = ret.Get(0).([]model.Certificate)
-		}
-	}
-
-	if rf, ok := ret.Get(1).(func(context.Context, uuid.UUID) error); ok {
-		r1 = rf(ctx, userID)
-	} else {
-		r1 = ret.Error(1)
-	}
-
-	return r0, r1
-}
-
-// MockCertificateService_ListCertificates_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'ListCertificates'
-type MockCertificateService_ListCertificates_Call struct {
-	*mock.Call
-}
-
-// ListCertificates is a helper method to define mock.On call
-//   - ctx context.Context
-//   - userID uuid.UUID
-func (_e *MockCertificateService_Expecter) ListCertificates(ctx interface{}, userID interface{}) *MockCertificateService_ListCertificates_Call {
-	return &MockCertificateService_ListCertificates_Call{Call: _e.mock.On("ListCertificates", ctx, userID)}
-}
-
-func (_c *MockCertificateService_ListCertificates_Call) Run(run func(ctx context.Context, userID uuid.UUID)) *MockCertificateService_ListCertificates_Call {
-	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(context.Context), args[1].(uuid.UUID))
-	})
-	return _c
-}
-
-func (_c *MockCertificateService_ListCertificates_Call) Return(_a0 []model.Certificate, _a1 error) *MockCertificateService_ListCertificates_Call {
-	_c.Call.Return(_a0, _a1)
-	return _c
-}
-
-func (_c *MockCertificateService_ListCertificates_Call) RunAndReturn(run func(context.Context, uuid.UUID) ([]model.Certificate, error)) *MockCertificateService_ListCertificates_Call {
-	_c.Call.Return(run)
-	return _c
-}
-
-// ListCertificatesInVault provides a mock function with given fields: ctx, vaultID
-func (_m *MockCertificateService) ListCertificatesInVault(ctx context.Context, vaultID uuid.UUID) ([]model.Certificate, error) {
-	ret := _m.Called(ctx, vaultID)
-
-	if len(ret) == 0 {
-		panic("no return value specified for ListCertificatesInVault")
-	}
-
-	var r0 []model.Certificate
-	var r1 error
-	if rf, ok := ret.Get(0).(func(context.Context, uuid.UUID) ([]model.Certificate, error)); ok {
-		return rf(ctx, vaultID)
-	}
-	if rf, ok := ret.Get(0).(func(context.Context, uuid.UUID) []model.Certificate); ok {
-		r0 = rf(ctx, vaultID)
-	} else {
-		if ret.Get(0) != nil {
-			r0 = ret.Get(0).([]model.Certificate)
-		}
-	}
-
-	if rf, ok := ret.Get(1).(func(context.Context, uuid.UUID) error); ok {
-		r1 = rf(ctx, vaultID)
-	} else {
-		r1 = ret.Error(1)
-	}
-
-	return r0, r1
-}
-
-// MockCertificateService_ListCertificatesInVault_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'ListCertificatesInVault'
-type MockCertificateService_ListCertificatesInVault_Call struct {
-	*mock.Call
-}
-
-// ListCertificatesInVault is a helper method to define mock.On call
-//   - ctx context.Context
-//   - vaultID uuid.UUID
-func (_e *MockCertificateService_Expecter) ListCertificatesInVault(ctx interface{}, vaultID interface{}) *MockCertificateService_ListCertificatesInVault_Call {
-	return &MockCertificateService_ListCertificatesInVault_Call{Call: _e.mock.On("ListCertificatesInVault", ctx, vaultID)}
-}
-
-func (_c *MockCertificateService_ListCertificatesInVault_Call) Run(run func(ctx context.Context, vaultID uuid.UUID)) *MockCertificateService_ListCertificatesInVault_Call {
-	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(context.Context), args[1].(uuid.UUID))
-	})
-	return _c
-}
-
-func (_c *MockCertificateService_ListCertificatesInVault_Call) Return(_a0 []model.Certificate, _a1 error) *MockCertificateService_ListCertificatesInVault_Call {
-	_c.Call.Return(_a0, _a1)
-	return _c
-}
-
-func (_c *MockCertificateService_ListCertificatesInVault_Call) RunAndReturn(run func(context.Context, uuid.UUID) ([]model.Certificate, error)) *MockCertificateService_ListCertificatesInVault_Call {
-	_c.Call.Return(run)
-	return _c
-}
-
-// ListCertificatesScoped provides a mock function with given fields: ctx, scope, filter
-func (_m *MockCertificateService) ListCertificatesScoped(ctx context.Context, scope model.Scope, filter repositories.CertificateFilter) ([]model.Certificate, error) {
+// ListCertificates provides a mock function with given fields: ctx, scope, filter
+func (_m *MockCertificateService) ListCertificates(ctx context.Context, scope model.Scope, filter repositories.CertificateFilter) ([]model.Certificate, error) {
 	ret := _m.Called(ctx, scope, filter)
 
 	if len(ret) == 0 {
-		panic("no return value specified for ListCertificatesScoped")
+		panic("no return value specified for ListCertificates")
 	}
 
 	var r0 []model.Certificate
@@ -618,32 +284,32 @@ func (_m *MockCertificateService) ListCertificatesScoped(ctx context.Context, sc
 	return r0, r1
 }
 
-// MockCertificateService_ListCertificatesScoped_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'ListCertificatesScoped'
-type MockCertificateService_ListCertificatesScoped_Call struct {
+// MockCertificateService_ListCertificates_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'ListCertificates'
+type MockCertificateService_ListCertificates_Call struct {
 	*mock.Call
 }
 
-// ListCertificatesScoped is a helper method to define mock.On call
+// ListCertificates is a helper method to define mock.On call
 //   - ctx context.Context
 //   - scope model.Scope
 //   - filter repositories.CertificateFilter
-func (_e *MockCertificateService_Expecter) ListCertificatesScoped(ctx interface{}, scope interface{}, filter interface{}) *MockCertificateService_ListCertificatesScoped_Call {
-	return &MockCertificateService_ListCertificatesScoped_Call{Call: _e.mock.On("ListCertificatesScoped", ctx, scope, filter)}
+func (_e *MockCertificateService_Expecter) ListCertificates(ctx interface{}, scope interface{}, filter interface{}) *MockCertificateService_ListCertificates_Call {
+	return &MockCertificateService_ListCertificates_Call{Call: _e.mock.On("ListCertificates", ctx, scope, filter)}
 }
 
-func (_c *MockCertificateService_ListCertificatesScoped_Call) Run(run func(ctx context.Context, scope model.Scope, filter repositories.CertificateFilter)) *MockCertificateService_ListCertificatesScoped_Call {
+func (_c *MockCertificateService_ListCertificates_Call) Run(run func(ctx context.Context, scope model.Scope, filter repositories.CertificateFilter)) *MockCertificateService_ListCertificates_Call {
 	_c.Call.Run(func(args mock.Arguments) {
 		run(args[0].(context.Context), args[1].(model.Scope), args[2].(repositories.CertificateFilter))
 	})
 	return _c
 }
 
-func (_c *MockCertificateService_ListCertificatesScoped_Call) Return(_a0 []model.Certificate, _a1 error) *MockCertificateService_ListCertificatesScoped_Call {
+func (_c *MockCertificateService_ListCertificates_Call) Return(_a0 []model.Certificate, _a1 error) *MockCertificateService_ListCertificates_Call {
 	_c.Call.Return(_a0, _a1)
 	return _c
 }
 
-func (_c *MockCertificateService_ListCertificatesScoped_Call) RunAndReturn(run func(context.Context, model.Scope, repositories.CertificateFilter) ([]model.Certificate, error)) *MockCertificateService_ListCertificatesScoped_Call {
+func (_c *MockCertificateService_ListCertificates_Call) RunAndReturn(run func(context.Context, model.Scope, repositories.CertificateFilter) ([]model.Certificate, error)) *MockCertificateService_ListCertificates_Call {
 	_c.Call.Return(run)
 	return _c
 }
@@ -752,53 +418,6 @@ func (_c *MockCertificateService_UpdateCertificate_Call) Return(_a0 error) *Mock
 }
 
 func (_c *MockCertificateService_UpdateCertificate_Call) RunAndReturn(run func(context.Context, certificates.UpdateCertificateRequest) error) *MockCertificateService_UpdateCertificate_Call {
-	_c.Call.Return(run)
-	return _c
-}
-
-// UpdateCertificateScoped provides a mock function with given fields: ctx, req
-func (_m *MockCertificateService) UpdateCertificateScoped(ctx context.Context, req certificates.UpdateCertificateRequest) error {
-	ret := _m.Called(ctx, req)
-
-	if len(ret) == 0 {
-		panic("no return value specified for UpdateCertificateScoped")
-	}
-
-	var r0 error
-	if rf, ok := ret.Get(0).(func(context.Context, certificates.UpdateCertificateRequest) error); ok {
-		r0 = rf(ctx, req)
-	} else {
-		r0 = ret.Error(0)
-	}
-
-	return r0
-}
-
-// MockCertificateService_UpdateCertificateScoped_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'UpdateCertificateScoped'
-type MockCertificateService_UpdateCertificateScoped_Call struct {
-	*mock.Call
-}
-
-// UpdateCertificateScoped is a helper method to define mock.On call
-//   - ctx context.Context
-//   - req certificates.UpdateCertificateRequest
-func (_e *MockCertificateService_Expecter) UpdateCertificateScoped(ctx interface{}, req interface{}) *MockCertificateService_UpdateCertificateScoped_Call {
-	return &MockCertificateService_UpdateCertificateScoped_Call{Call: _e.mock.On("UpdateCertificateScoped", ctx, req)}
-}
-
-func (_c *MockCertificateService_UpdateCertificateScoped_Call) Run(run func(ctx context.Context, req certificates.UpdateCertificateRequest)) *MockCertificateService_UpdateCertificateScoped_Call {
-	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(context.Context), args[1].(certificates.UpdateCertificateRequest))
-	})
-	return _c
-}
-
-func (_c *MockCertificateService_UpdateCertificateScoped_Call) Return(_a0 error) *MockCertificateService_UpdateCertificateScoped_Call {
-	_c.Call.Return(_a0)
-	return _c
-}
-
-func (_c *MockCertificateService_UpdateCertificateScoped_Call) RunAndReturn(run func(context.Context, certificates.UpdateCertificateRequest) error) *MockCertificateService_UpdateCertificateScoped_Call {
 	_c.Call.Return(run)
 	return _c
 }

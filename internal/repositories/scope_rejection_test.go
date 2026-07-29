@@ -52,25 +52,25 @@ func TestZeroScopeRejectedByEveryRepositoryMethod(t *testing.T) {
 		repo := newScopeTestKeyRepo(t)
 		key := seedScopeKey(t, repo, uuid.New(), uuid.New(), "zero-scope-key", model.KeyTypeRSA)
 
-		t.Run("ReadScoped", func(t *testing.T) {
-			got, err := repo.ReadScoped(ctx, key.ID, zero)
+		t.Run("Read", func(t *testing.T) {
+			got, err := repo.Read(ctx, key.ID, zero)
 			require.Error(t, err)
 			assert.ErrorIs(t, err, ErrInvalidScope)
 			assert.Nil(t, got)
 		})
-		t.Run("UpdateScoped", func(t *testing.T) {
+		t.Run("Update", func(t *testing.T) {
 			mutated := *key
 			mutated.Name = "zero-scope-write"
-			err := repo.UpdateScoped(ctx, &mutated, zero)
+			err := repo.Update(ctx, &mutated, zero)
 			require.Error(t, err)
 			assert.ErrorIs(t, err, ErrInvalidScope)
 
-			after, readErr := repo.ReadScoped(ctx, key.ID, model.NewAdminScope(uuid.Nil))
+			after, readErr := repo.Read(ctx, key.ID, model.NewAdminScope(uuid.Nil))
 			require.NoError(t, readErr)
 			assert.Equal(t, "zero-scope-key", after.Name)
 		})
-		t.Run("ListScoped", func(t *testing.T) {
-			rows, err := repo.ListScoped(ctx, zero, KeyFilter{})
+		t.Run("List", func(t *testing.T) {
+			rows, err := repo.List(ctx, zero, KeyFilter{})
 			require.Error(t, err)
 			assert.ErrorIs(t, err, ErrInvalidScope)
 			assert.Empty(t, rows)
@@ -81,25 +81,25 @@ func TestZeroScopeRejectedByEveryRepositoryMethod(t *testing.T) {
 		repo := newScopeTestCertRepo(t)
 		cert := seedScopeCert(t, repo, uuid.New(), uuid.New(), "zero-scope-cert")
 
-		t.Run("ReadScoped", func(t *testing.T) {
-			got, err := repo.ReadScoped(ctx, cert.ID, zero)
+		t.Run("Read", func(t *testing.T) {
+			got, err := repo.Read(ctx, cert.ID, zero)
 			require.Error(t, err)
 			assert.ErrorIs(t, err, ErrInvalidScope)
 			assert.Nil(t, got)
 		})
-		t.Run("UpdateScoped", func(t *testing.T) {
+		t.Run("Update", func(t *testing.T) {
 			mutated := *cert
 			mutated.Name = "zero-scope-write"
-			err := repo.UpdateScoped(ctx, &mutated, zero)
+			err := repo.Update(ctx, &mutated, zero)
 			require.Error(t, err)
 			assert.ErrorIs(t, err, ErrInvalidScope)
 
-			after, readErr := repo.ReadScoped(ctx, cert.ID, model.NewAdminScope(uuid.Nil))
+			after, readErr := repo.Read(ctx, cert.ID, model.NewAdminScope(uuid.Nil))
 			require.NoError(t, readErr)
 			assert.Equal(t, "zero-scope-cert", after.Name)
 		})
-		t.Run("ListScoped", func(t *testing.T) {
-			rows, err := repo.ListScoped(ctx, zero, CertificateFilter{})
+		t.Run("List", func(t *testing.T) {
+			rows, err := repo.List(ctx, zero, CertificateFilter{})
 			require.Error(t, err)
 			assert.ErrorIs(t, err, ErrInvalidScope)
 			assert.Empty(t, rows)

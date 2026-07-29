@@ -22,16 +22,17 @@ import (
 // KeyRepositoryInterface is a generic repository interface for key operations.
 // It provides type-safe CRUD operations for the Key type.
 type KeyRepositoryInterface interface {
-	db.Repository[model.Key]
-	// ReadScoped fetches a key authorized by scope. Canonical; Read and
-	// ReadInVault are shims over it.
-	ReadScoped(ctx context.Context, id uuid.UUID, scope model.Scope) (*model.Key, error)
-	// UpdateScoped updates a key authorized by scope. The predicate comes from
-	// the scope argument, never from the entity.
-	UpdateScoped(ctx context.Context, key *model.Key, scope model.Scope) error
-	// ListScoped lists keys authorized by scope and narrowed by filter.
-	ListScoped(ctx context.Context, scope model.Scope, filter KeyFilter) ([]model.Key, error)
-	ListByUser(ctx context.Context, userID *uuid.UUID, keyType string, tags []string) ([]model.Key, error)
+	Create(ctx context.Context, key *model.Key) error
+	// Read fetches a key authorized by scope. The scoped read is the access
+	// check: a row outside the scope is indistinguishable from a row that
+	// does not exist.
+	Read(ctx context.Context, id uuid.UUID, scope model.Scope) (*model.Key, error)
+	// Update updates a key authorized by scope. The predicate comes from the
+	// scope argument, never from the entity.
+	Update(ctx context.Context, key *model.Key, scope model.Scope) error
+	// List lists keys authorized by scope and narrowed by filter.
+	List(ctx context.Context, scope model.Scope, filter KeyFilter) ([]model.Key, error)
+	Delete(ctx context.Context, id uuid.UUID) error
 	UpdateRevocationStatus(ctx context.Context, id uuid.UUID, revoked bool) error
 	SoftDelete(ctx context.Context, id uuid.UUID) error
 	RecoverKey(ctx context.Context, id uuid.UUID) error
@@ -46,10 +47,6 @@ type KeyRepositoryInterface interface {
 	// ListVersions returns all version records for a key, ordered by version ASC.
 	// userID is used to enforce ownership before returning results.
 	ListVersions(ctx context.Context, keyID, userID uuid.UUID) ([]model.KeyVersion, error)
-	// ListInVault lists keys scoped to a vault, optionally filtered by type and tags.
-	ListInVault(ctx context.Context, vaultID uuid.UUID, keyType string, tags []string) ([]model.Key, error)
-	// ReadInVault fetches a key only when id and vaultID both match.
-	ReadInVault(ctx context.Context, id, vaultID uuid.UUID) (*model.Key, error)
 	// SoftDeleteVaultContents soft-deletes every active key in a vault.
 	SoftDeleteVaultContents(ctx context.Context, vaultID uuid.UUID, deletedAt time.Time) error
 	// RecoverVaultContents recovers only the keys the cascade soft-deleted at deletedAt.
@@ -90,9 +87,9 @@ func scanKeyRow(scan func(dest ...any) error) (model.Key, error) {
 	return key, nil
 }
 
-// ReadScoped retrieves a key by ID, authorized by scope. Tags are loaded via
+// Read retrieves a key by ID, authorized by scope. Tags are loaded via
 // TagRepository, matching the behaviour of the methods it replaces.
-func (r *KeyRepository) ReadScoped(ctx context.Context, id uuid.UUID, scope model.Scope) (*model.Key, error) {
+func (r *KeyRepository) Read(ctx context.Context, id uuid.UUID, scope model.Scope) (*model.Key, error) {
 	predicate, args, err := scopePredicate(scope)
 	if err != nil {
 		return nil, err
@@ -120,15 +117,15 @@ func (r *KeyRepository) ReadScoped(ctx context.Context, id uuid.UUID, scope mode
 	return &key, nil
 }
 
-// UpdateScoped updates a key, authorized by scope. The predicate is built from
+// Update updates a key, authorized by scope. The predicate is built from
 // the scope argument, never from the entity.
 //
 // This method does not emit audit rows: audit attribution belongs to the
 // caller (service layer), which knows the acting principal from the request.
-// UpdateKeyScoped already logs its own audit row after calling this, for
+// UpdateKey already logs its own audit row after calling this, for
 // every error path and on success — logging here too would duplicate every
 // scoped update into two audit_logs rows.
-func (r *KeyRepository) UpdateScoped(ctx context.Context, key *model.Key, scope model.Scope) error {
+func (r *KeyRepository) Update(ctx context.Context, key *model.Key, scope model.Scope) error {
 	predicate, args, err := scopePredicate(scope)
 	if err != nil {
 		return err
@@ -165,8 +162,8 @@ func (r *KeyRepository) UpdateScoped(ctx context.Context, key *model.Key, scope 
 	})
 }
 
-// ListScoped lists keys authorized by scope and narrowed by filter.
-func (r *KeyRepository) ListScoped(ctx context.Context, scope model.Scope, filter KeyFilter) ([]model.Key, error) {
+// List lists keys authorized by scope and narrowed by filter.
+func (r *KeyRepository) List(ctx context.Context, scope model.Scope, filter KeyFilter) ([]model.Key, error) {
 	predicate, args, err := scopePredicate(scope)
 	if err != nil {
 		return nil, err
@@ -344,22 +341,6 @@ func (r *KeyRepository) Create(ctx context.Context, key *model.Key) error {
 	})
 }
 
-// Read retrieves a key by ID from the database.
-// It returns the key with encrypted value - NO decryption happens here.
-//
-// Parameters:
-//   - ctx: The context for the database operation.
-//   - id: The key's unique identifier.
-//
-// Returns:
-//
-//	The key entity (with encrypted value) or an error if not found.
-//
-// Deprecated: shim over ReadScoped; removed in Phase 6.
-func (r *KeyRepository) Read(ctx context.Context, id uuid.UUID) (*model.Key, error) {
-	return r.ReadScoped(ctx, id, model.NewAdminScope(uuid.Nil))
-}
-
 // ReadDeleted retrieves a key by ID regardless of whether it has been soft-deleted.
 // This is used after SoftDelete to return deletion metadata to callers.
 // It follows the same scan pattern as Read but omits the "deleted_at IS NULL" filter.
@@ -417,28 +398,6 @@ func (r *KeyRepository) ReadDeleted(ctx context.Context, id uuid.UUID) (*model.K
 	return &key, nil
 }
 
-// Update updates a key in the database.
-// It expects the key value to be already encrypted if changed.
-// NO encryption happens here - pure data access only.
-//
-// Parameters:
-//   - ctx: The context for the database operation.
-//   - key: The key entity with updated fields (pre-encrypted value).
-//
-// Returns:
-//
-//	An error if the update fails.
-//
-// Deprecated: shim over UpdateScoped; removed in Phase 6.
-//
-// Update's shim uses an admin scope because the legacy `UPDATE keys … WHERE
-// id = ?` had no ownership predicate at all; using an owner scope here would
-// tighten behaviour mid-refactor. Ownership for the legacy path is still
-// enforced in keyService.UpdateKey (internal/services/keys/key_service.go).
-func (r *KeyRepository) Update(ctx context.Context, key *model.Key) error {
-	return r.UpdateScoped(ctx, key, model.NewAdminScope(key.UserID))
-}
-
 // Delete removes a key from the database.
 // It removes the key and its associated tags within a transaction.
 //
@@ -494,28 +453,6 @@ func (r *KeyRepository) Delete(ctx context.Context, id uuid.UUID) error {
 
 		return nil
 	})
-}
-
-// ListByUser retrieves keys for a user, optionally filtered by type and tags.
-// It returns keys with encrypted values - NO decryption happens here.
-//
-// Parameters:
-//   - ctx: The context for the database operation.
-//   - userID: The ID of the user whose keys to list (nil for all users).
-//   - keyType: The key type to filter by (empty for all types).
-//   - tags: The tags to filter by (empty for no tag filter).
-//
-// Returns:
-//
-//	A slice of keys (with encrypted values) or an error if retrieval fails.
-//
-// Deprecated: shim over ListScoped; removed in Phase 6.
-func (r *KeyRepository) ListByUser(ctx context.Context, userID *uuid.UUID, keyType string, tags []string) ([]model.Key, error) {
-	scope := model.NewAdminScope(uuid.Nil)
-	if userID != nil {
-		scope = model.NewOwnerScope(uuid.Nil, *userID)
-	}
-	return r.ListScoped(ctx, scope, KeyFilter{Type: keyType, Tags: tags})
 }
 
 // UpdateRevocationStatus updates only the revocation status of a key.
@@ -862,41 +799,6 @@ func (r *KeyRepository) ListVersions(ctx context.Context, keyID, userID uuid.UUI
 		versions = append(versions, v)
 	}
 	return versions, rows.Err()
-}
-
-// ListInVault retrieves keys for a vault, optionally filtered by type and tags.
-// It mirrors ListByUser but scopes by vault_id instead of user_id.
-//
-// Parameters:
-//   - ctx: The context for the database operation.
-//   - vaultID: The vault whose keys to list.
-//   - keyType: The key type to filter by (empty for all types).
-//   - tags: The tags to filter by (empty for no tag filter).
-//
-// Returns:
-//
-//	A slice of keys (with encrypted values) or an error if retrieval fails.
-//
-// Deprecated: shim over ListScoped; removed in Phase 6.
-func (r *KeyRepository) ListInVault(ctx context.Context, vaultID uuid.UUID, keyType string, tags []string) ([]model.Key, error) {
-	return r.ListScoped(ctx, model.NewVaultScope(vaultID, uuid.Nil), KeyFilter{Type: keyType, Tags: tags})
-}
-
-// ReadInVault retrieves a key by ID only when it belongs to the given vault.
-// It mirrors Read but adds a vault_id scope and the same deleted_at filter.
-//
-// Parameters:
-//   - ctx: The context for the database operation.
-//   - id: The key's unique identifier.
-//   - vaultID: The vault the key must belong to.
-//
-// Returns:
-//
-//	The key entity (with encrypted value) or an error if not found / access denied.
-//
-// Deprecated: shim over ReadScoped; removed in Phase 6.
-func (r *KeyRepository) ReadInVault(ctx context.Context, id, vaultID uuid.UUID) (*model.Key, error) {
-	return r.ReadScoped(ctx, id, model.NewVaultScope(vaultID, uuid.Nil))
 }
 
 // SoftDeleteVaultContents marks every active key in a vault as soft-deleted.

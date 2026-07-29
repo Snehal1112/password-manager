@@ -234,7 +234,10 @@ func (r *stubKeyRepo) Create(_ context.Context, k *model.Key) error {
 	return nil
 }
 
-func (r *stubKeyRepo) Read(_ context.Context, id uuid.UUID) (*model.Key, error) {
+// Read ignores scope: BackupKey/RestoreKey pass an admin scope (the read
+// itself is unchecked) and enforce ownership manually afterward, matching
+// item_backup.go's actual behaviour.
+func (r *stubKeyRepo) Read(_ context.Context, id uuid.UUID, _ model.Scope) (*model.Key, error) {
 	k, ok := r.keys[id]
 	if !ok {
 		return nil, fmt.Errorf("key not found")
@@ -243,7 +246,7 @@ func (r *stubKeyRepo) Read(_ context.Context, id uuid.UUID) (*model.Key, error) 
 	return &cp, nil
 }
 
-func (r *stubKeyRepo) Update(_ context.Context, k *model.Key) error {
+func (r *stubKeyRepo) Update(_ context.Context, k *model.Key, _ model.Scope) error {
 	if _, ok := r.keys[k.ID]; !ok {
 		return fmt.Errorf("key not found")
 	}
@@ -255,10 +258,6 @@ func (r *stubKeyRepo) Update(_ context.Context, k *model.Key) error {
 func (r *stubKeyRepo) Delete(_ context.Context, id uuid.UUID) error {
 	delete(r.keys, id)
 	return nil
-}
-
-func (r *stubKeyRepo) ListByUser(_ context.Context, _ *uuid.UUID, _ string, _ []string) ([]model.Key, error) {
-	return nil, nil
 }
 
 func (r *stubKeyRepo) UpdateRevocationStatus(_ context.Context, _ uuid.UUID, _ bool) error {
@@ -288,14 +287,6 @@ func (r *stubKeyRepo) ListVersions(_ context.Context, _, _ uuid.UUID) ([]model.K
 	return nil, nil
 }
 
-func (r *stubKeyRepo) ListInVault(_ context.Context, _ uuid.UUID, _ string, _ []string) ([]model.Key, error) {
-	return nil, nil
-}
-
-func (r *stubKeyRepo) ReadInVault(_ context.Context, _, _ uuid.UUID) (*model.Key, error) {
-	return nil, nil
-}
-
 func (r *stubKeyRepo) SoftDeleteVaultContents(_ context.Context, _ uuid.UUID, _ time.Time) error {
 	return nil
 }
@@ -304,15 +295,7 @@ func (r *stubKeyRepo) RecoverVaultContents(_ context.Context, _ uuid.UUID, _ tim
 	return nil
 }
 
-func (r *stubKeyRepo) ReadScoped(_ context.Context, _ uuid.UUID, _ model.Scope) (*model.Key, error) {
-	return nil, nil
-}
-
-func (r *stubKeyRepo) UpdateScoped(_ context.Context, _ *model.Key, _ model.Scope) error {
-	return nil
-}
-
-func (r *stubKeyRepo) ListScoped(_ context.Context, _ model.Scope, _ repositories.KeyFilter) ([]model.Key, error) {
+func (r *stubKeyRepo) List(_ context.Context, _ model.Scope, _ repositories.KeyFilter) ([]model.Key, error) {
 	return nil, nil
 }
 

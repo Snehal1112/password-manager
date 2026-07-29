@@ -54,20 +54,14 @@ type stubCertRepo struct {
 func (s *stubCertRepo) Create(_ context.Context, _ *model.Certificate) error {
 	panic("unexpected call: Create")
 }
-func (s *stubCertRepo) ReadScoped(_ context.Context, _ uuid.UUID, _ model.Scope) (*model.Certificate, error) {
-	panic("unexpected call: ReadScoped")
-}
-func (s *stubCertRepo) UpdateScoped(_ context.Context, _ *model.Certificate, _ model.Scope) error {
-	panic("unexpected call: UpdateScoped")
-}
-func (s *stubCertRepo) ListScoped(_ context.Context, _ model.Scope, _ repositories.CertificateFilter) ([]model.Certificate, error) {
-	panic("unexpected call: ListScoped")
-}
-func (s *stubCertRepo) Read(_ context.Context, _ uuid.UUID) (*model.Certificate, error) {
+func (s *stubCertRepo) Read(_ context.Context, _ uuid.UUID, _ model.Scope) (*model.Certificate, error) {
 	panic("unexpected call: Read")
 }
-func (s *stubCertRepo) Update(_ context.Context, _ *model.Certificate) error {
+func (s *stubCertRepo) Update(_ context.Context, _ *model.Certificate, _ model.Scope) error {
 	panic("unexpected call: Update")
+}
+func (s *stubCertRepo) List(_ context.Context, _ model.Scope, _ repositories.CertificateFilter) ([]model.Certificate, error) {
+	panic("unexpected call: List")
 }
 func (s *stubCertRepo) Delete(_ context.Context, _ uuid.UUID) error {
 	panic("unexpected call: Delete")
@@ -87,9 +81,6 @@ func (s *stubCertRepo) PurgeCertificate(_ context.Context, _ uuid.UUID) error {
 func (s *stubCertRepo) SetPurgeProtection(_ context.Context, _ uuid.UUID, _ bool) error {
 	panic("unexpected call: SetPurgeProtection")
 }
-func (s *stubCertRepo) ListByUser(_ context.Context, _ uuid.UUID, _ []string) ([]model.Certificate, error) {
-	panic("unexpected call: ListByUser")
-}
 func (s *stubCertRepo) ListRevoked(_ context.Context, _ uuid.UUID) ([]model.RevokedCertificate, error) {
 	panic("unexpected call: ListRevoked")
 }
@@ -98,12 +89,6 @@ func (s *stubCertRepo) ListSoftDeleted(_ context.Context, _ uuid.UUID) ([]*model
 }
 func (s *stubCertRepo) ListAll(_ context.Context) ([]model.Certificate, error) {
 	panic("unexpected call: ListAll")
-}
-func (s *stubCertRepo) ListInVault(_ context.Context, _ uuid.UUID, _ []string) ([]model.Certificate, error) {
-	panic("unexpected call: ListInVault")
-}
-func (s *stubCertRepo) ReadInVault(_ context.Context, _, _ uuid.UUID) (*model.Certificate, error) {
-	panic("unexpected call: ReadInVault")
 }
 func (s *stubCertRepo) SoftDeleteVaultContents(_ context.Context, _ uuid.UUID, _ time.Time) error {
 	panic("unexpected call: SoftDeleteVaultContents")

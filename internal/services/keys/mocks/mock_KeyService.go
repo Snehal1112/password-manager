@@ -146,9 +146,9 @@ func (_c *MockKeyService_CreateRSAKey_Call) RunAndReturn(run func(context.Contex
 	return _c
 }
 
-// DeleteKey provides a mock function with given fields: ctx, keyID, userID
-func (_m *MockKeyService) DeleteKey(ctx context.Context, keyID uuid.UUID, userID uuid.UUID) (*model.Key, error) {
-	ret := _m.Called(ctx, keyID, userID)
+// DeleteKey provides a mock function with given fields: ctx, keyID, scope
+func (_m *MockKeyService) DeleteKey(ctx context.Context, keyID uuid.UUID, scope model.Scope) (*model.Key, error) {
+	ret := _m.Called(ctx, keyID, scope)
 
 	if len(ret) == 0 {
 		panic("no return value specified for DeleteKey")
@@ -156,19 +156,19 @@ func (_m *MockKeyService) DeleteKey(ctx context.Context, keyID uuid.UUID, userID
 
 	var r0 *model.Key
 	var r1 error
-	if rf, ok := ret.Get(0).(func(context.Context, uuid.UUID, uuid.UUID) (*model.Key, error)); ok {
-		return rf(ctx, keyID, userID)
+	if rf, ok := ret.Get(0).(func(context.Context, uuid.UUID, model.Scope) (*model.Key, error)); ok {
+		return rf(ctx, keyID, scope)
 	}
-	if rf, ok := ret.Get(0).(func(context.Context, uuid.UUID, uuid.UUID) *model.Key); ok {
-		r0 = rf(ctx, keyID, userID)
+	if rf, ok := ret.Get(0).(func(context.Context, uuid.UUID, model.Scope) *model.Key); ok {
+		r0 = rf(ctx, keyID, scope)
 	} else {
 		if ret.Get(0) != nil {
 			r0 = ret.Get(0).(*model.Key)
 		}
 	}
 
-	if rf, ok := ret.Get(1).(func(context.Context, uuid.UUID, uuid.UUID) error); ok {
-		r1 = rf(ctx, keyID, userID)
+	if rf, ok := ret.Get(1).(func(context.Context, uuid.UUID, model.Scope) error); ok {
+		r1 = rf(ctx, keyID, scope)
 	} else {
 		r1 = ret.Error(1)
 	}
@@ -184,14 +184,14 @@ type MockKeyService_DeleteKey_Call struct {
 // DeleteKey is a helper method to define mock.On call
 //   - ctx context.Context
 //   - keyID uuid.UUID
-//   - userID uuid.UUID
-func (_e *MockKeyService_Expecter) DeleteKey(ctx interface{}, keyID interface{}, userID interface{}) *MockKeyService_DeleteKey_Call {
-	return &MockKeyService_DeleteKey_Call{Call: _e.mock.On("DeleteKey", ctx, keyID, userID)}
+//   - scope model.Scope
+func (_e *MockKeyService_Expecter) DeleteKey(ctx interface{}, keyID interface{}, scope interface{}) *MockKeyService_DeleteKey_Call {
+	return &MockKeyService_DeleteKey_Call{Call: _e.mock.On("DeleteKey", ctx, keyID, scope)}
 }
 
-func (_c *MockKeyService_DeleteKey_Call) Run(run func(ctx context.Context, keyID uuid.UUID, userID uuid.UUID)) *MockKeyService_DeleteKey_Call {
+func (_c *MockKeyService_DeleteKey_Call) Run(run func(ctx context.Context, keyID uuid.UUID, scope model.Scope)) *MockKeyService_DeleteKey_Call {
 	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(context.Context), args[1].(uuid.UUID), args[2].(uuid.UUID))
+		run(args[0].(context.Context), args[1].(uuid.UUID), args[2].(model.Scope))
 	})
 	return _c
 }
@@ -201,78 +201,17 @@ func (_c *MockKeyService_DeleteKey_Call) Return(_a0 *model.Key, _a1 error) *Mock
 	return _c
 }
 
-func (_c *MockKeyService_DeleteKey_Call) RunAndReturn(run func(context.Context, uuid.UUID, uuid.UUID) (*model.Key, error)) *MockKeyService_DeleteKey_Call {
+func (_c *MockKeyService_DeleteKey_Call) RunAndReturn(run func(context.Context, uuid.UUID, model.Scope) (*model.Key, error)) *MockKeyService_DeleteKey_Call {
 	_c.Call.Return(run)
 	return _c
 }
 
-// DeleteKeyInVault provides a mock function with given fields: ctx, keyID, vaultID, userID
-func (_m *MockKeyService) DeleteKeyInVault(ctx context.Context, keyID uuid.UUID, vaultID uuid.UUID, userID uuid.UUID) (*model.Key, error) {
-	ret := _m.Called(ctx, keyID, vaultID, userID)
-
-	if len(ret) == 0 {
-		panic("no return value specified for DeleteKeyInVault")
-	}
-
-	var r0 *model.Key
-	var r1 error
-	if rf, ok := ret.Get(0).(func(context.Context, uuid.UUID, uuid.UUID, uuid.UUID) (*model.Key, error)); ok {
-		return rf(ctx, keyID, vaultID, userID)
-	}
-	if rf, ok := ret.Get(0).(func(context.Context, uuid.UUID, uuid.UUID, uuid.UUID) *model.Key); ok {
-		r0 = rf(ctx, keyID, vaultID, userID)
-	} else {
-		if ret.Get(0) != nil {
-			r0 = ret.Get(0).(*model.Key)
-		}
-	}
-
-	if rf, ok := ret.Get(1).(func(context.Context, uuid.UUID, uuid.UUID, uuid.UUID) error); ok {
-		r1 = rf(ctx, keyID, vaultID, userID)
-	} else {
-		r1 = ret.Error(1)
-	}
-
-	return r0, r1
-}
-
-// MockKeyService_DeleteKeyInVault_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'DeleteKeyInVault'
-type MockKeyService_DeleteKeyInVault_Call struct {
-	*mock.Call
-}
-
-// DeleteKeyInVault is a helper method to define mock.On call
-//   - ctx context.Context
-//   - keyID uuid.UUID
-//   - vaultID uuid.UUID
-//   - userID uuid.UUID
-func (_e *MockKeyService_Expecter) DeleteKeyInVault(ctx interface{}, keyID interface{}, vaultID interface{}, userID interface{}) *MockKeyService_DeleteKeyInVault_Call {
-	return &MockKeyService_DeleteKeyInVault_Call{Call: _e.mock.On("DeleteKeyInVault", ctx, keyID, vaultID, userID)}
-}
-
-func (_c *MockKeyService_DeleteKeyInVault_Call) Run(run func(ctx context.Context, keyID uuid.UUID, vaultID uuid.UUID, userID uuid.UUID)) *MockKeyService_DeleteKeyInVault_Call {
-	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(context.Context), args[1].(uuid.UUID), args[2].(uuid.UUID), args[3].(uuid.UUID))
-	})
-	return _c
-}
-
-func (_c *MockKeyService_DeleteKeyInVault_Call) Return(_a0 *model.Key, _a1 error) *MockKeyService_DeleteKeyInVault_Call {
-	_c.Call.Return(_a0, _a1)
-	return _c
-}
-
-func (_c *MockKeyService_DeleteKeyInVault_Call) RunAndReturn(run func(context.Context, uuid.UUID, uuid.UUID, uuid.UUID) (*model.Key, error)) *MockKeyService_DeleteKeyInVault_Call {
-	_c.Call.Return(run)
-	return _c
-}
-
-// DeleteKeyScoped provides a mock function with given fields: ctx, keyID, scope
-func (_m *MockKeyService) DeleteKeyScoped(ctx context.Context, keyID uuid.UUID, scope model.Scope) (*model.Key, error) {
+// GetKey provides a mock function with given fields: ctx, keyID, scope
+func (_m *MockKeyService) GetKey(ctx context.Context, keyID uuid.UUID, scope model.Scope) (*model.Key, error) {
 	ret := _m.Called(ctx, keyID, scope)
 
 	if len(ret) == 0 {
-		panic("no return value specified for DeleteKeyScoped")
+		panic("no return value specified for GetKey")
 	}
 
 	var r0 *model.Key
@@ -290,66 +229,6 @@ func (_m *MockKeyService) DeleteKeyScoped(ctx context.Context, keyID uuid.UUID, 
 
 	if rf, ok := ret.Get(1).(func(context.Context, uuid.UUID, model.Scope) error); ok {
 		r1 = rf(ctx, keyID, scope)
-	} else {
-		r1 = ret.Error(1)
-	}
-
-	return r0, r1
-}
-
-// MockKeyService_DeleteKeyScoped_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'DeleteKeyScoped'
-type MockKeyService_DeleteKeyScoped_Call struct {
-	*mock.Call
-}
-
-// DeleteKeyScoped is a helper method to define mock.On call
-//   - ctx context.Context
-//   - keyID uuid.UUID
-//   - scope model.Scope
-func (_e *MockKeyService_Expecter) DeleteKeyScoped(ctx interface{}, keyID interface{}, scope interface{}) *MockKeyService_DeleteKeyScoped_Call {
-	return &MockKeyService_DeleteKeyScoped_Call{Call: _e.mock.On("DeleteKeyScoped", ctx, keyID, scope)}
-}
-
-func (_c *MockKeyService_DeleteKeyScoped_Call) Run(run func(ctx context.Context, keyID uuid.UUID, scope model.Scope)) *MockKeyService_DeleteKeyScoped_Call {
-	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(context.Context), args[1].(uuid.UUID), args[2].(model.Scope))
-	})
-	return _c
-}
-
-func (_c *MockKeyService_DeleteKeyScoped_Call) Return(_a0 *model.Key, _a1 error) *MockKeyService_DeleteKeyScoped_Call {
-	_c.Call.Return(_a0, _a1)
-	return _c
-}
-
-func (_c *MockKeyService_DeleteKeyScoped_Call) RunAndReturn(run func(context.Context, uuid.UUID, model.Scope) (*model.Key, error)) *MockKeyService_DeleteKeyScoped_Call {
-	_c.Call.Return(run)
-	return _c
-}
-
-// GetKey provides a mock function with given fields: ctx, keyID, userID
-func (_m *MockKeyService) GetKey(ctx context.Context, keyID uuid.UUID, userID uuid.UUID) (*model.Key, error) {
-	ret := _m.Called(ctx, keyID, userID)
-
-	if len(ret) == 0 {
-		panic("no return value specified for GetKey")
-	}
-
-	var r0 *model.Key
-	var r1 error
-	if rf, ok := ret.Get(0).(func(context.Context, uuid.UUID, uuid.UUID) (*model.Key, error)); ok {
-		return rf(ctx, keyID, userID)
-	}
-	if rf, ok := ret.Get(0).(func(context.Context, uuid.UUID, uuid.UUID) *model.Key); ok {
-		r0 = rf(ctx, keyID, userID)
-	} else {
-		if ret.Get(0) != nil {
-			r0 = ret.Get(0).(*model.Key)
-		}
-	}
-
-	if rf, ok := ret.Get(1).(func(context.Context, uuid.UUID, uuid.UUID) error); ok {
-		r1 = rf(ctx, keyID, userID)
 	} else {
 		r1 = ret.Error(1)
 	}
@@ -365,14 +244,14 @@ type MockKeyService_GetKey_Call struct {
 // GetKey is a helper method to define mock.On call
 //   - ctx context.Context
 //   - keyID uuid.UUID
-//   - userID uuid.UUID
-func (_e *MockKeyService_Expecter) GetKey(ctx interface{}, keyID interface{}, userID interface{}) *MockKeyService_GetKey_Call {
-	return &MockKeyService_GetKey_Call{Call: _e.mock.On("GetKey", ctx, keyID, userID)}
+//   - scope model.Scope
+func (_e *MockKeyService_Expecter) GetKey(ctx interface{}, keyID interface{}, scope interface{}) *MockKeyService_GetKey_Call {
+	return &MockKeyService_GetKey_Call{Call: _e.mock.On("GetKey", ctx, keyID, scope)}
 }
 
-func (_c *MockKeyService_GetKey_Call) Run(run func(ctx context.Context, keyID uuid.UUID, userID uuid.UUID)) *MockKeyService_GetKey_Call {
+func (_c *MockKeyService_GetKey_Call) Run(run func(ctx context.Context, keyID uuid.UUID, scope model.Scope)) *MockKeyService_GetKey_Call {
 	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(context.Context), args[1].(uuid.UUID), args[2].(uuid.UUID))
+		run(args[0].(context.Context), args[1].(uuid.UUID), args[2].(model.Scope))
 	})
 	return _c
 }
@@ -382,257 +261,17 @@ func (_c *MockKeyService_GetKey_Call) Return(_a0 *model.Key, _a1 error) *MockKey
 	return _c
 }
 
-func (_c *MockKeyService_GetKey_Call) RunAndReturn(run func(context.Context, uuid.UUID, uuid.UUID) (*model.Key, error)) *MockKeyService_GetKey_Call {
+func (_c *MockKeyService_GetKey_Call) RunAndReturn(run func(context.Context, uuid.UUID, model.Scope) (*model.Key, error)) *MockKeyService_GetKey_Call {
 	_c.Call.Return(run)
 	return _c
 }
 
-// GetKeyInVault provides a mock function with given fields: ctx, keyID, vaultID
-func (_m *MockKeyService) GetKeyInVault(ctx context.Context, keyID uuid.UUID, vaultID uuid.UUID) (*model.Key, error) {
-	ret := _m.Called(ctx, keyID, vaultID)
-
-	if len(ret) == 0 {
-		panic("no return value specified for GetKeyInVault")
-	}
-
-	var r0 *model.Key
-	var r1 error
-	if rf, ok := ret.Get(0).(func(context.Context, uuid.UUID, uuid.UUID) (*model.Key, error)); ok {
-		return rf(ctx, keyID, vaultID)
-	}
-	if rf, ok := ret.Get(0).(func(context.Context, uuid.UUID, uuid.UUID) *model.Key); ok {
-		r0 = rf(ctx, keyID, vaultID)
-	} else {
-		if ret.Get(0) != nil {
-			r0 = ret.Get(0).(*model.Key)
-		}
-	}
-
-	if rf, ok := ret.Get(1).(func(context.Context, uuid.UUID, uuid.UUID) error); ok {
-		r1 = rf(ctx, keyID, vaultID)
-	} else {
-		r1 = ret.Error(1)
-	}
-
-	return r0, r1
-}
-
-// MockKeyService_GetKeyInVault_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'GetKeyInVault'
-type MockKeyService_GetKeyInVault_Call struct {
-	*mock.Call
-}
-
-// GetKeyInVault is a helper method to define mock.On call
-//   - ctx context.Context
-//   - keyID uuid.UUID
-//   - vaultID uuid.UUID
-func (_e *MockKeyService_Expecter) GetKeyInVault(ctx interface{}, keyID interface{}, vaultID interface{}) *MockKeyService_GetKeyInVault_Call {
-	return &MockKeyService_GetKeyInVault_Call{Call: _e.mock.On("GetKeyInVault", ctx, keyID, vaultID)}
-}
-
-func (_c *MockKeyService_GetKeyInVault_Call) Run(run func(ctx context.Context, keyID uuid.UUID, vaultID uuid.UUID)) *MockKeyService_GetKeyInVault_Call {
-	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(context.Context), args[1].(uuid.UUID), args[2].(uuid.UUID))
-	})
-	return _c
-}
-
-func (_c *MockKeyService_GetKeyInVault_Call) Return(_a0 *model.Key, _a1 error) *MockKeyService_GetKeyInVault_Call {
-	_c.Call.Return(_a0, _a1)
-	return _c
-}
-
-func (_c *MockKeyService_GetKeyInVault_Call) RunAndReturn(run func(context.Context, uuid.UUID, uuid.UUID) (*model.Key, error)) *MockKeyService_GetKeyInVault_Call {
-	_c.Call.Return(run)
-	return _c
-}
-
-// GetKeyScoped provides a mock function with given fields: ctx, keyID, scope
-func (_m *MockKeyService) GetKeyScoped(ctx context.Context, keyID uuid.UUID, scope model.Scope) (*model.Key, error) {
-	ret := _m.Called(ctx, keyID, scope)
-
-	if len(ret) == 0 {
-		panic("no return value specified for GetKeyScoped")
-	}
-
-	var r0 *model.Key
-	var r1 error
-	if rf, ok := ret.Get(0).(func(context.Context, uuid.UUID, model.Scope) (*model.Key, error)); ok {
-		return rf(ctx, keyID, scope)
-	}
-	if rf, ok := ret.Get(0).(func(context.Context, uuid.UUID, model.Scope) *model.Key); ok {
-		r0 = rf(ctx, keyID, scope)
-	} else {
-		if ret.Get(0) != nil {
-			r0 = ret.Get(0).(*model.Key)
-		}
-	}
-
-	if rf, ok := ret.Get(1).(func(context.Context, uuid.UUID, model.Scope) error); ok {
-		r1 = rf(ctx, keyID, scope)
-	} else {
-		r1 = ret.Error(1)
-	}
-
-	return r0, r1
-}
-
-// MockKeyService_GetKeyScoped_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'GetKeyScoped'
-type MockKeyService_GetKeyScoped_Call struct {
-	*mock.Call
-}
-
-// GetKeyScoped is a helper method to define mock.On call
-//   - ctx context.Context
-//   - keyID uuid.UUID
-//   - scope model.Scope
-func (_e *MockKeyService_Expecter) GetKeyScoped(ctx interface{}, keyID interface{}, scope interface{}) *MockKeyService_GetKeyScoped_Call {
-	return &MockKeyService_GetKeyScoped_Call{Call: _e.mock.On("GetKeyScoped", ctx, keyID, scope)}
-}
-
-func (_c *MockKeyService_GetKeyScoped_Call) Run(run func(ctx context.Context, keyID uuid.UUID, scope model.Scope)) *MockKeyService_GetKeyScoped_Call {
-	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(context.Context), args[1].(uuid.UUID), args[2].(model.Scope))
-	})
-	return _c
-}
-
-func (_c *MockKeyService_GetKeyScoped_Call) Return(_a0 *model.Key, _a1 error) *MockKeyService_GetKeyScoped_Call {
-	_c.Call.Return(_a0, _a1)
-	return _c
-}
-
-func (_c *MockKeyService_GetKeyScoped_Call) RunAndReturn(run func(context.Context, uuid.UUID, model.Scope) (*model.Key, error)) *MockKeyService_GetKeyScoped_Call {
-	_c.Call.Return(run)
-	return _c
-}
-
-// ListKeys provides a mock function with given fields: ctx, userID
-func (_m *MockKeyService) ListKeys(ctx context.Context, userID uuid.UUID) ([]model.Key, error) {
-	ret := _m.Called(ctx, userID)
-
-	if len(ret) == 0 {
-		panic("no return value specified for ListKeys")
-	}
-
-	var r0 []model.Key
-	var r1 error
-	if rf, ok := ret.Get(0).(func(context.Context, uuid.UUID) ([]model.Key, error)); ok {
-		return rf(ctx, userID)
-	}
-	if rf, ok := ret.Get(0).(func(context.Context, uuid.UUID) []model.Key); ok {
-		r0 = rf(ctx, userID)
-	} else {
-		if ret.Get(0) != nil {
-			r0 = ret.Get(0).([]model.Key)
-		}
-	}
-
-	if rf, ok := ret.Get(1).(func(context.Context, uuid.UUID) error); ok {
-		r1 = rf(ctx, userID)
-	} else {
-		r1 = ret.Error(1)
-	}
-
-	return r0, r1
-}
-
-// MockKeyService_ListKeys_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'ListKeys'
-type MockKeyService_ListKeys_Call struct {
-	*mock.Call
-}
-
-// ListKeys is a helper method to define mock.On call
-//   - ctx context.Context
-//   - userID uuid.UUID
-func (_e *MockKeyService_Expecter) ListKeys(ctx interface{}, userID interface{}) *MockKeyService_ListKeys_Call {
-	return &MockKeyService_ListKeys_Call{Call: _e.mock.On("ListKeys", ctx, userID)}
-}
-
-func (_c *MockKeyService_ListKeys_Call) Run(run func(ctx context.Context, userID uuid.UUID)) *MockKeyService_ListKeys_Call {
-	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(context.Context), args[1].(uuid.UUID))
-	})
-	return _c
-}
-
-func (_c *MockKeyService_ListKeys_Call) Return(_a0 []model.Key, _a1 error) *MockKeyService_ListKeys_Call {
-	_c.Call.Return(_a0, _a1)
-	return _c
-}
-
-func (_c *MockKeyService_ListKeys_Call) RunAndReturn(run func(context.Context, uuid.UUID) ([]model.Key, error)) *MockKeyService_ListKeys_Call {
-	_c.Call.Return(run)
-	return _c
-}
-
-// ListKeysInVault provides a mock function with given fields: ctx, vaultID, keyType, tags
-func (_m *MockKeyService) ListKeysInVault(ctx context.Context, vaultID uuid.UUID, keyType string, tags []string) ([]model.Key, error) {
-	ret := _m.Called(ctx, vaultID, keyType, tags)
-
-	if len(ret) == 0 {
-		panic("no return value specified for ListKeysInVault")
-	}
-
-	var r0 []model.Key
-	var r1 error
-	if rf, ok := ret.Get(0).(func(context.Context, uuid.UUID, string, []string) ([]model.Key, error)); ok {
-		return rf(ctx, vaultID, keyType, tags)
-	}
-	if rf, ok := ret.Get(0).(func(context.Context, uuid.UUID, string, []string) []model.Key); ok {
-		r0 = rf(ctx, vaultID, keyType, tags)
-	} else {
-		if ret.Get(0) != nil {
-			r0 = ret.Get(0).([]model.Key)
-		}
-	}
-
-	if rf, ok := ret.Get(1).(func(context.Context, uuid.UUID, string, []string) error); ok {
-		r1 = rf(ctx, vaultID, keyType, tags)
-	} else {
-		r1 = ret.Error(1)
-	}
-
-	return r0, r1
-}
-
-// MockKeyService_ListKeysInVault_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'ListKeysInVault'
-type MockKeyService_ListKeysInVault_Call struct {
-	*mock.Call
-}
-
-// ListKeysInVault is a helper method to define mock.On call
-//   - ctx context.Context
-//   - vaultID uuid.UUID
-//   - keyType string
-//   - tags []string
-func (_e *MockKeyService_Expecter) ListKeysInVault(ctx interface{}, vaultID interface{}, keyType interface{}, tags interface{}) *MockKeyService_ListKeysInVault_Call {
-	return &MockKeyService_ListKeysInVault_Call{Call: _e.mock.On("ListKeysInVault", ctx, vaultID, keyType, tags)}
-}
-
-func (_c *MockKeyService_ListKeysInVault_Call) Run(run func(ctx context.Context, vaultID uuid.UUID, keyType string, tags []string)) *MockKeyService_ListKeysInVault_Call {
-	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(context.Context), args[1].(uuid.UUID), args[2].(string), args[3].([]string))
-	})
-	return _c
-}
-
-func (_c *MockKeyService_ListKeysInVault_Call) Return(_a0 []model.Key, _a1 error) *MockKeyService_ListKeysInVault_Call {
-	_c.Call.Return(_a0, _a1)
-	return _c
-}
-
-func (_c *MockKeyService_ListKeysInVault_Call) RunAndReturn(run func(context.Context, uuid.UUID, string, []string) ([]model.Key, error)) *MockKeyService_ListKeysInVault_Call {
-	_c.Call.Return(run)
-	return _c
-}
-
-// ListKeysScoped provides a mock function with given fields: ctx, scope, filter
-func (_m *MockKeyService) ListKeysScoped(ctx context.Context, scope model.Scope, filter repositories.KeyFilter) ([]model.Key, error) {
+// ListKeys provides a mock function with given fields: ctx, scope, filter
+func (_m *MockKeyService) ListKeys(ctx context.Context, scope model.Scope, filter repositories.KeyFilter) ([]model.Key, error) {
 	ret := _m.Called(ctx, scope, filter)
 
 	if len(ret) == 0 {
-		panic("no return value specified for ListKeysScoped")
+		panic("no return value specified for ListKeys")
 	}
 
 	var r0 []model.Key
@@ -657,94 +296,32 @@ func (_m *MockKeyService) ListKeysScoped(ctx context.Context, scope model.Scope,
 	return r0, r1
 }
 
-// MockKeyService_ListKeysScoped_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'ListKeysScoped'
-type MockKeyService_ListKeysScoped_Call struct {
+// MockKeyService_ListKeys_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'ListKeys'
+type MockKeyService_ListKeys_Call struct {
 	*mock.Call
 }
 
-// ListKeysScoped is a helper method to define mock.On call
+// ListKeys is a helper method to define mock.On call
 //   - ctx context.Context
 //   - scope model.Scope
 //   - filter repositories.KeyFilter
-func (_e *MockKeyService_Expecter) ListKeysScoped(ctx interface{}, scope interface{}, filter interface{}) *MockKeyService_ListKeysScoped_Call {
-	return &MockKeyService_ListKeysScoped_Call{Call: _e.mock.On("ListKeysScoped", ctx, scope, filter)}
+func (_e *MockKeyService_Expecter) ListKeys(ctx interface{}, scope interface{}, filter interface{}) *MockKeyService_ListKeys_Call {
+	return &MockKeyService_ListKeys_Call{Call: _e.mock.On("ListKeys", ctx, scope, filter)}
 }
 
-func (_c *MockKeyService_ListKeysScoped_Call) Run(run func(ctx context.Context, scope model.Scope, filter repositories.KeyFilter)) *MockKeyService_ListKeysScoped_Call {
+func (_c *MockKeyService_ListKeys_Call) Run(run func(ctx context.Context, scope model.Scope, filter repositories.KeyFilter)) *MockKeyService_ListKeys_Call {
 	_c.Call.Run(func(args mock.Arguments) {
 		run(args[0].(context.Context), args[1].(model.Scope), args[2].(repositories.KeyFilter))
 	})
 	return _c
 }
 
-func (_c *MockKeyService_ListKeysScoped_Call) Return(_a0 []model.Key, _a1 error) *MockKeyService_ListKeysScoped_Call {
+func (_c *MockKeyService_ListKeys_Call) Return(_a0 []model.Key, _a1 error) *MockKeyService_ListKeys_Call {
 	_c.Call.Return(_a0, _a1)
 	return _c
 }
 
-func (_c *MockKeyService_ListKeysScoped_Call) RunAndReturn(run func(context.Context, model.Scope, repositories.KeyFilter) ([]model.Key, error)) *MockKeyService_ListKeysScoped_Call {
-	_c.Call.Return(run)
-	return _c
-}
-
-// ListKeysWithFilters provides a mock function with given fields: ctx, userID, keyType, tags, isAdmin
-func (_m *MockKeyService) ListKeysWithFilters(ctx context.Context, userID *uuid.UUID, keyType string, tags []string, isAdmin bool) ([]model.Key, error) {
-	ret := _m.Called(ctx, userID, keyType, tags, isAdmin)
-
-	if len(ret) == 0 {
-		panic("no return value specified for ListKeysWithFilters")
-	}
-
-	var r0 []model.Key
-	var r1 error
-	if rf, ok := ret.Get(0).(func(context.Context, *uuid.UUID, string, []string, bool) ([]model.Key, error)); ok {
-		return rf(ctx, userID, keyType, tags, isAdmin)
-	}
-	if rf, ok := ret.Get(0).(func(context.Context, *uuid.UUID, string, []string, bool) []model.Key); ok {
-		r0 = rf(ctx, userID, keyType, tags, isAdmin)
-	} else {
-		if ret.Get(0) != nil {
-			r0 = ret.Get(0).([]model.Key)
-		}
-	}
-
-	if rf, ok := ret.Get(1).(func(context.Context, *uuid.UUID, string, []string, bool) error); ok {
-		r1 = rf(ctx, userID, keyType, tags, isAdmin)
-	} else {
-		r1 = ret.Error(1)
-	}
-
-	return r0, r1
-}
-
-// MockKeyService_ListKeysWithFilters_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'ListKeysWithFilters'
-type MockKeyService_ListKeysWithFilters_Call struct {
-	*mock.Call
-}
-
-// ListKeysWithFilters is a helper method to define mock.On call
-//   - ctx context.Context
-//   - userID *uuid.UUID
-//   - keyType string
-//   - tags []string
-//   - isAdmin bool
-func (_e *MockKeyService_Expecter) ListKeysWithFilters(ctx interface{}, userID interface{}, keyType interface{}, tags interface{}, isAdmin interface{}) *MockKeyService_ListKeysWithFilters_Call {
-	return &MockKeyService_ListKeysWithFilters_Call{Call: _e.mock.On("ListKeysWithFilters", ctx, userID, keyType, tags, isAdmin)}
-}
-
-func (_c *MockKeyService_ListKeysWithFilters_Call) Run(run func(ctx context.Context, userID *uuid.UUID, keyType string, tags []string, isAdmin bool)) *MockKeyService_ListKeysWithFilters_Call {
-	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(context.Context), args[1].(*uuid.UUID), args[2].(string), args[3].([]string), args[4].(bool))
-	})
-	return _c
-}
-
-func (_c *MockKeyService_ListKeysWithFilters_Call) Return(_a0 []model.Key, _a1 error) *MockKeyService_ListKeysWithFilters_Call {
-	_c.Call.Return(_a0, _a1)
-	return _c
-}
-
-func (_c *MockKeyService_ListKeysWithFilters_Call) RunAndReturn(run func(context.Context, *uuid.UUID, string, []string, bool) ([]model.Key, error)) *MockKeyService_ListKeysWithFilters_Call {
+func (_c *MockKeyService_ListKeys_Call) RunAndReturn(run func(context.Context, model.Scope, repositories.KeyFilter) ([]model.Key, error)) *MockKeyService_ListKeys_Call {
 	_c.Call.Return(run)
 	return _c
 }
@@ -852,100 +429,6 @@ func (_c *MockKeyService_UpdateKey_Call) Return(_a0 error) *MockKeyService_Updat
 }
 
 func (_c *MockKeyService_UpdateKey_Call) RunAndReturn(run func(context.Context, keys.UpdateKeyRequest) error) *MockKeyService_UpdateKey_Call {
-	_c.Call.Return(run)
-	return _c
-}
-
-// UpdateKeyInVault provides a mock function with given fields: ctx, req
-func (_m *MockKeyService) UpdateKeyInVault(ctx context.Context, req keys.UpdateKeyRequest) error {
-	ret := _m.Called(ctx, req)
-
-	if len(ret) == 0 {
-		panic("no return value specified for UpdateKeyInVault")
-	}
-
-	var r0 error
-	if rf, ok := ret.Get(0).(func(context.Context, keys.UpdateKeyRequest) error); ok {
-		r0 = rf(ctx, req)
-	} else {
-		r0 = ret.Error(0)
-	}
-
-	return r0
-}
-
-// MockKeyService_UpdateKeyInVault_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'UpdateKeyInVault'
-type MockKeyService_UpdateKeyInVault_Call struct {
-	*mock.Call
-}
-
-// UpdateKeyInVault is a helper method to define mock.On call
-//   - ctx context.Context
-//   - req keys.UpdateKeyRequest
-func (_e *MockKeyService_Expecter) UpdateKeyInVault(ctx interface{}, req interface{}) *MockKeyService_UpdateKeyInVault_Call {
-	return &MockKeyService_UpdateKeyInVault_Call{Call: _e.mock.On("UpdateKeyInVault", ctx, req)}
-}
-
-func (_c *MockKeyService_UpdateKeyInVault_Call) Run(run func(ctx context.Context, req keys.UpdateKeyRequest)) *MockKeyService_UpdateKeyInVault_Call {
-	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(context.Context), args[1].(keys.UpdateKeyRequest))
-	})
-	return _c
-}
-
-func (_c *MockKeyService_UpdateKeyInVault_Call) Return(_a0 error) *MockKeyService_UpdateKeyInVault_Call {
-	_c.Call.Return(_a0)
-	return _c
-}
-
-func (_c *MockKeyService_UpdateKeyInVault_Call) RunAndReturn(run func(context.Context, keys.UpdateKeyRequest) error) *MockKeyService_UpdateKeyInVault_Call {
-	_c.Call.Return(run)
-	return _c
-}
-
-// UpdateKeyScoped provides a mock function with given fields: ctx, req
-func (_m *MockKeyService) UpdateKeyScoped(ctx context.Context, req keys.UpdateKeyRequest) error {
-	ret := _m.Called(ctx, req)
-
-	if len(ret) == 0 {
-		panic("no return value specified for UpdateKeyScoped")
-	}
-
-	var r0 error
-	if rf, ok := ret.Get(0).(func(context.Context, keys.UpdateKeyRequest) error); ok {
-		r0 = rf(ctx, req)
-	} else {
-		r0 = ret.Error(0)
-	}
-
-	return r0
-}
-
-// MockKeyService_UpdateKeyScoped_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'UpdateKeyScoped'
-type MockKeyService_UpdateKeyScoped_Call struct {
-	*mock.Call
-}
-
-// UpdateKeyScoped is a helper method to define mock.On call
-//   - ctx context.Context
-//   - req keys.UpdateKeyRequest
-func (_e *MockKeyService_Expecter) UpdateKeyScoped(ctx interface{}, req interface{}) *MockKeyService_UpdateKeyScoped_Call {
-	return &MockKeyService_UpdateKeyScoped_Call{Call: _e.mock.On("UpdateKeyScoped", ctx, req)}
-}
-
-func (_c *MockKeyService_UpdateKeyScoped_Call) Run(run func(ctx context.Context, req keys.UpdateKeyRequest)) *MockKeyService_UpdateKeyScoped_Call {
-	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(context.Context), args[1].(keys.UpdateKeyRequest))
-	})
-	return _c
-}
-
-func (_c *MockKeyService_UpdateKeyScoped_Call) Return(_a0 error) *MockKeyService_UpdateKeyScoped_Call {
-	_c.Call.Return(_a0)
-	return _c
-}
-
-func (_c *MockKeyService_UpdateKeyScoped_Call) RunAndReturn(run func(context.Context, keys.UpdateKeyRequest) error) *MockKeyService_UpdateKeyScoped_Call {
 	_c.Call.Return(run)
 	return _c
 }

@@ -37,10 +37,10 @@ func TestCertificateRepository_ListByUser_PopulatesVaultID(t *testing.T) {
 	}
 	require.NoError(t, repo.Create(ctx, cert))
 
-	certs, err := repo.ListByUser(ctx, userID, nil)
+	certs, err := repo.List(ctx, model.NewOwnerScope(uuid.Nil, userID), repositories.CertificateFilter{})
 	require.NoError(t, err)
 	require.Len(t, certs, 1)
-	assert.Equal(t, vaultID, certs[0].VaultID, "ListByUser must populate VaultID from the row")
+	assert.Equal(t, vaultID, certs[0].VaultID, "List with an owner scope must populate VaultID from the row")
 }
 
 // TestCertificateRepository_ListInVault_NoTypeFilter pins that the dead
@@ -65,7 +65,7 @@ func TestCertificateRepository_ListInVault_NoTypeFilter(t *testing.T) {
 		}))
 	}
 
-	certs, err := repo.ListInVault(ctx, vaultID, nil)
+	certs, err := repo.List(ctx, model.NewVaultScope(vaultID, uuid.Nil), repositories.CertificateFilter{})
 	require.NoError(t, err)
 	assert.Len(t, certs, 2)
 }

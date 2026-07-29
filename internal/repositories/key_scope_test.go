@@ -80,18 +80,18 @@ func TestKeyReadScoped(t *testing.T) {
 	vaultA, vaultB := uuid.New(), uuid.New()
 	key := seedScopeKey(t, repo, ownerID, vaultA, "rsa-a", model.KeyTypeRSA)
 
-	got, err := repo.ReadScoped(ctx, key.ID, model.NewVaultScope(vaultA, otherUser))
+	got, err := repo.Read(ctx, key.ID, model.NewVaultScope(vaultA, otherUser))
 	require.NoError(t, err)
 	assert.Equal(t, key.ID, got.ID)
 	assert.Equal(t, vaultA, got.VaultID)
 
-	_, err = repo.ReadScoped(ctx, key.ID, model.NewVaultScope(vaultB, otherUser))
+	_, err = repo.Read(ctx, key.ID, model.NewVaultScope(vaultB, otherUser))
 	assert.Error(t, err)
 
-	_, err = repo.ReadScoped(ctx, key.ID, model.NewOwnerScope(vaultA, otherUser))
+	_, err = repo.Read(ctx, key.ID, model.NewOwnerScope(vaultA, otherUser))
 	assert.Error(t, err)
 
-	got, err = repo.ReadScoped(ctx, key.ID, model.NewAdminScope(otherUser))
+	got, err = repo.Read(ctx, key.ID, model.NewAdminScope(otherUser))
 	require.NoError(t, err)
 	assert.Equal(t, key.ID, got.ID)
 }
@@ -106,15 +106,15 @@ func TestKeyUpdateScoped(t *testing.T) {
 
 	updated := *key
 	updated.Name = "rsa-b-renamed"
-	require.NoError(t, repo.UpdateScoped(ctx, &updated, model.NewVaultScope(vaultA, otherUser)))
+	require.NoError(t, repo.Update(ctx, &updated, model.NewVaultScope(vaultA, otherUser)))
 
-	got, err := repo.ReadScoped(ctx, key.ID, model.NewAdminScope(uuid.Nil))
+	got, err := repo.Read(ctx, key.ID, model.NewAdminScope(uuid.Nil))
 	require.NoError(t, err)
 	assert.Equal(t, "rsa-b-renamed", got.Name)
 
 	blocked := *key
 	blocked.Name = "should-not-land"
-	assert.Error(t, repo.UpdateScoped(ctx, &blocked, model.NewVaultScope(vaultB, otherUser)))
+	assert.Error(t, repo.Update(ctx, &blocked, model.NewVaultScope(vaultB, otherUser)))
 }
 
 func TestKeyListScoped(t *testing.T) {
@@ -127,20 +127,20 @@ func TestKeyListScoped(t *testing.T) {
 	seedScopeKey(t, repo, ownerA, vaultA, "ec-1", model.KeyTypeECDSA)
 	seedScopeKey(t, repo, ownerB, vaultB, "rsa-2", model.KeyTypeRSA)
 
-	inVault, err := repo.ListScoped(ctx, model.NewVaultScope(vaultA, ownerB), KeyFilter{})
+	inVault, err := repo.List(ctx, model.NewVaultScope(vaultA, ownerB), KeyFilter{})
 	require.NoError(t, err)
 	assert.Len(t, inVault, 2)
 
-	typed, err := repo.ListScoped(ctx, model.NewVaultScope(vaultA, ownerB), KeyFilter{Type: model.KeyTypeRSA})
+	typed, err := repo.List(ctx, model.NewVaultScope(vaultA, ownerB), KeyFilter{Type: model.KeyTypeRSA})
 	require.NoError(t, err)
 	require.Len(t, typed, 1)
 	assert.Equal(t, model.KeyTypeRSA, typed[0].Type)
 
-	byOwner, err := repo.ListScoped(ctx, model.NewOwnerScope(vaultB, ownerA), KeyFilter{})
+	byOwner, err := repo.List(ctx, model.NewOwnerScope(vaultB, ownerA), KeyFilter{})
 	require.NoError(t, err)
 	assert.Len(t, byOwner, 2, "owner scope must not constrain vault_id")
 
-	all, err := repo.ListScoped(ctx, model.NewAdminScope(uuid.Nil), KeyFilter{})
+	all, err := repo.List(ctx, model.NewAdminScope(uuid.Nil), KeyFilter{})
 	require.NoError(t, err)
 	assert.Len(t, all, 3)
 }

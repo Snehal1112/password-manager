@@ -27,18 +27,18 @@ type scopeStubKeyService struct {
 	lastFilter repositories.KeyFilter
 }
 
-func (s *scopeStubKeyService) GetKeyScoped(_ context.Context, _ uuid.UUID, scope model.Scope) (*model.Key, error) {
+func (s *scopeStubKeyService) GetKey(_ context.Context, _ uuid.UUID, scope model.Scope) (*model.Key, error) {
 	s.lastScope = scope
 	return s.key, s.keyErr
 }
 
-func (s *scopeStubKeyService) ListKeysScoped(_ context.Context, scope model.Scope, filter repositories.KeyFilter) ([]model.Key, error) {
+func (s *scopeStubKeyService) ListKeys(_ context.Context, scope model.Scope, filter repositories.KeyFilter) ([]model.Key, error) {
 	s.lastScope = scope
 	s.lastFilter = filter
 	return s.list, nil
 }
 
-func (s *scopeStubKeyService) DeleteKeyScoped(_ context.Context, _ uuid.UUID, scope model.Scope) (*model.Key, error) {
+func (s *scopeStubKeyService) DeleteKey(_ context.Context, _ uuid.UUID, scope model.Scope) (*model.Key, error) {
 	s.lastScope = scope
 	return s.deleted, s.deleteErr
 }

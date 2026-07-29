@@ -241,7 +241,7 @@ func (s *cryptoService) resolveKeyMaterial(key *model.Key) (
 // Deviation from the task brief: the not-found branch wraps the exported
 // ErrKeyNotFound sentinel (fmt.Errorf("%w: %s", ErrKeyNotFound, err.Error()))
 // rather than the brief's literal fmt.Errorf("key not found: %w", err).
-// ReadScoped's own error (repositories.KeyRepository.ReadScoped) does not
+// Read's own error (repositories.KeyRepository.Read) does not
 // wrap any sentinel, so the brief's literal form leaves a cross-user key
 // unmatched by every case in the six API handlers' error switches (they all
 // test errors.Is against the exported Err* vars), falling through to the
@@ -254,7 +254,7 @@ func (s *cryptoService) resolveKeyMaterial(key *model.Key) (
 func (s *cryptoService) loadAndAuthorize(ctx context.Context, keyID uuid.UUID, scope model.Scope, op string) (*model.Key, error) {
 	actor := scope.ActorID().String()
 
-	key, err := s.keyRepo.ReadScoped(ctx, keyID, scope)
+	key, err := s.keyRepo.Read(ctx, keyID, scope)
 	if err != nil {
 		s.logger.LogAuditError(actor, op, "failed", "Key not found", err)
 		return nil, fmt.Errorf("%w: %s", ErrKeyNotFound, err.Error())

@@ -36,14 +36,14 @@ func TestCertificateRepositoryInterfaceExposesScopedMethods(t *testing.T) {
 	}
 	require.NoError(t, repo.Create(ctx, cert))
 
-	got, err := repo.ReadScoped(ctx, cert.ID, model.NewVaultScope(vaultID, uuid.New()))
+	got, err := repo.Read(ctx, cert.ID, model.NewVaultScope(vaultID, uuid.New()))
 	require.NoError(t, err)
 	assert.Equal(t, cert.ID, got.ID)
 
 	got.Name = "iface-cert-renamed"
-	require.NoError(t, repo.UpdateScoped(ctx, got, model.NewVaultScope(vaultID, ownerID)))
+	require.NoError(t, repo.Update(ctx, got, model.NewVaultScope(vaultID, ownerID)))
 
-	list, err := repo.ListScoped(ctx, model.NewVaultScope(vaultID, ownerID), repositories.CertificateFilter{})
+	list, err := repo.List(ctx, model.NewVaultScope(vaultID, ownerID), repositories.CertificateFilter{})
 	require.NoError(t, err)
 	require.Len(t, list, 1)
 	assert.Equal(t, "iface-cert-renamed", list[0].Name)

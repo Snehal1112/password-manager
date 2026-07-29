@@ -29,12 +29,12 @@ type scopeStubCertService struct {
 	lastScope model.Scope
 }
 
-func (s *scopeStubCertService) GetCertificateScoped(_ context.Context, _ uuid.UUID, scope model.Scope) (*model.Certificate, error) {
+func (s *scopeStubCertService) GetCertificate(_ context.Context, _ uuid.UUID, scope model.Scope) (*model.Certificate, error) {
 	s.lastScope = scope
 	return s.cert, s.certErr
 }
 
-func (s *scopeStubCertService) ListCertificatesScoped(_ context.Context, scope model.Scope, _ repositories.CertificateFilter) ([]model.Certificate, error) {
+func (s *scopeStubCertService) ListCertificates(_ context.Context, scope model.Scope, _ repositories.CertificateFilter) ([]model.Certificate, error) {
 	s.lastScope = scope
 	return s.list, nil
 }

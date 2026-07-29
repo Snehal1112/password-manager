@@ -80,22 +80,22 @@ func TestCertificateReadScoped(t *testing.T) {
 	vaultA, vaultB := uuid.New(), uuid.New()
 	cert := seedScopeCert(t, repo, ownerID, vaultA, "cert-a")
 
-	got, err := repo.ReadScoped(ctx, cert.ID, model.NewVaultScope(vaultA, otherUser))
+	got, err := repo.Read(ctx, cert.ID, model.NewVaultScope(vaultA, otherUser))
 	require.NoError(t, err)
 	assert.Equal(t, cert.ID, got.ID)
 	assert.Equal(t, vaultA, got.VaultID)
 
-	_, err = repo.ReadScoped(ctx, cert.ID, model.NewVaultScope(vaultB, otherUser))
+	_, err = repo.Read(ctx, cert.ID, model.NewVaultScope(vaultB, otherUser))
 	assert.Error(t, err)
 
-	_, err = repo.ReadScoped(ctx, cert.ID, model.NewOwnerScope(vaultA, otherUser))
+	_, err = repo.Read(ctx, cert.ID, model.NewOwnerScope(vaultA, otherUser))
 	assert.Error(t, err)
 
-	got, err = repo.ReadScoped(ctx, cert.ID, model.NewOwnerScope(vaultA, ownerID))
+	got, err = repo.Read(ctx, cert.ID, model.NewOwnerScope(vaultA, ownerID))
 	require.NoError(t, err)
 	assert.Equal(t, cert.ID, got.ID)
 
-	got, err = repo.ReadScoped(ctx, cert.ID, model.NewAdminScope(otherUser))
+	got, err = repo.Read(ctx, cert.ID, model.NewAdminScope(otherUser))
 	require.NoError(t, err)
 	assert.Equal(t, cert.ID, got.ID)
 }
@@ -110,15 +110,15 @@ func TestCertificateUpdateScoped(t *testing.T) {
 
 	updated := *cert
 	updated.Name = "cert-b-renamed"
-	require.NoError(t, repo.UpdateScoped(ctx, &updated, model.NewVaultScope(vaultA, otherUser)))
+	require.NoError(t, repo.Update(ctx, &updated, model.NewVaultScope(vaultA, otherUser)))
 
-	got, err := repo.ReadScoped(ctx, cert.ID, model.NewAdminScope(uuid.Nil))
+	got, err := repo.Read(ctx, cert.ID, model.NewAdminScope(uuid.Nil))
 	require.NoError(t, err)
 	assert.Equal(t, "cert-b-renamed", got.Name)
 
 	blocked := *cert
 	blocked.Name = "should-not-land"
-	assert.Error(t, repo.UpdateScoped(ctx, &blocked, model.NewVaultScope(vaultB, otherUser)))
+	assert.Error(t, repo.Update(ctx, &blocked, model.NewVaultScope(vaultB, otherUser)))
 }
 
 func TestCertificateListScoped(t *testing.T) {
@@ -132,21 +132,21 @@ func TestCertificateListScoped(t *testing.T) {
 	seedScopeCert(t, repo, ownerB, vaultB, "cert-3")
 	require.NoError(t, repo.SoftDelete(ctx, gone.ID))
 
-	live, err := repo.ListScoped(ctx, model.NewVaultScope(vaultA, ownerB), CertificateFilter{})
+	live, err := repo.List(ctx, model.NewVaultScope(vaultA, ownerB), CertificateFilter{})
 	require.NoError(t, err)
 	require.Len(t, live, 1)
 	assert.Equal(t, vaultA, live[0].VaultID)
 
-	deleted, err := repo.ListScoped(ctx, model.NewVaultScope(vaultA, ownerB), CertificateFilter{OnlyDeleted: true})
+	deleted, err := repo.List(ctx, model.NewVaultScope(vaultA, ownerB), CertificateFilter{OnlyDeleted: true})
 	require.NoError(t, err)
 	require.Len(t, deleted, 1)
 	assert.Equal(t, gone.ID, deleted[0].ID)
 
-	byOwner, err := repo.ListScoped(ctx, model.NewOwnerScope(vaultB, ownerA), CertificateFilter{})
+	byOwner, err := repo.List(ctx, model.NewOwnerScope(vaultB, ownerA), CertificateFilter{})
 	require.NoError(t, err)
 	assert.Len(t, byOwner, 1, "owner scope must not constrain vault_id")
 
-	all, err := repo.ListScoped(ctx, model.NewAdminScope(uuid.Nil), CertificateFilter{})
+	all, err := repo.List(ctx, model.NewAdminScope(uuid.Nil), CertificateFilter{})
 	require.NoError(t, err)
 	assert.Len(t, all, 2)
 }

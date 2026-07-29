@@ -153,7 +153,9 @@ func TestUpdateCertificate_MultipleFieldsUpdated_Returns200(t *testing.T) {
 	certID := uuid.New()
 	userID := uuid.MustParse(certTestUserID)
 	svc := &mockCertService{}
-	svc.On("GetCertificate", mock.Anything, certID, userID).Return(
+	// updateCertificate builds an owner scope with an advisory nil vault id
+	// (see api/certificates.go: it is not yet vault-scope aware).
+	svc.On("GetCertificate", mock.Anything, certID, model.NewOwnerScope(uuid.Nil, userID)).Return(
 		&model.Certificate{
 			ID:   certID,
 			Name: "original-name",
@@ -186,7 +188,7 @@ func TestUpdateCertificate_MultipleFieldsUpdated_Returns200(t *testing.T) {
 func TestDeleteCertificate_Extra_ServiceError_Returns500(t *testing.T) {
 	certID := uuid.New()
 	svc := &mockCertService{}
-	svc.On("DeleteCertificateInVault", mock.Anything, certID, mock.Anything).Return(errors.New("delete failed"))
+	svc.On("DeleteCertificate", mock.Anything, certID, model.NewVaultScope(uuid.MustParse(model.DefaultVaultID), uuid.Nil)).Return(errors.New("delete failed"))
 
 	c := newCertCtx(svc, certAdminClaims())
 	c.Params = &ApiParams{CertificateID: certID.String(), PerPage: 60}
@@ -206,7 +208,7 @@ func TestDeleteCertificate_Extra_ServiceError_Returns500(t *testing.T) {
 func TestDeleteCertificate_Extra_Success_Returns200(t *testing.T) {
 	certID := uuid.New()
 	svc := &mockCertService{}
-	svc.On("DeleteCertificateInVault", mock.Anything, certID, mock.Anything).Return(nil)
+	svc.On("DeleteCertificate", mock.Anything, certID, model.NewVaultScope(uuid.MustParse(model.DefaultVaultID), uuid.Nil)).Return(nil)
 
 	c := newCertCtx(svc, certAdminClaims())
 	c.Params = &ApiParams{CertificateID: certID.String(), PerPage: 60}

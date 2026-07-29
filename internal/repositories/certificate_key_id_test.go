@@ -76,7 +76,7 @@ func TestCertificateRepository_KeyID_Persisted(t *testing.T) {
 	err := repo.Create(context.Background(), cert)
 	require.NoError(t, err)
 
-	got, err := repo.Read(context.Background(), cert.ID)
+	got, err := repo.Read(context.Background(), cert.ID, model.NewAdminScope(uuid.Nil))
 	require.NoError(t, err)
 	assert.Equal(t, keyID, got.KeyID, "KeyID should round-trip through Create/Read")
 }
@@ -103,7 +103,7 @@ func TestCertificateRepository_KeyID_NilUUID(t *testing.T) {
 	err := repo.Create(context.Background(), cert)
 	require.NoError(t, err)
 
-	got, err := repo.Read(context.Background(), cert.ID)
+	got, err := repo.Read(context.Background(), cert.ID, model.NewAdminScope(uuid.Nil))
 	require.NoError(t, err)
 	// uuid.Nil.String() == "00000000-0000-0000-0000-000000000000", which is valid — parses back to uuid.Nil
 	assert.Equal(t, uuid.Nil, got.KeyID)
@@ -135,10 +135,10 @@ func TestCertificateRepository_ListInVault_ScopesByVault(t *testing.T) {
 	require.NoError(t, repo.Create(ctx, mk("b", vaultA)))
 	require.NoError(t, repo.Create(ctx, mk("c", vaultB)))
 
-	gotA, err := repo.ListInVault(ctx, vaultA, nil)
+	gotA, err := repo.List(ctx, model.NewVaultScope(vaultA, uuid.Nil), repositories.CertificateFilter{})
 	require.NoError(t, err)
 	require.Len(t, gotA, 2)
-	gotB, err := repo.ListInVault(ctx, vaultB, nil)
+	gotB, err := repo.List(ctx, model.NewVaultScope(vaultB, uuid.Nil), repositories.CertificateFilter{})
 	require.NoError(t, err)
 	require.Len(t, gotB, 1)
 }
@@ -165,12 +165,12 @@ func TestCertificateRepository_ReadInVault_PopulatesVaultID(t *testing.T) {
 	}
 	require.NoError(t, repo.Create(ctx, cert))
 
-	read, err := repo.ReadInVault(ctx, cert.ID, vaultA)
+	read, err := repo.Read(ctx, cert.ID, model.NewVaultScope(vaultA, uuid.Nil))
 	require.NoError(t, err)
-	assert.Equal(t, vaultA, read.VaultID, "ReadInVault must populate VaultID on returned certificate")
+	assert.Equal(t, vaultA, read.VaultID, "Read with a vault scope must populate VaultID on returned certificate")
 
-	listed, err := repo.ListInVault(ctx, vaultA, nil)
+	listed, err := repo.List(ctx, model.NewVaultScope(vaultA, uuid.Nil), repositories.CertificateFilter{})
 	require.NoError(t, err)
 	require.Len(t, listed, 1)
-	assert.Equal(t, vaultA, listed[0].VaultID, "ListInVault must populate VaultID on returned certificates")
+	assert.Equal(t, vaultA, listed[0].VaultID, "List with a vault scope must populate VaultID on returned certificates")
 }

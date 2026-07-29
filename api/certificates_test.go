@@ -63,48 +63,7 @@ func (m *mockCertService) CreateCASignedCertificate(ctx context.Context, req cer
 	return args.Get(0).(*certServices.CreateCertificateResult), args.Error(1)
 }
 
-func (m *mockCertService) GetCertificate(ctx context.Context, certID, userID uuid.UUID) (*model.Certificate, error) {
-	args := m.Called(ctx, certID, userID)
-	if args.Get(0) == nil {
-		return nil, args.Error(1)
-	}
-	return args.Get(0).(*model.Certificate), args.Error(1)
-}
-
-func (m *mockCertService) ListCertificates(ctx context.Context, userID uuid.UUID) ([]model.Certificate, error) {
-	args := m.Called(ctx, userID)
-	return args.Get(0).([]model.Certificate), args.Error(1)
-}
-
-func (m *mockCertService) GetCertificateInVault(ctx context.Context, certID, vaultID uuid.UUID) (*model.Certificate, error) {
-	args := m.Called(ctx, certID, vaultID)
-	if args.Get(0) == nil {
-		return nil, args.Error(1)
-	}
-	return args.Get(0).(*model.Certificate), args.Error(1)
-}
-
-func (m *mockCertService) ListCertificatesInVault(ctx context.Context, vaultID uuid.UUID) ([]model.Certificate, error) {
-	args := m.Called(ctx, vaultID)
-	return args.Get(0).([]model.Certificate), args.Error(1)
-}
-
-func (m *mockCertService) DeleteCertificateInVault(ctx context.Context, certID, vaultID uuid.UUID) error {
-	args := m.Called(ctx, certID, vaultID)
-	return args.Error(0)
-}
-
-func (m *mockCertService) UpdateCertificate(ctx context.Context, req certServices.UpdateCertificateRequest) error {
-	args := m.Called(ctx, req)
-	return args.Error(0)
-}
-
-func (m *mockCertService) DeleteCertificate(ctx context.Context, certID, userID uuid.UUID) error {
-	args := m.Called(ctx, certID, userID)
-	return args.Error(0)
-}
-
-func (m *mockCertService) GetCertificateScoped(ctx context.Context, certID uuid.UUID, scope model.Scope) (*model.Certificate, error) {
+func (m *mockCertService) GetCertificate(ctx context.Context, certID uuid.UUID, scope model.Scope) (*model.Certificate, error) {
 	args := m.Called(ctx, certID, scope)
 	if args.Get(0) == nil {
 		return nil, args.Error(1)
@@ -112,7 +71,7 @@ func (m *mockCertService) GetCertificateScoped(ctx context.Context, certID uuid.
 	return args.Get(0).(*model.Certificate), args.Error(1)
 }
 
-func (m *mockCertService) ListCertificatesScoped(ctx context.Context, scope model.Scope, filter repositories.CertificateFilter) ([]model.Certificate, error) {
+func (m *mockCertService) ListCertificates(ctx context.Context, scope model.Scope, filter repositories.CertificateFilter) ([]model.Certificate, error) {
 	args := m.Called(ctx, scope, filter)
 	if args.Get(0) == nil {
 		return nil, args.Error(1)
@@ -120,12 +79,12 @@ func (m *mockCertService) ListCertificatesScoped(ctx context.Context, scope mode
 	return args.Get(0).([]model.Certificate), args.Error(1)
 }
 
-func (m *mockCertService) UpdateCertificateScoped(ctx context.Context, req certServices.UpdateCertificateRequest) error {
+func (m *mockCertService) UpdateCertificate(ctx context.Context, req certServices.UpdateCertificateRequest) error {
 	args := m.Called(ctx, req)
 	return args.Error(0)
 }
 
-func (m *mockCertService) DeleteCertificateScoped(ctx context.Context, certID uuid.UUID, scope model.Scope) error {
+func (m *mockCertService) DeleteCertificate(ctx context.Context, certID uuid.UUID, scope model.Scope) error {
 	args := m.Called(ctx, certID, scope)
 	return args.Error(0)
 }
@@ -296,6 +255,13 @@ func certAdminClaims() jwt.MapClaims {
 	return jwt.MapClaims{"role": model.RoleAdmin, "user_id": certTestUserID}
 }
 
+// certLegacyOwnerScope is the exact scope scopeFromRequest builds for a legacy
+// flat route (no vault_name mux var): an owner scope carrying the default
+// vault id as its advisory vault and certTestUserID as the owner/actor.
+func certLegacyOwnerScope() model.Scope {
+	return model.NewOwnerScope(uuid.MustParse(model.DefaultVaultID), uuid.MustParse(certTestUserID))
+}
+
 // ============================================================
 // certToDomainResponse
 // ============================================================
@@ -431,7 +397,7 @@ func TestCreateCertificate_Success_Returns201(t *testing.T) {
 func TestListCertificates_ServiceError_Returns500(t *testing.T) {
 	svc := &mockCertService{}
 	// Legacy flat route (no vault_name) yields an owner scope.
-	svc.On("ListCertificatesScoped", mock.Anything, mock.Anything, mock.Anything).
+	svc.On("ListCertificates", mock.Anything, certLegacyOwnerScope(), repositories.CertificateFilter{}).
 		Return([]model.Certificate{}, errors.New("db error"))
 
 	c := newCertCtx(svc, certAdminClaims())
@@ -453,7 +419,7 @@ func TestListCertificates_Success_Returns200(t *testing.T) {
 		{ID: uuid.New(), Name: "cert1", CreatedAt: time.Now()},
 	}
 	// Legacy flat route (no vault_name) yields an owner scope.
-	svc.On("ListCertificatesScoped", mock.Anything, mock.Anything, mock.Anything).Return(certs, nil)
+	svc.On("ListCertificates", mock.Anything, certLegacyOwnerScope(), repositories.CertificateFilter{}).Return(certs, nil)
 
 	c := newCertCtx(svc, certAdminClaims())
 	w := httptest.NewRecorder()
@@ -494,7 +460,7 @@ func TestGetCertificate_NotFound_Returns404(t *testing.T) {
 	certID := uuid.New()
 	// Legacy flat route (no vault_name) yields an owner scope.
 	// The service returns the not-found sentinel, which maps to 404.
-	svc.On("GetCertificateScoped", mock.Anything, certID, mock.Anything).Return(nil, certServices.ErrCertNotFound)
+	svc.On("GetCertificate", mock.Anything, certID, certLegacyOwnerScope()).Return(nil, certServices.ErrCertNotFound)
 
 	c := newCertCtx(svc, certAdminClaims())
 	c.Params = &ApiParams{CertificateID: certID.String(), PerPage: 60}
@@ -515,7 +481,7 @@ func TestGetCertificate_Success_Returns200(t *testing.T) {
 	certID := uuid.New()
 	userID := uuid.MustParse(certTestUserID)
 	// Legacy flat route (no vault_name) yields an owner scope.
-	svc.On("GetCertificateScoped", mock.Anything, certID, mock.Anything).Return(&model.Certificate{
+	svc.On("GetCertificate", mock.Anything, certID, certLegacyOwnerScope()).Return(&model.Certificate{
 		ID: certID, Name: "cert1", UserID: userID, CreatedAt: time.Now(),
 	}, nil)
 
@@ -616,7 +582,9 @@ func TestUpdateCertificate_Success_Returns200(t *testing.T) {
 	certID := uuid.New()
 	userID := uuid.MustParse(certTestUserID)
 	svc.On("UpdateCertificate", mock.Anything, mock.Anything).Return(nil)
-	svc.On("GetCertificate", mock.Anything, certID, userID).Return(&model.Certificate{
+	// updateCertificate builds an owner scope with an advisory nil vault id
+	// (see api/certificates.go: it is not yet vault-scope aware).
+	svc.On("GetCertificate", mock.Anything, certID, model.NewOwnerScope(uuid.Nil, userID)).Return(&model.Certificate{
 		ID: certID, Name: "new-name", UserID: userID, CreatedAt: time.Now(),
 	}, nil)
 
@@ -657,7 +625,9 @@ func TestDeleteCertificate_InvalidCertID_Returns400(t *testing.T) {
 func TestDeleteCertificate_ServiceError_Returns500(t *testing.T) {
 	svc := &mockCertService{}
 	certID := uuid.New()
-	svc.On("DeleteCertificateInVault", mock.Anything, certID, mock.Anything).Return(errors.New("db error"))
+	// deleteCertificate builds a vault scope from the (default, in tests)
+	// resolved vault id, with a nil actor id.
+	svc.On("DeleteCertificate", mock.Anything, certID, model.NewVaultScope(uuid.MustParse(model.DefaultVaultID), uuid.Nil)).Return(errors.New("db error"))
 
 	c := newCertCtx(svc, certAdminClaims())
 	c.Params = &ApiParams{CertificateID: certID.String(), PerPage: 60}
@@ -676,7 +646,7 @@ func TestDeleteCertificate_ServiceError_Returns500(t *testing.T) {
 func TestDeleteCertificate_Success_Returns200(t *testing.T) {
 	svc := &mockCertService{}
 	certID := uuid.New()
-	svc.On("DeleteCertificateInVault", mock.Anything, certID, mock.Anything).Return(nil)
+	svc.On("DeleteCertificate", mock.Anything, certID, model.NewVaultScope(uuid.MustParse(model.DefaultVaultID), uuid.Nil)).Return(nil)
 
 	c := newCertCtx(svc, certAdminClaims())
 	c.Params = &ApiParams{CertificateID: certID.String(), PerPage: 60}
@@ -697,7 +667,7 @@ func TestDeleteCertificate_Success_Returns200(t *testing.T) {
 func TestDeleteCertificate_NotFound_Returns404(t *testing.T) {
 	svc := &mockCertService{}
 	certID := uuid.New()
-	svc.On("DeleteCertificateInVault", mock.Anything, certID, mock.Anything).
+	svc.On("DeleteCertificate", mock.Anything, certID, model.NewVaultScope(uuid.MustParse(model.DefaultVaultID), uuid.Nil)).
 		Return(certServices.ErrCertNotFound)
 
 	c := newCertCtx(svc, certAdminClaims())
@@ -719,7 +689,7 @@ func TestDeleteCertificate_NotFound_Returns404(t *testing.T) {
 func TestGetCertificate_LifecycleDenied_Returns403(t *testing.T) {
 	svc := &mockCertService{}
 	certID := uuid.New()
-	svc.On("GetCertificateScoped", mock.Anything, certID, mock.Anything).
+	svc.On("GetCertificate", mock.Anything, certID, certLegacyOwnerScope()).
 		Return(nil, certServices.ErrCertLifecycleDenied)
 
 	c := newCertCtx(svc, certAdminClaims())
@@ -741,7 +711,7 @@ func TestGetCertificate_LifecycleDenied_Returns403(t *testing.T) {
 func TestGetCertificate_InternalError_Returns500(t *testing.T) {
 	svc := &mockCertService{}
 	certID := uuid.New()
-	svc.On("GetCertificateScoped", mock.Anything, certID, mock.Anything).
+	svc.On("GetCertificate", mock.Anything, certID, certLegacyOwnerScope()).
 		Return(nil, errors.New("disk I/O"))
 
 	c := newCertCtx(svc, certAdminClaims())

@@ -358,7 +358,7 @@ func createKey(c *Context, w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Fetch the full key record so buildKeyResponse can inspect the stored value.
-	key, err := keyService.GetKey(r.Context(), result.KeyID, userID)
+	key, err := keyService.GetKey(r.Context(), result.KeyID, model.NewOwnerScope(vaultID, userID))
 	if err != nil {
 		c.SetInternalError(err)
 		return
@@ -383,7 +383,7 @@ func listKeys(c *Context, w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	keysList, err := keyService.ListKeysScoped(r.Context(), scope, repositories.KeyFilter{
+	keysList, err := keyService.ListKeys(r.Context(), scope, repositories.KeyFilter{
 		Type: r.URL.Query().Get("type"),
 		Tags: c.Params.Tags,
 	})
@@ -420,7 +420,7 @@ func getKey(c *Context, w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	key, err := keyService.GetKeyScoped(r.Context(), keyID, scope)
+	key, err := keyService.GetKey(r.Context(), keyID, scope)
 	if err != nil {
 		if errors.Is(err, keyservices.ErrKeyLifecycleDenied) {
 			c.SetPermissionError("key is disabled or outside its valid time window")
@@ -473,7 +473,7 @@ func updateKey(c *Context, w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := keyService.UpdateKeyScoped(r.Context(), keyservices.UpdateKeyRequest{
+	if err := keyService.UpdateKey(r.Context(), keyservices.UpdateKeyRequest{
 		KeyID:     keyID,
 		Scope:     scope,
 		Name:      req.Name,
@@ -492,7 +492,7 @@ func updateKey(c *Context, w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Get updated key for response, using the same scope as the update.
-	key, err := keyService.GetKeyScoped(r.Context(), keyID, scope)
+	key, err := keyService.GetKey(r.Context(), keyID, scope)
 	if err != nil {
 		c.SetInternalError(err)
 		return
@@ -522,7 +522,7 @@ func deleteKey(c *Context, w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	deleted, err := keyService.DeleteKeyScoped(r.Context(), keyID, scope)
+	deleted, err := keyService.DeleteKey(r.Context(), keyID, scope)
 	if err != nil {
 		if errors.Is(err, keyservices.ErrKeyNotFound) {
 			c.SetNotFound("key")
@@ -586,7 +586,7 @@ func rotateKey(c *Context, w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Fetch the full key record so buildKeyResponse can inspect the stored value.
-	key, err := keyService.GetKey(r.Context(), result.KeyID, userID)
+	key, err := keyService.GetKey(r.Context(), result.KeyID, model.NewOwnerScope(uuid.Nil, userID))
 	if err != nil {
 		c.SetInternalError(err)
 		return

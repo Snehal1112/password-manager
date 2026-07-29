@@ -71,8 +71,8 @@ var updateCmd = &cobra.Command{
 		tagsStr, _ := cmd.Flags().GetString("tags")
 
 		req := keyServices.UpdateKeyRequest{
-			KeyID:  keyID,
-			UserID: claims.UserID,
+			KeyID: keyID,
+			Scope: model.NewOwnerScope(uuid.Nil, claims.UserID),
 		}
 
 		hasUpdate := false

@@ -76,17 +76,17 @@ func (s *stubKeyRepo) ListSoftDeleted(_ context.Context, _ uuid.UUID) ([]*model.
 func (s *stubKeyRepo) Create(_ context.Context, _ *model.Key) error {
 	panic("unexpected call: Create")
 }
-func (s *stubKeyRepo) Read(_ context.Context, _ uuid.UUID) (*model.Key, error) {
+func (s *stubKeyRepo) Read(_ context.Context, _ uuid.UUID, _ model.Scope) (*model.Key, error) {
 	panic("unexpected call: Read")
 }
-func (s *stubKeyRepo) Update(_ context.Context, _ *model.Key) error {
+func (s *stubKeyRepo) Update(_ context.Context, _ *model.Key, _ model.Scope) error {
 	panic("unexpected call: Update")
+}
+func (s *stubKeyRepo) List(_ context.Context, _ model.Scope, _ repositories.KeyFilter) ([]model.Key, error) {
+	panic("unexpected call: List")
 }
 func (s *stubKeyRepo) Delete(_ context.Context, _ uuid.UUID) error {
 	panic("unexpected call: Delete")
-}
-func (s *stubKeyRepo) ListByUser(_ context.Context, _ *uuid.UUID, _ string, _ []string) ([]model.Key, error) {
-	panic("unexpected call: ListByUser")
 }
 func (s *stubKeyRepo) UpdateRevocationStatus(_ context.Context, _ uuid.UUID, _ bool) error {
 	panic("unexpected call: UpdateRevocationStatus")
@@ -112,26 +112,11 @@ func (s *stubKeyRepo) CreateVersion(_ context.Context, _ uuid.UUID, _ int, _ str
 func (s *stubKeyRepo) ListVersions(_ context.Context, _, _ uuid.UUID) ([]model.KeyVersion, error) {
 	panic("unexpected call: ListVersions")
 }
-func (s *stubKeyRepo) ListInVault(_ context.Context, _ uuid.UUID, _ string, _ []string) ([]model.Key, error) {
-	panic("unexpected call: ListInVault")
-}
-func (s *stubKeyRepo) ReadInVault(_ context.Context, _, _ uuid.UUID) (*model.Key, error) {
-	panic("unexpected call: ReadInVault")
-}
 func (s *stubKeyRepo) SoftDeleteVaultContents(_ context.Context, _ uuid.UUID, _ time.Time) error {
 	panic("unexpected call: SoftDeleteVaultContents")
 }
 func (s *stubKeyRepo) RecoverVaultContents(_ context.Context, _ uuid.UUID, _ time.Time) error {
 	panic("unexpected call: RecoverVaultContents")
-}
-func (s *stubKeyRepo) ReadScoped(_ context.Context, _ uuid.UUID, _ model.Scope) (*model.Key, error) {
-	panic("unexpected call: ReadScoped")
-}
-func (s *stubKeyRepo) UpdateScoped(_ context.Context, _ *model.Key, _ model.Scope) error {
-	panic("unexpected call: UpdateScoped")
-}
-func (s *stubKeyRepo) ListScoped(_ context.Context, _ model.Scope, _ repositories.KeyFilter) ([]model.Key, error) {
-	panic("unexpected call: ListScoped")
 }
 
 // --- stub service container ---
