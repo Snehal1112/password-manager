@@ -32,12 +32,14 @@ rocketvault/
 ├── api/                    # HTTP API layer with service integration
 ├── app/                    # Application core and options
 ├── bootstrap/              # Application initialization (SRP-compliant)
+├── model/                  # Pure domain types and constants (DDD)
+│   ├── user.go            # User, Claims, Role constants
+│   ├── secret.go          # Secret domain type
+│   ├── key.go             # Key domain type
+│   ├── certificate.go     # Certificate domain type
+│   ├── vault.go           # Vault, DefaultVaultID, name/tag validation
+│   └── scope.go           # Scope authorization value object
 ├── internal/
-│   ├── domain/            # Pure domain types and constants (DDD)
-│   │   ├── user.go        # User, Claims, Role constants
-│   │   ├── secret.go      # Secret domain type
-│   │   ├── key.go         # Key domain type
-│   │   └── certificate.go # Certificate domain type
 │   ├── services/          # Business logic services (SRP-compliant)
 │   │   ├── auth/          # Authentication services (4 focused services)
 │   │   ├── users/         # User management services
@@ -77,7 +79,7 @@ rocketvault/
 
 ### Perfect Domain-Driven Design Implementation
 - **`internal/auth/auth.go`**: **COMPLETELY ELIMINATED** 🎉
-- **Domain Types**: Moved to `internal/domain/user.go` (User, Claims, Role constants)
+- **Domain Types**: Moved to `model/user.go` (User, Claims, Role constants)
 - **Repository Interface**: Moved to `internal/repositories/user_repository.go`
 - **Helper Functions**: Already existed in service layer (TOTPService, JWTService)
 - **Zero Code Duplication**: Single source of truth for all domain concepts
@@ -203,6 +205,15 @@ rocketvault/
 ### Authorization (`internal/services/authorization/`)
 - **RBACService**: Role-based access control with flexible permissions
 
+### 🔐 Authorization Scope (`model/scope.go`)
+
+Every repository and service operation carries a `model.Scope` describing how it
+is authorized: `ScopeVault` (any vault member), `ScopeOwner` (the owner only;
+retired in P2) or `ScopeAdmin` (no predicate, trusted internal callers). The zero
+value is `ScopeInvalid`, so an uninitialised scope fails closed. Build scopes
+with `NewVaultScope`, `NewOwnerScope` or `NewAdminScope`; composite literals are
+banned outside `model/scope_test.go` and enforced by the `scope-gate` CI job.
+
 ## Dependency Injection Container
 
 **Location**: `internal/container/service_container.go`
@@ -304,7 +315,7 @@ func (m *Middleware) AuthenticationMiddleware(next http.Handler) http.Handler {
 
 ### ✅ **Major Architectural Achievements**
 - **Auth.go Complete Elimination**: Mixed-responsibility package completely removed and reorganized
-- **Domain Type Consolidation**: All user-related types in single `internal/domain/user.go` file
+- **Domain Type Consolidation**: All user-related types in single `model/user.go` file
 - **Repository Interface Separation**: Clean separation of interface from implementation
 - **Service Layer Completion**: All authentication logic properly moved to service layer
 - **21 File Migration**: Updated all import statements across entire codebase
