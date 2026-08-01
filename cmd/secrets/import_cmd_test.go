@@ -4,7 +4,6 @@ import (
 	"os"
 	"testing"
 
-	"github.com/google/uuid"
 	"github.com/spf13/cobra"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
@@ -21,7 +20,12 @@ func TestImportCommand_CallsServiceImport(t *testing.T) {
 	// Scope: a zero Scope has kind ScopeInvalid and every repository query
 	// rejects it, so this assertion catches the "Scope never set" regression
 	// that a service-level mock alone would miss.
-	wantScope := model.NewVaultScope(tc.TestVaultID, uuid.Nil)
+	//
+	// The actor must be the real authenticated user, never uuid.Nil:
+	// ImportSecrets derives each new secret's owner from Scope.ActorID, so a
+	// nil actor orphans every imported row (and violates the PostgreSQL
+	// foreign key).
+	wantScope := model.NewVaultScope(tc.TestVaultID, tc.TestUserID)
 	tc.MockSecretService.On("ImportSecrets", mock.Anything, mock.MatchedBy(func(r secretServices.ImportSecretsRequest) bool {
 		return r.Format == "json" && r.Scope == wantScope
 	})).Return(&secretServices.ImportResult{ImportedCount: 2}, nil)

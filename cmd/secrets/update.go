@@ -38,7 +38,9 @@ import (
 var updateCmd = &cobra.Command{
 	Use:   "update [id] [value]",
 	Short: "Update a secret",
-	Long:  `Update a secret's value and tags by its ID for the authenticated user.`,
+	Long: `Update a secret's value and tags by its ID.
+Only secrets owned by the authenticated user can be updated; secrets owned by
+other members of the same vault are not writable through this command.`,
 	Example: `  # Update a secret's value
   rocketvault secrets update <id> <new-value> \
     --username admin --password admin123 --totp-code <code>
@@ -58,6 +60,11 @@ var updateCmd = &cobra.Command{
 
 		ctx := cmd.Context()
 
+		userID, ok := ctx.Value(common.UserIDKey).(uuid.UUID)
+		if !ok {
+			return fmt.Errorf("user not authenticated")
+		}
+
 		sc, ok := ctx.Value(common.ServiceContainerKey).(container.ServiceContainerInterface)
 		if !ok || sc == nil {
 			return fmt.Errorf("service container not available in context")
@@ -69,9 +76,12 @@ var updateCmd = &cobra.Command{
 			return err
 		}
 
+		// Update stays owner-scoped: a vault scope would let any co-member
+		// overwrite another member's secret. The actor is the real
+		// authenticated user so the audit row is attributed correctly.
 		req := secretServices.UpdateSecretRequest{
 			SecretID: secretID,
-			Scope:    model.NewVaultScope(vaultID, uuid.Nil),
+			Scope:    model.NewOwnerScope(vaultID, userID),
 			Value:    &value,
 		}
 		if len(tags) > 0 {

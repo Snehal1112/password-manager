@@ -59,7 +59,7 @@ The file must be compatible with the export format produced by the export comman
 	RunE: func(cmd *cobra.Command, args []string) error {
 		ctx := cmd.Context()
 
-		_, ok := ctx.Value(common.UserIDKey).(uuid.UUID)
+		userID, ok := ctx.Value(common.UserIDKey).(uuid.UUID)
 		if !ok {
 			return fmt.Errorf("user not authenticated")
 		}
@@ -89,8 +89,11 @@ The file must be compatible with the export format produced by the export comman
 			return err
 		}
 
+		// The scope's actor becomes the owner of every imported secret, so it
+		// must carry the real authenticated user; uuid.Nil would orphan every
+		// row (and fail the PostgreSQL foreign key outright).
 		result, err := sc.GetSecretService().ImportSecrets(ctx, secretServices.ImportSecretsRequest{
-			Scope:     model.NewVaultScope(vaultID, uuid.Nil),
+			Scope:     model.NewVaultScope(vaultID, userID),
 			Data:      data,
 			Format:    format,
 			Overwrite: importOverwrite,

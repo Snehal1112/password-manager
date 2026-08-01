@@ -3,7 +3,6 @@ package secrets
 import (
 	"testing"
 
-	"github.com/google/uuid"
 	"github.com/spf13/cobra"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
@@ -16,11 +15,12 @@ import (
 func TestExportCommand_CallsServiceExport(t *testing.T) {
 	tc := testutils.NewTestContext(t)
 
-	// The request must carry the resolved vault scope, not the zero-value
-	// Scope: a zero Scope has kind ScopeInvalid and every repository query
-	// rejects it, so this assertion catches the "Scope never set" regression
-	// that a service-level mock alone would miss.
-	wantScope := model.NewVaultScope(tc.TestVaultID, uuid.Nil)
+	// The request must carry an owner scope built from the real authenticated
+	// user, not the zero-value Scope and not a vault scope. A zero Scope has
+	// kind ScopeInvalid and every repository query rejects it; a vault scope
+	// would make `secrets export` write every vault member's decrypted secret
+	// values into the caller's local file.
+	wantScope := model.NewOwnerScope(tc.TestVaultID, tc.TestUserID)
 	tc.MockSecretService.On("ExportSecrets", mock.Anything, mock.MatchedBy(func(r secretServices.ExportSecretsRequest) bool {
 		return r.Format == "json" && r.Scope == wantScope
 	})).Return([]byte(`{"secrets":[]}`), nil)
