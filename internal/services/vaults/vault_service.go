@@ -41,6 +41,14 @@ type PolicyCleaner interface {
 	DeleteByVault(ctx context.Context, vaultID uuid.UUID) error
 }
 
+// SecretCacheFlusher empties the secret cache. The delete/recover cascade
+// stamps deleted_at on every secret in a vault with one UPDATE, so the ids it
+// touched are never enumerated and per-id eviction is not possible; a flush is
+// the only correct primitive. Satisfied by *cache.SecretCache.
+type SecretCacheFlusher interface {
+	Flush(ctx context.Context) error
+}
+
 // TxBeginner begins a transaction usable by the Tx-scoped repository/cascade
 // methods. Satisfied by *db.Conn. Injected via SetTxBeginner so unit tests
 // that construct a vaultService without a real database (every existing test
@@ -75,14 +83,16 @@ type VaultService interface {
 	PurgeVault(ctx context.Context, name string) error
 	SetPolicyCleaner(p PolicyCleaner)
 	SetTxBeginner(tb TxBeginner)
+	SetSecretCacheFlusher(f SecretCacheFlusher)
 }
 
 type vaultService struct {
-	repo       repositories.VaultRepositoryInterface
-	cascade    CascadeRepository
-	policies   PolicyCleaner
-	txBeginner TxBeginner
-	log        *logging.Logger
+	repo        repositories.VaultRepositoryInterface
+	cascade     CascadeRepository
+	policies    PolicyCleaner
+	txBeginner  TxBeginner
+	secretCache SecretCacheFlusher
+	log         *logging.Logger
 }
 
 // NewVaultService constructs a VaultService backed by the given repository and cascade handler.
@@ -98,6 +108,25 @@ func (s *vaultService) SetPolicyCleaner(p PolicyCleaner) { s.policies = p }
 // transaction; when unset, they run the pre-existing non-transactional
 // sequence.
 func (s *vaultService) SetTxBeginner(tb TxBeginner) { s.txBeginner = tb }
+
+// SetSecretCacheFlusher attaches an optional secret-cache flusher. When set,
+// DeleteVault and RecoverVault flush the cache after the cascade commits, so a
+// secret soft-deleted (or restored) by the cascade is not still served from a
+// cache entry primed before the change. Unset means caching is disabled.
+func (s *vaultService) SetSecretCacheFlusher(f SecretCacheFlusher) { s.secretCache = f }
+
+// flushSecretCache empties the secret cache after a cascade. It runs only on
+// the success path (post-commit), so a rolled-back cascade never evicts, and a
+// flush failure is logged rather than failing the completed operation.
+func (s *vaultService) flushSecretCache(ctx context.Context, vaultID uuid.UUID, operation string) {
+	if s.secretCache == nil {
+		return
+	}
+	if err := s.secretCache.Flush(ctx); err != nil && s.log != nil {
+		s.log.WithError(err).WithField("vault_id", vaultID).
+			Warnf("Failed to flush secret cache after %s", operation)
+	}
+}
 
 // withTx runs fn inside a transaction begun via txBeginner, committing on
 // success and rolling back on error. Mirrors db.WithTx's commit/rollback
@@ -277,6 +306,10 @@ func (s *vaultService) DeleteVault(ctx context.Context, name string) error {
 		}
 	}
 
+	// The cascade soft-deleted this vault's secrets with a bulk UPDATE that
+	// never went through CachedSecretService, so evict what it invalidated.
+	s.flushSecretCache(ctx, v.ID, "vault delete")
+
 	if s.log != nil {
 		s.log.LogAuditInfo("", "delete_vault", "success", fmt.Sprintf("Vault deleted: %s", name))
 	}
@@ -321,6 +354,10 @@ func (s *vaultService) RecoverVault(ctx context.Context, name string) error {
 			return err
 		}
 	}
+
+	// The cascade cleared deleted_at on this vault's secrets outside the cache
+	// layer; flush so no entry admitted during the deleted window survives.
+	s.flushSecretCache(ctx, v.ID, "vault recover")
 
 	if s.log != nil {
 		s.log.LogAuditInfo("", "recover_vault", "success", fmt.Sprintf("Vault recovered: %s", name))

@@ -42,6 +42,36 @@ func NewSecretCache(ttl time.Duration, logger *logrus.Logger) *SecretCache {
 	}
 }
 
+// cloneSecret returns a copy of a secret that shares no mutable state with
+// the original: the struct itself, its tag slice, and every time pointer.
+//
+// The cache stores and returns clones because callers legitimately mutate the
+// secret they get back — api.updateSecret writes the new value, tags and
+// version straight onto the pointer returned by GetSecret before the update
+// is persisted. Handing out the stored pointer would let a mutation that is
+// never written (or is rejected downstream) poison the entry for every other
+// reader, and would make a concurrent PUT and GET a data race.
+func cloneSecret(s *model.Secret) *model.Secret {
+	cp := *s
+	if s.Tags != nil {
+		cp.Tags = append([]string(nil), s.Tags...)
+	}
+	cp.ExpiresAt = cloneTime(s.ExpiresAt)
+	cp.NotBefore = cloneTime(s.NotBefore)
+	cp.DeletedAt = cloneTime(s.DeletedAt)
+	cp.ScheduledPurgeAt = cloneTime(s.ScheduledPurgeAt)
+	return &cp
+}
+
+// cloneTime copies an optional timestamp, preserving nil.
+func cloneTime(t *time.Time) *time.Time {
+	if t == nil {
+		return nil
+	}
+	v := *t
+	return &v
+}
+
 // scopeCacheKey builds the compound cache key for a scoped read. It reports
 // false for scopes that must never be cached: ScopeAdmin, which has no
 // predicate, and any invalid scope.
@@ -84,7 +114,7 @@ func (c *SecretCache) Get(ctx context.Context, secretID uuid.UUID, scope model.S
 	}
 
 	c.logger.WithField("secret_id", secretID).Debug("Cache hit")
-	return cached.Secret, true
+	return cloneSecret(cached.Secret), true
 }
 
 // Set stores a secret under the given scope with TTL expiration. Scopes that
@@ -102,7 +132,7 @@ func (c *SecretCache) Set(ctx context.Context, secret *model.Secret, scope model
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	c.cache[key] = &CachedSecret{Secret: secret, ExpiresAt: time.Now().Add(c.ttl)}
+	c.cache[key] = &CachedSecret{Secret: cloneSecret(secret), ExpiresAt: time.Now().Add(c.ttl)}
 	if c.byID[secret.ID] == nil {
 		c.byID[secret.ID] = make(map[string]struct{})
 	}

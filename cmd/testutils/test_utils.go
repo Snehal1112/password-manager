@@ -577,6 +577,10 @@ func (m *MockVaultService) SetTxBeginner(tb vaultServices.TxBeginner) {
 	m.Called(tb)
 }
 
+func (m *MockVaultService) SetSecretCacheFlusher(f vaultServices.SecretCacheFlusher) {
+	m.Called(f)
+}
+
 // Mock Authentication Service
 type MockAuthenticationService struct {
 	mock.Mock

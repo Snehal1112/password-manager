@@ -97,23 +97,40 @@ type rotationService struct {
 	secretRepo   repositories.SecretRepositoryInterface
 	userRepo     repositories.UserRepositoryInterface
 	cryptoSvc    CryptographyService
+	cacheInv     SecretCacheInvalidator
 	log          *logging.Logger
 }
 
-// NewRotationService creates a new rotation service with the required dependencies.
+// NewRotationService creates a new rotation service with the required
+// dependencies. cacheInv may be nil when the secret cache is disabled; it is
+// needed because PerformManualRotation writes the secrets table without going
+// through CachedSecretService.
 func NewRotationService(
 	rotationRepo repositories.RotationPolicyRepositoryInterface,
 	secretRepo repositories.SecretRepositoryInterface,
 	userRepo repositories.UserRepositoryInterface,
 	cryptoSvc CryptographyService,
 	log *logging.Logger,
+	cacheInv SecretCacheInvalidator,
 ) RotationServiceInterface {
 	return &rotationService{
 		rotationRepo: rotationRepo,
 		secretRepo:   secretRepo,
 		userRepo:     userRepo,
 		cryptoSvc:    cryptoSvc,
+		cacheInv:     cacheInv,
 		log:          log,
+	}
+}
+
+// invalidateCache evicts every cached view of a secret after a direct write.
+// A failure is logged but never fails the rotation that already succeeded.
+func (s *rotationService) invalidateCache(ctx context.Context, secretID uuid.UUID) {
+	if s.cacheInv == nil {
+		return
+	}
+	if err := s.cacheInv.DeleteByID(ctx, secretID); err != nil {
+		s.log.WithError(err).WithField("secret_id", secretID).Warn("Failed to invalidate cached secret")
 	}
 }
 
@@ -367,25 +384,35 @@ func (s *rotationService) GetSecretPolicies(ctx context.Context, secretID, userI
 }
 
 // PerformManualRotation performs manual rotation with full business logic.
+//
+// It writes the secrets table directly rather than through the secret service,
+// so it owns both its audit trail and its cache invalidation. The actor is
+// req.UserID, which the ownership gate below proves is also the secret's owner.
 func (s *rotationService) PerformManualRotation(ctx context.Context, req ManualRotationRequest) error {
+	actor := req.UserID.String()
+
 	// Validate secret exists and user owns it. The read itself is unchecked
 	// (admin scope); the explicit ownership check below is the actual gate.
 	secret, err := s.secretRepo.Read(ctx, req.SecretID, model.NewAdminScope(req.UserID))
 	if err != nil {
+		s.log.LogAuditError(actor, "rotate_secret", "failed", "Secret not found", err)
 		return fmt.Errorf("secret not found: %w", err)
 	}
 
 	if secret.UserID != req.UserID {
+		s.log.LogAuditError(actor, "rotate_secret", "denied", "User does not own this secret", nil)
 		return fmt.Errorf("user does not own this secret")
 	}
 
 	// Validate policy exists and user owns it
 	policy, err := s.rotationRepo.Read(ctx, req.PolicyID)
 	if err != nil {
+		s.log.LogAuditError(actor, "rotate_secret", "failed", "Rotation policy not found", err)
 		return fmt.Errorf("policy not found: %w", err)
 	}
 
 	if policy.UserID != req.UserID {
+		s.log.LogAuditError(actor, "rotate_secret", "denied", "User does not own this policy", nil)
 		return fmt.Errorf("user does not own this policy")
 	}
 
@@ -400,8 +427,14 @@ func (s *rotationService) PerformManualRotation(ctx context.Context, req ManualR
 	err = s.secretRepo.Update(ctx, secret, model.NewOwnerScope(secret.VaultID, secret.UserID))
 	if err != nil {
 		s.log.WithError(err).Error("Failed to update secret during rotation")
+		s.log.LogAuditError(actor, "rotate_secret", "failed", "Failed to update secret during rotation", err)
 		return fmt.Errorf("failed to update secret during rotation: %w", err)
 	}
+
+	// The write bypassed CachedSecretService. Without this eviction a
+	// credential rotated because it was compromised would keep being served
+	// from cache for the full TTL after rotation reported success.
+	s.invalidateCache(ctx, req.SecretID)
 
 	// Record rotation history
 	now := time.Now()
@@ -429,6 +462,9 @@ func (s *rotationService) PerformManualRotation(ctx context.Context, req ManualR
 		s.log.WithError(err).Error("Failed to update next rotation time")
 		// Don't fail rotation if scheduling update fails
 	}
+
+	s.log.LogAuditInfo(actor, "rotate_secret", "success",
+		fmt.Sprintf("Secret %s rotated to version %d", req.SecretID, secret.Version))
 
 	s.log.WithFields(map[string]interface{}{
 		"secret_id":   req.SecretID,

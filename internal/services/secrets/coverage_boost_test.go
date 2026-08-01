@@ -749,7 +749,7 @@ func TestVersioningServiceHappyPathAndOwnershipErrors(t *testing.T) {
 	secretRepo := &testutils.MockSecretRepository{}
 	userRepo := &mockUserRepository{}
 	crypto := &testutils.MockCryptographyService{}
-	svc := secrets.NewVersioningService(versionRepo, secretRepo, userRepo, crypto, testutils.NewTestLogger(t))
+	svc := secrets.NewVersioningService(versionRepo, secretRepo, userRepo, crypto, testutils.NewTestLogger(t), nil)
 
 	adminScope := model.NewAdminScope(userID)
 
@@ -825,7 +825,7 @@ func TestVersioningServiceGetLatestAndDeleteMethods(t *testing.T) {
 	secretRepo := &testutils.MockSecretRepository{}
 	userRepo := &mockUserRepository{}
 	crypto := &testutils.MockCryptographyService{}
-	svc := secrets.NewVersioningService(versionRepo, secretRepo, userRepo, crypto, testutils.NewTestLogger(t))
+	svc := secrets.NewVersioningService(versionRepo, secretRepo, userRepo, crypto, testutils.NewTestLogger(t), nil)
 
 	ownerScope := model.NewOwnerScope(uuid.Nil, userID)
 	adminScope := model.NewAdminScope(userID)
@@ -876,7 +876,7 @@ func TestRotationServicePolicyLifecycle(t *testing.T) {
 	secretRepo := &testutils.MockSecretRepository{}
 	userRepo := &mockUserRepository{}
 	crypto := &testutils.MockCryptographyService{}
-	svc := secrets.NewRotationService(repo, secretRepo, userRepo, crypto, testutils.NewTestLogger(t))
+	svc := secrets.NewRotationService(repo, secretRepo, userRepo, crypto, testutils.NewTestLogger(t), nil)
 
 	userRepo.On("Read", ctx, userID).Return(&model.User{ID: userID, Username: "alice"}, nil).Once()
 	repo.On("Create", ctx, mock.MatchedBy(func(policy *model.RotationPolicy) bool {
@@ -962,7 +962,7 @@ func TestRotationServiceAssignmentRotationAndReminders(t *testing.T) {
 	secretRepo := &testutils.MockSecretRepository{}
 	userRepo := &mockUserRepository{}
 	crypto := &testutils.MockCryptographyService{}
-	svc := secrets.NewRotationService(repo, secretRepo, userRepo, crypto, testutils.NewTestLogger(t))
+	svc := secrets.NewRotationService(repo, secretRepo, userRepo, crypto, testutils.NewTestLogger(t), nil)
 
 	secretRepo.On("Read", ctx, secretID, model.NewAdminScope(userID)).Return(secret, nil).Once()
 	repo.On("Read", ctx, policyID).Return(policy, nil).Once()
@@ -1059,7 +1059,7 @@ func TestRotationServiceErrorBranches(t *testing.T) {
 	secretRepo := &testutils.MockSecretRepository{}
 	userRepo := &mockUserRepository{}
 	crypto := &testutils.MockCryptographyService{}
-	svc := secrets.NewRotationService(repo, secretRepo, userRepo, crypto, testutils.NewTestLogger(t))
+	svc := secrets.NewRotationService(repo, secretRepo, userRepo, crypto, testutils.NewTestLogger(t), nil)
 
 	userRepo.On("Read", ctx, userID).Return(nil, errors.New("missing user")).Once()
 	_, err := svc.CreatePolicy(ctx, secrets.CreatePolicyRequest{UserID: userID, Name: "p", IntervalDays: 30})

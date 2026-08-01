@@ -41,8 +41,12 @@ func (s *Secret) IsActive() bool {
 	return time.Now().After(*s.NotBefore)
 }
 
+// IsAccessible reports whether the secret may be served. A soft-deleted
+// secret never is: the SQL read path filters deleted_at IS NULL, and the
+// cache hit path relies on this check alone, so omitting DeletedAt here would
+// let a vault-delete cascade leave a still-servable cached copy behind.
 func (s *Secret) IsAccessible() bool {
-	return s.Enabled && s.IsActive() && !s.IsExpired()
+	return s.DeletedAt == nil && s.Enabled && s.IsActive() && !s.IsExpired()
 }
 
 func (s *Secret) DaysUntilExpiration() int {

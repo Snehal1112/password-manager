@@ -33,7 +33,7 @@ func TestGetVersions_VaultScope_HappyPath(t *testing.T) {
 	)
 	crypto.On("DecryptSecret", "enc-v1").Return("plain-v1", nil)
 
-	svc := secrets.NewVersioningService(versionRepo, secretRepo, userRepo, crypto, testutils.NewTestLogger(t))
+	svc := secrets.NewVersioningService(versionRepo, secretRepo, userRepo, crypto, testutils.NewTestLogger(t), nil)
 	versions, err := svc.GetVersions(ctx, secretID, scope)
 
 	require.NoError(t, err)
@@ -55,7 +55,7 @@ func TestGetVersions_VaultScope_WrongVault(t *testing.T) {
 	scope := model.NewVaultScope(vaultID, uuid.Nil)
 	secretRepo.On("Read", ctx, secretID, scope).Return(nil, errors.New("secret not found or access denied"))
 
-	svc := secrets.NewVersioningService(versionRepo, secretRepo, userRepo, crypto, testutils.NewTestLogger(t))
+	svc := secrets.NewVersioningService(versionRepo, secretRepo, userRepo, crypto, testutils.NewTestLogger(t), nil)
 	_, err := svc.GetVersions(ctx, secretID, scope)
 
 	require.Error(t, err)

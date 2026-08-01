@@ -309,6 +309,11 @@ func (c *ServiceContainer) initializeServices() error {
 		if c.cacheConfig.CleanupInterval > 0 {
 			c.secretCache.StartCleanup(c.cacheContext, c.cacheConfig.CleanupInterval)
 		}
+
+		// The vault delete/recover cascade writes the secrets table directly,
+		// so it needs its own invalidation hook. Set only when the cache
+		// exists: a typed-nil *SecretCache in the interface would panic.
+		c.vaultService.SetSecretCacheFlusher(c.secretCache)
 	}
 
 	// Initialize retry service before any service that wraps with retry logic.
@@ -434,6 +439,15 @@ func (c *ServiceContainer) initializeServices() error {
 		c.userService = baseUserService
 	}
 
+	// Rollback and rotation update the secrets table directly instead of going
+	// through CachedSecretService, so they take their own invalidator. It
+	// stays a nil interface when caching is disabled — assigning a typed-nil
+	// *cache.SecretCache would make the nil check inside the services useless.
+	var secretCacheInvalidator secretServices.SecretCacheInvalidator
+	if c.secretCache != nil {
+		secretCacheInvalidator = c.secretCache
+	}
+
 	// Initialize secret component services (cryptoService already initialised above).
 	c.versioningService = secretServices.NewVersioningService(
 		c.versionRepository,
@@ -441,6 +455,7 @@ func (c *ServiceContainer) initializeServices() error {
 		c.userRepository,
 		c.cryptoService,
 		c.logger,
+		secretCacheInvalidator,
 	)
 	c.tagService = secretServices.NewTagService(repositories.NewSecretTagRepository(c.conn), c.logger)
 	c.rotationService = secretServices.NewRotationService(
@@ -449,6 +464,7 @@ func (c *ServiceContainer) initializeServices() error {
 		c.userRepository,
 		c.cryptoService,
 		c.logger,
+		secretCacheInvalidator,
 	)
 	c.schedulerService = secretServices.NewSchedulerService(
 		c.rotationService,

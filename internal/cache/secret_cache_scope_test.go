@@ -94,6 +94,69 @@ func TestFlushRemovesLiveEntriesWhileClearOnlyPrunesExpired(t *testing.T) {
 	assert.False(t, found, "Flush removes live entries")
 }
 
+// TestGetReturnsACopyTheCallerCannotPoison pins the defensive copy on the read
+// path. api.updateSecret mutates the secret returned by GetSecret in place
+// before the write is persisted, so returning the stored pointer would let a
+// never-persisted value be served to every other reader of the same entry.
+func TestGetReturnsACopyTheCallerCannotPoison(t *testing.T) {
+	c := newScopeCache(t, time.Minute)
+	ctx := context.Background()
+
+	secretID, vaultID := uuid.New(), uuid.New()
+	scope := model.NewVaultScope(vaultID, uuid.New())
+	expires := time.Now().Add(time.Hour)
+	require.NoError(t, c.Set(ctx, &model.Secret{
+		ID: secretID, VaultID: vaultID, Value: "original", Version: 1,
+		Tags: []string{"prod"}, Enabled: true, ExpiresAt: &expires,
+	}, scope))
+
+	first, found := c.Get(ctx, secretID, scope)
+	require.True(t, found)
+
+	// Mutate exactly the way the update handler does.
+	first.Value = "never-persisted"
+	first.Version++
+	first.Tags[0] = "poisoned"
+	*first.ExpiresAt = time.Unix(0, 0)
+
+	second, found := c.Get(ctx, secretID, scope)
+	require.True(t, found)
+	assert.Equal(t, "original", second.Value, "a caller's in-place mutation must not reach the cache")
+	assert.Equal(t, 1, second.Version)
+	assert.Equal(t, []string{"prod"}, second.Tags)
+	assert.True(t, second.ExpiresAt.After(time.Now()))
+}
+
+// TestSetStoresACopyOfTheCallersSecret is the write-side half: the caller
+// keeps its own pointer after Set and may still write through it.
+func TestSetStoresACopyOfTheCallersSecret(t *testing.T) {
+	c := newScopeCache(t, time.Minute)
+	ctx := context.Background()
+
+	secretID, vaultID := uuid.New(), uuid.New()
+	scope := model.NewVaultScope(vaultID, uuid.New())
+	secret := &model.Secret{ID: secretID, VaultID: vaultID, Value: "original", Tags: []string{"prod"}, Enabled: true}
+	require.NoError(t, c.Set(ctx, secret, scope))
+
+	secret.Value = "mutated-after-set"
+	secret.Tags[0] = "poisoned"
+
+	cached, found := c.Get(ctx, secretID, scope)
+	require.True(t, found)
+	assert.Equal(t, "original", cached.Value)
+	assert.Equal(t, []string{"prod"}, cached.Tags)
+}
+
+// TestSoftDeletedCachedSecretIsNotAccessible pins that the cache-hit recheck
+// covers soft deletion. A vault-delete cascade stamps deleted_at without going
+// through the cache, so IsAccessible is the only thing standing between a
+// cached plaintext and a reader who primed the entry before the deletion.
+func TestSoftDeletedCachedSecretIsNotAccessible(t *testing.T) {
+	deletedAt := time.Now()
+	secret := &model.Secret{ID: uuid.New(), Value: "plaintext", Enabled: true, DeletedAt: &deletedAt}
+	assert.False(t, secret.IsAccessible(), "a soft-deleted secret must never be served from cache")
+}
+
 func TestExpiredEntryIsAMiss(t *testing.T) {
 	c := newScopeCache(t, time.Nanosecond)
 	ctx := context.Background()

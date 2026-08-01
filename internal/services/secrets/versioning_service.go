@@ -57,23 +57,40 @@ type versioningService struct {
 	secretRepo  repositories.SecretRepositoryInterface
 	userRepo    repositories.UserRepositoryInterface
 	cryptoSvc   CryptographyService
+	cacheInv    SecretCacheInvalidator
 	log         *logging.Logger
 }
 
-// NewVersioningService creates a new versioning service with the required dependencies.
+// NewVersioningService creates a new versioning service with the required
+// dependencies. cacheInv may be nil when the secret cache is disabled; it is
+// needed because RollbackToVersion writes the secrets table without going
+// through CachedSecretService.
 func NewVersioningService(
 	versionRepo repositories.SecretVersionRepositoryInterface,
 	secretRepo repositories.SecretRepositoryInterface,
 	userRepo repositories.UserRepositoryInterface,
 	cryptoSvc CryptographyService,
 	log *logging.Logger,
+	cacheInv SecretCacheInvalidator,
 ) VersioningServiceInterface {
 	return &versioningService{
 		versionRepo: versionRepo,
 		secretRepo:  secretRepo,
 		userRepo:    userRepo,
 		cryptoSvc:   cryptoSvc,
+		cacheInv:    cacheInv,
 		log:         log,
+	}
+}
+
+// invalidateCache evicts every cached view of a secret after a direct write.
+// A failure is logged but never fails the operation that already succeeded.
+func (s *versioningService) invalidateCache(ctx context.Context, secretID uuid.UUID) {
+	if s.cacheInv == nil {
+		return
+	}
+	if err := s.cacheInv.DeleteByID(ctx, secretID); err != nil {
+		s.log.WithError(err).WithField("secret_id", secretID).Warn("Failed to invalidate cached secret")
 	}
 }
 
@@ -276,21 +293,30 @@ func (s *versioningService) DeleteSpecificVersion(ctx context.Context, secretID 
 }
 
 // RollbackToVersion rolls back a secret to a specific version.
+//
+// It writes the secrets table directly rather than through the secret service,
+// so it owns both its audit trail and its cache invalidation. The actor is
+// req.UserID, which the ownership gate below proves is also the secret's owner.
 func (s *versioningService) RollbackToVersion(ctx context.Context, req RollbackRequest) (*model.Secret, error) {
+	actor := req.UserID.String()
+
 	// Validate secret exists and user owns it. The read itself is unchecked
 	// (admin scope); the explicit ownership check below is the actual gate.
 	secret, err := s.secretRepo.Read(ctx, req.SecretID, model.NewAdminScope(req.UserID))
 	if err != nil {
+		s.log.LogAuditError(actor, "rollback_secret", "failed", "Secret not found", err)
 		return nil, fmt.Errorf("secret not found: %w", err)
 	}
 
 	if secret.UserID != req.UserID {
+		s.log.LogAuditError(actor, "rollback_secret", "denied", "User does not own this secret", nil)
 		return nil, fmt.Errorf("user does not own this secret")
 	}
 
 	// Get the target version
 	targetVersion, err := s.versionRepo.GetVersion(ctx, req.SecretID, req.TargetVersion)
 	if err != nil {
+		s.log.LogAuditError(actor, "rollback_secret", "failed", "Target version not found", err)
 		return nil, fmt.Errorf("target version not found: %w", err)
 	}
 
@@ -298,6 +324,7 @@ func (s *versioningService) RollbackToVersion(ctx context.Context, req RollbackR
 	decryptedValue, err := s.cryptoSvc.DecryptSecret(targetVersion.Value)
 	if err != nil {
 		s.log.WithError(err).Error("Failed to decrypt target version for rollback")
+		s.log.LogAuditError(actor, "rollback_secret", "failed", "Failed to decrypt target version", err)
 		return nil, fmt.Errorf("failed to decrypt target version: %w", err)
 	}
 
@@ -313,6 +340,7 @@ func (s *versioningService) RollbackToVersion(ctx context.Context, req RollbackR
 	_, err = s.CreateVersion(ctx, currentVersionReq)
 	if err != nil {
 		s.log.WithError(err).Error("Failed to create backup version during rollback")
+		s.log.LogAuditError(actor, "rollback_secret", "failed", "Failed to create backup version", err)
 		return nil, fmt.Errorf("failed to create backup version: %w", err)
 	}
 
@@ -323,8 +351,16 @@ func (s *versioningService) RollbackToVersion(ctx context.Context, req RollbackR
 	err = s.secretRepo.Update(ctx, secret, model.NewOwnerScope(secret.VaultID, secret.UserID))
 	if err != nil {
 		s.log.WithError(err).Error("Failed to update secret during rollback")
+		s.log.LogAuditError(actor, "rollback_secret", "failed", "Failed to update secret during rollback", err)
 		return nil, fmt.Errorf("failed to update secret during rollback: %w", err)
 	}
+
+	// The write bypassed CachedSecretService, so evict every cached view
+	// explicitly or the pre-rollback value keeps being served for the full TTL.
+	s.invalidateCache(ctx, req.SecretID)
+
+	s.log.LogAuditInfo(actor, "rollback_secret", "success",
+		fmt.Sprintf("Secret %s rolled back to version %d (new version %d)", req.SecretID, req.TargetVersion, secret.Version))
 
 	s.log.WithFields(map[string]any{
 		"secret_id":      req.SecretID,

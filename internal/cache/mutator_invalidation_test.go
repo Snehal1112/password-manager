@@ -20,6 +20,21 @@ import (
 //
 // RULE: a new mutating method on CachedSecretService joins this table in the
 // same commit that adds it.
+//
+// SCOPE AND LIMITS: this table only covers writers that go *through* the cache
+// decorator, so on its own it can never fail for a writer that bypasses it. It
+// is structurally blind to every direct writer of the secrets table:
+//
+//   - secrets.rotationService.PerformManualRotation
+//   - secrets.versioningService.RollbackToVersion
+//   - the vault delete/recover cascade in services/vaults
+//
+// Those three take an explicit invalidation hook instead
+// (secrets.SecretCacheInvalidator and vaults.SecretCacheFlusher) and are
+// covered by their own tests in their own packages. A new writer that touches
+// the secrets table without using CachedSecretService must be given one of
+// those hooks and its own test — adding it here would not help, because this
+// table can only reach methods the decorator already defines.
 func TestEveryMutatorInvalidates(t *testing.T) {
 	secretID := uuid.New()
 	vaultID := uuid.New()

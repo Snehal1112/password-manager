@@ -503,7 +503,7 @@ func newCrossVaultSecretVersionsTestAPI(t *testing.T) (*API, *vaultFakeRepo, rep
 	// missing-version/no-versions "not found" returns in versioning_service.go
 	// both return before any DecryptSecret call).
 	versionRepo := repositories.NewSecretVersionRepository(rvdb.NewConn(sqlDB, rvdb.SQLite), userTestLog())
-	versionSvc := secretServices.NewVersioningService(versionRepo, secretRepo, nil, nil, userTestLog())
+	versionSvc := secretServices.NewVersioningService(versionRepo, secretRepo, nil, nil, userTestLog(), nil)
 	secretSvc := secretServices.NewSecretService(secretServices.SecretServiceConfig{
 		SecretRepository: secretRepo,
 		VersionService:   versionSvc,

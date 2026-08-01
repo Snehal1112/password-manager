@@ -113,7 +113,7 @@ func TestGetSecretPolicies_NonOwner_Forbidden(t *testing.T) {
 	secretRepo.On("Read", ctx, secretID, model.NewAdminScope(callerID)).Return(&model.Secret{ID: secretID, UserID: ownerID}, nil)
 	rotationRepo := &mockRotationPolicyRepo{}
 
-	svc := secrets.NewRotationService(rotationRepo, secretRepo, nil, nil, testutils.NewTestLogger(t))
+	svc := secrets.NewRotationService(rotationRepo, secretRepo, nil, nil, testutils.NewTestLogger(t), nil)
 	_, err := svc.GetSecretPolicies(ctx, secretID, callerID)
 
 	require.Error(t, err)
@@ -132,7 +132,7 @@ func TestGetSecretPolicies_Owner_Succeeds(t *testing.T) {
 	rotationRepo := &mockRotationPolicyRepo{}
 	rotationRepo.On("GetPoliciesForSecret", ctx, secretID).Return([]model.RotationPolicy{{ID: uuid.New()}}, nil)
 
-	svc := secrets.NewRotationService(rotationRepo, secretRepo, nil, nil, testutils.NewTestLogger(t))
+	svc := secrets.NewRotationService(rotationRepo, secretRepo, nil, nil, testutils.NewTestLogger(t), nil)
 	policies, err := svc.GetSecretPolicies(ctx, secretID, ownerID)
 
 	require.NoError(t, err)
@@ -148,7 +148,7 @@ func TestGetSecretPolicies_NilUserID_SkipsOwnershipCheck(t *testing.T) {
 	rotationRepo := &mockRotationPolicyRepo{}
 	rotationRepo.On("GetPoliciesForSecret", ctx, secretID).Return([]model.RotationPolicy{}, nil)
 
-	svc := secrets.NewRotationService(rotationRepo, secretRepo, nil, nil, testutils.NewTestLogger(t))
+	svc := secrets.NewRotationService(rotationRepo, secretRepo, nil, nil, testutils.NewTestLogger(t), nil)
 	_, err := svc.GetSecretPolicies(ctx, secretID, uuid.Nil)
 
 	require.NoError(t, err)
@@ -167,7 +167,7 @@ func TestAcknowledgeReminder_NonOwner_Forbidden(t *testing.T) {
 	secretRepo.On("Read", ctx, secretID, model.NewAdminScope(callerID)).Return(&model.Secret{ID: secretID, UserID: ownerID}, nil)
 	rotationRepo := &mockRotationPolicyRepo{}
 
-	svc := secrets.NewRotationService(rotationRepo, secretRepo, nil, nil, testutils.NewTestLogger(t))
+	svc := secrets.NewRotationService(rotationRepo, secretRepo, nil, nil, testutils.NewTestLogger(t), nil)
 	err := svc.AcknowledgeReminder(ctx, reminderID, secretID, callerID)
 
 	require.Error(t, err)
@@ -187,7 +187,7 @@ func TestAcknowledgeReminder_SystemCaller_SkipsOwnershipCheck(t *testing.T) {
 		return r.ID == reminderID && r.Acknowledged
 	})).Return(nil)
 
-	svc := secrets.NewRotationService(rotationRepo, secretRepo, nil, nil, testutils.NewTestLogger(t))
+	svc := secrets.NewRotationService(rotationRepo, secretRepo, nil, nil, testutils.NewTestLogger(t), nil)
 	err := svc.AcknowledgeReminder(ctx, reminderID, secretID, uuid.Nil)
 
 	require.NoError(t, err)
