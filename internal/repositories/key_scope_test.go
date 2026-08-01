@@ -72,7 +72,7 @@ func seedScopeKey(t *testing.T, repo *KeyRepository, ownerID, vaultID uuid.UUID,
 	return k
 }
 
-func TestKeyReadScoped(t *testing.T) {
+func TestKeyRead(t *testing.T) {
 	repo := newScopeTestKeyRepo(t)
 	ctx := context.Background()
 
@@ -96,7 +96,7 @@ func TestKeyReadScoped(t *testing.T) {
 	assert.Equal(t, key.ID, got.ID)
 }
 
-func TestKeyUpdateScoped(t *testing.T) {
+func TestKeyUpdate(t *testing.T) {
 	repo := newScopeTestKeyRepo(t)
 	ctx := context.Background()
 
@@ -117,7 +117,7 @@ func TestKeyUpdateScoped(t *testing.T) {
 	assert.Error(t, repo.Update(ctx, &blocked, model.NewVaultScope(vaultB, otherUser)))
 }
 
-func TestKeyListScoped(t *testing.T) {
+func TestKeyList(t *testing.T) {
 	repo := newScopeTestKeyRepo(t)
 	ctx := context.Background()
 

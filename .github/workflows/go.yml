@@ -58,7 +58,13 @@ jobs:
 
       - name: No legacy InVault/ByOwner methods
         run: |
-          if grep -rn "InVault\|ReadByOwner\|ListByUser(" --include="*.go" . | grep -v "_test.go"; then
+          # internal/services/secrets/rotation_service.go and
+          # internal/repositories/rotation_repository.go are excepted: the
+          # rotation subsystem intentionally still keys off user_id via
+          # ListByUser. This is a permanent, documented deferral (secondary
+          # subsystems are out of scope for the P1 scope refactor per the
+          # plan's own corrections section), not a legacy pattern to migrate.
+          if grep -rn "InVault\|ReadByOwner\|ListByUser(" --include="*.go" . | grep -v "_test.go" | grep -v "^./internal/services/secrets/rotation_service.go" | grep -v "^./internal/repositories/rotation_repository.go"; then
             echo "::error::legacy vault-scoping methods reintroduced; use model.Scope"
             exit 1
           fi

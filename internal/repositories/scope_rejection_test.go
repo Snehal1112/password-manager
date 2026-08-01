@@ -13,8 +13,8 @@ import (
 
 // TestZeroScopeRejectedByEveryRepositoryMethod is the fail-closed gate for the
 // refactor's highest-severity risk: a partially-migrated call site or a
-// zero-valued mock return producing model.Scope{} must never read or write a
-// row. Every scope-aware repository method belongs in this test.
+// zero-valued mock return producing an unset Scope literal must never read or
+// write a row. Every scope-aware repository method belongs in this test.
 func TestZeroScopeRejectedByEveryRepositoryMethod(t *testing.T) {
 	ctx := context.Background()
 	var zero model.Scope

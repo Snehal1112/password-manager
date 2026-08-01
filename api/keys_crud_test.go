@@ -569,7 +569,7 @@ func TestUpdateKey_ServiceError_Returns500(t *testing.T) {
 func TestUpdateKey_NotFound_Returns404(t *testing.T) {
 	keyID := uuid.New()
 	svc := &mockKeyService{}
-	// UpdateKeyScoped wraps ErrKeyNotFound; errors.Is must still match through the chain.
+	// UpdateKey wraps ErrKeyNotFound; errors.Is must still match through the chain.
 	svc.On("UpdateKey", mock.Anything, mock.Anything).
 		Return(fmt.Errorf("update key: %w", keyServices.ErrKeyNotFound))
 

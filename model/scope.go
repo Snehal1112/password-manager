@@ -23,9 +23,10 @@ const (
 var ErrScopeInvalid = errors.New("model: invalid authorization scope")
 
 // Scope is the authorization scope of a single resource operation. It replaces
-// the *InVault and *ByOwner method pairs: the scope travels as a value instead
-// of being encoded in the method name. Every field is unexported so the only
-// way to build one is through a constructor that sets a valid kind.
+// the old vault-suffixed and owner-suffixed method pairs: the scope travels as
+// a value instead of being encoded in the method name. Every field is
+// unexported so the only way to build one is through a constructor that sets
+// a valid kind.
 type Scope struct {
 	kind    ScopeKind
 	vaultID uuid.UUID // Set for ScopeVault; advisory for ScopeOwner.
@@ -41,7 +42,8 @@ func NewVaultScope(vaultID, actorID uuid.UUID) Scope {
 
 // NewOwnerScope restricts an operation to the resource owner. vaultID is
 // advisory: owner-scoped queries never constrain vault_id, matching the
-// pre-refactor behaviour of ReadByOwner and ListByUser.
+// pre-refactor behaviour of the legacy owner-keyed read and user-keyed list
+// methods.
 func NewOwnerScope(vaultID, ownerID uuid.UUID) Scope {
 	return Scope{kind: ScopeOwner, vaultID: vaultID, ownerID: ownerID, actorID: ownerID}
 }

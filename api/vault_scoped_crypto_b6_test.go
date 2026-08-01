@@ -31,9 +31,9 @@ import (
 //
 // Renamed from TestB6_CryptoOps_NonOwnerVaultMember_Returns403 (P1 scope
 // refactor, Task 20). CryptoService.loadAndAuthorize now authorizes through
-// KeyRepository.ReadScoped with an owner scope (model.NewOwnerScope) instead
+// KeyRepository.Read with an owner scope (model.NewOwnerScope) instead
 // of an unscoped Read followed by a Go-level UserID comparison. A cross-user
-// key never matches the owner-id predicate in ReadScoped's SQL, so it comes
+// key never matches the owner-id predicate in Read's scoped SQL, so it comes
 // back as "not found", the same as it already does for the non-crypto
 // scoped key paths (see TestB6_KeyDelete_NonOwnerVaultMember_Returns404
 // below, from Task 19). Task 20 additionally wraps the exported
@@ -41,7 +41,7 @@ import (
 // deliberate deviation from the task brief's literal code — specifically so
 // this case reports 404 through the handlers' existing errors.Is(err,
 // ErrKeyNotFound) branch instead of falling through to a generic 500;
-// without that wrap, ReadScoped's plain "key not found or access denied"
+// without that wrap, Read's plain "key not found or access denied"
 // error satisfies none of the handlers' typed error checks. The cross-vault
 // case (B6's actual, still-live conjunction) continues to return 403 via
 // ErrKeyForbidden; that path is unchanged and not covered by this test.
@@ -204,12 +204,12 @@ func newB6TestAPI(repo *b6FakeKeyRepo) (*API, *vaultFakeRepo) {
 
 // TestB6_KeyDelete_NonOwnerVaultMember_Returns404 asserts that DELETE on the
 // vault-scoped key route is not found for a non-owner vault member.
-// DeleteKeyScoped authorizes through ReadScoped: a non-owner's owner scope
-// simply fails to resolve the key, so the handler's existing ErrKeyNotFound
-// mapping reports 404 rather than 403. This is the spec's intentional
-// "404, not 403" decision for the delete path (P1 scope refactor, Task 19).
-// The crypto operations above now authorize through the same ReadScoped
-// mechanism (Task 20) and land on the identical 404 outcome for a non-owner
+// KeyService.DeleteKey authorizes through KeyRepository.Read: a non-owner's
+// owner scope simply fails to resolve the key, so the handler's existing
+// ErrKeyNotFound mapping reports 404 rather than 403. This is the spec's
+// intentional "404, not 403" decision for the delete path (P1 scope
+// refactor, Task 19). The crypto operations above now authorize through the
+// same Read-based mechanism (Task 20) and land on the identical 404 outcome for a non-owner
 // vault member; see TestB6_CryptoOps_NonOwnerVaultMember_Returns404's comment
 // for that path's specifics.
 func TestB6_KeyDelete_NonOwnerVaultMember_Returns404(t *testing.T) {

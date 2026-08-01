@@ -72,7 +72,7 @@ func seedScopeCert(t *testing.T, repo *CertificateRepository, ownerID, vaultID u
 	return c
 }
 
-func TestCertificateReadScoped(t *testing.T) {
+func TestCertificateRead(t *testing.T) {
 	repo := newScopeTestCertRepo(t)
 	ctx := context.Background()
 
@@ -100,7 +100,7 @@ func TestCertificateReadScoped(t *testing.T) {
 	assert.Equal(t, cert.ID, got.ID)
 }
 
-func TestCertificateUpdateScoped(t *testing.T) {
+func TestCertificateUpdate(t *testing.T) {
 	repo := newScopeTestCertRepo(t)
 	ctx := context.Background()
 
@@ -121,7 +121,7 @@ func TestCertificateUpdateScoped(t *testing.T) {
 	assert.Error(t, repo.Update(ctx, &blocked, model.NewVaultScope(vaultB, otherUser)))
 }
 
-func TestCertificateListScoped(t *testing.T) {
+func TestCertificateList(t *testing.T) {
 	repo := newScopeTestCertRepo(t)
 	ctx := context.Background()
 

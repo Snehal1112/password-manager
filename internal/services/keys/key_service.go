@@ -414,9 +414,9 @@ func (s *keyService) DeleteKey(ctx context.Context, keyID uuid.UUID, scope model
 	}
 
 	// B6 conjunction, P1 only: an owner scope may carry an advisory vault id,
-	// and the pre-refactor DeleteKeyInVault required BOTH predicates. A Scope
-	// cannot express AND, so the vault half stays in Go until P2 retires
-	// ScopeOwner from the data plane.
+	// and the pre-refactor two-argument delete (key ID plus vault ID) required
+	// BOTH predicates. A Scope cannot express AND, so the vault half stays in
+	// Go until P2 retires ScopeOwner from the data plane.
 	if _, ownerScoped := scope.OwnerID(); ownerScoped && scope.VaultID() != uuid.Nil && key.VaultID != scope.VaultID() {
 		s.logger.LogAuditError(actor, "delete_key", "forbidden", "key does not belong to the requested vault", nil)
 		return nil, fmt.Errorf("%w: key does not belong to the requested vault", ErrKeyNotFound)

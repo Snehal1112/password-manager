@@ -108,7 +108,7 @@ func TestGetCertificatePolicyResolvesTheCertificateThroughTheScope(t *testing.T)
 //     authenticated caller could create or replace a policy for any
 //     certificate_id, whether or not they had ever seen that certificate.
 //
-// Resolving the certificate through certService.GetCertificateScoped first
+// Resolving the certificate through certService.GetCertificate first
 // closes both gaps: all three handlers now authorize on "does the caller own
 // the certificate" (certificates.user_id, via the scope), then use the
 // owner-agnostic policy-repository method because the scope already vouched
@@ -150,7 +150,7 @@ func newFlatPolicyRequest(t *testing.T, method string, certID uuid.UUID, body []
 // certificate-ownership check upsertCertificatePolicy gained as a side effect
 // of this task. Before this task, the flat route performed no certificate
 // check whatsoever: any authenticated caller could create or replace a
-// policy for any certificate_id. GetCertificateScoped failing must now deny
+// policy for any certificate_id. GetCertificate failing must now deny
 // the request before the policy repository is ever touched.
 func TestUpsertCertificatePolicy_FlatRouteDeniesNonOwnedCertificate(t *testing.T) {
 	certID := uuid.New()
@@ -174,7 +174,7 @@ func TestUpsertCertificatePolicy_FlatRouteDeniesNonOwnedCertificate(t *testing.T
 // same-owner case still succeeds once the new ownership check is in place.
 func TestUpsertCertificatePolicy_FlatRouteAllowsOwnedCertificate(t *testing.T) {
 	certID := uuid.New()
-	svc := &scopeStubCertService{} // GetCertificateScoped succeeds (nil, nil).
+	svc := &scopeStubCertService{} // GetCertificate succeeds (nil, nil).
 	repo := &mockCertPolicyRepo{}
 	repo.On("Upsert", mock.Anything, mock.Anything).Return(nil)
 	repo.On("GetByCertificateIDAny", mock.Anything, certID).Return(&model.CertificatePolicy{
@@ -195,7 +195,7 @@ func TestUpsertCertificatePolicy_FlatRouteAllowsOwnedCertificate(t *testing.T) {
 
 // TestGetCertificatePolicy_FlatRouteDeniesNonOwnedCertificate pins that
 // reading a certificate's policy on the flat route now requires owning the
-// certificate itself (via GetCertificateScoped), not merely having authored
+// certificate itself (via GetCertificate), not merely having authored
 // the policy row (the pre-task repo.GetByCertificateID(certID, userID)
 // predicate).
 func TestGetCertificatePolicy_FlatRouteDeniesNonOwnedCertificate(t *testing.T) {

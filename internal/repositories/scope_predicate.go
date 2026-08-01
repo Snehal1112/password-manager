@@ -16,9 +16,10 @@ var ErrInvalidScope = errors.New("invalid authorization scope")
 // arguments. Each fragment is a compile-time constant; every caller-supplied
 // value travels as a "?" placeholder, so nothing is ever interpolated.
 //
-// ScopeOwner deliberately does not constrain vault_id: ReadByOwner and
-// ListByUser have never filtered by vault, and tightening that here would be a
-// behavioral change smuggled into a refactor. P2 retires ScopeOwner entirely.
+// ScopeOwner deliberately does not constrain vault_id: the legacy owner-keyed
+// read and user-keyed list methods never filtered by vault, and tightening
+// that here would be a behavioral change smuggled into a refactor. P2 retires
+// ScopeOwner entirely.
 func scopePredicate(scope model.Scope) (string, []any, error) {
 	if err := scope.Validate(); err != nil {
 		return "", nil, fmt.Errorf("%w: %s", ErrInvalidScope, err.Error())

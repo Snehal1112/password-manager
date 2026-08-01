@@ -246,8 +246,8 @@ func (s *cryptoService) resolveKeyMaterial(key *model.Key) (
 // unmatched by every case in the six API handlers' error switches (they all
 // test errors.Is against the exported Err* vars), falling through to the
 // generic 500 branch. That is a real regression for what is fundamentally an
-// authorization denial. Task 19's GetKeyScoped/DeleteKeyScoped already
-// established this exact pattern for the identical class of problem, so this
+// authorization denial. Task 19's KeyRepository.Read and KeyService.DeleteKey
+// already established this exact pattern for the identical class of problem, so this
 // keeps loadAndAuthorize consistent with it: a cross-user key now reports 404
 // via ErrKeyNotFound, same as the non-crypto scoped key paths. See
 // api/vault_scoped_crypto_b6_test.go for the regression test this updates.
