@@ -57,19 +57,27 @@ var builtInRoles = map[string][]permission{
 // vaultAdminExtra is the additional management permission for vault-admin.
 var vaultAdminExtra = permission{model.PolicyResourceVaults, model.OpManage}
 
-// BuiltInRoleNames returns the sorted list of built-in role names.
+// BuiltInRoleNames returns the sorted list of grantable role names: the legacy
+// vault roles plus the seven Azure built-in data-plane roles.
 func BuiltInRoleNames() []string {
-	names := make([]string, 0, len(builtInRoles)+1)
+	names := make([]string, 0, len(builtInRoles)+1+len(model.AzureRoleNames()))
 	for n := range builtInRoles {
 		names = append(names, n)
 	}
 	names = append(names, "vault-admin")
+	names = append(names, model.AzureRoleNames()...)
 	sort.Strings(names)
 	return names
 }
 
-// RolePermissions returns the (resource, operation) pairs for display.
+// RolePermissions returns the (resource, operation) pairs for display. Azure
+// built-in roles are not expressed in this legacy permission vocabulary; they
+// grant data actions instead, so they report an empty set. Use
+// model.AzureRoleDataActions for those.
 func RolePermissions(role string) ([][2]string, error) {
+	if model.IsAzureRole(role) {
+		return [][2]string{}, nil
+	}
 	perms, err := bundle(role)
 	if err != nil {
 		return nil, err
@@ -81,9 +89,10 @@ func RolePermissions(role string) ([][2]string, error) {
 	return out, nil
 }
 
-// IsValidRole reports whether name is a known built-in role.
+// IsValidRole reports whether name is a grantable role: a legacy vault role or
+// one of the seven Azure built-in data-plane roles.
 func IsValidRole(name string) bool {
-	if name == "vault-admin" {
+	if name == "vault-admin" || model.IsAzureRole(name) {
 		return true
 	}
 	_, ok := builtInRoles[name]
@@ -114,7 +123,16 @@ func bundle(role string) ([]permission, error) {
 }
 
 // ExpandRole turns a role grant into the access_policies rows it implies.
+//
+// Azure built-in roles expand to nothing: they are evaluated directly from the
+// role_assignments row by MapRouteToDataAction plus model.RoleGrantsDataAction.
+// Materialising a second, derived copy of the same grant in access_policies
+// would create two sources of truth that can drift, and access_policies is
+// retained only as an explicit-deny override.
 func ExpandRole(role string, principalID uuid.UUID, principalType model.PrincipalType, vaultID, assignmentID uuid.UUID) ([]*model.AccessPolicy, error) {
+	if model.IsAzureRole(role) {
+		return nil, nil
+	}
 	perms, err := bundle(role)
 	if err != nil {
 		return nil, err

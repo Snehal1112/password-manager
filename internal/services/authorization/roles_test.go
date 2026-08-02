@@ -109,3 +109,72 @@ func TestIsValidRole_EdgeCases(t *testing.T) {
 		t.Fatal("empty invalid")
 	}
 }
+
+// TestIsValidRole_AcceptsAzureRoles asserts the seven Azure built-in role names
+// are grantable alongside the legacy vault role vocabulary.
+func TestIsValidRole_AcceptsAzureRoles(t *testing.T) {
+	for _, role := range []string{
+		model.RoleKeyVaultAdministrator,
+		model.RoleKeyVaultReader,
+		model.RoleKeyVaultSecretsUser,
+		model.RoleKeyVaultSecretsOfficer,
+		model.RoleKeyVaultCryptoUser,
+		model.RoleKeyVaultCryptoOfficer,
+		model.RoleKeyVaultCertificatesOfficer,
+	} {
+		if !IsValidRole(role) {
+			t.Fatalf("IsValidRole(%q) = false, want true", role)
+		}
+	}
+	if IsValidRole("Key Vault Owner") {
+		t.Fatal("IsValidRole should reject an unknown Azure-looking role")
+	}
+}
+
+// TestExpandRole_AzureRolesProduceNoPolicies asserts Azure roles materialise no
+// access_policies rows. They are evaluated directly from role_assignments; a
+// second materialised copy of the same grant could drift.
+func TestExpandRole_AzureRolesProduceNoPolicies(t *testing.T) {
+	for _, role := range model.AzureRoleNames() {
+		policies, err := ExpandRole(role, uuid.New(), model.PrincipalTypeUser, uuid.New(), uuid.New())
+		if err != nil {
+			t.Fatalf("ExpandRole(%q): %v", role, err)
+		}
+		if len(policies) != 0 {
+			t.Fatalf("ExpandRole(%q) produced %d policies, want 0", role, len(policies))
+		}
+	}
+}
+
+// TestBuiltInRoleNames_IncludesAzureRoles asserts the CLI-facing role list
+// covers both vocabularies.
+func TestBuiltInRoleNames_IncludesAzureRoles(t *testing.T) {
+	names := BuiltInRoleNames()
+	have := map[string]bool{}
+	for _, n := range names {
+		have[n] = true
+	}
+	for _, n := range append(model.AzureRoleNames(),
+		"vault-admin", "vault-reader", "secrets-user", "secrets-officer",
+		"crypto-user", "crypto-officer", "certificates-officer") {
+		if !have[n] {
+			t.Fatalf("BuiltInRoleNames missing %q", n)
+		}
+	}
+	if len(names) != 14 {
+		t.Fatalf("want 14 role names (7 legacy + 7 Azure), got %d: %v", len(names), names)
+	}
+}
+
+// TestRolePermissions_AzureRoleIsEmpty asserts the display helper reports no
+// (resource, operation) pairs for an Azure role, since those roles are not
+// expressed in the legacy permission vocabulary.
+func TestRolePermissions_AzureRoleIsEmpty(t *testing.T) {
+	perms, err := RolePermissions(model.RoleKeyVaultAdministrator)
+	if err != nil {
+		t.Fatalf("RolePermissions: %v", err)
+	}
+	if len(perms) != 0 {
+		t.Fatalf("want 0 legacy permissions for an Azure role, got %d", len(perms))
+	}
+}
