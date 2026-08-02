@@ -157,6 +157,25 @@ func writeTokenError(w http.ResponseWriter, status int, errCode, description str
 	})
 }
 
+// recordServiceAccountAudit writes an audit entry for a service-account
+// lifecycle action. Swallows a nil audit service.
+func recordServiceAccountAudit(c *Context, r *http.Request, action, resourceID, outcome string) {
+	svc := c.App.ServiceContainer.GetAuditService()
+	if svc == nil {
+		return
+	}
+	callerIDStr, _ := c.Claims["user_id"].(string)
+	_ = svc.RecordEvent(r.Context(), auditSvc.AuditEvent{
+		UserID:       callerIDStr,
+		Action:       action,
+		Outcome:      outcome,
+		Source:       "api",
+		ResourceType: "oauth2_client",
+		ResourceID:   resourceID,
+		IPAddress:    middleware.ExtractClientIP(r),
+	})
+}
+
 // ─── Service-account management handlers (authenticated) ─────────────────────
 
 // createServiceAccount handles POST /service-accounts.
@@ -183,9 +202,12 @@ func createServiceAccount(c *Context, w http.ResponseWriter, r *http.Request) {
 	svc := c.App.ServiceContainer.GetOAuth2Service()
 	client, plainSecret, err := svc.CreateClient(r.Context(), req.Name, req.Description, req.ExpiresAt)
 	if err != nil {
+		recordServiceAccountAudit(c, r, "service_account_create", "", "failure")
 		c.SetInternalError(err)
 		return
 	}
+
+	recordServiceAccountAudit(c, r, "service_account_create", client.ID.String(), "success")
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusCreated)
@@ -266,9 +288,12 @@ func deleteServiceAccount(c *Context, w http.ResponseWriter, r *http.Request) {
 
 	svc := c.App.ServiceContainer.GetOAuth2Service()
 	if err := svc.DeleteClient(r.Context(), id); err != nil {
+		recordServiceAccountAudit(c, r, "service_account_delete", id.String(), "failure")
 		c.SetInternalError(err)
 		return
 	}
+
+	recordServiceAccountAudit(c, r, "service_account_delete", id.String(), "success")
 
 	ReturnStatusOK(w)
 }
@@ -292,9 +317,12 @@ func rotateServiceAccountSecret(c *Context, w http.ResponseWriter, r *http.Reque
 	svc := c.App.ServiceContainer.GetOAuth2Service()
 	newSecret, err := svc.RotateSecret(r.Context(), id)
 	if err != nil {
+		recordServiceAccountAudit(c, r, "service_account_rotate_secret", id.String(), "failure")
 		c.SetInternalError(err)
 		return
 	}
+
+	recordServiceAccountAudit(c, r, "service_account_rotate_secret", id.String(), "success")
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]string{ //nolint:errcheck

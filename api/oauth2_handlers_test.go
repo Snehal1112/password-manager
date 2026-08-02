@@ -467,6 +467,34 @@ func TestCreateSA_Success_Returns201(t *testing.T) {
 	svc.AssertExpectations(t)
 }
 
+func TestCreateSA_Success_RecordsAuditEvent(t *testing.T) {
+	svc := &mockOAuth2Svc{}
+	clientID := uuid.New()
+	now := time.Now()
+	svc.On("CreateClient", mock.Anything, "svcname", "", (*time.Time)(nil)).Return(&model.OAuth2Client{
+		ID: clientID, Name: "svcname", Enabled: true, CreatedAt: now,
+	}, "plain-secret", nil)
+	mockAudit := &testutils.MockAuditService{}
+	mockAudit.On("RecordEvent", mock.Anything, mock.MatchedBy(func(e auditServices.AuditEvent) bool {
+		return e.Action == "service_account_create" && e.Outcome == "success" && e.ResourceID == clientID.String()
+	})).Return(nil)
+
+	c := newOAuth2HCtx(svc)
+	c.App.ServiceContainer.(*oauth2HTestContainer).auditSvc = mockAudit
+	w := httptest.NewRecorder()
+	body, _ := json.Marshal(map[string]any{"name": "svcname"})
+	r := httptest.NewRequest(http.MethodPost, "/service-accounts", bytes.NewReader(body))
+
+	createServiceAccount(c, w, r)
+	if c.Err != nil {
+		writeError(w, c)
+	}
+
+	assert.Equal(t, http.StatusCreated, w.Code)
+	svc.AssertExpectations(t)
+	mockAudit.AssertExpectations(t)
+}
+
 // ============================================================
 // listServiceAccounts (additional paths)
 // ============================================================
@@ -617,6 +645,31 @@ func TestDeleteSA_Success_Returns200(t *testing.T) {
 	svc.AssertExpectations(t)
 }
 
+func TestDeleteSA_Success_RecordsAuditEvent(t *testing.T) {
+	saID := uuid.New()
+	svc := &mockOAuth2Svc{}
+	svc.On("DeleteClient", mock.Anything, saID).Return(nil)
+	mockAudit := &testutils.MockAuditService{}
+	mockAudit.On("RecordEvent", mock.Anything, mock.MatchedBy(func(e auditServices.AuditEvent) bool {
+		return e.Action == "service_account_delete" && e.Outcome == "success" && e.ResourceID == saID.String()
+	})).Return(nil)
+
+	c := newOAuth2HCtx(svc)
+	c.App.ServiceContainer.(*oauth2HTestContainer).auditSvc = mockAudit
+	c.Params = &ApiParams{ServiceAccountID: saID.String()}
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest(http.MethodDelete, "/service-accounts/"+saID.String(), nil)
+
+	deleteServiceAccount(c, w, r)
+	if c.Err != nil {
+		writeError(w, c)
+	}
+
+	assert.Equal(t, http.StatusOK, w.Code)
+	svc.AssertExpectations(t)
+	mockAudit.AssertExpectations(t)
+}
+
 // ============================================================
 // rotateServiceAccountSecret (additional paths)
 // ============================================================
@@ -671,4 +724,29 @@ func TestRotateSA_Success_Returns200(t *testing.T) {
 
 	assert.Equal(t, http.StatusOK, w.Code)
 	svc.AssertExpectations(t)
+}
+
+func TestRotateSA_Success_RecordsAuditEvent(t *testing.T) {
+	saID := uuid.New()
+	svc := &mockOAuth2Svc{}
+	svc.On("RotateSecret", mock.Anything, saID).Return("new-secret", nil)
+	mockAudit := &testutils.MockAuditService{}
+	mockAudit.On("RecordEvent", mock.Anything, mock.MatchedBy(func(e auditServices.AuditEvent) bool {
+		return e.Action == "service_account_rotate_secret" && e.Outcome == "success" && e.ResourceID == saID.String()
+	})).Return(nil)
+
+	c := newOAuth2HCtx(svc)
+	c.App.ServiceContainer.(*oauth2HTestContainer).auditSvc = mockAudit
+	c.Params = &ApiParams{ServiceAccountID: saID.String()}
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest(http.MethodPost, "/service-accounts/"+saID.String()+"/rotate", nil)
+
+	rotateServiceAccountSecret(c, w, r)
+	if c.Err != nil {
+		writeError(w, c)
+	}
+
+	assert.Equal(t, http.StatusOK, w.Code)
+	svc.AssertExpectations(t)
+	mockAudit.AssertExpectations(t)
 }
