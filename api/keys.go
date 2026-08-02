@@ -505,9 +505,7 @@ func deleteKey(c *Context, w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// B6: key delete stays owner-gated on both route shapes. Removed in P2,
-	// where Key Vault Crypto Officer at vault scope replaces it.
-	scope, ok := ownerScopeFromRequest(c, r)
+	scope, ok := scopeFromRequest(c, r)
 	if !ok {
 		return
 	}
@@ -552,10 +550,7 @@ func rotateKey(c *Context, w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// B6: key rotation stays owner-gated on both route shapes, like delete and
-	// the crypto operations. Removed in P2, where Key Vault Crypto Officer at
-	// vault scope replaces it.
-	scope, ok := ownerScopeFromRequest(c, r)
+	scope, ok := scopeFromRequest(c, r)
 	if !ok {
 		return
 	}
@@ -637,9 +632,7 @@ func wrapKey(c *Context, w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// B6: crypto operations stay owner-gated. Removed in P2, where Key Vault
-	// Crypto User at vault scope replaces the ownership check.
-	scope, ok := ownerScopeFromRequest(c, r)
+	scope, ok := scopeFromRequest(c, r)
 	if !ok {
 		return
 	}
@@ -672,6 +665,7 @@ func wrapKey(c *Context, w http.ResponseWriter, r *http.Request) {
 		KeyID:        keyID,
 		UserID:       scope.ActorID(),
 		VaultID:      scope.VaultID(),
+		Scope:        scope,
 		PlaintextKey: plaintextBytes,
 		Algorithm:    req.Algorithm,
 	})
@@ -706,9 +700,7 @@ func unwrapKey(c *Context, w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// B6: crypto operations stay owner-gated. Removed in P2, where Key Vault
-	// Crypto User at vault scope replaces the ownership check.
-	scope, ok := ownerScopeFromRequest(c, r)
+	scope, ok := scopeFromRequest(c, r)
 	if !ok {
 		return
 	}
@@ -741,6 +733,7 @@ func unwrapKey(c *Context, w http.ResponseWriter, r *http.Request) {
 		KeyID:      keyID,
 		UserID:     scope.ActorID(),
 		VaultID:    scope.VaultID(),
+		Scope:      scope,
 		WrappedKey: wrappedBytes,
 		Algorithm:  req.Algorithm,
 	})
@@ -775,9 +768,7 @@ func signKey(c *Context, w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// B6: crypto operations stay owner-gated. Removed in P2, where Key Vault
-	// Crypto User at vault scope replaces the ownership check.
-	scope, ok := ownerScopeFromRequest(c, r)
+	scope, ok := scopeFromRequest(c, r)
 	if !ok {
 		return
 	}
@@ -812,6 +803,7 @@ func signKey(c *Context, w http.ResponseWriter, r *http.Request) {
 		Algorithm: crypto.SignatureAlgorithm(req.Algorithm),
 		UserID:    scope.ActorID(),
 		VaultID:   scope.VaultID(),
+		Scope:     scope,
 	})
 	if err != nil {
 		switch {
@@ -845,9 +837,7 @@ func verifyKey(c *Context, w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// B6: crypto operations stay owner-gated. Removed in P2, where Key Vault
-	// Crypto User at vault scope replaces the ownership check.
-	scope, ok := ownerScopeFromRequest(c, r)
+	scope, ok := scopeFromRequest(c, r)
 	if !ok {
 		return
 	}
@@ -885,6 +875,7 @@ func verifyKey(c *Context, w http.ResponseWriter, r *http.Request) {
 		Algorithm: crypto.SignatureAlgorithm(req.Algorithm),
 		UserID:    scope.ActorID(),
 		VaultID:   scope.VaultID(),
+		Scope:     scope,
 	})
 	if err != nil {
 		switch {
@@ -918,9 +909,7 @@ func encryptKey(c *Context, w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// B6: crypto operations stay owner-gated. Removed in P2, where Key Vault
-	// Crypto User at vault scope replaces the ownership check.
-	scope, ok := ownerScopeFromRequest(c, r)
+	scope, ok := scopeFromRequest(c, r)
 	if !ok {
 		return
 	}
@@ -955,6 +944,7 @@ func encryptKey(c *Context, w http.ResponseWriter, r *http.Request) {
 		Algorithm: crypto.EncryptionAlgorithm(req.Algorithm),
 		UserID:    scope.ActorID(),
 		VaultID:   scope.VaultID(),
+		Scope:     scope,
 	})
 	if err != nil {
 		switch {
@@ -993,9 +983,7 @@ func decryptKey(c *Context, w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// B6: crypto operations stay owner-gated. Removed in P2, where Key Vault
-	// Crypto User at vault scope replaces the ownership check.
-	scope, ok := ownerScopeFromRequest(c, r)
+	scope, ok := scopeFromRequest(c, r)
 	if !ok {
 		return
 	}
@@ -1037,6 +1025,7 @@ func decryptKey(c *Context, w http.ResponseWriter, r *http.Request) {
 		Algorithm:  crypto.EncryptionAlgorithm(req.Algorithm),
 		UserID:     scope.ActorID(),
 		VaultID:    scope.VaultID(),
+		Scope:      scope,
 	})
 	if err != nil {
 		switch {

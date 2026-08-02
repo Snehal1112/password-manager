@@ -61,22 +61,10 @@ func TestScopeFromRequestFlatRouteYieldsOwnerScope(t *testing.T) {
 	assert.NoError(t, scope.Validate())
 }
 
-func TestOwnerScopeFromRequestAlwaysYieldsOwnerScope(t *testing.T) {
-	vaultID, userID := uuid.New(), uuid.New()
-	c := newScopeContext(userID)
-
-	for _, vaultName := range []string{"", "team-a"} {
-		scope, ok := ownerScopeFromRequest(c, newScopeRequest(t, vaultID, vaultName))
-		require.True(t, ok)
-		assert.Equal(t, model.ScopeOwner, scope.Kind())
-		assert.Equal(t, vaultID, scope.VaultID(), "the advisory vault id carries the B6 conjunction")
-
-		owner, isOwner := scope.OwnerID()
-		require.True(t, isOwner)
-		assert.Equal(t, userID, owner)
-	}
-}
-
+// TestScopeHelpersFailClosedWithoutAUserClaim asserts scopeFromRequest — the
+// only scope constructor left on the data plane since ownerScopeFromRequest
+// was deleted in P2 — sets c.Err and returns false rather than proceeding
+// with an invalid scope when the caller's identity cannot be determined.
 func TestScopeHelpersFailClosedWithoutAUserClaim(t *testing.T) {
 	c := &Context{Claims: jwt.MapClaims{}}
 	r := newScopeRequest(t, uuid.New(), "team-a")
@@ -85,12 +73,6 @@ func TestScopeHelpersFailClosedWithoutAUserClaim(t *testing.T) {
 	assert.False(t, ok)
 	assert.Equal(t, model.ScopeInvalid, scope.Kind())
 	require.NotNil(t, c.Err)
-
-	c2 := &Context{Claims: jwt.MapClaims{}}
-	scope2, ok2 := ownerScopeFromRequest(c2, r)
-	assert.False(t, ok2)
-	assert.Equal(t, model.ScopeInvalid, scope2.Kind())
-	require.NotNil(t, c2.Err)
 }
 
 func TestWriteSecretErrorMapsEachCase(t *testing.T) {

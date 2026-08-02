@@ -510,9 +510,9 @@ func doVaultRequestAs(api *API, role, method, path string, body []byte) *httptes
 }
 
 // TestVaultSvcTestContainer_GetCryptoService_ReturnsConfiguredService proves
-// the test container can inject a real CryptoService, which the B6
-// regression tests (api/vault_scoped_crypto_b6_test.go) need in order to
-// exercise the actual loadAndAuthorize ownership check instead of a stub.
+// the test container can inject a real CryptoService, which
+// api/vault_scoped_keys_certs_test.go's vault-scope assertions need in order
+// to exercise the actual handler-to-service scope threading instead of a stub.
 func TestVaultSvcTestContainer_GetCryptoService_ReturnsConfiguredService(t *testing.T) {
 	svc := &stubCryptoSvc{}
 	c := &vaultSvcTestContainer{cryptoSvc: svc, logger: userTestLog()}

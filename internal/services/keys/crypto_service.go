@@ -25,6 +25,7 @@ type SignRequest struct {
 	Algorithm crypto.SignatureAlgorithm
 	UserID    uuid.UUID
 	VaultID   uuid.UUID
+	Scope     model.Scope
 }
 
 // SignResult represents the result of a sign operation.
@@ -43,6 +44,7 @@ type VerifyRequest struct {
 	Algorithm crypto.SignatureAlgorithm
 	UserID    uuid.UUID
 	VaultID   uuid.UUID
+	Scope     model.Scope
 }
 
 // VerifyResult represents the result of a verify operation.
@@ -59,6 +61,7 @@ type EncryptRequest struct {
 	Algorithm crypto.EncryptionAlgorithm
 	UserID    uuid.UUID
 	VaultID   uuid.UUID
+	Scope     model.Scope
 }
 
 // EncryptResult represents the result of an encrypt operation.
@@ -77,6 +80,7 @@ type DecryptRequest struct {
 	Algorithm  crypto.EncryptionAlgorithm
 	UserID     uuid.UUID
 	VaultID    uuid.UUID
+	Scope      model.Scope
 }
 
 // DecryptResult represents the result of a decrypt operation.
@@ -91,6 +95,7 @@ type WrapKeyRequest struct {
 	KeyID        uuid.UUID
 	UserID       uuid.UUID
 	VaultID      uuid.UUID
+	Scope        model.Scope
 	PlaintextKey []byte
 	Algorithm    string // must be one of: RSA-OAEP, RSA-OAEP-256, A128KW, A192KW, A256KW, A128CBC, A192CBC, A256CBC
 }
@@ -106,6 +111,7 @@ type UnwrapKeyRequest struct {
 	KeyID      uuid.UUID
 	UserID     uuid.UUID
 	VaultID    uuid.UUID
+	Scope      model.Scope
 	WrappedKey []byte
 	Algorithm  string // must be one of: RSA-OAEP, RSA-OAEP-256, A128KW, A192KW, A256KW, A128CBC, A192CBC, A256CBC
 }
@@ -250,7 +256,10 @@ func (s *cryptoService) resolveKeyMaterial(key *model.Key) (
 // already established this exact pattern for the identical class of problem, so this
 // keeps loadAndAuthorize consistent with it: a cross-user key now reports 404
 // via ErrKeyNotFound, same as the non-crypto scoped key paths. See
-// api/vault_scoped_crypto_b6_test.go for the regression test this updates.
+// TestCryptoService_Sign_RevokedKey and its siblings in
+// internal/services/keys/key_service_extended_test.go, and
+// TestCryptoOperationsUseVaultScope in api/vault_scoped_keys_certs_test.go,
+// for the regression coverage this updates.
 func (s *cryptoService) loadAndAuthorize(ctx context.Context, keyID uuid.UUID, scope model.Scope, op string) (*model.Key, error) {
 	actor := scope.ActorID().String()
 
@@ -260,9 +269,19 @@ func (s *cryptoService) loadAndAuthorize(ctx context.Context, keyID uuid.UUID, s
 		return nil, fmt.Errorf("%w: %s", ErrKeyNotFound, err.Error())
 	}
 
-	// B6 conjunction, P1 only: crypto operations required BOTH vault membership
-	// and ownership. A Scope cannot express AND, so the vault half stays in Go
-	// until P2 gates crypto by Key Vault Crypto User at vault scope.
+	// B6 conjunction: retired from the vault-scoped route as of P2 -- callers
+	// on that route now pass a genuine ScopeVault (see api/keys.go's six
+	// crypto handlers), whose own predicate in KeyRepository.Read already
+	// enforces vault membership, so this branch's ownerScoped condition is
+	// false for them and it never runs.
+	//
+	// It is NOT dead code: legacy flat routes (no vault_name segment) still
+	// resolve through scopeFromRequest to an owner scope carrying an advisory,
+	// non-nil vault id (api/context.go, ultimately vaultIDFromRequest's
+	// DefaultVaultID fallback), exactly as they did pre-P2. This branch keeps
+	// enforcing "key belongs to the resolved vault" for that path.
+	// DeleteKey/RotateKey (internal/services/keys/key_service.go) carry the
+	// identical conjunction for the identical reason.
 	if _, ownerScoped := scope.OwnerID(); ownerScoped && scope.VaultID() != uuid.Nil && key.VaultID != scope.VaultID() {
 		s.logger.LogAuditError(actor, op, "forbidden",
 			fmt.Sprintf("Unauthorized %s attempt: key %s not in vault %s", op, keyID, scope.VaultID()), nil)
@@ -313,7 +332,7 @@ func wrapAlgorithmToEncryption(algorithm string) (crypto.EncryptionAlgorithm, er
 func (s *cryptoService) Sign(ctx context.Context, req SignRequest) (*SignResult, error) {
 	start := time.Now()
 
-	key, err := s.loadAndAuthorize(ctx, req.KeyID, model.NewOwnerScope(req.VaultID, req.UserID), "sign")
+	key, err := s.loadAndAuthorize(ctx, req.KeyID, req.Scope, "sign")
 	if err != nil {
 		return nil, err
 	}
@@ -369,7 +388,7 @@ func (s *cryptoService) Sign(ctx context.Context, req SignRequest) (*SignResult,
 func (s *cryptoService) Verify(ctx context.Context, req VerifyRequest) (*VerifyResult, error) {
 	start := time.Now()
 
-	key, err := s.loadAndAuthorize(ctx, req.KeyID, model.NewOwnerScope(req.VaultID, req.UserID), "verify")
+	key, err := s.loadAndAuthorize(ctx, req.KeyID, req.Scope, "verify")
 	if err != nil {
 		return nil, err
 	}
@@ -426,7 +445,7 @@ func (s *cryptoService) Verify(ctx context.Context, req VerifyRequest) (*VerifyR
 func (s *cryptoService) Encrypt(ctx context.Context, req EncryptRequest) (*EncryptResult, error) {
 	start := time.Now()
 
-	key, err := s.loadAndAuthorize(ctx, req.KeyID, model.NewOwnerScope(req.VaultID, req.UserID), "encrypt")
+	key, err := s.loadAndAuthorize(ctx, req.KeyID, req.Scope, "encrypt")
 	if err != nil {
 		return nil, err
 	}
@@ -479,7 +498,7 @@ func (s *cryptoService) Encrypt(ctx context.Context, req EncryptRequest) (*Encry
 func (s *cryptoService) Decrypt(ctx context.Context, req DecryptRequest) (*DecryptResult, error) {
 	start := time.Now()
 
-	key, err := s.loadAndAuthorize(ctx, req.KeyID, model.NewOwnerScope(req.VaultID, req.UserID), "decrypt")
+	key, err := s.loadAndAuthorize(ctx, req.KeyID, req.Scope, "decrypt")
 	if err != nil {
 		return nil, err
 	}
@@ -539,7 +558,7 @@ func (s *cryptoService) WrapKey(ctx context.Context, req WrapKeyRequest) (*WrapK
 		return nil, fmt.Errorf("%w: %q", ErrUnsupportedAlgorithm, req.Algorithm)
 	}
 
-	key, err := s.loadAndAuthorize(ctx, req.KeyID, model.NewOwnerScope(req.VaultID, req.UserID), "wrap_key")
+	key, err := s.loadAndAuthorize(ctx, req.KeyID, req.Scope, "wrap_key")
 	if err != nil {
 		return nil, err
 	}
@@ -594,7 +613,7 @@ func (s *cryptoService) UnwrapKey(ctx context.Context, req UnwrapKeyRequest) (*U
 		return nil, fmt.Errorf("%w: %q", ErrUnsupportedAlgorithm, req.Algorithm)
 	}
 
-	key, err := s.loadAndAuthorize(ctx, req.KeyID, model.NewOwnerScope(req.VaultID, req.UserID), "unwrap_key")
+	key, err := s.loadAndAuthorize(ctx, req.KeyID, req.Scope, "unwrap_key")
 	if err != nil {
 		return nil, err
 	}

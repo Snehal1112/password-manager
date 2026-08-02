@@ -74,6 +74,7 @@ func TestWrapAndUnwrapKey(t *testing.T) {
 	wrapResult, err := svc.WrapKey(context.Background(), keys.WrapKeyRequest{
 		KeyID:        keyID,
 		UserID:       userID,
+		Scope:        model.NewOwnerScope(uuid.Nil, userID),
 		PlaintextKey: plaintext,
 		Algorithm:    "RSA-OAEP",
 	})
@@ -84,6 +85,7 @@ func TestWrapAndUnwrapKey(t *testing.T) {
 	unwrapResult, err := svc.UnwrapKey(context.Background(), keys.UnwrapKeyRequest{
 		KeyID:      keyID,
 		UserID:     userID,
+		Scope:      model.NewOwnerScope(uuid.Nil, userID),
 		WrappedKey: wrapResult.WrappedKey,
 		Algorithm:  "RSA-OAEP",
 	})
@@ -114,13 +116,13 @@ func TestWrapAndUnwrapKey_OAEP256(t *testing.T) {
 	dek := []byte("32-byte-data-encryption-key-here")
 
 	wrapResult, err := svc.WrapKey(context.Background(), keys.WrapKeyRequest{
-		KeyID: keyID, UserID: userID, PlaintextKey: dek, Algorithm: "RSA-OAEP-256",
+		KeyID: keyID, UserID: userID, Scope: model.NewOwnerScope(uuid.Nil, userID), PlaintextKey: dek, Algorithm: "RSA-OAEP-256",
 	})
 	require.NoError(t, err)
 	assert.Equal(t, "RSA-OAEP-256", wrapResult.Algorithm)
 
 	unwrapResult, err := svc.UnwrapKey(context.Background(), keys.UnwrapKeyRequest{
-		KeyID: keyID, UserID: userID, WrappedKey: wrapResult.WrappedKey, Algorithm: "RSA-OAEP-256",
+		KeyID: keyID, UserID: userID, Scope: model.NewOwnerScope(uuid.Nil, userID), WrappedKey: wrapResult.WrappedKey, Algorithm: "RSA-OAEP-256",
 	})
 	require.NoError(t, err)
 	assert.Equal(t, dek, unwrapResult.PlaintextKey)
@@ -156,6 +158,7 @@ func TestWrapKeyNotFoundForWrongUser(t *testing.T) {
 	_, err := svc.WrapKey(context.Background(), keys.WrapKeyRequest{
 		KeyID:        keyID,
 		UserID:       callerID,
+		Scope:        model.NewOwnerScope(uuid.Nil, callerID),
 		PlaintextKey: []byte("dek"),
 		Algorithm:    "RSA-OAEP",
 	})
@@ -181,6 +184,7 @@ func TestWrapKeyRejectsUnsupportedAlgorithm(t *testing.T) {
 	_, err := svc.WrapKey(context.Background(), keys.WrapKeyRequest{
 		KeyID:        keyID,
 		UserID:       userID,
+		Scope:        model.NewOwnerScope(uuid.Nil, userID),
 		PlaintextKey: []byte("dek"),
 		Algorithm:    "ECDH-ES",
 	})
@@ -210,6 +214,7 @@ func TestWrapKey_AESKWAlgorithmNotRejectedByAllowlist(t *testing.T) {
 	_, err = svc.WrapKey(context.Background(), keys.WrapKeyRequest{
 		UserID:       userID,
 		KeyID:        keyID,
+		Scope:        model.NewOwnerScope(uuid.Nil, userID),
 		Algorithm:    "A256KW",
 		PlaintextKey: []byte("test-key-material"),
 	})

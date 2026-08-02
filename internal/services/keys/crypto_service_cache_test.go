@@ -172,6 +172,7 @@ func TestCacheHit_ReducesDecryptCalls(t *testing.T) {
 	res1, err := svc.Sign(context.Background(), keys.SignRequest{
 		KeyID:     keyID,
 		UserID:    userID,
+		Scope:     model.NewOwnerScope(uuid.Nil, userID),
 		Data:      data,
 		Algorithm: crypto.AlgorithmRS256,
 	})
@@ -182,6 +183,7 @@ func TestCacheHit_ReducesDecryptCalls(t *testing.T) {
 	res2, err := svc.Sign(context.Background(), keys.SignRequest{
 		KeyID:     keyID,
 		UserID:    userID,
+		Scope:     model.NewOwnerScope(uuid.Nil, userID),
 		Data:      data,
 		Algorithm: crypto.AlgorithmRS256,
 	})
@@ -240,6 +242,7 @@ func TestHSMPath_NeverCallsCacheSet(t *testing.T) {
 	res, err := svc.Sign(context.Background(), keys.SignRequest{
 		KeyID:     keyID,
 		UserID:    userID,
+		Scope:     model.NewOwnerScope(uuid.Nil, userID),
 		Data:      []byte("test"),
 		Algorithm: crypto.AlgorithmRS256,
 	})
@@ -313,6 +316,7 @@ func TestCacheHit_TTLExpiry(t *testing.T) {
 	_, err = svc.Sign(context.Background(), keys.SignRequest{
 		KeyID:     keyID,
 		UserID:    userID,
+		Scope:     model.NewOwnerScope(uuid.Nil, userID),
 		Data:      data,
 		Algorithm: crypto.AlgorithmRS256,
 	})
@@ -326,6 +330,7 @@ func TestCacheHit_TTLExpiry(t *testing.T) {
 	_, err = svc.Sign(context.Background(), keys.SignRequest{
 		KeyID:     keyID,
 		UserID:    userID,
+		Scope:     model.NewOwnerScope(uuid.Nil, userID),
 		Data:      data,
 		Algorithm: crypto.AlgorithmRS256,
 	})

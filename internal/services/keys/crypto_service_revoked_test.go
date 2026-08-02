@@ -46,6 +46,7 @@ func TestVerify_RejectsRevokedKey(t *testing.T) {
 	_, err := svc.Verify(context.Background(), keys.VerifyRequest{
 		KeyID:     keyID,
 		UserID:    userID,
+		Scope:     model.NewOwnerScope(uuid.Nil, userID),
 		Data:      []byte("hello"),
 		Signature: []byte("sig"),
 	})
@@ -62,6 +63,7 @@ func TestDecrypt_RejectsRevokedKey(t *testing.T) {
 	_, err := svc.Decrypt(context.Background(), keys.DecryptRequest{
 		KeyID:      keyID,
 		UserID:     userID,
+		Scope:      model.NewOwnerScope(uuid.Nil, userID),
 		Ciphertext: []byte("ciphertext"),
 	})
 	require.ErrorContains(t, err, "revoked")

@@ -20,6 +20,61 @@ jobs:
           go-version-file: go.mod
           cache: true
 
+      - name: No owner scope on the data plane
+        run: |
+          # P2 (Task 11) retired ScopeOwner from the crypto handlers, key
+          # delete, and key rotate: every vault-scoped route now builds a
+          # model.ScopeVault, gated by vault role membership instead of key
+          # ownership. This gate keeps that retirement from silently
+          # regressing on those call sites.
+          #
+          # Exclusions, beyond model/scope.go (defines the constructor itself):
+          #   - _test.go              unit tests legitimately hand-build
+          #                           ScopeOwner to exercise code paths that
+          #                           still accept it (the repository
+          #                           predicate, legacy flat routes, cmd/
+          #                           tools). This gate is about the data
+          #                           plane's production call sites, not
+          #                           fixtures -- model/scope_test.go and
+          #                           internal/repositories/scope_predicate_test.go
+          #                           are covered by this same exclusion.
+          #   - cmd/                  CLI direct-owner tools; a documented,
+          #                           separately-tracked deferral (see
+          #                           .claude/multi-vault.md).
+          #   - secrets/versioning_service.go, secrets/rotation_service.go
+          #                           secret rollback keys off the owner
+          #                           deliberately; a different subsystem,
+          #                           out of P2 scope.
+          #   - certificates/certificate_service.go
+          #                           certificate auto-renewal; a different
+          #                           subsystem, out of P2 scope.
+          #   - api/context.go        scopeFromRequest itself: legacy flat
+          #                           routes (no vault_name segment) still
+          #                           yield an owner scope by design, per its
+          #                           own doc comment -- collapsing that onto
+          #                           vault scope is future work, not P2.
+          #   - api/certificates.go   updateCertificate is not yet vault-scope
+          #                           aware; a documented deferral (see
+          #                           .claude/multi-vault.md).
+          #   - the createKey post-create read-back in api/keys.go: it reads
+          #     back the resource the caller just created, by the caller's
+          #     own id, so it is excluded by content rather than by file --
+          #     api/keys.go's other eight call sites (the six crypto
+          #     operations, delete, rotate) stay under this gate.
+          if grep -rn "NewOwnerScope\|ownerScopeFromRequest" --include="*.go" . \
+               | grep -v "_test.go" \
+               | grep -v "model/scope.go" \
+               | grep -v "cmd/" \
+               | grep -v "internal/services/secrets/versioning_service.go" \
+               | grep -v "internal/services/secrets/rotation_service.go" \
+               | grep -v "internal/services/certificates/certificate_service.go" \
+               | grep -v "api/context.go" \
+               | grep -v "api/certificates.go" \
+               | grep -v "keyService.GetKey(r.Context(), result.KeyID, model.NewOwnerScope"; then
+            echo "owner scope reached the data plane; P2 retired it" >&2
+            exit 1
+          fi
+
       - name: Build
         run: go build -v ./...
 

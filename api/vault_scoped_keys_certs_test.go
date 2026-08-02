@@ -36,6 +36,9 @@ type recordingKeyService struct {
 	updateVaultScoped bool
 	updateVaultID     uuid.UUID
 	updateUserID      uuid.UUID
+
+	deleteCalled bool
+	deleteScope  model.Scope
 }
 
 func (s *recordingKeyService) CreateRSAKey(context.Context, keyServices.CreateKeyRequest) (*keyServices.CreateKeyResult, error) {
@@ -71,8 +74,10 @@ func (s *recordingKeyService) UpdateKey(_ context.Context, req keyServices.Updat
 	s.updateUserID = req.Scope.ActorID()
 	return nil
 }
-func (s *recordingKeyService) DeleteKey(context.Context, uuid.UUID, model.Scope) (*model.Key, error) {
-	panic("unexpected")
+func (s *recordingKeyService) DeleteKey(_ context.Context, keyID uuid.UUID, scope model.Scope) (*model.Key, error) {
+	s.deleteCalled = true
+	s.deleteScope = scope
+	return &model.Key{ID: keyID, Name: "k"}, nil
 }
 
 // recordingCertService records which list/get method was called and with what
@@ -130,13 +135,48 @@ func (s *recordingCertService) ValidateKeyOwnership(context.Context, uuid.UUID, 
 	panic("unexpected")
 }
 
+// recordingCryptoService records the scope used for each of the six crypto
+// operations, so tests can assert vault-scoped routes authorize by vault
+// membership, not by key ownership (P2's B6 policy change). It returns a
+// fixed, valid result for every operation so handlers reach the
+// response-writing path without a real key or crypto engine.
+type recordingCryptoService struct {
+	lastScope model.Scope
+}
+
+func (s *recordingCryptoService) Sign(_ context.Context, req keyServices.SignRequest) (*keyServices.SignResult, error) {
+	s.lastScope = req.Scope
+	return &keyServices.SignResult{KeyID: req.KeyID, Algorithm: req.Algorithm, Signature: []byte("sig")}, nil
+}
+func (s *recordingCryptoService) Verify(_ context.Context, req keyServices.VerifyRequest) (*keyServices.VerifyResult, error) {
+	s.lastScope = req.Scope
+	return &keyServices.VerifyResult{KeyID: req.KeyID, Algorithm: req.Algorithm, Valid: true}, nil
+}
+func (s *recordingCryptoService) Encrypt(_ context.Context, req keyServices.EncryptRequest) (*keyServices.EncryptResult, error) {
+	s.lastScope = req.Scope
+	return &keyServices.EncryptResult{KeyID: req.KeyID, Algorithm: req.Algorithm, Ciphertext: []byte("ct")}, nil
+}
+func (s *recordingCryptoService) Decrypt(_ context.Context, req keyServices.DecryptRequest) (*keyServices.DecryptResult, error) {
+	s.lastScope = req.Scope
+	return &keyServices.DecryptResult{KeyID: req.KeyID, Algorithm: req.Algorithm, Plaintext: []byte("pt")}, nil
+}
+func (s *recordingCryptoService) WrapKey(_ context.Context, req keyServices.WrapKeyRequest) (*keyServices.WrapKeyResult, error) {
+	s.lastScope = req.Scope
+	return &keyServices.WrapKeyResult{WrappedKey: []byte("wrapped"), Algorithm: req.Algorithm}, nil
+}
+func (s *recordingCryptoService) UnwrapKey(_ context.Context, req keyServices.UnwrapKeyRequest) (*keyServices.UnwrapKeyResult, error) {
+	s.lastScope = req.Scope
+	return &keyServices.UnwrapKeyResult{PlaintextKey: []byte("plain"), Algorithm: req.Algorithm}, nil
+}
+
 // newVaultScopedKeyCertTestAPI wires both the legacy flat key/certificate routes
 // and the vault-scoped resource routes onto one router, backed by recording
-// services so each test can assert which scope was used.
-func newVaultScopedKeyCertTestAPI(keySvc keyServices.KeyService, certSvc certServices.CertificateService) (*API, *vaultFakeRepo) {
+// services so each test can assert which scope was used. cryptoSvc may be nil
+// for tests that never dispatch to a crypto operation handler.
+func newVaultScopedKeyCertTestAPI(keySvc keyServices.KeyService, certSvc certServices.CertificateService, cryptoSvc keyServices.CryptoService) (*API, *vaultFakeRepo) {
 	repo := newVaultFakeRepo()
 	vsvc := vaultServices.NewVaultService(repo, vaultNoopCascade{}, nil)
-	a := &app.App{ServiceContainer: &vaultSvcTestContainer{vaultSvc: vsvc, keySvc: keySvc, certSvc: certSvc}}
+	a := &app.App{ServiceContainer: &vaultSvcTestContainer{vaultSvc: vsvc, keySvc: keySvc, certSvc: certSvc, cryptoSvc: cryptoSvc}}
 	a.Logger = userTestLog()
 
 	router := mux.NewRouter()
@@ -272,7 +312,7 @@ func TestDeleteCertificatePolicy_VaultScopedRoute_UsesDeleteByCertificateIDAny(t
 // route uses per-user visibility (ListKeys scoped to the caller).
 func TestLegacyFlatKeyRoute_UsesUserScopedListing(t *testing.T) {
 	rec := &recordingKeyService{}
-	api, _ := newVaultScopedKeyCertTestAPI(rec, nil)
+	api, _ := newVaultScopedKeyCertTestAPI(rec, nil, nil)
 
 	w := doScopedRequest(api, http.MethodGet, "/api/v1/keys")
 	if w.Code != http.StatusOK {
@@ -293,7 +333,7 @@ func TestLegacyFlatKeyRoute_UsesUserScopedListing(t *testing.T) {
 // /vaults/{name}/keys route uses vault-level visibility (ListKeysInVault).
 func TestVaultScopedKeyRoute_UsesVaultScopedListing(t *testing.T) {
 	rec := &recordingKeyService{}
-	api, repo := newVaultScopedKeyCertTestAPI(rec, nil)
+	api, repo := newVaultScopedKeyCertTestAPI(rec, nil, nil)
 
 	id := uuid.New()
 	repo.byName["prod"] = &model.Vault{ID: id, Name: "prod", Enabled: true}
@@ -316,7 +356,7 @@ func TestVaultScopedKeyRoute_UsesVaultScopedListing(t *testing.T) {
 // not the owner-scoped UpdateKey.
 func TestVaultScopedKeyRoute_UsesVaultScopedUpdate(t *testing.T) {
 	rec := &recordingKeyService{}
-	api, repo := newVaultScopedKeyCertTestAPI(rec, nil)
+	api, repo := newVaultScopedKeyCertTestAPI(rec, nil, nil)
 
 	id := uuid.New()
 	repo.byName["prod"] = &model.Vault{ID: id, Name: "prod", Enabled: true}
@@ -344,7 +384,7 @@ func TestVaultScopedKeyRoute_UsesVaultScopedUpdate(t *testing.T) {
 // flat /keys/{id} route still dispatches to the owner-scoped UpdateKey.
 func TestLegacyFlatKeyRoute_UsesUserScopedUpdate(t *testing.T) {
 	rec := &recordingKeyService{}
-	api, _ := newVaultScopedKeyCertTestAPI(rec, nil)
+	api, _ := newVaultScopedKeyCertTestAPI(rec, nil, nil)
 
 	keyID := uuid.New()
 	body := []byte(`{"name":"new-name"}`)
@@ -368,7 +408,7 @@ func TestLegacyFlatKeyRoute_UsesUserScopedUpdate(t *testing.T) {
 // /certificates route uses per-user visibility (ListCertificates).
 func TestLegacyFlatCertRoute_UsesUserScopedListing(t *testing.T) {
 	rec := &recordingCertService{}
-	api, _ := newVaultScopedKeyCertTestAPI(nil, rec)
+	api, _ := newVaultScopedKeyCertTestAPI(nil, rec, nil)
 
 	w := doScopedRequest(api, http.MethodGet, "/api/v1/certificates")
 	if w.Code != http.StatusOK {
@@ -389,7 +429,7 @@ func TestLegacyFlatCertRoute_UsesUserScopedListing(t *testing.T) {
 // /vaults/{name}/certificates route uses vault-level visibility.
 func TestVaultScopedCertRoute_UsesVaultScopedListing(t *testing.T) {
 	rec := &recordingCertService{}
-	api, repo := newVaultScopedKeyCertTestAPI(nil, rec)
+	api, repo := newVaultScopedKeyCertTestAPI(nil, rec, nil)
 
 	id := uuid.New()
 	repo.byName["prod"] = &model.Vault{ID: id, Name: "prod", Enabled: true}
@@ -404,5 +444,95 @@ func TestVaultScopedCertRoute_UsesVaultScopedListing(t *testing.T) {
 	}
 	if rec.listUserScoped {
 		t.Fatalf("vault-scoped /certificates must use vault-scoped listing (ListCertificatesInVault)")
+	}
+}
+
+// TestCryptoOperationsUseVaultScope asserts the crypto handlers authorize by
+// vault membership, not by key ownership. This is the deliberate B6 policy
+// change: under Azure parity, crypto operations are gated by Key Vault Crypto
+// User at vault scope, and the P0 tests that pinned owner-gating
+// (api/vault_scoped_crypto_b6_test.go, api/keys_scope_test.go's
+// TestDeleteKeyUsesAnOwnerScope, api/scope_helpers_test.go's
+// TestOwnerScopeFromRequestAlwaysYieldsOwnerScope) are deleted in the same
+// commit as this test.
+func TestCryptoOperationsUseVaultScope(t *testing.T) {
+	caller := uuid.MustParse(vaultTestUserID)
+	cryptoSvc := &recordingCryptoService{}
+	api, repo := newVaultScopedKeyCertTestAPI(nil, nil, cryptoSvc)
+
+	id := uuid.New()
+	repo.byName["prod"] = &model.Vault{ID: id, Name: "prod", Enabled: true}
+	repo.byID[id.String()] = repo.byName["prod"]
+
+	keyID := uuid.New()
+	tests := []struct {
+		name string
+		path string
+		body []byte
+	}{
+		{"sign", "/sign", []byte(`{"value":"aGVsbG8="}`)},
+		{"verify", "/verify", []byte(`{"value":"aGVsbG8=","signature":"c2ln"}`)},
+		{"encrypt", "/encrypt", []byte(`{"value":"aGVsbG8="}`)},
+		{"decrypt", "/decrypt", []byte(`{"value":"Y3Q="}`)},
+		{"wrap", "/wrap", []byte(`{"plaintext_key":"a2V5"}`)},
+		{"unwrap", "/unwrap", []byte(`{"wrapped_key":"d3JhcHBlZA=="}`)},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			w := doVaultRequest(api, http.MethodPost, "/api/v1/vaults/prod/keys/"+keyID.String()+tt.path, tt.body)
+			if w.Code != http.StatusOK {
+				t.Fatalf("%s via vault route: expected 200, got %d (%s)", tt.name, w.Code, w.Body.String())
+			}
+
+			got := cryptoSvc.lastScope
+			if got.Kind() != model.ScopeVault {
+				t.Fatalf("%s: crypto operations must build a vault scope, not an owner scope (got kind %v)", tt.name, got.Kind())
+			}
+			if got.VaultID() != id {
+				t.Fatalf("%s: scope vault ID %s, want %s", tt.name, got.VaultID(), id)
+			}
+			if got.ActorID() != caller {
+				t.Fatalf("%s: scope actor %s, want caller %s", tt.name, got.ActorID(), caller)
+			}
+			if _, isOwnerScoped := got.OwnerID(); isOwnerScoped {
+				t.Fatalf("%s: no owner predicate may remain on the data plane", tt.name)
+			}
+		})
+	}
+}
+
+// TestDeleteKeyUsesVaultScope asserts key delete follows the same change: the
+// vault-scoped route authorizes by vault membership, not by key ownership.
+func TestDeleteKeyUsesVaultScope(t *testing.T) {
+	caller := uuid.MustParse(vaultTestUserID)
+	rec := &recordingKeyService{}
+	api, repo := newVaultScopedKeyCertTestAPI(rec, nil, nil)
+
+	id := uuid.New()
+	repo.byName["prod"] = &model.Vault{ID: id, Name: "prod", Enabled: true}
+	repo.byID[id.String()] = repo.byName["prod"]
+
+	keyID := uuid.New()
+	w := doVaultRequest(api, http.MethodDelete, "/api/v1/vaults/prod/keys/"+keyID.String(), nil)
+	if w.Code != http.StatusOK {
+		t.Fatalf("vault-scoped DELETE: expected 200, got %d (%s)", w.Code, w.Body.String())
+	}
+	if !rec.deleteCalled {
+		t.Fatalf("vault-scoped route did not dispatch to the key delete handler")
+	}
+
+	got := rec.deleteScope
+	if got.Kind() != model.ScopeVault {
+		t.Fatalf("delete key: expected ScopeVault, got kind %v", got.Kind())
+	}
+	if got.VaultID() != id {
+		t.Fatalf("delete key: scope vault ID %s, want %s", got.VaultID(), id)
+	}
+	if got.ActorID() != caller {
+		t.Fatalf("delete key: scope actor %s, want caller %s", got.ActorID(), caller)
+	}
+	if _, isOwnerScoped := got.OwnerID(); isOwnerScoped {
+		t.Fatalf("delete key: no owner predicate may remain on the data plane")
 	}
 }

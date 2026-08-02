@@ -49,11 +49,15 @@ func vaultIDFromRequest(r *http.Request) (uuid.UUID, error) {
 	return uuid.Parse(s)
 }
 
-// scopeFromRequest builds the authorization scope for a resource operation.
+// scopeFromRequest builds the authorization scope for a resource operation. It
+// is the only scope constructor on the data plane: ownership is provenance and
+// audit metadata, never an access predicate. Crypto operations are gated by the
+// Key Vault Crypto User role at vault scope, not by who created the key.
 //
 // Vault-scoped routes (/api/v1/vaults/{vault_name}/...) yield a vault scope, so
 // any vault member may act. Legacy flat routes yield an owner scope, preserving
-// pre-multi-vault per-user visibility. P2 collapses both onto the vault scope.
+// pre-multi-vault per-user visibility. A future task collapses both onto the
+// vault scope.
 //
 // It sets c.Err and returns false when the caller's identity cannot be
 // determined, so a handler can never proceed with an invalid scope.
@@ -72,25 +76,6 @@ func scopeFromRequest(c *Context, r *http.Request) (model.Scope, bool) {
 	if mux.Vars(r)["vault_name"] != "" {
 		return model.NewVaultScope(vaultID, userID), true
 	}
-	return model.NewOwnerScope(vaultID, userID), true
-}
-
-// ownerScopeFromRequest always yields an owner scope, regardless of route shape.
-// It marks the B6 handlers — key crypto operations and key delete — which are
-// owner-gated on both route shapes today. The advisory vault id carries the
-// vault half of that conjunction. Removed in P2.
-func ownerScopeFromRequest(c *Context, r *http.Request) (model.Scope, bool) {
-	userID, ok := userIDFromClaims(c)
-	if !ok {
-		return model.Scope{}, false
-	}
-
-	vaultID, err := vaultIDFromRequest(r)
-	if err != nil {
-		c.SetInvalidParam("vault")
-		return model.Scope{}, false
-	}
-
 	return model.NewOwnerScope(vaultID, userID), true
 }
 

@@ -619,6 +619,7 @@ func TestCryptoService_Verify_Success(t *testing.T) {
 	signResult, err := svc.Sign(context.Background(), SignRequest{
 		KeyID:     keyID,
 		UserID:    userID,
+		Scope:     model.NewOwnerScope(uuid.Nil, userID),
 		Data:      data,
 		Algorithm: crypto.AlgorithmRS256,
 	})
@@ -628,6 +629,7 @@ func TestCryptoService_Verify_Success(t *testing.T) {
 	verifyResult, err := svc.Verify(context.Background(), VerifyRequest{
 		KeyID:     keyID,
 		UserID:    userID,
+		Scope:     model.NewOwnerScope(uuid.Nil, userID),
 		Data:      data,
 		Signature: signResult.Signature,
 		Algorithm: crypto.AlgorithmRS256,
@@ -639,6 +641,7 @@ func TestCryptoService_Verify_Success(t *testing.T) {
 	verifyResult2, err := svc.Verify(context.Background(), VerifyRequest{
 		KeyID:     keyID,
 		UserID:    userID,
+		Scope:     model.NewOwnerScope(uuid.Nil, userID),
 		Data:      []byte("tampered"),
 		Signature: signResult.Signature,
 		Algorithm: crypto.AlgorithmRS256,
@@ -660,6 +663,7 @@ func TestCryptoService_Verify_KeyNotFound(t *testing.T) {
 	_, err := svc.Verify(context.Background(), VerifyRequest{
 		KeyID:     keyID,
 		UserID:    userID,
+		Scope:     model.NewOwnerScope(uuid.Nil, userID),
 		Data:      []byte("data"),
 		Signature: []byte("sig"),
 		Algorithm: crypto.AlgorithmRS256,
@@ -694,6 +698,7 @@ func TestCryptoService_Encrypt_Success(t *testing.T) {
 	encResult, err := svc.Encrypt(context.Background(), EncryptRequest{
 		KeyID:     keyID,
 		UserID:    userID,
+		Scope:     model.NewOwnerScope(uuid.Nil, userID),
 		Data:      []byte("sensitive data"),
 		Algorithm: crypto.AlgorithmRSAOAEP,
 	})
@@ -732,6 +737,7 @@ func TestCryptoService_Decrypt_Success(t *testing.T) {
 	encResult, err := svc.Encrypt(context.Background(), EncryptRequest{
 		KeyID:     keyID,
 		UserID:    userID,
+		Scope:     model.NewOwnerScope(uuid.Nil, userID),
 		Data:      plaintext,
 		Algorithm: crypto.AlgorithmRSAOAEP,
 	})
@@ -741,6 +747,7 @@ func TestCryptoService_Decrypt_Success(t *testing.T) {
 	decResult, err := svc.Decrypt(context.Background(), DecryptRequest{
 		KeyID:      keyID,
 		UserID:     userID,
+		Scope:      model.NewOwnerScope(uuid.Nil, userID),
 		Ciphertext: encResult.Ciphertext,
 		Algorithm:  crypto.AlgorithmRSAOAEP,
 	})
@@ -759,7 +766,7 @@ func TestCryptoService_Encrypt_KeyNotFound(t *testing.T) {
 		Logger:        newKeyLogger(),
 	})
 	_, err := svc.Encrypt(context.Background(), EncryptRequest{
-		KeyID: keyID, UserID: userID,
+		KeyID: keyID, UserID: userID, Scope: model.NewOwnerScope(uuid.Nil, userID),
 		Data: []byte("data"), Algorithm: crypto.AlgorithmRSAOAEP,
 	})
 	require.Error(t, err)
@@ -776,7 +783,7 @@ func TestCryptoService_Decrypt_KeyNotFound(t *testing.T) {
 		Logger:        newKeyLogger(),
 	})
 	_, err := svc.Decrypt(context.Background(), DecryptRequest{
-		KeyID: keyID, UserID: userID,
+		KeyID: keyID, UserID: userID, Scope: model.NewOwnerScope(uuid.Nil, userID),
 		Ciphertext: []byte("data"), Algorithm: crypto.AlgorithmRSAOAEP,
 	})
 	require.Error(t, err)
@@ -846,7 +853,7 @@ func TestCryptoService_Sign_RevokedKey(t *testing.T) {
 		Logger:        newKeyLogger(),
 	})
 	_, err := svc.Sign(context.Background(), SignRequest{
-		KeyID: keyID, UserID: userID,
+		KeyID: keyID, UserID: userID, Scope: model.NewOwnerScope(uuid.Nil, userID),
 		Data: []byte("data"), Algorithm: crypto.AlgorithmRS256,
 	})
 	require.Error(t, err)
@@ -866,7 +873,7 @@ func TestCryptoService_Sign_InaccessibleKey(t *testing.T) {
 		Logger:        newKeyLogger(),
 	})
 	_, err := svc.Sign(context.Background(), SignRequest{
-		KeyID: keyID, UserID: userID,
+		KeyID: keyID, UserID: userID, Scope: model.NewOwnerScope(uuid.Nil, userID),
 		Data: []byte("data"), Algorithm: crypto.AlgorithmRS256,
 	})
 	require.Error(t, err)

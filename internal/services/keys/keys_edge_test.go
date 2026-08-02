@@ -352,7 +352,7 @@ func TestCryptoService_Sign_ResolveKeyMaterialError(t *testing.T) {
 		Logger:        testLogger(),
 	})
 	_, err := svc.Sign(context.Background(), SignRequest{
-		KeyID: keyID, UserID: userID, Data: []byte("d"), Algorithm: crypto.AlgorithmRS256,
+		KeyID: keyID, UserID: userID, Scope: model.NewOwnerScope(uuid.Nil, userID), Data: []byte("d"), Algorithm: crypto.AlgorithmRS256,
 	})
 	require.Error(t, err)
 }
@@ -372,7 +372,7 @@ func TestCryptoService_Verify_ResolveKeyMaterialError(t *testing.T) {
 		Logger:        testLogger(),
 	})
 	_, err := svc.Verify(context.Background(), VerifyRequest{
-		KeyID: keyID, UserID: userID, Data: []byte("d"), Signature: []byte("s"), Algorithm: crypto.AlgorithmRS256,
+		KeyID: keyID, UserID: userID, Scope: model.NewOwnerScope(uuid.Nil, userID), Data: []byte("d"), Signature: []byte("s"), Algorithm: crypto.AlgorithmRS256,
 	})
 	require.Error(t, err)
 }
@@ -392,7 +392,7 @@ func TestCryptoService_Encrypt_ResolveKeyMaterialError(t *testing.T) {
 		Logger:        testLogger(),
 	})
 	_, err := svc.Encrypt(context.Background(), EncryptRequest{
-		KeyID: keyID, UserID: userID, Data: []byte("d"), Algorithm: crypto.AlgorithmRSAOAEP,
+		KeyID: keyID, UserID: userID, Scope: model.NewOwnerScope(uuid.Nil, userID), Data: []byte("d"), Algorithm: crypto.AlgorithmRSAOAEP,
 	})
 	require.Error(t, err)
 }
@@ -412,7 +412,7 @@ func TestCryptoService_Decrypt_ResolveKeyMaterialError(t *testing.T) {
 		Logger:        testLogger(),
 	})
 	_, err := svc.Decrypt(context.Background(), DecryptRequest{
-		KeyID: keyID, UserID: userID, Ciphertext: []byte("c"), Algorithm: crypto.AlgorithmRSAOAEP,
+		KeyID: keyID, UserID: userID, Scope: model.NewOwnerScope(uuid.Nil, userID), Ciphertext: []byte("c"), Algorithm: crypto.AlgorithmRSAOAEP,
 	})
 	require.Error(t, err)
 }
@@ -445,7 +445,7 @@ func TestCryptoService_WrapKey_KeyNotFound(t *testing.T) {
 
 	svc := NewCryptoService(CryptoServiceConfig{KeyRepository: repo, Logger: testLogger()})
 	_, err := svc.WrapKey(context.Background(), WrapKeyRequest{
-		KeyID: keyID, UserID: userID, Algorithm: "RSA-OAEP",
+		KeyID: keyID, UserID: userID, Scope: model.NewOwnerScope(uuid.Nil, userID), Algorithm: "RSA-OAEP",
 	})
 	require.Error(t, err)
 }
@@ -458,7 +458,7 @@ func TestCryptoService_UnwrapKey_KeyNotFound(t *testing.T) {
 
 	svc := NewCryptoService(CryptoServiceConfig{KeyRepository: repo, Logger: testLogger()})
 	_, err := svc.UnwrapKey(context.Background(), UnwrapKeyRequest{
-		KeyID: keyID, UserID: userID, Algorithm: "RSA-OAEP",
+		KeyID: keyID, UserID: userID, Scope: model.NewOwnerScope(uuid.Nil, userID), Algorithm: "RSA-OAEP",
 	})
 	require.Error(t, err)
 }
@@ -475,7 +475,7 @@ func TestCryptoService_WrapKey_OperationFails(t *testing.T) {
 
 	svc := NewCryptoService(CryptoServiceConfig{KeyRepository: repo, Logger: testLogger()})
 	_, err := svc.WrapKey(context.Background(), WrapKeyRequest{
-		KeyID: keyID, UserID: userID, Algorithm: "RSA-OAEP", PlaintextKey: []byte("key"),
+		KeyID: keyID, UserID: userID, Scope: model.NewOwnerScope(uuid.Nil, userID), Algorithm: "RSA-OAEP", PlaintextKey: []byte("key"),
 	})
 	require.Error(t, err)
 }
@@ -492,7 +492,7 @@ func TestCryptoService_UnwrapKey_OperationFails(t *testing.T) {
 
 	svc := NewCryptoService(CryptoServiceConfig{KeyRepository: repo, Logger: testLogger()})
 	_, err := svc.UnwrapKey(context.Background(), UnwrapKeyRequest{
-		KeyID: keyID, UserID: userID, Algorithm: "RSA-OAEP", WrappedKey: []byte("wrapped"),
+		KeyID: keyID, UserID: userID, Scope: model.NewOwnerScope(uuid.Nil, userID), Algorithm: "RSA-OAEP", WrappedKey: []byte("wrapped"),
 	})
 	require.Error(t, err)
 }

@@ -94,18 +94,3 @@ func TestGetKeyMapsLifecycleDenialTo403AndNotFoundTo404(t *testing.T) {
 	require.NotNil(t, c.Err)
 	assert.Equal(t, http.StatusNotFound, c.Err.StatusCode)
 }
-
-// TestDeleteKeyUsesAnOwnerScope pins B6: key delete stays owner-gated on both
-// route shapes until P2 replaces it with Key Vault Crypto Officer.
-func TestDeleteKeyUsesAnOwnerScope(t *testing.T) {
-	keyID := uuid.New()
-	svc := &scopeStubKeyService{deleted: &model.Key{ID: keyID, Name: "k"}}
-
-	for _, vaultName := range []string{"", "team-a"} {
-		c, w, r := newKeyHandlerFixture(t, svc, keyID, vaultName)
-		deleteKey(c, w, r)
-		require.Nil(t, c.Err)
-		assert.Equal(t, model.ScopeOwner, svc.lastScope.Kind(),
-			"B6: key delete is owner-gated on route shape %q", vaultName)
-	}
-}
