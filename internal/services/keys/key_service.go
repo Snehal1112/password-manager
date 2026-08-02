@@ -96,7 +96,8 @@ type KeyService interface {
 	UpdateKey(ctx context.Context, req UpdateKeyRequest) error
 	// DeleteKey soft-deletes a key authorized by scope.
 	DeleteKey(ctx context.Context, keyID uuid.UUID, scope model.Scope) (*model.Key, error)
-	RotateKey(ctx context.Context, keyID, userID uuid.UUID) (*CreateKeyResult, error)
+	// RotateKey rotates a key authorized by scope.
+	RotateKey(ctx context.Context, keyID uuid.UUID, scope model.Scope) (*CreateKeyResult, error)
 	ValidateKeyAccess(ctx context.Context, keyID, userID uuid.UUID, role string) error
 }
 
@@ -452,21 +453,31 @@ func (s *keyService) DeleteKey(ctx context.Context, keyID uuid.UUID, scope model
 //
 //	ctx: The context for the operation.
 //	keyID: The key to rotate.
-//	userID: The requesting user's ID for ownership verification.
+//	scope: The authorization scope for the read and the write.
 //
 // Returns:
 //
 //	A CreateKeyResult describing the (unchanged) key identity, or an error.
-func (s *keyService) RotateKey(ctx context.Context, keyID, userID uuid.UUID) (*CreateKeyResult, error) {
-	// Use an admin scope directly so rotation works even on disabled/expired
-	// keys; ownership is enforced explicitly below.
-	existing, err := s.keyRepo.Read(ctx, keyID, model.NewAdminScope(userID))
+func (s *keyService) RotateKey(ctx context.Context, keyID uuid.UUID, scope model.Scope) (*CreateKeyResult, error) {
+	userID := scope.ActorID()
+
+	// Read with the scope directly rather than through GetKey, matching
+	// UpdateKey: rotation must still work on a disabled or expired key. The
+	// scoped read is the access check -- there is no separate in-Go ownership
+	// comparison.
+	existing, err := s.keyRepo.Read(ctx, keyID, scope)
 	if err != nil {
 		return nil, fmt.Errorf("rotate key: %w", err)
 	}
-	if existing.UserID != userID {
-		s.logger.LogAuditError(userID.String(), "rotate_key", "forbidden", "key does not belong to user", nil)
-		return nil, fmt.Errorf("forbidden: key does not belong to user")
+
+	// B6 conjunction, P1 only: identical to DeleteKey. An owner scope may
+	// carry an advisory vault id, and a Scope cannot express AND, so the vault
+	// half of "owner AND vault" stays in Go until P2 retires ScopeOwner from
+	// the data plane. Without it, rotate on a vault-scoped route would ignore
+	// the vault entirely.
+	if _, ownerScoped := scope.OwnerID(); ownerScoped && scope.VaultID() != uuid.Nil && existing.VaultID != scope.VaultID() {
+		s.logger.LogAuditError(userID.String(), "rotate_key", "forbidden", "key does not belong to the requested vault", nil)
+		return nil, fmt.Errorf("%w: key does not belong to the requested vault", ErrKeyNotFound)
 	}
 
 	bits := existing.Bits
@@ -507,8 +518,11 @@ func (s *keyService) RotateKey(ctx context.Context, keyID, userID uuid.UUID) (*C
 		}
 	}
 
-	// Determine next version number from existing history.
-	versions, err := s.keyRepo.ListVersions(ctx, keyID, userID)
+	// Determine next version number from existing history. ListVersions joins
+	// on the key's owner, so pass the owner of the row the scope just
+	// authorized rather than the acting principal — they differ under an
+	// admin scope.
+	versions, err := s.keyRepo.ListVersions(ctx, keyID, existing.UserID)
 	if err != nil {
 		return nil, fmt.Errorf("list versions: %w", err)
 	}
@@ -527,9 +541,10 @@ func (s *keyService) RotateKey(ctx context.Context, keyID, userID uuid.UUID) (*C
 		return nil, fmt.Errorf("create new key version: %w", err)
 	}
 
-	// Update the key's active value in place.
+	// Update the key's active value in place, repeating the scope predicate
+	// that authorized the read.
 	existing.Value = encryptedNew
-	if err := s.keyRepo.Update(ctx, existing, model.NewAdminScope(userID)); err != nil {
+	if err := s.keyRepo.Update(ctx, existing, scope); err != nil {
 		return nil, fmt.Errorf("update key value: %w", err)
 	}
 

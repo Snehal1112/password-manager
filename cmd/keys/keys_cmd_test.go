@@ -87,8 +87,8 @@ func (m *keyCmdKeyService) DeleteKey(ctx context.Context, keyID uuid.UUID, scope
 	}
 	return args.Get(0).(*model.Key), args.Error(1)
 }
-func (m *keyCmdKeyService) RotateKey(ctx context.Context, keyID, userID uuid.UUID) (*keyServices.CreateKeyResult, error) {
-	args := m.Called(ctx, keyID, userID)
+func (m *keyCmdKeyService) RotateKey(ctx context.Context, keyID uuid.UUID, scope model.Scope) (*keyServices.CreateKeyResult, error) {
+	args := m.Called(ctx, keyID, scope)
 	if args.Get(0) == nil {
 		return nil, args.Error(1)
 	}
@@ -814,7 +814,7 @@ func TestRotateCmd_Success(t *testing.T) {
 	result := &keyServices.CreateKeyResult{
 		KeyID: uuid.New(), Name: "rotated", Type: "RSA", CreatedAt: time.Now(),
 	}
-	keySvc.On("RotateKey", mock.Anything, keyID, userID).Return(result, nil)
+	keySvc.On("RotateKey", mock.Anything, keyID, model.NewOwnerScope(uuid.Nil, userID)).Return(result, nil)
 
 	sc := &keysTestContainer{
 		MockServiceContainer: &testutils.MockServiceContainer{},
@@ -837,7 +837,7 @@ func TestRotateCmd_ServiceError(t *testing.T) {
 	keySvc := &keyCmdKeyService{}
 	userID := uuid.New()
 	keyID := uuid.New()
-	keySvc.On("RotateKey", mock.Anything, keyID, userID).Return(nil, fmt.Errorf("rotation failed"))
+	keySvc.On("RotateKey", mock.Anything, keyID, model.NewOwnerScope(uuid.Nil, userID)).Return(nil, fmt.Errorf("rotation failed"))
 
 	sc := &keysTestContainer{
 		MockServiceContainer: &testutils.MockServiceContainer{},

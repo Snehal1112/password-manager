@@ -157,13 +157,23 @@ func (r *CertificateRepository) Update(ctx context.Context, cert *model.Certific
 			return fmt.Errorf("certificate not found")
 		}
 
+		// Replace the tag set inside the outer transaction. The inserts run on
+		// tx directly, the way Create's tag insertion already does, rather than
+		// through a TagRepository built on r.db: that would open a second
+		// transaction on a separate connection while this one still holds the
+		// write lock (a SQLITE_BUSY risk), and its inserts would survive a
+		// rollback of the certificate row they belong to.
 		if len(cert.Tags) > 0 {
 			if _, delErr := tx.ExecContext(ctx, "DELETE FROM certificate_tags WHERE certificate_id = ?", cert.ID.String()); delErr != nil {
 				return fmt.Errorf("failed to delete existing tags: %w", delErr)
 			}
-			tagRepo := db.NewTagRepository[model.Certificate](r.db, "certificate_tags", "certificate_id")
-			if tagErr := tagRepo.AddTags(ctx, cert.ID, cert.Tags); tagErr != nil {
-				return fmt.Errorf("failed to add tags: %w", tagErr)
+			for _, tag := range cert.Tags {
+				if _, tagErr := tx.ExecContext(ctx,
+					"INSERT INTO certificate_tags (certificate_id, tag) VALUES (?, ?)",
+					cert.ID.String(), tag,
+				); tagErr != nil {
+					return fmt.Errorf("failed to add tags: %w", tagErr)
+				}
 			}
 		}
 

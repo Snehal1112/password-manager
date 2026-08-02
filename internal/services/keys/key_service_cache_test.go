@@ -150,6 +150,7 @@ func TestKeyService_UpdateKey_InvalidatesCache(t *testing.T) {
 func TestKeyService_RotateKey_InvalidatesCache(t *testing.T) {
 	userID := uuid.New()
 	keyID := uuid.New()
+	rotateScope := model.NewOwnerScope(uuid.Nil, userID)
 
 	// Use a real encrypted PEM value so the encrypt path does not fail.
 	// RotateKey calls keyProvider.GenerateRSAKey; we use a mockKeyProvider that
@@ -167,7 +168,7 @@ func TestKeyService_RotateKey_InvalidatesCache(t *testing.T) {
 	}
 
 	repo := &mockKeyRepository{}
-	repo.On("Read", mock.Anything, keyID, model.NewAdminScope(userID)).Return(existing, nil)
+	repo.On("Read", mock.Anything, keyID, rotateScope).Return(existing, nil)
 	repo.On("ListVersions", mock.Anything, keyID, userID).Return([]model.KeyVersion{}, nil)
 	// Archive original as version 1 (first rotation).
 	repo.On("CreateVersion", mock.Anything, keyID, 1, existing.Value).Return(nil)
@@ -175,7 +176,7 @@ func TestKeyService_RotateKey_InvalidatesCache(t *testing.T) {
 	repo.On("CreateVersion", mock.Anything, keyID, 2, "pkcs11:"+hsmHandle).Return(nil)
 	repo.On("Update", mock.Anything, mock.MatchedBy(func(k *model.Key) bool {
 		return k.ID == keyID
-	}), model.NewAdminScope(userID)).Return(nil)
+	}), rotateScope).Return(nil)
 
 	// Mock provider returns a PKCS#11 UUID handle so no encryption is needed.
 	provider := &mockKeyProviderForRotate{handle: hsmHandle}
@@ -191,7 +192,7 @@ func TestKeyService_RotateKey_InvalidatesCache(t *testing.T) {
 		Logger:        logger,
 	})
 
-	result, err := svc.RotateKey(context.Background(), keyID, userID)
+	result, err := svc.RotateKey(context.Background(), keyID, rotateScope)
 	assert.NoError(t, err)
 	assert.NotNil(t, result)
 

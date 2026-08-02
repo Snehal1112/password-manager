@@ -262,6 +262,13 @@ func certLegacyOwnerScope() model.Scope {
 	return model.NewOwnerScope(uuid.MustParse(model.DefaultVaultID), uuid.MustParse(certTestUserID))
 }
 
+// certDeleteScope is the scope deleteCertificate builds: vault-scoped on both
+// route shapes, with the real caller as the audit actor. The actor must never
+// be uuid.Nil, or every certificate deletion is attributed to nobody.
+func certDeleteScope() model.Scope {
+	return model.NewVaultScope(uuid.MustParse(model.DefaultVaultID), uuid.MustParse(certTestUserID))
+}
+
 // ============================================================
 // certToDomainResponse
 // ============================================================
@@ -627,7 +634,7 @@ func TestDeleteCertificate_ServiceError_Returns500(t *testing.T) {
 	certID := uuid.New()
 	// deleteCertificate builds a vault scope from the (default, in tests)
 	// resolved vault id, with a nil actor id.
-	svc.On("DeleteCertificate", mock.Anything, certID, model.NewVaultScope(uuid.MustParse(model.DefaultVaultID), uuid.Nil)).Return(errors.New("db error"))
+	svc.On("DeleteCertificate", mock.Anything, certID, certDeleteScope()).Return(errors.New("db error"))
 
 	c := newCertCtx(svc, certAdminClaims())
 	c.Params = &ApiParams{CertificateID: certID.String(), PerPage: 60}
@@ -646,7 +653,7 @@ func TestDeleteCertificate_ServiceError_Returns500(t *testing.T) {
 func TestDeleteCertificate_Success_Returns200(t *testing.T) {
 	svc := &mockCertService{}
 	certID := uuid.New()
-	svc.On("DeleteCertificate", mock.Anything, certID, model.NewVaultScope(uuid.MustParse(model.DefaultVaultID), uuid.Nil)).Return(nil)
+	svc.On("DeleteCertificate", mock.Anything, certID, certDeleteScope()).Return(nil)
 
 	c := newCertCtx(svc, certAdminClaims())
 	c.Params = &ApiParams{CertificateID: certID.String(), PerPage: 60}
@@ -667,7 +674,7 @@ func TestDeleteCertificate_Success_Returns200(t *testing.T) {
 func TestDeleteCertificate_NotFound_Returns404(t *testing.T) {
 	svc := &mockCertService{}
 	certID := uuid.New()
-	svc.On("DeleteCertificate", mock.Anything, certID, model.NewVaultScope(uuid.MustParse(model.DefaultVaultID), uuid.Nil)).
+	svc.On("DeleteCertificate", mock.Anything, certID, certDeleteScope()).
 		Return(certServices.ErrCertNotFound)
 
 	c := newCertCtx(svc, certAdminClaims())

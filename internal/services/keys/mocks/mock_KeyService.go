@@ -326,9 +326,9 @@ func (_c *MockKeyService_ListKeys_Call) RunAndReturn(run func(context.Context, m
 	return _c
 }
 
-// RotateKey provides a mock function with given fields: ctx, keyID, userID
-func (_m *MockKeyService) RotateKey(ctx context.Context, keyID uuid.UUID, userID uuid.UUID) (*keys.CreateKeyResult, error) {
-	ret := _m.Called(ctx, keyID, userID)
+// RotateKey provides a mock function with given fields: ctx, keyID, scope
+func (_m *MockKeyService) RotateKey(ctx context.Context, keyID uuid.UUID, scope model.Scope) (*keys.CreateKeyResult, error) {
+	ret := _m.Called(ctx, keyID, scope)
 
 	if len(ret) == 0 {
 		panic("no return value specified for RotateKey")
@@ -336,19 +336,19 @@ func (_m *MockKeyService) RotateKey(ctx context.Context, keyID uuid.UUID, userID
 
 	var r0 *keys.CreateKeyResult
 	var r1 error
-	if rf, ok := ret.Get(0).(func(context.Context, uuid.UUID, uuid.UUID) (*keys.CreateKeyResult, error)); ok {
-		return rf(ctx, keyID, userID)
+	if rf, ok := ret.Get(0).(func(context.Context, uuid.UUID, model.Scope) (*keys.CreateKeyResult, error)); ok {
+		return rf(ctx, keyID, scope)
 	}
-	if rf, ok := ret.Get(0).(func(context.Context, uuid.UUID, uuid.UUID) *keys.CreateKeyResult); ok {
-		r0 = rf(ctx, keyID, userID)
+	if rf, ok := ret.Get(0).(func(context.Context, uuid.UUID, model.Scope) *keys.CreateKeyResult); ok {
+		r0 = rf(ctx, keyID, scope)
 	} else {
 		if ret.Get(0) != nil {
 			r0 = ret.Get(0).(*keys.CreateKeyResult)
 		}
 	}
 
-	if rf, ok := ret.Get(1).(func(context.Context, uuid.UUID, uuid.UUID) error); ok {
-		r1 = rf(ctx, keyID, userID)
+	if rf, ok := ret.Get(1).(func(context.Context, uuid.UUID, model.Scope) error); ok {
+		r1 = rf(ctx, keyID, scope)
 	} else {
 		r1 = ret.Error(1)
 	}
@@ -364,14 +364,14 @@ type MockKeyService_RotateKey_Call struct {
 // RotateKey is a helper method to define mock.On call
 //   - ctx context.Context
 //   - keyID uuid.UUID
-//   - userID uuid.UUID
-func (_e *MockKeyService_Expecter) RotateKey(ctx interface{}, keyID interface{}, userID interface{}) *MockKeyService_RotateKey_Call {
-	return &MockKeyService_RotateKey_Call{Call: _e.mock.On("RotateKey", ctx, keyID, userID)}
+//   - scope model.Scope
+func (_e *MockKeyService_Expecter) RotateKey(ctx interface{}, keyID interface{}, scope interface{}) *MockKeyService_RotateKey_Call {
+	return &MockKeyService_RotateKey_Call{Call: _e.mock.On("RotateKey", ctx, keyID, scope)}
 }
 
-func (_c *MockKeyService_RotateKey_Call) Run(run func(ctx context.Context, keyID uuid.UUID, userID uuid.UUID)) *MockKeyService_RotateKey_Call {
+func (_c *MockKeyService_RotateKey_Call) Run(run func(ctx context.Context, keyID uuid.UUID, scope model.Scope)) *MockKeyService_RotateKey_Call {
 	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(context.Context), args[1].(uuid.UUID), args[2].(uuid.UUID))
+		run(args[0].(context.Context), args[1].(uuid.UUID), args[2].(model.Scope))
 	})
 	return _c
 }
@@ -381,7 +381,7 @@ func (_c *MockKeyService_RotateKey_Call) Return(_a0 *keys.CreateKeyResult, _a1 e
 	return _c
 }
 
-func (_c *MockKeyService_RotateKey_Call) RunAndReturn(run func(context.Context, uuid.UUID, uuid.UUID) (*keys.CreateKeyResult, error)) *MockKeyService_RotateKey_Call {
+func (_c *MockKeyService_RotateKey_Call) RunAndReturn(run func(context.Context, uuid.UUID, model.Scope) (*keys.CreateKeyResult, error)) *MockKeyService_RotateKey_Call {
 	_c.Call.Return(run)
 	return _c
 }

@@ -91,8 +91,8 @@ func (m *mockKeyService) DeleteKey(ctx context.Context, keyID uuid.UUID, scope m
 	return args.Get(0).(*model.Key), args.Error(1)
 }
 
-func (m *mockKeyService) RotateKey(ctx context.Context, keyID, userID uuid.UUID) (*keyServices.CreateKeyResult, error) {
-	args := m.Called(ctx, keyID, userID)
+func (m *mockKeyService) RotateKey(ctx context.Context, keyID uuid.UUID, scope model.Scope) (*keyServices.CreateKeyResult, error) {
+	args := m.Called(ctx, keyID, scope)
 	if args.Get(0) == nil {
 		return nil, args.Error(1)
 	}
@@ -759,7 +759,7 @@ func TestRotateKey_InvalidKeyID_Returns400(t *testing.T) {
 func TestRotateKey_ServiceError_Returns500(t *testing.T) {
 	keyID := uuid.New()
 	svc := &mockKeyService{}
-	svc.On("RotateKey", mock.Anything, keyID, uuid.MustParse(keyTestUserID)).Return(nil, errors.New("rotate failed"))
+	svc.On("RotateKey", mock.Anything, keyID, keyLegacyOwnerScope()).Return(nil, errors.New("rotate failed"))
 
 	c := newKeyCtx(svc)
 	c.Params = &ApiParams{KeyID: keyID.String(), PerPage: 60}
@@ -779,9 +779,9 @@ func TestRotateKey_Success_Returns200(t *testing.T) {
 	keyID := uuid.New()
 	newKeyID := uuid.New()
 	svc := &mockKeyService{}
-	svc.On("RotateKey", mock.Anything, keyID, uuid.MustParse(keyTestUserID)).Return(&keyServices.CreateKeyResult{KeyID: newKeyID, Name: "test-key"}, nil)
-	// rotateKey re-fetches with an owner scope carrying a nil advisory vault id.
-	svc.On("GetKey", mock.Anything, newKeyID, model.NewOwnerScope(uuid.Nil, uuid.MustParse(keyTestUserID))).Return(makeKeyModel(newKeyID), nil)
+	svc.On("RotateKey", mock.Anything, keyID, keyLegacyOwnerScope()).Return(&keyServices.CreateKeyResult{KeyID: newKeyID, Name: "test-key"}, nil)
+	// rotateKey re-fetches with the same owner scope that authorized the rotation.
+	svc.On("GetKey", mock.Anything, newKeyID, keyLegacyOwnerScope()).Return(makeKeyModel(newKeyID), nil)
 
 	c := newKeyCtx(svc)
 	c.Params = &ApiParams{KeyID: keyID.String(), PerPage: 60}
@@ -831,8 +831,10 @@ func TestListKeyVersions_RepositoryError_Returns500(t *testing.T) {
 		stubKeyRepo: stubKeyRepo{},
 		err:         errors.New("db error"),
 	}
+	svc := &mockKeyService{}
+	svc.On("GetKey", mock.Anything, keyID, keyLegacyOwnerScope()).Return(makeKeyModel(keyID), nil)
 
-	c := newKeyCtxWithRepo(nil, repo)
+	c := newKeyCtxWithRepo(svc, repo)
 	c.Params = &ApiParams{KeyID: keyID.String(), PerPage: 60}
 	w := httptest.NewRecorder()
 	r := httptest.NewRequest(http.MethodGet, "/keys/"+keyID.String()+"/versions", nil)
@@ -851,8 +853,10 @@ func TestListKeyVersions_Success_Returns200(t *testing.T) {
 		stubKeyRepo: stubKeyRepo{},
 		versions:    []model.KeyVersion{{KeyID: keyID, Version: 1}},
 	}
+	svc := &mockKeyService{}
+	svc.On("GetKey", mock.Anything, keyID, keyLegacyOwnerScope()).Return(makeKeyModel(keyID), nil)
 
-	c := newKeyCtxWithRepo(nil, repo)
+	c := newKeyCtxWithRepo(svc, repo)
 	c.Params = &ApiParams{KeyID: keyID.String(), PerPage: 60}
 	w := httptest.NewRecorder()
 	r := httptest.NewRequest(http.MethodGet, "/keys/"+keyID.String()+"/versions", nil)
@@ -863,6 +867,32 @@ func TestListKeyVersions_Success_Returns200(t *testing.T) {
 	}
 
 	assert.Equal(t, http.StatusOK, w.Code)
+	svc.AssertExpectations(t)
+}
+
+// TestListKeyVersions_UnauthorizedKeyIsNotFound pins that the handler
+// authorizes through the scope-aware read before touching the version
+// repository, so it behaves like getKey on the same route instead of silently
+// returning an empty list.
+func TestListKeyVersions_UnauthorizedKeyIsNotFound(t *testing.T) {
+	keyID := uuid.New()
+	repo := &stubKeyVersionRepo{stubKeyRepo: stubKeyRepo{}}
+	svc := &mockKeyService{}
+	svc.On("GetKey", mock.Anything, keyID, keyLegacyOwnerScope()).
+		Return(nil, keyServices.ErrKeyNotFound)
+
+	c := newKeyCtxWithRepo(svc, repo)
+	c.Params = &ApiParams{KeyID: keyID.String(), PerPage: 60}
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest(http.MethodGet, "/keys/"+keyID.String()+"/versions", nil)
+
+	listKeyVersions(c, w, r)
+	if c.Err != nil {
+		writeError(w, c)
+	}
+
+	assert.Equal(t, http.StatusNotFound, w.Code)
+	svc.AssertExpectations(t)
 }
 
 // ============================================================

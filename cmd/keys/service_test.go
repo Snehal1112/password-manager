@@ -72,8 +72,8 @@ func (m *MockKeyService) DeleteKey(ctx context.Context, keyID, userID uuid.UUID)
 	return nil, args.Error(1)
 }
 
-func (m *MockKeyService) RotateKey(ctx context.Context, keyID, userID uuid.UUID) (*keyservices.CreateKeyResult, error) {
-	args := m.Called(ctx, keyID, userID)
+func (m *MockKeyService) RotateKey(ctx context.Context, keyID uuid.UUID, scope model.Scope) (*keyservices.CreateKeyResult, error) {
+	args := m.Called(ctx, keyID, scope)
 	if args.Get(0) == nil {
 		return nil, args.Error(1)
 	}
@@ -423,7 +423,7 @@ func TestKeysRotateCommand(t *testing.T) {
 					Tags:      []string{"rotated"},
 					CreatedAt: time.Now(),
 				}
-				mockService.On("RotateKey", mock.Anything, keyID, tc.TestUserID).
+				mockService.On("RotateKey", mock.Anything, keyID, model.NewOwnerScope(uuid.Nil, tc.TestUserID)).
 					Return(newResult, nil)
 			},
 			expectedOutput: "Key rotated successfully",
@@ -443,7 +443,7 @@ func TestKeysRotateCommand(t *testing.T) {
 			args: []string{"550e8400-e29b-41d4-a716-446655440000"},
 			setupMocks: func(tc *testutils.TestContext, mockService *MockKeyService) {
 				keyID := uuid.MustParse("550e8400-e29b-41d4-a716-446655440000")
-				mockService.On("RotateKey", mock.Anything, keyID, tc.TestUserID).
+				mockService.On("RotateKey", mock.Anything, keyID, model.NewOwnerScope(uuid.Nil, tc.TestUserID)).
 					Return(nil, fmt.Errorf("rotation failed"))
 			},
 			expectedOutput: "failed to rotate key",
@@ -467,7 +467,7 @@ func TestKeysRotateCommand(t *testing.T) {
 						return fmt.Errorf("invalid key ID: %w", err)
 					}
 
-					result, err := mockService.RotateKey(cmd.Context(), keyID, tc.TestUserID)
+					result, err := mockService.RotateKey(cmd.Context(), keyID, model.NewOwnerScope(uuid.Nil, tc.TestUserID))
 					if err != nil {
 						return fmt.Errorf("failed to rotate key: %w", err)
 					}
@@ -633,7 +633,7 @@ func TestKeysIntegration(t *testing.T) {
 			Tags:      []string{"test", "lifecycle"},
 			CreatedAt: time.Now(),
 		}
-		mockService.On("RotateKey", mock.Anything, keyID, tc.TestUserID).
+		mockService.On("RotateKey", mock.Anything, keyID, model.NewOwnerScope(uuid.Nil, tc.TestUserID)).
 			Return(rotateResult, nil).Once()
 
 		// Step 4: Delete key
@@ -703,7 +703,7 @@ func TestKeysIntegration(t *testing.T) {
 					cmd := &cobra.Command{
 						Use: "rotate",
 						RunE: func(cmd *cobra.Command, args []string) error {
-							result, err := mockService.RotateKey(cmd.Context(), keyID, tc.TestUserID)
+							result, err := mockService.RotateKey(cmd.Context(), keyID, model.NewOwnerScope(uuid.Nil, tc.TestUserID))
 							if err != nil {
 								return err
 							}

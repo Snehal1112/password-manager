@@ -422,13 +422,7 @@ func getKey(c *Context, w http.ResponseWriter, r *http.Request) {
 
 	key, err := keyService.GetKey(r.Context(), keyID, scope)
 	if err != nil {
-		if errors.Is(err, keyservices.ErrKeyLifecycleDenied) {
-			c.SetPermissionError("key is disabled or outside its valid time window")
-		} else if errors.Is(err, keyservices.ErrKeyNotFound) {
-			c.SetNotFound("key")
-		} else {
-			c.SetInternalError(err)
-		}
+		writeKeyError(c, err)
 		return
 	}
 
@@ -483,18 +477,17 @@ func updateKey(c *Context, w http.ResponseWriter, r *http.Request) {
 		ExpiresAt: req.ExpiresAt,
 		NotBefore: req.NotBefore,
 	}); err != nil {
-		if errors.Is(err, keyservices.ErrKeyNotFound) {
-			c.SetNotFound("key")
-		} else {
-			c.SetInternalError(err)
-		}
+		writeKeyError(c, err)
 		return
 	}
 
-	// Get updated key for response, using the same scope as the update.
+	// Get updated key for response, using the same scope as the update. The
+	// read-back can legitimately be lifecycle-denied — the update may have
+	// just disabled the key — so map it like any other lifecycle denial
+	// rather than reporting an internal error for a write that succeeded.
 	key, err := keyService.GetKey(r.Context(), keyID, scope)
 	if err != nil {
-		c.SetInternalError(err)
+		writeKeyError(c, err)
 		return
 	}
 
@@ -524,11 +517,7 @@ func deleteKey(c *Context, w http.ResponseWriter, r *http.Request) {
 
 	deleted, err := keyService.DeleteKey(r.Context(), keyID, scope)
 	if err != nil {
-		if errors.Is(err, keyservices.ErrKeyNotFound) {
-			c.SetNotFound("key")
-		} else {
-			c.SetInternalError(err)
-		}
+		writeKeyError(c, err)
 		return
 	}
 
@@ -561,34 +550,31 @@ func rotateKey(c *Context, w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Get user ID from claims.
-	userIDStr, ok := c.Claims["user_id"].(string)
-	if !ok {
-		c.SetInternalError(nil)
-		return
-	}
-	userID, err := uuid.Parse(userIDStr)
-	if err != nil {
-		c.SetInvalidParam("user_id")
-		return
-	}
-
 	keyService := c.keySvc()
 	if keyService == nil {
 		return
 	}
 
-	// Rotate the key using service (handles authorization internally).
-	result, err := keyService.RotateKey(r.Context(), keyID, userID)
-	if err != nil {
-		c.SetInternalError(err)
+	// B6: key rotation stays owner-gated on both route shapes, like delete and
+	// the crypto operations. Removed in P2, where Key Vault Crypto Officer at
+	// vault scope replaces it.
+	scope, ok := ownerScopeFromRequest(c, r)
+	if !ok {
 		return
 	}
 
-	// Fetch the full key record so buildKeyResponse can inspect the stored value.
-	key, err := keyService.GetKey(r.Context(), result.KeyID, model.NewOwnerScope(uuid.Nil, userID))
+	// Rotate the key. The scoped read inside the service is the access check.
+	result, err := keyService.RotateKey(r.Context(), keyID, scope)
 	if err != nil {
-		c.SetInternalError(err)
+		writeKeyError(c, err)
+		return
+	}
+
+	// Fetch the full key record so buildKeyResponse can inspect the stored
+	// value, using the same scope that authorized the rotation.
+	key, err := keyService.GetKey(r.Context(), result.KeyID, scope)
+	if err != nil {
+		writeKeyError(c, err)
 		return
 	}
 
@@ -604,8 +590,24 @@ func listKeyVersions(c *Context, w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	userID, ok := userIDFromClaims(c)
+	keyService := c.keySvc()
+	if keyService == nil {
+		return
+	}
+
+	scope, ok := scopeFromRequest(c, r)
 	if !ok {
+		return
+	}
+
+	// Authorize through the scope-aware read first, exactly like getKey on
+	// this same route. KeyRepository.ListVersions filters on the key's owner
+	// with no vault predicate, so calling it with the caller's own id would
+	// hand a vault member an empty list for a key getKey happily returns.
+	// Resolving the owner from the authorized row keeps both consistent.
+	key, err := keyService.GetKey(r.Context(), keyID, scope)
+	if err != nil {
+		writeKeyError(c, err)
 		return
 	}
 
@@ -615,7 +617,7 @@ func listKeyVersions(c *Context, w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	versions, err := repo.ListVersions(r.Context(), keyID, userID)
+	versions, err := repo.ListVersions(r.Context(), keyID, key.UserID)
 	if err != nil {
 		c.SetInternalError(err)
 		return

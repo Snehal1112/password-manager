@@ -36,7 +36,7 @@ func (m *MockKeyServiceForUpdate) ListKeys(ctx context.Context, scope model.Scop
 func (m *MockKeyServiceForUpdate) DeleteKey(ctx context.Context, keyID uuid.UUID, scope model.Scope) (*model.Key, error) {
 	return nil, nil
 }
-func (m *MockKeyServiceForUpdate) RotateKey(ctx context.Context, keyID, userID uuid.UUID) (*keyServices.CreateKeyResult, error) {
+func (m *MockKeyServiceForUpdate) RotateKey(ctx context.Context, keyID uuid.UUID, scope model.Scope) (*keyServices.CreateKeyResult, error) {
 	return nil, nil
 }
 func (m *MockKeyServiceForUpdate) ValidateKeyAccess(ctx context.Context, keyID, userID uuid.UUID, role string) error {

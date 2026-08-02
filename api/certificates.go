@@ -24,7 +24,6 @@ package api
 
 import (
 	"encoding/json"
-	"errors"
 	"net/http"
 	"time"
 
@@ -293,13 +292,7 @@ func getCertificate(c *Context, w http.ResponseWriter, r *http.Request) {
 
 	cert, err := certService.GetCertificate(r.Context(), certID, scope)
 	if err != nil {
-		if errors.Is(err, certServices.ErrCertLifecycleDenied) {
-			c.SetPermissionError("certificate is disabled or outside its valid time window")
-		} else if errors.Is(err, certServices.ErrCertNotFound) {
-			c.SetNotFound("certificate")
-		} else {
-			c.SetInternalError(err)
-		}
+		writeCertificateError(c, err)
 		return
 	}
 
@@ -359,18 +352,18 @@ func updateCertificate(c *Context, w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := certService.UpdateCertificate(r.Context(), updateReq); err != nil {
-		if errors.Is(err, certServices.ErrCertNotFound) {
-			c.SetNotFound("certificate")
-		} else {
-			c.SetInternalError(err)
-		}
+		writeCertificateError(c, err)
 		return
 	}
 
-	// Fetch updated certificate for response.
+	// Fetch updated certificate for response. The read-back can legitimately
+	// be lifecycle-denied — the update may have just disabled the certificate,
+	// or it may already have expired — so map it like any other lifecycle
+	// denial rather than reporting an internal error for a write that
+	// succeeded.
 	cert, err := certService.GetCertificate(r.Context(), certID, scope)
 	if err != nil {
-		c.SetInternalError(err)
+		writeCertificateError(c, err)
 		return
 	}
 
@@ -398,12 +391,18 @@ func deleteCertificate(c *Context, w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := certService.DeleteCertificate(r.Context(), certID, model.NewVaultScope(vaultID, uuid.Nil)); err != nil {
-		if errors.Is(err, certServices.ErrCertNotFound) {
-			c.SetNotFound("certificate")
-		} else {
-			c.SetInternalError(err)
-		}
+	// deleteCertificate stays vault-scoped on both route shapes, like
+	// deleteSecret: the scope is built explicitly rather than derived from
+	// scopeFromRequest, so a flat-route caller cannot get an owner scope here.
+	// The actor comes from the claims — a uuid.Nil actor would attribute
+	// every certificate deletion to nobody in the audit log.
+	userID, ok := userIDFromClaims(c)
+	if !ok {
+		return
+	}
+
+	if err := certService.DeleteCertificate(r.Context(), certID, model.NewVaultScope(vaultID, userID)); err != nil {
+		writeCertificateError(c, err)
 		return
 	}
 

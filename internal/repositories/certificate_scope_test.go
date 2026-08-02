@@ -56,6 +56,14 @@ func newScopeTestCertRepo(t *testing.T) *CertificateRepository {
 
 func seedScopeCert(t *testing.T, repo *CertificateRepository, ownerID, vaultID uuid.UUID, name string) *model.Certificate {
 	t.Helper()
+	return seedScopeCertWithTags(t, repo, ownerID, vaultID, name, nil)
+}
+
+// seedScopeCertWithTags is seedScopeCert for tests that need a certificate
+// which actually carries tags, so the tag-replacement branch of Update is
+// reachable.
+func seedScopeCertWithTags(t *testing.T, repo *CertificateRepository, ownerID, vaultID uuid.UUID, name string, tags []string) *model.Certificate {
+	t.Helper()
 	c := &model.Certificate{
 		ID:          uuid.New(),
 		UserID:      ownerID,
@@ -67,6 +75,7 @@ func seedScopeCert(t *testing.T, repo *CertificateRepository, ownerID, vaultID u
 		CreatedAt:   time.Now().UTC(),
 		Enabled:     true,
 		RenewalDays: 30,
+		Tags:        tags,
 	}
 	require.NoError(t, repo.Create(context.Background(), c))
 	return c
@@ -119,6 +128,55 @@ func TestCertificateUpdate(t *testing.T) {
 	blocked := *cert
 	blocked.Name = "should-not-land"
 	assert.Error(t, repo.Update(ctx, &blocked, model.NewVaultScope(vaultB, otherUser)))
+}
+
+// TestCertificateUpdateReplacesTagsInOneTransaction exercises the tag-
+// replacement branch of Update, which previously deleted the old tags on the
+// outer transaction but inserted the new ones through a TagRepository built on
+// the shared handle — a second transaction on another connection opened while
+// the outer write lock was still held, whose inserts also escaped the outer
+// rollback. Both the delete and the inserts now run on the one transaction.
+func TestCertificateUpdateReplacesTagsInOneTransaction(t *testing.T) {
+	repo := newScopeTestCertRepo(t)
+	ctx := context.Background()
+
+	ownerID, vaultA := uuid.New(), uuid.New()
+	cert := seedScopeCertWithTags(t, repo, ownerID, vaultA, "cert-tags", []string{"old-a", "old-b"})
+
+	seeded, err := repo.Read(ctx, cert.ID, model.NewAdminScope(uuid.Nil))
+	require.NoError(t, err)
+	assert.ElementsMatch(t, []string{"old-a", "old-b"}, seeded.Tags)
+
+	updated := *cert
+	updated.Name = "cert-tags-renamed"
+	updated.Tags = []string{"new-a", "new-b", "new-c"}
+	require.NoError(t, repo.Update(ctx, &updated, model.NewVaultScope(vaultA, ownerID)))
+
+	got, err := repo.Read(ctx, cert.ID, model.NewAdminScope(uuid.Nil))
+	require.NoError(t, err)
+	assert.Equal(t, "cert-tags-renamed", got.Name)
+	assert.ElementsMatch(t, []string{"new-a", "new-b", "new-c"}, got.Tags,
+		"the replacement must drop every old tag and insert every new one")
+}
+
+// TestCertificateUpdateRollsBackTagsWhenTheRowIsOutOfScope pins the atomicity
+// half: an update the scope predicate rejects must leave the existing tags
+// untouched. With the tag inserts on their own transaction they could have
+// survived the outer rollback.
+func TestCertificateUpdateRollsBackTagsWhenTheRowIsOutOfScope(t *testing.T) {
+	repo := newScopeTestCertRepo(t)
+	ctx := context.Background()
+
+	ownerID, vaultA, vaultB := uuid.New(), uuid.New(), uuid.New()
+	cert := seedScopeCertWithTags(t, repo, ownerID, vaultA, "cert-rollback", []string{"keep-me"})
+
+	blocked := *cert
+	blocked.Tags = []string{"should-not-land"}
+	assert.Error(t, repo.Update(ctx, &blocked, model.NewVaultScope(vaultB, ownerID)))
+
+	got, err := repo.Read(ctx, cert.ID, model.NewAdminScope(uuid.Nil))
+	require.NoError(t, err)
+	assert.Equal(t, []string{"keep-me"}, got.Tags)
 }
 
 func TestCertificateList(t *testing.T) {

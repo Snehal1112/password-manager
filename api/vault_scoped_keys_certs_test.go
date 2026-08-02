@@ -44,7 +44,7 @@ func (s *recordingKeyService) CreateRSAKey(context.Context, keyServices.CreateKe
 func (s *recordingKeyService) CreateECDSAKey(context.Context, keyServices.CreateKeyRequest) (*keyServices.CreateKeyResult, error) {
 	panic("unexpected")
 }
-func (s *recordingKeyService) RotateKey(context.Context, uuid.UUID, uuid.UUID) (*keyServices.CreateKeyResult, error) {
+func (s *recordingKeyService) RotateKey(context.Context, uuid.UUID, model.Scope) (*keyServices.CreateKeyResult, error) {
 	panic("unexpected")
 }
 func (s *recordingKeyService) ValidateKeyAccess(context.Context, uuid.UUID, uuid.UUID, string) error {
