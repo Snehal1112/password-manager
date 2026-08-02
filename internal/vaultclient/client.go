@@ -100,6 +100,11 @@ func NewFromViper() (*Client, error) {
 func (c *Client) Get(ctx context.Context, uuid string) (string, error) {
 	// terminalErr captures errors that must not be retried and must be returned as-is.
 	var terminalErr error
+	// lastAttemptErr tracks the most recent retryable failure so its sentinel chain
+	// (ErrNetwork/ErrUnexpectedStatus) survives even after retries are exhausted —
+	// WithExponentialBackoff re-wraps its own return value with %v, not %w, which
+	// would otherwise break errors.Is checks (see the retryErr handling below).
+	var lastAttemptErr error
 	var value string
 
 	retryErr := retry.WithExponentialBackoff(ctx, retry.ExternalServicePolicy(), func() error {
@@ -110,19 +115,22 @@ func (c *Client) Get(ctx context.Context, uuid string) (string, error) {
 				terminalErr = err
 				return retry.NonRetryable(err)
 			}
+			lastAttemptErr = err
 			return retry.Retryable(err)
 		}
 
 		req, err := http.NewRequestWithContext(ctx, http.MethodGet,
 			c.cfg.URL+"/api/v1/secrets/"+uuid, nil)
 		if err != nil {
-			return fmt.Errorf("vaultclient: build request: %w", err)
+			terminalErr = fmt.Errorf("vaultclient: build request: %w", err)
+			return retry.NonRetryable(terminalErr)
 		}
 		req.Header.Set("Authorization", "Bearer "+tok)
 
 		resp, err := c.httpClient.Do(req)
 		if err != nil {
-			return retry.Retryable(fmt.Errorf("vaultclient: request failed: %w", err))
+			lastAttemptErr = fmt.Errorf("%w: %v", ErrNetwork, err)
+			return retry.Retryable(lastAttemptErr)
 		}
 		defer resp.Body.Close()
 
@@ -132,7 +140,8 @@ func (c *Client) Get(ctx context.Context, uuid string) (string, error) {
 				Value string `json:"value"`
 			}
 			if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
-				return fmt.Errorf("vaultclient: decode response: %w", err)
+				terminalErr = fmt.Errorf("%w: %v", ErrDecodeFailed, err)
+				return retry.NonRetryable(terminalErr)
 			}
 			value = body.Value
 			return nil
@@ -147,16 +156,23 @@ func (c *Client) Get(ctx context.Context, uuid string) (string, error) {
 			terminalErr = ErrSecretNotFound
 			return retry.NonRetryable(ErrSecretNotFound)
 		default:
-			return retry.Retryable(fmt.Errorf("vaultclient: unexpected status %d", resp.StatusCode))
+			lastAttemptErr = fmt.Errorf("%w: status %d", ErrUnexpectedStatus, resp.StatusCode)
+			return retry.Retryable(lastAttemptErr)
 		}
 	})
 
-	// Return the terminal sentinel directly — WithExponentialBackoff wraps NonRetryable
-	// errors, which would break errors.Is checks for ErrAuthFailed/ErrSecretNotFound.
 	if terminalErr != nil {
 		return "", terminalErr
 	}
 	if retryErr != nil {
+		// A canceled/deadline-exceeded context is the true cause — don't mask it
+		// behind a stale "retries exhausted" error from an earlier attempt.
+		if ctx.Err() != nil {
+			return "", ctx.Err()
+		}
+		if lastAttemptErr != nil {
+			return "", fmt.Errorf("vaultclient: retries exhausted: %w", lastAttemptErr)
+		}
 		return "", retryErr
 	}
 	return value, nil
@@ -241,7 +257,7 @@ func (c *Client) fetchToken(ctx context.Context) (string, int, error) {
 
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
-		return "", 0, retry.Retryable(fmt.Errorf("vaultclient: token request failed: %w", err))
+		return "", 0, fmt.Errorf("%w: %v", ErrNetwork, err)
 	}
 	defer resp.Body.Close()
 
@@ -249,7 +265,7 @@ func (c *Client) fetchToken(ctx context.Context) (string, int, error) {
 		return "", 0, ErrAuthFailed
 	}
 	if resp.StatusCode != http.StatusOK {
-		return "", 0, retry.Retryable(fmt.Errorf("vaultclient: token endpoint returned %d", resp.StatusCode))
+		return "", 0, fmt.Errorf("%w: status %d", ErrUnexpectedStatus, resp.StatusCode)
 	}
 
 	var result struct {
@@ -257,7 +273,7 @@ func (c *Client) fetchToken(ctx context.Context) (string, int, error) {
 		ExpiresIn   int    `json:"expires_in"`
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-		return "", 0, fmt.Errorf("vaultclient: decode token response: %w", err)
+		return "", 0, fmt.Errorf("%w: %v", ErrDecodeFailed, err)
 	}
 	if result.AccessToken == "" {
 		return "", 0, ErrAuthFailed

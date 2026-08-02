@@ -122,6 +122,7 @@ func TestGet_UnexpectedStatus(t *testing.T) {
 
 	_, err = c.Get(context.Background(), "some-uuid")
 	require.Error(t, err)
+	assert.ErrorIs(t, err, vaultclient.ErrUnexpectedStatus)
 }
 
 // TestFetchToken_NonOKStatus covers the branch where the token endpoint returns non-200/401.
@@ -138,6 +139,7 @@ func TestFetchToken_NonOKStatus(t *testing.T) {
 
 	_, err = c.Get(context.Background(), "some-uuid")
 	require.Error(t, err)
+	assert.ErrorIs(t, err, vaultclient.ErrUnexpectedStatus)
 }
 
 // TestFetchToken_EmptyAccessToken covers the branch where access_token is blank.
@@ -175,4 +177,67 @@ func TestGet_SecretUnauthorized(t *testing.T) {
 
 	_, err = c.Get(context.Background(), "some-uuid")
 	assert.ErrorIs(t, err, vaultclient.ErrAuthFailed)
+}
+
+// TestGet_NetworkError_ReturnsErrNetwork verifies a connection failure is
+// identifiable via errors.Is(err, ErrNetwork) even after retries are exhausted.
+func TestGet_NetworkError_ReturnsErrNetwork(t *testing.T) {
+	// Point at a server that's already closed — connection refused on every attempt.
+	closedSrv := httptest.NewServer(http.NewServeMux())
+	deadURL := closedSrv.URL
+	closedSrv.Close()
+
+	c, err := vaultclient.New(vaultclient.Config{URL: deadURL, ClientID: "id", ClientSecret: "s"})
+	require.NoError(t, err)
+
+	_, err = c.Get(context.Background(), "some-uuid")
+	assert.ErrorIs(t, err, vaultclient.ErrNetwork)
+}
+
+// TestGet_MalformedJSON_ReturnsErrDecodeFailed verifies a 200 response with
+// unparseable JSON is treated as terminal (not retried) and identifiable via
+// errors.Is(err, ErrDecodeFailed).
+func TestGet_MalformedJSON_ReturnsErrDecodeFailed(t *testing.T) {
+	calls := 0
+	mux := http.NewServeMux()
+	mux.HandleFunc("/api/v1/oauth2/token", func(w http.ResponseWriter, r *http.Request) {
+		json.NewEncoder(w).Encode(map[string]any{"access_token": "tok", "expires_in": 3600})
+	})
+	mux.HandleFunc("/api/v1/secrets/", func(w http.ResponseWriter, _ *http.Request) {
+		calls++
+		w.Header().Set("Content-Type", "application/json")
+		w.Write([]byte("{not valid json"))
+	})
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+
+	c, err := vaultclient.New(vaultclient.Config{URL: srv.URL, ClientID: "id", ClientSecret: "s"})
+	require.NoError(t, err)
+
+	_, err = c.Get(context.Background(), "some-uuid")
+	assert.ErrorIs(t, err, vaultclient.ErrDecodeFailed)
+	assert.Equal(t, 1, calls, "malformed JSON should be terminal, not retried")
+}
+
+// TestGet_ContextCanceled_ReturnsContextError verifies a canceled context is
+// surfaced as ctx.Err(), not masked as a generic retries-exhausted error.
+func TestGet_ContextCanceled_ReturnsContextError(t *testing.T) {
+	mux := http.NewServeMux()
+	mux.HandleFunc("/api/v1/oauth2/token", func(w http.ResponseWriter, r *http.Request) {
+		json.NewEncoder(w).Encode(map[string]any{"access_token": "tok", "expires_in": 3600})
+	})
+	mux.HandleFunc("/api/v1/secrets/", func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+	})
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+
+	c, err := vaultclient.New(vaultclient.Config{URL: srv.URL, ClientID: "id", ClientSecret: "s"})
+	require.NoError(t, err)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel() // already canceled before the call
+
+	_, err = c.Get(ctx, "some-uuid")
+	assert.ErrorIs(t, err, context.Canceled)
 }
