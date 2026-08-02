@@ -208,11 +208,37 @@ func globalAdminIDs(ctx context.Context, q DBTX, dialect Dialect) ([]string, err
 // the audit trail.
 const backfillActor = "00000000-0000-0000-0000-000000000000"
 
-// backfillRoleAssignments materialises the plan from PlanRoleBackfill. It is
-// idempotent: each insert is guarded by a lookup on the same
-// (principal_id, role, vault_id) tuple the table's UNIQUE constraint covers, so
-// re-running on every startup creates nothing new and never touches a grant an
-// operator made by hand.
+// roleBackfillAppliedKey is the audit_config marker recording that the P2
+// role-assignment backfill has already run against this database. Its
+// presence makes the backfill a one-time migration step rather than a
+// startup-every-time scan: without it, an operator who revokes a backfilled
+// grant (DELETE /api/v1/vaults/{vault}/role-assignments/{id}, the documented
+// upgrade remediation path) would see it silently re-created on the next
+// restart, because the ownership data that produced it hasn't changed.
+const roleBackfillAppliedKey = "role_backfill_applied"
+
+// backfillRoleAssignments materialises the plan from PlanRoleBackfill, but only
+// once per deployment: it checks the roleBackfillAppliedKey marker in
+// audit_config first and returns immediately, with no query and no log lines,
+// if it is already set. Each insert is additionally guarded by a lookup on the
+// same (principal_id, role, vault_id) tuple the table's UNIQUE constraint
+// covers, so even a re-run — e.g. if the process crashes between finishing the
+// grants and writing the marker — cannot create a duplicate row, only
+// (narrowly, in that crash window) resurrect a grant an operator had revoked
+// since the previous run.
+//
+// That residual crash-window risk is accepted rather than closed with a
+// transaction: backfillRoleAssignments takes a plain *sql.DB, the same
+// non-transactional convention every other migrateSchema step in this file
+// uses (ALTER TABLE statements, seedDefaultVault, seedAuditConfig, ...), and
+// wrapping only this one step in a transaction would not be atomic with the
+// schema changes around it anyway — a crash could equally land between two
+// ALTER TABLE calls. Exactly-once semantics across a crash aren't achievable
+// here without redesigning migrateSchema's transaction model wholesale, which
+// is out of scope for a one-time migration step whose worst case (a re-run
+// that skips revoked grants right back in, once, only if the process dies at
+// that exact instant) is already far rarer and lower-impact than the bug this
+// marker fixes (guaranteed resurrection on every single restart).
 //
 // It runs inside migrateSchema because the fail-closed authorization introduced
 // with it would otherwise lock out every existing deployment: before this
@@ -220,6 +246,14 @@ const backfillActor = "00000000-0000-0000-0000-000000000000"
 // no role assignment means no access.
 func (d *DBRepository) backfillRoleAssignments(db *sql.DB) error {
 	ctx := context.Background()
+
+	applied, err := d.roleBackfillApplied(db)
+	if err != nil {
+		return fmt.Errorf("check role backfill marker: %w", err)
+	}
+	if applied {
+		return nil
+	}
 
 	// SetupSchema seeds the default vault after migrateSchema, but
 	// role_assignments has a foreign key to vaults(id). Seed it here first; the
@@ -233,7 +267,9 @@ func (d *DBRepository) backfillRoleAssignments(db *sql.DB) error {
 		return fmt.Errorf("plan role backfill: %w", err)
 	}
 	if len(grants) == 0 {
-		return nil
+		// A fresh install with no legacy ownership data still needs the
+		// marker set, or every future startup would re-scan forever.
+		return d.markRoleBackfillApplied(db)
 	}
 
 	created := map[string]int{}
@@ -274,6 +310,33 @@ func (d *DBRepository) backfillRoleAssignments(db *sql.DB) error {
 		d.log.Info(fmt.Sprintf(
 			"Role backfill: vault=%s (%s) grants_examined=%d assignments_created=%d",
 			names[id], id, examined[id], created[id]))
+	}
+	return d.markRoleBackfillApplied(db)
+}
+
+// roleBackfillApplied reports whether the one-time role backfill has already
+// run against this database. audit_config is created unconditionally by
+// createOptimizedSchema before migrateSchema (and therefore
+// backfillRoleAssignments) ever runs, so the table is always present here.
+func (d *DBRepository) roleBackfillApplied(db *sql.DB) (bool, error) {
+	var count int
+	if err := db.QueryRow(
+		d.dialect.Rebind("SELECT COUNT(*) FROM audit_config WHERE key = ?"), roleBackfillAppliedKey,
+	).Scan(&count); err != nil {
+		return false, fmt.Errorf("failed to check audit_config key %q: %w", roleBackfillAppliedKey, err)
+	}
+	return count > 0, nil
+}
+
+// markRoleBackfillApplied records that the backfill has completed, so
+// backfillRoleAssignments short-circuits on every subsequent startup instead
+// of re-deriving and re-checking grants that may since have been revoked.
+func (d *DBRepository) markRoleBackfillApplied(db *sql.DB) error {
+	if _, err := db.Exec(
+		d.dialect.Rebind("INSERT INTO audit_config (key, value) VALUES (?, ?)"),
+		roleBackfillAppliedKey, time.Now().UTC().Format(time.RFC3339),
+	); err != nil {
+		return fmt.Errorf("failed to mark role backfill applied: %w", err)
 	}
 	return nil
 }

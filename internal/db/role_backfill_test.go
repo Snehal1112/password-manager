@@ -58,6 +58,7 @@ func seedPreMigrationDB(t *testing.T) (*sql.DB, map[string]string) {
 			created_at     TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
 			UNIQUE (principal_id, role, vault_id)
 		);
+		CREATE TABLE audit_config (key TEXT PRIMARY KEY, value TEXT NOT NULL);
 	`)
 	require.NoError(t, err)
 

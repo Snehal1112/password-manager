@@ -54,7 +54,11 @@ func TestBackfillRoleAssignments_CreatesDerivedGrants(t *testing.T) {
 }
 
 // TestBackfillRoleAssignments_IsIdempotent asserts re-running creates nothing
-// new. An upgrade migration runs on every startup.
+// new. backfillRoleAssignments runs from migrateSchema on every startup, but
+// the roleBackfillAppliedKey marker in audit_config short-circuits every call
+// after the first, so a second or third run must not touch the table at all
+// (see TestBackfillRoleAssignments_DoesNotResurrectRevokedGrant for proof it
+// is the marker, and not just the per-tuple existence guard, doing the work).
 func TestBackfillRoleAssignments_IsIdempotent(t *testing.T) {
 	conn, _ := seedPreMigrationDB(t)
 	repo := NewRepository(logging.InitLogger())
@@ -72,6 +76,39 @@ func TestBackfillRoleAssignments_IsIdempotent(t *testing.T) {
 	var second int
 	require.NoError(t, conn.QueryRow(`SELECT COUNT(*) FROM role_assignments`).Scan(&second))
 	assert.Equal(t, first, second, "re-running the backfill must be a no-op")
+}
+
+// TestBackfillRoleAssignments_DoesNotResurrectRevokedGrant proves the actual
+// fix: once the marker is set, a revoked backfilled grant is not re-created on
+// the next run. Without the marker, backfillRoleAssignments re-derives the
+// same grant from ownership data that hasn't changed and silently reinstates
+// it, defeating DELETE /api/v1/vaults/{vault}/role-assignments/{id} as an
+// upgrade remediation path.
+func TestBackfillRoleAssignments_DoesNotResurrectRevokedGrant(t *testing.T) {
+	conn, ids := seedPreMigrationDB(t)
+	repo := NewRepository(logging.InitLogger())
+
+	require.NoError(t, repo.backfillRoleAssignments(conn))
+
+	// Simulate an operator revoking one of the derived grants.
+	res, err := conn.Exec(
+		`DELETE FROM role_assignments WHERE principal_id = ? AND vault_id = ? AND role = ?`,
+		ids["alice"], ids["vaultA"], model.RoleKeyVaultSecretsOfficer)
+	require.NoError(t, err)
+	affected, err := res.RowsAffected()
+	require.NoError(t, err)
+	require.Equal(t, int64(1), affected, "the revoked grant must have existed before deletion")
+
+	// The ownership data that originally produced the grant is untouched, so a
+	// naive re-run would re-derive and reinsert it. The marker must prevent
+	// that.
+	require.NoError(t, repo.backfillRoleAssignments(conn))
+
+	var n int
+	require.NoError(t, conn.QueryRow(
+		`SELECT COUNT(*) FROM role_assignments WHERE principal_id = ? AND vault_id = ? AND role = ?`,
+		ids["alice"], ids["vaultA"], model.RoleKeyVaultSecretsOfficer).Scan(&n))
+	assert.Zero(t, n, "a revoked grant must not be resurrected by a later backfill run")
 }
 
 // TestBackfillRoleAssignments_PreservesOperatorGrants asserts a hand-made
