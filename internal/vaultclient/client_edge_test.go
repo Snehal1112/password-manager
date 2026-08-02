@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"sync"
 	"testing"
 
 	"github.com/spf13/viper"
@@ -240,4 +241,80 @@ func TestGet_ContextCanceled_ReturnsContextError(t *testing.T) {
 
 	_, err = c.Get(ctx, "some-uuid")
 	assert.ErrorIs(t, err, context.Canceled)
+}
+
+// fakeLogger captures Warn calls for assertions. Safe for concurrent use since
+// Client may call it from a retry loop driven by a single goroutine, but tests
+// should not assume single-threaded access.
+type fakeLogger struct {
+	mu    sync.Mutex
+	calls []string
+}
+
+func (f *fakeLogger) Warn(msg string, _ ...any) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.calls = append(f.calls, msg)
+}
+
+func (f *fakeLogger) callCount() int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return len(f.calls)
+}
+
+func TestGet_NoLogger_DoesNotPanicOnFailure(t *testing.T) {
+	mux := http.NewServeMux()
+	mux.HandleFunc("/api/v1/oauth2/token", func(w http.ResponseWriter, r *http.Request) {
+		json.NewEncoder(w).Encode(map[string]any{"access_token": "tok", "expires_in": 3600})
+	})
+	mux.HandleFunc("/api/v1/secrets/", func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusNotFound)
+	})
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+
+	c, err := vaultclient.New(vaultclient.Config{URL: srv.URL, ClientID: "id", ClientSecret: "s"})
+	require.NoError(t, err)
+
+	assert.NotPanics(t, func() {
+		_, _ = c.Get(context.Background(), "missing")
+	})
+}
+
+func TestGet_WithLogger_WarnsOnRetryableFailure(t *testing.T) {
+	mux := http.NewServeMux()
+	mux.HandleFunc("/api/v1/oauth2/token", func(w http.ResponseWriter, r *http.Request) {
+		json.NewEncoder(w).Encode(map[string]any{"access_token": "tok", "expires_in": 3600})
+	})
+	mux.HandleFunc("/api/v1/secrets/", func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+	})
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+
+	logger := &fakeLogger{}
+	c, err := vaultclient.New(vaultclient.Config{
+		URL: srv.URL, ClientID: "id", ClientSecret: "s", Logger: logger,
+	})
+	require.NoError(t, err)
+
+	_, err = c.Get(context.Background(), "some-uuid")
+	require.Error(t, err)
+	assert.Positive(t, logger.callCount(), "expected at least one Warn call across the retried attempts")
+}
+
+func TestGet_WithLogger_SilentOnFirstTrySuccess(t *testing.T) {
+	srv := newTestServer(t, "value")
+	defer srv.Close()
+
+	logger := &fakeLogger{}
+	c, err := vaultclient.New(vaultclient.Config{
+		URL: srv.URL, ClientID: "test-id", ClientSecret: "test-secret", Logger: logger,
+	})
+	require.NoError(t, err)
+
+	_, err = c.Get(context.Background(), "some-uuid")
+	require.NoError(t, err)
+	assert.Equal(t, 0, logger.callCount())
 }

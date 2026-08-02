@@ -24,12 +24,22 @@ type SecretMapping struct {
 	ViperKey string `yaml:"viper_key" mapstructure:"viper_key"`
 }
 
+// Logger is the minimal logging interface accepted by Client for
+// observability into retries and auth failures. A nil Logger (the Config
+// zero value) disables all logging — the client always works without one.
+type Logger interface {
+	Warn(msg string, keysAndValues ...any)
+}
+
 // Config holds credentials and secret mappings for the vault client.
 type Config struct {
 	URL          string          `yaml:"url"           mapstructure:"url"`
 	ClientID     string          `yaml:"client_id"     mapstructure:"client_id"`
 	ClientSecret string          `yaml:"client_secret" mapstructure:"client_secret"`
 	Secrets      []SecretMapping `yaml:"secrets"       mapstructure:"secrets"`
+	// Logger receives Warn calls on retries and auth failures. Optional; nil
+	// disables all logging. Not settable via YAML/viper (interface value).
+	Logger Logger
 }
 
 type tokenCache struct {
@@ -44,6 +54,7 @@ type Client struct {
 	mu         sync.Mutex
 	token      *tokenCache
 	nameIndex  map[string]string
+	logger     Logger
 }
 
 // New creates a Client from an explicit Config.
@@ -65,7 +76,16 @@ func New(cfg Config) (*Client, error) {
 		cfg:        cfg,
 		httpClient: &http.Client{Timeout: 15 * time.Second},
 		nameIndex:  index,
+		logger:     cfg.Logger,
 	}, nil
+}
+
+// logRetry logs a retryable failure if a Logger is configured; a no-op otherwise.
+func (c *Client) logRetry(msg string, err error) {
+	if c.logger == nil {
+		return
+	}
+	c.logger.Warn(msg, "error", err)
 }
 
 // NewFromEnv creates a Client from VAULT_URL, VAULT_CLIENT_ID, VAULT_CLIENT_SECRET env vars.
@@ -130,6 +150,7 @@ func (c *Client) Get(ctx context.Context, uuid string) (string, error) {
 		resp, err := c.httpClient.Do(req)
 		if err != nil {
 			lastAttemptErr = fmt.Errorf("%w: %v", ErrNetwork, err)
+			c.logRetry("vaultclient: secret fetch network error, may retry", lastAttemptErr)
 			return retry.Retryable(lastAttemptErr)
 		}
 		defer resp.Body.Close()
@@ -151,12 +172,14 @@ func (c *Client) Get(ctx context.Context, uuid string) (string, error) {
 			c.token = nil
 			c.mu.Unlock()
 			terminalErr = ErrAuthFailed
+			c.logRetry("vaultclient: secret endpoint rejected the token, invalidating cache", ErrAuthFailed)
 			return retry.NonRetryable(ErrAuthFailed)
 		case http.StatusNotFound:
 			terminalErr = ErrSecretNotFound
 			return retry.NonRetryable(ErrSecretNotFound)
 		default:
 			lastAttemptErr = fmt.Errorf("%w: status %d", ErrUnexpectedStatus, resp.StatusCode)
+			c.logRetry("vaultclient: secret endpoint returned unexpected status, may retry", lastAttemptErr)
 			return retry.Retryable(lastAttemptErr)
 		}
 	})
@@ -257,15 +280,19 @@ func (c *Client) fetchToken(ctx context.Context) (string, int, error) {
 
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
+		c.logRetry("vaultclient: token request failed, may retry", err)
 		return "", 0, fmt.Errorf("%w: %v", ErrNetwork, err)
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode == http.StatusUnauthorized {
+		c.logRetry("vaultclient: token request rejected — check client credentials", ErrAuthFailed)
 		return "", 0, ErrAuthFailed
 	}
 	if resp.StatusCode != http.StatusOK {
-		return "", 0, fmt.Errorf("%w: status %d", ErrUnexpectedStatus, resp.StatusCode)
+		err := fmt.Errorf("%w: status %d", ErrUnexpectedStatus, resp.StatusCode)
+		c.logRetry("vaultclient: token endpoint returned unexpected status, may retry", err)
+		return "", 0, err
 	}
 
 	var result struct {
@@ -276,6 +303,7 @@ func (c *Client) fetchToken(ctx context.Context) (string, int, error) {
 		return "", 0, fmt.Errorf("%w: %v", ErrDecodeFailed, err)
 	}
 	if result.AccessToken == "" {
+		c.logRetry("vaultclient: token endpoint returned an empty access token", ErrAuthFailed)
 		return "", 0, ErrAuthFailed
 	}
 	return result.AccessToken, result.ExpiresIn, nil
