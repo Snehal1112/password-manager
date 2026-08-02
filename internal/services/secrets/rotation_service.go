@@ -28,7 +28,7 @@ type RotationServiceInterface interface {
 	// Secret-policy assignment
 	AssignPolicyToSecret(ctx context.Context, req AssignPolicyRequest) error
 	RemovePolicyFromSecret(ctx context.Context, secretID, policyID uuid.UUID, callerID uuid.UUID) error
-	GetSecretPolicies(ctx context.Context, secretID uuid.UUID) ([]model.RotationPolicy, error)
+	GetSecretPolicies(ctx context.Context, secretID, userID uuid.UUID) ([]model.RotationPolicy, error)
 
 	// Rotation operations
 	PerformManualRotation(ctx context.Context, req ManualRotationRequest) error
@@ -38,7 +38,11 @@ type RotationServiceInterface interface {
 	// Reminder management
 	CreateRotationReminder(ctx context.Context, req CreateReminderRequest) error
 	GetUpcomingReminders(ctx context.Context, userID uuid.UUID) ([]model.RotationReminder, error)
-	AcknowledgeReminder(ctx context.Context, reminderID uuid.UUID) error
+	// AcknowledgeReminder marks a reminder as acknowledged. secretID
+	// identifies the secret the reminder belongs to. userID enforces
+	// ownership before the update; pass uuid.Nil to skip the check
+	// (system/scheduler callers), mirroring KeyService.DeleteKeyInVault.
+	AcknowledgeReminder(ctx context.Context, reminderID, secretID, userID uuid.UUID) error
 }
 
 // CreatePolicyRequest represents the request to create a rotation policy.
@@ -93,23 +97,40 @@ type rotationService struct {
 	secretRepo   repositories.SecretRepositoryInterface
 	userRepo     repositories.UserRepositoryInterface
 	cryptoSvc    CryptographyService
+	cacheInv     SecretCacheInvalidator
 	log          *logging.Logger
 }
 
-// NewRotationService creates a new rotation service with the required dependencies.
+// NewRotationService creates a new rotation service with the required
+// dependencies. cacheInv may be nil when the secret cache is disabled; it is
+// needed because PerformManualRotation writes the secrets table without going
+// through CachedSecretService.
 func NewRotationService(
 	rotationRepo repositories.RotationPolicyRepositoryInterface,
 	secretRepo repositories.SecretRepositoryInterface,
 	userRepo repositories.UserRepositoryInterface,
 	cryptoSvc CryptographyService,
 	log *logging.Logger,
+	cacheInv SecretCacheInvalidator,
 ) RotationServiceInterface {
 	return &rotationService{
 		rotationRepo: rotationRepo,
 		secretRepo:   secretRepo,
 		userRepo:     userRepo,
 		cryptoSvc:    cryptoSvc,
+		cacheInv:     cacheInv,
 		log:          log,
+	}
+}
+
+// invalidateCache evicts every cached view of a secret after a direct write.
+// A failure is logged but never fails the rotation that already succeeded.
+func (s *rotationService) invalidateCache(ctx context.Context, secretID uuid.UUID) {
+	if s.cacheInv == nil {
+		return
+	}
+	if err := s.cacheInv.DeleteByID(ctx, secretID); err != nil {
+		s.log.WithError(err).WithField("secret_id", secretID).Warn("Failed to invalidate cached secret")
 	}
 }
 
@@ -252,8 +273,9 @@ func (s *rotationService) ListUserPolicies(ctx context.Context, userID uuid.UUID
 
 // AssignPolicyToSecret assigns a rotation policy to a secret with validation.
 func (s *rotationService) AssignPolicyToSecret(ctx context.Context, req AssignPolicyRequest) error {
-	// Validate secret exists and user owns it
-	secret, err := s.secretRepo.Read(ctx, req.SecretID)
+	// Validate secret exists and user owns it. The read itself is unchecked
+	// (admin scope); the explicit ownership check below is the actual gate.
+	secret, err := s.secretRepo.Read(ctx, req.SecretID, model.NewAdminScope(req.UserID))
 	if err != nil {
 		return fmt.Errorf("secret not found: %w", err)
 	}
@@ -312,7 +334,9 @@ func (s *rotationService) AssignPolicyToSecret(ctx context.Context, req AssignPo
 
 // RemovePolicyFromSecret removes a rotation policy from a secret with ownership validation.
 func (s *rotationService) RemovePolicyFromSecret(ctx context.Context, secretID, policyID uuid.UUID, callerID uuid.UUID) error {
-	secret, err := s.secretRepo.Read(ctx, secretID)
+	// The read itself is unchecked (admin scope); the explicit ownership
+	// check below is the actual gate.
+	secret, err := s.secretRepo.Read(ctx, secretID, model.NewAdminScope(callerID))
 	if err != nil {
 		return fmt.Errorf("secret not found: %w", err)
 	}
@@ -335,8 +359,21 @@ func (s *rotationService) RemovePolicyFromSecret(ctx context.Context, secretID, 
 	return nil
 }
 
-// GetSecretPolicies gets all rotation policies assigned to a secret.
-func (s *rotationService) GetSecretPolicies(ctx context.Context, secretID uuid.UUID) ([]model.RotationPolicy, error) {
+// GetSecretPolicies gets all rotation policies assigned to a secret. userID
+// enforces ownership; pass uuid.Nil to skip the check (admin/system callers).
+func (s *rotationService) GetSecretPolicies(ctx context.Context, secretID, userID uuid.UUID) ([]model.RotationPolicy, error) {
+	if userID != uuid.Nil {
+		// The read itself is unchecked (admin scope); the explicit ownership
+		// check below is the actual gate.
+		secret, err := s.secretRepo.Read(ctx, secretID, model.NewAdminScope(userID))
+		if err != nil {
+			return nil, fmt.Errorf("secret not found: %w", err)
+		}
+		if secret.UserID != userID {
+			return nil, fmt.Errorf("user does not own this secret")
+		}
+	}
+
 	policies, err := s.rotationRepo.GetPoliciesForSecret(ctx, secretID)
 	if err != nil {
 		s.log.WithError(err).WithField("secret_id", secretID).Error("Failed to get secret policies")
@@ -347,24 +384,35 @@ func (s *rotationService) GetSecretPolicies(ctx context.Context, secretID uuid.U
 }
 
 // PerformManualRotation performs manual rotation with full business logic.
+//
+// It writes the secrets table directly rather than through the secret service,
+// so it owns both its audit trail and its cache invalidation. The actor is
+// req.UserID, which the ownership gate below proves is also the secret's owner.
 func (s *rotationService) PerformManualRotation(ctx context.Context, req ManualRotationRequest) error {
-	// Validate secret exists and user owns it
-	secret, err := s.secretRepo.Read(ctx, req.SecretID)
+	actor := req.UserID.String()
+
+	// Validate secret exists and user owns it. The read itself is unchecked
+	// (admin scope); the explicit ownership check below is the actual gate.
+	secret, err := s.secretRepo.Read(ctx, req.SecretID, model.NewAdminScope(req.UserID))
 	if err != nil {
+		s.log.LogAuditError(actor, "rotate_secret", "failed", "Secret not found", err)
 		return fmt.Errorf("secret not found: %w", err)
 	}
 
 	if secret.UserID != req.UserID {
+		s.log.LogAuditError(actor, "rotate_secret", "denied", "User does not own this secret", nil)
 		return fmt.Errorf("user does not own this secret")
 	}
 
 	// Validate policy exists and user owns it
 	policy, err := s.rotationRepo.Read(ctx, req.PolicyID)
 	if err != nil {
+		s.log.LogAuditError(actor, "rotate_secret", "failed", "Rotation policy not found", err)
 		return fmt.Errorf("policy not found: %w", err)
 	}
 
 	if policy.UserID != req.UserID {
+		s.log.LogAuditError(actor, "rotate_secret", "denied", "User does not own this policy", nil)
 		return fmt.Errorf("user does not own this policy")
 	}
 
@@ -376,11 +424,17 @@ func (s *rotationService) PerformManualRotation(ctx context.Context, req ManualR
 	secret.Value = newValue
 	secret.Version++
 
-	err = s.secretRepo.Update(ctx, secret)
+	err = s.secretRepo.Update(ctx, secret, model.NewOwnerScope(secret.VaultID, secret.UserID))
 	if err != nil {
 		s.log.WithError(err).Error("Failed to update secret during rotation")
+		s.log.LogAuditError(actor, "rotate_secret", "failed", "Failed to update secret during rotation", err)
 		return fmt.Errorf("failed to update secret during rotation: %w", err)
 	}
+
+	// The write bypassed CachedSecretService. Without this eviction a
+	// credential rotated because it was compromised would keep being served
+	// from cache for the full TTL after rotation reported success.
+	s.invalidateCache(ctx, req.SecretID)
 
 	// Record rotation history
 	now := time.Now()
@@ -409,6 +463,9 @@ func (s *rotationService) PerformManualRotation(ctx context.Context, req ManualR
 		// Don't fail rotation if scheduling update fails
 	}
 
+	s.log.LogAuditInfo(actor, "rotate_secret", "success",
+		fmt.Sprintf("Secret %s rotated to version %d", req.SecretID, secret.Version))
+
 	s.log.WithFields(map[string]interface{}{
 		"secret_id":   req.SecretID,
 		"policy_id":   req.PolicyID,
@@ -421,7 +478,9 @@ func (s *rotationService) PerformManualRotation(ctx context.Context, req ManualR
 
 // GetRotationHistory retrieves rotation history for a secret with ownership validation.
 func (s *rotationService) GetRotationHistory(ctx context.Context, secretID uuid.UUID, callerID uuid.UUID) ([]model.RotationHistory, error) {
-	secret, err := s.secretRepo.Read(ctx, secretID)
+	// The read itself is unchecked (admin scope); the explicit ownership
+	// check below is the actual gate.
+	secret, err := s.secretRepo.Read(ctx, secretID, model.NewAdminScope(callerID))
 	if err != nil {
 		return nil, fmt.Errorf("secret not found: %w", err)
 	}
@@ -493,10 +552,26 @@ func (s *rotationService) GetUpcomingReminders(ctx context.Context, userID uuid.
 	return reminders, nil
 }
 
-// AcknowledgeReminder marks a reminder as acknowledged.
-func (s *rotationService) AcknowledgeReminder(ctx context.Context, reminderID uuid.UUID) error {
-	// This would typically fetch the reminder first, then update it
-	// For simplicity, we'll create a reminder object with just the ID and acknowledged status
+// AcknowledgeReminder marks a reminder as acknowledged. secretID identifies
+// the secret the reminder belongs to; userID enforces ownership before the
+// update. Pass uuid.Nil for userID to skip the check (system/scheduler
+// callers).
+func (s *rotationService) AcknowledgeReminder(ctx context.Context, reminderID, secretID, userID uuid.UUID) error {
+	if userID != uuid.Nil {
+		// The read itself is unchecked (admin scope); the explicit ownership
+		// check below is the actual gate.
+		secret, err := s.secretRepo.Read(ctx, secretID, model.NewAdminScope(userID))
+		if err != nil {
+			return fmt.Errorf("secret not found: %w", err)
+		}
+		if secret.UserID != userID {
+			return fmt.Errorf("user does not own this secret")
+		}
+	}
+
+	// This would typically fetch the reminder first, then update it.
+	// For simplicity, we'll create a reminder object with just the ID and
+	// acknowledged status.
 	reminder := &model.RotationReminder{
 		ID:           reminderID,
 		Acknowledged: true,

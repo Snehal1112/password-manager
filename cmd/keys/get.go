@@ -73,7 +73,7 @@ var getCmd = &cobra.Command{
 		}
 		keyService := serviceContainer.GetKeyService()
 
-		key, err := keyService.GetKey(ctx, keyID, claims.UserID)
+		key, err := keyService.GetKey(ctx, keyID, model.NewOwnerScope(uuid.Nil, claims.UserID))
 		if err != nil {
 			log.LogAuditError(claims.UserID.String(), "get_key", "failed", fmt.Sprintf("failed to get key: %s", err), err)
 			return fmt.Errorf("failed to get key: %w", err)

@@ -40,41 +40,45 @@ func setupMasterKey(t *testing.T) {
 func TestUpdateKey_KeyNotFound(t *testing.T) {
 	repo := &mockKeyRepository{}
 	keyID := uuid.New()
-	repo.On("Read", mock.Anything, keyID).Return(nil, errors.New("not found"))
+	userID := uuid.New()
+	repo.On("Read", mock.Anything, keyID, model.NewOwnerScope(uuid.Nil, userID)).Return(nil, errors.New("not found"))
 
 	svc := &keyService{keyRepo: repo, logger: testLogger()}
-	err := svc.UpdateKey(context.Background(), UpdateKeyRequest{KeyID: keyID, UserID: uuid.New()})
+	err := svc.UpdateKey(context.Background(), UpdateKeyRequest{KeyID: keyID, Scope: model.NewOwnerScope(uuid.Nil, userID)})
 	require.Error(t, err)
 	assert.ErrorIs(t, err, ErrKeyNotFound)
 }
 
-func TestUpdateKey_Forbidden(t *testing.T) {
+// TestUpdateKey_WrongOwner asserts that a non-owner's scoped read finds no
+// matching row, same as the SQL predicate excluding it. The access check
+// happens at the scoped read, not via a separate Go-level ownership
+// comparison, so the caller sees not-found rather than forbidden.
+func TestUpdateKey_WrongOwner(t *testing.T) {
 	repo := &mockKeyRepository{}
 	keyID := uuid.New()
-	ownerID := uuid.New()
 	callerID := uuid.New()
-	repo.On("Read", mock.Anything, keyID).Return(
-		&model.Key{ID: keyID, UserID: ownerID, Enabled: true}, nil,
-	)
+	repo.On("Read", mock.Anything, keyID, model.NewOwnerScope(uuid.Nil, callerID)).
+		Return(nil, errors.New("key not found or access denied"))
 
 	svc := &keyService{keyRepo: repo, logger: testLogger()}
-	err := svc.UpdateKey(context.Background(), UpdateKeyRequest{KeyID: keyID, UserID: callerID})
+	err := svc.UpdateKey(context.Background(), UpdateKeyRequest{KeyID: keyID, Scope: model.NewOwnerScope(uuid.Nil, callerID)})
 	require.Error(t, err)
-	assert.ErrorIs(t, err, ErrKeyForbidden)
+	assert.ErrorIs(t, err, ErrKeyNotFound)
 }
 
 func TestUpdateKey_RepoUpdateError(t *testing.T) {
 	repo := &mockKeyRepository{}
 	keyID := uuid.New()
 	ownerID := uuid.New()
-	repo.On("Read", mock.Anything, keyID).Return(
+	scope := model.NewOwnerScope(uuid.Nil, ownerID)
+	repo.On("Read", mock.Anything, keyID, scope).Return(
 		&model.Key{ID: keyID, UserID: ownerID, Enabled: true}, nil,
 	)
-	repo.On("Update", mock.Anything, mock.AnythingOfType("*model.Key")).
+	repo.On("Update", mock.Anything, mock.AnythingOfType("*model.Key"), scope).
 		Return(errors.New("db error"))
 
 	svc := &keyService{keyRepo: repo, logger: testLogger()}
-	err := svc.UpdateKey(context.Background(), UpdateKeyRequest{KeyID: keyID, UserID: ownerID})
+	err := svc.UpdateKey(context.Background(), UpdateKeyRequest{KeyID: keyID, Scope: scope})
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "failed to update key")
 }
@@ -83,15 +87,16 @@ func TestUpdateKey_WithCacheInvalidation(t *testing.T) {
 	repo := &mockKeyRepository{}
 	keyID := uuid.New()
 	ownerID := uuid.New()
-	repo.On("Read", mock.Anything, keyID).Return(
+	scope := model.NewOwnerScope(uuid.Nil, ownerID)
+	repo.On("Read", mock.Anything, keyID, scope).Return(
 		&model.Key{ID: keyID, UserID: ownerID, Enabled: true}, nil,
 	)
-	repo.On("Update", mock.Anything, mock.AnythingOfType("*model.Key")).Return(nil)
+	repo.On("Update", mock.Anything, mock.AnythingOfType("*model.Key"), scope).Return(nil)
 
 	// Use a real NopCache so Invalidate is exercised.
 	cache := &testKeyCache{}
 	svc := &keyService{keyRepo: repo, logger: testLogger(), keyCache: cache}
-	err := svc.UpdateKey(context.Background(), UpdateKeyRequest{KeyID: keyID, UserID: ownerID})
+	err := svc.UpdateKey(context.Background(), UpdateKeyRequest{KeyID: keyID, Scope: scope})
 	require.NoError(t, err)
 	assert.Equal(t, keyID, cache.lastInvalidated)
 }
@@ -102,13 +107,13 @@ func TestDeleteKey_SoftDeleteFails(t *testing.T) {
 	repo := &mockKeyRepository{}
 	keyID := uuid.New()
 	ownerID := uuid.New()
-	repo.On("Read", mock.Anything, keyID).Return(
+	repo.On("Read", mock.Anything, keyID, model.NewOwnerScope(uuid.Nil, ownerID)).Return(
 		&model.Key{ID: keyID, UserID: ownerID, Enabled: true}, nil,
 	)
 	repo.On("SoftDelete", mock.Anything, keyID).Return(errors.New("db error"))
 
 	svc := &keyService{keyRepo: repo, logger: testLogger()}
-	_, err := svc.DeleteKey(context.Background(), keyID, ownerID)
+	_, err := svc.DeleteKey(context.Background(), keyID, model.NewOwnerScope(uuid.Nil, ownerID))
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "failed to delete key")
 }
@@ -117,14 +122,14 @@ func TestDeleteKey_ReadDeletedFails_ReturnsSnapshot(t *testing.T) {
 	repo := &mockKeyRepository{}
 	keyID := uuid.New()
 	ownerID := uuid.New()
-	repo.On("Read", mock.Anything, keyID).Return(
+	repo.On("Read", mock.Anything, keyID, model.NewOwnerScope(uuid.Nil, ownerID)).Return(
 		&model.Key{ID: keyID, UserID: ownerID, Enabled: true}, nil,
 	)
 	repo.On("SoftDelete", mock.Anything, keyID).Return(nil)
 	repo.On("ReadDeleted", mock.Anything, keyID).Return(nil, errors.New("metadata unavailable"))
 
 	svc := &keyService{keyRepo: repo, logger: testLogger()}
-	got, err := svc.DeleteKey(context.Background(), keyID, ownerID)
+	got, err := svc.DeleteKey(context.Background(), keyID, model.NewOwnerScope(uuid.Nil, ownerID))
 	require.NoError(t, err)
 	assert.Equal(t, keyID, got.ID)
 }
@@ -134,7 +139,7 @@ func TestDeleteKey_CacheInvalidated(t *testing.T) {
 	keyID := uuid.New()
 	ownerID := uuid.New()
 	now := time.Now()
-	repo.On("Read", mock.Anything, keyID).Return(
+	repo.On("Read", mock.Anything, keyID, model.NewOwnerScope(uuid.Nil, ownerID)).Return(
 		&model.Key{ID: keyID, UserID: ownerID, Enabled: true}, nil,
 	)
 	repo.On("SoftDelete", mock.Anything, keyID).Return(nil)
@@ -144,7 +149,7 @@ func TestDeleteKey_CacheInvalidated(t *testing.T) {
 
 	cache := &testKeyCache{}
 	svc := &keyService{keyRepo: repo, logger: testLogger(), keyCache: cache}
-	_, err := svc.DeleteKey(context.Background(), keyID, ownerID)
+	_, err := svc.DeleteKey(context.Background(), keyID, model.NewOwnerScope(uuid.Nil, ownerID))
 	require.NoError(t, err)
 	assert.Equal(t, keyID, cache.lastInvalidated)
 }
@@ -154,38 +159,64 @@ func TestDeleteKey_CacheInvalidated(t *testing.T) {
 func TestRotateKey_KeyNotFound(t *testing.T) {
 	repo := &mockKeyRepository{}
 	keyID := uuid.New()
-	repo.On("Read", mock.Anything, keyID).Return(nil, errors.New("not found"))
+	userID := uuid.New()
+	repo.On("Read", mock.Anything, keyID, model.NewOwnerScope(uuid.Nil, userID)).Return(nil, errors.New("not found"))
 
 	svc := &keyService{keyRepo: repo, logger: testLogger()}
-	_, err := svc.RotateKey(context.Background(), keyID, uuid.New())
+	_, err := svc.RotateKey(context.Background(), keyID, model.NewOwnerScope(uuid.Nil, userID))
 	require.Error(t, err)
 }
 
-func TestRotateKey_Forbidden(t *testing.T) {
+// TestRotateKey_ScopedReadIsTheCheck pins that rotation is authorized by the
+// scope alone: a caller who is not the owner never gets a row back from the
+// owner-scoped read, so there is no in-Go ownership comparison left to bypass.
+func TestRotateKey_ScopedReadIsTheCheck(t *testing.T) {
+	repo := &mockKeyRepository{}
+	keyID := uuid.New()
+	callerID := uuid.New()
+	callerScope := model.NewOwnerScope(uuid.Nil, callerID)
+	// The real repository's owner predicate excludes another user's key, so
+	// the read is what fails — the rotation never reaches key generation.
+	repo.On("Read", mock.Anything, keyID, callerScope).Return(nil, errors.New("key not found or access denied"))
+
+	svc := &keyService{keyRepo: repo, logger: testLogger()}
+	_, err := svc.RotateKey(context.Background(), keyID, callerScope)
+	require.Error(t, err)
+	repo.AssertNotCalled(t, "Update", mock.Anything, mock.Anything, mock.Anything)
+}
+
+// TestRotateKey_WrongVaultIsDenied pins the B6 conjunction: an owner scope
+// carrying an advisory vault id must not rotate a key that lives in another
+// vault. Before the scope migration rotate ignored the vault entirely, so a
+// vault-scoped rotate route acted on keys outside that vault.
+func TestRotateKey_WrongVaultIsDenied(t *testing.T) {
 	repo := &mockKeyRepository{}
 	keyID := uuid.New()
 	ownerID := uuid.New()
-	repo.On("Read", mock.Anything, keyID).Return(
-		&model.Key{ID: keyID, UserID: ownerID, Type: model.KeyTypeRSA, Bits: 2048}, nil,
+	requestedVault := uuid.New()
+	scope := model.NewOwnerScope(requestedVault, ownerID)
+	repo.On("Read", mock.Anything, keyID, scope).Return(
+		&model.Key{ID: keyID, UserID: ownerID, VaultID: uuid.New(), Type: model.KeyTypeRSA, Bits: 2048}, nil,
 	)
 
 	svc := &keyService{keyRepo: repo, logger: testLogger()}
-	_, err := svc.RotateKey(context.Background(), keyID, uuid.New())
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "forbidden")
+	_, err := svc.RotateKey(context.Background(), keyID, scope)
+	require.ErrorIs(t, err, ErrKeyNotFound)
+	assert.Contains(t, err.Error(), "does not belong to the requested vault")
+	repo.AssertNotCalled(t, "Update", mock.Anything, mock.Anything, mock.Anything)
 }
 
 func TestRotateKey_UnsupportedKeyType(t *testing.T) {
 	repo := &mockKeyRepository{}
 	keyID := uuid.New()
 	ownerID := uuid.New()
-	repo.On("Read", mock.Anything, keyID).Return(
+	repo.On("Read", mock.Anything, keyID, model.NewOwnerScope(uuid.Nil, ownerID)).Return(
 		&model.Key{ID: keyID, UserID: ownerID, Type: "UNKNOWN"}, nil,
 	)
 
 	provider := &mockKeyProviderForService{}
 	svc := &keyService{keyRepo: repo, logger: testLogger(), keyProvider: provider}
-	_, err := svc.RotateKey(context.Background(), keyID, ownerID)
+	_, err := svc.RotateKey(context.Background(), keyID, model.NewOwnerScope(uuid.Nil, ownerID))
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "unsupported key type")
 }
@@ -194,7 +225,7 @@ func TestRotateKey_GenerationError(t *testing.T) {
 	repo := &mockKeyRepository{}
 	keyID := uuid.New()
 	ownerID := uuid.New()
-	repo.On("Read", mock.Anything, keyID).Return(
+	repo.On("Read", mock.Anything, keyID, model.NewOwnerScope(uuid.Nil, ownerID)).Return(
 		&model.Key{ID: keyID, UserID: ownerID, Type: model.KeyTypeRSA, Bits: 2048}, nil,
 	)
 
@@ -202,7 +233,7 @@ func TestRotateKey_GenerationError(t *testing.T) {
 	provider.On("GenerateRSAKey", 2048).Return("", errors.New("HSM offline"))
 
 	svc := &keyService{keyRepo: repo, logger: testLogger(), keyProvider: provider}
-	_, err := svc.RotateKey(context.Background(), keyID, ownerID)
+	_, err := svc.RotateKey(context.Background(), keyID, model.NewOwnerScope(uuid.Nil, ownerID))
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "key generation failed")
 }
@@ -213,14 +244,14 @@ func TestRotateKey_ListVersionsError(t *testing.T) {
 	repo := &mockKeyRepository{}
 	keyID := uuid.New()
 	ownerID := uuid.New()
-	repo.On("Read", mock.Anything, keyID).Return(
+	repo.On("Read", mock.Anything, keyID, model.NewOwnerScope(uuid.Nil, ownerID)).Return(
 		&model.Key{ID: keyID, UserID: ownerID, Type: model.KeyTypeRSA, Bits: 2048}, nil,
 	)
 	repo.On("ListVersions", mock.Anything, keyID, ownerID).Return(nil, errors.New("db error"))
 
 	softwareProvider := crypto.NewSoftwareKeyProvider()
 	svc := &keyService{keyRepo: repo, logger: testLogger(), keyProvider: softwareProvider}
-	_, err := svc.RotateKey(context.Background(), keyID, ownerID)
+	_, err := svc.RotateKey(context.Background(), keyID, model.NewOwnerScope(uuid.Nil, ownerID))
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "list versions")
 }
@@ -234,7 +265,7 @@ func TestRotateKey_SuccessWithVersionArchive(t *testing.T) {
 
 	existingEncrypted, _ := common.EncryptSecret("-----BEGIN RSA PRIVATE KEY-----\noriginal\n-----END RSA PRIVATE KEY-----")
 
-	repo.On("Read", mock.Anything, keyID).Return(
+	repo.On("Read", mock.Anything, keyID, model.NewOwnerScope(uuid.Nil, ownerID)).Return(
 		&model.Key{ID: keyID, UserID: ownerID, Type: model.KeyTypeRSA, Bits: 2048,
 			Value: existingEncrypted, Name: "rsa-key"},
 		nil,
@@ -243,11 +274,11 @@ func TestRotateKey_SuccessWithVersionArchive(t *testing.T) {
 	repo.On("ListVersions", mock.Anything, keyID, ownerID).Return([]model.KeyVersion{}, nil)
 	repo.On("CreateVersion", mock.Anything, keyID, 1, existingEncrypted).Return(nil)
 	repo.On("CreateVersion", mock.Anything, keyID, 2, mock.AnythingOfType("string")).Return(nil)
-	repo.On("Update", mock.Anything, mock.AnythingOfType("*model.Key")).Return(nil)
+	repo.On("Update", mock.Anything, mock.AnythingOfType("*model.Key"), model.NewOwnerScope(uuid.Nil, ownerID)).Return(nil)
 
 	softwareProvider := crypto.NewSoftwareKeyProvider()
 	svc := &keyService{keyRepo: repo, logger: testLogger(), keyProvider: softwareProvider}
-	result, err := svc.RotateKey(context.Background(), keyID, ownerID)
+	result, err := svc.RotateKey(context.Background(), keyID, model.NewOwnerScope(uuid.Nil, ownerID))
 	require.NoError(t, err)
 	assert.Equal(t, keyID, result.KeyID)
 	repo.AssertExpectations(t)
@@ -262,18 +293,18 @@ func TestRotateKey_ECDSAKey(t *testing.T) {
 
 	existingEncrypted, _ := common.EncryptSecret("ec-key-material")
 
-	repo.On("Read", mock.Anything, keyID).Return(
+	repo.On("Read", mock.Anything, keyID, model.NewOwnerScope(uuid.Nil, ownerID)).Return(
 		&model.Key{ID: keyID, UserID: ownerID, Type: model.KeyTypeECDSA, Curve: "P-256",
 			Value: existingEncrypted, Name: "ec-key"},
 		nil,
 	)
 	repo.On("ListVersions", mock.Anything, keyID, ownerID).Return([]model.KeyVersion{}, nil)
 	repo.On("CreateVersion", mock.Anything, keyID, mock.AnythingOfType("int"), mock.AnythingOfType("string")).Return(nil)
-	repo.On("Update", mock.Anything, mock.AnythingOfType("*model.Key")).Return(nil)
+	repo.On("Update", mock.Anything, mock.AnythingOfType("*model.Key"), model.NewOwnerScope(uuid.Nil, ownerID)).Return(nil)
 
 	softwareProvider := crypto.NewSoftwareKeyProvider()
 	svc := &keyService{keyRepo: repo, logger: testLogger(), keyProvider: softwareProvider}
-	result, err := svc.RotateKey(context.Background(), keyID, ownerID)
+	result, err := svc.RotateKey(context.Background(), keyID, model.NewOwnerScope(uuid.Nil, ownerID))
 	require.NoError(t, err)
 	assert.Equal(t, keyID, result.KeyID)
 }
@@ -287,18 +318,18 @@ func TestRotateKey_ES256KKey(t *testing.T) {
 
 	existingEncrypted, _ := common.EncryptSecret("es256k-key-material")
 
-	repo.On("Read", mock.Anything, keyID).Return(
+	repo.On("Read", mock.Anything, keyID, model.NewOwnerScope(uuid.Nil, ownerID)).Return(
 		&model.Key{ID: keyID, UserID: ownerID, Type: model.KeyTypeES256K,
 			Value: existingEncrypted, Name: "es256k-key"},
 		nil,
 	)
 	repo.On("ListVersions", mock.Anything, keyID, ownerID).Return([]model.KeyVersion{}, nil)
 	repo.On("CreateVersion", mock.Anything, keyID, mock.AnythingOfType("int"), mock.AnythingOfType("string")).Return(nil)
-	repo.On("Update", mock.Anything, mock.AnythingOfType("*model.Key")).Return(nil)
+	repo.On("Update", mock.Anything, mock.AnythingOfType("*model.Key"), model.NewOwnerScope(uuid.Nil, ownerID)).Return(nil)
 
 	softwareProvider := crypto.NewSoftwareKeyProvider()
 	svc := &keyService{keyRepo: repo, logger: testLogger(), keyProvider: softwareProvider}
-	result, err := svc.RotateKey(context.Background(), keyID, ownerID)
+	result, err := svc.RotateKey(context.Background(), keyID, model.NewOwnerScope(uuid.Nil, ownerID))
 	require.NoError(t, err)
 	assert.Equal(t, keyID, result.KeyID)
 }
@@ -312,7 +343,7 @@ func TestCryptoService_Sign_ResolveKeyMaterialError(t *testing.T) {
 	keyID := uuid.New()
 	userID := uuid.New()
 	// Value is not a valid encrypted string or PKCS11 handle.
-	repo.On("Read", mock.Anything, keyID).Return(&model.Key{
+	repo.On("Read", mock.Anything, keyID, model.NewOwnerScope(uuid.Nil, userID)).Return(&model.Key{
 		ID: keyID, UserID: userID, Type: model.KeyTypeRSA, Value: "bad-value", Enabled: true,
 	}, nil)
 
@@ -332,7 +363,7 @@ func TestCryptoService_Verify_ResolveKeyMaterialError(t *testing.T) {
 	repo := &mockKeyRepoForExtendedCrypto{}
 	keyID := uuid.New()
 	userID := uuid.New()
-	repo.On("Read", mock.Anything, keyID).Return(&model.Key{
+	repo.On("Read", mock.Anything, keyID, model.NewOwnerScope(uuid.Nil, userID)).Return(&model.Key{
 		ID: keyID, UserID: userID, Type: model.KeyTypeRSA, Value: "bad-value", Enabled: true,
 	}, nil)
 
@@ -352,7 +383,7 @@ func TestCryptoService_Encrypt_ResolveKeyMaterialError(t *testing.T) {
 	repo := &mockKeyRepoForExtendedCrypto{}
 	keyID := uuid.New()
 	userID := uuid.New()
-	repo.On("Read", mock.Anything, keyID).Return(&model.Key{
+	repo.On("Read", mock.Anything, keyID, model.NewOwnerScope(uuid.Nil, userID)).Return(&model.Key{
 		ID: keyID, UserID: userID, Type: model.KeyTypeRSA, Value: "bad-value", Enabled: true,
 	}, nil)
 
@@ -372,7 +403,7 @@ func TestCryptoService_Decrypt_ResolveKeyMaterialError(t *testing.T) {
 	repo := &mockKeyRepoForExtendedCrypto{}
 	keyID := uuid.New()
 	userID := uuid.New()
-	repo.On("Read", mock.Anything, keyID).Return(&model.Key{
+	repo.On("Read", mock.Anything, keyID, model.NewOwnerScope(uuid.Nil, userID)).Return(&model.Key{
 		ID: keyID, UserID: userID, Type: model.KeyTypeRSA, Value: "bad-value", Enabled: true,
 	}, nil)
 
@@ -409,11 +440,12 @@ func TestCryptoService_UnwrapKey_InvalidAlgorithm(t *testing.T) {
 func TestCryptoService_WrapKey_KeyNotFound(t *testing.T) {
 	repo := &mockKeyRepoForExtendedCrypto{}
 	keyID := uuid.New()
-	repo.On("Read", mock.Anything, keyID).Return(nil, errors.New("not found"))
+	userID := uuid.New()
+	repo.On("Read", mock.Anything, keyID, model.NewOwnerScope(uuid.Nil, userID)).Return(nil, errors.New("not found"))
 
 	svc := NewCryptoService(CryptoServiceConfig{KeyRepository: repo, Logger: testLogger()})
 	_, err := svc.WrapKey(context.Background(), WrapKeyRequest{
-		KeyID: keyID, UserID: uuid.New(), Algorithm: "RSA-OAEP",
+		KeyID: keyID, UserID: userID, Algorithm: "RSA-OAEP",
 	})
 	require.Error(t, err)
 }
@@ -421,11 +453,12 @@ func TestCryptoService_WrapKey_KeyNotFound(t *testing.T) {
 func TestCryptoService_UnwrapKey_KeyNotFound(t *testing.T) {
 	repo := &mockKeyRepoForExtendedCrypto{}
 	keyID := uuid.New()
-	repo.On("Read", mock.Anything, keyID).Return(nil, errors.New("not found"))
+	userID := uuid.New()
+	repo.On("Read", mock.Anything, keyID, model.NewOwnerScope(uuid.Nil, userID)).Return(nil, errors.New("not found"))
 
 	svc := NewCryptoService(CryptoServiceConfig{KeyRepository: repo, Logger: testLogger()})
 	_, err := svc.UnwrapKey(context.Background(), UnwrapKeyRequest{
-		KeyID: keyID, UserID: uuid.New(), Algorithm: "RSA-OAEP",
+		KeyID: keyID, UserID: userID, Algorithm: "RSA-OAEP",
 	})
 	require.Error(t, err)
 }
@@ -436,7 +469,7 @@ func TestCryptoService_WrapKey_OperationFails(t *testing.T) {
 	repo := &mockKeyRepoForExtendedCrypto{}
 	keyID := uuid.New()
 	userID := uuid.New()
-	repo.On("Read", mock.Anything, keyID).Return(&model.Key{
+	repo.On("Read", mock.Anything, keyID, model.NewOwnerScope(uuid.Nil, userID)).Return(&model.Key{
 		ID: keyID, UserID: userID, Type: model.KeyTypeRSA, Value: "bad-value", Enabled: true,
 	}, nil)
 
@@ -453,7 +486,7 @@ func TestCryptoService_UnwrapKey_OperationFails(t *testing.T) {
 	repo := &mockKeyRepoForExtendedCrypto{}
 	keyID := uuid.New()
 	userID := uuid.New()
-	repo.On("Read", mock.Anything, keyID).Return(&model.Key{
+	repo.On("Read", mock.Anything, keyID, model.NewOwnerScope(uuid.Nil, userID)).Return(&model.Key{
 		ID: keyID, UserID: userID, Type: model.KeyTypeRSA, Value: "bad-value", Enabled: true,
 	}, nil)
 

@@ -11,6 +11,7 @@ import (
 
 	"rocketvault/cmd/testutils"
 	secretServices "rocketvault/internal/services/secrets"
+	"rocketvault/model"
 )
 
 func TestUpdateCommand_CallsServiceUpdate(t *testing.T) {
@@ -18,9 +19,12 @@ func TestUpdateCommand_CallsServiceUpdate(t *testing.T) {
 	secretID := uuid.New()
 	newValue := "new-secret-value"
 
+	// The request must carry an owner scope built from the real authenticated
+	// user. A vault scope would let a CLI caller overwrite any co-member's
+	// secret, and a uuid.Nil actor would attribute the audit row to nobody.
 	tc.MockSecretService.On("UpdateSecret", mock.Anything, mock.MatchedBy(func(r secretServices.UpdateSecretRequest) bool {
 		return r.SecretID == secretID &&
-			r.UserID == tc.TestUserID &&
+			r.Scope == model.NewOwnerScope(tc.TestVaultID, tc.TestUserID) &&
 			r.Value != nil && *r.Value == newValue
 	})).Return(nil)
 	tc.MockContainer.On("GetSecretService").Return(tc.MockSecretService)

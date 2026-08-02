@@ -44,55 +44,34 @@ func (s *recordingKeyService) CreateRSAKey(context.Context, keyServices.CreateKe
 func (s *recordingKeyService) CreateECDSAKey(context.Context, keyServices.CreateKeyRequest) (*keyServices.CreateKeyResult, error) {
 	panic("unexpected")
 }
-func (s *recordingKeyService) GetKey(_ context.Context, _, userID uuid.UUID) (*model.Key, error) {
-	s.getCalled = true
-	s.getUserScoped = true
-	s.listUserID = userID
-	return &model.Key{ID: uuid.New(), Name: "k", Type: model.KeyTypeRSA, UserID: userID}, nil
-}
-func (s *recordingKeyService) ListKeys(_ context.Context, userID uuid.UUID) ([]model.Key, error) {
-	s.listCalled = true
-	s.listUserScoped = true
-	s.listUserID = userID
-	return []model.Key{}, nil
-}
-func (s *recordingKeyService) ListKeysWithFilters(context.Context, *uuid.UUID, string, []string, bool) ([]model.Key, error) {
-	panic("unexpected")
-}
-func (s *recordingKeyService) UpdateKey(_ context.Context, req keyServices.UpdateKeyRequest) error {
-	s.updateCalled = true
-	s.updateVaultScoped = false
-	s.updateUserID = req.UserID
-	return nil
-}
-func (s *recordingKeyService) UpdateKeyInVault(_ context.Context, req keyServices.UpdateKeyRequest) error {
-	s.updateCalled = true
-	s.updateVaultScoped = true
-	s.updateVaultID = req.VaultID
-	return nil
-}
-func (s *recordingKeyService) DeleteKey(context.Context, uuid.UUID, uuid.UUID) (*model.Key, error) {
-	panic("unexpected")
-}
-func (s *recordingKeyService) GetKeyInVault(_ context.Context, _, vaultID uuid.UUID) (*model.Key, error) {
-	s.getCalled = true
-	s.getUserScoped = false
-	s.listVaultID = vaultID
-	return &model.Key{ID: uuid.New(), Name: "k", Type: model.KeyTypeRSA}, nil
-}
-func (s *recordingKeyService) ListKeysInVault(_ context.Context, vaultID uuid.UUID, _ string, _ []string) ([]model.Key, error) {
-	s.listCalled = true
-	s.listUserScoped = false
-	s.listVaultID = vaultID
-	return []model.Key{}, nil
-}
-func (s *recordingKeyService) DeleteKeyInVault(_ context.Context, _, _, _ uuid.UUID) (*model.Key, error) {
-	panic("unexpected")
-}
-func (s *recordingKeyService) RotateKey(context.Context, uuid.UUID, uuid.UUID) (*keyServices.CreateKeyResult, error) {
+func (s *recordingKeyService) RotateKey(context.Context, uuid.UUID, model.Scope) (*keyServices.CreateKeyResult, error) {
 	panic("unexpected")
 }
 func (s *recordingKeyService) ValidateKeyAccess(context.Context, uuid.UUID, uuid.UUID, string) error {
+	panic("unexpected")
+}
+func (s *recordingKeyService) GetKey(_ context.Context, _ uuid.UUID, scope model.Scope) (*model.Key, error) {
+	s.getCalled = true
+	s.getUserScoped = scope.Kind() == model.ScopeOwner
+	s.listUserID = scope.ActorID()
+	s.listVaultID = scope.VaultID()
+	return &model.Key{ID: uuid.New(), Name: "k", Type: model.KeyTypeRSA, UserID: scope.ActorID()}, nil
+}
+func (s *recordingKeyService) ListKeys(_ context.Context, scope model.Scope, _ repositories.KeyFilter) ([]model.Key, error) {
+	s.listCalled = true
+	s.listUserScoped = scope.Kind() == model.ScopeOwner
+	s.listUserID = scope.ActorID()
+	s.listVaultID = scope.VaultID()
+	return []model.Key{}, nil
+}
+func (s *recordingKeyService) UpdateKey(_ context.Context, req keyServices.UpdateKeyRequest) error {
+	s.updateCalled = true
+	s.updateVaultScoped = req.Scope.Kind() == model.ScopeVault
+	s.updateVaultID = req.Scope.VaultID()
+	s.updateUserID = req.Scope.ActorID()
+	return nil
+}
+func (s *recordingKeyService) DeleteKey(context.Context, uuid.UUID, model.Scope) (*model.Key, error) {
 	panic("unexpected")
 }
 
@@ -118,40 +97,27 @@ func (s *recordingCertService) CreateSelfSignedCertificate(context.Context, cert
 func (s *recordingCertService) CreateCASignedCertificate(context.Context, certServices.CreateCertificateRequest) (*certServices.CreateCertificateResult, error) {
 	panic("unexpected")
 }
-func (s *recordingCertService) GetCertificate(_ context.Context, _, userID uuid.UUID) (*model.Certificate, error) {
-	s.getCalled = true
-	s.getUserScoped = true
-	s.listUserID = userID
-	return &model.Certificate{ID: uuid.New(), Name: "c", UserID: userID}, nil
-}
-func (s *recordingCertService) ListCertificates(_ context.Context, userID uuid.UUID) ([]model.Certificate, error) {
-	s.listCalled = true
-	s.listUserScoped = true
-	s.listUserID = userID
-	return []model.Certificate{}, nil
-}
 func (s *recordingCertService) UpdateCertificate(context.Context, certServices.UpdateCertificateRequest) error {
 	panic("unexpected")
 }
-func (s *recordingCertService) DeleteCertificate(context.Context, uuid.UUID, uuid.UUID) error {
-	panic("unexpected")
-}
-func (s *recordingCertService) GetCertificateInVault(_ context.Context, _, vaultID uuid.UUID) (*model.Certificate, error) {
+func (s *recordingCertService) GetCertificate(_ context.Context, _ uuid.UUID, scope model.Scope) (*model.Certificate, error) {
 	s.getCalled = true
-	s.getUserScoped = false
-	s.listVaultID = vaultID
+	s.getUserScoped = scope.Kind() == model.ScopeOwner
+	s.listUserID = scope.ActorID()
+	s.listVaultID = scope.VaultID()
 	if s.getInVaultErr != nil {
 		return nil, s.getInVaultErr
 	}
-	return &model.Certificate{ID: uuid.New(), Name: "c"}, nil
+	return &model.Certificate{ID: uuid.New(), Name: "c", UserID: scope.ActorID()}, nil
 }
-func (s *recordingCertService) ListCertificatesInVault(_ context.Context, vaultID uuid.UUID) ([]model.Certificate, error) {
+func (s *recordingCertService) ListCertificates(_ context.Context, scope model.Scope, _ repositories.CertificateFilter) ([]model.Certificate, error) {
 	s.listCalled = true
-	s.listUserScoped = false
-	s.listVaultID = vaultID
+	s.listUserScoped = scope.Kind() == model.ScopeOwner
+	s.listUserID = scope.ActorID()
+	s.listVaultID = scope.VaultID()
 	return []model.Certificate{}, nil
 }
-func (s *recordingCertService) DeleteCertificateInVault(context.Context, uuid.UUID, uuid.UUID) error {
+func (s *recordingCertService) DeleteCertificate(context.Context, uuid.UUID, model.Scope) error {
 	panic("unexpected")
 }
 func (s *recordingCertService) RenewCertificate(context.Context, uuid.UUID, uuid.UUID, int) (*certServices.CreateCertificateResult, error) {

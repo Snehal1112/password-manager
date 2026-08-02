@@ -1222,13 +1222,18 @@ func (r *SecretRepository) ReadScoped(ctx context.Context, id uuid.UUID, scope m
 // UpdateScoped updates a secret, authorized by scope. The predicate is built
 // from the scope argument, never from the entity, so a caller cannot widen its
 // own authorization by mutating secret.VaultID or secret.UserID.
+//
+// This method does not emit audit rows: audit attribution belongs to the
+// caller (service layer), which knows the acting principal from the request,
+// not just the scope it was handed. UpdateSecretScoped already logs its own
+// audit row after calling this, for every error path and on success — logging
+// here too would duplicate every scoped update into two audit_logs rows.
 func (r *SecretRepository) UpdateScoped(ctx context.Context, secret *model.Secret, scope model.Scope) error {
 	predicate, args, err := scopePredicate(scope)
 	if err != nil {
 		return err
 	}
 
-	actor := scope.ActorID().String()
 	logrus.WithFields(logrus.Fields{
 		"secret_id": secret.ID.String(),
 		"scope":     scope.String(),
@@ -1243,21 +1248,22 @@ func (r *SecretRepository) UpdateScoped(ctx context.Context, secret *model.Secre
 
 	result, err := r.db.ExecContext(ctx, query, execArgs...)
 	if err != nil {
-		r.log.LogAuditError(actor, "update_secret", "failed", "Failed to update secret", err)
 		return fmt.Errorf("failed to update secret: %w", err)
 	}
 
 	rowsAffected, err := result.RowsAffected()
 	if err != nil {
-		r.log.LogAuditError(actor, "update_secret", "failed", "Failed to get rows affected", err)
 		return fmt.Errorf("failed to get rows affected: %w", err)
 	}
 	if rowsAffected == 0 {
-		r.log.LogAuditError(actor, "update_secret", "failed", "Secret not found for update", nil)
 		return fmt.Errorf("secret not found")
 	}
 
-	r.log.LogAuditInfo(actor, "update_secret", "success", fmt.Sprintf("Secret updated: %s", secret.Name))
+	logrus.WithFields(logrus.Fields{
+		"secret_id": secret.ID.String(),
+		"scope":     scope.String(),
+		"version":   secret.Version,
+	}).Debug("Secret updated successfully")
 	return nil
 }
 
@@ -1286,7 +1292,6 @@ func (r *SecretRepository) ListScoped(ctx context.Context, scope model.Scope, fi
 	err = r.executeWithMetrics("list_secrets_scoped", func() error {
 		rows, queryErr := r.db.QueryContext(ctx, query, args...)
 		if queryErr != nil {
-			r.log.LogAuditError(scope.ActorID().String(), "list_secrets", "failed", "Failed to query secrets", queryErr)
 			return fmt.Errorf("failed to query secrets: %w", queryErr)
 		}
 		defer rows.Close()
@@ -1295,7 +1300,6 @@ func (r *SecretRepository) ListScoped(ctx context.Context, scope model.Scope, fi
 		for rows.Next() {
 			secret, scanErr := scanSecretRow(rows.Scan)
 			if scanErr != nil {
-				r.log.LogAuditError(scope.ActorID().String(), "list_secrets", "failed", "Failed to scan secret", scanErr)
 				return fmt.Errorf("failed to scan secret: %w", scanErr)
 			}
 			secretList = append(secretList, secret)
@@ -1362,7 +1366,7 @@ func (r *SecretRepository) ListInVaultIncludeDeleted(ctx context.Context, vaultI
 
 Run: `go build ./... && go test ./...`
 
-Expected: PASS. The three new tests pass and the entire pre-existing suite stays green — that is the equivalence proof for this phase. Two behavioural notes to check if something fails: `Read` via the admin shim keeps the message `"secret not found"` while the owner/vault shims keep `"secret not found or access denied"`; and `UpdateScoped` now attributes audit rows to `scope.ActorID()` instead of writing a vault UUID into `audit_logs.user_id` (spec §4.2), so an audit assertion may need its expectation updated.
+Expected: PASS. The three new tests pass and the entire pre-existing suite stays green — that is the equivalence proof for this phase. Two behavioural notes to check if something fails: `Read` via the admin shim keeps the message `"secret not found"` while the owner/vault shims keep `"secret not found or access denied"`; and `UpdateScoped`/`ListScoped` no longer call `r.log.LogAuditError`/`LogAuditInfo` at all — any pre-existing test that asserted on a repository-level audit call for `Update` or `UpdateInVault` (e.g. via a fake `AuditPersister`) must be updated to assert **no** audit call from the repository, since attribution now lives solely in the service layer that calls it (matching the pattern already established for `KeyRepository.Update` — see `internal/repositories/secret_repository.go`'s current `UpdateInVault`, which has no audit calls for the same reason).
 
 - [ ] **Step 5: Commit**
 
@@ -1610,14 +1614,12 @@ func (r *KeyRepository) ReadScoped(ctx context.Context, id uuid.UUID, scope mode
 		return nil, fmt.Errorf("key not found or access denied")
 	}
 	if err != nil {
-		r.log.LogAuditError(scope.ActorID().String(), "read_key", "failed", "Failed to query key", err)
 		return nil, fmt.Errorf("failed to query key: %w", err)
 	}
 
 	tagRepo := db.NewTagRepository[model.Key](r.db, "key_tags", "key_id")
 	key.Tags, err = tagRepo.GetTags(ctx, id)
 	if err != nil {
-		r.log.LogAuditError(scope.ActorID().String(), "read_key", "failed", "Failed to read tags", err)
 		return nil, fmt.Errorf("failed to read tags: %w", err)
 	}
 	return &key, nil
@@ -1625,6 +1627,12 @@ func (r *KeyRepository) ReadScoped(ctx context.Context, id uuid.UUID, scope mode
 
 // UpdateScoped updates a key, authorized by scope. The predicate is built from
 // the scope argument, never from the entity.
+//
+// This method does not emit audit rows: audit attribution belongs to the
+// caller (service layer), which knows the acting principal from the request.
+// UpdateKeyScoped already logs its own audit row after calling this, for
+// every error path and on success — logging here too would duplicate every
+// scoped update into two audit_logs rows.
 func (r *KeyRepository) UpdateScoped(ctx context.Context, key *model.Key, scope model.Scope) error {
 	predicate, args, err := scopePredicate(scope)
 	if err != nil {
@@ -1632,7 +1640,6 @@ func (r *KeyRepository) UpdateScoped(ctx context.Context, key *model.Key, scope 
 	}
 
 	return r.executeWithMetrics("update_key_scoped", func() error {
-		actor := scope.ActorID().String()
 		now := time.Now().UTC()
 		key.UpdatedAt = &now
 
@@ -1644,21 +1651,21 @@ func (r *KeyRepository) UpdateScoped(ctx context.Context, key *model.Key, scope 
 
 		result, execErr := r.db.ExecContext(ctx, query, execArgs...)
 		if execErr != nil {
-			r.log.LogAuditError(actor, "update_key", "failed", "Failed to update key", execErr)
 			return fmt.Errorf("failed to update key: %w", execErr)
 		}
 
 		rowsAffected, rowsErr := result.RowsAffected()
 		if rowsErr != nil {
-			r.log.LogAuditError(actor, "update_key", "failed", "Failed to get rows affected", rowsErr)
 			return fmt.Errorf("failed to get rows affected: %w", rowsErr)
 		}
 		if rowsAffected == 0 {
-			r.log.LogAuditError(actor, "update_key", "failed", "Key not found for update", nil)
 			return fmt.Errorf("key not found")
 		}
 
-		r.log.LogAuditInfo(actor, "update_key", "success", fmt.Sprintf("Key updated: %s", key.Name))
+		logrus.WithFields(logrus.Fields{
+			"key_id": key.ID.String(),
+			"scope":  scope.String(),
+		}).Debug("Key updated successfully")
 		return nil
 	})
 }
@@ -1699,7 +1706,6 @@ func (r *KeyRepository) ListScoped(ctx context.Context, scope model.Scope, filte
 	err = r.executeWithMetrics("list_keys_scoped", func() error {
 		rows, queryErr := r.db.QueryContext(ctx, query, args...)
 		if queryErr != nil {
-			r.log.LogAuditError(scope.ActorID().String(), "list_keys", "failed", "Failed to query keys", queryErr)
 			return fmt.Errorf("failed to query keys: %w", queryErr)
 		}
 		defer rows.Close()
@@ -1709,7 +1715,6 @@ func (r *KeyRepository) ListScoped(ctx context.Context, scope model.Scope, filte
 		for rows.Next() {
 			key, scanErr := scanKeyRow(rows.Scan)
 			if scanErr != nil {
-				r.log.LogAuditError(scope.ActorID().String(), "list_keys", "failed", "Failed to scan key", scanErr)
 				return fmt.Errorf("failed to scan key: %w", scanErr)
 			}
 			key.Tags, scanErr = tagRepo.GetTags(ctx, key.ID)
@@ -1766,7 +1771,7 @@ func (r *KeyRepository) ListInVault(ctx context.Context, vaultID uuid.UUID, keyT
 
 Run: `go build ./... && go test ./...`
 
-Expected: PASS, including the three new tests and the whole existing suite. Note `ReadScoped` now selects `vault_id` and populates `key.VaultID` on the plain `Read` path too, which previously already parsed it (`key_repository.go:203-206`) — behaviour is unchanged there.
+Expected: PASS, including the three new tests and the whole existing suite. Note `ReadScoped` now selects `vault_id` and populates `key.VaultID` on the plain `Read` path too, which previously already parsed it (`key_repository.go:203-206`) — behaviour is unchanged there. Also: `ReadScoped`/`UpdateScoped`/`ListScoped` call no `r.log.LogAuditError`/`LogAuditInfo` at all, matching the existing `KeyRepository.Update` convention (P0 already removed its own audit calls for the identical reason — the repository cannot know the acting principal, only the row's owner). Any pre-existing test asserting a repository-level audit call for these methods must be updated to assert none; attribution lives solely in the service-layer callers added in Task 19.
 
 - [ ] **Step 5: Commit**
 
@@ -2025,14 +2030,12 @@ func (r *CertificateRepository) ReadScoped(ctx context.Context, id uuid.UUID, sc
 		return nil, fmt.Errorf("certificate not found or access denied")
 	}
 	if err != nil {
-		r.log.LogAuditError(scope.ActorID().String(), "read_certificate", "failed", "Failed to query certificate", err)
 		return nil, fmt.Errorf("failed to query certificate: %w", err)
 	}
 
 	tagRepo := db.NewTagRepository[model.Certificate](r.db, "certificate_tags", "certificate_id")
 	cert.Tags, err = tagRepo.GetTags(ctx, cert.ID)
 	if err != nil {
-		r.log.LogAuditError(scope.ActorID().String(), "read_certificate", "failed", "Failed to read tags", err)
 		return nil, fmt.Errorf("failed to read tags: %w", err)
 	}
 	return &cert, nil
@@ -2040,6 +2043,12 @@ func (r *CertificateRepository) ReadScoped(ctx context.Context, id uuid.UUID, sc
 
 // UpdateScoped updates a certificate, authorized by scope. The predicate is
 // built from the scope argument, never from the entity.
+//
+// This method does not emit audit rows: audit attribution belongs to the
+// caller (service layer), which knows the acting principal from the request.
+// UpdateCertificateScoped already logs its own audit row after calling this,
+// for every error path and on success — logging here too would duplicate
+// every scoped update into two audit_logs rows.
 func (r *CertificateRepository) UpdateScoped(ctx context.Context, cert *model.Certificate, scope model.Scope) error {
 	predicate, args, err := scopePredicate(scope)
 	if err != nil {
@@ -2047,11 +2056,8 @@ func (r *CertificateRepository) UpdateScoped(ctx context.Context, cert *model.Ce
 	}
 
 	return r.executeWithMetrics("update_certificate_scoped", func() error {
-		actor := scope.ActorID().String()
-
 		tx, txErr := r.db.BeginTx(ctx, nil)
 		if txErr != nil {
-			r.log.LogAuditError(actor, "update_certificate", "failed", "Failed to begin transaction", txErr)
 			return fmt.Errorf("failed to begin transaction: %w", txErr)
 		}
 		defer tx.Rollback()
@@ -2064,38 +2070,35 @@ func (r *CertificateRepository) UpdateScoped(ctx context.Context, cert *model.Ce
 
 		result, execErr := tx.ExecContext(ctx, query, execArgs...)
 		if execErr != nil {
-			r.log.LogAuditError(actor, "update_certificate", "failed", "Failed to update certificate", execErr)
 			return fmt.Errorf("failed to update certificate: %w", execErr)
 		}
 
 		rowsAffected, rowsErr := result.RowsAffected()
 		if rowsErr != nil {
-			r.log.LogAuditError(actor, "update_certificate", "failed", "Failed to get rows affected", rowsErr)
 			return fmt.Errorf("failed to get rows affected: %w", rowsErr)
 		}
 		if rowsAffected == 0 {
-			r.log.LogAuditError(actor, "update_certificate", "failed", "Certificate not found for update", nil)
 			return fmt.Errorf("certificate not found")
 		}
 
 		if len(cert.Tags) > 0 {
 			if _, delErr := tx.ExecContext(ctx, "DELETE FROM certificate_tags WHERE certificate_id = ?", cert.ID.String()); delErr != nil {
-				r.log.LogAuditError(actor, "update_certificate", "failed", "Failed to delete existing tags", delErr)
 				return fmt.Errorf("failed to delete existing tags: %w", delErr)
 			}
 			tagRepo := db.NewTagRepository[model.Certificate](r.db, "certificate_tags", "certificate_id")
 			if tagErr := tagRepo.AddTags(ctx, cert.ID, cert.Tags); tagErr != nil {
-				r.log.LogAuditError(actor, "update_certificate", "failed", "Failed to add tags", tagErr)
 				return fmt.Errorf("failed to add tags: %w", tagErr)
 			}
 		}
 
 		if commitErr := tx.Commit(); commitErr != nil {
-			r.log.LogAuditError(actor, "update_certificate", "failed", "Failed to commit transaction", commitErr)
 			return fmt.Errorf("failed to commit transaction: %w", commitErr)
 		}
 
-		r.log.LogAuditInfo(actor, "update_certificate", "success", fmt.Sprintf("Certificate updated: %s", cert.Name))
+		logrus.WithFields(logrus.Fields{
+			"certificate_id": cert.ID.String(),
+			"scope":          scope.String(),
+		}).Debug("Certificate updated successfully")
 		return nil
 	})
 }
@@ -2132,7 +2135,6 @@ func (r *CertificateRepository) ListScoped(ctx context.Context, scope model.Scop
 	err = r.executeWithMetrics("list_certificates_scoped", func() error {
 		rows, queryErr := r.db.QueryContext(ctx, query, args...)
 		if queryErr != nil {
-			r.log.LogAuditError(scope.ActorID().String(), "list_certificates", "failed", "Failed to query certificates", queryErr)
 			return fmt.Errorf("failed to query certificates: %w", queryErr)
 		}
 		defer rows.Close()
@@ -2142,7 +2144,6 @@ func (r *CertificateRepository) ListScoped(ctx context.Context, scope model.Scop
 		for rows.Next() {
 			cert, scanErr := scanCertificateRow(rows.Scan)
 			if scanErr != nil {
-				r.log.LogAuditError(scope.ActorID().String(), "list_certificates", "failed", "Failed to scan certificate", scanErr)
 				return fmt.Errorf("failed to scan certificate: %w", scanErr)
 			}
 			cert.Tags, scanErr = tagRepo.GetTags(ctx, cert.ID)
@@ -2195,7 +2196,7 @@ func (r *CertificateRepository) ListInVault(ctx context.Context, vaultID uuid.UU
 
 Run: `go build ./... && go test ./...`
 
-Expected: PASS, including the three new tests and the whole existing suite.
+Expected: PASS, including the three new tests and the whole existing suite. `ReadScoped`/`UpdateScoped`/`ListScoped` call no `r.log.LogAuditError`/`LogAuditInfo` at all, matching the same convention established for `SecretRepository` (Task 6) and `KeyRepository` (Task 7) — attribution lives solely in the service-layer callers added in Task 21.
 
 - [ ] **Step 5: Commit**
 

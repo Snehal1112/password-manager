@@ -88,7 +88,7 @@ var updateCmd = &cobra.Command{
 
 		req := certServices.UpdateCertificateRequest{
 			CertID:      certID,
-			UserID:      claims.UserID,
+			Scope:       model.NewOwnerScope(uuid.Nil, claims.UserID),
 			Name:        namePtr,
 			Tags:        tags,
 			AutoRenew:   autoRenewPtr,

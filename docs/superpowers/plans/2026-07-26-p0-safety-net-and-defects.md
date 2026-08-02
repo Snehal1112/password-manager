@@ -42,6 +42,7 @@
 | `internal/services/secrets/rotation_service.go` | (Modify) `GetSecretPolicies` and `AcknowledgeReminder` gain ownership checks (skippable via `uuid.Nil` for system callers, matching `DeleteKeyInVault`'s existing convention). |
 | `internal/services/secrets/rotation_service_test.go` | (Create) Regression tests for both methods. |
 | `internal/services/secrets/scheduler_service.go` | (Modify) Passes `reminder.SecretID` and `uuid.Nil` (system caller) to the now-3-arg `AcknowledgeReminder`. |
+| `internal/services/secrets/coverage_boost_test.go` | (Modify) Four pre-existing call sites against the real `rotationService` updated to the new signatures, passing `uuid.Nil` (found during plan review — not a mock, so these compile-break without this fix). |
 | `cmd/rotation_service_test.go`, `cmd/rotation_security_test.go` | (Modify) Hand-written `RotationServiceInterface` mocks updated to the new 2-arg/3-arg signatures. |
 | `.mockery.yaml` | (Create) Mockery v2 config targeting `SecretService`, `KeyService`, `CertificateService`, `VersioningServiceInterface`, `SecretRepositoryInterface`, `KeyRepositoryInterface`, `CertificateRepositoryInterface`. |
 | `internal/services/keys/wrap_key_test.go` | (Modify) Replaces the hand-written `mockKeyRepoForWrap` (18 methods) with the generated `mocks.MockKeyRepositoryInterface`. |
@@ -1964,6 +1965,7 @@ git commit -S -m "fix(keys): KeyRepository.Update stops emitting owner-attribute
 **Files:**
 - Modify: `internal/services/secrets/rotation_service.go:20-42,338-347,496-513`
 - Modify: `internal/services/secrets/scheduler_service.go:309`
+- Modify: `internal/services/secrets/coverage_boost_test.go:972,1021,1123,1162` (pre-existing tests call the real, non-mock service with the old signatures — see note below)
 - Modify: `cmd/rotation_service_test.go:69-75,110-112`
 - Modify: `cmd/rotation_security_test.go:61-64,89-91`
 - Create: `internal/services/secrets/rotation_service_test.go`
@@ -1973,6 +1975,33 @@ git commit -S -m "fix(keys): KeyRepository.Update stops emitting owner-attribute
 - Produces: `mockRotationPolicyRepo` (test-local type in the new file); new signatures `GetSecretPolicies(ctx, secretID, userID uuid.UUID)` and `AcknowledgeReminder(ctx, reminderID, secretID, userID uuid.UUID)` on `RotationServiceInterface`.
 
 **Defect (spec 4.2, row 8):** `GetSecretPolicies` (`internal/services/secrets/rotation_service.go:339`) and `AcknowledgeReminder` (`:497`) take no `userID` and perform no ownership check at all — any caller can view or acknowledge any secret's rotation state. `GetSecretPolicies` has zero non-test callers today; `AcknowledgeReminder`'s only caller is `schedulerService.sendReminder` (`internal/services/secrets/scheduler_service.go:309`), a trusted internal process that already has the full `model.RotationReminder` (including `SecretID`) in scope. Both methods gain a `userID` parameter that is skippable via `uuid.Nil`, mirroring the existing convention on `KeyService.DeleteKeyInVault` ("pass uuid.Nil to skip the check (admin/cascade ops)").
+
+**Found during plan review — a fourth caller this plan must also fix:** `internal/services/secrets/coverage_boost_test.go` calls both methods against the real `rotationService` (not a mock), with the pre-change signatures, at four call sites:
+
+- Line 972 (in `TestRotationServiceAssignmentRotationAndReminders`): `gotPolicies, err := svc.GetSecretPolicies(ctx, secretID)`
+- Line 1021 (same test): `require.NoError(t, svc.AcknowledgeReminder(ctx, reminders[0].ID))`
+- Line 1123 (in `TestRotationServiceErrorBranches`): `_, err = svc.GetSecretPolicies(ctx, secretID)`
+- Line 1162 (same test): `err = svc.AcknowledgeReminder(ctx, uuid.New())`
+
+All four exercise repo-level behavior (`GetPoliciesForSecret`/`UpdateReminder` success or failure), not the new ownership check, and none has a `secretRepo.On("Read", ...)` expectation staged immediately before the call. Passing the real `userID` would require adding a fresh `secretRepo.On("Read", ctx, secretID).Return(secret, nil).Once()` before each — a bigger, riskier diff for no behavioral gain. Passing `uuid.Nil` instead skips the ownership check entirely (matching the system-caller convention this task already establishes for the scheduler) and leaves all four tests' existing mock setups and assertions untouched. Update exactly these four lines to:
+
+```go
+	gotPolicies, err := svc.GetSecretPolicies(ctx, secretID, uuid.Nil)
+```
+
+```go
+	require.NoError(t, svc.AcknowledgeReminder(ctx, reminders[0].ID, secretID, uuid.Nil))
+```
+
+```go
+	_, err = svc.GetSecretPolicies(ctx, secretID, uuid.Nil)
+```
+
+```go
+	err = svc.AcknowledgeReminder(ctx, uuid.New(), secretID, uuid.Nil)
+```
+
+(`uuid` and `secretID` are already imported/in scope at all four call sites — no new imports needed.)
 
 - [ ] **Step 1: Write the failing test**
 
@@ -2306,6 +2335,30 @@ func (m *mockRotationService) AcknowledgeReminder(ctx context.Context, reminderI
 }
 ```
 
+Update the four pre-existing call sites in `internal/services/secrets/coverage_boost_test.go` that call the real `rotationService` with the old signatures (found during plan review — see the note above the Defect description). Line 972:
+
+```go
+	gotPolicies, err := svc.GetSecretPolicies(ctx, secretID, uuid.Nil)
+```
+
+Line 1021:
+
+```go
+	require.NoError(t, svc.AcknowledgeReminder(ctx, reminders[0].ID, secretID, uuid.Nil))
+```
+
+Line 1123:
+
+```go
+	_, err = svc.GetSecretPolicies(ctx, secretID, uuid.Nil)
+```
+
+Line 1162:
+
+```go
+	err = svc.AcknowledgeReminder(ctx, uuid.New(), secretID, uuid.Nil)
+```
+
 - [ ] **Step 4: Run test to verify it passes**
 
 Run: `go test ./internal/services/secrets/... -run 'TestGetSecretPolicies_|TestAcknowledgeReminder_' -v`
@@ -2318,7 +2371,7 @@ Expected: PASS, zero failures
 - [ ] **Step 5: Commit**
 
 ```bash
-git add internal/services/secrets/rotation_service.go internal/services/secrets/scheduler_service.go internal/services/secrets/rotation_service_test.go cmd/rotation_service_test.go cmd/rotation_security_test.go
+git add internal/services/secrets/rotation_service.go internal/services/secrets/scheduler_service.go internal/services/secrets/coverage_boost_test.go internal/services/secrets/rotation_service_test.go cmd/rotation_service_test.go cmd/rotation_security_test.go
 git commit -S -m "fix(rotation): GetSecretPolicies and AcknowledgeReminder enforce ownership"
 ```
 

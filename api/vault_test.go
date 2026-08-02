@@ -161,6 +161,7 @@ type vaultSvcTestContainer struct {
 	vaultSvc       vaultServices.VaultService
 	secretSvc      secretServices.SecretService
 	keySvc         keyServices.KeyService
+	cryptoSvc      keyServices.CryptoService
 	certSvc        certServices.CertificateService
 	certPolicyRepo repositories.CertificatePolicyRepositoryInterface
 	policySvc      authzServices.AccessPolicyService
@@ -262,6 +263,9 @@ func (c *vaultSvcTestContainer) GetCertificateRenewalService() certServices.Cert
 	panic("unexpected call: GetCertificateRenewalService")
 }
 func (c *vaultSvcTestContainer) GetCryptoService() keyServices.CryptoService {
+	if c.cryptoSvc != nil {
+		return c.cryptoSvc
+	}
 	panic("unexpected call: GetCryptoService")
 }
 func (c *vaultSvcTestContainer) GetCryptographyService() secretServices.CryptographyService {
@@ -503,4 +507,16 @@ func doVaultRequestAs(api *API, role, method, path string, body []byte) *httptes
 	w := httptest.NewRecorder()
 	api.rootRouter.ServeHTTP(w, r)
 	return w
+}
+
+// TestVaultSvcTestContainer_GetCryptoService_ReturnsConfiguredService proves
+// the test container can inject a real CryptoService, which the B6
+// regression tests (api/vault_scoped_crypto_b6_test.go) need in order to
+// exercise the actual loadAndAuthorize ownership check instead of a stub.
+func TestVaultSvcTestContainer_GetCryptoService_ReturnsConfiguredService(t *testing.T) {
+	svc := &stubCryptoSvc{}
+	c := &vaultSvcTestContainer{cryptoSvc: svc, logger: userTestLog()}
+	if c.GetCryptoService() != svc {
+		t.Fatalf("GetCryptoService() did not return the configured cryptoSvc")
+	}
 }

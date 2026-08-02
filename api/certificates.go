@@ -24,7 +24,6 @@ package api
 
 import (
 	"encoding/json"
-	"errors"
 	"net/http"
 	"time"
 
@@ -32,6 +31,7 @@ import (
 	"github.com/gorilla/mux"
 
 	"rocketvault/common"
+	"rocketvault/internal/repositories"
 	certServices "rocketvault/internal/services/certificates"
 	vvalidation "rocketvault/internal/validation"
 	"rocketvault/model"
@@ -252,36 +252,15 @@ func listCertificates(c *Context, w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var certs []model.Certificate
-	if isVaultScopedRoute(r) {
-		// Vault-scoped route: members see all certificates in the resolved vault.
-		vaultID, err := vaultIDFromRequest(r)
-		if err != nil {
-			c.SetInvalidParam("vault")
-			return
-		}
-		certs, err = certService.ListCertificatesInVault(r.Context(), vaultID)
-		if err != nil {
-			c.SetInternalError(err)
-			return
-		}
-	} else {
-		// Legacy flat route: per-user visibility (preserves pre-multi-vault behavior).
-		userIDStr, ok := c.Claims["user_id"].(string)
-		if !ok {
-			c.SetInternalError(nil)
-			return
-		}
-		userID, err := uuid.Parse(userIDStr)
-		if err != nil {
-			c.SetInvalidParam("user_id")
-			return
-		}
-		certs, err = certService.ListCertificates(r.Context(), userID)
-		if err != nil {
-			c.SetInternalError(err)
-			return
-		}
+	scope, ok := scopeFromRequest(c, r)
+	if !ok {
+		return
+	}
+
+	certs, err := certService.ListCertificates(r.Context(), scope, repositories.CertificateFilter{})
+	if err != nil {
+		c.SetInternalError(err)
+		return
 	}
 
 	response := CertificateListResponse{Certificates: make([]CertificateResponse, len(certs))}
@@ -306,48 +285,15 @@ func getCertificate(c *Context, w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Legacy flat routes use per-user visibility; vault-scoped routes use
-	// vault-level visibility (members see all certificates in the vault).
-	var cert *model.Certificate
-	if isVaultScopedRoute(r) {
-		vaultID, err := vaultIDFromRequest(r)
-		if err != nil {
-			c.SetInvalidParam("vault")
-			return
-		}
-		cert, err = certService.GetCertificateInVault(r.Context(), certID, vaultID)
-		if err != nil {
-			if errors.Is(err, certServices.ErrCertLifecycleDenied) {
-				c.SetPermissionError("certificate is disabled or outside its valid time window")
-			} else if errors.Is(err, certServices.ErrCertNotFound) {
-				c.SetNotFound("certificate")
-			} else {
-				c.SetInternalError(err)
-			}
-			return
-		}
-	} else {
-		userIDStr, ok := c.Claims["user_id"].(string)
-		if !ok {
-			c.SetInternalError(nil)
-			return
-		}
-		userID, err := uuid.Parse(userIDStr)
-		if err != nil {
-			c.SetInvalidParam("user_id")
-			return
-		}
-		cert, err = certService.GetCertificate(r.Context(), certID, userID)
-		if err != nil {
-			if errors.Is(err, certServices.ErrCertLifecycleDenied) {
-				c.SetPermissionError("certificate is disabled or outside its valid time window")
-			} else if errors.Is(err, certServices.ErrCertNotFound) {
-				c.SetNotFound("certificate")
-			} else {
-				c.SetInternalError(err)
-			}
-			return
-		}
+	scope, ok := scopeFromRequest(c, r)
+	if !ok {
+		return
+	}
+
+	cert, err := certService.GetCertificate(r.Context(), certID, scope)
+	if err != nil {
+		writeCertificateError(c, err)
+		return
 	}
 
 	w.Header().Set("Content-Type", "application/json")
@@ -389,9 +335,14 @@ func updateCertificate(c *Context, w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Preserves the pre-refactor owner-scope semantics of the deleted
+	// UpdateCertificate shim: this handler is not yet vault-scope aware (see
+	// .claude/multi-vault.md's keys/certs deferral).
+	scope := model.NewOwnerScope(uuid.Nil, userID)
+
 	updateReq := certServices.UpdateCertificateRequest{
 		CertID:      certID,
-		UserID:      userID,
+		Scope:       scope,
 		Name:        req.Name,
 		Tags:        req.Tags,
 		AutoRenew:   req.AutoRenew,
@@ -401,18 +352,18 @@ func updateCertificate(c *Context, w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := certService.UpdateCertificate(r.Context(), updateReq); err != nil {
-		if errors.Is(err, certServices.ErrCertNotFound) {
-			c.SetNotFound("certificate")
-		} else {
-			c.SetInternalError(err)
-		}
+		writeCertificateError(c, err)
 		return
 	}
 
-	// Fetch updated certificate for response.
-	cert, err := certService.GetCertificate(r.Context(), certID, userID)
+	// Fetch updated certificate for response. The read-back can legitimately
+	// be lifecycle-denied — the update may have just disabled the certificate,
+	// or it may already have expired — so map it like any other lifecycle
+	// denial rather than reporting an internal error for a write that
+	// succeeded.
+	cert, err := certService.GetCertificate(r.Context(), certID, scope)
 	if err != nil {
-		c.SetInternalError(err)
+		writeCertificateError(c, err)
 		return
 	}
 
@@ -440,12 +391,18 @@ func deleteCertificate(c *Context, w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := certService.DeleteCertificateInVault(r.Context(), certID, vaultID); err != nil {
-		if errors.Is(err, certServices.ErrCertNotFound) {
-			c.SetNotFound("certificate")
-		} else {
-			c.SetInternalError(err)
-		}
+	// deleteCertificate stays vault-scoped on both route shapes, like
+	// deleteSecret: the scope is built explicitly rather than derived from
+	// scopeFromRequest, so a flat-route caller cannot get an owner scope here.
+	// The actor comes from the claims — a uuid.Nil actor would attribute
+	// every certificate deletion to nobody in the audit log.
+	userID, ok := userIDFromClaims(c)
+	if !ok {
+		return
+	}
+
+	if err := certService.DeleteCertificate(r.Context(), certID, model.NewVaultScope(vaultID, userID)); err != nil {
+		writeCertificateError(c, err)
 		return
 	}
 

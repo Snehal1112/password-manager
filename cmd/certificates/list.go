@@ -10,12 +10,14 @@ import (
 	"strings"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/spf13/cobra"
 
 	"rocketvault/common"
 	"rocketvault/internal/container"
 	"rocketvault/internal/formatter"
 	"rocketvault/internal/logging"
+	"rocketvault/internal/repositories"
 	"rocketvault/model"
 )
 
@@ -45,7 +47,7 @@ var listCmd = &cobra.Command{
 		}
 		certService := serviceContainer.GetCertificateService()
 
-		certs, err := certService.ListCertificates(ctx, claims.UserID)
+		certs, err := certService.ListCertificates(ctx, model.NewOwnerScope(uuid.Nil, claims.UserID), repositories.CertificateFilter{})
 		if err != nil {
 			log.LogAuditError(claims.UserID.String(), "list_certificates", "failed", fmt.Sprintf("failed to list certificates: %s", err), err)
 			return fmt.Errorf("failed to list certificates: %w", err)

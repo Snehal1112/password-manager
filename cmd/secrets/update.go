@@ -31,13 +31,16 @@ import (
 	"rocketvault/common"
 	"rocketvault/internal/container"
 	secretServices "rocketvault/internal/services/secrets"
+	"rocketvault/model"
 )
 
 // updateCmd represents the update command.
 var updateCmd = &cobra.Command{
 	Use:   "update [id] [value]",
 	Short: "Update a secret",
-	Long:  `Update a secret's value and tags by its ID for the authenticated user.`,
+	Long: `Update a secret's value and tags by its ID.
+Only secrets owned by the authenticated user can be updated; secrets owned by
+other members of the same vault are not writable through this command.`,
 	Example: `  # Update a secret's value
   rocketvault secrets update <id> <new-value> \
     --username admin --password admin123 --totp-code <code>
@@ -56,16 +59,29 @@ var updateCmd = &cobra.Command{
 		contentType, _ := cmd.Flags().GetString("content-type")
 
 		ctx := cmd.Context()
-		userID := ctx.Value(common.UserIDKey).(uuid.UUID)
+
+		userID, ok := ctx.Value(common.UserIDKey).(uuid.UUID)
+		if !ok {
+			return fmt.Errorf("user not authenticated")
+		}
 
 		sc, ok := ctx.Value(common.ServiceContainerKey).(container.ServiceContainerInterface)
 		if !ok || sc == nil {
 			return fmt.Errorf("service container not available in context")
 		}
 
+		// Resolve the target vault by name, matching the get/list/delete commands.
+		vaultID, err := resolveVaultID(ctx, cmd, sc)
+		if err != nil {
+			return err
+		}
+
+		// Update stays owner-scoped: a vault scope would let any co-member
+		// overwrite another member's secret. The actor is the real
+		// authenticated user so the audit row is attributed correctly.
 		req := secretServices.UpdateSecretRequest{
 			SecretID: secretID,
-			UserID:   userID,
+			Scope:    model.NewOwnerScope(vaultID, userID),
 			Value:    &value,
 		}
 		if len(tags) > 0 {

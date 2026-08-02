@@ -93,7 +93,7 @@ func TestCertificateSoftDelete(t *testing.T) {
 	require.NoError(t, repo.SoftDelete(ctx, cert.ID))
 
 	// Normal Read should return an error because the cert is now soft-deleted.
-	_, err := repo.Read(ctx, cert.ID)
+	_, err := repo.Read(ctx, cert.ID, model.NewAdminScope(uuid.Nil))
 	assert.Error(t, err, "Read should fail for a soft-deleted certificate")
 
 	// ListSoftDeleted should include the certificate.

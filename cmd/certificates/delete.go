@@ -52,7 +52,7 @@ var deleteCmd = &cobra.Command{
 		}
 		certService := serviceContainer.GetCertificateService()
 
-		err = certService.DeleteCertificate(ctx, certID, claims.UserID)
+		err = certService.DeleteCertificate(ctx, certID, model.NewOwnerScope(uuid.Nil, claims.UserID))
 		if err != nil {
 			log.LogAuditError(claims.UserID.String(), "delete_certificate", "failed", fmt.Sprintf("failed to delete certificate: %s", err), err)
 			return fmt.Errorf("failed to delete certificate: %w", err)

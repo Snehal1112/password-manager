@@ -7,8 +7,8 @@ import (
 	"crypto/x509"
 	"encoding/base64"
 	"encoding/pem"
+	"errors"
 	"testing"
-	"time"
 
 	"github.com/google/uuid"
 	"github.com/sirupsen/logrus"
@@ -19,6 +19,7 @@ import (
 
 	"rocketvault/common"
 	"rocketvault/internal/logging"
+	"rocketvault/internal/repositories/mocks"
 	"rocketvault/internal/services/keys"
 	"rocketvault/model"
 )
@@ -43,59 +44,6 @@ func generateTestRSAPEM(t *testing.T) string {
 	}))
 }
 
-// mockKeyRepoForWrap is a minimal mock of KeyRepositoryInterface for wrap tests.
-type mockKeyRepoForWrap struct{ mock.Mock }
-
-func (m *mockKeyRepoForWrap) Read(ctx context.Context, id uuid.UUID) (*model.Key, error) {
-	args := m.Called(ctx, id)
-	if args.Get(0) == nil {
-		return nil, args.Error(1)
-	}
-	return args.Get(0).(*model.Key), args.Error(1)
-}
-func (m *mockKeyRepoForWrap) Create(ctx context.Context, k *model.Key) error { return nil }
-func (m *mockKeyRepoForWrap) Update(ctx context.Context, k *model.Key) error { return nil }
-func (m *mockKeyRepoForWrap) Delete(ctx context.Context, id uuid.UUID) error { return nil }
-func (m *mockKeyRepoForWrap) ListByUser(ctx context.Context, userID *uuid.UUID, keyType string, tags []string) ([]model.Key, error) {
-	return nil, nil
-}
-func (m *mockKeyRepoForWrap) UpdateRevocationStatus(ctx context.Context, id uuid.UUID, revoked bool) error {
-	return nil
-}
-func (m *mockKeyRepoForWrap) SoftDelete(ctx context.Context, id uuid.UUID) error { return nil }
-func (m *mockKeyRepoForWrap) RecoverKey(ctx context.Context, id uuid.UUID) error { return nil }
-func (m *mockKeyRepoForWrap) PurgeKey(ctx context.Context, id uuid.UUID) error   { return nil }
-func (m *mockKeyRepoForWrap) SetPurgeProtection(ctx context.Context, id uuid.UUID, enabled bool) error {
-	return nil
-}
-func (m *mockKeyRepoForWrap) ListSoftDeleted(ctx context.Context, userID uuid.UUID) ([]*model.Key, error) {
-	return nil, nil
-}
-
-func (m *mockKeyRepoForWrap) ReadDeleted(ctx context.Context, id uuid.UUID) (*model.Key, error) {
-	return nil, nil
-}
-
-func (m *mockKeyRepoForWrap) CreateVersion(ctx context.Context, keyID uuid.UUID, version int, value string) error {
-	return nil
-}
-
-func (m *mockKeyRepoForWrap) ListVersions(ctx context.Context, keyID, userID uuid.UUID) ([]model.KeyVersion, error) {
-	return nil, nil
-}
-func (m *mockKeyRepoForWrap) ListInVault(ctx context.Context, vaultID uuid.UUID, keyType string, tags []string) ([]model.Key, error) {
-	return nil, nil
-}
-func (m *mockKeyRepoForWrap) ReadInVault(ctx context.Context, id, vaultID uuid.UUID) (*model.Key, error) {
-	return nil, nil
-}
-func (m *mockKeyRepoForWrap) SoftDeleteVaultContents(ctx context.Context, vaultID uuid.UUID, deletedAt time.Time) error {
-	return nil
-}
-func (m *mockKeyRepoForWrap) RecoverVaultContents(ctx context.Context, vaultID uuid.UUID, deletedAt time.Time) error {
-	return nil
-}
-
 func TestWrapAndUnwrapKey(t *testing.T) {
 	setupWrapTestMasterKey()
 	privateKeyPEM := generateTestRSAPEM(t)
@@ -113,8 +61,8 @@ func TestWrapAndUnwrapKey(t *testing.T) {
 		Enabled: true,
 	}
 
-	repo := &mockKeyRepoForWrap{}
-	repo.On("Read", mock.Anything, keyID).Return(vaultKey, nil)
+	repo := mocks.NewMockKeyRepositoryInterface(t)
+	repo.On("Read", mock.Anything, keyID, model.NewOwnerScope(uuid.Nil, userID)).Return(vaultKey, nil)
 
 	svc := keys.NewCryptoService(keys.CryptoServiceConfig{
 		KeyRepository: repo,
@@ -155,8 +103,8 @@ func TestWrapAndUnwrapKey_OAEP256(t *testing.T) {
 		ID: keyID, UserID: userID, Type: "RSA", Value: encryptedPEM, Revoked: false, Enabled: true,
 	}
 
-	repo := &mockKeyRepoForWrap{}
-	repo.On("Read", mock.Anything, keyID).Return(vaultKey, nil)
+	repo := mocks.NewMockKeyRepositoryInterface(t)
+	repo.On("Read", mock.Anything, keyID, model.NewOwnerScope(uuid.Nil, userID)).Return(vaultKey, nil)
 
 	svc := keys.NewCryptoService(keys.CryptoServiceConfig{
 		KeyRepository: repo,
@@ -178,56 +126,59 @@ func TestWrapAndUnwrapKey_OAEP256(t *testing.T) {
 	assert.Equal(t, dek, unwrapResult.PlaintextKey)
 }
 
-func TestWrapKeyForbiddenForWrongUser(t *testing.T) {
+// TestWrapKeyNotFoundForWrongUser asserts that a caller who does not own the
+// key gets a not-found error, not a forbidden one.
+//
+// Renamed from TestWrapKeyForbiddenForWrongUser (P1 scope refactor, Task 20).
+// loadAndAuthorize no longer performs a Go-level owner comparison: ownership
+// is now enforced by the scope predicate inside Read itself. A real
+// KeyRepository.Read filters cross-owner reads out in SQL and reports
+// them as not found, so this mock is updated to simulate that behaviour
+// (rather than returning the other user's key and letting a Go check catch
+// it, which no longer exists). This mirrors Task 19's identical change for
+// GetKey/DeleteKey and the B6 regression test in
+// api/vault_scoped_crypto_b6_test.go.
+func TestWrapKeyNotFoundForWrongUser(t *testing.T) {
 	setupWrapTestMasterKey()
-	privateKeyPEM := generateTestRSAPEM(t)
-	encryptedPEM, err := common.EncryptSecret(privateKeyPEM)
-	require.NoError(t, err)
 
-	ownerID := uuid.New()
 	callerID := uuid.New()
 	keyID := uuid.New()
 
-	repo := &mockKeyRepoForWrap{}
-	repo.On("Read", mock.Anything, keyID).Return(&model.Key{
-		ID: keyID, UserID: ownerID, Type: "RSA", Value: encryptedPEM,
-	}, nil)
+	repo := mocks.NewMockKeyRepositoryInterface(t)
+	repo.On("Read", mock.Anything, keyID, model.NewOwnerScope(uuid.Nil, callerID)).
+		Return(nil, errors.New("key not found or access denied"))
 
 	svc := keys.NewCryptoService(keys.CryptoServiceConfig{
 		KeyRepository: repo,
 		Logger:        &logging.Logger{Logger: logrus.New()},
 	})
 
-	_, err = svc.WrapKey(context.Background(), keys.WrapKeyRequest{
+	_, err := svc.WrapKey(context.Background(), keys.WrapKeyRequest{
 		KeyID:        keyID,
 		UserID:       callerID,
 		PlaintextKey: []byte("dek"),
 		Algorithm:    "RSA-OAEP",
 	})
 	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "forbidden")
+	assert.ErrorIs(t, err, keys.ErrKeyNotFound)
 }
 
 func TestWrapKeyRejectsUnsupportedAlgorithm(t *testing.T) {
 	setupWrapTestMasterKey()
-	privateKeyPEM := generateTestRSAPEM(t)
-	encryptedPEM, err := common.EncryptSecret(privateKeyPEM)
-	require.NoError(t, err)
 
 	userID := uuid.New()
 	keyID := uuid.New()
 
-	repo := &mockKeyRepoForWrap{}
-	repo.On("Read", mock.Anything, keyID).Return(&model.Key{
-		ID: keyID, UserID: userID, Type: "RSA", Value: encryptedPEM,
-	}, nil)
+	// The algorithm allowlist is checked before the key is loaded, so the
+	// repository is never called for this path; no expectation is set up.
+	repo := mocks.NewMockKeyRepositoryInterface(t)
 
 	svc := keys.NewCryptoService(keys.CryptoServiceConfig{
 		KeyRepository: repo,
 		Logger:        &logging.Logger{Logger: logrus.New()},
 	})
 
-	_, err = svc.WrapKey(context.Background(), keys.WrapKeyRequest{
+	_, err := svc.WrapKey(context.Background(), keys.WrapKeyRequest{
 		KeyID:        keyID,
 		UserID:       userID,
 		PlaintextKey: []byte("dek"),
@@ -246,8 +197,8 @@ func TestWrapKey_AESKWAlgorithmNotRejectedByAllowlist(t *testing.T) {
 	userID := uuid.New()
 	keyID := uuid.New()
 
-	repo := &mockKeyRepoForWrap{}
-	repo.On("Read", mock.Anything, keyID).Return(&model.Key{
+	repo := mocks.NewMockKeyRepositoryInterface(t)
+	repo.On("Read", mock.Anything, keyID, model.NewOwnerScope(uuid.Nil, userID)).Return(&model.Key{
 		ID: keyID, UserID: userID, Type: "RSA", Value: encryptedPEM,
 	}, nil)
 

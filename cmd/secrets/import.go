@@ -33,6 +33,7 @@ import (
 	"rocketvault/common"
 	"rocketvault/internal/container"
 	secretServices "rocketvault/internal/services/secrets"
+	"rocketvault/model"
 )
 
 var (
@@ -82,8 +83,17 @@ The file must be compatible with the export format produced by the export comman
 			return fmt.Errorf("failed to read import file: %w", err)
 		}
 
+		// Resolve the target vault by name, matching the get/list/update/delete commands.
+		vaultID, err := resolveVaultID(ctx, cmd, sc)
+		if err != nil {
+			return err
+		}
+
+		// The scope's actor becomes the owner of every imported secret, so it
+		// must carry the real authenticated user; uuid.Nil would orphan every
+		// row (and fail the PostgreSQL foreign key outright).
 		result, err := sc.GetSecretService().ImportSecrets(ctx, secretServices.ImportSecretsRequest{
-			UserID:    userID,
+			Scope:     model.NewVaultScope(vaultID, userID),
 			Data:      data,
 			Format:    format,
 			Overwrite: importOverwrite,

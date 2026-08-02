@@ -28,6 +28,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 
@@ -35,6 +36,7 @@ import (
 	"rocketvault/internal/container"
 	"rocketvault/internal/formatter"
 	"rocketvault/internal/logging"
+	"rocketvault/internal/repositories"
 	"rocketvault/model"
 )
 
@@ -78,18 +80,12 @@ var listCmd = &cobra.Command{
 		}
 		keyService := serviceContainer.GetKeyService()
 
-		var keys []model.Key
-		var err error
-
+		scope := model.NewOwnerScope(uuid.Nil, claims.UserID)
 		if claims.Role == model.RoleAdmin {
-			// Admins list all keys with filters - use repository directly for admin functionality
-			keyRepo := serviceContainer.GetKeyRepository()
-			keys, err = keyRepo.ListByUser(ctx, nil, keyType, tags)
-		} else {
-			// Non-admins list only their keys through service layer
-			keys, err = keyService.ListKeys(ctx, claims.UserID)
+			scope = model.NewAdminScope(claims.UserID)
 		}
 
+		keys, err := keyService.ListKeys(ctx, scope, repositories.KeyFilter{Type: keyType, Tags: tags})
 		if err != nil {
 			log.LogAuditError(claims.UserID.String(), "list_keys", "failed", fmt.Sprintf("failed to list keys: %s", err), err)
 			return fmt.Errorf("failed to list keys: %w", err)

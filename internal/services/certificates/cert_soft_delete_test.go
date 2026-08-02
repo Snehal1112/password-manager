@@ -16,6 +16,7 @@ import (
 	"rocketvault/common"
 	"rocketvault/internal/crypto"
 	"rocketvault/internal/logging"
+	"rocketvault/internal/repositories"
 	"rocketvault/model"
 )
 
@@ -28,16 +29,25 @@ func (m *mockCertRepository) Create(ctx context.Context, cert *model.Certificate
 	return m.Called(ctx, cert).Error(0)
 }
 
-func (m *mockCertRepository) Read(ctx context.Context, id uuid.UUID) (*model.Certificate, error) {
-	args := m.Called(ctx, id)
-	if v := args.Get(0); v != nil {
-		return v.(*model.Certificate), args.Error(1)
+func (m *mockCertRepository) Read(ctx context.Context, id uuid.UUID, scope model.Scope) (*model.Certificate, error) {
+	args := m.Called(ctx, id, scope)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
 	}
-	return nil, args.Error(1)
+	return args.Get(0).(*model.Certificate), args.Error(1)
 }
 
-func (m *mockCertRepository) Update(ctx context.Context, cert *model.Certificate) error {
-	return m.Called(ctx, cert).Error(0)
+func (m *mockCertRepository) Update(ctx context.Context, cert *model.Certificate, scope model.Scope) error {
+	args := m.Called(ctx, cert, scope)
+	return args.Error(0)
+}
+
+func (m *mockCertRepository) List(ctx context.Context, scope model.Scope, filter repositories.CertificateFilter) ([]model.Certificate, error) {
+	args := m.Called(ctx, scope, filter)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).([]model.Certificate), args.Error(1)
 }
 
 func (m *mockCertRepository) Delete(ctx context.Context, id uuid.UUID) error {
@@ -46,14 +56,6 @@ func (m *mockCertRepository) Delete(ctx context.Context, id uuid.UUID) error {
 
 func (m *mockCertRepository) Revoke(ctx context.Context, id uuid.UUID, serialNumber, name string) error {
 	return m.Called(ctx, id, serialNumber, name).Error(0)
-}
-
-func (m *mockCertRepository) ListByUser(ctx context.Context, userID uuid.UUID, certType string, tags []string) ([]model.Certificate, error) {
-	args := m.Called(ctx, userID, certType, tags)
-	if v := args.Get(0); v != nil {
-		return v.([]model.Certificate), args.Error(1)
-	}
-	return nil, args.Error(1)
 }
 
 func (m *mockCertRepository) ListRevoked(ctx context.Context, userID uuid.UUID) ([]model.RevokedCertificate, error) {
@@ -96,22 +98,6 @@ func (m *mockCertRepository) ListAll(ctx context.Context) ([]model.Certificate, 
 	return nil, args.Error(1)
 }
 
-func (m *mockCertRepository) ListInVault(ctx context.Context, vaultID uuid.UUID, certType string, tags []string) ([]model.Certificate, error) {
-	args := m.Called(ctx, vaultID, certType, tags)
-	if v := args.Get(0); v != nil {
-		return v.([]model.Certificate), args.Error(1)
-	}
-	return nil, args.Error(1)
-}
-
-func (m *mockCertRepository) ReadInVault(ctx context.Context, id, vaultID uuid.UUID) (*model.Certificate, error) {
-	args := m.Called(ctx, id, vaultID)
-	if v := args.Get(0); v != nil {
-		return v.(*model.Certificate), args.Error(1)
-	}
-	return nil, args.Error(1)
-}
-
 func (m *mockCertRepository) SoftDeleteVaultContents(ctx context.Context, vaultID uuid.UUID, deletedAt time.Time) error {
 	args := m.Called(ctx, vaultID, deletedAt)
 	return args.Error(0)
@@ -132,18 +118,6 @@ func (m *mockKeyRepo) Create(ctx context.Context, key *model.Key) error {
 	return m.Called(ctx, key).Error(0)
 }
 
-func (m *mockKeyRepo) Read(ctx context.Context, id uuid.UUID) (*model.Key, error) {
-	args := m.Called(ctx, id)
-	if v := args.Get(0); v != nil {
-		return v.(*model.Key), args.Error(1)
-	}
-	return nil, args.Error(1)
-}
-
-func (m *mockKeyRepo) Update(ctx context.Context, key *model.Key) error {
-	return m.Called(ctx, key).Error(0)
-}
-
 func (m *mockKeyRepo) Delete(ctx context.Context, id uuid.UUID) error {
 	return m.Called(ctx, id).Error(0)
 }
@@ -158,14 +132,6 @@ func (m *mockKeyRepo) PurgeKey(ctx context.Context, id uuid.UUID) error {
 
 func (m *mockKeyRepo) SetPurgeProtection(ctx context.Context, id uuid.UUID, enabled bool) error {
 	return m.Called(ctx, id, enabled).Error(0)
-}
-
-func (m *mockKeyRepo) ListByUser(ctx context.Context, userID *uuid.UUID, keyType string, tags []string) ([]model.Key, error) {
-	args := m.Called(ctx, userID, keyType, tags)
-	if v := args.Get(0); v != nil {
-		return v.([]model.Key), args.Error(1)
-	}
-	return nil, args.Error(1)
 }
 
 func (m *mockKeyRepo) UpdateRevocationStatus(ctx context.Context, id uuid.UUID, revoked bool) error {
@@ -195,17 +161,29 @@ func (m *mockKeyRepo) CreateVersion(ctx context.Context, keyID uuid.UUID, versio
 func (m *mockKeyRepo) ListVersions(ctx context.Context, keyID, userID uuid.UUID) ([]model.KeyVersion, error) {
 	return nil, nil
 }
-func (m *mockKeyRepo) ListInVault(ctx context.Context, vaultID uuid.UUID, keyType string, tags []string) ([]model.Key, error) {
-	return nil, nil
-}
-func (m *mockKeyRepo) ReadInVault(ctx context.Context, id, vaultID uuid.UUID) (*model.Key, error) {
-	return nil, nil
-}
 func (m *mockKeyRepo) SoftDeleteVaultContents(ctx context.Context, vaultID uuid.UUID, deletedAt time.Time) error {
 	return nil
 }
 func (m *mockKeyRepo) RecoverVaultContents(ctx context.Context, vaultID uuid.UUID, deletedAt time.Time) error {
 	return nil
+}
+func (m *mockKeyRepo) Read(ctx context.Context, id uuid.UUID, scope model.Scope) (*model.Key, error) {
+	args := m.Called(ctx, id, scope)
+	if v := args.Get(0); v != nil {
+		return v.(*model.Key), args.Error(1)
+	}
+	return nil, args.Error(1)
+}
+func (m *mockKeyRepo) Update(ctx context.Context, key *model.Key, scope model.Scope) error {
+	args := m.Called(ctx, key, scope)
+	return args.Error(0)
+}
+func (m *mockKeyRepo) List(ctx context.Context, scope model.Scope, filter repositories.KeyFilter) ([]model.Key, error) {
+	args := m.Called(ctx, scope, filter)
+	if v := args.Get(0); v != nil {
+		return v.([]model.Key), args.Error(1)
+	}
+	return nil, args.Error(1)
 }
 
 // TestDeleteCertificateSoftDeletes verifies that DeleteCertificate calls SoftDelete on the
@@ -227,8 +205,8 @@ func TestDeleteCertificateSoftDeletes(t *testing.T) {
 	certRepo := &mockCertRepository{}
 	keyRepo := &mockKeyRepo{}
 
-	// GetCertificate calls Read internally — return the cert so access check passes.
-	certRepo.On("Read", mock.Anything, certID).Return(existingCert, nil)
+	// DeleteCertificate calls Read internally to check access before soft-deleting.
+	certRepo.On("Read", mock.Anything, certID, model.NewOwnerScope(uuid.Nil, userID)).Return(existingCert, nil)
 
 	// SoftDelete must be called exactly once.
 	certRepo.On("SoftDelete", mock.Anything, certID).Return(nil)
@@ -242,7 +220,7 @@ func TestDeleteCertificateSoftDeletes(t *testing.T) {
 		Logger:                logger,
 	})
 
-	err := svc.DeleteCertificate(context.Background(), certID, userID)
+	err := svc.DeleteCertificate(context.Background(), certID, model.NewOwnerScope(uuid.Nil, userID))
 	assert.NoError(t, err)
 
 	certRepo.AssertCalled(t, "SoftDelete", mock.Anything, certID)
@@ -292,11 +270,12 @@ func TestRenewCertificate_Succeeds_WhenKeyIDSet(t *testing.T) {
 	certRepo := &mockCertRepository{}
 	keyRepo := &mockKeyRepo{}
 
-	// GetCertificate calls Read internally.
-	certRepo.On("Read", mock.Anything, certID).Return(existingCert, nil)
+	// RenewCertificate calls GetCertificate, which calls Read internally.
+	certRepo.On("Read", mock.Anything, certID, model.NewOwnerScope(uuid.Nil, userID)).Return(existingCert, nil)
 
-	// keyRepo.Read is called twice: once in ValidateKeyOwnership, once to get the key PEM.
-	keyRepo.On("Read", mock.Anything, keyID).Return(mockKey, nil)
+	// keyRepo.Read is called twice with the same admin scope: once in
+	// ValidateKeyOwnership, once to get the key PEM.
+	keyRepo.On("Read", mock.Anything, keyID, model.NewAdminScope(userID)).Return(mockKey, nil)
 
 	// Capture the cert passed to Create so we can assert KeyID is propagated.
 	var createdCert *model.Certificate

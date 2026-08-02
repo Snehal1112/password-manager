@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/mock"
 
 	"rocketvault/cmd/testutils"
+	"rocketvault/internal/repositories"
 	keyServices "rocketvault/internal/services/keys"
 	"rocketvault/model"
 )
@@ -20,42 +21,26 @@ func (m *MockKeyServiceForUpdate) UpdateKey(ctx context.Context, req keyServices
 	args := m.Called(ctx, req)
 	return args.Error(0)
 }
-func (m *MockKeyServiceForUpdate) UpdateKeyInVault(ctx context.Context, req keyServices.UpdateKeyRequest) error {
-	args := m.Called(ctx, req)
-	return args.Error(0)
-}
 func (m *MockKeyServiceForUpdate) CreateRSAKey(ctx context.Context, req keyServices.CreateKeyRequest) (*keyServices.CreateKeyResult, error) {
 	return nil, nil
 }
 func (m *MockKeyServiceForUpdate) CreateECDSAKey(ctx context.Context, req keyServices.CreateKeyRequest) (*keyServices.CreateKeyResult, error) {
 	return nil, nil
 }
-func (m *MockKeyServiceForUpdate) GetKey(ctx context.Context, keyID, userID uuid.UUID) (*model.Key, error) {
+func (m *MockKeyServiceForUpdate) GetKey(ctx context.Context, keyID uuid.UUID, scope model.Scope) (*model.Key, error) {
 	return nil, nil
 }
-func (m *MockKeyServiceForUpdate) ListKeys(ctx context.Context, userID uuid.UUID) ([]model.Key, error) {
+func (m *MockKeyServiceForUpdate) ListKeys(ctx context.Context, scope model.Scope, filter repositories.KeyFilter) ([]model.Key, error) {
 	return nil, nil
 }
-func (m *MockKeyServiceForUpdate) ListKeysWithFilters(ctx context.Context, userID *uuid.UUID, keyType string, tags []string, isAdmin bool) ([]model.Key, error) {
+func (m *MockKeyServiceForUpdate) DeleteKey(ctx context.Context, keyID uuid.UUID, scope model.Scope) (*model.Key, error) {
 	return nil, nil
 }
-func (m *MockKeyServiceForUpdate) DeleteKey(ctx context.Context, keyID, userID uuid.UUID) (*model.Key, error) {
-	return nil, nil
-}
-func (m *MockKeyServiceForUpdate) RotateKey(ctx context.Context, keyID, userID uuid.UUID) (*keyServices.CreateKeyResult, error) {
+func (m *MockKeyServiceForUpdate) RotateKey(ctx context.Context, keyID uuid.UUID, scope model.Scope) (*keyServices.CreateKeyResult, error) {
 	return nil, nil
 }
 func (m *MockKeyServiceForUpdate) ValidateKeyAccess(ctx context.Context, keyID, userID uuid.UUID, role string) error {
 	return nil
-}
-func (m *MockKeyServiceForUpdate) GetKeyInVault(ctx context.Context, keyID, vaultID uuid.UUID) (*model.Key, error) {
-	return nil, nil
-}
-func (m *MockKeyServiceForUpdate) ListKeysInVault(ctx context.Context, vaultID uuid.UUID, keyType string, tags []string) ([]model.Key, error) {
-	return nil, nil
-}
-func (m *MockKeyServiceForUpdate) DeleteKeyInVault(ctx context.Context, keyID, vaultID, userID uuid.UUID) (*model.Key, error) {
-	return nil, nil
 }
 
 func TestUpdateKeyCommand_CallsServiceUpdate(t *testing.T) {
@@ -65,7 +50,7 @@ func TestUpdateKeyCommand_CallsServiceUpdate(t *testing.T) {
 
 	mockKeySvc.On("UpdateKey", mock.Anything, mock.MatchedBy(func(r keyServices.UpdateKeyRequest) bool {
 		return r.KeyID == keyID &&
-			r.UserID == tc.TestUserID &&
+			r.Scope == model.NewOwnerScope(uuid.Nil, tc.TestUserID) &&
 			r.Name != nil && *r.Name == "new-name"
 	})).Return(nil)
 	tc.MockContainer.On("GetKeyService").Return(mockKeySvc)

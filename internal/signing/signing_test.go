@@ -20,6 +20,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"rocketvault/internal/repositories"
 	"rocketvault/model"
 )
 
@@ -76,23 +77,8 @@ func (m *mockKeyRepo) Create(ctx context.Context, key *model.Key) error {
 	return nil
 }
 
-func (m *mockKeyRepo) Read(_ context.Context, _ uuid.UUID) (*model.Key, error) {
-	return nil, fmt.Errorf("not implemented")
-}
-
-func (m *mockKeyRepo) Update(_ context.Context, _ *model.Key) error {
-	return fmt.Errorf("not implemented")
-}
-
 func (m *mockKeyRepo) Delete(_ context.Context, _ uuid.UUID) error {
 	return fmt.Errorf("not implemented")
-}
-
-func (m *mockKeyRepo) ListByUser(_ context.Context, _ *uuid.UUID, _ string, _ []string) ([]model.Key, error) {
-	if m.listByUserErr != nil {
-		return nil, m.listByUserErr
-	}
-	return m.keys, nil
 }
 
 func (m *mockKeyRepo) UpdateRevocationStatus(_ context.Context, _ uuid.UUID, _ bool) error {
@@ -131,20 +117,29 @@ func (m *mockKeyRepo) ListVersions(_ context.Context, _, _ uuid.UUID) ([]model.K
 	return nil, fmt.Errorf("not implemented")
 }
 
-func (m *mockKeyRepo) ListInVault(_ context.Context, _ uuid.UUID, _ string, _ []string) ([]model.Key, error) {
-	return nil, fmt.Errorf("not implemented")
-}
-
-func (m *mockKeyRepo) ReadInVault(_ context.Context, _, _ uuid.UUID) (*model.Key, error) {
-	return nil, fmt.Errorf("not implemented")
-}
-
 func (m *mockKeyRepo) SoftDeleteVaultContents(_ context.Context, _ uuid.UUID, _ time.Time) error {
 	return fmt.Errorf("not implemented")
 }
 
 func (m *mockKeyRepo) RecoverVaultContents(_ context.Context, _ uuid.UUID, _ time.Time) error {
 	return fmt.Errorf("not implemented")
+}
+
+func (m *mockKeyRepo) Read(_ context.Context, _ uuid.UUID, _ model.Scope) (*model.Key, error) {
+	return nil, fmt.Errorf("not implemented")
+}
+
+func (m *mockKeyRepo) Update(_ context.Context, _ *model.Key, _ model.Scope) error {
+	return fmt.Errorf("not implemented")
+}
+
+// List backs loadOrGenerate's admin-scoped lookup (self_pki.go). It ignores
+// scope and filter since the mock only needs to simulate the stored key set.
+func (m *mockKeyRepo) List(_ context.Context, _ model.Scope, _ repositories.KeyFilter) ([]model.Key, error) {
+	if m.listByUserErr != nil {
+		return nil, m.listByUserErr
+	}
+	return m.keys, nil
 }
 
 // ---------------------------------------------------------------------------

@@ -66,7 +66,7 @@ var deleteCmd = &cobra.Command{
 		keyService := serviceContainer.GetKeyService()
 
 		// Service layer handles ownership validation and deletion.
-		_, err = keyService.DeleteKey(ctx, keyID, claims.UserID)
+		_, err = keyService.DeleteKey(ctx, keyID, model.NewOwnerScope(uuid.Nil, claims.UserID))
 		if err != nil {
 			log.LogAuditError(claims.UserID.String(), "delete_key", "failed", fmt.Sprintf("failed to delete key: %s", err), err)
 			return fmt.Errorf("failed to delete key: %w", err)

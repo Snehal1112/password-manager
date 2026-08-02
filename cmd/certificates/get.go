@@ -51,7 +51,7 @@ var getCmd = &cobra.Command{
 		}
 		certService := serviceContainer.GetCertificateService()
 
-		cert, err := certService.GetCertificate(ctx, certID, claims.UserID)
+		cert, err := certService.GetCertificate(ctx, certID, model.NewOwnerScope(uuid.Nil, claims.UserID))
 		if err != nil {
 			log.LogAuditError(claims.UserID.String(), "get_certificate", "failed", fmt.Sprintf("failed to get certificate: %s", err), err)
 			return fmt.Errorf("failed to get certificate: %w", err)

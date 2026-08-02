@@ -19,6 +19,7 @@ import (
 	"rocketvault/common"
 	"rocketvault/internal/formatter"
 	"rocketvault/internal/logging"
+	"rocketvault/internal/repositories"
 	certServices "rocketvault/internal/services/certificates"
 	"rocketvault/model"
 )
@@ -56,16 +57,16 @@ func (m *certCmdCertService) CreateCASignedCertificate(ctx context.Context, req 
 	return args.Get(0).(*certServices.CreateCertificateResult), args.Error(1)
 }
 
-func (m *certCmdCertService) GetCertificate(ctx context.Context, certID, userID uuid.UUID) (*model.Certificate, error) {
-	args := m.Called(ctx, certID, userID)
+func (m *certCmdCertService) GetCertificate(ctx context.Context, certID uuid.UUID, scope model.Scope) (*model.Certificate, error) {
+	args := m.Called(ctx, certID, scope)
 	if args.Get(0) == nil {
 		return nil, args.Error(1)
 	}
 	return args.Get(0).(*model.Certificate), args.Error(1)
 }
 
-func (m *certCmdCertService) ListCertificates(ctx context.Context, userID uuid.UUID) ([]model.Certificate, error) {
-	args := m.Called(ctx, userID)
+func (m *certCmdCertService) ListCertificates(ctx context.Context, scope model.Scope, filter repositories.CertificateFilter) ([]model.Certificate, error) {
+	args := m.Called(ctx, scope, filter)
 	if args.Get(0) == nil {
 		return nil, args.Error(1)
 	}
@@ -77,21 +78,9 @@ func (m *certCmdCertService) UpdateCertificate(ctx context.Context, req certServ
 	return args.Error(0)
 }
 
-func (m *certCmdCertService) DeleteCertificate(ctx context.Context, certID, userID uuid.UUID) error {
-	args := m.Called(ctx, certID, userID)
+func (m *certCmdCertService) DeleteCertificate(ctx context.Context, certID uuid.UUID, scope model.Scope) error {
+	args := m.Called(ctx, certID, scope)
 	return args.Error(0)
-}
-
-func (m *certCmdCertService) GetCertificateInVault(ctx context.Context, certID, vaultID uuid.UUID) (*model.Certificate, error) {
-	return nil, nil
-}
-
-func (m *certCmdCertService) ListCertificatesInVault(ctx context.Context, vaultID uuid.UUID) ([]model.Certificate, error) {
-	return nil, nil
-}
-
-func (m *certCmdCertService) DeleteCertificateInVault(ctx context.Context, certID, vaultID uuid.UUID) error {
-	return nil
 }
 
 func (m *certCmdCertService) RenewCertificate(ctx context.Context, certID, userID uuid.UUID, validityDays int) (*certServices.CreateCertificateResult, error) {
@@ -517,7 +506,7 @@ func TestCertDeleteCmd_Success(t *testing.T) {
 	certSvc := &certCmdCertService{}
 	userID := uuid.New()
 	certID := uuid.New()
-	certSvc.On("DeleteCertificate", mock.Anything, certID, userID).Return(nil)
+	certSvc.On("DeleteCertificate", mock.Anything, certID, model.NewOwnerScope(uuid.Nil, userID)).Return(nil)
 
 	sc := &certsTestContainer{
 		MockServiceContainer: &testutils.MockServiceContainer{},
@@ -540,7 +529,7 @@ func TestCertDeleteCmd_ServiceError(t *testing.T) {
 	certSvc := &certCmdCertService{}
 	userID := uuid.New()
 	certID := uuid.New()
-	certSvc.On("DeleteCertificate", mock.Anything, certID, userID).Return(fmt.Errorf("delete failed"))
+	certSvc.On("DeleteCertificate", mock.Anything, certID, model.NewOwnerScope(uuid.Nil, userID)).Return(fmt.Errorf("delete failed"))
 
 	sc := &certsTestContainer{
 		MockServiceContainer: &testutils.MockServiceContainer{},
@@ -603,7 +592,7 @@ func TestCertGetCmd_Success(t *testing.T) {
 		Tags: []string{"ssl"}, CreatedAt: time.Now(), ExpiresAt: &expiresAt,
 		AutoRenew: true, Enabled: true,
 	}
-	certSvc.On("GetCertificate", mock.Anything, certID, userID).Return(cert, nil)
+	certSvc.On("GetCertificate", mock.Anything, certID, model.NewOwnerScope(uuid.Nil, userID)).Return(cert, nil)
 
 	sc := &certsTestContainer{
 		MockServiceContainer: &testutils.MockServiceContainer{},
@@ -628,7 +617,7 @@ func TestCertGetCmd_ServiceError(t *testing.T) {
 	certSvc := &certCmdCertService{}
 	userID := uuid.New()
 	certID := uuid.New()
-	certSvc.On("GetCertificate", mock.Anything, certID, userID).Return(nil, fmt.Errorf("not found"))
+	certSvc.On("GetCertificate", mock.Anything, certID, model.NewOwnerScope(uuid.Nil, userID)).Return(nil, fmt.Errorf("not found"))
 
 	sc := &certsTestContainer{
 		MockServiceContainer: &testutils.MockServiceContainer{},
@@ -656,7 +645,7 @@ func TestCertGetCmd_NoFormatter(t *testing.T) {
 		ID: certID, UserID: userID, Name: "k",
 		CreatedAt: time.Now(), Enabled: true,
 	}
-	certSvc.On("GetCertificate", mock.Anything, certID, userID).Return(cert, nil)
+	certSvc.On("GetCertificate", mock.Anything, certID, model.NewOwnerScope(uuid.Nil, userID)).Return(cert, nil)
 
 	sc := &certsTestContainer{
 		MockServiceContainer: &testutils.MockServiceContainer{},
@@ -704,7 +693,7 @@ func TestCertListCmd_SuccessTwoCerts(t *testing.T) {
 		{ID: uuid.New(), UserID: userID, Name: "cert1", CreatedAt: time.Now(), Enabled: true},
 		{ID: uuid.New(), UserID: userID, Name: "cert2", CreatedAt: time.Now(), Enabled: true},
 	}
-	certSvc.On("ListCertificates", mock.Anything, userID).Return(certs, nil)
+	certSvc.On("ListCertificates", mock.Anything, model.NewOwnerScope(uuid.Nil, userID), repositories.CertificateFilter{}).Return(certs, nil)
 
 	sc := &certsTestContainer{
 		MockServiceContainer: &testutils.MockServiceContainer{},
@@ -727,7 +716,7 @@ func TestCertListCmd_SuccessTwoCerts(t *testing.T) {
 func TestCertListCmd_EmptyList(t *testing.T) {
 	certSvc := &certCmdCertService{}
 	userID := uuid.New()
-	certSvc.On("ListCertificates", mock.Anything, userID).Return([]model.Certificate{}, nil)
+	certSvc.On("ListCertificates", mock.Anything, model.NewOwnerScope(uuid.Nil, userID), repositories.CertificateFilter{}).Return([]model.Certificate{}, nil)
 
 	sc := &certsTestContainer{
 		MockServiceContainer: &testutils.MockServiceContainer{},
@@ -749,7 +738,7 @@ func TestCertListCmd_EmptyList(t *testing.T) {
 func TestCertListCmd_ServiceError(t *testing.T) {
 	certSvc := &certCmdCertService{}
 	userID := uuid.New()
-	certSvc.On("ListCertificates", mock.Anything, userID).Return(nil, fmt.Errorf("db error"))
+	certSvc.On("ListCertificates", mock.Anything, model.NewOwnerScope(uuid.Nil, userID), repositories.CertificateFilter{}).Return(nil, fmt.Errorf("db error"))
 
 	sc := &certsTestContainer{
 		MockServiceContainer: &testutils.MockServiceContainer{},
@@ -771,7 +760,7 @@ func TestCertListCmd_ServiceError(t *testing.T) {
 func TestCertListCmd_NoFormatter(t *testing.T) {
 	certSvc := &certCmdCertService{}
 	userID := uuid.New()
-	certSvc.On("ListCertificates", mock.Anything, userID).Return([]model.Certificate{}, nil)
+	certSvc.On("ListCertificates", mock.Anything, model.NewOwnerScope(uuid.Nil, userID), repositories.CertificateFilter{}).Return([]model.Certificate{}, nil)
 
 	sc := &certsTestContainer{
 		MockServiceContainer: &testutils.MockServiceContainer{},
@@ -979,7 +968,7 @@ func TestCertUpdateCmd_SuccessWithNameUpdate(t *testing.T) {
 	userID := uuid.New()
 	certID := uuid.New()
 	certSvc.On("UpdateCertificate", mock.Anything, mock.MatchedBy(func(r certServices.UpdateCertificateRequest) bool {
-		return r.CertID == certID && r.UserID == userID && r.Name != nil && *r.Name == "newname"
+		return r.CertID == certID && r.Scope == model.NewOwnerScope(uuid.Nil, userID) && r.Name != nil && *r.Name == "newname"
 	})).Return(nil)
 
 	sc := &certsTestContainer{

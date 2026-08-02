@@ -1,0 +1,21 @@
+with-expecter: true
+dir: "{{.InterfaceDir}}/mocks"
+outpkg: mocks
+filename: "mock_{{.InterfaceName}}.go"
+mockname: "Mock{{.InterfaceName}}"
+packages:
+  rocketvault/internal/services/secrets:
+    interfaces:
+      SecretService:
+      VersioningServiceInterface:
+  rocketvault/internal/services/keys:
+    interfaces:
+      KeyService:
+  rocketvault/internal/services/certificates:
+    interfaces:
+      CertificateService:
+  rocketvault/internal/repositories:
+    interfaces:
+      SecretRepositoryInterface:
+      KeyRepositoryInterface:
+      CertificateRepositoryInterface:

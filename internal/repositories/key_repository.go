@@ -22,8 +22,17 @@ import (
 // KeyRepositoryInterface is a generic repository interface for key operations.
 // It provides type-safe CRUD operations for the Key type.
 type KeyRepositoryInterface interface {
-	db.Repository[model.Key]
-	ListByUser(ctx context.Context, userID *uuid.UUID, keyType string, tags []string) ([]model.Key, error)
+	Create(ctx context.Context, key *model.Key) error
+	// Read fetches a key authorized by scope. The scoped read is the access
+	// check: a row outside the scope is indistinguishable from a row that
+	// does not exist.
+	Read(ctx context.Context, id uuid.UUID, scope model.Scope) (*model.Key, error)
+	// Update updates a key authorized by scope. The predicate comes from the
+	// scope argument, never from the entity.
+	Update(ctx context.Context, key *model.Key, scope model.Scope) error
+	// List lists keys authorized by scope and narrowed by filter.
+	List(ctx context.Context, scope model.Scope, filter KeyFilter) ([]model.Key, error)
+	Delete(ctx context.Context, id uuid.UUID) error
 	UpdateRevocationStatus(ctx context.Context, id uuid.UUID, revoked bool) error
 	SoftDelete(ctx context.Context, id uuid.UUID) error
 	RecoverKey(ctx context.Context, id uuid.UUID) error
@@ -38,14 +47,185 @@ type KeyRepositoryInterface interface {
 	// ListVersions returns all version records for a key, ordered by version ASC.
 	// userID is used to enforce ownership before returning results.
 	ListVersions(ctx context.Context, keyID, userID uuid.UUID) ([]model.KeyVersion, error)
-	// ListInVault lists keys scoped to a vault, optionally filtered by type and tags.
-	ListInVault(ctx context.Context, vaultID uuid.UUID, keyType string, tags []string) ([]model.Key, error)
-	// ReadInVault fetches a key only when id and vaultID both match.
-	ReadInVault(ctx context.Context, id, vaultID uuid.UUID) (*model.Key, error)
 	// SoftDeleteVaultContents soft-deletes every active key in a vault.
 	SoftDeleteVaultContents(ctx context.Context, vaultID uuid.UUID, deletedAt time.Time) error
 	// RecoverVaultContents recovers only the keys the cascade soft-deleted at deletedAt.
 	RecoverVaultContents(ctx context.Context, vaultID uuid.UUID, deletedAt time.Time) error
+}
+
+// KeyFilter narrows a scoped key listing.
+type KeyFilter struct {
+	Type           string // Empty means every type. The keys table really has this column.
+	Tags           []string
+	IncludeDeleted bool
+	OnlyDeleted    bool
+}
+
+// keyColumns is the canonical SELECT list shared by every scoped key query.
+const keyColumns = "id, user_id, vault_id, name, value, type, revoked, created_at, enabled, expires_at, not_before, bits, curve, updated_at"
+
+// scanKeyRow scans one keys row in the canonical column order.
+func scanKeyRow(scan func(dest ...any) error) (model.Key, error) {
+	var key model.Key
+	var idStr, userIDStr, vaultIDStr string
+
+	if err := scan(&idStr, &userIDStr, &vaultIDStr, &key.Name, &key.Value, &key.Type, &key.Revoked,
+		&key.CreatedAt, &key.Enabled, &key.ExpiresAt, &key.NotBefore, &key.Bits, &key.Curve, &key.UpdatedAt); err != nil {
+		return key, err
+	}
+
+	var err error
+	if key.ID, err = uuid.Parse(idStr); err != nil {
+		return key, fmt.Errorf("failed to parse key ID: %w", err)
+	}
+	if key.UserID, err = uuid.Parse(userIDStr); err != nil {
+		return key, fmt.Errorf("failed to parse user ID: %w", err)
+	}
+	if key.VaultID, err = uuid.Parse(vaultIDStr); err != nil {
+		return key, fmt.Errorf("failed to parse vault ID: %w", err)
+	}
+	return key, nil
+}
+
+// Read retrieves a key by ID, authorized by scope. Tags are loaded via
+// TagRepository, matching the behaviour of the methods it replaces.
+func (r *KeyRepository) Read(ctx context.Context, id uuid.UUID, scope model.Scope) (*model.Key, error) {
+	predicate, args, err := scopePredicate(scope)
+	if err != nil {
+		return nil, err
+	}
+
+	query := "SELECT " + keyColumns + " FROM keys WHERE id = ? AND " + predicate + " AND deleted_at IS NULL"
+	queryArgs := append([]any{id.String()}, args...)
+
+	key, err := scanKeyRow(r.db.QueryRowContext(ctx, query, queryArgs...).Scan)
+	if errors.Is(err, sql.ErrNoRows) {
+		if scope.Kind() == model.ScopeAdmin {
+			return nil, fmt.Errorf("key not found")
+		}
+		return nil, fmt.Errorf("key not found or access denied")
+	}
+	if err != nil {
+		return nil, fmt.Errorf("failed to query key: %w", err)
+	}
+
+	tagRepo := db.NewTagRepository[model.Key](r.db, "key_tags", "key_id")
+	key.Tags, err = tagRepo.GetTags(ctx, id)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read tags: %w", err)
+	}
+	return &key, nil
+}
+
+// Update updates a key, authorized by scope. The predicate is built from
+// the scope argument, never from the entity.
+//
+// This method does not emit audit rows: audit attribution belongs to the
+// caller (service layer), which knows the acting principal from the request.
+// UpdateKey already logs its own audit row after calling this, for
+// every error path and on success — logging here too would duplicate every
+// scoped update into two audit_logs rows.
+func (r *KeyRepository) Update(ctx context.Context, key *model.Key, scope model.Scope) error {
+	predicate, args, err := scopePredicate(scope)
+	if err != nil {
+		return err
+	}
+
+	return r.executeWithMetrics("update_key_scoped", func() error {
+		now := time.Now().UTC()
+		key.UpdatedAt = &now
+
+		query := "UPDATE keys SET name = ?, value = ?, revoked = ?, created_at = ?, enabled = ?, expires_at = ?, not_before = ?, bits = ?, curve = ?, updated_at = ? WHERE id = ? AND " + predicate
+		execArgs := append([]any{
+			key.Name, key.Value, key.Revoked, key.CreatedAt, key.Enabled,
+			key.ExpiresAt, key.NotBefore, key.Bits, key.Curve, now, key.ID.String(),
+		}, args...)
+
+		result, execErr := r.db.ExecContext(ctx, query, execArgs...)
+		if execErr != nil {
+			return fmt.Errorf("failed to update key: %w", execErr)
+		}
+
+		rowsAffected, rowsErr := result.RowsAffected()
+		if rowsErr != nil {
+			return fmt.Errorf("failed to get rows affected: %w", rowsErr)
+		}
+		if rowsAffected == 0 {
+			return fmt.Errorf("key not found")
+		}
+
+		logrus.WithFields(logrus.Fields{
+			"key_id": key.ID.String(),
+			"scope":  scope.String(),
+		}).Debug("Key updated successfully")
+		return nil
+	})
+}
+
+// List lists keys authorized by scope and narrowed by filter.
+func (r *KeyRepository) List(ctx context.Context, scope model.Scope, filter KeyFilter) ([]model.Key, error) {
+	predicate, args, err := scopePredicate(scope)
+	if err != nil {
+		return nil, err
+	}
+
+	conditions := []string{predicate}
+	switch {
+	case filter.OnlyDeleted:
+		conditions = append(conditions, "deleted_at IS NOT NULL")
+	case filter.IncludeDeleted:
+		// No deleted_at constraint.
+	default:
+		conditions = append(conditions, "deleted_at IS NULL")
+	}
+
+	if filter.Type != "" {
+		conditions = append(conditions, "type = ?")
+		args = append(args, filter.Type)
+	}
+	if len(filter.Tags) > 0 {
+		placeholders := strings.Repeat(",?", len(filter.Tags))[1:]
+		conditions = append(conditions, fmt.Sprintf("id IN (SELECT key_id FROM key_tags WHERE tag IN (%s))", placeholders))
+		for _, tag := range filter.Tags {
+			args = append(args, tag)
+		}
+	}
+
+	query := "SELECT " + keyColumns + " FROM keys WHERE " +
+		strings.Join(conditions, " AND ") + " ORDER BY created_at DESC"
+
+	var keyList []model.Key
+	err = r.executeWithMetrics("list_keys_scoped", func() error {
+		rows, queryErr := r.db.QueryContext(ctx, query, args...)
+		if queryErr != nil {
+			return fmt.Errorf("failed to query keys: %w", queryErr)
+		}
+		defer rows.Close()
+
+		tagRepo := db.NewTagRepository[model.Key](r.db, "key_tags", "key_id")
+		keyList = make([]model.Key, 0, 50)
+		for rows.Next() {
+			key, scanErr := scanKeyRow(rows.Scan)
+			if scanErr != nil {
+				return fmt.Errorf("failed to scan key: %w", scanErr)
+			}
+			key.Tags, scanErr = tagRepo.GetTags(ctx, key.ID)
+			if scanErr != nil {
+				return fmt.Errorf("failed to read tags for key: %w", scanErr)
+			}
+			keyList = append(keyList, key)
+		}
+		if rowsErr := rows.Err(); rowsErr != nil {
+			return fmt.Errorf("row iteration error: %w", rowsErr)
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	logrus.WithField("count", len(keyList)).Debug("Keys listed successfully")
+	return keyList, nil
 }
 
 // KeyRepository implements KeyRepositoryInterface with pure CRUD operations.
@@ -161,61 +341,6 @@ func (r *KeyRepository) Create(ctx context.Context, key *model.Key) error {
 	})
 }
 
-// Read retrieves a key by ID from the database.
-// It returns the key with encrypted value - NO decryption happens here.
-//
-// Parameters:
-//   - ctx: The context for the database operation.
-//   - id: The key's unique identifier.
-//
-// Returns:
-//
-//	The key entity (with encrypted value) or an error if not found.
-func (r *KeyRepository) Read(ctx context.Context, id uuid.UUID) (*model.Key, error) {
-	var key model.Key
-	var idStr, userIDStr, vaultIDStr string
-
-	err := r.db.QueryRowContext(
-		ctx,
-		"SELECT id, user_id, vault_id, name, value, type, revoked, created_at, enabled, expires_at, not_before, bits, curve, updated_at FROM keys WHERE id = ? AND deleted_at IS NULL",
-		id.String(),
-	).Scan(&idStr, &userIDStr, &vaultIDStr, &key.Name, &key.Value, &key.Type, &key.Revoked, &key.CreatedAt,
-		&key.Enabled, &key.ExpiresAt, &key.NotBefore, &key.Bits, &key.Curve, &key.UpdatedAt)
-
-	if errors.Is(err, sql.ErrNoRows) {
-		return nil, fmt.Errorf("key not found")
-	}
-	if err != nil {
-		r.log.LogAuditError(uuid.Nil.String(), "read_key", "failed", "Failed to query key", err)
-		return nil, fmt.Errorf("failed to query key: %w", err)
-	}
-
-	key.ID, err = uuid.Parse(idStr)
-	if err != nil {
-		return nil, fmt.Errorf("failed to parse key ID: %w", err)
-	}
-
-	key.UserID, err = uuid.Parse(userIDStr)
-	if err != nil {
-		return nil, fmt.Errorf("failed to parse user ID: %w", err)
-	}
-
-	key.VaultID, err = uuid.Parse(vaultIDStr)
-	if err != nil {
-		return nil, fmt.Errorf("failed to parse vault ID: %w", err)
-	}
-
-	// Retrieve tags using TagRepository
-	tagRepo := db.NewTagRepository[model.Key](r.db, "key_tags", "key_id")
-	key.Tags, err = tagRepo.GetTags(ctx, id)
-	if err != nil {
-		r.log.LogAuditError(uuid.Nil.String(), "read_key", "failed", "Failed to read tags", err)
-		return nil, fmt.Errorf("failed to read tags: %w", err)
-	}
-
-	return &key, nil
-}
-
 // ReadDeleted retrieves a key by ID regardless of whether it has been soft-deleted.
 // This is used after SoftDelete to return deletion metadata to callers.
 // It follows the same scan pattern as Read but omits the "deleted_at IS NULL" filter.
@@ -273,58 +398,6 @@ func (r *KeyRepository) ReadDeleted(ctx context.Context, id uuid.UUID) (*model.K
 	return &key, nil
 }
 
-// Update updates a key in the database.
-// It expects the key value to be already encrypted if changed.
-// NO encryption happens here - pure data access only.
-//
-// Parameters:
-//   - ctx: The context for the database operation.
-//   - key: The key entity with updated fields (pre-encrypted value).
-//
-// Returns:
-//
-//	An error if the update fails.
-func (r *KeyRepository) Update(ctx context.Context, key *model.Key) error {
-	return r.executeWithMetrics("update_key", func() error {
-		logrus.WithFields(logrus.Fields{
-			"key_id":  key.ID.String(),
-			"user_id": key.UserID.String(),
-			"name":    key.Name,
-		}).Debug("Updating key in database")
-
-		now := time.Now().UTC()
-		key.UpdatedAt = &now
-		result, err := r.db.ExecContext(
-			ctx,
-			"UPDATE keys SET name = ?, value = ?, revoked = ?, created_at = ?, enabled = ?, expires_at = ?, not_before = ?, bits = ?, curve = ?, updated_at = ? WHERE id = ?",
-			key.Name, key.Value, key.Revoked, key.CreatedAt, key.Enabled, key.ExpiresAt, key.NotBefore, key.Bits, key.Curve, now, key.ID.String(),
-		)
-		if err != nil {
-			r.log.LogAuditError(key.UserID.String(), "update_key", "failed", "Failed to update key", err)
-			return fmt.Errorf("failed to update key: %w", err)
-		}
-
-		rowsAffected, err := result.RowsAffected()
-		if err != nil {
-			r.log.LogAuditError(key.UserID.String(), "update_key", "failed", "Failed to get rows affected", err)
-			return fmt.Errorf("failed to get rows affected: %w", err)
-		}
-		if rowsAffected == 0 {
-			r.log.LogAuditError(key.UserID.String(), "update_key", "failed", "Key not found for update", nil)
-			return fmt.Errorf("key not found")
-		}
-
-		r.log.LogAuditInfo(key.UserID.String(), "update_key", "success", fmt.Sprintf("Key updated: %s", key.Name))
-		logrus.WithFields(logrus.Fields{
-			"key_id":  key.ID.String(),
-			"user_id": key.UserID.String(),
-			"name":    key.Name,
-		}).Debug("Key updated successfully")
-
-		return nil
-	})
-}
-
 // Delete removes a key from the database.
 // It removes the key and its associated tags within a transaction.
 //
@@ -380,108 +453,6 @@ func (r *KeyRepository) Delete(ctx context.Context, id uuid.UUID) error {
 
 		return nil
 	})
-}
-
-// ListByUser retrieves keys for a user, optionally filtered by type and tags.
-// It returns keys with encrypted values - NO decryption happens here.
-//
-// Parameters:
-//   - ctx: The context for the database operation.
-//   - userID: The ID of the user whose keys to list (nil for all users).
-//   - keyType: The key type to filter by (empty for all types).
-//   - tags: The tags to filter by (empty for no tag filter).
-//
-// Returns:
-//
-//	A slice of keys (with encrypted values) or an error if retrieval fails.
-func (r *KeyRepository) ListByUser(ctx context.Context, userID *uuid.UUID, keyType string, tags []string) ([]model.Key, error) {
-	var keyList []model.Key
-
-	err := r.executeWithMetrics("list_keys_by_user", func() error {
-		var args []interface{}
-		query := "SELECT id, user_id, name, value, type, revoked, created_at, enabled, expires_at, not_before, bits, curve, updated_at FROM keys"
-
-		// Build WHERE clauses — always exclude soft-deleted keys.
-		conditions := []string{"deleted_at IS NULL"}
-		if userID != nil {
-			conditions = append(conditions, "user_id = ?")
-			args = append(args, userID.String())
-		}
-
-		if keyType != "" {
-			conditions = append(conditions, "type = ?")
-			args = append(args, keyType)
-		}
-
-		if len(tags) > 0 {
-			placeholders := strings.Repeat(",?", len(tags))[1:]
-			conditions = append(conditions, fmt.Sprintf("id IN (SELECT key_id FROM key_tags WHERE tag IN (%s))", placeholders))
-			for _, tag := range tags {
-				args = append(args, tag)
-			}
-		}
-
-		if len(conditions) > 0 {
-			query += " WHERE " + strings.Join(conditions, " AND ")
-		}
-
-		query += " ORDER BY created_at DESC"
-
-		rows, err := r.db.QueryContext(ctx, query, args...)
-		if err != nil {
-			r.log.LogAuditError(uuid.Nil.String(), "list_keys", "failed", "Failed to query keys", err)
-			return fmt.Errorf("failed to query keys: %w", err)
-		}
-		defer rows.Close()
-
-		// Pre-allocate slice for better memory performance
-		keyList = make([]model.Key, 0, 50)
-
-		for rows.Next() {
-			var key model.Key
-			var idStr, userIDStr string
-
-			if err := rows.Scan(&idStr, &userIDStr, &key.Name, &key.Value, &key.Type, &key.Revoked, &key.CreatedAt,
-				&key.Enabled, &key.ExpiresAt, &key.NotBefore, &key.Bits, &key.Curve, &key.UpdatedAt); err != nil {
-				r.log.LogAuditError(uuid.Nil.String(), "list_keys", "failed", "Failed to scan key", err)
-				return fmt.Errorf("failed to scan key: %w", err)
-			}
-
-			key.ID, err = uuid.Parse(idStr)
-			if err != nil {
-				r.log.LogAuditError(uuid.Nil.String(), "list_keys", "failed", "Failed to parse key ID", err)
-				return fmt.Errorf("failed to parse key ID: %w", err)
-			}
-
-			key.UserID, err = uuid.Parse(userIDStr)
-			if err != nil {
-				r.log.LogAuditError(uuid.Nil.String(), "list_keys", "failed", "Failed to parse user ID", err)
-				return fmt.Errorf("failed to parse user ID: %w", err)
-			}
-
-			// Retrieve tags for each key
-			tagRepo := db.NewTagRepository[model.Key](r.db, "key_tags", "key_id")
-			key.Tags, err = tagRepo.GetTags(ctx, key.ID)
-			if err != nil {
-				r.log.LogAuditError(uuid.Nil.String(), "list_keys", "failed", "Failed to read tags for key", err)
-				return fmt.Errorf("failed to read tags for key: %w", err)
-			}
-
-			keyList = append(keyList, key)
-		}
-
-		if err := rows.Err(); err != nil {
-			return fmt.Errorf("row iteration error: %w", err)
-		}
-
-		return nil
-	})
-	if err != nil {
-		return nil, err
-	}
-
-	logrus.WithField("count", len(keyList)).Debug("Keys listed successfully")
-	return keyList, nil
 }
 
 // UpdateRevocationStatus updates only the revocation status of a key.
@@ -828,159 +799,6 @@ func (r *KeyRepository) ListVersions(ctx context.Context, keyID, userID uuid.UUI
 		versions = append(versions, v)
 	}
 	return versions, rows.Err()
-}
-
-// ListInVault retrieves keys for a vault, optionally filtered by type and tags.
-// It mirrors ListByUser but scopes by vault_id instead of user_id.
-//
-// Parameters:
-//   - ctx: The context for the database operation.
-//   - vaultID: The vault whose keys to list.
-//   - keyType: The key type to filter by (empty for all types).
-//   - tags: The tags to filter by (empty for no tag filter).
-//
-// Returns:
-//
-//	A slice of keys (with encrypted values) or an error if retrieval fails.
-func (r *KeyRepository) ListInVault(ctx context.Context, vaultID uuid.UUID, keyType string, tags []string) ([]model.Key, error) {
-	var keyList []model.Key
-
-	err := r.executeWithMetrics("list_keys_by_vault", func() error {
-		var args []interface{}
-		query := "SELECT id, user_id, name, value, type, revoked, created_at, enabled, expires_at, not_before, bits, curve, updated_at FROM keys"
-
-		// Build WHERE clauses — always exclude soft-deleted keys and scope by vault.
-		conditions := []string{"deleted_at IS NULL", "vault_id = ?"}
-		args = append(args, vaultID.String())
-
-		if keyType != "" {
-			conditions = append(conditions, "type = ?")
-			args = append(args, keyType)
-		}
-
-		if len(tags) > 0 {
-			placeholders := strings.Repeat(",?", len(tags))[1:]
-			conditions = append(conditions, fmt.Sprintf("id IN (SELECT key_id FROM key_tags WHERE tag IN (%s))", placeholders))
-			for _, tag := range tags {
-				args = append(args, tag)
-			}
-		}
-
-		query += " WHERE " + strings.Join(conditions, " AND ")
-		query += " ORDER BY created_at DESC"
-
-		rows, err := r.db.QueryContext(ctx, query, args...)
-		if err != nil {
-			r.log.LogAuditError(vaultID.String(), "list_keys", "failed", "Failed to query keys", err)
-			return fmt.Errorf("failed to query keys: %w", err)
-		}
-		defer rows.Close()
-
-		// Pre-allocate slice for better memory performance.
-		keyList = make([]model.Key, 0, 50)
-
-		for rows.Next() {
-			var key model.Key
-			var idStr, userIDStr string
-
-			if err := rows.Scan(&idStr, &userIDStr, &key.Name, &key.Value, &key.Type, &key.Revoked, &key.CreatedAt,
-				&key.Enabled, &key.ExpiresAt, &key.NotBefore, &key.Bits, &key.Curve, &key.UpdatedAt); err != nil {
-				r.log.LogAuditError(vaultID.String(), "list_keys", "failed", "Failed to scan key", err)
-				return fmt.Errorf("failed to scan key: %w", err)
-			}
-
-			key.ID, err = uuid.Parse(idStr)
-			if err != nil {
-				r.log.LogAuditError(vaultID.String(), "list_keys", "failed", "Failed to parse key ID", err)
-				return fmt.Errorf("failed to parse key ID: %w", err)
-			}
-
-			key.UserID, err = uuid.Parse(userIDStr)
-			if err != nil {
-				r.log.LogAuditError(vaultID.String(), "list_keys", "failed", "Failed to parse user ID", err)
-				return fmt.Errorf("failed to parse user ID: %w", err)
-			}
-
-			// Retrieve tags for each key.
-			tagRepo := db.NewTagRepository[model.Key](r.db, "key_tags", "key_id")
-			key.Tags, err = tagRepo.GetTags(ctx, key.ID)
-			if err != nil {
-				r.log.LogAuditError(vaultID.String(), "list_keys", "failed", "Failed to read tags for key", err)
-				return fmt.Errorf("failed to read tags for key: %w", err)
-			}
-
-			// Populate VaultID from the queried vault for caller consistency.
-			key.VaultID = vaultID
-
-			keyList = append(keyList, key)
-		}
-
-		if err := rows.Err(); err != nil {
-			return fmt.Errorf("row iteration error: %w", err)
-		}
-
-		return nil
-	})
-	if err != nil {
-		return nil, err
-	}
-
-	logrus.WithField("count", len(keyList)).Debug("Keys listed successfully")
-	return keyList, nil
-}
-
-// ReadInVault retrieves a key by ID only when it belongs to the given vault.
-// It mirrors Read but adds a vault_id scope and the same deleted_at filter.
-//
-// Parameters:
-//   - ctx: The context for the database operation.
-//   - id: The key's unique identifier.
-//   - vaultID: The vault the key must belong to.
-//
-// Returns:
-//
-//	The key entity (with encrypted value) or an error if not found / access denied.
-func (r *KeyRepository) ReadInVault(ctx context.Context, id, vaultID uuid.UUID) (*model.Key, error) {
-	var key model.Key
-	var idStr, userIDStr string
-
-	err := r.db.QueryRowContext(
-		ctx,
-		"SELECT id, user_id, name, value, type, revoked, created_at, enabled, expires_at, not_before, bits, curve, updated_at FROM keys WHERE id = ? AND vault_id = ? AND deleted_at IS NULL",
-		id.String(), vaultID.String(),
-	).Scan(&idStr, &userIDStr, &key.Name, &key.Value, &key.Type, &key.Revoked, &key.CreatedAt,
-		&key.Enabled, &key.ExpiresAt, &key.NotBefore, &key.Bits, &key.Curve, &key.UpdatedAt)
-
-	if errors.Is(err, sql.ErrNoRows) {
-		return nil, fmt.Errorf("key not found or access denied")
-	}
-	if err != nil {
-		r.log.LogAuditError(uuid.Nil.String(), "read_key", "failed", "Failed to query key", err)
-		return nil, fmt.Errorf("failed to query key: %w", err)
-	}
-
-	key.ID, err = uuid.Parse(idStr)
-	if err != nil {
-		return nil, fmt.Errorf("failed to parse key ID: %w", err)
-	}
-
-	key.UserID, err = uuid.Parse(userIDStr)
-	if err != nil {
-		return nil, fmt.Errorf("failed to parse user ID: %w", err)
-	}
-
-	// Retrieve tags using TagRepository.
-	tagRepo := db.NewTagRepository[model.Key](r.db, "key_tags", "key_id")
-	key.Tags, err = tagRepo.GetTags(ctx, id)
-	if err != nil {
-		r.log.LogAuditError(uuid.Nil.String(), "read_key", "failed", "Failed to read tags", err)
-		return nil, fmt.Errorf("failed to read tags: %w", err)
-	}
-
-	// Populate VaultID from the queried vault for caller consistency.
-	key.VaultID = vaultID
-
-	return &key, nil
 }
 
 // SoftDeleteVaultContents marks every active key in a vault as soft-deleted.

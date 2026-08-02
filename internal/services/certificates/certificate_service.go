@@ -65,13 +65,13 @@ type CreateCertificateResult struct {
 // UpdateCertificateRequest represents a request to update an existing certificate.
 type UpdateCertificateRequest struct {
 	CertID      uuid.UUID
-	Name        *string  // Optional - nil means no change.
-	Tags        []string // Optional - empty means no change.
-	UserID      uuid.UUID
-	AutoRenew   *bool      // Optional - nil means no change.
-	RenewalDays *int       // Optional - nil means no change.
-	Enabled     *bool      // Optional - nil means no change.
-	NotBefore   *time.Time // Optional - nil means no change.
+	Scope       model.Scope // Authorization scope for the read and the write.
+	Name        *string     // Optional - nil means no change.
+	Tags        []string    // Optional - empty means no change.
+	AutoRenew   *bool       // Optional - nil means no change.
+	RenewalDays *int        // Optional - nil means no change.
+	Enabled     *bool       // Optional - nil means no change.
+	NotBefore   *time.Time  // Optional - nil means no change.
 }
 
 // CertificateService handles X.509 certificate management operations.
@@ -80,16 +80,14 @@ type UpdateCertificateRequest struct {
 type CertificateService interface {
 	CreateSelfSignedCertificate(ctx context.Context, req CreateCertificateRequest) (*CreateCertificateResult, error)
 	CreateCASignedCertificate(ctx context.Context, req CreateCertificateRequest) (*CreateCertificateResult, error)
-	GetCertificate(ctx context.Context, certID, userID uuid.UUID) (*model.Certificate, error)
-	ListCertificates(ctx context.Context, userID uuid.UUID) ([]model.Certificate, error)
+	// GetCertificate retrieves a certificate authorized by scope.
+	GetCertificate(ctx context.Context, certID uuid.UUID, scope model.Scope) (*model.Certificate, error)
+	// ListCertificates lists certificates authorized by scope.
+	ListCertificates(ctx context.Context, scope model.Scope, filter repositories.CertificateFilter) ([]model.Certificate, error)
+	// UpdateCertificate updates a certificate authorized by req.Scope.
 	UpdateCertificate(ctx context.Context, req UpdateCertificateRequest) error
-	DeleteCertificate(ctx context.Context, certID, userID uuid.UUID) error
-	// GetCertificateInVault retrieves a certificate scoped to the given vault.
-	GetCertificateInVault(ctx context.Context, certID, vaultID uuid.UUID) (*model.Certificate, error)
-	// ListCertificatesInVault lists certificates scoped to the given vault.
-	ListCertificatesInVault(ctx context.Context, vaultID uuid.UUID) ([]model.Certificate, error)
-	// DeleteCertificateInVault removes a certificate scoped to the given vault.
-	DeleteCertificateInVault(ctx context.Context, certID, vaultID uuid.UUID) error
+	// DeleteCertificate soft-deletes a certificate authorized by scope.
+	DeleteCertificate(ctx context.Context, certID uuid.UUID, scope model.Scope) error
 	RenewCertificate(ctx context.Context, certID, userID uuid.UUID, validityDays int) (*CreateCertificateResult, error)
 	ValidateCertificateAccess(ctx context.Context, certID, userID uuid.UUID, role string) error
 	ValidateKeyOwnership(ctx context.Context, keyID, userID uuid.UUID, role string) error
@@ -158,8 +156,9 @@ func (s *certificateService) CreateSelfSignedCertificate(ctx context.Context, re
 		return nil, err
 	}
 
-	// Get the private key
-	key, err := s.keyRepo.Read(ctx, req.KeyID)
+	// Get the private key. Ownership was already verified by
+	// ValidateKeyOwnership above, so an admin scope is safe here.
+	key, err := s.keyRepo.Read(ctx, req.KeyID, model.NewAdminScope(req.UserID))
 	if err != nil {
 		s.logger.LogAuditError(req.UserID.String(), "create_self_signed_cert", "failed", "failed to read key", err)
 		return nil, fmt.Errorf("failed to read key: %w", err)
@@ -290,8 +289,9 @@ func (s *certificateService) CreateCASignedCertificate(ctx context.Context, req 
 		return nil, fmt.Errorf("cannot access CA certificate: %w", err)
 	}
 
-	// Get the private key for the new certificate
-	key, err := s.keyRepo.Read(ctx, req.KeyID)
+	// Get the private key for the new certificate. Ownership was already
+	// verified by ValidateKeyOwnership above, so an admin scope is safe here.
+	key, err := s.keyRepo.Read(ctx, req.KeyID, model.NewAdminScope(req.UserID))
 	if err != nil {
 		s.logger.LogAuditError(req.UserID.String(), "create_ca_signed_cert", "failed", "failed to read key", err)
 		return nil, fmt.Errorf("failed to read key: %w", err)
@@ -304,8 +304,9 @@ func (s *certificateService) CreateCASignedCertificate(ctx context.Context, req 
 		return nil, fmt.Errorf("failed to decrypt key: %w", err)
 	}
 
-	// Get the CA certificate
-	caCert, err := s.certRepo.Read(ctx, *req.CACertID)
+	// Get the CA certificate. Access was already verified by
+	// ValidateCertificateAccess above, so an admin scope is safe here.
+	caCert, err := s.certRepo.Read(ctx, *req.CACertID, model.NewAdminScope(req.UserID))
 	if err != nil {
 		s.logger.LogAuditError(req.UserID.String(), "create_ca_signed_cert", "failed", "failed to read CA certificate", err)
 		return nil, fmt.Errorf("failed to read CA certificate: %w", err)
@@ -395,177 +396,92 @@ func (s *certificateService) CreateCASignedCertificate(ctx context.Context, req 
 	}, nil
 }
 
-// GetCertificate retrieves a certificate by ID with access control validation.
-//
-// Parameters:
-//
-//	ctx: The context for the operation.
-//	certID: The certificate's unique identifier.
-//	userID: The requesting user's ID for access control.
-//
-// Returns:
-//
-//	The certificate information or an error if not found or access denied.
-func (s *certificateService) GetCertificate(ctx context.Context, certID, userID uuid.UUID) (*model.Certificate, error) {
-	cert, err := s.certRepo.Read(ctx, certID)
+// GetCertificate retrieves a certificate authorized by scope and
+// enforces its lifecycle policy.
+func (s *certificateService) GetCertificate(ctx context.Context, certID uuid.UUID, scope model.Scope) (*model.Certificate, error) {
+	actor := scope.ActorID().String()
+
+	cert, err := s.certRepo.Read(ctx, certID, scope)
 	if err != nil {
-		s.logger.LogAuditError(userID.String(), "get_certificate", "failed", fmt.Sprintf("failed to read certificate: %s", err), err)
+		s.logger.LogAuditError(actor, "get_certificate", "failed",
+			fmt.Sprintf("Certificate not found: %s", certID), err)
 		return nil, fmt.Errorf("%w: %s", ErrCertNotFound, err.Error())
 	}
 
-	// Access control: users can only access their own certificates. Treat
-	// cross-user access as not-found to avoid leaking the existence of other
-	// users' certificates.
-	if cert.UserID != userID {
-		s.logger.LogAuditError(userID.String(), "get_certificate", "failed", "forbidden: cannot access other users' certificates", nil)
-		return nil, fmt.Errorf("%w: cannot access other users' certificates", ErrCertNotFound)
-	}
-
-	// Enforce lifecycle policy.
 	if !cert.IsAccessible() {
-		s.logger.LogAuditError(userID.String(), "get_certificate", "failed", "certificate is disabled or outside its valid time window", nil)
+		s.logger.LogAuditError(actor, "get_certificate", "denied",
+			fmt.Sprintf("Certificate is disabled or outside its valid time window: %s", certID), nil)
 		return nil, fmt.Errorf("%w", ErrCertLifecycleDenied)
 	}
 
 	return cert, nil
 }
 
-// ListCertificates retrieves all certificates for a specific user.
-//
-// Parameters:
-//
-//	ctx: The context for the operation.
-//	userID: The user's unique identifier.
-//
-// Returns:
-//
-//	A slice of user's certificates or an error if retrieval fails.
-func (s *certificateService) ListCertificates(ctx context.Context, userID uuid.UUID) ([]model.Certificate, error) {
-	return s.certRepo.ListByUser(ctx, userID, "", nil)
+// ListCertificates lists certificates authorized by scope.
+func (s *certificateService) ListCertificates(ctx context.Context, scope model.Scope, filter repositories.CertificateFilter) ([]model.Certificate, error) {
+	certs, err := s.certRepo.List(ctx, scope, filter)
+	if err != nil {
+		s.logger.LogAuditError(scope.ActorID().String(), "list_certificates", "failed", "Failed to list certificates", err)
+		return nil, fmt.Errorf("failed to list certificates: %w", err)
+	}
+	return certs, nil
 }
 
-// UpdateCertificate updates an existing certificate with access control validation.
-//
-// Parameters:
-//
-//	ctx: The context for the operation.
-//	req: The certificate update request with optional fields.
-//
-// Returns:
-//
-//	An error if the update fails or access is denied.
+// UpdateCertificate updates a certificate authorized by req.Scope.
 func (s *certificateService) UpdateCertificate(ctx context.Context, req UpdateCertificateRequest) error {
-	logrus.WithField("cert_id", req.CertID.String()).Info("Updating certificate")
+	actor := req.Scope.ActorID().String()
 
-	// Verify certificate exists and access
-	cert, err := s.GetCertificate(ctx, req.CertID, req.UserID)
+	cert, err := s.certRepo.Read(ctx, req.CertID, req.Scope)
 	if err != nil {
-		return err
+		s.logger.LogAuditError(actor, "update_certificate", "failed", "Certificate not found", err)
+		return fmt.Errorf("%w: %s", ErrCertNotFound, err.Error())
 	}
 
-	// Prepare updated certificate
-	updatedCert := *cert
-
-	// Update name if provided
+	updated := *cert
 	if req.Name != nil {
-		updatedCert.Name = *req.Name
+		updated.Name = *req.Name
 	}
-
-	// Update tags if provided
-	if len(req.Tags) > 0 {
-		updatedCert.Tags = req.Tags
+	if req.Tags != nil {
+		updated.Tags = req.Tags
 	}
-
-	// Update auto-renew setting if provided
 	if req.AutoRenew != nil {
-		updatedCert.AutoRenew = *req.AutoRenew
+		updated.AutoRenew = *req.AutoRenew
 	}
-
-	// Update renewal days if provided
 	if req.RenewalDays != nil {
-		updatedCert.RenewalDays = *req.RenewalDays
+		updated.RenewalDays = *req.RenewalDays
 	}
-
-	// Update lifecycle attributes if provided.
 	if req.Enabled != nil {
-		updatedCert.Enabled = *req.Enabled
+		updated.Enabled = *req.Enabled
 	}
 	if req.NotBefore != nil {
-		updatedCert.NotBefore = req.NotBefore
+		updated.NotBefore = req.NotBefore
 	}
 
-	// Update certificate via repository
-	if err := s.certRepo.Update(ctx, &updatedCert); err != nil {
-		s.logger.LogAuditError(req.UserID.String(), "update_certificate", "failed", "Failed to update certificate", err)
+	if err := s.certRepo.Update(ctx, &updated, req.Scope); err != nil {
+		s.logger.LogAuditError(actor, "update_certificate", "failed", "Failed to update certificate", err)
 		return fmt.Errorf("failed to update certificate: %w", err)
 	}
 
-	s.logger.LogAuditInfo(req.UserID.String(), "update_certificate", "success", fmt.Sprintf("Certificate updated: %s", updatedCert.Name))
+	s.logger.LogAuditInfo(actor, "update_certificate", "success", fmt.Sprintf("Certificate updated: %s", updated.Name))
 	return nil
 }
 
-// DeleteCertificate removes a certificate from the system with access control validation.
-//
-// Parameters:
-//
-//	ctx: The context for the operation.
-//	certID: The certificate's unique identifier.
-//	userID: The requesting user's ID for access control.
-//
-// Returns:
-//
-//	An error if deletion fails or access is denied.
-func (s *certificateService) DeleteCertificate(ctx context.Context, certID, userID uuid.UUID) error {
-	// Verify certificate exists and access
-	if _, err := s.GetCertificate(ctx, certID, userID); err != nil {
-		return err
-	}
+// DeleteCertificate soft-deletes a certificate authorized by scope.
+func (s *certificateService) DeleteCertificate(ctx context.Context, certID uuid.UUID, scope model.Scope) error {
+	actor := scope.ActorID().String()
 
-	if err := s.certRepo.SoftDelete(ctx, certID); err != nil {
-		s.logger.LogAuditError(userID.String(), "delete_certificate", "failed", "Failed to soft delete certificate", err)
-		return fmt.Errorf("failed to delete certificate: %w", err)
-	}
-
-	s.logger.LogAuditInfo(userID.String(), "delete_certificate", "success", "Certificate soft deleted successfully")
-	return nil
-}
-
-// GetCertificateInVault retrieves a certificate scoped to a vault. It mirrors
-// GetCertificate but enforces vault scope via ReadInVault instead of ownership.
-func (s *certificateService) GetCertificateInVault(ctx context.Context, certID, vaultID uuid.UUID) (*model.Certificate, error) {
-	cert, err := s.certRepo.ReadInVault(ctx, certID, vaultID)
+	cert, err := s.certRepo.Read(ctx, certID, scope)
 	if err != nil {
-		s.logger.LogAuditError("", "get_certificate", "failed", fmt.Sprintf("failed to read certificate: %s", err), err)
-		return nil, fmt.Errorf("%w: %s", ErrCertNotFound, err.Error())
-	}
-
-	if !cert.IsAccessible() {
-		s.logger.LogAuditError("", "get_certificate", "failed", "certificate is disabled or outside its valid time window", nil)
-		return nil, fmt.Errorf("%w", ErrCertLifecycleDenied)
-	}
-
-	return cert, nil
-}
-
-// ListCertificatesInVault retrieves all certificates in a vault. It mirrors
-// ListCertificates but scopes by vault instead of user.
-func (s *certificateService) ListCertificatesInVault(ctx context.Context, vaultID uuid.UUID) ([]model.Certificate, error) {
-	return s.certRepo.ListInVault(ctx, vaultID, "", nil)
-}
-
-// DeleteCertificateInVault soft-deletes a certificate scoped to a vault. It
-// mirrors DeleteCertificate but verifies vault scope via ReadInVault.
-func (s *certificateService) DeleteCertificateInVault(ctx context.Context, certID, vaultID uuid.UUID) error {
-	if _, err := s.certRepo.ReadInVault(ctx, certID, vaultID); err != nil {
+		s.logger.LogAuditError(actor, "delete_certificate", "failed", "Certificate not found", err)
 		return fmt.Errorf("%w: %s", ErrCertNotFound, err.Error())
 	}
 
 	if err := s.certRepo.SoftDelete(ctx, certID); err != nil {
-		s.logger.LogAuditError("", "delete_certificate", "failed", "Failed to soft delete certificate", err)
+		s.logger.LogAuditError(actor, "delete_certificate", "failed", "Failed to soft-delete certificate", err)
 		return fmt.Errorf("failed to delete certificate: %w", err)
 	}
 
-	s.logger.LogAuditInfo("", "delete_certificate", "success", "Certificate soft deleted successfully")
+	s.logger.LogAuditInfo(actor, "delete_certificate", "success", fmt.Sprintf("Certificate deleted: %s", cert.Name))
 	return nil
 }
 
@@ -584,7 +500,10 @@ func (s *certificateService) DeleteCertificateInVault(ctx context.Context, certI
 //	The new certificate information or an error if renewal fails.
 func (s *certificateService) RenewCertificate(ctx context.Context, certID, userID uuid.UUID, validityDays int) (*CreateCertificateResult, error) {
 	// Verify certificate exists and access; original carries AutoRenew/RenewalDays.
-	original, err := s.GetCertificate(ctx, certID, userID)
+	// An owner scope preserves the pre-refactor ownership check: this is the
+	// sole authorization gate for this path (unlike RotateKey/ValidateKeyAccess,
+	// there is no separate manual ownership comparison here).
+	original, err := s.GetCertificate(ctx, certID, model.NewOwnerScope(uuid.Nil, userID))
 	if err != nil {
 		return nil, err
 	}
@@ -624,7 +543,7 @@ func (s *certificateService) ValidateCertificateAccess(ctx context.Context, cert
 	}
 
 	// Non-admin users can only access their own certificates
-	cert, err := s.certRepo.Read(ctx, certID)
+	cert, err := s.certRepo.Read(ctx, certID, model.NewAdminScope(userID))
 	if err != nil {
 		s.logger.LogAuditError(userID.String(), "validate_certificate_access", "failed", fmt.Sprintf("certificate not found: %s", err), err)
 		return fmt.Errorf("certificate not found: %w", err)
@@ -658,7 +577,7 @@ func (s *certificateService) ValidateKeyOwnership(ctx context.Context, keyID, us
 	}
 
 	// Verify key ownership
-	key, err := s.keyRepo.Read(ctx, keyID)
+	key, err := s.keyRepo.Read(ctx, keyID, model.NewAdminScope(userID))
 	if err != nil {
 		s.logger.LogAuditError(userID.String(), "validate_key_ownership", "failed", fmt.Sprintf("key not found: %s", err), err)
 		return fmt.Errorf("key not found: %w", err)

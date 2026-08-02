@@ -253,7 +253,7 @@ func TestSecretRepo_Update_DBError(t *testing.T) {
 
 	repo := &SecretRepository{db: rvdb.NewConn(db, rvdb.SQLite), log: newInternalLogger()}
 	s := newTestSecret(uuid.New())
-	err = repo.Update(context.Background(), s)
+	err = repo.Update(context.Background(), s, model.NewAdminScope(uuid.Nil))
 	assert.Error(t, err)
 }
 
@@ -300,7 +300,7 @@ func TestSecretRepo_Read_DBError(t *testing.T) {
 	require.NoError(t, err)
 
 	repo := &SecretRepository{db: rvdb.NewConn(db, rvdb.SQLite), log: newInternalLogger()}
-	_, err = repo.Read(context.Background(), uuid.New())
+	_, err = repo.Read(context.Background(), uuid.New(), model.NewAdminScope(uuid.Nil))
 	assert.Error(t, err)
 }
 
@@ -356,7 +356,7 @@ func TestKeyRepo_Read_DBError(t *testing.T) {
 	require.NoError(t, err)
 
 	repo := &KeyRepository{db: rvdb.NewConn(db, rvdb.SQLite), log: newInternalLogger()}
-	_, err = repo.Read(context.Background(), uuid.New())
+	_, err = repo.Read(context.Background(), uuid.New(), model.NewAdminScope(uuid.Nil))
 	assert.Error(t, err)
 }
 
@@ -431,7 +431,7 @@ func TestCertRepo_Update_NotFound(t *testing.T) {
 
 	repo := &CertificateRepository{db: rvdb.NewConn(db, rvdb.SQLite), log: newInternalLogger()}
 	c := newTestCert(uuid.New())
-	err := repo.Update(context.Background(), c)
+	err := repo.Update(context.Background(), c, model.NewAdminScope(uuid.Nil))
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "not found")
 }
@@ -445,7 +445,7 @@ func TestCertRepo_Update_DBError(t *testing.T) {
 
 	repo := &CertificateRepository{db: rvdb.NewConn(db, rvdb.SQLite), log: newInternalLogger()}
 	c := newTestCert(uuid.New())
-	err = repo.Update(context.Background(), c)
+	err = repo.Update(context.Background(), c, model.NewAdminScope(uuid.Nil))
 	assert.Error(t, err)
 }
 
@@ -865,7 +865,7 @@ func TestKeyRepo_ReadInVault_DBError(t *testing.T) {
 	require.NoError(t, err)
 
 	repo := &KeyRepository{db: rvdb.NewConn(db, rvdb.SQLite), log: newInternalLogger()}
-	_, err = repo.ReadInVault(context.Background(), uuid.New(), uuid.New())
+	_, err = repo.Read(context.Background(), uuid.New(), model.NewVaultScope(uuid.New(), uuid.Nil))
 	assert.Error(t, err)
 }
 
@@ -954,7 +954,7 @@ func TestCertRepo_ListByUser_DBError(t *testing.T) {
 	require.NoError(t, err)
 
 	repo := &CertificateRepository{db: rvdb.NewConn(db, rvdb.SQLite), log: newInternalLogger()}
-	_, err = repo.ListByUser(context.Background(), uuid.New(), "", nil)
+	_, err = repo.List(context.Background(), model.NewOwnerScope(uuid.Nil, uuid.New()), CertificateFilter{})
 	assert.Error(t, err)
 }
 
@@ -966,7 +966,7 @@ func TestCertRepo_ListInVault_DBError(t *testing.T) {
 	require.NoError(t, err)
 
 	repo := &CertificateRepository{db: rvdb.NewConn(db, rvdb.SQLite), log: newInternalLogger()}
-	_, err = repo.ListInVault(context.Background(), uuid.New(), "", nil)
+	_, err = repo.List(context.Background(), model.NewVaultScope(uuid.New(), uuid.Nil), CertificateFilter{})
 	assert.Error(t, err)
 }
 
@@ -987,27 +987,27 @@ func TestCertRepo_Delete_TagsDBError(t *testing.T) {
 // Additional SecretRepository DB-error branch tests
 // ---------------------------------------------------------------------------
 
-// TestSecretRepo_ListByUser_DBError drops the table to force a query error.
-func TestSecretRepo_ListByUser_DBError(t *testing.T) {
+// TestSecretRepo_List_OwnerScope_DBError drops the table to force a query error.
+func TestSecretRepo_List_OwnerScope_DBError(t *testing.T) {
 	db := openMemDB(t)
 	makeSecretsTable(t, db)
 	_, err := db.Exec("DROP TABLE secrets")
 	require.NoError(t, err)
 
 	repo := &SecretRepository{db: rvdb.NewConn(db, rvdb.SQLite), log: newInternalLogger()}
-	_, err = repo.ListByUser(context.Background(), uuid.New(), nil)
+	_, err = repo.List(context.Background(), model.NewOwnerScope(uuid.Nil, uuid.New()), SecretFilter{})
 	assert.Error(t, err)
 }
 
-// TestSecretRepo_ListInVault_DBError drops the table to force a query error.
-func TestSecretRepo_ListInVault_DBError(t *testing.T) {
+// TestSecretRepo_List_VaultScope_DBError drops the table to force a query error.
+func TestSecretRepo_List_VaultScope_DBError(t *testing.T) {
 	db := openMemDB(t)
 	makeSecretsTable(t, db)
 	_, err := db.Exec("DROP TABLE secrets")
 	require.NoError(t, err)
 
 	repo := &SecretRepository{db: rvdb.NewConn(db, rvdb.SQLite), log: newInternalLogger()}
-	_, err = repo.ListInVault(context.Background(), uuid.New(), nil)
+	_, err = repo.List(context.Background(), model.NewVaultScope(uuid.New(), uuid.Nil), SecretFilter{})
 	assert.Error(t, err)
 }
 

@@ -97,7 +97,7 @@ func TestKeySoftDelete(t *testing.T) {
 	require.NoError(t, repo.SoftDelete(ctx, key.ID))
 
 	// Normal Read should return error (soft-deleted item not visible).
-	_, err := repo.Read(ctx, key.ID)
+	_, err := repo.Read(ctx, key.ID, model.NewAdminScope(uuid.Nil))
 	assert.Error(t, err)
 
 	// ListSoftDeleted should include it.
@@ -125,10 +125,10 @@ func TestKeyRepository_ListInVault_ScopesByVault(t *testing.T) {
 	require.NoError(t, repo.Create(ctx, mk("b", vaultA)))
 	require.NoError(t, repo.Create(ctx, mk("c", vaultB)))
 
-	gotA, err := repo.ListInVault(ctx, vaultA, "", nil)
+	gotA, err := repo.List(ctx, model.NewVaultScope(vaultA, uuid.Nil), repositories.KeyFilter{})
 	require.NoError(t, err)
 	require.Len(t, gotA, 2)
-	gotB, err := repo.ListInVault(ctx, vaultB, "", nil)
+	gotB, err := repo.List(ctx, model.NewVaultScope(vaultB, uuid.Nil), repositories.KeyFilter{})
 	require.NoError(t, err)
 	require.Len(t, gotB, 1)
 }
@@ -146,14 +146,14 @@ func TestKeyRepository_ReadInVault_PopulatesVaultID(t *testing.T) {
 	key := &model.Key{ID: uuid.New(), UserID: uuid.New(), VaultID: vaultA, Name: "k", Type: "RSA", Value: "x", CreatedAt: time.Now(), Enabled: true}
 	require.NoError(t, repo.Create(ctx, key))
 
-	read, err := repo.ReadInVault(ctx, key.ID, vaultA)
+	read, err := repo.Read(ctx, key.ID, model.NewVaultScope(vaultA, uuid.Nil))
 	require.NoError(t, err)
-	assert.Equal(t, vaultA, read.VaultID, "ReadInVault must populate VaultID on returned key")
+	assert.Equal(t, vaultA, read.VaultID, "Read with a vault scope must populate VaultID on returned key")
 
-	listed, err := repo.ListInVault(ctx, vaultA, "", nil)
+	listed, err := repo.List(ctx, model.NewVaultScope(vaultA, uuid.Nil), repositories.KeyFilter{})
 	require.NoError(t, err)
 	require.Len(t, listed, 1)
-	assert.Equal(t, vaultA, listed[0].VaultID, "ListInVault must populate VaultID on returned keys")
+	assert.Equal(t, vaultA, listed[0].VaultID, "List with a vault scope must populate VaultID on returned keys")
 }
 
 func TestKeyRepository_UpdateSetsUpdatedAt(t *testing.T) {
@@ -175,16 +175,16 @@ func TestKeyRepository_UpdateSetsUpdatedAt(t *testing.T) {
 	require.NoError(t, repo.Create(ctx, key))
 
 	// UpdatedAt must be nil before the first Update call.
-	created, err := repo.Read(ctx, key.ID)
+	created, err := repo.Read(ctx, key.ID, model.NewAdminScope(uuid.Nil))
 	require.NoError(t, err)
 	assert.Nil(t, created.UpdatedAt, "UpdatedAt should be nil before first update")
 
 	// Update the key and verify UpdatedAt is stamped.
 	beforeUpdate := time.Now()
 	created.Name = "update-at-test-key-renamed"
-	require.NoError(t, repo.Update(ctx, created))
+	require.NoError(t, repo.Update(ctx, created, model.NewAdminScope(uuid.Nil)))
 
-	updated, err := repo.Read(ctx, key.ID)
+	updated, err := repo.Read(ctx, key.ID, model.NewAdminScope(uuid.Nil))
 	require.NoError(t, err)
 	require.NotNil(t, updated.UpdatedAt, "UpdatedAt must be non-nil after Update")
 	assert.True(t, !updated.UpdatedAt.Before(beforeUpdate),
@@ -267,7 +267,7 @@ func TestKeyLifecycleAttributes_PersistAndLoad(t *testing.T) {
 	}
 	require.NoError(t, repo.Create(context.Background(), k))
 
-	loaded, err := repo.Read(context.Background(), k.ID)
+	loaded, err := repo.Read(context.Background(), k.ID, model.NewAdminScope(uuid.Nil))
 	require.NoError(t, err)
 	require.True(t, loaded.Enabled)
 	require.NotNil(t, loaded.ExpiresAt)

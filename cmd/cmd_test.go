@@ -212,7 +212,7 @@ func TestRunVersionList_EmptyVersions(t *testing.T) {
 	tc := testutils.NewTestContext(t)
 	sID := uuid.New()
 
-	tc.MockSecretService.On("GetSecretVersions", mock.Anything, sID, tc.TestUserID).
+	tc.MockSecretService.On("GetSecretVersions", mock.Anything, sID, model.NewOwnerScope(uuid.Nil, tc.TestUserID)).
 		Return([]model.SecretVersion{}, nil)
 	tc.MockContainer.On("GetSecretService").Return(tc.MockSecretService)
 
@@ -233,7 +233,7 @@ func TestRunVersionList_ServiceReturnsError(t *testing.T) {
 	tc := testutils.NewTestContext(t)
 	sID := uuid.New()
 
-	tc.MockSecretService.On("GetSecretVersions", mock.Anything, sID, tc.TestUserID).
+	tc.MockSecretService.On("GetSecretVersions", mock.Anything, sID, model.NewOwnerScope(uuid.Nil, tc.TestUserID)).
 		Return(nil, fmt.Errorf("db error"))
 	tc.MockContainer.On("GetSecretService").Return(tc.MockSecretService)
 
@@ -290,7 +290,7 @@ func TestRunVersionGet_ServiceReturnsError(t *testing.T) {
 	versionSecretID = sID.String()
 	versionNumber = 99
 
-	tc.MockSecretService.On("GetSecretVersion", mock.Anything, sID, 99, tc.TestUserID).
+	tc.MockSecretService.On("GetSecretVersion", mock.Anything, sID, 99, model.NewOwnerScope(uuid.Nil, tc.TestUserID)).
 		Return(nil, fmt.Errorf("not found"))
 	tc.MockContainer.On("GetSecretService").Return(tc.MockSecretService)
 
@@ -341,7 +341,7 @@ func TestRunVersionLatest_ServiceReturnsError(t *testing.T) {
 	sID := uuid.New()
 	versionSecretID = sID.String()
 
-	tc.MockSecretService.On("GetLatestSecretVersion", mock.Anything, sID, tc.TestUserID).
+	tc.MockSecretService.On("GetLatestSecretVersion", mock.Anything, sID, model.NewOwnerScope(uuid.Nil, tc.TestUserID)).
 		Return(nil, fmt.Errorf("db error"))
 	tc.MockContainer.On("GetSecretService").Return(tc.MockSecretService)
 

@@ -436,3 +436,52 @@ func TestVaultService_SetTxBeginnerIsPartOfTheInterface(t *testing.T) {
 		SetTxBeginner(tb TxBeginner)
 	} = svc
 }
+
+// countingFlusher records how many times the cascade flushed the secret cache.
+type countingFlusher struct{ flushes int }
+
+func (c *countingFlusher) Flush(context.Context) error { c.flushes++; return nil }
+
+// TestDeleteAndRecoverVaultFlushTheSecretCache pins the cache half of the
+// cascade. The cascade stamps deleted_at on every secret in the vault with one
+// bulk UPDATE that never goes through CachedSecretService, so without this
+// flush a member who read a secret just before the delete keeps being served
+// its plaintext from cache for the full TTL.
+func TestDeleteAndRecoverVaultFlushTheSecretCache(t *testing.T) {
+	repo := newFakeRepo()
+	id := uuid.New()
+	repo.byName["stg"] = &model.Vault{ID: id, Name: "stg", Enabled: true}
+	repo.byID[id.String()] = repo.byName["stg"]
+
+	flusher := &countingFlusher{}
+	svc := NewVaultService(repo, &noopCascade{}, nil)
+	svc.SetSecretCacheFlusher(flusher)
+
+	if err := svc.DeleteVault(context.Background(), "stg"); err != nil {
+		t.Fatalf("DeleteVault: %v", err)
+	}
+	if flusher.flushes != 1 {
+		t.Fatalf("expected one flush after the delete cascade, got %d", flusher.flushes)
+	}
+
+	if err := svc.RecoverVault(context.Background(), "stg"); err != nil {
+		t.Fatalf("RecoverVault: %v", err)
+	}
+	if flusher.flushes != 2 {
+		t.Fatalf("expected a second flush after the recover cascade, got %d", flusher.flushes)
+	}
+}
+
+// TestVaultCascadeToleratesADisabledCache pins that an unset flusher (caching
+// disabled) is a no-op rather than a nil-pointer panic.
+func TestVaultCascadeToleratesADisabledCache(t *testing.T) {
+	repo := newFakeRepo()
+	id := uuid.New()
+	repo.byName["stg"] = &model.Vault{ID: id, Name: "stg", Enabled: true}
+	repo.byID[id.String()] = repo.byName["stg"]
+
+	svc := NewVaultService(repo, &noopCascade{}, nil)
+	if err := svc.DeleteVault(context.Background(), "stg"); err != nil {
+		t.Fatalf("DeleteVault: %v", err)
+	}
+}

@@ -31,6 +31,7 @@ import (
 
 	"rocketvault/common"
 	"rocketvault/internal/container"
+	"rocketvault/model"
 )
 
 var (
@@ -129,7 +130,7 @@ func runVersionList(cmd *cobra.Command) error {
 		return fmt.Errorf("service container not available in context")
 	}
 
-	versions, err := sc.GetSecretService().GetSecretVersions(ctx, secretID, userID)
+	versions, err := sc.GetSecretService().GetSecretVersions(ctx, secretID, model.NewOwnerScope(uuid.Nil, userID))
 	if err != nil {
 		return fmt.Errorf("failed to get versions: %w", err)
 	}
@@ -165,7 +166,7 @@ func runVersionGet(cmd *cobra.Command) error {
 		return fmt.Errorf("service container not available in context")
 	}
 
-	version, err := sc.GetSecretService().GetSecretVersion(ctx, secretID, versionNumber, userID)
+	version, err := sc.GetSecretService().GetSecretVersion(ctx, secretID, versionNumber, model.NewOwnerScope(uuid.Nil, userID))
 	if err != nil {
 		return fmt.Errorf("failed to get version: %w", err)
 	}
@@ -190,7 +191,7 @@ func runVersionLatest(cmd *cobra.Command) error {
 		return fmt.Errorf("service container not available in context")
 	}
 
-	version, err := sc.GetSecretService().GetLatestSecretVersion(ctx, secretID, userID)
+	version, err := sc.GetSecretService().GetLatestSecretVersion(ctx, secretID, model.NewOwnerScope(uuid.Nil, userID))
 	if err != nil {
 		return fmt.Errorf("failed to get latest version: %w", err)
 	}

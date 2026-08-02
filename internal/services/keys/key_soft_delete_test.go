@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/mock"
 
 	"rocketvault/internal/logging"
+	"rocketvault/internal/repositories"
 	"rocketvault/model"
 )
 
@@ -20,18 +21,6 @@ type mockKeyRepository struct {
 }
 
 func (m *mockKeyRepository) Create(ctx context.Context, key *model.Key) error {
-	return m.Called(ctx, key).Error(0)
-}
-
-func (m *mockKeyRepository) Read(ctx context.Context, id uuid.UUID) (*model.Key, error) {
-	args := m.Called(ctx, id)
-	if v := args.Get(0); v != nil {
-		return v.(*model.Key), args.Error(1)
-	}
-	return nil, args.Error(1)
-}
-
-func (m *mockKeyRepository) Update(ctx context.Context, key *model.Key) error {
 	return m.Called(ctx, key).Error(0)
 }
 
@@ -49,14 +38,6 @@ func (m *mockKeyRepository) PurgeKey(ctx context.Context, id uuid.UUID) error {
 
 func (m *mockKeyRepository) SetPurgeProtection(ctx context.Context, id uuid.UUID, enabled bool) error {
 	return m.Called(ctx, id, enabled).Error(0)
-}
-
-func (m *mockKeyRepository) ListByUser(ctx context.Context, userID *uuid.UUID, keyType string, tags []string) ([]model.Key, error) {
-	args := m.Called(ctx, userID, keyType, tags)
-	if v := args.Get(0); v != nil {
-		return v.([]model.Key), args.Error(1)
-	}
-	return nil, args.Error(1)
 }
 
 func (m *mockKeyRepository) UpdateRevocationStatus(ctx context.Context, id uuid.UUID, revoked bool) error {
@@ -95,22 +76,6 @@ func (m *mockKeyRepository) ListVersions(ctx context.Context, keyID, userID uuid
 	return nil, args.Error(1)
 }
 
-func (m *mockKeyRepository) ListInVault(ctx context.Context, vaultID uuid.UUID, keyType string, tags []string) ([]model.Key, error) {
-	args := m.Called(ctx, vaultID, keyType, tags)
-	if v := args.Get(0); v != nil {
-		return v.([]model.Key), args.Error(1)
-	}
-	return nil, args.Error(1)
-}
-
-func (m *mockKeyRepository) ReadInVault(ctx context.Context, id, vaultID uuid.UUID) (*model.Key, error) {
-	args := m.Called(ctx, id, vaultID)
-	if v := args.Get(0); v != nil {
-		return v.(*model.Key), args.Error(1)
-	}
-	return nil, args.Error(1)
-}
-
 func (m *mockKeyRepository) SoftDeleteVaultContents(ctx context.Context, vaultID uuid.UUID, deletedAt time.Time) error {
 	args := m.Called(ctx, vaultID, deletedAt)
 	return args.Error(0)
@@ -119,6 +84,27 @@ func (m *mockKeyRepository) SoftDeleteVaultContents(ctx context.Context, vaultID
 func (m *mockKeyRepository) RecoverVaultContents(ctx context.Context, vaultID uuid.UUID, deletedAt time.Time) error {
 	args := m.Called(ctx, vaultID, deletedAt)
 	return args.Error(0)
+}
+
+func (m *mockKeyRepository) Read(ctx context.Context, id uuid.UUID, scope model.Scope) (*model.Key, error) {
+	args := m.Called(ctx, id, scope)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).(*model.Key), args.Error(1)
+}
+
+func (m *mockKeyRepository) Update(ctx context.Context, key *model.Key, scope model.Scope) error {
+	args := m.Called(ctx, key, scope)
+	return args.Error(0)
+}
+
+func (m *mockKeyRepository) List(ctx context.Context, scope model.Scope, filter repositories.KeyFilter) ([]model.Key, error) {
+	args := m.Called(ctx, scope, filter)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).([]model.Key), args.Error(1)
 }
 
 // TestDeleteKeySoftDeletes verifies that DeleteKey calls SoftDelete and not Delete.
@@ -147,8 +133,8 @@ func TestDeleteKeySoftDeletes(t *testing.T) {
 
 	repo := &mockKeyRepository{}
 
-	// GetKey calls Read internally — return the key so access check passes.
-	repo.On("Read", mock.Anything, keyID).Return(existingKey, nil)
+	// DeleteKey reads via the scoped read — return the key so access check passes.
+	repo.On("Read", mock.Anything, keyID, model.NewOwnerScope(uuid.Nil, userID)).Return(existingKey, nil)
 
 	// SoftDelete must be called once.
 	repo.On("SoftDelete", mock.Anything, keyID).Return(nil)
@@ -165,7 +151,7 @@ func TestDeleteKeySoftDeletes(t *testing.T) {
 		Logger:        logger,
 	})
 
-	result, err := svc.DeleteKey(context.Background(), keyID, userID)
+	result, err := svc.DeleteKey(context.Background(), keyID, model.NewOwnerScope(uuid.Nil, userID))
 	assert.NoError(t, err)
 	assert.NotNil(t, result)
 
@@ -201,7 +187,7 @@ func TestDeleteKey_ReturnsDeletedRecord(t *testing.T) {
 	}
 
 	repo := &mockKeyRepository{}
-	repo.On("Read", mock.Anything, keyID).Return(existingKey, nil)
+	repo.On("Read", mock.Anything, keyID, model.NewOwnerScope(uuid.Nil, userID)).Return(existingKey, nil)
 	repo.On("SoftDelete", mock.Anything, keyID).Return(nil)
 	repo.On("ReadDeleted", mock.Anything, keyID).Return(deletedKey, nil)
 
@@ -211,7 +197,7 @@ func TestDeleteKey_ReturnsDeletedRecord(t *testing.T) {
 		Logger:        logger,
 	})
 
-	result, err := svc.DeleteKey(context.Background(), keyID, userID)
+	result, err := svc.DeleteKey(context.Background(), keyID, model.NewOwnerScope(uuid.Nil, userID))
 	assert.NoError(t, err)
 	assert.NotNil(t, result)
 	assert.NotNil(t, result.DeletedAt, "DeletedAt must be populated in the returned record")

@@ -72,7 +72,7 @@ func TestCertLifecycleAttributes_PersistAndLoad(t *testing.T) {
 	}
 	require.NoError(t, repo.Create(context.Background(), cert))
 
-	loaded, err := repo.Read(context.Background(), cert.ID)
+	loaded, err := repo.Read(context.Background(), cert.ID, model.NewAdminScope(uuid.Nil))
 	require.NoError(t, err)
 	require.True(t, loaded.Enabled)
 	require.NotNil(t, loaded.NotBefore)

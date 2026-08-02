@@ -251,8 +251,10 @@ func (s *schedulerService) performAutomaticRotation(ctx context.Context, sp mode
 		return nil
 	}
 
-	// Get the secret to determine user
-	secret, err := s.secretRepo.Read(ctx, sp.SecretID)
+	// Get the secret to determine user. Automatic rotation is a background
+	// scheduler job with no per-request actor, so it reads with an admin
+	// scope; the secret's own owner drives the version and rotation that follow.
+	secret, err := s.secretRepo.Read(ctx, sp.SecretID, model.NewAdminScope(uuid.Nil))
 	if err != nil {
 		return fmt.Errorf("failed to get secret: %w", err)
 	}
@@ -305,8 +307,11 @@ func (s *schedulerService) sendReminder(ctx context.Context, reminder model.Rota
 		"sent_at":       reminder.SentAt,
 	}).Info("Rotation reminder sent")
 
-	// Acknowledge the reminder through rotation service
-	err := s.rotationSvc.AcknowledgeReminder(ctx, reminder.ID)
+	// Acknowledge the reminder through rotation service. uuid.Nil marks the
+	// scheduler as a trusted system caller, skipping the ownership check --
+	// it is acknowledging its own generated reminder, not acting on behalf
+	// of a specific user.
+	err := s.rotationSvc.AcknowledgeReminder(ctx, reminder.ID, reminder.SecretID, uuid.Nil)
 	if err != nil {
 		return fmt.Errorf("failed to acknowledge reminder: %w", err)
 	}

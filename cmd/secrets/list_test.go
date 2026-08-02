@@ -49,7 +49,7 @@ func TestListSecretsCommand(t *testing.T) {
 					},
 				}
 
-				tc.MockSecretService.On("ListSecrets", mock.Anything, tc.TestUserID, []string{}).
+				tc.MockSecretService.On("ListSecrets", mock.Anything, model.NewOwnerScope(uuid.Nil, tc.TestUserID), []string{}).
 					Return(secrets, nil)
 			},
 			expectedOutput: `"name": "api-key"`,
@@ -68,7 +68,7 @@ func TestListSecretsCommand(t *testing.T) {
 					},
 				}
 
-				tc.MockSecretService.On("ListSecrets", mock.Anything, tc.TestUserID, []string{"prod"}).
+				tc.MockSecretService.On("ListSecrets", mock.Anything, model.NewOwnerScope(uuid.Nil, tc.TestUserID), []string{"prod"}).
 					Return(secrets, nil)
 			},
 			flags: map[string]string{
@@ -79,7 +79,7 @@ func TestListSecretsCommand(t *testing.T) {
 		{
 			name: "empty secrets list",
 			setupMocks: func(tc *testutils.TestContext) {
-				tc.MockSecretService.On("ListSecrets", mock.Anything, tc.TestUserID, []string{}).
+				tc.MockSecretService.On("ListSecrets", mock.Anything, model.NewOwnerScope(uuid.Nil, tc.TestUserID), []string{}).
 					Return([]model.Secret{}, nil)
 			},
 			expectedOutput: "[]",
@@ -87,7 +87,7 @@ func TestListSecretsCommand(t *testing.T) {
 		{
 			name: "service error",
 			setupMocks: func(tc *testutils.TestContext) {
-				tc.MockSecretService.On("ListSecrets", mock.Anything, tc.TestUserID, []string{}).
+				tc.MockSecretService.On("ListSecrets", mock.Anything, model.NewOwnerScope(uuid.Nil, tc.TestUserID), []string{}).
 					Return(nil, assert.AnError)
 			},
 			expectedError: "failed to list secrets",
@@ -116,7 +116,7 @@ func TestListSecretsCommand(t *testing.T) {
 					}
 					secretService := serviceContainer.GetSecretService()
 
-					secretsList, err := secretService.ListSecrets(ctx, userID, tags)
+					secretsList, err := secretService.ListSecrets(ctx, model.NewOwnerScope(uuid.Nil, userID), tags)
 					if err != nil {
 						return fmt.Errorf("failed to list secrets: %w", err)
 					}
@@ -186,7 +186,7 @@ func TestListSecretsOutputFormat(t *testing.T) {
 		},
 	}
 
-	tc.MockSecretService.On("ListSecretsInVault", mock.Anything, tc.TestVaultID, []string{}).
+	tc.MockSecretService.On("ListSecrets", mock.Anything, model.NewVaultScope(tc.TestVaultID, uuid.Nil), []string{}).
 		Return(testSecrets, nil)
 
 	fmtr, err := formatter.New(formatter.FormatTable)

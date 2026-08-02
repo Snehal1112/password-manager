@@ -34,6 +34,7 @@ import (
 	"rocketvault/common"
 	"rocketvault/internal/container"
 	secretServices "rocketvault/internal/services/secrets"
+	"rocketvault/model"
 )
 
 var (
@@ -48,7 +49,9 @@ var secretsExportCmd = &cobra.Command{
 	Use:   "export",
 	Short: "Export secrets to a file",
 	Long: `Export secrets to an encrypted JSON or CSV file.
-The export includes all secrets for the authenticated user with optional tag filtering.`,
+The export includes only the secrets owned by the authenticated user, with
+optional tag filtering. Secrets owned by other members of the same vault are
+never included.`,
 	Example: `  # Export all secrets to JSON
   rocketvault secrets export --format json --file secrets.json \
     --username admin --password admin123 --totp-code <code>
@@ -74,10 +77,19 @@ The export includes all secrets for the authenticated user with optional tag fil
 			return fmt.Errorf("unsupported format: %s (supported: json, csv)", exportFormat)
 		}
 
+		// Resolve the target vault by name, matching the get/list/update/delete commands.
+		vaultID, err := resolveVaultID(ctx, cmd, sc)
+		if err != nil {
+			return err
+		}
+
 		allTags := append(exportTags, exportFilterTags...)
 
+		// Export writes decrypted secret values to a local file, so it stays
+		// owner-scoped on every route: a vault scope here would dump every
+		// vault member's plaintext. This matches the HTTP export handler.
 		data, err := sc.GetSecretService().ExportSecrets(ctx, secretServices.ExportSecretsRequest{
-			UserID:      userID,
+			Scope:       model.NewOwnerScope(vaultID, userID),
 			Format:      format,
 			FilterTags:  allTags,
 			IncludeTags: true,

@@ -62,21 +62,19 @@ func (m *mockKeyService) CreateECDSAKey(ctx context.Context, req keyServices.Cre
 	return args.Get(0).(*keyServices.CreateKeyResult), args.Error(1)
 }
 
-func (m *mockKeyService) GetKey(ctx context.Context, keyID, userID uuid.UUID) (*model.Key, error) {
-	args := m.Called(ctx, keyID, userID)
+func (m *mockKeyService) GetKey(ctx context.Context, keyID uuid.UUID, scope model.Scope) (*model.Key, error) {
+	args := m.Called(ctx, keyID, scope)
 	if args.Get(0) == nil {
 		return nil, args.Error(1)
 	}
 	return args.Get(0).(*model.Key), args.Error(1)
 }
 
-func (m *mockKeyService) ListKeys(ctx context.Context, userID uuid.UUID) ([]model.Key, error) {
-	args := m.Called(ctx, userID)
-	return args.Get(0).([]model.Key), args.Error(1)
-}
-
-func (m *mockKeyService) ListKeysWithFilters(ctx context.Context, userID *uuid.UUID, keyType string, tags []string, isAdmin bool) ([]model.Key, error) {
-	args := m.Called(ctx, userID, keyType, tags, isAdmin)
+func (m *mockKeyService) ListKeys(ctx context.Context, scope model.Scope, filter repositories.KeyFilter) ([]model.Key, error) {
+	args := m.Called(ctx, scope, filter)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
 	return args.Get(0).([]model.Key), args.Error(1)
 }
 
@@ -85,42 +83,16 @@ func (m *mockKeyService) UpdateKey(ctx context.Context, req keyServices.UpdateKe
 	return args.Error(0)
 }
 
-func (m *mockKeyService) UpdateKeyInVault(ctx context.Context, req keyServices.UpdateKeyRequest) error {
-	args := m.Called(ctx, req)
-	return args.Error(0)
-}
-
-func (m *mockKeyService) DeleteKey(ctx context.Context, keyID, userID uuid.UUID) (*model.Key, error) {
-	args := m.Called(ctx, keyID, userID)
+func (m *mockKeyService) DeleteKey(ctx context.Context, keyID uuid.UUID, scope model.Scope) (*model.Key, error) {
+	args := m.Called(ctx, keyID, scope)
 	if args.Get(0) == nil {
 		return nil, args.Error(1)
 	}
 	return args.Get(0).(*model.Key), args.Error(1)
 }
 
-func (m *mockKeyService) GetKeyInVault(ctx context.Context, keyID, vaultID uuid.UUID) (*model.Key, error) {
-	args := m.Called(ctx, keyID, vaultID)
-	if args.Get(0) == nil {
-		return nil, args.Error(1)
-	}
-	return args.Get(0).(*model.Key), args.Error(1)
-}
-
-func (m *mockKeyService) ListKeysInVault(ctx context.Context, vaultID uuid.UUID, keyType string, tags []string) ([]model.Key, error) {
-	args := m.Called(ctx, vaultID, keyType, tags)
-	return args.Get(0).([]model.Key), args.Error(1)
-}
-
-func (m *mockKeyService) DeleteKeyInVault(ctx context.Context, keyID, vaultID, userID uuid.UUID) (*model.Key, error) {
-	args := m.Called(ctx, keyID, vaultID)
-	if args.Get(0) == nil {
-		return nil, args.Error(1)
-	}
-	return args.Get(0).(*model.Key), args.Error(1)
-}
-
-func (m *mockKeyService) RotateKey(ctx context.Context, keyID, userID uuid.UUID) (*keyServices.CreateKeyResult, error) {
-	args := m.Called(ctx, keyID, userID)
+func (m *mockKeyService) RotateKey(ctx context.Context, keyID uuid.UUID, scope model.Scope) (*keyServices.CreateKeyResult, error) {
+	args := m.Called(ctx, keyID, scope)
 	if args.Get(0) == nil {
 		return nil, args.Error(1)
 	}
@@ -261,6 +233,14 @@ func (c *keySvcTestContainer) Close() error { return nil }
 
 const keyTestUserID = "b2c3d4e5-f6a7-8901-bcde-f12345678901"
 
+// keyLegacyOwnerScope is the exact scope scopeFromRequest and
+// ownerScopeFromRequest build for a legacy flat route (no vault_name mux
+// var): an owner scope carrying the default vault id as its advisory vault
+// and keyTestUserID as the owner/actor.
+func keyLegacyOwnerScope() model.Scope {
+	return model.NewOwnerScope(uuid.MustParse(model.DefaultVaultID), uuid.MustParse(keyTestUserID))
+}
+
 // newKeyCtx builds a Context backed by the given KeyService mock.
 func newKeyCtx(svc keyServices.KeyService) *Context {
 	a := &app.App{ServiceContainer: &keySvcTestContainer{keySvc: svc}}
@@ -363,7 +343,7 @@ func TestCreateKey_RSA_Success_Returns201(t *testing.T) {
 	keyID := uuid.New()
 	svc := &mockKeyService{}
 	svc.On("CreateRSAKey", mock.Anything, mock.Anything).Return(&keyServices.CreateKeyResult{KeyID: keyID, Name: "mykey"}, nil)
-	svc.On("GetKey", mock.Anything, keyID, uuid.MustParse(keyTestUserID)).Return(makeKeyModel(keyID), nil)
+	svc.On("GetKey", mock.Anything, keyID, keyLegacyOwnerScope()).Return(makeKeyModel(keyID), nil)
 
 	c := newKeyCtx(svc)
 	w := httptest.NewRecorder()
@@ -383,7 +363,7 @@ func TestCreateKey_ECDSA_Success_Returns201(t *testing.T) {
 	keyID := uuid.New()
 	svc := &mockKeyService{}
 	svc.On("CreateECDSAKey", mock.Anything, mock.Anything).Return(&keyServices.CreateKeyResult{KeyID: keyID, Name: "eckey"}, nil)
-	svc.On("GetKey", mock.Anything, keyID, uuid.MustParse(keyTestUserID)).Return(makeKeyModel(keyID), nil)
+	svc.On("GetKey", mock.Anything, keyID, keyLegacyOwnerScope()).Return(makeKeyModel(keyID), nil)
 
 	c := newKeyCtx(svc)
 	w := httptest.NewRecorder()
@@ -434,8 +414,8 @@ func TestCreateKey_InvalidECDSACurve_Returns400(t *testing.T) {
 
 func TestListKeys_ServiceError_Returns500(t *testing.T) {
 	svc := &mockKeyService{}
-	// Legacy flat route (no vault_name) uses per-user visibility via ListKeys.
-	svc.On("ListKeys", mock.Anything, uuid.MustParse(keyTestUserID)).
+	// Legacy flat route (no vault_name) yields an owner scope.
+	svc.On("ListKeys", mock.Anything, keyLegacyOwnerScope(), repositories.KeyFilter{}).
 		Return([]model.Key{}, errors.New("db error"))
 
 	c := newKeyCtx(svc)
@@ -454,8 +434,8 @@ func TestListKeys_ServiceError_Returns500(t *testing.T) {
 func TestListKeys_Success_Returns200(t *testing.T) {
 	keyID := uuid.New()
 	svc := &mockKeyService{}
-	// Legacy flat route (no vault_name) uses per-user visibility via ListKeys.
-	svc.On("ListKeys", mock.Anything, uuid.MustParse(keyTestUserID)).
+	// Legacy flat route (no vault_name) yields an owner scope.
+	svc.On("ListKeys", mock.Anything, keyLegacyOwnerScope(), repositories.KeyFilter{}).
 		Return([]model.Key{*makeKeyModel(keyID)}, nil)
 
 	c := newKeyCtx(svc)
@@ -492,9 +472,9 @@ func TestGetKey_InvalidKeyID_Returns400(t *testing.T) {
 func TestGetKey_NotFound_Returns404(t *testing.T) {
 	keyID := uuid.New()
 	svc := &mockKeyService{}
-	// Legacy flat route (no vault_name) uses per-user visibility via GetKey.
+	// Legacy flat route (no vault_name) yields an owner scope.
 	// The service returns the not-found sentinel, which maps to 404.
-	svc.On("GetKey", mock.Anything, keyID, uuid.MustParse(keyTestUserID)).Return(nil, keyServices.ErrKeyNotFound)
+	svc.On("GetKey", mock.Anything, keyID, keyLegacyOwnerScope()).Return(nil, keyServices.ErrKeyNotFound)
 
 	c := newKeyCtx(svc)
 	c.Claims = jwt.MapClaims{"role": string(model.RoleUser), "user_id": keyTestUserID}
@@ -514,8 +494,8 @@ func TestGetKey_NotFound_Returns404(t *testing.T) {
 func TestGetKey_Success_Returns200(t *testing.T) {
 	keyID := uuid.New()
 	svc := &mockKeyService{}
-	// Legacy flat route (no vault_name) uses per-user visibility via GetKey.
-	svc.On("GetKey", mock.Anything, keyID, uuid.MustParse(keyTestUserID)).Return(makeKeyModel(keyID), nil)
+	// Legacy flat route (no vault_name) yields an owner scope.
+	svc.On("GetKey", mock.Anything, keyID, keyLegacyOwnerScope()).Return(makeKeyModel(keyID), nil)
 
 	c := newKeyCtx(svc)
 	c.Params = &ApiParams{KeyID: keyID.String(), PerPage: 60}
@@ -613,7 +593,7 @@ func TestUpdateKey_Success_Returns200(t *testing.T) {
 	keyID := uuid.New()
 	svc := &mockKeyService{}
 	svc.On("UpdateKey", mock.Anything, mock.Anything).Return(nil)
-	svc.On("GetKey", mock.Anything, keyID, uuid.MustParse(keyTestUserID)).Return(makeKeyModel(keyID), nil)
+	svc.On("GetKey", mock.Anything, keyID, keyLegacyOwnerScope()).Return(makeKeyModel(keyID), nil)
 
 	c := newKeyCtx(svc)
 	c.Params = &ApiParams{KeyID: keyID.String(), PerPage: 60}
@@ -652,7 +632,7 @@ func TestDeleteKey_InvalidKeyID_Returns400(t *testing.T) {
 func TestDeleteKey_ServiceError_Returns500(t *testing.T) {
 	keyID := uuid.New()
 	svc := &mockKeyService{}
-	svc.On("DeleteKeyInVault", mock.Anything, keyID, mock.Anything).Return(nil, errors.New("db error"))
+	svc.On("DeleteKey", mock.Anything, keyID, keyLegacyOwnerScope()).Return(nil, errors.New("db error"))
 
 	c := newKeyCtx(svc)
 	c.Params = &ApiParams{KeyID: keyID.String(), PerPage: 60}
@@ -674,7 +654,7 @@ func TestDeleteKey_Success_Returns200(t *testing.T) {
 	svc := &mockKeyService{}
 	deleted := makeKeyModel(keyID)
 	deleted.DeletedAt = &now
-	svc.On("DeleteKeyInVault", mock.Anything, keyID, mock.Anything).Return(deleted, nil)
+	svc.On("DeleteKey", mock.Anything, keyID, keyLegacyOwnerScope()).Return(deleted, nil)
 
 	c := newKeyCtx(svc)
 	c.Params = &ApiParams{KeyID: keyID.String(), PerPage: 60}
@@ -695,7 +675,7 @@ func TestDeleteKey_Success_Returns200(t *testing.T) {
 func TestDeleteKey_NotFound_Returns404(t *testing.T) {
 	keyID := uuid.New()
 	svc := &mockKeyService{}
-	svc.On("DeleteKeyInVault", mock.Anything, keyID, mock.Anything).
+	svc.On("DeleteKey", mock.Anything, keyID, keyLegacyOwnerScope()).
 		Return(nil, keyServices.ErrKeyNotFound)
 
 	c := newKeyCtx(svc)
@@ -717,7 +697,7 @@ func TestDeleteKey_NotFound_Returns404(t *testing.T) {
 func TestGetKey_LifecycleDenied_Returns403(t *testing.T) {
 	keyID := uuid.New()
 	svc := &mockKeyService{}
-	svc.On("GetKey", mock.Anything, keyID, uuid.MustParse(keyTestUserID)).
+	svc.On("GetKey", mock.Anything, keyID, keyLegacyOwnerScope()).
 		Return(nil, keyServices.ErrKeyLifecycleDenied)
 
 	c := newKeyCtx(svc)
@@ -740,7 +720,7 @@ func TestGetKey_LifecycleDenied_Returns403(t *testing.T) {
 func TestGetKey_InternalError_Returns500(t *testing.T) {
 	keyID := uuid.New()
 	svc := &mockKeyService{}
-	svc.On("GetKey", mock.Anything, keyID, uuid.MustParse(keyTestUserID)).
+	svc.On("GetKey", mock.Anything, keyID, keyLegacyOwnerScope()).
 		Return(nil, errors.New("disk I/O"))
 
 	c := newKeyCtx(svc)
@@ -779,7 +759,7 @@ func TestRotateKey_InvalidKeyID_Returns400(t *testing.T) {
 func TestRotateKey_ServiceError_Returns500(t *testing.T) {
 	keyID := uuid.New()
 	svc := &mockKeyService{}
-	svc.On("RotateKey", mock.Anything, keyID, uuid.MustParse(keyTestUserID)).Return(nil, errors.New("rotate failed"))
+	svc.On("RotateKey", mock.Anything, keyID, keyLegacyOwnerScope()).Return(nil, errors.New("rotate failed"))
 
 	c := newKeyCtx(svc)
 	c.Params = &ApiParams{KeyID: keyID.String(), PerPage: 60}
@@ -799,8 +779,9 @@ func TestRotateKey_Success_Returns200(t *testing.T) {
 	keyID := uuid.New()
 	newKeyID := uuid.New()
 	svc := &mockKeyService{}
-	svc.On("RotateKey", mock.Anything, keyID, uuid.MustParse(keyTestUserID)).Return(&keyServices.CreateKeyResult{KeyID: newKeyID, Name: "test-key"}, nil)
-	svc.On("GetKey", mock.Anything, newKeyID, uuid.MustParse(keyTestUserID)).Return(makeKeyModel(newKeyID), nil)
+	svc.On("RotateKey", mock.Anything, keyID, keyLegacyOwnerScope()).Return(&keyServices.CreateKeyResult{KeyID: newKeyID, Name: "test-key"}, nil)
+	// rotateKey re-fetches with the same owner scope that authorized the rotation.
+	svc.On("GetKey", mock.Anything, newKeyID, keyLegacyOwnerScope()).Return(makeKeyModel(newKeyID), nil)
 
 	c := newKeyCtx(svc)
 	c.Params = &ApiParams{KeyID: keyID.String(), PerPage: 60}
@@ -850,8 +831,10 @@ func TestListKeyVersions_RepositoryError_Returns500(t *testing.T) {
 		stubKeyRepo: stubKeyRepo{},
 		err:         errors.New("db error"),
 	}
+	svc := &mockKeyService{}
+	svc.On("GetKey", mock.Anything, keyID, keyLegacyOwnerScope()).Return(makeKeyModel(keyID), nil)
 
-	c := newKeyCtxWithRepo(nil, repo)
+	c := newKeyCtxWithRepo(svc, repo)
 	c.Params = &ApiParams{KeyID: keyID.String(), PerPage: 60}
 	w := httptest.NewRecorder()
 	r := httptest.NewRequest(http.MethodGet, "/keys/"+keyID.String()+"/versions", nil)
@@ -870,8 +853,10 @@ func TestListKeyVersions_Success_Returns200(t *testing.T) {
 		stubKeyRepo: stubKeyRepo{},
 		versions:    []model.KeyVersion{{KeyID: keyID, Version: 1}},
 	}
+	svc := &mockKeyService{}
+	svc.On("GetKey", mock.Anything, keyID, keyLegacyOwnerScope()).Return(makeKeyModel(keyID), nil)
 
-	c := newKeyCtxWithRepo(nil, repo)
+	c := newKeyCtxWithRepo(svc, repo)
 	c.Params = &ApiParams{KeyID: keyID.String(), PerPage: 60}
 	w := httptest.NewRecorder()
 	r := httptest.NewRequest(http.MethodGet, "/keys/"+keyID.String()+"/versions", nil)
@@ -882,6 +867,32 @@ func TestListKeyVersions_Success_Returns200(t *testing.T) {
 	}
 
 	assert.Equal(t, http.StatusOK, w.Code)
+	svc.AssertExpectations(t)
+}
+
+// TestListKeyVersions_UnauthorizedKeyIsNotFound pins that the handler
+// authorizes through the scope-aware read before touching the version
+// repository, so it behaves like getKey on the same route instead of silently
+// returning an empty list.
+func TestListKeyVersions_UnauthorizedKeyIsNotFound(t *testing.T) {
+	keyID := uuid.New()
+	repo := &stubKeyVersionRepo{stubKeyRepo: stubKeyRepo{}}
+	svc := &mockKeyService{}
+	svc.On("GetKey", mock.Anything, keyID, keyLegacyOwnerScope()).
+		Return(nil, keyServices.ErrKeyNotFound)
+
+	c := newKeyCtxWithRepo(svc, repo)
+	c.Params = &ApiParams{KeyID: keyID.String(), PerPage: 60}
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest(http.MethodGet, "/keys/"+keyID.String()+"/versions", nil)
+
+	listKeyVersions(c, w, r)
+	if c.Err != nil {
+		writeError(w, c)
+	}
+
+	assert.Equal(t, http.StatusNotFound, w.Code)
+	svc.AssertExpectations(t)
 }
 
 // ============================================================

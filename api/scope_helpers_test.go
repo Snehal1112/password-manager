@@ -1,0 +1,115 @@
+package api
+
+import (
+	"context"
+	"errors"
+	"net/http"
+	"net/http/httptest"
+	"testing"
+
+	"github.com/golang-jwt/jwt/v5"
+	"github.com/google/uuid"
+	"github.com/gorilla/mux"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
+	"rocketvault/common"
+	"rocketvault/internal/services/secrets"
+	"rocketvault/model"
+)
+
+// newScopeRequest builds a request carrying a resolved vault id and, when
+// vaultName is non-empty, the vault_name route variable that marks a
+// vault-scoped route.
+func newScopeRequest(t *testing.T, vaultID uuid.UUID, vaultName string) *http.Request {
+	t.Helper()
+	r := httptest.NewRequest(http.MethodGet, "/api/v1/secrets/"+uuid.NewString(), nil)
+	r = r.WithContext(context.WithValue(r.Context(), common.VaultIDKey, vaultID.String()))
+	if vaultName != "" {
+		r = mux.SetURLVars(r, map[string]string{"vault_name": vaultName})
+	}
+	return r
+}
+
+func newScopeContext(userID uuid.UUID) *Context {
+	return &Context{Claims: jwt.MapClaims{"user_id": userID.String()}}
+}
+
+func TestScopeFromRequestVaultScopedRouteYieldsVaultScope(t *testing.T) {
+	vaultID, userID := uuid.New(), uuid.New()
+	c := newScopeContext(userID)
+
+	scope, ok := scopeFromRequest(c, newScopeRequest(t, vaultID, "team-a"))
+	require.True(t, ok)
+	assert.Equal(t, model.ScopeVault, scope.Kind())
+	assert.Equal(t, vaultID, scope.VaultID())
+	assert.Equal(t, userID, scope.ActorID(), "the actor travels for audit")
+	assert.NoError(t, scope.Validate())
+}
+
+func TestScopeFromRequestFlatRouteYieldsOwnerScope(t *testing.T) {
+	vaultID, userID := uuid.New(), uuid.New()
+	c := newScopeContext(userID)
+
+	scope, ok := scopeFromRequest(c, newScopeRequest(t, vaultID, ""))
+	require.True(t, ok)
+	assert.Equal(t, model.ScopeOwner, scope.Kind())
+
+	owner, isOwner := scope.OwnerID()
+	require.True(t, isOwner)
+	assert.Equal(t, userID, owner)
+	assert.NoError(t, scope.Validate())
+}
+
+func TestOwnerScopeFromRequestAlwaysYieldsOwnerScope(t *testing.T) {
+	vaultID, userID := uuid.New(), uuid.New()
+	c := newScopeContext(userID)
+
+	for _, vaultName := range []string{"", "team-a"} {
+		scope, ok := ownerScopeFromRequest(c, newScopeRequest(t, vaultID, vaultName))
+		require.True(t, ok)
+		assert.Equal(t, model.ScopeOwner, scope.Kind())
+		assert.Equal(t, vaultID, scope.VaultID(), "the advisory vault id carries the B6 conjunction")
+
+		owner, isOwner := scope.OwnerID()
+		require.True(t, isOwner)
+		assert.Equal(t, userID, owner)
+	}
+}
+
+func TestScopeHelpersFailClosedWithoutAUserClaim(t *testing.T) {
+	c := &Context{Claims: jwt.MapClaims{}}
+	r := newScopeRequest(t, uuid.New(), "team-a")
+
+	scope, ok := scopeFromRequest(c, r)
+	assert.False(t, ok)
+	assert.Equal(t, model.ScopeInvalid, scope.Kind())
+	require.NotNil(t, c.Err)
+
+	c2 := &Context{Claims: jwt.MapClaims{}}
+	scope2, ok2 := ownerScopeFromRequest(c2, r)
+	assert.False(t, ok2)
+	assert.Equal(t, model.ScopeInvalid, scope2.Kind())
+	require.NotNil(t, c2.Err)
+}
+
+func TestWriteSecretErrorMapsEachCase(t *testing.T) {
+	cases := []struct {
+		name       string
+		err        error
+		statusCode int
+	}{
+		{"not found", secrets.ErrSecretNotFound, http.StatusNotFound},
+		{"wrapped not found", errors.Join(secrets.ErrSecretNotFound, errors.New("ctx")), http.StatusNotFound},
+		{"lifecycle denied", secrets.ErrSecretLifecycleDenied, http.StatusForbidden},
+		{"anything else", errors.New("boom"), http.StatusInternalServerError},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			c := &Context{}
+			writeSecretError(c, tc.err)
+			require.NotNil(t, c.Err)
+			assert.Equal(t, tc.statusCode, c.Err.StatusCode)
+		})
+	}
+}

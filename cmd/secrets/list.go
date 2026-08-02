@@ -28,11 +28,13 @@ import (
 	"strings"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/spf13/cobra"
 
 	"rocketvault/common"
 	"rocketvault/internal/container"
 	"rocketvault/internal/formatter"
+	"rocketvault/model"
 )
 
 // listCmd represents the list command
@@ -63,7 +65,7 @@ var listCmd = &cobra.Command{
 			return err
 		}
 
-		secretsList, err := secretService.ListSecretsInVault(ctx, vaultID, tags)
+		secretsList, err := secretService.ListSecrets(ctx, model.NewVaultScope(vaultID, uuid.Nil), tags)
 		if err != nil {
 			return fmt.Errorf("failed to list secrets: %w", err)
 		}

@@ -425,12 +425,33 @@ func (m *MockSecretService) CreateSecret(ctx context.Context, req secretServices
 	return args.Get(0).(*model.Secret), args.Error(1)
 }
 
-func (m *MockSecretService) GetSecret(ctx context.Context, secretID, userID uuid.UUID) (*model.Secret, error) {
-	args := m.Called(ctx, secretID, userID)
+func (m *MockSecretService) GetSecret(ctx context.Context, secretID uuid.UUID, scope model.Scope) (*model.Secret, error) {
+	args := m.Called(ctx, secretID, scope)
 	if args.Get(0) == nil {
 		return nil, args.Error(1)
 	}
 	return args.Get(0).(*model.Secret), args.Error(1)
+}
+
+func (m *MockSecretService) ListSecrets(ctx context.Context, scope model.Scope, tags []string) ([]model.Secret, error) {
+	args := m.Called(ctx, scope, tags)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).([]model.Secret), args.Error(1)
+}
+
+func (m *MockSecretService) DeleteSecret(ctx context.Context, secretID uuid.UUID, scope model.Scope) error {
+	args := m.Called(ctx, secretID, scope)
+	return args.Error(0)
+}
+
+func (m *MockSecretService) ListDeletedSecrets(ctx context.Context, scope model.Scope) ([]model.Secret, error) {
+	args := m.Called(ctx, scope)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).([]model.Secret), args.Error(1)
 }
 
 func (m *MockSecretService) UpdateSecret(ctx context.Context, req secretServices.UpdateSecretRequest) error {
@@ -438,87 +459,24 @@ func (m *MockSecretService) UpdateSecret(ctx context.Context, req secretServices
 	return args.Error(0)
 }
 
-func (m *MockSecretService) UpdateSecretInVault(ctx context.Context, req secretServices.UpdateSecretRequest) error {
-	args := m.Called(ctx, req)
-	return args.Error(0)
-}
-
-func (m *MockSecretService) DeleteSecret(ctx context.Context, secretID, userID uuid.UUID) error {
-	args := m.Called(ctx, secretID, userID)
-	return args.Error(0)
-}
-
-func (m *MockSecretService) ListSecrets(ctx context.Context, userID uuid.UUID, tags []string) ([]model.Secret, error) {
-	args := m.Called(ctx, userID, tags)
-	if args.Get(0) == nil {
-		return nil, args.Error(1)
-	}
-	return args.Get(0).([]model.Secret), args.Error(1)
-}
-
-func (m *MockSecretService) GetSecretInVault(ctx context.Context, secretID, vaultID uuid.UUID) (*model.Secret, error) {
-	args := m.Called(ctx, secretID, vaultID)
-	if args.Get(0) == nil {
-		return nil, args.Error(1)
-	}
-	return args.Get(0).(*model.Secret), args.Error(1)
-}
-
-func (m *MockSecretService) ListSecretsInVault(ctx context.Context, vaultID uuid.UUID, tags []string) ([]model.Secret, error) {
-	args := m.Called(ctx, vaultID, tags)
-	if args.Get(0) == nil {
-		return nil, args.Error(1)
-	}
-	return args.Get(0).([]model.Secret), args.Error(1)
-}
-
-func (m *MockSecretService) DeleteSecretInVault(ctx context.Context, secretID, vaultID uuid.UUID) error {
-	args := m.Called(ctx, secretID, vaultID)
-	return args.Error(0)
-}
-
-func (m *MockSecretService) GetSecretVersions(ctx context.Context, secretID uuid.UUID, userID uuid.UUID) ([]model.SecretVersion, error) {
-	args := m.Called(ctx, secretID, userID)
+func (m *MockSecretService) GetSecretVersions(ctx context.Context, secretID uuid.UUID, scope model.Scope) ([]model.SecretVersion, error) {
+	args := m.Called(ctx, secretID, scope)
 	if args.Get(0) == nil {
 		return nil, args.Error(1)
 	}
 	return args.Get(0).([]model.SecretVersion), args.Error(1)
 }
 
-func (m *MockSecretService) GetSecretVersion(ctx context.Context, secretID uuid.UUID, version int, userID uuid.UUID) (*model.SecretVersion, error) {
-	args := m.Called(ctx, secretID, version, userID)
+func (m *MockSecretService) GetSecretVersion(ctx context.Context, secretID uuid.UUID, version int, scope model.Scope) (*model.SecretVersion, error) {
+	args := m.Called(ctx, secretID, version, scope)
 	if args.Get(0) == nil {
 		return nil, args.Error(1)
 	}
 	return args.Get(0).(*model.SecretVersion), args.Error(1)
 }
 
-func (m *MockSecretService) GetLatestSecretVersion(ctx context.Context, secretID uuid.UUID, userID uuid.UUID) (*model.SecretVersion, error) {
-	args := m.Called(ctx, secretID, userID)
-	if args.Get(0) == nil {
-		return nil, args.Error(1)
-	}
-	return args.Get(0).(*model.SecretVersion), args.Error(1)
-}
-
-func (m *MockSecretService) GetSecretVersionsInVault(ctx context.Context, secretID, vaultID uuid.UUID) ([]model.SecretVersion, error) {
-	args := m.Called(ctx, secretID, vaultID)
-	if args.Get(0) == nil {
-		return nil, args.Error(1)
-	}
-	return args.Get(0).([]model.SecretVersion), args.Error(1)
-}
-
-func (m *MockSecretService) GetSecretVersionInVault(ctx context.Context, secretID uuid.UUID, version int, vaultID uuid.UUID) (*model.SecretVersion, error) {
-	args := m.Called(ctx, secretID, version, vaultID)
-	if args.Get(0) == nil {
-		return nil, args.Error(1)
-	}
-	return args.Get(0).(*model.SecretVersion), args.Error(1)
-}
-
-func (m *MockSecretService) GetLatestSecretVersionInVault(ctx context.Context, secretID, vaultID uuid.UUID) (*model.SecretVersion, error) {
-	args := m.Called(ctx, secretID, vaultID)
+func (m *MockSecretService) GetLatestSecretVersion(ctx context.Context, secretID uuid.UUID, scope model.Scope) (*model.SecretVersion, error) {
+	args := m.Called(ctx, secretID, scope)
 	if args.Get(0) == nil {
 		return nil, args.Error(1)
 	}
@@ -549,31 +507,13 @@ func (m *MockSecretService) ImportSecrets(ctx context.Context, req secretService
 	return args.Get(0).(*secretServices.ImportResult), args.Error(1)
 }
 
-func (m *MockSecretService) ListDeletedSecretsInVault(ctx context.Context, vaultID uuid.UUID) ([]model.Secret, error) {
-	args := m.Called(ctx, vaultID)
-	if args.Get(0) == nil {
-		return nil, args.Error(1)
-	}
-	return args.Get(0).([]model.Secret), args.Error(1)
-}
-
-func (m *MockSecretService) IsSecretSoftDeletedInVault(ctx context.Context, secretID, vaultID uuid.UUID) (bool, error) {
-	args := m.Called(ctx, secretID, vaultID)
-	return args.Bool(0), args.Error(1)
-}
-
-func (m *MockSecretService) IsSecretSoftDeletedForUser(ctx context.Context, secretID, userID uuid.UUID) (bool, error) {
-	args := m.Called(ctx, secretID, userID)
-	return args.Bool(0), args.Error(1)
-}
-
-func (m *MockSecretService) RecoverSecret(ctx context.Context, secretID uuid.UUID) error {
-	args := m.Called(ctx, secretID)
+func (m *MockSecretService) RecoverSecret(ctx context.Context, secretID uuid.UUID, scope model.Scope) error {
+	args := m.Called(ctx, secretID, scope)
 	return args.Error(0)
 }
 
-func (m *MockSecretService) PurgeSecret(ctx context.Context, secretID uuid.UUID) error {
-	args := m.Called(ctx, secretID)
+func (m *MockSecretService) PurgeSecret(ctx context.Context, secretID uuid.UUID, scope model.Scope) error {
+	args := m.Called(ctx, secretID, scope)
 	return args.Error(0)
 }
 
@@ -635,6 +575,10 @@ func (m *MockVaultService) SetPolicyCleaner(p vaultServices.PolicyCleaner) {
 
 func (m *MockVaultService) SetTxBeginner(tb vaultServices.TxBeginner) {
 	m.Called(tb)
+}
+
+func (m *MockVaultService) SetSecretCacheFlusher(f vaultServices.SecretCacheFlusher) {
+	m.Called(f)
 }
 
 // Mock Authentication Service

@@ -31,6 +31,7 @@ import (
 
 	"rocketvault/common"
 	"rocketvault/internal/container"
+	"rocketvault/model"
 )
 
 // deleteCmd represents the delete command
@@ -64,7 +65,7 @@ var deleteCmd = &cobra.Command{
 		}
 
 		// Delete secret via service (includes access control).
-		err = secretService.DeleteSecretInVault(ctx, secretID, vaultID)
+		err = secretService.DeleteSecret(ctx, secretID, model.NewVaultScope(vaultID, uuid.Nil))
 		if err != nil {
 			logrus.WithError(err).Error("Failed to delete secret")
 			os.Exit(1)

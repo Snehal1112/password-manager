@@ -218,7 +218,7 @@ func TestKeyRepository_Delete_RemovesKey(t *testing.T) {
 
 	require.NoError(t, repo.Delete(ctx, k.ID))
 
-	_, err := repo.Read(ctx, k.ID)
+	_, err := repo.Read(ctx, k.ID, model.NewAdminScope(uuid.Nil))
 	assert.Error(t, err, "deleted key must not be readable")
 }
 
@@ -256,18 +256,18 @@ func TestKeyRepository_ListByUser_FiltersCorrectly(t *testing.T) {
 	require.NoError(t, repo.Create(ctx, kB))
 
 	// List all for userA
-	all, err := repo.ListByUser(ctx, &userA, "", nil)
+	all, err := repo.List(ctx, model.NewOwnerScope(uuid.Nil, userA), repositories.KeyFilter{})
 	require.NoError(t, err)
 	assert.Len(t, all, 2)
 
 	// Filter by type
-	rsaOnly, err := repo.ListByUser(ctx, &userA, model.KeyTypeRSA, nil)
+	rsaOnly, err := repo.List(ctx, model.NewOwnerScope(uuid.Nil, userA), repositories.KeyFilter{Type: model.KeyTypeRSA})
 	require.NoError(t, err)
 	assert.Len(t, rsaOnly, 1)
 	assert.Equal(t, model.KeyTypeRSA, rsaOnly[0].Type)
 
-	// nil userID = all users
-	allUsers, err := repo.ListByUser(ctx, nil, "", nil)
+	// admin scope = all users
+	allUsers, err := repo.List(ctx, model.NewAdminScope(uuid.Nil), repositories.KeyFilter{})
 	require.NoError(t, err)
 	assert.Len(t, allUsers, 3)
 }
@@ -289,7 +289,7 @@ func TestKeyRepository_ListByUser_FiltersByTag(t *testing.T) {
 	require.NoError(t, repo.Create(ctx, k1))
 	require.NoError(t, repo.Create(ctx, k2))
 
-	tagged, err := repo.ListByUser(ctx, &userID, "", []string{"env:prod"})
+	tagged, err := repo.List(ctx, model.NewOwnerScope(uuid.Nil, userID), repositories.KeyFilter{Tags: []string{"env:prod"}})
 	require.NoError(t, err)
 	assert.Len(t, tagged, 1)
 	assert.Equal(t, k1.ID, tagged[0].ID)
@@ -336,14 +336,14 @@ func TestKeyRepository_RecoverKey(t *testing.T) {
 	require.NoError(t, repo.SoftDelete(ctx, k.ID))
 
 	// Should be hidden from normal reads
-	_, err := repo.Read(ctx, k.ID)
+	_, err := repo.Read(ctx, k.ID, model.NewAdminScope(uuid.Nil))
 	require.Error(t, err)
 
 	// Recover it
 	require.NoError(t, repo.RecoverKey(ctx, k.ID))
 
 	// Now visible again
-	got, err := repo.Read(ctx, k.ID)
+	got, err := repo.Read(ctx, k.ID, model.NewAdminScope(uuid.Nil))
 	require.NoError(t, err)
 	assert.Equal(t, k.ID, got.ID)
 }
@@ -414,12 +414,12 @@ func TestKeyRepository_SoftDeleteVaultContents(t *testing.T) {
 	require.NoError(t, repo.SoftDeleteVaultContents(ctx, vaultID, deletedAt))
 
 	// Keys in vault should be hidden
-	inVault, err := repo.ListInVault(ctx, vaultID, "", nil)
+	inVault, err := repo.List(ctx, model.NewVaultScope(vaultID, uuid.Nil), repositories.KeyFilter{})
 	require.NoError(t, err)
 	assert.Empty(t, inVault)
 
 	// Key in other vault should still be visible
-	_, err = repo.Read(ctx, k3.ID)
+	_, err = repo.Read(ctx, k3.ID, model.NewAdminScope(uuid.Nil))
 	require.NoError(t, err)
 }
 
@@ -442,7 +442,7 @@ func TestKeyRepository_RecoverVaultContents(t *testing.T) {
 	require.NoError(t, repo.SoftDeleteVaultContents(ctx, vaultID, deletedAt))
 
 	// Verify they're gone
-	inVault, err := repo.ListInVault(ctx, vaultID, "", nil)
+	inVault, err := repo.List(ctx, model.NewVaultScope(vaultID, uuid.Nil), repositories.KeyFilter{})
 	require.NoError(t, err)
 	assert.Empty(t, inVault)
 
@@ -450,7 +450,7 @@ func TestKeyRepository_RecoverVaultContents(t *testing.T) {
 	require.NoError(t, repo.RecoverVaultContents(ctx, vaultID, deletedAt))
 
 	// Verify they're back
-	inVault, err = repo.ListInVault(ctx, vaultID, "", nil)
+	inVault, err = repo.List(ctx, model.NewVaultScope(vaultID, uuid.Nil), repositories.KeyFilter{})
 	require.NoError(t, err)
 	assert.Len(t, inVault, 2)
 }
@@ -464,7 +464,7 @@ func TestKeyRepository_Update_NotFound(t *testing.T) {
 
 	k := newKey(uuid.New(), uuid.New(), "ghost")
 	// Don't insert – just try to update
-	err := repo.Update(ctx, k)
+	err := repo.Update(ctx, k, model.NewAdminScope(uuid.Nil))
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "not found")
 }
@@ -483,7 +483,7 @@ func TestKeyRepository_ListByUser_ExcludesSoftDeleted(t *testing.T) {
 	require.NoError(t, repo.Create(ctx, k))
 	require.NoError(t, repo.SoftDelete(ctx, k.ID))
 
-	list, err := repo.ListByUser(ctx, &userID, "", nil)
+	list, err := repo.List(ctx, model.NewOwnerScope(uuid.Nil, userID), repositories.KeyFilter{})
 	require.NoError(t, err)
 	assert.Empty(t, list)
 }
@@ -506,9 +506,9 @@ func TestCertificateRepository_Update(t *testing.T) {
 	cert.Name = "updated-cert-name"
 	cert.AutoRenew = true
 	cert.RenewalDays = 45
-	require.NoError(t, repo.Update(ctx, cert))
+	require.NoError(t, repo.Update(ctx, cert, model.NewAdminScope(uuid.Nil)))
 
-	got, err := repo.Read(ctx, cert.ID)
+	got, err := repo.Read(ctx, cert.ID, model.NewAdminScope(uuid.Nil))
 	require.NoError(t, err)
 	assert.Equal(t, "updated-cert-name", got.Name)
 	assert.True(t, got.AutoRenew)
@@ -523,7 +523,7 @@ func TestCertificateRepository_Update_NotFound(t *testing.T) {
 	ctx := context.Background()
 
 	cert := newCert(uuid.New(), uuid.New(), "ghost-cert")
-	err := repo.Update(ctx, cert)
+	err := repo.Update(ctx, cert, model.NewAdminScope(uuid.Nil))
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "not found")
 }
@@ -540,7 +540,7 @@ func TestCertificateRepository_Delete(t *testing.T) {
 
 	require.NoError(t, repo.Delete(ctx, cert.ID))
 
-	_, err := repo.Read(ctx, cert.ID)
+	_, err := repo.Read(ctx, cert.ID, model.NewAdminScope(uuid.Nil))
 	assert.Error(t, err)
 }
 
@@ -575,11 +575,11 @@ func TestCertificateRepository_ListByUser(t *testing.T) {
 	require.NoError(t, repo.Create(ctx, c2))
 	require.NoError(t, repo.Create(ctx, c3))
 
-	listA, err := repo.ListByUser(ctx, userA, "", nil)
+	listA, err := repo.List(ctx, model.NewOwnerScope(uuid.Nil, userA), repositories.CertificateFilter{})
 	require.NoError(t, err)
 	assert.Len(t, listA, 2)
 
-	listB, err := repo.ListByUser(ctx, userB, "", nil)
+	listB, err := repo.List(ctx, model.NewOwnerScope(uuid.Nil, userB), repositories.CertificateFilter{})
 	require.NoError(t, err)
 	assert.Len(t, listB, 1)
 }
@@ -601,7 +601,7 @@ func TestCertificateRepository_ListByUser_FiltersByTag(t *testing.T) {
 	require.NoError(t, repo.Create(ctx, c1))
 	require.NoError(t, repo.Create(ctx, c2))
 
-	tagged, err := repo.ListByUser(ctx, userID, "", []string{"env:staging"})
+	tagged, err := repo.List(ctx, model.NewOwnerScope(uuid.Nil, userID), repositories.CertificateFilter{Tags: []string{"env:staging"}})
 	require.NoError(t, err)
 	assert.Len(t, tagged, 1)
 	assert.Equal(t, c1.ID, tagged[0].ID)
@@ -649,14 +649,14 @@ func TestCertificateRepository_RecoverCertificate(t *testing.T) {
 	require.NoError(t, repo.SoftDelete(ctx, cert.ID))
 
 	// Should be hidden
-	_, err := repo.Read(ctx, cert.ID)
+	_, err := repo.Read(ctx, cert.ID, model.NewAdminScope(uuid.Nil))
 	require.Error(t, err)
 
 	// Recover
 	require.NoError(t, repo.RecoverCertificate(ctx, cert.ID))
 
 	// Now visible
-	got, err := repo.Read(ctx, cert.ID)
+	got, err := repo.Read(ctx, cert.ID, model.NewAdminScope(uuid.Nil))
 	require.NoError(t, err)
 	assert.Equal(t, cert.ID, got.ID)
 }
@@ -697,12 +697,12 @@ func TestCertificateRepository_SoftDeleteVaultContents(t *testing.T) {
 	deletedAt := time.Now()
 	require.NoError(t, repo.SoftDeleteVaultContents(ctx, vaultID, deletedAt))
 
-	inVault, err := repo.ListInVault(ctx, vaultID, "", nil)
+	inVault, err := repo.List(ctx, model.NewVaultScope(vaultID, uuid.Nil), repositories.CertificateFilter{})
 	require.NoError(t, err)
 	assert.Empty(t, inVault)
 
 	// Other vault cert unaffected
-	_, err = repo.Read(ctx, c3.ID)
+	_, err = repo.Read(ctx, c3.ID, model.NewAdminScope(uuid.Nil))
 	require.NoError(t, err)
 }
 
@@ -724,13 +724,13 @@ func TestCertificateRepository_RecoverVaultContents(t *testing.T) {
 	deletedAt := time.Now().Truncate(time.Second)
 	require.NoError(t, repo.SoftDeleteVaultContents(ctx, vaultID, deletedAt))
 
-	inVault, err := repo.ListInVault(ctx, vaultID, "", nil)
+	inVault, err := repo.List(ctx, model.NewVaultScope(vaultID, uuid.Nil), repositories.CertificateFilter{})
 	require.NoError(t, err)
 	assert.Empty(t, inVault)
 
 	require.NoError(t, repo.RecoverVaultContents(ctx, vaultID, deletedAt))
 
-	inVault, err = repo.ListInVault(ctx, vaultID, "", nil)
+	inVault, err = repo.List(ctx, model.NewVaultScope(vaultID, uuid.Nil), repositories.CertificateFilter{})
 	require.NoError(t, err)
 	assert.Len(t, inVault, 2)
 }
@@ -775,7 +775,7 @@ func TestCertificateRepository_ListInVault_ReturnsAll(t *testing.T) {
 	require.NoError(t, repo.Create(ctx, c2))
 
 	// No type filter returns all
-	all, err := repo.ListInVault(ctx, vaultID, "", nil)
+	all, err := repo.List(ctx, model.NewVaultScope(vaultID, uuid.Nil), repositories.CertificateFilter{})
 	require.NoError(t, err)
 	assert.Len(t, all, 2)
 }
@@ -793,8 +793,8 @@ func TestCertificateRepository_ReadInVault_WrongVault(t *testing.T) {
 	cert := newCert(uuid.New(), vaultA, "cert-in-a")
 	require.NoError(t, repo.Create(ctx, cert))
 
-	_, err := repo.ReadInVault(ctx, cert.ID, vaultB)
-	assert.Error(t, err, "ReadInVault with wrong vaultID must return error")
+	_, err := repo.Read(ctx, cert.ID, model.NewVaultScope(vaultB, uuid.Nil))
+	assert.Error(t, err, "Read with the wrong vault scope must return error")
 }
 
 // ---------------------------------------------------------------------------
@@ -1405,7 +1405,7 @@ func TestKeyRepository_SoftDeleteVaultContentsTx_CommitsWithSharedTx(t *testing.
 	require.NoError(t, repo.SoftDeleteVaultContentsTx(ctx, tx, vaultID, time.Now().UTC()))
 	require.NoError(t, tx.Commit())
 
-	_, err = repo.Read(ctx, k.ID)
+	_, err = repo.Read(ctx, k.ID, model.NewAdminScope(uuid.Nil))
 	assert.Error(t, err, "key must be hidden after the transaction commits")
 }
 
@@ -1429,7 +1429,7 @@ func TestKeyRepository_SoftDeleteVaultContentsTx_RollsBackWithSharedTx(t *testin
 	require.NoError(t, repo.SoftDeleteVaultContentsTx(ctx, tx, vaultID, time.Now().UTC()))
 	require.NoError(t, tx.Rollback())
 
-	_, err = repo.Read(ctx, k.ID)
+	_, err = repo.Read(ctx, k.ID, model.NewAdminScope(uuid.Nil))
 	require.NoError(t, err, "key must still be active after rollback")
 }
 
@@ -1453,7 +1453,7 @@ func TestCertificateRepository_SoftDeleteVaultContentsTx_CommitsWithSharedTx(t *
 	require.NoError(t, repo.SoftDeleteVaultContentsTx(ctx, tx, vaultID, time.Now().UTC()))
 	require.NoError(t, tx.Commit())
 
-	_, err = repo.Read(ctx, c.ID)
+	_, err = repo.Read(ctx, c.ID, model.NewAdminScope(uuid.Nil))
 	assert.Error(t, err, "certificate must be hidden after the transaction commits")
 }
 
@@ -1477,6 +1477,6 @@ func TestCertificateRepository_SoftDeleteVaultContentsTx_RollsBackWithSharedTx(t
 	require.NoError(t, repo.SoftDeleteVaultContentsTx(ctx, tx, vaultID, time.Now().UTC()))
 	require.NoError(t, tx.Rollback())
 
-	_, err = repo.Read(ctx, c.ID)
+	_, err = repo.Read(ctx, c.ID, model.NewAdminScope(uuid.Nil))
 	require.NoError(t, err, "certificate must still be active after rollback")
 }

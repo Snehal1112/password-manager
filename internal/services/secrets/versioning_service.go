@@ -5,14 +5,15 @@ package secrets
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
 	"github.com/google/uuid"
 
-	"rocketvault/model"
 	"rocketvault/internal/logging"
 	"rocketvault/internal/repositories"
+	"rocketvault/model"
 )
 
 // VersioningServiceInterface defines the business logic contract for secret versioning operations.
@@ -20,12 +21,12 @@ import (
 type VersioningServiceInterface interface {
 	// Version creation and management
 	CreateVersion(ctx context.Context, req CreateVersionRequest) (*model.SecretVersion, error)
-	GetVersions(ctx context.Context, secretID uuid.UUID, userID uuid.UUID) ([]model.SecretVersion, error)
-	GetVersion(ctx context.Context, secretID uuid.UUID, version int, userID uuid.UUID) (*model.SecretVersion, error)
-	GetLatestVersion(ctx context.Context, secretID uuid.UUID, userID uuid.UUID) (*model.SecretVersion, error)
-	GetVersionsInVault(ctx context.Context, secretID, vaultID uuid.UUID) ([]model.SecretVersion, error)
-	GetVersionInVault(ctx context.Context, secretID uuid.UUID, version int, vaultID uuid.UUID) (*model.SecretVersion, error)
-	GetLatestVersionInVault(ctx context.Context, secretID, vaultID uuid.UUID) (*model.SecretVersion, error)
+	// GetVersions returns every decrypted version of a secret the scope authorizes.
+	GetVersions(ctx context.Context, secretID uuid.UUID, scope model.Scope) ([]model.SecretVersion, error)
+	// GetVersion returns one decrypted version the scope authorizes.
+	GetVersion(ctx context.Context, secretID uuid.UUID, version int, scope model.Scope) (*model.SecretVersion, error)
+	// GetLatestVersion returns the newest decrypted version the scope authorizes.
+	GetLatestVersion(ctx context.Context, secretID uuid.UUID, scope model.Scope) (*model.SecretVersion, error)
 	DeleteVersions(ctx context.Context, secretID uuid.UUID, userID uuid.UUID) error
 	DeleteSpecificVersion(ctx context.Context, secretID uuid.UUID, version int, userID uuid.UUID) error
 
@@ -56,23 +57,40 @@ type versioningService struct {
 	secretRepo  repositories.SecretRepositoryInterface
 	userRepo    repositories.UserRepositoryInterface
 	cryptoSvc   CryptographyService
+	cacheInv    SecretCacheInvalidator
 	log         *logging.Logger
 }
 
-// NewVersioningService creates a new versioning service with the required dependencies.
+// NewVersioningService creates a new versioning service with the required
+// dependencies. cacheInv may be nil when the secret cache is disabled; it is
+// needed because RollbackToVersion writes the secrets table without going
+// through CachedSecretService.
 func NewVersioningService(
 	versionRepo repositories.SecretVersionRepositoryInterface,
 	secretRepo repositories.SecretRepositoryInterface,
 	userRepo repositories.UserRepositoryInterface,
 	cryptoSvc CryptographyService,
 	log *logging.Logger,
+	cacheInv SecretCacheInvalidator,
 ) VersioningServiceInterface {
 	return &versioningService{
 		versionRepo: versionRepo,
 		secretRepo:  secretRepo,
 		userRepo:    userRepo,
 		cryptoSvc:   cryptoSvc,
+		cacheInv:    cacheInv,
 		log:         log,
+	}
+}
+
+// invalidateCache evicts every cached view of a secret after a direct write.
+// A failure is logged but never fails the operation that already succeeded.
+func (s *versioningService) invalidateCache(ctx context.Context, secretID uuid.UUID) {
+	if s.cacheInv == nil {
+		return
+	}
+	if err := s.cacheInv.DeleteByID(ctx, secretID); err != nil {
+		s.log.WithError(err).WithField("secret_id", secretID).Warn("Failed to invalidate cached secret")
 	}
 }
 
@@ -85,8 +103,11 @@ func (s *versioningService) CreateVersion(ctx context.Context, req CreateVersion
 		return nil, fmt.Errorf("user not found: %w", err)
 	}
 
-	// Validate secret exists and user owns it
-	secret, err := s.secretRepo.Read(ctx, req.SecretID)
+	// Validate secret exists and user owns it. The read itself is unchecked
+	// (admin scope): CreateVersion is called both directly by owner-scoped
+	// callers and internally by UpdateSecret with the secret's real owner, so
+	// the explicit ownership check below is the actual authorization gate.
+	secret, err := s.secretRepo.Read(ctx, req.SecretID, model.NewAdminScope(req.UserID))
 	if err != nil {
 		s.log.WithError(err).WithField("secret_id", req.SecretID).Error("Secret not found for version creation")
 		return nil, fmt.Errorf("secret not found: %w", err)
@@ -133,111 +154,11 @@ func (s *versioningService) CreateVersion(ctx context.Context, req CreateVersion
 	return version, nil
 }
 
-// GetVersions retrieves all versions of a secret with decryption and ownership validation.
-func (s *versioningService) GetVersions(ctx context.Context, secretID uuid.UUID, userID uuid.UUID) ([]model.SecretVersion, error) {
-	// Validate secret exists and user owns it
-	secret, err := s.secretRepo.Read(ctx, secretID)
-	if err != nil {
-		return nil, fmt.Errorf("secret not found: %w", err)
-	}
-
-	if secret.UserID != userID {
-		return nil, fmt.Errorf("user does not own this secret")
-	}
-
-	// Get encrypted versions from repository
-	encryptedVersions, err := s.versionRepo.GetVersions(ctx, secretID)
-	if err != nil {
-		s.log.WithError(err).WithField("secret_id", secretID).Error("Failed to get secret versions")
-		return nil, fmt.Errorf("failed to get secret versions: %w", err)
-	}
-
-	// Decrypt values for response
-	var versions []model.SecretVersion
-	for _, encVersion := range encryptedVersions {
-		decryptedValue, err := s.cryptoSvc.DecryptSecret(encVersion.Value)
-		if err != nil {
-			s.log.WithError(err).WithField("version_id", encVersion.ID).Error("Failed to decrypt secret version")
-			return nil, fmt.Errorf("failed to decrypt secret version: %w", err)
-		}
-
-		decVersion := encVersion
-		decVersion.Value = decryptedValue
-		versions = append(versions, decVersion)
-	}
-
-	return versions, nil
-}
-
-// GetVersion retrieves a specific version of a secret with decryption and ownership validation.
-func (s *versioningService) GetVersion(ctx context.Context, secretID uuid.UUID, version int, userID uuid.UUID) (*model.SecretVersion, error) {
-	// Validate secret exists and user owns it
-	secret, err := s.secretRepo.Read(ctx, secretID)
-	if err != nil {
-		return nil, fmt.Errorf("secret not found: %w", err)
-	}
-
-	if secret.UserID != userID {
-		return nil, fmt.Errorf("user does not own this secret")
-	}
-
-	// Get encrypted version from repository
-	encryptedVersion, err := s.versionRepo.GetVersion(ctx, secretID, version)
-	if err != nil {
-		s.log.WithError(err).WithFields(map[string]any{
-			"secret_id": secretID,
-			"version":   version,
-		}).Error("Failed to get secret version")
-		return nil, fmt.Errorf("failed to get secret version: %w", err)
-	}
-
-	// Decrypt value for response
-	decryptedValue, err := s.cryptoSvc.DecryptSecret(encryptedVersion.Value)
-	if err != nil {
-		s.log.WithError(err).WithField("version_id", encryptedVersion.ID).Error("Failed to decrypt secret version")
-		return nil, fmt.Errorf("failed to decrypt secret version: %w", err)
-	}
-
-	encryptedVersion.Value = decryptedValue
-	return encryptedVersion, nil
-}
-
-// GetLatestVersion retrieves the latest version of a secret with decryption and ownership validation.
-func (s *versioningService) GetLatestVersion(ctx context.Context, secretID uuid.UUID, userID uuid.UUID) (*model.SecretVersion, error) {
-	// Validate secret exists and user owns it
-	secret, err := s.secretRepo.Read(ctx, secretID)
-	if err != nil {
-		return nil, fmt.Errorf("secret not found: %w", err)
-	}
-
-	if secret.UserID != userID {
-		return nil, fmt.Errorf("user does not own this secret")
-	}
-
-	// Get encrypted latest version from repository
-	encryptedVersion, err := s.versionRepo.GetLatestVersion(ctx, secretID)
-	if err != nil {
-		s.log.WithError(err).WithField("secret_id", secretID).Error("Failed to get latest secret version")
-		return nil, fmt.Errorf("failed to get latest secret version: %w", err)
-	}
-
-	// Decrypt value for response
-	decryptedValue, err := s.cryptoSvc.DecryptSecret(encryptedVersion.Value)
-	if err != nil {
-		s.log.WithError(err).WithField("version_id", encryptedVersion.ID).Error("Failed to decrypt secret version")
-		return nil, fmt.Errorf("failed to decrypt secret version: %w", err)
-	}
-
-	encryptedVersion.Value = decryptedValue
-	return encryptedVersion, nil
-}
-
-// GetVersionsInVault retrieves all versions of a secret scoped to a vault
-// instead of ownership. It mirrors GetVersions but verifies vault membership
-// via ReadInVault.
-func (s *versioningService) GetVersionsInVault(ctx context.Context, secretID, vaultID uuid.UUID) ([]model.SecretVersion, error) {
-	if _, err := s.secretRepo.ReadInVault(ctx, secretID, vaultID); err != nil {
-		return nil, fmt.Errorf("secret not found or not in vault: %w", err)
+// GetVersions retrieves all versions of a secret the scope authorizes.
+// The scoped read on the parent secret is the access check.
+func (s *versioningService) GetVersions(ctx context.Context, secretID uuid.UUID, scope model.Scope) ([]model.SecretVersion, error) {
+	if _, err := s.secretRepo.Read(ctx, secretID, scope); err != nil {
+		return nil, fmt.Errorf("%w: %s", ErrSecretNotFound, err.Error())
 	}
 
 	encryptedVersions, err := s.versionRepo.GetVersions(ctx, secretID)
@@ -248,33 +169,33 @@ func (s *versioningService) GetVersionsInVault(ctx context.Context, secretID, va
 
 	var versions []model.SecretVersion
 	for _, encVersion := range encryptedVersions {
-		decryptedValue, err := s.cryptoSvc.DecryptSecret(encVersion.Value)
-		if err != nil {
-			s.log.WithError(err).WithField("version_id", encVersion.ID).Error("Failed to decrypt secret version")
-			return nil, fmt.Errorf("failed to decrypt secret version: %w", err)
+		decryptedValue, decErr := s.cryptoSvc.DecryptSecret(encVersion.Value)
+		if decErr != nil {
+			s.log.WithError(decErr).WithField("version_id", encVersion.ID).Error("Failed to decrypt secret version")
+			return nil, fmt.Errorf("failed to decrypt secret version: %w", decErr)
 		}
 		decVersion := encVersion
 		decVersion.Value = decryptedValue
 		versions = append(versions, decVersion)
 	}
-
 	return versions, nil
 }
 
-// GetVersionInVault retrieves a specific version of a secret scoped to a
-// vault instead of ownership. It mirrors GetVersion but verifies vault
-// membership via ReadInVault.
-func (s *versioningService) GetVersionInVault(ctx context.Context, secretID uuid.UUID, version int, vaultID uuid.UUID) (*model.SecretVersion, error) {
-	if _, err := s.secretRepo.ReadInVault(ctx, secretID, vaultID); err != nil {
-		return nil, fmt.Errorf("secret not found or not in vault: %w", err)
+// GetVersion retrieves one version of a secret the scope authorizes.
+func (s *versioningService) GetVersion(ctx context.Context, secretID uuid.UUID, version int, scope model.Scope) (*model.SecretVersion, error) {
+	if _, err := s.secretRepo.Read(ctx, secretID, scope); err != nil {
+		return nil, fmt.Errorf("%w: %s", ErrSecretNotFound, err.Error())
 	}
 
 	encryptedVersion, err := s.versionRepo.GetVersion(ctx, secretID, version)
 	if err != nil {
-		s.log.WithError(err).WithFields(map[string]any{
-			"secret_id": secretID,
-			"version":   version,
-		}).Error("Failed to get secret version")
+		s.log.WithError(err).WithFields(map[string]any{"secret_id": secretID, "version": version}).
+			Error("Failed to get secret version")
+		// A missing version row is a 404, same as a missing parent secret; any
+		// other repository failure (e.g. a real DB error) stays a 500.
+		if errors.Is(err, repositories.ErrNotFound) {
+			return nil, fmt.Errorf("%w: %s", ErrSecretNotFound, err.Error())
+		}
 		return nil, fmt.Errorf("failed to get secret version: %w", err)
 	}
 
@@ -283,22 +204,24 @@ func (s *versioningService) GetVersionInVault(ctx context.Context, secretID uuid
 		s.log.WithError(err).WithField("version_id", encryptedVersion.ID).Error("Failed to decrypt secret version")
 		return nil, fmt.Errorf("failed to decrypt secret version: %w", err)
 	}
-
 	encryptedVersion.Value = decryptedValue
 	return encryptedVersion, nil
 }
 
-// GetLatestVersionInVault retrieves the latest version of a secret scoped to
-// a vault instead of ownership. It mirrors GetLatestVersion but verifies
-// vault membership via ReadInVault.
-func (s *versioningService) GetLatestVersionInVault(ctx context.Context, secretID, vaultID uuid.UUID) (*model.SecretVersion, error) {
-	if _, err := s.secretRepo.ReadInVault(ctx, secretID, vaultID); err != nil {
-		return nil, fmt.Errorf("secret not found or not in vault: %w", err)
+// GetLatestVersion retrieves the newest version the scope authorizes.
+func (s *versioningService) GetLatestVersion(ctx context.Context, secretID uuid.UUID, scope model.Scope) (*model.SecretVersion, error) {
+	if _, err := s.secretRepo.Read(ctx, secretID, scope); err != nil {
+		return nil, fmt.Errorf("%w: %s", ErrSecretNotFound, err.Error())
 	}
 
 	encryptedVersion, err := s.versionRepo.GetLatestVersion(ctx, secretID)
 	if err != nil {
 		s.log.WithError(err).WithField("secret_id", secretID).Error("Failed to get latest secret version")
+		// No version rows at all is a 404, same as a missing parent secret;
+		// any other repository failure (e.g. a real DB error) stays a 500.
+		if errors.Is(err, repositories.ErrNotFound) {
+			return nil, fmt.Errorf("%w: %s", ErrSecretNotFound, err.Error())
+		}
 		return nil, fmt.Errorf("failed to get latest secret version: %w", err)
 	}
 
@@ -307,15 +230,15 @@ func (s *versioningService) GetLatestVersionInVault(ctx context.Context, secretI
 		s.log.WithError(err).WithField("version_id", encryptedVersion.ID).Error("Failed to decrypt secret version")
 		return nil, fmt.Errorf("failed to decrypt secret version: %w", err)
 	}
-
 	encryptedVersion.Value = decryptedValue
 	return encryptedVersion, nil
 }
 
 // DeleteVersions deletes all versions of a secret with ownership validation.
 func (s *versioningService) DeleteVersions(ctx context.Context, secretID uuid.UUID, userID uuid.UUID) error {
-	// Validate secret exists and user owns it
-	secret, err := s.secretRepo.Read(ctx, secretID)
+	// Validate secret exists and user owns it. The read itself is unchecked
+	// (admin scope); the explicit ownership check below is the actual gate.
+	secret, err := s.secretRepo.Read(ctx, secretID, model.NewAdminScope(userID))
 	if err != nil {
 		return fmt.Errorf("secret not found: %w", err)
 	}
@@ -340,8 +263,9 @@ func (s *versioningService) DeleteVersions(ctx context.Context, secretID uuid.UU
 
 // DeleteSpecificVersion deletes a specific version of a secret with ownership validation.
 func (s *versioningService) DeleteSpecificVersion(ctx context.Context, secretID uuid.UUID, version int, userID uuid.UUID) error {
-	// Validate secret exists and user owns it
-	secret, err := s.secretRepo.Read(ctx, secretID)
+	// Validate secret exists and user owns it. The read itself is unchecked
+	// (admin scope); the explicit ownership check below is the actual gate.
+	secret, err := s.secretRepo.Read(ctx, secretID, model.NewAdminScope(userID))
 	if err != nil {
 		return fmt.Errorf("secret not found: %w", err)
 	}
@@ -369,20 +293,30 @@ func (s *versioningService) DeleteSpecificVersion(ctx context.Context, secretID 
 }
 
 // RollbackToVersion rolls back a secret to a specific version.
+//
+// It writes the secrets table directly rather than through the secret service,
+// so it owns both its audit trail and its cache invalidation. The actor is
+// req.UserID, which the ownership gate below proves is also the secret's owner.
 func (s *versioningService) RollbackToVersion(ctx context.Context, req RollbackRequest) (*model.Secret, error) {
-	// Validate secret exists and user owns it
-	secret, err := s.secretRepo.Read(ctx, req.SecretID)
+	actor := req.UserID.String()
+
+	// Validate secret exists and user owns it. The read itself is unchecked
+	// (admin scope); the explicit ownership check below is the actual gate.
+	secret, err := s.secretRepo.Read(ctx, req.SecretID, model.NewAdminScope(req.UserID))
 	if err != nil {
+		s.log.LogAuditError(actor, "rollback_secret", "failed", "Secret not found", err)
 		return nil, fmt.Errorf("secret not found: %w", err)
 	}
 
 	if secret.UserID != req.UserID {
+		s.log.LogAuditError(actor, "rollback_secret", "denied", "User does not own this secret", nil)
 		return nil, fmt.Errorf("user does not own this secret")
 	}
 
 	// Get the target version
 	targetVersion, err := s.versionRepo.GetVersion(ctx, req.SecretID, req.TargetVersion)
 	if err != nil {
+		s.log.LogAuditError(actor, "rollback_secret", "failed", "Target version not found", err)
 		return nil, fmt.Errorf("target version not found: %w", err)
 	}
 
@@ -390,6 +324,7 @@ func (s *versioningService) RollbackToVersion(ctx context.Context, req RollbackR
 	decryptedValue, err := s.cryptoSvc.DecryptSecret(targetVersion.Value)
 	if err != nil {
 		s.log.WithError(err).Error("Failed to decrypt target version for rollback")
+		s.log.LogAuditError(actor, "rollback_secret", "failed", "Failed to decrypt target version", err)
 		return nil, fmt.Errorf("failed to decrypt target version: %w", err)
 	}
 
@@ -405,6 +340,7 @@ func (s *versioningService) RollbackToVersion(ctx context.Context, req RollbackR
 	_, err = s.CreateVersion(ctx, currentVersionReq)
 	if err != nil {
 		s.log.WithError(err).Error("Failed to create backup version during rollback")
+		s.log.LogAuditError(actor, "rollback_secret", "failed", "Failed to create backup version", err)
 		return nil, fmt.Errorf("failed to create backup version: %w", err)
 	}
 
@@ -412,11 +348,19 @@ func (s *versioningService) RollbackToVersion(ctx context.Context, req RollbackR
 	secret.Value = decryptedValue
 	secret.Version = secret.Version + 2 // Increment beyond backup version
 
-	err = s.secretRepo.Update(ctx, secret)
+	err = s.secretRepo.Update(ctx, secret, model.NewOwnerScope(secret.VaultID, secret.UserID))
 	if err != nil {
 		s.log.WithError(err).Error("Failed to update secret during rollback")
+		s.log.LogAuditError(actor, "rollback_secret", "failed", "Failed to update secret during rollback", err)
 		return nil, fmt.Errorf("failed to update secret during rollback: %w", err)
 	}
+
+	// The write bypassed CachedSecretService, so evict every cached view
+	// explicitly or the pre-rollback value keeps being served for the full TTL.
+	s.invalidateCache(ctx, req.SecretID)
+
+	s.log.LogAuditInfo(actor, "rollback_secret", "success",
+		fmt.Sprintf("Secret %s rolled back to version %d (new version %d)", req.SecretID, req.TargetVersion, secret.Version))
 
 	s.log.WithFields(map[string]any{
 		"secret_id":      req.SecretID,

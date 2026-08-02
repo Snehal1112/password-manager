@@ -32,25 +32,21 @@ func doScopedRequest(api *API, method, path string) *httptest.ResponseRecorder {
 	return w
 }
 
-// recordingSecretService records which list method was called and with what
-// scope. The legacy flat route must call the user-scoped ListSecrets; the
-// vault-scoped route must call ListSecretsInVault. Unused methods panic.
+// recordingSecretService records which scope a handler built for each
+// operation. The legacy flat route must yield an owner scope; the
+// vault-scoped route must yield a vault scope carrying the resolved vault's
+// ID. Unused methods panic.
 type recordingSecretService struct {
-	listVaultID         uuid.UUID
-	listCalled          bool
-	listUserScoped      bool
-	listUserID          uuid.UUID
-	updateCalled        bool
-	updateVaultScoped   bool
-	updateVaultID       uuid.UUID
-	updateUserID        uuid.UUID
-	versionsCalled      bool
-	versionsVaultScoped bool
-	versionsVaultID     uuid.UUID
-	exportCalled        bool
-	exportVaultID       uuid.UUID
-	importCalled        bool
-	importVaultID       uuid.UUID
+	listScope      model.Scope
+	listCalled     bool
+	updateScope    model.Scope
+	updateCalled   bool
+	versionsScope  model.Scope
+	versionsCalled bool
+	exportScope    model.Scope
+	exportCalled   bool
+	importScope    model.Scope
+	importCalled   bool
 }
 
 func (s *recordingSecretService) CreateSecret(context.Context, secretServices.CreateSecretRequest) (*model.Secret, error) {
@@ -58,38 +54,21 @@ func (s *recordingSecretService) CreateSecret(context.Context, secretServices.Cr
 }
 func (s *recordingSecretService) UpdateSecret(_ context.Context, req secretServices.UpdateSecretRequest) error {
 	s.updateCalled = true
-	s.updateVaultScoped = false
-	s.updateUserID = req.UserID
+	s.updateScope = req.Scope
 	return nil
 }
-func (s *recordingSecretService) GetSecret(_ context.Context, secretID, userID uuid.UUID) (*model.Secret, error) {
-	return &model.Secret{ID: secretID, UserID: userID, Name: "existing", Value: "plain-value", Version: 1}, nil
+func (s *recordingSecretService) GetSecret(_ context.Context, secretID uuid.UUID, scope model.Scope) (*model.Secret, error) {
+	return &model.Secret{ID: secretID, UserID: scope.ActorID(), Name: "existing", Value: "plain-value", Version: 1}, nil
 }
-func (s *recordingSecretService) ListSecrets(_ context.Context, userID uuid.UUID, _ []string) ([]model.Secret, error) {
+func (s *recordingSecretService) ListSecrets(_ context.Context, scope model.Scope, _ []string) ([]model.Secret, error) {
 	s.listCalled = true
-	s.listUserScoped = true
-	s.listUserID = userID
+	s.listScope = scope
 	return []model.Secret{}, nil
 }
-func (s *recordingSecretService) DeleteSecret(context.Context, uuid.UUID, uuid.UUID) error {
+func (s *recordingSecretService) DeleteSecret(context.Context, uuid.UUID, model.Scope) error {
 	panic("unexpected")
 }
-func (s *recordingSecretService) GetSecretInVault(_ context.Context, secretID, vaultID uuid.UUID) (*model.Secret, error) {
-	return &model.Secret{ID: secretID, VaultID: vaultID, Name: "existing", Value: "plain-value", Version: 1}, nil
-}
-func (s *recordingSecretService) UpdateSecretInVault(_ context.Context, req secretServices.UpdateSecretRequest) error {
-	s.updateCalled = true
-	s.updateVaultScoped = true
-	s.updateVaultID = req.VaultID
-	return nil
-}
-func (s *recordingSecretService) ListSecretsInVault(_ context.Context, vaultID uuid.UUID, _ []string) ([]model.Secret, error) {
-	s.listCalled = true
-	s.listUserScoped = false
-	s.listVaultID = vaultID
-	return []model.Secret{}, nil
-}
-func (s *recordingSecretService) DeleteSecretInVault(context.Context, uuid.UUID, uuid.UUID) error {
+func (s *recordingSecretService) ListDeletedSecrets(context.Context, model.Scope) ([]model.Secret, error) {
 	panic("unexpected")
 }
 func (s *recordingSecretService) GenerateSecret(context.Context, secretServices.GenerateSecretRequest) (*model.Secret, error) {
@@ -97,50 +76,29 @@ func (s *recordingSecretService) GenerateSecret(context.Context, secretServices.
 }
 func (s *recordingSecretService) ExportSecrets(_ context.Context, req secretServices.ExportSecretsRequest) ([]byte, error) {
 	s.exportCalled = true
-	s.exportVaultID = req.VaultID
+	s.exportScope = req.Scope
 	return []byte("[]"), nil
 }
 func (s *recordingSecretService) ImportSecrets(_ context.Context, req secretServices.ImportSecretsRequest) (*secretServices.ImportResult, error) {
 	s.importCalled = true
-	s.importVaultID = req.VaultID
+	s.importScope = req.Scope
 	return &secretServices.ImportResult{}, nil
 }
-func (s *recordingSecretService) GetSecretVersions(_ context.Context, secretID, userID uuid.UUID) ([]model.SecretVersion, error) {
+func (s *recordingSecretService) GetSecretVersions(_ context.Context, _ uuid.UUID, scope model.Scope) ([]model.SecretVersion, error) {
 	s.versionsCalled = true
-	s.versionsVaultScoped = false
+	s.versionsScope = scope
 	return []model.SecretVersion{}, nil
 }
-func (s *recordingSecretService) GetSecretVersionsInVault(_ context.Context, secretID, vaultID uuid.UUID) ([]model.SecretVersion, error) {
-	s.versionsCalled = true
-	s.versionsVaultScoped = true
-	s.versionsVaultID = vaultID
-	return []model.SecretVersion{}, nil
-}
-func (s *recordingSecretService) GetSecretVersion(context.Context, uuid.UUID, int, uuid.UUID) (*model.SecretVersion, error) {
+func (s *recordingSecretService) GetSecretVersion(context.Context, uuid.UUID, int, model.Scope) (*model.SecretVersion, error) {
 	panic("unexpected")
 }
-func (s *recordingSecretService) GetLatestSecretVersion(context.Context, uuid.UUID, uuid.UUID) (*model.SecretVersion, error) {
+func (s *recordingSecretService) GetLatestSecretVersion(context.Context, uuid.UUID, model.Scope) (*model.SecretVersion, error) {
 	panic("unexpected")
 }
-func (s *recordingSecretService) GetSecretVersionInVault(context.Context, uuid.UUID, int, uuid.UUID) (*model.SecretVersion, error) {
+func (s *recordingSecretService) RecoverSecret(context.Context, uuid.UUID, model.Scope) error {
 	panic("unexpected")
 }
-func (s *recordingSecretService) GetLatestSecretVersionInVault(context.Context, uuid.UUID, uuid.UUID) (*model.SecretVersion, error) {
-	panic("unexpected")
-}
-func (s *recordingSecretService) ListDeletedSecretsInVault(context.Context, uuid.UUID) ([]model.Secret, error) {
-	panic("unexpected")
-}
-func (s *recordingSecretService) IsSecretSoftDeletedInVault(context.Context, uuid.UUID, uuid.UUID) (bool, error) {
-	panic("unexpected")
-}
-func (s *recordingSecretService) IsSecretSoftDeletedForUser(context.Context, uuid.UUID, uuid.UUID) (bool, error) {
-	panic("unexpected")
-}
-func (s *recordingSecretService) RecoverSecret(context.Context, uuid.UUID) error {
-	panic("unexpected")
-}
-func (s *recordingSecretService) PurgeSecret(context.Context, uuid.UUID) error {
+func (s *recordingSecretService) PurgeSecret(context.Context, uuid.UUID, model.Scope) error {
 	panic("unexpected")
 }
 
@@ -216,7 +174,7 @@ func TestVaultScopedRoutes_CoexistWithManagement(t *testing.T) {
 	}
 
 	// Vault-scoped resource route: GET /vaults/prod/secrets must reach listSecrets
-	// and use vault-scoped visibility (ListSecretsInVault).
+	// and use vault-scoped visibility (ListSecrets with a vault scope).
 	w = doScopedRequest(api, http.MethodGet, "/api/v1/vaults/prod/secrets")
 	if w.Code != http.StatusOK {
 		t.Fatalf("resource GET /vaults/prod/secrets: expected 200, got %d (%s)", w.Code, w.Body.String())
@@ -224,15 +182,15 @@ func TestVaultScopedRoutes_CoexistWithManagement(t *testing.T) {
 	if !rec.listCalled {
 		t.Fatalf("resource route did not dispatch to the secret list handler")
 	}
-	if rec.listUserScoped {
+	if rec.listScope.Kind() != model.ScopeVault {
 		t.Fatalf("vault-scoped route must use vault-scoped (not user-scoped) listing")
 	}
 }
 
 // TestLegacyFlatRoute_UsesUserScopedListing verifies that the legacy flat
-// /secrets route uses per-user visibility (ListSecrets scoped to the caller),
-// preserving pre-multi-vault behavior. Vault-level "members see all" visibility
-// applies only to the explicit /vaults/{name}/... routes.
+// /secrets route uses per-user visibility (an owner scope built from the
+// caller), preserving pre-multi-vault behavior. Vault-level "members see all"
+// visibility applies only to the explicit /vaults/{name}/... routes.
 func TestLegacyFlatRoute_UsesUserScopedListing(t *testing.T) {
 	rec := &recordingSecretService{}
 	api, _ := newVaultScopedTestAPI(rec)
@@ -244,11 +202,11 @@ func TestLegacyFlatRoute_UsesUserScopedListing(t *testing.T) {
 	if !rec.listCalled {
 		t.Fatalf("legacy route did not dispatch to the secret list handler")
 	}
-	if !rec.listUserScoped {
-		t.Fatalf("legacy route must use user-scoped listing (ListSecrets), not vault-scoped")
+	if rec.listScope.Kind() != model.ScopeOwner {
+		t.Fatalf("legacy route must use owner-scoped listing, not vault-scoped")
 	}
-	if rec.listUserID != uuid.MustParse(vaultTestUserID) {
-		t.Fatalf("legacy route scoped to user %s, want caller %s", rec.listUserID, vaultTestUserID)
+	if rec.listScope.ActorID() != uuid.MustParse(vaultTestUserID) {
+		t.Fatalf("legacy route scoped to user %s, want caller %s", rec.listScope.ActorID(), vaultTestUserID)
 	}
 }
 
@@ -273,11 +231,11 @@ func TestVaultScopedRoute_UsesVaultScopedUpdate(t *testing.T) {
 	if !rec.updateCalled {
 		t.Fatalf("vault-scoped route did not dispatch to the secret update handler")
 	}
-	if !rec.updateVaultScoped {
-		t.Fatalf("vault-scoped /secrets/{id} PUT must use vault-scoped update (UpdateSecretInVault)")
+	if rec.updateScope.Kind() != model.ScopeVault {
+		t.Fatalf("vault-scoped /secrets/{id} PUT must use vault-scoped update (UpdateSecret with a vault scope)")
 	}
-	if rec.updateVaultID != id {
-		t.Fatalf("update dispatched with vault ID %s, want %s", rec.updateVaultID, id)
+	if rec.updateScope.VaultID() != id {
+		t.Fatalf("update dispatched with vault ID %s, want %s", rec.updateScope.VaultID(), id)
 	}
 }
 
@@ -297,11 +255,11 @@ func TestLegacyFlatRoute_UsesUserScopedUpdate(t *testing.T) {
 	if !rec.updateCalled {
 		t.Fatalf("legacy route did not dispatch to the secret update handler")
 	}
-	if rec.updateVaultScoped {
-		t.Fatalf("legacy /secrets/{id} PUT must use owner-scoped update (UpdateSecret), not vault-scoped")
+	if rec.updateScope.Kind() != model.ScopeOwner {
+		t.Fatalf("legacy /secrets/{id} PUT must use owner-scoped update, not vault-scoped")
 	}
-	if rec.updateUserID != uuid.MustParse(vaultTestUserID) {
-		t.Fatalf("legacy route scoped update to user %s, want caller %s", rec.updateUserID, vaultTestUserID)
+	if rec.updateScope.ActorID() != uuid.MustParse(vaultTestUserID) {
+		t.Fatalf("legacy route scoped update to user %s, want caller %s", rec.updateScope.ActorID(), vaultTestUserID)
 	}
 }
 
@@ -325,11 +283,11 @@ func TestVaultScopedRoute_UsesVaultScopedVersionsList(t *testing.T) {
 	if !rec.versionsCalled {
 		t.Fatalf("vault-scoped route did not dispatch to the versions list handler")
 	}
-	if !rec.versionsVaultScoped {
-		t.Fatalf("vault-scoped .../versions GET must use vault-scoped lookup (GetSecretVersionsInVault)")
+	if rec.versionsScope.Kind() != model.ScopeVault {
+		t.Fatalf("vault-scoped .../versions GET must use vault-scoped lookup (GetSecretVersions with a vault scope)")
 	}
-	if rec.versionsVaultID != id {
-		t.Fatalf("versions lookup dispatched with vault ID %s, want %s", rec.versionsVaultID, id)
+	if rec.versionsScope.VaultID() != id {
+		t.Fatalf("versions lookup dispatched with vault ID %s, want %s", rec.versionsScope.VaultID(), id)
 	}
 }
 
@@ -349,14 +307,14 @@ func TestLegacyFlatRoute_UsesUserScopedVersionsList(t *testing.T) {
 	if !rec.versionsCalled {
 		t.Fatalf("legacy route did not dispatch to the versions list handler")
 	}
-	if rec.versionsVaultScoped {
-		t.Fatalf("legacy .../versions GET must use owner-scoped lookup (GetSecretVersions), not vault-scoped")
+	if rec.versionsScope.Kind() != model.ScopeOwner {
+		t.Fatalf("legacy .../versions GET must use owner-scoped lookup, not vault-scoped")
 	}
 }
 
 // TestVaultScopedRoute_UsesVaultScopedExport verifies that POST on the
-// explicit /vaults/{name}/secrets/export route threads the resolved vault's
-// ID into ExportSecretsRequest.
+// explicit /vaults/{name}/secrets/export route threads a vault scope carrying
+// the resolved vault's ID into ExportSecretsRequest.
 func TestVaultScopedRoute_UsesVaultScopedExport(t *testing.T) {
 	rec := &recordingSecretService{}
 	api, repo := newVaultScopedTestAPI(rec)
@@ -374,14 +332,17 @@ func TestVaultScopedRoute_UsesVaultScopedExport(t *testing.T) {
 	if !rec.exportCalled {
 		t.Fatalf("vault-scoped route did not dispatch to the export handler")
 	}
-	if rec.exportVaultID != id {
-		t.Fatalf("export dispatched with vault ID %s, want %s", rec.exportVaultID, id)
+	if rec.exportScope.Kind() != model.ScopeVault {
+		t.Fatalf("vault-scoped /secrets/export must use a vault scope")
+	}
+	if rec.exportScope.VaultID() != id {
+		t.Fatalf("export dispatched with vault ID %s, want %s", rec.exportScope.VaultID(), id)
 	}
 }
 
-// TestLegacyFlatRoute_ExportOmitsVaultID verifies that POST on the legacy
-// flat /secrets/export route leaves VaultID unset (owner-scoped export).
-func TestLegacyFlatRoute_ExportOmitsVaultID(t *testing.T) {
+// TestLegacyFlatRoute_ExportUsesOwnerScope verifies that POST on the legacy
+// flat /secrets/export route yields an owner scope (no vault targeting).
+func TestLegacyFlatRoute_ExportUsesOwnerScope(t *testing.T) {
 	rec := &recordingSecretService{}
 	api, _ := newVaultScopedTestAPI(rec)
 
@@ -394,8 +355,8 @@ func TestLegacyFlatRoute_ExportOmitsVaultID(t *testing.T) {
 	if !rec.exportCalled {
 		t.Fatalf("legacy route did not dispatch to the export handler")
 	}
-	if rec.exportVaultID != uuid.Nil {
-		t.Fatalf("legacy /secrets/export must not set VaultID, got %s", rec.exportVaultID)
+	if rec.exportScope.Kind() != model.ScopeOwner {
+		t.Fatalf("legacy /secrets/export must use an owner scope, got %s", rec.exportScope.String())
 	}
 }
 
@@ -434,7 +395,10 @@ func TestVaultScopedRoute_UsesVaultScopedImport(t *testing.T) {
 	if !rec.importCalled {
 		t.Fatalf("vault-scoped route did not dispatch to the import handler")
 	}
-	if rec.importVaultID != id {
-		t.Fatalf("import dispatched with vault ID %s, want %s", rec.importVaultID, id)
+	if rec.importScope.Kind() != model.ScopeVault {
+		t.Fatalf("vault-scoped /secrets/import must use a vault scope")
+	}
+	if rec.importScope.VaultID() != id {
+		t.Fatalf("import dispatched with vault ID %s, want %s", rec.importScope.VaultID(), id)
 	}
 }

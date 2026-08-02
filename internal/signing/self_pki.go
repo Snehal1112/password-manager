@@ -154,7 +154,7 @@ func (p *SelfPKIProvider) Rotate() (newKID string, overlapUntil string, err erro
 
 // loadOrGenerate finds the most recently stored _jwt_signing key or generates one.
 func (p *SelfPKIProvider) loadOrGenerate(ctx context.Context) error {
-	keys, err := p.keyRepo.ListByUser(ctx, nil, model.KeyTypeECDSA, nil)
+	keys, err := p.keyRepo.List(ctx, model.NewAdminScope(uuid.Nil), repositories.KeyFilter{Type: model.KeyTypeECDSA})
 	if err != nil {
 		return fmt.Errorf("list keys: %w", err)
 	}

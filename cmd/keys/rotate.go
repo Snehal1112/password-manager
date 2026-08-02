@@ -66,8 +66,9 @@ var rotateCmd = &cobra.Command{
 		}
 		keyService := serviceContainer.GetKeyService()
 
-		// Rotate key using service
-		newKey, err := keyService.RotateKey(ctx, keyID, claims.UserID)
+		// Rotate key using service. The keys CLI has no --vault flag yet, so
+		// the scope carries no vault id, matching the get/delete commands.
+		newKey, err := keyService.RotateKey(ctx, keyID, model.NewOwnerScope(uuid.Nil, claims.UserID))
 		if err != nil {
 			log.LogAuditError(claims.UserID.String(), "rotate_key", "failed", fmt.Sprintf("failed to rotate key: %s", err), err)
 			return fmt.Errorf("failed to rotate key: %w", err)

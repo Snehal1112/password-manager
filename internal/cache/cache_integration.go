@@ -30,36 +30,59 @@ func NewCachedSecretService(secretService secrets.SecretService, cache *SecretCa
 	}
 }
 
-// GetSecret retrieves a secret, using cache when available.
-func (s *CachedSecretService) GetSecret(ctx context.Context, secretID uuid.UUID, userID uuid.UUID) (*model.Secret, error) {
-	// Try cache first
-	if cached, found := s.cache.Get(ctx, secretID); found {
-		// Verify the cached secret belongs to the requesting user
-		if cached.UserID == userID {
+// GetSecret retrieves a scoped secret, using cache when available. The
+// entry is keyed by (scope, id), so a value admitted under one scope can never
+// satisfy a read under another, and the hit path rechecks IsAccessible so a
+// secret that expired or was disabled while cached is not served anyway.
+func (s *CachedSecretService) GetSecret(ctx context.Context, secretID uuid.UUID, scope model.Scope) (*model.Secret, error) {
+	if cached, found := s.cache.Get(ctx, secretID, scope); found {
+		if cached.IsAccessible() {
 			s.logger.WithFields(logrus.Fields{
 				"secret_id": secretID,
-				"user_id":   userID,
+				"scope":     scope.String(),
 			}).Debug("Cache hit for secret")
 			return cached, nil
 		}
+		if err := s.cache.DeleteByID(ctx, secretID); err != nil {
+			s.logger.WithError(err).Warn("Failed to evict inaccessible cached secret")
+		}
 	}
 
-	// Cache miss - get from service
-	secret, err := s.secretService.GetSecret(ctx, secretID, userID)
+	secret, err := s.secretService.GetSecret(ctx, secretID, scope)
 	if err != nil {
 		return nil, err
 	}
 
-	// Cache the result
-	if err := s.cache.Set(ctx, secret); err != nil {
+	if err := s.cache.Set(ctx, secret, scope); err != nil {
 		s.logger.WithError(err).Warn("Failed to cache secret")
-		// Don't fail the operation if caching fails
 	}
 
 	return secret, nil
 }
 
-// CreateSecret creates a new secret and updates cache.
+// ListSecrets lists scoped secrets (not cached).
+func (s *CachedSecretService) ListSecrets(ctx context.Context, scope model.Scope, tags []string) ([]model.Secret, error) {
+	return s.secretService.ListSecrets(ctx, scope, tags)
+}
+
+// DeleteSecret soft-deletes a scoped secret and evicts it from cache.
+func (s *CachedSecretService) DeleteSecret(ctx context.Context, secretID uuid.UUID, scope model.Scope) error {
+	if err := s.secretService.DeleteSecret(ctx, secretID, scope); err != nil {
+		return err
+	}
+	if err := s.cache.DeleteByID(ctx, secretID); err != nil {
+		s.logger.WithError(err).Warn("Failed to remove deleted secret from cache")
+	}
+	return nil
+}
+
+// ListDeletedSecrets lists scoped soft-deleted secrets (not cached).
+func (s *CachedSecretService) ListDeletedSecrets(ctx context.Context, scope model.Scope) ([]model.Secret, error) {
+	return s.secretService.ListDeletedSecrets(ctx, scope)
+}
+
+// CreateSecret creates a new secret. The reading scope is not known at write
+// time, so the cache is left to be populated by the first read.
 func (s *CachedSecretService) CreateSecret(ctx context.Context, req secrets.CreateSecretRequest) (*model.Secret, error) {
 	// Create through underlying service
 	secret, err := s.secretService.CreateSecret(ctx, req)
@@ -67,125 +90,42 @@ func (s *CachedSecretService) CreateSecret(ctx context.Context, req secrets.Crea
 		return nil, err
 	}
 
-	// Cache the new secret
-	if err := s.cache.Set(ctx, secret); err != nil {
-		s.logger.WithError(err).Warn("Failed to cache new secret")
-		// Don't fail the operation if caching fails
-	}
-
 	return secret, nil
 }
 
-// UpdateSecret updates a secret and invalidates cache.
+// UpdateSecret updates a scoped secret and invalidates the cache entry.
 func (s *CachedSecretService) UpdateSecret(ctx context.Context, req secrets.UpdateSecretRequest) error {
-	// Update through underlying service
-	err := s.secretService.UpdateSecret(ctx, req)
-	if err != nil {
+	if err := s.secretService.UpdateSecret(ctx, req); err != nil {
 		return err
 	}
-
-	// Invalidate cache - the secret will be re-cached on next read
-	if err := s.cache.Delete(ctx, req.SecretID); err != nil {
+	if err := s.cache.DeleteByID(ctx, req.SecretID); err != nil {
 		s.logger.WithError(err).Warn("Failed to invalidate cached secret")
-		// Don't fail the operation if cache invalidation fails
-	}
-
-	return nil
-}
-
-// UpdateSecretInVault updates a vault-scoped secret (not cached).
-func (s *CachedSecretService) UpdateSecretInVault(ctx context.Context, req secrets.UpdateSecretRequest) error {
-	return s.secretService.UpdateSecretInVault(ctx, req)
-}
-
-// DeleteSecret soft deletes a secret and removes from cache.
-func (s *CachedSecretService) DeleteSecret(ctx context.Context, secretID uuid.UUID, userID uuid.UUID) error {
-	// Delete through underlying service
-	err := s.secretService.DeleteSecret(ctx, secretID, userID)
-	if err != nil {
-		return err
-	}
-
-	// Remove from cache
-	if err := s.cache.Delete(ctx, secretID); err != nil {
-		s.logger.WithError(err).Warn("Failed to remove deleted secret from cache")
-		// Don't fail the operation if cache deletion fails
-	}
-
-	return nil
-}
-
-// ListSecrets lists secrets for a user (not cached due to filtering complexity).
-func (s *CachedSecretService) ListSecrets(ctx context.Context, userID uuid.UUID, tags []string) ([]model.Secret, error) {
-	// List operations are not cached due to filtering complexity
-	// This could be optimized in the future with cache invalidation strategies
-	return s.secretService.ListSecrets(ctx, userID, tags)
-}
-
-// GetSecretInVault retrieves a vault-scoped secret (delegated; not cached to keep
-// vault scoping authoritative at the service layer).
-func (s *CachedSecretService) GetSecretInVault(ctx context.Context, secretID, vaultID uuid.UUID) (*model.Secret, error) {
-	return s.secretService.GetSecretInVault(ctx, secretID, vaultID)
-}
-
-// ListSecretsInVault lists vault-scoped secrets (not cached due to filtering complexity).
-func (s *CachedSecretService) ListSecretsInVault(ctx context.Context, vaultID uuid.UUID, tags []string) ([]model.Secret, error) {
-	return s.secretService.ListSecretsInVault(ctx, vaultID, tags)
-}
-
-// DeleteSecretInVault soft-deletes a vault-scoped secret and removes it from cache.
-func (s *CachedSecretService) DeleteSecretInVault(ctx context.Context, secretID, vaultID uuid.UUID) error {
-	if err := s.secretService.DeleteSecretInVault(ctx, secretID, vaultID); err != nil {
-		return err
-	}
-	if err := s.cache.Delete(ctx, secretID); err != nil {
-		s.logger.WithError(err).Warn("Failed to remove deleted secret from cache")
 	}
 	return nil
 }
 
 // GetSecretVersions retrieves all versions of a secret.
-func (s *CachedSecretService) GetSecretVersions(ctx context.Context, secretID uuid.UUID, userID uuid.UUID) ([]model.SecretVersion, error) {
-	return s.secretService.GetSecretVersions(ctx, secretID, userID)
+func (s *CachedSecretService) GetSecretVersions(ctx context.Context, secretID uuid.UUID, scope model.Scope) ([]model.SecretVersion, error) {
+	return s.secretService.GetSecretVersions(ctx, secretID, scope)
 }
 
 // GetSecretVersion retrieves a specific version of a secret.
-func (s *CachedSecretService) GetSecretVersion(ctx context.Context, secretID uuid.UUID, version int, userID uuid.UUID) (*model.SecretVersion, error) {
-	return s.secretService.GetSecretVersion(ctx, secretID, version, userID)
+func (s *CachedSecretService) GetSecretVersion(ctx context.Context, secretID uuid.UUID, version int, scope model.Scope) (*model.SecretVersion, error) {
+	return s.secretService.GetSecretVersion(ctx, secretID, version, scope)
 }
 
 // GetLatestSecretVersion retrieves the latest version of a secret.
-func (s *CachedSecretService) GetLatestSecretVersion(ctx context.Context, secretID uuid.UUID, userID uuid.UUID) (*model.SecretVersion, error) {
-	return s.secretService.GetLatestSecretVersion(ctx, secretID, userID)
+func (s *CachedSecretService) GetLatestSecretVersion(ctx context.Context, secretID uuid.UUID, scope model.Scope) (*model.SecretVersion, error) {
+	return s.secretService.GetLatestSecretVersion(ctx, secretID, scope)
 }
 
-// GetSecretVersionsInVault retrieves all versions of a secret scoped to a vault.
-func (s *CachedSecretService) GetSecretVersionsInVault(ctx context.Context, secretID, vaultID uuid.UUID) ([]model.SecretVersion, error) {
-	return s.secretService.GetSecretVersionsInVault(ctx, secretID, vaultID)
-}
-
-// GetSecretVersionInVault retrieves a specific version of a secret scoped to a vault.
-func (s *CachedSecretService) GetSecretVersionInVault(ctx context.Context, secretID uuid.UUID, version int, vaultID uuid.UUID) (*model.SecretVersion, error) {
-	return s.secretService.GetSecretVersionInVault(ctx, secretID, version, vaultID)
-}
-
-// GetLatestSecretVersionInVault retrieves the latest version of a secret scoped to a vault.
-func (s *CachedSecretService) GetLatestSecretVersionInVault(ctx context.Context, secretID, vaultID uuid.UUID) (*model.SecretVersion, error) {
-	return s.secretService.GetLatestSecretVersionInVault(ctx, secretID, vaultID)
-}
-
-// GenerateSecret generates a secret and caches it.
+// GenerateSecret generates a secret. The reading scope is not known at write
+// time, so the cache is left to be populated by the first read.
 func (s *CachedSecretService) GenerateSecret(ctx context.Context, req secrets.GenerateSecretRequest) (*model.Secret, error) {
 	// Generate through underlying service
 	secret, err := s.secretService.GenerateSecret(ctx, req)
 	if err != nil {
 		return nil, err
-	}
-
-	// Cache the new secret
-	if err := s.cache.Set(ctx, secret); err != nil {
-		s.logger.WithError(err).Warn("Failed to cache generated secret")
-		// Don't fail the operation if caching fails
 	}
 
 	return secret, nil
@@ -197,7 +137,7 @@ func (s *CachedSecretService) ExportSecrets(ctx context.Context, req secrets.Exp
 	return s.secretService.ExportSecrets(ctx, req)
 }
 
-// ImportSecrets imports secrets and clears cache to ensure consistency.
+// ImportSecrets imports secrets and flushes the cache to ensure consistency.
 func (s *CachedSecretService) ImportSecrets(ctx context.Context, req secrets.ImportSecretsRequest) (*secrets.ImportResult, error) {
 	// Import through underlying service
 	result, err := s.secretService.ImportSecrets(ctx, req)
@@ -205,13 +145,37 @@ func (s *CachedSecretService) ImportSecrets(ctx context.Context, req secrets.Imp
 		return nil, err
 	}
 
-	// Clear cache to ensure consistency after bulk import
-	if err := s.cache.Clear(ctx); err != nil {
-		s.logger.WithError(err).Warn("Failed to clear cache after import")
-		// Don't fail the operation if cache clear fails
+	// Flush (not Clear) so live, non-expired cache entries are also
+	// removed -- a bulk import can change or delete secrets that are
+	// still cached.
+	if err := s.cache.Flush(ctx); err != nil {
+		s.logger.WithError(err).Warn("Failed to flush cache after import")
+		// Don't fail the operation if cache flush fails.
 	}
 
 	return result, nil
+}
+
+// RecoverSecret recovers a scoped soft-deleted secret and evicts it from cache.
+func (s *CachedSecretService) RecoverSecret(ctx context.Context, secretID uuid.UUID, scope model.Scope) error {
+	if err := s.secretService.RecoverSecret(ctx, secretID, scope); err != nil {
+		return err
+	}
+	if err := s.cache.DeleteByID(ctx, secretID); err != nil {
+		s.logger.WithError(err).Warn("Failed to invalidate cached secret")
+	}
+	return nil
+}
+
+// PurgeSecret purges a scoped soft-deleted secret and evicts it from cache.
+func (s *CachedSecretService) PurgeSecret(ctx context.Context, secretID uuid.UUID, scope model.Scope) error {
+	if err := s.secretService.PurgeSecret(ctx, secretID, scope); err != nil {
+		return err
+	}
+	if err := s.cache.DeleteByID(ctx, secretID); err != nil {
+		s.logger.WithError(err).Warn("Failed to remove purged secret from cache")
+	}
+	return nil
 }
 
 // GetCacheStats returns cache statistics for monitoring.
@@ -219,62 +183,13 @@ func (s *CachedSecretService) GetCacheStats() map[string]interface{} {
 	return s.cache.GetStats()
 }
 
-// ClearCache clears all cached secrets.
+// ClearCache removes every cached secret.
 func (s *CachedSecretService) ClearCache(ctx context.Context) error {
-	return s.cache.Clear(ctx)
+	return s.cache.Flush(ctx)
 }
 
 // StartCacheCleanup starts the background cache cleanup process.
 func (s *CachedSecretService) StartCacheCleanup(ctx context.Context, interval time.Duration) {
 	s.cache.StartCleanup(ctx, interval)
 	s.logger.WithField("interval", interval).Info("Started cache cleanup process")
-}
-
-// ListDeletedSecretsInVault lists deleted secrets in a vault (delegated; not cached).
-func (s *CachedSecretService) ListDeletedSecretsInVault(ctx context.Context, vaultID uuid.UUID) ([]model.Secret, error) {
-	return s.secretService.ListDeletedSecretsInVault(ctx, vaultID)
-}
-
-// IsSecretSoftDeletedInVault checks if a secret is soft deleted in a vault (delegated; not cached).
-func (s *CachedSecretService) IsSecretSoftDeletedInVault(ctx context.Context, secretID, vaultID uuid.UUID) (bool, error) {
-	return s.secretService.IsSecretSoftDeletedInVault(ctx, secretID, vaultID)
-}
-
-// IsSecretSoftDeletedForUser checks if a secret is soft deleted for a user (delegated; not cached).
-func (s *CachedSecretService) IsSecretSoftDeletedForUser(ctx context.Context, secretID, userID uuid.UUID) (bool, error) {
-	return s.secretService.IsSecretSoftDeletedForUser(ctx, secretID, userID)
-}
-
-// RecoverSecret recovers a soft-deleted secret and removes it from cache.
-func (s *CachedSecretService) RecoverSecret(ctx context.Context, secretID uuid.UUID) error {
-	// Recover through underlying service
-	err := s.secretService.RecoverSecret(ctx, secretID)
-	if err != nil {
-		return err
-	}
-
-	// Invalidate cache - the secret will be re-cached on next read
-	if err := s.cache.Delete(ctx, secretID); err != nil {
-		s.logger.WithError(err).Warn("Failed to invalidate cached secret")
-		// Don't fail the operation if cache invalidation fails
-	}
-
-	return nil
-}
-
-// PurgeSecret permanently deletes a soft-deleted secret and removes it from cache.
-func (s *CachedSecretService) PurgeSecret(ctx context.Context, secretID uuid.UUID) error {
-	// Purge through underlying service
-	err := s.secretService.PurgeSecret(ctx, secretID)
-	if err != nil {
-		return err
-	}
-
-	// Remove from cache
-	if err := s.cache.Delete(ctx, secretID); err != nil {
-		s.logger.WithError(err).Warn("Failed to remove purged secret from cache")
-		// Don't fail the operation if cache deletion fails
-	}
-
-	return nil
 }
