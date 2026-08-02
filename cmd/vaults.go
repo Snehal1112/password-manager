@@ -54,4 +54,5 @@ func init() {
 	vaults.InitVaultsDelete(vaultsCmd)
 	vaults.InitVaultsRecover(vaultsCmd)
 	vaults.InitVaultsPurge(vaultsCmd)
+	vaults.InitVaultsPreviewMigration(vaultsCmd)
 }
