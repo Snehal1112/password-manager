@@ -114,8 +114,10 @@ func Init(options ...Options) *API {
 	r.Audit = r.ApiRoot.PathPrefix("/audit").Subrouter()
 
 	// OAuth2 is public — registered on rootRouter to bypass auth middleware.
+	// Rate limited because every request (success or failure) now writes an
+	// audit log entry, and this endpoint is reachable without authentication.
 	r.OAuth2 = api.rootRouter.PathPrefix(api.basePath).Subrouter()
-	r.OAuth2.Use(mw.CORSMiddleware)
+	r.OAuth2.Use(mw.CORSMiddleware, mw.RateLimitMiddleware)
 
 	// Config is public — registered on rootRouter to bypass auth middleware.
 	r.Config = api.rootRouter.PathPrefix(api.basePath).Subrouter()

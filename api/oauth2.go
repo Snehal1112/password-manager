@@ -106,14 +106,28 @@ func (api *API) tokenHandler(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(tokenResp) //nolint:errcheck
 }
 
+// maxAuditClientIDLen bounds the caller-supplied client_id written into an
+// audit row. The endpoint is public and unauthenticated, so this stops an
+// attacker from growing audit_logs rows without limit.
+const maxAuditClientIDLen = 255
+
 // recordOAuth2TokenAudit writes an audit entry for a token-issuance attempt.
 // clientID is the caller-supplied identifier — safe to log even on failure
 // since the response never reveals whether the ID or the secret was wrong
 // (RFC 6749 §5.2 non-enumerating error). Swallows a nil audit service.
+//
+// Unlike recordServiceAccountAudit below, which keys ResourceID on the
+// client's UUID, this uses the client NAME: IssueToken returns only a token
+// (never the resolved client record), and on invalid-credentials failure
+// there is no resolved client to take a UUID from. The name is the only
+// identifier available on both the success and failure paths.
 func (api *API) recordOAuth2TokenAudit(r *http.Request, clientID, outcome string) {
 	svc := api.App.ServiceContainer.GetAuditService()
 	if svc == nil {
 		return
+	}
+	if len(clientID) > maxAuditClientIDLen {
+		clientID = clientID[:maxAuditClientIDLen]
 	}
 	_ = svc.RecordEvent(r.Context(), auditSvc.AuditEvent{
 		UserID:       clientID,

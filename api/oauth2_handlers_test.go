@@ -409,6 +409,32 @@ func TestTokenHandler_InvalidCreds_RecordsFailureAuditEvent(t *testing.T) {
 	mockAudit.AssertExpectations(t)
 }
 
+func TestTokenHandler_OversizedClientID_TruncatedInAuditEvent(t *testing.T) {
+	oversized := strings.Repeat("a", 300)
+	truncated := oversized[:maxAuditClientIDLen]
+
+	svc := &mockOAuth2Svc{}
+	svc.On("IssueToken", mock.Anything, oversized, "bad_sec").Return(nil, errors.New("invalid"))
+	mockAudit := &testutils.MockAuditService{}
+	mockAudit.On("RecordEvent", mock.Anything, mock.MatchedBy(func(e auditServices.AuditEvent) bool {
+		return e.UserID == truncated && e.ResourceID == truncated &&
+			len(e.UserID) == maxAuditClientIDLen && len(e.ResourceID) == maxAuditClientIDLen
+	})).Return(nil)
+
+	a := &app.App{ServiceContainer: &oauth2HTestContainer{svc: svc, auditSvc: mockAudit}}
+	api := &API{App: a, Logger: userTestLog()}
+	w := httptest.NewRecorder()
+	body := strings.NewReader("grant_type=client_credentials&client_id=" + oversized + "&client_secret=bad_sec")
+	r := httptest.NewRequest(http.MethodPost, "/oauth2/token", body)
+	r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+
+	api.tokenHandler(w, r)
+
+	assert.Equal(t, http.StatusUnauthorized, w.Code)
+	svc.AssertExpectations(t)
+	mockAudit.AssertExpectations(t)
+}
+
 // ============================================================
 // createServiceAccount (additional paths)
 // ============================================================
