@@ -505,8 +505,7 @@ func (d *DBRepository) createOptimizedSchema(db *sql.DB) error {
 			ip_address TEXT,
 			outcome TEXT,
 			source TEXT,
-			prev_hash TEXT,
-			FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE SET NULL
+			prev_hash TEXT
 		);
 		CREATE INDEX IF NOT EXISTS idx_audit_logs_user_id ON audit_logs(user_id);
 		CREATE INDEX IF NOT EXISTS idx_audit_logs_action ON audit_logs(action);
@@ -834,6 +833,16 @@ func (d *DBRepository) migrateSchema(db *sql.DB) error {
 	}
 	if _, err := db.Exec(`CREATE INDEX IF NOT EXISTS idx_access_policies_assignment ON access_policies(assignment_id)`); err != nil {
 		return fmt.Errorf("index access_policies assignment: %w", err)
+	}
+
+	// Fix: audit_logs.user_id previously FK'd to users(id), but OAuth2 token-issuance
+	// audit events (Task 3) write the client NAME there, which is never a users.id row.
+	// SQLite never enforces this FK (foreign_keys PRAGMA is off by default here), so it's
+	// left alone there; Postgres does enforce it, so drop it explicitly on that dialect.
+	if d.dialect == Postgres {
+		if _, err := db.Exec(`ALTER TABLE audit_logs DROP CONSTRAINT IF EXISTS audit_logs_user_id_fkey`); err != nil {
+			return fmt.Errorf("drop audit_logs user_id FK: %w", err)
+		}
 	}
 
 	d.log.Info("Schema migration completed")
