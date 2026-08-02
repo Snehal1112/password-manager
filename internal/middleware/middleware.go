@@ -220,8 +220,8 @@ func (m *Middleware) RateLimitMiddleware(next http.Handler) http.Handler {
 	})
 }
 
-// extractClientIP returns the client's IP address, preferring X-Forwarded-For.
-func extractClientIP(r *http.Request) string {
+// ExtractClientIP returns the client's IP address, preferring X-Forwarded-For.
+func ExtractClientIP(r *http.Request) string {
 	if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
 		parts := strings.SplitN(xff, ",", 2)
 		return strings.TrimSpace(parts[0])
@@ -292,7 +292,7 @@ func (m *Middleware) AuthenticationMiddleware(next http.Handler) http.Handler {
 				Action:    "auth",
 				Outcome:   "success",
 				Source:    "api",
-				IPAddress: extractClientIP(r),
+				IPAddress: ExtractClientIP(r),
 			})
 		} else {
 			m.logger.LogAuditInfo(claims.UserID.String(), "auth", "success", "Authentication successful")
