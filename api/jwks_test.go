@@ -12,7 +12,9 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	"github.com/golang-jwt/jwt/v5"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 
 	"rocketvault/app"
@@ -34,6 +36,8 @@ import (
 	userServices "rocketvault/internal/services/users"
 	vaultServices "rocketvault/internal/services/vaults"
 	"rocketvault/internal/signing"
+	"rocketvault/internal/testutils"
+	"rocketvault/model"
 )
 
 // --- stub signing providers ---
@@ -68,6 +72,7 @@ func (r *rotatableStubProvider) Rotate() (string, string, error) {
 // Only GetSigningProvider returns a real value; everything else panics.
 type jwkContainerBase struct {
 	signingProvider signing.SigningKeyProvider
+	auditSvc        auditServices.AuditServiceInterface
 }
 
 func (c *jwkContainerBase) GetSigningProvider() signing.SigningKeyProvider { return c.signingProvider }
@@ -189,7 +194,7 @@ func (c *jwkContainerBase) GetItemBackupService() *backup.ItemBackupService {
 func (c *jwkContainerBase) GetKeyCache() keycache.Cache             { return nil }
 func (c *jwkContainerBase) GetCryptoMetrics() metrics.CryptoMetrics { return nil }
 func (c *jwkContainerBase) GetAuditService() auditServices.AuditServiceInterface {
-	return nil
+	return c.auditSvc
 }
 func (c *jwkContainerBase) GetComplianceReportService() auditServices.ComplianceReportServiceInterface {
 	return nil
@@ -203,6 +208,13 @@ func newJWKSCtx(provider signing.SigningKeyProvider) *Context {
 		App:    a,
 		Params: &ApiParams{PerPage: 60},
 	}
+}
+
+// newJWKSAdminCtx builds a Context with an admin role claim, for handlers gated to admins.
+func newJWKSAdminCtx(provider signing.SigningKeyProvider) *Context {
+	c := newJWKSCtx(provider)
+	c.Claims = jwt.MapClaims{"role": string(model.RoleAdmin), "user_id": "00000000-0000-0000-0000-000000000001"}
+	return c
 }
 
 // ============================================================
@@ -274,7 +286,7 @@ func TestGetJWKS_WithRSAKey_Returns200AndJWK(t *testing.T) {
 // TestRotateJWKS_NilProvider_SetsErrWith503 verifies that when the provider is nil
 // the handler sets c.Err with StatusServiceUnavailable.
 func TestRotateJWKS_NilProvider_SetsErrWith503(t *testing.T) {
-	c := newJWKSCtx(nil)
+	c := newJWKSAdminCtx(nil)
 	w := httptest.NewRecorder()
 	r := httptest.NewRequest(http.MethodPost, "/api/v1/jwks/rotate", nil)
 
@@ -288,7 +300,7 @@ func TestRotateJWKS_NilProvider_SetsErrWith503(t *testing.T) {
 // does not implement RotatableProvider the handler returns 400.
 func TestRotateJWKS_NonRotatableProvider_SetsErrWith400(t *testing.T) {
 	provider := &stubSigningProvider{algorithm: "RS256"}
-	c := newJWKSCtx(provider)
+	c := newJWKSAdminCtx(provider)
 	w := httptest.NewRecorder()
 	r := httptest.NewRequest(http.MethodPost, "/api/v1/jwks/rotate", nil)
 
@@ -306,7 +318,7 @@ func TestRotateJWKS_Success_Returns200(t *testing.T) {
 		rotateUntil: "2026-01-01T00:00:00Z",
 		rotateErr:   nil,
 	}
-	c := newJWKSCtx(provider)
+	c := newJWKSAdminCtx(provider)
 	w := httptest.NewRecorder()
 	r := httptest.NewRequest(http.MethodPost, "/api/v1/jwks/rotate", nil)
 
@@ -321,6 +333,47 @@ func TestRotateJWKS_Success_Returns200(t *testing.T) {
 	require.NoError(t, json.NewDecoder(w.Body).Decode(&body))
 	assert.Equal(t, "new-kid", body["new_kid"])
 	assert.Equal(t, "ok", body["status"])
+}
+
+// TestRotateJWKS_NonAdmin_Returns403 verifies a non-admin caller cannot rotate signing keys.
+func TestRotateJWKS_NonAdmin_Returns403(t *testing.T) {
+	provider := &rotatableStubProvider{rotateKID: "new-kid", rotateUntil: "2026-01-01T00:00:00Z"}
+	c := newJWKSCtx(provider)
+	c.Claims = jwt.MapClaims{"role": "user"}
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest(http.MethodPost, "/api/v1/jwks/rotate", nil)
+
+	rotateJWKS(c, w, r)
+
+	require.NotNil(t, c.Err)
+	assert.Equal(t, http.StatusForbidden, c.Err.StatusCode)
+}
+
+// TestRotateJWKS_Success_RecordsAuditEvent verifies a successful rotation writes
+// a "jwks_rotate"/"success" audit event tagged with the new key ID.
+func TestRotateJWKS_Success_RecordsAuditEvent(t *testing.T) {
+	provider := &rotatableStubProvider{rotateKID: "new-kid", rotateUntil: "2026-01-01T00:00:00Z"}
+	mockAudit := &testutils.MockAuditService{}
+	mockAudit.On("RecordEvent", mock.Anything, mock.MatchedBy(func(e auditServices.AuditEvent) bool {
+		return e.Action == "jwks_rotate" && e.Outcome == "success" && e.ResourceID == "new-kid"
+	})).Return(nil)
+
+	a := &app.App{ServiceContainer: &jwkContainerBase{signingProvider: provider, auditSvc: mockAudit}}
+	c := &Context{
+		App:    a,
+		Claims: jwt.MapClaims{"role": string(model.RoleAdmin), "user_id": "00000000-0000-0000-0000-000000000001"},
+		Params: &ApiParams{PerPage: 60},
+	}
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest(http.MethodPost, "/api/v1/jwks/rotate", nil)
+
+	rotateJWKS(c, w, r)
+	if c.Err != nil {
+		writeError(w, c)
+	}
+
+	assert.Equal(t, http.StatusOK, w.Code)
+	mockAudit.AssertExpectations(t)
 }
 
 // ============================================================
@@ -363,7 +416,7 @@ func TestRotateJWKS_RotateError_Returns500(t *testing.T) {
 	provider := &rotatableStubProvider{
 		rotateErr: errors.New("rotate failed"),
 	}
-	c := newJWKSCtx(provider)
+	c := newJWKSAdminCtx(provider)
 	w := httptest.NewRecorder()
 	r := httptest.NewRequest(http.MethodPost, "/api/v1/jwks/rotate", nil)
 

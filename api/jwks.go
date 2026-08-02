@@ -5,7 +5,10 @@ import (
 	"net/http"
 
 	"rocketvault/common"
+	"rocketvault/internal/middleware"
+	auditSvc "rocketvault/internal/services/audit"
 	"rocketvault/internal/signing"
+	"rocketvault/model"
 )
 
 // InitJWKS registers the JWKS endpoints on the router.
@@ -14,7 +17,7 @@ func (a *API) InitJWKS() {
 	a.BaseRoutes.JWKS.Handle("/jwks.json", ApiHandler(a.App, getJWKS)).Methods(http.MethodGet)
 
 	// POST /api/v1/jwks/rotate — admin only, behind the auth middleware.
-	a.BaseRoutes.ApiRoot.Handle("/jwks/rotate", ApiHandler(a.App, rotateJWKS)).Methods(http.MethodPost)
+	a.BaseRoutes.ApiRoot.Handle("/jwks/rotate", ApiSessionRequired(a.App, rotateJWKS)).Methods(http.MethodPost)
 }
 
 // getJWKS serves GET /jwks.json — RFC 7517 JWK Set with all active public keys.
@@ -41,7 +44,14 @@ func getJWKS(c *Context, w http.ResponseWriter, r *http.Request) {
 }
 
 // rotateJWKS serves POST /api/v1/jwks/rotate — only available with the self_pki provider.
+// Admin-only: rotating the signing key is a sensitive, availability-affecting action.
 func rotateJWKS(c *Context, w http.ResponseWriter, r *http.Request) {
+	roleStr, _ := c.Claims["role"].(string)
+	if !common.HasRequiredRole(roleStr, model.RoleAdmin) {
+		c.SetPermissionError("admin role required to rotate signing keys")
+		return
+	}
+
 	provider := c.App.ServiceContainer.GetSigningProvider()
 	if provider == nil {
 		c.Err = common.NewAppError("api.jwks.rotate", "api.jwks.provider_unavailable", nil,
@@ -58,16 +68,39 @@ func rotateJWKS(c *Context, w http.ResponseWriter, r *http.Request) {
 
 	newKID, overlapUntil, err := rotatable.Rotate()
 	if err != nil {
+		recordJWKSRotateAudit(c, r, "", "failure")
 		c.Err = common.NewAppError("api.jwks.rotate", "api.jwks.rotate_failed", nil,
 			err.Error(), http.StatusInternalServerError)
 		return
 	}
+
+	recordJWKSRotateAudit(c, r, newKID, "success")
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]string{ //nolint:errcheck
 		"status":        "ok",
 		"new_kid":       newKID,
 		"overlap_until": overlapUntil,
+	})
+}
+
+// recordJWKSRotateAudit writes an audit entry for a signing-key rotation attempt.
+// Swallows a nil audit service (test doubles, or a container without one wired) —
+// audit failures must never block vault operations.
+func recordJWKSRotateAudit(c *Context, r *http.Request, newKID, outcome string) {
+	svc := c.App.ServiceContainer.GetAuditService()
+	if svc == nil {
+		return
+	}
+	userIDStr, _ := c.Claims["user_id"].(string)
+	_ = svc.RecordEvent(r.Context(), auditSvc.AuditEvent{
+		UserID:       userIDStr,
+		Action:       "jwks_rotate",
+		Outcome:      outcome,
+		Source:       "api",
+		ResourceType: "signing_key",
+		ResourceID:   newKID,
+		IPAddress:    middleware.ExtractClientIP(r),
 	})
 }
 
