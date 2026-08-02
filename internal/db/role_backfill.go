@@ -2,8 +2,12 @@ package db
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
 	"sort"
+	"time"
+
+	"github.com/google/uuid"
 
 	"rocketvault/model"
 )
@@ -197,4 +201,79 @@ func globalAdminIDs(ctx context.Context, q DBTX, dialect Dialect) ([]string, err
 		out = append(out, id)
 	}
 	return out, rows.Err()
+}
+
+// backfillActor is the created_by value stamped on assignments the upgrade
+// migration generates. It distinguishes derived grants from operator grants in
+// the audit trail.
+const backfillActor = "00000000-0000-0000-0000-000000000000"
+
+// backfillRoleAssignments materialises the plan from PlanRoleBackfill. It is
+// idempotent: each insert is guarded by a lookup on the same
+// (principal_id, role, vault_id) tuple the table's UNIQUE constraint covers, so
+// re-running on every startup creates nothing new and never touches a grant an
+// operator made by hand.
+//
+// It runs inside migrateSchema because the fail-closed authorization introduced
+// with it would otherwise lock out every existing deployment: before this
+// migration no role assignment exists, and after the PolicyMiddleware inversion
+// no role assignment means no access.
+func (d *DBRepository) backfillRoleAssignments(db *sql.DB) error {
+	ctx := context.Background()
+
+	// SetupSchema seeds the default vault after migrateSchema, but
+	// role_assignments has a foreign key to vaults(id). Seed it here first; the
+	// call is idempotent.
+	if err := d.seedDefaultVault(db); err != nil {
+		return fmt.Errorf("seed default vault before role backfill: %w", err)
+	}
+
+	grants, err := PlanRoleBackfill(ctx, NewConn(db, d.dialect), d.dialect)
+	if err != nil {
+		return fmt.Errorf("plan role backfill: %w", err)
+	}
+	if len(grants) == 0 {
+		return nil
+	}
+
+	created := map[string]int{}
+	examined := map[string]int{}
+	names := map[string]string{}
+	for _, g := range grants {
+		examined[g.VaultID]++
+		names[g.VaultID] = g.VaultName
+
+		var existing int
+		if err := db.QueryRow(d.dialect.Rebind(
+			`SELECT COUNT(*) FROM role_assignments WHERE principal_id = ? AND role = ? AND vault_id = ?`),
+			g.PrincipalID, g.Role, g.VaultID).Scan(&existing); err != nil {
+			return fmt.Errorf("check existing assignment for %s in %s: %w", g.PrincipalID, g.VaultID, err)
+		}
+		if existing > 0 {
+			continue
+		}
+		if _, err := db.Exec(d.dialect.Rebind(
+			`INSERT INTO role_assignments (id, principal_id, principal_type, role, vault_id, created_by, created_at)
+			 VALUES (?, ?, ?, ?, ?, ?, ?)`),
+			uuid.NewString(), g.PrincipalID, string(model.PrincipalTypeUser),
+			g.Role, g.VaultID, backfillActor, time.Now().UTC(),
+		); err != nil {
+			return fmt.Errorf("insert backfilled assignment for %s in %s: %w", g.PrincipalID, g.VaultID, err)
+		}
+		created[g.VaultID]++
+	}
+
+	// One summary line per vault, so an upgrade leaves an auditable record of
+	// exactly what authority it handed out.
+	vaultIDs := make([]string, 0, len(examined))
+	for id := range examined {
+		vaultIDs = append(vaultIDs, id)
+	}
+	sort.Strings(vaultIDs)
+	for _, id := range vaultIDs {
+		d.log.Info(fmt.Sprintf(
+			"Role backfill: vault=%s (%s) grants_examined=%d assignments_created=%d",
+			names[id], id, examined[id], created[id]))
+	}
+	return nil
 }

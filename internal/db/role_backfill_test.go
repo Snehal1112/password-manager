@@ -27,8 +27,11 @@ func seedPreMigrationDB(t *testing.T) (*sql.DB, map[string]string) {
 			role     TEXT NOT NULL
 		);
 		CREATE TABLE vaults (
-			id   TEXT PRIMARY KEY,
-			name TEXT NOT NULL
+			id             TEXT PRIMARY KEY,
+			name           TEXT NOT NULL,
+			enabled        BOOLEAN NOT NULL DEFAULT TRUE,
+			retention_days INTEGER NOT NULL DEFAULT 90,
+			created_by     TEXT NOT NULL DEFAULT ''
 		);
 		CREATE TABLE secrets (
 			id       TEXT PRIMARY KEY,

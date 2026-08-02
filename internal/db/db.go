@@ -852,6 +852,13 @@ func (d *DBRepository) migrateSchema(db *sql.DB) error {
 		}
 	}
 
+	// P2 upgrade: derive per-vault Azure role assignments from existing object
+	// ownership. Must run before the deny-by-default PolicyMiddleware takes
+	// effect, or every existing deployment loses access to its own data.
+	if err := d.backfillRoleAssignments(db); err != nil {
+		return fmt.Errorf("backfill role assignments: %w", err)
+	}
+
 	d.log.Info("Schema migration completed")
 	return nil
 }

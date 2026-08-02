@@ -27,6 +27,11 @@ func TestMigrateSchema_AddsAssignmentIDIdempotent(t *testing.T) {
 	// ALTER must be present here. The access_policies table deliberately omits
 	// both vault_id and assignment_id so the migration has work to do.
 	_, err = conn.Exec(`
+		CREATE TABLE users (
+			id       TEXT PRIMARY KEY,
+			username TEXT NOT NULL,
+			role     TEXT NOT NULL
+		);
 		CREATE TABLE secrets (
 			id   TEXT PRIMARY KEY,
 			name TEXT NOT NULL
@@ -86,6 +91,11 @@ func TestMigrate_CreatesRoleAssignmentsTable(t *testing.T) {
 	// Create the prerequisite tables in their old shape so the ALTER TABLE
 	// statements in migrateSchema have targets to operate on.
 	_, err = conn.Exec(`
+		CREATE TABLE users (
+			id       TEXT PRIMARY KEY,
+			username TEXT NOT NULL,
+			role     TEXT NOT NULL
+		);
 		CREATE TABLE secrets (
 			id   TEXT PRIMARY KEY,
 			name TEXT NOT NULL
