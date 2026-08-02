@@ -203,7 +203,10 @@ rocketvault/
 - **CertificateService**: Certificate lifecycle management, CA validation
 
 ### Authorization (`internal/services/authorization/`)
-- **RBACService**: Role-based access control with flexible permissions
+- **RBACService**: global role permissions for vault and user management only
+- **AccessPolicyService**: explicit-deny override, evaluated before role grants
+- **RoleAssignmentService**: per-vault Azure role grants and the `HasDataAction` authorization decision
+- Vault data-plane routes are deny-by-default: see `docs/release-notes/v4.0.0-azure-rbac.md`
 
 ### 🔐 Authorization Scope (`model/scope.go`)
 
@@ -301,7 +304,7 @@ func (m *Middleware) AuthenticationMiddleware(next http.Handler) http.Handler {
 
 ### ✅ **Perfect Architecture Achieved**
 - **Complete SRP Compliance**: Every component has a single, well-defined responsibility
-- **Perfect Domain-Driven Design**: Domain types in `domain/`, services in `services/`, repositories in `repositories/`
+- **Perfect Domain-Driven Design**: Domain types in `model/`, services in `services/`, repositories in `repositories/`
 - **Zero Code Duplication**: Complete elimination of 85% duplication between auth.go and user_repository.go
 - **Full Dependency Injection**: End-to-end service container integration eliminates all global state
 - **95% Service Container Compatibility**: All CMD commands properly integrated with service layer

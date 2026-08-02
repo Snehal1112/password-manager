@@ -105,9 +105,11 @@ each change reviewable:
   They are therefore registered ONLY on the legacy flat `/deleted/...` routes,
   not as vault-scoped routes.
 
-Three vault-scoped routes still ignore their vault and are fixed in P3:
-`PUT /vaults/{n}/certificates/{id}`, `POST /vaults/{n}/keys/{id}/rotate` and
-`GET /vaults/{n}/keys/{id}/versions`.
+Two vault-scoped routes still ignore their vault and are fixed in P3:
+`PUT /vaults/{n}/certificates/{id}` and `GET /vaults/{n}/keys/{id}/versions`.
+`POST /vaults/{n}/keys/{id}/rotate` was fixed in P2 (2026-07-26): it now builds
+a genuine vault scope via `scopeFromRequest` and is gated by `Key Vault Crypto
+Officer` at vault scope, verified end-to-end with real-repository tests.
 
 ## Pre-existing latent issue (predates multi-vault)
 
