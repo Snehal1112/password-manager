@@ -33,7 +33,6 @@ import (
 	"github.com/google/uuid"
 	"github.com/gorilla/mux"
 
-	"rocketvault/common"
 	"rocketvault/internal/crypto"
 	"rocketvault/internal/repositories"
 	keyservices "rocketvault/internal/services/keys"
@@ -245,12 +244,10 @@ func (api *API) registerKeyRoutes(k *mux.Router) {
 
 // createKey creates a new cryptographic key.
 func createKey(c *Context, w http.ResponseWriter, r *http.Request) {
-	// Check authorization — requires admin or secrets_manager role.
-	claims, ok := c.Claims["role"].(string)
-	if !ok || !common.HasRequiredRole(claims, model.RoleAdmin, model.RoleSecretsManager) {
-		c.SetPermissionError("admin or secrets_manager role required")
-		return
-	}
+	// Authorization happens in PolicyMiddleware: creating a key requires the
+	// Microsoft.KeyVault/vaults/keys/create data action, granted by Key Vault
+	// Crypto Officer or Key Vault Administrator in this vault. A second gate on
+	// the caller's global role would contradict that per-vault decision.
 
 	var req CreateKeyRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {

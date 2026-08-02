@@ -30,7 +30,6 @@ import (
 	"github.com/google/uuid"
 	"github.com/gorilla/mux"
 
-	"rocketvault/common"
 	"rocketvault/internal/repositories"
 	certServices "rocketvault/internal/services/certificates"
 	vvalidation "rocketvault/internal/validation"
@@ -130,12 +129,9 @@ func certToDomainResponse(cert *model.Certificate) CertificateResponse {
 
 // createCertificate creates a new X.509 certificate.
 func createCertificate(c *Context, w http.ResponseWriter, r *http.Request) {
-	// Requires admin or certificate_manager role.
-	roleStr, ok := c.Claims["role"].(string)
-	if !ok || !common.HasRequiredRole(roleStr, model.RoleAdmin, model.RoleCertificateManager) {
-		c.SetPermissionError("admin or certificate_manager role required")
-		return
-	}
+	// Authorization happens in PolicyMiddleware: creating a certificate requires
+	// the Microsoft.KeyVault/vaults/certificates/create data action, granted by
+	// Key Vault Certificates Officer or Key Vault Administrator in this vault.
 
 	var req CreateCertificateAPIRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {

@@ -7,51 +7,61 @@ import (
 	"rocketvault/model"
 )
 
-// TestValidateEndpointAccess_VaultScopedResourceRoutes verifies that vault-scoped
-// resource routes (/api/v1/vaults/{name}/secrets|keys|certificates) enforce the
-// SAME permissions as the legacy flat routes. Before the fix these paths fell
-// through mapEndpointToPermission (prefix "vaults" matched nothing), returning ""
-// which ValidateEndpointAccess treated as allow — letting read-only roles write.
-func TestValidateEndpointAccess_VaultScopedResourceRoutes(t *testing.T) {
+// TestValidateEndpointAccess_DataPlaneRoutesDelegate asserts that vault
+// data-plane routes no longer consult the caller's global role. They are
+// authorized by PolicyMiddleware against the caller's role assignments in the
+// resolved vault, so the global RBAC layer must not second-guess that decision:
+// a Key Vault Crypto Officer whose global role is "user" must be able to create
+// a key in the vault they hold the role in.
+func TestValidateEndpointAccess_DataPlaneRoutesDelegate(t *testing.T) {
 	svc := NewRBACService(logging.InitLogger())
 
-	cases := []struct {
-		name      string
-		role      string
-		method    string
-		path      string
-		wantAllow bool
+	paths := []struct {
+		method string
+		path   string
 	}{
-		// Read-only roles must be DENIED writes on vault-scoped routes.
-		{"user cannot create secret in vault", model.RoleUser, "POST", "/api/v1/vaults/prod/secrets", false},
-		{"user cannot delete secret in vault", model.RoleUser, "DELETE", "/api/v1/vaults/prod/secrets/abc", false},
-		{"user cannot update key in vault", model.RoleUser, "PUT", "/api/v1/vaults/prod/keys/abc", false},
-		{"service-account cannot create key in vault", model.RoleServiceAccount, "POST", "/api/v1/vaults/prod/keys", false},
-		{"service-account cannot delete cert in vault", model.RoleServiceAccount, "DELETE", "/api/v1/vaults/prod/certificates/abc", false},
-
-		// Read-only roles are still ALLOWED reads on vault-scoped routes.
-		{"user can list secrets in vault", model.RoleUser, "GET", "/api/v1/vaults/prod/secrets", true},
-		{"user can read secret in vault", model.RoleUser, "GET", "/api/v1/vaults/prod/secrets/abc", true},
-		{"service-account can list keys in vault", model.RoleServiceAccount, "GET", "/api/v1/vaults/prod/keys", true},
-
-		// Privileged roles are ALLOWED writes on vault-scoped routes.
-		{"secrets-manager can create secret in vault", model.RoleSecretsManager, "POST", "/api/v1/vaults/prod/secrets", true},
-		{"admin can delete cert in vault", model.RoleAdmin, "DELETE", "/api/v1/vaults/prod/certificates/abc", true},
-
-		// Legacy flat routes keep working identically (no regression).
-		{"user cannot create secret on flat route", model.RoleUser, "POST", "/api/v1/secrets", false},
-		{"user can read secret on flat route", model.RoleUser, "GET", "/api/v1/secrets/abc", true},
+		{"POST", "/api/v1/vaults/prod/secrets"},
+		{"DELETE", "/api/v1/vaults/prod/secrets/abc"},
+		{"PUT", "/api/v1/vaults/prod/keys/abc"},
+		{"POST", "/api/v1/vaults/prod/keys"},
+		{"DELETE", "/api/v1/vaults/prod/certificates/abc"},
+		{"POST", "/api/v1/vaults/prod/keys/abc/sign"},
+		{"DELETE", "/api/v1/vaults/prod/deleted/secrets/abc/purge"},
+		{"POST", "/api/v1/secrets"},
+		{"GET", "/api/v1/secrets/abc"},
+		{"POST", "/api/v1/keys"},
+		{"DELETE", "/api/v1/certificates/abc"},
+	}
+	roles := []string{
+		model.RoleUser, model.RoleServiceAccount, model.RoleSecretsManager,
+		model.RoleCryptoManager, model.RoleCertificateManager, model.RoleAdmin,
 	}
 
-	for _, c := range cases {
-		t.Run(c.name, func(t *testing.T) {
-			err := svc.ValidateEndpointAccess(c.role, c.method, c.path)
-			gotAllow := err == nil
-			if gotAllow != c.wantAllow {
-				t.Fatalf("ValidateEndpointAccess(%s, %s, %s) allow=%v, want %v (err=%v)",
-					c.role, c.method, c.path, gotAllow, c.wantAllow, err)
-			}
-		})
+	for _, p := range paths {
+		for _, role := range roles {
+			t.Run(role+" "+p.method+" "+p.path, func(t *testing.T) {
+				if err := svc.ValidateEndpointAccess(role, p.method, p.path); err != nil {
+					t.Fatalf("data-plane routes must not be gated by the global role, got %v", err)
+				}
+			})
+		}
+	}
+}
+
+// TestMapEndpointToPermission_DataPlaneReturnsEmpty pins the mapping directly,
+// so a future edit cannot reintroduce a global permission on a data-plane route
+// without failing here.
+func TestMapEndpointToPermission_DataPlaneReturnsEmpty(t *testing.T) {
+	svc := NewRBACService(logging.InitLogger()).(*rbacService)
+	for _, c := range []struct{ method, path string }{
+		{"POST", "/api/v1/vaults/prod/secrets"},
+		{"GET", "/api/v1/vaults/prod/keys"},
+		{"PUT", "/api/v1/certificates/abc"},
+		{"GET", "/api/v1/deleted/secrets"},
+	} {
+		if got := svc.mapEndpointToPermission(c.method, c.path); got != "" {
+			t.Fatalf("mapEndpointToPermission(%s, %s) = %q, want empty", c.method, c.path, got)
+		}
 	}
 }
 
@@ -92,6 +102,11 @@ func TestValidateEndpointAccess_VaultManagementRoutes(t *testing.T) {
 					c.role, c.method, c.path, gotAllow, c.wantAllow, err)
 			}
 		})
+	}
+
+	// User management keeps its global permissions; it is not a vault data plane.
+	if err := svc.ValidateEndpointAccess(model.RoleUser, "POST", "/api/v1/users"); err == nil {
+		t.Fatal("user creation must still require the global users:create permission")
 	}
 }
 

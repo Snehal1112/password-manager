@@ -217,80 +217,36 @@ func (s *rbacService) ValidateEndpointAccess(role, method, path string) error {
 	return nil
 }
 
-// mapEndpointToPermission maps HTTP endpoints to required permissions.
+// mapEndpointToPermission maps HTTP endpoints to the global permission they
+// require. It deliberately answers "" for every vault data-plane route.
+//
+// Before P2 this function stripped the "vaults/{name}/" prefix and returned the
+// same global permission as the flat equivalent, which made RBAC vault-agnostic
+// by construction: any principal holding a global permission could operate on
+// any vault by name. Those routes are now authorized by PolicyMiddleware
+// against the caller's role assignments in the resolved vault, and a second,
+// vault-blind gate here would only contradict that decision — a Key Vault
+// Crypto Officer in one vault would be refused for holding the global "user"
+// role.
+//
+// Vault management and user management are not data-plane routes and keep their
+// global permissions.
 func (s *rbacService) mapEndpointToPermission(method, path string) Permission {
-	// Normalize path for comparison
-	path = strings.TrimPrefix(path, "/api/v1")
+	// Vault data-plane routes are authorized per vault, not per global role.
+	if _, kind := MapRouteToDataAction(method, path); kind == RouteVaultData {
+		return ""
+	}
+
+	// Normalize path for comparison.
+	path = strings.TrimPrefix(path, DataPlaneBasePath)
 	path = strings.TrimPrefix(path, "/")
 
-	// Vault endpoints. A vault-scoped resource route looks like
-	// "vaults/{name}/secrets/...". Strip the "vaults/{name}/" prefix so the route
-	// maps to the same permission as its legacy flat equivalent. A bare
-	// "vaults" or "vaults/{name}" path is vault management and requires
-	// the vaults:manage permission.
+	// A bare "vaults" or "vaults/{name}" path is vault management.
 	if strings.HasPrefix(path, "vaults") {
-		parts := strings.SplitN(path, "/", 3)
-		if len(parts) == 3 {
-			// vaults/{name}/<resource...> — scope to the inner resource route.
-			path = parts[2]
-		} else {
-			// vaults or vaults/{name} — vault management.
-			return PermissionManageVaults
-		}
+		return PermissionManageVaults
 	}
 
-	// Secrets endpoints
-	if strings.HasPrefix(path, "secrets") {
-		switch method {
-		case "POST":
-			return PermissionCreateSecret
-		case "GET":
-			if strings.Contains(path, "/") {
-				return PermissionReadSecret
-			}
-			return PermissionListSecrets
-		case "PUT":
-			return PermissionUpdateSecret
-		case "DELETE":
-			return PermissionDeleteSecret
-		}
-	}
-
-	// Keys endpoints
-	if strings.HasPrefix(path, "keys") {
-		switch method {
-		case "POST":
-			return PermissionCreateKey
-		case "GET":
-			if strings.Contains(path, "/") {
-				return PermissionReadKey
-			}
-			return PermissionListKeys
-		case "PUT":
-			return PermissionUpdateKey
-		case "DELETE":
-			return PermissionDeleteKey
-		}
-	}
-
-	// Certificates endpoints
-	if strings.HasPrefix(path, "certificates") {
-		switch method {
-		case "POST":
-			return PermissionCreateCertificate
-		case "GET":
-			if strings.Contains(path, "/") {
-				return PermissionReadCertificate
-			}
-			return PermissionListCertificates
-		case "PUT":
-			return PermissionUpdateCertificate
-		case "DELETE":
-			return PermissionDeleteCertificate
-		}
-	}
-
-	// Users endpoints
+	// Users endpoints.
 	if strings.HasPrefix(path, "users") {
 		switch method {
 		case "POST":
@@ -307,6 +263,6 @@ func (s *rbacService) mapEndpointToPermission(method, path string) Permission {
 		}
 	}
 
-	// Health and other endpoints don't require specific permissions
+	// Health and other endpoints don't require specific permissions.
 	return ""
 }

@@ -115,13 +115,15 @@ func TestEndpointAccessValidation(t *testing.T) {
 		{"admin can DELETE /users/123", model.RoleAdmin, "DELETE", "/api/v1/users/123", true},
 		{"admin can DELETE /keys/123", model.RoleAdmin, "DELETE", "/api/v1/keys/123", true},
 
-		// Basic user access tests
+		// Basic user access tests. Secrets/keys/certificates are vault data-plane
+		// routes: RBAC no longer gates them (see mapEndpointToPermission), the
+		// PolicyMiddleware data-action check does. Only /users stays RBAC-gated.
 		{"user can GET /secrets", model.RoleUser, "GET", "/api/v1/secrets", true},
 		{"user can GET /secrets/123", model.RoleUser, "GET", "/api/v1/secrets/123", true},
-		{"user CANNOT POST /secrets", model.RoleUser, "POST", "/api/v1/secrets", false},
-		{"user CANNOT DELETE /secrets/123", model.RoleUser, "DELETE", "/api/v1/secrets/123", false},
+		{"user POST /secrets not RBAC-gated", model.RoleUser, "POST", "/api/v1/secrets", true},
+		{"user DELETE /secrets/123 not RBAC-gated", model.RoleUser, "DELETE", "/api/v1/secrets/123", true},
 		{"user CANNOT POST /users", model.RoleUser, "POST", "/api/v1/users", false},
-		{"user CANNOT DELETE /keys/123", model.RoleUser, "DELETE", "/api/v1/keys/123", false},
+		{"user DELETE /keys/123 not RBAC-gated", model.RoleUser, "DELETE", "/api/v1/keys/123", true},
 
 		// Secrets manager access tests
 		{"secrets-manager can POST /secrets", model.RoleSecretsManager, "POST", "/api/v1/secrets", true},
@@ -129,20 +131,20 @@ func TestEndpointAccessValidation(t *testing.T) {
 		{"secrets-manager can DELETE /secrets/123", model.RoleSecretsManager, "DELETE", "/api/v1/secrets/123", true},
 		{"secrets-manager can GET /secrets", model.RoleSecretsManager, "GET", "/api/v1/secrets", true},
 		{"secrets-manager CANNOT POST /users", model.RoleSecretsManager, "POST", "/api/v1/users", false},
-		{"secrets-manager CANNOT DELETE /keys/123", model.RoleSecretsManager, "DELETE", "/api/v1/keys/123", false},
+		{"secrets-manager DELETE /keys/123 not RBAC-gated", model.RoleSecretsManager, "DELETE", "/api/v1/keys/123", true},
 
 		// Crypto manager access tests
 		{"crypto-manager can POST /keys", model.RoleCryptoManager, "POST", "/api/v1/keys", true},
 		{"crypto-manager can PUT /keys/123", model.RoleCryptoManager, "PUT", "/api/v1/keys/123", true},
 		{"crypto-manager can DELETE /keys/123", model.RoleCryptoManager, "DELETE", "/api/v1/keys/123", true},
 		{"crypto-manager can GET /keys", model.RoleCryptoManager, "GET", "/api/v1/keys", true},
-		{"crypto-manager CANNOT DELETE /secrets/123", model.RoleCryptoManager, "DELETE", "/api/v1/secrets/123", false},
+		{"crypto-manager DELETE /secrets/123 not RBAC-gated", model.RoleCryptoManager, "DELETE", "/api/v1/secrets/123", true},
 		{"crypto-manager CANNOT POST /users", model.RoleCryptoManager, "POST", "/api/v1/users", false},
 
 		// Certificate manager access tests
 		{"cert-manager can POST /certificates", model.RoleCertificateManager, "POST", "/api/v1/certificates", true},
 		{"cert-manager can DELETE /certificates/123", model.RoleCertificateManager, "DELETE", "/api/v1/certificates/123", true},
-		{"cert-manager CANNOT DELETE /secrets/123", model.RoleCertificateManager, "DELETE", "/api/v1/secrets/123", false},
+		{"cert-manager DELETE /secrets/123 not RBAC-gated", model.RoleCertificateManager, "DELETE", "/api/v1/secrets/123", true},
 		{"cert-manager CANNOT POST /users", model.RoleCertificateManager, "POST", "/api/v1/users", false},
 
 		// Public endpoint tests (no permission required - should pass for all roles)

@@ -301,19 +301,6 @@ func TestCertToDomainResponse_PopulatesFields(t *testing.T) {
 // createCertificate
 // ============================================================
 
-func TestCreateCertificate_NonAdminRole_Returns403(t *testing.T) {
-	c := newCertCtx(nil, jwt.MapClaims{"role": model.RoleUser, "user_id": certTestUserID})
-	w := httptest.NewRecorder()
-	r := httptest.NewRequest(http.MethodPost, "/certificates", bytes.NewReader([]byte(`{}`)))
-
-	createCertificate(c, w, r)
-	if c.Err != nil {
-		writeError(w, c)
-	}
-
-	assert.Equal(t, http.StatusForbidden, w.Code)
-}
-
 func TestCreateCertificate_MissingRequiredFields_Returns400(t *testing.T) {
 	c := newCertCtx(nil, certAdminClaims())
 	w := httptest.NewRecorder()

@@ -306,21 +306,6 @@ func TestCreateKey_MissingName_Returns400(t *testing.T) {
 	assert.Equal(t, http.StatusBadRequest, w.Code)
 }
 
-func TestCreateKey_NonAdminRole_Returns403(t *testing.T) {
-	c := newKeyCtx(nil)
-	c.Claims = jwt.MapClaims{"role": string(model.RoleUser), "user_id": keyTestUserID}
-	w := httptest.NewRecorder()
-	body, _ := json.Marshal(map[string]any{"name": "k", "type": "RSA"})
-	r := httptest.NewRequest(http.MethodPost, "/keys", bytes.NewReader(body))
-
-	createKey(c, w, r)
-	if c.Err != nil {
-		writeError(w, c)
-	}
-
-	assert.Equal(t, http.StatusForbidden, w.Code)
-}
-
 func TestCreateKey_RSA_ServiceError_Returns500(t *testing.T) {
 	svc := &mockKeyService{}
 	svc.On("CreateRSAKey", mock.Anything, mock.Anything).Return(nil, errors.New("key creation failed"))
