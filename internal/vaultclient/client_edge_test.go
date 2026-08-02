@@ -21,6 +21,7 @@ func TestNewFromEnv_Success(t *testing.T) {
 	t.Setenv("VAULT_URL", "http://vault.local")
 	t.Setenv("VAULT_CLIENT_ID", "env-id")
 	t.Setenv("VAULT_CLIENT_SECRET", "env-secret")
+	t.Setenv("VAULT_ALLOW_INSECURE_HTTP", "true")
 
 	c, err := vaultclient.NewFromEnv()
 	require.NoError(t, err)
@@ -42,6 +43,7 @@ func TestNewFromViper_Success(t *testing.T) {
 	viper.Set("vault_client.url", "http://vault.local")
 	viper.Set("vault_client.client_id", "viper-id")
 	viper.Set("vault_client.client_secret", "viper-secret")
+	viper.Set("vault_client.allow_insecure_http", true)
 
 	c, err := vaultclient.NewFromViper()
 	require.NoError(t, err)
@@ -53,6 +55,7 @@ func TestNewFromViper_SecretFromEnv(t *testing.T) {
 	viper.Set("vault_client.url", "http://vault.local")
 	viper.Set("vault_client.client_id", "viper-id")
 	viper.Set("vault_client.client_secret", "")
+	viper.Set("vault_client.allow_insecure_http", true)
 	t.Setenv("VAULT_CLIENT_SECRET", "env-fallback")
 
 	c, err := vaultclient.NewFromViper()
@@ -75,7 +78,7 @@ func TestNew_MissingClientSecret(t *testing.T) {
 // TestGetByName_UnknownName verifies an error when name has no UUID mapping.
 func TestGetByName_UnknownName(t *testing.T) {
 	c, err := vaultclient.New(vaultclient.Config{
-		URL: "http://vault.local", ClientID: "id", ClientSecret: "s",
+		URL: "http://vault.local", ClientID: "id", ClientSecret: "s", AllowInsecureHTTP: true,
 	})
 	require.NoError(t, err)
 	_, err = c.GetByName(context.Background(), "unknown-name")
@@ -317,4 +320,40 @@ func TestGet_WithLogger_SilentOnFirstTrySuccess(t *testing.T) {
 	_, err = c.Get(context.Background(), "some-uuid")
 	require.NoError(t, err)
 	assert.Equal(t, 0, logger.callCount())
+}
+
+// TestNew_RejectsPlainHTTPForNonLoopbackHost verifies a production-style
+// plaintext URL is rejected by default.
+func TestNew_RejectsPlainHTTPForNonLoopbackHost(t *testing.T) {
+	_, err := vaultclient.New(vaultclient.Config{
+		URL: "http://vault.internal.example.com", ClientID: "id", ClientSecret: "s",
+	})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "https")
+}
+
+// TestNew_AllowInsecureHTTP_PermitsPlainHTTP verifies the explicit opt-out works.
+func TestNew_AllowInsecureHTTP_PermitsPlainHTTP(t *testing.T) {
+	_, err := vaultclient.New(vaultclient.Config{
+		URL: "http://vault.internal.example.com", ClientID: "id", ClientSecret: "s",
+		AllowInsecureHTTP: true,
+	})
+	require.NoError(t, err)
+}
+
+// TestNew_AcceptsHTTPSWithoutOptOut verifies a proper https:// URL never needs the flag.
+func TestNew_AcceptsHTTPSWithoutOptOut(t *testing.T) {
+	_, err := vaultclient.New(vaultclient.Config{
+		URL: "https://vault.internal.example.com", ClientID: "id", ClientSecret: "s",
+	})
+	require.NoError(t, err)
+}
+
+// TestNew_AllowsPlainHTTPOnLoopback verifies loopback hosts never need the flag —
+// this is what every httptest.NewServer-backed test in this package relies on.
+func TestNew_AllowsPlainHTTPOnLoopback(t *testing.T) {
+	for _, host := range []string{"http://127.0.0.1:9999", "http://localhost:9999", "http://[::1]:9999"} {
+		_, err := vaultclient.New(vaultclient.Config{URL: host, ClientID: "id", ClientSecret: "s"})
+		require.NoError(t, err, "loopback URL %q should not require AllowInsecureHTTP", host)
+	}
 }

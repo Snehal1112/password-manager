@@ -5,9 +5,11 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net"
 	"net/http"
 	"net/url"
 	"os"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -37,6 +39,11 @@ type Config struct {
 	ClientID     string          `yaml:"client_id"     mapstructure:"client_id"`
 	ClientSecret string          `yaml:"client_secret" mapstructure:"client_secret"`
 	Secrets      []SecretMapping `yaml:"secrets"       mapstructure:"secrets"`
+	// AllowInsecureHTTP permits a non-https URL for non-loopback hosts. New
+	// always allows plain http:// to 127.0.0.1/localhost/::1 (local dev,
+	// tests) regardless of this flag. Defaults to false — set true only when
+	// TLS is deliberately terminated elsewhere (e.g. a trusted internal mesh).
+	AllowInsecureHTTP bool `yaml:"allow_insecure_http" mapstructure:"allow_insecure_http"`
 	// Logger receives Warn calls on retries and auth failures. Optional; nil
 	// disables all logging. Not settable via YAML/viper (interface value).
 	Logger Logger
@@ -68,6 +75,17 @@ func New(cfg Config) (*Client, error) {
 	if cfg.ClientSecret == "" {
 		return nil, fmt.Errorf("vaultclient: Config.ClientSecret is required")
 	}
+	if !cfg.AllowInsecureHTTP {
+		parsed, err := url.Parse(cfg.URL)
+		if err != nil {
+			return nil, fmt.Errorf("vaultclient: invalid Config.URL: %w", err)
+		}
+		if parsed.Scheme != "https" && !isLoopbackHost(parsed.Host) {
+			return nil, fmt.Errorf(
+				"vaultclient: Config.URL %q must use https for non-loopback hosts; set AllowInsecureHTTP to override for local/dev use",
+				cfg.URL)
+		}
+	}
 	index := make(map[string]string, len(cfg.Secrets))
 	for _, m := range cfg.Secrets {
 		index[m.Name] = m.UUID
@@ -80,6 +98,20 @@ func New(cfg Config) (*Client, error) {
 	}, nil
 }
 
+// isLoopbackHost reports whether host (as found in a parsed URL, optionally
+// with a ":port" suffix) refers to the local machine.
+func isLoopbackHost(host string) bool {
+	h := host
+	if hh, _, err := net.SplitHostPort(host); err == nil {
+		h = hh
+	}
+	if h == "localhost" {
+		return true
+	}
+	ip := net.ParseIP(h)
+	return ip != nil && ip.IsLoopback()
+}
+
 // logRetry logs a retryable failure if a Logger is configured; a no-op otherwise.
 func (c *Client) logRetry(msg string, err error) {
 	if c.logger == nil {
@@ -88,12 +120,15 @@ func (c *Client) logRetry(msg string, err error) {
 	c.logger.Warn(msg, "error", err)
 }
 
-// NewFromEnv creates a Client from VAULT_URL, VAULT_CLIENT_ID, VAULT_CLIENT_SECRET env vars.
+// NewFromEnv creates a Client from VAULT_URL, VAULT_CLIENT_ID, VAULT_CLIENT_SECRET,
+// and optionally VAULT_ALLOW_INSECURE_HTTP env vars.
 func NewFromEnv() (*Client, error) {
+	allowInsecure, _ := strconv.ParseBool(os.Getenv("VAULT_ALLOW_INSECURE_HTTP"))
 	return New(Config{
-		URL:          os.Getenv("VAULT_URL"),
-		ClientID:     os.Getenv("VAULT_CLIENT_ID"),
-		ClientSecret: os.Getenv("VAULT_CLIENT_SECRET"),
+		URL:               os.Getenv("VAULT_URL"),
+		ClientID:          os.Getenv("VAULT_CLIENT_ID"),
+		ClientSecret:      os.Getenv("VAULT_CLIENT_SECRET"),
+		AllowInsecureHTTP: allowInsecure,
 	})
 }
 
@@ -109,10 +144,11 @@ func NewFromViper() (*Client, error) {
 		secret = os.Getenv("VAULT_CLIENT_SECRET")
 	}
 	return New(Config{
-		URL:          viper.GetString("vault_client.url"),
-		ClientID:     viper.GetString("vault_client.client_id"),
-		ClientSecret: secret,
-		Secrets:      mappings,
+		URL:               viper.GetString("vault_client.url"),
+		ClientID:          viper.GetString("vault_client.client_id"),
+		ClientSecret:      secret,
+		Secrets:           mappings,
+		AllowInsecureHTTP: viper.GetBool("vault_client.allow_insecure_http"),
 	})
 }
 
