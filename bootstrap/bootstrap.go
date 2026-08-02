@@ -18,6 +18,7 @@ import (
 	"rocketvault/internal/container"
 	"rocketvault/internal/db"
 	"rocketvault/internal/logging"
+	authzServices "rocketvault/internal/services/authorization"
 	certServices "rocketvault/internal/services/certificates"
 	"rocketvault/internal/services/softdelete"
 	"rocketvault/internal/vaultclient"
@@ -113,6 +114,42 @@ func (c *ConfigurationValidator) Validate(cfg *Config, serverCfg *config.Config)
 	return nil
 }
 
+// validateAuthorizationBasePath fails closed when the operator-configured API
+// base path (cmd/serve.go's --api_base flag / PASSWORD_MANAGER_BASE_API env
+// var, threaded through as cfg.BasePath) does not match the authorization
+// layer's expected data-plane prefix.
+//
+// cfg.BasePath is a genuinely dynamic, runtime-configurable value — it is not
+// pinned to any constant at the api.Init call site. Meanwhile
+// internal/services/authorization strips a single hardcoded prefix
+// (authzServices.DataPlaneBasePath) from every request path before mapping it
+// to a required permission or data action, in both the currently-live
+// rbac_service.go mapEndpointToPermission (reached today via
+// AuthorizationMiddleware) and the not-yet-wired data_actions.go
+// MapRouteToDataAction (reached once Task 9 lands). If api.Init ever serves
+// routes under a different prefix than that hardcoded constant, the strip
+// silently fails to match and the affected mapper falls through to its
+// "no permission required" / "unmanaged route" branch — bypassing
+// authorization for the entire deployment with no error and nothing in the
+// logs pointing at the cause.
+//
+// Until the authorization layer accepts the base path as a runtime parameter
+// instead of a hardcoded constant (tracked as later work in this plan), a
+// mismatch here must be a loud boot failure rather than a silent
+// authorization bypass.
+func validateAuthorizationBasePath(basePath string) error {
+	if basePath != authzServices.DataPlaneBasePath {
+		return fmt.Errorf(
+			"configured API base path %q does not match the authorization layer's expected "+
+				"data-plane base path %q — refusing to start because serving the API under a "+
+				"different prefix would silently bypass data-plane authorization for every "+
+				"request (see internal/services/authorization/data_actions.go and rbac_service.go)",
+			basePath, authzServices.DataPlaneBasePath,
+		)
+	}
+	return nil
+}
+
 // bootstrap provides orchestration for application startup following SRP.
 // It coordinates different initializers while maintaining single responsibility.
 type bootstrap struct {
@@ -170,6 +207,14 @@ func (b *bootstrap) setup(ctx context.Context, cfg *Config) error {
 	// Step 1: Validate configuration (SRP: dedicated validator)
 	if err := b.configValidator.Validate(cfg, b.cfg); err != nil {
 		return fmt.Errorf("configuration validation failed: %w", err)
+	}
+
+	// Step 1a: Fail closed if the operator-configured API base path does not
+	// match the authorization layer's expected data-plane prefix. See
+	// validateAuthorizationBasePath for why a silent mismatch is a security
+	// bug, not just a routing quirk.
+	if err := validateAuthorizationBasePath(cfg.BasePath); err != nil {
+		return err
 	}
 
 	// Step 1b: Fetch secrets from vault and inject them into Viper before

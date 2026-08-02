@@ -16,6 +16,7 @@ import (
 	"rocketvault/config"
 	rvdb "rocketvault/internal/db"
 	"rocketvault/internal/logging"
+	authzServices "rocketvault/internal/services/authorization"
 	certServices "rocketvault/internal/services/certificates"
 	"rocketvault/internal/services/softdelete"
 )
@@ -307,8 +308,10 @@ func TestBoot_FullStack(t *testing.T) {
 		DatabaseName: "test-db",
 		// Port 99999 is out of valid range — net.Listen fails immediately and
 		// the error is swallowed by ServerStarter.Start, so Boot returns nil.
-		Listen:   "localhost:99999",
-		BasePath: "/",
+		Listen: "localhost:99999",
+		// Must match authzServices.DataPlaneBasePath — validateAuthorizationBasePath
+		// fails the boot otherwise. See TestBoot_BasePathMismatch_FailsClosed.
+		BasePath: authzServices.DataPlaneBasePath,
 		Logger:   logrus.New(),
 	}
 
@@ -323,4 +326,49 @@ func TestBoot_FullStack(t *testing.T) {
 	cancel()
 	shutdownErr := shutdownFn(context.Background())
 	assert.NoError(t, shutdownErr)
+}
+
+// ----- validateAuthorizationBasePath -----
+
+// TestValidateAuthorizationBasePath_Match verifies the happy path where
+// cfg.BasePath equals the authorization layer's expected data-plane prefix.
+func TestValidateAuthorizationBasePath_Match(t *testing.T) {
+	t.Parallel()
+	err := validateAuthorizationBasePath(authzServices.DataPlaneBasePath)
+	assert.NoError(t, err)
+}
+
+// TestValidateAuthorizationBasePath_Mismatch verifies that an operator-configured
+// base path that diverges from authzServices.DataPlaneBasePath is rejected. A
+// silent mismatch here would mean every data-plane route falls through the
+// hardcoded prefix strip in internal/services/authorization and bypasses
+// authorization for the whole deployment — this must fail loudly instead.
+func TestValidateAuthorizationBasePath_Mismatch(t *testing.T) {
+	t.Parallel()
+	err := validateAuthorizationBasePath("/myprefix")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "/myprefix")
+	assert.Contains(t, err.Error(), authzServices.DataPlaneBasePath)
+}
+
+// TestBoot_BasePathMismatch_FailsClosed exercises the same check through the
+// full Boot() entry point, mirroring how cmd/serve.go's --api_base flag
+// reaches bootstrap.Config.BasePath in production. A mismatched base path
+// must fail Boot before the server ever starts accepting requests, not just
+// in the unit-level validateAuthorizationBasePath check above.
+func TestBoot_BasePathMismatch_FailsClosed(t *testing.T) {
+	logger := newTestLogger()
+	serverCfg := &config.Config{Logger: logger}
+
+	cfg := &Config{
+		DatabaseName: "test-db",
+		Listen:       ":8080",
+		BasePath:     "/myprefix",
+		Logger:       logrus.New(),
+	}
+
+	shutdownFn, err := Boot(context.Background(), cfg, serverCfg)
+	require.Error(t, err)
+	assert.Nil(t, shutdownFn)
+	assert.Contains(t, err.Error(), "does not match")
 }
