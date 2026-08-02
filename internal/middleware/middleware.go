@@ -50,6 +50,7 @@ type Container interface {
 	GetAuthenticationService() authServices.AuthenticationService
 	GetRBACService() authzServices.RBACService
 	GetAccessPolicyService() authzServices.AccessPolicyService
+	GetRoleAssignmentService() authzServices.RoleAssignmentService
 	GetAuditService() auditSvc.AuditServiceInterface
 	GetVaultService() vaultServices.VaultService
 }
@@ -394,16 +395,28 @@ func resolvePolicy(method, path string) (model.PolicyResourceType, model.PolicyO
 	return resourceType, op
 }
 
-// PolicyMiddleware enforces per-operation access policies for authenticated users.
-// It must run after AuthenticationMiddleware so that common.UserIDKey is set.
-// The middleware uses AccessFallback-by-default semantics: if no explicit policy
-// exists the request continues to the next handler unchanged. Only AccessDenied
-// halts the request.
+// PolicyMiddleware authorizes every request against the vault resolved by
+// VaultResolutionMiddleware. It must run after AuthenticationMiddleware so that
+// common.UserIDKey is set.
+//
+// Vault data-plane routes are DENY-BY-DEFAULT: the route maps to a single Azure
+// data action, and the caller must hold a role assignment granting that action
+// in that specific vault. No matching assignment is a 403. This is the P2
+// inversion; before it, zero matching policy rows meant "continue".
+//
+// access_policies survives only as an explicit-deny override and is evaluated
+// FIRST, so a deny cannot be outvoted by a role grant.
+//
+// Routes that are not vault data-plane routes (vault management, role
+// assignments, users, audit) keep the previous AccessFallback pass-through:
+// their gates are requireVaultManage in the handlers and AuthorizationMiddleware.
 func (m *Middleware) PolicyMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// Resolve route — skip policy check for unmanaged routes (health, etc.)
 		resourceType, op := resolvePolicy(r.Method, r.URL.Path)
-		if resourceType == "" || op == "" {
+		action, routeKind := authzServices.MapRouteToDataAction(r.Method, r.URL.Path)
+
+		// Unmanaged by both mechanisms — health probes and the like.
+		if (resourceType == "" || op == "") && routeKind == authzServices.RouteUnmanaged {
 			next.ServeHTTP(w, r)
 			return
 		}
@@ -415,7 +428,6 @@ func (m *Middleware) PolicyMiddleware(next http.Handler) http.Handler {
 			http.Error(w, "Forbidden: missing identity", http.StatusForbidden)
 			return
 		}
-
 		principalID, err := uuid.Parse(userIDStr)
 		if err != nil {
 			m.logger.LogAuditError(userIDStr, "policy", "failed", "Invalid user ID format", err)
@@ -423,18 +435,17 @@ func (m *Middleware) PolicyMiddleware(next http.Handler) http.Handler {
 			return
 		}
 
-		// Resolve the target vault from context (set by VaultResolutionMiddleware).
-		// When absent, vaultID is uuid.Nil and only global (NULL-vault) policies match.
+		// Resolve the target vault. VaultResolutionMiddleware sets this for every
+		// route it covers; a legacy flat route with no value resolves to the
+		// default vault so flat and vault-scoped routes carry identical semantics.
 		vaultIDStr, _ := r.Context().Value(common.VaultIDKey).(string)
-		vaultID, _ := uuid.Parse(vaultIDStr)
-
-		// Evaluate access policy.
-		policySvc := m.container.GetAccessPolicyService()
-		decision, err := policySvc.CheckAccess(r.Context(), principalID, resourceType, op, vaultID)
+		if vaultIDStr == "" {
+			vaultIDStr = model.DefaultVaultID
+		}
+		vaultID, err := uuid.Parse(vaultIDStr)
 		if err != nil {
-			m.logger.LogAuditError(userIDStr, "policy", "error",
-				"Access policy check failed — denying request", err)
-			http.Error(w, "Internal server error", http.StatusInternalServerError)
+			m.logger.LogAuditError(userIDStr, "policy", "failed", "Invalid vault ID in context", err)
+			http.Error(w, "Forbidden: invalid vault", http.StatusForbidden)
 			return
 		}
 
@@ -446,18 +457,65 @@ func (m *Middleware) PolicyMiddleware(next http.Handler) http.Handler {
 			}
 		}
 
-		switch decision {
-		case authzServices.AccessDenied:
-			m.logger.LogAuditError(userIDStr, "policy", "denied",
-				fmt.Sprintf("Access denied: %s %s (resource=%s op=%s)", r.Method, routeTemplate, resourceType, op), nil)
-			http.Error(w, "Forbidden: access policy denied", http.StatusForbidden)
-			return
-		case authzServices.AccessAllowed:
-			m.logger.LogAuditInfo(userIDStr, "policy", "allowed",
-				fmt.Sprintf("Access allowed: %s %s (resource=%s op=%s)", r.Method, routeTemplate, resourceType, op))
-		default: // AccessFallback — no explicit policy; continue
+		// 1. Explicit-deny override, evaluated before any allow decision.
+		decision := authzServices.AccessFallback
+		if resourceType != "" && op != "" {
+			decision, err = m.container.GetAccessPolicyService().
+				CheckAccess(r.Context(), principalID, resourceType, op, vaultID)
+			if err != nil {
+				m.logger.LogAuditError(userIDStr, "policy", "error",
+					"Access policy check failed — denying request", err)
+				http.Error(w, "Internal server error", http.StatusInternalServerError)
+				return
+			}
+			if decision == authzServices.AccessDenied {
+				m.logger.LogAuditError(userIDStr, "policy", "denied",
+					fmt.Sprintf("Access denied by explicit policy: %s %s (resource=%s op=%s)",
+						r.Method, routeTemplate, resourceType, op), nil)
+				http.Error(w, "Forbidden: access policy denied", http.StatusForbidden)
+				return
+			}
 		}
 
+		// 2. Deny-by-default for vault data-plane routes.
+		if routeKind == authzServices.RouteVaultData {
+			if action == "" {
+				// A data-plane path with no mapped action. Refusing keeps an
+				// unrecognised route from becoming an unauthorized one.
+				m.logger.LogAuditError(userIDStr, "policy", "denied",
+					fmt.Sprintf("No data action mapped for %s %s", r.Method, routeTemplate), nil)
+				http.Error(w, "Forbidden: unsupported operation", http.StatusForbidden)
+				return
+			}
+			allowed, err := m.container.GetRoleAssignmentService().
+				HasDataAction(r.Context(), principalID, vaultID, action)
+			if err != nil {
+				m.logger.LogAuditError(userIDStr, "policy", "error",
+					"Role assignment lookup failed — denying request", err)
+				http.Error(w, "Internal server error", http.StatusInternalServerError)
+				return
+			}
+			if !allowed {
+				m.logger.LogAuditError(userIDStr, "policy", "denied",
+					fmt.Sprintf("Access denied: %s %s (action=%s vault=%s)",
+						r.Method, routeTemplate, action, vaultID), nil)
+				http.Error(w, "Forbidden: no role assignment grants this operation in this vault",
+					http.StatusForbidden)
+				return
+			}
+			m.logger.LogAuditInfo(userIDStr, "policy", "allowed",
+				fmt.Sprintf("Access allowed: %s %s (action=%s vault=%s)",
+					r.Method, routeTemplate, action, vaultID))
+			next.ServeHTTP(w, r)
+			return
+		}
+
+		// 3. Non-data-plane managed routes keep the previous semantics.
+		if decision == authzServices.AccessAllowed {
+			m.logger.LogAuditInfo(userIDStr, "policy", "allowed",
+				fmt.Sprintf("Access allowed: %s %s (resource=%s op=%s)",
+					r.Method, routeTemplate, resourceType, op))
+		}
 		next.ServeHTTP(w, r)
 	})
 }

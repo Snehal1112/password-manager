@@ -55,6 +55,14 @@ func (m *MockServiceContainer) GetAccessPolicyService() authzServices.AccessPoli
 	return args.Get(0).(authzServices.AccessPolicyService)
 }
 
+func (m *MockServiceContainer) GetRoleAssignmentService() authzServices.RoleAssignmentService {
+	args := m.Called()
+	if args.Get(0) == nil {
+		return nil
+	}
+	return args.Get(0).(authzServices.RoleAssignmentService)
+}
+
 func (m *MockServiceContainer) GetAuditService() auditSvc.AuditServiceInterface {
 	return nil
 }
@@ -899,13 +907,15 @@ func setupPolicyMiddlewareTest(t *testing.T) (*Middleware, *MockServiceContainer
 }
 
 // TestPolicyMiddleware_FallbackPassesThrough verifies that when no explicit policy
-// exists (AccessFallback) the request is allowed through unchanged.
+// exists (AccessFallback) on a management route the request is allowed through
+// unchanged. Vault data-plane routes no longer pass through on fallback alone;
+// see TestPolicyMiddleware_DeniesWithoutRoleAssignment for that inversion.
 func TestPolicyMiddleware_FallbackPassesThrough(t *testing.T) {
 	t.Parallel()
 	mw, _, mockPolicySvc := setupPolicyMiddlewareTest(t)
 
 	userID := uuid.New()
-	mockPolicySvc.On("CheckAccess", mock.Anything, userID, model.PolicyResourceType("secrets"), model.PolicyOperation("get"), mock.Anything).Return(authzServices.AccessFallback, nil)
+	mockPolicySvc.On("CheckAccess", mock.Anything, userID, model.PolicyResourceVaults, model.OpManage, mock.Anything).Return(authzServices.AccessFallback, nil)
 
 	nextCalled := false
 	nextHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -913,7 +923,7 @@ func TestPolicyMiddleware_FallbackPassesThrough(t *testing.T) {
 		w.WriteHeader(http.StatusOK)
 	})
 
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/secrets/some-id", nil)
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/vaults/prod", nil)
 	ctx := context.WithValue(req.Context(), common.UserIDKey, userID.String())
 	req = req.WithContext(ctx)
 	rr := httptest.NewRecorder()
@@ -948,13 +958,14 @@ func TestPolicyMiddleware_ExplicitDenyBlocks(t *testing.T) {
 	assert.Equal(t, http.StatusForbidden, rr.Code)
 }
 
-// TestPolicyMiddleware_ExplicitAllowPassesThrough verifies that AccessAllowed continues.
+// TestPolicyMiddleware_ExplicitAllowPassesThrough verifies that AccessAllowed
+// continues on a management route.
 func TestPolicyMiddleware_ExplicitAllowPassesThrough(t *testing.T) {
 	t.Parallel()
 	mw, _, mockPolicySvc := setupPolicyMiddlewareTest(t)
 
 	userID := uuid.New()
-	mockPolicySvc.On("CheckAccess", mock.Anything, userID, model.PolicyResourceType("secrets"), model.PolicyOperation("get"), mock.Anything).Return(authzServices.AccessAllowed, nil)
+	mockPolicySvc.On("CheckAccess", mock.Anything, userID, model.PolicyResourceVaults, model.OpManage, mock.Anything).Return(authzServices.AccessAllowed, nil)
 
 	nextCalled := false
 	nextHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -962,7 +973,7 @@ func TestPolicyMiddleware_ExplicitAllowPassesThrough(t *testing.T) {
 		w.WriteHeader(http.StatusOK)
 	})
 
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/secrets/some-id", nil)
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/vaults/prod", nil)
 	ctx := context.WithValue(req.Context(), common.UserIDKey, userID.String())
 	req = req.WithContext(ctx)
 	rr := httptest.NewRecorder()
@@ -1120,4 +1131,220 @@ func TestMiddlewareArchitecturalChange(t *testing.T) {
 	t.Log("- Testing: Complete test coverage with mock service container")
 
 	assert.True(t, true, "Architecture change documented and tested")
+}
+
+// MockRoleAssignmentService is a mock implementation of RoleAssignmentService.
+type MockRoleAssignmentService struct {
+	mock.Mock
+}
+
+func (m *MockRoleAssignmentService) AssignRole(ctx context.Context, in authzServices.AssignRoleInput) (*model.RoleAssignment, error) {
+	args := m.Called(ctx, in)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).(*model.RoleAssignment), args.Error(1)
+}
+
+func (m *MockRoleAssignmentService) RevokeAssignment(ctx context.Context, assignmentID, vaultID uuid.UUID) error {
+	args := m.Called(ctx, assignmentID, vaultID)
+	return args.Error(0)
+}
+
+func (m *MockRoleAssignmentService) ListAssignments(ctx context.Context, vaultID uuid.UUID) ([]*model.RoleAssignment, error) {
+	args := m.Called(ctx, vaultID)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).([]*model.RoleAssignment), args.Error(1)
+}
+
+func (m *MockRoleAssignmentService) HasDataAction(ctx context.Context, principalID, vaultID uuid.UUID, action model.DataAction) (bool, error) {
+	args := m.Called(ctx, principalID, vaultID, action)
+	return args.Bool(0), args.Error(1)
+}
+
+// setupDataPlaneMiddlewareTest wires middleware with both authorization services.
+func setupDataPlaneMiddlewareTest(t *testing.T) (*Middleware, *MockAccessPolicyService, *MockRoleAssignmentService) {
+	t.Helper()
+	logger := &logging.Logger{Logger: logrus.New()}
+	logger.SetLevel(logrus.ErrorLevel)
+
+	mockContainer := &MockServiceContainer{logger: logger}
+	mockPolicySvc := &MockAccessPolicyService{}
+	mockRoleSvc := &MockRoleAssignmentService{}
+	mockContainer.On("GetAccessPolicyService").Return(mockPolicySvc)
+	mockContainer.On("GetRoleAssignmentService").Return(mockRoleSvc)
+
+	return NewMiddleware(mockContainer), mockPolicySvc, mockRoleSvc
+}
+
+// dataPlaneRequest builds an authenticated request carrying a resolved vault.
+func dataPlaneRequest(method, path string, userID, vaultID uuid.UUID) *http.Request {
+	req := httptest.NewRequest(method, path, nil)
+	ctx := context.WithValue(req.Context(), common.UserIDKey, userID.String())
+	ctx = context.WithValue(ctx, common.VaultIDKey, vaultID.String())
+	return req.WithContext(ctx)
+}
+
+// TestPolicyMiddleware_DeniesWithoutRoleAssignment is the core inversion: a
+// principal with no role assignment granting the action in the resolved vault
+// gets 403, where before P2 the absence of any policy row let the request
+// through.
+func TestPolicyMiddleware_DeniesWithoutRoleAssignment(t *testing.T) {
+	t.Parallel()
+	mw, policySvc, roleSvc := setupDataPlaneMiddlewareTest(t)
+
+	userID, vaultID := uuid.New(), uuid.New()
+	policySvc.On("CheckAccess", mock.Anything, userID, mock.Anything, mock.Anything, vaultID).
+		Return(authzServices.AccessFallback, nil)
+	roleSvc.On("HasDataAction", mock.Anything, userID, vaultID, model.ActionSecretsGet).
+		Return(false, nil)
+
+	nextCalled := false
+	next := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { nextCalled = true })
+
+	rr := httptest.NewRecorder()
+	mw.PolicyMiddleware(next).ServeHTTP(rr, dataPlaneRequest(http.MethodGet, "/api/v1/secrets/abc", userID, vaultID))
+
+	assert.False(t, nextCalled, "a principal with no role assignment must not reach the handler")
+	assert.Equal(t, http.StatusForbidden, rr.Code)
+}
+
+// TestPolicyMiddleware_AllowsWithRoleAssignment asserts the granted path.
+func TestPolicyMiddleware_AllowsWithRoleAssignment(t *testing.T) {
+	t.Parallel()
+	mw, policySvc, roleSvc := setupDataPlaneMiddlewareTest(t)
+
+	userID, vaultID := uuid.New(), uuid.New()
+	policySvc.On("CheckAccess", mock.Anything, userID, mock.Anything, mock.Anything, vaultID).
+		Return(authzServices.AccessFallback, nil)
+	roleSvc.On("HasDataAction", mock.Anything, userID, vaultID, model.ActionSecretsGet).
+		Return(true, nil)
+
+	nextCalled := false
+	next := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		nextCalled = true
+		w.WriteHeader(http.StatusOK)
+	})
+
+	rr := httptest.NewRecorder()
+	mw.PolicyMiddleware(next).ServeHTTP(rr, dataPlaneRequest(http.MethodGet, "/api/v1/secrets/abc", userID, vaultID))
+
+	assert.True(t, nextCalled)
+	assert.Equal(t, http.StatusOK, rr.Code)
+}
+
+// TestPolicyMiddleware_ExplicitDenyBeatsRoleAssignment asserts access_policies
+// survives as an explicit-deny override evaluated before the allow decision:
+// the role check is never even reached.
+func TestPolicyMiddleware_ExplicitDenyBeatsRoleAssignment(t *testing.T) {
+	t.Parallel()
+	mw, policySvc, roleSvc := setupDataPlaneMiddlewareTest(t)
+
+	userID, vaultID := uuid.New(), uuid.New()
+	policySvc.On("CheckAccess", mock.Anything, userID, mock.Anything, mock.Anything, vaultID).
+		Return(authzServices.AccessDenied, nil)
+
+	rr := httptest.NewRecorder()
+	mw.PolicyMiddleware(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {})).
+		ServeHTTP(rr, dataPlaneRequest(http.MethodGet, "/api/v1/secrets/abc", userID, vaultID))
+
+	assert.Equal(t, http.StatusForbidden, rr.Code)
+	roleSvc.AssertNotCalled(t, "HasDataAction", mock.Anything, mock.Anything, mock.Anything, mock.Anything)
+}
+
+// TestPolicyMiddleware_LookupErrorDeniesWith500 asserts a role lookup failure
+// fails closed with 500 rather than being read as a permission denial or,
+// worse, a pass-through.
+func TestPolicyMiddleware_LookupErrorDeniesWith500(t *testing.T) {
+	t.Parallel()
+	mw, policySvc, roleSvc := setupDataPlaneMiddlewareTest(t)
+
+	userID, vaultID := uuid.New(), uuid.New()
+	policySvc.On("CheckAccess", mock.Anything, userID, mock.Anything, mock.Anything, vaultID).
+		Return(authzServices.AccessFallback, nil)
+	roleSvc.On("HasDataAction", mock.Anything, userID, vaultID, model.ActionSecretsGet).
+		Return(false, fmt.Errorf("database is locked"))
+
+	nextCalled := false
+	next := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { nextCalled = true })
+
+	rr := httptest.NewRecorder()
+	mw.PolicyMiddleware(next).ServeHTTP(rr, dataPlaneRequest(http.MethodGet, "/api/v1/secrets/abc", userID, vaultID))
+
+	assert.False(t, nextCalled)
+	assert.Equal(t, http.StatusInternalServerError, rr.Code)
+}
+
+// TestPolicyMiddleware_UnmappedDataPlaneMethodDenies asserts a data-plane path
+// with no action mapping is refused rather than allowed.
+func TestPolicyMiddleware_UnmappedDataPlaneMethodDenies(t *testing.T) {
+	t.Parallel()
+	mw, policySvc, _ := setupDataPlaneMiddlewareTest(t)
+
+	userID, vaultID := uuid.New(), uuid.New()
+	policySvc.On("CheckAccess", mock.Anything, userID, mock.Anything, mock.Anything, vaultID).
+		Return(authzServices.AccessFallback, nil)
+
+	nextCalled := false
+	next := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { nextCalled = true })
+
+	rr := httptest.NewRecorder()
+	mw.PolicyMiddleware(next).ServeHTTP(rr, dataPlaneRequest(http.MethodPatch, "/api/v1/secrets/abc", userID, vaultID))
+
+	assert.False(t, nextCalled)
+	assert.Equal(t, http.StatusForbidden, rr.Code)
+}
+
+// TestPolicyMiddleware_FlatRouteUsesDefaultVault asserts a legacy flat route
+// with no resolved vault in context is evaluated against the default vault, so
+// flat and vault-scoped routes carry identical semantics.
+func TestPolicyMiddleware_FlatRouteUsesDefaultVault(t *testing.T) {
+	t.Parallel()
+	mw, policySvc, roleSvc := setupDataPlaneMiddlewareTest(t)
+
+	userID := uuid.New()
+	defaultVault := uuid.MustParse(model.DefaultVaultID)
+	policySvc.On("CheckAccess", mock.Anything, userID, mock.Anything, mock.Anything, defaultVault).
+		Return(authzServices.AccessFallback, nil)
+	roleSvc.On("HasDataAction", mock.Anything, userID, defaultVault, model.ActionSecretsReadMetadata).
+		Return(true, nil)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/secrets", nil)
+	req = req.WithContext(context.WithValue(req.Context(), common.UserIDKey, userID.String()))
+
+	nextCalled := false
+	rr := httptest.NewRecorder()
+	mw.PolicyMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		nextCalled = true
+		w.WriteHeader(http.StatusOK)
+	})).ServeHTTP(rr, req)
+
+	assert.True(t, nextCalled)
+	assert.Equal(t, http.StatusOK, rr.Code)
+	roleSvc.AssertCalled(t, "HasDataAction", mock.Anything, userID, defaultVault, model.ActionSecretsReadMetadata)
+}
+
+// TestPolicyMiddleware_VaultManagementKeepsFallback asserts non-data-plane
+// managed routes are unchanged: their gates are requireVaultManage and the RBAC
+// middleware, not per-vault role assignments.
+func TestPolicyMiddleware_VaultManagementKeepsFallback(t *testing.T) {
+	t.Parallel()
+	mw, policySvc, roleSvc := setupDataPlaneMiddlewareTest(t)
+
+	userID, vaultID := uuid.New(), uuid.New()
+	policySvc.On("CheckAccess", mock.Anything, userID, model.PolicyResourceVaults, model.OpManage, vaultID).
+		Return(authzServices.AccessFallback, nil)
+
+	nextCalled := false
+	rr := httptest.NewRecorder()
+	mw.PolicyMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		nextCalled = true
+		w.WriteHeader(http.StatusOK)
+	})).ServeHTTP(rr, dataPlaneRequest(http.MethodDelete, "/api/v1/vaults/prod", userID, vaultID))
+
+	assert.True(t, nextCalled, "vault management keeps AccessFallback pass-through")
+	assert.Equal(t, http.StatusOK, rr.Code)
+	roleSvc.AssertNotCalled(t, "HasDataAction", mock.Anything, mock.Anything, mock.Anything, mock.Anything)
 }
