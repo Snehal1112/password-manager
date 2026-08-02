@@ -39,6 +39,7 @@ import (
 	userServices "rocketvault/internal/services/users"
 	vaultServices "rocketvault/internal/services/vaults"
 	"rocketvault/internal/signing"
+	"rocketvault/internal/testutils"
 	"rocketvault/model"
 )
 
@@ -90,7 +91,8 @@ func (m *mockOAuth2Svc) DeleteClient(ctx context.Context, id uuid.UUID) error {
 // --- oauth2HTestContainer ---
 
 type oauth2HTestContainer struct {
-	svc oauth2Services.OAuth2Service
+	svc      oauth2Services.OAuth2Service
+	auditSvc auditServices.AuditServiceInterface
 }
 
 func (c *oauth2HTestContainer) GetOAuth2Service() oauth2Services.OAuth2Service { return c.svc }
@@ -208,7 +210,7 @@ func (c *oauth2HTestContainer) GetItemBackupService() *backup.ItemBackupService 
 func (c *oauth2HTestContainer) GetKeyCache() keycache.Cache             { return nil }
 func (c *oauth2HTestContainer) GetCryptoMetrics() metrics.CryptoMetrics { return nil }
 func (c *oauth2HTestContainer) GetAuditService() auditServices.AuditServiceInterface {
-	return nil
+	return c.auditSvc
 }
 func (c *oauth2HTestContainer) GetComplianceReportService() auditServices.ComplianceReportServiceInterface {
 	return nil
@@ -359,6 +361,52 @@ func TestTokenHandler_Success_Returns200(t *testing.T) {
 	api.tokenHandler(w, r)
 	assert.Equal(t, http.StatusOK, w.Code)
 	svc.AssertExpectations(t)
+}
+
+func TestTokenHandler_Success_RecordsAuditEvent(t *testing.T) {
+	svc := &mockOAuth2Svc{}
+	svc.On("IssueToken", mock.Anything, "good_client", "good_sec").Return(&oauth2Services.TokenResponse{
+		AccessToken: "tok", TokenType: "Bearer", ExpiresIn: 3600,
+	}, nil)
+	mockAudit := &testutils.MockAuditService{}
+	mockAudit.On("RecordEvent", mock.Anything, mock.MatchedBy(func(e auditServices.AuditEvent) bool {
+		return e.Action == "oauth2_token_issue" && e.Outcome == "success" && e.ResourceID == "good_client"
+	})).Return(nil)
+
+	a := &app.App{ServiceContainer: &oauth2HTestContainer{svc: svc, auditSvc: mockAudit}}
+	api := &API{App: a, Logger: userTestLog()}
+	w := httptest.NewRecorder()
+	body := strings.NewReader("grant_type=client_credentials&client_id=good_client&client_secret=good_sec")
+	r := httptest.NewRequest(http.MethodPost, "/oauth2/token", body)
+	r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+
+	api.tokenHandler(w, r)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+	svc.AssertExpectations(t)
+	mockAudit.AssertExpectations(t)
+}
+
+func TestTokenHandler_InvalidCreds_RecordsFailureAuditEvent(t *testing.T) {
+	svc := &mockOAuth2Svc{}
+	svc.On("IssueToken", mock.Anything, "bad_client", "bad_sec").Return(nil, errors.New("invalid"))
+	mockAudit := &testutils.MockAuditService{}
+	mockAudit.On("RecordEvent", mock.Anything, mock.MatchedBy(func(e auditServices.AuditEvent) bool {
+		return e.Action == "oauth2_token_issue" && e.Outcome == "failure" && e.ResourceID == "bad_client"
+	})).Return(nil)
+
+	a := &app.App{ServiceContainer: &oauth2HTestContainer{svc: svc, auditSvc: mockAudit}}
+	api := &API{App: a, Logger: userTestLog()}
+	w := httptest.NewRecorder()
+	body := strings.NewReader("grant_type=client_credentials&client_id=bad_client&client_secret=bad_sec")
+	r := httptest.NewRequest(http.MethodPost, "/oauth2/token", body)
+	r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+
+	api.tokenHandler(w, r)
+
+	assert.Equal(t, http.StatusUnauthorized, w.Code)
+	svc.AssertExpectations(t)
+	mockAudit.AssertExpectations(t)
 }
 
 // ============================================================

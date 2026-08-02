@@ -10,6 +10,8 @@ import (
 	"github.com/google/uuid"
 
 	"rocketvault/common"
+	"rocketvault/internal/middleware"
+	auditSvc "rocketvault/internal/services/audit"
 	"rocketvault/model"
 )
 
@@ -90,15 +92,38 @@ func (api *API) tokenHandler(w http.ResponseWriter, r *http.Request) {
 
 	tokenResp, err := svc.IssueToken(r.Context(), clientID, clientSecret)
 	if err != nil {
+		api.recordOAuth2TokenAudit(r, clientID, "failure")
 		// RFC 6749 §5.2: 401 + WWW-Authenticate for invalid_client.
 		w.Header().Set("WWW-Authenticate", `Basic realm="rocketvault"`)
 		writeTokenError(w, http.StatusUnauthorized, "invalid_client", "invalid client credentials")
 		return
 	}
 
+	api.recordOAuth2TokenAudit(r, clientID, "success")
+
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
 	json.NewEncoder(w).Encode(tokenResp) //nolint:errcheck
+}
+
+// recordOAuth2TokenAudit writes an audit entry for a token-issuance attempt.
+// clientID is the caller-supplied identifier — safe to log even on failure
+// since the response never reveals whether the ID or the secret was wrong
+// (RFC 6749 §5.2 non-enumerating error). Swallows a nil audit service.
+func (api *API) recordOAuth2TokenAudit(r *http.Request, clientID, outcome string) {
+	svc := api.App.ServiceContainer.GetAuditService()
+	if svc == nil {
+		return
+	}
+	_ = svc.RecordEvent(r.Context(), auditSvc.AuditEvent{
+		UserID:       clientID,
+		Action:       "oauth2_token_issue",
+		Outcome:      outcome,
+		Source:       "api",
+		ResourceType: "oauth2_client",
+		ResourceID:   clientID,
+		IPAddress:    middleware.ExtractClientIP(r),
+	})
 }
 
 // extractClientCredentials resolves client_id and client_secret from the request.
