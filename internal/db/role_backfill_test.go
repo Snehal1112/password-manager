@@ -172,6 +172,63 @@ func TestPlanRoleBackfillSkipsMissingColumns(t *testing.T) {
 	assert.Empty(t, grants)
 }
 
+// TestPlanRoleBackfill_TranslatesLegacyRoleAssignment asserts a principal who
+// holds only a pre-Azure-RBAC role_assignments row (role_assignments and its
+// legacy vocabulary shipped in v0.2.0, before this migration existed) and owns
+// no objects directly -- so none of the ownership sources ever see them --
+// still gets the equivalent Azure role planned. Without this source, such a
+// principal would be silently locked out by the Task 9 deny-by-default
+// PolicyMiddleware inversion despite having a real, pre-existing grant.
+func TestPlanRoleBackfill_TranslatesLegacyRoleAssignment(t *testing.T) {
+	conn, ids := seedPreMigrationDB(t)
+	carolID := "44444444-4444-4444-4444-444444444444"
+
+	_, err := conn.Exec(
+		`INSERT INTO role_assignments (id, principal_id, principal_type, role, vault_id, created_by)
+		 VALUES ('legacy-1', ?, 'user', 'secrets-officer', ?, ?)`,
+		carolID, ids["vaultB"], ids["admin"])
+	require.NoError(t, err)
+
+	grants, err := PlanRoleBackfill(context.Background(), NewConn(conn, SQLite), SQLite)
+	require.NoError(t, err)
+
+	var found *RoleBackfillGrant
+	for i := range grants {
+		if grants[i].PrincipalID == carolID {
+			found = &grants[i]
+		}
+	}
+	require.NotNil(t, found, "expected a translated grant for carol's legacy secrets-officer role assignment")
+	assert.Equal(t, ids["vaultB"], found.VaultID)
+	assert.Equal(t, model.RoleKeyVaultSecretsOfficer, found.Role)
+	assert.Equal(t, legacyRoleAssignmentSource, found.Source)
+}
+
+// TestPlanRoleBackfill_IgnoresAlreadyAzureNamedRoleAssignment asserts a
+// role_assignments row that already holds an Azure role name (an operator who
+// manually assigned it, e.g. during testing, before this backfill ever ran)
+// is not re-derived into a second, spurious, self-referential grant: the
+// legacy-role scan only selects rows whose role is one of the seven legacy
+// names.
+func TestPlanRoleBackfill_IgnoresAlreadyAzureNamedRoleAssignment(t *testing.T) {
+	conn, ids := seedPreMigrationDB(t)
+	daveID := "55555555-5555-5555-5555-555555555555"
+
+	_, err := conn.Exec(
+		`INSERT INTO role_assignments (id, principal_id, principal_type, role, vault_id, created_by)
+		 VALUES ('azure-1', ?, 'user', ?, ?, ?)`,
+		daveID, model.RoleKeyVaultSecretsOfficer, ids["vaultA"], ids["admin"])
+	require.NoError(t, err)
+
+	grants, err := PlanRoleBackfill(context.Background(), NewConn(conn, SQLite), SQLite)
+	require.NoError(t, err)
+
+	for _, g := range grants {
+		assert.NotEqual(t, daveID, g.PrincipalID,
+			"an already-Azure-named role_assignments row must not be re-derived into a spurious grant")
+	}
+}
+
 // TestPlanRoleBackfillNoVaults returns nothing when the vaults table is empty.
 func TestPlanRoleBackfillNoVaults(t *testing.T) {
 	conn, err := sql.Open("sqlite3", ":memory:")

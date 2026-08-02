@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"fmt"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -37,18 +38,51 @@ var ownershipBackfillSources = []ownershipBackfillSource{
 	{Table: "certificates", Role: model.RoleKeyVaultCertificatesOfficer},
 }
 
+// legacyRoleToAzureRole maps every pre-Azure-RBAC vault-scoped role name (the
+// builtInRoles keys in internal/services/authorization/roles.go) to the Azure
+// built-in role it corresponds to. The role_assignments table and this
+// vocabulary shipped in RocketVault v0.2.0 (2026-06-06), well before the
+// Task 9 deny-by-default PolicyMiddleware inversion, which is evaluated
+// entirely against model.RoleGrantsDataAction and understands only the seven
+// Azure names. Without this translation, a principal holding only a legacy
+// role like "secrets-officer" -- and who happens to own no objects directly,
+// so the ownership-derived sources above never see them -- grants zero data
+// actions and is silently locked out on upgrade.
+var legacyRoleToAzureRole = map[string]string{
+	"vault-admin":          model.RoleKeyVaultAdministrator,
+	"vault-reader":         model.RoleKeyVaultReader,
+	"secrets-user":         model.RoleKeyVaultSecretsUser,
+	"secrets-officer":      model.RoleKeyVaultSecretsOfficer,
+	"crypto-user":          model.RoleKeyVaultCryptoUser,
+	"crypto-officer":       model.RoleKeyVaultCryptoOfficer,
+	"certificates-officer": model.RoleKeyVaultCertificatesOfficer,
+}
+
+// legacyRoleAssignmentSource is the RoleBackfillGrant.Source value for grants
+// derived by translating an existing legacy-named role_assignments row.
+const legacyRoleAssignmentSource = "legacy-role-assignment"
+
 // PlanRoleBackfill derives the role assignments the P2 upgrade migration would
 // create from existing object ownership. It writes nothing, so the migration and
 // the "rocketvault vaults preview-migration" command run the same computation
 // and an operator's preview is exactly what the upgrade will do.
 //
-// Derivation, per spec section 6.3:
+// Derivation, per spec section 6.3, plus a fourth source added once the
+// role_assignments table itself was found to predate this migration (it
+// shipped in v0.2.0, well before P2):
 //  1. Each distinct secrets.user_id owning rows in a vault -> Key Vault Secrets Officer there.
 //  2. Same for keys -> Key Vault Crypto Officer and certificates -> Key Vault Certificates Officer.
 //  3. Every user holding the global admin role -> Key Vault Administrator in every vault.
+//  4. Every existing role_assignments row already using a legacy vault-scoped role
+//     name (see legacyRoleToAzureRole) -> the equivalent Azure built-in role, for the
+//     same (principal, vault).
 //
 // A source table missing its ownership columns is skipped: migrateSchema runs
 // against arbitrary old shapes, and secrets.user_id predates secrets.vault_id.
+// The same applies to role_assignments missing principal_id/vault_id/role: it
+// shouldn't happen (the table is created well before this function ever runs),
+// but the check costs nothing and matches the fail-safe already established for
+// the ownership sources.
 // A vault_id with no vaults row is skipped too, because role_assignments has a
 // foreign key to vaults(id).
 //
@@ -105,6 +139,16 @@ func PlanRoleBackfill(ctx context.Context, q DBTX, dialect Dialect) ([]RoleBackf
 	for _, adminID := range adminIDs {
 		for vaultID := range vaultNames {
 			add(adminID, vaultID, model.RoleKeyVaultAdministrator, "global-admin")
+		}
+	}
+
+	usable, err := hasRoleAssignmentColumns(ctx, q, dialect)
+	if err != nil {
+		return nil, err
+	}
+	if usable {
+		if err := scanLegacyRoleAssignments(ctx, q, add); err != nil {
+			return nil, err
 		}
 	}
 
@@ -173,6 +217,68 @@ func scanOwnership(ctx context.Context, q DBTX, src ownershipBackfillSource,
 			return fmt.Errorf("scan %s ownership row: %w", src.Table, err)
 		}
 		add(userID, vaultID, src.Role, src.Table)
+	}
+	return rows.Err()
+}
+
+// hasRoleAssignmentColumns reports whether role_assignments carries the three
+// columns the legacy-role scan reads. Matches the hasOwnershipColumns
+// fail-safe pattern: the table is created well before PlanRoleBackfill ever
+// runs against a real deployment, but PlanRoleBackfill is also called directly
+// in tests and previews against minimal, purpose-built schemas, so the check
+// keeps this source from erroring out instead of just contributing no grants.
+func hasRoleAssignmentColumns(ctx context.Context, q DBTX, dialect Dialect) (bool, error) {
+	for _, col := range []string{"principal_id", "vault_id", "role"} {
+		ok, err := dialect.ColumnExists(ctx, q, "role_assignments", col)
+		if err != nil {
+			return false, fmt.Errorf("inspect role_assignments.%s: %w", col, err)
+		}
+		if !ok {
+			return false, nil
+		}
+	}
+	return true, nil
+}
+
+// scanLegacyRoleAssignments walks existing role_assignments rows already
+// using a legacy vault-scoped role name and emits the equivalent Azure grant
+// for the same (principal, vault) via add. Rows already holding an Azure role
+// name are not selected, so an operator's already-migrated or hand-made Azure
+// role assignment is never re-derived from itself.
+func scanLegacyRoleAssignments(ctx context.Context, q DBTX, add func(principal, vault, role, source string)) error {
+	legacyNames := make([]string, 0, len(legacyRoleToAzureRole))
+	for name := range legacyRoleToAzureRole {
+		legacyNames = append(legacyNames, name)
+	}
+	sort.Strings(legacyNames) // deterministic query text, easier to debug; result set is unaffected
+
+	placeholders := make([]string, len(legacyNames))
+	args := make([]any, len(legacyNames))
+	for i, name := range legacyNames {
+		placeholders[i] = "?"
+		args[i] = name
+	}
+	query := fmt.Sprintf(
+		`SELECT principal_id, vault_id, role FROM role_assignments WHERE role IN (%s)`,
+		strings.Join(placeholders, ","))
+
+	rows, err := q.QueryContext(ctx, query, args...)
+	if err != nil {
+		return fmt.Errorf("scan legacy role_assignments: %w", err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var principalID, vaultID, role string
+		if err := rows.Scan(&principalID, &vaultID, &role); err != nil {
+			return fmt.Errorf("scan legacy role_assignments row: %w", err)
+		}
+		azureRole, ok := legacyRoleToAzureRole[role]
+		if !ok {
+			// The WHERE clause already restricts to known legacy names; this is
+			// defensive only.
+			continue
+		}
+		add(principalID, vaultID, azureRole, legacyRoleAssignmentSource)
 	}
 	return rows.Err()
 }

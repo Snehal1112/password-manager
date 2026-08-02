@@ -136,6 +136,38 @@ func TestBackfillRoleAssignments_PreservesOperatorGrants(t *testing.T) {
 	assert.Equal(t, ids["admin"], createdBy, "the operator grant must be untouched")
 }
 
+// TestBackfillRoleAssignments_TranslatesLegacyRoleAssignment asserts the
+// legacy-role source is wired into the actual write path, not just the plan:
+// a pre-existing role_assignments row using a legacy name (role_assignments
+// and its legacy vocabulary shipped in v0.2.0, before this migration existed)
+// results in a new row holding the equivalent Azure role name, and the
+// original legacy row is left untouched.
+func TestBackfillRoleAssignments_TranslatesLegacyRoleAssignment(t *testing.T) {
+	conn, ids := seedPreMigrationDB(t)
+	carolID := "44444444-4444-4444-4444-444444444444"
+
+	_, err := conn.Exec(
+		`INSERT INTO role_assignments (id, principal_id, principal_type, role, vault_id, created_by)
+		 VALUES ('legacy-1', ?, 'user', 'secrets-officer', ?, ?)`,
+		carolID, ids["vaultB"], ids["admin"])
+	require.NoError(t, err)
+
+	repo := NewRepository(logging.InitLogger())
+	require.NoError(t, repo.backfillRoleAssignments(conn))
+
+	var n int
+	require.NoError(t, conn.QueryRow(
+		`SELECT COUNT(*) FROM role_assignments WHERE principal_id = ? AND vault_id = ? AND role = ?`,
+		carolID, ids["vaultB"], model.RoleKeyVaultSecretsOfficer).Scan(&n))
+	assert.Equal(t, 1, n, "carol's legacy secrets-officer row must have been translated into a Key Vault Secrets Officer grant")
+
+	var legacyStillPresent int
+	require.NoError(t, conn.QueryRow(
+		`SELECT COUNT(*) FROM role_assignments WHERE id = 'legacy-1' AND role = 'secrets-officer'`,
+	).Scan(&legacyStillPresent))
+	assert.Equal(t, 1, legacyStillPresent, "the original legacy row must be left in place, not rewritten")
+}
+
 // TestMigrateSchema_RunsRoleBackfill asserts the backfill is wired into
 // migrateSchema, not merely callable, and stays idempotent through it.
 func TestMigrateSchema_RunsRoleBackfill(t *testing.T) {
