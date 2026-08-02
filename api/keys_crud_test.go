@@ -233,10 +233,11 @@ func (c *keySvcTestContainer) Close() error { return nil }
 
 const keyTestUserID = "b2c3d4e5-f6a7-8901-bcde-f12345678901"
 
-// keyLegacyOwnerScope is the exact scope scopeFromRequest and
-// ownerScopeFromRequest build for a legacy flat route (no vault_name mux
-// var): an owner scope carrying the default vault id as its advisory vault
-// and keyTestUserID as the owner/actor.
+// keyLegacyOwnerScope is the exact scope scopeFromRequest builds for a
+// legacy flat route (no vault_name mux var): an owner scope carrying the
+// default vault id as its advisory vault and keyTestUserID as the
+// owner/actor. ownerScopeFromRequest, which used to build the identical
+// scope for the eight now-vault-scoped call sites, was deleted in Task 11.
 func keyLegacyOwnerScope() model.Scope {
 	return model.NewOwnerScope(uuid.MustParse(model.DefaultVaultID), uuid.MustParse(keyTestUserID))
 }

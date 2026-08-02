@@ -510,9 +510,11 @@ func doVaultRequestAs(api *API, role, method, path string, body []byte) *httptes
 }
 
 // TestVaultSvcTestContainer_GetCryptoService_ReturnsConfiguredService proves
-// the test container can inject a real CryptoService, which
-// api/vault_scoped_keys_certs_test.go's vault-scope assertions need in order
-// to exercise the actual handler-to-service scope threading instead of a stub.
+// the test container returns whatever CryptoService it was configured with
+// (a stub here). api/vault_scoped_keys_certs_test.go's vault-scope
+// assertions rely on this same wiring, configuring their own
+// recordingCryptoService in its place, to exercise handler-to-service scope
+// threading.
 func TestVaultSvcTestContainer_GetCryptoService_ReturnsConfiguredService(t *testing.T) {
 	svc := &stubCryptoSvc{}
 	c := &vaultSvcTestContainer{cryptoSvc: svc, logger: userTestLog()}

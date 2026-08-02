@@ -56,11 +56,23 @@ jobs:
           #   - api/certificates.go   updateCertificate is not yet vault-scope
           #                           aware; a documented deferral (see
           #                           .claude/multi-vault.md).
-          #   - the createKey post-create read-back in api/keys.go: it reads
-          #     back the resource the caller just created, by the caller's
-          #     own id, so it is excluded by content rather than by file --
-          #     api/keys.go's other eight call sites (the six crypto
-          #     operations, delete, rotate) stay under this gate.
+          #   - the createKey post-create read-back in api/keys.go (currently
+          #     line 358): it reads back the resource the caller just
+          #     created, by the caller's own id, so it is excluded by content
+          #     rather than by file -- api/keys.go's other eight call sites
+          #     (the six crypto operations, delete, rotate) stay under this
+          #     gate. The exclusion pattern includes the full argument list
+          #     ("model.NewOwnerScope(vaultID, userID))"), not just the
+          #     "keyService.GetKey(...result.KeyID, model.NewOwnerScope"
+          #     prefix: rotateKey's read-back (api/keys.go:567) also calls
+          #     keyService.GetKey(r.Context(), result.KeyID, ...) -- same
+          #     receiver, same second argument -- so a prefix-only pattern
+          #     would silently exempt a regression there too if rotateKey's
+          #     `scope` variable were ever mutated back to a hardcoded
+          #     NewOwnerScope call. rotateKey has no local `vaultID`/`userID`
+          #     variables in that scope (it uses `scope` from
+          #     scopeFromRequest), so the full argument list keeps this
+          #     exclusion specific to createKey's line alone.
           if grep -rn "NewOwnerScope\|ownerScopeFromRequest" --include="*.go" . \
                | grep -v "_test.go" \
                | grep -v "model/scope.go" \
@@ -70,7 +82,7 @@ jobs:
                | grep -v "internal/services/certificates/certificate_service.go" \
                | grep -v "api/context.go" \
                | grep -v "api/certificates.go" \
-               | grep -v "keyService.GetKey(r.Context(), result.KeyID, model.NewOwnerScope"; then
+               | grep -v "keyService.GetKey(r.Context(), result.KeyID, model.NewOwnerScope(vaultID, userID))"; then
             echo "owner scope reached the data plane; P2 retired it" >&2
             exit 1
           fi
