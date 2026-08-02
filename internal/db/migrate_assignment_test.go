@@ -128,6 +128,54 @@ func TestMigrate_CreatesRoleAssignmentsTable(t *testing.T) {
 	}
 }
 
+// TestMigrate_CreatesPrincipalVaultIndex verifies that migrateSchema creates the
+// composite index backing the per-vault authorization lookup. The index must be
+// created in migrateSchema as well as in createOptimizedSchema so that upgraded
+// databases get it too.
+func TestMigrate_CreatesPrincipalVaultIndex(t *testing.T) {
+	conn, err := sql.Open("sqlite3", ":memory:")
+	require.NoError(t, err)
+	defer conn.Close()
+
+	_, err = conn.Exec(`
+		CREATE TABLE secrets (
+			id   TEXT PRIMARY KEY,
+			name TEXT NOT NULL
+		);
+		CREATE TABLE keys (
+			id   TEXT PRIMARY KEY,
+			name TEXT NOT NULL
+		);
+		CREATE TABLE certificates (
+			id   TEXT PRIMARY KEY,
+			name TEXT NOT NULL
+		);
+		CREATE TABLE audit_logs (
+			id TEXT PRIMARY KEY
+		);
+		CREATE TABLE access_policies (
+			id             TEXT PRIMARY KEY,
+			principal_id   TEXT NOT NULL,
+			principal_type TEXT NOT NULL,
+			resource_type  TEXT NOT NULL,
+			operation      TEXT NOT NULL,
+			effect         TEXT NOT NULL,
+			created_at     TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+		);
+	`)
+	require.NoError(t, err)
+
+	repo := NewRepository(logging.InitLogger())
+	require.NoError(t, repo.migrateSchema(conn))
+	require.NoError(t, repo.migrateSchema(conn), "second run must be idempotent")
+
+	var name string
+	row := conn.QueryRow(
+		`SELECT name FROM sqlite_master WHERE type='index' AND name='idx_role_assignments_principal_vault'`)
+	require.NoError(t, row.Scan(&name), "idx_role_assignments_principal_vault missing after migrate")
+	require.Equal(t, "idx_role_assignments_principal_vault", name)
+}
+
 // columnExists reports whether the named column is present on the given table.
 func columnExists(t *testing.T, conn *sql.DB, table, column string) bool {
 	t.Helper()

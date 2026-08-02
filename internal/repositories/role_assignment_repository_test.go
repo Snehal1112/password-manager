@@ -77,3 +77,58 @@ func TestRoleAssignment_FindDuplicate(t *testing.T) {
 		t.Fatal("expected nil for non-existent tuple")
 	}
 }
+
+// TestRoleAssignment_ListByPrincipalInVault returns only the assignments held by
+// the given principal in the given vault. Assignments held by another principal,
+// or by the same principal in another vault, must not leak into the result:
+// this query is the authorization lookup, so a leak is a privilege escalation.
+func TestRoleAssignment_ListByPrincipalInVault(t *testing.T) {
+	repo := newRoleAssignmentRepo(t)
+	ctx := context.Background()
+
+	vaultA, vaultB := uuid.New(), uuid.New()
+	alice, bob := uuid.New(), uuid.New()
+
+	seed := []*model.RoleAssignment{
+		{ID: uuid.New(), PrincipalID: alice, PrincipalType: model.PrincipalTypeUser,
+			Role: model.RoleKeyVaultSecretsOfficer, VaultID: vaultA, CreatedBy: uuid.New()},
+		{ID: uuid.New(), PrincipalID: alice, PrincipalType: model.PrincipalTypeUser,
+			Role: model.RoleKeyVaultCryptoUser, VaultID: vaultA, CreatedBy: uuid.New()},
+		{ID: uuid.New(), PrincipalID: alice, PrincipalType: model.PrincipalTypeUser,
+			Role: model.RoleKeyVaultAdministrator, VaultID: vaultB, CreatedBy: uuid.New()},
+		{ID: uuid.New(), PrincipalID: bob, PrincipalType: model.PrincipalTypeUser,
+			Role: model.RoleKeyVaultAdministrator, VaultID: vaultA, CreatedBy: uuid.New()},
+	}
+	for _, ra := range seed {
+		if err := repo.Create(ctx, ra); err != nil {
+			t.Fatalf("create: %v", err)
+		}
+	}
+
+	got, err := repo.ListByPrincipalInVault(ctx, alice, vaultA)
+	if err != nil {
+		t.Fatalf("ListByPrincipalInVault: %v", err)
+	}
+	if len(got) != 2 {
+		t.Fatalf("want 2 assignments, got %d", len(got))
+	}
+	roles := map[string]bool{}
+	for _, ra := range got {
+		if ra.PrincipalID != alice || ra.VaultID != vaultA {
+			t.Fatalf("leaked assignment: principal=%s vault=%s", ra.PrincipalID, ra.VaultID)
+		}
+		roles[ra.Role] = true
+	}
+	if !roles[model.RoleKeyVaultSecretsOfficer] || !roles[model.RoleKeyVaultCryptoUser] {
+		t.Fatalf("unexpected roles: %v", roles)
+	}
+
+	// A principal with no assignment in the vault gets an empty, non-error result.
+	none, err := repo.ListByPrincipalInVault(ctx, uuid.New(), vaultA)
+	if err != nil {
+		t.Fatalf("ListByPrincipalInVault (absent principal): %v", err)
+	}
+	if len(none) != 0 {
+		t.Fatalf("want 0 assignments for an unknown principal, got %d", len(none))
+	}
+}

@@ -17,6 +17,10 @@ type RoleAssignmentRepositoryInterface interface {
 	Create(ctx context.Context, ra *model.RoleAssignment) error
 	GetByID(ctx context.Context, id uuid.UUID) (*model.RoleAssignment, error)
 	ListByVault(ctx context.Context, vaultID uuid.UUID) ([]*model.RoleAssignment, error)
+	// ListByPrincipalInVault returns every role assignment the principal holds in
+	// the given vault. It is the authorization lookup: the middleware turns the
+	// returned roles into data actions. An empty result means no access.
+	ListByPrincipalInVault(ctx context.Context, principalID, vaultID uuid.UUID) ([]*model.RoleAssignment, error)
 	FindByTuple(ctx context.Context, principalID uuid.UUID, role string, vaultID uuid.UUID) (*model.RoleAssignment, error)
 	Delete(ctx context.Context, id uuid.UUID) error
 }
@@ -53,6 +57,26 @@ func (r *roleAssignmentRepository) ListByVault(ctx context.Context, vaultID uuid
 	rows, err := r.db.QueryContext(ctx,
 		`SELECT id, principal_id, principal_type, role, vault_id, created_by, created_at
 		 FROM role_assignments WHERE vault_id = ? ORDER BY created_at DESC`, vaultID.String())
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []*model.RoleAssignment
+	for rows.Next() {
+		ra, err := scanRoleAssignmentRows(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, ra)
+	}
+	return out, rows.Err()
+}
+
+func (r *roleAssignmentRepository) ListByPrincipalInVault(ctx context.Context, principalID, vaultID uuid.UUID) ([]*model.RoleAssignment, error) {
+	rows, err := r.db.QueryContext(ctx,
+		`SELECT id, principal_id, principal_type, role, vault_id, created_by, created_at
+		 FROM role_assignments WHERE principal_id = ? AND vault_id = ?`,
+		principalID.String(), vaultID.String())
 	if err != nil {
 		return nil, err
 	}

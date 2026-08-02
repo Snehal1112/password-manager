@@ -653,6 +653,7 @@ func (d *DBRepository) createOptimizedSchema(db *sql.DB) error {
 			FOREIGN KEY (vault_id) REFERENCES vaults(id) ON DELETE CASCADE
 		);
 		CREATE INDEX IF NOT EXISTS idx_role_assignments_vault ON role_assignments(vault_id);
+		CREATE INDEX IF NOT EXISTS idx_role_assignments_principal_vault ON role_assignments(principal_id, vault_id);
 
 		CREATE TABLE IF NOT EXISTS oauth2_clients (
 			id            TEXT PRIMARY KEY,
@@ -830,6 +831,12 @@ func (d *DBRepository) migrateSchema(db *sql.DB) error {
 	}
 	if _, err := db.Exec(`CREATE INDEX IF NOT EXISTS idx_role_assignments_vault ON role_assignments(vault_id)`); err != nil {
 		return fmt.Errorf("index role_assignments vault: %w", err)
+	}
+	// Composite index for the per-vault authorization lookup
+	// (RoleAssignmentRepository.ListByPrincipalInVault), which runs on every
+	// data-plane request.
+	if _, err := db.Exec(`CREATE INDEX IF NOT EXISTS idx_role_assignments_principal_vault ON role_assignments(principal_id, vault_id)`); err != nil {
+		return fmt.Errorf("index role_assignments principal/vault: %w", err)
 	}
 	if _, err := db.Exec(`CREATE INDEX IF NOT EXISTS idx_access_policies_assignment ON access_policies(assignment_id)`); err != nil {
 		return fmt.Errorf("index access_policies assignment: %w", err)
