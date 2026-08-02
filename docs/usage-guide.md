@@ -261,6 +261,7 @@ Config block (`vault_client` in `.rocketvault.yaml`, or an equivalent block in y
 vault_client:
   url: "http://localhost:8774"
   client_id: ""   # service account NAME (not UUID) — leave empty on the vault server itself
+  allow_insecure_http: false   # set true (or VAULT_ALLOW_INSECURE_HTTP=true) to use http:// against a non-loopback host
   secrets:
     - name: DB_PASSWORD
       uuid: "0cfa58f7-a81e-4a68-acd7-b62f5f72e5b7"
@@ -314,6 +315,7 @@ RocketVault's own bootstrap (`bootstrap/bootstrap.go`) uses this exact pattern t
 ### Notes & gotchas
 
 - `vaultclient.New` requires `URL`, `ClientID`, and `ClientSecret` to all be non-empty — it returns an error immediately otherwise (`internal/vaultclient/client.go`).
+- `vault_client.url` must be `https://`, unless the host is loopback (`localhost`, `127.0.0.1`, `::1`) or `allow_insecure_http` (`VAULT_ALLOW_INSECURE_HTTP` env var) is `true`; default is `false`. **Upgrade note:** an existing deployment with a non-loopback plain-`http://` `vault_client.url` must switch to `https://` or set `allow_insecure_http: true` before upgrading, or RocketVault will fail to start.
 - Tokens are fetched from `POST {url}/api/v1/oauth2/token` (client-credentials grant) and cached in memory. The client re-authenticates about 60 s before expiry, with a 30 s minimum TTL floor so an `expires_in: 0` response can't cause a re-fetch storm.
 - `Client.Get` retries network failures and every HTTP status other than 200, 401 and 404 (so 400, 403, 429 and 5xx are all retried) using `retry.ExternalServicePolicy()`; only 401 and 404 are terminal — no retry. A 401 also invalidates the cached token so the *next* call re-authenticates.
 - 401 responses surface as `vaultclient.ErrAuthFailed`; 404 responses surface as `vaultclient.ErrSecretNotFound`. Check with `errors.Is`, as `examples/consumer-service/main.go` does — it treats `ErrAuthFailed` as fatal (process exit) but a 404 or network error on an individual secret as non-fatal.
