@@ -22,6 +22,13 @@ const (
 	RouteVaultData
 )
 
+// DataPlaneBasePath is the API version prefix stripped from request paths
+// before route-to-data-action mapping. It must match the base path the API
+// is actually served under (api.WithBasePath), or every data-plane route
+// silently falls through to RouteUnmanaged, bypassing the deny-by-default
+// gate this package drives.
+const DataPlaneBasePath = "/api/v1"
+
 // MapRouteToDataAction maps an HTTP method and path to the single Azure data
 // action required to perform it.
 //
@@ -69,7 +76,7 @@ func MapRouteToDataAction(method, path string) (model.DataAction, RouteKind) {
 // normalizeAuthPath strips the API version prefix and the surrounding slashes so
 // the mappers below see a bare "resource/segments" string.
 func normalizeAuthPath(path string) string {
-	p := strings.TrimPrefix(path, "/api/v1")
+	p := strings.TrimPrefix(path, DataPlaneBasePath)
 	return strings.Trim(p, "/")
 }
 
@@ -241,7 +248,7 @@ func mapCertificateAction(method, rest string) (model.DataAction, RouteKind) {
 func mapDeletedAction(method, rest string) (model.DataAction, RouteKind) {
 	seg := strings.Split(rest, "/")
 	if seg[0] != "secrets" && seg[0] != "keys" && seg[0] != "certificates" {
-		return "", RouteUnmanaged
+		return "", RouteVaultData
 	}
 
 	switch len(seg) {

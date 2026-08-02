@@ -10,6 +10,7 @@ import (
 	"rocketvault/app"
 	"rocketvault/internal/logging"
 	"rocketvault/internal/middleware"
+	authzServices "rocketvault/internal/services/authorization"
 )
 
 // Routes holds all subrouters for the API — typed for compile-time safety.
@@ -156,10 +157,10 @@ func InitForTest(application *app.App, router *mux.Router) *API {
 	a := &API{
 		App:        application,
 		BaseRoutes: &Routes{},
-		basePath:   "/api/v1",
+		basePath:   authzServices.DataPlaneBasePath,
 		rootRouter: router,
 	}
-	a.BaseRoutes.ApiRoot = router.PathPrefix("/api/v1").Subrouter()
+	a.BaseRoutes.ApiRoot = router.PathPrefix(authzServices.DataPlaneBasePath).Subrouter()
 	// Register config handler without auth for testing.
 	a.BaseRoutes.ApiRoot.Handle("/config",
 		ApiHandler(application, getConfig),
