@@ -46,6 +46,10 @@ func (m *mockRoleAssignmentService) ListAssignments(ctx context.Context, vaultID
 	return args.Get(0).([]*model.RoleAssignment), args.Error(1)
 }
 
+func (m *mockRoleAssignmentService) HasDataAction(_ context.Context, _, _ uuid.UUID, _ model.DataAction) (bool, error) {
+	return false, nil
+}
+
 // newRoleAssignmentCtx builds a Context whose session carries the given role,
 // backed by the given AccessPolicyService. It reuses policyContainer from
 // access_policies_test.go. A nil RoleAssignmentService is fine for the gate

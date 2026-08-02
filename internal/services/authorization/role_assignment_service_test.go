@@ -42,6 +42,15 @@ func (f *fakeRoleRepo) FindByTuple(_ context.Context, _ uuid.UUID, _ string, _ u
 	return f.byTuple, nil
 }
 func (f *fakeRoleRepo) Delete(_ context.Context, id uuid.UUID) error { delete(f.rows, id); return nil }
+func (f *fakeRoleRepo) ListByPrincipalInVault(_ context.Context, principalID, vaultID uuid.UUID) ([]*model.RoleAssignment, error) {
+	var out []*model.RoleAssignment
+	for _, ra := range f.rows {
+		if ra.PrincipalID == principalID && ra.VaultID == vaultID {
+			out = append(out, ra)
+		}
+	}
+	return out, nil
+}
 
 type fakePolicyRepo struct {
 	created   []*model.AccessPolicy
@@ -283,5 +292,115 @@ func TestAssignRole_RollbackMidSequence(t *testing.T) {
 	}
 	if len(rr.rows) != 0 {
 		t.Fatalf("assignment row must be rolled back, have %d", len(rr.rows))
+	}
+}
+
+// fakeVaultRoleRepo serves a fixed set of assignments keyed by (principal, vault).
+type fakeVaultRoleRepo struct {
+	byPrincipalVault map[string][]*model.RoleAssignment
+	err              error
+	calls            int
+}
+
+func (f *fakeVaultRoleRepo) Create(context.Context, *model.RoleAssignment) error { return nil }
+func (f *fakeVaultRoleRepo) GetByID(context.Context, uuid.UUID) (*model.RoleAssignment, error) {
+	return nil, nil
+}
+func (f *fakeVaultRoleRepo) ListByVault(context.Context, uuid.UUID) ([]*model.RoleAssignment, error) {
+	return nil, nil
+}
+func (f *fakeVaultRoleRepo) FindByTuple(context.Context, uuid.UUID, string, uuid.UUID) (*model.RoleAssignment, error) {
+	return nil, nil
+}
+func (f *fakeVaultRoleRepo) Delete(context.Context, uuid.UUID) error { return nil }
+func (f *fakeVaultRoleRepo) ListByPrincipalInVault(_ context.Context, principalID, vaultID uuid.UUID) ([]*model.RoleAssignment, error) {
+	f.calls++
+	if f.err != nil {
+		return nil, f.err
+	}
+	return f.byPrincipalVault[principalID.String()+"|"+vaultID.String()], nil
+}
+
+// TestHasDataAction covers the grant, the denial, the wrong-vault case, and the
+// fail-closed inputs. A principal holding Secrets User in vault A must not be
+// able to read a secret in vault B.
+func TestHasDataAction(t *testing.T) {
+	alice := uuid.New()
+	vaultA, vaultB := uuid.New(), uuid.New()
+
+	repo := &fakeVaultRoleRepo{byPrincipalVault: map[string][]*model.RoleAssignment{
+		alice.String() + "|" + vaultA.String(): {
+			{PrincipalID: alice, VaultID: vaultA, Role: model.RoleKeyVaultSecretsUser},
+		},
+	}}
+	svc := NewRoleAssignmentService(repo, nil, nil, nil)
+	ctx := context.Background()
+
+	cases := []struct {
+		name      string
+		principal uuid.UUID
+		vault     uuid.UUID
+		action    model.DataAction
+		want      bool
+	}{
+		{"granted action in the right vault", alice, vaultA, model.ActionSecretsGet, true},
+		{"action the role does not grant", alice, vaultA, model.ActionSecretsSet, false},
+		{"same role, different vault", alice, vaultB, model.ActionSecretsGet, false},
+		{"unknown principal", uuid.New(), vaultA, model.ActionSecretsGet, false},
+		{"nil principal", uuid.Nil, vaultA, model.ActionSecretsGet, false},
+		{"nil vault", alice, uuid.Nil, model.ActionSecretsGet, false},
+		{"empty action", alice, vaultA, model.DataAction(""), false},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			got, err := svc.HasDataAction(ctx, c.principal, c.vault, c.action)
+			if err != nil {
+				t.Fatalf("HasDataAction: %v", err)
+			}
+			if got != c.want {
+				t.Fatalf("HasDataAction = %v, want %v", got, c.want)
+			}
+		})
+	}
+}
+
+// TestHasDataActionMultipleRolesUnion asserts the grants of every assignment a
+// principal holds in the vault are unioned.
+func TestHasDataActionMultipleRolesUnion(t *testing.T) {
+	alice := uuid.New()
+	vault := uuid.New()
+	repo := &fakeVaultRoleRepo{byPrincipalVault: map[string][]*model.RoleAssignment{
+		alice.String() + "|" + vault.String(): {
+			{PrincipalID: alice, VaultID: vault, Role: model.RoleKeyVaultSecretsUser},
+			{PrincipalID: alice, VaultID: vault, Role: model.RoleKeyVaultCryptoUser},
+		},
+	}}
+	svc := NewRoleAssignmentService(repo, nil, nil, nil)
+	ctx := context.Background()
+
+	for _, action := range []model.DataAction{model.ActionSecretsGet, model.ActionKeysSign} {
+		ok, err := svc.HasDataAction(ctx, alice, vault, action)
+		if err != nil || !ok {
+			t.Fatalf("HasDataAction(%s) = %v, %v; want true, nil", action, ok, err)
+		}
+	}
+	ok, err := svc.HasDataAction(ctx, alice, vault, model.ActionKeysCreate)
+	if err != nil || ok {
+		t.Fatalf("HasDataAction(keys/create) = %v, %v; want false, nil", ok, err)
+	}
+}
+
+// TestHasDataActionRepositoryErrorPropagates asserts a lookup failure surfaces
+// as an error rather than a silent false, so the middleware can answer 500
+// instead of masking a database outage as a permission denial.
+func TestHasDataActionRepositoryErrorPropagates(t *testing.T) {
+	repo := &fakeVaultRoleRepo{err: errors.New("database is locked")}
+	svc := NewRoleAssignmentService(repo, nil, nil, nil)
+	got, err := svc.HasDataAction(context.Background(), uuid.New(), uuid.New(), model.ActionSecretsGet)
+	if err == nil {
+		t.Fatal("want an error when the lookup fails")
+	}
+	if got {
+		t.Fatal("want false alongside the error")
 	}
 }

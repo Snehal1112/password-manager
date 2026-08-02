@@ -24,6 +24,7 @@ type roleAssignmentRepo interface {
 	ListByVault(ctx context.Context, vaultID uuid.UUID) ([]*model.RoleAssignment, error)
 	FindByTuple(ctx context.Context, principalID uuid.UUID, role string, vaultID uuid.UUID) (*model.RoleAssignment, error)
 	Delete(ctx context.Context, id uuid.UUID) error
+	ListByPrincipalInVault(ctx context.Context, principalID, vaultID uuid.UUID) ([]*model.RoleAssignment, error)
 }
 
 // policyWriter is the subset of the access-policy repository the service needs.
@@ -51,6 +52,12 @@ type RoleAssignmentService interface {
 	AssignRole(ctx context.Context, in AssignRoleInput) (*model.RoleAssignment, error)
 	RevokeAssignment(ctx context.Context, assignmentID, vaultID uuid.UUID) error
 	ListAssignments(ctx context.Context, vaultID uuid.UUID) ([]*model.RoleAssignment, error)
+	// HasDataAction reports whether the principal holds a role assignment in the
+	// given vault that grants the data action. It is the fail-closed
+	// authorization decision for every vault data-plane route: an empty
+	// assignment list is a denial, and a lookup failure is an error, never a
+	// silent false.
+	HasDataAction(ctx context.Context, principalID, vaultID uuid.UUID, action model.DataAction) (bool, error)
 }
 
 type roleAssignmentService struct {
@@ -140,6 +147,25 @@ func (s *roleAssignmentService) RevokeAssignment(ctx context.Context, assignment
 
 func (s *roleAssignmentService) ListAssignments(ctx context.Context, vaultID uuid.UUID) ([]*model.RoleAssignment, error) {
 	return s.roleRepo.ListByVault(ctx, vaultID)
+}
+
+func (s *roleAssignmentService) HasDataAction(ctx context.Context, principalID, vaultID uuid.UUID, action model.DataAction) (bool, error) {
+	// Reject the degenerate inputs before touching the database. A nil principal
+	// or vault can only come from a malformed context, and an empty action means
+	// the route had no mapping; all three must deny.
+	if principalID == uuid.Nil || vaultID == uuid.Nil || action == "" {
+		return false, nil
+	}
+	assignments, err := s.roleRepo.ListByPrincipalInVault(ctx, principalID, vaultID)
+	if err != nil {
+		return false, fmt.Errorf("list role assignments: %w", err)
+	}
+	for _, ra := range assignments {
+		if model.RoleGrantsDataAction(ra.Role, action) {
+			return true, nil
+		}
+	}
+	return false, nil
 }
 
 // resolvePrincipal accepts a UUID string or a username and returns the principal UUID.
