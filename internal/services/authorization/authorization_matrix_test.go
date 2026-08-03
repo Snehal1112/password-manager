@@ -19,6 +19,19 @@ type matrixOp struct {
 }
 
 // matrixOps lists every vault data-plane operation exactly once.
+//
+// Paths use the vault-scoped shape wherever that shape is actually a
+// registered route; MapRouteToDataAction maps the flat and vault-scoped
+// shapes identically (it strips the "vaults/{name}/" prefix before matching),
+// so the two are interchangeable for this test's purposes and the choice
+// below tracks what api/*.go actually registers, not what would map cleanly.
+// A handful of operations are ONLY reachable at the flat path: per-item
+// backup/restore (api/backup_item.go registers on the flat Secrets/Keys/
+// Certificates routers only) and the key/certificate deleted-flow (still
+// user-scoped, api/soft_delete.go registers those on the flat router only —
+// see its InitDeleted doc comment). See also TestAuthorizationMatrixOpsAreRealRoutes
+// in router_authorization_matrix_test.go (package api), which walks the real
+// router so a future path change here can't drift silently from it again.
 var matrixOps = []matrixOp{
 	{"secrets.list", http.MethodGet, "/api/v1/vaults/prod/secrets"},
 	{"secrets.get", http.MethodGet, "/api/v1/vaults/prod/secrets/abc"},
@@ -31,8 +44,8 @@ var matrixOps = []matrixOp{
 	{"secrets.listVersions", http.MethodGet, "/api/v1/vaults/prod/secrets/abc/versions"},
 	{"secrets.getVersion", http.MethodGet, "/api/v1/vaults/prod/secrets/abc/versions/3"},
 	{"secrets.getLatestVersion", http.MethodGet, "/api/v1/vaults/prod/secrets/abc/versions/latest"},
-	{"secrets.backup", http.MethodPost, "/api/v1/vaults/prod/secrets/abc/backup"},
-	{"secrets.restore", http.MethodPost, "/api/v1/vaults/prod/secrets/restore"},
+	{"secrets.backup", http.MethodPost, "/api/v1/secrets/abc/backup"}, // flat only, see doc comment above
+	{"secrets.restore", http.MethodPost, "/api/v1/secrets/restore"},   // flat only, see doc comment above
 	{"secrets.listDeleted", http.MethodGet, "/api/v1/vaults/prod/deleted/secrets"},
 	{"secrets.recover", http.MethodPost, "/api/v1/vaults/prod/deleted/secrets/abc/restore"},
 	{"secrets.purge", http.MethodDelete, "/api/v1/vaults/prod/deleted/secrets/abc/purge"},
@@ -50,12 +63,12 @@ var matrixOps = []matrixOp{
 	{"keys.decrypt", http.MethodPost, "/api/v1/vaults/prod/keys/abc/decrypt"},
 	{"keys.wrap", http.MethodPost, "/api/v1/vaults/prod/keys/abc/wrap"},
 	{"keys.unwrap", http.MethodPost, "/api/v1/vaults/prod/keys/abc/unwrap"},
-	{"keys.backup", http.MethodPost, "/api/v1/vaults/prod/keys/abc/backup"},
-	{"keys.restore", http.MethodPost, "/api/v1/vaults/prod/keys/restore"},
-	{"keys.listDeleted", http.MethodGet, "/api/v1/vaults/prod/deleted/keys"},
-	{"keys.getDeleted", http.MethodGet, "/api/v1/vaults/prod/deleted/keys/abc"},
-	{"keys.recover", http.MethodPost, "/api/v1/vaults/prod/deleted/keys/abc/restore"},
-	{"keys.purge", http.MethodDelete, "/api/v1/vaults/prod/deleted/keys/abc/purge"},
+	{"keys.backup", http.MethodPost, "/api/v1/keys/abc/backup"},           // flat only, see doc comment above
+	{"keys.restore", http.MethodPost, "/api/v1/keys/restore"},             // flat only, see doc comment above
+	{"keys.listDeleted", http.MethodGet, "/api/v1/deleted/keys"},          // flat only, see doc comment above
+	{"keys.getDeleted", http.MethodGet, "/api/v1/deleted/keys/abc"},       // flat only, see doc comment above
+	{"keys.recover", http.MethodPost, "/api/v1/deleted/keys/abc/restore"}, // flat only, see doc comment above
+	{"keys.purge", http.MethodDelete, "/api/v1/deleted/keys/abc/purge"},   // flat only, see doc comment above
 
 	{"certs.list", http.MethodGet, "/api/v1/vaults/prod/certificates"},
 	{"certs.get", http.MethodGet, "/api/v1/vaults/prod/certificates/abc"},
@@ -65,11 +78,11 @@ var matrixOps = []matrixOp{
 	{"certs.getPolicy", http.MethodGet, "/api/v1/vaults/prod/certificates/abc/policy"},
 	{"certs.setPolicy", http.MethodPut, "/api/v1/vaults/prod/certificates/abc/policy"},
 	{"certs.deletePolicy", http.MethodDelete, "/api/v1/vaults/prod/certificates/abc/policy"},
-	{"certs.backup", http.MethodPost, "/api/v1/vaults/prod/certificates/abc/backup"},
-	{"certs.restore", http.MethodPost, "/api/v1/vaults/prod/certificates/restore"},
-	{"certs.listDeleted", http.MethodGet, "/api/v1/vaults/prod/deleted/certificates"},
-	{"certs.recover", http.MethodPost, "/api/v1/vaults/prod/deleted/certificates/abc/restore"},
-	{"certs.purge", http.MethodDelete, "/api/v1/vaults/prod/deleted/certificates/abc/purge"},
+	{"certs.backup", http.MethodPost, "/api/v1/certificates/abc/backup"},           // flat only, see doc comment above
+	{"certs.restore", http.MethodPost, "/api/v1/certificates/restore"},             // flat only, see doc comment above
+	{"certs.listDeleted", http.MethodGet, "/api/v1/deleted/certificates"},          // flat only, see doc comment above
+	{"certs.recover", http.MethodPost, "/api/v1/deleted/certificates/abc/restore"}, // flat only, see doc comment above
+	{"certs.purge", http.MethodDelete, "/api/v1/deleted/certificates/abc/purge"},   // flat only, see doc comment above
 }
 
 // allSecretOps, allKeyOps and allCertOps are named once so the officer roles
