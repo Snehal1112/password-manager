@@ -11,7 +11,7 @@ var vaultAccessCmd = &cobra.Command{
 	Use:   "vault-access",
 	Short: "Manage vault-scoped role assignments",
 	Example: `  # Grant a role to a principal in a vault
-  rocketvault vault-access grant alice --role secrets-user --vault prod \
+  rocketvault vault-access grant alice --role "Key Vault Secrets User" --vault prod \
     --username admin --password admin123 --totp-code <code>
 
   # List built-in roles (no auth required)
