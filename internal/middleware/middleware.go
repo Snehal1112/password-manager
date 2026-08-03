@@ -346,20 +346,53 @@ func (m *Middleware) AuthorizationMiddleware(next http.Handler) http.Handler {
 	})
 }
 
+// stripVaultNameSegment removes the {name} path segment from a
+// "/vaults/{name}/..." request path, leaving the "/vaults" marker and
+// whatever resource segments follow the name untouched. ValidateVaultName
+// (model/vault.go) has no reserved-word check, so a vault can legally be
+// named "secrets", "keys", or "certificates" — without this, a request like
+// "/api/v1/vaults/secrets/keys/{id}/sign" would substring-match "/secrets"
+// (the vault's name) below instead of "/keys" (the actual resource), and an
+// explicit deny policy targeting keys would never be evaluated for it.
+// MapRouteToDataAction (internal/services/authorization/data_actions.go) is
+// immune to this because it strips the whole "vaults/{name}/" prefix before
+// matching; this mirrors that approach for resolvePolicy's substring match.
+func stripVaultNameSegment(path string) string {
+	const marker = "/vaults/"
+	idx := strings.Index(path, marker)
+	if idx == -1 {
+		return path
+	}
+	rest := path[idx+len(marker):]
+	slash := strings.Index(rest, "/")
+	if slash == -1 {
+		// "/vaults/{name}" with nothing after — no resource segment to strip.
+		return path
+	}
+	// Drop the {name} segment; keep the "/vaults" marker and everything from
+	// the following "/" onward.
+	return path[:idx+len(marker)-1] + rest[slash:]
+}
+
 // resolvePolicy maps an HTTP request's method and URL path to the
 // PolicyResourceType and PolicyOperation used for access-policy evaluation.
 // Returns ("", "") when the route does not correspond to a managed resource.
 func resolvePolicy(method, path string) (model.PolicyResourceType, model.PolicyOperation) {
+	// Match resource type against the path with the vault NAME segment
+	// removed (see stripVaultNameSegment), so a vault literally named
+	// "secrets"/"keys"/"certificates" cannot be mistaken for the resource.
+	matchPath := stripVaultNameSegment(path)
+
 	// Determine resource type from path segments.
 	var resourceType model.PolicyResourceType
 	switch {
-	case strings.Contains(path, "/secrets"):
+	case strings.Contains(matchPath, "/secrets"):
 		resourceType = model.PolicyResourceSecrets
-	case strings.Contains(path, "/keys"):
+	case strings.Contains(matchPath, "/keys"):
 		resourceType = model.PolicyResourceKeys
-	case strings.Contains(path, "/certificates"):
+	case strings.Contains(matchPath, "/certificates"):
 		resourceType = model.PolicyResourceCertificates
-	case strings.Contains(path, "/vaults"):
+	case strings.Contains(matchPath, "/vaults"):
 		// Vault management routes (resource routes are matched by the cases above,
 		// since /vaults/{name}/secrets contains "/secrets").
 		return model.PolicyResourceVaults, model.OpManage

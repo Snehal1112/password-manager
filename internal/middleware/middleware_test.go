@@ -1348,3 +1348,60 @@ func TestPolicyMiddleware_VaultManagementKeepsFallback(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rr.Code)
 	roleSvc.AssertNotCalled(t, "HasDataAction", mock.Anything, mock.Anything, mock.Anything, mock.Anything)
 }
+
+// TestResolvePolicy_VaultNamedAfterAResourceTypeDoesNotMisrouteResourceType is
+// the regression for a vault literally named "secrets", "keys", or
+// "certificates" (ValidateVaultName has no reserved-word check). Before
+// stripVaultNameSegment, resolvePolicy substring-matched the raw path, so
+// e.g. a request to sign with a key in a vault named "secrets" resolved
+// resourceType=secrets instead of keys, and an explicit deny policy targeting
+// keys was never evaluated for it.
+func TestResolvePolicy_VaultNamedAfterAResourceTypeDoesNotMisrouteResourceType(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		name             string
+		method           string
+		path             string
+		wantResourceType model.PolicyResourceType
+	}{
+		{"vault named secrets, key resource", http.MethodPost, "/api/v1/vaults/secrets/keys/abc/sign", model.PolicyResourceKeys},
+		{"vault named keys, secret resource", http.MethodGet, "/api/v1/vaults/keys/secrets/abc", model.PolicyResourceSecrets},
+		{"vault named certificates, key resource", http.MethodGet, "/api/v1/vaults/certificates/keys/abc", model.PolicyResourceKeys},
+		{"vault named secrets, certificate resource", http.MethodGet, "/api/v1/vaults/secrets/certificates/abc", model.PolicyResourceCertificates},
+		{"ordinary vault name, unaffected", http.MethodGet, "/api/v1/vaults/prod/keys/abc", model.PolicyResourceKeys},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			resourceType, _ := resolvePolicy(c.method, c.path)
+			assert.Equal(t, c.wantResourceType, resourceType, "resolvePolicy(%s, %s)", c.method, c.path)
+		})
+	}
+}
+
+// TestPolicyMiddleware_VaultNamedSecretsDoesNotHideKeysDenyPolicy proves the
+// fix end-to-end through PolicyMiddleware: a deny policy targeting "keys"
+// must still be looked up (and enforced) for a vault literally named
+// "secrets".
+func TestPolicyMiddleware_VaultNamedSecretsDoesNotHideKeysDenyPolicy(t *testing.T) {
+	t.Parallel()
+	mw, policySvc, roleSvc := setupDataPlaneMiddlewareTest(t)
+
+	userID, vaultID := uuid.New(), uuid.New()
+	// The vault is named "secrets"; the resource being signed is a key. The
+	// deny check must be evaluated against resourceType=keys, not secrets.
+	policySvc.On("CheckAccess", mock.Anything, userID, model.PolicyResourceKeys, mock.Anything, vaultID).
+		Return(authzServices.AccessDenied, nil)
+
+	nextCalled := false
+	rr := httptest.NewRecorder()
+	mw.PolicyMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		nextCalled = true
+		w.WriteHeader(http.StatusOK)
+	})).ServeHTTP(rr, dataPlaneRequest(http.MethodPost, "/api/v1/vaults/secrets/keys/abc/sign", userID, vaultID))
+
+	assert.False(t, nextCalled, "the keys deny policy must block the request")
+	assert.Equal(t, http.StatusForbidden, rr.Code)
+	policySvc.AssertExpectations(t)
+	roleSvc.AssertNotCalled(t, "HasDataAction", mock.Anything, mock.Anything, mock.Anything, mock.Anything)
+}
