@@ -18,11 +18,11 @@ func InitVaultAccessGrant(parent *cobra.Command) {
 		Use:   "grant <principal>",
 		Short: "Grant a built-in role to a principal in a vault",
 		Example: `  # Grant a built-in role to a user in a vault
-  rocketvault vault-access grant alice --role secrets-user --vault prod \
+  rocketvault vault-access grant alice --role "Key Vault Secrets User" --vault prod \
     --username admin --password admin123 --totp-code <code>
 
   # Grant a role to a service account
-  rocketvault vault-access grant my-svc --role crypto-user --principal-type service_account --vault prod \
+  rocketvault vault-access grant my-svc --role "Key Vault Crypto User" --principal-type service_account --vault prod \
     --username admin --password admin123 --totp-code <code>`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {

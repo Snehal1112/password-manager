@@ -91,12 +91,42 @@ func RolePermissions(role string) ([][2]string, error) {
 
 // IsValidRole reports whether name is a grantable role: a legacy vault role or
 // one of the seven Azure built-in data-plane roles.
+//
+// This stays permissive for the legacy names even though AssignRole (the
+// new-grant path) additionally rejects them via IsLegacyRole below: this
+// function is also consulted by ExpandRole, RolePermissions, and
+// BuiltInRoleNames, all of which legitimately still need to recognize the
+// legacy vocabulary — for display, and because the P2 upgrade backfill
+// translates existing legacy-named role_assignments rows to their Azure
+// equivalent (see internal/db/role_backfill.go's legacyRoleToAzureRole).
 func IsValidRole(name string) bool {
 	if name == "vault-admin" || model.IsAzureRole(name) {
 		return true
 	}
 	_, ok := builtInRoles[name]
 	return ok
+}
+
+// legacyRoleNames is the set of pre-Azure vault-scoped role names (RocketVault
+// v0.2.0, 2026-06-06). model.RoleGrantsDataAction only understands the seven
+// Azure names, so a role_assignments row holding one of these grants zero
+// data-plane access — IsValidRole still recognizes them (see above), but
+// IsLegacyRole lets the new-grant path (RoleAssignmentService.AssignRole)
+// refuse to hand one out going forward.
+var legacyRoleNames = map[string]bool{
+	"vault-admin":          true,
+	"vault-reader":         true,
+	"secrets-user":         true,
+	"secrets-officer":      true,
+	"crypto-user":          true,
+	"crypto-officer":       true,
+	"certificates-officer": true,
+}
+
+// IsLegacyRole reports whether name is one of the seven pre-Azure vault-scoped
+// role names that no longer grant any data-plane access if newly assigned.
+func IsLegacyRole(name string) bool {
+	return legacyRoleNames[name]
 }
 
 // bundle returns the full permission set for a role, including vault-admin's union.

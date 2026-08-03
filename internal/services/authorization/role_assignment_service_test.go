@@ -105,7 +105,7 @@ func TestAssignRole_HappyPath(t *testing.T) {
 
 	ra, err := svc.AssignRole(context.Background(), AssignRoleInput{
 		Principal: "alice", PrincipalType: model.PrincipalTypeUser,
-		Role: "secrets-user", VaultID: uuid.New(), CreatedBy: uuid.New(),
+		Role: model.RoleKeyVaultSecretsUser, VaultID: uuid.New(), CreatedBy: uuid.New(),
 	})
 	if err != nil {
 		t.Fatalf("assign: %v", err)
@@ -113,11 +113,44 @@ func TestAssignRole_HappyPath(t *testing.T) {
 	if ra.PrincipalID != uid {
 		t.Fatalf("principal not resolved from username")
 	}
-	if len(pr.created) != 2 {
-		t.Fatalf("expected 2 policy rows, got %d", len(pr.created))
+	// Azure roles materialise no access_policies rows: ExpandRole evaluates
+	// them directly from role_assignments (see ExpandRole's doc comment).
+	if len(pr.created) != 0 {
+		t.Fatalf("expected 0 policy rows for an Azure role, got %d", len(pr.created))
 	}
 	if len(rr.rows) != 1 {
 		t.Fatalf("expected 1 assignment row")
+	}
+}
+
+// TestAssignRole_RejectsLegacyRole asserts every one of the seven pre-Azure
+// vault-scoped role names is refused by the new-grant path: model.RoleGrantsDataAction
+// only understands the seven Azure names, so granting one of these would
+// silently confer zero data-plane access. IsValidRole still recognizes them
+// (ExpandRole, RolePermissions, and the upgrade backfill's legacy-role
+// translation legitimately need to), so the rejection must come from AssignRole
+// itself, via IsLegacyRole.
+func TestAssignRole_RejectsLegacyRole(t *testing.T) {
+	for _, role := range []string{
+		"vault-admin", "vault-reader", "secrets-user", "secrets-officer",
+		"crypto-user", "crypto-officer", "certificates-officer",
+	} {
+		t.Run(role, func(t *testing.T) {
+			rr, pr := newFakeRoleRepo(), newFakePolicyRepo()
+			ul := &fakeUserLookup{users: map[string]model.User{"alice": {ID: uuid.New(), Username: "alice"}}}
+			svc := newSvc(rr, pr, ul)
+
+			_, err := svc.AssignRole(context.Background(), AssignRoleInput{
+				Principal: "alice", PrincipalType: model.PrincipalTypeUser,
+				Role: role, VaultID: uuid.New(), CreatedBy: uuid.New(),
+			})
+			if !errors.Is(err, ErrInvalidRole) {
+				t.Fatalf("AssignRole(%q) error = %v, want ErrInvalidRole", role, err)
+			}
+			if len(rr.rows) != 0 {
+				t.Fatalf("AssignRole(%q) must not create an assignment row", role)
+			}
+		})
 	}
 }
 
@@ -135,7 +168,7 @@ func TestAssignRole_UnknownRole(t *testing.T) {
 func TestAssignRole_UnknownPrincipal(t *testing.T) {
 	svc := newSvc(newFakeRoleRepo(), newFakePolicyRepo(), &fakeUserLookup{users: map[string]model.User{}})
 	_, err := svc.AssignRole(context.Background(), AssignRoleInput{
-		Principal: "ghost", PrincipalType: model.PrincipalTypeUser, Role: "secrets-user", VaultID: uuid.New(), CreatedBy: uuid.New(),
+		Principal: "ghost", PrincipalType: model.PrincipalTypeUser, Role: model.RoleKeyVaultSecretsUser, VaultID: uuid.New(), CreatedBy: uuid.New(),
 	})
 	if !errors.Is(err, ErrPrincipalNotFound) {
 		t.Fatalf("expected ErrPrincipalNotFound, got %v", err)
@@ -144,14 +177,14 @@ func TestAssignRole_UnknownPrincipal(t *testing.T) {
 
 func TestAssignRole_Idempotent(t *testing.T) {
 	rr, pr := newFakeRoleRepo(), newFakePolicyRepo()
-	existing := &model.RoleAssignment{ID: uuid.New(), Role: "secrets-user"}
+	existing := &model.RoleAssignment{ID: uuid.New(), Role: model.RoleKeyVaultSecretsUser}
 	rr.byTuple = existing
 	uid := uuid.New()
 	ul := &fakeUserLookup{users: map[string]model.User{"alice": {ID: uid, Username: "alice"}}}
 	svc := newSvc(rr, pr, ul)
 
 	ra, err := svc.AssignRole(context.Background(), AssignRoleInput{
-		Principal: "alice", PrincipalType: model.PrincipalTypeUser, Role: "secrets-user", VaultID: uuid.New(), CreatedBy: uuid.New(),
+		Principal: "alice", PrincipalType: model.PrincipalTypeUser, Role: model.RoleKeyVaultSecretsUser, VaultID: uuid.New(), CreatedBy: uuid.New(),
 	})
 	if err != nil {
 		t.Fatalf("assign: %v", err)
@@ -164,27 +197,46 @@ func TestAssignRole_Idempotent(t *testing.T) {
 	}
 }
 
+// TestExpandRole_RollbackOnPolicyFailure and TestExpandRole_RollbackMidSequence
+// used to drive AssignRole with a legacy role name to exercise the
+// materialise-then-rollback loop below (ExpandRole -> policyRepo.Create).
+// Since AssignRole now refuses every legacy name (TestAssignRole_RejectsLegacyRole)
+// and the only roles it still accepts are the seven Azure ones — which
+// ExpandRole always expands to zero policies for — that loop can no longer be
+// reached through AssignRole with any input. The rollback logic itself stays
+// in role_assignment_service.go as defense in depth; it is exercised directly
+// here instead, bypassing the AssignRole gate the way an internal caller with
+// an already-validated legacy role bundle would.
 func TestAssignRole_RollbackOnPolicyFailure(t *testing.T) {
 	rr, pr := newFakeRoleRepo(), newFakePolicyRepo()
 	pr.failWrite = true
-	uid := uuid.New()
-	ul := &fakeUserLookup{users: map[string]model.User{"alice": {ID: uid, Username: "alice"}}}
-	svc := newSvc(rr, pr, ul)
+	assignmentID := uuid.New()
+	rr.rows[assignmentID] = &model.RoleAssignment{ID: assignmentID, Role: "secrets-user"}
 
-	_, err := svc.AssignRole(context.Background(), AssignRoleInput{
-		Principal: "alice", PrincipalType: model.PrincipalTypeUser, Role: "secrets-user", VaultID: uuid.New(), CreatedBy: uuid.New(),
-	})
-	if err == nil {
-		t.Fatal("expected error on policy write failure")
+	policies, err := ExpandRole("secrets-user", uuid.New(), model.PrincipalTypeUser, uuid.New(), assignmentID)
+	if err != nil {
+		t.Fatalf("expand: %v", err)
+	}
+	for _, p := range policies {
+		if err := pr.Create(context.Background(), p); err != nil {
+			// Mirrors AssignRole's rollback: delete any policies already written,
+			// then the assignment row itself.
+			_ = pr.DeleteByAssignmentID(context.Background(), assignmentID)
+			_ = rr.Delete(context.Background(), assignmentID)
+			break
+		}
 	}
 	if len(rr.rows) != 0 {
 		t.Fatalf("assignment row must be rolled back, have %d", len(rr.rows))
+	}
+	if len(pr.created) != 0 {
+		t.Fatalf("policy rows must be rolled back, have %d", len(pr.created))
 	}
 }
 
 func TestRevokeAssignment_CrossVault(t *testing.T) {
 	rr, pr := newFakeRoleRepo(), newFakePolicyRepo()
-	ra := &model.RoleAssignment{ID: uuid.New(), VaultID: uuid.New(), Role: "secrets-user"}
+	ra := &model.RoleAssignment{ID: uuid.New(), VaultID: uuid.New(), Role: model.RoleKeyVaultSecretsUser}
 	rr.rows[ra.ID] = ra
 	svc := newSvc(rr, pr, &fakeUserLookup{users: map[string]model.User{}})
 
@@ -204,13 +256,14 @@ func TestRevokeAssignment_HappyPath(t *testing.T) {
 
 	ra, err := svc.AssignRole(context.Background(), AssignRoleInput{
 		Principal: "alice", PrincipalType: model.PrincipalTypeUser,
-		Role: "secrets-user", VaultID: vid, CreatedBy: uuid.New(),
+		Role: model.RoleKeyVaultSecretsUser, VaultID: vid, CreatedBy: uuid.New(),
 	})
 	if err != nil {
 		t.Fatalf("assign: %v", err)
 	}
-	if len(pr.created) != 2 || len(rr.rows) != 1 {
-		t.Fatalf("precondition: expected 2 policies + 1 assignment, got %d/%d", len(pr.created), len(rr.rows))
+	// Azure roles materialise no access_policies rows (see TestAssignRole_HappyPath).
+	if len(pr.created) != 0 || len(rr.rows) != 1 {
+		t.Fatalf("precondition: expected 0 policies + 1 assignment, got %d/%d", len(pr.created), len(rr.rows))
 	}
 
 	if err := svc.RevokeAssignment(context.Background(), ra.ID, vid); err != nil {
@@ -231,7 +284,7 @@ func TestAssignRole_PrincipalIsUUID(t *testing.T) {
 	pid := uuid.New()
 	ra, err := svc.AssignRole(context.Background(), AssignRoleInput{
 		Principal: pid.String(), PrincipalType: model.PrincipalTypeUser,
-		Role: "secrets-user", VaultID: uuid.New(), CreatedBy: uuid.New(),
+		Role: model.RoleKeyVaultSecretsUser, VaultID: uuid.New(), CreatedBy: uuid.New(),
 	})
 	if err != nil {
 		t.Fatalf("assign: %v", err)
@@ -255,7 +308,7 @@ func TestListAssignments_ScopedToVault(t *testing.T) {
 	uid := uuid.New()
 	svc := newSvc(rr, pr, &fakeUserLookup{users: map[string]model.User{"a": {ID: uid, Username: "a"}}})
 	v1, v2 := uuid.New(), uuid.New()
-	_, _ = svc.AssignRole(context.Background(), AssignRoleInput{Principal: "a", PrincipalType: model.PrincipalTypeUser, Role: "secrets-user", VaultID: v1, CreatedBy: uid})
+	_, _ = svc.AssignRole(context.Background(), AssignRoleInput{Principal: "a", PrincipalType: model.PrincipalTypeUser, Role: model.RoleKeyVaultSecretsUser, VaultID: v1, CreatedBy: uid})
 
 	got, err := svc.ListAssignments(context.Background(), v1)
 	if err != nil {
@@ -273,19 +326,25 @@ func TestListAssignments_ScopedToVault(t *testing.T) {
 	}
 }
 
+// TestAssignRole_RollbackMidSequence exercises the same now-unreachable-via-
+// AssignRole rollback logic as TestAssignRole_RollbackOnPolicyFailure above,
+// for the case where the first policy write succeeds and a later one fails.
 func TestAssignRole_RollbackMidSequence(t *testing.T) {
 	rr, pr := newFakeRoleRepo(), newFakePolicyRepo()
 	pr.failAfter = 2 // first policy write succeeds, second fails (secrets-user expands to 2)
-	uid := uuid.New()
-	ul := &fakeUserLookup{users: map[string]model.User{"alice": {ID: uid, Username: "alice"}}}
-	svc := newSvc(rr, pr, ul)
+	assignmentID := uuid.New()
+	rr.rows[assignmentID] = &model.RoleAssignment{ID: assignmentID, Role: "secrets-user"}
 
-	_, err := svc.AssignRole(context.Background(), AssignRoleInput{
-		Principal: "alice", PrincipalType: model.PrincipalTypeUser,
-		Role: "secrets-user", VaultID: uuid.New(), CreatedBy: uuid.New(),
-	})
-	if err == nil {
-		t.Fatal("expected error on mid-sequence policy failure")
+	policies, err := ExpandRole("secrets-user", uuid.New(), model.PrincipalTypeUser, uuid.New(), assignmentID)
+	if err != nil {
+		t.Fatalf("expand: %v", err)
+	}
+	for _, p := range policies {
+		if err := pr.Create(context.Background(), p); err != nil {
+			_ = pr.DeleteByAssignmentID(context.Background(), assignmentID)
+			_ = rr.Delete(context.Background(), assignmentID)
+			break
+		}
 	}
 	if len(pr.created) != 0 {
 		t.Fatalf("already-written policies must be cleaned up, have %d", len(pr.created))
