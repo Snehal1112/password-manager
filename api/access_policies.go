@@ -7,6 +7,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"rocketvault/common"
 	"rocketvault/model"
 )
 
@@ -21,9 +22,29 @@ func (api *API) InitAccessPolicies() {
 	r.Handle("/principal/{principal_id:[A-Fa-f0-9-]+}", ApiSessionRequired(api.App, listAccessPoliciesByPrincipal)).Methods("GET")
 }
 
+// requireAccessPolicyAdmin gates access-policy management to the global admin
+// role. An access policy can override the deny-by-default vault data-plane
+// decision (an explicit deny always wins) or grant access across every vault
+// (a global policy), so any principal able to create, update, or delete one
+// could silence its own deny, deny another principal out of every vault, or
+// enumerate every policy row and principal UUID. Mirrors the admin gate
+// already used in api/audit.go, api/oauth2.go, and api/jwks.go.
+func requireAccessPolicyAdmin(c *Context) bool {
+	roleStr, _ := c.Claims["role"].(string)
+	if !common.HasRequiredRole(roleStr, model.RoleAdmin) {
+		c.SetPermissionError("admin role required to manage access policies")
+		return false
+	}
+	return true
+}
+
 // listAccessPolicies returns all access policies (admin operation).
 // GET /access-policies
 func listAccessPolicies(c *Context, w http.ResponseWriter, r *http.Request) {
+	if !requireAccessPolicyAdmin(c) {
+		return
+	}
+
 	svc := c.App.ServiceContainer.GetAccessPolicyService()
 	policies, err := svc.ListPolicies(r.Context())
 	if err != nil {
@@ -45,6 +66,10 @@ func listAccessPolicies(c *Context, w http.ResponseWriter, r *http.Request) {
 // createAccessPolicy creates a new access policy.
 // POST /access-policies
 func createAccessPolicy(c *Context, w http.ResponseWriter, r *http.Request) {
+	if !requireAccessPolicyAdmin(c) {
+		return
+	}
+
 	var req model.CreateAccessPolicyRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		c.SetInvalidParam("request body")
@@ -58,6 +83,22 @@ func createAccessPolicy(c *Context, w http.ResponseWriter, r *http.Request) {
 	}
 	if req.ResourceType == "" || req.Operation == "" || req.Effect == "" || req.PrincipalType == "" {
 		c.SetInvalidParam("principal_type, resource_type, operation, and effect are required")
+		return
+	}
+	if err := model.ValidatePrincipalType(req.PrincipalType); err != nil {
+		c.SetInvalidParam(err.Error())
+		return
+	}
+	if err := model.ValidatePolicyResourceType(req.ResourceType); err != nil {
+		c.SetInvalidParam(err.Error())
+		return
+	}
+	if err := model.ValidatePolicyOperation(req.Operation); err != nil {
+		c.SetInvalidParam(err.Error())
+		return
+	}
+	if err := model.ValidatePolicyEffect(req.Effect); err != nil {
+		c.SetInvalidParam(err.Error())
 		return
 	}
 
@@ -95,6 +136,10 @@ func createAccessPolicy(c *Context, w http.ResponseWriter, r *http.Request) {
 // getAccessPolicy retrieves a single access policy by ID.
 // GET /access-policies/{policy_id}
 func getAccessPolicy(c *Context, w http.ResponseWriter, r *http.Request) {
+	if !requireAccessPolicyAdmin(c) {
+		return
+	}
+
 	id, err := uuid.Parse(c.Params.PolicyID)
 	if err != nil {
 		c.SetInvalidParam("policy_id")
@@ -115,6 +160,10 @@ func getAccessPolicy(c *Context, w http.ResponseWriter, r *http.Request) {
 // updateAccessPolicy updates the effect of an existing access policy.
 // PUT /access-policies/{policy_id}
 func updateAccessPolicy(c *Context, w http.ResponseWriter, r *http.Request) {
+	if !requireAccessPolicyAdmin(c) {
+		return
+	}
+
 	id, err := uuid.Parse(c.Params.PolicyID)
 	if err != nil {
 		c.SetInvalidParam("policy_id")
@@ -130,6 +179,10 @@ func updateAccessPolicy(c *Context, w http.ResponseWriter, r *http.Request) {
 	}
 	if req.Effect == "" {
 		c.SetInvalidParam("effect is required")
+		return
+	}
+	if err := model.ValidatePolicyEffect(req.Effect); err != nil {
+		c.SetInvalidParam(err.Error())
 		return
 	}
 
@@ -153,6 +206,10 @@ func updateAccessPolicy(c *Context, w http.ResponseWriter, r *http.Request) {
 // deleteAccessPolicy permanently removes an access policy.
 // DELETE /access-policies/{policy_id}
 func deleteAccessPolicy(c *Context, w http.ResponseWriter, r *http.Request) {
+	if !requireAccessPolicyAdmin(c) {
+		return
+	}
+
 	id, err := uuid.Parse(c.Params.PolicyID)
 	if err != nil {
 		c.SetInvalidParam("policy_id")
@@ -171,6 +228,10 @@ func deleteAccessPolicy(c *Context, w http.ResponseWriter, r *http.Request) {
 // listAccessPoliciesByPrincipal returns all policies for a given principal UUID.
 // GET /access-policies/principal/{principal_id}
 func listAccessPoliciesByPrincipal(c *Context, w http.ResponseWriter, r *http.Request) {
+	if !requireAccessPolicyAdmin(c) {
+		return
+	}
+
 	principalID, err := uuid.Parse(c.Params.PrincipalID)
 	if err != nil {
 		c.SetInvalidParam("principal_id")

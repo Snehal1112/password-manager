@@ -11,6 +11,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	"github.com/golang-jwt/jwt/v5"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
@@ -217,12 +218,29 @@ func (c *policyContainer) GetComplianceReportService() auditServices.ComplianceR
 }
 func (c *policyContainer) Close() error { return nil }
 
-// newPolicyCtx builds a Context backed by the given AccessPolicyService mock.
+// newPolicyCtx builds a Context backed by the given AccessPolicyService mock,
+// authenticated as an admin. Access-policy handlers are admin-gated (an access
+// policy can override the deny-by-default vault decision or grant access
+// across every vault), so every existing success-path test in this file
+// needs an admin claim to keep exercising the handler body instead of being
+// turned away at the gate.
 func newPolicyCtx(svc authzServices.AccessPolicyService) *Context {
 	a := &app.App{ServiceContainer: &policyContainer{policySvc: svc}}
 	return &Context{
 		App:    a,
 		Params: &ApiParams{PerPage: 60},
+		Claims: jwt.MapClaims{"role": model.RoleAdmin},
+	}
+}
+
+// newNonAdminPolicyCtx builds a Context identical to newPolicyCtx but
+// authenticated as an ordinary user, for asserting the admin gate itself.
+func newNonAdminPolicyCtx(svc authzServices.AccessPolicyService) *Context {
+	a := &app.App{ServiceContainer: &policyContainer{policySvc: svc}}
+	return &Context{
+		App:    a,
+		Params: &ApiParams{PerPage: 60},
+		Claims: jwt.MapClaims{"role": model.RoleUser},
 	}
 }
 
@@ -655,4 +673,205 @@ func TestListAccessPoliciesByPrincipal_NilResult_Returns200Empty(t *testing.T) {
 
 	assert.Equal(t, http.StatusOK, w.Code)
 	svc.AssertExpectations(t)
+}
+
+// ============================================================
+// Admin gate — a non-admin must be refused on every mutating (and
+// enumerating) endpoint. Regression for the finding that any authenticated
+// principal, including an OAuth2 service account, could delete or flip its
+// own deny policy or create a deny policy against an admin.
+// ============================================================
+
+func TestCreateAccessPolicy_NonAdmin_Returns403(t *testing.T) {
+	c := newNonAdminPolicyCtx(nil)
+	w := httptest.NewRecorder()
+	body, _ := json.Marshal(map[string]string{
+		"principal_id":   uuid.New().String(),
+		"principal_type": "user",
+		"resource_type":  "secrets",
+		"operation":      "get",
+		"effect":         "allow",
+	})
+	r := httptest.NewRequest(http.MethodPost, "/access-policies", bytes.NewReader(body))
+
+	createAccessPolicy(c, w, r)
+	if c.Err != nil {
+		writeError(w, c)
+	}
+
+	assert.Equal(t, http.StatusForbidden, w.Code)
+}
+
+func TestUpdateAccessPolicy_NonAdmin_Returns403(t *testing.T) {
+	policyID := uuid.New()
+	c := newNonAdminPolicyCtx(nil)
+	c.Params = &ApiParams{PolicyID: policyID.String(), PerPage: 60}
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest(http.MethodPut, "/access-policies/"+policyID.String(), bytes.NewReader([]byte(`{"effect":"deny"}`)))
+
+	updateAccessPolicy(c, w, r)
+	if c.Err != nil {
+		writeError(w, c)
+	}
+
+	assert.Equal(t, http.StatusForbidden, w.Code)
+}
+
+func TestDeleteAccessPolicy_NonAdmin_Returns403(t *testing.T) {
+	policyID := uuid.New()
+	c := newNonAdminPolicyCtx(nil)
+	c.Params = &ApiParams{PolicyID: policyID.String(), PerPage: 60}
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest(http.MethodDelete, "/access-policies/"+policyID.String(), nil)
+
+	deleteAccessPolicy(c, w, r)
+	if c.Err != nil {
+		writeError(w, c)
+	}
+
+	assert.Equal(t, http.StatusForbidden, w.Code)
+}
+
+func TestListAccessPolicies_NonAdmin_Returns403(t *testing.T) {
+	c := newNonAdminPolicyCtx(nil)
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest(http.MethodGet, "/access-policies", nil)
+
+	listAccessPolicies(c, w, r)
+	if c.Err != nil {
+		writeError(w, c)
+	}
+
+	assert.Equal(t, http.StatusForbidden, w.Code)
+}
+
+func TestGetAccessPolicy_NonAdmin_Returns403(t *testing.T) {
+	policyID := uuid.New()
+	c := newNonAdminPolicyCtx(nil)
+	c.Params = &ApiParams{PolicyID: policyID.String(), PerPage: 60}
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest(http.MethodGet, "/access-policies/"+policyID.String(), nil)
+
+	getAccessPolicy(c, w, r)
+	if c.Err != nil {
+		writeError(w, c)
+	}
+
+	assert.Equal(t, http.StatusForbidden, w.Code)
+}
+
+func TestListAccessPoliciesByPrincipal_NonAdmin_Returns403(t *testing.T) {
+	principalID := uuid.New()
+	c := newNonAdminPolicyCtx(nil)
+	c.Params = &ApiParams{PrincipalID: principalID.String(), PerPage: 60}
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest(http.MethodGet, "/access-policies/principal/"+principalID.String(), nil)
+
+	listAccessPoliciesByPrincipal(c, w, r)
+	if c.Err != nil {
+		writeError(w, c)
+	}
+
+	assert.Equal(t, http.StatusForbidden, w.Code)
+}
+
+// ============================================================
+// Enum validation — resource_type, operation, effect, and principal_type
+// must be rejected with 400 when they hold a value outside the known enum,
+// not merely when empty.
+// ============================================================
+
+func TestCreateAccessPolicy_InvalidPrincipalType_Returns400(t *testing.T) {
+	c := newPolicyCtx(nil)
+	w := httptest.NewRecorder()
+	body, _ := json.Marshal(map[string]string{
+		"principal_id":   uuid.New().String(),
+		"principal_type": "garbage",
+		"resource_type":  "secrets",
+		"operation":      "get",
+		"effect":         "allow",
+	})
+	r := httptest.NewRequest(http.MethodPost, "/access-policies", bytes.NewReader(body))
+
+	createAccessPolicy(c, w, r)
+	if c.Err != nil {
+		writeError(w, c)
+	}
+
+	assert.Equal(t, http.StatusBadRequest, w.Code)
+}
+
+func TestCreateAccessPolicy_InvalidResourceType_Returns400(t *testing.T) {
+	c := newPolicyCtx(nil)
+	w := httptest.NewRecorder()
+	body, _ := json.Marshal(map[string]string{
+		"principal_id":   uuid.New().String(),
+		"principal_type": "user",
+		"resource_type":  "garbage",
+		"operation":      "get",
+		"effect":         "allow",
+	})
+	r := httptest.NewRequest(http.MethodPost, "/access-policies", bytes.NewReader(body))
+
+	createAccessPolicy(c, w, r)
+	if c.Err != nil {
+		writeError(w, c)
+	}
+
+	assert.Equal(t, http.StatusBadRequest, w.Code)
+}
+
+func TestCreateAccessPolicy_InvalidOperation_Returns400(t *testing.T) {
+	c := newPolicyCtx(nil)
+	w := httptest.NewRecorder()
+	body, _ := json.Marshal(map[string]string{
+		"principal_id":   uuid.New().String(),
+		"principal_type": "user",
+		"resource_type":  "secrets",
+		"operation":      "garbage",
+		"effect":         "allow",
+	})
+	r := httptest.NewRequest(http.MethodPost, "/access-policies", bytes.NewReader(body))
+
+	createAccessPolicy(c, w, r)
+	if c.Err != nil {
+		writeError(w, c)
+	}
+
+	assert.Equal(t, http.StatusBadRequest, w.Code)
+}
+
+func TestCreateAccessPolicy_InvalidEffect_Returns400(t *testing.T) {
+	c := newPolicyCtx(nil)
+	w := httptest.NewRecorder()
+	body, _ := json.Marshal(map[string]string{
+		"principal_id":   uuid.New().String(),
+		"principal_type": "user",
+		"resource_type":  "secrets",
+		"operation":      "get",
+		"effect":         "garbage",
+	})
+	r := httptest.NewRequest(http.MethodPost, "/access-policies", bytes.NewReader(body))
+
+	createAccessPolicy(c, w, r)
+	if c.Err != nil {
+		writeError(w, c)
+	}
+
+	assert.Equal(t, http.StatusBadRequest, w.Code)
+}
+
+func TestUpdateAccessPolicy_InvalidEffect_Returns400(t *testing.T) {
+	policyID := uuid.New()
+	c := newPolicyCtx(nil)
+	c.Params = &ApiParams{PolicyID: policyID.String(), PerPage: 60}
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest(http.MethodPut, "/access-policies/"+policyID.String(), bytes.NewReader([]byte(`{"effect":"garbage"}`)))
+
+	updateAccessPolicy(c, w, r)
+	if c.Err != nil {
+		writeError(w, c)
+	}
+
+	assert.Equal(t, http.StatusBadRequest, w.Code)
 }

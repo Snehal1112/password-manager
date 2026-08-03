@@ -2,6 +2,7 @@ package model
 
 import (
 	"encoding/json"
+	"fmt"
 	"io"
 	"time"
 
@@ -82,6 +83,43 @@ type CreateAccessPolicyRequest struct {
 func CreateAccessPolicyRequestFromJson(data io.Reader) (*CreateAccessPolicyRequest, error) {
 	var r CreateAccessPolicyRequest
 	return &r, json.NewDecoder(data).Decode(&r)
+}
+
+// ValidatePrincipalType returns an error if s is not a known PrincipalType.
+func ValidatePrincipalType(s string) error {
+	switch PrincipalType(s) {
+	case PrincipalTypeUser, PrincipalTypeServiceAccount:
+		return nil
+	}
+	return fmt.Errorf("invalid principal_type %q", s)
+}
+
+// ValidatePolicyResourceType returns an error if s is not a known PolicyResourceType.
+func ValidatePolicyResourceType(s string) error {
+	switch PolicyResourceType(s) {
+	case PolicyResourceSecrets, PolicyResourceKeys, PolicyResourceCertificates, PolicyResourceVaults:
+		return nil
+	}
+	return fmt.Errorf("invalid resource_type %q", s)
+}
+
+// ValidatePolicyOperation returns an error if s is not a known PolicyOperation.
+func ValidatePolicyOperation(s string) error {
+	switch PolicyOperation(s) {
+	case OpGet, OpList, OpSet, OpCreate, OpDelete, OpBackup, OpRestore, OpPurge,
+		OpRecover, OpRotate, OpSign, OpVerify, OpEncrypt, OpDecrypt, OpImport, OpRenew, OpManage:
+		return nil
+	}
+	return fmt.Errorf("invalid operation %q", s)
+}
+
+// ValidatePolicyEffect returns an error if s is not a known PolicyEffect.
+func ValidatePolicyEffect(s string) error {
+	switch PolicyEffect(s) {
+	case PolicyEffectAllow, PolicyEffectDeny:
+		return nil
+	}
+	return fmt.Errorf("invalid effect %q", s)
 }
 
 type AccessPolicyResponse struct {
