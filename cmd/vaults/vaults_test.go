@@ -123,6 +123,8 @@ func TestVaultsGet(t *testing.T) {
 func TestVaultsDelete(t *testing.T) {
 	tc := testutils.NewTestContext(t)
 
+	tc.MockVaultService.On("ListVaults", mock.Anything, true).
+		Return([]model.Vault{{ID: uuid.New(), Name: "my-vault"}}, nil)
 	tc.MockVaultService.On("DeleteVault", mock.Anything, "my-vault").Return(nil)
 
 	cmd := &cobra.Command{Use: "delete", Args: cobra.ExactArgs(1), RunE: deleteCmd.RunE}

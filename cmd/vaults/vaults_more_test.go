@@ -2,6 +2,7 @@ package vaults
 
 import (
 	"bytes"
+	"context"
 	"fmt"
 	"os"
 	"testing"
@@ -13,6 +14,8 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"rocketvault/cmd/testutils"
+	"rocketvault/common"
+	authzServices "rocketvault/internal/services/authorization"
 	"rocketvault/model"
 )
 
@@ -75,6 +78,8 @@ func TestPurgeCmd_ServiceError(t *testing.T) {
 
 func TestRecoverCmd_Success(t *testing.T) {
 	tc := testutils.NewTestContext(t)
+	tc.MockVaultService.On("ListVaults", mock.Anything, true).
+		Return([]model.Vault{{ID: uuid.New(), Name: "my-vault"}}, nil)
 	tc.MockVaultService.On("RecoverVault", mock.Anything, "my-vault").Return(nil)
 
 	cmd, buf := newVltCmd(recoverCmd.RunE, []string{"my-vault"})
@@ -89,6 +94,8 @@ func TestRecoverCmd_Success(t *testing.T) {
 
 func TestRecoverCmd_ServiceError(t *testing.T) {
 	tc := testutils.NewTestContext(t)
+	tc.MockVaultService.On("ListVaults", mock.Anything, true).
+		Return([]model.Vault{{ID: uuid.New(), Name: "broken-vault"}}, nil)
 	tc.MockVaultService.On("RecoverVault", mock.Anything, "broken-vault").
 		Return(fmt.Errorf("vault not found"))
 
@@ -298,6 +305,8 @@ func TestVaultsList_IncludeDeleted(t *testing.T) {
 
 func TestVaultsDelete_ServiceError(t *testing.T) {
 	tc := testutils.NewTestContext(t)
+	tc.MockVaultService.On("ListVaults", mock.Anything, true).
+		Return([]model.Vault{{ID: uuid.New(), Name: "locked-vault"}}, nil)
 	tc.MockVaultService.On("DeleteVault", mock.Anything, "locked-vault").
 		Return(fmt.Errorf("vault is protected"))
 
@@ -384,4 +393,41 @@ func TestVaultsUpdate_WithPurgeAndRetention(t *testing.T) {
 	require.NoError(t, err)
 	assert.Contains(t, out.String(), "full-update-vault")
 	tc.MockVaultService.AssertExpectations(t)
+}
+
+// TestVaultsDelete_ForbiddenWithoutGrant proves a non-admin with no
+// vaults:manage policy on the target vault cannot delete it via the CLI.
+func TestVaultsDelete_ForbiddenWithoutGrant(t *testing.T) {
+	tc := testutils.NewTestContext(t)
+	nonAdminCtx := context.WithValue(tc.Ctx, common.ClaimsKey, &model.Claims{UserID: tc.TestUserID, Role: model.RoleUser})
+	tc.MockContainer.AccessPolicyService = &mockAccessPolicyService{decision: authzServices.AccessFallback}
+	tc.MockVaultService.On("ListVaults", mock.Anything, true).
+		Return([]model.Vault{{ID: uuid.New(), Name: "guarded-vault"}}, nil)
+
+	cmd := &cobra.Command{Use: "delete", Args: cobra.ExactArgs(1), RunE: deleteCmd.RunE}
+	cmd.SetContext(nonAdminCtx)
+	cmd.SetArgs([]string{"guarded-vault"})
+
+	err := cmd.Execute()
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "permission denied")
+	tc.MockVaultService.AssertNotCalled(t, "DeleteVault", mock.Anything, mock.Anything)
+}
+
+// TestVaultsRecover_ForbiddenWithoutGrant mirrors the delete case for recover.
+func TestVaultsRecover_ForbiddenWithoutGrant(t *testing.T) {
+	tc := testutils.NewTestContext(t)
+	nonAdminCtx := context.WithValue(tc.Ctx, common.ClaimsKey, &model.Claims{UserID: tc.TestUserID, Role: model.RoleUser})
+	tc.MockContainer.AccessPolicyService = &mockAccessPolicyService{decision: authzServices.AccessFallback}
+	tc.MockVaultService.On("ListVaults", mock.Anything, true).
+		Return([]model.Vault{{ID: uuid.New(), Name: "guarded-vault"}}, nil)
+
+	cmd := &cobra.Command{Use: "recover", Args: cobra.ExactArgs(1), RunE: recoverCmd.RunE}
+	cmd.SetContext(nonAdminCtx)
+	cmd.SetArgs([]string{"guarded-vault"})
+
+	err := cmd.Execute()
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "permission denied")
+	tc.MockVaultService.AssertNotCalled(t, "RecoverVault", mock.Anything, mock.Anything)
 }
