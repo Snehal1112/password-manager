@@ -3,6 +3,7 @@ package testutils
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"testing"
 
 	"github.com/google/uuid"
@@ -34,16 +35,17 @@ import (
 
 // TestContext holds common test utilities and mocks
 type TestContext struct {
-	Ctx               context.Context
-	MockContainer     *MockServiceContainer
-	MockUserService   *MockUserService
-	MockSecretService *MockSecretService
-	MockAuthService   *MockAuthenticationService
-	MockRBACService   *MockRBACService
-	MockVaultService  *MockVaultService
-	TestUserID        uuid.UUID
-	TestVaultID       uuid.UUID
-	Logger            *logging.Logger
+	Ctx                       context.Context
+	MockContainer             *MockServiceContainer
+	MockUserService           *MockUserService
+	MockSecretService         *MockSecretService
+	MockAuthService           *MockAuthenticationService
+	MockRBACService           *MockRBACService
+	MockVaultService          *MockVaultService
+	MockRoleAssignmentService *MockRoleAssignmentService
+	TestUserID                uuid.UUID
+	TestVaultID               uuid.UUID
+	Logger                    *logging.Logger
 }
 
 // NewTestContext creates a new test context with mocks
@@ -69,6 +71,14 @@ func NewTestContext(t *testing.T) *TestContext {
 	mockVaultService.On("GetVault", mock.Anything, model.DefaultVaultName).
 		Return(defaultVault, nil).Maybe()
 
+	// Default to allowing every data action, so vault-authorization checks
+	// added to CLI commands don't break every pre-existing test that doesn't
+	// care about them. Tests exercising the deny path replace this field with
+	// a fresh instance.
+	mockRoleAssignmentService := &MockRoleAssignmentService{}
+	mockRoleAssignmentService.On("HasDataAction", mock.Anything, mock.Anything, mock.Anything, mock.Anything).
+		Return(true, nil).Maybe()
+
 	// Setup mock container to return mock services
 	mockContainer.On("GetUserService").Return(mockUserService)
 	mockContainer.On("GetSecretService").Return(mockSecretService)
@@ -77,6 +87,7 @@ func NewTestContext(t *testing.T) *TestContext {
 	mockContainer.On("GetLogger").Return(logger)
 	mockContainer.On("Close").Return(nil)
 	mockContainer.VaultService = mockVaultService
+	mockContainer.RoleAssignmentService = mockRoleAssignmentService
 
 	// Create test claims for authentication
 	testClaims := &model.Claims{
@@ -93,16 +104,17 @@ func NewTestContext(t *testing.T) *TestContext {
 	ctx = context.WithValue(ctx, common.LogKey, logger)
 
 	return &TestContext{
-		Ctx:               ctx,
-		MockContainer:     mockContainer,
-		MockUserService:   mockUserService,
-		MockSecretService: mockSecretService,
-		MockAuthService:   mockAuthService,
-		MockRBACService:   mockRBACService,
-		MockVaultService:  mockVaultService,
-		TestUserID:        testUserID,
-		TestVaultID:       testVaultID,
-		Logger:            logger,
+		Ctx:                       ctx,
+		MockContainer:             mockContainer,
+		MockUserService:           mockUserService,
+		MockSecretService:         mockSecretService,
+		MockAuthService:           mockAuthService,
+		MockRBACService:           mockRBACService,
+		MockVaultService:          mockVaultService,
+		MockRoleAssignmentService: mockRoleAssignmentService,
+		TestUserID:                testUserID,
+		TestVaultID:               testVaultID,
+		Logger:                    logger,
 	}
 }
 
@@ -120,7 +132,10 @@ type MockServiceContainer struct {
 	VaultService vaultServices.VaultService
 	// AccessPolicyService is returned by GetAccessPolicyService, nil by default.
 	AccessPolicyService authzServices.AccessPolicyService
-	// RoleAssignmentService is returned by GetRoleAssignmentService, nil by default.
+	// RoleAssignmentService is returned by GetRoleAssignmentService. It defaults to a
+	// MockRoleAssignmentService that allows every action, so vault-authorization checks
+	// added to CLI commands don't break every pre-existing test that doesn't care about
+	// them. Tests exercising the deny path replace this field with a fresh instance.
 	RoleAssignmentService authzServices.RoleAssignmentService
 }
 
@@ -583,6 +598,41 @@ func (m *MockVaultService) SetTxBeginner(tb vaultServices.TxBeginner) {
 
 func (m *MockVaultService) SetSecretCacheFlusher(f vaultServices.SecretCacheFlusher) {
 	m.Called(f)
+}
+
+// ErrVaultNotFoundForTest is returned by test doubles standing in for a
+// vault-lookup failure; production code never checks for this sentinel.
+var ErrVaultNotFoundForTest = errors.New("test: vault not found")
+
+// MockRoleAssignmentService implements authzServices.RoleAssignmentService for testing.
+type MockRoleAssignmentService struct {
+	mock.Mock
+}
+
+func (m *MockRoleAssignmentService) AssignRole(ctx context.Context, in authzServices.AssignRoleInput) (*model.RoleAssignment, error) {
+	args := m.Called(ctx, in)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).(*model.RoleAssignment), args.Error(1)
+}
+
+func (m *MockRoleAssignmentService) RevokeAssignment(ctx context.Context, assignmentID, vaultID uuid.UUID) error {
+	args := m.Called(ctx, assignmentID, vaultID)
+	return args.Error(0)
+}
+
+func (m *MockRoleAssignmentService) ListAssignments(ctx context.Context, vaultID uuid.UUID) ([]*model.RoleAssignment, error) {
+	args := m.Called(ctx, vaultID)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).([]*model.RoleAssignment), args.Error(1)
+}
+
+func (m *MockRoleAssignmentService) HasDataAction(ctx context.Context, principalID, vaultID uuid.UUID, action model.DataAction) (bool, error) {
+	args := m.Called(ctx, principalID, vaultID, action)
+	return args.Bool(0), args.Error(1)
 }
 
 // Mock Authentication Service
