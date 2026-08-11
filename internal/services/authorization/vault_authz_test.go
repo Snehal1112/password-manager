@@ -75,3 +75,78 @@ func TestCanManageVault_NonAdminDeniedOnNilService(t *testing.T) {
 		t.Fatal("a nil AccessPolicyService must fail closed")
 	}
 }
+
+func TestCanPurgeVault_AdminAlwaysAllowed(t *testing.T) {
+	if !CanPurgeVault(context.Background(), model.RoleAdmin, nil, uuid.New(), uuid.New()) {
+		t.Fatal("admin must always be allowed to purge, even with a nil role-assignment service")
+	}
+}
+
+func TestCanPurgeVault_NonAdminAllowedWithPurgeOperatorRole(t *testing.T) {
+	rr := newFakeRoleRepo()
+	pr := newFakePolicyRepo()
+	ul := &fakeUserLookup{}
+	svc := newSvc(rr, pr, ul)
+
+	principalID := uuid.New()
+	vaultID := uuid.New()
+	rr.rows[uuid.New()] = &model.RoleAssignment{
+		PrincipalID: principalID, VaultID: vaultID, Role: model.RoleKeyVaultPurgeOperator,
+	}
+
+	if !CanPurgeVault(context.Background(), model.RoleUser, svc, principalID, vaultID) {
+		t.Fatal("a principal holding Key Vault Purge Operator in this vault must be allowed to purge it")
+	}
+}
+
+func TestCanPurgeVault_NonAdminDeniedWithWrongRole(t *testing.T) {
+	rr := newFakeRoleRepo()
+	pr := newFakePolicyRepo()
+	ul := &fakeUserLookup{}
+	svc := newSvc(rr, pr, ul)
+
+	principalID := uuid.New()
+	vaultID := uuid.New()
+	rr.rows[uuid.New()] = &model.RoleAssignment{
+		PrincipalID: principalID, VaultID: vaultID, Role: model.RoleKeyVaultReader,
+	}
+
+	if CanPurgeVault(context.Background(), model.RoleUser, svc, principalID, vaultID) {
+		t.Fatal("Key Vault Reader must not grant vault purge")
+	}
+}
+
+func TestCanPurgeVault_NonAdminDeniedInWrongVault(t *testing.T) {
+	rr := newFakeRoleRepo()
+	pr := newFakePolicyRepo()
+	ul := &fakeUserLookup{}
+	svc := newSvc(rr, pr, ul)
+
+	principalID := uuid.New()
+	grantedVault := uuid.New()
+	targetVault := uuid.New()
+	rr.rows[uuid.New()] = &model.RoleAssignment{
+		PrincipalID: principalID, VaultID: grantedVault, Role: model.RoleKeyVaultPurgeOperator,
+	}
+
+	if CanPurgeVault(context.Background(), model.RoleUser, svc, principalID, targetVault) {
+		t.Fatal("a Purge Operator grant in vault A must not authorize purging vault B")
+	}
+}
+
+func TestCanPurgeVault_NonAdminDeniedWithNoAssignments(t *testing.T) {
+	rr := newFakeRoleRepo()
+	pr := newFakePolicyRepo()
+	ul := &fakeUserLookup{}
+	svc := newSvc(rr, pr, ul)
+
+	if CanPurgeVault(context.Background(), model.RoleUser, svc, uuid.New(), uuid.New()) {
+		t.Fatal("no role assignments at all must deny")
+	}
+}
+
+func TestCanPurgeVault_NonAdminDeniedOnNilService(t *testing.T) {
+	if CanPurgeVault(context.Background(), model.RoleUser, nil, uuid.New(), uuid.New()) {
+		t.Fatal("a nil RoleAssignmentService must fail closed")
+	}
+}

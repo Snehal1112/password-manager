@@ -33,3 +33,21 @@ func CanManageVault(ctx context.Context, accountRole string, policies AccessPoli
 	}
 	return decision == AccessAllowed
 }
+
+// CanPurgeVault reports whether principalID may permanently purge vaultID:
+// the global admin account role, or a Key Vault Purge Operator role
+// assignment held in vaultID. A nil roles service, a service error, or no
+// matching assignment denies — this function fails closed.
+func CanPurgeVault(ctx context.Context, accountRole string, roles RoleAssignmentService, principalID, vaultID uuid.UUID) bool {
+	if common.HasRequiredRole(accountRole, string(model.RoleAdmin)) {
+		return true
+	}
+	if roles == nil {
+		return false
+	}
+	allowed, err := roles.HasDataAction(ctx, principalID, vaultID, model.ActionVaultPurge)
+	if err != nil {
+		return false
+	}
+	return allowed
+}
