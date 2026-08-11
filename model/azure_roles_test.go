@@ -7,13 +7,17 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestAzureRoleNames asserts the exact seven built-in data-plane roles, sorted.
+// TestAzureRoleNames asserts the exact eleven built-in data-plane roles, sorted.
 func TestAzureRoleNames(t *testing.T) {
 	assert.Equal(t, []string{
 		"Key Vault Administrator",
+		"Key Vault Certificate User",
 		"Key Vault Certificates Officer",
 		"Key Vault Crypto Officer",
+		"Key Vault Crypto Service Encryption User",
 		"Key Vault Crypto User",
+		"Key Vault Data Access Administrator",
+		"Key Vault Purge Operator",
 		"Key Vault Reader",
 		"Key Vault Secrets Officer",
 		"Key Vault Secrets User",
@@ -85,7 +89,7 @@ func TestAzureRoleDataActions(t *testing.T) {
 		}
 	}
 	admin := AzureRoleDataActions(RoleKeyVaultAdministrator)
-	assert.Len(t, admin, 32, "administrator must grant all 32 data actions")
+	assert.Len(t, admin, 35, "administrator must grant all 35 data actions")
 	for _, a := range union {
 		assert.Contains(t, admin, a)
 	}
@@ -134,5 +138,76 @@ func TestNewDataActionConstants_MatchAzureStrings(t *testing.T) {
 				t.Fatalf("got %q, want %q", c.got, c.want)
 			}
 		})
+	}
+}
+
+func TestNewRoles_AreAzureRoles(t *testing.T) {
+	for _, role := range []string{
+		RoleKeyVaultPurgeOperator,
+		RoleKeyVaultCertificateUser,
+		RoleKeyVaultCryptoServiceEncryptionUser,
+		RoleKeyVaultDataAccessAdministrator,
+	} {
+		if !IsAzureRole(role) {
+			t.Errorf("IsAzureRole(%q) = false, want true", role)
+		}
+	}
+}
+
+func TestRoleKeyVaultPurgeOperator_GrantsOnlyVaultPurge(t *testing.T) {
+	actions := AzureRoleDataActions(RoleKeyVaultPurgeOperator)
+	if len(actions) != 1 || actions[0] != ActionVaultPurge {
+		t.Fatalf("got %v, want [%q]", actions, ActionVaultPurge)
+	}
+	if RoleGrantsDataAction(RoleKeyVaultPurgeOperator, ActionSecretsGet) {
+		t.Fatal("Purge Operator must not grant secret access")
+	}
+}
+
+func TestRoleKeyVaultCertificateUser_GrantsOnlyCertificatesRead(t *testing.T) {
+	actions := AzureRoleDataActions(RoleKeyVaultCertificateUser)
+	if len(actions) != 1 || actions[0] != ActionCertificatesRead {
+		t.Fatalf("got %v, want [%q]", actions, ActionCertificatesRead)
+	}
+}
+
+func TestRoleKeyVaultCryptoServiceEncryptionUser_GrantsReadWrapUnwrapOnly(t *testing.T) {
+	want := map[DataAction]bool{ActionKeysRead: true, ActionKeysWrap: true, ActionKeysUnwrap: true}
+	actions := AzureRoleDataActions(RoleKeyVaultCryptoServiceEncryptionUser)
+	if len(actions) != len(want) {
+		t.Fatalf("got %d actions, want %d: %v", len(actions), len(want), actions)
+	}
+	for _, a := range actions {
+		if !want[a] {
+			t.Errorf("unexpected action %q", a)
+		}
+	}
+	for _, denied := range []DataAction{ActionKeysEncrypt, ActionKeysDecrypt, ActionKeysSign, ActionKeysVerify} {
+		if RoleGrantsDataAction(RoleKeyVaultCryptoServiceEncryptionUser, denied) {
+			t.Errorf("Crypto Service Encryption User must not grant %q", denied)
+		}
+	}
+}
+
+func TestRoleKeyVaultDataAccessAdministrator_GrantsRoleAssignmentActionsOnly(t *testing.T) {
+	want := map[DataAction]bool{ActionRoleAssignmentsWrite: true, ActionRoleAssignmentsDelete: true}
+	actions := AzureRoleDataActions(RoleKeyVaultDataAccessAdministrator)
+	if len(actions) != len(want) {
+		t.Fatalf("got %d actions, want %d: %v", len(actions), len(want), actions)
+	}
+	for _, a := range actions {
+		if !want[a] {
+			t.Errorf("unexpected action %q", a)
+		}
+	}
+	if RoleGrantsDataAction(RoleKeyVaultDataAccessAdministrator, ActionSecretsGet) {
+		t.Fatal("Data Access Administrator must not grant any secrets/keys/certificates action")
+	}
+}
+
+func TestAzureRoleNames_IncludesAllElevenGrantableRoles(t *testing.T) {
+	names := AzureRoleNames()
+	if len(names) != 11 {
+		t.Fatalf("got %d role names, want 11: %v", len(names), names)
 	}
 }
