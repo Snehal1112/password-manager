@@ -13,13 +13,14 @@
 - Design doc: `docs/superpowers/specs/2026-08-11-vault-cli-extension-design.md` — read in full before starting.
 - Depends on Plan 01 (`docs/superpowers/plans/2026-08-11-vault-cli-01-shared-primitives.md`), already merged. This plan consumes, unmodified:
   - `cmd/vaultcli.ResolveVaultID(ctx context.Context, cmd *cobra.Command, sc container.ServiceContainerInterface) (uuid.UUID, error)`
-  - `cmd/vaultcli.RequireDataAction(ctx context.Context, cmd *cobra.Command, sc container.ServiceContainerInterface, principalID uuid.UUID, action model.DataAction) (vaultID uuid.UUID, err error)`
+  - `cmd/vaultcli.RequireDataAction(ctx context.Context, cmd *cobra.Command, sc container.ServiceContainerInterface, principalID uuid.UUID, action model.DataAction, op model.PolicyOperation) (vaultID uuid.UUID, err error)`
   - `cmd/testutils.MockRoleAssignmentService` (testify-mock), `cmd/testutils.MockServiceContainer.RoleAssignmentService` field (defaults to an instance that allows every `HasDataAction` call via `testutils.NewTestContext`), and `cmd/testutils.TestContext.MockRoleAssignmentService`.
 - **Deliberate behavior change #1 — uniform `VaultScope`, no narrower scope anywhere in `keys`:** unlike `cmd/secrets` (whose `update`/`export` stay owner-narrowed by design, for value-exposing operations), every `cmd/keys` command in this plan — including `update`, `delete`, `rotate`, `wrap`, `unwrap` — moves to `model.NewVaultScope(vaultID, claims.UserID)`. This matches `api/keys.go`'s HTTP handlers, which all use `scopeFromRequest` uniformly; per commit `da6fb9b` (2026-08-02) even key delete and every crypto operation are vault-wide-scoped over HTTP, with no owner restriction. `keys` has no HTTP-side narrowing to preserve, so none is introduced here.
 - **Deliberate behavior change #2 — `keys list` loses its admin global-visibility bypass:** `cmd/keys/list.go` currently special-cases `claims.Role == model.RoleAdmin` to `model.NewAdminScope(claims.UserID)`, letting any global-`admin`-role CLI user see every key in every vault, system-wide. The HTTP `GET /keys` endpoint (via `scopeFromRequest`) has no such role-based special case. This plan deletes the admin branch entirely; `keys list` becomes uniformly vault-scoped, matching HTTP and matching every other command touched by this plan. This is a breaking CLI behavior change: an admin-role user who previously saw all keys via `rocketvault keys list` will now see only keys in the resolved `--vault`, and only if they hold a role assignment there.
 - `go build ./...` and `go vet ./...` must pass after every task.
 - Every touched command gets a `*_Denied` test proving: role-assignment mock returns `(false, nil)` → the command returns an error containing `"forbidden"` (from `authorization.RequireDataAction`, via `vaultcli.RequireDataAction`) **and** the underlying `KeyService`/`CryptoService` method is never called (`mock.AssertNotCalled`) — not just "returned an error", per the design's testing section.
 - This plan does not touch `cmd/secrets/*`, `cmd/certificates/*`, `internal/services/authorization/*`, or `cmd/vaultcli/*` — those are covered by Plans 01, 02, 04, and 05.
+- `vaultcli.RequireDataAction` gained a `op model.PolicyOperation` parameter after Plan 01's final review found it needed to also check the `access_policies` explicit-deny override — see `docs/superpowers/specs/2026-08-11-vault-cli-extension-design.md`'s "Access-policy explicit-deny in the CLI adapter" section for the full per-command mapping table (reproduced above for this plan's commands).
 
 ---
 
@@ -589,7 +590,7 @@ Replace the request-building block:
 with:
 
 ```go
-		vaultID, err := vaultcli.RequireDataAction(ctx, cmd, serviceContainer, claims.UserID, model.ActionKeysCreate)
+		vaultID, err := vaultcli.RequireDataAction(ctx, cmd, serviceContainer, claims.UserID, model.ActionKeysCreate, model.OpCreate)
 		if err != nil {
 			log.LogAuditError(claims.UserID.String(), "create_key", "failed", fmt.Sprintf("vault authorization failed: %s", err), err)
 			return fmt.Errorf("vault authorization failed: %w", err)
@@ -649,7 +650,7 @@ Replace:
 with:
 
 ```go
-		vaultID, err := vaultcli.RequireDataAction(ctx, cmd, serviceContainer, claims.UserID, model.ActionKeysRead)
+		vaultID, err := vaultcli.RequireDataAction(ctx, cmd, serviceContainer, claims.UserID, model.ActionKeysRead, model.OpGet)
 		if err != nil {
 			log.LogAuditError(claims.UserID.String(), "get_key", "failed", fmt.Sprintf("vault authorization failed: %s", err), err)
 			return fmt.Errorf("vault authorization failed: %w", err)
@@ -696,7 +697,7 @@ Replace:
 with:
 
 ```go
-		vaultID, err := vaultcli.RequireDataAction(ctx, cmd, serviceContainer, claims.UserID, model.ActionKeysRead)
+		vaultID, err := vaultcli.RequireDataAction(ctx, cmd, serviceContainer, claims.UserID, model.ActionKeysRead, model.OpGet)
 		if err != nil {
 			log.LogAuditError(claims.UserID.String(), "list_keys", "failed", fmt.Sprintf("vault authorization failed: %s", err), err)
 			return fmt.Errorf("vault authorization failed: %w", err)
@@ -1007,7 +1008,7 @@ Replace:
 with:
 
 ```go
-		vaultID, err := vaultcli.RequireDataAction(ctx, cmd, sc, claims.UserID, model.ActionKeysUpdate)
+		vaultID, err := vaultcli.RequireDataAction(ctx, cmd, sc, claims.UserID, model.ActionKeysUpdate, model.OpSet)
 		if err != nil {
 			return fmt.Errorf("vault authorization failed: %w", err)
 		}
@@ -1047,7 +1048,7 @@ Replace:
 with:
 
 ```go
-		vaultID, err := vaultcli.RequireDataAction(ctx, cmd, serviceContainer, claims.UserID, model.ActionKeysDelete)
+		vaultID, err := vaultcli.RequireDataAction(ctx, cmd, serviceContainer, claims.UserID, model.ActionKeysDelete, model.OpDelete)
 		if err != nil {
 			log.LogAuditError(claims.UserID.String(), "delete_key", "failed", fmt.Sprintf("vault authorization failed: %s", err), err)
 			return fmt.Errorf("vault authorization failed: %w", err)
@@ -1088,7 +1089,7 @@ Replace:
 with:
 
 ```go
-			vaultID, err := vaultcli.RequireDataAction(ctx, cmd, serviceContainer, claims.UserID, model.ActionKeysRotate)
+			vaultID, err := vaultcli.RequireDataAction(ctx, cmd, serviceContainer, claims.UserID, model.ActionKeysRotate, model.OpRotate)
 			if err != nil {
 				log.LogAuditError(claims.UserID.String(), "rotate_key", "failed", fmt.Sprintf("vault authorization failed: %s", err), err)
 				return fmt.Errorf("vault authorization failed: %w", err)
@@ -1417,7 +1418,7 @@ Replace:
 with:
 
 ```go
-		vaultID, err := vaultcli.RequireDataAction(ctx, cmd, serviceContainer, claims.UserID, model.ActionKeysWrap)
+		vaultID, err := vaultcli.RequireDataAction(ctx, cmd, serviceContainer, claims.UserID, model.ActionKeysWrap, model.OpCreate)
 		if err != nil {
 			log.LogAuditError(claims.UserID.String(), "wrap_key", "failed", fmt.Sprintf("vault authorization failed: %s", err), err)
 			return fmt.Errorf("vault authorization failed: %w", err)
@@ -1475,7 +1476,7 @@ Replace:
 with:
 
 ```go
-		vaultID, err := vaultcli.RequireDataAction(ctx, cmd, serviceContainer, claims.UserID, model.ActionKeysUnwrap)
+		vaultID, err := vaultcli.RequireDataAction(ctx, cmd, serviceContainer, claims.UserID, model.ActionKeysUnwrap, model.OpCreate)
 		if err != nil {
 			log.LogAuditError(claims.UserID.String(), "unwrap_key", "failed", fmt.Sprintf("vault authorization failed: %s", err), err)
 			return fmt.Errorf("vault authorization failed: %w", err)

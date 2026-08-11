@@ -15,17 +15,18 @@
 - This is the final plan in the 5-plan `vault-cli` series. Task 3's last step updates `README.md`'s Roadmap to mark all three `--vault`/certificate-scoping items shipped, closing out the whole series (not just this plan's own certificate scope).
 - No admin short-circuit anywhere in this plan — `vaultcli.RequireDataAction` (Plan 01) has none, and none is introduced here. Data-plane access has no bypass for the global admin role, matching `PolicyMiddleware`'s HTTP-side behavior.
 - Every touched command's existing legacy `common.HasRequiredRole(claims.Role, model.RoleAdmin, model.RoleCertificateManager)` gate on `delete`/`update`/`renew` stays exactly as-is. This plan adds the new vault-authorization check **alongside** it, not instead of it — the legacy check gates a coarser, different concern.
-- Each command hardcodes its own `model.DataAction` constant directly (`vaultcli.RequireDataAction(ctx, cmd, sc, claims.UserID, model.ActionCertificatesRead)`) — no derivation via `MapRouteToDataAction`.
+- Each command hardcodes its own `model.DataAction` constant directly (`vaultcli.RequireDataAction(ctx, cmd, sc, claims.UserID, model.ActionCertificatesRead, model.OpGet)`) — no derivation via `MapRouteToDataAction`.
 - `go build ./...` and `go vet ./...` must pass after every task.
 - `model.DataAction` per command (verified against `internal/services/authorization/data_actions.go`):
 
-  | Command | Action |
-  |---|---|
-  | list | `model.ActionCertificatesRead` |
-  | get | `model.ActionCertificatesRead` |
-  | delete | `model.ActionCertificatesDelete` |
-  | update | `model.ActionCertificatesUpdate` |
-  | renew | `model.ActionCertificatesCreate` |
+  | Command | Action | Op |
+  |---|---|---|
+  | list | `model.ActionCertificatesRead` | `model.OpGet` |
+  | get | `model.ActionCertificatesRead` | `model.OpGet` |
+  | delete | `model.ActionCertificatesDelete` | `model.OpDelete` |
+  | update | `model.ActionCertificatesUpdate` | `model.OpSet` |
+  | renew | `model.ActionCertificatesCreate` | `model.OpRenew` |
+- `vaultcli.RequireDataAction` gained a `op model.PolicyOperation` parameter after Plan 01's final review found it needed to also check the `access_policies` explicit-deny override — see `docs/superpowers/specs/2026-08-11-vault-cli-extension-design.md`'s "Access-policy explicit-deny in the CLI adapter" section for the full per-command mapping table (reproduced above for this plan's commands).
 
 ---
 
@@ -38,7 +39,7 @@
 - Modify: `cmd/certificates/certs_cmd_test.go` (List/Get/Delete test sections only)
 
 **Interfaces:**
-- Consumes: `vaultcli.RequireDataAction(ctx context.Context, cmd *cobra.Command, sc container.ServiceContainerInterface, principalID uuid.UUID, action model.DataAction) (vaultID uuid.UUID, err error)` (Plan 01, `cmd/vaultcli/vault.go`); `model.NewVaultScope(vaultID, actorID uuid.UUID) model.Scope` (existing, `model/scope.go`); `testutils.NewTestContext(t) *testutils.TestContext` and `testutils.MockRoleAssignmentService` (Plan 01, `cmd/testutils/test_utils.go`).
+- Consumes: `vaultcli.RequireDataAction(ctx context.Context, cmd *cobra.Command, sc container.ServiceContainerInterface, principalID uuid.UUID, action model.DataAction, op model.PolicyOperation) (vaultID uuid.UUID, err error)` (Plan 01, `cmd/vaultcli/vault.go`); `model.NewVaultScope(vaultID, actorID uuid.UUID) model.Scope` (existing, `model/scope.go`); `testutils.NewTestContext(t) *testutils.TestContext` and `testutils.MockRoleAssignmentService` (Plan 01, `cmd/testutils/test_utils.go`).
 - Produces: vault-scoped, authorization-checked `certificate list`, `certificate get`, `certificate delete` commands. Not consumed by Task 2/3 (separate files), but completes the certificates half of the design's Scope section alongside them.
 
 - [ ] **Step 1: Update the `list` tests to expect vault-scoped, authorization-checked behavior**
@@ -433,7 +434,7 @@ var listCmd = &cobra.Command{
 		}
 		certService := serviceContainer.GetCertificateService()
 
-		vaultID, err := vaultcli.RequireDataAction(ctx, cmd, serviceContainer, claims.UserID, model.ActionCertificatesRead)
+		vaultID, err := vaultcli.RequireDataAction(ctx, cmd, serviceContainer, claims.UserID, model.ActionCertificatesRead, model.OpGet)
 		if err != nil {
 			log.LogAuditError(claims.UserID.String(), "list_certificates", "failed", fmt.Sprintf("authorization failed: %s", err), err)
 			return fmt.Errorf("failed to list certificates: %w", err)
@@ -544,7 +545,7 @@ var getCmd = &cobra.Command{
 		}
 		certService := serviceContainer.GetCertificateService()
 
-		vaultID, err := vaultcli.RequireDataAction(ctx, cmd, serviceContainer, claims.UserID, model.ActionCertificatesRead)
+		vaultID, err := vaultcli.RequireDataAction(ctx, cmd, serviceContainer, claims.UserID, model.ActionCertificatesRead, model.OpGet)
 		if err != nil {
 			log.LogAuditError(claims.UserID.String(), "get_certificate", "failed", fmt.Sprintf("authorization failed: %s", err), err)
 			return fmt.Errorf("failed to get certificate: %w", err)
@@ -643,7 +644,7 @@ var deleteCmd = &cobra.Command{
 		}
 		certService := serviceContainer.GetCertificateService()
 
-		vaultID, err := vaultcli.RequireDataAction(ctx, cmd, serviceContainer, claims.UserID, model.ActionCertificatesDelete)
+		vaultID, err := vaultcli.RequireDataAction(ctx, cmd, serviceContainer, claims.UserID, model.ActionCertificatesDelete, model.OpDelete)
 		if err != nil {
 			log.LogAuditError(claims.UserID.String(), "delete_certificate", "failed", fmt.Sprintf("authorization failed: %s", err), err)
 			return fmt.Errorf("failed to delete certificate: %w", err)
@@ -983,7 +984,7 @@ var updateCmd = &cobra.Command{
 		}
 		certService := serviceContainer.GetCertificateService()
 
-		vaultID, err := vaultcli.RequireDataAction(ctx, cmd, serviceContainer, claims.UserID, model.ActionCertificatesUpdate)
+		vaultID, err := vaultcli.RequireDataAction(ctx, cmd, serviceContainer, claims.UserID, model.ActionCertificatesUpdate, model.OpSet)
 		if err != nil {
 			log.LogAuditError(claims.UserID.String(), "update_certificate", "failed", fmt.Sprintf("authorization failed: %s", err), err)
 			return fmt.Errorf("failed to update certificate: %w", err)
@@ -1245,7 +1246,7 @@ var renewCmd = &cobra.Command{
 		}
 		certService := serviceContainer.GetCertificateService()
 
-		vaultID, err := vaultcli.RequireDataAction(ctx, cmd, serviceContainer, claims.UserID, model.ActionCertificatesCreate)
+		vaultID, err := vaultcli.RequireDataAction(ctx, cmd, serviceContainer, claims.UserID, model.ActionCertificatesCreate, model.OpRenew)
 		if err != nil {
 			log.LogAuditError(claims.UserID.String(), "renew_certificate", "failed", fmt.Sprintf("authorization failed: %s", err), err)
 			return fmt.Errorf("failed to renew certificate: %w", err)

@@ -13,7 +13,7 @@
 - Spec: `docs/superpowers/specs/2026-08-11-vault-cli-extension-design.md` — read in full before starting.
 - Depends on Plan 01 (`docs/superpowers/plans/2026-08-11-vault-cli-01-shared-primitives.md`), already merged, which produced:
   - `authorization.RequireDataAction(ctx context.Context, roles RoleAssignmentService, principalID, vaultID uuid.UUID, action model.DataAction) error` — package `rocketvault/internal/services/authorization`.
-  - `vaultcli.ResolveVaultID(ctx context.Context, cmd *cobra.Command, sc container.ServiceContainerInterface) (uuid.UUID, error)` and `vaultcli.RequireDataAction(ctx context.Context, cmd *cobra.Command, sc container.ServiceContainerInterface, principalID uuid.UUID, action model.DataAction) (vaultID uuid.UUID, err error)` — package `rocketvault/cmd/vaultcli`.
+  - `vaultcli.ResolveVaultID(ctx context.Context, cmd *cobra.Command, sc container.ServiceContainerInterface) (uuid.UUID, error)` and `vaultcli.RequireDataAction(ctx context.Context, cmd *cobra.Command, sc container.ServiceContainerInterface, principalID uuid.UUID, action model.DataAction, op model.PolicyOperation) (vaultID uuid.UUID, err error)` — package `rocketvault/cmd/vaultcli`.
   - `testutils.MockRoleAssignmentService` (testify-mock) and a `MockRoleAssignmentService` field on `testutils.TestContext`. `testutils.NewTestContext(t)` wires `tc.MockContainer.RoleAssignmentService` to a default instance whose `HasDataAction` returns `(true, nil)` for every call (`.Maybe()`), so every pre-existing test in this package keeps passing once these commands gain the new authz call. A test that wants the deny path replaces the whole field with a fresh instance:
     ```go
     denyRoles := &testutils.MockRoleAssignmentService{}
@@ -21,6 +21,7 @@
     tc.MockContainer.RoleAssignmentService = denyRoles
     ```
     Never add `.On()` expectations to the shared default instance for a deny case — swap the field.
+- `vaultcli.RequireDataAction` gained a `op model.PolicyOperation` parameter after Plan 01's final review found it needed to also check the `access_policies` explicit-deny override — see `docs/superpowers/specs/2026-08-11-vault-cli-extension-design.md`'s "Access-policy explicit-deny in the CLI adapter" section for the full per-command mapping table (reproduced above for this plan's commands).
 - **User-visible behavior change, ship this deliberately:** after this plan, any vault member holding a role that grants `ActionSecretsSet` (e.g. `Key Vault Secrets Officer`) can update or export another member's secret via the CLI, not just the object's own creator. This matches what the HTTP API's vault-scoped route (`/vaults/{name}/secrets/...`) already does today via `scopeFromRequest` → `model.NewVaultScope`; it is CLI catch-up to existing HTTP behavior, not a new capability HTTP doesn't already have.
 - **Known pre-existing test trap, do not use as a template:** `cmd/secrets/list_test.go`'s `TestListSecretsCommand` builds its own inline fake `RunE` closure that reimplements list logic independently of the real `listCmd` (hardcodes `model.NewOwnerScope`, calls `secretService.ListSecrets` directly). It does not exercise production code and is out of scope for this plan — leave it untouched. The REAL list command test in that file is `TestListSecretsOutputFormat`, which calls `listCmd.RunE` directly and already expects `model.NewVaultScope(tc.TestVaultID, uuid.Nil)`. `cmd/secrets/service_test.go` has the same kind of fully-synthetic, non-production-RunE tests throughout (`TestSecretsCreateCommand`, `TestSecretsListCommand`, `TestSecretsGetCommand`, `TestSecretsIntegration`) — also untouched, also not a template.
 - `go build ./... && go vet ./...` must pass after every task.
@@ -178,7 +179,7 @@ Replace the `RunE` function body:
 		}
 		secretService := serviceContainer.GetSecretService()
 
-		vaultID, err := vaultcli.RequireDataAction(ctx, cmd, serviceContainer, userID, model.ActionSecretsSet)
+		vaultID, err := vaultcli.RequireDataAction(ctx, cmd, serviceContainer, userID, model.ActionSecretsSet, model.OpCreate)
 		if err != nil {
 			return err
 		}
@@ -254,7 +255,7 @@ Replace the `RunE` function body:
 		}
 		secretService := serviceContainer.GetSecretService()
 
-		vaultID, err := vaultcli.RequireDataAction(ctx, cmd, serviceContainer, userID, model.ActionSecretsReadMetadata)
+		vaultID, err := vaultcli.RequireDataAction(ctx, cmd, serviceContainer, userID, model.ActionSecretsReadMetadata, model.OpGet)
 		if err != nil {
 			return err
 		}
@@ -650,7 +651,7 @@ Replace the `RunE` function body:
 		}
 		secretService := serviceContainer.GetSecretService()
 
-		vaultID, err := vaultcli.RequireDataAction(ctx, cmd, serviceContainer, userID, model.ActionSecretsGet)
+		vaultID, err := vaultcli.RequireDataAction(ctx, cmd, serviceContainer, userID, model.ActionSecretsGet, model.OpGet)
 		if err != nil {
 			return err
 		}
@@ -730,7 +731,7 @@ Replace the `RunE` function body:
 
 		// Resolve the target vault by name and check the caller holds a role
 		// assignment in it granting ActionSecretsDelete.
-		vaultID, err := vaultcli.RequireDataAction(ctx, cmd, serviceContainer, userID, model.ActionSecretsDelete)
+		vaultID, err := vaultcli.RequireDataAction(ctx, cmd, serviceContainer, userID, model.ActionSecretsDelete, model.OpDelete)
 		if err != nil {
 			return err
 		}
@@ -1034,7 +1035,7 @@ API's vault-scoped update route.`,
 
 		// Resolve the target vault by name and check the caller holds a role
 		// assignment in it granting ActionSecretsSet.
-		vaultID, err := vaultcli.RequireDataAction(ctx, cmd, sc, userID, model.ActionSecretsSet)
+		vaultID, err := vaultcli.RequireDataAction(ctx, cmd, sc, userID, model.ActionSecretsSet, model.OpSet)
 		if err != nil {
 			return err
 		}
@@ -1128,7 +1129,7 @@ matching the HTTP API's vault-scoped export route.`,
 
 		// Resolve the target vault by name and check the caller holds a role
 		// assignment in it granting ActionSecretsGet.
-		vaultID, err := vaultcli.RequireDataAction(ctx, cmd, sc, userID, model.ActionSecretsGet)
+		vaultID, err := vaultcli.RequireDataAction(ctx, cmd, sc, userID, model.ActionSecretsGet, model.OpCreate)
 		if err != nil {
 			return err
 		}
@@ -1219,7 +1220,7 @@ Replace the `RunE` function body (`Scope` construction is unchanged — only the
 
 		// Resolve the target vault by name and check the caller holds a role
 		// assignment in it granting ActionSecretsSet.
-		vaultID, err := vaultcli.RequireDataAction(ctx, cmd, sc, userID, model.ActionSecretsSet)
+		vaultID, err := vaultcli.RequireDataAction(ctx, cmd, sc, userID, model.ActionSecretsSet, model.OpImport)
 		if err != nil {
 			return err
 		}
