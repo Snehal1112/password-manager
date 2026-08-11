@@ -3,6 +3,7 @@ package api
 
 import (
 	"context"
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -261,4 +262,34 @@ func TestVaultManage_RealAuthorizationMiddleware_NonAdminAllowedWithGrant(t *tes
 	if w.Code != http.StatusOK {
 		t.Fatalf("got %d, want 200 (matching grant, real middleware chain)", w.Code)
 	}
+}
+
+// TestCreateVault_ForbiddenWithoutGlobalGrant proves a non-admin with no
+// global vaults:manage policy cannot create a vault. Before this task,
+// createVault had no handler-level check at all — it relied entirely on the
+// now-removed global admin-only gate (Plan 2026-08-11-03).
+func TestCreateVault_ForbiddenWithoutGlobalGrant(t *testing.T) {
+	policySvc := &mockAccessPolicyService{}
+	policySvc.On("CheckAccess", mock.Anything, mock.Anything,
+		model.PolicyResourceVaults, model.OpManage, uuid.Nil).
+		Return(authzServices.AccessFallback, nil)
+	api, _ := buildAuthzVaultAPI(policySvc)
+
+	body, _ := json.Marshal(map[string]any{"name": "newvault"})
+	w := doVaultRequestAs(api, string(model.RoleUser), http.MethodPost, "/api/v1/vaults", body)
+	assert.Equal(t, http.StatusForbidden, w.Code)
+}
+
+// TestCreateVault_AllowedWithGlobalGrant proves a non-admin WITH a global
+// (vault_id: null) vaults:manage allow policy can create a vault.
+func TestCreateVault_AllowedWithGlobalGrant(t *testing.T) {
+	policySvc := &mockAccessPolicyService{}
+	policySvc.On("CheckAccess", mock.Anything, mock.Anything,
+		model.PolicyResourceVaults, model.OpManage, uuid.Nil).
+		Return(authzServices.AccessAllowed, nil)
+	api, _ := buildAuthzVaultAPI(policySvc)
+
+	body, _ := json.Marshal(map[string]any{"name": "newvault"})
+	w := doVaultRequestAs(api, string(model.RoleUser), http.MethodPost, "/api/v1/vaults", body)
+	assert.Equal(t, http.StatusCreated, w.Code)
 }

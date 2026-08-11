@@ -321,10 +321,15 @@ const vaultTestUserID = "a1b2c3d4-e5f6-7890-abcd-ef1234567890"
 
 // newVaultTestAPI builds an API whose vaults subrouter is wired to a real,
 // in-memory-backed vault service so the handlers exercise genuine logic.
+// All requests issued via doVaultRequest carry model.RoleAdmin, so
+// createVault's authorization check short-circuits on the account role
+// before ever calling CheckAccess; policySvc only needs to exist (not be
+// stubbed) because CanManageVault's caller fetches it via an eagerly
+// evaluated function argument regardless of role.
 func newVaultTestAPI() (*API, *vaultFakeRepo) {
 	repo := newVaultFakeRepo()
 	svc := vaultServices.NewVaultService(repo, vaultNoopCascade{}, nil)
-	a := &app.App{ServiceContainer: &vaultSvcTestContainer{vaultSvc: svc}}
+	a := &app.App{ServiceContainer: &vaultSvcTestContainer{vaultSvc: svc, policySvc: &mockAccessPolicyService{}}}
 	a.Logger = userTestLog()
 
 	router := mux.NewRouter()

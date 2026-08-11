@@ -7,6 +7,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/gorilla/mux"
 
+	authzServices "rocketvault/internal/services/authorization"
 	vaultServices "rocketvault/internal/services/vaults"
 	"rocketvault/model"
 )
@@ -45,23 +46,30 @@ func (c *Context) vaultSvc() vaultServices.VaultService {
 	return c.App.ServiceContainer.GetVaultService()
 }
 
-// createVault handles the creation of a new vault.
+// createVault handles the creation of a new vault. Vault creation has no
+// single target vault to check against, so the authorization check uses
+// uuid.Nil, matching only a GLOBAL (vault_id: null) vaults:manage allow
+// policy — a vault-scoped grant on some other existing vault does not confer
+// the ability to create a new one. See the design doc §2 for why this is a
+// deliberately narrower interpretation than "any vault-scoped grant".
 func createVault(c *Context, w http.ResponseWriter, r *http.Request) {
-	req, err := model.CreateVaultRequestFromJson(r.Body)
-	if err != nil {
-		c.SetInvalidParam("request body")
-		return
-	}
-
-	// Get the creator user ID from JWT claims.
-	userIDStr, ok := c.Claims["user_id"].(string)
+	role, userID, ok := callerIdentity(c)
 	if !ok {
 		c.SetInternalError(nil)
 		return
 	}
-	userID, err := uuid.Parse(userIDStr)
+	if c.App == nil || c.App.ServiceContainer == nil {
+		c.SetInternalError(nil)
+		return
+	}
+	if !authzServices.CanManageVault(r.Context(), role, c.App.ServiceContainer.GetAccessPolicyService(), userID, uuid.Nil) {
+		c.SetPermissionError("admin or vaults/manage required")
+		return
+	}
+
+	req, err := model.CreateVaultRequestFromJson(r.Body)
 	if err != nil {
-		c.SetInvalidParam("user_id")
+		c.SetInvalidParam("request body")
 		return
 	}
 
@@ -82,7 +90,7 @@ func createVault(c *Context, w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusCreated)
 	w.Write([]byte(response.ToJson()))
 
-	c.Logger.Printf("User %s created vault %s", userIDStr, vault.Name)
+	c.Logger.Printf("User %s created vault %s", userID, vault.Name)
 }
 
 // listVaults handles the request to list vaults, optionally including soft-deleted ones.

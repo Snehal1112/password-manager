@@ -47,9 +47,8 @@ func buildRoleAssignmentResponse(c *Context, r *http.Request, ra *model.RoleAssi
 // NOTE: no longer called from this file (createRoleAssignment and
 // deleteRoleAssignment both use authzServices.CanManageRoleAssignments now),
 // but api/vault.go (getVault, updateVault, deleteVault) still depends on it.
-// That migration is deferred to Plan 2026-08-11-04, which had not landed as
-// of this commit — see the TODO on callerIdentity below. Do not delete this
-// function until that plan removes its last call site.
+// That migration is deferred to a later task of Plan 2026-08-11-04. Do not
+// delete this function until that task removes its last call site.
 func requireVaultManage(c *Context, r *http.Request, vaultID uuid.UUID) bool {
 	role, _ := c.Claims["role"].(string)
 	if common.HasRequiredRole(role, string(model.RoleAdmin)) {
@@ -72,9 +71,6 @@ func requireVaultManage(c *Context, r *http.Request, vaultID uuid.UUID) bool {
 // from the session claims. Returns ok=false if either is missing or
 // malformed, in which case the caller must treat this as an internal error,
 // not a permission denial — a malformed claim is a bug, not a 403.
-//
-// TODO: this duplicates the identical helper added to api/vault.go by Plan
-// 2026-08-11-04, Task 1. Delete this copy once both plans have merged.
 func callerIdentity(c *Context) (role string, principalID uuid.UUID, ok bool) {
 	role, _ = c.Claims["role"].(string)
 	userIDStr, _ := c.Claims["user_id"].(string)
