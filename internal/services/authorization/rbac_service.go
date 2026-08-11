@@ -218,7 +218,9 @@ func (s *rbacService) ValidateEndpointAccess(role, method, path string) error {
 }
 
 // mapEndpointToPermission maps HTTP endpoints to the global permission they
-// require. It deliberately answers "" for every vault data-plane route.
+// require. It deliberately answers "" for every vault data-plane route AND
+// every vault-management route (create/list/get/update/delete a vault,
+// purge, and role-assignment management).
 //
 // Before P2 this function stripped the "vaults/{name}/" prefix and returned the
 // same global permission as the flat equivalent, which made RBAC vault-agnostic
@@ -229,8 +231,17 @@ func (s *rbacService) ValidateEndpointAccess(role, method, path string) error {
 // Crypto Officer in one vault would be refused for holding the global "user"
 // role.
 //
-// Vault management and user management are not data-plane routes and keep their
-// global permissions.
+// Before 2026-08-11 this function additionally required the admin-only
+// PermissionManageVaults for every /vaults path, including vault management
+// and role-assignment routes. That made every handler-level per-vault check
+// (CanManageVault, CanManageRoleAssignments — internal/services/authorization/vault_authz.go)
+// unreachable for non-admins: this vault-blind global gate ran and denied
+// the request before the handler's vault-aware check ever got a chance. See
+// docs/superpowers/specs/2026-08-11-azure-role-parity-and-vault-authz-fix-design.md,
+// "Root cause", for the full analysis. Vault management now defers entirely
+// to the handler, the same way vault data-plane routes already did.
+//
+// User management is not a vault route at all and keeps its global permissions.
 func (s *rbacService) mapEndpointToPermission(method, path string) Permission {
 	// Vault data-plane routes are authorized per vault, not per global role.
 	if _, kind := MapRouteToDataAction(method, path); kind == RouteVaultData {
@@ -241,9 +252,11 @@ func (s *rbacService) mapEndpointToPermission(method, path string) Permission {
 	path = strings.TrimPrefix(path, DataPlaneBasePath)
 	path = strings.TrimPrefix(path, "/")
 
-	// A bare "vaults" or "vaults/{name}" path is vault management.
+	// Every /vaults path — management (create/list/get/update/delete/purge)
+	// and role-assignment management alike — defers entirely to the
+	// handler's own CanManageVault/CanManageRoleAssignments check.
 	if strings.HasPrefix(path, "vaults") {
-		return PermissionManageVaults
+		return ""
 	}
 
 	// Users endpoints.
