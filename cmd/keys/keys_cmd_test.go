@@ -1240,20 +1240,18 @@ func TestWrapCmd_Success(t *testing.T) {
 	keyID := uuid.New()
 	plaintext := []byte("my-secret-key-material")
 	wrapped := []byte("wrapped-bytes")
+	sc, vaultID := newAllowedContainer(nil, cryptoSvc)
 	cryptoSvc.On("WrapKey", mock.Anything, mock.MatchedBy(func(r keyServices.WrapKeyRequest) bool {
-		return r.KeyID == keyID && r.UserID == userID && r.Scope == model.NewOwnerScope(uuid.Nil, userID)
+		return r.KeyID == keyID && r.UserID == userID &&
+			r.VaultID == vaultID && r.Scope == model.NewVaultScope(vaultID, userID)
 	})).Return(&keyServices.WrapKeyResult{WrappedKey: wrapped}, nil)
 
-	sc := &keysTestContainer{
-		MockServiceContainer: &testutils.MockServiceContainer{},
-		cryptoSvc:            cryptoSvc,
-	}
 	claims := &model.Claims{UserID: userID, Role: model.RoleAdmin}
 	ctx := context.WithValue(context.Background(), common.ClaimsKey, claims)
 	ctx = context.WithValue(ctx, common.LogKey, newLogger())
 	ctx = context.WithValue(ctx, common.ServiceContainerKey, sc)
 
-	cleanup := viperSet(map[string]any{
+	cleanup := viperSet(map[string]interface{}{
 		"wrap-key-id":       keyID.String(),
 		"wrap-key-material": base64.StdEncoding.EncodeToString(plaintext),
 	})
@@ -1267,22 +1265,85 @@ func TestWrapCmd_Success(t *testing.T) {
 	cryptoSvc.AssertExpectations(t)
 }
 
-func TestWrapCmd_ServiceError(t *testing.T) {
+func TestWrapCmd_Denied(t *testing.T) {
 	cryptoSvc := &keyCmdCryptoService{}
 	userID := uuid.New()
 	keyID := uuid.New()
-	cryptoSvc.On("WrapKey", mock.Anything, mock.Anything).Return(nil, fmt.Errorf("wrap error"))
+	sc := newDeniedContainer(nil, cryptoSvc)
 
-	sc := &keysTestContainer{
-		MockServiceContainer: &testutils.MockServiceContainer{},
-		cryptoSvc:            cryptoSvc,
-	}
 	claims := &model.Claims{UserID: userID, Role: model.RoleAdmin}
 	ctx := context.WithValue(context.Background(), common.ClaimsKey, claims)
 	ctx = context.WithValue(ctx, common.LogKey, newLogger())
 	ctx = context.WithValue(ctx, common.ServiceContainerKey, sc)
 
-	cleanup := viperSet(map[string]any{
+	cleanup := viperSet(map[string]interface{}{
+		"wrap-key-id":       keyID.String(),
+		"wrap-key-material": base64.StdEncoding.EncodeToString([]byte("plaintext")),
+	})
+	defer cleanup()
+
+	cmd, _ := newTestCmd(wrapCmd.RunE, nil)
+	cmd.SetContext(ctx)
+	err := cmd.Execute()
+	assert.ErrorContains(t, err, "forbidden")
+	cryptoSvc.AssertNotCalled(t, "WrapKey", mock.Anything, mock.Anything)
+}
+
+func TestWrapCmd_Authorized(t *testing.T) {
+	cryptoSvc := &keyCmdCryptoService{}
+	userID := uuid.New()
+	keyID := uuid.New()
+	plaintext := []byte("my-secret-key-material")
+	wrapped := []byte("wrapped-bytes")
+	sc, vaultID := newAllowedContainer(nil, cryptoSvc)
+
+	roles := &testutils.MockRoleAssignmentService{}
+	roles.On("HasDataAction", mock.Anything, userID, vaultID, model.ActionKeysWrap).
+		Return(true, nil).Once()
+	policies := &testutils.MockAccessPolicyService{}
+	policies.On("CheckAccess", mock.Anything, userID, model.PolicyResourceKeys, model.OpCreate, vaultID).
+		Return(authzServices.AccessAllowed, nil).Once()
+	sc.RoleAssignmentService = roles
+	sc.AccessPolicyService = policies
+
+	cryptoSvc.On("WrapKey", mock.Anything, mock.MatchedBy(func(r keyServices.WrapKeyRequest) bool {
+		return r.KeyID == keyID && r.UserID == userID &&
+			r.VaultID == vaultID && r.Scope == model.NewVaultScope(vaultID, userID)
+	})).Return(&keyServices.WrapKeyResult{WrappedKey: wrapped}, nil)
+
+	claims := &model.Claims{UserID: userID, Role: model.RoleAdmin}
+	ctx := context.WithValue(context.Background(), common.ClaimsKey, claims)
+	ctx = context.WithValue(ctx, common.LogKey, newLogger())
+	ctx = context.WithValue(ctx, common.ServiceContainerKey, sc)
+
+	cleanup := viperSet(map[string]interface{}{
+		"wrap-key-id":       keyID.String(),
+		"wrap-key-material": base64.StdEncoding.EncodeToString(plaintext),
+	})
+	defer cleanup()
+
+	cmd, _ := newTestCmd(wrapCmd.RunE, nil)
+	cmd.SetContext(ctx)
+	err := cmd.Execute()
+	assert.NoError(t, err)
+	cryptoSvc.AssertExpectations(t)
+	roles.AssertExpectations(t)
+	policies.AssertExpectations(t)
+}
+
+func TestWrapCmd_ServiceError(t *testing.T) {
+	cryptoSvc := &keyCmdCryptoService{}
+	userID := uuid.New()
+	keyID := uuid.New()
+	sc, _ := newAllowedContainer(nil, cryptoSvc)
+	cryptoSvc.On("WrapKey", mock.Anything, mock.Anything).Return(nil, fmt.Errorf("wrap error"))
+
+	claims := &model.Claims{UserID: userID, Role: model.RoleAdmin}
+	ctx := context.WithValue(context.Background(), common.ClaimsKey, claims)
+	ctx = context.WithValue(ctx, common.LogKey, newLogger())
+	ctx = context.WithValue(ctx, common.ServiceContainerKey, sc)
+
+	cleanup := viperSet(map[string]interface{}{
 		"wrap-key-id":       keyID.String(),
 		"wrap-key-material": base64.StdEncoding.EncodeToString([]byte("plaintext")),
 	})
@@ -1373,20 +1434,18 @@ func TestUnwrapCmd_Success(t *testing.T) {
 	keyID := uuid.New()
 	wrappedBytes := []byte("wrapped-material")
 	plaintext := []byte("recovered-key")
+	sc, vaultID := newAllowedContainer(nil, cryptoSvc)
 	cryptoSvc.On("UnwrapKey", mock.Anything, mock.MatchedBy(func(r keyServices.UnwrapKeyRequest) bool {
-		return r.KeyID == keyID && r.UserID == userID && r.Scope == model.NewOwnerScope(uuid.Nil, userID)
+		return r.KeyID == keyID && r.UserID == userID &&
+			r.VaultID == vaultID && r.Scope == model.NewVaultScope(vaultID, userID)
 	})).Return(&keyServices.UnwrapKeyResult{PlaintextKey: plaintext}, nil)
 
-	sc := &keysTestContainer{
-		MockServiceContainer: &testutils.MockServiceContainer{},
-		cryptoSvc:            cryptoSvc,
-	}
 	claims := &model.Claims{UserID: userID, Role: model.RoleAdmin}
 	ctx := context.WithValue(context.Background(), common.ClaimsKey, claims)
 	ctx = context.WithValue(ctx, common.LogKey, newLogger())
 	ctx = context.WithValue(ctx, common.ServiceContainerKey, sc)
 
-	cleanup := viperSet(map[string]any{
+	cleanup := viperSet(map[string]interface{}{
 		"unwrap-key-id":      keyID.String(),
 		"unwrap-wrapped-key": base64.StdEncoding.EncodeToString(wrappedBytes),
 	})
@@ -1400,22 +1459,85 @@ func TestUnwrapCmd_Success(t *testing.T) {
 	cryptoSvc.AssertExpectations(t)
 }
 
-func TestUnwrapCmd_ServiceError(t *testing.T) {
+func TestUnwrapCmd_Denied(t *testing.T) {
 	cryptoSvc := &keyCmdCryptoService{}
 	userID := uuid.New()
 	keyID := uuid.New()
-	cryptoSvc.On("UnwrapKey", mock.Anything, mock.Anything).Return(nil, fmt.Errorf("unwrap error"))
+	sc := newDeniedContainer(nil, cryptoSvc)
 
-	sc := &keysTestContainer{
-		MockServiceContainer: &testutils.MockServiceContainer{},
-		cryptoSvc:            cryptoSvc,
-	}
 	claims := &model.Claims{UserID: userID, Role: model.RoleAdmin}
 	ctx := context.WithValue(context.Background(), common.ClaimsKey, claims)
 	ctx = context.WithValue(ctx, common.LogKey, newLogger())
 	ctx = context.WithValue(ctx, common.ServiceContainerKey, sc)
 
-	cleanup := viperSet(map[string]any{
+	cleanup := viperSet(map[string]interface{}{
+		"unwrap-key-id":      keyID.String(),
+		"unwrap-wrapped-key": base64.StdEncoding.EncodeToString([]byte("wrapped")),
+	})
+	defer cleanup()
+
+	cmd, _ := newTestCmd(unwrapCmd.RunE, nil)
+	cmd.SetContext(ctx)
+	err := cmd.Execute()
+	assert.ErrorContains(t, err, "forbidden")
+	cryptoSvc.AssertNotCalled(t, "UnwrapKey", mock.Anything, mock.Anything)
+}
+
+func TestUnwrapCmd_Authorized(t *testing.T) {
+	cryptoSvc := &keyCmdCryptoService{}
+	userID := uuid.New()
+	keyID := uuid.New()
+	wrappedBytes := []byte("wrapped-material")
+	plaintext := []byte("recovered-key")
+	sc, vaultID := newAllowedContainer(nil, cryptoSvc)
+
+	roles := &testutils.MockRoleAssignmentService{}
+	roles.On("HasDataAction", mock.Anything, userID, vaultID, model.ActionKeysUnwrap).
+		Return(true, nil).Once()
+	policies := &testutils.MockAccessPolicyService{}
+	policies.On("CheckAccess", mock.Anything, userID, model.PolicyResourceKeys, model.OpCreate, vaultID).
+		Return(authzServices.AccessAllowed, nil).Once()
+	sc.RoleAssignmentService = roles
+	sc.AccessPolicyService = policies
+
+	cryptoSvc.On("UnwrapKey", mock.Anything, mock.MatchedBy(func(r keyServices.UnwrapKeyRequest) bool {
+		return r.KeyID == keyID && r.UserID == userID &&
+			r.VaultID == vaultID && r.Scope == model.NewVaultScope(vaultID, userID)
+	})).Return(&keyServices.UnwrapKeyResult{PlaintextKey: plaintext}, nil)
+
+	claims := &model.Claims{UserID: userID, Role: model.RoleAdmin}
+	ctx := context.WithValue(context.Background(), common.ClaimsKey, claims)
+	ctx = context.WithValue(ctx, common.LogKey, newLogger())
+	ctx = context.WithValue(ctx, common.ServiceContainerKey, sc)
+
+	cleanup := viperSet(map[string]interface{}{
+		"unwrap-key-id":      keyID.String(),
+		"unwrap-wrapped-key": base64.StdEncoding.EncodeToString(wrappedBytes),
+	})
+	defer cleanup()
+
+	cmd, _ := newTestCmd(unwrapCmd.RunE, nil)
+	cmd.SetContext(ctx)
+	err := cmd.Execute()
+	assert.NoError(t, err)
+	cryptoSvc.AssertExpectations(t)
+	roles.AssertExpectations(t)
+	policies.AssertExpectations(t)
+}
+
+func TestUnwrapCmd_ServiceError(t *testing.T) {
+	cryptoSvc := &keyCmdCryptoService{}
+	userID := uuid.New()
+	keyID := uuid.New()
+	sc, _ := newAllowedContainer(nil, cryptoSvc)
+	cryptoSvc.On("UnwrapKey", mock.Anything, mock.Anything).Return(nil, fmt.Errorf("unwrap error"))
+
+	claims := &model.Claims{UserID: userID, Role: model.RoleAdmin}
+	ctx := context.WithValue(context.Background(), common.ClaimsKey, claims)
+	ctx = context.WithValue(ctx, common.LogKey, newLogger())
+	ctx = context.WithValue(ctx, common.ServiceContainerKey, sc)
+
+	cleanup := viperSet(map[string]interface{}{
 		"unwrap-key-id":      keyID.String(),
 		"unwrap-wrapped-key": base64.StdEncoding.EncodeToString([]byte("wrapped")),
 	})
@@ -1427,26 +1549,23 @@ func TestUnwrapCmd_ServiceError(t *testing.T) {
 	assert.ErrorContains(t, err, "unwrap failed")
 }
 
-func TestWrapCmd_SetsDefaultVaultID(t *testing.T) {
+func TestWrapCmd_SetsResolvedVaultID(t *testing.T) {
 	cryptoSvc := &keyCmdCryptoService{}
 	userID := uuid.New()
 	keyID := uuid.New()
 	plaintext := []byte("my-secret-key-material")
 	wrapped := []byte("wrapped-bytes")
+	sc, vaultID := newAllowedContainer(nil, cryptoSvc)
 	cryptoSvc.On("WrapKey", mock.Anything, mock.MatchedBy(func(r keyServices.WrapKeyRequest) bool {
-		return r.VaultID == uuid.MustParse(model.DefaultVaultID)
+		return r.VaultID == vaultID && r.VaultID == uuid.MustParse(model.DefaultVaultID)
 	})).Return(&keyServices.WrapKeyResult{WrappedKey: wrapped}, nil)
 
-	sc := &keysTestContainer{
-		MockServiceContainer: &testutils.MockServiceContainer{},
-		cryptoSvc:            cryptoSvc,
-	}
 	claims := &model.Claims{UserID: userID, Role: model.RoleAdmin}
 	ctx := context.WithValue(context.Background(), common.ClaimsKey, claims)
 	ctx = context.WithValue(ctx, common.LogKey, newLogger())
 	ctx = context.WithValue(ctx, common.ServiceContainerKey, sc)
 
-	cleanup := viperSet(map[string]any{
+	cleanup := viperSet(map[string]interface{}{
 		"wrap-key-id":       keyID.String(),
 		"wrap-key-material": base64.StdEncoding.EncodeToString(plaintext),
 	})
@@ -1459,26 +1578,23 @@ func TestWrapCmd_SetsDefaultVaultID(t *testing.T) {
 	cryptoSvc.AssertExpectations(t)
 }
 
-func TestUnwrapCmd_SetsDefaultVaultID(t *testing.T) {
+func TestUnwrapCmd_SetsResolvedVaultID(t *testing.T) {
 	cryptoSvc := &keyCmdCryptoService{}
 	userID := uuid.New()
 	keyID := uuid.New()
 	wrapped := []byte("wrapped-bytes")
 	plaintext := []byte("recovered-key-material")
+	sc, vaultID := newAllowedContainer(nil, cryptoSvc)
 	cryptoSvc.On("UnwrapKey", mock.Anything, mock.MatchedBy(func(r keyServices.UnwrapKeyRequest) bool {
-		return r.VaultID == uuid.MustParse(model.DefaultVaultID)
+		return r.VaultID == vaultID && r.VaultID == uuid.MustParse(model.DefaultVaultID)
 	})).Return(&keyServices.UnwrapKeyResult{PlaintextKey: plaintext}, nil)
 
-	sc := &keysTestContainer{
-		MockServiceContainer: &testutils.MockServiceContainer{},
-		cryptoSvc:            cryptoSvc,
-	}
 	claims := &model.Claims{UserID: userID, Role: model.RoleAdmin}
 	ctx := context.WithValue(context.Background(), common.ClaimsKey, claims)
 	ctx = context.WithValue(ctx, common.LogKey, newLogger())
 	ctx = context.WithValue(ctx, common.ServiceContainerKey, sc)
 
-	cleanup := viperSet(map[string]any{
+	cleanup := viperSet(map[string]interface{}{
 		"unwrap-key-id":      keyID.String(),
 		"unwrap-wrapped-key": base64.StdEncoding.EncodeToString(wrapped),
 	})

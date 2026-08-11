@@ -30,6 +30,7 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 
+	"rocketvault/cmd/vaultcli"
 	"rocketvault/common"
 	"rocketvault/internal/container"
 	"rocketvault/internal/logging"
@@ -80,13 +81,20 @@ var unwrapCmd = &cobra.Command{
 			log.LogAuditError(claims.UserID.String(), "unwrap_key", "failed", "service container not available", nil)
 			return fmt.Errorf("service container not available in context")
 		}
+
+		vaultID, err := vaultcli.RequireDataAction(ctx, cmd, serviceContainer, claims.UserID, model.ActionKeysUnwrap, model.OpCreate)
+		if err != nil {
+			log.LogAuditError(claims.UserID.String(), "unwrap_key", "failed", fmt.Sprintf("vault authorization failed: %s", err), err)
+			return fmt.Errorf("vault authorization failed: %w", err)
+		}
+
 		cryptoService := serviceContainer.GetCryptoService()
 
 		result, err := cryptoService.UnwrapKey(ctx, keyServices.UnwrapKeyRequest{
 			KeyID:      keyID,
 			UserID:     claims.UserID,
-			VaultID:    uuid.MustParse(model.DefaultVaultID),
-			Scope:      model.NewOwnerScope(uuid.Nil, claims.UserID),
+			VaultID:    vaultID,
+			Scope:      model.NewVaultScope(vaultID, claims.UserID),
 			WrappedKey: wrappedKey,
 			Algorithm:  "RSA-OAEP",
 		})
