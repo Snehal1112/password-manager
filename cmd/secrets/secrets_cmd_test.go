@@ -122,7 +122,7 @@ func TestGetCmd_Success_WithFormatter(t *testing.T) {
 		Tags:      []string{"env:prod"},
 	}
 
-	tc.MockSecretService.On("GetSecret", mock.Anything, secretID, model.NewVaultScope(tc.TestVaultID, uuid.Nil)).Return(secret, nil)
+	tc.MockSecretService.On("GetSecret", mock.Anything, secretID, model.NewVaultScope(tc.TestVaultID, tc.TestUserID)).Return(secret, nil)
 	tc.MockContainer.On("GetSecretService").Return(tc.MockSecretService)
 
 	ctx := buildSecCtx(tc.MockContainer, tc.TestUserID)
@@ -141,7 +141,7 @@ func TestGetCmd_ServiceError(t *testing.T) {
 	tc := testutils.NewTestContext(t)
 	secretID := uuid.New()
 
-	tc.MockSecretService.On("GetSecret", mock.Anything, secretID, model.NewVaultScope(tc.TestVaultID, uuid.Nil)).
+	tc.MockSecretService.On("GetSecret", mock.Anything, secretID, model.NewVaultScope(tc.TestVaultID, tc.TestUserID)).
 		Return(nil, fmt.Errorf("not found"))
 	tc.MockContainer.On("GetSecretService").Return(tc.MockSecretService)
 
@@ -169,7 +169,7 @@ func TestGetCmd_NoFormatter(t *testing.T) {
 		CreatedAt: now,
 	}
 
-	tc.MockSecretService.On("GetSecret", mock.Anything, secretID, model.NewVaultScope(tc.TestVaultID, uuid.Nil)).Return(secret, nil)
+	tc.MockSecretService.On("GetSecret", mock.Anything, secretID, model.NewVaultScope(tc.TestVaultID, tc.TestUserID)).Return(secret, nil)
 	tc.MockContainer.On("GetSecretService").Return(tc.MockSecretService)
 
 	ctx := buildSecCtxNoFormatter(tc.MockContainer, tc.TestUserID)
@@ -181,6 +181,27 @@ func TestGetCmd_NoFormatter(t *testing.T) {
 	err := cmd.Execute()
 	assert.ErrorContains(t, err, "output formatter not available")
 	tc.MockSecretService.AssertExpectations(t)
+}
+
+func TestGetCmd_Forbidden(t *testing.T) {
+	tc := testutils.NewTestContext(t)
+	tc.MockContainer.On("GetSecretService").Return(tc.MockSecretService)
+
+	denyRoles := &testutils.MockRoleAssignmentService{}
+	denyRoles.On("HasDataAction", mock.Anything, mock.Anything, mock.Anything, mock.Anything).
+		Return(false, nil).Maybe()
+	tc.MockContainer.RoleAssignmentService = denyRoles
+
+	secretID := uuid.New()
+	ctx := buildSecCtx(tc.MockContainer, tc.TestUserID)
+
+	cmd, _ := newSecTestCmd(getCmd.RunE, []string{secretID.String()})
+	cmd.Args = cobra.ExactArgs(1)
+	cmd.SetContext(ctx)
+
+	err := cmd.Execute()
+	assert.ErrorContains(t, err, "forbidden")
+	tc.MockSecretService.AssertNotCalled(t, "GetSecret", mock.Anything, mock.Anything, mock.Anything)
 }
 
 // ---- deleteCmd ----
@@ -195,7 +216,9 @@ func TestDeleteCmd_InvalidUUID(t *testing.T) {
 
 func TestDeleteCmd_NoServiceContainer(t *testing.T) {
 	secretID := uuid.New()
-	ctx := context.WithValue(context.Background(), common.LogKey, newSecLogger())
+	ctx := context.Background()
+	ctx = context.WithValue(ctx, common.UserIDKey, uuid.New())
+	ctx = context.WithValue(ctx, common.LogKey, newSecLogger())
 	// No ServiceContainerKey.
 
 	cmd, _ := newSecTestCmd(deleteCmd.RunE, []string{secretID.String()})
@@ -209,7 +232,7 @@ func TestDeleteCmd_Success(t *testing.T) {
 	tc := testutils.NewTestContext(t)
 	secretID := uuid.New()
 
-	tc.MockSecretService.On("DeleteSecret", mock.Anything, secretID, model.NewVaultScope(tc.TestVaultID, uuid.Nil)).Return(nil)
+	tc.MockSecretService.On("DeleteSecret", mock.Anything, secretID, model.NewVaultScope(tc.TestVaultID, tc.TestUserID)).Return(nil)
 	tc.MockContainer.On("GetSecretService").Return(tc.MockSecretService)
 
 	cmd, _ := newSecTestCmd(deleteCmd.RunE, []string{secretID.String()})
@@ -224,7 +247,7 @@ func TestDeleteCmd_ServiceError(t *testing.T) {
 	tc := testutils.NewTestContext(t)
 	secretID := uuid.New()
 
-	tc.MockSecretService.On("DeleteSecret", mock.Anything, secretID, model.NewVaultScope(tc.TestVaultID, uuid.Nil)).
+	tc.MockSecretService.On("DeleteSecret", mock.Anything, secretID, model.NewVaultScope(tc.TestVaultID, tc.TestUserID)).
 		Return(fmt.Errorf("delete failed"))
 	tc.MockContainer.On("GetSecretService").Return(tc.MockSecretService)
 
@@ -243,9 +266,9 @@ func TestDeleteCmd_ServiceContract_Success(t *testing.T) {
 	tc := testutils.NewTestContext(t)
 	secretID := uuid.New()
 
-	tc.MockSecretService.On("DeleteSecret", mock.Anything, secretID, model.NewVaultScope(tc.TestVaultID, uuid.Nil)).Return(nil)
+	tc.MockSecretService.On("DeleteSecret", mock.Anything, secretID, model.NewVaultScope(tc.TestVaultID, tc.TestUserID)).Return(nil)
 
-	err := tc.MockSecretService.DeleteSecret(context.Background(), secretID, model.NewVaultScope(tc.TestVaultID, uuid.Nil))
+	err := tc.MockSecretService.DeleteSecret(context.Background(), secretID, model.NewVaultScope(tc.TestVaultID, tc.TestUserID))
 	assert.NoError(t, err)
 	tc.MockSecretService.AssertExpectations(t)
 }
@@ -254,13 +277,33 @@ func TestDeleteCmd_ServiceContract_Error(t *testing.T) {
 	tc := testutils.NewTestContext(t)
 	secretID := uuid.New()
 
-	tc.MockSecretService.On("DeleteSecret", mock.Anything, secretID, model.NewVaultScope(tc.TestVaultID, uuid.Nil)).
+	tc.MockSecretService.On("DeleteSecret", mock.Anything, secretID, model.NewVaultScope(tc.TestVaultID, tc.TestUserID)).
 		Return(fmt.Errorf("delete failed"))
 
-	err := tc.MockSecretService.DeleteSecret(context.Background(), secretID, model.NewVaultScope(tc.TestVaultID, uuid.Nil))
+	err := tc.MockSecretService.DeleteSecret(context.Background(), secretID, model.NewVaultScope(tc.TestVaultID, tc.TestUserID))
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "delete failed")
 	tc.MockSecretService.AssertExpectations(t)
+}
+
+func TestDeleteCmd_Forbidden(t *testing.T) {
+	tc := testutils.NewTestContext(t)
+	tc.MockContainer.On("GetSecretService").Return(tc.MockSecretService)
+
+	denyRoles := &testutils.MockRoleAssignmentService{}
+	denyRoles.On("HasDataAction", mock.Anything, mock.Anything, mock.Anything, mock.Anything).
+		Return(false, nil).Maybe()
+	tc.MockContainer.RoleAssignmentService = denyRoles
+
+	secretID := uuid.New()
+
+	cmd, _ := newSecTestCmd(deleteCmd.RunE, []string{secretID.String()})
+	cmd.Args = cobra.ExactArgs(1)
+	cmd.SetContext(tc.Ctx)
+
+	err := cmd.Execute()
+	assert.ErrorContains(t, err, "forbidden")
+	tc.MockSecretService.AssertNotCalled(t, "DeleteSecret", mock.Anything, mock.Anything, mock.Anything)
 }
 
 // ---- listCmd full RunE path tests ----

@@ -41,12 +41,12 @@ import (
 // TestSecretsGetBuildsAVaultScope pins that the CLI resolves --vault into a
 // vault scope rather than calling a *InVault method.
 func TestSecretsGetBuildsAVaultScope(t *testing.T) {
-	svc, cmd, vaultID := newCLIScopeFixture(t, func() *cobra.Command {
+	svc, cmd, vaultID, userID := newCLIScopeFixture(t, func() *cobra.Command {
 		return &cobra.Command{Use: "get [id]", Args: cobra.ExactArgs(1), RunE: getCmd.RunE}
 	})
 	secretID := uuid.New()
 
-	svc.On("GetSecret", mock.Anything, secretID, model.NewVaultScope(vaultID, uuid.Nil)).
+	svc.On("GetSecret", mock.Anything, secretID, model.NewVaultScope(vaultID, userID)).
 		Return(&model.Secret{ID: secretID, Name: "s", Value: "v", Version: 1}, nil).Once()
 
 	cmd.SetArgs([]string{secretID.String()})
@@ -55,7 +55,7 @@ func TestSecretsGetBuildsAVaultScope(t *testing.T) {
 }
 
 func TestSecretsListBuildsAVaultScope(t *testing.T) {
-	svc, cmd, vaultID := newCLIScopeFixture(t, func() *cobra.Command {
+	svc, cmd, vaultID, _ := newCLIScopeFixture(t, func() *cobra.Command {
 		c := &cobra.Command{Use: "list", RunE: listCmd.RunE}
 		c.Flags().StringSlice("tags", []string{}, "Tags to filter secrets (comma-separated)")
 		return c
@@ -69,12 +69,12 @@ func TestSecretsListBuildsAVaultScope(t *testing.T) {
 }
 
 func TestSecretsDeleteBuildsAVaultScope(t *testing.T) {
-	svc, cmd, vaultID := newCLIScopeFixture(t, func() *cobra.Command {
+	svc, cmd, vaultID, userID := newCLIScopeFixture(t, func() *cobra.Command {
 		return &cobra.Command{Use: "delete [id]", Args: cobra.ExactArgs(1), RunE: deleteCmd.RunE}
 	})
 	secretID := uuid.New()
 
-	svc.On("DeleteSecret", mock.Anything, secretID, model.NewVaultScope(vaultID, uuid.Nil)).
+	svc.On("DeleteSecret", mock.Anything, secretID, model.NewVaultScope(vaultID, userID)).
 		Return(nil).Once()
 
 	cmd.SetArgs([]string{secretID.String()})
@@ -83,19 +83,20 @@ func TestSecretsDeleteBuildsAVaultScope(t *testing.T) {
 }
 
 // newCLIScopeFixture returns the mock secret service, a command wired to the
-// test context, and the vault id resolveVaultID will produce. buildCmd
-// constructs a fresh cobra.Command per test, registering only the flags that
-// command reads, so flag registration cannot collide across the three
-// commands exercised in this file (get and delete take none, list takes
-// --tags).
+// test context, the vault id resolveVaultID/vaultcli.RequireDataAction will
+// produce, and the authenticated test user id. buildCmd constructs a fresh
+// cobra.Command per test, registering only the flags that command reads, so
+// flag registration cannot collide across the three commands exercised in
+// this file (get and delete take none, list takes --tags).
 //
 // It reuses testutils.NewTestContext(t), which wires a MockServiceContainer
 // into the context under common.ServiceContainerKey and pre-registers a
-// GetVault(ctx, "default") expectation returning the default vault, so
-// resolveVaultID resolves to tc.TestVaultID without extra setup. It also
-// attaches an output formatter, since the get/list RunE paths require one to
-// reach the point where the scoped service call happens.
-func newCLIScopeFixture(t *testing.T, buildCmd func() *cobra.Command) (*testutils.MockSecretService, *cobra.Command, uuid.UUID) {
+// GetVault(ctx, "default") expectation returning the default vault, plus a
+// default-allow RoleAssignmentService, so both vault resolution and the
+// authorization check succeed without extra setup. It also attaches an
+// output formatter, since the get/list RunE paths require one to reach the
+// point where the scoped service call happens.
+func newCLIScopeFixture(t *testing.T, buildCmd func() *cobra.Command) (*testutils.MockSecretService, *cobra.Command, uuid.UUID, uuid.UUID) {
 	t.Helper()
 
 	tc := testutils.NewTestContext(t)
@@ -112,5 +113,5 @@ func newCLIScopeFixture(t *testing.T, buildCmd func() *cobra.Command) (*testutil
 	cmd.SetOut(&out)
 	cmd.SetErr(&out)
 
-	return tc.MockSecretService, cmd, tc.TestVaultID
+	return tc.MockSecretService, cmd, tc.TestVaultID, tc.TestUserID
 }

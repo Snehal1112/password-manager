@@ -29,6 +29,7 @@ import (
 	"github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
 
+	"rocketvault/cmd/vaultcli"
 	"rocketvault/common"
 	"rocketvault/internal/container"
 	"rocketvault/model"
@@ -51,6 +52,11 @@ var deleteCmd = &cobra.Command{
 
 		ctx := cmd.Context()
 
+		userID, ok := ctx.Value(common.UserIDKey).(uuid.UUID)
+		if !ok {
+			return fmt.Errorf("user ID not available in context")
+		}
+
 		// Get service container and secret service
 		serviceContainer, ok := ctx.Value(common.ServiceContainerKey).(container.ServiceContainerInterface)
 		if !ok || serviceContainer == nil {
@@ -58,14 +64,17 @@ var deleteCmd = &cobra.Command{
 		}
 		secretService := serviceContainer.GetSecretService()
 
-		// Resolve the target vault by name.
-		vaultID, err := resolveVaultID(ctx, cmd, serviceContainer)
+		// Resolve the target vault by name and check the caller holds a role
+		// assignment in it granting ActionSecretsDelete.
+		vaultID, err := vaultcli.RequireDataAction(ctx, cmd, serviceContainer, userID, model.ActionSecretsDelete, model.OpDelete)
 		if err != nil {
-			return fmt.Errorf("failed to resolve vault: %w", err)
+			return err
 		}
 
-		// Delete secret via service (includes access control).
-		err = secretService.DeleteSecret(ctx, secretID, model.NewVaultScope(vaultID, uuid.Nil))
+		// Delete secret via service (includes access control). The scope's
+		// actor is the real authenticated caller, not uuid.Nil, so the audit
+		// row for this delete is attributed to the person who made it.
+		err = secretService.DeleteSecret(ctx, secretID, model.NewVaultScope(vaultID, userID))
 		if err != nil {
 			return fmt.Errorf("failed to delete secret: %w", err)
 		}

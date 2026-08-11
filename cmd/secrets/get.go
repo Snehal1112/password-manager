@@ -31,6 +31,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/spf13/cobra"
 
+	"rocketvault/cmd/vaultcli"
 	"rocketvault/common"
 	"rocketvault/internal/container"
 	"rocketvault/internal/formatter"
@@ -58,18 +59,25 @@ var getCmd = &cobra.Command{
 
 		ctx := cmd.Context()
 
+		userID, ok := ctx.Value(common.UserIDKey).(uuid.UUID)
+		if !ok {
+			return fmt.Errorf("user ID not available in context")
+		}
+
 		serviceContainer, ok := ctx.Value(common.ServiceContainerKey).(container.ServiceContainerInterface)
 		if !ok || serviceContainer == nil {
 			return fmt.Errorf("service container not available in context")
 		}
 		secretService := serviceContainer.GetSecretService()
 
-		vaultID, err := resolveVaultID(ctx, cmd, serviceContainer)
+		vaultID, err := vaultcli.RequireDataAction(ctx, cmd, serviceContainer, userID, model.ActionSecretsGet, model.OpGet)
 		if err != nil {
 			return err
 		}
 
-		secret, err := secretService.GetSecret(ctx, secretID, model.NewVaultScope(vaultID, uuid.Nil))
+		// The scope's actor is the real authenticated caller, not uuid.Nil, so
+		// the audit row for this read is attributed to the person who made it.
+		secret, err := secretService.GetSecret(ctx, secretID, model.NewVaultScope(vaultID, userID))
 		if err != nil {
 			return fmt.Errorf("failed to retrieve secret: %w", err)
 		}
