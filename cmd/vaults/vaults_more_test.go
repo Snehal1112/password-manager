@@ -314,7 +314,9 @@ func TestVaultsDelete_ServiceError(t *testing.T) {
 
 func TestVaultsUpdate_ServiceError(t *testing.T) {
 	tc := testutils.NewTestContext(t)
-	tc.MockVaultService.On("UpdateVault", mock.Anything, "error-vault", mock.Anything, uuid.Nil).
+	tc.MockVaultService.On("ListVaults", mock.Anything, true).
+		Return([]model.Vault{{ID: uuid.New(), Name: "error-vault"}}, nil)
+	tc.MockVaultService.On("UpdateVault", mock.Anything, "error-vault", mock.Anything, tc.TestUserID).
 		Return(nil, fmt.Errorf("update rejected"))
 
 	cmd := &cobra.Command{Use: "update", Args: updateCmd.Args, RunE: updateCmd.RunE}
@@ -331,8 +333,10 @@ func TestVaultsUpdate_ServiceError(t *testing.T) {
 
 func TestVaultsUpdate_NoFormatter(t *testing.T) {
 	tc := testutils.NewTestContext(t)
+	tc.MockVaultService.On("ListVaults", mock.Anything, true).
+		Return([]model.Vault{{ID: uuid.New(), Name: "nofmt-vault"}}, nil)
 	updated := &model.Vault{ID: uuid.New(), Name: "nofmt-vault", Enabled: false}
-	tc.MockVaultService.On("UpdateVault", mock.Anything, "nofmt-vault", mock.Anything, uuid.Nil).
+	tc.MockVaultService.On("UpdateVault", mock.Anything, "nofmt-vault", mock.Anything, tc.TestUserID).
 		Return(updated, nil)
 
 	cmd := &cobra.Command{Use: "update", Args: updateCmd.Args, RunE: updateCmd.RunE}
@@ -357,11 +361,13 @@ func TestVaultsUpdate_WithPurgeAndRetention(t *testing.T) {
 		PurgeProtection: true,
 		RetentionDays:   45,
 	}
+	tc.MockVaultService.On("ListVaults", mock.Anything, true).
+		Return([]model.Vault{{ID: uuid.New(), Name: "full-update-vault"}}, nil)
 	tc.MockVaultService.On("UpdateVault", mock.Anything, "full-update-vault",
 		mock.MatchedBy(func(r model.UpdateVaultRequest) bool {
 			return r.PurgeProtection != nil && *r.PurgeProtection &&
 				r.RetentionDays != nil && *r.RetentionDays == 45
-		}), uuid.Nil).Return(updated, nil)
+		}), tc.TestUserID).Return(updated, nil)
 
 	cmd := &cobra.Command{Use: "update", Args: updateCmd.Args, RunE: updateCmd.RunE}
 	cmd.Flags().Bool("enabled", true, "")

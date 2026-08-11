@@ -5,7 +5,6 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/google/uuid"
 	"github.com/spf13/cobra"
 
 	"rocketvault/common"
@@ -35,6 +34,13 @@ var updateCmd = &cobra.Command{
 		if !ok || serviceContainer == nil {
 			return fmt.Errorf("service container not available in context")
 		}
+		if err := requireCanManageVault(ctx, serviceContainer, name); err != nil {
+			return err
+		}
+		_, callerID, err := callerIdentity(ctx)
+		if err != nil {
+			return err
+		}
 		vaultService := serviceContainer.GetVaultService()
 
 		var req model.UpdateVaultRequest
@@ -51,8 +57,7 @@ var updateCmd = &cobra.Command{
 			req.RetentionDays = &rd
 		}
 
-		// The CLI has no authenticated user context, so updated_by is left unset.
-		vault, err := vaultService.UpdateVault(ctx, name, req, uuid.Nil)
+		vault, err := vaultService.UpdateVault(ctx, name, req, callerID)
 		if err != nil {
 			return fmt.Errorf("failed to update vault %q: %w", name, err)
 		}
