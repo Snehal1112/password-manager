@@ -846,7 +846,7 @@ curl -s -X DELETE $BASE/api/v1/users/sessions -H "Authorization: Bearer $TOKEN"<
     <div class="flow-caption">Secrets, keys, and certificates are deny-by-default: an explicit-deny access policy is checked first and always wins, then the caller's role assignments in the resolved vault are checked. No matching assignment is a 403 — there is no implicit fallback.</div>
   </div>
 
-  <h3>The seven built-in roles</h3>
+  <h3>The built-in roles</h3>
   <table>
     <thead><tr><th>Role</th><th>Grants</th></tr></thead>
     <tbody>
@@ -857,8 +857,17 @@ curl -s -X DELETE $BASE/api/v1/users/sessions -H "Authorization: Bearer $TOKEN"<
       <tr><td><code>Key Vault Crypto User</code></td><td>Use key material: encrypt, decrypt, sign, verify, wrap, unwrap</td></tr>
       <tr><td><code>Key Vault Crypto Officer</code></td><td>Full key control, including create, import, delete, rotation</td></tr>
       <tr><td><code>Key Vault Certificates Officer</code></td><td>Full certificate control</td></tr>
+      <tr><td><code>Key Vault Purge Operator</code></td><td>Permanently purge a soft-deleted vault</td></tr>
+      <tr><td><code>Key Vault Certificate User</code></td><td>Read certificates — currently identical to Reader's certificate access; gains full parity once certificates are linked to key/secret material</td></tr>
+      <tr><td><code>Key Vault Crypto Service Encryption User</code></td><td>Read key metadata plus wrap/unwrap only — narrower than Crypto User</td></tr>
+      <tr><td><code>Key Vault Data Access Administrator</code></td><td>Grant and revoke role assignments within its own vault</td></tr>
     </tbody>
   </table>
+
+  <div class="callout callout-info">
+    <div class="callout-label">Key Vault Crypto Service Release User is not available</div>
+    <p>RocketVault has no confidential-computing/TEE attestation flow to gate, so this Azure role is intentionally not implemented — granting it would confer no capability at all.</p>
+  </div>
 
   <div class="ep">
     <div class="ep-hd"><span class="meth meth-post">POST</span> <span class="ep-path">/api/v1/vaults/{vault_name}/role-assignments</span> <span class="ep-auth">JWT · admin</span> <span class="ep-label">Grant a role</span></div>
@@ -910,13 +919,22 @@ rocketvault vault-access roles</pre>
     <p>Requesting a resource that exists in another vault returns <code>404 Not Found</code> — the two are indistinguishable by design, so a caller can't use the status code to fingerprint objects it holds no role over. <code>403</code> means: authenticated but no role assignment grants the action in <em>this</em> vault, a disabled vault, or a resource outside its validity window.</p>
   </div>
   <div class="callout callout-info">
-    <div class="callout-label">Managing role assignments is currently global-admin-only</div>
-    <p>The handler's own check accepts a per-vault <code>vaults:manage</code> access policy, but a global RBAC gate ahead of it currently rejects non-admins first — a known limitation. For now, only the <code>admin</code> account role can grant or revoke role assignments.</p>
+    <div class="callout-label">Delegating role-assignment management</div>
+    <p>Granting or revoking role assignments requires the <code>admin</code> account role, a vault-scoped <code>vaults:manage</code> access policy, or the <code>Key Vault Data Access Administrator</code> role in that vault. Grant a non-admin operator that role to let them manage access for one vault without making them a global admin: <code>rocketvault vault-access grant alice --role "Key Vault Data Access Administrator" --vault prod --username admin --password admin123 --totp-code 123456</code>.</p>
   </div>
   <div class="callout callout-warn">
     <div class="callout-label">Upgrading from a pre-4.0.0 install</div>
     <p>Run <code>rocketvault vaults preview-migration</code> before starting the new binary — it prints every role assignment the upgrade would create without writing anything. The one-time backfill derives assignments from object ownership, the legacy global <code>admin</code> role, and any pre-existing vault-scoped <code>role_assignments</code> row. It does <strong>not</strong> see access policies created via the old allow-grant API — cross-reference <code>SELECT DISTINCT principal_id, resource_type, operation, vault_id FROM access_policies WHERE effect='allow'</code> against those sources and grant any gaps manually, before or immediately after upgrading.</p>
   </div>
+
+  <div class="ep">
+    <div class="ep-hd"><span class="meth meth-delete">DELETE</span> <span class="ep-path">/api/v1/vaults/{vault_name}/purge</span> <span class="ep-auth">JWT</span> <span class="ep-label">Permanently purge a vault</span></div>
+    <div class="tab-bar"><button class="tab-btn active">cURL</button><button class="tab-btn">CLI</button></div>
+    <div class="tab-pane active"><pre class="code">curl -s -X DELETE $BASE/api/v1/vaults/prod/purge -H "Authorization: Bearer $TOKEN"</pre></div>
+    <div class="tab-pane"><pre class="code">rocketvault vaults purge prod --username admin --password admin123 --totp-code 123456</pre></div>
+    <details class="collapse"><summary>Notes</summary><div class="inner">Requires the <code>Key Vault Purge Operator</code> role (or admin) in the target vault — a role assignment, not an access policy, since this is a vault data-plane route. Refuses the default vault and any vault with purge protection enabled (400 either way). 404 if the vault doesn't exist.</div></details>
+  </div>
+
   <p class="see-also">See also: <a href="release-notes/v4.0.0-azure-rbac.md">Release Notes — v4.0.0 Azure RBAC</a>, <a href="#access-policies">Access Policies</a></p>
 </section>
 
