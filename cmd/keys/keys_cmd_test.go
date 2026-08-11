@@ -945,12 +945,9 @@ func TestDeleteCmd_Success(t *testing.T) {
 	keySvc := &keyCmdKeyService{}
 	userID := uuid.New()
 	keyID := uuid.New()
-	keySvc.On("DeleteKey", mock.Anything, keyID, model.NewOwnerScope(uuid.Nil, userID)).Return(nil, nil)
+	sc, vaultID := newAllowedContainer(keySvc, nil)
+	keySvc.On("DeleteKey", mock.Anything, keyID, model.NewVaultScope(vaultID, userID)).Return(nil, nil)
 
-	sc := &keysTestContainer{
-		MockServiceContainer: &testutils.MockServiceContainer{},
-		keySvc:               keySvc,
-	}
 	claims := &model.Claims{UserID: userID, Role: model.RoleAdmin}
 	ctx := context.WithValue(context.Background(), common.ClaimsKey, claims)
 	ctx = context.WithValue(ctx, common.LogKey, newLogger())
@@ -964,16 +961,64 @@ func TestDeleteCmd_Success(t *testing.T) {
 	keySvc.AssertExpectations(t)
 }
 
+func TestDeleteCmd_Denied(t *testing.T) {
+	keySvc := &keyCmdKeyService{}
+	userID := uuid.New()
+	keyID := uuid.New()
+	sc := newDeniedContainer(keySvc, nil)
+
+	claims := &model.Claims{UserID: userID, Role: model.RoleAdmin}
+	ctx := context.WithValue(context.Background(), common.ClaimsKey, claims)
+	ctx = context.WithValue(ctx, common.LogKey, newLogger())
+	ctx = context.WithValue(ctx, common.ServiceContainerKey, sc)
+
+	cmd, _ := newTestCmd(deleteCmd.RunE, []string{keyID.String()})
+	cmd.Args = cobra.ExactArgs(1)
+	cmd.SetContext(ctx)
+	err := cmd.Execute()
+	assert.ErrorContains(t, err, "forbidden")
+	keySvc.AssertNotCalled(t, "DeleteKey", mock.Anything, mock.Anything, mock.Anything)
+}
+
+func TestDeleteCmd_Authorized(t *testing.T) {
+	keySvc := &keyCmdKeyService{}
+	userID := uuid.New()
+	keyID := uuid.New()
+	sc, vaultID := newAllowedContainer(keySvc, nil)
+
+	roles := &testutils.MockRoleAssignmentService{}
+	roles.On("HasDataAction", mock.Anything, userID, vaultID, model.ActionKeysDelete).
+		Return(true, nil).Once()
+	policies := &testutils.MockAccessPolicyService{}
+	policies.On("CheckAccess", mock.Anything, userID, model.PolicyResourceKeys, model.OpDelete, vaultID).
+		Return(authzServices.AccessAllowed, nil).Once()
+	sc.RoleAssignmentService = roles
+	sc.AccessPolicyService = policies
+
+	keySvc.On("DeleteKey", mock.Anything, keyID, model.NewVaultScope(vaultID, userID)).Return(nil, nil)
+
+	claims := &model.Claims{UserID: userID, Role: model.RoleAdmin}
+	ctx := context.WithValue(context.Background(), common.ClaimsKey, claims)
+	ctx = context.WithValue(ctx, common.LogKey, newLogger())
+	ctx = context.WithValue(ctx, common.ServiceContainerKey, sc)
+
+	cmd, _ := newTestCmd(deleteCmd.RunE, []string{keyID.String()})
+	cmd.Args = cobra.ExactArgs(1)
+	cmd.SetContext(ctx)
+	err := cmd.Execute()
+	assert.NoError(t, err)
+	keySvc.AssertExpectations(t)
+	roles.AssertExpectations(t)
+	policies.AssertExpectations(t)
+}
+
 func TestDeleteCmd_ServiceError(t *testing.T) {
 	keySvc := &keyCmdKeyService{}
 	userID := uuid.New()
 	keyID := uuid.New()
-	keySvc.On("DeleteKey", mock.Anything, keyID, model.NewOwnerScope(uuid.Nil, userID)).Return(nil, fmt.Errorf("delete failed"))
+	sc, vaultID := newAllowedContainer(keySvc, nil)
+	keySvc.On("DeleteKey", mock.Anything, keyID, model.NewVaultScope(vaultID, userID)).Return(nil, fmt.Errorf("delete failed"))
 
-	sc := &keysTestContainer{
-		MockServiceContainer: &testutils.MockServiceContainer{},
-		keySvc:               keySvc,
-	}
 	claims := &model.Claims{UserID: userID, Role: model.RoleAdmin}
 	ctx := context.WithValue(context.Background(), common.ClaimsKey, claims)
 	ctx = context.WithValue(ctx, common.LogKey, newLogger())
@@ -1023,15 +1068,12 @@ func TestRotateCmd_Success(t *testing.T) {
 	keySvc := &keyCmdKeyService{}
 	userID := uuid.New()
 	keyID := uuid.New()
+	sc, vaultID := newAllowedContainer(keySvc, nil)
 	result := &keyServices.CreateKeyResult{
 		KeyID: uuid.New(), Name: "rotated", Type: "RSA", CreatedAt: time.Now(),
 	}
-	keySvc.On("RotateKey", mock.Anything, keyID, model.NewOwnerScope(uuid.Nil, userID)).Return(result, nil)
+	keySvc.On("RotateKey", mock.Anything, keyID, model.NewVaultScope(vaultID, userID)).Return(result, nil)
 
-	sc := &keysTestContainer{
-		MockServiceContainer: &testutils.MockServiceContainer{},
-		keySvc:               keySvc,
-	}
 	claims := &model.Claims{UserID: userID, Role: model.RoleAdmin}
 	ctx := context.WithValue(context.Background(), common.ClaimsKey, claims)
 	ctx = context.WithValue(ctx, common.LogKey, newLogger())
@@ -1045,16 +1087,67 @@ func TestRotateCmd_Success(t *testing.T) {
 	keySvc.AssertExpectations(t)
 }
 
+func TestRotateCmd_Denied(t *testing.T) {
+	keySvc := &keyCmdKeyService{}
+	userID := uuid.New()
+	keyID := uuid.New()
+	sc := newDeniedContainer(keySvc, nil)
+
+	claims := &model.Claims{UserID: userID, Role: model.RoleAdmin}
+	ctx := context.WithValue(context.Background(), common.ClaimsKey, claims)
+	ctx = context.WithValue(ctx, common.LogKey, newLogger())
+	ctx = context.WithValue(ctx, common.ServiceContainerKey, sc)
+
+	cmd, _ := newTestCmd(rotateCmd.RunE, []string{keyID.String()})
+	cmd.Args = cobra.ExactArgs(1)
+	cmd.SetContext(ctx)
+	err := cmd.Execute()
+	assert.ErrorContains(t, err, "forbidden")
+	keySvc.AssertNotCalled(t, "RotateKey", mock.Anything, mock.Anything, mock.Anything)
+}
+
+func TestRotateCmd_Authorized(t *testing.T) {
+	keySvc := &keyCmdKeyService{}
+	userID := uuid.New()
+	keyID := uuid.New()
+	sc, vaultID := newAllowedContainer(keySvc, nil)
+
+	roles := &testutils.MockRoleAssignmentService{}
+	roles.On("HasDataAction", mock.Anything, userID, vaultID, model.ActionKeysRotate).
+		Return(true, nil).Once()
+	policies := &testutils.MockAccessPolicyService{}
+	policies.On("CheckAccess", mock.Anything, userID, model.PolicyResourceKeys, model.OpRotate, vaultID).
+		Return(authzServices.AccessAllowed, nil).Once()
+	sc.RoleAssignmentService = roles
+	sc.AccessPolicyService = policies
+
+	result := &keyServices.CreateKeyResult{
+		KeyID: uuid.New(), Name: "rotated", Type: "RSA", CreatedAt: time.Now(),
+	}
+	keySvc.On("RotateKey", mock.Anything, keyID, model.NewVaultScope(vaultID, userID)).Return(result, nil)
+
+	claims := &model.Claims{UserID: userID, Role: model.RoleAdmin}
+	ctx := context.WithValue(context.Background(), common.ClaimsKey, claims)
+	ctx = context.WithValue(ctx, common.LogKey, newLogger())
+	ctx = context.WithValue(ctx, common.ServiceContainerKey, sc)
+
+	cmd, _ := newTestCmd(rotateCmd.RunE, []string{keyID.String()})
+	cmd.Args = cobra.ExactArgs(1)
+	cmd.SetContext(ctx)
+	err := cmd.Execute()
+	assert.NoError(t, err)
+	keySvc.AssertExpectations(t)
+	roles.AssertExpectations(t)
+	policies.AssertExpectations(t)
+}
+
 func TestRotateCmd_ServiceError(t *testing.T) {
 	keySvc := &keyCmdKeyService{}
 	userID := uuid.New()
 	keyID := uuid.New()
-	keySvc.On("RotateKey", mock.Anything, keyID, model.NewOwnerScope(uuid.Nil, userID)).Return(nil, fmt.Errorf("rotation failed"))
+	sc, vaultID := newAllowedContainer(keySvc, nil)
+	keySvc.On("RotateKey", mock.Anything, keyID, model.NewVaultScope(vaultID, userID)).Return(nil, fmt.Errorf("rotation failed"))
 
-	sc := &keysTestContainer{
-		MockServiceContainer: &testutils.MockServiceContainer{},
-		keySvc:               keySvc,
-	}
 	claims := &model.Claims{UserID: userID, Role: model.RoleAdmin}
 	ctx := context.WithValue(context.Background(), common.ClaimsKey, claims)
 	ctx = context.WithValue(ctx, common.LogKey, newLogger())

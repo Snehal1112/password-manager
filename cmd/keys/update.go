@@ -31,6 +31,7 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 
+	"rocketvault/cmd/vaultcli"
 	"rocketvault/common"
 	"rocketvault/internal/container"
 	keyServices "rocketvault/internal/services/keys"
@@ -70,9 +71,14 @@ var updateCmd = &cobra.Command{
 		newName, _ := cmd.Flags().GetString("name")
 		tagsStr, _ := cmd.Flags().GetString("tags")
 
+		vaultID, err := vaultcli.RequireDataAction(ctx, cmd, sc, claims.UserID, model.ActionKeysUpdate, model.OpSet)
+		if err != nil {
+			return fmt.Errorf("vault authorization failed: %w", err)
+		}
+
 		req := keyServices.UpdateKeyRequest{
 			KeyID: keyID,
-			Scope: model.NewOwnerScope(uuid.Nil, claims.UserID),
+			Scope: model.NewVaultScope(vaultID, claims.UserID),
 		}
 
 		hasUpdate := false

@@ -29,6 +29,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/spf13/cobra"
 
+	"rocketvault/cmd/vaultcli"
 	"rocketvault/common"
 	"rocketvault/internal/container"
 	"rocketvault/internal/logging"
@@ -66,9 +67,14 @@ var rotateCmd = &cobra.Command{
 		}
 		keyService := serviceContainer.GetKeyService()
 
-		// Rotate key using service. The keys CLI has no --vault flag yet, so
-		// the scope carries no vault id, matching the get/delete commands.
-		newKey, err := keyService.RotateKey(ctx, keyID, model.NewOwnerScope(uuid.Nil, claims.UserID))
+		vaultID, err := vaultcli.RequireDataAction(ctx, cmd, serviceContainer, claims.UserID, model.ActionKeysRotate, model.OpRotate)
+		if err != nil {
+			log.LogAuditError(claims.UserID.String(), "rotate_key", "failed", fmt.Sprintf("vault authorization failed: %s", err), err)
+			return fmt.Errorf("vault authorization failed: %w", err)
+		}
+
+		// Rotate key using service, scoped to the resolved --vault.
+		newKey, err := keyService.RotateKey(ctx, keyID, model.NewVaultScope(vaultID, claims.UserID))
 		if err != nil {
 			log.LogAuditError(claims.UserID.String(), "rotate_key", "failed", fmt.Sprintf("failed to rotate key: %s", err), err)
 			return fmt.Errorf("failed to rotate key: %w", err)

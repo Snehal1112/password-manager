@@ -11,6 +11,7 @@ import (
 
 	"rocketvault/cmd/testutils"
 	"rocketvault/internal/repositories"
+	authzServices "rocketvault/internal/services/authorization"
 	keyServices "rocketvault/internal/services/keys"
 	"rocketvault/model"
 )
@@ -50,7 +51,7 @@ func TestUpdateKeyCommand_CallsServiceUpdate(t *testing.T) {
 
 	mockKeySvc.On("UpdateKey", mock.Anything, mock.MatchedBy(func(r keyServices.UpdateKeyRequest) bool {
 		return r.KeyID == keyID &&
-			r.Scope == model.NewOwnerScope(uuid.Nil, tc.TestUserID) &&
+			r.Scope == model.NewVaultScope(tc.TestVaultID, tc.TestUserID) &&
 			r.Name != nil && *r.Name == "new-name"
 	})).Return(nil)
 	tc.MockContainer.On("GetKeyService").Return(mockKeySvc)
@@ -71,13 +72,80 @@ func TestUpdateKeyCommand_CallsServiceUpdate(t *testing.T) {
 	mockKeySvc.AssertExpectations(t)
 }
 
+func TestUpdateKeyCommand_Denied(t *testing.T) {
+	tc := testutils.NewTestContext(t)
+	mockKeySvc := &MockKeyServiceForUpdate{}
+	keyID := uuid.New()
+
+	denyRoles := &testutils.MockRoleAssignmentService{}
+	denyRoles.On("HasDataAction", mock.Anything, mock.Anything, mock.Anything, mock.Anything).
+		Return(false, nil).Maybe()
+	tc.MockContainer.RoleAssignmentService = denyRoles
+	tc.MockContainer.On("GetKeyService").Return(mockKeySvc)
+
+	cmd := &cobra.Command{
+		Use:  "update <id>",
+		Args: cobra.ExactArgs(1),
+		RunE: updateCmd.RunE,
+	}
+	cmd.Flags().String("name", "", "")
+	cmd.Flags().Bool("revoked", false, "")
+	cmd.Flags().String("tags", "", "")
+	cmd.SetArgs([]string{keyID.String(), "--name=new-name"})
+	cmd.SetContext(tc.Ctx)
+
+	err := cmd.Execute()
+	assert.ErrorContains(t, err, "forbidden")
+	mockKeySvc.AssertNotCalled(t, "UpdateKey", mock.Anything, mock.Anything)
+}
+
+func TestUpdateKeyCommand_Authorized(t *testing.T) {
+	tc := testutils.NewTestContext(t)
+	mockKeySvc := &MockKeyServiceForUpdate{}
+	keyID := uuid.New()
+
+	roles := &testutils.MockRoleAssignmentService{}
+	roles.On("HasDataAction", mock.Anything, tc.TestUserID, tc.TestVaultID, model.ActionKeysUpdate).
+		Return(true, nil).Once()
+	policies := &testutils.MockAccessPolicyService{}
+	policies.On("CheckAccess", mock.Anything, tc.TestUserID, model.PolicyResourceKeys, model.OpSet, tc.TestVaultID).
+		Return(authzServices.AccessAllowed, nil).Once()
+	tc.MockContainer.RoleAssignmentService = roles
+	tc.MockContainer.AccessPolicyService = policies
+
+	mockKeySvc.On("UpdateKey", mock.Anything, mock.MatchedBy(func(r keyServices.UpdateKeyRequest) bool {
+		return r.KeyID == keyID &&
+			r.Scope == model.NewVaultScope(tc.TestVaultID, tc.TestUserID) &&
+			r.Name != nil && *r.Name == "new-name"
+	})).Return(nil)
+	tc.MockContainer.On("GetKeyService").Return(mockKeySvc)
+
+	cmd := &cobra.Command{
+		Use:  "update <id>",
+		Args: cobra.ExactArgs(1),
+		RunE: updateCmd.RunE,
+	}
+	cmd.Flags().String("name", "", "")
+	cmd.Flags().Bool("revoked", false, "")
+	cmd.Flags().String("tags", "", "")
+	cmd.SetArgs([]string{keyID.String(), "--name=new-name"})
+	cmd.SetContext(tc.Ctx)
+
+	err := cmd.Execute()
+	assert.NoError(t, err)
+	mockKeySvc.AssertExpectations(t)
+	roles.AssertExpectations(t)
+	policies.AssertExpectations(t)
+}
+
 func TestUpdateKeyCommand_SetsRevoked(t *testing.T) {
 	tc := testutils.NewTestContext(t)
 	mockKeySvc := &MockKeyServiceForUpdate{}
 	keyID := uuid.New()
 
 	mockKeySvc.On("UpdateKey", mock.Anything, mock.MatchedBy(func(r keyServices.UpdateKeyRequest) bool {
-		return r.Revoked != nil && *r.Revoked == true
+		return r.Revoked != nil && *r.Revoked == true &&
+			r.Scope == model.NewVaultScope(tc.TestVaultID, tc.TestUserID)
 	})).Return(nil)
 	tc.MockContainer.On("GetKeyService").Return(mockKeySvc)
 
