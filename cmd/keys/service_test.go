@@ -200,7 +200,6 @@ func TestKeysCreateCommand(t *testing.T) {
 					// Get claims for role validation
 					claims := &model.Claims{
 						UserID: tc.TestUserID,
-						Role:   model.RoleAdmin, // Assume admin role for tests
 					}
 
 					name, _ := cmd.Flags().GetString("name")

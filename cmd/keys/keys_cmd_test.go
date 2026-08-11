@@ -222,7 +222,7 @@ func newTestFmtr() formatter.Formatter {
 }
 
 // buildAdminCtx builds a context with admin claims, logger, the given container, and formatter.
-func buildAdminCtx(sc interface{}) context.Context {
+func buildAdminCtx(sc any) context.Context {
 	userID := uuid.New()
 	claims := &model.Claims{UserID: userID, Username: "admin", Role: model.RoleAdmin}
 	ctx := context.Background()
@@ -234,7 +234,7 @@ func buildAdminCtx(sc interface{}) context.Context {
 }
 
 // buildUserCtx builds a context with non-admin (secrets_manager) claims.
-func buildUserCtx(sc interface{}, role string) context.Context {
+func buildUserCtx(sc any, role string) context.Context {
 	userID := uuid.New()
 	claims := &model.Claims{UserID: userID, Username: "user", Role: role}
 	ctx := context.Background()
@@ -258,7 +258,7 @@ func newTestCmd(runE func(*cobra.Command, []string) error, args []string) (*cobr
 }
 
 // viperSet sets viper keys and returns a cleanup func.
-func viperSet(kvs map[string]interface{}) func() {
+func viperSet(kvs map[string]any) func() {
 	for k, v := range kvs {
 		viper.Set(k, v)
 	}
@@ -282,7 +282,7 @@ func TestCreateCmd_NoClaims(t *testing.T) {
 func TestCreateCmd_ForbiddenRole(t *testing.T) {
 	sc := &testutils.MockServiceContainer{}
 	ctx := buildUserCtx(sc, model.RoleUser)
-	cleanup := viperSet(map[string]interface{}{
+	cleanup := viperSet(map[string]any{
 		"key-name": "k", "key-type": "RSA",
 	})
 	defer cleanup()
@@ -293,7 +293,7 @@ func TestCreateCmd_ForbiddenRole(t *testing.T) {
 }
 
 func TestCreateCmd_NoServiceContainer(t *testing.T) {
-	cleanup := viperSet(map[string]interface{}{
+	cleanup := viperSet(map[string]any{
 		"key-name": "mykey", "key-type": "RSA", "key-bits": 2048,
 	})
 	defer cleanup()
@@ -313,7 +313,7 @@ func TestCreateCmd_MissingName(t *testing.T) {
 		MockServiceContainer: &testutils.MockServiceContainer{},
 	}
 	ctx := buildAdminCtx(sc)
-	cleanup := viperSet(map[string]interface{}{
+	cleanup := viperSet(map[string]any{
 		"key-name": "", "key-type": "RSA",
 	})
 	defer cleanup()
@@ -328,7 +328,7 @@ func TestCreateCmd_MissingType(t *testing.T) {
 		MockServiceContainer: &testutils.MockServiceContainer{},
 	}
 	ctx := buildAdminCtx(sc)
-	cleanup := viperSet(map[string]interface{}{
+	cleanup := viperSet(map[string]any{
 		"key-name": "mykey", "key-type": "",
 	})
 	defer cleanup()
@@ -343,7 +343,7 @@ func TestCreateCmd_InvalidType(t *testing.T) {
 		MockServiceContainer: &testutils.MockServiceContainer{},
 	}
 	ctx := buildAdminCtx(sc)
-	cleanup := viperSet(map[string]interface{}{
+	cleanup := viperSet(map[string]any{
 		"key-name": "mykey", "key-type": "INVALID",
 	})
 	defer cleanup()
@@ -370,7 +370,7 @@ func TestCreateCmd_RSASuccess(t *testing.T) {
 	ctx = context.WithValue(ctx, common.ServiceContainerKey, sc)
 	ctx = context.WithValue(ctx, common.OutputFormatterKey, newTestFmtr())
 
-	cleanup := viperSet(map[string]interface{}{
+	cleanup := viperSet(map[string]any{
 		"key-name": "mykey", "key-type": "RSA", "key-bits": 2048, "key-curve": "P-256", "key-tags": "",
 	})
 	defer cleanup()
@@ -394,7 +394,7 @@ func TestCreateCmd_Denied(t *testing.T) {
 	ctx = context.WithValue(ctx, common.ServiceContainerKey, sc)
 	ctx = context.WithValue(ctx, common.OutputFormatterKey, newTestFmtr())
 
-	cleanup := viperSet(map[string]interface{}{
+	cleanup := viperSet(map[string]any{
 		"key-name": "mykey", "key-type": "RSA", "key-bits": 2048, "key-curve": "P-256", "key-tags": "",
 	})
 	defer cleanup()
@@ -434,7 +434,7 @@ func TestCreateCmd_Authorized(t *testing.T) {
 	ctx = context.WithValue(ctx, common.ServiceContainerKey, sc)
 	ctx = context.WithValue(ctx, common.OutputFormatterKey, newTestFmtr())
 
-	cleanup := viperSet(map[string]interface{}{
+	cleanup := viperSet(map[string]any{
 		"key-name": "mykey", "key-type": "RSA", "key-bits": 2048, "key-curve": "P-256", "key-tags": "",
 	})
 	defer cleanup()
@@ -465,7 +465,7 @@ func TestCreateCmd_RSAWithTags(t *testing.T) {
 	ctx = context.WithValue(ctx, common.ServiceContainerKey, sc)
 	ctx = context.WithValue(ctx, common.OutputFormatterKey, newTestFmtr())
 
-	cleanup := viperSet(map[string]interface{}{
+	cleanup := viperSet(map[string]any{
 		"key-name": "tagged-key", "key-type": "rsa", "key-bits": 2048, "key-curve": "P-256", "key-tags": "prod,infra",
 	})
 	defer cleanup()
@@ -494,7 +494,7 @@ func TestCreateCmd_ECDSASuccess(t *testing.T) {
 	ctx = context.WithValue(ctx, common.ServiceContainerKey, sc)
 	ctx = context.WithValue(ctx, common.OutputFormatterKey, newTestFmtr())
 
-	cleanup := viperSet(map[string]interface{}{
+	cleanup := viperSet(map[string]any{
 		"key-name": "eckey", "key-type": "ECDSA", "key-bits": 2048, "key-curve": "P-256", "key-tags": "",
 	})
 	defer cleanup()
@@ -518,7 +518,7 @@ func TestCreateCmd_ServiceError(t *testing.T) {
 	ctx = context.WithValue(ctx, common.ServiceContainerKey, sc)
 	ctx = context.WithValue(ctx, common.OutputFormatterKey, newTestFmtr())
 
-	cleanup := viperSet(map[string]interface{}{
+	cleanup := viperSet(map[string]any{
 		"key-name": "failkey", "key-type": "RSA", "key-bits": 2048, "key-curve": "", "key-tags": "",
 	})
 	defer cleanup()
@@ -542,7 +542,7 @@ func TestCreateCmd_NoFormatter(t *testing.T) {
 	ctx = context.WithValue(ctx, common.ServiceContainerKey, sc)
 	// No OutputFormatterKey.
 
-	cleanup := viperSet(map[string]interface{}{
+	cleanup := viperSet(map[string]any{
 		"key-name": "k", "key-type": "RSA", "key-bits": 2048, "key-curve": "", "key-tags": "",
 	})
 	defer cleanup()
@@ -569,7 +569,7 @@ func TestListCmd_NoServiceContainer(t *testing.T) {
 	ctx = context.WithValue(ctx, common.LogKey, newLogger())
 	cmd, _ := newTestCmd(listCmd.RunE, nil)
 	cmd.SetContext(ctx)
-	cleanup := viperSet(map[string]interface{}{"type": "", "tags": ""})
+	cleanup := viperSet(map[string]any{"type": "", "tags": ""})
 	defer cleanup()
 	err := cmd.Execute()
 	assert.ErrorContains(t, err, "service container not available")
@@ -592,7 +592,7 @@ func TestListCmd_NonAdminSuccess(t *testing.T) {
 	ctx = context.WithValue(ctx, common.ServiceContainerKey, sc)
 	ctx = context.WithValue(ctx, common.OutputFormatterKey, newTestFmtr())
 
-	cleanup := viperSet(map[string]interface{}{"type": "", "tags": ""})
+	cleanup := viperSet(map[string]any{"type": "", "tags": ""})
 	defer cleanup()
 
 	cmd, buf := newTestCmd(listCmd.RunE, nil)
@@ -614,7 +614,7 @@ func TestListCmd_Denied(t *testing.T) {
 	ctx = context.WithValue(ctx, common.ServiceContainerKey, sc)
 	ctx = context.WithValue(ctx, common.OutputFormatterKey, newTestFmtr())
 
-	cleanup := viperSet(map[string]interface{}{"type": "", "tags": ""})
+	cleanup := viperSet(map[string]any{"type": "", "tags": ""})
 	defer cleanup()
 
 	cmd, _ := newTestCmd(listCmd.RunE, nil)
@@ -650,7 +650,7 @@ func TestListCmd_Authorized(t *testing.T) {
 	ctx = context.WithValue(ctx, common.ServiceContainerKey, sc)
 	ctx = context.WithValue(ctx, common.OutputFormatterKey, newTestFmtr())
 
-	cleanup := viperSet(map[string]interface{}{"type": "", "tags": ""})
+	cleanup := viperSet(map[string]any{"type": "", "tags": ""})
 	defer cleanup()
 
 	cmd, _ := newTestCmd(listCmd.RunE, nil)
@@ -675,7 +675,7 @@ func TestListCmd_NonAdminWithTags(t *testing.T) {
 	ctx = context.WithValue(ctx, common.ServiceContainerKey, sc)
 	ctx = context.WithValue(ctx, common.OutputFormatterKey, newTestFmtr())
 
-	cleanup := viperSet(map[string]interface{}{"type": "RSA", "tags": "prod,secure"})
+	cleanup := viperSet(map[string]any{"type": "RSA", "tags": "prod,secure"})
 	defer cleanup()
 
 	cmd, _ := newTestCmd(listCmd.RunE, nil)
@@ -700,7 +700,7 @@ func TestListCmd_AdminRoleAloneDoesNotBypassVaultAuthorization(t *testing.T) {
 	ctx = context.WithValue(ctx, common.ServiceContainerKey, sc)
 	ctx = context.WithValue(ctx, common.OutputFormatterKey, newTestFmtr())
 
-	cleanup := viperSet(map[string]interface{}{"type": "", "tags": ""})
+	cleanup := viperSet(map[string]any{"type": "", "tags": ""})
 	defer cleanup()
 
 	cmd, _ := newTestCmd(listCmd.RunE, nil)
@@ -726,7 +726,7 @@ func TestListCmd_ServiceError(t *testing.T) {
 	ctx = context.WithValue(ctx, common.ServiceContainerKey, sc)
 	ctx = context.WithValue(ctx, common.OutputFormatterKey, newTestFmtr())
 
-	cleanup := viperSet(map[string]interface{}{"type": "", "tags": ""})
+	cleanup := viperSet(map[string]any{"type": "", "tags": ""})
 	defer cleanup()
 
 	cmd, _ := newTestCmd(listCmd.RunE, nil)
@@ -748,7 +748,7 @@ func TestListCmd_NoFormatter(t *testing.T) {
 	ctx = context.WithValue(ctx, common.ServiceContainerKey, sc)
 	// No OutputFormatterKey.
 
-	cleanup := viperSet(map[string]interface{}{"type": "", "tags": ""})
+	cleanup := viperSet(map[string]any{"type": "", "tags": ""})
 	defer cleanup()
 
 	cmd, _ := newTestCmd(listCmd.RunE, nil)
@@ -1071,7 +1071,7 @@ func TestRotateCmd_ServiceError(t *testing.T) {
 
 func TestWrapCmd_NoClaims(t *testing.T) {
 	ctx := context.Background()
-	cleanup := viperSet(map[string]interface{}{"wrap-key-id": uuid.New().String(), "wrap-key-material": "dGVzdA=="})
+	cleanup := viperSet(map[string]any{"wrap-key-id": uuid.New().String(), "wrap-key-material": "dGVzdA=="})
 	defer cleanup()
 	cmd, _ := newTestCmd(wrapCmd.RunE, nil)
 	cmd.SetContext(ctx)
@@ -1080,7 +1080,7 @@ func TestWrapCmd_NoClaims(t *testing.T) {
 }
 
 func TestWrapCmd_MissingKeyID(t *testing.T) {
-	cleanup := viperSet(map[string]interface{}{"wrap-key-id": "", "wrap-key-material": "dGVzdA=="})
+	cleanup := viperSet(map[string]any{"wrap-key-id": "", "wrap-key-material": "dGVzdA=="})
 	defer cleanup()
 	claims := &model.Claims{UserID: uuid.New(), Role: model.RoleAdmin}
 	ctx := context.WithValue(context.Background(), common.ClaimsKey, claims)
@@ -1092,7 +1092,7 @@ func TestWrapCmd_MissingKeyID(t *testing.T) {
 }
 
 func TestWrapCmd_MissingKeyMaterial(t *testing.T) {
-	cleanup := viperSet(map[string]interface{}{"wrap-key-id": uuid.New().String(), "wrap-key-material": ""})
+	cleanup := viperSet(map[string]any{"wrap-key-id": uuid.New().String(), "wrap-key-material": ""})
 	defer cleanup()
 	claims := &model.Claims{UserID: uuid.New(), Role: model.RoleAdmin}
 	ctx := context.WithValue(context.Background(), common.ClaimsKey, claims)
@@ -1104,7 +1104,7 @@ func TestWrapCmd_MissingKeyMaterial(t *testing.T) {
 }
 
 func TestWrapCmd_InvalidKeyID(t *testing.T) {
-	cleanup := viperSet(map[string]interface{}{"wrap-key-id": "not-a-uuid", "wrap-key-material": "dGVzdA=="})
+	cleanup := viperSet(map[string]any{"wrap-key-id": "not-a-uuid", "wrap-key-material": "dGVzdA=="})
 	defer cleanup()
 	claims := &model.Claims{UserID: uuid.New(), Role: model.RoleAdmin}
 	ctx := context.WithValue(context.Background(), common.ClaimsKey, claims)
@@ -1116,7 +1116,7 @@ func TestWrapCmd_InvalidKeyID(t *testing.T) {
 }
 
 func TestWrapCmd_InvalidBase64(t *testing.T) {
-	cleanup := viperSet(map[string]interface{}{"wrap-key-id": uuid.New().String(), "wrap-key-material": "not!!valid@@base64"})
+	cleanup := viperSet(map[string]any{"wrap-key-id": uuid.New().String(), "wrap-key-material": "not!!valid@@base64"})
 	defer cleanup()
 	claims := &model.Claims{UserID: uuid.New(), Role: model.RoleAdmin}
 	ctx := context.WithValue(context.Background(), common.ClaimsKey, claims)
@@ -1129,7 +1129,7 @@ func TestWrapCmd_InvalidBase64(t *testing.T) {
 
 func TestWrapCmd_NoServiceContainer(t *testing.T) {
 	keyID := uuid.New()
-	cleanup := viperSet(map[string]interface{}{"wrap-key-id": keyID.String(), "wrap-key-material": "dGVzdA=="})
+	cleanup := viperSet(map[string]any{"wrap-key-id": keyID.String(), "wrap-key-material": "dGVzdA=="})
 	defer cleanup()
 	claims := &model.Claims{UserID: uuid.New(), Role: model.RoleAdmin}
 	ctx := context.WithValue(context.Background(), common.ClaimsKey, claims)
@@ -1160,7 +1160,7 @@ func TestWrapCmd_Success(t *testing.T) {
 	ctx = context.WithValue(ctx, common.LogKey, newLogger())
 	ctx = context.WithValue(ctx, common.ServiceContainerKey, sc)
 
-	cleanup := viperSet(map[string]interface{}{
+	cleanup := viperSet(map[string]any{
 		"wrap-key-id":       keyID.String(),
 		"wrap-key-material": base64.StdEncoding.EncodeToString(plaintext),
 	})
@@ -1189,7 +1189,7 @@ func TestWrapCmd_ServiceError(t *testing.T) {
 	ctx = context.WithValue(ctx, common.LogKey, newLogger())
 	ctx = context.WithValue(ctx, common.ServiceContainerKey, sc)
 
-	cleanup := viperSet(map[string]interface{}{
+	cleanup := viperSet(map[string]any{
 		"wrap-key-id":       keyID.String(),
 		"wrap-key-material": base64.StdEncoding.EncodeToString([]byte("plaintext")),
 	})
@@ -1204,7 +1204,7 @@ func TestWrapCmd_ServiceError(t *testing.T) {
 // ========== unwrapCmd tests ==========
 
 func TestUnwrapCmd_NoClaims(t *testing.T) {
-	cleanup := viperSet(map[string]interface{}{"unwrap-key-id": uuid.New().String(), "unwrap-wrapped-key": "dGVzdA=="})
+	cleanup := viperSet(map[string]any{"unwrap-key-id": uuid.New().String(), "unwrap-wrapped-key": "dGVzdA=="})
 	defer cleanup()
 	ctx := context.Background()
 	cmd, _ := newTestCmd(unwrapCmd.RunE, nil)
@@ -1214,7 +1214,7 @@ func TestUnwrapCmd_NoClaims(t *testing.T) {
 }
 
 func TestUnwrapCmd_MissingKeyID(t *testing.T) {
-	cleanup := viperSet(map[string]interface{}{"unwrap-key-id": "", "unwrap-wrapped-key": "dGVzdA=="})
+	cleanup := viperSet(map[string]any{"unwrap-key-id": "", "unwrap-wrapped-key": "dGVzdA=="})
 	defer cleanup()
 	claims := &model.Claims{UserID: uuid.New(), Role: model.RoleAdmin}
 	ctx := context.WithValue(context.Background(), common.ClaimsKey, claims)
@@ -1226,7 +1226,7 @@ func TestUnwrapCmd_MissingKeyID(t *testing.T) {
 }
 
 func TestUnwrapCmd_MissingWrappedKey(t *testing.T) {
-	cleanup := viperSet(map[string]interface{}{"unwrap-key-id": uuid.New().String(), "unwrap-wrapped-key": ""})
+	cleanup := viperSet(map[string]any{"unwrap-key-id": uuid.New().String(), "unwrap-wrapped-key": ""})
 	defer cleanup()
 	claims := &model.Claims{UserID: uuid.New(), Role: model.RoleAdmin}
 	ctx := context.WithValue(context.Background(), common.ClaimsKey, claims)
@@ -1238,7 +1238,7 @@ func TestUnwrapCmd_MissingWrappedKey(t *testing.T) {
 }
 
 func TestUnwrapCmd_InvalidKeyID(t *testing.T) {
-	cleanup := viperSet(map[string]interface{}{"unwrap-key-id": "bad-uuid", "unwrap-wrapped-key": "dGVzdA=="})
+	cleanup := viperSet(map[string]any{"unwrap-key-id": "bad-uuid", "unwrap-wrapped-key": "dGVzdA=="})
 	defer cleanup()
 	claims := &model.Claims{UserID: uuid.New(), Role: model.RoleAdmin}
 	ctx := context.WithValue(context.Background(), common.ClaimsKey, claims)
@@ -1250,7 +1250,7 @@ func TestUnwrapCmd_InvalidKeyID(t *testing.T) {
 }
 
 func TestUnwrapCmd_InvalidBase64(t *testing.T) {
-	cleanup := viperSet(map[string]interface{}{"unwrap-key-id": uuid.New().String(), "unwrap-wrapped-key": "not!!base64"})
+	cleanup := viperSet(map[string]any{"unwrap-key-id": uuid.New().String(), "unwrap-wrapped-key": "not!!base64"})
 	defer cleanup()
 	claims := &model.Claims{UserID: uuid.New(), Role: model.RoleAdmin}
 	ctx := context.WithValue(context.Background(), common.ClaimsKey, claims)
@@ -1263,7 +1263,7 @@ func TestUnwrapCmd_InvalidBase64(t *testing.T) {
 
 func TestUnwrapCmd_NoServiceContainer(t *testing.T) {
 	keyID := uuid.New()
-	cleanup := viperSet(map[string]interface{}{"unwrap-key-id": keyID.String(), "unwrap-wrapped-key": "dGVzdA=="})
+	cleanup := viperSet(map[string]any{"unwrap-key-id": keyID.String(), "unwrap-wrapped-key": "dGVzdA=="})
 	defer cleanup()
 	claims := &model.Claims{UserID: uuid.New(), Role: model.RoleAdmin}
 	ctx := context.WithValue(context.Background(), common.ClaimsKey, claims)
@@ -1293,7 +1293,7 @@ func TestUnwrapCmd_Success(t *testing.T) {
 	ctx = context.WithValue(ctx, common.LogKey, newLogger())
 	ctx = context.WithValue(ctx, common.ServiceContainerKey, sc)
 
-	cleanup := viperSet(map[string]interface{}{
+	cleanup := viperSet(map[string]any{
 		"unwrap-key-id":      keyID.String(),
 		"unwrap-wrapped-key": base64.StdEncoding.EncodeToString(wrappedBytes),
 	})
@@ -1322,7 +1322,7 @@ func TestUnwrapCmd_ServiceError(t *testing.T) {
 	ctx = context.WithValue(ctx, common.LogKey, newLogger())
 	ctx = context.WithValue(ctx, common.ServiceContainerKey, sc)
 
-	cleanup := viperSet(map[string]interface{}{
+	cleanup := viperSet(map[string]any{
 		"unwrap-key-id":      keyID.String(),
 		"unwrap-wrapped-key": base64.StdEncoding.EncodeToString([]byte("wrapped")),
 	})
@@ -1353,7 +1353,7 @@ func TestWrapCmd_SetsDefaultVaultID(t *testing.T) {
 	ctx = context.WithValue(ctx, common.LogKey, newLogger())
 	ctx = context.WithValue(ctx, common.ServiceContainerKey, sc)
 
-	cleanup := viperSet(map[string]interface{}{
+	cleanup := viperSet(map[string]any{
 		"wrap-key-id":       keyID.String(),
 		"wrap-key-material": base64.StdEncoding.EncodeToString(plaintext),
 	})
@@ -1385,7 +1385,7 @@ func TestUnwrapCmd_SetsDefaultVaultID(t *testing.T) {
 	ctx = context.WithValue(ctx, common.LogKey, newLogger())
 	ctx = context.WithValue(ctx, common.ServiceContainerKey, sc)
 
-	cleanup := viperSet(map[string]interface{}{
+	cleanup := viperSet(map[string]any{
 		"unwrap-key-id":      keyID.String(),
 		"unwrap-wrapped-key": base64.StdEncoding.EncodeToString(wrapped),
 	})
