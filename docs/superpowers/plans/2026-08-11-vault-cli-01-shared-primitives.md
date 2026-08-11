@@ -11,9 +11,10 @@
 ## Global Constraints
 
 - Design doc: `docs/superpowers/specs/2026-08-11-vault-cli-extension-design.md` — read in full before starting.
-- No admin short-circuit in `RequireDataAction` (either the service-package function or the `vaultcli` adapter) — data-plane access has none today, even over HTTP (`PolicyMiddleware`'s vault-data-plane branch calls `HasDataAction` with no role special-case). Do not copy the `CanManageVault`/`CanPurgeVault` admin-shortcut idiom from `docs/superpowers/plans/2026-08-11-02-shared-vault-authz-functions.md` — that's for vault-*management*, a different decision.
+- No admin short-circuit in `RequireDataAction` (either the service-package function or the `vaultcli` adapter) — data-plane access has none today, even over HTTP (`PolicyMiddleware`'s vault-data-plane branch calls `HasDataAction` with no role special-case). Do not copy the `CanManageVault`/`CanPurgeVault`/`CanManageRoleAssignments` admin-shortcut idiom now live in `internal/services/authorization/vault_authz.go` (merged after this design was written, via `cmd/vaults/authz.go` and `cmd/vault-access/authz.go`) — those gate vault *management* (create/update/delete/purge a vault, grant/revoke role assignments); this plan's `RequireDataAction` gates vault *data-plane* access (secrets/keys/certificates) and is a deliberately different, stricter decision. Keep `RequireDataAction` in its own file (`data_action_authz.go`, not appended to `vault_authz.go`) so the two concerns stay visually separated.
 - `go build ./...` and `go vet ./...` must pass after every task.
 - This plan does not touch any `cmd/secrets`, `cmd/keys`, or `cmd/certificates` command file — that's Plans 02, 03, 05.
+- **Re-verified 2026-08-11 against a merge that landed mid-series** (commit `8aba6d9`, the vault-*management* authz-fix/role-parity work — see `docs/release-notes/v4.1.0-role-parity-and-authz-fix.md`): confirmed no admin short-circuit was added to `HasDataAction`/`PolicyMiddleware`, no new `CertificateService`/`RoleAssignmentService` methods were added, and all pre-existing `model.DataAction` constants this series references are unchanged. The four new roles/three new actions from that merge are additive and don't affect anything in Plans 01–05.
 
 ---
 
@@ -301,28 +302,29 @@ func (m *MockRoleAssignmentService) HasDataAction(ctx context.Context, principal
 
 Add `"errors"` to the import block if not already present.
 
-Add a field to `MockServiceContainer` (next to the existing `VaultService` field):
+**Note (re-verified against `main` after a merge landed mid-series):** `MockServiceContainer` already has a `RoleAssignmentService authzServices.RoleAssignmentService` field, and `GetRoleAssignmentService()` already returns `m.RoleAssignmentService` instead of a hardcoded `nil` — a prior, unrelated commit added this (alongside a same-shaped `AccessPolicyService` field) before this plan started executing. Do **not** re-add the field or re-change the method; both already look exactly like this:
 
 ```go
 type MockServiceContainer struct {
 	mock.Mock
-	// VaultService is returned by GetVaultService. It defaults to a MockVaultService
-	// that resolves the "default" vault so vault-aware resource commands work in tests.
 	VaultService vaultServices.VaultService
+	AccessPolicyService authzServices.AccessPolicyService  // returned by GetAccessPolicyService, nil by default
+	RoleAssignmentService authzServices.RoleAssignmentService  // returned by GetRoleAssignmentService, nil by default
+}
+
+func (m *MockServiceContainer) GetRoleAssignmentService() authzServices.RoleAssignmentService {
+	return m.RoleAssignmentService
+}
+```
+
+Do update the `RoleAssignmentService` field's comment, since after this step it's no longer accurate that it's "nil by default" — `NewTestContext` (see below) now wires a default-allow instance:
+
+```go
 	// RoleAssignmentService is returned by GetRoleAssignmentService. It defaults to a
 	// MockRoleAssignmentService that allows every action, so vault-authorization checks
 	// added to CLI commands don't break every pre-existing test that doesn't care about
 	// them. Tests exercising the deny path replace this field with a fresh instance.
-	RoleAssignmentService authzServices.RoleAssignmentService
-}
-```
-
-Change the existing `GetRoleAssignmentService` method (currently returns `nil` unconditionally):
-
-```go
-func (m *MockServiceContainer) GetRoleAssignmentService() authzServices.RoleAssignmentService {
-	return m.RoleAssignmentService
-}
+	RoleAssignmentService authzServices.RoleAssignmentService  // returned by GetRoleAssignmentService, nil by default
 ```
 
 Add a `MockRoleAssignmentService *MockRoleAssignmentService` field to `TestContext` (next to `MockVaultService`), and in `NewTestContext`, after the existing `mockVaultService.On("GetVault", ...)` block:
