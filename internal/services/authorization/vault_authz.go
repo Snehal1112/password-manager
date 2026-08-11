@@ -53,19 +53,30 @@ func CanPurgeVault(ctx context.Context, accountRole string, roles RoleAssignment
 }
 
 // CanManageRoleAssignments reports whether principalID may create
-// (write=true) or revoke (write=false) role assignments in vaultID: the
+// (write=true) or revoke/read (write=false) role assignments in vaultID: the
 // global admin account role, an access-policy allow on (vaults, manage)
 // scoped to vaultID or global (preserves the pre-existing documented
 // behavior), or a Key Vault Data Access Administrator role assignment held
 // in vaultID. A nil dependency, a service error, or no matching grant
 // denies — this function fails closed.
+//
+// An explicit access-policy DENY wins outright: it short-circuits false and is
+// never outvoted by a role grant, matching PolicyMiddleware's stated invariant
+// (see internal/middleware/middleware.go). Only AccessFallback (no matching
+// policy row) falls through to the role-assignment check.
 func CanManageRoleAssignments(ctx context.Context, accountRole string, policies AccessPolicyService, roles RoleAssignmentService, principalID, vaultID uuid.UUID, write bool) bool {
 	if common.HasRequiredRole(accountRole, string(model.RoleAdmin)) {
 		return true
 	}
 	if policies != nil {
-		if decision, err := policies.CheckAccess(ctx, principalID, model.PolicyResourceVaults, model.OpManage, vaultID); err == nil && decision == AccessAllowed {
-			return true
+		decision, err := policies.CheckAccess(ctx, principalID, model.PolicyResourceVaults, model.OpManage, vaultID)
+		if err == nil {
+			if decision == AccessAllowed {
+				return true
+			}
+			if decision == AccessDenied {
+				return false
+			}
 		}
 	}
 	if roles == nil {

@@ -114,6 +114,10 @@ func createRoleAssignment(c *Context, w http.ResponseWriter, r *http.Request) {
 
 // listRoleAssignments returns all role assignments scoped to a vault.
 // GET /vaults/{vault_name}/role-assignments
+//
+// Reading assignments discloses who holds which role in the vault (including
+// principal usernames), so it is gated exactly like revoking them: the same
+// CanManageRoleAssignments check with write=false.
 func listRoleAssignments(c *Context, w http.ResponseWriter, r *http.Request) {
 	if c.App == nil || c.App.ServiceContainer == nil {
 		c.SetInternalError(nil)
@@ -122,6 +126,16 @@ func listRoleAssignments(c *Context, w http.ResponseWriter, r *http.Request) {
 	vaultID, err := vaultIDFromRequest(r)
 	if err != nil {
 		c.SetInvalidParam("vault")
+		return
+	}
+	role, callerID, ok := callerIdentity(c)
+	if !ok {
+		c.SetInternalError(nil)
+		return
+	}
+	if !authzServices.CanManageRoleAssignments(r.Context(), role, c.App.ServiceContainer.GetAccessPolicyService(),
+		c.App.ServiceContainer.GetRoleAssignmentService(), callerID, vaultID, false) {
+		c.SetPermissionError("admin, vaults/manage, or Key Vault Data Access Administrator required")
 		return
 	}
 	svc := c.App.ServiceContainer.GetRoleAssignmentService()
@@ -140,6 +154,9 @@ func listRoleAssignments(c *Context, w http.ResponseWriter, r *http.Request) {
 
 // getRoleAssignment returns a single role assignment by id within a vault.
 // GET /vaults/{vault_name}/role-assignments/{assignment_id}
+//
+// Gated identically to listRoleAssignments: reading a single assignment leaks
+// the same information as reading them all.
 func getRoleAssignment(c *Context, w http.ResponseWriter, r *http.Request) {
 	if c.App == nil || c.App.ServiceContainer == nil {
 		c.SetInternalError(nil)
@@ -148,6 +165,16 @@ func getRoleAssignment(c *Context, w http.ResponseWriter, r *http.Request) {
 	vaultID, err := vaultIDFromRequest(r)
 	if err != nil {
 		c.SetInvalidParam("vault")
+		return
+	}
+	role, callerID, ok := callerIdentity(c)
+	if !ok {
+		c.SetInternalError(nil)
+		return
+	}
+	if !authzServices.CanManageRoleAssignments(r.Context(), role, c.App.ServiceContainer.GetAccessPolicyService(),
+		c.App.ServiceContainer.GetRoleAssignmentService(), callerID, vaultID, false) {
+		c.SetPermissionError("admin, vaults/manage, or Key Vault Data Access Administrator required")
 		return
 	}
 	id, err := uuid.Parse(c.Params.AssignmentID)

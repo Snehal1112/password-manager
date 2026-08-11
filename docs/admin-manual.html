@@ -818,7 +818,7 @@ curl -s -X DELETE $BASE/api/v1/users/sessions -H "Authorization: Bearer $TOKEN"<
 <section id="vault-rbac">
   <h2>Vault RBAC &amp; Role Assignments</h2>
   <h3>What it is</h3>
-  <p>Since v4.0.0, vault data-plane authorization matches Azure Key Vault's own RBAC model. A <strong>role assignment</strong> grants a principal — a user or service account, always tenant-global — one of seven built-in roles, scoped to exactly one vault. The assignment carries the vault boundary, not the identity: the same user can be a <code>Key Vault Reader</code> in <code>staging</code> and a <code>Key Vault Administrator</code> in <code>prod</code>. Object ownership (<code>created_by</code>) is retained purely as audit provenance and is never consulted for an access decision.</p>
+  <p>Since v4.0.0, vault data-plane authorization matches Azure Key Vault's own RBAC model. A <strong>role assignment</strong> grants a principal — a user or service account, always tenant-global — one of eleven built-in roles, scoped to exactly one vault. The assignment carries the vault boundary, not the identity: the same user can be a <code>Key Vault Reader</code> in <code>staging</code> and a <code>Key Vault Administrator</code> in <code>prod</code>. Object ownership (<code>created_by</code>) is retained purely as audit provenance and is never consulted for an access decision.</p>
   <h3>When to use it</h3>
   <ul>
     <li>Grant access to everything of one kind — all secrets, all keys, or all certificates — within a single vault.</li>
@@ -932,7 +932,7 @@ rocketvault vault-access roles</pre>
     <div class="tab-bar"><button class="tab-btn active">cURL</button><button class="tab-btn">CLI</button></div>
     <div class="tab-pane active"><pre class="code">curl -s -X DELETE $BASE/api/v1/vaults/prod/purge -H "Authorization: Bearer $TOKEN"</pre></div>
     <div class="tab-pane"><pre class="code">rocketvault vaults purge prod --username admin --password admin123 --totp-code 123456</pre></div>
-    <details class="collapse"><summary>Notes</summary><div class="inner">Requires the <code>Key Vault Purge Operator</code> role (or admin) in the target vault — a role assignment, not an access policy, since this is a vault data-plane route. Refuses the default vault and any vault with purge protection enabled (400 either way). 404 if the vault doesn't exist.</div></details>
+    <details class="collapse"><summary>Notes</summary><div class="inner">Requires the <code>Key Vault Purge Operator</code> role in the target vault — a role assignment, not an access policy, since this is a vault data-plane route. Unlike the CLI's <code>vaults purge</code> command, the HTTP endpoint has <strong>no admin bypass</strong>: a global <code>admin</code> without an explicit grant is denied, matching real Azure Key Vault semantics (vault purge is a separate role from <code>Key Vault Administrator</code>). Refuses the default vault and any vault with purge protection enabled (400 either way). 404 if the vault doesn't exist.</div></details>
   </div>
 
   <p class="see-also">See also: <a href="release-notes/v4.0.0-azure-rbac.md">Release Notes — v4.0.0 Azure RBAC</a>, <a href="#access-policies">Access Policies</a></p>
@@ -1004,10 +1004,10 @@ rocketvault vault-access roles</pre>
 <section id="account-roles">
   <h2>Account Roles &amp; Permissions</h2>
   <h3>What it is</h3>
-  <p>Every user account carries exactly one <strong>global role</strong>. It gates coarse, account-level operations — user management, and, for <code>admin</code>, vault administration and flat-route access to every resource type. This is distinct from <a href="#vault-rbac">vault role assignments</a>, which grant fine-grained, per-vault access via the seven Azure built-in roles.</p>
+  <p>Every user account carries exactly one <strong>global role</strong>. It gates coarse, account-level operations — user management, and, for <code>admin</code>, vault administration and flat-route access to every resource type. This is distinct from <a href="#vault-rbac">vault role assignments</a>, which grant fine-grained, per-vault access via the eleven Azure built-in roles.</p>
   <div class="callout callout-info">
     <div class="callout-label">The old vault-scoped role names are deprecated</div>
-    <p>RocketVault v0.2.0 shipped a first-cut vault-scoped role vocabulary — <code>vault-reader</code>, <code>secrets-officer</code>, <code>crypto-user</code>, and so on. Since v4.0.0 those names are legacy: <code>vault-access grant</code> refuses to hand one out, and holding one grants zero data-plane access. Use one of the <a href="#vault-rbac">seven Azure built-in roles</a> instead.</p>
+    <p>RocketVault v0.2.0 shipped a first-cut vault-scoped role vocabulary — <code>vault-reader</code>, <code>secrets-officer</code>, <code>crypto-user</code>, and so on. Since v4.0.0 those names are legacy: <code>vault-access grant</code> refuses to hand one out, and holding one grants zero data-plane access. Use one of the <a href="#vault-rbac">eleven Azure built-in roles</a> instead.</p>
   </div>
   <h3>The six roles</h3>
   <table>
@@ -1371,7 +1371,7 @@ curl -s -X POST $BASE/api/v1/keys -H "Authorization: Bearer $TOKEN" \
   </table>
   <div class="callout callout-info">
     <div class="callout-label">Visibility is role-gated, not vault-gated</div>
-    <p>Since v4.0.0, "can see this vault's objects" means "holds a role assignment granting the relevant data action in this vault" — see <a href="#vault-rbac">Vault RBAC &amp; Role Assignments</a> for the full authorization order and the seven built-in roles. A vault with no role assignments is invisible to every principal except a global <code>admin</code>.</p>
+    <p>Since v4.0.0, "can see this vault's objects" means "holds a role assignment granting the relevant data action in this vault" — see <a href="#vault-rbac">Vault RBAC &amp; Role Assignments</a> for the full authorization order and the eleven built-in roles. A vault with no role assignments is invisible to every principal except a global <code>admin</code>.</p>
   </div>
   <div class="ep">
     <div class="ep-hd"><span class="meth meth-post">POST</span> <span class="ep-path">/api/v1/vaults</span> <span class="ep-auth">JWT · admin</span> <span class="ep-label">Create a vault</span></div>

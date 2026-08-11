@@ -266,7 +266,6 @@ func deleteVault(c *Context, w http.ResponseWriter, r *http.Request) {
 		c.SetInternalError(nil)
 		return
 	}
-	_ = userID // not needed by DeleteVault; identity is only used for the check above
 	if !authzServices.CanManageVault(r.Context(), role, c.App.ServiceContainer.GetAccessPolicyService(), userID, target.ID) {
 		c.SetPermissionError("admin or vaults/manage required")
 		return

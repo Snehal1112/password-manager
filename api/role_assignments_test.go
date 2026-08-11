@@ -71,8 +71,8 @@ func newRoleAssignmentCtx(role string, policySvc authzServices.AccessPolicyServi
 // TestRoleAssignments_GrantRequiresAdmin verifies a non-admin caller without a
 // vaults/manage policy is rejected with 403 before the service is invoked.
 func TestRoleAssignments_GrantRequiresAdmin(t *testing.T) {
-	// Non-admin: requireVaultManage falls through to CheckAccess, which returns
-	// AccessFallback (no policy), so the caller is denied.
+	// Non-admin: CanManageRoleAssignments falls through to CheckAccess, which
+	// returns AccessFallback (no policy), so the caller is denied.
 	policySvc := &mockAccessPolicyService{}
 	policySvc.On("CheckAccess", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).
 		Return(authzServices.AccessFallback, nil)
@@ -93,7 +93,8 @@ func TestRoleAssignments_GrantRequiresAdmin(t *testing.T) {
 // TestListRoleAssignments_ReturnsEnrichedResponse verifies the list handler
 // returns the ListRoleAssignmentsResponse shape (not a raw model array/map),
 // with vault_name filled from the URL and expanded_policy_count derived from
-// the role bundle.
+// the role bundle. The caller is an authorized admin so the shape, not the
+// gate, is what this test exercises.
 func TestListRoleAssignments_ReturnsEnrichedResponse(t *testing.T) {
 	vaultID := uuid.New()
 	principalID := uuid.New()
@@ -113,7 +114,7 @@ func TestListRoleAssignments_ReturnsEnrichedResponse(t *testing.T) {
 
 	c := &Context{
 		App:    &app.App{ServiceContainer: mc},
-		Claims: jwt.MapClaims{"user_id": "00000000-0000-0000-0000-000000000001", "role": "user"},
+		Claims: jwt.MapClaims{"user_id": "00000000-0000-0000-0000-000000000001", "role": string(model.RoleAdmin)},
 		Params: &ApiParams{VaultName: "prod", PerPage: 60},
 	}
 	w := httptest.NewRecorder()
@@ -334,4 +335,166 @@ func TestRoleAssignments_DataAccessAdministrator_GrantAndRevokeComposeAcrossVaul
 		writeError(wRevokeB, cRevokeB)
 	}
 	assert.Equal(t, http.StatusForbidden, wRevokeB.Code, "revoke in a different vault must be denied")
+}
+
+// --- Read-path authorization (list / get) ---
+//
+// Reading role assignments discloses who holds which role in a vault,
+// including principal usernames resolved by buildRoleAssignmentResponse. Both
+// read handlers shipped with NO authorization check at all once the global
+// admin-only gate on /vaults/... was removed; the tests below pin the
+// CanManageRoleAssignments(write=false) gate that closes that leak.
+
+// newReadRoleAssignmentCtx builds a non-admin caller Context and the matching
+// request for a role-assignment read against vaultID.
+func newReadRoleAssignmentCtx(mc *testutils.MockServiceContainer, callerID, vaultID uuid.UUID, assignmentID, method, path string) (*Context, *http.Request) {
+	c := &Context{
+		App:    &app.App{ServiceContainer: mc},
+		Claims: jwt.MapClaims{"user_id": callerID.String(), "role": "user"},
+		Params: &ApiParams{VaultName: "prod", AssignmentID: assignmentID, PerPage: 60},
+	}
+	r := httptest.NewRequest(method, path, nil)
+	r = r.WithContext(context.WithValue(r.Context(), common.VaultIDKey, vaultID.String()))
+	return c, r
+}
+
+// TestListRoleAssignments_DeniedWithoutGrant proves a non-admin with no
+// vaults/manage policy and no role assignment cannot enumerate a vault's role
+// assignments, and that the service is never reached.
+func TestListRoleAssignments_DeniedWithoutGrant(t *testing.T) {
+	vaultID := uuid.New()
+	callerID := uuid.New()
+
+	roleSvc := &mockRoleAssignmentService{}
+	roleSvc.On("HasDataAction", mock.Anything, callerID, vaultID, model.ActionRoleAssignmentsDelete).
+		Return(false, nil)
+	// Registered only so an authorization regression surfaces as a failed
+	// assertion below rather than an unexpected-call panic.
+	roleSvc.On("ListAssignments", mock.Anything, mock.Anything).
+		Return([]*model.RoleAssignment{}, nil)
+
+	mc := &testutils.MockServiceContainer{}
+	mc.On("GetRoleAssignmentService").Return(roleSvc)
+
+	c, r := newReadRoleAssignmentCtx(mc, callerID, vaultID, "", http.MethodGet, "/api/v1/vaults/prod/role-assignments")
+	w := httptest.NewRecorder()
+
+	listRoleAssignments(c, w, r)
+	if c.Err != nil {
+		writeError(w, c)
+	}
+
+	assert.Equal(t, http.StatusForbidden, w.Code)
+	roleSvc.AssertNotCalled(t, "ListAssignments", mock.Anything, mock.Anything)
+}
+
+// TestGetRoleAssignment_DeniedWithoutGrant mirrors the list case for the
+// single-assignment read.
+func TestGetRoleAssignment_DeniedWithoutGrant(t *testing.T) {
+	vaultID := uuid.New()
+	callerID := uuid.New()
+	assignmentID := uuid.New()
+
+	roleSvc := &mockRoleAssignmentService{}
+	roleSvc.On("HasDataAction", mock.Anything, callerID, vaultID, model.ActionRoleAssignmentsDelete).
+		Return(false, nil)
+	// Registered only so an authorization regression surfaces as a failed
+	// assertion below rather than an unexpected-call panic.
+	roleSvc.On("ListAssignments", mock.Anything, mock.Anything).
+		Return([]*model.RoleAssignment{}, nil)
+
+	mc := &testutils.MockServiceContainer{}
+	mc.On("GetRoleAssignmentService").Return(roleSvc)
+
+	c, r := newReadRoleAssignmentCtx(mc, callerID, vaultID, assignmentID.String(),
+		http.MethodGet, "/api/v1/vaults/prod/role-assignments/"+assignmentID.String())
+	w := httptest.NewRecorder()
+
+	getRoleAssignment(c, w, r)
+	if c.Err != nil {
+		writeError(w, c)
+	}
+
+	assert.Equal(t, http.StatusForbidden, w.Code)
+	roleSvc.AssertNotCalled(t, "ListAssignments", mock.Anything, mock.Anything)
+}
+
+// TestListRoleAssignments_AllowedForDataAccessAdministrator proves the gate is
+// not simply admin-only: a non-admin holding Key Vault Data Access
+// Administrator in the target vault can read its assignments.
+func TestListRoleAssignments_AllowedForDataAccessAdministrator(t *testing.T) {
+	vaultID := uuid.New()
+	callerID := uuid.New()
+	assignment := &model.RoleAssignment{
+		ID:            uuid.New(),
+		PrincipalID:   uuid.New(),
+		PrincipalType: model.PrincipalTypeUser,
+		Role:          model.RoleKeyVaultSecretsUser,
+		VaultID:       vaultID,
+	}
+
+	roleSvc := &mockRoleAssignmentService{}
+	roleSvc.On("HasDataAction", mock.Anything, callerID, vaultID, model.ActionRoleAssignmentsDelete).
+		Return(true, nil)
+	roleSvc.On("ListAssignments", mock.Anything, vaultID).
+		Return([]*model.RoleAssignment{assignment}, nil)
+
+	mc := &testutils.MockServiceContainer{}
+	mc.On("GetRoleAssignmentService").Return(roleSvc)
+
+	c, r := newReadRoleAssignmentCtx(mc, callerID, vaultID, "", http.MethodGet, "/api/v1/vaults/prod/role-assignments")
+	w := httptest.NewRecorder()
+
+	listRoleAssignments(c, w, r)
+	if c.Err != nil {
+		writeError(w, c)
+	}
+
+	assert.Equal(t, http.StatusOK, w.Code)
+
+	var resp model.ListRoleAssignmentsResponse
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	assert.Equal(t, 1, resp.Total)
+}
+
+// TestGetRoleAssignment_AllowedForDataAccessAdministrator mirrors the list
+// case for the single-assignment read.
+func TestGetRoleAssignment_AllowedForDataAccessAdministrator(t *testing.T) {
+	vaultID := uuid.New()
+	callerID := uuid.New()
+	assignment := &model.RoleAssignment{
+		ID:            uuid.New(),
+		PrincipalID:   uuid.New(),
+		PrincipalType: model.PrincipalTypeUser,
+		Role:          model.RoleKeyVaultSecretsUser,
+		VaultID:       vaultID,
+	}
+
+	roleSvc := &mockRoleAssignmentService{}
+	roleSvc.On("HasDataAction", mock.Anything, callerID, vaultID, model.ActionRoleAssignmentsDelete).
+		Return(true, nil)
+	roleSvc.On("ListAssignments", mock.Anything, vaultID).
+		Return([]*model.RoleAssignment{assignment}, nil)
+
+	mc := &testutils.MockServiceContainer{}
+	mc.On("GetRoleAssignmentService").Return(roleSvc)
+
+	c, r := newReadRoleAssignmentCtx(mc, callerID, vaultID, assignment.ID.String(),
+		http.MethodGet, "/api/v1/vaults/prod/role-assignments/"+assignment.ID.String())
+	w := httptest.NewRecorder()
+
+	getRoleAssignment(c, w, r)
+	if c.Err != nil {
+		writeError(w, c)
+	}
+
+	assert.Equal(t, http.StatusOK, w.Code)
+
+	var resp model.RoleAssignmentResponse
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	assert.Equal(t, assignment.ID.String(), resp.ID)
 }

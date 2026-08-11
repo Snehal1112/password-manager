@@ -441,8 +441,11 @@ func resolvePolicy(method, path string) (model.PolicyResourceType, model.PolicyO
 // FIRST, so a deny cannot be outvoted by a role grant.
 //
 // Routes that are not vault data-plane routes (vault management, role
-// assignments, users, audit) keep the previous AccessFallback pass-through:
-// their gates are requireVaultManage in the handlers and AuthorizationMiddleware.
+// assignments, users, audit) keep the previous AccessFallback pass-through.
+// Vault-management and role-assignment routes are authorized entirely by the
+// handlers themselves, via authorization.CanManageVault and
+// authorization.CanManageRoleAssignments; users and audit routes are still
+// gated by AuthorizationMiddleware's global role permissions.
 func (m *Middleware) PolicyMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		resourceType, op := resolvePolicy(r.Method, r.URL.Path)

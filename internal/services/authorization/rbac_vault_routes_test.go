@@ -96,6 +96,8 @@ func TestValidateEndpointAccess_VaultManagementRoutes(t *testing.T) {
 		{"non-admin reaches purge vault gate", model.RoleUser, "DELETE", "/api/v1/vaults/prod/purge"},
 		{"non-admin reaches role-assignment create gate", model.RoleUser, "POST", "/api/v1/vaults/prod/role-assignments"},
 		{"non-admin reaches role-assignment revoke gate", model.RoleUser, "DELETE", "/api/v1/vaults/prod/role-assignments/abc"},
+		{"non-admin reaches role-assignment list gate", model.RoleUser, "GET", "/api/v1/vaults/prod/role-assignments"},
+		{"non-admin reaches role-assignment get gate", model.RoleUser, "GET", "/api/v1/vaults/prod/role-assignments/abc"},
 	}
 
 	for _, c := range cases {

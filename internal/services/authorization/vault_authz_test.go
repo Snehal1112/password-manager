@@ -210,6 +210,38 @@ func TestCanManageRoleAssignments_NonAdminDeniedInWrongVault(t *testing.T) {
 	}
 }
 
+// TestCanManageRoleAssignments_ExplicitDenyBeatsRoleGrant pins the invariant
+// PolicyMiddleware documents: an explicit deny access-policy row cannot be
+// outvoted by a role grant. Before this fix AccessDenied fell through to the
+// HasDataAction check exactly like AccessFallback, so a Data Access
+// Administrator assignment silently overrode the deny.
+func TestCanManageRoleAssignments_ExplicitDenyBeatsRoleGrant(t *testing.T) {
+	rr := newFakeRoleRepo()
+	pr := newFakePolicyRepo()
+	ul := &fakeUserLookup{}
+	roleSvc := newSvc(rr, pr, ul)
+	policies := &fakeAccessPolicyService{decision: AccessDenied}
+
+	principalID := uuid.New()
+	vaultID := uuid.New()
+	rr.rows[uuid.New()] = &model.RoleAssignment{
+		PrincipalID: principalID, VaultID: vaultID, Role: model.RoleKeyVaultDataAccessAdministrator,
+	}
+
+	// Sanity: the role grant alone would allow, so the deny is what decides.
+	if !CanManageRoleAssignments(context.Background(), model.RoleUser,
+		&fakeAccessPolicyService{decision: AccessFallback}, roleSvc, principalID, vaultID, true) {
+		t.Fatal("precondition: the Data Access Administrator grant must allow when no policy matches")
+	}
+
+	if CanManageRoleAssignments(context.Background(), model.RoleUser, policies, roleSvc, principalID, vaultID, true) {
+		t.Fatal("an explicit deny must not be outvoted by a role grant (write)")
+	}
+	if CanManageRoleAssignments(context.Background(), model.RoleUser, policies, roleSvc, principalID, vaultID, false) {
+		t.Fatal("an explicit deny must not be outvoted by a role grant (delete)")
+	}
+}
+
 func TestCanManageRoleAssignments_NonAdminDeniedWithNothing(t *testing.T) {
 	policies := &fakeAccessPolicyService{decision: AccessFallback}
 	if CanManageRoleAssignments(context.Background(), model.RoleUser, policies, nil, uuid.New(), uuid.New(), true) {

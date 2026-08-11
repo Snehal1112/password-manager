@@ -198,11 +198,10 @@ func TestVaultManage_ScopedToDefault_CannotReachOtherVault(t *testing.T) {
 // proves that, through the REAL production middleware chain (VaultResolution
 // -> Policy -> Authorization, with a real RBACService, not permissiveRBAC), a
 // non-admin caller holding no vaults:manage grant at all is denied on every
-// existing vault-management route. createVault and listVaults are
-// deliberately excluded here: they gain their own handler-level check in a
-// later plan (2026-08-11-04) and have none yet at this point in the sequence
-// — they are not yet protected by anything but this test's absence proves
-// nothing about them either way.
+// {name}-scoped vault-management route. createVault and listVaults are
+// covered separately by TestCreateVault_ForbiddenWithoutGlobalGrant and
+// TestListVaults_ForbiddenWithoutGlobalGrant, which exercise their
+// handler-level global (uuid.Nil) CanManageVault check.
 func TestVaultManage_RealAuthorizationMiddleware_NonAdminDeniedWithoutGrant(t *testing.T) {
 	policySvc := &mockAccessPolicyService{}
 	policySvc.On("CheckAccess", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).
@@ -339,6 +338,42 @@ func TestPurgeVault_RealAuthorizationMiddleware_NonAdminDeniedWithoutGrant(t *te
 	router.ServeHTTP(w, req)
 
 	assert.Equal(t, http.StatusForbidden, w.Code)
+}
+
+// TestPurgeVault_GlobalAdminDeniedWithoutPurgeOperatorGrant documents an
+// intentional, load-bearing asymmetry: the HTTP purge route is authorized
+// entirely by PolicyMiddleware's deny-by-default HasDataAction check, which
+// has NO admin bypass. A global admin holding no Key Vault Purge Operator
+// assignment in the target vault is denied (403). This matches real Azure
+// semantics -- Key Vault Administrator does not include vault purge, and
+// model.AzureRoleDataActions deliberately omits ActionVaultPurge from that
+// bundle. The CLI's `vaults purge` DOES short-circuit for admin (via
+// CanPurgeVault); that is a separate, pre-existing convenience for CLI vault
+// management, not a contradiction of this test.
+func TestPurgeVault_GlobalAdminDeniedWithoutPurgeOperatorGrant(t *testing.T) {
+	policySvc := &mockAccessPolicyService{}
+	roleSvc := &mockRoleAssignmentService{}
+	router, repo, prodID := buildChainedVaultAPIForPurge(policySvc, roleSvc)
+
+	policySvc.On("CheckAccess", mock.Anything, mock.Anything,
+		model.PolicyResourceVaults, model.OpManage, prodID).
+		Return(authzServices.AccessFallback, nil)
+	roleSvc.On("HasDataAction", mock.Anything, mock.Anything, prodID, model.ActionVaultPurge).
+		Return(false, nil)
+
+	req := httptest.NewRequest(http.MethodDelete, "/api/v1/vaults/prod/purge", nil)
+	ctx := context.WithValue(req.Context(), common.UserIDKey, vaultTestUserID)
+	ctx = context.WithValue(ctx, common.RoleKey, string(model.RoleAdmin))
+	req = req.WithContext(ctx)
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusForbidden, w.Code,
+		"a global admin without an explicit Purge Operator grant must be denied over HTTP")
+
+	// The vault must still be there: the request was rejected, not performed.
+	_, err := repo.ReadByID(context.Background(), prodID)
+	assert.NoError(t, err, "a denied purge must not remove the vault")
 }
 
 // TestPurgeVault_RealAuthorizationMiddleware_NonAdminAllowedWithGrant proves
