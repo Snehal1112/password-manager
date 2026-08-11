@@ -30,6 +30,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/spf13/cobra"
 
+	"rocketvault/cmd/vaultcli"
 	"rocketvault/common"
 	"rocketvault/internal/container"
 	secretServices "rocketvault/internal/services/secrets"
@@ -83,8 +84,9 @@ The file must be compatible with the export format produced by the export comman
 			return fmt.Errorf("failed to read import file: %w", err)
 		}
 
-		// Resolve the target vault by name, matching the get/list/update/delete commands.
-		vaultID, err := resolveVaultID(ctx, cmd, sc)
+		// Resolve the target vault by name and check the caller holds a role
+		// assignment in it granting ActionSecretsSet.
+		vaultID, err := vaultcli.RequireDataAction(ctx, cmd, sc, userID, model.ActionSecretsSet, model.OpImport)
 		if err != nil {
 			return err
 		}

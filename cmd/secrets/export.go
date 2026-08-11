@@ -31,6 +31,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/spf13/cobra"
 
+	"rocketvault/cmd/vaultcli"
 	"rocketvault/common"
 	"rocketvault/internal/container"
 	secretServices "rocketvault/internal/services/secrets"
@@ -49,9 +50,9 @@ var secretsExportCmd = &cobra.Command{
 	Use:   "export",
 	Short: "Export secrets to a file",
 	Long: `Export secrets to an encrypted JSON or CSV file.
-The export includes only the secrets owned by the authenticated user, with
-optional tag filtering. Secrets owned by other members of the same vault are
-never included.`,
+Any member of the target vault holding a role that grants ActionSecretsGet
+can export the vault's secrets, including those created by other members,
+matching the HTTP API's vault-scoped export route.`,
 	Example: `  # Export all secrets to JSON
   rocketvault secrets export --format json --file secrets.json \
     --username admin --password admin123 --totp-code <code>
@@ -77,19 +78,22 @@ never included.`,
 			return fmt.Errorf("unsupported format: %s (supported: json, csv)", exportFormat)
 		}
 
-		// Resolve the target vault by name, matching the get/list/update/delete commands.
-		vaultID, err := resolveVaultID(ctx, cmd, sc)
+		// Resolve the target vault by name and check the caller holds a role
+		// assignment in it granting ActionSecretsGet.
+		vaultID, err := vaultcli.RequireDataAction(ctx, cmd, sc, userID, model.ActionSecretsGet, model.OpCreate)
 		if err != nil {
 			return err
 		}
 
 		allTags := append(exportTags, exportFilterTags...)
 
-		// Export writes decrypted secret values to a local file, so it stays
-		// owner-scoped on every route: a vault scope here would dump every
-		// vault member's plaintext. This matches the HTTP export handler.
+		// Vault-scoped: this matches api/secrets.go's exportSecrets handler,
+		// which calls scopeFromRequest and gets a vault scope back on the
+		// /vaults/{name}/secrets/... route. Any vault member holding a role
+		// that grants ActionSecretsGet can export another member's plaintext
+		// secret values into their own local file.
 		data, err := sc.GetSecretService().ExportSecrets(ctx, secretServices.ExportSecretsRequest{
-			Scope:       model.NewOwnerScope(vaultID, userID),
+			Scope:       model.NewVaultScope(vaultID, userID),
 			Format:      format,
 			FilterTags:  allTags,
 			IncludeTags: true,

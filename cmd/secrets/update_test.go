@@ -19,12 +19,15 @@ func TestUpdateCommand_CallsServiceUpdate(t *testing.T) {
 	secretID := uuid.New()
 	newValue := "new-secret-value"
 
-	// The request must carry an owner scope built from the real authenticated
-	// user. A vault scope would let a CLI caller overwrite any co-member's
-	// secret, and a uuid.Nil actor would attribute the audit row to nobody.
+	// The request must carry a vault scope built from the real authenticated
+	// user, matching api/secrets.go's updateSecret handler on the
+	// /vaults/{name}/secrets/... route (scopeFromRequest returns a vault
+	// scope there). Any vault member holding a role that grants
+	// ActionSecretsSet can update the secret; the actor is still the real
+	// authenticated user so the audit row is attributed correctly.
 	tc.MockSecretService.On("UpdateSecret", mock.Anything, mock.MatchedBy(func(r secretServices.UpdateSecretRequest) bool {
 		return r.SecretID == secretID &&
-			r.Scope == model.NewOwnerScope(tc.TestVaultID, tc.TestUserID) &&
+			r.Scope == model.NewVaultScope(tc.TestVaultID, tc.TestUserID) &&
 			r.Value != nil && *r.Value == newValue
 	})).Return(nil)
 	tc.MockContainer.On("GetSecretService").Return(tc.MockSecretService)
@@ -86,4 +89,28 @@ func TestUpdateCommand_ServiceError(t *testing.T) {
 	err := cmd.Execute()
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "failed to update secret")
+}
+
+func TestUpdateCommand_Forbidden(t *testing.T) {
+	tc := testutils.NewTestContext(t)
+	secretID := uuid.New()
+
+	denyRoles := &testutils.MockRoleAssignmentService{}
+	denyRoles.On("HasDataAction", mock.Anything, mock.Anything, mock.Anything, mock.Anything).
+		Return(false, nil).Maybe()
+	tc.MockContainer.RoleAssignmentService = denyRoles
+
+	cmd := &cobra.Command{
+		Use:  "update [id] [value]",
+		Args: cobra.ExactArgs(2),
+		RunE: updateCmd.RunE,
+	}
+	cmd.Flags().StringSlice("tags", []string{}, "")
+	cmd.SetArgs([]string{secretID.String(), "value"})
+	cmd.SetContext(tc.Ctx)
+
+	err := cmd.Execute()
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "forbidden")
+	tc.MockSecretService.AssertNotCalled(t, "UpdateSecret", mock.Anything, mock.Anything)
 }

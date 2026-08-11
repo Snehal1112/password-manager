@@ -71,3 +71,32 @@ func TestImportCommand_FileNotFound(t *testing.T) {
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "import file does not exist")
 }
+
+func TestImportCommand_Forbidden(t *testing.T) {
+	tc := testutils.NewTestContext(t)
+
+	denyRoles := &testutils.MockRoleAssignmentService{}
+	denyRoles.On("HasDataAction", mock.Anything, mock.Anything, mock.Anything, mock.Anything).
+		Return(false, nil).Maybe()
+	tc.MockContainer.RoleAssignmentService = denyRoles
+
+	tmpFile := t.TempDir() + "/import.json"
+	os.WriteFile(tmpFile, []byte(`{}`), 0o600)
+
+	importFormat = "json"
+	importFile = tmpFile
+	importEncrypted = false
+	importOverwrite = false
+
+	cmd := &cobra.Command{Use: "import", RunE: secretsImportCmd.RunE}
+	cmd.Flags().StringVarP(&importFormat, "format", "f", "json", "")
+	cmd.Flags().StringVarP(&importFile, "file", "i", tmpFile, "")
+	cmd.Flags().BoolVarP(&importEncrypted, "encrypted", "e", false, "")
+	cmd.Flags().BoolVarP(&importOverwrite, "overwrite", "w", false, "")
+	cmd.SetContext(tc.Ctx)
+
+	err := cmd.Execute()
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "forbidden")
+	tc.MockSecretService.AssertNotCalled(t, "ImportSecrets", mock.Anything, mock.Anything)
+}

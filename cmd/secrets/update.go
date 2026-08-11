@@ -28,6 +28,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/spf13/cobra"
 
+	"rocketvault/cmd/vaultcli"
 	"rocketvault/common"
 	"rocketvault/internal/container"
 	secretServices "rocketvault/internal/services/secrets"
@@ -39,8 +40,9 @@ var updateCmd = &cobra.Command{
 	Use:   "update [id] [value]",
 	Short: "Update a secret",
 	Long: `Update a secret's value and tags by its ID.
-Only secrets owned by the authenticated user can be updated; secrets owned by
-other members of the same vault are not writable through this command.`,
+Any member of the target vault holding a role that grants ActionSecretsSet
+(e.g. Key Vault Secrets Officer) can update the secret, matching the HTTP
+API's vault-scoped update route.`,
 	Example: `  # Update a secret's value
   rocketvault secrets update <id> <new-value> \
     --username admin --password admin123 --totp-code <code>
@@ -70,18 +72,21 @@ other members of the same vault are not writable through this command.`,
 			return fmt.Errorf("service container not available in context")
 		}
 
-		// Resolve the target vault by name, matching the get/list/delete commands.
-		vaultID, err := resolveVaultID(ctx, cmd, sc)
+		// Resolve the target vault by name and check the caller holds a role
+		// assignment in it granting ActionSecretsSet.
+		vaultID, err := vaultcli.RequireDataAction(ctx, cmd, sc, userID, model.ActionSecretsSet, model.OpSet)
 		if err != nil {
 			return err
 		}
 
-		// Update stays owner-scoped: a vault scope would let any co-member
-		// overwrite another member's secret. The actor is the real
-		// authenticated user so the audit row is attributed correctly.
+		// Vault-scoped: this matches api/secrets.go's updateSecret handler,
+		// which calls scopeFromRequest and gets a vault scope back on the
+		// /vaults/{name}/secrets/... route. Any vault member holding a role
+		// that grants ActionSecretsSet can update another member's secret,
+		// not just the secret's creator.
 		req := secretServices.UpdateSecretRequest{
 			SecretID: secretID,
-			Scope:    model.NewOwnerScope(vaultID, userID),
+			Scope:    model.NewVaultScope(vaultID, userID),
 			Value:    &value,
 		}
 		if len(tags) > 0 {
