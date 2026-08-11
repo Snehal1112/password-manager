@@ -47,24 +47,46 @@ package vaultcli
 
 func ResolveVaultID(ctx context.Context, cmd *cobra.Command, sc container.ServiceContainerInterface) (uuid.UUID, error)
 
-// RequireDataAction resolves the vault, then checks the caller holds a role
-// assignment in it granting action. Returns the resolved vaultID on success
-// so callers don't have to resolve twice.
-func RequireDataAction(ctx context.Context, cmd *cobra.Command, sc container.ServiceContainerInterface, principalID uuid.UUID, action model.DataAction) (vaultID uuid.UUID, err error)
+// RequireDataAction resolves the vault, then reproduces PolicyMiddleware's
+// full two-stage check in order: (1) the access_policies explicit-deny
+// override via AccessPolicyService.CheckAccess, (2) the deny-by-default
+// role-assignment check via authorization.RequireDataAction. Returns the
+// resolved vaultID on success so callers don't have to resolve twice.
+//
+// op is the model.PolicyOperation that a real HTTP request for this same
+// logical command would resolve to via internal/middleware/middleware.go's
+// resolvePolicy(method, path) — see the "Access-policy explicit-deny"
+// section below for the exact per-command values. It cannot be derived from
+// action alone: several DataActions are deliberately coarser than
+// PolicyOperation (ActionSecretsSet covers both create's OpCreate and
+// update's OpSet), so a caller must supply it explicitly. resourceType,
+// unlike op, has no such ambiguity — it's derived internally from action's
+// own string prefix.
+func RequireDataAction(ctx context.Context, cmd *cobra.Command, sc container.ServiceContainerInterface, principalID uuid.UUID, action model.DataAction, op model.PolicyOperation) (vaultID uuid.UUID, err error)
 ```
 
-`RequireDataAction` (the package function) is a thin wrapper: resolve vault → call `authorization.RequireDataAction(ctx, sc.GetRoleAssignmentService(), principalID, vaultID, action)` → return the vault ID or the error. This is the only function each CLI command needs to call.
+`RequireDataAction` (the package function): resolve vault → derive `resourceType` from `action`'s prefix → call `sc.GetAccessPolicyService().CheckAccess(ctx, principalID, resourceType, op, vaultID)`, return a forbidden error immediately on `AccessDenied` → call `authorization.RequireDataAction(ctx, sc.GetRoleAssignmentService(), principalID, vaultID, action)` → return the vault ID or the error. This is the only function each CLI command needs to call, and it is now the CLI's complete counterpart to `PolicyMiddleware`, not just its second half.
 
 ### `internal/services/authorization/data_action_authz.go` (new file)
 
 ```go
 // RequireDataAction returns nil if principalID holds a role assignment in
 // vaultID granting action, and an error otherwise. It is the CLI-callable
-// equivalent of PolicyMiddleware's HasDataAction check and must stay
+// equivalent of the role-assignment half of PolicyMiddleware's check (its
+// "2. Deny-by-default for vault data-plane routes" step) and must stay
 // behaviorally identical to it: no admin short-circuit. Data-plane access
 // has none today, even over HTTP (unlike vault-management's CanManageVault/
 // CanPurgeVault, which do short-circuit for the global admin role) — copying
 // that idiom here would grant the CLI a bypass the HTTP API doesn't have.
+//
+// This function alone is NOT full parity with PolicyMiddleware: it doesn't
+// check the access_policies explicit-deny override (PolicyMiddleware's
+// step "1"), because that check needs a *policy operation*, a different unit
+// than the *data action* this function's callers already have on hand, and
+// needs AccessPolicyService, not RoleAssignmentService. cmd/vaultcli's
+// RequireDataAction wraps both steps in the correct order; this function is
+// deliberately only the second one. Do not call this function directly from
+// a CLI command — call cmd/vaultcli.RequireDataAction instead.
 func RequireDataAction(ctx context.Context, roles RoleAssignmentService, principalID, vaultID uuid.UUID, action model.DataAction) error {
 	ok, err := roles.HasDataAction(ctx, principalID, vaultID, action)
 	if err != nil {
@@ -77,32 +99,38 @@ func RequireDataAction(ctx context.Context, roles RoleAssignmentService, princip
 }
 ```
 
-### `model.DataAction` per command (verified against `internal/services/authorization/data_actions.go`, the existing HTTP route→action table — reused as the source of truth, not re-derived)
+### Access-policy explicit-deny in the CLI adapter
 
-| Package | Command | Action |
-|---|---|---|
-| keys | create | `ActionKeysCreate` |
-| keys | get | `ActionKeysRead` |
-| keys | list | `ActionKeysRead` |
-| keys | update | `ActionKeysUpdate` |
-| keys | delete | `ActionKeysDelete` |
-| keys | rotate | `ActionKeysRotate` |
-| keys | wrap | `ActionKeysWrap` |
-| keys | unwrap | `ActionKeysUnwrap` |
-| certificates | list | `ActionCertificatesRead` |
-| certificates | get | `ActionCertificatesRead` |
-| certificates | delete | `ActionCertificatesDelete` |
-| certificates | update | `ActionCertificatesUpdate` |
-| certificates | renew | `ActionCertificatesCreate` (matches `data_actions.go`'s own `mapCertificateAction`, which already maps a hypothetical `POST .../renew` route this way, even though no HTTP route is registered for it) |
-| secrets | create | `ActionSecretsSet` |
-| secrets | list | `ActionSecretsReadMetadata` |
-| secrets | get | `ActionSecretsGet` |
-| secrets | update | `ActionSecretsSet` |
-| secrets | delete | `ActionSecretsDelete` |
-| secrets | export | `ActionSecretsGet` |
-| secrets | import | `ActionSecretsSet` |
+Caught in Plan 01's final whole-branch review, after Task 1/2 had already shipped and passed individual review: `PolicyMiddleware` runs the `access_policies` explicit-deny check (`internal/middleware/middleware.go`'s step "1", calling `AccessPolicyService.CheckAccess`) *before* the role-assignment check (step "2", `HasDataAction`) — confirmed by reading the live code. `authorization.RequireDataAction` only ever covered step 2. Without this fix, a principal explicitly denied a specific operation via `POST /api/v1/access-policies` (a live, supported route) but who still holds a qualifying role assignment would be blocked over HTTP and allowed over the CLI — the exact "two enforcement points disagree" failure mode this whole design exists to close.
 
-Each command hardcodes its own constant directly (`vaultcli.RequireDataAction(ctx, cmd, sc, claims.UserID, model.ActionKeysWrap)`) rather than deriving it from a synthetic HTTP path via `MapRouteToDataAction` — that function exists to solve generic route dispatch for middleware that must handle every route uniformly; a CLI command already knows its own action at compile time, and routing through a fake path string would be fragile, unenforced drift risk for no benefit.
+`CheckAccess`'s repository query (`internal/repositories/access_policy_repository.go`) matches `operation` **exactly** — no wildcard — so the `PolicyOperation` passed must match what a live HTTP request for the same logical action would resolve to via `resolvePolicy`. That function derives it from `(HTTP method, path)`; since the CLI has neither, each command supplies the equivalent value directly. `resourceType` has no such ambiguity — it comes 1:1 from `action`'s `Microsoft.KeyVault/vaults/{secrets|keys|certificates}/...` prefix — but `PolicyOperation` does: `resolvePolicy` special-cases only five path suffixes (`/purge`, `/restore`, `/rotate`, `/import`, `/renew`); every other route falls through to a per-HTTP-method default (GET→`OpGet`, POST→`OpCreate`, PUT→`OpSet`, DELETE→`OpDelete`). This means `resolvePolicy` — and therefore this fix, which deliberately mirrors it rather than inventing a more precise scheme — resolves `secrets export`, `keys wrap`, and `keys unwrap` (all POST, none of the five special suffixes) to `OpCreate`, same as a plain create. That's a pre-existing coarseness in `resolvePolicy` itself, not something this design introduces or is in scope to improve — an admin cannot currently write an access-policy deny that targets "wrap" specifically without also blocking "create"; matching that exactly is what "behaviorally identical to HTTP" requires here.
+
+| Package | Command | `model.DataAction` | `model.PolicyOperation` |
+|---|---|---|---|
+| secrets | create | `ActionSecretsSet` | `OpCreate` |
+| secrets | list | `ActionSecretsReadMetadata` | `OpGet` |
+| secrets | get | `ActionSecretsGet` | `OpGet` |
+| secrets | update | `ActionSecretsSet` | `OpSet` |
+| secrets | delete | `ActionSecretsDelete` | `OpDelete` |
+| secrets | export | `ActionSecretsGet` | `OpCreate` (resolvePolicy quirk, see above) |
+| secrets | import | `ActionSecretsSet` | `OpImport` |
+| keys | create | `ActionKeysCreate` | `OpCreate` |
+| keys | get | `ActionKeysRead` | `OpGet` |
+| keys | list | `ActionKeysRead` | `OpGet` |
+| keys | update | `ActionKeysUpdate` | `OpSet` |
+| keys | delete | `ActionKeysDelete` | `OpDelete` |
+| keys | rotate | `ActionKeysRotate` | `OpRotate` |
+| keys | wrap | `ActionKeysWrap` | `OpCreate` (resolvePolicy quirk) |
+| keys | unwrap | `ActionKeysUnwrap` | `OpCreate` (resolvePolicy quirk) |
+| certificates | list | `ActionCertificatesRead` | `OpGet` |
+| certificates | get | `ActionCertificatesRead` | `OpGet` |
+| certificates | delete | `ActionCertificatesDelete` | `OpDelete` |
+| certificates | update | `ActionCertificatesUpdate` | `OpSet` |
+| certificates | renew | `ActionCertificatesCreate` | `OpRenew` |
+
+`model.DataAction` values above were originally verified against `internal/services/authorization/data_actions.go`'s HTTP route→action table (reused as the source of truth, not re-derived); the `certificates renew` row's `ActionCertificatesCreate` matches `data_actions.go`'s own `mapCertificateAction`, which already maps a hypothetical `POST .../renew` route this way even though no HTTP route is registered for it.
+
+Each command hardcodes both constants directly (`vaultcli.RequireDataAction(ctx, cmd, sc, claims.UserID, model.ActionKeysWrap, model.OpCreate)`) rather than deriving them from a synthetic HTTP path via `MapRouteToDataAction`/`resolvePolicy` — those functions exist to solve generic route dispatch for middleware that must handle every route uniformly; a CLI command already knows its own action/operation at compile time, and routing through a fake path string would be fragile, unenforced drift risk for no benefit. (The `PolicyOperation` *values* in the table above were still derived by reading `resolvePolicy`'s logic once, since they must match it exactly — only the *mechanism* of calling it per-command at runtime is rejected, not the one-time cross-check against its source.)
 
 ### Certificate `update` fix (`api/certificates.go`)
 
@@ -136,21 +164,22 @@ Internal `scope := model.NewOwnerScope(uuid.Nil, userID)` is deleted; the passed
 
 1. Cobra parses flags (`--vault` is already a persistent root flag; nothing new to register).
 2. `RunE` reads `claims` from context (unchanged authentication).
-3. `vaultID, err := vaultcli.RequireDataAction(ctx, cmd, sc, claims.UserID, model.ActionKeysWrap)` — resolves the vault by name and checks the role assignment in one call; returns before any service/repository call if either fails.
+3. `vaultID, err := vaultcli.RequireDataAction(ctx, cmd, sc, claims.UserID, model.ActionKeysWrap, model.OpCreate)` — resolves the vault by name, checks the `access_policies` explicit-deny override, then checks the role assignment; returns before any service/repository call if any step fails.
 4. Build `model.NewVaultScope(vaultID, claims.UserID)`, call `cryptoService.WrapKey(...)` as today.
 5. Format/print output (unchanged).
 
 ## Error handling
 
 - Unknown `--vault` name → `vault %q not found`, non-zero exit, nothing touched.
+- Denied by an explicit `access_policies` deny → `forbidden`-class error from the adapter, non-zero exit, before the role-assignment check even runs.
 - No role assignment grants the action → `forbidden: no role grants %s in this vault`, non-zero exit, before any service call — no partial reads or side effects ahead of the deny.
-- A real error from `HasDataAction` (e.g. DB failure) propagates distinctly from a plain deny (`checking vault authorization: %w`), matching `HasDataAction`'s own contract that a lookup failure is an error, never a silent false.
+- A real error from either `CheckAccess` or `HasDataAction` (e.g. DB failure) propagates distinctly from a plain deny, matching both services' own contracts that a lookup failure is an error, never a silent false.
 
 ## Testing
 
 - `internal/services/authorization/data_action_authz_test.go` (new): no admin shortcut; fails closed on `HasDataAction` returning `(false, nil)` and on `(false, err)`.
-- `cmd/vaultcli` tests (new): port existing `cmd/secrets/vault_test.go` coverage for `ResolveVaultID`, add `RequireDataAction` success/deny/error cases.
-- Every touched command's test file gets two new cases per command: role-assignment mock returns `true` → command succeeds with the expected `VaultScope`; returns `false` → command fails **and the underlying service method is never called** (`mock.AssertNotCalled`, not just "returned an error" — a helper that returns the right bool but where the calling command ignores it would still pass a weaker test).
+- `cmd/vaultcli` tests (new): port existing `cmd/secrets/vault_test.go` coverage for `ResolveVaultID`; `RequireDataAction` success/deny-by-role/deny-by-policy/error cases, including one proving an explicit `access_policies` deny blocks a caller who *does* hold a qualifying role assignment (this is the scenario the final review caught as unguarded).
+- Every touched command's test file gets two new cases per command: both mocks (`AccessPolicyService` allow, `RoleAssignmentService` allow) → command succeeds with the expected `VaultScope`; role-assignment mock returns `false` → command fails **and the underlying service method is never called** (`mock.AssertNotCalled`, not just "returned an error" — a helper that returns the right bool but where the calling command ignores it would still pass a weaker test). Assert on concrete argument values (`principalID`, `vaultID`, `action`, `op`), not `mock.Anything` for everything — a transposed argument must fail a test, not pass one (also caught in the final review: the original Task 2 tests only asserted call/no-call, not argument correctness).
 - `api/certificates_test.go`: new case mirroring the existing `updateKey` vault-scope test, for the `updateCertificate` fix.
 - `renewal_service_test.go`, `cmd/certificates/renew_test.go`, and the certificate service mock: updated for `RenewCertificate`'s new signature.
 - `go build ./...` and `go vet ./...` must pass throughout.
@@ -164,6 +193,11 @@ Internal `scope := model.NewOwnerScope(uuid.Nil, userID)` is deleted; the passed
 - **Hardcoded `model.DataAction` per command, not derived via `MapRouteToDataAction` + a synthetic path** — see table above.
 - **Certificates `renew` uses `ActionCertificatesCreate`**, not a new action — matches `data_actions.go`'s own existing (currently dead, since no HTTP route reaches it) mapping for a hypothetical renew route, rather than inventing a new constant.
 - **Azure parity target is guarantee-level (same outcome), not mechanism-level (one physical enforcement point)** — see the dedicated section above. Mechanism-level parity is a separate, much larger CLI transport redesign, deliberately deferred.
+- **`vaultcli.RequireDataAction` checks both `access_policies` and role assignments; `authorization.RequireDataAction` checks only the latter.** Originally the design had one `RequireDataAction` covering only the role-assignment half of `PolicyMiddleware`, with a doc comment claiming full behavioral identity to it — an inaccurate claim, caught in Plan 01's final whole-branch review after Task 1/2 had already shipped. The deny-override check needs `AccessPolicyService` (reachable via `sc`, the `container.ServiceContainerInterface` the CLI adapter already holds) and a `model.PolicyOperation` (a different unit than `model.DataAction`, not derivable from it alone for overloaded actions like `ActionSecretsSet`) — neither is available to the lower-level `authorization.RequireDataAction`, which only takes a bare `RoleAssignmentService`. Splitting the check this way keeps the lower-level function's existing signature and its already-reviewed test suite intact, and adds the missing half at the one layer that has everything it needs.
+
+## Correction from Plan 01's final review (2026-08-11)
+
+Plan 01 passed both individual task reviews, then its final whole-branch review found the `access_policies` gap described above — a spec-level omission (the design never mentioned `access_policies` at all), not an implementer defect. `vaultcli.RequireDataAction`'s signature gained a `op model.PolicyOperation` parameter as a result; every command in Plans 02/03/05 passes both `action` and `op` from the table above. This required one fix round on Plan 01's already-committed code (both `RequireDataAction` functions and their tests) plus updates to the not-yet-executed Plans 02/03/05's call-site snippets. See the SDD ledger at `.superpowers/sdd/2026-08-11-vault-cli-01-shared-primitives/progress.md` for the exact commits.
 
 ## Re-verification against a later merge (2026-08-11)
 
