@@ -43,6 +43,7 @@ type TestContext struct {
 	MockRBACService           *MockRBACService
 	MockVaultService          *MockVaultService
 	MockRoleAssignmentService *MockRoleAssignmentService
+	MockAccessPolicyService   *MockAccessPolicyService
 	TestUserID                uuid.UUID
 	TestVaultID               uuid.UUID
 	Logger                    *logging.Logger
@@ -79,6 +80,14 @@ func NewTestContext(t *testing.T) *TestContext {
 	mockRoleAssignmentService.On("HasDataAction", mock.Anything, mock.Anything, mock.Anything, mock.Anything).
 		Return(true, nil).Maybe()
 
+	// Default to allowing every access-policy check, so vault-authorization
+	// checks added to CLI commands don't break every pre-existing test that
+	// doesn't care about them. Tests exercising the deny path replace this
+	// field with a fresh instance.
+	mockAccessPolicyService := &MockAccessPolicyService{}
+	mockAccessPolicyService.On("CheckAccess", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).
+		Return(authzServices.AccessAllowed, nil).Maybe()
+
 	// Setup mock container to return mock services
 	mockContainer.On("GetUserService").Return(mockUserService)
 	mockContainer.On("GetSecretService").Return(mockSecretService)
@@ -88,6 +97,7 @@ func NewTestContext(t *testing.T) *TestContext {
 	mockContainer.On("Close").Return(nil)
 	mockContainer.VaultService = mockVaultService
 	mockContainer.RoleAssignmentService = mockRoleAssignmentService
+	mockContainer.AccessPolicyService = mockAccessPolicyService
 
 	// Create test claims for authentication
 	testClaims := &model.Claims{
@@ -112,6 +122,7 @@ func NewTestContext(t *testing.T) *TestContext {
 		MockRBACService:           mockRBACService,
 		MockVaultService:          mockVaultService,
 		MockRoleAssignmentService: mockRoleAssignmentService,
+		MockAccessPolicyService:   mockAccessPolicyService,
 		TestUserID:                testUserID,
 		TestVaultID:               testVaultID,
 		Logger:                    logger,
@@ -633,6 +644,55 @@ func (m *MockRoleAssignmentService) ListAssignments(ctx context.Context, vaultID
 func (m *MockRoleAssignmentService) HasDataAction(ctx context.Context, principalID, vaultID uuid.UUID, action model.DataAction) (bool, error) {
 	args := m.Called(ctx, principalID, vaultID, action)
 	return args.Bool(0), args.Error(1)
+}
+
+// MockAccessPolicyService implements authzServices.AccessPolicyService for testing.
+type MockAccessPolicyService struct {
+	mock.Mock
+}
+
+func (m *MockAccessPolicyService) CheckAccess(ctx context.Context, principalID uuid.UUID, resourceType model.PolicyResourceType, operation model.PolicyOperation, vaultID uuid.UUID) (authzServices.AccessDecision, error) {
+	args := m.Called(ctx, principalID, resourceType, operation, vaultID)
+	return args.Get(0).(authzServices.AccessDecision), args.Error(1)
+}
+
+func (m *MockAccessPolicyService) CreatePolicy(ctx context.Context, policy *model.AccessPolicy) error {
+	args := m.Called(ctx, policy)
+	return args.Error(0)
+}
+
+func (m *MockAccessPolicyService) GetPolicy(ctx context.Context, id uuid.UUID) (*model.AccessPolicy, error) {
+	args := m.Called(ctx, id)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).(*model.AccessPolicy), args.Error(1)
+}
+
+func (m *MockAccessPolicyService) ListPolicies(ctx context.Context) ([]*model.AccessPolicy, error) {
+	args := m.Called(ctx)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).([]*model.AccessPolicy), args.Error(1)
+}
+
+func (m *MockAccessPolicyService) ListByPrincipal(ctx context.Context, principalID uuid.UUID) ([]*model.AccessPolicy, error) {
+	args := m.Called(ctx, principalID)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).([]*model.AccessPolicy), args.Error(1)
+}
+
+func (m *MockAccessPolicyService) UpdatePolicy(ctx context.Context, policy *model.AccessPolicy) error {
+	args := m.Called(ctx, policy)
+	return args.Error(0)
+}
+
+func (m *MockAccessPolicyService) DeletePolicy(ctx context.Context, id uuid.UUID) error {
+	args := m.Called(ctx, id)
+	return args.Error(0)
 }
 
 // Mock Authentication Service

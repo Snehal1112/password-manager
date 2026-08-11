@@ -3,6 +3,7 @@ package vaultcli
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"github.com/google/uuid"
 	"github.com/spf13/cobra"
@@ -23,16 +24,55 @@ func ResolveVaultID(ctx context.Context, cmd *cobra.Command, sc container.Servic
 	return v.ID, nil
 }
 
-// RequireDataAction resolves the vault, then checks principalID holds a role
-// assignment in it granting action. Returns the resolved vault ID on success
-// so callers don't have to resolve twice.
-func RequireDataAction(ctx context.Context, cmd *cobra.Command, sc container.ServiceContainerInterface, principalID uuid.UUID, action model.DataAction) (uuid.UUID, error) {
+// RequireDataAction resolves the vault, then reproduces PolicyMiddleware's
+// full two-stage check in order: (1) the access_policies explicit-deny
+// override via AccessPolicyService.CheckAccess, (2) the deny-by-default
+// role-assignment check via authorization.RequireDataAction. Returns the
+// resolved vault ID on success so callers don't have to resolve twice.
+//
+// op is the model.PolicyOperation that a real HTTP request for this same
+// logical command would resolve to via internal/middleware/middleware.go's
+// resolvePolicy(method, path). It cannot be derived from action alone:
+// several DataActions are deliberately coarser than PolicyOperation
+// (ActionSecretsSet covers both create's OpCreate and update's OpSet), so
+// callers must supply it explicitly. resourceType, unlike op, has no such
+// ambiguity — it's derived internally from action's own string prefix.
+func RequireDataAction(ctx context.Context, cmd *cobra.Command, sc container.ServiceContainerInterface, principalID uuid.UUID, action model.DataAction, op model.PolicyOperation) (uuid.UUID, error) {
 	vaultID, err := ResolveVaultID(ctx, cmd, sc)
 	if err != nil {
 		return uuid.Nil, err
 	}
+
+	resourceType := resourceTypeFromAction(action)
+	decision, err := sc.GetAccessPolicyService().CheckAccess(ctx, principalID, resourceType, op, vaultID)
+	if err != nil {
+		return uuid.Nil, fmt.Errorf("checking access policy: %w", err)
+	}
+	if decision == authorization.AccessDenied {
+		return uuid.Nil, fmt.Errorf("forbidden: access denied by an explicit access policy for %s", action)
+	}
+
 	if err := authorization.RequireDataAction(ctx, sc.GetRoleAssignmentService(), principalID, vaultID, action); err != nil {
 		return uuid.Nil, err
 	}
 	return vaultID, nil
+}
+
+// resourceTypeFromAction derives the model.PolicyResourceType from action's
+// own Microsoft.KeyVault/vaults/{secrets|keys|certificates}/... string
+// content, mirroring internal/middleware/middleware.go's resolvePolicy path
+// matching so the same (principal, resourceType, op, vault) triple is
+// evaluated on both entry points.
+func resourceTypeFromAction(action model.DataAction) model.PolicyResourceType {
+	s := string(action)
+	switch {
+	case strings.Contains(s, "/secrets"):
+		return model.PolicyResourceSecrets
+	case strings.Contains(s, "/keys"):
+		return model.PolicyResourceKeys
+	case strings.Contains(s, "/certificates"):
+		return model.PolicyResourceCertificates
+	default:
+		return ""
+	}
 }
