@@ -123,10 +123,14 @@ func TestDeleteVault_ForbiddenWhenNotScopedToTargetVault(t *testing.T) {
 
 // --- Full middleware chain regression ---
 
-// buildChainedVaultAPI wires the production middleware chain (VaultResolution ->
-// Policy) ahead of the vaults management handlers, exactly as api.go does. The
-// container serves both the default vault (which VaultResolutionMiddleware falls
-// back to for {name} routes) and a distinct target vault "prod".
+// buildChainedVaultAPI wires the production middleware chain (VaultResolution
+// -> Policy -> Authorization) ahead of the vaults management handlers,
+// matching api.go's ApiRoot.Use(...) order for everything except
+// CORS/RateLimit/Authentication — this harness injects identity directly into
+// the request context instead of validating a real bearer token, so
+// AuthenticationMiddleware is intentionally not wired in. The container
+// serves both the default vault (which VaultResolutionMiddleware falls back
+// to for {name} routes) and a distinct target vault "prod".
 func buildChainedVaultAPI(policySvc authzServices.AccessPolicyService) (http.Handler, uuid.UUID) {
 	repo := newVaultFakeRepo()
 	svc := vaultServices.NewVaultService(repo, vaultNoopCascade{}, nil)
@@ -144,7 +148,6 @@ func buildChainedVaultAPI(policySvc authzServices.AccessPolicyService) (http.Han
 	container := &vaultSvcTestContainer{
 		vaultSvc:  svc,
 		policySvc: policySvc,
-		rbacSvc:   permissiveRBAC{},
 		logger:    userTestLog(),
 	}
 	a := &app.App{ServiceContainer: container}
@@ -155,7 +158,7 @@ func buildChainedVaultAPI(policySvc authzServices.AccessPolicyService) (http.Han
 	router := mux.NewRouter()
 	api := &API{App: a, BaseRoutes: &Routes{}, basePath: "/api/v1", rootRouter: router, Logger: userTestLog()}
 	api.BaseRoutes.ApiRoot = router.PathPrefix("/api/v1").Subrouter()
-	api.BaseRoutes.ApiRoot.Use(mw.VaultResolutionMiddleware, mw.PolicyMiddleware)
+	api.BaseRoutes.ApiRoot.Use(mw.VaultResolutionMiddleware, mw.PolicyMiddleware, mw.AuthorizationMiddleware)
 	api.BaseRoutes.Vaults = api.BaseRoutes.ApiRoot.PathPrefix("/vaults").Subrouter()
 	api.InitVault()
 	return router, prodID
@@ -187,4 +190,75 @@ func TestVaultManage_ScopedToDefault_CannotReachOtherVault(t *testing.T) {
 	router.ServeHTTP(w, req)
 
 	assert.Equal(t, http.StatusForbidden, w.Code)
+}
+
+// TestVaultManage_RealAuthorizationMiddleware_NonAdminDeniedWithoutGrant
+// proves that, through the REAL production middleware chain (VaultResolution
+// -> Policy -> Authorization, with a real RBACService, not permissiveRBAC), a
+// non-admin caller holding no vaults:manage grant at all is denied on every
+// existing vault-management route. createVault and listVaults are
+// deliberately excluded here: they gain their own handler-level check in a
+// later plan (2026-08-11-04) and have none yet at this point in the sequence
+// — they are not yet protected by anything but this test's absence proves
+// nothing about them either way.
+func TestVaultManage_RealAuthorizationMiddleware_NonAdminDeniedWithoutGrant(t *testing.T) {
+	policySvc := &mockAccessPolicyService{}
+	policySvc.On("CheckAccess", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).
+		Return(authzServices.AccessFallback, nil)
+	router, _ := buildChainedVaultAPI(policySvc)
+
+	for _, tc := range []struct{ method, path string }{
+		{http.MethodGet, "/api/v1/vaults/prod"},
+		{http.MethodPatch, "/api/v1/vaults/prod"},
+		{http.MethodDelete, "/api/v1/vaults/prod"},
+	} {
+		t.Run(tc.method+" "+tc.path, func(t *testing.T) {
+			req := httptest.NewRequest(tc.method, tc.path, nil)
+			ctx := context.WithValue(req.Context(), common.UserIDKey, vaultTestUserID)
+			ctx = context.WithValue(ctx, common.RoleKey, string(model.RoleUser))
+			req = req.WithContext(ctx)
+			w := httptest.NewRecorder()
+			router.ServeHTTP(w, req)
+			if w.Code != http.StatusForbidden {
+				t.Fatalf("got %d, want 403 (no grant, real middleware chain)", w.Code)
+			}
+		})
+	}
+}
+
+// TestVaultManage_RealAuthorizationMiddleware_NonAdminAllowedWithGrant proves
+// the positive case through the real chain: a non-admin with a matching
+// vaults:manage allow policy on the target vault reaches the handler and
+// succeeds. Before the 2026-08-11 fix this was unreachable in production
+// regardless of the policy decision — AuthorizationMiddleware 403'd the
+// request before PolicyMiddleware's allow decision, or the handler's own
+// check, could matter. No existing test proved this positive case through a
+// chain that includes AuthorizationMiddleware; this is the first one that
+// does.
+func TestVaultManage_RealAuthorizationMiddleware_NonAdminAllowedWithGrant(t *testing.T) {
+	policySvc := &mockAccessPolicyService{}
+	router, prodID := buildChainedVaultAPI(policySvc)
+	defID := uuid.MustParse(model.DefaultVaultID)
+
+	// The ambient PolicyMiddleware check (default vault, since {name} routes
+	// bypass VaultResolutionMiddleware) and the handler's own re-check
+	// (target vault "prod") are two distinct CheckAccess calls; both must
+	// allow for a 200.
+	policySvc.On("CheckAccess", mock.Anything, mock.Anything,
+		model.PolicyResourceVaults, model.OpManage, defID).
+		Return(authzServices.AccessAllowed, nil)
+	policySvc.On("CheckAccess", mock.Anything, mock.Anything,
+		model.PolicyResourceVaults, model.OpManage, prodID).
+		Return(authzServices.AccessAllowed, nil)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/vaults/prod", nil)
+	ctx := context.WithValue(req.Context(), common.UserIDKey, vaultTestUserID)
+	ctx = context.WithValue(ctx, common.RoleKey, string(model.RoleUser))
+	req = req.WithContext(ctx)
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("got %d, want 200 (matching grant, real middleware chain)", w.Code)
+	}
 }
