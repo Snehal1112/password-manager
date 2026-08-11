@@ -26,6 +26,9 @@ var recoverCmd = &cobra.Command{
 		if !ok || serviceContainer == nil {
 			return fmt.Errorf("service container not available in context")
 		}
+		if err := requireCanManageVault(ctx, serviceContainer, name); err != nil {
+			return err
+		}
 		vaultService := serviceContainer.GetVaultService()
 
 		if err := vaultService.RecoverVault(ctx, name); err != nil {

@@ -166,6 +166,7 @@ type vaultSvcTestContainer struct {
 	certPolicyRepo repositories.CertificatePolicyRepositoryInterface
 	policySvc      authzServices.AccessPolicyService
 	rbacSvc        authzServices.RBACService
+	roleSvc        authzServices.RoleAssignmentService
 	logger         *logging.Logger
 }
 
@@ -236,6 +237,9 @@ func (c *vaultSvcTestContainer) GetAccessPolicyService() authzServices.AccessPol
 	panic("unexpected call: GetAccessPolicyService")
 }
 func (c *vaultSvcTestContainer) GetRoleAssignmentService() authzServices.RoleAssignmentService {
+	if c.roleSvc != nil {
+		return c.roleSvc
+	}
 	return nil
 }
 func (c *vaultSvcTestContainer) GetOAuth2ClientRepository() repositories.OAuth2ClientRepositoryInterface {
@@ -321,10 +325,15 @@ const vaultTestUserID = "a1b2c3d4-e5f6-7890-abcd-ef1234567890"
 
 // newVaultTestAPI builds an API whose vaults subrouter is wired to a real,
 // in-memory-backed vault service so the handlers exercise genuine logic.
+// All requests issued via doVaultRequest carry model.RoleAdmin, so
+// createVault's authorization check short-circuits on the account role
+// before ever calling CheckAccess; policySvc only needs to exist (not be
+// stubbed) because CanManageVault's caller fetches it via an eagerly
+// evaluated function argument regardless of role.
 func newVaultTestAPI() (*API, *vaultFakeRepo) {
 	repo := newVaultFakeRepo()
 	svc := vaultServices.NewVaultService(repo, vaultNoopCascade{}, nil)
-	a := &app.App{ServiceContainer: &vaultSvcTestContainer{vaultSvc: svc}}
+	a := &app.App{ServiceContainer: &vaultSvcTestContainer{vaultSvc: svc, policySvc: &mockAccessPolicyService{}}}
 	a.Logger = userTestLog()
 
 	router := mux.NewRouter()
@@ -337,6 +346,7 @@ func newVaultTestAPI() (*API, *vaultFakeRepo) {
 	}
 	api.BaseRoutes.ApiRoot = router.PathPrefix("/api/v1").Subrouter()
 	api.BaseRoutes.Vaults = api.BaseRoutes.ApiRoot.PathPrefix("/vaults").Subrouter()
+	api.BaseRoutes.VaultScoped = api.BaseRoutes.Vaults.PathPrefix("/{vault_name:[a-z0-9-]+}").Subrouter()
 	api.InitVault()
 	return api, repo
 }
@@ -487,6 +497,7 @@ func newVaultTestAPIWithContainer(cont container.ServiceContainerInterface) *API
 	}
 	api.BaseRoutes.ApiRoot = router.PathPrefix("/api/v1").Subrouter()
 	api.BaseRoutes.Vaults = api.BaseRoutes.ApiRoot.PathPrefix("/vaults").Subrouter()
+	api.BaseRoutes.VaultScoped = api.BaseRoutes.Vaults.PathPrefix("/{vault_name:[a-z0-9-]+}").Subrouter()
 	api.InitVault()
 	return api
 }
@@ -521,4 +532,50 @@ func TestVaultSvcTestContainer_GetCryptoService_ReturnsConfiguredService(t *test
 	if c.GetCryptoService() != svc {
 		t.Fatalf("GetCryptoService() did not return the configured cryptoSvc")
 	}
+}
+
+// TestPurgeVault_Success permanently removes a soft-deleted vault.
+func TestPurgeVault_Success(t *testing.T) {
+	api, repo := newVaultTestAPI()
+	id := uuid.New()
+	deletedAt := nowForVaultTest()
+	repo.byName["stg"] = &model.Vault{ID: id, Name: "stg", Enabled: true, DeletedAt: &deletedAt}
+	repo.byID[id.String()] = repo.byName["stg"]
+
+	w := doVaultRequest(api, http.MethodDelete, "/api/v1/vaults/stg/purge", nil)
+	assert.Equal(t, http.StatusNoContent, w.Code)
+
+	_, err := repo.ReadByID(context.Background(), id)
+	assert.Error(t, err, "purged vault must no longer be readable")
+}
+
+// TestPurgeVault_RefusesDefault confirms the default vault cannot be purged.
+func TestPurgeVault_RefusesDefault(t *testing.T) {
+	api, repo := newVaultTestAPI()
+	defID := uuid.MustParse(model.DefaultVaultID)
+	repo.byName[model.DefaultVaultName] = &model.Vault{ID: defID, Name: model.DefaultVaultName, Enabled: true}
+	repo.byID[defID.String()] = repo.byName[model.DefaultVaultName]
+
+	w := doVaultRequest(api, http.MethodDelete, "/api/v1/vaults/"+model.DefaultVaultName+"/purge", nil)
+	assert.Equal(t, http.StatusBadRequest, w.Code)
+}
+
+// TestPurgeVault_RefusesPurgeProtected confirms a purge-protected vault cannot be purged.
+func TestPurgeVault_RefusesPurgeProtected(t *testing.T) {
+	api, repo := newVaultTestAPI()
+	id := uuid.New()
+	deletedAt := nowForVaultTest()
+	repo.byName["stg"] = &model.Vault{ID: id, Name: "stg", Enabled: true, PurgeProtection: true, DeletedAt: &deletedAt}
+	repo.byID[id.String()] = repo.byName["stg"]
+
+	w := doVaultRequest(api, http.MethodDelete, "/api/v1/vaults/stg/purge", nil)
+	assert.Equal(t, http.StatusBadRequest, w.Code)
+}
+
+// TestPurgeVault_NotFound confirms a missing vault returns 404.
+func TestPurgeVault_NotFound(t *testing.T) {
+	api, _ := newVaultTestAPI()
+
+	w := doVaultRequest(api, http.MethodDelete, "/api/v1/vaults/ghost/purge", nil)
+	assert.Equal(t, http.StatusNotFound, w.Code)
 }

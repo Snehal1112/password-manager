@@ -7,20 +7,24 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestAzureRoleNames asserts the exact seven built-in data-plane roles, sorted.
+// TestAzureRoleNames asserts the exact eleven built-in data-plane roles, sorted.
 func TestAzureRoleNames(t *testing.T) {
 	assert.Equal(t, []string{
 		"Key Vault Administrator",
+		"Key Vault Certificate User",
 		"Key Vault Certificates Officer",
 		"Key Vault Crypto Officer",
+		"Key Vault Crypto Service Encryption User",
 		"Key Vault Crypto User",
+		"Key Vault Data Access Administrator",
+		"Key Vault Purge Operator",
 		"Key Vault Reader",
 		"Key Vault Secrets Officer",
 		"Key Vault Secrets User",
 	}, AzureRoleNames())
 }
 
-// TestIsAzureRole accepts the seven names and rejects everything else,
+// TestIsAzureRole accepts the eleven names and rejects everything else,
 // including the legacy vault role vocabulary and case variations.
 func TestIsAzureRole(t *testing.T) {
 	for _, name := range AzureRoleNames() {
@@ -70,11 +74,16 @@ func TestAzureRoleDataActions(t *testing.T) {
 		assert.ElementsMatch(t, want, AzureRoleDataActions(role), "role %q", role)
 	}
 
-	// Administrator holds every action any other role holds, and nothing else.
+	// Administrator holds every action any other role holds, except for the
+	// two roles that intentionally hold actions outside Administrator's scope:
+	// RoleKeyVaultPurgeOperator (vault purge) and RoleKeyVaultDataAccessAdministrator
+	// (role assignment management). These exist as separate roles precisely because
+	// Administrator doesn't have those permissions in Azure. All other roles grant
+	// actions already covered by Administrator's 32 data-plane actions.
 	var union []DataAction
 	seen := map[DataAction]bool{}
 	for _, role := range AzureRoleNames() {
-		if role == RoleKeyVaultAdministrator {
+		if role == RoleKeyVaultAdministrator || role == RoleKeyVaultPurgeOperator || role == RoleKeyVaultDataAccessAdministrator {
 			continue
 		}
 		for _, a := range AzureRoleDataActions(role) {
@@ -116,4 +125,100 @@ func TestRoleGrantsDataAction(t *testing.T) {
 	assert.False(t, RoleGrantsDataAction("vault-admin", ActionSecretsGet))
 	assert.False(t, RoleGrantsDataAction("", ActionSecretsGet))
 	assert.False(t, RoleGrantsDataAction(RoleKeyVaultAdministrator, ""))
+}
+
+func TestNewDataActionConstants_MatchAzureStrings(t *testing.T) {
+	cases := []struct {
+		name string
+		got  DataAction
+		want DataAction
+	}{
+		{"vault purge", ActionVaultPurge, "Microsoft.KeyVault/vaults/purge/action"},
+		{"role assignments write", ActionRoleAssignmentsWrite, "Microsoft.Authorization/roleAssignments/write"},
+		{"role assignments delete", ActionRoleAssignmentsDelete, "Microsoft.Authorization/roleAssignments/delete"},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			if c.got != c.want {
+				t.Fatalf("got %q, want %q", c.got, c.want)
+			}
+		})
+	}
+}
+
+func TestNewRoles_AreAzureRoles(t *testing.T) {
+	for _, role := range []string{
+		RoleKeyVaultPurgeOperator,
+		RoleKeyVaultCertificateUser,
+		RoleKeyVaultCryptoServiceEncryptionUser,
+		RoleKeyVaultDataAccessAdministrator,
+	} {
+		if !IsAzureRole(role) {
+			t.Errorf("IsAzureRole(%q) = false, want true", role)
+		}
+	}
+}
+
+func TestRoleKeyVaultPurgeOperator_GrantsOnlyVaultPurge(t *testing.T) {
+	actions := AzureRoleDataActions(RoleKeyVaultPurgeOperator)
+	if len(actions) != 1 || actions[0] != ActionVaultPurge {
+		t.Fatalf("got %v, want [%q]", actions, ActionVaultPurge)
+	}
+	if RoleGrantsDataAction(RoleKeyVaultPurgeOperator, ActionSecretsGet) {
+		t.Fatal("Purge Operator must not grant secret access")
+	}
+}
+
+func TestRoleKeyVaultCertificateUser_GrantsOnlyCertificatesRead(t *testing.T) {
+	actions := AzureRoleDataActions(RoleKeyVaultCertificateUser)
+	if len(actions) != 1 || actions[0] != ActionCertificatesRead {
+		t.Fatalf("got %v, want [%q]", actions, ActionCertificatesRead)
+	}
+}
+
+func TestRoleKeyVaultCryptoServiceEncryptionUser_GrantsReadWrapUnwrapOnly(t *testing.T) {
+	want := map[DataAction]bool{ActionKeysRead: true, ActionKeysWrap: true, ActionKeysUnwrap: true}
+	actions := AzureRoleDataActions(RoleKeyVaultCryptoServiceEncryptionUser)
+	if len(actions) != len(want) {
+		t.Fatalf("got %d actions, want %d: %v", len(actions), len(want), actions)
+	}
+	for _, a := range actions {
+		if !want[a] {
+			t.Errorf("unexpected action %q", a)
+		}
+	}
+	for _, denied := range []DataAction{ActionKeysEncrypt, ActionKeysDecrypt, ActionKeysSign, ActionKeysVerify} {
+		if RoleGrantsDataAction(RoleKeyVaultCryptoServiceEncryptionUser, denied) {
+			t.Errorf("Crypto Service Encryption User must not grant %q", denied)
+		}
+	}
+}
+
+func TestRoleKeyVaultDataAccessAdministrator_GrantsRoleAssignmentActionsOnly(t *testing.T) {
+	want := map[DataAction]bool{ActionRoleAssignmentsWrite: true, ActionRoleAssignmentsDelete: true}
+	actions := AzureRoleDataActions(RoleKeyVaultDataAccessAdministrator)
+	if len(actions) != len(want) {
+		t.Fatalf("got %d actions, want %d: %v", len(actions), len(want), actions)
+	}
+	for _, a := range actions {
+		if !want[a] {
+			t.Errorf("unexpected action %q", a)
+		}
+	}
+	if RoleGrantsDataAction(RoleKeyVaultDataAccessAdministrator, ActionSecretsGet) {
+		t.Fatal("Data Access Administrator must not grant any secrets/keys/certificates action")
+	}
+}
+
+func TestAzureRoleNames_IncludesAllElevenGrantableRoles(t *testing.T) {
+	names := AzureRoleNames()
+	if len(names) != 11 {
+		t.Fatalf("got %d role names, want 11: %v", len(names), names)
+	}
+}
+
+func TestReleaseUser_IsNotAnAzureRole(t *testing.T) {
+	if IsAzureRole("Key Vault Crypto Service Release User") {
+		t.Fatal("Key Vault Crypto Service Release User must not be grantable: RocketVault has no confidential-compute/TEE attestation flow to gate")
+	}
 }

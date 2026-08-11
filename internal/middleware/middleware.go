@@ -441,8 +441,11 @@ func resolvePolicy(method, path string) (model.PolicyResourceType, model.PolicyO
 // FIRST, so a deny cannot be outvoted by a role grant.
 //
 // Routes that are not vault data-plane routes (vault management, role
-// assignments, users, audit) keep the previous AccessFallback pass-through:
-// their gates are requireVaultManage in the handlers and AuthorizationMiddleware.
+// assignments, users, audit) keep the previous AccessFallback pass-through.
+// Vault-management and role-assignment routes are authorized entirely by the
+// handlers themselves, via authorization.CanManageVault and
+// authorization.CanManageRoleAssignments; users and audit routes are still
+// gated by AuthorizationMiddleware's global role permissions.
 func (m *Middleware) PolicyMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		resourceType, op := resolvePolicy(r.Method, r.URL.Path)
@@ -574,6 +577,28 @@ func (m *Middleware) VaultResolutionMiddleware(next http.Handler) http.Handler {
 		if v := mux.Vars(r)["vault_name"]; v != "" {
 			name = v
 		}
+
+		// The vault-purge route (DELETE /vaults/{name}/purge — distinct from
+		// per-object purge routes like /deleted/secrets/{id}/purge, which
+		// always contain "/deleted/") must resolve its target regardless of
+		// soft-delete or enabled state: that is the entire point of purge,
+		// normally invoked against an already soft-deleted vault (see
+		// VaultService.PurgeVault's own findDeleted-first logic) and
+		// occasionally against an active one. Every OTHER vault-scoped route
+		// must keep rejecting a disabled or soft-deleted vault, so this
+		// bypass is intentionally narrow to this one route shape.
+		if r.Method == http.MethodDelete && strings.HasSuffix(r.URL.Path, "/purge") && !strings.Contains(r.URL.Path, "/deleted/") {
+			vaultID, err := m.resolveVaultForPurge(r.Context(), name)
+			if err != nil {
+				m.logger.LogAuditError("", "vault_resolve", "failed", "Vault not found: "+name, err)
+				http.Error(w, `{"error":"vault not found"}`, http.StatusNotFound)
+				return
+			}
+			ctx := context.WithValue(r.Context(), common.VaultIDKey, vaultID.String())
+			next.ServeHTTP(w, r.WithContext(ctx))
+			return
+		}
+
 		vault, err := m.container.GetVaultService().GetVault(r.Context(), name)
 		if err != nil {
 			m.logger.LogAuditError("", "vault_resolve", "failed", "Vault not found: "+name, err)
@@ -588,6 +613,23 @@ func (m *Middleware) VaultResolutionMiddleware(next http.Handler) http.Handler {
 		ctx := context.WithValue(r.Context(), common.VaultIDKey, vault.ID.String())
 		next.ServeHTTP(w, r.WithContext(ctx))
 	})
+}
+
+// resolveVaultForPurge finds a vault's ID by name, active or soft-deleted --
+// used only by the vault-purge route (see VaultResolutionMiddleware); every
+// other route must not resolve a soft-deleted vault, so this stays private
+// to that one caller rather than becoming VaultService's default behavior.
+func (m *Middleware) resolveVaultForPurge(ctx context.Context, name string) (uuid.UUID, error) {
+	vaults, err := m.container.GetVaultService().ListVaults(ctx, true)
+	if err != nil {
+		return uuid.Nil, err
+	}
+	for _, v := range vaults {
+		if v.Name == name {
+			return v.ID, nil
+		}
+	}
+	return uuid.Nil, vaultServices.ErrVaultNotFound
 }
 
 // SecurityHeadersMiddleware adds security headers to responses.

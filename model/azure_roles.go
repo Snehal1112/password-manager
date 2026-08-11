@@ -91,6 +91,18 @@ const (
 	ActionCertificatesPurge DataAction = "Microsoft.KeyVault/vaults/certificates/purge"
 )
 
+// Vault-management and role-assignment data actions.
+const (
+	// ActionVaultPurge permits permanently purging a soft-deleted vault.
+	// Unlike the per-object purge actions above, this applies to the vault
+	// resource itself, not an object inside it.
+	ActionVaultPurge DataAction = "Microsoft.KeyVault/vaults/purge/action"
+	// ActionRoleAssignmentsWrite permits granting a role assignment in a vault.
+	ActionRoleAssignmentsWrite DataAction = "Microsoft.Authorization/roleAssignments/write"
+	// ActionRoleAssignmentsDelete permits revoking a role assignment in a vault.
+	ActionRoleAssignmentsDelete DataAction = "Microsoft.Authorization/roleAssignments/delete"
+)
+
 // Azure built-in data-plane role names. A role is granted to a principal within
 // a single vault via the role_assignments table; there is no tenant-wide grant.
 const (
@@ -112,6 +124,23 @@ const (
 	// RocketVault does not yet model a certificate as a linked key plus secret,
 	// so this role grants no key or secret actions. That linkage is deferred to P5.
 	RoleKeyVaultCertificatesOfficer = "Key Vault Certificates Officer"
+	// RoleKeyVaultPurgeOperator grants permission to permanently purge a
+	// soft-deleted vault.
+	RoleKeyVaultPurgeOperator = "Key Vault Purge Operator"
+	// RoleKeyVaultCertificateUser grants certificate reads. RocketVault does
+	// not yet link a certificate to its key/secret material (deferred to
+	// P5), so this currently grants the same ActionCertificatesRead as
+	// RoleKeyVaultReader — it exists now for forward compatibility and gains
+	// its full Azure semantics once that linkage lands.
+	RoleKeyVaultCertificateUser = "Key Vault Certificate User"
+	// RoleKeyVaultCryptoServiceEncryptionUser grants read of key metadata
+	// plus wrap/unwrap only — narrower than RoleKeyVaultCryptoUser, which
+	// also grants encrypt/decrypt/sign/verify.
+	RoleKeyVaultCryptoServiceEncryptionUser = "Key Vault Crypto Service Encryption User"
+	// RoleKeyVaultDataAccessAdministrator grants the ability to create and
+	// revoke role assignments within a vault, without granting any data
+	// action on the vault's secrets, keys, or certificates.
+	RoleKeyVaultDataAccessAdministrator = "Key Vault Data Access Administrator"
 )
 
 // azureRoleDataActions is the single source of truth for what each role grants.
@@ -161,9 +190,21 @@ var azureRoleDataActions = map[string][]DataAction{
 		ActionCertificatesDelete, ActionCertificatesBackup, ActionCertificatesRestore,
 		ActionCertificatesRecover, ActionCertificatesPurge,
 	},
+	RoleKeyVaultPurgeOperator: {
+		ActionVaultPurge,
+	},
+	RoleKeyVaultCertificateUser: {
+		ActionCertificatesRead,
+	},
+	RoleKeyVaultCryptoServiceEncryptionUser: {
+		ActionKeysRead, ActionKeysWrap, ActionKeysUnwrap,
+	},
+	RoleKeyVaultDataAccessAdministrator: {
+		ActionRoleAssignmentsWrite, ActionRoleAssignmentsDelete,
+	},
 }
 
-// AzureRoleNames returns the seven built-in role names in sorted order.
+// AzureRoleNames returns the eleven built-in role names in sorted order.
 func AzureRoleNames() []string {
 	names := make([]string, 0, len(azureRoleDataActions))
 	for name := range azureRoleDataActions {
@@ -173,7 +214,7 @@ func AzureRoleNames() []string {
 	return names
 }
 
-// IsAzureRole reports whether name is one of the seven built-in roles. The
+// IsAzureRole reports whether name is one of the eleven built-in roles. The
 // comparison is exact: role names are stored verbatim in role_assignments.role.
 func IsAzureRole(name string) bool {
 	_, ok := azureRoleDataActions[name]

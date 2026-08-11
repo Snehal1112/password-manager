@@ -126,11 +126,17 @@ func vaultResolutionTestMiddleware(repo *vaultFakeRepo) mux.MiddlewareFunc {
 
 // newVaultScopedTestAPI wires both the vault management routes and the
 // vault-scoped resource routes onto one router, backed by an in-memory vault
-// repo and a recording secret service.
+// repo and a recording secret service. All requests issued via
+// doVaultRequest/doScopedRequest carry model.RoleAdmin, so getVault's
+// authorization check short-circuits on the account role before ever calling
+// CheckAccess; policySvc only needs to exist (not be stubbed) because
+// CanManageVault's caller fetches it via an eagerly evaluated function
+// argument regardless of role (see newVaultTestAPI's comment in
+// vault_test.go for the same pattern).
 func newVaultScopedTestAPI(secretSvc secretServices.SecretService) (*API, *vaultFakeRepo) {
 	repo := newVaultFakeRepo()
 	vsvc := vaultServices.NewVaultService(repo, vaultNoopCascade{}, nil)
-	a := &app.App{ServiceContainer: &vaultSvcTestContainer{vaultSvc: vsvc, secretSvc: secretSvc}}
+	a := &app.App{ServiceContainer: &vaultSvcTestContainer{vaultSvc: vsvc, secretSvc: secretSvc, policySvc: &mockAccessPolicyService{}}}
 	a.Logger = userTestLog()
 
 	router := mux.NewRouter()

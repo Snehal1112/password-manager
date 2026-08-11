@@ -14,6 +14,7 @@ import (
 	"rocketvault/cmd/testutils"
 	"rocketvault/common"
 	"rocketvault/internal/formatter"
+	authzServices "rocketvault/internal/services/authorization"
 	"rocketvault/model"
 )
 
@@ -122,6 +123,8 @@ func TestVaultsGet(t *testing.T) {
 func TestVaultsDelete(t *testing.T) {
 	tc := testutils.NewTestContext(t)
 
+	tc.MockVaultService.On("ListVaults", mock.Anything, true).
+		Return([]model.Vault{{ID: uuid.New(), Name: "my-vault"}}, nil)
 	tc.MockVaultService.On("DeleteVault", mock.Anything, "my-vault").Return(nil)
 
 	cmd := &cobra.Command{Use: "delete", Args: cobra.ExactArgs(1), RunE: deleteCmd.RunE}
@@ -141,10 +144,12 @@ func TestVaultsDelete(t *testing.T) {
 func TestVaultsUpdate(t *testing.T) {
 	tc := testutils.NewTestContext(t)
 
+	tc.MockVaultService.On("ListVaults", mock.Anything, true).
+		Return([]model.Vault{{ID: uuid.New(), Name: "my-vault"}}, nil)
 	updated := &model.Vault{ID: uuid.New(), Name: "my-vault", Enabled: false, RetentionDays: 90}
 	tc.MockVaultService.On("UpdateVault", mock.Anything, "my-vault", mock.MatchedBy(func(r model.UpdateVaultRequest) bool {
 		return r.Enabled != nil && !*r.Enabled
-	}), uuid.Nil).Return(updated, nil)
+	}), tc.TestUserID).Return(updated, nil)
 
 	cmd := &cobra.Command{Use: "update", Args: updateCmd.Args, RunE: updateCmd.RunE}
 	cmd.Flags().Bool("enabled", true, "")
@@ -162,4 +167,54 @@ func TestVaultsUpdate(t *testing.T) {
 	require.NoError(t, err)
 	assert.Contains(t, out.String(), "my-vault")
 	tc.MockVaultService.AssertExpectations(t)
+}
+
+// mockAccessPolicyService is a minimal test double for authzServices.AccessPolicyService.
+type mockAccessPolicyService struct {
+	decision authzServices.AccessDecision
+}
+
+func (m *mockAccessPolicyService) CheckAccess(context.Context, uuid.UUID, model.PolicyResourceType, model.PolicyOperation, uuid.UUID) (authzServices.AccessDecision, error) {
+	return m.decision, nil
+}
+func (m *mockAccessPolicyService) CreatePolicy(context.Context, *model.AccessPolicy) error {
+	return nil
+}
+func (m *mockAccessPolicyService) GetPolicy(context.Context, uuid.UUID) (*model.AccessPolicy, error) {
+	return nil, nil
+}
+func (m *mockAccessPolicyService) ListPolicies(context.Context) ([]*model.AccessPolicy, error) {
+	return nil, nil
+}
+func (m *mockAccessPolicyService) ListByPrincipal(context.Context, uuid.UUID) ([]*model.AccessPolicy, error) {
+	return nil, nil
+}
+func (m *mockAccessPolicyService) UpdatePolicy(context.Context, *model.AccessPolicy) error {
+	return nil
+}
+func (m *mockAccessPolicyService) DeletePolicy(context.Context, uuid.UUID) error { return nil }
+
+// TestVaultsCreate_ForbiddenWithoutGlobalGrant proves a non-admin with no
+// global vaults:manage policy cannot create a vault via the CLI.
+func TestVaultsCreate_ForbiddenWithoutGlobalGrant(t *testing.T) {
+	tc := testutils.NewTestContext(t)
+	nonAdminCtx := context.WithValue(tc.Ctx, common.ClaimsKey, &model.Claims{UserID: tc.TestUserID, Role: model.RoleUser})
+
+	policySvc := &mockAccessPolicyService{decision: authzServices.AccessFallback}
+	tc.MockContainer.AccessPolicyService = policySvc
+
+	cmd := &cobra.Command{Use: "create", Args: createCmd.Args, RunE: createCmd.RunE}
+	cmd.Flags().Bool("purge-protection", false, "")
+	cmd.Flags().Int("retention-days", 0, "")
+	cmd.SetContext(ctxWithFormatter(nonAdminCtx))
+	cmd.SetArgs([]string{"newvault"})
+
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetErr(&out)
+
+	err := cmd.Execute()
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "permission denied")
+	tc.MockVaultService.AssertNotCalled(t, "CreateVault", mock.Anything, mock.Anything, mock.Anything)
 }

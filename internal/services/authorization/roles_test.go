@@ -110,7 +110,7 @@ func TestIsValidRole_EdgeCases(t *testing.T) {
 	}
 }
 
-// TestIsValidRole_AcceptsAzureRoles asserts the seven Azure built-in role names
+// TestIsValidRole_AcceptsAzureRoles asserts the eleven Azure built-in role names
 // are grantable alongside the legacy vault role vocabulary.
 func TestIsValidRole_AcceptsAzureRoles(t *testing.T) {
 	for _, role := range []string{
@@ -161,8 +161,8 @@ func TestBuiltInRoleNames_IncludesAzureRoles(t *testing.T) {
 			t.Fatalf("BuiltInRoleNames missing %q", n)
 		}
 	}
-	if len(names) != 14 {
-		t.Fatalf("want 14 role names (7 legacy + 7 Azure), got %d: %v", len(names), names)
+	if len(names) != 18 {
+		t.Fatalf("want 18 role names (7 legacy + 11 Azure), got %d: %v", len(names), names)
 	}
 }
 

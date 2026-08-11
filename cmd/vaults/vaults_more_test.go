@@ -2,6 +2,7 @@ package vaults
 
 import (
 	"bytes"
+	"context"
 	"fmt"
 	"os"
 	"testing"
@@ -13,6 +14,8 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"rocketvault/cmd/testutils"
+	"rocketvault/common"
+	authzServices "rocketvault/internal/services/authorization"
 	"rocketvault/model"
 )
 
@@ -45,6 +48,8 @@ func newVltCmd(runE func(*cobra.Command, []string) error, args []string) (*cobra
 
 func TestPurgeCmd_Success(t *testing.T) {
 	tc := testutils.NewTestContext(t)
+	tc.MockVaultService.On("ListVaults", mock.Anything, true).
+		Return([]model.Vault{{ID: uuid.New(), Name: "my-vault"}}, nil)
 	tc.MockVaultService.On("PurgeVault", mock.Anything, "my-vault").Return(nil)
 
 	cmd, buf := newVltCmd(purgeCmd.RunE, []string{"my-vault"})
@@ -59,6 +64,8 @@ func TestPurgeCmd_Success(t *testing.T) {
 
 func TestPurgeCmd_ServiceError(t *testing.T) {
 	tc := testutils.NewTestContext(t)
+	tc.MockVaultService.On("ListVaults", mock.Anything, true).
+		Return([]model.Vault{{ID: uuid.New(), Name: "my-vault"}}, nil)
 	tc.MockVaultService.On("PurgeVault", mock.Anything, "my-vault").
 		Return(fmt.Errorf("cannot purge"))
 
@@ -75,6 +82,8 @@ func TestPurgeCmd_ServiceError(t *testing.T) {
 
 func TestRecoverCmd_Success(t *testing.T) {
 	tc := testutils.NewTestContext(t)
+	tc.MockVaultService.On("ListVaults", mock.Anything, true).
+		Return([]model.Vault{{ID: uuid.New(), Name: "my-vault"}}, nil)
 	tc.MockVaultService.On("RecoverVault", mock.Anything, "my-vault").Return(nil)
 
 	cmd, buf := newVltCmd(recoverCmd.RunE, []string{"my-vault"})
@@ -89,6 +98,8 @@ func TestRecoverCmd_Success(t *testing.T) {
 
 func TestRecoverCmd_ServiceError(t *testing.T) {
 	tc := testutils.NewTestContext(t)
+	tc.MockVaultService.On("ListVaults", mock.Anything, true).
+		Return([]model.Vault{{ID: uuid.New(), Name: "broken-vault"}}, nil)
 	tc.MockVaultService.On("RecoverVault", mock.Anything, "broken-vault").
 		Return(fmt.Errorf("vault not found"))
 
@@ -298,6 +309,8 @@ func TestVaultsList_IncludeDeleted(t *testing.T) {
 
 func TestVaultsDelete_ServiceError(t *testing.T) {
 	tc := testutils.NewTestContext(t)
+	tc.MockVaultService.On("ListVaults", mock.Anything, true).
+		Return([]model.Vault{{ID: uuid.New(), Name: "locked-vault"}}, nil)
 	tc.MockVaultService.On("DeleteVault", mock.Anything, "locked-vault").
 		Return(fmt.Errorf("vault is protected"))
 
@@ -314,7 +327,9 @@ func TestVaultsDelete_ServiceError(t *testing.T) {
 
 func TestVaultsUpdate_ServiceError(t *testing.T) {
 	tc := testutils.NewTestContext(t)
-	tc.MockVaultService.On("UpdateVault", mock.Anything, "error-vault", mock.Anything, uuid.Nil).
+	tc.MockVaultService.On("ListVaults", mock.Anything, true).
+		Return([]model.Vault{{ID: uuid.New(), Name: "error-vault"}}, nil)
+	tc.MockVaultService.On("UpdateVault", mock.Anything, "error-vault", mock.Anything, tc.TestUserID).
 		Return(nil, fmt.Errorf("update rejected"))
 
 	cmd := &cobra.Command{Use: "update", Args: updateCmd.Args, RunE: updateCmd.RunE}
@@ -331,8 +346,10 @@ func TestVaultsUpdate_ServiceError(t *testing.T) {
 
 func TestVaultsUpdate_NoFormatter(t *testing.T) {
 	tc := testutils.NewTestContext(t)
+	tc.MockVaultService.On("ListVaults", mock.Anything, true).
+		Return([]model.Vault{{ID: uuid.New(), Name: "nofmt-vault"}}, nil)
 	updated := &model.Vault{ID: uuid.New(), Name: "nofmt-vault", Enabled: false}
-	tc.MockVaultService.On("UpdateVault", mock.Anything, "nofmt-vault", mock.Anything, uuid.Nil).
+	tc.MockVaultService.On("UpdateVault", mock.Anything, "nofmt-vault", mock.Anything, tc.TestUserID).
 		Return(updated, nil)
 
 	cmd := &cobra.Command{Use: "update", Args: updateCmd.Args, RunE: updateCmd.RunE}
@@ -357,11 +374,13 @@ func TestVaultsUpdate_WithPurgeAndRetention(t *testing.T) {
 		PurgeProtection: true,
 		RetentionDays:   45,
 	}
+	tc.MockVaultService.On("ListVaults", mock.Anything, true).
+		Return([]model.Vault{{ID: uuid.New(), Name: "full-update-vault"}}, nil)
 	tc.MockVaultService.On("UpdateVault", mock.Anything, "full-update-vault",
 		mock.MatchedBy(func(r model.UpdateVaultRequest) bool {
 			return r.PurgeProtection != nil && *r.PurgeProtection &&
 				r.RetentionDays != nil && *r.RetentionDays == 45
-		}), uuid.Nil).Return(updated, nil)
+		}), tc.TestUserID).Return(updated, nil)
 
 	cmd := &cobra.Command{Use: "update", Args: updateCmd.Args, RunE: updateCmd.RunE}
 	cmd.Flags().Bool("enabled", true, "")
@@ -377,5 +396,103 @@ func TestVaultsUpdate_WithPurgeAndRetention(t *testing.T) {
 	err := cmd.Execute()
 	require.NoError(t, err)
 	assert.Contains(t, out.String(), "full-update-vault")
+	tc.MockVaultService.AssertExpectations(t)
+}
+
+// TestVaultsDelete_ForbiddenWithoutGrant proves a non-admin with no
+// vaults:manage policy on the target vault cannot delete it via the CLI.
+func TestVaultsDelete_ForbiddenWithoutGrant(t *testing.T) {
+	tc := testutils.NewTestContext(t)
+	nonAdminCtx := context.WithValue(tc.Ctx, common.ClaimsKey, &model.Claims{UserID: tc.TestUserID, Role: model.RoleUser})
+	tc.MockContainer.AccessPolicyService = &mockAccessPolicyService{decision: authzServices.AccessFallback}
+	tc.MockVaultService.On("ListVaults", mock.Anything, true).
+		Return([]model.Vault{{ID: uuid.New(), Name: "guarded-vault"}}, nil)
+
+	cmd := &cobra.Command{Use: "delete", Args: cobra.ExactArgs(1), RunE: deleteCmd.RunE}
+	cmd.SetContext(nonAdminCtx)
+	cmd.SetArgs([]string{"guarded-vault"})
+
+	err := cmd.Execute()
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "permission denied")
+	tc.MockVaultService.AssertNotCalled(t, "DeleteVault", mock.Anything, mock.Anything)
+}
+
+// TestVaultsRecover_ForbiddenWithoutGrant mirrors the delete case for recover.
+func TestVaultsRecover_ForbiddenWithoutGrant(t *testing.T) {
+	tc := testutils.NewTestContext(t)
+	nonAdminCtx := context.WithValue(tc.Ctx, common.ClaimsKey, &model.Claims{UserID: tc.TestUserID, Role: model.RoleUser})
+	tc.MockContainer.AccessPolicyService = &mockAccessPolicyService{decision: authzServices.AccessFallback}
+	tc.MockVaultService.On("ListVaults", mock.Anything, true).
+		Return([]model.Vault{{ID: uuid.New(), Name: "guarded-vault"}}, nil)
+
+	cmd := &cobra.Command{Use: "recover", Args: cobra.ExactArgs(1), RunE: recoverCmd.RunE}
+	cmd.SetContext(nonAdminCtx)
+	cmd.SetArgs([]string{"guarded-vault"})
+
+	err := cmd.Execute()
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "permission denied")
+	tc.MockVaultService.AssertNotCalled(t, "RecoverVault", mock.Anything, mock.Anything)
+}
+
+// stubRoleAssignmentService is a minimal RoleAssignmentService test double
+// whose HasDataAction result is fixed at construction — enough to prove
+// CanPurgeVault's positive path from the CLI without a full mock.
+type stubRoleAssignmentService struct {
+	allowed bool
+}
+
+func (s *stubRoleAssignmentService) AssignRole(context.Context, authzServices.AssignRoleInput) (*model.RoleAssignment, error) {
+	return nil, fmt.Errorf("not implemented in stub")
+}
+func (s *stubRoleAssignmentService) RevokeAssignment(context.Context, uuid.UUID, uuid.UUID) error {
+	return fmt.Errorf("not implemented in stub")
+}
+func (s *stubRoleAssignmentService) ListAssignments(context.Context, uuid.UUID) ([]*model.RoleAssignment, error) {
+	return nil, fmt.Errorf("not implemented in stub")
+}
+func (s *stubRoleAssignmentService) HasDataAction(context.Context, uuid.UUID, uuid.UUID, model.DataAction) (bool, error) {
+	return s.allowed, nil
+}
+
+// TestVaultsPurge_ForbiddenWithoutGrant proves a non-admin with no Purge
+// Operator role assignment cannot purge a vault via the CLI. This is the
+// concrete regression for the pre-existing gap: before this task, purge had
+// no authorization check of any kind.
+func TestVaultsPurge_ForbiddenWithoutGrant(t *testing.T) {
+	tc := testutils.NewTestContext(t)
+	nonAdminCtx := context.WithValue(tc.Ctx, common.ClaimsKey, &model.Claims{UserID: tc.TestUserID, Role: model.RoleUser})
+	tc.MockContainer.RoleAssignmentService = &stubRoleAssignmentService{allowed: false}
+	tc.MockVaultService.On("ListVaults", mock.Anything, true).
+		Return([]model.Vault{{ID: uuid.New(), Name: "guarded-vault"}}, nil)
+
+	cmd, _ := newVltCmd(purgeCmd.RunE, []string{"guarded-vault"})
+	cmd.Args = cobra.ExactArgs(1)
+	cmd.SetContext(nonAdminCtx)
+
+	err := cmd.Execute()
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "permission denied")
+	tc.MockVaultService.AssertNotCalled(t, "PurgeVault", mock.Anything, mock.Anything)
+}
+
+// TestVaultsPurge_AllowedWithPurgeOperatorGrant proves a non-admin holding
+// Key Vault Purge Operator in the target vault CAN purge it via the CLI.
+func TestVaultsPurge_AllowedWithPurgeOperatorGrant(t *testing.T) {
+	tc := testutils.NewTestContext(t)
+	nonAdminCtx := context.WithValue(tc.Ctx, common.ClaimsKey, &model.Claims{UserID: tc.TestUserID, Role: model.RoleUser})
+	tc.MockContainer.RoleAssignmentService = &stubRoleAssignmentService{allowed: true}
+	tc.MockVaultService.On("ListVaults", mock.Anything, true).
+		Return([]model.Vault{{ID: uuid.New(), Name: "my-vault"}}, nil)
+	tc.MockVaultService.On("PurgeVault", mock.Anything, "my-vault").Return(nil)
+
+	cmd, buf := newVltCmd(purgeCmd.RunE, []string{"my-vault"})
+	cmd.Args = cobra.ExactArgs(1)
+	cmd.SetContext(nonAdminCtx)
+
+	err := cmd.Execute()
+	require.NoError(t, err)
+	assert.Contains(t, buf.String(), "purged successfully")
 	tc.MockVaultService.AssertExpectations(t)
 }

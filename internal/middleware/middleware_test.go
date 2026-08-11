@@ -1327,8 +1327,9 @@ func TestPolicyMiddleware_FlatRouteUsesDefaultVault(t *testing.T) {
 }
 
 // TestPolicyMiddleware_VaultManagementKeepsFallback asserts non-data-plane
-// managed routes are unchanged: their gates are requireVaultManage and the RBAC
-// middleware, not per-vault role assignments.
+// managed routes are unchanged: their gates are the handlers' own
+// CanManageVault/CanManageRoleAssignments checks and, for users and audit, the
+// RBAC middleware — not per-vault role assignments.
 func TestPolicyMiddleware_VaultManagementKeepsFallback(t *testing.T) {
 	t.Parallel()
 	mw, policySvc, roleSvc := setupDataPlaneMiddlewareTest(t)

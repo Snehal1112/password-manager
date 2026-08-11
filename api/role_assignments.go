@@ -7,7 +7,6 @@ import (
 
 	"github.com/google/uuid"
 
-	"rocketvault/common"
 	authzServices "rocketvault/internal/services/authorization"
 	"rocketvault/model"
 )
@@ -41,23 +40,15 @@ func buildRoleAssignmentResponse(c *Context, r *http.Request, ra *model.RoleAssi
 	return resp
 }
 
-// requireVaultManage gates assignment management to global admins or vault managers.
-func requireVaultManage(c *Context, r *http.Request, vaultID uuid.UUID) bool {
-	role, _ := c.Claims["role"].(string)
-	if common.HasRequiredRole(role, string(model.RoleAdmin)) {
-		return true
-	}
+// callerIdentity extracts the acting principal's account role and user ID
+// from the session claims. Returns ok=false if either is missing or
+// malformed, in which case the caller must treat this as an internal error,
+// not a permission denial — a malformed claim is a bug, not a 403.
+func callerIdentity(c *Context) (role string, principalID uuid.UUID, ok bool) {
+	role, _ = c.Claims["role"].(string)
 	userIDStr, _ := c.Claims["user_id"].(string)
-	pid, err := uuid.Parse(userIDStr)
-	if err != nil {
-		return false
-	}
-	dec, err := c.App.ServiceContainer.GetAccessPolicyService().
-		CheckAccess(r.Context(), pid, model.PolicyResourceVaults, model.OpManage, vaultID)
-	if err != nil {
-		return false
-	}
-	return dec == authzServices.AccessAllowed
+	principalID, err := uuid.Parse(userIDStr)
+	return role, principalID, err == nil
 }
 
 // createRoleAssignment grants a built-in role to a principal within a vault.
@@ -72,8 +63,14 @@ func createRoleAssignment(c *Context, w http.ResponseWriter, r *http.Request) {
 		c.SetInvalidParam("vault")
 		return
 	}
-	if !requireVaultManage(c, r, vaultID) {
-		c.SetPermissionError("admin or vaults/manage required")
+	role, callerID, ok := callerIdentity(c)
+	if !ok {
+		c.SetInternalError(nil)
+		return
+	}
+	if !authzServices.CanManageRoleAssignments(r.Context(), role, c.App.ServiceContainer.GetAccessPolicyService(),
+		c.App.ServiceContainer.GetRoleAssignmentService(), callerID, vaultID, true) {
+		c.SetPermissionError("admin, vaults/manage, or Key Vault Data Access Administrator required")
 		return
 	}
 
@@ -90,9 +87,6 @@ func createRoleAssignment(c *Context, w http.ResponseWriter, r *http.Request) {
 	if pType == "" {
 		pType = model.PrincipalTypeUser
 	}
-
-	callerIDStr, _ := c.Claims["user_id"].(string)
-	callerID, _ := uuid.Parse(callerIDStr)
 
 	svc := c.App.ServiceContainer.GetRoleAssignmentService()
 	ra, err := svc.AssignRole(r.Context(), authzServices.AssignRoleInput{
@@ -120,6 +114,10 @@ func createRoleAssignment(c *Context, w http.ResponseWriter, r *http.Request) {
 
 // listRoleAssignments returns all role assignments scoped to a vault.
 // GET /vaults/{vault_name}/role-assignments
+//
+// Reading assignments discloses who holds which role in the vault (including
+// principal usernames), so it is gated exactly like revoking them: the same
+// CanManageRoleAssignments check with write=false.
 func listRoleAssignments(c *Context, w http.ResponseWriter, r *http.Request) {
 	if c.App == nil || c.App.ServiceContainer == nil {
 		c.SetInternalError(nil)
@@ -128,6 +126,16 @@ func listRoleAssignments(c *Context, w http.ResponseWriter, r *http.Request) {
 	vaultID, err := vaultIDFromRequest(r)
 	if err != nil {
 		c.SetInvalidParam("vault")
+		return
+	}
+	role, callerID, ok := callerIdentity(c)
+	if !ok {
+		c.SetInternalError(nil)
+		return
+	}
+	if !authzServices.CanManageRoleAssignments(r.Context(), role, c.App.ServiceContainer.GetAccessPolicyService(),
+		c.App.ServiceContainer.GetRoleAssignmentService(), callerID, vaultID, false) {
+		c.SetPermissionError("admin, vaults/manage, or Key Vault Data Access Administrator required")
 		return
 	}
 	svc := c.App.ServiceContainer.GetRoleAssignmentService()
@@ -146,6 +154,9 @@ func listRoleAssignments(c *Context, w http.ResponseWriter, r *http.Request) {
 
 // getRoleAssignment returns a single role assignment by id within a vault.
 // GET /vaults/{vault_name}/role-assignments/{assignment_id}
+//
+// Gated identically to listRoleAssignments: reading a single assignment leaks
+// the same information as reading them all.
 func getRoleAssignment(c *Context, w http.ResponseWriter, r *http.Request) {
 	if c.App == nil || c.App.ServiceContainer == nil {
 		c.SetInternalError(nil)
@@ -154,6 +165,16 @@ func getRoleAssignment(c *Context, w http.ResponseWriter, r *http.Request) {
 	vaultID, err := vaultIDFromRequest(r)
 	if err != nil {
 		c.SetInvalidParam("vault")
+		return
+	}
+	role, callerID, ok := callerIdentity(c)
+	if !ok {
+		c.SetInternalError(nil)
+		return
+	}
+	if !authzServices.CanManageRoleAssignments(r.Context(), role, c.App.ServiceContainer.GetAccessPolicyService(),
+		c.App.ServiceContainer.GetRoleAssignmentService(), callerID, vaultID, false) {
+		c.SetPermissionError("admin, vaults/manage, or Key Vault Data Access Administrator required")
 		return
 	}
 	id, err := uuid.Parse(c.Params.AssignmentID)
@@ -189,8 +210,14 @@ func deleteRoleAssignment(c *Context, w http.ResponseWriter, r *http.Request) {
 		c.SetInvalidParam("vault")
 		return
 	}
-	if !requireVaultManage(c, r, vaultID) {
-		c.SetPermissionError("admin or vaults/manage required")
+	role, callerID, ok := callerIdentity(c)
+	if !ok {
+		c.SetInternalError(nil)
+		return
+	}
+	if !authzServices.CanManageRoleAssignments(r.Context(), role, c.App.ServiceContainer.GetAccessPolicyService(),
+		c.App.ServiceContainer.GetRoleAssignmentService(), callerID, vaultID, false) {
+		c.SetPermissionError("admin, vaults/manage, or Key Vault Data Access Administrator required")
 		return
 	}
 	id, err := uuid.Parse(c.Params.AssignmentID)

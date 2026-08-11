@@ -27,6 +27,9 @@ func InitVaultAccessList(parent *cobra.Command) {
 			if err != nil {
 				return err
 			}
+			if err := requireCanManageRoleAssignments(ctx, sc, vaultID, false); err != nil {
+				return err
+			}
 			list, err := sc.GetRoleAssignmentService().ListAssignments(ctx, vaultID)
 			if err != nil {
 				return fmt.Errorf("list failed: %w", err)

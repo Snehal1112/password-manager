@@ -45,6 +45,9 @@ func InitVaultAccessGrant(parent *cobra.Command) {
 			if err != nil {
 				return err
 			}
+			if err := requireCanManageRoleAssignments(ctx, sc, vaultID, true); err != nil {
+				return err
+			}
 			ra, err := sc.GetRoleAssignmentService().AssignRole(ctx, authz.AssignRoleInput{
 				Principal:     principal,
 				PrincipalType: model.PrincipalType(ptype),

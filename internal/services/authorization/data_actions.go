@@ -69,6 +69,11 @@ func MapRouteToDataAction(method, path string) (model.DataAction, RouteKind) {
 		return mapKeyAction(method, strings.TrimPrefix(strings.TrimPrefix(p, "keys"), "/"))
 	case p == "certificates" || strings.HasPrefix(p, "certificates/"):
 		return mapCertificateAction(method, strings.TrimPrefix(strings.TrimPrefix(p, "certificates"), "/"))
+	case p == "purge":
+		if method == http.MethodDelete {
+			return model.ActionVaultPurge, RouteVaultData
+		}
+		return "", RouteVaultData
 	}
 	return "", RouteUnmanaged
 }

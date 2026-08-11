@@ -33,6 +33,9 @@ func InitVaultAccessRevoke(parent *cobra.Command) {
 			if err != nil {
 				return err
 			}
+			if err := requireCanManageRoleAssignments(ctx, sc, vaultID, false); err != nil {
+				return err
+			}
 			if err := sc.GetRoleAssignmentService().RevokeAssignment(ctx, id, vaultID); err != nil {
 				return fmt.Errorf("revoke failed: %w", err)
 			}

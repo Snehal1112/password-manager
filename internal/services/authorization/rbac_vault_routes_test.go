@@ -65,41 +65,45 @@ func TestMapEndpointToPermission_DataPlaneReturnsEmpty(t *testing.T) {
 	}
 }
 
-// TestValidateEndpointAccess_VaultManagementRoutes verifies that vault management
-// routes (/api/v1/vaults[/{name}]) require the vaults:manage permission, which only
-// admins hold. Before the fix these routes had no RBAC mapping at all, so any
-// authenticated user could create or delete (cascade-delete) a vault.
+// TestValidateEndpointAccess_VaultManagementRoutes verifies that vault
+// management routes (/api/v1/vaults[/{name}]) are NOT gated by the global
+// RBAC layer for any role, admin or not. This inverts the pre-2026-08-11
+// behavior: mapEndpointToPermission used to require the admin-only
+// vaults:manage permission here, which made every handler-level
+// CanManageVault check (api/vault.go) unreachable for non-admins in
+// production — see
+// docs/superpowers/specs/2026-08-11-azure-role-parity-and-vault-authz-fix-design.md,
+// "Root cause". Vault management is now authorized entirely by the
+// handler's own per-vault check.
 func TestValidateEndpointAccess_VaultManagementRoutes(t *testing.T) {
 	svc := NewRBACService(logging.InitLogger())
 
 	cases := []struct {
-		name      string
-		role      string
-		method    string
-		path      string
-		wantAllow bool
+		name   string
+		role   string
+		method string
+		path   string
 	}{
-		// Non-admins must be DENIED vault management.
-		{"user cannot create vault", model.RoleUser, "POST", "/api/v1/vaults", false},
-		{"user cannot delete vault", model.RoleUser, "DELETE", "/api/v1/vaults/prod", false},
-		{"user cannot update vault", model.RoleUser, "PATCH", "/api/v1/vaults/prod", false},
-		{"service-account cannot delete vault", model.RoleServiceAccount, "DELETE", "/api/v1/vaults/prod", false},
-		{"secrets-manager cannot delete vault", model.RoleSecretsManager, "DELETE", "/api/v1/vaults/prod", false},
-
-		// Admin is ALLOWED vault management.
-		{"admin can create vault", model.RoleAdmin, "POST", "/api/v1/vaults", true},
-		{"admin can delete vault", model.RoleAdmin, "DELETE", "/api/v1/vaults/prod", true},
-		{"admin can get vault", model.RoleAdmin, "GET", "/api/v1/vaults/prod", true},
-		{"admin can list vaults", model.RoleAdmin, "GET", "/api/v1/vaults", true},
+		{"user reaches create vault gate", model.RoleUser, "POST", "/api/v1/vaults"},
+		{"user reaches delete vault gate", model.RoleUser, "DELETE", "/api/v1/vaults/prod"},
+		{"user reaches update vault gate", model.RoleUser, "PATCH", "/api/v1/vaults/prod"},
+		{"service-account reaches delete vault gate", model.RoleServiceAccount, "DELETE", "/api/v1/vaults/prod"},
+		{"secrets-manager reaches delete vault gate", model.RoleSecretsManager, "DELETE", "/api/v1/vaults/prod"},
+		{"admin reaches create vault gate", model.RoleAdmin, "POST", "/api/v1/vaults"},
+		{"admin reaches delete vault gate", model.RoleAdmin, "DELETE", "/api/v1/vaults/prod"},
+		{"admin reaches get vault gate", model.RoleAdmin, "GET", "/api/v1/vaults/prod"},
+		{"admin reaches list vaults gate", model.RoleAdmin, "GET", "/api/v1/vaults"},
+		{"non-admin reaches purge vault gate", model.RoleUser, "DELETE", "/api/v1/vaults/prod/purge"},
+		{"non-admin reaches role-assignment create gate", model.RoleUser, "POST", "/api/v1/vaults/prod/role-assignments"},
+		{"non-admin reaches role-assignment revoke gate", model.RoleUser, "DELETE", "/api/v1/vaults/prod/role-assignments/abc"},
+		{"non-admin reaches role-assignment list gate", model.RoleUser, "GET", "/api/v1/vaults/prod/role-assignments"},
+		{"non-admin reaches role-assignment get gate", model.RoleUser, "GET", "/api/v1/vaults/prod/role-assignments/abc"},
 	}
 
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			err := svc.ValidateEndpointAccess(c.role, c.method, c.path)
-			gotAllow := err == nil
-			if gotAllow != c.wantAllow {
-				t.Fatalf("ValidateEndpointAccess(%s, %s, %s) allow=%v, want %v (err=%v)",
-					c.role, c.method, c.path, gotAllow, c.wantAllow, err)
+			if err := svc.ValidateEndpointAccess(c.role, c.method, c.path); err != nil {
+				t.Fatalf("ValidateEndpointAccess(%s, %s, %s) = %v, want nil — the global layer must defer entirely to the handler's own check", c.role, c.method, c.path, err)
 			}
 		})
 	}
