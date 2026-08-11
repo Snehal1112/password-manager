@@ -48,7 +48,7 @@ func buildAuthzVaultAPI(policySvc authzServices.AccessPolicyService) (*API, uuid
 // vaults:manage grant does NOT cover the target vault gets 403, not 200.
 func TestGetVault_ForbiddenWhenNotScopedToTargetVault(t *testing.T) {
 	policySvc := &mockAccessPolicyService{}
-	// No policy covers prod's ID -> AccessFallback -> requireVaultManage denies.
+	// No policy covers prod's ID -> AccessFallback -> CanManageVault denies.
 	policySvc.On("CheckAccess", mock.Anything, mock.Anything,
 		model.PolicyResourceVaults, model.OpManage, mock.Anything).
 		Return(authzServices.AccessFallback, nil)
@@ -292,4 +292,17 @@ func TestCreateVault_AllowedWithGlobalGrant(t *testing.T) {
 	body, _ := json.Marshal(map[string]any{"name": "newvault"})
 	w := doVaultRequestAs(api, string(model.RoleUser), http.MethodPost, "/api/v1/vaults", body)
 	assert.Equal(t, http.StatusCreated, w.Code)
+}
+
+// TestListVaults_ForbiddenWithoutGlobalGrant mirrors TestCreateVault's case
+// for the list endpoint.
+func TestListVaults_ForbiddenWithoutGlobalGrant(t *testing.T) {
+	policySvc := &mockAccessPolicyService{}
+	policySvc.On("CheckAccess", mock.Anything, mock.Anything,
+		model.PolicyResourceVaults, model.OpManage, uuid.Nil).
+		Return(authzServices.AccessFallback, nil)
+	api, _ := buildAuthzVaultAPI(policySvc)
+
+	w := doVaultRequestAs(api, string(model.RoleUser), http.MethodGet, "/api/v1/vaults", nil)
+	assert.Equal(t, http.StatusForbidden, w.Code)
 }

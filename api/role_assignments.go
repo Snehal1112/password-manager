@@ -7,7 +7,6 @@ import (
 
 	"github.com/google/uuid"
 
-	"rocketvault/common"
 	authzServices "rocketvault/internal/services/authorization"
 	"rocketvault/model"
 )
@@ -39,32 +38,6 @@ func buildRoleAssignmentResponse(c *Context, r *http.Request, ra *model.RoleAssi
 		resp.ExpandedPolicyCount = len(perms)
 	}
 	return resp
-}
-
-// requireVaultManage gates assignment management to global admins or vault
-// managers.
-//
-// NOTE: no longer called from this file (createRoleAssignment and
-// deleteRoleAssignment both use authzServices.CanManageRoleAssignments now),
-// but api/vault.go (getVault, updateVault, deleteVault) still depends on it.
-// That migration is deferred to a later task of Plan 2026-08-11-04. Do not
-// delete this function until that task removes its last call site.
-func requireVaultManage(c *Context, r *http.Request, vaultID uuid.UUID) bool {
-	role, _ := c.Claims["role"].(string)
-	if common.HasRequiredRole(role, string(model.RoleAdmin)) {
-		return true
-	}
-	userIDStr, _ := c.Claims["user_id"].(string)
-	pid, err := uuid.Parse(userIDStr)
-	if err != nil {
-		return false
-	}
-	dec, err := c.App.ServiceContainer.GetAccessPolicyService().
-		CheckAccess(r.Context(), pid, model.PolicyResourceVaults, model.OpManage, vaultID)
-	if err != nil {
-		return false
-	}
-	return dec == authzServices.AccessAllowed
 }
 
 // callerIdentity extracts the acting principal's account role and user ID
