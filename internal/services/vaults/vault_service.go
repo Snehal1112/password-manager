@@ -26,6 +26,10 @@ var ErrVaultNotFound = errors.New("vault not found")
 // the default vault (e.g. delete, purge).
 var ErrDefaultVaultProtected = errors.New("default vault is protected from this operation")
 
+// ErrVaultPurgeProtected is returned when PurgeVault refuses to act because
+// the vault has purge protection enabled.
+var ErrVaultPurgeProtected = errors.New("vault is protected from purge")
+
 // CascadeRepository soft-deletes or recovers all resources belonging to a vault.
 type CascadeRepository interface {
 	SoftDeleteVaultContents(ctx context.Context, vaultID uuid.UUID, deletedAt time.Time) error
@@ -368,7 +372,7 @@ func (s *vaultService) RecoverVault(ctx context.Context, name string) error {
 // PurgeVault permanently removes a vault, refusing the default and purge-protected vaults.
 func (s *vaultService) PurgeVault(ctx context.Context, name string) error {
 	if name == model.DefaultVaultName {
-		return fmt.Errorf("the default vault cannot be purged")
+		return fmt.Errorf("the default vault cannot be purged: %w", ErrDefaultVaultProtected)
 	}
 
 	// Normally a vault is purged after a soft-delete, so check there first.
@@ -387,7 +391,7 @@ func (s *vaultService) PurgeVault(ctx context.Context, name string) error {
 		}
 	}
 	if v.PurgeProtection {
-		return fmt.Errorf("vault %q is protected from purge", name)
+		return fmt.Errorf("vault %q is protected from purge: %w", name, ErrVaultPurgeProtected)
 	}
 	if err := s.repo.Purge(ctx, v.ID); err != nil {
 		return err

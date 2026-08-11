@@ -161,6 +161,7 @@ func buildChainedVaultAPI(policySvc authzServices.AccessPolicyService) (http.Han
 	api.BaseRoutes.ApiRoot = router.PathPrefix("/api/v1").Subrouter()
 	api.BaseRoutes.ApiRoot.Use(mw.VaultResolutionMiddleware, mw.PolicyMiddleware, mw.AuthorizationMiddleware)
 	api.BaseRoutes.Vaults = api.BaseRoutes.ApiRoot.PathPrefix("/vaults").Subrouter()
+	api.BaseRoutes.VaultScoped = api.BaseRoutes.Vaults.PathPrefix("/{vault_name:[a-z0-9-]+}").Subrouter()
 	api.InitVault()
 	return router, prodID
 }

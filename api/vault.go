@@ -28,6 +28,7 @@ import (
 //   - GET    /vaults/{name}  : Get a vault by name.
 //   - PATCH  /vaults/{name}  : Update a vault.
 //   - DELETE /vaults/{name}  : Soft-delete a vault.
+//   - DELETE /vaults/{vault_name}/purge : Permanently purge a vault.
 func (api *API) InitVault() {
 	v := api.BaseRoutes.Vaults
 
@@ -36,6 +37,10 @@ func (api *API) InitVault() {
 	v.Handle("/{name}", ApiSessionRequired(api.App, getVault)).Methods("GET")
 	v.Handle("/{name}", ApiSessionRequired(api.App, updateVault)).Methods("PATCH")
 	v.Handle("/{name}", ApiSessionRequired(api.App, deleteVault)).Methods("DELETE")
+
+	// Vault-scoped: resolved via VaultResolutionMiddleware, authorized via
+	// PolicyMiddleware's deny-by-default data-plane check, not a handler-level one.
+	api.BaseRoutes.VaultScoped.Handle("/purge", ApiSessionRequired(api.App, purgeVault)).Methods("DELETE")
 }
 
 // vaultSvc returns the vault service, setting an internal error if unavailable.
@@ -287,4 +292,35 @@ func deleteVault(c *Context, w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 
 	c.Logger.Printf("Vault %s deleted", name)
+}
+
+// purgeVault permanently removes a vault. Registered on the vault-scoped
+// router (/vaults/{vault_name}/purge), so VaultResolutionMiddleware resolves
+// the target vault and PolicyMiddleware's deny-by-default check (RouteVaultData,
+// ActionVaultPurge — internal/services/authorization/data_actions.go) already
+// authorizes the request before this handler runs. No handler-level
+// authorization call is needed here, matching every other vault data-plane
+// route (secrets/keys/certificates).
+func purgeVault(c *Context, w http.ResponseWriter, r *http.Request) {
+	name := mux.Vars(r)["vault_name"]
+
+	svc := c.vaultSvc()
+	if svc == nil {
+		return
+	}
+
+	if err := svc.PurgeVault(r.Context(), name); err != nil {
+		switch {
+		case errors.Is(err, vaultServices.ErrVaultNotFound):
+			c.SetNotFound("vault")
+		case errors.Is(err, vaultServices.ErrDefaultVaultProtected), errors.Is(err, vaultServices.ErrVaultPurgeProtected):
+			c.SetInvalidParam(err.Error())
+		default:
+			c.SetInternalError(err)
+		}
+		return
+	}
+
+	w.WriteHeader(http.StatusNoContent)
+	c.Logger.Printf("Vault %s purged", name)
 }

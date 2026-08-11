@@ -342,6 +342,7 @@ func newVaultTestAPI() (*API, *vaultFakeRepo) {
 	}
 	api.BaseRoutes.ApiRoot = router.PathPrefix("/api/v1").Subrouter()
 	api.BaseRoutes.Vaults = api.BaseRoutes.ApiRoot.PathPrefix("/vaults").Subrouter()
+	api.BaseRoutes.VaultScoped = api.BaseRoutes.Vaults.PathPrefix("/{vault_name:[a-z0-9-]+}").Subrouter()
 	api.InitVault()
 	return api, repo
 }
@@ -492,6 +493,7 @@ func newVaultTestAPIWithContainer(cont container.ServiceContainerInterface) *API
 	}
 	api.BaseRoutes.ApiRoot = router.PathPrefix("/api/v1").Subrouter()
 	api.BaseRoutes.Vaults = api.BaseRoutes.ApiRoot.PathPrefix("/vaults").Subrouter()
+	api.BaseRoutes.VaultScoped = api.BaseRoutes.Vaults.PathPrefix("/{vault_name:[a-z0-9-]+}").Subrouter()
 	api.InitVault()
 	return api
 }
@@ -526,4 +528,50 @@ func TestVaultSvcTestContainer_GetCryptoService_ReturnsConfiguredService(t *test
 	if c.GetCryptoService() != svc {
 		t.Fatalf("GetCryptoService() did not return the configured cryptoSvc")
 	}
+}
+
+// TestPurgeVault_Success permanently removes a soft-deleted vault.
+func TestPurgeVault_Success(t *testing.T) {
+	api, repo := newVaultTestAPI()
+	id := uuid.New()
+	deletedAt := nowForVaultTest()
+	repo.byName["stg"] = &model.Vault{ID: id, Name: "stg", Enabled: true, DeletedAt: &deletedAt}
+	repo.byID[id.String()] = repo.byName["stg"]
+
+	w := doVaultRequest(api, http.MethodDelete, "/api/v1/vaults/stg/purge", nil)
+	assert.Equal(t, http.StatusNoContent, w.Code)
+
+	_, err := repo.ReadByID(context.Background(), id)
+	assert.Error(t, err, "purged vault must no longer be readable")
+}
+
+// TestPurgeVault_RefusesDefault confirms the default vault cannot be purged.
+func TestPurgeVault_RefusesDefault(t *testing.T) {
+	api, repo := newVaultTestAPI()
+	defID := uuid.MustParse(model.DefaultVaultID)
+	repo.byName[model.DefaultVaultName] = &model.Vault{ID: defID, Name: model.DefaultVaultName, Enabled: true}
+	repo.byID[defID.String()] = repo.byName[model.DefaultVaultName]
+
+	w := doVaultRequest(api, http.MethodDelete, "/api/v1/vaults/"+model.DefaultVaultName+"/purge", nil)
+	assert.Equal(t, http.StatusBadRequest, w.Code)
+}
+
+// TestPurgeVault_RefusesPurgeProtected confirms a purge-protected vault cannot be purged.
+func TestPurgeVault_RefusesPurgeProtected(t *testing.T) {
+	api, repo := newVaultTestAPI()
+	id := uuid.New()
+	deletedAt := nowForVaultTest()
+	repo.byName["stg"] = &model.Vault{ID: id, Name: "stg", Enabled: true, PurgeProtection: true, DeletedAt: &deletedAt}
+	repo.byID[id.String()] = repo.byName["stg"]
+
+	w := doVaultRequest(api, http.MethodDelete, "/api/v1/vaults/stg/purge", nil)
+	assert.Equal(t, http.StatusBadRequest, w.Code)
+}
+
+// TestPurgeVault_NotFound confirms a missing vault returns 404.
+func TestPurgeVault_NotFound(t *testing.T) {
+	api, _ := newVaultTestAPI()
+
+	w := doVaultRequest(api, http.MethodDelete, "/api/v1/vaults/ghost/purge", nil)
+	assert.Equal(t, http.StatusNotFound, w.Code)
 }
