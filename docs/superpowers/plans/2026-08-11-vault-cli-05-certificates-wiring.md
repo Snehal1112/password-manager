@@ -27,6 +27,7 @@
   | update | `model.ActionCertificatesUpdate` | `model.OpSet` |
   | renew | `model.ActionCertificatesCreate` | `model.OpRenew` |
 - `vaultcli.RequireDataAction` gained a `op model.PolicyOperation` parameter after Plan 01's final review found it needed to also check the `access_policies` explicit-deny override — see `docs/superpowers/specs/2026-08-11-vault-cli-extension-design.md`'s "Access-policy explicit-deny in the CLI adapter" section for the full per-command mapping table (reproduced above for this plan's commands).
+- Every command's primary authorized/success test asserts the concrete `(action, op)` pair reaching `HasDataAction`/`CheckAccess`, not `mock.Anything` — Plan 02's final review found this gap (a transposed argument would ship green with loose assertions) and this plan's templates were corrected before execution to avoid inheriting it.
 
 ---
 
@@ -171,6 +172,46 @@ func TestCertListCmd_Denied(t *testing.T) {
 }
 ```
 
+Add a new test directly after `TestCertListCmd_Denied`, asserting the exact `(principalID, vaultID, action)` reaching `HasDataAction` and the exact `(principalID, resource, op, vaultID)` reaching `CheckAccess` — the `_SuccessTwoCerts`/`_EmptyList`/etc. tests above only prove `testutils.NewTestContext`'s default-allow wiring let the command through, not that the correct arguments reached it (Plan 02's final review finding; see Global Constraints). Requires `authzServices "rocketvault/internal/services/authorization"` in `certs_cmd_test.go`'s import block; add it if not already present.
+
+```go
+func TestCertListCmd_Authorized(t *testing.T) {
+	tc := testutils.NewTestContext(t)
+	certSvc := &certCmdCertService{}
+	certs := []model.Certificate{
+		{ID: uuid.New(), UserID: tc.TestUserID, Name: "cert1", CreatedAt: time.Now(), Enabled: true},
+	}
+	certSvc.On("ListCertificates", mock.Anything, model.NewVaultScope(tc.TestVaultID, tc.TestUserID), repositories.CertificateFilter{}).Return(certs, nil)
+
+	roles := &testutils.MockRoleAssignmentService{}
+	roles.On("HasDataAction", mock.Anything, tc.TestUserID, tc.TestVaultID, model.ActionCertificatesRead).
+		Return(true, nil).Once()
+	policies := &testutils.MockAccessPolicyService{}
+	policies.On("CheckAccess", mock.Anything, tc.TestUserID, model.PolicyResourceCertificates, model.OpGet, tc.TestVaultID).
+		Return(authzServices.AccessAllowed, nil).Once()
+	tc.MockContainer.RoleAssignmentService = roles
+	tc.MockContainer.AccessPolicyService = policies
+
+	sc := &certsTestContainer{
+		MockServiceContainer: tc.MockContainer,
+		certSvc:              certSvc,
+	}
+	claims := &model.Claims{UserID: tc.TestUserID, Role: model.RoleAdmin}
+	ctx := context.WithValue(context.Background(), common.ClaimsKey, claims)
+	ctx = context.WithValue(ctx, common.LogKey, newCertLogger())
+	ctx = context.WithValue(ctx, common.ServiceContainerKey, sc)
+	ctx = context.WithValue(ctx, common.OutputFormatterKey, newCertFmtr())
+
+	cmd, _ := newCertCmd(listCmd.RunE, nil)
+	cmd.SetContext(ctx)
+	err := cmd.Execute()
+	assert.NoError(t, err)
+	certSvc.AssertExpectations(t)
+	roles.AssertExpectations(t)
+	policies.AssertExpectations(t)
+}
+```
+
 - [ ] **Step 2: Update the `get` tests the same way**
 
 Replace `TestCertGetCmd_Success`, `TestCertGetCmd_ServiceError`, and `TestCertGetCmd_NoFormatter` with:
@@ -292,6 +333,48 @@ func TestCertGetCmd_Denied(t *testing.T) {
 }
 ```
 
+Add a new test directly after `TestCertGetCmd_Denied`, asserting the exact `(principalID, vaultID, action)`/`(principalID, resource, op, vaultID)` pairs reaching `HasDataAction`/`CheckAccess` — see the note above `TestCertListCmd_Authorized` (Plan 02's final review finding; Global Constraints).
+
+```go
+func TestCertGetCmd_Authorized(t *testing.T) {
+	tc := testutils.NewTestContext(t)
+	certSvc := &certCmdCertService{}
+	certID := uuid.New()
+	cert := &model.Certificate{
+		ID: certID, UserID: tc.TestUserID, Name: "mycert", CreatedAt: time.Now(), Enabled: true,
+	}
+	certSvc.On("GetCertificate", mock.Anything, certID, model.NewVaultScope(tc.TestVaultID, tc.TestUserID)).Return(cert, nil)
+
+	roles := &testutils.MockRoleAssignmentService{}
+	roles.On("HasDataAction", mock.Anything, tc.TestUserID, tc.TestVaultID, model.ActionCertificatesRead).
+		Return(true, nil).Once()
+	policies := &testutils.MockAccessPolicyService{}
+	policies.On("CheckAccess", mock.Anything, tc.TestUserID, model.PolicyResourceCertificates, model.OpGet, tc.TestVaultID).
+		Return(authzServices.AccessAllowed, nil).Once()
+	tc.MockContainer.RoleAssignmentService = roles
+	tc.MockContainer.AccessPolicyService = policies
+
+	sc := &certsTestContainer{
+		MockServiceContainer: tc.MockContainer,
+		certSvc:              certSvc,
+	}
+	claims := &model.Claims{UserID: tc.TestUserID, Role: model.RoleAdmin}
+	ctx := context.WithValue(context.Background(), common.ClaimsKey, claims)
+	ctx = context.WithValue(ctx, common.LogKey, newCertLogger())
+	ctx = context.WithValue(ctx, common.ServiceContainerKey, sc)
+	ctx = context.WithValue(ctx, common.OutputFormatterKey, newCertFmtr())
+
+	cmd, _ := newCertCmd(getCmd.RunE, []string{certID.String()})
+	cmd.Args = cobra.ExactArgs(1)
+	cmd.SetContext(ctx)
+	err := cmd.Execute()
+	assert.NoError(t, err)
+	certSvc.AssertExpectations(t)
+	roles.AssertExpectations(t)
+	policies.AssertExpectations(t)
+}
+```
+
 - [ ] **Step 3: Update the `delete` tests the same way**
 
 Replace `TestCertDeleteCmd_Success` and `TestCertDeleteCmd_ServiceError` with:
@@ -372,6 +455,44 @@ func TestCertDeleteCmd_Denied(t *testing.T) {
 	err := cmd.Execute()
 	assert.ErrorContains(t, err, "failed to delete certificate")
 	certSvc.AssertNotCalled(t, "DeleteCertificate", mock.Anything, mock.Anything, mock.Anything)
+}
+```
+
+Add a new test directly after `TestCertDeleteCmd_Denied`, asserting the exact `(principalID, vaultID, action)`/`(principalID, resource, op, vaultID)` pairs reaching `HasDataAction`/`CheckAccess` — see the note above `TestCertListCmd_Authorized` (Plan 02's final review finding; Global Constraints).
+
+```go
+func TestCertDeleteCmd_Authorized(t *testing.T) {
+	tc := testutils.NewTestContext(t)
+	certSvc := &certCmdCertService{}
+	certID := uuid.New()
+	certSvc.On("DeleteCertificate", mock.Anything, certID, model.NewVaultScope(tc.TestVaultID, tc.TestUserID)).Return(nil)
+
+	roles := &testutils.MockRoleAssignmentService{}
+	roles.On("HasDataAction", mock.Anything, tc.TestUserID, tc.TestVaultID, model.ActionCertificatesDelete).
+		Return(true, nil).Once()
+	policies := &testutils.MockAccessPolicyService{}
+	policies.On("CheckAccess", mock.Anything, tc.TestUserID, model.PolicyResourceCertificates, model.OpDelete, tc.TestVaultID).
+		Return(authzServices.AccessAllowed, nil).Once()
+	tc.MockContainer.RoleAssignmentService = roles
+	tc.MockContainer.AccessPolicyService = policies
+
+	sc := &certsTestContainer{
+		MockServiceContainer: tc.MockContainer,
+		certSvc:              certSvc,
+	}
+	claims := &model.Claims{UserID: tc.TestUserID, Role: model.RoleAdmin}
+	ctx := context.WithValue(context.Background(), common.ClaimsKey, claims)
+	ctx = context.WithValue(ctx, common.LogKey, newCertLogger())
+	ctx = context.WithValue(ctx, common.ServiceContainerKey, sc)
+
+	cmd, _ := newCertCmd(deleteCmd.RunE, []string{certID.String()})
+	cmd.Args = cobra.ExactArgs(1)
+	cmd.SetContext(ctx)
+	err := cmd.Execute()
+	assert.NoError(t, err)
+	certSvc.AssertExpectations(t)
+	roles.AssertExpectations(t)
+	policies.AssertExpectations(t)
 }
 ```
 
@@ -890,6 +1011,57 @@ func TestCertUpdateCmd_Denied(t *testing.T) {
 }
 ```
 
+Add a new test directly after `TestCertUpdateCmd_Denied`, asserting the exact `(principalID, vaultID, action)`/`(principalID, resource, op, vaultID)` pairs reaching `HasDataAction`/`CheckAccess` — the `_SuccessWithNameUpdate`/etc. tests above only prove `testutils.NewTestContext`'s default-allow wiring let the command through, not that the correct arguments reached it (Plan 02's final review finding; see Global Constraints).
+
+```go
+func TestCertUpdateCmd_Authorized(t *testing.T) {
+	tc := testutils.NewTestContext(t)
+	certSvc := &certCmdCertService{}
+	certID := uuid.New()
+	certSvc.On("UpdateCertificate", mock.Anything, mock.MatchedBy(func(r certServices.UpdateCertificateRequest) bool {
+		return r.CertID == certID && r.Scope == model.NewVaultScope(tc.TestVaultID, tc.TestUserID) && r.Name != nil && *r.Name == "newname"
+	})).Return(nil)
+
+	roles := &testutils.MockRoleAssignmentService{}
+	roles.On("HasDataAction", mock.Anything, tc.TestUserID, tc.TestVaultID, model.ActionCertificatesUpdate).
+		Return(true, nil).Once()
+	policies := &testutils.MockAccessPolicyService{}
+	policies.On("CheckAccess", mock.Anything, tc.TestUserID, model.PolicyResourceCertificates, model.OpSet, tc.TestVaultID).
+		Return(authzServices.AccessAllowed, nil).Once()
+	tc.MockContainer.RoleAssignmentService = roles
+	tc.MockContainer.AccessPolicyService = policies
+
+	sc := &certsTestContainer{
+		MockServiceContainer: tc.MockContainer,
+		certSvc:              certSvc,
+	}
+	claims := &model.Claims{UserID: tc.TestUserID, Role: model.RoleAdmin}
+	ctx := context.WithValue(context.Background(), common.ClaimsKey, claims)
+	ctx = context.WithValue(ctx, common.LogKey, newCertLogger())
+	ctx = context.WithValue(ctx, common.ServiceContainerKey, sc)
+
+	cleanup := viperSetCert(map[string]interface{}{"cert-update-name": "newname", "cert-update-tags": ""})
+	defer cleanup()
+
+	cmd := &cobra.Command{Use: "test", Args: cobra.ExactArgs(1), RunE: updateCmd.RunE}
+	var buf bytes.Buffer
+	cmd.SetOut(&buf)
+	cmd.SetErr(&buf)
+	cmd.Flags().String("name", "", "")
+	cmd.Flags().String("tags", "", "")
+	cmd.Flags().Bool("auto-renew", false, "")
+	cmd.Flags().Int("renewal-days", 0, "")
+	cmd.SetArgs([]string{certID.String()})
+	cmd.SetContext(ctx)
+
+	err := cmd.Execute()
+	assert.NoError(t, err)
+	certSvc.AssertExpectations(t)
+	roles.AssertExpectations(t)
+	policies.AssertExpectations(t)
+}
+```
+
 - [ ] **Step 2: Run the tests to verify they fail**
 
 Run: `go test ./cmd/certificates/... -run TestCertUpdateCmd -v`
@@ -1171,6 +1343,52 @@ func TestCertRenewCmd_Denied(t *testing.T) {
 	err := cmd.Execute()
 	assert.ErrorContains(t, err, "failed to renew certificate")
 	certSvc.AssertNotCalled(t, "RenewCertificate", mock.Anything, mock.Anything, mock.Anything, mock.Anything)
+}
+```
+
+Add a new test directly after `TestCertRenewCmd_Denied`, asserting the exact `(principalID, vaultID, action)`/`(principalID, resource, op, vaultID)` pairs reaching `HasDataAction`/`CheckAccess` — see the note above `TestCertUpdateCmd_Authorized` (Plan 02's final review finding; Global Constraints). Requires `authzServices "rocketvault/internal/services/authorization"` in `certs_cmd_test.go`'s import block; add it if not already present (Task 1 may already have added it).
+
+```go
+func TestCertRenewCmd_Authorized(t *testing.T) {
+	tc := testutils.NewTestContext(t)
+	certSvc := &certCmdCertService{}
+	certID := uuid.New()
+	result := &certServices.CreateCertificateResult{
+		CertID:    uuid.New(),
+		Name:      "renewed",
+		CreatedAt: time.Now(),
+	}
+	certSvc.On("RenewCertificate", mock.Anything, certID, model.NewVaultScope(tc.TestVaultID, tc.TestUserID), 365).Return(result, nil)
+
+	roles := &testutils.MockRoleAssignmentService{}
+	roles.On("HasDataAction", mock.Anything, tc.TestUserID, tc.TestVaultID, model.ActionCertificatesCreate).
+		Return(true, nil).Once()
+	policies := &testutils.MockAccessPolicyService{}
+	policies.On("CheckAccess", mock.Anything, tc.TestUserID, model.PolicyResourceCertificates, model.OpRenew, tc.TestVaultID).
+		Return(authzServices.AccessAllowed, nil).Once()
+	tc.MockContainer.RoleAssignmentService = roles
+	tc.MockContainer.AccessPolicyService = policies
+
+	sc := &certsTestContainer{
+		MockServiceContainer: tc.MockContainer,
+		certSvc:              certSvc,
+	}
+	claims := &model.Claims{UserID: tc.TestUserID, Role: model.RoleAdmin}
+	ctx := context.WithValue(context.Background(), common.ClaimsKey, claims)
+	ctx = context.WithValue(ctx, common.LogKey, newCertLogger())
+	ctx = context.WithValue(ctx, common.ServiceContainerKey, sc)
+
+	cleanup := viperSetCert(map[string]interface{}{"cert-renew-validity-days": 365})
+	defer cleanup()
+
+	cmd, _ := newCertCmd(renewCmd.RunE, []string{certID.String()})
+	cmd.Args = cobra.ExactArgs(1)
+	cmd.SetContext(ctx)
+	err := cmd.Execute()
+	assert.NoError(t, err)
+	certSvc.AssertExpectations(t)
+	roles.AssertExpectations(t)
+	policies.AssertExpectations(t)
 }
 ```
 

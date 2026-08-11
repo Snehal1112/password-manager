@@ -21,6 +21,7 @@
 - Every touched command gets a `*_Denied` test proving: role-assignment mock returns `(false, nil)` → the command returns an error containing `"forbidden"` (from `authorization.RequireDataAction`, via `vaultcli.RequireDataAction`) **and** the underlying `KeyService`/`CryptoService` method is never called (`mock.AssertNotCalled`) — not just "returned an error", per the design's testing section.
 - This plan does not touch `cmd/secrets/*`, `cmd/certificates/*`, `internal/services/authorization/*`, or `cmd/vaultcli/*` — those are covered by Plans 01, 02, 04, and 05.
 - `vaultcli.RequireDataAction` gained a `op model.PolicyOperation` parameter after Plan 01's final review found it needed to also check the `access_policies` explicit-deny override — see `docs/superpowers/specs/2026-08-11-vault-cli-extension-design.md`'s "Access-policy explicit-deny in the CLI adapter" section for the full per-command mapping table (reproduced above for this plan's commands).
+- Every command's primary authorized/success test asserts the concrete `(action, op)` pair reaching `HasDataAction`/`CheckAccess`, not `mock.Anything` — Plan 02's final review found this gap (a transposed argument would ship green with loose assertions) and this plan's templates were corrected before execution to avoid inheriting it.
 
 ---
 
@@ -151,6 +152,51 @@ func TestCreateCmd_Denied(t *testing.T) {
 	assert.ErrorContains(t, err, "forbidden")
 	keySvc.AssertNotCalled(t, "CreateRSAKey", mock.Anything, mock.Anything)
 	keySvc.AssertNotCalled(t, "CreateECDSAKey", mock.Anything, mock.Anything)
+}
+```
+
+Add a new test directly after `TestCreateCmd_Denied`, asserting the exact `(principalID, vaultID, action)` reaching `HasDataAction` and the exact `(principalID, resource, op, vaultID)` reaching `CheckAccess` — `TestCreateCmd_RSASuccess` above only proves *some* allow-wired mock let the command through, not that the correct arguments reached it (Plan 02's final review finding; see Global Constraints). Requires `authzServices "rocketvault/internal/services/authorization"` in `keys_cmd_test.go`'s import block; add it if not already present.
+
+```go
+func TestCreateCmd_Authorized(t *testing.T) {
+	keySvc := &keyCmdKeyService{}
+	userID := uuid.New()
+	sc, vaultID := newAllowedContainer(keySvc, nil)
+
+	roles := &testutils.MockRoleAssignmentService{}
+	roles.On("HasDataAction", mock.Anything, userID, vaultID, model.ActionKeysCreate).
+		Return(true, nil).Once()
+	policies := &testutils.MockAccessPolicyService{}
+	policies.On("CheckAccess", mock.Anything, userID, model.PolicyResourceKeys, model.OpCreate, vaultID).
+		Return(authzServices.AccessAllowed, nil).Once()
+	sc.RoleAssignmentService = roles
+	sc.AccessPolicyService = policies
+
+	result := &keyServices.CreateKeyResult{
+		KeyID: uuid.New(), Name: "mykey", Type: "RSA", CreatedAt: time.Now(),
+	}
+	keySvc.On("CreateRSAKey", mock.Anything, mock.MatchedBy(func(r keyServices.CreateKeyRequest) bool {
+		return r.Name == "mykey" && r.Type == "RSA" && r.Bits == 2048 && r.VaultID == vaultID
+	})).Return(result, nil)
+
+	claims := &model.Claims{UserID: userID, Role: model.RoleAdmin}
+	ctx := context.WithValue(context.Background(), common.ClaimsKey, claims)
+	ctx = context.WithValue(ctx, common.LogKey, newLogger())
+	ctx = context.WithValue(ctx, common.ServiceContainerKey, sc)
+	ctx = context.WithValue(ctx, common.OutputFormatterKey, newTestFmtr())
+
+	cleanup := viperSet(map[string]interface{}{
+		"key-name": "mykey", "key-type": "RSA", "key-bits": 2048, "key-curve": "P-256", "key-tags": "",
+	})
+	defer cleanup()
+
+	cmd, _ := newTestCmd(createCmd.RunE, nil)
+	cmd.SetContext(ctx)
+	err := cmd.Execute()
+	assert.NoError(t, err)
+	keySvc.AssertExpectations(t)
+	roles.AssertExpectations(t)
+	policies.AssertExpectations(t)
 }
 ```
 
@@ -322,6 +368,44 @@ func TestGetCmd_Denied(t *testing.T) {
 }
 ```
 
+Add a new test directly after `TestGetCmd_Denied`, asserting the exact `(principalID, vaultID, action)`/`(principalID, resource, op, vaultID)` pairs reaching `HasDataAction`/`CheckAccess` — see the note above `TestCreateCmd_Authorized` (Plan 02's final review finding; Global Constraints).
+
+```go
+func TestGetCmd_Authorized(t *testing.T) {
+	keySvc := &keyCmdKeyService{}
+	userID := uuid.New()
+	keyID := uuid.New()
+	sc, vaultID := newAllowedContainer(keySvc, nil)
+
+	roles := &testutils.MockRoleAssignmentService{}
+	roles.On("HasDataAction", mock.Anything, userID, vaultID, model.ActionKeysRead).
+		Return(true, nil).Once()
+	policies := &testutils.MockAccessPolicyService{}
+	policies.On("CheckAccess", mock.Anything, userID, model.PolicyResourceKeys, model.OpGet, vaultID).
+		Return(authzServices.AccessAllowed, nil).Once()
+	sc.RoleAssignmentService = roles
+	sc.AccessPolicyService = policies
+
+	key := &model.Key{ID: keyID, UserID: userID, Name: "my-key", Type: "RSA", CreatedAt: time.Now()}
+	keySvc.On("GetKey", mock.Anything, keyID, model.NewVaultScope(vaultID, userID)).Return(key, nil)
+
+	claims := &model.Claims{UserID: userID, Role: model.RoleAdmin}
+	ctx := context.WithValue(context.Background(), common.ClaimsKey, claims)
+	ctx = context.WithValue(ctx, common.LogKey, newLogger())
+	ctx = context.WithValue(ctx, common.ServiceContainerKey, sc)
+	ctx = context.WithValue(ctx, common.OutputFormatterKey, newTestFmtr())
+
+	cmd, _ := newTestCmd(getCmd.RunE, []string{keyID.String()})
+	cmd.Args = cobra.ExactArgs(1)
+	cmd.SetContext(ctx)
+	err := cmd.Execute()
+	assert.NoError(t, err)
+	keySvc.AssertExpectations(t)
+	roles.AssertExpectations(t)
+	policies.AssertExpectations(t)
+}
+```
+
 Replace `TestGetCmd_ServiceError` (lines 652-673) with:
 
 ```go
@@ -421,6 +505,48 @@ func TestListCmd_Denied(t *testing.T) {
 	err := cmd.Execute()
 	assert.ErrorContains(t, err, "forbidden")
 	keySvc.AssertNotCalled(t, "ListKeys", mock.Anything, mock.Anything, mock.Anything)
+}
+```
+
+Add a new test directly after `TestListCmd_Denied`, asserting the exact `(principalID, vaultID, action)`/`(principalID, resource, op, vaultID)` pairs reaching `HasDataAction`/`CheckAccess` — see the note above `TestCreateCmd_Authorized` (Plan 02's final review finding; Global Constraints).
+
+```go
+func TestListCmd_Authorized(t *testing.T) {
+	keySvc := &keyCmdKeyService{}
+	userID := uuid.New()
+	sc, vaultID := newAllowedContainer(keySvc, nil)
+
+	roles := &testutils.MockRoleAssignmentService{}
+	roles.On("HasDataAction", mock.Anything, userID, vaultID, model.ActionKeysRead).
+		Return(true, nil).Once()
+	policies := &testutils.MockAccessPolicyService{}
+	policies.On("CheckAccess", mock.Anything, userID, model.PolicyResourceKeys, model.OpGet, vaultID).
+		Return(authzServices.AccessAllowed, nil).Once()
+	sc.RoleAssignmentService = roles
+	sc.AccessPolicyService = policies
+
+	keys := []model.Key{
+		{ID: uuid.New(), UserID: userID, Name: "k1", Type: "RSA"},
+	}
+	keySvc.On("ListKeys", mock.Anything, model.NewVaultScope(vaultID, userID), repositories.KeyFilter{Type: "", Tags: nil}).
+		Return(keys, nil)
+
+	claims := &model.Claims{UserID: userID, Role: model.RoleSecretsManager}
+	ctx := context.WithValue(context.Background(), common.ClaimsKey, claims)
+	ctx = context.WithValue(ctx, common.LogKey, newLogger())
+	ctx = context.WithValue(ctx, common.ServiceContainerKey, sc)
+	ctx = context.WithValue(ctx, common.OutputFormatterKey, newTestFmtr())
+
+	cleanup := viperSet(map[string]interface{}{"type": "", "tags": ""})
+	defer cleanup()
+
+	cmd, _ := newTestCmd(listCmd.RunE, nil)
+	cmd.SetContext(ctx)
+	err := cmd.Execute()
+	assert.NoError(t, err)
+	keySvc.AssertExpectations(t)
+	roles.AssertExpectations(t)
+	policies.AssertExpectations(t)
 }
 ```
 
@@ -801,6 +927,49 @@ func TestUpdateKeyCommand_Denied(t *testing.T) {
 }
 ```
 
+Add a new test directly after `TestUpdateKeyCommand_Denied`, asserting the exact `(principalID, vaultID, action)`/`(principalID, resource, op, vaultID)` pairs reaching `HasDataAction`/`CheckAccess` — `TestUpdateKeyCommand_CallsServiceUpdate` above only proves `testutils.NewTestContext`'s default-allow wiring let the command through, not that the correct arguments reached it (Plan 02's final review finding; see Global Constraints). Requires `authzServices "rocketvault/internal/services/authorization"` in `update_test.go`'s import block; add it if not already present.
+
+```go
+func TestUpdateKeyCommand_Authorized(t *testing.T) {
+	tc := testutils.NewTestContext(t)
+	mockKeySvc := &MockKeyServiceForUpdate{}
+	keyID := uuid.New()
+
+	roles := &testutils.MockRoleAssignmentService{}
+	roles.On("HasDataAction", mock.Anything, tc.TestUserID, tc.TestVaultID, model.ActionKeysUpdate).
+		Return(true, nil).Once()
+	policies := &testutils.MockAccessPolicyService{}
+	policies.On("CheckAccess", mock.Anything, tc.TestUserID, model.PolicyResourceKeys, model.OpSet, tc.TestVaultID).
+		Return(authzServices.AccessAllowed, nil).Once()
+	tc.MockContainer.RoleAssignmentService = roles
+	tc.MockContainer.AccessPolicyService = policies
+
+	mockKeySvc.On("UpdateKey", mock.Anything, mock.MatchedBy(func(r keyServices.UpdateKeyRequest) bool {
+		return r.KeyID == keyID &&
+			r.Scope == model.NewVaultScope(tc.TestVaultID, tc.TestUserID) &&
+			r.Name != nil && *r.Name == "new-name"
+	})).Return(nil)
+	tc.MockContainer.On("GetKeyService").Return(mockKeySvc)
+
+	cmd := &cobra.Command{
+		Use:  "update <id>",
+		Args: cobra.ExactArgs(1),
+		RunE: updateCmd.RunE,
+	}
+	cmd.Flags().String("name", "", "")
+	cmd.Flags().Bool("revoked", false, "")
+	cmd.Flags().String("tags", "", "")
+	cmd.SetArgs([]string{keyID.String(), "--name=new-name"})
+	cmd.SetContext(tc.Ctx)
+
+	err := cmd.Execute()
+	assert.NoError(t, err)
+	mockKeySvc.AssertExpectations(t)
+	roles.AssertExpectations(t)
+	policies.AssertExpectations(t)
+}
+```
+
 Replace `TestUpdateKeyCommand_SetsRevoked` (lines 74-98) with:
 
 ```go
@@ -877,6 +1046,42 @@ func TestDeleteCmd_Denied(t *testing.T) {
 }
 ```
 
+Add a new test directly after `TestDeleteCmd_Denied`, asserting the exact `(principalID, vaultID, action)`/`(principalID, resource, op, vaultID)` pairs reaching `HasDataAction`/`CheckAccess` — see the note above `TestCreateCmd_Authorized` (Plan 02's final review finding; Global Constraints).
+
+```go
+func TestDeleteCmd_Authorized(t *testing.T) {
+	keySvc := &keyCmdKeyService{}
+	userID := uuid.New()
+	keyID := uuid.New()
+	sc, vaultID := newAllowedContainer(keySvc, nil)
+
+	roles := &testutils.MockRoleAssignmentService{}
+	roles.On("HasDataAction", mock.Anything, userID, vaultID, model.ActionKeysDelete).
+		Return(true, nil).Once()
+	policies := &testutils.MockAccessPolicyService{}
+	policies.On("CheckAccess", mock.Anything, userID, model.PolicyResourceKeys, model.OpDelete, vaultID).
+		Return(authzServices.AccessAllowed, nil).Once()
+	sc.RoleAssignmentService = roles
+	sc.AccessPolicyService = policies
+
+	keySvc.On("DeleteKey", mock.Anything, keyID, model.NewVaultScope(vaultID, userID)).Return(nil, nil)
+
+	claims := &model.Claims{UserID: userID, Role: model.RoleAdmin}
+	ctx := context.WithValue(context.Background(), common.ClaimsKey, claims)
+	ctx = context.WithValue(ctx, common.LogKey, newLogger())
+	ctx = context.WithValue(ctx, common.ServiceContainerKey, sc)
+
+	cmd, _ := newTestCmd(deleteCmd.RunE, []string{keyID.String()})
+	cmd.Args = cobra.ExactArgs(1)
+	cmd.SetContext(ctx)
+	err := cmd.Execute()
+	assert.NoError(t, err)
+	keySvc.AssertExpectations(t)
+	roles.AssertExpectations(t)
+	policies.AssertExpectations(t)
+}
+```
+
 Replace `TestDeleteCmd_ServiceError` (lines 755-775) with:
 
 ```go
@@ -943,6 +1148,45 @@ func TestRotateCmd_Denied(t *testing.T) {
 	err := cmd.Execute()
 	assert.ErrorContains(t, err, "forbidden")
 	keySvc.AssertNotCalled(t, "RotateKey", mock.Anything, mock.Anything, mock.Anything)
+}
+```
+
+Add a new test directly after `TestRotateCmd_Denied`, asserting the exact `(principalID, vaultID, action)`/`(principalID, resource, op, vaultID)` pairs reaching `HasDataAction`/`CheckAccess` — see the note above `TestCreateCmd_Authorized` (Plan 02's final review finding; Global Constraints).
+
+```go
+func TestRotateCmd_Authorized(t *testing.T) {
+	keySvc := &keyCmdKeyService{}
+	userID := uuid.New()
+	keyID := uuid.New()
+	sc, vaultID := newAllowedContainer(keySvc, nil)
+
+	roles := &testutils.MockRoleAssignmentService{}
+	roles.On("HasDataAction", mock.Anything, userID, vaultID, model.ActionKeysRotate).
+		Return(true, nil).Once()
+	policies := &testutils.MockAccessPolicyService{}
+	policies.On("CheckAccess", mock.Anything, userID, model.PolicyResourceKeys, model.OpRotate, vaultID).
+		Return(authzServices.AccessAllowed, nil).Once()
+	sc.RoleAssignmentService = roles
+	sc.AccessPolicyService = policies
+
+	result := &keyServices.CreateKeyResult{
+		KeyID: uuid.New(), Name: "rotated", Type: "RSA", CreatedAt: time.Now(),
+	}
+	keySvc.On("RotateKey", mock.Anything, keyID, model.NewVaultScope(vaultID, userID)).Return(result, nil)
+
+	claims := &model.Claims{UserID: userID, Role: model.RoleAdmin}
+	ctx := context.WithValue(context.Background(), common.ClaimsKey, claims)
+	ctx = context.WithValue(ctx, common.LogKey, newLogger())
+	ctx = context.WithValue(ctx, common.ServiceContainerKey, sc)
+
+	cmd, _ := newTestCmd(rotateCmd.RunE, []string{keyID.String()})
+	cmd.Args = cobra.ExactArgs(1)
+	cmd.SetContext(ctx)
+	err := cmd.Execute()
+	assert.NoError(t, err)
+	keySvc.AssertExpectations(t)
+	roles.AssertExpectations(t)
+	policies.AssertExpectations(t)
 }
 ```
 
@@ -1192,6 +1436,52 @@ func TestWrapCmd_Denied(t *testing.T) {
 }
 ```
 
+Add a new test directly after `TestWrapCmd_Denied`, asserting the exact `(principalID, vaultID, action)`/`(principalID, resource, op, vaultID)` pairs reaching `HasDataAction`/`CheckAccess` — see the note above `TestCreateCmd_Authorized` (Plan 02's final review finding; Global Constraints). This is also the pair explicitly called out in that review: `model.ActionKeysWrap` with `model.OpCreate`.
+
+```go
+func TestWrapCmd_Authorized(t *testing.T) {
+	cryptoSvc := &keyCmdCryptoService{}
+	userID := uuid.New()
+	keyID := uuid.New()
+	plaintext := []byte("my-secret-key-material")
+	wrapped := []byte("wrapped-bytes")
+	sc, vaultID := newAllowedContainer(nil, cryptoSvc)
+
+	roles := &testutils.MockRoleAssignmentService{}
+	roles.On("HasDataAction", mock.Anything, userID, vaultID, model.ActionKeysWrap).
+		Return(true, nil).Once()
+	policies := &testutils.MockAccessPolicyService{}
+	policies.On("CheckAccess", mock.Anything, userID, model.PolicyResourceKeys, model.OpCreate, vaultID).
+		Return(authzServices.AccessAllowed, nil).Once()
+	sc.RoleAssignmentService = roles
+	sc.AccessPolicyService = policies
+
+	cryptoSvc.On("WrapKey", mock.Anything, mock.MatchedBy(func(r keyServices.WrapKeyRequest) bool {
+		return r.KeyID == keyID && r.UserID == userID &&
+			r.VaultID == vaultID && r.Scope == model.NewVaultScope(vaultID, userID)
+	})).Return(&keyServices.WrapKeyResult{WrappedKey: wrapped}, nil)
+
+	claims := &model.Claims{UserID: userID, Role: model.RoleAdmin}
+	ctx := context.WithValue(context.Background(), common.ClaimsKey, claims)
+	ctx = context.WithValue(ctx, common.LogKey, newLogger())
+	ctx = context.WithValue(ctx, common.ServiceContainerKey, sc)
+
+	cleanup := viperSet(map[string]interface{}{
+		"wrap-key-id":       keyID.String(),
+		"wrap-key-material": base64.StdEncoding.EncodeToString(plaintext),
+	})
+	defer cleanup()
+
+	cmd, _ := newTestCmd(wrapCmd.RunE, nil)
+	cmd.SetContext(ctx)
+	err := cmd.Execute()
+	assert.NoError(t, err)
+	cryptoSvc.AssertExpectations(t)
+	roles.AssertExpectations(t)
+	policies.AssertExpectations(t)
+}
+```
+
 Replace `TestWrapCmd_ServiceError` (lines 965-990) with:
 
 ```go
@@ -1309,6 +1599,52 @@ func TestUnwrapCmd_Denied(t *testing.T) {
 	err := cmd.Execute()
 	assert.ErrorContains(t, err, "forbidden")
 	cryptoSvc.AssertNotCalled(t, "UnwrapKey", mock.Anything, mock.Anything)
+}
+```
+
+Add a new test directly after `TestUnwrapCmd_Denied`, asserting the exact `(principalID, vaultID, action)`/`(principalID, resource, op, vaultID)` pairs reaching `HasDataAction`/`CheckAccess` — see the note above `TestCreateCmd_Authorized` (Plan 02's final review finding; Global Constraints).
+
+```go
+func TestUnwrapCmd_Authorized(t *testing.T) {
+	cryptoSvc := &keyCmdCryptoService{}
+	userID := uuid.New()
+	keyID := uuid.New()
+	wrappedBytes := []byte("wrapped-material")
+	plaintext := []byte("recovered-key")
+	sc, vaultID := newAllowedContainer(nil, cryptoSvc)
+
+	roles := &testutils.MockRoleAssignmentService{}
+	roles.On("HasDataAction", mock.Anything, userID, vaultID, model.ActionKeysUnwrap).
+		Return(true, nil).Once()
+	policies := &testutils.MockAccessPolicyService{}
+	policies.On("CheckAccess", mock.Anything, userID, model.PolicyResourceKeys, model.OpCreate, vaultID).
+		Return(authzServices.AccessAllowed, nil).Once()
+	sc.RoleAssignmentService = roles
+	sc.AccessPolicyService = policies
+
+	cryptoSvc.On("UnwrapKey", mock.Anything, mock.MatchedBy(func(r keyServices.UnwrapKeyRequest) bool {
+		return r.KeyID == keyID && r.UserID == userID &&
+			r.VaultID == vaultID && r.Scope == model.NewVaultScope(vaultID, userID)
+	})).Return(&keyServices.UnwrapKeyResult{PlaintextKey: plaintext}, nil)
+
+	claims := &model.Claims{UserID: userID, Role: model.RoleAdmin}
+	ctx := context.WithValue(context.Background(), common.ClaimsKey, claims)
+	ctx = context.WithValue(ctx, common.LogKey, newLogger())
+	ctx = context.WithValue(ctx, common.ServiceContainerKey, sc)
+
+	cleanup := viperSet(map[string]interface{}{
+		"unwrap-key-id":      keyID.String(),
+		"unwrap-wrapped-key": base64.StdEncoding.EncodeToString(wrappedBytes),
+	})
+	defer cleanup()
+
+	cmd, _ := newTestCmd(unwrapCmd.RunE, nil)
+	cmd.SetContext(ctx)
+	err := cmd.Execute()
+	assert.NoError(t, err)
+	cryptoSvc.AssertExpectations(t)
+	roles.AssertExpectations(t)
+	policies.AssertExpectations(t)
 }
 ```
 
