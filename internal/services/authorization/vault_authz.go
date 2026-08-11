@@ -51,3 +51,33 @@ func CanPurgeVault(ctx context.Context, accountRole string, roles RoleAssignment
 	}
 	return allowed
 }
+
+// CanManageRoleAssignments reports whether principalID may create
+// (write=true) or revoke (write=false) role assignments in vaultID: the
+// global admin account role, an access-policy allow on (vaults, manage)
+// scoped to vaultID or global (preserves the pre-existing documented
+// behavior), or a Key Vault Data Access Administrator role assignment held
+// in vaultID. A nil dependency, a service error, or no matching grant
+// denies — this function fails closed.
+func CanManageRoleAssignments(ctx context.Context, accountRole string, policies AccessPolicyService, roles RoleAssignmentService, principalID, vaultID uuid.UUID, write bool) bool {
+	if common.HasRequiredRole(accountRole, string(model.RoleAdmin)) {
+		return true
+	}
+	if policies != nil {
+		if decision, err := policies.CheckAccess(ctx, principalID, model.PolicyResourceVaults, model.OpManage, vaultID); err == nil && decision == AccessAllowed {
+			return true
+		}
+	}
+	if roles == nil {
+		return false
+	}
+	action := model.ActionRoleAssignmentsWrite
+	if !write {
+		action = model.ActionRoleAssignmentsDelete
+	}
+	allowed, err := roles.HasDataAction(ctx, principalID, vaultID, action)
+	if err != nil {
+		return false
+	}
+	return allowed
+}

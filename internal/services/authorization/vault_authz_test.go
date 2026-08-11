@@ -150,3 +150,69 @@ func TestCanPurgeVault_NonAdminDeniedOnNilService(t *testing.T) {
 		t.Fatal("a nil RoleAssignmentService must fail closed")
 	}
 }
+
+func TestCanManageRoleAssignments_AdminAlwaysAllowed(t *testing.T) {
+	if !CanManageRoleAssignments(context.Background(), model.RoleAdmin, nil, nil, uuid.New(), uuid.New(), true) {
+		t.Fatal("admin must always be allowed, write=true")
+	}
+	if !CanManageRoleAssignments(context.Background(), model.RoleAdmin, nil, nil, uuid.New(), uuid.New(), false) {
+		t.Fatal("admin must always be allowed, write=false")
+	}
+}
+
+func TestCanManageRoleAssignments_NonAdminAllowedByAccessPolicy(t *testing.T) {
+	policies := &fakeAccessPolicyService{decision: AccessAllowed}
+	if !CanManageRoleAssignments(context.Background(), model.RoleUser, policies, nil, uuid.New(), uuid.New(), true) {
+		t.Fatal("an allow access-policy on (vaults, manage) must grant write, preserving today's documented behavior")
+	}
+	if !CanManageRoleAssignments(context.Background(), model.RoleUser, policies, nil, uuid.New(), uuid.New(), false) {
+		t.Fatal("an allow access-policy on (vaults, manage) must also grant delete")
+	}
+}
+
+func TestCanManageRoleAssignments_NonAdminAllowedByDataAccessAdministrator(t *testing.T) {
+	rr := newFakeRoleRepo()
+	pr := newFakePolicyRepo()
+	ul := &fakeUserLookup{}
+	roleSvc := newSvc(rr, pr, ul)
+	policies := &fakeAccessPolicyService{decision: AccessFallback}
+
+	principalID := uuid.New()
+	vaultID := uuid.New()
+	rr.rows[uuid.New()] = &model.RoleAssignment{
+		PrincipalID: principalID, VaultID: vaultID, Role: model.RoleKeyVaultDataAccessAdministrator,
+	}
+
+	if !CanManageRoleAssignments(context.Background(), model.RoleUser, policies, roleSvc, principalID, vaultID, true) {
+		t.Fatal("Data Access Administrator must grant write")
+	}
+	if !CanManageRoleAssignments(context.Background(), model.RoleUser, policies, roleSvc, principalID, vaultID, false) {
+		t.Fatal("Data Access Administrator must grant delete")
+	}
+}
+
+func TestCanManageRoleAssignments_NonAdminDeniedInWrongVault(t *testing.T) {
+	rr := newFakeRoleRepo()
+	pr := newFakePolicyRepo()
+	ul := &fakeUserLookup{}
+	roleSvc := newSvc(rr, pr, ul)
+	policies := &fakeAccessPolicyService{decision: AccessFallback}
+
+	principalID := uuid.New()
+	grantedVault := uuid.New()
+	targetVault := uuid.New()
+	rr.rows[uuid.New()] = &model.RoleAssignment{
+		PrincipalID: principalID, VaultID: grantedVault, Role: model.RoleKeyVaultDataAccessAdministrator,
+	}
+
+	if CanManageRoleAssignments(context.Background(), model.RoleUser, policies, roleSvc, principalID, targetVault, true) {
+		t.Fatal("Data Access Administrator in vault A must not authorize managing role assignments in vault B")
+	}
+}
+
+func TestCanManageRoleAssignments_NonAdminDeniedWithNothing(t *testing.T) {
+	policies := &fakeAccessPolicyService{decision: AccessFallback}
+	if CanManageRoleAssignments(context.Background(), model.RoleUser, policies, nil, uuid.New(), uuid.New(), true) {
+		t.Fatal("no policy allow and no role service must deny")
+	}
+}
