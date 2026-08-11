@@ -254,3 +254,84 @@ func TestRoleAssignments_RevokeAllowedForDataAccessAdministrator(t *testing.T) {
 
 	assert.Equal(t, http.StatusOK, w.Code)
 }
+
+// TestRoleAssignments_DataAccessAdministrator_GrantAndRevokeComposeAcrossVaults
+// is the closing regression for the known limitation this plan fixes: a
+// single principal holding Key Vault Data Access Administrator in vault A
+// can both grant AND revoke assignments in vault A, using the same mocked
+// grant, and is denied both operations in vault B.
+func TestRoleAssignments_DataAccessAdministrator_GrantAndRevokeComposeAcrossVaults(t *testing.T) {
+	vaultA := uuid.New()
+	vaultB := uuid.New()
+	assignmentID := uuid.New()
+	callerID := uuid.MustParse("00000000-0000-0000-0000-000000000001")
+
+	policySvc := &mockAccessPolicyService{}
+	policySvc.On("CheckAccess", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).
+		Return(authzServices.AccessFallback, nil)
+
+	roleSvc := &mockRoleAssignmentService{}
+	roleSvc.On("HasDataAction", mock.Anything, callerID, vaultA, model.ActionRoleAssignmentsWrite).Return(true, nil)
+	roleSvc.On("HasDataAction", mock.Anything, callerID, vaultA, model.ActionRoleAssignmentsDelete).Return(true, nil)
+	roleSvc.On("HasDataAction", mock.Anything, callerID, vaultB, model.ActionRoleAssignmentsWrite).Return(false, nil)
+	roleSvc.On("HasDataAction", mock.Anything, callerID, vaultB, model.ActionRoleAssignmentsDelete).Return(false, nil)
+	roleSvc.On("AssignRole", mock.Anything, mock.Anything).
+		Return(&model.RoleAssignment{ID: uuid.New(), VaultID: vaultA, Role: "Key Vault Secrets User"}, nil)
+	roleSvc.On("RevokeAssignment", mock.Anything, assignmentID, vaultA).Return(nil)
+
+	mc := &testutils.MockServiceContainer{}
+	mc.On("GetAccessPolicyService").Return(policySvc)
+	mc.On("GetRoleAssignmentService").Return(roleSvc)
+
+	newCtx := func(vaultName string) *Context {
+		return &Context{
+			App:    &app.App{ServiceContainer: mc},
+			Claims: jwt.MapClaims{"user_id": callerID.String(), "role": "user"},
+			Params: &ApiParams{VaultName: vaultName, AssignmentID: assignmentID.String(), PerPage: 60},
+		}
+	}
+
+	// Grant in A: allowed.
+	cGrantA := newCtx("a")
+	rGrantA := httptest.NewRequest(http.MethodPost, "/api/v1/vaults/a/role-assignments", bytes.NewReader([]byte(`{"principal":"alice","role":"Key Vault Secrets User"}`)))
+	rGrantA = rGrantA.WithContext(context.WithValue(rGrantA.Context(), common.VaultIDKey, vaultA.String()))
+	wGrantA := httptest.NewRecorder()
+	createRoleAssignment(cGrantA, wGrantA, rGrantA)
+	if cGrantA.Err != nil {
+		writeError(wGrantA, cGrantA)
+	}
+	assert.Equal(t, http.StatusCreated, wGrantA.Code, "grant in own vault must succeed")
+
+	// Revoke in A: allowed.
+	cRevokeA := newCtx("a")
+	rRevokeA := httptest.NewRequest(http.MethodDelete, "/api/v1/vaults/a/role-assignments/"+assignmentID.String(), nil)
+	rRevokeA = rRevokeA.WithContext(context.WithValue(rRevokeA.Context(), common.VaultIDKey, vaultA.String()))
+	wRevokeA := httptest.NewRecorder()
+	deleteRoleAssignment(cRevokeA, wRevokeA, rRevokeA)
+	if cRevokeA.Err != nil {
+		writeError(wRevokeA, cRevokeA)
+	}
+	assert.Equal(t, http.StatusOK, wRevokeA.Code, "revoke in own vault must succeed")
+
+	// Grant in B: denied.
+	cGrantB := newCtx("b")
+	rGrantB := httptest.NewRequest(http.MethodPost, "/api/v1/vaults/b/role-assignments", bytes.NewReader([]byte(`{"principal":"alice","role":"Key Vault Secrets User"}`)))
+	rGrantB = rGrantB.WithContext(context.WithValue(rGrantB.Context(), common.VaultIDKey, vaultB.String()))
+	wGrantB := httptest.NewRecorder()
+	createRoleAssignment(cGrantB, wGrantB, rGrantB)
+	if cGrantB.Err != nil {
+		writeError(wGrantB, cGrantB)
+	}
+	assert.Equal(t, http.StatusForbidden, wGrantB.Code, "grant in a different vault must be denied")
+
+	// Revoke in B: denied.
+	cRevokeB := newCtx("b")
+	rRevokeB := httptest.NewRequest(http.MethodDelete, "/api/v1/vaults/b/role-assignments/"+assignmentID.String(), nil)
+	rRevokeB = rRevokeB.WithContext(context.WithValue(rRevokeB.Context(), common.VaultIDKey, vaultB.String()))
+	wRevokeB := httptest.NewRecorder()
+	deleteRoleAssignment(cRevokeB, wRevokeB, rRevokeB)
+	if cRevokeB.Err != nil {
+		writeError(wRevokeB, cRevokeB)
+	}
+	assert.Equal(t, http.StatusForbidden, wRevokeB.Code, "revoke in a different vault must be denied")
+}
