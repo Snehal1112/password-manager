@@ -60,6 +60,20 @@ func requireVaultManage(c *Context, r *http.Request, vaultID uuid.UUID) bool {
 	return dec == authzServices.AccessAllowed
 }
 
+// callerIdentity extracts the acting principal's account role and user ID
+// from the session claims. Returns ok=false if either is missing or
+// malformed, in which case the caller must treat this as an internal error,
+// not a permission denial — a malformed claim is a bug, not a 403.
+//
+// TODO: this duplicates the identical helper added to api/vault.go by Plan
+// 2026-08-11-04, Task 1. Delete this copy once both plans have merged.
+func callerIdentity(c *Context) (role string, principalID uuid.UUID, ok bool) {
+	role, _ = c.Claims["role"].(string)
+	userIDStr, _ := c.Claims["user_id"].(string)
+	principalID, err := uuid.Parse(userIDStr)
+	return role, principalID, err == nil
+}
+
 // createRoleAssignment grants a built-in role to a principal within a vault.
 // POST /vaults/{vault_name}/role-assignments
 func createRoleAssignment(c *Context, w http.ResponseWriter, r *http.Request) {
@@ -72,8 +86,14 @@ func createRoleAssignment(c *Context, w http.ResponseWriter, r *http.Request) {
 		c.SetInvalidParam("vault")
 		return
 	}
-	if !requireVaultManage(c, r, vaultID) {
-		c.SetPermissionError("admin or vaults/manage required")
+	role, callerID, ok := callerIdentity(c)
+	if !ok {
+		c.SetInternalError(nil)
+		return
+	}
+	if !authzServices.CanManageRoleAssignments(r.Context(), role, c.App.ServiceContainer.GetAccessPolicyService(),
+		c.App.ServiceContainer.GetRoleAssignmentService(), callerID, vaultID, true) {
+		c.SetPermissionError("admin, vaults/manage, or Key Vault Data Access Administrator required")
 		return
 	}
 
@@ -90,9 +110,6 @@ func createRoleAssignment(c *Context, w http.ResponseWriter, r *http.Request) {
 	if pType == "" {
 		pType = model.PrincipalTypeUser
 	}
-
-	callerIDStr, _ := c.Claims["user_id"].(string)
-	callerID, _ := uuid.Parse(callerIDStr)
 
 	svc := c.App.ServiceContainer.GetRoleAssignmentService()
 	ra, err := svc.AssignRole(r.Context(), authzServices.AssignRoleInput{

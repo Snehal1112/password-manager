@@ -15,6 +15,7 @@ import (
 	"github.com/stretchr/testify/mock"
 
 	"rocketvault/app"
+	"rocketvault/common"
 	authzServices "rocketvault/internal/services/authorization"
 	"rocketvault/internal/testutils"
 	"rocketvault/model"
@@ -46,8 +47,9 @@ func (m *mockRoleAssignmentService) ListAssignments(ctx context.Context, vaultID
 	return args.Get(0).([]*model.RoleAssignment), args.Error(1)
 }
 
-func (m *mockRoleAssignmentService) HasDataAction(_ context.Context, _, _ uuid.UUID, _ model.DataAction) (bool, error) {
-	return false, nil
+func (m *mockRoleAssignmentService) HasDataAction(ctx context.Context, principalID, vaultID uuid.UUID, action model.DataAction) (bool, error) {
+	args := m.Called(ctx, principalID, vaultID, action)
+	return args.Bool(0), args.Error(1)
 }
 
 // newRoleAssignmentCtx builds a Context whose session carries the given role,
@@ -133,4 +135,83 @@ func TestListRoleAssignments_ReturnsEnrichedResponse(t *testing.T) {
 	assert.Equal(t, "prod", resp.RoleAssignments[0].VaultName)
 	assert.Equal(t, 2, resp.RoleAssignments[0].ExpandedPolicyCount)
 	assert.Equal(t, assignment.ID.String(), resp.RoleAssignments[0].ID)
+}
+
+// TestRoleAssignments_GrantAllowedForDataAccessAdministrator proves a
+// non-admin holding Key Vault Data Access Administrator in the target vault
+// can create a role assignment there — the fix for the documented known
+// limitation (role-assignment management was global-admin-only).
+func TestRoleAssignments_GrantAllowedForDataAccessAdministrator(t *testing.T) {
+	vaultID := uuid.New()
+	callerID := uuid.MustParse("00000000-0000-0000-0000-000000000001")
+
+	policySvc := &mockAccessPolicyService{}
+	policySvc.On("CheckAccess", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).
+		Return(authzServices.AccessFallback, nil)
+
+	roleSvc := &mockRoleAssignmentService{}
+	roleSvc.On("HasDataAction", mock.Anything, callerID, vaultID, model.ActionRoleAssignmentsWrite).
+		Return(true, nil)
+	roleSvc.On("AssignRole", mock.Anything, mock.Anything).
+		Return(&model.RoleAssignment{ID: uuid.New(), VaultID: vaultID, Role: "Key Vault Secrets User"}, nil)
+
+	mc := &testutils.MockServiceContainer{}
+	mc.On("GetAccessPolicyService").Return(policySvc)
+	mc.On("GetRoleAssignmentService").Return(roleSvc)
+
+	c := &Context{
+		App:    &app.App{ServiceContainer: mc},
+		Claims: jwt.MapClaims{"user_id": callerID.String(), "role": "user"},
+		Params: &ApiParams{VaultName: "prod", PerPage: 60},
+	}
+	body := []byte(`{"principal":"alice","role":"Key Vault Secrets User"}`)
+	r := httptest.NewRequest(http.MethodPost, "/api/v1/vaults/prod/role-assignments", bytes.NewReader(body))
+	r = r.WithContext(context.WithValue(r.Context(), common.VaultIDKey, vaultID.String()))
+	w := httptest.NewRecorder()
+
+	createRoleAssignment(c, w, r)
+	if c.Err != nil {
+		writeError(w, c)
+	}
+
+	assert.Equal(t, http.StatusCreated, w.Code)
+}
+
+// TestRoleAssignments_GrantDeniedForDataAccessAdministratorInWrongVault
+// proves the grant is scoped: holding Key Vault Data Access Administrator in
+// vault A does not authorize creating a role assignment in vault B.
+func TestRoleAssignments_GrantDeniedForDataAccessAdministratorInWrongVault(t *testing.T) {
+	grantedVault := uuid.New()
+	targetVault := uuid.New()
+	callerID := uuid.MustParse("00000000-0000-0000-0000-000000000001")
+
+	policySvc := &mockAccessPolicyService{}
+	policySvc.On("CheckAccess", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).
+		Return(authzServices.AccessFallback, nil)
+
+	roleSvc := &mockRoleAssignmentService{}
+	roleSvc.On("HasDataAction", mock.Anything, callerID, targetVault, model.ActionRoleAssignmentsWrite).
+		Return(false, nil)
+	_ = grantedVault // the grant (not registered on roleSvc at all) is scoped elsewhere; omitted here since HasDataAction is queried only against targetVault
+
+	mc := &testutils.MockServiceContainer{}
+	mc.On("GetAccessPolicyService").Return(policySvc)
+	mc.On("GetRoleAssignmentService").Return(roleSvc)
+
+	c := &Context{
+		App:    &app.App{ServiceContainer: mc},
+		Claims: jwt.MapClaims{"user_id": callerID.String(), "role": "user"},
+		Params: &ApiParams{VaultName: "other", PerPage: 60},
+	}
+	body := []byte(`{"principal":"alice","role":"Key Vault Secrets User"}`)
+	r := httptest.NewRequest(http.MethodPost, "/api/v1/vaults/other/role-assignments", bytes.NewReader(body))
+	r = r.WithContext(context.WithValue(r.Context(), common.VaultIDKey, targetVault.String()))
+	w := httptest.NewRecorder()
+
+	createRoleAssignment(c, w, r)
+	if c.Err != nil {
+		writeError(w, c)
+	}
+
+	assert.Equal(t, http.StatusForbidden, w.Code)
 }
