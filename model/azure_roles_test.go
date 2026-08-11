@@ -24,7 +24,7 @@ func TestAzureRoleNames(t *testing.T) {
 	}, AzureRoleNames())
 }
 
-// TestIsAzureRole accepts the seven names and rejects everything else,
+// TestIsAzureRole accepts the eleven names and rejects everything else,
 // including the legacy vault role vocabulary and case variations.
 func TestIsAzureRole(t *testing.T) {
 	for _, name := range AzureRoleNames() {
@@ -74,11 +74,16 @@ func TestAzureRoleDataActions(t *testing.T) {
 		assert.ElementsMatch(t, want, AzureRoleDataActions(role), "role %q", role)
 	}
 
-	// Administrator holds every action any other role holds, and nothing else.
+	// Administrator holds every action any other role holds, except for the
+	// two roles that intentionally hold actions outside Administrator's scope:
+	// RoleKeyVaultPurgeOperator (vault purge) and RoleKeyVaultDataAccessAdministrator
+	// (role assignment management). These exist as separate roles precisely because
+	// Administrator doesn't have those permissions in Azure. All other roles grant
+	// actions already covered by Administrator's 32 data-plane actions.
 	var union []DataAction
 	seen := map[DataAction]bool{}
 	for _, role := range AzureRoleNames() {
-		if role == RoleKeyVaultAdministrator {
+		if role == RoleKeyVaultAdministrator || role == RoleKeyVaultPurgeOperator || role == RoleKeyVaultDataAccessAdministrator {
 			continue
 		}
 		for _, a := range AzureRoleDataActions(role) {
@@ -89,7 +94,7 @@ func TestAzureRoleDataActions(t *testing.T) {
 		}
 	}
 	admin := AzureRoleDataActions(RoleKeyVaultAdministrator)
-	assert.Len(t, admin, 35, "administrator must grant all 35 data actions")
+	assert.Len(t, admin, 32, "administrator must grant all 32 data actions")
 	for _, a := range union {
 		assert.Contains(t, admin, a)
 	}

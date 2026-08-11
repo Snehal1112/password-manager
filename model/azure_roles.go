@@ -158,8 +158,6 @@ var azureRoleDataActions = map[string][]DataAction{
 		ActionCertificatesRead, ActionCertificatesCreate, ActionCertificatesUpdate,
 		ActionCertificatesDelete, ActionCertificatesBackup, ActionCertificatesRestore,
 		ActionCertificatesRecover, ActionCertificatesPurge,
-		ActionVaultPurge,
-		ActionRoleAssignmentsWrite, ActionRoleAssignmentsDelete,
 	},
 	RoleKeyVaultReader: {
 		ActionSecretsReadMetadata,
