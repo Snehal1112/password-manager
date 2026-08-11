@@ -162,6 +162,44 @@ func TestListSecretsCommand(t *testing.T) {
 	}
 }
 
+func TestListCmd_Authorized(t *testing.T) {
+	tc := testutils.NewTestContext(t)
+	tc.MockContainer.On("GetSecretService").Return(tc.MockSecretService)
+	tc.MockSecretService.On("ListSecrets", mock.Anything, model.NewVaultScope(tc.TestVaultID, uuid.Nil), []string{}).
+		Return([]model.Secret{}, nil)
+
+	fmtr, ferr := formatter.New(formatter.FormatTable)
+	assert.NoError(t, ferr)
+	ctx := context.WithValue(tc.Ctx, common.OutputFormatterKey, fmtr)
+
+	cmd := &cobra.Command{Use: "list", RunE: listCmd.RunE}
+	cmd.Flags().StringSlice("tags", []string{}, "")
+	cmd.SetContext(ctx)
+
+	err := cmd.Execute()
+	assert.NoError(t, err)
+	tc.MockSecretService.AssertExpectations(t)
+}
+
+func TestListCmd_Forbidden(t *testing.T) {
+	tc := testutils.NewTestContext(t)
+	tc.MockContainer.On("GetSecretService").Return(tc.MockSecretService)
+
+	denyRoles := &testutils.MockRoleAssignmentService{}
+	denyRoles.On("HasDataAction", mock.Anything, mock.Anything, mock.Anything, mock.Anything).
+		Return(false, nil).Maybe()
+	tc.MockContainer.RoleAssignmentService = denyRoles
+
+	cmd := &cobra.Command{Use: "list", RunE: listCmd.RunE}
+	cmd.Flags().StringSlice("tags", []string{}, "")
+	cmd.SetContext(tc.Ctx)
+
+	err := cmd.Execute()
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "forbidden")
+	tc.MockSecretService.AssertNotCalled(t, "ListSecrets", mock.Anything, mock.Anything, mock.Anything)
+}
+
 func TestListSecretsOutputFormat(t *testing.T) {
 	tc := testutils.NewTestContext(t)
 

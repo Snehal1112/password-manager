@@ -30,10 +30,12 @@ import (
 	"github.com/google/uuid"
 	"github.com/spf13/cobra"
 
+	"rocketvault/cmd/vaultcli"
 	"rocketvault/common"
 	"rocketvault/internal/container"
 	"rocketvault/internal/formatter"
 	secretsServices "rocketvault/internal/services/secrets"
+	"rocketvault/model"
 )
 
 // createCmd represents the create command
@@ -70,7 +72,7 @@ var createCmd = &cobra.Command{
 		}
 		secretService := serviceContainer.GetSecretService()
 
-		vaultID, err := resolveVaultID(ctx, cmd, serviceContainer)
+		vaultID, err := vaultcli.RequireDataAction(ctx, cmd, serviceContainer, userID, model.ActionSecretsSet, model.OpCreate)
 		if err != nil {
 			return err
 		}

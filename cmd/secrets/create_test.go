@@ -106,6 +106,45 @@ func TestCreateSecretCommand(t *testing.T) {
 	}
 }
 
+func TestCreateSecretCommand_Authorized(t *testing.T) {
+	tc := testutils.NewTestContext(t)
+	tc.MockContainer.On("GetSecretService").Return(tc.MockSecretService)
+	tc.MockSecretService.On("CreateSecret", mock.Anything, mock.MatchedBy(func(r secretServices.CreateSecretRequest) bool {
+		return r.VaultID == tc.TestVaultID
+	})).Return(&model.Secret{ID: uuid.New(), Name: "test-secret", Version: 1, Enabled: true}, nil)
+
+	ctx := ctxWithFormatter(tc.Ctx)
+	var out bytes.Buffer
+	createCmd.SetContext(ctx)
+	createCmd.SetOut(&out)
+	createCmd.SetErr(&out)
+
+	err := createCmd.RunE(createCmd, []string{"test-secret", "secret-value"})
+	require.NoError(t, err)
+	tc.MockSecretService.AssertExpectations(t)
+}
+
+func TestCreateSecretCommand_Forbidden(t *testing.T) {
+	tc := testutils.NewTestContext(t)
+	tc.MockContainer.On("GetSecretService").Return(tc.MockSecretService)
+
+	denyRoles := &testutils.MockRoleAssignmentService{}
+	denyRoles.On("HasDataAction", mock.Anything, mock.Anything, mock.Anything, mock.Anything).
+		Return(false, nil).Maybe()
+	tc.MockContainer.RoleAssignmentService = denyRoles
+
+	ctx := ctxWithFormatter(tc.Ctx)
+	var out bytes.Buffer
+	createCmd.SetContext(ctx)
+	createCmd.SetOut(&out)
+	createCmd.SetErr(&out)
+
+	err := createCmd.RunE(createCmd, []string{"test-secret", "secret-value"})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "forbidden")
+	tc.MockSecretService.AssertNotCalled(t, "CreateSecret", mock.Anything, mock.Anything)
+}
+
 func TestCreateSecretWithTags(t *testing.T) {
 	tc := testutils.NewTestContext(t)
 

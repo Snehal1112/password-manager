@@ -31,6 +31,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/spf13/cobra"
 
+	"rocketvault/cmd/vaultcli"
 	"rocketvault/common"
 	"rocketvault/internal/container"
 	"rocketvault/internal/formatter"
@@ -54,13 +55,18 @@ var listCmd = &cobra.Command{
 
 		ctx := cmd.Context()
 
+		userID, ok := ctx.Value(common.UserIDKey).(uuid.UUID)
+		if !ok {
+			return fmt.Errorf("user ID not available in context")
+		}
+
 		serviceContainer, ok := ctx.Value(common.ServiceContainerKey).(container.ServiceContainerInterface)
 		if !ok || serviceContainer == nil {
 			return fmt.Errorf("service container not available in context")
 		}
 		secretService := serviceContainer.GetSecretService()
 
-		vaultID, err := resolveVaultID(ctx, cmd, serviceContainer)
+		vaultID, err := vaultcli.RequireDataAction(ctx, cmd, serviceContainer, userID, model.ActionSecretsReadMetadata, model.OpGet)
 		if err != nil {
 			return err
 		}
