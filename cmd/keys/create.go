@@ -30,6 +30,7 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 
+	"rocketvault/cmd/vaultcli"
 	"rocketvault/common"
 	"rocketvault/internal/container"
 	"rocketvault/internal/formatter"
@@ -95,18 +96,24 @@ var createCmd = &cobra.Command{
 		}
 		keyService := serviceContainer.GetKeyService()
 
+		vaultID, err := vaultcli.RequireDataAction(ctx, cmd, serviceContainer, claims.UserID, model.ActionKeysCreate, model.OpCreate)
+		if err != nil {
+			log.LogAuditError(claims.UserID.String(), "create_key", "failed", fmt.Sprintf("vault authorization failed: %s", err), err)
+			return fmt.Errorf("vault authorization failed: %w", err)
+		}
+
 		// Create key request
 		req := keyServices.CreateKeyRequest{
-			Name:   name,
-			Type:   keyType,
-			Bits:   bits,
-			Curve:  curve,
-			Tags:   tags,
-			UserID: claims.UserID,
+			Name:    name,
+			Type:    keyType,
+			Bits:    bits,
+			Curve:   curve,
+			Tags:    tags,
+			UserID:  claims.UserID,
+			VaultID: vaultID,
 		}
 
 		var result *keyServices.CreateKeyResult
-		var err error
 
 		if keyType == "RSA" {
 			result, err = keyService.CreateRSAKey(ctx, req)

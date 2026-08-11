@@ -31,6 +31,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/spf13/cobra"
 
+	"rocketvault/cmd/vaultcli"
 	"rocketvault/common"
 	"rocketvault/internal/container"
 	"rocketvault/internal/formatter"
@@ -73,7 +74,13 @@ var getCmd = &cobra.Command{
 		}
 		keyService := serviceContainer.GetKeyService()
 
-		key, err := keyService.GetKey(ctx, keyID, model.NewOwnerScope(uuid.Nil, claims.UserID))
+		vaultID, err := vaultcli.RequireDataAction(ctx, cmd, serviceContainer, claims.UserID, model.ActionKeysRead, model.OpGet)
+		if err != nil {
+			log.LogAuditError(claims.UserID.String(), "get_key", "failed", fmt.Sprintf("vault authorization failed: %s", err), err)
+			return fmt.Errorf("vault authorization failed: %w", err)
+		}
+
+		key, err := keyService.GetKey(ctx, keyID, model.NewVaultScope(vaultID, claims.UserID))
 		if err != nil {
 			log.LogAuditError(claims.UserID.String(), "get_key", "failed", fmt.Sprintf("failed to get key: %s", err), err)
 			return fmt.Errorf("failed to get key: %w", err)

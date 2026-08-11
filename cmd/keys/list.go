@@ -28,10 +28,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/google/uuid"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 
+	"rocketvault/cmd/vaultcli"
 	"rocketvault/common"
 	"rocketvault/internal/container"
 	"rocketvault/internal/formatter"
@@ -80,12 +80,13 @@ var listCmd = &cobra.Command{
 		}
 		keyService := serviceContainer.GetKeyService()
 
-		scope := model.NewOwnerScope(uuid.Nil, claims.UserID)
-		if claims.Role == model.RoleAdmin {
-			scope = model.NewAdminScope(claims.UserID)
+		vaultID, err := vaultcli.RequireDataAction(ctx, cmd, serviceContainer, claims.UserID, model.ActionKeysRead, model.OpGet)
+		if err != nil {
+			log.LogAuditError(claims.UserID.String(), "list_keys", "failed", fmt.Sprintf("vault authorization failed: %s", err), err)
+			return fmt.Errorf("vault authorization failed: %w", err)
 		}
 
-		keys, err := keyService.ListKeys(ctx, scope, repositories.KeyFilter{Type: keyType, Tags: tags})
+		keys, err := keyService.ListKeys(ctx, model.NewVaultScope(vaultID, claims.UserID), repositories.KeyFilter{Type: keyType, Tags: tags})
 		if err != nil {
 			log.LogAuditError(claims.UserID.String(), "list_keys", "failed", fmt.Sprintf("failed to list keys: %s", err), err)
 			return fmt.Errorf("failed to list keys: %w", err)

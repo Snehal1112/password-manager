@@ -22,6 +22,7 @@ import (
 	"rocketvault/internal/formatter"
 	"rocketvault/internal/logging"
 	"rocketvault/internal/repositories"
+	authzServices "rocketvault/internal/services/authorization"
 	keyServices "rocketvault/internal/services/keys"
 	"rocketvault/model"
 )
@@ -138,6 +139,76 @@ type keysTestContainer struct {
 
 func (c *keysTestContainer) GetKeyService() keyServices.KeyService       { return c.keySvc }
 func (c *keysTestContainer) GetCryptoService() keyServices.CryptoService { return c.cryptoSvc }
+
+// newAllowedContainer returns a keysTestContainer pre-wired with a
+// default-allow vault resolution (the "default" vault) and a default-allow
+// role-assignment mock, mirroring testutils.NewTestContext's wiring. Tests
+// in this file build their service container by hand instead of using
+// testutils.NewTestContext, so this helper gives them the same defaults.
+// Returns the container and the id of the resolved default vault, for
+// scope/VaultID assertions.
+func newAllowedContainer(keySvc keyServices.KeyService, cryptoSvc keyServices.CryptoService) (*keysTestContainer, uuid.UUID) {
+	vaultID := uuid.MustParse(model.DefaultVaultID)
+
+	mockVaultSvc := &testutils.MockVaultService{}
+	mockVaultSvc.On("GetVault", mock.Anything, model.DefaultVaultName).
+		Return(&model.Vault{ID: vaultID, Name: model.DefaultVaultName, Enabled: true}, nil).Maybe()
+
+	mockRoleSvc := &testutils.MockRoleAssignmentService{}
+	mockRoleSvc.On("HasDataAction", mock.Anything, mock.Anything, mock.Anything, mock.Anything).
+		Return(true, nil).Maybe()
+
+	// vaultcli.RequireDataAction checks AccessPolicyService.CheckAccess before
+	// RoleAssignmentService.HasDataAction, so a default-allow mock is required
+	// here too, or the call panics on a nil interface. Mirrors
+	// testutils.NewTestContext's wiring.
+	mockPolicySvc := &testutils.MockAccessPolicyService{}
+	mockPolicySvc.On("CheckAccess", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).
+		Return(authzServices.AccessAllowed, nil).Maybe()
+
+	base := &testutils.MockServiceContainer{}
+	base.VaultService = mockVaultSvc
+	base.RoleAssignmentService = mockRoleSvc
+	base.AccessPolicyService = mockPolicySvc
+
+	return &keysTestContainer{
+		MockServiceContainer: base,
+		keySvc:               keySvc,
+		cryptoSvc:            cryptoSvc,
+	}, vaultID
+}
+
+// newDeniedContainer is identical to newAllowedContainer except the
+// role-assignment mock denies every HasDataAction call, simulating a caller
+// with no role assignment in the resolved vault. The access-policy mock
+// still default-allows, so denial is attributable to the role-assignment
+// check alone.
+func newDeniedContainer(keySvc keyServices.KeyService, cryptoSvc keyServices.CryptoService) *keysTestContainer {
+	vaultID := uuid.MustParse(model.DefaultVaultID)
+
+	mockVaultSvc := &testutils.MockVaultService{}
+	mockVaultSvc.On("GetVault", mock.Anything, model.DefaultVaultName).
+		Return(&model.Vault{ID: vaultID, Name: model.DefaultVaultName, Enabled: true}, nil).Maybe()
+
+	mockRoleSvc := &testutils.MockRoleAssignmentService{}
+	mockRoleSvc.On("HasDataAction", mock.Anything, mock.Anything, mock.Anything, mock.Anything).
+		Return(false, nil).Maybe()
+
+	mockPolicySvc := &testutils.MockAccessPolicyService{}
+	mockPolicySvc.On("CheckAccess", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).
+		Return(authzServices.AccessAllowed, nil).Maybe()
+
+	base := &testutils.MockServiceContainer{}
+	base.VaultService = mockVaultSvc
+	base.RoleAssignmentService = mockRoleSvc
+	base.AccessPolicyService = mockPolicySvc
+
+	return &keysTestContainer{
+		MockServiceContainer: base,
+		keySvc:               keySvc,
+		cryptoSvc:            cryptoSvc,
+	}
+}
 
 // ---- context helpers ----
 
@@ -285,17 +356,14 @@ func TestCreateCmd_InvalidType(t *testing.T) {
 func TestCreateCmd_RSASuccess(t *testing.T) {
 	keySvc := &keyCmdKeyService{}
 	userID := uuid.New()
+	sc, vaultID := newAllowedContainer(keySvc, nil)
 	result := &keyServices.CreateKeyResult{
 		KeyID: uuid.New(), Name: "mykey", Type: "RSA", CreatedAt: time.Now(),
 	}
 	keySvc.On("CreateRSAKey", mock.Anything, mock.MatchedBy(func(r keyServices.CreateKeyRequest) bool {
-		return r.Name == "mykey" && r.Type == "RSA" && r.Bits == 2048
+		return r.Name == "mykey" && r.Type == "RSA" && r.Bits == 2048 && r.VaultID == vaultID
 	})).Return(result, nil)
 
-	sc := &keysTestContainer{
-		MockServiceContainer: &testutils.MockServiceContainer{},
-		keySvc:               keySvc,
-	}
 	claims := &model.Claims{UserID: userID, Role: model.RoleAdmin}
 	ctx := context.WithValue(context.Background(), common.ClaimsKey, claims)
 	ctx = context.WithValue(ctx, common.LogKey, newLogger())
@@ -315,20 +383,82 @@ func TestCreateCmd_RSASuccess(t *testing.T) {
 	keySvc.AssertExpectations(t)
 }
 
+func TestCreateCmd_Denied(t *testing.T) {
+	keySvc := &keyCmdKeyService{}
+	userID := uuid.New()
+	sc := newDeniedContainer(keySvc, nil)
+
+	claims := &model.Claims{UserID: userID, Role: model.RoleAdmin}
+	ctx := context.WithValue(context.Background(), common.ClaimsKey, claims)
+	ctx = context.WithValue(ctx, common.LogKey, newLogger())
+	ctx = context.WithValue(ctx, common.ServiceContainerKey, sc)
+	ctx = context.WithValue(ctx, common.OutputFormatterKey, newTestFmtr())
+
+	cleanup := viperSet(map[string]interface{}{
+		"key-name": "mykey", "key-type": "RSA", "key-bits": 2048, "key-curve": "P-256", "key-tags": "",
+	})
+	defer cleanup()
+
+	cmd, _ := newTestCmd(createCmd.RunE, nil)
+	cmd.SetContext(ctx)
+	err := cmd.Execute()
+	assert.ErrorContains(t, err, "forbidden")
+	keySvc.AssertNotCalled(t, "CreateRSAKey", mock.Anything, mock.Anything)
+	keySvc.AssertNotCalled(t, "CreateECDSAKey", mock.Anything, mock.Anything)
+}
+
+func TestCreateCmd_Authorized(t *testing.T) {
+	keySvc := &keyCmdKeyService{}
+	userID := uuid.New()
+	sc, vaultID := newAllowedContainer(keySvc, nil)
+
+	roles := &testutils.MockRoleAssignmentService{}
+	roles.On("HasDataAction", mock.Anything, userID, vaultID, model.ActionKeysCreate).
+		Return(true, nil).Once()
+	policies := &testutils.MockAccessPolicyService{}
+	policies.On("CheckAccess", mock.Anything, userID, model.PolicyResourceKeys, model.OpCreate, vaultID).
+		Return(authzServices.AccessAllowed, nil).Once()
+	sc.RoleAssignmentService = roles
+	sc.AccessPolicyService = policies
+
+	result := &keyServices.CreateKeyResult{
+		KeyID: uuid.New(), Name: "mykey", Type: "RSA", CreatedAt: time.Now(),
+	}
+	keySvc.On("CreateRSAKey", mock.Anything, mock.MatchedBy(func(r keyServices.CreateKeyRequest) bool {
+		return r.Name == "mykey" && r.Type == "RSA" && r.Bits == 2048 && r.VaultID == vaultID
+	})).Return(result, nil)
+
+	claims := &model.Claims{UserID: userID, Role: model.RoleAdmin}
+	ctx := context.WithValue(context.Background(), common.ClaimsKey, claims)
+	ctx = context.WithValue(ctx, common.LogKey, newLogger())
+	ctx = context.WithValue(ctx, common.ServiceContainerKey, sc)
+	ctx = context.WithValue(ctx, common.OutputFormatterKey, newTestFmtr())
+
+	cleanup := viperSet(map[string]interface{}{
+		"key-name": "mykey", "key-type": "RSA", "key-bits": 2048, "key-curve": "P-256", "key-tags": "",
+	})
+	defer cleanup()
+
+	cmd, _ := newTestCmd(createCmd.RunE, nil)
+	cmd.SetContext(ctx)
+	err := cmd.Execute()
+	assert.NoError(t, err)
+	keySvc.AssertExpectations(t)
+	roles.AssertExpectations(t)
+	policies.AssertExpectations(t)
+}
+
 func TestCreateCmd_RSAWithTags(t *testing.T) {
 	keySvc := &keyCmdKeyService{}
 	userID := uuid.New()
+	sc, vaultID := newAllowedContainer(keySvc, nil)
 	result := &keyServices.CreateKeyResult{
 		KeyID: uuid.New(), Name: "tagged-key", Type: "RSA", Tags: []string{"prod", "infra"}, CreatedAt: time.Now(),
 	}
 	keySvc.On("CreateRSAKey", mock.Anything, mock.MatchedBy(func(r keyServices.CreateKeyRequest) bool {
-		return r.Name == "tagged-key" && len(r.Tags) == 2
+		return r.Name == "tagged-key" && len(r.Tags) == 2 && r.VaultID == vaultID
 	})).Return(result, nil)
 
-	sc := &keysTestContainer{
-		MockServiceContainer: &testutils.MockServiceContainer{},
-		keySvc:               keySvc,
-	}
 	claims := &model.Claims{UserID: userID, Role: model.RoleAdmin}
 	ctx := context.WithValue(context.Background(), common.ClaimsKey, claims)
 	ctx = context.WithValue(ctx, common.LogKey, newLogger())
@@ -350,17 +480,14 @@ func TestCreateCmd_RSAWithTags(t *testing.T) {
 func TestCreateCmd_ECDSASuccess(t *testing.T) {
 	keySvc := &keyCmdKeyService{}
 	userID := uuid.New()
+	sc, vaultID := newAllowedContainer(keySvc, nil)
 	result := &keyServices.CreateKeyResult{
 		KeyID: uuid.New(), Name: "eckey", Type: "ECDSA", CreatedAt: time.Now(),
 	}
 	keySvc.On("CreateECDSAKey", mock.Anything, mock.MatchedBy(func(r keyServices.CreateKeyRequest) bool {
-		return r.Name == "eckey" && r.Type == "ECDSA" && r.Curve == "P-256"
+		return r.Name == "eckey" && r.Type == "ECDSA" && r.Curve == "P-256" && r.VaultID == vaultID
 	})).Return(result, nil)
 
-	sc := &keysTestContainer{
-		MockServiceContainer: &testutils.MockServiceContainer{},
-		keySvc:               keySvc,
-	}
 	claims := &model.Claims{UserID: userID, Role: model.RoleSecretsManager}
 	ctx := context.WithValue(context.Background(), common.ClaimsKey, claims)
 	ctx = context.WithValue(ctx, common.LogKey, newLogger())
@@ -382,12 +509,9 @@ func TestCreateCmd_ECDSASuccess(t *testing.T) {
 func TestCreateCmd_ServiceError(t *testing.T) {
 	keySvc := &keyCmdKeyService{}
 	userID := uuid.New()
+	sc, _ := newAllowedContainer(keySvc, nil)
 	keySvc.On("CreateRSAKey", mock.Anything, mock.Anything).Return(nil, fmt.Errorf("db error"))
 
-	sc := &keysTestContainer{
-		MockServiceContainer: &testutils.MockServiceContainer{},
-		keySvc:               keySvc,
-	}
 	claims := &model.Claims{UserID: userID, Role: model.RoleAdmin}
 	ctx := context.WithValue(context.Background(), common.ClaimsKey, claims)
 	ctx = context.WithValue(ctx, common.LogKey, newLogger())
@@ -408,13 +532,10 @@ func TestCreateCmd_ServiceError(t *testing.T) {
 func TestCreateCmd_NoFormatter(t *testing.T) {
 	keySvc := &keyCmdKeyService{}
 	userID := uuid.New()
+	sc, _ := newAllowedContainer(keySvc, nil)
 	result := &keyServices.CreateKeyResult{KeyID: uuid.New(), Name: "k", Type: "RSA", CreatedAt: time.Now()}
 	keySvc.On("CreateRSAKey", mock.Anything, mock.Anything).Return(result, nil)
 
-	sc := &keysTestContainer{
-		MockServiceContainer: &testutils.MockServiceContainer{},
-		keySvc:               keySvc,
-	}
 	claims := &model.Claims{UserID: userID, Role: model.RoleAdmin}
 	ctx := context.WithValue(context.Background(), common.ClaimsKey, claims)
 	ctx = context.WithValue(ctx, common.LogKey, newLogger())
@@ -457,17 +578,14 @@ func TestListCmd_NoServiceContainer(t *testing.T) {
 func TestListCmd_NonAdminSuccess(t *testing.T) {
 	keySvc := &keyCmdKeyService{}
 	userID := uuid.New()
+	sc, vaultID := newAllowedContainer(keySvc, nil)
 	keys := []model.Key{
 		{ID: uuid.New(), UserID: userID, Name: "k1", Type: "RSA"},
 		{ID: uuid.New(), UserID: userID, Name: "k2", Type: "ECDSA"},
 	}
-	keySvc.On("ListKeys", mock.Anything, model.NewOwnerScope(uuid.Nil, userID), repositories.KeyFilter{Type: "", Tags: nil}).
+	keySvc.On("ListKeys", mock.Anything, model.NewVaultScope(vaultID, userID), repositories.KeyFilter{Type: "", Tags: nil}).
 		Return(keys, nil)
 
-	sc := &keysTestContainer{
-		MockServiceContainer: &testutils.MockServiceContainer{},
-		keySvc:               keySvc,
-	}
 	claims := &model.Claims{UserID: userID, Role: model.RoleSecretsManager}
 	ctx := context.WithValue(context.Background(), common.ClaimsKey, claims)
 	ctx = context.WithValue(ctx, common.LogKey, newLogger())
@@ -485,16 +603,72 @@ func TestListCmd_NonAdminSuccess(t *testing.T) {
 	keySvc.AssertExpectations(t)
 }
 
+func TestListCmd_Denied(t *testing.T) {
+	keySvc := &keyCmdKeyService{}
+	userID := uuid.New()
+	sc := newDeniedContainer(keySvc, nil)
+
+	claims := &model.Claims{UserID: userID, Role: model.RoleSecretsManager}
+	ctx := context.WithValue(context.Background(), common.ClaimsKey, claims)
+	ctx = context.WithValue(ctx, common.LogKey, newLogger())
+	ctx = context.WithValue(ctx, common.ServiceContainerKey, sc)
+	ctx = context.WithValue(ctx, common.OutputFormatterKey, newTestFmtr())
+
+	cleanup := viperSet(map[string]interface{}{"type": "", "tags": ""})
+	defer cleanup()
+
+	cmd, _ := newTestCmd(listCmd.RunE, nil)
+	cmd.SetContext(ctx)
+	err := cmd.Execute()
+	assert.ErrorContains(t, err, "forbidden")
+	keySvc.AssertNotCalled(t, "ListKeys", mock.Anything, mock.Anything, mock.Anything)
+}
+
+func TestListCmd_Authorized(t *testing.T) {
+	keySvc := &keyCmdKeyService{}
+	userID := uuid.New()
+	sc, vaultID := newAllowedContainer(keySvc, nil)
+
+	roles := &testutils.MockRoleAssignmentService{}
+	roles.On("HasDataAction", mock.Anything, userID, vaultID, model.ActionKeysRead).
+		Return(true, nil).Once()
+	policies := &testutils.MockAccessPolicyService{}
+	policies.On("CheckAccess", mock.Anything, userID, model.PolicyResourceKeys, model.OpGet, vaultID).
+		Return(authzServices.AccessAllowed, nil).Once()
+	sc.RoleAssignmentService = roles
+	sc.AccessPolicyService = policies
+
+	keys := []model.Key{
+		{ID: uuid.New(), UserID: userID, Name: "k1", Type: "RSA"},
+	}
+	keySvc.On("ListKeys", mock.Anything, model.NewVaultScope(vaultID, userID), repositories.KeyFilter{Type: "", Tags: nil}).
+		Return(keys, nil)
+
+	claims := &model.Claims{UserID: userID, Role: model.RoleSecretsManager}
+	ctx := context.WithValue(context.Background(), common.ClaimsKey, claims)
+	ctx = context.WithValue(ctx, common.LogKey, newLogger())
+	ctx = context.WithValue(ctx, common.ServiceContainerKey, sc)
+	ctx = context.WithValue(ctx, common.OutputFormatterKey, newTestFmtr())
+
+	cleanup := viperSet(map[string]interface{}{"type": "", "tags": ""})
+	defer cleanup()
+
+	cmd, _ := newTestCmd(listCmd.RunE, nil)
+	cmd.SetContext(ctx)
+	err := cmd.Execute()
+	assert.NoError(t, err)
+	keySvc.AssertExpectations(t)
+	roles.AssertExpectations(t)
+	policies.AssertExpectations(t)
+}
+
 func TestListCmd_NonAdminWithTags(t *testing.T) {
 	keySvc := &keyCmdKeyService{}
 	userID := uuid.New()
-	keySvc.On("ListKeys", mock.Anything, model.NewOwnerScope(uuid.Nil, userID), repositories.KeyFilter{Type: "RSA", Tags: []string{"prod", "secure"}}).
+	sc, vaultID := newAllowedContainer(keySvc, nil)
+	keySvc.On("ListKeys", mock.Anything, model.NewVaultScope(vaultID, userID), repositories.KeyFilter{Type: "RSA", Tags: []string{"prod", "secure"}}).
 		Return([]model.Key{}, nil)
 
-	sc := &keysTestContainer{
-		MockServiceContainer: &testutils.MockServiceContainer{},
-		keySvc:               keySvc,
-	}
 	claims := &model.Claims{UserID: userID, Role: model.RoleUser}
 	ctx := context.WithValue(context.Background(), common.ClaimsKey, claims)
 	ctx = context.WithValue(ctx, common.LogKey, newLogger())
@@ -511,18 +685,15 @@ func TestListCmd_NonAdminWithTags(t *testing.T) {
 	keySvc.AssertExpectations(t)
 }
 
-func TestListCmd_AdminPath(t *testing.T) {
-	keyID := uuid.New()
-	userID := uuid.New()
-
+func TestListCmd_AdminRoleAloneDoesNotBypassVaultAuthorization(t *testing.T) {
 	keySvc := &keyCmdKeyService{}
-	keySvc.On("ListKeys", mock.Anything, model.NewAdminScope(userID), repositories.KeyFilter{Type: "", Tags: nil}).
-		Return([]model.Key{{ID: keyID, UserID: userID, Name: "admin-key", Type: "RSA"}}, nil)
+	userID := uuid.New()
+	// A global admin role with NO vault role assignment: the legacy
+	// list.go admin bypass (model.NewAdminScope) has been removed, so this
+	// must be denied exactly like TestListCmd_Denied, matching HTTP's
+	// GET /keys (scopeFromRequest has no role-based special case).
+	sc := newDeniedContainer(keySvc, nil)
 
-	sc := &keysTestContainer{
-		MockServiceContainer: &testutils.MockServiceContainer{},
-		keySvc:               keySvc,
-	}
 	claims := &model.Claims{UserID: userID, Role: model.RoleAdmin}
 	ctx := context.WithValue(context.Background(), common.ClaimsKey, claims)
 	ctx = context.WithValue(ctx, common.LogKey, newLogger())
@@ -532,24 +703,23 @@ func TestListCmd_AdminPath(t *testing.T) {
 	cleanup := viperSet(map[string]interface{}{"type": "", "tags": ""})
 	defer cleanup()
 
-	cmd, buf := newTestCmd(listCmd.RunE, nil)
+	cmd, _ := newTestCmd(listCmd.RunE, nil)
 	cmd.SetContext(ctx)
 	err := cmd.Execute()
-	assert.NoError(t, err)
-	assert.NotEmpty(t, buf.String())
-	keySvc.AssertExpectations(t)
+	assert.ErrorContains(t, err, "forbidden")
+	keySvc.AssertNotCalled(t, "ListKeys", mock.Anything, mock.Anything, mock.Anything)
+	// In particular, ListKeys must never be called with model.NewAdminScope:
+	// that call pattern must not exist anywhere in list.go anymore.
+	keySvc.AssertNotCalled(t, "ListKeys", mock.Anything, model.NewAdminScope(userID), mock.Anything)
 }
 
 func TestListCmd_ServiceError(t *testing.T) {
 	keySvc := &keyCmdKeyService{}
 	userID := uuid.New()
-	keySvc.On("ListKeys", mock.Anything, model.NewOwnerScope(uuid.Nil, userID), repositories.KeyFilter{Type: "", Tags: nil}).
+	sc, vaultID := newAllowedContainer(keySvc, nil)
+	keySvc.On("ListKeys", mock.Anything, model.NewVaultScope(vaultID, userID), repositories.KeyFilter{Type: "", Tags: nil}).
 		Return(nil, fmt.Errorf("db error"))
 
-	sc := &keysTestContainer{
-		MockServiceContainer: &testutils.MockServiceContainer{},
-		keySvc:               keySvc,
-	}
 	claims := &model.Claims{UserID: userID, Role: model.RoleSecretsManager}
 	ctx := context.WithValue(context.Background(), common.ClaimsKey, claims)
 	ctx = context.WithValue(ctx, common.LogKey, newLogger())
@@ -568,13 +738,10 @@ func TestListCmd_ServiceError(t *testing.T) {
 func TestListCmd_NoFormatter(t *testing.T) {
 	keySvc := &keyCmdKeyService{}
 	userID := uuid.New()
-	keySvc.On("ListKeys", mock.Anything, model.NewOwnerScope(uuid.Nil, userID), repositories.KeyFilter{Type: "", Tags: nil}).
+	sc, vaultID := newAllowedContainer(keySvc, nil)
+	keySvc.On("ListKeys", mock.Anything, model.NewVaultScope(vaultID, userID), repositories.KeyFilter{Type: "", Tags: nil}).
 		Return([]model.Key{}, nil)
 
-	sc := &keysTestContainer{
-		MockServiceContainer: &testutils.MockServiceContainer{},
-		keySvc:               keySvc,
-	}
 	claims := &model.Claims{UserID: userID, Role: model.RoleUser}
 	ctx := context.WithValue(context.Background(), common.ClaimsKey, claims)
 	ctx = context.WithValue(ctx, common.LogKey, newLogger())
@@ -627,13 +794,10 @@ func TestGetCmd_Success(t *testing.T) {
 	keySvc := &keyCmdKeyService{}
 	userID := uuid.New()
 	keyID := uuid.New()
+	sc, vaultID := newAllowedContainer(keySvc, nil)
 	key := &model.Key{ID: keyID, UserID: userID, Name: "my-key", Type: "RSA", CreatedAt: time.Now()}
-	keySvc.On("GetKey", mock.Anything, keyID, model.NewOwnerScope(uuid.Nil, userID)).Return(key, nil)
+	keySvc.On("GetKey", mock.Anything, keyID, model.NewVaultScope(vaultID, userID)).Return(key, nil)
 
-	sc := &keysTestContainer{
-		MockServiceContainer: &testutils.MockServiceContainer{},
-		keySvc:               keySvc,
-	}
 	claims := &model.Claims{UserID: userID, Role: model.RoleAdmin}
 	ctx := context.WithValue(context.Background(), common.ClaimsKey, claims)
 	ctx = context.WithValue(ctx, common.LogKey, newLogger())
@@ -649,16 +813,67 @@ func TestGetCmd_Success(t *testing.T) {
 	keySvc.AssertExpectations(t)
 }
 
+func TestGetCmd_Denied(t *testing.T) {
+	keySvc := &keyCmdKeyService{}
+	userID := uuid.New()
+	keyID := uuid.New()
+	sc := newDeniedContainer(keySvc, nil)
+
+	claims := &model.Claims{UserID: userID, Role: model.RoleAdmin}
+	ctx := context.WithValue(context.Background(), common.ClaimsKey, claims)
+	ctx = context.WithValue(ctx, common.LogKey, newLogger())
+	ctx = context.WithValue(ctx, common.ServiceContainerKey, sc)
+	ctx = context.WithValue(ctx, common.OutputFormatterKey, newTestFmtr())
+
+	cmd, _ := newTestCmd(getCmd.RunE, []string{keyID.String()})
+	cmd.Args = cobra.ExactArgs(1)
+	cmd.SetContext(ctx)
+	err := cmd.Execute()
+	assert.ErrorContains(t, err, "forbidden")
+	keySvc.AssertNotCalled(t, "GetKey", mock.Anything, mock.Anything, mock.Anything)
+}
+
+func TestGetCmd_Authorized(t *testing.T) {
+	keySvc := &keyCmdKeyService{}
+	userID := uuid.New()
+	keyID := uuid.New()
+	sc, vaultID := newAllowedContainer(keySvc, nil)
+
+	roles := &testutils.MockRoleAssignmentService{}
+	roles.On("HasDataAction", mock.Anything, userID, vaultID, model.ActionKeysRead).
+		Return(true, nil).Once()
+	policies := &testutils.MockAccessPolicyService{}
+	policies.On("CheckAccess", mock.Anything, userID, model.PolicyResourceKeys, model.OpGet, vaultID).
+		Return(authzServices.AccessAllowed, nil).Once()
+	sc.RoleAssignmentService = roles
+	sc.AccessPolicyService = policies
+
+	key := &model.Key{ID: keyID, UserID: userID, Name: "my-key", Type: "RSA", CreatedAt: time.Now()}
+	keySvc.On("GetKey", mock.Anything, keyID, model.NewVaultScope(vaultID, userID)).Return(key, nil)
+
+	claims := &model.Claims{UserID: userID, Role: model.RoleAdmin}
+	ctx := context.WithValue(context.Background(), common.ClaimsKey, claims)
+	ctx = context.WithValue(ctx, common.LogKey, newLogger())
+	ctx = context.WithValue(ctx, common.ServiceContainerKey, sc)
+	ctx = context.WithValue(ctx, common.OutputFormatterKey, newTestFmtr())
+
+	cmd, _ := newTestCmd(getCmd.RunE, []string{keyID.String()})
+	cmd.Args = cobra.ExactArgs(1)
+	cmd.SetContext(ctx)
+	err := cmd.Execute()
+	assert.NoError(t, err)
+	keySvc.AssertExpectations(t)
+	roles.AssertExpectations(t)
+	policies.AssertExpectations(t)
+}
+
 func TestGetCmd_ServiceError(t *testing.T) {
 	keySvc := &keyCmdKeyService{}
 	userID := uuid.New()
 	keyID := uuid.New()
-	keySvc.On("GetKey", mock.Anything, keyID, model.NewOwnerScope(uuid.Nil, userID)).Return(nil, fmt.Errorf("not found"))
+	sc, vaultID := newAllowedContainer(keySvc, nil)
+	keySvc.On("GetKey", mock.Anything, keyID, model.NewVaultScope(vaultID, userID)).Return(nil, fmt.Errorf("not found"))
 
-	sc := &keysTestContainer{
-		MockServiceContainer: &testutils.MockServiceContainer{},
-		keySvc:               keySvc,
-	}
 	claims := &model.Claims{UserID: userID, Role: model.RoleAdmin}
 	ctx := context.WithValue(context.Background(), common.ClaimsKey, claims)
 	ctx = context.WithValue(ctx, common.LogKey, newLogger())
@@ -676,13 +891,10 @@ func TestGetCmd_NoFormatter(t *testing.T) {
 	keySvc := &keyCmdKeyService{}
 	userID := uuid.New()
 	keyID := uuid.New()
+	sc, vaultID := newAllowedContainer(keySvc, nil)
 	key := &model.Key{ID: keyID, UserID: userID, Name: "k", Type: "RSA", CreatedAt: time.Now()}
-	keySvc.On("GetKey", mock.Anything, keyID, model.NewOwnerScope(uuid.Nil, userID)).Return(key, nil)
+	keySvc.On("GetKey", mock.Anything, keyID, model.NewVaultScope(vaultID, userID)).Return(key, nil)
 
-	sc := &keysTestContainer{
-		MockServiceContainer: &testutils.MockServiceContainer{},
-		keySvc:               keySvc,
-	}
 	claims := &model.Claims{UserID: userID, Role: model.RoleAdmin}
 	ctx := context.WithValue(context.Background(), common.ClaimsKey, claims)
 	ctx = context.WithValue(ctx, common.LogKey, newLogger())
