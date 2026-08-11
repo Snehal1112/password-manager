@@ -91,6 +91,18 @@ const (
 	ActionCertificatesPurge DataAction = "Microsoft.KeyVault/vaults/certificates/purge"
 )
 
+// Vault-management and role-assignment data actions.
+const (
+	// ActionVaultPurge permits permanently purging a soft-deleted vault.
+	// Unlike the per-object purge actions above, this applies to the vault
+	// resource itself, not an object inside it.
+	ActionVaultPurge DataAction = "Microsoft.KeyVault/vaults/purge/action"
+	// ActionRoleAssignmentsWrite permits granting a role assignment in a vault.
+	ActionRoleAssignmentsWrite DataAction = "Microsoft.Authorization/roleAssignments/write"
+	// ActionRoleAssignmentsDelete permits revoking a role assignment in a vault.
+	ActionRoleAssignmentsDelete DataAction = "Microsoft.Authorization/roleAssignments/delete"
+)
+
 // Azure built-in data-plane role names. A role is granted to a principal within
 // a single vault via the role_assignments table; there is no tenant-wide grant.
 const (

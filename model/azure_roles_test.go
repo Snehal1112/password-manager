@@ -117,3 +117,22 @@ func TestRoleGrantsDataAction(t *testing.T) {
 	assert.False(t, RoleGrantsDataAction("", ActionSecretsGet))
 	assert.False(t, RoleGrantsDataAction(RoleKeyVaultAdministrator, ""))
 }
+
+func TestNewDataActionConstants_MatchAzureStrings(t *testing.T) {
+	cases := []struct {
+		name string
+		got  DataAction
+		want DataAction
+	}{
+		{"vault purge", ActionVaultPurge, "Microsoft.KeyVault/vaults/purge/action"},
+		{"role assignments write", ActionRoleAssignmentsWrite, "Microsoft.Authorization/roleAssignments/write"},
+		{"role assignments delete", ActionRoleAssignmentsDelete, "Microsoft.Authorization/roleAssignments/delete"},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			if c.got != c.want {
+				t.Fatalf("got %q, want %q", c.got, c.want)
+			}
+		})
+	}
+}
