@@ -48,6 +48,8 @@ func newVltCmd(runE func(*cobra.Command, []string) error, args []string) (*cobra
 
 func TestPurgeCmd_Success(t *testing.T) {
 	tc := testutils.NewTestContext(t)
+	tc.MockVaultService.On("ListVaults", mock.Anything, true).
+		Return([]model.Vault{{ID: uuid.New(), Name: "my-vault"}}, nil)
 	tc.MockVaultService.On("PurgeVault", mock.Anything, "my-vault").Return(nil)
 
 	cmd, buf := newVltCmd(purgeCmd.RunE, []string{"my-vault"})
@@ -62,6 +64,8 @@ func TestPurgeCmd_Success(t *testing.T) {
 
 func TestPurgeCmd_ServiceError(t *testing.T) {
 	tc := testutils.NewTestContext(t)
+	tc.MockVaultService.On("ListVaults", mock.Anything, true).
+		Return([]model.Vault{{ID: uuid.New(), Name: "my-vault"}}, nil)
 	tc.MockVaultService.On("PurgeVault", mock.Anything, "my-vault").
 		Return(fmt.Errorf("cannot purge"))
 
@@ -430,4 +434,65 @@ func TestVaultsRecover_ForbiddenWithoutGrant(t *testing.T) {
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "permission denied")
 	tc.MockVaultService.AssertNotCalled(t, "RecoverVault", mock.Anything, mock.Anything)
+}
+
+// stubRoleAssignmentService is a minimal RoleAssignmentService test double
+// whose HasDataAction result is fixed at construction — enough to prove
+// CanPurgeVault's positive path from the CLI without a full mock.
+type stubRoleAssignmentService struct {
+	allowed bool
+}
+
+func (s *stubRoleAssignmentService) AssignRole(context.Context, authzServices.AssignRoleInput) (*model.RoleAssignment, error) {
+	return nil, fmt.Errorf("not implemented in stub")
+}
+func (s *stubRoleAssignmentService) RevokeAssignment(context.Context, uuid.UUID, uuid.UUID) error {
+	return fmt.Errorf("not implemented in stub")
+}
+func (s *stubRoleAssignmentService) ListAssignments(context.Context, uuid.UUID) ([]*model.RoleAssignment, error) {
+	return nil, fmt.Errorf("not implemented in stub")
+}
+func (s *stubRoleAssignmentService) HasDataAction(context.Context, uuid.UUID, uuid.UUID, model.DataAction) (bool, error) {
+	return s.allowed, nil
+}
+
+// TestVaultsPurge_ForbiddenWithoutGrant proves a non-admin with no Purge
+// Operator role assignment cannot purge a vault via the CLI. This is the
+// concrete regression for the pre-existing gap: before this task, purge had
+// no authorization check of any kind.
+func TestVaultsPurge_ForbiddenWithoutGrant(t *testing.T) {
+	tc := testutils.NewTestContext(t)
+	nonAdminCtx := context.WithValue(tc.Ctx, common.ClaimsKey, &model.Claims{UserID: tc.TestUserID, Role: model.RoleUser})
+	tc.MockContainer.RoleAssignmentService = &stubRoleAssignmentService{allowed: false}
+	tc.MockVaultService.On("ListVaults", mock.Anything, true).
+		Return([]model.Vault{{ID: uuid.New(), Name: "guarded-vault"}}, nil)
+
+	cmd, _ := newVltCmd(purgeCmd.RunE, []string{"guarded-vault"})
+	cmd.Args = cobra.ExactArgs(1)
+	cmd.SetContext(nonAdminCtx)
+
+	err := cmd.Execute()
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "permission denied")
+	tc.MockVaultService.AssertNotCalled(t, "PurgeVault", mock.Anything, mock.Anything)
+}
+
+// TestVaultsPurge_AllowedWithPurgeOperatorGrant proves a non-admin holding
+// Key Vault Purge Operator in the target vault CAN purge it via the CLI.
+func TestVaultsPurge_AllowedWithPurgeOperatorGrant(t *testing.T) {
+	tc := testutils.NewTestContext(t)
+	nonAdminCtx := context.WithValue(tc.Ctx, common.ClaimsKey, &model.Claims{UserID: tc.TestUserID, Role: model.RoleUser})
+	tc.MockContainer.RoleAssignmentService = &stubRoleAssignmentService{allowed: true}
+	tc.MockVaultService.On("ListVaults", mock.Anything, true).
+		Return([]model.Vault{{ID: uuid.New(), Name: "my-vault"}}, nil)
+	tc.MockVaultService.On("PurgeVault", mock.Anything, "my-vault").Return(nil)
+
+	cmd, buf := newVltCmd(purgeCmd.RunE, []string{"my-vault"})
+	cmd.Args = cobra.ExactArgs(1)
+	cmd.SetContext(nonAdminCtx)
+
+	err := cmd.Execute()
+	require.NoError(t, err)
+	assert.Contains(t, buf.String(), "purged successfully")
+	tc.MockVaultService.AssertExpectations(t)
 }
