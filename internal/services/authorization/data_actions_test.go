@@ -76,6 +76,9 @@ func TestMapRouteToDataAction(t *testing.T) {
 		{"recover certificate", http.MethodPost, "/api/v1/deleted/certificates/abc/restore", model.ActionCertificatesRecover, RouteVaultData},
 		{"purge certificate", http.MethodDelete, "/api/v1/deleted/certificates/abc/purge", model.ActionCertificatesPurge, RouteVaultData},
 
+		// Vault data-plane.
+		{"purge vault", http.MethodDelete, "/api/v1/purge", model.ActionVaultPurge, RouteVaultData},
+
 		// Non-data-plane routes.
 		{"vault list", http.MethodGet, "/api/v1/vaults", "", RouteUnmanaged},
 		{"vault get", http.MethodGet, "/api/v1/vaults/prod", "", RouteUnmanaged},
@@ -136,5 +139,19 @@ func TestMapRouteToDataActionUnmappedMethodFailsClosed(t *testing.T) {
 		action, kind := MapRouteToDataAction(c.method, c.path)
 		assert.Equal(t, RouteVaultData, kind, "%s %s", c.method, c.path)
 		assert.Equal(t, model.DataAction(""), action, "%s %s", c.method, c.path)
+	}
+}
+
+// TestMapRouteToDataAction_PurgeWrongMethodIsUnmapped proves a non-DELETE
+// method on the purge path yields RouteVaultData with no action, so
+// PolicyMiddleware's deny-by-default (empty action) path rejects it rather
+// than silently falling through to RouteUnmanaged.
+func TestMapRouteToDataAction_PurgeWrongMethodIsUnmapped(t *testing.T) {
+	action, kind := MapRouteToDataAction(http.MethodGet, "/api/v1/vaults/prod/purge")
+	if kind != RouteVaultData {
+		t.Fatalf("kind = %v, want RouteVaultData", kind)
+	}
+	if action != "" {
+		t.Fatalf("action = %q, want empty (GET is not a valid purge method)", action)
 	}
 }
