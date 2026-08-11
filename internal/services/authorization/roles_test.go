@@ -161,8 +161,8 @@ func TestBuiltInRoleNames_IncludesAzureRoles(t *testing.T) {
 			t.Fatalf("BuiltInRoleNames missing %q", n)
 		}
 	}
-	if len(names) != 14 {
-		t.Fatalf("want 14 role names (7 legacy + 7 Azure), got %d: %v", len(names), names)
+	if len(names) != 18 {
+		t.Fatalf("want 18 role names (7 legacy + 11 Azure), got %d: %v", len(names), names)
 	}
 }
 

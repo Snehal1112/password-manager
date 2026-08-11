@@ -216,3 +216,9 @@ func TestAzureRoleNames_IncludesAllElevenGrantableRoles(t *testing.T) {
 		t.Fatalf("got %d role names, want 11: %v", len(names), names)
 	}
 }
+
+func TestReleaseUser_IsNotAnAzureRole(t *testing.T) {
+	if IsAzureRole("Key Vault Crypto Service Release User") {
+		t.Fatal("Key Vault Crypto Service Release User must not be grantable: RocketVault has no confidential-compute/TEE attestation flow to gate")
+	}
+}

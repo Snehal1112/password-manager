@@ -139,12 +139,25 @@ var matrixAllowed = map[string][]string{
 	model.RoleKeyVaultCryptoOfficer: allKeyOps,
 
 	model.RoleKeyVaultCertificatesOfficer: allCertOps,
+
+	model.RoleKeyVaultPurgeOperator: {}, // vault-level operation only, no data-plane operations
+
+	model.RoleKeyVaultCertificateUser: {
+		"certs.list", "certs.get", "certs.getPolicy", "certs.listDeleted",
+	},
+
+	model.RoleKeyVaultCryptoServiceEncryptionUser: {
+		"keys.list", "keys.get", "keys.listVersions", "keys.listDeleted", "keys.getDeleted",
+		"keys.wrap", "keys.unwrap",
+	},
+
+	model.RoleKeyVaultDataAccessAdministrator: {}, // control-plane operation only, no data-plane operations
 }
 
 // TestAuthorizationMatrix asserts, for every (role, operation) pair, that the
 // role's data actions permit exactly the operations named for it and no others.
 func TestAuthorizationMatrix(t *testing.T) {
-	require.Len(t, matrixAllowed, 7, "all seven Azure roles must appear in the matrix")
+	require.Len(t, matrixAllowed, 11, "all eleven Azure roles must appear in the matrix")
 
 	for _, role := range model.AzureRoleNames() {
 		allowedNames, ok := matrixAllowed[role]

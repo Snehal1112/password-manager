@@ -463,3 +463,19 @@ func TestHasDataActionRepositoryErrorPropagates(t *testing.T) {
 		t.Fatal("want false alongside the error")
 	}
 }
+
+func TestAssignRole_RejectsReleaseUser(t *testing.T) {
+	rr := newFakeRoleRepo()
+	pr := newFakePolicyRepo()
+	ul := &fakeUserLookup{users: map[string]model.User{"alice": {ID: uuid.New()}}}
+	svc := newSvc(rr, pr, ul)
+
+	_, err := svc.AssignRole(context.Background(), AssignRoleInput{
+		Principal: "alice",
+		Role:      "Key Vault Crypto Service Release User",
+		VaultID:   uuid.New(),
+	})
+	if !errors.Is(err, ErrInvalidRole) {
+		t.Fatalf("got err=%v, want ErrInvalidRole (Release User is not yet implemented, so IsValidRole must reject it)", err)
+	}
+}
