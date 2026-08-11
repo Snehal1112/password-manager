@@ -100,6 +100,14 @@ func TestGetCmd_NoServiceContainer(t *testing.T) {
 	assert.ErrorContains(t, err, "service container not available")
 }
 
+func TestGetCmd_InvalidUUID(t *testing.T) {
+	cmd, _ := newSecTestCmd(getCmd.RunE, []string{"not-a-uuid"})
+	cmd.Args = cobra.ExactArgs(1)
+	cmd.SetContext(context.Background())
+	err := cmd.Execute()
+	assert.ErrorContains(t, err, "invalid secret ID")
+}
+
 func TestGetCmd_Success_WithFormatter(t *testing.T) {
 	tc := testutils.NewTestContext(t)
 	secretID := uuid.New()
@@ -175,9 +183,61 @@ func TestGetCmd_NoFormatter(t *testing.T) {
 	tc.MockSecretService.AssertExpectations(t)
 }
 
-// ---- deleteCmd: deleteCmd uses Run (not RunE) and calls os.Exit on failure.
-// We validate the service contract by exercising the mock directly, which still
-// covers the DeleteSecret interface path used by the production code.
+// ---- deleteCmd ----
+
+func TestDeleteCmd_InvalidUUID(t *testing.T) {
+	cmd, _ := newSecTestCmd(deleteCmd.RunE, []string{"not-a-uuid"})
+	cmd.Args = cobra.ExactArgs(1)
+	cmd.SetContext(context.Background())
+	err := cmd.Execute()
+	assert.ErrorContains(t, err, "invalid secret ID")
+}
+
+func TestDeleteCmd_NoServiceContainer(t *testing.T) {
+	secretID := uuid.New()
+	ctx := context.WithValue(context.Background(), common.LogKey, newSecLogger())
+	// No ServiceContainerKey.
+
+	cmd, _ := newSecTestCmd(deleteCmd.RunE, []string{secretID.String()})
+	cmd.Args = cobra.ExactArgs(1)
+	cmd.SetContext(ctx)
+	err := cmd.Execute()
+	assert.ErrorContains(t, err, "service container not available")
+}
+
+func TestDeleteCmd_Success(t *testing.T) {
+	tc := testutils.NewTestContext(t)
+	secretID := uuid.New()
+
+	tc.MockSecretService.On("DeleteSecret", mock.Anything, secretID, model.NewVaultScope(tc.TestVaultID, uuid.Nil)).Return(nil)
+	tc.MockContainer.On("GetSecretService").Return(tc.MockSecretService)
+
+	cmd, _ := newSecTestCmd(deleteCmd.RunE, []string{secretID.String()})
+	cmd.Args = cobra.ExactArgs(1)
+	cmd.SetContext(tc.Ctx)
+	err := cmd.Execute()
+	assert.NoError(t, err)
+	tc.MockSecretService.AssertExpectations(t)
+}
+
+func TestDeleteCmd_ServiceError(t *testing.T) {
+	tc := testutils.NewTestContext(t)
+	secretID := uuid.New()
+
+	tc.MockSecretService.On("DeleteSecret", mock.Anything, secretID, model.NewVaultScope(tc.TestVaultID, uuid.Nil)).
+		Return(fmt.Errorf("delete failed"))
+	tc.MockContainer.On("GetSecretService").Return(tc.MockSecretService)
+
+	cmd, _ := newSecTestCmd(deleteCmd.RunE, []string{secretID.String()})
+	cmd.Args = cobra.ExactArgs(1)
+	cmd.SetContext(tc.Ctx)
+	err := cmd.Execute()
+	assert.ErrorContains(t, err, "failed to delete secret")
+	tc.MockSecretService.AssertExpectations(t)
+}
+
+// TestDeleteCmd_ServiceContract_Success and TestDeleteCmd_ServiceContract_Error
+// pin the DeleteSecret mock contract used above, independent of the command wiring.
 
 func TestDeleteCmd_ServiceContract_Success(t *testing.T) {
 	tc := testutils.NewTestContext(t)

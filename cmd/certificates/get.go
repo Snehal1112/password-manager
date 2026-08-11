@@ -26,7 +26,7 @@ var getCmd = &cobra.Command{
 	Short: "Retrieve a certificate",
 	Long:  `Retrieve details of an X.509 certificate by its UUID. Accessible by the certificate's owner or users with the admin role.`,
 	Example: `  # Get a certificate by ID
-  rocketvault certificates get <cert-id> \
+  rocketvault certificate get <cert-id> \
     --username admin --password admin123 --totp-code <code>`,
 	Args: cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {

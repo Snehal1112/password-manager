@@ -936,7 +936,7 @@ func TestWrapCmd_Success(t *testing.T) {
 	plaintext := []byte("my-secret-key-material")
 	wrapped := []byte("wrapped-bytes")
 	cryptoSvc.On("WrapKey", mock.Anything, mock.MatchedBy(func(r keyServices.WrapKeyRequest) bool {
-		return r.KeyID == keyID && r.UserID == userID
+		return r.KeyID == keyID && r.UserID == userID && r.Scope == model.NewOwnerScope(uuid.Nil, userID)
 	})).Return(&keyServices.WrapKeyResult{WrappedKey: wrapped}, nil)
 
 	sc := &keysTestContainer{
@@ -1069,7 +1069,7 @@ func TestUnwrapCmd_Success(t *testing.T) {
 	wrappedBytes := []byte("wrapped-material")
 	plaintext := []byte("recovered-key")
 	cryptoSvc.On("UnwrapKey", mock.Anything, mock.MatchedBy(func(r keyServices.UnwrapKeyRequest) bool {
-		return r.KeyID == keyID && r.UserID == userID
+		return r.KeyID == keyID && r.UserID == userID && r.Scope == model.NewOwnerScope(uuid.Nil, userID)
 	})).Return(&keyServices.UnwrapKeyResult{PlaintextKey: plaintext}, nil)
 
 	sc := &keysTestContainer{

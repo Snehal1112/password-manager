@@ -503,7 +503,8 @@ func (s *certificateService) RenewCertificate(ctx context.Context, certID, userI
 	// An owner scope preserves the pre-refactor ownership check: this is the
 	// sole authorization gate for this path (unlike RotateKey/ValidateKeyAccess,
 	// there is no separate manual ownership comparison here).
-	original, err := s.GetCertificate(ctx, certID, model.NewOwnerScope(uuid.Nil, userID))
+	scope := model.NewOwnerScope(uuid.Nil, userID)
+	original, err := s.GetCertificate(ctx, certID, scope)
 	if err != nil {
 		return nil, err
 	}
@@ -512,15 +513,73 @@ func (s *certificateService) RenewCertificate(ctx context.Context, certID, userI
 		return nil, fmt.Errorf("certificate has no associated key ID; cannot renew")
 	}
 
-	return s.CreateSelfSignedCertificate(ctx, CreateCertificateRequest{
-		Name:         original.Name,
-		KeyID:        original.KeyID,
+	if validityDays <= 0 {
+		s.logger.LogAuditError(userID.String(), "renew_certificate", "failed", "validity days must be positive", nil)
+		return nil, fmt.Errorf("validity days must be positive")
+	}
+
+	// Certificates are unique per (vault_id, name), so renewal must update the
+	// existing row in place rather than inserting a new one under the same
+	// name (CreateSelfSignedCertificate always mints a new ID/row and would
+	// collide with the certificate being renewed).
+	if err := s.ValidateKeyOwnership(ctx, original.KeyID, userID, ""); err != nil {
+		return nil, err
+	}
+
+	key, err := s.keyRepo.Read(ctx, original.KeyID, model.NewAdminScope(userID))
+	if err != nil {
+		s.logger.LogAuditError(userID.String(), "renew_certificate", "failed", "failed to read key", err)
+		return nil, fmt.Errorf("failed to read key: %w", err)
+	}
+
+	privateKeyPEM, err := common.DecryptSecret(key.Value)
+	if err != nil {
+		s.logger.LogAuditError(userID.String(), "renew_certificate", "failed", "failed to decrypt key", err)
+		return nil, fmt.Errorf("failed to decrypt key: %w", err)
+	}
+
+	certPEM, err := crypto.CreateSelfSignedCertificatePEM(privateKeyPEM, key.Type, crypto.CertificateTemplate{
+		CommonName:   original.Name,
 		ValidityDays: validityDays,
-		Tags:         original.Tags,
-		UserID:       userID,
-		AutoRenew:    original.AutoRenew,
-		RenewalDays:  original.RenewalDays,
+		IsCA:         true,
 	})
+	if err != nil {
+		s.logger.LogAuditError(userID.String(), "renew_certificate", "failed", "failed to generate certificate", err)
+		return nil, fmt.Errorf("failed to generate renewed certificate: %w", err)
+	}
+
+	expiresAt, err := extractExpiresAt(certPEM)
+	if err != nil {
+		s.logger.LogAuditError(userID.String(), "renew_certificate", "failed", "failed to parse certificate expiry", err)
+		return nil, fmt.Errorf("failed to determine certificate expiry: %w", err)
+	}
+
+	encryptedKey, err := common.EncryptSecret(privateKeyPEM)
+	if err != nil {
+		s.logger.LogAuditError(userID.String(), "renew_certificate", "failed", "failed to encrypt private key", err)
+		return nil, fmt.Errorf("failed to encrypt private key: %w", err)
+	}
+
+	updated := *original
+	updated.Certificate = certPEM
+	updated.PrivateKey = encryptedKey
+	updated.CreatedAt = time.Now()
+	updated.ExpiresAt = expiresAt
+
+	if err := s.certRepo.Update(ctx, &updated, scope); err != nil {
+		s.logger.LogAuditError(userID.String(), "renew_certificate", "failed", "failed to store renewed certificate", err)
+		return nil, fmt.Errorf("failed to store renewed certificate: %w", err)
+	}
+
+	s.logger.LogAuditInfo(userID.String(), "renew_certificate", "success", fmt.Sprintf("certificate renewed: %s, ID: %s", updated.Name, updated.ID))
+
+	return &CreateCertificateResult{
+		CertID:    updated.ID,
+		Name:      updated.Name,
+		Tags:      updated.Tags,
+		CreatedAt: updated.CreatedAt,
+		ExpiresAt: expiresAt,
+	}, nil
 }
 
 // ValidateCertificateAccess validates that a user has access to a specific certificate.

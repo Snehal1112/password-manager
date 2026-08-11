@@ -277,11 +277,13 @@ func TestRenewCertificate_Succeeds_WhenKeyIDSet(t *testing.T) {
 	// ValidateKeyOwnership, once to get the key PEM.
 	keyRepo.On("Read", mock.Anything, keyID, model.NewAdminScope(userID)).Return(mockKey, nil)
 
-	// Capture the cert passed to Create so we can assert KeyID is propagated.
-	var createdCert *model.Certificate
-	certRepo.On("Create", mock.Anything, mock.AnythingOfType("*model.Certificate")).
+	// Renewal must update the existing row in place (same ID/name), not insert a
+	// second row: certificates has a UNIQUE(vault_id, name) index, so inserting
+	// a new row while the original (same name) still exists always fails.
+	var updatedCert *model.Certificate
+	certRepo.On("Update", mock.Anything, mock.AnythingOfType("*model.Certificate"), model.NewOwnerScope(uuid.Nil, userID)).
 		Run(func(args mock.Arguments) {
-			createdCert = args.Get(1).(*model.Certificate)
+			updatedCert = args.Get(1).(*model.Certificate)
 		}).
 		Return(nil)
 
@@ -296,8 +298,10 @@ func TestRenewCertificate_Succeeds_WhenKeyIDSet(t *testing.T) {
 	require.NoError(t, err)
 	assert.NotNil(t, result)
 
-	require.NotNil(t, createdCert, "certRepo.Create must have been called")
-	assert.Equal(t, keyID, createdCert.KeyID, "renewed certificate must carry the original KeyID")
+	require.NotNil(t, updatedCert, "certRepo.Update must have been called")
+	assert.Equal(t, certID, updatedCert.ID, "renewal must keep the original certificate ID")
+	assert.Equal(t, "test-renew-cert", updatedCert.Name, "renewal must keep the original certificate name")
+	assert.Equal(t, keyID, updatedCert.KeyID, "renewed certificate must carry the original KeyID")
 
 	certRepo.AssertExpectations(t)
 	keyRepo.AssertExpectations(t)

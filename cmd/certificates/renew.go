@@ -23,7 +23,7 @@ var renewCmd = &cobra.Command{
 	Short: "Renew a certificate",
 	Long:  `Renew an expiring X.509 certificate with a new validity period. Requires admin or certificate_manager role.`,
 	Example: `  # Renew a certificate
-  rocketvault certificates renew <cert-id> --validity-days 365 \
+  rocketvault certificate renew <cert-id> --validity-days 365 \
     --username admin --password admin123 --totp-code <code>`,
 	Args: cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {

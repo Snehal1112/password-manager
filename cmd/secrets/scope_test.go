@@ -70,7 +70,7 @@ func TestSecretsListBuildsAVaultScope(t *testing.T) {
 
 func TestSecretsDeleteBuildsAVaultScope(t *testing.T) {
 	svc, cmd, vaultID := newCLIScopeFixture(t, func() *cobra.Command {
-		return &cobra.Command{Use: "delete [id]", Args: cobra.ExactArgs(1), Run: deleteCmd.Run}
+		return &cobra.Command{Use: "delete [id]", Args: cobra.ExactArgs(1), RunE: deleteCmd.RunE}
 	})
 	secretID := uuid.New()
 

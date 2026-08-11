@@ -51,7 +51,10 @@ var getCmd = &cobra.Command{
     --username admin --password admin123 --totp-code <code>`,
 	Args: cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		secretID := uuid.MustParse(args[0])
+		secretID, err := uuid.Parse(args[0])
+		if err != nil {
+			return fmt.Errorf("invalid secret ID: %w", err)
+		}
 
 		ctx := cmd.Context()
 

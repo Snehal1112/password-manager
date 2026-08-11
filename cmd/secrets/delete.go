@@ -23,7 +23,7 @@ THE SOFTWARE.
 package secrets
 
 import (
-	"os"
+	"fmt"
 
 	"github.com/google/uuid"
 	"github.com/sirupsen/logrus"
@@ -42,40 +42,39 @@ var deleteCmd = &cobra.Command{
 	Example: `  # Soft-delete a secret by id
   rocketvault secrets delete <id> \
     --username admin --password admin123 --totp-code <code>`,
-	Run: func(cmd *cobra.Command, args []string) {
-		secretID := uuid.MustParse(args[0])
+	Args: cobra.ExactArgs(1),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		secretID, err := uuid.Parse(args[0])
+		if err != nil {
+			return fmt.Errorf("invalid secret ID: %w", err)
+		}
 
 		ctx := cmd.Context()
 
 		// Get service container and secret service
 		serviceContainer, ok := ctx.Value(common.ServiceContainerKey).(container.ServiceContainerInterface)
 		if !ok || serviceContainer == nil {
-			logrus.Error("Service container not available in context")
-			os.Exit(1)
-			return
+			return fmt.Errorf("service container not available in context")
 		}
 		secretService := serviceContainer.GetSecretService()
 
 		// Resolve the target vault by name.
 		vaultID, err := resolveVaultID(ctx, cmd, serviceContainer)
 		if err != nil {
-			logrus.WithError(err).Error("Failed to resolve vault")
-			os.Exit(1)
-			return
+			return fmt.Errorf("failed to resolve vault: %w", err)
 		}
 
 		// Delete secret via service (includes access control).
 		err = secretService.DeleteSecret(ctx, secretID, model.NewVaultScope(vaultID, uuid.Nil))
 		if err != nil {
-			logrus.WithError(err).Error("Failed to delete secret")
-			os.Exit(1)
-			return
+			return fmt.Errorf("failed to delete secret: %w", err)
 		}
 
 		logrus.WithFields(logrus.Fields{
 			"secret_id": secretID.String(),
 			"vault_id":  vaultID.String(),
 		}).Info("Secret deleted successfully")
+		return nil
 	},
 }
 

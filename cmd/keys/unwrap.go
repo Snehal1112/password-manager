@@ -86,6 +86,7 @@ var unwrapCmd = &cobra.Command{
 			KeyID:      keyID,
 			UserID:     claims.UserID,
 			VaultID:    uuid.MustParse(model.DefaultVaultID),
+			Scope:      model.NewOwnerScope(uuid.Nil, claims.UserID),
 			WrappedKey: wrappedKey,
 			Algorithm:  "RSA-OAEP",
 		})

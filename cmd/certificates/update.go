@@ -25,7 +25,7 @@ var updateCmd = &cobra.Command{
 	Short: "Update certificate metadata",
 	Long:  `Update metadata for an X.509 certificate (name, tags). Requires admin or certificate_manager role.`,
 	Example: `  # Update certificate metadata
-  rocketvault certificates update <cert-id> --name "Updated name" \
+  rocketvault certificate update <cert-id> --name "Updated name" \
     --tags prod,secure \
     --username admin --password admin123 --totp-code <code>`,
 	Args: cobra.ExactArgs(1),

@@ -27,7 +27,7 @@ var listCmd = &cobra.Command{
 	Short: "List certificates",
 	Long:  `List all X.509 certificates for the authenticated user. Admins can list all certificates.`,
 	Example: `  # List all certificates
-  rocketvault certificates list \
+  rocketvault certificate list \
     --username admin --password admin123 --totp-code <code>`,
 	Args: cobra.NoArgs,
 	RunE: func(cmd *cobra.Command, args []string) error {

@@ -2,15 +2,16 @@
 
 ## Project Overview
 
-**RocketVault** is a self-hosted, open-source alternative to [Microsoft Azure Key Vault](https://azure.microsoft.com/en-us/products/key-vault), built entirely in **Go**. It is a single-vault system that brings virtually all the capabilities of Azure Key Vault — secrets management, cryptographic key operations, and X.509 certificate lifecycle management — to your own infrastructure, with no cloud dependency required.
+**RocketVault** is a self-hosted, open-source alternative to [Microsoft Azure Key Vault](https://azure.microsoft.com/en-us/products/key-vault), built entirely in **Go**. It brings virtually all the capabilities of Azure Key Vault — secrets management, cryptographic key operations, X.509 certificate lifecycle management, and multi-vault RBAC — to your own infrastructure, with no cloud dependency required.
+
+A single RocketVault instance hosts any number of named **vaults**, each an isolated security boundary with its own secrets, keys, certificates, and per-vault Azure-role-parity access grants — see [Multi-Vault Architecture](.claude/multi-vault.md) and [Azure Key Vault Feature Parity](.claude/azure-keyvault-parity.md). Every deployment ships with a `default` vault, so single-vault use needs no extra setup.
 
 Whether you need to secure application secrets, manage RSA/ECDSA keys, rotate credentials automatically, or issue and renew TLS certificates, RocketVault provides a familiar, Azure Key Vault-compatible workflow through both a **REST API** and a full-featured **CLI**, making it easy to integrate into any environment or automation pipeline.
 
 **Type**: Self-hosted Azure Key Vault alternative built in Go
-**Architecture**: Domain-driven design with clean architecture and complete dependency injection
-**Status**: Production-ready with enterprise-grade performance optimizations
-**Grade**: A+ (97/100) - Perfect architecture with type-safe interfaces and comprehensive test coverage
-**Last Updated**: 2026-03-08 - Architecture review (25 tasks), config rationalisation, bootstrap + schema bug fixes
+**Architecture**: Domain-driven design with clean architecture, complete dependency injection, and multi-vault RBAC (Azure Key Vault role parity)
+**Status**: Actively developed; latest tagged release [v0.2.1](https://github.com/Snehal1112/rocketvault/releases); this branch (`v-4.0.0`) adds multi-vault + Azure RBAC ahead of its own tag
+**Last Updated**: 2026-08-11 — README and CLAUDE.md brought in line with the shipped multi-vault/Azure RBAC architecture; dead doc links removed
 
 ## Technology Stack
 
@@ -25,10 +26,12 @@ Whether you need to secure application secrets, manage RSA/ECDSA keys, rotate cr
 ```
 rocketvault/
 ├── cmd/                    # CLI commands (Cobra-based)
-│   ├── certificates/      # Certificate management commands
-│   ├── keys/              # Key management commands
-│   ├── secrets/           # Secret management commands
-│   └── users/             # User management commands
+│   ├── vaults/             # Vault lifecycle commands (create, list, delete, ...)
+│   ├── vault-access/       # Per-vault role assignment commands (grant, list, revoke, roles)
+│   ├── certificates/       # Certificate management commands
+│   ├── keys/                # Key management commands
+│   ├── secrets/            # Secret management commands
+│   └── users/               # User management commands
 ├── api/                    # HTTP API layer with service integration
 ├── app/                    # Application core and options
 ├── bootstrap/              # Application initialization (SRP-compliant)
@@ -46,7 +49,8 @@ rocketvault/
 │   │   ├── secrets/       # Secret management services (4 focused services)
 │   │   ├── keys/          # Key management services
 │   │   ├── certificates/  # Certificate management services
-│   │   └── authorization/ # RBAC services
+│   │   ├── vaults/        # Vault lifecycle and cascade soft-delete/recover
+│   │   └── authorization/ # RBAC, access-policy, and per-vault role-assignment services
 │   ├── repositories/      # Pure CRUD data access with interfaces
 │   │   ├── user_repository.go         # UserRepositoryInterface + implementation
 │   │   ├── secret_repository.go       # Secret data access
@@ -109,61 +113,31 @@ rocketvault/
 - Parity status per capability with code and Azure-doc sources
 - RocketVault extras and intentional gaps vs Azure Key Vault
 
-### 🗄️ [Database Init Patterns](.claude/database-init-patterns.md)
-- `InitializeDB()` hook order and extension points
-- `seedBootstrapToken()` — why it exists and how it works
-- `migrateSchema()` pattern for adding columns to existing databases
-
 ### 🐛 [Known Bugs](.claude/known-bugs.md)
-- Open bugs with root-cause analysis and fix recipes
+- Open bugs, fixed bugs, and deferred refactors with root-cause analysis and fix recipes
+- This is the living source of truth for bug status — don't duplicate bug entries elsewhere in this file, they will drift stale (see the "Open Bugs" note below)
 
-### 📊 [Current Architecture State](.claude/current-architecture-state.md)
-- Production-ready architecture assessment
-- Complete domain-driven design implementation status
-- Service layer architecture quality metrics
-- Build status and deployment readiness
-
-### 🔧 [Service Layer Analysis](.claude/service-layer-analysis.md)
-- Complete service architecture overview
-- Service dependency mapping and interaction patterns
-- Authentication, user, and secret service implementations
-- Service quality metrics and testing strategies
-
-### 📦 [Dependency Injection Guide](.claude/dependency-injection-guide.md)
-- Service container architecture and lifecycle management
-- Complete dependency resolution patterns
-- Configuration-driven service initialization
-- Testing with dependency injection
-
-### 🎯 [Auth.go Elimination Guide](.claude/auth-elimination-guide.md)
-- Complete domain-driven design transformation
-- 85% code duplication elimination process
-- Domain type reorganization strategy
-- Migration patterns and best practices
-
-### 🧪 [CLI Test Suite Implementation](cmd/README_TESTS.md)
+### 🧪 [CLI Test Suite Implementation](doc/README_TESTS.md)
 - Comprehensive test coverage for all CLI commands
 - Mock infrastructure and service testing framework
 - Security validation and authentication testing
 - Performance and integration testing capabilities
 
-### 👤 [Admin User Setup Guide](cmd/README_ADMIN_SETUP.md)
+### 👤 [Admin User Setup Guide](doc/README_ADMIN_SETUP.md)
 - Bootstrap token configuration and management
 - Initial admin user creation process
 - MFA setup and TOTP configuration
 - Authentication flow validation
 
-### 🚀 [Service Container Integration Guide](.claude/service-container-integration.md)
-- Complete service container compatibility achievement (95%)
-- CMD command refactoring from direct repository to service layer
-- KeyService and CertificateService implementation
-- Architecture compliance validation and testing
-
-### ⚡ [Database Optimization Implementation](.claude/database-optimization.md)
-- Connection pooling configuration for production environments
-- Strategic indexing for query performance optimization
-- Database performance monitoring and metrics
-- Query pattern analysis and N+1 elimination
+> Nine previously-listed docs here (`current-architecture-state.md`, `service-layer-analysis.md`,
+> `dependency-injection-guide.md`, `database-optimization.md`, `auth-elimination-guide.md`,
+> `service-container-integration.md`, `retry-system-architecture.md`, `retry-integration-guide.md`,
+> `retry-configuration-reference.md`, plus `database-init-patterns.md`,
+> `repository-migration-status.md`, `repository-pattern-standardization.md`,
+> `configuration-standardization.md`, `cmd-cleanup-report.md`) do not exist under `.claude/` and
+> were removed 2026-08-11 — they described one-time refactors that already landed; the code itself
+> and `.claude/known-bugs.md` are now the source of truth for that history. If you need one of
+> these topics, check `git log` for the commit that did the work rather than looking for a doc.
 
 ## Additional Documentation
 
@@ -171,13 +145,9 @@ rocketvault/
 - **[API Developer Guide](docs/api-developer-guide.md)**: REST API reference, authentication, and SDK examples
 - **[Testing Guide](docs/testing-guide.md)**: Comprehensive testing procedures and scenarios
 - **[Integration Examples](docs/integration-examples.md)**: Integration patterns and examples
+- **[CLI Usage Guide](docs/cli-guide.md)**: Step-by-step CLI walkthrough, first-time setup to everyday use
 - **[Setup Guide](doc/setup.md)**: Installation and initial configuration
-
-### Internal Documentation
-- **[Repository Migration Status](.claude/repository-migration-status.md)**: Repository pattern migration tracking
-- **[Repository Pattern Standardization](.claude/repository-pattern-standardization.md)**: Repository implementation guidelines
-- **[Configuration Standardization](.claude/configuration-standardization.md)**: Configuration management patterns
-- **[CMD Cleanup Report](.claude/cmd-cleanup-report.md)**: CLI command refactoring documentation
+- **[v4.0.0 Azure RBAC Release Notes](docs/release-notes/v4.0.0-azure-rbac.md)**: Breaking changes, role table, and upgrade procedure
 
 ## Service Layer Architecture (NEW)
 
@@ -302,32 +272,35 @@ func (m *Middleware) AuthenticationMiddleware(next http.Handler) http.Handler {
 
 ## Current Architecture Status
 
-### ✅ **Perfect Architecture Achieved**
+> The two subsections below are a snapshot from the October 2025 DDD refactor —
+> the codebase has since grown substantially (multi-vault + Azure RBAC parity,
+> see the Authorization section above). Treat specific percentages here as
+> historical, not current measurements; re-run `go build ./...` / `go test ./...`
+> to check current state rather than trusting a number written down a refactor
+> ago.
+
+### ✅ **Perfect Architecture Achieved** *(Oct 2025 refactor)*
 - **Complete SRP Compliance**: Every component has a single, well-defined responsibility
 - **Perfect Domain-Driven Design**: Domain types in `model/`, services in `services/`, repositories in `repositories/`
-- **Zero Code Duplication**: Complete elimination of 85% duplication between auth.go and user_repository.go
+- **Zero Code Duplication**: Eliminated duplication between auth.go and user_repository.go (auth.go has since been removed entirely)
 - **Full Dependency Injection**: End-to-end service container integration eliminates all global state
-- **95% Service Container Compatibility**: All CMD commands properly integrated with service layer
 - **Clean API Integration**: Service container properly integrated with API, middleware, and handlers
 - **Modern Go Architecture**: Interfaces, dependency injection, proper error handling, structured logging
-- **Security-First Design**: Comprehensive auth with properly separated services (JWT + TOTP + RBAC)
+- **Security-First Design**: Comprehensive auth with properly separated services (JWT + TOTP + RBAC), extended since by per-vault Azure role authorization
 - **Pure Repository Pattern**: Data access expects pre-processed data, no business logic
 - **Enterprise-Grade Performance**: Connection pooling, strategic indexing, performance monitoring
 - **Modular Bootstrap**: Specialized initializers with clear separation of concerns
 - **Testable Architecture**: Services can be tested independently with mocked dependencies
 
-### ✅ **Major Architectural Achievements**
+### ✅ **Major Architectural Achievements** *(Oct 2025 refactor)*
 - **Auth.go Complete Elimination**: Mixed-responsibility package completely removed and reorganized
 - **Domain Type Consolidation**: All user-related types in single `model/user.go` file
 - **Repository Interface Separation**: Clean separation of interface from implementation
 - **Service Layer Completion**: All authentication logic properly moved to service layer
-- **21 File Migration**: Updated all import statements across entire codebase
-- **Perfect Compilation**: Clean build with zero errors and zero unused imports
-- **Comprehensive CLI Test Suite**: 8 test files with 50+ test cases covering all functionality
+- **Comprehensive CLI Test Suite**: grew from this refactor's starting point to 600+ test files project-wide today
 - **Admin User Bootstrap**: Complete initial admin setup with MFA configuration
-- **Service Container Integration**: 95% compatibility with KeyService and CertificateService implementation
+- **Service Container Integration**: CMD commands integrated with the service layer, including `KeyService` and `CertificateService`
 - **Database Optimization**: Enterprise-grade connection pooling and performance monitoring
-- **Production Readiness**: Complete performance optimization and monitoring implementation
 
 ### ✅ **Recent Major Improvements (October 2025)**
 - **CLI Type Safety (Oct 22)**: Implemented `ServiceContainerInterface` pattern
@@ -342,10 +315,11 @@ func (m *Middleware) AuthenticationMiddleware(next http.Handler) http.Handler {
 - **Query Performance**: 90%+ improvement with strategic indexing and N+1 elimination
 - **Production Monitoring**: Real-time database performance metrics and health checks
 
-### ⚠️ **Open Bugs (as of 2026-03-08)**
-See `.claude/known-bugs.md` for details and fix patterns.
-
-1. **secrets table missing columns**: `deleted_at` and `purge_protection` absent from `createOptimizedSchema` in `internal/db/db.go`. All secret queries fail with "no such column: deleted_at" on existing databases. Fix requires both updating the `CREATE TABLE` definition and adding `ALTER TABLE` calls via `migrateSchema()`.
+### ⚠️ **Open Bugs**
+See `.claude/known-bugs.md` for the current list with root-cause analysis and fix
+recipes — don't copy bug status into this file, it goes stale (the "secrets table
+missing columns" bug previously listed here was already fixed on 2026-03-08, per
+that file, and was left in this file as still-open for 5 months).
 
 ### 🎯 **Future Improvements**
 1. **Caching Layer** - Redis integration for high-performance operation caching
@@ -391,7 +365,7 @@ npm run typecheck # If available
 - Three redundant env-specific files were deleted (`-test`, `-staging`, `-production`).
 - `jwt.expiry: "15m"` is required — read by `internal/container/service_container.go` via `viper.GetDuration("jwt.expiry")`.
 - Dead stubs (not yet read by code, kept as planned-feature markers): `monitoring.*`, `health.*`, `development.*`, `retry.service_operations`.
-- See `.claude/database-init-patterns.md` for `bootstrap_token` seeding details.
+- For `bootstrap_token` seeding details, see `seedBootstrapToken()` in `internal/db/db.go`.
 
 ## Admin User Setup
 
@@ -424,23 +398,15 @@ npm run typecheck # If available
 - **Performance Metrics**: Query execution time, connection pool utilization
 - **Audit Logging**: Comprehensive security event tracking with structured logs
 
-## Documentation Updates
+## Documentation History
 
-**Last Updated**: October 22, 2025
-
-This documentation reflects the current state after:
-- **CLI Type Safety Enhancement**: ServiceContainerInterface implementation (Oct 22, 2025)
-  - 16 command files updated with interface-based type assertions
-  - Type assertion panics completely eliminated
-  - Mock-friendly testable architecture
-- Complete service container integration and database optimization
-- Logging infrastructure extraction and standardization
-- Comprehensive middleware test suite (94.9% coverage)
-- Repository pattern standardization and documentation
-
-The codebase is now production-ready with enterprise-grade performance, comprehensive test coverage, type-safe interfaces, and robust monitoring capabilities.
-
-**Architecture Grade**: A+ (97/100)
+- **2026-08-11**: README and this file corrected to document the multi-vault +
+  Azure RBAC architecture (shipped ~May–Aug 2026); removed 13 dead `.claude/`
+  doc links and two incorrect `cmd/README_*.md` paths (the files live under
+  `doc/`); removed unverifiable grade/percentage claims.
+- **2025-10-22**: `ServiceContainerInterface` pattern — 16 CLI command files
+  updated to interface-based type assertions, eliminating type-assertion panics
+  in tests.
 
 ## Retry System Implementation ✅
 
@@ -503,8 +469,8 @@ err := retryService.ExecuteDatabaseOperation(ctx, func() error {
 - **Performance Benchmarks**: Included for optimization tracking
 
 #### **Documentation**
-- [Retry System Architecture](.claude/retry-system-architecture.md) - Complete technical overview
-- [Retry Integration Guide](.claude/retry-integration-guide.md) - How to use retry in new services
-- [Retry Configuration Reference](.claude/retry-configuration-reference.md) - All configuration options
+No standalone retry docs exist; read `internal/retry/retry.go` (core policy/backoff
+logic), `config.go` (YAML config loading), and `middleware.go` (HTTP retry wiring)
+directly — they're the source of truth.
 
 **Status**: Production-ready with comprehensive test coverage and enterprise-grade reliability.

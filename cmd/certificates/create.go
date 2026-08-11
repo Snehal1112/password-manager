@@ -28,12 +28,12 @@ var createCmd = &cobra.Command{
 	Short: "Create a new X.509 certificate",
 	Long:  `Create a self-signed or CA-signed X.509 certificate using an existing key. Requires admin or certificate_manager role.`,
 	Example: `  # Create a self-signed certificate
-  rocketvault certificates create --name mycert --key-id <key-id> \
+  rocketvault certificate create --name mycert --key-id <key-id> \
     --validity-days 365 --tags prod,secure \
     --username admin --password admin123 --totp-code <code>
 
   # Create a CA-signed certificate
-  rocketvault certificates create --name mycert --key-id <key-id> \
+  rocketvault certificate create --name mycert --key-id <key-id> \
     --validity-days 365 --tags prod,secure --ca-cert-id <ca-cert-id> \
     --username admin --password admin123 --totp-code <code>`,
 	Args: cobra.NoArgs,

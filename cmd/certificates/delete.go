@@ -22,7 +22,7 @@ var deleteCmd = &cobra.Command{
 	Short: "Delete a certificate",
 	Long:  `Delete an X.509 certificate by its UUID. Requires admin or certificate_manager role.`,
 	Example: `  # Delete a certificate
-  rocketvault certificates delete <cert-id> \
+  rocketvault certificate delete <cert-id> \
     --username admin --password admin123 --totp-code <code>`,
 	Args: cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {

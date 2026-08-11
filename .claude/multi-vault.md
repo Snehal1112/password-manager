@@ -74,12 +74,19 @@ policy** (GET/PUT/DELETE) are now genuinely vault-scoped on the explicit
 vault, matching the existing list/get/delete behavior. Legacy flat routes are
 byte-for-byte unchanged (verified by dedicated regression tests per fix).
 
-**Not touched by this fix, and still intentionally owner-gated:** keys'
-`DeleteKeyInVault` and all crypto operations (sign/verify/encrypt/decrypt/
-wrap/unwrap) remain gated on the key's owner even when reached through a
-vault-scoped route. This is a deliberate, separate decision (tracked as B6 —
-"key material *use* stays owner-only even though metadata is vault-visible"),
-not an oversight, and was explicitly out of scope for the 2026-07-26 fix.
+**B6 resolved (2026-08-02, commit `da6fb9b`).** This section previously said key
+delete and all crypto operations (sign/verify/encrypt/decrypt/wrap/unwrap)
+were deliberately left owner-gated even on a vault-scoped route. That's no
+longer true: `da6fb9b` ("feat(api)!: gate crypto operations, key delete and
+rotate by vault role") made every key operation follow `scopeFromRequest`
+(`api/context.go`) like the rest of the vault-scoped surface — `ScopeVault` on
+`/vaults/{name}/...`, `ScopeOwner` on the legacy flat routes. The
+`ownerScoped`-branch code paths that used to enforce the old behavior
+(`key_service.go` delete/rotate, `crypto_service.go`'s `loadAndAuthorize`)
+still exist but are only reachable via `ScopeOwner`, i.e. the flat routes —
+they're dead code on the vault-scoped path. Verified end-to-end against
+current source 2026-08-11; do not reintroduce this as a known limitation
+without re-checking `git log -- internal/services/keys api/keys.go` first.
 
 ## Known deferrals (intentional, not bugs)
 
@@ -92,10 +99,20 @@ each change reviewable:
   versioning, secrets/keys UPDATE, and secrets export/import were vault-scoped
   by the 2026-07-26 fix above and are no longer in this category.
 - **Keys/certs CLI `--vault` wiring:** only the `secrets` CLI commands
-  (create/list/get/delete) are vault-scoped. Keys and certificate CLI commands
-  still operate on the default vault via their user-scoped service calls —
-  this is CLI-only; the corresponding HTTP endpoints for keys UPDATE and
-  certificate policy are vault-scoped as of 2026-07-26 (see above).
+  (create/list/get/delete/update/export/import — all of them call
+  `resolveVaultID` via `cmd/secrets/vault.go`) are vault-scoped. Keys and
+  certificate CLI commands hardcode `model.NewOwnerScope`/`DefaultVaultID` and
+  have no `--vault` flag at all — this is a **CLI-only** gap for keys: every
+  keys operation the CLI exposes today (create/get/list/update/delete/rotate/
+  wrap/unwrap) already has a vault-scoped HTTP path and vault-aware service
+  method (see B6 resolution above), so wiring `--vault` into `cmd/keys` needs
+  zero new service/repository code. For certificates the gap is not purely
+  CLI-side: `list`/`get`/`delete` are the same story (backend already
+  vault-scoped, just needs a CLI flag), but certificate **UPDATE** is still
+  hardcoded owner-only at the HTTP handler itself (`api/certificates.go`,
+  P3 item below) and **renew** ignores scope entirely inside the service —
+  those two need backend work, not just a CLI flag, before `--vault` on them
+  would mean anything.
 - **Subdomain vault addressing:** designed but not implemented; path-based only.
 - **Keys/certs deleted flow not vault-scoped:** only the *secrets* deleted flow
   (`/vaults/{name}/deleted/secrets`) is vault-aware — its LIST honours the

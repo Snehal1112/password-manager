@@ -1,6 +1,8 @@
 # RocketVault
 
-**RocketVault** is a self-hosted, open-source alternative to [Microsoft Azure Key Vault](https://azure.microsoft.com/en-us/products/key-vault), built entirely in **Go**. It is a single-vault system that brings virtually all the capabilities of Azure Key Vault — secrets management, cryptographic key operations, and X.509 certificate lifecycle management — to your own infrastructure, with no cloud dependency required.
+**RocketVault** is a self-hosted, open-source alternative to [Microsoft Azure Key Vault](https://azure.microsoft.com/en-us/products/key-vault), built entirely in **Go**. It brings virtually all the capabilities of Azure Key Vault — secrets management, cryptographic key operations, X.509 certificate lifecycle management, and multi-vault RBAC — to your own infrastructure, with no cloud dependency required.
+
+A single RocketVault instance hosts any number of named **vaults**, each an isolated security boundary with its own secrets, keys, certificates, and per-vault role assignments — mirroring how Azure Key Vault resources work, but self-hosted. Every deployment ships with a `default` vault so single-vault setups need no extra configuration.
 
 Whether you need to secure application secrets, manage RSA/ECDSA keys, rotate credentials automatically, or issue and renew TLS certificates, RocketVault provides a familiar, Azure Key Vault-compatible workflow through both a **REST API** and a full-featured **CLI**, making it easy to integrate into any environment or automation pipeline.
 
@@ -13,7 +15,8 @@ Whether you need to secure application secrets, manage RSA/ECDSA keys, rotate cr
 | X.509 certificate management | ✅ | ✅ |
 | Soft delete & purge protection | ✅ | ✅ |
 | Secret versioning & rollback | ✅ | ✅ |
-| Role-based access control (RBAC) | ✅ | ✅ |
+| Multiple named vaults per instance | ✅ | ✅ |
+| Per-vault RBAC (built-in Azure roles) | ✅ | ✅ |
 | MFA / TOTP authentication | ✅ | ✅ |
 | REST API | ✅ | ✅ |
 | CLI interface | ✅ | ✅ |
@@ -23,8 +26,7 @@ Whether you need to secure application secrets, manage RSA/ECDSA keys, rotate cr
 | Cloud dependency | ☁️ Required | ❌ None — fully self-hosted |
 | Open source | ❌ | ✅ |
 
-**Architecture Grade**: A+ (97/100) - Production-ready with complete domain-driven design
-**Status**: Enterprise-grade with 95% service container compatibility, comprehensive testing, and performance optimizations
+**Status**: Actively developed, production-ready core with a domain-driven, fully dependency-injected architecture and an extensive automated test suite (600+ test files).
 
 ## Table of Contents
 
@@ -37,26 +39,32 @@ Whether you need to secure application secrets, manage RSA/ECDSA keys, rotate cr
 - [Quick Start](#quick-start)
 - [Usage](#usage)
 - [API](#api)
+- [Vault Client (Secret Consumption)](#vault-client-secret-consumption)
 - [Testing](#testing)
 - [Deployment](#deployment)
 - [Contributing](#contributing)
 - [License](#license)
+- [Security](#security)
+- [Roadmap](#roadmap)
 
 ## Features
 
 ### Core Capabilities
 
 - **Secure Storage**: Encrypted storage of secrets, cryptographic keys, and X.509 certificates
-- **Role-Based Access Control (RBAC)**: JWT authentication with TOTP MFA support
+- **Multi-Vault Architecture**: Any number of named vaults per instance, each an isolated security boundary; a `default` vault always exists so single-vault use needs no setup
+- **Two-Tier RBAC**: JWT authentication with TOTP MFA support, split into global roles and per-vault data-plane roles
 
-  | Role                    | Secrets | Keys | Certificates | Users | Admin |
-  |-------------------------|---------|------|--------------|-------|-------|
-  | `admin`                 | Full    | Full | Full         | Full  | Yes   |
-  | `secrets_manager`       | Full    | Full | -            | -     | -     |
-  | `crypto_manager`        | -       | Full | -            | -     | -     |
-  | `certificate_manager`   | -       | -    | Full         | -     | -     |
-  | `user`                  | Read    | -    | -            | -     | -     |
-  | `service_account`       | Read/List | Read/List | Read/List | - | - |
+  Global roles (`internal/services/authorization/rbac_service.go`) govern user management, vault lifecycle management, and other system-wide actions — **not** secret/key/certificate access:
+
+  | Role                    | Users | Vault mgmt | System |
+  |-------------------------|-------|------------|--------|
+  | `admin`                 | Full  | Full       | Full   |
+  | `secrets_manager`, `crypto_manager`, `certificate_manager` | -     | -          | -      |
+  | `user`                  | Read own | -       | -      |
+  | `service_account`       | -     | -          | -      |
+
+  Access to secrets, keys, and certificates is granted per vault via built-in Azure Key Vault-parity roles (see [Per-Vault RBAC](#per-vault-rbac-azure-key-vault-parity) below) — a principal with no role assignment in a vault is denied by default, regardless of their global role.
 - **Secret Rotation**: Automated and manual secret rotation with customizable policies
 - **Version Control**: Complete version history for secrets and keys with rollback capabilities
 - **Soft Delete & Purge Protection**: Recoverable deletion with configurable retention and purge protection
@@ -70,12 +78,47 @@ Whether you need to secure application secrets, manage RSA/ECDSA keys, rotate cr
 - **Key Crypto Operations**: Sign, verify, encrypt, decrypt, wrap, and unwrap via HTTP API
 - **Certificate Policies**: Configurable renewal and issuance policies per certificate
 - **Audit Logging**: Comprehensive audit trails persisted to database and log files
-- **Multi-tenant Architecture**: Support for multiple isolated tenants
 - **OAuth2 / Service Accounts**: Machine-to-machine authentication via client credentials grant
 - **JWKS Endpoint**: Public key discovery at `/jwks.json` for JWT verification
 - **HSM / PKCS#11 Support**: Optional hardware security module integration via SoftHSM2 or real HSM
 - **Secret Consumption (Vault Client)**: Built-in client for consuming secrets from a RocketVault instance
 - **Frontend Config Endpoint**: `GET /api/v1/config` exposes public configuration to frontend clients
+
+### Per-Vault RBAC (Azure Key Vault Parity)
+
+Data-plane access — reading or writing secrets, keys, and certificates — is authorized exclusively by role assignments scoped to a single vault, matching Azure Key Vault's built-in roles. There is no global "can read all secrets" role; a principal must be granted a role in each vault it needs to access. A newly created vault starts with **no** role assignments — even an admin must grant themselves access before using it.
+
+| Role | Grants |
+|---|---|
+| `Key Vault Administrator` | All data-plane operations on all object types |
+| `Key Vault Reader` | Metadata only — no secret values or key material |
+| `Key Vault Secrets User` | Get and list secrets, including values |
+| `Key Vault Secrets Officer` | Full secret control |
+| `Key Vault Crypto User` | Use key material: encrypt, decrypt, sign, verify, wrap, unwrap |
+| `Key Vault Crypto Officer` | Full key control, including create, import, delete, and rotation |
+| `Key Vault Certificates Officer` | Full certificate control |
+
+Grant a role with the CLI:
+
+```bash
+rocketvault --username admin --password admin123 --totp-code <code> \
+  vault-access grant alice --role "Key Vault Secrets User" --vault prod
+```
+
+or the API:
+
+```bash
+curl -X POST https://host/api/v1/vaults/prod/role-assignments \
+  -H "Authorization: Bearer $TOKEN" \
+  -d '{"principal":"alice","role":"Key Vault Secrets User"}'
+```
+
+**Two behaviors worth knowing before you rely on this:**
+
+- A caller who holds a role in a vault can see and act on **every** object in it — access is per vault, not per object owner. Anyone who created secrets under the pre-4.0.0 ownership model should review `rocketvault vaults preview-migration` before upgrading.
+- Requesting an object outside the caller's authorized vault returns `404 Not Found`, not `403 Forbidden` — the two are indistinguishable by design so a 403 can't be used to probe for a resource's existence. `403` is reserved for an authenticated caller with no role granting the required action in that vault.
+
+Full details, upgrade steps, and known limitations: [`docs/release-notes/v4.0.0-azure-rbac.md`](docs/release-notes/v4.0.0-azure-rbac.md) and [`.claude/multi-vault.md`](.claude/multi-vault.md).
 
 ### Enterprise-Grade Architecture
 
@@ -87,7 +130,7 @@ Whether you need to secure application secrets, manage RSA/ECDSA keys, rotate cr
 - **Performance Optimizations**: Connection pooling, strategic indexing (90%+ improvement)
 - **Key Crypto Cache**: In-process decrypted key cache eliminates DB + AES-GCM + PEM-parse overhead on hot crypto paths
 - **Prometheus Metrics**: `rocketvault_crypto_op_duration_seconds` histogram with `op`, `key_type`, and `cache_hit` labels for p50/p95/p99 observability
-- **Comprehensive Testing**: 50+ test cases with 94.9% service layer coverage
+- **Comprehensive Testing**: 600+ test files covering CLI, API, services, repositories, and authorization; run `go test ./... -cover` for current coverage numbers
 - **Graceful Error Handling**: Automatic directory creation, fallback mechanisms, no crashes on config issues
 - **Retry System**: Exponential backoff with jitter, circuit breaker, and configurable policies
 
@@ -98,27 +141,31 @@ Whether you need to secure application secrets, manage RSA/ECDSA keys, rotate cr
 ```
 rocketvault/
 ├── cmd/                    # CLI commands (Cobra framework)
-│   ├── certificates/      # Certificate management commands
-│   ├── keys/              # Key management commands
-│   ├── secrets/           # Secret management commands
-│   └── users/             # User management commands
+│   ├── vaults/             # Vault lifecycle commands (create, list, delete, ...)
+│   ├── vault-access/       # Per-vault role assignment commands (grant, list, revoke, roles)
+│   ├── certificates/       # Certificate management commands
+│   ├── keys/                # Key management commands
+│   ├── secrets/            # Secret management commands
+│   └── users/               # User management commands
 ├── api/                    # HTTP API layer with service integration
 ├── app/                    # Application core and options
 ├── bootstrap/              # Application initialization (SRP-compliant)
+├── model/                  # Pure domain types (DDD): user, secret, key, certificate, vault, scope, azure roles
 ├── examples/
 │   └── consumer-service/  # Example app that fetches secrets from RocketVault
 ├── internal/
-│   ├── domain/            # Pure domain types (DDD)
 │   ├── services/          # Business logic (15+ services)
 │   │   ├── auth/          # Authentication (JWT, TOTP, Password)
 │   │   ├── users/         # User management
 │   │   ├── secrets/       # Secret operations
 │   │   ├── keys/          # Key management
 │   │   ├── certificates/  # Certificate management
-│   │   └── authorization/ # RBAC services
+│   │   ├── vaults/        # Vault lifecycle and cascade soft-delete/recover
+│   │   └── authorization/ # RBACService (global roles), AccessPolicyService (deny overrides),
+│   │                      # RoleAssignmentService (per-vault Azure role grants + HasDataAction)
 │   ├── repositories/      # Pure data access (no business logic)
 │   ├── container/         # Dependency injection container
-│   ├── middleware/        # HTTP middleware (SRP-compliant)
+│   ├── middleware/        # HTTP middleware (SRP-compliant), incl. VaultResolutionMiddleware
 │   ├── crypto/            # Cryptographic helpers (key_crypto, x509_helper)
 │   ├── logging/           # Structured logging with audit persistence
 │   └── retry/             # Retry logic with exponential backoff
@@ -146,17 +193,22 @@ rocketvault/
 - `KeyService` — RSA/ECDSA key lifecycle, wrap/unwrap, sign/verify, encrypt/decrypt
 - `CertificateService` — X.509 certificate management with policy support
 
-**User & Authorization**:
+**Vault Management** (`internal/services/vaults/`):
+
+- `VaultService` — Vault lifecycle (create, update, soft-delete, purge, recover)
+
+**User & Authorization** (`internal/services/authorization/`):
 
 - `UserService` — User management workflows
-- `RBACService` — Role-based access control
+- `RBACService` — Global roles for user and vault management only; does not gate secret/key/certificate access
+- `AccessPolicyService` — Explicit-deny override, evaluated before role grants
+- `RoleAssignmentService` — Per-vault Azure role grants and the `HasDataAction` authorization decision that gates every vault data-plane route
 
 ### Key Architectural Achievements
 
 - Complete SRP compliance across all components
 - Zero code duplication through proper patterns
 - Full dependency injection (no global state)
-- 95% service container compatibility
 - Pure repository pattern implementation
 - Enterprise-grade performance optimizations
 
@@ -176,22 +228,19 @@ rocketvault/
 - [Troubleshooting Guide](doc/troubleshooting.markdown) - Common issues and solutions
 - [Testing Guide](docs/testing-guide.md) - Testing procedures and guidelines
 - [HSM / SoftHSM2 Testing Guide](docs/hsm-softhsm2-testing.md) - HSM setup and testing with SoftHSM2
+- [CLI Usage Guide](docs/cli-guide.md) - Step-by-step CLI walkthrough, first-time setup to everyday use
 
-### Advanced Architecture Documentation
+### Multi-Vault & Authorization Documentation
 
-- [Current Architecture State](.claude/current-architecture-state.md) - Production-ready status assessment
-- [Service Layer Analysis](.claude/service-layer-analysis.md) - Complete service architecture overview
-- [Dependency Injection Guide](.claude/dependency-injection-guide.md) - Service container patterns
-- [Database Optimization](.claude/database-optimization.md) - Performance optimization details
-- [CLI Test Suite](.claude/cli-test-suite.md) - Comprehensive testing coverage
-- [Admin User Setup](.claude/admin-user-setup.md) - Bootstrap and initialization guide
-- [Service Container Integration](.claude/service-container-integration.md) - Service compatibility guide
-- [Auth.go Elimination Guide](.claude/auth-elimination-guide.md) - Domain-driven design transformation
-- [Retry System Architecture](.claude/retry-system-architecture.md) - Retry and circuit breaker patterns
+- [Multi-Vault Architecture](.claude/multi-vault.md) - Vault as a routing/context-scoping layer, migration, and known deferrals
+- [Azure Key Vault RBAC Parity](.claude/azure-keyvault-parity.md) - Feature-by-feature parity comparison with Azure Key Vault
+- [v4.0.0 Azure RBAC Release Notes](docs/release-notes/v4.0.0-azure-rbac.md) - Breaking changes, role table, and upgrade procedure
+- [Vault-Scoped Users Manual Test Guide](.claude/manual-test-vault-scoped-users.md) - End-to-end manual verification steps
 
 ### Additional Resources
 
 - [API Documentation Validation](validate-api-docs.sh) - Documentation validation script
+- [Known Bugs](.claude/known-bugs.md) - Open issues with root-cause analysis
 
 ## Prerequisites
 
@@ -507,7 +556,56 @@ All list and get commands support a global `--output` flag:
   users delete <user-id>
 ```
 
+### Vault Management
+
+```bash
+# Create a vault
+./rocketvault --username admin --password admin123 --totp-code <code> \
+  vaults create prod --purge-protection --retention-days 30
+
+# List vaults (add --include-deleted to see soft-deleted ones)
+./rocketvault --username admin --password admin123 --totp-code <code> \
+  vaults list
+
+# Get, update, or delete a vault
+./rocketvault --username admin --password admin123 --totp-code <code> vaults get prod
+./rocketvault --username admin --password admin123 --totp-code <code> vaults update prod --enabled=false
+./rocketvault --username admin --password admin123 --totp-code <code> vaults delete prod
+
+# Preview the one-time Azure-role backfill before upgrading from a pre-4.0.0 database
+./rocketvault vaults preview-migration
+```
+
+### Vault Access (Role Assignments)
+
+A vault has no data-plane role assignments when it's created — grant one before secrets, keys, or certificates in it are usable:
+
+```bash
+# Grant a built-in Azure role to a user in a vault
+./rocketvault --username admin --password admin123 --totp-code <code> \
+  vault-access grant alice --role "Key Vault Secrets Officer" --vault prod
+
+# Grant a role to a service account instead of a user
+./rocketvault --username admin --password admin123 --totp-code <code> \
+  vault-access grant my-service-account --principal-type service_account --role "Key Vault Secrets User" --vault prod
+
+# List role assignments in a vault
+./rocketvault --username admin --password admin123 --totp-code <code> \
+  vault-access list --vault prod
+
+# Revoke a role assignment (by assignment ID)
+./rocketvault --username admin --password admin123 --totp-code <code> \
+  vault-access revoke <assignment-id> --vault prod
+
+# List all available built-in roles and their data actions (no auth required)
+./rocketvault vault-access roles
+```
+
+`--vault` resolves in this order: the flag, the `ROCKETVAULT_VAULT` environment variable, the `vault` key in `.rocketvault.yaml`, then falls back to `default`. See [Per-Vault RBAC](#per-vault-rbac-azure-key-vault-parity) for the full role list.
+
 ### Secret Management
+
+`secrets create`, `list`, `get`, `delete`, `update`, `export`, and `import` accept `--vault <name>` (defaulting the same way as above) to target a specific vault. The `--vault` flag is defined globally, so it's accepted without error on `keys` and `certificates` commands too, but those still operate on the `default` vault only — the flag is silently ignored there today.
 
 ```bash
 # Create a secret (name and value as positional arguments)
@@ -664,7 +762,36 @@ Default listen address is `:8774`. Configure in `.rocketvault.yaml` under `serve
 
 All endpoints below require `Authorization: Bearer <jwt-token>`.
 
-#### Secrets
+#### Vaults
+
+All routes below (including `GET`) require the global `admin` role — there is currently no way for a non-admin to even list vaults via the API.
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `POST` | `/api/v1/vaults` | Create vault |
+| `GET` | `/api/v1/vaults` | List vaults (`?include_deleted=true` to include soft-deleted) |
+| `GET` | `/api/v1/vaults/{name}` | Get vault |
+| `PATCH` | `/api/v1/vaults/{name}` | Update vault (enabled, purge protection, retention) |
+| `DELETE` | `/api/v1/vaults/{name}` | Soft-delete vault |
+
+`purge` and `recover` for vaults are CLI-only (`vaults purge` / `vaults recover`) — there is no HTTP route for them yet.
+
+#### Vault Role Assignments
+
+All routes below, including `GET`, currently require the global `admin` role too (see [known limitation](docs/release-notes/v4.0.0-azure-rbac.md#known-limitations) — a non-admin with only per-vault `vaults:manage` cannot yet manage or list a vault's role assignments through the API).
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `GET` | `/api/v1/vaults/{vault_name}/role-assignments` | List role assignments in a vault |
+| `POST` | `/api/v1/vaults/{vault_name}/role-assignments` | Grant a built-in Azure role to a user or service account |
+| `GET` | `/api/v1/vaults/{vault_name}/role-assignments/{id}` | Get a role assignment |
+| `DELETE` | `/api/v1/vaults/{vault_name}/role-assignments/{id}` | Revoke a role assignment |
+
+#### Secrets, Keys, and Certificates
+
+Every route in the three tables below is registered twice: as shown (operating on the `default` vault), and again under `/api/v1/vaults/{vault_name}/...` (e.g. `/api/v1/vaults/prod/secrets`) operating on the named vault. Both forms call the identical handler — only the resolved vault differs. New integrations that need more than the default vault should address resources through the `/vaults/{vault_name}/...` form.
+
+##### Secrets
 
 | Method | Path | Description |
 |--------|------|-------------|
@@ -682,7 +809,7 @@ All endpoints below require `Authorization: Bearer <jwt-token>`.
 | `POST` | `/api/v1/secrets/{id}/backup` | Per-item backup |
 | `POST` | `/api/v1/secrets/restore` | Per-item restore |
 
-#### Keys
+##### Keys
 
 | Method | Path | Description |
 |--------|------|-------------|
@@ -702,7 +829,7 @@ All endpoints below require `Authorization: Bearer <jwt-token>`.
 | `POST` | `/api/v1/keys/{id}/backup` | Per-item backup |
 | `POST` | `/api/v1/keys/restore` | Per-item restore |
 
-#### Certificates
+##### Certificates
 
 | Method | Path | Description |
 |--------|------|-------------|
@@ -731,6 +858,8 @@ All endpoints below require `Authorization: Bearer <jwt-token>`.
 | `GET` | `/api/v1/deleted/certificates` | List deleted certificates |
 | `POST` | `/api/v1/deleted/certificates/{id}/restore` | Recover deleted certificate |
 | `DELETE` | `/api/v1/deleted/certificates/{id}/purge` | Permanently purge certificate |
+
+Only the deleted-secrets routes (list, restore, purge) are also vault-scoped, at `/api/v1/vaults/{vault_name}/deleted/secrets[/{id}/restore|/purge]`. The deleted-keys and deleted-certificates routes above operate on the `default` vault only; they don't yet have a `/vaults/{vault_name}/...` equivalent.
 
 #### Users & Sessions
 
@@ -883,10 +1012,10 @@ go test ./... -v -cover -skip BenchmarkCreateSelfSigned
 
 **Current Status**:
 
-- **CLI Commands**: 50+ test cases covering all commands
-- **Service Layer**: 94.9% coverage with comprehensive mocks
+- **CLI Commands**: extensive test coverage across every command group, including `vaults` and `vault-access`
+- **Service Layer**: extensively tested with mocks; run `go test ./internal/services/... -cover` for current numbers
 - **Authentication**: Complete JWT + TOTP + password validation
-- **Authorization**: RBAC with role-based access testing
+- **Authorization**: Global RBAC, per-vault Azure role assignment, and cross-vault denial tests (e.g. `api/vault_authz_test.go`, `api/vault_cross_denial_test.go`, `api/router_authorization_matrix_test.go`)
 - **Performance**: Large dataset and concurrent operation tests
 - **Error Handling**: Complete error scenario coverage
 
@@ -1011,11 +1140,6 @@ curl http://localhost:8774/api/v1/health/database
 - Slow query detection
 - Database health status
 
-For complete optimization guide, see:
-
-- [Database Optimization](.claude/database-optimization.md)
-- [Performance Monitoring Guide](docs/performance-tuning.md)
-
 #### Key Crypto Cache
 
 Every cryptographic operation (Sign, Verify, Encrypt, Decrypt, WrapKey, UnwrapKey) previously required a database read, an AES-GCM decrypt, and a PEM parse before the actual crypto work. Under load these three steps dominated p99 latency for software keys.
@@ -1079,8 +1203,6 @@ Run `./scripts/install-hooks.sh` once after cloning to enable a local git hook t
 7. Commit changes: `git commit -m 'Add amazing feature'`
 8. Push to branch: `git push origin feature/amazing-feature`
 9. Open Pull Request with detailed description
-
-For detailed guidelines, see [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## License
 
@@ -1152,15 +1274,30 @@ For questions or issues:
 - [x] Prometheus histogram for key crypto operations — `rocketvault_crypto_op_duration_seconds` with `op`, `key_type`, `cache_hit` labels
 - [x] PKCS#11 PSS mechanism parameters — correct `CK_RSA_PKCS_PSS_PARAMS` for PS256/PS384/PS512 algorithms
 - [x] Race-free key material zeroing — `LoadAndDelete` pattern across all cache eviction paths
+- [x] Advanced audit and compliance reporting (SOC 2, GDPR) — `internal/services/audit/compliance_report_service.go`
+- [x] Enhanced CLI output formats — `--output table|json|yaml` global flag across all commands
+
+*(May–Aug 2026 — Multi-vault architecture and Azure Key Vault RBAC parity)*
+
+- [x] Vault as a routing/context-scoping layer — named vaults with `vault_id`-scoped secrets, keys, and certificates; `vaults` CLI and `/api/v1/vaults` management API
+- [x] Vault-scoped resource routes — `/api/v1/vaults/{vault_name}/secrets|keys|certificates|...` alongside the legacy flat routes, which now resolve against the `default` vault
+- [x] Seven built-in Azure Key Vault-parity roles (`Key Vault Administrator`, `Key Vault Reader`, `Key Vault Secrets User`, `Key Vault Secrets Officer`, `Key Vault Crypto User`, `Key Vault Crypto Officer`, `Key Vault Certificates Officer`) mapped to concrete data actions on every vault route
+- [x] Per-vault role assignments — grant/list/revoke via CLI (`vault-access`) and API (`/api/v1/vaults/{vault}/role-assignments`)
+- [x] Deny-by-default vault data-plane authorization — a caller needs an explicit role assignment in a vault; `access_policies` retained only as an explicit-deny override evaluated before the role decision
+- [x] One-time migration backfill deriving Azure role assignments from prior object ownership, the global admin role, and legacy per-vault role names, plus `vaults preview-migration` to review it beforehand
+- [x] Vault-scope inconsistency fixes (2026-07-26) — secrets update/versions/export/import, keys update, and certificate policy routes made genuinely vault-scoped instead of silently falling back to owner-only behavior
+- [x] Key delete and all crypto operations (sign/verify/encrypt/decrypt/wrap/unwrap) gated by vault role instead of key ownership (2026-08-02) — the last key operations that were still owner-gated on a vault-scoped route now follow the same `Key Vault Crypto User`/`Key Vault Crypto Officer` role check as the rest of the vault-scoped surface
 
 ### Planned
 
 - [ ] Web-based administration interface
 - [ ] Kubernetes operator for automated deployment
-- [x] Advanced audit and compliance reporting (SOC 2, GDPR)
 - [ ] Multi-region replication support
 - [ ] Redis caching layer for distributed deployments
-- [x] Enhanced CLI output formats — `--output table|json|yaml` global flag across all commands
+- [ ] Vault-scope role-assignment management for non-admin `vaults:manage` holders (currently requires the global admin role — see [known limitations](docs/release-notes/v4.0.0-azure-rbac.md#known-limitations))
+- [ ] Extend `--vault` CLI support to `keys` (create/get/list/update/delete/rotate/wrap/unwrap) — pure CLI wiring, every one of these already has a vault-scoped HTTP path and vault-aware service method, needs zero new service/repository code
+- [ ] Extend `--vault` CLI support to `certificates` `list`/`get`/`delete` — same as keys, backend is already vault-scoped
+- [ ] Make certificate `update` and `renew` genuinely vault-scoped (currently hardcoded owner-only at the API/service level, not just missing a CLI flag) before extending `--vault` to them
 
 ## Acknowledgments
 
@@ -1183,4 +1320,4 @@ Built with enterprise-grade architecture patterns:
 - Cobra framework for CLI
 - Testify for comprehensive testing
 
-**Status**: Production-Ready | **Architecture Grade**: A+ (97/100) | **Last Updated**: May 2026 | **Version**: v4.0.0
+**Status**: Actively developed | **Latest tagged release**: [v0.2.1](https://github.com/Snehal1112/rocketvault/releases) | This branch (`v-4.0.0`) adds multi-vault architecture and Azure Key Vault RBAC parity ahead of its own tag
