@@ -76,7 +76,10 @@ func TestMapRouteToDataAction(t *testing.T) {
 		{"recover certificate", http.MethodPost, "/api/v1/deleted/certificates/abc/restore", model.ActionCertificatesRecover, RouteVaultData},
 		{"purge certificate", http.MethodDelete, "/api/v1/deleted/certificates/abc/purge", model.ActionCertificatesPurge, RouteVaultData},
 
-		// Vault data-plane.
+		// Vault data-plane. Use flat path "/api/v1/purge"; the test loop below
+		// auto-generates vault-scoped "/api/v1/vaults/prod/purge" by prepending
+		// "/api/v1/vaults/prod" to trimmed paths. Using the vault-scoped path
+		// directly here would cause double-prefixing in that loop.
 		{"purge vault", http.MethodDelete, "/api/v1/purge", model.ActionVaultPurge, RouteVaultData},
 
 		// Non-data-plane routes.
