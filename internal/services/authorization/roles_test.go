@@ -110,7 +110,7 @@ func TestIsValidRole_EdgeCases(t *testing.T) {
 	}
 }
 
-// TestIsValidRole_AcceptsAzureRoles asserts the seven Azure built-in role names
+// TestIsValidRole_AcceptsAzureRoles asserts the eleven Azure built-in role names
 // are grantable alongside the legacy vault role vocabulary.
 func TestIsValidRole_AcceptsAzureRoles(t *testing.T) {
 	for _, role := range []string{

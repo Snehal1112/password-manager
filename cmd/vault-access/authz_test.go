@@ -43,6 +43,7 @@ type fakeRoleSvc struct {
 	hasAction     bool
 	assignCalled  bool
 	revokeCalled  bool
+	listCalled    bool
 	actionsAsked  []model.DataAction
 	assignedInput authzServices.AssignRoleInput
 }
@@ -59,6 +60,7 @@ func (f *fakeRoleSvc) RevokeAssignment(context.Context, uuid.UUID, uuid.UUID) er
 }
 
 func (f *fakeRoleSvc) ListAssignments(context.Context, uuid.UUID) ([]*model.RoleAssignment, error) {
+	f.listCalled = true
 	return nil, nil
 }
 
@@ -73,6 +75,7 @@ func newVaultAccessCmd(ctx context.Context) (*cobra.Command, *bytes.Buffer) {
 	parent := &cobra.Command{Use: "vault-access"}
 	InitVaultAccessGrant(parent)
 	InitVaultAccessRevoke(parent)
+	InitVaultAccessList(parent)
 	parent.SetContext(ctx)
 	var out bytes.Buffer
 	parent.SetOut(&out)
@@ -155,6 +158,41 @@ func TestVaultAccessRevoke_AllowedForDataAccessAdministrator(t *testing.T) {
 	require.NoError(t, cmd.Execute())
 	assert.True(t, roleSvc.revokeCalled)
 	assert.Contains(t, out.String(), "revoked assignment")
+}
+
+// TestVaultAccessList_DeniedWithoutGrant is the CLI twin of the HTTP
+// listRoleAssignments regression: before this fix, `vault-access list` called
+// ListAssignments with no authorization check at all, so any authenticated
+// user could enumerate who holds which role in any vault.
+func TestVaultAccessList_DeniedWithoutGrant(t *testing.T) {
+	tc := testutils.NewTestContext(t)
+	roleSvc := &fakeRoleSvc{hasAction: false}
+	ctx := nonAdminCtx(tc, &fakePolicySvc{decision: authzServices.AccessFallback}, roleSvc)
+
+	cmd, _ := newVaultAccessCmd(ctx)
+	cmd.SetArgs([]string{"list"})
+
+	err := cmd.Execute()
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "permission denied")
+	assert.False(t, roleSvc.listCalled, "ListAssignments must not be reached when the caller is denied")
+	assert.Contains(t, roleSvc.actionsAsked, model.ActionRoleAssignmentsDelete)
+}
+
+// TestVaultAccessList_AllowedForDataAccessAdministrator mirrors the grant/revoke
+// allow case: a non-admin holding Key Vault Data Access Administrator in the
+// target vault can still list its role assignments.
+func TestVaultAccessList_AllowedForDataAccessAdministrator(t *testing.T) {
+	tc := testutils.NewTestContext(t)
+	roleSvc := &fakeRoleSvc{hasAction: true}
+	ctx := nonAdminCtx(tc, &fakePolicySvc{decision: authzServices.AccessFallback}, roleSvc)
+
+	cmd, out := newVaultAccessCmd(ctx)
+	cmd.SetArgs([]string{"list"})
+
+	require.NoError(t, cmd.Execute())
+	assert.True(t, roleSvc.listCalled)
+	assert.Contains(t, out.String(), "ASSIGNMENT-ID")
 }
 
 // TestVaultAccessGrant_ExplicitDenyBeatsRoleGrant proves the deny-wins rule

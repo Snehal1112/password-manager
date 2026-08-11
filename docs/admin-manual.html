@@ -889,14 +889,14 @@ curl -s -X DELETE $BASE/api/v1/users/sessions -H "Authorization: Bearer $TOKEN"<
   </div>
 
   <div class="ep">
-    <div class="ep-hd"><span class="meth meth-get">GET</span> <span class="ep-path">/api/v1/vaults/{vault_name}/role-assignments</span> <span class="ep-auth">JWT</span> <span class="ep-label">List assignments in a vault</span></div>
+    <div class="ep-hd"><span class="meth meth-get">GET</span> <span class="ep-path">/api/v1/vaults/{vault_name}/role-assignments</span> <span class="ep-auth">JWT · admin</span> <span class="ep-label">List assignments in a vault</span></div>
     <div class="tab-bar"><button class="tab-btn active">cURL</button><button class="tab-btn">CLI</button></div>
     <div class="tab-pane active"><pre class="code">curl -s $BASE/api/v1/vaults/prod/role-assignments -H "Authorization: Bearer $TOKEN"</pre></div>
     <div class="tab-pane"><pre class="code">rocketvault vault-access list --vault prod --username admin --password admin123 --totp-code 123456</pre></div>
   </div>
 
   <div class="ep">
-    <div class="ep-hd"><span class="meth meth-get">GET</span> <span class="ep-path">/api/v1/vaults/{vault_name}/role-assignments/{id}</span> <span class="ep-auth">JWT</span> <span class="ep-label">Get one</span></div>
+    <div class="ep-hd"><span class="meth meth-get">GET</span> <span class="ep-path">/api/v1/vaults/{vault_name}/role-assignments/{id}</span> <span class="ep-auth">JWT · admin</span> <span class="ep-label">Get one</span></div>
     <div class="tab-bar"><button class="tab-btn active">cURL</button></div>
     <div class="tab-pane active"><pre class="code">curl -s $BASE/api/v1/vaults/prod/role-assignments/&lt;id&gt; -H "Authorization: Bearer $TOKEN"</pre></div>
   </div>
@@ -920,7 +920,7 @@ rocketvault vault-access roles</pre>
   </div>
   <div class="callout callout-info">
     <div class="callout-label">Delegating role-assignment management</div>
-    <p>Granting or revoking role assignments requires the <code>admin</code> account role, a vault-scoped <code>vaults:manage</code> access policy, or the <code>Key Vault Data Access Administrator</code> role in that vault. Grant a non-admin operator that role to let them manage access for one vault without making them a global admin: <code>rocketvault vault-access grant alice --role "Key Vault Data Access Administrator" --vault prod --username admin --password admin123 --totp-code 123456</code>.</p>
+    <p>Granting, revoking, or reading role assignments all require the <code>admin</code> account role, a vault-scoped <code>vaults:manage</code> access policy, or the <code>Key Vault Data Access Administrator</code> role in that vault — listing a vault's assignments discloses who holds which role there, so it is gated identically to changing them. Grant a non-admin operator that role to let them manage access for one vault without making them a global admin: <code>rocketvault vault-access grant alice --role "Key Vault Data Access Administrator" --vault prod --username admin --password admin123 --totp-code 123456</code>.</p>
   </div>
   <div class="callout callout-warn">
     <div class="callout-label">Upgrading from a pre-4.0.0 install</div>
