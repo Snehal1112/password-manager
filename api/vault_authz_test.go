@@ -265,6 +265,111 @@ func TestVaultManage_RealAuthorizationMiddleware_NonAdminAllowedWithGrant(t *tes
 	}
 }
 
+// --- Vault-purge regression: real middleware chain, soft-deleted target ---
+
+// buildChainedVaultAPIForPurge mirrors buildChainedVaultAPI but additionally
+// wires a configurable RoleAssignmentService (needed because PolicyMiddleware's
+// deny-by-default check for RouteVaultData routes, e.g. purge, calls
+// HasDataAction, not CheckAccess) and seeds the target vault "prod" as
+// SOFT-DELETED -- purge's normal precondition, per VaultService.PurgeVault's
+// own findDeleted-first logic. It returns the repo too, so callers can assert
+// the vault is genuinely gone after a successful purge.
+func buildChainedVaultAPIForPurge(policySvc authzServices.AccessPolicyService, roleSvc authzServices.RoleAssignmentService) (http.Handler, *vaultFakeRepo, uuid.UUID) {
+	repo := newVaultFakeRepo()
+	svc := vaultServices.NewVaultService(repo, vaultNoopCascade{}, nil)
+
+	// Default vault "A" (irrelevant here -- the purge route resolves via
+	// {vault_name}, never falls back to the default).
+	defID := uuid.MustParse(model.DefaultVaultID)
+	repo.byName[model.DefaultVaultName] = &model.Vault{ID: defID, Name: model.DefaultVaultName, Enabled: true}
+	repo.byID[defID.String()] = repo.byName[model.DefaultVaultName]
+
+	// Target vault "B", soft-deleted -- the normal state a vault is purged from.
+	prodID := uuid.New()
+	deletedAt := nowForVaultTest()
+	repo.byName["prod"] = &model.Vault{ID: prodID, Name: "prod", Enabled: true, DeletedAt: &deletedAt}
+	repo.byID[prodID.String()] = repo.byName["prod"]
+
+	container := &vaultSvcTestContainer{
+		vaultSvc:  svc,
+		policySvc: policySvc,
+		roleSvc:   roleSvc,
+		logger:    userTestLog(),
+	}
+	a := &app.App{ServiceContainer: container}
+	a.Logger = userTestLog()
+
+	mw := middleware.NewMiddleware(container)
+
+	router := mux.NewRouter()
+	api := &API{App: a, BaseRoutes: &Routes{}, basePath: "/api/v1", rootRouter: router, Logger: userTestLog()}
+	api.BaseRoutes.ApiRoot = router.PathPrefix("/api/v1").Subrouter()
+	api.BaseRoutes.ApiRoot.Use(mw.VaultResolutionMiddleware, mw.PolicyMiddleware, mw.AuthorizationMiddleware)
+	api.BaseRoutes.Vaults = api.BaseRoutes.ApiRoot.PathPrefix("/vaults").Subrouter()
+	api.BaseRoutes.VaultScoped = api.BaseRoutes.Vaults.PathPrefix("/{vault_name:[a-z0-9-]+}").Subrouter()
+	api.InitVault()
+	return router, repo, prodID
+}
+
+// TestPurgeVault_RealAuthorizationMiddleware_NonAdminDeniedWithoutGrant is the
+// regression pin for the VaultResolutionMiddleware purge bug: through the
+// REAL production middleware chain, a non-admin caller holding no Purge
+// Operator role assignment is denied (403) when purging a SOFT-DELETED
+// vault -- the normal precondition for purge. Before the middleware fix,
+// VaultResolutionMiddleware's active-only GetVault call 404'd on this exact
+// soft-deleted vault before PolicyMiddleware's deny-by-default check ever
+// ran, so this test would have incorrectly observed 404 instead of the real
+// 403 authorization decision.
+func TestPurgeVault_RealAuthorizationMiddleware_NonAdminDeniedWithoutGrant(t *testing.T) {
+	policySvc := &mockAccessPolicyService{}
+	roleSvc := &mockRoleAssignmentService{}
+	router, _, prodID := buildChainedVaultAPIForPurge(policySvc, roleSvc)
+
+	policySvc.On("CheckAccess", mock.Anything, mock.Anything,
+		model.PolicyResourceVaults, model.OpManage, prodID).
+		Return(authzServices.AccessFallback, nil)
+	roleSvc.On("HasDataAction", mock.Anything, mock.Anything, prodID, model.ActionVaultPurge).
+		Return(false, nil)
+
+	req := httptest.NewRequest(http.MethodDelete, "/api/v1/vaults/prod/purge", nil)
+	ctx := context.WithValue(req.Context(), common.UserIDKey, vaultTestUserID)
+	ctx = context.WithValue(ctx, common.RoleKey, string(model.RoleUser))
+	req = req.WithContext(ctx)
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusForbidden, w.Code)
+}
+
+// TestPurgeVault_RealAuthorizationMiddleware_NonAdminAllowedWithGrant proves
+// the positive case through the real chain: a non-admin WITH a Purge
+// Operator role assignment scoped to the target vault CAN purge it --
+// including a SOFT-DELETED one, purge's normal precondition -- and it is
+// genuinely gone afterward.
+func TestPurgeVault_RealAuthorizationMiddleware_NonAdminAllowedWithGrant(t *testing.T) {
+	policySvc := &mockAccessPolicyService{}
+	roleSvc := &mockRoleAssignmentService{}
+	router, repo, prodID := buildChainedVaultAPIForPurge(policySvc, roleSvc)
+
+	policySvc.On("CheckAccess", mock.Anything, mock.Anything,
+		model.PolicyResourceVaults, model.OpManage, prodID).
+		Return(authzServices.AccessFallback, nil)
+	roleSvc.On("HasDataAction", mock.Anything, mock.Anything, prodID, model.ActionVaultPurge).
+		Return(true, nil)
+
+	req := httptest.NewRequest(http.MethodDelete, "/api/v1/vaults/prod/purge", nil)
+	ctx := context.WithValue(req.Context(), common.UserIDKey, vaultTestUserID)
+	ctx = context.WithValue(ctx, common.RoleKey, string(model.RoleUser))
+	req = req.WithContext(ctx)
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusNoContent, w.Code)
+
+	_, err := repo.ReadByID(context.Background(), prodID)
+	assert.Error(t, err, "purged vault must no longer be readable")
+}
+
 // TestCreateVault_ForbiddenWithoutGlobalGrant proves a non-admin with no
 // global vaults:manage policy cannot create a vault. Before this task,
 // createVault had no handler-level check at all — it relied entirely on the

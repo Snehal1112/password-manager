@@ -166,6 +166,7 @@ type vaultSvcTestContainer struct {
 	certPolicyRepo repositories.CertificatePolicyRepositoryInterface
 	policySvc      authzServices.AccessPolicyService
 	rbacSvc        authzServices.RBACService
+	roleSvc        authzServices.RoleAssignmentService
 	logger         *logging.Logger
 }
 
@@ -236,6 +237,9 @@ func (c *vaultSvcTestContainer) GetAccessPolicyService() authzServices.AccessPol
 	panic("unexpected call: GetAccessPolicyService")
 }
 func (c *vaultSvcTestContainer) GetRoleAssignmentService() authzServices.RoleAssignmentService {
+	if c.roleSvc != nil {
+		return c.roleSvc
+	}
 	return nil
 }
 func (c *vaultSvcTestContainer) GetOAuth2ClientRepository() repositories.OAuth2ClientRepositoryInterface {
