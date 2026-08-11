@@ -41,7 +41,15 @@ func buildRoleAssignmentResponse(c *Context, r *http.Request, ra *model.RoleAssi
 	return resp
 }
 
-// requireVaultManage gates assignment management to global admins or vault managers.
+// requireVaultManage gates assignment management to global admins or vault
+// managers.
+//
+// NOTE: no longer called from this file (createRoleAssignment and
+// deleteRoleAssignment both use authzServices.CanManageRoleAssignments now),
+// but api/vault.go (getVault, updateVault, deleteVault) still depends on it.
+// That migration is deferred to Plan 2026-08-11-04, which had not landed as
+// of this commit — see the TODO on callerIdentity below. Do not delete this
+// function until that plan removes its last call site.
 func requireVaultManage(c *Context, r *http.Request, vaultID uuid.UUID) bool {
 	role, _ := c.Claims["role"].(string)
 	if common.HasRequiredRole(role, string(model.RoleAdmin)) {
@@ -206,8 +214,14 @@ func deleteRoleAssignment(c *Context, w http.ResponseWriter, r *http.Request) {
 		c.SetInvalidParam("vault")
 		return
 	}
-	if !requireVaultManage(c, r, vaultID) {
-		c.SetPermissionError("admin or vaults/manage required")
+	role, callerID, ok := callerIdentity(c)
+	if !ok {
+		c.SetInternalError(nil)
+		return
+	}
+	if !authzServices.CanManageRoleAssignments(r.Context(), role, c.App.ServiceContainer.GetAccessPolicyService(),
+		c.App.ServiceContainer.GetRoleAssignmentService(), callerID, vaultID, false) {
+		c.SetPermissionError("admin, vaults/manage, or Key Vault Data Access Administrator required")
 		return
 	}
 	id, err := uuid.Parse(c.Params.AssignmentID)

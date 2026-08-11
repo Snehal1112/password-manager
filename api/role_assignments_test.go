@@ -215,3 +215,42 @@ func TestRoleAssignments_GrantDeniedForDataAccessAdministratorInWrongVault(t *te
 
 	assert.Equal(t, http.StatusForbidden, w.Code)
 }
+
+// TestRoleAssignments_RevokeAllowedForDataAccessAdministrator mirrors the
+// grant test for the delete path, and proves write/delete are checked as
+// distinct actions (a principal could in principle hold write without
+// delete, or vice versa, though the built-in role grants both).
+func TestRoleAssignments_RevokeAllowedForDataAccessAdministrator(t *testing.T) {
+	vaultID := uuid.New()
+	assignmentID := uuid.New()
+	callerID := uuid.MustParse("00000000-0000-0000-0000-000000000001")
+
+	policySvc := &mockAccessPolicyService{}
+	policySvc.On("CheckAccess", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).
+		Return(authzServices.AccessFallback, nil)
+
+	roleSvc := &mockRoleAssignmentService{}
+	roleSvc.On("HasDataAction", mock.Anything, callerID, vaultID, model.ActionRoleAssignmentsDelete).
+		Return(true, nil)
+	roleSvc.On("RevokeAssignment", mock.Anything, assignmentID, vaultID).Return(nil)
+
+	mc := &testutils.MockServiceContainer{}
+	mc.On("GetAccessPolicyService").Return(policySvc)
+	mc.On("GetRoleAssignmentService").Return(roleSvc)
+
+	c := &Context{
+		App:    &app.App{ServiceContainer: mc},
+		Claims: jwt.MapClaims{"user_id": callerID.String(), "role": "user"},
+		Params: &ApiParams{VaultName: "prod", AssignmentID: assignmentID.String(), PerPage: 60},
+	}
+	r := httptest.NewRequest(http.MethodDelete, "/api/v1/vaults/prod/role-assignments/"+assignmentID.String(), nil)
+	r = r.WithContext(context.WithValue(r.Context(), common.VaultIDKey, vaultID.String()))
+	w := httptest.NewRecorder()
+
+	deleteRoleAssignment(c, w, r)
+	if c.Err != nil {
+		writeError(w, c)
+	}
+
+	assert.Equal(t, http.StatusOK, w.Code)
+}
