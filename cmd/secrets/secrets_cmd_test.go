@@ -19,6 +19,7 @@ import (
 	"rocketvault/common"
 	"rocketvault/internal/formatter"
 	"rocketvault/internal/logging"
+	authzServices "rocketvault/internal/services/authorization"
 	secretServices "rocketvault/internal/services/secrets"
 	"rocketvault/model"
 )
@@ -125,6 +126,18 @@ func TestGetCmd_Success_WithFormatter(t *testing.T) {
 	tc.MockSecretService.On("GetSecret", mock.Anything, secretID, model.NewVaultScope(tc.TestVaultID, tc.TestUserID)).Return(secret, nil)
 	tc.MockContainer.On("GetSecretService").Return(tc.MockSecretService)
 
+	// Assert the exact args reaching both authorization checks, not just
+	// "some" values — a transposed action/op or swapped principal/vault must
+	// fail this test, not pass it.
+	roles := &testutils.MockRoleAssignmentService{}
+	roles.On("HasDataAction", mock.Anything, tc.TestUserID, tc.TestVaultID, model.ActionSecretsGet).
+		Return(true, nil).Once()
+	policies := &testutils.MockAccessPolicyService{}
+	policies.On("CheckAccess", mock.Anything, tc.TestUserID, model.PolicyResourceSecrets, model.OpGet, tc.TestVaultID).
+		Return(authzServices.AccessAllowed, nil).Once()
+	tc.MockContainer.RoleAssignmentService = roles
+	tc.MockContainer.AccessPolicyService = policies
+
 	ctx := buildSecCtx(tc.MockContainer, tc.TestUserID)
 
 	cmd, buf := newSecTestCmd(getCmd.RunE, []string{secretID.String()})
@@ -135,6 +148,8 @@ func TestGetCmd_Success_WithFormatter(t *testing.T) {
 	require.NoError(t, err)
 	assert.Contains(t, buf.String(), "my-get-secret")
 	tc.MockSecretService.AssertExpectations(t)
+	roles.AssertExpectations(t)
+	policies.AssertExpectations(t)
 }
 
 func TestGetCmd_ServiceError(t *testing.T) {
@@ -235,12 +250,26 @@ func TestDeleteCmd_Success(t *testing.T) {
 	tc.MockSecretService.On("DeleteSecret", mock.Anything, secretID, model.NewVaultScope(tc.TestVaultID, tc.TestUserID)).Return(nil)
 	tc.MockContainer.On("GetSecretService").Return(tc.MockSecretService)
 
+	// Assert the exact args reaching both authorization checks, not just
+	// "some" values — a transposed action/op or swapped principal/vault must
+	// fail this test, not pass it.
+	roles := &testutils.MockRoleAssignmentService{}
+	roles.On("HasDataAction", mock.Anything, tc.TestUserID, tc.TestVaultID, model.ActionSecretsDelete).
+		Return(true, nil).Once()
+	policies := &testutils.MockAccessPolicyService{}
+	policies.On("CheckAccess", mock.Anything, tc.TestUserID, model.PolicyResourceSecrets, model.OpDelete, tc.TestVaultID).
+		Return(authzServices.AccessAllowed, nil).Once()
+	tc.MockContainer.RoleAssignmentService = roles
+	tc.MockContainer.AccessPolicyService = policies
+
 	cmd, _ := newSecTestCmd(deleteCmd.RunE, []string{secretID.String()})
 	cmd.Args = cobra.ExactArgs(1)
 	cmd.SetContext(tc.Ctx)
 	err := cmd.Execute()
 	assert.NoError(t, err)
 	tc.MockSecretService.AssertExpectations(t)
+	roles.AssertExpectations(t)
+	policies.AssertExpectations(t)
 }
 
 func TestDeleteCmd_ServiceError(t *testing.T) {

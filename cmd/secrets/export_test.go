@@ -8,6 +8,7 @@ import (
 	"github.com/stretchr/testify/mock"
 
 	"rocketvault/cmd/testutils"
+	authzServices "rocketvault/internal/services/authorization"
 	secretServices "rocketvault/internal/services/secrets"
 	"rocketvault/model"
 )
@@ -27,6 +28,21 @@ func TestExportCommand_CallsServiceExport(t *testing.T) {
 		return r.Format == "json" && r.Scope == wantScope
 	})).Return([]byte(`{"secrets":[]}`), nil)
 	tc.MockContainer.On("GetSecretService").Return(tc.MockSecretService)
+
+	// Assert the exact args reaching both authorization checks, not just
+	// "some" values — a transposed action/op or swapped principal/vault must
+	// fail this test, not pass it. Note export resolves to OpCreate, not
+	// OpGet, despite its DataAction being ActionSecretsGet: resolvePolicy
+	// treats every POST route without one of five special suffixes as
+	// OpCreate (see the design doc's "resolvePolicy quirk" note).
+	roles := &testutils.MockRoleAssignmentService{}
+	roles.On("HasDataAction", mock.Anything, tc.TestUserID, tc.TestVaultID, model.ActionSecretsGet).
+		Return(true, nil).Once()
+	policies := &testutils.MockAccessPolicyService{}
+	policies.On("CheckAccess", mock.Anything, tc.TestUserID, model.PolicyResourceSecrets, model.OpCreate, tc.TestVaultID).
+		Return(authzServices.AccessAllowed, nil).Once()
+	tc.MockContainer.RoleAssignmentService = roles
+	tc.MockContainer.AccessPolicyService = policies
 
 	tmpFile := t.TempDir() + "/export.json"
 
@@ -48,6 +64,8 @@ func TestExportCommand_CallsServiceExport(t *testing.T) {
 	err := cmd.Execute()
 	assert.NoError(t, err)
 	tc.MockSecretService.AssertExpectations(t)
+	roles.AssertExpectations(t)
+	policies.AssertExpectations(t)
 }
 
 func TestExportCommand_Forbidden(t *testing.T) {

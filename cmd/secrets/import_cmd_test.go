@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/mock"
 
 	"rocketvault/cmd/testutils"
+	authzServices "rocketvault/internal/services/authorization"
 	secretServices "rocketvault/internal/services/secrets"
 	"rocketvault/model"
 )
@@ -31,6 +32,18 @@ func TestImportCommand_CallsServiceImport(t *testing.T) {
 	})).Return(&secretServices.ImportResult{ImportedCount: 2}, nil)
 	tc.MockContainer.On("GetSecretService").Return(tc.MockSecretService)
 
+	// Assert the exact args reaching both authorization checks, not just
+	// "some" values — a transposed action/op or swapped principal/vault must
+	// fail this test, not pass it.
+	roles := &testutils.MockRoleAssignmentService{}
+	roles.On("HasDataAction", mock.Anything, tc.TestUserID, tc.TestVaultID, model.ActionSecretsSet).
+		Return(true, nil).Once()
+	policies := &testutils.MockAccessPolicyService{}
+	policies.On("CheckAccess", mock.Anything, tc.TestUserID, model.PolicyResourceSecrets, model.OpImport, tc.TestVaultID).
+		Return(authzServices.AccessAllowed, nil).Once()
+	tc.MockContainer.RoleAssignmentService = roles
+	tc.MockContainer.AccessPolicyService = policies
+
 	tmpFile := t.TempDir() + "/import.json"
 	os.WriteFile(tmpFile, []byte(`{}`), 0o600)
 
@@ -50,6 +63,8 @@ func TestImportCommand_CallsServiceImport(t *testing.T) {
 	err := cmd.Execute()
 	assert.NoError(t, err)
 	tc.MockSecretService.AssertExpectations(t)
+	roles.AssertExpectations(t)
+	policies.AssertExpectations(t)
 }
 
 func TestImportCommand_FileNotFound(t *testing.T) {

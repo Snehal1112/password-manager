@@ -16,6 +16,7 @@ import (
 	"rocketvault/common"
 	"rocketvault/internal/container"
 	"rocketvault/internal/formatter"
+	authzServices "rocketvault/internal/services/authorization"
 	"rocketvault/model"
 )
 
@@ -168,6 +169,18 @@ func TestListCmd_Authorized(t *testing.T) {
 	tc.MockSecretService.On("ListSecrets", mock.Anything, model.NewVaultScope(tc.TestVaultID, uuid.Nil), []string{}).
 		Return([]model.Secret{}, nil)
 
+	// Assert the exact args reaching both authorization checks, not just
+	// "some" values — a transposed action/op or swapped principal/vault must
+	// fail this test, not pass it.
+	roles := &testutils.MockRoleAssignmentService{}
+	roles.On("HasDataAction", mock.Anything, tc.TestUserID, tc.TestVaultID, model.ActionSecretsReadMetadata).
+		Return(true, nil).Once()
+	policies := &testutils.MockAccessPolicyService{}
+	policies.On("CheckAccess", mock.Anything, tc.TestUserID, model.PolicyResourceSecrets, model.OpGet, tc.TestVaultID).
+		Return(authzServices.AccessAllowed, nil).Once()
+	tc.MockContainer.RoleAssignmentService = roles
+	tc.MockContainer.AccessPolicyService = policies
+
 	fmtr, ferr := formatter.New(formatter.FormatTable)
 	assert.NoError(t, ferr)
 	ctx := context.WithValue(tc.Ctx, common.OutputFormatterKey, fmtr)
@@ -179,6 +192,8 @@ func TestListCmd_Authorized(t *testing.T) {
 	err := cmd.Execute()
 	assert.NoError(t, err)
 	tc.MockSecretService.AssertExpectations(t)
+	roles.AssertExpectations(t)
+	policies.AssertExpectations(t)
 }
 
 func TestListCmd_Forbidden(t *testing.T) {
