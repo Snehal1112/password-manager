@@ -323,7 +323,8 @@ details.collapse .inner{padding:8px 12px;font-size:12.5px;color:var(--text2)}
     <a class="sb-item" href="#authentication">Authentication</a>
     <a class="sb-item" href="#jwt-signing">JWT Signing</a>
     <a class="sb-item" href="#users">Users</a>
-    <a class="sb-item" href="#access-policies">RBAC &amp; Policies</a>
+    <a class="sb-item" href="#vault-rbac">Vault RBAC &amp; Roles <span class="sb-badge">v4</span></a>
+    <a class="sb-item" href="#access-policies">Access Policies</a>
     <a class="sb-item" href="#account-roles">Account Roles</a>
     <a class="sb-item" href="#service-accounts">Service Accounts</a>
 
@@ -388,7 +389,7 @@ details.collapse .inner{padding:8px 12px;font-size:12.5px;color:var(--text2)}
       <div class="path-desc">Create a service account and read secrets from your app.</div>
       <div class="path-steps">
         <span class="path-step">service account</span>
-        <span class="path-step">access policy</span>
+        <span class="path-step">role assignment</span>
         <span class="path-step">fetch secret</span>
       </div>
     </div>
@@ -478,7 +479,7 @@ curl -s $BASE/api/v1/health/live   # → {"status":"OK"}</pre>
       <div class="step-num">4</div>
       <div class="step-body">
         <div class="step-title">Store a secret <span class="step-time">~10s</span></div>
-        <div class="step-desc">Secrets are encrypted at rest with AES-256-GCM. Only the owner or admin can read them without an access policy.</div>
+        <div class="step-desc">Secrets are encrypted at rest with AES-256-GCM. Only the owner or admin can read them without a vault role assignment.</div>
         <div class="codewrap">
           <div class="code-hd"><span class="code-lang">bash</span><button class="copy-btn">Copy</button></div>
           <pre class="code with-hd">SECRET_ID=$(curl -s -X POST $BASE/api/v1/secrets \
@@ -503,14 +504,14 @@ echo $SECRET_ID</pre>
 CLIENT_SECRET=$(echo "$SA" | jq -r .client_secret)
 SA_ID=$(echo "$SA" | jq -r .id)
 
-curl -s -X POST $BASE/api/v1/access-policies \
+curl -s -X POST $BASE/api/v1/vaults/default/role-assignments \
   -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
-  -d '{"name":"app-read","principal_id":"'"$SA_ID"'","resource_type":"secret","resource_id":"'"$SECRET_ID"'","actions":["read"]}'</pre>
+  -d '{"principal":"'"$SA_ID"'","principal_type":"service_account","role":"Key Vault Secrets User"}'</pre>
         </div>
         <div class="callout callout-info" style="margin-top:10px">
-          <div class="callout-label">Why access policies?</div>
-          <p>Roles gate broad operations. Access policies grant a specific principal access to a specific resource. A service account with no policies can authenticate but read nothing — principle of least privilege.</p>
+          <div class="callout-label">Why a vault role assignment?</div>
+          <p>Since v4.0.0, granting access to secrets, keys, or certificates goes through a <a href="#vault-rbac">vault role assignment</a>, not an access policy — access policies now only add explicit-deny exceptions. <code>Key Vault Secrets User</code> in the <code>default</code> vault lets <code>my-app</code> read every secret there; a service account with no role assignment can authenticate but read nothing — principle of least privilege.</p>
         </div>
       </div>
     </div>
@@ -535,7 +536,7 @@ curl -s $BASE/api/v1/secrets/$SECRET_ID \
 
   <div class="callout callout-accent" style="margin-top:24px">
     <div class="callout-label">What's next</div>
-    <p><strong style="color:var(--text)">New admins:</strong> Configure users → <a href="#users">User Management</a>, set up RBAC → <a href="#access-policies">RBAC &amp; Policies</a>, enable audit logging → <a href="#audit">Audit &amp; Compliance</a>.<br>
+    <p><strong style="color:var(--text)">New admins:</strong> Configure users → <a href="#users">User Management</a>, set up vault RBAC → <a href="#vault-rbac">Vault RBAC &amp; Role Assignments</a>, enable audit logging → <a href="#audit">Audit &amp; Compliance</a>.<br>
     <strong style="color:var(--text)">Developers:</strong> Multiple secrets → <a href="#consuming">Consuming Secrets</a>, rotate credentials → <a href="#secret-rotation">Secret Rotation</a>, CI/CD → <a href="#cicd">CI/CD</a>.</p>
   </div>
 </section>
@@ -814,21 +815,142 @@ curl -s -X DELETE $BASE/api/v1/users/sessions -H "Authorization: Bearer $TOKEN"<
   <p class="see-also">See also: <a href="../MANUAL_TESTING.md">Manual Testing §7</a></p>
 </section>
 
-<section id="access-policies">
-  <h2>RBAC &amp; Access Policies</h2>
+<section id="vault-rbac">
+  <h2>Vault RBAC &amp; Role Assignments</h2>
   <h3>What it is</h3>
-  <p>Two complementary controls: <strong>roles</strong> gate broad operations, and <strong>access policies</strong> grant a specific principal access to a specific resource — a resource type/id plus allowed actions.</p>
+  <p>Since v4.0.0, vault data-plane authorization matches Azure Key Vault's own RBAC model. A <strong>role assignment</strong> grants a principal — a user or service account, always tenant-global — one of seven built-in roles, scoped to exactly one vault. The assignment carries the vault boundary, not the identity: the same user can be a <code>Key Vault Reader</code> in <code>staging</code> and a <code>Key Vault Administrator</code> in <code>prod</code>. Object ownership (<code>created_by</code>) is retained purely as audit provenance and is never consulted for an access decision.</p>
   <h3>When to use it</h3>
   <ul>
-    <li>Use a <strong>role</strong> when you want to broadly allow/deny a class of operations (e.g. a user who can manage all secrets).</li>
-    <li>Use an <strong>access policy</strong> when you need fine-grained per-resource control (e.g. a service account that can only read one specific secret).</li>
+    <li>Grant access to everything of one kind — all secrets, all keys, or all certificates — within a single vault.</li>
+    <li>A newly created vault starts with <strong>zero</strong> role assignments. Nobody but a global <code>admin</code> can read or write objects in it until someone grants a role.</li>
+  </ul>
+
+  <div class="flow">
+    <div class="flow-title">Authorization order for a vault data-plane request</div>
+    <div class="flow-nodes">
+      <div class="flow-node hl">HTTP Request</div>
+      <div class="flow-arrow">→</div>
+      <div class="flow-node">1. Explicit deny policy?</div>
+      <div class="flow-arrow">match →</div>
+      <div class="flow-node">403</div>
+    </div>
+    <div class="flow-nodes" style="margin-top:8px">
+      <div class="flow-node" style="opacity:.4">no deny match</div>
+      <div class="flow-arrow">→</div>
+      <div class="flow-node hl">2. Role grants this action in this vault?</div>
+      <div class="flow-arrow">no →</div>
+      <div class="flow-node">403</div>
+      <div class="flow-arrow" style="margin-left:16px">yes →</div>
+      <div class="flow-node">200</div>
+    </div>
+    <div class="flow-caption">Secrets, keys, and certificates are deny-by-default: an explicit-deny access policy is checked first and always wins, then the caller's role assignments in the resolved vault are checked. No matching assignment is a 403 — there is no implicit fallback.</div>
+  </div>
+
+  <h3>The seven built-in roles</h3>
+  <table>
+    <thead><tr><th>Role</th><th>Grants</th></tr></thead>
+    <tbody>
+      <tr><td><code>Key Vault Administrator</code></td><td>All data-plane operations on all object types</td></tr>
+      <tr><td><code>Key Vault Reader</code></td><td>Metadata only — no secret values or key material</td></tr>
+      <tr><td><code>Key Vault Secrets User</code></td><td>Get and list secrets, including values</td></tr>
+      <tr><td><code>Key Vault Secrets Officer</code></td><td>Full secret control</td></tr>
+      <tr><td><code>Key Vault Crypto User</code></td><td>Use key material: encrypt, decrypt, sign, verify, wrap, unwrap</td></tr>
+      <tr><td><code>Key Vault Crypto Officer</code></td><td>Full key control, including create, import, delete, rotation</td></tr>
+      <tr><td><code>Key Vault Certificates Officer</code></td><td>Full certificate control</td></tr>
+    </tbody>
+  </table>
+
+  <div class="ep">
+    <div class="ep-hd"><span class="meth meth-post">POST</span> <span class="ep-path">/api/v1/vaults/{vault_name}/role-assignments</span> <span class="ep-auth">JWT · admin</span> <span class="ep-label">Grant a role</span></div>
+    <div class="tab-bar"><button class="tab-btn active">cURL</button><button class="tab-btn">CLI</button><button class="tab-btn">Response</button></div>
+    <div class="tab-pane active"><pre class="code">curl -s -X POST $BASE/api/v1/vaults/prod/role-assignments -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"principal":"alice","role":"Key Vault Secrets Officer"}'</pre></div>
+    <div class="tab-pane"><pre class="code">rocketvault vault-access grant alice --role "Key Vault Secrets Officer" --vault prod \
+  --username admin --password admin123 --totp-code 123456</pre></div>
+    <div class="tab-pane"><pre class="code">{
+  "id": "&lt;uuid&gt;",
+  "principal_id": "&lt;uuid&gt;",
+  "principal_username": "alice",
+  "role": "Key Vault Secrets Officer",
+  "vault_name": "prod",
+  "expanded_policy_count": 8
+}</pre></div>
+    <details class="collapse"><summary>Notes</summary><div class="inner"><code>principal</code> accepts a username or a UUID. <code>principal_type</code> defaults to <code>user</code>; pass <code>"principal_type":"service_account"</code> for machine identities. Re-granting an identical (principal, role, vault) tuple is idempotent — it returns the existing assignment rather than erroring.</div></details>
+  </div>
+
+  <div class="ep">
+    <div class="ep-hd"><span class="meth meth-get">GET</span> <span class="ep-path">/api/v1/vaults/{vault_name}/role-assignments</span> <span class="ep-auth">JWT</span> <span class="ep-label">List assignments in a vault</span></div>
+    <div class="tab-bar"><button class="tab-btn active">cURL</button><button class="tab-btn">CLI</button></div>
+    <div class="tab-pane active"><pre class="code">curl -s $BASE/api/v1/vaults/prod/role-assignments -H "Authorization: Bearer $TOKEN"</pre></div>
+    <div class="tab-pane"><pre class="code">rocketvault vault-access list --vault prod --username admin --password admin123 --totp-code 123456</pre></div>
+  </div>
+
+  <div class="ep">
+    <div class="ep-hd"><span class="meth meth-get">GET</span> <span class="ep-path">/api/v1/vaults/{vault_name}/role-assignments/{id}</span> <span class="ep-auth">JWT</span> <span class="ep-label">Get one</span></div>
+    <div class="tab-bar"><button class="tab-btn active">cURL</button></div>
+    <div class="tab-pane active"><pre class="code">curl -s $BASE/api/v1/vaults/prod/role-assignments/&lt;id&gt; -H "Authorization: Bearer $TOKEN"</pre></div>
+  </div>
+
+  <div class="ep">
+    <div class="ep-hd"><span class="meth meth-delete">DELETE</span> <span class="ep-path">/api/v1/vaults/{vault_name}/role-assignments/{id}</span> <span class="ep-auth">JWT · admin</span> <span class="ep-label">Revoke</span></div>
+    <div class="tab-bar"><button class="tab-btn active">cURL</button><button class="tab-btn">CLI</button></div>
+    <div class="tab-pane active"><pre class="code">curl -s -X DELETE $BASE/api/v1/vaults/prod/role-assignments/&lt;id&gt; -H "Authorization: Bearer $TOKEN"</pre></div>
+    <div class="tab-pane"><pre class="code">rocketvault vault-access revoke &lt;assignment-id&gt; --vault prod --username admin --password admin123 --totp-code 123456</pre></div>
+  </div>
+
+  <div class="codewrap">
+    <div class="code-hd"><span class="code-lang">bash</span><button class="copy-btn">Copy</button></div>
+    <pre class="code with-hd"># List the built-in roles and what each one grants (no auth required)
+rocketvault vault-access roles</pre>
+  </div>
+
+  <div class="callout callout-warn">
+    <div class="callout-label">Out-of-scope is 404, not 403</div>
+    <p>Requesting a resource that exists in another vault returns <code>404 Not Found</code> — the two are indistinguishable by design, so a caller can't use the status code to fingerprint objects it holds no role over. <code>403</code> means: authenticated but no role assignment grants the action in <em>this</em> vault, a disabled vault, or a resource outside its validity window.</p>
+  </div>
+  <div class="callout callout-info">
+    <div class="callout-label">Managing role assignments is currently global-admin-only</div>
+    <p>The handler's own check accepts a per-vault <code>vaults:manage</code> access policy, but a global RBAC gate ahead of it currently rejects non-admins first — a known limitation. For now, only the <code>admin</code> account role can grant or revoke role assignments.</p>
+  </div>
+  <div class="callout callout-warn">
+    <div class="callout-label">Upgrading from a pre-4.0.0 install</div>
+    <p>Run <code>rocketvault vaults preview-migration</code> before starting the new binary — it prints every role assignment the upgrade would create without writing anything. The one-time backfill derives assignments from object ownership, the legacy global <code>admin</code> role, and any pre-existing vault-scoped <code>role_assignments</code> row. It does <strong>not</strong> see access policies created via the old allow-grant API — cross-reference <code>SELECT DISTINCT principal_id, resource_type, operation, vault_id FROM access_policies WHERE effect='allow'</code> against those sources and grant any gaps manually, before or immediately after upgrading.</p>
+  </div>
+  <p class="see-also">See also: <a href="release-notes/v4.0.0-azure-rbac.md">Release Notes — v4.0.0 Azure RBAC</a>, <a href="#access-policies">Access Policies</a></p>
+</section>
+
+<section id="access-policies">
+  <h2>Access Policies</h2>
+  <h3>What it is</h3>
+  <p>An access policy is a rule for one (principal, resource type, operation) triple, optionally scoped to a vault (<code>vault_id: null</code> means global). Since v4.0.0 policies are <strong>evaluated first, as an explicit-deny override</strong>, ahead of every role decision — a deny always wins and can never be outvoted by a role grant. On the three vault data-plane resource types (<code>secrets</code>, <code>keys</code>, <code>certificates</code>) an <code>allow</code>-effect policy no longer grants anything by itself; grant access with a <a href="#vault-rbac">vault role assignment</a> instead. <code>allow</code> still functions for the one remaining resource type, <code>vaults</code> + <code>manage</code>, which gates vault administration.</p>
+  <div class="callout callout-warn">
+    <div class="callout-label">Breaking change in v4.0.0</div>
+    <p>Before v4.0.0, an <code>allow</code> access policy was itself sufficient to grant access. A principal whose only access came from an <code>allow</code> policy on secrets, keys, or certificates loses that access at upgrade — and is invisible to the automatic role-assignment backfill. See the upgrade callout in <a href="#vault-rbac">Vault RBAC &amp; Role Assignments</a>.</p>
+  </div>
+  <h3>When to use it</h3>
+  <ul>
+    <li>Carve out a narrow exception under a broader role grant — e.g. <code>effect: deny</code> one specific secret for a principal who otherwise holds <code>Key Vault Secrets Officer</code> in that vault.</li>
+    <li>Gate vault management (<code>resource_type: vaults</code>, <code>operation: manage</code>) with an <code>allow</code> policy — the one place <code>allow</code> still grants directly.</li>
+    <li>To grant read or write access to secrets, keys, or certificates, use a <a href="#vault-rbac">vault role assignment</a>, not an access policy.</li>
   </ul>
   <div class="ep">
     <div class="ep-hd"><span class="meth meth-post">POST</span> <span class="ep-path">/api/v1/access-policies</span> <span class="ep-auth">JWT</span> <span class="ep-label">Create a policy</span></div>
-    <div class="tab-bar"><button class="tab-btn active">cURL</button></div>
+    <div class="tab-bar"><button class="tab-btn active">cURL</button><button class="tab-btn">Response</button></div>
     <div class="tab-pane active"><pre class="code">curl -s -X POST $BASE/api/v1/access-policies -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
-  -d '{"name":"read-db-secret","principal_id":"&lt;id&gt;","resource_type":"secret","resource_id":"&lt;id&gt;","actions":["read"]}'</pre></div>
+  -d '{"principal_id":"&lt;id&gt;","principal_type":"service_account","resource_type":"secrets","operation":"get","effect":"deny","vault_id":"&lt;vault-id&gt;"}'</pre></div>
+    <div class="tab-pane"><pre class="code">{
+  "id": "&lt;uuid&gt;",
+  "principal_id": "&lt;uuid&gt;",
+  "principal_type": "service_account",
+  "resource_type": "secrets",
+  "operation": "get",
+  "effect": "deny",
+  "vault_id": "&lt;uuid&gt;",
+  "created_at": "2026-06-03T07:44:46Z"
+}</pre></div>
+    <details class="collapse"><summary>Notes</summary><div class="inner">Omit <code>vault_id</code> for a global policy that applies in every vault. <code>resource_type</code> is one of <code>secrets</code>, <code>keys</code>, <code>certificates</code>, <code>vaults</code>; <code>operation</code> one of <code>get</code>, <code>list</code>, <code>set</code>, <code>create</code>, <code>delete</code>, <code>backup</code>, <code>restore</code>, <code>recover</code>, <code>purge</code>, <code>rotate</code>, <code>sign</code>, <code>verify</code>, <code>encrypt</code>, <code>decrypt</code>, <code>import</code>, <code>renew</code>, <code>manage</code>.</div></details>
   </div>
   <div class="ep">
     <div class="ep-hd"><span class="meth meth-get">GET</span> <span class="ep-path">/api/v1/access-policies</span> <span class="ep-auth">JWT</span> <span class="ep-label">List all</span></div>
@@ -841,11 +963,12 @@ curl -s -X DELETE $BASE/api/v1/users/sessions -H "Authorization: Bearer $TOKEN"<
     <div class="tab-pane active"><pre class="code">curl -s $BASE/api/v1/access-policies/&lt;id&gt; -H "Authorization: Bearer $TOKEN"</pre></div>
   </div>
   <div class="ep">
-    <div class="ep-hd"><span class="meth meth-put">PUT</span> <span class="ep-path">/api/v1/access-policies/{id}</span> <span class="ep-auth">JWT</span> <span class="ep-label">Update</span></div>
+    <div class="ep-hd"><span class="meth meth-put">PUT</span> <span class="ep-path">/api/v1/access-policies/{id}</span> <span class="ep-auth">JWT</span> <span class="ep-label">Update the effect</span></div>
     <div class="tab-bar"><button class="tab-btn active">cURL</button></div>
     <div class="tab-pane active"><pre class="code">curl -s -X PUT $BASE/api/v1/access-policies/&lt;id&gt; -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
-  -d '{"actions":["read","update"]}'</pre></div>
+  -d '{"effect":"allow"}'</pre></div>
+    <details class="collapse"><summary>Notes</summary><div class="inner">Update only flips <code>effect</code> between <code>allow</code> and <code>deny</code>. To change the principal, resource, operation, or vault, delete the policy and create a new one.</div></details>
   </div>
   <div class="ep">
     <div class="ep-hd"><span class="meth meth-delete">DELETE</span> <span class="ep-path">/api/v1/access-policies/{id}</span> <span class="ep-auth">JWT</span> <span class="ep-label">Delete</span></div>
@@ -857,13 +980,17 @@ curl -s -X DELETE $BASE/api/v1/users/sessions -H "Authorization: Bearer $TOKEN"<
     <div class="tab-bar"><button class="tab-btn active">cURL</button></div>
     <div class="tab-pane active"><pre class="code">curl -s $BASE/api/v1/access-policies/principal/&lt;id&gt; -H "Authorization: Bearer $TOKEN"</pre></div>
   </div>
-  <p class="see-also">See also: <a href="../MANUAL_TESTING.md">Manual Testing §13</a></p>
+  <p class="see-also">See also: <a href="#vault-rbac">Vault RBAC &amp; Role Assignments</a>, <a href="../MANUAL_TESTING.md">Manual Testing §13</a></p>
 </section>
 
 <section id="account-roles">
   <h2>Account Roles &amp; Permissions</h2>
   <h3>What it is</h3>
-  <p>Every user account carries exactly one <strong>global role</strong>. It gates coarse, account-level operations across the three resource types. This is distinct from the per-vault <strong>vault-scoped roles</strong> (<code>vault-reader</code>, <code>secrets-officer</code>, and so on), which add finer control inside a single vault.</p>
+  <p>Every user account carries exactly one <strong>global role</strong>. It gates coarse, account-level operations — user management, and, for <code>admin</code>, vault administration and flat-route access to every resource type. This is distinct from <a href="#vault-rbac">vault role assignments</a>, which grant fine-grained, per-vault access via the seven Azure built-in roles.</p>
+  <div class="callout callout-info">
+    <div class="callout-label">The old vault-scoped role names are deprecated</div>
+    <p>RocketVault v0.2.0 shipped a first-cut vault-scoped role vocabulary — <code>vault-reader</code>, <code>secrets-officer</code>, <code>crypto-user</code>, and so on. Since v4.0.0 those names are legacy: <code>vault-access grant</code> refuses to hand one out, and holding one grants zero data-plane access. Use one of the <a href="#vault-rbac">seven Azure built-in roles</a> instead.</p>
+  </div>
   <h3>The six roles</h3>
   <table>
     <thead>
@@ -881,11 +1008,11 @@ curl -s -X DELETE $BASE/api/v1/users/sessions -H "Authorization: Bearer $TOKEN"<
   <h3>Notes</h3>
   <ul>
     <li>"Full CRUD" means create, read, update, and delete.</li>
-    <li><code>user</code> and <code>service_account</code> are read-only across all three resource types. They differ only in intent: <code>user</code> is a human login, <code>service_account</code> is a machine identity. Admins create resources and grant finer access via access policies.</li>
+    <li><code>user</code> and <code>service_account</code> are read-only across all three resource types on flat routes. They differ only in intent: <code>user</code> is a human login, <code>service_account</code> is a machine identity. Admins create resources and grant finer, per-vault access via <a href="#vault-rbac">vault role assignments</a>.</li>
     <li>A manager role grants full CRUD on its one resource type and nothing on the others. <code>secrets_manager</code> cannot even read keys or certificates.</li>
     <li>Unknown roles get zero permissions. The check denies by default.</li>
   </ul>
-  <p class="see-also">See also: <a href="#access-policies">RBAC &amp; Access Policies</a></p>
+  <p class="see-also">See also: <a href="#vault-rbac">Vault RBAC &amp; Role Assignments</a>, <a href="#access-policies">Access Policies</a></p>
 </section>
 
 <section id="service-accounts">
@@ -1221,9 +1348,13 @@ curl -s -X POST $BASE/api/v1/keys -H "Authorization: Bearer $TOKEN" \
     <thead><tr><th>Route family</th><th>Example</th><th>Visibility</th></tr></thead>
     <tbody>
       <tr><td>Flat</td><td><code>GET /api/v1/secrets</code></td><td>Per-user (owner only)</td></tr>
-      <tr><td>Vault-scoped</td><td><code>GET /api/v1/vaults/{name}/secrets</code></td><td>Members see all</td></tr>
+      <tr><td>Vault-scoped</td><td><code>GET /api/v1/vaults/{name}/secrets</code></td><td>Any caller holding a <a href="#vault-rbac">role assignment</a> in that vault that grants the action — not just membership</td></tr>
     </tbody>
   </table>
+  <div class="callout callout-info">
+    <div class="callout-label">Visibility is role-gated, not vault-gated</div>
+    <p>Since v4.0.0, "can see this vault's objects" means "holds a role assignment granting the relevant data action in this vault" — see <a href="#vault-rbac">Vault RBAC &amp; Role Assignments</a> for the full authorization order and the seven built-in roles. A vault with no role assignments is invisible to every principal except a global <code>admin</code>.</p>
+  </div>
   <div class="ep">
     <div class="ep-hd"><span class="meth meth-post">POST</span> <span class="ep-path">/api/v1/vaults</span> <span class="ep-auth">JWT · admin</span> <span class="ep-label">Create a vault</span></div>
     <div class="tab-bar"><button class="tab-btn active">cURL</button><button class="tab-btn">Response</button></div>
@@ -1575,7 +1706,7 @@ curl -s $API_URL/secrets/&lt;uuid&gt; -H "Authorization: Bearer $TOKEN" | jq -r 
     description) is maintained in the Manual Testing Guide and kept in sync with the router.</p>
   <p class="see-also">Full table:
     <a href="../MANUAL_TESTING.md#quick-reference--all-endpoints">MANUAL_TESTING.md — All Endpoints</a></p>
-  <p>Subsystems: vaults, secrets (+ versions, generate, export/import, item backup), users
+  <p>Subsystems: vaults (+ role-assignments), secrets (+ versions, generate, export/import, item backup), users
     (+ sessions), keys (+ wrap/unwrap, sign/verify, encrypt/decrypt, rotate, versions),
     certificates (+ policy), deleted (restore/purge), access-policies, service-accounts,
     audit (logs, SOC2/GDPR, config), oauth2/token, jwks (+ rotate), config, health.</p>
@@ -1596,7 +1727,8 @@ curl -s $API_URL/secrets/&lt;uuid&gt; -H "Authorization: Bearer $TOKEN" | jq -r 
 │   └── rotation (create | list | update | delete | assign | unassign | rotate | history | status)
 ├── keys   (create | list | get | update | delete | rotate | wrap | unwrap)
 ├── certificate (create | list | get | update | delete | renew)
-├── vaults (create | list | get | update | delete | recover | purge)
+├── vaults (create | list | get | update | delete | recover | purge | preview-migration)
+├── vault-access (grant | list | revoke | roles)
 ├── backup (create | list | restore)
 ├── audit  (logs | report | config)
 └── env
@@ -1615,6 +1747,9 @@ Persistent flags: --config, --username, --password, --totp-code, --output {table
       <tr><td>JWKS rotate returns 400</td><td><code>os_store</code> provider</td><td>Rotation needs <code>self_pki</code> (§6)</td></tr>
       <tr><td><code>429 Too Many Requests</code></td><td>Rate limit hit</td><td>Back off; tune <code>rate_limit.*</code> (§21)</td></tr>
       <tr><td>Login rejected after restart</td><td>JWT key changed</td><td>Ensure keychain/PEM persisted (§6)</td></tr>
+      <tr><td><code>403</code> on a <code>/vaults/{name}/...</code> route</td><td>No role assignment grants that action in that vault</td><td>Grant one: <code>rocketvault vault-access grant &lt;principal&gt; --role "Key Vault ..." --vault &lt;name&gt;</code> (<a href="#vault-rbac">Vault RBAC</a>)</td></tr>
+      <tr><td><code>404</code> on a resource you expect to exist</td><td>It's in a different vault — 404 and "no access" are indistinguishable by design</td><td>Confirm the vault name in the path; see <a href="#vault-rbac">Vault RBAC</a></td></tr>
+      <tr><td>Lost access to a secret after upgrading to v4.0.0</td><td>Access was granted only via an <code>allow</code> access policy — invisible to the role-assignment backfill</td><td>Grant the equivalent <a href="#vault-rbac">vault role</a> manually; see the upgrade callout</td></tr>
     </tbody>
   </table>
   <p class="see-also">See also: <a href="../doc/troubleshooting.markdown">Troubleshooting</a></p>
@@ -1630,6 +1765,8 @@ Persistent flags: --config, --username, --password, --totp-code, --output {table
     <li>JWT signing key persists across restarts (keychain or 0600 PEM) — never in <code>/etc/ssl/certs</code>.</li>
     <li>Audit retention configured; verify <code>integrity_ok</code> on audit queries.</li>
     <li>Purge protection enabled for sensitive vaults.</li>
+    <li>Vault role assignments reviewed per vault (<code>rocketvault vault-access list --vault &lt;name&gt;</code>) — no principal holds more than it needs.</li>
+    <li>Before upgrading to v4.0.0+, ran <code>rocketvault vaults preview-migration</code> and checked for <code>allow</code>-only access policies invisible to the backfill (<a href="#vault-rbac">Vault RBAC</a>).</li>
   </ul>
   <p class="see-also">See also: <a href="../doc/security.markdown">Security Notes</a></p>
 </section>
