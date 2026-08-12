@@ -259,19 +259,224 @@ If it works, you will see `Login successful` and a long token string. You are re
 
 ---
 
+## Managing Vaults
+
+A **vault** is an isolated security boundary inside one RocketVault instance — its own secrets, keys, and certificates, completely separate from any other vault. Every RocketVault instance comes with a `default` vault that is used automatically whenever you don't specify one. Admins can create additional named vaults to keep different teams, applications, or environments (for example `prod`, `staging`, or `team-billing`) fully separate from each other.
+
+### Choosing which vault a command applies to
+
+Every resource command (`secrets`, `keys`, `certificate`, `vault-access`) accepts a `--vault` flag — with one exception: `certificate create` currently ignores it and always uses the `default` vault (see [Managing Certificates](#managing-certificates) below). If you leave `--vault` out elsewhere, RocketVault picks a vault in this order: the `--vault` flag, then the `ROCKETVAULT_VAULT` environment variable, then a `vault` key in your config file, and finally the `default` vault.
+
+```
+go run main.go secrets list \
+  --username admin --password admin123 --totp-code 123456 \
+  --vault prod
+```
+
+> If you only ever use the `default` vault, you can ignore `--vault` entirely — every other example in this guide already runs against it.
+
+### Create a vault
+
+Requires being an admin or holding a global `vaults:manage` grant.
+
+```
+go run main.go vaults create prod \
+  --username admin --password admin123 --totp-code 123456
+```
+
+**With purge protection and a custom retention period:**
+
+```
+go run main.go vaults create prod \
+  --username admin --password admin123 --totp-code 123456 \
+  --purge-protection --retention-days 30
+```
+
+- `--purge-protection` — once set, the vault cannot be purged (permanently destroyed) by anyone, even an admin, until protection is turned off again.
+- `--retention-days` — how many days a soft-deleted vault (and its contents) stays recoverable before it can be purged.
+
+**What you will see:**
+
+```
+ID                                    NAME  ENABLED  PURGEPROTECTION  RETENTIONDAYS  CREATED
+3fa11c9e-...                          prod  true     true             30             2026-08-12T10:15:00Z
+```
+
+### See all vaults
+
+Just requires being logged in — no extra role needed to view the list.
+
+```
+go run main.go vaults list \
+  --username admin --password admin123 --totp-code 123456
+```
+
+**Include soft-deleted vaults:**
+
+```
+go run main.go vaults list --include-deleted \
+  --username admin --password admin123 --totp-code 123456
+```
+
+### Look up a specific vault
+
+Also just requires being logged in.
+
+```
+go run main.go vaults get prod \
+  --username admin --password admin123 --totp-code 123456
+```
+
+### Change a vault's settings
+
+Requires admin or a `vaults:manage` grant scoped to that vault.
+
+```
+go run main.go vaults update prod --retention-days 60 \
+  --username admin --password admin123 --totp-code 123456
+```
+
+**Disable a vault (blocks activity without deleting anything):**
+
+```
+go run main.go vaults update prod --enabled=false \
+  --username admin --password admin123 --totp-code 123456
+```
+
+### Delete a vault
+
+This is a **soft delete** — the vault and everything in it (secrets, keys, certificates) is marked deleted but kept around, recoverable with `vaults recover`, until someone purges it or its retention period runs out. Requires admin or `vaults:manage`.
+
+```
+go run main.go vaults delete prod \
+  --username admin --password admin123 --totp-code 123456
+```
+
+> The `default` vault can never be deleted or purged — RocketVault refuses the request no matter who asks.
+
+### Recover a deleted vault
+
+Restores a soft-deleted vault and everything that was deleted along with it. Same permission as delete.
+
+```
+go run main.go vaults recover prod \
+  --username admin --password admin123 --totp-code 123456
+```
+
+### Permanently purge a vault
+
+> **This cannot be undone.** Purging removes the vault and its contents for good — unlike `delete`, there is no recovering from a purge. Requires admin or the **Key Vault Purge Operator** role (see [Vault Access & Roles](#vault-access--roles) below).
+
+```
+go run main.go vaults purge prod \
+  --username admin --password admin123 --totp-code 123456
+```
+
+Purge is normally used on a vault you already soft-deleted, but if no soft-deleted vault by that name exists, RocketVault purges the currently active one instead — so double-check the name before running this. A vault created with `--purge-protection` refuses to be purged until protection is turned off with `vaults update prod --purge-protection=false`.
+
+### Preview what an upgrade would grant (admins, before upgrading)
+
+`vaults preview-migration` is a read-only command, usable without logging in, meant for administrators upgrading RocketVault to a version that introduces per-vault roles. It prints the role assignments the upgrade would automatically create from existing ownership (for example, "you own secrets in `prod`, so you'd get `Key Vault Secrets Officer` there") without changing anything. Run it before upgrading and confirm everyone who needs access appears in the output for the vaults they need.
+
+```
+go run main.go vaults preview-migration
+```
+
+---
+
+## Vault Access & Roles
+
+Having access to RocketVault at all — even being an **admin** — does not automatically give you access to what's stored *inside* a specific vault. Reading or writing a vault's secrets, keys, or certificates always requires an explicit role assignment in that vault. This keeps one team's vault private from another team's account unless someone deliberately grants access.
+
+> This applies to the *data* inside a vault. Vault-management actions like creating, listing, or updating the vault itself remain available to global admins without a separate grant — see [Managing Vaults](#managing-vaults) above.
+
+### Grant a role to someone
+
+Requires being an admin, holding a global `vaults:manage` grant, or already holding **Key Vault Data Access Administrator** in that vault.
+
+```
+go run main.go vault-access grant alice --role "Key Vault Secrets User" --vault prod \
+  --username admin --password admin123 --totp-code 123456
+```
+
+**Granting a role to a service account instead of a person:**
+
+```
+go run main.go vault-access grant my-svc --role "Key Vault Crypto User" --principal-type service_account --vault prod \
+  --username admin --password admin123 --totp-code 123456
+```
+
+### See who has access to a vault
+
+Same permission as granting.
+
+```
+go run main.go vault-access list --vault prod \
+  --username admin --password admin123 --totp-code 123456
+```
+
+**Example output:**
+
+```
+ASSIGNMENT-ID                         ROLE                     PRINCIPAL-ID
+7d2e1a4b-...                          Key Vault Secrets User    a1b2c3d4-...
+```
+
+### Take away someone's access
+
+```
+go run main.go vault-access revoke 7d2e1a4b-... --vault prod \
+  --username admin --password admin123 --totp-code 123456
+```
+
+Replace the long ID with the `ASSIGNMENT-ID` shown by `vault-access list`.
+
+### See what roles are available
+
+No login required — this just lists the built-in roles and exactly what each one grants.
+
+```
+go run main.go vault-access roles
+```
+
+### Available roles
+
+| Role | What it grants |
+|---|---|
+| Key Vault Administrator | Everything — full read/write access to secrets, keys, and certificates in the vault. |
+| Key Vault Reader | Metadata only (names, tags, enabled state) — never secret values or key material. |
+| Key Vault Secrets User | Read secrets, including their actual values. Cannot create, change, or delete them. |
+| Key Vault Secrets Officer | Full control of secrets — create, read, update, delete, back up, restore. |
+| Key Vault Crypto User | Use existing keys — encrypt, decrypt, sign, verify, wrap, unwrap. Cannot create or delete keys. |
+| Key Vault Crypto Officer | Full control of keys — everything Crypto User can do, plus create, delete, and rotate. |
+| Key Vault Certificates Officer | Full control of certificates — create, update, delete, back up, restore. |
+| Key Vault Purge Operator | Permanently purge a soft-deleted vault. Nothing else. |
+| Key Vault Certificate User | Read certificates. |
+| Key Vault Crypto Service Encryption User | Read key metadata and wrap/unwrap with it — a narrower version of Crypto User. |
+| Key Vault Data Access Administrator | Grant and revoke other people's roles in the vault. Gets no access to secrets, keys, or certificates itself. |
+
+> `vault-access roles` may also list a few older role names (like `vault-reader` or `secrets-officer`) marked "deprecated." Those are left over from an earlier version of RocketVault and can no longer be granted — use the roles in the table above instead.
+
+These roles are what actually gate access once you're in a vault — see [Managing Secrets](#managing-secrets), [Managing Cryptographic Keys](#managing-cryptographic-keys), and [Managing Certificates](#managing-certificates) below for how each command checks them.
+
+---
+
 ## Managing Secrets
 
 A **secret** is any piece of sensitive information: a password, an API key, a database connection string, etc.
+
+Secrets always live inside a vault. Every command below — `create`, `get`, `list`, `update`, `delete`, `export`, and `import` — defaults to the `default` vault unless you add `--vault <name>`, e.g. `--vault production`. You'll need a role assignment on that vault that grants the matching permission; a couple of examples below show the flag, and it works the same way on the rest. (`generate-password` just makes up a random string locally, so it doesn't take `--vault` at all.)
 
 ### Save a new secret
 
 ```
 go run main.go secrets create my-database-password "MySecretValue123" \
-  --username admin --password admin123 --totp-code 123456
+  --username admin --password admin123 --totp-code 123456 --vault production
 ```
 
 - `my-database-password` — a name you choose so you can find it later
 - `"MySecretValue123"` — the actual secret value to store
+- `--vault production` — optional; creates the secret in the `production` vault instead of `default`
 
 **With labels (called tags) to help organise:**
 
@@ -304,10 +509,10 @@ Each secret has a unique ID (shown when you list them — looks like `9b8ead4b-7
 
 ```
 go run main.go secrets get 9b8ead4b-7e88-430a-982c-bec891eed705 \
-  --username admin --password admin123 --totp-code 123456
+  --username admin --password admin123 --totp-code 123456 --vault production
 ```
 
-Replace the long ID with the actual ID of the secret you want.
+Replace the long ID with the actual ID of the secret you want, and make sure `--vault` matches the vault it was created in — the same ID won't be found under a different vault.
 
 ### Change a secret's value
 
@@ -466,7 +671,9 @@ go run main.go secrets rotation history \
 
 > This section is for technical users who need to manage RSA or ECDSA keys. If you are not sure what these are, you likely do not need this section.
 
-Requires admin or secrets_manager role.
+Every `keys` subcommand (`create`, `get`, `list`, `update`, `delete`, `rotate`, `wrap`, `unwrap`) checks your access against the target vault — you need a role assignment in that vault that grants the matching permission (for example, `Key Vault Crypto Officer` for create/update/delete/rotate, or `Key Vault Crypto User` for wrap/unwrap). **There is no admin bypass**: holding RocketVault's global admin role does not by itself grant access to keys in a vault — you still need an explicit per-vault role assignment. See "Vault Access & Roles" for how to grant these. `keys create` additionally requires your account to hold the global `admin` or `secrets_manager` role on top of the per-vault check.
+
+All `keys` subcommands accept an optional `--vault <name>` flag to target a specific vault; if omitted, RocketVault uses the `default` vault.
 
 ### Create a key
 
@@ -477,7 +684,8 @@ go run main.go keys create \
   --username admin --password admin123 --totp-code 123456 \
   --name my-rsa-key \
   --type RSA \
-  --bits 2048
+  --bits 2048 \
+  --vault my-team-vault
 ```
 
 **ECDSA key:**
@@ -494,7 +702,8 @@ go run main.go keys create \
 
 ```
 go run main.go keys list \
-  --username admin --password admin123 --totp-code 123456
+  --username admin --password admin123 --totp-code 123456 \
+  --vault my-team-vault
 ```
 
 ### Replace a key with a new one (rotate)
@@ -552,13 +761,15 @@ go run main.go keys unwrap \
 
 The command prints the original DEK in base64.
 
-> Only the owner of the vault key (or an admin) can wrap or unwrap with it. The algorithm used is RSA-OAEP with SHA-256.
+> Wrapping and unwrapping require a role assignment on the target vault that grants the wrap/unwrap permission — for example `Key Vault Crypto User` or `Key Vault Crypto Service Encryption User`. There is no owner or admin shortcut: even the key's creator or a global admin needs that role assignment to wrap or unwrap with it. The algorithm used is RSA-OAEP with SHA-256.
 
 ---
 
 ## Managing Certificates
 
 > This section is for technical users who need to manage X.509 certificates (used for TLS/HTTPS). Requires admin or certificate_manager role.
+
+Most certificate commands (`list`, `get`, `update`, `renew`, `delete`) accept an optional `--vault <name>` flag to target a specific vault; if omitted, RocketVault uses the `default` vault. You'll need the matching role assignment on that vault.
 
 ### Create a self-signed certificate
 
@@ -571,6 +782,8 @@ go run main.go certificate create \
 ```
 
 `--validity-days 365` means the certificate is valid for one year.
+
+> **Note:** `certificate create` does not yet support `--vault` — it always creates the certificate in the `default` vault, regardless of any `--vault` flag you pass. This will be wired up in a future release.
 
 ### Create a certificate with automatic renewal
 
@@ -607,7 +820,8 @@ go run main.go certificate create \
 
 ```
 go run main.go certificate list \
-  --username admin --password admin123 --totp-code 123456
+  --username admin --password admin123 --totp-code 123456 \
+  --vault my-team-vault
 ```
 
 The output includes `expires_at`, `auto_renew`, and `renewal_days` for each certificate.
@@ -634,7 +848,8 @@ go run main.go certificate update CERT-ID-HERE \
 ```
 go run main.go certificate renew CERT-ID-HERE \
   --username admin --password admin123 --totp-code 123456 \
-  --validity-days 365
+  --validity-days 365 \
+  --vault my-team-vault
 ```
 
 ### Delete a certificate
