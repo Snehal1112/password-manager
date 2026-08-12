@@ -12,6 +12,7 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 
+	"rocketvault/cmd/vaultcli"
 	"rocketvault/common"
 	"rocketvault/internal/container"
 	"rocketvault/internal/logging"
@@ -81,6 +82,12 @@ var updateCmd = &cobra.Command{
 		}
 		certService := serviceContainer.GetCertificateService()
 
+		vaultID, err := vaultcli.RequireDataAction(ctx, cmd, serviceContainer, claims.UserID, model.ActionCertificatesUpdate, model.OpSet)
+		if err != nil {
+			log.LogAuditError(claims.UserID.String(), "update_certificate", "failed", fmt.Sprintf("authorization failed: %s", err), err)
+			return fmt.Errorf("failed to update certificate: %w", err)
+		}
+
 		var namePtr *string
 		if name != "" {
 			namePtr = &name
@@ -88,7 +95,7 @@ var updateCmd = &cobra.Command{
 
 		req := certServices.UpdateCertificateRequest{
 			CertID:      certID,
-			Scope:       model.NewOwnerScope(uuid.Nil, claims.UserID),
+			Scope:       model.NewVaultScope(vaultID, claims.UserID),
 			Name:        namePtr,
 			Tags:        tags,
 			AutoRenew:   autoRenewPtr,

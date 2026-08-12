@@ -1154,18 +1154,18 @@ func TestCertUpdateCmd_NoServiceContainer(t *testing.T) {
 }
 
 func TestCertUpdateCmd_SuccessWithNameUpdate(t *testing.T) {
+	tc := testutils.NewTestContext(t)
 	certSvc := &certCmdCertService{}
-	userID := uuid.New()
 	certID := uuid.New()
 	certSvc.On("UpdateCertificate", mock.Anything, mock.MatchedBy(func(r certServices.UpdateCertificateRequest) bool {
-		return r.CertID == certID && r.Scope == model.NewOwnerScope(uuid.Nil, userID) && r.Name != nil && *r.Name == "newname"
+		return r.CertID == certID && r.Scope == model.NewVaultScope(tc.TestVaultID, tc.TestUserID) && r.Name != nil && *r.Name == "newname"
 	})).Return(nil)
 
 	sc := &certsTestContainer{
-		MockServiceContainer: &testutils.MockServiceContainer{},
+		MockServiceContainer: tc.MockContainer,
 		certSvc:              certSvc,
 	}
-	claims := &model.Claims{UserID: userID, Role: model.RoleAdmin}
+	claims := &model.Claims{UserID: tc.TestUserID, Role: model.RoleAdmin}
 	ctx := context.WithValue(context.Background(), common.ClaimsKey, claims)
 	ctx = context.WithValue(ctx, common.LogKey, newCertLogger())
 	ctx = context.WithValue(ctx, common.ServiceContainerKey, sc)
@@ -1191,18 +1191,18 @@ func TestCertUpdateCmd_SuccessWithNameUpdate(t *testing.T) {
 }
 
 func TestCertUpdateCmd_SuccessWithAutoRenewFlagChanged(t *testing.T) {
+	tc := testutils.NewTestContext(t)
 	certSvc := &certCmdCertService{}
-	userID := uuid.New()
 	certID := uuid.New()
 	certSvc.On("UpdateCertificate", mock.Anything, mock.MatchedBy(func(r certServices.UpdateCertificateRequest) bool {
 		return r.CertID == certID && r.AutoRenew != nil && *r.AutoRenew == true
 	})).Return(nil)
 
 	sc := &certsTestContainer{
-		MockServiceContainer: &testutils.MockServiceContainer{},
+		MockServiceContainer: tc.MockContainer,
 		certSvc:              certSvc,
 	}
-	claims := &model.Claims{UserID: userID, Role: model.RoleAdmin}
+	claims := &model.Claims{UserID: tc.TestUserID, Role: model.RoleAdmin}
 	ctx := context.WithValue(context.Background(), common.ClaimsKey, claims)
 	ctx = context.WithValue(ctx, common.LogKey, newCertLogger())
 	ctx = context.WithValue(ctx, common.ServiceContainerKey, sc)
@@ -1228,18 +1228,18 @@ func TestCertUpdateCmd_SuccessWithAutoRenewFlagChanged(t *testing.T) {
 }
 
 func TestCertUpdateCmd_SuccessWithRenewalDaysFlagChanged(t *testing.T) {
+	tc := testutils.NewTestContext(t)
 	certSvc := &certCmdCertService{}
-	userID := uuid.New()
 	certID := uuid.New()
 	certSvc.On("UpdateCertificate", mock.Anything, mock.MatchedBy(func(r certServices.UpdateCertificateRequest) bool {
 		return r.CertID == certID && r.RenewalDays != nil && *r.RenewalDays == 60
 	})).Return(nil)
 
 	sc := &certsTestContainer{
-		MockServiceContainer: &testutils.MockServiceContainer{},
+		MockServiceContainer: tc.MockContainer,
 		certSvc:              certSvc,
 	}
-	claims := &model.Claims{UserID: userID, Role: model.RoleAdmin}
+	claims := &model.Claims{UserID: tc.TestUserID, Role: model.RoleAdmin}
 	ctx := context.WithValue(context.Background(), common.ClaimsKey, claims)
 	ctx = context.WithValue(ctx, common.LogKey, newCertLogger())
 	ctx = context.WithValue(ctx, common.ServiceContainerKey, sc)
@@ -1264,16 +1264,16 @@ func TestCertUpdateCmd_SuccessWithRenewalDaysFlagChanged(t *testing.T) {
 }
 
 func TestCertUpdateCmd_ServiceError(t *testing.T) {
+	tc := testutils.NewTestContext(t)
 	certSvc := &certCmdCertService{}
-	userID := uuid.New()
 	certID := uuid.New()
 	certSvc.On("UpdateCertificate", mock.Anything, mock.Anything).Return(fmt.Errorf("update failed"))
 
 	sc := &certsTestContainer{
-		MockServiceContainer: &testutils.MockServiceContainer{},
+		MockServiceContainer: tc.MockContainer,
 		certSvc:              certSvc,
 	}
-	claims := &model.Claims{UserID: userID, Role: model.RoleAdmin}
+	claims := &model.Claims{UserID: tc.TestUserID, Role: model.RoleAdmin}
 	ctx := context.WithValue(context.Background(), common.ClaimsKey, claims)
 	ctx = context.WithValue(ctx, common.LogKey, newCertLogger())
 	ctx = context.WithValue(ctx, common.ServiceContainerKey, sc)
@@ -1295,6 +1295,91 @@ func TestCertUpdateCmd_ServiceError(t *testing.T) {
 	err := cmd.Execute()
 	assert.ErrorContains(t, err, "failed to update certificate")
 	certSvc.AssertExpectations(t)
+}
+
+func TestCertUpdateCmd_Denied(t *testing.T) {
+	tc := testutils.NewTestContext(t)
+	certSvc := &certCmdCertService{}
+	certID := uuid.New()
+
+	denyRoles := &testutils.MockRoleAssignmentService{}
+	denyRoles.On("HasDataAction", mock.Anything, mock.Anything, mock.Anything, mock.Anything).
+		Return(false, nil).Maybe()
+	tc.MockContainer.RoleAssignmentService = denyRoles
+
+	sc := &certsTestContainer{
+		MockServiceContainer: tc.MockContainer,
+		certSvc:              certSvc,
+	}
+	claims := &model.Claims{UserID: tc.TestUserID, Role: model.RoleAdmin}
+	ctx := context.WithValue(context.Background(), common.ClaimsKey, claims)
+	ctx = context.WithValue(ctx, common.LogKey, newCertLogger())
+	ctx = context.WithValue(ctx, common.ServiceContainerKey, sc)
+
+	cleanup := viperSetCert(map[string]interface{}{"cert-update-name": "n", "cert-update-tags": ""})
+	defer cleanup()
+
+	cmd := &cobra.Command{Use: "test", Args: cobra.ExactArgs(1), RunE: updateCmd.RunE}
+	var buf bytes.Buffer
+	cmd.SetOut(&buf)
+	cmd.SetErr(&buf)
+	cmd.Flags().String("name", "", "")
+	cmd.Flags().String("tags", "", "")
+	cmd.Flags().Bool("auto-renew", false, "")
+	cmd.Flags().Int("renewal-days", 0, "")
+	cmd.SetArgs([]string{certID.String()})
+	cmd.SetContext(ctx)
+
+	err := cmd.Execute()
+	assert.ErrorContains(t, err, "failed to update certificate")
+	certSvc.AssertNotCalled(t, "UpdateCertificate", mock.Anything, mock.Anything)
+}
+
+func TestCertUpdateCmd_Authorized(t *testing.T) {
+	tc := testutils.NewTestContext(t)
+	certSvc := &certCmdCertService{}
+	certID := uuid.New()
+	certSvc.On("UpdateCertificate", mock.Anything, mock.MatchedBy(func(r certServices.UpdateCertificateRequest) bool {
+		return r.CertID == certID && r.Scope == model.NewVaultScope(tc.TestVaultID, tc.TestUserID) && r.Name != nil && *r.Name == "newname"
+	})).Return(nil)
+
+	roles := &testutils.MockRoleAssignmentService{}
+	roles.On("HasDataAction", mock.Anything, tc.TestUserID, tc.TestVaultID, model.ActionCertificatesUpdate).
+		Return(true, nil).Once()
+	policies := &testutils.MockAccessPolicyService{}
+	policies.On("CheckAccess", mock.Anything, tc.TestUserID, model.PolicyResourceCertificates, model.OpSet, tc.TestVaultID).
+		Return(authzServices.AccessAllowed, nil).Once()
+	tc.MockContainer.RoleAssignmentService = roles
+	tc.MockContainer.AccessPolicyService = policies
+
+	sc := &certsTestContainer{
+		MockServiceContainer: tc.MockContainer,
+		certSvc:              certSvc,
+	}
+	claims := &model.Claims{UserID: tc.TestUserID, Role: model.RoleAdmin}
+	ctx := context.WithValue(context.Background(), common.ClaimsKey, claims)
+	ctx = context.WithValue(ctx, common.LogKey, newCertLogger())
+	ctx = context.WithValue(ctx, common.ServiceContainerKey, sc)
+
+	cleanup := viperSetCert(map[string]interface{}{"cert-update-name": "newname", "cert-update-tags": ""})
+	defer cleanup()
+
+	cmd := &cobra.Command{Use: "test", Args: cobra.ExactArgs(1), RunE: updateCmd.RunE}
+	var buf bytes.Buffer
+	cmd.SetOut(&buf)
+	cmd.SetErr(&buf)
+	cmd.Flags().String("name", "", "")
+	cmd.Flags().String("tags", "", "")
+	cmd.Flags().Bool("auto-renew", false, "")
+	cmd.Flags().Int("renewal-days", 0, "")
+	cmd.SetArgs([]string{certID.String()})
+	cmd.SetContext(ctx)
+
+	err := cmd.Execute()
+	assert.NoError(t, err)
+	certSvc.AssertExpectations(t)
+	roles.AssertExpectations(t)
+	policies.AssertExpectations(t)
 }
 
 // ========== formatOptionalTime tests ==========
