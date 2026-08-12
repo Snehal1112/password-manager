@@ -147,6 +147,18 @@ func (m *mockCertSvcForRenewal) ValidateKeyOwnership(ctx context.Context, keyID,
 	panic("not called")
 }
 
+func (m *mockCertSvcForRenewal) ListDeletedCertificates(ctx context.Context, scope model.Scope) ([]model.Certificate, error) {
+	panic("not called")
+}
+
+func (m *mockCertSvcForRenewal) RecoverCertificate(ctx context.Context, certID uuid.UUID, scope model.Scope) error {
+	panic("not called")
+}
+
+func (m *mockCertSvcForRenewal) PurgeCertificate(ctx context.Context, certID uuid.UUID, scope model.Scope) error {
+	panic("not called")
+}
+
 // newTestLogger creates a minimal logger for unit tests.
 func newTestLogger() *logging.Logger {
 	return &logging.Logger{Logger: logrus.New()}

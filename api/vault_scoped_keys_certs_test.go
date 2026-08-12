@@ -152,6 +152,15 @@ func (s *recordingCertService) ValidateCertificateAccess(context.Context, uuid.U
 func (s *recordingCertService) ValidateKeyOwnership(context.Context, uuid.UUID, uuid.UUID, string) error {
 	panic("unexpected")
 }
+func (s *recordingCertService) ListDeletedCertificates(context.Context, model.Scope) ([]model.Certificate, error) {
+	panic("unexpected")
+}
+func (s *recordingCertService) RecoverCertificate(context.Context, uuid.UUID, model.Scope) error {
+	panic("unexpected")
+}
+func (s *recordingCertService) PurgeCertificate(context.Context, uuid.UUID, model.Scope) error {
+	panic("unexpected")
+}
 
 // recordingCryptoService records the scope used for each of the six crypto
 // operations, so tests can assert vault-scoped routes authorize by vault

@@ -307,3 +307,96 @@ func TestRenewCertificate_Succeeds_WhenKeyIDSet(t *testing.T) {
 	certRepo.AssertExpectations(t)
 	keyRepo.AssertExpectations(t)
 }
+
+// TestListDeletedCertificates_FiltersInSQLNotInGo verifies ListDeletedCertificates
+// delegates straight to the scope-aware List with OnlyDeleted.
+func TestListDeletedCertificates_FiltersInSQLNotInGo(t *testing.T) {
+	scope := model.NewVaultScope(uuid.New(), uuid.New())
+	now := time.Now()
+	want := []model.Certificate{{ID: uuid.New(), Name: "cert", DeletedAt: &now}}
+
+	repo := &mockCertRepository{}
+	repo.On("List", mock.Anything, scope, repositories.CertificateFilter{OnlyDeleted: true}).Return(want, nil)
+
+	logger := &logging.Logger{Logger: logrus.New()}
+	svc := NewCertificateService(CertificateServiceConfig{CertificateRepository: repo, Logger: logger})
+
+	got, err := svc.ListDeletedCertificates(context.Background(), scope)
+	assert.NoError(t, err)
+	assert.Equal(t, want, got)
+	repo.AssertExpectations(t)
+}
+
+// TestRecoverCertificate_RequiresTheCertToBeInScope verifies RecoverCertificate
+// rejects a cert ID not in the scope's soft-deleted listing.
+func TestRecoverCertificate_RequiresTheCertToBeInScope(t *testing.T) {
+	scope := model.NewVaultScope(uuid.New(), uuid.New())
+	certID := uuid.New()
+
+	repo := &mockCertRepository{}
+	repo.On("List", mock.Anything, scope, repositories.CertificateFilter{OnlyDeleted: true}).Return([]model.Certificate{}, nil)
+
+	logger := &logging.Logger{Logger: logrus.New()}
+	svc := NewCertificateService(CertificateServiceConfig{CertificateRepository: repo, Logger: logger})
+
+	err := svc.RecoverCertificate(context.Background(), certID, scope)
+	assert.ErrorIs(t, err, ErrCertNotFound)
+	repo.AssertNotCalled(t, "RecoverCertificate", mock.Anything, mock.Anything)
+}
+
+// TestRecoverCertificate_RecoversWhenInScope verifies RecoverCertificate calls
+// the repository's RecoverCertificate once the cert is confirmed in scope.
+func TestRecoverCertificate_RecoversWhenInScope(t *testing.T) {
+	scope := model.NewVaultScope(uuid.New(), uuid.New())
+	certID := uuid.New()
+	now := time.Now()
+
+	repo := &mockCertRepository{}
+	repo.On("List", mock.Anything, scope, repositories.CertificateFilter{OnlyDeleted: true}).
+		Return([]model.Certificate{{ID: certID, Name: "cert", DeletedAt: &now}}, nil)
+	repo.On("RecoverCertificate", mock.Anything, certID).Return(nil)
+
+	logger := &logging.Logger{Logger: logrus.New()}
+	svc := NewCertificateService(CertificateServiceConfig{CertificateRepository: repo, Logger: logger})
+
+	err := svc.RecoverCertificate(context.Background(), certID, scope)
+	assert.NoError(t, err)
+	repo.AssertExpectations(t)
+}
+
+// TestPurgeCertificate_RequiresTheCertToBeInScope mirrors
+// TestRecoverCertificate_RequiresTheCertToBeInScope for purge.
+func TestPurgeCertificate_RequiresTheCertToBeInScope(t *testing.T) {
+	scope := model.NewVaultScope(uuid.New(), uuid.New())
+	certID := uuid.New()
+
+	repo := &mockCertRepository{}
+	repo.On("List", mock.Anything, scope, repositories.CertificateFilter{OnlyDeleted: true}).Return([]model.Certificate{}, nil)
+
+	logger := &logging.Logger{Logger: logrus.New()}
+	svc := NewCertificateService(CertificateServiceConfig{CertificateRepository: repo, Logger: logger})
+
+	err := svc.PurgeCertificate(context.Background(), certID, scope)
+	assert.ErrorIs(t, err, ErrCertNotFound)
+	repo.AssertNotCalled(t, "PurgeCertificate", mock.Anything, mock.Anything)
+}
+
+// TestPurgeCertificate_PurgesWhenInScope mirrors
+// TestRecoverCertificate_RecoversWhenInScope for purge.
+func TestPurgeCertificate_PurgesWhenInScope(t *testing.T) {
+	scope := model.NewVaultScope(uuid.New(), uuid.New())
+	certID := uuid.New()
+	now := time.Now()
+
+	repo := &mockCertRepository{}
+	repo.On("List", mock.Anything, scope, repositories.CertificateFilter{OnlyDeleted: true}).
+		Return([]model.Certificate{{ID: certID, Name: "cert", DeletedAt: &now}}, nil)
+	repo.On("PurgeCertificate", mock.Anything, certID).Return(nil)
+
+	logger := &logging.Logger{Logger: logrus.New()}
+	svc := NewCertificateService(CertificateServiceConfig{CertificateRepository: repo, Logger: logger})
+
+	err := svc.PurgeCertificate(context.Background(), certID, scope)
+	assert.NoError(t, err)
+	repo.AssertExpectations(t)
+}

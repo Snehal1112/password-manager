@@ -107,6 +107,22 @@ func (m *mockCertService) ValidateKeyOwnership(ctx context.Context, keyID, userI
 	return args.Error(0)
 }
 
+func (m *mockCertService) ListDeletedCertificates(ctx context.Context, scope model.Scope) ([]model.Certificate, error) {
+	args := m.Called(ctx, scope)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).([]model.Certificate), args.Error(1)
+}
+
+func (m *mockCertService) RecoverCertificate(ctx context.Context, certID uuid.UUID, scope model.Scope) error {
+	return m.Called(ctx, certID, scope).Error(0)
+}
+
+func (m *mockCertService) PurgeCertificate(ctx context.Context, certID uuid.UUID, scope model.Scope) error {
+	return m.Called(ctx, certID, scope).Error(0)
+}
+
 // --- certSvcContainer: container that provides CertificateService ---
 
 type certSvcContainer struct {

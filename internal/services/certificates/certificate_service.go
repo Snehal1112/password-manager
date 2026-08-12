@@ -92,6 +92,12 @@ type CertificateService interface {
 	// also the audit-log principal and the identity used by the internal
 	// key-ownership checks below.
 	RenewCertificate(ctx context.Context, certID uuid.UUID, scope model.Scope, validityDays int) (*CreateCertificateResult, error)
+	// ListDeletedCertificates lists soft-deleted certificates authorized by scope.
+	ListDeletedCertificates(ctx context.Context, scope model.Scope) ([]model.Certificate, error)
+	// RecoverCertificate restores a soft-deleted certificate authorized by scope.
+	RecoverCertificate(ctx context.Context, certID uuid.UUID, scope model.Scope) error
+	// PurgeCertificate permanently deletes a soft-deleted certificate authorized by scope.
+	PurgeCertificate(ctx context.Context, certID uuid.UUID, scope model.Scope) error
 	ValidateCertificateAccess(ctx context.Context, certID, userID uuid.UUID, role string) error
 	ValidateKeyOwnership(ctx context.Context, keyID, userID uuid.UUID, role string) error
 }
@@ -485,6 +491,64 @@ func (s *certificateService) DeleteCertificate(ctx context.Context, certID uuid.
 	}
 
 	s.logger.LogAuditInfo(actor, "delete_certificate", "success", fmt.Sprintf("Certificate deleted: %s", cert.Name))
+	return nil
+}
+
+// certDeletedInScope reports whether certID names a soft-deleted certificate
+// the scope authorizes.
+func (s *certificateService) certDeletedInScope(ctx context.Context, certID uuid.UUID, scope model.Scope) (bool, error) {
+	deleted, err := s.certRepo.List(ctx, scope, repositories.CertificateFilter{OnlyDeleted: true})
+	if err != nil {
+		return false, fmt.Errorf("failed to list deleted certificates: %w", err)
+	}
+	for _, cert := range deleted {
+		if cert.ID == certID {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
+// ListDeletedCertificates lists soft-deleted certificates authorized by scope.
+func (s *certificateService) ListDeletedCertificates(ctx context.Context, scope model.Scope) ([]model.Certificate, error) {
+	certs, err := s.certRepo.List(ctx, scope, repositories.CertificateFilter{OnlyDeleted: true})
+	if err != nil {
+		return nil, fmt.Errorf("failed to list deleted certificates: %w", err)
+	}
+	return certs, nil
+}
+
+// RecoverCertificate restores a soft-deleted certificate authorized by scope.
+func (s *certificateService) RecoverCertificate(ctx context.Context, certID uuid.UUID, scope model.Scope) error {
+	inScope, err := s.certDeletedInScope(ctx, certID, scope)
+	if err != nil {
+		return err
+	}
+	if !inScope {
+		s.logger.LogAuditError(scope.ActorID().String(), "recover_certificate", "failed",
+			"Certificate not found in deleted state within scope", nil)
+		return fmt.Errorf("%w", ErrCertNotFound)
+	}
+	if err := s.certRepo.RecoverCertificate(ctx, certID); err != nil {
+		return fmt.Errorf("failed to recover certificate: %w", err)
+	}
+	return nil
+}
+
+// PurgeCertificate permanently deletes a soft-deleted certificate authorized by scope.
+func (s *certificateService) PurgeCertificate(ctx context.Context, certID uuid.UUID, scope model.Scope) error {
+	inScope, err := s.certDeletedInScope(ctx, certID, scope)
+	if err != nil {
+		return err
+	}
+	if !inScope {
+		s.logger.LogAuditError(scope.ActorID().String(), "purge_certificate", "failed",
+			"Certificate not found in deleted state within scope", nil)
+		return fmt.Errorf("%w", ErrCertNotFound)
+	}
+	if err := s.certRepo.PurgeCertificate(ctx, certID); err != nil {
+		return fmt.Errorf("failed to purge certificate: %w", err)
+	}
 	return nil
 }
 

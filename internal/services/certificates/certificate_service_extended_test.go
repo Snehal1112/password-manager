@@ -842,6 +842,15 @@ func (m *mockRenewalCertSvc) ValidateCertificateAccess(ctx context.Context, cert
 func (m *mockRenewalCertSvc) ValidateKeyOwnership(ctx context.Context, keyID, userID uuid.UUID, role string) error {
 	panic("not called")
 }
+func (m *mockRenewalCertSvc) ListDeletedCertificates(ctx context.Context, scope model.Scope) ([]model.Certificate, error) {
+	panic("not called")
+}
+func (m *mockRenewalCertSvc) RecoverCertificate(ctx context.Context, certID uuid.UUID, scope model.Scope) error {
+	panic("not called")
+}
+func (m *mockRenewalCertSvc) PurgeCertificate(ctx context.Context, certID uuid.UUID, scope model.Scope) error {
+	panic("not called")
+}
 
 func TestCheckAndRenewCertificates_ListAllFails(t *testing.T) {
 	repo := &mockCertRepository{}
