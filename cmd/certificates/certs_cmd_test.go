@@ -1031,21 +1031,21 @@ func TestCertRenewCmd_NoServiceContainer(t *testing.T) {
 }
 
 func TestCertRenewCmd_Success(t *testing.T) {
+	tc := testutils.NewTestContext(t)
 	certSvc := &certCmdCertService{}
-	userID := uuid.New()
 	certID := uuid.New()
 	result := &certServices.CreateCertificateResult{
 		CertID:    uuid.New(),
 		Name:      "renewed",
 		CreatedAt: time.Now(),
 	}
-	certSvc.On("RenewCertificate", mock.Anything, certID, model.NewOwnerScope(uuid.Nil, userID), 365).Return(result, nil)
+	certSvc.On("RenewCertificate", mock.Anything, certID, model.NewVaultScope(tc.TestVaultID, tc.TestUserID), 365).Return(result, nil)
 
 	sc := &certsTestContainer{
-		MockServiceContainer: &testutils.MockServiceContainer{},
+		MockServiceContainer: tc.MockContainer,
 		certSvc:              certSvc,
 	}
-	claims := &model.Claims{UserID: userID, Role: model.RoleAdmin}
+	claims := &model.Claims{UserID: tc.TestUserID, Role: model.RoleAdmin}
 	ctx := context.WithValue(context.Background(), common.ClaimsKey, claims)
 	ctx = context.WithValue(ctx, common.LogKey, newCertLogger())
 	ctx = context.WithValue(ctx, common.ServiceContainerKey, sc)
@@ -1062,16 +1062,16 @@ func TestCertRenewCmd_Success(t *testing.T) {
 }
 
 func TestCertRenewCmd_ServiceError(t *testing.T) {
+	tc := testutils.NewTestContext(t)
 	certSvc := &certCmdCertService{}
-	userID := uuid.New()
 	certID := uuid.New()
-	certSvc.On("RenewCertificate", mock.Anything, certID, model.NewOwnerScope(uuid.Nil, userID), 180).Return(nil, fmt.Errorf("renew failed"))
+	certSvc.On("RenewCertificate", mock.Anything, certID, model.NewVaultScope(tc.TestVaultID, tc.TestUserID), 180).Return(nil, fmt.Errorf("renew failed"))
 
 	sc := &certsTestContainer{
-		MockServiceContainer: &testutils.MockServiceContainer{},
+		MockServiceContainer: tc.MockContainer,
 		certSvc:              certSvc,
 	}
-	claims := &model.Claims{UserID: userID, Role: model.RoleAdmin}
+	claims := &model.Claims{UserID: tc.TestUserID, Role: model.RoleAdmin}
 	ctx := context.WithValue(context.Background(), common.ClaimsKey, claims)
 	ctx = context.WithValue(ctx, common.LogKey, newCertLogger())
 	ctx = context.WithValue(ctx, common.ServiceContainerKey, sc)
@@ -1085,6 +1085,78 @@ func TestCertRenewCmd_ServiceError(t *testing.T) {
 	err := cmd.Execute()
 	assert.ErrorContains(t, err, "failed to renew certificate")
 	certSvc.AssertExpectations(t)
+}
+
+func TestCertRenewCmd_Denied(t *testing.T) {
+	tc := testutils.NewTestContext(t)
+	certSvc := &certCmdCertService{}
+	certID := uuid.New()
+
+	denyRoles := &testutils.MockRoleAssignmentService{}
+	denyRoles.On("HasDataAction", mock.Anything, mock.Anything, mock.Anything, mock.Anything).
+		Return(false, nil).Maybe()
+	tc.MockContainer.RoleAssignmentService = denyRoles
+
+	sc := &certsTestContainer{
+		MockServiceContainer: tc.MockContainer,
+		certSvc:              certSvc,
+	}
+	claims := &model.Claims{UserID: tc.TestUserID, Role: model.RoleAdmin}
+	ctx := context.WithValue(context.Background(), common.ClaimsKey, claims)
+	ctx = context.WithValue(ctx, common.LogKey, newCertLogger())
+	ctx = context.WithValue(ctx, common.ServiceContainerKey, sc)
+
+	cleanup := viperSetCert(map[string]interface{}{"cert-renew-validity-days": 365})
+	defer cleanup()
+
+	cmd, _ := newCertCmd(renewCmd.RunE, []string{certID.String()})
+	cmd.Args = cobra.ExactArgs(1)
+	cmd.SetContext(ctx)
+	err := cmd.Execute()
+	assert.ErrorContains(t, err, "failed to renew certificate")
+	certSvc.AssertNotCalled(t, "RenewCertificate", mock.Anything, mock.Anything, mock.Anything, mock.Anything)
+}
+
+func TestCertRenewCmd_Authorized(t *testing.T) {
+	tc := testutils.NewTestContext(t)
+	certSvc := &certCmdCertService{}
+	certID := uuid.New()
+	result := &certServices.CreateCertificateResult{
+		CertID:    uuid.New(),
+		Name:      "renewed",
+		CreatedAt: time.Now(),
+	}
+	certSvc.On("RenewCertificate", mock.Anything, certID, model.NewVaultScope(tc.TestVaultID, tc.TestUserID), 365).Return(result, nil)
+
+	roles := &testutils.MockRoleAssignmentService{}
+	roles.On("HasDataAction", mock.Anything, tc.TestUserID, tc.TestVaultID, model.ActionCertificatesCreate).
+		Return(true, nil).Once()
+	policies := &testutils.MockAccessPolicyService{}
+	policies.On("CheckAccess", mock.Anything, tc.TestUserID, model.PolicyResourceCertificates, model.OpRenew, tc.TestVaultID).
+		Return(authzServices.AccessAllowed, nil).Once()
+	tc.MockContainer.RoleAssignmentService = roles
+	tc.MockContainer.AccessPolicyService = policies
+
+	sc := &certsTestContainer{
+		MockServiceContainer: tc.MockContainer,
+		certSvc:              certSvc,
+	}
+	claims := &model.Claims{UserID: tc.TestUserID, Role: model.RoleAdmin}
+	ctx := context.WithValue(context.Background(), common.ClaimsKey, claims)
+	ctx = context.WithValue(ctx, common.LogKey, newCertLogger())
+	ctx = context.WithValue(ctx, common.ServiceContainerKey, sc)
+
+	cleanup := viperSetCert(map[string]interface{}{"cert-renew-validity-days": 365})
+	defer cleanup()
+
+	cmd, _ := newCertCmd(renewCmd.RunE, []string{certID.String()})
+	cmd.Args = cobra.ExactArgs(1)
+	cmd.SetContext(ctx)
+	err := cmd.Execute()
+	assert.NoError(t, err)
+	certSvc.AssertExpectations(t)
+	roles.AssertExpectations(t)
+	policies.AssertExpectations(t)
 }
 
 // ========== updateCmd tests ==========
