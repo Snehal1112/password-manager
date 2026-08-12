@@ -71,7 +71,7 @@ var listCmd = &cobra.Command{
 			return err
 		}
 
-		secretsList, err := secretService.ListSecrets(ctx, model.NewVaultScope(vaultID, uuid.Nil), tags)
+		secretsList, err := secretService.ListSecrets(ctx, model.NewVaultScope(vaultID, userID), tags)
 		if err != nil {
 			return fmt.Errorf("failed to list secrets: %w", err)
 		}

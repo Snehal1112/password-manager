@@ -55,13 +55,13 @@ func TestSecretsGetBuildsAVaultScope(t *testing.T) {
 }
 
 func TestSecretsListBuildsAVaultScope(t *testing.T) {
-	svc, cmd, vaultID, _ := newCLIScopeFixture(t, func() *cobra.Command {
+	svc, cmd, vaultID, userID := newCLIScopeFixture(t, func() *cobra.Command {
 		c := &cobra.Command{Use: "list", RunE: listCmd.RunE}
 		c.Flags().StringSlice("tags", []string{}, "Tags to filter secrets (comma-separated)")
 		return c
 	})
 
-	svc.On("ListSecrets", mock.Anything, model.NewVaultScope(vaultID, uuid.Nil), mock.Anything).
+	svc.On("ListSecrets", mock.Anything, model.NewVaultScope(vaultID, userID), mock.Anything).
 		Return([]model.Secret{{ID: uuid.New(), Name: "a"}}, nil).Once()
 
 	require.NoError(t, cmd.Execute())

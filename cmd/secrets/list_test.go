@@ -166,7 +166,7 @@ func TestListSecretsCommand(t *testing.T) {
 func TestListCmd_Authorized(t *testing.T) {
 	tc := testutils.NewTestContext(t)
 	tc.MockContainer.On("GetSecretService").Return(tc.MockSecretService)
-	tc.MockSecretService.On("ListSecrets", mock.Anything, model.NewVaultScope(tc.TestVaultID, uuid.Nil), []string{}).
+	tc.MockSecretService.On("ListSecrets", mock.Anything, model.NewVaultScope(tc.TestVaultID, tc.TestUserID), []string{}).
 		Return([]model.Secret{}, nil)
 
 	// Assert the exact args reaching both authorization checks, not just
@@ -239,7 +239,7 @@ func TestListSecretsOutputFormat(t *testing.T) {
 		},
 	}
 
-	tc.MockSecretService.On("ListSecrets", mock.Anything, model.NewVaultScope(tc.TestVaultID, uuid.Nil), []string{}).
+	tc.MockSecretService.On("ListSecrets", mock.Anything, model.NewVaultScope(tc.TestVaultID, tc.TestUserID), []string{}).
 		Return(testSecrets, nil)
 
 	fmtr, err := formatter.New(formatter.FormatTable)
