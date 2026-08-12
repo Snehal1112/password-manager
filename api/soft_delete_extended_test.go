@@ -2,8 +2,6 @@
 package api
 
 import (
-	"context"
-	"database/sql"
 	"errors"
 	"net/http"
 	"net/http/httptest"
@@ -12,28 +10,13 @@ import (
 
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/google/uuid"
+	"github.com/gorilla/mux"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 
-	"rocketvault/app"
-	"rocketvault/internal/backup"
-	"rocketvault/internal/cache"
-	"rocketvault/internal/crypto"
-	"rocketvault/internal/keycache"
-	"rocketvault/internal/logging"
-	"rocketvault/internal/metrics"
-	"rocketvault/internal/repositories"
-	auditServices "rocketvault/internal/services/audit"
-	authServices "rocketvault/internal/services/auth"
-	authzServices "rocketvault/internal/services/authorization"
 	certServices "rocketvault/internal/services/certificates"
 	keyServices "rocketvault/internal/services/keys"
-	oauth2Services "rocketvault/internal/services/oauth2"
-	retryServices "rocketvault/internal/services/retry"
 	secretServices "rocketvault/internal/services/secrets"
-	userServices "rocketvault/internal/services/users"
-	vaultServices "rocketvault/internal/services/vaults"
-	"rocketvault/internal/signing"
 	"rocketvault/model"
 )
 
@@ -41,218 +24,10 @@ import (
 var errTest = errors.New("test error")
 
 // ============================================================
-// stub certificate repository for soft-delete tests
-// ============================================================
-
-type stubCertRepo struct {
-	listDeleted    []*model.Certificate
-	listDeletedErr error
-	recoverErr     error
-	purgeErr       error
-}
-
-func (s *stubCertRepo) Create(_ context.Context, _ *model.Certificate) error {
-	panic("unexpected call: Create")
-}
-func (s *stubCertRepo) Read(_ context.Context, _ uuid.UUID, _ model.Scope) (*model.Certificate, error) {
-	panic("unexpected call: Read")
-}
-func (s *stubCertRepo) Update(_ context.Context, _ *model.Certificate, _ model.Scope) error {
-	panic("unexpected call: Update")
-}
-func (s *stubCertRepo) List(_ context.Context, _ model.Scope, _ repositories.CertificateFilter) ([]model.Certificate, error) {
-	panic("unexpected call: List")
-}
-func (s *stubCertRepo) Delete(_ context.Context, _ uuid.UUID) error {
-	panic("unexpected call: Delete")
-}
-func (s *stubCertRepo) Revoke(_ context.Context, _ uuid.UUID, _, _ string) error {
-	panic("unexpected call: Revoke")
-}
-func (s *stubCertRepo) SoftDelete(_ context.Context, _ uuid.UUID) error {
-	panic("unexpected call: SoftDelete")
-}
-func (s *stubCertRepo) RecoverCertificate(_ context.Context, _ uuid.UUID) error {
-	return s.recoverErr
-}
-func (s *stubCertRepo) PurgeCertificate(_ context.Context, _ uuid.UUID) error {
-	return s.purgeErr
-}
-func (s *stubCertRepo) SetPurgeProtection(_ context.Context, _ uuid.UUID, _ bool) error {
-	panic("unexpected call: SetPurgeProtection")
-}
-func (s *stubCertRepo) ListRevoked(_ context.Context, _ uuid.UUID) ([]model.RevokedCertificate, error) {
-	panic("unexpected call: ListRevoked")
-}
-func (s *stubCertRepo) ListSoftDeleted(_ context.Context, _ uuid.UUID) ([]*model.Certificate, error) {
-	return s.listDeleted, s.listDeletedErr
-}
-func (s *stubCertRepo) ListAll(_ context.Context) ([]model.Certificate, error) {
-	panic("unexpected call: ListAll")
-}
-func (s *stubCertRepo) SoftDeleteVaultContents(_ context.Context, _ uuid.UUID, _ time.Time) error {
-	panic("unexpected call: SoftDeleteVaultContents")
-}
-func (s *stubCertRepo) RecoverVaultContents(_ context.Context, _ uuid.UUID, _ time.Time) error {
-	panic("unexpected call: RecoverVaultContents")
-}
-
-// ============================================================
-// multi-repo containers
-// ============================================================
-
-// certRepoTestContainer wires only GetCertificateRepository.
-type certRepoTestContainer struct {
-	certRepo repositories.CertificateRepositoryInterface
-}
-
-func (c *certRepoTestContainer) GetCertificateRepository() repositories.CertificateRepositoryInterface {
-	return c.certRepo
-}
-func (c *certRepoTestContainer) GetRBACService() authzServices.RBACService {
-	panic("unexpected call: GetRBACService")
-}
-func (c *certRepoTestContainer) GetUserRepository() repositories.UserRepositoryInterface {
-	panic("unexpected call: GetUserRepository")
-}
-func (c *certRepoTestContainer) GetSecretRepository() repositories.SecretRepositoryInterface {
-	panic("unexpected call: GetSecretRepository")
-}
-func (c *certRepoTestContainer) GetRotationRepository() repositories.RotationPolicyRepositoryInterface {
-	panic("unexpected call: GetRotationRepository")
-}
-func (c *certRepoTestContainer) GetVersionRepository() repositories.SecretVersionRepositoryInterface {
-	panic("unexpected call: GetVersionRepository")
-}
-func (c *certRepoTestContainer) GetKeyRepository() repositories.KeyRepositoryInterface {
-	panic("unexpected call: GetKeyRepository")
-}
-func (c *certRepoTestContainer) GetCertificatePolicyRepository() repositories.CertificatePolicyRepositoryInterface {
-	panic("unexpected call: GetCertificatePolicyRepository")
-}
-func (c *certRepoTestContainer) GetSessionRepository() repositories.SessionRepositoryInterface {
-	panic("unexpected call: GetSessionRepository")
-}
-func (c *certRepoTestContainer) GetVaultRepository() repositories.VaultRepositoryInterface {
-	panic("unexpected call: GetVaultRepository")
-}
-func (c *certRepoTestContainer) GetVaultService() vaultServices.VaultService {
-	panic("unexpected call: GetVaultService")
-}
-func (c *certRepoTestContainer) GetPasswordService() authServices.PasswordService {
-	panic("unexpected call: GetPasswordService")
-}
-func (c *certRepoTestContainer) GetTOTPService() authServices.TOTPService {
-	panic("unexpected call: GetTOTPService")
-}
-func (c *certRepoTestContainer) GetJWTService() authServices.JWTService {
-	panic("unexpected call: GetJWTService")
-}
-func (c *certRepoTestContainer) GetAuthenticationService() authServices.AuthenticationService {
-	panic("unexpected call: GetAuthenticationService")
-}
-func (c *certRepoTestContainer) GetAccessPolicyRepository() repositories.AccessPolicyRepositoryInterface {
-	panic("unexpected call: GetAccessPolicyRepository")
-}
-func (c *certRepoTestContainer) GetAccessPolicyService() authzServices.AccessPolicyService {
-	panic("unexpected call: GetAccessPolicyService")
-}
-func (c *certRepoTestContainer) GetRoleAssignmentService() authzServices.RoleAssignmentService {
-	return nil
-}
-func (c *certRepoTestContainer) GetOAuth2ClientRepository() repositories.OAuth2ClientRepositoryInterface {
-	panic("unexpected call: GetOAuth2ClientRepository")
-}
-func (c *certRepoTestContainer) GetOAuth2Service() oauth2Services.OAuth2Service {
-	panic("unexpected call: GetOAuth2Service")
-}
-func (c *certRepoTestContainer) GetUserService() userServices.UserService {
-	panic("unexpected call: GetUserService")
-}
-func (c *certRepoTestContainer) GetSecretService() secretServices.SecretService {
-	panic("unexpected call: GetSecretService")
-}
-func (c *certRepoTestContainer) GetKeyService() keyServices.KeyService {
-	panic("unexpected call: GetKeyService")
-}
-func (c *certRepoTestContainer) GetCertificateService() certServices.CertificateService {
-	panic("unexpected call: GetCertificateService")
-}
-func (c *certRepoTestContainer) GetCertificateRenewalService() certServices.CertificateRenewalService {
-	panic("unexpected call: GetCertificateRenewalService")
-}
-func (c *certRepoTestContainer) GetCryptoService() keyServices.CryptoService {
-	panic("unexpected call: GetCryptoService")
-}
-func (c *certRepoTestContainer) GetCryptographyService() secretServices.CryptographyService {
-	panic("unexpected call: GetCryptographyService")
-}
-func (c *certRepoTestContainer) GetVersioningService() secretServices.VersioningServiceInterface {
-	panic("unexpected call: GetVersioningService")
-}
-func (c *certRepoTestContainer) GetTagService() secretServices.TagService {
-	panic("unexpected call: GetTagService")
-}
-func (c *certRepoTestContainer) GetRotationService() secretServices.RotationServiceInterface {
-	panic("unexpected call: GetRotationService")
-}
-func (c *certRepoTestContainer) GetSchedulerService() secretServices.SchedulerServiceInterface {
-	panic("unexpected call: GetSchedulerService")
-}
-func (c *certRepoTestContainer) GetDatabase() *sql.DB { panic("unexpected call: GetDatabase") }
-func (c *certRepoTestContainer) GetLogger() *logging.Logger {
-	panic("unexpected call: GetLogger")
-}
-func (c *certRepoTestContainer) GetSecretCache() *cache.SecretCache {
-	panic("unexpected call: GetSecretCache")
-}
-func (c *certRepoTestContainer) GetCacheConfig() *cache.CacheConfig {
-	panic("unexpected call: GetCacheConfig")
-}
-func (c *certRepoTestContainer) GetCachedSecretService() secretServices.SecretService {
-	panic("unexpected call: GetCachedSecretService")
-}
-func (c *certRepoTestContainer) GetRetryService() retryServices.RetryService {
-	panic("unexpected call: GetRetryService")
-}
-func (c *certRepoTestContainer) GetKeyProvider() crypto.KeyProvider             { return nil }
-func (c *certRepoTestContainer) GetSigningProvider() signing.SigningKeyProvider { return nil }
-func (c *certRepoTestContainer) GetItemBackupService() *backup.ItemBackupService {
-	return nil
-}
-func (c *certRepoTestContainer) GetKeyCache() keycache.Cache             { return nil }
-func (c *certRepoTestContainer) GetCryptoMetrics() metrics.CryptoMetrics { return nil }
-func (c *certRepoTestContainer) GetAuditService() auditServices.AuditServiceInterface {
-	return nil
-}
-func (c *certRepoTestContainer) GetComplianceReportService() auditServices.ComplianceReportServiceInterface {
-	return nil
-}
-func (c *certRepoTestContainer) Close() error { return nil }
-
-// ============================================================
 // helpers
 // ============================================================
 
 const sdExtUserID = "c3d4e5f6-a7b8-9012-cdef-123456789012"
-
-func newKeyRepoCtxExt(repo repositories.KeyRepositoryInterface) *Context {
-	a := &app.App{ServiceContainer: &keyRepoTestContainer{keyRepo: repo}}
-	return &Context{
-		App:    a,
-		Claims: jwt.MapClaims{"user_id": sdExtUserID},
-		Params: &ApiParams{PerPage: 60},
-	}
-}
-
-func newCertRepoCtx(repo repositories.CertificateRepositoryInterface) *Context {
-	a := &app.App{ServiceContainer: &certRepoTestContainer{certRepo: repo}}
-	return &Context{
-		App:    a,
-		Claims: jwt.MapClaims{"user_id": sdExtUserID},
-		Params: &ApiParams{PerPage: 60},
-	}
-}
 
 // ============================================================
 // userIDFromClaims
@@ -451,11 +226,17 @@ func TestPurgeSecret_Success_Returns200(t *testing.T) {
 
 // ============================================================
 // listDeletedKeys
+//
+// These handlers now delegate entirely to the KeyService (see
+// key_soft_delete_test.go for the scope-authorization branch coverage).
+// What remains here is the equivalence proof that the handler still wires
+// status codes correctly, mirroring listDeletedSecrets's tests above.
 // ============================================================
 
-func TestListDeletedKeys_RepoError_Returns500(t *testing.T) {
-	repo := &stubKeyRepo{softDeletedErr: errTest}
-	c := newKeyRepoCtxExt(repo)
+func TestListDeletedKeys_ServiceError_Returns500(t *testing.T) {
+	svc := &mockKeyService{}
+	svc.On("ListDeletedKeys", mock.Anything, mock.Anything).Return(nil, errTest)
+	c := newKeyCtx(svc)
 	w := httptest.NewRecorder()
 	r := httptest.NewRequest(http.MethodGet, "/deleted/keys", nil)
 
@@ -465,16 +246,16 @@ func TestListDeletedKeys_RepoError_Returns500(t *testing.T) {
 	}
 
 	assert.Equal(t, http.StatusInternalServerError, w.Code)
+	svc.AssertExpectations(t)
 }
 
 func TestListDeletedKeys_Success_Returns200(t *testing.T) {
 	now := time.Now()
-	repo := &stubKeyRepo{
-		softDeletedKeys: []*model.Key{
-			{ID: uuid.New(), Name: "k", Type: model.KeyTypeRSA, DeletedAt: &now},
-		},
-	}
-	c := newKeyRepoCtxExt(repo)
+	svc := &mockKeyService{}
+	svc.On("ListDeletedKeys", mock.Anything, mock.Anything).Return([]model.Key{
+		{ID: uuid.New(), Name: "k", Type: model.KeyTypeRSA, DeletedAt: &now},
+	}, nil)
+	c := newKeyCtx(svc)
 	w := httptest.NewRecorder()
 	r := httptest.NewRequest(http.MethodGet, "/deleted/keys", nil)
 
@@ -484,24 +265,15 @@ func TestListDeletedKeys_Success_Returns200(t *testing.T) {
 	}
 
 	assert.Equal(t, http.StatusOK, w.Code)
+	svc.AssertExpectations(t)
 }
 
 // ============================================================
-// recoverKey (using stubKeyRepoWithRecover)
+// recoverKey
 // ============================================================
-
-type stubKeyRepoWithRecover struct {
-	stubKeyRepo
-	recoverErr error
-}
-
-func (s *stubKeyRepoWithRecover) RecoverKey(_ context.Context, _ uuid.UUID) error {
-	return s.recoverErr
-}
 
 func TestRecoverKey_InvalidID_Returns400(t *testing.T) {
-	repo := &stubKeyRepoWithRecover{}
-	c := newKeyRepoCtxExt(repo)
+	c := newKeyCtx(&mockKeyService{})
 	c.Params = &ApiParams{KeyID: "bad", PerPage: 60}
 	w := httptest.NewRecorder()
 	r := httptest.NewRequest(http.MethodPost, "/deleted/keys/bad/restore", nil)
@@ -516,8 +288,9 @@ func TestRecoverKey_InvalidID_Returns400(t *testing.T) {
 
 func TestRecoverKey_NotFound_Returns404(t *testing.T) {
 	keyID := uuid.New()
-	repo := &stubKeyRepoWithRecover{stubKeyRepo: stubKeyRepo{softDeletedKeys: []*model.Key{}}}
-	c := newKeyRepoCtxExt(repo)
+	svc := &mockKeyService{}
+	svc.On("RecoverKey", mock.Anything, keyID, mock.Anything).Return(keyServices.ErrKeyNotFound)
+	c := newKeyCtx(svc)
 	c.Params = &ApiParams{KeyID: keyID.String(), PerPage: 60}
 	w := httptest.NewRecorder()
 	r := httptest.NewRequest(http.MethodPost, "/deleted/keys/"+keyID.String()+"/restore", nil)
@@ -528,19 +301,14 @@ func TestRecoverKey_NotFound_Returns404(t *testing.T) {
 	}
 
 	assert.Equal(t, http.StatusNotFound, w.Code)
+	svc.AssertExpectations(t)
 }
 
 func TestRecoverKey_Success_Returns200(t *testing.T) {
 	keyID := uuid.New()
-	now := time.Now()
-	repo := &stubKeyRepoWithRecover{
-		stubKeyRepo: stubKeyRepo{
-			softDeletedKeys: []*model.Key{
-				{ID: keyID, Name: "k", Type: model.KeyTypeRSA, DeletedAt: &now},
-			},
-		},
-	}
-	c := newKeyRepoCtxExt(repo)
+	svc := &mockKeyService{}
+	svc.On("RecoverKey", mock.Anything, keyID, mock.Anything).Return(nil)
+	c := newKeyCtx(svc)
 	c.Params = &ApiParams{KeyID: keyID.String(), PerPage: 60}
 	w := httptest.NewRecorder()
 	r := httptest.NewRequest(http.MethodPost, "/deleted/keys/"+keyID.String()+"/restore", nil)
@@ -551,24 +319,15 @@ func TestRecoverKey_Success_Returns200(t *testing.T) {
 	}
 
 	assert.Equal(t, http.StatusOK, w.Code)
+	svc.AssertExpectations(t)
 }
 
 // ============================================================
 // purgeKey
 // ============================================================
 
-type stubKeyRepoWithPurge struct {
-	stubKeyRepo
-	purgeErr error
-}
-
-func (s *stubKeyRepoWithPurge) PurgeKey(_ context.Context, _ uuid.UUID) error {
-	return s.purgeErr
-}
-
 func TestPurgeKey_InvalidID_Returns400(t *testing.T) {
-	repo := &stubKeyRepoWithPurge{}
-	c := newKeyRepoCtxExt(repo)
+	c := newKeyCtx(&mockKeyService{})
 	c.Params = &ApiParams{KeyID: "bad", PerPage: 60}
 	w := httptest.NewRecorder()
 	r := httptest.NewRequest(http.MethodDelete, "/deleted/keys/bad/purge", nil)
@@ -581,17 +340,29 @@ func TestPurgeKey_InvalidID_Returns400(t *testing.T) {
 	assert.Equal(t, http.StatusBadRequest, w.Code)
 }
 
+func TestPurgeKey_NotFound_Returns404(t *testing.T) {
+	keyID := uuid.New()
+	svc := &mockKeyService{}
+	svc.On("PurgeKey", mock.Anything, keyID, mock.Anything).Return(keyServices.ErrKeyNotFound)
+	c := newKeyCtx(svc)
+	c.Params = &ApiParams{KeyID: keyID.String(), PerPage: 60}
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest(http.MethodDelete, "/deleted/keys/"+keyID.String()+"/purge", nil)
+
+	purgeKey(c, w, r)
+	if c.Err != nil {
+		writeError(w, c)
+	}
+
+	assert.Equal(t, http.StatusNotFound, w.Code)
+	svc.AssertExpectations(t)
+}
+
 func TestPurgeKey_Success_Returns200(t *testing.T) {
 	keyID := uuid.New()
-	now := time.Now()
-	repo := &stubKeyRepoWithPurge{
-		stubKeyRepo: stubKeyRepo{
-			softDeletedKeys: []*model.Key{
-				{ID: keyID, Name: "k", Type: model.KeyTypeRSA, DeletedAt: &now},
-			},
-		},
-	}
-	c := newKeyRepoCtxExt(repo)
+	svc := &mockKeyService{}
+	svc.On("PurgeKey", mock.Anything, keyID, mock.Anything).Return(nil)
+	c := newKeyCtx(svc)
 	c.Params = &ApiParams{KeyID: keyID.String(), PerPage: 60}
 	w := httptest.NewRecorder()
 	r := httptest.NewRequest(http.MethodDelete, "/deleted/keys/"+keyID.String()+"/purge", nil)
@@ -602,15 +373,20 @@ func TestPurgeKey_Success_Returns200(t *testing.T) {
 	}
 
 	assert.Equal(t, http.StatusOK, w.Code)
+	svc.AssertExpectations(t)
 }
 
 // ============================================================
 // listDeletedCertificates
+//
+// These handlers now delegate entirely to the CertificateService — see the
+// comment above the keys section for why the coverage shape changed.
 // ============================================================
 
-func TestListDeletedCertificates_RepoError_Returns500(t *testing.T) {
-	repo := &stubCertRepo{listDeletedErr: errTest}
-	c := newCertRepoCtx(repo)
+func TestListDeletedCertificates_ServiceError_Returns500(t *testing.T) {
+	svc := &mockCertService{}
+	svc.On("ListDeletedCertificates", mock.Anything, mock.Anything).Return(nil, errTest)
+	c := newCertCtx(svc, certAdminClaims())
 	w := httptest.NewRecorder()
 	r := httptest.NewRequest(http.MethodGet, "/deleted/certificates", nil)
 
@@ -620,16 +396,16 @@ func TestListDeletedCertificates_RepoError_Returns500(t *testing.T) {
 	}
 
 	assert.Equal(t, http.StatusInternalServerError, w.Code)
+	svc.AssertExpectations(t)
 }
 
 func TestListDeletedCertificates_Success_Returns200(t *testing.T) {
 	now := time.Now()
-	repo := &stubCertRepo{
-		listDeleted: []*model.Certificate{
-			{ID: uuid.New(), Name: "cert", DeletedAt: &now},
-		},
-	}
-	c := newCertRepoCtx(repo)
+	svc := &mockCertService{}
+	svc.On("ListDeletedCertificates", mock.Anything, mock.Anything).Return([]model.Certificate{
+		{ID: uuid.New(), Name: "cert", DeletedAt: &now},
+	}, nil)
+	c := newCertCtx(svc, certAdminClaims())
 	w := httptest.NewRecorder()
 	r := httptest.NewRequest(http.MethodGet, "/deleted/certificates", nil)
 
@@ -639,6 +415,7 @@ func TestListDeletedCertificates_Success_Returns200(t *testing.T) {
 	}
 
 	assert.Equal(t, http.StatusOK, w.Code)
+	svc.AssertExpectations(t)
 }
 
 // ============================================================
@@ -646,8 +423,7 @@ func TestListDeletedCertificates_Success_Returns200(t *testing.T) {
 // ============================================================
 
 func TestRecoverCertificate_InvalidID_Returns400(t *testing.T) {
-	repo := &stubCertRepo{}
-	c := newCertRepoCtx(repo)
+	c := newCertCtx(&mockCertService{}, certAdminClaims())
 	c.Params = &ApiParams{CertificateID: "bad", PerPage: 60}
 	w := httptest.NewRecorder()
 	r := httptest.NewRequest(http.MethodPost, "/deleted/certificates/bad/restore", nil)
@@ -662,8 +438,9 @@ func TestRecoverCertificate_InvalidID_Returns400(t *testing.T) {
 
 func TestRecoverCertificate_NotFound_Returns404(t *testing.T) {
 	certID := uuid.New()
-	repo := &stubCertRepo{listDeleted: []*model.Certificate{}}
-	c := newCertRepoCtx(repo)
+	svc := &mockCertService{}
+	svc.On("RecoverCertificate", mock.Anything, certID, mock.Anything).Return(certServices.ErrCertNotFound)
+	c := newCertCtx(svc, certAdminClaims())
 	c.Params = &ApiParams{CertificateID: certID.String(), PerPage: 60}
 	w := httptest.NewRecorder()
 	r := httptest.NewRequest(http.MethodPost, "/deleted/certificates/"+certID.String()+"/restore", nil)
@@ -674,17 +451,14 @@ func TestRecoverCertificate_NotFound_Returns404(t *testing.T) {
 	}
 
 	assert.Equal(t, http.StatusNotFound, w.Code)
+	svc.AssertExpectations(t)
 }
 
 func TestRecoverCertificate_Success_Returns200(t *testing.T) {
 	certID := uuid.New()
-	now := time.Now()
-	repo := &stubCertRepo{
-		listDeleted: []*model.Certificate{
-			{ID: certID, Name: "cert", DeletedAt: &now},
-		},
-	}
-	c := newCertRepoCtx(repo)
+	svc := &mockCertService{}
+	svc.On("RecoverCertificate", mock.Anything, certID, mock.Anything).Return(nil)
+	c := newCertCtx(svc, certAdminClaims())
 	c.Params = &ApiParams{CertificateID: certID.String(), PerPage: 60}
 	w := httptest.NewRecorder()
 	r := httptest.NewRequest(http.MethodPost, "/deleted/certificates/"+certID.String()+"/restore", nil)
@@ -695,6 +469,7 @@ func TestRecoverCertificate_Success_Returns200(t *testing.T) {
 	}
 
 	assert.Equal(t, http.StatusOK, w.Code)
+	svc.AssertExpectations(t)
 }
 
 // ============================================================
@@ -702,8 +477,7 @@ func TestRecoverCertificate_Success_Returns200(t *testing.T) {
 // ============================================================
 
 func TestPurgeCertificate_InvalidID_Returns400(t *testing.T) {
-	repo := &stubCertRepo{}
-	c := newCertRepoCtx(repo)
+	c := newCertCtx(&mockCertService{}, certAdminClaims())
 	c.Params = &ApiParams{CertificateID: "bad", PerPage: 60}
 	w := httptest.NewRecorder()
 	r := httptest.NewRequest(http.MethodDelete, "/deleted/certificates/bad/purge", nil)
@@ -718,8 +492,9 @@ func TestPurgeCertificate_InvalidID_Returns400(t *testing.T) {
 
 func TestPurgeCertificate_NotFound_Returns404(t *testing.T) {
 	certID := uuid.New()
-	repo := &stubCertRepo{listDeleted: []*model.Certificate{}}
-	c := newCertRepoCtx(repo)
+	svc := &mockCertService{}
+	svc.On("PurgeCertificate", mock.Anything, certID, mock.Anything).Return(certServices.ErrCertNotFound)
+	c := newCertCtx(svc, certAdminClaims())
 	c.Params = &ApiParams{CertificateID: certID.String(), PerPage: 60}
 	w := httptest.NewRecorder()
 	r := httptest.NewRequest(http.MethodDelete, "/deleted/certificates/"+certID.String()+"/purge", nil)
@@ -730,17 +505,14 @@ func TestPurgeCertificate_NotFound_Returns404(t *testing.T) {
 	}
 
 	assert.Equal(t, http.StatusNotFound, w.Code)
+	svc.AssertExpectations(t)
 }
 
 func TestPurgeCertificate_Success_Returns200(t *testing.T) {
 	certID := uuid.New()
-	now := time.Now()
-	repo := &stubCertRepo{
-		listDeleted: []*model.Certificate{
-			{ID: certID, Name: "cert", DeletedAt: &now},
-		},
-	}
-	c := newCertRepoCtx(repo)
+	svc := &mockCertService{}
+	svc.On("PurgeCertificate", mock.Anything, certID, mock.Anything).Return(nil)
+	c := newCertCtx(svc, certAdminClaims())
 	c.Params = &ApiParams{CertificateID: certID.String(), PerPage: 60}
 	w := httptest.NewRecorder()
 	r := httptest.NewRequest(http.MethodDelete, "/deleted/certificates/"+certID.String()+"/purge", nil)
@@ -751,4 +523,95 @@ func TestPurgeCertificate_Success_Returns200(t *testing.T) {
 	}
 
 	assert.Equal(t, http.StatusOK, w.Code)
+	svc.AssertExpectations(t)
+}
+
+// ============================================================
+// vault-scope routing proof — keys and certificates
+//
+// Mirrors soft_delete_scope_test.go's secrets coverage: proves the flat
+// route builds an owner scope and the vault-scoped route builds a vault
+// scope, now that keys/certs go through the same scopeFromRequest path.
+// ============================================================
+
+func TestRecoverKey_FlatRoute_UsesOwnerScope(t *testing.T) {
+	keyID := uuid.New()
+	svc := &mockKeyService{}
+	svc.On("RecoverKey", mock.Anything, keyID, mock.MatchedBy(func(s model.Scope) bool {
+		return s.Kind() == model.ScopeOwner
+	})).Return(nil)
+	c := newKeyCtx(svc)
+	c.Params = &ApiParams{KeyID: keyID.String(), PerPage: 60}
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest(http.MethodPost, "/deleted/keys/"+keyID.String()+"/restore", nil)
+
+	recoverKey(c, w, r)
+	if c.Err != nil {
+		writeError(w, c)
+	}
+
+	assert.Equal(t, http.StatusOK, w.Code)
+	svc.AssertExpectations(t)
+}
+
+func TestRecoverKey_VaultScopedRoute_UsesVaultScope(t *testing.T) {
+	keyID := uuid.New()
+	svc := &mockKeyService{}
+	svc.On("RecoverKey", mock.Anything, keyID, mock.MatchedBy(func(s model.Scope) bool {
+		return s.Kind() == model.ScopeVault
+	})).Return(nil)
+	c := newKeyCtx(svc)
+	c.Params = &ApiParams{KeyID: keyID.String(), PerPage: 60}
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest(http.MethodPost, "/vaults/team-a/deleted/keys/"+keyID.String()+"/restore", nil)
+	r = mux.SetURLVars(r, map[string]string{"vault_name": "team-a"})
+
+	recoverKey(c, w, r)
+	if c.Err != nil {
+		writeError(w, c)
+	}
+
+	assert.Equal(t, http.StatusOK, w.Code)
+	svc.AssertExpectations(t)
+}
+
+func TestRecoverCertificate_FlatRoute_UsesOwnerScope(t *testing.T) {
+	certID := uuid.New()
+	svc := &mockCertService{}
+	svc.On("RecoverCertificate", mock.Anything, certID, mock.MatchedBy(func(s model.Scope) bool {
+		return s.Kind() == model.ScopeOwner
+	})).Return(nil)
+	c := newCertCtx(svc, certAdminClaims())
+	c.Params = &ApiParams{CertificateID: certID.String(), PerPage: 60}
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest(http.MethodPost, "/deleted/certificates/"+certID.String()+"/restore", nil)
+
+	recoverCertificate(c, w, r)
+	if c.Err != nil {
+		writeError(w, c)
+	}
+
+	assert.Equal(t, http.StatusOK, w.Code)
+	svc.AssertExpectations(t)
+}
+
+func TestRecoverCertificate_VaultScopedRoute_UsesVaultScope(t *testing.T) {
+	certID := uuid.New()
+	svc := &mockCertService{}
+	svc.On("RecoverCertificate", mock.Anything, certID, mock.MatchedBy(func(s model.Scope) bool {
+		return s.Kind() == model.ScopeVault
+	})).Return(nil)
+	c := newCertCtx(svc, certAdminClaims())
+	c.Params = &ApiParams{CertificateID: certID.String(), PerPage: 60}
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest(http.MethodPost, "/vaults/team-a/deleted/certificates/"+certID.String()+"/restore", nil)
+	r = mux.SetURLVars(r, map[string]string{"vault_name": "team-a"})
+
+	recoverCertificate(c, w, r)
+	if c.Err != nil {
+		writeError(w, c)
+	}
+
+	assert.Equal(t, http.StatusOK, w.Code)
+	svc.AssertExpectations(t)
 }

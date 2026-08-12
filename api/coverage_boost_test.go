@@ -492,24 +492,10 @@ func TestParseReportDateRange_Valid_ReturnsOK(t *testing.T) {
 // soft_delete.go — getDeletedKey
 // ============================================================
 
-// stubKeyRepoGetDeleted extends stubKeyRepo with a configurable ListSoftDeleted result.
-type stubKeyRepoGetDeleted struct {
-	stubKeyRepo
-	keys []*model.Key
-	err  error
-}
-
-func (s *stubKeyRepoGetDeleted) ListSoftDeleted(_ context.Context, _ uuid.UUID) ([]*model.Key, error) {
-	return s.keys, s.err
-}
-
 // TestGetDeletedKey_InvalidKeyID_Returns400 verifies that a bad key_id returns 400.
 func TestGetDeletedKey_InvalidKeyID_Returns400(t *testing.T) {
-	c := &Context{
-		App:    &app.App{ServiceContainer: &keyRepoTestContainer{keyRepo: &stubKeyRepo{}}},
-		Claims: jwt.MapClaims{"user_id": sdTestUserIDStr},
-		Params: &ApiParams{KeyID: "bad-id"},
-	}
+	c := newGetDeletedKeyContext(&mockKeyService{})
+	c.Params = &ApiParams{KeyID: "bad-id"}
 	w := httptest.NewRecorder()
 	r := httptest.NewRequest(http.MethodGet, "/keys/deleted/bad-id", nil)
 
@@ -521,65 +507,13 @@ func TestGetDeletedKey_InvalidKeyID_Returns400(t *testing.T) {
 	assert.Equal(t, http.StatusBadRequest, w.Code)
 }
 
-// TestGetDeletedKey_KeyFound_Returns200 verifies the happy path returns the deleted key.
-func TestGetDeletedKey_KeyFound_Returns200(t *testing.T) {
-	keyID := uuid.New()
-	deletedAt := time.Now()
-
-	keyRepoStub := &stubKeyRepoGetDeleted{
-		keys: []*model.Key{
-			{ID: keyID, Name: "my-key", Type: "RSA", DeletedAt: &deletedAt},
-		},
-	}
-
-	c := &Context{
-		App:    &app.App{ServiceContainer: &keyRepoTestContainer{keyRepo: keyRepoStub}},
-		Claims: jwt.MapClaims{"user_id": sdTestUserIDStr},
-		Params: &ApiParams{KeyID: keyID.String(), PerPage: 60},
-	}
-	w := httptest.NewRecorder()
-	r := httptest.NewRequest(http.MethodGet, "/keys/deleted/"+keyID.String(), nil)
-
-	getDeletedKey(c, w, r)
-	if c.Err != nil {
-		writeError(w, c)
-	}
-
-	assert.Equal(t, http.StatusOK, w.Code)
-	var resp map[string]any
-	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
-	assert.Equal(t, keyID.String(), resp["id"])
-}
-
-// TestGetDeletedKey_KeyNotFound_Returns404 verifies 404 when key is not in deleted list.
-func TestGetDeletedKey_KeyNotFound_Returns404(t *testing.T) {
-	keyRepoStub := &stubKeyRepoGetDeleted{keys: []*model.Key{}}
-
-	c := &Context{
-		App:    &app.App{ServiceContainer: &keyRepoTestContainer{keyRepo: keyRepoStub}},
-		Claims: jwt.MapClaims{"user_id": sdTestUserIDStr},
-		Params: &ApiParams{KeyID: uuid.New().String(), PerPage: 60},
-	}
-	w := httptest.NewRecorder()
-	r := httptest.NewRequest(http.MethodGet, "/keys/deleted/"+c.Params.KeyID, nil)
-
-	getDeletedKey(c, w, r)
-	if c.Err != nil {
-		writeError(w, c)
-	}
-
-	assert.Equal(t, http.StatusNotFound, w.Code)
-}
-
-// TestGetDeletedKey_RepoError_Returns500 verifies repository errors are handled.
+// TestGetDeletedKey_RepoError_Returns500 verifies service errors are handled.
 func TestGetDeletedKey_RepoError_Returns500(t *testing.T) {
-	keyRepoStub := &stubKeyRepoGetDeleted{err: errors.New("db error")}
+	svc := &mockKeyService{}
+	svc.On("ListDeletedKeys", mock.Anything, mock.Anything).Return(nil, errors.New("db error"))
 
-	c := &Context{
-		App:    &app.App{ServiceContainer: &keyRepoTestContainer{keyRepo: keyRepoStub}},
-		Claims: jwt.MapClaims{"user_id": sdTestUserIDStr},
-		Params: &ApiParams{KeyID: uuid.New().String(), PerPage: 60},
-	}
+	c := newGetDeletedKeyContext(svc)
+	c.Params = &ApiParams{KeyID: uuid.New().String(), PerPage: 60}
 	w := httptest.NewRecorder()
 	r := httptest.NewRequest(http.MethodGet, "/keys/deleted/"+c.Params.KeyID, nil)
 
@@ -589,6 +523,7 @@ func TestGetDeletedKey_RepoError_Returns500(t *testing.T) {
 	}
 
 	assert.Equal(t, http.StatusInternalServerError, w.Code)
+	svc.AssertExpectations(t)
 }
 
 // ============================================================
@@ -752,103 +687,6 @@ func TestComplianceSvc_NilContainer_SetsError(t *testing.T) {
 	assert.NotNil(t, c.Err)
 }
 
-// ============================================================
-// soft_delete.go — purgeKey / recoverKey not-found branches
-// ============================================================
-
-// stubKeyRepoNotFound is a stub that reports no soft-deleted keys.
-type stubKeyRepoNotFound struct {
-	stubKeyRepo
-}
-
-func (s *stubKeyRepoNotFound) ListSoftDeleted(_ context.Context, _ uuid.UUID) ([]*model.Key, error) {
-	return []*model.Key{}, nil
-}
-
-// TestPurgeKey_NotFoundInDeletedList_Returns404 verifies the not-found branch for purgeKey.
-func TestPurgeKey_NotFoundInDeletedList_Returns404(t *testing.T) {
-	c := &Context{
-		App:    &app.App{ServiceContainer: &keyRepoTestContainer{keyRepo: &stubKeyRepoNotFound{}}},
-		Claims: jwt.MapClaims{"user_id": sdTestUserIDStr},
-		Params: &ApiParams{KeyID: uuid.New().String(), PerPage: 60},
-	}
-	w := httptest.NewRecorder()
-	r := httptest.NewRequest(http.MethodDelete, "/keys/deleted/"+c.Params.KeyID, nil)
-
-	purgeKey(c, w, r)
-	if c.Err != nil {
-		writeError(w, c)
-	}
-
-	assert.Equal(t, http.StatusNotFound, w.Code)
-}
-
-// TestRecoverKey_NotFoundInDeletedList_Returns404 verifies the not-found branch for recoverKey.
-func TestRecoverKey_NotFoundInDeletedList_Returns404(t *testing.T) {
-	c := &Context{
-		App:    &app.App{ServiceContainer: &keyRepoTestContainer{keyRepo: &stubKeyRepoNotFound{}}},
-		Claims: jwt.MapClaims{"user_id": sdTestUserIDStr},
-		Params: &ApiParams{KeyID: uuid.New().String(), PerPage: 60},
-	}
-	w := httptest.NewRecorder()
-	r := httptest.NewRequest(http.MethodPost, "/keys/deleted/"+c.Params.KeyID+"/recover", nil)
-
-	recoverKey(c, w, r)
-	if c.Err != nil {
-		writeError(w, c)
-	}
-
-	assert.Equal(t, http.StatusNotFound, w.Code)
-}
-
-// ============================================================
-// soft_delete.go — purgeCertificate and recoverCertificate not-found branches
-// ============================================================
-
-// stubCertRepoEmptyDeleted is a cert repo stub where ListSoftDeleted returns empty.
-type stubCertRepoEmptyDeleted struct {
-	stubCertRepo
-}
-
-func (s *stubCertRepoEmptyDeleted) ListSoftDeleted(_ context.Context, _ uuid.UUID) ([]*model.Certificate, error) {
-	return []*model.Certificate{}, nil
-}
-
-// TestPurgeCertificate_NotFoundInDeletedList_Returns404 verifies not-found branch.
-func TestPurgeCertificate_NotFoundInDeletedList_Returns404(t *testing.T) {
-	c := &Context{
-		App:    &app.App{ServiceContainer: &certRepoTestContainer{certRepo: &stubCertRepoEmptyDeleted{}}},
-		Claims: jwt.MapClaims{"user_id": sdExtUserID},
-		Params: &ApiParams{CertificateID: uuid.New().String(), PerPage: 60},
-	}
-	w := httptest.NewRecorder()
-	r := httptest.NewRequest(http.MethodDelete, "/certificates/deleted/"+c.Params.CertificateID, nil)
-
-	purgeCertificate(c, w, r)
-	if c.Err != nil {
-		writeError(w, c)
-	}
-
-	assert.Equal(t, http.StatusNotFound, w.Code)
-}
-
-// TestRecoverCertificate_NotFoundInDeletedList_Returns404 verifies not-found branch.
-func TestRecoverCertificate_NotFoundInDeletedList_Returns404(t *testing.T) {
-	c := &Context{
-		App:    &app.App{ServiceContainer: &certRepoTestContainer{certRepo: &stubCertRepoEmptyDeleted{}}},
-		Claims: jwt.MapClaims{"user_id": sdExtUserID},
-		Params: &ApiParams{CertificateID: uuid.New().String(), PerPage: 60},
-	}
-	w := httptest.NewRecorder()
-	r := httptest.NewRequest(http.MethodPost, "/certificates/deleted/"+c.Params.CertificateID+"/recover", nil)
-
-	recoverCertificate(c, w, r)
-	if c.Err != nil {
-		writeError(w, c)
-	}
-
-	assert.Equal(t, http.StatusNotFound, w.Code)
-}
 
 // ============================================================
 // keys.go — wrapKey and unwrapKey missing branches

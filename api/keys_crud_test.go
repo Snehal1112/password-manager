@@ -803,14 +803,61 @@ func TestRotateKey_Success_Returns200(t *testing.T) {
 // listKeyVersions
 // ============================================================
 
+// stubKeyVersionRepo is a minimal KeyRepositoryInterface stub for
+// listKeyVersions tests. Only ListVersions is implemented; all other methods
+// panic to surface accidental calls.
 type stubKeyVersionRepo struct {
-	stubKeyRepo
 	versions []model.KeyVersion
 	err      error
 }
 
 func (s *stubKeyVersionRepo) ListVersions(_ context.Context, _, _ uuid.UUID) ([]model.KeyVersion, error) {
 	return s.versions, s.err
+}
+func (s *stubKeyVersionRepo) Create(_ context.Context, _ *model.Key) error {
+	panic("unexpected call: Create")
+}
+func (s *stubKeyVersionRepo) Read(_ context.Context, _ uuid.UUID, _ model.Scope) (*model.Key, error) {
+	panic("unexpected call: Read")
+}
+func (s *stubKeyVersionRepo) Update(_ context.Context, _ *model.Key, _ model.Scope) error {
+	panic("unexpected call: Update")
+}
+func (s *stubKeyVersionRepo) List(_ context.Context, _ model.Scope, _ repositories.KeyFilter) ([]model.Key, error) {
+	panic("unexpected call: List")
+}
+func (s *stubKeyVersionRepo) Delete(_ context.Context, _ uuid.UUID) error {
+	panic("unexpected call: Delete")
+}
+func (s *stubKeyVersionRepo) UpdateRevocationStatus(_ context.Context, _ uuid.UUID, _ bool) error {
+	panic("unexpected call: UpdateRevocationStatus")
+}
+func (s *stubKeyVersionRepo) SoftDelete(_ context.Context, _ uuid.UUID) error {
+	panic("unexpected call: SoftDelete")
+}
+func (s *stubKeyVersionRepo) RecoverKey(_ context.Context, _ uuid.UUID) error {
+	panic("unexpected call: RecoverKey")
+}
+func (s *stubKeyVersionRepo) PurgeKey(_ context.Context, _ uuid.UUID) error {
+	panic("unexpected call: PurgeKey")
+}
+func (s *stubKeyVersionRepo) SetPurgeProtection(_ context.Context, _ uuid.UUID, _ bool) error {
+	panic("unexpected call: SetPurgeProtection")
+}
+func (s *stubKeyVersionRepo) ListSoftDeleted(_ context.Context, _ uuid.UUID) ([]*model.Key, error) {
+	panic("unexpected call: ListSoftDeleted")
+}
+func (s *stubKeyVersionRepo) ReadDeleted(_ context.Context, _ uuid.UUID) (*model.Key, error) {
+	panic("unexpected call: ReadDeleted")
+}
+func (s *stubKeyVersionRepo) CreateVersion(_ context.Context, _ uuid.UUID, _ int, _ string) error {
+	panic("unexpected call: CreateVersion")
+}
+func (s *stubKeyVersionRepo) SoftDeleteVaultContents(_ context.Context, _ uuid.UUID, _ time.Time) error {
+	panic("unexpected call: SoftDeleteVaultContents")
+}
+func (s *stubKeyVersionRepo) RecoverVaultContents(_ context.Context, _ uuid.UUID, _ time.Time) error {
+	panic("unexpected call: RecoverVaultContents")
 }
 
 func TestListKeyVersions_InvalidKeyID_Returns400(t *testing.T) {
@@ -830,8 +877,7 @@ func TestListKeyVersions_InvalidKeyID_Returns400(t *testing.T) {
 func TestListKeyVersions_RepositoryError_Returns500(t *testing.T) {
 	keyID := uuid.New()
 	repo := &stubKeyVersionRepo{
-		stubKeyRepo: stubKeyRepo{},
-		err:         errors.New("db error"),
+		err: errors.New("db error"),
 	}
 	svc := &mockKeyService{}
 	svc.On("GetKey", mock.Anything, keyID, keyLegacyOwnerScope()).Return(makeKeyModel(keyID), nil)
@@ -852,8 +898,7 @@ func TestListKeyVersions_RepositoryError_Returns500(t *testing.T) {
 func TestListKeyVersions_Success_Returns200(t *testing.T) {
 	keyID := uuid.New()
 	repo := &stubKeyVersionRepo{
-		stubKeyRepo: stubKeyRepo{},
-		versions:    []model.KeyVersion{{KeyID: keyID, Version: 1}},
+		versions: []model.KeyVersion{{KeyID: keyID, Version: 1}},
 	}
 	svc := &mockKeyService{}
 	svc.On("GetKey", mock.Anything, keyID, keyLegacyOwnerScope()).Return(makeKeyModel(keyID), nil)
@@ -878,7 +923,7 @@ func TestListKeyVersions_Success_Returns200(t *testing.T) {
 // returning an empty list.
 func TestListKeyVersions_UnauthorizedKeyIsNotFound(t *testing.T) {
 	keyID := uuid.New()
-	repo := &stubKeyVersionRepo{stubKeyRepo: stubKeyRepo{}}
+	repo := &stubKeyVersionRepo{}
 	svc := &mockKeyService{}
 	svc.On("GetKey", mock.Anything, keyID, keyLegacyOwnerScope()).
 		Return(nil, keyServices.ErrKeyNotFound)
