@@ -110,14 +110,29 @@ func purgeSecret(c *Context, w http.ResponseWriter, r *http.Request) {
 	ReturnStatusOK(w)
 }
 
-// listDeletedKeys returns all soft-deleted keys for the authenticated user.
+// listDeletedKeys returns all soft-deleted keys in the resolved vault. The
+// vault is read from the request context (falling back to the default vault
+// for legacy flat routes), so the listing honours the vault-scoped
+// /vaults/{name}/deleted/keys route. Per the visibility model, any caller
+// authorized for a vault sees all of its soft-deleted keys (mirrors
+// listDeletedSecrets).
 func listDeletedKeys(c *Context, w http.ResponseWriter, r *http.Request) {
+	vaultID, err := vaultIDFromRequest(r)
+	if err != nil {
+		c.SetInvalidParam("vault")
+		return
+	}
 	userID, ok := userIDFromClaims(c)
 	if !ok {
 		return
 	}
 
-	keys, err := c.App.ServiceContainer.GetKeyRepository().ListSoftDeleted(r.Context(), userID)
+	keySvc := c.keySvc()
+	if keySvc == nil {
+		return
+	}
+
+	keys, err := keySvc.ListDeletedKeys(r.Context(), model.NewVaultScope(vaultID, userID))
 	if err != nil {
 		c.SetInternalError(err)
 		return
@@ -146,8 +161,17 @@ func listDeletedKeys(c *Context, w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(map[string]any{"deleted_keys": items, "total": len(items)}) //nolint:errcheck,gosec
 }
 
-// getDeletedKey returns a single soft-deleted key by its UUID.
+// getDeletedKey returns a single soft-deleted key by its UUID, resolved
+// within the same vault scope as listDeletedKeys. It has no vault-scoped
+// route counterpart (secrets doesn't have a single-item deleted GET either),
+// so it stays registered on the flat router only, where it resolves to the
+// default vault.
 func getDeletedKey(c *Context, w http.ResponseWriter, r *http.Request) {
+	vaultID, err := vaultIDFromRequest(r)
+	if err != nil {
+		c.SetInvalidParam("vault")
+		return
+	}
 	userID, ok := userIDFromClaims(c)
 	if !ok {
 		return
@@ -159,8 +183,12 @@ func getDeletedKey(c *Context, w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	repo := c.App.ServiceContainer.GetKeyRepository()
-	keys, err := repo.ListSoftDeleted(r.Context(), userID)
+	keySvc := c.keySvc()
+	if keySvc == nil {
+		return
+	}
+
+	keys, err := keySvc.ListDeletedKeys(r.Context(), model.NewVaultScope(vaultID, userID))
 	if err != nil {
 		c.SetInternalError(err)
 		return
@@ -184,39 +212,24 @@ func getDeletedKey(c *Context, w http.ResponseWriter, r *http.Request) {
 
 // recoverKey restores a soft-deleted key by ID.
 func recoverKey(c *Context, w http.ResponseWriter, r *http.Request) {
-	userID, ok := userIDFromClaims(c)
-	if !ok {
-		return
-	}
-
 	keyID, err := uuid.Parse(c.Params.KeyID)
 	if err != nil {
 		c.SetInvalidParam("key_id")
 		return
 	}
 
-	// Verify ownership via ListSoftDeleted.
-	repo := c.App.ServiceContainer.GetKeyRepository()
-	keys, err := repo.ListSoftDeleted(r.Context(), userID)
-	if err != nil {
-		c.SetInternalError(err)
+	keySvc := c.keySvc()
+	if keySvc == nil {
 		return
 	}
 
-	found := false
-	for _, k := range keys {
-		if k.ID == keyID {
-			found = true
-			break
-		}
-	}
-	if !found {
-		c.SetNotFound("key")
+	scope, ok := scopeFromRequest(c, r)
+	if !ok {
 		return
 	}
 
-	if err := repo.RecoverKey(r.Context(), keyID); err != nil {
-		c.SetInternalError(err)
+	if err := keySvc.RecoverKey(r.Context(), keyID, scope); err != nil {
+		writeKeyError(c, err)
 		return
 	}
 
@@ -226,53 +239,49 @@ func recoverKey(c *Context, w http.ResponseWriter, r *http.Request) {
 
 // purgeKey permanently deletes a soft-deleted key by ID.
 func purgeKey(c *Context, w http.ResponseWriter, r *http.Request) {
-	userID, ok := userIDFromClaims(c)
-	if !ok {
-		return
-	}
-
 	keyID, err := uuid.Parse(c.Params.KeyID)
 	if err != nil {
 		c.SetInvalidParam("key_id")
 		return
 	}
 
-	// Verify ownership via ListSoftDeleted.
-	repo := c.App.ServiceContainer.GetKeyRepository()
-	keys, err := repo.ListSoftDeleted(r.Context(), userID)
-	if err != nil {
-		c.SetInternalError(err)
+	keySvc := c.keySvc()
+	if keySvc == nil {
 		return
 	}
 
-	found := false
-	for _, k := range keys {
-		if k.ID == keyID {
-			found = true
-			break
-		}
-	}
-	if !found {
-		c.SetNotFound("key")
+	scope, ok := scopeFromRequest(c, r)
+	if !ok {
 		return
 	}
 
-	if err := repo.PurgeKey(r.Context(), keyID); err != nil {
-		c.SetInternalError(err)
+	if err := keySvc.PurgeKey(r.Context(), keyID, scope); err != nil {
+		writeKeyError(c, err)
 		return
 	}
 
 	ReturnStatusOK(w)
 }
 
-// listDeletedCertificates returns all soft-deleted certificates for the authenticated user.
+// listDeletedCertificates returns all soft-deleted certificates in the
+// resolved vault, mirroring listDeletedKeys/listDeletedSecrets.
 func listDeletedCertificates(c *Context, w http.ResponseWriter, r *http.Request) {
+	vaultID, err := vaultIDFromRequest(r)
+	if err != nil {
+		c.SetInvalidParam("vault")
+		return
+	}
 	userID, ok := userIDFromClaims(c)
 	if !ok {
 		return
 	}
 
-	certs, err := c.App.ServiceContainer.GetCertificateRepository().ListSoftDeleted(r.Context(), userID)
+	certSvc := c.certSvc()
+	if certSvc == nil {
+		return
+	}
+
+	certs, err := certSvc.ListDeletedCertificates(r.Context(), model.NewVaultScope(vaultID, userID))
 	if err != nil {
 		c.SetInternalError(err)
 		return
@@ -301,39 +310,24 @@ func listDeletedCertificates(c *Context, w http.ResponseWriter, r *http.Request)
 
 // recoverCertificate restores a soft-deleted certificate by ID.
 func recoverCertificate(c *Context, w http.ResponseWriter, r *http.Request) {
-	userID, ok := userIDFromClaims(c)
-	if !ok {
-		return
-	}
-
 	certID, err := uuid.Parse(c.Params.CertificateID)
 	if err != nil {
 		c.SetInvalidParam("certificate_id")
 		return
 	}
 
-	// Verify ownership via ListSoftDeleted.
-	repo := c.App.ServiceContainer.GetCertificateRepository()
-	certs, err := repo.ListSoftDeleted(r.Context(), userID)
-	if err != nil {
-		c.SetInternalError(err)
+	certSvc := c.certSvc()
+	if certSvc == nil {
 		return
 	}
 
-	found := false
-	for _, cert := range certs {
-		if cert.ID == certID {
-			found = true
-			break
-		}
-	}
-	if !found {
-		c.SetNotFound("certificate")
+	scope, ok := scopeFromRequest(c, r)
+	if !ok {
 		return
 	}
 
-	if err := repo.RecoverCertificate(r.Context(), certID); err != nil {
-		c.SetInternalError(err)
+	if err := certSvc.RecoverCertificate(r.Context(), certID, scope); err != nil {
+		writeCertificateError(c, err)
 		return
 	}
 
@@ -343,39 +337,24 @@ func recoverCertificate(c *Context, w http.ResponseWriter, r *http.Request) {
 
 // purgeCertificate permanently deletes a soft-deleted certificate by ID.
 func purgeCertificate(c *Context, w http.ResponseWriter, r *http.Request) {
-	userID, ok := userIDFromClaims(c)
-	if !ok {
-		return
-	}
-
 	certID, err := uuid.Parse(c.Params.CertificateID)
 	if err != nil {
 		c.SetInvalidParam("certificate_id")
 		return
 	}
 
-	// Verify ownership via ListSoftDeleted.
-	repo := c.App.ServiceContainer.GetCertificateRepository()
-	certs, err := repo.ListSoftDeleted(r.Context(), userID)
-	if err != nil {
-		c.SetInternalError(err)
+	certSvc := c.certSvc()
+	if certSvc == nil {
 		return
 	}
 
-	found := false
-	for _, cert := range certs {
-		if cert.ID == certID {
-			found = true
-			break
-		}
-	}
-	if !found {
-		c.SetNotFound("certificate")
+	scope, ok := scopeFromRequest(c, r)
+	if !ok {
 		return
 	}
 
-	if err := repo.PurgeCertificate(r.Context(), certID); err != nil {
-		c.SetInternalError(err)
+	if err := certSvc.PurgeCertificate(r.Context(), certID, scope); err != nil {
+		writeCertificateError(c, err)
 		return
 	}
 
@@ -400,13 +379,13 @@ func userIDFromClaims(c *Context) (uuid.UUID, bool) {
 
 // InitDeleted registers soft-delete management routes.
 //
-// The secret deleted-flow handlers are vault-aware (they read the vault from
-// the request context), so they are registered on both the legacy flat routes
-// and the vault-scoped subrouter. The key and certificate deleted-flow handlers
-// are still user-scoped and are therefore registered ONLY on the legacy flat
-// routes; they are intentionally NOT exposed as vault-scoped routes so no
-// vault-scoped route silently ignores its vault. See the deferral note in
-// .claude/multi-vault.md.
+// All seven deleted-flow handlers (secrets, keys, certificates) are now
+// vault-aware: they read the vault from the request context via
+// scopeFromRequest/vaultIDFromRequest, so they are registered on both the
+// legacy flat routes and the vault-scoped subrouter. getDeletedKey is the one
+// exception — it has no vault-scoped route because it has no secrets
+// equivalent to mirror (secrets exposes no single-item deleted GET either);
+// it stays flat-only and resolves to the default vault.
 func (api *API) InitDeleted() {
 	api.registerDeletedRoutes(api.BaseRoutes.Deleted)
 	if api.BaseRoutes.VaultScoped != nil {
@@ -415,26 +394,26 @@ func (api *API) InitDeleted() {
 }
 
 // registerDeletedRoutes registers all soft-delete handlers on the legacy flat
-// routes. These resolve to the default vault / user scope.
+// routes. These resolve to the default vault / owner scope.
 func (api *API) registerDeletedRoutes(r *mux.Router) {
 	api.registerVaultScopedDeletedRoutes(r)
 
-	// Key and certificate deleted-flow handlers remain user-scoped; they are
-	// only registered on the legacy flat routes. See .claude/multi-vault.md.
+	// getDeletedKey has no vault-scoped counterpart; see the InitDeleted comment.
 	r.Handle("/keys/{key_id:[A-Fa-f0-9-]+}", ApiSessionRequired(api.App, getDeletedKey)).Methods("GET")
+}
+
+// registerVaultScopedDeletedRoutes registers the vault-aware soft-delete
+// handlers for all three resource types. List handlers honour the resolved
+// vault; restore/purge operate by globally-unique ID so they already act on
+// the correct object once scoped.
+func (api *API) registerVaultScopedDeletedRoutes(r *mux.Router) {
+	r.Handle("/secrets", ApiSessionRequired(api.App, listDeletedSecrets)).Methods("GET")
+	r.Handle("/secrets/{secret_id:[A-Fa-f0-9-]+}/restore", ApiSessionRequired(api.App, recoverSecret)).Methods("POST")
+	r.Handle("/secrets/{secret_id:[A-Fa-f0-9-]+}/purge", ApiSessionRequired(api.App, purgeSecret)).Methods("DELETE")
 	r.Handle("/keys", ApiSessionRequired(api.App, listDeletedKeys)).Methods("GET")
 	r.Handle("/keys/{key_id:[A-Fa-f0-9-]+}/restore", ApiSessionRequired(api.App, recoverKey)).Methods("POST")
 	r.Handle("/keys/{key_id:[A-Fa-f0-9-]+}/purge", ApiSessionRequired(api.App, purgeKey)).Methods("DELETE")
 	r.Handle("/certificates", ApiSessionRequired(api.App, listDeletedCertificates)).Methods("GET")
 	r.Handle("/certificates/{certificate_id:[A-Fa-f0-9-]+}/restore", ApiSessionRequired(api.App, recoverCertificate)).Methods("POST")
 	r.Handle("/certificates/{certificate_id:[A-Fa-f0-9-]+}/purge", ApiSessionRequired(api.App, purgeCertificate)).Methods("DELETE")
-}
-
-// registerVaultScopedDeletedRoutes registers the vault-aware soft-delete
-// handlers. The list handler honours the resolved vault; restore/purge operate
-// by globally-unique ID so they already act on the correct object.
-func (api *API) registerVaultScopedDeletedRoutes(r *mux.Router) {
-	r.Handle("/secrets", ApiSessionRequired(api.App, listDeletedSecrets)).Methods("GET")
-	r.Handle("/secrets/{secret_id:[A-Fa-f0-9-]+}/restore", ApiSessionRequired(api.App, recoverSecret)).Methods("POST")
-	r.Handle("/secrets/{secret_id:[A-Fa-f0-9-]+}/purge", ApiSessionRequired(api.App, purgeSecret)).Methods("DELETE")
 }
