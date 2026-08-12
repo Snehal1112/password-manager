@@ -108,7 +108,7 @@ values for both fields.*
 
 | Capability | Azure Key Vault | RocketVault | Status |
 |---|---|---|---|
-| Identity provider | Microsoft Entra ID | Local users + JWT (RS256/ES256) + TOTP MFA | 🟡 (no external IdP) |
+| Identity provider | Microsoft Entra ID | Local users + JWT (RS256/ES256) + TOTP MFA, **or** OIDC authorization-code flow (`GET /oidc/login`, `/oidc/callback`) against any standards-compliant IdP (Entra ID, Okta, Auth0, Keycloak, ...); both issue the same RocketVault session/JWT | ✅ (architecture matches: external IdP authenticates, RocketVault's existing vault-scoped role assignments still govern authorization) |
 | Vault-scoped role assignment (Azure RBAC model) | ✅ role assignment scoped to vault resource, identity stays tenant-global | ✅ `role_assignments` table + `/vaults/{name}/role-assignments`; users stay tenant-global, no `vault_id` on `model.User` — confirmed against Microsoft Learn RBAC guide during design | ✅ architecture match |
 | Access-policy engine (legacy model) | Separate, mutually-exclusive engine from RBAC (`enableRbacAuthorization` toggle picks one) | Same underlying `access_policies` table for both manual grants and role-assignment expansion — one engine, not two | 🟡 simplified (reasonable for single self-hosted product, but not a literal two-engine match) |
 | Deny-overrides precedence | ✅ | ✅ confirmed in `access_policy_service.go`: "Explicit deny always wins. Falls back to RBAC when no matching policy exists." | ✅ |
@@ -230,7 +230,6 @@ carries no derived gaps).
   FIPS 140-3 L3 validation.
 - **Rotation policy**: rotation works, but there is no per-key JWK-style rotation
   policy API, and rotation is user-scoped (a multi-vault deferral).
-- **Identity**: local users + TOTP rather than an external IdP.
 - **RBAC role boundaries, one residual gap** (see §6): `Key Vault Crypto User` is
   missing the `update`/`backup` actions Azure's real Crypto User grants.
 
