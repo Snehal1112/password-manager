@@ -83,8 +83,8 @@ func (m *certCmdCertService) DeleteCertificate(ctx context.Context, certID uuid.
 	return args.Error(0)
 }
 
-func (m *certCmdCertService) RenewCertificate(ctx context.Context, certID, userID uuid.UUID, validityDays int) (*certServices.CreateCertificateResult, error) {
-	args := m.Called(ctx, certID, userID, validityDays)
+func (m *certCmdCertService) RenewCertificate(ctx context.Context, certID uuid.UUID, scope model.Scope, validityDays int) (*certServices.CreateCertificateResult, error) {
+	args := m.Called(ctx, certID, scope, validityDays)
 	if args.Get(0) == nil {
 		return nil, args.Error(1)
 	}
@@ -849,7 +849,7 @@ func TestCertRenewCmd_Success(t *testing.T) {
 		Name:      "renewed",
 		CreatedAt: time.Now(),
 	}
-	certSvc.On("RenewCertificate", mock.Anything, certID, userID, 365).Return(result, nil)
+	certSvc.On("RenewCertificate", mock.Anything, certID, model.NewOwnerScope(uuid.Nil, userID), 365).Return(result, nil)
 
 	sc := &certsTestContainer{
 		MockServiceContainer: &testutils.MockServiceContainer{},
@@ -875,7 +875,7 @@ func TestCertRenewCmd_ServiceError(t *testing.T) {
 	certSvc := &certCmdCertService{}
 	userID := uuid.New()
 	certID := uuid.New()
-	certSvc.On("RenewCertificate", mock.Anything, certID, userID, 180).Return(nil, fmt.Errorf("renew failed"))
+	certSvc.On("RenewCertificate", mock.Anything, certID, model.NewOwnerScope(uuid.Nil, userID), 180).Return(nil, fmt.Errorf("renew failed"))
 
 	sc := &certsTestContainer{
 		MockServiceContainer: &testutils.MockServiceContainer{},

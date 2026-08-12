@@ -59,7 +59,11 @@ var renewCmd = &cobra.Command{
 		}
 		certService := serviceContainer.GetCertificateService()
 
-		result, err := certService.RenewCertificate(ctx, certID, claims.UserID, validityDays)
+		// Stopgap: no --vault flag or vault resolution yet, so this preserves
+		// the exact pre-existing owner-only behaviour RenewCertificate used to
+		// hardcode internally. Plan 05 (vault CLI wiring) replaces this with a
+		// real vault-scoped call gated by vaultcli.RequireDataAction.
+		result, err := certService.RenewCertificate(ctx, certID, model.NewOwnerScope(uuid.Nil, claims.UserID), validityDays)
 		if err != nil {
 			log.LogAuditError(claims.UserID.String(), "renew_certificate", "failed", fmt.Sprintf("failed to renew certificate: %s", err), err)
 			return fmt.Errorf("failed to renew certificate: %w", err)
