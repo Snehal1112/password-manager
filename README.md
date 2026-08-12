@@ -1287,6 +1287,9 @@ For questions or issues:
 - [x] One-time migration backfill deriving Azure role assignments from prior object ownership, the global admin role, and legacy per-vault role names, plus `vaults preview-migration` to review it beforehand
 - [x] Vault-scope inconsistency fixes (2026-07-26) — secrets update/versions/export/import, keys update, and certificate policy routes made genuinely vault-scoped instead of silently falling back to owner-only behavior
 - [x] Key delete and all crypto operations (sign/verify/encrypt/decrypt/wrap/unwrap) gated by vault role instead of key ownership (2026-08-02) — the last key operations that were still owner-gated on a vault-scoped route now follow the same `Key Vault Crypto User`/`Key Vault Crypto Officer` role check as the rest of the vault-scoped surface
+- [x] Extend `--vault` CLI support to `keys` (create/get/list/update/delete/rotate/wrap/unwrap) — pure CLI wiring, every one of these already had a vault-scoped HTTP path and vault-aware service method
+- [x] Extend `--vault` CLI support to `certificates` `list`/`get`/`delete` — same as keys, backend was already vault-scoped
+- [x] Certificate `update` and `renew` made genuinely vault-scoped (previously hardcoded owner-only at the API/service level) — `--vault` now works on every certificate command
 
 ### Planned
 
@@ -1295,9 +1298,6 @@ For questions or issues:
 - [ ] Multi-region replication support
 - [ ] Redis caching layer for distributed deployments
 - [ ] Vault-scope role-assignment management for non-admin `vaults:manage` holders (currently requires the global admin role — see [known limitations](docs/release-notes/v4.0.0-azure-rbac.md#known-limitations))
-- [ ] Extend `--vault` CLI support to `keys` (create/get/list/update/delete/rotate/wrap/unwrap) — pure CLI wiring, every one of these already has a vault-scoped HTTP path and vault-aware service method, needs zero new service/repository code
-- [ ] Extend `--vault` CLI support to `certificates` `list`/`get`/`delete` — same as keys, backend is already vault-scoped
-- [ ] Make certificate `update` and `renew` genuinely vault-scoped (currently hardcoded owner-only at the API/service level, not just missing a CLI flag) before extending `--vault` to them
 
 ## Acknowledgments
 
