@@ -9,6 +9,7 @@ import (
 
 	"rocketvault/internal/logging"
 	"rocketvault/internal/repositories"
+	"rocketvault/model"
 )
 
 // CertificateRenewalService checks all certificates and renews or warns based on auto_renew flag.
@@ -82,7 +83,7 @@ func (s *certRenewalService) CheckAndRenewCertificates(ctx context.Context) (int
 				validityDays = 365
 			}
 
-			_, err := s.certSvc.RenewCertificate(ctx, cert.ID, cert.UserID, validityDays)
+			_, err := s.certSvc.RenewCertificate(ctx, cert.ID, model.NewAdminScope(cert.UserID), validityDays)
 			if err != nil {
 				s.logger.LogAuditError(cert.UserID.String(), "cert_auto_renew", "failed",
 					"Auto-renewal failed for: "+cert.Name, err)

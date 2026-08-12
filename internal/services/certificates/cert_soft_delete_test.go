@@ -270,8 +270,9 @@ func TestRenewCertificate_Succeeds_WhenKeyIDSet(t *testing.T) {
 	certRepo := &mockCertRepository{}
 	keyRepo := &mockKeyRepo{}
 
+	scope := model.NewOwnerScope(uuid.Nil, userID)
 	// RenewCertificate calls GetCertificate, which calls Read internally.
-	certRepo.On("Read", mock.Anything, certID, model.NewOwnerScope(uuid.Nil, userID)).Return(existingCert, nil)
+	certRepo.On("Read", mock.Anything, certID, scope).Return(existingCert, nil)
 
 	// keyRepo.Read is called twice with the same admin scope: once in
 	// ValidateKeyOwnership, once to get the key PEM.
@@ -281,7 +282,7 @@ func TestRenewCertificate_Succeeds_WhenKeyIDSet(t *testing.T) {
 	// second row: certificates has a UNIQUE(vault_id, name) index, so inserting
 	// a new row while the original (same name) still exists always fails.
 	var updatedCert *model.Certificate
-	certRepo.On("Update", mock.Anything, mock.AnythingOfType("*model.Certificate"), model.NewOwnerScope(uuid.Nil, userID)).
+	certRepo.On("Update", mock.Anything, mock.AnythingOfType("*model.Certificate"), scope).
 		Run(func(args mock.Arguments) {
 			updatedCert = args.Get(1).(*model.Certificate)
 		}).
@@ -294,7 +295,7 @@ func TestRenewCertificate_Succeeds_WhenKeyIDSet(t *testing.T) {
 		Logger:                logger,
 	})
 
-	result, err := svc.RenewCertificate(context.Background(), certID, userID, 365)
+	result, err := svc.RenewCertificate(context.Background(), certID, scope, 365)
 	require.NoError(t, err)
 	assert.NotNil(t, result)
 

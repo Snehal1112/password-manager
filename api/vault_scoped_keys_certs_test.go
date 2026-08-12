@@ -134,7 +134,7 @@ func (s *recordingCertService) ListCertificates(_ context.Context, scope model.S
 func (s *recordingCertService) DeleteCertificate(context.Context, uuid.UUID, model.Scope) error {
 	panic("unexpected")
 }
-func (s *recordingCertService) RenewCertificate(context.Context, uuid.UUID, uuid.UUID, int) (*certServices.CreateCertificateResult, error) {
+func (s *recordingCertService) RenewCertificate(context.Context, uuid.UUID, model.Scope, int) (*certServices.CreateCertificateResult, error) {
 	panic("unexpected")
 }
 func (s *recordingCertService) ValidateCertificateAccess(context.Context, uuid.UUID, uuid.UUID, string) error {

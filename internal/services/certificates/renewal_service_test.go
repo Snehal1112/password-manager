@@ -131,8 +131,8 @@ func (m *mockCertSvcForRenewal) DeleteCertificate(ctx context.Context, certID uu
 	panic("not called")
 }
 
-func (m *mockCertSvcForRenewal) RenewCertificate(ctx context.Context, certID, userID uuid.UUID, validityDays int) (*certificates.CreateCertificateResult, error) {
-	args := m.Called(ctx, certID, userID, validityDays)
+func (m *mockCertSvcForRenewal) RenewCertificate(ctx context.Context, certID uuid.UUID, scope model.Scope, validityDays int) (*certificates.CreateCertificateResult, error) {
+	args := m.Called(ctx, certID, scope, validityDays)
 	if args.Get(0) == nil {
 		return nil, args.Error(1)
 	}
@@ -170,7 +170,7 @@ func TestCheckAndRenewCertificates_AutoRenew(t *testing.T) {
 	repo.On("ListAll", mock.Anything).Return([]model.Certificate{cert}, nil)
 
 	certSvc := &mockCertSvcForRenewal{}
-	certSvc.On("RenewCertificate", mock.Anything, certID, userID, mock.AnythingOfType("int")).
+	certSvc.On("RenewCertificate", mock.Anything, certID, model.NewAdminScope(userID), mock.AnythingOfType("int")).
 		Return(&certificates.CreateCertificateResult{CertID: uuid.New()}, nil)
 
 	svc := certificates.NewCertificateRenewalService(certificates.RenewalServiceConfig{

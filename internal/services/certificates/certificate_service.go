@@ -88,7 +88,10 @@ type CertificateService interface {
 	UpdateCertificate(ctx context.Context, req UpdateCertificateRequest) error
 	// DeleteCertificate soft-deletes a certificate authorized by scope.
 	DeleteCertificate(ctx context.Context, certID uuid.UUID, scope model.Scope) error
-	RenewCertificate(ctx context.Context, certID, userID uuid.UUID, validityDays int) (*CreateCertificateResult, error)
+	// RenewCertificate renews certID, authorized by scope. scope.ActorID() is
+	// also the audit-log principal and the identity used by the internal
+	// key-ownership checks below.
+	RenewCertificate(ctx context.Context, certID uuid.UUID, scope model.Scope, validityDays int) (*CreateCertificateResult, error)
 	ValidateCertificateAccess(ctx context.Context, certID, userID uuid.UUID, role string) error
 	ValidateKeyOwnership(ctx context.Context, keyID, userID uuid.UUID, role string) error
 }
@@ -492,18 +495,17 @@ func (s *certificateService) DeleteCertificate(ctx context.Context, certID uuid.
 //
 //	ctx: The context for the operation.
 //	certID: The certificate to renew.
-//	userID: The requesting user's ID for access control.
+//	scope: The authorization scope for the read and the write; scope.ActorID()
+//	  is also used for audit logging and the internal key-ownership checks.
 //	validityDays: The validity period for the new certificate.
 //
 // Returns:
 //
 //	The new certificate information or an error if renewal fails.
-func (s *certificateService) RenewCertificate(ctx context.Context, certID, userID uuid.UUID, validityDays int) (*CreateCertificateResult, error) {
+func (s *certificateService) RenewCertificate(ctx context.Context, certID uuid.UUID, scope model.Scope, validityDays int) (*CreateCertificateResult, error) {
+	userID := scope.ActorID()
+
 	// Verify certificate exists and access; original carries AutoRenew/RenewalDays.
-	// An owner scope preserves the pre-refactor ownership check: this is the
-	// sole authorization gate for this path (unlike RotateKey/ValidateKeyAccess,
-	// there is no separate manual ownership comparison here).
-	scope := model.NewOwnerScope(uuid.Nil, userID)
 	original, err := s.GetCertificate(ctx, certID, scope)
 	if err != nil {
 		return nil, err

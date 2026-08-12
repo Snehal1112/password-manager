@@ -89,8 +89,8 @@ func (m *mockCertService) DeleteCertificate(ctx context.Context, certID uuid.UUI
 	return args.Error(0)
 }
 
-func (m *mockCertService) RenewCertificate(ctx context.Context, certID, userID uuid.UUID, validityDays int) (*certServices.CreateCertificateResult, error) {
-	args := m.Called(ctx, certID, userID, validityDays)
+func (m *mockCertService) RenewCertificate(ctx context.Context, certID uuid.UUID, scope model.Scope, validityDays int) (*certServices.CreateCertificateResult, error) {
+	args := m.Called(ctx, certID, scope, validityDays)
 	if args.Get(0) == nil {
 		return nil, args.Error(1)
 	}

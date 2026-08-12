@@ -314,9 +314,9 @@ func (_c *MockCertificateService_ListCertificates_Call) RunAndReturn(run func(co
 	return _c
 }
 
-// RenewCertificate provides a mock function with given fields: ctx, certID, userID, validityDays
-func (_m *MockCertificateService) RenewCertificate(ctx context.Context, certID uuid.UUID, userID uuid.UUID, validityDays int) (*certificates.CreateCertificateResult, error) {
-	ret := _m.Called(ctx, certID, userID, validityDays)
+// RenewCertificate provides a mock function with given fields: ctx, certID, scope, validityDays
+func (_m *MockCertificateService) RenewCertificate(ctx context.Context, certID uuid.UUID, scope model.Scope, validityDays int) (*certificates.CreateCertificateResult, error) {
+	ret := _m.Called(ctx, certID, scope, validityDays)
 
 	if len(ret) == 0 {
 		panic("no return value specified for RenewCertificate")
@@ -324,19 +324,19 @@ func (_m *MockCertificateService) RenewCertificate(ctx context.Context, certID u
 
 	var r0 *certificates.CreateCertificateResult
 	var r1 error
-	if rf, ok := ret.Get(0).(func(context.Context, uuid.UUID, uuid.UUID, int) (*certificates.CreateCertificateResult, error)); ok {
-		return rf(ctx, certID, userID, validityDays)
+	if rf, ok := ret.Get(0).(func(context.Context, uuid.UUID, model.Scope, int) (*certificates.CreateCertificateResult, error)); ok {
+		return rf(ctx, certID, scope, validityDays)
 	}
-	if rf, ok := ret.Get(0).(func(context.Context, uuid.UUID, uuid.UUID, int) *certificates.CreateCertificateResult); ok {
-		r0 = rf(ctx, certID, userID, validityDays)
+	if rf, ok := ret.Get(0).(func(context.Context, uuid.UUID, model.Scope, int) *certificates.CreateCertificateResult); ok {
+		r0 = rf(ctx, certID, scope, validityDays)
 	} else {
 		if ret.Get(0) != nil {
 			r0 = ret.Get(0).(*certificates.CreateCertificateResult)
 		}
 	}
 
-	if rf, ok := ret.Get(1).(func(context.Context, uuid.UUID, uuid.UUID, int) error); ok {
-		r1 = rf(ctx, certID, userID, validityDays)
+	if rf, ok := ret.Get(1).(func(context.Context, uuid.UUID, model.Scope, int) error); ok {
+		r1 = rf(ctx, certID, scope, validityDays)
 	} else {
 		r1 = ret.Error(1)
 	}
@@ -352,15 +352,15 @@ type MockCertificateService_RenewCertificate_Call struct {
 // RenewCertificate is a helper method to define mock.On call
 //   - ctx context.Context
 //   - certID uuid.UUID
-//   - userID uuid.UUID
+//   - scope model.Scope
 //   - validityDays int
-func (_e *MockCertificateService_Expecter) RenewCertificate(ctx interface{}, certID interface{}, userID interface{}, validityDays interface{}) *MockCertificateService_RenewCertificate_Call {
-	return &MockCertificateService_RenewCertificate_Call{Call: _e.mock.On("RenewCertificate", ctx, certID, userID, validityDays)}
+func (_e *MockCertificateService_Expecter) RenewCertificate(ctx interface{}, certID interface{}, scope interface{}, validityDays interface{}) *MockCertificateService_RenewCertificate_Call {
+	return &MockCertificateService_RenewCertificate_Call{Call: _e.mock.On("RenewCertificate", ctx, certID, scope, validityDays)}
 }
 
-func (_c *MockCertificateService_RenewCertificate_Call) Run(run func(ctx context.Context, certID uuid.UUID, userID uuid.UUID, validityDays int)) *MockCertificateService_RenewCertificate_Call {
+func (_c *MockCertificateService_RenewCertificate_Call) Run(run func(ctx context.Context, certID uuid.UUID, scope model.Scope, validityDays int)) *MockCertificateService_RenewCertificate_Call {
 	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(context.Context), args[1].(uuid.UUID), args[2].(uuid.UUID), args[3].(int))
+		run(args[0].(context.Context), args[1].(uuid.UUID), args[2].(model.Scope), args[3].(int))
 	})
 	return _c
 }
@@ -370,7 +370,7 @@ func (_c *MockCertificateService_RenewCertificate_Call) Return(_a0 *certificates
 	return _c
 }
 
-func (_c *MockCertificateService_RenewCertificate_Call) RunAndReturn(run func(context.Context, uuid.UUID, uuid.UUID, int) (*certificates.CreateCertificateResult, error)) *MockCertificateService_RenewCertificate_Call {
+func (_c *MockCertificateService_RenewCertificate_Call) RunAndReturn(run func(context.Context, uuid.UUID, model.Scope, int) (*certificates.CreateCertificateResult, error)) *MockCertificateService_RenewCertificate_Call {
 	_c.Call.Return(run)
 	return _c
 }

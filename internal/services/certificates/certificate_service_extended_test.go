@@ -545,10 +545,11 @@ func TestValidateKeyOwnership_KeyNotFound(t *testing.T) {
 func TestRenewCertificate_NoKeyID(t *testing.T) {
 	userID := uuid.New()
 	certID := uuid.New()
+	scope := model.NewOwnerScope(uuid.Nil, userID)
 	certRepo := &mockCertRepository{}
 	keyRepo := &mockKeyRepo{}
 
-	certRepo.On("Read", mock.Anything, certID, model.NewOwnerScope(uuid.Nil, userID)).Return(&model.Certificate{
+	certRepo.On("Read", mock.Anything, certID, scope).Return(&model.Certificate{
 		ID:      certID,
 		UserID:  userID,
 		Enabled: true,
@@ -556,7 +557,7 @@ func TestRenewCertificate_NoKeyID(t *testing.T) {
 	}, nil)
 
 	svc := newCertSvc(certRepo, keyRepo)
-	_, err := svc.RenewCertificate(context.Background(), certID, userID, 365)
+	_, err := svc.RenewCertificate(context.Background(), certID, scope, 365)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "no associated key ID")
 }
@@ -564,13 +565,14 @@ func TestRenewCertificate_NoKeyID(t *testing.T) {
 func TestRenewCertificate_GetCertificateFails(t *testing.T) {
 	userID := uuid.New()
 	certID := uuid.New()
+	scope := model.NewOwnerScope(uuid.Nil, userID)
 	certRepo := &mockCertRepository{}
 	keyRepo := &mockKeyRepo{}
 
-	certRepo.On("Read", mock.Anything, certID, model.NewOwnerScope(uuid.Nil, userID)).Return(nil, errors.New("not found"))
+	certRepo.On("Read", mock.Anything, certID, scope).Return(nil, errors.New("not found"))
 
 	svc := newCertSvc(certRepo, keyRepo)
-	_, err := svc.RenewCertificate(context.Background(), certID, userID, 365)
+	_, err := svc.RenewCertificate(context.Background(), certID, scope, 365)
 	require.Error(t, err)
 }
 
@@ -827,8 +829,8 @@ func (m *mockRenewalCertSvc) UpdateCertificate(ctx context.Context, req UpdateCe
 func (m *mockRenewalCertSvc) DeleteCertificate(ctx context.Context, certID uuid.UUID, scope model.Scope) error {
 	panic("not called")
 }
-func (m *mockRenewalCertSvc) RenewCertificate(ctx context.Context, certID, userID uuid.UUID, validityDays int) (*CreateCertificateResult, error) {
-	args := m.Called(ctx, certID, userID, validityDays)
+func (m *mockRenewalCertSvc) RenewCertificate(ctx context.Context, certID uuid.UUID, scope model.Scope, validityDays int) (*CreateCertificateResult, error) {
+	args := m.Called(ctx, certID, scope, validityDays)
 	if args.Get(0) == nil {
 		return nil, args.Error(1)
 	}
@@ -938,7 +940,7 @@ func TestCheckAndRenewCertificates_AutoRenewFailureSkipped(t *testing.T) {
 	}, nil)
 
 	certSvc := &mockRenewalCertSvc{}
-	certSvc.On("RenewCertificate", mock.Anything, certID, userID, mock.AnythingOfType("int")).
+	certSvc.On("RenewCertificate", mock.Anything, certID, model.NewAdminScope(userID), mock.AnythingOfType("int")).
 		Return(nil, errors.New("renewal failed"))
 
 	svc := NewCertificateRenewalService(RenewalServiceConfig{
