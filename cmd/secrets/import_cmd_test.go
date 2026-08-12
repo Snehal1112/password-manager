@@ -45,7 +45,7 @@ func TestImportCommand_CallsServiceImport(t *testing.T) {
 	tc.MockContainer.AccessPolicyService = policies
 
 	tmpFile := t.TempDir() + "/import.json"
-	os.WriteFile(tmpFile, []byte(`{}`), 0o600) //nolint:errcheck
+	os.WriteFile(tmpFile, []byte(`{}`), 0o600) //nolint:errcheck,gosec
 
 	// Reset package-level vars.
 	importFormat = "json"
@@ -96,7 +96,7 @@ func TestImportCommand_Forbidden(t *testing.T) {
 	tc.MockContainer.RoleAssignmentService = denyRoles
 
 	tmpFile := t.TempDir() + "/import.json"
-	os.WriteFile(tmpFile, []byte(`{}`), 0o600) //nolint:errcheck
+	os.WriteFile(tmpFile, []byte(`{}`), 0o600) //nolint:errcheck,gosec
 
 	importFormat = "json"
 	importFile = tmpFile

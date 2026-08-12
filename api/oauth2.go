@@ -103,7 +103,7 @@ func (api *API) tokenHandler(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(tokenResp) //nolint:errcheck
+	json.NewEncoder(w).Encode(tokenResp) //nolint:errcheck,gosec
 }
 
 // maxAuditClientIDLen bounds the caller-supplied client_id written into an
@@ -165,7 +165,7 @@ func extractClientCredentials(r *http.Request) (clientID, clientSecret string, o
 func writeTokenError(w http.ResponseWriter, status int, errCode, description string) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
-	json.NewEncoder(w).Encode(map[string]string{ //nolint:errcheck
+	json.NewEncoder(w).Encode(map[string]string{ //nolint:errcheck,gosec
 		"error":             errCode,
 		"error_description": description,
 	})
@@ -225,7 +225,7 @@ func createServiceAccount(c *Context, w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusCreated)
-	json.NewEncoder(w).Encode(map[string]any{ //nolint:errcheck
+	json.NewEncoder(w).Encode(map[string]any{ //nolint:errcheck,gosec
 		"id":            client.ID.String(),
 		"name":          client.Name,
 		"description":   client.Description,
@@ -253,7 +253,7 @@ func listServiceAccounts(c *Context, w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]any{ //nolint:errcheck
+	json.NewEncoder(w).Encode(map[string]any{ //nolint:errcheck,gosec
 		"service_accounts": clients,
 		"total":            len(clients),
 	})
@@ -282,7 +282,7 @@ func getServiceAccount(c *Context, w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(client) //nolint:errcheck
+	json.NewEncoder(w).Encode(client) //nolint:errcheck,gosec
 }
 
 // deleteServiceAccount handles DELETE /service-accounts/{service_account_id}.
@@ -339,7 +339,7 @@ func rotateServiceAccountSecret(c *Context, w http.ResponseWriter, r *http.Reque
 	recordServiceAccountAudit(c, r, "service_account_rotate_secret", id.String(), "success")
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]string{ //nolint:errcheck
+	json.NewEncoder(w).Encode(map[string]string{ //nolint:errcheck,gosec
 		"client_secret": newSecret, // returned once only — store securely
 	})
 }

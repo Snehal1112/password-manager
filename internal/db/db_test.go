@@ -31,7 +31,7 @@ func TestInitializeDB(t *testing.T) {
 	rows, err := globalDB.Query("SELECT name FROM sqlite_master WHERE type='table' AND name='users'")
 	assert.NoError(t, err, "query for users table should succeed")
 	assert.True(t, rows.Next(), "users table should exist")
-	rows.Close() //nolint:errcheck
+	rows.Close() //nolint:errcheck,gosec
 }
 
 // TestInitializeDBInvalidConfig tests InitializeDB with an invalid connection string.
@@ -68,8 +68,8 @@ func BenchmarkInitializeDB(b *testing.B) {
 
 	for i := 0; i < b.N; i++ {
 		db := NewRepository(log)
-		db.InitializeDB() //nolint:errcheck
-		db.CloseDB()      //nolint:errcheck
+		db.InitializeDB() //nolint:errcheck,gosec
+		db.CloseDB()      //nolint:errcheck,gosec
 	}
 }
 

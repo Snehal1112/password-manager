@@ -11,7 +11,7 @@ func TestResolveVault_Precedence(t *testing.T) {
 	// Flag wins over env.
 	c1 := &cobra.Command{}
 	c1.Flags().String("vault", "", "")
-	c1.Flags().Set("vault", "flagvault") //nolint:errcheck
+	c1.Flags().Set("vault", "flagvault") //nolint:errcheck,gosec
 	t.Setenv("ROCKETVAULT_VAULT", "envvault")
 	if got := resolveVault(c1); got != "flagvault" {
 		t.Fatalf("flag should win, got %q", got)

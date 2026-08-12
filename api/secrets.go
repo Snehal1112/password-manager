@@ -101,7 +101,7 @@ func listSecretVersionsHandler(c *Context, w http.ResponseWriter, r *http.Reques
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(versions) //nolint:errcheck
+	json.NewEncoder(w).Encode(versions) //nolint:errcheck,gosec
 }
 
 // getSecretVersionHandler retrieves a specific version of a secret.
@@ -129,7 +129,7 @@ func getSecretVersionHandler(c *Context, w http.ResponseWriter, r *http.Request)
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(version) //nolint:errcheck
+	json.NewEncoder(w).Encode(version) //nolint:errcheck,gosec
 }
 
 // getLatestSecretVersionHandler retrieves the latest version of a secret.
@@ -156,7 +156,7 @@ func getLatestSecretVersionHandler(c *Context, w http.ResponseWriter, r *http.Re
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(version) //nolint:errcheck
+	json.NewEncoder(w).Encode(version) //nolint:errcheck,gosec
 }
 
 // exportSecrets handles the export of secrets to encrypted files.
@@ -219,7 +219,7 @@ func exportSecrets(c *Context, w http.ResponseWriter, r *http.Request) {
 
 	// Write raw file bytes.
 	w.WriteHeader(http.StatusOK)
-	w.Write(data) //nolint:errcheck
+	w.Write(data) //nolint:errcheck,gosec
 
 	c.Logger.Printf("User %s exported secrets in %s format", userIDStr, exportReq.Format)
 }
@@ -301,7 +301,7 @@ func importSecrets(c *Context, w http.ResponseWriter, r *http.Request) {
 	// Send response.
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
-	w.Write([]byte(response.ToJson())) //nolint:errcheck
+	w.Write([]byte(response.ToJson())) //nolint:errcheck,gosec
 
 	c.Logger.Printf("User %s imported %d/%d secrets from %s format",
 		userIDStr, result.ImportedCount, result.TotalCount, format)
@@ -396,7 +396,7 @@ func createSecret(c *Context, w http.ResponseWriter, r *http.Request) {
 	// Send response.
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusCreated)
-	w.Write([]byte(response.ToJson())) //nolint:errcheck
+	w.Write([]byte(response.ToJson())) //nolint:errcheck,gosec
 
 	c.Logger.Printf("User %s created secret %s", userIDStr, secret.Name)
 }
@@ -440,7 +440,7 @@ func listSecrets(c *Context, w http.ResponseWriter, r *http.Request) {
 
 	// Send response.
 	w.Header().Set("Content-Type", "application/json")
-	w.Write([]byte(response.ToJson())) //nolint:errcheck
+	w.Write([]byte(response.ToJson())) //nolint:errcheck,gosec
 }
 
 // getSecret handles the HTTP request to retrieve a secret by its ID.
@@ -484,7 +484,7 @@ func getSecret(c *Context, w http.ResponseWriter, r *http.Request) {
 
 	// Send response.
 	w.Header().Set("Content-Type", "application/json")
-	w.Write([]byte(response.ToJson())) //nolint:errcheck
+	w.Write([]byte(response.ToJson())) //nolint:errcheck,gosec
 
 	c.Logger.Printf("Secret %s accessed", secret.Name)
 }
@@ -611,7 +611,7 @@ func updateSecret(c *Context, w http.ResponseWriter, r *http.Request) {
 
 	// Send response.
 	w.Header().Set("Content-Type", "application/json")
-	w.Write([]byte(response.ToJson())) //nolint:errcheck
+	w.Write([]byte(response.ToJson())) //nolint:errcheck,gosec
 
 	c.Logger.Printf("User %s updated secret %s", scope.ActorID(), secret.Name)
 }
@@ -730,7 +730,7 @@ func generateSecret(c *Context, w http.ResponseWriter, r *http.Request) {
 	// Send response.
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusCreated)
-	w.Write([]byte(response.ToJson())) //nolint:errcheck
+	w.Write([]byte(response.ToJson())) //nolint:errcheck,gosec
 
 	c.Logger.Printf("User %s generated secret %s", userIDStr, secret.Name)
 }

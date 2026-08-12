@@ -43,12 +43,12 @@ func (s *Server) Start() error {
 
 func (s *Server) handleHealthz(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]string{"status": "ok"}) //nolint:errcheck
+	json.NewEncoder(w).Encode(map[string]string{"status": "ok"}) //nolint:errcheck,gosec
 }
 
 func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(s.status) //nolint:errcheck
+	json.NewEncoder(w).Encode(s.status) //nolint:errcheck,gosec
 }
 
 // maskSecret applies the masking rule:

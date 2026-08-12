@@ -163,9 +163,9 @@ func InitUsersUpdate(usersCmd *cobra.Command) *cobra.Command {
 	updateCmd.Flags().String("new-username", "", "New username for the user")
 	updateCmd.Flags().String("new-password", "", "New password for the user")
 	updateCmd.Flags().String("new-role", "", "New role for the user (admin, secrets_manager, crypto_manager, certificate_manager)")
-	viper.BindPFlag("new-username", updateCmd.Flags().Lookup("new-username")) //nolint:errcheck
-	viper.BindPFlag("new-password", updateCmd.Flags().Lookup("new-password")) //nolint:errcheck
-	viper.BindPFlag("new-role", updateCmd.Flags().Lookup("new-role"))         //nolint:errcheck
+	viper.BindPFlag("new-username", updateCmd.Flags().Lookup("new-username")) //nolint:errcheck,gosec
+	viper.BindPFlag("new-password", updateCmd.Flags().Lookup("new-password")) //nolint:errcheck,gosec
+	viper.BindPFlag("new-role", updateCmd.Flags().Lookup("new-role"))         //nolint:errcheck,gosec
 
 	return usersCmd
 }

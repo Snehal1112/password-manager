@@ -118,5 +118,5 @@ func displayHealthMetrics(metrics *health.HealthMetrics, queryMetrics *health.Qu
 	fmt.Fprintf(w, "  Go Version:\t%s\n", metrics.GoVersion)                              //nolint:errcheck
 	fmt.Fprintf(w, "  Timestamp:\t%s\n", metrics.Timestamp.Format("2006-01-02 15:04:05")) //nolint:errcheck
 
-	w.Flush() //nolint:errcheck
+	w.Flush() //nolint:errcheck,gosec
 }

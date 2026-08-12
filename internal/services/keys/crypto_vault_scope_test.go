@@ -66,7 +66,7 @@ func newCryptoVaultScopeFixture(t *testing.T, vaultID, ownerID, keyID uuid.UUID)
 
 	sqlDB, err := sql.Open("sqlite3", ":memory:")
 	require.NoError(t, err)
-	t.Cleanup(func() { sqlDB.Close() }) //nolint:errcheck
+	t.Cleanup(func() { sqlDB.Close() }) //nolint:errcheck,gosec
 
 	_, err = sqlDB.Exec(`CREATE TABLE IF NOT EXISTS keys (
 		id TEXT PRIMARY KEY,

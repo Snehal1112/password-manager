@@ -363,7 +363,7 @@ func createKey(c *Context, w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusCreated)
-	json.NewEncoder(w).Encode(buildKeyResponse(key)) //nolint:errcheck
+	json.NewEncoder(w).Encode(buildKeyResponse(key)) //nolint:errcheck,gosec
 }
 
 // listKeys lists cryptographic keys. Legacy flat routes use per-user visibility
@@ -396,7 +396,7 @@ func listKeys(c *Context, w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(response) //nolint:errcheck
+	json.NewEncoder(w).Encode(response) //nolint:errcheck,gosec
 }
 
 // getKey retrieves a specific cryptographic key by ID.
@@ -424,7 +424,7 @@ func getKey(c *Context, w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(buildKeyResponse(key)) //nolint:errcheck
+	json.NewEncoder(w).Encode(buildKeyResponse(key)) //nolint:errcheck,gosec
 }
 
 // updateKey updates a cryptographic key.
@@ -489,7 +489,7 @@ func updateKey(c *Context, w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(buildKeyResponse(key)) //nolint:errcheck
+	json.NewEncoder(w).Encode(buildKeyResponse(key)) //nolint:errcheck,gosec
 }
 
 // deleteKey deletes a cryptographic key.
@@ -534,7 +534,7 @@ func deleteKey(c *Context, w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(resp) //nolint:errcheck
+	json.NewEncoder(w).Encode(resp) //nolint:errcheck,gosec
 }
 
 // rotateKey rotates a cryptographic key by generating a new key pair and revoking the old key.
@@ -571,7 +571,7 @@ func rotateKey(c *Context, w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(buildKeyResponse(key)) //nolint:errcheck
+	json.NewEncoder(w).Encode(buildKeyResponse(key)) //nolint:errcheck,gosec
 }
 
 // listKeyVersions returns the version history for a key, excluding raw key material.
@@ -621,7 +621,7 @@ func listKeyVersions(c *Context, w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]interface{}{"versions": versions}) //nolint:errcheck
+	json.NewEncoder(w).Encode(map[string]interface{}{"versions": versions}) //nolint:errcheck,gosec
 }
 
 // wrapKey wraps plaintext key material using the vault key identified by {key_id}.
@@ -686,7 +686,7 @@ func wrapKey(c *Context, w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(WrapKeyResponse{ //nolint:errcheck
+	json.NewEncoder(w).Encode(WrapKeyResponse{ //nolint:errcheck,gosec
 		WrappedKey: base64.StdEncoding.EncodeToString(result.WrappedKey),
 		Algorithm:  result.Algorithm,
 	})
@@ -754,7 +754,7 @@ func unwrapKey(c *Context, w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(UnwrapKeyResponse{ //nolint:errcheck
+	json.NewEncoder(w).Encode(UnwrapKeyResponse{ //nolint:errcheck,gosec
 		PlaintextKey: base64.StdEncoding.EncodeToString(result.PlaintextKey),
 		Algorithm:    result.Algorithm,
 	})
@@ -822,7 +822,7 @@ func signKey(c *Context, w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(SignKeyResponse{ //nolint:errcheck
+	json.NewEncoder(w).Encode(SignKeyResponse{ //nolint:errcheck,gosec
 		KeyID:     keyID.String(),
 		Algorithm: string(result.Algorithm),
 		Value:     base64.StdEncoding.EncodeToString(result.Signature),
@@ -894,7 +894,7 @@ func verifyKey(c *Context, w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(VerifyKeyResponse{ //nolint:errcheck
+	json.NewEncoder(w).Encode(VerifyKeyResponse{ //nolint:errcheck,gosec
 		KeyID:     keyID.String(),
 		Algorithm: string(result.Algorithm),
 		Valid:     result.Valid,
@@ -972,7 +972,7 @@ func encryptKey(c *Context, w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(resp) //nolint:errcheck
+	json.NewEncoder(w).Encode(resp) //nolint:errcheck,gosec
 }
 
 // decryptKey decrypts data using the vault key identified by {key_id}.
@@ -1044,7 +1044,7 @@ func decryptKey(c *Context, w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(DecryptKeyResponse{ //nolint:errcheck
+	json.NewEncoder(w).Encode(DecryptKeyResponse{ //nolint:errcheck,gosec
 		KeyID:     keyID.String(),
 		Algorithm: string(result.Algorithm),
 		Value:     base64.StdEncoding.EncodeToString(result.Plaintext),

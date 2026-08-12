@@ -32,8 +32,8 @@ type AppError struct {
 func NewID() string {
 	var b bytes.Buffer
 	encoder := base32.NewEncoder(encoding, &b)
-	encoder.Write(uuid.New().NodeID()) //nolint:errcheck
-	encoder.Close()                    //nolint:errcheck
+	encoder.Write(uuid.New().NodeID()) //nolint:errcheck,gosec
+	encoder.Close()                    //nolint:errcheck,gosec
 	b.Truncate(26)                     // removes the '==' padding
 	return b.String()
 }

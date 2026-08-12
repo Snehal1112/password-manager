@@ -50,6 +50,6 @@ func openTestDB(t *testing.T) *sql.DB {
 	t.Helper()
 	testDB, err := sql.Open("sqlite3", ":memory:")
 	require.NoError(t, err)
-	t.Cleanup(func() { testDB.Close() }) //nolint:errcheck
+	t.Cleanup(func() { testDB.Close() }) //nolint:errcheck,gosec
 	return testDB
 }

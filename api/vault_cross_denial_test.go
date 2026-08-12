@@ -61,7 +61,7 @@ func newCrossVaultSecretsTestAPI(t *testing.T) (*API, *vaultFakeRepo, repositori
 	if err != nil {
 		t.Fatalf("open sqlite: %v", err)
 	}
-	t.Cleanup(func() { sqlDB.Close() }) //nolint:errcheck
+	t.Cleanup(func() { sqlDB.Close() }) //nolint:errcheck,gosec
 
 	_, err = sqlDB.Exec(`CREATE TABLE IF NOT EXISTS secrets (
 		id               TEXT PRIMARY KEY,
@@ -138,7 +138,7 @@ func newCrossVaultKeysTestAPI(t *testing.T) (*API, *vaultFakeRepo, repositories.
 	if err != nil {
 		t.Fatalf("open sqlite: %v", err)
 	}
-	t.Cleanup(func() { sqlDB.Close() }) //nolint:errcheck
+	t.Cleanup(func() { sqlDB.Close() }) //nolint:errcheck,gosec
 
 	_, err = sqlDB.Exec(`CREATE TABLE IF NOT EXISTS keys (
 		id TEXT PRIMARY KEY,
@@ -220,7 +220,7 @@ func newCrossVaultCertsTestAPI(t *testing.T) (*API, *vaultFakeRepo, repositories
 	if err != nil {
 		t.Fatalf("open sqlite: %v", err)
 	}
-	t.Cleanup(func() { sqlDB.Close() }) //nolint:errcheck
+	t.Cleanup(func() { sqlDB.Close() }) //nolint:errcheck,gosec
 
 	_, err = sqlDB.Exec(`CREATE TABLE IF NOT EXISTS certificates (
 		id TEXT PRIMARY KEY,
@@ -305,7 +305,7 @@ func newCrossVaultCertPolicyTestAPI(t *testing.T) (*API, *vaultFakeRepo, reposit
 	if err != nil {
 		t.Fatalf("open sqlite: %v", err)
 	}
-	t.Cleanup(func() { sqlDB.Close() }) //nolint:errcheck
+	t.Cleanup(func() { sqlDB.Close() }) //nolint:errcheck,gosec
 
 	_, err = sqlDB.Exec(`CREATE TABLE IF NOT EXISTS certificates (
 		id TEXT PRIMARY KEY,
@@ -459,7 +459,7 @@ func newCrossVaultSecretVersionsTestAPI(t *testing.T) (*API, *vaultFakeRepo, rep
 	if err != nil {
 		t.Fatalf("open sqlite: %v", err)
 	}
-	t.Cleanup(func() { sqlDB.Close() }) //nolint:errcheck
+	t.Cleanup(func() { sqlDB.Close() }) //nolint:errcheck,gosec
 
 	_, err = sqlDB.Exec(`CREATE TABLE IF NOT EXISTS secrets (
 		id               TEXT PRIMARY KEY,

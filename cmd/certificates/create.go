@@ -144,11 +144,11 @@ func InitCertificatesCreate(certificatesCmd *cobra.Command) *cobra.Command {
 	createCmd.Flags().String("ca-cert-id", "", "UUID of the CA certificate for CA-signed certificates (optional)")
 	createCmd.Flags().Bool("auto-renew", false, "Automatically renew certificate before expiry")
 	createCmd.Flags().Int("renewal-days", 30, "Days before expiry to trigger renewal")
-	viper.BindPFlag("cert-name", createCmd.Flags().Lookup("name"))                   //nolint:errcheck
-	viper.BindPFlag("cert-key-id", createCmd.Flags().Lookup("key-id"))               //nolint:errcheck
-	viper.BindPFlag("cert-validity-days", createCmd.Flags().Lookup("validity-days")) //nolint:errcheck
-	viper.BindPFlag("cert-tags", createCmd.Flags().Lookup("tags"))                   //nolint:errcheck
-	viper.BindPFlag("cert-ca-cert-id", createCmd.Flags().Lookup("ca-cert-id"))       //nolint:errcheck
+	viper.BindPFlag("cert-name", createCmd.Flags().Lookup("name"))                   //nolint:errcheck,gosec
+	viper.BindPFlag("cert-key-id", createCmd.Flags().Lookup("key-id"))               //nolint:errcheck,gosec
+	viper.BindPFlag("cert-validity-days", createCmd.Flags().Lookup("validity-days")) //nolint:errcheck,gosec
+	viper.BindPFlag("cert-tags", createCmd.Flags().Lookup("tags"))                   //nolint:errcheck,gosec
+	viper.BindPFlag("cert-ca-cert-id", createCmd.Flags().Lookup("ca-cert-id"))       //nolint:errcheck,gosec
 
 	return certificatesCmd
 }

@@ -61,7 +61,7 @@ func setupCertPolicyTestDB(t *testing.T) *sql.DB {
 		updated_at        TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 	)`)
 	require.NoError(t, err)
-	t.Cleanup(func() { db.Close() }) //nolint:errcheck
+	t.Cleanup(func() { db.Close() }) //nolint:errcheck,gosec
 	return db
 }
 

@@ -39,7 +39,7 @@ import (
 func TestMain(m *testing.M) {
 	// Set master_key once before any test runs so parallel tests don't race on
 	// the global viper map. All backup tests use the same test key.
-	os.Setenv("MASTER_KEY", "***SECRET-REMOVED-2026-08-17***") //nolint:errcheck
+	os.Setenv("MASTER_KEY", "***SECRET-REMOVED-2026-08-17***") //nolint:errcheck,gosec
 	viper.AutomaticEnv()
 	os.Exit(m.Run())
 }
@@ -92,8 +92,8 @@ func setupTestDB(t *testing.T) (*sql.DB, func()) {
 	}
 
 	cleanup := func() {
-		db.Close()           //nolint:errcheck
-		os.RemoveAll(tmpDir) //nolint:errcheck
+		db.Close()           //nolint:errcheck,gosec
+		os.RemoveAll(tmpDir) //nolint:errcheck,gosec
 	}
 
 	return db, cleanup

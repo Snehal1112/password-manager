@@ -90,9 +90,9 @@ func InitUsersLogin(usersCmd *cobra.Command) *cobra.Command {
 	loginCmd.Flags().String("username", "", "Username for authentication")
 	loginCmd.Flags().String("password", "", "Password for authentication")
 	loginCmd.Flags().String("totp-code", "", "TOTP code for MFA")
-	viper.BindPFlag("username", loginCmd.Flags().Lookup("username"))   //nolint:errcheck
-	viper.BindPFlag("password", loginCmd.Flags().Lookup("password"))   //nolint:errcheck
-	viper.BindPFlag("totp-code", loginCmd.Flags().Lookup("totp-code")) //nolint:errcheck
+	viper.BindPFlag("username", loginCmd.Flags().Lookup("username"))   //nolint:errcheck,gosec
+	viper.BindPFlag("password", loginCmd.Flags().Lookup("password"))   //nolint:errcheck,gosec
+	viper.BindPFlag("totp-code", loginCmd.Flags().Lookup("totp-code")) //nolint:errcheck,gosec
 
 	return usersCmd
 }

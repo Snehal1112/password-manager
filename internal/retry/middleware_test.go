@@ -23,7 +23,7 @@ func TestHTTPMiddleware_Success(t *testing.T) {
 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		atomic.AddInt32(&attempts, 1)
 		w.WriteHeader(http.StatusOK)
-		w.Write([]byte("success")) //nolint:errcheck
+		w.Write([]byte("success")) //nolint:errcheck,gosec
 	})
 
 	middleware := NewHTTPMiddleware(policy, nil)
@@ -61,11 +61,11 @@ func TestHTTPMiddleware_RetryOnServerError(t *testing.T) {
 		current := atomic.AddInt32(&attempts, 1)
 		if current == 1 {
 			w.WriteHeader(http.StatusInternalServerError)
-			w.Write([]byte("server error")) //nolint:errcheck
+			w.Write([]byte("server error")) //nolint:errcheck,gosec
 			return
 		}
 		w.WriteHeader(http.StatusOK)
-		w.Write([]byte("success")) //nolint:errcheck
+		w.Write([]byte("success")) //nolint:errcheck,gosec
 	})
 
 	middleware := NewHTTPMiddleware(policy, nil)
@@ -101,7 +101,7 @@ func TestHTTPMiddleware_NoRetryOnClientError(t *testing.T) {
 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		atomic.AddInt32(&attempts, 1)
 		w.WriteHeader(http.StatusBadRequest)
-		w.Write([]byte("bad request")) //nolint:errcheck
+		w.Write([]byte("bad request")) //nolint:errcheck,gosec
 	})
 
 	middleware := NewHTTPMiddleware(policy, nil)
@@ -138,7 +138,7 @@ func TestHTTPMiddleware_MaxAttemptsExceeded(t *testing.T) {
 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		atomic.AddInt32(&attempts, 1)
 		w.WriteHeader(http.StatusInternalServerError)
-		w.Write([]byte("server error")) //nolint:errcheck
+		w.Write([]byte("server error")) //nolint:errcheck,gosec
 	})
 
 	middleware := NewHTTPMiddleware(policy, nil)
@@ -175,7 +175,7 @@ func TestHTTPMiddleware_ContextCancellation(t *testing.T) {
 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		atomic.AddInt32(&attempts, 1)
 		w.WriteHeader(http.StatusInternalServerError)
-		w.Write([]byte("server error")) //nolint:errcheck
+		w.Write([]byte("server error")) //nolint:errcheck,gosec
 	})
 
 	middleware := NewHTTPMiddleware(policy, nil)
@@ -196,7 +196,7 @@ func TestHTTPMiddleware_ContextCancellation(t *testing.T) {
 	client := &http.Client{}
 	resp, err := client.Do(req)
 	if err == nil {
-		resp.Body.Close() //nolint:errcheck
+		resp.Body.Close() //nolint:errcheck,gosec
 		t.Error("expected error due to context cancellation")
 	}
 
@@ -219,7 +219,7 @@ func TestHTTPMiddleware_Disabled(t *testing.T) {
 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		atomic.AddInt32(&attempts, 1)
 		w.WriteHeader(http.StatusInternalServerError)
-		w.Write([]byte("server error")) //nolint:errcheck
+		w.Write([]byte("server error")) //nolint:errcheck,gosec
 	})
 
 	middleware := NewHTTPMiddleware(policy, nil)
@@ -255,7 +255,7 @@ func TestClientMiddleware_Success(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		atomic.AddInt32(&attempts, 1)
 		w.WriteHeader(http.StatusOK)
-		w.Write([]byte("success")) //nolint:errcheck
+		w.Write([]byte("success")) //nolint:errcheck,gosec
 	}))
 	defer server.Close()
 
@@ -296,11 +296,11 @@ func TestClientMiddleware_RetryOnServerError(t *testing.T) {
 		current := atomic.AddInt32(&attempts, 1)
 		if current == 1 {
 			w.WriteHeader(http.StatusInternalServerError)
-			w.Write([]byte("server error")) //nolint:errcheck
+			w.Write([]byte("server error")) //nolint:errcheck,gosec
 			return
 		}
 		w.WriteHeader(http.StatusOK)
-		w.Write([]byte("success")) //nolint:errcheck
+		w.Write([]byte("success")) //nolint:errcheck,gosec
 	}))
 	defer server.Close()
 
@@ -344,12 +344,12 @@ func TestClientMiddleware_RetryOnNetworkError(t *testing.T) {
 			hj, ok := w.(http.Hijacker)
 			if ok {
 				conn, _, _ := hj.Hijack()
-				conn.Close() //nolint:errcheck
+				conn.Close() //nolint:errcheck,gosec
 			}
 			return
 		}
 		w.WriteHeader(http.StatusOK)
-		w.Write([]byte("success")) //nolint:errcheck
+		w.Write([]byte("success")) //nolint:errcheck,gosec
 	}))
 	defer server.Close()
 
@@ -390,11 +390,11 @@ func TestRetryableTransport(t *testing.T) {
 		current := atomic.AddInt32(&attempts, 1)
 		if current == 1 {
 			w.WriteHeader(http.StatusInternalServerError)
-			w.Write([]byte("server error")) //nolint:errcheck
+			w.Write([]byte("server error")) //nolint:errcheck,gosec
 			return
 		}
 		w.WriteHeader(http.StatusOK)
-		w.Write([]byte("success")) //nolint:errcheck
+		w.Write([]byte("success")) //nolint:errcheck,gosec
 	}))
 	defer server.Close()
 
@@ -566,7 +566,7 @@ func BenchmarkHTTPMiddleware(b *testing.B) {
 		if err != nil {
 			b.Fatalf("unexpected error: %v", err)
 		}
-		resp.Body.Close() //nolint:errcheck
+		resp.Body.Close() //nolint:errcheck,gosec
 	}
 }
 
@@ -597,6 +597,6 @@ func BenchmarkClientMiddleware(b *testing.B) {
 		if err != nil {
 			b.Fatalf("unexpected error: %v", err)
 		}
-		resp.Body.Close() //nolint:errcheck
+		resp.Body.Close() //nolint:errcheck,gosec
 	}
 }

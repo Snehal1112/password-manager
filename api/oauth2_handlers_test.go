@@ -241,7 +241,7 @@ func TestExtractClientCredentials_BasicAuth_OK(t *testing.T) {
 	creds := base64.StdEncoding.EncodeToString([]byte("myclient:mysecret"))
 	r := httptest.NewRequest(http.MethodPost, "/oauth2/token", nil)
 	r.Header.Set("Authorization", "Basic "+creds)
-	r.ParseForm() //nolint:errcheck
+	r.ParseForm() //nolint:errcheck,gosec
 
 	id, secret, ok := extractClientCredentials(r)
 	assert.True(t, ok)
@@ -252,7 +252,7 @@ func TestExtractClientCredentials_BasicAuth_OK(t *testing.T) {
 func TestExtractClientCredentials_InvalidBase64_Fails(t *testing.T) {
 	r := httptest.NewRequest(http.MethodPost, "/oauth2/token", nil)
 	r.Header.Set("Authorization", "Basic !!!not-base64!!!")
-	r.ParseForm() //nolint:errcheck
+	r.ParseForm() //nolint:errcheck,gosec
 
 	_, _, ok := extractClientCredentials(r)
 	assert.False(t, ok)
@@ -262,7 +262,7 @@ func TestExtractClientCredentials_BasicNoColon_Fails(t *testing.T) {
 	creds := base64.StdEncoding.EncodeToString([]byte("nocolon"))
 	r := httptest.NewRequest(http.MethodPost, "/oauth2/token", nil)
 	r.Header.Set("Authorization", "Basic "+creds)
-	r.ParseForm() //nolint:errcheck
+	r.ParseForm() //nolint:errcheck,gosec
 
 	_, _, ok := extractClientCredentials(r)
 	assert.False(t, ok)
@@ -272,7 +272,7 @@ func TestExtractClientCredentials_FormBody_OK(t *testing.T) {
 	body := strings.NewReader("client_id=myid&client_secret=mysec&grant_type=client_credentials")
 	r := httptest.NewRequest(http.MethodPost, "/oauth2/token", body)
 	r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	r.ParseForm() //nolint:errcheck
+	r.ParseForm() //nolint:errcheck,gosec
 
 	id, secret, ok := extractClientCredentials(r)
 	assert.True(t, ok)

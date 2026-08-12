@@ -91,7 +91,7 @@ func TestGetMany_ErrorPropagation(t *testing.T) {
 	// Server that always returns 404.
 	mux := http.NewServeMux()
 	mux.HandleFunc("/api/v1/oauth2/token", func(w http.ResponseWriter, r *http.Request) {
-		json.NewEncoder(w).Encode(map[string]any{"access_token": "tok", "expires_in": 3600}) //nolint:errcheck
+		json.NewEncoder(w).Encode(map[string]any{"access_token": "tok", "expires_in": 3600}) //nolint:errcheck,gosec
 	})
 	mux.HandleFunc("/api/v1/secrets/", func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusNotFound)
@@ -113,7 +113,7 @@ func TestGetMany_ErrorPropagation(t *testing.T) {
 func TestGet_UnexpectedStatus(t *testing.T) {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/api/v1/oauth2/token", func(w http.ResponseWriter, r *http.Request) {
-		json.NewEncoder(w).Encode(map[string]any{"access_token": "tok", "expires_in": 3600}) //nolint:errcheck
+		json.NewEncoder(w).Encode(map[string]any{"access_token": "tok", "expires_in": 3600}) //nolint:errcheck,gosec
 	})
 	mux.HandleFunc("/api/v1/secrets/", func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusInternalServerError)
@@ -151,7 +151,7 @@ func TestFetchToken_EmptyAccessToken(t *testing.T) {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/api/v1/oauth2/token", func(w http.ResponseWriter, _ *http.Request) {
 		// Return 200 but with no access_token field.
-		json.NewEncoder(w).Encode(map[string]any{"access_token": "", "expires_in": 3600}) //nolint:errcheck
+		json.NewEncoder(w).Encode(map[string]any{"access_token": "", "expires_in": 3600}) //nolint:errcheck,gosec
 	})
 	srv := httptest.NewServer(mux)
 	defer srv.Close()
@@ -167,7 +167,7 @@ func TestFetchToken_EmptyAccessToken(t *testing.T) {
 func TestGet_SecretUnauthorized(t *testing.T) {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/api/v1/oauth2/token", func(w http.ResponseWriter, _ *http.Request) {
-		json.NewEncoder(w).Encode(map[string]any{"access_token": "stale", "expires_in": 3600}) //nolint:errcheck
+		json.NewEncoder(w).Encode(map[string]any{"access_token": "stale", "expires_in": 3600}) //nolint:errcheck,gosec
 	})
 	mux.HandleFunc("/api/v1/secrets/", func(w http.ResponseWriter, r *http.Request) {
 		// Always reject the secret request.
@@ -205,12 +205,12 @@ func TestGet_MalformedJSON_ReturnsErrDecodeFailed(t *testing.T) {
 	calls := 0
 	mux := http.NewServeMux()
 	mux.HandleFunc("/api/v1/oauth2/token", func(w http.ResponseWriter, r *http.Request) {
-		json.NewEncoder(w).Encode(map[string]any{"access_token": "tok", "expires_in": 3600}) //nolint:errcheck
+		json.NewEncoder(w).Encode(map[string]any{"access_token": "tok", "expires_in": 3600}) //nolint:errcheck,gosec
 	})
 	mux.HandleFunc("/api/v1/secrets/", func(w http.ResponseWriter, _ *http.Request) {
 		calls++
 		w.Header().Set("Content-Type", "application/json")
-		w.Write([]byte("{not valid json")) //nolint:errcheck
+		w.Write([]byte("{not valid json")) //nolint:errcheck,gosec
 	})
 	srv := httptest.NewServer(mux)
 	defer srv.Close()
@@ -228,7 +228,7 @@ func TestGet_MalformedJSON_ReturnsErrDecodeFailed(t *testing.T) {
 func TestGet_ContextCanceled_ReturnsContextError(t *testing.T) {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/api/v1/oauth2/token", func(w http.ResponseWriter, r *http.Request) {
-		json.NewEncoder(w).Encode(map[string]any{"access_token": "tok", "expires_in": 3600}) //nolint:errcheck
+		json.NewEncoder(w).Encode(map[string]any{"access_token": "tok", "expires_in": 3600}) //nolint:errcheck,gosec
 	})
 	mux.HandleFunc("/api/v1/secrets/", func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusInternalServerError)
@@ -269,7 +269,7 @@ func (f *fakeLogger) callCount() int {
 func TestGet_NoLogger_DoesNotPanicOnFailure(t *testing.T) {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/api/v1/oauth2/token", func(w http.ResponseWriter, r *http.Request) {
-		json.NewEncoder(w).Encode(map[string]any{"access_token": "tok", "expires_in": 3600}) //nolint:errcheck
+		json.NewEncoder(w).Encode(map[string]any{"access_token": "tok", "expires_in": 3600}) //nolint:errcheck,gosec
 	})
 	mux.HandleFunc("/api/v1/secrets/", func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusNotFound)
@@ -288,7 +288,7 @@ func TestGet_NoLogger_DoesNotPanicOnFailure(t *testing.T) {
 func TestGet_WithLogger_WarnsOnRetryableFailure(t *testing.T) {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/api/v1/oauth2/token", func(w http.ResponseWriter, r *http.Request) {
-		json.NewEncoder(w).Encode(map[string]any{"access_token": "tok", "expires_in": 3600}) //nolint:errcheck
+		json.NewEncoder(w).Encode(map[string]any{"access_token": "tok", "expires_in": 3600}) //nolint:errcheck,gosec
 	})
 	mux.HandleFunc("/api/v1/secrets/", func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusInternalServerError)

@@ -236,7 +236,7 @@ func createCertificate(c *Context, w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusCreated)
-	json.NewEncoder(w).Encode(response) //nolint:errcheck
+	json.NewEncoder(w).Encode(response) //nolint:errcheck,gosec
 }
 
 // listCertificates lists certificates. Legacy flat routes use per-user
@@ -265,7 +265,7 @@ func listCertificates(c *Context, w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(response) //nolint:errcheck
+	json.NewEncoder(w).Encode(response) //nolint:errcheck,gosec
 }
 
 // getCertificate retrieves a specific certificate by ID.
@@ -293,7 +293,7 @@ func getCertificate(c *Context, w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(certToDomainResponse(cert)) //nolint:errcheck
+	json.NewEncoder(w).Encode(certToDomainResponse(cert)) //nolint:errcheck,gosec
 }
 
 // updateCertificate updates an existing certificate's metadata.
@@ -353,7 +353,7 @@ func updateCertificate(c *Context, w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(certToDomainResponse(cert)) //nolint:errcheck
+	json.NewEncoder(w).Encode(certToDomainResponse(cert)) //nolint:errcheck,gosec
 }
 
 // deleteCertificate removes a certificate from the system.

@@ -26,7 +26,7 @@ func newTestServer(t *testing.T, secret string) *httptest.Server {
 			return
 		}
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(map[string]any{ //nolint:errcheck
+		json.NewEncoder(w).Encode(map[string]any{ //nolint:errcheck,gosec
 			"access_token": "fake-token",
 			"token_type":   "Bearer",
 			"expires_in":   3600,
@@ -38,7 +38,7 @@ func newTestServer(t *testing.T, secret string) *httptest.Server {
 			return
 		}
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(map[string]string{"value": secret}) //nolint:errcheck
+		json.NewEncoder(w).Encode(map[string]string{"value": secret}) //nolint:errcheck,gosec
 	})
 	return httptest.NewServer(mux)
 }
@@ -69,7 +69,7 @@ func TestGet_ReturnsErrAuthFailed_On401(t *testing.T) {
 func TestGet_ReturnsErrSecretNotFound_On404(t *testing.T) {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/api/v1/oauth2/token", func(w http.ResponseWriter, r *http.Request) {
-		json.NewEncoder(w).Encode(map[string]any{"access_token": "fake-token", "expires_in": 3600}) //nolint:errcheck
+		json.NewEncoder(w).Encode(map[string]any{"access_token": "fake-token", "expires_in": 3600}) //nolint:errcheck,gosec
 	})
 	mux.HandleFunc("/api/v1/secrets/", func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusNotFound)
@@ -113,17 +113,17 @@ func TestTokenCached_OnlyFetchedOnce(t *testing.T) {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/api/v1/oauth2/token", func(w http.ResponseWriter, r *http.Request) {
 		tokenCalls++
-		json.NewEncoder(w).Encode(map[string]any{"access_token": "cached-token", "expires_in": 3600}) //nolint:errcheck
+		json.NewEncoder(w).Encode(map[string]any{"access_token": "cached-token", "expires_in": 3600}) //nolint:errcheck,gosec
 	})
 	mux.HandleFunc("/api/v1/secrets/", func(w http.ResponseWriter, r *http.Request) {
-		json.NewEncoder(w).Encode(map[string]string{"value": "v"}) //nolint:errcheck
+		json.NewEncoder(w).Encode(map[string]string{"value": "v"}) //nolint:errcheck,gosec
 	})
 	srv := httptest.NewServer(mux)
 	defer srv.Close()
 	client, err := vaultclient.New(vaultclient.Config{URL: srv.URL, ClientID: "id", ClientSecret: "s"})
 	require.NoError(t, err)
-	client.Get(context.Background(), "uuid-1") //nolint:errcheck
-	client.Get(context.Background(), "uuid-2") //nolint:errcheck
+	client.Get(context.Background(), "uuid-1") //nolint:errcheck,gosec
+	client.Get(context.Background(), "uuid-2") //nolint:errcheck,gosec
 	assert.Equal(t, 1, tokenCalls, "token should be fetched only once")
 }
 
@@ -137,19 +137,19 @@ func TestTokenExpiry_RefetchedAfterExpiry(t *testing.T) {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/api/v1/oauth2/token", func(w http.ResponseWriter, r *http.Request) {
 		tokenCalls++
-		json.NewEncoder(w).Encode(map[string]any{"access_token": "token", "expires_in": 3600}) //nolint:errcheck
+		json.NewEncoder(w).Encode(map[string]any{"access_token": "token", "expires_in": 3600}) //nolint:errcheck,gosec
 	})
 	mux.HandleFunc("/api/v1/secrets/", func(w http.ResponseWriter, r *http.Request) {
-		json.NewEncoder(w).Encode(map[string]string{"value": "v"}) //nolint:errcheck
+		json.NewEncoder(w).Encode(map[string]string{"value": "v"}) //nolint:errcheck,gosec
 	})
 	srv := httptest.NewServer(mux)
 	defer srv.Close()
 	client, err := vaultclient.New(vaultclient.Config{URL: srv.URL, ClientID: "id", ClientSecret: "s"})
 	require.NoError(t, err)
-	client.Get(context.Background(), "uuid-1") //nolint:errcheck
+	client.Get(context.Background(), "uuid-1") //nolint:errcheck,gosec
 	// Force the cached token to appear expired without relying on wall-clock sleep.
 	client.ExpireTokenForTest()
-	client.Get(context.Background(), "uuid-2") //nolint:errcheck
+	client.Get(context.Background(), "uuid-2") //nolint:errcheck,gosec
 	assert.Equal(t, 2, tokenCalls, "token should be re-fetched after expiry")
 }
 
@@ -159,16 +159,16 @@ func TestTokenFloor_ZeroExpiresIn_DoesNotRefetch(t *testing.T) {
 	mux.HandleFunc("/api/v1/oauth2/token", func(w http.ResponseWriter, r *http.Request) {
 		tokenCalls++
 		// Server returns expires_in: 0; floor must kick in and prevent re-fetch.
-		json.NewEncoder(w).Encode(map[string]any{"access_token": "token", "expires_in": 0}) //nolint:errcheck
+		json.NewEncoder(w).Encode(map[string]any{"access_token": "token", "expires_in": 0}) //nolint:errcheck,gosec
 	})
 	mux.HandleFunc("/api/v1/secrets/", func(w http.ResponseWriter, r *http.Request) {
-		json.NewEncoder(w).Encode(map[string]string{"value": "v"}) //nolint:errcheck
+		json.NewEncoder(w).Encode(map[string]string{"value": "v"}) //nolint:errcheck,gosec
 	})
 	srv := httptest.NewServer(mux)
 	defer srv.Close()
 	client, err := vaultclient.New(vaultclient.Config{URL: srv.URL, ClientID: "id", ClientSecret: "s"})
 	require.NoError(t, err)
-	client.Get(context.Background(), "uuid-1") //nolint:errcheck
-	client.Get(context.Background(), "uuid-2") //nolint:errcheck
+	client.Get(context.Background(), "uuid-1") //nolint:errcheck,gosec
+	client.Get(context.Background(), "uuid-2") //nolint:errcheck,gosec
 	assert.Equal(t, 1, tokenCalls, "token with expires_in:0 should not be re-fetched on every call")
 }

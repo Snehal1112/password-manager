@@ -57,7 +57,7 @@ func listAccessPolicies(c *Context, w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]any{ //nolint:errcheck
+	json.NewEncoder(w).Encode(map[string]any{ //nolint:errcheck,gosec
 		"access_policies": policies,
 		"total":           len(policies),
 	})
@@ -130,7 +130,7 @@ func createAccessPolicy(c *Context, w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusCreated)
-	json.NewEncoder(w).Encode(policy) //nolint:errcheck
+	json.NewEncoder(w).Encode(policy) //nolint:errcheck,gosec
 }
 
 // getAccessPolicy retrieves a single access policy by ID.
@@ -154,7 +154,7 @@ func getAccessPolicy(c *Context, w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(policy) //nolint:errcheck
+	json.NewEncoder(w).Encode(policy) //nolint:errcheck,gosec
 }
 
 // updateAccessPolicy updates the effect of an existing access policy.
@@ -200,7 +200,7 @@ func updateAccessPolicy(c *Context, w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(policy) //nolint:errcheck
+	json.NewEncoder(w).Encode(policy) //nolint:errcheck,gosec
 }
 
 // deleteAccessPolicy permanently removes an access policy.
@@ -250,7 +250,7 @@ func listAccessPoliciesByPrincipal(c *Context, w http.ResponseWriter, r *http.Re
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]any{ //nolint:errcheck
+	json.NewEncoder(w).Encode(map[string]any{ //nolint:errcheck,gosec
 		"access_policies": policies,
 		"total":           len(policies),
 	})

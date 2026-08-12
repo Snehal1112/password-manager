@@ -44,7 +44,7 @@ var certificateCmd = &cobra.Command{
   rocketvault certificate list --username admin --password admin123 --totp-code <code>`,
 	Run: func(cmd *cobra.Command, args []string) {
 		// Show help when command is called without subcommands
-		cmd.Help() //nolint:errcheck
+		cmd.Help() //nolint:errcheck,gosec
 	},
 }
 

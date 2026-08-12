@@ -78,7 +78,7 @@ func (m *HTTPMiddleware) Middleware(next http.Handler) http.Handler {
 				}
 				w.WriteHeader(recorder.statusCode)
 				if len(recorder.body) > 0 {
-					w.Write(recorder.body) //nolint:errcheck
+					w.Write(recorder.body) //nolint:errcheck,gosec
 				}
 				return
 			}
@@ -97,7 +97,7 @@ func (m *HTTPMiddleware) Middleware(next http.Handler) http.Handler {
 				}
 				w.WriteHeader(recorder.statusCode)
 				if len(recorder.body) > 0 {
-					w.Write(recorder.body) //nolint:errcheck
+					w.Write(recorder.body) //nolint:errcheck,gosec
 				}
 				return
 			}

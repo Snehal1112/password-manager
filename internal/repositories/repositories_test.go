@@ -35,7 +35,7 @@ func newSharedCacheDB(t *testing.T, name string) *sql.DB {
 	dsn := "file:" + name + "?mode=memory&cache=shared"
 	db, err := sql.Open("sqlite3", dsn)
 	require.NoError(t, err)
-	t.Cleanup(func() { db.Close() }) //nolint:errcheck
+	t.Cleanup(func() { db.Close() }) //nolint:errcheck,gosec
 	return db
 }
 
@@ -896,7 +896,7 @@ func setupAuditDBFull(t *testing.T) *sql.DB {
 		);
 	`)
 	require.NoError(t, err)
-	t.Cleanup(func() { db.Close() }) //nolint:errcheck
+	t.Cleanup(func() { db.Close() }) //nolint:errcheck,gosec
 	return db
 }
 

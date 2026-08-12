@@ -113,33 +113,33 @@ func LoadConfigFromViper(v *viper.Viper) (Config, error) {
 // BindRetryConfig binds retry configuration keys to viper with environment variable support.
 func BindRetryConfig(v *viper.Viper) {
 	// Bind database retry configuration
-	v.BindEnv("retry.database.enabled", "RETRY_DATABASE_ENABLED")                       //nolint:errcheck
-	v.BindEnv("retry.database.max_attempts", "RETRY_DATABASE_MAX_ATTEMPTS")             //nolint:errcheck
-	v.BindEnv("retry.database.initial_delay", "RETRY_DATABASE_INITIAL_DELAY")           //nolint:errcheck
-	v.BindEnv("retry.database.max_delay", "RETRY_DATABASE_MAX_DELAY")                   //nolint:errcheck
-	v.BindEnv("retry.database.backoff_multiplier", "RETRY_DATABASE_BACKOFF_MULTIPLIER") //nolint:errcheck
-	v.BindEnv("retry.database.jitter_enabled", "RETRY_DATABASE_JITTER_ENABLED")         //nolint:errcheck
+	v.BindEnv("retry.database.enabled", "RETRY_DATABASE_ENABLED")                       //nolint:errcheck,gosec
+	v.BindEnv("retry.database.max_attempts", "RETRY_DATABASE_MAX_ATTEMPTS")             //nolint:errcheck,gosec
+	v.BindEnv("retry.database.initial_delay", "RETRY_DATABASE_INITIAL_DELAY")           //nolint:errcheck,gosec
+	v.BindEnv("retry.database.max_delay", "RETRY_DATABASE_MAX_DELAY")                   //nolint:errcheck,gosec
+	v.BindEnv("retry.database.backoff_multiplier", "RETRY_DATABASE_BACKOFF_MULTIPLIER") //nolint:errcheck,gosec
+	v.BindEnv("retry.database.jitter_enabled", "RETRY_DATABASE_JITTER_ENABLED")         //nolint:errcheck,gosec
 
 	// Bind external services retry configuration
-	v.BindEnv("retry.external_services.enabled", "RETRY_EXTERNAL_SERVICES_ENABLED")                       //nolint:errcheck
-	v.BindEnv("retry.external_services.max_attempts", "RETRY_EXTERNAL_SERVICES_MAX_ATTEMPTS")             //nolint:errcheck
-	v.BindEnv("retry.external_services.initial_delay", "RETRY_EXTERNAL_SERVICES_INITIAL_DELAY")           //nolint:errcheck
-	v.BindEnv("retry.external_services.max_delay", "RETRY_EXTERNAL_SERVICES_MAX_DELAY")                   //nolint:errcheck
-	v.BindEnv("retry.external_services.backoff_multiplier", "RETRY_EXTERNAL_SERVICES_BACKOFF_MULTIPLIER") //nolint:errcheck
-	v.BindEnv("retry.external_services.jitter_enabled", "RETRY_EXTERNAL_SERVICES_JITTER_ENABLED")         //nolint:errcheck
+	v.BindEnv("retry.external_services.enabled", "RETRY_EXTERNAL_SERVICES_ENABLED")                       //nolint:errcheck,gosec
+	v.BindEnv("retry.external_services.max_attempts", "RETRY_EXTERNAL_SERVICES_MAX_ATTEMPTS")             //nolint:errcheck,gosec
+	v.BindEnv("retry.external_services.initial_delay", "RETRY_EXTERNAL_SERVICES_INITIAL_DELAY")           //nolint:errcheck,gosec
+	v.BindEnv("retry.external_services.max_delay", "RETRY_EXTERNAL_SERVICES_MAX_DELAY")                   //nolint:errcheck,gosec
+	v.BindEnv("retry.external_services.backoff_multiplier", "RETRY_EXTERNAL_SERVICES_BACKOFF_MULTIPLIER") //nolint:errcheck,gosec
+	v.BindEnv("retry.external_services.jitter_enabled", "RETRY_EXTERNAL_SERVICES_JITTER_ENABLED")         //nolint:errcheck,gosec
 
 	// Bind service operations retry configuration
-	v.BindEnv("retry.service_operations.enabled", "RETRY_SERVICE_OPERATIONS_ENABLED")                       //nolint:errcheck
-	v.BindEnv("retry.service_operations.max_attempts", "RETRY_SERVICE_OPERATIONS_MAX_ATTEMPTS")             //nolint:errcheck
-	v.BindEnv("retry.service_operations.initial_delay", "RETRY_SERVICE_OPERATIONS_INITIAL_DELAY")           //nolint:errcheck
-	v.BindEnv("retry.service_operations.max_delay", "RETRY_SERVICE_OPERATIONS_MAX_DELAY")                   //nolint:errcheck
-	v.BindEnv("retry.service_operations.backoff_multiplier", "RETRY_SERVICE_OPERATIONS_BACKOFF_MULTIPLIER") //nolint:errcheck
-	v.BindEnv("retry.service_operations.jitter_enabled", "RETRY_SERVICE_OPERATIONS_JITTER_ENABLED")         //nolint:errcheck
+	v.BindEnv("retry.service_operations.enabled", "RETRY_SERVICE_OPERATIONS_ENABLED")                       //nolint:errcheck,gosec
+	v.BindEnv("retry.service_operations.max_attempts", "RETRY_SERVICE_OPERATIONS_MAX_ATTEMPTS")             //nolint:errcheck,gosec
+	v.BindEnv("retry.service_operations.initial_delay", "RETRY_SERVICE_OPERATIONS_INITIAL_DELAY")           //nolint:errcheck,gosec
+	v.BindEnv("retry.service_operations.max_delay", "RETRY_SERVICE_OPERATIONS_MAX_DELAY")                   //nolint:errcheck,gosec
+	v.BindEnv("retry.service_operations.backoff_multiplier", "RETRY_SERVICE_OPERATIONS_BACKOFF_MULTIPLIER") //nolint:errcheck,gosec
+	v.BindEnv("retry.service_operations.jitter_enabled", "RETRY_SERVICE_OPERATIONS_JITTER_ENABLED")         //nolint:errcheck,gosec
 
 	// Bind circuit breaker configuration
-	v.BindEnv("retry.circuit_breaker.failure_threshold", "RETRY_CIRCUIT_BREAKER_FAILURE_THRESHOLD")   //nolint:errcheck
-	v.BindEnv("retry.circuit_breaker.timeout", "RETRY_CIRCUIT_BREAKER_TIMEOUT")                       //nolint:errcheck
-	v.BindEnv("retry.circuit_breaker.half_open_requests", "RETRY_CIRCUIT_BREAKER_HALF_OPEN_REQUESTS") //nolint:errcheck
+	v.BindEnv("retry.circuit_breaker.failure_threshold", "RETRY_CIRCUIT_BREAKER_FAILURE_THRESHOLD")   //nolint:errcheck,gosec
+	v.BindEnv("retry.circuit_breaker.timeout", "RETRY_CIRCUIT_BREAKER_TIMEOUT")                       //nolint:errcheck,gosec
+	v.BindEnv("retry.circuit_breaker.half_open_requests", "RETRY_CIRCUIT_BREAKER_HALF_OPEN_REQUESTS") //nolint:errcheck,gosec
 }
 
 // SetRetryDefaults sets default values for retry configuration.

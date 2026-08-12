@@ -26,7 +26,7 @@ func getJWKS(c *Context, w http.ResponseWriter, r *http.Request) {
 	if provider == nil {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusServiceUnavailable)
-		json.NewEncoder(w).Encode(map[string]string{"error": "signing provider not available"}) //nolint:errcheck
+		json.NewEncoder(w).Encode(map[string]string{"error": "signing provider not available"}) //nolint:errcheck,gosec
 		return
 	}
 
@@ -34,13 +34,13 @@ func getJWKS(c *Context, w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusInternalServerError)
-		json.NewEncoder(w).Encode(map[string]string{"error": "failed to build JWK set"}) //nolint:errcheck
+		json.NewEncoder(w).Encode(map[string]string{"error": "failed to build JWK set"}) //nolint:errcheck,gosec
 		return
 	}
 
 	w.Header().Set("Content-Type", "application/json")
 	w.Header().Set("Cache-Control", "public, max-age=3600")
-	json.NewEncoder(w).Encode(jwks) //nolint:errcheck
+	json.NewEncoder(w).Encode(jwks) //nolint:errcheck,gosec
 }
 
 // rotateJWKS serves POST /api/v1/jwks/rotate — only available with the self_pki provider.
@@ -77,7 +77,7 @@ func rotateJWKS(c *Context, w http.ResponseWriter, r *http.Request) {
 	recordJWKSRotateAudit(c, r, newKID, "success")
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]string{ //nolint:errcheck
+	json.NewEncoder(w).Encode(map[string]string{ //nolint:errcheck,gosec
 		"status":        "ok",
 		"new_kid":       newKID,
 		"overlap_until": overlapUntil,

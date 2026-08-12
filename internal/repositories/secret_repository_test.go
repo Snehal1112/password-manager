@@ -40,7 +40,7 @@ func setupSecretTestDB(t *testing.T) *sql.DB {
 		not_before       TIMESTAMP NULL
 	)`)
 	require.NoError(t, err)
-	t.Cleanup(func() { db.Close() }) //nolint:errcheck
+	t.Cleanup(func() { db.Close() }) //nolint:errcheck,gosec
 	return db
 }
 

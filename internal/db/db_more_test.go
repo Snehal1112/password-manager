@@ -71,7 +71,7 @@ func TestOpenDatabase_ValidSQLite(t *testing.T) {
 	db, err := repo.OpenDatabase(cfg)
 	require.NoError(t, err)
 	assert.NotNil(t, db)
-	db.Close() //nolint:errcheck
+	db.Close() //nolint:errcheck,gosec
 }
 
 func TestOpenDatabase_InvalidDriver(t *testing.T) {
@@ -88,7 +88,7 @@ func TestOpenDatabase_InvalidDriver(t *testing.T) {
 	// configureConnectionPool may or the driver won't be found on Ping.
 	// Either way we expect no panic.
 	if err == nil && db != nil {
-		db.Close() //nolint:errcheck
+		db.Close() //nolint:errcheck,gosec
 	}
 }
 
@@ -184,7 +184,7 @@ func TestCloseDB_AfterInitializeDB(t *testing.T) {
 	viper.Set("database.connection", "./test_close2.db")
 	defer func() {
 		viper.Reset()
-		os.Remove("./test_close2.db") //nolint:errcheck
+		os.Remove("./test_close2.db") //nolint:errcheck,gosec
 	}()
 
 	log := logging.InitLogger()
@@ -362,7 +362,7 @@ func newTagDB(t *testing.T) *sql.DB {
 		);
 	`)
 	require.NoError(t, err)
-	t.Cleanup(func() { db.Close() }) //nolint:errcheck
+	t.Cleanup(func() { db.Close() }) //nolint:errcheck,gosec
 	return db
 }
 

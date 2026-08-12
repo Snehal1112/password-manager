@@ -232,7 +232,7 @@ func (l *Logger) RotateLogFile() error {
 	if err != nil {
 		return fmt.Errorf("failed to open current log file: %w", err)
 	}
-	currentFile.Close() //nolint:errcheck
+	currentFile.Close() //nolint:errcheck,gosec
 
 	// Generate new rotated file name with timestamp.
 	timestamp := time.Now().Format("20060102_150405")

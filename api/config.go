@@ -18,12 +18,12 @@ func getConfig(c *Context, w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
 	if c.App.FrontendConfig == nil {
-		json.NewEncoder(w).Encode(map[string]any{ //nolint:errcheck
+		json.NewEncoder(w).Encode(map[string]any{ //nolint:errcheck,gosec
 			"feature_flags":  map[string]bool{},
 			"public_api_url": "",
 			"sentry_dsn":     "",
 		})
 		return
 	}
-	json.NewEncoder(w).Encode(c.App.FrontendConfig) //nolint:errcheck
+	json.NewEncoder(w).Encode(c.App.FrontendConfig) //nolint:errcheck,gosec
 }

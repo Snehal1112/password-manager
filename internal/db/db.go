@@ -120,7 +120,7 @@ func (d *DBRepository) OpenDatabase(config *DatabaseConfig) (*sql.DB, error) {
 
 	// Configure connection pool for optimal performance
 	if err := d.configureConnectionPool(db, config.PoolConfig); err != nil {
-		db.Close() //nolint:errcheck
+		db.Close() //nolint:errcheck,gosec
 		return nil, fmt.Errorf("failed to configure connection pool: %w", err)
 	}
 
@@ -159,7 +159,7 @@ func (d *DBRepository) InitializeDB() error {
 
 	// Configure connection pool for optimal performance
 	if err := d.configureConnectionPool(db, dbConfig.PoolConfig); err != nil {
-		db.Close() //nolint:errcheck
+		db.Close() //nolint:errcheck,gosec
 		return fmt.Errorf("failed to configure connection pool: %w", err)
 	}
 
@@ -167,14 +167,14 @@ func (d *DBRepository) InitializeDB() error {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	if err := db.PingContext(ctx); err != nil {
-		db.Close() //nolint:errcheck
+		db.Close() //nolint:errcheck,gosec
 		d.log.Error("Failed to ping database: ", err)
 		return fmt.Errorf("failed to ping database: %w", err)
 	}
 
 	// Create schema, migrate, and seed using the resolved dialect.
 	if err := d.SetupSchema(db, d.dialect); err != nil {
-		db.Close() //nolint:errcheck
+		db.Close() //nolint:errcheck,gosec
 		return err
 	}
 

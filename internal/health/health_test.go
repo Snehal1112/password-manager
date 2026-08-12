@@ -19,7 +19,7 @@ func newTestDB(t *testing.T) *sql.DB {
 	require.NoError(t, err)
 	_, err = db.Exec("CREATE TABLE IF NOT EXISTS users (id TEXT PRIMARY KEY)")
 	require.NoError(t, err)
-	t.Cleanup(func() { db.Close() }) //nolint:errcheck
+	t.Cleanup(func() { db.Close() }) //nolint:errcheck,gosec
 	return db
 }
 

@@ -96,7 +96,7 @@ func backupSecretHandler(c *Context, w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]string{"blob": blob}) //nolint:errcheck
+	json.NewEncoder(w).Encode(map[string]string{"blob": blob}) //nolint:errcheck,gosec
 }
 
 // restoreSecretHandler decodes a backup blob and re-inserts the secret.
@@ -161,7 +161,7 @@ func backupKeyHandler(c *Context, w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]string{"blob": blob}) //nolint:errcheck
+	json.NewEncoder(w).Encode(map[string]string{"blob": blob}) //nolint:errcheck,gosec
 }
 
 // restoreKeyHandler decodes a backup blob and re-inserts the key.
@@ -226,7 +226,7 @@ func backupCertificateHandler(c *Context, w http.ResponseWriter, r *http.Request
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]string{"blob": blob}) //nolint:errcheck
+	json.NewEncoder(w).Encode(map[string]string{"blob": blob}) //nolint:errcheck,gosec
 }
 
 // restoreCertificateHandler decodes a backup blob and re-inserts the certificate.

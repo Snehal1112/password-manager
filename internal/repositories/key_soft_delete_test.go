@@ -70,7 +70,7 @@ func setupTestDB(t *testing.T) *sql.DB {
 	`)
 	require.NoError(t, err, "failed to create test schema")
 
-	t.Cleanup(func() { db.Close() }) //nolint:errcheck
+	t.Cleanup(func() { db.Close() }) //nolint:errcheck,gosec
 
 	return db
 }

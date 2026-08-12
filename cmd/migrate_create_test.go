@@ -51,7 +51,7 @@ func touch(t *testing.T, dir, name string) {
 	t.Helper()
 	f, err := os.Create(filepath.Join(dir, name))
 	require.NoError(t, err)
-	f.Close() //nolint:errcheck
+	f.Close() //nolint:errcheck,gosec
 }
 
 func TestMigrationFileContent(t *testing.T) {

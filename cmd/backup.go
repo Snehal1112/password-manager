@@ -131,7 +131,7 @@ func init() {
 	// Create command flags
 	backupCreateCmd.Flags().StringVarP(&backupOutput, "output", "o", "", "Output file path for backup (required)")
 	backupCreateCmd.Flags().BoolVar(&backupEncrypt, "encrypt", true, "Encrypt the backup file (use --encrypt=false to disable)")
-	backupCreateCmd.MarkFlagRequired("output") //nolint:errcheck
+	backupCreateCmd.MarkFlagRequired("output") //nolint:errcheck,gosec
 
 	// List command flags
 	backupListCmd.Flags().StringVarP(&backupListDir, "dir", "d", "./backups", "Directory to scan for backup files")
@@ -139,7 +139,7 @@ func init() {
 	// Restore command flags
 	backupRestoreCmd.Flags().StringVarP(&backupRestoreFile, "file", "f", "", "Backup file to restore from (required)")
 	backupRestoreCmd.Flags().BoolVar(&backupRestoreDecrypt, "decrypt", true, "Decrypt the backup file (use --decrypt=false to disable)")
-	backupRestoreCmd.MarkFlagRequired("file") //nolint:errcheck
+	backupRestoreCmd.MarkFlagRequired("file") //nolint:errcheck,gosec
 }
 
 func runBackupCreate(cmd *cobra.Command) error {
@@ -209,7 +209,7 @@ func runBackupList(cmd *cobra.Command) error {
 			filename)
 	}
 
-	w.Flush() //nolint:errcheck
+	w.Flush() //nolint:errcheck,gosec
 	fmt.Printf("\n📊 Found %d backup files in %s\n", len(backups), backupListDir)
 
 	return nil

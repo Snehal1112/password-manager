@@ -332,7 +332,7 @@ func TestResolveVaultName_FlagSetToEmpty_FallsThrough(t *testing.T) {
 
 	cmd := &cobra.Command{}
 	cmd.Flags().String("vault", "", "")
-	cmd.Flags().Set("vault", "") //nolint:errcheck // Changed = true but value is empty
+	cmd.Flags().Set("vault", "") //nolint:errcheck,gosec // Changed = true but value is empty
 
 	got := ResolveVaultName(cmd)
 	if got != "default" {
@@ -399,7 +399,7 @@ func TestInitTranslationsWithDir_DirNotFound(t *testing.T) {
 	defer os.Chdir(origDir) //nolint:errcheck
 
 	tmpDir := t.TempDir()
-	os.Chdir(tmpDir) //nolint:errcheck
+	os.Chdir(tmpDir) //nolint:errcheck,gosec
 
 	err := InitTranslationsWithDir("nonexistent_i18n_xyz")
 	if err == nil {
@@ -416,7 +416,7 @@ func TestInitTranslationsWithDir_EmptyDir(t *testing.T) {
 	if err := os.MkdirAll(tmpDir+"/mylocale", 0o755); err != nil {
 		t.Fatalf("MkdirAll: %v", err)
 	}
-	os.Chdir(tmpDir) //nolint:errcheck
+	os.Chdir(tmpDir) //nolint:errcheck,gosec
 
 	err := InitTranslationsWithDir("mylocale")
 	if err != nil {
@@ -433,7 +433,7 @@ func TestFindDir_ExistingDirInCwd(t *testing.T) {
 
 	origDir, _ := os.Getwd()
 	defer os.Chdir(origDir) //nolint:errcheck
-	os.Chdir(tmpDir)        //nolint:errcheck
+	os.Chdir(tmpDir)        //nolint:errcheck,gosec
 
 	path, found := FindDir("testlang")
 	if !found {
@@ -449,7 +449,7 @@ func TestFindDir_NonExistentDir(t *testing.T) {
 	defer os.Chdir(origDir) //nolint:errcheck
 
 	tmpDir := t.TempDir()
-	os.Chdir(tmpDir) //nolint:errcheck
+	os.Chdir(tmpDir) //nolint:errcheck,gosec
 
 	_, found := FindDir("does_not_exist_xyz_abc")
 	if found {

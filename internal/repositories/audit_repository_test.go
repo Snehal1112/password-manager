@@ -19,7 +19,7 @@ func openAuditTestDB(t *testing.T) *sql.DB {
 	t.Helper()
 	db, err := sql.Open("sqlite3", ":memory:")
 	require.NoError(t, err)
-	t.Cleanup(func() { db.Close() }) //nolint:errcheck
+	t.Cleanup(func() { db.Close() }) //nolint:errcheck,gosec
 	_, err = db.Exec(`CREATE TABLE IF NOT EXISTS audit_logs (
 		id      TEXT PRIMARY KEY,
 		user_id TEXT,
@@ -96,7 +96,7 @@ func openAuditTestDBFull(t *testing.T) *sql.DB {
 	t.Helper()
 	db, err := sql.Open("sqlite3", ":memory:")
 	require.NoError(t, err)
-	t.Cleanup(func() { db.Close() }) //nolint:errcheck
+	t.Cleanup(func() { db.Close() }) //nolint:errcheck,gosec
 	_, err = db.Exec(`CREATE TABLE IF NOT EXISTS audit_logs (
 		id            TEXT PRIMARY KEY,
 		user_id       TEXT,

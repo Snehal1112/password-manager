@@ -94,7 +94,7 @@ func createVault(c *Context, w http.ResponseWriter, r *http.Request) {
 	response := vault.ToResponse()
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusCreated)
-	w.Write([]byte(response.ToJson())) //nolint:errcheck
+	w.Write([]byte(response.ToJson())) //nolint:errcheck,gosec
 
 	c.Logger.Printf("User %s created vault %s", userID, vault.Name)
 }
@@ -141,7 +141,7 @@ func listVaults(c *Context, w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	w.Write([]byte(response.ToJson())) //nolint:errcheck
+	w.Write([]byte(response.ToJson())) //nolint:errcheck,gosec
 }
 
 // getVault handles the request to retrieve a single vault by name.
@@ -178,7 +178,7 @@ func getVault(c *Context, w http.ResponseWriter, r *http.Request) {
 
 	response := vault.ToResponse()
 	w.Header().Set("Content-Type", "application/json")
-	w.Write([]byte(response.ToJson())) //nolint:errcheck
+	w.Write([]byte(response.ToJson())) //nolint:errcheck,gosec
 }
 
 // updateVault handles the request to update a vault by name.
@@ -235,7 +235,7 @@ func updateVault(c *Context, w http.ResponseWriter, r *http.Request) {
 
 	response := vault.ToResponse()
 	w.Header().Set("Content-Type", "application/json")
-	w.Write([]byte(response.ToJson())) //nolint:errcheck
+	w.Write([]byte(response.ToJson())) //nolint:errcheck,gosec
 
 	c.Logger.Printf("Vault %s updated", name)
 }

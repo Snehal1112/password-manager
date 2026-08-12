@@ -22,7 +22,7 @@ func newScopeTestKeyRepo(t *testing.T) *KeyRepository {
 	dsn := "file:keyscope_" + uuid.NewString() + "?mode=memory&cache=shared"
 	db, err := sql.Open("sqlite3", dsn)
 	require.NoError(t, err)
-	t.Cleanup(func() { db.Close() }) //nolint:errcheck
+	t.Cleanup(func() { db.Close() }) //nolint:errcheck,gosec
 
 	_, err = db.Exec(`CREATE TABLE IF NOT EXISTS keys (
 		id TEXT PRIMARY KEY,

@@ -137,8 +137,8 @@ func InitKeysList(keysCmd *cobra.Command) *cobra.Command {
 
 	listCmd.Flags().String("type", "", "Filter by key type (RSA, ECDSA)")
 	listCmd.Flags().String("tags", "", "Comma-separated tags to filter keys")
-	viper.BindPFlag("type", listCmd.Flags().Lookup("type")) //nolint:errcheck
-	viper.BindPFlag("tags", listCmd.Flags().Lookup("tags")) //nolint:errcheck
+	viper.BindPFlag("type", listCmd.Flags().Lookup("type")) //nolint:errcheck,gosec
+	viper.BindPFlag("tags", listCmd.Flags().Lookup("tags")) //nolint:errcheck,gosec
 
 	return keysCmd
 	// Here you will define your flags and configuration settings.

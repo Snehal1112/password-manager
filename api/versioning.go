@@ -222,7 +222,7 @@ func (vm *VersionManager) setupVersionedRoutes(router *mux.Router, version strin
 
 		w.WriteHeader(http.StatusOK)
 		// Simple JSON response for now
-		w.Write([]byte(`{"version": "` + apiVersion.String() + `", "deprecated": ` + strconv.FormatBool(apiVersion.Deprecated) + `}`)) //nolint:errcheck
+		w.Write([]byte(`{"version": "` + apiVersion.String() + `", "deprecated": ` + strconv.FormatBool(apiVersion.Deprecated) + `}`)) //nolint:errcheck,gosec
 	}).Methods("GET")
 }
 

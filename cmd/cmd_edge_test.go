@@ -33,7 +33,7 @@ func newTestDB(t *testing.T) *sql.DB {
 	t.Helper()
 	db, err := sql.Open("sqlite3", ":memory:")
 	require.NoError(t, err)
-	t.Cleanup(func() { db.Close() }) //nolint:errcheck
+	t.Cleanup(func() { db.Close() }) //nolint:errcheck,gosec
 	return db
 }
 
@@ -77,7 +77,7 @@ func TestRunBackupList_EmptyDir(t *testing.T) {
 	os.Stdout = devNull
 	defer func() {
 		os.Stdout = origStdout
-		devNull.Close() //nolint:errcheck
+		devNull.Close() //nolint:errcheck,gosec
 	}()
 
 	err = cmd.RunE(cmd, []string{})
@@ -103,7 +103,7 @@ func TestRunBackupList_NonExistentDir(t *testing.T) {
 	os.Stdout = devNull
 	defer func() {
 		os.Stdout = origStdout
-		devNull.Close() //nolint:errcheck
+		devNull.Close() //nolint:errcheck,gosec
 	}()
 
 	// filepath.Glob returns nil,nil for a pattern that matches nothing, so this
@@ -142,7 +142,7 @@ func TestRunBackupCreate_UnencryptedToTempDir(t *testing.T) {
 	os.Stdout = devNull
 	defer func() {
 		os.Stdout = origStdout
-		devNull.Close() //nolint:errcheck
+		devNull.Close() //nolint:errcheck,gosec
 	}()
 
 	err = cmd.RunE(cmd, []string{})
@@ -181,7 +181,7 @@ func TestRunBackupCreate_DefaultOutputName(t *testing.T) {
 	os.Stdout = devNull
 	defer func() {
 		os.Stdout = origStdout
-		devNull.Close() //nolint:errcheck
+		devNull.Close() //nolint:errcheck,gosec
 	}()
 
 	err = cmd.RunE(cmd, []string{})
@@ -200,13 +200,13 @@ func TestRunBackupRestore_CancelledByUser(t *testing.T) {
 	r, w, err := os.Pipe()
 	require.NoError(t, err)
 	_, _ = w.WriteString("no\n")
-	w.Close() //nolint:errcheck
+	w.Close() //nolint:errcheck,gosec
 
 	origStdin := os.Stdin
 	os.Stdin = r
 	defer func() {
 		os.Stdin = origStdin
-		r.Close() //nolint:errcheck
+		r.Close() //nolint:errcheck,gosec
 	}()
 
 	origRestoreFile := backupRestoreFile
@@ -230,7 +230,7 @@ func TestRunBackupRestore_CancelledByUser(t *testing.T) {
 	os.Stdout = devNull
 	defer func() {
 		os.Stdout = origStdout
-		devNull.Close() //nolint:errcheck
+		devNull.Close() //nolint:errcheck,gosec
 	}()
 
 	err = cmd.RunE(cmd, []string{})
@@ -245,13 +245,13 @@ func TestRunBackupRestore_FileNotFound(t *testing.T) {
 	r, w, err := os.Pipe()
 	require.NoError(t, err)
 	_, _ = w.WriteString("yes\n")
-	w.Close() //nolint:errcheck
+	w.Close() //nolint:errcheck,gosec
 
 	origStdin := os.Stdin
 	os.Stdin = r
 	defer func() {
 		os.Stdin = origStdin
-		r.Close() //nolint:errcheck
+		r.Close() //nolint:errcheck,gosec
 	}()
 
 	origRestoreFile2 := backupRestoreFile
@@ -274,7 +274,7 @@ func TestRunBackupRestore_FileNotFound(t *testing.T) {
 	os.Stdout = devNull
 	defer func() {
 		os.Stdout = origStdout
-		devNull.Close() //nolint:errcheck
+		devNull.Close() //nolint:errcheck,gosec
 	}()
 
 	err = cmd.RunE(cmd, []string{})
@@ -419,7 +419,7 @@ func TestRunBackupList_WithResults(t *testing.T) {
 	os.Stdout = devNull
 	defer func() {
 		os.Stdout = origStdout
-		devNull.Close() //nolint:errcheck
+		devNull.Close() //nolint:errcheck,gosec
 	}()
 
 	err = cmd.RunE(cmd, []string{})
@@ -469,7 +469,7 @@ func TestShowMigrationStatus_WithRealSQLite(t *testing.T) {
 	os.Stdout = devNull
 	defer func() {
 		os.Stdout = origStdout
-		devNull.Close() //nolint:errcheck
+		devNull.Close() //nolint:errcheck,gosec
 	}()
 
 	cmd := &cobra.Command{Use: "migrate:status", RunE: migrateStatusCmd.RunE}

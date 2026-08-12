@@ -121,8 +121,8 @@ func InitKeysWrap(keysCmd *cobra.Command) *cobra.Command {
 
 	wrapCmd.Flags().String("key-id", "", "UUID of the vault RSA key used for wrapping")
 	wrapCmd.Flags().String("key-material", "", "Base64-encoded plaintext key material to wrap")
-	viper.BindPFlag("wrap-key-id", wrapCmd.Flags().Lookup("key-id"))             //nolint:errcheck
-	viper.BindPFlag("wrap-key-material", wrapCmd.Flags().Lookup("key-material")) //nolint:errcheck
+	viper.BindPFlag("wrap-key-id", wrapCmd.Flags().Lookup("key-id"))             //nolint:errcheck,gosec
+	viper.BindPFlag("wrap-key-material", wrapCmd.Flags().Lookup("key-material")) //nolint:errcheck,gosec
 
 	return keysCmd
 }

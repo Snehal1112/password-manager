@@ -74,7 +74,7 @@ func NewServerStarter(logger *logging.Logger) *ServerStarter {
 // Start initializes and starts the HTTP server.
 func (s *ServerStarter) Start(ctx context.Context, app *app.App) error {
 	s.logger.Info("Starting HTTP server")
-	app.StartServer(ctx) //nolint:errcheck
+	app.StartServer(ctx) //nolint:errcheck,gosec
 	s.logger.Info("HTTP server started successfully")
 	return nil
 }

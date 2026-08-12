@@ -103,17 +103,17 @@ var versionLatestCmd = &cobra.Command{
 func init() {
 	// List command flags
 	versionListCmd.Flags().StringVar(&versionSecretID, "secret-id", "", "Secret ID to list versions for (required)")
-	versionListCmd.MarkFlagRequired("secret-id") //nolint:errcheck
+	versionListCmd.MarkFlagRequired("secret-id") //nolint:errcheck,gosec
 
 	// Get command flags
 	versionGetCmd.Flags().StringVar(&versionSecretID, "secret-id", "", "Secret ID to get version for (required)")
 	versionGetCmd.Flags().IntVar(&versionNumber, "version", 0, "Version number to retrieve (required)")
-	versionGetCmd.MarkFlagRequired("secret-id") //nolint:errcheck
-	versionGetCmd.MarkFlagRequired("version")   //nolint:errcheck
+	versionGetCmd.MarkFlagRequired("secret-id") //nolint:errcheck,gosec
+	versionGetCmd.MarkFlagRequired("version")   //nolint:errcheck,gosec
 
 	// Latest command flags
 	versionLatestCmd.Flags().StringVar(&versionSecretID, "secret-id", "", "Secret ID to get latest version for (required)")
-	versionLatestCmd.MarkFlagRequired("secret-id") //nolint:errcheck
+	versionLatestCmd.MarkFlagRequired("secret-id") //nolint:errcheck,gosec
 }
 
 func runVersionList(cmd *cobra.Command) error {
@@ -147,7 +147,7 @@ func runVersionList(cmd *cobra.Command) error {
 		fmt.Fprintf(w, "%d\t%s\t%s\t%s\n", //nolint:errcheck
 			v.Version, v.CreatedAt.Format("2006-01-02 15:04:05"), v.Name, v.Value)
 	}
-	w.Flush()                                                                                             //nolint:errcheck
+	w.Flush()                                                                                             //nolint:errcheck,gosec
 	fmt.Fprintf(cmd.OutOrStdout(), "\nFound %d versions for secret %s\n", len(versions), versionSecretID) //nolint:errcheck
 	return nil
 }

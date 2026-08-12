@@ -117,5 +117,5 @@ func InitSecretsImport(parentCmd *cobra.Command) {
 	secretsImportCmd.Flags().StringVarP(&importFile, "file", "i", "", "Input file path (required)")
 	secretsImportCmd.Flags().BoolVarP(&importEncrypted, "encrypted", "e", true, "File is encrypted")
 	secretsImportCmd.Flags().BoolVarP(&importOverwrite, "overwrite", "w", false, "Overwrite existing secrets")
-	secretsImportCmd.MarkFlagRequired("file") //nolint:errcheck
+	secretsImportCmd.MarkFlagRequired("file") //nolint:errcheck,gosec
 }

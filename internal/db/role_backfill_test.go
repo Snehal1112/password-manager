@@ -18,7 +18,7 @@ func seedPreMigrationDB(t *testing.T) (*sql.DB, map[string]string) {
 	t.Helper()
 	conn, err := sql.Open("sqlite3", ":memory:")
 	require.NoError(t, err)
-	t.Cleanup(func() { conn.Close() }) //nolint:errcheck
+	t.Cleanup(func() { conn.Close() }) //nolint:errcheck,gosec
 
 	_, err = conn.Exec(`
 		CREATE TABLE users (

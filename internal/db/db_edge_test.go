@@ -28,7 +28,7 @@ func TestTagRepository_ReplaceTags_DBError(t *testing.T) {
 	require.NoError(t, repo.AddTags(context.Background(), id, []string{"existing"}))
 
 	// Now close the DB so all subsequent operations fail.
-	db.Close() //nolint:errcheck
+	db.Close() //nolint:errcheck,gosec
 
 	err := repo.ReplaceTags(context.Background(), id, []string{"new"})
 	assert.Error(t, err)
@@ -47,7 +47,7 @@ func TestTagRepository_AddTags_DBClosed(t *testing.T) {
 		)
 	`)
 	require.NoError(t, err)
-	sqlDB.Close() //nolint:errcheck // Force failure.
+	sqlDB.Close() //nolint:errcheck,gosec // Force failure.
 
 	repo := NewTagRepository[testEntity](NewConn(sqlDB, SQLite), "tight_tags2", "entity_id")
 	id := uuid.New()
@@ -64,7 +64,7 @@ func TestWithTx_BeginTxError(t *testing.T) {
 	db, err := sql.Open("sqlite3", ":memory:")
 	require.NoError(t, err)
 	// Close before use so BeginTx fails.
-	db.Close() //nolint:errcheck
+	db.Close() //nolint:errcheck,gosec
 
 	err = WithTx(context.Background(), db, func(_ *sql.Tx) error { return nil })
 	assert.Error(t, err)
@@ -92,7 +92,7 @@ func TestOpenDatabase_PoolConfigureInvalidMaxOpen(t *testing.T) {
 	db, err := repo.OpenDatabase(cfg)
 	require.NoError(t, err)
 	require.NotNil(t, db)
-	db.Close() //nolint:errcheck
+	db.Close() //nolint:errcheck,gosec
 }
 
 // ---------------------------------------------------------------------------
@@ -135,7 +135,7 @@ func TestHealthCheck_ClosedDB(t *testing.T) {
 	// Set the global DB to a newly created, immediately closed db.
 	closed, err := sql.Open("sqlite3", ":memory:")
 	require.NoError(t, err)
-	closed.Close() //nolint:errcheck
+	closed.Close() //nolint:errcheck,gosec
 
 	prev := globalDB
 	globalDB = closed

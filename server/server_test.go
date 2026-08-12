@@ -31,7 +31,7 @@ func freePort(t *testing.T) string {
 	l, err := net.Listen("tcp", ":0")
 	require.NoError(t, err)
 	addr := l.Addr().String()
-	l.Close() //nolint:errcheck
+	l.Close() //nolint:errcheck,gosec
 	return addr
 }
 
@@ -159,12 +159,12 @@ func TestHandleWebSocket_Enabled_RealConnection(t *testing.T) {
 
 	require.NoError(t, conn.WriteMessage(websocket.TextMessage, []byte("hello")))
 
-	conn.SetReadDeadline(time.Now().Add(3 * time.Second)) //nolint:errcheck
+	conn.SetReadDeadline(time.Now().Add(3 * time.Second)) //nolint:errcheck,gosec
 	_, reply, err := conn.ReadMessage()
 	require.NoError(t, err)
 	assert.Equal(t, "echo:hello", string(reply))
 
-	conn.WriteMessage(websocket.CloseMessage, //nolint:errcheck
+	conn.WriteMessage(websocket.CloseMessage, //nolint:errcheck,gosec
 		websocket.FormatCloseMessage(websocket.CloseNormalClosure, ""))
 }
 
@@ -190,7 +190,7 @@ func TestHandleWebSocket_NilResponseFromHandler(t *testing.T) {
 	defer conn.Close() //nolint:errcheck
 
 	require.NoError(t, conn.WriteMessage(websocket.TextMessage, []byte("ping")))
-	conn.WriteMessage(websocket.CloseMessage, //nolint:errcheck
+	conn.WriteMessage(websocket.CloseMessage, //nolint:errcheck,gosec
 		websocket.FormatCloseMessage(websocket.CloseNormalClosure, ""))
 }
 
@@ -256,7 +256,7 @@ func TestStartServer_ValidAddress_GracefulShutdown(t *testing.T) {
 	for time.Now().Before(deadline) {
 		conn, err := net.DialTimeout("tcp", addr, 100*time.Millisecond)
 		if err == nil {
-			conn.Close() //nolint:errcheck
+			conn.Close() //nolint:errcheck,gosec
 			break
 		}
 		time.Sleep(20 * time.Millisecond)
@@ -301,7 +301,7 @@ func TestStartServer_ValidAddress_HTTP2_GracefulShutdown(t *testing.T) {
 	for time.Now().Before(deadline) {
 		conn, err := net.DialTimeout("tcp", addr, 100*time.Millisecond)
 		if err == nil {
-			conn.Close() //nolint:errcheck
+			conn.Close() //nolint:errcheck,gosec
 			break
 		}
 		time.Sleep(20 * time.Millisecond)
@@ -359,7 +359,7 @@ func TestStartServer_ServerMakesHTTPRequest(t *testing.T) {
 	}
 	require.NotNil(t, resp, "server should be reachable")
 	assert.Equal(t, http.StatusOK, resp.StatusCode)
-	resp.Body.Close() //nolint:errcheck
+	resp.Body.Close() //nolint:errcheck,gosec
 
 	// Shutdown.
 	p, _ := os.FindProcess(os.Getpid())
@@ -398,7 +398,7 @@ func TestHandleWebSocket_BinaryMessage(t *testing.T) {
 	// Send binary — should be ignored by the handler.
 	require.NoError(t, conn.WriteMessage(websocket.BinaryMessage, []byte{0x01, 0x02}))
 	// Close cleanly.
-	conn.WriteMessage(websocket.CloseMessage, //nolint:errcheck
+	conn.WriteMessage(websocket.CloseMessage, //nolint:errcheck,gosec
 		websocket.FormatCloseMessage(websocket.CloseNormalClosure, ""))
 }
 

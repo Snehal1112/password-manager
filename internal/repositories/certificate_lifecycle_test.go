@@ -45,7 +45,7 @@ func setupCertLifecycleTestDB(t *testing.T) *sql.DB {
 		certificate_id TEXT NOT NULL, tag TEXT NOT NULL,
 		PRIMARY KEY (certificate_id, tag))`)
 	require.NoError(t, err)
-	t.Cleanup(func() { db.Close() }) //nolint:errcheck
+	t.Cleanup(func() { db.Close() }) //nolint:errcheck,gosec
 	return db
 }
 

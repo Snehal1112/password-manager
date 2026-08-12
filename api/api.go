@@ -172,7 +172,7 @@ func InitForTest(application *app.App, router *mux.Router) *API {
 func Handle404(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusNotFound)
-	json.NewEncoder(w).Encode(map[string]any{ //nolint:errcheck
+	json.NewEncoder(w).Encode(map[string]any{ //nolint:errcheck,gosec
 		"id":          "api.not_found",
 		"message":     "Not found",
 		"status_code": http.StatusNotFound,
@@ -182,5 +182,5 @@ func Handle404(w http.ResponseWriter, r *http.Request) {
 // ReturnStatusOK writes a standard {"status":"OK"} response.
 func ReturnStatusOK(w http.ResponseWriter) {
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]string{"status": "OK"}) //nolint:errcheck
+	json.NewEncoder(w).Encode(map[string]string{"status": "OK"}) //nolint:errcheck,gosec
 }

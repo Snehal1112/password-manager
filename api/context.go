@@ -150,7 +150,7 @@ func ApiSessionRequired(a *app.App, handler func(*Context, http.ResponseWriter, 
 		if !ok || userIDStr == "" {
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusUnauthorized)
-			json.NewEncoder(w).Encode(map[string]any{ //nolint:errcheck
+			json.NewEncoder(w).Encode(map[string]any{ //nolint:errcheck,gosec
 				"id":          "api.context.session_required",
 				"message":     "Unauthorized: missing session",
 				"status_code": http.StatusUnauthorized,
@@ -165,7 +165,7 @@ func ApiSessionRequired(a *app.App, handler func(*Context, http.ResponseWriter, 
 			if err := a.ServiceContainer.GetRBACService().ValidateEndpointAccess(role, r.Method, r.URL.Path); err != nil {
 				w.Header().Set("Content-Type", "application/json")
 				w.WriteHeader(http.StatusForbidden)
-				json.NewEncoder(w).Encode(map[string]any{ //nolint:errcheck
+				json.NewEncoder(w).Encode(map[string]any{ //nolint:errcheck,gosec
 					"id":          "api.context.permissions",
 					"message":     "Access denied",
 					"status_code": http.StatusForbidden,
@@ -210,7 +210,7 @@ func ApiSessionRequired(a *app.App, handler func(*Context, http.ResponseWriter, 
 func writeError(w http.ResponseWriter, c *Context) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(c.Err.StatusCode)
-	json.NewEncoder(w).Encode(map[string]any{ //nolint:errcheck
+	json.NewEncoder(w).Encode(map[string]any{ //nolint:errcheck,gosec
 		"id":             c.Err.ID,
 		"message":        c.Err.Message,
 		"detailed_error": c.Err.DetailedError,
