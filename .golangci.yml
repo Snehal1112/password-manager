@@ -13,25 +13,25 @@ linters:
     - bodyclose      # unclosed http response bodies
     - errorlint      # errors.Is/As usage
     - exhaustive     # exhaustive switch/map for enums
+  settings:
+    gosec:
+      excludes:
+        - G115   # integer overflow (too noisy for this codebase)
+    exhaustive:
+      default-signifies-exhaustive: true
+  exclusions:
+    rules:
+      # Test files get more latitude.
+      - path: "_test\\.go"
+        linters:
+          - gosec
+          - errcheck
 
 formatters:
   enable:
     - gofmt          # formatting
     - goimports      # import ordering
 
-linters-settings:
-  gosec:
-    excludes:
-      - G115   # integer overflow (too noisy for this codebase)
-  exhaustive:
-    default-signifies-exhaustive: true
-
 issues:
-  exclude-rules:
-    # Test files get more latitude.
-    - path: "_test\\.go"
-      linters:
-        - gosec
-        - errcheck
   max-issues-per-linter: 0
   max-same-issues: 0
