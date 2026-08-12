@@ -77,14 +77,6 @@ func (m *mockCertRepoForRenewal) SetPurgeProtection(ctx context.Context, id uuid
 	return m.Called(ctx, id, enabled).Error(0)
 }
 
-func (m *mockCertRepoForRenewal) ListSoftDeleted(ctx context.Context, userID uuid.UUID) ([]*model.Certificate, error) {
-	args := m.Called(ctx, userID)
-	if v := args.Get(0); v != nil {
-		return v.([]*model.Certificate), args.Error(1)
-	}
-	return nil, args.Error(1)
-}
-
 func (m *mockCertRepoForRenewal) ListAll(ctx context.Context) ([]model.Certificate, error) {
 	args := m.Called(ctx)
 	if v := args.Get(0); v != nil {

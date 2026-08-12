@@ -845,18 +845,6 @@ func TestKeyRepo_SetPurgeProtection_NotFound(t *testing.T) {
 	assert.Contains(t, err.Error(), "not found")
 }
 
-// TestKeyRepo_ListSoftDeleted_DBError drops the table to force a query error.
-func TestKeyRepo_ListSoftDeleted_DBError(t *testing.T) {
-	db := openMemDB(t)
-	makeKeysTable(t, db)
-	_, err := db.Exec("DROP TABLE keys")
-	require.NoError(t, err)
-
-	repo := &KeyRepository{db: rvdb.NewConn(db, rvdb.SQLite), log: newInternalLogger()}
-	_, err = repo.ListSoftDeleted(context.Background(), uuid.New())
-	assert.Error(t, err)
-}
-
 // TestKeyRepo_ReadInVault_DBError drops the table to force a query error.
 func TestKeyRepo_ReadInVault_DBError(t *testing.T) {
 	db := openMemDB(t)
@@ -920,18 +908,6 @@ func TestCertRepo_SetPurgeProtection_NotFound(t *testing.T) {
 	err := repo.SetPurgeProtection(context.Background(), uuid.New(), true)
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "not found")
-}
-
-// TestCertRepo_ListSoftDeleted_DBError drops the table to force a query error.
-func TestCertRepo_ListSoftDeleted_DBError(t *testing.T) {
-	db := openMemDB(t)
-	makeCertsTable(t, db)
-	_, err := db.Exec("DROP TABLE certificates")
-	require.NoError(t, err)
-
-	repo := &CertificateRepository{db: rvdb.NewConn(db, rvdb.SQLite), log: newInternalLogger()}
-	_, err = repo.ListSoftDeleted(context.Background(), uuid.New())
-	assert.Error(t, err)
 }
 
 // TestCertRepo_ListRevoked_DBError drops the crl table to force a query error.

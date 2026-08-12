@@ -22,7 +22,11 @@ import (
 func setupCertTestDB(t *testing.T) *sql.DB {
 	t.Helper()
 
-	db, err := sql.Open("sqlite3", ":memory:")
+	// Use a shared-cache in-memory database so every pooled connection sees the
+	// same schema. List() reads tags via a second connection, which would
+	// otherwise hit a fresh, empty in-memory database.
+	dsn := "file:certtest_" + uuid.NewString() + "?mode=memory&cache=shared"
+	db, err := sql.Open("sqlite3", dsn)
 	require.NoError(t, err, "failed to open in-memory database")
 
 	_, err = db.Exec(`
@@ -77,7 +81,7 @@ func newTestCert(userID uuid.UUID, name string) *model.Certificate {
 }
 
 // TestCertificateSoftDelete verifies that SoftDelete hides the certificate from Read
-// while making it visible through ListSoftDeleted.
+// while making it visible through List with OnlyDeleted.
 func TestCertificateSoftDelete(t *testing.T) {
 	t.Parallel()
 	db := setupCertTestDB(t)
@@ -96,8 +100,8 @@ func TestCertificateSoftDelete(t *testing.T) {
 	_, err := repo.Read(ctx, cert.ID, model.NewAdminScope(uuid.Nil))
 	assert.Error(t, err, "Read should fail for a soft-deleted certificate")
 
-	// ListSoftDeleted should include the certificate.
-	deleted, err := repo.ListSoftDeleted(ctx, userID)
+	// List with OnlyDeleted should include the certificate.
+	deleted, err := repo.List(ctx, model.NewOwnerScope(uuid.Nil, userID), repositories.CertificateFilter{OnlyDeleted: true})
 	require.NoError(t, err)
 	require.Len(t, deleted, 1)
 	assert.Equal(t, cert.ID, deleted[0].ID)
@@ -120,7 +124,7 @@ func TestCertificatePurge(t *testing.T) {
 	// PurgeCertificate should permanently remove the row.
 	require.NoError(t, repo.PurgeCertificate(ctx, cert.ID))
 
-	deleted, err := repo.ListSoftDeleted(ctx, userID)
+	deleted, err := repo.List(ctx, model.NewOwnerScope(uuid.Nil, userID), repositories.CertificateFilter{OnlyDeleted: true})
 	require.NoError(t, err)
 	assert.Empty(t, deleted, "certificate should be permanently removed after purge")
 }

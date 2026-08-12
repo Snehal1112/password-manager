@@ -48,14 +48,6 @@ func (m *mockKeyRepository) RecoverKey(ctx context.Context, id uuid.UUID) error 
 	return m.Called(ctx, id).Error(0)
 }
 
-func (m *mockKeyRepository) ListSoftDeleted(ctx context.Context, userID uuid.UUID) ([]*model.Key, error) {
-	args := m.Called(ctx, userID)
-	if v := args.Get(0); v != nil {
-		return v.([]*model.Key), args.Error(1)
-	}
-	return nil, args.Error(1)
-}
-
 func (m *mockKeyRepository) ReadDeleted(ctx context.Context, id uuid.UUID) (*model.Key, error) {
 	args := m.Called(ctx, id)
 	if v := args.Get(0); v != nil {

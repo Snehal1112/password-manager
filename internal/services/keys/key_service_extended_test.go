@@ -904,9 +904,6 @@ func (m *mockKeyRepoForExtendedCrypto) PurgeKey(ctx context.Context, id uuid.UUI
 func (m *mockKeyRepoForExtendedCrypto) SetPurgeProtection(ctx context.Context, id uuid.UUID, enabled bool) error {
 	return nil
 }
-func (m *mockKeyRepoForExtendedCrypto) ListSoftDeleted(ctx context.Context, userID uuid.UUID) ([]*model.Key, error) {
-	return nil, nil
-}
 func (m *mockKeyRepoForExtendedCrypto) ReadDeleted(ctx context.Context, id uuid.UUID) (*model.Key, error) {
 	return nil, nil
 }

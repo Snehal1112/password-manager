@@ -1428,29 +1428,6 @@ func TestKeyRepository_SoftDelete_NotFound(t *testing.T) {
 	assert.Error(t, err)
 }
 
-func TestKeyRepository_ListSoftDeleted(t *testing.T) {
-	t.Parallel()
-	db := setupFullKeyDB(t)
-	log := logging.InitLogger()
-	repo := repositories.NewKeyRepository(rvdb.NewConn(db, rvdb.SQLite), log)
-	ctx := context.Background()
-
-	userID := uuid.New()
-	k1 := newKey(userID, uuid.New(), "del-key-1")
-	k2 := newKey(userID, uuid.New(), "del-key-2")
-	k3 := newKey(userID, uuid.New(), "active-key")
-
-	require.NoError(t, repo.Create(ctx, k1))
-	require.NoError(t, repo.Create(ctx, k2))
-	require.NoError(t, repo.Create(ctx, k3))
-	require.NoError(t, repo.SoftDelete(ctx, k1.ID))
-	require.NoError(t, repo.SoftDelete(ctx, k2.ID))
-
-	softDeleted, err := repo.ListSoftDeleted(ctx, userID)
-	require.NoError(t, err)
-	assert.Len(t, softDeleted, 2)
-}
-
 func TestKeyRepository_ListInVault_WithTags(t *testing.T) {
 	t.Parallel()
 	db := setupFullKeyDB(t)
@@ -1483,27 +1460,6 @@ func TestCertificateRepository_SoftDelete_NotFound(t *testing.T) {
 
 	err := repo.SoftDelete(ctx, uuid.New())
 	assert.Error(t, err)
-}
-
-func TestCertificateRepository_ListSoftDeleted(t *testing.T) {
-	t.Parallel()
-	db := setupFullCertDB(t)
-	log := logging.InitLogger()
-	repo := repositories.NewCertificateRepository(rvdb.NewConn(db, rvdb.SQLite), log)
-	ctx := context.Background()
-
-	userID := uuid.New()
-	c1 := newCert(userID, uuid.New(), "del-cert-1")
-	c2 := newCert(userID, uuid.New(), "active-cert-1")
-
-	require.NoError(t, repo.Create(ctx, c1))
-	require.NoError(t, repo.Create(ctx, c2))
-	require.NoError(t, repo.SoftDelete(ctx, c1.ID))
-
-	softDeleted, err := repo.ListSoftDeleted(ctx, userID)
-	require.NoError(t, err)
-	assert.Len(t, softDeleted, 1)
-	assert.Equal(t, c1.ID, softDeleted[0].ID)
 }
 
 func TestCertificateRepository_ListInVault_WithType(t *testing.T) {

@@ -844,9 +844,6 @@ func (s *stubKeyVersionRepo) PurgeKey(_ context.Context, _ uuid.UUID) error {
 func (s *stubKeyVersionRepo) SetPurgeProtection(_ context.Context, _ uuid.UUID, _ bool) error {
 	panic("unexpected call: SetPurgeProtection")
 }
-func (s *stubKeyVersionRepo) ListSoftDeleted(_ context.Context, _ uuid.UUID) ([]*model.Key, error) {
-	panic("unexpected call: ListSoftDeleted")
-}
 func (s *stubKeyVersionRepo) ReadDeleted(_ context.Context, _ uuid.UUID) (*model.Key, error) {
 	panic("unexpected call: ReadDeleted")
 }

@@ -585,9 +585,6 @@ func (m *mockKeyRepo) SoftDelete(_ context.Context, _ uuid.UUID) error          
 func (m *mockKeyRepo) RecoverKey(_ context.Context, _ uuid.UUID) error                 { return nil }
 func (m *mockKeyRepo) PurgeKey(_ context.Context, _ uuid.UUID) error                   { return nil }
 func (m *mockKeyRepo) SetPurgeProtection(_ context.Context, _ uuid.UUID, _ bool) error { return nil }
-func (m *mockKeyRepo) ListSoftDeleted(_ context.Context, _ uuid.UUID) ([]*model.Key, error) {
-	return nil, nil
-}
 func (m *mockKeyRepo) ReadDeleted(_ context.Context, _ uuid.UUID) (*model.Key, error) {
 	return nil, nil
 }
@@ -633,9 +630,6 @@ func (m *mockCertRepo) Revoke(_ context.Context, _ uuid.UUID, _, _ string) error
 func (m *mockCertRepo) SoftDelete(_ context.Context, _ uuid.UUID) error          { return nil }
 func (m *mockCertRepo) RecoverCertificate(_ context.Context, _ uuid.UUID) error  { return nil }
 func (m *mockCertRepo) PurgeCertificate(_ context.Context, _ uuid.UUID) error    { return nil }
-func (m *mockCertRepo) ListSoftDeleted(_ context.Context, _ uuid.UUID) ([]*model.Certificate, error) {
-	return nil, nil
-}
 func (m *mockCertRepo) ListRevoked(_ context.Context, _ uuid.UUID) ([]model.RevokedCertificate, error) {
 	return nil, nil
 }

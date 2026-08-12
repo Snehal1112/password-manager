@@ -39,7 +39,6 @@ type CertificateRepositoryInterface interface {
 	RecoverCertificate(ctx context.Context, id uuid.UUID) error
 	PurgeCertificate(ctx context.Context, id uuid.UUID) error
 	SetPurgeProtection(ctx context.Context, id uuid.UUID, enabled bool) error
-	ListSoftDeleted(ctx context.Context, userID uuid.UUID) ([]*model.Certificate, error)
 	ListAll(ctx context.Context) ([]model.Certificate, error)
 	// SoftDeleteVaultContents soft-deletes every active certificate in a vault.
 	SoftDeleteVaultContents(ctx context.Context, vaultID uuid.UUID, deletedAt time.Time) error
@@ -56,7 +55,7 @@ type CertificateFilter struct {
 }
 
 // certificateColumns is the canonical SELECT list shared by every scoped query.
-const certificateColumns = "id, user_id, vault_id, name, certificate, private_key, created_at, expires_at, auto_renew, renewal_days, key_id, enabled, not_before"
+const certificateColumns = "id, user_id, vault_id, name, certificate, private_key, created_at, expires_at, auto_renew, renewal_days, key_id, enabled, not_before, deleted_at, purge_protection"
 
 // scanCertificateRow scans one certificates row in the canonical column order.
 func scanCertificateRow(scan func(dest ...any) error) (model.Certificate, error) {
@@ -66,7 +65,7 @@ func scanCertificateRow(scan func(dest ...any) error) (model.Certificate, error)
 
 	if err := scan(&idStr, &userIDStr, &vaultIDStr, &cert.Name, &cert.Certificate, &cert.PrivateKey,
 		&cert.CreatedAt, &cert.ExpiresAt, &cert.AutoRenew, &cert.RenewalDays, &keyIDStr,
-		&cert.Enabled, &cert.NotBefore); err != nil {
+		&cert.Enabled, &cert.NotBefore, &cert.DeletedAt, &cert.PurgeProtection); err != nil {
 		return cert, err
 	}
 
@@ -700,89 +699,6 @@ func (r *CertificateRepository) SetPurgeProtection(ctx context.Context, id uuid.
 		r.log.LogAuditInfo(uuid.Nil.String(), "set_purge_protection_certificate", "success", fmt.Sprintf("Certificate purge protection set to %v", enabled))
 		return nil
 	})
-}
-
-// ListSoftDeleted retrieves all soft-deleted certificates for a given user.
-// Only certificates with deleted_at set are returned.
-//
-// Parameters:
-//   - ctx: The context for the database operation.
-//   - userID: The user's unique identifier.
-//
-// Returns:
-//
-//	A slice of soft-deleted certificate pointers, or an error if retrieval fails.
-func (r *CertificateRepository) ListSoftDeleted(ctx context.Context, userID uuid.UUID) ([]*model.Certificate, error) {
-	var certList []*model.Certificate
-
-	err := r.executeWithMetrics("list_soft_deleted_certificates", func() error {
-		logrus.WithField("user_id", userID.String()).Debug("Listing soft-deleted certificates for user")
-
-		rows, err := r.db.QueryContext(ctx,
-			"SELECT id, user_id, name, certificate, private_key, created_at, deleted_at, purge_protection, key_id, enabled, not_before FROM certificates WHERE user_id = ? AND deleted_at IS NOT NULL ORDER BY deleted_at DESC",
-			userID.String())
-		if err != nil {
-			r.log.LogAuditError(userID.String(), "list_soft_deleted_certificates", "failed", "Failed to query soft-deleted certificates", err)
-			return fmt.Errorf("failed to query soft-deleted certificates: %w", err)
-		}
-		defer rows.Close() //nolint:errcheck
-
-		certList = make([]*model.Certificate, 0)
-
-		for rows.Next() {
-			var cert model.Certificate
-			var idStr, userIDStr string
-			var deletedAt *time.Time
-			var purgeProtection bool
-			var keyIDStr sql.NullString
-
-			if err := rows.Scan(&idStr, &userIDStr, &cert.Name, &cert.Certificate, &cert.PrivateKey, &cert.CreatedAt, &deletedAt, &purgeProtection, &keyIDStr, &cert.Enabled, &cert.NotBefore); err != nil {
-				r.log.LogAuditError(userID.String(), "list_soft_deleted_certificates", "failed", "Failed to scan certificate", err)
-				return fmt.Errorf("failed to scan certificate: %w", err)
-			}
-
-			cert.ID, err = uuid.Parse(idStr)
-			if err != nil {
-				r.log.LogAuditError(userID.String(), "list_soft_deleted_certificates", "failed", "Failed to parse certificate ID", err)
-				return fmt.Errorf("failed to parse certificate ID: %w", err)
-			}
-
-			cert.UserID, err = uuid.Parse(userIDStr)
-			if err != nil {
-				r.log.LogAuditError(userID.String(), "list_soft_deleted_certificates", "failed", "Failed to parse user ID", err)
-				return fmt.Errorf("failed to parse user ID: %w", err)
-			}
-
-			if keyIDStr.Valid {
-				cert.KeyID, err = uuid.Parse(keyIDStr.String)
-				if err != nil {
-					r.log.LogAuditError(userID.String(), "list_soft_deleted_certificates", "failed", "Failed to parse key ID", err)
-					return fmt.Errorf("failed to parse key ID: %w", err)
-				}
-			}
-
-			cert.DeletedAt = deletedAt
-			cert.PurgeProtection = purgeProtection
-
-			certList = append(certList, &cert)
-		}
-
-		if err := rows.Err(); err != nil {
-			return fmt.Errorf("row iteration error: %w", err)
-		}
-
-		return nil
-	})
-	if err != nil {
-		return nil, err
-	}
-
-	logrus.WithFields(logrus.Fields{
-		"user_id":    userID.String(),
-		"cert_count": len(certList),
-	}).Debug("Soft-deleted certificates listed successfully")
-
-	return certList, nil
 }
 
 // ListAll returns all non-deleted certificates across all users.

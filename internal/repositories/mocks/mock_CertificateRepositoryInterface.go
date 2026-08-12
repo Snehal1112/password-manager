@@ -4,7 +4,6 @@ package mocks
 
 import (
 	context "context"
-
 	model "rocketvault/model"
 
 	mock "github.com/stretchr/testify/mock"
@@ -296,65 +295,6 @@ func (_c *MockCertificateRepositoryInterface_ListRevoked_Call) Return(_a0 []mode
 }
 
 func (_c *MockCertificateRepositoryInterface_ListRevoked_Call) RunAndReturn(run func(context.Context, uuid.UUID) ([]model.RevokedCertificate, error)) *MockCertificateRepositoryInterface_ListRevoked_Call {
-	_c.Call.Return(run)
-	return _c
-}
-
-// ListSoftDeleted provides a mock function with given fields: ctx, userID
-func (_m *MockCertificateRepositoryInterface) ListSoftDeleted(ctx context.Context, userID uuid.UUID) ([]*model.Certificate, error) {
-	ret := _m.Called(ctx, userID)
-
-	if len(ret) == 0 {
-		panic("no return value specified for ListSoftDeleted")
-	}
-
-	var r0 []*model.Certificate
-	var r1 error
-	if rf, ok := ret.Get(0).(func(context.Context, uuid.UUID) ([]*model.Certificate, error)); ok {
-		return rf(ctx, userID)
-	}
-	if rf, ok := ret.Get(0).(func(context.Context, uuid.UUID) []*model.Certificate); ok {
-		r0 = rf(ctx, userID)
-	} else {
-		if ret.Get(0) != nil {
-			r0 = ret.Get(0).([]*model.Certificate)
-		}
-	}
-
-	if rf, ok := ret.Get(1).(func(context.Context, uuid.UUID) error); ok {
-		r1 = rf(ctx, userID)
-	} else {
-		r1 = ret.Error(1)
-	}
-
-	return r0, r1
-}
-
-// MockCertificateRepositoryInterface_ListSoftDeleted_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'ListSoftDeleted'
-type MockCertificateRepositoryInterface_ListSoftDeleted_Call struct {
-	*mock.Call
-}
-
-// ListSoftDeleted is a helper method to define mock.On call
-//   - ctx context.Context
-//   - userID uuid.UUID
-func (_e *MockCertificateRepositoryInterface_Expecter) ListSoftDeleted(ctx interface{}, userID interface{}) *MockCertificateRepositoryInterface_ListSoftDeleted_Call {
-	return &MockCertificateRepositoryInterface_ListSoftDeleted_Call{Call: _e.mock.On("ListSoftDeleted", ctx, userID)}
-}
-
-func (_c *MockCertificateRepositoryInterface_ListSoftDeleted_Call) Run(run func(ctx context.Context, userID uuid.UUID)) *MockCertificateRepositoryInterface_ListSoftDeleted_Call {
-	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(context.Context), args[1].(uuid.UUID))
-	})
-	return _c
-}
-
-func (_c *MockCertificateRepositoryInterface_ListSoftDeleted_Call) Return(_a0 []*model.Certificate, _a1 error) *MockCertificateRepositoryInterface_ListSoftDeleted_Call {
-	_c.Call.Return(_a0, _a1)
-	return _c
-}
-
-func (_c *MockCertificateRepositoryInterface_ListSoftDeleted_Call) RunAndReturn(run func(context.Context, uuid.UUID) ([]*model.Certificate, error)) *MockCertificateRepositoryInterface_ListSoftDeleted_Call {
 	_c.Call.Return(run)
 	return _c
 }

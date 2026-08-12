@@ -82,14 +82,6 @@ func (m *mockCertRepository) RecoverCertificate(ctx context.Context, id uuid.UUI
 	return m.Called(ctx, id).Error(0)
 }
 
-func (m *mockCertRepository) ListSoftDeleted(ctx context.Context, userID uuid.UUID) ([]*model.Certificate, error) {
-	args := m.Called(ctx, userID)
-	if v := args.Get(0); v != nil {
-		return v.([]*model.Certificate), args.Error(1)
-	}
-	return nil, args.Error(1)
-}
-
 func (m *mockCertRepository) ListAll(ctx context.Context) ([]model.Certificate, error) {
 	args := m.Called(ctx)
 	if v := args.Get(0); v != nil {
@@ -140,14 +132,6 @@ func (m *mockKeyRepo) UpdateRevocationStatus(ctx context.Context, id uuid.UUID, 
 
 func (m *mockKeyRepo) RecoverKey(ctx context.Context, id uuid.UUID) error {
 	return m.Called(ctx, id).Error(0)
-}
-
-func (m *mockKeyRepo) ListSoftDeleted(ctx context.Context, userID uuid.UUID) ([]*model.Key, error) {
-	args := m.Called(ctx, userID)
-	if v := args.Get(0); v != nil {
-		return v.([]*model.Key), args.Error(1)
-	}
-	return nil, args.Error(1)
 }
 
 func (m *mockKeyRepo) ReadDeleted(ctx context.Context, id uuid.UUID) (*model.Key, error) {

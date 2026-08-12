@@ -69,9 +69,6 @@ func (r *stubCertRepo) SetPurgeProtection(_ context.Context, _ uuid.UUID, _ bool
 func (r *stubCertRepo) ListRevoked(_ context.Context, _ uuid.UUID) ([]model.RevokedCertificate, error) {
 	return nil, r.err
 }
-func (r *stubCertRepo) ListSoftDeleted(_ context.Context, _ uuid.UUID) ([]*model.Certificate, error) {
-	return nil, r.err
-}
 func (r *stubCertRepo) ListAll(_ context.Context) ([]model.Certificate, error) { return nil, r.err }
 func (r *stubCertRepo) SoftDeleteVaultContents(_ context.Context, _ uuid.UUID, _ time.Time) error {
 	return r.err

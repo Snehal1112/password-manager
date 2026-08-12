@@ -271,10 +271,6 @@ func (r *stubKeyRepo) SetPurgeProtection(_ context.Context, _ uuid.UUID, _ bool)
 	return nil
 }
 
-func (r *stubKeyRepo) ListSoftDeleted(_ context.Context, _ uuid.UUID) ([]*model.Key, error) {
-	return nil, nil
-}
-
 func (r *stubKeyRepo) ReadDeleted(_ context.Context, _ uuid.UUID) (*model.Key, error) {
 	return nil, nil
 }

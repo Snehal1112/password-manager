@@ -687,7 +687,6 @@ func TestComplianceSvc_NilContainer_SetsError(t *testing.T) {
 	assert.NotNil(t, c.Err)
 }
 
-
 // ============================================================
 // keys.go — wrapKey and unwrapKey missing branches
 // ============================================================

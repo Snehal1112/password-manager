@@ -100,8 +100,8 @@ func TestKeySoftDelete(t *testing.T) {
 	_, err := repo.Read(ctx, key.ID, model.NewAdminScope(uuid.Nil))
 	assert.Error(t, err)
 
-	// ListSoftDeleted should include it.
-	deleted, err := repo.ListSoftDeleted(ctx, userID)
+	// List with OnlyDeleted should include it.
+	deleted, err := repo.List(ctx, model.NewOwnerScope(uuid.Nil, userID), repositories.KeyFilter{OnlyDeleted: true})
 	require.NoError(t, err)
 	require.Len(t, deleted, 1)
 	assert.Equal(t, key.ID, deleted[0].ID)
@@ -216,7 +216,7 @@ func TestKeyPurge(t *testing.T) {
 	// Purge should permanently remove it.
 	require.NoError(t, repo.PurgeKey(ctx, key.ID))
 
-	deleted, err := repo.ListSoftDeleted(ctx, userID)
+	deleted, err := repo.List(ctx, model.NewOwnerScope(uuid.Nil, userID), repositories.KeyFilter{OnlyDeleted: true})
 	require.NoError(t, err)
 	assert.Empty(t, deleted)
 }

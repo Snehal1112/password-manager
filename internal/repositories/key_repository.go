@@ -38,7 +38,6 @@ type KeyRepositoryInterface interface {
 	RecoverKey(ctx context.Context, id uuid.UUID) error
 	PurgeKey(ctx context.Context, id uuid.UUID) error
 	SetPurgeProtection(ctx context.Context, id uuid.UUID, enabled bool) error
-	ListSoftDeleted(ctx context.Context, userID uuid.UUID) ([]*model.Key, error)
 	// ReadDeleted retrieves a key by ID regardless of soft-deletion state.
 	// Used to return deletion metadata after a soft-delete operation.
 	ReadDeleted(ctx context.Context, id uuid.UUID) (*model.Key, error)
@@ -62,7 +61,7 @@ type KeyFilter struct {
 }
 
 // keyColumns is the canonical SELECT list shared by every scoped key query.
-const keyColumns = "id, user_id, vault_id, name, value, type, revoked, created_at, enabled, expires_at, not_before, bits, curve, updated_at"
+const keyColumns = "id, user_id, vault_id, name, value, type, revoked, created_at, enabled, expires_at, not_before, bits, curve, updated_at, deleted_at, purge_protection"
 
 // scanKeyRow scans one keys row in the canonical column order.
 func scanKeyRow(scan func(dest ...any) error) (model.Key, error) {
@@ -70,7 +69,8 @@ func scanKeyRow(scan func(dest ...any) error) (model.Key, error) {
 	var idStr, userIDStr, vaultIDStr string
 
 	if err := scan(&idStr, &userIDStr, &vaultIDStr, &key.Name, &key.Value, &key.Type, &key.Revoked,
-		&key.CreatedAt, &key.Enabled, &key.ExpiresAt, &key.NotBefore, &key.Bits, &key.Curve, &key.UpdatedAt); err != nil {
+		&key.CreatedAt, &key.Enabled, &key.ExpiresAt, &key.NotBefore, &key.Bits, &key.Curve, &key.UpdatedAt,
+		&key.DeletedAt, &key.PurgeProtection); err != nil {
 		return key, err
 	}
 
@@ -666,82 +666,6 @@ func (r *KeyRepository) SetPurgeProtection(ctx context.Context, id uuid.UUID, en
 		r.log.LogAuditInfo(uuid.Nil.String(), "set_purge_protection_key", "success", fmt.Sprintf("Key purge protection set to %v", enabled))
 		return nil
 	})
-}
-
-// ListSoftDeleted retrieves all soft-deleted keys for a given user.
-// Only keys with deleted_at set are returned.
-//
-// Parameters:
-//   - ctx: The context for the database operation.
-//   - userID: The user's unique identifier.
-//
-// Returns:
-//
-//	A slice of soft-deleted key pointers, or an error if retrieval fails.
-func (r *KeyRepository) ListSoftDeleted(ctx context.Context, userID uuid.UUID) ([]*model.Key, error) {
-	var keyList []*model.Key
-
-	err := r.executeWithMetrics("list_soft_deleted_keys", func() error {
-		logrus.WithField("user_id", userID.String()).Debug("Listing soft-deleted keys for user")
-
-		rows, err := r.db.QueryContext(ctx,
-			"SELECT id, user_id, name, value, type, revoked, created_at, enabled, expires_at, not_before, bits, curve, updated_at, deleted_at, purge_protection FROM keys WHERE user_id = ? AND deleted_at IS NOT NULL ORDER BY deleted_at DESC",
-			userID.String())
-		if err != nil {
-			r.log.LogAuditError(userID.String(), "list_soft_deleted_keys", "failed", "Failed to query soft-deleted keys", err)
-			return fmt.Errorf("failed to query soft-deleted keys: %w", err)
-		}
-		defer rows.Close() //nolint:errcheck
-
-		keyList = make([]*model.Key, 0)
-
-		for rows.Next() {
-			var key model.Key
-			var idStr, userIDStr string
-			var deletedAt *time.Time
-			var purgeProtection bool
-
-			if err := rows.Scan(&idStr, &userIDStr, &key.Name, &key.Value, &key.Type, &key.Revoked, &key.CreatedAt,
-				&key.Enabled, &key.ExpiresAt, &key.NotBefore, &key.Bits, &key.Curve, &key.UpdatedAt,
-				&deletedAt, &purgeProtection); err != nil {
-				r.log.LogAuditError(userID.String(), "list_soft_deleted_keys", "failed", "Failed to scan key", err)
-				return fmt.Errorf("failed to scan key: %w", err)
-			}
-
-			key.ID, err = uuid.Parse(idStr)
-			if err != nil {
-				r.log.LogAuditError(userID.String(), "list_soft_deleted_keys", "failed", "Failed to parse key ID", err)
-				return fmt.Errorf("failed to parse key ID: %w", err)
-			}
-
-			key.UserID, err = uuid.Parse(userIDStr)
-			if err != nil {
-				r.log.LogAuditError(userID.String(), "list_soft_deleted_keys", "failed", "Failed to parse user ID", err)
-				return fmt.Errorf("failed to parse user ID: %w", err)
-			}
-
-			key.DeletedAt = deletedAt
-			key.PurgeProtection = purgeProtection
-
-			keyList = append(keyList, &key)
-		}
-
-		if err := rows.Err(); err != nil {
-			return fmt.Errorf("row iteration error: %w", err)
-		}
-
-		return nil
-	})
-	if err != nil {
-		return nil, err
-	}
-
-	logrus.WithFields(logrus.Fields{
-		"user_id":   userID.String(),
-		"key_count": len(keyList),
-	}).Debug("Soft-deleted keys listed successfully")
-
-	return keyList, nil
 }
 
 // CreateVersion inserts a new version row for a key into the key_versions table.
