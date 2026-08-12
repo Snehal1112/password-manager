@@ -118,6 +118,9 @@ func (m *mockServiceContainer) GetJWTService() authServices.JWTService {
 func (m *mockServiceContainer) GetAuthenticationService() authServices.AuthenticationService {
 	panic("unexpected call: GetAuthenticationService")
 }
+func (m *mockServiceContainer) GetOIDCService() authServices.OIDCService {
+	panic("unexpected call: GetOIDCService")
+}
 func (m *mockServiceContainer) GetAccessPolicyRepository() repositories.AccessPolicyRepositoryInterface {
 	panic("unexpected call: GetAccessPolicyRepository")
 }

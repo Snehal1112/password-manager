@@ -173,6 +173,9 @@ func (c *keySvcTestContainer) GetJWTService() authServices.JWTService {
 func (c *keySvcTestContainer) GetAuthenticationService() authServices.AuthenticationService {
 	panic("unexpected call: GetAuthenticationService")
 }
+func (c *keySvcTestContainer) GetOIDCService() authServices.OIDCService {
+	panic("unexpected call: GetOIDCService")
+}
 func (c *keySvcTestContainer) GetAccessPolicyRepository() repositories.AccessPolicyRepositoryInterface {
 	panic("unexpected call: GetAccessPolicyRepository")
 }

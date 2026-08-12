@@ -146,6 +146,9 @@ func (c *cryptoTestContainer) GetJWTService() authServices.JWTService {
 func (c *cryptoTestContainer) GetAuthenticationService() authServices.AuthenticationService {
 	panic("unexpected call: GetAuthenticationService")
 }
+func (c *cryptoTestContainer) GetOIDCService() authServices.OIDCService {
+	panic("unexpected call: GetOIDCService")
+}
 func (c *cryptoTestContainer) GetAccessPolicyRepository() repositories.AccessPolicyRepositoryInterface {
 	panic("unexpected call: GetAccessPolicyRepository")
 }

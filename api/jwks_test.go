@@ -121,6 +121,9 @@ func (c *jwkContainerBase) GetJWTService() authServices.JWTService {
 func (c *jwkContainerBase) GetAuthenticationService() authServices.AuthenticationService {
 	panic("unexpected call: GetAuthenticationService")
 }
+func (c *jwkContainerBase) GetOIDCService() authServices.OIDCService {
+	panic("unexpected call: GetOIDCService")
+}
 func (c *jwkContainerBase) GetAccessPolicyRepository() repositories.AccessPolicyRepositoryInterface {
 	panic("unexpected call: GetAccessPolicyRepository")
 }

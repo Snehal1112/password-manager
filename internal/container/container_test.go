@@ -88,6 +88,7 @@ func TestGetters_ZeroValueContainer(t *testing.T) {
 	assert.Nil(t, c.GetTOTPService(), "GetTOTPService")
 	assert.Nil(t, c.GetJWTService(), "GetJWTService")
 	assert.Nil(t, c.GetAuthenticationService(), "GetAuthenticationService")
+	assert.Nil(t, c.GetOIDCService(), "GetOIDCService")
 
 	// Authorization services
 	assert.Nil(t, c.GetRBACService(), "GetRBACService")
@@ -230,6 +231,7 @@ func TestNewServiceContainer_Success_CacheDisabled(t *testing.T) {
 	assert.NotNil(t, container.GetTOTPService(), "GetTOTPService")
 	assert.NotNil(t, container.GetJWTService(), "GetJWTService")
 	assert.NotNil(t, container.GetAuthenticationService(), "GetAuthenticationService")
+	assert.Nil(t, container.GetOIDCService(), "GetOIDCService") // oidc.enabled is false by default in every test fixture.
 
 	// Authorization services
 	assert.NotNil(t, container.GetRBACService(), "GetRBACService")

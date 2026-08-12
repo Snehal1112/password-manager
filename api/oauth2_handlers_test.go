@@ -141,6 +141,9 @@ func (c *oauth2HTestContainer) GetJWTService() authServices.JWTService {
 func (c *oauth2HTestContainer) GetAuthenticationService() authServices.AuthenticationService {
 	panic("unexpected call: GetAuthenticationService")
 }
+func (c *oauth2HTestContainer) GetOIDCService() authServices.OIDCService {
+	panic("unexpected call: GetOIDCService")
+}
 func (c *oauth2HTestContainer) GetAccessPolicyRepository() repositories.AccessPolicyRepositoryInterface {
 	panic("unexpected call: GetAccessPolicyRepository")
 }

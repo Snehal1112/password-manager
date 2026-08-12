@@ -56,6 +56,7 @@ type ServiceContainerInterface interface {
 	GetTOTPService() authServices.TOTPService
 	GetJWTService() authServices.JWTService
 	GetAuthenticationService() authServices.AuthenticationService
+	GetOIDCService() authServices.OIDCService
 
 	// Authorization service getters
 	GetRBACService() authzServices.RBACService
@@ -156,6 +157,7 @@ type ServiceContainer struct {
 	totpService           authServices.TOTPService
 	jwtService            authServices.JWTService
 	authenticationService authServices.AuthenticationService
+	oidcService           authServices.OIDCService
 
 	// Authorization services
 	rbacService              authzServices.RBACService
@@ -396,6 +398,28 @@ func (c *ServiceContainer) initializeServices() error {
 		c.authenticationService = baseAuthService
 	}
 
+	// Initialize OIDC service if configured. This is fully optional: unlike
+	// every other service constructed in this method, oidc.NewOIDCService
+	// makes a real network call (fetching the issuer's discovery document),
+	// so it is skipped entirely — not attempted and swallowed — when
+	// oidc.enabled is false or unset, the default.
+	if viperCfg.GetBool("oidc.enabled") {
+		oidcCfg := authServices.OIDCConfig{
+			IssuerURL:    viperCfg.GetString("oidc.issuer_url"),
+			ClientID:     viperCfg.GetString("oidc.client_id"),
+			ClientSecret: viperCfg.GetString("oidc.client_secret"),
+			RedirectURL:  viperCfg.GetString("oidc.redirect_url"),
+			Scopes:       viperCfg.GetStringSlice("oidc.scopes"),
+		}
+		oidcSvc, err := authServices.NewOIDCService(context.Background(), oidcCfg)
+		if err != nil {
+			c.logger.WithError(err).Warn("Failed to initialise OIDC service; OIDC login will be unavailable")
+		} else {
+			c.oidcService = oidcSvc
+			c.logger.Info("OIDC service initialised")
+		}
+	}
+
 	// Initialize authorization services
 	c.rbacService = authzServices.NewRBACService(c.logger)
 	c.accessPolicyRepository = repositories.NewAccessPolicyRepository(c.conn)
@@ -614,6 +638,12 @@ func (c *ServiceContainer) GetJWTService() authServices.JWTService {
 // GetAuthenticationService returns the authentication service.
 func (c *ServiceContainer) GetAuthenticationService() authServices.AuthenticationService {
 	return c.authenticationService
+}
+
+// GetOIDCService returns the OIDC authentication service, or nil if OIDC is
+// not configured.
+func (c *ServiceContainer) GetOIDCService() authServices.OIDCService {
+	return c.oidcService
 }
 
 // GetRBACService returns the RBAC service.

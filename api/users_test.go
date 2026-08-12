@@ -235,6 +235,9 @@ func (c *userSvcContainer) GetUserService() userServices.UserService { return c.
 func (c *userSvcContainer) GetAuthenticationService() authServices.AuthenticationService {
 	return c.authSvc
 }
+func (c *userSvcContainer) GetOIDCService() authServices.OIDCService {
+	panic("unexpected call: GetOIDCService")
+}
 func (c *userSvcContainer) GetSessionRepository() repositories.SessionRepositoryInterface {
 	return c.sesRepo
 }

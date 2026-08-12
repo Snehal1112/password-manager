@@ -574,6 +574,10 @@ func (m *MockServiceContainer) GetAuthenticationService() authServices.Authentic
 	return args.Get(0).(authServices.AuthenticationService)
 }
 
+func (m *MockServiceContainer) GetOIDCService() authServices.OIDCService {
+	return nil
+}
+
 func (m *MockServiceContainer) GetRBACService() authzServices.RBACService {
 	args := m.Called()
 	if args.Get(0) == nil {
