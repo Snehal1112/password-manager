@@ -206,3 +206,96 @@ func TestDeleteKey_ReturnsDeletedRecord(t *testing.T) {
 
 	repo.AssertExpectations(t)
 }
+
+// TestListDeletedKeys_FiltersInSQLNotInGo verifies ListDeletedKeys delegates
+// straight to the scope-aware List with OnlyDeleted, mirroring
+// secretService.ListDeletedSecrets.
+func TestListDeletedKeys_FiltersInSQLNotInGo(t *testing.T) {
+	scope := model.NewVaultScope(uuid.New(), uuid.New())
+	now := time.Now()
+	want := []model.Key{{ID: uuid.New(), Name: "k", Type: model.KeyTypeRSA, DeletedAt: &now}}
+
+	repo := &mockKeyRepository{}
+	repo.On("List", mock.Anything, scope, repositories.KeyFilter{OnlyDeleted: true}).Return(want, nil)
+
+	logger := &logging.Logger{Logger: logrus.New()}
+	svc := NewKeyService(KeyServiceConfig{KeyRepository: repo, Logger: logger})
+
+	got, err := svc.ListDeletedKeys(context.Background(), scope)
+	assert.NoError(t, err)
+	assert.Equal(t, want, got)
+	repo.AssertExpectations(t)
+}
+
+// TestRecoverKey_RequiresTheKeyToBeInScope verifies RecoverKey rejects a key
+// ID that isn't in the scope's soft-deleted listing, without ever calling
+// the repository's RecoverKey.
+func TestRecoverKey_RequiresTheKeyToBeInScope(t *testing.T) {
+	scope := model.NewVaultScope(uuid.New(), uuid.New())
+	keyID := uuid.New()
+
+	repo := &mockKeyRepository{}
+	repo.On("List", mock.Anything, scope, repositories.KeyFilter{OnlyDeleted: true}).Return([]model.Key{}, nil)
+
+	logger := &logging.Logger{Logger: logrus.New()}
+	svc := NewKeyService(KeyServiceConfig{KeyRepository: repo, Logger: logger})
+
+	err := svc.RecoverKey(context.Background(), keyID, scope)
+	assert.ErrorIs(t, err, ErrKeyNotFound)
+	repo.AssertNotCalled(t, "RecoverKey", mock.Anything, mock.Anything)
+}
+
+// TestRecoverKey_RecoversWhenInScope verifies RecoverKey calls the
+// repository's RecoverKey once the key is confirmed in scope.
+func TestRecoverKey_RecoversWhenInScope(t *testing.T) {
+	scope := model.NewVaultScope(uuid.New(), uuid.New())
+	keyID := uuid.New()
+	now := time.Now()
+
+	repo := &mockKeyRepository{}
+	repo.On("List", mock.Anything, scope, repositories.KeyFilter{OnlyDeleted: true}).
+		Return([]model.Key{{ID: keyID, Name: "k", Type: model.KeyTypeRSA, DeletedAt: &now}}, nil)
+	repo.On("RecoverKey", mock.Anything, keyID).Return(nil)
+
+	logger := &logging.Logger{Logger: logrus.New()}
+	svc := NewKeyService(KeyServiceConfig{KeyRepository: repo, Logger: logger})
+
+	err := svc.RecoverKey(context.Background(), keyID, scope)
+	assert.NoError(t, err)
+	repo.AssertExpectations(t)
+}
+
+// TestPurgeKey_RequiresTheKeyToBeInScope mirrors TestRecoverKey_RequiresTheKeyToBeInScope for purge.
+func TestPurgeKey_RequiresTheKeyToBeInScope(t *testing.T) {
+	scope := model.NewVaultScope(uuid.New(), uuid.New())
+	keyID := uuid.New()
+
+	repo := &mockKeyRepository{}
+	repo.On("List", mock.Anything, scope, repositories.KeyFilter{OnlyDeleted: true}).Return([]model.Key{}, nil)
+
+	logger := &logging.Logger{Logger: logrus.New()}
+	svc := NewKeyService(KeyServiceConfig{KeyRepository: repo, Logger: logger})
+
+	err := svc.PurgeKey(context.Background(), keyID, scope)
+	assert.ErrorIs(t, err, ErrKeyNotFound)
+	repo.AssertNotCalled(t, "PurgeKey", mock.Anything, mock.Anything)
+}
+
+// TestPurgeKey_PurgesWhenInScope mirrors TestRecoverKey_RecoversWhenInScope for purge.
+func TestPurgeKey_PurgesWhenInScope(t *testing.T) {
+	scope := model.NewVaultScope(uuid.New(), uuid.New())
+	keyID := uuid.New()
+	now := time.Now()
+
+	repo := &mockKeyRepository{}
+	repo.On("List", mock.Anything, scope, repositories.KeyFilter{OnlyDeleted: true}).
+		Return([]model.Key{{ID: keyID, Name: "k", Type: model.KeyTypeRSA, DeletedAt: &now}}, nil)
+	repo.On("PurgeKey", mock.Anything, keyID).Return(nil)
+
+	logger := &logging.Logger{Logger: logrus.New()}
+	svc := NewKeyService(KeyServiceConfig{KeyRepository: repo, Logger: logger})
+
+	err := svc.PurgeKey(context.Background(), keyID, scope)
+	assert.NoError(t, err)
+	repo.AssertExpectations(t)
+}

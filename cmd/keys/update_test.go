@@ -43,6 +43,15 @@ func (m *MockKeyServiceForUpdate) RotateKey(ctx context.Context, keyID uuid.UUID
 func (m *MockKeyServiceForUpdate) ValidateKeyAccess(ctx context.Context, keyID, userID uuid.UUID, role string) error {
 	return nil
 }
+func (m *MockKeyServiceForUpdate) ListDeletedKeys(ctx context.Context, scope model.Scope) ([]model.Key, error) {
+	return nil, nil
+}
+func (m *MockKeyServiceForUpdate) RecoverKey(ctx context.Context, keyID uuid.UUID, scope model.Scope) error {
+	return nil
+}
+func (m *MockKeyServiceForUpdate) PurgeKey(ctx context.Context, keyID uuid.UUID, scope model.Scope) error {
+	return nil
+}
 
 func TestUpdateKeyCommand_CallsServiceUpdate(t *testing.T) {
 	tc := testutils.NewTestContext(t)

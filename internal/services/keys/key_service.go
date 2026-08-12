@@ -98,6 +98,12 @@ type KeyService interface {
 	DeleteKey(ctx context.Context, keyID uuid.UUID, scope model.Scope) (*model.Key, error)
 	// RotateKey rotates a key authorized by scope.
 	RotateKey(ctx context.Context, keyID uuid.UUID, scope model.Scope) (*CreateKeyResult, error)
+	// ListDeletedKeys lists soft-deleted keys authorized by scope.
+	ListDeletedKeys(ctx context.Context, scope model.Scope) ([]model.Key, error)
+	// RecoverKey restores a soft-deleted key authorized by scope.
+	RecoverKey(ctx context.Context, keyID uuid.UUID, scope model.Scope) error
+	// PurgeKey permanently deletes a soft-deleted key authorized by scope.
+	PurgeKey(ctx context.Context, keyID uuid.UUID, scope model.Scope) error
 	ValidateKeyAccess(ctx context.Context, keyID, userID uuid.UUID, role string) error
 }
 
@@ -440,6 +446,64 @@ func (s *keyService) DeleteKey(ctx context.Context, keyID uuid.UUID, scope model
 
 	s.logger.LogAuditInfo(actor, "delete_key", "success", "Key deleted successfully")
 	return deleted, nil
+}
+
+// keyDeletedInScope reports whether keyID names a soft-deleted key the scope
+// authorizes.
+func (s *keyService) keyDeletedInScope(ctx context.Context, keyID uuid.UUID, scope model.Scope) (bool, error) {
+	deleted, err := s.keyRepo.List(ctx, scope, repositories.KeyFilter{OnlyDeleted: true})
+	if err != nil {
+		return false, fmt.Errorf("failed to list deleted keys: %w", err)
+	}
+	for _, key := range deleted {
+		if key.ID == keyID {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
+// ListDeletedKeys lists soft-deleted keys authorized by scope.
+func (s *keyService) ListDeletedKeys(ctx context.Context, scope model.Scope) ([]model.Key, error) {
+	keys, err := s.keyRepo.List(ctx, scope, repositories.KeyFilter{OnlyDeleted: true})
+	if err != nil {
+		return nil, fmt.Errorf("failed to list deleted keys: %w", err)
+	}
+	return keys, nil
+}
+
+// RecoverKey restores a soft-deleted key authorized by scope.
+func (s *keyService) RecoverKey(ctx context.Context, keyID uuid.UUID, scope model.Scope) error {
+	inScope, err := s.keyDeletedInScope(ctx, keyID, scope)
+	if err != nil {
+		return err
+	}
+	if !inScope {
+		s.logger.LogAuditError(scope.ActorID().String(), "recover_key", "failed",
+			"Key not found in deleted state within scope", nil)
+		return fmt.Errorf("%w", ErrKeyNotFound)
+	}
+	if err := s.keyRepo.RecoverKey(ctx, keyID); err != nil {
+		return fmt.Errorf("failed to recover key: %w", err)
+	}
+	return nil
+}
+
+// PurgeKey permanently deletes a soft-deleted key authorized by scope.
+func (s *keyService) PurgeKey(ctx context.Context, keyID uuid.UUID, scope model.Scope) error {
+	inScope, err := s.keyDeletedInScope(ctx, keyID, scope)
+	if err != nil {
+		return err
+	}
+	if !inScope {
+		s.logger.LogAuditError(scope.ActorID().String(), "purge_key", "failed",
+			"Key not found in deleted state within scope", nil)
+		return fmt.Errorf("%w", ErrKeyNotFound)
+	}
+	if err := s.keyRepo.PurgeKey(ctx, keyID); err != nil {
+		return fmt.Errorf("failed to purge key: %w", err)
+	}
+	return nil
 }
 
 // RotateKey rotates an existing key in-place by generating new key material,

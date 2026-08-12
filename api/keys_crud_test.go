@@ -104,6 +104,22 @@ func (m *mockKeyService) ValidateKeyAccess(ctx context.Context, keyID, userID uu
 	return args.Error(0)
 }
 
+func (m *mockKeyService) ListDeletedKeys(ctx context.Context, scope model.Scope) ([]model.Key, error) {
+	args := m.Called(ctx, scope)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).([]model.Key), args.Error(1)
+}
+
+func (m *mockKeyService) RecoverKey(ctx context.Context, keyID uuid.UUID, scope model.Scope) error {
+	return m.Called(ctx, keyID, scope).Error(0)
+}
+
+func (m *mockKeyService) PurgeKey(ctx context.Context, keyID uuid.UUID, scope model.Scope) error {
+	return m.Called(ctx, keyID, scope).Error(0)
+}
+
 // --- keySvcTestContainer ---
 
 type keySvcTestContainer struct {

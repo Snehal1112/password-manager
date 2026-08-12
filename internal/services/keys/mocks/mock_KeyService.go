@@ -4,7 +4,6 @@ package mocks
 
 import (
 	context "context"
-
 	keys "rocketvault/internal/services/keys"
 
 	mock "github.com/stretchr/testify/mock"
@@ -267,6 +266,65 @@ func (_c *MockKeyService_GetKey_Call) RunAndReturn(run func(context.Context, uui
 	return _c
 }
 
+// ListDeletedKeys provides a mock function with given fields: ctx, scope
+func (_m *MockKeyService) ListDeletedKeys(ctx context.Context, scope model.Scope) ([]model.Key, error) {
+	ret := _m.Called(ctx, scope)
+
+	if len(ret) == 0 {
+		panic("no return value specified for ListDeletedKeys")
+	}
+
+	var r0 []model.Key
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, model.Scope) ([]model.Key, error)); ok {
+		return rf(ctx, scope)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, model.Scope) []model.Key); ok {
+		r0 = rf(ctx, scope)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).([]model.Key)
+		}
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context, model.Scope) error); ok {
+		r1 = rf(ctx, scope)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// MockKeyService_ListDeletedKeys_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'ListDeletedKeys'
+type MockKeyService_ListDeletedKeys_Call struct {
+	*mock.Call
+}
+
+// ListDeletedKeys is a helper method to define mock.On call
+//   - ctx context.Context
+//   - scope model.Scope
+func (_e *MockKeyService_Expecter) ListDeletedKeys(ctx interface{}, scope interface{}) *MockKeyService_ListDeletedKeys_Call {
+	return &MockKeyService_ListDeletedKeys_Call{Call: _e.mock.On("ListDeletedKeys", ctx, scope)}
+}
+
+func (_c *MockKeyService_ListDeletedKeys_Call) Run(run func(ctx context.Context, scope model.Scope)) *MockKeyService_ListDeletedKeys_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(model.Scope))
+	})
+	return _c
+}
+
+func (_c *MockKeyService_ListDeletedKeys_Call) Return(_a0 []model.Key, _a1 error) *MockKeyService_ListDeletedKeys_Call {
+	_c.Call.Return(_a0, _a1)
+	return _c
+}
+
+func (_c *MockKeyService_ListDeletedKeys_Call) RunAndReturn(run func(context.Context, model.Scope) ([]model.Key, error)) *MockKeyService_ListDeletedKeys_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // ListKeys provides a mock function with given fields: ctx, scope, filter
 func (_m *MockKeyService) ListKeys(ctx context.Context, scope model.Scope, filter repositories.KeyFilter) ([]model.Key, error) {
 	ret := _m.Called(ctx, scope, filter)
@@ -323,6 +381,102 @@ func (_c *MockKeyService_ListKeys_Call) Return(_a0 []model.Key, _a1 error) *Mock
 }
 
 func (_c *MockKeyService_ListKeys_Call) RunAndReturn(run func(context.Context, model.Scope, repositories.KeyFilter) ([]model.Key, error)) *MockKeyService_ListKeys_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// PurgeKey provides a mock function with given fields: ctx, keyID, scope
+func (_m *MockKeyService) PurgeKey(ctx context.Context, keyID uuid.UUID, scope model.Scope) error {
+	ret := _m.Called(ctx, keyID, scope)
+
+	if len(ret) == 0 {
+		panic("no return value specified for PurgeKey")
+	}
+
+	var r0 error
+	if rf, ok := ret.Get(0).(func(context.Context, uuid.UUID, model.Scope) error); ok {
+		r0 = rf(ctx, keyID, scope)
+	} else {
+		r0 = ret.Error(0)
+	}
+
+	return r0
+}
+
+// MockKeyService_PurgeKey_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'PurgeKey'
+type MockKeyService_PurgeKey_Call struct {
+	*mock.Call
+}
+
+// PurgeKey is a helper method to define mock.On call
+//   - ctx context.Context
+//   - keyID uuid.UUID
+//   - scope model.Scope
+func (_e *MockKeyService_Expecter) PurgeKey(ctx interface{}, keyID interface{}, scope interface{}) *MockKeyService_PurgeKey_Call {
+	return &MockKeyService_PurgeKey_Call{Call: _e.mock.On("PurgeKey", ctx, keyID, scope)}
+}
+
+func (_c *MockKeyService_PurgeKey_Call) Run(run func(ctx context.Context, keyID uuid.UUID, scope model.Scope)) *MockKeyService_PurgeKey_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(uuid.UUID), args[2].(model.Scope))
+	})
+	return _c
+}
+
+func (_c *MockKeyService_PurgeKey_Call) Return(_a0 error) *MockKeyService_PurgeKey_Call {
+	_c.Call.Return(_a0)
+	return _c
+}
+
+func (_c *MockKeyService_PurgeKey_Call) RunAndReturn(run func(context.Context, uuid.UUID, model.Scope) error) *MockKeyService_PurgeKey_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// RecoverKey provides a mock function with given fields: ctx, keyID, scope
+func (_m *MockKeyService) RecoverKey(ctx context.Context, keyID uuid.UUID, scope model.Scope) error {
+	ret := _m.Called(ctx, keyID, scope)
+
+	if len(ret) == 0 {
+		panic("no return value specified for RecoverKey")
+	}
+
+	var r0 error
+	if rf, ok := ret.Get(0).(func(context.Context, uuid.UUID, model.Scope) error); ok {
+		r0 = rf(ctx, keyID, scope)
+	} else {
+		r0 = ret.Error(0)
+	}
+
+	return r0
+}
+
+// MockKeyService_RecoverKey_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'RecoverKey'
+type MockKeyService_RecoverKey_Call struct {
+	*mock.Call
+}
+
+// RecoverKey is a helper method to define mock.On call
+//   - ctx context.Context
+//   - keyID uuid.UUID
+//   - scope model.Scope
+func (_e *MockKeyService_Expecter) RecoverKey(ctx interface{}, keyID interface{}, scope interface{}) *MockKeyService_RecoverKey_Call {
+	return &MockKeyService_RecoverKey_Call{Call: _e.mock.On("RecoverKey", ctx, keyID, scope)}
+}
+
+func (_c *MockKeyService_RecoverKey_Call) Run(run func(ctx context.Context, keyID uuid.UUID, scope model.Scope)) *MockKeyService_RecoverKey_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(uuid.UUID), args[2].(model.Scope))
+	})
+	return _c
+}
+
+func (_c *MockKeyService_RecoverKey_Call) Return(_a0 error) *MockKeyService_RecoverKey_Call {
+	_c.Call.Return(_a0)
+	return _c
+}
+
+func (_c *MockKeyService_RecoverKey_Call) RunAndReturn(run func(context.Context, uuid.UUID, model.Scope) error) *MockKeyService_RecoverKey_Call {
 	_c.Call.Return(run)
 	return _c
 }

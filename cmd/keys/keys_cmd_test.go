@@ -98,6 +98,19 @@ func (m *keyCmdKeyService) RotateKey(ctx context.Context, keyID uuid.UUID, scope
 func (m *keyCmdKeyService) ValidateKeyAccess(ctx context.Context, keyID, userID uuid.UUID, role string) error {
 	return nil
 }
+func (m *keyCmdKeyService) ListDeletedKeys(ctx context.Context, scope model.Scope) ([]model.Key, error) {
+	args := m.Called(ctx, scope)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).([]model.Key), args.Error(1)
+}
+func (m *keyCmdKeyService) RecoverKey(ctx context.Context, keyID uuid.UUID, scope model.Scope) error {
+	return m.Called(ctx, keyID, scope).Error(0)
+}
+func (m *keyCmdKeyService) PurgeKey(ctx context.Context, keyID uuid.UUID, scope model.Scope) error {
+	return m.Called(ctx, keyID, scope).Error(0)
+}
 
 // keyCmdCryptoService is a full mock for keyServices.CryptoService.
 type keyCmdCryptoService struct{ mock.Mock }

@@ -79,6 +79,15 @@ func (s *recordingKeyService) DeleteKey(_ context.Context, keyID uuid.UUID, scop
 	s.deleteScope = scope
 	return &model.Key{ID: keyID, Name: "k"}, nil
 }
+func (s *recordingKeyService) ListDeletedKeys(context.Context, model.Scope) ([]model.Key, error) {
+	panic("unexpected")
+}
+func (s *recordingKeyService) RecoverKey(context.Context, uuid.UUID, model.Scope) error {
+	panic("unexpected")
+}
+func (s *recordingKeyService) PurgeKey(context.Context, uuid.UUID, model.Scope) error {
+	panic("unexpected")
+}
 
 // recordingCertService records which list/get method was called and with what
 // scope, mirroring recordingKeyService for certificates.
