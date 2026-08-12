@@ -29,20 +29,16 @@ func InitVaultAccessRoles(parent *cobra.Command) {
 					fmt.Fprintf(out, "%s (deprecated: no longer grantable, grants no access — use an Azure role instead)\n", name) //nolint:errcheck
 					continue
 				}
-				if model.IsAzureRole(name) {
-					fmt.Fprintf(out, "%s\n", name) //nolint:errcheck
-					for _, action := range model.AzureRoleDataActions(name) {
-						fmt.Fprintf(out, "  %s\n", action) //nolint:errcheck
-					}
-					continue
-				}
-				perms, err := authz.RolePermissions(name)
-				if err != nil {
-					return err
+				if !model.IsAzureRole(name) {
+					// Every name BuiltInRoleNames returns is either legacy or
+					// an Azure role — see TestRolesCommand_EveryNameIsLegacyOrAzure.
+					// Fail closed rather than silently dropping the name from
+					// the output if that invariant is ever violated.
+					return fmt.Errorf("internal error: role %q is neither a legacy nor an Azure built-in role", name)
 				}
 				fmt.Fprintf(out, "%s\n", name) //nolint:errcheck
-				for _, p := range perms {
-					fmt.Fprintf(out, "  %s/%s\n", p[0], p[1]) //nolint:errcheck
+				for _, action := range model.AzureRoleDataActions(name) {
+					fmt.Fprintf(out, "  %s\n", action) //nolint:errcheck
 				}
 			}
 			return nil
