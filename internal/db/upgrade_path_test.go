@@ -118,3 +118,111 @@ func TestUpgradePath_PreFeatureAccessPoliciesGetsAssignmentID(t *testing.T) {
 	}
 	require.Equal(t, 1, n, "pre-existing access_policies row must survive the upgrade")
 }
+
+// TestUpgradePath_PreFeatureUsersGetsAuthProvider is the same class of bug as
+// TestUpgradePath_PreFeatureAccessPoliciesGetsAssignmentID, this time for the
+// OIDC feature's auth_provider/external_idp_subject columns: createOptimizedSchema
+// briefly contained `CREATE UNIQUE INDEX idx_users_external_idp ON
+// users(auth_provider, external_idp_subject) ...` directly after the users
+// CREATE TABLE. On an EXISTING database whose users table predates those
+// columns, CREATE TABLE IF NOT EXISTS is a no-op, so the index creation failed
+// with "no such column: auth_provider" — and it ran BEFORE migrateSchema adds
+// the columns. The fix moved that index into migrateSchema only, which runs
+// after the ALTER TABLE statements that add the columns.
+func TestUpgradePath_PreFeatureUsersGetsAuthProvider(t *testing.T) {
+	conn, err := sql.Open("sqlite3", ":memory:")
+	require.NoError(t, err)
+	defer conn.Close() //nolint:errcheck
+
+	// Pre-feature prerequisite tables in their old shape, mirroring the sibling
+	// test above. The users table deliberately omits auth_provider/
+	// external_idp_subject, the columns at the center of this bug.
+	_, err = conn.Exec(`
+		CREATE TABLE users (
+			id            TEXT PRIMARY KEY,
+			username      TEXT UNIQUE NOT NULL,
+			password_hash TEXT NOT NULL,
+			totp_secret   TEXT,
+			role          TEXT NOT NULL,
+			created_at    TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+		);
+		CREATE TABLE secrets (
+			id         TEXT PRIMARY KEY,
+			user_id    TEXT NOT NULL,
+			name       TEXT NOT NULL,
+			created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+		);
+		CREATE TABLE keys (
+			id         TEXT PRIMARY KEY,
+			user_id    TEXT NOT NULL,
+			name       TEXT NOT NULL,
+			type       TEXT NOT NULL DEFAULT '',
+			revoked    BOOLEAN NOT NULL DEFAULT FALSE,
+			created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+		);
+		CREATE TABLE certificates (
+			id         TEXT PRIMARY KEY,
+			user_id    TEXT NOT NULL,
+			name       TEXT NOT NULL,
+			created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+		);
+		CREATE TABLE audit_logs (
+			id        TEXT PRIMARY KEY,
+			user_id   TEXT,
+			action    TEXT NOT NULL DEFAULT '',
+			timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+		);
+		CREATE TABLE access_policies (
+			id             TEXT PRIMARY KEY,
+			principal_id   TEXT NOT NULL,
+			principal_type TEXT NOT NULL,
+			resource_type  TEXT NOT NULL,
+			operation      TEXT NOT NULL,
+			effect         TEXT NOT NULL,
+			vault_id       TEXT,
+			assignment_id  TEXT,
+			created_at     TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+		);
+		INSERT INTO users (id, username, password_hash, role) VALUES ('u1', 'alice', 'hash', 'admin');
+	`)
+	require.NoError(t, err)
+
+	// Sanity check: the column must NOT exist before the upgrade runs.
+	require.False(t, columnExists(t, conn, "users", "auth_provider"),
+		"auth_provider must not exist before the upgrade sequence runs")
+
+	d := NewRepository(logging.InitLogger())
+
+	// Real InitializeDB order: createOptimizedSchema THEN migrateSchema.
+	// Before the fix, createOptimizedSchema errored here with
+	// "no such column: auth_provider".
+	require.NoError(t, d.createOptimizedSchema(conn), "createOptimizedSchema (upgrade) should succeed")
+	require.NoError(t, d.migrateSchema(conn), "migrateSchema (upgrade) should succeed")
+
+	// Idempotency: a second full pass must also succeed.
+	require.NoError(t, d.createOptimizedSchema(conn), "createOptimizedSchema rerun should succeed")
+	require.NoError(t, d.migrateSchema(conn), "migrateSchema rerun should succeed")
+
+	// The auth_provider column must now exist on users.
+	var col string
+	if err := conn.QueryRow(
+		`SELECT name FROM pragma_table_info('users') WHERE name='auth_provider'`).Scan(&col); err != nil {
+		t.Fatalf("auth_provider column missing after upgrade: %v", err)
+	}
+	require.Equal(t, "auth_provider", col)
+
+	// The index must exist.
+	var idx string
+	if err := conn.QueryRow(
+		`SELECT name FROM sqlite_master WHERE type='index' AND name='idx_users_external_idp'`).Scan(&idx); err != nil {
+		t.Fatalf("idx_users_external_idp missing after upgrade: %v", err)
+	}
+	require.Equal(t, "idx_users_external_idp", idx)
+
+	// The pre-existing row must survive the upgrade, defaulted to local auth.
+	var authProvider string
+	if err := conn.QueryRow(`SELECT auth_provider FROM users WHERE id = 'u1'`).Scan(&authProvider); err != nil {
+		t.Fatalf("querying pre-existing user's auth_provider failed: %v", err)
+	}
+	require.Equal(t, "local", authProvider, "pre-existing users must default to local auth_provider")
+}

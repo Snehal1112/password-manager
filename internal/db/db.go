@@ -351,7 +351,10 @@ func (d *DBRepository) createOptimizedSchema(db *sql.DB) error {
 		CREATE INDEX IF NOT EXISTS idx_users_username ON users(username);
 		CREATE INDEX IF NOT EXISTS idx_users_role ON users(role);
 		CREATE INDEX IF NOT EXISTS idx_users_created_at ON users(created_at);
-		CREATE UNIQUE INDEX IF NOT EXISTS idx_users_external_idp ON users(auth_provider, external_idp_subject) WHERE external_idp_subject IS NOT NULL;
+		-- idx_users_external_idp is created in migrateSchema, after the ALTER TABLE
+		-- statements that add auth_provider/external_idp_subject to pre-existing
+		-- databases. Creating it here would fail on upgraded DBs where those columns
+		-- do not yet exist (see the audit_logs precedent below for the same trap).
 
 		CREATE TABLE IF NOT EXISTS vaults (
 			id                 TEXT PRIMARY KEY,
