@@ -52,9 +52,14 @@ var deleteCmd = &cobra.Command{
 
 		ctx := cmd.Context()
 
-		userID, ok := ctx.Value(common.UserIDKey).(uuid.UUID)
+		claims, ok := ctx.Value(common.ClaimsKey).(*model.Claims)
 		if !ok {
-			return fmt.Errorf("user ID not available in context")
+			return fmt.Errorf("unauthorized: missing authentication claims")
+		}
+		userID := claims.UserID
+
+		if !common.HasRequiredRole(claims.Role, model.RoleAdmin, model.RoleSecretsManager) {
+			return fmt.Errorf("forbidden: requires admin or secrets_manager role")
 		}
 
 		// Get service container and secret service

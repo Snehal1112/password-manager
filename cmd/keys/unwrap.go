@@ -55,6 +55,11 @@ var unwrapCmd = &cobra.Command{
 
 		log := ctx.Value(common.LogKey).(*logging.Logger)
 
+		if !common.HasRequiredRole(claims.Role, model.RoleAdmin, model.RoleCryptoManager) {
+			log.LogAuditError(claims.UserID.String(), "unwrap_key", "failed", "forbidden: requires admin or crypto_manager role", nil)
+			return fmt.Errorf("forbidden: requires admin or crypto_manager role")
+		}
+
 		keyIDStr := viper.GetString("unwrap-key-id")
 		wrappedKeyB64 := viper.GetString("unwrap-wrapped-key")
 

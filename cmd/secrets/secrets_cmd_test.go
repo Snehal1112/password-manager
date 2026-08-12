@@ -232,7 +232,7 @@ func TestDeleteCmd_InvalidUUID(t *testing.T) {
 func TestDeleteCmd_NoServiceContainer(t *testing.T) {
 	secretID := uuid.New()
 	ctx := context.Background()
-	ctx = context.WithValue(ctx, common.UserIDKey, uuid.New())
+	ctx = context.WithValue(ctx, common.ClaimsKey, &model.Claims{UserID: uuid.New(), Role: model.RoleAdmin})
 	ctx = context.WithValue(ctx, common.LogKey, newSecLogger())
 	// No ServiceContainerKey.
 
@@ -435,14 +435,14 @@ func TestFormatOptionalTime_NonNil(t *testing.T) {
 
 // ---- createCmd additional path coverage ----
 
-func TestCreateCmd_NoUserID(t *testing.T) {
+func TestCreateCmd_NoClaims(t *testing.T) {
 	tc := testutils.NewTestContext(t)
-	// Build context without UserIDKey so the type assertion fails.
+	// Build context without ClaimsKey so the type assertion fails.
 	ctx := context.Background()
 	ctx = context.WithValue(ctx, common.ServiceContainerKey, tc.MockContainer)
 	ctx = context.WithValue(ctx, common.OutputFormatterKey, newSecFmtr())
 	ctx = context.WithValue(ctx, common.LogKey, newSecLogger())
-	// No UserIDKey.
+	// No ClaimsKey.
 
 	cmd := &cobra.Command{Use: "create", RunE: createCmd.RunE}
 	cmd.Flags().StringSlice("tags", []string{}, "")
@@ -451,13 +451,28 @@ func TestCreateCmd_NoUserID(t *testing.T) {
 	cmd.SetArgs([]string{"secret-name", "secret-value"})
 
 	err := cmd.Execute()
-	assert.ErrorContains(t, err, "user ID not available in context")
+	assert.ErrorContains(t, err, "unauthorized: missing authentication claims")
+}
+
+func TestCreateCmd_ForbiddenRole(t *testing.T) {
+	ctx := context.Background()
+	ctx = context.WithValue(ctx, common.ClaimsKey, &model.Claims{UserID: uuid.New(), Role: model.RoleUser})
+	ctx = context.WithValue(ctx, common.LogKey, newSecLogger())
+
+	cmd := &cobra.Command{Use: "create", RunE: createCmd.RunE}
+	cmd.Flags().StringSlice("tags", []string{}, "")
+	cmd.Flags().String("content-type", "", "")
+	cmd.SetContext(ctx)
+	cmd.SetArgs([]string{"secret-name", "secret-value"})
+
+	err := cmd.Execute()
+	assert.ErrorContains(t, err, "forbidden")
 }
 
 func TestCreateCmd_NoServiceContainer_FullRunE(t *testing.T) {
 	userID := uuid.New()
 	ctx := context.Background()
-	ctx = context.WithValue(ctx, common.UserIDKey, userID)
+	ctx = context.WithValue(ctx, common.ClaimsKey, &model.Claims{UserID: userID, Role: model.RoleAdmin})
 	ctx = context.WithValue(ctx, common.LogKey, newSecLogger())
 	// No ServiceContainerKey.
 
@@ -523,7 +538,7 @@ func TestCreateCmd_NoFormatter_FullRunE(t *testing.T) {
 func TestUpdateCmd_NoServiceContainer_FullRunE(t *testing.T) {
 	userID := uuid.New()
 	ctx := context.Background()
-	ctx = context.WithValue(ctx, common.UserIDKey, userID)
+	ctx = context.WithValue(ctx, common.ClaimsKey, &model.Claims{UserID: userID, Role: model.RoleAdmin})
 	ctx = context.WithValue(ctx, common.LogKey, newSecLogger())
 	// No ServiceContainerKey.
 
@@ -616,9 +631,9 @@ func TestExportCmd_UnsupportedFormat(t *testing.T) {
 	assert.ErrorContains(t, err, "unsupported format")
 }
 
-func TestExportCmd_NoUserID(t *testing.T) {
+func TestExportCmd_NoClaims(t *testing.T) {
 	tc := testutils.NewTestContext(t)
-	// Context without UserIDKey.
+	// Context without ClaimsKey.
 	ctx := context.Background()
 	ctx = context.WithValue(ctx, common.ServiceContainerKey, tc.MockContainer)
 	ctx = context.WithValue(ctx, common.LogKey, newSecLogger())
@@ -639,13 +654,13 @@ func TestExportCmd_NoUserID(t *testing.T) {
 	cmd.SetContext(ctx)
 
 	err := cmd.Execute()
-	assert.ErrorContains(t, err, "user not authenticated")
+	assert.ErrorContains(t, err, "unauthorized: missing authentication claims")
 }
 
 func TestExportCmd_NoServiceContainer(t *testing.T) {
 	userID := uuid.New()
 	ctx := context.Background()
-	ctx = context.WithValue(ctx, common.UserIDKey, userID)
+	ctx = context.WithValue(ctx, common.ClaimsKey, &model.Claims{UserID: userID, Role: model.RoleAdmin})
 	ctx = context.WithValue(ctx, common.LogKey, newSecLogger())
 	// No ServiceContainerKey.
 
@@ -700,8 +715,8 @@ func TestExportCmd_ServiceError(t *testing.T) {
 
 // ---- importCmd additional coverage ----
 
-func TestImportCmd_NoUserID(t *testing.T) {
-	// Context without UserIDKey.
+func TestImportCmd_NoClaims(t *testing.T) {
+	// Context without ClaimsKey.
 	ctx := context.Background()
 	ctx = context.WithValue(ctx, common.LogKey, newSecLogger())
 
@@ -720,13 +735,13 @@ func TestImportCmd_NoUserID(t *testing.T) {
 	cmd.SetContext(ctx)
 
 	err := cmd.Execute()
-	assert.ErrorContains(t, err, "user not authenticated")
+	assert.ErrorContains(t, err, "unauthorized: missing authentication claims")
 }
 
 func TestImportCmd_NoServiceContainer(t *testing.T) {
 	userID := uuid.New()
 	ctx := context.Background()
-	ctx = context.WithValue(ctx, common.UserIDKey, userID)
+	ctx = context.WithValue(ctx, common.ClaimsKey, &model.Claims{UserID: userID, Role: model.RoleAdmin})
 	ctx = context.WithValue(ctx, common.LogKey, newSecLogger())
 	// No ServiceContainerKey.
 

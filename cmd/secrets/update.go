@@ -62,9 +62,14 @@ API's vault-scoped update route.`,
 
 		ctx := cmd.Context()
 
-		userID, ok := ctx.Value(common.UserIDKey).(uuid.UUID)
+		claims, ok := ctx.Value(common.ClaimsKey).(*model.Claims)
 		if !ok {
-			return fmt.Errorf("user not authenticated")
+			return fmt.Errorf("unauthorized: missing authentication claims")
+		}
+		userID := claims.UserID
+
+		if !common.HasRequiredRole(claims.Role, model.RoleAdmin, model.RoleSecretsManager) {
+			return fmt.Errorf("forbidden: requires admin or secrets_manager role")
 		}
 
 		sc, ok := ctx.Value(common.ServiceContainerKey).(container.ServiceContainerInterface)

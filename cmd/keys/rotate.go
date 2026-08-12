@@ -53,6 +53,11 @@ var rotateCmd = &cobra.Command{
 		}
 
 		log := ctx.Value(common.LogKey).(*logging.Logger)
+		if !common.HasRequiredRole(claims.Role, model.RoleAdmin, model.RoleCryptoManager) {
+			log.LogAuditError(claims.UserID.String(), "rotate_key", "failed", "forbidden: requires admin or crypto_manager role", nil)
+			return fmt.Errorf("forbidden: requires admin or crypto_manager role")
+		}
+
 		keyID, err := uuid.Parse(args[0])
 		if err != nil {
 			log.LogAuditError(claims.UserID.String(), "rotate_key", "failed", fmt.Sprintf("invalid key ID: %s", err), err)

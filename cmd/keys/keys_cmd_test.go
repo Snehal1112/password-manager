@@ -488,7 +488,7 @@ func TestCreateCmd_ECDSASuccess(t *testing.T) {
 		return r.Name == "eckey" && r.Type == "ECDSA" && r.Curve == "P-256" && r.VaultID == vaultID
 	})).Return(result, nil)
 
-	claims := &model.Claims{UserID: userID, Role: model.RoleSecretsManager}
+	claims := &model.Claims{UserID: userID, Role: model.RoleCryptoManager}
 	ctx := context.WithValue(context.Background(), common.ClaimsKey, claims)
 	ctx = context.WithValue(ctx, common.LogKey, newLogger())
 	ctx = context.WithValue(ctx, common.ServiceContainerKey, sc)

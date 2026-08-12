@@ -27,7 +27,6 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/google/uuid"
 	"github.com/spf13/cobra"
 
 	"rocketvault/cmd/vaultcli"
@@ -61,9 +60,14 @@ var createCmd = &cobra.Command{
 		contentType, _ := cmd.Flags().GetString("content-type")
 
 		ctx := cmd.Context()
-		userID, ok := ctx.Value(common.UserIDKey).(uuid.UUID)
+		claims, ok := ctx.Value(common.ClaimsKey).(*model.Claims)
 		if !ok {
-			return fmt.Errorf("user ID not available in context")
+			return fmt.Errorf("unauthorized: missing authentication claims")
+		}
+		userID := claims.UserID
+
+		if !common.HasRequiredRole(claims.Role, model.RoleAdmin, model.RoleSecretsManager) {
+			return fmt.Errorf("forbidden: requires admin or secrets_manager role")
 		}
 
 		serviceContainer, ok := ctx.Value(common.ServiceContainerKey).(container.ServiceContainerInterface)

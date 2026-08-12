@@ -27,7 +27,6 @@ import (
 	"os"
 	"strings"
 
-	"github.com/google/uuid"
 	"github.com/spf13/cobra"
 
 	"rocketvault/cmd/vaultcli"
@@ -60,9 +59,14 @@ The file must be compatible with the export format produced by the export comman
 	RunE: func(cmd *cobra.Command, args []string) error {
 		ctx := cmd.Context()
 
-		userID, ok := ctx.Value(common.UserIDKey).(uuid.UUID)
+		claims, ok := ctx.Value(common.ClaimsKey).(*model.Claims)
 		if !ok {
-			return fmt.Errorf("user not authenticated")
+			return fmt.Errorf("unauthorized: missing authentication claims")
+		}
+		userID := claims.UserID
+
+		if !common.HasRequiredRole(claims.Role, model.RoleAdmin, model.RoleSecretsManager) {
+			return fmt.Errorf("forbidden: requires admin or secrets_manager role")
 		}
 
 		sc, ok := ctx.Value(common.ServiceContainerKey).(container.ServiceContainerInterface)

@@ -59,9 +59,9 @@ var createCmd = &cobra.Command{
 		}
 
 		log := ctx.Value(common.LogKey).(*logging.Logger)
-		if !common.HasRequiredRole(claims.Role, model.RoleAdmin, model.RoleSecretsManager) {
-			log.LogAuditError(claims.UserID.String(), "create_key", "failed", "forbidden: requires admin or secrets_manager role", nil)
-			return fmt.Errorf("forbidden: requires admin or secrets_manager role")
+		if !common.HasRequiredRole(claims.Role, model.RoleAdmin, model.RoleCryptoManager) {
+			log.LogAuditError(claims.UserID.String(), "create_key", "failed", "forbidden: requires admin or crypto_manager role", nil)
+			return fmt.Errorf("forbidden: requires admin or crypto_manager role")
 		}
 		name := viper.GetString("key-name")
 		keyType := viper.GetString("key-type")

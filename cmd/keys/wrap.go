@@ -55,6 +55,11 @@ var wrapCmd = &cobra.Command{
 
 		log := ctx.Value(common.LogKey).(*logging.Logger)
 
+		if !common.HasRequiredRole(claims.Role, model.RoleAdmin, model.RoleCryptoManager) {
+			log.LogAuditError(claims.UserID.String(), "wrap_key", "failed", "forbidden: requires admin or crypto_manager role", nil)
+			return fmt.Errorf("forbidden: requires admin or crypto_manager role")
+		}
+
 		keyIDStr := viper.GetString("wrap-key-id")
 		keyMaterialB64 := viper.GetString("wrap-key-material")
 

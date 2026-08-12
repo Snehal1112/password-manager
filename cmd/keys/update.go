@@ -58,6 +58,10 @@ var updateCmd = &cobra.Command{
 			return fmt.Errorf("unauthorized: missing authentication claims")
 		}
 
+		if !common.HasRequiredRole(claims.Role, model.RoleAdmin, model.RoleCryptoManager) {
+			return fmt.Errorf("forbidden: requires admin or crypto_manager role")
+		}
+
 		keyID, err := uuid.Parse(args[0])
 		if err != nil {
 			return fmt.Errorf("invalid key ID: %w", err)
