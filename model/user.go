@@ -16,7 +16,13 @@ type User struct {
 	PasswordHash string    `json:"password_hash"`
 	TOTPSecret   string    `json:"totp_secret"`
 	Role         string    `json:"role"`
-	CreatedAt    time.Time `json:"created_at"`
+	// AuthProvider is "local" for username/password/TOTP users, or an OIDC
+	// provider identifier (e.g. "oidc") for externally-authenticated users.
+	AuthProvider string `json:"auth_provider"`
+	// ExternalIDPSubject is the external provider's stable subject (`sub`
+	// claim) for externally-authenticated users, empty for local users.
+	ExternalIDPSubject string    `json:"external_idp_subject,omitempty"`
+	CreatedAt          time.Time `json:"created_at"`
 }
 
 // Claims extends JWT claims with user-specific fields.
@@ -36,6 +42,14 @@ const (
 	RoleCertificateManager = "certificate_manager"
 	RoleServiceAccount     = "service_account"
 )
+
+// AuthProviderLocal identifies a username/password/TOTP user. This is the
+// default and the only provider value that existed before OIDC support.
+const AuthProviderLocal = "local"
+
+// AuthProviderOIDC identifies a user authenticated via the configured OIDC
+// provider.
+const AuthProviderOIDC = "oidc"
 
 // --- HTTP request/response types ---
 

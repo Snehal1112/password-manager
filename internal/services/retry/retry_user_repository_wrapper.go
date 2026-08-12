@@ -70,6 +70,19 @@ func (r *RetryUserRepositoryWrapper) ReadByUsername(ctx context.Context, usernam
 	return result, retryErr
 }
 
+// ReadByExternalSubject wraps the ReadByExternalSubject operation with retry logic
+func (r *RetryUserRepositoryWrapper) ReadByExternalSubject(ctx context.Context, provider, subject string) (*model.User, error) {
+	var result *model.User
+	var err error
+
+	retryErr := r.retryService.ExecuteDatabaseOperation(ctx, func() error {
+		result, err = r.baseRepo.ReadByExternalSubject(ctx, provider, subject)
+		return err
+	})
+
+	return result, retryErr
+}
+
 // List wraps the List operation with retry logic
 func (r *RetryUserRepositoryWrapper) List(ctx context.Context) ([]model.User, error) {
 	var result []model.User

@@ -43,13 +43,16 @@ func setupUserDB(t *testing.T) *sql.DB {
 	require.NoError(t, err)
 	_, err = db.Exec(`
 		CREATE TABLE IF NOT EXISTS users (
-			id            TEXT PRIMARY KEY,
-			username      TEXT UNIQUE NOT NULL,
-			password_hash TEXT NOT NULL,
-			totp_secret   TEXT NOT NULL DEFAULT '',
-			role          TEXT NOT NULL,
-			created_at    TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+			id                   TEXT PRIMARY KEY,
+			username             TEXT UNIQUE NOT NULL,
+			password_hash        TEXT NOT NULL,
+			totp_secret          TEXT NOT NULL DEFAULT '',
+			role                 TEXT NOT NULL,
+			auth_provider        TEXT NOT NULL DEFAULT 'local',
+			external_idp_subject TEXT,
+			created_at           TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 		);
+		CREATE UNIQUE INDEX IF NOT EXISTS idx_users_external_idp ON users(auth_provider, external_idp_subject) WHERE external_idp_subject IS NOT NULL;
 		CREATE TABLE IF NOT EXISTS bootstrap_tokens (
 			token TEXT PRIMARY KEY,
 			used  BOOLEAN NOT NULL DEFAULT FALSE
@@ -305,6 +308,53 @@ func TestUserRepository_ReadByUsername_NotFound(t *testing.T) {
 	_, err := repo.ReadByUsername(ctx, "nonexistent")
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "not found")
+}
+
+func TestUserRepository_CreateAndReadByExternalSubject(t *testing.T) {
+	t.Parallel()
+	db := setupUserDB(t)
+	repo := repositories.NewUserRepository(rvdb.NewConn(db, rvdb.SQLite), newLogger())
+	ctx := context.Background()
+
+	user := &model.User{
+		ID: uuid.New(), Username: "oidc-user", PasswordHash: "", TOTPSecret: "",
+		Role: model.RoleUser, AuthProvider: model.AuthProviderOIDC, ExternalIDPSubject: "sub-123",
+		CreatedAt: time.Now(),
+	}
+	require.NoError(t, repo.Create(ctx, user))
+
+	loaded, err := repo.ReadByExternalSubject(ctx, model.AuthProviderOIDC, "sub-123")
+	require.NoError(t, err)
+	require.Equal(t, user.ID, loaded.ID)
+	require.Equal(t, "sub-123", loaded.ExternalIDPSubject)
+}
+
+func TestUserRepository_ReadByExternalSubject_NotFound(t *testing.T) {
+	t.Parallel()
+	db := setupUserDB(t)
+	repo := repositories.NewUserRepository(rvdb.NewConn(db, rvdb.SQLite), newLogger())
+	ctx := context.Background()
+
+	_, err := repo.ReadByExternalSubject(ctx, model.AuthProviderOIDC, "nonexistent")
+	require.Error(t, err)
+}
+
+func TestUserRepository_LocalUser_HasEmptyAuthProviderDefaultsToLocal(t *testing.T) {
+	t.Parallel()
+	db := setupUserDB(t)
+	repo := repositories.NewUserRepository(rvdb.NewConn(db, rvdb.SQLite), newLogger())
+	ctx := context.Background()
+
+	user := &model.User{
+		ID: uuid.New(), Username: "local-user", PasswordHash: "hash", TOTPSecret: "secret",
+		Role: model.RoleUser, CreatedAt: time.Now(), // AuthProvider left as zero value.
+	}
+	require.NoError(t, repo.Create(ctx, user))
+
+	loaded, err := repo.Read(ctx, user.ID)
+	require.NoError(t, err)
+	require.Equal(t, model.AuthProviderLocal, loaded.AuthProvider)
+	require.Empty(t, loaded.ExternalIDPSubject)
 }
 
 func TestUserRepository_List(t *testing.T) {

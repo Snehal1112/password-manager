@@ -23,6 +23,9 @@ import (
 type UserRepositoryInterface interface {
 	db.Repository[model.User]
 	ReadByUsername(ctx context.Context, username string) (model.User, error)
+	// ReadByExternalSubject retrieves a user by external IdP subject. Returns
+	// an error if no such user exists.
+	ReadByExternalSubject(ctx context.Context, provider, subject string) (*model.User, error)
 	List(ctx context.Context) ([]model.User, error)
 	ValidateBootstrapToken(ctx context.Context, token string) (bool, error)
 	InvalidateBootstrapToken(ctx context.Context, token string) error
@@ -106,10 +109,18 @@ func (r *UserRepository) Create(ctx context.Context, user *model.User) error {
 	}
 
 	// Insert user record
+	authProvider := user.AuthProvider
+	if authProvider == "" {
+		authProvider = model.AuthProviderLocal
+	}
+	var externalSubject any
+	if user.ExternalIDPSubject != "" {
+		externalSubject = user.ExternalIDPSubject
+	}
 	_, err = r.db.ExecContext(
 		ctx,
-		"INSERT INTO users (id, username, password_hash, totp_secret, role, created_at) VALUES (?, ?, ?, ?, ?, ?)",
-		user.ID.String(), user.Username, user.PasswordHash, user.TOTPSecret, user.Role, user.CreatedAt,
+		"INSERT INTO users (id, username, password_hash, totp_secret, role, auth_provider, external_idp_subject, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+		user.ID.String(), user.Username, user.PasswordHash, user.TOTPSecret, user.Role, authProvider, externalSubject, user.CreatedAt,
 	)
 	if err != nil {
 		r.log.LogAuditError(user.ID.String(), "create_user", "failed", "Failed to insert user", err)
@@ -139,12 +150,13 @@ func (r *UserRepository) Create(ctx context.Context, user *model.User) error {
 func (r *UserRepository) Read(ctx context.Context, id uuid.UUID) (*model.User, error) {
 	var user model.User
 	var idStr string
+	var externalSubject sql.NullString
 
 	err := r.db.QueryRowContext(
 		ctx,
-		"SELECT id, username, password_hash, totp_secret, role, created_at FROM users WHERE id = ?",
+		"SELECT id, username, password_hash, totp_secret, role, auth_provider, external_idp_subject, created_at FROM users WHERE id = ?",
 		id.String(),
-	).Scan(&idStr, &user.Username, &user.PasswordHash, &user.TOTPSecret, &user.Role, &user.CreatedAt)
+	).Scan(&idStr, &user.Username, &user.PasswordHash, &user.TOTPSecret, &user.Role, &user.AuthProvider, &externalSubject, &user.CreatedAt)
 
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, fmt.Errorf("user not found")
@@ -152,6 +164,7 @@ func (r *UserRepository) Read(ctx context.Context, id uuid.UUID) (*model.User, e
 	if err != nil {
 		return nil, fmt.Errorf("failed to query user: %w", err)
 	}
+	user.ExternalIDPSubject = externalSubject.String
 
 	user.ID, err = uuid.Parse(idStr)
 	if err != nil {
@@ -274,12 +287,13 @@ func (r *UserRepository) Delete(ctx context.Context, id uuid.UUID) error {
 func (r *UserRepository) ReadByUsername(ctx context.Context, username string) (model.User, error) {
 	var user model.User
 	var idStr string
+	var externalSubject sql.NullString
 
 	err := r.db.QueryRowContext(
 		ctx,
-		"SELECT id, username, password_hash, totp_secret, role, created_at FROM users WHERE username = ?",
+		"SELECT id, username, password_hash, totp_secret, role, auth_provider, external_idp_subject, created_at FROM users WHERE username = ?",
 		username,
-	).Scan(&idStr, &user.Username, &user.PasswordHash, &user.TOTPSecret, &user.Role, &user.CreatedAt)
+	).Scan(&idStr, &user.Username, &user.PasswordHash, &user.TOTPSecret, &user.Role, &user.AuthProvider, &externalSubject, &user.CreatedAt)
 
 	if errors.Is(err, sql.ErrNoRows) {
 		return user, fmt.Errorf("user not found")
@@ -288,6 +302,7 @@ func (r *UserRepository) ReadByUsername(ctx context.Context, username string) (m
 		logrus.WithError(err).Error("Failed to query user by username")
 		return user, fmt.Errorf("failed to query user by username: %w", err)
 	}
+	user.ExternalIDPSubject = externalSubject.String
 
 	user.ID, err = uuid.Parse(idStr)
 	if err != nil {
@@ -296,6 +311,34 @@ func (r *UserRepository) ReadByUsername(ctx context.Context, username string) (m
 	}
 
 	return user, nil
+}
+
+// ReadByExternalSubject retrieves a user by (provider, external subject).
+// Returns an error if no such user exists.
+func (r *UserRepository) ReadByExternalSubject(ctx context.Context, provider, subject string) (*model.User, error) {
+	var user model.User
+	var idStr string
+	var externalSubject sql.NullString
+
+	err := r.db.QueryRowContext(
+		ctx,
+		"SELECT id, username, password_hash, totp_secret, role, auth_provider, external_idp_subject, created_at FROM users WHERE auth_provider = ? AND external_idp_subject = ?",
+		provider, subject,
+	).Scan(&idStr, &user.Username, &user.PasswordHash, &user.TOTPSecret, &user.Role, &user.AuthProvider, &externalSubject, &user.CreatedAt)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, fmt.Errorf("user not found")
+	}
+	if err != nil {
+		return nil, fmt.Errorf("failed to query user by external subject: %w", err)
+	}
+	user.ExternalIDPSubject = externalSubject.String
+
+	user.ID, err = uuid.Parse(idStr)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse user ID: %w", err)
+	}
+
+	return &user, nil
 }
 
 // Login is deprecated and should not be used.

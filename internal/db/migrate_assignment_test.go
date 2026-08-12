@@ -148,6 +148,11 @@ func TestMigrate_CreatesPrincipalVaultIndex(t *testing.T) {
 	defer conn.Close() //nolint:errcheck
 
 	_, err = conn.Exec(`
+		CREATE TABLE users (
+			id       TEXT PRIMARY KEY,
+			username TEXT NOT NULL,
+			role     TEXT NOT NULL
+		);
 		CREATE TABLE secrets (
 			id   TEXT PRIMARY KEY,
 			name TEXT NOT NULL

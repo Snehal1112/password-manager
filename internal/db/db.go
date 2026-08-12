@@ -344,11 +344,14 @@ func (d *DBRepository) createOptimizedSchema(db *sql.DB) error {
 			password_hash TEXT NOT NULL,
 			totp_secret TEXT,
 			role TEXT NOT NULL,
+			auth_provider TEXT NOT NULL DEFAULT 'local',
+			external_idp_subject TEXT,
 			created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 		);
 		CREATE INDEX IF NOT EXISTS idx_users_username ON users(username);
 		CREATE INDEX IF NOT EXISTS idx_users_role ON users(role);
 		CREATE INDEX IF NOT EXISTS idx_users_created_at ON users(created_at);
+		CREATE UNIQUE INDEX IF NOT EXISTS idx_users_external_idp ON users(auth_provider, external_idp_subject) WHERE external_idp_subject IS NOT NULL;
 
 		CREATE TABLE IF NOT EXISTS vaults (
 			id                 TEXT PRIMARY KEY,
@@ -805,6 +808,10 @@ func (d *DBRepository) migrateSchema(db *sql.DB) error {
 		"ALTER TABLE certificates ADD COLUMN vault_id TEXT NOT NULL DEFAULT '00000000-0000-0000-0000-00000000efa1'",
 		"ALTER TABLE access_policies ADD COLUMN vault_id TEXT NULL",
 		"ALTER TABLE access_policies ADD COLUMN assignment_id TEXT NULL",
+		// Feature: OIDC external identity provider login
+		"ALTER TABLE users ADD COLUMN auth_provider TEXT NOT NULL DEFAULT 'local'",
+		"ALTER TABLE users ADD COLUMN external_idp_subject TEXT",
+		"CREATE UNIQUE INDEX IF NOT EXISTS idx_users_external_idp ON users(auth_provider, external_idp_subject) WHERE external_idp_subject IS NOT NULL",
 	}
 	for _, stmt := range migrations {
 		if _, err := db.Exec(stmt); err != nil {
