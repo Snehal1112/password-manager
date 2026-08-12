@@ -20,6 +20,7 @@ import (
 	"rocketvault/internal/formatter"
 	"rocketvault/internal/logging"
 	"rocketvault/internal/repositories"
+	authzServices "rocketvault/internal/services/authorization"
 	certServices "rocketvault/internal/services/certificates"
 	"rocketvault/model"
 )
@@ -503,16 +504,16 @@ func TestCertDeleteCmd_NoServiceContainer(t *testing.T) {
 }
 
 func TestCertDeleteCmd_Success(t *testing.T) {
+	tc := testutils.NewTestContext(t)
 	certSvc := &certCmdCertService{}
-	userID := uuid.New()
 	certID := uuid.New()
-	certSvc.On("DeleteCertificate", mock.Anything, certID, model.NewOwnerScope(uuid.Nil, userID)).Return(nil)
+	certSvc.On("DeleteCertificate", mock.Anything, certID, model.NewVaultScope(tc.TestVaultID, tc.TestUserID)).Return(nil)
 
 	sc := &certsTestContainer{
-		MockServiceContainer: &testutils.MockServiceContainer{},
+		MockServiceContainer: tc.MockContainer,
 		certSvc:              certSvc,
 	}
-	claims := &model.Claims{UserID: userID, Role: model.RoleAdmin}
+	claims := &model.Claims{UserID: tc.TestUserID, Role: model.RoleAdmin}
 	ctx := context.WithValue(context.Background(), common.ClaimsKey, claims)
 	ctx = context.WithValue(ctx, common.LogKey, newCertLogger())
 	ctx = context.WithValue(ctx, common.ServiceContainerKey, sc)
@@ -526,16 +527,16 @@ func TestCertDeleteCmd_Success(t *testing.T) {
 }
 
 func TestCertDeleteCmd_ServiceError(t *testing.T) {
+	tc := testutils.NewTestContext(t)
 	certSvc := &certCmdCertService{}
-	userID := uuid.New()
 	certID := uuid.New()
-	certSvc.On("DeleteCertificate", mock.Anything, certID, model.NewOwnerScope(uuid.Nil, userID)).Return(fmt.Errorf("delete failed"))
+	certSvc.On("DeleteCertificate", mock.Anything, certID, model.NewVaultScope(tc.TestVaultID, tc.TestUserID)).Return(fmt.Errorf("delete failed"))
 
 	sc := &certsTestContainer{
-		MockServiceContainer: &testutils.MockServiceContainer{},
+		MockServiceContainer: tc.MockContainer,
 		certSvc:              certSvc,
 	}
-	claims := &model.Claims{UserID: userID, Role: model.RoleAdmin}
+	claims := &model.Claims{UserID: tc.TestUserID, Role: model.RoleAdmin}
 	ctx := context.WithValue(context.Background(), common.ClaimsKey, claims)
 	ctx = context.WithValue(ctx, common.LogKey, newCertLogger())
 	ctx = context.WithValue(ctx, common.ServiceContainerKey, sc)
@@ -546,6 +547,67 @@ func TestCertDeleteCmd_ServiceError(t *testing.T) {
 	err := cmd.Execute()
 	assert.ErrorContains(t, err, "failed to delete certificate")
 	certSvc.AssertExpectations(t)
+}
+
+func TestCertDeleteCmd_Denied(t *testing.T) {
+	tc := testutils.NewTestContext(t)
+	certSvc := &certCmdCertService{}
+	certID := uuid.New()
+
+	denyRoles := &testutils.MockRoleAssignmentService{}
+	denyRoles.On("HasDataAction", mock.Anything, mock.Anything, mock.Anything, mock.Anything).
+		Return(false, nil).Maybe()
+	tc.MockContainer.RoleAssignmentService = denyRoles
+
+	sc := &certsTestContainer{
+		MockServiceContainer: tc.MockContainer,
+		certSvc:              certSvc,
+	}
+	claims := &model.Claims{UserID: tc.TestUserID, Role: model.RoleAdmin}
+	ctx := context.WithValue(context.Background(), common.ClaimsKey, claims)
+	ctx = context.WithValue(ctx, common.LogKey, newCertLogger())
+	ctx = context.WithValue(ctx, common.ServiceContainerKey, sc)
+
+	cmd, _ := newCertCmd(deleteCmd.RunE, []string{certID.String()})
+	cmd.Args = cobra.ExactArgs(1)
+	cmd.SetContext(ctx)
+	err := cmd.Execute()
+	assert.ErrorContains(t, err, "failed to delete certificate")
+	certSvc.AssertNotCalled(t, "DeleteCertificate", mock.Anything, mock.Anything, mock.Anything)
+}
+
+func TestCertDeleteCmd_Authorized(t *testing.T) {
+	tc := testutils.NewTestContext(t)
+	certSvc := &certCmdCertService{}
+	certID := uuid.New()
+	certSvc.On("DeleteCertificate", mock.Anything, certID, model.NewVaultScope(tc.TestVaultID, tc.TestUserID)).Return(nil)
+
+	roles := &testutils.MockRoleAssignmentService{}
+	roles.On("HasDataAction", mock.Anything, tc.TestUserID, tc.TestVaultID, model.ActionCertificatesDelete).
+		Return(true, nil).Once()
+	policies := &testutils.MockAccessPolicyService{}
+	policies.On("CheckAccess", mock.Anything, tc.TestUserID, model.PolicyResourceCertificates, model.OpDelete, tc.TestVaultID).
+		Return(authzServices.AccessAllowed, nil).Once()
+	tc.MockContainer.RoleAssignmentService = roles
+	tc.MockContainer.AccessPolicyService = policies
+
+	sc := &certsTestContainer{
+		MockServiceContainer: tc.MockContainer,
+		certSvc:              certSvc,
+	}
+	claims := &model.Claims{UserID: tc.TestUserID, Role: model.RoleAdmin}
+	ctx := context.WithValue(context.Background(), common.ClaimsKey, claims)
+	ctx = context.WithValue(ctx, common.LogKey, newCertLogger())
+	ctx = context.WithValue(ctx, common.ServiceContainerKey, sc)
+
+	cmd, _ := newCertCmd(deleteCmd.RunE, []string{certID.String()})
+	cmd.Args = cobra.ExactArgs(1)
+	cmd.SetContext(ctx)
+	err := cmd.Execute()
+	assert.NoError(t, err)
+	certSvc.AssertExpectations(t)
+	roles.AssertExpectations(t)
+	policies.AssertExpectations(t)
 }
 
 // ========== getCmd tests ==========
@@ -583,22 +645,22 @@ func TestCertGetCmd_NoServiceContainer(t *testing.T) {
 }
 
 func TestCertGetCmd_Success(t *testing.T) {
+	tc := testutils.NewTestContext(t)
 	certSvc := &certCmdCertService{}
-	userID := uuid.New()
 	certID := uuid.New()
 	expiresAt := time.Now().Add(365 * 24 * time.Hour)
 	cert := &model.Certificate{
-		ID: certID, UserID: userID, Name: "mycert",
+		ID: certID, UserID: tc.TestUserID, Name: "mycert",
 		Tags: []string{"ssl"}, CreatedAt: time.Now(), ExpiresAt: &expiresAt,
 		AutoRenew: true, Enabled: true,
 	}
-	certSvc.On("GetCertificate", mock.Anything, certID, model.NewOwnerScope(uuid.Nil, userID)).Return(cert, nil)
+	certSvc.On("GetCertificate", mock.Anything, certID, model.NewVaultScope(tc.TestVaultID, tc.TestUserID)).Return(cert, nil)
 
 	sc := &certsTestContainer{
-		MockServiceContainer: &testutils.MockServiceContainer{},
+		MockServiceContainer: tc.MockContainer,
 		certSvc:              certSvc,
 	}
-	claims := &model.Claims{UserID: userID, Role: model.RoleAdmin}
+	claims := &model.Claims{UserID: tc.TestUserID, Role: model.RoleAdmin}
 	ctx := context.WithValue(context.Background(), common.ClaimsKey, claims)
 	ctx = context.WithValue(ctx, common.LogKey, newCertLogger())
 	ctx = context.WithValue(ctx, common.ServiceContainerKey, sc)
@@ -614,16 +676,16 @@ func TestCertGetCmd_Success(t *testing.T) {
 }
 
 func TestCertGetCmd_ServiceError(t *testing.T) {
+	tc := testutils.NewTestContext(t)
 	certSvc := &certCmdCertService{}
-	userID := uuid.New()
 	certID := uuid.New()
-	certSvc.On("GetCertificate", mock.Anything, certID, model.NewOwnerScope(uuid.Nil, userID)).Return(nil, fmt.Errorf("not found"))
+	certSvc.On("GetCertificate", mock.Anything, certID, model.NewVaultScope(tc.TestVaultID, tc.TestUserID)).Return(nil, fmt.Errorf("not found"))
 
 	sc := &certsTestContainer{
-		MockServiceContainer: &testutils.MockServiceContainer{},
+		MockServiceContainer: tc.MockContainer,
 		certSvc:              certSvc,
 	}
-	claims := &model.Claims{UserID: userID, Role: model.RoleAdmin}
+	claims := &model.Claims{UserID: tc.TestUserID, Role: model.RoleAdmin}
 	ctx := context.WithValue(context.Background(), common.ClaimsKey, claims)
 	ctx = context.WithValue(ctx, common.LogKey, newCertLogger())
 	ctx = context.WithValue(ctx, common.ServiceContainerKey, sc)
@@ -638,20 +700,20 @@ func TestCertGetCmd_ServiceError(t *testing.T) {
 }
 
 func TestCertGetCmd_NoFormatter(t *testing.T) {
+	tc := testutils.NewTestContext(t)
 	certSvc := &certCmdCertService{}
-	userID := uuid.New()
 	certID := uuid.New()
 	cert := &model.Certificate{
-		ID: certID, UserID: userID, Name: "k",
+		ID: certID, UserID: tc.TestUserID, Name: "k",
 		CreatedAt: time.Now(), Enabled: true,
 	}
-	certSvc.On("GetCertificate", mock.Anything, certID, model.NewOwnerScope(uuid.Nil, userID)).Return(cert, nil)
+	certSvc.On("GetCertificate", mock.Anything, certID, model.NewVaultScope(tc.TestVaultID, tc.TestUserID)).Return(cert, nil)
 
 	sc := &certsTestContainer{
-		MockServiceContainer: &testutils.MockServiceContainer{},
+		MockServiceContainer: tc.MockContainer,
 		certSvc:              certSvc,
 	}
-	claims := &model.Claims{UserID: userID, Role: model.RoleAdmin}
+	claims := &model.Claims{UserID: tc.TestUserID, Role: model.RoleAdmin}
 	ctx := context.WithValue(context.Background(), common.ClaimsKey, claims)
 	ctx = context.WithValue(ctx, common.LogKey, newCertLogger())
 	ctx = context.WithValue(ctx, common.ServiceContainerKey, sc)
@@ -663,6 +725,72 @@ func TestCertGetCmd_NoFormatter(t *testing.T) {
 	err := cmd.Execute()
 	assert.ErrorContains(t, err, "output formatter not available")
 	certSvc.AssertExpectations(t)
+}
+
+func TestCertGetCmd_Denied(t *testing.T) {
+	tc := testutils.NewTestContext(t)
+	certSvc := &certCmdCertService{}
+	certID := uuid.New()
+
+	denyRoles := &testutils.MockRoleAssignmentService{}
+	denyRoles.On("HasDataAction", mock.Anything, mock.Anything, mock.Anything, mock.Anything).
+		Return(false, nil).Maybe()
+	tc.MockContainer.RoleAssignmentService = denyRoles
+
+	sc := &certsTestContainer{
+		MockServiceContainer: tc.MockContainer,
+		certSvc:              certSvc,
+	}
+	claims := &model.Claims{UserID: tc.TestUserID, Role: model.RoleAdmin}
+	ctx := context.WithValue(context.Background(), common.ClaimsKey, claims)
+	ctx = context.WithValue(ctx, common.LogKey, newCertLogger())
+	ctx = context.WithValue(ctx, common.ServiceContainerKey, sc)
+	ctx = context.WithValue(ctx, common.OutputFormatterKey, newCertFmtr())
+
+	cmd, _ := newCertCmd(getCmd.RunE, []string{certID.String()})
+	cmd.Args = cobra.ExactArgs(1)
+	cmd.SetContext(ctx)
+	err := cmd.Execute()
+	assert.ErrorContains(t, err, "failed to get certificate")
+	certSvc.AssertNotCalled(t, "GetCertificate", mock.Anything, mock.Anything, mock.Anything)
+}
+
+func TestCertGetCmd_Authorized(t *testing.T) {
+	tc := testutils.NewTestContext(t)
+	certSvc := &certCmdCertService{}
+	certID := uuid.New()
+	cert := &model.Certificate{
+		ID: certID, UserID: tc.TestUserID, Name: "mycert", CreatedAt: time.Now(), Enabled: true,
+	}
+	certSvc.On("GetCertificate", mock.Anything, certID, model.NewVaultScope(tc.TestVaultID, tc.TestUserID)).Return(cert, nil)
+
+	roles := &testutils.MockRoleAssignmentService{}
+	roles.On("HasDataAction", mock.Anything, tc.TestUserID, tc.TestVaultID, model.ActionCertificatesRead).
+		Return(true, nil).Once()
+	policies := &testutils.MockAccessPolicyService{}
+	policies.On("CheckAccess", mock.Anything, tc.TestUserID, model.PolicyResourceCertificates, model.OpGet, tc.TestVaultID).
+		Return(authzServices.AccessAllowed, nil).Once()
+	tc.MockContainer.RoleAssignmentService = roles
+	tc.MockContainer.AccessPolicyService = policies
+
+	sc := &certsTestContainer{
+		MockServiceContainer: tc.MockContainer,
+		certSvc:              certSvc,
+	}
+	claims := &model.Claims{UserID: tc.TestUserID, Role: model.RoleAdmin}
+	ctx := context.WithValue(context.Background(), common.ClaimsKey, claims)
+	ctx = context.WithValue(ctx, common.LogKey, newCertLogger())
+	ctx = context.WithValue(ctx, common.ServiceContainerKey, sc)
+	ctx = context.WithValue(ctx, common.OutputFormatterKey, newCertFmtr())
+
+	cmd, _ := newCertCmd(getCmd.RunE, []string{certID.String()})
+	cmd.Args = cobra.ExactArgs(1)
+	cmd.SetContext(ctx)
+	err := cmd.Execute()
+	assert.NoError(t, err)
+	certSvc.AssertExpectations(t)
+	roles.AssertExpectations(t)
+	policies.AssertExpectations(t)
 }
 
 // ========== listCmd tests ==========
@@ -687,19 +815,19 @@ func TestCertListCmd_NoServiceContainer(t *testing.T) {
 }
 
 func TestCertListCmd_SuccessTwoCerts(t *testing.T) {
+	tc := testutils.NewTestContext(t)
 	certSvc := &certCmdCertService{}
-	userID := uuid.New()
 	certs := []model.Certificate{
-		{ID: uuid.New(), UserID: userID, Name: "cert1", CreatedAt: time.Now(), Enabled: true},
-		{ID: uuid.New(), UserID: userID, Name: "cert2", CreatedAt: time.Now(), Enabled: true},
+		{ID: uuid.New(), UserID: tc.TestUserID, Name: "cert1", CreatedAt: time.Now(), Enabled: true},
+		{ID: uuid.New(), UserID: tc.TestUserID, Name: "cert2", CreatedAt: time.Now(), Enabled: true},
 	}
-	certSvc.On("ListCertificates", mock.Anything, model.NewOwnerScope(uuid.Nil, userID), repositories.CertificateFilter{}).Return(certs, nil)
+	certSvc.On("ListCertificates", mock.Anything, model.NewVaultScope(tc.TestVaultID, tc.TestUserID), repositories.CertificateFilter{}).Return(certs, nil)
 
 	sc := &certsTestContainer{
-		MockServiceContainer: &testutils.MockServiceContainer{},
+		MockServiceContainer: tc.MockContainer,
 		certSvc:              certSvc,
 	}
-	claims := &model.Claims{UserID: userID, Role: model.RoleAdmin}
+	claims := &model.Claims{UserID: tc.TestUserID, Role: model.RoleAdmin}
 	ctx := context.WithValue(context.Background(), common.ClaimsKey, claims)
 	ctx = context.WithValue(ctx, common.LogKey, newCertLogger())
 	ctx = context.WithValue(ctx, common.ServiceContainerKey, sc)
@@ -714,15 +842,15 @@ func TestCertListCmd_SuccessTwoCerts(t *testing.T) {
 }
 
 func TestCertListCmd_EmptyList(t *testing.T) {
+	tc := testutils.NewTestContext(t)
 	certSvc := &certCmdCertService{}
-	userID := uuid.New()
-	certSvc.On("ListCertificates", mock.Anything, model.NewOwnerScope(uuid.Nil, userID), repositories.CertificateFilter{}).Return([]model.Certificate{}, nil)
+	certSvc.On("ListCertificates", mock.Anything, model.NewVaultScope(tc.TestVaultID, tc.TestUserID), repositories.CertificateFilter{}).Return([]model.Certificate{}, nil)
 
 	sc := &certsTestContainer{
-		MockServiceContainer: &testutils.MockServiceContainer{},
+		MockServiceContainer: tc.MockContainer,
 		certSvc:              certSvc,
 	}
-	claims := &model.Claims{UserID: userID, Role: model.RoleUser}
+	claims := &model.Claims{UserID: tc.TestUserID, Role: model.RoleUser}
 	ctx := context.WithValue(context.Background(), common.ClaimsKey, claims)
 	ctx = context.WithValue(ctx, common.LogKey, newCertLogger())
 	ctx = context.WithValue(ctx, common.ServiceContainerKey, sc)
@@ -736,15 +864,15 @@ func TestCertListCmd_EmptyList(t *testing.T) {
 }
 
 func TestCertListCmd_ServiceError(t *testing.T) {
+	tc := testutils.NewTestContext(t)
 	certSvc := &certCmdCertService{}
-	userID := uuid.New()
-	certSvc.On("ListCertificates", mock.Anything, model.NewOwnerScope(uuid.Nil, userID), repositories.CertificateFilter{}).Return(nil, fmt.Errorf("db error"))
+	certSvc.On("ListCertificates", mock.Anything, model.NewVaultScope(tc.TestVaultID, tc.TestUserID), repositories.CertificateFilter{}).Return(nil, fmt.Errorf("db error"))
 
 	sc := &certsTestContainer{
-		MockServiceContainer: &testutils.MockServiceContainer{},
+		MockServiceContainer: tc.MockContainer,
 		certSvc:              certSvc,
 	}
-	claims := &model.Claims{UserID: userID, Role: model.RoleSecretsManager}
+	claims := &model.Claims{UserID: tc.TestUserID, Role: model.RoleSecretsManager}
 	ctx := context.WithValue(context.Background(), common.ClaimsKey, claims)
 	ctx = context.WithValue(ctx, common.LogKey, newCertLogger())
 	ctx = context.WithValue(ctx, common.ServiceContainerKey, sc)
@@ -758,15 +886,15 @@ func TestCertListCmd_ServiceError(t *testing.T) {
 }
 
 func TestCertListCmd_NoFormatter(t *testing.T) {
+	tc := testutils.NewTestContext(t)
 	certSvc := &certCmdCertService{}
-	userID := uuid.New()
-	certSvc.On("ListCertificates", mock.Anything, model.NewOwnerScope(uuid.Nil, userID), repositories.CertificateFilter{}).Return([]model.Certificate{}, nil)
+	certSvc.On("ListCertificates", mock.Anything, model.NewVaultScope(tc.TestVaultID, tc.TestUserID), repositories.CertificateFilter{}).Return([]model.Certificate{}, nil)
 
 	sc := &certsTestContainer{
-		MockServiceContainer: &testutils.MockServiceContainer{},
+		MockServiceContainer: tc.MockContainer,
 		certSvc:              certSvc,
 	}
-	claims := &model.Claims{UserID: userID, Role: model.RoleUser}
+	claims := &model.Claims{UserID: tc.TestUserID, Role: model.RoleUser}
 	ctx := context.WithValue(context.Background(), common.ClaimsKey, claims)
 	ctx = context.WithValue(ctx, common.LogKey, newCertLogger())
 	ctx = context.WithValue(ctx, common.ServiceContainerKey, sc)
@@ -777,6 +905,68 @@ func TestCertListCmd_NoFormatter(t *testing.T) {
 	err := cmd.Execute()
 	assert.ErrorContains(t, err, "output formatter not available")
 	certSvc.AssertExpectations(t)
+}
+
+func TestCertListCmd_Denied(t *testing.T) {
+	tc := testutils.NewTestContext(t)
+	certSvc := &certCmdCertService{}
+
+	denyRoles := &testutils.MockRoleAssignmentService{}
+	denyRoles.On("HasDataAction", mock.Anything, mock.Anything, mock.Anything, mock.Anything).
+		Return(false, nil).Maybe()
+	tc.MockContainer.RoleAssignmentService = denyRoles
+
+	sc := &certsTestContainer{
+		MockServiceContainer: tc.MockContainer,
+		certSvc:              certSvc,
+	}
+	claims := &model.Claims{UserID: tc.TestUserID, Role: model.RoleAdmin}
+	ctx := context.WithValue(context.Background(), common.ClaimsKey, claims)
+	ctx = context.WithValue(ctx, common.LogKey, newCertLogger())
+	ctx = context.WithValue(ctx, common.ServiceContainerKey, sc)
+	ctx = context.WithValue(ctx, common.OutputFormatterKey, newCertFmtr())
+
+	cmd, _ := newCertCmd(listCmd.RunE, nil)
+	cmd.SetContext(ctx)
+	err := cmd.Execute()
+	assert.ErrorContains(t, err, "failed to list certificates")
+	certSvc.AssertNotCalled(t, "ListCertificates", mock.Anything, mock.Anything, mock.Anything)
+}
+
+func TestCertListCmd_Authorized(t *testing.T) {
+	tc := testutils.NewTestContext(t)
+	certSvc := &certCmdCertService{}
+	certs := []model.Certificate{
+		{ID: uuid.New(), UserID: tc.TestUserID, Name: "cert1", CreatedAt: time.Now(), Enabled: true},
+	}
+	certSvc.On("ListCertificates", mock.Anything, model.NewVaultScope(tc.TestVaultID, tc.TestUserID), repositories.CertificateFilter{}).Return(certs, nil)
+
+	roles := &testutils.MockRoleAssignmentService{}
+	roles.On("HasDataAction", mock.Anything, tc.TestUserID, tc.TestVaultID, model.ActionCertificatesRead).
+		Return(true, nil).Once()
+	policies := &testutils.MockAccessPolicyService{}
+	policies.On("CheckAccess", mock.Anything, tc.TestUserID, model.PolicyResourceCertificates, model.OpGet, tc.TestVaultID).
+		Return(authzServices.AccessAllowed, nil).Once()
+	tc.MockContainer.RoleAssignmentService = roles
+	tc.MockContainer.AccessPolicyService = policies
+
+	sc := &certsTestContainer{
+		MockServiceContainer: tc.MockContainer,
+		certSvc:              certSvc,
+	}
+	claims := &model.Claims{UserID: tc.TestUserID, Role: model.RoleAdmin}
+	ctx := context.WithValue(context.Background(), common.ClaimsKey, claims)
+	ctx = context.WithValue(ctx, common.LogKey, newCertLogger())
+	ctx = context.WithValue(ctx, common.ServiceContainerKey, sc)
+	ctx = context.WithValue(ctx, common.OutputFormatterKey, newCertFmtr())
+
+	cmd, _ := newCertCmd(listCmd.RunE, nil)
+	cmd.SetContext(ctx)
+	err := cmd.Execute()
+	assert.NoError(t, err)
+	certSvc.AssertExpectations(t)
+	roles.AssertExpectations(t)
+	policies.AssertExpectations(t)
 }
 
 // ========== renewCmd tests ==========

@@ -10,6 +10,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/spf13/cobra"
 
+	"rocketvault/cmd/vaultcli"
 	"rocketvault/common"
 	"rocketvault/internal/container"
 	"rocketvault/internal/logging"
@@ -52,7 +53,13 @@ var deleteCmd = &cobra.Command{
 		}
 		certService := serviceContainer.GetCertificateService()
 
-		err = certService.DeleteCertificate(ctx, certID, model.NewOwnerScope(uuid.Nil, claims.UserID))
+		vaultID, err := vaultcli.RequireDataAction(ctx, cmd, serviceContainer, claims.UserID, model.ActionCertificatesDelete, model.OpDelete)
+		if err != nil {
+			log.LogAuditError(claims.UserID.String(), "delete_certificate", "failed", fmt.Sprintf("authorization failed: %s", err), err)
+			return fmt.Errorf("failed to delete certificate: %w", err)
+		}
+
+		err = certService.DeleteCertificate(ctx, certID, model.NewVaultScope(vaultID, claims.UserID))
 		if err != nil {
 			log.LogAuditError(claims.UserID.String(), "delete_certificate", "failed", fmt.Sprintf("failed to delete certificate: %s", err), err)
 			return fmt.Errorf("failed to delete certificate: %w", err)

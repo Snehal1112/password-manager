@@ -13,6 +13,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/spf13/cobra"
 
+	"rocketvault/cmd/vaultcli"
 	"rocketvault/common"
 	"rocketvault/internal/container"
 	"rocketvault/internal/formatter"
@@ -51,7 +52,13 @@ var getCmd = &cobra.Command{
 		}
 		certService := serviceContainer.GetCertificateService()
 
-		cert, err := certService.GetCertificate(ctx, certID, model.NewOwnerScope(uuid.Nil, claims.UserID))
+		vaultID, err := vaultcli.RequireDataAction(ctx, cmd, serviceContainer, claims.UserID, model.ActionCertificatesRead, model.OpGet)
+		if err != nil {
+			log.LogAuditError(claims.UserID.String(), "get_certificate", "failed", fmt.Sprintf("authorization failed: %s", err), err)
+			return fmt.Errorf("failed to get certificate: %w", err)
+		}
+
+		cert, err := certService.GetCertificate(ctx, certID, model.NewVaultScope(vaultID, claims.UserID))
 		if err != nil {
 			log.LogAuditError(claims.UserID.String(), "get_certificate", "failed", fmt.Sprintf("failed to get certificate: %s", err), err)
 			return fmt.Errorf("failed to get certificate: %w", err)
