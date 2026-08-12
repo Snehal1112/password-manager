@@ -13,6 +13,7 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 
+	"rocketvault/cmd/vaultcli"
 	"rocketvault/common"
 	"rocketvault/internal/container"
 	"rocketvault/internal/formatter"
@@ -85,6 +86,12 @@ var createCmd = &cobra.Command{
 		}
 		certService := serviceContainer.GetCertificateService()
 
+		vaultID, err := vaultcli.RequireDataAction(ctx, cmd, serviceContainer, claims.UserID, model.ActionCertificatesCreate, model.OpCreate)
+		if err != nil {
+			log.LogAuditError(claims.UserID.String(), "create_certificate", "failed", fmt.Sprintf("authorization failed: %s", err), err)
+			return fmt.Errorf("failed to create certificate: %w", err)
+		}
+
 		// Create certificate request
 		req := certServices.CreateCertificateRequest{
 			Name:         name,
@@ -92,6 +99,7 @@ var createCmd = &cobra.Command{
 			ValidityDays: validityDays,
 			Tags:         tags,
 			UserID:       claims.UserID,
+			VaultID:      vaultID,
 			AutoRenew:    autoRenew,
 			RenewalDays:  renewalDays,
 		}

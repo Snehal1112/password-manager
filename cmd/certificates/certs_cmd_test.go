@@ -276,6 +276,7 @@ func TestCertCreateCmd_InvalidKeyIDUUID(t *testing.T) {
 }
 
 func TestCertCreateCmd_SelfSignedSuccess(t *testing.T) {
+	tc := testutils.NewTestContext(t)
 	certSvc := &certCmdCertService{}
 	keyID := uuid.New()
 	result := &certServices.CreateCertificateResult{
@@ -285,14 +286,18 @@ func TestCertCreateCmd_SelfSignedSuccess(t *testing.T) {
 		CreatedAt: time.Now(),
 	}
 	certSvc.On("CreateSelfSignedCertificate", mock.Anything, mock.MatchedBy(func(r certServices.CreateCertificateRequest) bool {
-		return r.Name == "mycert" && r.KeyID == keyID && r.ValidityDays == 365
+		return r.Name == "mycert" && r.KeyID == keyID && r.ValidityDays == 365 && r.VaultID == tc.TestVaultID
 	})).Return(result, nil)
 
 	sc := &certsTestContainer{
-		MockServiceContainer: &testutils.MockServiceContainer{},
+		MockServiceContainer: tc.MockContainer,
 		certSvc:              certSvc,
 	}
-	ctx := buildCertAdminCtx(sc)
+	claims := &model.Claims{UserID: tc.TestUserID, Username: "admin", Role: model.RoleAdmin}
+	ctx := context.WithValue(context.Background(), common.ClaimsKey, claims)
+	ctx = context.WithValue(ctx, common.LogKey, newCertLogger())
+	ctx = context.WithValue(ctx, common.ServiceContainerKey, sc)
+	ctx = context.WithValue(ctx, common.OutputFormatterKey, newCertFmtr())
 	cleanup := viperSetCert(map[string]interface{}{
 		"cert-name":          "mycert",
 		"cert-key-id":        keyID.String(),
@@ -313,6 +318,7 @@ func TestCertCreateCmd_SelfSignedSuccess(t *testing.T) {
 }
 
 func TestCertCreateCmd_CASignedSuccess(t *testing.T) {
+	tc := testutils.NewTestContext(t)
 	certSvc := &certCmdCertService{}
 	keyID := uuid.New()
 	caCertID := uuid.New()
@@ -322,14 +328,18 @@ func TestCertCreateCmd_CASignedSuccess(t *testing.T) {
 		CreatedAt: time.Now(),
 	}
 	certSvc.On("CreateCASignedCertificate", mock.Anything, mock.MatchedBy(func(r certServices.CreateCertificateRequest) bool {
-		return r.Name == "casignedcert" && r.KeyID == keyID && r.CACertID != nil && *r.CACertID == caCertID
+		return r.Name == "casignedcert" && r.KeyID == keyID && r.CACertID != nil && *r.CACertID == caCertID && r.VaultID == tc.TestVaultID
 	})).Return(result, nil)
 
 	sc := &certsTestContainer{
-		MockServiceContainer: &testutils.MockServiceContainer{},
+		MockServiceContainer: tc.MockContainer,
 		certSvc:              certSvc,
 	}
-	ctx := buildCertAdminCtx(sc)
+	claims := &model.Claims{UserID: tc.TestUserID, Username: "admin", Role: model.RoleAdmin}
+	ctx := context.WithValue(context.Background(), common.ClaimsKey, claims)
+	ctx = context.WithValue(ctx, common.LogKey, newCertLogger())
+	ctx = context.WithValue(ctx, common.ServiceContainerKey, sc)
+	ctx = context.WithValue(ctx, common.OutputFormatterKey, newCertFmtr())
 	cleanup := viperSetCert(map[string]interface{}{
 		"cert-name":          "casignedcert",
 		"cert-key-id":        keyID.String(),
@@ -350,8 +360,13 @@ func TestCertCreateCmd_CASignedSuccess(t *testing.T) {
 }
 
 func TestCertCreateCmd_InvalidCACertID(t *testing.T) {
-	sc := &certsTestContainer{MockServiceContainer: &testutils.MockServiceContainer{}}
-	ctx := buildCertAdminCtx(sc)
+	tc := testutils.NewTestContext(t)
+	sc := &certsTestContainer{MockServiceContainer: tc.MockContainer}
+	claims := &model.Claims{UserID: tc.TestUserID, Username: "admin", Role: model.RoleAdmin}
+	ctx := context.WithValue(context.Background(), common.ClaimsKey, claims)
+	ctx = context.WithValue(ctx, common.LogKey, newCertLogger())
+	ctx = context.WithValue(ctx, common.ServiceContainerKey, sc)
+	ctx = context.WithValue(ctx, common.OutputFormatterKey, newCertFmtr())
 	cleanup := viperSetCert(map[string]interface{}{
 		"cert-name":          "mycert",
 		"cert-key-id":        uuid.New().String(),
@@ -370,14 +385,19 @@ func TestCertCreateCmd_InvalidCACertID(t *testing.T) {
 }
 
 func TestCertCreateCmd_ServiceError(t *testing.T) {
+	tc := testutils.NewTestContext(t)
 	certSvc := &certCmdCertService{}
 	certSvc.On("CreateSelfSignedCertificate", mock.Anything, mock.Anything).Return(nil, fmt.Errorf("db error"))
 
 	sc := &certsTestContainer{
-		MockServiceContainer: &testutils.MockServiceContainer{},
+		MockServiceContainer: tc.MockContainer,
 		certSvc:              certSvc,
 	}
-	ctx := buildCertAdminCtx(sc)
+	claims := &model.Claims{UserID: tc.TestUserID, Username: "admin", Role: model.RoleAdmin}
+	ctx := context.WithValue(context.Background(), common.ClaimsKey, claims)
+	ctx = context.WithValue(ctx, common.LogKey, newCertLogger())
+	ctx = context.WithValue(ctx, common.ServiceContainerKey, sc)
+	ctx = context.WithValue(ctx, common.OutputFormatterKey, newCertFmtr())
 	cleanup := viperSetCert(map[string]interface{}{
 		"cert-name":          "failcert",
 		"cert-key-id":        uuid.New().String(),
@@ -397,17 +417,18 @@ func TestCertCreateCmd_ServiceError(t *testing.T) {
 }
 
 func TestCertCreateCmd_NoFormatter(t *testing.T) {
+	tc := testutils.NewTestContext(t)
 	certSvc := &certCmdCertService{}
 	keyID := uuid.New()
 	result := &certServices.CreateCertificateResult{CertID: uuid.New(), Name: "k", CreatedAt: time.Now()}
 	certSvc.On("CreateSelfSignedCertificate", mock.Anything, mock.Anything).Return(result, nil)
 
 	sc := &certsTestContainer{
-		MockServiceContainer: &testutils.MockServiceContainer{},
+		MockServiceContainer: tc.MockContainer,
 		certSvc:              certSvc,
 	}
 	// Build context WITHOUT formatter.
-	claims := &model.Claims{UserID: uuid.New(), Role: model.RoleAdmin}
+	claims := &model.Claims{UserID: tc.TestUserID, Role: model.RoleAdmin}
 	ctx := context.WithValue(context.Background(), common.ClaimsKey, claims)
 	ctx = context.WithValue(ctx, common.LogKey, newCertLogger())
 	ctx = context.WithValue(ctx, common.ServiceContainerKey, sc)
@@ -431,16 +452,21 @@ func TestCertCreateCmd_NoFormatter(t *testing.T) {
 }
 
 func TestCertCreateCmd_CertificateManagerRoleAllowed(t *testing.T) {
+	tc := testutils.NewTestContext(t)
 	certSvc := &certCmdCertService{}
 	keyID := uuid.New()
 	result := &certServices.CreateCertificateResult{CertID: uuid.New(), Name: "cert", CreatedAt: time.Now()}
 	certSvc.On("CreateSelfSignedCertificate", mock.Anything, mock.Anything).Return(result, nil)
 
 	sc := &certsTestContainer{
-		MockServiceContainer: &testutils.MockServiceContainer{},
+		MockServiceContainer: tc.MockContainer,
 		certSvc:              certSvc,
 	}
-	ctx := buildCertRoleCtx(sc, model.RoleCertificateManager)
+	claims := &model.Claims{UserID: tc.TestUserID, Username: "user", Role: model.RoleCertificateManager}
+	ctx := context.WithValue(context.Background(), common.ClaimsKey, claims)
+	ctx = context.WithValue(ctx, common.LogKey, newCertLogger())
+	ctx = context.WithValue(ctx, common.ServiceContainerKey, sc)
+	ctx = context.WithValue(ctx, common.OutputFormatterKey, newCertFmtr())
 	cleanup := viperSetCert(map[string]interface{}{
 		"cert-name":          "cert",
 		"cert-key-id":        keyID.String(),
@@ -457,6 +483,91 @@ func TestCertCreateCmd_CertificateManagerRoleAllowed(t *testing.T) {
 	err := cmd.Execute()
 	assert.NoError(t, err)
 	certSvc.AssertExpectations(t)
+}
+
+func TestCertCreateCmd_Denied(t *testing.T) {
+	tc := testutils.NewTestContext(t)
+	certSvc := &certCmdCertService{}
+	keyID := uuid.New()
+
+	denyRoles := &testutils.MockRoleAssignmentService{}
+	denyRoles.On("HasDataAction", mock.Anything, mock.Anything, mock.Anything, mock.Anything).
+		Return(false, nil).Maybe()
+	tc.MockContainer.RoleAssignmentService = denyRoles
+
+	sc := &certsTestContainer{
+		MockServiceContainer: tc.MockContainer,
+		certSvc:              certSvc,
+	}
+	claims := &model.Claims{UserID: tc.TestUserID, Username: "admin", Role: model.RoleAdmin}
+	ctx := context.WithValue(context.Background(), common.ClaimsKey, claims)
+	ctx = context.WithValue(ctx, common.LogKey, newCertLogger())
+	ctx = context.WithValue(ctx, common.ServiceContainerKey, sc)
+	ctx = context.WithValue(ctx, common.OutputFormatterKey, newCertFmtr())
+	cleanup := viperSetCert(map[string]interface{}{
+		"cert-name":          "mycert",
+		"cert-key-id":        keyID.String(),
+		"cert-validity-days": 365,
+		"cert-tags":          "",
+		"cert-ca-cert-id":    "",
+	})
+	defer cleanup()
+
+	cmd, _ := newCertCmd(createCmd.RunE, nil)
+	cmd.Flags().Bool("auto-renew", false, "")
+	cmd.Flags().Int("renewal-days", 30, "")
+	cmd.SetContext(ctx)
+	err := cmd.Execute()
+	assert.ErrorContains(t, err, "failed to create certificate")
+	certSvc.AssertNotCalled(t, "CreateSelfSignedCertificate", mock.Anything, mock.Anything)
+	certSvc.AssertNotCalled(t, "CreateCASignedCertificate", mock.Anything, mock.Anything)
+}
+
+func TestCertCreateCmd_Authorized(t *testing.T) {
+	tc := testutils.NewTestContext(t)
+	certSvc := &certCmdCertService{}
+	keyID := uuid.New()
+	result := &certServices.CreateCertificateResult{CertID: uuid.New(), Name: "mycert", CreatedAt: time.Now()}
+	certSvc.On("CreateSelfSignedCertificate", mock.Anything, mock.MatchedBy(func(r certServices.CreateCertificateRequest) bool {
+		return r.Name == "mycert" && r.KeyID == keyID && r.VaultID == tc.TestVaultID
+	})).Return(result, nil)
+
+	roles := &testutils.MockRoleAssignmentService{}
+	roles.On("HasDataAction", mock.Anything, tc.TestUserID, tc.TestVaultID, model.ActionCertificatesCreate).
+		Return(true, nil).Once()
+	policies := &testutils.MockAccessPolicyService{}
+	policies.On("CheckAccess", mock.Anything, tc.TestUserID, model.PolicyResourceCertificates, model.OpCreate, tc.TestVaultID).
+		Return(authzServices.AccessAllowed, nil).Once()
+	tc.MockContainer.RoleAssignmentService = roles
+	tc.MockContainer.AccessPolicyService = policies
+
+	sc := &certsTestContainer{
+		MockServiceContainer: tc.MockContainer,
+		certSvc:              certSvc,
+	}
+	claims := &model.Claims{UserID: tc.TestUserID, Username: "admin", Role: model.RoleAdmin}
+	ctx := context.WithValue(context.Background(), common.ClaimsKey, claims)
+	ctx = context.WithValue(ctx, common.LogKey, newCertLogger())
+	ctx = context.WithValue(ctx, common.ServiceContainerKey, sc)
+	ctx = context.WithValue(ctx, common.OutputFormatterKey, newCertFmtr())
+	cleanup := viperSetCert(map[string]interface{}{
+		"cert-name":          "mycert",
+		"cert-key-id":        keyID.String(),
+		"cert-validity-days": 365,
+		"cert-tags":          "",
+		"cert-ca-cert-id":    "",
+	})
+	defer cleanup()
+
+	cmd, _ := newCertCmd(createCmd.RunE, nil)
+	cmd.Flags().Bool("auto-renew", false, "")
+	cmd.Flags().Int("renewal-days", 30, "")
+	cmd.SetContext(ctx)
+	err := cmd.Execute()
+	assert.NoError(t, err)
+	certSvc.AssertExpectations(t)
+	roles.AssertExpectations(t)
+	policies.AssertExpectations(t)
 }
 
 // ========== deleteCmd tests ==========
