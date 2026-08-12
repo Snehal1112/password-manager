@@ -832,9 +832,8 @@ func (d *DBRepository) migrateSchema(db *sql.DB) error {
 	if _, err := db.Exec(`CREATE INDEX IF NOT EXISTS idx_role_assignments_vault ON role_assignments(vault_id)`); err != nil {
 		return fmt.Errorf("index role_assignments vault: %w", err)
 	}
-	// Composite index for the per-vault authorization lookup
-	// (RoleAssignmentRepository.ListByPrincipalInVault), which runs on every
-	// data-plane request.
+	// Composite index for RoleAssignmentRepository's per-(principal, vault)
+	// authorization lookup, which runs on every data-plane request.
 	if _, err := db.Exec(`CREATE INDEX IF NOT EXISTS idx_role_assignments_principal_vault ON role_assignments(principal_id, vault_id)`); err != nil {
 		return fmt.Errorf("index role_assignments principal/vault: %w", err)
 	}

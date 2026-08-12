@@ -131,7 +131,16 @@ jobs:
           # ListByUser. This is a permanent, documented deferral (secondary
           # subsystems are out of scope for the P1 scope refactor per the
           # plan's own corrections section), not a legacy pattern to migrate.
-          if grep -rn "InVault\|ReadByOwner\|ListByUser(" --include="*.go" . | grep -v "_test.go" | grep -v "^./internal/services/secrets/rotation_service.go" | grep -v "^./internal/repositories/rotation_repository.go"; then
+          #
+          # internal/services/authorization/role_assignment_service.go and
+          # internal/repositories/role_assignment_repository.go are excepted
+          # for a different reason: ListByPrincipalInVault is not one of the
+          # P1-refactored secrets/keys/certificates data-plane repositories
+          # this gate targets. It's the per-vault role-assignment lookup that
+          # *grants* scope-based access in the first place -- a naming
+          # coincidence with the retired GetXInVault/ListXInVault pattern,
+          # not a regression of it.
+          if grep -rn "InVault\|ReadByOwner\|ListByUser(" --include="*.go" . | grep -v "_test.go" | grep -v "^./internal/services/secrets/rotation_service.go" | grep -v "^./internal/repositories/rotation_repository.go" | grep -v "^./internal/services/authorization/role_assignment_service.go" | grep -v "^./internal/repositories/role_assignment_repository.go"; then
             echo "::error::legacy vault-scoping methods reintroduced; use model.Scope"
             exit 1
           fi
