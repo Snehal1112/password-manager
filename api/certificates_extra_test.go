@@ -151,11 +151,10 @@ func TestCreateCertificate_EnabledFieldExplicit_Returns201(t *testing.T) {
 // multiple fields in a single call.
 func TestUpdateCertificate_MultipleFieldsUpdated_Returns200(t *testing.T) {
 	certID := uuid.New()
-	userID := uuid.MustParse(certTestUserID)
 	svc := &mockCertService{}
-	// updateCertificate builds an owner scope with an advisory nil vault id
-	// (see api/certificates.go: it is not yet vault-scope aware).
-	svc.On("GetCertificate", mock.Anything, certID, model.NewOwnerScope(uuid.Nil, userID)).Return(
+	// Legacy flat route (no vault_name) yields an owner scope, same as
+	// getCertificate/listCertificates on this same route shape.
+	svc.On("GetCertificate", mock.Anything, certID, certLegacyOwnerScope()).Return(
 		&model.Certificate{
 			ID:   certID,
 			Name: "original-name",

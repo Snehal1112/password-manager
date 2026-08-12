@@ -304,17 +304,6 @@ func updateCertificate(c *Context, w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	userIDStr, ok := c.Claims["user_id"].(string)
-	if !ok {
-		c.SetInternalError(nil)
-		return
-	}
-	userID, err := uuid.Parse(userIDStr)
-	if err != nil {
-		c.SetInvalidParam("user_id")
-		return
-	}
-
 	var req UpdateCertificateAPIRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		c.SetInvalidParam("request body")
@@ -331,10 +320,10 @@ func updateCertificate(c *Context, w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Preserves the pre-refactor owner-scope semantics of the deleted
-	// UpdateCertificate shim: this handler is not yet vault-scope aware (see
-	// .claude/multi-vault.md's keys/certs deferral).
-	scope := model.NewOwnerScope(uuid.Nil, userID)
+	scope, ok := scopeFromRequest(c, r)
+	if !ok {
+		return
+	}
 
 	updateReq := certServices.UpdateCertificateRequest{
 		CertID:      certID,

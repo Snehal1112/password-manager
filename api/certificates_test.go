@@ -576,9 +576,9 @@ func TestUpdateCertificate_Success_Returns200(t *testing.T) {
 	certID := uuid.New()
 	userID := uuid.MustParse(certTestUserID)
 	svc.On("UpdateCertificate", mock.Anything, mock.Anything).Return(nil)
-	// updateCertificate builds an owner scope with an advisory nil vault id
-	// (see api/certificates.go: it is not yet vault-scope aware).
-	svc.On("GetCertificate", mock.Anything, certID, model.NewOwnerScope(uuid.Nil, userID)).Return(&model.Certificate{
+	// Legacy flat route (no vault_name) yields an owner scope, same as
+	// getCertificate/listCertificates on this same route shape.
+	svc.On("GetCertificate", mock.Anything, certID, certLegacyOwnerScope()).Return(&model.Certificate{
 		ID: certID, Name: "new-name", UserID: userID, CreatedAt: time.Now(),
 	}, nil)
 

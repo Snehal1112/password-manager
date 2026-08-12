@@ -90,6 +90,11 @@ type recordingCertService struct {
 	getCalled      bool
 	getUserScoped  bool
 
+	updateCalled      bool
+	updateVaultScoped bool
+	updateVaultID     uuid.UUID
+	updateUserID      uuid.UUID
+
 	// getInVaultErr, when set, is returned by GetCertificateInVault instead of
 	// a synthetic certificate -- simulates the vault-membership pre-check
 	// failing (e.g. the certificate does not belong to the resolved vault).
@@ -102,8 +107,12 @@ func (s *recordingCertService) CreateSelfSignedCertificate(context.Context, cert
 func (s *recordingCertService) CreateCASignedCertificate(context.Context, certServices.CreateCertificateRequest) (*certServices.CreateCertificateResult, error) {
 	panic("unexpected")
 }
-func (s *recordingCertService) UpdateCertificate(context.Context, certServices.UpdateCertificateRequest) error {
-	panic("unexpected")
+func (s *recordingCertService) UpdateCertificate(_ context.Context, req certServices.UpdateCertificateRequest) error {
+	s.updateCalled = true
+	s.updateVaultScoped = req.Scope.Kind() == model.ScopeVault
+	s.updateVaultID = req.Scope.VaultID()
+	s.updateUserID = req.Scope.ActorID()
+	return nil
 }
 func (s *recordingCertService) GetCertificate(_ context.Context, _ uuid.UUID, scope model.Scope) (*model.Certificate, error) {
 	s.getCalled = true
@@ -444,6 +453,62 @@ func TestVaultScopedCertRoute_UsesVaultScopedListing(t *testing.T) {
 	}
 	if rec.listUserScoped {
 		t.Fatalf("vault-scoped /certificates must use vault-scoped listing (ListCertificatesInVault)")
+	}
+}
+
+// TestVaultScopedCertRoute_UsesVaultScopedUpdate verifies that PUT on the
+// explicit /vaults/{name}/certificates/{id} route dispatches with a vault
+// scope, proving the updateCertificate fix: it is no longer hardcoded to an
+// owner scope regardless of route shape.
+func TestVaultScopedCertRoute_UsesVaultScopedUpdate(t *testing.T) {
+	rec := &recordingCertService{}
+	api, repo := newVaultScopedKeyCertTestAPI(nil, rec, nil)
+
+	id := uuid.New()
+	repo.byName["prod"] = &model.Vault{ID: id, Name: "prod", Enabled: true}
+	repo.byID[id.String()] = repo.byName["prod"]
+
+	certID := uuid.New()
+	body := []byte(`{"name":"new-name"}`)
+	w := doVaultRequest(api, http.MethodPut, "/api/v1/vaults/prod/certificates/"+certID.String(), body)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("vault-scoped PUT /vaults/prod/certificates/%s: expected 200, got %d (%s)", certID, w.Code, w.Body.String())
+	}
+	if !rec.updateCalled {
+		t.Fatalf("vault-scoped route did not dispatch to the certificate update handler")
+	}
+	if !rec.updateVaultScoped {
+		t.Fatalf("vault-scoped /certificates/{id} PUT must use a vault scope, not an owner scope")
+	}
+	if rec.updateVaultID != id {
+		t.Fatalf("update dispatched with vault ID %s, want %s", rec.updateVaultID, id)
+	}
+}
+
+// TestLegacyFlatCertRoute_UsesUserScopedUpdate verifies that PUT on the legacy
+// flat /certificates/{id} route still dispatches with an owner scope,
+// preserving pre-fix behaviour for callers that never adopted vault-scoped
+// routes.
+func TestLegacyFlatCertRoute_UsesUserScopedUpdate(t *testing.T) {
+	rec := &recordingCertService{}
+	api, _ := newVaultScopedKeyCertTestAPI(nil, rec, nil)
+
+	certID := uuid.New()
+	body := []byte(`{"name":"new-name"}`)
+	w := doVaultRequest(api, http.MethodPut, "/api/v1/certificates/"+certID.String(), body)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("legacy PUT /certificates/%s: expected 200, got %d (%s)", certID, w.Code, w.Body.String())
+	}
+	if !rec.updateCalled {
+		t.Fatalf("legacy route did not dispatch to the certificate update handler")
+	}
+	if rec.updateVaultScoped {
+		t.Fatalf("legacy /certificates/{id} PUT must use an owner scope, not a vault scope")
+	}
+	if rec.updateUserID != uuid.MustParse(vaultTestUserID) {
+		t.Fatalf("legacy route scoped update to user %s, want caller %s", rec.updateUserID, vaultTestUserID)
 	}
 }
 
