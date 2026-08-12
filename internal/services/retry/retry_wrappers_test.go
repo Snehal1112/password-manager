@@ -61,6 +61,14 @@ func (m *MockAuthService) AuthenticateUser(ctx context.Context, username, passwo
 	return args.Get(0).(*auth.AuthenticationResult), args.Error(1)
 }
 
+func (m *MockAuthService) IssueSessionForUser(ctx context.Context, user *model.User) (*auth.AuthenticationResult, error) {
+	args := m.Called(ctx, user)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).(*auth.AuthenticationResult), args.Error(1)
+}
+
 func (m *MockAuthService) ValidateSession(ctx context.Context, token string) (*auth.JWTClaims, error) {
 	args := m.Called(ctx, token)
 	if args.Get(0) == nil {

@@ -6,6 +6,7 @@ import (
 	"github.com/google/uuid"
 
 	"rocketvault/internal/services/auth"
+	"rocketvault/model"
 )
 
 // RetryAuthenticationService wraps authentication operations with retry logic
@@ -34,6 +35,19 @@ func (s *retryAuthenticationService) AuthenticateUser(ctx context.Context, usern
 
 	retryErr := s.retryService.ExecuteDatabaseOperation(ctx, func() error {
 		result, err = s.baseService.AuthenticateUser(ctx, username, password, totpCode)
+		return err
+	})
+
+	return result, retryErr
+}
+
+// IssueSessionForUser issues a session with retry logic for database operations.
+func (s *retryAuthenticationService) IssueSessionForUser(ctx context.Context, user *model.User) (*auth.AuthenticationResult, error) {
+	var result *auth.AuthenticationResult
+	var err error
+
+	retryErr := s.retryService.ExecuteDatabaseOperation(ctx, func() error {
+		result, err = s.baseService.IssueSessionForUser(ctx, user)
 		return err
 	})
 

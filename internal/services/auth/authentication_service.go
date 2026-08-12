@@ -40,6 +40,12 @@ type RefreshTokenResult struct {
 // while maintaining separation of concerns between different auth components.
 type AuthenticationService interface {
 	AuthenticateUser(ctx context.Context, username, password, totpCode string) (*AuthenticationResult, error)
+	// IssueSessionForUser creates a session and issues an access/refresh
+	// token pair for a user whose identity has already been established
+	// out-of-band (e.g. a verified OIDC ID token). It performs no
+	// password/TOTP check — callers are responsible for having authenticated
+	// the user by some other means before calling this.
+	IssueSessionForUser(ctx context.Context, user *model.User) (*AuthenticationResult, error)
 	ValidateSession(ctx context.Context, token string) (*JWTClaims, error)
 	RefreshAccessToken(ctx context.Context, refreshToken string) (*RefreshTokenResult, error)
 	RevokeSession(ctx context.Context, sessionID string, reason string) error
@@ -143,10 +149,27 @@ func (s *authenticationService) AuthenticateUser(ctx context.Context, username, 
 		return nil, fmt.Errorf("invalid TOTP code")
 	}
 
-	// Generate refresh token (long-lived)
+	result, err := s.issueSession(ctx, &user, "authenticate_user")
+	if err != nil {
+		return nil, err
+	}
+
+	s.logger.WithFields(logrus.Fields{
+		"username": username,
+		"user_id":  user.ID.String(),
+		"role":     user.Role,
+	}).Info("User authenticated successfully with session")
+
+	return result, nil
+}
+
+// issueSession creates a session and issues an access/refresh token pair for
+// user. auditAction labels the audit log entries so callers (password login
+// vs. OIDC callback) are distinguishable in the audit trail.
+func (s *authenticationService) issueSession(ctx context.Context, user *model.User, auditAction string) (*AuthenticationResult, error) {
 	refreshToken, err := s.generateRefreshToken()
 	if err != nil {
-		s.logger.LogAuditError(user.ID.String(), "authenticate_user", "failed", "Failed to generate refresh token", err)
+		s.logger.LogAuditError(user.ID.String(), auditAction, "failed", "Failed to generate refresh token", err)
 		s.logger.WithError(err).Error("Failed to generate refresh token")
 		return nil, fmt.Errorf("authentication failed: %w", err)
 	}
@@ -166,7 +189,7 @@ func (s *authenticationService) AuthenticateUser(ctx context.Context, username, 
 	}
 
 	if err := s.sessionRepo.CreateSession(ctx, session); err != nil {
-		s.logger.LogAuditError(user.ID.String(), "authenticate_user", "failed", "Failed to create session", err)
+		s.logger.LogAuditError(user.ID.String(), auditAction, "failed", "Failed to create session", err)
 		s.logger.WithError(err).Error("Failed to create session")
 		return nil, fmt.Errorf("authentication failed: %w", err)
 	}
@@ -174,19 +197,12 @@ func (s *authenticationService) AuthenticateUser(ctx context.Context, username, 
 	// Generate access token (short-lived) with session.ID as jti for revocation checks.
 	accessToken, err := s.jwtService.GenerateToken(user.ID, user.Username, user.Role, session.ID)
 	if err != nil {
-		s.logger.LogAuditError(user.ID.String(), "authenticate_user", "failed", "Failed to generate JWT token", err)
+		s.logger.LogAuditError(user.ID.String(), auditAction, "failed", "Failed to generate JWT token", err)
 		s.logger.WithError(err).Error("Failed to generate JWT token")
 		return nil, fmt.Errorf("authentication failed: %w", err)
 	}
 
-	// Log successful authentication
-	s.logger.LogAuditInfo(user.ID.String(), "authenticate_user", "success", "User authenticated successfully")
-	s.logger.WithFields(logrus.Fields{
-		"username":   username,
-		"user_id":    user.ID.String(),
-		"role":       user.Role,
-		"session_id": session.ID.String(),
-	}).Info("User authenticated successfully with session")
+	s.logger.LogAuditInfo(user.ID.String(), auditAction, "success", "Session issued successfully")
 
 	return &AuthenticationResult{
 		Token:        accessToken,
@@ -195,6 +211,12 @@ func (s *authenticationService) AuthenticateUser(ctx context.Context, username, 
 		Username:     user.Username,
 		Role:         user.Role,
 	}, nil
+}
+
+// IssueSessionForUser creates a session and issues an access/refresh token
+// pair for a user whose identity has already been established out-of-band.
+func (s *authenticationService) IssueSessionForUser(ctx context.Context, user *model.User) (*AuthenticationResult, error) {
+	return s.issueSession(ctx, user, "issue_session_for_user")
 }
 
 // ValidateSession validates a JWT token and returns the user claims.

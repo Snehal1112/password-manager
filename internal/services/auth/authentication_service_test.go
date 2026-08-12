@@ -11,6 +11,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/pquerna/otp"
+	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
@@ -302,6 +303,38 @@ func TestAuthenticationService_AuthenticateUser_Success(t *testing.T) {
 	mockPasswordService.AssertExpectations(t)
 	mockTOTPService.AssertExpectations(t)
 	mockJWTService.AssertExpectations(t)
+}
+
+// TestIssueSessionForUser_Success verifies IssueSessionForUser creates a
+// session and issues a JWT without requiring password/TOTP, for callers that
+// have already established identity out-of-band (OIDC).
+func TestIssueSessionForUser_Success(t *testing.T) {
+	userRepo := &MockUserRepository{}
+	sessionRepo := &MockSessionRepository{}
+	jwtSvc := &MockJWTService{}
+
+	user := &model.User{ID: uuid.New(), Username: "oidc-user", Role: model.RoleUser}
+
+	sessionRepo.On("CreateSession", mock.Anything, mock.AnythingOfType("*model.Session")).Return(nil)
+	jwtSvc.On("GenerateToken", user.ID, user.Username, user.Role, mock.AnythingOfType("uuid.UUID")).
+		Return("access-token", nil)
+
+	svc := NewAuthenticationService(AuthenticationConfig{
+		UserRepository:    userRepo,
+		SessionRepository: sessionRepo,
+		PasswordService:   &MockPasswordService{},
+		TOTPService:       &MockTOTPService{},
+		JWTService:        jwtSvc,
+		Logger:            &logging.Logger{Logger: logrus.New()},
+	})
+
+	result, err := svc.IssueSessionForUser(context.Background(), user)
+	require.NoError(t, err)
+	assert.Equal(t, "access-token", result.Token)
+	assert.NotEmpty(t, result.RefreshToken)
+	assert.Equal(t, user.ID, result.UserID)
+	sessionRepo.AssertExpectations(t)
+	jwtSvc.AssertExpectations(t)
 }
 
 func TestAuthenticationService_AuthenticateUser_InvalidPassword(t *testing.T) {
