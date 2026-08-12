@@ -64,7 +64,7 @@ func newTxTestDB(t *testing.T) *sql.DB {
 			not_before       TIMESTAMP NULL
 		);`)
 	require.NoError(t, err)
-	t.Cleanup(func() { sqlDB.Close() })
+	t.Cleanup(func() { sqlDB.Close() }) //nolint:errcheck
 	return sqlDB
 }
 

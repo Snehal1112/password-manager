@@ -35,7 +35,7 @@ var recoverCmd = &cobra.Command{
 			return fmt.Errorf("failed to recover vault %q: %w", name, err)
 		}
 
-		fmt.Fprintf(cmd.OutOrStdout(), "Vault %q recovered successfully\n", name)
+		fmt.Fprintf(cmd.OutOrStdout(), "Vault %q recovered successfully\n", name) //nolint:errcheck
 		return nil
 	},
 }

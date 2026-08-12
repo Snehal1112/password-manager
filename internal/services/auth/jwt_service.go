@@ -30,11 +30,11 @@ type JWTService interface {
 
 // jwtService uses an asymmetric SigningKeyProvider for signing.
 type jwtService struct {
-	provider          signing.SigningKeyProvider
-	issuer            string
-	audience          string
-	expiry            time.Duration
-	logger            *logrus.Logger
+	provider signing.SigningKeyProvider
+	issuer   string
+	audience string
+	expiry   time.Duration
+	logger   *logrus.Logger
 	// HS256 fallback fields — both nil/zero after migration window expires.
 	hs256SecretKey    []byte
 	migrationDeadline time.Time

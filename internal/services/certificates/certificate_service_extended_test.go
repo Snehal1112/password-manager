@@ -1242,7 +1242,7 @@ func TestCreateCASignedCertificate_FullSuccess(t *testing.T) {
 		ValidityDays: 365,
 		UserID:       userID,
 		CACertID:     &caCertID,
-		RenewalDays:  0,  // default to 30
+		RenewalDays:  0, // default to 30
 		AutoRenew:    true,
 	})
 	require.NoError(t, err)

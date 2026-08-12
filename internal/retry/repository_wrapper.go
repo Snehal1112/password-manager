@@ -19,14 +19,14 @@ type Repository[T any] interface {
 
 // RetryableRepository wraps a repository with retry logic for all operations.
 type RetryableRepository[T any] struct {
-	repo       Repository[T]
+	repo        Repository[T]
 	retryPolicy Policy
 }
 
 // NewRetryableRepository creates a new retryable repository wrapper.
 func NewRetryableRepository[T any](repo Repository[T], policy Policy) *RetryableRepository[T] {
 	return &RetryableRepository[T]{
-		repo:       repo,
+		repo:        repo,
 		retryPolicy: policy,
 	}
 }
@@ -76,14 +76,14 @@ type Transaction[T any] interface {
 
 // RetryableTransactionRepository wraps a transaction repository with retry logic.
 type RetryableTransactionRepository[T any] struct {
-	repo       TransactionRepository[T]
+	repo        TransactionRepository[T]
 	retryPolicy Policy
 }
 
 // NewRetryableTransactionRepository creates a new retryable transaction repository wrapper.
 func NewRetryableTransactionRepository[T any](repo TransactionRepository[T], policy Policy) *RetryableTransactionRepository[T] {
 	return &RetryableTransactionRepository[T]{
-		repo:       repo,
+		repo:        repo,
 		retryPolicy: policy,
 	}
 }
@@ -284,10 +284,10 @@ func (w *ConnectionWrapper) ExecuteBool(ctx context.Context, operation func() (b
 
 // RetryMetrics tracks retry operation metrics.
 type RetryMetrics struct {
-	TotalAttempts   int64
-	SuccessCount    int64
-	FailureCount    int64
-	RetryCount      int64
+	TotalAttempts       int64
+	SuccessCount        int64
+	FailureCount        int64
+	RetryCount          int64
 	CircuitBreakerOpens int64
 }
 

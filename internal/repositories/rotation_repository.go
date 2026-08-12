@@ -201,7 +201,7 @@ func (r *rotationPolicyRepository) ListByUser(ctx context.Context, userID uuid.U
 		r.log.WithError(err).Error("Failed to list rotation policies")
 		return nil, fmt.Errorf("failed to list rotation policies: %w", err)
 	}
-	defer rows.Close()
+	defer rows.Close() //nolint:errcheck
 
 	var policies []model.RotationPolicy
 	for rows.Next() {
@@ -296,7 +296,7 @@ func (r *rotationPolicyRepository) GetSecretPolicies(ctx context.Context, secret
 		r.log.WithError(err).Error("Failed to get secret policies")
 		return nil, fmt.Errorf("failed to get secret policies: %w", err)
 	}
-	defer rows.Close()
+	defer rows.Close() //nolint:errcheck
 
 	var policies []model.SecretPolicy
 	for rows.Next() {
@@ -345,7 +345,7 @@ func (r *rotationPolicyRepository) GetPoliciesForSecret(ctx context.Context, sec
 		r.log.WithError(err).Error("Failed to get policies for secret")
 		return nil, fmt.Errorf("failed to get policies for secret: %w", err)
 	}
-	defer rows.Close()
+	defer rows.Close() //nolint:errcheck
 
 	var policies []model.RotationPolicy
 	for rows.Next() {
@@ -457,7 +457,7 @@ func (r *rotationPolicyRepository) GetRotationHistory(ctx context.Context, secre
 		r.log.WithError(err).Error("Failed to get rotation history")
 		return nil, fmt.Errorf("failed to get rotation history: %w", err)
 	}
-	defer rows.Close()
+	defer rows.Close() //nolint:errcheck
 
 	var history []model.RotationHistory
 	for rows.Next() {
@@ -507,7 +507,7 @@ func (r *rotationPolicyRepository) GetDueRotations(ctx context.Context, userID u
 		r.log.WithError(err).Error("Failed to get due rotations")
 		return nil, fmt.Errorf("failed to get due rotations: %w", err)
 	}
-	defer rows.Close()
+	defer rows.Close() //nolint:errcheck
 
 	var due []model.SecretPolicy
 	for rows.Next() {
@@ -557,7 +557,7 @@ func (r *rotationPolicyRepository) GetUpcomingReminders(ctx context.Context, use
 		r.log.WithError(err).Error("Failed to get upcoming reminders")
 		return nil, fmt.Errorf("failed to get upcoming reminders: %w", err)
 	}
-	defer rows.Close()
+	defer rows.Close() //nolint:errcheck
 
 	var reminders []model.RotationReminder
 	for rows.Next() {

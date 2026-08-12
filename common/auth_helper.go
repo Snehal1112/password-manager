@@ -37,10 +37,11 @@ import "strings"
 //   - false otherwise
 //
 // Examples:
-//   HasRequiredRole("admin", "admin", "secrets_manager") → true
-//   HasRequiredRole("secrets_manager, crypto_manager", "admin", "secrets_manager") → true
-//   HasRequiredRole("user", "admin", "secrets_manager") → false
-//   HasRequiredRole("secrets_manager , crypto_manager", "crypto_manager") → true (whitespace handled)
+//
+//	HasRequiredRole("admin", "admin", "secrets_manager") → true
+//	HasRequiredRole("secrets_manager, crypto_manager", "admin", "secrets_manager") → true
+//	HasRequiredRole("user", "admin", "secrets_manager") → false
+//	HasRequiredRole("secrets_manager , crypto_manager", "crypto_manager") → true (whitespace handled)
 func HasRequiredRole(userRole string, requiredRoles ...string) bool {
 	// Handle empty cases
 	if userRole == "" || len(requiredRoles) == 0 {

@@ -187,9 +187,9 @@ func TestCommonValidationRules(t *testing.T) {
 		t.Parallel()
 		assert.NoError(t, rules.ValidatePassword("SecurePass123!"))
 		assert.NoError(t, rules.ValidatePassword("MyP@ssw0rd"))
-		assert.Error(t, rules.ValidatePassword("weak")) // too short
+		assert.Error(t, rules.ValidatePassword("weak"))          // too short
 		assert.Error(t, rules.ValidatePassword("onlylowercase")) // weak
-		assert.Error(t, rules.ValidatePassword("12345678")) // no letters
+		assert.Error(t, rules.ValidatePassword("12345678"))      // no letters
 	})
 
 	t.Run("tag validation", func(t *testing.T) {

@@ -189,7 +189,7 @@ func (c *Client) Get(ctx context.Context, uuid string) (string, error) {
 			c.logRetry("vaultclient: secret fetch network error, may retry", lastAttemptErr)
 			return retry.Retryable(lastAttemptErr)
 		}
-		defer resp.Body.Close()
+		defer resp.Body.Close() //nolint:errcheck
 
 		switch resp.StatusCode {
 		case http.StatusOK:
@@ -319,7 +319,7 @@ func (c *Client) fetchToken(ctx context.Context) (string, int, error) {
 		c.logRetry("vaultclient: token request failed, may retry", err)
 		return "", 0, fmt.Errorf("%w: %v", ErrNetwork, err)
 	}
-	defer resp.Body.Close()
+	defer resp.Body.Close() //nolint:errcheck
 
 	if resp.StatusCode == http.StatusUnauthorized {
 		c.logRetry("vaultclient: token request rejected — check client credentials", ErrAuthFailed)

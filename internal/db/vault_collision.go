@@ -20,7 +20,7 @@ func ResolveNameCollisions(ctx context.Context, d DB, table string) (int, error)
 	if err != nil {
 		return 0, fmt.Errorf("scan %s for collisions: %w", table, err)
 	}
-	defer rows.Close()
+	defer rows.Close() //nolint:errcheck
 
 	type rec struct{ id, name, vault string }
 	var all []rec

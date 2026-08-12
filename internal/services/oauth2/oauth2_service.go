@@ -12,8 +12,8 @@ import (
 
 	"github.com/google/uuid"
 
-	"rocketvault/model"
 	"rocketvault/internal/repositories"
+	"rocketvault/model"
 )
 
 // JWTService is the subset of authServices.JWTService required here.

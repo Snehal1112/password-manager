@@ -30,7 +30,7 @@ import (
 func TestAuditLogs_UserIDHasNoForeignKey(t *testing.T) {
 	conn, err := sql.Open("sqlite3", ":memory:")
 	require.NoError(t, err)
-	defer conn.Close()
+	defer conn.Close() //nolint:errcheck
 
 	d := NewRepository(logging.InitLogger())
 	require.NoError(t, d.createOptimizedSchema(conn), "createOptimizedSchema should succeed")
@@ -41,7 +41,7 @@ func TestAuditLogs_UserIDHasNoForeignKey(t *testing.T) {
 	// audit_logs — the CREATE TABLE literal no longer declares one.
 	rows, err := conn.Query(`PRAGMA foreign_key_list(audit_logs)`)
 	require.NoError(t, err)
-	defer rows.Close()
+	defer rows.Close() //nolint:errcheck
 	require.False(t, rows.Next(), "audit_logs must declare no foreign keys")
 	require.NoError(t, rows.Err())
 

@@ -25,7 +25,8 @@ type cryptographyService struct{}
 // for secure secret storage.
 //
 // Returns:
-//   A CryptographyService implementation for cryptographic operations.
+//
+//	A CryptographyService implementation for cryptographic operations.
 func NewCryptographyService() CryptographyService {
 	return &cryptographyService{}
 }
@@ -35,10 +36,12 @@ func NewCryptographyService() CryptographyService {
 // encryption across the application.
 //
 // Parameters:
-//   plaintext: The plaintext secret to encrypt.
+//
+//	plaintext: The plaintext secret to encrypt.
 //
 // Returns:
-//   The encrypted secret string and an error if encryption fails.
+//
+//	The encrypted secret string and an error if encryption fails.
 func (s *cryptographyService) EncryptSecret(plaintext string) (string, error) {
 	ciphertext, err := common.EncryptSecret(plaintext)
 	if err != nil {
@@ -51,10 +54,12 @@ func (s *cryptographyService) EncryptSecret(plaintext string) (string, error) {
 // It uses the common.DecryptSecret function for consistent decryption.
 //
 // Parameters:
-//   ciphertext: The encrypted secret to decrypt.
+//
+//	ciphertext: The encrypted secret to decrypt.
 //
 // Returns:
-//   The decrypted plaintext string and an error if decryption fails.
+//
+//	The decrypted plaintext string and an error if decryption fails.
 func (s *cryptographyService) DecryptSecret(ciphertext string) (string, error) {
 	plaintext, err := common.DecryptSecret(ciphertext)
 	if err != nil {

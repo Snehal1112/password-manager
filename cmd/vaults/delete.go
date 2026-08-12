@@ -35,7 +35,7 @@ var deleteCmd = &cobra.Command{
 			return fmt.Errorf("failed to delete vault %q: %w", name, err)
 		}
 
-		fmt.Fprintf(cmd.OutOrStdout(), "Vault %q deleted successfully\n", name)
+		fmt.Fprintf(cmd.OutOrStdout(), "Vault %q deleted successfully\n", name) //nolint:errcheck
 		return nil
 	},
 }

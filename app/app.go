@@ -34,12 +34,12 @@ type FrontendConfig struct {
 // It holds the server instance, store, configuration details,
 // and logger for the vault service application.
 type App struct {
-	srv                  *server.Server
-	basePath             string
-	databaseName         string
-	backendEndPoint      string
-	schedulerEnabled     bool
-	schedulerInterval    time.Duration
+	srv               *server.Server
+	basePath          string
+	databaseName      string
+	backendEndPoint   string
+	schedulerEnabled  bool
+	schedulerInterval time.Duration
 
 	ServiceContainer container.ServiceContainerInterface
 	Logger           *logging.Logger
@@ -149,4 +149,3 @@ func (a *App) StartServer(ctx context.Context) error {
 
 	return a.srv.StartServer(ctx)
 }
-

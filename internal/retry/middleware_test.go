@@ -23,7 +23,7 @@ func TestHTTPMiddleware_Success(t *testing.T) {
 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		atomic.AddInt32(&attempts, 1)
 		w.WriteHeader(http.StatusOK)
-		w.Write([]byte("success"))
+		w.Write([]byte("success")) //nolint:errcheck
 	})
 
 	middleware := NewHTTPMiddleware(policy, nil)
@@ -34,7 +34,7 @@ func TestHTTPMiddleware_Success(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	defer resp.Body.Close()
+	defer resp.Body.Close() //nolint:errcheck
 
 	if resp.StatusCode != http.StatusOK {
 		t.Errorf("expected status 200, got %d", resp.StatusCode)
@@ -61,11 +61,11 @@ func TestHTTPMiddleware_RetryOnServerError(t *testing.T) {
 		current := atomic.AddInt32(&attempts, 1)
 		if current == 1 {
 			w.WriteHeader(http.StatusInternalServerError)
-			w.Write([]byte("server error"))
+			w.Write([]byte("server error")) //nolint:errcheck
 			return
 		}
 		w.WriteHeader(http.StatusOK)
-		w.Write([]byte("success"))
+		w.Write([]byte("success")) //nolint:errcheck
 	})
 
 	middleware := NewHTTPMiddleware(policy, nil)
@@ -76,7 +76,7 @@ func TestHTTPMiddleware_RetryOnServerError(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	defer resp.Body.Close()
+	defer resp.Body.Close() //nolint:errcheck
 
 	if resp.StatusCode != http.StatusOK {
 		t.Errorf("expected status 200, got %d", resp.StatusCode)
@@ -101,7 +101,7 @@ func TestHTTPMiddleware_NoRetryOnClientError(t *testing.T) {
 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		atomic.AddInt32(&attempts, 1)
 		w.WriteHeader(http.StatusBadRequest)
-		w.Write([]byte("bad request"))
+		w.Write([]byte("bad request")) //nolint:errcheck
 	})
 
 	middleware := NewHTTPMiddleware(policy, nil)
@@ -112,7 +112,7 @@ func TestHTTPMiddleware_NoRetryOnClientError(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	defer resp.Body.Close()
+	defer resp.Body.Close() //nolint:errcheck
 
 	if resp.StatusCode != http.StatusBadRequest {
 		t.Errorf("expected status 400, got %d", resp.StatusCode)
@@ -138,7 +138,7 @@ func TestHTTPMiddleware_MaxAttemptsExceeded(t *testing.T) {
 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		atomic.AddInt32(&attempts, 1)
 		w.WriteHeader(http.StatusInternalServerError)
-		w.Write([]byte("server error"))
+		w.Write([]byte("server error")) //nolint:errcheck
 	})
 
 	middleware := NewHTTPMiddleware(policy, nil)
@@ -149,7 +149,7 @@ func TestHTTPMiddleware_MaxAttemptsExceeded(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	defer resp.Body.Close()
+	defer resp.Body.Close() //nolint:errcheck
 
 	if resp.StatusCode != http.StatusBadGateway {
 		t.Errorf("expected status 502, got %d", resp.StatusCode)
@@ -175,7 +175,7 @@ func TestHTTPMiddleware_ContextCancellation(t *testing.T) {
 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		atomic.AddInt32(&attempts, 1)
 		w.WriteHeader(http.StatusInternalServerError)
-		w.Write([]byte("server error"))
+		w.Write([]byte("server error")) //nolint:errcheck
 	})
 
 	middleware := NewHTTPMiddleware(policy, nil)
@@ -196,7 +196,7 @@ func TestHTTPMiddleware_ContextCancellation(t *testing.T) {
 	client := &http.Client{}
 	resp, err := client.Do(req)
 	if err == nil {
-		resp.Body.Close()
+		resp.Body.Close() //nolint:errcheck
 		t.Error("expected error due to context cancellation")
 	}
 
@@ -219,7 +219,7 @@ func TestHTTPMiddleware_Disabled(t *testing.T) {
 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		atomic.AddInt32(&attempts, 1)
 		w.WriteHeader(http.StatusInternalServerError)
-		w.Write([]byte("server error"))
+		w.Write([]byte("server error")) //nolint:errcheck
 	})
 
 	middleware := NewHTTPMiddleware(policy, nil)
@@ -230,7 +230,7 @@ func TestHTTPMiddleware_Disabled(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	defer resp.Body.Close()
+	defer resp.Body.Close() //nolint:errcheck
 
 	if resp.StatusCode != http.StatusInternalServerError {
 		t.Errorf("expected status 500, got %d", resp.StatusCode)
@@ -255,7 +255,7 @@ func TestClientMiddleware_Success(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		atomic.AddInt32(&attempts, 1)
 		w.WriteHeader(http.StatusOK)
-		w.Write([]byte("success"))
+		w.Write([]byte("success")) //nolint:errcheck
 	}))
 	defer server.Close()
 
@@ -269,7 +269,7 @@ func TestClientMiddleware_Success(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	defer resp.Body.Close()
+	defer resp.Body.Close() //nolint:errcheck
 
 	if resp.StatusCode != http.StatusOK {
 		t.Errorf("expected status 200, got %d", resp.StatusCode)
@@ -296,11 +296,11 @@ func TestClientMiddleware_RetryOnServerError(t *testing.T) {
 		current := atomic.AddInt32(&attempts, 1)
 		if current == 1 {
 			w.WriteHeader(http.StatusInternalServerError)
-			w.Write([]byte("server error"))
+			w.Write([]byte("server error")) //nolint:errcheck
 			return
 		}
 		w.WriteHeader(http.StatusOK)
-		w.Write([]byte("success"))
+		w.Write([]byte("success")) //nolint:errcheck
 	}))
 	defer server.Close()
 
@@ -314,7 +314,7 @@ func TestClientMiddleware_RetryOnServerError(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	defer resp.Body.Close()
+	defer resp.Body.Close() //nolint:errcheck
 
 	if resp.StatusCode != http.StatusOK {
 		t.Errorf("expected status 200, got %d", resp.StatusCode)
@@ -344,12 +344,12 @@ func TestClientMiddleware_RetryOnNetworkError(t *testing.T) {
 			hj, ok := w.(http.Hijacker)
 			if ok {
 				conn, _, _ := hj.Hijack()
-				conn.Close()
+				conn.Close() //nolint:errcheck
 			}
 			return
 		}
 		w.WriteHeader(http.StatusOK)
-		w.Write([]byte("success"))
+		w.Write([]byte("success")) //nolint:errcheck
 	}))
 	defer server.Close()
 
@@ -363,7 +363,7 @@ func TestClientMiddleware_RetryOnNetworkError(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	defer resp.Body.Close()
+	defer resp.Body.Close() //nolint:errcheck
 
 	if resp.StatusCode != http.StatusOK {
 		t.Errorf("expected status 200, got %d", resp.StatusCode)
@@ -390,11 +390,11 @@ func TestRetryableTransport(t *testing.T) {
 		current := atomic.AddInt32(&attempts, 1)
 		if current == 1 {
 			w.WriteHeader(http.StatusInternalServerError)
-			w.Write([]byte("server error"))
+			w.Write([]byte("server error")) //nolint:errcheck
 			return
 		}
 		w.WriteHeader(http.StatusOK)
-		w.Write([]byte("success"))
+		w.Write([]byte("success")) //nolint:errcheck
 	}))
 	defer server.Close()
 
@@ -405,7 +405,7 @@ func TestRetryableTransport(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	defer resp.Body.Close()
+	defer resp.Body.Close() //nolint:errcheck
 
 	if resp.StatusCode != http.StatusOK {
 		t.Errorf("expected status 200, got %d", resp.StatusCode)
@@ -451,7 +451,7 @@ func TestHTTPMiddlewareWithOptions(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	defer resp.Body.Close()
+	defer resp.Body.Close() //nolint:errcheck
 
 	if !metricsCalled {
 		t.Error("expected metrics collector to be called")
@@ -496,7 +496,7 @@ func TestClientMiddlewareWithOptions(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	defer resp.Body.Close()
+	defer resp.Body.Close() //nolint:errcheck
 
 	if !metricsCalled {
 		t.Error("expected metrics collector to be called")
@@ -566,7 +566,7 @@ func BenchmarkHTTPMiddleware(b *testing.B) {
 		if err != nil {
 			b.Fatalf("unexpected error: %v", err)
 		}
-		resp.Body.Close()
+		resp.Body.Close() //nolint:errcheck
 	}
 }
 
@@ -597,6 +597,6 @@ func BenchmarkClientMiddleware(b *testing.B) {
 		if err != nil {
 			b.Fatalf("unexpected error: %v", err)
 		}
-		resp.Body.Close()
+		resp.Body.Close() //nolint:errcheck
 	}
 }

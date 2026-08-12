@@ -13,7 +13,7 @@ func TestResolveNameCollisions_RenamesDuplicates(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer d.Close()
+	defer d.Close() //nolint:errcheck
 	_, err = d.Exec(`CREATE TABLE secrets (id TEXT PRIMARY KEY, name TEXT, vault_id TEXT);
 		INSERT INTO secrets VALUES ('11111111-1111-1111-1111-111111111111','dup','v1');
 		INSERT INTO secrets VALUES ('22222222-2222-2222-2222-222222222222','dup','v1');
@@ -42,7 +42,7 @@ func TestResolveNameCollisions_NoDuplicatesIsNoop(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer d.Close()
+	defer d.Close() //nolint:errcheck
 	_, err = d.Exec(`CREATE TABLE keys (id TEXT PRIMARY KEY, name TEXT, vault_id TEXT);
 		INSERT INTO keys VALUES ('a','k1','v1');
 		INSERT INTO keys VALUES ('b','k2','v1');`)
@@ -63,7 +63,7 @@ func TestResolveNameCollisions_DifferentVaultsNotRenamed(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer d.Close()
+	defer d.Close() //nolint:errcheck
 	_, err = d.Exec(`CREATE TABLE secrets (id TEXT PRIMARY KEY, name TEXT, vault_id TEXT);
 		INSERT INTO secrets VALUES ('a','same','vaultA');
 		INSERT INTO secrets VALUES ('b','same','vaultB');`)
@@ -84,7 +84,7 @@ func TestResolveNameCollisions_ShortIDCollisionStillUnique(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer d.Close()
+	defer d.Close() //nolint:errcheck
 	_, err = d.Exec(`CREATE TABLE secrets (id TEXT PRIMARY KEY, name TEXT, vault_id TEXT);
 		INSERT INTO secrets VALUES ('deadbeef-1111-1111-1111-111111111111','dup','v1');
 		INSERT INTO secrets VALUES ('deadbeef-2222-2222-2222-222222222222','dup','v1');

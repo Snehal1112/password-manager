@@ -780,7 +780,7 @@ func TestImportCmd_ServiceError(t *testing.T) {
 	ctx := buildSecCtx(tc.MockContainer, tc.TestUserID)
 
 	tmpFile := t.TempDir() + "/import.json"
-	os.WriteFile(tmpFile, []byte(`{}`), 0o600)
+	os.WriteFile(tmpFile, []byte(`{}`), 0o600) //nolint:errcheck
 
 	prevFormat := importFormat
 	importFormat = "json"

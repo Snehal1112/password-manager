@@ -220,7 +220,7 @@ func (r *SessionRepository) GetActiveSessionsByUserID(ctx context.Context, userI
 		}).Errorf("Failed to get active sessions: %v", err)
 		return nil, fmt.Errorf("failed to get active sessions: %w", err)
 	}
-	defer rows.Close()
+	defer rows.Close() //nolint:errcheck
 
 	var sessions []*model.Session
 	for rows.Next() {

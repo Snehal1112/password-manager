@@ -5,13 +5,13 @@ import (
 
 	"github.com/google/uuid"
 
-	"rocketvault/model"
 	"rocketvault/internal/repositories"
+	"rocketvault/model"
 )
 
 // RetryUserRepositoryWrapper wraps user repository operations with retry logic
 type RetryUserRepositoryWrapper struct {
-	baseRepo repositories.UserRepositoryInterface
+	baseRepo     repositories.UserRepositoryInterface
 	retryService RetryService
 }
 

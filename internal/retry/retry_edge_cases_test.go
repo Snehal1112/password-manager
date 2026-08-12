@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+
 	"rocketvault/internal/retry"
 )
 
@@ -35,10 +36,10 @@ func TestConfig_Merge_DisabledPoliciesNotOverridden(t *testing.T) {
 	base := retry.DefaultConfig()
 	other := retry.Config{
 		// Leave Database and ExternalServices disabled so base values should remain.
-		Database:         retry.Policy{Enabled: false},
-		ExternalServices: retry.Policy{Enabled: false},
+		Database:          retry.Policy{Enabled: false},
+		ExternalServices:  retry.Policy{Enabled: false},
 		ServiceOperations: retry.Policy{Enabled: false},
-		CircuitBreaker:   retry.CircuitBreakerConfig{FailureThreshold: 99, Timeout: time.Second, HalfOpenRequests: 1},
+		CircuitBreaker:    retry.CircuitBreakerConfig{FailureThreshold: 99, Timeout: time.Second, HalfOpenRequests: 1},
 	}
 
 	merged := base.Merge(other)
@@ -55,7 +56,7 @@ func TestConfig_Merge_DisabledPoliciesNotOverridden(t *testing.T) {
 
 func TestForEnvironment(t *testing.T) {
 	cases := []struct {
-		env      string
+		env          string
 		wantAttempts int
 	}{
 		{"production", retry.ProductionConfig().Database.MaxAttempts},
@@ -230,12 +231,12 @@ func TestCircuitBreaker_RecordSuccess(t *testing.T) {
 
 func TestWithExponentialBackoff_NonRetryableError(t *testing.T) {
 	policy := retry.Policy{
-		Enabled:         true,
-		MaxAttempts:     5,
-		InitialDelay:    1 * time.Millisecond,
-		MaxDelay:        10 * time.Millisecond,
+		Enabled:           true,
+		MaxAttempts:       5,
+		InitialDelay:      1 * time.Millisecond,
+		MaxDelay:          10 * time.Millisecond,
 		BackoffMultiplier: 2.0,
-		RetryableErrors: []string{"temporary"},
+		RetryableErrors:   []string{"temporary"},
 	}
 
 	attempts := 0
@@ -254,12 +255,12 @@ func TestWithExponentialBackoff_NonRetryableError(t *testing.T) {
 
 func TestWithExponentialBackoffResult_NonRetryableError(t *testing.T) {
 	policy := retry.Policy{
-		Enabled:         true,
-		MaxAttempts:     5,
-		InitialDelay:    1 * time.Millisecond,
-		MaxDelay:        10 * time.Millisecond,
+		Enabled:           true,
+		MaxAttempts:       5,
+		InitialDelay:      1 * time.Millisecond,
+		MaxDelay:          10 * time.Millisecond,
 		BackoffMultiplier: 2.0,
-		RetryableErrors: []string{"temporary"},
+		RetryableErrors:   []string{"temporary"},
 	}
 
 	attempts := 0
@@ -278,12 +279,12 @@ func TestWithExponentialBackoffResult_NonRetryableError(t *testing.T) {
 
 func TestWithExponentialBackoffResult_ContextCancel(t *testing.T) {
 	policy := retry.Policy{
-		Enabled:         true,
-		MaxAttempts:     10,
-		InitialDelay:    50 * time.Millisecond,
-		MaxDelay:        500 * time.Millisecond,
+		Enabled:           true,
+		MaxAttempts:       10,
+		InitialDelay:      50 * time.Millisecond,
+		MaxDelay:          500 * time.Millisecond,
 		BackoffMultiplier: 2.0,
-		RetryableErrors: []string{"retry me"},
+		RetryableErrors:   []string{"retry me"},
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -303,13 +304,13 @@ func TestWithExponentialBackoffResult_ContextCancel(t *testing.T) {
 
 func TestWithExponentialBackoff_JitterEnabled(t *testing.T) {
 	policy := retry.Policy{
-		Enabled:         true,
-		MaxAttempts:     2,
-		InitialDelay:    1 * time.Millisecond,
-		MaxDelay:        10 * time.Millisecond,
+		Enabled:           true,
+		MaxAttempts:       2,
+		InitialDelay:      1 * time.Millisecond,
+		MaxDelay:          10 * time.Millisecond,
 		BackoffMultiplier: 2.0,
-		JitterEnabled:   true,
-		RetryableErrors: []string{"retry"},
+		JitterEnabled:     true,
+		RetryableErrors:   []string{"retry"},
 	}
 
 	attempts := 0
@@ -359,12 +360,12 @@ func (m *mockRepo) Delete(_ context.Context, _ uuid.UUID) error {
 
 func testPolicy() retry.Policy {
 	return retry.Policy{
-		Enabled:         true,
-		MaxAttempts:     3,
-		InitialDelay:    1 * time.Millisecond,
-		MaxDelay:        10 * time.Millisecond,
+		Enabled:           true,
+		MaxAttempts:       3,
+		InitialDelay:      1 * time.Millisecond,
+		MaxDelay:          10 * time.Millisecond,
 		BackoffMultiplier: 2.0,
-		RetryableErrors: []string{"connection refused"},
+		RetryableErrors:   []string{"connection refused"},
 	}
 }
 
@@ -484,11 +485,11 @@ type mockTransaction struct {
 	rollbackErr error
 }
 
-func (t *mockTransaction) Create(_ context.Context, _ string) error  { return nil }
-func (t *mockTransaction) Update(_ context.Context, _ string) error  { return nil }
+func (t *mockTransaction) Create(_ context.Context, _ string) error    { return nil }
+func (t *mockTransaction) Update(_ context.Context, _ string) error    { return nil }
 func (t *mockTransaction) Delete(_ context.Context, _ uuid.UUID) error { return nil }
-func (t *mockTransaction) Commit() error                              { return t.commitErr }
-func (t *mockTransaction) Rollback() error                            { return t.rollbackErr }
+func (t *mockTransaction) Commit() error                               { return t.commitErr }
+func (t *mockTransaction) Rollback() error                             { return t.rollbackErr }
 
 func TestRetryableTransactionRepository_CRUD(t *testing.T) {
 	repo := &mockTransactionRepo{}
@@ -591,7 +592,7 @@ func TestRetryableHTTPClient_Success(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	defer resp.Body.Close()
+	defer resp.Body.Close() //nolint:errcheck
 
 	if resp.StatusCode != http.StatusOK {
 		t.Errorf("expected 200, got %d", resp.StatusCode)
@@ -618,7 +619,7 @@ func TestRetryableHTTPClient_NoCircuitBreaker(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	defer resp.Body.Close()
+	defer resp.Body.Close() //nolint:errcheck
 }
 
 func TestRetryableHTTPClient_Disabled(t *testing.T) {
@@ -635,7 +636,7 @@ func TestRetryableHTTPClient_Disabled(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	defer resp.Body.Close()
+	defer resp.Body.Close() //nolint:errcheck
 }
 
 func TestRetryableHTTPClient_Disabled_WithCircuitBreaker(t *testing.T) {
@@ -653,7 +654,7 @@ func TestRetryableHTTPClient_Disabled_WithCircuitBreaker(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	defer resp.Body.Close()
+	defer resp.Body.Close() //nolint:errcheck
 }
 
 func TestRetryableHTTPClient_RetryOn500(t *testing.T) {
@@ -683,7 +684,7 @@ func TestRetryableHTTPClient_RetryOn500(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	defer resp.Body.Close()
+	defer resp.Body.Close() //nolint:errcheck
 
 	if resp.StatusCode != http.StatusOK {
 		t.Errorf("expected 200, got %d", resp.StatusCode)
@@ -847,7 +848,7 @@ func TestResponseRecorder_Header(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	defer resp.Body.Close()
+	defer resp.Body.Close() //nolint:errcheck
 
 	if resp.StatusCode != http.StatusOK {
 		t.Errorf("expected 200, got %d", resp.StatusCode)

@@ -630,9 +630,9 @@ func (m *mockCertRepo) List(_ context.Context, _ model.Scope, _ repositories.Cer
 }
 func (m *mockCertRepo) Delete(_ context.Context, _ uuid.UUID) error              { return nil }
 func (m *mockCertRepo) Revoke(_ context.Context, _ uuid.UUID, _, _ string) error { return nil }
-func (m *mockCertRepo) SoftDelete(_ context.Context, _ uuid.UUID) error         { return nil }
-func (m *mockCertRepo) RecoverCertificate(_ context.Context, _ uuid.UUID) error { return nil }
-func (m *mockCertRepo) PurgeCertificate(_ context.Context, _ uuid.UUID) error   { return nil }
+func (m *mockCertRepo) SoftDelete(_ context.Context, _ uuid.UUID) error          { return nil }
+func (m *mockCertRepo) RecoverCertificate(_ context.Context, _ uuid.UUID) error  { return nil }
+func (m *mockCertRepo) PurgeCertificate(_ context.Context, _ uuid.UUID) error    { return nil }
 func (m *mockCertRepo) ListSoftDeleted(_ context.Context, _ uuid.UUID) ([]*model.Certificate, error) {
 	return nil, nil
 }

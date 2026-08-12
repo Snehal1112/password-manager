@@ -23,7 +23,7 @@ func setupTagTestDB(t *testing.T) (*sql.DB, func()) {
 	`)
 	assert.NoError(t, err)
 	return sqlDB, func() {
-		sqlDB.Close()
+		sqlDB.Close() //nolint:errcheck
 		globalDB = nil
 	}
 }

@@ -118,7 +118,7 @@ func runMigrations(cmd *cobra.Command, args []string) error {
 		log.WithError(err).Error("Failed to open database connection")
 		return fmt.Errorf("failed to open database: %w", err)
 	}
-	defer database.Close()
+	defer database.Close() //nolint:errcheck
 
 	// Verify database connection
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
@@ -162,7 +162,7 @@ func showMigrationStatus(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return fmt.Errorf("failed to open database: %w", err)
 	}
-	defer database.Close()
+	defer database.Close() //nolint:errcheck
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
@@ -254,7 +254,7 @@ func migrateToVersion(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return fmt.Errorf("failed to open database: %w", err)
 	}
-	defer database.Close()
+	defer database.Close() //nolint:errcheck
 
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()

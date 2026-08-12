@@ -122,10 +122,10 @@ func TestRotationCreateCommand(t *testing.T) {
 			testCmd.Flags().Int("reminder", 5, "Reminder in days")
 
 			// Set up flags from test data
-			testCmd.Flags().Set("name", tt.policyName)
-			testCmd.Flags().Set("description", tt.description)
-			testCmd.Flags().Set("interval", fmt.Sprintf("%d", tt.interval))
-			testCmd.Flags().Set("reminder", fmt.Sprintf("%d", tt.reminder))
+			testCmd.Flags().Set("name", tt.policyName)                      //nolint:errcheck
+			testCmd.Flags().Set("description", tt.description)              //nolint:errcheck
+			testCmd.Flags().Set("interval", fmt.Sprintf("%d", tt.interval)) //nolint:errcheck
+			testCmd.Flags().Set("reminder", fmt.Sprintf("%d", tt.reminder)) //nolint:errcheck
 
 			// Capture output
 			var output bytes.Buffer

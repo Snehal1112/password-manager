@@ -75,24 +75,24 @@ var reportCmd = &cobra.Command{
 				if err != nil {
 					return fmt.Errorf("failed to generate SOC 2 CSV: %w", err)
 				}
-				fmt.Fprint(cmd.OutOrStdout(), csv)
+				fmt.Fprint(cmd.OutOrStdout(), csv) //nolint:errcheck
 			} else {
 				report, err := svc.GenerateSOC2Report(ctx, from, to)
 				if err != nil {
 					return fmt.Errorf("failed to generate SOC 2 report: %w", err)
 				}
-				fmt.Fprintf(cmd.OutOrStdout(), "SOC 2 Report: %s to %s\n", report.From.Format("2006-01-02"), report.To.Format("2006-01-02"))
-				fmt.Fprintf(cmd.OutOrStdout(), "  Total events:       %d\n", report.TotalEvents)
-				fmt.Fprintf(cmd.OutOrStdout(), "  Unique users:       %d\n", report.UniqueUsers)
-				fmt.Fprintf(cmd.OutOrStdout(), "  Auth successes:     %d\n", report.AuthSuccesses)
-				fmt.Fprintf(cmd.OutOrStdout(), "  Auth failures:      %d\n", report.AuthFailures)
-				fmt.Fprintf(cmd.OutOrStdout(), "  Data access events: %d\n", report.DataAccessEvents)
-				fmt.Fprintf(cmd.OutOrStdout(), "  Admin actions:      %d\n", report.AdminActions)
-				fmt.Fprintf(cmd.OutOrStdout(), "  Key operations:     %d\n", report.KeyOperations)
+				fmt.Fprintf(cmd.OutOrStdout(), "SOC 2 Report: %s to %s\n", report.From.Format("2006-01-02"), report.To.Format("2006-01-02")) //nolint:errcheck
+				fmt.Fprintf(cmd.OutOrStdout(), "  Total events:       %d\n", report.TotalEvents)                                             //nolint:errcheck
+				fmt.Fprintf(cmd.OutOrStdout(), "  Unique users:       %d\n", report.UniqueUsers)                                             //nolint:errcheck
+				fmt.Fprintf(cmd.OutOrStdout(), "  Auth successes:     %d\n", report.AuthSuccesses)                                           //nolint:errcheck
+				fmt.Fprintf(cmd.OutOrStdout(), "  Auth failures:      %d\n", report.AuthFailures)                                            //nolint:errcheck
+				fmt.Fprintf(cmd.OutOrStdout(), "  Data access events: %d\n", report.DataAccessEvents)                                        //nolint:errcheck
+				fmt.Fprintf(cmd.OutOrStdout(), "  Admin actions:      %d\n", report.AdminActions)                                            //nolint:errcheck
+				fmt.Fprintf(cmd.OutOrStdout(), "  Key operations:     %d\n", report.KeyOperations)                                           //nolint:errcheck
 				if len(report.TopActions) > 0 {
-					fmt.Fprintln(cmd.OutOrStdout(), "  Top actions:")
+					fmt.Fprintln(cmd.OutOrStdout(), "  Top actions:") //nolint:errcheck
 					for _, ac := range report.TopActions {
-						fmt.Fprintf(cmd.OutOrStdout(), "    %-30s %d\n", ac.Action, ac.Count)
+						fmt.Fprintf(cmd.OutOrStdout(), "    %-30s %d\n", ac.Action, ac.Count) //nolint:errcheck
 					}
 				}
 			}
@@ -106,18 +106,18 @@ var reportCmd = &cobra.Command{
 				if err != nil {
 					return fmt.Errorf("failed to generate GDPR CSV: %w", err)
 				}
-				fmt.Fprint(cmd.OutOrStdout(), csv)
+				fmt.Fprint(cmd.OutOrStdout(), csv) //nolint:errcheck
 			} else {
 				report, err := svc.GenerateGDPRReport(ctx, from, to, subjectID)
 				if err != nil {
 					return fmt.Errorf("failed to generate GDPR report: %w", err)
 				}
-				fmt.Fprintf(cmd.OutOrStdout(), "GDPR Report for subject: %s\n", report.SubjectID)
-				fmt.Fprintf(cmd.OutOrStdout(), "  Period:        %s to %s\n", report.From.Format("2006-01-02"), report.To.Format("2006-01-02"))
-				fmt.Fprintf(cmd.OutOrStdout(), "  Total events:  %d\n", report.TotalEvents)
-				fmt.Fprintf(cmd.OutOrStdout(), "  Data access:   %d\n", report.DataAccess)
-				fmt.Fprintf(cmd.OutOrStdout(), "  Deletions:     %d\n", report.Deletions)
-				fmt.Fprintf(cmd.OutOrStdout(), "  Auth events:   %d\n", report.AuthEvents)
+				fmt.Fprintf(cmd.OutOrStdout(), "GDPR Report for subject: %s\n", report.SubjectID)                                               //nolint:errcheck
+				fmt.Fprintf(cmd.OutOrStdout(), "  Period:        %s to %s\n", report.From.Format("2006-01-02"), report.To.Format("2006-01-02")) //nolint:errcheck
+				fmt.Fprintf(cmd.OutOrStdout(), "  Total events:  %d\n", report.TotalEvents)                                                     //nolint:errcheck
+				fmt.Fprintf(cmd.OutOrStdout(), "  Data access:   %d\n", report.DataAccess)                                                      //nolint:errcheck
+				fmt.Fprintf(cmd.OutOrStdout(), "  Deletions:     %d\n", report.Deletions)                                                       //nolint:errcheck
+				fmt.Fprintf(cmd.OutOrStdout(), "  Auth events:   %d\n", report.AuthEvents)                                                      //nolint:errcheck
 			}
 
 		default:

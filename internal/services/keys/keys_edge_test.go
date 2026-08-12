@@ -504,8 +504,8 @@ type testKeyCache struct {
 }
 
 func (c *testKeyCache) Get(_ uuid.UUID, _ int) (*keycache.Entry, bool) { return nil, false }
-func (c *testKeyCache) Set(_ uuid.UUID, _ int, _ *keycache.Entry)       {}
-func (c *testKeyCache) Invalidate(id uuid.UUID)                         { c.lastInvalidated = id }
-func (c *testKeyCache) InvalidateAll()                                  {}
-func (c *testKeyCache) Stats() keycache.CacheStats                      { return keycache.CacheStats{} }
-func (c *testKeyCache) Stop()                                           {}
+func (c *testKeyCache) Set(_ uuid.UUID, _ int, _ *keycache.Entry)      {}
+func (c *testKeyCache) Invalidate(id uuid.UUID)                        { c.lastInvalidated = id }
+func (c *testKeyCache) InvalidateAll()                                 {}
+func (c *testKeyCache) Stats() keycache.CacheStats                     { return keycache.CacheStats{} }
+func (c *testKeyCache) Stop()                                          {}

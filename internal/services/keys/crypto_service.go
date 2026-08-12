@@ -200,10 +200,10 @@ func resolveKeyHandle(storedValue string) (handle string, isPKCS11 bool, err err
 // and caching is skipped entirely. On a cache hit, handle contains the decrypted
 // PEM string stored earlier.
 func (s *cryptoService) resolveKeyMaterial(key *model.Key) (
-	handle   string,
+	handle string,
 	isPKCS11 bool,
 	cacheHit bool,
-	err      error,
+	err error,
 ) {
 	// PKCS#11 keys store the token handle directly; never cache them.
 	if strings.HasPrefix(key.Value, pkcs11Prefix) {

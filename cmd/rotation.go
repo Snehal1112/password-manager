@@ -184,7 +184,7 @@ func init() {
 	rotationCreateCmd.Flags().IntVar(&policyInterval, "interval", 30, "Rotation interval in days")
 	rotationCreateCmd.Flags().IntVar(&policyReminder, "reminder", 7, "Reminder days before rotation")
 	rotationCreateCmd.Flags().BoolVar(&policyAutoRotate, "auto-rotate", false, "Enable automatic rotation")
-	rotationCreateCmd.MarkFlagRequired("name")
+	rotationCreateCmd.MarkFlagRequired("name") //nolint:errcheck
 
 	// Update command flags
 	rotationUpdateCmd.Flags().StringVar(&policyID, "id", "", "Policy ID (required)")
@@ -193,33 +193,33 @@ func init() {
 	rotationUpdateCmd.Flags().IntVar(&policyInterval, "interval", 0, "Rotation interval in days")
 	rotationUpdateCmd.Flags().IntVar(&policyReminder, "reminder", 0, "Reminder days before rotation")
 	rotationUpdateCmd.Flags().BoolVar(&policyAutoRotate, "auto-rotate", false, "Enable automatic rotation")
-	rotationUpdateCmd.MarkFlagRequired("id")
+	rotationUpdateCmd.MarkFlagRequired("id") //nolint:errcheck
 
 	// Delete command flags
 	rotationDeleteCmd.Flags().StringVar(&policyID, "id", "", "Policy ID (required)")
-	rotationDeleteCmd.MarkFlagRequired("id")
+	rotationDeleteCmd.MarkFlagRequired("id") //nolint:errcheck
 
 	// Assign command flags
 	rotationAssignCmd.Flags().StringVar(&policyID, "policy-id", "", "Policy ID (required)")
 	rotationAssignCmd.Flags().StringVar(&secretID, "secret-id", "", "Secret ID (required)")
-	rotationAssignCmd.MarkFlagRequired("policy-id")
-	rotationAssignCmd.MarkFlagRequired("secret-id")
+	rotationAssignCmd.MarkFlagRequired("policy-id") //nolint:errcheck
+	rotationAssignCmd.MarkFlagRequired("secret-id") //nolint:errcheck
 
 	// Unassign command flags
 	rotationUnassignCmd.Flags().StringVar(&policyID, "policy-id", "", "Policy ID (required)")
 	rotationUnassignCmd.Flags().StringVar(&secretID, "secret-id", "", "Secret ID (required)")
-	rotationUnassignCmd.MarkFlagRequired("policy-id")
-	rotationUnassignCmd.MarkFlagRequired("secret-id")
+	rotationUnassignCmd.MarkFlagRequired("policy-id") //nolint:errcheck
+	rotationUnassignCmd.MarkFlagRequired("secret-id") //nolint:errcheck
 
 	// Rotate command flags
 	rotationRotateCmd.Flags().StringVar(&secretID, "secret-id", "", "Secret ID (required)")
 	rotationRotateCmd.Flags().StringVar(&policyID, "policy-id", "", "Policy ID (required)")
-	rotationRotateCmd.MarkFlagRequired("secret-id")
-	rotationRotateCmd.MarkFlagRequired("policy-id")
+	rotationRotateCmd.MarkFlagRequired("secret-id") //nolint:errcheck
+	rotationRotateCmd.MarkFlagRequired("policy-id") //nolint:errcheck
 
 	// History command flags
 	rotationHistoryCmd.Flags().StringVar(&secretID, "secret-id", "", "Secret ID (required)")
-	rotationHistoryCmd.MarkFlagRequired("secret-id")
+	rotationHistoryCmd.MarkFlagRequired("secret-id") //nolint:errcheck
 
 	// Status command has no flags
 }
@@ -243,7 +243,7 @@ func runRotationCreate(cmd *cobra.Command) error {
 	if err != nil {
 		return fmt.Errorf("failed to create rotation policy: %w", err)
 	}
-	fmt.Fprintf(cmd.OutOrStdout(), "Rotation policy created successfully\nPolicy ID: %s\nName: %s\nInterval: %d days\nAuto-rotate: %t\n",
+	fmt.Fprintf(cmd.OutOrStdout(), "Rotation policy created successfully\nPolicy ID: %s\nName: %s\nInterval: %d days\nAuto-rotate: %t\n", //nolint:errcheck
 		policy.ID, policy.Name, policy.IntervalDays, policy.AutoRotate)
 	return nil
 }
@@ -260,19 +260,19 @@ func runRotationList(cmd *cobra.Command) error {
 		return fmt.Errorf("failed to list rotation policies: %w", err)
 	}
 	if len(policies) == 0 {
-		fmt.Fprintln(cmd.OutOrStdout(), "No rotation policies found.")
+		fmt.Fprintln(cmd.OutOrStdout(), "No rotation policies found.") //nolint:errcheck
 		return nil
 	}
 	w := tabwriter.NewWriter(cmd.OutOrStdout(), 0, 0, 2, ' ', 0)
-	fmt.Fprintln(w, "ID\tNAME\tINTERVAL\tAUTO-ROTATE\tENABLED\tCREATED")
-	fmt.Fprintln(w, "--\t----\t--------\t-----------\t-------\t-------")
+	fmt.Fprintln(w, "ID\tNAME\tINTERVAL\tAUTO-ROTATE\tENABLED\tCREATED") //nolint:errcheck
+	fmt.Fprintln(w, "--\t----\t--------\t-----------\t-------\t-------") //nolint:errcheck
 	for _, p := range policies {
-		fmt.Fprintf(w, "%s\t%s\t%d days\t%t\t%t\t%s\n",
+		fmt.Fprintf(w, "%s\t%s\t%d days\t%t\t%t\t%s\n", //nolint:errcheck
 			p.ID.String()[:8]+"...", p.Name, p.IntervalDays,
 			p.AutoRotate, p.Enabled, p.CreatedAt.Format("2006-01-02"))
 	}
-	w.Flush()
-	fmt.Fprintf(cmd.OutOrStdout(), "\nFound %d rotation policies\n", len(policies))
+	w.Flush()                                                                       //nolint:errcheck
+	fmt.Fprintf(cmd.OutOrStdout(), "\nFound %d rotation policies\n", len(policies)) //nolint:errcheck
 	return nil
 }
 
@@ -319,7 +319,7 @@ func runRotationUpdate(cmd *cobra.Command) error {
 	if _, err := sc.GetRotationService().UpdatePolicy(ctx, req); err != nil {
 		return fmt.Errorf("failed to update rotation policy: %w", err)
 	}
-	fmt.Fprintln(cmd.OutOrStdout(), "Rotation policy updated successfully.")
+	fmt.Fprintln(cmd.OutOrStdout(), "Rotation policy updated successfully.") //nolint:errcheck
 	return nil
 }
 
@@ -337,7 +337,7 @@ func runRotationDelete(cmd *cobra.Command) error {
 	if err := sc.GetRotationService().DeletePolicy(ctx, pid, userID); err != nil {
 		return fmt.Errorf("failed to delete rotation policy: %w", err)
 	}
-	fmt.Fprintln(cmd.OutOrStdout(), "Rotation policy deleted successfully.")
+	fmt.Fprintln(cmd.OutOrStdout(), "Rotation policy deleted successfully.") //nolint:errcheck
 	return nil
 }
 
@@ -363,7 +363,7 @@ func runRotationAssign(cmd *cobra.Command) error {
 	}); err != nil {
 		return fmt.Errorf("failed to assign policy to secret: %w", err)
 	}
-	fmt.Fprintln(cmd.OutOrStdout(), "Policy assigned to secret successfully.")
+	fmt.Fprintln(cmd.OutOrStdout(), "Policy assigned to secret successfully.") //nolint:errcheck
 	return nil
 }
 
@@ -385,7 +385,7 @@ func runRotationUnassign(cmd *cobra.Command) error {
 	if err := sc.GetRotationService().RemovePolicyFromSecret(ctx, sid, pid, userID); err != nil {
 		return fmt.Errorf("failed to remove policy from secret: %w", err)
 	}
-	fmt.Fprintln(cmd.OutOrStdout(), "Policy removed from secret successfully.")
+	fmt.Fprintln(cmd.OutOrStdout(), "Policy removed from secret successfully.") //nolint:errcheck
 	return nil
 }
 
@@ -411,7 +411,7 @@ func runRotationRotate(cmd *cobra.Command) error {
 	}); err != nil {
 		return fmt.Errorf("failed to rotate secret: %w", err)
 	}
-	fmt.Fprintln(cmd.OutOrStdout(), "Secret rotated successfully.")
+	fmt.Fprintln(cmd.OutOrStdout(), "Secret rotated successfully.") //nolint:errcheck
 	return nil
 }
 
@@ -431,23 +431,23 @@ func runRotationHistory(cmd *cobra.Command) error {
 		return fmt.Errorf("failed to get rotation history: %w", err)
 	}
 	if len(history) == 0 {
-		fmt.Fprintf(cmd.OutOrStdout(), "No rotation history found for secret %s\n", secretID)
+		fmt.Fprintf(cmd.OutOrStdout(), "No rotation history found for secret %s\n", secretID) //nolint:errcheck
 		return nil
 	}
 	w := tabwriter.NewWriter(cmd.OutOrStdout(), 0, 0, 2, ' ', 0)
-	fmt.Fprintln(w, "ROTATED_AT\tTRIGGERED_BY\tPREV_VERSION\tNEW_VERSION\tNOTES")
-	fmt.Fprintln(w, "----------\t------------\t------------\t-----------\t-----")
+	fmt.Fprintln(w, "ROTATED_AT\tTRIGGERED_BY\tPREV_VERSION\tNEW_VERSION\tNOTES") //nolint:errcheck
+	fmt.Fprintln(w, "----------\t------------\t------------\t-----------\t-----") //nolint:errcheck
 	for _, h := range history {
 		notes := h.Notes
 		if len(notes) > 30 {
 			notes = notes[:27] + "..."
 		}
-		fmt.Fprintf(w, "%s\t%s\t%d\t%d\t%s\n",
+		fmt.Fprintf(w, "%s\t%s\t%d\t%d\t%s\n", //nolint:errcheck
 			h.RotatedAt.Format("2006-01-02 15:04"), h.TriggeredBy,
 			h.PreviousVersion, h.NewVersion, notes)
 	}
-	w.Flush()
-	fmt.Fprintf(cmd.OutOrStdout(), "\nFound %d rotation events\n", len(history))
+	w.Flush()                                                                    //nolint:errcheck
+	fmt.Fprintf(cmd.OutOrStdout(), "\nFound %d rotation events\n", len(history)) //nolint:errcheck
 	return nil
 }
 
@@ -473,35 +473,35 @@ func runRotationStatus(cmd *cobra.Command) error {
 		return fmt.Errorf("failed to list policies: %w", err)
 	}
 
-	fmt.Fprintln(cmd.OutOrStdout(), "Rotation Status")
-	fmt.Fprintln(cmd.OutOrStdout(), "────────────────────────────────────────")
+	fmt.Fprintln(cmd.OutOrStdout(), "Rotation Status")                          //nolint:errcheck
+	fmt.Fprintln(cmd.OutOrStdout(), "────────────────────────────────────────") //nolint:errcheck
 	if len(due) > 0 {
-		fmt.Fprintln(cmd.OutOrStdout(), "Secrets due for rotation:")
+		fmt.Fprintln(cmd.OutOrStdout(), "Secrets due for rotation:") //nolint:errcheck
 		for _, d := range due {
 			nextRotation := "Unknown"
 			if d.NextRotationAt != nil {
 				nextRotation = d.NextRotationAt.Format("2006-01-02")
 			}
-			fmt.Fprintf(cmd.OutOrStdout(), "  - Secret %s (next: %s)\n", d.SecretID.String()[:8]+"...", nextRotation)
+			fmt.Fprintf(cmd.OutOrStdout(), "  - Secret %s (next: %s)\n", d.SecretID.String()[:8]+"...", nextRotation) //nolint:errcheck
 		}
 	} else {
-		fmt.Fprintln(cmd.OutOrStdout(), "No secrets are currently due for rotation.")
+		fmt.Fprintln(cmd.OutOrStdout(), "No secrets are currently due for rotation.") //nolint:errcheck
 	}
 	if len(reminders) > 0 {
-		fmt.Fprintln(cmd.OutOrStdout(), "\nUpcoming reminders:")
+		fmt.Fprintln(cmd.OutOrStdout(), "\nUpcoming reminders:") //nolint:errcheck
 		for _, r := range reminders {
-			fmt.Fprintf(cmd.OutOrStdout(), "  - Secret %s (%s reminder)\n", r.SecretID.String()[:8]+"...", r.ReminderType)
+			fmt.Fprintf(cmd.OutOrStdout(), "  - Secret %s (%s reminder)\n", r.SecretID.String()[:8]+"...", r.ReminderType) //nolint:errcheck
 		}
 	}
 	if len(policies) > 0 {
-		fmt.Fprintln(cmd.OutOrStdout(), "\nActive rotation policies:")
+		fmt.Fprintln(cmd.OutOrStdout(), "\nActive rotation policies:") //nolint:errcheck
 		for _, p := range policies {
 			if p.Enabled {
 				line := fmt.Sprintf("  - %s: every %d days", p.Name, p.IntervalDays)
 				if p.AutoRotate {
 					line += " (auto-rotate enabled)"
 				}
-				fmt.Fprintln(cmd.OutOrStdout(), line)
+				fmt.Fprintln(cmd.OutOrStdout(), line) //nolint:errcheck
 			}
 		}
 	}

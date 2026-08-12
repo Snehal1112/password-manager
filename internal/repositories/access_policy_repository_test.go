@@ -33,7 +33,7 @@ created_at     TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 )
 	`)
 	require.NoError(t, err)
-	t.Cleanup(func() { db.Close() })
+	t.Cleanup(func() { db.Close() }) //nolint:errcheck
 	return db
 }
 

@@ -14,8 +14,8 @@ import (
 	"path/filepath"
 	"time"
 
-	keyring "github.com/zalando/go-keyring"
 	"github.com/sirupsen/logrus"
+	keyring "github.com/zalando/go-keyring"
 )
 
 // OSStoreProvider looks up a certificate by CN in the OS trust store.
@@ -119,9 +119,9 @@ func keychainUser(cn string) string {
 }
 
 func (p *OSStoreProvider) PrivateKey() crypto.Signer   { return p.privateKey }
-func (p *OSStoreProvider) PublicKeys() []PublicKeyInfo  { return p.publicInfo }
-func (p *OSStoreProvider) Algorithm() string            { return osStoreAlgorithm }
-func (p *OSStoreProvider) KeyID() string                { return p.kid }
+func (p *OSStoreProvider) PublicKeys() []PublicKeyInfo { return p.publicInfo }
+func (p *OSStoreProvider) Algorithm() string           { return osStoreAlgorithm }
+func (p *OSStoreProvider) KeyID() string               { return p.kid }
 
 // generateSelfSignedRSA creates a new RSA-2048 key and a self-signed certificate.
 func generateSelfSignedRSA(cn string) (*rsa.PrivateKey, *x509.Certificate, error) {

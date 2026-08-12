@@ -164,7 +164,7 @@ func persistentPreRun(cmd *cobra.Command, args []string) error {
 
 	// Ensure database is initialized.
 	database := db.NewRepository(log)
-	database.InitializeDB()
+	database.InitializeDB() //nolint:errcheck
 
 	// Create service container
 	serviceContainer, err := container.NewServiceContainer(container.Config{

@@ -22,7 +22,7 @@ func newScopeTestCertRepo(t *testing.T) *CertificateRepository {
 	dsn := "file:certscope_" + uuid.NewString() + "?mode=memory&cache=shared"
 	db, err := sql.Open("sqlite3", dsn)
 	require.NoError(t, err)
-	t.Cleanup(func() { db.Close() })
+	t.Cleanup(func() { db.Close() }) //nolint:errcheck
 
 	_, err = db.Exec(`CREATE TABLE IF NOT EXISTS certificates (
 		id TEXT PRIMARY KEY,

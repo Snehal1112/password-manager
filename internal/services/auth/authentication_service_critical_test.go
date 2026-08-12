@@ -14,8 +14,8 @@ import (
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 
-	"rocketvault/model"
 	"rocketvault/internal/logging"
+	"rocketvault/model"
 )
 
 func newAuthService(
@@ -90,9 +90,9 @@ func TestRefreshAccessToken_HappyPath(t *testing.T) {
 	sessionID := uuid.New()
 
 	session := &model.Session{
-		ID:       sessionID,
-		UserID:   userID,
-		Revoked:  false,
+		ID:        sessionID,
+		UserID:    userID,
+		Revoked:   false,
 		ExpiresAt: time.Now().Add(time.Hour),
 	}
 	user := &model.User{ID: userID, Username: "bob", Role: model.RoleUser}

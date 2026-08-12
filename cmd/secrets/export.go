@@ -125,5 +125,5 @@ func InitSecretsExport(parentCmd *cobra.Command) {
 	secretsExportCmd.Flags().BoolVarP(&exportEncrypt, "encrypt", "e", true, "Encrypt the export file")
 	secretsExportCmd.Flags().StringSliceVarP(&exportTags, "tags", "t", []string{}, "Include only secrets with these tags")
 	secretsExportCmd.Flags().StringSliceVar(&exportFilterTags, "filter-tags", []string{}, "Filter secrets by these tags")
-	secretsExportCmd.MarkFlagRequired("file")
+	secretsExportCmd.MarkFlagRequired("file") //nolint:errcheck
 }

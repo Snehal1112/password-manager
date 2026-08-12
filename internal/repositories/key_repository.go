@@ -200,7 +200,7 @@ func (r *KeyRepository) List(ctx context.Context, scope model.Scope, filter KeyF
 		if queryErr != nil {
 			return fmt.Errorf("failed to query keys: %w", queryErr)
 		}
-		defer rows.Close()
+		defer rows.Close() //nolint:errcheck
 
 		tagRepo := db.NewTagRepository[model.Key](r.db, "key_tags", "key_id")
 		keyList = make([]model.Key, 0, 50)
@@ -296,7 +296,7 @@ func (r *KeyRepository) Create(ctx context.Context, key *model.Key) error {
 			r.log.LogAuditError(key.UserID.String(), "create_key", "failed", "Failed to begin transaction", err)
 			return fmt.Errorf("failed to begin transaction: %w", err)
 		}
-		defer tx.Rollback()
+		defer tx.Rollback() //nolint:errcheck
 
 		// Insert key with pre-encrypted value.
 		_, err = tx.ExecContext(
@@ -417,7 +417,7 @@ func (r *KeyRepository) Delete(ctx context.Context, id uuid.UUID) error {
 			r.log.LogAuditError(uuid.Nil.String(), "delete_key", "failed", "Failed to begin transaction", err)
 			return fmt.Errorf("failed to begin transaction: %w", err)
 		}
-		defer tx.Rollback()
+		defer tx.Rollback() //nolint:errcheck
 
 		// Delete tags first
 		_, err = tx.ExecContext(ctx, "DELETE FROM key_tags WHERE key_id = ?", id.String())
@@ -691,7 +691,7 @@ func (r *KeyRepository) ListSoftDeleted(ctx context.Context, userID uuid.UUID) (
 			r.log.LogAuditError(userID.String(), "list_soft_deleted_keys", "failed", "Failed to query soft-deleted keys", err)
 			return fmt.Errorf("failed to query soft-deleted keys: %w", err)
 		}
-		defer rows.Close()
+		defer rows.Close() //nolint:errcheck
 
 		keyList = make([]*model.Key, 0)
 
@@ -787,7 +787,7 @@ func (r *KeyRepository) ListVersions(ctx context.Context, keyID, userID uuid.UUI
 	if err != nil {
 		return nil, fmt.Errorf("failed to query key versions: %w", err)
 	}
-	defer rows.Close()
+	defer rows.Close() //nolint:errcheck
 
 	var versions []model.KeyVersion
 	for rows.Next() {

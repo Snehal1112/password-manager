@@ -47,10 +47,10 @@ func NewExternalPKIProvider(signingKeyFile string) (*ExternalPKIProvider, error)
 	}, nil
 }
 
-func (p *ExternalPKIProvider) PrivateKey() crypto.Signer    { return p.privateKey }
-func (p *ExternalPKIProvider) PublicKeys() []PublicKeyInfo   { return p.publicInfo }
-func (p *ExternalPKIProvider) Algorithm() string             { return p.algorithm }
-func (p *ExternalPKIProvider) KeyID() string                 { return p.kid }
+func (p *ExternalPKIProvider) PrivateKey() crypto.Signer   { return p.privateKey }
+func (p *ExternalPKIProvider) PublicKeys() []PublicKeyInfo { return p.publicInfo }
+func (p *ExternalPKIProvider) Algorithm() string           { return p.algorithm }
+func (p *ExternalPKIProvider) KeyID() string               { return p.kid }
 
 // loadPEM returns PEM bytes from env var or file.
 func loadPEM(keyFile string) ([]byte, error) {

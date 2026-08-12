@@ -232,7 +232,7 @@ func (l *Logger) RotateLogFile() error {
 	if err != nil {
 		return fmt.Errorf("failed to open current log file: %w", err)
 	}
-	currentFile.Close()
+	currentFile.Close() //nolint:errcheck
 
 	// Generate new rotated file name with timestamp.
 	timestamp := time.Now().Format("20060102_150405")
@@ -264,16 +264,16 @@ func compressLogFile(src, dst string) error {
 	if err != nil {
 		return fmt.Errorf("failed to open source file: %w", err)
 	}
-	defer in.Close()
+	defer in.Close() //nolint:errcheck
 
 	out, err := os.Create(dst)
 	if err != nil {
 		return fmt.Errorf("failed to create destination file: %w", err)
 	}
-	defer out.Close()
+	defer out.Close() //nolint:errcheck
 
 	gzWriter := gzip.NewWriter(out)
-	defer gzWriter.Close()
+	defer gzWriter.Close() //nolint:errcheck
 
 	_, err = io.Copy(gzWriter, in)
 	if err != nil {

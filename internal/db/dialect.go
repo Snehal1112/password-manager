@@ -136,7 +136,7 @@ func (d Dialect) ColumnExists(ctx context.Context, q DBTX, table, column string)
 	if err != nil {
 		return false, fmt.Errorf("check column %s.%s: %w", table, column, err)
 	}
-	defer rows.Close()
+	defer rows.Close() //nolint:errcheck
 
 	for rows.Next() {
 		var (

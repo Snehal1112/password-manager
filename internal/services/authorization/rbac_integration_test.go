@@ -3,8 +3,8 @@ package authorization
 import (
 	"testing"
 
-	"rocketvault/model"
 	"rocketvault/internal/logging"
+	"rocketvault/model"
 )
 
 // TestRBACPermissionValidation validates that each role has the correct permissions.
@@ -229,9 +229,9 @@ func TestGetRolePermissions(t *testing.T) {
 			},
 		},
 		{
-			name:         "unknown role has no permissions",
-			role:         "unknown",
-			minPermCount: 0,
+			name:          "unknown role has no permissions",
+			role:          "unknown",
+			minPermCount:  0,
 			shouldInclude: []Permission{},
 			shouldExclude: []Permission{
 				PermissionReadSecret,

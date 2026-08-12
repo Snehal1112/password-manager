@@ -103,17 +103,17 @@ var versionLatestCmd = &cobra.Command{
 func init() {
 	// List command flags
 	versionListCmd.Flags().StringVar(&versionSecretID, "secret-id", "", "Secret ID to list versions for (required)")
-	versionListCmd.MarkFlagRequired("secret-id")
+	versionListCmd.MarkFlagRequired("secret-id") //nolint:errcheck
 
 	// Get command flags
 	versionGetCmd.Flags().StringVar(&versionSecretID, "secret-id", "", "Secret ID to get version for (required)")
 	versionGetCmd.Flags().IntVar(&versionNumber, "version", 0, "Version number to retrieve (required)")
-	versionGetCmd.MarkFlagRequired("secret-id")
-	versionGetCmd.MarkFlagRequired("version")
+	versionGetCmd.MarkFlagRequired("secret-id") //nolint:errcheck
+	versionGetCmd.MarkFlagRequired("version")   //nolint:errcheck
 
 	// Latest command flags
 	versionLatestCmd.Flags().StringVar(&versionSecretID, "secret-id", "", "Secret ID to get latest version for (required)")
-	versionLatestCmd.MarkFlagRequired("secret-id")
+	versionLatestCmd.MarkFlagRequired("secret-id") //nolint:errcheck
 }
 
 func runVersionList(cmd *cobra.Command) error {
@@ -136,19 +136,19 @@ func runVersionList(cmd *cobra.Command) error {
 	}
 
 	if len(versions) == 0 {
-		fmt.Fprintf(cmd.OutOrStdout(), "No versions found for secret %s\n", versionSecretID)
+		fmt.Fprintf(cmd.OutOrStdout(), "No versions found for secret %s\n", versionSecretID) //nolint:errcheck
 		return nil
 	}
 
 	w := tabwriter.NewWriter(cmd.OutOrStdout(), 0, 0, 2, ' ', 0)
-	fmt.Fprintln(w, "VERSION\tCREATED_AT\tNAME\tVALUE")
-	fmt.Fprintln(w, "-------\t----------\t----\t-----")
+	fmt.Fprintln(w, "VERSION\tCREATED_AT\tNAME\tVALUE") //nolint:errcheck
+	fmt.Fprintln(w, "-------\t----------\t----\t-----") //nolint:errcheck
 	for _, v := range versions {
-		fmt.Fprintf(w, "%d\t%s\t%s\t%s\n",
+		fmt.Fprintf(w, "%d\t%s\t%s\t%s\n", //nolint:errcheck
 			v.Version, v.CreatedAt.Format("2006-01-02 15:04:05"), v.Name, v.Value)
 	}
-	w.Flush()
-	fmt.Fprintf(cmd.OutOrStdout(), "\nFound %d versions for secret %s\n", len(versions), versionSecretID)
+	w.Flush()                                                                                             //nolint:errcheck
+	fmt.Fprintf(cmd.OutOrStdout(), "\nFound %d versions for secret %s\n", len(versions), versionSecretID) //nolint:errcheck
 	return nil
 }
 
@@ -171,7 +171,7 @@ func runVersionGet(cmd *cobra.Command) error {
 		return fmt.Errorf("failed to get version: %w", err)
 	}
 
-	fmt.Fprintf(cmd.OutOrStdout(), "Secret ID: %s\nVersion:   %d\nName:      %s\nValue:     %s\nCreated:   %s\n",
+	fmt.Fprintf(cmd.OutOrStdout(), "Secret ID: %s\nVersion:   %d\nName:      %s\nValue:     %s\nCreated:   %s\n", //nolint:errcheck
 		version.SecretID, version.Version, version.Name, version.Value,
 		version.CreatedAt.Format("2006-01-02 15:04:05"))
 	return nil
@@ -196,7 +196,7 @@ func runVersionLatest(cmd *cobra.Command) error {
 		return fmt.Errorf("failed to get latest version: %w", err)
 	}
 
-	fmt.Fprintf(cmd.OutOrStdout(), "Secret ID: %s\nVersion:   %d\nName:      %s\nValue:     %s\nCreated:   %s\n",
+	fmt.Fprintf(cmd.OutOrStdout(), "Secret ID: %s\nVersion:   %d\nName:      %s\nValue:     %s\nCreated:   %s\n", //nolint:errcheck
 		version.SecretID, version.Version, version.Name, version.Value,
 		version.CreatedAt.Format("2006-01-02 15:04:05"))
 	return nil

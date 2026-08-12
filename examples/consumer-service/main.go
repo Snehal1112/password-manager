@@ -93,7 +93,7 @@ func fetchFrontendConfig(vaultURL string) (map[string]any, error) {
 	if err != nil {
 		return nil, fmt.Errorf("GET /api/v1/config: %w", err)
 	}
-	defer resp.Body.Close()
+	defer resp.Body.Close() //nolint:errcheck
 
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("GET /api/v1/config: status %d", resp.StatusCode)

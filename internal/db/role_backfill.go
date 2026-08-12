@@ -170,7 +170,7 @@ func vaultNamesByID(ctx context.Context, q DBTX) (map[string]string, error) {
 	if err != nil {
 		return nil, fmt.Errorf("list vaults for role backfill: %w", err)
 	}
-	defer rows.Close()
+	defer rows.Close() //nolint:errcheck
 	out := map[string]string{}
 	for rows.Next() {
 		var id, name string
@@ -210,7 +210,7 @@ func scanOwnership(ctx context.Context, q DBTX, src ownershipBackfillSource,
 	if err != nil {
 		return fmt.Errorf("scan %s ownership: %w", src.Table, err)
 	}
-	defer rows.Close()
+	defer rows.Close() //nolint:errcheck
 	for rows.Next() {
 		var userID, vaultID string
 		if err := rows.Scan(&userID, &vaultID); err != nil {
@@ -266,7 +266,7 @@ func scanLegacyRoleAssignments(ctx context.Context, q DBTX, add func(principal, 
 	if err != nil {
 		return fmt.Errorf("scan legacy role_assignments: %w", err)
 	}
-	defer rows.Close()
+	defer rows.Close() //nolint:errcheck
 	for rows.Next() {
 		var principalID, vaultID, role string
 		if err := rows.Scan(&principalID, &vaultID, &role); err != nil {
@@ -297,7 +297,7 @@ func globalAdminIDs(ctx context.Context, q DBTX, dialect Dialect) ([]string, err
 	if err != nil {
 		return nil, fmt.Errorf("list global admins: %w", err)
 	}
-	defer rows.Close()
+	defer rows.Close() //nolint:errcheck
 	var out []string
 	for rows.Next() {
 		var id string

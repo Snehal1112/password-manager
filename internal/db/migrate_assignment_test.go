@@ -19,7 +19,7 @@ import (
 func TestMigrateSchema_AddsAssignmentIDIdempotent(t *testing.T) {
 	conn, err := sql.Open("sqlite3", ":memory:")
 	require.NoError(t, err)
-	defer conn.Close()
+	defer conn.Close() //nolint:errcheck
 
 	// Create the prerequisite tables in their old shape, WITHOUT the columns
 	// that migrateSchema adds. The ALTER TABLE statements in migrateSchema only
@@ -86,7 +86,7 @@ func TestMigrateSchema_AddsAssignmentIDIdempotent(t *testing.T) {
 func TestMigrate_CreatesRoleAssignmentsTable(t *testing.T) {
 	conn, err := sql.Open("sqlite3", ":memory:")
 	require.NoError(t, err)
-	defer conn.Close()
+	defer conn.Close() //nolint:errcheck
 
 	// Create the prerequisite tables in their old shape so the ALTER TABLE
 	// statements in migrateSchema have targets to operate on.
@@ -145,7 +145,7 @@ func TestMigrate_CreatesRoleAssignmentsTable(t *testing.T) {
 func TestMigrate_CreatesPrincipalVaultIndex(t *testing.T) {
 	conn, err := sql.Open("sqlite3", ":memory:")
 	require.NoError(t, err)
-	defer conn.Close()
+	defer conn.Close() //nolint:errcheck
 
 	_, err = conn.Exec(`
 		CREATE TABLE secrets (

@@ -121,8 +121,8 @@ func InitKeysUnwrap(keysCmd *cobra.Command) *cobra.Command {
 
 	unwrapCmd.Flags().String("key-id", "", "UUID of the vault RSA key used for unwrapping")
 	unwrapCmd.Flags().String("wrapped-key", "", "Base64-encoded wrapped key material to unwrap")
-	viper.BindPFlag("unwrap-key-id", unwrapCmd.Flags().Lookup("key-id"))
-	viper.BindPFlag("unwrap-wrapped-key", unwrapCmd.Flags().Lookup("wrapped-key"))
+	viper.BindPFlag("unwrap-key-id", unwrapCmd.Flags().Lookup("key-id"))           //nolint:errcheck
+	viper.BindPFlag("unwrap-wrapped-key", unwrapCmd.Flags().Lookup("wrapped-key")) //nolint:errcheck
 
 	return keysCmd
 }

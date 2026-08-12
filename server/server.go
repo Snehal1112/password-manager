@@ -288,7 +288,7 @@ func (s *Server) HandleWebSocket(w http.ResponseWriter, r *http.Request, message
 		s.logger.WithError(err).Error("WebSocket upgrade failed")
 		return err
 	}
-	defer conn.Close()
+	defer conn.Close() //nolint:errcheck
 
 	s.logger.WithFields(logrus.Fields{
 		"remote_addr": r.RemoteAddr,

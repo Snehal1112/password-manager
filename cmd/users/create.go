@@ -140,9 +140,9 @@ func InitUsersCreate(usersCmd *cobra.Command) *cobra.Command {
 	createCmd.Flags().String("new-password", "", "Password for the new user")
 	createCmd.Flags().String("new-role", "", "Role for the new user (e.g., secrets_manager, crypto_manager, certificate_manager)")
 
-	viper.BindPFlag("new-username", createCmd.Flags().Lookup("new-username"))
-	viper.BindPFlag("new-password", createCmd.Flags().Lookup("new-password"))
-	viper.BindPFlag("new-role", createCmd.Flags().Lookup("new-role"))
+	viper.BindPFlag("new-username", createCmd.Flags().Lookup("new-username")) //nolint:errcheck
+	viper.BindPFlag("new-password", createCmd.Flags().Lookup("new-password")) //nolint:errcheck
+	viper.BindPFlag("new-role", createCmd.Flags().Lookup("new-role"))         //nolint:errcheck
 
 	return usersCmd
 }

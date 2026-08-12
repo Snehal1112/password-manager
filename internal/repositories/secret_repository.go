@@ -278,7 +278,7 @@ func (r *SecretRepository) List(ctx context.Context, scope model.Scope, filter S
 		if queryErr != nil {
 			return fmt.Errorf("failed to query secrets: %w", queryErr)
 		}
-		defer rows.Close()
+		defer rows.Close() //nolint:errcheck
 
 		secretList = make([]model.Secret, 0, 50)
 		for rows.Next() {

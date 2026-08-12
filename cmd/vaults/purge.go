@@ -35,7 +35,7 @@ var purgeCmd = &cobra.Command{
 			return fmt.Errorf("failed to purge vault %q: %w", name, err)
 		}
 
-		fmt.Fprintf(cmd.OutOrStdout(), "Vault %q purged successfully\n", name)
+		fmt.Fprintf(cmd.OutOrStdout(), "Vault %q purged successfully\n", name) //nolint:errcheck
 		return nil
 	},
 }

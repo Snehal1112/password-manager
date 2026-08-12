@@ -120,8 +120,8 @@ func InitKeysUpdate(keysCmd *cobra.Command) *cobra.Command {
 	updateCmd.Flags().String("name", "", "New name for the key")
 	updateCmd.Flags().Bool("revoked", false, "Set key revocation status")
 	updateCmd.Flags().String("tags", "", "Comma-separated tags to replace existing tags")
-	viper.BindPFlag("name", updateCmd.Flags().Lookup("name"))
-	viper.BindPFlag("revoked", updateCmd.Flags().Lookup("revoked"))
-	viper.BindPFlag("tags", updateCmd.Flags().Lookup("tags"))
+	viper.BindPFlag("name", updateCmd.Flags().Lookup("name"))       //nolint:errcheck
+	viper.BindPFlag("revoked", updateCmd.Flags().Lookup("revoked")) //nolint:errcheck
+	viper.BindPFlag("tags", updateCmd.Flags().Lookup("tags"))       //nolint:errcheck
 	return keysCmd
 }

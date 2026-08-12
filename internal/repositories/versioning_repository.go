@@ -82,7 +82,7 @@ func (r *secretVersionRepository) GetVersions(ctx context.Context, secretID uuid
 		r.log.WithError(err).Error("Failed to query secret versions")
 		return nil, fmt.Errorf("failed to query secret versions: %w", err)
 	}
-	defer rows.Close()
+	defer rows.Close() //nolint:errcheck
 
 	var versions []model.SecretVersion
 	for rows.Next() {

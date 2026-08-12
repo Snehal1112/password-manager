@@ -66,7 +66,7 @@ func (r *oauth2ClientRepository) List(ctx context.Context) ([]*model.OAuth2Clien
 	if err != nil {
 		return nil, fmt.Errorf("oauth2ClientRepository.List: %w", err)
 	}
-	defer rows.Close()
+	defer rows.Close() //nolint:errcheck
 
 	var clients []*model.OAuth2Client
 	for rows.Next() {

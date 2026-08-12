@@ -155,7 +155,7 @@ func (r *AuditRepository) QueryAuditLogs(ctx context.Context, filter AuditFilter
 	if err != nil {
 		return nil, 0, fmt.Errorf("audit log query: %w", err)
 	}
-	defer rows.Close()
+	defer rows.Close() //nolint:errcheck
 
 	var logs []AuditLog
 	for rows.Next() {

@@ -4,6 +4,7 @@ package mocks
 
 import (
 	context "context"
+
 	model "rocketvault/model"
 
 	mock "github.com/stretchr/testify/mock"

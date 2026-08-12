@@ -35,11 +35,11 @@ func buildMultipartRequest(t *testing.T, fileContent string, extraFields map[str
 	if err != nil {
 		t.Fatalf("create form file: %v", err)
 	}
-	io.WriteString(fw, fileContent)
+	io.WriteString(fw, fileContent) //nolint:errcheck
 	for k, v := range extraFields {
-		mw.WriteField(k, v)
+		mw.WriteField(k, v) //nolint:errcheck
 	}
-	mw.Close()
+	mw.Close() //nolint:errcheck
 
 	r := httptest.NewRequest(http.MethodPost, "/secrets/import", &buf)
 	r.Header.Set("Content-Type", mw.FormDataContentType())
@@ -54,8 +54,8 @@ func TestImportSecrets_MissingFile_Returns400(t *testing.T) {
 
 	var buf bytes.Buffer
 	mw := multipart.NewWriter(&buf)
-	mw.WriteField("format", "json")
-	mw.Close()
+	mw.WriteField("format", "json") //nolint:errcheck
+	mw.Close()                      //nolint:errcheck
 
 	r := httptest.NewRequest(http.MethodPost, "/secrets/import", &buf)
 	r.Header.Set("Content-Type", mw.FormDataContentType())
@@ -503,7 +503,7 @@ func TestListSecrets_NonEmptyList_Returns200(t *testing.T) {
 	assert.Equal(t, http.StatusOK, w.Code)
 
 	var resp map[string]any
-	json.NewDecoder(w.Body).Decode(&resp)
+	json.NewDecoder(w.Body).Decode(&resp) //nolint:errcheck
 	secrets, _ := resp["secrets"].([]any)
 	assert.Len(t, secrets, 1)
 	svc.AssertExpectations(t)

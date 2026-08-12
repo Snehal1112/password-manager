@@ -5,8 +5,8 @@ import (
 
 	"github.com/google/uuid"
 
-	"rocketvault/model"
 	"rocketvault/internal/services/users"
+	"rocketvault/model"
 )
 
 // RetryUserService wraps user operations with retry logic

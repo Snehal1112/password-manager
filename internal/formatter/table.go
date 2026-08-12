@@ -12,7 +12,7 @@ type tableFormatter struct{}
 func (f *tableFormatter) Write(w io.Writer, headers []string, rows [][]string) error {
 	tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
 
-	fmt.Fprintln(tw, strings.Join(headers, "\t"))
+	fmt.Fprintln(tw, strings.Join(headers, "\t")) //nolint:errcheck
 
 	seps := make([]string, len(headers))
 	for i, h := range headers {
@@ -24,10 +24,10 @@ func (f *tableFormatter) Write(w io.Writer, headers []string, rows [][]string) e
 		}
 		seps[i] = strings.Repeat("-", maxLen)
 	}
-	fmt.Fprintln(tw, strings.Join(seps, "\t"))
+	fmt.Fprintln(tw, strings.Join(seps, "\t")) //nolint:errcheck
 
 	for _, row := range rows {
-		fmt.Fprintln(tw, strings.Join(row, "\t"))
+		fmt.Fprintln(tw, strings.Join(row, "\t")) //nolint:errcheck
 	}
 
 	return tw.Flush()

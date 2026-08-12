@@ -11,9 +11,9 @@ import (
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 
-	"rocketvault/model"
 	"rocketvault/internal/repositories"
 	oauth2svc "rocketvault/internal/services/oauth2"
+	"rocketvault/model"
 )
 
 // --- mock repo ---

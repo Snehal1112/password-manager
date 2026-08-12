@@ -18,7 +18,7 @@ func seedPreMigrationDB(t *testing.T) (*sql.DB, map[string]string) {
 	t.Helper()
 	conn, err := sql.Open("sqlite3", ":memory:")
 	require.NoError(t, err)
-	t.Cleanup(func() { conn.Close() })
+	t.Cleanup(func() { conn.Close() }) //nolint:errcheck
 
 	_, err = conn.Exec(`
 		CREATE TABLE users (
@@ -158,7 +158,7 @@ func TestPlanRoleBackfillSkipsUnknownVault(t *testing.T) {
 func TestPlanRoleBackfillSkipsMissingColumns(t *testing.T) {
 	conn, err := sql.Open("sqlite3", ":memory:")
 	require.NoError(t, err)
-	defer conn.Close()
+	defer conn.Close() //nolint:errcheck
 
 	_, err = conn.Exec(`
 		CREATE TABLE vaults (id TEXT PRIMARY KEY, name TEXT NOT NULL);
@@ -233,7 +233,7 @@ func TestPlanRoleBackfill_IgnoresAlreadyAzureNamedRoleAssignment(t *testing.T) {
 func TestPlanRoleBackfillNoVaults(t *testing.T) {
 	conn, err := sql.Open("sqlite3", ":memory:")
 	require.NoError(t, err)
-	defer conn.Close()
+	defer conn.Close() //nolint:errcheck
 	_, err = conn.Exec(`CREATE TABLE vaults (id TEXT PRIMARY KEY, name TEXT NOT NULL)`)
 	require.NoError(t, err)
 

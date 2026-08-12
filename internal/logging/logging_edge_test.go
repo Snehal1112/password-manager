@@ -168,7 +168,7 @@ func TestRotateLogFile_UnderSizeNoOp(t *testing.T) {
 	f, err := os.CreateTemp(t.TempDir(), "test*.log")
 	require.NoError(t, err)
 	_, _ = f.WriteString("small")
-	f.Close()
+	f.Close() //nolint:errcheck
 
 	l := &Logger{
 		Logger:         logrus.New(),
@@ -242,7 +242,7 @@ func TestStartPeriodicRotation_ExitsImmediatelyForEmptyFile(t *testing.T) {
 func TestStartPeriodicRotation_CanBeCancelled(t *testing.T) {
 	f, err := os.CreateTemp(t.TempDir(), "test*.log")
 	require.NoError(t, err)
-	f.Close()
+	f.Close() //nolint:errcheck
 
 	l := &Logger{
 		Logger:         logrus.New(),

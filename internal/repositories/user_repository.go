@@ -227,7 +227,7 @@ func (r *UserRepository) Delete(ctx context.Context, id uuid.UUID) error {
 			r.log.LogAuditError(id.String(), "delete_user", "failed", "Failed to begin transaction", err)
 			return fmt.Errorf("failed to begin transaction: %w", err)
 		}
-		defer tx.Rollback()
+		defer tx.Rollback() //nolint:errcheck
 
 		// Optimized cascading deletion using ON DELETE CASCADE constraints
 		// The foreign key constraints with ON DELETE CASCADE will handle most cleanup automatically
@@ -324,7 +324,7 @@ func (r *UserRepository) List(ctx context.Context) ([]model.User, error) {
 			logrus.WithError(err).Error("Failed to list users")
 			return fmt.Errorf("failed to list users: %w", err)
 		}
-		defer rows.Close()
+		defer rows.Close() //nolint:errcheck
 
 		// Pre-allocate slice for better memory performance
 		users = make([]model.User, 0, 100) // Assume max 100 users initially

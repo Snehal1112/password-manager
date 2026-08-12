@@ -60,7 +60,7 @@ func (r *roleAssignmentRepository) ListByVault(ctx context.Context, vaultID uuid
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer rows.Close() //nolint:errcheck
 	var out []*model.RoleAssignment
 	for rows.Next() {
 		ra, err := scanRoleAssignmentRows(rows)
@@ -80,7 +80,7 @@ func (r *roleAssignmentRepository) ListByPrincipalInVault(ctx context.Context, p
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer rows.Close() //nolint:errcheck
 	var out []*model.RoleAssignment
 	for rows.Next() {
 		ra, err := scanRoleAssignmentRows(rows)

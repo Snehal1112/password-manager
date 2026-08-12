@@ -18,8 +18,8 @@ import (
 
 // staticProvider is a minimal SigningKeyProvider for testing.
 type staticProvider struct {
-	key  *ecdsa.PrivateKey
-	kid  string
+	key *ecdsa.PrivateKey
+	kid string
 }
 
 func newStaticProvider(t *testing.T) *staticProvider {
@@ -29,9 +29,9 @@ func newStaticProvider(t *testing.T) *staticProvider {
 	return &staticProvider{key: key, kid: "test-kid-abc123"}
 }
 
-func (p *staticProvider) PrivateKey() crypto.Signer      { return p.key }
-func (p *staticProvider) Algorithm() string              { return "ES256" }
-func (p *staticProvider) KeyID() string                  { return p.kid }
+func (p *staticProvider) PrivateKey() crypto.Signer { return p.key }
+func (p *staticProvider) Algorithm() string         { return "ES256" }
+func (p *staticProvider) KeyID() string             { return p.kid }
 func (p *staticProvider) PublicKeys() []signing.PublicKeyInfo {
 	return []signing.PublicKeyInfo{{
 		KeyID:     p.kid,

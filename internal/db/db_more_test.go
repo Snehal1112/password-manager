@@ -71,7 +71,7 @@ func TestOpenDatabase_ValidSQLite(t *testing.T) {
 	db, err := repo.OpenDatabase(cfg)
 	require.NoError(t, err)
 	assert.NotNil(t, db)
-	db.Close()
+	db.Close() //nolint:errcheck
 }
 
 func TestOpenDatabase_InvalidDriver(t *testing.T) {
@@ -88,7 +88,7 @@ func TestOpenDatabase_InvalidDriver(t *testing.T) {
 	// configureConnectionPool may or the driver won't be found on Ping.
 	// Either way we expect no panic.
 	if err == nil && db != nil {
-		db.Close()
+		db.Close() //nolint:errcheck
 	}
 }
 
@@ -184,7 +184,7 @@ func TestCloseDB_AfterInitializeDB(t *testing.T) {
 	viper.Set("database.connection", "./test_close2.db")
 	defer func() {
 		viper.Reset()
-		os.Remove("./test_close2.db")
+		os.Remove("./test_close2.db") //nolint:errcheck
 	}()
 
 	log := logging.InitLogger()
@@ -362,7 +362,7 @@ func newTagDB(t *testing.T) *sql.DB {
 		);
 	`)
 	require.NoError(t, err)
-	t.Cleanup(func() { db.Close() })
+	t.Cleanup(func() { db.Close() }) //nolint:errcheck
 	return db
 }
 
@@ -429,7 +429,7 @@ func TestTagRepository_ReplaceTags_EmptySliceClearsTags(t *testing.T) {
 func TestWithTx_Commit(t *testing.T) {
 	db, err := sql.Open("sqlite3", ":memory:")
 	require.NoError(t, err)
-	defer db.Close()
+	defer db.Close() //nolint:errcheck
 
 	_, err = db.Exec(`CREATE TABLE nums (v INTEGER)`)
 	require.NoError(t, err)
@@ -448,7 +448,7 @@ func TestWithTx_Commit(t *testing.T) {
 func TestWithTx_Rollback(t *testing.T) {
 	db, err := sql.Open("sqlite3", ":memory:")
 	require.NoError(t, err)
-	defer db.Close()
+	defer db.Close() //nolint:errcheck
 
 	_, err = db.Exec(`CREATE TABLE nums (v INTEGER)`)
 	require.NoError(t, err)

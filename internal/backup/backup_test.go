@@ -92,8 +92,8 @@ func setupTestDB(t *testing.T) (*sql.DB, func()) {
 	}
 
 	cleanup := func() {
-		db.Close()
-		os.RemoveAll(tmpDir)
+		db.Close()           //nolint:errcheck
+		os.RemoveAll(tmpDir) //nolint:errcheck
 	}
 
 	return db, cleanup
@@ -111,7 +111,7 @@ func TestBackupManager(t *testing.T) {
 		if err != nil {
 			t.Fatalf("Failed to create temp dir: %v", err)
 		}
-		defer os.RemoveAll(tmpDir)
+		defer os.RemoveAll(tmpDir) //nolint:errcheck
 
 		backupPath := filepath.Join(tmpDir, "test.backup")
 
@@ -131,7 +131,7 @@ func TestBackupManager(t *testing.T) {
 		if err != nil {
 			t.Fatalf("Failed to create temp dir: %v", err)
 		}
-		defer os.RemoveAll(tmpDir)
+		defer os.RemoveAll(tmpDir) //nolint:errcheck
 
 		backupPath := filepath.Join(tmpDir, "encrypted.backup")
 
@@ -151,7 +151,7 @@ func TestBackupManager(t *testing.T) {
 		if err != nil {
 			t.Fatalf("Failed to create temp dir: %v", err)
 		}
-		defer os.RemoveAll(tmpDir)
+		defer os.RemoveAll(tmpDir) //nolint:errcheck
 
 		backupPath := filepath.Join(tmpDir, "roundtrip.backup")
 
@@ -197,7 +197,7 @@ func TestBackupManager(t *testing.T) {
 		if err != nil {
 			t.Fatalf("Failed to create temp dir: %v", err)
 		}
-		defer os.RemoveAll(tmpDir)
+		defer os.RemoveAll(tmpDir) //nolint:errcheck
 
 		// Create some backup files
 		backup1 := filepath.Join(tmpDir, "backup1.backup")
@@ -249,7 +249,7 @@ func TestBackupMetadata(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to create temp dir: %v", err)
 	}
-	defer os.RemoveAll(tmpDir)
+	defer os.RemoveAll(tmpDir) //nolint:errcheck
 
 	backupPath := filepath.Join(tmpDir, "metadata.backup")
 

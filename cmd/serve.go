@@ -109,6 +109,6 @@ func serve(cmd *cobra.Command) error {
 	if err != nil {
 		return err
 	}
-	defer shutdown(ctx)
+	defer shutdown(ctx) //nolint:errcheck
 	return nil
 }

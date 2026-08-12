@@ -10,10 +10,10 @@ import (
 
 // Config holds retry configuration for different types of operations.
 type Config struct {
-	Database         Policy           `yaml:"database" json:"database"`
-	ExternalServices Policy           `yaml:"external_services" json:"external_services"`
-	ServiceOperations Policy           `yaml:"service_operations" json:"service_operations"`
-	CircuitBreaker   CircuitBreakerConfig `yaml:"circuit_breaker" json:"circuit_breaker"`
+	Database          Policy               `yaml:"database" json:"database"`
+	ExternalServices  Policy               `yaml:"external_services" json:"external_services"`
+	ServiceOperations Policy               `yaml:"service_operations" json:"service_operations"`
+	CircuitBreaker    CircuitBreakerConfig `yaml:"circuit_breaker" json:"circuit_breaker"`
 }
 
 // DefaultConfig returns a default retry configuration.
@@ -69,9 +69,9 @@ func DevelopmentConfig() Config {
 			JitterEnabled:     true,
 		},
 		CircuitBreaker: CircuitBreakerConfig{
-			FailureThreshold:  3,
-			Timeout:           30 * time.Second,
-			HalfOpenRequests:  2,
+			FailureThreshold: 3,
+			Timeout:          30 * time.Second,
+			HalfOpenRequests: 2,
 		},
 	}
 }
@@ -107,9 +107,9 @@ func ProductionConfig() Config {
 			JitterEnabled:     true,
 		},
 		CircuitBreaker: CircuitBreakerConfig{
-			FailureThreshold:  5,
-			Timeout:           60 * time.Second,
-			HalfOpenRequests:  3,
+			FailureThreshold: 5,
+			Timeout:          60 * time.Second,
+			HalfOpenRequests: 3,
 		},
 	}
 }
@@ -145,9 +145,9 @@ func TestingConfig() Config {
 			JitterEnabled:     false,
 		},
 		CircuitBreaker: CircuitBreakerConfig{
-			FailureThreshold:  2,
-			Timeout:           100 * time.Millisecond,
-			HalfOpenRequests:  1,
+			FailureThreshold: 2,
+			Timeout:          100 * time.Millisecond,
+			HalfOpenRequests: 1,
 		},
 	}
 }

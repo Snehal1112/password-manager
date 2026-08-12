@@ -122,8 +122,8 @@ func InitCertificatesUpdate(certificatesCmd *cobra.Command) *cobra.Command {
 	updateCmd.Flags().String("tags", "", "Comma-separated tags for the certificate")
 	updateCmd.Flags().Bool("auto-renew", false, "Enable or disable auto-renewal")
 	updateCmd.Flags().Int("renewal-days", 0, "Days before expiry to trigger renewal")
-	viper.BindPFlag("cert-update-name", updateCmd.Flags().Lookup("name"))
-	viper.BindPFlag("cert-update-tags", updateCmd.Flags().Lookup("tags"))
+	viper.BindPFlag("cert-update-name", updateCmd.Flags().Lookup("name")) //nolint:errcheck
+	viper.BindPFlag("cert-update-tags", updateCmd.Flags().Lookup("tags")) //nolint:errcheck
 
 	return certificatesCmd
 }

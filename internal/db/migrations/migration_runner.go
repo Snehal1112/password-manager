@@ -61,7 +61,7 @@ func (r *MigrationRunner) GetAppliedMigrations(ctx context.Context) (map[string]
 	if err != nil {
 		return nil, fmt.Errorf("failed to query applied migrations: %w", err)
 	}
-	defer rows.Close()
+	defer rows.Close() //nolint:errcheck
 
 	applied := make(map[string]bool)
 	for rows.Next() {
@@ -136,7 +136,7 @@ func (r *MigrationRunner) ApplyMigration(ctx context.Context, migration Migratio
 	if err != nil {
 		return fmt.Errorf("failed to begin transaction: %w", err)
 	}
-	defer tx.Rollback()
+	defer tx.Rollback() //nolint:errcheck
 
 	// Execute the migration SQL
 	if _, err := tx.ExecContext(ctx, migration.UpSQL); err != nil {

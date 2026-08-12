@@ -24,9 +24,9 @@ type CacheConfig struct {
 func DefaultCacheConfig() *CacheConfig {
 	return &CacheConfig{
 		Enabled:         true,
-		TTL:             5 * time.Minute,    // 5 minutes default TTL
-		CleanupInterval: 1 * time.Minute,    // Clean up every minute
-		MaxEntries:      1000,               // Cache up to 1000 secrets
+		TTL:             5 * time.Minute, // 5 minutes default TTL
+		CleanupInterval: 1 * time.Minute, // Clean up every minute
+		MaxEntries:      1000,            // Cache up to 1000 secrets
 	}
 }
 
@@ -34,9 +34,9 @@ func DefaultCacheConfig() *CacheConfig {
 func DevelopmentCacheConfig() *CacheConfig {
 	return &CacheConfig{
 		Enabled:         true,
-		TTL:             1 * time.Minute,    // Shorter TTL for development
-		CleanupInterval: 30 * time.Second,   // More frequent cleanup
-		MaxEntries:      100,                // Smaller cache for development
+		TTL:             1 * time.Minute,  // Shorter TTL for development
+		CleanupInterval: 30 * time.Second, // More frequent cleanup
+		MaxEntries:      100,              // Smaller cache for development
 	}
 }
 
@@ -44,9 +44,9 @@ func DevelopmentCacheConfig() *CacheConfig {
 func ProductionCacheConfig() *CacheConfig {
 	return &CacheConfig{
 		Enabled:         true,
-		TTL:             10 * time.Minute,   // Longer TTL for production
-		CleanupInterval: 2 * time.Minute,    // Less frequent cleanup
-		MaxEntries:      5000,               // Larger cache for production
+		TTL:             10 * time.Minute, // Longer TTL for production
+		CleanupInterval: 2 * time.Minute,  // Less frequent cleanup
+		MaxEntries:      5000,             // Larger cache for production
 	}
 }
 

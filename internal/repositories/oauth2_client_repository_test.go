@@ -32,7 +32,7 @@ expires_at    TIMESTAMP NULL
 )
 	`)
 	require.NoError(t, err)
-	t.Cleanup(func() { db.Close() })
+	t.Cleanup(func() { db.Close() }) //nolint:errcheck
 	return db
 }
 

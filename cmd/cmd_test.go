@@ -36,7 +36,7 @@ func TestGetEnv_EnvSet(t *testing.T) {
 
 func TestGetEnv_EnvNotSet(t *testing.T) {
 	const key = "TEST_GETENV_CMD_NOTSET_XYZ"
-	os.Unsetenv(key)
+	os.Unsetenv(key) //nolint:errcheck
 	got := getEnv(key, "fallback")
 	if got != "fallback" {
 		t.Errorf("getEnv = %q, want fallback", got)
@@ -64,7 +64,7 @@ func TestDisplayHealthMetrics_NoOutput_NoPanic(t *testing.T) {
 	if err != nil {
 		t.Fatalf("open /dev/null: %v", err)
 	}
-	defer devNull.Close()
+	defer devNull.Close() //nolint:errcheck
 	os.Stdout = devNull
 	defer func() { os.Stdout = origStdout }()
 
@@ -127,11 +127,11 @@ func TestPersistentPostRun_NoDBInContext(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestResolveVault_DelegatesToCommon(t *testing.T) {
-	os.Unsetenv("ROCKETVAULT_VAULT")
+	os.Unsetenv("ROCKETVAULT_VAULT") //nolint:errcheck
 
 	cmd := &cobra.Command{}
 	cmd.Flags().String("vault", "", "")
-	cmd.Flags().Set("vault", "my-vault")
+	cmd.Flags().Set("vault", "my-vault") //nolint:errcheck
 
 	got := resolveVault(cmd)
 	if got != "my-vault" {
@@ -478,7 +478,7 @@ func TestRunRotationUpdate_Success(t *testing.T) {
 	cmd.Flags().IntVar(&policyInterval, "interval", 0, "")
 	cmd.Flags().IntVar(&policyReminder, "reminder", 0, "")
 	cmd.Flags().BoolVar(&policyAutoRotate, "auto-rotate", false, "")
-	cmd.Flags().Set("name", "new-name")
+	cmd.Flags().Set("name", "new-name") //nolint:errcheck
 	cmd.SetContext(tc.Ctx)
 	cmd.SetOut(&out)
 
@@ -519,11 +519,11 @@ func TestRunRotationUpdate_AllFlagsChanged(t *testing.T) {
 	cmd.Flags().IntVar(&policyReminder, "reminder", 14, "")
 	cmd.Flags().BoolVar(&policyAutoRotate, "auto-rotate", true, "")
 	// Mark all as changed.
-	cmd.Flags().Set("name", "new-name")
-	cmd.Flags().Set("description", "new-desc")
-	cmd.Flags().Set("interval", "60")
-	cmd.Flags().Set("reminder", "14")
-	cmd.Flags().Set("auto-rotate", "true")
+	cmd.Flags().Set("name", "new-name")        //nolint:errcheck
+	cmd.Flags().Set("description", "new-desc") //nolint:errcheck
+	cmd.Flags().Set("interval", "60")          //nolint:errcheck
+	cmd.Flags().Set("reminder", "14")          //nolint:errcheck
+	cmd.Flags().Set("auto-rotate", "true")     //nolint:errcheck
 	cmd.SetContext(tc.Ctx)
 	cmd.SetOut(&out)
 

@@ -37,13 +37,13 @@ var configCmd = &cobra.Command{
 			if err := svc.SetRetentionDays(ctx, retentionDays); err != nil {
 				return fmt.Errorf("failed to update retention policy: %w", err)
 			}
-			fmt.Fprintf(cmd.OutOrStdout(), "Retention policy updated: %d days\n", retentionDays)
+			fmt.Fprintf(cmd.OutOrStdout(), "Retention policy updated: %d days\n", retentionDays) //nolint:errcheck
 		} else {
 			days, err := svc.GetRetentionDays(ctx)
 			if err != nil {
 				return fmt.Errorf("failed to get retention policy: %w", err)
 			}
-			fmt.Fprintf(cmd.OutOrStdout(), "Current audit log retention: %d days\n", days)
+			fmt.Fprintf(cmd.OutOrStdout(), "Current audit log retention: %d days\n", days) //nolint:errcheck
 		}
 
 		return nil

@@ -290,7 +290,7 @@ func TestResolveVaultName_EnvOverridesViper(t *testing.T) {
 }
 
 func TestResolveVaultName_ViperFallback(t *testing.T) {
-	os.Unsetenv("ROCKETVAULT_VAULT")
+	os.Unsetenv("ROCKETVAULT_VAULT") //nolint:errcheck
 	viper.Set("vault", "viper-vault")
 
 	cmd := &cobra.Command{}
@@ -303,7 +303,7 @@ func TestResolveVaultName_ViperFallback(t *testing.T) {
 }
 
 func TestResolveVaultName_DefaultFallback(t *testing.T) {
-	os.Unsetenv("ROCKETVAULT_VAULT")
+	os.Unsetenv("ROCKETVAULT_VAULT") //nolint:errcheck
 	viper.Set("vault", "")
 
 	cmd := &cobra.Command{}
@@ -316,7 +316,7 @@ func TestResolveVaultName_DefaultFallback(t *testing.T) {
 }
 
 func TestResolveVaultName_NilCommand(t *testing.T) {
-	os.Unsetenv("ROCKETVAULT_VAULT")
+	os.Unsetenv("ROCKETVAULT_VAULT") //nolint:errcheck
 	viper.Set("vault", "")
 
 	got := ResolveVaultName(nil)
@@ -327,12 +327,12 @@ func TestResolveVaultName_NilCommand(t *testing.T) {
 
 func TestResolveVaultName_FlagSetToEmpty_FallsThrough(t *testing.T) {
 	// When --vault flag is explicitly set to "" the function should fall through to default.
-	os.Unsetenv("ROCKETVAULT_VAULT")
+	os.Unsetenv("ROCKETVAULT_VAULT") //nolint:errcheck
 	viper.Set("vault", "")
 
 	cmd := &cobra.Command{}
 	cmd.Flags().String("vault", "", "")
-	cmd.Flags().Set("vault", "") // Changed = true but value is empty
+	cmd.Flags().Set("vault", "") //nolint:errcheck // Changed = true but value is empty
 
 	got := ResolveVaultName(cmd)
 	if got != "default" {

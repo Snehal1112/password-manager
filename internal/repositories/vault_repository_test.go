@@ -44,7 +44,7 @@ func newVaultTestDB(t *testing.T) *sql.DB {
 			updated_by TEXT NULL
 		);`)
 	require.NoError(t, err)
-	t.Cleanup(func() { db.Close() })
+	t.Cleanup(func() { db.Close() }) //nolint:errcheck
 	return db
 }
 

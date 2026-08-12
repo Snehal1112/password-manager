@@ -72,7 +72,7 @@ func (r *accessPolicyRepository) List(ctx context.Context) ([]*model.AccessPolic
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer rows.Close() //nolint:errcheck
 	return scanAccessPolicies(rows)
 }
 
@@ -83,7 +83,7 @@ func (r *accessPolicyRepository) ListByPrincipal(ctx context.Context, principalI
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer rows.Close() //nolint:errcheck
 	return scanAccessPolicies(rows)
 }
 
@@ -97,7 +97,7 @@ func (r *accessPolicyRepository) FindEffects(ctx context.Context, principalID uu
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer rows.Close() //nolint:errcheck
 	return scanAccessPolicies(rows)
 }
 
@@ -108,7 +108,7 @@ func (r *accessPolicyRepository) ListByVault(ctx context.Context, vaultID uuid.U
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer rows.Close() //nolint:errcheck
 	return scanAccessPolicies(rows)
 }
 

@@ -131,7 +131,7 @@ func init() {
 	// Create command flags
 	backupCreateCmd.Flags().StringVarP(&backupOutput, "output", "o", "", "Output file path for backup (required)")
 	backupCreateCmd.Flags().BoolVar(&backupEncrypt, "encrypt", true, "Encrypt the backup file (use --encrypt=false to disable)")
-	backupCreateCmd.MarkFlagRequired("output")
+	backupCreateCmd.MarkFlagRequired("output") //nolint:errcheck
 
 	// List command flags
 	backupListCmd.Flags().StringVarP(&backupListDir, "dir", "d", "./backups", "Directory to scan for backup files")
@@ -139,7 +139,7 @@ func init() {
 	// Restore command flags
 	backupRestoreCmd.Flags().StringVarP(&backupRestoreFile, "file", "f", "", "Backup file to restore from (required)")
 	backupRestoreCmd.Flags().BoolVar(&backupRestoreDecrypt, "decrypt", true, "Decrypt the backup file (use --decrypt=false to disable)")
-	backupRestoreCmd.MarkFlagRequired("file")
+	backupRestoreCmd.MarkFlagRequired("file") //nolint:errcheck
 }
 
 func runBackupCreate(cmd *cobra.Command) error {
@@ -195,12 +195,12 @@ func runBackupList(cmd *cobra.Command) error {
 
 	// Display results in a table
 	w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
-	fmt.Fprintln(w, "TIMESTAMP\tVERSION\tTABLES\tRECORDS\tENCRYPTED\tFILE")
-	fmt.Fprintln(w, "---------\t-------\t------\t-------\t---------\t----")
+	fmt.Fprintln(w, "TIMESTAMP\tVERSION\tTABLES\tRECORDS\tENCRYPTED\tFILE") //nolint:errcheck
+	fmt.Fprintln(w, "---------\t-------\t------\t-------\t---------\t----") //nolint:errcheck
 
 	for _, b := range backups {
 		filename := filepath.Base(fmt.Sprintf("backup-%s.backup", b.Timestamp.Format("2006-01-02_15-04-05")))
-		fmt.Fprintf(w, "%s\t%s\t%d\t%d\t%t\t%s\n",
+		fmt.Fprintf(w, "%s\t%s\t%d\t%d\t%t\t%s\n", //nolint:errcheck
 			b.Timestamp.Format("2006-01-02 15:04:05"),
 			b.Version,
 			b.TableCount,
@@ -209,7 +209,7 @@ func runBackupList(cmd *cobra.Command) error {
 			filename)
 	}
 
-	w.Flush()
+	w.Flush() //nolint:errcheck
 	fmt.Printf("\n📊 Found %d backup files in %s\n", len(backups), backupListDir)
 
 	return nil

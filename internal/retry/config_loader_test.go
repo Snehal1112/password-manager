@@ -77,9 +77,9 @@ retry:
 					JitterEnabled:     true,
 				},
 				CircuitBreaker: CircuitBreakerConfig{
-					FailureThreshold:  10,
-					Timeout:           120 * time.Second,
-					HalfOpenRequests:  5,
+					FailureThreshold: 10,
+					Timeout:          120 * time.Second,
+					HalfOpenRequests: 5,
 				},
 			},
 			wantErr: false,
@@ -96,11 +96,11 @@ retry:
 				Database: Policy{
 					Enabled:           true,
 					MaxAttempts:       3,
-					InitialDelay:      100 * time.Millisecond,  // From DatabasePolicy() defaults
+					InitialDelay:      100 * time.Millisecond, // From DatabasePolicy() defaults
 					MaxDelay:          5 * time.Second,        // From DatabasePolicy() defaults
 					BackoffMultiplier: 2.0,                    // From DatabasePolicy() defaults
 					RetryableErrors:   DatabasePolicy().RetryableErrors,
-					JitterEnabled:     false,                    // From partial config
+					JitterEnabled:     false, // From partial config
 				},
 				ExternalServices:  ExternalServicePolicy(),
 				ServiceOperations: DefaultConfig().ServiceOperations,
@@ -120,8 +120,8 @@ retry:
 			wantErr:  true,
 		},
 		{
-			name: "empty configuration uses defaults",
-			yaml:   "",
+			name:     "empty configuration uses defaults",
+			yaml:     "",
 			expected: DefaultConfig(),
 			wantErr:  false,
 		},
@@ -298,9 +298,9 @@ retry:
 `,
 			key: "retry.circuit_breaker",
 			expected: &CircuitBreakerConfig{
-				FailureThreshold:  10,
-				Timeout:           120 * time.Second,
-				HalfOpenRequests:  5,
+				FailureThreshold: 10,
+				Timeout:          120 * time.Second,
+				HalfOpenRequests: 5,
 			},
 		},
 		{

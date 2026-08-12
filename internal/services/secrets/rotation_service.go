@@ -10,9 +10,9 @@ import (
 
 	"github.com/google/uuid"
 
-	"rocketvault/model"
 	"rocketvault/internal/logging"
 	"rocketvault/internal/repositories"
+	"rocketvault/model"
 )
 
 // RotationServiceInterface defines the business logic contract for secret rotation operations.

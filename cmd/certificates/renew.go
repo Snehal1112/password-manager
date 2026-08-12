@@ -84,7 +84,7 @@ func InitCertificatesRenew(certificatesCmd *cobra.Command) *cobra.Command {
 	certificatesCmd.AddCommand(renewCmd)
 
 	renewCmd.Flags().Int("validity-days", 365, "Certificate validity period in days")
-	viper.BindPFlag("cert-renew-validity-days", renewCmd.Flags().Lookup("validity-days"))
+	viper.BindPFlag("cert-renew-validity-days", renewCmd.Flags().Lookup("validity-days")) //nolint:errcheck
 
 	return certificatesCmd
 }

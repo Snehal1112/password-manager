@@ -75,48 +75,48 @@ func init() {
 func displayHealthMetrics(metrics *health.HealthMetrics, queryMetrics *health.QueryMetrics) {
 	w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
 
-	fmt.Fprintln(w, "SYSTEM HEALTH METRICS")
-	fmt.Fprintln(w, "====================")
-	fmt.Fprintln(w, "")
+	fmt.Fprintln(w, "SYSTEM HEALTH METRICS") //nolint:errcheck
+	fmt.Fprintln(w, "====================")  //nolint:errcheck
+	fmt.Fprintln(w, "")                      //nolint:errcheck
 
-	fmt.Fprintln(w, "MEMORY USAGE:")
-	fmt.Fprintf(w, "  Allocated Memory:\t%s\n", health.FormatBytes(metrics.MemoryUsage.Alloc))
-	fmt.Fprintf(w, "  Heap Allocated:\t%s\n", health.FormatBytes(metrics.MemoryUsage.HeapAlloc))
-	fmt.Fprintf(w, "  System Memory:\t%s\n", health.FormatBytes(metrics.MemoryUsage.Sys))
-	fmt.Fprintf(w, "  Heap System:\t%s\n", health.FormatBytes(metrics.MemoryUsage.HeapSys))
-	fmt.Fprintf(w, "  Heap Idle:\t%s\n", health.FormatBytes(metrics.MemoryUsage.HeapIdle))
-	fmt.Fprintf(w, "  Heap In Use:\t%s\n", health.FormatBytes(metrics.MemoryUsage.HeapInuse))
-	fmt.Fprintf(w, "  Heap Objects:\t%d\n", metrics.MemoryUsage.HeapObjects)
-	fmt.Fprintf(w, "  GC Cycles:\t%d\n", metrics.MemoryUsage.NumGC)
-	fmt.Fprintf(w, "  Next GC:\t%s\n", health.FormatBytes(metrics.MemoryUsage.NextGC))
-	fmt.Fprintln(w, "")
+	fmt.Fprintln(w, "MEMORY USAGE:")                                                             //nolint:errcheck
+	fmt.Fprintf(w, "  Allocated Memory:\t%s\n", health.FormatBytes(metrics.MemoryUsage.Alloc))   //nolint:errcheck
+	fmt.Fprintf(w, "  Heap Allocated:\t%s\n", health.FormatBytes(metrics.MemoryUsage.HeapAlloc)) //nolint:errcheck
+	fmt.Fprintf(w, "  System Memory:\t%s\n", health.FormatBytes(metrics.MemoryUsage.Sys))        //nolint:errcheck
+	fmt.Fprintf(w, "  Heap System:\t%s\n", health.FormatBytes(metrics.MemoryUsage.HeapSys))      //nolint:errcheck
+	fmt.Fprintf(w, "  Heap Idle:\t%s\n", health.FormatBytes(metrics.MemoryUsage.HeapIdle))       //nolint:errcheck
+	fmt.Fprintf(w, "  Heap In Use:\t%s\n", health.FormatBytes(metrics.MemoryUsage.HeapInuse))    //nolint:errcheck
+	fmt.Fprintf(w, "  Heap Objects:\t%d\n", metrics.MemoryUsage.HeapObjects)                     //nolint:errcheck
+	fmt.Fprintf(w, "  GC Cycles:\t%d\n", metrics.MemoryUsage.NumGC)                              //nolint:errcheck
+	fmt.Fprintf(w, "  Next GC:\t%s\n", health.FormatBytes(metrics.MemoryUsage.NextGC))           //nolint:errcheck
+	fmt.Fprintln(w, "")                                                                          //nolint:errcheck
 
-	fmt.Fprintln(w, "CPU STATISTICS:")
-	fmt.Fprintf(w, "  Goroutines:\t%d\n", metrics.CPUStats.Goroutines)
-	fmt.Fprintf(w, "  CGO Calls:\t%d\n", metrics.CPUStats.CgoCalls)
-	fmt.Fprintln(w, "")
+	fmt.Fprintln(w, "CPU STATISTICS:")                                 //nolint:errcheck
+	fmt.Fprintf(w, "  Goroutines:\t%d\n", metrics.CPUStats.Goroutines) //nolint:errcheck
+	fmt.Fprintf(w, "  CGO Calls:\t%d\n", metrics.CPUStats.CgoCalls)    //nolint:errcheck
+	fmt.Fprintln(w, "")                                                //nolint:errcheck
 
-	fmt.Fprintln(w, "DATABASE STATISTICS:")
-	fmt.Fprintf(w, "  Open Connections:\t%d\n", metrics.DatabaseStats.OpenConnections)
-	fmt.Fprintf(w, "  In Use:\t%d\n", metrics.DatabaseStats.InUse)
-	fmt.Fprintf(w, "  Idle:\t%d\n", metrics.DatabaseStats.Idle)
-	fmt.Fprintf(w, "  Wait Count:\t%d\n", metrics.DatabaseStats.WaitCount)
-	fmt.Fprintf(w, "  Wait Duration:\t%s\n", health.FormatDuration(metrics.DatabaseStats.WaitDuration))
-	fmt.Fprintf(w, "  Max Idle Closed:\t%d\n", metrics.DatabaseStats.MaxIdleClosed)
-	fmt.Fprintf(w, "  Max Lifetime Closed:\t%d\n", metrics.DatabaseStats.MaxLifetimeClosed)
-	fmt.Fprintln(w, "")
+	fmt.Fprintln(w, "DATABASE STATISTICS:")                                                             //nolint:errcheck
+	fmt.Fprintf(w, "  Open Connections:\t%d\n", metrics.DatabaseStats.OpenConnections)                  //nolint:errcheck
+	fmt.Fprintf(w, "  In Use:\t%d\n", metrics.DatabaseStats.InUse)                                      //nolint:errcheck
+	fmt.Fprintf(w, "  Idle:\t%d\n", metrics.DatabaseStats.Idle)                                         //nolint:errcheck
+	fmt.Fprintf(w, "  Wait Count:\t%d\n", metrics.DatabaseStats.WaitCount)                              //nolint:errcheck
+	fmt.Fprintf(w, "  Wait Duration:\t%s\n", health.FormatDuration(metrics.DatabaseStats.WaitDuration)) //nolint:errcheck
+	fmt.Fprintf(w, "  Max Idle Closed:\t%d\n", metrics.DatabaseStats.MaxIdleClosed)                     //nolint:errcheck
+	fmt.Fprintf(w, "  Max Lifetime Closed:\t%d\n", metrics.DatabaseStats.MaxLifetimeClosed)             //nolint:errcheck
+	fmt.Fprintln(w, "")                                                                                 //nolint:errcheck
 
-	fmt.Fprintln(w, "QUERY PERFORMANCE:")
-	fmt.Fprintf(w, "  Total Queries:\t%d\n", queryMetrics.QueryCount)
-	fmt.Fprintf(w, "  Average Query Time:\t%s\n", health.FormatDuration(queryMetrics.AvgDuration))
-	fmt.Fprintf(w, "  Slow Queries (>100ms):\t%d\n", queryMetrics.SlowQueries)
-	fmt.Fprintf(w, "  Total Query Time:\t%s\n", health.FormatDuration(queryMetrics.TotalDuration))
-	fmt.Fprintln(w, "")
+	fmt.Fprintln(w, "QUERY PERFORMANCE:")                                                          //nolint:errcheck
+	fmt.Fprintf(w, "  Total Queries:\t%d\n", queryMetrics.QueryCount)                              //nolint:errcheck
+	fmt.Fprintf(w, "  Average Query Time:\t%s\n", health.FormatDuration(queryMetrics.AvgDuration)) //nolint:errcheck
+	fmt.Fprintf(w, "  Slow Queries (>100ms):\t%d\n", queryMetrics.SlowQueries)                     //nolint:errcheck
+	fmt.Fprintf(w, "  Total Query Time:\t%s\n", health.FormatDuration(queryMetrics.TotalDuration)) //nolint:errcheck
+	fmt.Fprintln(w, "")                                                                            //nolint:errcheck
 
-	fmt.Fprintln(w, "SYSTEM INFORMATION:")
-	fmt.Fprintf(w, "  Uptime:\t%s\n", health.FormatDuration(metrics.Uptime))
-	fmt.Fprintf(w, "  Go Version:\t%s\n", metrics.GoVersion)
-	fmt.Fprintf(w, "  Timestamp:\t%s\n", metrics.Timestamp.Format("2006-01-02 15:04:05"))
+	fmt.Fprintln(w, "SYSTEM INFORMATION:")                                                //nolint:errcheck
+	fmt.Fprintf(w, "  Uptime:\t%s\n", health.FormatDuration(metrics.Uptime))              //nolint:errcheck
+	fmt.Fprintf(w, "  Go Version:\t%s\n", metrics.GoVersion)                              //nolint:errcheck
+	fmt.Fprintf(w, "  Timestamp:\t%s\n", metrics.Timestamp.Format("2006-01-02 15:04:05")) //nolint:errcheck
 
-	w.Flush()
+	w.Flush() //nolint:errcheck
 }

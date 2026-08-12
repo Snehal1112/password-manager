@@ -56,7 +56,7 @@ func setupUserDB(t *testing.T) *sql.DB {
 		);
 	`)
 	require.NoError(t, err)
-	t.Cleanup(func() { db.Close() })
+	t.Cleanup(func() { db.Close() }) //nolint:errcheck
 	return db
 }
 
@@ -94,7 +94,7 @@ func setupSessionDB(t *testing.T) *sql.DB {
 		);
 	`)
 	require.NoError(t, err)
-	t.Cleanup(func() { db.Close() })
+	t.Cleanup(func() { db.Close() }) //nolint:errcheck
 	return db
 }
 
@@ -142,7 +142,7 @@ func setupTagDB(t *testing.T) *sql.DB {
 		);
 	`)
 	require.NoError(t, err)
-	t.Cleanup(func() { db.Close() })
+	t.Cleanup(func() { db.Close() }) //nolint:errcheck
 	return db
 }
 
@@ -163,7 +163,7 @@ func setupVersioningDB(t *testing.T) *sql.DB {
 		);
 	`)
 	require.NoError(t, err)
-	t.Cleanup(func() { db.Close() })
+	t.Cleanup(func() { db.Close() }) //nolint:errcheck
 	return db
 }
 

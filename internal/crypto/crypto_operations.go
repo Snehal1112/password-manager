@@ -52,7 +52,7 @@ type EncryptionAlgorithm string
 
 const (
 	// AlgorithmRSAOAEP uses RSA-OAEP with SHA-1 — matches Azure SDK default "RSA-OAEP".
-	AlgorithmRSAOAEP    EncryptionAlgorithm = "RSA-OAEP"
+	AlgorithmRSAOAEP EncryptionAlgorithm = "RSA-OAEP"
 	// AlgorithmRSAOAEP256 uses RSA-OAEP with SHA-256 — matches Azure "RSA-OAEP-256".
 	AlgorithmRSAOAEP256 EncryptionAlgorithm = "RSA-OAEP-256"
 	AlgorithmAES256     EncryptionAlgorithm = "AES256-GCM" // AES-256-GCM

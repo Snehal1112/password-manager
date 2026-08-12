@@ -83,10 +83,10 @@ var logsCmd = &cobra.Command{
 		}
 
 		if !integrityOK {
-			fmt.Fprintln(cmd.ErrOrStderr(), "WARNING: hash chain integrity check failed — audit log may have been tampered with")
+			fmt.Fprintln(cmd.ErrOrStderr(), "WARNING: hash chain integrity check failed — audit log may have been tampered with") //nolint:errcheck
 		}
 
-		fmt.Fprintf(cmd.OutOrStdout(), "Total matching: %d\n", total)
+		fmt.Fprintf(cmd.OutOrStdout(), "Total matching: %d\n", total) //nolint:errcheck
 
 		fmtr, ok := ctx.Value(common.OutputFormatterKey).(formatter.Formatter)
 		if !ok {

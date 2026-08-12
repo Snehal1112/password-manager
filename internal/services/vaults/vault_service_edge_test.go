@@ -16,13 +16,13 @@ import (
 // errVaultRepo wraps fakeVaultRepo but injects failures on specific operations.
 type errVaultRepo struct {
 	*fakeVaultRepo
-	readByIDErr     error
-	softDeleteErr   error
-	recoverErr      error
-	purgeErr        error
-	listDeletedErr  error
-	listErr         error
-	readByNameErr   error
+	readByIDErr    error
+	softDeleteErr  error
+	recoverErr     error
+	purgeErr       error
+	listDeletedErr error
+	listErr        error
+	readByNameErr  error
 }
 
 func (r *errVaultRepo) ReadByID(_ context.Context, id uuid.UUID) (*model.Vault, error) {

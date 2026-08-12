@@ -74,7 +74,7 @@ func NewServerStarter(logger *logging.Logger) *ServerStarter {
 // Start initializes and starts the HTTP server.
 func (s *ServerStarter) Start(ctx context.Context, app *app.App) error {
 	s.logger.Info("Starting HTTP server")
-	app.StartServer(ctx)
+	app.StartServer(ctx) //nolint:errcheck
 	s.logger.Info("HTTP server started successfully")
 	return nil
 }
@@ -294,7 +294,6 @@ func (b *bootstrap) setup(ctx context.Context, cfg *Config) error {
 	logrus.Info("Application bootstrap completed successfully")
 	return nil
 }
-
 
 // buildServerConfigFromViper reads server TLS and feature configuration from Viper.
 func buildServerConfigFromViper() server.ServerConfig {

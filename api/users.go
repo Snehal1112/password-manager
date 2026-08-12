@@ -30,8 +30,8 @@ import (
 
 	"github.com/google/uuid"
 
-	"rocketvault/model"
 	userService "rocketvault/internal/services/users"
+	"rocketvault/model"
 )
 
 // InitUsers initializes the routes for users management API.
@@ -149,7 +149,7 @@ func createUser(c *Context, w http.ResponseWriter, r *http.Request) {
 	// Send response.
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusCreated)
-	w.Write([]byte(response.ToJson()))
+	w.Write([]byte(response.ToJson())) //nolint:errcheck
 
 	c.Logger.Printf("Admin %s created user %s with role %s", c.Claims["user_id"], result.Username, result.Role)
 }
@@ -208,7 +208,7 @@ func listUsers(c *Context, w http.ResponseWriter, r *http.Request) {
 
 	// Send response.
 	w.Header().Set("Content-Type", "application/json")
-	w.Write([]byte(response.ToJson()))
+	w.Write([]byte(response.ToJson())) //nolint:errcheck
 }
 
 // getUser handles the HTTP request to retrieve a user by its ID.
@@ -250,7 +250,7 @@ func getUser(c *Context, w http.ResponseWriter, r *http.Request) {
 
 	// Send response.
 	w.Header().Set("Content-Type", "application/json")
-	w.Write([]byte(response.ToJson()))
+	w.Write([]byte(response.ToJson())) //nolint:errcheck
 }
 
 // updateUser handles the HTTP request to update a user by its ID.
@@ -376,7 +376,7 @@ func updateUser(c *Context, w http.ResponseWriter, r *http.Request) {
 
 	// Send response.
 	w.Header().Set("Content-Type", "application/json")
-	w.Write([]byte(response.ToJson()))
+	w.Write([]byte(response.ToJson())) //nolint:errcheck
 
 	c.Logger.Printf("User %s updated user %s", currentUserID, userID.String())
 }
@@ -466,7 +466,7 @@ func loginUser(c *Context, w http.ResponseWriter, r *http.Request) {
 	// Send response.
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
-	w.Write([]byte(response.ToJson()))
+	w.Write([]byte(response.ToJson())) //nolint:errcheck
 
 	c.Logger.Printf("User %s (ID: %s) logged in successfully with role %s",
 		result.Username, result.UserID.String(), result.Role)
@@ -511,7 +511,7 @@ func refreshToken(c *Context, w http.ResponseWriter, r *http.Request) {
 
 	// Send response.
 	w.Header().Set("Content-Type", "application/json")
-	w.Write([]byte(response.ToJson()))
+	w.Write([]byte(response.ToJson())) //nolint:errcheck
 
 	c.Logger.Printf("Access token refreshed for user %s (ID: %s)",
 		result.Username, result.UserID.String())
@@ -570,7 +570,7 @@ func listUserSessions(c *Context, w http.ResponseWriter, r *http.Request) {
 
 	// Send response using json encoder for non-model map type.
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]any{"sessions": items, "total": len(items)})
+	json.NewEncoder(w).Encode(map[string]any{"sessions": items, "total": len(items)}) //nolint:errcheck
 }
 
 // revokeSession handles the HTTP request to revoke a specific session.

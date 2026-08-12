@@ -80,28 +80,28 @@ func ExternalServicePolicy() Policy {
 
 // CircuitBreakerConfig defines circuit breaker behavior for protecting against cascading failures.
 type CircuitBreakerConfig struct {
-	FailureThreshold   int           `yaml:"failure_threshold" json:"failure_threshold"`
-	Timeout           time.Duration `yaml:"timeout" json:"timeout"`
-	HalfOpenRequests  int           `yaml:"half_open_requests" json:"half_open_requests"`
+	FailureThreshold int           `yaml:"failure_threshold" json:"failure_threshold"`
+	Timeout          time.Duration `yaml:"timeout" json:"timeout"`
+	HalfOpenRequests int           `yaml:"half_open_requests" json:"half_open_requests"`
 }
 
 // DefaultCircuitBreaker returns a default circuit breaker configuration.
 func DefaultCircuitBreaker() CircuitBreakerConfig {
 	return CircuitBreakerConfig{
-		FailureThreshold:  5,
-		Timeout:           60 * time.Second,
-		HalfOpenRequests:  3,
+		FailureThreshold: 5,
+		Timeout:          60 * time.Second,
+		HalfOpenRequests: 3,
 	}
 }
 
 // CircuitBreaker provides circuit breaker functionality for protecting external services.
 type CircuitBreaker struct {
-	config       CircuitBreakerConfig
-	failures     int
-	lastFailure  time.Time
-	state        CircuitState
+	config        CircuitBreakerConfig
+	failures      int
+	lastFailure   time.Time
+	state         CircuitState
 	halfOpenCount int
-	mu           sync.RWMutex
+	mu            sync.RWMutex
 }
 
 // CircuitState represents the state of a circuit breaker.

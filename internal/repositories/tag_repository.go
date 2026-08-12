@@ -75,7 +75,7 @@ func (r *secretTagRepository) GetTags(ctx context.Context, secretID uuid.UUID) (
 	if err != nil {
 		return nil, fmt.Errorf("query tags: %w", err)
 	}
-	defer rows.Close()
+	defer rows.Close() //nolint:errcheck
 
 	var tags []string
 	for rows.Next() {
@@ -117,7 +117,7 @@ func (r *secretTagRepository) FindSecretsByTags(ctx context.Context, userID uuid
 	if err != nil {
 		return nil, fmt.Errorf("find secrets by tags: %w", err)
 	}
-	defer rows.Close()
+	defer rows.Close() //nolint:errcheck
 
 	var secretIDs []uuid.UUID
 	for rows.Next() {

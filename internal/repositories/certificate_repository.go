@@ -136,7 +136,7 @@ func (r *CertificateRepository) Update(ctx context.Context, cert *model.Certific
 		if txErr != nil {
 			return fmt.Errorf("failed to begin transaction: %w", txErr)
 		}
-		defer tx.Rollback()
+		defer tx.Rollback() //nolint:errcheck
 
 		query := "UPDATE certificates SET name = ?, certificate = ?, private_key = ?, created_at = ?, expires_at = ?, auto_renew = ?, renewal_days = ?, enabled = ?, not_before = ? WHERE id = ? AND " + predicate
 		execArgs := append([]any{
@@ -223,7 +223,7 @@ func (r *CertificateRepository) List(ctx context.Context, scope model.Scope, fil
 		if queryErr != nil {
 			return fmt.Errorf("failed to query certificates: %w", queryErr)
 		}
-		defer rows.Close()
+		defer rows.Close() //nolint:errcheck
 
 		tagRepo := db.NewTagRepository[model.Certificate](r.db, "certificate_tags", "certificate_id")
 		certList = make([]model.Certificate, 0, 50)
@@ -318,7 +318,7 @@ func (r *CertificateRepository) Create(ctx context.Context, cert *model.Certific
 			r.log.LogAuditError(cert.UserID.String(), "create_certificate", "failed", "Failed to begin transaction", err)
 			return fmt.Errorf("failed to begin transaction: %w", err)
 		}
-		defer tx.Rollback()
+		defer tx.Rollback() //nolint:errcheck
 
 		// Insert certificate with pre-encrypted private key and renewal metadata.
 		_, err = tx.ExecContext(
@@ -381,7 +381,7 @@ func (r *CertificateRepository) Delete(ctx context.Context, id uuid.UUID) error 
 			r.log.LogAuditError(uuid.Nil.String(), "delete_certificate", "failed", "Failed to begin transaction", err)
 			return fmt.Errorf("failed to begin transaction: %w", err)
 		}
-		defer tx.Rollback()
+		defer tx.Rollback() //nolint:errcheck
 
 		// Delete tags first
 		_, err = tx.ExecContext(ctx, "DELETE FROM certificate_tags WHERE certificate_id = ?", id.String())
@@ -482,7 +482,7 @@ func (r *CertificateRepository) ListRevoked(ctx context.Context, userID uuid.UUI
 			r.log.LogAuditError(userID.String(), "list_revoked_certificates", "failed", "Failed to query revoked certificates", err)
 			return fmt.Errorf("failed to query revoked certificates: %w", err)
 		}
-		defer rows.Close()
+		defer rows.Close() //nolint:errcheck
 
 		// Pre-allocate slice
 		revokedList = make([]model.RevokedCertificate, 0, 20)
@@ -725,7 +725,7 @@ func (r *CertificateRepository) ListSoftDeleted(ctx context.Context, userID uuid
 			r.log.LogAuditError(userID.String(), "list_soft_deleted_certificates", "failed", "Failed to query soft-deleted certificates", err)
 			return fmt.Errorf("failed to query soft-deleted certificates: %w", err)
 		}
-		defer rows.Close()
+		defer rows.Close() //nolint:errcheck
 
 		certList = make([]*model.Certificate, 0)
 
@@ -803,7 +803,7 @@ func (r *CertificateRepository) ListAll(ctx context.Context) ([]model.Certificat
 		if err != nil {
 			return fmt.Errorf("failed to list all certificates: %w", err)
 		}
-		defer rows.Close()
+		defer rows.Close() //nolint:errcheck
 
 		for rows.Next() {
 			var cert model.Certificate

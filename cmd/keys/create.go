@@ -169,11 +169,11 @@ func InitKeysCreate(keysCmd *cobra.Command) *cobra.Command {
 	createCmd.Flags().Int("bits", 2048, "RSA key size in bits (2048 or 4096)")
 	createCmd.Flags().String("curve", "P-256", "ECDSA curve (P-256, P-384, P-521)")
 	createCmd.Flags().String("tags", "", "Comma-separated tags for the key")
-	viper.BindPFlag("key-name", createCmd.Flags().Lookup("name"))
-	viper.BindPFlag("key-type", createCmd.Flags().Lookup("type"))
-	viper.BindPFlag("key-bits", createCmd.Flags().Lookup("bits"))
-	viper.BindPFlag("key-curve", createCmd.Flags().Lookup("curve"))
-	viper.BindPFlag("key-tags", createCmd.Flags().Lookup("tags"))
+	viper.BindPFlag("key-name", createCmd.Flags().Lookup("name"))   //nolint:errcheck
+	viper.BindPFlag("key-type", createCmd.Flags().Lookup("type"))   //nolint:errcheck
+	viper.BindPFlag("key-bits", createCmd.Flags().Lookup("bits"))   //nolint:errcheck
+	viper.BindPFlag("key-curve", createCmd.Flags().Lookup("curve")) //nolint:errcheck
+	viper.BindPFlag("key-tags", createCmd.Flags().Lookup("tags"))   //nolint:errcheck
 
 	return keysCmd
 }

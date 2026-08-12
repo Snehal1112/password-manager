@@ -28,7 +28,7 @@ import (
 func TestUpgradePath_PreFeatureAccessPoliciesGetsAssignmentID(t *testing.T) {
 	conn, err := sql.Open("sqlite3", ":memory:")
 	require.NoError(t, err)
-	defer conn.Close()
+	defer conn.Close() //nolint:errcheck
 
 	// Pre-feature prerequisite tables in their old shape. These carry the
 	// columns that createOptimizedSchema's CREATE INDEX statements reference

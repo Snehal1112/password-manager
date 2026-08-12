@@ -46,7 +46,7 @@ func getCertificatePolicy(c *Context, w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(policy)
+	json.NewEncoder(w).Encode(policy) //nolint:errcheck
 }
 
 // upsertCertificatePolicy creates or replaces the policy for a certificate.
@@ -116,7 +116,7 @@ func upsertCertificatePolicy(c *Context, w http.ResponseWriter, r *http.Request)
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(stored)
+	json.NewEncoder(w).Encode(stored) //nolint:errcheck
 }
 
 // deleteCertificatePolicy removes the policy for a certificate.

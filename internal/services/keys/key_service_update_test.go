@@ -131,7 +131,7 @@ func (f *fakeAuditPersister) PersistAudit(userID, action, details string) error 
 func TestUpdateKey_VaultScope_AuditRowsAttributeTheActor_NotTheOwner(t *testing.T) {
 	sqlDB, err := sql.Open("sqlite3", ":memory:")
 	require.NoError(t, err)
-	defer sqlDB.Close()
+	defer sqlDB.Close() //nolint:errcheck
 	_, err = sqlDB.Exec(`CREATE TABLE IF NOT EXISTS keys (
 		id TEXT PRIMARY KEY,
 		user_id TEXT NOT NULL,

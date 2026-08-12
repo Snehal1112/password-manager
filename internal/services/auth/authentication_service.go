@@ -11,9 +11,9 @@ import (
 	"github.com/google/uuid"
 	"github.com/sirupsen/logrus"
 
-	"rocketvault/model"
 	"rocketvault/internal/logging"
 	"rocketvault/internal/repositories"
+	"rocketvault/model"
 )
 
 // AuthenticationResult represents the result of a successful authentication.
@@ -156,9 +156,9 @@ func (s *authenticationService) AuthenticateUser(ctx context.Context, username, 
 		ID:               uuid.New(),
 		UserID:           user.ID,
 		RefreshTokenHash: s.hashRefreshToken(refreshToken),
-		DeviceInfo:       "", // Can be populated from request context.
-		IPAddress:        "", // Can be populated from request context.
-		UserAgent:        "", // Can be populated from request context.
+		DeviceInfo:       "",                                 // Can be populated from request context.
+		IPAddress:        "",                                 // Can be populated from request context.
+		UserAgent:        "",                                 // Can be populated from request context.
 		ExpiresAt:        time.Now().Add(7 * 24 * time.Hour), // 7 days
 		LastUsedAt:       time.Now(),
 		CreatedAt:        time.Now(),

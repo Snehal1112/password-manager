@@ -35,9 +35,9 @@ func InitVaultAccessList(parent *cobra.Command) {
 				return fmt.Errorf("list failed: %w", err)
 			}
 			out := cmd.OutOrStdout()
-			fmt.Fprintf(out, "%-38s %-20s %s\n", "ASSIGNMENT-ID", "ROLE", "PRINCIPAL-ID")
+			fmt.Fprintf(out, "%-38s %-20s %s\n", "ASSIGNMENT-ID", "ROLE", "PRINCIPAL-ID") //nolint:errcheck
 			for _, ra := range list {
-				fmt.Fprintf(out, "%-38s %-20s %s\n", ra.ID, ra.Role, ra.PrincipalID)
+				fmt.Fprintf(out, "%-38s %-20s %s\n", ra.ID, ra.Role, ra.PrincipalID) //nolint:errcheck
 			}
 			return nil
 		},

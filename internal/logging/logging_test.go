@@ -136,7 +136,7 @@ func TestRotateLogFileCustom(t *testing.T) {
 	// Write data to exceed size limit.
 	file, err := os.OpenFile(logger.logFile, os.O_APPEND|os.O_WRONLY, 0o600)
 	assert.NoError(t, err, "failed to open log file")
-	defer file.Close()
+	defer file.Close()                  //nolint:errcheck
 	data := make([]byte, 1.5*1024*1024) // 1.5 MB
 	_, err = file.Write(data)
 	assert.NoError(t, err, "failed to write to log file")
@@ -203,7 +203,7 @@ func TestRotateLogFileLumberjack(t *testing.T) {
 	// Write data to exceed size limit.
 	file, err := os.OpenFile(logger.logFile, os.O_APPEND|os.O_WRONLY, 0o600)
 	assert.NoError(t, err, "failed to open log file")
-	defer file.Close()
+	defer file.Close()                  //nolint:errcheck
 	data := make([]byte, 1.5*1024*1024) // 1.5 MB
 	_, err = file.Write(data)
 	assert.NoError(t, err, "failed to write to log file")

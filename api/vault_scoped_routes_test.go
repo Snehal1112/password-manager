@@ -383,9 +383,9 @@ func TestVaultScopedRoute_UsesVaultScopedImport(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to create form file: %v", err)
 	}
-	fw.Write([]byte(`[{"name":"n1","value":"v1"}]`))
-	mw.WriteField("format", "json")
-	mw.Close()
+	fw.Write([]byte(`[{"name":"n1","value":"v1"}]`)) //nolint:errcheck
+	mw.WriteField("format", "json")                  //nolint:errcheck
+	mw.Close()                                       //nolint:errcheck
 
 	r := httptest.NewRequest(http.MethodPost, "/api/v1/vaults/prod/secrets/import", &buf)
 	r.Header.Set("Content-Type", mw.FormDataContentType())

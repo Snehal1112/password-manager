@@ -18,7 +18,7 @@ import (
 func TestInitializeDB(t *testing.T) {
 	// Set up test configuration.
 	viper.Set("database.connection", "./test.db")
-	defer os.Remove("./test.db") // Clean up test database.
+	defer os.Remove("./test.db") //nolint:errcheck // Clean up test database.
 	log := logging.InitLogger()
 
 	// Test happy path.
@@ -31,7 +31,7 @@ func TestInitializeDB(t *testing.T) {
 	rows, err := globalDB.Query("SELECT name FROM sqlite_master WHERE type='table' AND name='users'")
 	assert.NoError(t, err, "query for users table should succeed")
 	assert.True(t, rows.Next(), "users table should exist")
-	rows.Close()
+	rows.Close() //nolint:errcheck
 }
 
 // TestInitializeDBInvalidConfig tests InitializeDB with an invalid connection string.
@@ -47,7 +47,7 @@ func TestInitializeDBInvalidConfig(t *testing.T) {
 // TestCloseDB tests the CloseDB function to ensure it closes the connection gracefully.
 func TestCloseDB(t *testing.T) {
 	viper.Set("database.connection", "./test.db")
-	defer os.Remove("./test.db")
+	defer os.Remove("./test.db") //nolint:errcheck
 
 	// Initialize database.
 	log := logging.InitLogger()
@@ -63,13 +63,13 @@ func TestCloseDB(t *testing.T) {
 // BenchmarkInitializeDB measures the performance of database initialization.
 func BenchmarkInitializeDB(b *testing.B) {
 	viper.Set("database.connection", "./test.db")
-	defer os.Remove("./test.db")
+	defer os.Remove("./test.db") //nolint:errcheck
 	log := logging.InitLogger()
 
 	for i := 0; i < b.N; i++ {
 		db := NewRepository(log)
-		db.InitializeDB()
-		db.CloseDB()
+		db.InitializeDB() //nolint:errcheck
+		db.CloseDB()      //nolint:errcheck
 	}
 }
 
@@ -104,7 +104,7 @@ func TestIsDuplicateColumnError_GenericError(t *testing.T) {
 // TestInitializeDB_SeedsDefaultVault verifies the default vault is seeded on startup.
 func TestInitializeDB_SeedsDefaultVault(t *testing.T) {
 	viper.Set("database.connection", "./test_vault_seed.db")
-	defer os.Remove("./test_vault_seed.db")
+	defer os.Remove("./test_vault_seed.db") //nolint:errcheck
 	log := logging.InitLogger()
 	d := NewRepository(log)
 	assert.NoError(t, d.InitializeDB())
@@ -118,7 +118,7 @@ func TestInitializeDB_SeedsDefaultVault(t *testing.T) {
 // TestSeedDefaultVault_Idempotent verifies seedDefaultVault does not error or duplicate.
 func TestSeedDefaultVault_Idempotent(t *testing.T) {
 	viper.Set("database.connection", "./test_vault_idem.db")
-	defer os.Remove("./test_vault_idem.db")
+	defer os.Remove("./test_vault_idem.db") //nolint:errcheck
 	log := logging.InitLogger()
 	d := NewRepository(log)
 	assert.NoError(t, d.InitializeDB())

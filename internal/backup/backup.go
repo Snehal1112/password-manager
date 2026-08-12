@@ -148,7 +148,7 @@ func (m *Manager) RestoreBackup(backupPath string, encrypted bool) error {
 	if err != nil {
 		return fmt.Errorf("failed to begin transaction: %w", err)
 	}
-	defer tx.Rollback()
+	defer tx.Rollback() //nolint:errcheck
 
 	// Clear existing data and restore
 	totalRecords := 0
@@ -212,7 +212,7 @@ func (m *Manager) getTableNames() ([]string, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer rows.Close() //nolint:errcheck
 
 	var tables []string
 	for rows.Next() {
@@ -240,7 +240,7 @@ func (m *Manager) exportTableData(tableName string) (*TableData, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer rows.Close() //nolint:errcheck
 
 	// Convert rows to map format
 	var tableRows []map[string]interface{}
@@ -285,7 +285,7 @@ func (m *Manager) getTableColumns(tableName string) ([]string, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer rows.Close() //nolint:errcheck
 
 	var columns []string
 	for rows.Next() {
@@ -314,7 +314,7 @@ func (m *Manager) getTableColumnsPostgres(tableName string) ([]string, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer rows.Close() //nolint:errcheck
 
 	var columns []string
 	for rows.Next() {
@@ -447,7 +447,7 @@ func (m *Manager) restoreTableData(tx *sql.Tx, tableData *TableData) error {
 	if err != nil {
 		return err
 	}
-	defer stmt.Close()
+	defer stmt.Close() //nolint:errcheck
 
 	// Insert all rows
 	for _, row := range tableData.Rows {

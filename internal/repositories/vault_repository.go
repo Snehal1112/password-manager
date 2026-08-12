@@ -151,7 +151,7 @@ func (r *VaultRepository) listWhere(ctx context.Context, where string) ([]model.
 	if err != nil {
 		return nil, fmt.Errorf("failed to list vaults: %w", err)
 	}
-	defer rows.Close()
+	defer rows.Close() //nolint:errcheck
 	var out []model.Vault
 	for rows.Next() {
 		v, err := scanVault(rows)

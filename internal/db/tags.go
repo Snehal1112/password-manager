@@ -52,7 +52,7 @@ func (r *tagRepository[T]) AddTags(ctx context.Context, id uuid.UUID, tags []str
 		logrus.Error("Failed to begin transaction for tags: ", err)
 		return fmt.Errorf("failed to begin transaction: %w", err)
 	}
-	defer tx.Rollback()
+	defer tx.Rollback() //nolint:errcheck
 
 	for _, tag := range tags {
 		_, err := tx.ExecContext(ctx,
@@ -94,7 +94,7 @@ func (r *tagRepository[T]) GetTags(ctx context.Context, id uuid.UUID) ([]string,
 		logrus.Error("Failed to query tags: ", err)
 		return nil, fmt.Errorf("failed to query tags: %w", err)
 	}
-	defer rows.Close()
+	defer rows.Close() //nolint:errcheck
 
 	var tags []string
 	for rows.Next() {
@@ -134,7 +134,7 @@ func (r *tagRepository[T]) ReplaceTags(ctx context.Context, id uuid.UUID, tags [
 		logrus.Error("Failed to begin transaction: ", err)
 		return fmt.Errorf("failed to begin transaction: %w", err)
 	}
-	defer tx.Rollback()
+	defer tx.Rollback() //nolint:errcheck
 
 	// Delete existing tags
 	_, err = tx.ExecContext(ctx, fmt.Sprintf("DELETE FROM %s WHERE %s = ?", r.table, r.idColumn), id.String())

@@ -34,8 +34,8 @@ type RetryService interface {
 
 // retryService implements RetryService with configurable policies
 type retryService struct {
-	databasePolicy      retry.Policy
-	externalServicesPolicy retry.Policy
+	databasePolicy          retry.Policy
+	externalServicesPolicy  retry.Policy
 	serviceOperationsPolicy retry.Policy
 }
 
@@ -48,8 +48,8 @@ func NewRetryService(viper *viper.Viper) (RetryService, error) {
 	}
 
 	return &retryService{
-		databasePolicy:      config.Database,
-		externalServicesPolicy: config.ExternalServices,
+		databasePolicy:          config.Database,
+		externalServicesPolicy:  config.ExternalServices,
 		serviceOperationsPolicy: config.ServiceOperations,
 	}, nil
 }

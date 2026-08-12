@@ -46,7 +46,7 @@ func setupContentTypeTestDB(t *testing.T) *sql.DB {
 		PRIMARY KEY (secret_id, tag)
 	)`)
 	require.NoError(t, err)
-	t.Cleanup(func() { db.Close() })
+	t.Cleanup(func() { db.Close() }) //nolint:errcheck
 	return db
 }
 

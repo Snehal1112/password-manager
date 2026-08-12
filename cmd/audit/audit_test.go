@@ -103,9 +103,9 @@ func TestAuditLogsDefaultFilter(t *testing.T) {
 				return fmt.Errorf("failed to query audit logs: %w", err)
 			}
 			if !integrityOK {
-				fmt.Fprintln(cmd.ErrOrStderr(), "WARNING: hash chain integrity check failed")
+				fmt.Fprintln(cmd.ErrOrStderr(), "WARNING: hash chain integrity check failed") //nolint:errcheck
 			}
-			fmt.Fprintf(cmd.OutOrStdout(), "Total matching: %d\n", total)
+			fmt.Fprintf(cmd.OutOrStdout(), "Total matching: %d\n", total) //nolint:errcheck
 
 			fmtr, ok := ctx.Value(common.OutputFormatterKey).(formatter.Formatter)
 			if !ok {
@@ -174,8 +174,8 @@ func TestAuditReportSOC2(t *testing.T) {
 				if err != nil {
 					return fmt.Errorf("failed to generate SOC 2 report: %w", err)
 				}
-				fmt.Fprintf(cmd.OutOrStdout(), "SOC 2 Report: %s to %s\n", report.From.Format("2006-01-02"), report.To.Format("2006-01-02"))
-				fmt.Fprintf(cmd.OutOrStdout(), "  Total events:       %d\n", report.TotalEvents)
+				fmt.Fprintf(cmd.OutOrStdout(), "SOC 2 Report: %s to %s\n", report.From.Format("2006-01-02"), report.To.Format("2006-01-02")) //nolint:errcheck
+				fmt.Fprintf(cmd.OutOrStdout(), "  Total events:       %d\n", report.TotalEvents)                                             //nolint:errcheck
 			}
 			return nil
 		},
@@ -263,13 +263,13 @@ func TestAuditConfigGetRetentionDays(t *testing.T) {
 				if err := mockSvc.SetRetentionDays(ctx, retentionDays); err != nil {
 					return fmt.Errorf("failed to update retention policy: %w", err)
 				}
-				fmt.Fprintf(cmd.OutOrStdout(), "Retention policy updated: %d days\n", retentionDays)
+				fmt.Fprintf(cmd.OutOrStdout(), "Retention policy updated: %d days\n", retentionDays) //nolint:errcheck
 			} else {
 				days, err := mockSvc.GetRetentionDays(ctx)
 				if err != nil {
 					return fmt.Errorf("failed to get retention policy: %w", err)
 				}
-				fmt.Fprintf(cmd.OutOrStdout(), "Current audit log retention: %d days\n", days)
+				fmt.Fprintf(cmd.OutOrStdout(), "Current audit log retention: %d days\n", days) //nolint:errcheck
 			}
 			return nil
 		},

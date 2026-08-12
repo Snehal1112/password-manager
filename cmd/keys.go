@@ -44,7 +44,7 @@ var keysCmd = &cobra.Command{
   rocketvault keys list --username admin --password admin123 --totp-code <code>`,
 	Run: func(cmd *cobra.Command, args []string) {
 		// Show help when command is called without subcommands
-		cmd.Help()
+		cmd.Help() //nolint:errcheck
 	},
 }
 

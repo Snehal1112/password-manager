@@ -26,7 +26,7 @@ func TestExternalPKIProvider_RSA_FromFile(t *testing.T) {
 	require.NoError(t, err)
 	_, err = f.WriteString(keyPEM)
 	require.NoError(t, err)
-	f.Close()
+	f.Close() //nolint:errcheck
 
 	p, err := signing.NewExternalPKIProvider(f.Name())
 	require.NoError(t, err)
@@ -48,7 +48,7 @@ func TestExternalPKIProvider_ECDSA_FromFile(t *testing.T) {
 	require.NoError(t, err)
 	_, err = f.WriteString(keyPEM)
 	require.NoError(t, err)
-	f.Close()
+	f.Close() //nolint:errcheck
 
 	p, err := signing.NewExternalPKIProvider(f.Name())
 	require.NoError(t, err)

@@ -36,7 +36,7 @@ func newVaultTagsTestDB(t *testing.T) *sql.DB {
 
 func TestVaultRepository_EmptyTagsClears(t *testing.T) {
 	db := newVaultTagsTestDB(t)
-	defer db.Close()
+	defer db.Close() //nolint:errcheck
 	repo := NewVaultRepository(rvdb.NewConn(db, rvdb.SQLite), &logging.Logger{})
 	ctx := context.Background()
 
@@ -66,7 +66,7 @@ func TestVaultRepository_EmptyTagsClears(t *testing.T) {
 
 func TestVaultRepository_TagsRoundTripAndUpdateStamps(t *testing.T) {
 	db := newVaultTagsTestDB(t)
-	defer db.Close()
+	defer db.Close() //nolint:errcheck
 	repo := NewVaultRepository(rvdb.NewConn(db, rvdb.SQLite), &logging.Logger{})
 	ctx := context.Background()
 

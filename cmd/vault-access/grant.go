@@ -58,7 +58,7 @@ func InitVaultAccessGrant(parent *cobra.Command) {
 			if err != nil {
 				return fmt.Errorf("grant failed: %w", err)
 			}
-			fmt.Fprintf(cmd.OutOrStdout(), "granted %s to %s in vault (assignment %s)\n", role, principal, ra.ID)
+			fmt.Fprintf(cmd.OutOrStdout(), "granted %s to %s in vault (assignment %s)\n", role, principal, ra.ID) //nolint:errcheck
 			return nil
 		},
 	}

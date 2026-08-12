@@ -211,7 +211,7 @@ func TestShutdown_WithPurgeScheduler_StopsCleanly(t *testing.T) {
 	// is acceptable here since we are only testing Shutdown.
 	rawDB, err := sql.Open("sqlite3", ":memory:")
 	require.NoError(t, err)
-	defer rawDB.Close()
+	defer rawDB.Close() //nolint:errcheck
 	conn := rvdb.NewConn(rawDB, rvdb.SQLite)
 
 	logger := newTestLogger()

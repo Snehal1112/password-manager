@@ -11,8 +11,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 
-	"rocketvault/model"
 	"rocketvault/internal/retry"
+	"rocketvault/model"
 )
 
 // MockRepository simulates a repository that can fail for testing retry logic
@@ -214,11 +214,11 @@ func TestRetryRepositoryWrapperIntegration(t *testing.T) {
 
 	ctx := context.Background()
 	testUser := &model.User{
-		ID:       uuid.New(),
-		Username: "testuser",
+		ID:           uuid.New(),
+		Username:     "testuser",
 		PasswordHash: "hashed_password",
-		TOTPSecret: "totp_secret",
-		Role:     "user",
+		TOTPSecret:   "totp_secret",
+		Role:         "user",
 	}
 
 	t.Run("create user with retry on temporary failure", func(t *testing.T) {

@@ -23,7 +23,7 @@ func TestBackfillRoleAssignments_CreatesDerivedGrants(t *testing.T) {
 	var got []row
 	rows, err := conn.Query(`SELECT principal_id, vault_id, role FROM role_assignments`)
 	require.NoError(t, err)
-	defer rows.Close()
+	defer rows.Close() //nolint:errcheck
 	for rows.Next() {
 		var r row
 		require.NoError(t, rows.Scan(&r.principal, &r.vault, &r.role))

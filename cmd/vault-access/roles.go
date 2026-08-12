@@ -26,13 +26,13 @@ func InitVaultAccessRoles(parent *cobra.Command) {
 				// Printing them with a permission list here would repeat that
 				// lie back to the operator.
 				if authz.IsLegacyRole(name) {
-					fmt.Fprintf(out, "%s (deprecated: no longer grantable, grants no access — use an Azure role instead)\n", name)
+					fmt.Fprintf(out, "%s (deprecated: no longer grantable, grants no access — use an Azure role instead)\n", name) //nolint:errcheck
 					continue
 				}
 				if model.IsAzureRole(name) {
-					fmt.Fprintf(out, "%s\n", name)
+					fmt.Fprintf(out, "%s\n", name) //nolint:errcheck
 					for _, action := range model.AzureRoleDataActions(name) {
-						fmt.Fprintf(out, "  %s\n", action)
+						fmt.Fprintf(out, "  %s\n", action) //nolint:errcheck
 					}
 					continue
 				}
@@ -40,9 +40,9 @@ func InitVaultAccessRoles(parent *cobra.Command) {
 				if err != nil {
 					return err
 				}
-				fmt.Fprintf(out, "%s\n", name)
+				fmt.Fprintf(out, "%s\n", name) //nolint:errcheck
 				for _, p := range perms {
-					fmt.Fprintf(out, "  %s/%s\n", p[0], p[1])
+					fmt.Fprintf(out, "  %s/%s\n", p[0], p[1]) //nolint:errcheck
 				}
 			}
 			return nil
