@@ -73,6 +73,11 @@ An earlier audit of the other docs in this repo found a batch of inaccuracies; t
 # Create an RSA key (requires admin or secrets_manager role)
 ./rocketvault keys create --name mykey --type RSA --bits 2048 \
   --username admin --password admin123 --totp-code 847291
+
+# List certificates in a specific vault — keys and certificate subcommands
+# now support --vault too, with one exception (see notes below)
+./rocketvault certificate list --vault payments-team \
+  --username admin --password admin123 --totp-code 847291
 ```
 
 ### Notes & gotchas
@@ -80,8 +85,8 @@ An earlier audit of the other docs in this repo found a batch of inaccuracies; t
 - **Auth is required per-command, not per-session.** `persistentPreRun` in `cmd/root.go` re-authenticates on every invocation via `--username` / `--password` / `--totp-code`; there's no persisted CLI session token to reuse. `rocketvault users login` is a credential-check convenience, not a login you stay in.
 - **System commands skip auth entirely.** `health`, `backup`, `serve`, `admin`, `migrate` / `migrate:status` / `migrate:to` / `migrate:create`, and `roles` are listed in `systemCmds` in `cmd/root.go` and run without `--username` / `--password`.
 - **`--output` only accepts `table`, `json`, or `yaml`.** Anything else fails fast with `invalid --output value ...: must be table, json, or yaml` (`cmd/root.go`, `internal/formatter`). Default is `table`.
-- **Vault targeting precedence:** `--vault` flag > `ROCKETVAULT_VAULT` env > config `vault` key > `"default"`, per `common.ResolveVaultName` (wired through `cmd/vault_flag.go`).
-- **Role checks are enforced client-side in the command, not just server-side.** For example, `keys create` calls `common.HasRequiredRole(claims.Role, model.RoleAdmin, model.RoleSecretsManager)` and fails locally with `forbidden: requires admin or secrets_manager role` before ever calling the service.
+- **Vault targeting precedence:** `--vault` flag > `ROCKETVAULT_VAULT` env > config `vault` key > `"default"`, per `common.ResolveVaultName` (wired through `cmd/vault_flag.go` as a persistent flag on `rootCmd`, so it's available on every subcommand). A `--vault` wiring series has since landed `--vault` support across nearly all `secrets`/`keys`/`certificate` data-plane subcommands — create, get, list, update, delete, plus `keys rotate`/`wrap`/`unwrap` and `certificate renew` — with one exception: **`certificate create` does not read `--vault`** and always provisions into the default vault (it never calls `vaultcli.ResolveVaultID`; `resolveVaultID` in `internal/services/certificates/certificate_service.go` falls back to the default vault because `CreateCertificateRequest.VaultID` is left unset).
+- **Role checks now run in two stages, not just a client-side gate.** Commands first do a local role check — e.g. `keys create` calls `common.HasRequiredRole(claims.Role, model.RoleAdmin, model.RoleSecretsManager)` and fails fast with `forbidden: requires admin or secrets_manager role` before touching the service — then call `vaultcli.RequireDataAction`, which reproduces the HTTP `PolicyMiddleware`'s check against the resolved `--vault`: an access-policy explicit-deny override (`AccessPolicyService.CheckAccess`), then a per-vault role-assignment check (`RoleAssignmentService.HasDataAction`). A role that passes the local check can still be denied per-vault. **`certificate create` is again the exception:** it only performs the local role check (admin or certificate_manager) and never calls `RequireDataAction`, so — unlike its sibling commands — it isn't vault-authorization-gated.
 - **The CLI talks to the service container directly** (`internal/container.ServiceContainerInterface`), bypassing the HTTP API and its middleware chain — so the API-level `rate_limit` config in `.rocketvault.yaml` does not apply to CLI invocations.
 - TOTP codes rotate every 30 seconds; an expired code is rejected by the authentication service. See the TOTP walkthrough in the deep-dive doc if you need a code without a phone.
 
@@ -107,6 +112,7 @@ Everything the CLI does locally is also reachable over HTTP, which is the surfac
 - A running `rocketvault serve` instance. The effective default bind address is `127.0.0.1:8774` (the hardcoded `defaultListenAddr` in `cmd/serve.go`), not the `server.listen_addr` value in `.rocketvault.yaml`, which is currently ignored — see the init-ordering gotcha in section 9.
 - An existing user account (created via bootstrap token — see section 1) with a username, password, and TOTP code; login requires all three.
 - The API base path is `/api/v1` (`basePath = "/api/v1"` in `cmd/serve.go`, overridable via the `serve --api_base` flag or the `PASSWORD_MANAGER_BASE_API` env var).
+- A valid JWT alone is not enough to touch secrets, keys, or certificates: the account must also hold a role assignment granting the relevant Azure data action in the target vault (see the deny-by-default note below). A bootstrap-created global admin gets this for free in every vault; any other user needs an explicit grant first (`vault-access grant` — section 1 — or `POST /api/v1/vaults/{vault_name}/role-assignments`).
 
 ### Example
 
@@ -146,11 +152,12 @@ When the access token expires, exchange the refresh token via the also-public `P
 
 ### Notes & gotchas
 
-- Every route except `POST /users/login`, `POST /users/refresh`, `POST /oauth2/token`, `GET /config`, `GET /jwks.json`, and the three public health routes (`GET /health`, `GET /health/ready`, `GET /health/live` — note that `GET /health/database` is *not* public) requires the `Authorization: Bearer <jwt>` header. `ApiSessionRequired` in `api/context.go` rejects requests with no valid session with `401 api.context.session_required`, and `RBACService.ValidateEndpointAccess` can additionally return `403 api.context.permissions` if the authenticated user's role lacks access to that method/path.
+- Every route except `POST /users/login`, `POST /users/refresh`, `POST /oauth2/token`, `GET /config`, `GET /jwks.json`, and the three public health routes (`GET /health`, `GET /health/ready`, `GET /health/live` — note that `GET /health/database` is *not* public) requires the `Authorization: Bearer <jwt>` header. `AuthenticationMiddleware`/`ApiSessionRequired` reject a missing or invalid session with `401`.
+- A valid bearer token is necessary but no longer sufficient for secrets, keys, and certificates. `PolicyMiddleware` (`internal/middleware/middleware.go`) is **deny-by-default** for vault data-plane routes: it maps the request to a single Azure data action and calls `RoleAssignmentService.HasDataAction` to check whether the caller holds a role assignment granting that action *in the resolved vault*. No matching assignment is a `403 Forbidden: no role assignment grants this operation in this vault`, regardless of how valid the token is. `access_policies` still exist but now act only as an explicit-deny override — `AccessPolicyService.CheckAccess` runs first, so an explicit deny always wins even where a role assignment would otherwise allow. `RBACService.ValidateEndpointAccess` (checked separately by `AuthorizationMiddleware`) still gates global-role permissions, but it explicitly defers on every vault data-plane and vault-management route (returns no error), so for `/secrets`, `/keys`, and `/certificates` it's the role-assignment check — not RBAC — that decides. A bootstrap-created global admin is auto-granted the Key Vault Administrator role in every vault (including `default`) by a startup migration backfill, which is why the `admin` example below works without any extra setup; every other principal needs an explicit grant via `vault-access grant` (section 1) or `POST /api/v1/vaults/{vault_name}/role-assignments` before it can touch data-plane resources.
 - JWT access tokens expire based on `jwt.expiry` in `.rocketvault.yaml` (currently `1h` in this repo's config). Plan to use the refresh-token flow instead of re-authenticating with TOTP on every expiry.
 - Rate limiting is enforced per-IP by `RateLimitMiddleware`: `rate_limit.auth` (5 req/min in `.rocketvault.yaml`) applies to auth-related endpoints, and `rate_limit.default` (300 req/min) applies to everything else. Responses include `X-RateLimit-Limit`, `X-RateLimit-Remaining`, and `X-RateLimit-Reset` headers.
 - Machine-to-machine access doesn't have to go through user login at all — `POST /api/v1/oauth2/token` (public, registered in `api/oauth2.go`) issues tokens for service accounts created via `POST /api/v1/service-accounts` (authenticated). See section 3.
-- Most resource routes exist in two shapes: the legacy flat form (e.g. `/api/v1/secrets`) and a vault-scoped form (e.g. `/api/v1/vaults/{vault_name}/secrets`), registered by the same handlers (`api.registerSecretRoutes` in `api/secrets.go`). Both work, but vault-scoped calls resolve to that vault's context instead of the default vault.
+- Most resource routes exist in two shapes: the legacy flat form (e.g. `/api/v1/secrets`) and a vault-scoped form (e.g. `/api/v1/vaults/{vault_name}/secrets`), registered by the same handlers (`api.registerSecretRoutes` in `api/secrets.go`). Both work, and both are gated by the same deny-by-default role-assignment check described above; a flat-route call resolves against the `default` vault, a vault-scoped call resolves — and is authorized — against the named vault instead.
 - All IDs in path parameters (`secret_id`, `key_id`, `certificate_id`, `user_id`, `policy_id`, `service_account_id`, `assignment_id`) must match the hex/UUID pattern `[A-Fa-f0-9-]+` enforced by the Gorilla Mux route regex, or the router returns a 404 before your handler even runs.
 
 **Deep dive:** [docs/api-developer-guide.md](api-developer-guide.md) — full endpoint reference, error format, and JavaScript/Python/Go SDK examples. Its one remaining discrepancy is its "Base URL" section, which shows a placeholder `https://api.rocketvault.local` domain rather than the real default `http://localhost:8774`.
@@ -173,8 +180,8 @@ Human logins are a poor fit for pipelines and long-running services. That's what
 
 - A running RocketVault server and an **admin** bearer JWT — creating, listing, rotating, and deleting service accounts requires the `admin` role (`api/oauth2.go`: `createServiceAccount`, `listServiceAccounts`, `getServiceAccount`, `deleteServiceAccount`, and `rotateServiceAccountSecret` all call `common.HasRequiredRole(roleStr, model.RoleAdmin)`).
 - The `oauth2.token_expiry` (default `30m`) and `oauth2.issuer` config keys in `.rocketvault.yaml` (shipped values: `token_expiry: "30m"`, `issuer: "http://localhost:8774"`). The container falls back to a 30-minute expiry if the key is unset (`internal/container/service_container.go`).
-- Access policies are evaluated fallback-allow: with no matching policy the request falls through to the RBAC role check, and only an explicit `deny` policy halts it. A policy is therefore not what unlocks reads for a service account — the `service_account` role already carries `secrets:read` / `secrets:list`. What does block a fresh service account is per-owner scoping on the flat routes (see below); create explicit `allow` policies when you want an auditable grant, and use vault-scoped routes for cross-owner reads.
-- The flat `/api/v1/secrets/{id}` route is owner-scoped at the SQL level, so an access policy alone is not sufficient to let a service account read an admin-created secret — see the gotcha on step 4 below.
+- Vault data-plane routes — secrets, keys, and certificates, both the flat `/api/v1/secrets/{id}` shape and the vault-scoped `/api/v1/vaults/{name}/secrets/{id}` shape — are **deny-by-default**: the caller needs a per-vault role assignment granting the mapped Azure data action (`internal/services/authorization/data_actions.go`, `PolicyMiddleware` in `internal/middleware/middleware.go`). A freshly created service account holds no role assignments, so every data-plane call 403s until an admin grants one via `POST /api/v1/vaults/{vault_name}/role-assignments` (see step 2 below). `access_policies` does not unlock this — it survives only as an explicit-deny override evaluated *before* the role-assignment check, and managing a policy (create/update/delete/list/get) itself now requires the `admin` role (`api/access_policies.go`: `requireAccessPolicyAdmin`).
+- Once a role assignment grants read access, the flat `/api/v1/secrets/{id}` route layers on a second, independent restriction: it is owner-scoped at the SQL level (`model.ScopeOwner`, `internal/repositories/scope_predicate.go`), so it only ever returns secrets owned by the calling principal — see the gotcha on step 4 below.
 
 ### Example
 
@@ -190,11 +197,15 @@ curl -s -X POST http://localhost:8774/api/v1/service-accounts \
 SA_ID=<id from response>
 CLIENT_SECRET=<client_secret from response>
 
-# 2. Grant it read access to secrets via an access policy (any authenticated bearer token is accepted today — the access-policy handlers have no role check; use an admin token by convention).
-curl -s -X POST http://localhost:8774/api/v1/access-policies \
+# 2. Grant it a role in the vault (admin JWT required) so PolicyMiddleware's
+# deny-by-default check lets it through. "Key Vault Secrets User" grants
+# get/list on secrets only. `principal` must be the service account's UUID:
+# resolvePrincipal only resolves a bare UUID or a human username, never a
+# service-account name.
+curl -s -X POST http://localhost:8774/api/v1/vaults/default/role-assignments \
   -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
-  -d "{\"principal_id\":\"$SA_ID\",\"principal_type\":\"service_account\",\"resource_type\":\"secrets\",\"operation\":\"get\",\"effect\":\"allow\"}"
+  -d "{\"principal\":\"$SA_ID\",\"principal_type\":\"service_account\",\"role\":\"Key Vault Secrets User\"}"
 
 # 3. Exchange client credentials for an access token (public endpoint, no admin JWT needed).
 curl -s -X POST http://localhost:8774/api/v1/oauth2/token \
@@ -203,11 +214,12 @@ curl -s -X POST http://localhost:8774/api/v1/oauth2/token \
 # → {"access_token":"<jwt>","token_type":"Bearer","expires_in":1800}
 
 # 4. Use the token like any other bearer token.
-# NOTE: the flat route below is owner-scoped — it only returns secrets owned
-# by the calling service account itself, so it will 404 on an admin-created
-# secret regardless of the access policy above. To read secrets owned by
-# another principal, use the vault-scoped route instead, which grants
-# vault-member visibility with no per-owner filter:
+# NOTE: the flat route below is owner-scoped on top of the role-assignment
+# check from step 2 — it only returns secrets owned by the calling service
+# account itself, so it will 404 on an admin-created secret even though the
+# role assignment above grants secrets:get in the vault. To read secrets
+# owned by another principal, use the vault-scoped route instead, which
+# grants vault-member visibility with no per-owner filter:
 #   GET /api/v1/vaults/<vault_name>/secrets/<secret_id>
 curl -s http://localhost:8774/api/v1/secrets/<secret_id> \
   -H "Authorization: Bearer <access_token>"
@@ -224,8 +236,8 @@ curl -s -X DELETE http://localhost:8774/api/v1/service-accounts/$SA_ID -H "Autho
 - Credentials can be sent as HTTP Basic (`-u client_id:client_secret`) or as `client_id` / `client_secret` form fields. Basic auth is checked first and takes priority if both are present (`extractClientCredentials`).
 - Invalid credentials, a disabled service account, and an expired service account all return the same generic `401 invalid_client` — this is intentional, to prevent credential enumeration (`internal/services/oauth2/oauth2_service.go`, `IssueToken`).
 - Deleting or disabling a service account invalidates its outstanding tokens immediately: `ValidateSession` re-checks the client record on every request (using the JWT `jti`, which is set to the client's UUID at issuance), not just at token issuance (`internal/services/auth/authentication_service.go`).
-- Service accounts hold the `service_account` role, which the RBAC service maps to `get` / `list` only on secrets, keys, and certificates — never create, update, or delete. A write attempt with a service-account token is evaluated by `PolicyMiddleware` first (an explicit `deny` policy short-circuits with 403), and is then rejected by `AuthorizationMiddleware`'s role check — an `allow` access policy cannot override the role check, because the RBAC gate runs last and still denies `secrets:create` for the `service_account` role.
-- The `/oauth2/token` route is registered on its own router with only `CORSMiddleware` attached (`api/api.go`, `InitOAuth2`). Unlike `/api/v1/service-accounts` and other authenticated routes, it does **not** go through `RateLimitMiddleware`, `AuthenticationMiddleware`, `VaultResolutionMiddleware`, `PolicyMiddleware`, or `AuthorizationMiddleware`. (`RateLimitMiddleware`'s code does special-case the `/oauth2/token` path for a stricter limit, but since that middleware is never attached to this router, it currently has no effect on token requests.)
+- A service account gets exactly the data actions its role assignments grant — nothing implicit. `Key Vault Secrets User` (granted in step 2) covers `get`/`list` on secrets only, so a write attempt (`POST`/`PUT` on `/secrets`) is denied by `PolicyMiddleware`'s deny-by-default check — `HasDataAction` finds no assignment granting `secrets/setSecret/action` — before `AuthorizationMiddleware` is even reached. `AuthorizationMiddleware` no longer gates vault data-plane routes at all: `mapEndpointToPermission` (`internal/services/authorization/rbac_service.go`) returns `""` for every one of them, deferring entirely to the role-assignment check; the `service_account` role's `get`/`list` permission bundle in that file is legacy and has no effect on these routes. An explicit `deny` access policy for the principal, if one exists, is still evaluated first and would short-circuit with 403 regardless of the role assignment.
+- The `/oauth2/token` route is registered on its own router with `CORSMiddleware` and `RateLimitMiddleware` attached (`api/api.go`, `InitOAuth2`). Unlike `/api/v1/service-accounts` and other authenticated routes, it does **not** go through `AuthenticationMiddleware`, `VaultResolutionMiddleware`, `PolicyMiddleware`, or `AuthorizationMiddleware`. `RateLimitMiddleware` special-cases the `/oauth2/token` path suffix to apply its stricter auth-endpoint limit, and — unlike the earlier state of this router — that middleware is now actually attached here, so the stricter limit is enforced; every request (success or failure) also writes an audit log entry.
 
 **Deep dive:** [docs/consuming-secrets-guide.md](consuming-secrets-guide.md) and [Admin Manual — OAuth2 Service Accounts](admin-manual.html#service-accounts).
 
@@ -318,7 +330,8 @@ RocketVault's own bootstrap (`bootstrap/bootstrap.go`) uses this exact pattern t
 - `vault_client.url` must be `https://`, unless the host is loopback (`localhost`, `127.0.0.1`, `::1`) or `allow_insecure_http` (`VAULT_ALLOW_INSECURE_HTTP` env var) is `true`; default is `false`. **Upgrade note:** an existing deployment with a non-loopback plain-`http://` `vault_client.url` must switch to `https://` or set `allow_insecure_http: true` before upgrading, or RocketVault will fail to start.
 - Tokens are fetched from `POST {url}/api/v1/oauth2/token` (client-credentials grant) and cached in memory. The client re-authenticates about 60 s before expiry, with a 30 s minimum TTL floor so an `expires_in: 0` response can't cause a re-fetch storm.
 - `Client.Get` retries network failures and every HTTP status other than 200, 401 and 404 (so 400, 403, 429 and 5xx are all retried) using `retry.ExternalServicePolicy()`; only 401 and 404 are terminal — no retry. A 401 also invalidates the cached token so the *next* call re-authenticates.
-- 401 responses surface as `vaultclient.ErrAuthFailed`; 404 responses surface as `vaultclient.ErrSecretNotFound`. Check with `errors.Is`, as `examples/consumer-service/main.go` does — it treats `ErrAuthFailed` as fatal (process exit) but a 404 or network error on an individual secret as non-fatal.
+- Optional `Config.Logger` (an interface with a single `Warn(msg string, keysAndValues ...any)` method, not settable via YAML/Viper) receives a call on every retried failure and auth rejection, for observability into what would otherwise be silent retries. A nil `Logger` — the default — disables this logging; the client behaves identically either way.
+- 401 responses surface as `vaultclient.ErrAuthFailed`; 404 responses surface as `vaultclient.ErrSecretNotFound`. Once retries are exhausted, a transport-level failure (DNS, connection refused, timeout, TLS) surfaces as `vaultclient.ErrNetwork`, an unrecognized HTTP status as `vaultclient.ErrUnexpectedStatus`, and an undecodable 200 body as `vaultclient.ErrDecodeFailed`. Check any of these with `errors.Is`, as `examples/consumer-service/main.go` does for `ErrAuthFailed` — it treats that one as fatal (process exit) but a 404 or network error on an individual secret as non-fatal.
 - `GetByName` / `GetMany` resolve names to UUIDs using the `Secrets []SecretMapping` you passed into `Config`; a name with no matching mapping errors out before any HTTP call is made.
 - On RocketVault's own server, `vault_client.client_id` must stay `""` — the server must never call itself. `bootstrap.go` gates the entire secrets-injection step on `client_id`, `url`, and the client secret all being non-empty, so leaving `client_id` blank cleanly disables it.
 - `client_secret` is deliberately absent from `SecretMapping` and the YAML example above — it must come from the `VAULT_CLIENT_SECRET` environment variable (or `vault_client.client_secret` in Viper, which `NewFromViper` prefers before falling back to the env var).
@@ -345,7 +358,7 @@ Consuming secrets is one half of integration; the other half is letting *other* 
 
 - No authentication is required to fetch `GET /jwks.json` — it is registered directly on the root router and only has CORS middleware applied, bypassing the authentication/authorization chain used by `/api/v1/*` (`api/api.go`, `api/jwks.go`).
 - `jwt.key_source` in `.rocketvault.yaml` (`os_store` | `self_pki` | `external_pki`) determines which signing algorithm shows up in the JWKS document (`internal/signing/provider.go`).
-- To rotate keys via `POST /api/v1/jwks/rotate`, you need a valid bearer token for any authenticated user — this route lives under `ApiRoot`, which runs `AuthenticationMiddleware` (`api/api.go`) — and it is only usable when `jwt.key_source: self_pki` is active.
+- To rotate keys via `POST /api/v1/jwks/rotate`, you need a valid bearer token for a user with the `admin` role — this route lives under `ApiRoot`, which runs `AuthenticationMiddleware`, and the handler itself rejects non-admin callers (`api/api.go`, `api/jwks.go`) — and it is only usable when `jwt.key_source: self_pki` is active.
 
 ### Example
 
@@ -390,7 +403,7 @@ Example response shape (ECDSA key, `self_pki` source):
 }
 ```
 
-Rotate the signing key (`self_pki` only, requires an authenticated bearer token):
+Rotate the signing key (`self_pki` only, requires an admin bearer token):
 
 ```bash
 curl -X POST http://localhost:8774/api/v1/jwks/rotate \
@@ -410,7 +423,7 @@ Response: `{"status":"ok","new_kid":"<new-kid>","overlap_until":"<RFC3339 timest
 - If the signing provider failed to initialize, `GET /jwks.json` returns HTTP 503 with `{"error":"signing provider not available"}` instead of a JWK Set (`api/jwks.go`).
 - `POST /api/v1/jwks/rotate` only works when the active provider implements rotation (currently only `self_pki`); calling it under `os_store` or `external_pki` returns HTTP 400 with `"key rotation is only supported for the self_pki key source"` (`api/jwks.go`).
 - After a rotation, the *previous* key stays listed in `/jwks.json` alongside the new one for `jwt.rotation_overlap` (`.rocketvault.yaml`, default `1h` if unset or unparseable) so tokens signed just before rotation still verify. Plan JWKS polling and cache TTLs shorter than this overlap window (`internal/signing/self_pki.go`).
-- The code comment on the rotate route says "admin only", but as currently wired there is no route-specific permission entry for `/jwks/rotate` in the RBAC endpoint map, so `AuthorizationMiddleware` allows any authenticated role to call it, not just admins (`internal/services/authorization/rbac_service.go`, `mapEndpointToPermission`). Treat the bearer-token requirement as the only real gate today.
+- `/jwks/rotate` has no route-specific entry in the RBAC endpoint map (`internal/services/authorization/rbac_service.go`, `mapEndpointToPermission`), so `AuthorizationMiddleware` itself does not gate this route by role — but the handler enforces admin-only directly: `rotateJWKS` checks `common.HasRequiredRole(roleStr, model.RoleAdmin)` and returns a permission error for any non-admin caller before rotating anything (`api/jwks.go`). A failed or successful rotation attempt is also recorded via the audit service (`recordJWKSRotateAudit`, `api/jwks.go`).
 - Tokens issued by RocketVault carry `iss` set to the `oauth2.issuer` config value (`http://localhost:8774` by default) and `aud` hardcoded to `"PASSWORD_MANAGER"` (`internal/container/service_container.go`) — external verifiers should check both claims in addition to the signature.
 
 **Deep dive:** [Admin Manual — JWT Signing & Key Sources](admin-manual.html#jwt-signing).
@@ -432,8 +445,8 @@ Beyond day-to-day access, RocketVault has operational surfaces too. The first is
 
 **Prerequisites:**
 
-- Full-database backup: a running database connection (the CLI reads `database.driver` from config to pick the SQL dialect — `sqlite3` or `postgres`) and, for encrypted backups (the default), a valid `master_key` in `.rocketvault.yaml` (`common.EncryptSecret` / `DecryptSecret` use `viper.GetString("master_key")`).
-- Per-item backup/restore: a valid JWT bearer token (`ApiSessionRequired` on every route) and ownership of the item — the service checks `secret.UserID == callerUserID` (same for keys and certificates) and returns forbidden otherwise.
+- Full-database backup: a running database connection (the CLI reads `database.driver` from config to pick the SQL dialect — `sqlite3` or `postgres`) and, for encrypted backups (the default), a valid `master_key` in `.rocketvault.yaml` (`common.EncryptSecret` / `DecryptSecret` use `viper.GetString("master_key")`). Note the CLI gotcha below — this command needs no credentials at all.
+- Per-item backup/restore: a valid JWT bearer token (`ApiSessionRequired` on every route). These routes are also deny-by-default vault data-plane routes as of the v4.0.0 Azure RBAC pass — `PolicyMiddleware` requires a role assignment granting the matching data action (`Microsoft.KeyVault/vaults/secrets/backup/action` / `.../restore/action`, and the keys/certificates equivalents; see `internal/services/authorization/data_actions.go`, `mapSecretAction`/`mapKeyAction`/`mapCertificateAction`). Because these endpoints only exist in the flat, non-vault-scoped form, that grant is checked against the **default vault**. On top of the RBAC check, `ItemBackupService` independently enforces ownership — it checks `secret.UserID == callerUserID` (same for keys and certificates) and returns forbidden otherwise, even for a caller whose role assignment would otherwise permit the action.
 
 ### Example
 
@@ -483,7 +496,8 @@ curl -X POST http://localhost:8774/api/v1/secrets/restore \
 - **Full-backup table discovery is dialect-aware.** SQLite backups query `sqlite_master` / `PRAGMA table_info`, Postgres backups query `information_schema.tables` / `information_schema.columns`; the dialect is derived from `database.driver` in `.rocketvault.yaml`, not from a CLI flag.
 - **Per-item backup blobs are base64url-encoded JSON, not encrypted.** `encodeBlob` / `decodeBlob` in `internal/backup/item_backup.go` only base64url-encode the envelope — treat the blob as sensitive, plaintext-equivalent data, not as a secure export format.
 - **Per-item restore always allocates a new ID.** The API handlers call `svc.RestoreSecret` / `RestoreKey` / `RestoreCertificate` with a freshly generated `uuid.New()`, so restoring a blob never overwrites the original item — it creates a duplicate owned by the caller.
-- **Per-item backup/restore is ownership-scoped, not RBAC-scoped.** Only the original owner (`UserID` on the row) can back up or successfully restore with the original identity; a blob restored by a different caller is re-owned to that caller, it is not rejected.
+- **Per-item backup/restore is now both RBAC-gated and ownership-scoped.** As of the v4.0.0 Azure RBAC pass, `PolicyMiddleware` deny-by-defaults these routes on the matching `ActionSecretsBackup`/`ActionSecretsRestore` (or keys/certificates equivalent) data action, checked against the default vault — so a caller first needs a role assignment granting that action. Independently, `ItemBackupService` still enforces ownership on top of that: only the original owner (`UserID` on the row) can back up or successfully restore with the original identity; a blob restored by a different caller who does hold the required role assignment is re-owned to that caller, not rejected.
+- **`backup create`/`list`/`restore` bypass CLI authentication entirely.** `persistentPreRun` in `cmd/root.go` lists `backup` in its `systemCmds` map, so none of the three subcommands require `--username`/`--password`/`--totp-code` — unlike every other data-touching CLI command. Anyone with local access to the binary and a working DB connection can run `backup create` and walk away with a full (encrypted, but exfiltratable) database dump with zero credentials. This is a known, currently open gap (not yet fixed as of this doc's last verification) — restrict who can execute the `rocketvault` binary and reach its configured database until it's closed.
 - Restoring a blob whose `resource_type` doesn't match the endpoint (for example, posting a key blob to `/api/v1/secrets/restore`) is rejected as an invalid-blob error, not silently coerced.
 
 **Deep dive:** [Admin Manual — Backup & Restore](admin-manual.html#backup).
@@ -594,6 +608,8 @@ For deployments where private key material must never touch process memory, Rock
     slot_id: 0   # 0 = auto-detect by token_label
   ```
 
+- Authorization is unaffected by HSM mode: the caller still needs a role assignment granting the relevant Azure data action in the target vault — see the deny-by-default note in section 2. A bootstrap-created global admin has this in every vault for free (which is why the examples below work as shown); any other principal needs an explicit `vault-access grant` first.
+
 ### Example
 
 Enable HSM mode in `.rocketvault.yaml` (the `hsm:` block is at the end of the file and ships active with `enabled: false`; flip it to `true`), then start the server:
@@ -630,10 +646,11 @@ curl -s -X POST http://localhost:8774/api/v1/keys/${KEY_ID}/sign \
 
 ### Notes & gotchas
 
-- The API surface is identical in HSM mode — `/api/v1/keys`, `/api/v1/keys/{id}/sign`, `/verify`, `/encrypt`, and `/decrypt` all work the same whether keys live in software or on a token; only the storage and crypto backend changes.
+- The API surface is identical in HSM mode — `/api/v1/keys`, `/api/v1/keys/{id}/sign`, `/verify`, `/encrypt`, `/decrypt`, `/wrap`, and `/unwrap` all work the same whether keys live in software or on a token; only the storage and crypto backend changes. Like other resources, keys also exist in a vault-scoped route shape (`/api/v1/vaults/{vault_name}/keys/...`); the flat routes used in the example above resolve to the `default` vault — see section 2.
 - Internally, the key's stored `value` becomes `pkcs11:<uuid>` (the token's `CKA_LABEL`) instead of an encrypted PEM blob — the UUID is the handle looked up on the token for every operation.
 - Private keys are created non-extractable (`CKA_EXTRACTABLE: false`, `CKA_SENSITIVE: true`) — they cannot be exported once generated on the token.
 - Supported sign/verify algorithms: `RS256`, `RS384`, `RS512`, `PS256`, `PS384`, `PS512`, `ES256`, `ES384`, `ES512`. Supported encrypt/decrypt: `RSA-OAEP` (SHA-1) and `RSA-OAEP-256` (SHA-256) only — AES-GCM key operations are not routed through PKCS#11 and return `ErrUnsupportedAlgorithm`.
+- `/wrap` and `/unwrap` support `RSA-OAEP`, `RSA-OAEP-256`, `A128KW`/`A192KW`/`A256KW`, and `A128CBC`/`A192CBC`/`A256CBC` for software-backed keys, but an HSM-backed key only supports `RSA-OAEP` and `RSA-OAEP-256` — the AES-KW/AES-CBC variants need raw key material RocketVault never has for a token-resident key. Requesting an AES algorithm against an HSM key fails with `algorithm "<alg>" is not supported for HSM-backed keys; use RSA-OAEP or RSA-OAEP-256` (`internal/services/keys/crypto_service.go`).
 - ECDSA key generation supports curves `P-256`, `P-384`, and `P-521`. **P-256K (secp256k1) is not supported by PKCS#11** and returns `ErrUnsupportedCurve`. There is no software fallback: with `hsm.enabled: true`, creating a P-256K key fails outright with `failed to generate ECDSA key: curve not supported by PKCS#11 provider`. Set `hsm.enabled: false` (software provider) if you need P-256K keys.
 - `slot_id: 0` means "auto-detect by `token_label`"; set an explicit non-zero slot if you have multiple tokens with the same label, or if SoftHSM2 reassigns slots after `--init-token`.
 - Switching `hsm.enabled` back to `false` reverts to the software provider on the next restart — no other config changes needed.
@@ -736,7 +753,7 @@ fly deploy
 - In `docker-compose.yml`, the app's `command` explicitly passes `--listen :8774`. This works around a real ordering bug: `cmd/serve.go`'s `init()` reads `server.listen_addr` via `viper.GetString` before `cobra.OnInitialize` has loaded the config file, so the YAML value is silently ignored and the binary falls back to its hardcoded default `127.0.0.1:8774` (loopback-only, unreachable from outside the container) unless `--listen` is passed on the CLI.
 - Both the Dockerfile `HEALTHCHECK` and the Compose `healthcheck` hit `GET http://127.0.0.1:8774/api/v1/health/live` (see section 7); the app container's healthcheck must pass before Compose considers it up (Caddy's `depends_on` waits on this).
 - The `rocketvault` service in `docker-compose.yml` depends on `postgres` being healthy (`pg_isready`) before starting, and the Postgres DSN is templated as `postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}?sslmode=disable` — `postgres` here is the Compose service name, resolved via Docker's internal DNS, not a real hostname.
-- RocketVault is a single-vault system; `fly.toml` deliberately pins `[[vm]]` to one machine (`min_machines_running = 1`, no horizontal replica count) because multiple replicas would race on schema migrations at startup. Scale vertically (bump `size` / `memory`), not horizontally.
+- Schema migrations run at process startup with no distributed lock, so `fly.toml` deliberately pins `[[vm]]` to one machine (`min_machines_running = 1`, no horizontal replica count) — multiple replicas would race running `migrateSchema()` against the same database. This is a constraint on the Fly *instance* count, not on the (unrelated) multi-vault feature: a single instance already hosts any number of named vaults, each an isolated security boundary — see `.claude/multi-vault.md`. Scale vertically (bump `size` / `memory`), not horizontally.
 - The `caddy` service only starts with `docker compose --profile proxy up` (not a plain `docker compose up`), and only makes sense for bare-VPS deployments — skip it entirely on Fly.io, which terminates TLS itself (`force_https = true` in `fly.toml`).
 - `./build.sh --all` / `--release` cross-compiles with CGO enabled; if the matching C cross-compiler isn't installed for a target platform/arch, that target is skipped with a warning rather than failing the whole build (see `_archive` / `build_all` in `build.sh`).
 - Never commit `.env` — `.env.example` documents every required variable and states it must differ between dev, staging, and prod, especially `RV_MASTER_KEY` (losing it makes all stored secrets permanently unrecoverable).
