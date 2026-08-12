@@ -749,3 +749,62 @@ func TestUpdateUser_AllValidRoles_Accepted(t *testing.T) {
 		})
 	}
 }
+
+// ---------------------------------------------------------------------------
+// FindOrCreateExternalUser tests
+// ---------------------------------------------------------------------------
+
+func TestFindOrCreateExternalUser_ExistingUser_ReturnsIt(t *testing.T) {
+	repo := &mockUserRepository{}
+	existing := &model.User{ID: uuid.New(), Username: "existing", AuthProvider: model.AuthProviderOIDC, ExternalIDPSubject: "sub-1"}
+	repo.On("ReadByExternalSubject", mock.Anything, model.AuthProviderOIDC, "sub-1").Return(existing, nil)
+
+	svc := NewUserService(UserServiceConfig{UserRepository: repo, Logger: testLogger()})
+
+	got, err := svc.FindOrCreateExternalUser(context.Background(), FindOrCreateExternalUserRequest{
+		Provider: model.AuthProviderOIDC, Subject: "sub-1", PreferredUsername: "existing",
+	})
+	require.NoError(t, err)
+	assert.Equal(t, existing.ID, got.ID)
+	repo.AssertNotCalled(t, "Create", mock.Anything, mock.Anything)
+}
+
+func TestFindOrCreateExternalUser_NewUser_CreatesWithDefaultRole(t *testing.T) {
+	repo := &mockUserRepository{}
+	repo.On("ReadByExternalSubject", mock.Anything, model.AuthProviderOIDC, "sub-2").
+		Return(nil, errors.New("user not found"))
+	repo.On("Create", mock.Anything, mock.MatchedBy(func(u *model.User) bool {
+		return u.AuthProvider == model.AuthProviderOIDC && u.ExternalIDPSubject == "sub-2" &&
+			u.Role == model.RoleUser && u.PasswordHash == "" && u.TOTPSecret == ""
+	})).Return(nil)
+
+	svc := NewUserService(UserServiceConfig{UserRepository: repo, Logger: testLogger()})
+
+	got, err := svc.FindOrCreateExternalUser(context.Background(), FindOrCreateExternalUserRequest{
+		Provider: model.AuthProviderOIDC, Subject: "sub-2", PreferredUsername: "new-user",
+	})
+	require.NoError(t, err)
+	assert.Equal(t, model.RoleUser, got.Role)
+	repo.AssertExpectations(t)
+}
+
+func TestFindOrCreateExternalUser_UsernameCollision_Suffixes(t *testing.T) {
+	repo := &mockUserRepository{}
+	repo.On("ReadByExternalSubject", mock.Anything, model.AuthProviderOIDC, "sub-3").
+		Return(nil, errors.New("user not found"))
+	// First Create attempt collides on username; service must retry with a
+	// disambiguated username rather than failing the login outright.
+	repo.On("Create", mock.Anything, mock.MatchedBy(func(u *model.User) bool { return u.Username == "taken" })).
+		Return(errors.New("username already exists")).Once()
+	repo.On("Create", mock.Anything, mock.MatchedBy(func(u *model.User) bool { return u.Username != "taken" })).
+		Return(nil).Once()
+
+	svc := NewUserService(UserServiceConfig{UserRepository: repo, Logger: testLogger()})
+
+	got, err := svc.FindOrCreateExternalUser(context.Background(), FindOrCreateExternalUserRequest{
+		Provider: model.AuthProviderOIDC, Subject: "sub-3", PreferredUsername: "taken",
+	})
+	require.NoError(t, err)
+	assert.NotEqual(t, "taken", got.Username)
+	repo.AssertExpectations(t)
+}

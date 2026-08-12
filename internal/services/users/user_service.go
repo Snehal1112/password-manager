@@ -25,6 +25,14 @@ type CreateUserRequest struct {
 	CallerRole string // Required — must be model.RoleAdmin.
 }
 
+// FindOrCreateExternalUserRequest identifies an externally-authenticated
+// principal.
+type FindOrCreateExternalUserRequest struct {
+	Provider          string // e.g. model.AuthProviderOIDC
+	Subject           string // The provider's stable subject (sub claim)
+	PreferredUsername string // Best-effort display name; disambiguated on collision
+}
+
 // CreateUserResult represents the result of creating a new user.
 type CreateUserResult struct {
 	UserID     uuid.UUID
@@ -52,6 +60,11 @@ type UserService interface {
 	UpdateUser(ctx context.Context, req UpdateUserRequest) error
 	GetUser(ctx context.Context, userID uuid.UUID) (*model.User, error)
 	GetUserByUsername(ctx context.Context, username string) (*model.User, error)
+	// FindOrCreateExternalUser looks up a user by (provider, subject),
+	// creating one with the lowest-privilege default role if none exists.
+	// Used by the OIDC callback after ID token verification — this method
+	// performs no credential check itself.
+	FindOrCreateExternalUser(ctx context.Context, req FindOrCreateExternalUserRequest) (*model.User, error)
 	ListUsers(ctx context.Context) ([]model.User, error)
 	DeleteUser(ctx context.Context, userID uuid.UUID) error
 	ValidateBootstrapToken(ctx context.Context, token string) (bool, error)
@@ -161,6 +174,48 @@ func (s *userService) CreateUser(ctx context.Context, req CreateUserRequest) (*C
 		TOTPSecret: totpKey.URL(), // QR code URL for user setup
 		CreatedAt:  user.CreatedAt,
 	}, nil
+}
+
+// FindOrCreateExternalUser looks up a user by (provider, subject), creating
+// one with model.RoleUser (least privilege — an admin must grant vault roles
+// separately, exactly as a fresh Entra ID identity has no Key Vault access
+// until an RBAC role assignment is made) if none exists.
+func (s *userService) FindOrCreateExternalUser(ctx context.Context, req FindOrCreateExternalUserRequest) (*model.User, error) {
+	existing, err := s.userRepo.ReadByExternalSubject(ctx, req.Provider, req.Subject)
+	if err == nil {
+		return existing, nil
+	}
+
+	username := req.PreferredUsername
+	if username == "" {
+		username = req.Subject
+	}
+
+	user := &model.User{
+		ID:                 uuid.New(),
+		Username:           username,
+		PasswordHash:       "",
+		TOTPSecret:         "",
+		Role:               model.RoleUser,
+		AuthProvider:       req.Provider,
+		ExternalIDPSubject: req.Subject,
+		CreatedAt:          time.Now(),
+	}
+
+	if err := s.userRepo.Create(ctx, user); err != nil {
+		// Username collision against an existing *local* user (external
+		// subjects are already deduplicated by the lookup above) — retry
+		// once with a disambiguated username rather than failing the login.
+		user.Username = username + "-" + user.ID.String()[:8]
+		if err := s.userRepo.Create(ctx, user); err != nil {
+			s.logger.LogAuditError("", "find_or_create_external_user", "failed", "Failed to create externally-authenticated user", err)
+			return nil, fmt.Errorf("failed to create user: %w", err)
+		}
+	}
+
+	s.logger.LogAuditInfo(user.ID.String(), "find_or_create_external_user", "success",
+		fmt.Sprintf("Created externally-authenticated user: %s (provider=%s)", user.Username, req.Provider))
+	return user, nil
 }
 
 // UpdateUser updates an existing user with the provided information.

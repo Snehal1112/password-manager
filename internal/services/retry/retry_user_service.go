@@ -48,6 +48,20 @@ func (s *retryUserService) UpdateUser(ctx context.Context, req users.UpdateUserR
 	})
 }
 
+// FindOrCreateExternalUser resolves an externally-authenticated user with
+// retry logic for database operations.
+func (s *retryUserService) FindOrCreateExternalUser(ctx context.Context, req users.FindOrCreateExternalUserRequest) (*model.User, error) {
+	var result *model.User
+	var err error
+
+	retryErr := s.retryService.ExecuteDatabaseOperation(ctx, func() error {
+		result, err = s.baseService.FindOrCreateExternalUser(ctx, req)
+		return err
+	})
+
+	return result, retryErr
+}
+
 // GetUser retrieves a user with retry logic for database operations
 func (s *retryUserService) GetUser(ctx context.Context, userID uuid.UUID) (*model.User, error) {
 	var result *model.User
