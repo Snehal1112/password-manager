@@ -36,7 +36,7 @@ An earlier audit of the other docs in this repo found a batch of inaccuracies; t
 
 - You're an operator or admin sitting at a terminal doing one-off, interactive work: creating the first admin user, rotating a secret, inspecting a key, issuing a certificate.
 - You want scriptable output (`--output json`) for shell pipelines without standing up an API client.
-- You need to run system-level operations that don't require authentication (`serve`, `backup`, `migrate`, `health`, `admin` bootstrap).
+- You need to run system-level operations that don't require authentication (`serve`, `migrate`, `health`, `admin` bootstrap) or admin-only whole-database operations (`backup`).
 - You're working against a local or self-hosted instance where you already have filesystem access to `.rocketvault.yaml`.
 
 **Prerequisites:**
@@ -83,7 +83,7 @@ An earlier audit of the other docs in this repo found a batch of inaccuracies; t
 ### Notes & gotchas
 
 - **Auth is required per-command, not per-session.** `persistentPreRun` in `cmd/root.go` re-authenticates on every invocation via `--username` / `--password` / `--totp-code`; there's no persisted CLI session token to reuse. `rocketvault users login` is a credential-check convenience, not a login you stay in.
-- **System commands skip auth entirely.** `health`, `backup`, `serve`, `admin`, `migrate` / `migrate:status` / `migrate:to` / `migrate:create`, and `roles` are listed in `systemCmds` in `cmd/root.go` and run without `--username` / `--password`.
+- **System commands skip auth entirely.** `health`, `serve`, `admin`, `migrate` / `migrate:status` / `migrate:to` / `migrate:create`, and `roles` are listed in `systemCmds` in `cmd/root.go` and run without `--username` / `--password`. `backup` used to be in this list too (a real, unauthenticated-dump vulnerability) — it's since been removed and now requires an admin login like every other data-touching command; see the Backup / restore tooling section's gotchas.
 - **`--output` only accepts `table`, `json`, or `yaml`.** Anything else fails fast with `invalid --output value ...: must be table, json, or yaml` (`cmd/root.go`, `internal/formatter`). Default is `table`.
 - **Vault targeting precedence:** `--vault` flag > `ROCKETVAULT_VAULT` env > config `vault` key > `"default"`, per `common.ResolveVaultName` (wired through `cmd/vault_flag.go` as a persistent flag on `rootCmd`, so it's available on every subcommand). A `--vault` wiring series has since landed `--vault` support across nearly all `secrets`/`keys`/`certificate` data-plane subcommands — create, get, list, update, delete, plus `keys rotate`/`wrap`/`unwrap` and `certificate renew` — with one exception: **`certificate create` does not read `--vault`** and always provisions into the default vault (it never calls `vaultcli.ResolveVaultID`; `resolveVaultID` in `internal/services/certificates/certificate_service.go` falls back to the default vault because `CreateCertificateRequest.VaultID` is left unset).
 - **Role checks now run in two stages, not just a client-side gate.** Commands first do a local role check — e.g. `keys create` calls `common.HasRequiredRole(claims.Role, model.RoleAdmin, model.RoleSecretsManager)` and fails fast with `forbidden: requires admin or secrets_manager role` before touching the service — then call `vaultcli.RequireDataAction`, which reproduces the HTTP `PolicyMiddleware`'s check against the resolved `--vault`: an access-policy explicit-deny override (`AccessPolicyService.CheckAccess`), then a per-vault role-assignment check (`RoleAssignmentService.HasDataAction`). A role that passes the local check can still be denied per-vault. **`certificate create` is again the exception:** it only performs the local role check (admin or certificate_manager) and never calls `RequireDataAction`, so — unlike its sibling commands — it isn't vault-authorization-gated.
@@ -445,7 +445,7 @@ Beyond day-to-day access, RocketVault has operational surfaces too. The first is
 
 **Prerequisites:**
 
-- Full-database backup: a running database connection (the CLI reads `database.driver` from config to pick the SQL dialect — `sqlite3` or `postgres`) and, for encrypted backups (the default), a valid `master_key` in `.rocketvault.yaml` (`common.EncryptSecret` / `DecryptSecret` use `viper.GetString("master_key")`). Note the CLI gotcha below — this command needs no credentials at all.
+- Full-database backup: an **admin** CLI login (`--username`/`--password`/`--totp-code`) plus a running database connection (the CLI reads `database.driver` from config to pick the SQL dialect — `sqlite3` or `postgres`) and, for encrypted backups (the default), a valid `master_key` in `.rocketvault.yaml` (`common.EncryptSecret` / `DecryptSecret` use `viper.GetString("master_key")`).
 - Per-item backup/restore: a valid JWT bearer token (`ApiSessionRequired` on every route). These routes are also deny-by-default vault data-plane routes as of the v4.0.0 Azure RBAC pass — `PolicyMiddleware` requires a role assignment granting the matching data action (`Microsoft.KeyVault/vaults/secrets/backup/action` / `.../restore/action`, and the keys/certificates equivalents; see `internal/services/authorization/data_actions.go`, `mapSecretAction`/`mapKeyAction`/`mapCertificateAction`). Because these endpoints only exist in the flat, non-vault-scoped form, that grant is checked against the **default vault**. On top of the RBAC check, `ItemBackupService` independently enforces ownership — it checks `secret.UserID == callerUserID` (same for keys and certificates) and returns forbidden otherwise, even for a caller whose role assignment would otherwise permit the action.
 
 ### Example
@@ -453,21 +453,24 @@ Beyond day-to-day access, RocketVault has operational surfaces too. The first is
 **Full database backup (CLI)**
 
 ```bash
+# Every backup subcommand requires an admin login.
+AUTH="--username admin --password admin123 --totp-code 123456"
+
 # Create an encrypted backup (default; --output/-o is required)
-go run main.go backup create --output ./backups/backup-2026-07-25.backup
+go run main.go backup create --output ./backups/backup-2026-07-25.backup $AUTH
 
 # Create an unencrypted backup
-go run main.go backup create --output ./backups/backup-plain.backup --encrypt=false
+go run main.go backup create --output ./backups/backup-plain.backup --encrypt=false $AUTH
 
 # List backup files in a directory (defaults to ./backups)
-go run main.go backup list --dir ./backups
+go run main.go backup list --dir ./backups $AUTH
 
 # Restore from an encrypted backup (destructive — replaces ALL existing data)
-go run main.go backup restore --file ./backups/backup-2026-07-25.backup
+go run main.go backup restore --file ./backups/backup-2026-07-25.backup $AUTH
 # Prompts: "Are you sure you want to continue? (type 'yes' to confirm):"
 
 # Restore from an unencrypted backup, non-interactively
-echo yes | go run main.go backup restore --file ./backups/backup-plain.backup --decrypt=false
+echo yes | go run main.go backup restore --file ./backups/backup-plain.backup --decrypt=false $AUTH
 ```
 
 **Per-item backup/restore (API, one JSON blob per item)**
@@ -497,7 +500,7 @@ curl -X POST http://localhost:8774/api/v1/secrets/restore \
 - **Per-item backup blobs are base64url-encoded JSON, not encrypted.** `encodeBlob` / `decodeBlob` in `internal/backup/item_backup.go` only base64url-encode the envelope — treat the blob as sensitive, plaintext-equivalent data, not as a secure export format.
 - **Per-item restore always allocates a new ID.** The API handlers call `svc.RestoreSecret` / `RestoreKey` / `RestoreCertificate` with a freshly generated `uuid.New()`, so restoring a blob never overwrites the original item — it creates a duplicate owned by the caller.
 - **Per-item backup/restore is now both RBAC-gated and ownership-scoped.** As of the v4.0.0 Azure RBAC pass, `PolicyMiddleware` deny-by-defaults these routes on the matching `ActionSecretsBackup`/`ActionSecretsRestore` (or keys/certificates equivalent) data action, checked against the default vault — so a caller first needs a role assignment granting that action. Independently, `ItemBackupService` still enforces ownership on top of that: only the original owner (`UserID` on the row) can back up or successfully restore with the original identity; a blob restored by a different caller who does hold the required role assignment is re-owned to that caller, not rejected.
-- **`backup create`/`list`/`restore` bypass CLI authentication entirely.** `persistentPreRun` in `cmd/root.go` lists `backup` in its `systemCmds` map, so none of the three subcommands require `--username`/`--password`/`--totp-code` — unlike every other data-touching CLI command. Anyone with local access to the binary and a working DB connection can run `backup create` and walk away with a full (encrypted, but exfiltratable) database dump with zero credentials. This is a known, currently open gap (not yet fixed as of this doc's last verification) — restrict who can execute the `rocketvault` binary and reach its configured database until it's closed.
+- **`backup create`/`list`/`restore` require an admin login.** This was previously a real gap — `backup` was listed in `persistentPreRun`'s `systemCmds` map in `cmd/root.go`, so none of the three subcommands required `--username`/`--password`/`--totp-code`, unlike every other data-touching CLI command. That's fixed: `backup` was removed from `systemCmds`, and each subcommand now calls `requireBackupAdmin` (`cmd/backup.go`), rejecting the request before touching the database unless the caller is logged in as the global `admin` role. There's no per-vault equivalent for this check — a full-database backup has no vault to scope it to, so `admin` is the only applicable gate, same as `users`/`vaults`/`migrate`.
 - Restoring a blob whose `resource_type` doesn't match the endpoint (for example, posting a key blob to `/api/v1/secrets/restore`) is rejected as an invalid-blob error, not silently coerced.
 
 **Deep dive:** [Admin Manual — Backup & Restore](admin-manual.html#backup).

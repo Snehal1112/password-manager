@@ -37,7 +37,24 @@ import (
 	"rocketvault/internal/backup"
 	"rocketvault/internal/db"
 	"rocketvault/internal/logging"
+	"rocketvault/model"
 )
+
+// requireBackupAdmin returns the caller's claims if they're logged in as
+// admin. Backup operates on the whole database across every vault -- there's
+// no vault to scope this to, so the global admin role is the only applicable
+// gate (same category as users/vaults/migrate commands).
+func requireBackupAdmin(cmd *cobra.Command) (*model.Claims, error) {
+	ctx := cmd.Context()
+	claims, ok := ctx.Value(common.ClaimsKey).(*model.Claims)
+	if !ok || claims == nil {
+		return nil, fmt.Errorf("unauthorized: missing authentication claims")
+	}
+	if claims.Role != model.RoleAdmin {
+		return nil, fmt.Errorf("forbidden: requires admin role")
+	}
+	return claims, nil
+}
 
 // backupDialect resolves the SQL dialect from configuration for backup
 // introspection queries. Defaults to SQLite.
@@ -143,6 +160,10 @@ func init() {
 }
 
 func runBackupCreate(cmd *cobra.Command) error {
+	if _, err := requireBackupAdmin(cmd); err != nil {
+		return err
+	}
+
 	ctx := cmd.Context()
 	db := ctx.Value(common.DBKey).(*sql.DB)
 	logger := ctx.Value(common.LogKey).(*logging.Logger)
@@ -175,6 +196,10 @@ func runBackupCreate(cmd *cobra.Command) error {
 }
 
 func runBackupList(cmd *cobra.Command) error {
+	if _, err := requireBackupAdmin(cmd); err != nil {
+		return err
+	}
+
 	ctx := cmd.Context()
 	db := ctx.Value(common.DBKey).(*sql.DB)
 	logger := ctx.Value(common.LogKey).(*logging.Logger)
@@ -216,6 +241,10 @@ func runBackupList(cmd *cobra.Command) error {
 }
 
 func runBackupRestore(cmd *cobra.Command) error {
+	if _, err := requireBackupAdmin(cmd); err != nil {
+		return err
+	}
+
 	ctx := cmd.Context()
 	db := ctx.Value(common.DBKey).(*sql.DB)
 	logger := ctx.Value(common.LogKey).(*logging.Logger)

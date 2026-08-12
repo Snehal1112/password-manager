@@ -911,12 +911,15 @@ go run main.go users delete USER-ID-HERE \
 
 ## Database Backups
 
-No login required for backup commands.
+Backup commands require an **admin** login — a backup covers the entire
+database across every vault, so there's no per-vault role that makes sense
+here; only a global admin can create, list, or restore one.
 
 ### Create a backup
 
 ```
-go run main.go backup create --output ./backups/my-backup.backup
+go run main.go backup create --output ./backups/my-backup.backup \
+  --username admin --password admin123 --totp-code 123456
 ```
 
 The backup is encrypted by default. Store the file somewhere safe.
@@ -924,13 +927,15 @@ The backup is encrypted by default. Store the file somewhere safe.
 ### See available backups
 
 ```
-go run main.go backup list --dir ./backups
+go run main.go backup list --dir ./backups \
+  --username admin --password admin123 --totp-code 123456
 ```
 
 ### Restore from a backup
 
 ```
-go run main.go backup restore --file ./backups/my-backup.backup
+go run main.go backup restore --file ./backups/my-backup.backup \
+  --username admin --password admin123 --totp-code 123456
 ```
 
 You will be asked to type `yes` to confirm. This replaces all current data with the backup.

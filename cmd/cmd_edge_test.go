@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/google/uuid"
 	_ "github.com/mattn/go-sqlite3"
 	"github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
@@ -22,6 +23,7 @@ import (
 	"rocketvault/internal/backup"
 	"rocketvault/internal/db"
 	"rocketvault/internal/logging"
+	"rocketvault/model"
 )
 
 // ---------------------------------------------------------------------------
@@ -44,12 +46,24 @@ func newTestLogger() *logging.Logger {
 	return &logging.Logger{Logger: l}
 }
 
-// backupContext builds a context that satisfies the backup/health command's
-// type assertions for DBKey and LogKey.
+// backupContext builds a context that satisfies the backup command's type
+// assertions for DBKey and LogKey, carrying admin claims so it clears the
+// requireBackupAdmin gate -- these helpers exist for tests that exercise the
+// backup logic itself, not the gate. Use backupContextWithRole for gate tests.
 func backupContext(db *sql.DB, logger *logging.Logger) context.Context {
+	return backupContextWithRole(db, logger, model.RoleAdmin)
+}
+
+// backupContextWithRole is like backupContext but lets the caller pick the
+// claims' role (or omit claims entirely by passing an empty role), so gate
+// rejection paths can be tested directly.
+func backupContextWithRole(db *sql.DB, logger *logging.Logger, role string) context.Context {
 	ctx := context.Background()
 	ctx = context.WithValue(ctx, common.DBKey, db)
 	ctx = context.WithValue(ctx, common.LogKey, logger)
+	if role != "" {
+		ctx = context.WithValue(ctx, common.ClaimsKey, &model.Claims{UserID: uuid.New(), Username: "test", Role: role})
+	}
 	return ctx
 }
 
@@ -508,4 +522,87 @@ func TestBackupCmd_HelpDoesNotPanic(t *testing.T) {
 	// Help exits with a special error; we just want no panic.
 	_ = cmd.Execute()
 	assert.Contains(t, sb.String(), "backup")
+}
+
+// ---------------------------------------------------------------------------
+// requireBackupAdmin gate — backup was previously exempt from CLI
+// authentication entirely (systemCmds["backup"] = true); these prove the
+// fix requires a logged-in admin before create/list/restore touch anything.
+// ---------------------------------------------------------------------------
+
+func TestRunBackupCreate_NoClaims(t *testing.T) {
+	sqlDB := newTestDB(t)
+	logger := newTestLogger()
+
+	cmd := &cobra.Command{Use: "create", RunE: backupCreateCmd.RunE}
+	cmd.Flags().StringVarP(&backupOutput, "output", "o", filepath.Join(t.TempDir(), "x.backup"), "")
+	cmd.Flags().BoolVar(&backupEncrypt, "encrypt", false, "")
+	cmd.SetContext(backupContextWithRole(sqlDB, logger, ""))
+
+	err := cmd.RunE(cmd, []string{})
+	assert.ErrorContains(t, err, "unauthorized")
+}
+
+func TestRunBackupCreate_NonAdmin(t *testing.T) {
+	sqlDB := newTestDB(t)
+	logger := newTestLogger()
+
+	cmd := &cobra.Command{Use: "create", RunE: backupCreateCmd.RunE}
+	cmd.Flags().StringVarP(&backupOutput, "output", "o", filepath.Join(t.TempDir(), "x.backup"), "")
+	cmd.Flags().BoolVar(&backupEncrypt, "encrypt", false, "")
+	cmd.SetContext(backupContextWithRole(sqlDB, logger, model.RoleUser))
+
+	err := cmd.RunE(cmd, []string{})
+	assert.ErrorContains(t, err, "forbidden")
+}
+
+func TestRunBackupList_NoClaims(t *testing.T) {
+	sqlDB := newTestDB(t)
+	logger := newTestLogger()
+
+	cmd := &cobra.Command{Use: "list", RunE: backupListCmd.RunE}
+	cmd.Flags().StringVarP(&backupListDir, "dir", "d", t.TempDir(), "")
+	cmd.SetContext(backupContextWithRole(sqlDB, logger, ""))
+
+	err := cmd.RunE(cmd, []string{})
+	assert.ErrorContains(t, err, "unauthorized")
+}
+
+func TestRunBackupList_NonAdmin(t *testing.T) {
+	sqlDB := newTestDB(t)
+	logger := newTestLogger()
+
+	cmd := &cobra.Command{Use: "list", RunE: backupListCmd.RunE}
+	cmd.Flags().StringVarP(&backupListDir, "dir", "d", t.TempDir(), "")
+	cmd.SetContext(backupContextWithRole(sqlDB, logger, model.RoleSecretsManager))
+
+	err := cmd.RunE(cmd, []string{})
+	assert.ErrorContains(t, err, "forbidden")
+}
+
+func TestRunBackupRestore_NoClaims(t *testing.T) {
+	sqlDB := newTestDB(t)
+	logger := newTestLogger()
+
+	// The file need not exist -- the gate must reject before the existence check.
+	cmd := &cobra.Command{Use: "restore", RunE: backupRestoreCmd.RunE}
+	cmd.Flags().StringVarP(&backupRestoreFile, "file", "f", filepath.Join(t.TempDir(), "missing.backup"), "")
+	cmd.Flags().BoolVar(&backupRestoreDecrypt, "decrypt", false, "")
+	cmd.SetContext(backupContextWithRole(sqlDB, logger, ""))
+
+	err := cmd.RunE(cmd, []string{})
+	assert.ErrorContains(t, err, "unauthorized")
+}
+
+func TestRunBackupRestore_NonAdmin(t *testing.T) {
+	sqlDB := newTestDB(t)
+	logger := newTestLogger()
+
+	cmd := &cobra.Command{Use: "restore", RunE: backupRestoreCmd.RunE}
+	cmd.Flags().StringVarP(&backupRestoreFile, "file", "f", filepath.Join(t.TempDir(), "missing.backup"), "")
+	cmd.Flags().BoolVar(&backupRestoreDecrypt, "decrypt", false, "")
+	cmd.SetContext(backupContextWithRole(sqlDB, logger, model.RoleCertificateManager))
+
+	err := cmd.RunE(cmd, []string{})
+	assert.ErrorContains(t, err, "forbidden")
 }
