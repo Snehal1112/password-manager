@@ -139,6 +139,7 @@ func Init(options ...Options) *API {
 	api.InitAccessPolicies()
 	api.InitRoleAssignments()
 	api.InitOAuth2()
+	api.InitOIDC()
 	api.InitJWKS()
 	api.InitBackupItem()
 	api.InitAudit()
@@ -147,7 +148,7 @@ func Init(options ...Options) *API {
 	api.rootRouter.NotFoundHandler = http.HandlerFunc(Handle404)
 
 	names := []string{"Vault", "Secrets", "Users", "Keys", "Certificates",
-		"Health", "Config", "Deleted", "AccessPolicies", "ServiceAccounts", "OAuth2", "JWKS", "BackupItem", "Audit"}
+		"Health", "Config", "Deleted", "AccessPolicies", "ServiceAccounts", "OAuth2", "OIDC", "JWKS", "BackupItem", "Audit"}
 	api.Logger.WithField("api", strings.Join(names, ",")).Infoln("Initialized api")
 	return api
 }

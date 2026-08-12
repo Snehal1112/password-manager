@@ -251,7 +251,9 @@ func (m *Middleware) AuthenticationMiddleware(next http.Handler) http.Handler {
 			strings.Contains(r.URL.Path, "/auth/login") ||
 			strings.Contains(r.URL.Path, "/auth/register") ||
 			strings.Contains(r.URL.Path, "/auth/refresh") ||
-			strings.HasSuffix(r.URL.Path, "/oauth2/token") {
+			strings.HasSuffix(r.URL.Path, "/oauth2/token") ||
+			strings.HasSuffix(r.URL.Path, "/oidc/login") ||
+			strings.HasSuffix(r.URL.Path, "/oidc/callback") {
 			next.ServeHTTP(w, r)
 			return
 		}
