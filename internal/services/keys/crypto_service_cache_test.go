@@ -258,6 +258,65 @@ func TestHSMPath_NeverCallsCacheSet(t *testing.T) {
 	cache.AssertNotCalled(t, "Set", mock.Anything, mock.Anything, mock.Anything)
 }
 
+// TestWrapKey_HSMKey_AllowsAES256KW verifies that A256KW is now accepted for
+// PKCS#11-backed keys (it was previously rejected as RSA-OAEP-only).
+func TestWrapKey_HSMKey_AllowsAES256KW(t *testing.T) {
+	t.Parallel()
+
+	keyID := uuid.New()
+	userID := uuid.New()
+	scope := model.NewOwnerScope(uuid.Nil, userID)
+
+	key := &model.Key{ID: keyID, UserID: userID, Type: model.KeyTypeOct, Value: "pkcs11:aes-label", Enabled: true}
+
+	repo := mocks.NewMockKeyRepositoryInterface(t)
+	repo.On("Read", mock.Anything, keyID, scope).Return(key, nil)
+
+	provider := &mockKeyProvider{}
+	provider.On("Encrypt", "aes-label").Return([]byte("wrapped"), []byte(nil), nil)
+
+	svc := keys.NewCryptoService(keys.CryptoServiceConfig{
+		KeyRepository: repo,
+		KeyProvider:   provider,
+		Logger:        &logging.Logger{Logger: logrus.New()},
+	})
+
+	result, err := svc.WrapKey(context.Background(), keys.WrapKeyRequest{
+		KeyID: keyID, UserID: userID, Scope: scope,
+		PlaintextKey: []byte("plaintext"), Algorithm: "A256KW",
+	})
+	require.NoError(t, err)
+	assert.Equal(t, []byte("wrapped"), result.WrappedKey)
+	provider.AssertExpectations(t)
+}
+
+// TestWrapKey_HSMKey_RejectsAES256CBC verifies AES-CBC stays rejected for
+// PKCS#11-backed keys — there is no PKCS#11 mechanism for it.
+func TestWrapKey_HSMKey_RejectsAES256CBC(t *testing.T) {
+	t.Parallel()
+
+	keyID := uuid.New()
+	userID := uuid.New()
+	scope := model.NewOwnerScope(uuid.Nil, userID)
+
+	key := &model.Key{ID: keyID, UserID: userID, Type: model.KeyTypeOct, Value: "pkcs11:aes-label", Enabled: true}
+
+	repo := mocks.NewMockKeyRepositoryInterface(t)
+	repo.On("Read", mock.Anything, keyID, scope).Return(key, nil)
+
+	svc := keys.NewCryptoService(keys.CryptoServiceConfig{
+		KeyRepository: repo,
+		KeyProvider:   &mockKeyProvider{},
+		Logger:        &logging.Logger{Logger: logrus.New()},
+	})
+
+	_, err := svc.WrapKey(context.Background(), keys.WrapKeyRequest{
+		KeyID: keyID, UserID: userID, Scope: scope,
+		PlaintextKey: []byte("plaintext"), Algorithm: "A256CBC",
+	})
+	assert.Error(t, err)
+}
+
 // TestNilCacheAndMetrics_DoNotPanic verifies that constructing a CryptoService
 // with nil KeyCache and CryptoMetrics does not panic.
 func TestNilCacheAndMetrics_DoNotPanic(t *testing.T) {
