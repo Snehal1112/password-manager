@@ -362,7 +362,7 @@ func (r *UserRepository) List(ctx context.Context) ([]model.User, error) {
 	err := r.queryWithMetrics("list_users", func() error {
 		// Optimized query with explicit column selection and ordering for better performance
 		rows, err := r.db.QueryContext(ctx,
-			"SELECT id, username, password_hash, totp_secret, role, created_at FROM users ORDER BY created_at DESC")
+			"SELECT id, username, password_hash, totp_secret, role, auth_provider, external_idp_subject, created_at FROM users ORDER BY created_at DESC")
 		if err != nil {
 			logrus.WithError(err).Error("Failed to list users")
 			return fmt.Errorf("failed to list users: %w", err)
@@ -375,11 +375,13 @@ func (r *UserRepository) List(ctx context.Context) ([]model.User, error) {
 		for rows.Next() {
 			var user model.User
 			var idStr string
+			var externalSubject sql.NullString
 
-			if err := rows.Scan(&idStr, &user.Username, &user.PasswordHash, &user.TOTPSecret, &user.Role, &user.CreatedAt); err != nil {
+			if err := rows.Scan(&idStr, &user.Username, &user.PasswordHash, &user.TOTPSecret, &user.Role, &user.AuthProvider, &externalSubject, &user.CreatedAt); err != nil {
 				logrus.WithError(err).Error("Failed to scan user")
 				return fmt.Errorf("failed to scan user: %w", err)
 			}
+			user.ExternalIDPSubject = externalSubject.String
 
 			user.ID, err = uuid.Parse(idStr)
 			if err != nil {

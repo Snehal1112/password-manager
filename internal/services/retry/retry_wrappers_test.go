@@ -641,6 +641,31 @@ func TestRetryAuth_AuthenticateUser_Error(t *testing.T) {
 	base.AssertExpectations(t)
 }
 
+func TestRetryAuth_IssueSessionForUser_Success(t *testing.T) {
+	base := &MockAuthService{}
+	user := &model.User{ID: uuid.New(), Username: "alice", Role: "admin"}
+	expected := &auth.AuthenticationResult{Token: "tok", UserID: user.ID, Username: "alice", Role: "admin"}
+	base.On("IssueSessionForUser", mock.Anything, user).Return(expected, nil)
+
+	svc := NewRetryAuthenticationService(base, newNoop())
+	result, err := svc.IssueSessionForUser(ctx, user)
+	assert.NoError(t, err)
+	assert.Equal(t, expected, result)
+	base.AssertExpectations(t)
+}
+
+func TestRetryAuth_IssueSessionForUser_Error(t *testing.T) {
+	base := &MockAuthService{}
+	user := &model.User{ID: uuid.New(), Username: "alice", Role: "admin"}
+	base.On("IssueSessionForUser", mock.Anything, user).Return(nil, fmt.Errorf("session creation failed"))
+
+	svc := NewRetryAuthenticationService(base, newNoop())
+	result, err := svc.IssueSessionForUser(ctx, user)
+	assert.Nil(t, result)
+	assert.Error(t, err)
+	base.AssertExpectations(t)
+}
+
 func TestRetryAuth_ValidateSession_Success(t *testing.T) {
 	base := &MockAuthService{}
 	expected := &auth.JWTClaims{Username: "alice", Role: "admin"}
