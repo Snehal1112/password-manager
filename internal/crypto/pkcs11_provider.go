@@ -3,7 +3,6 @@ package crypto
 import (
 	"context"
 	"encoding/asn1"
-	"encoding/binary"
 	"errors"
 	"fmt"
 	"hash"
@@ -324,7 +323,7 @@ func (p *PKCS11KeyProvider) findSecretKey(session p11.SessionHandle, label strin
 }
 
 // isAESKWAlgorithm reports whether algorithm is an AES-KW variant, which maps
-// to CKM_AES_KEY_WRAP_PAD against a CKO_SECRET_KEY object rather than the
+// to CKM_AES_KEY_WRAP against a CKO_SECRET_KEY object rather than the
 // RSA-OAEP path against a CKO_PUBLIC_KEY/CKO_PRIVATE_KEY pair.
 func isAESKWAlgorithm(algorithm EncryptionAlgorithm) bool {
 	switch algorithm {
@@ -335,24 +334,22 @@ func isAESKWAlgorithm(algorithm EncryptionAlgorithm) bool {
 	}
 }
 
-// wrapRawData wraps arbitrary plaintext with wrappingKey using
-// CKM_AES_KEY_WRAP_PAD via C_WrapKey. Many PKCS#11 tokens (including
-// SoftHSM2) only expose this mechanism through the CKF_WRAP/CKF_UNWRAP
-// capability, not CKF_ENCRYPT/CKF_DECRYPT, so C_Encrypt/C_Decrypt fail with
+// wrapRawData wraps plaintext with wrappingKey using plain, unpadded RFC 3394
+// CKM_AES_KEY_WRAP via C_WrapKey. Many PKCS#11 tokens (including SoftHSM2)
+// only expose AES-KW mechanisms through the CKF_WRAP/CKF_UNWRAP capability,
+// not CKF_ENCRYPT/CKF_DECRYPT, so C_EncryptInit/C_Encrypt fail with
 // CKR_MECHANISM_INVALID. To wrap raw data rather than a key object, the
 // plaintext is first imported as a temporary, extractable, non-token generic
 // secret object and then wrapped as a key.
 //
-// data is prefixed with its own length as a 4-byte big-endian header before
-// wrapping: CKM_AES_KEY_WRAP_PAD only guarantees recovering the plaintext
-// rounded up to the next 8-byte block on unwrap (observed against SoftHSM2,
-// which does not reconstruct the exact original length from the RFC 5649
-// padding metadata for CKK_GENERIC_SECRET targets), so unwrapRawData needs
-// this header to trim the trailing zero padding back off.
+// RFC 3394 requires the plaintext to be a multiple of 8 bytes; this matches
+// SoftwareKeyProvider's aesKeyWrap contract for the same A128KW/A192KW/A256KW
+// algorithm identifiers (see crypto_operations.go), so callers cannot rely on
+// implicit padding from either provider.
 func (p *PKCS11KeyProvider) wrapRawData(session p11.SessionHandle, wrappingKey p11.ObjectHandle, data []byte) ([]byte, error) {
-	framed := make([]byte, 4+len(data))
-	binary.BigEndian.PutUint32(framed[:4], uint32(len(data)))
-	copy(framed[4:], data)
+	if len(data)%8 != 0 {
+		return nil, fmt.Errorf("AES-KW plaintext must be a multiple of 8 bytes")
+	}
 
 	tempAttrs := []*p11.Attribute{
 		p11.NewAttribute(p11.CKA_CLASS, p11.CKO_SECRET_KEY),
@@ -360,7 +357,7 @@ func (p *PKCS11KeyProvider) wrapRawData(session p11.SessionHandle, wrappingKey p
 		p11.NewAttribute(p11.CKA_TOKEN, false),
 		p11.NewAttribute(p11.CKA_SENSITIVE, false),
 		p11.NewAttribute(p11.CKA_EXTRACTABLE, true),
-		p11.NewAttribute(p11.CKA_VALUE, framed),
+		p11.NewAttribute(p11.CKA_VALUE, data),
 	}
 	tempObj, err := p.ctx.CreateObject(session, tempAttrs)
 	if err != nil {
@@ -368,7 +365,7 @@ func (p *PKCS11KeyProvider) wrapRawData(session p11.SessionHandle, wrappingKey p
 	}
 	defer func() { _ = p.ctx.DestroyObject(session, tempObj) }()
 
-	mech := []*p11.Mechanism{p11.NewMechanism(p11.CKM_AES_KEY_WRAP_PAD, nil)}
+	mech := []*p11.Mechanism{p11.NewMechanism(p11.CKM_AES_KEY_WRAP, nil)}
 	wrapped, err := p.ctx.WrapKey(session, mech, wrappingKey, tempObj)
 	if err != nil {
 		return nil, fmt.Errorf("pkcs11 aes-kw wrap: %w", err)
@@ -377,9 +374,11 @@ func (p *PKCS11KeyProvider) wrapRawData(session p11.SessionHandle, wrappingKey p
 }
 
 // unwrapRawData reverses wrapRawData: it unwraps wrapped into a temporary,
-// extractable generic secret object with unwrappingKey, reads its CKA_VALUE
-// back out, and trims the trailing padding using the 4-byte length header
-// wrapRawData prepended.
+// extractable generic secret object with unwrappingKey using unpadded
+// CKM_AES_KEY_WRAP, then reads its CKA_VALUE back out as the exact plaintext.
+// No length framing is needed: RFC 3394 unwrap recovers the exact original
+// byte count (it was always a multiple of 8), matching the software
+// provider's aesKeyUnwrap contract for the same algorithm identifiers.
 func (p *PKCS11KeyProvider) unwrapRawData(session p11.SessionHandle, unwrappingKey p11.ObjectHandle, wrapped []byte) ([]byte, error) {
 	tempAttrs := []*p11.Attribute{
 		p11.NewAttribute(p11.CKA_CLASS, p11.CKO_SECRET_KEY),
@@ -389,7 +388,7 @@ func (p *PKCS11KeyProvider) unwrapRawData(session p11.SessionHandle, unwrappingK
 		p11.NewAttribute(p11.CKA_EXTRACTABLE, true),
 	}
 
-	mech := []*p11.Mechanism{p11.NewMechanism(p11.CKM_AES_KEY_WRAP_PAD, nil)}
+	mech := []*p11.Mechanism{p11.NewMechanism(p11.CKM_AES_KEY_WRAP, nil)}
 	tempObj, err := p.ctx.UnwrapKey(session, mech, unwrappingKey, wrapped, tempAttrs)
 	if err != nil {
 		return nil, fmt.Errorf("pkcs11 aes-kw unwrap: %w", err)
@@ -403,16 +402,7 @@ func (p *PKCS11KeyProvider) unwrapRawData(session p11.SessionHandle, unwrappingK
 	if len(values) == 0 {
 		return nil, fmt.Errorf("pkcs11 aes-kw unwrap: no value returned")
 	}
-
-	framed := values[0].Value
-	if len(framed) < 4 {
-		return nil, fmt.Errorf("pkcs11 aes-kw unwrap: unwrapped value too short to contain length header")
-	}
-	n := binary.BigEndian.Uint32(framed[:4])
-	if uint64(4+n) > uint64(len(framed)) {
-		return nil, fmt.Errorf("pkcs11 aes-kw unwrap: length header %d exceeds unwrapped value size %d", n, len(framed)-4)
-	}
-	return framed[4 : 4+n], nil
+	return values[0].Value, nil
 }
 
 // signMechanism maps a SignatureAlgorithm to the PKCS#11 mechanism and

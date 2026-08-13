@@ -252,7 +252,10 @@ func TestPKCS11Provider_WrapUnwrap_AES256KW(t *testing.T) {
 	handle, err := p.GenerateAESKey(context.Background(), 256)
 	require.NoError(t, err)
 
-	plaintext := []byte("hsm aes-kw wrap test, arbitrary length, not block-aligned")
+	// RFC 3394 unpadded AES-KW requires a plaintext that is a multiple of 8
+	// bytes, matching SoftwareKeyProvider's aesKeyWrap contract for the same
+	// algorithm identifier.
+	plaintext := []byte("hsm aes-kw wrap test!!!!") // 24 bytes
 	wrapped, nonce, err := p.Encrypt(context.Background(), handle, plaintext, crypto.AlgorithmA256KW)
 	require.NoError(t, err)
 	assert.NotEmpty(t, wrapped)
@@ -269,7 +272,11 @@ func TestPKCS11Provider_WrapUnwrap_AES128KW(t *testing.T) {
 	handle, err := p.GenerateAESKey(context.Background(), 128)
 	require.NoError(t, err)
 
-	plaintext := []byte("short")
+	// RFC 3394's base (unpadded) wrap algorithm requires at least two 64-bit
+	// blocks (16 bytes); a single 8-byte block is only defined under the
+	// RFC 5649 padded variant, which RocketVault does not use here. SoftHSM2
+	// enforces this and returns CKR_KEY_SIZE_RANGE below 16 bytes.
+	plaintext := []byte("shortpad16bytes!") // 16 bytes
 	wrapped, _, err := p.Encrypt(context.Background(), handle, plaintext, crypto.AlgorithmA128KW)
 	require.NoError(t, err)
 
