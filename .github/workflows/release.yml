@@ -116,9 +116,35 @@ jobs:
             dist/*.zip.sha256
           if-no-files-found: error
 
+  package-docs:
+    name: Package Docs
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: scripts/docsgen/go.mod
+          cache: true
+
+      - name: Build and package docs
+        run: scripts/docs.sh package "${{ github.ref_name }}"
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: rocketvault-docs
+          path: |
+            dist/rocketvault-docs-*.tar.gz
+            dist/rocketvault-docs-*.tar.gz.sha256
+            dist/rocketvault-docs-*.zip
+            dist/rocketvault-docs-*.zip.sha256
+          if-no-files-found: error
+
   release:
     name: Publish GitHub Release
-    needs: [build, changelog]
+    needs: [build, changelog, package-docs]
     runs-on: ubuntu-latest
 
     steps:

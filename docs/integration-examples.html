@@ -1,0 +1,1288 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>RocketVault API Integration Examples — RocketVault Docs</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"/>
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=IBM+Plex+Sans:wght@400;500;600&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet"/>
+<link rel="stylesheet" href="assets/doc-theme.css"/>
+</head>
+<body>
+<header class="doc-header">
+  <a class="doc-back" href="admin-manual.html">&larr; Admin Manual</a>
+  <div class="doc-brand">
+    <div class="doc-mark" aria-hidden="true"></div>
+    <span class="doc-kicker">RocketVault Docs</span>
+  </div>
+  <h1 class="doc-title">RocketVault API Integration Examples</h1>
+  <div class="doc-meta"><span class="doc-chip">docs/integration-examples.md</span></div>
+  <hr/>
+</header>
+
+<main class="doc">
+<p>This document provides practical integration examples for common use cases when working with the RocketVault API.</p>
+<h2 id="table-of-contents">Table of Contents</h2>
+<ul>
+<li><a href="#authentication-flow">Authentication Flow</a></li>
+<li><a href="#secret-backup-and-restore">Secret Backup and Restore</a></li>
+<li><a href="#automated-secret-rotation">Automated Secret Rotation</a></li>
+<li><a href="#cicd-pipeline-integration">CI/CD Pipeline Integration</a></li>
+<li><a href="#monitoring-and-alerting">Monitoring and Alerting</a></li>
+<li><a href="#multi-environment-management">Multi-Environment Management</a></li>
+</ul>
+<h2 id="authentication-flow">Authentication Flow</h2>
+<h3 id="cli-based-authentication">CLI-Based Authentication</h3>
+<div class="codewrap"><div class="code-hd"><span class="code-lang">bash</span><button class="copy-btn">Copy</button></div><pre class="code with-hd">#!/bin/bash
+# authenticate.sh - Get JWT token for API access
+
+USERNAME=&quot;admin&quot;
+PASSWORD=&quot;your-secure-password&quot;
+TOTP_CODE=&quot;123456&quot;
+
+# Get JWT token
+TOKEN=$(./rocketvault login --username &quot;$USERNAME&quot; --password &quot;$PASSWORD&quot; --totp-code &quot;$TOTP_CODE&quot; 2&gt;/dev/null | grep -o '&quot;token&quot;:&quot;[^&quot;]*&quot;' | cut -d'&quot;' -f4)
+
+if [ -z &quot;$TOKEN&quot; ]; then
+    echo &quot;Authentication failed&quot;
+    exit 1
+fi
+
+echo &quot;Authentication successful&quot;
+export JWT_TOKEN=&quot;$TOKEN&quot;
+</pre></div>
+<h3 id="api-token-management">API Token Management</h3>
+<div class="codewrap"><div class="code-hd"><span class="code-lang">javascript</span><button class="copy-btn">Copy</button></div><pre class="code with-hd">// tokenManager.js - JWT token management utility
+class TokenManager {
+  constructor(baseURL) {
+    this.baseURL = baseURL;
+    this.token = null;
+    this.refreshPromise = null;
+  }
+
+  async authenticate(username, password, totpCode) {
+    // This would typically call your authentication endpoint
+    // For now, we'll assume the token comes from CLI
+    const token = await this.getTokenFromCLI(username, password, totpCode);
+    this.token = token;
+    return token;
+  }
+
+  async getValidToken() {
+    if (!this.token) {
+      throw new Error(&quot;Not authenticated&quot;);
+    }
+
+    // Check if token is expired (simple check)
+    if (this.isTokenExpired(this.token)) {
+      if (!this.refreshPromise) {
+        this.refreshPromise = this.refreshToken();
+      }
+      await this.refreshPromise;
+      this.refreshPromise = null;
+    }
+
+    return this.token;
+  }
+
+  isTokenExpired(token) {
+    try {
+      const payload = JSON.parse(atob(token.split(&quot;.&quot;)[1]));
+      return payload.exp * 1000 &lt; Date.now();
+    } catch {
+      return true;
+    }
+  }
+
+  async refreshToken() {
+    // Implement token refresh logic
+    // This might involve re-authentication or a refresh endpoint
+    throw new Error(&quot;Token refresh not implemented&quot;);
+  }
+
+  async getTokenFromCLI(username, password, totpCode) {
+    // This is a placeholder - in practice, you'd need to
+    // call the CLI or authentication API
+    return new Promise((resolve, reject) =&gt; {
+      // Simulate CLI call
+      setTimeout(() =&gt; {
+        resolve(&quot;your-jwt-token-here&quot;);
+      }, 1000);
+    });
+  }
+}
+</pre></div>
+<h2 id="secret-backup-and-restore">Secret Backup and Restore</h2>
+<h3 id="automated-daily-backup">Automated Daily Backup</h3>
+<div class="codewrap"><div class="code-hd"><span class="code-lang">bash</span><button class="copy-btn">Copy</button></div><pre class="code with-hd">#!/bin/bash
+# backup-secrets.sh - Daily automated backup of all secrets
+
+BACKUP_DIR=&quot;/var/backups/rocketvault&quot;
+TIMESTAMP=$(date +&quot;%Y%m%d_%H%M%S&quot;)
+BACKUP_FILE=&quot;$BACKUP_DIR/secrets_backup_$TIMESTAMP.json&quot;
+
+# Source authentication
+source ./authenticate.sh
+
+# Create backup directory if it doesn't exist
+mkdir -p &quot;$BACKUP_DIR&quot;
+
+# Export all secrets
+curl -X POST \
+  -H &quot;Authorization: Bearer $JWT_TOKEN&quot; \
+  -H &quot;Content-Type: application/json&quot; \
+  -d '{
+    &quot;format&quot;: &quot;json&quot;,
+    &quot;encrypt&quot;: true,
+    &quot;include_tags&quot;: true
+  }' \
+  &quot;https://api.rocketvault.local/api/v1/secrets/export&quot; \
+  -o &quot;$BACKUP_FILE&quot;
+
+# Verify backup integrity
+if [ $? -eq 0 ] &amp;&amp; [ -s &quot;$BACKUP_FILE&quot; ]; then
+    echo &quot;Backup completed successfully: $BACKUP_FILE&quot;
+
+    # Calculate checksum
+    CHECKSUM=$(sha256sum &quot;$BACKUP_FILE&quot; | cut -d' ' -f1)
+    echo &quot;$CHECKSUM  $BACKUP_FILE&quot; &gt; &quot;$BACKUP_FILE.sha256&quot;
+
+    # Clean up old backups (keep last 30 days)
+    find &quot;$BACKUP_DIR&quot; -name &quot;secrets_backup_*.json&quot; -mtime +30 -delete
+    find &quot;$BACKUP_DIR&quot; -name &quot;secrets_backup_*.sha256&quot; -mtime +30 -delete
+else
+    echo &quot;Backup failed!&quot;
+    exit 1
+fi
+</pre></div>
+<h3 id="selective-restore">Selective Restore</h3>
+<div class="codewrap"><div class="code-hd"><span class="code-lang">bash</span><button class="copy-btn">Copy</button></div><pre class="code with-hd">#!/bin/bash
+# restore-secrets.sh - Restore secrets from backup
+
+BACKUP_FILE=&quot;$1&quot;
+OVERWRITE=&quot;${2:-false}&quot;
+
+if [ -z &quot;$BACKUP_FILE&quot; ]; then
+    echo &quot;Usage: $0 &lt;backup_file&gt; [overwrite]&quot;
+    exit 1
+fi
+
+# Source authentication
+source ./authenticate.sh
+
+# Restore secrets
+curl -X POST \
+  -H &quot;Authorization: Bearer $JWT_TOKEN&quot; \
+  -F &quot;file=@$BACKUP_FILE&quot; \
+  -F &quot;format=json&quot; \
+  -F &quot;encrypted=true&quot; \
+  -F &quot;overwrite=$OVERWRITE&quot; \
+  &quot;https://api.rocketvault.local/api/v1/secrets/import&quot;
+
+if [ $? -eq 0 ]; then
+    echo &quot;Restore completed successfully&quot;
+else
+    echo &quot;Restore failed!&quot;
+    exit 1
+fi
+</pre></div>
+<h3 id="cross-environment-backup">Cross-Environment Backup</h3>
+<div class="codewrap"><div class="code-hd"><span class="code-lang">python</span><button class="copy-btn">Copy</button></div><pre class="code with-hd">#!/usr/bin/env python3
+# cross_env_backup.py - Backup secrets across multiple environments
+
+import requests
+import json
+import os
+from datetime import datetime
+
+class CrossEnvironmentBackup:
+    def __init__(self):
+        self.environments = {
+            'dev': 'https://dev-api.rocketvault.local/api/v1',
+            'staging': 'https://staging-api.rocketvault.local/api/v1',
+            'prod': 'https://api.rocketvault.local/api/v1'
+        }
+        self.tokens = {}
+
+    def authenticate_all(self):
+        &quot;&quot;&quot;Authenticate with all environments&quot;&quot;&quot;
+        for env, url in self.environments.items():
+            # In practice, you'd get tokens from secure storage
+            self.tokens[env] = os.getenv(f'{env.upper()}_JWT_TOKEN')
+            if not self.tokens[env]:
+                raise ValueError(f&quot;Missing token for {env}&quot;)
+
+    def backup_environment(self, env, tags=None):
+        &quot;&quot;&quot;Backup secrets from specific environment&quot;&quot;&quot;
+        url = f&quot;{self.environments[env]}/secrets/export&quot;
+        headers = {
+            'Authorization': f'Bearer {self.tokens[env]}',
+            'Content-Type': 'application/json'
+        }
+
+        payload = {
+            'format': 'json',
+            'encrypt': True,
+            'include_tags': True
+        }
+
+        if tags:
+            payload['tags'] = tags
+
+        response = requests.post(url, json=payload, headers=headers)
+        response.raise_for_status()
+
+        return response.content
+
+    def create_cross_env_backup(self, output_dir='./backups'):
+        &quot;&quot;&quot;Create backups for all environments&quot;&quot;&quot;
+        os.makedirs(output_dir, exist_ok=True)
+        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+
+        backups = {}
+        for env in self.environments.keys():
+            try:
+                print(f&quot;Backing up {env} environment...&quot;)
+                data = self.backup_environment(env)
+
+                filename = f&quot;{output_dir}/{env}_secrets_{timestamp}.json&quot;
+                with open(filename, 'wb') as f:
+                    f.write(data)
+
+                backups[env] = filename
+                print(f&quot;✓ {env} backup saved to {filename}&quot;)
+
+            except Exception as e:
+                print(f&quot;✗ Failed to backup {env}: {e}&quot;)
+
+        # Create manifest
+        manifest = {
+            'timestamp': timestamp,
+            'environments': list(backups.keys()),
+            'files': backups
+        }
+
+        manifest_file = f&quot;{output_dir}/backup_manifest_{timestamp}.json&quot;
+        with open(manifest_file, 'w') as f:
+            json.dump(manifest, f, indent=2)
+
+        print(f&quot;Backup manifest saved to {manifest_file}&quot;)
+        return manifest
+
+if __name__ == '__main__':
+    backup_tool = CrossEnvironmentBackup()
+    backup_tool.authenticate_all()
+    manifest = backup_tool.create_cross_env_backup()
+    print(&quot;Cross-environment backup completed!&quot;)
+    print(json.dumps(manifest, indent=2))
+</pre></div>
+<h2 id="automated-secret-rotation">Automated Secret Rotation</h2>
+<h3 id="database-password-rotation">Database Password Rotation</h3>
+<div class="codewrap"><div class="code-hd"><span class="code-lang">python</span><button class="copy-btn">Copy</button></div><pre class="code with-hd">#!/usr/bin/env python3
+# rotate_db_passwords.py - Automated database password rotation
+
+import requests
+import json
+import psycopg2
+import secrets
+import string
+from datetime import datetime
+
+class DatabasePasswordRotator:
+    def __init__(self, api_url, jwt_token):
+        self.api_url = api_url
+        self.headers = {
+            'Authorization': f'Bearer {jwt_token}',
+            'Content-Type': 'application/json'
+        }
+
+    def generate_password(self, length=32):
+        &quot;&quot;&quot;Generate a secure random password&quot;&quot;&quot;
+        alphabet = string.ascii_letters + string.digits + string.punctuation
+        return ''.join(secrets.choice(alphabet) for _ in range(length))
+
+    def update_password_manager(self, secret_name, new_password, tags=None):
+        &quot;&quot;&quot;Update password in password manager&quot;&quot;&quot;
+        # This would typically use the secrets API
+        # For now, we'll simulate the update
+        print(f&quot;Updating {secret_name} in password manager...&quot;)
+
+        # In a real implementation, you might:
+        # 1. Create a new version of the secret
+        # 2. Update the secret value
+        # 3. Tag it appropriately
+
+        return True
+
+    def update_database(self, db_config, new_password):
+        &quot;&quot;&quot;Update password in database&quot;&quot;&quot;
+        try:
+            # Connect with current password
+            conn = psycopg2.connect(
+                host=db_config['host'],
+                port=db_config['port'],
+                database=db_config['database'],
+                user=db_config['user'],
+                password=db_config['current_password']
+            )
+
+            conn.autocommit = True
+            cursor = conn.cursor()
+
+            # Update password for the user
+            cursor.execute(
+                &quot;ALTER USER %s PASSWORD %s&quot;,
+                (db_config['user'], new_password)
+            )
+
+            cursor.close()
+            conn.close()
+
+            print(f&quot;Database password updated for user {db_config['user']}&quot;)
+            return True
+
+        except Exception as e:
+            print(f&quot;Failed to update database password: {e}&quot;)
+            return False
+
+    def rotate_password(self, secret_name, db_config):
+        &quot;&quot;&quot;Rotate password for a database user&quot;&quot;&quot;
+        print(f&quot;Starting password rotation for {secret_name}&quot;)
+
+        # Generate new password
+        new_password = self.generate_password()
+
+        # Update database first
+        if not self.update_database(db_config, new_password):
+            print(&quot;Database update failed, aborting rotation&quot;)
+            return False
+
+        # Update password manager
+        tags = ['database', 'rotated', f&quot;env:{db_config.get('environment', 'prod')}&quot;]
+        if not self.update_password_manager(secret_name, new_password, tags):
+            print(&quot;Password manager update failed&quot;)
+            # You might want to rollback the database change here
+            return False
+
+        print(f&quot;Password rotation completed for {secret_name}&quot;)
+        return True
+
+    def rotate_all_db_passwords(self, databases):
+        &quot;&quot;&quot;Rotate passwords for all configured databases&quot;&quot;&quot;
+        results = {}
+        timestamp = datetime.now().isoformat()
+
+        for db_name, config in databases.items():
+            try:
+                success = self.rotate_password(db_name, config)
+                results[db_name] = {
+                    'success': success,
+                    'timestamp': timestamp
+                }
+            except Exception as e:
+                print(f&quot;Rotation failed for {db_name}: {e}&quot;)
+                results[db_name] = {
+                    'success': False,
+                    'error': str(e),
+                    'timestamp': timestamp
+                }
+
+        return results
+
+# Configuration
+databases = {
+    'postgres_main': {
+        'host': 'localhost',
+        'port': 5432,
+        'database': 'main_db',
+        'user': 'app_user',
+        'current_password': 'current_password_here',
+        'environment': 'prod'
+    },
+    'postgres_analytics': {
+        'host': 'localhost',
+        'port': 5432,
+        'database': 'analytics_db',
+        'user': 'analytics_user',
+        'current_password': 'current_password_here',
+        'environment': 'prod'
+    }
+}
+
+if __name__ == '__main__':
+    # Initialize rotator
+    rotator = DatabasePasswordRotator(
+        api_url='https://api.rocketvault.local/api/v1',
+        jwt_token='your-jwt-token'
+    )
+
+    # Rotate all passwords
+    results = rotator.rotate_all_db_passwords(databases)
+
+    # Report results
+    successful = sum(1 for r in results.values() if r['success'])
+    total = len(results)
+
+    print(f&quot;\nRotation Summary: {successful}/{total} successful&quot;)
+
+    for db_name, result in results.items():
+        status = &quot;✓&quot; if result['success'] else &quot;✗&quot;
+        print(f&quot;{status} {db_name}: {result.get('error', 'OK')}&quot;)
+</pre></div>
+<h3 id="api-key-rotation">API Key Rotation</h3>
+<div class="codewrap"><div class="code-hd"><span class="code-lang">javascript</span><button class="copy-btn">Copy</button></div><pre class="code with-hd">// rotateApiKeys.js - Automated API key rotation
+
+const axios = require(&quot;axios&quot;);
+const crypto = require(&quot;crypto&quot;);
+
+class APIKeyRotator {
+  constructor(apiBaseURL, jwtToken) {
+    this.apiBaseURL = apiBaseURL;
+    this.client = axios.create({
+      baseURL: apiBaseURL,
+      headers: {
+        Authorization: `Bearer ${jwtToken}`,
+        &quot;Content-Type&quot;: &quot;application/json&quot;,
+      },
+    });
+  }
+
+  generateAPIKey(length = 64) {
+    return crypto.randomBytes(length).toString(&quot;hex&quot;);
+  }
+
+  async rotateAPIKey(serviceName, currentKey) {
+    console.log(`Rotating API key for ${serviceName}`);
+
+    try {
+      // Generate new key
+      const newKey = this.generateAPIKey();
+
+      // Update in password manager
+      await this.updateSecretInManager(serviceName, newKey);
+
+      // Update external service
+      await this.updateExternalService(serviceName, currentKey, newKey);
+
+      // Verify the new key works
+      const verified = await this.verifyNewKey(serviceName, newKey);
+
+      if (verified) {
+        console.log(`✓ API key rotation completed for ${serviceName}`);
+        return { success: true, newKey };
+      } else {
+        console.log(`✗ API key verification failed for ${serviceName}`);
+        // Rollback would go here
+        return { success: false, error: &quot;Verification failed&quot; };
+      }
+    } catch (error) {
+      console.error(
+        `API key rotation failed for ${serviceName}:`,
+        error.message
+      );
+      return { success: false, error: error.message };
+    }
+  }
+
+  async updateSecretInManager(serviceName, newKey) {
+    // This would create a new version of the secret
+    const secretData = {
+      name: `${serviceName}_api_key`,
+      value: newKey,
+      tags: [&quot;api-key&quot;, &quot;rotated&quot;, serviceName],
+    };
+
+    // In practice, you'd call the appropriate API endpoint
+    console.log(`Updating secret in password manager for ${serviceName}`);
+  }
+
+  async updateExternalService(serviceName, oldKey, newKey) {
+    // Update the external service with the new key
+    console.log(`Updating external service ${serviceName} with new key`);
+
+    // This would vary depending on the service
+    // Examples:
+    // - AWS API Gateway
+    // - GitHub
+    // - Slack
+    // - etc.
+  }
+
+  async verifyNewKey(serviceName, newKey) {
+    // Verify the new key works
+    console.log(`Verifying new key for ${serviceName}`);
+
+    // This would make a test API call with the new key
+    return true; // Placeholder
+  }
+
+  async rotateMultipleKeys(services) {
+    const results = {};
+    const startTime = new Date();
+
+    for (const [serviceName, config] of Object.entries(services)) {
+      results[serviceName] = await this.rotateAPIKey(
+        serviceName,
+        config.currentKey
+      );
+    }
+
+    const endTime = new Date();
+    const duration = endTime - startTime;
+
+    console.log(`\nRotation Summary:`);
+    console.log(`Total time: ${duration}ms`);
+    console.log(
+      `Successful: ${Object.values(results).filter((r) =&gt; r.success).length}`
+    );
+    console.log(
+      `Failed: ${Object.values(results).filter((r) =&gt; !r.success).length}`
+    );
+
+    return results;
+  }
+}
+
+// Configuration
+const services = {
+  github: {
+    currentKey: &quot;ghp_old_key_here&quot;,
+  },
+  slack: {
+    currentKey: &quot;xoxb-old_key_here&quot;,
+  },
+  aws: {
+    currentKey: &quot;AKIA_old_key_here&quot;,
+  },
+};
+
+// Usage
+const rotator = new APIKeyRotator(
+  &quot;https://api.rocketvault.local/api/v1&quot;,
+  &quot;your-jwt-token&quot;
+);
+
+rotator
+  .rotateMultipleKeys(services)
+  .then((results) =&gt; {
+    console.log(&quot;Rotation completed:&quot;, results);
+  })
+  .catch((error) =&gt; {
+    console.error(&quot;Rotation failed:&quot;, error);
+  });
+</pre></div>
+<h2 id="cicd-pipeline-integration">CI/CD Pipeline Integration</h2>
+<h3 id="github-actions-integration">GitHub Actions Integration</h3>
+<div class="codewrap"><div class="code-hd"><span class="code-lang">yaml</span><button class="copy-btn">Copy</button></div><pre class="code with-hd"># .github/workflows/secrets-management.yml
+name: Secrets Management
+
+on:
+  schedule:
+    # Run daily at 2 AM UTC
+    - cron: &quot;0 2 * * *&quot;
+  workflow_dispatch:
+    inputs:
+      action:
+        description: &quot;Action to perform&quot;
+        required: true
+        default: &quot;backup&quot;
+        type: choice
+        options:
+          - backup
+          - rotate
+          - validate
+
+env:
+  API_URL: https://api.rocketvault.local/api/v1
+
+jobs:
+  secrets-management:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v4
+        with:
+          go-version: &quot;1.21&quot;
+
+      - name: Download RocketVault CLI
+        run: |
+          wget https://github.com/snehal1112/rocketvault/releases/latest/download/rocketvault-linux-amd64
+          chmod +x rocketvault-linux-amd64
+          sudo mv rocketvault-linux-amd64 /usr/local/bin/rocketvault
+
+      - name: Authenticate
+        id: auth
+        run: |
+          # Get JWT token
+          TOKEN=$(rocketvault login \
+            --username ${{ secrets.PM_USERNAME }} \
+            --password ${{ secrets.PM_PASSWORD }} \
+            --totp-code ${{ secrets.PM_TOTP_CODE }} \
+            2&gt;/dev/null | jq -r '.token')
+
+          echo &quot;token=$TOKEN&quot; &gt;&gt; $GITHUB_OUTPUT
+
+      - name: Backup Secrets
+        if: github.event.inputs.action == 'backup' || github.event.schedule == '0 2 * * *'
+        run: |
+          TIMESTAMP=$(date +&quot;%Y%m%d_%H%M%S&quot;)
+
+          # Export secrets
+          curl -X POST \
+            -H &quot;Authorization: Bearer ${{ steps.auth.outputs.token }}&quot; \
+            -H &quot;Content-Type: application/json&quot; \
+            -d '{
+              &quot;format&quot;: &quot;json&quot;,
+              &quot;encrypt&quot;: true,
+              &quot;include_tags&quot;: true
+            }' \
+            &quot;${{ env.API_URL }}/secrets/export&quot; \
+            -o secrets_backup_$TIMESTAMP.json
+
+          # Upload backup as artifact
+          echo &quot;secrets_backup_$TIMESTAMP.json&quot; &gt;&gt; backup_files.txt
+
+      - name: Upload Backup Artifacts
+        if: github.event.inputs.action == 'backup' || github.event.schedule == '0 2 * * *'
+        uses: actions/upload-artifact@v3
+        with:
+          name: secrets-backup
+          path: secrets_backup_*.json
+
+      - name: Validate Secrets
+        if: github.event.inputs.action == 'validate'
+        run: |
+          # Check if secrets are accessible
+          HEALTH=$(curl -s &quot;${{ env.API_URL }}/health&quot; | jq -r '.status')
+
+          if [ &quot;$HEALTH&quot; != &quot;healthy&quot; ]; then
+            echo &quot;Password manager is not healthy&quot;
+            exit 1
+          fi
+
+          # Validate authentication
+          AUTH_TEST=$(curl -s -o /dev/null -w &quot;%{http_code}&quot; \
+            -H &quot;Authorization: Bearer ${{ steps.auth.outputs.token }}&quot; \
+            &quot;${{ env.API_URL }}/secrets/export&quot; \
+            -X POST \
+            -H &quot;Content-Type: application/json&quot; \
+            -d '{&quot;format&quot;: &quot;json&quot;}')
+
+          if [ &quot;$AUTH_TEST&quot; != &quot;200&quot; ]; then
+            echo &quot;Authentication failed&quot;
+            exit 1
+          fi
+
+          echo &quot;✓ All validations passed&quot;
+
+      - name: Rotate Secrets
+        if: github.event.inputs.action == 'rotate'
+        run: |
+          # This would implement secret rotation logic
+          echo &quot;Secret rotation not yet implemented in CI/CD&quot;
+          # You could call a script that handles rotation
+
+      - name: Cleanup
+        if: always()
+        run: |
+          # Clean up sensitive files
+          rm -f secrets_backup_*.json
+          rm -f backup_files.txt
+</pre></div>
+<h3 id="jenkins-pipeline">Jenkins Pipeline</h3>
+<div class="codewrap"><div class="code-hd"><span class="code-lang">groovy</span><button class="copy-btn">Copy</button></div><pre class="code with-hd">// Jenkinsfile
+pipeline {
+    agent any
+
+    environment {
+        API_URL = 'https://api.rocketvault.local/api/v1'
+        PM_CLI = '/usr/local/bin/rocketvault'
+    }
+
+    parameters {
+        choice(name: 'ACTION', choices: ['backup', 'validate', 'rotate'], description: 'Action to perform')
+    }
+
+    stages {
+        stage('Setup') {
+            steps {
+                script {
+                    // Install dependencies if needed
+                    sh 'which jq || apt-get update &amp;&amp; apt-get install -y jq'
+                }
+            }
+        }
+
+        stage('Authenticate') {
+            steps {
+                script {
+                    // Get JWT token
+                    def token = sh(
+                        script: &quot;&quot;&quot;
+                            ${PM_CLI} login \
+                                --username ${env.PM_USERNAME} \
+                                --password ${env.PM_PASSWORD} \
+                                --totp-code ${env.PM_TOTP_CODE} \
+                                2&gt;/dev/null | jq -r '.token'
+                        &quot;&quot;&quot;,
+                        returnStdout: true
+                    ).trim()
+
+                    env.JWT_TOKEN = token
+                }
+            }
+        }
+
+        stage('Backup') {
+            when {
+                expression { params.ACTION == 'backup' }
+            }
+            steps {
+                script {
+                    def timestamp = new Date().format('yyyyMMdd_HHmmss')
+
+                    // Export secrets
+                    sh &quot;&quot;&quot;
+                        curl -X POST \
+                            -H &quot;Authorization: Bearer ${env.JWT_TOKEN}&quot; \
+                            -H &quot;Content-Type: application/json&quot; \
+                            -d '{
+                                &quot;format&quot;: &quot;json&quot;,
+                                &quot;encrypt&quot;: true,
+                                &quot;include_tags&quot;: true
+                            }' \
+                            &quot;${env.API_URL}/secrets/export&quot; \
+                            -o secrets_backup_${timestamp}.json
+                    &quot;&quot;&quot;
+
+                    // Archive backup
+                    archiveArtifacts artifacts: &quot;secrets_backup_${timestamp}.json&quot;, fingerprint: true
+                }
+            }
+        }
+
+        stage('Validate') {
+            when {
+                expression { params.ACTION == 'validate' }
+            }
+            steps {
+                script {
+                    // Check health
+                    def health = sh(
+                        script: &quot;curl -s ${env.API_URL}/health | jq -r '.status'&quot;,
+                        returnStdout: true
+                    ).trim()
+
+                    if (health != 'healthy') {
+                        error(&quot;Password manager is not healthy&quot;)
+                    }
+
+                    // Test authentication
+                    def authTest = sh(
+                        script: &quot;&quot;&quot;
+                            curl -s -o /dev/null -w &quot;%{http_code}&quot; \
+                                -H &quot;Authorization: Bearer ${env.JWT_TOKEN}&quot; \
+                                &quot;${env.API_URL}/secrets/export&quot; \
+                                -X POST \
+                                -H &quot;Content-Type: application/json&quot; \
+                                -d '{&quot;format&quot;: &quot;json&quot;}'
+                        &quot;&quot;&quot;,
+                        returnStdout: true
+                    ).trim()
+
+                    if (authTest != '200') {
+                        error(&quot;Authentication failed&quot;)
+                    }
+
+                    echo &quot;✓ All validations passed&quot;
+                }
+            }
+        }
+
+        stage('Rotate') {
+            when {
+                expression { params.ACTION == 'rotate' }
+            }
+            steps {
+                script {
+                    // Implement rotation logic here
+                    echo &quot;Secret rotation would be implemented here&quot;
+                }
+            }
+        }
+    }
+
+    post {
+        always {
+            // Cleanup
+            sh 'rm -f secrets_backup_*.json'
+        }
+        success {
+            echo 'Pipeline completed successfully'
+        }
+        failure {
+            echo 'Pipeline failed'
+        }
+    }
+}
+</pre></div>
+<h2 id="monitoring-and-alerting">Monitoring and Alerting</h2>
+<h3 id="health-check-monitoring">Health Check Monitoring</h3>
+<div class="codewrap"><div class="code-hd"><span class="code-lang">bash</span><button class="copy-btn">Copy</button></div><pre class="code with-hd">#!/bin/bash
+# monitor-health.sh - Monitor password manager health and send alerts
+
+API_URL=&quot;https://api.rocketvault.local/api/v1&quot;
+ALERT_EMAIL=&quot;admin@company.com&quot;
+LOG_FILE=&quot;/var/log/rocketvault/health_monitor.log&quot;
+
+# Function to log messages
+log() {
+    echo &quot;$(date '+%Y-%m-%d %H:%M:%S') - $1&quot; | tee -a &quot;$LOG_FILE&quot;
+}
+
+# Function to send alert
+send_alert() {
+    local subject=&quot;$1&quot;
+    local message=&quot;$2&quot;
+
+    log &quot;Sending alert: $subject&quot;
+
+    # Send email alert (requires mail command or similar)
+    echo &quot;$message&quot; | mail -s &quot;$subject&quot; &quot;$ALERT_EMAIL&quot;
+
+    # You could also integrate with Slack, PagerDuty, etc.
+}
+
+# Check health endpoint
+check_health() {
+    local endpoint=&quot;$1&quot;
+    local expected_status=&quot;${2:-200}&quot;
+
+    log &quot;Checking $endpoint&quot;
+
+    local response=$(curl -s -w &quot;HTTPSTATUS:%{http_code}&quot; &quot;$API_URL$endpoint&quot;)
+    local body=$(echo &quot;$response&quot; | sed 's/HTTPSTATUS.*//')
+    local status=$(echo &quot;$response&quot; | grep &quot;HTTPSTATUS&quot; | cut -d: -f2)
+
+    if [ &quot;$status&quot; != &quot;$expected_status&quot; ]; then
+        send_alert &quot;RocketVault Health Check Failed&quot; \
+            &quot;Endpoint: $endpoint\nExpected status: $expected_status\nActual status: $status\nResponse: $body&quot;
+        return 1
+    fi
+
+    log &quot;✓ $endpoint is healthy&quot;
+    return 0
+}
+
+# Check detailed health metrics
+check_detailed_health() {
+    log &quot;Checking detailed health metrics&quot;
+
+    local health_data=$(curl -s &quot;$API_URL/health&quot;)
+
+    # Check if response is valid JSON
+    if ! echo &quot;$health_data&quot; | jq . &gt;/dev/null 2&gt;&amp;1; then
+        send_alert &quot;RocketVault Health Check Failed&quot; \
+            &quot;Invalid JSON response from health endpoint\nResponse: $health_data&quot;
+        return 1
+    fi
+
+    local status=$(echo &quot;$health_data&quot; | jq -r '.status')
+    local memory_usage=$(echo &quot;$health_data&quot; | jq -r '.memory.percentage // 0')
+    local db_status=$(echo &quot;$health_data&quot; | jq -r '.database.status // &quot;unknown&quot;')
+
+    log &quot;Status: $status, Memory: ${memory_usage}%, DB: $db_status&quot;
+
+    # Alert on unhealthy status
+    if [ &quot;$status&quot; != &quot;healthy&quot; ]; then
+        send_alert &quot;RocketVault Unhealthy&quot; \
+            &quot;System status: $status\nMemory usage: ${memory_usage}%\nDatabase status: $db_status&quot;
+        return 1
+    fi
+
+    # Alert on high memory usage
+    if (( $(echo &quot;$memory_usage &gt; 90&quot; | bc -l) )); then
+        send_alert &quot;RocketVault High Memory Usage&quot; \
+            &quot;Memory usage is ${memory_usage}%, which is above 90% threshold&quot;
+    fi
+
+    # Alert on database issues
+    if [ &quot;$db_status&quot; != &quot;connected&quot; ]; then
+        send_alert &quot;RocketVault Database Issue&quot; \
+            &quot;Database status: $db_status&quot;
+        return 1
+    fi
+
+    return 0
+}
+
+# Main monitoring loop
+log &quot;Starting health monitoring&quot;
+
+# Check basic endpoints
+check_health &quot;/health&quot; &quot;200&quot;
+check_health &quot;/health/ready&quot; &quot;200&quot;
+check_health &quot;/health/live&quot; &quot;200&quot;
+
+# Check detailed health
+check_detailed_health
+
+log &quot;Health monitoring completed&quot;
+</pre></div>
+<h3 id="prometheus-metrics-exporter">Prometheus Metrics Exporter</h3>
+<div class="codewrap"><div class="code-hd"><span class="code-lang">python</span><button class="copy-btn">Copy</button></div><pre class="code with-hd">#!/usr/bin/env python3
+# prometheus_exporter.py - Export password manager metrics to Prometheus
+
+import requests
+import time
+from prometheus_client import start_http_server, Gauge, Enum
+import json
+
+class PasswordManagerMetricsExporter:
+    def __init__(self, api_url, jwt_token, port=8000):
+        self.api_url = api_url
+        self.headers = {'Authorization': f'Bearer {jwt_token}'}
+        self.port = port
+
+        # Define metrics
+        self.system_status = Enum(
+            'password_manager_status',
+            'Overall system status',
+            states=['healthy', 'unhealthy']
+        )
+
+        self.memory_usage_percent = Gauge(
+            'password_manager_memory_usage_percent',
+            'Memory usage percentage'
+        )
+
+        self.cpu_usage_percent = Gauge(
+            'password_manager_cpu_usage_percent',
+            'CPU usage percentage'
+        )
+
+        self.database_connections_active = Gauge(
+            'password_manager_db_connections_active',
+            'Number of active database connections'
+        )
+
+        self.database_connections_idle = Gauge(
+            'password_manager_db_connections_idle',
+            'Number of idle database connections'
+        )
+
+        self.query_count = Gauge(
+            'password_manager_query_count',
+            'Total number of database queries'
+        )
+
+        self.query_avg_duration_ms = Gauge(
+            'password_manager_query_avg_duration_ms',
+            'Average query duration in milliseconds'
+        )
+
+    def fetch_health_metrics(self):
+        &quot;&quot;&quot;Fetch health metrics from the API&quot;&quot;&quot;
+        try:
+            response = requests.get(
+                f&quot;{self.api_url}/health&quot;,
+                headers=self.headers,
+                timeout=10
+            )
+            response.raise_for_status()
+            return response.json()
+        except Exception as e:
+            print(f&quot;Failed to fetch health metrics: {e}&quot;)
+            return None
+
+    def update_metrics(self):
+        &quot;&quot;&quot;Update Prometheus metrics&quot;&quot;&quot;
+        data = self.fetch_health_metrics()
+
+        if not data:
+            return
+
+        # Update system status
+        status = data.get('status', 'unhealthy')
+        self.system_status.state(status)
+
+        # Update memory metrics
+        memory = data.get('memory', {})
+        memory_percent = memory.get('percentage', 0)
+        self.memory_usage_percent.set(memory_percent)
+
+        # Update CPU metrics
+        cpu = data.get('cpu', {})
+        cpu_percent = cpu.get('usage', 0)
+        self.cpu_usage_percent.set(cpu_percent)
+
+        # Update database metrics
+        database = data.get('database', {})
+        connection_pool = database.get('connection_pool', {})
+
+        self.database_connections_active.set(
+            connection_pool.get('active', 0)
+        )
+        self.database_connections_idle.set(
+            connection_pool.get('idle', 0)
+        )
+
+        # Update query metrics
+        query_metrics = data.get('query_metrics', {})
+        self.query_count.set(query_metrics.get('query_count', 0))
+
+        avg_duration_str = query_metrics.get('avg_duration', '0µs')
+        # Convert duration string to milliseconds
+        avg_duration_ms = self.parse_duration(avg_duration_str)
+        self.query_avg_duration_ms.set(avg_duration_ms)
+
+    def parse_duration(self, duration_str):
+        &quot;&quot;&quot;Parse duration string to milliseconds&quot;&quot;&quot;
+        # Handle formats like &quot;950µs&quot;, &quot;1.2s&quot;, &quot;150ms&quot;
+        if 'µs' in duration_str:
+            return float(duration_str.replace('µs', '')) / 1000
+        elif 'ms' in duration_str:
+            return float(duration_str.replace('ms', ''))
+        elif 's' in duration_str:
+            return float(duration_str.replace('s', '')) * 1000
+        else:
+            return 0
+
+    def run(self):
+        &quot;&quot;&quot;Start the metrics exporter&quot;&quot;&quot;
+        start_http_server(self.port)
+        print(f&quot;Metrics server started on port {self.port}&quot;)
+
+        while True:
+            self.update_metrics()
+            time.sleep(30)  # Update every 30 seconds
+
+if __name__ == '__main__':
+    exporter = PasswordManagerMetricsExporter(
+        api_url='https://api.rocketvault.local/api/v1',
+        jwt_token='your-jwt-token',
+        port=8000
+    )
+    exporter.run()
+</pre></div>
+<h2 id="multi-environment-management">Multi-Environment Management</h2>
+<h3 id="environment-specific-secret-management">Environment-Specific Secret Management</h3>
+<div class="codewrap"><div class="code-hd"><span class="code-lang">python</span><button class="copy-btn">Copy</button></div><pre class="code with-hd">#!/usr/bin/env python3
+# multi_env_manager.py - Manage secrets across multiple environments
+
+import requests
+import json
+import os
+from typing import Dict, List, Optional
+
+class MultiEnvironmentManager:
+    def __init__(self):
+        self.environments = {
+            'development': {
+                'url': 'https://dev-api.rocketvault.local/api/v1',
+                'token': os.getenv('DEV_JWT_TOKEN')
+            },
+            'staging': {
+                'url': 'https://staging-api.rocketvault.local/api/v1',
+                'token': os.getenv('STAGING_JWT_TOKEN')
+            },
+            'production': {
+                'url': 'https://api.rocketvault.local/api/v1',
+                'token': os.getenv('PROD_JWT_TOKEN')
+            }
+        }
+
+    def get_client(self, environment: str):
+        &quot;&quot;&quot;Get authenticated client for environment&quot;&quot;&quot;
+        if environment not in self.environments:
+            raise ValueError(f&quot;Unknown environment: {environment}&quot;)
+
+        config = self.environments[environment]
+        return PasswordManagerClient(config['url'], config['token'])
+
+    def promote_secrets(self, from_env: str, to_env: str, secret_names: List[str] = None, tags: List[str] = None):
+        &quot;&quot;&quot;Promote secrets from one environment to another&quot;&quot;&quot;
+        print(f&quot;Promoting secrets from {from_env} to {to_env}&quot;)
+
+        source_client = self.get_client(from_env)
+        target_client = self.get_client(to_env)
+
+        # Export secrets from source
+        export_data = source_client.export_secrets(
+            format='json',
+            encrypt=True,
+            tags=tags,
+            include_tags=True
+        )
+
+        # Parse exported data
+        secrets_data = json.loads(export_data.decode('utf-8'))
+
+        # Filter secrets if specific names provided
+        if secret_names:
+            secrets_data['secrets'] = [
+                secret for secret in secrets_data['secrets']
+                if secret['name'] in secret_names
+            ]
+
+        # Update tags to reflect target environment
+        for secret in secrets_data['secrets']:
+            secret['tags'] = [
+                tag for tag in secret.get('tags', [])
+                if not tag.startswith('env:')
+            ] + [f'env:{to_env}']
+
+        # Import to target environment
+        import_result = target_client.import_secrets(
+            json.dumps(secrets_data).encode('utf-8'),
+            format='json',
+            encrypted=True,
+            overwrite=True
+        )
+
+        print(f&quot;Promoted {import_result['imported_count']} secrets to {to_env}&quot;)
+        return import_result
+
+    def validate_environment_sync(self, environments: List[str] = None):
+        &quot;&quot;&quot;Validate that environments have consistent secrets&quot;&quot;&quot;
+        if environments is None:
+            environments = list(self.environments.keys())
+
+        env_secrets = {}
+
+        # Collect secrets from each environment
+        for env in environments:
+            client = self.get_client(env)
+            secrets = client.export_secrets(
+                format='json',
+                encrypt=False,
+                include_tags=True
+            )
+
+            data = json.loads(secrets.decode('utf-8'))
+            env_secrets[env] = {
+                secret['name']: secret
+                for secret in data.get('secrets', [])
+            }
+
+        # Find inconsistencies
+        all_secret_names = set()
+        for env_secrets_dict in env_secrets.values():
+            all_secret_names.update(env_secrets_dict.keys())
+
+        inconsistencies = []
+
+        for secret_name in all_secret_names:
+            versions = {}
+            for env in environments:
+                secret = env_secrets[env].get(secret_name)
+                if secret:
+                    versions[env] = secret.get('version', 0)
+                else:
+                    versions[env] = None
+
+            # Check if versions are consistent
+            version_values = [v for v in versions.values() if v is not None]
+            if len(set(version_values)) &gt; 1:
+                inconsistencies.append({
+                    'secret': secret_name,
+                    'versions': versions
+                })
+
+        return {
+            'total_secrets': len(all_secret_names),
+            'inconsistencies': inconsistencies,
+            'consistent': len(inconsistencies) == 0
+        }
+
+    def audit_secret_access(self, environment: str, days: int = 7):
+        &quot;&quot;&quot;Audit secret access patterns&quot;&quot;&quot;
+        client = self.get_client(environment)
+
+        # This would typically query audit logs
+        # For now, we'll return a placeholder
+        return {
+            'environment': environment,
+            'period_days': days,
+            'total_accesses': 0,
+            'unique_secrets': 0,
+            'top_accessed': []
+        }
+
+class PasswordManagerClient:
+    &quot;&quot;&quot;Simple client for RocketVault API&quot;&quot;&quot;
+    def __init__(self, base_url: str, token: str):
+        self.base_url = base_url.rstrip('/')
+        self.headers = {
+            'Authorization': f'Bearer {token}',
+            'Content-Type': 'application/json'
+        }
+
+    def export_secrets(self, format: str = 'json', encrypt: bool = False,
+                      tags: List[str] = None, include_tags: bool = True):
+        &quot;&quot;&quot;Export secrets&quot;&quot;&quot;
+        url = f&quot;{self.base_url}/secrets/export&quot;
+        payload = {
+            'format': format,
+            'encrypt': encrypt,
+            'include_tags': include_tags
+        }
+        if tags:
+            payload['tags'] = tags
+
+        response = requests.post(url, json=payload, headers=self.headers)
+        response.raise_for_status()
+        return response.content
+
+    def import_secrets(self, data: bytes, format: str = 'json',
+                      encrypted: bool = False, overwrite: bool = False):
+        &quot;&quot;&quot;Import secrets&quot;&quot;&quot;
+        url = f&quot;{self.base_url}/secrets/import&quot;
+
+        files = {'file': ('secrets.json', data, 'application/json')}
+        form_data = {
+            'format': format,
+            'encrypted': str(encrypted).lower(),
+            'overwrite': str(overwrite).lower()
+        }
+
+        response = requests.post(url, files=files, data=form_data, headers={
+            'Authorization': self.headers['Authorization']
+        })
+        response.raise_for_status()
+        return response.json()
+
+# Usage examples
+if __name__ == '__main__':
+    manager = MultiEnvironmentManager()
+
+    # Promote secrets from staging to production
+    result = manager.promote_secrets(
+        from_env='staging',
+        to_env='production',
+        tags=['production-ready']
+    )
+
+    # Validate environment consistency
+    validation = manager.validate_environment_sync()
+    if not validation['consistent']:
+        print(&quot;Environment inconsistencies found:&quot;)
+        for inconsistency in validation['inconsistencies']:
+            print(f&quot;  {inconsistency['secret']}: {inconsistency['versions']}&quot;)
+
+    # Audit access patterns
+    audit = manager.audit_secret_access('production', days=30)
+    print(f&quot;Audit results: {audit}&quot;)
+</pre></div>
+<p>This comprehensive set of integration examples covers the most common use cases for the RocketVault API, including authentication, backup/restore, rotation, CI/CD integration, monitoring, and multi-environment management. Each example includes error handling, logging, and best practices for production use.</p>
+
+</main>
+<footer class="doc-footer"><a href="admin-manual.html">&larr; Back to the Admin Manual</a></footer>
+<script src="assets/doc-theme.js"></script>
+</body>
+</html>

@@ -1,0 +1,212 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>v4.0.0 — Azure Key Vault RBAC authorization — RocketVault Docs</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"/>
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=IBM+Plex+Sans:wght@400;500;600&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet"/>
+<link rel="stylesheet" href="../assets/doc-theme.css"/>
+</head>
+<body>
+<header class="doc-header">
+  <a class="doc-back" href="../admin-manual.html">&larr; Admin Manual</a>
+  <div class="doc-brand">
+    <div class="doc-mark" aria-hidden="true"></div>
+    <span class="doc-kicker">RocketVault Docs</span>
+  </div>
+  <h1 class="doc-title">v4.0.0 — Azure Key Vault RBAC authorization</h1>
+  <div class="doc-meta"><span class="doc-chip">docs/release-notes/v4.0.0-azure-rbac.md</span></div>
+  <hr/>
+</header>
+<nav class="doc-toc"><div class="doc-toc-label">On this page</div><ol><li><a href="#breaking-changes">Breaking changes</a></li><li><a href="#the-roles">The roles</a></li><li><a href="#upgrade-procedure">Upgrade procedure</a></li><li><a href="#notes">Notes</a></li><li><a href="#known-limitations">Known limitations</a></li></ol></nav>
+<main class="doc">
+<p>Authorization moves from per-object ownership to Azure Key Vault's built-in
+data-plane roles, assigned per vault. Object ownership (<code>user_id</code>) is retained
+as provenance and audit metadata and is no longer read for any access decision.</p>
+<h2 id="breaking-changes">Breaking changes</h2>
+<h3 id="1-users-see-every-object-in-a-vault-they-hold-a-role-in">1. Users see every object in a vault they hold a role in</h3>
+<p>Previously a user saw only the objects they created. Now a role assignment in a
+vault grants the actions of that role over <strong>every</strong> object in it. A user who
+held only implicit access to their own secrets in the default vault will, after
+the upgrade migration, hold <code>Key Vault Secrets Officer</code> there and see every
+secret in that vault.</p>
+<p>Review the output of <code>rocketvault vaults preview-migration</code> before upgrading and
+revoke any assignment that grants more than intended, using
+<code>DELETE /api/v1/vaults/{vault}/role-assignments/{id}</code>.</p>
+<h3 id="2-out-of-scope-resources-return-404-where-some-previously-returned-403">2. Out-of-scope resources return 404 where some previously returned 403</h3>
+<p>Requesting a resource that exists in another vault now returns <code>404 Not Found</code>
+rather than <code>403 Forbidden</code> with &quot;access denied&quot;. The two are indistinguishable
+by design: a 403 told the caller the object existed. Clients that branch on the
+status code must treat 404 as &quot;absent or not yours&quot;.</p>
+<p><code>403</code> is now reserved for: authenticated but holding no role assignment granting
+the required action in this vault; a disabled vault; and a resource outside its
+validity window.</p>
+<h3 id="3-key-crypto-operations-are-gated-by-role-not-by-ownership">3. Key crypto operations are gated by role, not by ownership</h3>
+<p><code>sign</code>, <code>verify</code>, <code>encrypt</code>, <code>decrypt</code>, <code>wrapkey</code>, <code>unwrapkey</code>, and key delete
+now require the corresponding data action from <code>Key Vault Crypto User</code> or
+<code>Key Vault Crypto Officer</code> in the key's vault. Creating a key confers no
+special authority over it.</p>
+<h3 id="4-vault-reader-no-longer-grants-secret-value-reads">4. <code>vault-reader</code> no longer grants secret value reads</h3>
+<p>RocketVault v0.2.0 (2026-06-06) shipped a &quot;legacy&quot; vault-scoped role
+vocabulary, including <code>vault-reader</code>, which granted <code>get</code> on secrets — i.e.
+value reads, not just metadata. Its Azure equivalent, <code>Key Vault Reader</code>, grants
+metadata only (<code>ActionSecretsReadMetadata</code>), matching real Azure Reader
+semantics. This is a genuine narrowing, not a 1:1 preservation: a principal who
+previously held <code>vault-reader</code> loses the ability to read secret values after
+upgrading and retains only metadata access (name, tags, enabled state, and
+similar). If they still need value access, grant them <code>Key Vault Secrets User</code>
+(or higher) explicitly.</p>
+<h2 id="the-roles">The roles</h2>
+<table>
+<thead>
+<tr>
+<th>Role</th>
+<th>Grants</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Key Vault Administrator</td>
+<td>All data-plane operations on all object types</td>
+</tr>
+<tr>
+<td>Key Vault Reader</td>
+<td>Metadata only; no secret values or key material</td>
+</tr>
+<tr>
+<td>Key Vault Secrets User</td>
+<td>Get and list secrets, including values</td>
+</tr>
+<tr>
+<td>Key Vault Secrets Officer</td>
+<td>Full secret control</td>
+</tr>
+<tr>
+<td>Key Vault Crypto User</td>
+<td>Use key material: encrypt, decrypt, sign, verify, wrap, unwrap</td>
+</tr>
+<tr>
+<td>Key Vault Crypto Officer</td>
+<td>Full key control including create, import, delete, rotation</td>
+</tr>
+<tr>
+<td>Key Vault Certificates Officer</td>
+<td>Full certificate control</td>
+</tr>
+</tbody>
+</table>
+<p>Grant one with:</p>
+<div class="codewrap"><div class="code-hd"><span class="code-lang">bash</span><button class="copy-btn">Copy</button></div><pre class="code with-hd">curl -X POST https://host/api/v1/vaults/prod/role-assignments \
+  -H &quot;Authorization: Bearer $TOKEN&quot; \
+  -d '{&quot;principal&quot;:&quot;alice&quot;,&quot;role&quot;:&quot;Key Vault Secrets Officer&quot;}'
+</pre></div>
+<h2 id="upgrade-procedure">Upgrade procedure</h2>
+<ol>
+<li>Back up the database.</li>
+<li>Run <code>rocketvault vaults preview-migration</code> with the new binary. It writes
+nothing and prints every assignment the upgrade would create.</li>
+<li>Confirm every principal that needs access appears for the vaults it needs.</li>
+<li>Start the new binary. The migration runs inside schema migration, is
+idempotent, and logs one summary line per vault recording grants examined and
+assignments created.</li>
+<li>The backfill that creates these assignments runs <strong>exactly once</strong> per
+deployment, marked by an internal <code>audit_config</code> flag set at the end of that
+first startup. This matters for the order you do cleanup in: if you revoke a
+backfilled grant with <code>DELETE /api/v1/vaults/{vault}/role-assignments/{id}</code>
+<strong>before</strong> ever starting the new binary, the backfill hasn't run yet and will
+silently re-create that grant on first startup. Revoke unwanted grants
+<strong>after</strong> the upgrade restart that performs the one-time backfill, not
+before — any revocation applied after that first startup is permanent and
+will not be resurrected by a later restart.</li>
+</ol>
+<p>The migration derives assignments as follows:</p>
+<table>
+<thead>
+<tr>
+<th>Existing state</th>
+<th>Assignment created</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Owns rows in <code>secrets</code> for a vault</td>
+<td><code>Key Vault Secrets Officer</code> in that vault</td>
+</tr>
+<tr>
+<td>Owns rows in <code>keys</code> for a vault</td>
+<td><code>Key Vault Crypto Officer</code> in that vault</td>
+</tr>
+<tr>
+<td>Owns rows in <code>certificates</code> for a vault</td>
+<td><code>Key Vault Certificates Officer</code> in that vault</td>
+</tr>
+<tr>
+<td>Holds the global <code>admin</code> role</td>
+<td><code>Key Vault Administrator</code> in every vault</td>
+</tr>
+<tr>
+<td>Holds a legacy <code>role_assignments</code> grant (<code>vault-admin</code>, <code>vault-reader</code>, <code>secrets-user</code>, <code>secrets-officer</code>, <code>crypto-user</code>, <code>crypto-officer</code>, <code>certificates-officer</code>)</td>
+<td>The equivalent Azure role in the same vault</td>
+</tr>
+</tbody>
+</table>
+<p>The legacy role vocabulary is the vault-scoped <code>role_assignments</code> API that
+shipped in RocketVault v0.2.0 (2026-06-06), before this release. Existing rows
+using those names are translated 1:1 to their Azure equivalent (for example,
+<code>secrets-officer</code> becomes <code>Key Vault Secrets Officer</code>) — except <code>vault-reader</code>,
+see breaking change 4 above.</p>
+<h2 id="notes">Notes</h2>
+<ul>
+<li>A newly created vault has <strong>no</strong> data-plane role assignments, matching Azure.
+A global admin or a principal holding <code>vaults:manage</code> must grant them before
+anyone can read or write objects in it.</li>
+<li><code>access_policies</code> is retained only as an explicit-deny override. It is
+evaluated before the role decision, so a deny cannot be outvoted by a grant.
+Existing allow-policies no longer grant data-plane access on their own.</li>
+<li>Audit-log consumers: <code>audit_logs.user_id</code> now carries the acting principal on
+vault-scoped key and secret updates, where it previously carried a vault UUID
+or the object owner. Re-check any query keyed on those values.</li>
+</ul>
+<h2 id="known-limitations">Known limitations</h2>
+<ul>
+<li>
+<p>Managing role assignments for a vault (<code>POST</code>/<code>GET</code>/<code>DELETE</code> on
+<code>/vaults/{vault}/role-assignments</code>) currently requires the global admin role.
+A non-admin holding only a per-vault <code>vaults:manage</code> grant cannot yet manage
+that vault's role assignments through the API, even though the handler's own
+access check is written to allow it — a global RBAC gate ahead of the handler,
+shared with bare vault-management routes, rejects the request first. Tracked
+as a follow-up.
+<strong>Fixed in v4.1.0</strong> — see <code>docs/release-notes/v4.1.0-role-parity-and-authz-fix.md</code>.</p>
+</li>
+<li>
+<p><strong><code>access_policies</code>-only grants are invisible to the upgrade backfill.</strong> The
+migration derives assignments from exactly four sources: object ownership in
+<code>secrets</code>/<code>keys</code>/<code>certificates</code>, the global <code>admin</code> role, and legacy
+<code>role_assignments</code> rows (see the derivation table above) — it never reads
+<code>access_policies</code>. A principal who was granted access purely through
+<code>POST /api/v1/access-policies</code> with an <code>allow</code> effect (available since
+2026-03-08), and who owns no objects directly, is invisible to both the
+backfill and <code>rocketvault vaults preview-migration</code>. They will silently lose
+access at the deny-by-default inversion with no warning.</p>
+<p>Before upgrading, find any such principals by running this against the
+database directly:</p>
+<div class="codewrap"><div class="code-hd"><span class="code-lang">sql</span><button class="copy-btn">Copy</button></div><pre class="code with-hd">SELECT DISTINCT principal_id, principal_type, resource_type, operation, vault_id
+FROM access_policies
+WHERE effect = 'allow';
+</pre></div>
+<p>Cross-reference the result against the ownership sources and legacy
+<code>role_assignments</code> rows described above. Anyone who appears in this query but
+is NOT covered by one of those sources needs the equivalent Azure role
+granted manually — <code>POST /api/v1/vaults/{vault}/role-assignments</code> — before or
+immediately after the upgrade.</p>
+</li>
+</ul>
+
+</main>
+<footer class="doc-footer"><a href="../admin-manual.html">&larr; Back to the Admin Manual</a></footer>
+<script src="../assets/doc-theme.js"></script>
+</body>
+</html>

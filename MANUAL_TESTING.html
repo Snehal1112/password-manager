@@ -1,0 +1,918 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>RocketVault — Manual Testing Guide — RocketVault Docs</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"/>
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=IBM+Plex+Sans:wght@400;500;600&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet"/>
+<link rel="stylesheet" href="docs/assets/doc-theme.css"/>
+</head>
+<body>
+<header class="doc-header">
+  <a class="doc-back" href="docs/admin-manual.html">&larr; Admin Manual</a>
+  <div class="doc-brand">
+    <div class="doc-mark" aria-hidden="true"></div>
+    <span class="doc-kicker">RocketVault Docs</span>
+  </div>
+  <h1 class="doc-title">RocketVault — Manual Testing Guide</h1>
+  <div class="doc-meta"><span class="doc-chip">MANUAL_TESTING.md</span></div>
+  <hr/>
+</header>
+
+<main class="doc">
+<blockquote>
+<p><strong>This guide has been superseded by the <a href="docs/admin-manual.html">Administrator Manual</a>.</strong>
+The manual is the canonical, interactive reference — every feature, with per-endpoint cards,
+live-captured request/response examples, search, and copy-paste commands. Open it over http
+(for example <code>python3 -m http.server</code>, then <code>http://localhost:8000/docs/admin-manual.html</code>).</p>
+<p>The complete endpoint table is retained below for quick reference.</p>
+</blockquote>
+<hr>
+<h2 id="quick-reference--all-endpoints">Quick Reference — All Endpoints</h2>
+<table>
+<thead>
+<tr>
+<th>Method</th>
+<th>Path</th>
+<th>Auth</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>GET</td>
+<td><code>/api/v1/health/live</code></td>
+<td>None</td>
+<td>Liveness probe</td>
+</tr>
+<tr>
+<td>GET</td>
+<td><code>/api/v1/health/ready</code></td>
+<td>None</td>
+<td>Readiness probe</td>
+</tr>
+<tr>
+<td>GET</td>
+<td><code>/api/v1/health</code></td>
+<td>None</td>
+<td>Full health status</td>
+</tr>
+<tr>
+<td>GET</td>
+<td><code>/api/v1/health/database</code></td>
+<td>None</td>
+<td>Database health status</td>
+</tr>
+<tr>
+<td>GET</td>
+<td><code>/api/v1/config</code></td>
+<td>None</td>
+<td>Frontend config</td>
+</tr>
+<tr>
+<td>GET</td>
+<td><code>/jwks.json</code></td>
+<td>None</td>
+<td>JWKS public keys</td>
+</tr>
+<tr>
+<td>POST</td>
+<td><code>/api/v1/users/login</code></td>
+<td>None</td>
+<td>Login → JWT</td>
+</tr>
+<tr>
+<td>POST</td>
+<td><code>/api/v1/users/refresh</code></td>
+<td>None</td>
+<td>Refresh token</td>
+</tr>
+<tr>
+<td>POST</td>
+<td><code>/api/v1/oauth2/token</code></td>
+<td>Basic (client creds)</td>
+<td>OAuth2 token</td>
+</tr>
+<tr>
+<td>GET</td>
+<td><code>/api/v1/oidc/login</code></td>
+<td>None</td>
+<td>Start OIDC authorization-code login</td>
+</tr>
+<tr>
+<td>GET</td>
+<td><code>/api/v1/oidc/callback</code></td>
+<td>None</td>
+<td>Complete OIDC login, issue session</td>
+</tr>
+<tr>
+<td>GET</td>
+<td><code>/api/v1/users/sessions</code></td>
+<td>JWT</td>
+<td>List sessions</td>
+</tr>
+<tr>
+<td>DELETE</td>
+<td><code>/api/v1/users/sessions/{id}</code></td>
+<td>JWT</td>
+<td>Revoke session</td>
+</tr>
+<tr>
+<td>DELETE</td>
+<td><code>/api/v1/users/sessions</code></td>
+<td>JWT</td>
+<td>Revoke all sessions</td>
+</tr>
+<tr>
+<td>POST</td>
+<td><code>/api/v1/users</code></td>
+<td>JWT (admin)</td>
+<td>Create user</td>
+</tr>
+<tr>
+<td>GET</td>
+<td><code>/api/v1/users</code></td>
+<td>JWT (admin)</td>
+<td>List users</td>
+</tr>
+<tr>
+<td>GET</td>
+<td><code>/api/v1/users/{id}</code></td>
+<td>JWT</td>
+<td>Get user</td>
+</tr>
+<tr>
+<td>PUT</td>
+<td><code>/api/v1/users/{id}</code></td>
+<td>JWT (admin)</td>
+<td>Update user</td>
+</tr>
+<tr>
+<td>DELETE</td>
+<td><code>/api/v1/users/{id}</code></td>
+<td>JWT (admin)</td>
+<td>Delete user</td>
+</tr>
+<tr>
+<td>POST</td>
+<td><code>/api/v1/vaults</code></td>
+<td>JWT (admin or vault grant)</td>
+<td>Create vault</td>
+</tr>
+<tr>
+<td>GET</td>
+<td><code>/api/v1/vaults</code></td>
+<td>JWT (admin or vault grant)</td>
+<td>List vaults (<code>?include_deleted=true</code>)</td>
+</tr>
+<tr>
+<td>GET</td>
+<td><code>/api/v1/vaults/{name}</code></td>
+<td>JWT (admin or vault grant)</td>
+<td>Get vault</td>
+</tr>
+<tr>
+<td>PATCH</td>
+<td><code>/api/v1/vaults/{name}</code></td>
+<td>JWT (admin or vault grant)</td>
+<td>Update vault</td>
+</tr>
+<tr>
+<td>DELETE</td>
+<td><code>/api/v1/vaults/{name}</code></td>
+<td>JWT (admin or vault grant)</td>
+<td>Soft-delete vault (204; refuses <code>default</code>)</td>
+</tr>
+<tr>
+<td>DELETE</td>
+<td><code>/api/v1/vaults/{vault_name}/purge</code></td>
+<td>JWT (admin or vault grant)</td>
+<td>Permanently purge a soft-deleted vault</td>
+</tr>
+<tr>
+<td>GET</td>
+<td><code>/api/v1/vaults/{vault_name}/role-assignments</code></td>
+<td>JWT (admin or vault grant)</td>
+<td>List vault role assignments</td>
+</tr>
+<tr>
+<td>POST</td>
+<td><code>/api/v1/vaults/{vault_name}/role-assignments</code></td>
+<td>JWT (admin or vault grant)</td>
+<td>Create vault role assignment</td>
+</tr>
+<tr>
+<td>GET</td>
+<td><code>/api/v1/vaults/{vault_name}/role-assignments/{assignment_id}</code></td>
+<td>JWT (admin or vault grant)</td>
+<td>Get vault role assignment</td>
+</tr>
+<tr>
+<td>DELETE</td>
+<td><code>/api/v1/vaults/{vault_name}/role-assignments/{assignment_id}</code></td>
+<td>JWT (admin or vault grant)</td>
+<td>Delete (revoke) vault role assignment</td>
+</tr>
+<tr>
+<td>POST</td>
+<td><code>/api/v1/vaults/{vault_name}/secrets</code></td>
+<td>JWT</td>
+<td>Create secret in vault</td>
+</tr>
+<tr>
+<td>GET</td>
+<td><code>/api/v1/vaults/{vault_name}/secrets</code></td>
+<td>JWT</td>
+<td>List vault secrets (members see all)</td>
+</tr>
+<tr>
+<td>GET</td>
+<td><code>/api/v1/vaults/{vault_name}/secrets/{id}</code></td>
+<td>JWT</td>
+<td>Get vault secret</td>
+</tr>
+<tr>
+<td>PUT</td>
+<td><code>/api/v1/vaults/{vault_name}/secrets/{id}</code></td>
+<td>JWT</td>
+<td>Update vault secret</td>
+</tr>
+<tr>
+<td>DELETE</td>
+<td><code>/api/v1/vaults/{vault_name}/secrets/{id}</code></td>
+<td>JWT</td>
+<td>Soft-delete vault secret</td>
+</tr>
+<tr>
+<td>GET</td>
+<td><code>/api/v1/vaults/{vault_name}/deleted/secrets</code></td>
+<td>JWT</td>
+<td>List soft-deleted vault secrets</td>
+</tr>
+<tr>
+<td>POST</td>
+<td><code>/api/v1/vaults/{vault_name}/deleted/secrets/{id}/restore</code></td>
+<td>JWT</td>
+<td>Restore vault secret (by vault membership)</td>
+</tr>
+<tr>
+<td>DELETE</td>
+<td><code>/api/v1/vaults/{vault_name}/deleted/secrets/{id}/purge</code></td>
+<td>JWT</td>
+<td>Purge vault secret</td>
+</tr>
+<tr>
+<td>POST</td>
+<td><code>/api/v1/vaults/{vault_name}/keys</code></td>
+<td>JWT</td>
+<td>Create key in vault</td>
+</tr>
+<tr>
+<td>GET</td>
+<td><code>/api/v1/vaults/{vault_name}/keys</code></td>
+<td>JWT</td>
+<td>List vault keys</td>
+</tr>
+<tr>
+<td>GET</td>
+<td><code>/api/v1/vaults/{vault_name}/keys/{id}</code></td>
+<td>JWT</td>
+<td>Get vault key</td>
+</tr>
+<tr>
+<td>PUT</td>
+<td><code>/api/v1/vaults/{vault_name}/keys/{id}</code></td>
+<td>JWT</td>
+<td>Update vault key</td>
+</tr>
+<tr>
+<td>DELETE</td>
+<td><code>/api/v1/vaults/{vault_name}/keys/{id}</code></td>
+<td>JWT</td>
+<td>Soft-delete vault key</td>
+</tr>
+<tr>
+<td>POST</td>
+<td><code>/api/v1/vaults/{vault_name}/keys/{id}/rotate</code></td>
+<td>JWT</td>
+<td>Rotate vault key</td>
+</tr>
+<tr>
+<td>GET</td>
+<td><code>/api/v1/vaults/{vault_name}/keys/{id}/versions</code></td>
+<td>JWT</td>
+<td>List vault key versions</td>
+</tr>
+<tr>
+<td>POST</td>
+<td><code>/api/v1/vaults/{vault_name}/keys/{id}/wrap</code></td>
+<td>JWT</td>
+<td>Wrap (encrypt) data with vault key</td>
+</tr>
+<tr>
+<td>POST</td>
+<td><code>/api/v1/vaults/{vault_name}/keys/{id}/unwrap</code></td>
+<td>JWT</td>
+<td>Unwrap (decrypt) data with vault key</td>
+</tr>
+<tr>
+<td>POST</td>
+<td><code>/api/v1/vaults/{vault_name}/keys/{id}/sign</code></td>
+<td>JWT</td>
+<td>Sign payload with vault key</td>
+</tr>
+<tr>
+<td>POST</td>
+<td><code>/api/v1/vaults/{vault_name}/keys/{id}/verify</code></td>
+<td>JWT</td>
+<td>Verify signature with vault key</td>
+</tr>
+<tr>
+<td>POST</td>
+<td><code>/api/v1/vaults/{vault_name}/keys/{id}/encrypt</code></td>
+<td>JWT</td>
+<td>Encrypt payload with vault key</td>
+</tr>
+<tr>
+<td>POST</td>
+<td><code>/api/v1/vaults/{vault_name}/keys/{id}/decrypt</code></td>
+<td>JWT</td>
+<td>Decrypt payload with vault key</td>
+</tr>
+<tr>
+<td>GET</td>
+<td><code>/api/v1/vaults/{vault_name}/deleted/keys</code></td>
+<td>JWT</td>
+<td>List soft-deleted vault keys</td>
+</tr>
+<tr>
+<td>POST</td>
+<td><code>/api/v1/vaults/{vault_name}/deleted/keys/{id}/restore</code></td>
+<td>JWT</td>
+<td>Restore vault key</td>
+</tr>
+<tr>
+<td>DELETE</td>
+<td><code>/api/v1/vaults/{vault_name}/deleted/keys/{id}/purge</code></td>
+<td>JWT</td>
+<td>Purge vault key</td>
+</tr>
+<tr>
+<td>POST</td>
+<td><code>/api/v1/vaults/{vault_name}/certificates</code></td>
+<td>JWT</td>
+<td>Create certificate in vault</td>
+</tr>
+<tr>
+<td>GET</td>
+<td><code>/api/v1/vaults/{vault_name}/certificates</code></td>
+<td>JWT</td>
+<td>List vault certificates</td>
+</tr>
+<tr>
+<td>GET</td>
+<td><code>/api/v1/vaults/{vault_name}/certificates/{id}</code></td>
+<td>JWT</td>
+<td>Get vault certificate</td>
+</tr>
+<tr>
+<td>PUT</td>
+<td><code>/api/v1/vaults/{vault_name}/certificates/{id}</code></td>
+<td>JWT</td>
+<td>Update vault certificate</td>
+</tr>
+<tr>
+<td>DELETE</td>
+<td><code>/api/v1/vaults/{vault_name}/certificates/{id}</code></td>
+<td>JWT</td>
+<td>Soft-delete vault certificate</td>
+</tr>
+<tr>
+<td>GET</td>
+<td><code>/api/v1/vaults/{vault_name}/certificates/{id}/policy</code></td>
+<td>JWT</td>
+<td>Get vault certificate policy</td>
+</tr>
+<tr>
+<td>PUT</td>
+<td><code>/api/v1/vaults/{vault_name}/certificates/{id}/policy</code></td>
+<td>JWT</td>
+<td>Upsert vault certificate policy</td>
+</tr>
+<tr>
+<td>DELETE</td>
+<td><code>/api/v1/vaults/{vault_name}/certificates/{id}/policy</code></td>
+<td>JWT</td>
+<td>Delete vault certificate policy</td>
+</tr>
+<tr>
+<td>GET</td>
+<td><code>/api/v1/vaults/{vault_name}/deleted/certificates</code></td>
+<td>JWT</td>
+<td>List soft-deleted vault certificates</td>
+</tr>
+<tr>
+<td>POST</td>
+<td><code>/api/v1/vaults/{vault_name}/deleted/certificates/{id}/restore</code></td>
+<td>JWT</td>
+<td>Restore vault certificate</td>
+</tr>
+<tr>
+<td>DELETE</td>
+<td><code>/api/v1/vaults/{vault_name}/deleted/certificates/{id}/purge</code></td>
+<td>JWT</td>
+<td>Purge vault certificate</td>
+</tr>
+<tr>
+<td>POST</td>
+<td><code>/api/v1/secrets</code></td>
+<td>JWT</td>
+<td>Create secret</td>
+</tr>
+<tr>
+<td>GET</td>
+<td><code>/api/v1/secrets</code></td>
+<td>JWT</td>
+<td>List secrets</td>
+</tr>
+<tr>
+<td>GET</td>
+<td><code>/api/v1/secrets/{id}</code></td>
+<td>JWT</td>
+<td>Get secret</td>
+</tr>
+<tr>
+<td>PUT</td>
+<td><code>/api/v1/secrets/{id}</code></td>
+<td>JWT</td>
+<td>Update secret</td>
+</tr>
+<tr>
+<td>DELETE</td>
+<td><code>/api/v1/secrets/{id}</code></td>
+<td>JWT</td>
+<td>Soft-delete secret</td>
+</tr>
+<tr>
+<td>POST</td>
+<td><code>/api/v1/secrets/generate</code></td>
+<td>JWT</td>
+<td>Generate random secret</td>
+</tr>
+<tr>
+<td>POST</td>
+<td><code>/api/v1/secrets/export</code></td>
+<td>JWT</td>
+<td>Export secrets</td>
+</tr>
+<tr>
+<td>POST</td>
+<td><code>/api/v1/secrets/import</code></td>
+<td>JWT</td>
+<td>Import secrets</td>
+</tr>
+<tr>
+<td>POST</td>
+<td><code>/api/v1/secrets/{id}/backup</code></td>
+<td>JWT</td>
+<td>Backup secret item</td>
+</tr>
+<tr>
+<td>POST</td>
+<td><code>/api/v1/secrets/restore</code></td>
+<td>JWT</td>
+<td>Restore secret item</td>
+</tr>
+<tr>
+<td>GET</td>
+<td><code>/api/v1/secrets/{id}/versions</code></td>
+<td>JWT</td>
+<td>List versions</td>
+</tr>
+<tr>
+<td>GET</td>
+<td><code>/api/v1/secrets/{id}/versions/{n}</code></td>
+<td>JWT</td>
+<td>Get version n</td>
+</tr>
+<tr>
+<td>GET</td>
+<td><code>/api/v1/secrets/{id}/versions/latest</code></td>
+<td>JWT</td>
+<td>Get latest version</td>
+</tr>
+<tr>
+<td>POST</td>
+<td><code>/api/v1/keys</code></td>
+<td>JWT</td>
+<td>Create key</td>
+</tr>
+<tr>
+<td>GET</td>
+<td><code>/api/v1/keys</code></td>
+<td>JWT</td>
+<td>List keys</td>
+</tr>
+<tr>
+<td>GET</td>
+<td><code>/api/v1/keys/{id}</code></td>
+<td>JWT</td>
+<td>Get key</td>
+</tr>
+<tr>
+<td>PUT</td>
+<td><code>/api/v1/keys/{id}</code></td>
+<td>JWT</td>
+<td>Update key</td>
+</tr>
+<tr>
+<td>DELETE</td>
+<td><code>/api/v1/keys/{id}</code></td>
+<td>JWT</td>
+<td>Soft-delete key</td>
+</tr>
+<tr>
+<td>POST</td>
+<td><code>/api/v1/keys/{id}/rotate</code></td>
+<td>JWT</td>
+<td>Rotate key</td>
+</tr>
+<tr>
+<td>GET</td>
+<td><code>/api/v1/keys/{id}/versions</code></td>
+<td>JWT</td>
+<td>List key versions</td>
+</tr>
+<tr>
+<td>POST</td>
+<td><code>/api/v1/keys/{id}/wrap</code></td>
+<td>JWT</td>
+<td>Wrap (encrypt) data</td>
+</tr>
+<tr>
+<td>POST</td>
+<td><code>/api/v1/keys/{id}/unwrap</code></td>
+<td>JWT</td>
+<td>Unwrap (decrypt) data</td>
+</tr>
+<tr>
+<td>POST</td>
+<td><code>/api/v1/keys/{id}/sign</code></td>
+<td>JWT</td>
+<td>Sign payload</td>
+</tr>
+<tr>
+<td>POST</td>
+<td><code>/api/v1/keys/{id}/verify</code></td>
+<td>JWT</td>
+<td>Verify signature</td>
+</tr>
+<tr>
+<td>POST</td>
+<td><code>/api/v1/keys/{id}/encrypt</code></td>
+<td>JWT</td>
+<td>Encrypt payload</td>
+</tr>
+<tr>
+<td>POST</td>
+<td><code>/api/v1/keys/{id}/decrypt</code></td>
+<td>JWT</td>
+<td>Decrypt payload</td>
+</tr>
+<tr>
+<td>POST</td>
+<td><code>/api/v1/keys/{id}/backup</code></td>
+<td>JWT</td>
+<td>Backup key item</td>
+</tr>
+<tr>
+<td>POST</td>
+<td><code>/api/v1/keys/restore</code></td>
+<td>JWT</td>
+<td>Restore key item</td>
+</tr>
+<tr>
+<td>POST</td>
+<td><code>/api/v1/certificates</code></td>
+<td>JWT</td>
+<td>Create certificate</td>
+</tr>
+<tr>
+<td>GET</td>
+<td><code>/api/v1/certificates</code></td>
+<td>JWT</td>
+<td>List certificates</td>
+</tr>
+<tr>
+<td>GET</td>
+<td><code>/api/v1/certificates/{id}</code></td>
+<td>JWT</td>
+<td>Get certificate</td>
+</tr>
+<tr>
+<td>PUT</td>
+<td><code>/api/v1/certificates/{id}</code></td>
+<td>JWT</td>
+<td>Update certificate</td>
+</tr>
+<tr>
+<td>DELETE</td>
+<td><code>/api/v1/certificates/{id}</code></td>
+<td>JWT</td>
+<td>Soft-delete certificate</td>
+</tr>
+<tr>
+<td>GET</td>
+<td><code>/api/v1/certificates/{id}/policy</code></td>
+<td>JWT</td>
+<td>Get certificate policy</td>
+</tr>
+<tr>
+<td>PUT</td>
+<td><code>/api/v1/certificates/{id}/policy</code></td>
+<td>JWT</td>
+<td>Upsert certificate policy</td>
+</tr>
+<tr>
+<td>DELETE</td>
+<td><code>/api/v1/certificates/{id}/policy</code></td>
+<td>JWT</td>
+<td>Delete certificate policy</td>
+</tr>
+<tr>
+<td>POST</td>
+<td><code>/api/v1/certificates/{id}/backup</code></td>
+<td>JWT</td>
+<td>Backup certificate item</td>
+</tr>
+<tr>
+<td>POST</td>
+<td><code>/api/v1/certificates/restore</code></td>
+<td>JWT</td>
+<td>Restore certificate item</td>
+</tr>
+<tr>
+<td>GET</td>
+<td><code>/api/v1/deleted/secrets</code></td>
+<td>JWT</td>
+<td>List deleted secrets</td>
+</tr>
+<tr>
+<td>POST</td>
+<td><code>/api/v1/deleted/secrets/{id}/restore</code></td>
+<td>JWT</td>
+<td>Restore secret</td>
+</tr>
+<tr>
+<td>DELETE</td>
+<td><code>/api/v1/deleted/secrets/{id}/purge</code></td>
+<td>JWT</td>
+<td>Purge secret</td>
+</tr>
+<tr>
+<td>GET</td>
+<td><code>/api/v1/deleted/keys/{id}</code></td>
+<td>JWT</td>
+<td>Get deleted key</td>
+</tr>
+<tr>
+<td>GET</td>
+<td><code>/api/v1/deleted/keys</code></td>
+<td>JWT</td>
+<td>List deleted keys</td>
+</tr>
+<tr>
+<td>POST</td>
+<td><code>/api/v1/deleted/keys/{id}/restore</code></td>
+<td>JWT</td>
+<td>Restore key</td>
+</tr>
+<tr>
+<td>DELETE</td>
+<td><code>/api/v1/deleted/keys/{id}/purge</code></td>
+<td>JWT</td>
+<td>Purge key</td>
+</tr>
+<tr>
+<td>GET</td>
+<td><code>/api/v1/deleted/certificates</code></td>
+<td>JWT</td>
+<td>List deleted certs</td>
+</tr>
+<tr>
+<td>POST</td>
+<td><code>/api/v1/deleted/certificates/{id}/restore</code></td>
+<td>JWT</td>
+<td>Restore certificate</td>
+</tr>
+<tr>
+<td>DELETE</td>
+<td><code>/api/v1/deleted/certificates/{id}/purge</code></td>
+<td>JWT</td>
+<td>Purge certificate</td>
+</tr>
+<tr>
+<td>GET</td>
+<td><code>/api/v1/access-policies</code></td>
+<td>JWT</td>
+<td>List policies</td>
+</tr>
+<tr>
+<td>POST</td>
+<td><code>/api/v1/access-policies</code></td>
+<td>JWT</td>
+<td>Create policy</td>
+</tr>
+<tr>
+<td>GET</td>
+<td><code>/api/v1/access-policies/{id}</code></td>
+<td>JWT</td>
+<td>Get policy</td>
+</tr>
+<tr>
+<td>PUT</td>
+<td><code>/api/v1/access-policies/{id}</code></td>
+<td>JWT</td>
+<td>Update policy</td>
+</tr>
+<tr>
+<td>DELETE</td>
+<td><code>/api/v1/access-policies/{id}</code></td>
+<td>JWT</td>
+<td>Delete policy</td>
+</tr>
+<tr>
+<td>GET</td>
+<td><code>/api/v1/access-policies/principal/{id}</code></td>
+<td>JWT</td>
+<td>Policies by principal</td>
+</tr>
+<tr>
+<td>GET</td>
+<td><code>/api/v1/audit/logs</code></td>
+<td>JWT (admin)</td>
+<td>Query audit logs</td>
+</tr>
+<tr>
+<td>GET</td>
+<td><code>/api/v1/audit/reports/soc2</code></td>
+<td>JWT (admin)</td>
+<td>SOC 2 report</td>
+</tr>
+<tr>
+<td>GET</td>
+<td><code>/api/v1/audit/reports/gdpr</code></td>
+<td>JWT (admin)</td>
+<td>GDPR report</td>
+</tr>
+<tr>
+<td>GET</td>
+<td><code>/api/v1/audit/config</code></td>
+<td>JWT (admin)</td>
+<td>Get audit retention config</td>
+</tr>
+<tr>
+<td>PATCH</td>
+<td><code>/api/v1/audit/config</code></td>
+<td>JWT (admin)</td>
+<td>Update audit retention config</td>
+</tr>
+<tr>
+<td>POST</td>
+<td><code>/api/v1/service-accounts</code></td>
+<td>JWT (admin)</td>
+<td>Create service account</td>
+</tr>
+<tr>
+<td>GET</td>
+<td><code>/api/v1/service-accounts</code></td>
+<td>JWT (admin)</td>
+<td>List service accounts</td>
+</tr>
+<tr>
+<td>GET</td>
+<td><code>/api/v1/service-accounts/{id}</code></td>
+<td>JWT (admin)</td>
+<td>Get service account</td>
+</tr>
+<tr>
+<td>DELETE</td>
+<td><code>/api/v1/service-accounts/{id}</code></td>
+<td>JWT (admin)</td>
+<td>Delete service account</td>
+</tr>
+<tr>
+<td>POST</td>
+<td><code>/api/v1/service-accounts/{id}/rotate</code></td>
+<td>JWT (admin)</td>
+<td>Rotate SA secret</td>
+</tr>
+<tr>
+<td>POST</td>
+<td><code>/api/v1/jwks/rotate</code></td>
+<td>JWT (admin)</td>
+<td>Rotate JWT signing key</td>
+</tr>
+</tbody>
+</table>
+<p>Notes:</p>
+<ul>
+<li>&quot;JWT (admin or vault grant)&quot; (vault management, purge, role-assignments) means
+the global <code>admin</code> account role always passes, OR the caller holds the
+specific per-vault grant the handler checks — a <code>vaults:manage</code> access-policy
+grant for vault CRUD/role-assignments, or a Key Vault Purge Operator role
+assignment for purge. See <code>internal/services/authorization/vault_authz.go</code>
+(<code>CanManageVault</code>, <code>CanPurgeVault</code>, <code>CanManageRoleAssignments</code>). This
+replaced a global-admin-only gate on 2026-08-11 so per-vault role holders
+aren't blocked by a vault-blind check running ahead of the handler.</li>
+<li>Vault-scoped routes for secrets, keys, and certificates (<code>/vaults/{vault_name}/...</code>)
+mirror the flat routes 1:1 and are authorized per vault by <code>PolicyMiddleware</code>
+against the caller's role assignments in that vault, not by the global role.</li>
+</ul>
+<hr>
+<h2 id="account-roles--permissions">Account Roles &amp; Permissions</h2>
+<p>Every user account carries one global role. It controls the coarse, account-level
+permissions checked by the RBAC service. Vault-scoped roles (<code>vault-reader</code>,
+<code>secrets-officer</code>, etc.) are a separate, finer-grained layer assigned per vault.</p>
+<p>Source of truth: <code>internal/services/authorization/rbac_service.go</code>.</p>
+<table>
+<thead>
+<tr>
+<th>Role</th>
+<th>Secrets</th>
+<th>Keys</th>
+<th>Certificates</th>
+<th>Users</th>
+<th>System</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>admin</code></td>
+<td>full CRUD + list</td>
+<td>full CRUD + list</td>
+<td>full CRUD + list</td>
+<td>full CRUD + list</td>
+<td>manage vaults + system</td>
+</tr>
+<tr>
+<td><code>user</code></td>
+<td>read, list</td>
+<td>read, list</td>
+<td>read, list</td>
+<td>—</td>
+<td>—</td>
+</tr>
+<tr>
+<td><code>secrets_manager</code></td>
+<td>full CRUD + list</td>
+<td>—</td>
+<td>—</td>
+<td>—</td>
+<td>—</td>
+</tr>
+<tr>
+<td><code>crypto_manager</code></td>
+<td>—</td>
+<td>full CRUD + list</td>
+<td>—</td>
+<td>—</td>
+<td>—</td>
+</tr>
+<tr>
+<td><code>certificate_manager</code></td>
+<td>—</td>
+<td>—</td>
+<td>full CRUD + list</td>
+<td>—</td>
+<td>—</td>
+</tr>
+<tr>
+<td><code>service_account</code></td>
+<td>read, list</td>
+<td>read, list</td>
+<td>read, list</td>
+<td>—</td>
+<td>—</td>
+</tr>
+</tbody>
+</table>
+<p>Notes:</p>
+<ul>
+<li>&quot;full CRUD&quot; = create, read, update, delete.</li>
+<li><code>user</code> and <code>service_account</code> are read-only across all three resource types.
+They differ only in intent: <code>user</code> is a human login, <code>service_account</code> is a
+machine identity (Azure Key Vault model — admins create resources and grant
+finer access via access policies).</li>
+<li>A manager role grants full CRUD on its one resource type and nothing on the
+others. <code>secrets_manager</code> cannot even read keys or certificates.</li>
+<li>Unknown roles get zero permissions (deny by default).</li>
+</ul>
+
+</main>
+<footer class="doc-footer"><a href="docs/admin-manual.html">&larr; Back to the Admin Manual</a></footer>
+<script src="docs/assets/doc-theme.js"></script>
+</body>
+</html>

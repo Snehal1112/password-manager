@@ -1,0 +1,397 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>RocketVault - Admin Setup Guide — RocketVault Docs</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"/>
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=IBM+Plex+Sans:wght@400;500;600&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet"/>
+<link rel="stylesheet" href="../docs/assets/doc-theme.css"/>
+</head>
+<body>
+<header class="doc-header">
+  <a class="doc-back" href="../docs/admin-manual.html">&larr; Admin Manual</a>
+  <div class="doc-brand">
+    <div class="doc-mark" aria-hidden="true"></div>
+    <span class="doc-kicker">RocketVault Docs</span>
+  </div>
+  <h1 class="doc-title">RocketVault - Admin Setup Guide</h1>
+  <div class="doc-meta"><span class="doc-chip">doc/README_ADMIN_SETUP.md</span></div>
+  <hr/>
+</header>
+<nav class="doc-toc"><div class="doc-toc-label">On this page</div><ol><li><a href="#overview">Overview</a></li><li><a href="#prerequisites">Prerequisites</a></li><li><a href="#configuration-file">Configuration File</a></li><li><a href="#step-1--build-the-binary">Step 1 — Build the Binary</a></li><li><a href="#step-2--create-the-initial-admin-user">Step 2 — Create the Initial Admin User</a></li><li><a href="#step-3--configure-your-authenticator-app">Step 3 — Configure Your Authenticator App</a></li><li><a href="#step-4--generate-a-totp-code-from-the-terminal">Step 4 — Generate a TOTP Code from the Terminal</a></li><li><a href="#step-5--log-in">Step 5 — Log In</a></li><li><a href="#step-6--create-additional-users">Step 6 — Create Additional Users</a></li><li><a href="#full-end-to-end-workflow">Full End-to-End Workflow</a></li><li><a href="#output-formats">Output Formats</a></li><li><a href="#troubleshooting">Troubleshooting</a></li><li><a href="#security-recommendations">Security Recommendations</a></li><li><a href="#related-files">Related Files</a></li></ol></nav>
+<main class="doc">
+<h2 id="overview">Overview</h2>
+<p>This guide covers everything needed to get the first admin user created and
+authenticated in RocketVault. It reflects the current project structure,
+binary name, configuration file layout, and CLI command signatures.</p>
+<hr>
+<h2 id="prerequisites">Prerequisites</h2>
+<table>
+<thead>
+<tr>
+<th>Requirement</th>
+<th>Details</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Go 1.24+</td>
+<td>Required to build the binary and run scripts</td>
+</tr>
+<tr>
+<td><code>rocketvault</code> binary</td>
+<td>Built with <code>go build -o rocketvault</code></td>
+</tr>
+<tr>
+<td><code>.rocketvault.yaml</code></td>
+<td>Main config file, must exist in the project root</td>
+</tr>
+<tr>
+<td><code>sqlite3</code> (optional)</td>
+<td>Useful for manual database inspection</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="configuration-file">Configuration File</h2>
+<p>The binary always loads <code>.rocketvault.yaml</code> from the current directory by
+default. You may override this with <code>--config &lt;path&gt;</code> on any command.</p>
+<p>Minimal working configuration:</p>
+<div class="codewrap"><div class="code-hd"><span class="code-lang">yaml</span><button class="copy-btn">Copy</button></div><pre class="code with-hd">master_key: &quot;***SECRET-REMOVED-2026-08-17***&quot;
+jwt_secret: &quot;***SECRET-REMOVED-2026-08-17***&quot;
+jwt:
+  key_source: &quot;os_store&quot;
+  key_cn: &quot;rocketvault&quot;
+  expiry: &quot;1h&quot;
+  rotation_overlap: &quot;1h&quot;
+  migration_window: &quot;24h&quot;
+bootstrap_token: &quot;***SECRET-REMOVED-2026-08-17***&quot;
+environment: &quot;development&quot;
+database:
+  connection: &quot;./dev-rocketvault.db&quot;
+  driver: &quot;sqlite3&quot;
+log:
+  level: &quot;debug&quot;
+  file: &quot;./logs/development.log&quot;
+server:
+  listen_addr: &quot;:8774&quot;
+</pre></div>
+<p>The <code>bootstrap_token</code> field drives the initial admin creation flow. On every
+startup the application reads this value and inserts it into the
+<code>bootstrap_tokens</code> database table if it is not already present, so no manual
+SQL is required.</p>
+<hr>
+<h2 id="step-1--build-the-binary">Step 1 — Build the Binary</h2>
+<div class="codewrap"><div class="code-hd"><span class="code-lang">bash</span><button class="copy-btn">Copy</button></div><pre class="code with-hd">go build -o rocketvault
+</pre></div>
+<p>Verify it is present:</p>
+<div class="codewrap"><div class="code-hd"><span class="code-lang">bash</span><button class="copy-btn">Copy</button></div><pre class="code with-hd">./rocketvault --help
+</pre></div>
+<hr>
+<h2 id="step-2--create-the-initial-admin-user">Step 2 — Create the Initial Admin User</h2>
+<p>The <code>users admin</code> command is the only command that does not require prior
+authentication. It accepts a bootstrap token (read from config or passed
+directly) and registers the very first admin account. The command also
+generates a TOTP secret and prints it to stdout.</p>
+<h3 id="option-a--using-the-automated-script-recommended">Option A — Using the Automated Script (Recommended)</h3>
+<p><code>scripts/create_admin.sh</code> wraps the CLI command and handles auto-detection of
+whether the database is empty (bootstrap mode) or already has users
+(authenticated mode).</p>
+<div class="codewrap"><div class="code-hd"><span class="code-lang">bash</span><button class="copy-btn">Copy</button></div><pre class="code with-hd"># Auto-detect mode (recommended for first run)
+./scripts/create_admin.sh --username admin --password admin123
+
+# Force bootstrap mode explicitly
+./scripts/create_admin.sh --mode bootstrap --username admin --password admin123
+
+# Override the bootstrap token at runtime
+./scripts/create_admin.sh \
+  --mode bootstrap \
+  --username admin \
+  --password admin123 \
+  --bootstrap-token &quot;your-custom-token&quot;
+
+# Generate TOTP codes immediately after creation
+./scripts/create_admin.sh --username admin --password admin123 --generate-totp
+</pre></div>
+<p>The script reads the <code>bootstrap_token</code> from <code>.rocketvault.yaml</code> by default.
+It prints the TOTP secret from the command output. There is no <code>.admin_totp_secret</code>
+file written by the binary itself — only the script may write that as a
+convenience, and you should delete it after configuring your authenticator.</p>
+<h3 id="option-b--direct-cli-command">Option B — Direct CLI Command</h3>
+<div class="codewrap"><div class="code-hd"><span class="code-lang">bash</span><button class="copy-btn">Copy</button></div><pre class="code with-hd">./rocketvault users admin \
+  --admin-username admin \
+  --admin-password admin123 \
+  --bootstrap-token &quot;***SECRET-REMOVED-2026-08-17***&quot;
+</pre></div>
+<p>Expected output:</p>
+<div class="codewrap"><div class="code-hd"><span class="code-lang">text</span><button class="copy-btn">Copy</button></div><pre class="code with-hd">Admin user admin created successfully with ID: &lt;uuid&gt;
+TOTP Secret: &lt;BASE32_SECRET&gt;
+Configure the TOTP secret in your authenticator app for MFA.
+</pre></div>
+<p>Copy the <code>TOTP Secret</code> value — you need it to log in and to generate codes
+from the terminal.</p>
+<hr>
+<h2 id="step-3--configure-your-authenticator-app">Step 3 — Configure Your Authenticator App</h2>
+<p>Open any TOTP-compatible authenticator (Google Authenticator, Authy, 1Password,
+etc.) and add the secret printed in step 2. The issuer name to use is
+<code>rocketvault</code>.</p>
+<hr>
+<h2 id="step-4--generate-a-totp-code-from-the-terminal">Step 4 — Generate a TOTP Code from the Terminal</h2>
+<p><code>scripts/totp_generator.go</code> can generate codes without your phone. It supports
+a persistent environment variable so you never have to paste the secret again.</p>
+<h3 id="one-time-setup-recommended">One-time setup (recommended)</h3>
+<p>Add to <code>~/.bashrc</code> or <code>~/.zshrc</code>:</p>
+<div class="codewrap"><div class="code-hd"><span class="code-lang">bash</span><button class="copy-btn">Copy</button></div><pre class="code with-hd">export ROCKETVAULT_TOTP_SECRET=&quot;&lt;your_BASE32_secret_from_step_2&gt;&quot;
+</pre></div>
+<p>Reload your shell:</p>
+<div class="codewrap"><div class="code-hd"><span class="code-lang">bash</span><button class="copy-btn">Copy</button></div><pre class="code with-hd">source ~/.zshrc   # or ~/.bashrc
+</pre></div>
+<h3 id="generate-the-current-code">Generate the current code</h3>
+<div class="codewrap"><div class="code-hd"><span class="code-lang">bash</span><button class="copy-btn">Copy</button></div><pre class="code with-hd">go run scripts/totp_generator.go
+</pre></div>
+<p>Example output:</p>
+<div class="codewrap"><div class="code-hd"><span class="code-lang">text</span><button class="copy-btn">Copy</button></div><pre class="code with-hd">RocketVault TOTP — user: admin
+─────────────────────────────────
+Current code : 482931
+Valid for    : 22s  [███████████░░░░]
+Time         : 14:05:08
+
+Ready to use:
+  --totp-code 482931
+</pre></div>
+<h3 id="pass-the-secret-inline-no-env-var">Pass the secret inline (no env var)</h3>
+<div class="codewrap"><div class="code-hd"><span class="code-lang">bash</span><button class="copy-btn">Copy</button></div><pre class="code with-hd">go run scripts/totp_generator.go -secret=&quot;&lt;your_BASE32_secret&gt;&quot;
+</pre></div>
+<h3 id="watch-mode--auto-refreshes-every-30-seconds">Watch mode — auto-refreshes every 30 seconds</h3>
+<div class="codewrap"><div class="code-hd"><span class="code-lang">bash</span><button class="copy-btn">Copy</button></div><pre class="code with-hd">go run scripts/totp_generator.go -watch
+</pre></div>
+<h3 id="show-a-code-for-a-specific-username-in-the-example-command">Show a code for a specific username in the example command</h3>
+<div class="codewrap"><div class="code-hd"><span class="code-lang">bash</span><button class="copy-btn">Copy</button></div><pre class="code with-hd">go run scripts/totp_generator.go -username alice
+</pre></div>
+<hr>
+<h2 id="step-5--log-in">Step 5 — Log In</h2>
+<p>All commands except <code>users admin</code>, <code>serve</code>, <code>health</code>, <code>backup</code>, and the
+<code>migrate:*</code> family require authentication via persistent flags on the root
+command.</p>
+<div class="codewrap"><div class="code-hd"><span class="code-lang">bash</span><button class="copy-btn">Copy</button></div><pre class="code with-hd">./rocketvault \
+  --username admin \
+  --password admin123 \
+  --totp-code &lt;code_from_step_4&gt; \
+  users list
+</pre></div>
+<p>On success the request proceeds and the result is printed. On failure you will
+see <code>Error: Authentication failed</code>.</p>
+<h3 id="dedicated-login-command-returns-a-jwt-token">Dedicated login command (returns a JWT token)</h3>
+<p>If you need the raw JWT for use with the REST API or scripting, use the
+<code>users login</code> sub-command:</p>
+<div class="codewrap"><div class="code-hd"><span class="code-lang">bash</span><button class="copy-btn">Copy</button></div><pre class="code with-hd">./rocketvault users login \
+  --username admin \
+  --password admin123 \
+  --totp-code &lt;code&gt;
+</pre></div>
+<p>Output:</p>
+<div class="codewrap"><div class="code-hd"><span class="code-lang">text</span><button class="copy-btn">Copy</button></div><pre class="code with-hd">Login successful, JWT token: eyJhbGci...
+</pre></div>
+<hr>
+<h2 id="step-6--create-additional-users">Step 6 — Create Additional Users</h2>
+<p>Once authenticated as admin you can create other users. Role must be <code>admin</code>
+or <code>user</code>.</p>
+<div class="codewrap"><div class="code-hd"><span class="code-lang">bash</span><button class="copy-btn">Copy</button></div><pre class="code with-hd">./rocketvault \
+  --username admin \
+  --password admin123 \
+  --totp-code &lt;code&gt; \
+  users create \
+  --new-username devuser \
+  --new-password SecurePass456 \
+  --new-role user
+</pre></div>
+<p>To create a second admin account, use the authenticated mode of the script:</p>
+<div class="codewrap"><div class="code-hd"><span class="code-lang">bash</span><button class="copy-btn">Copy</button></div><pre class="code with-hd">./scripts/create_admin.sh \
+  --mode authenticated \
+  --username admin2 \
+  --password Admin2Pass \
+  --auth-user admin \
+  --auth-pass admin123 \
+  --auth-totp-secret &quot;$ROCKETVAULT_TOTP_SECRET&quot;
+</pre></div>
+<hr>
+<h2 id="full-end-to-end-workflow">Full End-to-End Workflow</h2>
+<div class="codewrap"><div class="code-hd"><span class="code-lang">bash</span><button class="copy-btn">Copy</button></div><pre class="code with-hd"># 1. Build
+go build -o rocketvault
+
+# 2. Create initial admin (bootstrap)
+./rocketvault users admin \
+  --admin-username admin \
+  --admin-password admin123 \
+  --bootstrap-token &quot;***SECRET-REMOVED-2026-08-17***&quot;
+
+# 3. Save the TOTP secret printed above
+export ROCKETVAULT_TOTP_SECRET=&quot;&lt;secret_from_output&gt;&quot;
+
+# 4. Get a code
+go run scripts/totp_generator.go
+
+# 5. Test authentication
+./rocketvault \
+  --username admin \
+  --password admin123 \
+  --totp-code &lt;code&gt; \
+  users list
+
+# 6. Create a regular user
+./rocketvault \
+  --username admin \
+  --password admin123 \
+  --totp-code &lt;code&gt; \
+  users create \
+  --new-username alice \
+  --new-password Alice123 \
+  --new-role user
+</pre></div>
+<hr>
+<h2 id="output-formats">Output Formats</h2>
+<p>All commands support <code>--output</code> with three values:</p>
+<table>
+<thead>
+<tr>
+<th>Flag</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>--output table</code></td>
+<td>Human-readable table (default)</td>
+</tr>
+<tr>
+<td><code>--output json</code></td>
+<td>JSON — useful for scripting</td>
+</tr>
+<tr>
+<td><code>--output yaml</code></td>
+<td>YAML</td>
+</tr>
+</tbody>
+</table>
+<p>Example:</p>
+<div class="codewrap"><div class="code-hd"><span class="code-lang">bash</span><button class="copy-btn">Copy</button></div><pre class="code with-hd">./rocketvault --username admin --password admin123 --totp-code &lt;code&gt; \
+  users list --output json
+</pre></div>
+<hr>
+<h2 id="troubleshooting">Troubleshooting</h2>
+<h3 id="invalid-or-used-bootstrap-token">&quot;invalid or used bootstrap token&quot;</h3>
+<p>The token has already been consumed or does not match the config. Options:</p>
+<ol>
+<li>Check <code>bootstrap_token</code> in <code>.rocketvault.yaml</code> matches what you passed.</li>
+<li>Inspect the database directly:</li>
+</ol>
+<div class="codewrap"><div class="code-hd"><span class="code-lang">bash</span><button class="copy-btn">Copy</button></div><pre class="code with-hd">sqlite3 ./dev-rocketvault.db \
+  &quot;SELECT token, used FROM bootstrap_tokens;&quot;
+</pre></div>
+<ol start="3">
+<li>If the token is marked <code>used=1</code> and no users exist (edge case after a failed
+run), reset it:</li>
+</ol>
+<div class="codewrap"><div class="code-hd"><span class="code-lang">bash</span><button class="copy-btn">Copy</button></div><pre class="code with-hd">sqlite3 ./dev-rocketvault.db \
+  &quot;UPDATE bootstrap_tokens SET used=0 WHERE token='***SECRET-REMOVED-2026-08-17***';&quot;
+</pre></div>
+<h3 id="authentication-failed">&quot;authentication failed&quot;</h3>
+<ul>
+<li>Confirm username and password are correct.</li>
+<li>Confirm the TOTP code is current — codes are valid for 30 seconds. Run
+<code>go run scripts/totp_generator.go</code> and use the code immediately.</li>
+<li>If the code is about to expire (less than 5 seconds on the bar), the
+generator warns you and prints the next code.</li>
+</ul>
+<h3 id="service-container-not-available-in-context">&quot;service container not available in context&quot;</h3>
+<p>The database failed to initialise. Check that <code>.rocketvault.yaml</code> is present
+in the current directory and the <code>database.connection</code> path is writable.</p>
+<h3 id="check-user-table">Check user table</h3>
+<div class="codewrap"><div class="code-hd"><span class="code-lang">bash</span><button class="copy-btn">Copy</button></div><pre class="code with-hd">sqlite3 ./dev-rocketvault.db &quot;SELECT id, username, role FROM users;&quot;
+</pre></div>
+<h3 id="config-not-found">Config not found</h3>
+<p>If you placed the config elsewhere, pass <code>--config</code> explicitly:</p>
+<div class="codewrap"><div class="code-hd"><span class="code-lang">bash</span><button class="copy-btn">Copy</button></div><pre class="code with-hd">./rocketvault --config /etc/rocketvault/.rocketvault.yaml users admin \
+  --admin-username admin \
+  --admin-password admin123 \
+  --bootstrap-token &quot;&lt;token&gt;&quot;
+</pre></div>
+<hr>
+<h2 id="security-recommendations">Security Recommendations</h2>
+<ol>
+<li>
+<p>Replace the <code>bootstrap_token</code> in <code>.rocketvault.yaml</code> with a randomly
+generated value before first use in any shared environment:</p>
+<div class="codewrap"><div class="code-hd"><span class="code-lang">bash</span><button class="copy-btn">Copy</button></div><pre class="code with-hd">openssl rand -base64 32
+</pre></div>
+</li>
+<li>
+<p>Do not commit <code>.rocketvault.yaml</code> to version control — it contains the
+master key, JWT secret, and bootstrap token.</p>
+</li>
+<li>
+<p>Delete any <code>.admin_totp_secret</code> files the script may have written after
+you have configured your authenticator app.</p>
+</li>
+<li>
+<p>Unset <code>ROCKETVAULT_TOTP_SECRET</code> from your shell after testing if you are on
+a shared machine.</p>
+</li>
+<li>
+<p>Rotate the bootstrap token after the initial admin is created — set
+<code>bootstrap_token: &quot;&quot;</code> in config or remove the line entirely, since the
+application only seeds it once.</p>
+</li>
+</ol>
+<hr>
+<h2 id="related-files">Related Files</h2>
+<table>
+<thead>
+<tr>
+<th>File</th>
+<th>Purpose</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>scripts/create_admin.sh</code></td>
+<td>Automated admin creation with mode auto-detection</td>
+</tr>
+<tr>
+<td><code>scripts/totp_generator.go</code></td>
+<td>Terminal TOTP code generator with watch mode</td>
+</tr>
+<tr>
+<td><code>cmd/users/admin.go</code></td>
+<td><code>users admin</code> command implementation</td>
+</tr>
+<tr>
+<td><code>cmd/users/login.go</code></td>
+<td><code>users login</code> command implementation</td>
+</tr>
+<tr>
+<td><code>cmd/users/create.go</code></td>
+<td><code>users create</code> command implementation</td>
+</tr>
+<tr>
+<td><code>cmd/root.go</code></td>
+<td>Root command, config loading, and authentication pre-run</td>
+</tr>
+<tr>
+<td><code>internal/db/db.go</code></td>
+<td>Database init and bootstrap token seeding</td>
+</tr>
+<tr>
+<td><code>.rocketvault.yaml</code></td>
+<td>Runtime configuration (not committed)</td>
+</tr>
+</tbody>
+</table>
+
+</main>
+<footer class="doc-footer"><a href="../docs/admin-manual.html">&larr; Back to the Admin Manual</a></footer>
+<script src="../docs/assets/doc-theme.js"></script>
+</body>
+</html>

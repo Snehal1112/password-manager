@@ -1,0 +1,817 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>RocketVault API Developer Guide — RocketVault Docs</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"/>
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=IBM+Plex+Sans:wght@400;500;600&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet"/>
+<link rel="stylesheet" href="assets/doc-theme.css"/>
+</head>
+<body>
+<header class="doc-header">
+  <a class="doc-back" href="admin-manual.html">&larr; Admin Manual</a>
+  <div class="doc-brand">
+    <div class="doc-mark" aria-hidden="true"></div>
+    <span class="doc-kicker">RocketVault Docs</span>
+  </div>
+  <h1 class="doc-title">RocketVault API Developer Guide</h1>
+  <div class="doc-meta"><span class="doc-chip">docs/api-developer-guide.md</span></div>
+  <hr/>
+</header>
+<nav class="doc-toc"><div class="doc-toc-label">On this page</div><ol><li><a href="#overview">Overview</a></li><li><a href="#base-url">Base URL</a></li><li><a href="#authentication">Authentication</a></li><li><a href="#requestresponse-format">Request/Response Format</a></li><li><a href="#api-endpoints">API Endpoints</a></li><li><a href="#error-handling">Error Handling</a></li><li><a href="#rate-limiting">Rate Limiting</a></li><li><a href="#best-practices">Best Practices</a></li><li><a href="#sdk-examples">SDK Examples</a></li><li><a href="#troubleshooting">Troubleshooting</a></li><li><a href="#security-considerations">Security Considerations</a></li><li><a href="#support">Support</a></li></ol></nav>
+<main class="doc">
+<h2 id="overview">Overview</h2>
+<p>The RocketVault API provides a comprehensive REST interface for managing secrets, keys, certificates, and system health monitoring. This guide covers authentication, request/response formats, error handling, and integration patterns.</p>
+<h2 id="base-url">Base URL</h2>
+<div class="codewrap"><div class="code-hd"><span class="code-lang">text</span><button class="copy-btn">Copy</button></div><pre class="code with-hd">https://api.rocketvault.local/api/v1
+</pre></div>
+<h2 id="authentication">Authentication</h2>
+<p>All API endpoints except health checks require JWT authentication. Include the JWT token in the <code>Authorization</code> header:</p>
+<div class="codewrap"><div class="code-hd"><span class="code-lang">text</span><button class="copy-btn">Copy</button></div><pre class="code with-hd">Authorization: Bearer &lt;your-jwt-token&gt;
+</pre></div>
+<h3 id="obtaining-a-jwt-token">Obtaining a JWT Token</h3>
+<p>JWT tokens are obtained through the CLI login process:</p>
+<div class="codewrap"><div class="code-hd"><span class="code-lang">bash</span><button class="copy-btn">Copy</button></div><pre class="code with-hd">./rocketvault users login --username admin --password yourpassword --totp-code 123456
+</pre></div>
+<p>The CLI will return a JWT token that can be used for API authentication.</p>
+<h3 id="token-expiration">Token Expiration</h3>
+<ul>
+<li>JWT tokens expire after 1 hour (configurable via <code>jwt.expiry</code> in <code>.rocketvault.yaml</code>)</li>
+<li>Include the token in all authenticated requests</li>
+<li>Handle 401 responses by re-authenticating</li>
+</ul>
+<h2 id="requestresponse-format">Request/Response Format</h2>
+<h3 id="content-type">Content Type</h3>
+<p>All requests and responses use JSON format:</p>
+<div class="codewrap"><div class="code-hd"><span class="code-lang">text</span><button class="copy-btn">Copy</button></div><pre class="code with-hd">Content-Type: application/json
+Accept: application/json
+</pre></div>
+<h3 id="response-structure">Response Structure</h3>
+<h4 id="success-response">Success Response</h4>
+<p>Endpoints return the resource object directly in the response body, with no
+<code>data</code>/<code>message</code>/<code>status</code> wrapper. For example, a secret creation response:</p>
+<div class="codewrap"><div class="code-hd"><span class="code-lang">json</span><button class="copy-btn">Copy</button></div><pre class="code with-hd">{
+  &quot;id&quot;: &quot;3f1b2c4a-...&quot;,
+  &quot;name&quot;: &quot;my-secret&quot;,
+  &quot;value&quot;: &quot;...&quot;,
+  &quot;created_at&quot;: &quot;2023-12-01T10:30:00Z&quot;
+}
+</pre></div>
+<h4 id="error-response">Error Response</h4>
+<div class="codewrap"><div class="code-hd"><span class="code-lang">json</span><button class="copy-btn">Copy</button></div><pre class="code with-hd">{
+  &quot;id&quot;: &quot;endpoint_name&quot;,
+  &quot;message&quot;: &quot;Human-readable error message&quot;,
+  &quot;detailed_error&quot;: &quot;Technical error details&quot;,
+  &quot;status_code&quot;: 400
+}
+</pre></div>
+<h2 id="api-endpoints">API Endpoints</h2>
+<h3 id="health-endpoints">Health Endpoints</h3>
+<h4 id="get-health-metrics">Get Health Metrics</h4>
+<div class="codewrap"><div class="code-hd"><span class="code-lang">http</span><button class="copy-btn">Copy</button></div><pre class="code with-hd">GET /api/v1/health
+</pre></div>
+<p>Returns comprehensive system health information.</p>
+<p><strong>Response:</strong></p>
+<div class="codewrap"><div class="code-hd"><span class="code-lang">json</span><button class="copy-btn">Copy</button></div><pre class="code with-hd">{
+  &quot;status&quot;: &quot;healthy&quot;,
+  &quot;timestamp&quot;: &quot;2023-12-01T10:30:00Z&quot;,
+  &quot;uptime&quot;: &quot;2h 15m 30s&quot;,
+  &quot;memory&quot;: {
+    &quot;used&quot;: &quot;45.2 MB&quot;,
+    &quot;total&quot;: &quot;512 MB&quot;,
+    &quot;percentage&quot;: 8.8
+  },
+  &quot;cpu&quot;: {
+    &quot;usage&quot;: 12.5,
+    &quot;cores&quot;: 4
+  },
+  &quot;database&quot;: {
+    &quot;status&quot;: &quot;connected&quot;,
+    &quot;connection_pool&quot;: {
+      &quot;active&quot;: 2,
+      &quot;idle&quot;: 5,
+      &quot;max_open&quot;: 10
+    }
+  },
+  &quot;query_metrics&quot;: {
+    &quot;query_count&quot;: 1250,
+    &quot;total_duration&quot;: &quot;1.2s&quot;,
+    &quot;avg_duration&quot;: &quot;950µs&quot;,
+    &quot;slow_queries&quot;: 3
+  }
+}
+</pre></div>
+<h4 id="readiness-check">Readiness Check</h4>
+<div class="codewrap"><div class="code-hd"><span class="code-lang">http</span><button class="copy-btn">Copy</button></div><pre class="code with-hd">GET /api/v1/health/ready
+</pre></div>
+<p><strong>Response:</strong></p>
+<div class="codewrap"><div class="code-hd"><span class="code-lang">json</span><button class="copy-btn">Copy</button></div><pre class="code with-hd">{
+  &quot;status&quot;: &quot;ready&quot;
+}
+</pre></div>
+<h4 id="liveness-check">Liveness Check</h4>
+<div class="codewrap"><div class="code-hd"><span class="code-lang">http</span><button class="copy-btn">Copy</button></div><pre class="code with-hd">GET /api/v1/health/live
+</pre></div>
+<p><strong>Response:</strong></p>
+<div class="codewrap"><div class="code-hd"><span class="code-lang">json</span><button class="copy-btn">Copy</button></div><pre class="code with-hd">{
+  &quot;status&quot;: &quot;alive&quot;
+}
+</pre></div>
+<h3 id="vault-endpoints">Vault Endpoints</h3>
+<h4 id="create-vault">Create Vault</h4>
+<div class="codewrap"><div class="code-hd"><span class="code-lang">http</span><button class="copy-btn">Copy</button></div><pre class="code with-hd">POST /api/v1/vaults
+</pre></div>
+<p>Requires JWT authentication with the <code>vaults:manage</code> permission (admin only).</p>
+<h4 id="list-vaults">List Vaults</h4>
+<div class="codewrap"><div class="code-hd"><span class="code-lang">http</span><button class="copy-btn">Copy</button></div><pre class="code with-hd">GET /api/v1/vaults
+</pre></div>
+<p>Supports <code>?include_deleted=true</code> to include soft-deleted vaults.</p>
+<h4 id="update-vault">Update Vault</h4>
+<div class="codewrap"><div class="code-hd"><span class="code-lang">http</span><button class="copy-btn">Copy</button></div><pre class="code with-hd">PATCH /api/v1/vaults/{name}
+</pre></div>
+<h4 id="delete-vault">Delete Vault</h4>
+<div class="codewrap"><div class="code-hd"><span class="code-lang">http</span><button class="copy-btn">Copy</button></div><pre class="code with-hd">DELETE /api/v1/vaults/{name}
+</pre></div>
+<p>Soft-deletes the vault (returns 204). The <code>default</code> vault cannot be deleted.</p>
+<p>See the <a href="admin-manual.html">Administrator Manual</a> for full request/response examples.</p>
+<h3 id="secrets-endpoints">Secrets Endpoints</h3>
+<p>All secrets endpoints require authentication.</p>
+<h4 id="export-secrets">Export Secrets</h4>
+<div class="codewrap"><div class="code-hd"><span class="code-lang">http</span><button class="copy-btn">Copy</button></div><pre class="code with-hd">POST /api/v1/secrets/export
+Authorization: Bearer &lt;token&gt;
+Content-Type: application/json
+</pre></div>
+<p><strong>Request Body:</strong></p>
+<div class="codewrap"><div class="code-hd"><span class="code-lang">json</span><button class="copy-btn">Copy</button></div><pre class="code with-hd">{
+  &quot;format&quot;: &quot;json&quot;,
+  &quot;encrypt&quot;: true,
+  &quot;tags&quot;: [&quot;production&quot;, &quot;api&quot;],
+  &quot;include_tags&quot;: true
+}
+</pre></div>
+<p><strong>Parameters:</strong></p>
+<ul>
+<li><code>format</code>: <code>&quot;json&quot;</code> or <code>&quot;csv&quot;</code></li>
+<li><code>encrypt</code>: Boolean, whether to encrypt the export</li>
+<li><code>tags</code>: Array of tag strings to filter secrets</li>
+<li><code>include_tags</code>: Boolean, include tags in export</li>
+</ul>
+<p><strong>Response:</strong> Binary file download with appropriate content type.</p>
+<h4 id="import-secrets">Import Secrets</h4>
+<div class="codewrap"><div class="code-hd"><span class="code-lang">http</span><button class="copy-btn">Copy</button></div><pre class="code with-hd">POST /api/v1/secrets/import
+Authorization: Bearer &lt;token&gt;
+Content-Type: multipart/form-data
+</pre></div>
+<p><strong>Form Data:</strong></p>
+<ul>
+<li><code>file</code>: File containing secrets data</li>
+<li><code>format</code>: <code>&quot;json&quot;</code> or <code>&quot;csv&quot;</code></li>
+<li><code>encrypted</code>: <code>&quot;true&quot;</code> or <code>&quot;false&quot;</code></li>
+<li><code>overwrite</code>: <code>&quot;true&quot;</code> or <code>&quot;false&quot;</code></li>
+</ul>
+<p><strong>Response:</strong></p>
+<div class="codewrap"><div class="code-hd"><span class="code-lang">json</span><button class="copy-btn">Copy</button></div><pre class="code with-hd">{
+  &quot;success&quot;: true,
+  &quot;message&quot;: &quot;Successfully imported 5 secrets&quot;,
+  &quot;imported_count&quot;: 5,
+  &quot;total_count&quot;: 5,
+  &quot;format&quot;: &quot;json&quot;,
+  &quot;imported_at&quot;: &quot;2023-12-01T10:30:00Z&quot;
+}
+</pre></div>
+<h4 id="list-secret-versions">List Secret Versions</h4>
+<div class="codewrap"><div class="code-hd"><span class="code-lang">http</span><button class="copy-btn">Copy</button></div><pre class="code with-hd">GET /api/v1/secrets/{id}/versions
+Authorization: Bearer &lt;token&gt;
+</pre></div>
+<p><strong>Parameters:</strong></p>
+<ul>
+<li><code>id</code>: Secret UUID</li>
+</ul>
+<p><strong>Response:</strong></p>
+<div class="codewrap"><div class="code-hd"><span class="code-lang">json</span><button class="copy-btn">Copy</button></div><pre class="code with-hd">[
+  {
+    &quot;id&quot;: &quot;550e8400-e29b-41d4-a716-446655440000&quot;,
+    &quot;version&quot;: 1,
+    &quot;name&quot;: &quot;database-password&quot;,
+    &quot;value&quot;: &quot;encrypted-secret-value&quot;,
+    &quot;tags&quot;: [&quot;production&quot;, &quot;database&quot;],
+    &quot;created_at&quot;: &quot;2023-12-01T10:30:00Z&quot;,
+    &quot;updated_at&quot;: &quot;2023-12-01T10:30:00Z&quot;,
+    &quot;created_by&quot;: &quot;550e8400-e29b-41d4-a716-446655440001&quot;
+  }
+]
+</pre></div>
+<h4 id="get-secret-version">Get Secret Version</h4>
+<div class="codewrap"><div class="code-hd"><span class="code-lang">http</span><button class="copy-btn">Copy</button></div><pre class="code with-hd">GET /api/v1/secrets/{id}/versions/{version}
+Authorization: Bearer &lt;token&gt;
+</pre></div>
+<p><strong>Parameters:</strong></p>
+<ul>
+<li><code>id</code>: Secret UUID</li>
+<li><code>version</code>: Version number (integer ≥ 1)</li>
+</ul>
+<h4 id="get-latest-secret-version">Get Latest Secret Version</h4>
+<div class="codewrap"><div class="code-hd"><span class="code-lang">http</span><button class="copy-btn">Copy</button></div><pre class="code with-hd">GET /api/v1/secrets/{id}/versions/latest
+Authorization: Bearer &lt;token&gt;
+</pre></div>
+<p><strong>Parameters:</strong></p>
+<ul>
+<li><code>id</code>: Secret UUID</li>
+</ul>
+<h2 id="error-handling">Error Handling</h2>
+<h3 id="http-status-codes">HTTP Status Codes</h3>
+<ul>
+<li><code>200</code>: Success</li>
+<li><code>201</code>: Created</li>
+<li><code>400</code>: Bad Request (invalid input)</li>
+<li><code>401</code>: Unauthorized (missing/invalid token)</li>
+<li><code>404</code>: Not Found</li>
+<li><code>500</code>: Internal Server Error</li>
+</ul>
+<h3 id="common-error-patterns">Common Error Patterns</h3>
+<h4 id="authentication-error">Authentication Error</h4>
+<div class="codewrap"><div class="code-hd"><span class="code-lang">json</span><button class="copy-btn">Copy</button></div><pre class="code with-hd">{
+  &quot;id&quot;: &quot;SessionRequired&quot;,
+  &quot;message&quot;: &quot;Missing Authorization header&quot;,
+  &quot;detailed_error&quot;: &quot;&quot;,
+  &quot;status_code&quot;: 401
+}
+</pre></div>
+<h4 id="validation-error">Validation Error</h4>
+<div class="codewrap"><div class="code-hd"><span class="code-lang">json</span><button class="copy-btn">Copy</button></div><pre class="code with-hd">{
+  &quot;id&quot;: &quot;exportSecrets&quot;,
+  &quot;message&quot;: &quot;Invalid format. Must be 'json' or 'csv'&quot;,
+  &quot;detailed_error&quot;: &quot;&quot;,
+  &quot;status_code&quot;: 400
+}
+</pre></div>
+<h4 id="not-found-error">Not Found Error</h4>
+<div class="codewrap"><div class="code-hd"><span class="code-lang">json</span><button class="copy-btn">Copy</button></div><pre class="code with-hd">{
+  &quot;id&quot;: &quot;listSecretVersions&quot;,
+  &quot;message&quot;: &quot;Secret not found&quot;,
+  &quot;detailed_error&quot;: &quot;secret_id=550e8400-e29b-41d4-a716-446655440000&quot;,
+  &quot;status_code&quot;: 404
+}
+</pre></div>
+<h2 id="rate-limiting">Rate Limiting</h2>
+<p>The API implements rate limiting to prevent abuse:</p>
+<ul>
+<li>Default limit: 300 requests per minute per IP for general endpoints, 5 requests per minute for auth endpoints (login/refresh/oauth2)</li>
+<li>Headers included in responses:
+<ul>
+<li><code>X-RateLimit-Limit</code>: Maximum requests per minute</li>
+<li><code>X-RateLimit-Remaining</code>: Remaining requests</li>
+<li><code>X-RateLimit-Reset</code>: Time when limit resets (Unix timestamp)</li>
+</ul>
+</li>
+</ul>
+<h2 id="best-practices">Best Practices</h2>
+<h3 id="1-handle-authentication-gracefully">1. Handle Authentication Gracefully</h3>
+<div class="codewrap"><div class="code-hd"><span class="code-lang">javascript</span><button class="copy-btn">Copy</button></div><pre class="code with-hd">// Example: Automatic token refresh
+async function apiRequest(url, options = {}) {
+  const token = getStoredToken();
+
+  if (!token) {
+    throw new Error(&quot;No authentication token available&quot;);
+  }
+
+  const response = await fetch(url, {
+    ...options,
+    headers: {
+      Authorization: `Bearer ${token}`,
+      &quot;Content-Type&quot;: &quot;application/json&quot;,
+      ...options.headers,
+    },
+  });
+
+  if (response.status === 401) {
+    // Token expired, redirect to login
+    redirectToLogin();
+    return;
+  }
+
+  return response;
+}
+</pre></div>
+<h3 id="2-implement-retry-logic">2. Implement Retry Logic</h3>
+<div class="codewrap"><div class="code-hd"><span class="code-lang">javascript</span><button class="copy-btn">Copy</button></div><pre class="code with-hd">// Example: Retry with exponential backoff
+async function retryApiRequest(url, options = {}, maxRetries = 3) {
+  let attempt = 0;
+
+  while (attempt &lt; maxRetries) {
+    try {
+      const response = await apiRequest(url, options);
+
+      if (response.ok) {
+        return response;
+      }
+
+      // Don't retry on client errors (4xx)
+      if (response.status &gt;= 400 &amp;&amp; response.status &lt; 500) {
+        throw new Error(`Client error: ${response.status}`);
+      }
+    } catch (error) {
+      attempt++;
+
+      if (attempt &gt;= maxRetries) {
+        throw error;
+      }
+
+      // Exponential backoff: 1s, 2s, 4s...
+      const delay = Math.pow(2, attempt - 1) * 1000;
+      await new Promise((resolve) =&gt; setTimeout(resolve, delay));
+    }
+  }
+}
+</pre></div>
+<h3 id="3-validate-input-data">3. Validate Input Data</h3>
+<div class="codewrap"><div class="code-hd"><span class="code-lang">javascript</span><button class="copy-btn">Copy</button></div><pre class="code with-hd">// Example: Input validation before API calls
+function validateExportRequest(data) {
+  const errors = [];
+
+  if (![&quot;json&quot;, &quot;csv&quot;].includes(data.format)) {
+    errors.push('Format must be &quot;json&quot; or &quot;csv&quot;');
+  }
+
+  if (data.tags &amp;&amp; !Array.isArray(data.tags)) {
+    errors.push(&quot;Tags must be an array&quot;);
+  }
+
+  if (typeof data.encrypt !== &quot;boolean&quot;) {
+    errors.push(&quot;Encrypt must be a boolean&quot;);
+  }
+
+  return errors;
+}
+
+const exportData = {
+  format: &quot;json&quot;,
+  encrypt: true,
+  tags: [&quot;production&quot;],
+};
+
+const validationErrors = validateExportRequest(exportData);
+if (validationErrors.length &gt; 0) {
+  console.error(&quot;Validation errors:&quot;, validationErrors);
+  return;
+}
+</pre></div>
+<h3 id="4-handle-file-uploads-properly">4. Handle File Uploads Properly</h3>
+<div class="codewrap"><div class="code-hd"><span class="code-lang">javascript</span><button class="copy-btn">Copy</button></div><pre class="code with-hd">// Example: Secure file upload for secret import
+async function importSecrets(file, format, options = {}) {
+  const formData = new FormData();
+  formData.append(&quot;file&quot;, file);
+  formData.append(&quot;format&quot;, format);
+  formData.append(&quot;encrypted&quot;, options.encrypted ? &quot;true&quot; : &quot;false&quot;);
+  formData.append(&quot;overwrite&quot;, options.overwrite ? &quot;true&quot; : &quot;false&quot;);
+
+  const response = await apiRequest(&quot;/api/v1/secrets/import&quot;, {
+    method: &quot;POST&quot;,
+    body: formData,
+    // Don't set Content-Type header - let browser set it with boundary
+    headers: {
+      Authorization: `Bearer ${getStoredToken()}`,
+    },
+  });
+
+  return response.json();
+}
+</pre></div>
+<h2 id="sdk-examples">SDK Examples</h2>
+<h3 id="javascriptnodejs">JavaScript/Node.js</h3>
+<div class="codewrap"><div class="code-hd"><span class="code-lang">javascript</span><button class="copy-btn">Copy</button></div><pre class="code with-hd">class PasswordManagerAPI {
+  constructor(baseURL, token) {
+    this.baseURL = baseURL;
+    this.token = token;
+  }
+
+  async request(endpoint, options = {}) {
+    const url = `${this.baseURL}${endpoint}`;
+    const response = await fetch(url, {
+      ...options,
+      headers: {
+        Authorization: `Bearer ${this.token}`,
+        &quot;Content-Type&quot;: &quot;application/json&quot;,
+        ...options.headers,
+      },
+    });
+
+    if (!response.ok) {
+      const error = await response.json();
+      throw new Error(`${error.message} (${error.status_code})`);
+    }
+
+    return response.json();
+  }
+
+  async getHealth() {
+    return this.request(&quot;/health&quot;);
+  }
+
+  async exportSecrets(format, options = {}) {
+    return this.request(&quot;/secrets/export&quot;, {
+      method: &quot;POST&quot;,
+      body: JSON.stringify({
+        format,
+        encrypt: options.encrypt || false,
+        tags: options.tags || [],
+        include_tags: options.includeTags || false,
+      }),
+    });
+  }
+
+  async getSecretVersions(secretId) {
+    return this.request(`/secrets/${secretId}/versions`);
+  }
+}
+
+// Usage
+const api = new PasswordManagerAPI(
+  &quot;https://api.rocketvault.local/api/v1&quot;,
+  token
+);
+
+// Get health status
+const health = await api.getHealth();
+console.log(&quot;System health:&quot;, health.status);
+
+// Export secrets
+const exportResponse = await api.exportSecrets(&quot;json&quot;, {
+  encrypt: true,
+  tags: [&quot;production&quot;],
+  includeTags: true,
+});
+
+// Get secret versions
+const versions = await api.getSecretVersions(
+  &quot;550e8400-e29b-41d4-a716-446655440000&quot;
+);
+console.log(&quot;Secret versions:&quot;, versions);
+</pre></div>
+<h3 id="python">Python</h3>
+<div class="codewrap"><div class="code-hd"><span class="code-lang">python</span><button class="copy-btn">Copy</button></div><pre class="code with-hd">import requests
+import json
+from typing import Dict, List, Optional
+
+class PasswordManagerAPI:
+    def __init__(self, base_url: str, token: str):
+        self.base_url = base_url.rstrip('/')
+        self.token = token
+        self.session = requests.Session()
+        self.session.headers.update({
+            'Authorization': f'Bearer {token}',
+            'Content-Type': 'application/json'
+        })
+
+    def _request(self, method: str, endpoint: str, **kwargs) -&gt; Dict:
+        url = f&quot;{self.base_url}/api/v1{endpoint}&quot;
+        response = self.session.request(method, url, **kwargs)
+
+        if not response.ok:
+            error_data = response.json()
+            raise Exception(f&quot;{error_data['message']} ({error_data['status_code']})&quot;)
+
+        return response.json()
+
+    def get_health(self) -&gt; Dict:
+        &quot;&quot;&quot;Get system health metrics&quot;&quot;&quot;
+        return self._request('GET', '/health')
+
+    def export_secrets(self, format: str, encrypt: bool = False,
+                      tags: List[str] = None, include_tags: bool = False) -&gt; bytes:
+        &quot;&quot;&quot;Export secrets in specified format&quot;&quot;&quot;
+        data = {
+            'format': format,
+            'encrypt': encrypt,
+            'tags': tags or [],
+            'include_tags': include_tags
+        }
+
+        url = f&quot;{self.base_url}/api/v1/secrets/export&quot;
+        response = self.session.post(url, json=data)
+
+        if not response.ok:
+            error_data = response.json()
+            raise Exception(f&quot;{error_data['message']} ({error_data['status_code']})&quot;)
+
+        return response.content
+
+    def import_secrets(self, file_path: str, format: str,
+                      encrypted: bool = False, overwrite: bool = False) -&gt; Dict:
+        &quot;&quot;&quot;Import secrets from file&quot;&quot;&quot;
+        with open(file_path, 'rb') as f:
+            files = {'file': f}
+            data = {
+                'format': format,
+                'encrypted': str(encrypted).lower(),
+                'overwrite': str(overwrite).lower()
+            }
+
+            url = f&quot;{self.base_url}/api/v1/secrets/import&quot;
+            response = self.session.post(url, files=files, data=data)
+
+            if not response.ok:
+                error_data = response.json()
+                raise Exception(f&quot;{error_data['message']} ({error_data['status_code']})&quot;)
+
+            return response.json()
+
+    def get_secret_versions(self, secret_id: str) -&gt; List[Dict]:
+        &quot;&quot;&quot;Get all versions of a secret&quot;&quot;&quot;
+        return self._request('GET', f'/secrets/{secret_id}/versions')
+
+    def get_secret_version(self, secret_id: str, version: int) -&gt; Dict:
+        &quot;&quot;&quot;Get specific version of a secret&quot;&quot;&quot;
+        return self._request('GET', f'/secrets/{secret_id}/versions/{version}')
+
+    def get_latest_secret_version(self, secret_id: str) -&gt; Dict:
+        &quot;&quot;&quot;Get latest version of a secret&quot;&quot;&quot;
+        return self._request('GET', f'/secrets/{secret_id}/versions/latest')
+
+# Usage example
+api = PasswordManagerAPI('https://api.rocketvault.local', token)
+
+# Get health status
+health = api.get_health()
+print(f&quot;System status: {health['status']}&quot;)
+
+# Export secrets
+export_data = api.export_secrets('json', encrypt=True, tags=['production'])
+with open('secrets_export.json', 'wb') as f:
+    f.write(export_data)
+
+# Import secrets
+import_result = api.import_secrets('secrets_import.json', 'json', encrypted=True)
+print(f&quot;Imported {import_result['imported_count']} secrets&quot;)
+
+# Get secret versions
+versions = api.get_secret_versions('550e8400-e29b-41d4-a716-446655440000')
+for version in versions:
+    print(f&quot;Version {version['version']}: {version['name']}&quot;)
+</pre></div>
+<h3 id="go">Go</h3>
+<div class="codewrap"><div class="code-hd"><span class="code-lang">go</span><button class="copy-btn">Copy</button></div><pre class="code with-hd">package main
+
+import (
+    &quot;bytes&quot;
+    &quot;encoding/json&quot;
+    &quot;fmt&quot;
+    &quot;io&quot;
+    &quot;mime/multipart&quot;
+    &quot;net/http&quot;
+    &quot;os&quot;
+)
+
+type PasswordManagerAPI struct {
+    BaseURL string
+    Token   string
+    Client  *http.Client
+}
+
+type ExportRequest struct {
+    Format      string   `json:&quot;format&quot;`
+    Encrypt     bool     `json:&quot;encrypt&quot;`
+    Tags        []string `json:&quot;tags&quot;`
+    IncludeTags bool     `json:&quot;include_tags&quot;`
+}
+
+type ImportResponse struct {
+    Success       bool   `json:&quot;success&quot;`
+    Message       string `json:&quot;message&quot;`
+    ImportedCount int    `json:&quot;imported_count&quot;`
+    TotalCount    int    `json:&quot;total_count&quot;`
+    Format        string `json:&quot;format&quot;`
+    ImportedAt    string `json:&quot;imported_at&quot;`
+}
+
+func NewPasswordManagerAPI(baseURL, token string) *PasswordManagerAPI {
+    return &amp;PasswordManagerAPI{
+        BaseURL: baseURL,
+        Token:   token,
+        Client:  &amp;http.Client{},
+    }
+}
+
+func (api *PasswordManagerAPI) makeRequest(method, endpoint string, body io.Reader) (*http.Response, error) {
+    url := api.BaseURL + &quot;/api/v1&quot; + endpoint
+    req, err := http.NewRequest(method, url, body)
+    if err != nil {
+        return nil, err
+    }
+
+    req.Header.Set(&quot;Authorization&quot;, &quot;Bearer &quot;+api.Token)
+    if body != nil {
+        req.Header.Set(&quot;Content-Type&quot;, &quot;application/json&quot;)
+    }
+
+    return api.Client.Do(req)
+}
+
+func (api *PasswordManagerAPI) GetHealth() (map[string]interface{}, error) {
+    resp, err := api.makeRequest(&quot;GET&quot;, &quot;/health&quot;, nil)
+    if err != nil {
+        return nil, err
+    }
+    defer resp.Body.Close()
+
+    if resp.StatusCode != http.StatusOK {
+        return nil, fmt.Errorf(&quot;API request failed with status: %d&quot;, resp.StatusCode)
+    }
+
+    var result map[string]interface{}
+    if err := json.NewDecoder(resp.Body).Decode(&amp;result); err != nil {
+        return nil, err
+    }
+
+    return result, nil
+}
+
+func (api *PasswordManagerAPI) ExportSecrets(format string, encrypt bool, tags []string, includeTags bool) ([]byte, error) {
+    exportReq := ExportRequest{
+        Format:      format,
+        Encrypt:     encrypt,
+        Tags:        tags,
+        IncludeTags: includeTags,
+    }
+
+    jsonData, err := json.Marshal(exportReq)
+    if err != nil {
+        return nil, err
+    }
+
+    resp, err := api.makeRequest(&quot;POST&quot;, &quot;/secrets/export&quot;, bytes.NewBuffer(jsonData))
+    if err != nil {
+        return nil, err
+    }
+    defer resp.Body.Close()
+
+    if resp.StatusCode != http.StatusOK {
+        return nil, fmt.Errorf(&quot;export failed with status: %d&quot;, resp.StatusCode)
+    }
+
+    return io.ReadAll(resp.Body)
+}
+
+func (api *PasswordManagerAPI) ImportSecrets(filePath, format string, encrypted, overwrite bool) (*ImportResponse, error) {
+    file, err := os.Open(filePath)
+    if err != nil {
+        return nil, err
+    }
+    defer file.Close()
+
+    var buf bytes.Buffer
+    writer := multipart.NewWriter(&amp;buf)
+
+    // Add file
+    fileWriter, err := writer.CreateFormFile(&quot;file&quot;, filePath)
+    if err != nil {
+        return nil, err
+    }
+    io.Copy(fileWriter, file)
+
+    // Add other fields
+    writer.WriteField(&quot;format&quot;, format)
+    writer.WriteField(&quot;encrypted&quot;, fmt.Sprintf(&quot;%t&quot;, encrypted))
+    writer.WriteField(&quot;overwrite&quot;, fmt.Sprintf(&quot;%t&quot;, overwrite))
+    writer.Close()
+
+    req, err := http.NewRequest(&quot;POST&quot;, api.BaseURL+&quot;/api/v1/secrets/import&quot;, &amp;buf)
+    if err != nil {
+        return nil, err
+    }
+
+    req.Header.Set(&quot;Authorization&quot;, &quot;Bearer &quot;+api.Token)
+    req.Header.Set(&quot;Content-Type&quot;, writer.FormDataContentType())
+
+    resp, err := api.Client.Do(req)
+    if err != nil {
+        return nil, err
+    }
+    defer resp.Body.Close()
+
+    if resp.StatusCode != http.StatusOK {
+        return nil, fmt.Errorf(&quot;import failed with status: %d&quot;, resp.StatusCode)
+    }
+
+    var result ImportResponse
+    if err := json.NewDecoder(resp.Body).Decode(&amp;result); err != nil {
+        return nil, err
+    }
+
+    return &amp;result, nil
+}
+
+func main() {
+    api := NewPasswordManagerAPI(&quot;https://api.rocketvault.local&quot;, &quot;your-jwt-token&quot;)
+
+    // Get health status
+    health, err := api.GetHealth()
+    if err != nil {
+        fmt.Printf(&quot;Error getting health: %v\n&quot;, err)
+        return
+    }
+    fmt.Printf(&quot;System status: %v\n&quot;, health[&quot;status&quot;])
+
+    // Export secrets
+    exportData, err := api.ExportSecrets(&quot;json&quot;, true, []string{&quot;production&quot;}, true)
+    if err != nil {
+        fmt.Printf(&quot;Error exporting secrets: %v\n&quot;, err)
+        return
+    }
+
+    // Save to file
+    err = os.WriteFile(&quot;secrets_export.json&quot;, exportData, 0644)
+    if err != nil {
+        fmt.Printf(&quot;Error saving export file: %v\n&quot;, err)
+        return
+    }
+
+    // Import secrets
+    importResult, err := api.ImportSecrets(&quot;secrets_import.json&quot;, &quot;json&quot;, true, false)
+    if err != nil {
+        fmt.Printf(&quot;Error importing secrets: %v\n&quot;, err)
+        return
+    }
+
+    fmt.Printf(&quot;Imported %d secrets successfully\n&quot;, importResult.ImportedCount)
+}
+</pre></div>
+<h2 id="troubleshooting">Troubleshooting</h2>
+<h3 id="common-issues">Common Issues</h3>
+<ol>
+<li>
+<p><strong>401 Unauthorized</strong></p>
+<ul>
+<li>Check if JWT token is valid and not expired</li>
+<li>Verify token format: <code>Bearer &lt;token&gt;</code></li>
+<li>Ensure token was obtained from the correct environment</li>
+</ul>
+</li>
+<li>
+<p><strong>400 Bad Request</strong></p>
+<ul>
+<li>Validate request body format</li>
+<li>Check required fields are present</li>
+<li>Verify data types match API specifications</li>
+</ul>
+</li>
+<li>
+<p><strong>404 Not Found</strong></p>
+<ul>
+<li>Verify endpoint URL is correct</li>
+<li>Check if resource exists</li>
+<li>Ensure proper path parameters</li>
+</ul>
+</li>
+<li>
+<p><strong>500 Internal Server Error</strong></p>
+<ul>
+<li>Check server logs for detailed error information</li>
+<li>Verify database connectivity</li>
+<li>Ensure all required services are running</li>
+</ul>
+</li>
+</ol>
+<h3 id="debug-mode">Debug Mode</h3>
+<p>Enable debug logging by setting the log level to debug in your configuration:</p>
+<div class="codewrap"><div class="code-hd"><span class="code-lang">yaml</span><button class="copy-btn">Copy</button></div><pre class="code with-hd">logging:
+  level: debug
+  format: json
+</pre></div>
+<h3 id="health-check-monitoring">Health Check Monitoring</h3>
+<p>Set up monitoring for the health endpoints:</p>
+<div class="codewrap"><div class="code-hd"><span class="code-lang">bash</span><button class="copy-btn">Copy</button></div><pre class="code with-hd"># Check readiness
+curl -f https://api.rocketvault.local/api/v1/health/ready
+
+# Check liveness
+curl -f https://api.rocketvault.local/api/v1/health/live
+
+# Get detailed health metrics
+curl https://api.rocketvault.local/api/v1/health | jq .
+</pre></div>
+<h2 id="security-considerations">Security Considerations</h2>
+<ol>
+<li><strong>Always use HTTPS</strong> in production</li>
+<li><strong>Store JWT tokens securely</strong> - never in local storage for web apps</li>
+<li><strong>Implement token refresh</strong> logic to handle expiration</li>
+<li><strong>Validate SSL certificates</strong> when making API calls</li>
+<li><strong>Use appropriate timeouts</strong> to prevent hanging requests</li>
+<li><strong>Implement proper error handling</strong> without exposing sensitive information</li>
+<li><strong>Rate limiting</strong> is enforced - respect the limits to avoid being blocked</li>
+</ol>
+<h2 id="support">Support</h2>
+<p>For additional support or questions about the API:</p>
+<ul>
+<li>Check the <a href="troubleshooting.markdown">troubleshooting guide</a></li>
+<li>Review the <a href="architecture.markdown">architecture documentation</a></li>
+<li>Open an issue on the GitHub repository</li>
+<li>Contact the development team</li>
+</ul>
+
+</main>
+<footer class="doc-footer"><a href="admin-manual.html">&larr; Back to the Admin Manual</a></footer>
+<script src="assets/doc-theme.js"></script>
+</body>
+</html>

@@ -1,0 +1,188 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>Testing HSM / PKCS#11 with SoftHSM2 on Ubuntu — RocketVault Docs</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"/>
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=IBM+Plex+Sans:wght@400;500;600&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet"/>
+<link rel="stylesheet" href="assets/doc-theme.css"/>
+</head>
+<body>
+<header class="doc-header">
+  <a class="doc-back" href="admin-manual.html">&larr; Admin Manual</a>
+  <div class="doc-brand">
+    <div class="doc-mark" aria-hidden="true"></div>
+    <span class="doc-kicker">RocketVault Docs</span>
+  </div>
+  <h1 class="doc-title">Testing HSM / PKCS#11 with SoftHSM2 on Ubuntu</h1>
+  <div class="doc-meta"><span class="doc-chip">docs/hsm-softhsm2-testing.md</span></div>
+  <hr/>
+</header>
+<nav class="doc-toc"><div class="doc-toc-label">On this page</div><ol><li><a href="#1-install-softhsm2">1. Install SoftHSM2</a></li><li><a href="#2-create-the-softhsm2-configuration-file">2. Create the SoftHSM2 configuration file</a></li><li><a href="#3-initialize-a-token">3. Initialize a token</a></li><li><a href="#4-locate-the-library">4. Locate the library</a></li><li><a href="#5-enable-hsm-in-rocketvaultyaml">5. Enable HSM in .rocketvault.yaml</a></li><li><a href="#6-start-the-server">6. Start the server</a></li><li><a href="#7-exercise-the-hsm-via-the-api">7. Exercise the HSM via the API</a></li><li><a href="#8-verify-keys-are-stored-on-the-token">8. Verify keys are stored on the token</a></li><li><a href="#9-run-the-integration-tests">9. Run the integration tests</a></li><li><a href="#10-reset-the-token">10. Reset the token</a></li><li><a href="#supported-algorithms">Supported algorithms</a></li></ol></nav>
+<main class="doc">
+<p>SoftHSM2 is a software token that implements the PKCS#11 interface. It lets
+you test the HSM code path without physical hardware.</p>
+<h2 id="1-install-softhsm2">1. Install SoftHSM2</h2>
+<div class="codewrap"><div class="code-hd"><span class="code-lang">bash</span><button class="copy-btn">Copy</button></div><pre class="code with-hd">sudo apt install softhsm2 opensc
+</pre></div>
+<p><code>opensc</code> provides <code>pkcs11-tool</code>, used in the verification step below.</p>
+<h2 id="2-create-the-softhsm2-configuration-file">2. Create the SoftHSM2 configuration file</h2>
+<p>After install, SoftHSM2 needs a config file pointing at a token directory.
+The default location <code>softhsm2-util</code> looks for is <code>~/.config/softhsm2/softhsm2.conf</code>.</p>
+<div class="codewrap"><div class="code-hd"><span class="code-lang">bash</span><button class="copy-btn">Copy</button></div><pre class="code with-hd">mkdir -p ~/.config/softhsm2/tokens
+
+cat &gt; ~/.config/softhsm2/softhsm2.conf &lt;&lt;EOF
+directories.tokendir = $HOME/.config/softhsm2/tokens/
+objectstore.backend = file
+log.level = INFO
+EOF
+</pre></div>
+<blockquote>
+<p>Use double-quoted heredoc (<code>&lt;&lt;EOF</code>, not <code>&lt;&lt;'EOF'</code>) so <code>$HOME</code> expands.
+Single quotes prevent expansion and cause a &quot;Failed to enumerate object store&quot; error.</p>
+</blockquote>
+<p>Persist the env var so every new shell finds the config:</p>
+<div class="codewrap"><div class="code-hd"><span class="code-lang">bash</span><button class="copy-btn">Copy</button></div><pre class="code with-hd">echo 'export SOFTHSM2_CONF=~/.config/softhsm2/softhsm2.conf' &gt;&gt; ~/.zshrc
+export SOFTHSM2_CONF=~/.config/softhsm2/softhsm2.conf
+</pre></div>
+<h2 id="3-initialize-a-token">3. Initialize a token</h2>
+<div class="codewrap"><div class="code-hd"><span class="code-lang">bash</span><button class="copy-btn">Copy</button></div><pre class="code with-hd">softhsm2-util --init-token --slot 0 --label rocketvault --so-pin 0000 --pin 1234
+</pre></div>
+<p>Expected output:</p>
+<div class="codewrap"><div class="code-hd"><span class="code-lang">text</span><button class="copy-btn">Copy</button></div><pre class="code with-hd">The token has been initialized and is reassigned to slot &lt;N&gt;
+</pre></div>
+<p>Note the new slot number — SoftHSM2 reassigns the slot after init. Use it in
+step 7 if it differs from 0.</p>
+<h2 id="4-locate-the-library">4. Locate the library</h2>
+<p>On this machine both paths are present:</p>
+<div class="codewrap"><div class="code-hd"><span class="code-lang">text</span><button class="copy-btn">Copy</button></div><pre class="code with-hd">/usr/lib/softhsm/libsofthsm2.so
+/usr/lib/x86_64-linux-gnu/softhsm/libsofthsm2.so
+</pre></div>
+<p>Either works. Use the first one in the config below.</p>
+<h2 id="5-enable-hsm-in-rocketvaultyaml">5. Enable HSM in <code>.rocketvault.yaml</code></h2>
+<p>Uncomment and fill in the <code>hsm</code> block at the bottom of the file:</p>
+<div class="codewrap"><div class="code-hd"><span class="code-lang">yaml</span><button class="copy-btn">Copy</button></div><pre class="code with-hd">hsm:
+  enabled: true
+  lib_path: /usr/lib/softhsm/libsofthsm2.so
+  token_label: rocketvault
+  pin: &quot;1234&quot;
+  slot_id: 0
+</pre></div>
+<blockquote>
+<p>Set <code>enabled: false</code> to switch back to the software provider without
+restarting or changing anything else.</p>
+</blockquote>
+<h2 id="6-start-the-server">6. Start the server</h2>
+<div class="codewrap"><div class="code-hd"><span class="code-lang">bash</span><button class="copy-btn">Copy</button></div><pre class="code with-hd">go run main.go serve
+</pre></div>
+<p>Look for this line in the log output:</p>
+<div class="codewrap"><div class="code-hd"><span class="code-lang">text</span><button class="copy-btn">Copy</button></div><pre class="code with-hd">PKCS#11 HSM key provider initialised
+</pre></div>
+<p>If you see <code>Software key provider initialised</code> instead, <code>hsm.enabled</code> is
+still false.</p>
+<h2 id="7-exercise-the-hsm-via-the-api">7. Exercise the HSM via the API</h2>
+<h3 id="authenticate">Authenticate</h3>
+<div class="codewrap"><div class="code-hd"><span class="code-lang">bash</span><button class="copy-btn">Copy</button></div><pre class="code with-hd">TOKEN=$(curl -s -X POST http://localhost:8774/api/v1/users/login \
+  -H 'Content-Type: application/json' \
+  -d '{&quot;username&quot;:&quot;admin&quot;,&quot;password&quot;:&quot;admin123&quot;,&quot;totp_code&quot;:&quot;&lt;code&gt;&quot;}' \
+  | jq -r .token)
+</pre></div>
+<h3 id="create-an-rsa-key-on-the-token">Create an RSA key on the token</h3>
+<div class="codewrap"><div class="code-hd"><span class="code-lang">bash</span><button class="copy-btn">Copy</button></div><pre class="code with-hd">curl -s -X POST http://localhost:8774/api/v1/keys \
+  -H &quot;Authorization: Bearer $TOKEN&quot; \
+  -H 'Content-Type: application/json' \
+  -d '{&quot;name&quot;:&quot;hsm-test&quot;,&quot;type&quot;:&quot;RSA&quot;,&quot;bits&quot;:2048}' | jq
+</pre></div>
+<p>The key is stored in the database as <code>pkcs11:&lt;uuid&gt;</code> instead of an encrypted
+PEM blob. The UUID is the label of the key pair on the token.</p>
+<h3 id="sign-data-base64-encoded-input">Sign data (base64-encoded input)</h3>
+<div class="codewrap"><div class="code-hd"><span class="code-lang">bash</span><button class="copy-btn">Copy</button></div><pre class="code with-hd">KEY_ID=&lt;id from create response&gt;
+
+curl -s -X POST http://localhost:8774/api/v1/keys/${KEY_ID}/sign \
+  -H &quot;Authorization: Bearer $TOKEN&quot; \
+  -H 'Content-Type: application/json' \
+  -d '{&quot;value&quot;:&quot;aGVsbG8=&quot;,&quot;algorithm&quot;:&quot;RS256&quot;}' | jq
+</pre></div>
+<h3 id="verify-the-signature">Verify the signature</h3>
+<div class="codewrap"><div class="code-hd"><span class="code-lang">bash</span><button class="copy-btn">Copy</button></div><pre class="code with-hd">SIG=&lt;signature from sign response&gt;
+
+curl -s -X POST &quot;http://localhost:8774/api/v1/keys/${KEY_ID}/verify&quot; \
+  -H &quot;Authorization: Bearer $TOKEN&quot; \
+  -H 'Content-Type: application/json' \
+  -d &quot;{\&quot;value\&quot;:\&quot;aGVsbG8=\&quot;,\&quot;signature\&quot;:\&quot;${SIG}\&quot;,\&quot;algorithm\&quot;:\&quot;RS256\&quot;}&quot; | jq
+</pre></div>
+<h3 id="encrypt-and-decrypt">Encrypt and decrypt</h3>
+<div class="codewrap"><div class="code-hd"><span class="code-lang">bash</span><button class="copy-btn">Copy</button></div><pre class="code with-hd">curl -s -X POST &quot;http://localhost:8774/api/v1/keys/${KEY_ID}/encrypt&quot; \
+  -H &quot;Authorization: Bearer $TOKEN&quot; \
+  -H 'Content-Type: application/json' \
+  -d '{&quot;value&quot;:&quot;aGVsbG8=&quot;,&quot;algorithm&quot;:&quot;RSA-OAEP&quot;}' | jq
+
+# Use the value from the encrypt response
+curl -s -X POST &quot;http://localhost:8774/api/v1/keys/${KEY_ID}/decrypt&quot; \
+  -H &quot;Authorization: Bearer $TOKEN&quot; \
+  -H 'Content-Type: application/json' \
+  -d '{&quot;value&quot;:&quot;&lt;ciphertext&gt;&quot;,&quot;algorithm&quot;:&quot;RSA-OAEP&quot;}' | jq
+</pre></div>
+<h2 id="8-verify-keys-are-stored-on-the-token">8. Verify keys are stored on the token</h2>
+<div class="codewrap"><div class="code-hd"><span class="code-lang">bash</span><button class="copy-btn">Copy</button></div><pre class="code with-hd">pkcs11-tool \
+  --module /usr/lib/softhsm/libsofthsm2.so \
+  --login --pin 1234 \
+  --list-objects
+</pre></div>
+<blockquote>
+<p>Make sure <code>SOFTHSM2_CONF</code> is exported before running <code>pkcs11-tool</code>, otherwise
+it will not find the token.</p>
+</blockquote>
+<p>Each key created through RocketVault appears as a public + private key pair
+labeled with the UUID stored in the database.</p>
+<h2 id="9-run-the-integration-tests">9. Run the integration tests</h2>
+<p>The PKCS#11 tests skip automatically when SoftHSM2 is not available. To run
+them, both env vars must be set:</p>
+<div class="codewrap"><div class="code-hd"><span class="code-lang">bash</span><button class="copy-btn">Copy</button></div><pre class="code with-hd">export SOFTHSM2_CONF=~/.config/softhsm2/softhsm2.conf
+export SOFTHSM2_LIB=/usr/lib/softhsm/libsofthsm2.so
+go test ./internal/crypto/... -v -run TestPKCS11
+</pre></div>
+<p>Persist <code>SOFTHSM2_LIB</code> alongside <code>SOFTHSM2_CONF</code> in <code>~/.zshrc</code> so you don't
+need to export it each session:</p>
+<div class="codewrap"><div class="code-hd"><span class="code-lang">bash</span><button class="copy-btn">Copy</button></div><pre class="code with-hd">echo 'export SOFTHSM2_LIB=/usr/lib/softhsm/libsofthsm2.so' &gt;&gt; ~/.zshrc
+</pre></div>
+<p>Expected: all <code>TestPKCS11*</code> tests pass; the <code>P256K</code> test returns
+<code>ErrUnsupportedCurve</code> (secp256k1 is not in the standard PKCS#11 EC OID table).</p>
+<h2 id="10-reset-the-token">10. Reset the token</h2>
+<p>If you need a clean slate:</p>
+<div class="codewrap"><div class="code-hd"><span class="code-lang">bash</span><button class="copy-btn">Copy</button></div><pre class="code with-hd">softhsm2-util --delete-token --token rocketvault
+softhsm2-util --init-token --slot 0 --label rocketvault --so-pin 0000 --pin 1234
+</pre></div>
+<h2 id="supported-algorithms">Supported algorithms</h2>
+<table>
+<thead>
+<tr>
+<th>Operation</th>
+<th>Algorithms</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Sign / Verify</td>
+<td>RS256, RS384, RS512, PS256, PS384, PS512, ES256, ES384, ES512</td>
+</tr>
+<tr>
+<td>Encrypt / Decrypt</td>
+<td>RSA-OAEP (SHA-1), RSA-OAEP-256 (SHA-256)</td>
+</tr>
+<tr>
+<td>Key generation</td>
+<td>RSA 2048/4096, ECDSA P-256 / P-384 / P-521</td>
+</tr>
+</tbody>
+</table>
+<p>P-256K (secp256k1) is handled by the software provider regardless of HSM
+config, because it is not in the standard PKCS#11 EC OID table.</p>
+
+</main>
+<footer class="doc-footer"><a href="admin-manual.html">&larr; Back to the Admin Manual</a></footer>
+<script src="assets/doc-theme.js"></script>
+</body>
+</html>
