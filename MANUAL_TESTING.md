@@ -16,12 +16,14 @@
 | GET | `/api/v1/health/live` | None | Liveness probe |
 | GET | `/api/v1/health/ready` | None | Readiness probe |
 | GET | `/api/v1/health` | None | Full health status |
-| GET | `/api/v1/health/database` | JWT | Database health status |
+| GET | `/api/v1/health/database` | None | Database health status |
 | GET | `/api/v1/config` | None | Frontend config |
 | GET | `/jwks.json` | None | JWKS public keys |
 | POST | `/api/v1/users/login` | None | Login → JWT |
 | POST | `/api/v1/users/refresh` | None | Refresh token |
 | POST | `/api/v1/oauth2/token` | Basic (client creds) | OAuth2 token |
+| GET | `/api/v1/oidc/login` | None | Start OIDC authorization-code login |
+| GET | `/api/v1/oidc/callback` | None | Complete OIDC login, issue session |
 | GET | `/api/v1/users/sessions` | JWT | List sessions |
 | DELETE | `/api/v1/users/sessions/{id}` | JWT | Revoke session |
 | DELETE | `/api/v1/users/sessions` | JWT | Revoke all sessions |
@@ -30,11 +32,16 @@
 | GET | `/api/v1/users/{id}` | JWT | Get user |
 | PUT | `/api/v1/users/{id}` | JWT (admin) | Update user |
 | DELETE | `/api/v1/users/{id}` | JWT (admin) | Delete user |
-| POST | `/api/v1/vaults` | JWT (admin) | Create vault |
-| GET | `/api/v1/vaults` | JWT (admin) | List vaults (`?include_deleted=true`) |
-| GET | `/api/v1/vaults/{name}` | JWT (admin) | Get vault |
-| PATCH | `/api/v1/vaults/{name}` | JWT (admin) | Update vault |
-| DELETE | `/api/v1/vaults/{name}` | JWT (admin) | Soft-delete vault (204; refuses `default`) |
+| POST | `/api/v1/vaults` | JWT (admin or vault grant) | Create vault |
+| GET | `/api/v1/vaults` | JWT (admin or vault grant) | List vaults (`?include_deleted=true`) |
+| GET | `/api/v1/vaults/{name}` | JWT (admin or vault grant) | Get vault |
+| PATCH | `/api/v1/vaults/{name}` | JWT (admin or vault grant) | Update vault |
+| DELETE | `/api/v1/vaults/{name}` | JWT (admin or vault grant) | Soft-delete vault (204; refuses `default`) |
+| DELETE | `/api/v1/vaults/{vault_name}/purge` | JWT (admin or vault grant) | Permanently purge a soft-deleted vault |
+| GET | `/api/v1/vaults/{vault_name}/role-assignments` | JWT (admin or vault grant) | List vault role assignments |
+| POST | `/api/v1/vaults/{vault_name}/role-assignments` | JWT (admin or vault grant) | Create vault role assignment |
+| GET | `/api/v1/vaults/{vault_name}/role-assignments/{assignment_id}` | JWT (admin or vault grant) | Get vault role assignment |
+| DELETE | `/api/v1/vaults/{vault_name}/role-assignments/{assignment_id}` | JWT (admin or vault grant) | Delete (revoke) vault role assignment |
 | POST | `/api/v1/vaults/{vault_name}/secrets` | JWT | Create secret in vault |
 | GET | `/api/v1/vaults/{vault_name}/secrets` | JWT | List vault secrets (members see all) |
 | GET | `/api/v1/vaults/{vault_name}/secrets/{id}` | JWT | Get vault secret |
@@ -43,6 +50,33 @@
 | GET | `/api/v1/vaults/{vault_name}/deleted/secrets` | JWT | List soft-deleted vault secrets |
 | POST | `/api/v1/vaults/{vault_name}/deleted/secrets/{id}/restore` | JWT | Restore vault secret (by vault membership) |
 | DELETE | `/api/v1/vaults/{vault_name}/deleted/secrets/{id}/purge` | JWT | Purge vault secret |
+| POST | `/api/v1/vaults/{vault_name}/keys` | JWT | Create key in vault |
+| GET | `/api/v1/vaults/{vault_name}/keys` | JWT | List vault keys |
+| GET | `/api/v1/vaults/{vault_name}/keys/{id}` | JWT | Get vault key |
+| PUT | `/api/v1/vaults/{vault_name}/keys/{id}` | JWT | Update vault key |
+| DELETE | `/api/v1/vaults/{vault_name}/keys/{id}` | JWT | Soft-delete vault key |
+| POST | `/api/v1/vaults/{vault_name}/keys/{id}/rotate` | JWT | Rotate vault key |
+| GET | `/api/v1/vaults/{vault_name}/keys/{id}/versions` | JWT | List vault key versions |
+| POST | `/api/v1/vaults/{vault_name}/keys/{id}/wrap` | JWT | Wrap (encrypt) data with vault key |
+| POST | `/api/v1/vaults/{vault_name}/keys/{id}/unwrap` | JWT | Unwrap (decrypt) data with vault key |
+| POST | `/api/v1/vaults/{vault_name}/keys/{id}/sign` | JWT | Sign payload with vault key |
+| POST | `/api/v1/vaults/{vault_name}/keys/{id}/verify` | JWT | Verify signature with vault key |
+| POST | `/api/v1/vaults/{vault_name}/keys/{id}/encrypt` | JWT | Encrypt payload with vault key |
+| POST | `/api/v1/vaults/{vault_name}/keys/{id}/decrypt` | JWT | Decrypt payload with vault key |
+| GET | `/api/v1/vaults/{vault_name}/deleted/keys` | JWT | List soft-deleted vault keys |
+| POST | `/api/v1/vaults/{vault_name}/deleted/keys/{id}/restore` | JWT | Restore vault key |
+| DELETE | `/api/v1/vaults/{vault_name}/deleted/keys/{id}/purge` | JWT | Purge vault key |
+| POST | `/api/v1/vaults/{vault_name}/certificates` | JWT | Create certificate in vault |
+| GET | `/api/v1/vaults/{vault_name}/certificates` | JWT | List vault certificates |
+| GET | `/api/v1/vaults/{vault_name}/certificates/{id}` | JWT | Get vault certificate |
+| PUT | `/api/v1/vaults/{vault_name}/certificates/{id}` | JWT | Update vault certificate |
+| DELETE | `/api/v1/vaults/{vault_name}/certificates/{id}` | JWT | Soft-delete vault certificate |
+| GET | `/api/v1/vaults/{vault_name}/certificates/{id}/policy` | JWT | Get vault certificate policy |
+| PUT | `/api/v1/vaults/{vault_name}/certificates/{id}/policy` | JWT | Upsert vault certificate policy |
+| DELETE | `/api/v1/vaults/{vault_name}/certificates/{id}/policy` | JWT | Delete vault certificate policy |
+| GET | `/api/v1/vaults/{vault_name}/deleted/certificates` | JWT | List soft-deleted vault certificates |
+| POST | `/api/v1/vaults/{vault_name}/deleted/certificates/{id}/restore` | JWT | Restore vault certificate |
+| DELETE | `/api/v1/vaults/{vault_name}/deleted/certificates/{id}/purge` | JWT | Purge vault certificate |
 | POST | `/api/v1/secrets` | JWT | Create secret |
 | GET | `/api/v1/secrets` | JWT | List secrets |
 | GET | `/api/v1/secrets/{id}` | JWT | Get secret |
@@ -108,6 +142,19 @@
 | DELETE | `/api/v1/service-accounts/{id}` | JWT (admin) | Delete service account |
 | POST | `/api/v1/service-accounts/{id}/rotate` | JWT (admin) | Rotate SA secret |
 | POST | `/api/v1/jwks/rotate` | JWT (admin) | Rotate JWT signing key |
+
+Notes:
+- "JWT (admin or vault grant)" (vault management, purge, role-assignments) means
+  the global `admin` account role always passes, OR the caller holds the
+  specific per-vault grant the handler checks — a `vaults:manage` access-policy
+  grant for vault CRUD/role-assignments, or a Key Vault Purge Operator role
+  assignment for purge. See `internal/services/authorization/vault_authz.go`
+  (`CanManageVault`, `CanPurgeVault`, `CanManageRoleAssignments`). This
+  replaced a global-admin-only gate on 2026-08-11 so per-vault role holders
+  aren't blocked by a vault-blind check running ahead of the handler.
+- Vault-scoped routes for secrets, keys, and certificates (`/vaults/{vault_name}/...`)
+  mirror the flat routes 1:1 and are authorized per vault by `PolicyMiddleware`
+  against the caller's role assignments in that vault, not by the global role.
 
 ---
 

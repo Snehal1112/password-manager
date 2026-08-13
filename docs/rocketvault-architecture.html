@@ -4,8 +4,9 @@
 <meta charset="UTF-8"/>
 <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
 <title>RocketVault — System Architecture</title>
+<link rel="icon" type="image/svg+xml" href="assets/rocketvault-icon.svg"/>
 <link rel="preconnect" href="https://fonts.googleapis.com"/>
-<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:ital,wght@0,300;0,400;0,500;0,600;1,400&display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&family=IBM+Plex+Sans:ital,wght@0,300;0,400;0,500;0,600;1,400&display=swap" rel="stylesheet"/>
 <style>
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
 
@@ -31,7 +32,7 @@
   --c-db-bg:#F4F3EF;       --c-db-bd:#7A7870;       --c-db-txt:#2C2C2A;
 
   --font-sans:'IBM Plex Sans',system-ui,sans-serif;
-  --font-mono:'IBM Plex Mono',monospace;
+  --font-mono:'JetBrains Mono','IBM Plex Mono',monospace;
   --r-sm:6px;--r-md:10px;--r-lg:14px;
 }
 
@@ -236,16 +237,25 @@ body{font-family:var(--font-sans);background:var(--bg);color:var(--text-primary)
 
 <!-- ══════════ HEADER ══════════ -->
 <div class="header">
-  <div>
+  <div style="display:flex;align-items:flex-start;gap:12px">
+    <svg viewBox="0 0 64 64" width="34" height="34" style="flex-shrink:0;margin-top:1px">
+      <rect x="4" y="4" width="56" height="56" rx="14" fill="#0FA89A"/>
+      <rect x="9" y="9" width="46" height="46" rx="10" fill="#0A6B62"/>
+      <circle cx="32" cy="32" r="11" fill="none" stroke="#FFFFFF" stroke-width="2.4"/>
+      <path d="M32 32V21" stroke="#FFFFFF" stroke-width="2.4" stroke-linecap="round"/>
+      <circle cx="32" cy="32" r="2.1" fill="#FFFFFF"/>
+    </svg>
+    <div>
     <div class="header-title">RocketVault — System Architecture</div>
-    <div class="header-sub">Self-Hosted Secrets Manager · Go 1.24.2 · v0.1.0 · May 2026 · Azure Key Vault Parity</div>
+    <div class="header-sub">Self-Hosted Secrets Manager · Go 1.24.2 · Branch v-4.0.0 · August 2026 · Azure Key Vault Parity</div>
     <div class="hint" style="margin-top:8px"><span class="hint-dot"></span>Click any block for details</div>
+    </div>
   </div>
   <div class="header-meta">
-    <span class="tag tag-green">A+ Grade (97/100)</span>
+    <span class="tag tag-green">Multi-Vault + Azure RBAC</span>
     <span class="tag">Domain-Driven Design</span>
-    <span class="tag">22 Services · SRP</span>
-    <span class="tag">50+ REST Endpoints</span>
+    <span class="tag">26 Services · SRP</span>
+    <span class="tag">129 REST Endpoints</span>
   </div>
 </div>
 
@@ -334,16 +344,17 @@ body{font-family:var(--font-sans);background:var(--bg);color:var(--text-primary)
             <!-- REST API -->
             <div class="api-container clickable" tabindex="0" data-id="rest-api">
               <span class="click-hint" style="top:10px;right:10px">↗ details</span>
-              <div class="api-container-label">③ REST API Layer — api/ · OpenAPI 3.0 · Swagger · 50+ Endpoints</div>
+              <div class="api-container-label">③ REST API Layer — api/ · OpenAPI 3.0 · Swagger · 129 Endpoints</div>
 
-              <!-- Row 1: 3-col — Auth · Users · Sessions+System -->
+              <!-- Row 1: 3-col — Auth+OIDC+OAuth2 · Users · Sessions+System -->
               <div class="api-grid-3" style="margin-bottom:7px">
                 <div class="api-group">
-                  <div class="api-group-hd">🔑 Auth &amp; OAuth2</div>
+                  <div class="api-group-hd">🔑 Auth, OAuth2 &amp; OIDC</div>
                   <div class="ep"><span class="m m-post">POST</span><span class="ep-path">/users/login</span></div>
                   <div class="ep"><span class="m m-post">POST</span><span class="ep-path">/users/refresh</span></div>
                   <div class="ep"><span class="m m-post">POST</span><span class="ep-path">/users/admin (bootstrap)</span></div>
                   <div class="ep"><span class="m m-post">POST</span><span class="ep-path">/oauth2/token</span></div>
+                  <div class="ep"><span class="m m-get">GET</span><span class="ep-path">/oidc/login · /oidc/callback</span></div>
                   <div class="ep"><span class="m m-post">POST</span><span class="ep-path">/jwks/rotate</span></div>
                 </div>
                 <div class="api-group">
@@ -364,7 +375,22 @@ body{font-family:var(--font-sans);background:var(--bg);color:var(--text-primary)
                 </div>
               </div>
 
-              <!-- Row 2: 3-col — Secrets · Keys · Certs -->
+              <!-- Row 2: 2-col — Vaults · Role Assignments (NEW — v4.0.0 multi-vault + Azure RBAC) -->
+              <div class="api-grid" style="margin-bottom:7px">
+                <div class="api-group">
+                  <div class="api-group-hd">🏛️ Vaults</div>
+                  <div class="ep"><div class="ep-methods"><span class="m m-post">POST</span><span class="m m-get">GET</span></div><span class="ep-path">/vaults</span></div>
+                  <div class="ep"><div class="ep-methods"><span class="m m-get">GET</span><span class="m m-put">PATCH</span><span class="m m-del">DEL</span></div><span class="ep-path">/vaults/{name}</span></div>
+                  <div class="ep"><span class="m m-del">DEL</span><span class="ep-path">/vaults/{name}/purge</span></div>
+                </div>
+                <div class="api-group">
+                  <div class="api-group-hd">👥 Role Assignments</div>
+                  <div class="ep"><div class="ep-methods"><span class="m m-post">POST</span><span class="m m-get">GET</span></div><span class="ep-path">/vaults/{name}/role-assignments</span></div>
+                  <div class="ep"><div class="ep-methods"><span class="m m-get">GET</span><span class="m m-del">DEL</span></div><span class="ep-path">.../role-assignments/{id}</span></div>
+                </div>
+              </div>
+
+              <!-- Row 3: 3-col — Secrets · Keys · Certs — all also vault-scoped -->
               <div class="api-grid-3" style="margin-bottom:7px">
                 <div class="api-group">
                   <div class="api-group-hd">🔒 Secrets</div>
@@ -375,27 +401,30 @@ body{font-family:var(--font-sans);background:var(--bg);color:var(--text-primary)
                   <div class="ep"><span class="m m-get">GET</span><span class="ep-path">/secrets/{id}/versions</span></div>
                   <div class="ep"><span class="m m-get">GET</span><span class="ep-path">/versions/{n} · /latest</span></div>
                   <div class="ep"><div class="ep-methods"><span class="m m-post">POST</span></div><span class="ep-path">/{id}/backup · /restore</span></div>
+                  <div style="font-size:9px;font-family:var(--font-mono);color:var(--c-http-txt);opacity:.55;font-style:italic;margin-top:5px;padding-top:5px;border-top:1px dashed rgba(107,94,212,.15)">also under /vaults/{name}/secrets/… (except backup/restore, flat-only)</div>
                 </div>
                 <div class="api-group">
                   <div class="api-group-hd">🔑 Keys</div>
                   <div class="ep"><div class="ep-methods"><span class="m m-post">POST</span><span class="m m-get">GET</span></div><span class="ep-path">/keys</span></div>
                   <div class="ep"><div class="ep-methods"><span class="m m-get">GET</span><span class="m m-put">PUT</span><span class="m m-del">DEL</span></div><span class="ep-path">/keys/{id}</span></div>
                   <div class="ep"><span class="m m-post">POST</span><span class="ep-path">/keys/{id}/rotate</span></div>
-                  <div class="ep"><span class="m m-post">POST</span><span class="ep-path">/keys/{id}/wrap</span></div>
-                  <div class="ep"><span class="m m-post">POST</span><span class="ep-path">/keys/{id}/unwrap</span></div>
-                  <div class="ep"><span class="m m-post">POST</span><span class="ep-path">/{id}/backup · /restore</span></div>
+                  <div class="ep"><span class="m m-post">POST</span><span class="ep-path">/keys/{id}/wrap · /unwrap</span></div>
+                  <div class="ep"><span class="m m-post">POST</span><span class="ep-path">/{id}/sign · /verify</span></div>
+                  <div class="ep"><span class="m m-post">POST</span><span class="ep-path">/{id}/encrypt · /decrypt</span></div>
+                  <div class="ep"><div class="ep-methods"><span class="m m-post">POST</span></div><span class="ep-path">/{id}/backup · /restore</span></div>
+                  <div style="font-size:9px;font-family:var(--font-mono);color:var(--c-http-txt);opacity:.55;font-style:italic;margin-top:5px;padding-top:5px;border-top:1px dashed rgba(107,94,212,.15)">also under /vaults/{name}/keys/… (except backup/restore, flat-only)</div>
                 </div>
                 <div class="api-group">
                   <div class="api-group-hd">📜 Certificates</div>
                   <div class="ep"><div class="ep-methods"><span class="m m-post">POST</span><span class="m m-get">GET</span></div><span class="ep-path">/certificates</span></div>
                   <div class="ep"><div class="ep-methods"><span class="m m-get">GET</span><span class="m m-put">PUT</span><span class="m m-del">DEL</span></div><span class="ep-path">/certificates/{id}</span></div>
-                  <div class="ep"><span class="m m-post">POST</span><span class="ep-path">/{id}/renew</span></div>
-                  <div class="ep"><span class="m m-post">POST</span><span class="ep-path">/{id}/sign · /revoke</span></div>
-                  <div class="ep"><span class="m m-post">POST</span><span class="ep-path">/{id}/backup · /restore</span></div>
+                  <div class="ep"><div class="ep-methods"><span class="m m-get">GET</span><span class="m m-put">PUT</span><span class="m m-del">DEL</span></div><span class="ep-path">/{id}/policy</span></div>
+                  <div class="ep"><div class="ep-methods"><span class="m m-post">POST</span></div><span class="ep-path">/{id}/backup · /restore</span></div>
+                  <div style="font-size:9px;font-family:var(--font-mono);color:var(--c-http-txt);opacity:.55;font-style:italic;margin-top:5px;padding-top:5px;border-top:1px dashed rgba(107,94,212,.15)">also under /vaults/{name}/certificates/… (except backup/restore, flat-only)</div>
                 </div>
               </div>
 
-              <!-- Row 3: 2-col — Soft-Delete+Policies | SA+Health -->
+              <!-- Row 4: 2-col — Soft-Delete+Policies | SA+Health -->
               <div class="api-grid">
                 <div style="display:flex;flex-direction:column;gap:7px">
                   <div class="api-group">
@@ -403,6 +432,7 @@ body{font-family:var(--font-sans);background:var(--bg);color:var(--text-primary)
                     <div class="ep"><span class="m m-get">GET</span><span class="ep-path">/deleted/{secrets|keys|certs}</span></div>
                     <div class="ep"><span class="m m-post">POST</span><span class="ep-path">/deleted/{type}/{id}/restore</span></div>
                     <div class="ep"><span class="m m-del">DEL</span><span class="ep-path">/deleted/{type}/{id}/purge</span></div>
+                    <div style="font-size:9px;font-family:var(--font-mono);color:var(--c-http-txt);opacity:.55;font-style:italic;margin-top:5px;padding-top:5px;border-top:1px dashed rgba(107,94,212,.15)">also under /vaults/{name}/deleted/…</div>
                   </div>
                   <div class="api-group">
                     <div class="api-group-hd">🛡️ Access Policies</div>
@@ -421,7 +451,7 @@ body{font-family:var(--font-sans);background:var(--bg);color:var(--text-primary)
                   <div class="api-group">
                     <div class="api-group-hd">🏥 Health &amp; System</div>
                     <div class="ep"><span class="m m-get">GET</span><span class="ep-path">/health</span></div>
-                    <div class="ep"><span class="m m-get">GET</span><span class="ep-path">/health/live · /health/ready</span></div>
+                    <div class="ep"><span class="m m-get">GET</span><span class="ep-path">/health/live · /health/ready · /health/database</span></div>
                     <div class="ep"><span class="m m-get">GET</span><span class="ep-path">/metrics · /config</span></div>
                     <div class="ep"><span class="m m-get">GET</span><span class="ep-path">/jwks.json</span></div>
                   </div>
@@ -439,31 +469,46 @@ body{font-family:var(--font-sans);background:var(--bg);color:var(--text-primary)
 
               <div class="cli-group">
                 <div class="cli-group-hd">🔒 secrets</div>
-                <div class="cli-cmds">list · get · create · update · delete<br/>export --format json|csv [--encrypt]<br/>import --file &lt;path&gt; [--overwrite]<br/>version &lt;id&gt; [--version n | --latest]</div>
+                <div class="cli-cmds">list · get · create · update · delete<br/>export --format json|csv [--encrypt]<br/>import --file &lt;path&gt; [--overwrite]<br/>generate-password [--length n]</div>
               </div>
 
               <div class="cli-group">
                 <div class="cli-group-hd">🔑 keys</div>
-                <div class="cli-cmds">list · get · create --type RSA|ECDSA<br/>update · delete · rotate &lt;id&gt;<br/>wrap &lt;id&gt; · unwrap &lt;id&gt;</div>
+                <div class="cli-cmds">list · get · create --type RSA|ECDSA<br/>update · delete · rotate &lt;id&gt;<br/>wrap · unwrap --key-id &lt;uuid&gt;<br/>OCT/HSM keys: API-only, no CLI yet</div>
               </div>
 
               <div class="cli-group">
                 <div class="cli-group-hd">📜 certificates</div>
-                <div class="cli-cmds">list · get · create [--auto-renew]<br/>update · delete · renew · revoke</div>
+                <div class="cli-cmds">list · get · create [--auto-renew]<br/>update · delete · renew &lt;id&gt;</div>
               </div>
 
               <div class="cli-group">
                 <div class="cli-group-hd">👤 users</div>
-                <div class="cli-cmds">admin --bootstrap-token<br/>list · get · create · delete</div>
+                <div class="cli-cmds">admin --bootstrap-token · login<br/>list · get · create · update · delete</div>
+              </div>
+
+              <div class="cli-group">
+                <div class="cli-group-hd">🏛️ vaults</div>
+                <div class="cli-cmds">create [--purge-protection]<br/>list [--include-deleted] · get · update<br/>delete · recover · purge · preview-migration</div>
+              </div>
+
+              <div class="cli-group">
+                <div class="cli-group-hd">🔐 vault-access</div>
+                <div class="cli-cmds">grant &lt;principal&gt; --role &lt;name&gt; --vault<br/>list · revoke &lt;id&gt; · roles</div>
+              </div>
+
+              <div class="cli-group">
+                <div class="cli-group-hd">📋 audit</div>
+                <div class="cli-cmds">logs [--from --to --action --outcome]<br/>report --type soc2|gdpr<br/>config [--retention-days n]</div>
               </div>
 
               <div class="cli-group">
                 <div class="cli-group-hd">🔄 rotation · backup · system</div>
-                <div class="cli-cmds">rotation create|list|assign|rotate|history<br/>backup create · list · restore<br/>serve · migrate · health · version</div>
+                <div class="cli-cmds">rotation create|list|update|delete|assign|unassign|rotate|history|status<br/>backup create · list · restore<br/>serve · migrate · health · version</div>
               </div>
 
               <div class="cli-note">
-                ⚡ --username · --password · --totp-code<br/>
+                ⚡ --username · --password · --totp-code · --vault (global)<br/>
                 ServiceContainer injected directly into Cobra context.<br/>
                 No HTTP · No Security Gateway.<br/>
                 --output table | json | yaml (internal/formatter/)
@@ -493,10 +538,10 @@ body{font-family:var(--font-sans);background:var(--bg);color:var(--text-primary)
       <div class="layer-label"><span>Services</span></div>
       <div class="layer-content">
         <div class="svc-container">
-          <div class="svc-container-label">④ Service Container &amp; Dependency Injection — internal/container/ · 22 Services · SRP-Compliant</div>
+          <div class="svc-container-label">④ Service Container &amp; Dependency Injection — internal/container/ · 26 Services · SRP-Compliant</div>
 
-          <!-- Auth -->
-          <div class="svc-section">🔑 Auth Services</div>
+          <!-- Auth + Identity -->
+          <div class="svc-section">🔑 Auth &amp; Identity Services</div>
           <div class="svc-grid svc-grid-4" style="margin-bottom:7px">
             <div class="svc svc-auth clickable" tabindex="0" data-id="svc-password"><span class="click-hint">↗</span><div class="svc-title">PasswordService</div><div class="svc-sub">bcrypt · validate · strength</div></div>
             <div class="svc svc-auth clickable" tabindex="0" data-id="svc-totp"><span class="click-hint">↗</span><div class="svc-title">TOTPService</div><div class="svc-sub">generate · validate · time-window</div></div>
@@ -504,10 +549,27 @@ body{font-family:var(--font-sans);background:var(--bg);color:var(--text-primary)
             <div class="svc svc-auth clickable" tabindex="0" data-id="svc-authn"><span class="click-hint">↗</span><div class="svc-title">AuthenticationService</div><div class="svc-sub">AuthUser · Refresh · RevokeSession</div></div>
           </div>
           <div class="svc-grid svc-grid-4" style="margin-bottom:7px">
+            <div class="svc svc-auth clickable" tabindex="0" data-id="svc-oidc"><span class="click-hint">↗</span><div class="svc-title">OIDCService</div><div class="svc-sub">auth-code · id_token verify · nonce</div></div>
             <div class="svc svc-auth clickable" tabindex="0" data-id="svc-oauth2"><span class="click-hint">↗</span><div class="svc-title">OAuth2Service</div><div class="svc-sub">client_credentials · introspect · SA</div></div>
             <div class="svc svc-infra clickable" tabindex="0" data-id="svc-signing"><span class="click-hint">↗</span><div class="svc-title">SigningKeyProvider</div><div class="svc-sub">OSStore · SelfPKI · ExternalPKI</div></div>
-            <div class="svc svc-platform clickable" tabindex="0" data-id="svc-user"><span class="click-hint">↗</span><div class="svc-title">UserService</div><div class="svc-sub">Create/List/Get/Update/Delete</div></div>
-            <div class="svc svc-platform clickable" tabindex="0" data-id="svc-rbac"><span class="click-hint">↗</span><div class="svc-title">RBACService</div><div class="svc-sub">CheckPermission · per-op policies</div></div>
+            <div class="svc svc-platform clickable" tabindex="0" data-id="svc-user"><span class="click-hint">↗</span><div class="svc-title">UserService</div><div class="svc-sub">CRUD · bootstrap · external (OIDC)</div></div>
+          </div>
+
+          <div class="svc-divider"></div>
+
+          <!-- Vault + Authorization + Audit -->
+          <div class="svc-section">🏛️ Vault, Authorization &amp; Audit Services</div>
+          <div class="svc-grid svc-grid-4" style="margin-bottom:7px">
+            <div class="svc svc-platform clickable" tabindex="0" data-id="svc-vault"><span class="click-hint">↗</span><div class="svc-title">VaultService</div><div class="svc-sub">create/update · cascade delete · purge</div></div>
+            <div class="svc svc-platform clickable" tabindex="0" data-id="svc-roleassign"><span class="click-hint">↗</span><div class="svc-title">RoleAssignmentService</div><div class="svc-sub">11 Azure roles · HasDataAction</div></div>
+            <div class="svc svc-platform clickable" tabindex="0" data-id="svc-vaultauthz"><span class="click-hint">↗</span><div class="svc-title">Vault Authorization Gate</div><div class="svc-sub">deny-by-default · per-vault data plane</div></div>
+            <div class="svc svc-platform clickable" tabindex="0" data-id="svc-access"><span class="click-hint">↗</span><div class="svc-title">AccessPolicyService</div><div class="svc-sub">explicit-deny override · evaluated 1st</div></div>
+          </div>
+          <div class="svc-grid svc-grid-4" style="margin-bottom:7px">
+            <div class="svc svc-platform clickable" tabindex="0" data-id="svc-rbac"><span class="click-hint">↗</span><div class="svc-title">RBACService</div><div class="svc-sub">global roles · /users routes only</div></div>
+            <div class="svc svc-infra clickable" tabindex="0" data-id="svc-cascade"><span class="click-hint">↗</span><div class="svc-title">VaultCascadeAdapter</div><div class="svc-sub">fan-out secrets/keys/certs · Tx-aware</div></div>
+            <div class="svc svc-infra clickable" tabindex="0" data-id="svc-audit"><span class="click-hint">↗</span><div class="svc-title">AuditService</div><div class="svc-sub">RecordEvent · SHA-256 hash chain</div></div>
+            <div class="svc svc-infra clickable" tabindex="0" data-id="svc-compliance"><span class="click-hint">↗</span><div class="svc-title">ComplianceReportService</div><div class="svc-sub">SOC 2 · GDPR · retention purge</div></div>
           </div>
 
           <div class="svc-divider"></div>
@@ -524,7 +586,7 @@ body{font-family:var(--font-sans);background:var(--bg);color:var(--text-primary)
             <div class="svc svc-secret clickable" tabindex="0" data-id="svc-scheduler"><span class="click-hint">↗</span><div class="svc-title">SchedulerService</div><div class="svc-sub">cron triggers · cert renewal scan</div></div>
             <div class="svc svc-secret clickable" tabindex="0" data-id="svc-tag"><span class="click-hint">↗</span><div class="svc-title">TagService</div><div class="svc-sub">Add · Remove · FilterByTag (max 15)</div></div>
             <div class="svc svc-secret clickable" tabindex="0" data-id="svc-cache"><span class="click-hint">↗</span><div class="svc-title">CachedSecretService</div><div class="svc-sub">SecretCache · read-through · invalidate</div></div>
-            <div class="svc svc-platform clickable" tabindex="0" data-id="svc-access"><span class="click-hint">↗</span><div class="svc-title">AccessPolicyService</div><div class="svc-sub">per-op policies · principal lookup</div></div>
+            <div class="svc svc-infra clickable" tabindex="0" data-id="svc-backup"><span class="click-hint">↗</span><div class="svc-title">ItemBackupService</div><div class="svc-sub">BackupSecret/Key/Cert · RestoreBlob</div></div>
           </div>
 
           <div class="svc-divider"></div>
@@ -532,15 +594,15 @@ body{font-family:var(--font-sans);background:var(--bg);color:var(--text-primary)
           <!-- Keys + Certs -->
           <div class="svc-section">🗝️ Key &amp; Certificate Services</div>
           <div class="svc-grid svc-grid-4">
-            <div class="svc svc-key clickable" tabindex="0" data-id="svc-key"><span class="click-hint">↗</span><div class="svc-title">KeyService</div><div class="svc-sub">RSA/ECDSA · CRUD · rotate · revoke</div></div>
-            <div class="svc svc-key clickable" tabindex="0" data-id="svc-keycrypto"><span class="click-hint">↗</span><div class="svc-title">CryptoService</div><div class="svc-sub">WrapKey · UnwrapKey · KEK ops</div></div>
+            <div class="svc svc-key clickable" tabindex="0" data-id="svc-key"><span class="click-hint">↗</span><div class="svc-title">KeyService</div><div class="svc-sub">RSA/EC/oct · rotate · recover · purge</div></div>
+            <div class="svc svc-key clickable" tabindex="0" data-id="svc-keycrypto"><span class="click-hint">↗</span><div class="svc-title">CryptoService</div><div class="svc-sub">Sign/Verify · Enc/Dec · Wrap/Unwrap</div></div>
             <div class="svc svc-key clickable" tabindex="0" data-id="svc-cert"><span class="click-hint">↗</span><div class="svc-title">CertificateService</div><div class="svc-sub">X.509 · self-signed · CA · CRL</div></div>
             <div class="svc svc-key clickable" tabindex="0" data-id="svc-certrenewal"><span class="click-hint">↗</span><div class="svc-title">CertRenewalService</div><div class="svc-sub">ExpiresAt scan · auto-renew · events</div></div>
           </div>
           <div class="svc-grid svc-grid-4 mt8">
+            <div class="svc svc-key clickable" tabindex="0" data-id="svc-keyprovider"><span class="click-hint">↗</span><div class="svc-title">KeyProvider</div><div class="svc-sub">Software PEM · PKCS#11 HSM · AES-only</div></div>
             <div class="svc svc-key clickable" tabindex="0" data-id="svc-pki"><span class="click-hint">↗</span><div class="svc-title">PKI Service</div><div class="svc-sub">Root + Intermediate CA · sign CSR</div></div>
             <div class="svc svc-infra clickable" tabindex="0" data-id="svc-softdelete"><span class="click-hint">↗</span><div class="svc-title">SoftDeleteService</div><div class="svc-sub">7–90d retention · purge protection</div></div>
-            <div class="svc svc-infra clickable" tabindex="0" data-id="svc-backup"><span class="click-hint">↗</span><div class="svc-title">ItemBackupService</div><div class="svc-sub">BackupSecret/Key/Cert · RestoreBlob</div></div>
             <div class="svc svc-infra clickable" tabindex="0" data-id="svc-retry"><span class="click-hint">↗</span><div class="svc-title">RetryService + WebhookService</div><div class="svc-sub">exp back-off · HMAC-SHA256 dispatch</div></div>
           </div>
         </div>
@@ -616,10 +678,10 @@ body{font-family:var(--font-sans);background:var(--bg);color:var(--text-primary)
               <div class="domain-card-hd">🛡️ AccessPolicy</div>
               <div class="domain-card-fields">
                 <span class="ft">uuid</span> ID · PrincipalID<br/>
-                <span class="ft">str&nbsp;</span> PrincipalType · ResourceType<br/>
-                <span class="ft">str&nbsp;</span> ResourceID · Permission
+                <span class="ft">*uuid</span> VaultID (nil=global) · AssignmentID<br/>
+                <span class="ft">str&nbsp;</span> ResourceType · Operation · Effect (allow|deny)
               </div>
-              <div class="domain-methods">secrets:get · secrets:set · keys:rotate · certs:sign</div>
+              <div class="domain-methods">CheckAccess(): deny wins → AccessDenied · else → AccessAllowed · no row → AccessFallback (use RBAC)</div>
             </div>
             <div class="domain-card clickable" tabindex="0" data-id="domain-oauth2">
               <span class="click-hint">↗</span>
@@ -651,6 +713,42 @@ body{font-family:var(--font-sans);background:var(--bg);color:var(--text-primary)
               <div class="domain-methods">SOC2 · GDPR · HIPAA · ISO 27001</div>
             </div>
           </div>
+
+          <div class="domain-grid" style="grid-template-columns:repeat(3,1fr);margin-top:8px">
+            <div class="domain-card clickable" tabindex="0" data-id="domain-vault">
+              <span class="click-hint">↗</span>
+              <div class="domain-card-hd">🏛️ Vault</div>
+              <div class="domain-card-fields">
+                <span class="ft">uuid</span> ID · CreatedBy · UpdatedBy<br/>
+                <span class="ft">str&nbsp;</span> Name (3-63 lower-alnum/hyphen)<br/>
+                <span class="ft">bool</span> Enabled · PurgeProtection<br/>
+                <span class="ft">int&nbsp;</span> RetentionDays · <span class="ft">map</span> Tags (≤15)<br/>
+                <span class="ft">*t&nbsp;&nbsp;</span> DeletedAt · ScheduledPurgeAt · UpdatedAt
+              </div>
+              <div class="domain-methods">ValidateVaultName() · ValidateVaultTags() · DefaultVaultID (well-known UUID)</div>
+            </div>
+            <div class="domain-card clickable" tabindex="0" data-id="domain-roleassignment">
+              <span class="click-hint">↗</span>
+              <div class="domain-card-hd">🎖️ RoleAssignment · Azure Roles</div>
+              <div class="domain-card-fields">
+                <span class="ft">uuid</span> ID · PrincipalID · VaultID · CreatedBy<br/>
+                <span class="ft">str&nbsp;</span> PrincipalType (user|service_account)<br/>
+                <span class="ft">str&nbsp;</span> Role — one of 11 Azure built-in names<br/>
+                <span class="ft">str&nbsp;</span> DataAction: "Microsoft.KeyVault/vaults/…/action"
+              </div>
+              <div class="domain-methods">AzureRoleDataActions() · RoleGrantsDataAction() · IsAzureRole() · AzureRoleNames()</div>
+            </div>
+            <div class="domain-card clickable" tabindex="0" data-id="domain-scope">
+              <span class="click-hint">↗</span>
+              <div class="domain-card-hd">🧭 Scope</div>
+              <div class="domain-card-fields">
+                <span class="ft">enum</span> kind: Invalid·Vault·Owner·Admin<br/>
+                <span class="ft">uuid</span> vaultID · ownerID · actorID (unexported)<br/>
+                zero value = ScopeInvalid → fails closed
+              </div>
+              <div class="domain-methods">NewVaultScope · NewOwnerScope · NewAdminScope · Validate() · ResolvedVaultID()</div>
+            </div>
+          </div>
         </div>
       </div>
     </div>
@@ -680,6 +778,12 @@ body{font-family:var(--font-sans);background:var(--bg);color:var(--text-primary)
             <div class="repo-card clickable" tabindex="0" data-id="repo-oauth2"><span class="click-hint">↗</span><div class="repo-card-hd">OAuth2ClientRepository</div><div class="repo-methods">Create · GetByID<br/>FindByName · List<br/>Update · Delete</div></div>
             <div class="repo-card clickable" tabindex="0" data-id="repo-certpolicy"><span class="click-hint">↗</span><div class="repo-card-hd">CertPolicyRepository</div><div class="repo-methods">GetPolicy · SetPolicy<br/>ListExpiring<br/>UpdateLastRenewed</div></div>
           </div>
+          <div class="repo-grid" style="margin-top:7px">
+            <div class="repo-card clickable" tabindex="0" data-id="repo-vault"><span class="click-hint">↗</span><div class="repo-card-hd">VaultRepository</div><div class="repo-methods">Create · ReadByName · ReadByID<br/>List · ListDeleted · Update<br/>SoftDeleteTx · RecoverTx · Purge</div></div>
+            <div class="repo-card clickable" tabindex="0" data-id="repo-role"><span class="click-hint">↗</span><div class="repo-card-hd">RoleAssignmentRepository</div><div class="repo-methods">Create · GetByID · ListByVault<br/>ListByPrincipalInVault<br/>FindByTuple · Delete</div></div>
+            <div class="repo-card clickable" tabindex="0" data-id="repo-audit"><span class="click-hint">↗</span><div class="repo-card-hd">AuditRepository</div><div class="repo-methods">PersistAudit · InsertAuditLog<br/>QueryAuditLogs · GetLastHash<br/>DeleteBefore · Get/SetAuditConfig</div></div>
+            <div class="repo-card clickable" tabindex="0" data-id="repo-scope"><span class="click-hint">↗</span><div class="repo-card-hd">Scope Predicate</div><div class="repo-methods">ScopeVault → vault_id=?<br/>ScopeOwner → user_id=?<br/>ScopeAdmin → 1=1 · else fail closed</div></div>
+          </div>
         </div>
       </div>
     </div>
@@ -695,7 +799,7 @@ body{font-family:var(--font-sans);background:var(--bg);color:var(--text-primary)
       <div class="layer-content">
         <div class="infra-container">
           <div class="box-label" style="color:var(--c-infra-txt)">⑦ Infrastructure &amp; Cross-Cutting Concerns</div>
-          <div class="infra-grid">
+          <div class="infra-grid" style="grid-template-columns:repeat(4,1fr)">
             <div class="infra-group clickable" tabindex="0" data-id="infra-cache">
               <span class="click-hint">↗</span>
               <div class="infra-group-hd">⚡ Cache Layer</div>
@@ -721,6 +825,16 @@ body{font-family:var(--font-sans);background:var(--bg);color:var(--text-primary)
               <div class="infra-item">Webhook events — HMAC-SHA256</div>
               <div class="infra-item">Soft-delete 7–90d retention</div>
               <div class="infra-item">Retry service — exp back-off</div>
+              <div class="infra-item">Audit log retention — configurable via /audit/config (default 365d)</div>
+            </div>
+            <div class="infra-group clickable" tabindex="0" data-id="infra-hsm">
+              <span class="click-hint">↗</span>
+              <div class="infra-group-hd">🔐 HSM / Key Provider</div>
+              <div class="infra-item">PKCS#11 provider — SoftHSM2 / hardware HSM tokens</div>
+              <div class="infra-item">SoftwareKeyProvider — in-process Go crypto (default)</div>
+              <div class="infra-item">KeyProvider interface — Sign/Verify/Encrypt/Decrypt/Wrap</div>
+              <div class="infra-item">OCT/AES key gen — HSM-only (Azure Managed-HSM parity)</div>
+              <div class="infra-item">hsm.enabled + lib_path/token_label/pin in .rocketvault.yaml</div>
             </div>
           </div>
         </div>
@@ -775,7 +889,7 @@ body{font-family:var(--font-sans);background:var(--bg);color:var(--text-primary)
             </div>
             <div style="background:#FAFAF8;border:1px solid var(--border);border-left:3px solid #6B5ED4;border-radius:var(--r-md);padding:11px 13px">
               <div style="font-size:12px;font-weight:600;color:var(--text-primary);margin-bottom:4px">Auth &amp; Access</div>
-              <div style="font-size:11px;font-family:var(--font-mono);color:var(--text-secondary);line-height:1.6">JWT RS256/ES256 + TOTP MFA · RBAC + per-op policies · role self-promotion blocked · OAuth2 service accounts</div>
+              <div style="font-size:11px;font-family:var(--font-mono);color:var(--text-secondary);line-height:1.6">JWT RS256/ES256 + TOTP MFA · OIDC SSO login · global RBAC + per-vault Azure role assignments (HasDataAction) · per-op access policies (explicit-deny) · role self-promotion blocked · OAuth2 service accounts</div>
             </div>
             <div style="background:#FAFAF8;border:1px solid var(--border);border-left:3px solid #16A34A;border-radius:var(--r-md);padding:11px 13px">
               <div style="font-size:12px;font-weight:600;color:var(--text-primary);margin-bottom:4px">Audit &amp; Compliance</div>
@@ -871,7 +985,7 @@ curl -H "Authorization: Bearer <JWT>" \
   badge:'HTTP · Security', color:'#7A2A06', title:'Security Gateway & Middleware', layer:'Layer 2 — Delivery (HTTP Path)',
   desc:'Every inbound HTTP request passes through the middleware stack in order: Request-ID injection → Rate Limiting → CORS → Authentication → RBAC. Only requests that pass all checks reach the handler. CLI traffic bypasses this layer entirely — it has no HTTP stack.',
   responsibilities:['Inject a unique X-Request-ID header on every request for tracing','Apply per-IP token-bucket rate limiting (300/min global, 5/min on auth endpoints)','Validate CORS origin against configured allow-list','Validate JWT signature using JWKS (RS256/ES256) with optional HS256 fallback during migration window','Validate TOTP code on login; require kid + jti claims on subsequent requests','Enforce IP allowlist / CIDR ranges from .rocketvault.yaml','Set HSTS header only when TLS is enabled (prevents browser caching on HTTP dev)','Log every request: method · path · status · duration_ms · user_id · request_id'],
-  details:[['Middleware order','RequestID → RateLimit → CORS → Auth → RBAC → Handler'],['JWT signing','RS256 (OSStoreProvider default) · ES256 (SelfPKIProvider)'],['JWT fallback','HS256 tokens accepted during configurable migration_window (24h default)'],['TOTP','6-digit time-based one-time password (RFC 6238)'],['Rate limiting','Token-bucket: 300 req/min global · 5 req/min on /login /refresh /oauth2/token'],['Rate headers','X-RateLimit-Limit · X-RateLimit-Remaining · X-RateLimit-Reset'],['IP control','CIDR range allowlist in .rocketvault.yaml · network.allowed_cidrs'],['HSTS','Strict-Transport-Security only when server.tls.enabled = true'],['Router','github.com/gorilla/mux · HTTP/2 · configurable TLS cert/key']],
+  details:[['Middleware order','CORS → RateLimit → Authentication → VaultResolution → Policy → Authorization → Handler (api/api.go)'],['Vault-scoped requests (new)','VaultResolutionMiddleware resolves {vault_name} into context and PolicyMiddleware runs a deny-by-default per-vault role-assignment check before the pre-existing global AuthorizationMiddleware — added for v4.0.0 multi-vault + Azure RBAC'],['JWT signing','RS256 (OSStoreProvider default) · ES256 (SelfPKIProvider)'],['JWT fallback','HS256 tokens accepted during configurable migration_window (24h default)'],['TOTP','6-digit time-based one-time password (RFC 6238)'],['Rate limiting','Token-bucket: 300 req/min global · 5 req/min on /login /refresh /oauth2/token'],['Rate headers','X-RateLimit-Limit · X-RateLimit-Remaining · X-RateLimit-Reset'],['IP control','CIDR range allowlist in .rocketvault.yaml · network.allowed_cidrs'],['HSTS','Strict-Transport-Security only when server.tls.enabled = true'],['Router','github.com/gorilla/mux · HTTP/2 · configurable TLS cert/key']],
   code:`# .rocketvault.yaml
 rate_limit:
   default: 300   # req/min per IP
@@ -888,15 +1002,15 @@ server:
     cert_file: /etc/ssl/certs/vault.crt
     key_file:  /etc/ssl/private/vault.key`,
   deps:['JWTService (token validation)','TOTPService (MFA check)','RBACService (permission enforcement)','AccessPolicyService (per-op checks)','internal/logging/ (structured audit log)'],
-  note:'The middleware stack enforces defence-in-depth: a request must pass rate limiting AND authentication AND RBAC before any service method is called.'
+  note:'The middleware stack enforces defence-in-depth: a request must pass rate limiting AND authentication AND RBAC before any service method is called. For vault-scoped routes, PolicyMiddleware adds a per-vault role-assignment check ahead of that global RBAC step.'
 },
 
 /* ══ REST API ══ */
 'rest-api':{
   badge:'HTTP · REST API', color:'#3D2EA0', title:'REST API Layer', layer:'Layer 2 — Delivery (HTTP Path)',
   desc:'The HTTP delivery layer built on Gorilla Mux. Follows Mattermost api4 patterns: a typed BaseRoutes struct for route registration, a centralized ApiParams parsed once per request from path/query, and Context error-setter methods that standardise error responses. Handlers are thin — they parse input, call a service method, and return JSON.',
-  responsibilities:['Register all routes via a typed BaseRoutes struct (api/api.go)','Parse path variables and query parameters into ApiParams once per request','Delegate all business logic to the Service Container — no direct DB calls','Return standardised JSON error responses via Context.SetInternalError() / SetNotFound() etc.','Stream file downloads for export endpoints','Enforce authentication via ApiSessionRequired() wrapper on all protected routes'],
-  details:[['Architecture','Mattermost api4 pattern — BaseRoutes · ApiParams · Context error-setters'],['Handler pattern','ApiSessionRequired(app, handlerFn) wraps every protected route'],['Route groups','users · secrets · keys · certificates · soft-delete · access-policies · service-accounts · health'],['Endpoint count','50+ endpoints across 10 resource groups'],['Error format','{ id, message, detailed_error, status_code } — consistent across all routes'],['Auth','ApiSessionRequired() → validates JWT → injects Claims into Context'],['Spec','OpenAPI 3.0 · docs/api-specification.yaml · Swagger UI at /api/v1/docs'],['Wire format','application/json · FromJson/ToJson on all model types'],['API versioning','All endpoints prefixed /api/v1/ · versioning middleware']],
+  responsibilities:['Register all routes via a typed BaseRoutes struct (api/api.go)','Register vault-scoped mirrors of secrets/keys/certificates/soft-delete under /vaults/{vault_name}/... on the same BaseRoutes.VaultScoped subrouter — same handler as the flat route, called a second time so no business logic is duplicated','Parse path variables and query parameters into ApiParams once per request','Delegate all business logic to the Service Container — no direct DB calls','Return standardised JSON error responses via Context.SetInternalError() / SetNotFound() etc.','Stream file downloads for export endpoints','Enforce authentication via ApiSessionRequired() wrapper on all protected routes'],
+  details:[['Architecture','Mattermost api4 pattern — BaseRoutes · ApiParams · Context error-setters'],['Handler pattern','ApiSessionRequired(app, handlerFn) wraps every protected route'],['Route groups','users · secrets · keys · certificates · vaults · role-assignments · soft-delete · access-policies · service-accounts · health'],['Endpoint count','129 endpoints across 10 resource groups (verified against api/*.go route registrations, 2026-08-13)'],['Vault-scoped mirroring','registerSecretRoutes/registerKeyRoutes/registerCertificateRoutes/registerVaultScopedDeletedRoutes each run twice — once on BaseRoutes.{Secrets,Keys,Certificates,Deleted}, once on BaseRoutes.VaultScoped — item backup/restore routes (api/backup_item.go) stay flat-only, not mirrored'],['Vault-scoped authorization','Vault-scoped requests are authorized by PolicyMiddleware against the caller\'s per-vault role assignment, not by the global RBAC role — vault management routes (createVault/listVaults/getVault/updateVault/deleteVault) and role-assignment writes were closed as unauthorized gaps on 2026-08-11'],['Error format','{ id, message, detailed_error, status_code } — consistent across all routes'],['Auth','ApiSessionRequired() → validates JWT → injects Claims into Context'],['Spec','OpenAPI 3.0 · docs/api-specification.yaml · Swagger UI at /api/v1/docs'],['Wire format','application/json · FromJson/ToJson on all model types'],['API versioning','All endpoints prefixed /api/v1/ · versioning middleware']],
   code:`// Handler pattern (Mattermost style)
 func listSecrets(c *Context, w http.ResponseWriter, r *http.Request) {
     userID := c.MustGetUserID()  // from JWT claims
@@ -910,15 +1024,15 @@ func listSecrets(c *Context, w http.ResponseWriter, r *http.Request) {
     json.NewEncoder(w).Encode(secrets)
 }`,
   deps:['Security Gateway (all requests pre-validated)','ServiceContainer (GetSecretService etc.)','model/ package (FromJson · ToJson)','internal/logging/ (request logs)'],
-  note:'Handlers must NEVER call db.NewRepository() directly — all data access goes through the ServiceContainer. This was a known architectural debt (4 handlers bypassed this) that has since been fixed.'
+  note:'Handlers must NEVER call db.NewRepository() directly — all data access goes through the ServiceContainer. This was a known architectural debt (4 handlers bypassed this) that has since been fixed. Vault management and vault-scoped resource routes were added for the v4.0.0 multi-vault + Azure RBAC feature; their authorization gaps were closed on 2026-08-11.'
 },
 
 /* ══ CLI ══ */
 'cli-layer':{
   badge:'CLI · Cobra', color:'#7A500A', title:'CLI Layer (cmd/)', layer:'Layer 2 — Delivery (CLI Path)',
-  desc:'A Cobra-based CLI binary that is a peer of the REST API, not a client of it. The CLI constructs a full ServiceContainer from config, authenticates the user, and calls service methods directly in-process. Zero network overhead. Supports table/JSON/YAML output via the internal/formatter/ package.',
-  responsibilities:['Parse credentials (--username, --password, --totp-code) on every command via PersistentPreRun','Construct a ServiceContainer and inject it into the Cobra command Context','Call service methods directly — no HTTP, no Security Gateway','Translate domain structs into [][]string rows and delegate rendering to internal/formatter/','Write audit log entries for all mutating operations','Support --output table|json|yaml on all list and get commands'],
-  details:[['Framework','github.com/spf13/cobra · PersistentPreRun for DI wiring'],['DI pattern','ctx = context.WithValue(ctx, common.ServiceContainerKey, sc)'],['Auth flow','PersistentPreRun: login → get JWT → store Claims in context'],['Output','--output flag → internal/formatter/.New(format) → Write(headers, rows)'],['Formatter pkg','internal/formatter/ · tableFormatter (text/tabwriter) · jsonFormatter · yamlFormatter'],['Commands','secrets · keys · certificates · users · rotation · backup · serve · migrate · health · version'],['Secrets subcmds','list · get · create · update · delete · export · import · version'],['Keys subcmds','list · get · create · update · delete · rotate · wrap · unwrap'],['Certs subcmds','list · get · create · update · delete · renew · revoke'],['Rotation subcmds','create · list · update · delete · assign · unassign · rotate · history · status'],['Backup subcmds','create · list · restore']],
+  desc:'A Cobra-based CLI binary that is a peer of the REST API, not a client of it. The CLI constructs a full ServiceContainer from config, authenticates the user, and calls service methods directly in-process. Zero network overhead. Supports table/JSON/YAML output via the internal/formatter/ package. As of 2026-08-13 it also carries the multi-vault + Azure RBAC command groups (vaults, vault-access) and the audit/compliance command group that the REST API already exposed.',
+  responsibilities:['Parse credentials (--username, --password, --totp-code) on every command via PersistentPreRun','Construct a ServiceContainer and inject it into the Cobra command Context','Resolve the target vault from --vault (global persistent flag) via common.ResolveVaultName: flag > ROCKETVAULT_VAULT env > config > "default"','Call service methods directly — no HTTP, no Security Gateway','Enforce per-vault Azure RBAC via cmd/vaultcli.RequireDataAction (access-policy deny override, then deny-by-default role check) on secrets/keys/certificates/vault-access commands before every service call','Translate domain structs into [][]string rows and delegate rendering to internal/formatter/','Write audit log entries for all mutating operations','Support --output table|json|yaml on all list and get commands'],
+  details:[['Framework','github.com/spf13/cobra · PersistentPreRun for DI wiring'],['DI pattern','ctx = context.WithValue(ctx, common.ServiceContainerKey, sc)'],['Auth flow','PersistentPreRun: login → get JWT → store Claims in context'],['Vault selection','--vault flag (global, persistent, cmd/root.go) → common.ResolveVaultName: flag > ROCKETVAULT_VAULT env > config "vault" key > "default"'],['Output','--output flag → internal/formatter/.New(format) → Write(headers, rows)'],['Formatter pkg','internal/formatter/ · tableFormatter (text/tabwriter) · jsonFormatter · yamlFormatter'],['Commands','secrets · keys · certificate · users · vaults · vault-access · audit · rotation · backup · serve · migrate · health · version'],['Secrets subcmds','list · get · create · update · delete · export · import · generate-password'],['Keys subcmds','list · get · create (RSA/ECDSA only) · update · delete · rotate · wrap · unwrap — OCT/HSM symmetric keys land via POST /keys only, `keys create --type` has no OCT path yet'],['Certs subcmds','list · get · create · update · delete · renew — no CLI revoke (API has POST /{id}/revoke, CLI does not)'],['Users subcmds','admin (bootstrap) · login · list · get · create · update · delete'],['Vaults subcmds','create · list · get · update · delete · recover · purge · preview-migration'],['Vault-access subcmds','grant · list · revoke · roles — per-vault Azure role assignments (RoleAssignmentService)'],['Audit subcmds','logs (filter by time/user/action/outcome/resource) · report (soc2 or gdpr, json/csv) · config (get/set retention-days)'],['Rotation subcmds','create · list · update · delete · assign · unassign · rotate · history · status'],['Backup subcmds','create · list · restore']],
   code:`// PersistentPreRun pattern (cmd/root.go)
 PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
     sc, err := container.NewServiceContainer(cfg)
@@ -932,9 +1046,13 @@ PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
     ctx = context.WithValue(ctx, common.ClaimsKey, result.Claims)
     cmd.SetContext(ctx)
     return nil
-}`,
-  deps:['ServiceContainer (all 22 services)','AuthenticationService (login on every command)','internal/formatter/ (output rendering)','internal/logging/ (audit trail)'],
-  note:'CLI and REST API are sibling delivery layers — both call the same ServiceContainer. The CLI does NOT go through the HTTP Security Gateway or the REST API handlers.'
+}
+
+// Per-vault authorization before a data-plane call (cmd/vaultcli/vault.go)
+vaultID, err := vaultcli.RequireDataAction(ctx, cmd, sc,
+    claims.UserID, model.ActionSecretsGet, model.OpGet)`,
+  deps:['ServiceContainer (all services, including VaultService and RoleAssignmentService)','AuthenticationService (login on every command)','cmd/vaultcli/ (--vault resolution + RequireDataAction authorization)','internal/formatter/ (output rendering)','internal/logging/ (audit trail)'],
+  note:'CLI and REST API are sibling delivery layers — both call the same ServiceContainer. The CLI does NOT go through the HTTP Security Gateway or the REST API handlers. Two known gaps as of 2026-08-13: (1) `keys create` has no --type OCT flag, so HSM-backed AES-KW symmetric keys can only be created via the REST API (KeyService.CreateOctKey), not the CLI; (2) certificate revoke exists as a REST endpoint (POST /{id}/revoke) but has no CLI command.'
 },
 
 /* ══ SERVICES ══ */
@@ -1046,10 +1164,11 @@ jwt:
 },
 'svc-rbac':{
   badge:'Service · Authorization', color:'#7A500A', title:'RBACService', layer:'Layer 3 — Service Container',
-  desc:'Role-Based Access Control enforcement. Checks whether a user has the required role for an operation. Works in tandem with AccessPolicyService for per-operation, per-resource policies. Role self-promotion and ownership enforcement are key security properties.',
-  responsibilities:['Check whether a user\'s role satisfies a required role level','Enforce ownership: users can only access their own resources unless admin','Block role self-promotion: prevent privilege escalation','Integrate with AccessPolicyService for fine-grained per-op policies','Log all permission denials to the audit trail'],
-  details:[['Roles (ascending)','user → secrets_manager → crypto_manager → certificate_manager → admin'],['Role check','HasRequiredRole(userRole, requiredRole) — hierarchical comparison'],['Ownership','All resources have UserID — checked before allowing read/write'],['Self-promotion block','UpdateUser: if caller is not admin, cannot change own role'],['Per-op policies','Delegates to AccessPolicyService for granular resource-level access'],['Audit','Every DENY logged as a structured audit event']],
-  deps:['AccessPolicyService (fine-grained per-op checks)','UserRepository (ownership lookup)']
+  desc:'Global, account-level role permissions — deliberately narrow since v4.0.0. It answers "does this account role hold this global permission?" and gates user-management endpoints. It no longer gates vault resources: every /vaults path and every vault data-plane route returns "no permission required" here and is authorized per vault instead.',
+  responsibilities:['HasPermission(role, permission): check a role against its global permission bundle','GetRolePermissions(role): list the permissions a global role carries','ValidateEndpointAccess(role, method, path): map an endpoint to a required permission and deny if the role lacks it','Return no requirement for vault data-plane routes — they are authorized by RoleAssignmentService per vault','Return no requirement for every /vaults path — vault management defers to the handler\'s CanManageVault / CanManageRoleAssignments','Log every denial as a structured audit event'],
+  details:[['Interface','authzServices.RBACService — HasPermission() · GetRolePermissions() · ValidateEndpointAccess()'],['Global roles','user · secrets_manager · crypto_manager · certificate_manager · admin (model.Role*)'],['Endpoints still gated','/users only — POST→users:create · GET→users:list/users:read · PUT→users:update · DELETE→users:delete'],['Vault data plane','MapRouteToDataAction returns RouteVaultData → mapEndpointToPermission returns "" (no global requirement)'],['Vault management','Any path starting with "vaults" returns "" — the handler runs the vault-aware check instead'],['Why it was narrowed','The old vault-blind global gate denied non-admins before the handler\'s per-vault check could run, making CanManageVault / CanManageRoleAssignments unreachable'],['Permission vocabulary','secrets:* · keys:* · certificates:* · users:* · vaults:manage · system:manage — the resource permissions survive for GetRolePermissions display even though routes no longer consult them'],['Audit','Every DENY logged via LogAuditError with role, method and path']],
+  deps:['MapRouteToDataAction (to recognise and skip data-plane routes)','AuthorizationMiddleware (sole caller of ValidateEndpointAccess)','Logger (denial audit events)'],
+  note:'Do not read this service as the authorization story for secrets, keys or certificates — it is not. Those are decided entirely by RoleAssignmentService.HasDataAction against the caller\'s assignments in the resolved vault.'
 },
 'svc-secret':{
   badge:'Service · Secrets', color:'#065038', title:'SecretService', layer:'Layer 3 — Service Container',
@@ -1098,23 +1217,29 @@ master_key: "***SECRET-REMOVED-2026-08-17***"
 },
 'svc-key':{
   badge:'Service · Keys', color:'#7A2A06', title:'KeyService', layer:'Layer 3 — Service Container',
-  desc:'Full lifecycle management for cryptographic keys: RSA and ECDSA generation, storage, rotation, and revocation. Key material is stored encrypted in the database. Revoked keys cannot be used but are retained for audit purposes.',
-  responsibilities:['Generate RSA (2048/4096-bit) or ECDSA (P-256/P-384) key pairs','Encrypt private key PEM using CryptographyService before storage','Retrieve and decrypt keys on demand (with ownership check)','Rotate: generate a new key pair, revoke the old one, preserve both in DB','Revoke: mark key as revoked — prevents use but retains for audit','Soft-delete with configurable retention period'],
-  details:[['Interface','keyServices.KeyService'],['Key types','KeyTypeRSA (2048/4096-bit) · KeyTypeECDSA (P-256/P-384) · KeyTypeES256K · KeyTypeOct'],['Storage','Private key encrypted with CryptographyService (AES-256-GCM master_key)'],['IsAccessible()','Returns false if: Revoked=true OR Enabled=false OR time < NotBefore OR time > ExpiresAt'],['Rotate','GenerateNewKey → CreateKey → old key.Revoked = true → persist both'],['Soft-delete','Sets deleted_at and scheduled_purge_at — purge only after retention period']],
-  code:`// Create a key
-req := keyServices.CreateKeyRequest{
-    UserID: userID, Name: "my-key",
-    Type: model.KeyTypeRSA, Bits: 2048,
-}
-key, err := keySvc.CreateKey(ctx, req)`,
-  deps:['CryptographyService (key encryption)','KeyRepository','CryptoService (wrap/unwrap operations)']
+  desc:'Full lifecycle management for cryptographic keys: RSA, ECDSA and — on an HSM only — symmetric AES (oct) keys. Generation is delegated to the configured KeyProvider, so the same code path produces either an encrypted software PEM or an opaque PKCS#11 token handle. Every operation is authorized by an explicit model.Scope, and delete is soft with recover and purge.',
+  responsibilities:['CreateRSAKey (2048/3072/4096) and CreateECDSAKey (P-256/P-384/P-521/P-256K) via the configured KeyProvider','CreateOctKey: generate a symmetric AES-128/192/256 key — HSM-only, fails with ErrOctKeysRequireHSM on the software provider','Encrypt software key material with AES-256-GCM before storage; store HSM keys as an opaque "pkcs11:<label>" reference','GetKey / ListKeys: read authorized by model.Scope and narrowed by a KeyFilter, enforcing the key\'s lifecycle state','UpdateKey: patch name, tags, enabled, revoked, expires_at and not_before','RotateKey: generate a fresh key and retire the old one, preserving both','DeleteKey / ListDeletedKeys / RecoverKey / PurgeKey: Azure-parity soft-delete with recovery and permanent purge','Invalidate the key cache on every mutation'],
+  details:[['Interface','keyServices.KeyService'],['Key types','model.KeyTypeRSA · KeyTypeECDSA · KeyTypeES256K (P-256K gets its own type so the crypto layer routes it correctly) · KeyTypeOct (HSM-only)'],['Generation','crypto.KeyProvider — SoftwareKeyProvider returns PEM, PKCS11KeyProvider returns a CKA_LABEL'],['Software storage','common.EncryptSecret (AES-256-GCM under master_key) applied to the PEM before the row is written'],['HSM storage','Value = "pkcs11:" + label — no private key material ever reaches the process, and nothing is cached'],['oct keys','128/192/256 bits only; Azure restricts symmetric key creation to Managed HSM and RocketVault mirrors that — POST /keys with kty=oct on a software provider returns 400'],['Authorization','model.Scope on every read and write — ScopeVault (any vault member) or ScopeAdmin; the zero value ScopeInvalid fails closed'],['IsAccessible()','False if Revoked, or not Enabled, or now < NotBefore, or now > ExpiresAt'],['Cache','keycache.Cache invalidated on update/rotate/delete; PKCS#11 keys are never cached'],['API','POST /keys (kty rsa|ec|oct) · GET/PATCH/DELETE /keys/{id} · POST /keys/{id}/rotate · /deleted/keys/{id}/recover|purge']],
+  code:`// Symmetric key — HSM only
+res, err := keySvc.CreateOctKey(ctx, keyServices.CreateKeyRequest{
+    UserID: userID, VaultID: vaultID, Name: "aes-wrap", Bits: 256,
+})
+// SoftwareKeyProvider → crypto.ErrOctKeysRequireHSM → HTTP 400`,
+  deps:['crypto.KeyProvider (software or PKCS#11)','KeyRepository','keycache.Cache','common.EncryptSecret / DecryptSecret (AES-256-GCM master_key)'],
+  note:'Enabling HSM support is a per-deployment switch (hsm.enabled), not a per-key one. Keys created while the software provider was active stay software-backed after the switch; only new keys land on the token, and oct keys simply cannot exist on a software-only deployment.'
 },
 'svc-keycrypto':{
-  badge:'Service · Key Crypto', color:'#7A2A06', title:'CryptoService (Wrap/Unwrap)', layer:'Layer 3 — Service Container',
-  desc:'Provides key-encryption-key (KEK) operations: wrapping a plaintext key with an RSA or ECDSA key stored in the vault (WrapKey), and unwrapping it back (UnwrapKey). This is Azure Key Vault\'s key wrap/unwrap parity feature.',
-  responsibilities:['WrapKey: encrypt arbitrary bytes using an RSA or ECDSA key from the vault','UnwrapKey: decrypt a wrapped key blob using the corresponding private key','Perform all crypto operations in-memory — no wrapped data is persisted','Validate that the wrapping key exists, is not revoked, and is owned by the caller'],
-  details:[['Interface','keyServices.CryptoService'],['WrapKey','RSA-OAEP or ECDH-ES key wrapping — depends on key type'],['UnwrapKey','Inverse of WrapKey — returns original plaintext bytes'],['Algorithm','RSA: RSA-OAEP-SHA256 · ECDSA: ECDH-ES with AES-256-GCM key wrapping'],['Use case','Protect DEK (data encryption key) before storing — unwrap only when needed'],['API','POST /keys/{id}/wrap · POST /keys/{id}/unwrap (REST) · keys wrap/unwrap (CLI)']],
-  deps:['KeyService (retrieves and decrypts the wrapping key)','KeyRepository (ownership check)']
+  badge:'Service · Key Crypto', color:'#7A2A06', title:'CryptoService', layer:'Layer 3 — Service Container',
+  desc:'Performs cryptographic operations with keys stored in the vault: sign and verify, encrypt and decrypt, and key-encryption-key wrap/unwrap. It resolves key material once per call — decrypting a software PEM (cached) or handing the PKCS#11 label straight to the HSM (never cached) — and records latency and outcome to Prometheus.',
+  responsibilities:['Sign / Verify: produce and check signatures with an RSA or ECDSA key from the vault','Encrypt / Decrypt: raw crypto operations against a stored key','WrapKey: encrypt plaintext key material with a vault key using RSA-OAEP, RSA-OAEP-256, AES-KW or AES-CBC','UnwrapKey: reverse the wrap and return the original bytes','Resolve key material through the key cache for software keys and directly from the token for PKCS#11 keys','Reject algorithms with no PKCS#11 mechanism when the key is HSM-backed','Enforce authorization via model.Scope and refuse revoked, disabled or out-of-window keys','Keep everything in memory — no wrapped blob or plaintext key is ever persisted'],
+  details:[['Interface','keyServices.CryptoService — Sign · Verify · Encrypt · Decrypt · WrapKey · UnwrapKey'],['Wrap algorithms','RSA-OAEP · RSA-OAEP-256 · A128KW/A192KW/A256KW (AES-KW) · A128CBC/A192CBC/A256CBC'],['HSM-capable wraps','RSA-OAEP, RSA-OAEP-256 and the three AES-KW variants have PKCS#11 mechanisms; AES-CBC does not and is rejected for HSM-backed keys'],['AES-KW size match','A128KW/A192KW/A256KW require an oct key of exactly 128/192/256 bits — a mismatch is rejected rather than silently coerced'],['Key material','Software: AES-256-GCM decrypt then cache the PEM · PKCS#11: the raw token handle, never cached'],['Lifecycle guard','loadAndAuthorize applies scope authorization, then revocation and the NotBefore/ExpiresAt window'],['Metrics','metrics.CryptoMetrics (Prometheus) records operation counts, latency and cache hit/miss; defaults to a no-op recorder'],['Cache','keycache.Cache keyed by (keyID, version 0); TTL and eviction from key_cache.* config'],['API','POST /keys/{id}/sign · /verify · /encrypt · /decrypt · /wrap · /unwrap (REST) · keys wrap/unwrap (CLI)']],
+  code:`res, err := cryptoSvc.WrapKey(ctx, keyServices.WrapKeyRequest{
+    KeyID: kekID, Scope: scope,
+    Algorithm: "A256KW",       // needs a 256-bit oct key — HSM only
+    PlaintextKey: dek,
+})`,
+  deps:['KeyRepository','crypto.KeyProvider (PKCS#11 mechanisms for HSM keys)','crypto.CryptoOperations (in-process algorithms)','keycache.Cache','metrics.CryptoMetrics'],
+  note:'Wrap and unwrap are not symmetric in cost: unwrapping an AES-KW blob requires the exact same oct key, which on an HSM deployment can never be exported. Back the token up at the HSM level — a RocketVault backup of an HSM-backed key contains only its "pkcs11:" label.'
 },
 'svc-cert':{
   badge:'Service · Certificates', color:'#7A2A06', title:'CertificateService', layer:'Layer 3 — Service Container',
@@ -1150,6 +1275,119 @@ key, err := keySvc.CreateKey(ctx, req)`,
   responsibilities:['RetryService: wrap service calls with configurable retry count and exponential back-off','RetryService: do not retry on permanent errors (invalid credentials, not found)','WebhookService: construct a JSON event payload for vault events (rotation, expiry, backup)','WebhookService: sign the payload with HMAC-SHA256 using a shared webhook secret','WebhookService: dispatch via HTTP POST with retry on transient failures'],
   details:[['RetryService interface','retryServices.RetryService'],['Retry policy','MaxAttempts · BaseDelay · Multiplier — configurable via .rocketvault.yaml'],['Exponential back-off','delay = BaseDelay × Multiplier^attempt (with optional jitter)'],['Non-retryable','ErrInvalidCredentials · ErrNotFound · ErrForbidden — fail fast'],['WebhookService events','secret.rotated · cert.expiring · cert.renewed · backup.created'],['Webhook signature','X-RocketVault-Signature: sha256=<HMAC-SHA256(payload, secret)>'],['Webhook retry','3 attempts with linear back-off on 5xx responses']],
   deps:['AuthenticationService (primary wrappee)','Webhook endpoints configured in .rocketvault.yaml']
+},
+'svc-oidc':{
+  badge:'Service · OIDC', color:'#0D3870', title:'OIDCService', layer:'Layer 3 — Service Container',
+  desc:'OpenID Connect authorization-code login. Redirects the browser to an external identity provider, verifies the returned ID token (signature, issuer, audience and nonce), maps the verified subject onto a local user, and issues exactly the same session a password login would. Entirely optional: the service is only constructed when oidc.enabled is true.',
+  responsibilities:['AuthCodeURL(state, nonce): build the provider\'s authorization-endpoint URL','HandleCallback: exchange the code for tokens, verify the id_token, and assert its nonce claim equals the expected nonce','Extract identity from the id_token: sub (required), email, preferred_username','Fall back to the provider\'s userinfo endpoint when the id_token omits email/preferred_username — best-effort, never fails the login','Derive a display name from name, then given_name + family_name, when preferred_username is absent','Fetch the issuer\'s OIDC discovery document once at construction (a real network round trip)'],
+  details:[['Interface','authServices.OIDCService — AuthCodeURL() · HandleCallback()'],['Routes','GET /oidc/login · GET /oidc/callback — registered on the unauthenticated OAuth2 router, alongside POST /oauth2/token'],['Libraries','github.com/coreos/go-oidc/v3 (discovery + id_token verification) · golang.org/x/oauth2 (code exchange)'],['CSRF / replay','Random state and nonce stashed in oidc_state / oidc_nonce cookies, 5-minute max-age, both re-verified on callback'],['id_token checks','Signature via provider JWKS · ClientID audience · nonce equality · non-empty sub'],['User mapping','UserService.FindOrCreateExternalUser(provider=oidc, subject, preferredUsername) — falls back to the subject when the username is empty'],['Session issuance','AuthenticationService.IssueSessionForUser(user) — identical token pair to POST /users/login'],['Config','oidc.enabled · oidc.issuer_url · oidc.client_id · oidc.client_secret · oidc.redirect_url · oidc.scopes']],
+  code:`# .rocketvault.yaml — OIDC is off unless explicitly enabled
+oidc:
+  enabled: true
+  issuer_url: "https://idp.example.com"
+  client_id: "rocketvault"
+  client_secret: "..."
+  redirect_url: "https://vault.example.com/oidc/callback"
+  scopes: ["openid", "profile", "email"]`,
+  deps:['UserService (FindOrCreateExternalUser)','AuthenticationService (IssueSessionForUser)','External OIDC provider (discovery + JWKS + userinfo)'],
+  note:'Unlike every other service in the container, NewOIDCService performs a network call at startup. It is skipped entirely when oidc.enabled is false, and a discovery failure only logs a warning — GetOIDCService() then returns nil and both /oidc routes answer 503 rather than the whole process failing to boot.'
+},
+'svc-vault':{
+  badge:'Service · Vaults', color:'#7A500A', title:'VaultService', layer:'Layer 3 — Service Container',
+  desc:'Owns the vault lifecycle. A vault is an isolated security boundary holding its own secrets, keys, certificates and role assignments; every deployment ships with a protected default vault. Delete and recover cascade to every resource inside the vault, atomically, in one transaction.',
+  responsibilities:['CreateVault: validate name and tags, apply defaults (enabled, 90-day retention) and request overrides, persist','GetVault / ListVaults(includeDeleted): read active vaults, optionally appending soft-deleted ones','UpdateVault: apply non-nil overrides for enabled, purge_protection, retention_days and tags; stamp updated_by','DeleteVault: soft-delete the vault row and cascade the soft-delete to its secrets, keys and certificates inside one transaction','RecoverVault: restore the vault, then restore only the contents stamped with that exact deleted_at — rows the user deleted individually are left alone','PurgeVault: permanently remove the vault; refuses the default vault and any vault with purge protection','Delete vault-scoped access-policy rows on purge (access_policies has no FK to vaults)','Flush the secret cache after a delete/recover cascade commits'],
+  details:[['Interface','vaultServices.VaultService'],['Default vault','model.DefaultVaultName is protected from both DeleteVault and PurgeVault'],['Retention','defaultRetentionDays = 90 on create; overridable per vault'],['Cascade','VaultCascadeAdapter fans out to the secret, key and certificate repositories'],['Transaction','SetTxBeginner wires *db.Conn → SoftDeleteTx/RecoverTx + the Tx-scoped cascade run in one db.Tx; a mid-cascade failure rolls the vault row back too'],['Recovery filter','The cascade restores only rows whose deleted_at equals the vault\'s captured deletion timestamp'],['Cache','SetSecretCacheFlusher → cache.Flush() post-commit; the cascade is one bulk UPDATE, so per-id eviction is impossible'],['Errors','ErrVaultNotFound · ErrDefaultVaultProtected · ErrVaultPurgeProtected'],['API','POST /vaults · GET /vaults · GET/PATCH/DELETE /vaults/{name} · DELETE /vaults/{vault_name}/purge'],['CLI','vaults create|list|get|update|delete|recover|purge — recover is CLI-only, it has no REST route']],
+  code:`// Delete cascades atomically when a Tx beginner is wired
+err := vaultSvc.DeleteVault(ctx, "payments")
+// → SoftDeleteTx(vault) + SoftDeleteVaultContentsTx(secrets, keys, certs)
+//   in one transaction, then cache flush, then audit log`,
+  deps:['VaultRepository','VaultCascadeAdapter (CascadeRepository)','AccessPolicyRepository (PolicyCleaner, purge only)','*db.Conn (TxBeginner)','*cache.SecretCache (SecretCacheFlusher)'],
+  note:'Vault-management routes are no longer gated by a global admin role. AuthorizationMiddleware returns "no permission required" for every /vaults path and the handler itself calls authorization.CanManageVault / CanPurgeVault, so a non-admin with the right per-vault grant can manage the vault — the previous vault-blind global gate denied those callers before the vault-aware check ever ran.'
+},
+'svc-roleassign':{
+  badge:'Service · Authorization', color:'#7A500A', title:'RoleAssignmentService', layer:'Layer 3 — Service Container',
+  desc:'Grants, lists and revokes Azure-parity role assignments scoped to a single vault, and answers the one authorization question every vault data-plane route asks: does this principal hold a role in THIS vault that grants THIS data action? HasDataAction is the fail-closed decision behind PolicyMiddleware.',
+  responsibilities:['AssignRole: validate the role, resolve the principal (UUID or username), and persist a (principal, role, vault) assignment','Idempotency: FindByTuple returns the existing assignment instead of creating a duplicate','Expand the granted role into derived access_policy rows tagged with the assignment ID','Roll back completely — delete the derived policies and the assignment — if any policy write fails','RevokeAssignment: verify the assignment belongs to the named vault, delete its policies, then delete it','ListAssignments: all role assignments in a vault','HasDataAction: return true only if some assignment held by the principal in that vault grants the action'],
+  details:[['Interface','authzServices.RoleAssignmentService'],['Built-in roles','The eleven Azure names in model.AzureRoleNames(): Key Vault Administrator · Reader · Secrets User · Secrets Officer · Crypto User · Crypto Officer · Crypto Service Encryption User · Certificates Officer · Certificate User · Purge Operator · Data Access Administrator'],['Data actions','Microsoft.KeyVault/vaults/{secrets|keys|certificates}/… plus Microsoft.KeyVault/vaults/purge/action and Microsoft.Authorization/roleAssignments/{write,delete}'],['Legacy roles rejected','vault-reader · secrets-user · secrets-officer · crypto-user · crypto-officer · certificates-officer · vault-admin are refused on assign — model.RoleGrantsDataAction only understands the Azure names, so granting one would silently confer zero data-plane access'],['Principal resolution','A parseable UUID is used directly; anything else is looked up as a username → ErrPrincipalNotFound'],['Role expansion','ExpandRole writes access_policy rows carrying assignment_id, so revoke can delete them as a unit'],['Fail-closed','Nil principal, nil vault or empty action → deny without a query; a repository error is returned as an error, never a silent false'],['Errors','ErrInvalidRole · ErrPrincipalNotFound · ErrAssignmentNotFound'],['API','GET/POST /api/v1/vaults/{vault_name}/role-assignments · GET/DELETE …/{assignment_id}'],['CLI','vault-access grant · list · revoke · roles']],
+  code:`// The decision every data-plane request funnels through
+allowed, err := roles.HasDataAction(ctx, principalID, vaultID,
+    model.ActionSecretsGet)
+// err  → 500, never "deny quietly"
+// !allowed → 403 "no role assignment grants this operation in this vault"`,
+  deps:['RoleAssignmentRepository','AccessPolicyRepository (policy expansion + assignment-scoped delete)','UserRepository (username → principal UUID)','model.AzureRoleDataActions (role → data-action table)'],
+  note:'This is the single biggest behaviour change in v4.0.0. Vault data-plane routes are now DENY-BY-DEFAULT: a route maps to exactly one Azure data action, and the caller must hold a role assignment granting that action in that specific vault. Zero matching assignments is a 403 — before P2, zero matching policy rows meant "continue". There is no global-admin short-circuit on the data plane, in the API or the CLI.'
+},
+'svc-vaultauthz':{
+  badge:'Authorization · Data Plane', color:'#7A500A', title:'Vault Authorization Gate', layer:'Layer 3 — Service Container',
+  desc:'The per-vault authorization layer that replaced "every route requires global admin". It spans three pieces: data_actions.go maps an HTTP method+path to exactly one Azure data action, PolicyMiddleware enforces the deny-by-default decision on every request, and vault_authz.go exposes the same decisions as plain functions so the CLI and handlers reach identical verdicts.',
+  responsibilities:['MapRouteToDataAction(method, path): classify a request as RouteVaultData or RouteUnmanaged and return the single required data action','PolicyMiddleware step 1 — evaluate the access_policies explicit-deny override FIRST, so a deny can never be outvoted by a role grant','PolicyMiddleware step 2 — deny-by-default: RouteVaultData requires RoleAssignmentService.HasDataAction in the resolved vault','Refuse any data-plane path that maps to no action (403), so an unrecognised route can never become an unauthorized one','CanManageVault / CanPurgeVault / CanManageRoleAssignments: handler-callable vault-management checks','RequireDataAction: the CLI-callable half of the middleware check, deliberately without an admin short-circuit','Log every denial as a structured audit event with the route template, action and vault'],
+  details:[['Files','internal/services/authorization/data_actions.go · data_action_authz.go · vault_authz.go · internal/middleware/middleware.go (PolicyMiddleware)'],['Route kinds','RouteVaultData (secrets, keys, certificates, deleted/*, purge) · RouteUnmanaged (health, login, users, vault management, role assignments, audit)'],['Vault source','The vault comes from VaultResolutionMiddleware via common.VaultIDKey — never from the path string; a flat legacy route with no value resolves to model.DefaultVaultID'],['Path shapes','/api/v1/secrets/{id} and /api/v1/vaults/{name}/secrets/{id} map to the same action on purpose — the vault is supplied by context, not by the URL'],['Base path','DataPlaneBasePath = "/api/v1" must match api.WithBasePath or every data-plane route silently degrades to RouteUnmanaged'],['Failure modes','Missing/invalid identity → 403 · invalid vault in context → 403 · policy or role lookup error → 500 (never a silent allow)'],['Admin short-circuit','Present for vault MANAGEMENT (CanManageVault, CanPurgeVault) · absent for the DATA PLANE, in both the API and the CLI'],['Deny precedence','AccessDenied short-circuits to false and is never overridden by a role grant; only AccessFallback falls through to the role check'],['CLI parity','cmd/vaultcli.RequireDataAction wraps the deny-override and the role check in that order — authorization.RequireDataAction alone is only the second step']],
+  code:`// PolicyMiddleware, condensed
+action, kind := authz.MapRouteToDataAction(r.Method, r.URL.Path)
+
+// 1. explicit-deny override, evaluated first
+if decision == authz.AccessDenied { 403 }
+
+// 2. deny-by-default for vault data-plane routes
+if kind == authz.RouteVaultData {
+    if action == "" { 403 }                       // unmapped == unauthorized
+    ok, err := roles.HasDataAction(ctx, principalID, vaultID, action)
+    if err != nil { 500 }
+    if !ok  { 403 }
+}`,
+  deps:['RoleAssignmentService (HasDataAction)','AccessPolicyService (explicit-deny override)','VaultResolutionMiddleware (common.VaultIDKey)','AuthenticationMiddleware (common.UserIDKey)'],
+  note:'Ordering is load-bearing: PolicyMiddleware must run after AuthenticationMiddleware (for the principal) and after VaultResolutionMiddleware (for the vault). Any lookup error denies with a 500 rather than falling through — the layer fails closed everywhere.'
+},
+'svc-access':{
+  badge:'Service · Authorization', color:'#7A500A', title:'AccessPolicyService', layer:'Layer 3 — Service Container',
+  desc:'Evaluates explicit per-principal access policies for a (principal, resource type, operation) triple within a vault. Since the v4.0.0 role-assignment work its primary job is the explicit-DENY override: it is evaluated before any role grant, and a deny can never be outvoted. It also stores the derived policy rows RoleAssignmentService writes when expanding a role.',
+  responsibilities:['CheckAccess: return AccessAllowed, AccessDenied or AccessFallback for a (principal, resourceType, operation, vault) triple','Explicit deny wins: any deny row in the matched set short-circuits to AccessDenied','No matching row returns AccessFallback — the caller then applies the role-assignment or RBAC check','Apply global (nil-vault) policies to every vault as well as vault-scoped rows','CRUD for policies: Create, Get, List, ListByPrincipal, Update, Delete','Hold the derived rows produced by RoleAssignmentService.ExpandRole, tagged with their assignment ID'],
+  details:[['Interface','authzServices.AccessPolicyService'],['Decisions','AccessAllowed · AccessDenied · AccessFallback (iota — AccessAllowed is the zero value)'],['Evaluation order','PolicyMiddleware calls CheckAccess BEFORE the role-assignment check, so a deny is final'],['Scope','FindEffects matches vault-scoped rows plus global (nil vault) rows'],['Role expansion','RoleAssignmentService.AssignRole writes policy rows with assignment_id; RevokeAssignment deletes them via DeleteByAssignmentID'],['Vault purge','VaultService calls AccessPolicyRepository.DeleteByVault on purge — access_policies has no FK to vaults'],['Vault management','CanManageVault / CanManageRoleAssignments consult CheckAccess on (vaults, manage) before falling through to role assignments'],['Lookup failure','Returns AccessFallback plus an error; PolicyMiddleware turns that into a 500, never an allow']],
+  deps:['AccessPolicyRepository','RoleAssignmentService (writes derived rows through the same repository)','PolicyMiddleware · CanManageVault · CanManageRoleAssignments (consumers)'],
+  note:'Access policies are no longer the primary allow mechanism for vault resources — role assignments are. Treat a policy row as a targeted override: a deny to carve an exception out of a role grant, or a derived allow written automatically when a role is assigned.'
+},
+'svc-cascade':{
+  badge:'Adapter · Vaults', color:'#2C2C2A', title:'VaultCascadeAdapter', layer:'Layer 3 — Service Container',
+  desc:'A thin fan-out adapter that turns "soft-delete this vault" into "soft-delete every secret, key and certificate in it". It satisfies VaultService\'s CascadeRepository interface over the three content repositories, and exposes both a plain and a transaction-scoped variant of each operation.',
+  responsibilities:['SoftDeleteVaultContents: stamp the vault\'s deleted_at onto every secret, key and certificate in it','RecoverVaultContents: clear deleted_at only on rows carrying that exact timestamp','SoftDeleteVaultContentsTx / RecoverVaultContentsTx: the same operations bound to a caller-supplied db.DBTX','Fail fast — the first repository error aborts the fan-out (and, in the Tx path, rolls the whole cascade back)'],
+  details:[['Constructor','vaults.NewCascadeAdapter(secretRepo, keyRepo, certRepo) → vaults.CascadeRepository'],['Content repos','SecretRepositoryInterface · KeyRepositoryInterface · CertificateRepositoryInterface, held as the narrow vaultContentRepo interface'],['Tx capability','Recovered by asserting the stored value\'s dynamic type to txCapableContentRepo — present on the real repositories, absent on plain test doubles'],['Timestamp matching','Recovery keys off the vault\'s deletion timestamp, so individually deleted rows are not resurrected by a vault recover'],['Bulk semantics','Each step is one UPDATE per resource table — ids are never enumerated, which is why VaultService flushes rather than evicts the secret cache'],['Why an adapter','Keeps the Tx-scoped methods off the exported repository interfaces, so adding them did not ripple to every test double in the codebase']],
+  deps:['SecretRepository · KeyRepository · CertificateRepository','VaultService (sole consumer, via the CascadeRepository interface)']
+},
+'svc-audit':{
+  badge:'Service · Audit', color:'#2C2C2A', title:'AuditService', layer:'Layer 3 — Service Container',
+  desc:'The write path of the compliance audit trail. Every recorded event is chained to its predecessor with a SHA-256 hash, making retroactive tampering detectable: altering or removing a row breaks the chain for every row after it. Replaces the old logging.AuditPersister across the codebase.',
+  responsibilities:['RecordEvent: enrich an event with an id and UTC timestamp, compute its chain hash, and insert it','Serialise writes with a mutex so the previous-hash read and the insert cannot interleave','Compute SHA-256(prevHash | timestamp | userID | action | details | resourceType+resourceID | outcome)','Degrade gracefully when the previous hash cannot be read — continue with an empty prevHash rather than failing','Swallow insert errors so an audit failure can never block a vault operation','PersistAudit: satisfy logging.AuditPersister for legacy call sites'],
+  details:[['Interface','auditServices.AuditServiceInterface — RecordEvent() · PersistAudit()'],['Event fields','UserID · Action · Details · ResourceType · ResourceID · IPAddress · Outcome · Source'],['Outcome','success | failure | warning'],['Source','api | cli | system (PersistAudit always records system)'],['Hash chain','The computed hash is stored in the row\'s prev_hash column and becomes the anchor for the next event'],['Concurrency','sync.Mutex serialises RecordEvent so prev_hash stays consistent under load'],['Failure handling','Insert errors are logged with the stdlib log package (avoiding a circular dependency on internal/logging) and then dropped'],['Storage','repositories.AuditRepositoryExtended → audit_logs, plus the audit_config key/value table']],
+  code:`_ = auditSvc.RecordEvent(ctx, audit.AuditEvent{
+    UserID: userID, Action: "get_secret", Outcome: "success",
+    ResourceType: "secret", ResourceID: secretID,
+    IPAddress: clientIP, Source: "api",
+})`,
+  deps:['AuditRepositoryExtended','ComplianceReportService (reads and verifies the chain this service writes)'],
+  note:'RecordEvent returns nil even when the insert fails — deliberate, so a failing audit store never takes the vault down with it, but it also means dropped events surface only in the process log, not to the caller. Treat the hash chain as tamper-evident, not tamper-proof: it detects edits, it does not prevent them.'
+},
+'svc-compliance':{
+  badge:'Service · Compliance', color:'#2C2C2A', title:'ComplianceReportService', layer:'Layer 3 — Service Container',
+  desc:'The read path over the audit trail: filtered log queries with a hash-chain integrity flag, SOC 2 access-event summaries, GDPR data-subject reports, and retention management. Every report renders as either JSON or CSV, selected by the request\'s Accept header.',
+  responsibilities:['QueryLogs: return a filtered, paginated page of audit rows plus a boolean integrity flag','GenerateSOC2Report / GenerateSOC2CSV: aggregate total events, unique users, auth successes and failures, data-access events, admin actions and key operations','GenerateGDPRReport / GenerateGDPRCSV: return every event touching one data subject, classified into data access, deletions and auth events','Verify the hash chain across a returned page and report a break','PurgeExpiredLogs: delete rows older than retention_days and record the purge as an audit event','GetRetentionDays / SetRetentionDays: read and write the retention setting (default 365 days, minimum 1)'],
+  details:[['Interface','auditServices.ComplianceReportServiceInterface'],['API','GET /api/v1/audit/logs · GET /api/v1/audit/reports/soc2 · GET /api/v1/audit/reports/gdpr · GET/PATCH /api/v1/audit/config'],['Authorization','Admin global role required — the audit routes are RouteUnmanaged and are not part of the per-vault data plane'],['SOC 2 metrics','TotalEvents · UniqueUsers · AuthSuccesses · AuthFailures · DataAccessEvents · KeyOperations · AdminActions · TopActions'],['GDPR classification','ResourceType=secret with get_secret/list_secrets → data access · action prefix "delete" → deletions · authenticate*/validate_session → auth events'],['Integrity check','verifyChain walks the page newest-first and recomputes each row\'s hash from its predecessor; rows with an empty prev_hash pre-date chaining and are skipped'],['Retention','audit_config.retention_days, default 365; PurgeExpiredLogs deletes below now-retention and logs an audit_purge event'],['Output formats','JSON or CSV, chosen by the Accept header on the report endpoints']],
+  deps:['AuditRepositoryExtended (QueryAuditLogs · GetAuditConfig · SetAuditConfig · DeleteBefore)','AuditService (shares computeHash, so verification matches the write path exactly)'],
+  note:'Both report generators query with Limit: 1000, so a SOC 2 or GDPR report over a busy range is computed from at most the 1000 most recent matching events, not the whole range. Narrow the from/to window for an accurate picture of a high-traffic period.'
+},
+'svc-keyprovider':{
+  badge:'Provider · Key Material', color:'#7A2A06', title:'KeyProvider (Software / PKCS#11 HSM)', layer:'Layer 3 — Service Container',
+  desc:'The abstraction that decides where key material lives. SoftwareKeyProvider generates keys in-process and returns PEM; PKCS11KeyProvider generates them on an external HSM token and returns only a CKA_LABEL, so the private key never enters RocketVault\'s address space. Selected once at startup from hsm.enabled and injected into both KeyService and CryptoService.',
+  responsibilities:['GenerateRSAKey / GenerateECDSAKey: produce a key and return an opaque handle (PEM or token label)','GenerateAESKey: HSM-only — SoftwareKeyProvider always returns ErrOctKeysRequireHSM','Sign / Verify / Encrypt / Decrypt: execute the operation against the key identified by the handle','Close: release provider resources (the PKCS#11 session)','Fail startup loudly if hsm.enabled is true but the token cannot be opened'],
+  details:[['Interface','crypto.KeyProvider — GenerateRSAKey · GenerateECDSAKey · GenerateAESKey · Sign · Verify · Encrypt · Decrypt · Close'],['Implementations','crypto.NewSoftwareKeyProvider() (default) · crypto.NewPKCS11KeyProvider(cfg)'],['Handle semantics','Software → PEM, encrypted before storage · PKCS#11 → CKA_LABEL, stored as "pkcs11:<label>"'],['Symmetric keys','crypto.ErrOctKeysRequireHSM: "symmetric (oct/AES) key creation requires an HSM-backed key provider (hsm.enabled: true)" — matches Azure, which restricts oct keys to Managed HSM'],['Config','hsm.enabled · hsm.lib_path · hsm.token_label · hsm.pin · hsm.slot_id'],['Startup','A PKCS#11 initialisation failure aborts container construction — it is never silently downgraded to the software provider'],['Companions','GetKeyCache() (keycache.Cache, key_cache.* config, NopCache when disabled) and GetCryptoMetrics() (Prometheus, NopCryptoMetrics when unset) are wired alongside it'],['Consumers','KeyService (generation) and CryptoService (sign/verify/encrypt/decrypt/wrap/unwrap)']],
+  code:`# .rocketvault.yaml — software provider unless enabled
+hsm:
+  enabled: true
+  lib_path: "/usr/lib/softhsm/libsofthsm2.so"
+  token_label: "rocketvault"
+  pin: "..."
+  slot_id: 0`,
+  deps:['KeyService · CryptoService (both hold the same provider instance)','keycache.Cache (software keys only)','metrics.CryptoMetrics'],
+  note:'HSM-backed key material is never cached and never leaves the token, so an HSM key\'s stored Value is just a pointer. Losing the token means losing the keys — a RocketVault database backup is not sufficient to recover them.'
 },
 
 /* ══ DOMAIN ══ */
@@ -1207,10 +1445,10 @@ func (s *Secret) IsAccessible() bool {
 },
 'domain-policy':{
   badge:'Domain · Model', color:'#065038', title:'AccessPolicy', layer:'Layer 4 — Domain (DDD)',
-  desc:'Fine-grained per-operation access control policies. Allows assigning specific permissions (secrets:get, keys:rotate) to a principal (user or service account) on a specific resource. Used by AccessPolicyService and RBACService for authorisation checks.',
-  responsibilities:['Represent a grant: principal can perform operation on resource','Support both user and service_account principals','Support per-resource scoping (specific secret ID, or all secrets for a user)'],
-  details:[['Package','model/access_policy.go'],['PrincipalType','user or service_account'],['Permission constants','secrets:get · secrets:set · secrets:delete · keys:get · keys:rotate · certs:sign · certs:get'],['ResourceType','secret · key · certificate · all (wildcard)'],['ResourceID','specific resource UUID or "*" for all of that type'],['Example','Service account X can do secrets:get on secret-UUID-123 only']],
-  deps:['AccessPolicyRepository','AccessPolicyService','RBACService']
+  desc:'No longer the primary grant mechanism — that role now belongs to RoleAssignment (see its card). AccessPolicy survives as an explicit-deny override, evaluated FIRST by PolicyMiddleware so a deny can never be outvoted by a role grant, plus a residual allow path for a small number of legacy (pre-RBAC) bundle grants. Granting one of the 11 Azure built-in roles today creates a RoleAssignment row and zero AccessPolicy rows — CheckAccess falls back (AccessFallback) and the real decision is RoleAssignmentService.HasDataAction().',
+  responsibilities:['CheckAccess(principal, resourceType, operation, vault): explicit deny always wins → AccessDenied','No matching policy row → AccessFallback, meaning "defer to RBAC/role-assignment evaluation"','Explicit allow with no deny present → AccessAllowed (legacy bundle grants only — Azure roles never produce these rows)','AssignmentID links a policy to the RoleAssignment that created it, when one exists — nil means hand-authored (the deny overrides always are)'],
+  details:[['Package','model/access_policy.go'],['PrincipalType','user or service_account'],['ResourceType','secrets · keys · certificates · vaults'],['Operation','get · list · set · create · delete · backup · restore · purge · recover · rotate · sign · verify · encrypt · decrypt · import · renew · manage'],['Effect','allow or deny'],['VaultID','*uuid.UUID — nil means the policy is GLOBAL and applies in any vault'],['AssignmentID','*uuid.UUID — nil means hand-written, not created via a role grant'],['Evaluated by','middleware.PolicyMiddleware, step 1 of 2 — step 2 is RoleAssignmentService.HasDataAction']],
+  deps:['AccessPolicyRepository','AccessPolicyService (CheckAccess/CRUD)','RoleAssignmentService (ExpandRole only populates rows for legacy, non-Azure roles)','PolicyMiddleware (deny-override gate before the role-assignment check)']
 },
 'domain-oauth2':{
   badge:'Domain · Model', color:'#065038', title:'OAuth2Client', layer:'Layer 4 — Domain (DDD)',
@@ -1232,6 +1470,48 @@ func (s *Secret) IsAccessible() bool {
   responsibilities:['Record every create/update/delete/auth event to audit_logs table','Include UserID, operation name, status (success/failed), details, and timestamp','RotationPolicy: store rotation schedule config per secret','RotationHistory: immutable record of every rotation event'],
   details:[['audit_logs table','user_id · operation · status · details · created_at'],['Operations logged','login · logout · secret.create · secret.rotate · key.revoke · cert.renew · user.create · ...'],['Compliance','SOC2 Type II · GDPR (right to erasure — audit records retained) · HIPAA · ISO 27001'],['Integrity','Structured log entries written by Logger.LogAuditInfo() / LogAuditError()'],['RotationPolicy fields','ID · UserID · Name · IntervalDays · ReminderDays · AutoRotate · Enabled'],['RotationHistory fields','SecretID · PolicyID · RotatedAt · TriggeredBy · PreviousVersion · NewVersion · Notes']],
   deps:['internal/logging/ (LogAuditInfo · LogAuditError)','RotationRepository']
+},
+'domain-vault':{
+  badge:'Domain · Model', color:'#065038', title:'Vault', layer:'Layer 4 — Domain (DDD)',
+  desc:'The routing and context-scoping boundary that every other domain type now hangs off: secrets, keys, certificates, role assignments, and access policies all carry a VaultID. A single instance always has at least the well-known DefaultVaultID vault, so single-vault deployments need no setup.',
+  responsibilities:['Represent an isolated security boundary with its own name, lifecycle, and tags','Enforce Azure-parity naming (3-63 lowercase alphanumeric/hyphen, no leading/trailing hyphen)','Support soft-delete with purge protection and a scheduled purge date, mirroring Secret/Key/Certificate','Track who created and last updated the vault'],
+  details:[['Package','model/vault.go'],['DefaultVaultID','"00000000-0000-0000-0000-00000000efa1" — fixed UUID shared by migration, fresh-DB schema default, and the resolver'],['Name','string — validated by ValidateVaultName via vaultNameRe'],['Tags','map[string]string — max 15, each key/value non-empty and ≤256 chars, via ValidateVaultTags'],['PurgeProtection','bool — mirrors Secret/Key/Certificate semantics'],['RetentionDays','int — soft-delete retention before scheduled purge'],['DeletedAt / ScheduledPurgeAt','*time.Time — soft-delete lifecycle, cascades to the vault\'s secrets/keys/certs'],['CreatedBy / UpdatedBy','uuid.UUID / *uuid.UUID — actor attribution']],
+  deps:['VaultRepository','VaultService (lifecycle, cascade soft-delete/recover)','RoleAssignment (grants scoped to VaultID)','Scope.ResolvedVaultID() (falls back to DefaultVaultID)']
+},
+'domain-roleassignment':{
+  badge:'Domain · Model', color:'#065038', title:'RoleAssignment · Azure Roles', layer:'Layer 4 — Domain (DDD)',
+  desc:'RoleAssignment records that a principal holds one of eleven Azure Key Vault built-in roles within a single vault — there is no tenant-wide grant. model/azure_roles.go is the single source of truth for what each role grants: DataAction constants mirror Azure\'s own data-action strings verbatim (e.g. Microsoft.KeyVault/vaults/secrets/getSecret/action), and each role\'s bundle is written out in full with no bundle derived from another, so a reader sees a role\'s exact authority without following a union.',
+  responsibilities:['Represent a principal→role grant scoped to one vault','azure_roles.go: map each of the 11 built-in roles to its fixed set of DataAction constants','RoleGrantsDataAction(): the yes/no primitive every data-plane route check reduces to','AssignRole rejects legacy (pre-RBAC) role names outright — only the 11 Azure names grant data-plane access now'],
+  details:[['Package','model/role_assignment.go · model/azure_roles.go'],['Role','string — one of Key Vault Administrator/Reader/Secrets User/Secrets Officer/Crypto User/Crypto Officer/Certificates Officer/Purge Operator/Certificate User/Crypto Service Encryption User/Data Access Administrator'],['DataAction','string — e.g. "Microsoft.KeyVault/vaults/keys/wrap/action"; covers secrets, keys, certificates, plus vault-purge and role-assignment write/delete actions'],['azureRoleDataActions','map[string][]DataAction — unexported; the single source of truth, each bundle written in full'],['AzureRoleNames()','sorted slice of all 11 role names'],['RoleGrantsDataAction(role, action)','false for empty/unknown role or action — never defaults open'],['RoleAssignmentService.HasDataAction()','the fail-closed authorization decision used by every vault data-plane route']],
+  deps:['RoleAssignmentRepository','RoleAssignmentService (AssignRole/RevokeAssignment/HasDataAction)','AccessPolicy (ExpandRole is a no-op for Azure roles — see AccessPolicy card)','Vault (Role is always scoped to a VaultID)']
+},
+'domain-scope':{
+  badge:'Domain · Model', color:'#065038', title:'Scope', layer:'Layer 4 — Domain (DDD)',
+  desc:'A deliberate, fail-closed authorization value object, not a data bag: it replaces the old vault-suffixed and owner-suffixed method pairs by letting the authorization scope travel as a value instead of being encoded in a method name. Every field is unexported, so the only way to build a Scope is through a constructor that sets a valid kind — the zero value is ScopeInvalid, which every repository entry point rejects before building a query. Composite literals are banned outside model/scope_test.go and enforced by the scope-gate CI job.',
+  responsibilities:['Carry how a single resource operation is authorized: ScopeVault (any vault member), ScopeOwner (owner only — P1, retired in P2), or ScopeAdmin (no predicate, trusted internal callers only)','Fail closed on the zero value via Validate(), called by every repository entry point before building a query','Carry the acting principal (ActorID) for audit — never itself an access predicate','ResolvedVaultID(): fall back to DefaultVaultID so legacy flat routes keep targeting it'],
+  details:[['Package','model/scope.go'],['ScopeKind','uint8 — ScopeInvalid (zero value) · ScopeVault · ScopeOwner · ScopeAdmin'],['NewVaultScope(vaultID, actorID)','any member of vaultID may act'],['NewOwnerScope(vaultID, ownerID)','restricted to the owner; vaultID is advisory only — owner-scoped queries never constrain vault_id'],['NewAdminScope(actorID)','no predicate; reserved for the vault cascade, backup/restore, and the rotation scheduler'],['Validate()','returns ErrScopeInvalid for an uninitialised scope, or a scope missing its required id'],['OwnerID()','returns (uuid.Nil, false) unless the scope is owner-scoped — never overloads uuid.Nil as "no check"'],['String()','safe for logs — never contains secret material']],
+  code:`type Scope struct {
+    kind    ScopeKind
+    vaultID uuid.UUID // Set for ScopeVault; advisory for ScopeOwner.
+    ownerID uuid.UUID // Set for ScopeOwner only.
+    actorID uuid.UUID // The acting principal, for audit. Never an access predicate.
+}
+
+func (s Scope) Validate() error {
+    switch s.kind {
+    case ScopeVault:
+        if s.vaultID == uuid.Nil { return fmt.Errorf("%w: vault scope requires a vault id", ErrScopeInvalid) }
+        return nil
+    case ScopeOwner:
+        if s.ownerID == uuid.Nil { return fmt.Errorf("%w: owner scope requires an owner id", ErrScopeInvalid) }
+        return nil
+    case ScopeAdmin:
+        return nil
+    default:
+        return fmt.Errorf("%w: uninitialised scope", ErrScopeInvalid)
+    }
+}`,
+  deps:['Every repository (Validate() called before building any query)','Vault.ResolvedVaultID() fallback target','RoleAssignmentService / AccessPolicyService (Scope carries the actor for audit, but the RBAC decision itself is a separate HasDataAction/CheckAccess call)']
 },
 
 /* ══ REPOSITORIES ══ */
@@ -1289,6 +1569,30 @@ func (s *Secret) IsAccessible() bool {
   details:[['Interface','repositories.CertificatePolicyRepositoryInterface'],['Table','certificate_policies (id, certificate_id, auto_renew, renewal_days, last_renewed_at)'],['ListExpiring','SELECT certs WHERE expires_at - NOW() < renewal_days AND auto_renew=true'],['UpdateLastRenewed','UPDATE SET last_renewed_at=NOW() after successful renewal']],
   deps:['sql.DB','model.Certificate (joined)','CertRenewalService (consumer)']
 },
+'repo-vault':{
+  badge:'Repository', color:'#065F46', title:'VaultRepository', layer:'Layer 5 — Repository',
+  desc:'Data access for the vaults table. Owns vault soft-delete/recover semantics for the vault row itself; the *Tx variants let VaultService fold a vault\'s own state transition into the same transaction as the cascade over its secrets/keys/certs.',
+  details:[['Interface','repositories.VaultRepositoryInterface'],['Table','vaults (id, name, enabled, purge_protection, retention_days, created_by, created_at, deleted_at, scheduled_purge_at, tags, updated_at, updated_by)'],['ReadByIDTx / SoftDeleteTx / RecoverTx','db.DBTX-scoped variants used by VaultService.DeleteVault/RecoverVault inside one transaction'],['Purge','DELETE — hard delete, admin-only bulk cleanup'],['Cascade','VaultService orchestrates the cascade to SecretRepository/KeyRepository/CertificateRepository; VaultRepository only owns the vaults row itself']],
+  deps:['sql.DB / db.DBTX','model.Vault','VaultService (transaction orchestrator)']
+},
+'repo-role':{
+  badge:'Repository', color:'#065F46', title:'RoleAssignmentRepository', layer:'Layer 5 — Repository',
+  desc:'Data access for per-vault Azure-role grants. ListByPrincipalInVault is the authorization hot path — RoleAssignmentService turns its result into the HasDataAction decision on every vault data-plane request.',
+  details:[['Interface','repositories.RoleAssignmentRepositoryInterface'],['Table','role_assignments (id, principal_id, principal_type, role, vault_id, created_by, created_at)'],['ListByPrincipalInVault','SELECT WHERE principal_id=? AND vault_id=? — every role a principal holds in one vault'],['FindByTuple','SELECT WHERE principal_id=? AND role=? AND vault_id=? — duplicate-grant check on Create'],['Delete','DELETE WHERE id=? — revoke a single grant']],
+  deps:['sql.DB','model.RoleAssignment','RoleAssignmentService']
+},
+'repo-audit':{
+  badge:'Repository', color:'#065F46', title:'AuditRepository', layer:'Layer 5 — Repository',
+  desc:'Append-only persistence for audit_logs, plus the compliance-report read path. PersistAudit is the thin legacy signature the Logger writes through; InsertAuditLog/QueryAuditLogs are the enriched read/write pair used by the audit service.',
+  details:[['Interfaces','repositories.AuditRepositoryInterface (PersistAudit only) · AuditRepositoryExtended (full read/write)'],['Table','audit_logs (id, user_id, action, details, timestamp, resource_type, resource_id, ip_address, outcome, source, prev_hash)'],['QueryAuditLogs','filtered + paginated SELECT with COUNT(*) for compliance reports (AuditFilter: time range, user, action, outcome, resource, source)'],['GetLastHash','tail of prev_hash chain — hash-chained tamper-evidence for audit rows'],['DeleteBefore','bulk DELETE WHERE timestamp < cutoff — retention enforcement'],['audit_config table','key/value retention settings, read/written via GetAuditConfig/SetAuditConfig']],
+  deps:['sql.DB','internal/logging (AuditPersister interface)']
+},
+'repo-scope':{
+  badge:'Repository', color:'#065F46', title:'Scope Predicate', layer:'Layer 5 — Repository',
+  desc:'Not a CRUD repository — a shared helper (scopePredicate) that every other repository calls to turn a model.Scope into a SQL WHERE fragment and its bind args. This is the single point where "which rows is this caller allowed to touch" becomes SQL, so every repository is scoped consistently instead of each hand-rolling its own predicate.',
+  details:[['Function','scopePredicate(scope model.Scope) (string, []any, error)'],['ScopeVault','→ "vault_id = ?" bound to scope.VaultID()'],['ScopeOwner','→ "user_id = ?" bound to scope.OwnerID() — legacy owner-keyed reads; deliberately does not also constrain vault_id (P2 retires ScopeOwner)'],['ScopeAdmin','→ "1 = 1" — no predicate, trusted internal callers only'],['ScopeInvalid / unknown kind','returns ErrInvalidScope — fails closed rather than silently matching all rows'],['Callers','every repository query that accepts a model.Scope argument']],
+  deps:['model.Scope','every scope-aware repository (secrets/keys/certs/etc.)']
+},
 
 /* ══ INFRASTRUCTURE ══ */
 'infra-cache':{
@@ -1324,9 +1628,9 @@ cache:
 },
 'infra-ops':{
   badge:'Infrastructure · Ops', color:'#7A2A06', title:'Ops & Recovery', layer:'Layer 6 — Infrastructure',
-  desc:'Three operational capabilities: encrypted full-vault and per-item backup/restore, soft-delete lifecycle management, and HMAC-signed webhook event dispatch. These are cross-cutting concerns that span multiple service interactions.',
-  responsibilities:['Full-vault backup: dump all tables to encrypted JSON → write to backup directory','Full-vault restore: decrypt backup → DROP + re-INSERT all rows (destructive — make a backup first)','Per-item backup/restore: ItemBackupService creates portable encrypted blobs per resource','Webhook dispatch: fire HMAC-SHA256 signed HTTP POST to configured endpoints on vault events','RetryService: wrap service calls with configurable exponential back-off'],
-  details:[['Full-vault backup','internal/backup/backup.go — dumps all 9 tables to AES-256-GCM encrypted JSON'],['Backup encryption','master_key from config — same key as secret encryption'],['Full-vault restore','DESTRUCTIVE: DELETE FROM each table then INSERT from backup — no diff/merge'],['Per-item backup','ItemBackupService — secret + all versions → encrypted blob → base64url → return to caller'],['Webhook events','secret.rotated · cert.expiring · cert.renewed · backup.created'],['Webhook auth','X-RocketVault-Signature: sha256=<HMAC(payload, shared_secret)> — GitHub-compatible'],['Webhook config','webhooks.endpoints[] in .rocketvault.yaml · per-event filtering']],
+  desc:'Four operational capabilities: encrypted full-vault and per-item backup/restore, soft-delete lifecycle management, HMAC-signed webhook event dispatch, and configurable audit-log retention/purge. These are cross-cutting concerns that span multiple service interactions.',
+  responsibilities:['Full-vault backup: dump all tables to encrypted JSON → write to backup directory','Full-vault restore: decrypt backup → DROP + re-INSERT all rows (destructive — make a backup first)','Per-item backup/restore: ItemBackupService creates portable encrypted blobs per resource','Webhook dispatch: fire HMAC-SHA256 signed HTTP POST to configured endpoints on vault events','RetryService: wrap service calls with configurable exponential back-off','Audit retention: GET/PATCH /audit/config manages retention_days (default 365); PurgeExpiredLogs deletes logs past that window'],
+  details:[['Full-vault backup','internal/backup/backup.go — dumps all 9 tables to AES-256-GCM encrypted JSON'],['Backup encryption','master_key from config — same key as secret encryption'],['Full-vault restore','DESTRUCTIVE: DELETE FROM each table then INSERT from backup — no diff/merge'],['Per-item backup','ItemBackupService — secret + all versions → encrypted blob → base64url → return to caller'],['Webhook events','secret.rotated · cert.expiring · cert.renewed · backup.created'],['Webhook auth','X-RocketVault-Signature: sha256=<HMAC(payload, shared_secret)> — GitHub-compatible'],['Webhook config','webhooks.endpoints[] in .rocketvault.yaml · per-event filtering'],['Audit retention API','GET/PATCH /api/v1/audit/config — internal/services/audit/compliance_report_service.go GetRetentionDays/SetRetentionDays/PurgeExpiredLogs']],
   code:`# .rocketvault.yaml
 webhooks:
   - url: "https://notify.example.com/vault"
@@ -1334,13 +1638,27 @@ webhooks:
     events: ["secret.rotated", "cert.expiring"]`,
   deps:['internal/backup/backup.go','ItemBackupService (per-item)','WebhookService','RetryService']
 },
+'infra-hsm':{
+  badge:'Infrastructure · HSM', color:'#7A2A06', title:'HSM / Key Provider', layer:'Layer 6 — Infrastructure',
+  desc:'A KeyProvider abstraction lets key generation and crypto operations run either in-process (SoftwareKeyProvider) or on a real PKCS#11 token (PKCS11KeyProvider — e.g. SoftHSM2 or a hardware HSM). Symmetric (OCT/AES) key creation is routed HSM-only, mirroring Azure Key Vault\'s Managed-HSM-only restriction on symmetric keys.',
+  responsibilities:['KeyProvider interface: GenerateRSAKey / GenerateECDSAKey / GenerateAESKey / Sign / Verify / Encrypt / Decrypt / Close','PKCS11KeyProvider delegates all key ops to a PKCS#11 token — private key material never enters Go memory','SoftwareKeyProvider (default) wraps the existing Go RSA/ECDSA helpers for in-process crypto','SoftwareKeyProvider.GenerateAESKey always returns ErrOctKeysRequireHSM — only the HSM path can create OCT/AES keys','AES-KW wrap/unwrap for HSM-backed keys, with key-size mismatches rejected at the API layer (400)'],
+  details:[['Interface','internal/crypto/provider.go — KeyProvider'],['HSM implementation','internal/crypto/pkcs11_provider.go — github.com/miekg/pkcs11; ECDSA P-256/P-384/P-521 (P-256K unsupported: ErrUnsupportedCurve)'],['Software implementation','internal/crypto/software_provider.go — used when hsm.enabled: false (default)'],['Azure parity rule','ErrOctKeysRequireHSM — symmetric key creation is Managed-HSM-only in Azure Key Vault; Standard/Premium vaults never allow it'],['Config','hsm.enabled · hsm.lib_path · hsm.token_label · hsm.pin · hsm.slot_id in .rocketvault.yaml'],['Dev/test setup','SoftHSM2 — apt install softhsm2 && softhsm2-util --init-token --slot 0 --label rocketvault --pin 1234 --so-pin 0000'],['API surface','POST /keys with kty=oct — HSM-only; returns 400 (ErrOctKeysRequireHSM) when hsm.enabled is false']],
+  code:`# .rocketvault.yaml
+hsm:
+  enabled: true
+  lib_path: /usr/lib/softhsm/libsofthsm2.so
+  token_label: rocketvault
+  pin: "1234"
+  slot_id: 0`,
+  deps:['KeyService · CryptoService (both hold the same provider instance)']
+},
 
 /* ══ DATABASE ══ */
 'db-sqlite':{
   badge:'Database · Development', color:'#065038', title:'SQLite 3', layer:'Layer 7 — Database',
-  desc:'The development database. A single file on disk, zero external dependencies. The same Go code runs against both SQLite and PostgreSQL via the database/sql interface — driver selection is config-only.',
-  responsibilities:['Store all secrets, keys, certificates, users, sessions, policies in a single .db file','Support AES-256 encryption of sensitive columns at the application layer','Handle the full connection pool with configurable limits','Run schema migrations via internal/db/db.go'],
-  details:[['Driver','github.com/mattn/go-sqlite3 (CGO)'],['Connection pool','max_open: 10 · max_idle: 2 · conn_max_lifetime: 10m · conn_max_idle_time: 2m'],['File path','Configured via database.connection in .rocketvault.yaml'],['Migrations','internal/db/db.go InitializeDB() — idempotent ALTER TABLE migrations'],['Encryption','Column-level AES-256-GCM via application layer (not SQLite encryption extension)'],['Indexes','Same strategic indexes as PostgreSQL — consistent query plans'],['Dev config','environment: development → pool settings auto-tuned for low concurrency']],
+  desc:'The development database. A single file on disk, zero external dependencies. Every place SQL differs between engines — placeholders, upsert, constraint-error detection, migrations — routes through a single internal/db/dialect.go Dialect abstraction, so repositories never hardcode one engine\'s SQL.',
+  responsibilities:['Store all secrets, keys, certificates, users, sessions, policies in a single .db file','Support AES-256 encryption of sensitive columns at the application layer','Handle the full connection pool with configurable limits','Run schema migrations via internal/db/db.go','Ask Dialect for engine-specific SQL (bind style, upsert-ignore, constraint checks) instead of branching on driver name inline'],
+  details:[['Driver','github.com/mattn/go-sqlite3 (CGO)'],['Connection pool','max_open: 10 · max_idle: 2 · conn_max_lifetime: 10m · conn_max_idle_time: 2m'],['File path','Configured via database.connection in .rocketvault.yaml'],['Migrations','internal/db/db.go InitializeDB() — idempotent ALTER TABLE migrations'],['Encryption','Column-level AES-256-GCM via application layer (not SQLite encryption extension)'],['Indexes','Same strategic indexes as PostgreSQL — consistent query plans'],['Dev config','environment: development → pool settings auto-tuned for low concurrency'],['Dialect abstraction','internal/db/dialect.go — Dialect.Rebind/UpsertIgnore/IsConstraintErr/IsDuplicateColumnErr/ColumnExists; SQLite keeps "?" placeholders and PRAGMA table_info']],
   code:`# .rocketvault.yaml (development)
 database:
   driver: "sqlite3"
@@ -1352,9 +1670,9 @@ database:
 },
 'db-postgres':{
   badge:'Database · Production', color:'#0D3870', title:'PostgreSQL 13+', layer:'Layer 7 — Database',
-  desc:'The production database. Full ACID compliance, concurrent read/write, native connection pooling, and optional multi-region streaming replication. The 90%+ performance improvement comes from strategic indexes on user_id, deleted_at, expires_at, and tag columns.',
-  responsibilities:['Handle high-concurrency reads and writes with full ACID semantics','Provide the connection pool (max_open: 25) with automatic health checks','Support multi-region streaming replication for HA deployments','Run schema migrations via the same internal/db/db.go InitializeDB()'],
-  details:[['Driver','github.com/lib/pq'],['Min version','PostgreSQL 13+ (uses JSON operators for tag filtering)'],['Connection pool','max_open: 25 · max_idle: 10 · lifetime: 5m · idle_timeout: 2m'],['Indexes','idx_secrets_user_id · idx_secrets_deleted_at · idx_secrets_expires_at · idx_keys_user_id · idx_access_policies_principal · idx_oauth2_clients_name'],['Perf gain','90%+ improvement from strategic indexes (measured on 100k secret dataset)'],['Replication','Streaming replication — application points at primary for writes, replica for reads'],['SSL','sslmode=require recommended in production connection string'],['environment','environment: production → pool settings tuned for high concurrency']],
+  desc:'The production database. Full ACID compliance, concurrent read/write, native connection pooling, and optional multi-region streaming replication. Repositories run the same Go code against both engines by routing engine-specific SQL through internal/db/dialect.go, not by branching on driver name; a testcontainers-go integration suite exercises the real repositories against a live Postgres container to prove it.',
+  responsibilities:['Handle high-concurrency reads and writes with full ACID semantics','Provide the connection pool (max_open: 25) with automatic health checks','Support multi-region streaming replication for HA deployments','Run schema migrations via the same internal/db/db.go InitializeDB()','Rewrite "?" placeholders to "$1, $2, ..." via Dialect.Rebind and use information_schema for column checks (vs. SQLite PRAGMA)'],
+  details:[['Driver','github.com/lib/pq'],['Min version','PostgreSQL 13+ (uses JSON operators for tag filtering)'],['Connection pool','max_open: 25 · max_idle: 10 · lifetime: 5m · idle_timeout: 2m'],['Indexes','idx_secrets_user_id · idx_secrets_deleted_at · idx_secrets_expires_at · idx_keys_user_id · idx_access_policies_principal · idx_oauth2_clients_name'],['Perf gain','90%+ improvement from strategic indexes (measured on 100k secret dataset)'],['Replication','Streaming replication — application points at primary for writes, replica for reads'],['SSL','sslmode=require recommended in production connection string'],['environment','environment: production → pool settings tuned for high concurrency'],['Integration tests','internal/repositories/pg_integration_test.go (build tag: integration) — testcontainers-go boots a real postgres:16-alpine container and runs the repository suite against it: go test -tags=integration ./internal/repositories/...']],
   code:`# .rocketvault.yaml (production)
 database:
   driver: "postgres"

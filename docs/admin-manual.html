@@ -4,41 +4,55 @@
 <meta charset="UTF-8"/>
 <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
 <title>RocketVault — Administrator Manual</title>
-<link href="https://cdn.jsdelivr.net/gh/devchauhann/fonts@v1.1.0/cdn/v1/css/all.css" rel="stylesheet"/>
+<link rel="icon" type="image/svg+xml" href="assets/rocketvault-icon.svg"/>
+<link rel="preconnect" href="https://fonts.googleapis.com"/>
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=IBM+Plex+Sans:wght@400;500;600&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet"/>
 <style>
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
 :root{
-  --bg:#0D1117;
-  --surface:#161B22;
-  --surface2:#1C2230;
-  --surface3:#21283A;
-  --border:rgba(255,255,255,.08);
-  --border2:rgba(255,255,255,.14);
-  --text:#E6EDF3;
-  --text2:#8B949E;
-  --text3:#484F58;
-  --accent:#4ECCA3;
-  --accent-dim:rgba(78,204,163,.15);
-  --accent-border:rgba(78,204,163,.3);
-  --warn:#F0A84B;
-  --warn-dim:rgba(240,168,75,.12);
-  --warn-border:rgba(240,168,75,.3);
-  --info:#58A6FF;
-  --info-dim:rgba(88,166,255,.12);
-  --info-border:rgba(88,166,255,.3);
-  --danger:#F85149;
-  --sidebar-w:260px;
-  --font:'Anthropic Sans',system-ui,sans-serif;
-  --mono:'Anthropic Mono',monospace;
+  /* graphite/steel surfaces — a cool, blue-leaning dark, not flat near-black */
+  --bg:#12151A;
+  --surface:#171B22;
+  --surface2:#1D222B;
+  --surface3:#242A35;
+  --border:rgba(200,180,150,.09);
+  --border2:rgba(210,190,160,.16);
+  --text:#E9E6DE;
+  --text2:#9A9689;
+  --text3:#59564D;
+  /* brass — the vault-dial accent, replaces the generic mint/green */
+  --accent:#C89B4C;
+  --accent-dim:rgba(200,155,76,.14);
+  --accent-border:rgba(200,155,76,.35);
+  /* rust — warnings */
+  --warn:#D9714A;
+  --warn-dim:rgba(217,113,74,.13);
+  --warn-border:rgba(217,113,74,.32);
+  /* signal blue — info, links, secondary interactive */
+  --info:#6C96EC;
+  --info-dim:rgba(108,150,236,.12);
+  --info-border:rgba(108,150,236,.3);
+  --danger:#E2574C;
+  --sidebar-w:264px;
+  --font:'IBM Plex Sans',system-ui,sans-serif;
+  --display:'Space Grotesk',var(--font);
+  --mono:'JetBrains Mono','IBM Plex Mono',monospace;
 }
+@media(prefers-reduced-motion:reduce){html{scroll-behavior:auto}*,*::before,*::after{animation-duration:.001ms!important;animation-iteration-count:1!important;transition-duration:.001ms!important;scroll-behavior:auto!important}}
 html{scroll-behavior:smooth}
-body{font-family:var(--font);background:var(--bg);color:var(--text);line-height:1.6;font-size:14px}
+body{font-family:var(--font);background:var(--bg);color:var(--text);line-height:1.7;font-size:16px}
+::selection{background:var(--accent-dim);color:var(--text)}
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px;border-radius:3px}
+::-webkit-scrollbar{width:9px;height:9px}
+::-webkit-scrollbar-track{background:transparent}
+::-webkit-scrollbar-thumb{background:var(--border2);border-radius:999px;border:2px solid var(--bg)}
 
 /* ── Layout ── */
 .layout{display:flex;min-height:100vh}
 nav.sidebar{position:sticky;top:0;height:100vh;width:var(--sidebar-w);flex:0 0 var(--sidebar-w);
   overflow-y:auto;background:var(--surface);border-right:1px solid var(--border);padding:20px 0}
-main{flex:1;max-width:880px;margin-inline:auto;padding:48px 52px 120px;
+main{flex:1;min-width:0;max-width:880px;margin-inline:auto;padding:48px 52px 120px;
   background-image:
     radial-gradient(ellipse 80% 40% at 60% -10%,rgba(78,204,163,.07),transparent 60%),
     radial-gradient(ellipse 50% 30% at 90% 80%,rgba(88,166,255,.05),transparent 55%),
@@ -53,7 +67,7 @@ nav.sidebar{
   border-right:1px solid var(--border);
 }
 
-/* brand */
+/* brand — a brass vault-dial mark, not a flat monogram tile */
 .sb-brand{
   display:flex;align-items:center;gap:12px;
   padding:20px 20px 18px;
@@ -61,17 +75,14 @@ nav.sidebar{
   margin-bottom:12px;flex-shrink:0;
 }
 .sb-logo{
-  width:34px;height:34px;flex-shrink:0;
-  background:linear-gradient(135deg,var(--accent),#2bb58a);
-  border-radius:9px;
-  display:flex;align-items:center;justify-content:center;
-  font-size:15px;font-weight:800;color:#0D1117;
-  box-shadow:0 0 14px rgba(78,204,163,.35);
-  letter-spacing:-.5px;
+  width:36px;height:36px;flex-shrink:0;
+  border-radius:10px;
+  position:relative;
 }
-.sb-name{font-weight:700;font-size:14px;color:var(--text);letter-spacing:-.2px;line-height:1.2}
+.sb-logo svg{position:absolute;inset:0;width:100%;height:100%}
+.sb-name{font-family:var(--display);font-weight:600;font-size:17px;color:var(--text);letter-spacing:-.2px;line-height:1.2}
 .sb-ver{
-  font-size:10px;color:var(--text3);font-family:var(--mono);
+  font-size:11.5px;color:var(--text3);font-family:var(--mono);
   background:var(--surface3);padding:1px 6px;border-radius:3px;
   border:1px solid var(--border);display:inline-block;margin-top:3px;
 }
@@ -84,16 +95,16 @@ nav.sidebar{
   border:1px solid var(--border);
   border-radius:7px;
   padding:7px 10px 7px 32px;
-  font-size:12px;color:var(--text);font-family:var(--font);
+  font-size:13.5px;color:var(--text);font-family:var(--font);
   outline:none;transition:border-color .15s;
 }
-.sb-search input:focus{border-color:var(--accent-border)}
+.sb-search input:focus{border-color:var(--accent-border);box-shadow:0 0 0 3px var(--accent-dim)}
 .sb-search input::placeholder{color:var(--text3)}
 .sb-search-icon{
   position:absolute;left:11px;top:50%;transform:translateY(-50%);
-  color:var(--text3);font-size:13px;pointer-events:none;line-height:1;
+  color:var(--text3);font-size:14.5px;pointer-events:none;line-height:1;
 }
-.search-empty{font-size:12px;color:var(--text3);padding:4px 20px 8px;display:none}
+.search-empty{font-size:13.5px;color:var(--text3);padding:4px 20px 8px;display:none}
 
 /* nav body */
 .sb-nav{flex:1;overflow-y:auto;padding-bottom:20px}
@@ -104,7 +115,8 @@ nav.sidebar{
 /* groups */
 .sb-group{
   display:flex;align-items:center;gap:8px;
-  font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.1em;
+  font-family:var(--mono);
+  font-size:11.5px;font-weight:600;text-transform:uppercase;letter-spacing:.1em;
   color:var(--text3);
   padding:18px 16px 5px;
   margin-top:2px;
@@ -118,140 +130,167 @@ nav.sidebar{
 /* items */
 .sb-item{
   display:flex;align-items:center;
-  padding:5px 16px 5px 20px;
-  font-size:13px;color:var(--text2);
+  padding:6px 16px 6px 19px;
+  font-size:14.5px;color:var(--text2);
   text-decoration:none;
   border-left:2px solid transparent;
-  transition:color .1s,background .1s,border-color .1s;
+  transition:color .12s,background .12s,border-color .12s;
   position:relative;
 }
 .sb-item:hover{
   color:var(--text);
-  background:rgba(255,255,255,.035);
+  background:rgba(255,255,255,.03);
   border-left-color:var(--border2);
 }
 .sb-item.active{
   color:var(--accent);
-  background:rgba(78,204,163,.08);
-  border-left-color:var(--accent);
+  background:var(--accent-dim);
+  border-left-color:transparent;
   font-weight:500;
 }
 .sb-item.active::before{
   content:'';
-  position:absolute;left:-2px;top:0;bottom:0;width:2px;
+  position:absolute;left:-1px;top:50%;translate:0 -50%;
+  width:6px;height:6px;border-radius:50%;
   background:var(--accent);
-  box-shadow:0 0 8px rgba(78,204,163,.6);
-  border-radius:0 2px 2px 0;
+  box-shadow:0 0 0 3px var(--accent-dim);
 }
 .sb-item.hidden{display:none}
 .sb-badge{
-  font-size:9px;font-family:var(--mono);
-  background:rgba(78,204,163,.12);
+  font-size:10px;font-family:var(--mono);
+  background:var(--accent-dim);
   color:var(--accent);
   border:1px solid var(--accent-border);
   padding:1px 6px;border-radius:3px;margin-left:auto;
 }
 
 /* ── Page header ── */
-.page-header{margin-bottom:36px}
-.page-title{font-size:26px;font-weight:700;color:var(--text);margin-bottom:8px}
+.page-header{margin-bottom:36px;position:relative}
+.page-title{font-family:var(--display);font-size:34px;font-weight:600;letter-spacing:-.01em;color:var(--text);margin-bottom:10px}
 .page-meta{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
-.page-lede{color:var(--text2);font-size:14px;margin-top:8px;margin-bottom:0}
+.page-lede{color:var(--text2);font-size:16px;margin-top:8px;margin-bottom:0}
+
+/* corner registration marks — used once, on the manual's opening hero */
+main>section:first-of-type .page-header::before{
+  content:'';position:absolute;top:-24px;left:-28px;width:22px;height:22px;
+  border-top:1px solid var(--accent-border);border-left:1px solid var(--accent-border);
+}
+main>section:first-of-type .page-header::after{
+  content:'';position:absolute;top:-24px;right:-28px;width:22px;height:22px;
+  border-top:1px solid var(--accent-border);border-right:1px solid var(--accent-border);
+}
 
 /* ── Chips ── */
-.chip{display:inline-flex;align-items:center;font-size:11px;font-family:var(--mono);padding:2px 8px;border-radius:4px;border:1px solid}
+.chip{display:inline-flex;align-items:center;font-size:12.5px;font-family:var(--mono);padding:2px 8px;border-radius:4px;border:1px solid}
 .chip-green{background:var(--accent-dim);border-color:var(--accent-border);color:var(--accent)}
 .chip-blue{background:var(--info-dim);border-color:var(--info-border);color:var(--info)}
 .chip-warn{background:var(--warn-dim);border-color:var(--warn-border);color:var(--warn)}
 .chip-muted{background:var(--surface2);border-color:var(--border2);color:var(--text3)}
 
+/* ── Hero watermark — one concentric-ring dial, opening section only ── */
+section#quick-start{position:relative}
+section#quick-start::before{
+  content:'';position:absolute;top:-40px;right:-40px;width:420px;height:420px;z-index:-1;
+  background:repeating-radial-gradient(circle at center,transparent 0 25px,var(--border) 25px 26px);
+  -webkit-mask-image:radial-gradient(circle at center,#000 0 42%,transparent 70%);
+  mask-image:radial-gradient(circle at center,#000 0 42%,transparent 70%);
+  pointer-events:none;
+}
+
 /* ── Section headings ── */
 section{margin-bottom:64px;scroll-margin-top:24px}
-h2{font-size:20px;font-weight:700;color:var(--text);margin:0 0 6px;padding-bottom:10px;border-bottom:1px solid var(--border)}
-h3{font-size:12.5px;font-weight:700;color:var(--text2);text-transform:uppercase;letter-spacing:.07em;margin:24px 0 10px}
-p{color:var(--text2);font-size:14px;margin-bottom:10px}
-ul,ol{color:var(--text2);font-size:14px;margin:0 0 10px 20px}
+h2{
+  font-family:var(--display);font-size:23.5px;font-weight:600;line-height:1.3;letter-spacing:-.005em;color:var(--text);
+  margin:0 0 6px;padding-bottom:10px;padding-left:16px;border-bottom:1px solid var(--border);position:relative
+}
+h2::before{
+  content:'';position:absolute;left:0;top:9px;width:8px;height:8px;border-radius:50%;
+  border:1.5px solid var(--accent);background:var(--bg);
+}
+h3{font-family:var(--mono);font-size:13px;font-weight:600;color:var(--text2);text-transform:uppercase;letter-spacing:.08em;margin:24px 0 10px}
+p{color:var(--text2);font-size:16px;margin-bottom:10px}
+ul,ol{color:var(--text2);font-size:16px;margin:0 0 10px 20px}
 li{margin-bottom:4px}
 a{color:var(--accent)}
-code{font-family:var(--mono);font-size:12px;background:var(--surface2);padding:1px 5px;border-radius:4px;color:var(--text)}
+code{font-family:var(--mono);font-size:13.5px;background:var(--surface2);padding:1px 5px;border-radius:4px;color:var(--text)}
 
 /* ── Callouts ── */
 .callout{border-radius:8px;padding:14px 16px;margin:12px 0;border:1px solid}
 .callout-accent{background:var(--accent-dim);border-color:var(--accent-border)}
 .callout-warn{background:var(--warn-dim);border-color:var(--warn-border)}
 .callout-info{background:var(--info-dim);border-color:var(--info-border)}
-.callout-label{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;margin-bottom:6px}
+.callout-label{font-family:var(--mono);font-size:12px;font-weight:600;text-transform:uppercase;letter-spacing:.08em;margin-bottom:6px}
 .callout-accent .callout-label{color:var(--accent)}
 .callout-warn .callout-label{color:var(--warn)}
 .callout-info .callout-label{color:var(--info)}
-.callout p{font-size:14px;color:var(--text2);margin:0}
+.callout p{font-size:16px;color:var(--text2);margin:0}
 
 /* ── Code blocks ── */
 .codewrap{position:relative;margin:8px 0}
 .code-hd{display:flex;align-items:center;justify-content:space-between;background:var(--surface3);
   border:1px solid var(--border);border-bottom:none;border-radius:6px 6px 0 0;padding:6px 12px}
-.code-lang{font-size:10px;font-family:var(--mono);color:var(--text3)}
-.copy-btn{font-size:10px;font-family:var(--font);border:1px solid var(--border2);border-radius:4px;
+.code-lang{font-size:11.5px;font-family:var(--mono);color:var(--text3)}
+.copy-btn{font-size:11.5px;font-family:var(--font);border:1px solid var(--border2);border-radius:4px;
   padding:2px 8px;background:transparent;color:var(--text2);cursor:pointer}
 .copy-btn:hover{color:var(--text);border-color:var(--text2)}
 .copy-btn.done{color:var(--accent);border-color:var(--accent-border)}
-pre.code{font-family:var(--mono);font-size:12.5px;line-height:1.65;background:var(--surface2);
+pre.code{font-family:var(--mono);font-size:14px;line-height:1.65;background:var(--surface2);
   border:1px solid var(--border);border-radius:6px;padding:12px 16px;overflow-x:auto;color:var(--text);margin:0}
 pre.code.no-hd{border-radius:6px}
 pre.code.with-hd{border-top:none;border-radius:0 0 6px 6px}
 
 /* ── Tables ── */
-table{width:100%;border-collapse:collapse;margin:8px 0;font-size:12.5px}
+table{width:100%;border-collapse:collapse;margin:8px 0;font-size:14px}
 th,td{text-align:left;padding:8px 10px;border-bottom:1px solid var(--border);vertical-align:top}
-th{font-size:11px;text-transform:uppercase;letter-spacing:.04em;color:var(--text2);background:var(--surface2)}
+th{font-size:12.5px;text-transform:uppercase;letter-spacing:.04em;color:var(--text2);background:var(--surface2)}
 td{color:var(--text2)}
-td code{font-size:11.5px}
+td code{font-size:13px}
 
 /* ── Steps ── */
 .steps{display:flex;flex-direction:column}
 .step{display:flex;gap:16px;position:relative}
 .step:not(:last-child)::after{content:'';position:absolute;left:14px;top:31px;bottom:0;width:1px;background:var(--border2)}
 .step-num{width:30px;height:30px;background:var(--surface2);border:1px solid var(--accent-border);border-radius:8px;
-  display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700;
+  display:flex;align-items:center;justify-content:center;font-size:13.5px;font-weight:700;
   color:var(--accent);font-family:var(--mono);flex-shrink:0;margin-top:2px;position:relative;z-index:1}
-.step-body{flex:1;padding-bottom:24px}
-.step-title{font-size:14px;font-weight:600;color:var(--text);margin-bottom:6px;display:flex;align-items:center;gap:8px}
-.step-time{font-size:10px;font-family:var(--mono);color:var(--text3)}
-.step-desc{font-size:14px;color:var(--text2);margin-bottom:10px}
+.step-body{flex:1;min-width:0;padding-bottom:24px}
+.step-title{font-family:var(--display);font-size:17px;font-weight:600;color:var(--text);margin-bottom:6px;display:flex;align-items:center;gap:8px}
+.step-time{font-size:11.5px;font-family:var(--mono);color:var(--text3)}
+.step-desc{font-size:16px;color:var(--text2);margin-bottom:10px}
 
 /* ── Audience path cards ── */
 .paths{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:28px}
 .path-card{background:var(--surface);border:1px solid var(--border2);border-radius:10px;padding:16px;transition:border-color .15s}
 .path-card:hover{border-color:var(--accent)}
-.path-icon{font-size:20px;margin-bottom:8px}
-.path-title{font-size:13px;font-weight:600;color:var(--text);margin-bottom:4px}
-.path-desc{font-size:12px;color:var(--text2);line-height:1.5;margin-bottom:8px}
+.path-icon{font-size:22.5px;margin-bottom:8px}
+.path-title{font-family:var(--display);font-size:16px;font-weight:600;color:var(--text);margin-bottom:4px}
+.path-desc{font-size:13.5px;color:var(--text2);line-height:1.5;margin-bottom:8px}
 .path-steps{display:flex;gap:4px;flex-wrap:wrap}
-.path-step{font-size:10px;font-family:var(--mono);background:var(--surface2);color:var(--text3);padding:2px 6px;border-radius:3px}
+.path-step{font-size:11.5px;font-family:var(--mono);background:var(--surface2);color:var(--text3);padding:2px 6px;border-radius:3px}
 
 /* ── Flow diagram ── */
 .flow{background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:20px;margin:16px 0}
-.flow-title{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.07em;color:var(--text2);margin-bottom:14px}
+.flow-title{font-family:var(--mono);font-size:12px;font-weight:600;text-transform:uppercase;letter-spacing:.07em;color:var(--text2);margin-bottom:14px}
 .flow-nodes{display:flex;align-items:center;gap:0;flex-wrap:wrap;row-gap:8px}
 .flow-node{background:var(--surface2);border:1px solid var(--border2);border-radius:8px;
-  padding:8px 14px;font-size:12px;color:var(--text2);text-align:center;min-width:90px}
+  padding:8px 14px;font-size:13.5px;color:var(--text2);text-align:center;min-width:90px}
 .flow-node.hl{border-color:var(--accent-border);color:var(--accent);background:var(--accent-dim)}
-.flow-arrow{color:var(--text3);font-size:16px;padding:0 6px;flex-shrink:0}
-.flow-caption{margin-top:10px;font-size:12px;color:var(--text2)}
+.flow-arrow{color:var(--text3);font-size:18px;padding:0 6px;flex-shrink:0}
+.flow-caption{margin-top:10px;font-size:13.5px;color:var(--text2)}
 
 /* ── Endpoint cards ── */
 .ep{border:1px solid var(--border);border-radius:8px;margin:12px 0;overflow:hidden}
 .ep-hd{display:flex;align-items:center;gap:8px;padding:9px 12px;background:var(--surface2);
-  border-bottom:1px solid var(--border);font-size:12.5px;flex-wrap:wrap}
-.meth{font-family:var(--mono);font-size:10px;font-weight:700;color:#fff;padding:1px 7px;border-radius:4px;flex-shrink:0}
+  border-bottom:1px solid var(--border);font-size:14px;flex-wrap:wrap}
+.meth{font-family:var(--mono);font-size:11.5px;font-weight:700;color:#fff;padding:1px 7px;border-radius:4px;flex-shrink:0}
 .meth-get{background:#16A34A}.meth-post{background:#2563A8}.meth-put{background:#B97D0D}
 .meth-patch{background:#6B5ED4}.meth-delete{background:#C2460C}
-.ep-path{color:var(--text);font-size:12.5px}
-.ep-auth{font-size:10px;font-family:var(--mono);padding:1px 8px;border-radius:999px;
+.ep-path{color:var(--text);font-family:var(--mono);font-size:13.5px}
+.ep-auth{font-size:11.5px;font-family:var(--mono);padding:1px 8px;border-radius:999px;
   background:var(--accent-dim);border:1px solid var(--accent-border);color:var(--accent)}
-.ep-label{color:var(--text3);font-size:12px;font-family:var(--font)}
+.ep-label{color:var(--text3);font-size:13.5px;font-family:var(--font)}
 .tab-bar{display:flex;background:var(--surface2);border-bottom:1px solid var(--border)}
-.tab-btn{padding:7px 14px;font-size:12px;border:none;background:none;color:var(--text2);cursor:pointer;
+.tab-btn{padding:7px 14px;font-size:13.5px;border:none;background:none;color:var(--text2);cursor:pointer;
   font-family:var(--font);border-bottom:2px solid transparent;transition:all .12s}
 .tab-btn.active{color:var(--accent);border-bottom-color:var(--accent)}
 .tab-pane{display:none}.tab-pane.active{display:block}
@@ -259,24 +298,24 @@ td code{font-size:11.5px}
 
 /* ── Op grid (2-col code) ── */
 .op-grid{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin:8px 0}
-.op-label{font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:var(--text2);font-weight:600;margin-bottom:4px}
+.op-label{font-size:12.5px;text-transform:uppercase;letter-spacing:.06em;color:var(--text2);font-weight:600;margin-bottom:4px}
 @media(max-width:780px){.op-grid{grid-template-columns:1fr}}
 
 /* ── Collapsible ── */
 details.collapse{border:1px solid var(--border);border-radius:6px;margin:8px 0}
-details.collapse>summary{cursor:pointer;padding:8px 12px;font-size:12px;font-weight:600;color:var(--text2);
+details.collapse>summary{cursor:pointer;padding:8px 12px;font-size:13.5px;font-weight:600;color:var(--text2);
   background:var(--surface2);list-style:none}
 details.collapse>summary::-webkit-details-marker{display:none}
 details.collapse>summary::before{content:"\25B8  ";color:var(--text3)}
 details.collapse[open]>summary::before{content:"\25BE  "}
-details.collapse .inner{padding:8px 12px;font-size:12.5px;color:var(--text2)}
+details.collapse .inner{padding:8px 12px;font-size:14px;color:var(--text2)}
 
 /* ── See also ── */
-.see-also{font-size:12px;background:var(--surface2);border-radius:6px;padding:8px 12px;margin-top:16px;color:var(--text2)}
+.see-also{font-size:13.5px;background:var(--surface2);border-radius:6px;padding:8px 12px;margin-top:16px;color:var(--text2)}
 
 /* ── Back to top ── */
 #to-top{position:fixed;bottom:22px;right:22px;z-index:30;display:none;border:1px solid var(--border2);
-  background:var(--surface);border-radius:50%;width:40px;height:40px;font-size:16px;cursor:pointer;color:var(--text2);
+  background:var(--surface);border-radius:50%;width:40px;height:40px;font-size:18px;cursor:pointer;color:var(--text2);
   box-shadow:0 2px 10px rgba(0,0,0,.3)}
 #to-top.show{display:flex;align-items:center;justify-content:center}
 
@@ -286,8 +325,11 @@ details.collapse .inner{padding:8px 12px;font-size:12.5px;color:var(--text2)}
   nav.sidebar{position:fixed;left:0;top:0;z-index:20;transform:translateX(-100%);transition:transform .2s}
   nav.sidebar.open{transform:none}
   #sb-toggle{display:block;position:fixed;top:12px;left:12px;z-index:30;background:var(--surface);
-    border:1px solid var(--border2);border-radius:6px;padding:6px 11px;font-size:13px;cursor:pointer;color:var(--text)}
-  main{padding:48px 20px 80px}
+    border:1px solid var(--border2);border-radius:6px;padding:6px 11px;font-size:14.5px;cursor:pointer;color:var(--text)}
+  main{padding:72px 18px 80px}
+  .paths{grid-template-columns:1fr}
+  main>section:first-of-type .page-header::before,
+  main>section:first-of-type .page-header::after{display:none}
 }
 </style>
 </head>
@@ -298,7 +340,15 @@ details.collapse .inner{padding:8px 12px;font-size:12.5px;color:var(--text2)}
 
 <nav class="sidebar" id="sidebar">
   <div class="sb-brand">
-    <div class="sb-logo">R</div>
+    <div class="sb-logo" aria-hidden="true">
+      <svg viewBox="0 0 64 64" fill="none">
+        <rect x="4" y="4" width="56" height="56" rx="14" fill="#0FA89A"/>
+        <rect x="9" y="9" width="46" height="46" rx="10" fill="#0A6B62"/>
+        <circle cx="32" cy="32" r="11" fill="none" stroke="#FFFFFF" stroke-width="2.4"/>
+        <path d="M32 32V21" stroke="#FFFFFF" stroke-width="2.4" stroke-linecap="round"/>
+        <circle cx="32" cy="32" r="2.1" fill="#FFFFFF"/>
+      </svg>
+    </div>
     <div>
       <div class="sb-name">RocketVault</div>
       <div class="sb-ver">v4.0.0 · admin manual</div>
@@ -578,7 +628,7 @@ curl -s $BASE/api/v1/health/live</pre>
     <div class="callout-label">Config notes</div>
     <p>The server listens on <code>:8774</code> by default (see <code>server.listen_addr</code>). Set <code>environment: development</code> or <code>production</code> to select DB pool defaults.</p>
   </div>
-  <p class="see-also">See also: <a href="../doc/setup.md">Setup Guide</a></p>
+  <p class="see-also">See also: <a href="../doc/setup.html">Setup Guide</a></p>
 </section>
 
 <section id="introduction">
@@ -626,7 +676,7 @@ curl -s $BASE/api/v1/health/live</pre>
     <div class="callout-label">Register TOTP before logging in</div>
     <p>Register the returned <code>totp_qr_url</code> in your authenticator app. You can mint codes with <code>oathtool --totp --base32 &lt;secret&gt;</code>.</p>
   </div>
-  <p class="see-also">See also: <a href="../doc/README_ADMIN_SETUP.md">Admin Setup Guide</a></p>
+  <p class="see-also">See also: <a href="../doc/README_ADMIN_SETUP.html">Admin Setup Guide</a></p>
 </section>
 
 <section id="configuration">
@@ -730,7 +780,7 @@ curl -s -X DELETE $BASE/api/v1/users/sessions -H "Authorization: Bearer $TOKEN"<
     <div class="callout-label">Rate limiting</div>
     <p>Auth endpoints are rate-limited (default 5 req/min) — see <a href="#rate-limiting">Rate Limiting</a>.</p>
   </div>
-  <p class="see-also">See also: <a href="../MANUAL_TESTING.md">Manual Testing §5</a></p>
+  <p class="see-also">See also: <a href="../MANUAL_TESTING.html">Manual Testing §5</a></p>
 </section>
 
 <section id="jwt-signing">
@@ -766,7 +816,7 @@ curl -s -X DELETE $BASE/api/v1/users/sessions -H "Authorization: Bearer $TOKEN"<
     <div class="callout-label">Why this works</div>
     <p>With <code>os_store</code> the key lives in the OS keychain and rotation returns 400 — only <code>self_pki</code> supports runtime rotation. Headless hosts fall back to <code>~/.local/share/rocketvault/jwt-signing.pem</code> (mode 0600).</p>
   </div>
-  <p class="see-also">See also: <a href="../MANUAL_TESTING.md">Manual Testing §§6,15,16</a></p>
+  <p class="see-also">See also: <a href="../MANUAL_TESTING.html">Manual Testing §§6,15,16</a></p>
 </section>
 
 <section id="users">
@@ -812,7 +862,7 @@ curl -s -X DELETE $BASE/api/v1/users/sessions -H "Authorization: Bearer $TOKEN"<
     <div class="tab-bar"><button class="tab-btn active">cURL</button></div>
     <div class="tab-pane active"><pre class="code">curl -s -X DELETE $BASE/api/v1/users/&lt;id&gt; -H "Authorization: Bearer $TOKEN"</pre></div>
   </div>
-  <p class="see-also">See also: <a href="../MANUAL_TESTING.md">Manual Testing §7</a></p>
+  <p class="see-also">See also: <a href="../MANUAL_TESTING.html">Manual Testing §7</a></p>
 </section>
 
 <section id="vault-rbac">
@@ -935,7 +985,7 @@ rocketvault vault-access roles</pre>
     <details class="collapse"><summary>Notes</summary><div class="inner">Requires the <code>Key Vault Purge Operator</code> role in the target vault — a role assignment, not an access policy, since this is a vault data-plane route. Unlike the CLI's <code>vaults purge</code> command, the HTTP endpoint has <strong>no admin bypass</strong>: a global <code>admin</code> without an explicit grant is denied, matching real Azure Key Vault semantics (vault purge is a separate role from <code>Key Vault Administrator</code>). Refuses the default vault and any vault with purge protection enabled (400 either way). 404 if the vault doesn't exist.</div></details>
   </div>
 
-  <p class="see-also">See also: <a href="release-notes/v4.0.0-azure-rbac.md">Release Notes — v4.0.0 Azure RBAC</a>, <a href="#access-policies">Access Policies</a></p>
+  <p class="see-also">See also: <a href="release-notes/v4.0.0-azure-rbac.html">Release Notes — v4.0.0 Azure RBAC</a>, <a href="#access-policies">Access Policies</a></p>
 </section>
 
 <section id="access-policies">
@@ -998,7 +1048,7 @@ rocketvault vault-access roles</pre>
     <div class="tab-bar"><button class="tab-btn active">cURL</button></div>
     <div class="tab-pane active"><pre class="code">curl -s $BASE/api/v1/access-policies/principal/&lt;id&gt; -H "Authorization: Bearer $TOKEN"</pre></div>
   </div>
-  <p class="see-also">See also: <a href="#vault-rbac">Vault RBAC &amp; Role Assignments</a>, <a href="../MANUAL_TESTING.md">Manual Testing §13</a></p>
+  <p class="see-also">See also: <a href="#vault-rbac">Vault RBAC &amp; Role Assignments</a>, <a href="../MANUAL_TESTING.html">Manual Testing §13</a></p>
 </section>
 
 <section id="account-roles">
@@ -1079,7 +1129,7 @@ rocketvault vault-access roles</pre>
     <div class="callout-label">client_id is the name, not the UUID</div>
     <p>The <code>client_id</code> in the Basic auth header is the service-account <strong>name</strong> (e.g. <code>ci-pipeline</code>), not its UUID. Delete or rotate immediately invalidates live tokens.</p>
   </div>
-  <p class="see-also">See also: <a href="consuming-secrets-guide.md">Consuming Secrets Guide</a>, <a href="../MANUAL_TESTING.md">Manual Testing §14</a></p>
+  <p class="see-also">See also: <a href="consuming-secrets-guide.html">Consuming Secrets Guide</a>, <a href="../MANUAL_TESTING.html">Manual Testing §14</a></p>
 </section>
 
 <section id="secrets">
@@ -1162,7 +1212,7 @@ rocketvault vault-access roles</pre>
   -H "Content-Type: application/json" \
   -d '{"secrets":[{"name":"imported","value":"v","tags":["x"]}]}'</pre></div>
   </div>
-  <p class="see-also">See also: <a href="../MANUAL_TESTING.md">Manual Testing §8</a></p>
+  <p class="see-also">See also: <a href="../MANUAL_TESTING.html">Manual Testing §8</a></p>
 </section>
 
 <section id="secret-versions">
@@ -1186,7 +1236,7 @@ rocketvault vault-access roles</pre>
     <div class="tab-pane active"><pre class="code">curl -s $BASE/api/v1/secrets/&lt;id&gt;/versions/latest -H "Authorization: Bearer $TOKEN"</pre></div>
     <div class="tab-pane"><pre class="code">rocketvault secrets version latest --secret-id &lt;secret-id&gt; --username admin --password admin123 --totp-code 123456</pre></div>
   </div>
-  <p class="see-also">See also: <a href="../MANUAL_TESTING.md">Manual Testing §9</a></p>
+  <p class="see-also">See also: <a href="../MANUAL_TESTING.html">Manual Testing §9</a></p>
 </section>
 
 <section id="secret-rotation">
@@ -1209,7 +1259,7 @@ rocketvault secrets rotation history --secret-id &lt;id&gt; ...
 rocketvault secrets rotation status  ...</pre>
     </div>
   </div>
-  <p class="see-also">See also: <a href="integration-examples.md">Integration Examples — rotation</a></p>
+  <p class="see-also">See also: <a href="integration-examples.html">Integration Examples — rotation</a></p>
 </section>
 
 <section id="keys">
@@ -1302,7 +1352,7 @@ curl -s -X POST $BASE/api/v1/keys -H "Authorization: Bearer $TOKEN" \
     <div class="tab-bar"><button class="tab-btn active">cURL</button></div>
     <div class="tab-pane active"><pre class="code">curl -s -X DELETE $BASE/api/v1/keys/&lt;id&gt; -H "Authorization: Bearer $TOKEN"</pre></div>
   </div>
-  <p class="see-also">See also: <a href="../MANUAL_TESTING.md">Manual Testing §10</a></p>
+  <p class="see-also">See also: <a href="../MANUAL_TESTING.html">Manual Testing §10</a></p>
 </section>
 
 <section id="certificates">
@@ -1354,7 +1404,7 @@ curl -s -X POST $BASE/api/v1/keys -H "Authorization: Bearer $TOKEN" \
     <div class="callout-label">Force renewal</div>
     <p>The CLI offers <code>rocketvault certificate renew &lt;id&gt;</code> to force immediate renewal outside the auto-renew scan.</p>
   </div>
-  <p class="see-also">See also: <a href="../MANUAL_TESTING.md">Manual Testing §11</a></p>
+  <p class="see-also">See also: <a href="../MANUAL_TESTING.html">Manual Testing §11</a></p>
 </section>
 
 <section id="multi-vault">
@@ -1411,7 +1461,7 @@ curl -s -X POST $BASE/api/v1/keys -H "Authorization: Bearer $TOKEN" \
     <div class="callout-label">default vault cannot be deleted</div>
     <p>Vault management requires the <code>vaults:manage</code> permission (admin only). The <code>default</code> vault cannot be deleted.</p>
   </div>
-  <p class="see-also">See also: <a href="../MANUAL_TESTING.md">Manual Testing §12.5</a></p>
+  <p class="see-also">See also: <a href="../MANUAL_TESTING.html">Manual Testing §12.5</a></p>
 </section>
 
 <section id="soft-delete">
@@ -1423,7 +1473,7 @@ curl -s -X POST $BASE/api/v1/keys -H "Authorization: Bearer $TOKEN" \
     <div class="flow-nodes">
       <div class="flow-node hl">active</div>
       <div class="flow-arrow">DELETE →</div>
-      <div class="flow-node">soft-deleted<br><span style="font-size:10px;color:var(--text3)">readable, restorable</span></div>
+      <div class="flow-node">soft-deleted<br><span style="font-size:11.5px;color:var(--text3)">readable, restorable</span></div>
       <div class="flow-arrow">retention expires →</div>
       <div class="flow-node">auto-purged</div>
     </div>
@@ -1459,7 +1509,7 @@ curl -s -X POST $BASE/api/v1/keys -H "Authorization: Bearer $TOKEN" \
     <div class="callout-label">Keys and certificates</div>
     <p>Key and certificate restore/purge are exposed only on the flat <code>/deleted/keys/…</code> and <code>/deleted/certificates/…</code> routes.</p>
   </div>
-  <p class="see-also">See also: <a href="../MANUAL_TESTING.md">Manual Testing §12</a></p>
+  <p class="see-also">See also: <a href="../MANUAL_TESTING.html">Manual Testing §12</a></p>
 </section>
 
 <section id="audit">
@@ -1505,7 +1555,7 @@ curl -s -X POST $BASE/api/v1/keys -H "Authorization: Bearer $TOKEN" \
   </div>
 
   <div class="callout callout-warn"><div class="callout-label">Note</div><p>The logs response carries an <code>integrity_ok</code> flag — the result of verifying the hash chain.</p></div>
-  <p class="see-also">See also: <a href="../MANUAL_TESTING.md">Manual Testing</a></p>
+  <p class="see-also">See also: <a href="../MANUAL_TESTING.html">Manual Testing</a></p>
 </section>
 
 <section id="backup">
@@ -1535,7 +1585,7 @@ rocketvault backup restore --file /path/backup.json ...</pre>
   <div class="callout-label">Security warning</div>
   <p>Backup archives include master key material. Store them with at least the same access controls as your <code>.rocketvault.yaml</code> — anyone with the backup can decrypt all secrets.</p>
 </div>
-  <p class="see-also">See also: <a href="integration-examples.md">Integration Examples — backup</a></p>
+  <p class="see-also">See also: <a href="integration-examples.html">Integration Examples — backup</a></p>
 </section>
 
 <section id="hsm">
@@ -1562,7 +1612,7 @@ rocketvault backup restore --file /path/backup.json ...</pre>
   </table>
   <div class="callout callout-warn"><div class="callout-label">Note</div><p>Look for <code>PKCS#11 HSM key provider initialised</code> in the logs.
     P-256K (secp256k1) always uses the software provider.</p></div>
-  <p class="see-also">See also: <a href="hsm-softhsm2-testing.md">SoftHSM2 Testing Guide</a></p>
+  <p class="see-also">See also: <a href="hsm-softhsm2-testing.html">SoftHSM2 Testing Guide</a></p>
 </section>
 
 <section id="health">
@@ -1606,7 +1656,7 @@ rocketvault backup restore --file /path/backup.json ...</pre>
     <div class="tab-pane active"><pre class="code">curl -s $BASE/api/v1/health/database -H "Authorization: Bearer $TOKEN"</pre></div>
   </div>
 
-  <p class="see-also">See also: <a href="integration-examples.md">Integration Examples — monitoring</a></p>
+  <p class="see-also">See also: <a href="integration-examples.html">Integration Examples — monitoring</a></p>
 </section>
 
 <section id="rate-limiting">
@@ -1623,7 +1673,7 @@ rocketvault backup restore --file /path/backup.json ...</pre>
   </table>
   <div class="callout callout-warn"><div class="callout-label">Note</div><p>Tune via the <code>rate_limit.default</code> and <code>rate_limit.auth</code>
     config keys. Exceeding a limit returns <code>429 Too Many Requests</code>.</p></div>
-  <p class="see-also">See also: <a href="../MANUAL_TESTING.md">Endpoint table — Manual Testing §17</a></p>
+  <p class="see-also">See also: <a href="../MANUAL_TESTING.html">Endpoint table — Manual Testing §17</a></p>
 </section>
 
 <section id="performance">
@@ -1662,7 +1712,7 @@ rocketvault migrate:create &lt;desc&gt;# scaffold a new migration file</pre>
     deprecation and sunset dates so clients get advance notice before a version is removed.</p>
   <h3>Notes &amp; troubleshooting</h3>
   <ul><li>Deprecated versions emit deprecation/sunset headers; plan client migration before the sunset date.</li></ul>
-  <p class="see-also">See also: <a href="api-developer-guide.md">API Developer Guide</a></p>
+  <p class="see-also">See also: <a href="api-developer-guide.html">API Developer Guide</a></p>
 </section>
 
 <section id="consuming">
@@ -1690,7 +1740,7 @@ curl $BASE/api/v1/secrets/&lt;uuid&gt; -H "Authorization: Bearer &lt;access_toke
   </div>
   <div class="callout callout-warn"><div class="callout-label">Note</div><p><code>VAULT_CLIENT_SECRET</code> must come from an environment variable,
     never a config file. The server's own <code>vault_client.client_id</code> must be empty.</p></div>
-  <p class="see-also">See also: <a href="consuming-secrets-guide.md">Consuming Secrets Guide</a></p>
+  <p class="see-also">See also: <a href="consuming-secrets-guide.html">Consuming Secrets Guide</a></p>
 </section>
 
 <section id="cicd">
@@ -1704,7 +1754,7 @@ TOKEN=$(curl -s -X POST $API_URL/oauth2/token \
   -d "grant_type=client_credentials&amp;client_id=$CI_SA&amp;client_secret=$CI_SECRET" | jq -r .access_token)
 curl -s $API_URL/secrets/&lt;uuid&gt; -H "Authorization: Bearer $TOKEN" | jq -r .value</pre>
   <p class="see-also">See also:
-    <a href="integration-examples.md">Integration Examples — GitHub Actions &amp; Jenkins</a></p>
+    <a href="integration-examples.html">Integration Examples — GitHub Actions &amp; Jenkins</a></p>
 </section>
 
 <section id="multi-env">
@@ -1715,7 +1765,7 @@ curl -s $API_URL/secrets/&lt;uuid&gt; -H "Authorization: Bearer $TOKEN" | jq -r 
     These are scripted against the public API and are documented in full, with runnable
     examples, in the integration guide.</p>
   <p class="see-also">See also:
-    <a href="integration-examples.md">Integration Examples — multi-environment, rotation, Prometheus</a></p>
+    <a href="integration-examples.html">Integration Examples — multi-environment, rotation, Prometheus</a></p>
 </section>
 
 <section id="appendix-endpoints">
@@ -1723,7 +1773,7 @@ curl -s $API_URL/secrets/&lt;uuid&gt; -H "Authorization: Bearer $TOKEN" | jq -r 
   <p>The complete REST endpoint table (every method, path, auth requirement, and
     description) is maintained in the Manual Testing Guide and kept in sync with the router.</p>
   <p class="see-also">Full table:
-    <a href="../MANUAL_TESTING.md#quick-reference--all-endpoints">MANUAL_TESTING.md — All Endpoints</a></p>
+    <a href="../MANUAL_TESTING.html#quick-reference--all-endpoints">MANUAL_TESTING.md — All Endpoints</a></p>
   <p>Subsystems: vaults (+ role-assignments), secrets (+ versions, generate, export/import, item backup), users
     (+ sessions), keys (+ wrap/unwrap, sign/verify, encrypt/decrypt, rotate, versions),
     certificates (+ policy), deleted (restore/purge), access-policies, service-accounts,
@@ -1770,7 +1820,7 @@ Persistent flags: --config, --username, --password, --totp-code, --output {table
       <tr><td>Lost access to a secret after upgrading to v4.0.0</td><td>Access was granted only via an <code>allow</code> access policy — invisible to the role-assignment backfill</td><td>Grant the equivalent <a href="#vault-rbac">vault role</a> manually; see the upgrade callout</td></tr>
     </tbody>
   </table>
-  <p class="see-also">See also: <a href="../doc/troubleshooting.markdown">Troubleshooting</a></p>
+  <p class="see-also">See also: <a href="../doc/troubleshooting.html">Troubleshooting</a></p>
 </section>
 
 <section id="appendix-security">
@@ -1786,7 +1836,7 @@ Persistent flags: --config, --username, --password, --totp-code, --output {table
     <li>Vault role assignments reviewed per vault (<code>rocketvault vault-access list --vault &lt;name&gt;</code>) — no principal holds more than it needs.</li>
     <li>Before upgrading to v4.0.0+, ran <code>rocketvault vaults preview-migration</code> and checked for <code>allow</code>-only access policies invisible to the backfill (<a href="#vault-rbac">Vault RBAC</a>).</li>
   </ul>
-  <p class="see-also">See also: <a href="../doc/security.markdown">Security Notes</a></p>
+  <p class="see-also">See also: <a href="../doc/security.html">Security Notes</a></p>
 </section>
 </main>
 </div>
