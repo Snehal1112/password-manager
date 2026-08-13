@@ -421,6 +421,44 @@ func TestCreateKey_InvalidECDSACurve_Returns400(t *testing.T) {
 	assert.Equal(t, http.StatusBadRequest, w.Code)
 }
 
+func TestCreateKey_OctType_CallsCreateOctKey(t *testing.T) {
+	svc := &mockKeyService{}
+	keyID := uuid.New()
+	svc.On("CreateOctKey", mock.Anything, mock.MatchedBy(func(r keyServices.CreateKeyRequest) bool {
+		return r.Bits == 256
+	})).Return(&keyServices.CreateKeyResult{KeyID: keyID, Name: "aes-key", Type: model.KeyTypeOct, CreatedAt: time.Now()}, nil)
+	svc.On("GetKey", mock.Anything, keyID, mock.Anything).Return(&model.Key{
+		ID: keyID, Name: "aes-key", Type: model.KeyTypeOct, Bits: 256, Enabled: true,
+	}, nil)
+
+	c := newKeyCtx(svc)
+	body, _ := json.Marshal(map[string]any{"name": "aes-key", "type": "oct", "bits": 256})
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest(http.MethodPost, "/keys", bytes.NewReader(body))
+
+	createKey(c, w, r)
+	if c.Err != nil {
+		writeError(w, c)
+	}
+
+	assert.Equal(t, http.StatusCreated, w.Code)
+	svc.AssertExpectations(t)
+}
+
+func TestCreateKey_OctType_InvalidBits_Returns400(t *testing.T) {
+	c := newKeyCtx(&mockKeyService{})
+	body, _ := json.Marshal(map[string]any{"name": "aes-key", "type": "oct", "bits": 100})
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest(http.MethodPost, "/keys", bytes.NewReader(body))
+
+	createKey(c, w, r)
+	if c.Err != nil {
+		writeError(w, c)
+	}
+
+	assert.Equal(t, http.StatusBadRequest, w.Code)
+}
+
 // ============================================================
 // listKeys
 // ============================================================

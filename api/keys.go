@@ -263,8 +263,8 @@ func createKey(c *Context, w http.ResponseWriter, r *http.Request) {
 
 	// Validate key type.
 	req.Type = strings.ToUpper(req.Type)
-	if req.Type != "RSA" && req.Type != "ECDSA" {
-		c.SetInvalidParam("type: must be RSA or ECDSA")
+	if req.Type != "RSA" && req.Type != "ECDSA" && req.Type != "OCT" {
+		c.SetInvalidParam("type: must be RSA, ECDSA, or OCT")
 		return
 	}
 
@@ -324,7 +324,8 @@ func createKey(c *Context, w http.ResponseWriter, r *http.Request) {
 	}
 
 	var result *keyservices.CreateKeyResult
-	if req.Type == "RSA" {
+	switch req.Type {
+	case "RSA":
 		// Validate RSA key size.
 		if req.Bits != 2048 && req.Bits != 3072 && req.Bits != 4096 {
 			if req.Bits == 0 {
@@ -336,7 +337,14 @@ func createKey(c *Context, w http.ResponseWriter, r *http.Request) {
 		}
 		createReq.Bits = req.Bits
 		result, err = keyService.CreateRSAKey(r.Context(), createReq)
-	} else {
+	case "OCT":
+		if req.Bits != 128 && req.Bits != 192 && req.Bits != 256 {
+			c.SetInvalidParam("bits: must be 128, 192, or 256")
+			return
+		}
+		createReq.Bits = req.Bits
+		result, err = keyService.CreateOctKey(r.Context(), createReq)
+	default:
 		// Validate ECDSA curve.
 		if req.Curve == "" {
 			req.Curve = "P-256" // Default ECDSA curve.
