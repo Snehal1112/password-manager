@@ -16,12 +16,35 @@ type OIDCIdentity struct {
 }
 
 // oidcClaims is the subset of standard OIDC claims OIDCService reads from a
-// verified ID token.
+// verified ID token or the userinfo endpoint. Not every provider populates
+// every field on every source — e.g. Kopano Konnect omits preferred_username
+// entirely and leaves name/email out of the ID token, returning them only
+// from userinfo.
 type oidcClaims struct {
 	Subject           string `json:"sub"`
 	Email             string `json:"email"`
 	PreferredUsername string `json:"preferred_username"`
 	Name              string `json:"name"`
+	GivenName         string `json:"given_name"`
+	FamilyName        string `json:"family_name"`
+}
+
+// displayName returns the best available human-readable name from claims:
+// name, then given_name + family_name, then empty.
+func (c oidcClaims) displayName() string {
+	if c.Name != "" {
+		return c.Name
+	}
+	switch {
+	case c.GivenName != "" && c.FamilyName != "":
+		return c.GivenName + " " + c.FamilyName
+	case c.GivenName != "":
+		return c.GivenName
+	case c.FamilyName != "":
+		return c.FamilyName
+	default:
+		return ""
+	}
 }
 
 // OIDCConfig holds OIDCService's configuration.
@@ -111,12 +134,32 @@ func (s *oidcService) HandleCallback(ctx context.Context, code, expectedNonce st
 
 	preferredUsername := claims.PreferredUsername
 	if preferredUsername == "" {
-		preferredUsername = claims.Name
+		preferredUsername = claims.displayName()
+	}
+	email := claims.Email
+
+	// Some providers (e.g. Kopano/Konnect) leave name/email out of the ID
+	// token and only return them from userinfo. Best-effort: a failure here
+	// must not fail the login, since FindOrCreateExternalUser already falls
+	// back to the subject when PreferredUsername is empty.
+	if userInfo, err := s.provider.UserInfo(ctx, oauth2.StaticTokenSource(token)); err == nil {
+		var uiClaims oidcClaims
+		if err := userInfo.Claims(&uiClaims); err == nil {
+			if preferredUsername == "" {
+				preferredUsername = uiClaims.PreferredUsername
+			}
+			if preferredUsername == "" {
+				preferredUsername = uiClaims.displayName()
+			}
+			if email == "" {
+				email = uiClaims.Email
+			}
+		}
 	}
 
 	return &OIDCIdentity{
 		Subject:           claims.Subject,
-		Email:             claims.Email,
+		Email:             email,
 		PreferredUsername: preferredUsername,
 	}, nil
 }

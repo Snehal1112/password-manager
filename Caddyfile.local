@@ -1,0 +1,27 @@
+# Caddyfile.local — standalone, project-local TLS-terminating reverse proxy
+# for manual OIDC testing against numericlabs.lxd. Not used by
+# docker-compose (see ./Caddyfile for that) and not installed into the
+# system Caddy service at /etc/caddy/Caddyfile.
+#
+# Run from the repo root. Port 443 is privileged, so this needs either sudo
+# or a one-time `sudo setcap cap_net_bind_service=+ep $(which caddy)`:
+#   caddy run --config Caddyfile.local
+#
+# RocketVault must be running separately on :8774 (server.tls.enabled: false).
+#
+# auto_https disable_redirects: without this, Caddy also listens on :80 for
+# an HTTP->HTTPS redirect, which the system caddy.service already owns.
+{
+	auto_https disable_redirects
+}
+
+numericlabs.lxd {
+	log {
+		format console
+		level INFO
+	}
+
+	tls /home/numericlabs/data/tls/server.crt /home/numericlabs/data/tls/server.key
+
+	reverse_proxy 127.0.0.1:8774
+}
