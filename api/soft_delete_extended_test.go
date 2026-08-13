@@ -2,6 +2,7 @@
 package api
 
 import (
+	"context"
 	"errors"
 	"net/http"
 	"net/http/httptest"
@@ -14,6 +15,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 
+	"rocketvault/common"
 	certServices "rocketvault/internal/services/certificates"
 	keyServices "rocketvault/internal/services/keys"
 	secretServices "rocketvault/internal/services/secrets"
@@ -532,13 +534,30 @@ func TestPurgeCertificate_Success_Returns200(t *testing.T) {
 // Mirrors soft_delete_scope_test.go's secrets coverage: proves the flat
 // route builds an owner scope and the vault-scoped route builds a vault
 // scope, now that keys/certs go through the same scopeFromRequest path.
+//
+// Each matcher checks both Kind() and the carried vault/owner id (not just
+// Kind()) — a resolved-vault-id bug that kept the right Kind but the wrong
+// id would otherwise slip through. The vault-scoped requests inject a
+// distinct resolved vault id via common.VaultIDKey, exactly as
+// VaultResolutionMiddleware does in the real router, so the id under test
+// is never just the DefaultVaultID fallback.
 // ============================================================
+
+// vaultScopedRequest builds a request carrying both the vault_name route var
+// and a resolved vault id in context, as VaultResolutionMiddleware would.
+func vaultScopedRequest(method, path string, vaultID uuid.UUID) *http.Request {
+	r := httptest.NewRequest(method, path, nil)
+	r = r.WithContext(context.WithValue(r.Context(), common.VaultIDKey, vaultID.String()))
+	return mux.SetURLVars(r, map[string]string{"vault_name": "team-a"})
+}
 
 func TestRecoverKey_FlatRoute_UsesOwnerScope(t *testing.T) {
 	keyID := uuid.New()
+	wantOwnerID := uuid.MustParse(keyTestUserID)
 	svc := &mockKeyService{}
 	svc.On("RecoverKey", mock.Anything, keyID, mock.MatchedBy(func(s model.Scope) bool {
-		return s.Kind() == model.ScopeOwner
+		ownerID, ok := s.OwnerID()
+		return s.Kind() == model.ScopeOwner && ok && ownerID == wantOwnerID
 	})).Return(nil)
 	c := newKeyCtx(svc)
 	c.Params = &ApiParams{KeyID: keyID.String(), PerPage: 60}
@@ -556,15 +575,15 @@ func TestRecoverKey_FlatRoute_UsesOwnerScope(t *testing.T) {
 
 func TestRecoverKey_VaultScopedRoute_UsesVaultScope(t *testing.T) {
 	keyID := uuid.New()
+	wantVaultID := uuid.New()
 	svc := &mockKeyService{}
 	svc.On("RecoverKey", mock.Anything, keyID, mock.MatchedBy(func(s model.Scope) bool {
-		return s.Kind() == model.ScopeVault
+		return s.Kind() == model.ScopeVault && s.VaultID() == wantVaultID
 	})).Return(nil)
 	c := newKeyCtx(svc)
 	c.Params = &ApiParams{KeyID: keyID.String(), PerPage: 60}
 	w := httptest.NewRecorder()
-	r := httptest.NewRequest(http.MethodPost, "/vaults/team-a/deleted/keys/"+keyID.String()+"/restore", nil)
-	r = mux.SetURLVars(r, map[string]string{"vault_name": "team-a"})
+	r := vaultScopedRequest(http.MethodPost, "/vaults/team-a/deleted/keys/"+keyID.String()+"/restore", wantVaultID)
 
 	recoverKey(c, w, r)
 	if c.Err != nil {
@@ -575,11 +594,99 @@ func TestRecoverKey_VaultScopedRoute_UsesVaultScope(t *testing.T) {
 	svc.AssertExpectations(t)
 }
 
+func TestPurgeKey_FlatRoute_UsesOwnerScope(t *testing.T) {
+	keyID := uuid.New()
+	wantOwnerID := uuid.MustParse(keyTestUserID)
+	svc := &mockKeyService{}
+	svc.On("PurgeKey", mock.Anything, keyID, mock.MatchedBy(func(s model.Scope) bool {
+		ownerID, ok := s.OwnerID()
+		return s.Kind() == model.ScopeOwner && ok && ownerID == wantOwnerID
+	})).Return(nil)
+	c := newKeyCtx(svc)
+	c.Params = &ApiParams{KeyID: keyID.String(), PerPage: 60}
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest(http.MethodDelete, "/deleted/keys/"+keyID.String()+"/purge", nil)
+
+	purgeKey(c, w, r)
+	if c.Err != nil {
+		writeError(w, c)
+	}
+
+	assert.Equal(t, http.StatusOK, w.Code)
+	svc.AssertExpectations(t)
+}
+
+func TestPurgeKey_VaultScopedRoute_UsesVaultScope(t *testing.T) {
+	keyID := uuid.New()
+	wantVaultID := uuid.New()
+	svc := &mockKeyService{}
+	svc.On("PurgeKey", mock.Anything, keyID, mock.MatchedBy(func(s model.Scope) bool {
+		return s.Kind() == model.ScopeVault && s.VaultID() == wantVaultID
+	})).Return(nil)
+	c := newKeyCtx(svc)
+	c.Params = &ApiParams{KeyID: keyID.String(), PerPage: 60}
+	w := httptest.NewRecorder()
+	r := vaultScopedRequest(http.MethodDelete, "/vaults/team-a/deleted/keys/"+keyID.String()+"/purge", wantVaultID)
+
+	purgeKey(c, w, r)
+	if c.Err != nil {
+		writeError(w, c)
+	}
+
+	assert.Equal(t, http.StatusOK, w.Code)
+	svc.AssertExpectations(t)
+}
+
+// listDeletedKeys never calls scopeFromRequest — it always builds a vault
+// scope directly from vaultIDFromRequest/userIDFromClaims (see api/soft_delete.go),
+// so any authorized vault member sees the full listing. These tests prove
+// that stays true, and that the resolved vault id still varies with the
+// route, unlike recover/purge's owner/vault split.
+func TestListDeletedKeys_FlatRoute_UsesDefaultVaultScope(t *testing.T) {
+	wantVaultID := uuid.MustParse(model.DefaultVaultID)
+	svc := &mockKeyService{}
+	svc.On("ListDeletedKeys", mock.Anything, mock.MatchedBy(func(s model.Scope) bool {
+		return s.Kind() == model.ScopeVault && s.VaultID() == wantVaultID
+	})).Return([]model.Key{}, nil)
+	c := newKeyCtx(svc)
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest(http.MethodGet, "/deleted/keys", nil)
+
+	listDeletedKeys(c, w, r)
+	if c.Err != nil {
+		writeError(w, c)
+	}
+
+	assert.Equal(t, http.StatusOK, w.Code)
+	svc.AssertExpectations(t)
+}
+
+func TestListDeletedKeys_VaultScopedRoute_UsesResolvedVaultScope(t *testing.T) {
+	wantVaultID := uuid.New()
+	svc := &mockKeyService{}
+	svc.On("ListDeletedKeys", mock.Anything, mock.MatchedBy(func(s model.Scope) bool {
+		return s.Kind() == model.ScopeVault && s.VaultID() == wantVaultID
+	})).Return([]model.Key{}, nil)
+	c := newKeyCtx(svc)
+	w := httptest.NewRecorder()
+	r := vaultScopedRequest(http.MethodGet, "/vaults/team-a/deleted/keys", wantVaultID)
+
+	listDeletedKeys(c, w, r)
+	if c.Err != nil {
+		writeError(w, c)
+	}
+
+	assert.Equal(t, http.StatusOK, w.Code)
+	svc.AssertExpectations(t)
+}
+
 func TestRecoverCertificate_FlatRoute_UsesOwnerScope(t *testing.T) {
 	certID := uuid.New()
+	wantOwnerID := uuid.MustParse(certTestUserID)
 	svc := &mockCertService{}
 	svc.On("RecoverCertificate", mock.Anything, certID, mock.MatchedBy(func(s model.Scope) bool {
-		return s.Kind() == model.ScopeOwner
+		ownerID, ok := s.OwnerID()
+		return s.Kind() == model.ScopeOwner && ok && ownerID == wantOwnerID
 	})).Return(nil)
 	c := newCertCtx(svc, certAdminClaims())
 	c.Params = &ApiParams{CertificateID: certID.String(), PerPage: 60}
@@ -597,17 +704,98 @@ func TestRecoverCertificate_FlatRoute_UsesOwnerScope(t *testing.T) {
 
 func TestRecoverCertificate_VaultScopedRoute_UsesVaultScope(t *testing.T) {
 	certID := uuid.New()
+	wantVaultID := uuid.New()
 	svc := &mockCertService{}
 	svc.On("RecoverCertificate", mock.Anything, certID, mock.MatchedBy(func(s model.Scope) bool {
-		return s.Kind() == model.ScopeVault
+		return s.Kind() == model.ScopeVault && s.VaultID() == wantVaultID
 	})).Return(nil)
 	c := newCertCtx(svc, certAdminClaims())
 	c.Params = &ApiParams{CertificateID: certID.String(), PerPage: 60}
 	w := httptest.NewRecorder()
-	r := httptest.NewRequest(http.MethodPost, "/vaults/team-a/deleted/certificates/"+certID.String()+"/restore", nil)
-	r = mux.SetURLVars(r, map[string]string{"vault_name": "team-a"})
+	r := vaultScopedRequest(http.MethodPost, "/vaults/team-a/deleted/certificates/"+certID.String()+"/restore", wantVaultID)
 
 	recoverCertificate(c, w, r)
+	if c.Err != nil {
+		writeError(w, c)
+	}
+
+	assert.Equal(t, http.StatusOK, w.Code)
+	svc.AssertExpectations(t)
+}
+
+func TestPurgeCertificate_FlatRoute_UsesOwnerScope(t *testing.T) {
+	certID := uuid.New()
+	wantOwnerID := uuid.MustParse(certTestUserID)
+	svc := &mockCertService{}
+	svc.On("PurgeCertificate", mock.Anything, certID, mock.MatchedBy(func(s model.Scope) bool {
+		ownerID, ok := s.OwnerID()
+		return s.Kind() == model.ScopeOwner && ok && ownerID == wantOwnerID
+	})).Return(nil)
+	c := newCertCtx(svc, certAdminClaims())
+	c.Params = &ApiParams{CertificateID: certID.String(), PerPage: 60}
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest(http.MethodDelete, "/deleted/certificates/"+certID.String()+"/purge", nil)
+
+	purgeCertificate(c, w, r)
+	if c.Err != nil {
+		writeError(w, c)
+	}
+
+	assert.Equal(t, http.StatusOK, w.Code)
+	svc.AssertExpectations(t)
+}
+
+func TestPurgeCertificate_VaultScopedRoute_UsesVaultScope(t *testing.T) {
+	certID := uuid.New()
+	wantVaultID := uuid.New()
+	svc := &mockCertService{}
+	svc.On("PurgeCertificate", mock.Anything, certID, mock.MatchedBy(func(s model.Scope) bool {
+		return s.Kind() == model.ScopeVault && s.VaultID() == wantVaultID
+	})).Return(nil)
+	c := newCertCtx(svc, certAdminClaims())
+	c.Params = &ApiParams{CertificateID: certID.String(), PerPage: 60}
+	w := httptest.NewRecorder()
+	r := vaultScopedRequest(http.MethodDelete, "/vaults/team-a/deleted/certificates/"+certID.String()+"/purge", wantVaultID)
+
+	purgeCertificate(c, w, r)
+	if c.Err != nil {
+		writeError(w, c)
+	}
+
+	assert.Equal(t, http.StatusOK, w.Code)
+	svc.AssertExpectations(t)
+}
+
+func TestListDeletedCertificates_FlatRoute_UsesDefaultVaultScope(t *testing.T) {
+	wantVaultID := uuid.MustParse(model.DefaultVaultID)
+	svc := &mockCertService{}
+	svc.On("ListDeletedCertificates", mock.Anything, mock.MatchedBy(func(s model.Scope) bool {
+		return s.Kind() == model.ScopeVault && s.VaultID() == wantVaultID
+	})).Return([]model.Certificate{}, nil)
+	c := newCertCtx(svc, certAdminClaims())
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest(http.MethodGet, "/deleted/certificates", nil)
+
+	listDeletedCertificates(c, w, r)
+	if c.Err != nil {
+		writeError(w, c)
+	}
+
+	assert.Equal(t, http.StatusOK, w.Code)
+	svc.AssertExpectations(t)
+}
+
+func TestListDeletedCertificates_VaultScopedRoute_UsesResolvedVaultScope(t *testing.T) {
+	wantVaultID := uuid.New()
+	svc := &mockCertService{}
+	svc.On("ListDeletedCertificates", mock.Anything, mock.MatchedBy(func(s model.Scope) bool {
+		return s.Kind() == model.ScopeVault && s.VaultID() == wantVaultID
+	})).Return([]model.Certificate{}, nil)
+	c := newCertCtx(svc, certAdminClaims())
+	w := httptest.NewRecorder()
+	r := vaultScopedRequest(http.MethodGet, "/vaults/team-a/deleted/certificates", wantVaultID)
+
+	listDeletedCertificates(c, w, r)
 	if c.Err != nil {
 		writeError(w, c)
 	}
