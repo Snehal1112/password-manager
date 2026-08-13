@@ -60,7 +60,7 @@ vaults). RocketVault columns are sourced from the codebase (`api/`, `internal/`,
 | Sign/Verify — RSA | RS256/384/512, PS256/384/512, RSNULL | RS256/384/512, PS256/384/512 | 🟡 (no RSNULL TLS edge case) |
 | Sign/Verify — EC | ES256, ES256K, ES384, ES512 | ES256, ES256K, ES384, ES512 | ✅ |
 | Wrap/Encrypt — RSA | RSA-OAEP-256, RSA-OAEP, RSA1_5 | RSA-OAEP-256, RSA-OAEP | 🟡 (no legacy RSA1_5 — acceptable, deprecated) |
-| Wrap/Encrypt — AES (KW/CBC) | Managed HSM only | A128/192/256 KW + CBC (software keys) | ➕ |
+| Wrap/Encrypt — AES (KW/CBC) | Managed HSM only | A128/192/256 KW on software keys (➕, beyond Azure) **and** on HSM-backed AES keys (✅ matches Azure's Managed-HSM-only restriction); AES-KW requires 8-byte-aligned input (RFC 3394, matches Azure); A128/192/256 CBC on software keys only, no PKCS#11 mechanism exists for CBC wrap | ✅ (KW) / ➕ (CBC, software only) |
 
 ## 4. Certificate management
 
@@ -182,7 +182,7 @@ no live authorization weight and is out of scope for parity comparison against A
 | Capability | Azure Key Vault | RocketVault | Status |
 |---|---|---|---|
 | Software crypto module | ✅ Standard (FIPS 140 L1) | ✅ Go crypto + AES-256-GCM | 🟡 (not FIPS-validated) |
-| HSM-backed keys | ✅ Premium (FIPS 140-3 L3) | 🟡 PKCS#11 provider (`hsm.enabled`); RSA-OAEP only | 🟡 |
+| HSM-backed keys | ✅ Premium (FIPS 140-3 L3) | 🟡 PKCS#11 provider (`hsm.enabled`); RSA sign/verify/encrypt/decrypt, EC sign/verify (P-256/P-384/P-521), and AES-KW generate/wrap/unwrap all HSM-backed; P-256K and AES-CBC remain software-only | 🟡 |
 | JWT signing key protection | n/a | ➕ OS keychain / self-PKI / external-PKI providers | ➕ |
 | Keys non-extractable | ✅ | ✅ | ✅ |
 
@@ -226,8 +226,12 @@ Officer is a true superset of Crypto User including wrap/unwrap, Administrator
 carries no derived gaps).
 
 **Partial (🟡):**
-- **HSM**: PKCS#11 path exists but is not the default and is RSA-OAEP-limited; no
-  FIPS 140-3 L3 validation.
+- **HSM**: PKCS#11 path exists but is not the default; covers RSA (sign/verify/
+  encrypt/decrypt), EC P-256/P-384/P-521 (sign/verify), and AES-KW (generate/wrap/
+  unwrap) — P-256K and AES-CBC remain software-only (P-256K: no PKCS#11 mechanism
+  verified against real hardware in this environment; AES-CBC: no PKCS#11 mechanism
+  exists at all). No FIPS 140-3 L3 validation (a certification process, not
+  achievable through code).
 - **Rotation policy**: rotation works, but there is no per-key JWK-style rotation
   policy API, and rotation is user-scoped (a multi-vault deferral).
 - **RBAC role boundaries, one residual gap** (see §6): `Key Vault Crypto User` is
