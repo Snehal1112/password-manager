@@ -3,6 +3,7 @@ package crypto
 import (
 	"context"
 	"encoding/asn1"
+	"encoding/binary"
 	"errors"
 	"fmt"
 	"hash"
@@ -221,6 +222,44 @@ func (p *PKCS11KeyProvider) GenerateECDSAKey(_ context.Context, curveName string
 	return label, nil
 }
 
+// GenerateAESKey generates a non-extractable AES secret key on the token.
+// Returns the CKA_LABEL UUID string as the handle. bits must be 128, 192, or
+// 256.
+func (p *PKCS11KeyProvider) GenerateAESKey(_ context.Context, bits int) (string, error) {
+	if bits != 128 && bits != 192 && bits != 256 {
+		return "", fmt.Errorf("%w: AES key size must be 128, 192, or 256 bits", ErrUnsupportedAlgorithm)
+	}
+
+	session, err := p.openRWSession()
+	if err != nil {
+		return "", err
+	}
+	defer p.closeSession(session)
+
+	label := uuid.New().String()
+
+	attrs := []*p11.Attribute{
+		p11.NewAttribute(p11.CKA_CLASS, p11.CKO_SECRET_KEY),
+		p11.NewAttribute(p11.CKA_KEY_TYPE, p11.CKK_AES),
+		p11.NewAttribute(p11.CKA_LABEL, label),
+		p11.NewAttribute(p11.CKA_TOKEN, true),
+		p11.NewAttribute(p11.CKA_SENSITIVE, true),
+		p11.NewAttribute(p11.CKA_EXTRACTABLE, false),
+		p11.NewAttribute(p11.CKA_ENCRYPT, true),
+		p11.NewAttribute(p11.CKA_DECRYPT, true),
+		p11.NewAttribute(p11.CKA_WRAP, true),
+		p11.NewAttribute(p11.CKA_UNWRAP, true),
+		p11.NewAttribute(p11.CKA_VALUE_LEN, bits/8),
+	}
+
+	mech := []*p11.Mechanism{p11.NewMechanism(p11.CKM_AES_KEY_GEN, nil)}
+	if _, err := p.ctx.GenerateKey(session, mech, attrs); err != nil {
+		return "", fmt.Errorf("pkcs11 aes key gen: %w", err)
+	}
+
+	return label, nil
+}
+
 // findPrivateKey finds the private key object on the token by CKA_LABEL.
 func (p *PKCS11KeyProvider) findPrivateKey(session p11.SessionHandle, label string) (p11.ObjectHandle, error) {
 	template := []*p11.Attribute{
@@ -261,6 +300,119 @@ func (p *PKCS11KeyProvider) findPublicKey(session p11.SessionHandle, label strin
 		return 0, fmt.Errorf("pkcs11: public key not found for label %q", label)
 	}
 	return handles[0], nil
+}
+
+// findSecretKey finds the AES secret key object on the token by CKA_LABEL.
+func (p *PKCS11KeyProvider) findSecretKey(session p11.SessionHandle, label string) (p11.ObjectHandle, error) {
+	template := []*p11.Attribute{
+		p11.NewAttribute(p11.CKA_CLASS, p11.CKO_SECRET_KEY),
+		p11.NewAttribute(p11.CKA_LABEL, label),
+	}
+	if err := p.ctx.FindObjectsInit(session, template); err != nil {
+		return 0, fmt.Errorf("pkcs11 find init: %w", err)
+	}
+	defer func() { _ = p.ctx.FindObjectsFinal(session) }()
+
+	handles, _, err := p.ctx.FindObjects(session, 1)
+	if err != nil {
+		return 0, fmt.Errorf("pkcs11 find objects: %w", err)
+	}
+	if len(handles) == 0 {
+		return 0, fmt.Errorf("pkcs11: secret key not found for label %q", label)
+	}
+	return handles[0], nil
+}
+
+// isAESKWAlgorithm reports whether algorithm is an AES-KW variant, which maps
+// to CKM_AES_KEY_WRAP_PAD against a CKO_SECRET_KEY object rather than the
+// RSA-OAEP path against a CKO_PUBLIC_KEY/CKO_PRIVATE_KEY pair.
+func isAESKWAlgorithm(algorithm EncryptionAlgorithm) bool {
+	switch algorithm {
+	case AlgorithmA128KW, AlgorithmA192KW, AlgorithmA256KW:
+		return true
+	default:
+		return false
+	}
+}
+
+// wrapRawData wraps arbitrary plaintext with wrappingKey using
+// CKM_AES_KEY_WRAP_PAD via C_WrapKey. Many PKCS#11 tokens (including
+// SoftHSM2) only expose this mechanism through the CKF_WRAP/CKF_UNWRAP
+// capability, not CKF_ENCRYPT/CKF_DECRYPT, so C_Encrypt/C_Decrypt fail with
+// CKR_MECHANISM_INVALID. To wrap raw data rather than a key object, the
+// plaintext is first imported as a temporary, extractable, non-token generic
+// secret object and then wrapped as a key.
+//
+// data is prefixed with its own length as a 4-byte big-endian header before
+// wrapping: CKM_AES_KEY_WRAP_PAD only guarantees recovering the plaintext
+// rounded up to the next 8-byte block on unwrap (observed against SoftHSM2,
+// which does not reconstruct the exact original length from the RFC 5649
+// padding metadata for CKK_GENERIC_SECRET targets), so unwrapRawData needs
+// this header to trim the trailing zero padding back off.
+func (p *PKCS11KeyProvider) wrapRawData(session p11.SessionHandle, wrappingKey p11.ObjectHandle, data []byte) ([]byte, error) {
+	framed := make([]byte, 4+len(data))
+	binary.BigEndian.PutUint32(framed[:4], uint32(len(data)))
+	copy(framed[4:], data)
+
+	tempAttrs := []*p11.Attribute{
+		p11.NewAttribute(p11.CKA_CLASS, p11.CKO_SECRET_KEY),
+		p11.NewAttribute(p11.CKA_KEY_TYPE, p11.CKK_GENERIC_SECRET),
+		p11.NewAttribute(p11.CKA_TOKEN, false),
+		p11.NewAttribute(p11.CKA_SENSITIVE, false),
+		p11.NewAttribute(p11.CKA_EXTRACTABLE, true),
+		p11.NewAttribute(p11.CKA_VALUE, framed),
+	}
+	tempObj, err := p.ctx.CreateObject(session, tempAttrs)
+	if err != nil {
+		return nil, fmt.Errorf("pkcs11 aes-kw create temp object: %w", err)
+	}
+	defer func() { _ = p.ctx.DestroyObject(session, tempObj) }()
+
+	mech := []*p11.Mechanism{p11.NewMechanism(p11.CKM_AES_KEY_WRAP_PAD, nil)}
+	wrapped, err := p.ctx.WrapKey(session, mech, wrappingKey, tempObj)
+	if err != nil {
+		return nil, fmt.Errorf("pkcs11 aes-kw wrap: %w", err)
+	}
+	return wrapped, nil
+}
+
+// unwrapRawData reverses wrapRawData: it unwraps wrapped into a temporary,
+// extractable generic secret object with unwrappingKey, reads its CKA_VALUE
+// back out, and trims the trailing padding using the 4-byte length header
+// wrapRawData prepended.
+func (p *PKCS11KeyProvider) unwrapRawData(session p11.SessionHandle, unwrappingKey p11.ObjectHandle, wrapped []byte) ([]byte, error) {
+	tempAttrs := []*p11.Attribute{
+		p11.NewAttribute(p11.CKA_CLASS, p11.CKO_SECRET_KEY),
+		p11.NewAttribute(p11.CKA_KEY_TYPE, p11.CKK_GENERIC_SECRET),
+		p11.NewAttribute(p11.CKA_TOKEN, false),
+		p11.NewAttribute(p11.CKA_SENSITIVE, false),
+		p11.NewAttribute(p11.CKA_EXTRACTABLE, true),
+	}
+
+	mech := []*p11.Mechanism{p11.NewMechanism(p11.CKM_AES_KEY_WRAP_PAD, nil)}
+	tempObj, err := p.ctx.UnwrapKey(session, mech, unwrappingKey, wrapped, tempAttrs)
+	if err != nil {
+		return nil, fmt.Errorf("pkcs11 aes-kw unwrap: %w", err)
+	}
+	defer func() { _ = p.ctx.DestroyObject(session, tempObj) }()
+
+	values, err := p.ctx.GetAttributeValue(session, tempObj, []*p11.Attribute{p11.NewAttribute(p11.CKA_VALUE, nil)})
+	if err != nil {
+		return nil, fmt.Errorf("pkcs11 aes-kw unwrap get value: %w", err)
+	}
+	if len(values) == 0 {
+		return nil, fmt.Errorf("pkcs11 aes-kw unwrap: no value returned")
+	}
+
+	framed := values[0].Value
+	if len(framed) < 4 {
+		return nil, fmt.Errorf("pkcs11 aes-kw unwrap: unwrapped value too short to contain length header")
+	}
+	n := binary.BigEndian.Uint32(framed[:4])
+	if uint64(4+n) > uint64(len(framed)) {
+		return nil, fmt.Errorf("pkcs11 aes-kw unwrap: length header %d exceeds unwrapped value size %d", n, len(framed)-4)
+	}
+	return framed[4 : 4+n], nil
 }
 
 // signMechanism maps a SignatureAlgorithm to the PKCS#11 mechanism and
@@ -386,19 +538,33 @@ func isSignatureInvalid(err error) bool {
 		s == "pkcs11: 0xC1: CKR_SIGNATURE_LEN_RANGE"
 }
 
-// Encrypt encrypts plaintext using the RSA public key on the token.
-// Only AlgorithmRSAOAEP and AlgorithmRSAOAEP256 are supported.
+// Encrypt performs RSA-OAEP encryption with the token's RSA public key, or
+// AES-KW wrapping with the token's AES secret key, depending on algorithm.
 func (p *PKCS11KeyProvider) Encrypt(_ context.Context, handle string, data []byte, algorithm EncryptionAlgorithm) ([]byte, []byte, error) {
-	oaepParams, err := oaepMechParams(algorithm)
-	if err != nil {
-		return nil, nil, err
-	}
-
 	session, err := p.openRWSession()
 	if err != nil {
 		return nil, nil, err
 	}
 	defer p.closeSession(session)
+
+	if isAESKWAlgorithm(algorithm) {
+		key, err := p.findSecretKey(session, handle)
+		if err != nil {
+			return nil, nil, err
+		}
+
+		ct, err := p.wrapRawData(session, key, data)
+		if err != nil {
+			return nil, nil, err
+		}
+		// AES-KW does not use a nonce.
+		return ct, nil, nil
+	}
+
+	oaepParams, err := oaepMechParams(algorithm)
+	if err != nil {
+		return nil, nil, err
+	}
 
 	pubKey, err := p.findPublicKey(session, handle)
 	if err != nil {
@@ -419,19 +585,28 @@ func (p *PKCS11KeyProvider) Encrypt(_ context.Context, handle string, data []byt
 	return ct, nil, nil
 }
 
-// Decrypt decrypts ciphertext using the RSA private key on the token.
-// Only AlgorithmRSAOAEP and AlgorithmRSAOAEP256 are supported.
+// Decrypt performs RSA-OAEP decryption with the token's RSA private key, or
+// AES-KW unwrapping with the token's AES secret key, depending on algorithm.
 func (p *PKCS11KeyProvider) Decrypt(_ context.Context, handle string, data []byte, _ []byte, algorithm EncryptionAlgorithm) ([]byte, error) {
-	oaepParams, err := oaepMechParams(algorithm)
-	if err != nil {
-		return nil, err
-	}
-
 	session, err := p.openRWSession()
 	if err != nil {
 		return nil, err
 	}
 	defer p.closeSession(session)
+
+	if isAESKWAlgorithm(algorithm) {
+		key, err := p.findSecretKey(session, handle)
+		if err != nil {
+			return nil, err
+		}
+
+		return p.unwrapRawData(session, key, data)
+	}
+
+	oaepParams, err := oaepMechParams(algorithm)
+	if err != nil {
+		return nil, err
+	}
 
 	privKey, err := p.findPrivateKey(session, handle)
 	if err != nil {

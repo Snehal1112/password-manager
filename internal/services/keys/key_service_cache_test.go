@@ -216,6 +216,10 @@ func (m *mockKeyProviderForRotate) GenerateECDSAKey(_ context.Context, _ string)
 	return m.handle, nil
 }
 
+func (m *mockKeyProviderForRotate) GenerateAESKey(_ context.Context, _ int) (string, error) {
+	return m.handle, nil
+}
+
 func (m *mockKeyProviderForRotate) Sign(_ context.Context, _, _ string, _ []byte, _ crypto.SignatureAlgorithm) ([]byte, error) {
 	return nil, nil
 }

@@ -17,6 +17,12 @@ type KeyProvider interface {
 	// "P-521", or "P-256K".
 	GenerateECDSAKey(ctx context.Context, curveName string) (handle string, err error)
 
+	// GenerateAESKey generates a symmetric AES key. bits must be 128, 192, or
+	// 256. Only PKCS11KeyProvider supports this — Azure restricts symmetric
+	// key creation to Managed HSM, never Standard/Premium vaults, and
+	// SoftwareKeyProvider mirrors that by always returning ErrOctKeysRequireHSM.
+	GenerateAESKey(ctx context.Context, bits int) (handle string, err error)
+
 	// Sign signs data with the key identified by handle using the given algorithm.
 	Sign(ctx context.Context, handle string, keyType string, data []byte, algorithm SignatureAlgorithm) ([]byte, error)
 

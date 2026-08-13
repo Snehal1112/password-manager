@@ -2,7 +2,15 @@ package crypto
 
 import (
 	"context"
+	"errors"
 )
+
+// ErrOctKeysRequireHSM is returned by SoftwareKeyProvider.GenerateAESKey.
+// Symmetric (oct/AES) key creation is Managed-HSM-only in Azure Key Vault —
+// Standard and Premium vaults never allow it — and RocketVault's software
+// provider models that same restriction: only PKCS11KeyProvider implements
+// this method for real.
+var ErrOctKeysRequireHSM = errors.New("symmetric (oct/AES) key creation requires an HSM-backed key provider (hsm.enabled: true)")
 
 // SoftwareKeyProvider implements KeyProvider using in-process Go crypto.
 // It wraps the existing GenerateRSAKeyPEM / GenerateECDSAKeyPEM helpers and
@@ -25,6 +33,11 @@ func (p *SoftwareKeyProvider) GenerateRSAKey(_ context.Context, bits int) (strin
 // GenerateECDSAKey generates an ECDSA private key and returns the PEM as the handle.
 func (p *SoftwareKeyProvider) GenerateECDSAKey(_ context.Context, curveName string) (string, error) {
 	return GenerateECDSAKeyPEM(curveName)
+}
+
+// GenerateAESKey always fails: see ErrOctKeysRequireHSM.
+func (p *SoftwareKeyProvider) GenerateAESKey(_ context.Context, _ int) (string, error) {
+	return "", ErrOctKeysRequireHSM
 }
 
 // Sign signs data using the key PEM stored in handle.

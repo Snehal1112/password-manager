@@ -59,6 +59,11 @@ func (m *mockKeyProvider) GenerateECDSAKey(_ context.Context, _ string) (string,
 	return "", errors.New("not implemented")
 }
 
+func (m *mockKeyProvider) GenerateAESKey(_ context.Context, bits int) (string, error) {
+	args := m.Called(bits)
+	return args.String(0), args.Error(1)
+}
+
 func (m *mockKeyProvider) Sign(_ context.Context, handle, _ string, _ []byte, _ crypto.SignatureAlgorithm) ([]byte, error) {
 	args := m.Called(handle)
 	return args.Get(0).([]byte), args.Error(1)

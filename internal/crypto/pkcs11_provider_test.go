@@ -224,6 +224,72 @@ func TestPKCS11Provider_Encrypt_AES_ReturnsError(t *testing.T) {
 	assert.ErrorIs(t, err, crypto.ErrUnsupportedAlgorithm)
 }
 
+// --- AES (oct) key generation and wrap/unwrap ---
+
+func TestPKCS11Provider_GenerateAESKey_128(t *testing.T) {
+	p := newTestPKCS11Provider(t)
+	handle, err := p.GenerateAESKey(context.Background(), 128)
+	require.NoError(t, err)
+	assert.Len(t, handle, 36)
+}
+
+func TestPKCS11Provider_GenerateAESKey_256(t *testing.T) {
+	p := newTestPKCS11Provider(t)
+	handle, err := p.GenerateAESKey(context.Background(), 256)
+	require.NoError(t, err)
+	assert.Len(t, handle, 36)
+}
+
+func TestPKCS11Provider_GenerateAESKey_InvalidBits_ReturnsError(t *testing.T) {
+	p := newTestPKCS11Provider(t)
+	_, err := p.GenerateAESKey(context.Background(), 100)
+	assert.Error(t, err)
+}
+
+func TestPKCS11Provider_WrapUnwrap_AES256KW(t *testing.T) {
+	p := newTestPKCS11Provider(t)
+
+	handle, err := p.GenerateAESKey(context.Background(), 256)
+	require.NoError(t, err)
+
+	plaintext := []byte("hsm aes-kw wrap test, arbitrary length, not block-aligned")
+	wrapped, nonce, err := p.Encrypt(context.Background(), handle, plaintext, crypto.AlgorithmA256KW)
+	require.NoError(t, err)
+	assert.NotEmpty(t, wrapped)
+	assert.Nil(t, nonce, "AES-KW nonce must be nil")
+
+	unwrapped, err := p.Decrypt(context.Background(), handle, wrapped, nil, crypto.AlgorithmA256KW)
+	require.NoError(t, err)
+	assert.Equal(t, plaintext, unwrapped)
+}
+
+func TestPKCS11Provider_WrapUnwrap_AES128KW(t *testing.T) {
+	p := newTestPKCS11Provider(t)
+
+	handle, err := p.GenerateAESKey(context.Background(), 128)
+	require.NoError(t, err)
+
+	plaintext := []byte("short")
+	wrapped, _, err := p.Encrypt(context.Background(), handle, plaintext, crypto.AlgorithmA128KW)
+	require.NoError(t, err)
+
+	unwrapped, err := p.Decrypt(context.Background(), handle, wrapped, nil, crypto.AlgorithmA128KW)
+	require.NoError(t, err)
+	assert.Equal(t, plaintext, unwrapped)
+}
+
+func TestPKCS11Provider_Encrypt_AESKWWithRSAKey_ReturnsError(t *testing.T) {
+	p := newTestPKCS11Provider(t)
+
+	// An RSA key has no CKO_SECRET_KEY object under its label, so AES-KW
+	// against it must fail at the find-secret-key step.
+	handle, err := p.GenerateRSAKey(context.Background(), 2048)
+	require.NoError(t, err)
+
+	_, _, err = p.Encrypt(context.Background(), handle, []byte("test"), crypto.AlgorithmA256KW)
+	assert.Error(t, err)
+}
+
 // --- Interface compliance ---
 
 // Ensure PKCS11KeyProvider satisfies KeyProvider at compile time.
