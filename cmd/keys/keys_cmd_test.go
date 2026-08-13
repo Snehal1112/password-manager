@@ -63,6 +63,13 @@ func (m *keyCmdKeyService) CreateECDSAKey(ctx context.Context, req keyServices.C
 	}
 	return args.Get(0).(*keyServices.CreateKeyResult), args.Error(1)
 }
+func (m *keyCmdKeyService) CreateOctKey(ctx context.Context, req keyServices.CreateKeyRequest) (*keyServices.CreateKeyResult, error) {
+	args := m.Called(ctx, req)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).(*keyServices.CreateKeyResult), args.Error(1)
+}
 func (m *keyCmdKeyService) GetKey(ctx context.Context, keyID uuid.UUID, scope model.Scope) (*model.Key, error) {
 	args := m.Called(ctx, keyID, scope)
 	if args.Get(0) == nil {

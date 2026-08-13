@@ -87,6 +87,65 @@ func (_c *MockKeyService_CreateECDSAKey_Call) RunAndReturn(run func(context.Cont
 	return _c
 }
 
+// CreateOctKey provides a mock function with given fields: ctx, req
+func (_m *MockKeyService) CreateOctKey(ctx context.Context, req keys.CreateKeyRequest) (*keys.CreateKeyResult, error) {
+	ret := _m.Called(ctx, req)
+
+	if len(ret) == 0 {
+		panic("no return value specified for CreateOctKey")
+	}
+
+	var r0 *keys.CreateKeyResult
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, keys.CreateKeyRequest) (*keys.CreateKeyResult, error)); ok {
+		return rf(ctx, req)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, keys.CreateKeyRequest) *keys.CreateKeyResult); ok {
+		r0 = rf(ctx, req)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).(*keys.CreateKeyResult)
+		}
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context, keys.CreateKeyRequest) error); ok {
+		r1 = rf(ctx, req)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// MockKeyService_CreateOctKey_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'CreateOctKey'
+type MockKeyService_CreateOctKey_Call struct {
+	*mock.Call
+}
+
+// CreateOctKey is a helper method to define mock.On call
+//   - ctx context.Context
+//   - req keys.CreateKeyRequest
+func (_e *MockKeyService_Expecter) CreateOctKey(ctx interface{}, req interface{}) *MockKeyService_CreateOctKey_Call {
+	return &MockKeyService_CreateOctKey_Call{Call: _e.mock.On("CreateOctKey", ctx, req)}
+}
+
+func (_c *MockKeyService_CreateOctKey_Call) Run(run func(ctx context.Context, req keys.CreateKeyRequest)) *MockKeyService_CreateOctKey_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(keys.CreateKeyRequest))
+	})
+	return _c
+}
+
+func (_c *MockKeyService_CreateOctKey_Call) Return(_a0 *keys.CreateKeyResult, _a1 error) *MockKeyService_CreateOctKey_Call {
+	_c.Call.Return(_a0, _a1)
+	return _c
+}
+
+func (_c *MockKeyService_CreateOctKey_Call) RunAndReturn(run func(context.Context, keys.CreateKeyRequest) (*keys.CreateKeyResult, error)) *MockKeyService_CreateOctKey_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // CreateRSAKey provides a mock function with given fields: ctx, req
 func (_m *MockKeyService) CreateRSAKey(ctx context.Context, req keys.CreateKeyRequest) (*keys.CreateKeyResult, error) {
 	ret := _m.Called(ctx, req)

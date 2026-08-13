@@ -88,6 +88,9 @@ type UpdateKeyRequest struct {
 type KeyService interface {
 	CreateRSAKey(ctx context.Context, req CreateKeyRequest) (*CreateKeyResult, error)
 	CreateECDSAKey(ctx context.Context, req CreateKeyRequest) (*CreateKeyResult, error)
+	// CreateOctKey creates a symmetric AES key. HSM-only — see
+	// crypto.ErrOctKeysRequireHSM.
+	CreateOctKey(ctx context.Context, req CreateKeyRequest) (*CreateKeyResult, error)
 	// GetKey retrieves a key authorized by scope and enforces its lifecycle.
 	GetKey(ctx context.Context, keyID uuid.UUID, scope model.Scope) (*model.Key, error)
 	// ListKeys lists keys authorized by scope and narrowed by filter.
@@ -322,6 +325,68 @@ func (s *keyService) CreateECDSAKey(ctx context.Context, req CreateKeyRequest) (
 		"name":   key.Name,
 		"type":   key.Type,
 	}).Info("ECDSA key created successfully")
+
+	return &CreateKeyResult{
+		KeyID:     key.ID,
+		Name:      key.Name,
+		Type:      key.Type,
+		Tags:      key.Tags,
+		CreatedAt: key.CreatedAt,
+	}, nil
+}
+
+// CreateOctKey creates a new symmetric AES key. Requires an HSM-backed key
+// provider — see crypto.ErrOctKeysRequireHSM.
+func (s *keyService) CreateOctKey(ctx context.Context, req CreateKeyRequest) (*CreateKeyResult, error) {
+	logrus.WithFields(logrus.Fields{
+		"name":    req.Name,
+		"bits":    req.Bits,
+		"user_id": req.UserID.String(),
+	}).Info("Creating AES (oct) key")
+
+	if req.Bits != 128 && req.Bits != 192 && req.Bits != 256 {
+		s.logger.LogAuditError(req.UserID.String(), "create_oct_key", "failed", "invalid AES key size: must be 128, 192, or 256", nil)
+		return nil, fmt.Errorf("invalid AES key size: must be 128, 192, or 256")
+	}
+
+	handle, err := s.keyProvider.GenerateAESKey(ctx, req.Bits)
+	if err != nil {
+		s.logger.LogAuditError(req.UserID.String(), "create_oct_key", "failed", "failed to generate AES key", err)
+		return nil, fmt.Errorf("failed to generate AES key: %w", err)
+	}
+
+	// AES keys are HSM-only: GenerateAESKey never returns a software (PEM)
+	// handle, so the value is always the PKCS#11 label — no plaintext key
+	// material ever reaches this process.
+	storedValue := "pkcs11:" + handle
+
+	enabled := true
+	if req.Enabled != nil {
+		enabled = *req.Enabled
+	}
+
+	key := &model.Key{
+		ID:        uuid.New(),
+		UserID:    req.UserID,
+		VaultID:   resolveVaultID(req.VaultID),
+		Name:      req.Name,
+		Type:      model.KeyTypeOct,
+		Value:     storedValue,
+		Revoked:   false,
+		CreatedAt: time.Now(),
+		Tags:      req.Tags,
+		Enabled:   enabled,
+		Bits:      req.Bits,
+		ExpiresAt: req.ExpiresAt,
+		NotBefore: req.NotBefore,
+	}
+
+	if err := s.keyRepo.Create(ctx, key); err != nil {
+		s.logger.LogAuditError(req.UserID.String(), "create_oct_key", "failed", "failed to store key", err)
+		return nil, fmt.Errorf("failed to store AES key: %w", err)
+	}
+
+	s.logger.LogAuditInfo(req.UserID.String(), "create_oct_key", "success", fmt.Sprintf("AES key created: %s, ID: %s", req.Name, key.ID))
 
 	return &CreateKeyResult{
 		KeyID:     key.ID,

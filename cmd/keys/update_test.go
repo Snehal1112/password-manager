@@ -28,6 +28,9 @@ func (m *MockKeyServiceForUpdate) CreateRSAKey(ctx context.Context, req keyServi
 func (m *MockKeyServiceForUpdate) CreateECDSAKey(ctx context.Context, req keyServices.CreateKeyRequest) (*keyServices.CreateKeyResult, error) {
 	return nil, nil
 }
+func (m *MockKeyServiceForUpdate) CreateOctKey(ctx context.Context, req keyServices.CreateKeyRequest) (*keyServices.CreateKeyResult, error) {
+	return nil, nil
+}
 func (m *MockKeyServiceForUpdate) GetKey(ctx context.Context, keyID uuid.UUID, scope model.Scope) (*model.Key, error) {
 	return nil, nil
 }

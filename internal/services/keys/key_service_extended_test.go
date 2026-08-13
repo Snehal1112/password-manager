@@ -468,6 +468,52 @@ func TestCreateECDSAKey_WithPKCS11Handle(t *testing.T) {
 	assert.Equal(t, "pkcs11:"+pkcs11UUID, createdKey.Value)
 }
 
+// ─── CreateOctKey ─────────────────────────────────────────────────────────────
+
+func TestCreateOctKey_Success(t *testing.T) {
+	userID := uuid.New()
+	repo := &mockKeyRepository{}
+	repo.On("Create", mock.Anything, mock.MatchedBy(func(k *model.Key) bool {
+		return k.Type == model.KeyTypeOct && k.Bits == 256
+	})).Return(nil)
+
+	provider := &mockKeyProviderForService{}
+	provider.On("GenerateAESKey", 256).Return("aes-label", nil)
+
+	svc := NewKeyService(KeyServiceConfig{KeyRepository: repo, KeyProvider: provider, Logger: newKeyLogger()})
+
+	result, err := svc.CreateOctKey(context.Background(), CreateKeyRequest{
+		Name: "my-aes-key", Bits: 256, UserID: userID,
+	})
+	require.NoError(t, err)
+	assert.Equal(t, model.KeyTypeOct, result.Type)
+	repo.AssertExpectations(t)
+	provider.AssertExpectations(t)
+}
+
+func TestCreateOctKey_InvalidBits_ReturnsError(t *testing.T) {
+	svc := NewKeyService(KeyServiceConfig{KeyRepository: &mockKeyRepository{}, KeyProvider: &mockKeyProviderForService{}, Logger: newKeyLogger()})
+
+	_, err := svc.CreateOctKey(context.Background(), CreateKeyRequest{
+		Name: "bad", Bits: 100, UserID: uuid.New(),
+	})
+	assert.Error(t, err)
+}
+
+func TestCreateOctKey_SoftwareProvider_ReturnsError(t *testing.T) {
+	repo := &mockKeyRepository{}
+	provider := &mockKeyProviderForService{}
+	provider.On("GenerateAESKey", 256).Return("", crypto.ErrOctKeysRequireHSM)
+
+	svc := NewKeyService(KeyServiceConfig{KeyRepository: repo, KeyProvider: provider, Logger: newKeyLogger()})
+
+	_, err := svc.CreateOctKey(context.Background(), CreateKeyRequest{
+		Name: "my-aes-key", Bits: 256, UserID: uuid.New(),
+	})
+	require.ErrorIs(t, err, crypto.ErrOctKeysRequireHSM)
+	repo.AssertNotCalled(t, "Create", mock.Anything, mock.Anything)
+}
+
 // ─── ListKeys ─────────────────────────────────────────────────────────────────
 
 func TestListKeys_Success(t *testing.T) {
