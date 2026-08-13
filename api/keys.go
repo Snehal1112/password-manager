@@ -358,7 +358,12 @@ func createKey(c *Context, w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err != nil {
-		c.SetInternalError(err)
+		switch {
+		case errors.Is(err, crypto.ErrOctKeysRequireHSM):
+			c.SetInvalidParam("type: OCT key creation requires an HSM-backed key provider (hsm.enabled: true)")
+		default:
+			c.SetInternalError(err)
+		}
 		return
 	}
 

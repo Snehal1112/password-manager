@@ -340,6 +340,23 @@ func isHSMWrapAlgorithm(algorithm string) bool {
 	}
 }
 
+// aesKWKeyBits returns the AES key size, in bits, required by an AES-KW wrap
+// algorithm variant, or 0 if algorithm isn't an AES-KW variant (RSA-OAEP
+// variants and AES-CBC have no such size relationship and should skip the
+// check entirely).
+func aesKWKeyBits(algorithm string) int {
+	switch algorithm {
+	case "A128KW":
+		return 128
+	case "A192KW":
+		return 192
+	case "A256KW":
+		return 256
+	default:
+		return 0
+	}
+}
+
 // Sign signs data using the specified key.
 func (s *cryptoService) Sign(ctx context.Context, req SignRequest) (*SignResult, error) {
 	start := time.Now()
@@ -597,6 +614,11 @@ func (s *cryptoService) WrapKey(ctx context.Context, req WrapKeyRequest) (*WrapK
 	if wrapIsPKCS11 && !isHSMWrapAlgorithm(req.Algorithm) {
 		return nil, fmt.Errorf("algorithm %q is not supported for HSM-backed keys; use RSA-OAEP, RSA-OAEP-256, A128KW, A192KW, or A256KW", req.Algorithm)
 	}
+	if wrapIsPKCS11 {
+		if expectedBits := aesKWKeyBits(req.Algorithm); expectedBits != 0 && key.Bits != expectedBits {
+			return nil, fmt.Errorf("algorithm %q requires a %d-bit key, but key %s is %d-bit", req.Algorithm, expectedBits, req.KeyID, key.Bits)
+		}
+	}
 	var wrappedKey []byte
 	if wrapIsPKCS11 {
 		wrappedKey, _, err = s.keyProvider.Encrypt(ctx, wrapHandle, req.PlaintextKey, encAlgo)
@@ -655,6 +677,11 @@ func (s *cryptoService) UnwrapKey(ctx context.Context, req UnwrapKeyRequest) (*U
 	// RSA public/private key pair, AES-KW variants via the AES secret key).
 	if unwrapIsPKCS11 && !isHSMWrapAlgorithm(req.Algorithm) {
 		return nil, fmt.Errorf("algorithm %q is not supported for HSM-backed keys; use RSA-OAEP, RSA-OAEP-256, A128KW, A192KW, or A256KW", req.Algorithm)
+	}
+	if unwrapIsPKCS11 {
+		if expectedBits := aesKWKeyBits(req.Algorithm); expectedBits != 0 && key.Bits != expectedBits {
+			return nil, fmt.Errorf("algorithm %q requires a %d-bit key, but key %s is %d-bit", req.Algorithm, expectedBits, req.KeyID, key.Bits)
+		}
 	}
 	var plaintext []byte
 	if unwrapIsPKCS11 {

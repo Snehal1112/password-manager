@@ -267,7 +267,7 @@ func TestWrapKey_HSMKey_AllowsAES256KW(t *testing.T) {
 	userID := uuid.New()
 	scope := model.NewOwnerScope(uuid.Nil, userID)
 
-	key := &model.Key{ID: keyID, UserID: userID, Type: model.KeyTypeOct, Value: "pkcs11:aes-label", Enabled: true}
+	key := &model.Key{ID: keyID, UserID: userID, Type: model.KeyTypeOct, Bits: 256, Value: "pkcs11:aes-label", Enabled: true}
 
 	repo := mocks.NewMockKeyRepositoryInterface(t)
 	repo.On("Read", mock.Anything, keyID, scope).Return(key, nil)
@@ -288,6 +288,73 @@ func TestWrapKey_HSMKey_AllowsAES256KW(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, []byte("wrapped"), result.WrappedKey)
 	provider.AssertExpectations(t)
+}
+
+// TestWrapKey_HSMKey_RejectsAESKWSizeMismatch verifies that wrapping with an
+// AES-KW algorithm whose key size doesn't match the HSM-backed key's actual
+// size (key.Bits) is rejected before the provider is invoked. CKM_AES_KEY_WRAP
+// itself doesn't validate this, so the mismatch must be caught here or the
+// response would silently misreport the algorithm used.
+func TestWrapKey_HSMKey_RejectsAESKWSizeMismatch(t *testing.T) {
+	t.Parallel()
+
+	keyID := uuid.New()
+	userID := uuid.New()
+	scope := model.NewOwnerScope(uuid.Nil, userID)
+
+	// Key is actually 256-bit, but the request claims A128KW.
+	key := &model.Key{ID: keyID, UserID: userID, Type: model.KeyTypeOct, Bits: 256, Value: "pkcs11:aes-label", Enabled: true}
+
+	repo := mocks.NewMockKeyRepositoryInterface(t)
+	repo.On("Read", mock.Anything, keyID, scope).Return(key, nil)
+
+	provider := &mockKeyProvider{}
+
+	svc := keys.NewCryptoService(keys.CryptoServiceConfig{
+		KeyRepository: repo,
+		KeyProvider:   provider,
+		Logger:        &logging.Logger{Logger: logrus.New()},
+	})
+
+	_, err := svc.WrapKey(context.Background(), keys.WrapKeyRequest{
+		KeyID: keyID, UserID: userID, Scope: scope,
+		PlaintextKey: []byte("plaintext"), Algorithm: "A128KW",
+	})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "128-bit")
+	provider.AssertNotCalled(t, "Encrypt", mock.Anything)
+}
+
+// TestUnwrapKey_HSMKey_RejectsAESKWSizeMismatch mirrors the WrapKey size-
+// mismatch rejection for UnwrapKey: a request claiming A128KW against an
+// actually-256-bit HSM key must be rejected before the provider is invoked.
+func TestUnwrapKey_HSMKey_RejectsAESKWSizeMismatch(t *testing.T) {
+	t.Parallel()
+
+	keyID := uuid.New()
+	userID := uuid.New()
+	scope := model.NewOwnerScope(uuid.Nil, userID)
+
+	key := &model.Key{ID: keyID, UserID: userID, Type: model.KeyTypeOct, Bits: 256, Value: "pkcs11:aes-label", Enabled: true}
+
+	repo := mocks.NewMockKeyRepositoryInterface(t)
+	repo.On("Read", mock.Anything, keyID, scope).Return(key, nil)
+
+	provider := &mockKeyProvider{}
+
+	svc := keys.NewCryptoService(keys.CryptoServiceConfig{
+		KeyRepository: repo,
+		KeyProvider:   provider,
+		Logger:        &logging.Logger{Logger: logrus.New()},
+	})
+
+	_, err := svc.UnwrapKey(context.Background(), keys.UnwrapKeyRequest{
+		KeyID: keyID, UserID: userID, Scope: scope,
+		WrappedKey: []byte("wrapped"), Algorithm: "A128KW",
+	})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "128-bit")
+	provider.AssertNotCalled(t, "Decrypt", mock.Anything)
 }
 
 // TestWrapKey_HSMKey_RejectsAES256CBC verifies AES-CBC stays rejected for

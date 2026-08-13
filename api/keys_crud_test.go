@@ -459,6 +459,30 @@ func TestCreateKey_OctType_InvalidBits_Returns400(t *testing.T) {
 	assert.Equal(t, http.StatusBadRequest, w.Code)
 }
 
+// TestCreateKey_OctType_NoHSM_Returns400 verifies that when the key provider
+// isn't HSM-backed, CreateOctKey's crypto.ErrOctKeysRequireHSM (wrapped, as the
+// real service does) is surfaced as a 400 client error rather than a 500.
+func TestCreateKey_OctType_NoHSM_Returns400(t *testing.T) {
+	svc := &mockKeyService{}
+	svc.On("CreateOctKey", mock.Anything, mock.MatchedBy(func(r keyServices.CreateKeyRequest) bool {
+		return r.Bits == 256
+	})).Return(nil, fmt.Errorf("failed to generate AES key: %w", crypto.ErrOctKeysRequireHSM))
+
+	c := newKeyCtx(svc)
+	body, _ := json.Marshal(map[string]any{"name": "aes-key", "type": "oct", "bits": 256})
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest(http.MethodPost, "/keys", bytes.NewReader(body))
+
+	createKey(c, w, r)
+	if c.Err != nil {
+		writeError(w, c)
+	}
+
+	assert.Equal(t, http.StatusBadRequest, w.Code)
+	svc.AssertExpectations(t)
+	svc.AssertNotCalled(t, "GetKey", mock.Anything, mock.Anything, mock.Anything)
+}
+
 // ============================================================
 // listKeys
 // ============================================================
