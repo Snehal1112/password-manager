@@ -184,7 +184,7 @@ func (hc *HealthCollector) CollectMetrics(ctx context.Context) (*HealthMetrics, 
 	// Collect enhanced database stats including performance metrics
 	if hc.db != nil {
 		dbStats := hc.db.Stats()
-		perfMetrics := db.GetPerformanceMetrics()
+		perfMetrics := db.GetPerformanceMetrics(hc.db)
 
 		// Calculate utilization percentage
 		utilization := float64(0)
@@ -342,7 +342,7 @@ func (hc *HealthCollector) CheckDatabaseHealth(ctx context.Context) (map[string]
 	}
 
 	// Performance metrics
-	perfMetrics := db.GetPerformanceMetrics()
+	perfMetrics := db.GetPerformanceMetrics(hc.db)
 	result["performance"] = map[string]any{
 		"query_count":         perfMetrics.QueryCount,
 		"slow_query_count":    perfMetrics.SlowQueryCount,

@@ -21,10 +21,6 @@ import (
 	"rocketvault/model"
 )
 
-// globalDB is the global database connection for the application. It is kept
-// unexported so the exported DB interface (see conn.go) can use that name.
-var globalDB *sql.DB
-
 // ConnectionPoolConfig holds database connection pool configuration.
 type ConnectionPoolConfig struct {
 	MaxOpenConns    int           // Maximum number of open connections
@@ -178,8 +174,6 @@ func (d *DBRepository) InitializeDB() error {
 		return err
 	}
 
-	// Assign the connection to the global DB variable.
-	globalDB = db
 	d.db = db
 	d.log.Info("Database initialized successfully with connection pooling")
 	return nil
@@ -1082,8 +1076,10 @@ type PerformanceMetricsSnapshot struct {
 	ConnectionStats  sql.DBStats   `json:"connection_stats"`
 }
 
-// GetPerformanceMetrics returns current database performance metrics without copying the mutex.
-func GetPerformanceMetrics() PerformanceMetricsSnapshot {
+// GetPerformanceMetrics returns current database performance metrics without
+// copying the mutex. conn is the connection to report pool stats for; pass
+// nil to omit ConnectionStats.
+func GetPerformanceMetrics(conn *sql.DB) PerformanceMetricsSnapshot {
 	metrics.mu.RLock()
 	defer metrics.mu.RUnlock()
 
@@ -1094,9 +1090,9 @@ func GetPerformanceMetrics() PerformanceMetricsSnapshot {
 		AverageQueryTime: metrics.AverageQueryTime,
 	}
 
-	// Add current connection stats if DB is available
-	if globalDB != nil {
-		result.ConnectionStats = globalDB.Stats()
+	// Add current connection stats if a connection was given.
+	if conn != nil {
+		result.ConnectionStats = conn.Stats()
 	}
 
 	return result
@@ -1114,12 +1110,12 @@ func ResetPerformanceMetrics() {
 }
 
 // GetConnectionPoolStats returns detailed connection pool statistics.
-func GetConnectionPoolStats() map[string]interface{} {
-	if globalDB == nil {
+func (d *DBRepository) GetConnectionPoolStats() map[string]interface{} {
+	if d.db == nil {
 		return map[string]interface{}{"error": "database not initialized"}
 	}
 
-	stats := globalDB.Stats()
+	stats := d.db.Stats()
 	return map[string]interface{}{
 		"open_connections":    stats.OpenConnections,
 		"in_use":              stats.InUse,
@@ -1133,8 +1129,8 @@ func GetConnectionPoolStats() map[string]interface{} {
 }
 
 // HealthCheck performs comprehensive database health validation.
-func HealthCheck(ctx context.Context) error {
-	if globalDB == nil {
+func (d *DBRepository) HealthCheck(ctx context.Context) error {
+	if d.db == nil {
 		return fmt.Errorf("database not initialized")
 	}
 
@@ -1143,7 +1139,7 @@ func HealthCheck(ctx context.Context) error {
 	defer cancel()
 
 	start := time.Now()
-	if err := globalDB.PingContext(ctx); err != nil {
+	if err := d.db.PingContext(ctx); err != nil {
 		return fmt.Errorf("database ping failed: %w", err)
 	}
 	duration := time.Since(start)
@@ -1152,7 +1148,7 @@ func HealthCheck(ctx context.Context) error {
 	RecordQueryExecution(duration)
 
 	// Check connection pool health
-	stats := globalDB.Stats()
+	stats := d.db.Stats()
 	if stats.OpenConnections == 0 {
 		return fmt.Errorf("no open database connections")
 	}

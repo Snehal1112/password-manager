@@ -203,7 +203,7 @@ func TestRecordQueryExecution(t *testing.T) {
 	RecordQueryExecution(50 * time.Millisecond)
 	RecordQueryExecution(200 * time.Millisecond) // slow query
 
-	m := GetPerformanceMetrics()
+	m := GetPerformanceMetrics(nil)
 	assert.Equal(t, int64(2), m.QueryCount)
 	assert.Equal(t, int64(1), m.SlowQueryCount)
 	assert.Greater(t, int64(m.TotalQueryTime), int64(0))
@@ -212,10 +212,10 @@ func TestRecordQueryExecution(t *testing.T) {
 
 func TestGetPerformanceMetrics_ReturnsCopy(t *testing.T) {
 	ResetPerformanceMetrics()
-	m1 := GetPerformanceMetrics()
+	m1 := GetPerformanceMetrics(nil)
 
 	RecordQueryExecution(10 * time.Millisecond)
-	m2 := GetPerformanceMetrics()
+	m2 := GetPerformanceMetrics(nil)
 
 	// m1 is a snapshot and must not have changed
 	assert.Equal(t, int64(0), m1.QueryCount)
@@ -231,7 +231,7 @@ func TestRecordQueryExecution_CustomSlowQueryThreshold(t *testing.T) {
 	RecordQueryExecution(200 * time.Millisecond) // below the 300ms threshold, not slow
 	RecordQueryExecution(350 * time.Millisecond) // above the 300ms threshold, slow
 
-	m := GetPerformanceMetrics()
+	m := GetPerformanceMetrics(nil)
 	assert.Equal(t, int64(2), m.QueryCount)
 	assert.Equal(t, int64(1), m.SlowQueryCount, "only the 350ms query should count as slow under a 300ms threshold")
 }
@@ -242,32 +242,28 @@ func TestResetPerformanceMetrics(t *testing.T) {
 
 	ResetPerformanceMetrics()
 
-	m := GetPerformanceMetrics()
+	m := GetPerformanceMetrics(nil)
 	assert.Equal(t, int64(0), m.QueryCount)
 	assert.Equal(t, int64(0), m.SlowQueryCount)
 	assert.Equal(t, time.Duration(0), m.TotalQueryTime)
 }
 
 func TestGetConnectionPoolStats_NoDBInitialized(t *testing.T) {
-	// Save and restore global DB
-	prev := globalDB
-	globalDB = nil
-	defer func() { globalDB = prev }()
+	repo := &DBRepository{}
 
-	stats := GetConnectionPoolStats()
+	stats := repo.GetConnectionPoolStats()
 	errVal, ok := stats["error"]
-	assert.True(t, ok, "should return error key when globalDB is nil")
+	assert.True(t, ok, "should return error key when the repository has no db")
 	assert.Equal(t, "database not initialized", errVal)
 }
 
 func TestGetConnectionPoolStats_WithDB(t *testing.T) {
 	repo := newInitializedRepo(t)
-	_ = repo // DB global is set by InitializeDB
 
-	stats := GetConnectionPoolStats()
+	stats := repo.GetConnectionPoolStats()
 	// When DB is non-nil the error key must be absent
 	_, hasErr := stats["error"]
-	assert.False(t, hasErr, "no error key expected when globalDB is initialized")
+	assert.False(t, hasErr, "no error key expected once the repository db is initialized")
 	_, hasOpen := stats["open_connections"]
 	assert.True(t, hasOpen)
 }
@@ -277,20 +273,17 @@ func TestGetConnectionPoolStats_WithDB(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestHealthCheck_NilDB(t *testing.T) {
-	prev := globalDB
-	globalDB = nil
-	defer func() { globalDB = prev }()
+	repo := &DBRepository{}
 
-	err := HealthCheck(context.Background())
+	err := repo.HealthCheck(context.Background())
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "not initialized")
 }
 
 func TestHealthCheck_WithDB(t *testing.T) {
 	repo := newInitializedRepo(t)
-	_ = repo // ensures DB is set
 
-	err := HealthCheck(context.Background())
+	err := repo.HealthCheck(context.Background())
 	assert.NoError(t, err)
 }
 
@@ -308,7 +301,7 @@ func TestSeedBootstrapToken_EmptyToken(t *testing.T) {
 	require.NoError(t, repo.InitializeDB())
 	// No rows in bootstrap_tokens but no error
 	var n int
-	require.NoError(t, globalDB.QueryRow("SELECT COUNT(*) FROM bootstrap_tokens").Scan(&n))
+	require.NoError(t, repo.GetDB().QueryRow("SELECT COUNT(*) FROM bootstrap_tokens").Scan(&n))
 	assert.Equal(t, 0, n)
 }
 
@@ -323,7 +316,7 @@ func TestSeedBootstrapToken_Seeded(t *testing.T) {
 	require.NoError(t, repo.InitializeDB())
 
 	var n int
-	require.NoError(t, globalDB.QueryRow("SELECT COUNT(*) FROM bootstrap_tokens WHERE token = ?", token).Scan(&n))
+	require.NoError(t, repo.GetDB().QueryRow("SELECT COUNT(*) FROM bootstrap_tokens WHERE token = ?", token).Scan(&n))
 	assert.Equal(t, 1, n)
 }
 
@@ -338,10 +331,10 @@ func TestSeedBootstrapToken_Idempotent(t *testing.T) {
 	require.NoError(t, repo.InitializeDB())
 
 	// Calling seedBootstrapToken again must not error or duplicate
-	require.NoError(t, repo.seedBootstrapToken(globalDB))
+	require.NoError(t, repo.seedBootstrapToken(repo.GetDB()))
 
 	var n int
-	require.NoError(t, globalDB.QueryRow("SELECT COUNT(*) FROM bootstrap_tokens WHERE token = ?", token).Scan(&n))
+	require.NoError(t, repo.GetDB().QueryRow("SELECT COUNT(*) FROM bootstrap_tokens WHERE token = ?", token).Scan(&n))
 	assert.Equal(t, 1, n)
 }
 
@@ -353,10 +346,10 @@ func TestSeedAuditConfig_Idempotent(t *testing.T) {
 	repo := newInitializedRepo(t)
 
 	// Call again — must not error or duplicate
-	require.NoError(t, repo.seedAuditConfig(globalDB))
+	require.NoError(t, repo.seedAuditConfig(repo.GetDB()))
 
 	var n int
-	require.NoError(t, globalDB.QueryRow("SELECT COUNT(*) FROM audit_config WHERE key = 'retention_days'").Scan(&n))
+	require.NoError(t, repo.GetDB().QueryRow("SELECT COUNT(*) FROM audit_config WHERE key = 'retention_days'").Scan(&n))
 	assert.Equal(t, 1, n)
 }
 
@@ -495,7 +488,7 @@ func TestInitializeDB_InMemory(t *testing.T) {
 	tables := []string{"users", "secrets", "keys", "certificates", "audit_logs", "vaults"}
 	for _, tbl := range tables {
 		var name string
-		err := globalDB.QueryRow(
+		err := repo.GetDB().QueryRow(
 			"SELECT name FROM sqlite_master WHERE type='table' AND name=?", tbl,
 		).Scan(&name)
 		assert.NoError(t, err, "table %s should exist", tbl)
@@ -514,7 +507,7 @@ func TestInitializeDB_WithBootstrapToken(t *testing.T) {
 	require.NoError(t, repo.InitializeDB())
 
 	var n int
-	require.NoError(t, globalDB.QueryRow(
+	require.NoError(t, repo.GetDB().QueryRow(
 		"SELECT COUNT(*) FROM bootstrap_tokens WHERE token = ?", token,
 	).Scan(&n))
 	assert.Equal(t, 1, n)

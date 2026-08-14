@@ -108,7 +108,7 @@ func TestSeedDefaultVault_CalledTwice(t *testing.T) {
 	require.NoError(t, repo.InitializeDB())
 
 	// seedDefaultVault is already called by InitializeDB; calling it again must be a no-op.
-	require.NoError(t, repo.seedDefaultVault(globalDB))
+	require.NoError(t, repo.seedDefaultVault(repo.GetDB()))
 }
 
 // ---------------------------------------------------------------------------
@@ -124,7 +124,7 @@ func TestFinalizeVaultIndexes_Idempotent(t *testing.T) {
 	require.NoError(t, repo.InitializeDB())
 
 	// Indexes already exist; calling again must be a no-op (CREATE INDEX IF NOT EXISTS).
-	require.NoError(t, repo.finalizeVaultIndexes(globalDB))
+	require.NoError(t, repo.finalizeVaultIndexes(repo.GetDB()))
 }
 
 // ---------------------------------------------------------------------------
@@ -132,15 +132,13 @@ func TestFinalizeVaultIndexes_Idempotent(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestHealthCheck_ClosedDB(t *testing.T) {
-	// Set the global DB to a newly created, immediately closed db.
+	// Use a repository wrapping a newly created, immediately closed db.
 	closed, err := sql.Open("sqlite3", ":memory:")
 	require.NoError(t, err)
 	closed.Close() //nolint:errcheck,gosec
 
-	prev := globalDB
-	globalDB = closed
-	defer func() { globalDB = prev }()
+	repo := &DBRepository{db: closed}
 
-	err = HealthCheck(context.Background())
+	err = repo.HealthCheck(context.Background())
 	assert.Error(t, err)
 }

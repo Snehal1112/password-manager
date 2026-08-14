@@ -261,7 +261,7 @@ func (b *bootstrap) setup(ctx context.Context, cfg *Config) error {
 	// Start the periodic DB performance gauge collector when metrics are enabled.
 	if b.monitoringCfg.EnableMetrics {
 		dbMetrics := metrics.NewDefaultDBMetrics()
-		b.metricsScheduler = metrics.NewMetricsScheduler(dbMetrics, dbPerformanceSnapshot, b.monitoringCfg.MetricsInterval)
+		b.metricsScheduler = metrics.NewMetricsScheduler(dbMetrics, dbPerformanceSnapshot(database), b.monitoringCfg.MetricsInterval)
 		b.metricsScheduler.Start(ctx)
 		b.cfg.Logger.Info("Metrics collector started")
 	}
@@ -315,15 +315,17 @@ func (b *bootstrap) setup(ctx context.Context, cfg *Config) error {
 
 // dbPerformanceSnapshot adapts db.GetPerformanceMetrics into the shape the
 // metrics package's periodic gauge collector expects.
-func dbPerformanceSnapshot() metrics.DBSnapshot {
-	perf := db.GetPerformanceMetrics()
-	return metrics.DBSnapshot{
-		QueryCount:         perf.QueryCount,
-		SlowQueryCount:     perf.SlowQueryCount,
-		AverageQueryTimeMS: float64(perf.AverageQueryTime.Microseconds()) / 1000.0,
-		OpenConnections:    perf.ConnectionStats.OpenConnections,
-		InUse:              perf.ConnectionStats.InUse,
-		Idle:               perf.ConnectionStats.Idle,
+func dbPerformanceSnapshot(database *db.DBRepository) func() metrics.DBSnapshot {
+	return func() metrics.DBSnapshot {
+		perf := db.GetPerformanceMetrics(database.GetDB())
+		return metrics.DBSnapshot{
+			QueryCount:         perf.QueryCount,
+			SlowQueryCount:     perf.SlowQueryCount,
+			AverageQueryTimeMS: float64(perf.AverageQueryTime.Microseconds()) / 1000.0,
+			OpenConnections:    perf.ConnectionStats.OpenConnections,
+			InUse:              perf.ConnectionStats.InUse,
+			Idle:               perf.ConnectionStats.Idle,
+		}
 	}
 }
 

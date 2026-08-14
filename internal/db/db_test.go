@@ -25,10 +25,10 @@ func TestInitializeDB(t *testing.T) {
 	db := NewRepository(log)
 	err := db.InitializeDB()
 	assert.NoError(t, err, "database initialization should succeed")
-	assert.NotNil(t, globalDB, "globalDB connection should be initialized")
+	assert.NotNil(t, db.GetDB(), "database connection should be initialized")
 
 	// Verify table creation.
-	rows, err := globalDB.Query("SELECT name FROM sqlite_master WHERE type='table' AND name='users'")
+	rows, err := db.GetDB().Query("SELECT name FROM sqlite_master WHERE type='table' AND name='users'")
 	assert.NoError(t, err, "query for users table should succeed")
 	assert.True(t, rows.Next(), "users table should exist")
 	rows.Close() //nolint:errcheck,gosec
@@ -110,7 +110,7 @@ func TestInitializeDB_SeedsDefaultVault(t *testing.T) {
 	assert.NoError(t, d.InitializeDB())
 
 	var name string
-	err := globalDB.QueryRow("SELECT name FROM vaults WHERE id = ?", "00000000-0000-0000-0000-00000000efa1").Scan(&name)
+	err := d.GetDB().QueryRow("SELECT name FROM vaults WHERE id = ?", "00000000-0000-0000-0000-00000000efa1").Scan(&name)
 	assert.NoError(t, err, "default vault should be seeded")
 	assert.Equal(t, "default", name)
 }
@@ -123,8 +123,8 @@ func TestSeedDefaultVault_Idempotent(t *testing.T) {
 	d := NewRepository(log)
 	assert.NoError(t, d.InitializeDB())
 	// Calling seedDefaultVault again must not error or duplicate.
-	assert.NoError(t, d.seedDefaultVault(globalDB))
+	assert.NoError(t, d.seedDefaultVault(d.GetDB()))
 	var n int
-	assert.NoError(t, globalDB.QueryRow("SELECT COUNT(*) FROM vaults WHERE name='default'").Scan(&n))
+	assert.NoError(t, d.GetDB().QueryRow("SELECT COUNT(*) FROM vaults WHERE name='default'").Scan(&n))
 	assert.Equal(t, 1, n)
 }
