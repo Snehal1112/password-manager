@@ -12,30 +12,42 @@ import (
 )
 
 const (
-	oidcStateCookie  = "oidc_state"
-	oidcNonceCookie  = "oidc_nonce"
-	oidcCookieMaxAge = 5 * time.Minute
+	oidcStateCookie       = "oidc_state"
+	oidcNonceCookie       = "oidc_nonce"
+	oidcCLIRedirectCookie = "oidc_cli_redirect"
+	oidcCookieMaxAge      = 5 * time.Minute
 )
 
-// InitOIDC registers the public OIDC login/callback routes on the same
-// unauthenticated router that already serves POST /oauth2/token.
+// InitOIDC registers the public OIDC login/callback routes, plus the CLI
+// exchange endpoint, on the same unauthenticated router that already
+// serves POST /oauth2/token.
 //
 // Routes:
-//   - GET /oidc/login    — redirects to the configured provider's authorization endpoint
-//   - GET /oidc/callback — completes the authorization code flow and issues a session
+//   - GET  /oidc/login       — redirects to the configured provider's authorization endpoint
+//   - GET  /oidc/callback    — completes the authorization code flow and issues a session
+//   - POST /oidc/cli/exchange — redeems a one-time code from the CLI loopback flow for a session
 func (api *API) InitOIDC() {
+	api.cliExchange = newCLIExchangeStore()
 	api.BaseRoutes.OAuth2.HandleFunc("/oidc/login", api.oidcLoginHandler).Methods("GET")
 	api.BaseRoutes.OAuth2.HandleFunc("/oidc/callback", api.oidcCallbackHandler).Methods("GET")
-	api.Logger.Infoln("OIDC login/callback routes initialized")
+	api.BaseRoutes.OAuth2.HandleFunc("/oidc/cli/exchange", api.cliExchangeHandler).Methods("POST")
+	api.Logger.Infoln("OIDC login/callback/cli-exchange routes initialized")
 }
 
 // oidcLoginHandler redirects the caller to the configured OIDC provider's
-// authorization endpoint, having first stashed a random state and nonce in
+// authorization endpoint, having first stashed a random state and nonce
+// (and, for the CLI loopback flow, a validated cli_redirect_uri) in
 // short-lived cookies for oidcCallbackHandler to verify.
 func (api *API) oidcLoginHandler(w http.ResponseWriter, r *http.Request) {
 	svc := api.App.ServiceContainer.GetOIDCService()
 	if svc == nil {
 		http.Error(w, "OIDC is not configured", http.StatusServiceUnavailable)
+		return
+	}
+
+	cliRedirectURI, err := validateCLIRedirectURI(r.URL.Query().Get("cli_redirect_uri"))
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
 
@@ -52,14 +64,19 @@ func (api *API) oidcLoginHandler(w http.ResponseWriter, r *http.Request) {
 
 	setOIDCCookie(w, oidcStateCookie, state)
 	setOIDCCookie(w, oidcNonceCookie, nonce)
+	if cliRedirectURI != "" {
+		setOIDCCookie(w, oidcCLIRedirectCookie, cliRedirectURI)
+	}
 
 	http.Redirect(w, r, svc.AuthCodeURL(state, nonce), http.StatusFound)
 }
 
-// oidcCallbackHandler completes the authorization code flow: verifies state,
-// exchanges the code, verifies the ID token (including nonce), finds or
-// creates the corresponding local user, and issues a session exactly as
-// POST /users/login does.
+// oidcCallbackHandler completes the authorization code flow: verifies
+// state, exchanges the code, verifies the ID token (including nonce),
+// finds or creates the corresponding local user, and issues a session
+// exactly as POST /users/login does. If the login was started with a
+// cli_redirect_uri, the session is handed off via a one-time exchange
+// code instead of being returned directly (see api/oidc_cli.go).
 func (api *API) oidcCallbackHandler(w http.ResponseWriter, r *http.Request) {
 	svc := api.App.ServiceContainer.GetOIDCService()
 	if svc == nil {
@@ -76,6 +93,16 @@ func (api *API) oidcCallbackHandler(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		http.Error(w, "missing or expired oidc_nonce cookie", http.StatusBadRequest)
 		return
+	}
+
+	cliRedirectURI := ""
+	if cliCookie, err := r.Cookie(oidcCLIRedirectCookie); err == nil {
+		validated, err := validateCLIRedirectURI(cliCookie.Value)
+		if err != nil {
+			http.Error(w, "invalid cli redirect", http.StatusBadRequest)
+			return
+		}
+		cliRedirectURI = validated
 	}
 
 	if r.URL.Query().Get("state") != stateCookie.Value {
@@ -123,15 +150,28 @@ func (api *API) oidcCallbackHandler(w http.ResponseWriter, r *http.Request) {
 
 	clearOIDCCookie(w, oidcStateCookie)
 	clearOIDCCookie(w, oidcNonceCookie)
+	clearOIDCCookie(w, oidcCLIRedirectCookie)
 
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(model.LoginResponse{ //nolint:errcheck,gosec
+	response := model.LoginResponse{
 		Token:        result.Token,
 		RefreshToken: result.RefreshToken,
 		UserID:       result.UserID.String(),
 		Username:     result.Username,
 		Role:         result.Role,
-	})
+	}
+
+	if cliRedirectURI != "" {
+		exchangeCode, err := api.cliExchange.put(response)
+		if err != nil {
+			http.Error(w, "internal error", http.StatusInternalServerError)
+			return
+		}
+		http.Redirect(w, r, cliRedirectURI+"?code="+exchangeCode, http.StatusFound)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(response) //nolint:errcheck,gosec
 }
 
 // randomOIDCToken returns a 32-byte, hex-encoded random token suitable for

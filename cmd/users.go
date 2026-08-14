@@ -33,7 +33,7 @@ var usersCmd = &cobra.Command{
 	Use:   "users",
 	Short: "Manage users in the password manager",
 	Long: `A command group for creating, retrieving, updating, listing, and deleting users,
-as well as generating TOTP secrets for MFA.`,
+generating TOTP secrets for MFA, and logging in/out of a cached CLI session.`,
 	Example: `  # Log in and obtain a session token
   rocketvault users login --username admin --password admin123 --totp-code <code>
 
@@ -56,6 +56,7 @@ func init() {
 	users.InitUsersList(usersCmd)
 	users.InitUsersRegisterAdmin(usersCmd)
 	users.InitUsersLogin(usersCmd)
+	users.InitUsersLogout(usersCmd)
 	// Here you will define your flags and configuration settings.
 
 	// Cobra supports Persistent Flags which will work for this command

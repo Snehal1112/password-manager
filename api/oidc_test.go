@@ -6,11 +6,13 @@ import (
 	"database/sql"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
+	"github.com/stretchr/testify/require"
 
 	"rocketvault/app"
 	rvconfig "rocketvault/config"
@@ -222,7 +224,7 @@ func (c *oidcHTestContainer) Close() error { return nil }
 // tests.
 func newOIDCHAPI(oidcSvc authServices.OIDCService, userSvc userServices.UserService, authSvc authServices.AuthenticationService) *API {
 	a := &app.App{ServiceContainer: &oidcHTestContainer{oidcSvc: oidcSvc, userSvc: userSvc, authSvc: authSvc}}
-	return &API{App: a, Logger: userTestLog()}
+	return &API{App: a, Logger: userTestLog(), cliExchange: newCLIExchangeStore()}
 }
 
 func TestOIDCLogin_ServiceUnavailable_Returns503(t *testing.T) {
@@ -313,4 +315,87 @@ func TestOIDCCallback_Success_ReturnsLoginResponse(t *testing.T) {
 	oidcSvc.AssertExpectations(t)
 	userSvc.AssertExpectations(t)
 	authSvc.AssertExpectations(t)
+}
+
+func TestOIDCLogin_InvalidCLIRedirectURI_Returns400(t *testing.T) {
+	oidcSvc := &mockOIDCService{}
+	api := newOIDCHAPI(oidcSvc, nil, nil)
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest(http.MethodGet, "/oidc/login?cli_redirect_uri=https://evil.example.com/callback", nil)
+
+	api.oidcLoginHandler(w, r)
+
+	assert.Equal(t, http.StatusBadRequest, w.Code)
+	oidcSvc.AssertNotCalled(t, "AuthCodeURL", mock.Anything, mock.Anything)
+}
+
+func TestOIDCLogin_ValidCLIRedirectURI_SetsCookie(t *testing.T) {
+	oidcSvc := &mockOIDCService{}
+	oidcSvc.On("AuthCodeURL", mock.AnythingOfType("string"), mock.AnythingOfType("string")).
+		Return("https://idp.example.com/authorize?state=x")
+	api := newOIDCHAPI(oidcSvc, nil, nil)
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest(http.MethodGet, "/oidc/login?cli_redirect_uri=http://127.0.0.1:54321/callback", nil)
+
+	api.oidcLoginHandler(w, r)
+
+	assert.Equal(t, http.StatusFound, w.Code)
+	var sawCLIRedirect bool
+	for _, ck := range w.Result().Cookies() {
+		if ck.Name == "oidc_cli_redirect" {
+			sawCLIRedirect = true
+			assert.Equal(t, "http://127.0.0.1:54321/callback", ck.Value)
+		}
+	}
+	assert.True(t, sawCLIRedirect, "oidc_cli_redirect cookie must be set")
+}
+
+func TestOIDCCallback_WithCLIRedirect_RedirectsWithExchangeCode(t *testing.T) {
+	identity := &authServices.OIDCIdentity{Subject: "sub-1", PreferredUsername: "jdoe"}
+	oidcSvc := &mockOIDCService{}
+	oidcSvc.On("HandleCallback", mock.Anything, "auth-code", "nonce-1").Return(identity, nil)
+
+	userSvc := &mockUserServiceForOIDC{}
+	user := &model.User{ID: uuid.New(), Username: "jdoe", Role: model.RoleUser}
+	userSvc.On("FindOrCreateExternalUser", mock.Anything, mock.Anything).Return(user, nil)
+
+	authSvc := &mockAuthServiceForOIDC{}
+	authSvc.On("IssueSessionForUser", mock.Anything, user).Return(&authServices.AuthenticationResult{
+		Token: "access-token", RefreshToken: "refresh-token", UserID: user.ID, Username: user.Username, Role: user.Role,
+	}, nil)
+
+	api := newOIDCHAPI(oidcSvc, userSvc, authSvc)
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest(http.MethodGet, "/oidc/callback?state=expected&code=auth-code", nil)
+	r.AddCookie(&http.Cookie{Name: "oidc_state", Value: "expected"})
+	r.AddCookie(&http.Cookie{Name: "oidc_nonce", Value: "nonce-1"})
+	r.AddCookie(&http.Cookie{Name: "oidc_cli_redirect", Value: "http://127.0.0.1:54321/callback"})
+
+	api.oidcCallbackHandler(w, r)
+
+	require.Equal(t, http.StatusFound, w.Code)
+	location := w.Header().Get("Location")
+	assert.Contains(t, location, "http://127.0.0.1:54321/callback?code=")
+
+	code := strings.TrimPrefix(location, "http://127.0.0.1:54321/callback?code=")
+	got, ok := api.cliExchange.consume(code)
+	require.True(t, ok)
+	assert.Equal(t, "access-token", got.Token)
+	assert.Equal(t, user.ID.String(), got.UserID)
+}
+
+func TestOIDCCallback_InvalidCLIRedirectCookie_Returns400(t *testing.T) {
+	oidcSvc := &mockOIDCService{}
+	oidcSvc.On("HandleCallback", mock.Anything, "auth-code", "nonce-1").
+		Return(&authServices.OIDCIdentity{Subject: "sub-1"}, nil)
+	api := newOIDCHAPI(oidcSvc, nil, nil)
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest(http.MethodGet, "/oidc/callback?state=expected&code=auth-code", nil)
+	r.AddCookie(&http.Cookie{Name: "oidc_state", Value: "expected"})
+	r.AddCookie(&http.Cookie{Name: "oidc_nonce", Value: "nonce-1"})
+	r.AddCookie(&http.Cookie{Name: "oidc_cli_redirect", Value: "https://evil.example.com/callback"})
+
+	api.oidcCallbackHandler(w, r)
+
+	assert.Equal(t, http.StatusBadRequest, w.Code)
 }

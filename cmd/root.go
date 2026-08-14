@@ -28,6 +28,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"time"
 
 	"github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
@@ -38,6 +39,7 @@ import (
 	"rocketvault/internal/db"
 	"rocketvault/internal/formatter"
 	"rocketvault/internal/logging"
+	authServices "rocketvault/internal/services/auth"
 	"rocketvault/model"
 )
 
@@ -122,6 +124,95 @@ func initConfig() {
 	}
 }
 
+// resolveAuthentication determines the CLI caller's identity for a command
+// that requires authentication. It tries, in order:
+//  1. --username + --password (+ --totp-code): fresh password/TOTP login,
+//     cached to disk on success.
+//  2. --username alone (no --password): load that user's cached session.
+//  3. no flags at all: load whichever session ~/.rocketvault/sessions/current
+//     currently points at.
+//
+// A cached session past its ExpiresAt is refreshed transparently via its
+// refresh token (and the cache updated) before being returned.
+func resolveAuthentication(cmd *cobra.Command, authSvc authServices.AuthenticationService) (*authServices.AuthenticationResult, error) {
+	username, _ := cmd.Flags().GetString("username")
+	password, _ := cmd.Flags().GetString("password")
+	totpCode, _ := cmd.Flags().GetString("totp-code")
+
+	if username != "" && password != "" {
+		result, err := authSvc.AuthenticateUser(cmd.Context(), username, password, totpCode)
+		if err != nil {
+			return nil, err
+		}
+		if saveErr := common.SaveSession(&common.SessionCache{
+			Token:        result.Token,
+			RefreshToken: result.RefreshToken,
+			UserID:       result.UserID,
+			Username:     result.Username,
+			Role:         result.Role,
+			ExpiresAt:    time.Now().Add(viper.GetDuration("jwt.expiry")),
+		}); saveErr != nil {
+			logrus.WithError(saveErr).Warn("failed to cache CLI session")
+		}
+		return result, nil
+	}
+
+	var cached *common.SessionCache
+	var err error
+	if username != "" {
+		cached, err = common.LoadSession(username)
+	} else {
+		cached, err = common.LoadCurrentSession()
+	}
+	if err != nil {
+		return nil, fmt.Errorf("failed to read cached session: %w", err)
+	}
+	if cached == nil {
+		return nil, errors.New("no credentials provided and no cached session found")
+	}
+
+	if time.Now().Before(cached.ExpiresAt) {
+		claims, validateErr := authSvc.ValidateSession(cmd.Context(), cached.Token)
+		if validateErr == nil {
+			return &authServices.AuthenticationResult{
+				Token:        cached.Token,
+				RefreshToken: cached.RefreshToken,
+				UserID:       claims.UserID,
+				Username:     claims.Username,
+				Role:         claims.Role,
+			}, nil
+		}
+		// The cache file's ExpiresAt is only a pre-filter — it can't see
+		// server-side revocation. A ValidateSession failure here (expired,
+		// revoked, or malformed) falls through to the same refresh attempt
+		// used when the cache file itself says it's already expired.
+	}
+
+	refreshed, err := authSvc.RefreshAccessToken(cmd.Context(), cached.RefreshToken)
+	if err != nil {
+		return nil, fmt.Errorf("cached session expired and refresh failed: %w", err)
+	}
+
+	if saveErr := common.SaveSession(&common.SessionCache{
+		Token:        refreshed.Token,
+		RefreshToken: refreshed.RefreshToken,
+		UserID:       refreshed.UserID,
+		Username:     refreshed.Username,
+		Role:         refreshed.Role,
+		ExpiresAt:    refreshed.ExpiresAt,
+	}); saveErr != nil {
+		logrus.WithError(saveErr).Warn("failed to cache refreshed CLI session")
+	}
+
+	return &authServices.AuthenticationResult{
+		Token:        refreshed.Token,
+		RefreshToken: refreshed.RefreshToken,
+		UserID:       refreshed.UserID,
+		Username:     refreshed.Username,
+		Role:         refreshed.Role,
+	}, nil
+}
+
 // persistentPreRun is a Cobra persistent pre-run function that initializes logging,
 // database connection, and authentication context for the command execution.
 // It checks for restricted commands, initializes the logger and database, and
@@ -148,6 +239,8 @@ func persistentPreRun(cmd *cobra.Command, args []string) error {
 		"migrate:create":    true, // Migration file creation
 		"roles":             true, // Lists built-in vault roles; pure client-side, no auth needed
 		"preview-migration": true, // Reads ownership to plan role assignments; no auth, no writes
+		"login":             true, // Bootstraps a session (password or --oidc); cannot itself require one
+		"logout":            true, // Clears a cached session; must work even if that session is broken
 	}
 
 	// Check if this is a system command (either the command itself or its parent)
@@ -194,22 +287,12 @@ func persistentPreRun(cmd *cobra.Command, args []string) error {
 		return nil
 	}
 
-	username, _ := cmd.Flags().GetString("username")
-	password, _ := cmd.Flags().GetString("password")
-	totpCode, _ := cmd.Flags().GetString("totp-code")
-
-	if username == "" || password == "" {
-		log.LogAuditError("", "secrets", "failed", "Username and password are required for authentication", errors.New("missing credentials"))
-		cmd.PrintErrln("Error: Username and password are required for authentication")
-		return errors.New("authentication failed")
-	}
-
-	// Use authentication service for login
 	authService := serviceContainer.GetAuthenticationService()
-	authResult, err := authService.AuthenticateUser(ctx, username, password, totpCode)
+	authResult, err := resolveAuthentication(cmd, authService)
 	if err != nil {
 		log.LogAuditError("", "secrets", "failed", "Authentication failed", err)
 		cmd.PrintErrln("Error: Authentication failed -", err.Error())
+		cmd.PrintErrln("Run 'rocketvault users login' or 'rocketvault users login --oidc' first, or pass --username/--password/--totp-code.")
 		return errors.New("authentication failed")
 	}
 
@@ -228,11 +311,15 @@ func persistentPreRun(cmd *cobra.Command, args []string) error {
 	ctx = context.WithValue(ctx, common.ClaimsKey, claims)
 	cmd.SetContext(ctx)
 
+	jwtPreviewLen := 10
+	if len(authResult.Token) < jwtPreviewLen {
+		jwtPreviewLen = len(authResult.Token)
+	}
 	log.WithFields(logrus.Fields{
 		"command":  cmd.Short,
-		"jwt":      authResult.Token[:10] + "...",
+		"jwt":      authResult.Token[:jwtPreviewLen] + "...",
 		"userID":   claims.UserID,
-		"username": username,
+		"username": authResult.Username,
 	}).Info("User authenticated successfully")
 	return nil
 }

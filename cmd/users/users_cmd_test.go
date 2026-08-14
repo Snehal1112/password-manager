@@ -341,6 +341,7 @@ func TestLoginCmd_AuthServiceError(t *testing.T) {
 }
 
 func TestLoginCmd_Success(t *testing.T) {
+	common.SessionBaseDir = t.TempDir()
 	tc := testutils.NewTestContext(t)
 	ctx := context.WithValue(context.Background(), common.ServiceContainerKey, tc.MockContainer)
 
