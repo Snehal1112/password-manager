@@ -145,5 +145,34 @@ func TestCache_Stop_IdempotentDouble(t *testing.T) {
 	c.Stop() // must not panic
 }
 
+func TestCache_Set_EvictsLeastRecentlyTouchedWhenOverMaxEntries(t *testing.T) {
+	c := newCache(t, cachekit.Config{Enabled: true, TTL: time.Minute, CleanupInterval: time.Second, MaxEntries: 2})
+
+	c.Set("a", testValue{N: 1})
+	c.Set("b", testValue{N: 2})
+	// Touch "a" so it's more recently used than "b".
+	_, _ = c.Get("a")
+
+	c.Set("c", testValue{N: 3}) // pushes count to 3, over the cap of 2
+
+	// "b" was least-recently-touched and must be evicted.
+	_, ok := c.Get("b")
+	assert.False(t, ok, "least-recently-touched entry must be evicted")
+
+	_, ok = c.Get("a")
+	assert.True(t, ok, "recently-touched entry must survive")
+	_, ok = c.Get("c")
+	assert.True(t, ok, "just-inserted entry must survive")
+}
+
+func TestCache_MaxEntriesZero_NeverEvicts(t *testing.T) {
+	c := newCache(t, cachekit.Config{Enabled: true, TTL: time.Minute, CleanupInterval: time.Second, MaxEntries: 0})
+	for i := 0; i < 50; i++ {
+		c.Set(string(rune('a'+i%26))+string(rune(i)), testValue{N: i})
+	}
+	stats := c.Stats()
+	assert.Equal(t, 50, stats.TotalEntries, "MaxEntries=0 must mean unbounded")
+}
+
 // Compile-time interface compliance.
 var _ cachekit.Interface[string, testValue] = (*cachekit.Cache[string, testValue])(nil)
