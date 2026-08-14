@@ -383,6 +383,7 @@ details.collapse .inner{padding:8px 12px;font-size:14px;color:var(--text2)}
     <a class="sb-item" href="#secret-versions">Secret Versions</a>
     <a class="sb-item" href="#secret-rotation">Secret Rotation</a>
     <a class="sb-item" href="#keys">Keys</a>
+    <a class="sb-item" href="#key-rotation-policy">Key Rotation Policy</a>
     <a class="sb-item" href="#certificates">Certificates</a>
     <a class="sb-item" href="#multi-vault">Multi-Vault</a>
     <a class="sb-item" href="#soft-delete">Soft-Delete &amp; Purge</a>
@@ -1351,6 +1352,55 @@ curl -s -X POST $BASE/api/v1/keys -H "Authorization: Bearer $TOKEN" \
     <div class="ep-hd"><span class="meth meth-delete">DELETE</span> <span class="ep-path">/api/v1/keys/{id}</span> <span class="ep-label">Soft-delete</span></div>
     <div class="tab-bar"><button class="tab-btn active">cURL</button></div>
     <div class="tab-pane active"><pre class="code">curl -s -X DELETE $BASE/api/v1/keys/&lt;id&gt; -H "Authorization: Bearer $TOKEN"</pre></div>
+  </div>
+  <p class="see-also">See also: <a href="../MANUAL_TESTING.html">Manual Testing §10</a></p>
+</section>
+
+<section id="key-rotation-policy">
+  <h2>Key Rotation Policy</h2>
+  <h3>What it is</h3>
+  <p>A per-key policy describing how a key should be rotated: how many days after creation it should rotate, how many days before a version's expiry to fire a reminder, and how long each new version stays valid. This is a CRUD resource only — RocketVault stores and serves the policy, but no scheduler currently reads it to trigger an actual rotation (that's a planned follow-up, not shipped yet).</p>
+  <div class="ep">
+    <div class="ep-hd"><span class="meth meth-get">GET</span> <span class="ep-path">/api/v1/keys/{id}/rotationpolicy</span> <span class="ep-label">Get policy</span></div>
+    <div class="tab-bar"><button class="tab-btn active">cURL</button><button class="tab-btn">Response</button></div>
+    <div class="tab-pane active"><pre class="code">curl -s $BASE/api/v1/keys/&lt;id&gt;/rotationpolicy -H "Authorization: Bearer $TOKEN"</pre></div>
+    <div class="tab-pane"><pre class="code">{
+  "id": "&lt;uuid&gt;",
+  "key_id": "&lt;uuid&gt;",
+  "user_id": "&lt;uuid&gt;",
+  "rotate_after_days": 90,
+  "notify_before_expiry_days": 30,
+  "expiry_days": 365,
+  "enabled": true,
+  "created_at": "2026-08-14T06:00:00Z",
+  "updated_at": "2026-08-14T06:00:00Z"
+}</pre></div>
+    <details class="collapse"><summary>Notes</summary><div class="inner">Requires <code>Key Vault Crypto Officer</code> or <code>Key Vault Administrator</code> on the key's vault — <code>Key Vault Crypto User</code> is deliberately excluded, matching Azure's real <code>keyrotationpolicies/*</code> grant (Crypto User can use a key for crypto operations but not manage its rotation policy). Returns <code>404</code> if no policy has been set yet.</div></details>
+  </div>
+  <div class="ep">
+    <div class="ep-hd"><span class="meth meth-put">PUT</span> <span class="ep-path">/api/v1/keys/{id}/rotationpolicy</span> <span class="ep-label">Upsert policy</span></div>
+    <div class="tab-bar"><button class="tab-btn active">cURL</button><button class="tab-btn">Response</button></div>
+    <div class="tab-pane active"><pre class="code">curl -s -X PUT $BASE/api/v1/keys/&lt;id&gt;/rotationpolicy -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"rotate_after_days":90,"notify_before_expiry_days":30,"expiry_days":365,"enabled":true}'</pre></div>
+    <div class="tab-pane"><pre class="code">{
+  "id": "&lt;uuid&gt;",
+  "key_id": "&lt;uuid&gt;",
+  "user_id": "&lt;uuid&gt;",
+  "rotate_after_days": 90,
+  "notify_before_expiry_days": 30,
+  "expiry_days": 365,
+  "enabled": true,
+  "created_at": "2026-08-14T06:00:00Z",
+  "updated_at": "2026-08-14T06:05:12Z"
+}</pre></div>
+    <details class="collapse"><summary>Notes</summary><div class="inner">All four fields are required. Idempotent upsert — calling this again on the same key updates the existing policy in place (same <code>id</code>, <code>updated_at</code> refreshed) rather than creating a duplicate.</div></details>
+  </div>
+  <div class="ep">
+    <div class="ep-hd"><span class="meth meth-delete">DELETE</span> <span class="ep-path">/api/v1/keys/{id}/rotationpolicy</span> <span class="ep-label">Delete policy</span></div>
+    <div class="tab-bar"><button class="tab-btn active">cURL</button></div>
+    <div class="tab-pane active"><pre class="code">curl -s -X DELETE $BASE/api/v1/keys/&lt;id&gt;/rotationpolicy -H "Authorization: Bearer $TOKEN"</pre></div>
+    <details class="collapse"><summary>Notes</summary><div class="inner">Returns <code>404</code> if no policy exists for the key. Vault-scoped equivalents exist at <code>/api/v1/vaults/{vault_name}/keys/{id}/rotationpolicy</code> for all three methods.</div></details>
   </div>
   <p class="see-also">See also: <a href="../MANUAL_TESTING.html">Manual Testing §10</a></p>
 </section>

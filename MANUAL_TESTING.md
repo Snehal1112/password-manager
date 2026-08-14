@@ -63,6 +63,9 @@
 | POST | `/api/v1/vaults/{vault_name}/keys/{id}/verify` | JWT | Verify signature with vault key |
 | POST | `/api/v1/vaults/{vault_name}/keys/{id}/encrypt` | JWT | Encrypt payload with vault key |
 | POST | `/api/v1/vaults/{vault_name}/keys/{id}/decrypt` | JWT | Decrypt payload with vault key |
+| GET | `/api/v1/vaults/{vault_name}/keys/{id}/rotationpolicy` | JWT (Crypto Officer/Administrator) | Get vault key rotation policy |
+| PUT | `/api/v1/vaults/{vault_name}/keys/{id}/rotationpolicy` | JWT (Crypto Officer/Administrator) | Upsert vault key rotation policy |
+| DELETE | `/api/v1/vaults/{vault_name}/keys/{id}/rotationpolicy` | JWT (Crypto Officer/Administrator) | Delete vault key rotation policy |
 | GET | `/api/v1/vaults/{vault_name}/deleted/keys` | JWT | List soft-deleted vault keys |
 | POST | `/api/v1/vaults/{vault_name}/deleted/keys/{id}/restore` | JWT | Restore vault key |
 | DELETE | `/api/v1/vaults/{vault_name}/deleted/keys/{id}/purge` | JWT | Purge vault key |
@@ -103,6 +106,9 @@
 | POST | `/api/v1/keys/{id}/verify` | JWT | Verify signature |
 | POST | `/api/v1/keys/{id}/encrypt` | JWT | Encrypt payload |
 | POST | `/api/v1/keys/{id}/decrypt` | JWT | Decrypt payload |
+| GET | `/api/v1/keys/{id}/rotationpolicy` | JWT (Crypto Officer/Administrator) | Get key rotation policy |
+| PUT | `/api/v1/keys/{id}/rotationpolicy` | JWT (Crypto Officer/Administrator) | Upsert key rotation policy |
+| DELETE | `/api/v1/keys/{id}/rotationpolicy` | JWT (Crypto Officer/Administrator) | Delete key rotation policy |
 | POST | `/api/v1/keys/{id}/backup` | JWT | Backup key item |
 | POST | `/api/v1/keys/restore` | JWT | Restore key item |
 | POST | `/api/v1/certificates` | JWT | Create certificate |
@@ -155,6 +161,14 @@ Notes:
 - Vault-scoped routes for secrets, keys, and certificates (`/vaults/{vault_name}/...`)
   mirror the flat routes 1:1 and are authorized per vault by `PolicyMiddleware`
   against the caller's role assignments in that vault, not by the global role.
+- `rotationpolicy` routes are narrower than every other `/keys/{id}/*` route: only
+  `Key Vault Crypto Officer` and `Key Vault Administrator` grant access (matching
+  Azure's `keyrotationpolicies/*`) — `Key Vault Crypto User`, which can use the key
+  for crypto operations, is deliberately denied here and gets `403`. Request body
+  for `PUT` (all four fields required): `{"rotate_after_days": 90,
+  "notify_before_expiry_days": 30, "expiry_days": 365, "enabled": true}`. `PUT` is
+  an upsert (same `id` returned on repeat calls with the same key). `GET`/`DELETE`
+  on a key with no policy set return `404`.
 
 ---
 
