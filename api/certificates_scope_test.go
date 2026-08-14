@@ -10,6 +10,7 @@ import (
 
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/google/uuid"
+	"github.com/gorilla/mux"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
@@ -129,6 +130,51 @@ func TestGetCertificateMapsErrors(t *testing.T) {
 	getCertificate(c, w, r)
 	require.NotNil(t, c.Err)
 	assert.Equal(t, http.StatusNotFound, c.Err.StatusCode)
+}
+
+// TestCertificatePolicyHandlers_LifecycleDeniedMapsTo404 pins the fix for a
+// status-code regression: routing the policy handlers through
+// CertificateService's new GetCertificatePolicy/UpsertCertificatePolicy/
+// DeleteCertificatePolicy methods (which propagate whatever GetCertificate
+// returns, collapsed into the same error return as the policy-repo call)
+// made writeCertificateError's ErrCertLifecycleDenied->403 mapping reachable
+// here. The pre-refactor handlers always mapped ANY cert-check failure to a
+// blanket 404 "certificate", never distinguishing lifecycle-denied from
+// not-found. All three handlers must keep returning 404, not 403, for a
+// disabled/expired certificate.
+func TestCertificatePolicyHandlers_LifecycleDeniedMapsTo404(t *testing.T) {
+	certID := uuid.New()
+
+	t.Run("get", func(t *testing.T) {
+		svc := &scopeStubCertService{certErr: certServices.ErrCertLifecycleDenied}
+		c, w, r := newCertHandlerFixture(t, svc, certID, "team-a")
+		getCertificatePolicy(c, w, r)
+		require.NotNil(t, c.Err)
+		assert.Equal(t, http.StatusNotFound, c.Err.StatusCode)
+	})
+
+	t.Run("upsert", func(t *testing.T) {
+		svc := &scopeStubCertService{certErr: certServices.ErrCertLifecycleDenied}
+		c := newCertCtx(svc, jwt.MapClaims{"user_id": uuid.NewString()})
+		c.Params.CertificateID = certID.String()
+		w := httptest.NewRecorder()
+		body := []byte(`{"validity_months":12,"key_type":"RSA","key_size":2048}`)
+		r := httptest.NewRequest(http.MethodPut, "/api/v1/vaults/team-a/certificates/"+certID.String()+"/policy", bytes.NewReader(body))
+		r = r.WithContext(context.WithValue(r.Context(), common.VaultIDKey, uuid.New().String()))
+		r = mux.SetURLVars(r, map[string]string{"vault_name": "team-a"})
+
+		upsertCertificatePolicy(c, w, r)
+		require.NotNil(t, c.Err)
+		assert.Equal(t, http.StatusNotFound, c.Err.StatusCode)
+	})
+
+	t.Run("delete", func(t *testing.T) {
+		svc := &scopeStubCertService{certErr: certServices.ErrCertLifecycleDenied}
+		c, w, r := newCertHandlerFixture(t, svc, certID, "team-a")
+		deleteCertificatePolicy(c, w, r)
+		require.NotNil(t, c.Err)
+		assert.Equal(t, http.StatusNotFound, c.Err.StatusCode)
+	})
 }
 
 func TestGetCertificatePolicyResolvesTheCertificateThroughTheScope(t *testing.T) {

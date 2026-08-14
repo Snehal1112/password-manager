@@ -15,6 +15,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
+	"github.com/stretchr/testify/require"
 
 	"rocketvault/app"
 	rvconfig "rocketvault/config"
@@ -264,7 +265,55 @@ func TestGetCertificatePolicy_NotFound_Returns404(t *testing.T) {
 	}
 
 	assert.Equal(t, http.StatusNotFound, w.Code)
+	assert.Equal(t, "policy not found", c.Err.Message,
+		"a policy-repo failure (cert exists) must keep the generic 'policy' 404 message")
 	repo.AssertExpectations(t)
+}
+
+// TestGetCertificatePolicy_CertNotFound_Returns404WithCertificateMessage and
+// TestGetCertificatePolicy_CertLifecycleDenied_Returns404WithCertificateMessage
+// pin the message-text half of the fix: before this task, both cert-check
+// failure modes (not-found and lifecycle-denied) were collapsed into the same
+// generic "policy not found" 404 as any policy-repo failure. The pre-refactor
+// handler always distinguished them as "certificate not found" — restore
+// that distinction now that the cert check lives inside CertificateService.
+func TestGetCertificatePolicy_CertNotFound_Returns404WithCertificateMessage(t *testing.T) {
+	certID := uuid.New()
+	svc := &scopeStubCertService{certErr: certServices.ErrCertNotFound}
+	a := &app.App{ServiceContainer: &certSvcContainer{certSvc: svc}}
+	c := &Context{
+		App:    a,
+		Claims: jwt.MapClaims{"user_id": uuid.NewString()},
+		Params: &ApiParams{CertificateID: certID.String(), PerPage: 60},
+	}
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest(http.MethodGet, "/certificates/"+certID.String()+"/policy", nil)
+
+	getCertificatePolicy(c, w, r)
+
+	require.NotNil(t, c.Err)
+	assert.Equal(t, http.StatusNotFound, c.Err.StatusCode)
+	assert.Equal(t, "certificate not found", c.Err.Message)
+}
+
+func TestGetCertificatePolicy_CertLifecycleDenied_Returns404WithCertificateMessage(t *testing.T) {
+	certID := uuid.New()
+	svc := &scopeStubCertService{certErr: certServices.ErrCertLifecycleDenied}
+	a := &app.App{ServiceContainer: &certSvcContainer{certSvc: svc}}
+	c := &Context{
+		App:    a,
+		Claims: jwt.MapClaims{"user_id": uuid.NewString()},
+		Params: &ApiParams{CertificateID: certID.String(), PerPage: 60},
+	}
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest(http.MethodGet, "/certificates/"+certID.String()+"/policy", nil)
+
+	getCertificatePolicy(c, w, r)
+
+	require.NotNil(t, c.Err)
+	assert.Equal(t, http.StatusNotFound, c.Err.StatusCode,
+		"lifecycle-denied must still map to 404, not writeCertificateError's 403")
+	assert.Equal(t, "certificate not found", c.Err.Message)
 }
 
 func TestGetCertificatePolicy_Success_Returns200(t *testing.T) {

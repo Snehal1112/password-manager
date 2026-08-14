@@ -8,6 +8,7 @@ import (
 
 	"github.com/google/uuid"
 
+	certServices "rocketvault/internal/services/certificates"
 	"rocketvault/model"
 )
 
@@ -31,7 +32,11 @@ func getCertificatePolicy(c *Context, w http.ResponseWriter, r *http.Request) {
 
 	policy, err := certService.GetCertificatePolicy(r.Context(), certID, scope)
 	if err != nil {
-		c.SetNotFound("policy")
+		if errors.Is(err, certServices.ErrCertNotFound) || errors.Is(err, certServices.ErrCertLifecycleDenied) {
+			c.SetNotFound("certificate")
+		} else {
+			c.SetNotFound("policy")
+		}
 		return
 	}
 
@@ -65,7 +70,11 @@ func upsertCertificatePolicy(c *Context, w http.ResponseWriter, r *http.Request)
 
 	policy, err := certService.UpsertCertificatePolicy(r.Context(), certID, scope, *req)
 	if err != nil {
-		writeCertificateError(c, err)
+		if errors.Is(err, certServices.ErrCertNotFound) || errors.Is(err, certServices.ErrCertLifecycleDenied) {
+			c.SetNotFound("certificate")
+		} else {
+			c.SetInternalError(err)
+		}
 		return
 	}
 
@@ -93,11 +102,14 @@ func deleteCertificatePolicy(c *Context, w http.ResponseWriter, r *http.Request)
 	}
 
 	if err := certService.DeleteCertificatePolicy(r.Context(), certID, scope); err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
+		switch {
+		case errors.Is(err, certServices.ErrCertNotFound), errors.Is(err, certServices.ErrCertLifecycleDenied):
+			c.SetNotFound("certificate")
+		case errors.Is(err, sql.ErrNoRows):
 			c.SetNotFound("policy not found")
-			return
+		default:
+			c.SetInternalError(err)
 		}
-		writeCertificateError(c, err)
 		return
 	}
 
