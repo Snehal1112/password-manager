@@ -1,0 +1,671 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>RocketVault Usage Guide — RocketVault Docs</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"/>
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=IBM+Plex+Sans:wght@400;500;600&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet"/>
+<link rel="stylesheet" href="assets/doc-theme.css"/>
+</head>
+<body>
+<header class="doc-header">
+  <a class="doc-back" href="admin-manual.html">&larr; Admin Manual</a>
+  <div class="doc-brand">
+    <div class="doc-mark" aria-hidden="true"></div>
+    <span class="doc-kicker">RocketVault Docs</span>
+  </div>
+  <h1 class="doc-title">RocketVault Usage Guide</h1>
+  <div class="doc-meta"><span class="doc-chip">docs/usage-guide.md</span></div>
+  <hr/>
+</header>
+
+<main class="doc">
+<p>RocketVault is a self-hosted, open-source alternative to Azure Key Vault, written entirely in Go. It manages secrets, cryptographic keys, and X.509 certificates in your own infrastructure, with no cloud dependency — exposed through a REST API, a full-featured CLI, and a handful of integration surfaces.</p>
+<p>This guide is the single entry point for <strong>all nine ways to use RocketVault</strong>, from a human typing commands in a terminal to a Kubernetes probe hitting a health endpoint. Each section follows the same shape: what the surface is, when to reach for it, what you need first, a worked example, and the gotchas that bite in practice.</p>
+<p>Throughout this guide, <code>http://localhost:8774</code> is used as the server address. The effective default bind address is <code>127.0.0.1:8774</code> (the hardcoded <code>defaultListenAddr</code> in <code>cmd/serve.go</code>), not the <code>server.listen_addr</code> value in <code>.rocketvault.yaml</code>, which is currently ignored because of the init-ordering bug described in section 9; <code>http://localhost:8774</code> still reaches it locally, but a non-loopback bind requires <code>serve --listen :8774</code>. All API paths are relative to the <code>/api/v1</code> base path unless stated otherwise.</p>
+<h2 id="known-gaps-in-the-surrounding-documentation">Known gaps in the surrounding documentation</h2>
+<p>An earlier audit of the other docs in this repo found a batch of inaccuracies; that audit has since been used to fix <code>docs/api-developer-guide.md</code>, <code>docs/admin-manual.html</code>, <code>README.md</code>, and <code>docs/consuming-secrets-guide.md</code>, so this callout no longer lists them. One item remains open, tracked in a project doc rather than in this guide:</p>
+<table>
+<thead>
+<tr>
+<th>Document</th>
+<th>Claim</th>
+<th>Reality</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>CLAUDE.md</code></td>
+<td>&quot;Open Bugs (as of 2026-03-08)&quot; lists &quot;secrets table missing columns&quot; (<code>deleted_at</code> / <code>purge_protection</code>) as open</td>
+<td>Stale — <code>.claude/known-bugs.md</code> (entry B1) already tracks this as fixed in commit <code>b46000b</code>, which added the columns to both <code>createOptimizedSchema</code> and <code>migrateSchema()</code>. <code>CLAUDE.md</code>'s &quot;Open Bugs&quot; section just hasn't been updated to match.</td>
+</tr>
+</tbody>
+</table>
+<h2 id="table-of-contents">Table of contents</h2>
+<ol>
+<li><a href="#1-cli-human-driven">CLI (human-driven)</a></li>
+<li><a href="#2-rest-api-programmatic">REST API (programmatic)</a></li>
+<li><a href="#3-oauth2--service-accounts-machine-to-machine">OAuth2 / Service Accounts (machine-to-machine)</a></li>
+<li><a href="#4-vault-client-library-embedded-secret-consumption">Vault Client library (embedded secret consumption)</a></li>
+<li><a href="#5-jwks-endpoint-token-verification-by-external-services">JWKS endpoint (token verification by external services)</a></li>
+<li><a href="#6-backup--restore-tooling">Backup / restore tooling</a></li>
+<li><a href="#7-health--monitoring-integration">Health / monitoring integration</a></li>
+<li><a href="#8-hsm-backed-mode-pkcs11">HSM-backed mode (PKCS#11)</a></li>
+<li><a href="#9-deployment-modes">Deployment modes</a></li>
+</ol>
+<hr>
+<h2 id="1-cli-human-driven">1. CLI (human-driven)</h2>
+<p><strong>What it is:</strong> The <code>rocketvault</code> Cobra-based command-line binary. The same binary that runs the server (<code>rocketvault serve</code>) also exposes <code>secrets</code>, <code>keys</code>, <code>certificate</code> (singular), <code>users</code>, and <code>vaults</code> subcommands that talk directly to the service layer — no HTTP hop — authenticating each invocation with username, password, and TOTP code. Other registered top-level groups include <code>audit</code>, <code>vault-access</code>, <code>rotation</code> (under <code>secrets</code>), <code>migrate</code>, <code>backup</code>, and <code>health</code>.</p>
+<p><strong>Use it when:</strong></p>
+<ul>
+<li>You're an operator or admin sitting at a terminal doing one-off, interactive work: creating the first admin user, rotating a secret, inspecting a key, issuing a certificate.</li>
+<li>You want scriptable output (<code>--output json</code>) for shell pipelines without standing up an API client.</li>
+<li>You need to run system-level operations that don't require authentication (<code>serve</code>, <code>migrate</code>, <code>health</code>, <code>admin</code> bootstrap) or admin-only whole-database operations (<code>backup</code>).</li>
+<li>You're working against a local or self-hosted instance where you already have filesystem access to <code>.rocketvault.yaml</code>.</li>
+</ul>
+<p><strong>Prerequisites:</strong></p>
+<ul>
+<li>A <code>.rocketvault.yaml</code> in the working directory (or <code>--config &lt;path&gt;</code>) — <code>initConfig()</code> in <code>cmd/root.go</code> looks for <code>./.rocketvault.yaml</code> by default and panics if it can't read it.</li>
+<li>An existing user account (username + password + TOTP secret) for any non-system command. For the very first user, you need the <code>bootstrap_token</code> config key (see <code>.rocketvault.yaml</code>) and <code>rocketvault users admin</code>.</li>
+<li>The compiled binary (<code>./rocketvault</code>, per <code>build.sh</code> / README) or <code>go run main.go</code> for development.</li>
+</ul>
+<h3 id="example">Example</h3>
+<div class="codewrap"><div class="code-hd"><span class="code-lang">bash</span><button class="copy-btn">Copy</button></div><pre class="code with-hd"># One-time: create the first admin user using the bootstrap token from .rocketvault.yaml
+./rocketvault users admin \
+  --admin-username admin --admin-password admin123 \
+  --bootstrap-token ***SECRET-REMOVED-2026-08-17***
+
+# Log in (prints a JWT; every other command re-authenticates itself, this is just to verify credentials)
+./rocketvault users login \
+  --username admin --password admin123 --totp-code 847291
+
+# Create a secret with tags, in the default vault
+./rocketvault secrets create my-secret my-value \
+  --tags prod,db --content-type application/json \
+  --username admin --password admin123 --totp-code 847291
+
+# Read it back as JSON
+./rocketvault secrets get &lt;secret-id&gt; --output json \
+  --username admin --password admin123 --totp-code 847291
+
+# List secrets filtered by tag, in a specific vault
+./rocketvault secrets list --tags prod --vault payments-team \
+  --username admin --password admin123 --totp-code 847291
+
+# Create an RSA key (requires admin or crypto_manager role)
+./rocketvault keys create --name mykey --type RSA --bits 2048 \
+  --username admin --password admin123 --totp-code 847291
+
+# List certificates in a specific vault — keys and certificate subcommands
+# all support --vault now, including certificate create
+./rocketvault certificate list --vault payments-team \
+  --username admin --password admin123 --totp-code 847291
+</pre></div>
+<h3 id="notes--gotchas">Notes &amp; gotchas</h3>
+<ul>
+<li><strong>Auth is required per-command, not per-session.</strong> <code>persistentPreRun</code> in <code>cmd/root.go</code> re-authenticates on every invocation via <code>--username</code> / <code>--password</code> / <code>--totp-code</code>; there's no persisted CLI session token to reuse. <code>rocketvault users login</code> is a credential-check convenience, not a login you stay in.</li>
+<li><strong>System commands skip auth entirely.</strong> <code>health</code>, <code>serve</code>, <code>admin</code>, <code>migrate</code> / <code>migrate:status</code> / <code>migrate:to</code> / <code>migrate:create</code>, <code>roles</code>, and <code>preview-migration</code> (i.e. <code>vaults preview-migration</code>) are listed in <code>systemCmds</code> in <code>cmd/root.go</code> and run without <code>--username</code> / <code>--password</code>. <code>backup</code> used to be in this list too (a real, unauthenticated-dump vulnerability) — it's since been removed and now requires an admin login like every other data-touching command; see the Backup / restore tooling section's gotchas.</li>
+<li><strong><code>--output</code> only accepts <code>table</code>, <code>json</code>, or <code>yaml</code>.</strong> Anything else fails fast with <code>invalid --output value ...: must be table, json, or yaml</code> (<code>cmd/root.go</code>, <code>internal/formatter</code>). Default is <code>table</code>.</li>
+<li><strong>Vault targeting precedence:</strong> <code>--vault</code> flag &gt; <code>ROCKETVAULT_VAULT</code> env &gt; config <code>vault</code> key &gt; <code>&quot;default&quot;</code>, per <code>common.ResolveVaultName</code> (wired through <code>cmd/vault_flag.go</code> as a persistent flag on <code>rootCmd</code>, so it's available on every subcommand). A <code>--vault</code> wiring series has landed <code>--vault</code> support across every <code>secrets</code>/<code>keys</code>/<code>certificate</code> data-plane subcommand — create, get, list, update, delete, plus <code>keys rotate</code>/<code>wrap</code>/<code>unwrap</code> and <code>certificate renew</code>. <code>certificate create</code> was the last holdout (it silently ignored <code>--vault</code> and always provisioned into the default vault) but was wired up too; it now resolves the target vault the same way its sibling commands do.</li>
+<li><strong>Role checks now run in two stages, not just a client-side gate.</strong> Commands first do a local role check — e.g. <code>keys create</code> calls <code>common.HasRequiredRole(claims.Role, model.RoleAdmin, model.RoleCryptoManager)</code> and fails fast with <code>forbidden: requires admin or crypto_manager role</code> before touching the service — then call <code>vaultcli.RequireDataAction</code>, which reproduces the HTTP <code>PolicyMiddleware</code>'s check against the resolved <code>--vault</code>: an access-policy explicit-deny override (<code>AccessPolicyService.CheckAccess</code>), then a per-vault role-assignment check (<code>RoleAssignmentService.HasDataAction</code>). A role that passes the local check can still be denied per-vault. <code>certificate create</code> used to skip this vault-authorization check entirely; that gap has since been closed, so it now goes through the same two-stage check as every other data-plane command.</li>
+<li><strong>The CLI talks to the service container directly</strong> (<code>internal/container.ServiceContainerInterface</code>), bypassing the HTTP API and its middleware chain — so the API-level <code>rate_limit</code> config in <code>.rocketvault.yaml</code> does not apply to CLI invocations.</li>
+<li>TOTP codes rotate every 30 seconds; an expired code is rejected by the authentication service. See the TOTP walkthrough in the deep-dive doc if you need a code without a phone.</li>
+</ul>
+<p><strong>Deep dive:</strong> <a href="cli-guide.md">docs/cli-guide.md</a> — full walkthrough covering TOTP setup, first-time admin bootstrap, secrets/keys/certificates/users management, automatic rotation, backups, and health checks.</p>
+<hr>
+<p>Everything the CLI does locally is also reachable over HTTP, which is the surface you'll use from application code.</p>
+<h2 id="2-rest-api-programmatic">2. REST API (programmatic)</h2>
+<p><strong>What it is:</strong> A JWT-authenticated HTTP API (Gorilla Mux, all routes under <code>/api/v1</code>) exposing full CRUD for vaults, secrets, keys, certificates, users, access policies, role assignments, service accounts (OAuth2), audit, and backup/restore — the same operations the CLI performs, callable from any HTTP client.</p>
+<p><strong>Use it when:</strong></p>
+<ul>
+<li>Integrating RocketVault into application code, CI/CD pipelines, or automation scripts instead of shelling out to the CLI.</li>
+<li>Building a custom UI, sidecar, or SDK on top of the vault.</li>
+<li>Using non-interactive machine identities (OAuth2 client-credentials service accounts) rather than human user logins.</li>
+<li>Scripting bulk operations (<code>/secrets/export</code>, <code>/secrets/import</code>) or programmatic session/token management.</li>
+</ul>
+<p><strong>Prerequisites:</strong></p>
+<ul>
+<li>A running <code>rocketvault serve</code> instance. The effective default bind address is <code>127.0.0.1:8774</code> (the hardcoded <code>defaultListenAddr</code> in <code>cmd/serve.go</code>), not the <code>server.listen_addr</code> value in <code>.rocketvault.yaml</code>, which is currently ignored — see the init-ordering gotcha in section 9.</li>
+<li>An existing user account (created via bootstrap token — see section 1) with a username, password, and TOTP code; login requires all three.</li>
+<li>The API base path is <code>/api/v1</code> (<code>basePath = &quot;/api/v1&quot;</code> in <code>cmd/serve.go</code>, overridable via the <code>serve --api_base</code> flag or the <code>PASSWORD_MANAGER_BASE_API</code> env var).</li>
+<li>A valid JWT alone is not enough to touch secrets, keys, or certificates: the account must also hold a role assignment granting the relevant Azure data action in the target vault (see the deny-by-default note below). A bootstrap-created global admin gets this for free in every vault; any other user needs an explicit grant first (<code>vault-access grant</code> — section 1 — or <code>POST /api/v1/vaults/{vault_name}/role-assignments</code>).</li>
+</ul>
+<h3 id="example-1">Example</h3>
+<p>Log in to get a JWT (<code>POST /api/v1/users/login</code> is public — no <code>Authorization</code> header needed):</p>
+<div class="codewrap"><div class="code-hd"><span class="code-lang">bash</span><button class="copy-btn">Copy</button></div><pre class="code with-hd">curl -s -X POST http://localhost:8774/api/v1/users/login \
+  -H &quot;Content-Type: application/json&quot; \
+  -d '{
+        &quot;username&quot;: &quot;admin&quot;,
+        &quot;password&quot;: &quot;admin123&quot;,
+        &quot;totp_code&quot;: &quot;123456&quot;
+      }'
+</pre></div>
+<p>This returns a JSON body with <code>token</code>, <code>refresh_token</code>, <code>user_id</code>, <code>username</code>, and <code>role</code> (see <code>model.LoginResponse</code> in <code>model/user.go</code>). Use <code>token</code> as a Bearer credential on every other call:</p>
+<div class="codewrap"><div class="code-hd"><span class="code-lang">bash</span><button class="copy-btn">Copy</button></div><pre class="code with-hd">TOKEN=&quot;&lt;value of token from the login response&gt;&quot;
+
+# Create a secret
+curl -s -X POST http://localhost:8774/api/v1/secrets \
+  -H &quot;Authorization: Bearer $TOKEN&quot; \
+  -H &quot;Content-Type: application/json&quot; \
+  -d '{&quot;name&quot;: &quot;db-password&quot;, &quot;value&quot;: &quot;s3cr3t&quot;, &quot;tags&quot;: [&quot;prod&quot;]}'
+
+# List secrets
+curl -s http://localhost:8774/api/v1/secrets \
+  -H &quot;Authorization: Bearer $TOKEN&quot;
+
+# Get a specific secret
+curl -s http://localhost:8774/api/v1/secrets/&lt;secret_id&gt; \
+  -H &quot;Authorization: Bearer $TOKEN&quot;
+</pre></div>
+<p>When the access token expires, exchange the refresh token via the also-public <code>POST /api/v1/users/refresh</code> (body: <code>{&quot;refresh_token&quot;: &quot;...&quot;}</code>, per <code>model.RefreshTokenRequest</code>) rather than logging in again.</p>
+<h3 id="notes--gotchas-1">Notes &amp; gotchas</h3>
+<ul>
+<li>Every route except <code>POST /users/login</code>, <code>POST /users/refresh</code>, <code>POST /oauth2/token</code>, <code>GET /config</code>, <code>GET /jwks.json</code>, and the three public health routes (<code>GET /health</code>, <code>GET /health/ready</code>, <code>GET /health/live</code> — note that <code>GET /health/database</code> is <em>not</em> public) requires the <code>Authorization: Bearer &lt;jwt&gt;</code> header. <code>AuthenticationMiddleware</code>/<code>ApiSessionRequired</code> reject a missing or invalid session with <code>401</code>.</li>
+<li>A valid bearer token is necessary but no longer sufficient for secrets, keys, and certificates. <code>PolicyMiddleware</code> (<code>internal/middleware/middleware.go</code>) is <strong>deny-by-default</strong> for vault data-plane routes: it maps the request to a single Azure data action and calls <code>RoleAssignmentService.HasDataAction</code> to check whether the caller holds a role assignment granting that action <em>in the resolved vault</em>. No matching assignment is a <code>403 Forbidden: no role assignment grants this operation in this vault</code>, regardless of how valid the token is. <code>access_policies</code> still exist but now act only as an explicit-deny override — <code>AccessPolicyService.CheckAccess</code> runs first, so an explicit deny always wins even where a role assignment would otherwise allow. <code>RBACService.ValidateEndpointAccess</code> (checked separately by <code>AuthorizationMiddleware</code>) still gates global-role permissions, but it explicitly defers on every vault data-plane and vault-management route (returns no error), so for <code>/secrets</code>, <code>/keys</code>, and <code>/certificates</code> it's the role-assignment check — not RBAC — that decides. A bootstrap-created global admin is auto-granted the Key Vault Administrator role in every vault (including <code>default</code>) by a startup migration backfill, which is why the <code>admin</code> example below works without any extra setup; every other principal needs an explicit grant via <code>vault-access grant</code> (section 1) or <code>POST /api/v1/vaults/{vault_name}/role-assignments</code> before it can touch data-plane resources.</li>
+<li>JWT access tokens expire based on <code>jwt.expiry</code> in <code>.rocketvault.yaml</code> (currently <code>1h</code> in this repo's config). Plan to use the refresh-token flow instead of re-authenticating with TOTP on every expiry.</li>
+<li>Rate limiting is enforced per-IP by <code>RateLimitMiddleware</code>: <code>rate_limit.auth</code> (5 req/min in <code>.rocketvault.yaml</code>) applies to auth-related endpoints, and <code>rate_limit.default</code> (300 req/min) applies to everything else. Responses include <code>X-RateLimit-Limit</code>, <code>X-RateLimit-Remaining</code>, and <code>X-RateLimit-Reset</code> headers.</li>
+<li>Machine-to-machine access doesn't have to go through user login at all — <code>POST /api/v1/oauth2/token</code> (public, registered in <code>api/oauth2.go</code>) issues tokens for service accounts created via <code>POST /api/v1/service-accounts</code> (authenticated). See section 3.</li>
+<li>Most resource routes exist in two shapes: the legacy flat form (e.g. <code>/api/v1/secrets</code>) and a vault-scoped form (e.g. <code>/api/v1/vaults/{vault_name}/secrets</code>), registered by the same handlers (<code>api.registerSecretRoutes</code> in <code>api/secrets.go</code>). Both work, and both are gated by the same deny-by-default role-assignment check described above; a flat-route call resolves against the <code>default</code> vault, a vault-scoped call resolves — and is authorized — against the named vault instead.</li>
+<li>All IDs in path parameters (<code>secret_id</code>, <code>key_id</code>, <code>certificate_id</code>, <code>user_id</code>, <code>policy_id</code>, <code>service_account_id</code>, <code>assignment_id</code>) must match the hex/UUID pattern <code>[A-Fa-f0-9-]+</code> enforced by the Gorilla Mux route regex, or the router returns a 404 before your handler even runs.</li>
+</ul>
+<p><strong>Deep dive:</strong> <a href="api-developer-guide.md">docs/api-developer-guide.md</a> — full endpoint reference, error format, and JavaScript/Python/Go SDK examples. Its one remaining discrepancy is its &quot;Base URL&quot; section, which shows a placeholder <code>https://api.rocketvault.local</code> domain rather than the real default <code>http://localhost:8774</code>.</p>
+<hr>
+<p>Human logins are a poor fit for pipelines and long-running services. That's what service accounts are for.</p>
+<h2 id="3-oauth2--service-accounts-machine-to-machine">3. OAuth2 / Service Accounts (machine-to-machine)</h2>
+<p><strong>What it is:</strong> RocketVault issues short-lived JWTs to non-human callers via the RFC 6749 §4.4 client-credentials grant. A &quot;service account&quot; is an admin-managed principal with its own <code>client_id</code> (its name) and <code>client_secret</code>; an application exchanges that pair for a bearer token at <code>POST /api/v1/oauth2/token</code> instead of logging in with a human password + TOTP.</p>
+<p><strong>Use it when:</strong></p>
+<ul>
+<li>A CI/CD pipeline needs to fetch a secret at build or deploy time.</li>
+<li>An application needs to read secrets, keys, or certificates at runtime without embedding a human's credentials.</li>
+<li>You want machine access that can be individually rotated, disabled, or deleted without touching any human user account.</li>
+</ul>
+<p><strong>Prerequisites:</strong></p>
+<ul>
+<li>A running RocketVault server and an <strong>admin</strong> bearer JWT — creating, listing, rotating, and deleting service accounts requires the <code>admin</code> role (<code>api/oauth2.go</code>: <code>createServiceAccount</code>, <code>listServiceAccounts</code>, <code>getServiceAccount</code>, <code>deleteServiceAccount</code>, and <code>rotateServiceAccountSecret</code> all call <code>common.HasRequiredRole(roleStr, model.RoleAdmin)</code>).</li>
+<li>The <code>oauth2.token_expiry</code> (default <code>30m</code>) and <code>oauth2.issuer</code> config keys in <code>.rocketvault.yaml</code> (shipped values: <code>token_expiry: &quot;30m&quot;</code>, <code>issuer: &quot;http://localhost:8774&quot;</code>). The container falls back to a 30-minute expiry if the key is unset (<code>internal/container/service_container.go</code>).</li>
+<li>Vault data-plane routes — secrets, keys, and certificates, both the flat <code>/api/v1/secrets/{id}</code> shape and the vault-scoped <code>/api/v1/vaults/{name}/secrets/{id}</code> shape — are <strong>deny-by-default</strong>: the caller needs a per-vault role assignment granting the mapped Azure data action (<code>internal/services/authorization/data_actions.go</code>, <code>PolicyMiddleware</code> in <code>internal/middleware/middleware.go</code>). A freshly created service account holds no role assignments, so every data-plane call 403s until an admin grants one via <code>POST /api/v1/vaults/{vault_name}/role-assignments</code> (see step 2 below). <code>access_policies</code> does not unlock this — it survives only as an explicit-deny override evaluated <em>before</em> the role-assignment check, and managing a policy (create/update/delete/list/get) itself now requires the <code>admin</code> role (<code>api/access_policies.go</code>: <code>requireAccessPolicyAdmin</code>).</li>
+<li>Once a role assignment grants read access, the flat <code>/api/v1/secrets/{id}</code> route layers on a second, independent restriction: it is owner-scoped at the SQL level (<code>model.ScopeOwner</code>, <code>internal/repositories/scope_predicate.go</code>), so it only ever returns secrets owned by the calling principal — see the gotcha on step 4 below.</li>
+</ul>
+<h3 id="example-2">Example</h3>
+<div class="codewrap"><div class="code-hd"><span class="code-lang">bash</span><button class="copy-btn">Copy</button></div><pre class="code with-hd"># 1. Create the service account (admin JWT required). client_secret is returned once.
+curl -s -X POST http://localhost:8774/api/v1/service-accounts \
+  -H &quot;Authorization: Bearer $TOKEN&quot; \
+  -H &quot;Content-Type: application/json&quot; \
+  -d '{&quot;name&quot;:&quot;my-app&quot;,&quot;description&quot;:&quot;My application service account&quot;}'
+# → {&quot;id&quot;:&quot;&lt;uuid&gt;&quot;,&quot;name&quot;:&quot;my-app&quot;,&quot;description&quot;:&quot;...&quot;,&quot;enabled&quot;:true,
+#    &quot;created_at&quot;:&quot;...&quot;,&quot;expires_at&quot;:null,&quot;client_secret&quot;:&quot;&lt;64-hex, shown once&gt;&quot;}
+
+SA_ID=&lt;id from response&gt;
+CLIENT_SECRET=&lt;client_secret from response&gt;
+
+# 2. Grant it a role in the vault (admin JWT required) so PolicyMiddleware's
+# deny-by-default check lets it through. &quot;Key Vault Secrets User&quot; grants
+# get/list on secrets only. `principal` must be the service account's UUID:
+# resolvePrincipal only resolves a bare UUID or a human username, never a
+# service-account name.
+curl -s -X POST http://localhost:8774/api/v1/vaults/default/role-assignments \
+  -H &quot;Authorization: Bearer $TOKEN&quot; \
+  -H &quot;Content-Type: application/json&quot; \
+  -d &quot;{\&quot;principal\&quot;:\&quot;$SA_ID\&quot;,\&quot;principal_type\&quot;:\&quot;service_account\&quot;,\&quot;role\&quot;:\&quot;Key Vault Secrets User\&quot;}&quot;
+
+# 3. Exchange client credentials for an access token (public endpoint, no admin JWT needed).
+curl -s -X POST http://localhost:8774/api/v1/oauth2/token \
+  -u &quot;my-app:$CLIENT_SECRET&quot; \
+  -d &quot;grant_type=client_credentials&quot;
+# → {&quot;access_token&quot;:&quot;&lt;jwt&gt;&quot;,&quot;token_type&quot;:&quot;Bearer&quot;,&quot;expires_in&quot;:1800}
+
+# 4. Use the token like any other bearer token.
+# NOTE: the flat route below is owner-scoped on top of the role-assignment
+# check from step 2 — it only returns secrets owned by the calling service
+# account itself, so it will 404 on an admin-created secret even though the
+# role assignment above grants secrets:get in the vault. To read secrets
+# owned by another principal, use the vault-scoped route instead, which
+# grants vault-member visibility with no per-owner filter:
+#   GET /api/v1/vaults/&lt;vault_name&gt;/secrets/&lt;secret_id&gt;
+curl -s http://localhost:8774/api/v1/secrets/&lt;secret_id&gt; \
+  -H &quot;Authorization: Bearer &lt;access_token&gt;&quot;
+
+# Rotate or delete when needed (admin JWT required).
+curl -s -X POST http://localhost:8774/api/v1/service-accounts/$SA_ID/rotate -H &quot;Authorization: Bearer $TOKEN&quot;
+curl -s -X DELETE http://localhost:8774/api/v1/service-accounts/$SA_ID -H &quot;Authorization: Bearer $TOKEN&quot;
+</pre></div>
+<h3 id="notes--gotchas-2">Notes &amp; gotchas</h3>
+<ul>
+<li><code>grant_type</code> must be exactly <code>client_credentials</code> (<code>400 unsupported_grant_type</code> otherwise), and the request body must have <code>Content-Type: application/x-www-form-urlencoded</code> — a different content type is rejected with <code>400 invalid_request</code> before the body is even parsed (<code>api/oauth2.go</code>, <code>tokenHandler</code>).</li>
+<li><code>client_id</code> is the service account's <strong>name</strong> (e.g. <code>my-app</code>), not its UUID — <code>IssueToken</code> resolves the client with <code>FindByName</code>. The UUID (<code>service_account_id</code>) is only used on the management endpoints (<code>GET</code>/<code>DELETE /service-accounts/{id}</code>, <code>POST /service-accounts/{id}/rotate</code>).</li>
+<li>Credentials can be sent as HTTP Basic (<code>-u client_id:client_secret</code>) or as <code>client_id</code> / <code>client_secret</code> form fields. Basic auth is checked first and takes priority if both are present (<code>extractClientCredentials</code>).</li>
+<li>Invalid credentials, a disabled service account, and an expired service account all return the same generic <code>401 invalid_client</code> — this is intentional, to prevent credential enumeration (<code>internal/services/oauth2/oauth2_service.go</code>, <code>IssueToken</code>).</li>
+<li>Deleting or disabling a service account invalidates its outstanding tokens immediately: <code>ValidateSession</code> re-checks the client record on every request (using the JWT <code>jti</code>, which is set to the client's UUID at issuance), not just at token issuance (<code>internal/services/auth/authentication_service.go</code>).</li>
+<li>A service account gets exactly the data actions its role assignments grant — nothing implicit. <code>Key Vault Secrets User</code> (granted in step 2) covers <code>get</code>/<code>list</code> on secrets only, so a write attempt (<code>POST</code>/<code>PUT</code> on <code>/secrets</code>) is denied by <code>PolicyMiddleware</code>'s deny-by-default check — <code>HasDataAction</code> finds no assignment granting <code>secrets/setSecret/action</code> — before <code>AuthorizationMiddleware</code> is even reached. <code>AuthorizationMiddleware</code> no longer gates vault data-plane routes at all: <code>mapEndpointToPermission</code> (<code>internal/services/authorization/rbac_service.go</code>) returns <code>&quot;&quot;</code> for every one of them, deferring entirely to the role-assignment check; the <code>service_account</code> role's <code>get</code>/<code>list</code> permission bundle in that file is legacy and has no effect on these routes. An explicit <code>deny</code> access policy for the principal, if one exists, is still evaluated first and would short-circuit with 403 regardless of the role assignment.</li>
+<li>The <code>/oauth2/token</code> route is registered on its own router with <code>CORSMiddleware</code> and <code>RateLimitMiddleware</code> attached (<code>api/api.go</code>, <code>InitOAuth2</code>). Unlike <code>/api/v1/service-accounts</code> and other authenticated routes, it does <strong>not</strong> go through <code>AuthenticationMiddleware</code>, <code>VaultResolutionMiddleware</code>, <code>PolicyMiddleware</code>, or <code>AuthorizationMiddleware</code>. <code>RateLimitMiddleware</code> special-cases the <code>/oauth2/token</code> path suffix to apply its stricter auth-endpoint limit, and — unlike the earlier state of this router — that middleware is now actually attached here, so the stricter limit is enforced; every request (success or failure) also writes an audit log entry.</li>
+</ul>
+<p><strong>Deep dive:</strong> <a href="consuming-secrets-guide.md">docs/consuming-secrets-guide.md</a> and <a href="admin-manual.html#service-accounts">Admin Manual — OAuth2 Service Accounts</a>.</p>
+<hr>
+<p>If the consuming application is itself written in Go, you don't have to hand-roll the token exchange — there's a client library for that.</p>
+<h2 id="4-vault-client-library-embedded-secret-consumption">4. Vault Client library (embedded secret consumption)</h2>
+<p><strong>What it is:</strong> A Go package (<code>rocketvault/internal/vaultclient</code>) that authenticates to a running RocketVault server via OAuth2 client-credentials and fetches secret values by UUID, with token caching and automatic retry. It's designed to be embedded directly into a Go application's startup path — RocketVault itself uses it to bootstrap its own config, and <code>examples/consumer-service</code> shows an external consumer.</p>
+<p><strong>Use it when:</strong></p>
+<ul>
+<li>You're writing a Go service that needs one or more RocketVault secrets injected at process startup (env-style, not per-request).</li>
+<li>You want the fetch to be retried on transient network errors but to fail fast on auth (401) or missing-secret (404) errors.</li>
+<li>You want secret values wired straight into Viper config keys instead of handled manually — the pattern <code>bootstrap/secrets_initializer.go</code> uses for RocketVault's own config.</li>
+<li>Direct HTTP or a shell helper isn't a good fit because you're already in Go and want typed config plus token caching for free.</li>
+</ul>
+<p><strong>Prerequisites:</strong></p>
+<ul>
+<li>A running RocketVault server and its base URL (e.g. <code>http://localhost:8774</code>).</li>
+<li>A service account (OAuth2 client) already created <strong>and granted a per-vault role assignment</strong> (e.g. <code>Key Vault Secrets User</code>) carrying <code>get</code> / <code>list</code> on <code>secrets</code> in the target vault — a fresh service account holds no role assignments and every data-plane call 403s until one is granted via <code>POST /api/v1/vaults/{vault_name}/role-assignments</code> (see section 3, step 2). An access policy does not grant this on its own — it survives only as an explicit-deny override evaluated before the role-assignment check (see section 3) — service accounts are read-only consumers; only admins create secrets (see <code>docs/consuming-secrets-guide.md</code> Steps 1–2a).</li>
+<li>The secret must be owned by the calling service account, or fetched via a vault-scoped route: <code>vaultclient.Client.Get</code> hardcodes the flat path <code>c.cfg.URL + &quot;/api/v1/secrets/&quot; + uuid</code> (<code>internal/vaultclient/client.go</code>), which is owner-scoped, so this documented flow returns a 404 for admin-owned secrets just like the raw curl example in section 3.</li>
+<li>The service account's <strong>name</strong> (not UUID) as <code>client_id</code>.</li>
+<li>The service account's <code>client_secret</code>, supplied only via the <code>VAULT_CLIENT_SECRET</code> environment variable — never written to a config file.</li>
+<li>The UUID of each secret you intend to fetch.</li>
+</ul>
+<h3 id="example-3">Example</h3>
+<p>Config block (<code>vault_client</code> in <code>.rocketvault.yaml</code>, or an equivalent block in your own app's config — see <code>examples/consumer-service/config.yaml</code> for the consumer-side <code>vault:</code> shape):</p>
+<div class="codewrap"><div class="code-hd"><span class="code-lang">yaml</span><button class="copy-btn">Copy</button></div><pre class="code with-hd">vault_client:
+  url: &quot;http://localhost:8774&quot;
+  client_id: &quot;&quot;   # service account NAME (not UUID) — leave empty on the vault server itself
+  allow_insecure_http: false   # set true (or VAULT_ALLOW_INSECURE_HTTP=true) to use http:// against a non-loopback host
+  secrets:
+    - name: DB_PASSWORD
+      uuid: &quot;0cfa58f7-a81e-4a68-acd7-b62f5f72e5b7&quot;
+      viper_key: &quot;database.password&quot;
+</pre></div>
+<p>Building and using the client directly in Go:</p>
+<div class="codewrap"><div class="code-hd"><span class="code-lang">go</span><button class="copy-btn">Copy</button></div><pre class="code with-hd">import (
+    &quot;context&quot;
+    &quot;log&quot;
+    &quot;os&quot;
+
+    &quot;rocketvault/internal/vaultclient&quot;
+)
+
+client, err := vaultclient.New(vaultclient.Config{
+    URL:          &quot;http://localhost:8774&quot;,
+    ClientID:     &quot;my-app&quot;,                          // service account name
+    ClientSecret: os.Getenv(&quot;VAULT_CLIENT_SECRET&quot;),   // env var only, never in config
+    Secrets: []vaultclient.SecretMapping{
+        {Name: &quot;DB_PASSWORD&quot;, UUID: &quot;0cfa58f7-a81e-4a68-acd7-b62f5f72e5b7&quot;},
+    },
+})
+if err != nil {
+    log.Fatalf(&quot;vault client: %v&quot;, err)
+}
+
+secrets, err := client.GetMany(context.Background(), []string{&quot;DB_PASSWORD&quot;})
+if err != nil {
+    log.Fatalf(&quot;vault fetch: %v&quot;, err)
+}
+dbPassword := secrets[&quot;DB_PASSWORD&quot;]
+</pre></div>
+<p>Or build straight from Viper config (reads the <code>vault_client.*</code> keys shown above, falling back to <code>VAULT_CLIENT_SECRET</code> if <code>vault_client.client_secret</code> is unset):</p>
+<div class="codewrap"><div class="code-hd"><span class="code-lang">go</span><button class="copy-btn">Copy</button></div><pre class="code with-hd">client, err := vaultclient.NewFromViper()
+</pre></div>
+<p>Or from environment variables only (<code>VAULT_URL</code>, <code>VAULT_CLIENT_ID</code>, <code>VAULT_CLIENT_SECRET</code>):</p>
+<div class="codewrap"><div class="code-hd"><span class="code-lang">go</span><button class="copy-btn">Copy</button></div><pre class="code with-hd">client, err := vaultclient.NewFromEnv()
+</pre></div>
+<p>RocketVault's own bootstrap (<code>bootstrap/bootstrap.go</code>) uses this exact pattern to inject secrets into Viper before the service container reads any config: it builds a client with <code>vaultclient.NewFromViper()</code>, wraps it in <code>bootstrap.NewSecretsInitializerFromMappings(client, mappings)</code>, and calls <code>Initialize(ctx)</code>, which fetches each <code>vault_client.secrets[].name</code> and calls <code>viper.Set(viper_key, value)</code> for each configured <code>viper_key</code>. This step is skipped entirely if <code>vault_client.url</code>, <code>vault_client.client_id</code>, or the resolved client secret is empty.</p>
+<h3 id="notes--gotchas-3">Notes &amp; gotchas</h3>
+<ul>
+<li><code>vaultclient.New</code> requires <code>URL</code>, <code>ClientID</code>, and <code>ClientSecret</code> to all be non-empty — it returns an error immediately otherwise (<code>internal/vaultclient/client.go</code>).</li>
+<li><code>vault_client.url</code> must be <code>https://</code>, unless the host is loopback (<code>localhost</code>, <code>127.0.0.1</code>, <code>::1</code>) or <code>allow_insecure_http</code> (<code>VAULT_ALLOW_INSECURE_HTTP</code> env var) is <code>true</code>; default is <code>false</code>. <strong>Upgrade note:</strong> an existing deployment with a non-loopback plain-<code>http://</code> <code>vault_client.url</code> must switch to <code>https://</code> or set <code>allow_insecure_http: true</code> before upgrading, or RocketVault will fail to start.</li>
+<li>Tokens are fetched from <code>POST {url}/api/v1/oauth2/token</code> (client-credentials grant) and cached in memory. The client re-authenticates about 60 s before expiry, with a 30 s minimum TTL floor so an <code>expires_in: 0</code> response can't cause a re-fetch storm.</li>
+<li><code>Client.Get</code> retries network failures and every HTTP status other than 200, 401 and 404 (so 400, 403, 429 and 5xx are all retried) using <code>retry.ExternalServicePolicy()</code>; only 401 and 404 are terminal — no retry. A 401 also invalidates the cached token so the <em>next</em> call re-authenticates.</li>
+<li>Optional <code>Config.Logger</code> (an interface with a single <code>Warn(msg string, keysAndValues ...any)</code> method, not settable via YAML/Viper) receives a call on every retried failure and auth rejection, for observability into what would otherwise be silent retries. A nil <code>Logger</code> — the default — disables this logging; the client behaves identically either way.</li>
+<li>401 responses surface as <code>vaultclient.ErrAuthFailed</code>; 404 responses surface as <code>vaultclient.ErrSecretNotFound</code>. Once retries are exhausted, a transport-level failure (DNS, connection refused, timeout, TLS) surfaces as <code>vaultclient.ErrNetwork</code>, an unrecognized HTTP status as <code>vaultclient.ErrUnexpectedStatus</code>, and an undecodable 200 body as <code>vaultclient.ErrDecodeFailed</code>. Check any of these with <code>errors.Is</code>, as <code>examples/consumer-service/main.go</code> does for <code>ErrAuthFailed</code> — it treats that one as fatal (process exit) but a 404 or network error on an individual secret as non-fatal.</li>
+<li><code>GetByName</code> / <code>GetMany</code> resolve names to UUIDs using the <code>Secrets []SecretMapping</code> you passed into <code>Config</code>; a name with no matching mapping errors out before any HTTP call is made.</li>
+<li>On RocketVault's own server, <code>vault_client.client_id</code> must stay <code>&quot;&quot;</code> — the server must never call itself. <code>bootstrap.go</code> gates the entire secrets-injection step on <code>client_id</code>, <code>url</code>, and the client secret all being non-empty, so leaving <code>client_id</code> blank cleanly disables it.</li>
+<li><code>client_secret</code> is deliberately absent from <code>SecretMapping</code> and the YAML example above — it must come from the <code>VAULT_CLIENT_SECRET</code> environment variable (or <code>vault_client.client_secret</code> in Viper, which <code>NewFromViper</code> prefers before falling back to the env var).</li>
+<li>Secret values are never logged by the client; only names are used in log and error messages.</li>
+</ul>
+<p><strong>Deep dive:</strong> <a href="consuming-secrets-guide.md">docs/consuming-secrets-guide.md</a> — see &quot;Option A — Go application using the <code>vaultclient</code> package&quot;, plus the full service-account creation and access-policy walkthrough and the Troubleshooting table.</p>
+<hr>
+<p>Consuming secrets is one half of integration; the other half is letting <em>other</em> services validate the tokens RocketVault issues.</p>
+<h2 id="5-jwks-endpoint-token-verification-by-external-services">5. JWKS endpoint (token verification by external services)</h2>
+<p><strong>What it is:</strong> <code>GET /jwks.json</code> serves an RFC 7517 JSON Web Key Set containing RocketVault's active JWT-signing public key(s), so other services can verify RocketVault-issued access tokens locally (offline) without calling back into RocketVault on every request.</p>
+<p><strong>Use it when:</strong></p>
+<ul>
+<li>An API gateway, sidecar, or downstream microservice needs to validate a RocketVault-issued JWT's signature without a round-trip to RocketVault.</li>
+<li>You are integrating RocketVault as an OAuth2/OIDC-style token issuer (<code>oauth2.issuer</code>) into a broader auth ecosystem that expects a standard JWKS document.</li>
+<li>You run <code>jwt.key_source: self_pki</code> and need to rotate the signing key at runtime, having consumers pick up the new key automatically via JWKS polling.</li>
+<li>You need to confirm which algorithm (RS256, ES256, and so on) and <code>kid</code> a given RocketVault deployment is currently signing with.</li>
+</ul>
+<p><strong>Prerequisites:</strong></p>
+<ul>
+<li>No authentication is required to fetch <code>GET /jwks.json</code> — it is registered directly on the root router and only has CORS middleware applied, bypassing the authentication/authorization chain used by <code>/api/v1/*</code> (<code>api/api.go</code>, <code>api/jwks.go</code>).</li>
+<li><code>jwt.key_source</code> in <code>.rocketvault.yaml</code> (<code>os_store</code> | <code>self_pki</code> | <code>external_pki</code>) determines which signing algorithm shows up in the JWKS document (<code>internal/signing/provider.go</code>).</li>
+<li>To rotate keys via <code>POST /api/v1/jwks/rotate</code>, you need a valid bearer token for a user with the <code>admin</code> role — this route lives under <code>ApiRoot</code>, which runs <code>AuthenticationMiddleware</code>, and the handler itself rejects non-admin callers (<code>api/api.go</code>, <code>api/jwks.go</code>) — and it is only usable when <code>jwt.key_source: self_pki</code> is active.</li>
+</ul>
+<h3 id="example-4">Example</h3>
+<p>Fetch the JWK Set (no auth needed):</p>
+<div class="codewrap"><div class="code-hd"><span class="code-lang">bash</span><button class="copy-btn">Copy</button></div><pre class="code with-hd">curl http://localhost:8774/jwks.json
+</pre></div>
+<p>Example response shape (RSA key, <code>os_store</code> source):</p>
+<div class="codewrap"><div class="code-hd"><span class="code-lang">json</span><button class="copy-btn">Copy</button></div><pre class="code with-hd">{
+  &quot;keys&quot;: [
+    {
+      &quot;kty&quot;: &quot;RSA&quot;,
+      &quot;use&quot;: &quot;sig&quot;,
+      &quot;alg&quot;: &quot;RS256&quot;,
+      &quot;kid&quot;: &quot;3f9a1c2e7b804d11&quot;,
+      &quot;n&quot;: &quot;...&quot;,
+      &quot;e&quot;: &quot;AQAB&quot;
+    }
+  ]
+}
+</pre></div>
+<p>Example response shape (ECDSA key, <code>self_pki</code> source):</p>
+<div class="codewrap"><div class="code-hd"><span class="code-lang">json</span><button class="copy-btn">Copy</button></div><pre class="code with-hd">{
+  &quot;keys&quot;: [
+    {
+      &quot;kty&quot;: &quot;EC&quot;,
+      &quot;use&quot;: &quot;sig&quot;,
+      &quot;alg&quot;: &quot;ES256&quot;,
+      &quot;kid&quot;: &quot;9a02b7f31de44c88&quot;,
+      &quot;crv&quot;: &quot;P-256&quot;,
+      &quot;x&quot;: &quot;...&quot;,
+      &quot;y&quot;: &quot;...&quot;
+    }
+  ]
+}
+</pre></div>
+<p>Rotate the signing key (<code>self_pki</code> only, requires an admin bearer token):</p>
+<div class="codewrap"><div class="code-hd"><span class="code-lang">bash</span><button class="copy-btn">Copy</button></div><pre class="code with-hd">curl -X POST http://localhost:8774/api/v1/jwks/rotate \
+  -H &quot;Authorization: Bearer $TOKEN&quot;
+</pre></div>
+<p>Response: <code>{&quot;status&quot;:&quot;ok&quot;,&quot;new_kid&quot;:&quot;&lt;new-kid&gt;&quot;,&quot;overlap_until&quot;:&quot;&lt;RFC3339 timestamp&gt;&quot;}</code> (<code>api/jwks.go</code>).</p>
+<h3 id="notes--gotchas-4">Notes &amp; gotchas</h3>
+<ul>
+<li>The algorithm in the JWKS document depends on <code>jwt.key_source</code> (<code>.rocketvault.yaml</code>, <code>internal/signing/provider.go</code>):
+<ul>
+<li><code>os_store</code> — auto-generates or loads an RSA-2048 key from the OS keychain (falling back to a PEM file under <code>~/.local/share/rocketvault/</code> if the keychain is unavailable) → <code>RS256</code> (<code>internal/signing/os_store.go</code>).</li>
+<li><code>self_pki</code> — stores an ECDSA P-256 key in RocketVault's own encrypted key store → <code>ES256</code>, and supports runtime rotation (<code>internal/signing/self_pki.go</code>).</li>
+<li><code>external_pki</code> — loads a PEM private key from the <code>ROCKETVAULT_JWT_SIGNING_KEY</code> env var (base64-encoded) or the <code>jwt.signing_key_file</code> path; the algorithm is auto-detected (<code>RS256</code> for RSA, <code>ES256</code>/<code>ES384</code>/<code>ES512</code> for EC curves P-256/P-384/P-521). No runtime rotation — operators must replace the key file and restart (<code>internal/signing/external_pki.go</code>).</li>
+</ul>
+</li>
+<li><code>kid</code> is computed as the first 16 hex characters of the SHA-256 thumbprint of the DER-encoded public key (<code>internal/signing/external_pki.go</code>, <code>thumbprint</code>).</li>
+<li>The response sets <code>Cache-Control: public, max-age=3600</code>, so it is safe — and intended — for consumers to cache the JWKS document for up to an hour rather than fetching it on every token verification (<code>api/jwks.go</code>).</li>
+<li>If the signing provider failed to initialize, <code>GET /jwks.json</code> returns HTTP 503 with <code>{&quot;error&quot;:&quot;signing provider not available&quot;}</code> instead of a JWK Set (<code>api/jwks.go</code>).</li>
+<li><code>POST /api/v1/jwks/rotate</code> only works when the active provider implements rotation (currently only <code>self_pki</code>); calling it under <code>os_store</code> or <code>external_pki</code> returns HTTP 400 with <code>&quot;key rotation is only supported for the self_pki key source&quot;</code> (<code>api/jwks.go</code>).</li>
+<li>After a rotation, the <em>previous</em> key stays listed in <code>/jwks.json</code> alongside the new one for <code>jwt.rotation_overlap</code> (<code>.rocketvault.yaml</code>, default <code>1h</code> if unset or unparseable) so tokens signed just before rotation still verify. Plan JWKS polling and cache TTLs shorter than this overlap window (<code>internal/signing/self_pki.go</code>).</li>
+<li><code>/jwks/rotate</code> has no route-specific entry in the RBAC endpoint map (<code>internal/services/authorization/rbac_service.go</code>, <code>mapEndpointToPermission</code>), so <code>AuthorizationMiddleware</code> itself does not gate this route by role — but the handler enforces admin-only directly: <code>rotateJWKS</code> checks <code>common.HasRequiredRole(roleStr, model.RoleAdmin)</code> and returns a permission error for any non-admin caller before rotating anything (<code>api/jwks.go</code>). A failed or successful rotation attempt is also recorded via the audit service (<code>recordJWKSRotateAudit</code>, <code>api/jwks.go</code>).</li>
+<li>Tokens issued by RocketVault carry <code>iss</code> set to the <code>oauth2.issuer</code> config value (<code>http://localhost:8774</code> by default) and <code>aud</code> hardcoded to <code>&quot;PASSWORD_MANAGER&quot;</code> (<code>internal/container/service_container.go</code>) — external verifiers should check both claims in addition to the signature.</li>
+</ul>
+<p><strong>Deep dive:</strong> <a href="admin-manual.html#jwt-signing">Admin Manual — JWT Signing &amp; Key Sources</a>.</p>
+<hr>
+<p>Beyond day-to-day access, RocketVault has operational surfaces too. The first is getting data safely in and out.</p>
+<h2 id="6-backup--restore-tooling">6. Backup / restore tooling</h2>
+<p><strong>What it is:</strong> RocketVault ships two independent backup mechanisms: a CLI-driven <strong>full database backup/restore</strong> (<code>rocketvault backup create|list|restore</code>, in <code>cmd/backup.go</code> and <code>internal/backup/backup.go</code>), and a set of <strong>per-item backup/restore API endpoints</strong> for individual secrets, keys, and certificates (<code>api/backup_item.go</code>, <code>internal/backup/item_backup.go</code>).</p>
+<p><strong>Use it when:</strong></p>
+<ul>
+<li>You need a full point-in-time snapshot of every table before an upgrade, migration, or risky bulk change.</li>
+<li>You want to disaster-recover an entire vault database from a <code>.backup</code> file.</li>
+<li>You need to export or import a <em>single</em> secret, key, or certificate — for example to hand a copy to another owner, or to duplicate an item under a new ID — without touching the rest of the database.</li>
+<li>You want to audit what backups exist in a directory before deciding which to restore.</li>
+</ul>
+<p><strong>Prerequisites:</strong></p>
+<ul>
+<li>Full-database backup: an <strong>admin</strong> CLI login (<code>--username</code>/<code>--password</code>/<code>--totp-code</code>) plus a running database connection (the CLI reads <code>database.driver</code> from config to pick the SQL dialect — <code>sqlite3</code> or <code>postgres</code>) and, for encrypted backups (the default), a valid <code>master_key</code> in <code>.rocketvault.yaml</code> (<code>common.EncryptSecret</code> / <code>DecryptSecret</code> use <code>viper.GetString(&quot;master_key&quot;)</code>).</li>
+<li>Per-item backup/restore: a valid JWT bearer token (<code>ApiSessionRequired</code> on every route). These routes are also deny-by-default vault data-plane routes as of the v4.0.0 Azure RBAC pass — <code>PolicyMiddleware</code> requires a role assignment granting the matching data action (<code>Microsoft.KeyVault/vaults/secrets/backup/action</code> / <code>.../restore/action</code>, and the keys/certificates equivalents; see <code>internal/services/authorization/data_actions.go</code>, <code>mapSecretAction</code>/<code>mapKeyAction</code>/<code>mapCertificateAction</code>). Because these endpoints only exist in the flat, non-vault-scoped form, that grant is checked against the <strong>default vault</strong>. On top of the RBAC check, <code>ItemBackupService</code> independently enforces ownership — it checks <code>secret.UserID == callerUserID</code> (same for keys and certificates) and returns forbidden otherwise, even for a caller whose role assignment would otherwise permit the action.</li>
+</ul>
+<h3 id="example-5">Example</h3>
+<p><strong>Full database backup (CLI)</strong></p>
+<div class="codewrap"><div class="code-hd"><span class="code-lang">bash</span><button class="copy-btn">Copy</button></div><pre class="code with-hd"># Every backup subcommand requires an admin login.
+AUTH=&quot;--username admin --password admin123 --totp-code 123456&quot;
+
+# Create an encrypted backup (default; --output/-o is required)
+go run main.go backup create --output ./backups/backup-2026-07-25.backup $AUTH
+
+# Create an unencrypted backup
+go run main.go backup create --output ./backups/backup-plain.backup --encrypt=false $AUTH
+
+# List backup files in a directory (defaults to ./backups)
+go run main.go backup list --dir ./backups $AUTH
+
+# Restore from an encrypted backup (destructive — replaces ALL existing data)
+go run main.go backup restore --file ./backups/backup-2026-07-25.backup $AUTH
+# Prompts: &quot;Are you sure you want to continue? (type 'yes' to confirm):&quot;
+
+# Restore from an unencrypted backup, non-interactively
+echo yes | go run main.go backup restore --file ./backups/backup-plain.backup --decrypt=false $AUTH
+</pre></div>
+<p><strong>Per-item backup/restore (API, one JSON blob per item)</strong></p>
+<div class="codewrap"><div class="code-hd"><span class="code-lang">bash</span><button class="copy-btn">Copy</button></div><pre class="code with-hd"># Backup a single secret — returns {&quot;blob&quot;: &quot;&lt;base64url envelope&gt;&quot;}
+curl -X POST http://localhost:8774/api/v1/secrets/&lt;secret_id&gt;/backup \
+  -H &quot;Authorization: Bearer &lt;token&gt;&quot;
+
+# Restore it — creates a NEW secret under a freshly generated ID
+curl -X POST http://localhost:8774/api/v1/secrets/restore \
+  -H &quot;Authorization: Bearer &lt;token&gt;&quot; \
+  -H &quot;Content-Type: application/json&quot; \
+  -d '{&quot;blob&quot;: &quot;&lt;blob-from-above&gt;&quot;}'
+
+# Same pattern for keys and certificates:
+#   POST http://localhost:8774/api/v1/keys/&lt;key_id&gt;/backup                  POST http://localhost:8774/api/v1/keys/restore
+#   POST http://localhost:8774/api/v1/certificates/&lt;certificate_id&gt;/backup  POST http://localhost:8774/api/v1/certificates/restore
+</pre></div>
+<h3 id="notes--gotchas-5">Notes &amp; gotchas</h3>
+<ul>
+<li><strong>Full backups are all-or-nothing.</strong> <code>backup restore</code> runs <code>DELETE FROM &lt;table&gt;</code> followed by re-<code>INSERT</code> for every table in the database inside a single transaction (<code>internal/backup/backup.go</code>, <code>restoreTableData</code>). It does not merge or skip tables, and it requires typing <code>yes</code> at the interactive confirmation prompt (or piping <code>yes</code> via stdin, as shown above).</li>
+<li><strong><code>backup list</code> can't show metadata for encrypted files.</strong> <code>getBackupMetadata</code> only works when the file starts with <code>{</code> (that is, is unencrypted JSON); an encrypted <code>.backup</code> file is silently skipped with a logged warning &quot;Failed to read backup metadata&quot; rather than shown in the table.</li>
+<li><strong>Backup encryption reuses the same <code>master_key</code></strong> used for secret-value encryption elsewhere in the app — if <code>master_key</code> changes or is lost, previously encrypted backups can no longer be decrypted.</li>
+<li><strong>Full-backup table discovery is dialect-aware.</strong> SQLite backups query <code>sqlite_master</code> / <code>PRAGMA table_info</code>, Postgres backups query <code>information_schema.tables</code> / <code>information_schema.columns</code>; the dialect is derived from <code>database.driver</code> in <code>.rocketvault.yaml</code>, not from a CLI flag.</li>
+<li><strong>Per-item backup blobs are base64url-encoded JSON, not encrypted.</strong> <code>encodeBlob</code> / <code>decodeBlob</code> in <code>internal/backup/item_backup.go</code> only base64url-encode the envelope — treat the blob as sensitive, plaintext-equivalent data, not as a secure export format.</li>
+<li><strong>Per-item restore always allocates a new ID.</strong> The API handlers call <code>svc.RestoreSecret</code> / <code>RestoreKey</code> / <code>RestoreCertificate</code> with a freshly generated <code>uuid.New()</code>, so restoring a blob never overwrites the original item — it creates a duplicate owned by the caller.</li>
+<li><strong>Per-item backup/restore is now both RBAC-gated and ownership-scoped.</strong> As of the v4.0.0 Azure RBAC pass, <code>PolicyMiddleware</code> deny-by-defaults these routes on the matching <code>ActionSecretsBackup</code>/<code>ActionSecretsRestore</code> (or keys/certificates equivalent) data action, checked against the default vault — so a caller first needs a role assignment granting that action. Independently, <code>ItemBackupService</code> still enforces ownership on top of that: only the original owner (<code>UserID</code> on the row) can back up or successfully restore with the original identity; a blob restored by a different caller who does hold the required role assignment is re-owned to that caller, not rejected.</li>
+<li><strong><code>backup create</code>/<code>list</code>/<code>restore</code> require an admin login.</strong> This was previously a real gap — <code>backup</code> was listed in <code>persistentPreRun</code>'s <code>systemCmds</code> map in <code>cmd/root.go</code>, so none of the three subcommands required <code>--username</code>/<code>--password</code>/<code>--totp-code</code>, unlike every other data-touching CLI command. That's fixed: <code>backup</code> was removed from <code>systemCmds</code>, and each subcommand now calls <code>requireBackupAdmin</code> (<code>cmd/backup.go</code>), rejecting the request before touching the database unless the caller is logged in as the global <code>admin</code> role. There's no per-vault equivalent for this check — a full-database backup has no vault to scope it to, so <code>admin</code> is the only applicable gate, same as <code>users</code>/<code>vaults</code>/<code>migrate</code>.</li>
+<li>Restoring a blob whose <code>resource_type</code> doesn't match the endpoint (for example, posting a key blob to <code>/api/v1/secrets/restore</code>) is rejected as an invalid-blob error, not silently coerced.</li>
+</ul>
+<p><strong>Deep dive:</strong> <a href="admin-manual.html#backup">Admin Manual — Backup &amp; Restore</a>.</p>
+<hr>
+<p>The second operational surface is telling your orchestrator and metrics stack whether the instance is healthy.</p>
+<h2 id="7-health--monitoring-integration">7. Health / monitoring integration</h2>
+<p><strong>What it is:</strong> RocketVault exposes four HTTP health endpoints under <code>/api/v1/health</code> (liveness, readiness, detailed system metrics, and database health — three of them unauthenticated) plus a Prometheus <code>HistogramVec</code> that records key-crypto operation latency, so you can wire it into container orchestrators, load balancers, and metrics scrapers.</p>
+<p><strong>Use it when:</strong></p>
+<ul>
+<li>Configuring Kubernetes or Docker liveness and readiness probes.</li>
+<li>Wiring a load balancer or uptime checker to detect a dead or degraded instance.</li>
+<li>Diagnosing connection-pool exhaustion or slow queries in production.</li>
+<li>Instrumenting p50/p95/p99 latency for <code>Sign</code> / <code>Verify</code> / <code>Encrypt</code> / <code>Decrypt</code> / <code>WrapKey</code> / <code>UnwrapKey</code>, and validating that the in-process key cache is actually reducing latency (via the <code>cache_hit</code> label).</li>
+</ul>
+<p><strong>Prerequisites:</strong></p>
+<ul>
+<li>A running RocketVault server (<code>go run main.go serve</code>). The effective default bind address is <code>127.0.0.1:8774</code> (the hardcoded <code>defaultListenAddr</code> in <code>cmd/serve.go</code>), not the <code>server.listen_addr</code> value in <code>.rocketvault.yaml</code>, which is currently ignored — see the init-ordering gotcha in section 9. The server listens under base path <code>/api/v1</code> (hardcoded in <code>cmd/serve.go</code>, overridable with the <code>--api_base</code> flag or the <code>PASSWORD_MANAGER_BASE_API</code> env var).</li>
+<li>For <code>/api/v1/health/database</code>: a valid <code>Authorization: Bearer &lt;jwt&gt;</code> header from any authenticated user (no specific role or permission is required — see the gotchas below). For <code>/api/v1/health</code>, <code>/api/v1/health/ready</code>, and <code>/api/v1/health/live</code>: no token needed.</li>
+<li>Nothing extra is required to <em>record</em> crypto-latency samples — the histogram is wired into <code>CryptoService</code>'s operations automatically via the service container (<code>internal/services/keys/crypto_service.go</code>). There is currently no HTTP endpoint that exposes the histogram for scraping (see the gotchas).</li>
+</ul>
+<h3 id="example-6">Example</h3>
+<p>Liveness probe (always 200 if the process is up; no auth, no DB check):</p>
+<div class="codewrap"><div class="code-hd"><span class="code-lang">bash</span><button class="copy-btn">Copy</button></div><pre class="code with-hd">curl -s http://localhost:8774/api/v1/health/live
+# {&quot;status&quot;:&quot;alive&quot;}
+</pre></div>
+<p>Readiness probe (200 if metrics can be collected, 503 with <code>{&quot;status&quot;:&quot;not ready&quot;, ...}</code> otherwise):</p>
+<div class="codewrap"><div class="code-hd"><span class="code-lang">bash</span><button class="copy-btn">Copy</button></div><pre class="code with-hd">curl -s -o /dev/null -w '%{http_code}\n' http://localhost:8774/api/v1/health/ready
+</pre></div>
+<p>Comprehensive system health (memory, GC, goroutines, DB pool stats, query metrics):</p>
+<div class="codewrap"><div class="code-hd"><span class="code-lang">bash</span><button class="copy-btn">Copy</button></div><pre class="code with-hd">curl -s http://localhost:8774/api/v1/health | jq .
+</pre></div>
+<p>Database-specific health check (connectivity ping, pool utilization, slow-query ratio, and a live <code>SELECT COUNT(*) FROM users</code> probe) — requires a bearer token:</p>
+<div class="codewrap"><div class="code-hd"><span class="code-lang">bash</span><button class="copy-btn">Copy</button></div><pre class="code with-hd">TOKEN=$(curl -s -X POST http://localhost:8774/api/v1/users/login \
+  -H 'Content-Type: application/json' \
+  -d '{&quot;username&quot;:&quot;admin&quot;,&quot;password&quot;:&quot;admin123&quot;,&quot;totp_code&quot;:&quot;123456&quot;}' | jq -r .token)
+
+curl -s -H &quot;Authorization: Bearer $TOKEN&quot; http://localhost:8774/api/v1/health/database | jq .
+</pre></div>
+<p>Kubernetes probe wiring (paths only — adjust port and scheme to your deployment):</p>
+<div class="codewrap"><div class="code-hd"><span class="code-lang">yaml</span><button class="copy-btn">Copy</button></div><pre class="code with-hd">livenessProbe:
+  httpGet:
+    path: /api/v1/health/live
+    port: 8774
+readinessProbe:
+  httpGet:
+    path: /api/v1/health/ready
+    port: 8774
+</pre></div>
+<h3 id="notes--gotchas-6">Notes &amp; gotchas</h3>
+<ul>
+<li><strong>Auth is asymmetric across the four routes.</strong> <code>AuthenticationMiddleware</code> and <code>AuthorizationMiddleware</code> in <code>internal/middleware/middleware.go</code> explicitly skip <code>/health</code>, <code>/health/ready</code>, and <code>/health/live</code> — those three are always public. <code>/health/database</code> is <em>not</em> in that skip list, so it requires a valid <code>Authorization: Bearer</code> token like any other API route. However, <code>RBACService.mapEndpointToPermission</code> has no mapping for <code>/health/*</code>, so once authenticated, any role (<code>admin</code> or <code>user</code>) is allowed through <code>AuthorizationMiddleware</code> — there's no dedicated &quot;health-check&quot; permission to grant or revoke.</li>
+<li><strong>Health endpoints are still rate-limited.</strong> They go through <code>RateLimitMiddleware</code> like every other route on <code>ApiRoot</code>, so the default limiter (<code>rate_limit.default: 300</code> requests/min per IP in <code>.rocketvault.yaml</code>) applies. Aggressive external probing — for example, multiple load balancers polling from the same NAT'd IP — can hit <code>429 Too Many Requests</code>; there is no per-endpoint exemption for health checks.</li>
+<li><strong><code>/health/database</code> returns 503, not 200, on any degraded signal.</strong> <code>api/health.go</code>'s <code>DatabaseCheck</code> maps a <code>status</code> of <code>&quot;critical&quot;</code>, <code>&quot;degraded&quot;</code>, or <code>&quot;warning&quot;</code> (computed in <code>internal/health.CheckDatabaseHealth</code>) to HTTP 503 — treat any non-200 as &quot;needs attention&quot;, not just connection failures. Status-changing triggers are: a connection-pool wait count over 100 combined with wait duration over 100 ms (<code>warning</code>), slow queries exceeding 10% of total query count (<code>warning</code>), zero open connections (<code>critical</code>), a failed ping (<code>critical</code>), and a failing <code>SELECT COUNT(*) FROM users</code> probe (<code>degraded</code>). Ping latency over 50 ms only adds a <code>warnings</code> entry to the body — it does not change <code>status</code> and does not produce a 503.</li>
+<li><strong><code>monitoring.*</code> and <code>health.*</code> keys in <code>.rocketvault.yaml</code> are currently dead stubs.</strong> The config file ships <code>monitoring.enable_metrics</code>, <code>monitoring.metrics_interval</code>, <code>monitoring.slow_query_threshold</code>, <code>health.check_interval</code>, <code>health.database_timeout</code>, and <code>health.enable_detailed_metrics</code>, but no non-test Go code reads any of them via <code>viper.Get*</code>. They don't configure anything today — the health handlers always compute full metrics on every request, with no server-side polling interval or timeout override.</li>
+<li><strong>No <code>/metrics</code> HTTP endpoint exists yet.</strong> <code>internal/metrics/crypto_metrics.go</code> defines a Prometheus <code>HistogramVec</code> named <code>rocketvault_crypto_op_duration_seconds</code> (labels <code>op</code>, <code>key_type</code>, <code>cache_hit</code>; buckets from <code>0.001</code> to <code>0.5</code> seconds), and <code>NewDefaultPrometheusCryptoMetrics()</code> registers it on Prometheus's default registry via <code>internal/container/service_container.go</code>. <code>internal/services/keys/crypto_service.go</code> calls <code>RecordOp</code> after every <code>Sign</code> / <code>Verify</code> / <code>Encrypt</code> / <code>Decrypt</code> / <code>WrapKey</code> / <code>UnwrapKey</code> operation, so samples are recorded in-process — but no code anywhere in the repo mounts a <code>promhttp.Handler()</code> on any router (<code>server/server.go</code>'s single <code>mux.Router</code> only carries the routes registered in <code>api/api.go</code>). There is currently no way to scrape this histogram over HTTP without adding your own <code>promhttp</code> handler.</li>
+<li><strong><code>/health</code> (the base route) has no history or trend data.</strong> Every field (<code>memory_usage</code>, <code>cpu_stats</code>, <code>database_stats</code>, <code>uptime</code>, <code>goroutines</code>, <code>query_metrics</code>, and so on, per <code>internal/health/health.go</code>'s <code>HealthMetrics</code> struct) is a point-in-time snapshot computed on each call. There's no built-in time series, so external polling and storage — Prometheus scraping a custom exporter, or a cron job hitting <code>/health</code> and logging the JSON — is required for trend analysis.</li>
+<li><strong><code>slow_queries</code></strong> in the <code>/health</code> response's <code>query_metrics</code> are query durations over 100 ms, hardcoded in <code>HealthCollector.RecordQuery</code> — not configurable via <code>monitoring.slow_query_threshold</code> (that key is unused, per above).</li>
+</ul>
+<p><strong>Deep dive:</strong> <a href="admin-manual.html#health">Admin Manual — Health &amp; Monitoring</a>.</p>
+<hr>
+<p>For deployments where private key material must never touch process memory, RocketVault can hand key operations off to hardware.</p>
+<h2 id="8-hsm-backed-mode-pkcs11">8. HSM-backed mode (PKCS#11)</h2>
+<p><strong>What it is:</strong> RocketVault can generate and operate RSA, ECDSA, and OCT (symmetric AES) keys through any PKCS#11-compliant hardware security module (or a software token such as SoftHSM2), so key material never enters Go process memory — it stays on the token, and only handles (labels) are stored in the database.</p>
+<p><strong>Use it when:</strong></p>
+<ul>
+<li>Compliance requires keys to be non-extractable and hardware-backed (for example, FIPS-adjacent deployments).</li>
+<li>You want to test the HSM code path locally before rolling out real hardware, using SoftHSM2.</li>
+<li>You need RSA sign/verify/encrypt/decrypt or ECDSA sign/verify operations backed by a token rather than the built-in AES-GCM-encrypted PEM storage.</li>
+<li>You need symmetric AES-KW key wrapping backed by a token: OCT (<code>type: &quot;OCT&quot;</code>) keys are HSM-only — the software provider rejects <code>CreateOctKey</code> outright with <code>crypto.ErrOctKeysRequireHSM</code> (mapped to a 400 by the API), so <code>hsm.enabled: true</code> is a hard prerequisite for this key type, not just an option.</li>
+</ul>
+<p><strong>Prerequisites:</strong></p>
+<ul>
+<li>
+<p>A PKCS#11 shared library (<code>.so</code>) reachable on disk — for example <code>/usr/lib/softhsm/libsofthsm2.so</code> for SoftHSM2.</p>
+</li>
+<li>
+<p>A token already initialized on that module with a known label and PIN. For SoftHSM2: <code>softhsm2-util --init-token --slot 0 --label rocketvault --pin 1234 --so-pin 0000</code>.</p>
+</li>
+<li>
+<p>The <code>hsm</code> block in <code>.rocketvault.yaml</code> configured with <code>enabled: true</code>:</p>
+<div class="codewrap"><div class="code-hd"><span class="code-lang">yaml</span><button class="copy-btn">Copy</button></div><pre class="code with-hd">hsm:
+  enabled: true
+  lib_path: /usr/lib/softhsm/libsofthsm2.so
+  token_label: rocketvault
+  pin: &quot;1234&quot;
+  slot_id: 0   # 0 = auto-detect by token_label
+</pre></div>
+</li>
+<li>
+<p>Authorization is unaffected by HSM mode: the caller still needs a role assignment granting the relevant Azure data action in the target vault — see the deny-by-default note in section 2. A bootstrap-created global admin has this in every vault for free (which is why the examples below work as shown); any other principal needs an explicit <code>vault-access grant</code> first.</p>
+</li>
+</ul>
+<h3 id="example-7">Example</h3>
+<p>Enable HSM mode in <code>.rocketvault.yaml</code> (the <code>hsm:</code> block is at the end of the file and ships active with <code>enabled: false</code>; flip it to <code>true</code>), then start the server:</p>
+<div class="codewrap"><div class="code-hd"><span class="code-lang">bash</span><button class="copy-btn">Copy</button></div><pre class="code with-hd">go run main.go serve
+</pre></div>
+<p>Check the startup log for confirmation that the PKCS#11 provider was selected:</p>
+<div class="codewrap"><div class="code-hd"><span class="code-lang">text</span><button class="copy-btn">Copy</button></div><pre class="code with-hd">PKCS#11 HSM key provider initialised
+</pre></div>
+<p>If <code>hsm.enabled</code> is <code>false</code> or unset, you'll see <code>Software key provider initialised (HSM disabled)</code> instead — the built-in Go crypto path.</p>
+<p>Create an RSA key; it will be generated on the token instead of in software:</p>
+<div class="codewrap"><div class="code-hd"><span class="code-lang">bash</span><button class="copy-btn">Copy</button></div><pre class="code with-hd">curl -s -X POST http://localhost:8774/api/v1/keys \
+  -H &quot;Authorization: Bearer $TOKEN&quot; \
+  -H 'Content-Type: application/json' \
+  -d '{&quot;name&quot;:&quot;hsm-test&quot;,&quot;type&quot;:&quot;RSA&quot;,&quot;bits&quot;:2048}' | jq
+</pre></div>
+<p>Sign data through the token (the same <code>/api/v1/keys/{id}/sign</code> route used in software mode):</p>
+<div class="codewrap"><div class="code-hd"><span class="code-lang">bash</span><button class="copy-btn">Copy</button></div><pre class="code with-hd">curl -s -X POST http://localhost:8774/api/v1/keys/${KEY_ID}/sign \
+  -H &quot;Authorization: Bearer $TOKEN&quot; \
+  -H 'Content-Type: application/json' \
+  -d '{&quot;value&quot;:&quot;aGVsbG8=&quot;,&quot;algorithm&quot;:&quot;RS256&quot;}' | jq
+</pre></div>
+<h3 id="notes--gotchas-7">Notes &amp; gotchas</h3>
+<ul>
+<li>The API surface is identical in HSM mode — <code>/api/v1/keys</code>, <code>/api/v1/keys/{id}/sign</code>, <code>/verify</code>, <code>/encrypt</code>, <code>/decrypt</code>, <code>/wrap</code>, and <code>/unwrap</code> all work the same whether keys live in software or on a token; only the storage and crypto backend changes. Like other resources, keys also exist in a vault-scoped route shape (<code>/api/v1/vaults/{vault_name}/keys/...</code>); the flat routes used in the example above resolve to the <code>default</code> vault — see section 2.</li>
+<li>Internally, the key's stored <code>value</code> becomes <code>pkcs11:&lt;uuid&gt;</code> (the token's <code>CKA_LABEL</code>) instead of an encrypted PEM blob — the UUID is the handle looked up on the token for every operation.</li>
+<li>Keys are created non-extractable on the token (<code>CKA_EXTRACTABLE: false</code>, <code>CKA_SENSITIVE: true</code>) — this applies to RSA/ECDSA private keys and to OCT (AES) secret keys alike; none can be exported once generated on the token.</li>
+<li>Supported sign/verify algorithms (RSA/ECDSA keys): <code>RS256</code>, <code>RS384</code>, <code>RS512</code>, <code>PS256</code>, <code>PS384</code>, <code>PS512</code>, <code>ES256</code>, <code>ES384</code>, <code>ES512</code>. Supported encrypt/decrypt (RSA keys): <code>RSA-OAEP</code> (SHA-1) and <code>RSA-OAEP-256</code> (SHA-256) only — AES-GCM key operations are not routed through PKCS#11 and return <code>ErrUnsupportedAlgorithm</code>.</li>
+<li><code>/wrap</code> and <code>/unwrap</code> support <code>RSA-OAEP</code>, <code>RSA-OAEP-256</code>, <code>A128KW</code>/<code>A192KW</code>/<code>A256KW</code>, and <code>A128CBC</code>/<code>A192CBC</code>/<code>A256CBC</code> for software-backed keys. An HSM-backed key now also supports <code>RSA-OAEP</code>, <code>RSA-OAEP-256</code>, and <code>A128KW</code>/<code>A192KW</code>/<code>A256KW</code> (the latter via <code>CKM_AES_KEY_WRAP</code> against the token's AES secret key) — only the <code>A128CBC</code>/<code>A192CBC</code>/<code>A256CBC</code> variants stay software-key-only, since AES-CBC has no PKCS#11 wrap mechanism. Requesting an AES-CBC algorithm against an HSM key fails with <code>algorithm &quot;&lt;alg&gt;&quot; is not supported for HSM-backed keys; use RSA-OAEP, RSA-OAEP-256, A128KW, A192KW, or A256KW</code> (<code>internal/services/keys/crypto_service.go</code>). AES-KW additionally requires the wrapping/unwrapping key's size to match the algorithm (<code>A128KW</code> needs a 128-bit key, <code>A192KW</code> 192-bit, <code>A256KW</code> 256-bit) — a mismatch fails with <code>algorithm &quot;&lt;alg&gt;&quot; requires a &lt;N&gt;-bit key, but key &lt;key_id&gt; is &lt;M&gt;-bit</code>.</li>
+<li>OCT (symmetric AES) keys can only be created when <code>hsm.enabled: true</code>; <code>POST /api/v1/keys</code> with <code>{&quot;type&quot;:&quot;OCT&quot;,&quot;bits&quot;:256}</code> against the software provider fails with a 400 (<code>type: OCT key creation requires an HSM-backed key provider (hsm.enabled: true)</code>). Valid OCT key sizes are 128, 192, or 256 bits. <code>/wrap</code> and <code>/unwrap</code> are the documented, size-validated way to use them (with an <code>A128KW</code>/<code>A192KW</code>/<code>A256KW</code> algorithm matching the key's bit size, per the bullet above); OCT keys have no PKCS#11 sign/verify mechanism, so <code>/sign</code> and <code>/verify</code> against one fail.</li>
+<li>ECDSA key generation supports curves <code>P-256</code>, <code>P-384</code>, and <code>P-521</code>. <strong>P-256K (secp256k1) is not supported by PKCS#11</strong> and returns <code>ErrUnsupportedCurve</code>. There is no software fallback: with <code>hsm.enabled: true</code>, creating a P-256K key fails outright with <code>failed to generate ECDSA key: curve not supported by PKCS#11 provider</code>. Set <code>hsm.enabled: false</code> (software provider) if you need P-256K keys.</li>
+<li><code>slot_id: 0</code> means &quot;auto-detect by <code>token_label</code>&quot;; set an explicit non-zero slot if you have multiple tokens with the same label, or if SoftHSM2 reassigns slots after <code>--init-token</code>.</li>
+<li>Switching <code>hsm.enabled</code> back to <code>false</code> reverts to the software provider on the next restart — no other config changes needed.</li>
+</ul>
+<p><strong>Deep dive:</strong> <a href="hsm-softhsm2-testing.md">docs/hsm-softhsm2-testing.md</a> — full SoftHSM2 install and init walkthrough, verifying token contents with <code>pkcs11-tool</code>, and running the PKCS#11 integration test suite.</p>
+<hr>
+<p>Finally, whichever of the surfaces above you use, the server itself has to run somewhere.</p>
+<h2 id="9-deployment-modes">9. Deployment modes</h2>
+<p><strong>What it is:</strong> RocketVault ships as a single self-contained Go binary and can run three ways: directly on a host (standalone binary against SQLite or PostgreSQL), inside Docker via <code>docker compose</code> (Postgres plus the app, with an optional Caddy TLS proxy), or on Fly.io using the provided <code>fly.toml</code>. All three run the exact same binary and config format — only <code>database.driver</code> / <code>database.connection</code> and how secrets are injected differ.</p>
+<p><strong>Use it when:</strong></p>
+<ul>
+<li>You want a quick local or dev instance — build the binary and run it against the bundled SQLite file (this is what <code>.rocketvault.yaml</code> is preconfigured for out of the box).</li>
+<li>You're deploying to a VPS or bare server and want an isolated, reproducible container with a real Postgres backend — use <code>docker compose up</code>.</li>
+<li>You want a TLS-terminating reverse proxy in front of the container on a VPS — bring up the <code>caddy</code> service with the <code>proxy</code> profile.</li>
+<li>You're deploying to Fly.io — use <code>fly.toml</code> plus <code>fly secrets set</code> (Fly terminates TLS itself, so skip Caddy).</li>
+<li>You need to cross-compile release binaries for multiple platforms (Linux/macOS/Windows, amd64/arm64) — use <code>./build.sh --all</code> or <code>./build.sh --release</code>.</li>
+</ul>
+<p><strong>Prerequisites:</strong></p>
+<ul>
+<li>Go 1.25+ and a C toolchain (CGO must stay enabled — <code>go-sqlite3</code> is compiled into the binary even when the app talks to Postgres at runtime; see the comment at the top of <code>Dockerfile</code>).</li>
+<li>For standalone/SQLite: a <code>.rocketvault.yaml</code> with <code>database.driver: &quot;sqlite3&quot;</code> and <code>database.connection</code> pointing at a file path (the checked-in <code>.rocketvault.yaml</code> already does this: <code>connection: &quot;./dev-rocketvault.db&quot;</code>).</li>
+<li>For Postgres (Docker or Fly): <code>POSTGRES_USER</code>, <code>POSTGRES_PASSWORD</code>, <code>POSTGRES_DB</code>, <code>RV_MASTER_KEY</code>, <code>RV_JWT_SECRET</code>, and <code>RV_BOOTSTRAP_TOKEN</code> — all required, since <code>docker-entrypoint.sh</code> refuses to start the container if any is unset (each is guarded with a shell <code>:?</code> check) — plus <code>RV_ISSUER</code> and <code>RV_CORS_ORIGINS</code>, which <code>docker-entrypoint.sh</code> does <em>not</em> hard-require (no <code>:?</code> guard on those two); <code>docker-compose.yml</code> instead falls back to <code>http://localhost:8774</code> for both if they're unset in <code>.env</code>, so set them explicitly for a real deployment.</li>
+<li>Docker Compose: a <code>.env</code> file (copy <code>.env.example</code> to <code>.env</code> and fill in every value; secrets should be generated with <code>openssl rand -base64 32</code>).</li>
+</ul>
+<h3 id="example-8">Example</h3>
+<p><strong>Standalone binary (SQLite, dev):</strong></p>
+<div class="codewrap"><div class="code-hd"><span class="code-lang">bash</span><button class="copy-btn">Copy</button></div><pre class="code with-hd"># Build
+./build.sh                 # -&gt; ./build/rocketvault (also symlinked to ./rocketvault)
+# or, without the build script:
+go build -o rocketvault .
+
+# Run — reads ./.rocketvault.yaml (database.driver: sqlite3) from the cwd
+./rocketvault serve
+# or during development:
+go run main.go serve
+
+# Custom listen address (`--log-level` is currently a no-op flag; log level comes from `log.level` in `.rocketvault.yaml`)
+./rocketvault serve --listen :9000
+# To change the log level, edit .rocketvault.yaml instead:
+#   log:
+#     level: &quot;debug&quot;
+</pre></div>
+<p><strong>Standalone binary against PostgreSQL</strong> (edit <code>.rocketvault.yaml</code>'s <code>database</code> block):</p>
+<div class="codewrap"><div class="code-hd"><span class="code-lang">yaml</span><button class="copy-btn">Copy</button></div><pre class="code with-hd">database:
+  driver: &quot;postgres&quot;
+  connection: &quot;postgres://user:password@localhost:5432/rocketvault?sslmode=require&quot;
+</pre></div>
+<p><strong>Docker Compose (Postgres + app):</strong></p>
+<div class="codewrap"><div class="code-hd"><span class="code-lang">bash</span><button class="copy-btn">Copy</button></div><pre class="code with-hd">cp .env.example .env       # fill in POSTGRES_PASSWORD, RV_MASTER_KEY, RV_JWT_SECRET, RV_BOOTSTRAP_TOKEN, RV_ISSUER, RV_CORS_ORIGINS
+docker compose up --build
+
+# Create the first admin user once the container is healthy
+docker compose exec rocketvault /app/rocketvault users admin \
+  --admin-username=admin --admin-password=&lt;password&gt; \
+  --bootstrap-token=&lt;RV_BOOTSTRAP_TOKEN from .env&gt;
+
+# Optional: TLS-terminating Caddy proxy (edit Caddyfile's domain first)
+docker compose --profile proxy up --build
+</pre></div>
+<p><strong>Cross-platform release build:</strong></p>
+<div class="codewrap"><div class="code-hd"><span class="code-lang">bash</span><button class="copy-btn">Copy</button></div><pre class="code with-hd">./build.sh --release       # go vet + tests + all 5 platform targets + checksums + RELEASE_NOTES.md
+# artifacts land in ./dist/, e.g. rocketvault-v4.0.0-linux-amd64.tar.gz(.sha256)
+</pre></div>
+<p><strong>Fly.io</strong> (see the header comment in <code>fly.toml</code> for the full walkthrough):</p>
+<div class="codewrap"><div class="code-hd"><span class="code-lang">bash</span><button class="copy-btn">Copy</button></div><pre class="code with-hd">fly launch --no-deploy
+fly postgres create
+fly secrets set \
+  POSTGRES_USER=rocketvault POSTGRES_PASSWORD=&quot;$(openssl rand -base64 24)&quot; POSTGRES_DB=rocketvault \
+  RV_MASTER_KEY=&quot;$(openssl rand -base64 32)&quot; RV_JWT_SECRET=&quot;$(openssl rand -base64 32)&quot; \
+  RV_BOOTSTRAP_TOKEN=&quot;$(openssl rand -base64 32)&quot; \
+  RV_ISSUER=&quot;https://&lt;your-app&gt;.fly.dev&quot; RV_CORS_ORIGINS=&quot;https://&lt;your-app&gt;.fly.dev&quot;
+fly deploy
+</pre></div>
+<h3 id="notes--gotchas-8">Notes &amp; gotchas</h3>
+<ul>
+<li>The config key is <code>database.driver</code> (values <code>sqlite3</code> / <code>sqlite</code> or <code>postgres</code> / <code>postgresql</code>), <strong>not</strong> <code>database.type</code>. If <code>database.driver</code> is left blank, <code>internal/db/db.go</code>'s <code>sniffDriver()</code> infers Postgres from a <code>postgres://</code> / <code>postgresql://</code> prefix or a <code>host=...dbname=...</code> DSN, and falls back to SQLite otherwise — but setting it explicitly is recommended.</li>
+<li>CGO must stay <code>CGO_ENABLED=1</code> for every build target, including ones that will only ever talk to Postgres, because <code>go-sqlite3</code> is linked into the binary regardless (see the comment block at the top of <code>Dockerfile</code>). This is also why the runtime image is <code>debian:bookworm-slim</code> rather than <code>scratch</code>/distroless — the binary needs glibc at runtime.</li>
+<li><code>docker-entrypoint.sh</code> renders <code>/app/.rocketvault.yaml</code> from <code>.rocketvault.docker.yaml.tmpl</code> via <code>envsubst</code> at container startup, substituting <code>RV_MASTER_KEY</code>, <code>RV_JWT_SECRET</code>, <code>RV_BOOTSTRAP_TOKEN</code>, <code>POSTGRES_*</code>, <code>RV_CORS_ORIGINS</code>, and <code>RV_ISSUER</code>. Viper does not expand <code>${VAR}</code> inside YAML values on its own, so this rendering step is required — don't expect a plain <code>docker run</code> with just env vars set and no entrypoint to pick up secrets into the YAML.</li>
+<li>In <code>docker-compose.yml</code>, the app's <code>command</code> explicitly passes <code>--listen :8774</code>. This works around a real ordering bug, still present in <code>cmd/serve.go</code> and <code>cmd/root.go</code>: <code>cmd/serve.go</code>'s <code>init()</code> reads <code>server.listen_addr</code> via <code>viper.GetString</code> at Go package-init time, which runs before <code>cobra.OnInitialize(initConfig)</code> (registered in <code>cmd/root.go</code>'s <code>init()</code>) has a chance to fire and load the config file — <code>OnInitialize</code> hooks only run later, inside Cobra's <code>Execute()</code> pipeline. So the YAML value is silently ignored and the binary falls back to its hardcoded default <code>127.0.0.1:8774</code> (loopback-only, unreachable from outside the container) unless <code>--listen</code> is passed on the CLI.</li>
+<li>Both the Dockerfile <code>HEALTHCHECK</code> and the Compose <code>healthcheck</code> hit <code>GET http://127.0.0.1:8774/api/v1/health/live</code> (see section 7); the app container's healthcheck must pass before Compose considers it up (Caddy's <code>depends_on</code> waits on this).</li>
+<li>The <code>rocketvault</code> service in <code>docker-compose.yml</code> depends on <code>postgres</code> being healthy (<code>pg_isready</code>) before starting, and the Postgres DSN is templated as <code>postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}?sslmode=disable</code> — <code>postgres</code> here is the Compose service name, resolved via Docker's internal DNS, not a real hostname.</li>
+<li>Schema migrations run at process startup with no distributed lock, so <code>fly.toml</code> deliberately pins <code>[[vm]]</code> to one machine (<code>min_machines_running = 1</code>, no horizontal replica count) — multiple replicas would race running <code>migrateSchema()</code> against the same database. This is a constraint on the Fly <em>instance</em> count, not on the (unrelated) multi-vault feature: a single instance already hosts any number of named vaults, each an isolated security boundary — see <code>.claude/multi-vault.md</code>. Scale vertically (bump <code>size</code> / <code>memory</code>), not horizontally.</li>
+<li>The <code>caddy</code> service only starts with <code>docker compose --profile proxy up</code> (not a plain <code>docker compose up</code>), and only makes sense for bare-VPS deployments — skip it entirely on Fly.io, which terminates TLS itself (<code>force_https = true</code> in <code>fly.toml</code>).</li>
+<li><code>./build.sh --all</code> / <code>--release</code> cross-compiles with CGO enabled; if the matching C cross-compiler isn't installed for a target platform/arch, that target is skipped with a warning rather than failing the whole build (see <code>_archive</code> / <code>build_all</code> in <code>build.sh</code>).</li>
+<li>Never commit <code>.env</code> — <code>.env.example</code> documents every required variable and states it must differ between dev, staging, and prod, especially <code>RV_MASTER_KEY</code> (losing it makes all stored secrets permanently unrecoverable).</li>
+</ul>
+<p><strong>Deep dive:</strong> README.md's Installation, Building, and Deployment sections cover the standalone-binary and Docker basics in less depth; <code>fly.toml</code>, <code>docker-compose.yml</code>, and <code>.env.example</code> in the repo root are the canonical source for the Docker and Fly walkthroughs.</p>
+
+</main>
+<footer class="doc-footer"><a href="admin-manual.html">&larr; Back to the Admin Manual</a></footer>
+<script src="assets/doc-theme.js"></script>
+</body>
+</html>
