@@ -865,15 +865,21 @@ Set-Cookie: oidc_nonce=...; HttpOnly; Secure; SameSite=Lax</pre></div>
 
   <h3>Logging out</h3>
   <p>There is no OIDC-specific logout endpoint — an OIDC-authenticated user logs out exactly like a local-login user, via the same session-revocation endpoints (see <a href="#authentication">Authentication</a>), since both share the identical JWT/session machinery.</p>
-  <pre class="code"># Decode your own token to find its session id (the "jti" claim)
+
+  <div class="ep">
+    <div class="ep-hd"><span class="meth meth-delete">DELETE</span> <span class="ep-path">/api/v1/users/sessions/{id}</span> <span class="ep-auth">JWT</span> <span class="ep-label">Log out (revoke your session)</span></div>
+    <div class="tab-bar"><button class="tab-btn active">cURL</button><button class="tab-btn">Response</button></div>
+    <div class="tab-pane active"><pre class="code"># Decode your own token to find its session id (the "jti" claim)
 echo $TOKEN | cut -d. -f2 | base64 -d | python3 -m json.tool
 
 # Revoke just this session
 curl -s -X DELETE $BASE/api/v1/users/sessions/&lt;jti&gt; -H "Authorization: Bearer $TOKEN"
 
 # Or revoke every session for this user
-curl -s -X DELETE $BASE/api/v1/users/sessions -H "Authorization: Bearer $TOKEN"</pre>
-  <p>Revocation takes effect immediately — the very next request with that token is rejected (<code>401</code>), even though the JWT itself is still cryptographically valid and unexpired.</p>
+curl -s -X DELETE $BASE/api/v1/users/sessions -H "Authorization: Bearer $TOKEN"</pre></div>
+    <div class="tab-pane"><pre class="code">HTTP/1.1 200 OK</pre></div>
+    <details class="collapse"><summary>Notes</summary><div class="inner">Revocation takes effect immediately — the very next request with that token is rejected (<code>401</code>), even though the JWT itself is still cryptographically valid and unexpired.</div></details>
+  </div>
 
   <div class="callout callout-warn">
     <div class="callout-label">Logging out does not end the IdP session</div>
