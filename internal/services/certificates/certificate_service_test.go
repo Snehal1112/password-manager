@@ -94,6 +94,7 @@ func TestGetCertificatePolicy_DeniesWhenCertAccessDenied(t *testing.T) {
 	_, err := svc.GetCertificatePolicy(context.Background(), certID, scope)
 
 	require.Error(t, err)
+	assert.ErrorIs(t, err, ErrCertNotFound)
 	policyRepo.AssertNotCalled(t, "GetByCertificateIDAny", mock.Anything, mock.Anything)
 }
 
@@ -158,6 +159,7 @@ func TestUpsertCertificatePolicy_DeniesWhenCertAccessDenied(t *testing.T) {
 	_, err := svc.UpsertCertificatePolicy(context.Background(), certID, scope, model.UpsertCertificatePolicyRequest{})
 
 	require.Error(t, err)
+	assert.ErrorIs(t, err, ErrCertNotFound)
 	policyRepo.AssertNotCalled(t, "Upsert", mock.Anything, mock.Anything)
 }
 
@@ -200,5 +202,6 @@ func TestDeleteCertificatePolicy_DeniesWhenCertAccessDenied(t *testing.T) {
 	err := svc.DeleteCertificatePolicy(context.Background(), certID, scope)
 
 	require.Error(t, err)
+	assert.ErrorIs(t, err, ErrCertNotFound)
 	policyRepo.AssertNotCalled(t, "DeleteByCertificateIDAny", mock.Anything, mock.Anything)
 }

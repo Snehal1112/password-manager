@@ -131,4 +131,3 @@ func TestContext_AuthSvc_NilContainer_SetsErr(t *testing.T) {
 	assert.NotNil(t, ctx.Err)
 	assert.Equal(t, http.StatusInternalServerError, ctx.Err.StatusCode)
 }
-

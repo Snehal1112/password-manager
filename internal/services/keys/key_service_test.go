@@ -93,6 +93,7 @@ func TestGetKeyRotationPolicy_DeniesWhenKeyAccessDenied(t *testing.T) {
 	_, err := svc.GetKeyRotationPolicy(context.Background(), keyID, scope)
 
 	require.Error(t, err)
+	assert.ErrorIs(t, err, ErrKeyNotFound)
 	policyRepo.AssertNotCalled(t, "GetByKeyIDAny", mock.Anything, mock.Anything)
 }
 
@@ -153,6 +154,7 @@ func TestUpsertKeyRotationPolicy_DeniesWhenKeyAccessDenied(t *testing.T) {
 	_, err := svc.UpsertKeyRotationPolicy(context.Background(), keyID, scope, model.UpsertKeyRotationPolicyRequest{})
 
 	require.Error(t, err)
+	assert.ErrorIs(t, err, ErrKeyNotFound)
 	policyRepo.AssertNotCalled(t, "Upsert", mock.Anything, mock.Anything)
 }
 
@@ -195,5 +197,6 @@ func TestDeleteKeyRotationPolicy_DeniesWhenKeyAccessDenied(t *testing.T) {
 	err := svc.DeleteKeyRotationPolicy(context.Background(), keyID, scope)
 
 	require.Error(t, err)
+	assert.ErrorIs(t, err, ErrKeyNotFound)
 	policyRepo.AssertNotCalled(t, "DeleteByKeyIDAny", mock.Anything, mock.Anything)
 }
