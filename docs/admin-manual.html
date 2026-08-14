@@ -371,6 +371,7 @@ details.collapse .inner{padding:8px 12px;font-size:14px;color:var(--text2)}
 
     <div class="sb-group">Identity &amp; Access</div>
     <a class="sb-item" href="#authentication">Authentication</a>
+    <a class="sb-item" href="#oidc-login">OIDC / SSO Login</a>
     <a class="sb-item" href="#jwt-signing">JWT Signing</a>
     <a class="sb-item" href="#users">Users</a>
     <a class="sb-item" href="#vault-rbac">Vault RBAC &amp; Roles <span class="sb-badge">v4</span></a>
@@ -1911,7 +1912,7 @@ curl -s $API_URL/secrets/&lt;uuid&gt; -H "Authorization: Bearer $TOKEN" | jq -r 
   <p class="see-also">Full table:
     <a href="../MANUAL_TESTING.html#quick-reference--all-endpoints">MANUAL_TESTING.md — All Endpoints</a></p>
   <p>Subsystems: vaults (+ role-assignments), secrets (+ versions, generate, export/import, item backup), users
-    (+ sessions), keys (+ wrap/unwrap, sign/verify, encrypt/decrypt, rotate, versions),
+    (+ sessions), oidc (login, callback), keys (+ wrap/unwrap, sign/verify, encrypt/decrypt, rotate, versions),
     certificates (+ policy), deleted (restore/purge), access-policies, service-accounts,
     audit (logs, SOC2/GDPR, config), oauth2/token, jwks (+ rotate), config, health.</p>
 </section>
