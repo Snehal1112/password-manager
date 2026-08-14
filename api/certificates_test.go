@@ -160,6 +160,9 @@ func (c *certSvcContainer) GetCertificatePolicyRepository() repositories.Certifi
 	// forgets to configure expectations on it.
 	return &mockCertPolicyRepo{}
 }
+func (c *certSvcContainer) GetKeyRotationPolicyRepository() repositories.KeyRotationPolicyRepositoryInterface {
+	panic("unexpected call: GetKeyRotationPolicyRepository")
+}
 func (c *certSvcContainer) GetSessionRepository() repositories.SessionRepositoryInterface {
 	panic("unexpected call: GetSessionRepository")
 }

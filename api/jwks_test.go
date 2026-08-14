@@ -97,6 +97,9 @@ func (c *jwkContainerBase) GetKeyRepository() repositories.KeyRepositoryInterfac
 func (c *jwkContainerBase) GetCertificateRepository() repositories.CertificateRepositoryInterface {
 	panic("unexpected call: GetCertificateRepository")
 }
+func (c *jwkContainerBase) GetKeyRotationPolicyRepository() repositories.KeyRotationPolicyRepositoryInterface {
+	panic("unexpected call: GetKeyRotationPolicyRepository")
+}
 func (c *jwkContainerBase) GetCertificatePolicyRepository() repositories.CertificatePolicyRepositoryInterface {
 	panic("unexpected call: GetCertificatePolicyRepository")
 }

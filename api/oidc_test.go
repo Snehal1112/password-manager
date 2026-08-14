@@ -112,6 +112,9 @@ func (c *oidcHTestContainer) GetKeyRepository() repositories.KeyRepositoryInterf
 func (c *oidcHTestContainer) GetCertificateRepository() repositories.CertificateRepositoryInterface {
 	panic("unexpected call: GetCertificateRepository")
 }
+func (c *oidcHTestContainer) GetKeyRotationPolicyRepository() repositories.KeyRotationPolicyRepositoryInterface {
+	panic("unexpected call: GetKeyRotationPolicyRepository")
+}
 func (c *oidcHTestContainer) GetCertificatePolicyRepository() repositories.CertificatePolicyRepositoryInterface {
 	panic("unexpected call: GetCertificatePolicyRepository")
 }
