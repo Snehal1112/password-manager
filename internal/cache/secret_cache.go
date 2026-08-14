@@ -6,70 +6,36 @@ import (
 	"context"
 	"fmt"
 	"sync"
-	"time"
 
 	"github.com/google/uuid"
 	"github.com/sirupsen/logrus"
 
+	"rocketvault/internal/cachekit"
 	"rocketvault/model"
 )
 
 // SecretCache provides thread-safe in-memory caching for secrets with TTL
 // support. Entries are keyed by (scope, secret id), so a value admitted under
 // one scope can never satisfy a read under another. A byID reverse index lets
-// a single mutation evict every scoped view of a secret.
+// a single mutation evict every scoped view of a secret. Wraps cachekit.Cache
+// for storage/TTL/LRU; the scope-key + reverse-index logic here is secret-
+// domain-specific composition on top.
 type SecretCache struct {
-	cache  map[string]*CachedSecret
+	core   cachekit.Interface[string, *model.Secret]
+	byIDMu sync.Mutex
 	byID   map[uuid.UUID]map[string]struct{}
-	mu     sync.RWMutex
-	ttl    time.Duration
 	logger *logrus.Logger
 }
 
-// CachedSecret represents a cached secret with expiration time.
-type CachedSecret struct {
-	Secret    *model.Secret
-	ExpiresAt time.Time
-}
-
-// NewSecretCache creates a new secret cache with the specified TTL.
-func NewSecretCache(ttl time.Duration, logger *logrus.Logger) *SecretCache {
+// NewSecretCache creates a SecretCache from cfg. Always returns a usable
+// cache: a real one (self-managing its own TTL sweep from construction) when
+// cfg.Enabled, a no-op one otherwise.
+func NewSecretCache(cfg cachekit.Config, logger *logrus.Logger) *SecretCache {
 	return &SecretCache{
-		cache:  make(map[string]*CachedSecret),
+		core:   cachekit.NewFromConfig[string, *model.Secret](cfg),
 		byID:   make(map[uuid.UUID]map[string]struct{}),
-		ttl:    ttl,
 		logger: logger,
 	}
-}
-
-// cloneSecret returns a copy of a secret that shares no mutable state with
-// the original: the struct itself, its tag slice, and every time pointer.
-//
-// The cache stores and returns clones because callers legitimately mutate the
-// secret they get back — api.updateSecret writes the new value, tags and
-// version straight onto the pointer returned by GetSecret before the update
-// is persisted. Handing out the stored pointer would let a mutation that is
-// never written (or is rejected downstream) poison the entry for every other
-// reader, and would make a concurrent PUT and GET a data race.
-func cloneSecret(s *model.Secret) *model.Secret {
-	cp := *s
-	if s.Tags != nil {
-		cp.Tags = append([]string(nil), s.Tags...)
-	}
-	cp.ExpiresAt = cloneTime(s.ExpiresAt)
-	cp.NotBefore = cloneTime(s.NotBefore)
-	cp.DeletedAt = cloneTime(s.DeletedAt)
-	cp.ScheduledPurgeAt = cloneTime(s.ScheduledPurgeAt)
-	return &cp
-}
-
-// cloneTime copies an optional timestamp, preserving nil.
-func cloneTime(t *time.Time) *time.Time {
-	if t == nil {
-		return nil
-	}
-	v := *t
-	return &v
 }
 
 // scopeCacheKey builds the compound cache key for a scoped read. It reports
@@ -99,22 +65,13 @@ func (c *SecretCache) Get(ctx context.Context, secretID uuid.UUID, scope model.S
 	if !cacheable {
 		return nil, false
 	}
-
-	c.mu.RLock()
-	defer c.mu.RUnlock()
-
-	cached, exists := c.cache[key]
-	if !exists {
-		c.logger.WithField("secret_id", secretID).Debug("Cache miss - secret not found")
+	secret, ok := c.core.Get(key)
+	if !ok {
+		c.logger.WithField("secret_id", secretID).Debug("Cache miss")
 		return nil, false
 	}
-	if time.Now().After(cached.ExpiresAt) {
-		c.logger.WithField("secret_id", secretID).Debug("Cache miss - secret expired")
-		return nil, false
-	}
-
 	c.logger.WithField("secret_id", secretID).Debug("Cache hit")
-	return cloneSecret(cached.Secret), true
+	return secret, true
 }
 
 // Set stores a secret under the given scope with TTL expiration. Scopes that
@@ -123,27 +80,20 @@ func (c *SecretCache) Set(ctx context.Context, secret *model.Secret, scope model
 	if secret == nil {
 		return fmt.Errorf("cannot cache nil secret")
 	}
-
 	key, cacheable := scopeCacheKey(secret.ID, scope)
 	if !cacheable {
 		return nil
 	}
+	c.core.Set(key, secret)
 
-	c.mu.Lock()
-	defer c.mu.Unlock()
-
-	c.cache[key] = &CachedSecret{Secret: cloneSecret(secret), ExpiresAt: time.Now().Add(c.ttl)}
+	c.byIDMu.Lock()
 	if c.byID[secret.ID] == nil {
 		c.byID[secret.ID] = make(map[string]struct{})
 	}
 	c.byID[secret.ID][key] = struct{}{}
+	c.byIDMu.Unlock()
 
-	c.logger.WithFields(logrus.Fields{
-		"secret_id": secret.ID,
-		"scope":     scope.String(),
-		"ttl":       c.ttl,
-	}).Debug("Secret cached successfully")
-
+	c.logger.WithFields(logrus.Fields{"secret_id": secret.ID, "scope": scope.String()}).Debug("Secret cached successfully")
 	return nil
 }
 
@@ -151,95 +101,41 @@ func (c *SecretCache) Set(ctx context.Context, secret *model.Secret, scope model
 // primitive: a mutation authorized under one scope must not leave a stale
 // entry visible under another.
 func (c *SecretCache) DeleteByID(ctx context.Context, secretID uuid.UUID) error {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-
-	for key := range c.byID[secretID] {
-		delete(c.cache, key)
-	}
+	c.byIDMu.Lock()
+	keys := c.byID[secretID]
 	delete(c.byID, secretID)
+	c.byIDMu.Unlock()
 
+	for key := range keys {
+		c.core.Invalidate(key)
+	}
 	c.logger.WithField("secret_id", secretID).Debug("Secret removed from cache")
 	return nil
 }
 
 // Flush removes every entry from the cache unconditionally, live or
-// expired. Unlike Clear, which only prunes expired entries, Flush is the
-// correct primitive for callers that need a guaranteed-empty cache (e.g.
-// bulk import, where secrets may change or be removed outside their TTL).
+// expired — the correct primitive for callers that need a guaranteed-empty
+// cache (e.g. a vault delete/recover cascade that writes secrets directly).
 func (c *SecretCache) Flush(ctx context.Context) error {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-
-	removed := len(c.cache)
-	c.cache = make(map[string]*CachedSecret)
+	c.core.InvalidateAll()
+	c.byIDMu.Lock()
+	removed := len(c.byID)
 	c.byID = make(map[uuid.UUID]map[string]struct{})
-
+	c.byIDMu.Unlock()
 	c.logger.WithField("removed_count", removed).Debug("Cache flushed")
 	return nil
 }
 
-// Clear removes only expired entries. It is the background-cleanup primitive
-// and is deliberately NOT a flush -- see Flush.
-func (c *SecretCache) Clear(ctx context.Context) error {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-
-	now := time.Now()
-	removed := 0
-
-	for key, cached := range c.cache {
-		if now.After(cached.ExpiresAt) {
-			delete(c.cache, key)
-			if keys := c.byID[cached.Secret.ID]; keys != nil {
-				delete(keys, key)
-				if len(keys) == 0 {
-					delete(c.byID, cached.Secret.ID)
-				}
-			}
-			removed++
-		}
-	}
-
-	c.logger.WithField("removed_count", removed).Debug("Expired cache entries cleared")
-	return nil
-}
-
-// StartCleanup starts a background goroutine that periodically clears expired entries.
-func (c *SecretCache) StartCleanup(ctx context.Context, interval time.Duration) {
-	ticker := time.NewTicker(interval)
-	go func() {
-		defer ticker.Stop()
-		for {
-			select {
-			case <-ctx.Done():
-				c.logger.Info("Cache cleanup stopped")
-				return
-			case <-ticker.C:
-				if err := c.Clear(ctx); err != nil {
-					c.logger.WithError(err).Error("Failed to clear expired cache entries")
-				}
-			}
-		}
-	}()
-}
-
 // GetStats returns cache statistics.
 func (c *SecretCache) GetStats() map[string]interface{} {
-	c.mu.RLock()
-	defer c.mu.RUnlock()
-
-	expired := 0
-	now := time.Now()
-	for _, cached := range c.cache {
-		if now.After(cached.ExpiresAt) {
-			expired++
-		}
-	}
-
+	s := c.core.Stats()
 	return map[string]interface{}{
-		"total_entries":   len(c.cache),
-		"expired_entries": expired,
-		"ttl":             c.ttl.String(),
+		"total_entries":   s.TotalEntries,
+		"expired_entries": s.ExpiredEntries,
 	}
+}
+
+// Stop shuts down the background TTL sweep. Safe to call more than once.
+func (c *SecretCache) Stop() {
+	c.core.Stop()
 }

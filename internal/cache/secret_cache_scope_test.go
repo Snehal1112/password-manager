@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"rocketvault/internal/cachekit"
 	"rocketvault/model"
 )
 
@@ -17,7 +18,13 @@ func newScopeCache(t *testing.T, ttl time.Duration) *SecretCache {
 	t.Helper()
 	l := logrus.New()
 	l.SetLevel(logrus.PanicLevel)
-	return NewSecretCache(ttl, l)
+	cleanupInterval := ttl / 10
+	if cleanupInterval <= 0 {
+		cleanupInterval = time.Millisecond
+	}
+	c := NewSecretCache(cachekit.Config{Enabled: true, TTL: ttl, CleanupInterval: cleanupInterval, MaxEntries: 1000}, l)
+	t.Cleanup(c.Stop)
+	return c
 }
 
 func TestScopeCacheKeyIsCompoundAndNeverCachesAdmin(t *testing.T) {
@@ -77,7 +84,11 @@ func TestDeleteByIDEvictsEveryScopedView(t *testing.T) {
 	assert.False(t, found)
 }
 
-func TestFlushRemovesLiveEntriesWhileClearOnlyPrunesExpired(t *testing.T) {
+// TestFlushRemovesLiveEntries proves Flush evicts even entries that have not
+// expired yet. cachekit's own background sweep (not a caller-driven
+// Clear/StartCleanup step) is what prunes expired entries now -- see
+// internal/cachekit/cache_test.go for that coverage.
+func TestFlushRemovesLiveEntries(t *testing.T) {
 	ctx := context.Background()
 	secretID, vaultID := uuid.New(), uuid.New()
 	scope := model.NewVaultScope(vaultID, uuid.New())
@@ -85,9 +96,8 @@ func TestFlushRemovesLiveEntriesWhileClearOnlyPrunesExpired(t *testing.T) {
 
 	live := newScopeCache(t, time.Minute)
 	require.NoError(t, live.Set(ctx, secret, scope))
-	require.NoError(t, live.Clear(ctx))
 	_, found := live.Get(ctx, secretID, scope)
-	assert.True(t, found, "Clear only prunes expired entries")
+	assert.True(t, found)
 
 	require.NoError(t, live.Flush(ctx))
 	_, found = live.Get(ctx, secretID, scope)

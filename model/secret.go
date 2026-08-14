@@ -59,6 +59,33 @@ func (s *Secret) DaysUntilExpiration() int {
 	return int(time.Until(*s.ExpiresAt).Hours() / 24)
 }
 
+// Clone returns a copy of s that shares no mutable state with the original:
+// the struct itself, its tag slice, and every time pointer are all
+// independently copied. Used by SecretCache so a caller that mutates a
+// fetched secret before persisting an update can never corrupt a cache entry
+// or race a concurrent reader.
+func (s *Secret) Clone() *Secret {
+	cp := *s
+	if s.Tags != nil {
+		cp.Tags = append([]string(nil), s.Tags...)
+	}
+	cp.ExpiresAt = cloneTimePtr(s.ExpiresAt)
+	cp.NotBefore = cloneTimePtr(s.NotBefore)
+	cp.DeletedAt = cloneTimePtr(s.DeletedAt)
+	cp.ScheduledPurgeAt = cloneTimePtr(s.ScheduledPurgeAt)
+	return &cp
+}
+
+// cloneTimePtr copies an optional timestamp, preserving nil. Shared by
+// Secret.Clone and Vault.Clone (Task 6).
+func cloneTimePtr(t *time.Time) *time.Time {
+	if t == nil {
+		return nil
+	}
+	v := *t
+	return &v
+}
+
 // SecretVersion represents a version of a secret.
 type SecretVersion struct {
 	ID        uuid.UUID `json:"id"`

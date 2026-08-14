@@ -11,14 +11,39 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"rocketvault/internal/cachekit"
 	"rocketvault/model"
 )
+
+func TestNewSecretCache_GetSetDeleteByID(t *testing.T) {
+	cfg := cachekit.Config{Enabled: true, TTL: 5 * time.Minute, CleanupInterval: time.Minute, MaxEntries: 100}
+	logger := logrus.New()
+	c := NewSecretCache(cfg, logger)
+	defer c.Stop()
+
+	vaultID := uuid.New()
+	scope := model.NewVaultScope(vaultID, uuid.New())
+	secret := &model.Secret{ID: uuid.New(), VaultID: vaultID, Name: "s1", Value: "v1"}
+
+	_, found := c.Get(context.Background(), secret.ID, scope)
+	assert.False(t, found)
+
+	require.NoError(t, c.Set(context.Background(), secret, scope))
+	got, found := c.Get(context.Background(), secret.ID, scope)
+	require.True(t, found)
+	assert.Equal(t, "s1", got.Name)
+
+	require.NoError(t, c.DeleteByID(context.Background(), secret.ID))
+	_, found = c.Get(context.Background(), secret.ID, scope)
+	assert.False(t, found, "DeleteByID must evict the entry")
+}
 
 // TestSecretCacheBasicOperations tests basic cache operations.
 func TestSecretCacheBasicOperations(t *testing.T) {
 	logger := logrus.New()
 	logger.SetLevel(logrus.DebugLevel)
-	cache := NewSecretCache(5*time.Minute, logger)
+	cache := NewSecretCache(cachekit.Config{Enabled: true, TTL: 5 * time.Minute, CleanupInterval: 30 * time.Second, MaxEntries: 1000}, logger)
+	defer cache.Stop()
 	ctx := context.Background()
 	scope := model.NewVaultScope(uuid.New(), uuid.New())
 
@@ -80,7 +105,8 @@ func TestSecretCacheExpiration(t *testing.T) {
 	logger.SetLevel(logrus.DebugLevel)
 
 	// Use a very short TTL for testing
-	cache := NewSecretCache(100*time.Millisecond, logger)
+	cache := NewSecretCache(cachekit.Config{Enabled: true, TTL: 100 * time.Millisecond, CleanupInterval: 10 * time.Millisecond, MaxEntries: 1000}, logger)
+	defer cache.Stop()
 	ctx := context.Background()
 	scope := model.NewVaultScope(uuid.New(), uuid.New())
 
@@ -113,51 +139,12 @@ func TestSecretCacheExpiration(t *testing.T) {
 	})
 }
 
-// TestSecretCacheClear tests the clear functionality.
-func TestSecretCacheClear(t *testing.T) {
-	logger := logrus.New()
-	logger.SetLevel(logrus.DebugLevel)
-	cache := NewSecretCache(5*time.Minute, logger)
-	ctx := context.Background()
-	scope := model.NewVaultScope(uuid.New(), uuid.New())
-
-	// Create multiple test secrets
-	secrets := make([]*model.Secret, 5)
-	for i := 0; i < 5; i++ {
-		secrets[i] = &model.Secret{
-			ID:        uuid.New(),
-			UserID:    uuid.New(),
-			Name:      fmt.Sprintf("secret-%d", i),
-			Value:     "encrypted-value",
-			Version:   1,
-			CreatedAt: time.Now(),
-		}
-		err := cache.Set(ctx, secrets[i], scope)
-		require.NoError(t, err)
-	}
-
-	t.Run("Clear removes expired entries", func(t *testing.T) {
-		// Let some secrets expire
-		time.Sleep(100 * time.Millisecond)
-
-		// Clear expired entries
-		err := cache.Clear(ctx)
-		assert.NoError(t, err)
-
-		// All secrets should still be there (none expired due to TTL)
-		for _, secret := range secrets {
-			cached, found := cache.Get(ctx, secret.ID, scope)
-			assert.True(t, found)
-			assert.NotNil(t, cached)
-		}
-	})
-}
-
 // TestSecretCacheStats tests cache statistics.
 func TestSecretCacheStats(t *testing.T) {
 	logger := logrus.New()
 	logger.SetLevel(logrus.DebugLevel)
-	cache := NewSecretCache(5*time.Minute, logger)
+	cache := NewSecretCache(cachekit.Config{Enabled: true, TTL: 5 * time.Minute, CleanupInterval: 30 * time.Second, MaxEntries: 1000}, logger)
+	defer cache.Stop()
 	ctx := context.Background()
 	scope := model.NewVaultScope(uuid.New(), uuid.New())
 
@@ -166,7 +153,6 @@ func TestSecretCacheStats(t *testing.T) {
 		stats := cache.GetStats()
 		assert.Equal(t, 0, stats["total_entries"])
 		assert.Equal(t, 0, stats["expired_entries"])
-		assert.Equal(t, "5m0s", stats["ttl"])
 
 		// Add some secrets
 		for i := 0; i < 3; i++ {
@@ -193,7 +179,8 @@ func TestSecretCacheStats(t *testing.T) {
 func TestSecretCacheConcurrentAccess(t *testing.T) {
 	logger := logrus.New()
 	logger.SetLevel(logrus.DebugLevel)
-	cache := NewSecretCache(5*time.Minute, logger)
+	cache := NewSecretCache(cachekit.Config{Enabled: true, TTL: 5 * time.Minute, CleanupInterval: 30 * time.Second, MaxEntries: 1000}, logger)
+	defer cache.Stop()
 	ctx := context.Background()
 	scope := model.NewVaultScope(uuid.New(), uuid.New())
 
@@ -292,15 +279,20 @@ func TestSecretCacheConcurrentAccess(t *testing.T) {
 	})
 }
 
-// TestSecretCacheStartCleanup tests the background cleanup functionality.
-func TestSecretCacheStartCleanup(t *testing.T) {
+// TestSecretCacheBackgroundSweep proves the SecretCache wrapper calls through
+// to cachekit's self-managed TTL sweep correctly. The sweep mechanics
+// themselves (ticker cadence, concurrent-safe removal) are cachekit's own
+// responsibility and are already covered by
+// internal/cachekit/cache_test.go's TestCache_Get_MissAfterTTLExpiry and its
+// sibling sweep tests -- this test only confirms SecretCache doesn't need a
+// caller-driven StartCleanup/Clear step anymore.
+func TestSecretCacheBackgroundSweep(t *testing.T) {
 	logger := logrus.New()
 	logger.SetLevel(logrus.DebugLevel)
 
-	// Use a short TTL and cleanup interval for testing
-	cache := NewSecretCache(200*time.Millisecond, logger)
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	cache := NewSecretCache(cachekit.Config{Enabled: true, TTL: 50 * time.Millisecond, CleanupInterval: 10 * time.Millisecond, MaxEntries: 1000}, logger)
+	defer cache.Stop()
+	ctx := context.Background()
 	scope := model.NewVaultScope(uuid.New(), uuid.New())
 
 	secret := &model.Secret{
@@ -312,45 +304,34 @@ func TestSecretCacheStartCleanup(t *testing.T) {
 		CreatedAt: time.Now(),
 	}
 
-	t.Run("Background cleanup removes expired entries", func(t *testing.T) {
-		// Set the secret
-		err := cache.Set(ctx, secret, scope)
-		require.NoError(t, err)
+	require.NoError(t, cache.Set(ctx, secret, scope))
 
-		// Start background cleanup
-		cache.StartCleanup(ctx, 100*time.Millisecond)
+	// Verify secret is cached initially, with no separate StartCleanup call.
+	cached, found := cache.Get(ctx, secret.ID, scope)
+	assert.True(t, found)
+	assert.NotNil(t, cached)
 
-		// Verify secret is cached initially
-		cached, found := cache.Get(ctx, secret.ID, scope)
-		assert.True(t, found)
-		assert.NotNil(t, cached)
+	// Wait for the TTL to elapse; cachekit's own background sweep runs on
+	// its own from construction.
+	time.Sleep(150 * time.Millisecond)
 
-		// Wait for expiration and cleanup
-		time.Sleep(350 * time.Millisecond)
-
-		// Verify secret is removed by cleanup
-		cached, found = cache.Get(ctx, secret.ID, scope)
-		assert.False(t, found)
-		assert.Nil(t, cached)
-	})
+	cached, found = cache.Get(ctx, secret.ID, scope)
+	assert.False(t, found)
+	assert.Nil(t, cached)
 }
 
 // TestSecretCacheEdgeCases tests edge cases and error conditions.
 func TestSecretCacheEdgeCases(t *testing.T) {
 	logger := logrus.New()
 	logger.SetLevel(logrus.DebugLevel)
-	cache := NewSecretCache(5*time.Minute, logger)
+	cache := NewSecretCache(cachekit.Config{Enabled: true, TTL: 5 * time.Minute, CleanupInterval: 30 * time.Second, MaxEntries: 1000}, logger)
+	defer cache.Stop()
 	ctx := context.Background()
 	scope := model.NewVaultScope(uuid.New(), uuid.New())
 
 	t.Run("DeleteByID for non-existent secret is no-op", func(t *testing.T) {
 		nonExistentID := uuid.New()
 		err := cache.DeleteByID(ctx, nonExistentID)
-		assert.NoError(t, err) // Should not return error
-	})
-
-	t.Run("Clear on empty cache is no-op", func(t *testing.T) {
-		err := cache.Clear(ctx)
 		assert.NoError(t, err) // Should not return error
 	})
 
@@ -361,7 +342,8 @@ func TestSecretCacheEdgeCases(t *testing.T) {
 	})
 
 	t.Run("Zero TTL cache still works", func(t *testing.T) {
-		zeroTTLCache := NewSecretCache(0, logger)
+		zeroTTLCache := NewSecretCache(cachekit.Config{Enabled: true, TTL: 0, CleanupInterval: time.Millisecond, MaxEntries: 1000}, logger)
+		defer zeroTTLCache.Stop()
 		secret := &model.Secret{
 			ID:        uuid.New(),
 			UserID:    uuid.New(),
@@ -386,7 +368,8 @@ func TestSecretCacheEdgeCases(t *testing.T) {
 func TestSecretCacheWithSoftDelete(t *testing.T) {
 	logger := logrus.New()
 	logger.SetLevel(logrus.DebugLevel)
-	cache := NewSecretCache(5*time.Minute, logger)
+	cache := NewSecretCache(cachekit.Config{Enabled: true, TTL: 5 * time.Minute, CleanupInterval: 30 * time.Second, MaxEntries: 1000}, logger)
+	defer cache.Stop()
 	ctx := context.Background()
 	scope := model.NewVaultScope(uuid.New(), uuid.New())
 
@@ -417,93 +400,24 @@ func TestSecretCacheWithSoftDelete(t *testing.T) {
 	})
 }
 
-// TestCacheConfigValidation tests cache configuration validation.
-func TestCacheConfigValidation(t *testing.T) {
-	t.Run("Valid configuration", func(t *testing.T) {
-		config := &CacheConfig{
-			Enabled:         true,
-			TTL:             5 * time.Minute,
-			CleanupInterval: 1 * time.Minute,
-			MaxEntries:      1000,
-		}
-		err := config.Validate()
-		assert.NoError(t, err)
-	})
-
-	t.Run("Invalid TTL", func(t *testing.T) {
-		config := &CacheConfig{
-			TTL: 0,
-		}
-		err := config.Validate()
-		assert.Error(t, err)
-		assert.Contains(t, err.Error(), "TTL must be positive")
-	})
-
-	t.Run("Invalid cleanup interval", func(t *testing.T) {
-		config := &CacheConfig{
-			TTL:             5 * time.Minute,
-			CleanupInterval: 0,
-		}
-		err := config.Validate()
-		assert.Error(t, err)
-		assert.Contains(t, err.Error(), "cleanup interval must be positive")
-	})
-
-	t.Run("Cleanup interval greater than TTL", func(t *testing.T) {
-		config := &CacheConfig{
-			TTL:             1 * time.Minute,
-			CleanupInterval: 2 * time.Minute,
-		}
-		err := config.Validate()
-		assert.Error(t, err)
-		assert.Contains(t, err.Error(), "cleanup interval must be less than TTL")
-	})
-
-	t.Run("Negative max entries", func(t *testing.T) {
-		config := &CacheConfig{
-			TTL:             5 * time.Minute,
-			CleanupInterval: 1 * time.Minute,
-			MaxEntries:      -1,
-		}
-		err := config.Validate()
-		assert.Error(t, err)
-		assert.Contains(t, err.Error(), "max entries cannot be negative")
-	})
+// TestDefaultCacheConfig documents that DefaultCacheConfig is still live --
+// internal/container/service_container.go uses it as ServiceContainer's
+// fallback CacheConfig, out of scope for this task.
+func TestDefaultCacheConfig(t *testing.T) {
+	config := DefaultCacheConfig()
+	assert.True(t, config.Enabled)
+	assert.Equal(t, 5*time.Minute, config.TTL)
+	assert.Equal(t, 1*time.Minute, config.CleanupInterval)
+	assert.Equal(t, 1000, config.MaxEntries)
 }
 
-// TestDefaultCacheConfigs tests default configuration generation.
-func TestDefaultCacheConfigs(t *testing.T) {
-	t.Run("Default cache config", func(t *testing.T) {
-		config := DefaultCacheConfig()
-		assert.True(t, config.Enabled)
-		assert.Equal(t, 5*time.Minute, config.TTL)
-		assert.Equal(t, 1*time.Minute, config.CleanupInterval)
-		assert.Equal(t, 1000, config.MaxEntries)
-	})
-
-	t.Run("Development cache config", func(t *testing.T) {
-		config := DevelopmentCacheConfig()
-		assert.True(t, config.Enabled)
-		assert.Equal(t, 1*time.Minute, config.TTL)
-		assert.Equal(t, 30*time.Second, config.CleanupInterval)
-		assert.Equal(t, 100, config.MaxEntries)
-	})
-
-	t.Run("Production cache config", func(t *testing.T) {
-		config := ProductionCacheConfig()
-		assert.True(t, config.Enabled)
-		assert.Equal(t, 10*time.Minute, config.TTL)
-		assert.Equal(t, 2*time.Minute, config.CleanupInterval)
-		assert.Equal(t, 5000, config.MaxEntries)
-	})
-}
-
-// TestSecretCacheFlush proves Flush empties the cache unconditionally,
-// unlike Clear, which only prunes expired entries.
+// TestSecretCacheFlush proves Flush empties the cache unconditionally, live
+// or expired.
 func TestSecretCacheFlush(t *testing.T) {
 	logger := logrus.New()
 	logger.SetLevel(logrus.DebugLevel)
-	cache := NewSecretCache(5*time.Minute, logger)
+	cache := NewSecretCache(cachekit.Config{Enabled: true, TTL: 5 * time.Minute, CleanupInterval: 30 * time.Second, MaxEntries: 1000}, logger)
+	defer cache.Stop()
 	ctx := context.Background()
 	scope := model.NewVaultScope(uuid.New(), uuid.New())
 

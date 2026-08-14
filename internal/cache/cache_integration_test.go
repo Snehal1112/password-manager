@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"rocketvault/internal/cachekit"
 	"rocketvault/internal/services/secrets"
 	"rocketvault/model"
 )
@@ -146,7 +147,9 @@ func newTestCache(t *testing.T) *SecretCache {
 	t.Helper()
 	logger := logrus.New()
 	logger.SetLevel(logrus.DebugLevel)
-	return NewSecretCache(5*time.Minute, logger)
+	c := NewSecretCache(cachekit.Config{Enabled: true, TTL: 5 * time.Minute, CleanupInterval: 30 * time.Second, MaxEntries: 1000}, logger)
+	t.Cleanup(c.Stop)
+	return c
 }
 
 func newTestLogger() *logrus.Logger {
@@ -709,7 +712,7 @@ func TestCachedSecretService_ImportSecrets_BaseError(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// GetCacheStats / ClearCache / StartCacheCleanup
+// GetCacheStats / ClearCache
 // ---------------------------------------------------------------------------
 
 func TestCachedSecretService_GetCacheStats(t *testing.T) {
@@ -739,22 +742,6 @@ func TestCachedSecretService_ClearCache(t *testing.T) {
 
 	err := cached.ClearCache(ctx)
 	assert.NoError(t, err)
-}
-
-func TestCachedSecretService_StartCacheCleanup(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-
-	c := newTestCache(t)
-	svc := &mockSecretService{}
-	logger := newTestLogger()
-	cached := NewCachedSecretService(svc, c, logger)
-
-	// StartCacheCleanup should not panic or block.
-	cached.StartCacheCleanup(ctx, 50*time.Millisecond)
-
-	// Give the goroutine a moment to start, then cancel to stop it.
-	time.Sleep(10 * time.Millisecond)
 }
 
 // ---------------------------------------------------------------------------

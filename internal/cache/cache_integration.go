@@ -4,7 +4,6 @@ package cache
 
 import (
 	"context"
-	"time"
 
 	"github.com/google/uuid"
 	"github.com/sirupsen/logrus"
@@ -186,10 +185,4 @@ func (s *CachedSecretService) GetCacheStats() map[string]interface{} {
 // ClearCache removes every cached secret.
 func (s *CachedSecretService) ClearCache(ctx context.Context) error {
 	return s.cache.Flush(ctx)
-}
-
-// StartCacheCleanup starts the background cache cleanup process.
-func (s *CachedSecretService) StartCacheCleanup(ctx context.Context, interval time.Duration) {
-	s.cache.StartCleanup(ctx, interval)
-	s.logger.WithField("interval", interval).Info("Started cache cleanup process")
 }

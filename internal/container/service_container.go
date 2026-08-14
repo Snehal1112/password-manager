@@ -308,13 +308,23 @@ func (c *ServiceContainer) initializeServices() error {
 
 	// Initialize cache if enabled
 	if c.cacheConfig.Enabled {
-		// Create secret cache
-		c.secretCache = cache.NewSecretCache(c.cacheConfig.TTL, c.logger.Logger)
-
-		// Start background cleanup if configured
-		if c.cacheConfig.CleanupInterval > 0 {
-			c.secretCache.StartCleanup(c.cacheContext, c.cacheConfig.CleanupInterval)
+		// Create secret cache. cachekit.Cache self-manages its own TTL sweep
+		// from construction (started inside NewSecretCache), so there is no
+		// separate StartCleanup step to call here anymore -- see Close()
+		// for the matching Stop(). cachekit's sweep ticker panics on a
+		// non-positive interval, so fall back to a safe default rather than
+		// passing an unset CleanupInterval through (mirrors the sane
+		// non-zero defaults key_cache always uses below).
+		cleanupInterval := c.cacheConfig.CleanupInterval
+		if cleanupInterval <= 0 {
+			cleanupInterval = time.Minute
 		}
+		c.secretCache = cache.NewSecretCache(cachekit.Config{
+			Enabled:         true,
+			TTL:             c.cacheConfig.TTL,
+			CleanupInterval: cleanupInterval,
+			MaxEntries:      c.cacheConfig.MaxEntries,
+		}, c.logger.Logger)
 
 		// The vault delete/recover cascade writes the secrets table directly,
 		// so it needs its own invalidation hook. Set only when the cache
@@ -826,6 +836,11 @@ func (c *ServiceContainer) Close() error {
 	// Cancel cache context to stop background operations.
 	if c.cacheCancel != nil {
 		c.cacheCancel()
+	}
+
+	// Stop the secret cache background sweeper.
+	if c.secretCache != nil {
+		c.secretCache.Stop()
 	}
 
 	// Stop the key cache background sweeper.
