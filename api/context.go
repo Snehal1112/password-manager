@@ -24,9 +24,8 @@ import (
 // at its zero value — as ApiHandler leaves it for public routes — still
 // yields safe, empty field reads rather than a nil-pointer panic.
 type RequestClaims struct {
-	UserID   string
-	Username string
-	Role     string
+	UserID string
+	Role   string
 }
 
 // Context holds request-scoped data for every API handler.
@@ -166,7 +165,6 @@ func ApiSessionRequired(a *app.App, handler func(*Context, http.ResponseWriter, 
 			return
 		}
 
-		username, _ := r.Context().Value(common.UsernameKey).(string)
 		role, _ := r.Context().Value(common.RoleKey).(string)
 
 		if a.ServiceContainer != nil {
@@ -185,9 +183,8 @@ func ApiSessionRequired(a *app.App, handler func(*Context, http.ResponseWriter, 
 		ctx := &Context{
 			App: a,
 			Claims: RequestClaims{
-				UserID:   userIDStr,
-				Username: username,
-				Role:     role,
+				UserID: userIDStr,
+				Role:   role,
 			},
 			Params:         ApiParamsFromRequest(r),
 			RequestID:      "req-" + uuid.New().String()[:8],
