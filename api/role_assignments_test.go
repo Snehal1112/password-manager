@@ -9,7 +9,6 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/golang-jwt/jwt/v5"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
@@ -60,9 +59,9 @@ func newRoleAssignmentCtx(role string, policySvc authzServices.AccessPolicyServi
 	a := &app.App{ServiceContainer: &policyContainer{policySvc: policySvc}}
 	return &Context{
 		App: a,
-		Claims: jwt.MapClaims{
-			"user_id": "00000000-0000-0000-0000-000000000001",
-			"role":    role,
+		Claims: RequestClaims{
+			UserID: "00000000-0000-0000-0000-000000000001",
+			Role:   role,
 		},
 		Params: &ApiParams{VaultName: "prod", PerPage: 60},
 	}
@@ -114,7 +113,7 @@ func TestListRoleAssignments_ReturnsEnrichedResponse(t *testing.T) {
 
 	c := &Context{
 		App:    &app.App{ServiceContainer: mc},
-		Claims: jwt.MapClaims{"user_id": "00000000-0000-0000-0000-000000000001", "role": string(model.RoleAdmin)},
+		Claims: RequestClaims{UserID: "00000000-0000-0000-0000-000000000001", Role: string(model.RoleAdmin)},
 		Params: &ApiParams{VaultName: "prod", PerPage: 60},
 	}
 	w := httptest.NewRecorder()
@@ -162,7 +161,7 @@ func TestRoleAssignments_GrantAllowedForDataAccessAdministrator(t *testing.T) {
 
 	c := &Context{
 		App:    &app.App{ServiceContainer: mc},
-		Claims: jwt.MapClaims{"user_id": callerID.String(), "role": "user"},
+		Claims: RequestClaims{UserID: callerID.String(), Role: "user"},
 		Params: &ApiParams{VaultName: "prod", PerPage: 60},
 	}
 	body := []byte(`{"principal":"alice","role":"Key Vault Secrets User"}`)
@@ -201,7 +200,7 @@ func TestRoleAssignments_GrantDeniedForDataAccessAdministratorInWrongVault(t *te
 
 	c := &Context{
 		App:    &app.App{ServiceContainer: mc},
-		Claims: jwt.MapClaims{"user_id": callerID.String(), "role": "user"},
+		Claims: RequestClaims{UserID: callerID.String(), Role: "user"},
 		Params: &ApiParams{VaultName: "other", PerPage: 60},
 	}
 	body := []byte(`{"principal":"alice","role":"Key Vault Secrets User"}`)
@@ -241,7 +240,7 @@ func TestRoleAssignments_RevokeAllowedForDataAccessAdministrator(t *testing.T) {
 
 	c := &Context{
 		App:    &app.App{ServiceContainer: mc},
-		Claims: jwt.MapClaims{"user_id": callerID.String(), "role": "user"},
+		Claims: RequestClaims{UserID: callerID.String(), Role: "user"},
 		Params: &ApiParams{VaultName: "prod", AssignmentID: assignmentID.String(), PerPage: 60},
 	}
 	r := httptest.NewRequest(http.MethodDelete, "/api/v1/vaults/prod/role-assignments/"+assignmentID.String(), nil)
@@ -287,7 +286,7 @@ func TestRoleAssignments_DataAccessAdministrator_GrantAndRevokeComposeAcrossVaul
 	newCtx := func(vaultName string) *Context {
 		return &Context{
 			App:    &app.App{ServiceContainer: mc},
-			Claims: jwt.MapClaims{"user_id": callerID.String(), "role": "user"},
+			Claims: RequestClaims{UserID: callerID.String(), Role: "user"},
 			Params: &ApiParams{VaultName: vaultName, AssignmentID: assignmentID.String(), PerPage: 60},
 		}
 	}
@@ -350,7 +349,7 @@ func TestRoleAssignments_DataAccessAdministrator_GrantAndRevokeComposeAcrossVaul
 func newReadRoleAssignmentCtx(mc *testutils.MockServiceContainer, callerID, vaultID uuid.UUID, assignmentID, method, path string) (*Context, *http.Request) {
 	c := &Context{
 		App:    &app.App{ServiceContainer: mc},
-		Claims: jwt.MapClaims{"user_id": callerID.String(), "role": "user"},
+		Claims: RequestClaims{UserID: callerID.String(), Role: "user"},
 		Params: &ApiParams{VaultName: "prod", AssignmentID: assignmentID, PerPage: 60},
 	}
 	r := httptest.NewRequest(method, path, nil)

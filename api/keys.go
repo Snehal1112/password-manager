@@ -213,15 +213,16 @@ func buildKeyResponse(key *model.Key) KeyResponse {
 // - DELETE /keys/{key_id}: Delete a key.
 // - POST /keys/{key_id}/rotate: Rotate a key (generate new key pair, revoke old).
 func (api *API) InitKeys() {
-	api.registerKeyRoutes(api.BaseRoutes.Keys)
+	api.registerKeyRoutes(api.BaseRoutes.Keys, "legacy")
 	if api.BaseRoutes.VaultScoped != nil {
-		api.registerKeyRoutes(api.BaseRoutes.VaultScoped.PathPrefix("/keys").Subrouter())
+		api.registerKeyRoutes(api.BaseRoutes.VaultScoped.PathPrefix("/keys").Subrouter(), "vault-scoped")
 	}
 }
 
 // registerKeyRoutes registers the key handlers on the provided subrouter. It is
-// called for both the legacy flat routes and the vault-scoped routes.
-func (api *API) registerKeyRoutes(k *mux.Router) {
+// called for both the legacy flat routes and the vault-scoped routes; scope
+// identifies which one, for the completion log line.
+func (api *API) registerKeyRoutes(k *mux.Router, scope string) {
 	// Basic CRUD operations.
 	k.Handle("", ApiSessionRequired(api.App, createKey)).Methods("POST")
 	k.Handle("", ApiSessionRequired(api.App, listKeys)).Methods("GET")
@@ -244,7 +245,7 @@ func (api *API) registerKeyRoutes(k *mux.Router) {
 	k.Handle("/{key_id:[A-Fa-f0-9-]+}/rotationpolicy", ApiSessionRequired(api.App, upsertKeyRotationPolicy)).Methods("PUT")
 	k.Handle("/{key_id:[A-Fa-f0-9-]+}/rotationpolicy", ApiSessionRequired(api.App, deleteKeyRotationPolicy)).Methods("DELETE")
 
-	api.Logger.Infoln("Keys API routes initialized")
+	api.Logger.WithField("scope", scope).Infoln("Keys API routes initialized")
 }
 
 // createKey creates a new cryptographic key.
@@ -286,12 +287,7 @@ func createKey(c *Context, w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Get user ID from claims.
-	userIDStr, ok := c.Claims["user_id"].(string)
-	if !ok {
-		c.SetInternalError(nil)
-		return
-	}
-	userID, err := uuid.Parse(userIDStr)
+	userID, err := uuid.Parse(c.Claims.UserID)
 	if err != nil {
 		c.SetInvalidParam("user_id")
 		return

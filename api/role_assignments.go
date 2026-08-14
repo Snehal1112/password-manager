@@ -45,10 +45,8 @@ func buildRoleAssignmentResponse(c *Context, r *http.Request, ra *model.RoleAssi
 // malformed, in which case the caller must treat this as an internal error,
 // not a permission denial — a malformed claim is a bug, not a 403.
 func callerIdentity(c *Context) (role string, principalID uuid.UUID, ok bool) {
-	role, _ = c.Claims["role"].(string)
-	userIDStr, _ := c.Claims["user_id"].(string)
-	principalID, err := uuid.Parse(userIDStr)
-	return role, principalID, err == nil
+	principalID, err := uuid.Parse(c.Claims.UserID)
+	return c.Claims.Role, principalID, err == nil
 }
 
 // createRoleAssignment grants a built-in role to a principal within a vault.

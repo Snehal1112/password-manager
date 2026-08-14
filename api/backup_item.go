@@ -49,12 +49,7 @@ func itemBackupSvc(c *Context) *backup.ItemBackupService {
 // getUserID extracts and parses the caller's user ID from JWT claims.
 // It sets an appropriate error on the context when the ID is missing or invalid.
 func getUserID(c *Context) (uuid.UUID, bool) {
-	userIDStr, ok := c.Claims["user_id"].(string)
-	if !ok {
-		c.SetInternalError(nil)
-		return uuid.Nil, false
-	}
-	userID, err := uuid.Parse(userIDStr)
+	userID, err := uuid.Parse(c.Claims.UserID)
 	if err != nil {
 		c.SetInvalidParam("user_id")
 		return uuid.Nil, false

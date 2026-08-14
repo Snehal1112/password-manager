@@ -7,7 +7,6 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/golang-jwt/jwt/v5"
 	"github.com/google/uuid"
 	"github.com/gorilla/mux"
 	"github.com/stretchr/testify/assert"
@@ -32,7 +31,7 @@ func newScopeRequest(t *testing.T, vaultID uuid.UUID, vaultName string) *http.Re
 }
 
 func newScopeContext(userID uuid.UUID) *Context {
-	return &Context{Claims: jwt.MapClaims{"user_id": userID.String()}}
+	return &Context{Claims: RequestClaims{UserID: userID.String()}}
 }
 
 func TestScopeFromRequestVaultScopedRouteYieldsVaultScope(t *testing.T) {
@@ -66,7 +65,7 @@ func TestScopeFromRequestFlatRouteYieldsOwnerScope(t *testing.T) {
 // was deleted in P2 — sets c.Err and returns false rather than proceeding
 // with an invalid scope when the caller's identity cannot be determined.
 func TestScopeHelpersFailClosedWithoutAUserClaim(t *testing.T) {
-	c := &Context{Claims: jwt.MapClaims{}}
+	c := &Context{Claims: RequestClaims{}}
 	r := newScopeRequest(t, uuid.New(), "team-a")
 
 	scope, ok := scopeFromRequest(c, r)

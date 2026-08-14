@@ -11,7 +11,6 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/golang-jwt/jwt/v5"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
@@ -228,7 +227,7 @@ func newCertPolicyCtx(repo repositories.CertificatePolicyRepositoryInterface, ce
 	a := &app.App{ServiceContainer: &certPolicyRepoContainer{certSvc: &scopeStubCertService{policyRepo: repo}}}
 	return &Context{
 		App:    a,
-		Claims: jwt.MapClaims{"user_id": cpTestUserID},
+		Claims: RequestClaims{UserID: cpTestUserID},
 		Params: &ApiParams{CertificateID: certIDStr, PerPage: 60},
 	}
 }
@@ -283,7 +282,7 @@ func TestGetCertificatePolicy_CertNotFound_Returns404WithCertificateMessage(t *t
 	a := &app.App{ServiceContainer: &certSvcContainer{certSvc: svc}}
 	c := &Context{
 		App:    a,
-		Claims: jwt.MapClaims{"user_id": uuid.NewString()},
+		Claims: RequestClaims{UserID: uuid.NewString()},
 		Params: &ApiParams{CertificateID: certID.String(), PerPage: 60},
 	}
 	w := httptest.NewRecorder()
@@ -302,7 +301,7 @@ func TestGetCertificatePolicy_CertLifecycleDenied_Returns404WithCertificateMessa
 	a := &app.App{ServiceContainer: &certSvcContainer{certSvc: svc}}
 	c := &Context{
 		App:    a,
-		Claims: jwt.MapClaims{"user_id": uuid.NewString()},
+		Claims: RequestClaims{UserID: uuid.NewString()},
 		Params: &ApiParams{CertificateID: certID.String(), PerPage: 60},
 	}
 	w := httptest.NewRecorder()

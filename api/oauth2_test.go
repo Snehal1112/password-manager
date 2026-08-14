@@ -29,7 +29,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/golang-jwt/jwt/v5"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 
@@ -44,8 +43,8 @@ func TestCreateServiceAccount_NonAdminForbidden(t *testing.T) {
 
 	c := &Context{
 		// App is nil — the role guard must fire before any App access.
-		Claims: jwt.MapClaims{
-			"role": model.RoleUser,
+		Claims: RequestClaims{
+			Role: model.RoleUser,
 		},
 	}
 
@@ -67,8 +66,8 @@ func TestCreateServiceAccount_AdminAllowed(t *testing.T) {
 	r := httptest.NewRequest(http.MethodPost, "/service-accounts", strings.NewReader(`{"name":"svc"}`))
 
 	c := &Context{
-		Claims: jwt.MapClaims{
-			"role": model.RoleAdmin,
+		Claims: RequestClaims{
+			Role: model.RoleAdmin,
 		},
 	}
 
@@ -95,8 +94,8 @@ func TestListServiceAccounts_NonAdminForbidden(t *testing.T) {
 	r := httptest.NewRequest(http.MethodGet, "/service-accounts", nil)
 
 	c := &Context{
-		Claims: jwt.MapClaims{
-			"role": model.RoleUser,
+		Claims: RequestClaims{
+			Role: model.RoleUser,
 		},
 	}
 
@@ -116,8 +115,8 @@ func TestGetServiceAccount_NonAdminForbidden(t *testing.T) {
 	r := httptest.NewRequest(http.MethodGet, "/service-accounts/"+uuid.New().String(), nil)
 
 	c := &Context{
-		Claims: jwt.MapClaims{
-			"role": model.RoleUser,
+		Claims: RequestClaims{
+			Role: model.RoleUser,
 		},
 	}
 
@@ -137,8 +136,8 @@ func TestDeleteServiceAccount_NonAdminForbidden(t *testing.T) {
 	r := httptest.NewRequest(http.MethodDelete, "/service-accounts/"+uuid.New().String(), nil)
 
 	c := &Context{
-		Claims: jwt.MapClaims{
-			"role": model.RoleUser,
+		Claims: RequestClaims{
+			Role: model.RoleUser,
 		},
 	}
 
@@ -158,8 +157,8 @@ func TestRotateServiceAccountSecret_NonAdminForbidden(t *testing.T) {
 	r := httptest.NewRequest(http.MethodPost, "/service-accounts/"+uuid.New().String()+"/rotate", nil)
 
 	c := &Context{
-		Claims: jwt.MapClaims{
-			"role": model.RoleUser,
+		Claims: RequestClaims{
+			Role: model.RoleUser,
 		},
 	}
 

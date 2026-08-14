@@ -11,7 +11,6 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/golang-jwt/jwt/v5"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
@@ -241,7 +240,7 @@ func newPolicyCtx(svc authzServices.AccessPolicyService) *Context {
 	return &Context{
 		App:    a,
 		Params: &ApiParams{PerPage: 60},
-		Claims: jwt.MapClaims{"role": model.RoleAdmin},
+		Claims: RequestClaims{Role: model.RoleAdmin},
 	}
 }
 
@@ -252,7 +251,7 @@ func newNonAdminPolicyCtx(svc authzServices.AccessPolicyService) *Context {
 	return &Context{
 		App:    a,
 		Params: &ApiParams{PerPage: 60},
-		Claims: jwt.MapClaims{"role": model.RoleUser},
+		Claims: RequestClaims{Role: model.RoleUser},
 	}
 }
 

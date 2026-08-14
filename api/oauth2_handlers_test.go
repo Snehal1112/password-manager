@@ -14,7 +14,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/golang-jwt/jwt/v5"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
@@ -234,7 +233,7 @@ func newOAuth2HCtx(svc oauth2Services.OAuth2Service) *Context {
 	a := &app.App{ServiceContainer: &oauth2HTestContainer{svc: svc}}
 	return &Context{
 		App:    a,
-		Claims: jwt.MapClaims{"role": string(model.RoleAdmin)},
+		Claims: RequestClaims{Role: string(model.RoleAdmin)},
 		Params: &ApiParams{PerPage: 60},
 	}
 }

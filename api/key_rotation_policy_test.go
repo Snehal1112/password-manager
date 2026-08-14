@@ -11,7 +11,6 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/golang-jwt/jwt/v5"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
@@ -240,7 +239,7 @@ func newKeyRotationPolicyCtx(repo repositories.KeyRotationPolicyRepositoryInterf
 	a := &app.App{ServiceContainer: &keyRotationPolicyRepoContainer{repo: repo, keySvc: &scopeStubKeyServiceForPolicy{}}}
 	return &Context{
 		App:    a,
-		Claims: jwt.MapClaims{"user_id": krpTestUserID},
+		Claims: RequestClaims{UserID: krpTestUserID},
 		Params: &ApiParams{KeyID: keyIDStr, PerPage: 60},
 	}
 }
@@ -258,7 +257,7 @@ func newKeyRotationPolicyCtxKeyNotVisible(repo repositories.KeyRotationPolicyRep
 	}}
 	return &Context{
 		App:    a,
-		Claims: jwt.MapClaims{"user_id": krpTestUserID},
+		Claims: RequestClaims{UserID: krpTestUserID},
 		Params: &ApiParams{KeyID: keyIDStr, PerPage: 60},
 	}
 }

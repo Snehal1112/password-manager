@@ -13,7 +13,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/golang-jwt/jwt/v5"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
@@ -283,7 +282,7 @@ func newKeyCtx(svc keyServices.KeyService) *Context {
 	a := &app.App{ServiceContainer: &keySvcTestContainer{keySvc: svc}}
 	return &Context{
 		App:    a,
-		Claims: jwt.MapClaims{"role": string(model.RoleAdmin), "user_id": keyTestUserID},
+		Claims: RequestClaims{Role: string(model.RoleAdmin), UserID: keyTestUserID},
 		Params: &ApiParams{PerPage: 60},
 	}
 }
@@ -293,7 +292,7 @@ func newKeyCtxWithRepo(svc keyServices.KeyService, repo repositories.KeyReposito
 	a := &app.App{ServiceContainer: &keySvcTestContainer{keySvc: svc, keyRepo: repo}}
 	return &Context{
 		App:    a,
-		Claims: jwt.MapClaims{"role": string(model.RoleAdmin), "user_id": keyTestUserID},
+		Claims: RequestClaims{Role: string(model.RoleAdmin), UserID: keyTestUserID},
 		Params: &ApiParams{PerPage: 60},
 	}
 }
@@ -561,7 +560,7 @@ func TestGetKey_NotFound_Returns404(t *testing.T) {
 	svc.On("GetKey", mock.Anything, keyID, keyLegacyOwnerScope()).Return(nil, keyServices.ErrKeyNotFound)
 
 	c := newKeyCtx(svc)
-	c.Claims = jwt.MapClaims{"role": string(model.RoleUser), "user_id": keyTestUserID}
+	c.Claims = RequestClaims{Role: string(model.RoleUser), UserID: keyTestUserID}
 	c.Params = &ApiParams{KeyID: keyID.String(), PerPage: 60}
 	w := httptest.NewRecorder()
 	r := httptest.NewRequest(http.MethodGet, "/keys/"+keyID.String(), nil)
@@ -785,7 +784,7 @@ func TestGetKey_LifecycleDenied_Returns403(t *testing.T) {
 		Return(nil, keyServices.ErrKeyLifecycleDenied)
 
 	c := newKeyCtx(svc)
-	c.Claims = jwt.MapClaims{"role": string(model.RoleUser), "user_id": keyTestUserID}
+	c.Claims = RequestClaims{Role: string(model.RoleUser), UserID: keyTestUserID}
 	c.Params = &ApiParams{KeyID: keyID.String(), PerPage: 60}
 	w := httptest.NewRecorder()
 	r := httptest.NewRequest(http.MethodGet, "/keys/"+keyID.String(), nil)
@@ -808,7 +807,7 @@ func TestGetKey_InternalError_Returns500(t *testing.T) {
 		Return(nil, errors.New("disk I/O"))
 
 	c := newKeyCtx(svc)
-	c.Claims = jwt.MapClaims{"role": string(model.RoleUser), "user_id": keyTestUserID}
+	c.Claims = RequestClaims{Role: string(model.RoleUser), UserID: keyTestUserID}
 	c.Params = &ApiParams{KeyID: keyID.String(), PerPage: 60}
 	w := httptest.NewRecorder()
 	r := httptest.NewRequest(http.MethodGet, "/keys/"+keyID.String(), nil)

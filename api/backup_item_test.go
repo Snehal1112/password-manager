@@ -11,7 +11,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/golang-jwt/jwt/v5"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 
@@ -50,20 +49,23 @@ func TestItemBackupSvc_NilContainer_SetsErr(t *testing.T) {
 // ============================================================
 
 // TestGetUserID_MissingClaim_SetsErr verifies that getUserID returns false
-// when user_id is absent from the JWT claims.
+// when user_id is absent from the claims. RequestClaims is a value type, so a
+// zero-value Context has UserID == "", which fails uuid.Parse the same way an
+// invalid UUID does — getUserID has no way to distinguish "absent" from
+// "empty string", so this now surfaces as the same 400 as an invalid UUID.
 func TestGetUserID_MissingClaim_SetsErr(t *testing.T) {
-	c := &Context{Claims: jwt.MapClaims{}, Params: &ApiParams{}}
+	c := &Context{Claims: RequestClaims{}, Params: &ApiParams{}}
 	id, ok := getUserID(c)
 	assert.False(t, ok)
 	assert.Equal(t, uuid.Nil, id)
 	assert.NotNil(t, c.Err)
-	assert.Equal(t, http.StatusInternalServerError, c.Err.StatusCode)
+	assert.Equal(t, http.StatusBadRequest, c.Err.StatusCode)
 }
 
 // TestGetUserID_InvalidUUID_SetsErr verifies that getUserID returns false
 // when user_id cannot be parsed as a UUID.
 func TestGetUserID_InvalidUUID_SetsErr(t *testing.T) {
-	c := &Context{Claims: jwt.MapClaims{"user_id": "not-a-uuid"}, Params: &ApiParams{}}
+	c := &Context{Claims: RequestClaims{UserID: "not-a-uuid"}, Params: &ApiParams{}}
 	id, ok := getUserID(c)
 	assert.False(t, ok)
 	assert.Equal(t, uuid.Nil, id)
@@ -74,7 +76,7 @@ func TestGetUserID_InvalidUUID_SetsErr(t *testing.T) {
 // TestGetUserID_ValidUUID_ReturnsID verifies that getUserID parses a valid UUID correctly.
 func TestGetUserID_ValidUUID_ReturnsID(t *testing.T) {
 	expected := uuid.New()
-	c := &Context{Claims: jwt.MapClaims{"user_id": expected.String()}, Params: &ApiParams{}}
+	c := &Context{Claims: RequestClaims{UserID: expected.String()}, Params: &ApiParams{}}
 	id, ok := getUserID(c)
 	assert.True(t, ok)
 	assert.Equal(t, expected, id)
@@ -90,7 +92,7 @@ func TestGetUserID_ValidUUID_ReturnsID(t *testing.T) {
 func TestBackupSecretHandler_InvalidSecretID_Returns400(t *testing.T) {
 	c := &Context{
 		App:    &app.App{},
-		Claims: jwt.MapClaims{"user_id": uuid.New().String()},
+		Claims: RequestClaims{UserID: uuid.New().String()},
 		Params: &ApiParams{SecretID: "not-a-uuid", PerPage: 60},
 	}
 	w := httptest.NewRecorder()
@@ -109,7 +111,7 @@ func TestBackupSecretHandler_InvalidSecretID_Returns400(t *testing.T) {
 func TestBackupSecretHandler_NilContainer_Returns500(t *testing.T) {
 	c := &Context{
 		App:    &app.App{ServiceContainer: nil},
-		Claims: jwt.MapClaims{"user_id": uuid.New().String()},
+		Claims: RequestClaims{UserID: uuid.New().String()},
 		Params: &ApiParams{SecretID: uuid.New().String(), PerPage: 60},
 	}
 	w := httptest.NewRecorder()
@@ -132,7 +134,7 @@ func TestBackupSecretHandler_NilContainer_Returns500(t *testing.T) {
 func TestRestoreSecretHandler_InvalidJSON_Returns400(t *testing.T) {
 	c := &Context{
 		App:    &app.App{},
-		Claims: jwt.MapClaims{"user_id": uuid.New().String()},
+		Claims: RequestClaims{UserID: uuid.New().String()},
 		Params: &ApiParams{PerPage: 60},
 	}
 	w := httptest.NewRecorder()
@@ -154,7 +156,7 @@ func TestRestoreSecretHandler_InvalidJSON_Returns400(t *testing.T) {
 func TestBackupKeyHandler_InvalidKeyID_Returns400(t *testing.T) {
 	c := &Context{
 		App:    &app.App{},
-		Claims: jwt.MapClaims{"user_id": uuid.New().String()},
+		Claims: RequestClaims{UserID: uuid.New().String()},
 		Params: &ApiParams{KeyID: "bad", PerPage: 60},
 	}
 	w := httptest.NewRecorder()
@@ -171,7 +173,7 @@ func TestBackupKeyHandler_InvalidKeyID_Returns400(t *testing.T) {
 func TestBackupKeyHandler_NilContainer_Returns500(t *testing.T) {
 	c := &Context{
 		App:    &app.App{ServiceContainer: nil},
-		Claims: jwt.MapClaims{"user_id": uuid.New().String()},
+		Claims: RequestClaims{UserID: uuid.New().String()},
 		Params: &ApiParams{KeyID: uuid.New().String(), PerPage: 60},
 	}
 	w := httptest.NewRecorder()
@@ -192,7 +194,7 @@ func TestBackupKeyHandler_NilContainer_Returns500(t *testing.T) {
 func TestRestoreKeyHandler_EmptyBlob_Returns400(t *testing.T) {
 	c := &Context{
 		App:    &app.App{},
-		Claims: jwt.MapClaims{"user_id": uuid.New().String()},
+		Claims: RequestClaims{UserID: uuid.New().String()},
 		Params: &ApiParams{PerPage: 60},
 	}
 	w := httptest.NewRecorder()
@@ -213,7 +215,7 @@ func TestRestoreKeyHandler_EmptyBlob_Returns400(t *testing.T) {
 func TestBackupCertificateHandler_InvalidCertID_Returns400(t *testing.T) {
 	c := &Context{
 		App:    &app.App{},
-		Claims: jwt.MapClaims{"user_id": uuid.New().String()},
+		Claims: RequestClaims{UserID: uuid.New().String()},
 		Params: &ApiParams{CertificateID: "bad", PerPage: 60},
 	}
 	w := httptest.NewRecorder()
@@ -230,7 +232,7 @@ func TestBackupCertificateHandler_InvalidCertID_Returns400(t *testing.T) {
 func TestBackupCertificateHandler_NilContainer_Returns500(t *testing.T) {
 	c := &Context{
 		App:    &app.App{ServiceContainer: nil},
-		Claims: jwt.MapClaims{"user_id": uuid.New().String()},
+		Claims: RequestClaims{UserID: uuid.New().String()},
 		Params: &ApiParams{CertificateID: uuid.New().String(), PerPage: 60},
 	}
 	w := httptest.NewRecorder()
@@ -251,7 +253,7 @@ func TestBackupCertificateHandler_NilContainer_Returns500(t *testing.T) {
 func TestRestoreCertificateHandler_EmptyBlob_Returns400(t *testing.T) {
 	c := &Context{
 		App:    &app.App{},
-		Claims: jwt.MapClaims{"user_id": uuid.New().String()},
+		Claims: RequestClaims{UserID: uuid.New().String()},
 		Params: &ApiParams{PerPage: 60},
 	}
 	w := httptest.NewRecorder()
@@ -349,7 +351,7 @@ func newBackupCtxWithSecret(secretRepo *mockSecretRepo) *Context {
 	}
 	return &Context{
 		App:    &app.App{ServiceContainer: container},
-		Claims: jwt.MapClaims{"user_id": secretHTestUserID},
+		Claims: RequestClaims{UserID: secretHTestUserID},
 		Params: &ApiParams{PerPage: 60},
 	}
 }
@@ -534,7 +536,7 @@ func TestRestoreSecretHandler_NilContainer_Returns500(t *testing.T) {
 
 	c := &Context{
 		App:    &app.App{ServiceContainer: nil},
-		Claims: jwt.MapClaims{"user_id": userID.String()},
+		Claims: RequestClaims{UserID: userID.String()},
 		Params: &ApiParams{PerPage: 60},
 	}
 	w := httptest.NewRecorder()
@@ -661,7 +663,7 @@ func newBackupCtxWithKey(keyRepo *mockKeyRepo) *Context {
 	}
 	return &Context{
 		App:    &app.App{ServiceContainer: container},
-		Claims: jwt.MapClaims{"user_id": secretHTestUserID},
+		Claims: RequestClaims{UserID: secretHTestUserID},
 		Params: &ApiParams{PerPage: 60},
 	}
 }
@@ -685,7 +687,7 @@ func newBackupCtxWithCert(certRepo *mockCertRepo) *Context {
 	}
 	return &Context{
 		App:    &app.App{ServiceContainer: container},
-		Claims: jwt.MapClaims{"user_id": secretHTestUserID},
+		Claims: RequestClaims{UserID: secretHTestUserID},
 		Params: &ApiParams{PerPage: 60},
 	}
 }
@@ -864,7 +866,7 @@ func TestRestoreKeyHandler_NilContainer_Returns500(t *testing.T) {
 
 	c := &Context{
 		App:    &app.App{ServiceContainer: nil},
-		Claims: jwt.MapClaims{"user_id": userID.String()},
+		Claims: RequestClaims{UserID: userID.String()},
 		Params: &ApiParams{PerPage: 60},
 	}
 	w := httptest.NewRecorder()
@@ -1053,7 +1055,7 @@ func TestRestoreCertificateHandler_NilContainer_Returns500(t *testing.T) {
 
 	c := &Context{
 		App:    &app.App{ServiceContainer: nil},
-		Claims: jwt.MapClaims{"user_id": userID.String()},
+		Claims: RequestClaims{UserID: userID.String()},
 		Params: &ApiParams{PerPage: 60},
 	}
 	w := httptest.NewRecorder()

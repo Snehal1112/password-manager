@@ -8,7 +8,6 @@ import (
 	"strings"
 	"testing"
 
-	jwtv5 "github.com/golang-jwt/jwt/v5"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
@@ -20,9 +19,9 @@ import (
 	"rocketvault/model"
 )
 
-// adminClaims returns a jwt.MapClaims with admin role set.
-func adminClaims() jwtv5.MapClaims {
-	return jwtv5.MapClaims{"role": string(model.RoleAdmin)}
+// adminClaims returns a RequestClaims with admin role set.
+func adminClaims() RequestClaims {
+	return RequestClaims{Role: string(model.RoleAdmin)}
 }
 
 // TestGetAuditLogs_Returns200 verifies that a valid query returns 200 with integrity_ok.

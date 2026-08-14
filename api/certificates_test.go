@@ -13,7 +13,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/golang-jwt/jwt/v5"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
@@ -288,7 +287,7 @@ func (c *certSvcContainer) GetComplianceReportService() auditServices.Compliance
 func (c *certSvcContainer) Close() error { return nil }
 
 // newCertCtx builds a Context backed by the given CertificateService mock.
-func newCertCtx(svc certServices.CertificateService, claims jwt.MapClaims) *Context {
+func newCertCtx(svc certServices.CertificateService, claims RequestClaims) *Context {
 	a := &app.App{ServiceContainer: &certSvcContainer{certSvc: svc}}
 	return &Context{
 		App:    a,
@@ -299,8 +298,8 @@ func newCertCtx(svc certServices.CertificateService, claims jwt.MapClaims) *Cont
 
 const certTestUserID = "a1b2c3d4-e5f6-7890-abcd-ef1234567890"
 
-func certAdminClaims() jwt.MapClaims {
-	return jwt.MapClaims{"role": model.RoleAdmin, "user_id": certTestUserID}
+func certAdminClaims() RequestClaims {
+	return RequestClaims{Role: model.RoleAdmin, UserID: certTestUserID}
 }
 
 // certLegacyOwnerScope is the exact scope scopeFromRequest builds for a legacy

@@ -364,12 +364,7 @@ func purgeCertificate(c *Context, w http.ResponseWriter, r *http.Request) {
 // userIDFromClaims extracts and parses the user UUID from JWT claims.
 // Sets c.Err and returns false if the claim is missing or cannot be parsed.
 func userIDFromClaims(c *Context) (uuid.UUID, bool) {
-	str, ok := c.Claims["user_id"].(string)
-	if !ok {
-		c.SetInvalidParam("user_id")
-		return uuid.Nil, false
-	}
-	id, err := uuid.Parse(str)
+	id, err := uuid.Parse(c.Claims.UserID)
 	if err != nil {
 		c.SetInvalidParam("user_id")
 		return uuid.Nil, false

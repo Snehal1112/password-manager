@@ -5,7 +5,6 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/golang-jwt/jwt/v5"
 	"github.com/google/uuid"
 	"github.com/gorilla/mux"
 
@@ -21,6 +20,16 @@ import (
 	"rocketvault/model"
 )
 
+// RequestClaims holds the identity claims ApiSessionRequired attaches to an
+// authenticated request. It is a value type (not a pointer) so a Context left
+// at its zero value — as ApiHandler leaves it for public routes — still
+// yields safe, empty field reads rather than a nil-pointer panic.
+type RequestClaims struct {
+	UserID   string
+	Username string
+	Role     string
+}
+
 // Context holds request-scoped data for every API handler.
 type Context struct {
 	App            *app.App
@@ -29,7 +38,7 @@ type Context struct {
 	RequestID      string
 	IPAddress      string
 	Token          string
-	Claims         jwt.MapClaims
+	Claims         RequestClaims
 	Path           string
 	UserAgent      string
 	AcceptLanguage string
@@ -176,10 +185,10 @@ func ApiSessionRequired(a *app.App, handler func(*Context, http.ResponseWriter, 
 
 		ctx := &Context{
 			App: a,
-			Claims: jwt.MapClaims{
-				"user_id":  userIDStr,
-				"username": username,
-				"role":     role,
+			Claims: RequestClaims{
+				UserID:   userIDStr,
+				Username: username,
+				Role:     role,
 			},
 			Params:         ApiParamsFromRequest(r),
 			RequestID:      "req-" + uuid.New().String()[:8],

@@ -12,7 +12,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/golang-jwt/jwt/v5"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
@@ -289,7 +288,7 @@ func newSecretCtx(svc secretServices.SecretService) *Context {
 	a := &app.App{ServiceContainer: &secretSvcTestContainer{secretSvc: svc}}
 	return &Context{
 		App:    a,
-		Claims: jwt.MapClaims{"user_id": secretHTestUserID},
+		Claims: RequestClaims{UserID: secretHTestUserID},
 		Params: &ApiParams{PerPage: 60},
 		Logger: userTestLog(),
 	}
@@ -688,7 +687,7 @@ func TestDeleteSecret_MissingUserIDClaim_Returns400(t *testing.T) {
 	// A valid service container, so the assertion below exercises the
 	// missing-claim path itself rather than the unrelated nil-container guard.
 	c := newSecretCtx(&mockSecretService{})
-	c.Claims = jwt.MapClaims{}
+	c.Claims = RequestClaims{}
 	c.Params = &ApiParams{SecretID: secretID.String(), PerPage: 60}
 	w := httptest.NewRecorder()
 	r := httptest.NewRequest(http.MethodDelete, "/secrets/"+secretID.String(), nil)
@@ -709,7 +708,7 @@ func TestListSecrets_MissingUserIDClaim_Returns400(t *testing.T) {
 	// A valid service container, so the assertion below exercises the
 	// missing-claim path itself rather than the unrelated nil-container guard.
 	c := newSecretCtx(&mockSecretService{})
-	c.Claims = jwt.MapClaims{}
+	c.Claims = RequestClaims{}
 	c.Params = &ApiParams{PerPage: 60}
 	w := httptest.NewRecorder()
 	r := httptest.NewRequest(http.MethodGet, "/secrets", nil)

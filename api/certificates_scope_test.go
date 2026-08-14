@@ -8,7 +8,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/golang-jwt/jwt/v5"
 	"github.com/google/uuid"
 	"github.com/gorilla/mux"
 	"github.com/stretchr/testify/assert"
@@ -96,7 +95,7 @@ func newCertHandlerFixture(t *testing.T, svc certServices.CertificateService, ce
 	vaultName string) (*Context, *httptest.ResponseRecorder, *http.Request) {
 	t.Helper()
 
-	c := newCertCtx(svc, jwt.MapClaims{"user_id": uuid.NewString()})
+	c := newCertCtx(svc, RequestClaims{UserID: uuid.NewString()})
 	c.Params.CertificateID = certID.String()
 
 	return c, httptest.NewRecorder(), newScopeRequest(t, uuid.New(), vaultName)
@@ -155,7 +154,7 @@ func TestCertificatePolicyHandlers_LifecycleDeniedMapsTo404(t *testing.T) {
 
 	t.Run("upsert", func(t *testing.T) {
 		svc := &scopeStubCertService{certErr: certServices.ErrCertLifecycleDenied}
-		c := newCertCtx(svc, jwt.MapClaims{"user_id": uuid.NewString()})
+		c := newCertCtx(svc, RequestClaims{UserID: uuid.NewString()})
 		c.Params.CertificateID = certID.String()
 		w := httptest.NewRecorder()
 		body := []byte(`{"validity_months":12,"key_type":"RSA","key_size":2048}`)
@@ -227,7 +226,7 @@ func newCertPolicyScopeCtx(svc certServices.CertificateService,
 	a := &app.App{ServiceContainer: &certSvcContainer{certSvc: svc, certPolicyRepo: repo}}
 	return &Context{
 		App:    a,
-		Claims: jwt.MapClaims{"user_id": uuid.NewString()},
+		Claims: RequestClaims{UserID: uuid.NewString()},
 		Params: &ApiParams{CertificateID: certID.String(), PerPage: 60},
 	}
 }

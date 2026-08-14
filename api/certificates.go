@@ -87,16 +87,16 @@ type CertificateListResponse struct {
 // - PUT /certificates/{certificate_id}: Update certificate metadata.
 // - DELETE /certificates/{certificate_id}: Delete a certificate.
 func (api *API) InitCertificates() {
-	api.registerCertificateRoutes(api.BaseRoutes.Certificates)
+	api.registerCertificateRoutes(api.BaseRoutes.Certificates, "legacy")
 	if api.BaseRoutes.VaultScoped != nil {
-		api.registerCertificateRoutes(api.BaseRoutes.VaultScoped.PathPrefix("/certificates").Subrouter())
+		api.registerCertificateRoutes(api.BaseRoutes.VaultScoped.PathPrefix("/certificates").Subrouter(), "vault-scoped")
 	}
 }
 
 // registerCertificateRoutes registers the certificate handlers on the provided
 // subrouter. It is called for both the legacy flat routes and the vault-scoped
-// routes.
-func (api *API) registerCertificateRoutes(c *mux.Router) {
+// routes; scope identifies which one, for the completion log line.
+func (api *API) registerCertificateRoutes(c *mux.Router, scope string) {
 	c.Handle("", ApiSessionRequired(api.App, createCertificate)).Methods("POST")
 	c.Handle("", ApiSessionRequired(api.App, listCertificates)).Methods("GET")
 	c.Handle("/{certificate_id:[A-Fa-f0-9-]+}", ApiSessionRequired(api.App, getCertificate)).Methods("GET")
@@ -108,7 +108,7 @@ func (api *API) registerCertificateRoutes(c *mux.Router) {
 	c.Handle("/{certificate_id:[A-Fa-f0-9-]+}/policy", ApiSessionRequired(api.App, upsertCertificatePolicy)).Methods("PUT")
 	c.Handle("/{certificate_id:[A-Fa-f0-9-]+}/policy", ApiSessionRequired(api.App, deleteCertificatePolicy)).Methods("DELETE")
 
-	api.Logger.Infoln("Certificates API routes initialized")
+	api.Logger.WithField("scope", scope).Infoln("Certificates API routes initialized")
 }
 
 // certToDomainResponse converts a model.Certificate to a CertificateResponse.
@@ -159,12 +159,7 @@ func createCertificate(c *Context, w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	userIDStr, ok := c.Claims["user_id"].(string)
-	if !ok {
-		c.SetInternalError(nil)
-		return
-	}
-	userID, err := uuid.Parse(userIDStr)
+	userID, err := uuid.Parse(c.Claims.UserID)
 	if err != nil {
 		c.SetInvalidParam("user_id")
 		return

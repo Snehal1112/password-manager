@@ -9,7 +9,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/golang-jwt/jwt/v5"
 	"github.com/google/uuid"
 	"github.com/gorilla/mux"
 	"github.com/stretchr/testify/assert"
@@ -36,21 +35,21 @@ const sdExtUserID = "c3d4e5f6-a7b8-9012-cdef-123456789012"
 // ============================================================
 
 func TestUserIDFromClaims_MissingClaim_ReturnsFalse(t *testing.T) {
-	c := &Context{Claims: jwt.MapClaims{}, Params: &ApiParams{}}
+	c := &Context{Claims: RequestClaims{}, Params: &ApiParams{}}
 	id, ok := userIDFromClaims(c)
 	assert.False(t, ok)
 	assert.Equal(t, uuid.Nil, id)
 }
 
 func TestUserIDFromClaims_InvalidUUID_ReturnsFalse(t *testing.T) {
-	c := &Context{Claims: jwt.MapClaims{"user_id": "not-uuid"}, Params: &ApiParams{}}
+	c := &Context{Claims: RequestClaims{UserID: "not-uuid"}, Params: &ApiParams{}}
 	id, ok := userIDFromClaims(c)
 	assert.False(t, ok)
 	assert.Equal(t, uuid.Nil, id)
 }
 
 func TestUserIDFromClaims_ValidUUID_ReturnsTrue(t *testing.T) {
-	c := &Context{Claims: jwt.MapClaims{"user_id": sdExtUserID}, Params: &ApiParams{}}
+	c := &Context{Claims: RequestClaims{UserID: sdExtUserID}, Params: &ApiParams{}}
 	id, ok := userIDFromClaims(c)
 	assert.True(t, ok)
 	assert.Equal(t, uuid.MustParse(sdExtUserID), id)

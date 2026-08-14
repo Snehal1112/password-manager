@@ -64,8 +64,8 @@ func (c *Context) complianceSvc() auditSvc.ComplianceReportServiceInterface {
 // It parses AuditFilter query params and returns a page of logs with an integrity flag.
 func getAuditLogs(c *Context, w http.ResponseWriter, r *http.Request) {
 	// Restrict to admin role.
-	role, ok := c.Claims["role"].(string)
-	if !ok || role != string(model.RoleAdmin) {
+	role := c.Claims.Role
+	if role != string(model.RoleAdmin) {
 		c.SetPermissionError("admin role required")
 		return
 	}
@@ -96,8 +96,8 @@ func getAuditLogs(c *Context, w http.ResponseWriter, r *http.Request) {
 // Returns JSON by default; returns CSV when Accept: text/csv is set.
 func getSOC2Report(c *Context, w http.ResponseWriter, r *http.Request) {
 	// Restrict to admin role.
-	role, ok := c.Claims["role"].(string)
-	if !ok || role != string(model.RoleAdmin) {
+	role := c.Claims.Role
+	if role != string(model.RoleAdmin) {
 		c.SetPermissionError("admin role required")
 		return
 	}
@@ -140,8 +140,8 @@ func getSOC2Report(c *Context, w http.ResponseWriter, r *http.Request) {
 // Returns JSON by default; returns CSV when Accept: text/csv is set.
 func getGDPRReport(c *Context, w http.ResponseWriter, r *http.Request) {
 	// Restrict to admin role.
-	role, ok := c.Claims["role"].(string)
-	if !ok || role != string(model.RoleAdmin) {
+	role := c.Claims.Role
+	if role != string(model.RoleAdmin) {
 		c.SetPermissionError("admin role required")
 		return
 	}
@@ -188,8 +188,8 @@ func getGDPRReport(c *Context, w http.ResponseWriter, r *http.Request) {
 // getAuditConfig handles GET /audit/config and returns the current retention_days.
 func getAuditConfig(c *Context, w http.ResponseWriter, r *http.Request) {
 	// Restrict to admin role.
-	role, ok := c.Claims["role"].(string)
-	if !ok || role != string(model.RoleAdmin) {
+	role := c.Claims.Role
+	if role != string(model.RoleAdmin) {
 		c.SetPermissionError("admin role required")
 		return
 	}
@@ -212,8 +212,8 @@ func getAuditConfig(c *Context, w http.ResponseWriter, r *http.Request) {
 // patchAuditConfig handles PATCH /audit/config and updates retention_days.
 func patchAuditConfig(c *Context, w http.ResponseWriter, r *http.Request) {
 	// Restrict to admin role.
-	role, ok := c.Claims["role"].(string)
-	if !ok || role != string(model.RoleAdmin) {
+	role := c.Claims.Role
+	if role != string(model.RoleAdmin) {
 		c.SetPermissionError("admin role required")
 		return
 	}

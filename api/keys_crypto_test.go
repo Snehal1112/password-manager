@@ -36,7 +36,6 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/golang-jwt/jwt/v5"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -244,8 +243,8 @@ func newCryptoContext(svc keyServices.CryptoService) *Context {
 	a := &app.App{ServiceContainer: &cryptoTestContainer{svc: svc}}
 	return &Context{
 		App: a,
-		Claims: jwt.MapClaims{
-			"user_id": testUserIDStr,
+		Claims: RequestClaims{
+			UserID: testUserIDStr,
 		},
 		Params: &ApiParams{KeyID: testKeyIDStr},
 	}
@@ -742,7 +741,7 @@ func TestDecryptKey_RevokedKey_Returns403(t *testing.T) {
 func TestSignKey_InvalidKeyID_Returns400(t *testing.T) {
 	c := &Context{
 		Params: &ApiParams{KeyID: "not-a-uuid"},
-		Claims: jwt.MapClaims{"user_id": testUserIDStr},
+		Claims: RequestClaims{UserID: testUserIDStr},
 	}
 	w := httptest.NewRecorder()
 	r := httptest.NewRequest(http.MethodPost, "/", jsonBody(t, map[string]any{
@@ -764,7 +763,7 @@ func TestSignKey_NilContainer_Returns500(t *testing.T) {
 	c := &Context{
 		App:    &app.App{ServiceContainer: nil},
 		Params: &ApiParams{KeyID: testKeyIDStr},
-		Claims: jwt.MapClaims{"user_id": testUserIDStr},
+		Claims: RequestClaims{UserID: testUserIDStr},
 	}
 	w := httptest.NewRecorder()
 	r := httptest.NewRequest(http.MethodPost, "/", jsonBody(t, map[string]any{

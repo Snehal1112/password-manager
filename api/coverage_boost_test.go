@@ -14,7 +14,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/golang-jwt/jwt/v5"
 	"github.com/google/uuid"
 	"github.com/gorilla/mux"
 	"github.com/sirupsen/logrus"
@@ -126,7 +125,7 @@ func TestCompatibilityMiddleware_V1_CallsHandleV1Compatibility(t *testing.T) {
 func auditAdminCtx(mc *testutils.MockServiceContainer) *Context {
 	return &Context{
 		App:    &app.App{ServiceContainer: mc},
-		Claims: jwt.MapClaims{"role": string(model.RoleAdmin)},
+		Claims: RequestClaims{Role: string(model.RoleAdmin)},
 		Params: &ApiParams{PerPage: 60},
 	}
 }
@@ -135,7 +134,7 @@ func auditAdminCtx(mc *testutils.MockServiceContainer) *Context {
 func TestGetAuditLogs_NonAdmin_Returns403(t *testing.T) {
 	c := &Context{
 		App:    &app.App{},
-		Claims: jwt.MapClaims{"role": "viewer"},
+		Claims: RequestClaims{Role: "viewer"},
 		Params: &ApiParams{},
 	}
 	w := httptest.NewRecorder()
@@ -536,7 +535,7 @@ func buildUpdateSecretCtx(svc *mockSecretService, secretIDStr string) *Context {
 	l := logrus.New()
 	return &Context{
 		App:    a,
-		Claims: jwt.MapClaims{"user_id": secretHTestUserID},
+		Claims: RequestClaims{UserID: secretHTestUserID},
 		Params: &ApiParams{SecretID: secretIDStr, PerPage: 60},
 		Logger: &logging.Logger{Logger: l},
 	}
@@ -612,7 +611,7 @@ func TestUpdateSecret_NameChange_Returns200(t *testing.T) {
 func TestImportSecrets_NoMultipartForm_Returns400(t *testing.T) {
 	c := &Context{
 		App:    &app.App{},
-		Claims: jwt.MapClaims{"user_id": secretHTestUserID},
+		Claims: RequestClaims{UserID: secretHTestUserID},
 		Params: &ApiParams{PerPage: 60},
 	}
 	w := httptest.NewRecorder()
@@ -1200,7 +1199,7 @@ func TestUpdateSecret_TagsChange_Returns200(t *testing.T) {
 func TestGetAuditConfig_NonAdmin_Returns403(t *testing.T) {
 	c := &Context{
 		App:    &app.App{},
-		Claims: jwt.MapClaims{"role": "viewer"},
+		Claims: RequestClaims{Role: "viewer"},
 		Params: &ApiParams{},
 	}
 	w := httptest.NewRecorder()
@@ -1218,7 +1217,7 @@ func TestGetAuditConfig_NonAdmin_Returns403(t *testing.T) {
 func TestPatchAuditConfig_NonAdmin_Returns403(t *testing.T) {
 	c := &Context{
 		App:    &app.App{},
-		Claims: jwt.MapClaims{"role": "viewer"},
+		Claims: RequestClaims{Role: "viewer"},
 		Params: &ApiParams{},
 	}
 	w := httptest.NewRecorder()
@@ -1236,7 +1235,7 @@ func TestPatchAuditConfig_NonAdmin_Returns403(t *testing.T) {
 func TestGetSOC2Report_NonAdmin_Returns403(t *testing.T) {
 	c := &Context{
 		App:    &app.App{},
-		Claims: jwt.MapClaims{"role": "viewer"},
+		Claims: RequestClaims{Role: "viewer"},
 		Params: &ApiParams{},
 	}
 	w := httptest.NewRecorder()
@@ -1254,7 +1253,7 @@ func TestGetSOC2Report_NonAdmin_Returns403(t *testing.T) {
 func TestGetGDPRReport_NonAdmin_Returns403(t *testing.T) {
 	c := &Context{
 		App:    &app.App{},
-		Claims: jwt.MapClaims{"role": "viewer"},
+		Claims: RequestClaims{Role: "viewer"},
 		Params: &ApiParams{},
 	}
 	w := httptest.NewRecorder()

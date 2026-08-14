@@ -32,7 +32,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/golang-jwt/jwt/v5"
 	"github.com/stretchr/testify/assert"
 
 	"rocketvault/model"
@@ -51,9 +50,9 @@ func TestCreateSecret_ValueTooLarge_Returns400(t *testing.T) {
 
 	c := &Context{
 		// App is nil — the validation guard must fire before any App access.
-		Claims: jwt.MapClaims{
-			"role":    model.RoleAdmin,
-			"user_id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+		Claims: RequestClaims{
+			Role:   model.RoleAdmin,
+			UserID: "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
 		},
 	}
 
@@ -79,9 +78,9 @@ func TestCreateSecret_InvalidName_Returns400(t *testing.T) {
 
 	c := &Context{
 		// App is nil — the validation guard must fire before any App access.
-		Claims: jwt.MapClaims{
-			"role":    model.RoleAdmin,
-			"user_id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+		Claims: RequestClaims{
+			Role:   model.RoleAdmin,
+			UserID: "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
 		},
 	}
 
@@ -113,9 +112,9 @@ func TestCreateSecret_TooManyTags_Returns400(t *testing.T) {
 
 	c := &Context{
 		// App is nil — the validation guard must fire before any App access.
-		Claims: jwt.MapClaims{
-			"role":    model.RoleAdmin,
-			"user_id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+		Claims: RequestClaims{
+			Role:   model.RoleAdmin,
+			UserID: "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
 		},
 	}
 

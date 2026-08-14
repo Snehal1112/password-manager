@@ -30,7 +30,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/golang-jwt/jwt/v5"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
@@ -50,8 +49,8 @@ func newGetDeletedKeyContext(svc keyServices.KeyService) *Context {
 	a := &app.App{ServiceContainer: &keySvcTestContainer{keySvc: svc}}
 	return &Context{
 		App: a,
-		Claims: jwt.MapClaims{
-			"user_id": sdTestUserIDStr,
+		Claims: RequestClaims{
+			UserID: sdTestUserIDStr,
 		},
 	}
 }

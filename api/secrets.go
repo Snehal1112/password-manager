@@ -49,16 +49,16 @@ import (
 // - POST /secrets/export: Export secrets in JSON or CSV format.
 // - POST /secrets/import: Import secrets from JSON or CSV format.
 func (api *API) InitSecrets() {
-	api.registerSecretRoutes(api.BaseRoutes.Secrets)
+	api.registerSecretRoutes(api.BaseRoutes.Secrets, "legacy")
 	if api.BaseRoutes.VaultScoped != nil {
-		api.registerSecretRoutes(api.BaseRoutes.VaultScoped.PathPrefix("/secrets").Subrouter())
+		api.registerSecretRoutes(api.BaseRoutes.VaultScoped.PathPrefix("/secrets").Subrouter(), "vault-scoped")
 	}
 }
 
 // registerSecretRoutes registers the secret handlers on the provided subrouter.
 // It is called once for the legacy flat routes and once for the vault-scoped
 // routes so both URL shapes resolve to the same handlers.
-func (api *API) registerSecretRoutes(s *mux.Router) {
+func (api *API) registerSecretRoutes(s *mux.Router, scope string) {
 	// Basic CRUD operations on the collection.
 	s.Handle("", ApiSessionRequired(api.App, createSecret)).Methods("POST")
 	s.Handle("", ApiSessionRequired(api.App, listSecrets)).Methods("GET")
@@ -75,6 +75,8 @@ func (api *API) registerSecretRoutes(s *mux.Router) {
 	s.Handle("/{secret_id:[A-Fa-f0-9-]+}/versions", ApiSessionRequired(api.App, listSecretVersionsHandler)).Methods("GET")
 	s.Handle("/{secret_id:[A-Fa-f0-9-]+}/versions/{version:[0-9]+}", ApiSessionRequired(api.App, getSecretVersionHandler)).Methods("GET")
 	s.Handle("/{secret_id:[A-Fa-f0-9-]+}/versions/latest", ApiSessionRequired(api.App, getLatestSecretVersionHandler)).Methods("GET")
+
+	api.Logger.WithField("scope", scope).Infoln("Secrets API routes initialized")
 }
 
 // listSecretVersionsHandler lists all versions of a secret.
@@ -175,13 +177,6 @@ func exportSecrets(c *Context, w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Get user ID from JWT claims for the trailing log line.
-	userIDStr, ok := c.Claims["user_id"].(string)
-	if !ok {
-		c.SetInternalError(nil)
-		return
-	}
-
 	secretService := c.secretSvc()
 	if secretService == nil {
 		return
@@ -221,7 +216,7 @@ func exportSecrets(c *Context, w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusOK)
 	w.Write(data) //nolint:errcheck,gosec
 
-	c.Logger.Printf("User %s exported secrets in %s format", userIDStr, exportReq.Format)
+	c.Logger.Printf("User %s exported secrets in %s format", c.Claims.UserID, exportReq.Format)
 }
 
 // importSecrets handles the import of secrets from encrypted files.
@@ -256,13 +251,6 @@ func importSecrets(c *Context, w http.ResponseWriter, r *http.Request) {
 	}
 
 	overwrite := r.FormValue("overwrite") == "true"
-
-	// Get user ID from JWT claims for the trailing log line.
-	userIDStr, ok := c.Claims["user_id"].(string)
-	if !ok {
-		c.SetInternalError(nil)
-		return
-	}
 
 	secretService := c.secretSvc()
 	if secretService == nil {
@@ -304,7 +292,7 @@ func importSecrets(c *Context, w http.ResponseWriter, r *http.Request) {
 	w.Write([]byte(response.ToJson())) //nolint:errcheck,gosec
 
 	c.Logger.Printf("User %s imported %d/%d secrets from %s format",
-		userIDStr, result.ImportedCount, result.TotalCount, format)
+		c.Claims.UserID, result.ImportedCount, result.TotalCount, format)
 }
 
 // createSecret handles the creation of a new secret.
@@ -337,13 +325,7 @@ func createSecret(c *Context, w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Get user ID from JWT claims.
-	userIDStr, ok := c.Claims["user_id"].(string)
-	if !ok {
-		c.SetInternalError(nil)
-		return
-	}
-
-	userID, err := uuid.Parse(userIDStr)
+	userID, err := uuid.Parse(c.Claims.UserID)
 	if err != nil {
 		c.SetInvalidParam("user_id")
 		return
@@ -398,7 +380,7 @@ func createSecret(c *Context, w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusCreated)
 	w.Write([]byte(response.ToJson())) //nolint:errcheck,gosec
 
-	c.Logger.Printf("User %s created secret %s", userIDStr, secret.Name)
+	c.Logger.Printf("User %s created secret %s", c.Claims.UserID, secret.Name)
 }
 
 // listSecrets handles the HTTP request to list secrets. Legacy flat routes use
@@ -678,13 +660,7 @@ func generateSecret(c *Context, w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Get user ID from JWT claims.
-	userIDStr, ok := c.Claims["user_id"].(string)
-	if !ok {
-		c.SetInternalError(nil)
-		return
-	}
-
-	userID, err := uuid.Parse(userIDStr)
+	userID, err := uuid.Parse(c.Claims.UserID)
 	if err != nil {
 		c.SetInvalidParam("user_id")
 		return
@@ -732,5 +708,5 @@ func generateSecret(c *Context, w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusCreated)
 	w.Write([]byte(response.ToJson())) //nolint:errcheck,gosec
 
-	c.Logger.Printf("User %s generated secret %s", userIDStr, secret.Name)
+	c.Logger.Printf("User %s generated secret %s", c.Claims.UserID, secret.Name)
 }

@@ -178,9 +178,8 @@ func recordServiceAccountAudit(c *Context, r *http.Request, action, resourceID, 
 	if svc == nil {
 		return
 	}
-	callerIDStr, _ := c.Claims["user_id"].(string)
 	_ = svc.RecordEvent(r.Context(), auditSvc.AuditEvent{
-		UserID:       callerIDStr,
+		UserID:       c.Claims.UserID,
 		Action:       action,
 		Outcome:      outcome,
 		Source:       "api",
@@ -197,8 +196,7 @@ func recordServiceAccountAudit(c *Context, r *http.Request, action, resourceID, 
 // Returns the new client object plus the one-time plain-text secret.
 func createServiceAccount(c *Context, w http.ResponseWriter, r *http.Request) {
 	// Enforce admin-only access to prevent privilege escalation.
-	roleStr, _ := c.Claims["role"].(string)
-	if !common.HasRequiredRole(roleStr, model.RoleAdmin) {
+	if !common.HasRequiredRole(c.Claims.Role, model.RoleAdmin) {
 		c.SetPermissionError("admin role required to create service accounts")
 		return
 	}
@@ -239,8 +237,7 @@ func createServiceAccount(c *Context, w http.ResponseWriter, r *http.Request) {
 // listServiceAccounts handles GET /service-accounts.
 func listServiceAccounts(c *Context, w http.ResponseWriter, r *http.Request) {
 	// Enforce admin-only access to prevent privilege escalation.
-	roleStr, _ := c.Claims["role"].(string)
-	if !common.HasRequiredRole(roleStr, model.RoleAdmin) {
+	if !common.HasRequiredRole(c.Claims.Role, model.RoleAdmin) {
 		c.SetPermissionError("admin role required to manage service accounts")
 		return
 	}
@@ -262,8 +259,7 @@ func listServiceAccounts(c *Context, w http.ResponseWriter, r *http.Request) {
 // getServiceAccount handles GET /service-accounts/{service_account_id}.
 func getServiceAccount(c *Context, w http.ResponseWriter, r *http.Request) {
 	// Enforce admin-only access to prevent privilege escalation.
-	roleStr, _ := c.Claims["role"].(string)
-	if !common.HasRequiredRole(roleStr, model.RoleAdmin) {
+	if !common.HasRequiredRole(c.Claims.Role, model.RoleAdmin) {
 		c.SetPermissionError("admin role required to manage service accounts")
 		return
 	}
@@ -288,8 +284,7 @@ func getServiceAccount(c *Context, w http.ResponseWriter, r *http.Request) {
 // deleteServiceAccount handles DELETE /service-accounts/{service_account_id}.
 func deleteServiceAccount(c *Context, w http.ResponseWriter, r *http.Request) {
 	// Enforce admin-only access to prevent privilege escalation.
-	roleStr, _ := c.Claims["role"].(string)
-	if !common.HasRequiredRole(roleStr, model.RoleAdmin) {
+	if !common.HasRequiredRole(c.Claims.Role, model.RoleAdmin) {
 		c.SetPermissionError("admin role required to manage service accounts")
 		return
 	}
@@ -316,8 +311,7 @@ func deleteServiceAccount(c *Context, w http.ResponseWriter, r *http.Request) {
 // Returns the new plain-text client secret (one-time).
 func rotateServiceAccountSecret(c *Context, w http.ResponseWriter, r *http.Request) {
 	// Enforce admin-only access to prevent privilege escalation.
-	roleStr, _ := c.Claims["role"].(string)
-	if !common.HasRequiredRole(roleStr, model.RoleAdmin) {
+	if !common.HasRequiredRole(c.Claims.Role, model.RoleAdmin) {
 		c.SetPermissionError("admin role required to manage service accounts")
 		return
 	}

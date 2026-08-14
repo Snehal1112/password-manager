@@ -70,8 +70,8 @@ func (api *API) InitUsers() {
 // Only users with admin role can create new users.
 func createUser(c *Context, w http.ResponseWriter, r *http.Request) {
 	// Check admin privileges.
-	claims, ok := c.Claims["role"].(string)
-	if !ok || claims != string(model.RoleAdmin) {
+	claims := c.Claims.Role
+	if claims != string(model.RoleAdmin) {
 		c.SetPermissionError("admin role required")
 		return
 	}
@@ -151,15 +151,14 @@ func createUser(c *Context, w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusCreated)
 	w.Write([]byte(response.ToJson())) //nolint:errcheck,gosec
 
-	c.Logger.Printf("Admin %s created user %s with role %s", c.Claims["user_id"], result.Username, result.Role)
+	c.Logger.Printf("Admin %s created user %s with role %s", c.Claims.UserID, result.Username, result.Role)
 }
 
 // listUsers handles the HTTP request to retrieve all users.
 // Only users with admin role can list all users.
 func listUsers(c *Context, w http.ResponseWriter, r *http.Request) {
 	// Check admin privileges.
-	claims, ok := c.Claims["role"].(string)
-	if !ok || claims != string(model.RoleAdmin) {
+	if c.Claims.Role != string(model.RoleAdmin) {
 		c.SetPermissionError("admin role required")
 		return
 	}
@@ -221,8 +220,8 @@ func getUser(c *Context, w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Check permissions — admin can get any user, users can get their own profile.
-	currentUserID, _ := c.Claims["user_id"].(string)
-	currentRole, _ := c.Claims["role"].(string)
+	currentUserID := c.Claims.UserID
+	currentRole := c.Claims.Role
 
 	if currentRole != string(model.RoleAdmin) && currentUserID != userID.String() {
 		c.SetPermissionError("can only access own profile")
@@ -310,8 +309,8 @@ func updateUser(c *Context, w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Check permissions — admin can update any user, users can update their own profile (except role).
-	currentUserID, _ := c.Claims["user_id"].(string)
-	currentRole, _ := c.Claims["role"].(string)
+	currentUserID := c.Claims.UserID
+	currentRole := c.Claims.Role
 
 	if currentRole != string(model.RoleAdmin) {
 		if currentUserID != userID.String() {
@@ -343,8 +342,7 @@ func updateUser(c *Context, w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Parse caller ID from claims for service-level enforcement.
-	callerIDStr, _ := c.Claims["user_id"].(string)
-	callerID, _ := uuid.Parse(callerIDStr)
+	callerID, _ := uuid.Parse(c.Claims.UserID)
 
 	// Update user using service.
 	if err := userSvc.UpdateUser(r.Context(), userService.UpdateUserRequest{
@@ -385,8 +383,7 @@ func updateUser(c *Context, w http.ResponseWriter, r *http.Request) {
 // Only users with admin role can delete users.
 func deleteUser(c *Context, w http.ResponseWriter, r *http.Request) {
 	// Check admin privileges.
-	claims, ok := c.Claims["role"].(string)
-	if !ok || claims != string(model.RoleAdmin) {
+	if c.Claims.Role != string(model.RoleAdmin) {
 		c.SetPermissionError("admin role required")
 		return
 	}
@@ -398,8 +395,7 @@ func deleteUser(c *Context, w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Prevent self-deletion.
-	currentUserID, _ := c.Claims["user_id"].(string)
-	if currentUserID == userID.String() {
+	if c.Claims.UserID == userID.String() {
 		c.SetInvalidParam("cannot delete own account")
 		return
 	}
@@ -423,7 +419,7 @@ func deleteUser(c *Context, w http.ResponseWriter, r *http.Request) {
 
 	ReturnStatusOK(w)
 
-	c.Logger.Printf("Admin %s deleted user %s", currentUserID, userID.String())
+	c.Logger.Printf("Admin %s deleted user %s", c.Claims.UserID, userID.String())
 }
 
 // loginUser handles user authentication and returns a JWT token.
@@ -520,13 +516,7 @@ func refreshToken(c *Context, w http.ResponseWriter, r *http.Request) {
 // listUserSessions handles the HTTP request to list all sessions for the current user.
 func listUserSessions(c *Context, w http.ResponseWriter, r *http.Request) {
 	// Get current user ID from claims.
-	currentUserID, ok := c.Claims["user_id"].(string)
-	if !ok {
-		c.SetInternalError(nil)
-		return
-	}
-
-	userID, err := uuid.Parse(currentUserID)
+	userID, err := uuid.Parse(c.Claims.UserID)
 	if err != nil {
 		c.SetInvalidParam("user_id")
 		return
@@ -576,13 +566,6 @@ func listUserSessions(c *Context, w http.ResponseWriter, r *http.Request) {
 func revokeSession(c *Context, w http.ResponseWriter, r *http.Request) {
 	sessionID := c.Params.SessionID
 
-	// Get current user ID from claims.
-	currentUserID, ok := c.Claims["user_id"].(string)
-	if !ok {
-		c.SetInternalError(nil)
-		return
-	}
-
 	// Use service container for session revocation.
 	authSvc := c.authSvc()
 	if authSvc == nil {
@@ -595,19 +578,13 @@ func revokeSession(c *Context, w http.ResponseWriter, r *http.Request) {
 
 	ReturnStatusOK(w)
 
-	c.Logger.Printf("User %s revoked session %s", currentUserID, sessionID)
+	c.Logger.Printf("User %s revoked session %s", c.Claims.UserID, sessionID)
 }
 
 // revokeAllSessions handles the HTTP request to revoke all sessions for the current user.
 func revokeAllSessions(c *Context, w http.ResponseWriter, r *http.Request) {
 	// Get current user ID from claims.
-	currentUserID, ok := c.Claims["user_id"].(string)
-	if !ok {
-		c.SetInternalError(nil)
-		return
-	}
-
-	userID, err := uuid.Parse(currentUserID)
+	userID, err := uuid.Parse(c.Claims.UserID)
 	if err != nil {
 		c.SetInvalidParam("user_id")
 		return
@@ -625,5 +602,5 @@ func revokeAllSessions(c *Context, w http.ResponseWriter, r *http.Request) {
 
 	ReturnStatusOK(w)
 
-	c.Logger.Printf("User %s revoked all sessions", currentUserID)
+	c.Logger.Printf("User %s revoked all sessions", c.Claims.UserID)
 }
