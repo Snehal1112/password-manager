@@ -215,7 +215,7 @@ no live authorization weight and is out of scope for parity comparison against A
 
 **Strong parity (✅):** secret lifecycle + versioning, key CRUD + all crypto
 operations (sign/verify/encrypt/decrypt/wrap/unwrap/rotate — operation *existence*,
-via `api/keys.go`), per-key rotation-policy API (closed 2026-08-14, see §2), RSA & EC
+via `api/keys.go`), per-key rotation-policy CRUD API (closed 2026-08-14, see §2), RSA & EC
 type/algorithm coverage, certificate CRUD + policy + auto-renewal, multi-vault isolation,
 deny-overrides access-policy evaluation, soft-delete/purge-protection/recovery,
 vault-scoped deleted/restore/purge across all three resource types (closed 2026-08-13,
