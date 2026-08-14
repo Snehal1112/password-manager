@@ -786,6 +786,90 @@ curl -s -X DELETE $BASE/api/v1/users/sessions -H "Authorization: Bearer $TOKEN"<
   <p class="see-also">See also: <a href="../MANUAL_TESTING.html">Manual Testing §5</a></p>
 </section>
 
+<section id="oidc-login">
+  <h2>OIDC / SSO Login</h2>
+  <h3>What it is</h3>
+  <p>An additional login path via any standards-compliant OpenID Connect provider (Okta, Keycloak, Entra ID, etc.) — an external identity provider authenticates the principal, then RocketVault issues the exact same JWT/refresh-token pair local login does. Local username/password/TOTP login (see <a href="#authentication">Authentication</a>) is completely unaffected and stays available.</p>
+  <h3>When to use it</h3>
+  <ul>
+    <li>Centralize authentication behind an existing corporate identity provider instead of maintaining a separate username/password/TOTP per person in RocketVault.</li>
+    <li>Users with an active SSO session already open in their browser get an instant login with no prompt at all.</li>
+  </ul>
+  <h3>Configuration</h3>
+  <pre class="code">oidc:
+  enabled: true
+  issuer_url: "https://idp.example.com"
+  client_id: "rocketvault"
+  client_secret: "&lt;from your IdP's client registration&gt;"
+  redirect_url: "https://vault.example.com/api/v1/oidc/callback"
+  scopes: ["openid", "profile", "email"]
+  # Optional: trust a private/internal CA for the issuer's TLS certificate,
+  # instead of the SSL_CERT_FILE environment variable.
+  ca_cert_path: "/etc/rocketvault/idp-ca.pem"</pre>
+  <div class="callout callout-info">
+    <div class="callout-label">Disabled by default</div>
+    <p><code>oidc.enabled</code> defaults to <code>false</code>. When unset, <code>GET /oidc/login</code> and <code>GET /oidc/callback</code> return <code>503</code> and the server never attempts a network call to the issuer at startup.</p>
+  </div>
+  <div class="flow">
+    <div class="flow-title">OIDC login flow</div>
+    <div class="flow-nodes">
+      <div class="flow-node hl">GET /oidc/login</div>
+      <div class="flow-arrow">→</div>
+      <div class="flow-node">302 to IdP</div>
+      <div class="flow-arrow">→</div>
+      <div class="flow-node">user authenticates</div>
+    </div>
+    <div class="flow-nodes" style="margin-top:8px">
+      <div class="flow-node">IdP redirects back</div>
+      <div class="flow-arrow">→</div>
+      <div class="flow-node hl">GET /oidc/callback</div>
+      <div class="flow-arrow">→</div>
+      <div class="flow-node">token exchange + verify</div>
+      <div class="flow-arrow">→</div>
+      <div class="flow-node">JWT + refresh_token</div>
+    </div>
+    <div class="flow-caption">State and nonce are stored in short-lived, HttpOnly, Secure cookies and re-verified on callback — a mismatched or missing state is rejected before any call is made to the IdP's token endpoint.</div>
+  </div>
+
+  <div class="ep">
+    <div class="ep-hd"><span class="meth meth-get">GET</span> <span class="ep-path">/api/v1/oidc/login</span> <span class="ep-label">Start the OIDC flow</span></div>
+    <div class="tab-bar"><button class="tab-btn active">cURL</button><button class="tab-btn">Response</button></div>
+    <div class="tab-pane active"><pre class="code">curl -sv $BASE/api/v1/oidc/login</pre></div>
+    <div class="tab-pane"><pre class="code">HTTP/1.1 302 Found
+Location: https://idp.example.com/authorize?client_id=rocketvault&amp;response_type=code&amp;...
+Set-Cookie: oidc_state=...; HttpOnly; Secure; SameSite=Lax
+Set-Cookie: oidc_nonce=...; HttpOnly; Secure; SameSite=Lax</pre></div>
+    <details class="collapse"><summary>Errors</summary><div class="inner">503 if <code>oidc.enabled</code> is false</div></details>
+  </div>
+
+  <div class="ep">
+    <div class="ep-hd"><span class="meth meth-get">GET</span> <span class="ep-path">/api/v1/oidc/callback</span> <span class="ep-label">Complete the flow, issue a session</span></div>
+    <div class="tab-bar"><button class="tab-btn active">Response</button></div>
+    <div class="tab-pane active"><pre class="code">{
+  "token": "&lt;redacted-jwt&gt;",
+  "refresh_token": "&lt;redacted-jwt&gt;",
+  "user_id": "219b78ec-089f-4c71-838d-d223910ba258",
+  "username": "jdoe@example.com",
+  "role": "user"
+}</pre></div>
+    <details class="collapse"><summary>Errors</summary><div class="inner">400 missing/expired state or nonce cookie, state mismatch, or missing code · 401 nonce mismatch, code exchange, or ID-token verification failed · 503 if <code>oidc.enabled</code> is false</div></details>
+  </div>
+
+  <h3>First login vs. repeat login</h3>
+  <ul>
+    <li>The first login for a given IdP subject creates a new user with the least-privilege <code>role: user</code> and zero vault access — an admin must grant a vault role separately, same as any other user (see <a href="#vault-rbac">Vault RBAC</a>).</li>
+    <li>Every later login for that same subject reuses the existing user row — it does not create a duplicate, and it does not reset a role an admin has since changed.</li>
+    <li>If the ID token is missing <code>name</code>/<code>email</code>/<code>preferred_username</code> (common with some providers), RocketVault falls back to the provider's userinfo endpoint, then to the IdP's raw subject claim if that's empty too.</li>
+  </ul>
+
+  <div class="callout callout-warn">
+    <div class="callout-label">Logging out does not end the IdP session</div>
+    <p>Revoking a RocketVault session (<code>DELETE /users/sessions/{id}</code> or <code>DELETE /users/sessions</code> — see <a href="#authentication">Authentication</a>) only revokes RocketVault's own session. RocketVault does not call the IdP's <code>end_session_endpoint</code> (no RP-initiated logout is implemented), so a user with an active SSO session in their browser can hit <code>GET /oidc/login</code> again immediately afterward and be silently re-authenticated with no prompt. A full logout requires separately ending the session at the identity provider.</p>
+  </div>
+
+  <p class="see-also">See also: <a href="#authentication">Authentication</a> (session revocation), <a href="#vault-rbac">Vault RBAC</a> (granting access to a new OIDC user)</p>
+</section>
+
 <section id="jwt-signing">
   <h2>JWT Signing &amp; Key Sources</h2>
   <h3>What it is</h3>
