@@ -68,6 +68,29 @@ func ValidateVaultTags(tags map[string]string) error {
 	return nil
 }
 
+// Clone returns a copy of v that shares no mutable state with the original —
+// the struct itself, its Tags map, and every pointer field are independently
+// copied. Used by vaultcache.Cache so a caller that mutates a fetched vault
+// before persisting an update (VaultService.UpdateVault does exactly this)
+// can never corrupt a cache entry.
+func (v *Vault) Clone() *Vault {
+	cp := *v
+	if v.Tags != nil {
+		cp.Tags = make(map[string]string, len(v.Tags))
+		for k, val := range v.Tags {
+			cp.Tags[k] = val
+		}
+	}
+	cp.DeletedAt = cloneTimePtr(v.DeletedAt)
+	cp.ScheduledPurgeAt = cloneTimePtr(v.ScheduledPurgeAt)
+	cp.UpdatedAt = cloneTimePtr(v.UpdatedAt)
+	if v.UpdatedBy != nil {
+		id := *v.UpdatedBy
+		cp.UpdatedBy = &id
+	}
+	return &cp
+}
+
 // CreateVaultRequest is the body of a create-vault API call.
 type CreateVaultRequest struct {
 	Name            string            `json:"name"`
