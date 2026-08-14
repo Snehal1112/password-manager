@@ -170,6 +170,15 @@ func mapKeyAction(method, rest string) (model.DataAction, RouteKind) {
 		if seg[1] == "versions" && method == http.MethodGet {
 			return model.ActionKeysRead, RouteVaultData
 		}
+		if seg[1] == "rotationpolicy" {
+			switch method {
+			case http.MethodGet:
+				return model.ActionKeysRotationPolicyRead, RouteVaultData
+			case http.MethodPut, http.MethodDelete:
+				return model.ActionKeysRotationPolicyWrite, RouteVaultData
+			}
+			return "", RouteVaultData
+		}
 		if method == http.MethodPost {
 			switch seg[1] {
 			case "rotate":

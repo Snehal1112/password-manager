@@ -66,6 +66,11 @@ const (
 	ActionKeysSign DataAction = "Microsoft.KeyVault/vaults/keys/sign/action"
 	// ActionKeysVerify permits verifying a signature with the key.
 	ActionKeysVerify DataAction = "Microsoft.KeyVault/vaults/keys/verify/action"
+	// ActionKeysRotationPolicyRead permits reading a key's rotation policy.
+	ActionKeysRotationPolicyRead DataAction = "Microsoft.KeyVault/vaults/keys/rotationpolicy/read"
+	// ActionKeysRotationPolicyWrite permits creating, updating, or clearing a
+	// key's rotation policy.
+	ActionKeysRotationPolicyWrite DataAction = "Microsoft.KeyVault/vaults/keys/rotationpolicy/write"
 )
 
 // Certificate data actions.
@@ -155,6 +160,7 @@ var azureRoleDataActions = map[string][]DataAction{
 		ActionKeysBackup, ActionKeysRestore, ActionKeysRecover, ActionKeysPurge,
 		ActionKeysImport, ActionKeysRotate, ActionKeysEncrypt, ActionKeysDecrypt,
 		ActionKeysWrap, ActionKeysUnwrap, ActionKeysSign, ActionKeysVerify,
+		ActionKeysRotationPolicyRead, ActionKeysRotationPolicyWrite,
 		ActionCertificatesRead, ActionCertificatesCreate, ActionCertificatesUpdate,
 		ActionCertificatesDelete, ActionCertificatesBackup, ActionCertificatesRestore,
 		ActionCertificatesRecover, ActionCertificatesPurge,
@@ -184,6 +190,7 @@ var azureRoleDataActions = map[string][]DataAction{
 		ActionKeysBackup, ActionKeysRestore, ActionKeysRecover, ActionKeysPurge,
 		ActionKeysImport, ActionKeysRotate, ActionKeysEncrypt, ActionKeysDecrypt,
 		ActionKeysWrap, ActionKeysUnwrap, ActionKeysSign, ActionKeysVerify,
+		ActionKeysRotationPolicyRead, ActionKeysRotationPolicyWrite,
 	},
 	RoleKeyVaultCertificatesOfficer: {
 		ActionCertificatesRead, ActionCertificatesCreate, ActionCertificatesUpdate,
