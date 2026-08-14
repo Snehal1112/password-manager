@@ -291,7 +291,7 @@ func TestNewServiceContainer_Success_CacheDisabled(t *testing.T) {
 	// the secrets domain disabled.
 	assert.NotNil(t, container.GetSecretCache(), "GetSecretCache must always be non-nil (real or no-op)")
 	assert.NotNil(t, container.GetCachedSecretService(), "GetCachedSecretService must always be non-nil (real or no-op)")
-	assert.NotNil(t, container.GetCacheConfig(), "GetCacheConfig")
+	assert.NotZero(t, container.GetCacheConfig().Secrets.TTL, "GetCacheConfig should return a populated config")
 	assert.NotNil(t, container.GetVaultCache(), "GetVaultCache must always be non-nil (real or no-op)")
 
 	// Signing / key / metrics
@@ -339,7 +339,7 @@ func TestNewServiceContainer_Success_CacheEnabled(t *testing.T) {
 
 	assert.NotNil(t, container.GetSecretCache(), "GetSecretCache must be non-nil when cache is enabled")
 	assert.NotNil(t, container.GetCachedSecretService(), "GetCachedSecretService must be non-nil when cache is enabled")
-	assert.NotNil(t, container.GetCacheConfig(), "GetCacheConfig")
+	assert.NotZero(t, container.GetCacheConfig().Secrets.TTL, "GetCacheConfig should return a populated config")
 	assert.NotNil(t, container.GetVaultCache(), "GetVaultCache")
 }
 
@@ -365,8 +365,9 @@ func TestNewServiceContainer_NilCacheConfig(t *testing.T) {
 	require.NotNil(t, container)
 	t.Cleanup(func() { _ = container.Close() })
 
-	// The container must have a non-nil CacheConfig after defaulting.
-	assert.NotNil(t, container.GetCacheConfig(), "GetCacheConfig must be non-nil after defaulting")
+	// The container must have picked up the real LoadCacheConfig() defaults,
+	// not just some non-zero value — pin the documented Secrets TTL default.
+	assert.Equal(t, 5*time.Minute, container.GetCacheConfig().Secrets.TTL, "nil CacheConfig should trigger LoadCacheConfig(), producing the real Secrets default")
 }
 
 // ---------------------------------------------------------------------------
