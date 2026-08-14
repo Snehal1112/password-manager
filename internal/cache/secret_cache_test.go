@@ -400,17 +400,6 @@ func TestSecretCacheWithSoftDelete(t *testing.T) {
 	})
 }
 
-// TestDefaultCacheConfig documents that DefaultCacheConfig is still live --
-// internal/container/service_container.go uses it as ServiceContainer's
-// fallback CacheConfig, out of scope for this task.
-func TestDefaultCacheConfig(t *testing.T) {
-	config := DefaultCacheConfig()
-	assert.True(t, config.Enabled)
-	assert.Equal(t, 5*time.Minute, config.TTL)
-	assert.Equal(t, 1*time.Minute, config.CleanupInterval)
-	assert.Equal(t, 1000, config.MaxEntries)
-}
-
 // TestSecretCacheFlush proves Flush empties the cache unconditionally, live
 // or expired.
 func TestSecretCacheFlush(t *testing.T) {

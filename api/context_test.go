@@ -15,6 +15,7 @@ import (
 	"rocketvault/api"
 	"rocketvault/app"
 	"rocketvault/common"
+	rvconfig "rocketvault/config"
 	"rocketvault/internal/backup"
 	"rocketvault/internal/cache"
 	"rocketvault/internal/crypto"
@@ -33,6 +34,7 @@ import (
 	userServices "rocketvault/internal/services/users"
 	vaultServices "rocketvault/internal/services/vaults"
 	"rocketvault/internal/signing"
+	"rocketvault/internal/vaultcache"
 )
 
 // testLogger returns a minimal logger for use in tests.
@@ -181,8 +183,12 @@ func (m *mockServiceContainer) GetLogger() *logging.Logger {
 func (m *mockServiceContainer) GetSecretCache() *cache.SecretCache {
 	panic("unexpected call: GetSecretCache")
 }
-func (m *mockServiceContainer) GetCacheConfig() *cache.CacheConfig {
+func (m *mockServiceContainer) GetCacheConfig() rvconfig.CacheConfig {
 	panic("unexpected call: GetCacheConfig")
+}
+
+func (m *mockServiceContainer) GetVaultCache() *vaultcache.Cache {
+	panic("unexpected call: GetVaultCache")
 }
 func (m *mockServiceContainer) GetCachedSecretService() secretServices.SecretService {
 	panic("unexpected call: GetCachedSecretService")

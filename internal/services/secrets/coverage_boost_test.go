@@ -757,7 +757,7 @@ func TestVersioningServiceHappyPathAndOwnershipErrors(t *testing.T) {
 	secretRepo := &testutils.MockSecretRepository{}
 	userRepo := &mockUserRepository{}
 	crypto := &testutils.MockCryptographyService{}
-	svc := secrets.NewVersioningService(versionRepo, secretRepo, userRepo, crypto, testutils.NewTestLogger(t), nil)
+	svc := secrets.NewVersioningService(versionRepo, secretRepo, userRepo, crypto, testutils.NewTestLogger(t), &recordingInvalidator{})
 
 	adminScope := model.NewAdminScope(userID)
 
@@ -970,7 +970,7 @@ func TestRotationServiceAssignmentRotationAndReminders(t *testing.T) {
 	secretRepo := &testutils.MockSecretRepository{}
 	userRepo := &mockUserRepository{}
 	crypto := &testutils.MockCryptographyService{}
-	svc := secrets.NewRotationService(repo, secretRepo, userRepo, crypto, testutils.NewTestLogger(t), nil)
+	svc := secrets.NewRotationService(repo, secretRepo, userRepo, crypto, testutils.NewTestLogger(t), &recordingInvalidator{})
 
 	secretRepo.On("Read", ctx, secretID, model.NewAdminScope(userID)).Return(secret, nil).Once()
 	repo.On("Read", ctx, policyID).Return(policy, nil).Once()

@@ -17,6 +17,7 @@ import (
 	"github.com/stretchr/testify/mock"
 
 	"rocketvault/app"
+	rvconfig "rocketvault/config"
 	"rocketvault/internal/backup"
 	"rocketvault/internal/cache"
 	"rocketvault/internal/crypto"
@@ -35,6 +36,7 @@ import (
 	userServices "rocketvault/internal/services/users"
 	vaultServices "rocketvault/internal/services/vaults"
 	"rocketvault/internal/signing"
+	"rocketvault/internal/vaultcache"
 	"rocketvault/model"
 )
 
@@ -188,8 +190,12 @@ func (c *certPolicyRepoContainer) GetLogger() *logging.Logger {
 func (c *certPolicyRepoContainer) GetSecretCache() *cache.SecretCache {
 	panic("unexpected call: GetSecretCache")
 }
-func (c *certPolicyRepoContainer) GetCacheConfig() *cache.CacheConfig {
+func (c *certPolicyRepoContainer) GetCacheConfig() rvconfig.CacheConfig {
 	panic("unexpected call: GetCacheConfig")
+}
+
+func (c *certPolicyRepoContainer) GetVaultCache() *vaultcache.Cache {
+	panic("unexpected call: GetVaultCache")
 }
 func (c *certPolicyRepoContainer) GetCachedSecretService() secretServices.SecretService {
 	panic("unexpected call: GetCachedSecretService")

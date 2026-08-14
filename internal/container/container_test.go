@@ -4,9 +4,9 @@
 package container
 
 import (
-	"context"
 	"database/sql"
 	"testing"
+	"time"
 
 	_ "github.com/mattn/go-sqlite3"
 	"github.com/sirupsen/logrus"
@@ -14,8 +14,12 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	rvconfig "rocketvault/config"
 	"rocketvault/internal/cache"
+	"rocketvault/internal/cachekit"
+	"rocketvault/internal/keycache"
 	"rocketvault/internal/logging"
+	"rocketvault/internal/vaultcache"
 )
 
 // ---------------------------------------------------------------------------
@@ -40,6 +44,19 @@ func openSQLite(t *testing.T) *sql.DB {
 	return db
 }
 
+// cacheConfigWithSecretsDisabled returns a valid CacheConfig -- loaded via
+// rvconfig.LoadCacheConfig so every domain gets sane, validated defaults --
+// with only the secrets cache turned off. This is the shape almost every
+// "disabled cache" test in this file actually wants: Keys/Vaults stay
+// enabled at their defaults, only Secrets.Enabled flips to false.
+func cacheConfigWithSecretsDisabled(t *testing.T) *rvconfig.CacheConfig {
+	t.Helper()
+	cfg, err := rvconfig.LoadCacheConfig()
+	require.NoError(t, err)
+	cfg.Secrets.Enabled = false
+	return &cfg
+}
+
 // newMinimalConfig returns a Config that has enough to bootstrap the container
 // without touching the filesystem beyond what the OS key-store provider needs.
 //
@@ -50,11 +67,12 @@ func newMinimalConfig(t *testing.T) Config {
 	v := viper.New()
 	// Use os_store explicitly — it auto-generates a key and never errors.
 	v.Set("jwt.key_source", "os_store")
-	// Disable caching to avoid background goroutines in tests that close quickly.
+	// Disable the secrets cache to avoid background goroutines in tests that
+	// close quickly.
 	return Config{
 		Database:    openSQLite(t),
 		Logger:      newTestLogger(),
-		CacheConfig: &cache.CacheConfig{Enabled: false},
+		CacheConfig: cacheConfigWithSecretsDisabled(t),
 		Viper:       v,
 	}
 }
@@ -63,10 +81,10 @@ func newMinimalConfig(t *testing.T) Config {
 // Test 1 — zero-value ServiceContainer returns nil from every getter
 // ---------------------------------------------------------------------------
 
-// TestGetters_ZeroValueContainer verifies that all 43 getter methods return
-// their zero value (nil interface / nil pointer) on an uninitialised
-// ServiceContainer. Each getter is a single-statement return, so calling every
-// one drives all of those statements.
+// TestGetters_ZeroValueContainer verifies that all getter methods return
+// their zero value (nil interface / nil pointer / zero struct) on an
+// uninitialised ServiceContainer. Each getter is a single-statement return,
+// so calling every one drives all of those statements.
 func TestGetters_ZeroValueContainer(t *testing.T) {
 	c := &ServiceContainer{}
 
@@ -118,10 +136,13 @@ func TestGetters_ZeroValueContainer(t *testing.T) {
 	assert.Nil(t, c.GetDatabase(), "GetDatabase")
 	assert.Nil(t, c.GetLogger(), "GetLogger")
 
-	// Cache
+	// Cache — an unconstructed zero-value container genuinely has nil/zero
+	// cache fields; GetCacheConfig now returns a value type, so it is
+	// asserted Zero rather than Nil.
 	assert.Nil(t, c.GetSecretCache(), "GetSecretCache")
-	assert.Nil(t, c.GetCacheConfig(), "GetCacheConfig")
+	assert.Zero(t, c.GetCacheConfig(), "GetCacheConfig")
 	assert.Nil(t, c.GetCachedSecretService(), "GetCachedSecretService")
+	assert.Nil(t, c.GetVaultCache(), "GetVaultCache")
 
 	// Retry
 	assert.Nil(t, c.GetRetryService(), "GetRetryService")
@@ -157,8 +178,9 @@ func TestConfig_ZeroValue(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 // TestClose_AllFieldsNil verifies that Close() on a zero-value ServiceContainer
-// returns nil without panicking. The cacheCancel, keyCache, keyProvider, and
-// db fields are all nil — each guard in Close() must be exercised.
+// returns nil without panicking. The secretCache, keyCache, vaultCache,
+// keyProvider, and db fields are all nil — each guard in Close() must be
+// exercised.
 func TestClose_AllFieldsNil(t *testing.T) {
 	c := &ServiceContainer{}
 	err := c.Close()
@@ -166,13 +188,20 @@ func TestClose_AllFieldsNil(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// Test 4 — Close with cacheCancel set
+// Test 4 — Close stops the secret, key, and vault caches
 // ---------------------------------------------------------------------------
 
-// TestClose_WithCacheCancel exercises the cacheCancel != nil branch in Close().
-func TestClose_WithCacheCancel(t *testing.T) {
-	_, cancel := context.WithCancel(context.Background())
-	c := &ServiceContainer{cacheCancel: cancel}
+// TestClose_StopsAllCaches exercises the secretCache/keyCache/vaultCache
+// non-nil Stop() branches in Close(). cachekit.Cache self-manages its own
+// sweep goroutine from construction, so Close() must call Stop() on each to
+// avoid leaking it — this pins that all three guards fire without panicking.
+func TestClose_StopsAllCaches(t *testing.T) {
+	cfg := cachekit.Config{Enabled: true, TTL: time.Minute, CleanupInterval: time.Minute, MaxEntries: 10}
+	c := &ServiceContainer{
+		secretCache: cache.NewSecretCache(cfg, newTestLogger().Logger),
+		keyCache:    keycache.NewCache(cfg),
+		vaultCache:  vaultcache.NewCache(cfg),
+	}
 	err := c.Close()
 	assert.NoError(t, err)
 }
@@ -194,16 +223,16 @@ func TestClose_WithDB(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// Test 6 — NewServiceContainer success path (with caching disabled)
+// Test 6 — NewServiceContainer success path (with secrets caching disabled)
 // ---------------------------------------------------------------------------
 
 // TestNewServiceContainer_Success_CacheDisabled bootstraps a full container
-// against an in-memory SQLite database with caching turned off. It verifies
-// that every core service getter returns a non-nil value after initialisation
-// and that Close() tears everything down cleanly.
+// against an in-memory SQLite database with the secrets cache turned off. It
+// verifies that every core service getter returns a non-nil value after
+// initialisation and that Close() tears everything down cleanly.
 func TestNewServiceContainer_Success_CacheDisabled(t *testing.T) {
 	cfg := newMinimalConfig(t)
-	cfg.CacheConfig = &cache.CacheConfig{Enabled: false}
+	cfg.CacheConfig = cacheConfigWithSecretsDisabled(t)
 
 	container, err := NewServiceContainer(cfg)
 	require.NoError(t, err)
@@ -258,10 +287,12 @@ func TestNewServiceContainer_Success_CacheDisabled(t *testing.T) {
 	assert.NotNil(t, container.GetRotationService(), "GetRotationService")
 	assert.NotNil(t, container.GetSchedulerService(), "GetSchedulerService")
 
-	// Cache (disabled)
-	assert.Nil(t, container.GetSecretCache(), "GetSecretCache must be nil when cache disabled")
-	assert.Nil(t, container.GetCachedSecretService(), "GetCachedSecretService must be nil when cache disabled")
+	// Cache — always constructed now (real-or-no-op internally), even with
+	// the secrets domain disabled.
+	assert.NotNil(t, container.GetSecretCache(), "GetSecretCache must always be non-nil (real or no-op)")
+	assert.NotNil(t, container.GetCachedSecretService(), "GetCachedSecretService must always be non-nil (real or no-op)")
 	assert.NotNil(t, container.GetCacheConfig(), "GetCacheConfig")
+	assert.NotNil(t, container.GetVaultCache(), "GetVaultCache must always be non-nil (real or no-op)")
 
 	// Signing / key / metrics
 	assert.NotNil(t, container.GetSigningProvider(), "GetSigningProvider")
@@ -283,28 +314,33 @@ func TestNewServiceContainer_Success_CacheDisabled(t *testing.T) {
 // Test 7 — NewServiceContainer success path (with caching enabled)
 // ---------------------------------------------------------------------------
 
-// TestNewServiceContainer_Success_CacheEnabled exercises the cache initialisation
-// branch in initializeServices and confirms GetSecretCache and
-// GetCachedSecretService return non-nil values.
+// TestNewServiceContainer_Success_CacheEnabled exercises the cache
+// initialisation path in initializeServices with every domain at its default
+// (enabled) settings, and confirms GetSecretCache, GetCachedSecretService,
+// and GetVaultCache return non-nil values.
 func TestNewServiceContainer_Success_CacheEnabled(t *testing.T) {
 	v := viper.New()
 	v.Set("jwt.key_source", "os_store")
 
+	loaded, err := rvconfig.LoadCacheConfig()
+	require.NoError(t, err)
+
 	cfg := Config{
 		Database:    openSQLite(t),
 		Logger:      newTestLogger(),
-		CacheConfig: cache.DefaultCacheConfig(), // Enabled: true
+		CacheConfig: &loaded, // Secrets.Enabled: true by default
 		Viper:       v,
 	}
 
-	container, err := NewServiceContainer(cfg)
-	require.NoError(t, err)
+	container, cerr := NewServiceContainer(cfg)
+	require.NoError(t, cerr)
 	require.NotNil(t, container)
 	t.Cleanup(func() { _ = container.Close() })
 
 	assert.NotNil(t, container.GetSecretCache(), "GetSecretCache must be non-nil when cache is enabled")
 	assert.NotNil(t, container.GetCachedSecretService(), "GetCachedSecretService must be non-nil when cache is enabled")
 	assert.NotNil(t, container.GetCacheConfig(), "GetCacheConfig")
+	assert.NotNil(t, container.GetVaultCache(), "GetVaultCache")
 }
 
 // ---------------------------------------------------------------------------
@@ -312,7 +348,7 @@ func TestNewServiceContainer_Success_CacheEnabled(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 // TestNewServiceContainer_NilCacheConfig confirms that a nil CacheConfig in the
-// Config struct is replaced with the library default and does not panic.
+// Config struct is replaced via rvconfig.LoadCacheConfig and does not panic.
 func TestNewServiceContainer_NilCacheConfig(t *testing.T) {
 	v := viper.New()
 	v.Set("jwt.key_source", "os_store")
@@ -351,7 +387,7 @@ func TestNewServiceContainer_NilViper(t *testing.T) {
 	cfg := Config{
 		Database:    openSQLite(t),
 		Logger:      newTestLogger(),
-		CacheConfig: &cache.CacheConfig{Enabled: false},
+		CacheConfig: cacheConfigWithSecretsDisabled(t),
 		Viper:       nil, // trigger fallback to global viper
 	}
 
@@ -383,7 +419,7 @@ func TestNewServiceContainer_UnknownKeySource_HS256Fallback(t *testing.T) {
 	cfg := Config{
 		Database:    openSQLite(t),
 		Logger:      newTestLogger(),
-		CacheConfig: &cache.CacheConfig{Enabled: false},
+		CacheConfig: cacheConfigWithSecretsDisabled(t),
 		Viper:       v,
 	}
 
@@ -412,7 +448,7 @@ func TestNewServiceContainer_MissingJWTSecret_Error(t *testing.T) {
 	cfg := Config{
 		Database:    openSQLite(t),
 		Logger:      newTestLogger(),
-		CacheConfig: &cache.CacheConfig{Enabled: false},
+		CacheConfig: cacheConfigWithSecretsDisabled(t),
 		Viper:       v,
 	}
 
@@ -436,7 +472,7 @@ func TestNewServiceContainer_WithRetryConfig(t *testing.T) {
 	cfg := Config{
 		Database:    openSQLite(t),
 		Logger:      newTestLogger(),
-		CacheConfig: &cache.CacheConfig{Enabled: false},
+		CacheConfig: cacheConfigWithSecretsDisabled(t),
 		Viper:       v,
 	}
 
@@ -469,7 +505,7 @@ func TestNewServiceContainer_ExternalPKI_HS256Fallback(t *testing.T) {
 	cfg := Config{
 		Database:    openSQLite(t),
 		Logger:      newTestLogger(),
-		CacheConfig: &cache.CacheConfig{Enabled: false},
+		CacheConfig: cacheConfigWithSecretsDisabled(t),
 		Viper:       v,
 	}
 
@@ -483,31 +519,7 @@ func TestNewServiceContainer_ExternalPKI_HS256Fallback(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// Test 14 — Close with both cacheCancel and db set
-// ---------------------------------------------------------------------------
-
-// TestClose_FullCleanup verifies that Close cancels the cache context and
-// closes the database when both are set. The database must not be usable after
-// Close returns.
-func TestClose_FullCleanup(t *testing.T) {
-	db, err := sql.Open("sqlite3", ":memory:")
-	require.NoError(t, err)
-
-	ctx, cancel := context.WithCancel(context.Background())
-	c := &ServiceContainer{
-		db:          db,
-		cacheCancel: cancel,
-	}
-
-	err = c.Close()
-	assert.NoError(t, err)
-
-	// The context must have been cancelled.
-	assert.Equal(t, context.Canceled, ctx.Err(), "cache context must be cancelled after Close")
-}
-
-// ---------------------------------------------------------------------------
-// Test 15 — ServiceContainerInterface satisfaction
+// Test 14 — ServiceContainerInterface satisfaction
 // ---------------------------------------------------------------------------
 
 // TestServiceContainerInterface_Satisfaction is a compile-time check that
@@ -518,7 +530,7 @@ func TestServiceContainerInterface_Satisfaction(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// Test 16 — GetDatabase returns the exact db passed in Config
+// Test 15 — GetDatabase returns the exact db passed in Config
 // ---------------------------------------------------------------------------
 
 // TestGetDatabase_ReturnsSameInstance checks that the db stored in the
@@ -536,7 +548,7 @@ func TestGetDatabase_ReturnsSameInstance(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// Test 17 — GetLogger returns the exact logger passed in Config
+// Test 16 — GetLogger returns the exact logger passed in Config
 // ---------------------------------------------------------------------------
 
 // TestGetLogger_ReturnsSameInstance checks that the logger stored in the
@@ -551,4 +563,26 @@ func TestGetLogger_ReturnsSameInstance(t *testing.T) {
 
 	assert.Same(t, originalLogger, container.GetLogger(),
 		"GetLogger must return the same *logging.Logger pointer as provided in Config")
+}
+
+// ---------------------------------------------------------------------------
+// Test 17 — vault cache is always constructed, real or no-op internally
+// ---------------------------------------------------------------------------
+
+// TestNewServiceContainer_VaultCacheAlwaysNonNil pins that GetVaultCache
+// never returns nil after a successful NewServiceContainer call, regardless
+// of whether cache.vaults.enabled is on.
+func TestNewServiceContainer_VaultCacheAlwaysNonNil(t *testing.T) {
+	v := viper.New()
+	v.Set("jwt.key_source", "os_store")
+
+	container, err := NewServiceContainer(Config{
+		Database: openSQLite(t),
+		Logger:   newTestLogger(),
+		Viper:    v,
+	})
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = container.Close() })
+
+	assert.NotNil(t, container.GetVaultCache(), "GetVaultCache must always be non-nil")
 }

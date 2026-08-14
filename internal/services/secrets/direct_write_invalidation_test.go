@@ -200,9 +200,12 @@ func TestRollbackToVersionInvalidatesCacheAndAudits(t *testing.T) {
 	secretRepo.AssertExpectations(t)
 }
 
-// TestDirectWritersTolerateADisabledCache pins that a nil invalidator (caching
-// disabled) is a no-op rather than a nil-pointer panic.
-func TestDirectWritersTolerateADisabledCache(t *testing.T) {
+// TestDirectWritersToleratesANoOpCacheInvalidator pins that the invalidator
+// the container always supplies -- a real one when caching is enabled, a
+// no-op-backed one otherwise -- is safe to call from a direct writer. The
+// container never passes a nil interface (see NewServiceContainer), so
+// NewRotationService no longer nil-checks cacheInv internally.
+func TestDirectWritersToleratesANoOpCacheInvalidator(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	ownerID := uuid.New()
@@ -222,7 +225,8 @@ func TestDirectWritersTolerateADisabledCache(t *testing.T) {
 		Return(nil).Once()
 
 	logger, _ := newAuditingLogger(t)
-	svc := secrets.NewRotationService(rotationRepo, secretRepo, nil, nil, logger, nil)
+	invalidator := &recordingInvalidator{}
+	svc := secrets.NewRotationService(rotationRepo, secretRepo, nil, nil, logger, invalidator)
 
 	require.NoError(t, svc.PerformManualRotation(ctx, secrets.ManualRotationRequest{
 		SecretID: secretID,

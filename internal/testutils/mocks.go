@@ -11,6 +11,7 @@ import (
 	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/mock"
 
+	rvconfig "rocketvault/config"
 	"rocketvault/internal/backup"
 	"rocketvault/internal/cache"
 	"rocketvault/internal/crypto"
@@ -29,6 +30,7 @@ import (
 	userServices "rocketvault/internal/services/users"
 	vaultServices "rocketvault/internal/services/vaults"
 	"rocketvault/internal/signing"
+	"rocketvault/internal/vaultcache"
 	"rocketvault/model"
 )
 
@@ -671,7 +673,11 @@ func (m *MockServiceContainer) GetSecretCache() *cache.SecretCache {
 	return nil
 }
 
-func (m *MockServiceContainer) GetCacheConfig() *cache.CacheConfig {
+func (m *MockServiceContainer) GetCacheConfig() rvconfig.CacheConfig {
+	return rvconfig.CacheConfig{}
+}
+
+func (m *MockServiceContainer) GetVaultCache() *vaultcache.Cache {
 	return nil
 }
 

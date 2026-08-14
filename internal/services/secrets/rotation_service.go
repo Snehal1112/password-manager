@@ -102,9 +102,10 @@ type rotationService struct {
 }
 
 // NewRotationService creates a new rotation service with the required
-// dependencies. cacheInv may be nil when the secret cache is disabled; it is
-// needed because PerformManualRotation writes the secrets table without going
-// through CachedSecretService.
+// dependencies. cacheInv is needed because PerformManualRotation writes the
+// secrets table without going through CachedSecretService. The container
+// always constructs a real (possibly no-op-backed) invalidator, so cacheInv
+// must not be nil here.
 func NewRotationService(
 	rotationRepo repositories.RotationPolicyRepositoryInterface,
 	secretRepo repositories.SecretRepositoryInterface,
@@ -126,9 +127,6 @@ func NewRotationService(
 // invalidateCache evicts every cached view of a secret after a direct write.
 // A failure is logged but never fails the rotation that already succeeded.
 func (s *rotationService) invalidateCache(ctx context.Context, secretID uuid.UUID) {
-	if s.cacheInv == nil {
-		return
-	}
 	if err := s.cacheInv.DeleteByID(ctx, secretID); err != nil {
 		s.log.WithError(err).WithField("secret_id", secretID).Warn("Failed to invalidate cached secret")
 	}

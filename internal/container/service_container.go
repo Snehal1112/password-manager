@@ -13,7 +13,6 @@ import (
 
 	"rocketvault/internal/backup"
 	"rocketvault/internal/cache"
-	"rocketvault/internal/cachekit"
 	"rocketvault/internal/crypto"
 	"rocketvault/internal/db"
 	"rocketvault/internal/keycache"
@@ -32,6 +31,9 @@ import (
 	userServices "rocketvault/internal/services/users"
 	vaultServices "rocketvault/internal/services/vaults"
 	"rocketvault/internal/signing"
+	"rocketvault/internal/vaultcache"
+
+	rvconfig "rocketvault/config"
 )
 
 // ServiceContainerInterface defines the interface for the service container.
@@ -92,8 +94,9 @@ type ServiceContainerInterface interface {
 
 	// Cache getters
 	GetSecretCache() *cache.SecretCache
-	GetCacheConfig() *cache.CacheConfig
+	GetCacheConfig() rvconfig.CacheConfig
 	GetCachedSecretService() secrets.SecretService
+	GetVaultCache() *vaultcache.Cache
 
 	// Retry service getters
 	GetRetryService() retryServices.RetryService
@@ -134,9 +137,8 @@ type ServiceContainer struct {
 	// Cache infrastructure
 	secretCache         *cache.SecretCache
 	cachedSecretService secrets.SecretService
-	cacheConfig         *cache.CacheConfig
-	cacheContext        context.Context
-	cacheCancel         context.CancelFunc
+	cacheConfig         rvconfig.CacheConfig
+	vaultCache          *vaultcache.Cache
 
 	// Repositories
 	userRepository              repositories.UserRepositoryInterface
@@ -211,7 +213,7 @@ type ServiceContainer struct {
 type Config struct {
 	Database    *sql.DB
 	Logger      *logging.Logger
-	CacheConfig *cache.CacheConfig
+	CacheConfig *rvconfig.CacheConfig
 	Viper       *viper.Viper // Configuration manager for retry policies and other settings
 }
 
@@ -226,9 +228,6 @@ type Config struct {
 //
 //	A ServiceContainer with all services properly initialized.
 func NewServiceContainer(config Config) (*ServiceContainer, error) {
-	// Create cache context for background operations
-	cacheCtx, cacheCancel := context.WithCancel(context.Background())
-
 	// Resolve the SQL dialect from configuration so repositories rebind "?"
 	// placeholders correctly for the active engine. Defaults to SQLite.
 	dialect := db.DialectFromDriver(viper.GetString("database.driver"))
@@ -241,22 +240,22 @@ func NewServiceContainer(config Config) (*ServiceContainer, error) {
 	}
 
 	container := &ServiceContainer{
-		db:           config.Database,
-		conn:         conn,
-		logger:       config.Logger,
-		viper:        config.Viper,
-		cacheContext: cacheCtx,
-		cacheCancel:  cacheCancel,
+		db:     config.Database,
+		conn:   conn,
+		logger: config.Logger,
+		viper:  config.Viper,
 	}
 
-	// Set default cache config if not provided
 	if config.CacheConfig == nil {
-		config.CacheConfig = cache.DefaultCacheConfig()
+		loaded, err := rvconfig.LoadCacheConfig()
+		if err != nil {
+			return nil, fmt.Errorf("load cache config: %w", err)
+		}
+		config.CacheConfig = &loaded
 	}
-	container.cacheConfig = config.CacheConfig
+	container.cacheConfig = *config.CacheConfig
 
 	if err := container.initializeServices(); err != nil {
-		cacheCancel() // Clean up cache context on error
 		return nil, fmt.Errorf("failed to initialize services: %w", err)
 	}
 
@@ -284,6 +283,8 @@ func (c *ServiceContainer) initializeServices() error {
 	vaultCascade := vaultServices.NewCascadeAdapter(c.secretRepository, c.keyRepository, c.certificateRepository)
 	c.vaultService = vaultServices.NewVaultService(c.vaultRepository, vaultCascade, c.logger)
 	c.vaultService.SetTxBeginner(c.conn)
+	c.vaultCache = vaultcache.NewCache(c.cacheConfig.Vaults)
+	c.vaultService.SetVaultCache(c.vaultCache)
 	c.certPolicyRepository = repositories.NewCertificatePolicyRepository(c.conn, c.logger)
 	c.keyRotationPolicyRepository = repositories.NewKeyRotationPolicyRepository(c.conn, c.logger)
 	c.sessionRepository = repositories.NewSessionRepository(repositories.SessionRepositoryConfig{
@@ -306,31 +307,10 @@ func (c *ServiceContainer) initializeServices() error {
 		}
 	}()
 
-	// Initialize cache if enabled
-	if c.cacheConfig.Enabled {
-		// Create secret cache. cachekit.Cache self-manages its own TTL sweep
-		// from construction (started inside NewSecretCache), so there is no
-		// separate StartCleanup step to call here anymore -- see Close()
-		// for the matching Stop(). cachekit's sweep ticker panics on a
-		// non-positive interval, so fall back to a safe default rather than
-		// passing an unset CleanupInterval through (mirrors the sane
-		// non-zero defaults key_cache always uses below).
-		cleanupInterval := c.cacheConfig.CleanupInterval
-		if cleanupInterval <= 0 {
-			cleanupInterval = time.Minute
-		}
-		c.secretCache = cache.NewSecretCache(cachekit.Config{
-			Enabled:         true,
-			TTL:             c.cacheConfig.TTL,
-			CleanupInterval: cleanupInterval,
-			MaxEntries:      c.cacheConfig.MaxEntries,
-		}, c.logger.Logger)
-
-		// The vault delete/recover cascade writes the secrets table directly,
-		// so it needs its own invalidation hook. Set only when the cache
-		// exists: a typed-nil *SecretCache in the interface would panic.
-		c.vaultService.SetSecretCacheFlusher(c.secretCache)
-	}
+	// Secret cache is always constructed: a real cache when enabled, a
+	// no-op one otherwise, so downstream code never nil-checks it.
+	c.secretCache = cache.NewSecretCache(c.cacheConfig.Secrets, c.logger.Logger)
+	c.vaultService.SetSecretCacheFlusher(c.secretCache)
 
 	// Initialize retry service before any service that wraps with retry logic.
 	if c.viper != nil {
@@ -479,13 +459,10 @@ func (c *ServiceContainer) initializeServices() error {
 	}
 
 	// Rollback and rotation update the secrets table directly instead of going
-	// through CachedSecretService, so they take their own invalidator. It
-	// stays a nil interface when caching is disabled — assigning a typed-nil
-	// *cache.SecretCache would make the nil check inside the services useless.
-	var secretCacheInvalidator secretServices.SecretCacheInvalidator
-	if c.secretCache != nil {
-		secretCacheInvalidator = c.secretCache
-	}
+	// through CachedSecretService, so they take their own invalidator.
+	// c.secretCache is always constructed (real-or-no-op internally), so
+	// this is never a nil interface.
+	secretCacheInvalidator := secretServices.SecretCacheInvalidator(c.secretCache)
 
 	// Initialize secret component services (cryptoService already initialised above).
 	c.versioningService = secretServices.NewVersioningService(
@@ -533,34 +510,14 @@ func (c *ServiceContainer) initializeServices() error {
 		retryEnabledSecretService = baseSecretService
 	}
 
-	// Wrap with cache if enabled
-	if c.cacheConfig.Enabled {
-		c.cachedSecretService = cache.NewCachedSecretService(retryEnabledSecretService, c.secretCache, c.logger.Logger)
-		c.secretService = c.cachedSecretService
-	} else {
-		c.secretService = retryEnabledSecretService
-	}
+	// Always wrap: on a disabled (no-op) cache, CachedSecretService's Get
+	// always misses and falls through to retryEnabledSecretService, which is
+	// functionally identical to not wrapping — one fewer branch to reason about.
+	c.cachedSecretService = cache.NewCachedSecretService(retryEnabledSecretService, c.secretCache, c.logger.Logger)
+	c.secretService = c.cachedSecretService
 
-	// Initialize key cache from configuration.
-	keyCacheConfig := &cachekit.Config{Enabled: true, TTL: 60 * time.Second, CleanupInterval: 30 * time.Second, MaxEntries: 500}
-	if viperCfg.IsSet("key_cache.enabled") {
-		keyCacheConfig.Enabled = viperCfg.GetBool("key_cache.enabled")
-	}
-	if viperCfg.IsSet("key_cache.ttl") {
-		keyCacheConfig.TTL = viperCfg.GetDuration("key_cache.ttl")
-	}
-	if viperCfg.IsSet("key_cache.max_entries") {
-		keyCacheConfig.MaxEntries = viperCfg.GetInt("key_cache.max_entries")
-	}
-	if viperCfg.IsSet("key_cache.cleanup_interval") {
-		keyCacheConfig.CleanupInterval = viperCfg.GetDuration("key_cache.cleanup_interval")
-	}
-
-	if keyCacheConfig.Enabled {
-		c.keyCache = keycache.NewCache(*keyCacheConfig)
-	} else {
-		c.keyCache = keycache.NewNopCache()
-	}
+	// Key cache is always constructed via the unified cache.keys.* config.
+	c.keyCache = keycache.NewCache(c.cacheConfig.Keys)
 
 	// Initialize Prometheus metrics for crypto operations.
 	c.cryptoMetrics = metrics.NewDefaultPrometheusCryptoMetrics()
@@ -807,13 +764,18 @@ func (c *ServiceContainer) GetSecretCache() *cache.SecretCache {
 }
 
 // GetCacheConfig returns the cache configuration.
-func (c *ServiceContainer) GetCacheConfig() *cache.CacheConfig {
+func (c *ServiceContainer) GetCacheConfig() rvconfig.CacheConfig {
 	return c.cacheConfig
 }
 
 // GetCachedSecretService returns the cached secret service (if caching is enabled).
 func (c *ServiceContainer) GetCachedSecretService() secrets.SecretService {
 	return c.cachedSecretService
+}
+
+// GetVaultCache returns the vault-by-name cache.
+func (c *ServiceContainer) GetVaultCache() *vaultcache.Cache {
+	return c.vaultCache
 }
 
 // GetRetryService returns the retry service for handling retry logic.
@@ -833,11 +795,6 @@ func (c *ServiceContainer) GetItemBackupService() *backup.ItemBackupService {
 
 // Close closes the service container and cleans up resources.
 func (c *ServiceContainer) Close() error {
-	// Cancel cache context to stop background operations.
-	if c.cacheCancel != nil {
-		c.cacheCancel()
-	}
-
 	// Stop the secret cache background sweeper.
 	if c.secretCache != nil {
 		c.secretCache.Stop()
@@ -846,6 +803,11 @@ func (c *ServiceContainer) Close() error {
 	// Stop the key cache background sweeper.
 	if c.keyCache != nil {
 		c.keyCache.Stop()
+	}
+
+	// Stop the vault cache background sweeper.
+	if c.vaultCache != nil {
+		c.vaultCache.Stop()
 	}
 
 	if c.keyProvider != nil {

@@ -18,6 +18,7 @@ import (
 
 	"rocketvault/app"
 	"rocketvault/common"
+	rvconfig "rocketvault/config"
 	"rocketvault/internal/backup"
 	"rocketvault/internal/cache"
 	"rocketvault/internal/container"
@@ -38,6 +39,7 @@ import (
 	userServices "rocketvault/internal/services/users"
 	vaultServices "rocketvault/internal/services/vaults"
 	"rocketvault/internal/signing"
+	"rocketvault/internal/vaultcache"
 	"rocketvault/model"
 )
 
@@ -303,8 +305,12 @@ func (c *vaultSvcTestContainer) GetLogger() *logging.Logger {
 func (c *vaultSvcTestContainer) GetSecretCache() *cache.SecretCache {
 	panic("unexpected call: GetSecretCache")
 }
-func (c *vaultSvcTestContainer) GetCacheConfig() *cache.CacheConfig {
+func (c *vaultSvcTestContainer) GetCacheConfig() rvconfig.CacheConfig {
 	panic("unexpected call: GetCacheConfig")
+}
+
+func (c *vaultSvcTestContainer) GetVaultCache() *vaultcache.Cache {
+	panic("unexpected call: GetVaultCache")
 }
 func (c *vaultSvcTestContainer) GetCachedSecretService() secretServices.SecretService {
 	panic("unexpected call: GetCachedSecretService")
