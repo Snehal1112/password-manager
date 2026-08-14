@@ -2,7 +2,11 @@ package auth
 
 import (
 	"context"
+	"crypto/tls"
+	"crypto/x509"
 	"fmt"
+	"net/http"
+	"os"
 
 	"github.com/coreos/go-oidc/v3/oidc"
 	"golang.org/x/oauth2"
@@ -54,6 +58,17 @@ type OIDCConfig struct {
 	ClientSecret string
 	RedirectURL  string
 	Scopes       []string
+	// CACertPath, if set, is the path to a PEM-encoded CA certificate added
+	// to the system trust pool for every outbound HTTPS call this service
+	// makes to the issuer (discovery, token exchange, userinfo). Needed when
+	// the issuer's TLS certificate is signed by a private CA the OS doesn't
+	// already trust. This is the config-driven alternative to setting the
+	// SSL_CERT_FILE environment variable process-wide before starting
+	// RocketVault — SSL_CERT_FILE is invisible in .rocketvault.yaml and easy
+	// to forget on restart, silently leaving OIDC unavailable. Empty (the
+	// default) means use the system trust store only, unchanged from before
+	// this field existed.
+	CACertPath string
 }
 
 // OIDCService builds the OIDC authorization redirect and verifies the
@@ -72,26 +87,68 @@ type oidcService struct {
 	provider     *oidc.Provider
 	verifier     *oidc.IDTokenVerifier
 	oauth2Config oauth2.Config
+	// httpClient is nil unless OIDCConfig.CACertPath was set. When non-nil,
+	// HandleCallback must wrap its context with it too (oidc.ClientContext),
+	// so the token-exchange and userinfo calls trust the same CA pool
+	// discovery used.
+	httpClient *http.Client
 }
 
 // NewOIDCService fetches the provider's discovery document (a network round
 // trip to issuerURL) and returns a ready-to-use OIDCService, or an error if
 // the issuer is unreachable or malformed.
 func NewOIDCService(ctx context.Context, cfg OIDCConfig) (OIDCService, error) {
+	var httpClient *http.Client
+	if cfg.CACertPath != "" {
+		client, err := httpClientWithExtraCA(cfg.CACertPath)
+		if err != nil {
+			return nil, fmt.Errorf("oidc: failed to load oidc.ca_cert_path %q: %w", cfg.CACertPath, err)
+		}
+		httpClient = client
+		ctx = oidc.ClientContext(ctx, httpClient)
+	}
+
 	provider, err := oidc.NewProvider(ctx, cfg.IssuerURL)
 	if err != nil {
 		return nil, fmt.Errorf("oidc: failed to discover issuer %q: %w", cfg.IssuerURL, err)
 	}
 
 	return &oidcService{
-		provider: provider,
-		verifier: provider.Verifier(&oidc.Config{ClientID: cfg.ClientID}),
+		provider:   provider,
+		verifier:   provider.Verifier(&oidc.Config{ClientID: cfg.ClientID}),
+		httpClient: httpClient,
 		oauth2Config: oauth2.Config{
 			ClientID:     cfg.ClientID,
 			ClientSecret: cfg.ClientSecret,
 			RedirectURL:  cfg.RedirectURL,
 			Endpoint:     provider.Endpoint(),
 			Scopes:       cfg.Scopes,
+		},
+	}, nil
+}
+
+// httpClientWithExtraCA returns an *http.Client whose TLS trust pool is the
+// system pool plus the PEM-encoded certificate at path. Falls back to a
+// fresh empty pool if the system pool is unavailable (x509.SystemCertPool
+// can return an error on some platforms), matching the standard library's
+// own documented fallback pattern for this case.
+func httpClientWithExtraCA(path string) (*http.Client, error) {
+	pemData, err := os.ReadFile(path)
+	if err != nil {
+		return nil, fmt.Errorf("read CA cert file: %w", err)
+	}
+
+	pool, err := x509.SystemCertPool()
+	if err != nil || pool == nil {
+		pool = x509.NewCertPool()
+	}
+	if !pool.AppendCertsFromPEM(pemData) {
+		return nil, fmt.Errorf("no valid PEM certificate found in %q", path)
+	}
+
+	return &http.Client{
+		Transport: &http.Transport{
+			TLSClientConfig: &tls.Config{RootCAs: pool},
 		},
 	}, nil
 }
@@ -105,6 +162,10 @@ func (s *oidcService) AuthCodeURL(state, nonce string) string {
 // signature and claims (including that its nonce matches expectedNonce), and
 // returns the caller's identity.
 func (s *oidcService) HandleCallback(ctx context.Context, code, expectedNonce string) (*OIDCIdentity, error) {
+	if s.httpClient != nil {
+		ctx = oidc.ClientContext(ctx, s.httpClient)
+	}
+
 	token, err := s.oauth2Config.Exchange(ctx, code)
 	if err != nil {
 		return nil, fmt.Errorf("oidc: code exchange failed: %w", err)
