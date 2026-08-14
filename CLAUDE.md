@@ -28,29 +28,39 @@ rocketvault/
 ├── cmd/                    # CLI commands (Cobra-based)
 │   ├── vaults/             # Vault lifecycle commands (create, list, delete, ...)
 │   ├── vault-access/       # Per-vault role assignment commands (grant, list, revoke, roles)
+│   ├── vaultcli/           # Shared CLI authorization primitives (ResolveVaultID, RequireDataAction)
 │   ├── certificates/       # Certificate management commands
 │   ├── keys/                # Key management commands
 │   ├── secrets/            # Secret management commands
-│   └── users/               # User management commands
+│   ├── users/               # User management commands
+│   └── audit/               # Audit log query commands
 ├── api/                    # HTTP API layer with service integration
 ├── app/                    # Application core and options
 ├── bootstrap/              # Application initialization (SRP-compliant)
+├── common/                 # Shared CLI/API helpers: vault-flag resolution, auth context, encryption, i18n
+├── examples/
+│   └── consumer-service/  # Example service demonstrating vault-client secret consumption
 ├── model/                  # Pure domain types and constants (DDD)
 │   ├── user.go            # User, Claims, Role constants
 │   ├── secret.go          # Secret domain type
 │   ├── key.go             # Key domain type
 │   ├── certificate.go     # Certificate domain type
 │   ├── vault.go           # Vault, DefaultVaultID, name/tag validation
-│   └── scope.go           # Scope authorization value object
+│   ├── scope.go           # Scope authorization value object
+│   └── azure_roles.go     # Azure Key Vault-parity built-in role definitions and data actions
 ├── internal/
 │   ├── services/          # Business logic services (SRP-compliant)
-│   │   ├── auth/          # Authentication services (4 focused services)
+│   │   ├── auth/          # Authentication services (password, TOTP, JWT, OIDC)
 │   │   ├── users/         # User management services
 │   │   ├── secrets/       # Secret management services (4 focused services)
 │   │   ├── keys/          # Key management services
 │   │   ├── certificates/  # Certificate management services
 │   │   ├── vaults/        # Vault lifecycle and cascade soft-delete/recover
-│   │   └── authorization/ # RBAC, access-policy, and per-vault role-assignment services
+│   │   ├── authorization/ # RBAC, access-policy, and per-vault role-assignment services
+│   │   ├── softdelete/    # Background scheduler that purges soft-deleted items past retention
+│   │   ├── oauth2/        # OAuth2 client-credentials grant for service accounts
+│   │   ├── audit/         # Audit log persistence and compliance reporting
+│   │   └── retry/         # Retry-aware service wrappers
 │   ├── repositories/      # Pure CRUD data access with interfaces
 │   │   ├── user_repository.go         # UserRepositoryInterface + implementation
 │   │   ├── secret_repository.go       # Secret data access
@@ -59,13 +69,19 @@ rocketvault/
 │   ├── container/         # Dependency injection container
 │   ├── middleware/        # HTTP middleware (SRP-compliant)
 │   ├── backup/            # Backup and restore functionality
-│   ├── cache/             # Caching layer
-│   ├── crypto/            # Cryptographic operations (key_crypto, x509_helper)
+│   ├── cache/             # Secret caching layer
+│   ├── keycache/          # In-process decrypted key cache for crypto operations
+│   ├── crypto/            # Cryptographic operations — software and PKCS#11/HSM key providers
 │   ├── db/                # Database layer
 │   ├── health/            # Health check endpoints
 │   ├── logging/           # Structured logging
+│   ├── metrics/           # Prometheus metrics
 │   ├── retry/             # Retry logic and middleware
+│   ├── signing/           # JWT asymmetric signing key storage (OS keychain)
+│   ├── vaultclient/       # Client library for consuming secrets from a RocketVault instance
 │   └── validation/        # Input validation
+├── scripts/
+│   └── docsgen/            # Standalone Go module rendering the docs site (see Build and Run > Documentation)
 └── config/                # Configuration management
 ```
 
