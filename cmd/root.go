@@ -172,13 +172,20 @@ func resolveAuthentication(cmd *cobra.Command, authSvc authServices.Authenticati
 	}
 
 	if time.Now().Before(cached.ExpiresAt) {
-		return &authServices.AuthenticationResult{
-			Token:        cached.Token,
-			RefreshToken: cached.RefreshToken,
-			UserID:       cached.UserID,
-			Username:     cached.Username,
-			Role:         cached.Role,
-		}, nil
+		claims, validateErr := authSvc.ValidateSession(cmd.Context(), cached.Token)
+		if validateErr == nil {
+			return &authServices.AuthenticationResult{
+				Token:        cached.Token,
+				RefreshToken: cached.RefreshToken,
+				UserID:       claims.UserID,
+				Username:     claims.Username,
+				Role:         claims.Role,
+			}, nil
+		}
+		// The cache file's ExpiresAt is only a pre-filter — it can't see
+		// server-side revocation. A ValidateSession failure here (expired,
+		// revoked, or malformed) falls through to the same refresh attempt
+		// used when the cache file itself says it's already expired.
 	}
 
 	refreshed, err := authSvc.RefreshAccessToken(cmd.Context(), cached.RefreshToken)
@@ -304,9 +311,13 @@ func persistentPreRun(cmd *cobra.Command, args []string) error {
 	ctx = context.WithValue(ctx, common.ClaimsKey, claims)
 	cmd.SetContext(ctx)
 
+	jwtPreviewLen := 10
+	if len(authResult.Token) < jwtPreviewLen {
+		jwtPreviewLen = len(authResult.Token)
+	}
 	log.WithFields(logrus.Fields{
 		"command":  cmd.Short,
-		"jwt":      authResult.Token[:10] + "...",
+		"jwt":      authResult.Token[:jwtPreviewLen] + "...",
 		"userID":   claims.UserID,
 		"username": authResult.Username,
 	}).Info("User authenticated successfully")

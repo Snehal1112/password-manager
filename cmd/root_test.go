@@ -75,30 +75,66 @@ func TestResolveAuthentication_UsernamePassword_AuthFails_ReturnsError(t *testin
 func TestResolveAuthentication_UsernameOnly_LoadsNamedCachedSession(t *testing.T) {
 	common.SessionBaseDir = t.TempDir()
 	tc := testutils.NewTestContext(t)
+	userID := uuid.New()
 	require.NoError(t, common.SaveSession(&common.SessionCache{
 		Token: "cached-tok", Username: "user14", ExpiresAt: time.Now().Add(time.Hour),
 	}))
+	tc.MockAuthService.On("ValidateSession", mock.Anything, "cached-tok").
+		Return(&authServices.JWTClaims{UserID: userID, Username: "user14", Role: "user"}, nil)
 
 	c := newAuthTestCmd("user14", "", "")
 	result, err := resolveAuthentication(c, tc.MockAuthService)
 
 	require.NoError(t, err)
 	assert.Equal(t, "cached-tok", result.Token)
+	assert.Equal(t, "user14", result.Username)
 	tc.MockAuthService.AssertNotCalled(t, "AuthenticateUser", mock.Anything, mock.Anything, mock.Anything, mock.Anything)
 }
 
 func TestResolveAuthentication_NoFlags_UsesCurrentPointer(t *testing.T) {
 	common.SessionBaseDir = t.TempDir()
 	tc := testutils.NewTestContext(t)
+	userID := uuid.New()
 	require.NoError(t, common.SaveSession(&common.SessionCache{
 		Token: "cached-tok", Username: "user14", ExpiresAt: time.Now().Add(time.Hour),
 	}))
+	tc.MockAuthService.On("ValidateSession", mock.Anything, "cached-tok").
+		Return(&authServices.JWTClaims{UserID: userID, Username: "user14", Role: "user"}, nil)
 
 	c := newAuthTestCmd("", "", "")
 	result, err := resolveAuthentication(c, tc.MockAuthService)
 
 	require.NoError(t, err)
 	assert.Equal(t, "cached-tok", result.Token)
+}
+
+// TestResolveAuthentication_CachedSessionRevokedServerSide verifies that a
+// cache file whose ExpiresAt hasn't passed yet is NOT trusted blindly — the
+// server-side ValidateSession check must run, so an admin revoking the
+// session takes effect immediately instead of only once the locally-recorded
+// ExpiresAt naturally elapses. A ValidateSession failure here falls through
+// to the same transparent-refresh path used for an already-expired cache.
+func TestResolveAuthentication_CachedSessionRevokedServerSide(t *testing.T) {
+	common.SessionBaseDir = t.TempDir()
+	tc := testutils.NewTestContext(t)
+	userID := uuid.New()
+	require.NoError(t, common.SaveSession(&common.SessionCache{
+		Token: "revoked-tok", RefreshToken: "old-refresh", Username: "user14",
+		ExpiresAt: time.Now().Add(time.Hour),
+	}))
+	tc.MockAuthService.On("ValidateSession", mock.Anything, "revoked-tok").
+		Return(nil, assert.AnError)
+	tc.MockAuthService.On("RefreshAccessToken", mock.Anything, "old-refresh").
+		Return(&authServices.RefreshTokenResult{
+			Token: "new-tok", RefreshToken: "new-refresh", UserID: userID, Username: "user14", Role: "user",
+			ExpiresAt: time.Now().Add(time.Hour),
+		}, nil)
+
+	c := newAuthTestCmd("", "", "")
+	result, err := resolveAuthentication(c, tc.MockAuthService)
+
+	require.NoError(t, err)
+	assert.Equal(t, "new-tok", result.Token, "a revoked cached session must fall through to a fresh refresh")
 }
 
 func TestResolveAuthentication_NoFlagsNoCache_ReturnsError(t *testing.T) {
