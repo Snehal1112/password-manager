@@ -46,7 +46,7 @@ vaults). RocketVault columns are sourced from the codebase (`api/`, `internal/`,
 | Encrypt / Decrypt | ✅ | ✅ `POST /keys/{id}/encrypt`, `/decrypt` | ✅ |
 | Wrap / Unwrap key | ✅ | ✅ `POST /keys/{id}/wrap`, `/unwrap` | ✅ |
 | Backup / Restore | ✅ | ✅ `POST /keys/{id}/backup`, `/keys/restore` | ✅ |
-| Get/Set rotation policy | ✅ | ✅ `GET/PUT/DELETE /keys/{key_id}/rotationpolicy`, granted to Crypto Officer + Administrator (matching Azure's `keyrotationpolicies/*`) | ✅ |
+| Get/Set rotation policy | ✅ | ✅ `GET/PUT/DELETE /keys/{key_id}/rotationpolicy`, granted to Crypto Officer + Administrator (matching Azure's `keyrotationpolicies/*`); policy is stored and served, no scheduler enforces it yet (CRUD parity, not rotation-execution parity) | ✅ |
 | Release (confidential compute) | ✅ | ❌ no TEE attestation flow | ❌ |
 | EXPORT blocked (keys non-extractable) | ✅ | ✅ private material never returned | ✅ |
 
@@ -134,7 +134,7 @@ below re-verifies against the roles that actually govern access: the eleven
 | Reader | `vaults/secrets/readMetadata` (metadata only — **not** the value), key/cert metadata + public material | `Key Vault Reader`: `ActionSecretsReadMetadata`, `ActionKeysRead`, `ActionCertificatesRead` — no secret-value action granted, so `GET /secrets/{id}` (which requires `ActionSecretsGet`) is denied | ✅ |
 | Secrets Officer | `vaults/secrets/*` (full CRUD + lifecycle) | `Key Vault Secrets Officer`: readMetadata/get/set/delete/backup/restore/recover/purge | ✅ |
 | Secrets User | `getSecret` + `readMetadata` | `Key Vault Secrets User`: `ActionSecretsReadMetadata`, `ActionSecretsGet` | ✅ |
-| Crypto Officer | `vaults/keys/*` — **superset of Crypto User**, includes sign/verify/encrypt/decrypt/wrap/unwrap **plus** management, and `keyrotationpolicies/*` | `Key Vault Crypto Officer`: read/create/update/delete/backup/restore/recover/purge/import/rotate/encrypt/decrypt/wrap/unwrap/sign/verify — every Crypto User action plus management, written out as an explicit superset (not derived by union) | ✅ superset relationship matches |
+| Crypto Officer | `vaults/keys/*` — **superset of Crypto User**, includes sign/verify/encrypt/decrypt/wrap/unwrap **plus** management, and `keyrotationpolicies/*` | `Key Vault Crypto Officer`: read/create/update/delete/backup/restore/recover/purge/import/rotate/encrypt/decrypt/wrap/unwrap/sign/verify, plus `ActionKeysRotationPolicyRead`/`ActionKeysRotationPolicyWrite` — every Crypto User action plus management, written out as an explicit superset (not derived by union) | ✅ superset relationship matches |
 | Crypto User | `keys/read,update,backup,encrypt,decrypt,wrap,unwrap,sign,verify` | `Key Vault Crypto User`: read/encrypt/decrypt/wrap/unwrap/sign/verify — has wrap/unwrap (contra the 2026-07-25 pass, which checked the legacy `PolicyOperation` enum instead of this live bundle); missing `update` and `backup` relative to Azure | 🟡 close — missing two actions Azure grants |
 | Certificates Officer | `certificates/*`, `certificatecas/*`, `certificatecontacts/*` | `Key Vault Certificates Officer`: full cert CRUD + lifecycle; no CA or contacts sub-resources (those RocketVault features don't exist at all) | 🟡 matches what exists; CA/contacts out of scope |
 | Administrator | `vaults/*` — full data-plane, all types, all ops including wrap/unwrap | `Key Vault Administrator`: every secrets/keys/certificates action written out explicitly, including wrap/unwrap — not a union of other roles, so it carries no derived gaps | ✅ |
