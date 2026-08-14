@@ -91,12 +91,36 @@ type DatabaseStats struct {
 	HealthStatus       string        `json:"health_status"`
 }
 
+// defaultSlowQueryThreshold is the duration above which RecordQuery counts a
+// query as slow for newly-created collectors. Configurable via
+// monitoring.slow_query_threshold (see config.LoadMonitoringConfig).
+var (
+	defaultSlowQueryThreshold   = 100 * time.Millisecond
+	defaultSlowQueryThresholdMu sync.RWMutex
+)
+
+// SetDefaultSlowQueryThreshold configures the slow-query threshold used by
+// HealthCollectors created afterwards via NewHealthCollector. Safe for
+// concurrent use.
+func SetDefaultSlowQueryThreshold(d time.Duration) {
+	defaultSlowQueryThresholdMu.Lock()
+	defer defaultSlowQueryThresholdMu.Unlock()
+	defaultSlowQueryThreshold = d
+}
+
+func getDefaultSlowQueryThreshold() time.Duration {
+	defaultSlowQueryThresholdMu.RLock()
+	defer defaultSlowQueryThresholdMu.RUnlock()
+	return defaultSlowQueryThreshold
+}
+
 // HealthCollector manages health metrics collection
 type HealthCollector struct {
-	db           *sql.DB
-	startTime    time.Time
-	queryMetrics *QueryMetrics
-	mu           sync.RWMutex
+	db                 *sql.DB
+	startTime          time.Time
+	queryMetrics       *QueryMetrics
+	slowQueryThreshold time.Duration
+	mu                 sync.RWMutex
 }
 
 // QueryMetrics tracks database query performance
@@ -111,9 +135,10 @@ type QueryMetrics struct {
 // NewHealthCollector creates a new health metrics collector
 func NewHealthCollector(db *sql.DB) *HealthCollector {
 	return &HealthCollector{
-		db:           db,
-		startTime:    time.Now(),
-		queryMetrics: &QueryMetrics{},
+		db:                 db,
+		startTime:          time.Now(),
+		queryMetrics:       &QueryMetrics{},
+		slowQueryThreshold: getDefaultSlowQueryThreshold(),
 	}
 }
 
@@ -211,8 +236,7 @@ func (hc *HealthCollector) RecordQuery(duration time.Duration) {
 		hc.queryMetrics.AvgDuration = hc.queryMetrics.TotalDuration / time.Duration(hc.queryMetrics.QueryCount)
 	}
 
-	// Consider queries over 100ms as slow
-	if duration > 100*time.Millisecond {
+	if duration > hc.slowQueryThreshold {
 		hc.queryMetrics.SlowQueries++
 	}
 }

@@ -39,15 +39,17 @@ type Routes struct {
 	OAuth2          *mux.Router // /api/v1/oauth2 (public — no auth middleware)
 	Config          *mux.Router // /api/v1/config (public — no auth middleware)
 	JWKS            *mux.Router // /jwks.json (public — no auth middleware)
+	Metrics         *mux.Router // /metrics (public — no auth middleware; gated by monitoring.enable_metrics)
 }
 
 // API is the main API structure for the vault service.
 type API struct {
-	App        *app.App
-	BaseRoutes *Routes
-	basePath   string
-	rootRouter *mux.Router
-	Logger     *logging.Logger
+	App            *app.App
+	BaseRoutes     *Routes
+	basePath       string
+	rootRouter     *mux.Router
+	Logger         *logging.Logger
+	metricsEnabled bool
 }
 
 // Init initializes the API, wires middleware, and registers all route handlers.
@@ -128,6 +130,10 @@ func Init(options ...Options) *API {
 	r.JWKS = api.rootRouter.NewRoute().Subrouter()
 	r.JWKS.Use(mw.CORSMiddleware)
 
+	// Metrics is public — registered on rootRouter to bypass auth middleware,
+	// matching the Prometheus convention of an unversioned /metrics path.
+	r.Metrics = api.rootRouter.NewRoute().Subrouter()
+
 	api.InitVault()
 	api.InitSecrets()
 	api.InitUsers()
@@ -141,6 +147,7 @@ func Init(options ...Options) *API {
 	api.InitOAuth2()
 	api.InitOIDC()
 	api.InitJWKS()
+	api.InitMetrics(api.metricsEnabled)
 	api.InitBackupItem()
 	api.InitAudit()
 

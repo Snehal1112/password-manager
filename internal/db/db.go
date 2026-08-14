@@ -1035,6 +1035,27 @@ func (d *DBRepository) CloseDB() error {
 	return nil
 }
 
+// slowQueryThreshold is the duration above which a query counts as slow.
+// Configurable via monitoring.slow_query_threshold (see config.LoadMonitoringConfig).
+var (
+	slowQueryThreshold   = 100 * time.Millisecond
+	slowQueryThresholdMu sync.RWMutex
+)
+
+// SetSlowQueryThreshold configures the duration above which RecordQueryExecution
+// counts a query as slow. Safe for concurrent use.
+func SetSlowQueryThreshold(d time.Duration) {
+	slowQueryThresholdMu.Lock()
+	defer slowQueryThresholdMu.Unlock()
+	slowQueryThreshold = d
+}
+
+func getSlowQueryThreshold() time.Duration {
+	slowQueryThresholdMu.RLock()
+	defer slowQueryThresholdMu.RUnlock()
+	return slowQueryThreshold
+}
+
 // RecordQueryExecution records query performance metrics.
 func RecordQueryExecution(duration time.Duration) {
 	metrics.mu.Lock()
@@ -1047,8 +1068,7 @@ func RecordQueryExecution(duration time.Duration) {
 		metrics.AverageQueryTime = metrics.TotalQueryTime / time.Duration(metrics.QueryCount)
 	}
 
-	// Track slow queries (>100ms)
-	if duration > 100*time.Millisecond {
+	if duration > getSlowQueryThreshold() {
 		metrics.SlowQueryCount++
 	}
 }

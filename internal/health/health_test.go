@@ -97,6 +97,23 @@ func TestRecordQuery_Slow(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
+// TestRecordQuery_CustomSlowQueryThreshold
+// ---------------------------------------------------------------------------
+
+func TestRecordQuery_CustomSlowQueryThreshold(t *testing.T) {
+	SetDefaultSlowQueryThreshold(300 * time.Millisecond)
+	defer SetDefaultSlowQueryThreshold(100 * time.Millisecond) // restore default for other tests
+
+	hc := NewHealthCollector(nil)
+	hc.RecordQuery(200 * time.Millisecond) // below the 300ms threshold, not slow
+	hc.RecordQuery(350 * time.Millisecond) // above the 300ms threshold, slow
+
+	m := hc.GetQueryMetrics()
+	assert.Equal(t, int64(2), m.QueryCount)
+	assert.Equal(t, int64(1), m.SlowQueries, "only the 350ms query should count as slow under a 300ms threshold")
+}
+
+// ---------------------------------------------------------------------------
 // TestRecordQuery_Multiple
 // ---------------------------------------------------------------------------
 

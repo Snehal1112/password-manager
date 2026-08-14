@@ -17,7 +17,9 @@ import (
 	"rocketvault/config"
 	"rocketvault/internal/container"
 	"rocketvault/internal/db"
+	"rocketvault/internal/health"
 	"rocketvault/internal/logging"
+	"rocketvault/internal/metrics"
 	authzServices "rocketvault/internal/services/authorization"
 	certServices "rocketvault/internal/services/certificates"
 	"rocketvault/internal/services/softdelete"
@@ -160,6 +162,8 @@ type bootstrap struct {
 	cfg              *config.Config
 	purgeScheduler   *softdelete.PurgeScheduler
 	renewalScheduler *certServices.CertificateRenewalScheduler
+	metricsScheduler *metrics.MetricsScheduler
+	monitoringCfg    config.MonitoringConfig
 }
 
 // newBootstrap creates a new bootstrap orchestrator with SRP-compliant design.
@@ -248,6 +252,20 @@ func (b *bootstrap) setup(ctx context.Context, cfg *Config) error {
 		return fmt.Errorf("database initialization failed: %w", err)
 	}
 
+	// Step 2a: Load monitoring config and apply the slow-query threshold to
+	// the db and health packages' query-performance tracking.
+	b.monitoringCfg = config.LoadMonitoringConfig()
+	db.SetSlowQueryThreshold(b.monitoringCfg.SlowQueryThreshold)
+	health.SetDefaultSlowQueryThreshold(b.monitoringCfg.SlowQueryThreshold)
+
+	// Start the periodic DB performance gauge collector when metrics are enabled.
+	if b.monitoringCfg.EnableMetrics {
+		dbMetrics := metrics.NewDefaultDBMetrics()
+		b.metricsScheduler = metrics.NewMetricsScheduler(dbMetrics, dbPerformanceSnapshot, b.monitoringCfg.MetricsInterval)
+		b.metricsScheduler.Start(ctx)
+		b.cfg.Logger.Info("Metrics collector started")
+	}
+
 	// Step 2b: Start background purge scheduler when soft-delete is enabled.
 	softDeleteCfg := config.LoadSoftDeleteConfig()
 	if softDeleteCfg.Enabled {
@@ -293,6 +311,20 @@ func (b *bootstrap) setup(ctx context.Context, cfg *Config) error {
 
 	logrus.Info("Application bootstrap completed successfully")
 	return nil
+}
+
+// dbPerformanceSnapshot adapts db.GetPerformanceMetrics into the shape the
+// metrics package's periodic gauge collector expects.
+func dbPerformanceSnapshot() metrics.DBSnapshot {
+	perf := db.GetPerformanceMetrics()
+	return metrics.DBSnapshot{
+		QueryCount:         perf.QueryCount,
+		SlowQueryCount:     perf.SlowQueryCount,
+		AverageQueryTimeMS: float64(perf.AverageQueryTime.Microseconds()) / 1000.0,
+		OpenConnections:    perf.ConnectionStats.OpenConnections,
+		InUse:              perf.ConnectionStats.InUse,
+		Idle:               perf.ConnectionStats.Idle,
+	}
 }
 
 // buildServerConfigFromViper reads server TLS and feature configuration from Viper.
@@ -348,6 +380,7 @@ func (b *bootstrap) initializeAPI(cfg *Config, app *app.App) error {
 		api.WithBasePath(cfg.BasePath),
 		api.WithRouter(app.GetRouter()),
 		api.WithLogger(b.cfg.Logger),
+		api.WithMetricsEnabled(b.monitoringCfg.EnableMetrics),
 	)
 
 	logrus.Info("API layer initialized successfully")
@@ -362,6 +395,11 @@ func (b *bootstrap) Shutdown(ctx context.Context) error {
 	if b.renewalScheduler != nil {
 		b.renewalScheduler.Stop()
 		logrus.Info("Certificate renewal scheduler stopped")
+	}
+
+	if b.metricsScheduler != nil {
+		b.metricsScheduler.Stop()
+		logrus.Info("Metrics collector stopped")
 	}
 
 	if b.purgeScheduler != nil {

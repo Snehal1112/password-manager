@@ -69,3 +69,11 @@ func WithLogger(logger *logging.Logger) Options {
 		a.Logger = logger
 	}
 }
+
+// WithMetricsEnabled controls whether the public /metrics Prometheus endpoint
+// is registered, driven by the monitoring.enable_metrics config key.
+func WithMetricsEnabled(enabled bool) Options {
+	return func(a *API) {
+		a.metricsEnabled = enabled
+	}
+}

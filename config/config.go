@@ -3,6 +3,7 @@ package config
 import (
 	"net"
 	"net/http"
+	"time"
 
 	"rocketvault/internal/logging"
 
@@ -32,6 +33,33 @@ func LoadSoftDeleteConfig() SoftDeleteConfig {
 	}
 	if viper.IsSet("soft_delete.purge_protection") {
 		cfg.PurgeProtection = viper.GetBool("soft_delete.purge_protection")
+	}
+	return cfg
+}
+
+// MonitoringConfig controls Prometheus metrics exposure and slow-query detection.
+type MonitoringConfig struct {
+	EnableMetrics      bool          `mapstructure:"enable_metrics"`
+	MetricsInterval    time.Duration `mapstructure:"metrics_interval"`
+	SlowQueryThreshold time.Duration `mapstructure:"slow_query_threshold"`
+}
+
+// LoadMonitoringConfig reads monitoring settings from Viper.
+// Falls back to safe defaults if keys are not set.
+func LoadMonitoringConfig() MonitoringConfig {
+	cfg := MonitoringConfig{
+		EnableMetrics:      true,
+		MetricsInterval:    60 * time.Second,
+		SlowQueryThreshold: 100 * time.Millisecond,
+	}
+	if viper.IsSet("monitoring.enable_metrics") {
+		cfg.EnableMetrics = viper.GetBool("monitoring.enable_metrics")
+	}
+	if viper.IsSet("monitoring.metrics_interval") {
+		cfg.MetricsInterval = viper.GetDuration("monitoring.metrics_interval")
+	}
+	if viper.IsSet("monitoring.slow_query_threshold") {
+		cfg.SlowQueryThreshold = viper.GetDuration("monitoring.slow_query_threshold")
 	}
 	return cfg
 }

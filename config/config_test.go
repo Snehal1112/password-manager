@@ -3,6 +3,7 @@ package config
 import (
 	"net"
 	"testing"
+	"time"
 
 	"github.com/spf13/viper"
 	"github.com/stretchr/testify/assert"
@@ -169,4 +170,52 @@ func TestLoadSoftDeleteConfig_RetentionDaysZero(t *testing.T) {
 	cfg := LoadSoftDeleteConfig()
 
 	assert.Equal(t, 0, cfg.RetentionDays, "explicitly configured zero should be respected")
+}
+
+// ---------------------------------------------------------------------------
+// TestLoadMonitoringConfig_Defaults
+// ---------------------------------------------------------------------------
+
+func TestLoadMonitoringConfig_Defaults(t *testing.T) {
+	reset()
+
+	cfg := LoadMonitoringConfig()
+
+	assert.True(t, cfg.EnableMetrics, "default EnableMetrics should be true")
+	assert.Equal(t, 60*time.Second, cfg.MetricsInterval, "default MetricsInterval should be 60s")
+	assert.Equal(t, 100*time.Millisecond, cfg.SlowQueryThreshold, "default SlowQueryThreshold should be 100ms")
+}
+
+// ---------------------------------------------------------------------------
+// TestLoadMonitoringConfig_AllSet
+// ---------------------------------------------------------------------------
+
+func TestLoadMonitoringConfig_AllSet(t *testing.T) {
+	reset()
+
+	viper.Set("monitoring.enable_metrics", false)
+	viper.Set("monitoring.metrics_interval", "30s")
+	viper.Set("monitoring.slow_query_threshold", "500ms")
+
+	cfg := LoadMonitoringConfig()
+
+	assert.False(t, cfg.EnableMetrics)
+	assert.Equal(t, 30*time.Second, cfg.MetricsInterval)
+	assert.Equal(t, 500*time.Millisecond, cfg.SlowQueryThreshold)
+}
+
+// ---------------------------------------------------------------------------
+// TestLoadMonitoringConfig_PartialSet — only slow_query_threshold set
+// ---------------------------------------------------------------------------
+
+func TestLoadMonitoringConfig_PartialSet(t *testing.T) {
+	reset()
+
+	viper.Set("monitoring.slow_query_threshold", "2s")
+
+	cfg := LoadMonitoringConfig()
+
+	assert.True(t, cfg.EnableMetrics, "EnableMetrics should still use the default (true)")
+	assert.Equal(t, 60*time.Second, cfg.MetricsInterval, "MetricsInterval should still use the default (60s)")
+	assert.Equal(t, 2*time.Second, cfg.SlowQueryThreshold)
 }

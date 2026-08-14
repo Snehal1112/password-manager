@@ -222,6 +222,20 @@ func TestGetPerformanceMetrics_ReturnsCopy(t *testing.T) {
 	assert.Equal(t, int64(1), m2.QueryCount)
 }
 
+func TestRecordQueryExecution_CustomSlowQueryThreshold(t *testing.T) {
+	SetSlowQueryThreshold(300 * time.Millisecond)
+	defer SetSlowQueryThreshold(100 * time.Millisecond) // restore default for other tests
+
+	ResetPerformanceMetrics()
+
+	RecordQueryExecution(200 * time.Millisecond) // below the 300ms threshold, not slow
+	RecordQueryExecution(350 * time.Millisecond) // above the 300ms threshold, slow
+
+	m := GetPerformanceMetrics()
+	assert.Equal(t, int64(2), m.QueryCount)
+	assert.Equal(t, int64(1), m.SlowQueryCount, "only the 350ms query should count as slow under a 300ms threshold")
+}
+
 func TestResetPerformanceMetrics(t *testing.T) {
 	RecordQueryExecution(100 * time.Millisecond)
 	RecordQueryExecution(200 * time.Millisecond)
