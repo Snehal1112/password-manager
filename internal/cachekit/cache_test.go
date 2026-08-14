@@ -106,6 +106,20 @@ func TestCache_Invalidate_CallsZeroOnRemovedValue(t *testing.T) {
 	assert.True(t, zeroed.Load(), "Invalidate must call Zero() on the removed value")
 }
 
+func TestCache_Set_OverwriteCallsZeroOnDisplacedValue(t *testing.T) {
+	c := newCache(t, cachekit.Config{Enabled: true, TTL: time.Minute, CleanupInterval: time.Second, MaxEntries: 10})
+	var zeroed atomic.Bool
+	c.Set("a", testValue{N: 1, zeroed: &zeroed})
+
+	c.Set("a", testValue{N: 2}) // overwrite the same key with a new value
+
+	assert.True(t, zeroed.Load(), "Set overwriting an existing key must call Zero() on the displaced value")
+
+	got, ok := c.Get("a")
+	require.True(t, ok)
+	assert.Equal(t, 2, got.N, "the new value must be the one actually stored")
+}
+
 func TestCache_TTLSweep_CallsZeroOnExpiredValue(t *testing.T) {
 	c := newCache(t, cachekit.Config{Enabled: true, TTL: 15 * time.Millisecond, CleanupInterval: 5 * time.Millisecond, MaxEntries: 10})
 	var zeroed atomic.Bool

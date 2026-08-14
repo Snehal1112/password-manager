@@ -75,9 +75,20 @@ func (c *Cache[K, V]) Set(key K, value V) {
 		expiresAt:  time.Now().Add(c.cfg.TTL),
 		lastAccess: time.Now().UnixNano(),
 	}
-	_, loaded := c.data.Swap(key, e)
+	old, loaded := c.data.Swap(key, e)
 	if !loaded {
 		c.count.Add(1)
+	} else if oldEntry, ok := old.(*cacheEntry[V]); ok {
+		// A value was displaced by this overwrite, not removed via remove(),
+		// so it was never zeroed. Mirror remove()'s locked Zero() call here to
+		// close that gap: the old entry is unreachable via c.data as of the
+		// Swap above, so this lock only guards against a concurrent Get() that
+		// loaded it just before the Swap and is still cloning it.
+		oldEntry.mu.Lock()
+		if z, ok := any(oldEntry.value).(Zeroable); ok {
+			z.Zero()
+		}
+		oldEntry.mu.Unlock()
 	}
 
 	if c.cfg.MaxEntries > 0 && c.count.Load() > int64(c.cfg.MaxEntries) {

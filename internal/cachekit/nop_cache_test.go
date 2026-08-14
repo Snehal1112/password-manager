@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 
 	"rocketvault/internal/cachekit"
 )
@@ -41,6 +42,23 @@ func TestNewFromConfig_DisabledReturnsNopCache(t *testing.T) {
 	c.Set("a", testValue{N: 1})
 	_, ok := c.Get("a")
 	assert.False(t, ok, "disabled config must produce a cache that never hits")
+}
+
+// TestNewFromConfig_InvalidConfigReturnsNopCache proves that an enabled but
+// invalid Config (here, CleanupInterval == TTL, which Validate rejects since
+// the cleanup interval must be strictly less than the TTL) does not panic
+// New's background sweeper goroutine on an unusable ticker interval. Instead
+// NewFromConfig must fail safe and hand back an inert NopCache.
+func TestNewFromConfig_InvalidConfigReturnsNopCache(t *testing.T) {
+	cfg := cachekit.Config{Enabled: true, TTL: time.Minute, CleanupInterval: time.Minute, MaxEntries: 10}
+	require.Error(t, cfg.Validate(), "test setup: cfg must actually be invalid")
+
+	c := cachekit.NewFromConfig[string, testValue](cfg)
+	defer c.Stop()
+
+	c.Set("a", testValue{N: 1})
+	_, ok := c.Get("a")
+	assert.False(t, ok, "invalid config must produce a cache that never hits, not a panic")
 }
 
 var _ cachekit.Interface[string, testValue] = (*cachekit.NopCache[string, testValue])(nil)

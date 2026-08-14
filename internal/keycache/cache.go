@@ -4,7 +4,6 @@ package keycache
 
 import (
 	"crypto"
-	"time"
 
 	"github.com/google/uuid"
 )
@@ -19,7 +18,6 @@ type Entry struct {
 	PublicKey  crypto.PublicKey  // may be nil for symmetric keys
 	KeyType    string            // model.KeyTypeRSA / ECDSA / ES256K / oct
 	Version    int
-	ExpiresAt  time.Time
 }
 
 // Clone returns a shallow copy of e. Safe because PrivateKey/PublicKey hold

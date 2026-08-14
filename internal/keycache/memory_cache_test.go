@@ -18,7 +18,7 @@ func TestNewCache_GetSetInvalidate(t *testing.T) {
 	defer c.Stop()
 
 	id := uuid.New()
-	entry := &keycache.Entry{KeyType: "RSA", Version: 1, ExpiresAt: time.Now().Add(5 * time.Minute)}
+	entry := &keycache.Entry{KeyType: "RSA", Version: 1}
 
 	_, hit := c.Get(id, 1)
 	assert.False(t, hit)
@@ -31,7 +31,7 @@ func TestNewCache_GetSetInvalidate(t *testing.T) {
 	_, hit = c.Get(id, 2)
 	assert.False(t, hit, "different version is a miss")
 
-	c.Set(id, 2, &keycache.Entry{KeyType: "RSA", Version: 2, ExpiresAt: time.Now().Add(time.Minute)})
+	c.Set(id, 2, &keycache.Entry{KeyType: "RSA", Version: 2})
 	c.Invalidate(id)
 	_, hit = c.Get(id, 1)
 	assert.False(t, hit, "invalidate must remove all versions")
@@ -46,7 +46,7 @@ func TestNopCache_NeverHits(t *testing.T) {
 	_, hit := c.Get(id, 1)
 	assert.False(t, hit)
 
-	c.Set(id, 1, &keycache.Entry{KeyType: "RSA", Version: 1, ExpiresAt: time.Now().Add(time.Minute)})
+	c.Set(id, 1, &keycache.Entry{KeyType: "RSA", Version: 1})
 	_, hit = c.Get(id, 1)
 	assert.False(t, hit, "nop cache must never return a hit")
 
@@ -64,7 +64,7 @@ func TestMemoryCache_GetSetInvalidate(t *testing.T) {
 	defer c.Stop()
 
 	id := uuid.New()
-	entry := &keycache.Entry{KeyType: "RSA", Version: 1, ExpiresAt: time.Now().Add(5 * time.Minute)}
+	entry := &keycache.Entry{KeyType: "RSA", Version: 1}
 
 	// miss before set
 	_, hit := c.Get(id, 1)
@@ -81,7 +81,7 @@ func TestMemoryCache_GetSetInvalidate(t *testing.T) {
 	assert.False(t, hit)
 
 	// invalidate removes all versions
-	c.Set(id, 2, &keycache.Entry{KeyType: "RSA", Version: 2, ExpiresAt: time.Now().Add(time.Minute)})
+	c.Set(id, 2, &keycache.Entry{KeyType: "RSA", Version: 2})
 	c.Invalidate(id)
 	_, hit = c.Get(id, 1)
 	assert.False(t, hit)
@@ -95,7 +95,7 @@ func TestMemoryCache_TTLExpiry(t *testing.T) {
 	defer c.Stop()
 
 	id := uuid.New()
-	c.Set(id, 1, &keycache.Entry{KeyType: "RSA", Version: 1, ExpiresAt: time.Now().Add(50 * time.Millisecond)})
+	c.Set(id, 1, &keycache.Entry{KeyType: "RSA", Version: 1})
 
 	_, hit := c.Get(id, 1)
 	require.True(t, hit)
@@ -112,8 +112,8 @@ func TestMemoryCache_Stats(t *testing.T) {
 	defer c.Stop()
 
 	id1, id2 := uuid.New(), uuid.New()
-	c.Set(id1, 1, &keycache.Entry{KeyType: "RSA", Version: 1, ExpiresAt: time.Now().Add(time.Minute)})
-	c.Set(id2, 1, &keycache.Entry{KeyType: "EC", Version: 1, ExpiresAt: time.Now().Add(time.Minute)})
+	c.Set(id1, 1, &keycache.Entry{KeyType: "RSA", Version: 1})
+	c.Set(id2, 1, &keycache.Entry{KeyType: "EC", Version: 1})
 
 	stats := c.Stats()
 	assert.Equal(t, 2, stats.TotalEntries)
@@ -133,7 +133,7 @@ func TestMemoryCache_ConcurrentAccess(t *testing.T) {
 	for g := 0; g < 10; g++ {
 		go func() {
 			for i, id := range ids {
-				c.Set(id, 1, &keycache.Entry{KeyType: "RSA", Version: 1, ExpiresAt: time.Now().Add(time.Minute)})
+				c.Set(id, 1, &keycache.Entry{KeyType: "RSA", Version: 1})
 				c.Get(id, 1)
 				if i%5 == 0 {
 					c.Invalidate(id)

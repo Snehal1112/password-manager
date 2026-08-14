@@ -155,7 +155,6 @@ func TestCacheHit_ReducesDecryptCalls(t *testing.T) {
 		PrivateKey: keycache.PEMKey{PEM: privateKeyPEM},
 		KeyType:    "RSA",
 		Version:    0,
-		ExpiresAt:  time.Now().Add(time.Minute),
 	}
 
 	// First call: Get returns a miss (nil, false).
@@ -438,7 +437,6 @@ func TestCacheHit_TTLExpiry(t *testing.T) {
 	svc := keys.NewCryptoService(keys.CryptoServiceConfig{
 		KeyRepository: repo,
 		KeyCache:      cache,
-		CacheConfig:   shortTTLConfig,
 		Logger:        &logging.Logger{Logger: logrus.New()},
 	})
 

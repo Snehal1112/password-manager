@@ -10,7 +10,6 @@ import (
 	"github.com/sirupsen/logrus"
 
 	"rocketvault/common"
-	"rocketvault/internal/cachekit"
 	"rocketvault/internal/crypto"
 	"rocketvault/internal/keycache"
 	"rocketvault/internal/logging"
@@ -153,9 +152,6 @@ type CryptoServiceConfig struct {
 	KeyCache keycache.Cache
 	// CryptoMetrics is optional; nil defaults to NopCryptoMetrics (no metrics).
 	CryptoMetrics metrics.CryptoMetrics
-	// CacheConfig controls TTL and eviction; nil defaults to a 60s TTL / 30s
-	// cleanup interval / 500 max entries.
-	CacheConfig *cachekit.Config
 }
 
 // NewCryptoService creates a new crypto service.
@@ -165,9 +161,6 @@ func NewCryptoService(config CryptoServiceConfig) CryptoService {
 	}
 	if config.CryptoMetrics == nil {
 		config.CryptoMetrics = metrics.NewNopCryptoMetrics()
-	}
-	if config.CacheConfig == nil {
-		config.CacheConfig = &cachekit.Config{Enabled: true, TTL: 60 * time.Second, CleanupInterval: 30 * time.Second, MaxEntries: 500}
 	}
 	return &cryptoService{
 		keyRepo:       config.KeyRepository,
@@ -235,7 +228,6 @@ func (s *cryptoService) resolveKeyMaterial(key *model.Key) (
 		PrivateKey: keycache.PEMKey{PEM: decrypted},
 		KeyType:    key.Type,
 		Version:    0,
-		ExpiresAt:  time.Now().Add(s.cfg.CacheConfig.TTL),
 	})
 
 	handle = decrypted

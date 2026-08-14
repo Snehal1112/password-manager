@@ -64,8 +64,9 @@ type versioningService struct {
 // NewVersioningService creates a new versioning service with the required
 // dependencies. cacheInv is needed because RollbackToVersion writes the
 // secrets table without going through CachedSecretService. The container
-// always constructs a real (possibly no-op-backed) invalidator, so cacheInv
-// must not be nil here.
+// always constructs a real (possibly no-op-backed) invalidator; a nil
+// cacheInv (e.g. from a test) is defaulted to a no-op implementation so
+// invalidateCache never nil-derefs.
 func NewVersioningService(
 	versionRepo repositories.SecretVersionRepositoryInterface,
 	secretRepo repositories.SecretRepositoryInterface,
@@ -74,6 +75,9 @@ func NewVersioningService(
 	log *logging.Logger,
 	cacheInv SecretCacheInvalidator,
 ) VersioningServiceInterface {
+	if cacheInv == nil {
+		cacheInv = noopSecretCacheInvalidator{}
+	}
 	return &versioningService{
 		versionRepo: versionRepo,
 		secretRepo:  secretRepo,

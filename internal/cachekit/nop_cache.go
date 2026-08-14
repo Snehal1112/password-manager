@@ -23,8 +23,16 @@ func (n *NopCache[K, V]) Stop()                             {}
 
 // NewFromConfig is the one place the enabled/disabled branch lives: every
 // domain wrapper calls this instead of repeating the if/else itself.
+//
+// An invalid cfg (e.g. CleanupInterval <= 0) would otherwise reach New's
+// background sweeper goroutine and panic on time.NewTicker with no useful
+// diagnostic. Fail safe instead: hand back an inert NopCache, matching the
+// disabled-cache path, rather than crashing the process.
 func NewFromConfig[K comparable, V Cloneable[V]](cfg Config) Interface[K, V] {
 	if !cfg.Enabled {
+		return NewNopCache[K, V]()
+	}
+	if err := cfg.Validate(); err != nil {
 		return NewNopCache[K, V]()
 	}
 	return New[K, V](cfg)

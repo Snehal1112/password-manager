@@ -15,7 +15,14 @@ import (
 //
 // The interface is declared here rather than imported from internal/cache
 // because that package imports this one; *cache.SecretCache satisfies it.
-// It is always optional — a nil invalidator means caching is disabled.
 type SecretCacheInvalidator interface {
 	DeleteByID(ctx context.Context, secretID uuid.UUID) error
 }
+
+// noopSecretCacheInvalidator is the "always non-nil, real-or-no-op" default
+// used when a constructor is handed a nil SecretCacheInvalidator (tests,
+// mainly). It matches the pattern this effort established for the caches
+// themselves: callers can always invoke DeleteByID without a nil check.
+type noopSecretCacheInvalidator struct{}
+
+func (noopSecretCacheInvalidator) DeleteByID(context.Context, uuid.UUID) error { return nil }

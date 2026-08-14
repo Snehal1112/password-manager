@@ -17,7 +17,6 @@ func TestEntry_Clone_IndependentCopy(t *testing.T) {
 		PrivateKey: keycache.PEMKey{PEM: "original"},
 		KeyType:    "RSA",
 		Version:    1,
-		ExpiresAt:  time.Now().Add(time.Minute),
 	}
 	clone := e.Clone()
 
@@ -44,10 +43,9 @@ func TestMemoryCache_InvalidateAll(t *testing.T) {
 
 	id1 := uuid.New()
 	id2 := uuid.New()
-	exp := time.Now().Add(5 * time.Minute)
 
-	c.Set(id1, 1, &keycache.Entry{KeyType: "RSA", Version: 1, ExpiresAt: exp})
-	c.Set(id2, 1, &keycache.Entry{KeyType: "EC", Version: 1, ExpiresAt: exp})
+	c.Set(id1, 1, &keycache.Entry{KeyType: "RSA", Version: 1})
+	c.Set(id2, 1, &keycache.Entry{KeyType: "EC", Version: 1})
 
 	stats := c.Stats()
 	require.Equal(t, 2, stats.TotalEntries)
@@ -72,18 +70,28 @@ func TestMemoryCache_InvalidateAll(t *testing.T) {
 // Entry.ExpiresAt before Set — the pre-migration memoryCache's mechanism
 // for simulating an already-expired entry — no longer has any effect. This
 // test instead drives real expiry with a short TTL and a sleep, the same
-// pattern TestMemoryCache_TTLExpiry already uses. CleanupInterval is kept
-// long so the background sweeper hasn't purged the entry before Stats()
-// observes it as present-but-expired.
+// pattern TestMemoryCache_TTLExpiry already uses.
+//
+// The config can no longer disable the sweeper via an out-of-spec
+// CleanupInterval (e.g. CleanupInterval > TTL) to hold the entry present-but-
+// expired indefinitely: cachekit.NewFromConfig now calls Config.Validate
+// first, which rejects CleanupInterval >= TTL, and would silently fall back
+// to a NopCache that never stores anything — defeating this test instead of
+// failing it loudly. So this uses a Validate-legal config (CleanupInterval <
+// TTL) and instead times the read to land inside the real, bounded window
+// between TTL expiry and the next scheduled sweep tick: expiry at 150ms,
+// sweep ticks at 100ms (too early, not yet expired) and 200ms (removes it),
+// so 175ms lands inside the ~50ms present-but-expired window with margin on
+// both sides.
 func TestMemoryCache_Stats_ExpiredEntries(t *testing.T) {
-	cfg := cachekit.Config{Enabled: true, TTL: 10 * time.Millisecond, CleanupInterval: time.Hour, MaxEntries: 100}
+	cfg := cachekit.Config{Enabled: true, TTL: 150 * time.Millisecond, CleanupInterval: 100 * time.Millisecond, MaxEntries: 100}
 	c := keycache.NewCache(cfg)
 	defer c.Stop()
 
 	id := uuid.New()
 	c.Set(id, 1, &keycache.Entry{KeyType: "RSA", Version: 1})
 
-	time.Sleep(50 * time.Millisecond)
+	time.Sleep(175 * time.Millisecond)
 
 	stats := c.Stats()
 	assert.Equal(t, 1, stats.TotalEntries)
@@ -106,8 +114,14 @@ func TestMemoryCache_Stats_ExpiredEntries(t *testing.T) {
 // and cachekit's own TestCache_TTLSweep_CallsZeroOnExpiredValue proves
 // Zero() fires on TTL expiry. This test keeps the half that remains
 // observable through keycache's public Cache interface: a miss after TTL.
+//
+// The config must satisfy cachekit.Config.Validate (CleanupInterval < TTL):
+// NewFromConfig now validates before constructing a real cache, and an
+// invalid config would silently produce a NopCache that always misses,
+// making this assertion pass for the wrong reason instead of exercising
+// real TTL expiry.
 func TestMemoryCache_Get_ExpiredZeroesKeys(t *testing.T) {
-	cfg := cachekit.Config{Enabled: true, TTL: 10 * time.Millisecond, CleanupInterval: time.Hour, MaxEntries: 100}
+	cfg := cachekit.Config{Enabled: true, TTL: 10 * time.Millisecond, CleanupInterval: 5 * time.Millisecond, MaxEntries: 100}
 	c := keycache.NewCache(cfg)
 	defer c.Stop()
 
