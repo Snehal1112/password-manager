@@ -1193,27 +1193,6 @@ func TestUpdateSecret_TagsChange_Returns200(t *testing.T) {
 }
 
 // ============================================================
-// context.go — certPolicyRepo accessor nil guards
-// ============================================================
-
-// TestCertPolicyRepo_NilApp_SetsError verifies error when App is nil.
-func TestCertPolicyRepo_NilApp_SetsError(t *testing.T) {
-	c := &Context{App: nil, Params: &ApiParams{}}
-	repo := c.certPolicyRepo()
-	assert.Nil(t, repo)
-	assert.NotNil(t, c.Err)
-	assert.Equal(t, http.StatusInternalServerError, c.Err.StatusCode)
-}
-
-// TestCertPolicyRepo_NilContainer_SetsError verifies error when ServiceContainer is nil.
-func TestCertPolicyRepo_NilContainer_SetsError(t *testing.T) {
-	c := &Context{App: &app.App{ServiceContainer: nil}, Params: &ApiParams{}}
-	repo := c.certPolicyRepo()
-	assert.Nil(t, repo)
-	assert.NotNil(t, c.Err)
-}
-
-// ============================================================
 // audit.go — non-admin checks for config endpoints
 // ============================================================
 

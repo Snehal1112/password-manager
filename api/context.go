@@ -267,14 +267,6 @@ func (c *Context) authSvc() authServices.AuthenticationService {
 	return c.App.ServiceContainer.GetAuthenticationService()
 }
 
-func (c *Context) certPolicyRepo() repositories.CertificatePolicyRepositoryInterface {
-	if c.App == nil || c.App.ServiceContainer == nil {
-		c.SetInternalError(nil)
-		return nil
-	}
-	return c.App.ServiceContainer.GetCertificatePolicyRepository()
-}
-
 func (c *Context) keyRotationPolicyRepo() repositories.KeyRotationPolicyRepositoryInterface {
 	if c.App == nil || c.App.ServiceContainer == nil {
 		c.SetInternalError(nil)

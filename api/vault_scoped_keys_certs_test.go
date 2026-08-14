@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/http"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/gorilla/mux"
@@ -111,6 +112,11 @@ type recordingCertService struct {
 	// a synthetic certificate -- simulates the vault-membership pre-check
 	// failing (e.g. the certificate does not belong to the resolved vault).
 	getInVaultErr error
+
+	// policyRepo backs the certificate-policy methods below, mirroring the
+	// real CertificateService's "verify cert access, then delegate to the
+	// policy repository" flow.
+	policyRepo repositories.CertificatePolicyRepositoryInterface
 }
 
 func (s *recordingCertService) CreateSelfSignedCertificate(context.Context, certServices.CreateCertificateRequest) (*certServices.CreateCertificateResult, error) {
@@ -164,14 +170,43 @@ func (s *recordingCertService) RecoverCertificate(context.Context, uuid.UUID, mo
 func (s *recordingCertService) PurgeCertificate(context.Context, uuid.UUID, model.Scope) error {
 	panic("unexpected")
 }
-func (s *recordingCertService) GetCertificatePolicy(context.Context, uuid.UUID, model.Scope) (*model.CertificatePolicy, error) {
-	panic("unexpected")
+func (s *recordingCertService) GetCertificatePolicy(ctx context.Context, certID uuid.UUID, scope model.Scope) (*model.CertificatePolicy, error) {
+	if _, err := s.GetCertificate(ctx, certID, scope); err != nil {
+		return nil, err
+	}
+	return s.policyRepo.GetByCertificateIDAny(ctx, certID)
 }
-func (s *recordingCertService) UpsertCertificatePolicy(context.Context, uuid.UUID, model.Scope, model.UpsertCertificatePolicyRequest) (*model.CertificatePolicy, error) {
-	panic("unexpected")
+func (s *recordingCertService) UpsertCertificatePolicy(ctx context.Context, certID uuid.UUID, scope model.Scope, req model.UpsertCertificatePolicyRequest) (*model.CertificatePolicy, error) {
+	if _, err := s.GetCertificate(ctx, certID, scope); err != nil {
+		return nil, err
+	}
+	now := time.Now()
+	policy := &model.CertificatePolicy{
+		ID:               uuid.New(),
+		CertificateID:    certID,
+		UserID:           scope.ActorID(),
+		ValidityMonths:   req.ValidityMonths,
+		KeyType:          req.KeyType,
+		KeySize:          req.KeySize,
+		Curve:            req.Curve,
+		Subject:          req.Subject,
+		SANs:             req.SANs,
+		AutoRenew:        req.AutoRenew,
+		DaysBeforeExpiry: req.DaysBeforeExpiry,
+		IssuerName:       req.IssuerName,
+		CreatedAt:        now,
+		UpdatedAt:        now,
+	}
+	if err := s.policyRepo.Upsert(ctx, policy); err != nil {
+		return nil, err
+	}
+	return s.policyRepo.GetByCertificateIDAny(ctx, certID)
 }
-func (s *recordingCertService) DeleteCertificatePolicy(context.Context, uuid.UUID, model.Scope) error {
-	panic("unexpected")
+func (s *recordingCertService) DeleteCertificatePolicy(ctx context.Context, certID uuid.UUID, scope model.Scope) error {
+	if _, err := s.GetCertificate(ctx, certID, scope); err != nil {
+		return err
+	}
+	return s.policyRepo.DeleteByCertificateIDAny(ctx, certID)
 }
 
 // recordingCryptoService records the scope used for each of the six crypto
@@ -242,7 +277,13 @@ func newVaultScopedKeyCertTestAPI(keySvc keyServices.KeyService, certSvc certSer
 // newVaultScopedCertPolicyTestAPI wires vault management and vault-scoped
 // certificate routes (including the policy sub-resource) onto one router,
 // backed by a recording cert service and a certificate policy repository.
+// The handlers under test only ever go through certSvc; when it's a
+// *recordingCertService its own policy methods delegate to policyRepo, so
+// wire it through here for callers that don't set it themselves.
 func newVaultScopedCertPolicyTestAPI(certSvc certServices.CertificateService, policyRepo repositories.CertificatePolicyRepositoryInterface) (*API, *vaultFakeRepo) {
+	if rec, ok := certSvc.(*recordingCertService); ok && rec.policyRepo == nil {
+		rec.policyRepo = policyRepo
+	}
 	repo := newVaultFakeRepo()
 	vsvc := vaultServices.NewVaultService(repo, vaultNoopCascade{}, nil)
 	a := &app.App{ServiceContainer: &vaultSvcTestContainer{vaultSvc: vsvc, certSvc: certSvc, certPolicyRepo: policyRepo}}

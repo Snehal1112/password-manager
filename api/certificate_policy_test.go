@@ -80,7 +80,6 @@ func (m *mockCertPolicyRepo) DeleteByCertificateIDAny(ctx context.Context, certI
 // --- certPolicyRepoContainer ---
 
 type certPolicyRepoContainer struct {
-	repo    repositories.CertificatePolicyRepositoryInterface
 	certSvc certServices.CertificateService
 }
 
@@ -88,7 +87,7 @@ func (c *certPolicyRepoContainer) GetKeyRotationPolicyRepository() repositories.
 	panic("unexpected call: GetKeyRotationPolicyRepository")
 }
 func (c *certPolicyRepoContainer) GetCertificatePolicyRepository() repositories.CertificatePolicyRepositoryInterface {
-	return c.repo
+	panic("unexpected call: GetCertificatePolicyRepository")
 }
 func (c *certPolicyRepoContainer) GetRBACService() authzServices.RBACService {
 	panic("unexpected call: GetRBACService")
@@ -221,11 +220,11 @@ func (c *certPolicyRepoContainer) Close() error { return nil }
 const cpTestUserID = "a1b2c3d4-e5f6-7890-abcd-ef1234567890"
 
 // newCertPolicyCtx builds a Context backed by the given policy repo mock. The
-// certificate service defaults to a scope stub that reports the certificate
-// as found, since these tests exercise the policy repository, not the
-// certificate pre-check.
+// certificate service is a scope stub that reports the certificate as found
+// and delegates its policy methods to repo, since these tests exercise the
+// policy repository, not the certificate pre-check.
 func newCertPolicyCtx(repo repositories.CertificatePolicyRepositoryInterface, certIDStr string) *Context {
-	a := &app.App{ServiceContainer: &certPolicyRepoContainer{repo: repo, certSvc: &scopeStubCertService{}}}
+	a := &app.App{ServiceContainer: &certPolicyRepoContainer{certSvc: &scopeStubCertService{policyRepo: repo}}}
 	return &Context{
 		App:    a,
 		Claims: jwt.MapClaims{"user_id": cpTestUserID},

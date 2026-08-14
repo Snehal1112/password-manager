@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/google/uuid"
@@ -27,6 +28,10 @@ type scopeStubCertService struct {
 	certErr   error
 	list      []model.Certificate
 	lastScope model.Scope
+
+	// policyRepo backs the certificate-policy methods below. Tests that only
+	// exercise the cert-access denial path (certErr set) never reach it.
+	policyRepo repositories.CertificatePolicyRepositoryInterface
 }
 
 func (s *scopeStubCertService) GetCertificate(_ context.Context, _ uuid.UUID, scope model.Scope) (*model.Certificate, error) {
@@ -37,6 +42,51 @@ func (s *scopeStubCertService) GetCertificate(_ context.Context, _ uuid.UUID, sc
 func (s *scopeStubCertService) ListCertificates(_ context.Context, scope model.Scope, _ repositories.CertificateFilter) ([]model.Certificate, error) {
 	s.lastScope = scope
 	return s.list, nil
+}
+
+// GetCertificatePolicy, UpsertCertificatePolicy and DeleteCertificatePolicy
+// mirror the real CertificateService: verify cert access first (recording the
+// scope via GetCertificate above), then delegate to policyRepo.
+
+func (s *scopeStubCertService) GetCertificatePolicy(ctx context.Context, certID uuid.UUID, scope model.Scope) (*model.CertificatePolicy, error) {
+	if _, err := s.GetCertificate(ctx, certID, scope); err != nil {
+		return nil, err
+	}
+	return s.policyRepo.GetByCertificateIDAny(ctx, certID)
+}
+
+func (s *scopeStubCertService) UpsertCertificatePolicy(ctx context.Context, certID uuid.UUID, scope model.Scope, req model.UpsertCertificatePolicyRequest) (*model.CertificatePolicy, error) {
+	if _, err := s.GetCertificate(ctx, certID, scope); err != nil {
+		return nil, err
+	}
+	now := time.Now()
+	policy := &model.CertificatePolicy{
+		ID:               uuid.New(),
+		CertificateID:    certID,
+		UserID:           scope.ActorID(),
+		ValidityMonths:   req.ValidityMonths,
+		KeyType:          req.KeyType,
+		KeySize:          req.KeySize,
+		Curve:            req.Curve,
+		Subject:          req.Subject,
+		SANs:             req.SANs,
+		AutoRenew:        req.AutoRenew,
+		DaysBeforeExpiry: req.DaysBeforeExpiry,
+		IssuerName:       req.IssuerName,
+		CreatedAt:        now,
+		UpdatedAt:        now,
+	}
+	if err := s.policyRepo.Upsert(ctx, policy); err != nil {
+		return nil, err
+	}
+	return s.policyRepo.GetByCertificateIDAny(ctx, certID)
+}
+
+func (s *scopeStubCertService) DeleteCertificatePolicy(ctx context.Context, certID uuid.UUID, scope model.Scope) error {
+	if _, err := s.GetCertificate(ctx, certID, scope); err != nil {
+		return err
+	}
+	return s.policyRepo.DeleteByCertificateIDAny(ctx, certID)
 }
 
 // newCertHandlerFixture wires a Context whose container returns svc as the
@@ -119,9 +169,15 @@ func TestGetCertificatePolicyResolvesTheCertificateThroughTheScope(t *testing.T)
 
 // newCertPolicyScopeCtx builds a Context wired with both a certificate
 // service and a certificate-policy repository, for testing the
-// certificate-ownership boundary on the flat-route policy handlers.
+// certificate-ownership boundary on the flat-route policy handlers. The
+// handlers under test only ever go through svc, but when svc is the
+// hand-rolled scopeStubCertService its own policy methods delegate to repo,
+// so wire it through here for callers that don't set it themselves.
 func newCertPolicyScopeCtx(svc certServices.CertificateService,
 	repo repositories.CertificatePolicyRepositoryInterface, certID uuid.UUID) *Context {
+	if stub, ok := svc.(*scopeStubCertService); ok && stub.policyRepo == nil {
+		stub.policyRepo = repo
+	}
 	a := &app.App{ServiceContainer: &certSvcContainer{certSvc: svc, certPolicyRepo: repo}}
 	return &Context{
 		App:    a,
