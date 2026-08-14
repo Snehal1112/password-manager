@@ -865,17 +865,19 @@ Set-Cookie: oidc_nonce=...; HttpOnly; Secure; SameSite=Lax</pre></div>
 
   <h3>Logging out</h3>
   <p>There is no OIDC-specific logout endpoint — an OIDC-authenticated user logs out exactly like a local-login user, via the same session-revocation endpoints (see <a href="#authentication">Authentication</a>), since both share the identical JWT/session machinery.</p>
+  <pre class="code"># find your own session id (the "jti" claim in your token)
+echo $TOKEN | cut -d. -f2 | base64 -d | python3 -m json.tool</pre>
 
   <div class="ep">
-    <div class="ep-hd"><span class="meth meth-delete">DELETE</span> <span class="ep-path">/api/v1/users/sessions/{id}</span> <span class="ep-auth">JWT</span> <span class="ep-label">Log out (omit id to revoke all sessions)</span></div>
+    <div class="ep-hd"><span class="meth meth-delete">DELETE</span> <span class="ep-path">/api/v1/users/sessions/{id}</span> <span class="ep-auth">JWT</span> <span class="ep-label">Log out this session</span></div>
     <div class="tab-bar"><button class="tab-btn active">cURL</button></div>
-    <div class="tab-pane active"><pre class="code"># find your own session id (the "jti" claim in your token)
-echo $TOKEN | cut -d. -f2 | base64 -d | python3 -m json.tool
+    <div class="tab-pane active"><pre class="code">curl -s -X DELETE $BASE/api/v1/users/sessions/&lt;jti&gt; -H "Authorization: Bearer $TOKEN"</pre></div>
+  </div>
 
-# one session
-curl -s -X DELETE $BASE/api/v1/users/sessions/&lt;jti&gt; -H "Authorization: Bearer $TOKEN"
-# all sessions for the caller
-curl -s -X DELETE $BASE/api/v1/users/sessions -H "Authorization: Bearer $TOKEN"</pre></div>
+  <div class="ep">
+    <div class="ep-hd"><span class="meth meth-delete">DELETE</span> <span class="ep-path">/api/v1/users/sessions</span> <span class="ep-auth">JWT</span> <span class="ep-label">Log out of every session</span></div>
+    <div class="tab-bar"><button class="tab-btn active">cURL</button></div>
+    <div class="tab-pane active"><pre class="code">curl -s -X DELETE $BASE/api/v1/users/sessions -H "Authorization: Bearer $TOKEN"</pre></div>
   </div>
   <p>Revocation takes effect immediately — the very next request with that token is rejected (<code>401</code>), even though the JWT itself is still cryptographically valid and unexpired.</p>
 
