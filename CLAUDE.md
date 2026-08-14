@@ -106,7 +106,7 @@ rocketvault/
 ### 🏛️ [Multi-Vault Architecture](.claude/multi-vault.md)
 - Vault as a routing + context-scoping layer (Azure Key Vault parity)
 - Vault-scoped resources, per-vault access policies, default-vault migration
-- Known deferrals (secondary subsystems, keys/certs CLI, subdomain addressing)
+- Keys/certs CLI `--vault` wiring and vault-scoped soft-delete (list/restore/purge) shipped since this doc was last updated — `.claude/multi-vault.md`'s own "Known deferrals" section still lists both as deferred and needs a refresh
 
 ### 🔵 [Azure Key Vault Feature Parity](.claude/azure-keyvault-parity.md)
 - Feature-by-feature comparison (secrets, keys, certs, RBAC, soft-delete, HSM, audit)
@@ -173,6 +173,7 @@ rocketvault/
 
 ### Certificate Management (`internal/services/certificates/`) - NEW ✨
 - **CertificateService**: Certificate lifecycle management, CA validation
+- Soft-delete (list/restore/purge) is vault-scoped for both keys and certificates, mirroring the pre-existing secrets soft-delete pattern (`internal/services/secrets/secret_service.go`'s `ListDeletedSecrets`/`RecoverSecret`/`PurgeSecret`) — see `KeyService.ListDeletedKeys`/`RecoverKey`/`PurgeKey` and the `CertificateService` equivalents.
 
 ### Authorization (`internal/services/authorization/`)
 - **RBACService**: global role permissions for vault and user management only
