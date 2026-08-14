@@ -809,7 +809,7 @@ curl -s -X DELETE $BASE/api/v1/users/sessions -H "Authorization: Bearer $TOKEN"<
   ca_cert_path: "/etc/rocketvault/idp-ca.pem"</pre>
   <div class="callout callout-info">
     <div class="callout-label">Disabled by default</div>
-    <p><code>oidc.enabled</code> defaults to <code>false</code>. When unset, <code>GET /oidc/login</code> and <code>GET /oidc/callback</code> return <code>503</code> and the server never attempts a network call to the issuer at startup.</p>
+    <p><code>oidc.enabled</code> defaults to <code>false</code>. When unset, <code>GET /oidc/login</code> and <code>GET /oidc/callback</code> return <code>503</code> and the server never attempts a network call to the issuer at startup. If <code>oidc.enabled</code> is <code>true</code> but the issuer is unreachable, <code>issuer_url</code> is malformed, or <code>ca_cert_path</code> fails to load, the server logs a warning and starts anyway with OIDC left unavailable — same <code>503</code>, different cause. Check the startup log for <code>Failed to initialise OIDC service</code> to tell the two apart.</p>
   </div>
   <div class="flow">
     <div class="flow-title">OIDC login flow</div>
@@ -840,7 +840,7 @@ curl -s -X DELETE $BASE/api/v1/users/sessions -H "Authorization: Bearer $TOKEN"<
 Location: https://idp.example.com/authorize?client_id=rocketvault&amp;response_type=code&amp;...
 Set-Cookie: oidc_state=...; HttpOnly; Secure; SameSite=Lax
 Set-Cookie: oidc_nonce=...; HttpOnly; Secure; SameSite=Lax</pre></div>
-    <details class="collapse"><summary>Errors</summary><div class="inner">503 if <code>oidc.enabled</code> is false</div></details>
+    <details class="collapse"><summary>Errors</summary><div class="inner">503 if <code>oidc.enabled</code> is false, or if OIDC failed to initialise at startup — check the server log</div></details>
   </div>
 
   <div class="ep">
@@ -853,14 +853,14 @@ Set-Cookie: oidc_nonce=...; HttpOnly; Secure; SameSite=Lax</pre></div>
   "username": "jdoe@example.com",
   "role": "user"
 }</pre></div>
-    <details class="collapse"><summary>Errors</summary><div class="inner">400 missing/expired state or nonce cookie, state mismatch, or missing code · 401 nonce mismatch, code exchange, or ID-token verification failed · 503 if <code>oidc.enabled</code> is false</div></details>
+    <details class="collapse"><summary>Errors</summary><div class="inner">400 missing/expired state or nonce cookie, state mismatch, or missing code · 401 nonce mismatch, code exchange, or ID-token verification failed · 500 if user creation or session issuance fails · 503 if <code>oidc.enabled</code> is false, or if OIDC failed to initialise at startup</div></details>
   </div>
 
   <h3>First login vs. repeat login</h3>
   <ul>
     <li>The first login for a given IdP subject creates a new user with the least-privilege <code>role: user</code> and zero vault access — an admin must grant a vault role separately, same as any other user (see <a href="#vault-rbac">Vault RBAC</a>).</li>
     <li>Every later login for that same subject reuses the existing user row — it does not create a duplicate, and it does not reset a role an admin has since changed.</li>
-    <li>If the ID token is missing <code>name</code>/<code>email</code>/<code>preferred_username</code> (common with some providers), RocketVault falls back to the provider's userinfo endpoint, then to the IdP's raw subject claim if that's empty too.</li>
+    <li>RocketVault calls the provider's userinfo endpoint on every login (one extra round trip to the IdP) and uses it to fill in whichever of <code>name</code>/<code>email</code>/<code>preferred_username</code> the ID token left out (common with some providers) — falling back further to the IdP's raw subject claim if userinfo leaves them empty too.</li>
   </ul>
 
   <div class="callout callout-warn">
