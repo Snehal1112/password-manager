@@ -178,6 +178,15 @@ rocketvault/
 - **RoleAssignmentService**: per-vault Azure role grants and the `HasDataAction` authorization decision
 - Vault data-plane routes are deny-by-default: see `docs/release-notes/v4.0.0-azure-rbac.md`
 
+### CLI Authorization
+
+HTTP requests get their authorization check for free from middleware. CLI commands call the service layer directly and bypass that middleware entirely, so every resource command must reproduce the equivalent check itself — split along the same two tiers documented above:
+
+- **Per-vault data-plane operations** (`secrets`, `keys`, `certificates`): call `cmd/vaultcli.RequireDataAction` (which re-runs the identical two-stage check HTTP gets — `AccessPolicyService`'s explicit-deny override, then the deny-by-default role-assignment check) after resolving the target vault via `vaultcli.ResolveVaultID`.
+- **Vault-management operations** (`vaults` lifecycle: create/update/delete/recover/purge; `vault-access` role-assignment grant/revoke): call their own package-local helpers (`cmd/vaults/authz.go`, `cmd/vault-access/authz.go`), built on the shared `CanManageVault`/`CanPurgeVault`/`CanManageRoleAssignments` checks in `internal/services/authorization`.
+
+A new CLI command that skips its tier's check bypasses authorization entirely — there is no other enforcement point on the CLI path.
+
 ### 🔐 Authorization Scope (`model/scope.go`)
 
 Every repository and service operation carries a `model.Scope` describing how it
