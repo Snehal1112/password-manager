@@ -363,6 +363,16 @@ go test ./cmd/... -coverprofile=coverage.out
 go tool cover -html=coverage.out
 ```
 
+### Documentation
+
+`scripts/docs.sh` builds and serves the HTML docs site (`docs/admin-manual.html` and its linked markdown, rendered via `scripts/docsgen`, its own Go module — no Python step, unlike before 2026-08-13).
+
+```bash
+./scripts/docs.sh build     # render markdown -> styled HTML
+./scripts/docs.sh package   # build + tar.gz/zip with checksums
+./scripts/docs.sh serve     # local preview server
+```
+
 ### Linting
 ```bash
 # Check if specific linting commands exist in project
