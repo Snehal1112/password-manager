@@ -140,17 +140,28 @@ func httpClientWithExtraCA(path string) (*http.Client, error) {
 
 	pool, err := x509.SystemCertPool()
 	if err != nil || pool == nil {
+		// SystemCertPool() failing is rare (effectively unreachable on Linux)
+		// but would otherwise silently drop all public CA trust with no
+		// diagnostic trail. This package has no logger wired in; fall back to
+		// stderr rather than adding a new logging dependency for one line.
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "oidc: system cert pool unavailable, starting from an empty pool: %v\n", err)
+		}
 		pool = x509.NewCertPool()
 	}
 	if !pool.AppendCertsFromPEM(pemData) {
 		return nil, fmt.Errorf("no valid PEM certificate found in %q", path)
 	}
 
-	return &http.Client{
-		Transport: &http.Transport{
-			TLSClientConfig: &tls.Config{RootCAs: pool},
-		},
-	}, nil
+	// Clone DefaultTransport rather than starting from a bare &http.Transport{}
+	// literal, so we keep its dial/handshake timeouts, proxy support, and
+	// connection pooling — only the TLS trust pool is overridden. A bare
+	// literal has TLSHandshakeTimeout: 0 (unbounded), which could hang the
+	// server's startup indefinitely against a stalled issuer.
+	transport := http.DefaultTransport.(*http.Transport).Clone()
+	transport.TLSClientConfig = &tls.Config{RootCAs: pool}
+
+	return &http.Client{Transport: transport}, nil
 }
 
 // AuthCodeURL builds the provider's authorization endpoint URL.
