@@ -69,8 +69,10 @@ rocketvault/
 │   ├── container/         # Dependency injection container
 │   ├── middleware/        # HTTP middleware (SRP-compliant)
 │   ├── backup/            # Backup and restore functionality
-│   ├── cache/             # Secret caching layer
-│   ├── keycache/          # In-process decrypted key cache for crypto operations
+│   ├── cache/              # Secret caching layer, wraps cachekit
+│   ├── cachekit/          # Generic TTL+LRU cache core (Cloneable/Zeroable, sync.Map-backed) shared by all domain caches
+│   ├── keycache/          # In-process decrypted key cache for crypto operations, wraps cachekit
+│   ├── vaultcache/        # In-process vault-by-name cache, wraps cachekit
 │   ├── crypto/            # Cryptographic operations — software and PKCS#11/HSM key providers
 │   ├── db/                # Database layer
 │   ├── health/            # Health check endpoints
@@ -186,6 +188,20 @@ rocketvault/
 ### Key Management (`internal/services/keys/`) - NEW ✨
 - **KeyService**: RSA/ECDSA key generation, access control, CRUD operations
 - Symmetric AES (`oct`) keys are **HSM-only** by design, matching Azure (Managed HSM never allows symmetric key creation on Standard/Premium vaults, and RocketVault's software provider mirrors that restriction). `KeyService.CreateOctKey` → `crypto.KeyProvider.GenerateAESKey` always fails with `crypto.ErrOctKeysRequireHSM` unless `hsm.enabled: true`; the PKCS#11 provider implements AES-KW wrap/unwrap for real. `POST /keys` accepts `"type": "OCT"` with `"bits"` of 128/192/256.
+
+### Caching
+
+All in-process domain caches (secrets, keys, vaults) are built on a shared
+generic core, `internal/cachekit/` (TTL+LRU, `Cloneable`/`Zeroable`,
+`sync.Map`-backed), wrapped by `internal/cache/` (secrets), `internal/keycache/`
+(decrypted keys), and `internal/vaultcache/` (vault-by-name lookups — new,
+caches what `VaultResolutionMiddleware` previously fetched from the database on
+nearly every API request). Config for all three lives under one unified
+`cache:` YAML section (`cache.secrets.*`, `cache.keys.*`, `cache.vaults.*`),
+loaded via `config.LoadCacheConfig()`. The old standalone `key_cache.*` section
+is gone — see `docs/release-notes/v4.1.0-role-parity-and-authz-fix.md` for the
+breaking-change note. `cache.certificates.*`/`cache.users.*` are accepted in
+config but reserved for future use; no cache is wired up for those domains yet.
 
 ### Certificate Management (`internal/services/certificates/`) - NEW ✨
 - **CertificateService**: Certificate lifecycle management, CA validation
