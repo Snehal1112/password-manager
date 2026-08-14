@@ -44,6 +44,27 @@ func TestStartLoopbackListener_MissingCode_ReturnsError(t *testing.T) {
 	assert.Error(t, err)
 }
 
+func TestStartLoopbackListener_WrongState_RejectedWithoutDeliveringCode(t *testing.T) {
+	redirectURI, wait, err := startLoopbackListener()
+	require.NoError(t, err)
+
+	// Simulate an attacker (or a stale/foreign request) hitting the
+	// listener's port with a different state segment in the path — the
+	// legitimate exchange code must not be treated as a match.
+	wrongURI := redirectURI + "-wrong-state?code=attacker-code"
+
+	go func() {
+		resp, getErr := http.Get(wrongURI) //nolint:noctx
+		if getErr == nil {
+			assert.Equal(t, http.StatusForbidden, resp.StatusCode)
+			resp.Body.Close()
+		}
+	}()
+
+	_, err = wait(200 * time.Millisecond)
+	assert.Error(t, err, "a wrong-state request must not deliver a code via wait()")
+}
+
 func TestStartLoopbackListener_Timeout(t *testing.T) {
 	_, wait, err := startLoopbackListener()
 	require.NoError(t, err)

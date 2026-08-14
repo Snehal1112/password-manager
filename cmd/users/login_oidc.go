@@ -25,10 +25,13 @@ package users
 import (
 	"bytes"
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"net"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -57,23 +60,41 @@ type oidcExchangeResponse struct {
 }
 
 // startLoopbackListener starts an HTTP server on 127.0.0.1:<random port>
-// that waits for exactly one GET /callback request. It returns
-// the listener's redirect URI and a function that blocks until the
-// callback arrives (or the given timeout elapses), shutting the server
-// down either way.
+// that waits for exactly one GET request to a per-login callback path. The
+// path is suffixed with a random state token so that the redirect URI
+// itself binds this specific login attempt: an attacker who drives their
+// own OIDC login against a guessed loopback port cannot deliver their
+// exchange code into a victim's listener, because the state segment of the
+// path won't match. Requests to any other path (wrong or missing state) are
+// rejected without touching codeCh/errCh, so they can't race a legitimate
+// callback that's still in flight.
 func startLoopbackListener() (redirectURI string, wait func(timeout time.Duration) (string, error), err error) {
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		return "", nil, fmt.Errorf("failed to start local callback listener: %w", err)
 	}
 	port := listener.Addr().(*net.TCPAddr).Port
-	redirectURI = fmt.Sprintf("http://127.0.0.1:%d/callback", port)
+
+	stateBytes := make([]byte, 32)
+	if _, randErr := rand.Read(stateBytes); randErr != nil {
+		listener.Close() //nolint:errcheck
+		return "", nil, fmt.Errorf("failed to generate login state token: %w", randErr)
+	}
+	state := hex.EncodeToString(stateBytes)
+	redirectURI = fmt.Sprintf("http://127.0.0.1:%d/callback/%s", port, state)
 
 	codeCh := make(chan string, 1)
 	errCh := make(chan error, 1)
 
 	handler := http.NewServeMux()
-	handler.HandleFunc("/callback", func(w http.ResponseWriter, r *http.Request) {
+	handler.HandleFunc("/callback/", func(w http.ResponseWriter, r *http.Request) {
+		requestState := strings.TrimPrefix(r.URL.Path, "/callback/")
+		if requestState != state {
+			w.WriteHeader(http.StatusForbidden)
+			fmt.Fprint(w, "Login failed: invalid state.") //nolint:errcheck
+			return
+		}
+
 		code := r.URL.Query().Get("code")
 		if code == "" {
 			w.WriteHeader(http.StatusBadRequest)
@@ -82,6 +103,9 @@ func startLoopbackListener() (redirectURI string, wait func(timeout time.Duratio
 			return
 		}
 		fmt.Fprint(w, "Login successful — you can close this tab.") //nolint:errcheck
+		if f, ok := w.(http.Flusher); ok {
+			f.Flush()
+		}
 		codeCh <- code
 	})
 	server := &http.Server{Handler: handler, ReadHeaderTimeout: 5 * time.Second}
