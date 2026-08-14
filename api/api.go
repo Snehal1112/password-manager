@@ -50,6 +50,7 @@ type API struct {
 	rootRouter     *mux.Router
 	Logger         *logging.Logger
 	metricsEnabled bool
+	cliExchange    *cliExchangeStore
 }
 
 // Init initializes the API, wires middleware, and registers all route handlers.
