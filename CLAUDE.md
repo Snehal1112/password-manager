@@ -169,6 +169,7 @@ rocketvault/
 
 ### Key Management (`internal/services/keys/`) - NEW ✨
 - **KeyService**: RSA/ECDSA key generation, access control, CRUD operations
+- Symmetric AES (`oct`) keys are **HSM-only** by design, matching Azure (Managed HSM never allows symmetric key creation on Standard/Premium vaults, and RocketVault's software provider mirrors that restriction). `KeyService.CreateOctKey` → `crypto.KeyProvider.GenerateAESKey` always fails with `crypto.ErrOctKeysRequireHSM` unless `hsm.enabled: true`; the PKCS#11 provider implements AES-KW wrap/unwrap for real. `POST /keys` accepts `"type": "OCT"` with `"bits"` of 128/192/256.
 
 ### Certificate Management (`internal/services/certificates/`) - NEW ✨
 - **CertificateService**: Certificate lifecycle management, CA validation
