@@ -71,7 +71,20 @@ func (s *cliExchangeStore) put(response model.LoginResponse) (string, error) {
 
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.entries[code] = cliExchangeEntry{response: response, expiresAt: time.Now().Add(cliExchangeCodeTTL)}
+
+	// Self-clean on every new login attempt: a code that's minted but never
+	// consumed (browser closed, CLI killed, network drop) would otherwise
+	// sit in the map forever holding a live access/refresh token pair.
+	// There's no background goroutine — reclaiming expired entries here,
+	// piggybacking on the next put, is enough to bound the map's size.
+	now := time.Now()
+	for c, entry := range s.entries {
+		if now.After(entry.expiresAt) {
+			delete(s.entries, c)
+		}
+	}
+
+	s.entries[code] = cliExchangeEntry{response: response, expiresAt: now.Add(cliExchangeCodeTTL)}
 	return code, nil
 }
 

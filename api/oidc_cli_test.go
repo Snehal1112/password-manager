@@ -77,6 +77,30 @@ func TestCLIExchangeStore_ExpiredCode_NotOK(t *testing.T) {
 	assert.False(t, ok)
 }
 
+func TestCLIExchangeStore_Put_ReclaimsExpiredUnconsumedEntries(t *testing.T) {
+	store := newCLIExchangeStore()
+
+	// Mint a code that's never consumed (e.g. the browser was closed before
+	// the CLI's loopback listener redeemed it), then force it into the past
+	// the same way TestCLIExchangeStore_ExpiredCode_NotOK does.
+	staleCode, err := store.put(model.LoginResponse{Token: "stale-tok"})
+	require.NoError(t, err)
+	entry := store.entries[staleCode]
+	entry.expiresAt = time.Now().Add(-1 * time.Second)
+	store.entries[staleCode] = entry
+	require.Len(t, store.entries, 1)
+
+	// A few more logins happen, spanning the expired entry.
+	_, err = store.put(model.LoginResponse{Token: "tok2"})
+	require.NoError(t, err)
+	_, err = store.put(model.LoginResponse{Token: "tok3"})
+	require.NoError(t, err)
+
+	_, stillThere := store.entries[staleCode]
+	assert.False(t, stillThere, "an expired, never-consumed entry must be reclaimed on a later put")
+	assert.Len(t, store.entries, 2, "only the two still-live entries should remain")
+}
+
 func TestCLIExchangeHandler_ValidCode_ReturnsLoginResponse(t *testing.T) {
 	api := newOIDCHAPI(nil, nil, nil)
 	response := model.LoginResponse{Token: "tok", RefreshToken: "rtok", UserID: "u1", Username: "jdoe", Role: "user"}
