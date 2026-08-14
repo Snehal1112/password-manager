@@ -11,7 +11,7 @@ Whether you need to secure application secrets, manage RSA/ECDSA keys, rotate cr
 **Type**: Self-hosted Azure Key Vault alternative built in Go
 **Architecture**: Domain-driven design with clean architecture, complete dependency injection, and multi-vault RBAC (Azure Key Vault role parity)
 **Status**: Actively developed; latest tagged release [v0.2.1](https://github.com/Snehal1112/rocketvault/releases); this branch (`v-4.0.0`) adds multi-vault + Azure RBAC ahead of its own tag
-**Last Updated**: 2026-08-11 — README and CLAUDE.md brought in line with the shipped multi-vault/Azure RBAC architecture; dead doc links removed
+**Last Updated**: 2026-08-14 — added CLI vault-authorization, new Azure roles, OIDC, HSM AES keys, vault-scoped soft-delete for keys/certs, and the docs.sh build pipeline (all shipped 2026-08-11–13, previously undocumented)
 
 ## Technology Stack
 
@@ -106,7 +106,7 @@ rocketvault/
 ### 🏛️ [Multi-Vault Architecture](.claude/multi-vault.md)
 - Vault as a routing + context-scoping layer (Azure Key Vault parity)
 - Vault-scoped resources, per-vault access policies, default-vault migration
-- Keys/certs CLI `--vault` wiring and vault-scoped soft-delete (list/restore/purge) shipped since this doc was last updated — `.claude/multi-vault.md`'s own "Known deferrals" section still lists both as deferred and needs a refresh
+- Keys/certs CLI `--vault` wiring and vault-scoped soft-delete (list/restore/purge) shipped 2026-08-11–13 — `.claude/multi-vault.md`'s own "Known deferrals" section still lists both as deferred and needs a refresh
 
 ### 🔵 [Azure Key Vault Feature Parity](.claude/azure-keyvault-parity.md)
 - Feature-by-feature comparison (secrets, keys, certs, RBAC, soft-delete, HSM, audit)
@@ -365,7 +365,7 @@ go tool cover -html=coverage.out
 
 ### Documentation
 
-`scripts/docs.sh` builds and serves the HTML docs site (`docs/admin-manual.html` and its linked markdown, rendered via `scripts/docsgen`, its own Go module — no Python step, unlike before 2026-08-13).
+`scripts/docs.sh` builds and serves the HTML docs site: renders the markdown docs listed in `scripts/docsgen/docs.go` into styled HTML siblings of the hand-written `docs/admin-manual.html` (via `scripts/docsgen`, its own Go module — no Python step, unlike before 2026-08-13).
 
 ```bash
 ./scripts/docs.sh build     # render markdown -> styled HTML
