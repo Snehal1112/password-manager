@@ -82,6 +82,9 @@ type certPolicyRepoContainer struct {
 	certSvc certServices.CertificateService
 }
 
+func (c *certPolicyRepoContainer) GetKeyRotationPolicyRepository() repositories.KeyRotationPolicyRepositoryInterface {
+	panic("unexpected call: GetKeyRotationPolicyRepository")
+}
 func (c *certPolicyRepoContainer) GetCertificatePolicyRepository() repositories.CertificatePolicyRepositoryInterface {
 	return c.repo
 }

@@ -63,6 +63,8 @@ var matrixOps = []matrixOp{
 	{"keys.decrypt", http.MethodPost, "/api/v1/vaults/prod/keys/abc/decrypt"},
 	{"keys.wrap", http.MethodPost, "/api/v1/vaults/prod/keys/abc/wrap"},
 	{"keys.unwrap", http.MethodPost, "/api/v1/vaults/prod/keys/abc/unwrap"},
+	{"keys.getRotationPolicy", http.MethodGet, "/api/v1/vaults/prod/keys/abc/rotationpolicy"},
+	{"keys.setRotationPolicy", http.MethodPut, "/api/v1/vaults/prod/keys/abc/rotationpolicy"},
 	{"keys.backup", http.MethodPost, "/api/v1/keys/abc/backup"},           // flat only, see doc comment above
 	{"keys.restore", http.MethodPost, "/api/v1/keys/restore"},             // flat only, see doc comment above
 	{"keys.listDeleted", http.MethodGet, "/api/v1/deleted/keys"},          // flat only, see doc comment above
@@ -99,6 +101,7 @@ var (
 		"keys.list", "keys.get", "keys.create", "keys.update", "keys.delete",
 		"keys.rotate", "keys.listVersions", "keys.sign", "keys.verify",
 		"keys.encrypt", "keys.decrypt", "keys.wrap", "keys.unwrap",
+		"keys.getRotationPolicy", "keys.setRotationPolicy",
 		"keys.backup", "keys.restore", "keys.listDeleted", "keys.getDeleted",
 		"keys.recover", "keys.purge",
 	}
@@ -190,7 +193,7 @@ func TestAuthorizationMatrixCoversEveryOperation(t *testing.T) {
 		require.False(t, known[op.name], "duplicate operation %q", op.name)
 		known[op.name] = true
 	}
-	assert.Len(t, matrixOps, 48)
+	assert.Len(t, matrixOps, 50)
 
 	for role, names := range matrixAllowed {
 		for _, n := range names {
@@ -204,9 +207,9 @@ func TestAuthorizationMatrixCoversEveryOperation(t *testing.T) {
 func TestAuthorizationMatrixNoRoleGrantsEverythingButAdministrator(t *testing.T) {
 	for role, names := range matrixAllowed {
 		if role == model.RoleKeyVaultAdministrator {
-			assert.Len(t, names, 48)
+			assert.Len(t, names, 50)
 			continue
 		}
-		assert.Less(t, len(names), 48, "only Key Vault Administrator may grant every operation")
+		assert.Less(t, len(names), 50, "only Key Vault Administrator may grant every operation")
 	}
 }

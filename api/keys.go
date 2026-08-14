@@ -239,6 +239,11 @@ func (api *API) registerKeyRoutes(k *mux.Router) {
 	k.Handle("/{key_id:[A-Fa-f0-9-]+}/encrypt", ApiSessionRequired(api.App, encryptKey)).Methods("POST")
 	k.Handle("/{key_id:[A-Fa-f0-9-]+}/decrypt", ApiSessionRequired(api.App, decryptKey)).Methods("POST")
 
+	// Rotation policy sub-resource: GET/PUT/DELETE /keys/{key_id}/rotationpolicy
+	k.Handle("/{key_id:[A-Fa-f0-9-]+}/rotationpolicy", ApiSessionRequired(api.App, getKeyRotationPolicy)).Methods("GET")
+	k.Handle("/{key_id:[A-Fa-f0-9-]+}/rotationpolicy", ApiSessionRequired(api.App, upsertKeyRotationPolicy)).Methods("PUT")
+	k.Handle("/{key_id:[A-Fa-f0-9-]+}/rotationpolicy", ApiSessionRequired(api.App, deleteKeyRotationPolicy)).Methods("DELETE")
+
 	api.Logger.Infoln("Keys API routes initialized")
 }
 

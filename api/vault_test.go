@@ -209,6 +209,9 @@ func (c *vaultSvcTestContainer) GetCertificatePolicyRepository() repositories.Ce
 	}
 	panic("unexpected call: GetCertificatePolicyRepository")
 }
+func (c *vaultSvcTestContainer) GetKeyRotationPolicyRepository() repositories.KeyRotationPolicyRepositoryInterface {
+	panic("unexpected call: GetKeyRotationPolicyRepository")
+}
 func (c *vaultSvcTestContainer) GetSessionRepository() repositories.SessionRepositoryInterface {
 	panic("unexpected call: GetSessionRepository")
 }
