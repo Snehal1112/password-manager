@@ -91,6 +91,14 @@ func (m *MockAuthenticationService) RevokeAllUserSessions(ctx context.Context, u
 	return args.Error(0)
 }
 
+func (m *MockAuthenticationService) ListActiveSessions(ctx context.Context, userID uuid.UUID) ([]*model.Session, error) {
+	args := m.Called(ctx, userID)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).([]*model.Session), args.Error(1)
+}
+
 // --- MockRBACService ---
 
 // MockRBACService mocks authzServices.RBACService.

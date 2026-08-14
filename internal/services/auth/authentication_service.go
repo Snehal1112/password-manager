@@ -50,6 +50,9 @@ type AuthenticationService interface {
 	RefreshAccessToken(ctx context.Context, refreshToken string) (*RefreshTokenResult, error)
 	RevokeSession(ctx context.Context, sessionID string, reason string) error
 	RevokeAllUserSessions(ctx context.Context, userID uuid.UUID, reason string) error
+	// ListActiveSessions returns every active (non-revoked, non-expired)
+	// session for userID.
+	ListActiveSessions(ctx context.Context, userID uuid.UUID) ([]*model.Session, error)
 }
 
 // authenticationService implements AuthenticationService by coordinating
@@ -422,6 +425,20 @@ func (s *authenticationService) RevokeAllUserSessions(ctx context.Context, userI
 	}).Info("All user sessions revoked successfully")
 
 	return nil
+}
+
+// ListActiveSessions returns all active (non-revoked, non-expired) sessions for the user.
+//
+// Parameters:
+//
+//	ctx: The context for the operation.
+//	userID: The ID of the user whose sessions to list.
+//
+// Returns:
+//
+//	A slice of active sessions or an error if retrieval fails.
+func (s *authenticationService) ListActiveSessions(ctx context.Context, userID uuid.UUID) ([]*model.Session, error) {
+	return s.sessionRepo.GetActiveSessionsByUserID(ctx, userID)
 }
 
 // generateRefreshToken generates a cryptographically secure refresh token.

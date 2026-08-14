@@ -93,3 +93,16 @@ func (s *retryAuthenticationService) RevokeAllUserSessions(ctx context.Context, 
 		return s.baseService.RevokeAllUserSessions(ctx, userID, reason)
 	})
 }
+
+// ListActiveSessions lists all active sessions for a user with retry logic for database operations
+func (s *retryAuthenticationService) ListActiveSessions(ctx context.Context, userID uuid.UUID) ([]*model.Session, error) {
+	var result []*model.Session
+	var err error
+
+	retryErr := s.retryService.ExecuteDatabaseOperation(ctx, func() error {
+		result, err = s.baseService.ListActiveSessions(ctx, userID)
+		return err
+	})
+
+	return result, retryErr
+}

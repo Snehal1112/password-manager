@@ -538,3 +538,21 @@ func TestHashRefreshToken_DifferentInputsDifferentOutputs(t *testing.T) {
 	svc := &authenticationService{}
 	assert.NotEqual(t, svc.hashRefreshToken("a"), svc.hashRefreshToken("b"))
 }
+
+func TestListActiveSessions_ReturnsSessionsFromRepo(t *testing.T) {
+	sessionRepo := &MockSessionRepository{}
+	userID := uuid.New()
+	want := []*model.Session{{ID: uuid.New(), UserID: userID}}
+	sessionRepo.On("GetActiveSessionsByUserID", mock.Anything, userID).Return(want, nil)
+
+	svc := NewAuthenticationService(AuthenticationConfig{
+		SessionRepository: sessionRepo,
+		Logger:            logging.InitLogger(),
+	})
+
+	got, err := svc.ListActiveSessions(context.Background(), userID)
+
+	require.NoError(t, err)
+	assert.Equal(t, want, got)
+	sessionRepo.AssertExpectations(t)
+}
