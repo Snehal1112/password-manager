@@ -7,6 +7,7 @@ import (
 
 	"github.com/spf13/viper"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // reset clears all viper state before each test to ensure a clean slate.
@@ -218,4 +219,66 @@ func TestLoadMonitoringConfig_PartialSet(t *testing.T) {
 	assert.True(t, cfg.EnableMetrics, "EnableMetrics should still use the default (true)")
 	assert.Equal(t, 60*time.Second, cfg.MetricsInterval, "MetricsInterval should still use the default (60s)")
 	assert.Equal(t, 2*time.Second, cfg.SlowQueryThreshold)
+}
+
+// ---------------------------------------------------------------------------
+// TestLoadCacheConfig_Defaults
+// ---------------------------------------------------------------------------
+
+func TestLoadCacheConfig_Defaults(t *testing.T) {
+	reset()
+
+	cfg, err := LoadCacheConfig()
+	require.NoError(t, err)
+
+	assert.True(t, cfg.Secrets.Enabled)
+	assert.Equal(t, 5*time.Minute, cfg.Secrets.TTL)
+	assert.Equal(t, time.Minute, cfg.Secrets.CleanupInterval)
+	assert.Equal(t, 1000, cfg.Secrets.MaxEntries)
+
+	assert.True(t, cfg.Keys.Enabled)
+	assert.Equal(t, 60*time.Second, cfg.Keys.TTL)
+	assert.Equal(t, 30*time.Second, cfg.Keys.CleanupInterval)
+	assert.Equal(t, 500, cfg.Keys.MaxEntries)
+
+	assert.True(t, cfg.Vaults.Enabled)
+	assert.Equal(t, 5*time.Minute, cfg.Vaults.TTL)
+	assert.Equal(t, time.Minute, cfg.Vaults.CleanupInterval)
+	assert.Equal(t, 500, cfg.Vaults.MaxEntries)
+
+	assert.False(t, cfg.Certificates.Enabled, "certificates has no consumer yet, must default off")
+	assert.False(t, cfg.Users.Enabled, "users has no consumer yet, must default off")
+}
+
+// ---------------------------------------------------------------------------
+// TestLoadCacheConfig_OverridesRead
+// ---------------------------------------------------------------------------
+
+func TestLoadCacheConfig_OverridesRead(t *testing.T) {
+	reset()
+	viper.Set("cache.secrets.enabled", false)
+	viper.Set("cache.keys.ttl", "45s")
+	viper.Set("cache.vaults.max_entries", 999)
+	viper.Set("cache.certificates.enabled", true)
+
+	cfg, err := LoadCacheConfig()
+	require.NoError(t, err)
+
+	assert.False(t, cfg.Secrets.Enabled)
+	assert.Equal(t, 45*time.Second, cfg.Keys.TTL)
+	assert.Equal(t, 999, cfg.Vaults.MaxEntries)
+	assert.True(t, cfg.Certificates.Enabled)
+}
+
+// ---------------------------------------------------------------------------
+// TestLoadCacheConfig_InvalidTTLReturnsError
+// ---------------------------------------------------------------------------
+
+func TestLoadCacheConfig_InvalidTTLReturnsError(t *testing.T) {
+	reset()
+	viper.Set("cache.secrets.ttl", "0s")
+
+	_, err := LoadCacheConfig()
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "cache.secrets")
 }
