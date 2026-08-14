@@ -156,6 +156,7 @@ rocketvault/
 - **TOTPService**: TOTP generation and validation only
 - **JWTService**: JWT token creation and validation only
 - **AuthenticationService**: Orchestrates complete auth workflow
+- **OIDCService**: OIDC authorization-code-flow login, additive to local username/password/TOTP — never replaces it. Gated by `oidc.enabled` in `.rocketvault.yaml` — unset/`false` disables it entirely, and `GET /oidc/login`/`GET /oidc/callback` (`api/oidc.go`) return 503 rather than the server attempting a network call to the issuer at startup. This repo's checked-in dev config currently sets it `true` against a test issuer (`exchange4all.local`), so starting the server here does make that call. On successful callback, `UserService.FindOrCreateExternalUser` looks up or creates a `model.User` (default role: least-privilege `user`), and `AuthenticationService.IssueSessionForUser` issues the same JWT/session pair local login uses — there is no separate OIDC token-issuance path to drift out of sync.
 
 ### User Management (`internal/services/users/`)
 - **UserService**: User creation, updates, and management workflows
