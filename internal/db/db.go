@@ -489,6 +489,22 @@ func (d *DBRepository) createOptimizedSchema(db *sql.DB) error {
 		CREATE INDEX IF NOT EXISTS idx_cert_policies_cert_id ON certificate_policies(certificate_id);
 		CREATE INDEX IF NOT EXISTS idx_cert_policies_user_id ON certificate_policies(user_id);
 
+		CREATE TABLE IF NOT EXISTS key_rotation_policies (
+			id                         TEXT PRIMARY KEY,
+			key_id                     TEXT NOT NULL UNIQUE,
+			user_id                    TEXT NOT NULL,
+			rotate_after_days          INTEGER NOT NULL DEFAULT 90,
+			notify_before_expiry_days  INTEGER NOT NULL DEFAULT 30,
+			expiry_days                INTEGER NOT NULL DEFAULT 365,
+			enabled                    BOOLEAN NOT NULL DEFAULT TRUE,
+			created_at                 TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+			updated_at                 TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+			FOREIGN KEY (key_id) REFERENCES keys(id) ON DELETE CASCADE,
+			FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+		);
+		CREATE INDEX IF NOT EXISTS idx_key_rotation_policies_key_id ON key_rotation_policies(key_id);
+		CREATE INDEX IF NOT EXISTS idx_key_rotation_policies_user_id ON key_rotation_policies(user_id);
+
 		CREATE TABLE IF NOT EXISTS crl (
 			id TEXT PRIMARY KEY,
 			user_id TEXT NOT NULL,
@@ -772,6 +788,21 @@ func (d *DBRepository) migrateSchema(db *sql.DB) error {
 		)`,
 		"CREATE INDEX IF NOT EXISTS idx_cert_policies_cert_id ON certificate_policies(certificate_id)",
 		"CREATE INDEX IF NOT EXISTS idx_cert_policies_user_id ON certificate_policies(user_id)",
+		`CREATE TABLE IF NOT EXISTS key_rotation_policies (
+			id                         TEXT PRIMARY KEY,
+			key_id                     TEXT NOT NULL UNIQUE,
+			user_id                    TEXT NOT NULL,
+			rotate_after_days          INTEGER NOT NULL DEFAULT 90,
+			notify_before_expiry_days  INTEGER NOT NULL DEFAULT 30,
+			expiry_days                INTEGER NOT NULL DEFAULT 365,
+			enabled                    BOOLEAN NOT NULL DEFAULT TRUE,
+			created_at                 TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+			updated_at                 TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+			FOREIGN KEY (key_id) REFERENCES keys(id) ON DELETE CASCADE,
+			FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+		)`,
+		"CREATE INDEX IF NOT EXISTS idx_key_rotation_policies_key_id ON key_rotation_policies(key_id)",
+		"CREATE INDEX IF NOT EXISTS idx_key_rotation_policies_user_id ON key_rotation_policies(user_id)",
 		// Feature: enriched audit fields for SOC 2 / GDPR compliance
 		"ALTER TABLE audit_logs ADD COLUMN resource_type TEXT",
 		"ALTER TABLE audit_logs ADD COLUMN resource_id TEXT",
