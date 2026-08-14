@@ -48,6 +48,7 @@ type ServiceContainerInterface interface {
 	GetKeyRepository() repositories.KeyRepositoryInterface
 	GetCertificateRepository() repositories.CertificateRepositoryInterface
 	GetCertificatePolicyRepository() repositories.CertificatePolicyRepositoryInterface
+	GetKeyRotationPolicyRepository() repositories.KeyRotationPolicyRepositoryInterface
 	GetSessionRepository() repositories.SessionRepositoryInterface
 	GetVaultRepository() repositories.VaultRepositoryInterface
 
@@ -137,16 +138,17 @@ type ServiceContainer struct {
 	cacheCancel         context.CancelFunc
 
 	// Repositories
-	userRepository        repositories.UserRepositoryInterface
-	secretRepository      repositories.SecretRepositoryInterface
-	rotationRepository    repositories.RotationPolicyRepositoryInterface
-	versionRepository     repositories.SecretVersionRepositoryInterface
-	keyRepository         repositories.KeyRepositoryInterface
-	certificateRepository repositories.CertificateRepositoryInterface
-	certPolicyRepository  repositories.CertificatePolicyRepositoryInterface
-	sessionRepository     repositories.SessionRepositoryInterface
-	vaultRepository       repositories.VaultRepositoryInterface
-	auditRepository       repositories.AuditRepositoryExtended
+	userRepository              repositories.UserRepositoryInterface
+	secretRepository            repositories.SecretRepositoryInterface
+	rotationRepository          repositories.RotationPolicyRepositoryInterface
+	versionRepository           repositories.SecretVersionRepositoryInterface
+	keyRepository               repositories.KeyRepositoryInterface
+	certificateRepository       repositories.CertificateRepositoryInterface
+	certPolicyRepository        repositories.CertificatePolicyRepositoryInterface
+	keyRotationPolicyRepository repositories.KeyRotationPolicyRepositoryInterface
+	sessionRepository           repositories.SessionRepositoryInterface
+	vaultRepository             repositories.VaultRepositoryInterface
+	auditRepository             repositories.AuditRepositoryExtended
 
 	// Audit services
 	auditService            auditServices.AuditServiceInterface
@@ -282,6 +284,7 @@ func (c *ServiceContainer) initializeServices() error {
 	c.vaultService = vaultServices.NewVaultService(c.vaultRepository, vaultCascade, c.logger)
 	c.vaultService.SetTxBeginner(c.conn)
 	c.certPolicyRepository = repositories.NewCertificatePolicyRepository(c.conn, c.logger)
+	c.keyRotationPolicyRepository = repositories.NewKeyRotationPolicyRepository(c.conn, c.logger)
 	c.sessionRepository = repositories.NewSessionRepository(repositories.SessionRepositoryConfig{
 		DB:     c.conn,
 		Logger: c.logger,
@@ -744,6 +747,11 @@ func (c *ServiceContainer) GetCertificateRepository() repositories.CertificateRe
 // GetCertificatePolicyRepository returns the certificate policy repository.
 func (c *ServiceContainer) GetCertificatePolicyRepository() repositories.CertificatePolicyRepositoryInterface {
 	return c.certPolicyRepository
+}
+
+// GetKeyRotationPolicyRepository returns the per-key rotation policy repository.
+func (c *ServiceContainer) GetKeyRotationPolicyRepository() repositories.KeyRotationPolicyRepositoryInterface {
+	return c.keyRotationPolicyRepository
 }
 
 // GetVaultRepository returns the vault repository.
