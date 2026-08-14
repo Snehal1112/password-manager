@@ -343,6 +343,24 @@ live-captured request/response examples, search, and copy-paste commands. Open i
 </tr>
 <tr>
 <td>GET</td>
+<td><code>/api/v1/vaults/{vault_name}/keys/{id}/rotationpolicy</code></td>
+<td>JWT (Crypto Officer/Administrator)</td>
+<td>Get vault key rotation policy</td>
+</tr>
+<tr>
+<td>PUT</td>
+<td><code>/api/v1/vaults/{vault_name}/keys/{id}/rotationpolicy</code></td>
+<td>JWT (Crypto Officer/Administrator)</td>
+<td>Upsert vault key rotation policy</td>
+</tr>
+<tr>
+<td>DELETE</td>
+<td><code>/api/v1/vaults/{vault_name}/keys/{id}/rotationpolicy</code></td>
+<td>JWT (Crypto Officer/Administrator)</td>
+<td>Delete vault key rotation policy</td>
+</tr>
+<tr>
+<td>GET</td>
 <td><code>/api/v1/vaults/{vault_name}/deleted/keys</code></td>
 <td>JWT</td>
 <td>List soft-deleted vault keys</td>
@@ -580,6 +598,24 @@ live-captured request/response examples, search, and copy-paste commands. Open i
 <td><code>/api/v1/keys/{id}/decrypt</code></td>
 <td>JWT</td>
 <td>Decrypt payload</td>
+</tr>
+<tr>
+<td>GET</td>
+<td><code>/api/v1/keys/{id}/rotationpolicy</code></td>
+<td>JWT (Crypto Officer/Administrator)</td>
+<td>Get key rotation policy</td>
+</tr>
+<tr>
+<td>PUT</td>
+<td><code>/api/v1/keys/{id}/rotationpolicy</code></td>
+<td>JWT (Crypto Officer/Administrator)</td>
+<td>Upsert key rotation policy</td>
+</tr>
+<tr>
+<td>DELETE</td>
+<td><code>/api/v1/keys/{id}/rotationpolicy</code></td>
+<td>JWT (Crypto Officer/Administrator)</td>
+<td>Delete key rotation policy</td>
 </tr>
 <tr>
 <td>POST</td>
@@ -830,6 +866,13 @@ aren't blocked by a vault-blind check running ahead of the handler.</li>
 <li>Vault-scoped routes for secrets, keys, and certificates (<code>/vaults/{vault_name}/...</code>)
 mirror the flat routes 1:1 and are authorized per vault by <code>PolicyMiddleware</code>
 against the caller's role assignments in that vault, not by the global role.</li>
+<li><code>rotationpolicy</code> routes are narrower than every other <code>/keys/{id}/*</code> route: only
+<code>Key Vault Crypto Officer</code> and <code>Key Vault Administrator</code> grant access (matching
+Azure's <code>keyrotationpolicies/*</code>) — <code>Key Vault Crypto User</code>, which can use the key
+for crypto operations, is deliberately denied here and gets <code>403</code>. Request body
+for <code>PUT</code> (all four fields required): <code>{&quot;rotate_after_days&quot;: 90, &quot;notify_before_expiry_days&quot;: 30, &quot;expiry_days&quot;: 365, &quot;enabled&quot;: true}</code>. <code>PUT</code> is
+an upsert (same <code>id</code> returned on repeat calls with the same key). <code>GET</code>/<code>DELETE</code>
+on a key with no policy set return <code>404</code>.</li>
 </ul>
 <hr>
 <h2 id="account-roles--permissions">Account Roles &amp; Permissions</h2>

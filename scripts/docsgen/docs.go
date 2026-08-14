@@ -37,6 +37,7 @@ var docsList = []docEntry{
 	{"docs/hsm-softhsm2-testing.md", "docs/hsm-softhsm2-testing.html"},
 	{"docs/integration-examples.md", "docs/integration-examples.html"},
 	{"docs/release-notes/v4.0.0-azure-rbac.md", "docs/release-notes/v4.0.0-azure-rbac.html"},
+	{"docs/usage-guide.md", "docs/usage-guide.html"},
 }
 
 // extraFiles are hand-written HTML pages the docsList generator doesn't

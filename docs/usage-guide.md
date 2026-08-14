@@ -160,7 +160,7 @@ When the access token expires, exchange the refresh token via the also-public `P
 - Most resource routes exist in two shapes: the legacy flat form (e.g. `/api/v1/secrets`) and a vault-scoped form (e.g. `/api/v1/vaults/{vault_name}/secrets`), registered by the same handlers (`api.registerSecretRoutes` in `api/secrets.go`). Both work, and both are gated by the same deny-by-default role-assignment check described above; a flat-route call resolves against the `default` vault, a vault-scoped call resolves — and is authorized — against the named vault instead.
 - All IDs in path parameters (`secret_id`, `key_id`, `certificate_id`, `user_id`, `policy_id`, `service_account_id`, `assignment_id`) must match the hex/UUID pattern `[A-Fa-f0-9-]+` enforced by the Gorilla Mux route regex, or the router returns a 404 before your handler even runs.
 
-**Deep dive:** [docs/api-developer-guide.md](api-developer-guide.md) — full endpoint reference, error format, and JavaScript/Python/Go SDK examples. Its one remaining discrepancy is its "Base URL" section, which shows a placeholder `https://api.rocketvault.local` domain rather than the real default `http://localhost:8774`.
+**Deep dive:** [docs/api-developer-guide.md](api-developer-guide.html) — full endpoint reference, error format, and JavaScript/Python/Go SDK examples. Its one remaining discrepancy is its "Base URL" section, which shows a placeholder `https://api.rocketvault.local` domain rather than the real default `http://localhost:8774`.
 
 ---
 
@@ -239,7 +239,7 @@ curl -s -X DELETE http://localhost:8774/api/v1/service-accounts/$SA_ID -H "Autho
 - A service account gets exactly the data actions its role assignments grant — nothing implicit. `Key Vault Secrets User` (granted in step 2) covers `get`/`list` on secrets only, so a write attempt (`POST`/`PUT` on `/secrets`) is denied by `PolicyMiddleware`'s deny-by-default check — `HasDataAction` finds no assignment granting `secrets/setSecret/action` — before `AuthorizationMiddleware` is even reached. `AuthorizationMiddleware` no longer gates vault data-plane routes at all: `mapEndpointToPermission` (`internal/services/authorization/rbac_service.go`) returns `""` for every one of them, deferring entirely to the role-assignment check; the `service_account` role's `get`/`list` permission bundle in that file is legacy and has no effect on these routes. An explicit `deny` access policy for the principal, if one exists, is still evaluated first and would short-circuit with 403 regardless of the role assignment.
 - The `/oauth2/token` route is registered on its own router with `CORSMiddleware` and `RateLimitMiddleware` attached (`api/api.go`, `InitOAuth2`). Unlike `/api/v1/service-accounts` and other authenticated routes, it does **not** go through `AuthenticationMiddleware`, `VaultResolutionMiddleware`, `PolicyMiddleware`, or `AuthorizationMiddleware`. `RateLimitMiddleware` special-cases the `/oauth2/token` path suffix to apply its stricter auth-endpoint limit, and — unlike the earlier state of this router — that middleware is now actually attached here, so the stricter limit is enforced; every request (success or failure) also writes an audit log entry.
 
-**Deep dive:** [docs/consuming-secrets-guide.md](consuming-secrets-guide.md) and [Admin Manual — OAuth2 Service Accounts](admin-manual.html#service-accounts).
+**Deep dive:** [docs/consuming-secrets-guide.md](consuming-secrets-guide.html) and [Admin Manual — OAuth2 Service Accounts](admin-manual.html#service-accounts).
 
 ---
 
@@ -337,7 +337,7 @@ RocketVault's own bootstrap (`bootstrap/bootstrap.go`) uses this exact pattern t
 - `client_secret` is deliberately absent from `SecretMapping` and the YAML example above — it must come from the `VAULT_CLIENT_SECRET` environment variable (or `vault_client.client_secret` in Viper, which `NewFromViper` prefers before falling back to the env var).
 - Secret values are never logged by the client; only names are used in log and error messages.
 
-**Deep dive:** [docs/consuming-secrets-guide.md](consuming-secrets-guide.md) — see "Option A — Go application using the `vaultclient` package", plus the full service-account creation and access-policy walkthrough and the Troubleshooting table.
+**Deep dive:** [docs/consuming-secrets-guide.md](consuming-secrets-guide.html) — see "Option A — Go application using the `vaultclient` package", plus the full service-account creation and access-policy walkthrough and the Troubleshooting table.
 
 ---
 
@@ -660,7 +660,7 @@ curl -s -X POST http://localhost:8774/api/v1/keys/${KEY_ID}/sign \
 - `slot_id: 0` means "auto-detect by `token_label`"; set an explicit non-zero slot if you have multiple tokens with the same label, or if SoftHSM2 reassigns slots after `--init-token`.
 - Switching `hsm.enabled` back to `false` reverts to the software provider on the next restart — no other config changes needed.
 
-**Deep dive:** [docs/hsm-softhsm2-testing.md](hsm-softhsm2-testing.md) — full SoftHSM2 install and init walkthrough, verifying token contents with `pkcs11-tool`, and running the PKCS#11 integration test suite.
+**Deep dive:** [docs/hsm-softhsm2-testing.md](hsm-softhsm2-testing.html) — full SoftHSM2 install and init walkthrough, verifying token contents with `pkcs11-tool`, and running the PKCS#11 integration test suite.
 
 ---
 
