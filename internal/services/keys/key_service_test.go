@@ -97,6 +97,51 @@ func TestGetKeyRotationPolicy_DeniesWhenKeyAccessDenied(t *testing.T) {
 	policyRepo.AssertNotCalled(t, "GetByKeyIDAny", mock.Anything, mock.Anything)
 }
 
+func TestListKeyVersions_VerifiesKeyAccessFirst(t *testing.T) {
+	keyRepo := new(mockKeyRepository)
+	keyID := uuid.New()
+	ownerID := uuid.New()
+	scope := model.NewOwnerScope(uuid.New(), ownerID)
+
+	// The key row's owner (ownerID) is what ListVersions must be called
+	// with, not the scope's own actor id -- they happen to match here for
+	// an owner scope, but the point is the handoff goes through the
+	// authorized key, not the scope directly.
+	keyRepo.On("Read", mock.Anything, keyID, scope).Return(&model.Key{ID: keyID, UserID: ownerID, Enabled: true}, nil)
+	want := []model.KeyVersion{{KeyID: keyID, Version: 1}, {KeyID: keyID, Version: 2}}
+	keyRepo.On("ListVersions", mock.Anything, keyID, ownerID).Return(want, nil)
+
+	svc := NewKeyService(KeyServiceConfig{
+		KeyRepository: keyRepo,
+		Logger:        newTestKeyLogger(t),
+	})
+
+	got, err := svc.ListKeyVersions(context.Background(), keyID, scope)
+
+	require.NoError(t, err)
+	assert.Equal(t, want, got)
+	keyRepo.AssertExpectations(t)
+}
+
+func TestListKeyVersions_DeniesWhenKeyAccessDenied(t *testing.T) {
+	keyRepo := new(mockKeyRepository)
+	keyID := uuid.New()
+	scope := model.NewOwnerScope(uuid.New(), uuid.New())
+
+	keyRepo.On("Read", mock.Anything, keyID, scope).Return(nil, sql.ErrNoRows)
+
+	svc := NewKeyService(KeyServiceConfig{
+		KeyRepository: keyRepo,
+		Logger:        newTestKeyLogger(t),
+	})
+
+	_, err := svc.ListKeyVersions(context.Background(), keyID, scope)
+
+	require.Error(t, err)
+	assert.ErrorIs(t, err, ErrKeyNotFound)
+	keyRepo.AssertNotCalled(t, "ListVersions", mock.Anything, mock.Anything, mock.Anything)
+}
+
 func TestUpsertKeyRotationPolicy_VerifiesKeyAccessFirstAndReadsBack(t *testing.T) {
 	keyRepo := new(mockKeyRepository)
 	policyRepo := new(mockKeyPolicyRepo)

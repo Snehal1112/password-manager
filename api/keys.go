@@ -606,26 +606,12 @@ func listKeyVersions(c *Context, w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Authorize through the scope-aware read first, exactly like getKey on
-	// this same route. KeyRepository.ListVersions filters on the key's owner
-	// with no vault predicate, so calling it with the caller's own id would
-	// hand a vault member an empty list for a key getKey happily returns.
-	// Resolving the owner from the authorized row keeps both consistent.
-	key, err := keyService.GetKey(r.Context(), keyID, scope)
+	// KeyService.ListKeyVersions does the scope-aware auth check internally,
+	// exactly like getKey on this same route, before delegating to the
+	// repository.
+	versions, err := keyService.ListKeyVersions(r.Context(), keyID, scope)
 	if err != nil {
 		writeKeyError(c, err)
-		return
-	}
-
-	repo := c.App.ServiceContainer.GetKeyRepository()
-	if repo == nil {
-		c.SetInternalError(nil)
-		return
-	}
-
-	versions, err := repo.ListVersions(r.Context(), keyID, key.UserID)
-	if err != nil {
-		c.SetInternalError(err)
 		return
 	}
 

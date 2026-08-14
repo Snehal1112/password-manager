@@ -149,6 +149,14 @@ func (m *mockKeyService) DeleteKeyRotationPolicy(ctx context.Context, keyID uuid
 	return m.Called(ctx, keyID, scope).Error(0)
 }
 
+func (m *mockKeyService) ListKeyVersions(ctx context.Context, keyID uuid.UUID, scope model.Scope) ([]model.KeyVersion, error) {
+	args := m.Called(ctx, keyID, scope)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).([]model.KeyVersion), args.Error(1)
+}
+
 // --- keySvcTestContainer ---
 
 type keySvcTestContainer struct {
@@ -300,16 +308,6 @@ func keyLegacyOwnerScope() model.Scope {
 // newKeyCtx builds a Context backed by the given KeyService mock.
 func newKeyCtx(svc keyServices.KeyService) *Context {
 	a := &app.App{ServiceContainer: &keySvcTestContainer{keySvc: svc}}
-	return &Context{
-		App:    a,
-		Claims: RequestClaims{Role: string(model.RoleAdmin), UserID: keyTestUserID},
-		Params: &ApiParams{PerPage: 60},
-	}
-}
-
-// newKeyCtxWithRepo builds a Context with both KeyService and KeyRepository available.
-func newKeyCtxWithRepo(svc keyServices.KeyService, repo repositories.KeyRepositoryInterface) *Context {
-	a := &app.App{ServiceContainer: &keySvcTestContainer{keySvc: svc, keyRepo: repo}}
 	return &Context{
 		App:    a,
 		Claims: RequestClaims{Role: string(model.RoleAdmin), UserID: keyTestUserID},
@@ -904,62 +902,8 @@ func TestRotateKey_Success_Returns200(t *testing.T) {
 // listKeyVersions
 // ============================================================
 
-// stubKeyVersionRepo is a minimal KeyRepositoryInterface stub for
-// listKeyVersions tests. Only ListVersions is implemented; all other methods
-// panic to surface accidental calls.
-type stubKeyVersionRepo struct {
-	versions []model.KeyVersion
-	err      error
-}
-
-func (s *stubKeyVersionRepo) ListVersions(_ context.Context, _, _ uuid.UUID) ([]model.KeyVersion, error) {
-	return s.versions, s.err
-}
-func (s *stubKeyVersionRepo) Create(_ context.Context, _ *model.Key) error {
-	panic("unexpected call: Create")
-}
-func (s *stubKeyVersionRepo) Read(_ context.Context, _ uuid.UUID, _ model.Scope) (*model.Key, error) {
-	panic("unexpected call: Read")
-}
-func (s *stubKeyVersionRepo) Update(_ context.Context, _ *model.Key, _ model.Scope) error {
-	panic("unexpected call: Update")
-}
-func (s *stubKeyVersionRepo) List(_ context.Context, _ model.Scope, _ repositories.KeyFilter) ([]model.Key, error) {
-	panic("unexpected call: List")
-}
-func (s *stubKeyVersionRepo) Delete(_ context.Context, _ uuid.UUID) error {
-	panic("unexpected call: Delete")
-}
-func (s *stubKeyVersionRepo) UpdateRevocationStatus(_ context.Context, _ uuid.UUID, _ bool) error {
-	panic("unexpected call: UpdateRevocationStatus")
-}
-func (s *stubKeyVersionRepo) SoftDelete(_ context.Context, _ uuid.UUID) error {
-	panic("unexpected call: SoftDelete")
-}
-func (s *stubKeyVersionRepo) RecoverKey(_ context.Context, _ uuid.UUID) error {
-	panic("unexpected call: RecoverKey")
-}
-func (s *stubKeyVersionRepo) PurgeKey(_ context.Context, _ uuid.UUID) error {
-	panic("unexpected call: PurgeKey")
-}
-func (s *stubKeyVersionRepo) SetPurgeProtection(_ context.Context, _ uuid.UUID, _ bool) error {
-	panic("unexpected call: SetPurgeProtection")
-}
-func (s *stubKeyVersionRepo) ReadDeleted(_ context.Context, _ uuid.UUID) (*model.Key, error) {
-	panic("unexpected call: ReadDeleted")
-}
-func (s *stubKeyVersionRepo) CreateVersion(_ context.Context, _ uuid.UUID, _ int, _ string) error {
-	panic("unexpected call: CreateVersion")
-}
-func (s *stubKeyVersionRepo) SoftDeleteVaultContents(_ context.Context, _ uuid.UUID, _ time.Time) error {
-	panic("unexpected call: SoftDeleteVaultContents")
-}
-func (s *stubKeyVersionRepo) RecoverVaultContents(_ context.Context, _ uuid.UUID, _ time.Time) error {
-	panic("unexpected call: RecoverVaultContents")
-}
-
 func TestListKeyVersions_InvalidKeyID_Returns400(t *testing.T) {
-	c := newKeyCtxWithRepo(nil, nil)
+	c := newKeyCtx(nil)
 	c.Params = &ApiParams{KeyID: "bad", PerPage: 60}
 	w := httptest.NewRecorder()
 	r := httptest.NewRequest(http.MethodGet, "/keys/bad/versions", nil)
@@ -972,15 +916,13 @@ func TestListKeyVersions_InvalidKeyID_Returns400(t *testing.T) {
 	assert.Equal(t, http.StatusBadRequest, w.Code)
 }
 
-func TestListKeyVersions_RepositoryError_Returns500(t *testing.T) {
+func TestListKeyVersions_ServiceError_Returns500(t *testing.T) {
 	keyID := uuid.New()
-	repo := &stubKeyVersionRepo{
-		err: errors.New("db error"),
-	}
 	svc := &mockKeyService{}
-	svc.On("GetKey", mock.Anything, keyID, keyLegacyOwnerScope()).Return(makeKeyModel(keyID), nil)
+	svc.On("ListKeyVersions", mock.Anything, keyID, keyLegacyOwnerScope()).
+		Return(nil, errors.New("db error"))
 
-	c := newKeyCtxWithRepo(svc, repo)
+	c := newKeyCtx(svc)
 	c.Params = &ApiParams{KeyID: keyID.String(), PerPage: 60}
 	w := httptest.NewRecorder()
 	r := httptest.NewRequest(http.MethodGet, "/keys/"+keyID.String()+"/versions", nil)
@@ -991,17 +933,16 @@ func TestListKeyVersions_RepositoryError_Returns500(t *testing.T) {
 	}
 
 	assert.Equal(t, http.StatusInternalServerError, w.Code)
+	svc.AssertExpectations(t)
 }
 
 func TestListKeyVersions_Success_Returns200(t *testing.T) {
 	keyID := uuid.New()
-	repo := &stubKeyVersionRepo{
-		versions: []model.KeyVersion{{KeyID: keyID, Version: 1}},
-	}
 	svc := &mockKeyService{}
-	svc.On("GetKey", mock.Anything, keyID, keyLegacyOwnerScope()).Return(makeKeyModel(keyID), nil)
+	svc.On("ListKeyVersions", mock.Anything, keyID, keyLegacyOwnerScope()).
+		Return([]model.KeyVersion{{KeyID: keyID, Version: 1}}, nil)
 
-	c := newKeyCtxWithRepo(svc, repo)
+	c := newKeyCtx(svc)
 	c.Params = &ApiParams{KeyID: keyID.String(), PerPage: 60}
 	w := httptest.NewRecorder()
 	r := httptest.NewRequest(http.MethodGet, "/keys/"+keyID.String()+"/versions", nil)
@@ -1016,17 +957,16 @@ func TestListKeyVersions_Success_Returns200(t *testing.T) {
 }
 
 // TestListKeyVersions_UnauthorizedKeyIsNotFound pins that the handler
-// authorizes through the scope-aware read before touching the version
-// repository, so it behaves like getKey on the same route instead of silently
+// authorizes through the service's scope-aware read before returning
+// versions, so it behaves like getKey on the same route instead of silently
 // returning an empty list.
 func TestListKeyVersions_UnauthorizedKeyIsNotFound(t *testing.T) {
 	keyID := uuid.New()
-	repo := &stubKeyVersionRepo{}
 	svc := &mockKeyService{}
-	svc.On("GetKey", mock.Anything, keyID, keyLegacyOwnerScope()).
+	svc.On("ListKeyVersions", mock.Anything, keyID, keyLegacyOwnerScope()).
 		Return(nil, keyServices.ErrKeyNotFound)
 
-	c := newKeyCtxWithRepo(svc, repo)
+	c := newKeyCtx(svc)
 	c.Params = &ApiParams{KeyID: keyID.String(), PerPage: 60}
 	w := httptest.NewRecorder()
 	r := httptest.NewRequest(http.MethodGet, "/keys/"+keyID.String()+"/versions", nil)

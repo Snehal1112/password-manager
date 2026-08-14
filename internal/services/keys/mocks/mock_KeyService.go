@@ -492,6 +492,66 @@ func (_c *MockKeyService_ListDeletedKeys_Call) RunAndReturn(run func(context.Con
 	return _c
 }
 
+// ListKeyVersions provides a mock function with given fields: ctx, keyID, scope
+func (_m *MockKeyService) ListKeyVersions(ctx context.Context, keyID uuid.UUID, scope model.Scope) ([]model.KeyVersion, error) {
+	ret := _m.Called(ctx, keyID, scope)
+
+	if len(ret) == 0 {
+		panic("no return value specified for ListKeyVersions")
+	}
+
+	var r0 []model.KeyVersion
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, uuid.UUID, model.Scope) ([]model.KeyVersion, error)); ok {
+		return rf(ctx, keyID, scope)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, uuid.UUID, model.Scope) []model.KeyVersion); ok {
+		r0 = rf(ctx, keyID, scope)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).([]model.KeyVersion)
+		}
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context, uuid.UUID, model.Scope) error); ok {
+		r1 = rf(ctx, keyID, scope)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// MockKeyService_ListKeyVersions_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'ListKeyVersions'
+type MockKeyService_ListKeyVersions_Call struct {
+	*mock.Call
+}
+
+// ListKeyVersions is a helper method to define mock.On call
+//   - ctx context.Context
+//   - keyID uuid.UUID
+//   - scope model.Scope
+func (_e *MockKeyService_Expecter) ListKeyVersions(ctx interface{}, keyID interface{}, scope interface{}) *MockKeyService_ListKeyVersions_Call {
+	return &MockKeyService_ListKeyVersions_Call{Call: _e.mock.On("ListKeyVersions", ctx, keyID, scope)}
+}
+
+func (_c *MockKeyService_ListKeyVersions_Call) Run(run func(ctx context.Context, keyID uuid.UUID, scope model.Scope)) *MockKeyService_ListKeyVersions_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(uuid.UUID), args[2].(model.Scope))
+	})
+	return _c
+}
+
+func (_c *MockKeyService_ListKeyVersions_Call) Return(_a0 []model.KeyVersion, _a1 error) *MockKeyService_ListKeyVersions_Call {
+	_c.Call.Return(_a0, _a1)
+	return _c
+}
+
+func (_c *MockKeyService_ListKeyVersions_Call) RunAndReturn(run func(context.Context, uuid.UUID, model.Scope) ([]model.KeyVersion, error)) *MockKeyService_ListKeyVersions_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // ListKeys provides a mock function with given fields: ctx, scope, filter
 func (_m *MockKeyService) ListKeys(ctx context.Context, scope model.Scope, filter repositories.KeyFilter) ([]model.Key, error) {
 	ret := _m.Called(ctx, scope, filter)

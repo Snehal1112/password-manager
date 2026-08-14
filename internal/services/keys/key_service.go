@@ -117,6 +117,12 @@ type KeyService interface {
 	// DeleteKeyRotationPolicy removes the rotation policy for keyID,
 	// authorized by scope against the parent key.
 	DeleteKeyRotationPolicy(ctx context.Context, keyID uuid.UUID, scope model.Scope) error
+	// ListKeyVersions returns keyID's version history, authorized by scope
+	// against the parent key. Resolving the owner from the authorized key
+	// (not the caller's own id) keeps vault-member access consistent with
+	// GetKey, since KeyRepository.ListVersions filters on owner with no
+	// vault predicate.
+	ListKeyVersions(ctx context.Context, keyID uuid.UUID, scope model.Scope) ([]model.KeyVersion, error)
 }
 
 // keyService implements KeyService by coordinating key operations
@@ -440,6 +446,18 @@ func (s *keyService) GetKey(ctx context.Context, keyID uuid.UUID, scope model.Sc
 		fmt.Sprintf("Key accessed: %s (name: %s, type: %s, revoked: %t)", key.ID, key.Name, key.Type, key.Revoked))
 
 	return key, nil
+}
+
+// ListKeyVersions returns keyID's version history, authorized by scope
+// against the parent key. Resolving the owner from the authorized key (not
+// the caller's own id) keeps vault-member access consistent with GetKey,
+// since KeyRepository.ListVersions filters on owner with no vault predicate.
+func (s *keyService) ListKeyVersions(ctx context.Context, keyID uuid.UUID, scope model.Scope) ([]model.KeyVersion, error) {
+	key, err := s.GetKey(ctx, keyID, scope)
+	if err != nil {
+		return nil, err
+	}
+	return s.keyRepo.ListVersions(ctx, keyID, key.UserID)
 }
 
 // GetKeyRotationPolicy retrieves the rotation policy for keyID, authorized by

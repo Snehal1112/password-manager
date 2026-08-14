@@ -64,6 +64,9 @@ func (m *MockKeyServiceForUpdate) UpsertKeyRotationPolicy(ctx context.Context, k
 func (m *MockKeyServiceForUpdate) DeleteKeyRotationPolicy(ctx context.Context, keyID uuid.UUID, scope model.Scope) error {
 	return nil
 }
+func (m *MockKeyServiceForUpdate) ListKeyVersions(ctx context.Context, keyID uuid.UUID, scope model.Scope) ([]model.KeyVersion, error) {
+	return nil, nil
+}
 
 func TestUpdateKeyCommand_CallsServiceUpdate(t *testing.T) {
 	tc := testutils.NewTestContext(t)

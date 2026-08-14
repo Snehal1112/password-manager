@@ -135,6 +135,13 @@ func (m *keyCmdKeyService) UpsertKeyRotationPolicy(ctx context.Context, keyID uu
 func (m *keyCmdKeyService) DeleteKeyRotationPolicy(ctx context.Context, keyID uuid.UUID, scope model.Scope) error {
 	return m.Called(ctx, keyID, scope).Error(0)
 }
+func (m *keyCmdKeyService) ListKeyVersions(ctx context.Context, keyID uuid.UUID, scope model.Scope) ([]model.KeyVersion, error) {
+	args := m.Called(ctx, keyID, scope)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).([]model.KeyVersion), args.Error(1)
+}
 
 // keyCmdCryptoService is a full mock for keyServices.CryptoService.
 type keyCmdCryptoService struct{ mock.Mock }
