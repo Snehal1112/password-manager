@@ -187,6 +187,10 @@ HTTP requests get their authorization check for free from middleware. CLI comman
 
 A new CLI command that skips its tier's check bypasses authorization entirely — there is no other enforcement point on the CLI path.
 
+### Azure Role Additions (since 2026-08-11)
+
+Four built-in roles were added beyond the original seven: `Key Vault Purge Operator`, `Key Vault Certificate User`, `Key Vault Crypto Service Encryption User`, and `Key Vault Data Access Administrator` (`model/azure_roles.go`). `Key Vault Data Access Administrator` is the one role that can manage *other* role assignments — grant and revoke — without also holding data-plane access itself; every other role's permissions are described in `.claude/azure-keyvault-parity.md`. Vaults also gained a real purge endpoint, `DELETE /api/v1/vaults/{vault_name}/purge`. Unlike vault-management's `CanManageVault`/`CanPurgeVault` (which short-circuit for the global admin role — see CLI Authorization above), the HTTP route has no admin bypass: it's gated purely by the `RouteVaultData`/`ActionVaultPurge` role-assignment check in `PolicyMiddleware`, so even a global admin needs an explicit role grant (e.g. `Key Vault Purge Operator`) in that specific vault. The CLI's `vaults purge` command, via `CanPurgeVault`, does allow the admin bypass — the two paths genuinely diverge here.
+
 ### 🔐 Authorization Scope (`model/scope.go`)
 
 Every repository and service operation carries a `model.Scope` describing how it
