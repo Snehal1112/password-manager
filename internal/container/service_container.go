@@ -413,6 +413,7 @@ func (c *ServiceContainer) initializeServices() error {
 			ClientSecret: viperCfg.GetString("oidc.client_secret"),
 			RedirectURL:  viperCfg.GetString("oidc.redirect_url"),
 			Scopes:       viperCfg.GetStringSlice("oidc.scopes"),
+			CACertPath:   viperCfg.GetString("oidc.ca_cert_path"),
 		}
 		oidcSvc, err := authServices.NewOIDCService(context.Background(), oidcCfg)
 		if err != nil {
