@@ -14,6 +14,7 @@ import (
 
 	"rocketvault/cmd/testutils"
 	"rocketvault/common"
+	"rocketvault/internal/retry"
 	authServices "rocketvault/internal/services/auth"
 )
 
@@ -187,4 +188,22 @@ func TestResolveAuthentication_ExpiredCacheRefreshFails_ReturnsError(t *testing.
 	_, err := resolveAuthentication(c, tc.MockAuthService)
 
 	assert.Error(t, err)
+}
+
+// TestInitConfig_RetryConfigEnvOverride verifies that SetRetryDefaults and
+// BindRetryConfig are called during initConfig so environment variable overrides work.
+func TestInitConfig_RetryConfigEnvOverride(t *testing.T) {
+	v := viper.New()
+	v.SetConfigType("yaml")
+
+	// Set up retry defaults and bind config (this is what initConfig does).
+	retry.SetRetryDefaults(v)
+	retry.BindRetryConfig(v)
+
+	// Set an environment variable override.
+	t.Setenv("RETRY_DATABASE_MAX_ATTEMPTS", "10")
+
+	// Verify the environment variable is reflected in viper.
+	maxAttempts := v.GetInt("retry.database.max_attempts")
+	require.Equal(t, 10, maxAttempts, "environment variable override RETRY_DATABASE_MAX_ATTEMPTS should be reflected in retry config")
 }

@@ -39,6 +39,7 @@ import (
 	"rocketvault/internal/db"
 	"rocketvault/internal/formatter"
 	"rocketvault/internal/logging"
+	"rocketvault/internal/retry"
 	authServices "rocketvault/internal/services/auth"
 	"rocketvault/model"
 )
@@ -122,6 +123,10 @@ func initConfig() {
 	if err := viper.ReadInConfig(); err != nil {
 		log.Panicf("Error reading config file: %v (%s)", err, viper.ConfigFileUsed())
 	}
+
+	// Configure retry system with defaults and environment variable bindings.
+	retry.SetRetryDefaults(viper.GetViper())
+	retry.BindRetryConfig(viper.GetViper())
 }
 
 // resolveAuthentication determines the CLI caller's identity for a command
