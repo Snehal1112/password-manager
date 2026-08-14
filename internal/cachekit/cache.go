@@ -121,6 +121,8 @@ func (c *Cache[K, V]) remove(key K) {
 	}
 	c.count.Add(-1)
 	if e, ok := v.(*cacheEntry[V]); ok {
+		// Method-set caveat: see Zeroable's doc comment — this only fires if
+		// V's concrete type's method set actually includes Zero().
 		if z, ok := any(e.value).(Zeroable); ok {
 			z.Zero()
 		}

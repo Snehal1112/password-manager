@@ -20,6 +20,15 @@ type Cloneable[T any] interface {
 // goroutine can still read it via the map at that point), before it becomes
 // unreachable. Used by the key cache to scrub private key material eagerly
 // rather than waiting for GC.
+//
+// Receiver-style contract: Cache.remove detects Zeroable via a runtime type
+// assertion on the concrete value stored as V, so the method set must
+// actually include Zero() for that assertion to succeed. If V is itself a
+// pointer type (the common case — e.g. *Entry), Zero() may be declared on
+// the pointee with either a pointer or value receiver, since both are in the
+// pointer's method set. If V is a non-pointer value type, Zero() must use a
+// value receiver — a pointer-receiver Zero() is not in V's method set and
+// the assertion will silently return ok=false, so Zero() never fires.
 type Zeroable interface {
 	Zero()
 }
