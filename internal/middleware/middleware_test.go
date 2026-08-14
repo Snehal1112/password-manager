@@ -107,6 +107,7 @@ func (s *stubVaultService) PurgeVault(context.Context, string) error            
 func (s *stubVaultService) SetPolicyCleaner(_ vaultServices.PolicyCleaner)           {}
 func (s *stubVaultService) SetTxBeginner(_ vaultServices.TxBeginner)                 {}
 func (s *stubVaultService) SetSecretCacheFlusher(_ vaultServices.SecretCacheFlusher) {}
+func (s *stubVaultService) SetVaultCache(_ vaultServices.VaultCacheInterface)        {}
 
 // MockAuthenticationService is a mock implementation of AuthenticationService.
 type MockAuthenticationService struct {

@@ -53,6 +53,16 @@ type SecretCacheFlusher interface {
 	Flush(ctx context.Context) error
 }
 
+// VaultCacheInterface caches vault records by name. Satisfied by
+// *vaultcache.Cache. Declared here (not imported from internal/vaultcache)
+// to keep this package import-cycle-free, matching the existing
+// SecretCacheFlusher pattern in this same file.
+type VaultCacheInterface interface {
+	Get(name string) (*model.Vault, bool)
+	Set(name string, v *model.Vault)
+	Invalidate(name string)
+}
+
 // TxBeginner begins a transaction usable by the Tx-scoped repository/cascade
 // methods. Satisfied by *db.Conn. Injected via SetTxBeginner so unit tests
 // that construct a vaultService without a real database (every existing test
@@ -88,6 +98,7 @@ type VaultService interface {
 	SetPolicyCleaner(p PolicyCleaner)
 	SetTxBeginner(tb TxBeginner)
 	SetSecretCacheFlusher(f SecretCacheFlusher)
+	SetVaultCache(c VaultCacheInterface)
 }
 
 type vaultService struct {
@@ -96,6 +107,7 @@ type vaultService struct {
 	policies    PolicyCleaner
 	txBeginner  TxBeginner
 	secretCache SecretCacheFlusher
+	vaultCache  VaultCacheInterface
 	log         *logging.Logger
 }
 
@@ -118,6 +130,12 @@ func (s *vaultService) SetTxBeginner(tb TxBeginner) { s.txBeginner = tb }
 // secret soft-deleted (or restored) by the cascade is not still served from a
 // cache entry primed before the change. Unset means caching is disabled.
 func (s *vaultService) SetSecretCacheFlusher(f SecretCacheFlusher) { s.secretCache = f }
+
+// SetVaultCache attaches an optional vault-by-name cache. When set,
+// getByName consults it before the repository and populates it on a miss;
+// Update/Delete/Recover/Purge invalidate the entry after a successful write.
+// Unset means vault caching is disabled.
+func (s *vaultService) SetVaultCache(c VaultCacheInterface) { s.vaultCache = c }
 
 // flushSecretCache empties the secret cache after a cascade. It runs only on
 // the success path (post-commit), so a rolled-back cascade never evicts, and a
@@ -192,12 +210,20 @@ func (s *vaultService) CreateVault(ctx context.Context, req model.CreateVaultReq
 // outage) unchanged, so callers can tell "vault doesn't exist" (404) apart
 // from "the lookup itself failed" (500).
 func (s *vaultService) getByName(ctx context.Context, name string) (*model.Vault, error) {
+	if s.vaultCache != nil {
+		if v, ok := s.vaultCache.Get(name); ok {
+			return v, nil
+		}
+	}
 	v, err := s.repo.ReadByName(ctx, name)
 	if err != nil {
 		if errors.Is(err, repositories.ErrNotFound) {
 			return nil, fmt.Errorf("vault %q: %w", name, ErrVaultNotFound)
 		}
 		return nil, fmt.Errorf("get vault %q: %w", name, err)
+	}
+	if s.vaultCache != nil {
+		s.vaultCache.Set(name, v)
 	}
 	return v, nil
 }
@@ -249,6 +275,9 @@ func (s *vaultService) UpdateVault(ctx context.Context, name string, req model.U
 	}
 	if err := s.repo.Update(ctx, v); err != nil {
 		return nil, fmt.Errorf("update vault: %w", err)
+	}
+	if s.vaultCache != nil {
+		s.vaultCache.Invalidate(name)
 	}
 	if s.log != nil {
 		s.log.LogAuditInfo(updatedBy.String(), "update_vault", "success", fmt.Sprintf("Vault updated: %s", v.Name))
@@ -313,6 +342,9 @@ func (s *vaultService) DeleteVault(ctx context.Context, name string) error {
 	// The cascade soft-deleted this vault's secrets with a bulk UPDATE that
 	// never went through CachedSecretService, so evict what it invalidated.
 	s.flushSecretCache(ctx, v.ID, "vault delete")
+	if s.vaultCache != nil {
+		s.vaultCache.Invalidate(name)
+	}
 
 	if s.log != nil {
 		s.log.LogAuditInfo("", "delete_vault", "success", fmt.Sprintf("Vault deleted: %s", name))
@@ -362,6 +394,9 @@ func (s *vaultService) RecoverVault(ctx context.Context, name string) error {
 	// The cascade cleared deleted_at on this vault's secrets outside the cache
 	// layer; flush so no entry admitted during the deleted window survives.
 	s.flushSecretCache(ctx, v.ID, "vault recover")
+	if s.vaultCache != nil {
+		s.vaultCache.Invalidate(name)
+	}
 
 	if s.log != nil {
 		s.log.LogAuditInfo("", "recover_vault", "success", fmt.Sprintf("Vault recovered: %s", name))
@@ -395,6 +430,9 @@ func (s *vaultService) PurgeVault(ctx context.Context, name string) error {
 	}
 	if err := s.repo.Purge(ctx, v.ID); err != nil {
 		return err
+	}
+	if s.vaultCache != nil {
+		s.vaultCache.Invalidate(name)
 	}
 	// access_policies has no FK to vaults, so vault-scoped policy rows must be
 	// removed explicitly to avoid orphaning them after the vault is purged.

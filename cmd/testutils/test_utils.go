@@ -627,6 +627,10 @@ func (m *MockVaultService) SetSecretCacheFlusher(f vaultServices.SecretCacheFlus
 	m.Called(f)
 }
 
+func (m *MockVaultService) SetVaultCache(c vaultServices.VaultCacheInterface) {
+	m.Called(c)
+}
+
 // ErrVaultNotFoundForTest is returned by test doubles standing in for a
 // vault-lookup failure; production code never checks for this sentinel.
 var ErrVaultNotFoundForTest = errors.New("test: vault not found")

@@ -23,6 +23,9 @@ type fakeVaultRepo struct {
 	// normal not-found sentinel — simulates a real failure (e.g. DB outage)
 	// distinct from an honest missing row.
 	readErr error
+	// readByNameCalls counts ReadByName invocations, so cache tests can assert
+	// a cache hit never falls through to the repo.
+	readByNameCalls int
 }
 
 func newFakeRepo() *fakeVaultRepo {
@@ -41,6 +44,7 @@ func (f *fakeVaultRepo) Create(_ context.Context, v *model.Vault) error {
 	return nil
 }
 func (f *fakeVaultRepo) ReadByName(_ context.Context, n string) (*model.Vault, error) {
+	f.readByNameCalls++
 	if f.readErr != nil {
 		return nil, f.readErr
 	}
