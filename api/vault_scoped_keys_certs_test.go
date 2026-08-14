@@ -92,6 +92,15 @@ func (s *recordingKeyService) RecoverKey(context.Context, uuid.UUID, model.Scope
 func (s *recordingKeyService) PurgeKey(context.Context, uuid.UUID, model.Scope) error {
 	panic("unexpected")
 }
+func (s *recordingKeyService) GetKeyRotationPolicy(context.Context, uuid.UUID, model.Scope) (*model.KeyRotationPolicy, error) {
+	panic("unexpected")
+}
+func (s *recordingKeyService) UpsertKeyRotationPolicy(context.Context, uuid.UUID, model.Scope, model.UpsertKeyRotationPolicyRequest) (*model.KeyRotationPolicy, error) {
+	panic("unexpected")
+}
+func (s *recordingKeyService) DeleteKeyRotationPolicy(context.Context, uuid.UUID, model.Scope) error {
+	panic("unexpected")
+}
 
 // recordingCertService records which list/get method was called and with what
 // scope, mirroring recordingKeyService for certificates.

@@ -108,6 +108,15 @@ type KeyService interface {
 	// PurgeKey permanently deletes a soft-deleted key authorized by scope.
 	PurgeKey(ctx context.Context, keyID uuid.UUID, scope model.Scope) error
 	ValidateKeyAccess(ctx context.Context, keyID, userID uuid.UUID, role string) error
+	// GetKeyRotationPolicy retrieves the rotation policy for keyID, authorized
+	// by scope against the parent key.
+	GetKeyRotationPolicy(ctx context.Context, keyID uuid.UUID, scope model.Scope) (*model.KeyRotationPolicy, error)
+	// UpsertKeyRotationPolicy creates or replaces the rotation policy for
+	// keyID, authorized by scope against the parent key.
+	UpsertKeyRotationPolicy(ctx context.Context, keyID uuid.UUID, scope model.Scope, req model.UpsertKeyRotationPolicyRequest) (*model.KeyRotationPolicy, error)
+	// DeleteKeyRotationPolicy removes the rotation policy for keyID,
+	// authorized by scope against the parent key.
+	DeleteKeyRotationPolicy(ctx context.Context, keyID uuid.UUID, scope model.Scope) error
 }
 
 // keyService implements KeyService by coordinating key operations
@@ -116,6 +125,7 @@ type keyService struct {
 	keyRepo     repositories.KeyRepositoryInterface
 	keyProvider crypto.KeyProvider
 	keyCache    keycache.Cache
+	policyRepo  repositories.KeyRotationPolicyRepositoryInterface
 	logger      *logging.Logger
 }
 
@@ -125,8 +135,9 @@ type KeyServiceConfig struct {
 	KeyProvider   crypto.KeyProvider
 	// KeyCache is optional. When nil, a NopCache is used and mutations still
 	// call Invalidate (which is a no-op on NopCache).
-	KeyCache keycache.Cache
-	Logger   *logging.Logger
+	KeyCache         keycache.Cache
+	PolicyRepository repositories.KeyRotationPolicyRepositoryInterface
+	Logger           *logging.Logger
 }
 
 // NewKeyService creates a new KeyService with the provided dependencies.
@@ -147,6 +158,7 @@ func NewKeyService(config KeyServiceConfig) KeyService {
 		keyRepo:     config.KeyRepository,
 		keyProvider: config.KeyProvider,
 		keyCache:    config.KeyCache,
+		policyRepo:  config.PolicyRepository,
 		logger:      config.Logger,
 	}
 }
@@ -428,6 +440,49 @@ func (s *keyService) GetKey(ctx context.Context, keyID uuid.UUID, scope model.Sc
 		fmt.Sprintf("Key accessed: %s (name: %s, type: %s, revoked: %t)", key.ID, key.Name, key.Type, key.Revoked))
 
 	return key, nil
+}
+
+// GetKeyRotationPolicy retrieves the rotation policy for keyID, authorized by
+// scope against the parent key.
+func (s *keyService) GetKeyRotationPolicy(ctx context.Context, keyID uuid.UUID, scope model.Scope) (*model.KeyRotationPolicy, error) {
+	if _, err := s.GetKey(ctx, keyID, scope); err != nil {
+		return nil, err
+	}
+	return s.policyRepo.GetByKeyIDAny(ctx, keyID)
+}
+
+// UpsertKeyRotationPolicy creates or replaces the rotation policy for keyID,
+// authorized by scope against the parent key.
+func (s *keyService) UpsertKeyRotationPolicy(ctx context.Context, keyID uuid.UUID, scope model.Scope, req model.UpsertKeyRotationPolicyRequest) (*model.KeyRotationPolicy, error) {
+	if _, err := s.GetKey(ctx, keyID, scope); err != nil {
+		return nil, err
+	}
+	now := time.Now()
+	policy := &model.KeyRotationPolicy{
+		ID:                     uuid.New(),
+		KeyID:                  keyID,
+		UserID:                 scope.ActorID(),
+		RotateAfterDays:        req.RotateAfterDays,
+		NotifyBeforeExpiryDays: req.NotifyBeforeExpiryDays,
+		ExpiryDays:             req.ExpiryDays,
+		Enabled:                req.Enabled,
+		CreatedAt:              now,
+		UpdatedAt:              now,
+	}
+	if err := s.policyRepo.Upsert(ctx, policy); err != nil {
+		return nil, err
+	}
+	// Read-after-write so the caller gets the canonical stored row.
+	return s.policyRepo.GetByKeyIDAny(ctx, keyID)
+}
+
+// DeleteKeyRotationPolicy removes the rotation policy for keyID, authorized
+// by scope against the parent key.
+func (s *keyService) DeleteKeyRotationPolicy(ctx context.Context, keyID uuid.UUID, scope model.Scope) error {
+	if _, err := s.GetKey(ctx, keyID, scope); err != nil {
+		return err
+	}
+	return s.policyRepo.DeleteByKeyIDAny(ctx, keyID)
 }
 
 // ListKeys lists keys authorized by scope and narrowed by filter.

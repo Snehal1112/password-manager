@@ -265,6 +265,54 @@ func (_c *MockKeyService_DeleteKey_Call) RunAndReturn(run func(context.Context, 
 	return _c
 }
 
+// DeleteKeyRotationPolicy provides a mock function with given fields: ctx, keyID, scope
+func (_m *MockKeyService) DeleteKeyRotationPolicy(ctx context.Context, keyID uuid.UUID, scope model.Scope) error {
+	ret := _m.Called(ctx, keyID, scope)
+
+	if len(ret) == 0 {
+		panic("no return value specified for DeleteKeyRotationPolicy")
+	}
+
+	var r0 error
+	if rf, ok := ret.Get(0).(func(context.Context, uuid.UUID, model.Scope) error); ok {
+		r0 = rf(ctx, keyID, scope)
+	} else {
+		r0 = ret.Error(0)
+	}
+
+	return r0
+}
+
+// MockKeyService_DeleteKeyRotationPolicy_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'DeleteKeyRotationPolicy'
+type MockKeyService_DeleteKeyRotationPolicy_Call struct {
+	*mock.Call
+}
+
+// DeleteKeyRotationPolicy is a helper method to define mock.On call
+//   - ctx context.Context
+//   - keyID uuid.UUID
+//   - scope model.Scope
+func (_e *MockKeyService_Expecter) DeleteKeyRotationPolicy(ctx interface{}, keyID interface{}, scope interface{}) *MockKeyService_DeleteKeyRotationPolicy_Call {
+	return &MockKeyService_DeleteKeyRotationPolicy_Call{Call: _e.mock.On("DeleteKeyRotationPolicy", ctx, keyID, scope)}
+}
+
+func (_c *MockKeyService_DeleteKeyRotationPolicy_Call) Run(run func(ctx context.Context, keyID uuid.UUID, scope model.Scope)) *MockKeyService_DeleteKeyRotationPolicy_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(uuid.UUID), args[2].(model.Scope))
+	})
+	return _c
+}
+
+func (_c *MockKeyService_DeleteKeyRotationPolicy_Call) Return(_a0 error) *MockKeyService_DeleteKeyRotationPolicy_Call {
+	_c.Call.Return(_a0)
+	return _c
+}
+
+func (_c *MockKeyService_DeleteKeyRotationPolicy_Call) RunAndReturn(run func(context.Context, uuid.UUID, model.Scope) error) *MockKeyService_DeleteKeyRotationPolicy_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // GetKey provides a mock function with given fields: ctx, keyID, scope
 func (_m *MockKeyService) GetKey(ctx context.Context, keyID uuid.UUID, scope model.Scope) (*model.Key, error) {
 	ret := _m.Called(ctx, keyID, scope)
@@ -321,6 +369,66 @@ func (_c *MockKeyService_GetKey_Call) Return(_a0 *model.Key, _a1 error) *MockKey
 }
 
 func (_c *MockKeyService_GetKey_Call) RunAndReturn(run func(context.Context, uuid.UUID, model.Scope) (*model.Key, error)) *MockKeyService_GetKey_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// GetKeyRotationPolicy provides a mock function with given fields: ctx, keyID, scope
+func (_m *MockKeyService) GetKeyRotationPolicy(ctx context.Context, keyID uuid.UUID, scope model.Scope) (*model.KeyRotationPolicy, error) {
+	ret := _m.Called(ctx, keyID, scope)
+
+	if len(ret) == 0 {
+		panic("no return value specified for GetKeyRotationPolicy")
+	}
+
+	var r0 *model.KeyRotationPolicy
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, uuid.UUID, model.Scope) (*model.KeyRotationPolicy, error)); ok {
+		return rf(ctx, keyID, scope)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, uuid.UUID, model.Scope) *model.KeyRotationPolicy); ok {
+		r0 = rf(ctx, keyID, scope)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).(*model.KeyRotationPolicy)
+		}
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context, uuid.UUID, model.Scope) error); ok {
+		r1 = rf(ctx, keyID, scope)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// MockKeyService_GetKeyRotationPolicy_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'GetKeyRotationPolicy'
+type MockKeyService_GetKeyRotationPolicy_Call struct {
+	*mock.Call
+}
+
+// GetKeyRotationPolicy is a helper method to define mock.On call
+//   - ctx context.Context
+//   - keyID uuid.UUID
+//   - scope model.Scope
+func (_e *MockKeyService_Expecter) GetKeyRotationPolicy(ctx interface{}, keyID interface{}, scope interface{}) *MockKeyService_GetKeyRotationPolicy_Call {
+	return &MockKeyService_GetKeyRotationPolicy_Call{Call: _e.mock.On("GetKeyRotationPolicy", ctx, keyID, scope)}
+}
+
+func (_c *MockKeyService_GetKeyRotationPolicy_Call) Run(run func(ctx context.Context, keyID uuid.UUID, scope model.Scope)) *MockKeyService_GetKeyRotationPolicy_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(uuid.UUID), args[2].(model.Scope))
+	})
+	return _c
+}
+
+func (_c *MockKeyService_GetKeyRotationPolicy_Call) Return(_a0 *model.KeyRotationPolicy, _a1 error) *MockKeyService_GetKeyRotationPolicy_Call {
+	_c.Call.Return(_a0, _a1)
+	return _c
+}
+
+func (_c *MockKeyService_GetKeyRotationPolicy_Call) RunAndReturn(run func(context.Context, uuid.UUID, model.Scope) (*model.KeyRotationPolicy, error)) *MockKeyService_GetKeyRotationPolicy_Call {
 	_c.Call.Return(run)
 	return _c
 }
@@ -643,6 +751,67 @@ func (_c *MockKeyService_UpdateKey_Call) Return(_a0 error) *MockKeyService_Updat
 }
 
 func (_c *MockKeyService_UpdateKey_Call) RunAndReturn(run func(context.Context, keys.UpdateKeyRequest) error) *MockKeyService_UpdateKey_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// UpsertKeyRotationPolicy provides a mock function with given fields: ctx, keyID, scope, req
+func (_m *MockKeyService) UpsertKeyRotationPolicy(ctx context.Context, keyID uuid.UUID, scope model.Scope, req model.UpsertKeyRotationPolicyRequest) (*model.KeyRotationPolicy, error) {
+	ret := _m.Called(ctx, keyID, scope, req)
+
+	if len(ret) == 0 {
+		panic("no return value specified for UpsertKeyRotationPolicy")
+	}
+
+	var r0 *model.KeyRotationPolicy
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, uuid.UUID, model.Scope, model.UpsertKeyRotationPolicyRequest) (*model.KeyRotationPolicy, error)); ok {
+		return rf(ctx, keyID, scope, req)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, uuid.UUID, model.Scope, model.UpsertKeyRotationPolicyRequest) *model.KeyRotationPolicy); ok {
+		r0 = rf(ctx, keyID, scope, req)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).(*model.KeyRotationPolicy)
+		}
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context, uuid.UUID, model.Scope, model.UpsertKeyRotationPolicyRequest) error); ok {
+		r1 = rf(ctx, keyID, scope, req)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// MockKeyService_UpsertKeyRotationPolicy_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'UpsertKeyRotationPolicy'
+type MockKeyService_UpsertKeyRotationPolicy_Call struct {
+	*mock.Call
+}
+
+// UpsertKeyRotationPolicy is a helper method to define mock.On call
+//   - ctx context.Context
+//   - keyID uuid.UUID
+//   - scope model.Scope
+//   - req model.UpsertKeyRotationPolicyRequest
+func (_e *MockKeyService_Expecter) UpsertKeyRotationPolicy(ctx interface{}, keyID interface{}, scope interface{}, req interface{}) *MockKeyService_UpsertKeyRotationPolicy_Call {
+	return &MockKeyService_UpsertKeyRotationPolicy_Call{Call: _e.mock.On("UpsertKeyRotationPolicy", ctx, keyID, scope, req)}
+}
+
+func (_c *MockKeyService_UpsertKeyRotationPolicy_Call) Run(run func(ctx context.Context, keyID uuid.UUID, scope model.Scope, req model.UpsertKeyRotationPolicyRequest)) *MockKeyService_UpsertKeyRotationPolicy_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(uuid.UUID), args[2].(model.Scope), args[3].(model.UpsertKeyRotationPolicyRequest))
+	})
+	return _c
+}
+
+func (_c *MockKeyService_UpsertKeyRotationPolicy_Call) Return(_a0 *model.KeyRotationPolicy, _a1 error) *MockKeyService_UpsertKeyRotationPolicy_Call {
+	_c.Call.Return(_a0, _a1)
+	return _c
+}
+
+func (_c *MockKeyService_UpsertKeyRotationPolicy_Call) RunAndReturn(run func(context.Context, uuid.UUID, model.Scope, model.UpsertKeyRotationPolicyRequest) (*model.KeyRotationPolicy, error)) *MockKeyService_UpsertKeyRotationPolicy_Call {
 	_c.Call.Return(run)
 	return _c
 }

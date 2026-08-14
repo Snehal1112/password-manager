@@ -55,6 +55,15 @@ func (m *MockKeyServiceForUpdate) RecoverKey(ctx context.Context, keyID uuid.UUI
 func (m *MockKeyServiceForUpdate) PurgeKey(ctx context.Context, keyID uuid.UUID, scope model.Scope) error {
 	return nil
 }
+func (m *MockKeyServiceForUpdate) GetKeyRotationPolicy(ctx context.Context, keyID uuid.UUID, scope model.Scope) (*model.KeyRotationPolicy, error) {
+	return nil, nil
+}
+func (m *MockKeyServiceForUpdate) UpsertKeyRotationPolicy(ctx context.Context, keyID uuid.UUID, scope model.Scope, req model.UpsertKeyRotationPolicyRequest) (*model.KeyRotationPolicy, error) {
+	return nil, nil
+}
+func (m *MockKeyServiceForUpdate) DeleteKeyRotationPolicy(ctx context.Context, keyID uuid.UUID, scope model.Scope) error {
+	return nil
+}
 
 func TestUpdateKeyCommand_CallsServiceUpdate(t *testing.T) {
 	tc := testutils.NewTestContext(t)

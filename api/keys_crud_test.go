@@ -129,6 +129,26 @@ func (m *mockKeyService) PurgeKey(ctx context.Context, keyID uuid.UUID, scope mo
 	return m.Called(ctx, keyID, scope).Error(0)
 }
 
+func (m *mockKeyService) GetKeyRotationPolicy(ctx context.Context, keyID uuid.UUID, scope model.Scope) (*model.KeyRotationPolicy, error) {
+	args := m.Called(ctx, keyID, scope)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).(*model.KeyRotationPolicy), args.Error(1)
+}
+
+func (m *mockKeyService) UpsertKeyRotationPolicy(ctx context.Context, keyID uuid.UUID, scope model.Scope, req model.UpsertKeyRotationPolicyRequest) (*model.KeyRotationPolicy, error) {
+	args := m.Called(ctx, keyID, scope, req)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).(*model.KeyRotationPolicy), args.Error(1)
+}
+
+func (m *mockKeyService) DeleteKeyRotationPolicy(ctx context.Context, keyID uuid.UUID, scope model.Scope) error {
+	return m.Called(ctx, keyID, scope).Error(0)
+}
+
 // --- keySvcTestContainer ---
 
 type keySvcTestContainer struct {

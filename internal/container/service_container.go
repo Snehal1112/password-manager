@@ -543,10 +543,11 @@ func (c *ServiceContainer) initializeServices() error {
 
 	// Initialize key service with cache for invalidation on mutations.
 	c.keyService = keyServices.NewKeyService(keyServices.KeyServiceConfig{
-		KeyRepository: c.keyRepository,
-		KeyProvider:   c.keyProvider,
-		KeyCache:      c.keyCache,
-		Logger:        c.logger,
+		KeyRepository:    c.keyRepository,
+		KeyProvider:      c.keyProvider,
+		KeyCache:         c.keyCache,
+		PolicyRepository: c.keyRotationPolicyRepository,
+		Logger:           c.logger,
 	})
 
 	// Initialize crypto service with cache and Prometheus metrics.
