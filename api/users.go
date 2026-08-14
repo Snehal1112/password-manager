@@ -532,12 +532,11 @@ func listUserSessions(c *Context, w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Use service container for session listing.
-	sessionRepo := c.sessionRepo()
-	if sessionRepo == nil {
+	authSvc := c.authSvc()
+	if authSvc == nil {
 		return
 	}
-	sessions, err := sessionRepo.GetActiveSessionsByUserID(r.Context(), userID)
+	sessions, err := authSvc.ListActiveSessions(r.Context(), userID)
 	if err != nil {
 		c.SetInternalError(err)
 		return

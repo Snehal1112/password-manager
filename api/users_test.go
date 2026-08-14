@@ -168,68 +168,6 @@ func (m *mockAuthService) ListActiveSessions(ctx context.Context, userID uuid.UU
 	return args.Get(0).([]*model.Session), args.Error(1)
 }
 
-// --- mock SessionRepository ---
-
-type mockSessionRepo struct {
-	mock.Mock
-}
-
-func (m *mockSessionRepo) CreateSession(ctx context.Context, session *model.Session) error {
-	args := m.Called(ctx, session)
-	return args.Error(0)
-}
-
-func (m *mockSessionRepo) GetSessionByID(ctx context.Context, sessionID uuid.UUID) (*model.Session, error) {
-	args := m.Called(ctx, sessionID)
-	if args.Get(0) == nil {
-		return nil, args.Error(1)
-	}
-	return args.Get(0).(*model.Session), args.Error(1)
-}
-
-func (m *mockSessionRepo) GetSessionByRefreshToken(ctx context.Context, refreshTokenHash string) (*model.Session, error) {
-	args := m.Called(ctx, refreshTokenHash)
-	if args.Get(0) == nil {
-		return nil, args.Error(1)
-	}
-	return args.Get(0).(*model.Session), args.Error(1)
-}
-
-func (m *mockSessionRepo) GetActiveSessionsByUserID(ctx context.Context, userID uuid.UUID) ([]*model.Session, error) {
-	args := m.Called(ctx, userID)
-	return args.Get(0).([]*model.Session), args.Error(1)
-}
-
-func (m *mockSessionRepo) UpdateSessionLastUsed(ctx context.Context, sessionID uuid.UUID, lastUsedAt time.Time) error {
-	args := m.Called(ctx, sessionID, lastUsedAt)
-	return args.Error(0)
-}
-
-func (m *mockSessionRepo) RevokeSession(ctx context.Context, sessionID uuid.UUID, reason string) error {
-	args := m.Called(ctx, sessionID, reason)
-	return args.Error(0)
-}
-
-func (m *mockSessionRepo) RevokeAllUserSessions(ctx context.Context, userID uuid.UUID, reason string) error {
-	args := m.Called(ctx, userID, reason)
-	return args.Error(0)
-}
-
-func (m *mockSessionRepo) DeleteExpiredSessions(ctx context.Context, before time.Time) (int64, error) {
-	args := m.Called(ctx, before)
-	return args.Get(0).(int64), args.Error(1)
-}
-
-func (m *mockSessionRepo) CountActiveSessions(ctx context.Context, userID uuid.UUID) (int, error) {
-	args := m.Called(ctx, userID)
-	return args.Int(0), args.Error(1)
-}
-
-func (m *mockSessionRepo) IsSessionRevoked(ctx context.Context, sessionID uuid.UUID) (bool, error) {
-	args := m.Called(ctx, sessionID)
-	return args.Bool(0), args.Error(1)
-}
-
 // --- userSvcContainer: a container that provides UserService and AuthService ---
 
 // userSvcContainer is a minimal container stub for user handler tests.
@@ -237,7 +175,6 @@ func (m *mockSessionRepo) IsSessionRevoked(ctx context.Context, sessionID uuid.U
 type userSvcContainer struct {
 	userSvc userServices.UserService
 	authSvc authServices.AuthenticationService
-	sesRepo repositories.SessionRepositoryInterface
 }
 
 func (c *userSvcContainer) GetUserService() userServices.UserService { return c.userSvc }
@@ -248,7 +185,7 @@ func (c *userSvcContainer) GetOIDCService() authServices.OIDCService {
 	panic("unexpected call: GetOIDCService")
 }
 func (c *userSvcContainer) GetSessionRepository() repositories.SessionRepositoryInterface {
-	return c.sesRepo
+	panic("unexpected call: GetSessionRepository")
 }
 func (c *userSvcContainer) GetVaultRepository() repositories.VaultRepositoryInterface {
 	panic("unexpected call: GetVaultRepository")
@@ -377,9 +314,9 @@ func (c *userSvcContainer) Close() error { return nil }
 // --- helpers ---
 
 // newUserCtx builds a Context with the given claims wired to a userSvcContainer.
-func newUserCtx(userSvc userServices.UserService, authSvc authServices.AuthenticationService, sesRepo repositories.SessionRepositoryInterface, claims RequestClaims) *Context {
+func newUserCtx(userSvc userServices.UserService, authSvc authServices.AuthenticationService, claims RequestClaims) *Context {
 	a := &app.App{
-		ServiceContainer: &userSvcContainer{userSvc: userSvc, authSvc: authSvc, sesRepo: sesRepo},
+		ServiceContainer: &userSvcContainer{userSvc: userSvc, authSvc: authSvc},
 		Logger:           userTestLog(),
 	}
 	return &Context{
@@ -417,7 +354,7 @@ func encodeBody(v any) *bytes.Reader {
 // ============================================================
 
 func TestCreateUser_NonAdmin_Returns403(t *testing.T) {
-	c := newUserCtx(nil, nil, nil, uViewerClaims("aaa"))
+	c := newUserCtx(nil, nil, uViewerClaims("aaa"))
 	w := httptest.NewRecorder()
 	r := httptest.NewRequest(http.MethodPost, "/users", encodeBody(map[string]string{
 		"username": "bob", "password": "password123", "role": model.RoleUser,
@@ -432,7 +369,7 @@ func TestCreateUser_NonAdmin_Returns403(t *testing.T) {
 }
 
 func TestCreateUser_InvalidUsername_Returns400(t *testing.T) {
-	c := newUserCtx(nil, nil, nil, uAdminClaims("aaa"))
+	c := newUserCtx(nil, nil, uAdminClaims("aaa"))
 	w := httptest.NewRecorder()
 	// Username shorter than 3 chars.
 	r := httptest.NewRequest(http.MethodPost, "/users", encodeBody(map[string]string{
@@ -448,7 +385,7 @@ func TestCreateUser_InvalidUsername_Returns400(t *testing.T) {
 }
 
 func TestCreateUser_InvalidPassword_Returns400(t *testing.T) {
-	c := newUserCtx(nil, nil, nil, uAdminClaims("aaa"))
+	c := newUserCtx(nil, nil, uAdminClaims("aaa"))
 	w := httptest.NewRecorder()
 	// Password shorter than 8 chars.
 	r := httptest.NewRequest(http.MethodPost, "/users", encodeBody(map[string]string{
@@ -464,7 +401,7 @@ func TestCreateUser_InvalidPassword_Returns400(t *testing.T) {
 }
 
 func TestCreateUser_InvalidRole_Returns400(t *testing.T) {
-	c := newUserCtx(nil, nil, nil, uAdminClaims("aaa"))
+	c := newUserCtx(nil, nil, uAdminClaims("aaa"))
 	w := httptest.NewRecorder()
 	r := httptest.NewRequest(http.MethodPost, "/users", encodeBody(map[string]string{
 		"username": "validuser", "password": "password123", "role": "superadmin",
@@ -503,7 +440,7 @@ func TestCreateUser_ServiceError_Returns500(t *testing.T) {
 	svc := &mockUserService{}
 	svc.On("CreateUser", mock.Anything, mock.Anything).Return(nil, errors.New("db error"))
 
-	c := newUserCtx(svc, nil, nil, uAdminClaims("aaa"))
+	c := newUserCtx(svc, nil, uAdminClaims("aaa"))
 	w := httptest.NewRecorder()
 	r := httptest.NewRequest(http.MethodPost, "/users", encodeBody(map[string]string{
 		"username": "newuser", "password": "password123", "role": model.RoleUser,
@@ -528,7 +465,7 @@ func TestCreateUser_Success_Returns201(t *testing.T) {
 		CreatedAt:  time.Now(),
 	}, nil)
 
-	c := newUserCtx(svc, nil, nil, uAdminClaims("aaa"))
+	c := newUserCtx(svc, nil, uAdminClaims("aaa"))
 	w := httptest.NewRecorder()
 	r := httptest.NewRequest(http.MethodPost, "/users", encodeBody(map[string]string{
 		"username": "newuser", "password": "password123", "role": model.RoleUser,
@@ -548,7 +485,7 @@ func TestCreateUser_Success_Returns201(t *testing.T) {
 // ============================================================
 
 func TestListUsers_NonAdmin_Returns403(t *testing.T) {
-	c := newUserCtx(nil, nil, nil, uViewerClaims("aaa"))
+	c := newUserCtx(nil, nil, uViewerClaims("aaa"))
 	w := httptest.NewRecorder()
 	r := httptest.NewRequest(http.MethodGet, "/users", nil)
 
@@ -582,7 +519,7 @@ func TestListUsers_ServiceError_Returns500(t *testing.T) {
 	svc := &mockUserService{}
 	svc.On("ListUsers", mock.Anything).Return([]model.User{}, errors.New("db error"))
 
-	c := newUserCtx(svc, nil, nil, uAdminClaims("aaa"))
+	c := newUserCtx(svc, nil, uAdminClaims("aaa"))
 	w := httptest.NewRecorder()
 	r := httptest.NewRequest(http.MethodGet, "/users", nil)
 
@@ -603,7 +540,7 @@ func TestListUsers_Success_Returns200(t *testing.T) {
 	}
 	svc.On("ListUsers", mock.Anything).Return(users, nil)
 
-	c := newUserCtx(svc, nil, nil, uAdminClaims("aaa"))
+	c := newUserCtx(svc, nil, uAdminClaims("aaa"))
 	w := httptest.NewRecorder()
 	r := httptest.NewRequest(http.MethodGet, "/users", nil)
 
@@ -626,7 +563,7 @@ func TestListUsers_PaginationBeyondEnd_Returns200EmptyPage(t *testing.T) {
 	}
 	svc.On("ListUsers", mock.Anything).Return(users, nil)
 
-	c := newUserCtx(svc, nil, nil, uAdminClaims("aaa"))
+	c := newUserCtx(svc, nil, uAdminClaims("aaa"))
 	// Request page 10 when only 1 user exists — offset will exceed total.
 	c.Params = &ApiParams{Page: 10, PerPage: 60}
 	w := httptest.NewRecorder()
@@ -650,7 +587,7 @@ func TestListUsers_PaginationBeyondEnd_Returns200EmptyPage(t *testing.T) {
 // ============================================================
 
 func TestGetUser_InvalidUserID_Returns400(t *testing.T) {
-	c := newUserCtx(nil, nil, nil, uAdminClaims("aaa"))
+	c := newUserCtx(nil, nil, uAdminClaims("aaa"))
 	c.Params = &ApiParams{UserID: "not-a-uuid", PerPage: 60}
 	w := httptest.NewRecorder()
 	r := httptest.NewRequest(http.MethodGet, "/users/not-a-uuid", nil)
@@ -665,7 +602,7 @@ func TestGetUser_InvalidUserID_Returns400(t *testing.T) {
 
 func TestGetUser_NonAdminAccessingOtherUser_Returns403(t *testing.T) {
 	targetID := uuid.New()
-	c := newUserCtx(nil, nil, nil, uViewerClaims("different-id"))
+	c := newUserCtx(nil, nil, uViewerClaims("different-id"))
 	c.Params = &ApiParams{UserID: targetID.String(), PerPage: 60}
 	w := httptest.NewRecorder()
 	r := httptest.NewRequest(http.MethodGet, "/users/"+targetID.String(), nil)
@@ -683,7 +620,7 @@ func TestGetUser_NotFound_Returns404(t *testing.T) {
 	targetID := uuid.New()
 	svc.On("GetUser", mock.Anything, targetID).Return(nil, errors.New("not found"))
 
-	c := newUserCtx(svc, nil, nil, uAdminClaims("aaa"))
+	c := newUserCtx(svc, nil, uAdminClaims("aaa"))
 	c.Params = &ApiParams{UserID: targetID.String(), PerPage: 60}
 	w := httptest.NewRecorder()
 	r := httptest.NewRequest(http.MethodGet, "/users/"+targetID.String(), nil)
@@ -704,7 +641,7 @@ func TestGetUser_Success_Returns200(t *testing.T) {
 		ID: targetID, Username: "alice", Role: model.RoleAdmin, CreatedAt: time.Now(),
 	}, nil)
 
-	c := newUserCtx(svc, nil, nil, uAdminClaims("aaa"))
+	c := newUserCtx(svc, nil, uAdminClaims("aaa"))
 	c.Params = &ApiParams{UserID: targetID.String(), PerPage: 60}
 	w := httptest.NewRecorder()
 	r := httptest.NewRequest(http.MethodGet, "/users/"+targetID.String(), nil)
@@ -723,7 +660,7 @@ func TestGetUser_Success_Returns200(t *testing.T) {
 // ============================================================
 
 func TestUpdateUser_InvalidUserID_Returns400(t *testing.T) {
-	c := newUserCtx(nil, nil, nil, uAdminClaims("aaa"))
+	c := newUserCtx(nil, nil, uAdminClaims("aaa"))
 	c.Params = &ApiParams{UserID: "bad", PerPage: 60}
 	w := httptest.NewRecorder()
 	r := httptest.NewRequest(http.MethodPut, "/users/bad", encodeBody(map[string]string{"username": "newname"}))
@@ -738,7 +675,7 @@ func TestUpdateUser_InvalidUserID_Returns400(t *testing.T) {
 
 func TestUpdateUser_ShortUsername_Returns400(t *testing.T) {
 	targetID := uuid.New()
-	c := newUserCtx(nil, nil, nil, uAdminClaims("aaa"))
+	c := newUserCtx(nil, nil, uAdminClaims("aaa"))
 	c.Params = &ApiParams{UserID: targetID.String(), PerPage: 60}
 	w := httptest.NewRecorder()
 	// Only 2 chars — below the 3-char minimum.
@@ -754,7 +691,7 @@ func TestUpdateUser_ShortUsername_Returns400(t *testing.T) {
 
 func TestUpdateUser_ShortPassword_Returns400(t *testing.T) {
 	targetID := uuid.New()
-	c := newUserCtx(nil, nil, nil, uAdminClaims("aaa"))
+	c := newUserCtx(nil, nil, uAdminClaims("aaa"))
 	c.Params = &ApiParams{UserID: targetID.String(), PerPage: 60}
 	w := httptest.NewRecorder()
 	r := httptest.NewRequest(http.MethodPut, "/users/"+targetID.String(), encodeBody(map[string]string{"password": "short"}))
@@ -770,7 +707,7 @@ func TestUpdateUser_ShortPassword_Returns400(t *testing.T) {
 func TestUpdateUser_NonAdminChangingRole_Returns403(t *testing.T) {
 	targetID := uuid.New()
 	// Non-admin targeting their own account but trying to change role.
-	c := newUserCtx(nil, nil, nil, uViewerClaims(targetID.String()))
+	c := newUserCtx(nil, nil, uViewerClaims(targetID.String()))
 	c.Params = &ApiParams{UserID: targetID.String(), PerPage: 60}
 	w := httptest.NewRecorder()
 	r := httptest.NewRequest(http.MethodPut, "/users/"+targetID.String(), encodeBody(map[string]string{"role": model.RoleAdmin}))
@@ -786,7 +723,7 @@ func TestUpdateUser_NonAdminChangingRole_Returns403(t *testing.T) {
 func TestUpdateUser_NonAdminUpdatingOtherUser_Returns403(t *testing.T) {
 	targetID := uuid.New()
 	// Non-admin targeting a different user's account.
-	c := newUserCtx(nil, nil, nil, uViewerClaims("different-caller-id"))
+	c := newUserCtx(nil, nil, uViewerClaims("different-caller-id"))
 	c.Params = &ApiParams{UserID: targetID.String(), PerPage: 60}
 	w := httptest.NewRecorder()
 	r := httptest.NewRequest(http.MethodPut, "/users/"+targetID.String(), encodeBody(map[string]string{"username": "newname"}))
@@ -804,7 +741,7 @@ func TestUpdateUser_ServiceError_Returns500(t *testing.T) {
 	targetID := uuid.New()
 	svc.On("UpdateUser", mock.Anything, mock.Anything).Return(errors.New("db error"))
 
-	c := newUserCtx(svc, nil, nil, uAdminClaims("aaa"))
+	c := newUserCtx(svc, nil, uAdminClaims("aaa"))
 	c.Params = &ApiParams{UserID: targetID.String(), PerPage: 60}
 	w := httptest.NewRecorder()
 	r := httptest.NewRequest(http.MethodPut, "/users/"+targetID.String(), encodeBody(map[string]string{"username": "newname"}))
@@ -826,7 +763,7 @@ func TestUpdateUser_Success_Returns200(t *testing.T) {
 		ID: targetID, Username: "newname", Role: model.RoleAdmin, CreatedAt: time.Now(),
 	}, nil)
 
-	c := newUserCtx(svc, nil, nil, uAdminClaims("aaa"))
+	c := newUserCtx(svc, nil, uAdminClaims("aaa"))
 	c.Params = &ApiParams{UserID: targetID.String(), PerPage: 60}
 	w := httptest.NewRecorder()
 	r := httptest.NewRequest(http.MethodPut, "/users/"+targetID.String(), encodeBody(map[string]string{"username": "newname"}))
@@ -845,7 +782,7 @@ func TestUpdateUser_Success_Returns200(t *testing.T) {
 // ============================================================
 
 func TestDeleteUser_NonAdmin_Returns403(t *testing.T) {
-	c := newUserCtx(nil, nil, nil, uViewerClaims("aaa"))
+	c := newUserCtx(nil, nil, uViewerClaims("aaa"))
 	c.Params = &ApiParams{UserID: uuid.New().String(), PerPage: 60}
 	w := httptest.NewRecorder()
 	r := httptest.NewRequest(http.MethodDelete, "/users/"+uuid.New().String(), nil)
@@ -859,7 +796,7 @@ func TestDeleteUser_NonAdmin_Returns403(t *testing.T) {
 }
 
 func TestDeleteUser_InvalidUserID_Returns400(t *testing.T) {
-	c := newUserCtx(nil, nil, nil, uAdminClaims("aaa"))
+	c := newUserCtx(nil, nil, uAdminClaims("aaa"))
 	c.Params = &ApiParams{UserID: "not-a-uuid", PerPage: 60}
 	w := httptest.NewRecorder()
 	r := httptest.NewRequest(http.MethodDelete, "/users/not-a-uuid", nil)
@@ -874,7 +811,7 @@ func TestDeleteUser_InvalidUserID_Returns400(t *testing.T) {
 
 func TestDeleteUser_SelfDeletion_Returns400(t *testing.T) {
 	selfID := uuid.New().String()
-	c := newUserCtx(nil, nil, nil, uAdminClaims(selfID))
+	c := newUserCtx(nil, nil, uAdminClaims(selfID))
 	c.Params = &ApiParams{UserID: selfID, PerPage: 60}
 	w := httptest.NewRecorder()
 	r := httptest.NewRequest(http.MethodDelete, "/users/"+selfID, nil)
@@ -892,7 +829,7 @@ func TestDeleteUser_UserNotFound_Returns404(t *testing.T) {
 	targetID := uuid.New()
 	svc.On("GetUser", mock.Anything, targetID).Return(nil, errors.New("not found"))
 
-	c := newUserCtx(svc, nil, nil, uAdminClaims("aaa"))
+	c := newUserCtx(svc, nil, uAdminClaims("aaa"))
 	c.Params = &ApiParams{UserID: targetID.String(), PerPage: 60}
 	w := httptest.NewRecorder()
 	r := httptest.NewRequest(http.MethodDelete, "/users/"+targetID.String(), nil)
@@ -914,7 +851,7 @@ func TestDeleteUser_DeleteError_Returns500(t *testing.T) {
 	}, nil)
 	svc.On("DeleteUser", mock.Anything, targetID).Return(errors.New("db error"))
 
-	c := newUserCtx(svc, nil, nil, uAdminClaims("aaa"))
+	c := newUserCtx(svc, nil, uAdminClaims("aaa"))
 	c.Params = &ApiParams{UserID: targetID.String(), PerPage: 60}
 	w := httptest.NewRecorder()
 	r := httptest.NewRequest(http.MethodDelete, "/users/"+targetID.String(), nil)
@@ -936,7 +873,7 @@ func TestDeleteUser_Success_Returns200(t *testing.T) {
 	}, nil)
 	svc.On("DeleteUser", mock.Anything, targetID).Return(nil)
 
-	c := newUserCtx(svc, nil, nil, uAdminClaims("aaa"))
+	c := newUserCtx(svc, nil, uAdminClaims("aaa"))
 	c.Params = &ApiParams{UserID: targetID.String(), PerPage: 60}
 	w := httptest.NewRecorder()
 	r := httptest.NewRequest(http.MethodDelete, "/users/"+targetID.String(), nil)
@@ -955,7 +892,7 @@ func TestDeleteUser_Success_Returns200(t *testing.T) {
 // ============================================================
 
 func TestLoginUser_MissingFields_Returns400(t *testing.T) {
-	c := newUserCtx(nil, nil, nil, RequestClaims{})
+	c := newUserCtx(nil, nil, RequestClaims{})
 	w := httptest.NewRecorder()
 	// Missing totp_code field.
 	r := httptest.NewRequest(http.MethodPost, "/users/login", encodeBody(map[string]string{
@@ -975,7 +912,7 @@ func TestLoginUser_AuthFailure_Returns403(t *testing.T) {
 	authSvc.On("AuthenticateUser", mock.Anything, "alice", "wrong", "123456").
 		Return(nil, errors.New("invalid credentials"))
 
-	c := newUserCtx(nil, authSvc, nil, RequestClaims{})
+	c := newUserCtx(nil, authSvc, RequestClaims{})
 	w := httptest.NewRecorder()
 	r := httptest.NewRequest(http.MethodPost, "/users/login", encodeBody(map[string]string{
 		"username": "alice", "password": "wrong", "totp_code": "123456",
@@ -1001,7 +938,7 @@ func TestLoginUser_Success_Returns200(t *testing.T) {
 			Role:         model.RoleAdmin,
 		}, nil)
 
-	c := newUserCtx(nil, authSvc, nil, RequestClaims{})
+	c := newUserCtx(nil, authSvc, RequestClaims{})
 	w := httptest.NewRecorder()
 	r := httptest.NewRequest(http.MethodPost, "/users/login", encodeBody(map[string]string{
 		"username": "alice", "password": "goodpass", "totp_code": "123456",
@@ -1024,7 +961,7 @@ func TestLoginUser_Success_Returns200(t *testing.T) {
 // ============================================================
 
 func TestRefreshToken_MissingToken_Returns400(t *testing.T) {
-	c := newUserCtx(nil, nil, nil, RequestClaims{})
+	c := newUserCtx(nil, nil, RequestClaims{})
 	w := httptest.NewRecorder()
 	// refresh_token is empty string.
 	r := httptest.NewRequest(http.MethodPost, "/users/refresh", encodeBody(map[string]string{}))
@@ -1042,7 +979,7 @@ func TestRefreshToken_RefreshFailure_Returns403(t *testing.T) {
 	authSvc.On("RefreshAccessToken", mock.Anything, "badtoken").
 		Return(nil, errors.New("token invalid"))
 
-	c := newUserCtx(nil, authSvc, nil, RequestClaims{})
+	c := newUserCtx(nil, authSvc, RequestClaims{})
 	w := httptest.NewRecorder()
 	r := httptest.NewRequest(http.MethodPost, "/users/refresh", encodeBody(map[string]string{
 		"refresh_token": "badtoken",
@@ -1069,7 +1006,7 @@ func TestRefreshToken_Success_Returns200(t *testing.T) {
 			ExpiresAt:    time.Now().Add(time.Hour),
 		}, nil)
 
-	c := newUserCtx(nil, authSvc, nil, RequestClaims{})
+	c := newUserCtx(nil, authSvc, RequestClaims{})
 	w := httptest.NewRecorder()
 	r := httptest.NewRequest(http.MethodPost, "/users/refresh", encodeBody(map[string]string{
 		"refresh_token": "validtoken",
@@ -1091,7 +1028,7 @@ func TestRefreshToken_Success_Returns200(t *testing.T) {
 func TestListUserSessions_MissingUserIDInClaims_Returns400(t *testing.T) {
 	// A zero-value RequestClaims has UserID == "", which fails uuid.Parse the
 	// same way an invalid UUID does — there is no separate "missing" state.
-	c := newUserCtx(nil, nil, nil, RequestClaims{})
+	c := newUserCtx(nil, nil, RequestClaims{})
 	w := httptest.NewRecorder()
 	r := httptest.NewRequest(http.MethodGet, "/users/sessions", nil)
 
@@ -1104,7 +1041,7 @@ func TestListUserSessions_MissingUserIDInClaims_Returns400(t *testing.T) {
 }
 
 func TestListUserSessions_InvalidUUIDInClaims_Returns400(t *testing.T) {
-	c := newUserCtx(nil, nil, nil, RequestClaims{UserID: "not-a-uuid"})
+	c := newUserCtx(nil, nil, RequestClaims{UserID: "not-a-uuid"})
 	w := httptest.NewRecorder()
 	r := httptest.NewRequest(http.MethodGet, "/users/sessions", nil)
 
@@ -1117,11 +1054,11 @@ func TestListUserSessions_InvalidUUIDInClaims_Returns400(t *testing.T) {
 }
 
 func TestListUserSessions_Success_Returns200(t *testing.T) {
-	sesRepo := &mockSessionRepo{}
+	authSvc := &mockAuthService{}
 	userID := uuid.New()
-	sesRepo.On("GetActiveSessionsByUserID", mock.Anything, userID).Return([]*model.Session{}, nil)
+	authSvc.On("ListActiveSessions", mock.Anything, userID).Return([]*model.Session{}, nil)
 
-	c := newUserCtx(nil, nil, sesRepo, RequestClaims{UserID: userID.String()})
+	c := newUserCtx(nil, authSvc, RequestClaims{UserID: userID.String()})
 	w := httptest.NewRecorder()
 	r := httptest.NewRequest(http.MethodGet, "/users/sessions", nil)
 
@@ -1131,7 +1068,7 @@ func TestListUserSessions_Success_Returns200(t *testing.T) {
 	}
 
 	assert.Equal(t, http.StatusOK, w.Code)
-	sesRepo.AssertExpectations(t)
+	authSvc.AssertExpectations(t)
 }
 
 // ============================================================
@@ -1143,7 +1080,7 @@ func TestRevokeSession_Success_Returns200(t *testing.T) {
 	sessionID := uuid.New().String()
 	authSvc.On("RevokeSession", mock.Anything, sessionID, "User requested revocation").Return(nil)
 
-	c := newUserCtx(nil, authSvc, nil, RequestClaims{UserID: "aaa"})
+	c := newUserCtx(nil, authSvc, RequestClaims{UserID: "aaa"})
 	c.Params = &ApiParams{SessionID: sessionID, PerPage: 60}
 	w := httptest.NewRecorder()
 	r := httptest.NewRequest(http.MethodDelete, "/users/sessions/"+sessionID, nil)
@@ -1163,7 +1100,7 @@ func TestRevokeSession_Error_Returns500(t *testing.T) {
 	authSvc.On("RevokeSession", mock.Anything, sessionID, "User requested revocation").
 		Return(errors.New("db error"))
 
-	c := newUserCtx(nil, authSvc, nil, RequestClaims{UserID: "aaa"})
+	c := newUserCtx(nil, authSvc, RequestClaims{UserID: "aaa"})
 	c.Params = &ApiParams{SessionID: sessionID, PerPage: 60}
 	w := httptest.NewRecorder()
 	r := httptest.NewRequest(http.MethodDelete, "/users/sessions/"+sessionID, nil)
@@ -1184,7 +1121,7 @@ func TestRevokeSession_Error_Returns500(t *testing.T) {
 func TestRevokeAllSessions_MissingUserID_Returns400(t *testing.T) {
 	// A zero-value RequestClaims has UserID == "", which fails uuid.Parse the
 	// same way an invalid UUID does — there is no separate "missing" state.
-	c := newUserCtx(nil, nil, nil, RequestClaims{})
+	c := newUserCtx(nil, nil, RequestClaims{})
 	w := httptest.NewRecorder()
 	r := httptest.NewRequest(http.MethodDelete, "/users/sessions", nil)
 
@@ -1202,7 +1139,7 @@ func TestRevokeAllSessions_RevokeError_Returns500(t *testing.T) {
 	authSvc.On("RevokeAllUserSessions", mock.Anything, userID, "User requested revocation of all sessions").
 		Return(errors.New("db error"))
 
-	c := newUserCtx(nil, authSvc, nil, RequestClaims{UserID: userID.String()})
+	c := newUserCtx(nil, authSvc, RequestClaims{UserID: userID.String()})
 	w := httptest.NewRecorder()
 	r := httptest.NewRequest(http.MethodDelete, "/users/sessions", nil)
 
@@ -1221,7 +1158,7 @@ func TestRevokeAllSessions_Success_Returns200(t *testing.T) {
 	authSvc.On("RevokeAllUserSessions", mock.Anything, userID, "User requested revocation of all sessions").
 		Return(nil)
 
-	c := newUserCtx(nil, authSvc, nil, RequestClaims{UserID: userID.String()})
+	c := newUserCtx(nil, authSvc, RequestClaims{UserID: userID.String()})
 	w := httptest.NewRecorder()
 	r := httptest.NewRequest(http.MethodDelete, "/users/sessions", nil)
 
