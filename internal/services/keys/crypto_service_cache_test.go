@@ -19,6 +19,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"rocketvault/common"
+	"rocketvault/internal/cachekit"
 	"rocketvault/internal/crypto"
 	"rocketvault/internal/keycache"
 	"rocketvault/internal/logging"
@@ -425,13 +426,13 @@ func TestCacheHit_TTLExpiry(t *testing.T) {
 	repo.On("Read", mock.Anything, keyID, model.NewOwnerScope(uuid.Nil, userID)).Return(vaultKey, nil)
 
 	// Use a very short TTL so entries expire quickly.
-	shortTTLConfig := &keycache.KeyCacheConfig{
+	shortTTLConfig := &cachekit.Config{
 		Enabled:         true,
 		TTL:             10 * time.Millisecond,
 		MaxEntries:      500,
 		CleanupInterval: 5 * time.Millisecond,
 	}
-	cache := keycache.NewMemoryCache(shortTTLConfig)
+	cache := keycache.NewCache(*shortTTLConfig)
 	t.Cleanup(cache.Stop)
 
 	svc := keys.NewCryptoService(keys.CryptoServiceConfig{

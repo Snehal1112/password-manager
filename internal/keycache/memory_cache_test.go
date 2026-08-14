@@ -8,8 +8,36 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"rocketvault/internal/cachekit"
 	"rocketvault/internal/keycache"
 )
+
+func TestNewCache_GetSetInvalidate(t *testing.T) {
+	cfg := cachekit.Config{Enabled: true, TTL: 5 * time.Minute, CleanupInterval: time.Minute, MaxEntries: 100}
+	c := keycache.NewCache(cfg)
+	defer c.Stop()
+
+	id := uuid.New()
+	entry := &keycache.Entry{KeyType: "RSA", Version: 1, ExpiresAt: time.Now().Add(5 * time.Minute)}
+
+	_, hit := c.Get(id, 1)
+	assert.False(t, hit)
+
+	c.Set(id, 1, entry)
+	got, hit := c.Get(id, 1)
+	require.True(t, hit)
+	assert.Equal(t, "RSA", got.KeyType)
+
+	_, hit = c.Get(id, 2)
+	assert.False(t, hit, "different version is a miss")
+
+	c.Set(id, 2, &keycache.Entry{KeyType: "RSA", Version: 2, ExpiresAt: time.Now().Add(time.Minute)})
+	c.Invalidate(id)
+	_, hit = c.Get(id, 1)
+	assert.False(t, hit, "invalidate must remove all versions")
+	_, hit = c.Get(id, 2)
+	assert.False(t, hit)
+}
 
 func TestNopCache_NeverHits(t *testing.T) {
 	c := keycache.NewNopCache()
@@ -31,13 +59,8 @@ func TestNopCache_NeverHits(t *testing.T) {
 }
 
 func TestMemoryCache_GetSetInvalidate(t *testing.T) {
-	cfg := &keycache.KeyCacheConfig{
-		Enabled:         true,
-		TTL:             5 * time.Minute,
-		MaxEntries:      100,
-		CleanupInterval: time.Minute,
-	}
-	c := keycache.NewMemoryCache(cfg)
+	cfg := cachekit.Config{Enabled: true, TTL: 5 * time.Minute, CleanupInterval: time.Minute, MaxEntries: 100}
+	c := keycache.NewCache(cfg)
 	defer c.Stop()
 
 	id := uuid.New()
@@ -67,13 +90,8 @@ func TestMemoryCache_GetSetInvalidate(t *testing.T) {
 }
 
 func TestMemoryCache_TTLExpiry(t *testing.T) {
-	cfg := &keycache.KeyCacheConfig{
-		Enabled:         true,
-		TTL:             50 * time.Millisecond,
-		MaxEntries:      100,
-		CleanupInterval: 10 * time.Millisecond,
-	}
-	c := keycache.NewMemoryCache(cfg)
+	cfg := cachekit.Config{Enabled: true, TTL: 50 * time.Millisecond, CleanupInterval: 10 * time.Millisecond, MaxEntries: 100}
+	c := keycache.NewCache(cfg)
 	defer c.Stop()
 
 	id := uuid.New()
@@ -89,13 +107,8 @@ func TestMemoryCache_TTLExpiry(t *testing.T) {
 }
 
 func TestMemoryCache_Stats(t *testing.T) {
-	cfg := &keycache.KeyCacheConfig{
-		Enabled:         true,
-		TTL:             5 * time.Minute,
-		MaxEntries:      100,
-		CleanupInterval: time.Minute,
-	}
-	c := keycache.NewMemoryCache(cfg)
+	cfg := cachekit.Config{Enabled: true, TTL: 5 * time.Minute, CleanupInterval: time.Minute, MaxEntries: 100}
+	c := keycache.NewCache(cfg)
 	defer c.Stop()
 
 	id1, id2 := uuid.New(), uuid.New()
@@ -107,13 +120,8 @@ func TestMemoryCache_Stats(t *testing.T) {
 }
 
 func TestMemoryCache_ConcurrentAccess(t *testing.T) {
-	cfg := &keycache.KeyCacheConfig{
-		Enabled:         true,
-		TTL:             5 * time.Minute,
-		MaxEntries:      1000,
-		CleanupInterval: time.Minute,
-	}
-	c := keycache.NewMemoryCache(cfg)
+	cfg := cachekit.Config{Enabled: true, TTL: 5 * time.Minute, CleanupInterval: time.Minute, MaxEntries: 1000}
+	c := keycache.NewCache(cfg)
 	defer c.Stop()
 
 	ids := make([]uuid.UUID, 50)

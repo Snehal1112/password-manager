@@ -8,28 +8,38 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"rocketvault/internal/cachekit"
 	"rocketvault/internal/keycache"
 )
 
-// TestDefaultKeyCacheConfig checks that the defaults are sane.
-func TestDefaultKeyCacheConfig(t *testing.T) {
-	cfg := keycache.DefaultKeyCacheConfig()
-	require.NotNil(t, cfg)
-	assert.True(t, cfg.Enabled)
-	assert.Equal(t, 60*time.Second, cfg.TTL)
-	assert.Equal(t, 500, cfg.MaxEntries)
-	assert.Equal(t, 30*time.Second, cfg.CleanupInterval)
+func TestEntry_Clone_IndependentCopy(t *testing.T) {
+	e := &keycache.Entry{
+		PrivateKey: keycache.PEMKey{PEM: "original"},
+		KeyType:    "RSA",
+		Version:    1,
+		ExpiresAt:  time.Now().Add(time.Minute),
+	}
+	clone := e.Clone()
+
+	clone.KeyType = "ECDSA"
+	assert.Equal(t, "RSA", e.KeyType, "mutating the clone must not affect the original")
+	assert.Equal(t, keycache.PEMKey{PEM: "original"}, clone.PrivateKey)
+}
+
+func TestEntry_Zero_ClearsKeyMaterial(t *testing.T) {
+	e := &keycache.Entry{
+		PrivateKey: keycache.PEMKey{PEM: "secret"},
+		PublicKey:  keycache.PEMKey{PEM: "public"},
+	}
+	e.Zero()
+	assert.Nil(t, e.PrivateKey)
+	assert.Nil(t, e.PublicKey)
 }
 
 // TestMemoryCache_InvalidateAll verifies that InvalidateAll clears every entry.
 func TestMemoryCache_InvalidateAll(t *testing.T) {
-	cfg := &keycache.KeyCacheConfig{
-		Enabled:         true,
-		TTL:             5 * time.Minute,
-		MaxEntries:      100,
-		CleanupInterval: time.Minute,
-	}
-	c := keycache.NewMemoryCache(cfg)
+	cfg := cachekit.Config{Enabled: true, TTL: 5 * time.Minute, CleanupInterval: time.Minute, MaxEntries: 100}
+	c := keycache.NewCache(cfg)
 	defer c.Stop()
 
 	id1 := uuid.New()
@@ -53,71 +63,72 @@ func TestMemoryCache_InvalidateAll(t *testing.T) {
 	assert.False(t, hit)
 }
 
-// TestMemoryCache_Stats_ExpiredEntries checks that Stats counts expired entries correctly.
+// TestMemoryCache_Stats_ExpiredEntries checks that Stats counts expired
+// entries correctly.
+//
+// Deviation from the task brief: cachekit.Cache.Set always computes its
+// internal expiry as now+cfg.TTL and never reads the stored value's own
+// ExpiresAt field (see internal/cachekit/cache.go's Set), so backdating
+// Entry.ExpiresAt before Set — the pre-migration memoryCache's mechanism
+// for simulating an already-expired entry — no longer has any effect. This
+// test instead drives real expiry with a short TTL and a sleep, the same
+// pattern TestMemoryCache_TTLExpiry already uses. CleanupInterval is kept
+// long so the background sweeper hasn't purged the entry before Stats()
+// observes it as present-but-expired.
 func TestMemoryCache_Stats_ExpiredEntries(t *testing.T) {
-	cfg := &keycache.KeyCacheConfig{
-		Enabled:         true,
-		TTL:             5 * time.Minute,
-		MaxEntries:      100,
-		CleanupInterval: time.Hour, // Disable sweeper interference.
-	}
-	c := keycache.NewMemoryCache(cfg)
+	cfg := cachekit.Config{Enabled: true, TTL: 10 * time.Millisecond, CleanupInterval: time.Hour, MaxEntries: 100}
+	c := keycache.NewCache(cfg)
 	defer c.Stop()
 
 	id := uuid.New()
-	// Store an already-expired entry directly.
-	c.Set(id, 1, &keycache.Entry{
-		KeyType:   "RSA",
-		Version:   1,
-		ExpiresAt: time.Now().Add(-1 * time.Second),
-	})
+	c.Set(id, 1, &keycache.Entry{KeyType: "RSA", Version: 1})
+
+	time.Sleep(50 * time.Millisecond)
 
 	stats := c.Stats()
 	assert.Equal(t, 1, stats.TotalEntries)
 	assert.Equal(t, 1, stats.ExpiredEntries)
 }
 
-// TestMemoryCache_Get_ExpiredZeroesKeys checks that Get zeroes key material on expiry.
+// TestMemoryCache_Get_ExpiredZeroesKeys checks that Get reports a miss once
+// an entry's TTL has elapsed.
+//
+// Deviation from the task brief: beyond the same backdated-ExpiresAt issue
+// TestMemoryCache_Stats_ExpiredEntries hits (see its comment), Cloneable's
+// contract means cachekit.Cache.Set always stores value.Clone(), never the
+// caller's original pointer (internal/cachekit/cachekit.go's Cloneable doc:
+// "the cache never hands out or accepts a pointer a caller could mutate").
+// So the entry this test's caller holds is never the object cachekit's
+// remove() actually zeroes on expiry — asserting entry.PrivateKey/PublicKey
+// are nil on that original pointer can never observe the zero, no matter
+// how expiry is triggered. That guarantee is covered elsewhere instead:
+// TestEntry_Zero_ClearsKeyMaterial proves Zero() itself clears the fields,
+// and cachekit's own TestCache_TTLSweep_CallsZeroOnExpiredValue proves
+// Zero() fires on TTL expiry. This test keeps the half that remains
+// observable through keycache's public Cache interface: a miss after TTL.
 func TestMemoryCache_Get_ExpiredZeroesKeys(t *testing.T) {
-	cfg := &keycache.KeyCacheConfig{
-		Enabled:         true,
-		TTL:             5 * time.Minute,
-		MaxEntries:      100,
-		CleanupInterval: time.Hour,
-	}
-	c := keycache.NewMemoryCache(cfg)
+	cfg := cachekit.Config{Enabled: true, TTL: 10 * time.Millisecond, CleanupInterval: time.Hour, MaxEntries: 100}
+	c := keycache.NewCache(cfg)
 	defer c.Stop()
 
 	id := uuid.New()
-	privKey := []byte("private-key-data")
-	pubKey := []byte("public-key-data")
-	entry := &keycache.Entry{
+	c.Set(id, 1, &keycache.Entry{
 		KeyType:    "RSA",
 		Version:    1,
-		ExpiresAt:  time.Now().Add(-1 * time.Millisecond),
-		PrivateKey: privKey,
-		PublicKey:  pubKey,
-	}
-	c.Set(id, 1, entry)
+		PrivateKey: []byte("private-key-data"),
+		PublicKey:  []byte("public-key-data"),
+	})
 
-	// Get must return a miss and zero the entry's key material.
+	time.Sleep(50 * time.Millisecond)
+
 	_, hit := c.Get(id, 1)
 	assert.False(t, hit, "expired entry must not be returned")
-
-	// The entry pointer's keys should now be nil.
-	assert.Nil(t, entry.PrivateKey, "PrivateKey must be zeroed after expiry")
-	assert.Nil(t, entry.PublicKey, "PublicKey must be zeroed after expiry")
 }
 
 // TestMemoryCache_Stop_IdempotentDouble verifies Stop can be called multiple times.
 func TestMemoryCache_Stop_IdempotentDouble(t *testing.T) {
-	cfg := &keycache.KeyCacheConfig{
-		Enabled:         true,
-		TTL:             time.Minute,
-		MaxEntries:      10,
-		CleanupInterval: time.Minute,
-	}
-	c := keycache.NewMemoryCache(cfg)
+	cfg := cachekit.Config{Enabled: true, TTL: time.Minute, CleanupInterval: time.Minute, MaxEntries: 10}
+	c := keycache.NewCache(cfg)
 	c.Stop()
 	c.Stop() // Must not panic.
 }

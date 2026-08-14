@@ -13,6 +13,7 @@ import (
 
 	"rocketvault/internal/backup"
 	"rocketvault/internal/cache"
+	"rocketvault/internal/cachekit"
 	"rocketvault/internal/crypto"
 	"rocketvault/internal/db"
 	"rocketvault/internal/keycache"
@@ -531,7 +532,7 @@ func (c *ServiceContainer) initializeServices() error {
 	}
 
 	// Initialize key cache from configuration.
-	keyCacheConfig := keycache.DefaultKeyCacheConfig()
+	keyCacheConfig := &cachekit.Config{Enabled: true, TTL: 60 * time.Second, CleanupInterval: 30 * time.Second, MaxEntries: 500}
 	if viperCfg.IsSet("key_cache.enabled") {
 		keyCacheConfig.Enabled = viperCfg.GetBool("key_cache.enabled")
 	}
@@ -546,7 +547,7 @@ func (c *ServiceContainer) initializeServices() error {
 	}
 
 	if keyCacheConfig.Enabled {
-		c.keyCache = keycache.NewMemoryCache(keyCacheConfig)
+		c.keyCache = keycache.NewCache(*keyCacheConfig)
 	} else {
 		c.keyCache = keycache.NewNopCache()
 	}

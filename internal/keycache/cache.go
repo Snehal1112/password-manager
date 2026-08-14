@@ -22,6 +22,22 @@ type Entry struct {
 	ExpiresAt  time.Time
 }
 
+// Clone returns a shallow copy of e. Safe because PrivateKey/PublicKey hold
+// either nil or a PEMKey{PEM: string} — Go strings are immutable, so copying
+// the interface value copies a read-only reference, not mutable state.
+func (e *Entry) Clone() *Entry {
+	cp := *e
+	return &cp
+}
+
+// Zero clears key material in place. Called by cachekit after an entry is
+// removed (TTL expiry, LRU eviction, invalidation) to shrink the in-memory
+// exposure window rather than waiting for GC.
+func (e *Entry) Zero() {
+	e.PrivateKey = nil
+	e.PublicKey = nil
+}
+
 // CacheStats holds observable cache counters.
 type CacheStats struct {
 	TotalEntries   int

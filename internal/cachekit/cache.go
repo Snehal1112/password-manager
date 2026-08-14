@@ -11,7 +11,19 @@ import (
 // cacheEntry holds one stored value plus its expiry and last-access time.
 // lastAccess is updated via atomic store on every Get so read-path
 // bookkeeping never takes a lock.
+//
+// mu guards every call into value's Clone()/Zero() methods. It exists for
+// pointer-typed V (the documented common case for Zeroable, e.g. *Entry):
+// Clone() on such a V dereferences the pointee to copy its fields, and
+// Zero() mutates that same pointee in place. Get() and remove() can run
+// concurrently on the *same* still-live entry — Get() has already loaded
+// this *cacheEntry[V] from the map when a concurrent Invalidate/TTL-sweep
+// calls remove() on it — so without this lock, a Clone() read in Get() and
+// a Zero() write in remove() race on the pointee's fields directly. Value-
+// typed V (Clone()/Zero() operating on independent copies) never contends
+// on this lock in practice, so the cost is negligible there.
 type cacheEntry[V any] struct {
+	mu         sync.Mutex
 	value      V
 	expiresAt  time.Time
 	lastAccess int64 // unix nanoseconds, atomic
@@ -49,7 +61,10 @@ func (c *Cache[K, V]) Get(key K) (V, bool) {
 		return zero, false
 	}
 	atomic.StoreInt64(&e.lastAccess, time.Now().UnixNano())
-	return e.value.Clone(), true
+	e.mu.Lock()
+	cloned := e.value.Clone()
+	e.mu.Unlock()
+	return cloned, true
 }
 
 // Set stores a clone of value under key, replacing any existing entry, then
@@ -88,7 +103,10 @@ func (c *Cache[K, V]) InvalidateAll() {
 func (c *Cache[K, V]) Range(fn func(key K, value V) bool) {
 	c.data.Range(func(k, v any) bool {
 		e := v.(*cacheEntry[V])
-		return fn(k.(K), e.value.Clone())
+		e.mu.Lock()
+		cloned := e.value.Clone()
+		e.mu.Unlock()
+		return fn(k.(K), cloned)
 	})
 }
 
@@ -123,9 +141,16 @@ func (c *Cache[K, V]) remove(key K) {
 	if e, ok := v.(*cacheEntry[V]); ok {
 		// Method-set caveat: see Zeroable's doc comment — this only fires if
 		// V's concrete type's method set actually includes Zero().
+		//
+		// Locked for the same reason Get() locks around Clone(): a concurrent
+		// Get() may already hold this *cacheEntry[V] (loaded before this
+		// LoadAndDelete removed it) and be about to clone the same pointee
+		// Zero() is about to mutate.
+		e.mu.Lock()
 		if z, ok := any(e.value).(Zeroable); ok {
 			z.Zero()
 		}
+		e.mu.Unlock()
 	}
 }
 

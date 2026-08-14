@@ -1,141 +1,70 @@
+// internal/keycache/memory_cache.go
 package keycache
 
 import (
-	"fmt"
-	"sync"
-	"time"
-
 	"github.com/google/uuid"
+
+	"rocketvault/internal/cachekit"
 )
 
-// memoryCache is a sync.Map-backed Cache with TTL and a background sweeper.
-type memoryCache struct {
-	entries sync.Map
-	cfg     *KeyCacheConfig
-	stopCh  chan struct{}
-	once    sync.Once
+// keyCacheKey is the compound key for one (keyID, version) entry.
+type keyCacheKey struct {
+	ID      uuid.UUID
+	Version int
 }
 
-// cacheKey produces a stable string key for (keyID, version).
-func cacheKey(keyID uuid.UUID, version int) string {
-	return fmt.Sprintf("%s:%d", keyID.String(), version)
+// cacheImpl adapts cachekit's generic Interface to keycache's domain-specific
+// Cache interface (uuid.UUID + int args, not a single struct key).
+type cacheImpl struct {
+	core cachekit.Interface[keyCacheKey, *Entry]
 }
 
-// NewMemoryCache creates a started MemoryCache using cfg.
-func NewMemoryCache(cfg *KeyCacheConfig) Cache {
-	c := &memoryCache{
-		cfg:    cfg,
-		stopCh: make(chan struct{}),
-	}
-	go c.sweep()
-	return c
+// NewCache creates a Cache from cfg. Always returns a usable Cache: a real
+// one when cfg.Enabled, a no-op one otherwise.
+func NewCache(cfg cachekit.Config) Cache {
+	return &cacheImpl{core: cachekit.NewFromConfig[keyCacheKey, *Entry](cfg)}
 }
 
-// Get returns the entry for (keyID, version) if present and unexpired.
-func (c *memoryCache) Get(keyID uuid.UUID, version int) (*Entry, bool) {
-	k := cacheKey(keyID, version)
-	v, ok := c.entries.Load(k)
-	if !ok {
-		return nil, false
-	}
-	e := v.(*Entry)
-	if time.Now().After(e.ExpiresAt) {
-		if val, loaded := c.entries.LoadAndDelete(k); loaded {
-			// Zero private key material after atomic removal to reduce in-memory exposure window.
-			if expired, ok := val.(*Entry); ok {
-				expired.PrivateKey = nil
-				expired.PublicKey = nil
-			}
-		}
-		return nil, false
-	}
-	return e, true
+// NewNopCache returns a Cache that never hits, for explicit use outside
+// config-driven construction (e.g. PKCS#11 key paths that never cache).
+func NewNopCache() Cache {
+	return &cacheImpl{core: cachekit.NewNopCache[keyCacheKey, *Entry]()}
 }
 
-// Set stores entry under (keyID, version).
-func (c *memoryCache) Set(keyID uuid.UUID, version int, entry *Entry) {
-	c.entries.Store(cacheKey(keyID, version), entry)
+func (c *cacheImpl) Get(keyID uuid.UUID, version int) (*Entry, bool) {
+	return c.core.Get(keyCacheKey{ID: keyID, Version: version})
 }
 
-// Invalidate evicts all versions for keyID by scanning for entries with the
-// matching UUID prefix. This is O(n) over cached entries but n is bounded by
-// MaxEntries (500) so it is acceptable.
-func (c *memoryCache) Invalidate(keyID uuid.UUID) {
-	prefix := keyID.String() + ":"
-	c.entries.Range(func(k, _ any) bool {
-		if key, ok := k.(string); ok {
-			if len(key) > len(prefix) && key[:len(prefix)] == prefix {
-				// LoadAndDelete atomically removes the entry; zero after removal so
-				// the write is exclusive (no other goroutine holds a reference via
-				// the map at this point).
-				if v, loaded := c.entries.LoadAndDelete(k); loaded {
-					if e, ok := v.(*Entry); ok {
-						e.PrivateKey = nil
-						e.PublicKey = nil
-					}
-				}
-			}
+func (c *cacheImpl) Set(keyID uuid.UUID, version int, entry *Entry) {
+	c.core.Set(keyCacheKey{ID: keyID, Version: version}, entry)
+}
+
+// Invalidate evicts every version for keyID. cachekit has no notion of
+// compound keys, so this enumerates entries and matches on ID — O(n) over
+// cached entries, but n is bounded by MaxEntries (default 500), same
+// reasoning the pre-migration implementation already relied on.
+func (c *cacheImpl) Invalidate(keyID uuid.UUID) {
+	var toRemove []keyCacheKey
+	c.core.Range(func(k keyCacheKey, _ *Entry) bool {
+		if k.ID == keyID {
+			toRemove = append(toRemove, k)
 		}
 		return true
 	})
-}
-
-// InvalidateAll removes every entry.
-func (c *memoryCache) InvalidateAll() {
-	c.entries.Range(func(k, _ any) bool {
-		if v, loaded := c.entries.LoadAndDelete(k); loaded {
-			// Zero private key material after atomic removal to reduce in-memory exposure window.
-			if e, ok := v.(*Entry); ok {
-				e.PrivateKey = nil
-				e.PublicKey = nil
-			}
-		}
-		return true
-	})
-}
-
-// Stats returns current entry counts without modifying state.
-func (c *memoryCache) Stats() CacheStats {
-	total := 0
-	expired := 0
-	now := time.Now()
-	c.entries.Range(func(_, v any) bool {
-		total++
-		if e, ok := v.(*Entry); ok && now.After(e.ExpiresAt) {
-			expired++
-		}
-		return true
-	})
-	return CacheStats{TotalEntries: total, ExpiredEntries: expired}
-}
-
-// Stop shuts down the background sweeper. Safe to call multiple times.
-func (c *memoryCache) Stop() {
-	c.once.Do(func() { close(c.stopCh) })
-}
-
-// sweep periodically removes expired entries.
-func (c *memoryCache) sweep() {
-	ticker := time.NewTicker(c.cfg.CleanupInterval)
-	defer ticker.Stop()
-	for {
-		select {
-		case <-c.stopCh:
-			return
-		case <-ticker.C:
-			now := time.Now()
-			c.entries.Range(func(k, v any) bool {
-				if e, ok := v.(*Entry); ok && now.After(e.ExpiresAt) {
-					if val, loaded := c.entries.LoadAndDelete(k); loaded {
-						// Zero private key material after atomic removal to reduce in-memory exposure window.
-						if expired, ok := val.(*Entry); ok {
-							expired.PrivateKey = nil
-							expired.PublicKey = nil
-						}
-					}
-				}
-				return true
-			})
-		}
+	for _, k := range toRemove {
+		c.core.Invalidate(k)
 	}
+}
+
+func (c *cacheImpl) InvalidateAll() {
+	c.core.InvalidateAll()
+}
+
+func (c *cacheImpl) Stats() CacheStats {
+	s := c.core.Stats()
+	return CacheStats{TotalEntries: s.TotalEntries, ExpiredEntries: s.ExpiredEntries}
+}
+
+func (c *cacheImpl) Stop() {
+	c.core.Stop()
 }
