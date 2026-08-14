@@ -100,20 +100,31 @@ type CertificateService interface {
 	PurgeCertificate(ctx context.Context, certID uuid.UUID, scope model.Scope) error
 	ValidateCertificateAccess(ctx context.Context, certID, userID uuid.UUID, role string) error
 	ValidateKeyOwnership(ctx context.Context, keyID, userID uuid.UUID, role string) error
+	// GetCertificatePolicy retrieves the policy for certID, authorized by scope
+	// against the parent certificate.
+	GetCertificatePolicy(ctx context.Context, certID uuid.UUID, scope model.Scope) (*model.CertificatePolicy, error)
+	// UpsertCertificatePolicy creates or replaces the policy for certID,
+	// authorized by scope against the parent certificate.
+	UpsertCertificatePolicy(ctx context.Context, certID uuid.UUID, scope model.Scope, req model.UpsertCertificatePolicyRequest) (*model.CertificatePolicy, error)
+	// DeleteCertificatePolicy removes the policy for certID, authorized by
+	// scope against the parent certificate.
+	DeleteCertificatePolicy(ctx context.Context, certID uuid.UUID, scope model.Scope) error
 }
 
 // certificateService implements CertificateService by coordinating certificate operations
 // and access control while delegating to repository layers.
 type certificateService struct {
-	certRepo repositories.CertificateRepositoryInterface
-	keyRepo  repositories.KeyRepositoryInterface
-	logger   *logging.Logger
+	certRepo   repositories.CertificateRepositoryInterface
+	keyRepo    repositories.KeyRepositoryInterface
+	policyRepo repositories.CertificatePolicyRepositoryInterface
+	logger     *logging.Logger
 }
 
 // CertificateServiceConfig holds the dependencies for certificate service.
 type CertificateServiceConfig struct {
 	CertificateRepository repositories.CertificateRepositoryInterface
 	KeyRepository         repositories.KeyRepositoryInterface
+	PolicyRepository      repositories.CertificatePolicyRepositoryInterface
 	Logger                *logging.Logger
 }
 
@@ -129,9 +140,10 @@ type CertificateServiceConfig struct {
 //	A CertificateService implementation for certificate management operations.
 func NewCertificateService(config CertificateServiceConfig) CertificateService {
 	return &certificateService{
-		certRepo: config.CertificateRepository,
-		keyRepo:  config.KeyRepository,
-		logger:   config.Logger,
+		certRepo:   config.CertificateRepository,
+		keyRepo:    config.KeyRepository,
+		policyRepo: config.PolicyRepository,
+		logger:     config.Logger,
 	}
 }
 
@@ -424,6 +436,54 @@ func (s *certificateService) GetCertificate(ctx context.Context, certID uuid.UUI
 	}
 
 	return cert, nil
+}
+
+// GetCertificatePolicy retrieves the policy for certID, authorized by scope
+// against the parent certificate.
+func (s *certificateService) GetCertificatePolicy(ctx context.Context, certID uuid.UUID, scope model.Scope) (*model.CertificatePolicy, error) {
+	if _, err := s.GetCertificate(ctx, certID, scope); err != nil {
+		return nil, err
+	}
+	return s.policyRepo.GetByCertificateIDAny(ctx, certID)
+}
+
+// UpsertCertificatePolicy creates or replaces the policy for certID,
+// authorized by scope against the parent certificate.
+func (s *certificateService) UpsertCertificatePolicy(ctx context.Context, certID uuid.UUID, scope model.Scope, req model.UpsertCertificatePolicyRequest) (*model.CertificatePolicy, error) {
+	if _, err := s.GetCertificate(ctx, certID, scope); err != nil {
+		return nil, err
+	}
+	now := time.Now()
+	policy := &model.CertificatePolicy{
+		ID:               uuid.New(),
+		CertificateID:    certID,
+		UserID:           scope.ActorID(),
+		ValidityMonths:   req.ValidityMonths,
+		KeyType:          req.KeyType,
+		KeySize:          req.KeySize,
+		Curve:            req.Curve,
+		Subject:          req.Subject,
+		SANs:             req.SANs,
+		AutoRenew:        req.AutoRenew,
+		DaysBeforeExpiry: req.DaysBeforeExpiry,
+		IssuerName:       req.IssuerName,
+		CreatedAt:        now,
+		UpdatedAt:        now,
+	}
+	if err := s.policyRepo.Upsert(ctx, policy); err != nil {
+		return nil, err
+	}
+	// Read-after-write so the caller gets the canonical stored row.
+	return s.policyRepo.GetByCertificateIDAny(ctx, certID)
+}
+
+// DeleteCertificatePolicy removes the policy for certID, authorized by scope
+// against the parent certificate.
+func (s *certificateService) DeleteCertificatePolicy(ctx context.Context, certID uuid.UUID, scope model.Scope) error {
+	if _, err := s.GetCertificate(ctx, certID, scope); err != nil {
+		return err
+	}
+	return s.policyRepo.DeleteByCertificateIDAny(ctx, certID)
 }
 
 // ListCertificates lists certificates authorized by scope.

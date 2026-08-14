@@ -194,6 +194,54 @@ func (_c *MockCertificateService_DeleteCertificate_Call) RunAndReturn(run func(c
 	return _c
 }
 
+// DeleteCertificatePolicy provides a mock function with given fields: ctx, certID, scope
+func (_m *MockCertificateService) DeleteCertificatePolicy(ctx context.Context, certID uuid.UUID, scope model.Scope) error {
+	ret := _m.Called(ctx, certID, scope)
+
+	if len(ret) == 0 {
+		panic("no return value specified for DeleteCertificatePolicy")
+	}
+
+	var r0 error
+	if rf, ok := ret.Get(0).(func(context.Context, uuid.UUID, model.Scope) error); ok {
+		r0 = rf(ctx, certID, scope)
+	} else {
+		r0 = ret.Error(0)
+	}
+
+	return r0
+}
+
+// MockCertificateService_DeleteCertificatePolicy_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'DeleteCertificatePolicy'
+type MockCertificateService_DeleteCertificatePolicy_Call struct {
+	*mock.Call
+}
+
+// DeleteCertificatePolicy is a helper method to define mock.On call
+//   - ctx context.Context
+//   - certID uuid.UUID
+//   - scope model.Scope
+func (_e *MockCertificateService_Expecter) DeleteCertificatePolicy(ctx interface{}, certID interface{}, scope interface{}) *MockCertificateService_DeleteCertificatePolicy_Call {
+	return &MockCertificateService_DeleteCertificatePolicy_Call{Call: _e.mock.On("DeleteCertificatePolicy", ctx, certID, scope)}
+}
+
+func (_c *MockCertificateService_DeleteCertificatePolicy_Call) Run(run func(ctx context.Context, certID uuid.UUID, scope model.Scope)) *MockCertificateService_DeleteCertificatePolicy_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(uuid.UUID), args[2].(model.Scope))
+	})
+	return _c
+}
+
+func (_c *MockCertificateService_DeleteCertificatePolicy_Call) Return(_a0 error) *MockCertificateService_DeleteCertificatePolicy_Call {
+	_c.Call.Return(_a0)
+	return _c
+}
+
+func (_c *MockCertificateService_DeleteCertificatePolicy_Call) RunAndReturn(run func(context.Context, uuid.UUID, model.Scope) error) *MockCertificateService_DeleteCertificatePolicy_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // GetCertificate provides a mock function with given fields: ctx, certID, scope
 func (_m *MockCertificateService) GetCertificate(ctx context.Context, certID uuid.UUID, scope model.Scope) (*model.Certificate, error) {
 	ret := _m.Called(ctx, certID, scope)
@@ -250,6 +298,66 @@ func (_c *MockCertificateService_GetCertificate_Call) Return(_a0 *model.Certific
 }
 
 func (_c *MockCertificateService_GetCertificate_Call) RunAndReturn(run func(context.Context, uuid.UUID, model.Scope) (*model.Certificate, error)) *MockCertificateService_GetCertificate_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// GetCertificatePolicy provides a mock function with given fields: ctx, certID, scope
+func (_m *MockCertificateService) GetCertificatePolicy(ctx context.Context, certID uuid.UUID, scope model.Scope) (*model.CertificatePolicy, error) {
+	ret := _m.Called(ctx, certID, scope)
+
+	if len(ret) == 0 {
+		panic("no return value specified for GetCertificatePolicy")
+	}
+
+	var r0 *model.CertificatePolicy
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, uuid.UUID, model.Scope) (*model.CertificatePolicy, error)); ok {
+		return rf(ctx, certID, scope)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, uuid.UUID, model.Scope) *model.CertificatePolicy); ok {
+		r0 = rf(ctx, certID, scope)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).(*model.CertificatePolicy)
+		}
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context, uuid.UUID, model.Scope) error); ok {
+		r1 = rf(ctx, certID, scope)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// MockCertificateService_GetCertificatePolicy_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'GetCertificatePolicy'
+type MockCertificateService_GetCertificatePolicy_Call struct {
+	*mock.Call
+}
+
+// GetCertificatePolicy is a helper method to define mock.On call
+//   - ctx context.Context
+//   - certID uuid.UUID
+//   - scope model.Scope
+func (_e *MockCertificateService_Expecter) GetCertificatePolicy(ctx interface{}, certID interface{}, scope interface{}) *MockCertificateService_GetCertificatePolicy_Call {
+	return &MockCertificateService_GetCertificatePolicy_Call{Call: _e.mock.On("GetCertificatePolicy", ctx, certID, scope)}
+}
+
+func (_c *MockCertificateService_GetCertificatePolicy_Call) Run(run func(ctx context.Context, certID uuid.UUID, scope model.Scope)) *MockCertificateService_GetCertificatePolicy_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(uuid.UUID), args[2].(model.Scope))
+	})
+	return _c
+}
+
+func (_c *MockCertificateService_GetCertificatePolicy_Call) Return(_a0 *model.CertificatePolicy, _a1 error) *MockCertificateService_GetCertificatePolicy_Call {
+	_c.Call.Return(_a0, _a1)
+	return _c
+}
+
+func (_c *MockCertificateService_GetCertificatePolicy_Call) RunAndReturn(run func(context.Context, uuid.UUID, model.Scope) (*model.CertificatePolicy, error)) *MockCertificateService_GetCertificatePolicy_Call {
 	_c.Call.Return(run)
 	return _c
 }
@@ -573,6 +681,67 @@ func (_c *MockCertificateService_UpdateCertificate_Call) Return(_a0 error) *Mock
 }
 
 func (_c *MockCertificateService_UpdateCertificate_Call) RunAndReturn(run func(context.Context, certificates.UpdateCertificateRequest) error) *MockCertificateService_UpdateCertificate_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// UpsertCertificatePolicy provides a mock function with given fields: ctx, certID, scope, req
+func (_m *MockCertificateService) UpsertCertificatePolicy(ctx context.Context, certID uuid.UUID, scope model.Scope, req model.UpsertCertificatePolicyRequest) (*model.CertificatePolicy, error) {
+	ret := _m.Called(ctx, certID, scope, req)
+
+	if len(ret) == 0 {
+		panic("no return value specified for UpsertCertificatePolicy")
+	}
+
+	var r0 *model.CertificatePolicy
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, uuid.UUID, model.Scope, model.UpsertCertificatePolicyRequest) (*model.CertificatePolicy, error)); ok {
+		return rf(ctx, certID, scope, req)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, uuid.UUID, model.Scope, model.UpsertCertificatePolicyRequest) *model.CertificatePolicy); ok {
+		r0 = rf(ctx, certID, scope, req)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).(*model.CertificatePolicy)
+		}
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context, uuid.UUID, model.Scope, model.UpsertCertificatePolicyRequest) error); ok {
+		r1 = rf(ctx, certID, scope, req)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// MockCertificateService_UpsertCertificatePolicy_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'UpsertCertificatePolicy'
+type MockCertificateService_UpsertCertificatePolicy_Call struct {
+	*mock.Call
+}
+
+// UpsertCertificatePolicy is a helper method to define mock.On call
+//   - ctx context.Context
+//   - certID uuid.UUID
+//   - scope model.Scope
+//   - req model.UpsertCertificatePolicyRequest
+func (_e *MockCertificateService_Expecter) UpsertCertificatePolicy(ctx interface{}, certID interface{}, scope interface{}, req interface{}) *MockCertificateService_UpsertCertificatePolicy_Call {
+	return &MockCertificateService_UpsertCertificatePolicy_Call{Call: _e.mock.On("UpsertCertificatePolicy", ctx, certID, scope, req)}
+}
+
+func (_c *MockCertificateService_UpsertCertificatePolicy_Call) Run(run func(ctx context.Context, certID uuid.UUID, scope model.Scope, req model.UpsertCertificatePolicyRequest)) *MockCertificateService_UpsertCertificatePolicy_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(uuid.UUID), args[2].(model.Scope), args[3].(model.UpsertCertificatePolicyRequest))
+	})
+	return _c
+}
+
+func (_c *MockCertificateService_UpsertCertificatePolicy_Call) Return(_a0 *model.CertificatePolicy, _a1 error) *MockCertificateService_UpsertCertificatePolicy_Call {
+	_c.Call.Return(_a0, _a1)
+	return _c
+}
+
+func (_c *MockCertificateService_UpsertCertificatePolicy_Call) RunAndReturn(run func(context.Context, uuid.UUID, model.Scope, model.UpsertCertificatePolicyRequest) (*model.CertificatePolicy, error)) *MockCertificateService_UpsertCertificatePolicy_Call {
 	_c.Call.Return(run)
 	return _c
 }

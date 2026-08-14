@@ -562,6 +562,7 @@ func (c *ServiceContainer) initializeServices() error {
 	c.certificateService = certServices.NewCertificateService(certServices.CertificateServiceConfig{
 		CertificateRepository: c.certificateRepository,
 		KeyRepository:         c.keyRepository,
+		PolicyRepository:      c.certPolicyRepository,
 		Logger:                c.logger,
 	})
 

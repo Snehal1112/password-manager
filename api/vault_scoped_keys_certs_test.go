@@ -164,6 +164,15 @@ func (s *recordingCertService) RecoverCertificate(context.Context, uuid.UUID, mo
 func (s *recordingCertService) PurgeCertificate(context.Context, uuid.UUID, model.Scope) error {
 	panic("unexpected")
 }
+func (s *recordingCertService) GetCertificatePolicy(context.Context, uuid.UUID, model.Scope) (*model.CertificatePolicy, error) {
+	panic("unexpected")
+}
+func (s *recordingCertService) UpsertCertificatePolicy(context.Context, uuid.UUID, model.Scope, model.UpsertCertificatePolicyRequest) (*model.CertificatePolicy, error) {
+	panic("unexpected")
+}
+func (s *recordingCertService) DeleteCertificatePolicy(context.Context, uuid.UUID, model.Scope) error {
+	panic("unexpected")
+}
 
 // recordingCryptoService records the scope used for each of the six crypto
 // operations, so tests can assert vault-scoped routes authorize by vault

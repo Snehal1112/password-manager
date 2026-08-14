@@ -116,6 +116,26 @@ func (m *certCmdCertService) PurgeCertificate(ctx context.Context, certID uuid.U
 	return m.Called(ctx, certID, scope).Error(0)
 }
 
+func (m *certCmdCertService) GetCertificatePolicy(ctx context.Context, certID uuid.UUID, scope model.Scope) (*model.CertificatePolicy, error) {
+	args := m.Called(ctx, certID, scope)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).(*model.CertificatePolicy), args.Error(1)
+}
+
+func (m *certCmdCertService) UpsertCertificatePolicy(ctx context.Context, certID uuid.UUID, scope model.Scope, req model.UpsertCertificatePolicyRequest) (*model.CertificatePolicy, error) {
+	args := m.Called(ctx, certID, scope, req)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).(*model.CertificatePolicy), args.Error(1)
+}
+
+func (m *certCmdCertService) DeleteCertificatePolicy(ctx context.Context, certID uuid.UUID, scope model.Scope) error {
+	return m.Called(ctx, certID, scope).Error(0)
+}
+
 // ---- container wrapper ----
 
 // certsTestContainer wraps MockServiceContainer and overrides GetCertificateService.
