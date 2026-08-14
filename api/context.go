@@ -11,7 +11,6 @@ import (
 	"rocketvault/app"
 	"rocketvault/common"
 	"rocketvault/internal/logging"
-	"rocketvault/internal/repositories"
 	authServices "rocketvault/internal/services/auth"
 	certServices "rocketvault/internal/services/certificates"
 	keyServices "rocketvault/internal/services/keys"
@@ -274,12 +273,4 @@ func (c *Context) authSvc() authServices.AuthenticationService {
 		return nil
 	}
 	return c.App.ServiceContainer.GetAuthenticationService()
-}
-
-func (c *Context) keyRotationPolicyRepo() repositories.KeyRotationPolicyRepositoryInterface {
-	if c.App == nil || c.App.ServiceContainer == nil {
-		c.SetInternalError(nil)
-		return nil
-	}
-	return c.App.ServiceContainer.GetKeyRotationPolicyRepository()
 }

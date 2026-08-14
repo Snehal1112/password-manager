@@ -14,6 +14,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
+	"github.com/stretchr/testify/require"
 
 	"rocketvault/app"
 	rvconfig "rocketvault/config"
@@ -76,27 +77,14 @@ func (m *mockKeyRotationPolicyRepo) DeleteByKeyIDAny(ctx context.Context, keyID 
 	return args.Error(0)
 }
 
-// --- scopeStubKeyServiceForPolicy: trivial success stub for the pre-check ---
-
-type scopeStubKeyServiceForPolicy struct {
-	keyServices.KeyService
-	key    *model.Key
-	keyErr error
-}
-
-func (s *scopeStubKeyServiceForPolicy) GetKey(_ context.Context, _ uuid.UUID, _ model.Scope) (*model.Key, error) {
-	return s.key, s.keyErr
-}
-
 // --- keyRotationPolicyRepoContainer ---
 
 type keyRotationPolicyRepoContainer struct {
-	repo   repositories.KeyRotationPolicyRepositoryInterface
 	keySvc keyServices.KeyService
 }
 
 func (c *keyRotationPolicyRepoContainer) GetKeyRotationPolicyRepository() repositories.KeyRotationPolicyRepositoryInterface {
-	return c.repo
+	panic("unexpected call: GetKeyRotationPolicyRepository")
 }
 func (c *keyRotationPolicyRepoContainer) GetRBACService() authzServices.RBACService {
 	panic("unexpected call: GetRBACService")
@@ -232,11 +220,11 @@ func (c *keyRotationPolicyRepoContainer) Close() error { return nil }
 const krpTestUserID = "b2c3d4e5-f6a7-8901-bcde-f12345678901"
 
 // newKeyRotationPolicyCtx builds a Context backed by the given policy repo
-// mock. The key service defaults to a scope stub that reports the key as
-// found, since these tests exercise the policy repository, not the key
-// pre-check.
+// mock. The key service is a scope stub that reports the key as found and
+// delegates its policy methods to repo, since these tests exercise the
+// policy repository, not the key pre-check.
 func newKeyRotationPolicyCtx(repo repositories.KeyRotationPolicyRepositoryInterface, keyIDStr string) *Context {
-	a := &app.App{ServiceContainer: &keyRotationPolicyRepoContainer{repo: repo, keySvc: &scopeStubKeyServiceForPolicy{}}}
+	a := &app.App{ServiceContainer: &keyRotationPolicyRepoContainer{keySvc: &scopeStubKeyService{policyRepo: repo}}}
 	return &Context{
 		App:    a,
 		Claims: RequestClaims{UserID: krpTestUserID},
@@ -249,11 +237,13 @@ func newKeyRotationPolicyCtx(repo repositories.KeyRotationPolicyRepositoryInterf
 // wrong scope, deleted key). This exercises the actual security boundary of
 // these handlers: GetByKeyIDAny/DeleteByKeyIDAny are owner-agnostic, so the
 // keySvc.GetKey pre-check is what stops an unauthorized caller from reading
-// or mutating another key's rotation policy through them.
+// or mutating another key's rotation policy through them. The stub error
+// wraps ErrKeyNotFound, matching what the real KeyService.GetKey always
+// returns on a failed read (never a bare, unwrapped error) -- see
+// keyService.GetKey in internal/services/keys/key_service.go.
 func newKeyRotationPolicyCtxKeyNotVisible(repo repositories.KeyRotationPolicyRepositoryInterface, keyIDStr string) *Context {
 	a := &app.App{ServiceContainer: &keyRotationPolicyRepoContainer{
-		repo:   repo,
-		keySvc: &scopeStubKeyServiceForPolicy{keyErr: errors.New("not found")},
+		keySvc: &scopeStubKeyService{keyErr: keyServices.ErrKeyNotFound, policyRepo: repo},
 	}}
 	return &Context{
 		App:    a,
@@ -294,7 +284,46 @@ func TestGetKeyRotationPolicy_NotFound_Returns404(t *testing.T) {
 	}
 
 	assert.Equal(t, http.StatusNotFound, w.Code)
+	assert.Equal(t, "rotation policy not found", c.Err.Message,
+		"a policy-repo failure (key exists) must keep the generic 'rotation policy' 404 message")
 	repo.AssertExpectations(t)
+}
+
+// TestGetKeyRotationPolicy_KeyNotFound_Returns404WithKeyMessage and
+// TestGetKeyRotationPolicy_KeyLifecycleDenied_Returns404WithKeyMessage pin the
+// message-text half of the fix: both key-check failure modes (not-found and
+// lifecycle-denied) must produce the blanket "key not found" 404 the
+// pre-refactor handler always used, distinct from the generic "rotation
+// policy not found" 404 a policy-repo failure produces.
+func TestGetKeyRotationPolicy_KeyNotFound_Returns404WithKeyMessage(t *testing.T) {
+	keyID := uuid.New()
+	svc := &scopeStubKeyService{keyErr: keyServices.ErrKeyNotFound}
+	c := newKeyCtx(svc)
+	c.Params.KeyID = keyID.String()
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest(http.MethodGet, "/keys/"+keyID.String()+"/rotationpolicy", nil)
+
+	getKeyRotationPolicy(c, w, r)
+
+	require.NotNil(t, c.Err)
+	assert.Equal(t, http.StatusNotFound, c.Err.StatusCode)
+	assert.Equal(t, "key not found", c.Err.Message)
+}
+
+func TestGetKeyRotationPolicy_KeyLifecycleDenied_Returns404WithKeyMessage(t *testing.T) {
+	keyID := uuid.New()
+	svc := &scopeStubKeyService{keyErr: keyServices.ErrKeyLifecycleDenied}
+	c := newKeyCtx(svc)
+	c.Params.KeyID = keyID.String()
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest(http.MethodGet, "/keys/"+keyID.String()+"/rotationpolicy", nil)
+
+	getKeyRotationPolicy(c, w, r)
+
+	require.NotNil(t, c.Err)
+	assert.Equal(t, http.StatusNotFound, c.Err.StatusCode,
+		"lifecycle-denied must still map to 404, not writeKeyError's 403")
+	assert.Equal(t, "key not found", c.Err.Message)
 }
 
 func TestGetKeyRotationPolicy_KeyNotVisible_Returns404(t *testing.T) {

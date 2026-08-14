@@ -5,10 +5,10 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
-	"time"
 
 	"github.com/google/uuid"
 
+	keyServices "rocketvault/internal/services/keys"
 	"rocketvault/model"
 )
 
@@ -17,11 +17,6 @@ func getKeyRotationPolicy(c *Context, w http.ResponseWriter, r *http.Request) {
 	keyID, err := uuid.Parse(c.Params.KeyID)
 	if err != nil {
 		c.SetInvalidParam("key_id")
-		return
-	}
-
-	repo := c.keyRotationPolicyRepo()
-	if repo == nil {
 		return
 	}
 
@@ -34,14 +29,14 @@ func getKeyRotationPolicy(c *Context, w http.ResponseWriter, r *http.Request) {
 	if keySvc == nil {
 		return
 	}
-	if _, err := keySvc.GetKey(r.Context(), keyID, scope); err != nil {
-		c.SetNotFound("key")
-		return
-	}
 
-	policy, err := repo.GetByKeyIDAny(r.Context(), keyID)
+	policy, err := keySvc.GetKeyRotationPolicy(r.Context(), keyID, scope)
 	if err != nil {
-		c.SetNotFound("rotation policy")
+		if errors.Is(err, keyServices.ErrKeyNotFound) || errors.Is(err, keyServices.ErrKeyLifecycleDenied) {
+			c.SetNotFound("key")
+		} else {
+			c.SetNotFound("rotation policy")
+		}
 		return
 	}
 
@@ -63,11 +58,6 @@ func upsertKeyRotationPolicy(c *Context, w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	repo := c.keyRotationPolicyRepo()
-	if repo == nil {
-		return
-	}
-
 	scope, ok := scopeFromRequest(c, r)
 	if !ok {
 		return
@@ -77,41 +67,20 @@ func upsertKeyRotationPolicy(c *Context, w http.ResponseWriter, r *http.Request)
 	if keySvc == nil {
 		return
 	}
-	if _, err := keySvc.GetKey(r.Context(), keyID, scope); err != nil {
-		c.SetNotFound("key")
-		return
-	}
 
-	now := time.Now()
-	policy := &model.KeyRotationPolicy{
-		ID:                     uuid.New(),
-		KeyID:                  keyID,
-		UserID:                 scope.ActorID(),
-		RotateAfterDays:        req.RotateAfterDays,
-		NotifyBeforeExpiryDays: req.NotifyBeforeExpiryDays,
-		ExpiryDays:             req.ExpiryDays,
-		Enabled:                req.Enabled,
-		CreatedAt:              now,
-		UpdatedAt:              now,
-	}
-
-	if err := repo.Upsert(r.Context(), policy); err != nil {
-		c.SetInternalError(err)
-		return
-	}
-
-	// Read-after-write so the response reflects the canonical stored ID. The
-	// scope has already authorized the parent key, so the owner-agnostic
-	// lookup is safe here too.
-	stored, err := repo.GetByKeyIDAny(r.Context(), keyID)
+	policy, err := keySvc.UpsertKeyRotationPolicy(r.Context(), keyID, scope, *req)
 	if err != nil {
-		c.SetInternalError(err)
+		if errors.Is(err, keyServices.ErrKeyNotFound) || errors.Is(err, keyServices.ErrKeyLifecycleDenied) {
+			c.SetNotFound("key")
+		} else {
+			c.SetInternalError(err)
+		}
 		return
 	}
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(stored) //nolint:errcheck,gosec
+	json.NewEncoder(w).Encode(policy) //nolint:errcheck,gosec
 }
 
 // deleteKeyRotationPolicy removes the rotation policy for a key.
@@ -122,11 +91,6 @@ func deleteKeyRotationPolicy(c *Context, w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	repo := c.keyRotationPolicyRepo()
-	if repo == nil {
-		return
-	}
-
 	scope, ok := scopeFromRequest(c, r)
 	if !ok {
 		return
@@ -136,15 +100,14 @@ func deleteKeyRotationPolicy(c *Context, w http.ResponseWriter, r *http.Request)
 	if keySvc == nil {
 		return
 	}
-	if _, err := keySvc.GetKey(r.Context(), keyID, scope); err != nil {
-		c.SetNotFound("key")
-		return
-	}
 
-	if err := repo.DeleteByKeyIDAny(r.Context(), keyID); err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
+	if err := keySvc.DeleteKeyRotationPolicy(r.Context(), keyID, scope); err != nil {
+		switch {
+		case errors.Is(err, keyServices.ErrKeyNotFound), errors.Is(err, keyServices.ErrKeyLifecycleDenied):
+			c.SetNotFound("key")
+		case errors.Is(err, sql.ErrNoRows):
 			c.SetNotFound("rotation policy not found")
-		} else {
+		default:
 			c.SetInternalError(err)
 		}
 		return
