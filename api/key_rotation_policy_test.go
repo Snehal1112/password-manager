@@ -239,6 +239,24 @@ func newKeyRotationPolicyCtx(repo repositories.KeyRotationPolicyRepositoryInterf
 	}
 }
 
+// newKeyRotationPolicyCtxKeyNotVisible builds a Context whose key-service
+// pre-check fails, simulating a caller that cannot see the parent key (e.g.
+// wrong scope, deleted key). This exercises the actual security boundary of
+// these handlers: GetByKeyIDAny/DeleteByKeyIDAny are owner-agnostic, so the
+// keySvc.GetKey pre-check is what stops an unauthorized caller from reading
+// or mutating another key's rotation policy through them.
+func newKeyRotationPolicyCtxKeyNotVisible(repo repositories.KeyRotationPolicyRepositoryInterface, keyIDStr string) *Context {
+	a := &app.App{ServiceContainer: &keyRotationPolicyRepoContainer{
+		repo:   repo,
+		keySvc: &scopeStubKeyServiceForPolicy{keyErr: errors.New("not found")},
+	}}
+	return &Context{
+		App:    a,
+		Claims: jwt.MapClaims{"user_id": krpTestUserID},
+		Params: &ApiParams{KeyID: keyIDStr, PerPage: 60},
+	}
+}
+
 // ============================================================
 // getKeyRotationPolicy
 // ============================================================
@@ -262,6 +280,25 @@ func TestGetKeyRotationPolicy_NotFound_Returns404(t *testing.T) {
 	repo.On("GetByKeyIDAny", mock.Anything, keyID).Return(nil, errors.New("not found"))
 
 	c := newKeyRotationPolicyCtx(repo, keyID.String())
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest(http.MethodGet, "/keys/"+keyID.String()+"/rotationpolicy", nil)
+
+	getKeyRotationPolicy(c, w, r)
+	if c.Err != nil {
+		writeError(w, c)
+	}
+
+	assert.Equal(t, http.StatusNotFound, w.Code)
+	repo.AssertExpectations(t)
+}
+
+func TestGetKeyRotationPolicy_KeyNotVisible_Returns404(t *testing.T) {
+	keyID := uuid.New()
+	repo := &mockKeyRotationPolicyRepo{}
+	// No .On(...) expectations: the key pre-check must short-circuit before
+	// the handler ever reaches the policy repository.
+
+	c := newKeyRotationPolicyCtxKeyNotVisible(repo, keyID.String())
 	w := httptest.NewRecorder()
 	r := httptest.NewRequest(http.MethodGet, "/keys/"+keyID.String()+"/rotationpolicy", nil)
 
@@ -327,6 +364,26 @@ func TestUpsertKeyRotationPolicy_InvalidBody_Returns400(t *testing.T) {
 	assert.Equal(t, http.StatusBadRequest, w.Code)
 }
 
+func TestUpsertKeyRotationPolicy_KeyNotVisible_Returns404(t *testing.T) {
+	keyID := uuid.New()
+	repo := &mockKeyRotationPolicyRepo{}
+	// No .On(...) expectations: the key pre-check must short-circuit before
+	// the handler ever reaches the policy repository.
+
+	c := newKeyRotationPolicyCtxKeyNotVisible(repo, keyID.String())
+	w := httptest.NewRecorder()
+	body, _ := json.Marshal(map[string]any{"rotate_after_days": 90, "enabled": true})
+	r := httptest.NewRequest(http.MethodPut, "/keys/"+keyID.String()+"/rotationpolicy", bytes.NewReader(body))
+
+	upsertKeyRotationPolicy(c, w, r)
+	if c.Err != nil {
+		writeError(w, c)
+	}
+
+	assert.Equal(t, http.StatusNotFound, w.Code)
+	repo.AssertExpectations(t)
+}
+
 func TestUpsertKeyRotationPolicy_UpsertError_Returns500(t *testing.T) {
 	keyID := uuid.New()
 	repo := &mockKeyRotationPolicyRepo{}
@@ -384,6 +441,25 @@ func TestDeleteKeyRotationPolicy_InvalidKeyID_Returns400(t *testing.T) {
 	}
 
 	assert.Equal(t, http.StatusBadRequest, w.Code)
+}
+
+func TestDeleteKeyRotationPolicy_KeyNotVisible_Returns404(t *testing.T) {
+	keyID := uuid.New()
+	repo := &mockKeyRotationPolicyRepo{}
+	// No .On(...) expectations: the key pre-check must short-circuit before
+	// the handler ever reaches the policy repository.
+
+	c := newKeyRotationPolicyCtxKeyNotVisible(repo, keyID.String())
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest(http.MethodDelete, "/keys/"+keyID.String()+"/rotationpolicy", nil)
+
+	deleteKeyRotationPolicy(c, w, r)
+	if c.Err != nil {
+		writeError(w, c)
+	}
+
+	assert.Equal(t, http.StatusNotFound, w.Code)
+	repo.AssertExpectations(t)
 }
 
 func TestDeleteKeyRotationPolicy_ServiceError_Returns500(t *testing.T) {
