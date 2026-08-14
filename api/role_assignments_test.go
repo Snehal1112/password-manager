@@ -440,6 +440,7 @@ func TestListRoleAssignments_AllowedForDataAccessAdministrator(t *testing.T) {
 
 	mc := &testutils.MockServiceContainer{}
 	mc.On("GetRoleAssignmentService").Return(roleSvc)
+	mc.On("GetUserService").Return(nil)
 
 	c, r := newReadRoleAssignmentCtx(mc, callerID, vaultID, "", http.MethodGet, "/api/v1/vaults/prod/role-assignments")
 	w := httptest.NewRecorder()
@@ -479,6 +480,7 @@ func TestGetRoleAssignment_AllowedForDataAccessAdministrator(t *testing.T) {
 
 	mc := &testutils.MockServiceContainer{}
 	mc.On("GetRoleAssignmentService").Return(roleSvc)
+	mc.On("GetUserService").Return(nil)
 
 	c, r := newReadRoleAssignmentCtx(mc, callerID, vaultID, assignment.ID.String(),
 		http.MethodGet, "/api/v1/vaults/prod/role-assignments/"+assignment.ID.String())

@@ -23,14 +23,14 @@ func (api *API) InitRoleAssignments() {
 
 // buildRoleAssignmentResponse maps a RoleAssignment onto its enriched API
 // representation: vault name from the URL, principal username resolved via
-// the user repository, and the policy count implied by the role bundle.
+// the user service, and the policy count implied by the role bundle.
 // Username resolution failure is non-fatal (the field is omitempty) so a
 // stale/deleted principal doesn't block the response.
 func buildRoleAssignmentResponse(c *Context, r *http.Request, ra *model.RoleAssignment) model.RoleAssignmentResponse {
 	resp := ra.ToResponse()
 	resp.VaultName = c.Params.VaultName
-	if userRepo := c.App.ServiceContainer.GetUserRepository(); userRepo != nil {
-		if user, err := userRepo.Read(r.Context(), ra.PrincipalID); err == nil && user != nil {
+	if userSvc := c.App.ServiceContainer.GetUserService(); userSvc != nil {
+		if user, err := userSvc.GetUser(r.Context(), ra.PrincipalID); err == nil && user != nil {
 			resp.PrincipalUsername = user.Username
 		}
 	}
