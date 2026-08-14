@@ -23,6 +23,7 @@ THE SOFTWARE.
 package cmd
 
 import (
+	"context"
 	"fmt"
 
 	"github.com/spf13/cobra"
@@ -60,6 +61,12 @@ var serveCmd = &cobra.Command{
 
   # Start on a custom listen address with debug logging
   rocketvault serve --listen :9000 --log-level debug`,
+	// Replace the root PersistentPreRunE. The root pre-run opens a database
+	// connection and builds a full ServiceContainer (JWT signing key, OIDC,
+	// key provider) purely to discard them for "serve" — bootstrap.Boot below
+	// does that same initialization for real. See cmd/vaults/preview_migration.go
+	// for the same pattern used for the same reason.
+	PersistentPreRunE: servePreRun,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		return serve(cmd)
 	},
@@ -82,6 +89,21 @@ func init() {
 	serveCmd.Flags().StringVar(&cfg.DatabaseName, "database_name", getEnv("PASSWORD_MANAGER_DATABASE", defaultDatabase), "Database name which used by the password manager service.")
 	serveCmd.Flags().Bool("log-timestamp", true, "Prefix each log line with timestamp")
 	serveCmd.Flags().String("log-level", "info", "Log level (one of panic, fatal, error, warn, info or debug)")
+}
+
+// servePreRun installs the logger without duplicating the DB connection and
+// ServiceContainer that bootstrap.Boot builds for real inside serve(). It
+// intentionally skips the root pre-run's authentication check too, since
+// "serve" starting up requires no prior login.
+func servePreRun(cmd *cobra.Command, _ []string) error {
+	log := logging.InitLogger()
+	go log.StartPeriodicRotation()
+
+	ctx := context.WithValue(cmd.Context(), common.LogKey, log)
+	cmd.SetContext(ctx)
+
+	log.WithField("command", cmd.Name()).Info("System command executed without authentication")
+	return nil
 }
 
 // serve initializes and starts the server with the provided command.

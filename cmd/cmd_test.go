@@ -17,6 +17,7 @@ import (
 	"rocketvault/cmd/testutils"
 	"rocketvault/common"
 	"rocketvault/internal/health"
+	"rocketvault/internal/logging"
 	secretServices "rocketvault/internal/services/secrets"
 	"rocketvault/model"
 )
@@ -120,6 +121,30 @@ func TestPersistentPostRun_NoDBInContext(t *testing.T) {
 	if err != nil {
 		t.Errorf("persistentPostRun with no DB in context returned error: %v", err)
 	}
+}
+
+// ---------------------------------------------------------------------------
+// serveCmd — must override the root PersistentPreRunE so "serve" does not
+// duplicate bootstrap.Boot's own DB/ServiceContainer initialization.
+// ---------------------------------------------------------------------------
+
+func TestServeCmd_OverridesRootPersistentPreRun(t *testing.T) {
+	assert.NotNil(t, serveCmd.PersistentPreRunE,
+		"serve must override the root pre-run so it does not build a throwaway DB connection and ServiceContainer")
+}
+
+func TestServePreRun_SetsLoggerInContext(t *testing.T) {
+	cmd := &cobra.Command{Use: "serve"}
+	cmd.SetContext(context.Background())
+
+	err := servePreRun(cmd, []string{})
+	if err != nil {
+		t.Fatalf("servePreRun returned error: %v", err)
+	}
+
+	log, ok := cmd.Context().Value(common.LogKey).(*logging.Logger)
+	assert.True(t, ok, "servePreRun must set common.LogKey in the context")
+	assert.NotNil(t, log)
 }
 
 // ---------------------------------------------------------------------------
