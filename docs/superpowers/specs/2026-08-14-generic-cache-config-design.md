@@ -94,6 +94,15 @@ internal/container/service_container.go
 ```go
 type Cloneable[T any] interface { Clone() T }
 
+// Zeroable is optional. If a cached value implements it, cachekit calls
+// Zero() on the removed value after any internal removal (TTL sweep, LRU
+// eviction, Invalidate, InvalidateAll) — before the value becomes
+// unreachable, but after it is exclusively held (no other goroutine can
+// still be reading it via the map at that point). Preserves keycache's
+// existing "zero key material after removal" behavior; Secret/Vault don't
+// implement it, so nothing changes for those domains.
+type Zeroable interface { Zero() }
+
 type Config struct {
     Enabled         bool
     TTL             time.Duration
@@ -152,6 +161,9 @@ round-trip or AES-GCM decrypt the cache exists to avoid.
   `keycache.PEMKey{PEM: string}` (immutable string, copy is free) or are nil; no marshal/unmarshal
   round-trip needed anywhere in this codebase's actual usage (verified against
   `crypto_service.go:216-237` — the cache stores decrypted PEM strings, not parsed key objects).
+  `Entry` also implements `cachekit.Zeroable` (`Zero()` sets `PrivateKey`/`PublicKey` to nil),
+  preserving today's `memory_cache.go` behavior of scrubbing key material immediately after an
+  entry is removed (TTL expiry, LRU eviction, or explicit invalidation) rather than waiting for GC.
   `Invalidate(keyID)` still evicts every version via the same prefix-scan approach.
 
 - **`internal/vaultcache` (new)** — `cachekit.Cache[string, *model.Vault]` keyed by vault name
