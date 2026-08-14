@@ -46,7 +46,7 @@ vaults). RocketVault columns are sourced from the codebase (`api/`, `internal/`,
 | Encrypt / Decrypt | ✅ | ✅ `POST /keys/{id}/encrypt`, `/decrypt` | ✅ |
 | Wrap / Unwrap key | ✅ | ✅ `POST /keys/{id}/wrap`, `/unwrap` | ✅ |
 | Backup / Restore | ✅ | ✅ `POST /keys/{id}/backup`, `/keys/restore` | ✅ |
-| Get/Set rotation policy | ✅ | 🟡 rotation policies exist; no per-key JWK policy API | 🟡 |
+| Get/Set rotation policy | ✅ | ✅ `GET/PUT/DELETE /keys/{key_id}/rotationpolicy`, granted to Crypto Officer + Administrator (matching Azure's `keyrotationpolicies/*`) | ✅ |
 | Release (confidential compute) | ✅ | ❌ no TEE attestation flow | ❌ |
 | EXPORT blocked (keys non-extractable) | ✅ | ✅ private material never returned | ✅ |
 
@@ -134,7 +134,7 @@ below re-verifies against the roles that actually govern access: the eleven
 | Reader | `vaults/secrets/readMetadata` (metadata only — **not** the value), key/cert metadata + public material | `Key Vault Reader`: `ActionSecretsReadMetadata`, `ActionKeysRead`, `ActionCertificatesRead` — no secret-value action granted, so `GET /secrets/{id}` (which requires `ActionSecretsGet`) is denied | ✅ |
 | Secrets Officer | `vaults/secrets/*` (full CRUD + lifecycle) | `Key Vault Secrets Officer`: readMetadata/get/set/delete/backup/restore/recover/purge | ✅ |
 | Secrets User | `getSecret` + `readMetadata` | `Key Vault Secrets User`: `ActionSecretsReadMetadata`, `ActionSecretsGet` | ✅ |
-| Crypto Officer | `vaults/keys/*` — **superset of Crypto User**, includes sign/verify/encrypt/decrypt/wrap/unwrap **plus** management, and `keyrotationpolicies/*` | `Key Vault Crypto Officer`: read/create/update/delete/backup/restore/recover/purge/import/rotate/encrypt/decrypt/wrap/unwrap/sign/verify — every Crypto User action plus management, written out as an explicit superset (not derived by union) | ✅ superset relationship matches; no per-key rotation-policy API is a separate, still-open gap (see §1) |
+| Crypto Officer | `vaults/keys/*` — **superset of Crypto User**, includes sign/verify/encrypt/decrypt/wrap/unwrap **plus** management, and `keyrotationpolicies/*` | `Key Vault Crypto Officer`: read/create/update/delete/backup/restore/recover/purge/import/rotate/encrypt/decrypt/wrap/unwrap/sign/verify — every Crypto User action plus management, written out as an explicit superset (not derived by union) | ✅ superset relationship matches |
 | Crypto User | `keys/read,update,backup,encrypt,decrypt,wrap,unwrap,sign,verify` | `Key Vault Crypto User`: read/encrypt/decrypt/wrap/unwrap/sign/verify — has wrap/unwrap (contra the 2026-07-25 pass, which checked the legacy `PolicyOperation` enum instead of this live bundle); missing `update` and `backup` relative to Azure | 🟡 close — missing two actions Azure grants |
 | Certificates Officer | `certificates/*`, `certificatecas/*`, `certificatecontacts/*` | `Key Vault Certificates Officer`: full cert CRUD + lifecycle; no CA or contacts sub-resources (those RocketVault features don't exist at all) | 🟡 matches what exists; CA/contacts out of scope |
 | Administrator | `vaults/*` — full data-plane, all types, all ops including wrap/unwrap | `Key Vault Administrator`: every secrets/keys/certificates action written out explicitly, including wrap/unwrap — not a union of other roles, so it carries no derived gaps | ✅ |
@@ -215,15 +215,15 @@ no live authorization weight and is out of scope for parity comparison against A
 
 **Strong parity (✅):** secret lifecycle + versioning, key CRUD + all crypto
 operations (sign/verify/encrypt/decrypt/wrap/unwrap/rotate — operation *existence*,
-via `api/keys.go`), RSA & EC type/algorithm coverage, certificate CRUD + policy +
-auto-renewal, multi-vault isolation, deny-overrides access-policy evaluation,
-soft-delete/purge-protection/recovery, vault-scoped deleted/restore/purge across
-all three resource types (closed 2026-08-13, see §5), and — per the 2026-08-13
-correction to §6 — RBAC role boundaries: the vault-scoped role-assignment
-architecture matches Azure's real RBAC model, and the live `model/azure_roles.go`
-role bundles are close to byte-for-byte too (Reader is metadata-only, Crypto
-Officer is a true superset of Crypto User including wrap/unwrap, Administrator
-carries no derived gaps).
+via `api/keys.go`), per-key rotation-policy API (closed 2026-08-14, see §2), RSA & EC
+type/algorithm coverage, certificate CRUD + policy + auto-renewal, multi-vault isolation,
+deny-overrides access-policy evaluation, soft-delete/purge-protection/recovery,
+vault-scoped deleted/restore/purge across all three resource types (closed 2026-08-13,
+see §5), and — per the 2026-08-13 correction to §6 — RBAC role boundaries: the
+vault-scoped role-assignment architecture matches Azure's real RBAC model, and the
+live `model/azure_roles.go` role bundles are close to byte-for-byte too (Reader is
+metadata-only, Crypto Officer is a true superset of Crypto User including wrap/unwrap,
+Administrator carries no derived gaps).
 
 **Partial (🟡):**
 - **HSM**: PKCS#11 path exists but is not the default; covers RSA (sign/verify/
@@ -232,8 +232,7 @@ carries no derived gaps).
   verified against real hardware in this environment; AES-CBC: no PKCS#11 mechanism
   exists at all). No FIPS 140-3 L3 validation (a certification process, not
   achievable through code).
-- **Rotation policy**: rotation works, but there is no per-key JWK-style rotation
-  policy API, and rotation is user-scoped (a multi-vault deferral).
+- **Rotation policy**: rotation is user-scoped (a multi-vault deferral).
 - **RBAC role boundaries, one residual gap** (see §6): `Key Vault Crypto User` is
   missing the `update`/`backup` actions Azure's real Crypto User grants.
 
