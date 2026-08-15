@@ -86,6 +86,25 @@ func ExternalServicePolicy() Policy {
 	}
 }
 
+// InteractivePolicy returns a retry policy for external calls made on a
+// synchronous, user-facing request path (e.g. an OAuth2/OIDC callback
+// holding a browser redirect's HTTP response open). Deliberately short
+// compared to ExternalServicePolicy's up-to-~19.5s-per-call worst-case
+// backoff budget (5 attempts, 1s-30s): a caller here can't let several
+// stacked retried calls risk exceeding a typical 30s reverse-proxy or
+// browser timeout.
+func InteractivePolicy() Policy {
+	return Policy{
+		Enabled:           true,
+		MaxAttempts:       2,
+		InitialDelay:      250 * time.Millisecond,
+		MaxDelay:          2 * time.Second,
+		BackoffMultiplier: 2.0,
+		RetryableErrors:   ExternalServicePolicy().RetryableErrors,
+		JitterEnabled:     true,
+	}
+}
+
 // CircuitBreakerConfig defines circuit breaker behavior for protecting against cascading failures.
 type CircuitBreakerConfig struct {
 	FailureThreshold int           `yaml:"failure_threshold" json:"failure_threshold"`

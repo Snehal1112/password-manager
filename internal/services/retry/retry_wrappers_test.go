@@ -2,6 +2,7 @@ package retry
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"testing"
 	"time"
@@ -37,11 +38,18 @@ func (n *noopRetryService) ExecuteServiceOperation(_ context.Context, op func() 
 	return op()
 }
 
+func (n *noopRetryService) ExecuteInteractiveOperation(_ context.Context, op func() error) error {
+	return op()
+}
+
 func (n *noopRetryService) GetDatabasePolicy() internalRetry.Policy { return internalRetry.Policy{} }
 func (n *noopRetryService) GetExternalServicesPolicy() internalRetry.Policy {
 	return internalRetry.Policy{}
 }
 func (n *noopRetryService) GetServiceOperationsPolicy() internalRetry.Policy {
+	return internalRetry.Policy{}
+}
+func (n *noopRetryService) GetInteractivePolicy() internalRetry.Policy {
 	return internalRetry.Policy{}
 }
 
@@ -614,6 +622,66 @@ func TestRetryService_ExecuteServiceOperation_Error(t *testing.T) {
 		return sentinel
 	})
 	assert.Error(t, execErr)
+}
+
+func TestRetryService_ExecuteInteractiveOperation_Success(t *testing.T) {
+	v := viper.New()
+	v.Set("retry.interactive.max_attempts", 1)
+	v.Set("retry.interactive.initial_delay", "1ms")
+	v.Set("retry.interactive.max_delay", "1ms")
+	v.Set("retry.interactive.backoff_multiplier", 2.0)
+	v.Set("retry.interactive.enabled", true)
+
+	svc, err := NewRetryService(v)
+	if err != nil {
+		t.Fatalf("NewRetryService failed: %v", err)
+	}
+
+	calls := 0
+	err = svc.ExecuteInteractiveOperation(context.Background(), func() error {
+		calls++
+		return nil
+	})
+	if err != nil {
+		t.Errorf("expected success, got error: %v", err)
+	}
+	if calls != 1 {
+		t.Errorf("expected 1 call, got %d", calls)
+	}
+}
+
+func TestRetryService_ExecuteInteractiveOperation_Error(t *testing.T) {
+	v := viper.New()
+	v.Set("retry.interactive.max_attempts", 1)
+	v.Set("retry.interactive.initial_delay", "1ms")
+	v.Set("retry.interactive.max_delay", "1ms")
+	v.Set("retry.interactive.backoff_multiplier", 2.0)
+	v.Set("retry.interactive.enabled", true)
+	v.Set("retry.interactive.retryable_errors", []string{"boom"})
+
+	svc, err := NewRetryService(v)
+	if err != nil {
+		t.Fatalf("NewRetryService failed: %v", err)
+	}
+
+	err = svc.ExecuteInteractiveOperation(context.Background(), func() error {
+		return errors.New("boom")
+	})
+	if err == nil {
+		t.Error("expected error, got nil")
+	}
+}
+
+func TestRetryService_GetInteractivePolicy(t *testing.T) {
+	svc, err := NewRetryService(viper.New())
+	if err != nil {
+		t.Fatalf("NewRetryService failed: %v", err)
+	}
+
+	policy := svc.GetInteractivePolicy()
+	if policy.MaxAttempts <= 0 && policy.Enabled {
+		t.Error("expected interactive policy to be initialized")
+	}
 }
 
 // ---------------------------------------------------------------------------

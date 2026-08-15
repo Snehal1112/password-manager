@@ -22,6 +22,11 @@ type RetryService interface {
 	// ExecuteServiceOperation executes an internal service operation with retry logic
 	ExecuteServiceOperation(ctx context.Context, operation func() error) error
 
+	// ExecuteInteractiveOperation executes an external call on a
+	// synchronous, user-facing request path with a bounded retry budget
+	// (see retry.InteractivePolicy)
+	ExecuteInteractiveOperation(ctx context.Context, operation func() error) error
+
 	// GetDatabasePolicy returns the database retry policy
 	GetDatabasePolicy() retry.Policy
 
@@ -30,6 +35,9 @@ type RetryService interface {
 
 	// GetServiceOperationsPolicy returns the service operations retry policy
 	GetServiceOperationsPolicy() retry.Policy
+
+	// GetInteractivePolicy returns the interactive (request-path) retry policy
+	GetInteractivePolicy() retry.Policy
 }
 
 // retryService implements RetryService with configurable policies
@@ -37,6 +45,7 @@ type retryService struct {
 	databasePolicy          retry.Policy
 	externalServicesPolicy  retry.Policy
 	serviceOperationsPolicy retry.Policy
+	interactivePolicy       retry.Policy
 
 	// One circuit breaker per policy type. Each protects an independent
 	// failure domain, so e.g. a database outage does not trip the breaker
@@ -44,6 +53,7 @@ type retryService struct {
 	databaseBreaker          *retry.CircuitBreaker
 	externalServicesBreaker  *retry.CircuitBreaker
 	serviceOperationsBreaker *retry.CircuitBreaker
+	interactiveBreaker       *retry.CircuitBreaker
 }
 
 // NewRetryService creates a new retry service with policies loaded from configuration
@@ -61,10 +71,12 @@ func NewRetryService(viper *viper.Viper) (RetryService, error) {
 		databasePolicy:          config.Database,
 		externalServicesPolicy:  config.ExternalServices,
 		serviceOperationsPolicy: config.ServiceOperations,
+		interactivePolicy:       config.Interactive,
 
 		databaseBreaker:          retry.NewCircuitBreaker(config.CircuitBreaker),
 		externalServicesBreaker:  retry.NewCircuitBreaker(config.CircuitBreaker),
 		serviceOperationsBreaker: retry.NewCircuitBreaker(config.CircuitBreaker),
+		interactiveBreaker:       retry.NewCircuitBreaker(config.CircuitBreaker),
 	}, nil
 }
 
@@ -89,6 +101,14 @@ func (s *retryService) ExecuteServiceOperation(ctx context.Context, operation fu
 	})
 }
 
+// ExecuteInteractiveOperation executes an external call on a synchronous,
+// user-facing request path with a bounded retry budget
+func (s *retryService) ExecuteInteractiveOperation(ctx context.Context, operation func() error) error {
+	return s.interactiveBreaker.Execute(func() error {
+		return retry.WithExponentialBackoff(ctx, s.interactivePolicy, operation)
+	})
+}
+
 // GetDatabasePolicy returns the database retry policy
 func (s *retryService) GetDatabasePolicy() retry.Policy {
 	return s.databasePolicy
@@ -102,4 +122,9 @@ func (s *retryService) GetExternalServicesPolicy() retry.Policy {
 // GetServiceOperationsPolicy returns the service operations retry policy
 func (s *retryService) GetServiceOperationsPolicy() retry.Policy {
 	return s.serviceOperationsPolicy
+}
+
+// GetInteractivePolicy returns the interactive (request-path) retry policy
+func (s *retryService) GetInteractivePolicy() retry.Policy {
+	return s.interactivePolicy
 }

@@ -37,6 +37,10 @@ func (s *stubRetryService) ExecuteServiceOperation(ctx context.Context, op func(
 	return nil
 }
 
+func (s *stubRetryService) ExecuteInteractiveOperation(ctx context.Context, op func() error) error {
+	return nil
+}
+
 func (s *stubRetryService) GetDatabasePolicy() retry.Policy {
 	return retry.Policy{}
 }
@@ -46,6 +50,10 @@ func (s *stubRetryService) GetExternalServicesPolicy() retry.Policy {
 }
 
 func (s *stubRetryService) GetServiceOperationsPolicy() retry.Policy {
+	return retry.Policy{}
+}
+
+func (s *stubRetryService) GetInteractivePolicy() retry.Policy {
 	return retry.Policy{}
 }
 

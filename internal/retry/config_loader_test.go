@@ -175,6 +175,42 @@ retry:
 	}
 }
 
+func TestConfigLoader_LoadConfig_Interactive(t *testing.T) {
+	v := viper.New()
+	v.SetConfigType("yaml")
+	yamlConfig := `
+retry:
+  interactive:
+    enabled: true
+    max_attempts: 3
+    initial_delay: "300ms"
+    max_delay: "3s"
+    backoff_multiplier: 2.0
+    retryable_errors:
+      - "timeout"
+    jitter_enabled: false
+`
+	if err := v.ReadConfig(strings.NewReader(yamlConfig)); err != nil {
+		t.Fatalf("failed to read config: %v", err)
+	}
+
+	loader := NewConfigLoader(v)
+	config, err := loader.LoadConfig()
+	if err != nil {
+		t.Fatalf("LoadConfig failed: %v", err)
+	}
+
+	if config.Interactive.MaxAttempts != 3 {
+		t.Errorf("expected interactive max_attempts 3, got %d", config.Interactive.MaxAttempts)
+	}
+	if config.Interactive.InitialDelay != 300*time.Millisecond {
+		t.Errorf("expected interactive initial_delay 300ms, got %v", config.Interactive.InitialDelay)
+	}
+	if len(config.Interactive.RetryableErrors) != 1 || config.Interactive.RetryableErrors[0] != "timeout" {
+		t.Errorf("expected interactive retryable_errors [timeout], got %v", config.Interactive.RetryableErrors)
+	}
+}
+
 func TestConfigLoader_loadPolicyConfig(t *testing.T) {
 	tests := []struct {
 		name     string
@@ -417,6 +453,16 @@ func TestSetRetryDefaults(t *testing.T) {
 	if !reflect.DeepEqual(extErrors, ExternalServicePolicy().RetryableErrors) {
 		t.Errorf("retry.external_services.retryable_errors default = %v, want %v (ExternalServicePolicy().RetryableErrors)",
 			extErrors, ExternalServicePolicy().RetryableErrors)
+	}
+
+	// Check interactive tier defaults exist and are bounded (new tier — see
+	// InteractivePolicy).
+	if v.GetInt("retry.interactive.max_attempts") != 2 {
+		t.Errorf("expected interactive max attempts 2, got %d", v.GetInt("retry.interactive.max_attempts"))
+	}
+	interactiveErrors := v.GetStringSlice("retry.interactive.retryable_errors")
+	if !reflect.DeepEqual(interactiveErrors, ExternalServicePolicy().RetryableErrors) {
+		t.Errorf("retry.interactive.retryable_errors default = %v, want %v", interactiveErrors, ExternalServicePolicy().RetryableErrors)
 	}
 }
 

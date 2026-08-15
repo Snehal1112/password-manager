@@ -544,6 +544,33 @@ func TestPolicyDefaults(t *testing.T) {
 	}
 }
 
+func TestInteractivePolicy_BoundedForRequestPath(t *testing.T) {
+	policy := InteractivePolicy()
+
+	if !policy.Enabled {
+		t.Error("expected InteractivePolicy to be enabled by default")
+	}
+	if policy.MaxAttempts != 2 {
+		t.Errorf("expected MaxAttempts 2, got %d", policy.MaxAttempts)
+	}
+	if policy.MaxDelay > 5*time.Second {
+		t.Errorf("expected MaxDelay bounded well under a typical 30s proxy timeout, got %v", policy.MaxDelay)
+	}
+
+	// Worst-case single-call backoff sleep (jitter included) must leave
+	// generous headroom under a 30s reverse-proxy/browser timeout even when
+	// stacked twice (HandleCallback's Verify + UserInfo calls, post the
+	// Task-3 fix that stopped retrying Exchange).
+	var worst time.Duration
+	for attempt := 0; attempt < policy.MaxAttempts-1; attempt++ {
+		d := calculateDelay(attempt, policy)
+		worst += d
+	}
+	if twoCalls := worst * 2; twoCalls > 10*time.Second {
+		t.Errorf("worst-case combined backoff sleep for two sequential interactive calls = %v, want <= 10s", twoCalls)
+	}
+}
+
 func TestCircuitBreakerConfig(t *testing.T) {
 	config := DefaultCircuitBreaker()
 

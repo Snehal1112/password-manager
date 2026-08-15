@@ -13,6 +13,7 @@ type Config struct {
 	Database          Policy               `yaml:"database" json:"database"`
 	ExternalServices  Policy               `yaml:"external_services" json:"external_services"`
 	ServiceOperations Policy               `yaml:"service_operations" json:"service_operations"`
+	Interactive       Policy               `yaml:"interactive" json:"interactive"`
 	CircuitBreaker    CircuitBreakerConfig `yaml:"circuit_breaker" json:"circuit_breaker"`
 }
 
@@ -34,6 +35,7 @@ func DefaultConfig() Config {
 			},
 			JitterEnabled: true,
 		},
+		Interactive:    InteractivePolicy(),
 		CircuitBreaker: DefaultCircuitBreaker(),
 	}
 }
@@ -66,6 +68,15 @@ func DevelopmentConfig() Config {
 			MaxDelay:          1 * time.Second,
 			BackoffMultiplier: 1.5,
 			RetryableErrors:   DefaultConfig().ServiceOperations.RetryableErrors,
+			JitterEnabled:     true,
+		},
+		Interactive: Policy{
+			Enabled:           true,
+			MaxAttempts:       2,
+			InitialDelay:      100 * time.Millisecond,
+			MaxDelay:          1 * time.Second,
+			BackoffMultiplier: 2.0,
+			RetryableErrors:   InteractivePolicy().RetryableErrors,
 			JitterEnabled:     true,
 		},
 		CircuitBreaker: CircuitBreakerConfig{
@@ -106,6 +117,15 @@ func ProductionConfig() Config {
 			RetryableErrors:   DefaultConfig().ServiceOperations.RetryableErrors,
 			JitterEnabled:     true,
 		},
+		Interactive: Policy{
+			Enabled:           true,
+			MaxAttempts:       2,
+			InitialDelay:      250 * time.Millisecond,
+			MaxDelay:          2 * time.Second,
+			BackoffMultiplier: 2.0,
+			RetryableErrors:   InteractivePolicy().RetryableErrors,
+			JitterEnabled:     true,
+		},
 		CircuitBreaker: CircuitBreakerConfig{
 			FailureThreshold: 5,
 			Timeout:          60 * time.Second,
@@ -144,6 +164,15 @@ func TestingConfig() Config {
 			RetryableErrors:   DefaultConfig().ServiceOperations.RetryableErrors,
 			JitterEnabled:     false,
 		},
+		Interactive: Policy{
+			Enabled:           true,
+			MaxAttempts:       2,
+			InitialDelay:      1 * time.Millisecond,
+			MaxDelay:          10 * time.Millisecond,
+			BackoffMultiplier: 2.0,
+			RetryableErrors:   InteractivePolicy().RetryableErrors,
+			JitterEnabled:     false,
+		},
 		CircuitBreaker: CircuitBreakerConfig{
 			FailureThreshold: 2,
 			Timeout:          100 * time.Millisecond,
@@ -161,6 +190,9 @@ func (c Config) Validate() error {
 		return err
 	}
 	if err := validatePolicy(c.ServiceOperations, "service_operations"); err != nil {
+		return err
+	}
+	if err := validatePolicy(c.Interactive, "interactive"); err != nil {
 		return err
 	}
 	if err := validateCircuitBreakerConfig(c.CircuitBreaker); err != nil {
@@ -223,6 +255,10 @@ func (c Config) Merge(other Config) Config {
 
 	if other.ServiceOperations.Enabled {
 		result.ServiceOperations = other.ServiceOperations
+	}
+
+	if other.Interactive.Enabled {
+		result.Interactive = other.Interactive
 	}
 
 	// Circuit breaker config is always merged
@@ -365,6 +401,23 @@ retry:
       - "temporary failure"
     jitter_enabled: true
 
+  interactive:
+    enabled: true
+    max_attempts: 2
+    initial_delay: "250ms"
+    max_delay: "2s"
+    backoff_multiplier: 2.0
+    retryable_errors:
+      - "connection refused"
+      - "no such host"
+      - "timeout"
+      - "temporary failure"
+      - "service unavailable"
+      - "too many requests"
+      - "internal server error"
+      - "bad gateway"
+    jitter_enabled: true
+
   circuit_breaker:
     failure_threshold: 5
     timeout: "60s"
@@ -415,6 +468,24 @@ func ExampleJSON() string {
       "connection refused",
       "timeout",
       "temporary failure"
+    ],
+    "jitter_enabled": true
+  },
+  "interactive": {
+    "enabled": true,
+    "max_attempts": 2,
+    "initial_delay": "250ms",
+    "max_delay": "2s",
+    "backoff_multiplier": 2.0,
+    "retryable_errors": [
+      "connection refused",
+      "no such host",
+      "timeout",
+      "temporary failure",
+      "service unavailable",
+      "too many requests",
+      "internal server error",
+      "bad gateway"
     ],
     "jitter_enabled": true
   },

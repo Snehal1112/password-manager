@@ -50,6 +50,14 @@ func (l *ConfigLoader) LoadConfig() (Config, error) {
 		}
 	}
 
+	// Load interactive retry configuration
+	if l.viper.IsSet("retry.interactive") {
+		interactiveConfig := l.loadPolicyConfig("retry.interactive")
+		if interactiveConfig != nil {
+			config.Interactive = mergePolicyWithDefaults(*interactiveConfig, InteractivePolicy())
+		}
+	}
+
 	// Load circuit breaker configuration
 	if l.viper.IsSet("retry.circuit_breaker") {
 		cbConfig := l.loadCircuitBreakerConfig("retry.circuit_breaker")
@@ -136,6 +144,14 @@ func BindRetryConfig(v *viper.Viper) {
 	v.BindEnv("retry.service_operations.backoff_multiplier", "RETRY_SERVICE_OPERATIONS_BACKOFF_MULTIPLIER") //nolint:errcheck,gosec
 	v.BindEnv("retry.service_operations.jitter_enabled", "RETRY_SERVICE_OPERATIONS_JITTER_ENABLED")         //nolint:errcheck,gosec
 
+	// Bind interactive retry configuration
+	v.BindEnv("retry.interactive.enabled", "RETRY_INTERACTIVE_ENABLED")                       //nolint:errcheck,gosec
+	v.BindEnv("retry.interactive.max_attempts", "RETRY_INTERACTIVE_MAX_ATTEMPTS")             //nolint:errcheck,gosec
+	v.BindEnv("retry.interactive.initial_delay", "RETRY_INTERACTIVE_INITIAL_DELAY")           //nolint:errcheck,gosec
+	v.BindEnv("retry.interactive.max_delay", "RETRY_INTERACTIVE_MAX_DELAY")                   //nolint:errcheck,gosec
+	v.BindEnv("retry.interactive.backoff_multiplier", "RETRY_INTERACTIVE_BACKOFF_MULTIPLIER") //nolint:errcheck,gosec
+	v.BindEnv("retry.interactive.jitter_enabled", "RETRY_INTERACTIVE_JITTER_ENABLED")         //nolint:errcheck,gosec
+
 	// Bind circuit breaker configuration
 	v.BindEnv("retry.circuit_breaker.failure_threshold", "RETRY_CIRCUIT_BREAKER_FAILURE_THRESHOLD")   //nolint:errcheck,gosec
 	v.BindEnv("retry.circuit_breaker.timeout", "RETRY_CIRCUIT_BREAKER_TIMEOUT")                       //nolint:errcheck,gosec
@@ -174,6 +190,15 @@ func SetRetryDefaults(v *viper.Viper) {
 		"timeout",
 		"temporary failure",
 	})
+
+	// Interactive (request-path) retry defaults
+	v.SetDefault("retry.interactive.enabled", true)
+	v.SetDefault("retry.interactive.max_attempts", 2)
+	v.SetDefault("retry.interactive.initial_delay", "250ms")
+	v.SetDefault("retry.interactive.max_delay", "2s")
+	v.SetDefault("retry.interactive.backoff_multiplier", 2.0)
+	v.SetDefault("retry.interactive.jitter_enabled", true)
+	v.SetDefault("retry.interactive.retryable_errors", InteractivePolicy().RetryableErrors)
 
 	// Circuit breaker defaults
 	v.SetDefault("retry.circuit_breaker.failure_threshold", 5)
