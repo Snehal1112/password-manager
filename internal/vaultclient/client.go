@@ -47,6 +47,11 @@ type Config struct {
 	// Logger receives Warn calls on retries and auth failures. Optional; nil
 	// disables all logging. Not settable via YAML/viper (interface value).
 	Logger Logger
+	// RetryPolicy controls retry behavior for Get. Zero value (MaxAttempts
+	// == 0) defaults to retry.ExternalServicePolicy(), preserving prior
+	// behavior for callers that don't set this explicitly. NewFromViper
+	// populates it from the retry.external_services config block.
+	RetryPolicy retry.Policy
 }
 
 type tokenCache struct {
@@ -56,12 +61,13 @@ type tokenCache struct {
 
 // Client authenticates to RocketVault and fetches secrets.
 type Client struct {
-	cfg        Config
-	httpClient *http.Client
-	mu         sync.Mutex
-	token      *tokenCache
-	nameIndex  map[string]string
-	logger     Logger
+	cfg         Config
+	httpClient  *http.Client
+	mu          sync.Mutex
+	token       *tokenCache
+	nameIndex   map[string]string
+	logger      Logger
+	retryPolicy retry.Policy
 }
 
 // New creates a Client from an explicit Config.
@@ -90,11 +96,16 @@ func New(cfg Config) (*Client, error) {
 	for _, m := range cfg.Secrets {
 		index[m.Name] = m.UUID
 	}
+	retryPolicy := cfg.RetryPolicy
+	if retryPolicy.MaxAttempts == 0 {
+		retryPolicy = retry.ExternalServicePolicy()
+	}
 	return &Client{
-		cfg:        cfg,
-		httpClient: &http.Client{Timeout: 15 * time.Second},
-		nameIndex:  index,
-		logger:     cfg.Logger,
+		cfg:         cfg,
+		httpClient:  &http.Client{Timeout: 15 * time.Second},
+		nameIndex:   index,
+		logger:      cfg.Logger,
+		retryPolicy: retryPolicy,
 	}, nil
 }
 
@@ -143,12 +154,23 @@ func NewFromViper() (*Client, error) {
 	if secret == "" {
 		secret = os.Getenv("VAULT_CLIENT_SECRET")
 	}
+	// A malformed retry.* block shouldn't block secret-fetching entirely —
+	// fall back silently to the New() default (retry.ExternalServicePolicy())
+	// rather than failing client construction. No Logger is available yet at
+	// this point (Config.Logger is not viper-settable — see its doc comment),
+	// so there's nothing to warn through; this mirrors how client_secret above
+	// falls back to an env var without logging.
+	var retryPolicy retry.Policy
+	if retryConfig, err := retry.LoadConfigFromViper(viper.GetViper()); err == nil {
+		retryPolicy = retryConfig.ExternalServices
+	}
 	return New(Config{
 		URL:               viper.GetString("vault_client.url"),
 		ClientID:          viper.GetString("vault_client.client_id"),
 		ClientSecret:      secret,
 		Secrets:           mappings,
 		AllowInsecureHTTP: viper.GetBool("vault_client.allow_insecure_http"),
+		RetryPolicy:       retryPolicy,
 	})
 }
 
@@ -163,7 +185,7 @@ func (c *Client) Get(ctx context.Context, uuid string) (string, error) {
 	var lastAttemptErr error
 	var value string
 
-	retryErr := retry.WithExponentialBackoff(ctx, retry.ExternalServicePolicy(), func() error {
+	retryErr := retry.WithExponentialBackoff(ctx, c.retryPolicy, func() error {
 		tok, err := c.ensureToken(ctx)
 		if err != nil {
 			// Auth failures are terminal — stop retrying immediately.

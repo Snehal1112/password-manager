@@ -13,6 +13,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"rocketvault/internal/retry"
 	"rocketvault/internal/vaultclient"
 )
 
@@ -48,6 +49,35 @@ func TestNewFromViper_Success(t *testing.T) {
 	c, err := vaultclient.NewFromViper()
 	require.NoError(t, err)
 	require.NotNil(t, c)
+}
+
+// TestNewFromViper_ReadsRetryPolicyFromConfig proves NewFromViper wires the
+// client's retry policy to the retry.external_services viper block, rather
+// than always falling back to the hardcoded retry.ExternalServicePolicy().
+func TestNewFromViper_ReadsRetryPolicyFromConfig(t *testing.T) {
+	viper.Set("vault_client.url", "http://vault.local")
+	viper.Set("vault_client.client_id", "viper-id")
+	viper.Set("vault_client.client_secret", "viper-secret")
+	viper.Set("vault_client.allow_insecure_http", true)
+	viper.Set("retry.external_services.max_attempts", 7)
+	defer viper.Set("retry.external_services.max_attempts", nil)
+
+	c, err := vaultclient.NewFromViper()
+	require.NoError(t, err)
+	require.NotNil(t, c)
+	assert.Equal(t, 7, c.RetryPolicyForTest().MaxAttempts,
+		"resolved retry policy should reflect retry.external_services.max_attempts from viper, not the hardcoded default")
+}
+
+// TestNew_DefaultsRetryPolicy_WhenConfigOmitsIt verifies that a caller who
+// doesn't set Config.RetryPolicy (e.g. examples/consumer-service) still gets
+// the same retry.ExternalServicePolicy() defaults as before this change.
+func TestNew_DefaultsRetryPolicy_WhenConfigOmitsIt(t *testing.T) {
+	c, err := vaultclient.New(vaultclient.Config{
+		URL: "http://127.0.0.1:9999", ClientID: "id", ClientSecret: "s",
+	})
+	require.NoError(t, err)
+	assert.Equal(t, retry.ExternalServicePolicy(), c.RetryPolicyForTest())
 }
 
 // TestNewFromViper_SecretFromEnv tests that client_secret falls back to env var.
