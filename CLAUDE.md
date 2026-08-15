@@ -424,7 +424,8 @@ npm run typecheck # If available
 - `initConfig()` in `cmd/root.go` hardcodes `.rocketvault.yaml` — no automatic env switching.
 - Three redundant env-specific files were deleted (`-test`, `-staging`, `-production`).
 - `jwt.expiry: "15m"` is required — read by `internal/container/service_container.go` via `viper.GetDuration("jwt.expiry")`.
-- Dead stubs (not yet read by code, kept as planned-feature markers): `health.*`, `development.*`, `retry.service_operations`. `monitoring.*` was wired up 2026-08-14: `enable_metrics` gates the `GET /metrics` Prometheus endpoint (`api/metrics.go`), `slow_query_threshold` drives the slow-query cutoff in `internal/db` and `internal/health` (default 100ms, via `config.LoadMonitoringConfig`), and `metrics_interval` controls how often `internal/metrics.MetricsScheduler` refreshes the `rocketvault_db_*` gauges — all wired from `bootstrap.go`.
+- Dead stubs (not yet read by code, kept as planned-feature markers): `health.*`, `development.*`. `monitoring.*` was wired up 2026-08-14: `enable_metrics` gates the `GET /metrics` Prometheus endpoint (`api/metrics.go`), `slow_query_threshold` drives the slow-query cutoff in `internal/db` and `internal/health` (default 100ms, via `config.LoadMonitoringConfig`), and `metrics_interval` controls how often `internal/metrics.MetricsScheduler` refreshes the `rocketvault_db_*` gauges — all wired from `bootstrap.go`.
+- `retry.service_operations` is intentionally unwired: fully parsed and tested, but no production caller yet. Reserved for a future feature (e.g., cloud HSM or ACME issuer) that needs a retry tier distinct from `database`/`external_services`. See `.claude/known-bugs.md` § I1 for investigation and rationale.
 - For `bootstrap_token` seeding details, see `seedBootstrapToken()` in `internal/db/db.go`.
 
 ## Admin User Setup
