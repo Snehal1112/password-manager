@@ -407,6 +407,59 @@ func TestCircuitBreaker_HalfOpenFailureReopensImmediately(t *testing.T) {
 	}
 }
 
+func TestCircuitBreaker_LateSuccessDoesNotCausePermanentHalfOpenWedge(t *testing.T) {
+	config := CircuitBreakerConfig{
+		FailureThreshold: 5,
+		Timeout:          20 * time.Millisecond,
+		HalfOpenRequests: 3,
+	}
+	cb := NewCircuitBreaker(config)
+
+	for i := 0; i < config.FailureThreshold; i++ {
+		_ = cb.Execute(func() error { return errors.New("failure") })
+	}
+	if cb.GetState() != StateOpen {
+		t.Fatalf("expected open after %d failures, got %v", config.FailureThreshold, cb.GetState())
+	}
+
+	// Simulate a closed-state call that was admitted before the trip and
+	// completes successfully after it. recordSuccess resets failures to 0
+	// unconditionally, regardless of current state — reachable in production
+	// whenever multiple concurrent closed-state calls are in flight and one
+	// straggles past the call that tripped the breaker.
+	cb.recordSuccess()
+
+	time.Sleep(config.Timeout + 10*time.Millisecond)
+
+	// Exhaust every half-open trial with failures. With failures reset to 0
+	// by the late success above, a threshold-gated reopen (failures >=
+	// FailureThreshold) would never re-trip after only HalfOpenRequests (3)
+	// more failures — this is exactly the wedge scenario the fix closes.
+	for i := 0; i < config.HalfOpenRequests; i++ {
+		err := cb.Execute(func() error { return errors.New("still failing") })
+		if err == nil {
+			t.Fatalf("expected trial %d to fail", i)
+		}
+	}
+
+	if cb.GetState() != StateOpen {
+		t.Fatalf("expected state open again after every half-open trial failed, got %v — breaker is wedged", cb.GetState())
+	}
+
+	time.Sleep(config.Timeout + 10*time.Millisecond)
+	executed := false
+	err := cb.Execute(func() error {
+		executed = true
+		return nil
+	})
+	if err != nil {
+		t.Errorf("expected success after breaker reopened and timeout elapsed again, got: %v", err)
+	}
+	if !executed {
+		t.Error("breaker is permanently wedged — function was never executed")
+	}
+}
+
 func TestWithExponentialBackoffResult(t *testing.T) {
 	policy := Policy{
 		Enabled:           true,
