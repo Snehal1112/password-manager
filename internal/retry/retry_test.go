@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -306,6 +308,55 @@ func TestCircuitBreaker(t *testing.T) {
 	}
 	if !executed {
 		t.Error("function should have been executed in half-open state")
+	}
+}
+
+func TestCircuitBreaker_HalfOpenAdmissionIsCapped(t *testing.T) {
+	config := CircuitBreakerConfig{
+		FailureThreshold: 1,
+		Timeout:          20 * time.Millisecond,
+		HalfOpenRequests: 2,
+	}
+	cb := NewCircuitBreaker(config)
+
+	// Trip the breaker open.
+	_ = cb.Execute(func() error { return errors.New("failure") })
+	if cb.GetState() != StateOpen {
+		t.Fatalf("expected state to be open after 1 failure, got %v", cb.GetState())
+	}
+
+	// Wait for the timeout to elapse, then fire far more concurrent callers
+	// than HalfOpenRequests allows right as the breaker becomes eligible to
+	// transition. Every fn() invocation blocks on admitted until the test
+	// has counted how many callers got through, so admission (not
+	// completion order) is what's under test.
+	time.Sleep(config.Timeout + 10*time.Millisecond)
+
+	const concurrentCallers = 20
+	var admittedCount int32
+	var wg sync.WaitGroup
+	start := make(chan struct{})
+	wg.Add(concurrentCallers)
+	for i := 0; i < concurrentCallers; i++ {
+		go func() {
+			defer wg.Done()
+			<-start
+			_ = cb.Execute(func() error {
+				atomic.AddInt32(&admittedCount, 1)
+				// Hold "in flight" briefly so concurrent admission attempts
+				// genuinely overlap instead of serializing through fast
+				// sequential calls.
+				time.Sleep(5 * time.Millisecond)
+				return nil
+			})
+		}()
+	}
+	close(start)
+	wg.Wait()
+
+	if got := atomic.LoadInt32(&admittedCount); got > int32(config.HalfOpenRequests) {
+		t.Errorf("expected at most %d calls admitted into the half-open trial, got %d",
+			config.HalfOpenRequests, got)
 	}
 }
 

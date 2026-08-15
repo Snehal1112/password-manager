@@ -129,25 +129,52 @@ func NewCircuitBreaker(config CircuitBreakerConfig) *CircuitBreaker {
 	}
 }
 
-// Execute runs the given function through the circuit breaker.
+// Execute runs fn through the circuit breaker. It returns
+// ErrCircuitBreakerOpen without calling fn if the breaker denies admission:
+// always denied while open (until config.Timeout has elapsed since the last
+// failure), and capped at config.HalfOpenRequests concurrent/total trial
+// calls while half-open.
 func (cb *CircuitBreaker) Execute(fn func() error) error {
-	cb.mu.RLock()
-	state := cb.state
-	cb.mu.RUnlock()
-
-	switch state {
-	case StateOpen:
-		if time.Since(cb.lastFailure) > cb.config.Timeout {
-			cb.transitionToHalfOpen()
-			return cb.executeHalfOpen(fn)
-		}
+	admitted, halfOpen := cb.admit()
+	if !admitted {
 		return ErrCircuitBreakerOpen
-	case StateHalfOpen:
-		return cb.executeHalfOpen(fn)
+	}
+	if halfOpen {
+		return cb.finishHalfOpen(fn)
+	}
+	return cb.executeClosed(fn)
+}
+
+// admit atomically decides whether to let a call through, performing the
+// Open→HalfOpen transition and reserving a half-open trial slot in the same
+// critical section as the state check. This closes the race where multiple
+// concurrent callers each observe a stale Open state (or a stale
+// lastFailure) and each independently transition and admit themselves —
+// the previous two-step "read state under RLock, then act unlocked"
+// version allowed unbounded concurrent callers into the half-open trial
+// regardless of config.HalfOpenRequests.
+func (cb *CircuitBreaker) admit() (admitted bool, halfOpen bool) {
+	cb.mu.Lock()
+	defer cb.mu.Unlock()
+
+	switch cb.state {
 	case StateClosed:
-		return cb.executeClosed(fn)
+		return true, false
+	case StateOpen:
+		if time.Since(cb.lastFailure) < cb.config.Timeout {
+			return false, false
+		}
+		cb.state = StateHalfOpen
+		cb.halfOpenCount = 1
+		return true, true
+	case StateHalfOpen:
+		if cb.halfOpenCount >= cb.config.HalfOpenRequests {
+			return false, false
+		}
+		cb.halfOpenCount++
+		return true, true
 	default:
-		return errors.New("unknown circuit breaker state")
+		return false, false
 	}
 }
 
@@ -161,12 +188,12 @@ func (cb *CircuitBreaker) executeClosed(fn func() error) error {
 	return err
 }
 
-func (cb *CircuitBreaker) executeHalfOpen(fn func() error) error {
-	cb.mu.Lock()
-	cb.halfOpenCount++
-	currentCount := cb.halfOpenCount
-	cb.mu.Unlock()
-
+// finishHalfOpen runs fn for an already-admitted half-open trial (slot
+// reserved by admit) and applies its outcome, preserving the pre-existing
+// semantics exactly: any failure reopens the breaker via recordFailure; the
+// trial whose reservation brought halfOpenCount up to config.HalfOpenRequests
+// closes the breaker on success.
+func (cb *CircuitBreaker) finishHalfOpen(fn func() error) error {
 	err := fn()
 	if err != nil {
 		cb.recordFailure()
@@ -174,7 +201,7 @@ func (cb *CircuitBreaker) executeHalfOpen(fn func() error) error {
 	}
 
 	cb.mu.Lock()
-	if currentCount >= cb.config.HalfOpenRequests {
+	if cb.halfOpenCount >= cb.config.HalfOpenRequests {
 		cb.state = StateClosed
 		cb.failures = 0
 		cb.halfOpenCount = 0
@@ -201,14 +228,6 @@ func (cb *CircuitBreaker) recordSuccess() {
 	defer cb.mu.Unlock()
 
 	cb.failures = 0
-}
-
-func (cb *CircuitBreaker) transitionToHalfOpen() {
-	cb.mu.Lock()
-	defer cb.mu.Unlock()
-
-	cb.state = StateHalfOpen
-	cb.halfOpenCount = 0
 }
 
 // GetState returns the current state of the circuit breaker.
