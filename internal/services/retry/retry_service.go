@@ -37,6 +37,13 @@ type retryService struct {
 	databasePolicy          retry.Policy
 	externalServicesPolicy  retry.Policy
 	serviceOperationsPolicy retry.Policy
+
+	// One circuit breaker per policy type. Each protects an independent
+	// failure domain, so e.g. a database outage does not trip the breaker
+	// guarding unrelated external service calls.
+	databaseBreaker          *retry.CircuitBreaker
+	externalServicesBreaker  *retry.CircuitBreaker
+	serviceOperationsBreaker *retry.CircuitBreaker
 }
 
 // NewRetryService creates a new retry service with policies loaded from configuration
@@ -47,26 +54,39 @@ func NewRetryService(viper *viper.Viper) (RetryService, error) {
 		return nil, fmt.Errorf("failed to load retry configuration: %w", err)
 	}
 
+	// All three breakers share the same configuration, since there is only
+	// one retry.circuit_breaker block in the YAML, but each gets its own
+	// independent instance and state.
 	return &retryService{
 		databasePolicy:          config.Database,
 		externalServicesPolicy:  config.ExternalServices,
 		serviceOperationsPolicy: config.ServiceOperations,
+
+		databaseBreaker:          retry.NewCircuitBreaker(config.CircuitBreaker),
+		externalServicesBreaker:  retry.NewCircuitBreaker(config.CircuitBreaker),
+		serviceOperationsBreaker: retry.NewCircuitBreaker(config.CircuitBreaker),
 	}, nil
 }
 
 // ExecuteDatabaseOperation executes a database operation with retry logic
 func (s *retryService) ExecuteDatabaseOperation(ctx context.Context, operation func() error) error {
-	return retry.WithExponentialBackoff(ctx, s.databasePolicy, operation)
+	return s.databaseBreaker.Execute(func() error {
+		return retry.WithExponentialBackoff(ctx, s.databasePolicy, operation)
+	})
 }
 
 // ExecuteExternalServiceOperation executes an external service call with retry logic
 func (s *retryService) ExecuteExternalServiceOperation(ctx context.Context, operation func() error) error {
-	return retry.WithExponentialBackoff(ctx, s.externalServicesPolicy, operation)
+	return s.externalServicesBreaker.Execute(func() error {
+		return retry.WithExponentialBackoff(ctx, s.externalServicesPolicy, operation)
+	})
 }
 
 // ExecuteServiceOperation executes an internal service operation with retry logic
 func (s *retryService) ExecuteServiceOperation(ctx context.Context, operation func() error) error {
-	return retry.WithExponentialBackoff(ctx, s.serviceOperationsPolicy, operation)
+	return s.serviceOperationsBreaker.Execute(func() error {
+		return retry.WithExponentialBackoff(ctx, s.serviceOperationsPolicy, operation)
+	})
 }
 
 // GetDatabasePolicy returns the database retry policy
