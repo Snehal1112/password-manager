@@ -11,10 +11,156 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"sync/atomic"
 	"testing"
+	"time"
 
+	"github.com/go-jose/go-jose/v4"
 	"github.com/stretchr/testify/require"
 )
+
+// countingRetryExecutor is a minimal RetryExecutor fake for testing that
+// oidc_service.go actually routes calls through an injected executor,
+// without depending on internal/services/retry (which would create an
+// import cycle from this in-package test file). It calls operation up to
+// maxAttempts times, returning as soon as one succeeds, with no real delay —
+// the retry ALGORITHM's correctness (backoff timing, circuit breaker) is
+// already covered by internal/services/retry's own tests; this only proves
+// oidc_service.go threads calls through whatever executor it's given.
+type countingRetryExecutor struct {
+	maxAttempts int
+	calls       int
+}
+
+func (e *countingRetryExecutor) ExecuteExternalServiceOperation(ctx context.Context, operation func() error) error {
+	var lastErr error
+	for i := 0; i < e.maxAttempts; i++ {
+		e.calls++
+		lastErr = operation()
+		if lastErr == nil {
+			return nil
+		}
+	}
+	return lastErr
+}
+
+// callbackFakeIdP is a fake IdP for HandleCallback tests, exposing discovery,
+// jwks, token, and userinfo endpoints with per-endpoint call counters and
+// configurable flakiness, so tests can prove exactly which stage of
+// HandleCallback (Exchange, Verify, UserInfo) retried and which didn't.
+type callbackFakeIdP struct {
+	srv    *httptest.Server
+	key    *rsa.PrivateKey
+	issuer string
+
+	tokenCalls    int32
+	jwksCalls     int32
+	userInfoCalls int32
+
+	// jwksFailUntil: jwks requests numbered <= this value return 500.
+	jwksFailUntil int32
+	// userInfoAlwaysFail: if true, the userinfo endpoint always returns 500.
+	userInfoAlwaysFail bool
+
+	// idToken is embedded verbatim in the token endpoint's response. Must be
+	// set (via signIDToken) before HandleCallback is invoked; it is read at
+	// request time, not at server-start time, so setting it after
+	// newCallbackFakeIdP returns but before calling HandleCallback is safe.
+	idToken string
+}
+
+// newCallbackFakeIdP starts the fake IdP's HTTP server. Callers must set
+// idToken (via signIDToken) before exercising HandleCallback.
+func newCallbackFakeIdP(t *testing.T) *callbackFakeIdP {
+	t.Helper()
+	key, err := rsa.GenerateKey(rand.Reader, 2048)
+	require.NoError(t, err)
+
+	f := &callbackFakeIdP{key: key}
+
+	mux := http.NewServeMux()
+	mux.HandleFunc("/.well-known/openid-configuration", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"issuer":                                f.issuer,
+			"authorization_endpoint":                f.issuer + "/authorize",
+			"token_endpoint":                        f.issuer + "/token",
+			"jwks_uri":                              f.issuer + "/jwks",
+			"userinfo_endpoint":                     f.issuer + "/userinfo",
+			"id_token_signing_alg_values_supported": []string{"RS256"},
+		})
+	})
+	mux.HandleFunc("/jwks", func(w http.ResponseWriter, r *http.Request) {
+		n := atomic.AddInt32(&f.jwksCalls, 1)
+		if n <= atomic.LoadInt32(&f.jwksFailUntil) {
+			w.WriteHeader(http.StatusInternalServerError)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"keys": []map[string]any{{
+				"kty": "RSA", "kid": "test-key", "use": "sig", "alg": "RS256",
+				"n": jwtBase64URLEncode(key.N.Bytes()),
+				"e": jwtBase64URLEncode([]byte{1, 0, 1}),
+			}},
+		})
+	})
+	mux.HandleFunc("/token", func(w http.ResponseWriter, r *http.Request) {
+		atomic.AddInt32(&f.tokenCalls, 1)
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"access_token": "test-access-token",
+			"token_type":   "Bearer",
+			"expires_in":   3600,
+			"id_token":     f.idToken,
+		})
+	})
+	mux.HandleFunc("/userinfo", func(w http.ResponseWriter, r *http.Request) {
+		atomic.AddInt32(&f.userInfoCalls, 1)
+		if f.userInfoAlwaysFail {
+			w.WriteHeader(http.StatusInternalServerError)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"sub":   "user-123",
+			"email": "userinfo@example.com",
+		})
+	})
+
+	f.srv = httptest.NewServer(mux)
+	t.Cleanup(f.srv.Close)
+	f.issuer = f.srv.URL
+	return f
+}
+
+// signIDToken produces a compact-serialized JWT signed with f's RSA key and
+// "kid": "test-key", matching the key served from /jwks, so
+// OIDCService.HandleCallback's verifier accepts it.
+func (f *callbackFakeIdP) signIDToken(t *testing.T, clientID, subject, nonce string) string {
+	t.Helper()
+	claims := map[string]any{
+		"iss":   f.issuer,
+		"aud":   clientID,
+		"sub":   subject,
+		"nonce": nonce,
+		"exp":   time.Now().Add(time.Hour).Unix(),
+		"iat":   time.Now().Unix(),
+	}
+	payload, err := json.Marshal(claims)
+	require.NoError(t, err)
+
+	signerOpts := (&jose.SignerOptions{}).WithType("JWT").WithHeader(jose.HeaderKey("kid"), "test-key")
+	signer, err := jose.NewSigner(jose.SigningKey{Algorithm: jose.RS256, Key: f.key}, signerOpts)
+	require.NoError(t, err)
+
+	jws, err := signer.Sign(payload)
+	require.NoError(t, err)
+
+	compact, err := jws.CompactSerialize()
+	require.NoError(t, err)
+	return compact
+}
 
 // newTestOIDCProvider starts an httptest server serving a minimal OIDC
 // discovery document and JWKS so OIDCService can be constructed against it
@@ -163,4 +309,101 @@ func TestNewOIDCService_InvalidCACertPath_ReturnsClearError(t *testing.T) {
 	})
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "ca_cert_path")
+}
+
+func TestNewOIDCService_NilRetryExecutor_AttemptsOnce(t *testing.T) {
+	srv, _ := newTestOIDCProvider(t)
+
+	svc, err := NewOIDCService(context.Background(), OIDCConfig{
+		IssuerURL: srv.URL, ClientID: "client-1", ClientSecret: "secret",
+		RedirectURL: "http://localhost/callback", Scopes: []string{"openid"},
+		// RetryExecutor deliberately omitted (nil) — must behave exactly as
+		// it did before this field existed: a single discovery attempt.
+	})
+	require.NoError(t, err)
+	require.NotNil(t, svc)
+}
+
+func TestNewOIDCService_RetriesDiscoveryOnFailure(t *testing.T) {
+	var discoveryCalls int32
+	var issuer string
+	mux := http.NewServeMux()
+	mux.HandleFunc("/.well-known/openid-configuration", func(w http.ResponseWriter, r *http.Request) {
+		n := atomic.AddInt32(&discoveryCalls, 1)
+		if n < 3 {
+			// Simulate a transient failure on the first two attempts.
+			w.WriteHeader(http.StatusInternalServerError)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"issuer":                                issuer,
+			"authorization_endpoint":                issuer + "/authorize",
+			"token_endpoint":                        issuer + "/token",
+			"jwks_uri":                              issuer + "/jwks",
+			"id_token_signing_alg_values_supported": []string{"RS256"},
+		})
+	})
+	srv := httptest.NewServer(mux)
+	t.Cleanup(srv.Close)
+	issuer = srv.URL
+
+	executor := &countingRetryExecutor{maxAttempts: 5}
+	svc, err := NewOIDCService(context.Background(), OIDCConfig{
+		IssuerURL: srv.URL, ClientID: "client-1", ClientSecret: "secret",
+		RedirectURL: "http://localhost/callback", Scopes: []string{"openid"},
+		RetryExecutor: executor,
+	})
+	require.NoError(t, err, "discovery should eventually succeed once the executor retries past the transient failures")
+	require.NotNil(t, svc)
+	require.Equal(t, 3, executor.calls, "executor should have attempted discovery exactly 3 times (2 failures + 1 success)")
+	require.Equal(t, int32(3), atomic.LoadInt32(&discoveryCalls))
+}
+
+func TestHandleCallback_RetriesExchangeAndVerifyIndependently(t *testing.T) {
+	f := newCallbackFakeIdP(t)
+	f.idToken = f.signIDToken(t, "client-1", "user-123", "nonce-abc")
+
+	executor := &countingRetryExecutor{maxAttempts: 3}
+	svc, err := NewOIDCService(context.Background(), OIDCConfig{
+		IssuerURL: f.issuer, ClientID: "client-1", ClientSecret: "secret",
+		RedirectURL: "http://localhost/callback", Scopes: []string{"openid"},
+		RetryExecutor: executor,
+	})
+	require.NoError(t, err)
+
+	// jwks (needed by Verify) fails once, then succeeds — this must force a
+	// retry of Verify alone, never a second Exchange (the authorization code
+	// is single-use; replaying Exchange with an already-consumed code would
+	// be a real bug).
+	atomic.StoreInt32(&f.jwksFailUntil, 1)
+
+	identity, err := svc.HandleCallback(context.Background(), "auth-code-xyz", "nonce-abc")
+	require.NoError(t, err)
+	require.Equal(t, "user-123", identity.Subject)
+
+	require.Equal(t, int32(1), atomic.LoadInt32(&f.tokenCalls),
+		"Exchange must be attempted exactly once even though Verify needed a retry")
+	require.GreaterOrEqual(t, atomic.LoadInt32(&f.jwksCalls), int32(2),
+		"Verify should have retried its jwks fetch after the first failure")
+}
+
+func TestHandleCallback_UserInfoFailureIsSwallowed(t *testing.T) {
+	f := newCallbackFakeIdP(t)
+	f.userInfoAlwaysFail = true
+	f.idToken = f.signIDToken(t, "client-1", "user-123", "nonce-abc")
+
+	executor := &countingRetryExecutor{maxAttempts: 3}
+	svc, err := NewOIDCService(context.Background(), OIDCConfig{
+		IssuerURL: f.issuer, ClientID: "client-1", ClientSecret: "secret",
+		RedirectURL: "http://localhost/callback", Scopes: []string{"openid"},
+		RetryExecutor: executor,
+	})
+	require.NoError(t, err)
+
+	identity, err := svc.HandleCallback(context.Background(), "auth-code-xyz", "nonce-abc")
+	require.NoError(t, err, "UserInfo failing on every attempt must not fail the overall login")
+	require.Equal(t, "user-123", identity.Subject)
+	require.GreaterOrEqual(t, atomic.LoadInt32(&f.userInfoCalls), int32(3),
+		"UserInfo should have been retried up to maxAttempts before its failure was swallowed")
 }

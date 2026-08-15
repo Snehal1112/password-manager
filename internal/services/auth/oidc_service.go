@@ -51,6 +51,28 @@ func (c oidcClaims) displayName() string {
 	}
 }
 
+// RetryExecutor is the subset of retryServices.RetryService this package
+// needs. Defined locally (not imported from internal/services/retry) because
+// that package already imports this one for its Auth/User retry decorators —
+// importing it back here would create an import cycle. Go's structural
+// typing means retryServices.RetryService satisfies this interface without
+// either package needing to know about the other; test mocks can implement
+// it directly too.
+type RetryExecutor interface {
+	ExecuteExternalServiceOperation(ctx context.Context, operation func() error) error
+}
+
+// withRetry executes fn directly if executor is nil, otherwise routes it
+// through the executor's retry/circuit-breaker policy. A free function
+// rather than a method so NewOIDCService can use it before *oidcService
+// exists.
+func withRetry(ctx context.Context, executor RetryExecutor, fn func() error) error {
+	if executor == nil {
+		return fn()
+	}
+	return executor.ExecuteExternalServiceOperation(ctx, fn)
+}
+
 // OIDCConfig holds OIDCService's configuration.
 type OIDCConfig struct {
 	IssuerURL    string
@@ -69,6 +91,12 @@ type OIDCConfig struct {
 	// default) means use the system trust store only, unchanged from before
 	// this field existed.
 	CACertPath string
+	// RetryExecutor, if set, wraps each outbound network call this service
+	// makes (issuer discovery, code exchange, ID token verification,
+	// userinfo) with retry.external_services' exponential-backoff +
+	// circuit-breaker policy. Nil (the default, and the only behavior before
+	// this field existed) makes every call attempt exactly once.
+	RetryExecutor RetryExecutor
 }
 
 // OIDCService builds the OIDC authorization redirect and verifies the
@@ -92,6 +120,9 @@ type oidcService struct {
 	// so the token-exchange and userinfo calls trust the same CA pool
 	// discovery used.
 	httpClient *http.Client
+	// retryExecutor, if set, wraps outbound network calls with a retry and
+	// circuit-breaker policy. See OIDCConfig.RetryExecutor.
+	retryExecutor RetryExecutor
 }
 
 // NewOIDCService fetches the provider's discovery document (a network round
@@ -108,15 +139,21 @@ func NewOIDCService(ctx context.Context, cfg OIDCConfig) (OIDCService, error) {
 		ctx = oidc.ClientContext(ctx, httpClient)
 	}
 
-	provider, err := oidc.NewProvider(ctx, cfg.IssuerURL)
+	var provider *oidc.Provider
+	err := withRetry(ctx, cfg.RetryExecutor, func() error {
+		var err error
+		provider, err = oidc.NewProvider(ctx, cfg.IssuerURL)
+		return err
+	})
 	if err != nil {
 		return nil, fmt.Errorf("oidc: failed to discover issuer %q: %w", cfg.IssuerURL, err)
 	}
 
 	return &oidcService{
-		provider:   provider,
-		verifier:   provider.Verifier(&oidc.Config{ClientID: cfg.ClientID}),
-		httpClient: httpClient,
+		provider:      provider,
+		verifier:      provider.Verifier(&oidc.Config{ClientID: cfg.ClientID}),
+		httpClient:    httpClient,
+		retryExecutor: cfg.RetryExecutor,
 		oauth2Config: oauth2.Config{
 			ClientID:     cfg.ClientID,
 			ClientSecret: cfg.ClientSecret,
@@ -177,7 +214,12 @@ func (s *oidcService) HandleCallback(ctx context.Context, code, expectedNonce st
 		ctx = oidc.ClientContext(ctx, s.httpClient)
 	}
 
-	token, err := s.oauth2Config.Exchange(ctx, code)
+	var token *oauth2.Token
+	err := withRetry(ctx, s.retryExecutor, func() error {
+		var err error
+		token, err = s.oauth2Config.Exchange(ctx, code)
+		return err
+	})
 	if err != nil {
 		return nil, fmt.Errorf("oidc: code exchange failed: %w", err)
 	}
@@ -187,7 +229,12 @@ func (s *oidcService) HandleCallback(ctx context.Context, code, expectedNonce st
 		return nil, fmt.Errorf("oidc: token response did not include an id_token")
 	}
 
-	idToken, err := s.verifier.Verify(ctx, rawIDToken)
+	var idToken *oidc.IDToken
+	err = withRetry(ctx, s.retryExecutor, func() error {
+		var err error
+		idToken, err = s.verifier.Verify(ctx, rawIDToken)
+		return err
+	})
 	if err != nil {
 		return nil, fmt.Errorf("oidc: id_token verification failed: %w", err)
 	}
@@ -214,7 +261,12 @@ func (s *oidcService) HandleCallback(ctx context.Context, code, expectedNonce st
 	// token and only return them from userinfo. Best-effort: a failure here
 	// must not fail the login, since FindOrCreateExternalUser already falls
 	// back to the subject when PreferredUsername is empty.
-	if userInfo, err := s.provider.UserInfo(ctx, oauth2.StaticTokenSource(token)); err == nil {
+	var userInfo *oidc.UserInfo
+	if uiErr := withRetry(ctx, s.retryExecutor, func() error {
+		var err error
+		userInfo, err = s.provider.UserInfo(ctx, oauth2.StaticTokenSource(token))
+		return err
+	}); uiErr == nil {
 		var uiClaims oidcClaims
 		if err := userInfo.Claims(&uiClaims); err == nil {
 			if preferredUsername == "" {

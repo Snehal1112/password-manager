@@ -399,12 +399,13 @@ func (c *ServiceContainer) initializeServices() error {
 	// oidc.enabled is false or unset, the default.
 	if viperCfg.GetBool("oidc.enabled") {
 		oidcCfg := authServices.OIDCConfig{
-			IssuerURL:    viperCfg.GetString("oidc.issuer_url"),
-			ClientID:     viperCfg.GetString("oidc.client_id"),
-			ClientSecret: viperCfg.GetString("oidc.client_secret"),
-			RedirectURL:  viperCfg.GetString("oidc.redirect_url"),
-			Scopes:       viperCfg.GetStringSlice("oidc.scopes"),
-			CACertPath:   viperCfg.GetString("oidc.ca_cert_path"),
+			IssuerURL:     viperCfg.GetString("oidc.issuer_url"),
+			ClientID:      viperCfg.GetString("oidc.client_id"),
+			ClientSecret:  viperCfg.GetString("oidc.client_secret"),
+			RedirectURL:   viperCfg.GetString("oidc.redirect_url"),
+			Scopes:        viperCfg.GetStringSlice("oidc.scopes"),
+			CACertPath:    viperCfg.GetString("oidc.ca_cert_path"),
+			RetryExecutor: c.retryService,
 		}
 		oidcSvc, err := authServices.NewOIDCService(context.Background(), oidcCfg)
 		if err != nil {

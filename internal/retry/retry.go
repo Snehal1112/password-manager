@@ -73,6 +73,14 @@ func ExternalServicePolicy() Policy {
 			"temporary failure",
 			"service unavailable",
 			"too many requests",
+			// 5xx reason phrases: HTTP client libraries (e.g. go-oidc, when a
+			// server returns an unexpected status) often surface these in the
+			// error text verbatim rather than as a structured status code, so
+			// matching on the phrase is what actually makes a real upstream
+			// 5xx retryable. "service unavailable" (503) and "gateway timeout"
+			// (504, caught by "timeout" above) are already covered.
+			"internal server error",
+			"bad gateway",
 		},
 		JitterEnabled: true,
 	}

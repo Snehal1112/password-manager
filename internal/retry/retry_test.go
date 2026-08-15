@@ -171,6 +171,22 @@ func TestIsRetryable(t *testing.T) {
 			policy:   DatabasePolicy(),
 			expected: true,
 		},
+		{
+			// go-oidc's actual error text for an HTTP 500 from the issuer,
+			// e.g. `oidc: get keys failed: 500 Internal Server Error <body>`.
+			// A real upstream 5xx is the most common transient OIDC failure,
+			// so external_services must classify this as retryable.
+			name:     "external service 500 reason phrase",
+			err:      errors.New("oidc: get keys failed: 500 Internal Server Error"),
+			policy:   ExternalServicePolicy(),
+			expected: true,
+		},
+		{
+			name:     "external service 502 reason phrase",
+			err:      errors.New("oidc: token exchange failed: 502 Bad Gateway"),
+			policy:   ExternalServicePolicy(),
+			expected: true,
+		},
 	}
 
 	for _, tt := range tests {
