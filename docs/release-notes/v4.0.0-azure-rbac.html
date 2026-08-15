@@ -58,6 +58,26 @@ previously held <code>vault-reader</code> loses the ability to read secret value
 upgrading and retains only metadata access (name, tags, enabled state, and
 similar). If they still need value access, grant them <code>Key Vault Secrets User</code>
 (or higher) explicitly.</p>
+<h3 id="5-all-tokens-issued-before-the-upgrade-are-rejected">5. All tokens issued before the upgrade are rejected</h3>
+<p>This release links a JWT's <code>jti</code> to a database row so sessions and
+service-account clients can be revoked immediately. Tokens minted by earlier
+versions carry a random UUID unrelated to any row, so they resolve to nothing
+and are rejected on their first request after the upgrade.</p>
+<ul>
+<li><strong>User sessions</strong>: <code>jti</code> is now the <code>user_sessions</code> row ID
+(<code>internal/services/auth/authentication_service.go</code>). A pre-upgrade token
+finds no matching row, <code>IsSessionRevoked</code> treats the missing row as revoked,
+and <code>ValidateSession</code> returns <code>401 session revoked</code>. Users must log in
+again.</li>
+<li><strong>Service accounts</strong>: <code>jti</code> is now the <code>oauth2_clients</code> row ID
+(<code>client.ID</code>). A pre-upgrade token finds no matching client and
+<code>ValidateSession</code> returns <code>401 service account not found or revoked</code>.
+Request a new token from the client-credentials endpoint — no credential
+rotation is needed, the client ID and secret are unchanged.</li>
+</ul>
+<p>No data is lost, and the effect ends within one JWT lifetime (<code>jwt.expiry</code>,
+default 15m). Deploy during low-traffic hours and ensure any automation
+retries on 401 by requesting a fresh token.</p>
 <h2 id="the-roles">The roles</h2>
 <table>
 <thead>
