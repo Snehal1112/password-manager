@@ -64,7 +64,7 @@ func NewRetryService(viper *viper.Viper) (RetryService, error) {
 		return nil, fmt.Errorf("failed to load retry configuration: %w", err)
 	}
 
-	// All three breakers share the same configuration, since there is only
+	// All four breakers share the same configuration, since there is only
 	// one retry.circuit_breaker block in the YAML, but each gets its own
 	// independent instance and state.
 	return &retryService{

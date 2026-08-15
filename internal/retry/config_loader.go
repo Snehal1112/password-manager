@@ -185,11 +185,7 @@ func SetRetryDefaults(v *viper.Viper) {
 	v.SetDefault("retry.service_operations.max_delay", "2s")
 	v.SetDefault("retry.service_operations.backoff_multiplier", 1.5)
 	v.SetDefault("retry.service_operations.jitter_enabled", true)
-	v.SetDefault("retry.service_operations.retryable_errors", []string{
-		"connection refused",
-		"timeout",
-		"temporary failure",
-	})
+	v.SetDefault("retry.service_operations.retryable_errors", DefaultConfig().ServiceOperations.RetryableErrors)
 
 	// Interactive (request-path) retry defaults
 	v.SetDefault("retry.interactive.enabled", true)

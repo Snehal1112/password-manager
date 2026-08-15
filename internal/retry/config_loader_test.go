@@ -455,6 +455,12 @@ func TestSetRetryDefaults(t *testing.T) {
 			extErrors, ExternalServicePolicy().RetryableErrors)
 	}
 
+	svcOpsErrors := v.GetStringSlice("retry.service_operations.retryable_errors")
+	if !reflect.DeepEqual(svcOpsErrors, DefaultConfig().ServiceOperations.RetryableErrors) {
+		t.Errorf("retry.service_operations.retryable_errors default = %v, want %v (DefaultConfig().ServiceOperations.RetryableErrors)",
+			svcOpsErrors, DefaultConfig().ServiceOperations.RetryableErrors)
+	}
+
 	// Check interactive tier defaults exist and are bounded (new tier — see
 	// InteractivePolicy).
 	if v.GetInt("retry.interactive.max_attempts") != 2 {
