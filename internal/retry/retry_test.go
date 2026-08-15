@@ -325,11 +325,9 @@ func TestCircuitBreaker_HalfOpenAdmissionIsCapped(t *testing.T) {
 		t.Fatalf("expected state to be open after 1 failure, got %v", cb.GetState())
 	}
 
-	// Wait for the timeout to elapse, then fire far more concurrent callers
-	// than HalfOpenRequests allows right as the breaker becomes eligible to
-	// transition. Every fn() invocation blocks on admitted until the test
-	// has counted how many callers got through, so admission (not
-	// completion order) is what's under test.
+	// Wait for the timeout to elapse, then release far more pre-spawned
+	// concurrent callers than HalfOpenRequests allows, all at once via the
+	// start channel, right as the breaker becomes eligible to transition.
 	time.Sleep(config.Timeout + 10*time.Millisecond)
 
 	const concurrentCallers = 20
@@ -357,6 +355,55 @@ func TestCircuitBreaker_HalfOpenAdmissionIsCapped(t *testing.T) {
 	if got := atomic.LoadInt32(&admittedCount); got > int32(config.HalfOpenRequests) {
 		t.Errorf("expected at most %d calls admitted into the half-open trial, got %d",
 			config.HalfOpenRequests, got)
+	}
+}
+
+func TestCircuitBreaker_HalfOpenFailureReopensImmediately(t *testing.T) {
+	config := CircuitBreakerConfig{
+		FailureThreshold: 5,
+		Timeout:          20 * time.Millisecond,
+		HalfOpenRequests: 3,
+	}
+	cb := NewCircuitBreaker(config)
+
+	for i := 0; i < config.FailureThreshold; i++ {
+		_ = cb.Execute(func() error { return errors.New("failure") })
+	}
+	if cb.GetState() != StateOpen {
+		t.Fatalf("expected state to be open after %d failures, got %v", config.FailureThreshold, cb.GetState())
+	}
+
+	time.Sleep(config.Timeout + 10*time.Millisecond)
+
+	// Exhaust every half-open trial with failures. This exercises the
+	// half-open reopen path directly under a production-shaped config
+	// (HalfOpenRequests < FailureThreshold) and asserts the breaker ends up
+	// Open again and is still usable after another Timeout — i.e. it never
+	// gets stuck denying every future call.
+	for i := 0; i < config.HalfOpenRequests; i++ {
+		err := cb.Execute(func() error { return errors.New("still failing") })
+		if err == nil {
+			t.Fatalf("expected trial %d to fail", i)
+		}
+	}
+
+	if cb.GetState() != StateOpen {
+		t.Fatalf("expected state to be open again after every half-open trial failed, got %v", cb.GetState())
+	}
+
+	// The breaker must be usable again after another Timeout — proving it
+	// didn't wedge.
+	time.Sleep(config.Timeout + 10*time.Millisecond)
+	executed := false
+	err := cb.Execute(func() error {
+		executed = true
+		return nil
+	})
+	if err != nil {
+		t.Errorf("expected success after breaker reopened and timeout elapsed again, got: %v", err)
+	}
+	if !executed {
+		t.Error("function should have been executed — breaker must not be permanently wedged")
 	}
 }
 

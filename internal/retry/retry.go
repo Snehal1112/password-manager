@@ -189,14 +189,26 @@ func (cb *CircuitBreaker) executeClosed(fn func() error) error {
 }
 
 // finishHalfOpen runs fn for an already-admitted half-open trial (slot
-// reserved by admit) and applies its outcome, preserving the pre-existing
-// semantics exactly: any failure reopens the breaker via recordFailure; the
-// trial whose reservation brought halfOpenCount up to config.HalfOpenRequests
-// closes the breaker on success.
+// reserved by admit) and applies its outcome. Any half-open trial failure
+// reopens the breaker immediately, rather than delegating to
+// recordFailure's FailureThreshold-counted reopen: a single failed trial
+// during the half-open probe is standard circuit-breaker semantics for
+// re-tripping, and not coupling the half-open reopen decision to the
+// FailureThreshold counter (now that admission during half-open is capped
+// at config.HalfOpenRequests, generally well below FailureThreshold in
+// every shipped config) avoids relying on cb.failures already sitting at or
+// above FailureThreshold by the time a half-open trial is reached. The
+// trial whose reservation brought halfOpenCount up to
+// config.HalfOpenRequests still closes the breaker on success.
 func (cb *CircuitBreaker) finishHalfOpen(fn func() error) error {
 	err := fn()
 	if err != nil {
-		cb.recordFailure()
+		cb.mu.Lock()
+		cb.failures++
+		cb.lastFailure = time.Now()
+		cb.state = StateOpen
+		cb.halfOpenCount = 0
+		cb.mu.Unlock()
 		return err
 	}
 
