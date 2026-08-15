@@ -1,6 +1,7 @@
 package retry
 
 import (
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -400,6 +401,22 @@ func TestSetRetryDefaults(t *testing.T) {
 	// Check circuit breaker defaults
 	if v.GetInt("retry.circuit_breaker.failure_threshold") != 5 {
 		t.Errorf("expected circuit breaker failure threshold 5, got %d", v.GetInt("retry.circuit_breaker.failure_threshold"))
+	}
+
+	// Check retryable_errors lists match their source-of-truth Policy
+	// functions exactly — pins the fix for the defaults drifting apart
+	// (SetRetryDefaults previously hand-duplicated these lists and fell out
+	// of sync with DatabasePolicy()/ExternalServicePolicy() when the latter
+	// gained new entries).
+	dbErrors := v.GetStringSlice("retry.database.retryable_errors")
+	if !reflect.DeepEqual(dbErrors, DatabasePolicy().RetryableErrors) {
+		t.Errorf("retry.database.retryable_errors default = %v, want %v (DatabasePolicy().RetryableErrors)",
+			dbErrors, DatabasePolicy().RetryableErrors)
+	}
+	extErrors := v.GetStringSlice("retry.external_services.retryable_errors")
+	if !reflect.DeepEqual(extErrors, ExternalServicePolicy().RetryableErrors) {
+		t.Errorf("retry.external_services.retryable_errors default = %v, want %v (ExternalServicePolicy().RetryableErrors)",
+			extErrors, ExternalServicePolicy().RetryableErrors)
 	}
 }
 

@@ -151,12 +151,7 @@ func SetRetryDefaults(v *viper.Viper) {
 	v.SetDefault("retry.database.max_delay", "5s")
 	v.SetDefault("retry.database.backoff_multiplier", 2.0)
 	v.SetDefault("retry.database.jitter_enabled", true)
-	v.SetDefault("retry.database.retryable_errors", []string{
-		"connection refused",
-		"database is locked",
-		"busy",
-		"timeout",
-	})
+	v.SetDefault("retry.database.retryable_errors", DatabasePolicy().RetryableErrors)
 
 	// External services retry defaults
 	v.SetDefault("retry.external_services.enabled", true)
@@ -165,14 +160,7 @@ func SetRetryDefaults(v *viper.Viper) {
 	v.SetDefault("retry.external_services.max_delay", "30s")
 	v.SetDefault("retry.external_services.backoff_multiplier", 2.0)
 	v.SetDefault("retry.external_services.jitter_enabled", true)
-	v.SetDefault("retry.external_services.retryable_errors", []string{
-		"connection refused",
-		"no such host",
-		"timeout",
-		"temporary failure",
-		"service unavailable",
-		"too many requests",
-	})
+	v.SetDefault("retry.external_services.retryable_errors", ExternalServicePolicy().RetryableErrors)
 
 	// Service operations retry defaults
 	v.SetDefault("retry.service_operations.enabled", true)
