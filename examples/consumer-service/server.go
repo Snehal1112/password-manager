@@ -16,6 +16,7 @@ type SecretStatus struct {
 type StatusResponse struct {
 	VaultURL            string                  `json:"vault_url"`
 	ClientID            string                  `json:"client_id"`
+	Vault               string                  `json:"vault,omitempty"`
 	Secrets             map[string]SecretStatus `json:"secrets"`
 	FrontendConfig      map[string]any          `json:"frontend_config"`
 	FrontendConfigError string                  `json:"frontend_config_error,omitempty"`

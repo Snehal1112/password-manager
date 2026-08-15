@@ -1,6 +1,7 @@
 vault:
   url: "http://localhost:8774"
   client_id: "consumer-test"      # service account NAME (not UUID) — or set VAULT_CLIENT_ID env var
+  # vault_name: "prod-vault"      # target vault name — omit or leave blank for the `default` vault, or set VAULT_NAME env var
   secrets:
     - name: DB_PASSWORD
       uuid: "b748a034-d493-46cd-8d63-b080da511987"     # fill in UUID from RocketVault

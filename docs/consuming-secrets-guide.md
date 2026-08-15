@@ -21,8 +21,15 @@ startup and verifying the integration works.
 ```
 
 **Key rules:**
-- Service accounts are **read-only consumers** — admins create secrets and grant access via access policies (Azure Key Vault model).
+- Service accounts default to **read-only** access — an admin creates the secret and then grants the
+  service account a role (e.g. `Key Vault Secrets User`) scoped to the vault the secret lives in
+  (Azure role-parity RBAC). A vault's `access-policies` endpoint still exists but today only acts as an
+  explicit-**deny** override — it is not a grant mechanism, so an "allow" access policy alone does **not**
+  give a service account access. Always use a role assignment to grant access.
 - `client_id` in OAuth2 is the service account **name**, not its UUID.
+- Secrets, and the roles granted on them, are **scoped to a vault**. Every RocketVault instance ships a
+  `default` vault, but production setups commonly use named vaults (e.g. `prod-vault`) as isolated
+  security boundaries — see [Using a Named Vault](#using-a-named-vault-eg-prod-vault) below.
 - `VAULT_CLIENT_SECRET` must always come from an environment variable — never a config file.
 - RocketVault's own `.rocketvault.yaml` must have `vault_client.client_id = ""` — the server never calls itself.
 
@@ -84,8 +91,8 @@ GitHub Actions secret, AWS Secrets Manager) — never write it to a file.
 
 ## Step 2: Create Secrets and Grant Access to the Service Account
 
-Service accounts are **read-only consumers** (Azure Key Vault model). An admin creates
-the secrets and then grants the service account access via an access policy.
+Service accounts default to **read-only** access (Azure Key Vault model). An admin creates
+the secrets and then grants the service account a role, scoped to the vault the secrets live in.
 
 ### 2a. Create secrets as admin
 
@@ -109,24 +116,24 @@ API_UUID=$(curl -s -X POST http://localhost:8774/api/v1/secrets \
 echo "API_KEY UUID: $API_UUID"
 ```
 
-### 2b. Grant the service account read access via access policies
+### 2b. Grant the service account a role, scoped to the vault
+
+Access is granted via a **per-vault role assignment**, not an access policy — `access-policies` is a
+deny-only override in the current RBAC model (see Mental Model above). Grant the built-in
+`Key Vault Secrets User` role (read-only: get + list secrets) on the `default` vault:
 
 ```bash
-# Get the service account ID
+# Get the service account's UUID — the grant MUST use the UUID, not the name.
 SA_ID=$(echo $SA | jq -r '.id')
 
-# Grant "get" permission on secrets
-curl -s -X POST http://localhost:8774/api/v1/access-policies \
+curl -s -X POST http://localhost:8774/api/v1/vaults/default/role-assignments \
   -H "Authorization: Bearer $ADMIN_JWT" \
   -H "Content-Type: application/json" \
-  -d "{\"principal_id\":\"$SA_ID\",\"principal_type\":\"service_account\",\"resource_type\":\"secrets\",\"operation\":\"get\",\"effect\":\"allow\"}"
-
-# Grant "list" permission on secrets
-curl -s -X POST http://localhost:8774/api/v1/access-policies \
-  -H "Authorization: Bearer $ADMIN_JWT" \
-  -H "Content-Type: application/json" \
-  -d "{\"principal_id\":\"$SA_ID\",\"principal_type\":\"service_account\",\"resource_type\":\"secrets\",\"operation\":\"list\",\"effect\":\"allow\"}"
+  -d "{\"principal\":\"$SA_ID\",\"principal_type\":\"service_account\",\"role\":\"Key Vault Secrets User\"}"
 ```
+
+> **Important:** `principal` must be the service account's **UUID** (`$SA_ID`), never its `name`.
+> Passing the name resolves against the users table and always returns `404 principal not found`.
 
 ### 2c. Get a service account token
 
@@ -159,6 +166,7 @@ a separate module, copy the package or vendor it.
 vault:
   url: "http://localhost:8774"
   client_id: "my-app"            # service account NAME (not UUID)
+  # vault_name: "prod-vault"     # optional — target a named vault; omit for the `default` vault, or set VAULT_NAME env var
   secrets:
     - name: DB_PASSWORD
       uuid: "paste-uuid-from-step-2b-here"
@@ -184,6 +192,7 @@ client, err := vaultclient.New(vaultclient.Config{
     URL:          "http://localhost:8774",
     ClientID:     "my-app",           // service account name
     ClientSecret: os.Getenv("VAULT_CLIENT_SECRET"),
+    Vault:        "",                 // optional — e.g. "prod-vault"; empty targets the `default` vault
     Secrets: []vaultclient.SecretMapping{
         {Name: "DB_PASSWORD", UUID: "paste-uuid-here"},
         {Name: "API_KEY",     UUID: "paste-uuid-here"},
@@ -209,6 +218,7 @@ apiKey     := secrets["API_KEY"]
 export VAULT_URL="http://localhost:8774"
 export VAULT_CLIENT_ID="my-app"
 export VAULT_CLIENT_SECRET="<secret from step 1b>"
+# export VAULT_NAME="prod-vault"    # optional — target a named vault; omit for the `default` vault
 
 # Space-separated list of VAR_NAME=uuid pairs
 export VAULT_SECRETS="DB_PASSWORD=<uuid> API_KEY=<uuid>"
@@ -254,6 +264,10 @@ Response:
 {"id": "...", "name": "DB_PASSWORD", "value": "your-database-password", ...}
 ```
 
+To fetch from a named vault instead of `default`, add the vault name to the path:
+`GET /api/v1/vaults/<vault-name>/secrets/<uuid>` — see
+[Using a Named Vault](#using-a-named-vault-eg-prod-vault) below.
+
 ---
 
 ## Step 4: Test with the Consumer Service
@@ -293,6 +307,130 @@ Expected `/status` response when everything is working:
 
 ---
 
+## Using a Named Vault (e.g. `prod-vault`)
+
+Everything above targets the `default` vault, which every RocketVault instance ships with. Production
+setups commonly isolate secrets in a dedicated named vault instead — each vault is its own security
+boundary with its own secrets and its own role assignments. This section reuses the service account
+created in Step 1 (`$ADMIN_JWT`, `$SA`, `$SA_NAME`, `$SA_SECRET`) and walks through granting it access to
+a vault called `prod-vault`.
+
+### A. Create the vault
+
+```bash
+curl -s -X POST http://localhost:8774/api/v1/vaults \
+  -H "Authorization: Bearer $ADMIN_JWT" \
+  -H "Content-Type: application/json" \
+  -d '{"name":"prod-vault"}'
+```
+
+Requires the admin role (or a global `vaults/manage` grant) — creating a vault is a vault-*management*
+operation, not a data-plane one, so it isn't gated by role assignments on the vault itself.
+
+### B. Create a secret inside `prod-vault`
+
+Same request body as Step 2a, just a vault-scoped path:
+
+```bash
+DB_UUID=$(curl -s -X POST http://localhost:8774/api/v1/vaults/prod-vault/secrets \
+  -H "Authorization: Bearer $ADMIN_JWT" \
+  -H "Content-Type: application/json" \
+  -d '{"name":"DB_PASSWORD","value":"prod-database-password"}' \
+  | jq -r '.id')
+
+echo "DB_PASSWORD UUID in prod-vault: $DB_UUID"
+```
+
+### C. Grant the service account a role scoped to `prod-vault`
+
+Same as Step 2b, but the role-assignment path names `prod-vault` instead of `default`:
+
+```bash
+SA_ID=$(echo $SA | jq -r '.id')
+
+curl -s -X POST http://localhost:8774/api/v1/vaults/prod-vault/role-assignments \
+  -H "Authorization: Bearer $ADMIN_JWT" \
+  -H "Content-Type: application/json" \
+  -d "{\"principal\":\"$SA_ID\",\"principal_type\":\"service_account\",\"role\":\"Key Vault Secrets User\"}"
+```
+
+This role grant is scoped to `prod-vault` only — the service account still has no access to `default`
+or any other vault unless granted separately. A token issued for this service account has no notion of
+"vault" baked in; authorization is checked per-request against whichever vault the request path names.
+
+### D. Fetch the secret with the service account's token
+
+```bash
+SA_TOKEN=$(curl -s -X POST http://localhost:8774/api/v1/oauth2/token \
+  -H "Content-Type: application/x-www-form-urlencoded" \
+  --data-urlencode "grant_type=client_credentials" \
+  --data-urlencode "client_id=$SA_NAME" \
+  --data-urlencode "client_secret=$SA_SECRET" \
+  | jq -r '.access_token')
+
+curl -s http://localhost:8774/api/v1/vaults/prod-vault/secrets/$DB_UUID \
+  -H "Authorization: Bearer $SA_TOKEN" | jq .
+```
+
+Fetching the same UUID via the legacy `/api/v1/secrets/$DB_UUID` path (no `prod-vault` in the path)
+will **not** work — that path always resolves to the `default` vault regardless of which vault the
+UUID actually belongs to, so it returns a not-found/access-denied error. The vault name must be in
+the request path.
+
+### E. Configure the `vaultclient` package or consumer-service example for `prod-vault`
+
+**Go code:**
+
+```go
+client, err := vaultclient.New(vaultclient.Config{
+    URL:          "http://localhost:8774",
+    ClientID:     "my-app",
+    ClientSecret: os.Getenv("VAULT_CLIENT_SECRET"),
+    Vault:        "prod-vault",
+    Secrets: []vaultclient.SecretMapping{
+        {Name: "DB_PASSWORD", UUID: "paste-prod-vault-uuid-here"},
+    },
+})
+```
+
+**`examples/consumer-service/config.yaml`:**
+
+```yaml
+vault:
+  url: "http://localhost:8774"
+  client_id: "consumer-test"
+  vault_name: "prod-vault"
+  secrets:
+    - name: DB_PASSWORD
+      uuid: "paste-prod-vault-uuid-here"
+```
+
+Or without editing the file, override at runtime:
+
+```bash
+export VAULT_CLIENT_SECRET="$SA_SECRET"
+export VAULT_NAME="prod-vault"
+go run ./examples/consumer-service/
+```
+
+`GET /status` now reports `"vault": "prod-vault"` alongside the loaded secrets, confirming the fetch
+went through the vault-scoped path.
+
+**Shell script (Option B):**
+
+```bash
+export VAULT_URL="http://localhost:8774"
+export VAULT_CLIENT_ID="$SA_NAME"
+export VAULT_CLIENT_SECRET="$SA_SECRET"
+export VAULT_NAME="prod-vault"
+export VAULT_SECRETS="DB_PASSWORD=$DB_UUID"
+
+source scripts/rocketvault-fetch-secrets.sh
+echo "DB_PASSWORD is set: ${DB_PASSWORD:+yes}"
+```
+
+---
+
 ## Step 5: Fetch Frontend Config (Web Apps)
 
 `GET /api/v1/config` is public — no authentication required. It returns non-sensitive
@@ -328,8 +466,10 @@ frontend:
 | `connect: connection refused` | RocketVault not running, or wrong URL/port | Start `./rocketvault serve`, check `vault.url` |
 | `token endpoint returned 404` | Wrong OAuth2 path | Must be `/api/v1/oauth2/token`, not `/oauth2/token` |
 | `authentication failed` | Wrong `client_id` or `client_secret` | `client_id` is the service account **name**, not UUID |
-| `secret not found` | UUID belongs to a different owner | Create the secret using the service account token (Step 2b), not the admin token |
-| `insufficient permissions` | Role missing permission | Service accounts have `PermissionReadSecret` and `PermissionListSecrets` |
+| `secret not found` fetching from a named vault | Used the legacy `/api/v1/secrets/{uuid}` path (or left `vault_name`/`Vault` unset) for a secret that lives in a non-default vault | Set `vault_name` (consumer-service config), `Config.Vault` (Go), or `VAULT_NAME` (shell script/env) to the vault the secret actually belongs to |
+| `principal not found` granting a role assignment | Passed the service account's `name` as `principal` | `principal` must be the service account's **UUID** (`id` from `POST /service-accounts`), never its name |
+| access policy "allow" entry has no effect | `access-policies` is a deny-only override in the current RBAC model | Grant access via `POST /api/v1/vaults/{vault}/role-assignments` instead (Step 2b) |
+| `insufficient permissions` / `403` on a data-plane call | No role assignment for this service account on this vault, or the granted role lacks the needed data action | Grant `Key Vault Secrets User` (or another role, per `.claude/azure-keyvault-parity.md`) scoped to the correct vault |
 | `vault client init: Config.ClientSecret is required` | `VAULT_CLIENT_SECRET` env var not set | `export VAULT_CLIENT_SECRET="..."` |
 | Server errors on `./rocketvault serve` | `vault_client.client_id` set in `.rocketvault.yaml` | Clear `client_id` — the server must not call itself |
 
@@ -339,7 +479,10 @@ frontend:
 
 - `VAULT_CLIENT_SECRET` is in env vars only — never in a config file or git
 - `vault_client.client_id` is empty in `.rocketvault.yaml` on the RocketVault server
-- Secrets are created using the service account token, not the admin token
+- Secrets and role assignments are created by an admin; each service account only ever holds the
+  read-only role(s) it needs, scoped to the specific vault(s) it needs them in
+- A service account granted a role on `prod-vault` has no access to `default` (or any other vault)
+  unless separately granted there — role assignments do not cascade across vaults
 - Each application has its own service account with the minimum required permissions
 - Secret values are never logged (the `vaultclient` package logs names only)
 - Rotate service account secrets periodically via `POST /api/v1/service-accounts/{id}/rotate`

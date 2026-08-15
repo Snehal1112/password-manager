@@ -24,6 +24,7 @@ func main() {
 		URL:          cfg.VaultURL,
 		ClientID:     cfg.ClientID,
 		ClientSecret: cfg.ClientSecret,
+		Vault:        cfg.Vault,
 	})
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "vault client: %v\n", err)
@@ -68,6 +69,7 @@ func main() {
 	status := StatusResponse{
 		VaultURL:       cfg.VaultURL,
 		ClientID:       cfg.ClientID,
+		Vault:          cfg.Vault,
 		Secrets:        secretStatuses,
 		FrontendConfig: frontendCfg,
 	}
@@ -77,7 +79,11 @@ func main() {
 
 	srv := NewServer(status, cfg.Listen)
 	fmt.Printf("consumer service listening on %s\n", cfg.Listen)
-	fmt.Printf("  vault: %s (client_id: %s)\n", cfg.VaultURL, cfg.ClientID)
+	vaultName := cfg.Vault
+	if vaultName == "" {
+		vaultName = "default"
+	}
+	fmt.Printf("  vault: %s (client_id: %s, vault: %s)\n", cfg.VaultURL, cfg.ClientID, vaultName)
 	fmt.Printf("  GET %s/status  — secret load results\n", cfg.Listen)
 	fmt.Printf("  GET %s/healthz — liveness check\n", cfg.Listen)
 

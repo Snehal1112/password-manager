@@ -14,6 +14,7 @@ type AppConfig struct {
 	VaultURL     string
 	ClientID     string
 	ClientSecret string
+	Vault        string
 	Secrets      []vaultclient.SecretMapping
 	Listen       string
 }
@@ -45,6 +46,12 @@ func loadConfig() (*AppConfig, error) {
 	// client_secret is env-only — never stored in config file.
 	clientSecret := os.Getenv("VAULT_CLIENT_SECRET")
 
+	// vault_name is optional — empty targets the server's `default` vault.
+	vault := v.GetString("vault.vault_name")
+	if env := os.Getenv("VAULT_NAME"); env != "" {
+		vault = env
+	}
+
 	var secrets []vaultclient.SecretMapping
 	if err := v.UnmarshalKey("vault.secrets", &secrets); err != nil {
 		return nil, fmt.Errorf("loadConfig: vault.secrets: %w", err)
@@ -59,6 +66,7 @@ func loadConfig() (*AppConfig, error) {
 		VaultURL:     url,
 		ClientID:     clientID,
 		ClientSecret: clientSecret,
+		Vault:        vault,
 		Secrets:      secrets,
 		Listen:       listen,
 	}, nil

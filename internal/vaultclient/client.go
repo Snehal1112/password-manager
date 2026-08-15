@@ -39,6 +39,11 @@ type Config struct {
 	ClientID     string          `yaml:"client_id"     mapstructure:"client_id"`
 	ClientSecret string          `yaml:"client_secret" mapstructure:"client_secret"`
 	Secrets      []SecretMapping `yaml:"secrets"       mapstructure:"secrets"`
+	// Vault optionally scopes secret fetches to a named vault (e.g. "prod-vault")
+	// via /api/v1/vaults/{vault}/secrets/{uuid}. Empty (the zero value) uses the
+	// legacy /api/v1/secrets/{uuid} path, which the server resolves to the
+	// `default` vault — existing callers that don't set Vault are unaffected.
+	Vault string `yaml:"vault" mapstructure:"vault"`
 	// AllowInsecureHTTP permits a non-https URL for non-loopback hosts. New
 	// always allows plain http:// to 127.0.0.1/localhost/::1 (local dev,
 	// tests) regardless of this flag. Defaults to false — set true only when
@@ -169,6 +174,7 @@ func NewFromViper() (*Client, error) {
 		ClientID:          viper.GetString("vault_client.client_id"),
 		ClientSecret:      secret,
 		Secrets:           mappings,
+		Vault:             viper.GetString("vault_client.vault"),
 		AllowInsecureHTTP: viper.GetBool("vault_client.allow_insecure_http"),
 		RetryPolicy:       retryPolicy,
 	})
@@ -198,7 +204,7 @@ func (c *Client) Get(ctx context.Context, uuid string) (string, error) {
 		}
 
 		req, err := http.NewRequestWithContext(ctx, http.MethodGet,
-			c.cfg.URL+"/api/v1/secrets/"+uuid, nil)
+			c.secretURL(uuid), nil)
 		if err != nil {
 			terminalErr = fmt.Errorf("vaultclient: build request: %w", err)
 			return retry.NonRetryable(terminalErr)
@@ -257,6 +263,15 @@ func (c *Client) Get(ctx context.Context, uuid string) (string, error) {
 		return "", retryErr
 	}
 	return value, nil
+}
+
+// secretURL builds the endpoint to fetch a secret by UUID — vault-scoped when
+// cfg.Vault is set, or the legacy default-vault path otherwise.
+func (c *Client) secretURL(uuid string) string {
+	if c.cfg.Vault == "" {
+		return c.cfg.URL + "/api/v1/secrets/" + uuid
+	}
+	return c.cfg.URL + "/api/v1/vaults/" + url.PathEscape(c.cfg.Vault) + "/secrets/" + uuid
 }
 
 // GetByName fetches a secret by logical name, resolved to UUID via the config mapping.
