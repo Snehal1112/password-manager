@@ -1,0 +1,28 @@
+meta {
+  name: Upsert Certificate Policy
+  type: http
+  seq: 7
+}
+
+put {
+  url: {{base_url}}/api/v1/vaults/{{vault_name}}/certificates/{{certificate_id}}/policy
+  body: json
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{token}}
+}
+
+body:json {
+  {
+    "validity_months": 12,
+    "key_type": "RSA",
+    "key_size": 2048,
+    "subject": "CN=my-cert",
+    "sans": "DNS:example.com,DNS:www.example.com",
+    "auto_renew": true,
+    "days_before_expiry": 30,
+    "issuer_name": "Self"
+  }
+}

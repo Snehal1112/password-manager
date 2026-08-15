@@ -1,0 +1,34 @@
+meta {
+  name: OIDC CLI Exchange
+  type: http
+  seq: 3
+}
+
+post {
+  url: {{base_url}}/api/v1/oidc/cli/exchange
+  body: json
+  auth: none
+}
+
+body:json {
+  {
+    "code": "{{oidc_cli_code}}"
+  }
+}
+
+script:post-response {
+  const res = bru.response.getBody();
+  if (res && res.token) {
+    bru.setEnvVar("token", res.token);
+    console.log("Token captured successfully");
+  }
+}
+
+docs {
+  Redeems the one-time `code` minted by GET /oidc/callback's CLI
+  loopback redirect for the session it stands in for. Single-use and
+  expires 60 seconds after minting — a second call, or a call after
+  expiry, returns 410 Gone. Response body is the same
+  `model.LoginResponse` shape as POST /users/login
+  (token, refresh_token, user_id, username, role).
+}

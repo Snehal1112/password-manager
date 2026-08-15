@@ -1,0 +1,27 @@
+meta {
+  name: Query Audit Logs
+  type: http
+  seq: 1
+}
+
+get {
+  url: {{base_url}}/api/v1/audit/logs
+  body: none
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{token}}
+}
+
+params:query {
+  limit: 100
+  ~from: 2026-01-01T00:00:00Z
+  ~to: 2026-12-31T23:59:59Z
+  ~user_id: {{user_id}}
+  ~action: auth
+  ~outcome: success
+  ~resource_type: secret
+  ~resource_id: {{secret_id}}
+  ~source: api
+}

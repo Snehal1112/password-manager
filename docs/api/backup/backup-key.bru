@@ -1,0 +1,15 @@
+meta {
+  name: Backup Key
+  type: http
+  seq: 3
+}
+
+post {
+  url: {{base_url}}/api/v1/keys/{{key_id}}/backup
+  body: none
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{token}}
+}

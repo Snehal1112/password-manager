@@ -1,0 +1,23 @@
+meta {
+  name: Decrypt Key
+  type: http
+  seq: 13
+}
+
+post {
+  url: {{base_url}}/api/v1/vaults/{{vault_name}}/keys/{{key_id}}/decrypt
+  body: json
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{token}}
+}
+
+body:json {
+  {
+    "value": "<base64-encoded-ciphertext>",
+    "nonce": "<base64-encoded-nonce-for-AES256-GCM>",
+    "algorithm": "RSA-OAEP"
+  }
+}

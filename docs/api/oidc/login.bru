@@ -1,0 +1,28 @@
+meta {
+  name: OIDC Login
+  type: http
+  seq: 1
+}
+
+get {
+  url: {{base_url}}/api/v1/oidc/login
+  body: none
+  auth: none
+}
+
+params:query {
+  ~cli_redirect_uri: http://127.0.0.1:{{cli_port}}
+}
+
+docs {
+  Redirects the browser to the configured OIDC provider's authorization
+  endpoint. Requires `oidc.enabled: true` in server config; otherwise
+  returns 503.
+
+  `cli_redirect_uri` is optional and only used by the CLI loopback login
+  flow (`rocketvault users login --oidc`). When present it must be
+  `http://127.0.0.1:<port>` or `http://localhost:<port>` — any other
+  scheme or host is rejected with 400. Omit it for a normal browser
+  login, in which case the callback returns the session directly.
+}
+

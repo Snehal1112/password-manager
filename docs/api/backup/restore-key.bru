@@ -1,0 +1,21 @@
+meta {
+  name: Restore Key
+  type: http
+  seq: 4
+}
+
+post {
+  url: {{base_url}}/api/v1/keys/restore
+  body: json
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{token}}
+}
+
+body:json {
+  {
+    "blob": "base64-encoded-backup-blob"
+  }
+}

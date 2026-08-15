@@ -1,0 +1,15 @@
+meta {
+  name: Delete Role Assignment
+  type: http
+  seq: 4
+}
+
+delete {
+  url: {{base_url}}/api/v1/vaults/{{vault_name}}/role-assignments/{{assignment_id}}
+  body: none
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{token}}
+}

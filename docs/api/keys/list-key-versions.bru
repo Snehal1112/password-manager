@@ -1,0 +1,15 @@
+meta {
+  name: List Key Versions
+  type: http
+  seq: 9
+}
+
+get {
+  url: {{base_url}}/api/v1/vaults/{{vault_name}}/keys/{{key_id}}/versions
+  body: none
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{token}}
+}

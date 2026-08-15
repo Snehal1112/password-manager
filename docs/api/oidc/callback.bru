@@ -1,0 +1,31 @@
+meta {
+  name: OIDC Callback
+  type: http
+  seq: 2
+}
+
+get {
+  url: {{base_url}}/api/v1/oidc/callback
+  body: none
+  auth: none
+}
+
+params:query {
+  state: {{oidc_state}}
+  code: {{oidc_code}}
+}
+
+docs {
+  This is the OIDC provider's redirect target, not an endpoint you call
+  directly from Bruno — it's normally reached by the browser navigating
+  away from the provider after login, carrying the state/code cookies
+  set by GET /oidc/login. Calling it standalone will fail the
+  oidc_state/oidc_nonce cookie checks.
+
+  On success it either:
+  - returns a JSON body (`model.LoginResponse`: token, refresh_token,
+    user_id, username, role) directly, for a normal browser login, or
+  - 302-redirects to the `cli_redirect_uri` supplied to GET /oidc/login
+    with a one-time `?code=` for the CLI loopback flow, exchanged via
+    POST /oidc/cli/exchange.
+}

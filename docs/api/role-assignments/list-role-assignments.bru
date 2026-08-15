@@ -1,0 +1,15 @@
+meta {
+  name: List Role Assignments
+  type: http
+  seq: 1
+}
+
+get {
+  url: {{base_url}}/api/v1/vaults/{{vault_name}}/role-assignments
+  body: none
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{token}}
+}

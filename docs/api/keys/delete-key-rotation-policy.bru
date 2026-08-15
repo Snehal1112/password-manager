@@ -1,0 +1,15 @@
+meta {
+  name: Delete Key Rotation Policy
+  type: http
+  seq: 16
+}
+
+delete {
+  url: {{base_url}}/api/v1/vaults/{{vault_name}}/keys/{{key_id}}/rotationpolicy
+  body: none
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{token}}
+}

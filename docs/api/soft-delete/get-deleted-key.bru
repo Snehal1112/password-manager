@@ -1,0 +1,15 @@
+meta {
+  name: Get Deleted Key
+  type: http
+  seq: 10
+}
+
+get {
+  url: {{base_url}}/api/v1/deleted/keys/{{key_id}}
+  body: none
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{token}}
+}

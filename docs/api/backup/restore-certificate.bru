@@ -1,0 +1,21 @@
+meta {
+  name: Restore Certificate
+  type: http
+  seq: 6
+}
+
+post {
+  url: {{base_url}}/api/v1/certificates/restore
+  body: json
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{token}}
+}
+
+body:json {
+  {
+    "blob": "base64-encoded-backup-blob"
+  }
+}

@@ -1,0 +1,23 @@
+meta {
+  name: Create Role Assignment
+  type: http
+  seq: 2
+}
+
+post {
+  url: {{base_url}}/api/v1/vaults/{{vault_name}}/role-assignments
+  body: json
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{token}}
+}
+
+body:json {
+  {
+    "principal": "{{user_id}}",
+    "principal_type": "user",
+    "role": "Key Vault Secrets User"
+  }
+}

@@ -1,0 +1,20 @@
+meta {
+  name: Get SOC 2 Report
+  type: http
+  seq: 2
+}
+
+get {
+  url: {{base_url}}/api/v1/audit/reports/soc2
+  body: none
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{token}}
+}
+
+params:query {
+  from: 2026-01-01T00:00:00Z
+  to: 2026-12-31T23:59:59Z
+}

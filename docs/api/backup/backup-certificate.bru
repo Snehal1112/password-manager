@@ -1,0 +1,15 @@
+meta {
+  name: Backup Certificate
+  type: http
+  seq: 5
+}
+
+post {
+  url: {{base_url}}/api/v1/certificates/{{certificate_id}}/backup
+  body: none
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{token}}
+}

@@ -1,0 +1,22 @@
+meta {
+  name: Encrypt Key
+  type: http
+  seq: 12
+}
+
+post {
+  url: {{base_url}}/api/v1/vaults/{{vault_name}}/keys/{{key_id}}/encrypt
+  body: json
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{token}}
+}
+
+body:json {
+  {
+    "value": "<base64-encoded-plaintext>",
+    "algorithm": "RSA-OAEP"
+  }
+}

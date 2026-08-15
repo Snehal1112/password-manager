@@ -1,0 +1,21 @@
+meta {
+  name: Get GDPR Report
+  type: http
+  seq: 3
+}
+
+get {
+  url: {{base_url}}/api/v1/audit/reports/gdpr
+  body: none
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{token}}
+}
+
+params:query {
+  subject_id: {{user_id}}
+  from: 2026-01-01T00:00:00Z
+  to: 2026-12-31T23:59:59Z
+}
