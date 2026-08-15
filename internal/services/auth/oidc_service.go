@@ -60,6 +60,7 @@ func (c oidcClaims) displayName() string {
 // it directly too.
 type RetryExecutor interface {
 	ExecuteExternalServiceOperation(ctx context.Context, operation func() error) error
+	ExecuteInteractiveOperation(ctx context.Context, operation func() error) error
 }
 
 // withRetry executes fn directly if executor is nil, otherwise routes it
@@ -71,6 +72,19 @@ func withRetry(ctx context.Context, executor RetryExecutor, fn func() error) err
 		return fn()
 	}
 	return executor.ExecuteExternalServiceOperation(ctx, fn)
+}
+
+// withInteractiveRetry is withRetry's counterpart for calls on a
+// synchronous, user-facing request path (see
+// RetryExecutor.ExecuteInteractiveOperation) — used by HandleCallback's
+// Verify and UserInfo calls, which hold an HTTP response open while they
+// run and so cannot use ExecuteExternalServiceOperation's much longer
+// worst-case backoff budget.
+func withInteractiveRetry(ctx context.Context, executor RetryExecutor, fn func() error) error {
+	if executor == nil {
+		return fn()
+	}
+	return executor.ExecuteInteractiveOperation(ctx, fn)
 }
 
 // OIDCConfig holds OIDCService's configuration.
@@ -232,7 +246,7 @@ func (s *oidcService) HandleCallback(ctx context.Context, code, expectedNonce st
 	}
 
 	var idToken *oidc.IDToken
-	err = withRetry(ctx, s.retryExecutor, func() error {
+	err = withInteractiveRetry(ctx, s.retryExecutor, func() error {
 		var err error
 		idToken, err = s.verifier.Verify(ctx, rawIDToken)
 		return err
@@ -264,7 +278,7 @@ func (s *oidcService) HandleCallback(ctx context.Context, code, expectedNonce st
 	// must not fail the login, since FindOrCreateExternalUser already falls
 	// back to the subject when PreferredUsername is empty.
 	var userInfo *oidc.UserInfo
-	if uiErr := withRetry(ctx, s.retryExecutor, func() error {
+	if uiErr := withInteractiveRetry(ctx, s.retryExecutor, func() error {
 		var err error
 		userInfo, err = s.provider.UserInfo(ctx, oauth2.StaticTokenSource(token))
 		return err

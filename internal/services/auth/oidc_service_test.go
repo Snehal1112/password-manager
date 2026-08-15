@@ -28,14 +28,27 @@ import (
 // already covered by internal/services/retry's own tests; this only proves
 // oidc_service.go threads calls through whatever executor it's given.
 type countingRetryExecutor struct {
-	maxAttempts int
-	calls       int
+	maxAttempts      int
+	calls            int
+	interactiveCalls int
 }
 
 func (e *countingRetryExecutor) ExecuteExternalServiceOperation(ctx context.Context, operation func() error) error {
 	var lastErr error
 	for i := 0; i < e.maxAttempts; i++ {
 		e.calls++
+		lastErr = operation()
+		if lastErr == nil {
+			return nil
+		}
+	}
+	return lastErr
+}
+
+func (e *countingRetryExecutor) ExecuteInteractiveOperation(ctx context.Context, operation func() error) error {
+	var lastErr error
+	for i := 0; i < e.maxAttempts; i++ {
+		e.interactiveCalls++
 		lastErr = operation()
 		if lastErr == nil {
 			return nil
@@ -435,6 +448,32 @@ func TestHandleCallback_ExchangeIsNeverRetried(t *testing.T) {
 		"Exchange must be attempted exactly once at our layer — the 2 HTTP calls are both the oauth2 "+
 			"library's own internal auth-style probe within that single attempt, not a retry by our wrapper; "+
 			"a third call would mean our wrapper retried and replayed the single-use authorization code")
+}
+
+func TestHandleCallback_VerifyAndUserInfoUseInteractivePolicy(t *testing.T) {
+	f := newCallbackFakeIdP(t)
+	f.idToken = f.signIDToken(t, "client-1", "user-123", "nonce-abc")
+
+	executor := &countingRetryExecutor{maxAttempts: 3}
+	svc, err := NewOIDCService(context.Background(), OIDCConfig{
+		IssuerURL: f.issuer, ClientID: "client-1", ClientSecret: "secret",
+		RedirectURL: "http://localhost/callback", Scopes: []string{"openid"},
+		RetryExecutor: executor,
+	})
+	require.NoError(t, err)
+	// NewOIDCService's discovery call already used one
+	// ExecuteExternalServiceOperation attempt above; reset so this test
+	// only observes calls made by HandleCallback itself.
+	executor.calls = 0
+
+	identity, err := svc.HandleCallback(context.Background(), "auth-code-xyz", "nonce-abc")
+	require.NoError(t, err)
+	require.Equal(t, "user-123", identity.Subject)
+
+	require.Equal(t, 0, executor.calls,
+		"HandleCallback must not use ExecuteExternalServiceOperation: Exchange is never retried (Task 3) and Verify/UserInfo must use the interactive policy instead")
+	require.Equal(t, 2, executor.interactiveCalls,
+		"Verify and UserInfo should each make exactly one successful call through the interactive policy")
 }
 
 func TestHandleCallback_UserInfoFailureIsSwallowed(t *testing.T) {
