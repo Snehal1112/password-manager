@@ -149,8 +149,25 @@ with no path back to `Open` or forward to `Closed`. `finishHalfOpen` now
 reopens the breaker unconditionally on any half-open trial failure, matching
 standard circuit-breaker semantics; `recordFailure` itself is untouched —
 `executeClosed`'s failure path still uses it as before (`455461b`).
-`29f3c41`/`455461b` add `TestCircuitBreaker_HalfOpenAdmissionIsCapped` and
-`TestCircuitBreaker_HalfOpenFailureReopensImmediately` to pin both fixes down.
+`40b865b` adds `TestCircuitBreaker_HalfOpenAdmissionIsCapped` to pin down the
+admission-race fix, and `455461b` adds
+`TestCircuitBreaker_HalfOpenFailureReopensImmediately` to exercise the
+half-open reopen path under a production-shaped config. Neither test alone
+actually reaches the specific state the wedge fix protects against —
+`recordFailure()` only sets `state=Open` once `cb.failures` is already at or
+above `FailureThreshold`, which happens to already hold by the time a
+sequential trip reaches `Open`, so both tests still pass even against a
+version of `finishHalfOpen` that delegates to `recordFailure`. `29f3c41`
+closes that gap with a third test,
+`TestCircuitBreaker_LateSuccessDoesNotCausePermanentHalfOpenWedge`, which
+reproduces the real reachable path deterministically: a closed-state call
+admitted before the trip completes successfully after the trip and calls
+the unexported `recordSuccess()` directly (reachable since the test is in
+package `retry`), zeroing `cb.failures` while `state` is already `Open` with
+no check on `cb.state` — from there, `HalfOpenRequests` failed half-open
+trials are never enough to re-cross `FailureThreshold` under the old
+delegating-to-`recordFailure` logic. This test was verified to fail against
+the pre-`455461b` `finishHalfOpen` and pass against the current fix.
 
 ---
 
