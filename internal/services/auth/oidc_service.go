@@ -214,12 +214,14 @@ func (s *oidcService) HandleCallback(ctx context.Context, code, expectedNonce st
 		ctx = oidc.ClientContext(ctx, s.httpClient)
 	}
 
-	var token *oauth2.Token
-	err := withRetry(ctx, s.retryExecutor, func() error {
-		var err error
-		token, err = s.oauth2Config.Exchange(ctx, code)
-		return err
-	})
+	// Exchange redeems a single-use authorization code — it is not safe to
+	// retry. If the response is lost after the IdP has already processed
+	// the request (e.g. a timeout), replaying it sends the same code again
+	// and the IdP correctly rejects it as invalid_grant, turning what was
+	// actually a successful exchange into a failed login. Call it exactly
+	// once; on failure the user can simply retry the login from the start,
+	// which obtains a fresh code.
+	token, err := s.oauth2Config.Exchange(ctx, code)
 	if err != nil {
 		return nil, fmt.Errorf("oidc: code exchange failed: %w", err)
 	}

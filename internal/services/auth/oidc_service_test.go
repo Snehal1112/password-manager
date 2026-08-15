@@ -59,6 +59,8 @@ type callbackFakeIdP struct {
 
 	// jwksFailUntil: jwks requests numbered <= this value return 500.
 	jwksFailUntil int32
+	// tokenFailUntil: token requests numbered <= this value return 500.
+	tokenFailUntil int32
 	// userInfoAlwaysFail: if true, the userinfo endpoint always returns 500.
 	userInfoAlwaysFail bool
 
@@ -106,7 +108,11 @@ func newCallbackFakeIdP(t *testing.T) *callbackFakeIdP {
 		})
 	})
 	mux.HandleFunc("/token", func(w http.ResponseWriter, r *http.Request) {
-		atomic.AddInt32(&f.tokenCalls, 1)
+		n := atomic.AddInt32(&f.tokenCalls, 1)
+		if n <= atomic.LoadInt32(&f.tokenFailUntil) {
+			w.WriteHeader(http.StatusInternalServerError)
+			return
+		}
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(map[string]any{
 			"access_token": "test-access-token",
@@ -386,6 +392,49 @@ func TestHandleCallback_RetriesExchangeAndVerifyIndependently(t *testing.T) {
 		"Exchange must be attempted exactly once even though Verify needed a retry")
 	require.GreaterOrEqual(t, atomic.LoadInt32(&f.jwksCalls), int32(2),
 		"Verify should have retried its jwks fetch after the first failure")
+}
+
+func TestHandleCallback_ExchangeIsNeverRetried(t *testing.T) {
+	f := newCallbackFakeIdP(t)
+	f.idToken = f.signIDToken(t, "client-1", "user-123", "nonce-abc")
+	// tokenFailUntil is 2, not 1, because golang.org/x/oauth2's Exchange has
+	// its own internal behavior independent of our retry wrapper: on its
+	// first-ever call for a given oauth2.Config (AuthStyle unset, i.e.
+	// AuthStyleAutoDetect), a request error makes it transparently retry
+	// once more with the other client-auth style before giving up
+	// (golang.org/x/oauth2/internal.RetrieveToken's auth-style probing).
+	// That means a single injected /token failure (tokenFailUntil=1) gets
+	// silently absorbed by the library itself and Exchange still succeeds —
+	// true regardless of whether our own retry wrapper is present, so it
+	// can't distinguish the fix from the bug (verified empirically: both
+	// the buggy and fixed code produce tokenCalls=2, err=nil for
+	// tokenFailUntil=1).
+	//
+	// Setting tokenFailUntil=2 fails both of the library's internal
+	// auth-style attempts, so a single logical call to
+	// s.oauth2Config.Exchange exhausts them (2 HTTP requests) and returns
+	// an error. If our retry wrapper were still present, it would call
+	// Exchange again — and that second logical call's first HTTP request
+	// (request #3) is past tokenFailUntil, so it would succeed, silently
+	// replaying the already-consumed authorization code. This is exactly
+	// the bug this test guards against.
+	atomic.StoreInt32(&f.tokenFailUntil, 2)
+
+	executor := &countingRetryExecutor{maxAttempts: 3}
+	svc, err := NewOIDCService(context.Background(), OIDCConfig{
+		IssuerURL: f.issuer, ClientID: "client-1", ClientSecret: "secret",
+		RedirectURL: "http://localhost/callback", Scopes: []string{"openid"},
+		RetryExecutor: executor,
+	})
+	require.NoError(t, err)
+
+	_, err = svc.HandleCallback(context.Background(), "auth-code-xyz", "nonce-abc")
+	require.Error(t, err, "Exchange failing must fail the login outright, not be silently retried")
+
+	require.Equal(t, int32(2), atomic.LoadInt32(&f.tokenCalls),
+		"Exchange must be attempted exactly once at our layer — the 2 HTTP calls are both the oauth2 "+
+			"library's own internal auth-style probe within that single attempt, not a retry by our wrapper; "+
+			"a third call would mean our wrapper retried and replayed the single-use authorization code")
 }
 
 func TestHandleCallback_UserInfoFailureIsSwallowed(t *testing.T) {
