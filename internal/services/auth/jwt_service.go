@@ -29,15 +29,14 @@ type JWTService interface {
 }
 
 // jwtService uses an asymmetric SigningKeyProvider for signing.
+// There is no symmetric verification path: every accepted token must carry a
+// kid that resolves to one of the provider's public keys.
 type jwtService struct {
 	provider signing.SigningKeyProvider
 	issuer   string
 	audience string
 	expiry   time.Duration
 	logger   *logrus.Logger
-	// HS256 fallback fields — both nil/zero after migration window expires.
-	hs256SecretKey    []byte
-	migrationDeadline time.Time
 }
 
 // legacyJWTService is the original HS256-only implementation kept for the migration path.
@@ -60,25 +59,18 @@ type JWTConfig struct {
 }
 
 // NewJWTServiceWithProvider creates a JWT service backed by an asymmetric signing provider.
-// If config.SecretKey is set and config.MigrationWindow > 0 the service accepts legacy
-// HS256 tokens until the window elapses.
 func NewJWTServiceWithProvider(config JWTConfig, provider signing.SigningKeyProvider) JWTService {
 	logger := config.Logger
 	if logger == nil {
 		logger = logrus.StandardLogger()
 	}
-	svc := &jwtService{
+	return &jwtService{
 		provider: provider,
 		issuer:   config.Issuer,
 		audience: config.Audience,
 		expiry:   config.Expiry,
 		logger:   logger,
 	}
-	if config.SecretKey != "" && config.MigrationWindow > 0 {
-		svc.hs256SecretKey = []byte(config.SecretKey)
-		svc.migrationDeadline = time.Now().Add(config.MigrationWindow)
-	}
-	return svc
 }
 
 // NewJWTService creates the legacy HS256 JWT service.
@@ -148,7 +140,9 @@ func (s *jwtService) GenerateToken(userID uuid.UUID, username, role string, sess
 }
 
 // ValidateToken verifies a JWT. Dispatches by kid to the correct asymmetric key.
-// Falls back to HS256 if kid is absent and the migration window is still active.
+// A token without a kid header is rejected: the legacy HS256 fallback was
+// removed on 2026-08-16 because its verification key was a static, publicly
+// readable config value, which made admin tokens forgeable.
 func (s *jwtService) ValidateToken(tokenString string) (*JWTClaims, error) {
 	// Peek at the kid header without full validation.
 	unverified, _, err := jwt.NewParser().ParseUnverified(tokenString, &JWTClaims{})
@@ -159,7 +153,9 @@ func (s *jwtService) ValidateToken(tokenString string) (*JWTClaims, error) {
 	kid, _ := unverified.Header["kid"].(string)
 
 	if kid == "" {
-		return s.validateHS256Fallback(tokenString)
+		s.logger.WithField("alg", unverified.Header["alg"]).
+			Warn("Rejected JWT with no kid header — asymmetric signing is mandatory")
+		return nil, fmt.Errorf("invalid JWT token: missing kid header")
 	}
 
 	return s.validateAsymmetric(tokenString, kid)
@@ -186,33 +182,6 @@ func (s *jwtService) validateAsymmetric(tokenString, kid string) (*JWTClaims, er
 	})
 	if err != nil {
 		s.logger.WithError(err).Error("JWT asymmetric validation failed")
-		return nil, fmt.Errorf("invalid JWT token: %w", err)
-	}
-	if !token.Valid {
-		return nil, fmt.Errorf("invalid JWT token")
-	}
-	return token.Claims.(*JWTClaims), nil
-}
-
-func (s *jwtService) validateHS256Fallback(tokenString string) (*JWTClaims, error) {
-	if len(s.hs256SecretKey) == 0 || time.Now().After(s.migrationDeadline) {
-		return nil, fmt.Errorf("token uses deprecated signing algorithm — HS256 migration window expired")
-	}
-
-	s.logger.Warn("HS256 token accepted — migration window active")
-
-	claims := &JWTClaims{}
-	secretKey := s.hs256SecretKey
-	token, err := jwt.ParseWithClaims(tokenString, claims, func(token *jwt.Token) (interface{}, error) {
-		if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
-			return nil, fmt.Errorf("unexpected signing method: %v", token.Header["alg"])
-		}
-		if err := s.validateCommonClaims(claims); err != nil {
-			return nil, err
-		}
-		return secretKey, nil
-	})
-	if err != nil {
 		return nil, fmt.Errorf("invalid JWT token: %w", err)
 	}
 	if !token.Valid {

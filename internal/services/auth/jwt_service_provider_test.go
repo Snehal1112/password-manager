@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/golang-jwt/jwt/v5"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -151,4 +152,55 @@ func TestJWTService_Provider_UnknownKid_Rejected(t *testing.T) {
 	_, err = svc.ValidateToken(token)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "unknown kid")
+}
+
+// leakedJWTSecret is the exact HS256 secret that was committed to
+// .rocketvault.yaml and is therefore public in git history. The forgery test
+// below signs with it deliberately: the point is that even a *correct* HMAC
+// signature over well-formed claims must not authenticate anybody.
+const leakedJWTSecret = "***SECRET-REMOVED-2026-08-17***"
+
+// forgedHS256Token mints a token the way the 2026-08-16 pentest did: no kid
+// header, HS256 signature, correct issuer/audience, and a jti that a normal
+// low-privilege login would have produced. It is built with golang-jwt
+// directly, not through any RocketVault constructor, so it keeps modelling the
+// attacker's capability after every symmetric code path is gone.
+func forgedHS256Token(t *testing.T, secret string) string {
+	t.Helper()
+	now := time.Now()
+	claims := auth.JWTClaims{
+		UserID:   uuid.New(),
+		Username: "vaultuser1",
+		Role:     "admin",
+		RegisteredClaims: jwt.RegisteredClaims{
+			ID:        uuid.New().String(),
+			ExpiresAt: jwt.NewNumericDate(now.Add(time.Hour)),
+			IssuedAt:  jwt.NewNumericDate(now),
+			NotBefore: jwt.NewNumericDate(now),
+			Issuer:    "rocketvault",
+			Subject:   uuid.New().String(),
+			Audience:  jwt.ClaimStrings{"PASSWORD_MANAGER"},
+		},
+	}
+	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
+	signed, err := token.SignedString([]byte(secret))
+	require.NoError(t, err)
+	return signed
+}
+
+// TestJWTService_Provider_KidlessHS256Token_Rejected is the regression test for
+// pentest finding H1. The service is configured the way production was — with
+// the leaked secret and an open migration window — and must still reject the
+// forged token, because the HS256 verification path no longer exists.
+func TestJWTService_Provider_KidlessHS256Token_Rejected(t *testing.T) {
+	svc := newProviderJWT(t, func(c *auth.JWTConfig) {
+		c.SecretKey = leakedJWTSecret
+		c.MigrationWindow = time.Hour
+	})
+
+	claims, err := svc.ValidateToken(forgedHS256Token(t, leakedJWTSecret))
+
+	require.Error(t, err, "a token with no kid header must never be accepted")
+	assert.Nil(t, claims)
+	assert.Contains(t, err.Error(), "missing kid header")
 }
