@@ -1,0 +1,159 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>Runbook: Rotating the RocketVault Master Key — RocketVault Docs</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"/>
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=IBM+Plex+Sans:wght@400;500;600&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet"/>
+<link rel="stylesheet" href="../assets/doc-theme.css"/>
+</head>
+<body>
+<header class="doc-header">
+  <a class="doc-back" href="../admin-manual.html">&larr; Admin Manual</a>
+  <div class="doc-brand">
+    <div class="doc-mark" aria-hidden="true"></div>
+    <span class="doc-kicker">RocketVault Docs</span>
+  </div>
+  <h1 class="doc-title">Runbook: Rotating the RocketVault Master Key</h1>
+  <div class="doc-meta"><span class="doc-chip">docs/runbooks/master-key-rotation.md</span></div>
+  <hr/>
+</header>
+<nav class="doc-toc"><div class="doc-toc-label">On this page</div><ol><li><a href="#1-generate-the-new-key">1. Generate the new key</a></li><li><a href="#2-stop-the-server">2. Stop the server</a></li><li><a href="#3-back-up-the-database">3. Back up the database</a></li><li><a href="#4-log-in-and-dry-run">4. Log in and dry-run</a></li><li><a href="#5-run-the-rotation">5. Run the rotation</a></li><li><a href="#6-update-the-configuration">6. Update the configuration</a></li><li><a href="#7-restart-and-verify">7. Restart and verify</a></li><li><a href="#8-deal-with-old-backups">8. Deal with old backups</a></li><li><a href="#if-something-goes-wrong">If something goes wrong</a></li></ol></nav>
+<main class="doc">
+<p>The master key seals, with AES-256-GCM, everything RocketVault stores as a secret:</p>
+<table>
+<thead>
+<tr>
+<th>Table</th>
+<th>Column</th>
+<th>Contents</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>secrets</code></td>
+<td><code>value</code></td>
+<td>Secret values</td>
+</tr>
+<tr>
+<td><code>secret_versions</code></td>
+<td><code>value</code></td>
+<td>Secret version history</td>
+</tr>
+<tr>
+<td><code>keys</code></td>
+<td><code>value</code></td>
+<td>Software (non-HSM) RSA/ECDSA private key PEMs, including the JWT signing key</td>
+</tr>
+<tr>
+<td><code>key_versions</code></td>
+<td><code>value</code></td>
+<td>Key rotation history</td>
+</tr>
+<tr>
+<td><code>certificates</code></td>
+<td><code>private_key</code></td>
+<td>Certificate private key PEMs, including CA keys</td>
+</tr>
+</tbody>
+</table>
+<p>Changing <code>master_key</code> in the configuration <strong>without</strong> running this procedure makes every one of
+those rows permanently undecryptable. PKCS#11/HSM keys (<code>pkcs11:</code>-prefixed values) are unaffected —
+their material never leaves the token. User passwords and OAuth2 client secrets are bcrypt hashes
+and are also unaffected.</p>
+<p>Rotation is an <strong>offline</strong> operation. Plan a maintenance window.</p>
+<h2 id="1-generate-the-new-key">1. Generate the new key</h2>
+<div class="codewrap"><div class="code-hd"><span class="code-lang">bash</span><button class="copy-btn">Copy</button></div><pre class="code with-hd">export NEW_MASTER_KEY=&quot;$(openssl rand -base64 32)&quot;
+</pre></div>
+<p>Store it in your secret store <strong>now</strong>. If it is lost after step 5, every secret in the vault is
+unrecoverable.</p>
+<p>Do not name this variable <code>MASTER_KEY</code>: Viper gives environment variables precedence over the
+configuration file, so an exported <code>MASTER_KEY</code> would make the tool's &quot;old key from config&quot; default
+resolve to the new key. The command detects this and refuses to run, but naming it clearly avoids
+the detour.</p>
+<h2 id="2-stop-the-server">2. Stop the server</h2>
+<p>Concurrent writes are detected and abort the run. Stop RocketVault first.</p>
+<h2 id="3-back-up-the-database">3. Back up the database</h2>
+<div class="codewrap"><div class="code-hd"><span class="code-lang">bash</span><button class="copy-btn">Copy</button></div><pre class="code with-hd">cp ./dev-rocketvault.db ./dev-rocketvault.db.pre-rotation   # SQLite
+pg_dump &quot;$DATABASE_URL&quot; &gt; rocketvault-pre-rotation.sql      # PostgreSQL
+</pre></div>
+<p>This backup plus the old key is your rollback.</p>
+<h2 id="4-log-in-and-dry-run">4. Log in and dry-run</h2>
+<div class="codewrap"><div class="code-hd"><span class="code-lang">bash</span><button class="copy-btn">Copy</button></div><pre class="code with-hd">./rocketvault users login --username admin --password '&lt;password&gt;' --totp-code &lt;code&gt;
+./rocketvault master-key rotate --new-key-env NEW_MASTER_KEY --dry-run
+</pre></div>
+<p>Check the report before continuing:</p>
+<ul>
+<li>Per-table row counts match what you expect for this deployment.</li>
+<li><code>ALREADY NEW KEY</code> is <code>0</code> on a first run.</li>
+<li><code>SKIPPED (HSM)</code> is <code>0</code> unless the deployment uses PKCS#11.</li>
+<li>No errors.</li>
+</ul>
+<h2 id="5-run-the-rotation">5. Run the rotation</h2>
+<div class="codewrap"><div class="code-hd"><span class="code-lang">bash</span><button class="copy-btn">Copy</button></div><pre class="code with-hd">./rocketvault master-key rotate --new-key-env NEW_MASTER_KEY
+</pre></div>
+<p>Confirm at the prompt (or pass <code>--yes</code> in scripted maintenance). If the command is interrupted, run
+it again with the same keys — rows already on the new key are detected and skipped, and nothing is
+double-encrypted.</p>
+<h2 id="6-update-the-configuration">6. Update the configuration</h2>
+<p>Either set <code>master_key</code> in <code>.rocketvault.yaml</code> to the value of <code>$NEW_MASTER_KEY</code>, or — preferred —
+export it as the <code>MASTER_KEY</code> environment variable of the server process and remove the key from the
+file entirely. The environment value takes precedence over the file.</p>
+<h2 id="7-restart-and-verify">7. Restart and verify</h2>
+<div class="codewrap"><div class="code-hd"><span class="code-lang">bash</span><button class="copy-btn">Copy</button></div><pre class="code with-hd">./rocketvault serve
+./rocketvault secrets get &lt;name&gt; --vault default
+./rocketvault certificates list --vault default
+</pre></div>
+<p>A successful read proves the rotation and the configuration agree. The server refuses to start at
+all on a key that fails validation (wrong length, the old committed placeholder, or obviously
+non-random), so a successful start is itself part of the verification.</p>
+<h2 id="8-deal-with-old-backups">8. Deal with old backups</h2>
+<p>Backup files created by <code>rocketvault backup create</code> before the rotation are encrypted with the
+<strong>old</strong> key and can only be restored with it. Either archive the old key for the backups' retention
+period, clearly labelled restore-only and compromised, or take a fresh backup now and delete the
+old ones.</p>
+<h2 id="if-something-goes-wrong">If something goes wrong</h2>
+<table>
+<thead>
+<tr>
+<th>Symptom</th>
+<th>Cause</th>
+<th>Action</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>value decrypts with neither the old nor the new master key</code></td>
+<td>Wrong old key</td>
+<td>No rows in that table were written. Fix <code>--old-key-env</code> and re-run.</td>
+</tr>
+<tr>
+<td><code>row ... changed while the rotation was running</code></td>
+<td>The server is still running</td>
+<td>Stop it and re-run; already-migrated rows are skipped.</td>
+</tr>
+<tr>
+<td><code>the new master key is identical to the old one</code></td>
+<td><code>MASTER_KEY</code> exported in the shell shadows the config value</td>
+<td>Unset it, use a differently named variable.</td>
+</tr>
+<tr>
+<td>Server logs &quot;could not decrypt stored key, regenerating&quot; after restart</td>
+<td>The configuration was updated <strong>before</strong> the rotation ran, on a <code>jwt.key_source: self_pki</code> deployment — a new JWT signing key was generated and all sessions were invalidated</td>
+<td>Restore the old key in the configuration, restart from step 4, then update the configuration again.</td>
+</tr>
+<tr>
+<td>Secret reads fail after restart</td>
+<td>Configuration and database disagree on the key</td>
+<td>Confirm the configuration holds the same key the rotation used; re-run the rotation if it was interrupted before completing.</td>
+</tr>
+</tbody>
+</table>
+
+</main>
+<footer class="doc-footer"><a href="../admin-manual.html">&larr; Back to the Admin Manual</a></footer>
+<script src="../assets/doc-theme.js"></script>
+</body>
+</html>
