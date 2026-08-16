@@ -489,6 +489,41 @@ func TestConfigCmd_SetRetentionDays_Error(t *testing.T) {
 	assert.ErrorContains(t, err, "failed to update retention policy")
 }
 
+// TestConfigCmd_NonAdmin_Forbidden proves a non-admin caller is rejected
+// before GetRetentionDays/SetRetentionDays is ever called.
+func TestConfigCmd_NonAdmin_Forbidden(t *testing.T) {
+	tc := testutils.NewTestContext(t)
+	mockSvc := &MockComplianceReportService{}
+	tc.MockContainer.On("GetComplianceReportService").Return(mockSvc).Maybe()
+
+	ctx := context.WithValue(tc.Ctx, common.ClaimsKey, &model.Claims{Role: model.RoleUser})
+
+	cmd, _ := newConfigCmd()
+	cmd.SetContext(ctx)
+	err := cmd.Execute()
+
+	assert.ErrorContains(t, err, "forbidden: requires admin role")
+	mockSvc.AssertNotCalled(t, "GetRetentionDays", mock.Anything)
+	mockSvc.AssertNotCalled(t, "SetRetentionDays", mock.Anything, mock.Anything)
+}
+
+// TestConfigCmd_Admin_Allowed proves an admin caller still reaches
+// GetRetentionDays after the gate is added.
+func TestConfigCmd_Admin_Allowed(t *testing.T) {
+	tc := testutils.NewTestContext(t)
+	mockSvc := &MockComplianceReportService{}
+	mockSvc.On("GetRetentionDays", mock.Anything).Return(90, nil)
+	tc.MockContainer.On("GetComplianceReportService").Return(mockSvc)
+
+	cmd, buf := newConfigCmd()
+	cmd.SetContext(tc.Ctx)
+	err := cmd.Execute()
+
+	assert.NoError(t, err)
+	assert.Contains(t, buf.String(), "90 days")
+	mockSvc.AssertExpectations(t)
+}
+
 // --------------------------------------------------------------------------
 // parseDate coverage (missing the error branch)
 // --------------------------------------------------------------------------

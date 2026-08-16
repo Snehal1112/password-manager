@@ -30,6 +30,10 @@ var configCmd = &cobra.Command{
 			return fmt.Errorf("service container not available in context")
 		}
 
+		if _, err := requireAuditAdmin(cmd); err != nil {
+			return err
+		}
+
 		retentionDays, _ := cmd.Flags().GetInt("retention-days")
 		svc := sc.GetComplianceReportService()
 
