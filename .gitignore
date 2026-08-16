@@ -76,6 +76,16 @@ bootstrap.token
 # Config files contain secrets — never commit
 .password-manager*.yaml
 
+# RocketVault instance configuration — contains live secrets (master_key,
+# bootstrap_token, hsm.pin). Never commit. Copy .rocketvault.yaml.example to
+# .rocketvault.yaml and fill in generated values instead. This exact class of
+# mistake shipped for 5+ months once already — see .claude/known-bugs.md (B10)
+# and .claude/security-incident-2026-03-07.md.
+.rocketvault.yaml
+.rocketvault-*.yaml
+.rocketvault.yaml.local
+!.rocketvault.yaml.example
+
 # Database files
 *.db
 *.sqlite
@@ -83,7 +93,9 @@ bootstrap.token
 *.db-shm
 *.db-wal
 
-# Application binaries
+# Application binaries. rocketvault-* is compiled release binaries only — it
+# does NOT match .rocketvault*.yaml (leading dot, no trailing dash). See the
+# dedicated block above for config files.
 rocketvault
 rocketvault.exe
 rocketvault-*
