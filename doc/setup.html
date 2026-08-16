@@ -43,6 +43,16 @@ export PATH=$PATH:/usr/lib/go-1.24/bin
  softhsm2-util --init-token --slot 0 --label &quot;MyToken&quot; --pin 123456 --so-pin 123456
 </pre></div>
 </li>
+<li>
+<p>Set up your local configuration:</p>
+<div class="codewrap"><div class="code-hd"><span class="code-lang">bash</span><button class="copy-btn">Copy</button></div><pre class="code with-hd">cp .rocketvault.yaml.example .rocketvault.yaml
+</pre></div>
+<p>Then edit <code>.rocketvault.yaml</code> and replace both <code>GENERATE_WITH</code> placeholders
+(<code>master_key</code>, <code>bootstrap_token</code>) with real values from:</p>
+<div class="codewrap"><div class="code-hd"><span class="code-lang">bash</span><button class="copy-btn">Copy</button></div><pre class="code with-hd">openssl rand -base64 32
+</pre></div>
+<p>Never commit <code>.rocketvault.yaml</code> — it is already in <code>.gitignore</code>.</p>
+</li>
 </ol>
 
 </main>

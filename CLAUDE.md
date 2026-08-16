@@ -174,7 +174,7 @@ rocketvault/
 - **TOTPService**: TOTP generation and validation only
 - **JWTService**: JWT token creation and validation only. Asymmetric-only since 2026-08-16: tokens are signed RS256/ES256 through `internal/signing`'s `SigningKeyProvider`, always carry a `kid` header, and `ValidateToken` rejects any token without one. The legacy HS256 "migration window" fallback and the `legacyJWTService` implementation were deleted (pentest finding H1 — the fallback's HMAC key was the repo-committed `jwt_secret`, and its deadline was recomputed on every boot so the window never closed). A signing-provider failure now aborts startup instead of degrading to HS256 — see `docs/superpowers/specs/2026-08-16-remove-hs256-jwt-fallback-design.md`.
 - **AuthenticationService**: Orchestrates complete auth workflow
-- **OIDCService**: OIDC authorization-code-flow login, additive to local username/password/TOTP — never replaces it. Gated by `oidc.enabled` in `.rocketvault.yaml` — unset/`false` disables it entirely, and `GET /oidc/login`/`GET /oidc/callback` (`api/oidc.go`) return 503 rather than the server attempting a network call to the issuer at startup. This repo's checked-in dev config currently sets it `true` against a test issuer (`exchange4all.local`), so starting the server here does make that call. On successful callback, `UserService.FindOrCreateExternalUser` looks up or creates a `model.User` (default role: least-privilege `user`), and `AuthenticationService.IssueSessionForUser` issues the same JWT/session pair local login uses — there is no separate OIDC token-issuance path to drift out of sync. That shared path is asymmetric-only, so the 2026-08-16 HS256 removal changed nothing about OIDC login.
+- **OIDCService**: OIDC authorization-code-flow login, additive to local username/password/TOTP — never replaces it. Gated by `oidc.enabled` in `.rocketvault.yaml` — unset/`false` disables it entirely, and `GET /oidc/login`/`GET /oidc/callback` (`api/oidc.go`) return 503 rather than the server attempting a network call to the issuer at startup. A real developer's local `.rocketvault.yaml` (gitignored, not checked in — see the Configuration section above) may set this `true` against a real issuer; the committed `.rocketvault.yaml.example` template ships with `oidc.enabled: false`, so a fresh clone following this doc's setup steps does not make any OIDC network call at startup. On successful callback, `UserService.FindOrCreateExternalUser` looks up or creates a `model.User` (default role: least-privilege `user`), and `AuthenticationService.IssueSessionForUser` issues the same JWT/session pair local login uses — there is no separate OIDC token-issuance path to drift out of sync. That shared path is asymmetric-only, so the 2026-08-16 HS256 removal changed nothing about OIDC login.
 
 ### User Management (`internal/services/users/`)
 - **UserService**: User creation, updates, and management workflows
@@ -380,6 +380,16 @@ that file, and was left in this file as still-open for 5 months).
 ## Build and Run
 
 ### Development
+
+First-time setup (once per clone):
+```bash
+cp .rocketvault.yaml.example .rocketvault.yaml
+# Edit .rocketvault.yaml: replace the two "GENERATE_WITH" placeholders with
+# real values — for both, that means:
+openssl rand -base64 32
+```
+
+Then:
 ```bash
 go run main.go serve
 ```
@@ -416,9 +426,13 @@ npm run typecheck # If available
 
 ## Configuration
 
-- **Main**: `.rocketvault.yaml` — the **only** config loaded at runtime
+- **Main**: `.rocketvault.yaml` — the **only** config loaded at runtime. Not
+  committed (see `.rocketvault.yaml.example`); every fresh clone starts with
+  `cp .rocketvault.yaml.example .rocketvault.yaml` and generates its own
+  `master_key`/`bootstrap_token`.
 - **Test**: `test-config.yaml`
-- **Docker**: `docker-compose.yml`
+- **Docker**: `docker-compose.yml` (`.rocketvault.docker.yaml.tmpl`, rendered
+  via `envsubst` from `.env` at container start — never holds a literal secret)
 
 ### Config facts (2026-03-08)
 - `initConfig()` in `cmd/root.go` hardcodes `.rocketvault.yaml` — no automatic env switching.
@@ -428,6 +442,9 @@ npm run typecheck # If available
 - Dead stubs (not yet read by code, kept as planned-feature markers): `health.*`, `development.*`. `monitoring.*` was wired up 2026-08-14: `enable_metrics` gates the `GET /metrics` Prometheus endpoint (`api/metrics.go`), `slow_query_threshold` drives the slow-query cutoff in `internal/db` and `internal/health` (default 100ms, via `config.LoadMonitoringConfig`), and `metrics_interval` controls how often `internal/metrics.MetricsScheduler` refreshes the `rocketvault_db_*` gauges — all wired from `bootstrap.go`.
 - `retry.service_operations` is intentionally unwired: fully parsed and tested, but no production caller yet. Reserved for a future feature (e.g., cloud HSM or ACME issuer) that needs a retry tier distinct from `database`/`external_services`. See `.claude/known-bugs.md` § I1 for investigation and rationale.
 - For `bootstrap_token` seeding details, see `seedBootstrapToken()` in `internal/db/db.go`.
+- `.rocketvault.yaml` is gitignored (fixed 2026-08-16 — see
+  `.claude/known-bugs.md` § B10); `.rocketvault.yaml.example` is the committed
+  template. Never add a real secret value to the `.example` file.
 
 ## Admin User Setup
 
