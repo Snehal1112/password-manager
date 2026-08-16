@@ -14,6 +14,11 @@
 #   RV_MASTER_KEY     — AES-256-GCM master key (base64, 32 bytes)
 #   RV_JWT_SECRET     — JWT HMAC secret (base64, 32 bytes)
 #   RV_BOOTSTRAP_TOKEN — one-time admin bootstrap token (base64, 32 bytes)
+#
+# Optional env vars:
+#   RV_HSM_PIN        — PKCS#11 HSM slot PIN; only meaningful when
+#                        hsm.enabled is true in the rendered config (false by
+#                        default here). Left empty otherwise.
 set -eu
 
 TEMPLATE="/app/.rocketvault.docker.yaml.tmpl"
@@ -26,9 +31,10 @@ RENDERED="/app/.rocketvault.yaml"
 : "${RV_MASTER_KEY:?RV_MASTER_KEY is required — generate with: openssl rand -base64 32}"
 : "${RV_JWT_SECRET:?RV_JWT_SECRET is required — generate with: openssl rand -base64 32}"
 : "${RV_BOOTSTRAP_TOKEN:?RV_BOOTSTRAP_TOKEN is required — generate with: openssl rand -base64 32}"
+: "${RV_HSM_PIN:=}"
 
 if [ -f "$TEMPLATE" ]; then
-    envsubst '${POSTGRES_USER} ${POSTGRES_PASSWORD} ${POSTGRES_DB} ${RV_MASTER_KEY} ${RV_JWT_SECRET} ${RV_BOOTSTRAP_TOKEN} ${RV_CORS_ORIGINS} ${RV_ISSUER}' \
+    envsubst '${POSTGRES_USER} ${POSTGRES_PASSWORD} ${POSTGRES_DB} ${RV_MASTER_KEY} ${RV_JWT_SECRET} ${RV_BOOTSTRAP_TOKEN} ${RV_CORS_ORIGINS} ${RV_ISSUER} ${RV_HSM_PIN}' \
         < "$TEMPLATE" > "$RENDERED"
 fi
 

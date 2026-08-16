@@ -438,7 +438,7 @@ npm run typecheck # If available
 - `initConfig()` in `cmd/root.go` hardcodes `.rocketvault.yaml` — no automatic env switching.
 - Three redundant env-specific files were deleted (`-test`, `-staging`, `-production`).
 - `jwt.expiry: "15m"` is required — read by `internal/container/service_container.go` via `viper.GetDuration("jwt.expiry")`.
-- `jwt_secret` and `jwt.migration_window` are **no longer read by any Go code** (HS256 removal, 2026-08-16). They still appear in `.rocketvault.yaml`; removing and rotating them is tracked as pentest finding H4. `jwt.key_source` (default `os_store`) is now mandatory — if its provider cannot be constructed, startup fails rather than falling back.
+- `jwt_secret` and `jwt.migration_window` are **no longer read by any Go code** (HS256 removal, 2026-08-16, pentest finding H1). Pentest finding H4 has since landed too: both keys are deleted from `.rocketvault.yaml` outright (not merely unread), and the file itself is no longer git-tracked — see `.claude/known-bugs.md` § B10. `jwt.key_source` (default `os_store`) is now mandatory — if its provider cannot be constructed, startup fails rather than falling back.
 - Dead stubs (not yet read by code, kept as planned-feature markers): `health.*`, `development.*`. `monitoring.*` was wired up 2026-08-14: `enable_metrics` gates the `GET /metrics` Prometheus endpoint (`api/metrics.go`), `slow_query_threshold` drives the slow-query cutoff in `internal/db` and `internal/health` (default 100ms, via `config.LoadMonitoringConfig`), and `metrics_interval` controls how often `internal/metrics.MetricsScheduler` refreshes the `rocketvault_db_*` gauges — all wired from `bootstrap.go`.
 - `retry.service_operations` is intentionally unwired: fully parsed and tested, but no production caller yet. Reserved for a future feature (e.g., cloud HSM or ACME issuer) that needs a retry tier distinct from `database`/`external_services`. See `.claude/known-bugs.md` § I1 for investigation and rationale.
 - For `bootstrap_token` seeding details, see `seedBootstrapToken()` in `internal/db/db.go`.
@@ -450,15 +450,19 @@ npm run typecheck # If available
 
 ### Initial Admin Creation
 ```bash
-# Create first admin user (requires bootstrap token)
-./rocketvault users admin --admin-username=admin --admin-password=admin123 --bootstrap-token=test-bootstrap-token-12345
+# Create first admin user (requires bootstrap token — see Configuration
+# above; .rocketvault.yaml is generated per-clone, not committed)
+./rocketvault users admin --admin-username=admin --admin-password=<your-password> --bootstrap-token="<value from your .rocketvault.yaml>"
 ```
 
-### Admin Credentials (Configured)
-- **Username**: `admin`
-- **Password**: `admin123`
+### Admin Credentials (Example)
+- **Username**: `admin` (or your choice, via `--admin-username`)
+- **Password**: set via `--admin-password` at creation time
 - **TOTP Secret**: Configure in authenticator app
-- **Bootstrap Token**: `test-bootstrap-token-12345` (in configuration)
+- **Bootstrap Token**: no fixed value — each clone generates its own in
+  `.rocketvault.yaml` (see Configuration); the file is gitignored and the
+  token is rotated per `.claude/known-bugs.md` § B10, so there is no
+  committed value to document here.
 
 ## Security Notes
 

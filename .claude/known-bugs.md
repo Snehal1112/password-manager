@@ -359,8 +359,9 @@ into a doc before that removal).
    see § B12) are built and tested, but actually running the rotation against
    the live dev database rewrites every master-key-sealed row and requires
    explicit human confirmation, which has not been given as of this entry. The
-   committed `.rocketvault.yaml` still carries the known-compromised placeholder
-   key (`***SECRET-REMOVED-2026-08-17***`, base64 for
+   working-tree `.rocketvault.yaml` — no longer git-tracked, but its value is
+   still recoverable from git history — still carries the known-compromised
+   placeholder key (`***SECRET-REMOVED-2026-08-17***`, base64 for
    `0123456789abcdef0123456789abcdef`). Once B12's startup guard is active the
    server will refuse to boot against it — expected, and the trigger to finally
    run `docs/runbooks/master-key-rotation.md`.
@@ -515,7 +516,8 @@ full re-encryption round-trips under the new key, second run is a no-op, partial
 (startup guard), `cmd/master_key_test.go` (admin gate, key resolution).
 
 **Operational note**: after this landed, the server refuses to boot against the repository's
-committed `.rocketvault.yaml` until the key is rotated — intended. The procedure is
+working-tree `.rocketvault.yaml` (no longer git-tracked, but its value is still recoverable from
+git history) until the key is rotated — intended. The procedure is
 `docs/runbooks/master-key-rotation.md`. Backups taken before a rotation remain encrypted with the
 old key and need the old key to restore.
 

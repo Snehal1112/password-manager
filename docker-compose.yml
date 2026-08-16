@@ -71,6 +71,9 @@ services:
       RV_BOOTSTRAP_TOKEN: ${RV_BOOTSTRAP_TOKEN:?RV_BOOTSTRAP_TOKEN is required, see .env.example}
       RV_ISSUER: ${RV_ISSUER:-http://localhost:8774}
       RV_CORS_ORIGINS: ${RV_CORS_ORIGINS:-http://localhost:8774}
+      # Only used when hsm.enabled is true in the rendered config (false by
+      # default in .rocketvault.docker.yaml.tmpl); left empty otherwise.
+      RV_HSM_PIN: ${RV_HSM_PIN:-}
     volumes:
       - ./.rocketvault.docker.yaml.tmpl:/app/.rocketvault.docker.yaml.tmpl:ro
       - rocketvault_logs:/app/logs

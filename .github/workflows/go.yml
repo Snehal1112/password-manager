@@ -48,41 +48,24 @@ jobs:
           #   - certificates/certificate_service.go
           #                           certificate auto-renewal; a different
           #                           subsystem, out of P2 scope.
-          #   - api/context.go        scopeFromRequest itself: legacy flat
-          #                           routes (no vault_name segment) still
-          #                           yield an owner scope by design, per its
-          #                           own doc comment -- collapsing that onto
-          #                           vault scope is future work, not P2.
-          #   - api/certificates.go   updateCertificate is not yet vault-scope
-          #                           aware; a documented deferral (see
-          #                           .claude/multi-vault.md).
-          #   - the createKey post-create read-back in api/keys.go (currently
-          #     line 358): it reads back the resource the caller just
-          #     created, by the caller's own id, so it is excluded by content
-          #     rather than by file -- api/keys.go's other eight call sites
-          #     (the six crypto operations, delete, rotate) stay under this
-          #     gate. The exclusion pattern includes the full argument list
-          #     ("model.NewOwnerScope(vaultID, userID))"), not just the
-          #     "keyService.GetKey(...result.KeyID, model.NewOwnerScope"
-          #     prefix: rotateKey's read-back (api/keys.go:567) also calls
-          #     keyService.GetKey(r.Context(), result.KeyID, ...) -- same
-          #     receiver, same second argument -- so a prefix-only pattern
-          #     would silently exempt a regression there too if rotateKey's
-          #     `scope` variable were ever mutated back to a hardcoded
-          #     NewOwnerScope call. rotateKey has no local `vaultID`/`userID`
-          #     variables in that scope (it uses `scope` from
-          #     scopeFromRequest), so the full argument list keeps this
-          #     exclusion specific to createKey's line alone.
+          #
+          # api/context.go and api/certificates.go were excluded here until
+          # H2 (pentest fix): scopeFromRequest used to fall back to an owner
+          # scope for legacy flat routes, and updateCertificate wasn't yet
+          # vault-scope aware. Both are fixed now -- scopeFromRequest always
+          # returns model.NewVaultScope, and updateCertificate calls it like
+          # every other vault-scoped handler -- so api/ is no longer excluded
+          # and is fully covered by this gate. Likewise, api/keys.go no
+          # longer has any NewOwnerScope call sites (the createKey/rotateKey
+          # read-backs were migrated to vault scope), so the former
+          # content-based exclusion for that read-back is gone too.
           if grep -rn "NewOwnerScope\|ownerScopeFromRequest" --include="*.go" . \
                | grep -v "_test.go" \
                | grep -v "model/scope.go" \
                | grep -v "cmd/" \
                | grep -v "internal/services/secrets/versioning_service.go" \
                | grep -v "internal/services/secrets/rotation_service.go" \
-               | grep -v "internal/services/certificates/certificate_service.go" \
-               | grep -v "api/context.go" \
-               | grep -v "api/certificates.go" \
-               | grep -v "keyService.GetKey(r.Context(), result.KeyID, model.NewOwnerScope(vaultID, userID))"; then
+               | grep -v "internal/services/certificates/certificate_service.go"; then
             echo "owner scope reached the data plane; P2 retired it" >&2
             exit 1
           fi
@@ -183,8 +166,14 @@ jobs:
           # tracked in git for 5+ months because the .gitignore pattern
           # meant to catch it never matched. This is the structural half of
           # that fix — it must never be trackable again, under any of its
-          # sibling names either.
-          if git ls-files | grep -E '^\.rocketvault(-.*)?\.yaml$|^\.rocketvault\.yaml\.local$'; then
+          # sibling names either. The final whole-branch review flagged that
+          # the original regex only covered dash-separated siblings
+          # (.rocketvault-production.yaml) and missed dot-separated ones
+          # (.rocketvault.prod.yaml) -- the same class of gap that caused the
+          # original incident. `[.-]` now covers both separators, and
+          # .rocketvault.yaml.example stays excluded because the pattern
+          # requires the string to end in ".yaml".
+          if git ls-files | grep -E '^\.rocketvault([.-].*)?\.yaml$|^\.rocketvault\.yaml\.local$'; then
             echo "::error::a real RocketVault config file is tracked in git — see .claude/known-bugs.md § B10" >&2
             exit 1
           fi
