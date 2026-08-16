@@ -333,15 +333,15 @@ func (c *ServiceContainer) initializeServices() error {
 	// Initialize cryptography service early — needed by SelfPKIProvider.
 	c.cryptoService = secretServices.NewCryptographyService()
 
-	// Initialize JWT signing provider.
+	// Initialize JWT signing provider. Asymmetric signing is mandatory: there
+	// is no symmetric fallback, so a provider failure must abort startup.
 	signingDeps := signing.ProviderDeps{
 		CryptoService: c.cryptoService,
 		KeyRepository: c.keyRepository,
 	}
 	provider, err := signing.NewProvider(viperCfg, signingDeps)
 	if err != nil {
-		c.logger.WithError(err).Warn("Failed to initialise asymmetric JWT signing provider, falling back to HS256")
-		provider = nil
+		return fmt.Errorf("JWT signing provider initialisation failed: %w", err)
 	}
 	c.signingProvider = provider
 
@@ -351,23 +351,13 @@ func (c *ServiceContainer) initializeServices() error {
 		jwtExpiry = time.Hour // Default to 1 hour.
 	}
 	jwtConfig := authServices.JWTConfig{
-		SecretKey:       viperCfg.GetString("jwt_secret"),
-		Issuer:          viperCfg.GetString("oauth2.issuer"),
-		Audience:        "PASSWORD_MANAGER",
-		Expiry:          jwtExpiry,
-		MigrationWindow: viperCfg.GetDuration("jwt.migration_window"),
-		Logger:          c.logger.Logger,
+		Issuer:   viperCfg.GetString("oauth2.issuer"),
+		Audience: "PASSWORD_MANAGER",
+		Expiry:   jwtExpiry,
+		Logger:   c.logger.Logger,
 	}
 
-	if provider != nil {
-		c.jwtService = authServices.NewJWTServiceWithProvider(jwtConfig, provider)
-	} else {
-		// Asymmetric provider unavailable — fall back to legacy HS256.
-		if jwtConfig.SecretKey == "" {
-			return fmt.Errorf("JWT secret not configured and asymmetric provider unavailable")
-		}
-		c.jwtService = authServices.NewJWTService(jwtConfig)
-	}
+	c.jwtService = authServices.NewJWTServiceWithProvider(jwtConfig, provider)
 
 	// Initialize OAuth2 client repository first — the auth service needs it to
 	// validate service-account tokens against the live client record.

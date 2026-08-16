@@ -378,13 +378,8 @@ func TestNewServiceContainer_NilCacheConfig(t *testing.T) {
 // causes initializeServices to fall back to the global viper instance, and
 // the retry-service warning path is taken (c.viper == nil branch).
 func TestNewServiceContainer_NilViper(t *testing.T) {
-	// Seed global viper with the jwt_secret so the HS256 fallback path works
-	// in case os_store fails (though on most systems it should succeed).
-	viper.Set("jwt_secret", "test-super-secret-for-global-viper-at-least-32chars")
-	t.Cleanup(func() {
-		viper.Set("jwt_secret", "")
-	})
-
+	// No jwt_secret is seeded: with the HS256 fallback gone, the default
+	// jwt.key_source ("os_store") must carry the container on its own.
 	cfg := Config{
 		Database:    openSQLite(t),
 		Logger:      newTestLogger(),
@@ -406,45 +401,17 @@ func TestNewServiceContainer_NilViper(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// Test 10 — NewServiceContainer with missing jwt_secret and unknown key_source
+// Test 10 — NewServiceContainer with an unknown jwt.key_source
 // ---------------------------------------------------------------------------
 
-// TestNewServiceContainer_UnknownKeySource_WithJWTSecret forces an unknown
-// jwt.key_source (causing the signing provider to fail) while providing a
-// jwt_secret, so the HS256 fallback path is taken without error.
-func TestNewServiceContainer_UnknownKeySource_HS256Fallback(t *testing.T) {
-	v := viper.New()
-	v.Set("jwt.key_source", "unknown_provider") // triggers provider == nil
-	v.Set("jwt_secret", "super-secret-key-that-is-long-enough-for-hs256")
-
-	cfg := Config{
-		Database:    openSQLite(t),
-		Logger:      newTestLogger(),
-		CacheConfig: cacheConfigWithSecretsDisabled(t),
-		Viper:       v,
-	}
-
-	container, err := NewServiceContainer(cfg)
-	require.NoError(t, err, "HS256 fallback must succeed when jwt_secret is set")
-	require.NotNil(t, container)
-	t.Cleanup(func() { _ = container.Close() })
-
-	assert.NotNil(t, container.GetJWTService(), "JWTService must be initialised via HS256 fallback")
-	// Signing provider must be nil because the unknown key_source returned an error.
-	assert.Nil(t, container.GetSigningProvider(), "SigningProvider must be nil when provider init failed")
-}
-
-// ---------------------------------------------------------------------------
-// Test 11 — NewServiceContainer with missing jwt_secret and unknown key_source
-// ---------------------------------------------------------------------------
-
-// TestNewServiceContainer_MissingJWTSecret_Error verifies that when no
-// signing provider can be constructed AND jwt_secret is empty, initialisation
-// returns an error containing the expected message.
-func TestNewServiceContainer_MissingJWTSecret_Error(t *testing.T) {
+// TestNewServiceContainer_UnknownKeySource_Error verifies that an unusable
+// signing provider now aborts container initialisation. Before the HS256
+// fallback was removed (2026-08-16) this silently degraded to symmetric
+// signing whenever jwt_secret happened to be set, which made forged
+// kid-less tokens verifiable with a repo-committed secret.
+func TestNewServiceContainer_UnknownKeySource_Error(t *testing.T) {
 	v := viper.New()
 	v.Set("jwt.key_source", "unknown_provider") // signing provider fails
-	// jwt_secret intentionally NOT set
 
 	cfg := Config{
 		Database:    openSQLite(t),
@@ -454,8 +421,9 @@ func TestNewServiceContainer_MissingJWTSecret_Error(t *testing.T) {
 	}
 
 	_, err := NewServiceContainer(cfg)
-	require.Error(t, err, "must error when both provider and jwt_secret are absent")
-	assert.Contains(t, err.Error(), "JWT secret")
+	require.Error(t, err, "an unusable signing provider must abort startup")
+	assert.Contains(t, err.Error(), "JWT signing provider initialisation failed")
+	assert.Contains(t, err.Error(), "unknown jwt.key_source")
 }
 
 // ---------------------------------------------------------------------------
@@ -487,21 +455,20 @@ func TestNewServiceContainer_WithRetryConfig(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// Test 13 — NewServiceContainer with external_pki key source
+// Test 11 — NewServiceContainer with external_pki and no key material
 // ---------------------------------------------------------------------------
 
-// TestNewServiceContainer_ExternalPKI_NoFile exercises the code path where the
-// signing provider is configured as "external_pki" with no key file and no env
-// var, so the provider fails to init. Combined with a valid jwt_secret this
-// should still succeed via the HS256 fallback.
-func TestNewServiceContainer_ExternalPKI_HS256Fallback(t *testing.T) {
+// TestNewServiceContainer_ExternalPKI_NoFile_Error exercises the code path
+// where the signing provider is configured as "external_pki" with no key file
+// and no env var. There is no symmetric fallback any more, so this must fail
+// startup rather than quietly issuing HS256-verifiable sessions.
+func TestNewServiceContainer_ExternalPKI_NoFile_Error(t *testing.T) {
 	// Ensure env var is absent so external_pki returns an error.
 	t.Setenv("ROCKETVAULT_JWT_SIGNING_KEY", "")
 
 	v := viper.New()
 	v.Set("jwt.key_source", "external_pki")
 	v.Set("jwt.signing_key_file", "") // no file path — provider will fail
-	v.Set("jwt_secret", "fallback-secret-at-least-32-chars-long-here")
 
 	cfg := Config{
 		Database:    openSQLite(t),
@@ -510,13 +477,9 @@ func TestNewServiceContainer_ExternalPKI_HS256Fallback(t *testing.T) {
 		Viper:       v,
 	}
 
-	container, err := NewServiceContainer(cfg)
-	require.NoError(t, err, "HS256 fallback must succeed when jwt_secret is present")
-	require.NotNil(t, container)
-	t.Cleanup(func() { _ = container.Close() })
-
-	assert.NotNil(t, container.GetJWTService())
-	assert.Nil(t, container.GetSigningProvider(), "SigningProvider must be nil when external_pki fails")
+	_, err := NewServiceContainer(cfg)
+	require.Error(t, err, "external_pki with no key material must abort startup")
+	assert.Contains(t, err.Error(), "JWT signing provider initialisation failed")
 }
 
 // ---------------------------------------------------------------------------
