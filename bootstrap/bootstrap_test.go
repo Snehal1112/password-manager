@@ -3,7 +3,9 @@ package bootstrap
 
 import (
 	"context"
+	"crypto/rand"
 	"database/sql"
+	"encoding/base64"
 	"testing"
 	"time"
 
@@ -292,6 +294,10 @@ func TestBoot_FullStack(t *testing.T) {
 	viper.Set("database.connection", ":memory:")
 	viper.Set("jwt.expiry", "15m")
 	viper.Set("soft_delete.enabled", false) // Skip purge scheduler goroutine.
+	strongKey := make([]byte, 32)
+	_, err := rand.Read(strongKey)
+	require.NoError(t, err)
+	viper.Set("master_key", base64.StdEncoding.EncodeToString(strongKey)) // Step 1c requires a valid key.
 	defer viper.Reset()
 
 	logger := newTestLogger()
@@ -370,4 +376,33 @@ func TestBoot_BasePathMismatch_FailsClosed(t *testing.T) {
 	require.Error(t, err)
 	assert.Nil(t, shutdownFn)
 	assert.Contains(t, err.Error(), "does not match")
+}
+
+// ----- ConfigurationValidator.ValidateMasterKey -----
+
+func TestValidateMasterKey_AcceptsStrongKey(t *testing.T) {
+	t.Parallel()
+	key := make([]byte, 32)
+	_, err := rand.Read(key)
+	require.NoError(t, err)
+
+	cv := NewConfigurationValidator(newTestLogger())
+	assert.NoError(t, cv.ValidateMasterKey(base64.StdEncoding.EncodeToString(key)))
+}
+
+func TestValidateMasterKey_RejectsCompromisedDefault(t *testing.T) {
+	t.Parallel()
+	cv := NewConfigurationValidator(newTestLogger())
+
+	err := cv.ValidateMasterKey("***SECRET-REMOVED-2026-08-17***")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "master_key")
+	assert.Contains(t, err.Error(), "master-key rotate")
+}
+
+func TestValidateMasterKey_RejectsMissingKey(t *testing.T) {
+	t.Parallel()
+	cv := NewConfigurationValidator(newTestLogger())
+
+	assert.Error(t, cv.ValidateMasterKey(""))
 }

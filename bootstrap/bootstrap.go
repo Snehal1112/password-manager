@@ -14,6 +14,7 @@ import (
 
 	"rocketvault/api"
 	"rocketvault/app"
+	"rocketvault/common"
 	"rocketvault/config"
 	"rocketvault/internal/container"
 	"rocketvault/internal/db"
@@ -113,6 +114,35 @@ func (c *ConfigurationValidator) Validate(cfg *Config, serverCfg *config.Config)
 	}
 
 	c.logger.Info("Configuration validation successful")
+	return nil
+}
+
+// ValidateMasterKey fails startup when the configured master_key is missing,
+// malformed, or known-weak. A 2026-08-16 penetration test decrypted a live
+// database using the placeholder key committed to this repository, so booting
+// on it is treated as a fatal misconfiguration rather than a warning.
+//
+// This is a separate method from Validate, and called later in setup, because
+// it must run after vault-sourced secrets are injected into Viper — that
+// injection can supply master_key itself, so validating alongside the other
+// static config would read a value that is about to be replaced.
+//
+// There is deliberately no override flag: a guard with a documented bypass is
+// the same guard the penetration test already walked through.
+//
+// Parameters:
+//
+//	encoded: The base64-encoded master key from configuration.
+//
+// Returns:
+//
+//	An error if the key must not be used, otherwise nil.
+func (c *ConfigurationValidator) ValidateMasterKey(encoded string) error {
+	if err := common.ValidateMasterKey(encoded); err != nil {
+		return fmt.Errorf("refusing to start: configured master_key is not usable: %w", err)
+	}
+
+	c.logger.Info("Master key validation successful")
 	return nil
 }
 
@@ -244,6 +274,12 @@ func (b *bootstrap) setup(ctx context.Context, cfg *Config) error {
 			return fmt.Errorf("secrets init: %w", err)
 		}
 		logrus.Info("Vault secrets injected into config")
+	}
+
+	// Step 1c: Refuse to start on a weak or known-compromised master key. This
+	// runs after Step 1b because vault-injected secrets can supply master_key.
+	if err := b.configValidator.ValidateMasterKey(viper.GetString("master_key")); err != nil {
+		return err
 	}
 
 	// Step 2: Initialize database (SRP: dedicated initializer)
