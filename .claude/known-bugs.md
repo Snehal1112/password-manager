@@ -240,6 +240,62 @@ asserts both calls go through the interactive tier and not
 
 ---
 
+### B9 — JWT forgery via the HS256 "migration window" fallback
+
+**Status**: Fixed 2026-08-16 — see
+`docs/superpowers/plans/2026-08-16-remove-hs256-jwt-fallback.md`
+**Severity**: Resolved — was High (full administrative takeover, confirmed by
+live exploitation in `.claude/pentest-report-2026-08-16.md` § H1)
+**File**: `internal/services/auth/jwt_service.go`,
+`internal/container/service_container.go`
+
+**Root cause**: `jwtService.ValidateToken` fell back to HMAC-SHA256
+verification for any token whose header carried no `kid`, via
+`validateHS256Fallback`. Three things made that fatal rather than merely
+legacy:
+
+1. The HMAC key was `JWTConfig.SecretKey`, read from `viper.GetString("jwt_secret")`
+   — a static value committed to `.rocketvault.yaml` and present throughout git
+   history. With HS256 the verification key *is* the signing key, so a public
+   verification key means anyone can mint tokens.
+2. `NewJWTServiceWithProvider` computed `migrationDeadline = time.Now().Add(config.MigrationWindow)`
+   **at service construction**, so `jwt.migration_window: "24h"` restarted on
+   every process boot. The window never closed.
+3. `ValidateSession` only checks that the token's `jti` maps to a non-revoked
+   session, and trusts the `role` claim inside the token — so an attacker could
+   log in normally as a low-privilege user, reuse that real session id, and set
+   `role: admin` in a forged token.
+
+**Evidence**: a forged token (no `kid`, `role: admin`, real `jti` from a
+`role=user` login, correct issuer/audience, signed with the committed
+`jwt_secret`) was accepted by `GET /api/v1/users/` → HTTP 200 with the
+admin-only user list. A random `jti` → 401 and a wrong secret → 401, confirming
+the only missing control was the secrecy of the HMAC key.
+
+**What was fixed**: the HS256 verification path is gone, not repaired. A token
+without a `kid` header is rejected outright (`invalid JWT token: missing kid
+header`); `legacyJWTService`/`NewJWTService` — the only code able to *mint* an
+HS256 token — were deleted along with `JWTConfig.SecretKey` and
+`JWTConfig.MigrationWindow`; and the container now treats a
+`signing.NewProvider` failure as a fatal startup error instead of degrading to
+symmetric signing. Repair was rejected because this branch has never shipped a
+tagged release, so there was no population of legacy HS256 tokens to migrate —
+the path protected zero real migrations while providing one complete
+authentication bypass.
+`TestJWTService_Provider_KidlessHS256Token_Rejected` pins the fix by replaying
+the exploit with the leaked secret.
+
+**Remaining, tracked separately**:
+- Rotating `jwt_secret` and removing it from tracked config and git history is
+  pentest finding **H4**.
+- `ValidateSession` still trusts the JWT's `role` claim rather than re-reading
+  the role from the database. With HS256 gone this requires compromise of the
+  asymmetric private key to exploit, so it is defence-in-depth rather than a
+  live hole; fixing it means a DB read per authenticated request and a decision
+  about role-change propagation latency.
+
+---
+
 ### B11 — Cross-vault authorization bypass on flat data-plane routes
 
 **Status**: Fixed in commit `b4fc132`
