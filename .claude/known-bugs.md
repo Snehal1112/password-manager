@@ -240,6 +240,44 @@ asserts both calls go through the interactive tier and not
 
 ---
 
+### B13 — CLI `audit logs`/`audit report`/`audit config` bypassed the admin-only restriction enforced by their HTTP equivalents
+
+**Status**: Fixed in commits `46e3686` (helper), `eaaaedf` (logs), `0013f91`
+(report), `466d76c` (config)
+**Severity**: High — confirmed by a live pentest run 2026-08-16
+**File**: `cmd/audit/authz.go`, `cmd/audit/logs.go`, `cmd/audit/report.go`,
+`cmd/audit/config.go`
+
+**Root cause**: `api/audit.go`'s five HTTP handlers (`getAuditLogs`,
+`getSOC2Report`, `getGDPRReport`, `getAuditConfig`, `patchAuditConfig`) each
+correctly gate on `claims.Role != model.RoleAdmin` before touching
+`ComplianceReportService`. CLI commands bypass the HTTP middleware chain
+entirely and are individually responsible for reproducing the equivalent
+check (`CLAUDE.md` § "CLI Authorization") — the three CLI equivalents under
+`cmd/audit/` never did. Each `RunE` only checked that a service container was
+present in context, then called straight into `sc.GetComplianceReportService()`.
+A plain `role=user` account with no admin or audit grant could run `rocketvault
+audit logs` or `rocketvault audit report --type soc2 ...` and get the full
+cross-vault audit trail and a complete SOC2 report covering every user
+including the admin — confirmed live before the fix.
+
+**What was fixed**: Added `requireAuditAdmin(cmd *cobra.Command)
+(*model.Claims, error)` (`cmd/audit/authz.go`), modeled directly on
+`cmd/backup.go`'s pre-existing `requireBackupAdmin` — same category of check
+(global admin gate, no vault to scope to). Called from the top of
+`logsCmd.RunE`, `reportCmd.RunE`, and `configCmd.RunE`, immediately after
+each command's existing service-container guard and before any flag parsing
+or service call. `TestLogsCmd_NonAdmin_Forbidden`,
+`TestReportCmd_NonAdmin_Forbidden`, and `TestConfigCmd_NonAdmin_Forbidden`
+(`cmd/audit/audit_cmds_test.go`) each assert both the `forbidden` error and,
+via `AssertNotCalled`, that the underlying `ComplianceReportService` method
+was never invoked.
+
+**Spec/plan**: `docs/superpowers/specs/2026-08-16-cli-audit-authz-fix-design.md`,
+`docs/superpowers/plans/2026-08-16-cli-audit-authz-fix.md`.
+
+---
+
 ## Deferred Refactors
 
 Both items formerly tracked here (H3, M2) were re-investigated on 2026-08-14 and
