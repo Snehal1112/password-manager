@@ -145,6 +145,18 @@ stray, unrelated `dnsmasq`-owned processes (`/app/rocketvault serve --listen
 this — these predate this session, run as a different OS user, and were
 never touched.
 
+**Correction, restart attempt #2:** the first restart attempt actually ended
+up running the wrong binary for a while (a PID-tracking mix-up meant I was
+briefly still talking to a server started from the new worktree branch's
+build, not your original `build/rocketvault`), and that process later
+exited on its own between shell calls in this sandboxed session (not a crash
+tied to the rotation — no error in its log). Restarted cleanly a second time
+with `nohup ... build/rocketvault ... & disown`; confirmed listening on
+`127.0.0.1:8774` under PID `4095181` (verified this PID matches between the
+launch command's own `$!` and `ss -ltnp`'s reported listener, and it's still
+up on a follow-up check) and `GET /api/v1/config` → `200`. This is the
+final, stable state.
+
 ## Step 8 (attempted) — Verify via a live read
 
 Tried to confirm decryption end-to-end via the CLI's cached `admin` session
