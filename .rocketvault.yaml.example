@@ -1,0 +1,266 @@
+# Copy this file to .rocketvault.yaml and fill in every secret value before
+# running RocketVault:
+#
+#   cp .rocketvault.yaml.example .rocketvault.yaml
+#   # then replace the two GENERATE_WITH placeholders below
+#
+# Generate random secrets with:
+#   openssl rand -base64 32
+#
+# NEVER commit .rocketvault.yaml to version control — it is already in
+# .gitignore. See .claude/known-bugs.md (search "B10") and
+# .claude/security-incident-2026-03-07.md for what happens when a config file
+# like this one gets committed anyway.
+
+# Development Environment Configuration
+# Optimized for local development and testing
+
+# Security Configuration
+# 32 random bytes, base64-encoded. Losing this key makes every stored secret
+# permanently unrecoverable — back it up somewhere safe (a password manager or
+# secrets vault, not another git-tracked file).
+master_key: "GENERATE_WITH: openssl rand -base64 32"
+
+# JWT signing configuration (asymmetric — RS256/ES256, no shared secret).
+jwt:
+  key_source: "os_store"      # os_store | self_pki | external_pki
+  key_cn: "rocketvault"       # CN to search for in OS cert store
+  expiry: "1h"                # token TTL
+  rotation_overlap: "1h"      # old key stays in JWKS this long after rotation
+  signing_key_file: ""        # ExternalPKIProvider: path to PEM private key file
+
+# One-time token consumed by `rocketvault users admin` to bootstrap the first
+# admin account. Rotate it again after that first run (set to "" or remove the
+# line — seedBootstrapToken() only seeds it once).
+bootstrap_token: "GENERATE_WITH: openssl rand -base64 32"
+
+# Environment configuration affects database pool settings
+environment: "development"
+
+# Database Configuration
+database:
+  connection: "./dev-rocketvault.db"
+  driver: "sqlite3"
+  # Supported drivers: "sqlite3" (default, local file) and "postgres".
+  #
+  # PostgreSQL example (URL form):
+  #   driver: "postgres"
+  #   connection: "postgres://user:password@localhost:5432/rocketvault?sslmode=require"
+  #
+  # PostgreSQL example (DSN keyword form):
+  #   driver: "postgres"
+  #   connection: "host=localhost port=5432 user=rv password=secret dbname=rocketvault sslmode=require"
+  #
+  # sslmode options (Postgres): disable, require, verify-ca, verify-full.
+  # Use "require" or stronger in production. If driver is omitted, it is
+  # inferred from the connection string shape.
+
+# Logging Configuration
+log:
+  level: "debug"
+  file: "./logs/development.log"
+  format: "text"
+  pretty_print: true
+  max_backups: 3
+  max_age_days: 7
+  max_size_mb: 10
+  rotation_method: "size"
+
+# Rate Limiting Configuration
+rate_limit:
+  default: 300  # requests per minute per IP for all endpoints
+  auth: 5       # requests per minute per IP for login/refresh/oauth2 endpoints
+
+# Server Configuration
+server:
+  listen_addr: ":8774"
+  read_timeout: "30s"
+  write_timeout: "30s"
+  idle_timeout: "120s"
+  cors_allowed_origins:
+    - "http://localhost:3000"
+    # Add your own frontend origin(s) here.
+  http2:
+    enabled: true   # HTTP/2 is enabled by default.
+  tls:
+    enabled: false     # Set true with cert_file/key_file to enable HTTPS.
+    cert_file: ""      # Path to PEM TLS certificate.
+    key_file: ""       # Path to PEM TLS private key.
+
+# Performance Monitoring
+monitoring:
+  enable_metrics: true
+  metrics_interval: "60s"
+  slow_query_threshold: "500ms"
+
+# Health Check Configuration
+health:
+  check_interval: "60s"
+  database_timeout: "10s"
+  enable_detailed_metrics: true
+
+# Development-specific features
+development:
+  enable_debug_endpoints: true
+  detailed_error_responses: true
+  cors_enabled: true
+
+# Retry Logic Configuration
+retry:
+  database:
+    enabled: true
+    max_attempts: 2
+    initial_delay: "50ms"
+    max_delay: "1s"
+    backoff_multiplier: 2.0
+    retryable_errors:
+      - "connection refused"
+      - "database is locked"
+      - "busy"
+      - "timeout"
+    jitter_enabled: true
+
+  external_services:
+    enabled: true
+    max_attempts: 3
+    initial_delay: "100ms"
+    max_delay: "5s"
+    backoff_multiplier: 2.0
+    retryable_errors:
+      - "connection refused"
+      - "no such host"
+      - "timeout"
+      - "temporary failure"
+      - "service unavailable"
+      - "too many requests"
+      - "internal server error"
+      - "bad gateway"
+    jitter_enabled: true
+
+  interactive:
+    enabled: true
+    max_attempts: 2
+    initial_delay: "250ms"
+    max_delay: "2s"
+    backoff_multiplier: 2.0
+    retryable_errors:
+      - "connection refused"
+      - "no such host"
+      - "timeout"
+      - "temporary failure"
+      - "service unavailable"
+      - "too many requests"
+      - "internal server error"
+      - "bad gateway"
+    jitter_enabled: true
+
+  service_operations:
+    enabled: true
+    max_attempts: 2
+    initial_delay: "100ms"
+    max_delay: "1s"
+    backoff_multiplier: 1.5
+    retryable_errors:
+      - "connection refused"
+      - "timeout"
+      - "temporary failure"
+    jitter_enabled: true
+
+  circuit_breaker:
+    failure_threshold: 3
+    timeout: "30s"
+    half_open_requests: 2
+
+soft_delete:
+  enabled: true
+  retention_days: 30
+  purge_protection: false
+
+# Unified cache config for secrets, keys, vaults, and (reserved for future
+# use) certificates/users. See docs/superpowers/specs/2026-08-14-generic-cache-config-design.md.
+cache:
+  secrets:
+    enabled: true
+    ttl: "5m"
+    cleanup_interval: "1m"
+    max_entries: 1000
+  keys:
+    enabled: true
+    ttl: "60s"
+    cleanup_interval: "30s"
+    max_entries: 500
+  vaults:
+    enabled: true
+    ttl: "5m"
+    cleanup_interval: "1m"
+    max_entries: 500
+  certificates:
+    enabled: false
+    ttl: "5m"
+    cleanup_interval: "1m"
+    max_entries: 500
+  users:
+    enabled: false
+    ttl: "5m"
+    cleanup_interval: "1m"
+    max_entries: 500
+
+oauth2:
+  token_expiry: "30m"
+  issuer: "http://localhost:8774"  # production: your real HTTPS issuer URL
+
+# OIDC login is additive to local username/password/TOTP and disabled by
+# default. Set enabled: true and fill in your issuer's real values to turn it
+# on — see CLAUDE.md's OIDCService note for exactly what happens at startup
+# when it's on.
+oidc:
+  enabled: false
+  issuer_url: ""
+  client_id: ""
+  client_secret: ""
+  redirect_url: ""
+  scopes: ["openid", "profile", "email"]
+  # Path to a PEM-encoded CA certificate to trust in addition to the system
+  # store, for issuers whose TLS certificate is signed by a private CA. Leave
+  # unset to use the system trust store only.
+  ca_cert_path: ""
+
+# Vault client configuration for secret consumption.
+# Used by OTHER applications that need to fetch secrets from this RocketVault
+# instance. RocketVault does NOT fetch from itself — leave client_id empty on
+# the vault server itself. client_secret is intentionally absent here — set
+# the VAULT_CLIENT_SECRET environment variable instead.
+vault_client:
+  url: "http://localhost:8774"
+  client_id: ""  # service account NAME (not UUID) — leave empty on the vault server itself
+  secrets: []
+  # Example entry once you have a real secret to consume:
+  #   secrets:
+  #     - name: DB_PASSWORD
+  #       uuid: "<secret-uuid-from-this-vault>"
+  #       viper_key: "database.password"
+
+# Frontend configuration exposed via GET /api/v1/config
+frontend:
+  public_api_url: "http://localhost:8774"
+  sentry_dsn: ""
+
+# HSM / PKCS#11 configuration.
+# Set hsm.enabled: true and configure lib_path, token_label, and pin to route
+# all key generation and crypto operations through a hardware security module
+# or SoftHSM2. When disabled (default), the built-in Go crypto path is used
+# and all keys are stored as AES-GCM encrypted PEM in the database.
+#
+# Dev/test setup with SoftHSM2:
+#   sudo apt install softhsm2
+#   softhsm2-util --init-token --slot 0 --label rocketvault --pin <your-pin> --so-pin <your-so-pin>
+#
+# Rotating an existing token's PIN is a separate manual procedure — see
+# docs/runbooks/hsm-pin-rotation.md. Never reuse a PIN that was ever committed
+# to version control.
+hsm:
+  enabled: false
+  lib_path: /usr/lib/softhsm/libsofthsm2.so
+  token_label: rocketvault
+  pin: "GENERATE_WITH: a PIN of your choosing, never committed"
+  slot_id: 0   # 0 = auto-detect by token_label
