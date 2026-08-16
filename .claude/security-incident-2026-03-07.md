@@ -52,3 +52,21 @@ git filter-repo \
 
 All collaborators must re-clone or reset their local repos after the
 force-push, as their local history will diverge.
+
+---
+
+## Addendum (2026-08-16): this fix regressed one day later
+
+The `.gitignore` entry added by this incident's fix
+(`.password-manager*.yaml`) never covered the project's next name — commit
+`5dd5490`, the very next day, renamed the project to RocketVault and
+introduced a new `.rocketvault.yaml` that this pattern didn't match. It stayed
+tracked and unrotated for over five months until a 2026-08-16 penetration test
+found it again. Full root-cause and fix:
+`.claude/known-bugs.md` § B10,
+`docs/superpowers/specs/2026-08-16-secrets-in-git-remediation-design.md`.
+
+The lesson that fix draws from this one: a `.gitignore` pattern change with no
+test proving it matches, and no CI backstop catching a future miss, is not a
+durable fix. Both gaps are closed this time — see the CI guard described in
+the documents above.

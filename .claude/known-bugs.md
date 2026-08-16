@@ -296,6 +296,101 @@ the exploit with the leaked secret.
 
 ---
 
+### B10 — Live secrets committed to git, recurrence of a fixed incident
+
+**Status**: Fixed 2026-08-16 (structural fix; secret rotation partial) — see
+`docs/superpowers/plans/2026-08-16-secrets-in-git-remediation.md`. Git history
+still contains every value listed below; purging it is a separate, deferred
+task — `docs/superpowers/plans/2026-08-16-git-history-secret-purge-followup.md`.
+`master_key` specifically has **not** been rotated yet — see item 6 below.
+**Severity**: Resolved — was High (full offline decryption of every stored
+secret, admin-token forgery via the paired H1 finding, and first-admin-bootstrap
+takeover, confirmed by live git-history inspection in
+`.claude/pentest-report-2026-08-16.md` § H4)
+**File**: `.gitignore`, `.rocketvault.yaml`, `.rocketvault.yaml.example`,
+`.github/workflows/go.yml`, plus 9 tracked docs/scripts/tests that duplicated
+the same values
+
+**Root cause**: `.claude/security-incident-2026-03-07.md` (2026-03-07) already
+fixed this exact class of leak once — `git rm --cached` on the then-named
+`.password-manager*.yaml` files, plus a `.gitignore` entry for that name
+pattern. The very next commit touching this area, one day later, renamed the
+project to RocketVault and introduced a brand-new `.rocketvault.yaml` — under a
+name the old `.gitignore` pattern didn't cover. It has been tracked and
+unrotated ever since. A second, unrelated `.gitignore` line
+(`rocketvault-*`, under "Application binaries") looks like it might have been
+meant to catch this too; it never could, because it requires no leading dot and
+a trailing dash, and `.rocketvault.yaml` has neither. Nothing ever tested that
+either pattern actually matched the file it needed to match — that is the
+literal, specific root cause, verified with `git check-ignore -v
+.rocketvault.yaml` (no output, exit 1, before this fix).
+
+The same four secret values (`master_key`, `jwt_secret`, `bootstrap_token`,
+`hsm.pin`) were also duplicated, in whole or in part, across 9 other tracked
+files (docs, a test fixture, a capture script) — including one,
+`scripts/README.md`, still quoting an even older, already-`git rm`'d secret
+generation from `.password-manager-test.yaml` (removed from the working tree in
+commit `cb93bc9`, but never purged from history, and apparently copy-pasted
+into a doc before that removal).
+
+**What was fixed**:
+1. `.gitignore` — new block matching `.rocketvault.yaml`, `.rocketvault-*.yaml`,
+   and `.rocketvault.yaml.local`, with a negation for the new
+   `.rocketvault.yaml.example` template. Verified with `git check-ignore -v`
+   against all four names.
+2. `.rocketvault.yaml.example` — committed template with instructional
+   placeholders, mirroring the existing `.env`/`.env.example` pattern. The real
+   `.rocketvault.yaml` is `git rm --cached`'d (working tree untouched).
+3. Two new CI steps in `.github/workflows/go.yml`'s `security` job: a
+   structural check that no `.rocketvault*.yaml` variant is ever tracked again,
+   and a denylist check for the exact secret bytes already known to be
+   compromised. A gitleaks-based alternative was evaluated and rejected after
+   producing 50 findings locally, nearly all false positives on test fixtures —
+   see the design doc.
+4. `bootstrap_token` rotated to a freshly generated value; the old one
+   (`***SECRET-REMOVED-2026-08-17***`) is permanently compromised,
+   never to be reused.
+5. `jwt_secret`/`jwt.migration_window` deleted from `.rocketvault.yaml` outright
+   rather than rotated — H1 (`docs/superpowers/plans/2026-08-16-remove-hs256-jwt-fallback.md`)
+   made both keys fully unread by any Go code, so rotating a value nothing
+   reads would be motion without effect.
+6. `master_key` — **not yet rotated**. H3's `rocketvault master-key rotate`
+   tool and startup guard (`docs/superpowers/plans/2026-08-16-master-key-rotation.md`,
+   see § B12) are built and tested, but actually running the rotation against
+   the live dev database rewrites every master-key-sealed row and requires
+   explicit human confirmation, which has not been given as of this entry. The
+   committed `.rocketvault.yaml` still carries the known-compromised placeholder
+   key (`***SECRET-REMOVED-2026-08-17***`, base64 for
+   `0123456789abcdef0123456789abcdef`). Once B12's startup guard is active the
+   server will refuse to boot against it — expected, and the trigger to finally
+   run `docs/runbooks/master-key-rotation.md`.
+7. `hsm.pin` — documented as a manual `softhsm2-util --pin ... --new-pin ...`
+   runbook (`docs/runbooks/hsm-pin-rotation.md`), not automated: it is real,
+   shared PKCS#11 token state, not a config value.
+8. Nine other tracked files with duplicated literal values fixed to placeholders
+   or config-driven reads.
+
+**Regression tests**: none in the traditional sense (no Go logic changed beyond
+one test-fixture swap) — the "tests" for this fix are the CI gate itself
+(Task 6) and the verification gate in the design doc, both grep-based against
+the real repository content, run and confirmed clean before this entry was
+written.
+
+**Remaining, tracked separately**:
+- `master_key` rotation itself: designed, tooled, and startup-gated (see § B12),
+  but not executed against the live database — pending explicit human
+  confirmation. Until it runs, every secret/key/cert row sealed under the
+  committed key remains as exposed as it was before this entry, notwithstanding
+  the structural fixes above.
+- the git history itself still contains every value listed above, recoverable
+  by anyone who has ever cloned this repository —
+  `docs/superpowers/plans/2026-08-16-git-history-secret-purge-followup.md` is the
+  deferred `git filter-repo` + coordinated force-push procedure to actually purge
+  it. Until that runs, treat every value named in this entry as permanently
+  public, rotation notwithstanding.
+
+---
+
 ### B11 — Cross-vault authorization bypass on flat data-plane routes
 
 **Status**: Fixed in commit `b4fc132`
