@@ -290,7 +290,6 @@ func TestBoot_ValidationFailure(t *testing.T) {
 func TestBoot_FullStack(t *testing.T) {
 	viper.Reset()
 	viper.Set("database.connection", ":memory:")
-	viper.Set("jwt_secret", "test-super-secret-jwt-key-at-least-32-chars")
 	viper.Set("jwt.expiry", "15m")
 	viper.Set("soft_delete.enabled", false) // Skip purge scheduler goroutine.
 	defer viper.Reset()

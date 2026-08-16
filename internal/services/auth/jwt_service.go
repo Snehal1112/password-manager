@@ -39,23 +39,12 @@ type jwtService struct {
 	logger   *logrus.Logger
 }
 
-// legacyJWTService is the original HS256-only implementation kept for the migration path.
-type legacyJWTService struct {
-	secretKey []byte
-	issuer    string
-	audience  string
-	expiry    time.Duration
-	logger    *logrus.Logger
-}
-
 // JWTConfig holds configuration for JWT service.
 type JWTConfig struct {
-	SecretKey       string
-	Issuer          string
-	Audience        string
-	Expiry          time.Duration
-	MigrationWindow time.Duration // HS256 fallback window after upgrade; 0 = no fallback
-	Logger          *logrus.Logger
+	Issuer   string
+	Audience string
+	Expiry   time.Duration
+	Logger   *logrus.Logger
 }
 
 // NewJWTServiceWithProvider creates a JWT service backed by an asymmetric signing provider.
@@ -70,22 +59,6 @@ func NewJWTServiceWithProvider(config JWTConfig, provider signing.SigningKeyProv
 		audience: config.Audience,
 		expiry:   config.Expiry,
 		logger:   logger,
-	}
-}
-
-// NewJWTService creates the legacy HS256 JWT service.
-// Kept for backward compatibility during migration — remove after migration window support is dropped.
-func NewJWTService(config JWTConfig) JWTService {
-	logger := config.Logger
-	if logger == nil {
-		logger = logrus.StandardLogger()
-	}
-	return &legacyJWTService{
-		secretKey: []byte(config.SecretKey),
-		issuer:    config.Issuer,
-		audience:  config.Audience,
-		expiry:    config.Expiry,
-		logger:    logger,
 	}
 }
 
@@ -204,90 +177,6 @@ func (s *jwtService) validateCommonClaims(claims *JWTClaims) error {
 
 // ParseToken parses a token without signature verification (inspection only).
 func (s *jwtService) ParseToken(tokenString string) (*JWTClaims, error) {
-	claims := &JWTClaims{}
-	token, _, err := jwt.NewParser().ParseUnverified(tokenString, claims)
-	if err != nil {
-		return nil, fmt.Errorf("failed to parse JWT token: %w", err)
-	}
-	parsed, ok := token.Claims.(*JWTClaims)
-	if !ok {
-		return nil, fmt.Errorf("invalid claims type")
-	}
-	return parsed, nil
-}
-
-// --- legacyJWTService (HS256 only) ---
-
-func (s *legacyJWTService) GenerateToken(userID uuid.UUID, username, role string, sessionID uuid.UUID) (string, error) {
-	now := time.Now()
-	claims := JWTClaims{
-		UserID:   userID,
-		Username: username,
-		Role:     role,
-		RegisteredClaims: jwt.RegisteredClaims{
-			ID:        sessionID.String(),
-			ExpiresAt: jwt.NewNumericDate(now.Add(s.expiry)),
-			IssuedAt:  jwt.NewNumericDate(now),
-			NotBefore: jwt.NewNumericDate(now),
-			Issuer:    s.issuer,
-			Subject:   userID.String(),
-			Audience:  jwt.ClaimStrings{s.audience},
-		},
-	}
-
-	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
-	tokenString, err := token.SignedString(s.secretKey)
-	if err != nil {
-		return "", fmt.Errorf("failed to sign JWT token: %w", err)
-	}
-
-	s.logger.WithFields(logrus.Fields{
-		"user_id":  userID.String(),
-		"username": username,
-		"role":     role,
-	}).Debug("JWT token generated successfully")
-
-	return tokenString, nil
-}
-
-func (s *legacyJWTService) ValidateToken(tokenString string) (*JWTClaims, error) {
-	claims := &JWTClaims{}
-	secretKey := s.secretKey
-	issuer := s.issuer
-	audience := s.audience
-
-	token, err := jwt.ParseWithClaims(tokenString, claims, func(token *jwt.Token) (interface{}, error) {
-		if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
-			s.logger.WithField("alg", token.Header["alg"]).Warn("Unexpected JWT signing method")
-			return nil, fmt.Errorf("unexpected signing method: %v", token.Header["alg"])
-		}
-		if claims.Issuer != issuer {
-			s.logger.WithFields(logrus.Fields{"expected": issuer, "actual": claims.Issuer}).Warn("JWT issuer mismatch")
-			return nil, fmt.Errorf("invalid issuer")
-		}
-		for _, a := range claims.Audience {
-			if a == audience {
-				return secretKey, nil
-			}
-		}
-		s.logger.WithFields(logrus.Fields{"expected": audience, "actual": claims.Audience}).Warn("JWT audience mismatch")
-		return nil, fmt.Errorf("invalid audience")
-	})
-	if err != nil {
-		s.logger.WithError(err).Error("JWT token validation failed")
-		return nil, fmt.Errorf("invalid JWT token: %w", err)
-	}
-	if !token.Valid {
-		return nil, fmt.Errorf("invalid JWT token")
-	}
-	validClaims, ok := token.Claims.(*JWTClaims)
-	if !ok {
-		return nil, fmt.Errorf("invalid JWT claims")
-	}
-	return validClaims, nil
-}
-
-func (s *legacyJWTService) ParseToken(tokenString string) (*JWTClaims, error) {
 	claims := &JWTClaims{}
 	token, _, err := jwt.NewParser().ParseUnverified(tokenString, claims)
 	if err != nil {

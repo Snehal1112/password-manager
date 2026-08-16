@@ -88,51 +88,6 @@ func TestJWTService_Provider_ExpiredToken_Rejected(t *testing.T) {
 	assert.Contains(t, err.Error(), "invalid JWT token")
 }
 
-func TestJWTService_Provider_HS256Fallback_ActiveWindow(t *testing.T) {
-	// Generate an HS256 token using the legacy service.
-	legacySvc := auth.NewJWTService(auth.JWTConfig{
-		SecretKey: "legacy-secret-key-1234567890",
-		Issuer:    "rocketvault",
-		Audience:  "PASSWORD_MANAGER",
-		Expiry:    time.Hour,
-	})
-	userID := uuid.New()
-	hs256Token, err := legacySvc.GenerateToken(userID, "carol", "user", uuid.New())
-	require.NoError(t, err)
-
-	// Provider service with a 1-hour migration window should accept the HS256 token.
-	svc := newProviderJWT(t, func(c *auth.JWTConfig) {
-		c.SecretKey = "legacy-secret-key-1234567890"
-		c.MigrationWindow = time.Hour
-	})
-
-	claims, err := svc.ValidateToken(hs256Token)
-	require.NoError(t, err)
-	assert.Equal(t, userID, claims.UserID)
-}
-
-func TestJWTService_Provider_HS256Fallback_ExpiredWindow_Rejected(t *testing.T) {
-	legacySvc := auth.NewJWTService(auth.JWTConfig{
-		SecretKey: "legacy-secret-key-1234567890",
-		Issuer:    "rocketvault",
-		Audience:  "PASSWORD_MANAGER",
-		Expiry:    time.Hour,
-	})
-	userID := uuid.New()
-	hs256Token, err := legacySvc.GenerateToken(userID, "dave", "user", uuid.New())
-	require.NoError(t, err)
-
-	// Migration window of -1ns is already expired at construction.
-	svc := newProviderJWT(t, func(c *auth.JWTConfig) {
-		c.SecretKey = "legacy-secret-key-1234567890"
-		c.MigrationWindow = -time.Nanosecond
-	})
-
-	_, err = svc.ValidateToken(hs256Token)
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "migration window expired")
-}
-
 func TestJWTService_Provider_UnknownKid_Rejected(t *testing.T) {
 	// A token signed with a different key (unknown kid) must be rejected.
 	otherProvider := newStaticProvider(t)
@@ -189,18 +144,99 @@ func forgedHS256Token(t *testing.T, secret string) string {
 }
 
 // TestJWTService_Provider_KidlessHS256Token_Rejected is the regression test for
-// pentest finding H1. The service is configured the way production was — with
-// the leaked secret and an open migration window — and must still reject the
-// forged token, because the HS256 verification path no longer exists.
+// pentest finding H1. A token forged with the leaked HS256 secret must still
+// be rejected, because the HS256 verification path no longer exists at all.
 func TestJWTService_Provider_KidlessHS256Token_Rejected(t *testing.T) {
-	svc := newProviderJWT(t, func(c *auth.JWTConfig) {
-		c.SecretKey = leakedJWTSecret
-		c.MigrationWindow = time.Hour
-	})
+	svc := newProviderJWT(t)
 
 	claims, err := svc.ValidateToken(forgedHS256Token(t, leakedJWTSecret))
 
 	require.Error(t, err, "a token with no kid header must never be accepted")
 	assert.Nil(t, claims)
 	assert.Contains(t, err.Error(), "missing kid header")
+}
+
+func TestJWTService_Provider_ParseToken(t *testing.T) {
+	svc := newProviderJWT(t)
+
+	userID := uuid.New()
+	token, err := svc.GenerateToken(userID, "alice", "user", uuid.New())
+	require.NoError(t, err)
+
+	// ParseToken must succeed without signature verification.
+	claims, err := svc.ParseToken(token)
+	require.NoError(t, err)
+	assert.Equal(t, userID, claims.UserID)
+	assert.Equal(t, "alice", claims.Username)
+}
+
+func TestJWTService_Provider_ParseToken_MalformedToken(t *testing.T) {
+	svc := newProviderJWT(t)
+
+	_, err := svc.ParseToken("not.a.valid.jwt.token")
+	assert.Error(t, err)
+}
+
+func TestJWTService_Provider_ValidateToken_WrongIssuer(t *testing.T) {
+	// Both services share one provider, so the kid resolves; only the issuer differs.
+	provider := newStaticProvider(t)
+	signer := auth.NewJWTServiceWithProvider(auth.JWTConfig{
+		Issuer:   "other-issuer",
+		Audience: "PASSWORD_MANAGER",
+		Expiry:   time.Hour,
+	}, provider)
+	validator := auth.NewJWTServiceWithProvider(auth.JWTConfig{
+		Issuer:   "rocketvault",
+		Audience: "PASSWORD_MANAGER",
+		Expiry:   time.Hour,
+	}, provider)
+
+	token, err := signer.GenerateToken(uuid.New(), "alice", "user", uuid.New())
+	require.NoError(t, err)
+
+	_, err = validator.ValidateToken(token)
+	assert.Error(t, err)
+}
+
+func TestJWTService_Provider_ValidateToken_WrongAudience(t *testing.T) {
+	provider := newStaticProvider(t)
+	signer := auth.NewJWTServiceWithProvider(auth.JWTConfig{
+		Issuer:   "rocketvault",
+		Audience: "OTHER_AUDIENCE",
+		Expiry:   time.Hour,
+	}, provider)
+	validator := auth.NewJWTServiceWithProvider(auth.JWTConfig{
+		Issuer:   "rocketvault",
+		Audience: "PASSWORD_MANAGER",
+		Expiry:   time.Hour,
+	}, provider)
+
+	token, err := signer.GenerateToken(uuid.New(), "alice", "user", uuid.New())
+	require.NoError(t, err)
+
+	_, err = validator.ValidateToken(token)
+	assert.Error(t, err)
+}
+
+func TestJWTService_Provider_ValidateToken_WrongSigningKey(t *testing.T) {
+	// Two providers with the same kid but different key material: the validator
+	// finds a key for the kid, and the signature check is what must fail.
+	signerProvider := newStaticProvider(t)
+	validatorProvider := newStaticProvider(t)
+	require.Equal(t, signerProvider.KeyID(), validatorProvider.KeyID())
+
+	cfg := auth.JWTConfig{
+		Issuer:   "rocketvault",
+		Audience: "PASSWORD_MANAGER",
+		Expiry:   time.Hour,
+	}
+	signer := auth.NewJWTServiceWithProvider(cfg, signerProvider)
+	validator := auth.NewJWTServiceWithProvider(cfg, validatorProvider)
+
+	token, err := signer.GenerateToken(uuid.New(), "alice", "user", uuid.New())
+	require.NoError(t, err)
+
+	_, err = validator.ValidateToken(token)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "invalid JWT token")
 }
