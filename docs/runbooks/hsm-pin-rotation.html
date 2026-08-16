@@ -1,0 +1,106 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>Runbook: Rotating the SoftHSM2 Token PIN — RocketVault Docs</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"/>
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=IBM+Plex+Sans:wght@400;500;600&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet"/>
+<link rel="stylesheet" href="../assets/doc-theme.css"/>
+</head>
+<body>
+<header class="doc-header">
+  <a class="doc-back" href="../admin-manual.html">&larr; Admin Manual</a>
+  <div class="doc-brand">
+    <div class="doc-mark" aria-hidden="true"></div>
+    <span class="doc-kicker">RocketVault Docs</span>
+  </div>
+  <h1 class="doc-title">Runbook: Rotating the SoftHSM2 Token PIN</h1>
+  <div class="doc-meta"><span class="doc-chip">docs/runbooks/hsm-pin-rotation.md</span></div>
+  <hr/>
+</header>
+<nav class="doc-toc"><div class="doc-toc-label">On this page</div><ol><li><a href="#1-confirm-what-uses-this-token">1. Confirm what uses this token</a></li><li><a href="#2-stop-rocketvault">2. Stop RocketVault</a></li><li><a href="#3-change-the-tokens-pin-not-re-init">3. Change the token's PIN (not re-init)</a></li><li><a href="#4-update-rocketvaultyaml">4. Update .rocketvault.yaml</a></li><li><a href="#5-restart-and-verify">5. Restart and verify</a></li><li><a href="#6-if-something-goes-wrong">6. If something goes wrong</a></li><li><a href="#never-do-this">Never do this</a></li></ol></nav>
+<main class="doc">
+<p><code>.rocketvault.yaml</code>'s <code>hsm.pin</code> authenticates to the real SoftHSM2 (or other
+PKCS#11) token named by <code>hsm.token_label</code>. <strong>Editing the config value alone
+does nothing</strong> — PIN state lives in the token itself, not in RocketVault. If
+you change <code>hsm.pin</code> in config without also changing the token's real PIN,
+every HSM-routed key operation starts failing to authenticate.</p>
+<p>This is why rotation is a manual, human-run procedure and not a CLI command:
+the token may be shared with other software or other RocketVault instances,
+and re-initializing it destroys every key it holds unless you use the
+PIN-change form specifically (not <code>--init-token</code>, which wipes the token).</p>
+<h2 id="1-confirm-what-uses-this-token">1. Confirm what uses this token</h2>
+<div class="codewrap"><div class="code-hd"><span class="code-lang">bash</span><button class="copy-btn">Copy</button></div><pre class="code with-hd">grep -A5 '^hsm:' .rocketvault.yaml
+</pre></div>
+<p>Note <code>token_label</code> and <code>slot_id</code>. If anything other than this RocketVault
+instance uses the same token (shared SoftHSM2 install, another service), you
+must coordinate with it before changing the PIN — its config needs the new PIN
+too, at the same time, or it starts failing.</p>
+<h2 id="2-stop-rocketvault">2. Stop RocketVault</h2>
+<p>Concurrent HSM operations during a PIN change can fail loudly (safe) but there
+is no reason to risk it — stop the server first.</p>
+<h2 id="3-change-the-tokens-pin-not-re-init">3. Change the token's PIN (not re-init)</h2>
+<div class="codewrap"><div class="code-hd"><span class="code-lang">bash</span><button class="copy-btn">Copy</button></div><pre class="code with-hd">softhsm2-util --pin '&lt;current PIN&gt;' --new-pin '&lt;new PIN&gt;' --token-label rocketvault
+</pre></div>
+<p>Use a freshly generated PIN, not something typed by hand:</p>
+<div class="codewrap"><div class="code-hd"><span class="code-lang">bash</span><button class="copy-btn">Copy</button></div><pre class="code with-hd">openssl rand -base64 18 | tr -d '=+/' | head -c 24
+</pre></div>
+<p><strong>Do not use <code>softhsm2-util --init-token</code></strong> for this — that wipes every key
+the token holds. <code>--pin ... --new-pin ...</code> changes the PIN of the existing
+token in place, keeping its keys.</p>
+<h2 id="4-update-rocketvaultyaml">4. Update <code>.rocketvault.yaml</code></h2>
+<div class="codewrap"><div class="code-hd"><span class="code-lang">bash</span><button class="copy-btn">Copy</button></div><pre class="code with-hd">sed -i &quot;s#^  pin: .*#  pin: \&quot;&lt;new PIN&gt;\&quot;#&quot; .rocketvault.yaml
+</pre></div>
+<p>(Indentation must match the existing <code>hsm:</code> block — it is a nested key, not
+top-level.)</p>
+<h2 id="5-restart-and-verify">5. Restart and verify</h2>
+<div class="codewrap"><div class="code-hd"><span class="code-lang">bash</span><button class="copy-btn">Copy</button></div><pre class="code with-hd">./rocketvault serve
+./rocketvault keys list --vault default
+</pre></div>
+<p>A successful list proves the new PIN authenticates. If it fails with a PKCS#11
+authentication error, the token still has the old PIN, or step 3 targeted the
+wrong <code>--token-label</code> — check <code>softhsm2-util --show-slots</code> to confirm the
+token label and slot actually changed.</p>
+<h2 id="6-if-something-goes-wrong">6. If something goes wrong</h2>
+<table>
+<thead>
+<tr>
+<th>Symptom</th>
+<th>Cause</th>
+<th>Action</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>CKR_PIN_INCORRECT</code> after restart</td>
+<td>Config and token PIN disagree</td>
+<td>Re-run step 3 with the PIN you actually set, or step 4 with the PIN you actually changed to — whichever was mistyped.</td>
+</tr>
+<tr>
+<td><code>softhsm2-util --pin</code> itself fails</td>
+<td>Wrong current PIN, or wrong <code>--token-label</code></td>
+<td><code>softhsm2-util --show-slots</code> to find the real label; retry with the correct current PIN.</td>
+</tr>
+<tr>
+<td>Other software using the same token now fails</td>
+<td>This token is shared and its config wasn't updated</td>
+<td>Update that software's PIN config too — this is why step 1's coordination check matters.</td>
+</tr>
+</tbody>
+</table>
+<h2 id="never-do-this">Never do this</h2>
+<ul>
+<li>Never commit a PIN — real or placeholder — into any tracked file. The
+previous PIN (<code>1234</code>) was committed in <code>.rocketvault.yaml</code> for 5+ months
+(<code>.claude/known-bugs.md</code> § B10) and must be treated as permanently
+compromised even after this rotation.</li>
+<li>Never reuse an old, possibly-compromised PIN as the &quot;new&quot; PIN.</li>
+</ul>
+
+</main>
+<footer class="doc-footer"><a href="../admin-manual.html">&larr; Back to the Admin Manual</a></footer>
+<script src="../assets/doc-theme.js"></script>
+</body>
+</html>
