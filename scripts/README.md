@@ -132,9 +132,9 @@ database:
 log:
   level: "debug"
   file: "password_manager.log"
-master_key: "***SECRET-REMOVED-2026-08-17***"
-jwt_secret: "***SECRET-REMOVED-2026-08-17***"
-bootstrap_token: "***SECRET-REMOVED-2026-08-17***"
+master_key: "your-master-key-here"
+jwt_secret: "your-jwt-secret-here"
+bootstrap_token: "your-bootstrap-token-here"
 ```
 
 ## 🛡️ Security Best Practices

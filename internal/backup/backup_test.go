@@ -39,7 +39,10 @@ import (
 func TestMain(m *testing.M) {
 	// Set master_key once before any test runs so parallel tests don't race on
 	// the global viper map. All backup tests use the same test key.
-	os.Setenv("MASTER_KEY", "***SECRET-REMOVED-2026-08-17***") //nolint:errcheck,gosec
+	// A fresh, unrelated 32-byte key — not the compromised value that used to
+	// ship in .rocketvault.yaml (rotated 2026-08-16, see .claude/known-bugs.md
+	// § B10). This test only needs *a* valid master key, never a specific one.
+	os.Setenv("MASTER_KEY", "i7I2y3WZofTpqkICx3HuWe8BJldU6TFDQk4HIlUF0K4=") //nolint:errcheck,gosec
 	viper.AutomaticEnv()
 	os.Exit(m.Run())
 }

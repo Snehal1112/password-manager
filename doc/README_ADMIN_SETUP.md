@@ -27,14 +27,14 @@ default. You may override this with `--config <path>` on any command.
 Minimal working configuration:
 
 ```yaml
-master_key: "***SECRET-REMOVED-2026-08-17***"
+master_key: "GENERATE_WITH: openssl rand -base64 32"
 jwt_secret: "***SECRET-REMOVED-2026-08-17***"  # unread since 2026-08-16; removal tracked separately
 jwt:
   key_source: "os_store"
   key_cn: "rocketvault"
   expiry: "1h"
   rotation_overlap: "1h"
-bootstrap_token: "***SECRET-REMOVED-2026-08-17***"
+bootstrap_token: "GENERATE_WITH: openssl rand -base64 32"
 environment: "development"
 database:
   connection: "./dev-rocketvault.db"
@@ -109,7 +109,7 @@ convenience, and you should delete it after configuring your authenticator.
 ./rocketvault users admin \
   --admin-username admin \
   --admin-password admin123 \
-  --bootstrap-token "***SECRET-REMOVED-2026-08-17***"
+  --bootstrap-token "<value from your .rocketvault.yaml>"
 ```
 
 Expected output:
@@ -268,7 +268,7 @@ go build -o rocketvault
 ./rocketvault users admin \
   --admin-username admin \
   --admin-password admin123 \
-  --bootstrap-token "***SECRET-REMOVED-2026-08-17***"
+  --bootstrap-token "<value from your .rocketvault.yaml>"
 
 # 3. Save the TOTP secret printed above
 export ROCKETVAULT_TOTP_SECRET="<secret_from_output>"
@@ -334,7 +334,7 @@ sqlite3 ./dev-rocketvault.db \
 
 ```bash
 sqlite3 ./dev-rocketvault.db \
-  "UPDATE bootstrap_tokens SET used=0 WHERE token='***SECRET-REMOVED-2026-08-17***';"
+  "UPDATE bootstrap_tokens SET used=0 WHERE token='<your-bootstrap-token>';"
 ```
 
 ### "authentication failed"
@@ -378,8 +378,9 @@ If you placed the config elsewhere, pass `--config` explicitly:
    openssl rand -base64 32
    ```
 
-2. Do not commit `.rocketvault.yaml` to version control — it contains the
-   master key, JWT secret, and bootstrap token.
+2. `.rocketvault.yaml` is gitignored and untracked as of 2026-08-16 (see
+   `.claude/known-bugs.md` § B10) — it is never committed. Copy
+   `.rocketvault.yaml.example` to start a new one.
 
 3. Delete any `.admin_totp_secret` files the script may have written after
    you have configured your authenticator app.

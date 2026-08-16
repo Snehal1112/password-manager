@@ -51,7 +51,7 @@ An earlier audit of the other docs in this repo found a batch of inaccuracies; t
 # One-time: create the first admin user using the bootstrap token from .rocketvault.yaml
 ./rocketvault users admin \
   --admin-username admin --admin-password admin123 \
-  --bootstrap-token ***SECRET-REMOVED-2026-08-17***
+  --bootstrap-token "<value from your .rocketvault.yaml>"
 
 # Log in — this caches the session to ~/.rocketvault/sessions/admin.json and
 # points ~/.rocketvault/sessions/current at it

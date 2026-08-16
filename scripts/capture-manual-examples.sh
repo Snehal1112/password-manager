@@ -7,11 +7,13 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 CFG=/tmp/rv-capture.yaml
 DB=/tmp/rv-capture.db
 BIN=/tmp/rocketvault-capture
-TOK="***SECRET-REMOVED-2026-08-17***"
 B=http://localhost:8774
 
 cp "$ROOT/.rocketvault.yaml" "$CFG"
 sed -i "s#./dev-rocketvault.db#$DB#" "$CFG"
+# Read the real bootstrap token from the copied config rather than hardcoding
+# it here, so this script survives every future rotation automatically.
+TOK=$(grep '^bootstrap_token:' "$CFG" | sed -E 's/bootstrap_token: *"([^"]*)"/\1/')
 rm -f "$DB"
 ( cd "$ROOT" && go build -o "$BIN" . )
 

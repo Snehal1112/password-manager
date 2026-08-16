@@ -59,14 +59,14 @@ binary name, configuration file layout, and CLI command signatures.</p>
 <p>The binary always loads <code>.rocketvault.yaml</code> from the current directory by
 default. You may override this with <code>--config &lt;path&gt;</code> on any command.</p>
 <p>Minimal working configuration:</p>
-<div class="codewrap"><div class="code-hd"><span class="code-lang">yaml</span><button class="copy-btn">Copy</button></div><pre class="code with-hd">master_key: &quot;***SECRET-REMOVED-2026-08-17***&quot;
+<div class="codewrap"><div class="code-hd"><span class="code-lang">yaml</span><button class="copy-btn">Copy</button></div><pre class="code with-hd">master_key: &quot;GENERATE_WITH: openssl rand -base64 32&quot;
 jwt_secret: &quot;***SECRET-REMOVED-2026-08-17***&quot;  # unread since 2026-08-16; removal tracked separately
 jwt:
   key_source: &quot;os_store&quot;
   key_cn: &quot;rocketvault&quot;
   expiry: &quot;1h&quot;
   rotation_overlap: &quot;1h&quot;
-bootstrap_token: &quot;***SECRET-REMOVED-2026-08-17***&quot;
+bootstrap_token: &quot;GENERATE_WITH: openssl rand -base64 32&quot;
 environment: &quot;development&quot;
 database:
   connection: &quot;./dev-rocketvault.db&quot;
@@ -122,7 +122,7 @@ convenience, and you should delete it after configuring your authenticator.</p>
 <div class="codewrap"><div class="code-hd"><span class="code-lang">bash</span><button class="copy-btn">Copy</button></div><pre class="code with-hd">./rocketvault users admin \
   --admin-username admin \
   --admin-password admin123 \
-  --bootstrap-token &quot;***SECRET-REMOVED-2026-08-17***&quot;
+  --bootstrap-token &quot;&lt;value from your .rocketvault.yaml&gt;&quot;
 </pre></div>
 <p>Expected output:</p>
 <div class="codewrap"><div class="code-hd"><span class="code-lang">text</span><button class="copy-btn">Copy</button></div><pre class="code with-hd">Admin user admin created successfully with ID: &lt;uuid&gt;
@@ -224,7 +224,7 @@ go build -o rocketvault
 ./rocketvault users admin \
   --admin-username admin \
   --admin-password admin123 \
-  --bootstrap-token &quot;***SECRET-REMOVED-2026-08-17***&quot;
+  --bootstrap-token &quot;&lt;value from your .rocketvault.yaml&gt;&quot;
 
 # 3. Save the TOTP secret printed above
 export ROCKETVAULT_TOTP_SECRET=&quot;&lt;secret_from_output&gt;&quot;
@@ -294,7 +294,7 @@ go run scripts/totp_generator.go
 run), reset it:</li>
 </ol>
 <div class="codewrap"><div class="code-hd"><span class="code-lang">bash</span><button class="copy-btn">Copy</button></div><pre class="code with-hd">sqlite3 ./dev-rocketvault.db \
-  &quot;UPDATE bootstrap_tokens SET used=0 WHERE token='***SECRET-REMOVED-2026-08-17***';&quot;
+  &quot;UPDATE bootstrap_tokens SET used=0 WHERE token='&lt;your-bootstrap-token&gt;';&quot;
 </pre></div>
 <h3 id="authentication-failed">&quot;authentication failed&quot;</h3>
 <ul>
@@ -327,8 +327,9 @@ generated value before first use in any shared environment:</p>
 </pre></div>
 </li>
 <li>
-<p>Do not commit <code>.rocketvault.yaml</code> to version control — it contains the
-master key, JWT secret, and bootstrap token.</p>
+<p><code>.rocketvault.yaml</code> is gitignored and untracked as of 2026-08-16 (see
+<code>.claude/known-bugs.md</code> § B10) — it is never committed. Copy
+<code>.rocketvault.yaml.example</code> to start a new one.</p>
 </li>
 <li>
 <p>Delete any <code>.admin_totp_secret</code> files the script may have written after

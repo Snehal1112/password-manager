@@ -12,7 +12,7 @@ This guide provides comprehensive steps to test the RocketVault's export functio
 
 The test configuration file `test-config.yaml` should contain:
 ```yaml
-master_key: "***SECRET-REMOVED-2026-08-17***"
+master_key: "GENERATE_WITH: openssl rand -base64 32"
 bootstrap_token: "test-bootstrap-token-12345"
 database:
   connection: "./test-secrets.db"

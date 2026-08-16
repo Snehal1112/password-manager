@@ -1196,8 +1196,8 @@ func (s *service) CreateSecret(ctx context.Context, req CreateSecretRequest) (*m
   responsibilities:['Encrypt a plain-text secret value using AES-256-GCM','Decrypt a stored ciphertext back to plain-text','Derive the encryption key from the configured master_key','Ensure every encryption operation uses a unique random nonce (via crypto/rand)'],
   details:[['Algorithm','AES-256-GCM (Authenticated Encryption with Associated Data)'],['Key source','master_key in .rocketvault.yaml (base64-encoded 32 bytes)'],['Nonce','12 bytes — generated fresh per encryption via crypto/rand.Read()'],['Output format','base64(nonce + ciphertext + auth_tag) stored as a single string'],['Interface','secretServices.CryptographyService'],['EncryptSecret','AES-256-GCM encrypt → base64 encode → return'],['DecryptSecret','base64 decode → extract nonce → AES-256-GCM decrypt → return plain-text']],
   code:`# .rocketvault.yaml
-master_key: "***SECRET-REMOVED-2026-08-17***"
-# ^ base64(32 random bytes) — generate with: openssl rand -base64 32`,
+master_key: "<GENERATE_WITH: openssl rand -base64 32>"
+# ^ base64(32 random bytes)`,
   deps:['golang stdlib crypto/aes · crypto/cipher · crypto/rand','Used by SecretService (secret values) · SelfPKIProvider (JWT key storage)'],
   note:'The master_key is the root encryption secret. If it is lost, all encrypted secrets become unrecoverable. Back it up securely and rotate it only with a planned migration.'
 },
