@@ -163,6 +163,15 @@ func newCrossVaultKeysTestAPI(t *testing.T) (*API, *vaultFakeRepo, repositories.
 		t.Fatalf("create keys schema: %v", err)
 	}
 
+	_, err = sqlDB.Exec(`CREATE TABLE IF NOT EXISTS key_tags (
+		key_id TEXT NOT NULL,
+		tag TEXT NOT NULL,
+		PRIMARY KEY (key_id, tag)
+	)`)
+	if err != nil {
+		t.Fatalf("create key_tags schema: %v", err)
+	}
+
 	keyRepo := repositories.NewKeyRepository(rvdb.NewConn(sqlDB, rvdb.SQLite), userTestLog())
 	keySvc := keyServices.NewKeyService(keyServices.KeyServiceConfig{
 		KeyRepository: keyRepo,
@@ -242,6 +251,15 @@ func newCrossVaultCertsTestAPI(t *testing.T) (*API, *vaultFakeRepo, repositories
 	)`)
 	if err != nil {
 		t.Fatalf("create certificates schema: %v", err)
+	}
+
+	_, err = sqlDB.Exec(`CREATE TABLE IF NOT EXISTS certificate_tags (
+		certificate_id TEXT NOT NULL,
+		tag TEXT NOT NULL,
+		PRIMARY KEY (certificate_id, tag)
+	)`)
+	if err != nil {
+		t.Fatalf("create certificate_tags schema: %v", err)
 	}
 
 	certRepo := repositories.NewCertificateRepository(rvdb.NewConn(sqlDB, rvdb.SQLite), userTestLog())
