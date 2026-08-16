@@ -176,3 +176,59 @@ jobs:
         with:
           go-version-input: ""   # reads from go.mod
           go-package: ./...
+
+      - name: No tracked RocketVault config files
+        run: |
+          # H4 (.claude/known-bugs.md § B10): a real .rocketvault.yaml was
+          # tracked in git for 5+ months because the .gitignore pattern
+          # meant to catch it never matched. This is the structural half of
+          # that fix — it must never be trackable again, under any of its
+          # sibling names either.
+          if git ls-files | grep -E '^\.rocketvault(-.*)?\.yaml$|^\.rocketvault\.yaml\.local$'; then
+            echo "::error::a real RocketVault config file is tracked in git — see .claude/known-bugs.md § B10" >&2
+            exit 1
+          fi
+
+      - name: No known-compromised secret literals
+        run: |
+          # The specific values leaked by H4 and its 2026-03-07 predecessor.
+          # This is a denylist of exact, already-compromised bytes, not a
+          # general secret scanner — see the design doc for why (gitleaks
+          # produced 50 findings here, nearly all false positives on test
+          # fixtures; this check produces zero by construction). Docs that
+          # intentionally discuss these values as history are excluded.
+          #
+          # Exclusions, beyond docs/superpowers/, docs/plans/, and .claude/:
+          #   - bootstrap/bootstrap_test.go, cmd/master_key_test.go,
+          #     common/masterkey_test.go,
+          #     internal/services/auth/jwt_service_provider_test.go
+          #     regression tests (from the H1/H3 sibling plans) that assert
+          #     RocketVault REJECTS the compromised master key / jwt_secret.
+          #     They must embed the actual leaked value to test the
+          #     rejection path (e.g. TestValidateMasterKey_RejectsCompromisedDefault)
+          #     — removing the literal here would break the test they exist
+          #     to run.
+          #   - doc/README_ADMIN_SETUP.md, doc/README_ADMIN_SETUP.html
+          #     H1 (a sibling plan) intentionally left the leaked jwt_secret
+          #     in place here as a worked example, annotated "unread since
+          #     2026-08-16; removal tracked separately" rather than deleted.
+          #     Out of this plan's (H4's) scope to alter.
+          #   - .github/workflows/go.yml
+          #     this file: the check necessarily quotes each literal in its
+          #     own `-e` patterns, which otherwise self-matches.
+          if git grep -lF \
+              -e '***SECRET-REMOVED-2026-08-17***' \
+              -e '***SECRET-REMOVED-2026-08-17***' \
+              -e '***SECRET-REMOVED-2026-08-17***' \
+              -e '***SECRET-REMOVED-2026-08-17***' \
+              -e '***SECRET-REMOVED-2026-08-17***' \
+              -e '***SECRET-REMOVED-2026-08-17***' \
+              -- . ':(exclude)docs/superpowers/' ':(exclude)docs/plans/' ':(exclude).claude/' \
+                 ':(exclude)bootstrap/bootstrap_test.go' ':(exclude)cmd/master_key_test.go' \
+                 ':(exclude)common/masterkey_test.go' \
+                 ':(exclude)internal/services/auth/jwt_service_provider_test.go' \
+                 ':(exclude)doc/README_ADMIN_SETUP.md' ':(exclude)doc/README_ADMIN_SETUP.html' \
+                 ':(exclude).github/workflows/go.yml'; then
+            echo "::error::a known-compromised secret literal (rotated 2026-08-16) reappeared in a tracked file — see .claude/known-bugs.md § B10" >&2
+            exit 1
+          fi
