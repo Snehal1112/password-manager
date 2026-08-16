@@ -298,11 +298,13 @@ the exploit with the leaked secret.
 
 ### B10 — Live secrets committed to git, recurrence of a fixed incident
 
-**Status**: Fixed 2026-08-16 (structural fix; secret rotation partial) — see
+**Status**: Fixed 2026-08-16 (structural fix; all four secrets rotated,
+including `master_key` — see item 6 below, executed 2026-08-16 against the
+real dev database with a full change log at
+`.claude/master-key-rotation-log-2026-08-16.md`) — see
 `docs/superpowers/plans/2026-08-16-secrets-in-git-remediation.md`. Git history
 still contains every value listed below; purging it is a separate, deferred
 task — `docs/superpowers/plans/2026-08-16-git-history-secret-purge-followup.md`.
-`master_key` specifically has **not** been rotated yet — see item 6 below.
 **Severity**: Resolved — was High (full offline decryption of every stored
 secret, admin-token forgery via the paired H1 finding, and first-admin-bootstrap
 takeover, confirmed by live git-history inspection in
@@ -354,17 +356,24 @@ into a doc before that removal).
    rather than rotated — H1 (`docs/superpowers/plans/2026-08-16-remove-hs256-jwt-fallback.md`)
    made both keys fully unread by any Go code, so rotating a value nothing
    reads would be motion without effect.
-6. `master_key` — **not yet rotated**. H3's `rocketvault master-key rotate`
-   tool and startup guard (`docs/superpowers/plans/2026-08-16-master-key-rotation.md`,
-   see § B12) are built and tested, but actually running the rotation against
-   the live dev database rewrites every master-key-sealed row and requires
-   explicit human confirmation, which has not been given as of this entry. The
-   working-tree `.rocketvault.yaml` — no longer git-tracked, but its value is
-   still recoverable from git history — still carries the known-compromised
-   placeholder key (`***SECRET-REMOVED-2026-08-17***`, base64 for
-   `0123456789abcdef0123456789abcdef`). Once B12's startup guard is active the
-   server will refuse to boot against it — expected, and the trigger to finally
-   run `docs/runbooks/master-key-rotation.md`.
+6. `master_key` — **rotated**, 2026-08-16, with explicit human sign-off. Used
+   H3's `rocketvault master-key rotate` tool
+   (`docs/superpowers/plans/2026-08-16-master-key-rotation.md`, see § B12)
+   against the real dev database: backed up `dev-rocketvault.db` first, dry-run
+   verified (3 rows: 2 `secrets`, 1 `keys`; 1 HSM-backed key correctly skipped),
+   real run matched the dry run exactly with no errors, `.rocketvault.yaml`
+   updated to the new key, server restarted on the existing (pre-this-branch)
+   binary to confirm rotation doesn't require the new code to be deployed.
+   Verified at the database level (ciphertext for both `secrets` rows
+   genuinely changed vs. the pre-rotation backup); a live decrypt-via-API
+   round-trip was attempted but blocked by an unrelated, pre-existing CLI
+   session/refresh-token issue — not chased further, and **still worth an
+   operator double-check** (`docs/runbooks/master-key-rotation.md` step 7).
+   Full step-by-step log: `.claude/master-key-rotation-log-2026-08-16.md`. The
+   old placeholder key (`***SECRET-REMOVED-2026-08-17***`, base64
+   for `0123456789abcdef0123456789abcdef`) is retired and treated as
+   permanently compromised; the pre-rotation database backup
+   (`dev-rocketvault.db.pre-rotation-2026-08-16`) remains sealed under it.
 7. `hsm.pin` — documented as a manual `softhsm2-util --pin ... --new-pin ...`
    runbook (`docs/runbooks/hsm-pin-rotation.md`), not automated: it is real,
    shared PKCS#11 token state, not a config value.
@@ -378,11 +387,10 @@ the real repository content, run and confirmed clean before this entry was
 written.
 
 **Remaining, tracked separately**:
-- `master_key` rotation itself: designed, tooled, and startup-gated (see § B12),
-  but not executed against the live database — pending explicit human
-  confirmation. Until it runs, every secret/key/cert row sealed under the
-  committed key remains as exposed as it was before this entry, notwithstanding
-  the structural fixes above.
+- `master_key` rotation: **executed** 2026-08-16 against the live database,
+  see item 6 above and `.claude/master-key-rotation-log-2026-08-16.md` for the
+  full step-by-step record. A live decrypt-via-API verification is still
+  recommended as a final operator sanity check.
 - the git history itself still contains every value listed above, recoverable
   by anyone who has ever cloned this repository —
   `docs/superpowers/plans/2026-08-16-git-history-secret-purge-followup.md` is the
