@@ -29,28 +29,50 @@ func HashString(input string) (string, error) {
 	return string(hash), nil
 }
 
-// EncryptSecret encrypts a secret value using AES-256-GCM.
-// It uses the master key from configuration for encryption.
+// masterKeySize is the AES-256 key length in raw bytes.
+const masterKeySize = 32
+
+// ParseMasterKey decodes a base64-encoded master key and checks its length.
+// It makes no judgement about key quality; use ValidateMasterKey for that.
 //
 // Parameters:
 //
-//	value: The plaintext secret value.
+//	encoded: The base64-encoded master key.
+//
+// Returns:
+//
+//	The raw 32-byte key and an error if the key is missing or malformed.
+func ParseMasterKey(encoded string) ([]byte, error) {
+	if encoded == "" {
+		return nil, fmt.Errorf("master key not configured")
+	}
+
+	key, err := base64.StdEncoding.DecodeString(encoded)
+	if err != nil {
+		return nil, fmt.Errorf("failed to decode master key: %w", err)
+	}
+	if len(key) != masterKeySize {
+		return nil, fmt.Errorf("master key must be %d bytes, got %d", masterKeySize, len(key))
+	}
+	return key, nil
+}
+
+// EncryptWithKey seals a value with AES-256-GCM under an explicit key. A fresh
+// random 12-byte nonce is prepended to the ciphertext and the result is
+// base64-encoded. Taking the key as a parameter is what lets the master key
+// rotation tool re-encrypt under a second key in the same process.
+//
+// Parameters:
+//
+//	value: The plaintext value.
+//	key: The raw 32-byte AES-256 key.
 //
 // Returns:
 //
 //	The encrypted value (base64-encoded) and an error if encryption fails.
-func EncryptSecret(value string) (string, error) {
-	masterKey := viper.GetString("master_key")
-	if masterKey == "" {
-		return "", fmt.Errorf("master key not configured")
-	}
-
-	key, err := base64.StdEncoding.DecodeString(masterKey)
-	if err != nil {
-		return "", fmt.Errorf("failed to decode master key: %w", err)
-	}
-	if len(key) < 32 {
-		return "", fmt.Errorf("master key must be 32 bytes")
+func EncryptWithKey(value string, key []byte) (string, error) {
+	if len(key) != masterKeySize {
+		return "", fmt.Errorf("master key must be %d bytes, got %d", masterKeySize, len(key))
 	}
 
 	block, err := aes.NewCipher(key)
@@ -72,28 +94,21 @@ func EncryptSecret(value string) (string, error) {
 	return base64.StdEncoding.EncodeToString(ciphertext), nil
 }
 
-// DecryptSecret decrypts a secret value encrypted with AES-256-GCM.
-// It uses the master key from configuration for decryption.
+// DecryptWithKey opens a value sealed by EncryptWithKey under an explicit key.
+// AES-GCM is authenticated, so a wrong key reliably returns an error rather
+// than garbage plaintext.
 //
 // Parameters:
 //
 //	encryptedValue: The encrypted value (base64-encoded).
+//	key: The raw 32-byte AES-256 key.
 //
 // Returns:
 //
 //	The decrypted plaintext value and an error if decryption fails.
-func DecryptSecret(encryptedValue string) (string, error) {
-	masterKey := viper.GetString("master_key")
-	if masterKey == "" {
-		return "", fmt.Errorf("master key not configured")
-	}
-
-	key, err := base64.StdEncoding.DecodeString(masterKey)
-	if err != nil {
-		return "", fmt.Errorf("failed to decode master key: %w", err)
-	}
-	if len(key) != 32 {
-		return "", fmt.Errorf("master key must be 32 bytes")
+func DecryptWithKey(encryptedValue string, key []byte) (string, error) {
+	if len(key) != masterKeySize {
+		return "", fmt.Errorf("master key must be %d bytes, got %d", masterKeySize, len(key))
 	}
 
 	ciphertext, err := base64.StdEncoding.DecodeString(encryptedValue)
@@ -122,4 +137,40 @@ func DecryptSecret(encryptedValue string) (string, error) {
 	}
 
 	return string(plaintext), nil
+}
+
+// EncryptSecret encrypts a secret value using AES-256-GCM under the master key
+// from configuration.
+//
+// Parameters:
+//
+//	value: The plaintext secret value.
+//
+// Returns:
+//
+//	The encrypted value (base64-encoded) and an error if encryption fails.
+func EncryptSecret(value string) (string, error) {
+	key, err := ParseMasterKey(viper.GetString("master_key"))
+	if err != nil {
+		return "", err
+	}
+	return EncryptWithKey(value, key)
+}
+
+// DecryptSecret decrypts a secret value encrypted with AES-256-GCM under the
+// master key from configuration.
+//
+// Parameters:
+//
+//	encryptedValue: The encrypted value (base64-encoded).
+//
+// Returns:
+//
+//	The decrypted plaintext value and an error if decryption fails.
+func DecryptSecret(encryptedValue string) (string, error) {
+	key, err := ParseMasterKey(viper.GetString("master_key"))
+	if err != nil {
+		return "", err
+	}
+	return DecryptWithKey(encryptedValue, key)
 }
