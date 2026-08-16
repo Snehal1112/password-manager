@@ -512,6 +512,45 @@ func TestParseDate_Invalid(t *testing.T) {
 	assert.Contains(t, err.Error(), "expected RFC3339 or YYYY-MM-DD")
 }
 
+// TestReportCmd_NonAdmin_Forbidden proves a non-admin caller is rejected
+// before any report-generation method is called.
+func TestReportCmd_NonAdmin_Forbidden(t *testing.T) {
+	tc := testutils.NewTestContext(t)
+	mockSvc := &MockComplianceReportService{}
+	tc.MockContainer.On("GetComplianceReportService").Return(mockSvc).Maybe()
+
+	ctx := context.WithValue(tc.Ctx, common.ClaimsKey, &model.Claims{Role: model.RoleUser})
+
+	cmd, _ := newReportCmd()
+	cmd.SetContext(ctx)
+	cmd.SetArgs([]string{"--type=soc2", "--from=2026-01-01", "--to=2026-12-31"})
+	err := cmd.Execute()
+
+	assert.ErrorContains(t, err, "forbidden: requires admin role")
+	mockSvc.AssertNotCalled(t, "GenerateSOC2Report", mock.Anything, mock.Anything, mock.Anything)
+}
+
+// TestReportCmd_Admin_Allowed proves an admin caller still reaches
+// GenerateSOC2Report after the gate is added.
+func TestReportCmd_Admin_Allowed(t *testing.T) {
+	tc := testutils.NewTestContext(t)
+	mockSvc := &MockComplianceReportService{}
+	from := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	to := time.Date(2026, 12, 31, 0, 0, 0, 0, time.UTC)
+	mockSvc.On("GenerateSOC2Report", mock.Anything, from, to).
+		Return(&auditServices.SOC2Report{From: from, To: to, TotalEvents: 1}, nil)
+	tc.MockContainer.On("GetComplianceReportService").Return(mockSvc)
+
+	cmd, buf := newReportCmd()
+	cmd.SetContext(tc.Ctx)
+	cmd.SetArgs([]string{"--type=soc2", "--from=2026-01-01", "--to=2026-12-31"})
+	err := cmd.Execute()
+
+	assert.NoError(t, err)
+	assert.Contains(t, buf.String(), "SOC 2 Report")
+	mockSvc.AssertExpectations(t)
+}
+
 // TestLogsCmd_NonAdmin_Forbidden proves a non-admin caller is rejected before
 // QueryLogs is ever called.
 func TestLogsCmd_NonAdmin_Forbidden(t *testing.T) {

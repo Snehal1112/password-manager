@@ -41,6 +41,10 @@ var reportCmd = &cobra.Command{
 			return fmt.Errorf("service container not available in context")
 		}
 
+		if _, err := requireAuditAdmin(cmd); err != nil {
+			return err
+		}
+
 		reportType, _ := cmd.Flags().GetString("type")
 		fromStr, _ := cmd.Flags().GetString("from")
 		toStr, _ := cmd.Flags().GetString("to")
