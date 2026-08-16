@@ -27,7 +27,7 @@
 <p>The Password Manager implements a Zero Trust security model with explicit verification, least privilege access, and assume-breach principles. It uses industry-standard cryptographic libraries and secure practices to protect data at rest and in transit.</p>
 <h2 id="authentication">Authentication</h2>
 <ul>
-<li><strong>JWT Authentication</strong>: Uses <code>github.com/golang-jwt/jwt/v5</code> to issue short-lived (1-hour) JSON Web Tokens for user sessions. Tokens are signed with a secret (<code>jwt_secret</code>) stored in the configuration.</li>
+<li><strong>JWT Authentication</strong>: Uses <code>github.com/golang-jwt/jwt/v5</code> to issue short-lived JSON Web Tokens for user sessions. Tokens are signed asymmetrically (RS256/ES256) with a private key supplied by the configured <code>jwt.key_source</code> provider — <code>os_store</code> (OS keychain, the default), <code>self_pki</code>, or <code>external_pki</code>. Every token carries a <code>kid</code> header, and validation rejects any token without one; there is no symmetric (HS256) verification path.</li>
 <li><strong>Multi-Factor Authentication (MFA)</strong>: Implements TOTP MFA with <code>github.com/pquerna/otp</code>, requiring a valid TOTP code for all CLI operations except <code>setup</code> and <code>register</code>.</li>
 <li><strong>Password Hashing</strong>: User passwords are hashed with <code>golang.org/x/crypto/bcrypt</code> using a high cost factor for resistance against brute-force attacks.</li>
 </ul>
@@ -71,7 +71,7 @@
 </ul>
 <h2 id="best-practices">Best Practices</h2>
 <ul>
-<li><strong>Secure Configuration</strong>: Store <code>jwt_secret</code> and <code>master_key</code> in a secure vault (e.g., HashiCorp Vault) or restricted environment variables.</li>
+<li><strong>Secure Configuration</strong>: Store <code>master_key</code> in a secure vault (e.g., HashiCorp Vault) or restricted environment variables. The JWT signing key is held by the <code>jwt.key_source</code> provider, not in configuration.</li>
 <li><strong>Regular Updates</strong>: Scan dependencies with <code>govulncheck</code> to address vulnerabilities.</li>
 <li><strong>Access Controls</strong>: Restrict database access to authorized users and use strong credentials.</li>
 <li><strong>Backup Security</strong>: Encrypt backups with <code>crypto/aes</code> and store in a secure location (planned).</li>

@@ -6,7 +6,7 @@ This document describes the security features of the Password Manager applicatio
 The Password Manager implements a Zero Trust security model with explicit verification, least privilege access, and assume-breach principles. It uses industry-standard cryptographic libraries and secure practices to protect data at rest and in transit.
 
 ## Authentication
-- **JWT Authentication**: Uses `github.com/golang-jwt/jwt/v5` to issue short-lived (1-hour) JSON Web Tokens for user sessions. Tokens are signed with a secret (`jwt_secret`) stored in the configuration.
+- **JWT Authentication**: Uses `github.com/golang-jwt/jwt/v5` to issue short-lived JSON Web Tokens for user sessions. Tokens are signed asymmetrically (RS256/ES256) with a private key supplied by the configured `jwt.key_source` provider — `os_store` (OS keychain, the default), `self_pki`, or `external_pki`. Every token carries a `kid` header, and validation rejects any token without one; there is no symmetric (HS256) verification path.
 - **Multi-Factor Authentication (MFA)**: Implements TOTP MFA with `github.com/pquerna/otp`, requiring a valid TOTP code for all CLI operations except `setup` and `register`.
 - **Password Hashing**: User passwords are hashed with `golang.org/x/crypto/bcrypt` using a high cost factor for resistance against brute-force attacks.
 
@@ -41,7 +41,7 @@ The Password Manager implements a Zero Trust security model with explicit verifi
 - **Monitoring**: Add Prometheus metrics and Slack alerts for security incidents.
 
 ## Best Practices
-- **Secure Configuration**: Store `jwt_secret` and `master_key` in a secure vault (e.g., HashiCorp Vault) or restricted environment variables.
+- **Secure Configuration**: Store `master_key` in a secure vault (e.g., HashiCorp Vault) or restricted environment variables. The JWT signing key is held by the `jwt.key_source` provider, not in configuration.
 - **Regular Updates**: Scan dependencies with `govulncheck` to address vulnerabilities.
 - **Access Controls**: Restrict database access to authorized users and use strong credentials.
 - **Backup Security**: Encrypt backups with `crypto/aes` and store in a secure location (planned).

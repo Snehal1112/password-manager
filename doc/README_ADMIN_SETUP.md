@@ -28,13 +28,12 @@ Minimal working configuration:
 
 ```yaml
 master_key: "***SECRET-REMOVED-2026-08-17***"
-jwt_secret: "***SECRET-REMOVED-2026-08-17***"
+jwt_secret: "***SECRET-REMOVED-2026-08-17***"  # unread since 2026-08-16; removal tracked separately
 jwt:
   key_source: "os_store"
   key_cn: "rocketvault"
   expiry: "1h"
   rotation_overlap: "1h"
-  migration_window: "24h"
 bootstrap_token: "***SECRET-REMOVED-2026-08-17***"
 environment: "development"
 database:

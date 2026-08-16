@@ -60,13 +60,12 @@ binary name, configuration file layout, and CLI command signatures.</p>
 default. You may override this with <code>--config &lt;path&gt;</code> on any command.</p>
 <p>Minimal working configuration:</p>
 <div class="codewrap"><div class="code-hd"><span class="code-lang">yaml</span><button class="copy-btn">Copy</button></div><pre class="code with-hd">master_key: &quot;***SECRET-REMOVED-2026-08-17***&quot;
-jwt_secret: &quot;***SECRET-REMOVED-2026-08-17***&quot;
+jwt_secret: &quot;***SECRET-REMOVED-2026-08-17***&quot;  # unread since 2026-08-16; removal tracked separately
 jwt:
   key_source: &quot;os_store&quot;
   key_cn: &quot;rocketvault&quot;
   expiry: &quot;1h&quot;
   rotation_overlap: &quot;1h&quot;
-  migration_window: &quot;24h&quot;
 bootstrap_token: &quot;***SECRET-REMOVED-2026-08-17***&quot;
 environment: &quot;development&quot;
 database:
