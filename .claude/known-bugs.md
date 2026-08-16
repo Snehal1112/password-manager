@@ -240,6 +240,69 @@ asserts both calls go through the interactive tier and not
 
 ---
 
+### B11 — Cross-vault authorization bypass on flat data-plane routes
+
+**Status**: Fixed in commit `b4fc132`
+**Severity**: High — broken access control; per-vault revocation was not enforced
+**Files**: `api/context.go`, `api/keys.go`
+
+**Root cause**: `scopeFromRequest` (`api/context.go`) branched on route shape: a
+vault scope for `/api/v1/vaults/{vault_name}/...`, an owner scope for the legacy
+flat routes (`/api/v1/secrets/{id}`, `/keys/{id}`, `/certificates/{id}` and their
+sub-routes). An owner scope's repository predicate is `user_id = ?` with no
+`vault_id` term at all (`internal/repositories/scope_predicate.go`), and
+`model/scope.go` had already flagged `ScopeOwner` as "P1 only; retired in P2".
+Meanwhile `PolicyMiddleware` authorized every flat-route request against the
+**default** vault, because `VaultResolutionMiddleware` resolves
+`model.DefaultVaultName` for any route with no `vault_name` variable. So the
+authorization decision and the data lookup disagreed about which vault the
+request targeted: a caller holding any data-plane grant on the default vault
+could keep reading — and, with a set/create grant, writing — resources they had
+created in **any other vault**, including one where their role assignment had
+been explicitly revoked. Confirmed by live exploitation during the 2026-08-16
+pentest (`.claude/pentest-report-2026-08-16.md` § H2): after
+`DELETE .../role-assignments/{id}` returned 200, the vault-scoped route returned
+403 for the secret while `GET /api/v1/secrets/{id}` still returned its value.
+
+Secrets and certificates were affected on every flat read and write. Keys were
+affected on get/list/update/versions only: `KeyService.DeleteKey`,
+`KeyService.RotateKey` and `cryptoService.loadAndAuthorize` each carry an in-Go
+"B6 conjunction" that re-applies the vault term when the scope is owner-scoped.
+`deleteSecret` and `deleteCertificate` were already immune — both build
+`model.NewVaultScope` by hand instead of calling the helper — which is why the
+bug survived: the pattern was known and applied to two handlers out of 35 call
+sites.
+
+**Fix**: `scopeFromRequest` now returns `model.NewVaultScope(vaultID, userID)`
+for every route shape. The vault id needed no change — `vaultIDFromRequest`
+already resolved the default vault for flat routes, which is the same vault
+`PolicyMiddleware` checks. `createKey`'s response read-back (`api/keys.go`), the
+only other owner-scope construction on the request path, changed with it, so
+`grep -rn "NewOwnerScope" api/` is now empty. `deleteSecret`/`deleteCertificate`
+keep their hand-built scopes as belt-and-braces; only their comments changed.
+Regression coverage is in `api/flat_route_vault_scope_test.go`: real SQLite
+repositories behind the real router, seeding a caller-owned resource in another
+vault and asserting 404 on the flat route, each paired with a positive control
+in the resolved vault.
+
+**Known behavior change**: flat-route listing (`GET /secrets`, `/keys`,
+`/certificates`, `POST /secrets/export`, the deleted-item lists) now returns
+every row in the default vault rather than only the caller's own rows across
+every vault — the Azure-parity "vault members see all" semantic already in force
+on the vault-scoped routes. See
+`docs/release-notes/v4.1.0-role-parity-and-authz-fix.md`.
+
+**Deliberately not fixed here** (bounded fix, see
+`docs/superpowers/specs/2026-08-16-flat-route-vault-scope-fix-design.md`
+§ "Not in scope"): `ScopeOwner` still exists in `model/scope.go` and the
+repository predicate; `cmd/version.go` still builds
+`model.NewOwnerScope(uuid.Nil, userID)` on the CLI path, which needs its own
+`vaultcli.ResolveVaultID` + `RequireDataAction` treatment; and the three B6
+conjunctions in the key services are now unreachable from HTTP but were left in
+place, along with their comments claiming flat routes still reach them.
+
+---
+
 ### B13 — CLI `audit logs`/`audit report`/`audit config` bypassed the admin-only restriction enforced by their HTTP equivalents
 
 **Status**: Fixed in commits `46e3686` (helper), `eaaaedf` (logs), `0013f91`

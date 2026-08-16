@@ -79,14 +79,17 @@ delete and all crypto operations (sign/verify/encrypt/decrypt/wrap/unwrap)
 were deliberately left owner-gated even on a vault-scoped route. That's no
 longer true: `da6fb9b` ("feat(api)!: gate crypto operations, key delete and
 rotate by vault role") made every key operation follow `scopeFromRequest`
-(`api/context.go`) like the rest of the vault-scoped surface — `ScopeVault` on
-`/vaults/{name}/...`, `ScopeOwner` on the legacy flat routes. The
+(`api/context.go`) like the rest of the vault-scoped surface. As of 2026-08-16
+`scopeFromRequest` yields `ScopeVault` on **both** route shapes — the flat
+routes carry the default vault — because the owner scope there was a cross-vault
+authorization bypass (see `.claude/known-bugs.md` § B11). The
 `ownerScoped`-branch code paths that used to enforce the old behavior
 (`key_service.go` delete/rotate, `crypto_service.go`'s `loadAndAuthorize`)
-still exist but are only reachable via `ScopeOwner`, i.e. the flat routes —
-they're dead code on the vault-scoped path. Verified end-to-end against
-current source 2026-08-11; do not reintroduce this as a known limitation
-without re-checking `git log -- internal/services/keys api/keys.go` first.
+still exist but are now unreachable from any HTTP route; they were left in
+place deliberately rather than removed with the security fix. Verified
+end-to-end against current source 2026-08-11; do not reintroduce this as a
+known limitation without re-checking `git log -- internal/services/keys
+api/keys.go` first.
 
 ## Known deferrals (intentional, not bugs)
 
