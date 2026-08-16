@@ -1,0 +1,441 @@
+# Live Secrets Committed to Git — Remediation Design
+
+**Date:** 2026-08-16
+**Status:** Approved (design decisions confirmed with the maintainer; do not re-litigate)
+**Branch target:** `v-4.0.0`
+**Finding:** H4 of `.claude/pentest-report-2026-08-16.md` — *"Live secrets committed to
+git — recurrence of a previously 'fixed' incident."* Confirmed via git history.
+
+## Goal
+
+Stop `.rocketvault.yaml` (and its duplicated secret values scattered across ~9 other
+tracked files) from leaking `master_key`, `jwt_secret`, `bootstrap_token`, and
+`hsm.pin` in plaintext, in a way that cannot silently regress a third time the way
+the 2026-03-07 fix regressed one day after it shipped. This plan performs the real
+remediation — fixed `.gitignore`, an untracked real config plus a committed
+template, a CI guard, and actual secret rotation — but **defers the git-history
+rewrite** (`git filter-repo` + force-push) to a separately coordinated follow-up,
+documented in full in
+`docs/superpowers/plans/2026-08-16-git-history-secret-purge-followup.md`.
+
+This is the last of five plans closing findings from the 2026-08-16 pentest. H1
+(`docs/superpowers/plans/2026-08-16-remove-hs256-jwt-fallback.md`) removes every
+Go-code reader of `jwt_secret`/`jwt.migration_window`. H3
+(`docs/superpowers/plans/2026-08-16-master-key-rotation.md`) builds the
+`rocketvault master-key rotate` tool and a startup guard that refuses to boot on
+the known-compromised `master_key` value currently committed here. This plan
+depends on both: it deletes the now-dead `jwt_secret`/`migration_window` keys
+(H1's cue) and invokes H3's rotation tool to produce a real new `master_key`
+(H3's cue). **Task 7 of this plan hard-depends on H3 being implemented and
+merged** — `rocketvault master-key rotate` does not exist until then.
+
+## Recap: why this happened twice
+
+`.claude/security-incident-2026-03-07.md` documents the first fix: commit
+`eb91e71` (2026-03-07) ran `git rm --cached` on the then-named
+`.password-manager*.yaml` config files and added a `.gitignore` entry,
+`.password-manager*.yaml`. The very next commit touching this area, `5dd5490`
+(2026-03-08, "refactor: rename project from password-manager to RocketVault"),
+introduced a **brand-new** `.rocketvault.yaml` under the renamed project — and
+because the gitignore pattern was written against the old filename prefix, the
+new file was never covered by it and was committed straight into tracked
+history. It has stayed tracked and unrotated for over five months.
+
+Independently, this repo's `.gitignore` also carries a line, `rocketvault-*`,
+under an "Application binaries" section, seemingly intended to also catch config
+files by the same logic as the `.password-manager*.yaml` line above it. It does
+not:
+
+```
+$ git check-ignore -v .rocketvault.yaml
+<no output, exit 1>
+```
+
+`rocketvault-*` requires no leading dot and a trailing dash before any suffix;
+`.rocketvault.yaml` has a leading dot and no dash before `.yaml`. It is a
+different string. **This is the literal root cause**: even if someone had
+"fixed" the incident by trying to extend the existing `rocketvault-*` pattern's
+intent, the pattern never matched the filename it needed to match, and nothing
+ever tested that it did.
+
+**Verified fix**, tested in an isolated scratch repo before being proposed here:
+
+```
+$ git check-ignore -v .rocketvault.yaml
+.gitignore:4:.rocketvault.yaml	.rocketvault.yaml
+$ git check-ignore -v .rocketvault-production.yaml
+.gitignore:5:.rocketvault-*.yaml	.rocketvault-production.yaml
+$ git check-ignore -v .rocketvault.yaml.local
+.gitignore:6:.rocketvault.yaml.local	.rocketvault.yaml.local
+$ git check-ignore -v .rocketvault.yaml.example
+.gitignore:7:!.rocketvault.yaml.example	.rocketvault.yaml.example
+```
+
+The new patterns match; the negation still lets the template through. Task 1
+reproduces this exact test against the real repo.
+
+## Blast radius: every tracked file carrying a live secret value
+
+Grepping the working tree for the three literal values currently in
+`.rocketvault.yaml` — `master_key`, `jwt_secret` (base64 `MXiBFt80l...`),
+`bootstrap_token` — plus the two literal values from the still-earlier
+`.password-manager-test.yaml` generation (removed from the working tree in
+commit `cb93bc9` via plain `git rm`, but never purged from history) turns up, in
+currently **tracked** files (grep patterns are the exact secret values, not
+shown here — see `.claude/known-bugs.md` § B10 for the full list; `git grep -F`
+is exact-match so this list is not guesswork):
+
+| File | What it has | Disposition |
+|---|---|---|
+| `.rocketvault.yaml` | all three current secrets | untracked (Task 2), edited in place (Tasks 4, 6) |
+| `doc/README_ADMIN_SETUP.md` | `master_key`, `bootstrap_token` in its sample config and CLI examples | edited (Task 5) — **not** the `jwt_secret`/`migration_window` lines in the same file, that's H1's Task 4 |
+| `doc/README_ADMIN_SETUP.html` | same, rendered | regenerated by `./scripts/docs.sh build` (Task 5) |
+| `docs/testing-guide.md` | `master_key` in its sample test config | edited (Task 5) — **not** its `jwt_secret` line, that's H1's Task 4 |
+| `docs/usage-guide.md` | `bootstrap_token` in a CLI example | edited (Task 5) |
+| `docs/usage-guide.html` | same, rendered | regenerated (Task 5) |
+| `docs/rocketvault-architecture.html` | `master_key` in a hand-written code example | edited directly — not docsgen-rendered (Task 5) |
+| `scripts/capture-manual-examples.sh` | `bootstrap_token` hardcoded as `TOK=` | edited to read it from the copied config instead (Task 5) |
+| `internal/backup/backup_test.go` | `master_key` as a `MASTER_KEY` env var for tests | swapped for a fresh, unrelated test-only key (Task 5) |
+| `scripts/README.md` | **both** the current `master_key`/`jwt_secret`/`bootstrap_token` placeholder block (already fine) **and** the older `.password-manager-test.yaml` generation's real values | the second block is edited to placeholders (Task 5) |
+
+**Deliberately left alone** (this repo's own convention, already applied by H1's
+spec to its own historical references — see H1's spec §5, "Historical plan
+archives... are **not** rewritten — this repo treats shipped specs/plans as a
+point-in-time record"):
+
+- `docs/plans/2026-03-08-migration-sequence-fix.md`,
+  `docs/superpowers/plans/2026-05-22-consumer-service.md`,
+  `docs/superpowers/plans/2026-06-03-admin-manual-v2.md` — historical plan
+  archive.
+- `docs/superpowers/plans/2026-08-16-remove-hs256-jwt-fallback.md`,
+  `docs/superpowers/plans/2026-08-16-master-key-rotation.md`,
+  `docs/superpowers/specs/2026-08-16-master-key-rotation-design.md` — H1's and
+  H3's own shipped plan/spec documents (not yet committed as of this writing,
+  but not this plan's to edit either way).
+- `.claude/pentest-report-2026-08-16.md` — the finding record itself; rewriting
+  the evidence it quotes would erase the audit trail it exists to provide.
+- `.claude/manual-test-checklist.md`, `.claude/manual-test-vault-scoped-users.md`
+  — contain the `bootstrap_token` literal but are **untracked** (`.claude/` is
+  gitignored for new files; these were never committed). Not a "secrets in git"
+  problem; out of scope.
+- `.rocketvault.docker.yaml.tmpl` — already does this correctly. It is
+  `envsubst`-rendered at container startup from `${RV_MASTER_KEY}` /
+  `${RV_JWT_SECRET}` / `${RV_BOOTSTRAP_TOKEN}`, never holds a literal value, and
+  is explicitly commented "Never put real secrets in this file — it is
+  committed to version control." This is the existing precedent
+  `.rocketvault.yaml.example` follows for the non-Docker path. Its own
+  `jwt_secret`/`migration_window` lines are dead-but-harmless the same way
+  `.rocketvault.yaml`'s were before this plan — cleaning those up is inside
+  H1's file list in spirit, not H4's; left alone here to avoid duplicating that
+  edit under a different filename.
+
+## Decision: `.gitignore` fix + committed template (not just "stop tracking")
+
+| Option | Verdict | Reason |
+|---|---|---|
+| `git rm --cached .rocketvault.yaml` only, as in 2026-03-07 | Rejected alone | This is exactly what regressed. Untracking with no template and no CI backstop leaves the next rename/refactor free to recommit a new file under a name the `.gitignore` doesn't cover, with nobody the wiser until a pentest finds it again. |
+| Encrypt `.rocketvault.yaml` in place with git-crypt / SOPS and keep it tracked | Rejected | Adds a key-management problem on top of the one already being fixed (now you must distribute *that* key out of band), and the existing Docker path (`.rocketvault.docker.yaml.tmpl` + `.env`) already establishes envsubst-from-environment as this repo's actual secret-delivery convention. Matching that convention for bare-metal dev is less machinery, not more. |
+| **Fix `.gitignore`, untrack the file, ship `.rocketvault.yaml.example`, add a CI guard** | **Chosen** | Mirrors `.env.example` (already in this repo, already working: `cp .env.example .env`, `openssl rand -base64 32`, "NEVER commit .env — it is already in .gitignore"). Fresh clones keep a working setup path. The CI guard is the part 2026-03-07 didn't have, which is why it regressed silently instead of failing a build. |
+
+## Decision: secret scanning in CI — grep-based check, not gitleaks
+
+The finding's own recommendation suggests "gitleaks or a simple grep-based
+check." Both were evaluated empirically, not just in the abstract, against
+*this* repository — installed and run locally:
+
+```
+$ go install github.com/zricethezav/gitleaks/v8@latest
+$ gitleaks detect --source . --no-git --redact -v
+...
+WRN leaks found: 50
+```
+
+`--no-git` (working-tree scan, not git-log scan) is the only mode viable at
+all here: gitleaks' default mode scans git history, and this repo's history is
+*known* to contain these secrets forever until the deferred filter-repo pass
+runs — a history-scanning CI gate would fail on every single run from day one,
+which is not a usable guard. `--no-git` scanning a CI checkout is equivalent to
+scanning tracked content only (`actions/checkout` never restores gitignored,
+uncommitted files), which is the right scope.
+
+Even restricted to that, of the 50 findings, only the ones on `.rocketvault.yaml`
+and the doc/script files listed above are real. The rest are gitleaks' generic
+high-entropy-string heuristic firing on: test UUIDs used as fixture user IDs
+(`api/keys_crud_test.go`, `api/secrets_handlers_test.go`, `api/context_test.go`),
+an EC test private key fixture (`api/keys_hsm_test.go`), TOTP example secrets in
+`docs/cli-guide.md`/`scripts/totp_generator.go`, and `SecretKey:` struct-literal
+identifiers in already-historical plan docs (`docs/plans/2026-03-07-...`,
+`internal/services/auth/jwt_service_provider_test.go`). Making gitleaks usable
+here needs a curated `.gitleaks.toml` allowlist covering all of that — real
+work, ongoing maintenance as new test fixtures are added, and exactly the kind
+of scope creep the finding's own wording ("don't over-engineer") warns against.
+
+The **grep-based check**, run against the same tracked-only surface, is
+precise by construction:
+
+```
+$ git grep -lF \
+    -e '***SECRET-REMOVED-2026-08-17***' \
+    -e '***SECRET-REMOVED-2026-08-17***' \
+    -e '***SECRET-REMOVED-2026-08-17***' \
+    -e '***SECRET-REMOVED-2026-08-17***' \
+    -e '***SECRET-REMOVED-2026-08-17***' \
+    -e '***SECRET-REMOVED-2026-08-17***' \
+    -- . ':(exclude)docs/superpowers/' ':(exclude)docs/plans/' ':(exclude).claude/'
+```
+
+Nine matches today (the file list in the table above, minus `.claude/`'s two
+untracked files); zero after Tasks 2–5 land. Zero false positives, because it
+only matches the exact bytes of secrets already known to be compromised — it
+cannot flag a *new*, never-seen secret, which is the one class of leak gitleaks
+catches and this check does not. That tradeoff is accepted for this change: the
+narrow check directly enforces "these five already-leaked values may never
+reappear" (the literal regression this finding is about), plus a **second,
+structural** check that directly enforces "no file that looks like a real
+RocketVault instance config may ever be tracked again" (the literal root
+cause):
+
+```
+$ git ls-files | grep -E '^\.rocketvault(-.*)?\.yaml$|^\.rocketvault\.yaml\.local$'
+.rocketvault.yaml
+```
+
+Together these two checks are small, auditable, need no new dependency, and
+sit naturally inside the existing `security` job in `.github/workflows/go.yml`
+(which already runs `govulncheck` — a different, complementary kind of security
+gate) rather than a new gitleaks job needing its own allowlist file. A future
+`.gitleaks.toml`-driven job remains a reasonable idea but is out of scope here.
+
+## Decision: what runs automatically vs. what needs a human
+
+The finding conflates four different risk profiles that this plan pulls apart:
+
+| Action | Risk | Who runs it |
+|---|---|---|
+| Fix `.gitignore`, add `.rocketvault.yaml.example`, add CI guard, update docs | Code/doc-only, reviewable in a normal PR | Task 1–3, 5–6, 9 — normal automated execution |
+| Rotate `bootstrap_token` | Config-only edit to an already-gitignored file; the token is single-use and already consumed on any instance with an existing admin | Task 4 — normal automated execution |
+| Delete `jwt_secret`/`migration_window` from `.rocketvault.yaml` | Config-only edit; H1 already made both keys unread by any Go code | Task 4 — normal automated execution |
+| Run `rocketvault master-key rotate` for real, against the live dev database | Rewrites every master-key-sealed row in `dev-rocketvault.db`, the database backing the running dev server on port 8774. Getting the old/new key wrong, or running it against a live writer, is exactly the failure mode `internal/rekey`'s guarded `UPDATE ... AND value = ?` clauses are designed to abort loudly on — but "abort loudly" still means a stopped server and a required restart. | **Task 7 — REQUIRES EXPLICIT HUMAN CONFIRMATION.** Documented as an exact command sequence; not something a subagent executes autonomously. |
+| Rotate the SoftHSM2 token's real PIN (`hsm.pin`) | The PIN is shared token-level state for the actual running SoftHSM2 token (`softhsm2-util --init-token`). Changing config alone breaks HSM auth without fixing anything; changing the token's real PIN can break *other* things that authenticate to the same token if done carelessly. | **Task 8 — documented manual runbook, not automated.** No code changes; this task's deliverable is the runbook document itself. |
+
+The dividing line is not "does this touch a live system" (Task 4 also touches
+the live `.rocketvault.yaml` on disk) — it is "does this action rewrite live
+data or shared infrastructure state that is expensive or risky to undo if the
+wrong key/PIN is used." Config edits to an already-gitignored file are cheap to
+undo (restore from the value documented as "now compromised, do not reuse" is
+not the concern — restoring the *previous working* value is one `git diff`-free
+edit away since the file was never tracked in the first place once Task 2
+lands). Rewriting encrypted-at-rest data or a hardware token's authentication
+state is not.
+
+## Scope of the change
+
+### 1. `.gitignore`
+
+Add a dedicated block (not a further patch to the pre-existing, differently-
+scoped `rocketvault-*` binary-artifact line):
+
+```
+.rocketvault.yaml
+.rocketvault-*.yaml
+.rocketvault.yaml.local
+!.rocketvault.yaml.example
+```
+
+`.rocketvault-*.yaml` covers the environment-suffixed siblings the 2026-03-07
+incident doc anticipated (`.rocketvault-production.yaml`, etc.) even though
+none were ever actually committed under that exact name (verified: `git log
+--all --diff-filter=A -- '.rocketvault-production.yaml' '.rocketvault-staging.yaml'
+'.rocketvault-test.yaml'` returns nothing; the pre-rename equivalents were named
+`.password-manager-production.yaml` / `.password-manager-staging.yaml` /
+`.password-manager-test.yaml` and were removed via `git rm` in commits
+`f6d3e22`, `01c0fce`, `cb93bc9` respectively — their blobs still live in
+history, which is the deferred follow-up's job). `.rocketvault.yaml.local`
+covers a common override-file convention this repo does not yet use but may.
+The existing `rocketvault-*` line (Application binaries section) is left as-is
+functionally but annotated so nobody mistakes it for config coverage again.
+
+### 2. `.rocketvault.yaml.example` + untracking the real file
+
+New committed template, structurally identical to the current
+`.rocketvault.yaml` (same section order, same non-secret defaults) with every
+secret field replaced by an instructional placeholder in the style already
+established by `.env.example`'s `RV_MASTER_KEY=  # openssl rand -base64 32`
+comments. `jwt_secret` and `jwt.migration_window` are omitted entirely (see
+"Decision: jwt_secret" below). Environment-specific values that are this
+developer's own machine, not a generic default — `server.cors_allowed_origins`'
+`https://numericlabs.lxd` entry, `oauth2.issuer`'s same host, `oidc.ca_cert_path`
+pointing at `/home/numericlabs/Downloads/...`, and the `vault_client.secrets`
+example UUID — are generalized to `localhost` defaults or commented out with an
+explanation, matching "a fresh clone still has a working setup path" rather
+than silently inheriting one engineer's laptop paths. `oidc.enabled` defaults to
+`false` in the template (it is optional and instance-specific; CLAUDE.md already
+documents that unset/false disables it entirely with no network call at
+startup). `hsm.enabled` defaults to `false` (a fresh clone has no SoftHSM2 token
+initialized yet; the existing instructional comment block about
+`softhsm2-util --init-token` is kept so enabling it is still one copy-paste
+away).
+
+`.rocketvault.yaml` itself is untracked with `git rm --cached` (working-tree
+copy untouched, so the local dev setup keeps running) and stays covered by the
+new `.gitignore` block from here on.
+
+### 3. CI guard
+
+Two new steps in the existing `security` job of `.github/workflows/go.yml`
+(alongside its current `govulncheck` step): the structural tracked-file check
+and the known-compromised-literal check, both shown verified above.
+
+### 4. `bootstrap_token` rotation
+
+Generate a fresh value with `openssl rand -base64 32`, write it into the
+now-untracked `.rocketvault.yaml`. The old value
+(`***SECRET-REMOVED-2026-08-17***`) is treated as permanently
+compromised from this point on — documented as such in the `.claude/known-bugs.md`
+entry, never reused. This does not require stopping the dev server: the token
+is only consulted by `seedBootstrapToken()` at startup and by `users admin`, and
+any instance that already has an admin user has already consumed it.
+
+### 5. Delete dead `jwt_secret`/`jwt.migration_window` config
+
+Per the approved design: H1 deletes every Go reader of these two keys
+(`JWTConfig.SecretKey`/`MigrationWindow` fields removed outright in H1's Task 3
+— verified against H1's actual plan text, so there is no leftover Go struct
+field for this plan to clean up, only the YAML). This plan's job is narrower
+than H1's: delete the two lines (plus the "Legacy HS256 secret" comment above
+them) from `.rocketvault.yaml`, and do not add them to
+`.rocketvault.yaml.example` at all. Rotating a value that is about to be
+deleted and never read again would be motion without effect.
+
+### 6. Rotate `master_key` — invoking H3's tool
+
+`.rocketvault.yaml`'s `master_key` is
+`***SECRET-REMOVED-2026-08-17***`, which base64-decodes to the
+ASCII placeholder `0123456789abcdef0123456789abcdef` — the exact value H3's
+`common.ValidateMasterKey` rejects by name. Rotating it safely (re-encrypting
+every already-sealed row, not just editing the config value) requires H3's
+`internal/rekey` engine and `rocketvault master-key rotate` command, which do
+not exist until H3's plan is implemented. **This plan's Task 7 documents the
+exact dry-run-then-real invocation and is explicitly gated on human
+confirmation** — see the "who runs it" table above.
+
+One consequence worth stating plainly: once H3's startup guard lands
+(`bootstrap.ConfigurationValidator.ValidateMasterKey`, wired into `serve`),
+`rocketvault serve` against this repo's checked-in `.rocketvault.yaml` will
+refuse to start — H3's own plan says so and treats it as the intended outcome,
+deferring the fix to this plan. The CLI command `master-key rotate` itself is
+**not** gated by that guard: it runs through `cmd/root.go`'s `persistentPreRun`,
+which builds its own DB connection and `ServiceContainer` directly and does not
+call `bootstrap.Boot` (that duplication was already a bug, fixed separately —
+see `.claude/known-bugs.md` § B4 — by having only `serve`/`preview-migration`
+override `persistentPreRun` to call `bootstrap.Boot`). So the rotation tool
+remains runnable precisely when it is needed most: while `master_key` is still
+the compromised default and `serve` cannot boot. Verified by reading
+`cmd/root.go:233-283` and `cmd/serve.go:64-69` directly.
+
+### 7. `hsm.pin` — manual runbook, not automated
+
+`.rocketvault.yaml`'s `hsm.pin: "1234"` is the real PIN of the actual SoftHSM2
+token (`token_label: rocketvault`) that the running dev server's `hsm.enabled:
+true` configuration authenticates to for every HSM-routed key operation.
+Editing the config value alone does not rotate anything — it just makes the
+next HSM operation fail to authenticate against the token, which still has the
+old PIN, because PKCS#11 PIN state lives in the token, not in RocketVault's
+config. The actual rotation is `softhsm2-util --pin <old> --new-pin <new>
+--token-label rocketvault` (or equivalent re-init), which is real,
+irreversible-without-the-old-PIN token state, run once, by a human, outside any
+code change. Task 8's deliverable is a written runbook
+(`docs/runbooks/hsm-pin-rotation.md`, mirroring the pattern H3's Task 7 already
+established for `docs/runbooks/master-key-rotation.md`), not a script that
+performs the rotation.
+
+### 8. `.claude/known-bugs.md`
+
+New entry. H1's plan and H3's plan and the not-yet-written H2/H5 plans
+(`docs/superpowers/plans/2026-08-16-flat-route-vault-scope-fix.md`,
+`docs/superpowers/plans/2026-08-16-cli-audit-authz-fix.md`) **all** independently
+claim `B9` for their own entry — none of the four plans were written aware of
+the others' numbering, and none is implemented yet, so this is a live collision
+to be resolved at implementation time (whichever lands first keeps `B9`; the
+rest renumber). This plan's entry uses **B10**, the next number free of all
+five plans' claims as of this writing. If `B9` is already taken when this plan
+is implemented, renumber to whatever is actually free at that time — the
+content does not depend on the number.
+
+## Explicitly out of scope
+
+- **Git history rewrite** (`git filter-repo`, force-push, collaborator
+  re-clone coordination) — `docs/superpowers/plans/2026-08-16-git-history-secret-purge-followup.md`,
+  a separate runbook, not part of this plan's execution.
+- **`hsm.pin`'s actual rotation command** and **`master-key rotate`'s actual
+  real (non-dry-run) invocation against the live dev database** — documented
+  exactly, gated on explicit human action, not executed by this plan's
+  automated tasks.
+- **H1's and H3's own scope** (HS256 removal, the rekey engine itself, the
+  startup guard) — this plan only invokes H3's finished tool and deletes the
+  YAML keys H1 orphaned; it does not re-implement either.
+- **Rewriting historical `docs/plans/`, `docs/superpowers/plans/`,
+  `.claude/pentest-report-2026-08-16.md`** — treated as point-in-time records,
+  per this repo's established convention.
+- **A `.gitleaks.toml`-driven CI job** — considered, rejected for now in favor
+  of the two precise grep-based checks (see "Decision" above); worth
+  revisiting if the grep-based checks' known-value list grows unwieldy.
+
+## Compatibility and risk
+
+- Fresh clones need one new manual step (`cp .rocketvault.yaml.example
+  .rocketvault.yaml` + generate two secrets) before `rocketvault serve` will
+  boot at all — already true today in practice, since the shipped
+  `.rocketvault.yaml` will fail H3's startup guard regardless once H3 lands.
+  This plan makes the *fixed* path (generate real values) the documented one
+  instead of leaving fresh clones to either commit their own real secrets (this
+  finding, again) or discover the guard's error message with no template to
+  copy from.
+- `bootstrap_token` rotation does not affect any running instance that already
+  has an admin user — the token is a one-time-use value, not a session
+  credential.
+- Deleting `jwt_secret`/`migration_window` from `.rocketvault.yaml` has no
+  runtime effect once H1 lands (both keys are already unread); if this plan is
+  implemented **before** H1 for any reason, the deletion is still safe — the
+  keys were never validated as required by any startup check (verified in H1's
+  own spec: "No Go-level startup validation requires `jwt_secret` to be
+  non-empty").
+- `master_key` rotation, when it runs for real (Task 7, human-gated), is the
+  one action in this plan with real data-rewrite risk — that risk is H3's to
+  manage (guarded transactions, dry-run mode, resumability) and this plan's job
+  is only to invoke it correctly and require a human's go-ahead first.
+- `hsm.pin` rotation (Task 8) makes no config or code change in this plan at
+  all — purely a documented human runbook.
+
+## Verification gate
+
+```bash
+# .gitignore actually matches
+git check-ignore -v .rocketvault.yaml
+git check-ignore -v .rocketvault-production.yaml
+git check-ignore -v .rocketvault.yaml.local
+git check-ignore -v .rocketvault.yaml.example   # must be un-ignored (negated)
+
+# no real config file tracked
+git ls-files | grep -E '^\.rocketvault(-.*)?\.yaml$|^\.rocketvault\.yaml\.local$'
+# must print nothing
+
+# no known-compromised literal anywhere in tracked, non-historical files
+git grep -lF \
+  -e '***SECRET-REMOVED-2026-08-17***' \
+  -e '***SECRET-REMOVED-2026-08-17***' \
+  -e '***SECRET-REMOVED-2026-08-17***' \
+  -e '***SECRET-REMOVED-2026-08-17***' \
+  -e '***SECRET-REMOVED-2026-08-17***' \
+  -e '***SECRET-REMOVED-2026-08-17***' \
+  -- . ':(exclude)docs/superpowers/' ':(exclude)docs/plans/' ':(exclude).claude/'
+# must print nothing
+
+go build ./...
+go test ./...
+./scripts/docs.sh build
+```
+
+No success claim without this output. `master-key rotate` (real, non-dry-run)
+and `softhsm2-util` PIN rotation are verified separately, by the human running
+them, per their own runbook steps — they are not part of this automated gate.
