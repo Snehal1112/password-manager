@@ -152,9 +152,9 @@ func TestCreateCertificate_EnabledFieldExplicit_Returns201(t *testing.T) {
 func TestUpdateCertificate_MultipleFieldsUpdated_Returns200(t *testing.T) {
 	certID := uuid.New()
 	svc := &mockCertService{}
-	// Legacy flat route (no vault_name) yields an owner scope, same as
+	// Legacy flat route (no vault_name) yields a default-vault scope, same as
 	// getCertificate/listCertificates on this same route shape.
-	svc.On("GetCertificate", mock.Anything, certID, certLegacyOwnerScope()).Return(
+	svc.On("GetCertificate", mock.Anything, certID, certLegacyVaultScope()).Return(
 		&model.Certificate{
 			ID:   certID,
 			Name: "original-name",

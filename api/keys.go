@@ -369,7 +369,7 @@ func createKey(c *Context, w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Fetch the full key record so buildKeyResponse can inspect the stored value.
-	key, err := keyService.GetKey(r.Context(), result.KeyID, model.NewOwnerScope(vaultID, userID))
+	key, err := keyService.GetKey(r.Context(), result.KeyID, model.NewVaultScope(vaultID, userID))
 	if err != nil {
 		c.SetInternalError(err)
 		return
@@ -380,9 +380,10 @@ func createKey(c *Context, w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(buildKeyResponse(key)) //nolint:errcheck,gosec
 }
 
-// listKeys lists cryptographic keys. Legacy flat routes use per-user visibility
-// (the caller's own keys); explicit vault-scoped routes use vault-level
-// "members see all" visibility, optionally filtered by type and tags.
+// listKeys lists cryptographic keys. Legacy flat routes list the default
+// vault; explicit vault-scoped routes list the vault named in the path. Both
+// use vault-level "members see all" visibility, optionally filtered by type
+// and tags.
 func listKeys(c *Context, w http.ResponseWriter, r *http.Request) {
 	keyService := c.keySvc()
 	if keyService == nil {

@@ -112,7 +112,7 @@ func TestListCertificatesUsesTheScopeFromTheRoute(t *testing.T) {
 	c, w, r = newCertHandlerFixture(t, svc, uuid.New(), "")
 	listCertificates(c, w, r)
 	require.Nil(t, c.Err)
-	assert.Equal(t, model.ScopeOwner, svc.lastScope.Kind())
+	assert.Equal(t, model.ScopeVault, svc.lastScope.Kind(), "flat routes are vault-scoped to the default vault")
 }
 
 func TestGetCertificateMapsErrors(t *testing.T) {
@@ -204,8 +204,9 @@ func TestGetCertificatePolicyResolvesTheCertificateThroughTheScope(t *testing.T)
 //     certificate_id, whether or not they had ever seen that certificate.
 //
 // Resolving the certificate through certService.GetCertificate first
-// closes both gaps: all three handlers now authorize on "does the caller own
-// the certificate" (certificates.user_id, via the scope), then use the
+// closes both gaps: all three handlers now authorize on "is the certificate in
+// the caller's resolved vault" (certificates.vault_id, via the scope — an owner
+// scope here was the 2026-08-16 cross-vault bypass), then use the
 // owner-agnostic policy-repository method because the scope already vouched
 // for the certificate. These tests pin that boundary on the flat route,
 // mirroring the vault-scoped equivalents in vault_scoped_keys_certs_test.go
@@ -232,7 +233,7 @@ func newCertPolicyScopeCtx(svc certServices.CertificateService,
 }
 
 // newFlatPolicyRequest builds a legacy flat-route request (no vault_name path
-// variable, so scopeFromRequest yields an owner scope) for a
+// variable, so scopeFromRequest yields a default-vault scope) for a
 // certificate-policy endpoint, with an optional body.
 func newFlatPolicyRequest(t *testing.T, method string, certID uuid.UUID, body []byte) *http.Request {
 	t.Helper()
@@ -267,7 +268,7 @@ func TestUpsertCertificatePolicy_FlatRouteDeniesNonOwnedCertificate(t *testing.T
 
 	require.NotNil(t, c.Err)
 	assert.Equal(t, http.StatusNotFound, c.Err.StatusCode)
-	assert.Equal(t, model.ScopeOwner, svc.lastScope.Kind())
+	assert.Equal(t, model.ScopeVault, svc.lastScope.Kind())
 	repo.AssertNotCalled(t, "Upsert", mock.Anything, mock.Anything)
 }
 
@@ -290,7 +291,7 @@ func TestUpsertCertificatePolicy_FlatRouteAllowsOwnedCertificate(t *testing.T) {
 	upsertCertificatePolicy(c, w, r)
 
 	require.Nil(t, c.Err)
-	assert.Equal(t, model.ScopeOwner, svc.lastScope.Kind())
+	assert.Equal(t, model.ScopeVault, svc.lastScope.Kind())
 	repo.AssertExpectations(t)
 }
 
@@ -312,7 +313,7 @@ func TestGetCertificatePolicy_FlatRouteDeniesNonOwnedCertificate(t *testing.T) {
 
 	require.NotNil(t, c.Err)
 	assert.Equal(t, http.StatusNotFound, c.Err.StatusCode)
-	assert.Equal(t, model.ScopeOwner, svc.lastScope.Kind())
+	assert.Equal(t, model.ScopeVault, svc.lastScope.Kind())
 	repo.AssertNotCalled(t, "GetByCertificateIDAny", mock.Anything, mock.Anything)
 }
 
@@ -331,6 +332,6 @@ func TestDeleteCertificatePolicy_FlatRouteDeniesNonOwnedCertificate(t *testing.T
 
 	require.NotNil(t, c.Err)
 	assert.Equal(t, http.StatusNotFound, c.Err.StatusCode)
-	assert.Equal(t, model.ScopeOwner, svc.lastScope.Kind())
+	assert.Equal(t, model.ScopeVault, svc.lastScope.Kind())
 	repo.AssertNotCalled(t, "DeleteByCertificateIDAny", mock.Anything, mock.Anything)
 }

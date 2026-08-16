@@ -114,7 +114,7 @@ func TestListKeysUsesTheScopeFromTheRoute(t *testing.T) {
 	c, w, r = newKeyHandlerFixture(t, svc, uuid.New(), "")
 	listKeys(c, w, r)
 	require.Nil(t, c.Err)
-	assert.Equal(t, model.ScopeOwner, svc.lastScope.Kind())
+	assert.Equal(t, model.ScopeVault, svc.lastScope.Kind(), "flat routes are vault-scoped to the default vault")
 }
 
 func TestGetKeyUsesTheScopeFromTheRoute(t *testing.T) {

@@ -340,7 +340,7 @@ func TestDeleteSecret_InvalidSecretIDParam_Returns400(t *testing.T) {
 // to the service.
 func TestListSecrets_WithTagFilter_Returns200(t *testing.T) {
 	svc := &mockSecretService{}
-	// Legacy flat route (no vault_name) uses per-user visibility via ListSecrets.
+	// Legacy flat route (no vault_name) uses default-vault visibility via ListSecrets.
 	svc.On("ListSecrets", mock.Anything, mock.Anything, mock.Anything).
 		Return([]model.Secret{}, nil)
 
@@ -428,9 +428,9 @@ func TestGenerateSecret_DefaultLength_Returns201(t *testing.T) {
 func TestGetCertificate_ServiceError_Returns404(t *testing.T) {
 	certID := uuid.New()
 	svc := &mockCertService{}
-	// Legacy flat route (no vault_name) yields an owner scope.
+	// Legacy flat route (no vault_name) yields a default-vault scope.
 	// The service returns the not-found sentinel, which maps to 404.
-	svc.On("GetCertificate", mock.Anything, certID, certLegacyOwnerScope()).Return(nil, certServices.ErrCertNotFound)
+	svc.On("GetCertificate", mock.Anything, certID, certLegacyVaultScope()).Return(nil, certServices.ErrCertNotFound)
 
 	c := newCertCtx(svc, certAdminClaims())
 	c.Params = &ApiParams{CertificateID: certID.String(), PerPage: 60}
@@ -481,7 +481,7 @@ func TestUpdateCertificate_ServiceError2_Returns500(t *testing.T) {
 func TestListSecrets_NonEmptyList_Returns200(t *testing.T) {
 	svc := &mockSecretService{}
 	secretID := uuid.New()
-	// Legacy flat route (no vault_name) uses per-user visibility via ListSecrets.
+	// Legacy flat route (no vault_name) uses default-vault visibility via ListSecrets.
 	svc.On("ListSecrets", mock.Anything, mock.Anything, mock.Anything).
 		Return([]model.Secret{
 			{

@@ -302,11 +302,12 @@ func certAdminClaims() RequestClaims {
 	return RequestClaims{Role: model.RoleAdmin, UserID: certTestUserID}
 }
 
-// certLegacyOwnerScope is the exact scope scopeFromRequest builds for a legacy
-// flat route (no vault_name mux var): an owner scope carrying the default
-// vault id as its advisory vault and certTestUserID as the owner/actor.
-func certLegacyOwnerScope() model.Scope {
-	return model.NewOwnerScope(uuid.MustParse(model.DefaultVaultID), uuid.MustParse(certTestUserID))
+// certLegacyVaultScope is the exact scope scopeFromRequest builds for a legacy
+// flat route (no vault_name mux var): a vault scope carrying the default vault
+// id and certTestUserID as the actor. Flat routes used to yield an owner scope
+// here, which is the 2026-08-16 cross-vault bypass this fixture now pins shut.
+func certLegacyVaultScope() model.Scope {
+	return model.NewVaultScope(uuid.MustParse(model.DefaultVaultID), uuid.MustParse(certTestUserID))
 }
 
 // certDeleteScope is the scope deleteCertificate builds: vault-scoped on both
@@ -437,8 +438,8 @@ func TestCreateCertificate_Success_Returns201(t *testing.T) {
 
 func TestListCertificates_ServiceError_Returns500(t *testing.T) {
 	svc := &mockCertService{}
-	// Legacy flat route (no vault_name) yields an owner scope.
-	svc.On("ListCertificates", mock.Anything, certLegacyOwnerScope(), repositories.CertificateFilter{}).
+	// Legacy flat route (no vault_name) yields a default-vault scope.
+	svc.On("ListCertificates", mock.Anything, certLegacyVaultScope(), repositories.CertificateFilter{}).
 		Return([]model.Certificate{}, errors.New("db error"))
 
 	c := newCertCtx(svc, certAdminClaims())
@@ -459,8 +460,8 @@ func TestListCertificates_Success_Returns200(t *testing.T) {
 	certs := []model.Certificate{
 		{ID: uuid.New(), Name: "cert1", CreatedAt: time.Now()},
 	}
-	// Legacy flat route (no vault_name) yields an owner scope.
-	svc.On("ListCertificates", mock.Anything, certLegacyOwnerScope(), repositories.CertificateFilter{}).Return(certs, nil)
+	// Legacy flat route (no vault_name) yields a default-vault scope.
+	svc.On("ListCertificates", mock.Anything, certLegacyVaultScope(), repositories.CertificateFilter{}).Return(certs, nil)
 
 	c := newCertCtx(svc, certAdminClaims())
 	w := httptest.NewRecorder()
@@ -499,9 +500,9 @@ func TestGetCertificate_InvalidCertID_Returns400(t *testing.T) {
 func TestGetCertificate_NotFound_Returns404(t *testing.T) {
 	svc := &mockCertService{}
 	certID := uuid.New()
-	// Legacy flat route (no vault_name) yields an owner scope.
+	// Legacy flat route (no vault_name) yields a default-vault scope.
 	// The service returns the not-found sentinel, which maps to 404.
-	svc.On("GetCertificate", mock.Anything, certID, certLegacyOwnerScope()).Return(nil, certServices.ErrCertNotFound)
+	svc.On("GetCertificate", mock.Anything, certID, certLegacyVaultScope()).Return(nil, certServices.ErrCertNotFound)
 
 	c := newCertCtx(svc, certAdminClaims())
 	c.Params = &ApiParams{CertificateID: certID.String(), PerPage: 60}
@@ -521,8 +522,8 @@ func TestGetCertificate_Success_Returns200(t *testing.T) {
 	svc := &mockCertService{}
 	certID := uuid.New()
 	userID := uuid.MustParse(certTestUserID)
-	// Legacy flat route (no vault_name) yields an owner scope.
-	svc.On("GetCertificate", mock.Anything, certID, certLegacyOwnerScope()).Return(&model.Certificate{
+	// Legacy flat route (no vault_name) yields a default-vault scope.
+	svc.On("GetCertificate", mock.Anything, certID, certLegacyVaultScope()).Return(&model.Certificate{
 		ID: certID, Name: "cert1", UserID: userID, CreatedAt: time.Now(),
 	}, nil)
 
@@ -623,9 +624,9 @@ func TestUpdateCertificate_Success_Returns200(t *testing.T) {
 	certID := uuid.New()
 	userID := uuid.MustParse(certTestUserID)
 	svc.On("UpdateCertificate", mock.Anything, mock.Anything).Return(nil)
-	// Legacy flat route (no vault_name) yields an owner scope, same as
+	// Legacy flat route (no vault_name) yields a default-vault scope, same as
 	// getCertificate/listCertificates on this same route shape.
-	svc.On("GetCertificate", mock.Anything, certID, certLegacyOwnerScope()).Return(&model.Certificate{
+	svc.On("GetCertificate", mock.Anything, certID, certLegacyVaultScope()).Return(&model.Certificate{
 		ID: certID, Name: "new-name", UserID: userID, CreatedAt: time.Now(),
 	}, nil)
 
@@ -730,7 +731,7 @@ func TestDeleteCertificate_NotFound_Returns404(t *testing.T) {
 func TestGetCertificate_LifecycleDenied_Returns403(t *testing.T) {
 	svc := &mockCertService{}
 	certID := uuid.New()
-	svc.On("GetCertificate", mock.Anything, certID, certLegacyOwnerScope()).
+	svc.On("GetCertificate", mock.Anything, certID, certLegacyVaultScope()).
 		Return(nil, certServices.ErrCertLifecycleDenied)
 
 	c := newCertCtx(svc, certAdminClaims())
@@ -752,7 +753,7 @@ func TestGetCertificate_LifecycleDenied_Returns403(t *testing.T) {
 func TestGetCertificate_InternalError_Returns500(t *testing.T) {
 	svc := &mockCertService{}
 	certID := uuid.New()
-	svc.On("GetCertificate", mock.Anything, certID, certLegacyOwnerScope()).
+	svc.On("GetCertificate", mock.Anything, certID, certLegacyVaultScope()).
 		Return(nil, errors.New("disk I/O"))
 
 	c := newCertCtx(svc, certAdminClaims())

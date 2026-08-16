@@ -383,9 +383,10 @@ func createSecret(c *Context, w http.ResponseWriter, r *http.Request) {
 	c.Logger.Printf("User %s created secret %s", c.Claims.UserID, secret.Name)
 }
 
-// listSecrets handles the HTTP request to list secrets. Legacy flat routes use
-// per-user visibility (the caller's own secrets); explicit vault-scoped routes
-// use vault-level "members see all" visibility. Supports filtering by tags.
+// listSecrets handles the HTTP request to list secrets. Legacy flat routes
+// list the default vault; explicit vault-scoped routes list the vault named
+// in the path. Both use vault-level "members see all" visibility. Supports
+// filtering by tags.
 func listSecrets(c *Context, w http.ResponseWriter, r *http.Request) {
 	secretService := c.secretSvc()
 	if secretService == nil {
@@ -611,9 +612,10 @@ func deleteSecret(c *Context, w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// deleteSecret stays vault-scoped on both route shapes (unlike the other
-	// handlers above): the scope is built explicitly rather than derived from
-	// scopeFromRequest, so a flat-route caller cannot get an owner scope here.
+	// deleteSecret builds its scope explicitly rather than calling
+	// scopeFromRequest. Both now produce the same vault scope, so this is
+	// belt-and-braces: it keeps the handler correct even if route-shape
+	// branching is ever reintroduced into the shared helper.
 	vaultID, err := vaultIDFromRequest(r)
 	if err != nil {
 		c.SetInvalidParam("vault")

@@ -6,7 +6,6 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/gorilla/mux"
 
 	"rocketvault/app"
 	"rocketvault/common"
@@ -61,10 +60,18 @@ func vaultIDFromRequest(r *http.Request) (uuid.UUID, error) {
 // audit metadata, never an access predicate. Crypto operations are gated by the
 // Key Vault Crypto User role at vault scope, not by who created the key.
 //
-// Vault-scoped routes (/api/v1/vaults/{vault_name}/...) yield a vault scope, so
-// any vault member may act. Legacy flat routes yield an owner scope, preserving
-// pre-multi-vault per-user visibility. A future task collapses both onto the
-// vault scope.
+// Every route shape yields a vault scope. Vault-scoped routes
+// (/api/v1/vaults/{vault_name}/...) carry the vault resolved from the path;
+// legacy flat routes carry the default vault, which is the same vault
+// PolicyMiddleware authorized the request against, because
+// VaultResolutionMiddleware resolves model.DefaultVaultName for any route with
+// no vault_name variable.
+//
+// Flat routes used to yield an owner scope, whose SQL predicate is "user_id = ?"
+// with no vault term (internal/repositories/scope_predicate.go). That let a
+// caller authorized against the default vault read and write their own
+// resources in any other vault, surviving revocation of their role assignment
+// there. See docs/superpowers/specs/2026-08-16-flat-route-vault-scope-fix-design.md.
 //
 // It sets c.Err and returns false when the caller's identity cannot be
 // determined, so a handler can never proceed with an invalid scope.
@@ -80,10 +87,7 @@ func scopeFromRequest(c *Context, r *http.Request) (model.Scope, bool) {
 		return model.Scope{}, false
 	}
 
-	if mux.Vars(r)["vault_name"] != "" {
-		return model.NewVaultScope(vaultID, userID), true
-	}
-	return model.NewOwnerScope(vaultID, userID), true
+	return model.NewVaultScope(vaultID, userID), true
 }
 
 // SetInvalidParam sets a 400 error for a missing or malformed parameter.

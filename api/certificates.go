@@ -234,9 +234,9 @@ func createCertificate(c *Context, w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(response) //nolint:errcheck,gosec
 }
 
-// listCertificates lists certificates. Legacy flat routes use per-user
-// visibility (the caller's own certificates); explicit vault-scoped routes use
-// vault-level "members see all" visibility.
+// listCertificates lists certificates. Legacy flat routes list the default
+// vault; explicit vault-scoped routes list the vault named in the path. Both
+// use vault-level "members see all" visibility.
 func listCertificates(c *Context, w http.ResponseWriter, r *http.Request) {
 	certService := c.certSvc()
 	if certService == nil {
@@ -371,11 +371,12 @@ func deleteCertificate(c *Context, w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// deleteCertificate stays vault-scoped on both route shapes, like
-	// deleteSecret: the scope is built explicitly rather than derived from
-	// scopeFromRequest, so a flat-route caller cannot get an owner scope here.
-	// The actor comes from the claims — a uuid.Nil actor would attribute
-	// every certificate deletion to nobody in the audit log.
+	// deleteCertificate builds its scope explicitly rather than calling
+	// scopeFromRequest, like deleteSecret. Both now produce the same vault
+	// scope, so this is belt-and-braces against route-shape branching being
+	// reintroduced into the shared helper. The actor comes from the claims — a
+	// uuid.Nil actor would attribute every certificate deletion to nobody in
+	// the audit log.
 	userID, ok := userIDFromClaims(c)
 	if !ok {
 		return

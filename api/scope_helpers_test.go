@@ -46,17 +46,23 @@ func TestScopeFromRequestVaultScopedRouteYieldsVaultScope(t *testing.T) {
 	assert.NoError(t, scope.Validate())
 }
 
-func TestScopeFromRequestFlatRouteYieldsOwnerScope(t *testing.T) {
+// TestScopeFromRequestFlatRouteYieldsVaultScope pins the fix for the
+// 2026-08-16 pentest finding H2. A legacy flat route must resolve to a vault
+// scope carrying the vault the request was authorized against. An owner scope
+// here filtered on user_id with no vault term at all, so a caller could read
+// and write their own resources in any other vault.
+func TestScopeFromRequestFlatRouteYieldsVaultScope(t *testing.T) {
 	vaultID, userID := uuid.New(), uuid.New()
 	c := newScopeContext(userID)
 
 	scope, ok := scopeFromRequest(c, newScopeRequest(t, vaultID, ""))
 	require.True(t, ok)
-	assert.Equal(t, model.ScopeOwner, scope.Kind())
+	assert.Equal(t, model.ScopeVault, scope.Kind())
+	assert.Equal(t, vaultID, scope.VaultID(), "a flat route targets the vault it was authorized against")
+	assert.Equal(t, userID, scope.ActorID(), "the actor travels for audit")
 
-	owner, isOwner := scope.OwnerID()
-	require.True(t, isOwner)
-	assert.Equal(t, userID, owner)
+	_, isOwnerScoped := scope.OwnerID()
+	assert.False(t, isOwnerScoped, "ownership is never an access predicate on the data plane")
 	assert.NoError(t, scope.Validate())
 }
 

@@ -92,7 +92,7 @@ func TestGetSecretUsesTheScopeFromTheRoute(t *testing.T) {
 	c, w, r = newSecretHandlerFixture(t, svc, secretID, "")
 	getSecret(c, w, r)
 	require.Nil(t, c.Err)
-	assert.Equal(t, model.ScopeOwner, svc.lastScope.Kind())
+	assert.Equal(t, model.ScopeVault, svc.lastScope.Kind(), "flat routes are vault-scoped to the default vault")
 }
 
 func TestGetSecretMapsLifecycleDenialTo403(t *testing.T) {

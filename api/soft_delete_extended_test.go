@@ -530,9 +530,10 @@ func TestPurgeCertificate_Success_Returns200(t *testing.T) {
 // ============================================================
 // vault-scope routing proof — keys and certificates
 //
-// Mirrors soft_delete_scope_test.go's secrets coverage: proves the flat
-// route builds an owner scope and the vault-scoped route builds a vault
-// scope, now that keys/certs go through the same scopeFromRequest path.
+// Mirrors soft_delete_scope_test.go's secrets coverage: proves the flat route
+// builds a vault scope pinned to the default vault and the vault-scoped route
+// builds one pinned to the resolved vault. Neither shape may build an owner
+// scope — that was the 2026-08-16 cross-vault bypass.
 //
 // Each matcher checks both Kind() and the carried vault/owner id (not just
 // Kind()) — a resolved-vault-id bug that kept the right Kind but the wrong
@@ -550,13 +551,15 @@ func vaultScopedRequest(method, path string, vaultID uuid.UUID) *http.Request {
 	return mux.SetURLVars(r, map[string]string{"vault_name": "team-a"})
 }
 
-func TestRecoverKey_FlatRoute_UsesOwnerScope(t *testing.T) {
+func TestRecoverKey_FlatRoute_UsesDefaultVaultScope(t *testing.T) {
 	keyID := uuid.New()
-	wantOwnerID := uuid.MustParse(keyTestUserID)
+	wantActorID := uuid.MustParse(keyTestUserID)
+	wantVaultID := uuid.MustParse(model.DefaultVaultID)
 	svc := &mockKeyService{}
 	svc.On("RecoverKey", mock.Anything, keyID, mock.MatchedBy(func(s model.Scope) bool {
-		ownerID, ok := s.OwnerID()
-		return s.Kind() == model.ScopeOwner && ok && ownerID == wantOwnerID
+		_, ownerScoped := s.OwnerID()
+		return s.Kind() == model.ScopeVault && !ownerScoped &&
+			s.VaultID() == wantVaultID && s.ActorID() == wantActorID
 	})).Return(nil)
 	c := newKeyCtx(svc)
 	c.Params = &ApiParams{KeyID: keyID.String(), PerPage: 60}
@@ -593,13 +596,15 @@ func TestRecoverKey_VaultScopedRoute_UsesVaultScope(t *testing.T) {
 	svc.AssertExpectations(t)
 }
 
-func TestPurgeKey_FlatRoute_UsesOwnerScope(t *testing.T) {
+func TestPurgeKey_FlatRoute_UsesDefaultVaultScope(t *testing.T) {
 	keyID := uuid.New()
-	wantOwnerID := uuid.MustParse(keyTestUserID)
+	wantActorID := uuid.MustParse(keyTestUserID)
+	wantVaultID := uuid.MustParse(model.DefaultVaultID)
 	svc := &mockKeyService{}
 	svc.On("PurgeKey", mock.Anything, keyID, mock.MatchedBy(func(s model.Scope) bool {
-		ownerID, ok := s.OwnerID()
-		return s.Kind() == model.ScopeOwner && ok && ownerID == wantOwnerID
+		_, ownerScoped := s.OwnerID()
+		return s.Kind() == model.ScopeVault && !ownerScoped &&
+			s.VaultID() == wantVaultID && s.ActorID() == wantActorID
 	})).Return(nil)
 	c := newKeyCtx(svc)
 	c.Params = &ApiParams{KeyID: keyID.String(), PerPage: 60}
@@ -679,13 +684,15 @@ func TestListDeletedKeys_VaultScopedRoute_UsesResolvedVaultScope(t *testing.T) {
 	svc.AssertExpectations(t)
 }
 
-func TestRecoverCertificate_FlatRoute_UsesOwnerScope(t *testing.T) {
+func TestRecoverCertificate_FlatRoute_UsesDefaultVaultScope(t *testing.T) {
 	certID := uuid.New()
-	wantOwnerID := uuid.MustParse(certTestUserID)
+	wantActorID := uuid.MustParse(certTestUserID)
+	wantVaultID := uuid.MustParse(model.DefaultVaultID)
 	svc := &mockCertService{}
 	svc.On("RecoverCertificate", mock.Anything, certID, mock.MatchedBy(func(s model.Scope) bool {
-		ownerID, ok := s.OwnerID()
-		return s.Kind() == model.ScopeOwner && ok && ownerID == wantOwnerID
+		_, ownerScoped := s.OwnerID()
+		return s.Kind() == model.ScopeVault && !ownerScoped &&
+			s.VaultID() == wantVaultID && s.ActorID() == wantActorID
 	})).Return(nil)
 	c := newCertCtx(svc, certAdminClaims())
 	c.Params = &ApiParams{CertificateID: certID.String(), PerPage: 60}
@@ -722,13 +729,15 @@ func TestRecoverCertificate_VaultScopedRoute_UsesVaultScope(t *testing.T) {
 	svc.AssertExpectations(t)
 }
 
-func TestPurgeCertificate_FlatRoute_UsesOwnerScope(t *testing.T) {
+func TestPurgeCertificate_FlatRoute_UsesDefaultVaultScope(t *testing.T) {
 	certID := uuid.New()
-	wantOwnerID := uuid.MustParse(certTestUserID)
+	wantActorID := uuid.MustParse(certTestUserID)
+	wantVaultID := uuid.MustParse(model.DefaultVaultID)
 	svc := &mockCertService{}
 	svc.On("PurgeCertificate", mock.Anything, certID, mock.MatchedBy(func(s model.Scope) bool {
-		ownerID, ok := s.OwnerID()
-		return s.Kind() == model.ScopeOwner && ok && ownerID == wantOwnerID
+		_, ownerScoped := s.OwnerID()
+		return s.Kind() == model.ScopeVault && !ownerScoped &&
+			s.VaultID() == wantVaultID && s.ActorID() == wantActorID
 	})).Return(nil)
 	c := newCertCtx(svc, certAdminClaims())
 	c.Params = &ApiParams{CertificateID: certID.String(), PerPage: 60}

@@ -400,9 +400,10 @@ func TestDeleteCertificatePolicy_VaultScopedRoute_UsesDeleteByCertificateIDAny(t
 	policyRepo.AssertExpectations(t)
 }
 
-// TestLegacyFlatKeyRoute_UsesUserScopedListing verifies the legacy flat /keys
-// route uses per-user visibility (ListKeys scoped to the caller).
-func TestLegacyFlatKeyRoute_UsesUserScopedListing(t *testing.T) {
+// TestLegacyFlatKeyRoute_UsesDefaultVaultScopedListing verifies the legacy flat
+// /keys route lists the default vault rather than the caller's keys across
+// every vault.
+func TestLegacyFlatKeyRoute_UsesDefaultVaultScopedListing(t *testing.T) {
 	rec := &recordingKeyService{}
 	api, _ := newVaultScopedKeyCertTestAPI(rec, nil, nil)
 
@@ -413,11 +414,14 @@ func TestLegacyFlatKeyRoute_UsesUserScopedListing(t *testing.T) {
 	if !rec.listCalled {
 		t.Fatalf("legacy route did not dispatch to the key list handler")
 	}
-	if !rec.listUserScoped {
-		t.Fatalf("legacy /keys must use user-scoped listing (ListKeys), not ListKeysInVault")
+	if rec.listUserScoped {
+		t.Fatalf("legacy /keys must no longer build an owner scope")
+	}
+	if rec.listVaultID != uuid.MustParse(model.DefaultVaultID) {
+		t.Fatalf("legacy /keys scoped to vault %s, want the default vault", rec.listVaultID)
 	}
 	if rec.listUserID != uuid.MustParse(vaultTestUserID) {
-		t.Fatalf("legacy /keys scoped to user %s, want caller %s", rec.listUserID, vaultTestUserID)
+		t.Fatalf("legacy /keys actor %s, want caller %s", rec.listUserID, vaultTestUserID)
 	}
 }
 
@@ -472,9 +476,9 @@ func TestVaultScopedKeyRoute_UsesVaultScopedUpdate(t *testing.T) {
 	}
 }
 
-// TestLegacyFlatKeyRoute_UsesUserScopedUpdate verifies that PUT on the legacy
-// flat /keys/{id} route still dispatches to the owner-scoped UpdateKey.
-func TestLegacyFlatKeyRoute_UsesUserScopedUpdate(t *testing.T) {
+// TestLegacyFlatKeyRoute_UsesDefaultVaultScopedUpdate verifies that PUT on the
+// legacy flat /keys/{id} route updates within the default vault.
+func TestLegacyFlatKeyRoute_UsesDefaultVaultScopedUpdate(t *testing.T) {
 	rec := &recordingKeyService{}
 	api, _ := newVaultScopedKeyCertTestAPI(rec, nil, nil)
 
@@ -488,17 +492,21 @@ func TestLegacyFlatKeyRoute_UsesUserScopedUpdate(t *testing.T) {
 	if !rec.updateCalled {
 		t.Fatalf("legacy route did not dispatch to the key update handler")
 	}
-	if rec.updateVaultScoped {
-		t.Fatalf("legacy /keys/{id} PUT must use owner-scoped update (UpdateKey), not vault-scoped")
+	if !rec.updateVaultScoped {
+		t.Fatalf("legacy /keys/{id} PUT must use a vault scope, not an owner scope")
+	}
+	if rec.updateVaultID != uuid.MustParse(model.DefaultVaultID) {
+		t.Fatalf("legacy update scoped to vault %s, want the default vault", rec.updateVaultID)
 	}
 	if rec.updateUserID != uuid.MustParse(vaultTestUserID) {
-		t.Fatalf("legacy route scoped update to user %s, want caller %s", rec.updateUserID, vaultTestUserID)
+		t.Fatalf("legacy route actor %s, want caller %s", rec.updateUserID, vaultTestUserID)
 	}
 }
 
-// TestLegacyFlatCertRoute_UsesUserScopedListing verifies the legacy flat
-// /certificates route uses per-user visibility (ListCertificates).
-func TestLegacyFlatCertRoute_UsesUserScopedListing(t *testing.T) {
+// TestLegacyFlatCertRoute_UsesDefaultVaultScopedListing verifies the legacy
+// flat /certificates route lists the default vault rather than the caller's
+// certificates across every vault.
+func TestLegacyFlatCertRoute_UsesDefaultVaultScopedListing(t *testing.T) {
 	rec := &recordingCertService{}
 	api, _ := newVaultScopedKeyCertTestAPI(nil, rec, nil)
 
@@ -509,11 +517,14 @@ func TestLegacyFlatCertRoute_UsesUserScopedListing(t *testing.T) {
 	if !rec.listCalled {
 		t.Fatalf("legacy route did not dispatch to the certificate list handler")
 	}
-	if !rec.listUserScoped {
-		t.Fatalf("legacy /certificates must use user-scoped listing (ListCertificates), not ListCertificatesInVault")
+	if rec.listUserScoped {
+		t.Fatalf("legacy /certificates must no longer build an owner scope")
+	}
+	if rec.listVaultID != uuid.MustParse(model.DefaultVaultID) {
+		t.Fatalf("legacy /certificates scoped to vault %s, want the default vault", rec.listVaultID)
 	}
 	if rec.listUserID != uuid.MustParse(vaultTestUserID) {
-		t.Fatalf("legacy /certificates scoped to user %s, want caller %s", rec.listUserID, vaultTestUserID)
+		t.Fatalf("legacy /certificates actor %s, want caller %s", rec.listUserID, vaultTestUserID)
 	}
 }
 
@@ -569,11 +580,9 @@ func TestVaultScopedCertRoute_UsesVaultScopedUpdate(t *testing.T) {
 	}
 }
 
-// TestLegacyFlatCertRoute_UsesUserScopedUpdate verifies that PUT on the legacy
-// flat /certificates/{id} route still dispatches with an owner scope,
-// preserving pre-fix behaviour for callers that never adopted vault-scoped
-// routes.
-func TestLegacyFlatCertRoute_UsesUserScopedUpdate(t *testing.T) {
+// TestLegacyFlatCertRoute_UsesDefaultVaultScopedUpdate verifies that PUT on the
+// legacy flat /certificates/{id} route updates within the default vault.
+func TestLegacyFlatCertRoute_UsesDefaultVaultScopedUpdate(t *testing.T) {
 	rec := &recordingCertService{}
 	api, _ := newVaultScopedKeyCertTestAPI(nil, rec, nil)
 
@@ -587,11 +596,14 @@ func TestLegacyFlatCertRoute_UsesUserScopedUpdate(t *testing.T) {
 	if !rec.updateCalled {
 		t.Fatalf("legacy route did not dispatch to the certificate update handler")
 	}
-	if rec.updateVaultScoped {
-		t.Fatalf("legacy /certificates/{id} PUT must use an owner scope, not a vault scope")
+	if !rec.updateVaultScoped {
+		t.Fatalf("legacy /certificates/{id} PUT must use a vault scope, not an owner scope")
+	}
+	if rec.updateVaultID != uuid.MustParse(model.DefaultVaultID) {
+		t.Fatalf("legacy update scoped to vault %s, want the default vault", rec.updateVaultID)
 	}
 	if rec.updateUserID != uuid.MustParse(vaultTestUserID) {
-		t.Fatalf("legacy route scoped update to user %s, want caller %s", rec.updateUserID, vaultTestUserID)
+		t.Fatalf("legacy route actor %s, want caller %s", rec.updateUserID, vaultTestUserID)
 	}
 }
 

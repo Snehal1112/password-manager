@@ -193,11 +193,11 @@ func TestVaultScopedRoutes_CoexistWithManagement(t *testing.T) {
 	}
 }
 
-// TestLegacyFlatRoute_UsesUserScopedListing verifies that the legacy flat
-// /secrets route uses per-user visibility (an owner scope built from the
-// caller), preserving pre-multi-vault behavior. Vault-level "members see all"
-// visibility applies only to the explicit /vaults/{name}/... routes.
-func TestLegacyFlatRoute_UsesUserScopedListing(t *testing.T) {
+// TestLegacyFlatRoute_UsesDefaultVaultScopedListing verifies that the legacy
+// flat /secrets route lists the default vault, not the caller's rows across
+// every vault. Vault-level "members see all" visibility now applies to both
+// route shapes; only the targeted vault differs.
+func TestLegacyFlatRoute_UsesDefaultVaultScopedListing(t *testing.T) {
 	rec := &recordingSecretService{}
 	api, _ := newVaultScopedTestAPI(rec)
 
@@ -208,11 +208,14 @@ func TestLegacyFlatRoute_UsesUserScopedListing(t *testing.T) {
 	if !rec.listCalled {
 		t.Fatalf("legacy route did not dispatch to the secret list handler")
 	}
-	if rec.listScope.Kind() != model.ScopeOwner {
-		t.Fatalf("legacy route must use owner-scoped listing, not vault-scoped")
+	if rec.listScope.Kind() != model.ScopeVault {
+		t.Fatalf("legacy route must use a vault scope, got %s", rec.listScope.String())
+	}
+	if rec.listScope.VaultID() != uuid.MustParse(model.DefaultVaultID) {
+		t.Fatalf("legacy route scoped to vault %s, want the default vault", rec.listScope.VaultID())
 	}
 	if rec.listScope.ActorID() != uuid.MustParse(vaultTestUserID) {
-		t.Fatalf("legacy route scoped to user %s, want caller %s", rec.listScope.ActorID(), vaultTestUserID)
+		t.Fatalf("legacy route actor %s, want caller %s", rec.listScope.ActorID(), vaultTestUserID)
 	}
 }
 
@@ -245,9 +248,10 @@ func TestVaultScopedRoute_UsesVaultScopedUpdate(t *testing.T) {
 	}
 }
 
-// TestLegacyFlatRoute_UsesUserScopedUpdate verifies that PUT on the legacy
-// flat /secrets/{id} route still dispatches to the owner-scoped UpdateSecret.
-func TestLegacyFlatRoute_UsesUserScopedUpdate(t *testing.T) {
+// TestLegacyFlatRoute_UsesDefaultVaultScopedUpdate verifies that PUT on the
+// legacy flat /secrets/{id} route updates within the default vault, not by
+// ownership across every vault.
+func TestLegacyFlatRoute_UsesDefaultVaultScopedUpdate(t *testing.T) {
 	rec := &recordingSecretService{}
 	api, _ := newVaultScopedTestAPI(rec)
 
@@ -261,11 +265,14 @@ func TestLegacyFlatRoute_UsesUserScopedUpdate(t *testing.T) {
 	if !rec.updateCalled {
 		t.Fatalf("legacy route did not dispatch to the secret update handler")
 	}
-	if rec.updateScope.Kind() != model.ScopeOwner {
-		t.Fatalf("legacy /secrets/{id} PUT must use owner-scoped update, not vault-scoped")
+	if rec.updateScope.Kind() != model.ScopeVault {
+		t.Fatalf("legacy /secrets/{id} PUT must use a vault scope, got %s", rec.updateScope.String())
+	}
+	if rec.updateScope.VaultID() != uuid.MustParse(model.DefaultVaultID) {
+		t.Fatalf("legacy update scoped to vault %s, want the default vault", rec.updateScope.VaultID())
 	}
 	if rec.updateScope.ActorID() != uuid.MustParse(vaultTestUserID) {
-		t.Fatalf("legacy route scoped update to user %s, want caller %s", rec.updateScope.ActorID(), vaultTestUserID)
+		t.Fatalf("legacy route actor %s, want caller %s", rec.updateScope.ActorID(), vaultTestUserID)
 	}
 }
 
@@ -297,10 +304,10 @@ func TestVaultScopedRoute_UsesVaultScopedVersionsList(t *testing.T) {
 	}
 }
 
-// TestLegacyFlatRoute_UsesUserScopedVersionsList verifies that GET on the
-// legacy flat /secrets/{id}/versions route still dispatches to the
-// owner-scoped GetSecretVersions.
-func TestLegacyFlatRoute_UsesUserScopedVersionsList(t *testing.T) {
+// TestLegacyFlatRoute_UsesDefaultVaultScopedVersionsList verifies that GET on
+// the legacy flat /secrets/{id}/versions route looks the secret up in the
+// default vault rather than by ownership across every vault.
+func TestLegacyFlatRoute_UsesDefaultVaultScopedVersionsList(t *testing.T) {
 	rec := &recordingSecretService{}
 	api, _ := newVaultScopedTestAPI(rec)
 
@@ -313,8 +320,11 @@ func TestLegacyFlatRoute_UsesUserScopedVersionsList(t *testing.T) {
 	if !rec.versionsCalled {
 		t.Fatalf("legacy route did not dispatch to the versions list handler")
 	}
-	if rec.versionsScope.Kind() != model.ScopeOwner {
-		t.Fatalf("legacy .../versions GET must use owner-scoped lookup, not vault-scoped")
+	if rec.versionsScope.Kind() != model.ScopeVault {
+		t.Fatalf("legacy .../versions GET must use a vault scope, got %s", rec.versionsScope.String())
+	}
+	if rec.versionsScope.VaultID() != uuid.MustParse(model.DefaultVaultID) {
+		t.Fatalf("legacy .../versions scoped to vault %s, want the default vault", rec.versionsScope.VaultID())
 	}
 }
 
@@ -346,9 +356,10 @@ func TestVaultScopedRoute_UsesVaultScopedExport(t *testing.T) {
 	}
 }
 
-// TestLegacyFlatRoute_ExportUsesOwnerScope verifies that POST on the legacy
-// flat /secrets/export route yields an owner scope (no vault targeting).
-func TestLegacyFlatRoute_ExportUsesOwnerScope(t *testing.T) {
+// TestLegacyFlatRoute_ExportUsesDefaultVaultScope verifies that POST on the
+// legacy flat /secrets/export route exports the default vault, not the
+// caller's rows across every vault.
+func TestLegacyFlatRoute_ExportUsesDefaultVaultScope(t *testing.T) {
 	rec := &recordingSecretService{}
 	api, _ := newVaultScopedTestAPI(rec)
 
@@ -361,8 +372,11 @@ func TestLegacyFlatRoute_ExportUsesOwnerScope(t *testing.T) {
 	if !rec.exportCalled {
 		t.Fatalf("legacy route did not dispatch to the export handler")
 	}
-	if rec.exportScope.Kind() != model.ScopeOwner {
-		t.Fatalf("legacy /secrets/export must use an owner scope, got %s", rec.exportScope.String())
+	if rec.exportScope.Kind() != model.ScopeVault {
+		t.Fatalf("legacy /secrets/export must use a vault scope, got %s", rec.exportScope.String())
+	}
+	if rec.exportScope.VaultID() != uuid.MustParse(model.DefaultVaultID) {
+		t.Fatalf("legacy export scoped to vault %s, want the default vault", rec.exportScope.VaultID())
 	}
 }
 

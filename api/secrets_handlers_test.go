@@ -382,7 +382,7 @@ func TestCreateSecret_Success_Returns201(t *testing.T) {
 
 func TestListSecrets_ServiceError_Returns500(t *testing.T) {
 	svc := &mockSecretService{}
-	// Legacy flat route (no vault_name) yields an owner scope via ListSecrets.
+	// Legacy flat route (no vault_name) yields a default-vault scope via ListSecrets.
 	svc.On("ListSecrets", mock.Anything, mock.Anything, mock.Anything).Return([]model.Secret{}, errors.New("db error"))
 
 	c := newSecretCtx(svc)
@@ -401,7 +401,7 @@ func TestListSecrets_ServiceError_Returns500(t *testing.T) {
 func TestListSecrets_Success_Returns200(t *testing.T) {
 	secretID := uuid.New()
 	svc := &mockSecretService{}
-	// Legacy flat route (no vault_name) yields an owner scope via ListSecrets.
+	// Legacy flat route (no vault_name) yields a default-vault scope via ListSecrets.
 	svc.On("ListSecrets", mock.Anything, mock.Anything, mock.Anything).Return([]model.Secret{*makeSecretModel(secretID)}, nil)
 
 	c := newSecretCtx(svc)
@@ -438,7 +438,7 @@ func TestGetSecret_InvalidSecretID_Returns400(t *testing.T) {
 func TestGetSecret_NotFound_Returns404(t *testing.T) {
 	secretID := uuid.New()
 	svc := &mockSecretService{}
-	// Legacy flat route (no vault_name) yields an owner scope via GetSecret.
+	// Legacy flat route (no vault_name) yields a default-vault scope via GetSecret.
 	// The service returns the not-found sentinel, which maps to 404.
 	svc.On("GetSecret", mock.Anything, secretID, mock.Anything).Return(nil, secretServices.ErrSecretNotFound)
 
@@ -459,7 +459,7 @@ func TestGetSecret_NotFound_Returns404(t *testing.T) {
 func TestGetSecret_Success_Returns200(t *testing.T) {
 	secretID := uuid.New()
 	svc := &mockSecretService{}
-	// Legacy flat route (no vault_name) yields an owner scope via GetSecret.
+	// Legacy flat route (no vault_name) yields a default-vault scope via GetSecret.
 	svc.On("GetSecret", mock.Anything, secretID, mock.Anything).Return(makeSecretModel(secretID), nil)
 
 	c := newSecretCtx(svc)

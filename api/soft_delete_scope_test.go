@@ -70,7 +70,7 @@ func TestPurgeSecretOutOfScopeReturns404(t *testing.T) {
 
 	require.NotNil(t, c.Err)
 	assert.Equal(t, http.StatusNotFound, c.Err.StatusCode)
-	assert.Equal(t, model.ScopeOwner, svc.lastScope.Kind(), "flat routes keep per-user visibility in P1")
+	assert.Equal(t, model.ScopeVault, svc.lastScope.Kind(), "flat routes are vault-scoped to the default vault")
 }
 
 func TestListDeletedSecretsUsesAVaultScope(t *testing.T) {
