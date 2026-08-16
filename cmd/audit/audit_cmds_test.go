@@ -20,6 +20,7 @@ import (
 	"rocketvault/internal/formatter"
 	"rocketvault/internal/repositories"
 	auditServices "rocketvault/internal/services/audit"
+	"rocketvault/model"
 )
 
 // --------------------------------------------------------------------------
@@ -509,4 +510,39 @@ func TestParseDate_Invalid(t *testing.T) {
 	_, err := parseDate("not-a-date")
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "expected RFC3339 or YYYY-MM-DD")
+}
+
+// TestLogsCmd_NonAdmin_Forbidden proves a non-admin caller is rejected before
+// QueryLogs is ever called.
+func TestLogsCmd_NonAdmin_Forbidden(t *testing.T) {
+	tc := testutils.NewTestContext(t)
+	mockSvc := &MockComplianceReportService{}
+	tc.MockContainer.On("GetComplianceReportService").Return(mockSvc).Maybe()
+
+	ctx := context.WithValue(tc.Ctx, common.ClaimsKey, &model.Claims{Role: model.RoleUser})
+
+	cmd, _ := newLogsCmd()
+	cmd.SetContext(ctx)
+	err := cmd.Execute()
+
+	assert.ErrorContains(t, err, "forbidden: requires admin role")
+	mockSvc.AssertNotCalled(t, "QueryLogs", mock.Anything, mock.Anything)
+}
+
+// TestLogsCmd_Admin_Allowed proves an admin caller still reaches QueryLogs
+// after the gate is added (regression guard for the fix in this task).
+func TestLogsCmd_Admin_Allowed(t *testing.T) {
+	tc := testutils.NewTestContext(t)
+	mockSvc := &MockComplianceReportService{}
+	mockSvc.On("QueryLogs", mock.Anything, mock.Anything).
+		Return([]repositories.AuditLog{}, int64(0), true, nil)
+	tc.MockContainer.On("GetComplianceReportService").Return(mockSvc)
+
+	cmd, buf := newLogsCmd()
+	cmd.SetContext(buildAuditCtx(tc))
+	err := cmd.Execute()
+
+	assert.NoError(t, err)
+	assert.Contains(t, buf.String(), "Total matching: 0")
+	mockSvc.AssertExpectations(t)
 }

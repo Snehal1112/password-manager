@@ -38,6 +38,10 @@ var logsCmd = &cobra.Command{
 			return fmt.Errorf("service container not available in context")
 		}
 
+		if _, err := requireAuditAdmin(cmd); err != nil {
+			return err
+		}
+
 		// Parse time range flags.
 		fromStr, _ := cmd.Flags().GetString("from")
 		toStr, _ := cmd.Flags().GetString("to")
