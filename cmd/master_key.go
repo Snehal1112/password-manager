@@ -191,18 +191,18 @@ func runMasterKeyRotate(cmd *cobra.Command) error {
 	if rotateDryRun {
 		mode = "DRY RUN (no rows will be written)"
 	}
-	fmt.Fprintf(out, "Old master key source: %s\n", oldSource)
-	fmt.Fprintf(out, "New master key source: environment variable %s\n", rotateNewKeyEnv)
-	fmt.Fprintf(out, "Mode: %s\n\n", mode)
+	fmt.Fprintf(out, "Old master key source: %s\n", oldSource)                            //nolint:errcheck
+	fmt.Fprintf(out, "New master key source: environment variable %s\n", rotateNewKeyEnv) //nolint:errcheck
+	fmt.Fprintf(out, "Mode: %s\n\n", mode)                                                //nolint:errcheck
 
 	if !rotateDryRun && !rotateAssumeYes {
-		fmt.Fprintln(out, "This rewrites every master-key-encrypted row in the database.")
-		fmt.Fprintln(out, "Stop the RocketVault server and take a database backup before continuing.")
-		fmt.Fprint(out, "Type 'yes' to continue: ")
+		fmt.Fprintln(out, "This rewrites every master-key-encrypted row in the database.")             //nolint:errcheck
+		fmt.Fprintln(out, "Stop the RocketVault server and take a database backup before continuing.") //nolint:errcheck
+		fmt.Fprint(out, "Type 'yes' to continue: ")                                                    //nolint:errcheck
 
 		var confirmation string
 		if _, scanErr := fmt.Scanln(&confirmation); scanErr != nil || confirmation != "yes" {
-			fmt.Fprintln(out, "Aborted.")
+			fmt.Fprintln(out, "Aborted.") //nolint:errcheck
 			return nil
 		}
 	}
@@ -222,12 +222,12 @@ func runMasterKeyRotate(cmd *cobra.Command) error {
 	}
 
 	if rotateDryRun {
-		fmt.Fprintln(out, "Dry run complete. No rows were modified.")
+		fmt.Fprintln(out, "Dry run complete. No rows were modified.") //nolint:errcheck
 		return nil
 	}
-	fmt.Fprintln(out, "Rotation complete. Set the new key as master_key in the configuration "+
+	fmt.Fprintln(out, "Rotation complete. Set the new key as master_key in the configuration "+ //nolint:errcheck
 		"(or as the MASTER_KEY environment variable) and restart the server.")
-	fmt.Fprintln(out, "Reminder: existing database backup files were sealed under the old key and "+
+	fmt.Fprintln(out, "Reminder: existing database backup files were sealed under the old key and "+ //nolint:errcheck
 		"are not affected by this rotation — they will not restore once the old key is retired.")
 	return nil
 }
@@ -242,6 +242,6 @@ func printRotationReport(out io.Writer, report *rekey.Report) {
 			target.Table, target.Column, target.Total,
 			target.ReEncrypted, target.AlreadyNewKey, target.SkippedExternal)
 	}
-	writer.Flush() //nolint:errcheck,gosec
-	fmt.Fprintf(out, "\nTotal rows re-encrypted: %d\n\n", report.TotalReEncrypted())
+	writer.Flush()                                                                   //nolint:errcheck,gosec
+	fmt.Fprintf(out, "\nTotal rows re-encrypted: %d\n\n", report.TotalReEncrypted()) //nolint:errcheck
 }
