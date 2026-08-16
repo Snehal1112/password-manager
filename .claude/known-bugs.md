@@ -359,6 +359,78 @@ place, along with their comments claiming flat routes still reach them.
 
 ---
 
+### B12 — All secrets and software key PEMs sealed with a predictable, git-committed master key
+
+**Status**: Fixed on branch `v-4.0.0` (2026-08-16) — tool and startup guard landed; the
+rotation itself against the real dev/prod databases is tracked separately as H4
+**Severity**: High — confirmed by live exploitation during the 2026-08-16 penetration test
+**File**: `common/encrypt.go`, `common/masterkey.go`, `bootstrap/bootstrap.go`,
+`internal/rekey/`, `cmd/master_key.go`, `.rocketvault.yaml`
+
+**Root cause**: Secret values, software (non-HSM) key PEMs, and certificate private keys are all
+sealed with AES-256-GCM under a single key read from `viper.GetString("master_key")`. The AES-GCM
+construction is correct (fresh random 12-byte nonce per seal, prepended, real AEAD). The defect was
+the key *value*: the committed `.rocketvault.yaml` shipped
+`master_key: "***SECRET-REMOVED-2026-08-17***"`, which base64-decodes to the ASCII
+string `0123456789abcdef0123456789abcdef` — a placeholder, in git, identical in every deployment
+that never changed it. Anyone holding a copy of the database (stolen backup, snapshot,
+decommissioned disk, or the repository itself) decrypted every secret offline. Nothing in the
+codebase checked key quality, and the two length checks even disagreed: `EncryptSecret` accepted
+`len(key) >= 32` while `DecryptSecret` required `== 32`.
+
+Rotating the key was not a one-line config change either: with no re-encryption path anywhere in
+the codebase, changing `master_key` made every existing row permanently undecryptable. That is why
+the fix is a migration tool, not just a guard.
+
+**Blast radius** (every column sealed with this key, established by mapping all nine callers of
+`common.EncryptSecret`/`DecryptSecret` to the columns they write): `secrets.value`,
+`secret_versions.value`, `keys.value`, `key_versions.value`, `certificates.private_key`. The
+`keys` entry includes `internal/signing.SelfPKIProvider`'s JWT signing key, which is stored as an
+ordinary `keys` row. PKCS#11/HSM key rows (`pkcs11:` prefix) hold token handles, not ciphertext,
+and are unaffected. User passwords and OAuth2 client secrets are bcrypt hashes; TOTP secrets are
+stored in plaintext (a separate issue) — none of those are touched by rotation.
+
+**Fix**:
+1. `common.EncryptWithKey`/`DecryptWithKey`/`ParseMasterKey` — key-parameterized AES-256-GCM
+   primitives, so one process can open under the old key and seal under the new one.
+   `EncryptSecret`/`DecryptSecret` keep their signatures and now agree on requiring exactly 32
+   bytes.
+2. `common.ValidateMasterKey` — rejects a missing/malformed/wrong-length key, the known-compromised
+   committed default (constant-time compare), all-printable-ASCII keys, and keys with fewer than 16
+   distinct byte values.
+3. `bootstrap.ConfigurationValidator.ValidateMasterKey`, called as `setup` Step 1c (after Step 1b
+   injects vault-sourced secrets into Viper, since that injection can supply `master_key` itself) —
+   the server now refuses to start on a weak key, with no override flag.
+4. `internal/rekey` — plan-then-apply re-encryption over the five columns above using raw
+   dialect-aware SQL (repositories are scope- and soft-delete-filtered and would re-encrypt on the
+   way through, so they are the wrong layer). Each row is classified by trying the **new** key
+   first, which makes an interrupted run safe to resume without double-encrypting; `pkcs11:` rows
+   are skipped; updates run in batched transactions guarded by `AND <column> = <old ciphertext>`
+   with `RowsAffected() == 1` asserted, so a still-running server causes a loud abort instead of
+   silent data loss.
+5. `rocketvault master-key rotate --new-key-env NEW_MASTER_KEY [--old-key-env ...] [--dry-run]` —
+   admin-only CLI driving the engine. Keys are passed by environment-variable *name*, never in
+   argv; the new key must pass `ValidateMasterKey`; neither key nor any plaintext is ever logged.
+
+**Regression tests**: `common/masterkey_test.go` (weak-key rejection, including the exact committed
+value), `common/encrypt_key_test.go` (key-parameterized round-trip, wrong-key failure),
+`internal/rekey/classify_test.go` and `internal/rekey/rekey_test.go` (dry-run writes nothing,
+full re-encryption round-trips under the new key, second run is a no-op, partial migration resumes,
+`pkcs11:` rows untouched, wrong old key aborts with no writes), `bootstrap/bootstrap_test.go`
+(startup guard), `cmd/master_key_test.go` (admin gate, key resolution).
+
+**Operational note**: after this landed, the server refuses to boot against the repository's
+committed `.rocketvault.yaml` until the key is rotated — intended. The procedure is
+`docs/runbooks/master-key-rotation.md`. Backups taken before a rotation remain encrypted with the
+old key and need the old key to restore.
+
+**Related**: H4 (removing the committed key from `.rocketvault.yaml` and moving custody to the
+environment/secret store) invokes this tool to perform the actual rotation. Envelope encryption
+(per-secret data keys wrapped by a KEK, making future rotations O(1) instead of O(rows)) was
+considered and deliberately deferred — it is a storage-format change touching every read path.
+
+---
+
 ### B13 — CLI `audit logs`/`audit report`/`audit config` bypassed the admin-only restriction enforced by their HTTP equivalents
 
 **Status**: Fixed in commits `46e3686` (helper), `eaaaedf` (logs), `0013f91`
