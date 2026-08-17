@@ -487,6 +487,7 @@ func (d *DBRepository) createOptimizedSchema(db *sql.DB) error {
 			id                         TEXT PRIMARY KEY,
 			key_id                     TEXT NOT NULL UNIQUE,
 			user_id                    TEXT NOT NULL,
+			vault_id                   TEXT NOT NULL DEFAULT '00000000-0000-0000-0000-00000000efa1',
 			rotate_after_days          INTEGER NOT NULL DEFAULT 90,
 			notify_before_expiry_days  INTEGER NOT NULL DEFAULT 30,
 			expiry_days                INTEGER NOT NULL DEFAULT 365,
@@ -498,6 +499,7 @@ func (d *DBRepository) createOptimizedSchema(db *sql.DB) error {
 		);
 		CREATE INDEX IF NOT EXISTS idx_key_rotation_policies_key_id ON key_rotation_policies(key_id);
 		CREATE INDEX IF NOT EXISTS idx_key_rotation_policies_user_id ON key_rotation_policies(user_id);
+		CREATE INDEX IF NOT EXISTS idx_key_rotation_policies_vault_id ON key_rotation_policies(vault_id);
 
 		CREATE TABLE IF NOT EXISTS crl (
 			id TEXT PRIMARY KEY,
@@ -561,6 +563,7 @@ func (d *DBRepository) createOptimizedSchema(db *sql.DB) error {
 		CREATE TABLE IF NOT EXISTS rotation_policies (
 			id TEXT PRIMARY KEY,
 			user_id TEXT NOT NULL,
+			vault_id TEXT NOT NULL DEFAULT '00000000-0000-0000-0000-00000000efa1',
 			name TEXT NOT NULL,
 			description TEXT,
 			interval_days INTEGER NOT NULL,
@@ -574,6 +577,7 @@ func (d *DBRepository) createOptimizedSchema(db *sql.DB) error {
 		CREATE INDEX IF NOT EXISTS idx_rotation_policies_user_id ON rotation_policies(user_id);
 		CREATE INDEX IF NOT EXISTS idx_rotation_policies_enabled ON rotation_policies(enabled);
 		CREATE INDEX IF NOT EXISTS idx_rotation_policies_auto_rotate ON rotation_policies(auto_rotate);
+		CREATE INDEX IF NOT EXISTS idx_rotation_policies_vault_id ON rotation_policies(vault_id);
 
 		CREATE TABLE IF NOT EXISTS secret_rotation_history (
 			id TEXT PRIMARY KEY,
@@ -786,6 +790,7 @@ func (d *DBRepository) migrateSchema(db *sql.DB) error {
 			id                         TEXT PRIMARY KEY,
 			key_id                     TEXT NOT NULL UNIQUE,
 			user_id                    TEXT NOT NULL,
+			vault_id                   TEXT NOT NULL DEFAULT '00000000-0000-0000-0000-00000000efa1',
 			rotate_after_days          INTEGER NOT NULL DEFAULT 90,
 			notify_before_expiry_days  INTEGER NOT NULL DEFAULT 30,
 			expiry_days                INTEGER NOT NULL DEFAULT 365,
@@ -797,6 +802,24 @@ func (d *DBRepository) migrateSchema(db *sql.DB) error {
 		)`,
 		"CREATE INDEX IF NOT EXISTS idx_key_rotation_policies_key_id ON key_rotation_policies(key_id)",
 		"CREATE INDEX IF NOT EXISTS idx_key_rotation_policies_user_id ON key_rotation_policies(user_id)",
+		// Feature: rotation_policies for secrets (backfill will add vault_id below)
+		`CREATE TABLE IF NOT EXISTS rotation_policies (
+			id TEXT PRIMARY KEY,
+			user_id TEXT NOT NULL,
+			vault_id TEXT NOT NULL DEFAULT '00000000-0000-0000-0000-00000000efa1',
+			name TEXT NOT NULL,
+			description TEXT,
+			interval_days INTEGER NOT NULL,
+			enabled BOOLEAN NOT NULL DEFAULT TRUE,
+			reminder_days INTEGER NOT NULL DEFAULT 7,
+			auto_rotate BOOLEAN NOT NULL DEFAULT FALSE,
+			created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+			updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+			FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+		)`,
+		"CREATE INDEX IF NOT EXISTS idx_rotation_policies_user_id ON rotation_policies(user_id)",
+		"CREATE INDEX IF NOT EXISTS idx_rotation_policies_enabled ON rotation_policies(enabled)",
+		"CREATE INDEX IF NOT EXISTS idx_rotation_policies_auto_rotate ON rotation_policies(auto_rotate)",
 		// Feature: enriched audit fields for SOC 2 / GDPR compliance
 		"ALTER TABLE audit_logs ADD COLUMN resource_type TEXT",
 		"ALTER TABLE audit_logs ADD COLUMN resource_id TEXT",
@@ -826,6 +849,11 @@ func (d *DBRepository) migrateSchema(db *sql.DB) error {
 			scheduled_purge_at TIMESTAMP NULL
 		)`,
 		"CREATE INDEX IF NOT EXISTS idx_vaults_name ON vaults(name)",
+		// Vault columns for older databases that might not have these yet.
+		"ALTER TABLE vaults ADD COLUMN retention_days INTEGER NOT NULL DEFAULT 90",
+		"ALTER TABLE vaults ADD COLUMN purge_protection BOOLEAN NOT NULL DEFAULT FALSE",
+		"ALTER TABLE vaults ADD COLUMN deleted_at TIMESTAMP NULL",
+		"ALTER TABLE vaults ADD COLUMN created_by TEXT NOT NULL DEFAULT '00000000-0000-0000-0000-000000000000'",
 		// Vault tags + modification tracking (Azure parity). Tags stored as a JSON
 		// object; (de)serialization is confined to vault_repository.go.
 		"ALTER TABLE vaults ADD COLUMN tags TEXT NOT NULL DEFAULT '{}'",
@@ -834,6 +862,11 @@ func (d *DBRepository) migrateSchema(db *sql.DB) error {
 		"ALTER TABLE secrets ADD COLUMN vault_id TEXT NOT NULL DEFAULT '00000000-0000-0000-0000-00000000efa1'",
 		"ALTER TABLE keys ADD COLUMN vault_id TEXT NOT NULL DEFAULT '00000000-0000-0000-0000-00000000efa1'",
 		"ALTER TABLE certificates ADD COLUMN vault_id TEXT NOT NULL DEFAULT '00000000-0000-0000-0000-00000000efa1'",
+		"ALTER TABLE key_rotation_policies ADD COLUMN vault_id TEXT NOT NULL DEFAULT '00000000-0000-0000-0000-00000000efa1'",
+		"ALTER TABLE rotation_policies ADD COLUMN vault_id TEXT NOT NULL DEFAULT '00000000-0000-0000-0000-00000000efa1'",
+		"CREATE INDEX IF NOT EXISTS idx_key_rotation_policies_vault_id ON key_rotation_policies(vault_id)",
+		"CREATE INDEX IF NOT EXISTS idx_rotation_policies_vault_id ON rotation_policies(vault_id)",
+		"UPDATE key_rotation_policies SET vault_id = (SELECT vault_id FROM keys WHERE keys.id = key_rotation_policies.key_id) WHERE key_id IN (SELECT id FROM keys)",
 		"ALTER TABLE access_policies ADD COLUMN vault_id TEXT NULL",
 		"ALTER TABLE access_policies ADD COLUMN assignment_id TEXT NULL",
 		// Feature: OIDC external identity provider login
