@@ -94,7 +94,7 @@ Data-plane access — reading or writing secrets, keys, and certificates — is 
 | `Key Vault Reader` | Metadata only — no secret values or key material |
 | `Key Vault Secrets User` | Get and list secrets, including values |
 | `Key Vault Secrets Officer` | Full secret control |
-| `Key Vault Crypto User` | Use key material: encrypt, decrypt, sign, verify, wrap, unwrap |
+| `Key Vault Crypto User` | Use key material: encrypt, decrypt, sign, verify, wrap, unwrap — plus routine key maintenance: update and backup |
 | `Key Vault Crypto Officer` | Full key control, including create, import, delete, and rotation |
 | `Key Vault Certificates Officer` | Full certificate control |
 
@@ -241,6 +241,7 @@ rocketvault/
 
 - [API Documentation Validation](validate-api-docs.sh) - Documentation validation script
 - [Known Bugs](.claude/known-bugs.md) - Open issues with root-cause analysis
+- [Roadmap — Azure Parity & Beyond](.claude/roadmap-azure-parity-and-beyond.md) - Phased plan to close remaining Azure Key Vault gaps and build self-hosted-native differentiators
 
 ## Prerequisites
 
@@ -1291,13 +1292,49 @@ For questions or issues:
 - [x] Extend `--vault` CLI support to `certificates` `list`/`get`/`delete` — same as keys, backend was already vault-scoped
 - [x] Certificate `update` and `renew` made genuinely vault-scoped (previously hardcoded owner-only at the API/service level) — `--vault` now works on every certificate command
 
+*(2026-08-16 — Pentest hardening)*
+
+- [x] Removed the legacy HS256 JWT fallback — signing is now asymmetric-only (RS256/ES256), every token requires a `kid`, and startup aborts on a bad signing provider instead of degrading
+- [x] Fixed a cross-vault authorization bypass on legacy flat (non-vault-scoped) data-plane routes — `scopeFromRequest` now always resolves a vault-scoped predicate
+- [x] Master key rotation — `internal/rekey` plan-then-apply re-encryption engine and the new `master-key rotate` CLI command (resumable, dry-run-capable), plus a startup guard refusing to boot on an invalid or known-compromised master key
+- [x] Fixed the `.gitignore` gap that allowed `.rocketvault.yaml` to be tracked; shipped `.rocketvault.yaml.example`; rotated all previously-exposed secrets; added a CI guard against recurrence
+- [x] Added an admin-only gate to the `audit` CLI commands, matching the existing HTTP API restriction
+- [x] Fixed the CLI to exit non-zero on command failure — every command now exits `1` on error and `0` on success, safe for `&&` chains and `set -e` scripts
+- [x] `Key Vault Crypto User` role: added missing `update`/`backup` data actions for exact Azure parity (2026-08-17)
+
 ### Planned
 
-- [ ] Web-based administration interface
-- [ ] Kubernetes operator for automated deployment
-- [ ] Multi-region replication support
-- [ ] Redis caching layer for distributed deployments
-- [ ] Vault-scope role-assignment management for non-admin `vaults:manage` holders (currently requires the global admin role — see [known limitations](docs/release-notes/v4.0.0-azure-rbac.md#known-limitations))
+Full rationale, non-goals, and sequencing: [Roadmap — Azure Parity & Beyond](.claude/roadmap-azure-parity-and-beyond.md).
+
+**Phase 1 — Close remaining Azure Key Vault gaps**
+
+- [ ] Rotation-policy scheduler — actually execute the rotation policies that already exist (CRUD-only today); currently a silent no-op that could give a false sense of security, so this is the highest-priority item in this phase
+- [ ] Key import (JWK)
+- [ ] ACME / Let's Encrypt certificate enrollment — the open substitute for Azure's partner-CA-only integration (DigiCert/GlobalSign), which is not separately planned
+
+Not planned, or needs a feasibility check first: confidential-compute key release (TEE attestation — no realistic self-hosted equivalent), FIPS 140-3 L3 certification (a hardware certification process — RocketVault instead supports FIPS-validated HSMs via PKCS#11), geo-replication identical to Azure's managed failover (see Phase 3 for an open, multi-primary alternative instead), and HSM coverage for the P-256K curve and AES-CBC wrap (niche demand — P-256K is mainly a blockchain-signing curve and AES-CBC wrap is superseded by AES-KW as the modern standard — and depends on PKCS#11 library/hardware support that may not exist, not purely a coding gap; revisit only if real user demand shows up).
+
+**Phase 2 — Platform maturity**
+
+- [ ] Vault-scope role-assignment management for non-admin `vaults:manage` holders (currently requires the global admin role — see [known limitations](docs/release-notes/v4.0.0-azure-rbac.md#known-limitations)) — highest priority here, since it's core to the multi-vault delegation model, not just a convenience gap
+- [ ] Redis caching layer for distributed deployments — closes a real revocation-latency window: a key rotated on one replica can still be served from another replica's stale in-process cache until its TTL expires
+- [ ] Official Helm chart + signed/scanned container images (cosign/sigstore) — moved up from the "beyond Azure" list as the natural prerequisite for the Kubernetes operator below
+- [ ] Kubernetes operator for automated deployment — builds on the Helm chart above rather than starting from raw manifests
+- [ ] Web-based administration interface — largest effort item in this phase; broadens adoption but doesn't unblock any existing functionality, so it's sequenced last
+
+**Phase 3 — Beyond Azure**
+
+- [ ] Multi-region / multi-primary replication — open design with conflict resolution, not a copy of Azure's managed regional failover
+- [ ] GitOps / policy-as-code + Terraform provider for vaults, role assignments, and rotation policies
+- [ ] WebAuthn / passkey login alongside TOTP MFA
+- [ ] Native webhook/notification system for rotation failures, expiry warnings, and audit events
+- [ ] Break-glass emergency access workflow with mandatory justification and audit trail
+- [ ] Extended compliance report templates (PCI-DSS, HIPAA) alongside the existing SOC 2 / GDPR reports, with optional scheduled delivery (email/webhook) instead of pull-only
+- [ ] Local dev secret injection — `direnv`-style `rocketvault run -- <command>`
+- [ ] Format-aware bulk import/export — Kubernetes Secrets YAML, `.env`, Terraform tfvars, for easier migration in/out of other secret stores
+- [ ] Externally-anchored tamper-evident audit log — sign and timestamp the hash-chain head (or publish it to a transparency log) so tampering is detectable even if the database itself is compromised
+- [ ] Per-principal rate limiting alongside the existing per-IP limits
+- [ ] Operation-aware health readiness — gate `/health/ready` during long-running operations like master-key rotation or purge runs
 
 ## Acknowledgments
 

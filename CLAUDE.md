@@ -135,6 +135,10 @@ rocketvault/
 - Open bugs, fixed bugs, and deferred refactors with root-cause analysis and fix recipes
 - This is the living source of truth for bug status — don't duplicate bug entries elsewhere in this file, they will drift stale (see the "Open Bugs" note below)
 
+### 🗺️ [Roadmap — Azure Parity & Beyond](.claude/roadmap-azure-parity-and-beyond.md)
+- Phased plan built on `.claude/azure-keyvault-parity.md`'s gap analysis: close remaining Azure Key Vault gaps first (key import, rotation-policy scheduler, HSM P-256K/AES-CBC, ACME certs, one RBAC role fix), then platform maturity, then self-hosted-native differentiators beyond Azure
+- README's `## Roadmap > Planned` section is a short checklist pointing here — this doc carries the rationale, non-goals, and phase grouping
+
 ### 🧪 [CLI Test Suite Implementation](doc/README_TESTS.md)
 - Comprehensive test coverage for all CLI commands
 - Mock infrastructure and service testing framework
@@ -483,6 +487,10 @@ npm run typecheck # If available
 
 ## Documentation History
 
+- **2026-08-17**: Added `.claude/roadmap-azure-parity-and-beyond.md` — a phased
+  roadmap built on the parity doc's gap analysis (close remaining Azure gaps,
+  then platform maturity, then self-hosted-native differentiators). README's
+  `## Roadmap > Planned` section was trimmed to a checklist linking to it.
 - **2026-08-11**: README and this file corrected to document the multi-vault +
   Azure RBAC architecture (shipped ~May–Aug 2026); removed 13 dead `.claude/`
   doc links and two incorrect `cmd/README_*.md` paths (the files live under
