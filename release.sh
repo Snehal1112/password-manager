@@ -11,45 +11,77 @@ BLUE='\033[0;34m'
 NC='\033[0m'
 
 usage() {
-    echo "Usage: $0 [major|minor|patch]"
+    echo "Usage: $0 [major|minor|patch|<version>]"
     echo ""
-    echo "  major  v1.2.3 -> v2.0.0"
-    echo "  minor  v1.2.3 -> v1.3.0"
-    echo "  patch  v1.2.3 -> v1.2.4"
+    echo "  major     v1.2.3 -> v2.0.0"
+    echo "  minor     v1.2.3 -> v1.3.0"
+    echo "  patch     v1.2.3 -> v1.2.4"
+    echo "  <version> explicit target, e.g. v4.0.0 or 4.0.0 -- use this when the"
+    echo "            next release isn't a relative bump from the latest tag"
     exit 1
 }
+
+# Working tree must be clean before we tag -- a signed release tag should
+# capture exactly what's on origin, not local uncommitted state.
+if [[ -n "$(git status --porcelain)" ]]; then
+    echo -e "${RED}Working tree has uncommitted changes. Commit or stash before releasing.${NC}"
+    git status --short
+    exit 1
+fi
+
+# Guard against the H4 regression (.claude/known-bugs.md § B10): a real
+# .rocketvault.yaml (or a dash/dot-separated sibling) must never be
+# git-tracked. Mirrors the "No tracked RocketVault config files" check in
+# .github/workflows/go.yml so a bad state is caught before tagging, not
+# after push.
+if git ls-files | grep -E '^\.rocketvault([.-].*)?\.yaml$|^\.rocketvault\.yaml\.local$'; then
+    echo -e "${RED}A real RocketVault config file is tracked in git — see .claude/known-bugs.md § B10${NC}"
+    exit 1
+fi
 
 # Resolve bump type from argument or prompt.
 bump="${1:-}"
 if [[ -z "$bump" ]]; then
-    echo -e "${BLUE}Bump type:${NC} major / minor / patch"
+    echo -e "${BLUE}Bump type:${NC} major / minor / patch, or an explicit version (e.g. v4.0.0)"
     read -rp "> " bump
 fi
 
-case "$bump" in
-    major|minor|patch) ;;
-    *) echo -e "${RED}Invalid bump type: ${bump}${NC}"; usage ;;
-esac
-
 # Find the latest semver tag.
-latest=$(git tag --list "v*" | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | sort -V | tail -1)
+latest=$(git tag --list "v*" | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | sort -V | tail -1 || true)
 if [[ -z "$latest" ]]; then
     latest="v0.0.0"
 fi
 
-# Strip leading 'v' and split.
-version="${latest#v}"
-major="${version%%.*}"; rest="${version#*.}"
-minor="${rest%%.*}"; patch="${rest#*.}"
+if [[ "$bump" =~ ^v?[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+    # Explicit target version. Needed because the next release isn't always
+    # a relative bump from the latest tag -- e.g. this branch (v-4.0.0)
+    # jumps straight from v0.2.3 to v4.0.0, which "major" alone can't reach.
+    new_tag="v${bump#v}"
+else
+    case "$bump" in
+        major|minor|patch) ;;
+        *) echo -e "${RED}Invalid bump type or version: ${bump}${NC}"; usage ;;
+    esac
 
-# Bump.
-case "$bump" in
-    major) major=$((major + 1)); minor=0; patch=0 ;;
-    minor) minor=$((minor + 1)); patch=0 ;;
-    patch) patch=$((patch + 1)) ;;
-esac
+    # Strip leading 'v' and split.
+    version="${latest#v}"
+    major="${version%%.*}"; rest="${version#*.}"
+    minor="${rest%%.*}"; patch="${rest#*.}"
 
-new_tag="v${major}.${minor}.${patch}"
+    # Bump.
+    case "$bump" in
+        major) major=$((major + 1)); minor=0; patch=0 ;;
+        minor) minor=$((minor + 1)); patch=0 ;;
+        patch) patch=$((patch + 1)) ;;
+    esac
+
+    new_tag="v${major}.${minor}.${patch}"
+fi
+
+if git tag --list "$new_tag" | grep -qx "$new_tag"; then
+    echo -e "${RED}Tag ${new_tag} already exists.${NC}"
+    exit 1
+fi
 
 echo ""
 echo -e "  Current tag : ${YELLOW}${latest}${NC}"
