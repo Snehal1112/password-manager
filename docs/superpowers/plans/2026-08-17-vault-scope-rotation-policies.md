@@ -1085,7 +1085,8 @@ git commit -m "feat(repositories): filter KeyRotationPolicyRepository by vault_i
 **Files:**
 - Modify: `internal/services/secrets/rotation_service.go`
 - Modify: `internal/services/secrets/rotation_service_test.go` (existing — update `mockRotationPolicyRepo` and every call site)
-- Modify: `internal/services/secrets/scheduler_service.go` (its two callers of the changed methods)
+- Modify: `internal/services/secrets/coverage_boost_test.go` (existing — **correction to this plan's original scope**: this file has its own separate hand-written `mockRotationPolicyRepository` (note: different name from `rotation_service_test.go`'s `mockRotationPolicyRepo`) implementing the full `RotationPolicyRepositoryInterface`, used to construct `secrets.NewRotationService(...)` at ~lines 887, 973, 1070 and `secrets.NewSchedulerService(...)` at ~lines 1205, 1263. This second mock must be updated to the Task 4 interface the same way `rotation_service_test.go`'s mock is.)
+- Modify: `internal/services/secrets/scheduler_service.go` (**correction**: it has six call sites into `RotationServiceInterface`, not two — see Step 4)
 
 **Interfaces:**
 - Consumes: `RotationPolicyRepositoryInterface` (Task 4).
@@ -1119,7 +1120,9 @@ git commit -m "feat(repositories): filter KeyRotationPolicyRepository by vault_i
 
 In `internal/services/secrets/rotation_service_test.go`, update `mockRotationPolicyRepo` (a hand-written `testify/mock` implementing `RotationPolicyRepositoryInterface`) to match Task 4's new interface: `Read`/`Update`/`Delete` gain a `scope model.Scope` parameter, `ListByUser` becomes `List(ctx, scope)`, `GetDueRotations`/`GetUpcomingReminders` take `scope` instead of `userID`. Update every `mockRotationPolicyRepo.On(...)` call in this file's test table to match the new argument lists, and every direct call to the service under test (`rotationService.GetPolicy(ctx, id)` → `rotationService.GetPolicy(ctx, id, scope)`, etc.) to pass a `model.Scope` built via `model.NewVaultScope(vaultID, userID)` from each test's fixture data.
 
-This step doesn't need to compile yet — Step 3 changes the service, and only once both the mock and the service agree does the package build. Write the updated test file now so Step 2 shows the real, current failure.
+Apply the identical treatment to `internal/services/secrets/coverage_boost_test.go`'s separate `mockRotationPolicyRepository` (its own hand-written `testify/mock` implementing the same repository interface, structurally identical mock methods to `rotation_service_test.go`'s `mockRotationPolicyRepo` but a different Go type in a different file): `Read`/`Update`/`Delete` gain `scope model.Scope`, `ListByUser` becomes `List(ctx, scope)`, `GetDueRotations`/`GetUpcomingReminders` take `scope`. This file's `TestXxx` functions that construct `secrets.NewRotationService(repo, ...)` and `secrets.NewSchedulerService(rotationSvc, ...)` (~lines 887, 973, 1070, 1205, 1263) don't need their own signatures changed — only the mock's methods need updating so the type still satisfies `RotationPolicyRepositoryInterface`.
+
+This step doesn't need to compile yet — Step 3 changes the service, and only once both mocks and the service agree does the package build. Write the updated test files now so Step 2 shows the real, current failure.
 
 - [ ] **Step 2: Run the tests to verify they fail**
 
@@ -1222,11 +1225,16 @@ func (s *rotationService) AssignPolicyToSecret(ctx context.Context, req AssignPo
 
 `CreateRotationReminder` and `RecordRotation`-adjacent internals are unaffected — they take explicit secret/policy IDs already validated by their caller, not a scope.
 
-- [ ] **Step 4: Update `scheduler_service.go`'s two call sites**
+- [ ] **Step 4: Update `scheduler_service.go`'s six call sites into `RotationServiceInterface`**
 
-`internal/services/secrets/scheduler_service.go`'s `ProcessUserRotations`/`ProcessUserReminders` (called from `processAllUserOperations`, which iterates every user) currently call `rotationSvc.GetDueRotations(ctx, userID)` and `rotationSvc.GetUpcomingReminders(ctx, userID)`. Change both to `rotationSvc.GetDueRotations(ctx, model.NewAdminScope(userID))` / `rotationSvc.GetUpcomingReminders(ctx, model.NewAdminScope(userID))` — `ScopeAdmin` has no vault predicate, matching today's actual behavior (the scheduler already operates across every vault a user's secrets happen to be in; it never filtered by vault). This keeps the existing secrets scheduler's behavior identical, deferring any vault-aware scheduling change to Spec B.
+**Correction to this plan's original scope:** `scheduler_service.go` calls into `RotationServiceInterface` in six places, not two. All six need updating — every one takes or builds a `model.Scope` where it previously took a bare `uuid.UUID`, using `model.NewAdminScope(...)` throughout (this is a background scheduler with no per-request actor; it already operated across every vault a user's secrets happen to be in, so `ScopeAdmin`'s no-vault-predicate behavior is the identical, behavior-preserving choice — matching today's actual behavior exactly, not a vault-aware scheduling change, which is deferred to Spec B):
 
-Its `performAutomaticRotation` call into `rotationSvc.PerformManualRotation` must build `ManualRotationRequest{..., Scope: model.NewAdminScope(userID)}` in place of the old `UserID: userID` field.
+1. `ProcessUserRotations` (~line 167): `s.rotationSvc.GetDueRotations(ctx, userID)` → `s.rotationSvc.GetDueRotations(ctx, model.NewAdminScope(userID))`
+2. `ProcessUserReminders` (~line 189): `s.rotationSvc.GetUpcomingReminders(ctx, userID)` → `s.rotationSvc.GetUpcomingReminders(ctx, model.NewAdminScope(userID))`
+3. `PerformManualRotation` (the scheduler's own exported method, ~line 209-218): its `rotationReq := ManualRotationRequest{SecretID: req.SecretID, PolicyID: req.PolicyID, UserID: req.UserID, Notes: req.Notes}` becomes `ManualRotationRequest{SecretID: req.SecretID, PolicyID: req.PolicyID, Scope: model.NewAdminScope(req.UserID), Notes: req.Notes}`.
+4. `performAutomaticRotation` (~line 240): `policy, err := s.rotationSvc.GetPolicy(ctx, sp.PolicyID)` → `s.rotationSvc.GetPolicy(ctx, sp.PolicyID, model.NewAdminScope(uuid.Nil))` — matching the `model.NewAdminScope(uuid.Nil)` pattern already used two lines below it for `s.secretRepo.Read`.
+5. `performAutomaticRotation`'s own rotation request (~line 278-285): its `rotationReq := ManualRotationRequest{SecretID: sp.SecretID, PolicyID: sp.PolicyID, UserID: secret.UserID, Notes: "Automatic rotation by scheduler"}` becomes `ManualRotationRequest{SecretID: sp.SecretID, PolicyID: sp.PolicyID, Scope: model.NewAdminScope(secret.UserID), Notes: "Automatic rotation by scheduler"}`.
+6. `sendReminder` (~line 314): `s.rotationSvc.AcknowledgeReminder(ctx, reminder.ID, reminder.SecretID, uuid.Nil)` → `s.rotationSvc.AcknowledgeReminder(ctx, reminder.ID, reminder.SecretID, model.NewAdminScope(uuid.Nil))` — the existing `uuid.Nil` sentinel ("skip the ownership check, this is a trusted system caller") becomes an explicit `ScopeAdmin`, same meaning.
 
 - [ ] **Step 5: Run the tests to verify they pass**
 
@@ -1241,7 +1249,7 @@ Expected: FAIL — `cmd/rotation.go` and its tests still call the old signatures
 - [ ] **Step 7: Commit**
 
 ```bash
-git add internal/services/secrets/rotation_service.go internal/services/secrets/rotation_service_test.go internal/services/secrets/scheduler_service.go
+git add internal/services/secrets/rotation_service.go internal/services/secrets/rotation_service_test.go internal/services/secrets/coverage_boost_test.go internal/services/secrets/scheduler_service.go
 git commit -m "feat(secrets): thread model.Scope through RotationService
 
 Replaces AssignPolicyToSecret's manual ownership-comparison pattern
