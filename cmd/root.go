@@ -136,6 +136,22 @@ func isContextCommandArgs(args []string) bool {
 	return cmd.Name() == "context" || (cmd.Parent() != nil && cmd.Parent().Name() == "context")
 }
 
+// isCobraBuiltinCommand reports whether cmd is one cobra adds automatically
+// rather than one this project defines: "help", the "completion" group and
+// its per-shell subcommands, and the hidden "__complete"/"__completeNoDesc"
+// commands shell completion scripts invoke on every keystroke. None of these
+// talk to a server or a local database, so they must never be blocked by the
+// remote-target guard below — see NB1 in the 2026-08-17 final review: with an
+// active context, `rocketvault help` and `rocketvault completion bash` (and
+// therefore live shell tab-completion) were refused outright.
+func isCobraBuiltinCommand(cmd *cobra.Command) bool {
+	switch cmd.Name() {
+	case "help", "completion", cobra.ShellCompRequestCmd, cobra.ShellCompNoDescRequestCmd:
+		return true
+	}
+	return cmd.Parent() != nil && cmd.Parent().Name() == "completion"
+}
+
 // initConfig reads in config file and ENV variables if set.
 func initConfig() {
 	if cfgFile != "" {
@@ -306,6 +322,9 @@ func persistentPreRun(cmd *cobra.Command, args []string) error {
 	// (docs/superpowers/specs/2026-08-17-cli-remote-server-support-design.md).
 	// The `context` group is exempt: it only reads/writes local config
 	// (~/.rocketvault/contexts.json) and never talks to a server itself.
+	// Cobra's own built-in commands (help, completion, and the hidden
+	// completion-request commands) are exempt for the same reason — see
+	// isCobraBuiltinCommand.
 	//
 	// This guard is intentionally temporary scaffolding, not a permanent
 	// architectural fixture. As each resource group's own remote adapter
@@ -319,7 +338,7 @@ func persistentPreRun(cmd *cobra.Command, args []string) error {
 	// internal/cliclient.RequireLocal), this guard should be deleted
 	// entirely.
 	isContextGroup := cmd.Name() == "context" || (cmd.Parent() != nil && cmd.Parent().Name() == "context")
-	if !isContextGroup {
+	if !isContextGroup && !isCobraBuiltinCommand(cmd) {
 		serverFlag, _ := cmd.Flags().GetString("server")
 		target, targetErr := cliclient.ResolveTarget(serverFlag)
 		if targetErr != nil {

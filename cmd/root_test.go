@@ -361,3 +361,36 @@ func TestPersistentPreRun_RemoteTarget_ContextCommand_Unaffected(t *testing.T) {
 	err = rootCmd.ExecuteContext(context.Background())
 	require.NoError(t, err, "the context group must be unaffected by a resolved remote target")
 }
+
+// TestIsCobraBuiltinCommand verifies NB1's fix at the unit level: which
+// commands the remote-target guard must treat as exempt cobra built-ins.
+// This is deliberately a pure unit test of the classification logic rather
+// than a full rootCmd.Execute() run — cobra's built-in "help"/"completion"
+// commands are not in persistentPreRun's systemCmds map, so a full run hits
+// the (pre-existing, unrelated to remote mode) authentication requirement
+// and the shared test binary's audit-logging path, neither of which this
+// fix touches or is responsible for exercising safely.
+func TestIsCobraBuiltinCommand(t *testing.T) {
+	completionCmd := &cobra.Command{Use: "completion"}
+	bashCmd := &cobra.Command{Use: "bash"}
+	completionCmd.AddCommand(bashCmd)
+
+	cases := []struct {
+		name string
+		cmd  *cobra.Command
+		want bool
+	}{
+		{"help", &cobra.Command{Use: "help"}, true},
+		{"completion (parent)", completionCmd, true},
+		{"completion bash (child)", bashCmd, true},
+		{"__complete", &cobra.Command{Use: cobra.ShellCompRequestCmd}, true},
+		{"__completeNoDesc", &cobra.Command{Use: cobra.ShellCompNoDescRequestCmd}, true},
+		{"secrets (not a builtin)", &cobra.Command{Use: "secrets"}, false},
+		{"health (not a builtin)", &cobra.Command{Use: "health"}, false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			assert.Equal(t, tc.want, isCobraBuiltinCommand(tc.cmd))
+		})
+	}
+}
