@@ -20,6 +20,7 @@ import (
 	"rocketvault/internal/logging"
 	authzServices "rocketvault/internal/services/authorization"
 	certServices "rocketvault/internal/services/certificates"
+	keysServices "rocketvault/internal/services/keys"
 	"rocketvault/internal/services/softdelete"
 )
 
@@ -236,6 +237,22 @@ func TestShutdown_WithRenewalScheduler_StopsCleanly(t *testing.T) {
 	sched := certServices.NewCertificateRenewalScheduler(nil, logger, 24*time.Hour)
 
 	bs := &bootstrap{renewalScheduler: sched}
+	err := bs.Shutdown(context.Background())
+	assert.NoError(t, err)
+}
+
+// TestShutdown_WithKeyRotationScheduler covers the keyRotationScheduler != nil
+// branch. We create the scheduler but do NOT Start() it, mirroring
+// TestShutdown_WithRenewalScheduler_StopsCleanly -- Stop() must be safe on a
+// never-started scheduler.
+func TestShutdown_WithKeyRotationScheduler_StopsCleanly(t *testing.T) {
+	t.Parallel()
+
+	logger := newTestLogger()
+	executor := keysServices.NewRotationExecutor(nil, nil, logger)
+	sched := keysServices.NewRotationScheduler(executor, logger, time.Hour)
+
+	bs := &bootstrap{keyRotationScheduler: sched}
 	err := bs.Shutdown(context.Background())
 	assert.NoError(t, err)
 }

@@ -7,7 +7,6 @@ import (
 	"context"
 	"fmt"
 	"os"
-	"time"
 
 	"github.com/sirupsen/logrus"
 	"github.com/spf13/viper"
@@ -23,6 +22,7 @@ import (
 	"rocketvault/internal/metrics"
 	authzServices "rocketvault/internal/services/authorization"
 	certServices "rocketvault/internal/services/certificates"
+	keysServices "rocketvault/internal/services/keys"
 	"rocketvault/internal/services/softdelete"
 	"rocketvault/internal/vaultclient"
 	"rocketvault/server"
@@ -185,15 +185,17 @@ func validateAuthorizationBasePath(basePath string) error {
 // bootstrap provides orchestration for application startup following SRP.
 // It coordinates different initializers while maintaining single responsibility.
 type bootstrap struct {
-	dbInitializer    *DatabaseInitializer
-	serverStarter    *ServerStarter
-	configValidator  *ConfigurationValidator
-	serviceContainer *container.ServiceContainer
-	cfg              *config.Config
-	purgeScheduler   *softdelete.PurgeScheduler
-	renewalScheduler *certServices.CertificateRenewalScheduler
-	metricsScheduler *metrics.MetricsScheduler
-	monitoringCfg    config.MonitoringConfig
+	dbInitializer        *DatabaseInitializer
+	serverStarter        *ServerStarter
+	configValidator      *ConfigurationValidator
+	serviceContainer     *container.ServiceContainer
+	cfg                  *config.Config
+	purgeScheduler       *softdelete.PurgeScheduler
+	renewalScheduler     *certServices.CertificateRenewalScheduler
+	keyRotationScheduler *keysServices.RotationScheduler
+	metricsScheduler     *metrics.MetricsScheduler
+	monitoringCfg        config.MonitoringConfig
+	rotationCfg          config.RotationConfig
 }
 
 // newBootstrap creates a new bootstrap orchestrator with SRP-compliant design.
@@ -294,6 +296,9 @@ func (b *bootstrap) setup(ctx context.Context, cfg *Config) error {
 	db.SetSlowQueryThreshold(b.monitoringCfg.SlowQueryThreshold)
 	health.SetDefaultSlowQueryThreshold(b.monitoringCfg.SlowQueryThreshold)
 
+	// Step 2a-1: Load rotation scheduler config for secrets, certs, and keys.
+	b.rotationCfg = config.LoadRotationConfig()
+
 	// Start the periodic DB performance gauge collector when metrics are enabled.
 	if b.monitoringCfg.EnableMetrics {
 		dbMetrics := metrics.NewDefaultDBMetrics()
@@ -322,11 +327,23 @@ func (b *bootstrap) setup(ctx context.Context, cfg *Config) error {
 	}
 	b.serviceContainer = serviceContainer
 
-	// Step 2c: Start certificate renewal scheduler.
-	if sc := b.serviceContainer.GetCertificateRenewalService(); sc != nil {
-		b.renewalScheduler = certServices.NewCertificateRenewalScheduler(sc, b.cfg.Logger, 24*time.Hour)
+	// Step 2c: Start certificate renewal scheduler, if enabled.
+	if sc := b.serviceContainer.GetCertificateRenewalService(); sc != nil && b.rotationCfg.Certificates.Enabled {
+		b.renewalScheduler = certServices.NewCertificateRenewalScheduler(sc, b.cfg.Logger, b.rotationCfg.Certificates.Interval)
 		b.renewalScheduler.Start(ctx)
 		b.cfg.Logger.Info("Certificate renewal scheduler started")
+	}
+
+	// Step 2d: Start key rotation scheduler, if enabled.
+	if b.rotationCfg.Keys.Enabled {
+		executor := keysServices.NewRotationExecutor(
+			b.serviceContainer.GetKeyService(),
+			b.serviceContainer.GetKeyRotationPolicyRepository(),
+			b.cfg.Logger,
+		)
+		b.keyRotationScheduler = keysServices.NewRotationScheduler(executor, b.cfg.Logger, b.rotationCfg.Keys.Interval)
+		b.keyRotationScheduler.Start(ctx)
+		b.cfg.Logger.Info("Key rotation scheduler started")
 	}
 
 	// Step 4: Create application with dependency injection
@@ -400,7 +417,7 @@ func (b *bootstrap) createApplication(cfg *Config) (*app.App, error) {
 		app.WithLogger(b.cfg.Logger),
 		app.WithServer(server.NewServer(b.cfg.Logger, cfg.Listen, serverCfg)),
 		app.WithServiceContainer(b.serviceContainer),
-		app.WithSchedulerEnabled(true, 1*time.Hour), // Enable scheduler with 1-hour interval.
+		app.WithSchedulerEnabled(b.rotationCfg.Secrets.Enabled, b.rotationCfg.Secrets.Interval),
 		app.WithFrontendConfig(fc),
 	).(*app.App)
 
@@ -433,6 +450,11 @@ func (b *bootstrap) Shutdown(ctx context.Context) error {
 	if b.renewalScheduler != nil {
 		b.renewalScheduler.Stop()
 		logrus.Info("Certificate renewal scheduler stopped")
+	}
+
+	if b.keyRotationScheduler != nil {
+		b.keyRotationScheduler.Stop()
+		logrus.Info("Key rotation scheduler stopped")
 	}
 
 	if b.metricsScheduler != nil {
