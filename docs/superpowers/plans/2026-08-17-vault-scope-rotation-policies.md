@@ -892,6 +892,7 @@ git commit -m "feat(repositories): collapse RotationPolicyRepository onto model.
 **Files:**
 - Modify: `internal/repositories/key_rotation_policy_repository.go`
 - Modify: `internal/repositories/key_rotation_policy_repository_test.go` (existing — update its inline `key_rotation_policies` schema and callers)
+- Modify: `api/keys_scope_test.go` (existing — **correction to this plan's original scope**: this file's `scopeStubKeyService`, used to fixture API handler tests, has its own inline copy of `GetKeyRotationPolicy`/`UpsertKeyRotationPolicy`/`DeleteKeyRotationPolicy` — its own doc comment says it "mirrors the real KeyService" — and calls `s.policyRepo.GetByKeyIDAny(ctx, keyID)` (~line 62, ~line 84) and `s.policyRepo.DeleteByKeyIDAny(ctx, keyID)` (~line 91) directly against `repositories.KeyRotationPolicyRepositoryInterface`. This task's interface change breaks it immediately, independent of Task 7. Fix it the same mechanical way as `key_service.go`'s three methods (Task 7 does the real one; this task does this stub, since the break originates here): `GetByKeyIDAny(ctx, keyID)` → `GetByKeyID(ctx, keyID, scope)`, `DeleteByKeyIDAny(ctx, keyID)` → `DeleteByKeyID(ctx, keyID, scope)`. `scope` is already in hand in all three methods (the `scope` parameter each method already receives and passes to `s.GetKey(ctx, keyID, scope)` one line above).
 
 **Interfaces:**
 - Consumes: `model.Scope`, `model.KeyRotationPolicy.VaultID` (Task 3), `ScopedGet`/`ScopedExec` (Task 2).
@@ -903,7 +904,7 @@ git commit -m "feat(repositories): collapse RotationPolicyRepository onto model.
       DeleteByKeyID(ctx context.Context, keyID uuid.UUID, scope model.Scope) error
   }
   ```
-  `GetByKeyIDAny`/`DeleteByKeyIDAny` and the old owner-scoped `GetByKeyID(ctx, keyID, userID)`/`DeleteByKeyID` are removed entirely — confirmed unused outside this repository and `key_service.go` (Task 7 updates the only caller).
+  `GetByKeyIDAny`/`DeleteByKeyIDAny` and the old owner-scoped `GetByKeyID(ctx, keyID, userID)`/`DeleteByKeyID` are removed entirely. Two callers exist outside this repository: `key_service.go` (Task 7's job) and `api/keys_scope_test.go`'s `scopeStubKeyService` (this task's job — see Files above).
 
 - [ ] **Step 1: Update the existing test file's schema and write new cross-vault tests**
 
@@ -1061,20 +1062,24 @@ func scanKeyRotationPolicyRow(row *sql.Row) (*model.KeyRotationPolicy, error) {
 
 Delete `GetByKeyIDAny`, `DeleteByKeyIDAny`, and the old owner-scoped `GetByKeyID(ctx, keyID, userID)`/`DeleteByKeyID` bodies entirely — they're replaced by the two methods above.
 
+Also apply the `api/keys_scope_test.go` fix described in the Files section above: in `scopeStubKeyService`'s `GetKeyRotationPolicy`/`UpsertKeyRotationPolicy`/`DeleteKeyRotationPolicy`, swap `s.policyRepo.GetByKeyIDAny(ctx, keyID)` → `s.policyRepo.GetByKeyID(ctx, keyID, scope)` and `s.policyRepo.DeleteByKeyIDAny(ctx, keyID)` → `s.policyRepo.DeleteByKeyID(ctx, keyID, scope)`.
+
 - [ ] **Step 4: Run the tests to verify they pass**
 
 Run: `go test ./internal/repositories/... -run 'TestGetByKeyID_CrossVaultDenied|TestDeleteByKeyID_CrossVaultDenied' -v`, then the full file: `go test ./internal/repositories/... -run KeyRotationPolicy -v`
 Expected: PASS
 
-- [ ] **Step 5: Build the whole module to find broken callers**
+- [ ] **Step 5: Build and vet the whole module to find broken callers**
 
 Run: `go build ./...`
 Expected: FAIL — `internal/services/keys/key_service.go` still calls `GetByKeyIDAny`/`DeleteByKeyIDAny`. Expected; Task 7 fixes it. Confirm no other package fails.
 
+`go build ./...` does not compile `_test.go` files, so it will NOT catch a broken `api/keys_scope_test.go`. Run `go vet ./api/...` separately to confirm your fix to that file compiles cleanly (this should PASS — it's the one test-only caller this task is responsible for; `internal/services/keys/key_service_test.go` is Task 7's problem, not yours, and `go vet ./internal/services/keys/...` is expected to still fail here).
+
 - [ ] **Step 6: Commit**
 
 ```bash
-git add internal/repositories/key_rotation_policy_repository.go internal/repositories/key_rotation_policy_repository_test.go
+git add internal/repositories/key_rotation_policy_repository.go internal/repositories/key_rotation_policy_repository_test.go api/keys_scope_test.go
 git commit -m "feat(repositories): filter KeyRotationPolicyRepository by vault_id"
 ```
 
