@@ -87,3 +87,20 @@ func TestGeneratePasswordRejectsZeroLength(t *testing.T) {
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "length must be at least 1")
 }
+
+// TestGenerateCmd_InvalidLength_ReturnsError is the regression test for the
+// bug where generateCmd's Run handler called os.Exit(0) on a
+// generatePassword error, making the failure indistinguishable from
+// success at the shell level. RunE must return a non-nil error instead,
+// letting Cobra (and, ultimately, cmd.Execute()) surface it as a non-zero
+// exit code.
+func TestGenerateCmd_InvalidLength_ReturnsError(t *testing.T) {
+	cmd := generateCmd
+	cmd.Flags().Set("length", "0") //nolint:errcheck
+	cmd.SetArgs([]string{})
+
+	err := cmd.RunE(cmd, []string{})
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "failed to generate password")
+}
