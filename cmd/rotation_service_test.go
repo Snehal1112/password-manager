@@ -19,6 +19,8 @@ import (
 // MockRotationSvc is a testify mock that satisfies RotationServiceInterface.
 type MockRotationSvc struct{ mock.Mock }
 
+var _ secretServices.RotationServiceInterface = (*MockRotationSvc)(nil)
+
 func (m *MockRotationSvc) CreatePolicy(ctx context.Context, req secretServices.CreatePolicyRequest) (*model.RotationPolicy, error) {
 	args := m.Called(ctx, req)
 	if args.Get(0) == nil {
@@ -27,8 +29,8 @@ func (m *MockRotationSvc) CreatePolicy(ctx context.Context, req secretServices.C
 	return args.Get(0).(*model.RotationPolicy), args.Error(1)
 }
 
-func (m *MockRotationSvc) GetPolicy(ctx context.Context, id uuid.UUID) (*model.RotationPolicy, error) {
-	args := m.Called(ctx, id)
+func (m *MockRotationSvc) GetPolicy(ctx context.Context, id uuid.UUID, scope model.Scope) (*model.RotationPolicy, error) {
+	args := m.Called(ctx, id, scope)
 	if args.Get(0) == nil {
 		return nil, args.Error(1)
 	}
@@ -43,13 +45,13 @@ func (m *MockRotationSvc) UpdatePolicy(ctx context.Context, req secretServices.U
 	return args.Get(0).(*model.RotationPolicy), args.Error(1)
 }
 
-func (m *MockRotationSvc) DeletePolicy(ctx context.Context, id uuid.UUID, callerID uuid.UUID) error {
-	args := m.Called(ctx, id, callerID)
+func (m *MockRotationSvc) DeletePolicy(ctx context.Context, id uuid.UUID, scope model.Scope) error {
+	args := m.Called(ctx, id, scope)
 	return args.Error(0)
 }
 
-func (m *MockRotationSvc) ListUserPolicies(ctx context.Context, userID uuid.UUID) ([]model.RotationPolicy, error) {
-	args := m.Called(ctx, userID)
+func (m *MockRotationSvc) ListPolicies(ctx context.Context, scope model.Scope) ([]model.RotationPolicy, error) {
+	args := m.Called(ctx, scope)
 	if args.Get(0) == nil {
 		return nil, args.Error(1)
 	}
@@ -61,13 +63,13 @@ func (m *MockRotationSvc) AssignPolicyToSecret(ctx context.Context, req secretSe
 	return args.Error(0)
 }
 
-func (m *MockRotationSvc) RemovePolicyFromSecret(ctx context.Context, sID, pID uuid.UUID, callerID uuid.UUID) error {
-	args := m.Called(ctx, sID, pID, callerID)
+func (m *MockRotationSvc) RemovePolicyFromSecret(ctx context.Context, sID, pID uuid.UUID, scope model.Scope) error {
+	args := m.Called(ctx, sID, pID, scope)
 	return args.Error(0)
 }
 
-func (m *MockRotationSvc) GetSecretPolicies(ctx context.Context, secretID, userID uuid.UUID) ([]model.RotationPolicy, error) {
-	args := m.Called(ctx, secretID, userID)
+func (m *MockRotationSvc) GetSecretPolicies(ctx context.Context, secretID uuid.UUID, scope model.Scope) ([]model.RotationPolicy, error) {
+	args := m.Called(ctx, secretID, scope)
 	if args.Get(0) == nil {
 		return nil, args.Error(1)
 	}
@@ -79,16 +81,16 @@ func (m *MockRotationSvc) PerformManualRotation(ctx context.Context, req secretS
 	return args.Error(0)
 }
 
-func (m *MockRotationSvc) GetRotationHistory(ctx context.Context, sID uuid.UUID, callerID uuid.UUID) ([]model.RotationHistory, error) {
-	args := m.Called(ctx, sID, callerID)
+func (m *MockRotationSvc) GetRotationHistory(ctx context.Context, sID uuid.UUID, scope model.Scope) ([]model.RotationHistory, error) {
+	args := m.Called(ctx, sID, scope)
 	if args.Get(0) == nil {
 		return nil, args.Error(1)
 	}
 	return args.Get(0).([]model.RotationHistory), args.Error(1)
 }
 
-func (m *MockRotationSvc) GetDueRotations(ctx context.Context, userID uuid.UUID) ([]model.SecretPolicy, error) {
-	args := m.Called(ctx, userID)
+func (m *MockRotationSvc) GetDueRotations(ctx context.Context, scope model.Scope) ([]model.SecretPolicy, error) {
+	args := m.Called(ctx, scope)
 	if args.Get(0) == nil {
 		return nil, args.Error(1)
 	}
@@ -99,15 +101,15 @@ func (m *MockRotationSvc) CreateRotationReminder(ctx context.Context, req secret
 	return nil
 }
 
-func (m *MockRotationSvc) GetUpcomingReminders(ctx context.Context, userID uuid.UUID) ([]model.RotationReminder, error) {
-	args := m.Called(ctx, userID)
+func (m *MockRotationSvc) GetUpcomingReminders(ctx context.Context, scope model.Scope) ([]model.RotationReminder, error) {
+	args := m.Called(ctx, scope)
 	if args.Get(0) == nil {
 		return nil, args.Error(1)
 	}
 	return args.Get(0).([]model.RotationReminder), args.Error(1)
 }
 
-func (m *MockRotationSvc) AcknowledgeReminder(ctx context.Context, reminderID, secretID, userID uuid.UUID) error {
+func (m *MockRotationSvc) AcknowledgeReminder(ctx context.Context, reminderID, secretID uuid.UUID, scope model.Scope) error {
 	return nil
 }
 
@@ -123,7 +125,8 @@ func TestRotationCreateCommand_UsesService(t *testing.T) {
 	polID := uuid.New()
 
 	mockRotSvc.On("CreatePolicy", mock.Anything, mock.MatchedBy(func(r secretServices.CreatePolicyRequest) bool {
-		return r.Name == "test-policy" && r.IntervalDays == 30 && r.UserID == tc.TestUserID
+		return r.Name == "test-policy" && r.IntervalDays == 30 &&
+			r.Scope == model.NewVaultScope(tc.TestVaultID, tc.TestUserID)
 	})).Return(&model.RotationPolicy{ID: polID, Name: "test-policy", IntervalDays: 30}, nil)
 
 	policyName = "test-policy"
@@ -146,7 +149,7 @@ func TestRotationCreateCommand_UsesService(t *testing.T) {
 func TestRotationListCommand_UsesService(t *testing.T) {
 	tc, mockRotSvc := setupRotationTestContext(t)
 
-	mockRotSvc.On("ListUserPolicies", mock.Anything, tc.TestUserID).
+	mockRotSvc.On("ListPolicies", mock.Anything, model.NewVaultScope(tc.TestVaultID, tc.TestUserID)).
 		Return([]model.RotationPolicy{
 			{ID: uuid.New(), Name: "policy-1", IntervalDays: 30, AutoRotate: true, Enabled: true, CreatedAt: time.Now()},
 		}, nil)
@@ -168,7 +171,8 @@ func TestRotationRotateCommand_UsesContextContainer(t *testing.T) {
 	pid := uuid.New()
 
 	mockRotSvc.On("PerformManualRotation", mock.Anything, mock.MatchedBy(func(r secretServices.ManualRotationRequest) bool {
-		return r.SecretID == sid && r.PolicyID == pid && r.UserID == tc.TestUserID
+		return r.SecretID == sid && r.PolicyID == pid &&
+			r.Scope == model.NewVaultScope(tc.TestVaultID, tc.TestUserID)
 	})).Return(nil)
 
 	secretID = sid.String()

@@ -20,67 +20,68 @@ import (
 type RotationServiceInterface interface {
 	// Policy management
 	CreatePolicy(ctx context.Context, req CreatePolicyRequest) (*model.RotationPolicy, error)
-	GetPolicy(ctx context.Context, id uuid.UUID) (*model.RotationPolicy, error)
+	GetPolicy(ctx context.Context, id uuid.UUID, scope model.Scope) (*model.RotationPolicy, error)
 	UpdatePolicy(ctx context.Context, req UpdatePolicyRequest) (*model.RotationPolicy, error)
-	DeletePolicy(ctx context.Context, id uuid.UUID, callerID uuid.UUID) error
-	ListUserPolicies(ctx context.Context, userID uuid.UUID) ([]model.RotationPolicy, error)
+	DeletePolicy(ctx context.Context, id uuid.UUID, scope model.Scope) error
+	ListPolicies(ctx context.Context, scope model.Scope) ([]model.RotationPolicy, error)
 
 	// Secret-policy assignment
 	AssignPolicyToSecret(ctx context.Context, req AssignPolicyRequest) error
-	RemovePolicyFromSecret(ctx context.Context, secretID, policyID uuid.UUID, callerID uuid.UUID) error
-	GetSecretPolicies(ctx context.Context, secretID, userID uuid.UUID) ([]model.RotationPolicy, error)
+	RemovePolicyFromSecret(ctx context.Context, secretID, policyID uuid.UUID, scope model.Scope) error
+	GetSecretPolicies(ctx context.Context, secretID uuid.UUID, scope model.Scope) ([]model.RotationPolicy, error)
 
 	// Rotation operations
 	PerformManualRotation(ctx context.Context, req ManualRotationRequest) error
-	GetRotationHistory(ctx context.Context, secretID uuid.UUID, callerID uuid.UUID) ([]model.RotationHistory, error)
-	GetDueRotations(ctx context.Context, userID uuid.UUID) ([]model.SecretPolicy, error)
+	GetRotationHistory(ctx context.Context, secretID uuid.UUID, scope model.Scope) ([]model.RotationHistory, error)
+	GetDueRotations(ctx context.Context, scope model.Scope) ([]model.SecretPolicy, error)
 
 	// Reminder management
 	CreateRotationReminder(ctx context.Context, req CreateReminderRequest) error
-	GetUpcomingReminders(ctx context.Context, userID uuid.UUID) ([]model.RotationReminder, error)
+	GetUpcomingReminders(ctx context.Context, scope model.Scope) ([]model.RotationReminder, error)
 	// AcknowledgeReminder marks a reminder as acknowledged. secretID
-	// identifies the secret the reminder belongs to. userID enforces
-	// ownership before the update; pass uuid.Nil to skip the check
-	// (system/scheduler callers), mirroring KeyService.DeleteKeyInVault.
-	AcknowledgeReminder(ctx context.Context, reminderID, secretID, userID uuid.UUID) error
+	// identifies the secret the reminder belongs to; scope authorizes the
+	// read that proves it. A system/scheduler caller passes
+	// model.NewAdminScope(actorID) explicitly -- there is no longer a
+	// sentinel value that skips the check.
+	AcknowledgeReminder(ctx context.Context, reminderID, secretID uuid.UUID, scope model.Scope) error
 }
 
 // CreatePolicyRequest represents the request to create a rotation policy.
 type CreatePolicyRequest struct {
-	UserID       uuid.UUID `json:"user_id" validate:"required"`
-	Name         string    `json:"name" validate:"required,min=1,max=100"`
-	Description  string    `json:"description" validate:"max=500"`
-	IntervalDays int       `json:"interval_days" validate:"required,min=1,max=365"`
-	Enabled      bool      `json:"enabled"`
-	ReminderDays int       `json:"reminder_days" validate:"min=0,max=30"`
-	AutoRotate   bool      `json:"auto_rotate"`
+	Scope        model.Scope // Authorization scope; its actor id owns the policy and its resolved vault id targets it.
+	Name         string      `json:"name" validate:"required,min=1,max=100"`
+	Description  string      `json:"description" validate:"max=500"`
+	IntervalDays int         `json:"interval_days" validate:"required,min=1,max=365"`
+	Enabled      bool        `json:"enabled"`
+	ReminderDays int         `json:"reminder_days" validate:"min=0,max=30"`
+	AutoRotate   bool        `json:"auto_rotate"`
 }
 
 // UpdatePolicyRequest represents the request to update a rotation policy.
 type UpdatePolicyRequest struct {
-	ID           uuid.UUID `json:"id" validate:"required"`
-	UserID       uuid.UUID `json:"user_id" validate:"required"`
-	Name         string    `json:"name" validate:"required,min=1,max=100"`
-	Description  string    `json:"description" validate:"max=500"`
-	IntervalDays int       `json:"interval_days" validate:"required,min=1,max=365"`
-	Enabled      bool      `json:"enabled"`
-	ReminderDays int       `json:"reminder_days" validate:"min=0,max=30"`
-	AutoRotate   bool      `json:"auto_rotate"`
+	ID           uuid.UUID   `json:"id" validate:"required"`
+	Scope        model.Scope // Authorization scope for the read and the write.
+	Name         string      `json:"name" validate:"required,min=1,max=100"`
+	Description  string      `json:"description" validate:"max=500"`
+	IntervalDays int         `json:"interval_days" validate:"required,min=1,max=365"`
+	Enabled      bool        `json:"enabled"`
+	ReminderDays int         `json:"reminder_days" validate:"min=0,max=30"`
+	AutoRotate   bool        `json:"auto_rotate"`
 }
 
 // AssignPolicyRequest represents the request to assign a policy to a secret.
 type AssignPolicyRequest struct {
-	SecretID uuid.UUID `json:"secret_id" validate:"required"`
-	PolicyID uuid.UUID `json:"policy_id" validate:"required"`
-	UserID   uuid.UUID `json:"user_id" validate:"required"`
+	SecretID uuid.UUID   `json:"secret_id" validate:"required"`
+	PolicyID uuid.UUID   `json:"policy_id" validate:"required"`
+	Scope    model.Scope // Authorization scope shared by both the secret and the policy read.
 }
 
 // ManualRotationRequest represents the request to perform manual rotation.
 type ManualRotationRequest struct {
-	SecretID uuid.UUID `json:"secret_id" validate:"required"`
-	PolicyID uuid.UUID `json:"policy_id" validate:"required"`
-	UserID   uuid.UUID `json:"user_id" validate:"required"`
-	Notes    string    `json:"notes" validate:"max=500"`
+	SecretID uuid.UUID   `json:"secret_id" validate:"required"`
+	PolicyID uuid.UUID   `json:"policy_id" validate:"required"`
+	Scope    model.Scope // Authorization scope shared by both the secret and the policy read.
+	Notes    string      `json:"notes" validate:"max=500"`
 }
 
 // CreateReminderRequest represents the request to create a rotation reminder.
@@ -138,10 +139,10 @@ func (s *rotationService) invalidateCache(ctx context.Context, secretID uuid.UUI
 
 // CreatePolicy creates a new rotation policy with business validation.
 func (s *rotationService) CreatePolicy(ctx context.Context, req CreatePolicyRequest) (*model.RotationPolicy, error) {
-	// Validate user exists
-	user, err := s.userRepo.Read(ctx, req.UserID)
-	if err != nil {
-		s.log.WithError(err).WithField("user_id", req.UserID).Error("User not found for policy creation")
+	// Validate the actor exists.
+	actorID := req.Scope.ActorID()
+	if _, err := s.userRepo.Read(ctx, actorID); err != nil {
+		s.log.WithError(err).WithField("user_id", actorID).Error("User not found for policy creation")
 		return nil, fmt.Errorf("user not found: %w", err)
 	}
 
@@ -154,7 +155,8 @@ func (s *rotationService) CreatePolicy(ctx context.Context, req CreatePolicyRequ
 	now := time.Now()
 	policy := &model.RotationPolicy{
 		ID:           uuid.New(),
-		UserID:       user.ID,
+		UserID:       actorID,
+		VaultID:      req.Scope.ResolvedVaultID(),
 		Name:         req.Name,
 		Description:  req.Description,
 		IntervalDays: req.IntervalDays,
@@ -165,8 +167,7 @@ func (s *rotationService) CreatePolicy(ctx context.Context, req CreatePolicyRequ
 		UpdatedAt:    now,
 	}
 
-	err = s.rotationRepo.Create(ctx, policy)
-	if err != nil {
+	if err := s.rotationRepo.Create(ctx, policy); err != nil {
 		s.log.WithError(err).Error("Failed to create rotation policy")
 		return nil, fmt.Errorf("failed to create rotation policy: %w", err)
 	}
@@ -180,27 +181,21 @@ func (s *rotationService) CreatePolicy(ctx context.Context, req CreatePolicyRequ
 	return policy, nil
 }
 
-// GetPolicy retrieves a rotation policy by ID.
-func (s *rotationService) GetPolicy(ctx context.Context, id uuid.UUID) (*model.RotationPolicy, error) {
-	policy, err := s.rotationRepo.Read(ctx, id)
+// GetPolicy retrieves a rotation policy by ID, authorized by scope.
+func (s *rotationService) GetPolicy(ctx context.Context, id uuid.UUID, scope model.Scope) (*model.RotationPolicy, error) {
+	policy, err := s.rotationRepo.Read(ctx, id, scope)
 	if err != nil {
 		s.log.WithError(err).WithField("policy_id", id).Error("Failed to get rotation policy")
 		return nil, fmt.Errorf("failed to get rotation policy: %w", err)
 	}
-
 	return policy, nil
 }
 
 // UpdatePolicy updates an existing rotation policy with business validation.
 func (s *rotationService) UpdatePolicy(ctx context.Context, req UpdatePolicyRequest) (*model.RotationPolicy, error) {
-	// Validate ownership
-	existingPolicy, err := s.rotationRepo.Read(ctx, req.ID)
+	existingPolicy, err := s.rotationRepo.Read(ctx, req.ID, req.Scope)
 	if err != nil {
 		return nil, fmt.Errorf("policy not found: %w", err)
-	}
-
-	if existingPolicy.UserID != req.UserID {
-		return nil, fmt.Errorf("user does not own this policy")
 	}
 
 	// Business validation
@@ -211,7 +206,8 @@ func (s *rotationService) UpdatePolicy(ctx context.Context, req UpdatePolicyRequ
 	// Update policy with new values
 	policy := &model.RotationPolicy{
 		ID:           req.ID,
-		UserID:       req.UserID,
+		UserID:       existingPolicy.UserID,
+		VaultID:      existingPolicy.VaultID,
 		Name:         req.Name,
 		Description:  req.Description,
 		IntervalDays: req.IntervalDays,
@@ -222,8 +218,7 @@ func (s *rotationService) UpdatePolicy(ctx context.Context, req UpdatePolicyRequ
 		UpdatedAt:    time.Now(),
 	}
 
-	err = s.rotationRepo.Update(ctx, policy)
-	if err != nil {
+	if err := s.rotationRepo.Update(ctx, policy, req.Scope); err != nil {
 		s.log.WithError(err).Error("Failed to update rotation policy")
 		return nil, fmt.Errorf("failed to update rotation policy: %w", err)
 	}
@@ -237,72 +232,55 @@ func (s *rotationService) UpdatePolicy(ctx context.Context, req UpdatePolicyRequ
 	return policy, nil
 }
 
-// DeletePolicy deletes a rotation policy with ownership validation.
-func (s *rotationService) DeletePolicy(ctx context.Context, id uuid.UUID, callerID uuid.UUID) error {
-	policy, err := s.rotationRepo.Read(ctx, id)
-	if err != nil {
-		return fmt.Errorf("policy not found: %w", err)
-	}
-
-	if policy.UserID != callerID {
-		return fmt.Errorf("forbidden: user does not own this policy")
-	}
-
-	err = s.rotationRepo.Delete(ctx, id)
-	if err != nil {
+// DeletePolicy deletes a rotation policy, authorized by scope.
+func (s *rotationService) DeletePolicy(ctx context.Context, id uuid.UUID, scope model.Scope) error {
+	if err := s.rotationRepo.Delete(ctx, id, scope); err != nil {
 		s.log.WithError(err).WithField("policy_id", id).Error("Failed to delete rotation policy")
 		return fmt.Errorf("failed to delete rotation policy: %w", err)
 	}
 
 	s.log.WithFields(map[string]interface{}{
 		"policy_id": id,
-		"user_id":   callerID,
+		"actor":     scope.ActorID(),
 	}).Info("Rotation policy deleted successfully")
 
 	return nil
 }
 
-// ListUserPolicies lists all rotation policies for a user.
-func (s *rotationService) ListUserPolicies(ctx context.Context, userID uuid.UUID) ([]model.RotationPolicy, error) {
-	policies, err := s.rotationRepo.ListByUser(ctx, userID)
+// ListPolicies lists rotation policies authorized by scope.
+func (s *rotationService) ListPolicies(ctx context.Context, scope model.Scope) ([]model.RotationPolicy, error) {
+	policies, err := s.rotationRepo.List(ctx, scope)
 	if err != nil {
-		s.log.WithError(err).WithField("user_id", userID).Error("Failed to list user policies")
-		return nil, fmt.Errorf("failed to list user policies: %w", err)
+		s.log.WithError(err).Error("Failed to list rotation policies")
+		return nil, fmt.Errorf("failed to list rotation policies: %w", err)
 	}
-
 	return policies, nil
 }
 
-// AssignPolicyToSecret assigns a rotation policy to a secret with validation.
+// AssignPolicyToSecret assigns a rotation policy to a secret. The secret and
+// policy are both read under req.Scope: a secret or policy outside that
+// scope's vault fails its own scoped read before any comparison would run,
+// which makes a cross-vault assignment structurally impossible without a
+// separate ErrPolicyVaultMismatch check.
 func (s *rotationService) AssignPolicyToSecret(ctx context.Context, req AssignPolicyRequest) error {
-	// Validate secret exists and user owns it. The read itself is unchecked
-	// (admin scope); the explicit ownership check below is the actual gate.
-	secret, err := s.secretRepo.Read(ctx, req.SecretID, model.NewAdminScope(req.UserID))
+	secret, err := s.secretRepo.Read(ctx, req.SecretID, req.Scope)
 	if err != nil {
 		return fmt.Errorf("secret not found: %w", err)
 	}
-
-	if secret.UserID != req.UserID {
-		return fmt.Errorf("user does not own this secret")
-	}
-
-	// Validate policy exists and user owns it
-	policy, err := s.rotationRepo.Read(ctx, req.PolicyID)
+	policy, err := s.rotationRepo.Read(ctx, req.PolicyID, req.Scope)
 	if err != nil {
 		return fmt.Errorf("policy not found: %w", err)
 	}
-
-	if policy.UserID != req.UserID {
-		return fmt.Errorf("user does not own this policy")
-	}
+	// secret and policy are both confirmed to be in req.Scope's vault by the
+	// two reads above -- a cross-vault assignment is denied here without a
+	// separate comparison, because either read alone would already have failed.
+	_ = secret // fetched only to prove scope membership; no field of it is used further
 
 	// Calculate rotation schedule
 	now := time.Now()
 	nextRotation := now.AddDate(0, 0, policy.IntervalDays)
 
-	// Assign policy to secret
-	err = s.rotationRepo.AssignToSecret(ctx, req.SecretID, req.PolicyID, now, nextRotation)
-	if err != nil {
+	if err := s.rotationRepo.AssignToSecret(ctx, req.SecretID, req.PolicyID, now, nextRotation); err != nil {
 		s.log.WithError(err).Error("Failed to assign policy to secret")
 		return fmt.Errorf("failed to assign policy to secret: %w", err)
 	}
@@ -317,8 +295,7 @@ func (s *rotationService) AssignPolicyToSecret(ctx context.Context, req AssignPo
 			NextReminderAt: &reminderTime,
 		}
 
-		err = s.CreateRotationReminder(ctx, reminderReq)
-		if err != nil {
+		if err := s.CreateRotationReminder(ctx, reminderReq); err != nil {
 			s.log.WithError(err).Warn("Failed to create initial reminder for policy assignment")
 			// Don't fail the assignment if reminder creation fails
 		}
@@ -327,27 +304,24 @@ func (s *rotationService) AssignPolicyToSecret(ctx context.Context, req AssignPo
 	s.log.WithFields(map[string]interface{}{
 		"secret_id":     req.SecretID,
 		"policy_id":     req.PolicyID,
-		"user_id":       req.UserID,
+		"actor":         req.Scope.ActorID(),
 		"next_rotation": nextRotation,
 	}).Info("Policy assigned to secret successfully")
 
 	return nil
 }
 
-// RemovePolicyFromSecret removes a rotation policy from a secret with ownership validation.
-func (s *rotationService) RemovePolicyFromSecret(ctx context.Context, secretID, policyID uuid.UUID, callerID uuid.UUID) error {
-	// The read itself is unchecked (admin scope); the explicit ownership
-	// check below is the actual gate.
-	secret, err := s.secretRepo.Read(ctx, secretID, model.NewAdminScope(callerID))
+// RemovePolicyFromSecret removes a rotation policy from a secret. The secret
+// is read under scope to prove it is reachable; the scoped read is the only
+// gate, there is no separate ownership comparison.
+func (s *rotationService) RemovePolicyFromSecret(ctx context.Context, secretID, policyID uuid.UUID, scope model.Scope) error {
+	secret, err := s.secretRepo.Read(ctx, secretID, scope)
 	if err != nil {
 		return fmt.Errorf("secret not found: %w", err)
 	}
-	if secret.UserID != callerID {
-		return fmt.Errorf("forbidden: user does not own this secret")
-	}
+	_ = secret // fetched only to prove scope membership; no field of it is used further
 
-	err = s.rotationRepo.RemoveFromSecret(ctx, secretID, policyID)
-	if err != nil {
+	if err := s.rotationRepo.RemoveFromSecret(ctx, secretID, policyID); err != nil {
 		s.log.WithError(err).Error("Failed to remove policy from secret")
 		return fmt.Errorf("failed to remove policy from secret: %w", err)
 	}
@@ -355,26 +329,23 @@ func (s *rotationService) RemovePolicyFromSecret(ctx context.Context, secretID, 
 	s.log.WithFields(map[string]interface{}{
 		"secret_id": secretID,
 		"policy_id": policyID,
-		"user_id":   callerID,
+		"actor":     scope.ActorID(),
 	}).Info("Policy removed from secret successfully")
 
 	return nil
 }
 
-// GetSecretPolicies gets all rotation policies assigned to a secret. userID
-// enforces ownership; pass uuid.Nil to skip the check (admin/system callers).
-func (s *rotationService) GetSecretPolicies(ctx context.Context, secretID, userID uuid.UUID) ([]model.RotationPolicy, error) {
-	if userID != uuid.Nil {
-		// The read itself is unchecked (admin scope); the explicit ownership
-		// check below is the actual gate.
-		secret, err := s.secretRepo.Read(ctx, secretID, model.NewAdminScope(userID))
-		if err != nil {
-			return nil, fmt.Errorf("secret not found: %w", err)
-		}
-		if secret.UserID != userID {
-			return nil, fmt.Errorf("user does not own this secret")
-		}
+// GetSecretPolicies gets all rotation policies assigned to a secret. The
+// secret is read under scope to prove it is reachable; the scoped read is
+// the only gate, there is no separate ownership comparison and no sentinel
+// value that skips it -- a system/scheduler caller passes
+// model.NewAdminScope explicitly.
+func (s *rotationService) GetSecretPolicies(ctx context.Context, secretID uuid.UUID, scope model.Scope) ([]model.RotationPolicy, error) {
+	secret, err := s.secretRepo.Read(ctx, secretID, scope)
+	if err != nil {
+		return nil, fmt.Errorf("secret not found: %w", err)
 	}
+	_ = secret // fetched only to prove scope membership; no field of it is used further
 
 	policies, err := s.rotationRepo.GetPoliciesForSecret(ctx, secretID)
 	if err != nil {
@@ -388,34 +359,22 @@ func (s *rotationService) GetSecretPolicies(ctx context.Context, secretID, userI
 // PerformManualRotation performs manual rotation with full business logic.
 //
 // It writes the secrets table directly rather than through the secret service,
-// so it owns both its audit trail and its cache invalidation. The actor is
-// req.UserID, which the ownership gate below proves is also the secret's owner.
+// so it owns both its audit trail and its cache invalidation. The secret and
+// policy are both read under req.Scope, the same structural cross-vault
+// guard AssignPolicyToSecret uses.
 func (s *rotationService) PerformManualRotation(ctx context.Context, req ManualRotationRequest) error {
-	actor := req.UserID.String()
+	actor := req.Scope.ActorID().String()
 
-	// Validate secret exists and user owns it. The read itself is unchecked
-	// (admin scope); the explicit ownership check below is the actual gate.
-	secret, err := s.secretRepo.Read(ctx, req.SecretID, model.NewAdminScope(req.UserID))
+	secret, err := s.secretRepo.Read(ctx, req.SecretID, req.Scope)
 	if err != nil {
 		s.log.LogAuditError(actor, "rotate_secret", "failed", "Secret not found", err)
 		return fmt.Errorf("secret not found: %w", err)
 	}
 
-	if secret.UserID != req.UserID {
-		s.log.LogAuditError(actor, "rotate_secret", "denied", "User does not own this secret", nil)
-		return fmt.Errorf("user does not own this secret")
-	}
-
-	// Validate policy exists and user owns it
-	policy, err := s.rotationRepo.Read(ctx, req.PolicyID)
+	policy, err := s.rotationRepo.Read(ctx, req.PolicyID, req.Scope)
 	if err != nil {
 		s.log.LogAuditError(actor, "rotate_secret", "failed", "Rotation policy not found", err)
 		return fmt.Errorf("policy not found: %w", err)
-	}
-
-	if policy.UserID != req.UserID {
-		s.log.LogAuditError(actor, "rotate_secret", "denied", "User does not own this policy", nil)
-		return fmt.Errorf("user does not own this policy")
 	}
 
 	// Generate new secret value (simplified implementation)
@@ -451,16 +410,14 @@ func (s *rotationService) PerformManualRotation(ctx context.Context, req ManualR
 		Notes:           req.Notes,
 	}
 
-	err = s.rotationRepo.RecordRotation(ctx, history)
-	if err != nil {
+	if err := s.rotationRepo.RecordRotation(ctx, history); err != nil {
 		s.log.WithError(err).Error("Failed to record rotation history")
 		// Don't fail rotation if history recording fails
 	}
 
 	// Update next rotation time
 	nextRotation := now.AddDate(0, 0, policy.IntervalDays)
-	err = s.rotationRepo.UpdateSecretPolicyRotation(ctx, req.SecretID, req.PolicyID, now, nextRotation)
-	if err != nil {
+	if err := s.rotationRepo.UpdateSecretPolicyRotation(ctx, req.SecretID, req.PolicyID, now, nextRotation); err != nil {
 		s.log.WithError(err).Error("Failed to update next rotation time")
 		// Don't fail rotation if scheduling update fails
 	}
@@ -471,24 +428,22 @@ func (s *rotationService) PerformManualRotation(ctx context.Context, req ManualR
 	s.log.WithFields(map[string]interface{}{
 		"secret_id":   req.SecretID,
 		"policy_id":   req.PolicyID,
-		"user_id":     req.UserID,
+		"actor":       actor,
 		"new_version": secret.Version,
 	}).Info("Manual rotation completed successfully")
 
 	return nil
 }
 
-// GetRotationHistory retrieves rotation history for a secret with ownership validation.
-func (s *rotationService) GetRotationHistory(ctx context.Context, secretID uuid.UUID, callerID uuid.UUID) ([]model.RotationHistory, error) {
-	// The read itself is unchecked (admin scope); the explicit ownership
-	// check below is the actual gate.
-	secret, err := s.secretRepo.Read(ctx, secretID, model.NewAdminScope(callerID))
+// GetRotationHistory retrieves rotation history for a secret. The secret is
+// read under scope to prove it is reachable; the underlying history query
+// itself has no scope parameter, so the scoped secret read is the gate.
+func (s *rotationService) GetRotationHistory(ctx context.Context, secretID uuid.UUID, scope model.Scope) ([]model.RotationHistory, error) {
+	secret, err := s.secretRepo.Read(ctx, secretID, scope)
 	if err != nil {
 		return nil, fmt.Errorf("secret not found: %w", err)
 	}
-	if secret.UserID != callerID {
-		return nil, fmt.Errorf("forbidden: user does not own this secret")
-	}
+	_ = secret // fetched only to prove scope membership; no field of it is used further
 
 	history, err := s.rotationRepo.GetRotationHistory(ctx, secretID)
 	if err != nil {
@@ -499,11 +454,11 @@ func (s *rotationService) GetRotationHistory(ctx context.Context, secretID uuid.
 	return history, nil
 }
 
-// GetDueRotations gets secrets that are due for rotation for a user.
-func (s *rotationService) GetDueRotations(ctx context.Context, userID uuid.UUID) ([]model.SecretPolicy, error) {
-	due, err := s.rotationRepo.GetDueRotations(ctx, userID)
+// GetDueRotations gets secrets that are due for rotation, authorized by scope.
+func (s *rotationService) GetDueRotations(ctx context.Context, scope model.Scope) ([]model.SecretPolicy, error) {
+	due, err := s.rotationRepo.GetDueRotations(ctx, scope)
 	if err != nil {
-		s.log.WithError(err).WithField("user_id", userID).Error("Failed to get due rotations")
+		s.log.WithError(err).WithField("actor", scope.ActorID()).Error("Failed to get due rotations")
 		return nil, fmt.Errorf("failed to get due rotations: %w", err)
 	}
 
@@ -528,8 +483,7 @@ func (s *rotationService) CreateRotationReminder(ctx context.Context, req Create
 		Acknowledged:   false,
 	}
 
-	err := s.rotationRepo.CreateReminder(ctx, reminder)
-	if err != nil {
+	if err := s.rotationRepo.CreateReminder(ctx, reminder); err != nil {
 		s.log.WithError(err).Error("Failed to create rotation reminder")
 		return fmt.Errorf("failed to create rotation reminder: %w", err)
 	}
@@ -543,11 +497,11 @@ func (s *rotationService) CreateRotationReminder(ctx context.Context, req Create
 	return nil
 }
 
-// GetUpcomingReminders gets upcoming rotation reminders for a user.
-func (s *rotationService) GetUpcomingReminders(ctx context.Context, userID uuid.UUID) ([]model.RotationReminder, error) {
-	reminders, err := s.rotationRepo.GetUpcomingReminders(ctx, userID)
+// GetUpcomingReminders gets upcoming rotation reminders, authorized by scope.
+func (s *rotationService) GetUpcomingReminders(ctx context.Context, scope model.Scope) ([]model.RotationReminder, error) {
+	reminders, err := s.rotationRepo.GetUpcomingReminders(ctx, scope)
 	if err != nil {
-		s.log.WithError(err).WithField("user_id", userID).Error("Failed to get upcoming reminders")
+		s.log.WithError(err).WithField("actor", scope.ActorID()).Error("Failed to get upcoming reminders")
 		return nil, fmt.Errorf("failed to get upcoming reminders: %w", err)
 	}
 
@@ -555,21 +509,15 @@ func (s *rotationService) GetUpcomingReminders(ctx context.Context, userID uuid.
 }
 
 // AcknowledgeReminder marks a reminder as acknowledged. secretID identifies
-// the secret the reminder belongs to; userID enforces ownership before the
-// update. Pass uuid.Nil for userID to skip the check (system/scheduler
-// callers).
-func (s *rotationService) AcknowledgeReminder(ctx context.Context, reminderID, secretID, userID uuid.UUID) error {
-	if userID != uuid.Nil {
-		// The read itself is unchecked (admin scope); the explicit ownership
-		// check below is the actual gate.
-		secret, err := s.secretRepo.Read(ctx, secretID, model.NewAdminScope(userID))
-		if err != nil {
-			return fmt.Errorf("secret not found: %w", err)
-		}
-		if secret.UserID != userID {
-			return fmt.Errorf("user does not own this secret")
-		}
+// the secret the reminder belongs to; scope authorizes the read that proves
+// it is reachable. There is no longer a sentinel value that skips the check
+// -- a system/scheduler caller passes model.NewAdminScope explicitly.
+func (s *rotationService) AcknowledgeReminder(ctx context.Context, reminderID, secretID uuid.UUID, scope model.Scope) error {
+	secret, err := s.secretRepo.Read(ctx, secretID, scope)
+	if err != nil {
+		return fmt.Errorf("secret not found: %w", err)
 	}
+	_ = secret // fetched only to prove scope membership; no field of it is used further
 
 	// This would typically fetch the reminder first, then update it.
 	// For simplicity, we'll create a reminder object with just the ID and
@@ -579,8 +527,7 @@ func (s *rotationService) AcknowledgeReminder(ctx context.Context, reminderID, s
 		Acknowledged: true,
 	}
 
-	err := s.rotationRepo.UpdateReminder(ctx, reminder)
-	if err != nil {
+	if err := s.rotationRepo.UpdateReminder(ctx, reminder); err != nil {
 		s.log.WithError(err).WithField("reminder_id", reminderID).Error("Failed to acknowledge reminder")
 		return fmt.Errorf("failed to acknowledge reminder: %w", err)
 	}

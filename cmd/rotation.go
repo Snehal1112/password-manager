@@ -29,9 +29,11 @@ import (
 	"github.com/google/uuid"
 	"github.com/spf13/cobra"
 
+	"rocketvault/cmd/vaultcli"
 	"rocketvault/common"
 	"rocketvault/internal/container"
 	secrets "rocketvault/internal/services/secrets"
+	"rocketvault/model"
 )
 
 var (
@@ -65,6 +67,11 @@ monitoring, and automated rotation of secrets.`,
 
 func init() {
 	secretsCmd.AddCommand(rotationCmd)
+
+	// --vault is registered once, persistently, on the rotation command
+	// group so every subcommand inherits it without re-registering it
+	// individually.
+	rotationCmd.PersistentFlags().String("vault", "", "Target vault name (default: \"default\")")
 
 	// Add subcommands
 	rotationCmd.AddCommand(rotationCreateCmd)
@@ -226,13 +233,21 @@ func init() {
 
 func runRotationCreate(cmd *cobra.Command) error {
 	ctx := cmd.Context()
-	userID := ctx.Value(common.UserIDKey).(uuid.UUID)
+	claims, ok := ctx.Value(common.ClaimsKey).(*model.Claims)
+	if !ok {
+		return fmt.Errorf("unauthorized: missing authentication claims")
+	}
 	sc, ok := ctx.Value(common.ServiceContainerKey).(container.ServiceContainerInterface)
 	if !ok || sc == nil {
 		return fmt.Errorf("service container not available in context")
 	}
+	vaultID, err := vaultcli.RequireDataAction(ctx, cmd, sc, claims.UserID, model.ActionSecretsSet, model.OpCreate)
+	if err != nil {
+		return fmt.Errorf("vault authorization failed: %w", err)
+	}
+	scope := model.NewVaultScope(vaultID, claims.UserID)
 	policy, err := sc.GetRotationService().CreatePolicy(ctx, secrets.CreatePolicyRequest{
-		UserID:       userID,
+		Scope:        scope,
 		Name:         policyName,
 		Description:  policyDescription,
 		IntervalDays: policyInterval,
@@ -250,12 +265,20 @@ func runRotationCreate(cmd *cobra.Command) error {
 
 func runRotationList(cmd *cobra.Command) error {
 	ctx := cmd.Context()
-	userID := ctx.Value(common.UserIDKey).(uuid.UUID)
+	claims, ok := ctx.Value(common.ClaimsKey).(*model.Claims)
+	if !ok {
+		return fmt.Errorf("unauthorized: missing authentication claims")
+	}
 	sc, ok := ctx.Value(common.ServiceContainerKey).(container.ServiceContainerInterface)
 	if !ok || sc == nil {
 		return fmt.Errorf("service container not available in context")
 	}
-	policies, err := sc.GetRotationService().ListUserPolicies(ctx, userID)
+	vaultID, err := vaultcli.RequireDataAction(ctx, cmd, sc, claims.UserID, model.ActionSecretsReadMetadata, model.OpGet)
+	if err != nil {
+		return fmt.Errorf("vault authorization failed: %w", err)
+	}
+	scope := model.NewVaultScope(vaultID, claims.UserID)
+	policies, err := sc.GetRotationService().ListPolicies(ctx, scope)
 	if err != nil {
 		return fmt.Errorf("failed to list rotation policies: %w", err)
 	}
@@ -278,22 +301,30 @@ func runRotationList(cmd *cobra.Command) error {
 
 func runRotationUpdate(cmd *cobra.Command) error {
 	ctx := cmd.Context()
-	userID := ctx.Value(common.UserIDKey).(uuid.UUID)
+	claims, ok := ctx.Value(common.ClaimsKey).(*model.Claims)
+	if !ok {
+		return fmt.Errorf("unauthorized: missing authentication claims")
+	}
 	sc, ok := ctx.Value(common.ServiceContainerKey).(container.ServiceContainerInterface)
 	if !ok || sc == nil {
 		return fmt.Errorf("service container not available in context")
 	}
+	vaultID, err := vaultcli.RequireDataAction(ctx, cmd, sc, claims.UserID, model.ActionSecretsSet, model.OpSet)
+	if err != nil {
+		return fmt.Errorf("vault authorization failed: %w", err)
+	}
+	scope := model.NewVaultScope(vaultID, claims.UserID)
 	pid, err := uuid.Parse(policyID)
 	if err != nil {
 		return fmt.Errorf("invalid policy ID: %w", err)
 	}
-	existing, err := sc.GetRotationService().GetPolicy(ctx, pid)
+	existing, err := sc.GetRotationService().GetPolicy(ctx, pid, scope)
 	if err != nil {
 		return fmt.Errorf("failed to read policy: %w", err)
 	}
 	req := secrets.UpdatePolicyRequest{
 		ID:           pid,
-		UserID:       userID,
+		Scope:        scope,
 		Name:         existing.Name,
 		Description:  existing.Description,
 		IntervalDays: existing.IntervalDays,
@@ -325,16 +356,24 @@ func runRotationUpdate(cmd *cobra.Command) error {
 
 func runRotationDelete(cmd *cobra.Command) error {
 	ctx := cmd.Context()
-	userID := ctx.Value(common.UserIDKey).(uuid.UUID)
+	claims, ok := ctx.Value(common.ClaimsKey).(*model.Claims)
+	if !ok {
+		return fmt.Errorf("unauthorized: missing authentication claims")
+	}
 	sc, ok := ctx.Value(common.ServiceContainerKey).(container.ServiceContainerInterface)
 	if !ok || sc == nil {
 		return fmt.Errorf("service container not available in context")
 	}
+	vaultID, err := vaultcli.RequireDataAction(ctx, cmd, sc, claims.UserID, model.ActionSecretsSet, model.OpDelete)
+	if err != nil {
+		return fmt.Errorf("vault authorization failed: %w", err)
+	}
+	scope := model.NewVaultScope(vaultID, claims.UserID)
 	pid, err := uuid.Parse(policyID)
 	if err != nil {
 		return fmt.Errorf("invalid policy ID: %w", err)
 	}
-	if err := sc.GetRotationService().DeletePolicy(ctx, pid, userID); err != nil {
+	if err := sc.GetRotationService().DeletePolicy(ctx, pid, scope); err != nil {
 		return fmt.Errorf("failed to delete rotation policy: %w", err)
 	}
 	fmt.Fprintln(cmd.OutOrStdout(), "Rotation policy deleted successfully.") //nolint:errcheck
@@ -343,11 +382,19 @@ func runRotationDelete(cmd *cobra.Command) error {
 
 func runRotationAssign(cmd *cobra.Command) error {
 	ctx := cmd.Context()
-	userID := ctx.Value(common.UserIDKey).(uuid.UUID)
+	claims, ok := ctx.Value(common.ClaimsKey).(*model.Claims)
+	if !ok {
+		return fmt.Errorf("unauthorized: missing authentication claims")
+	}
 	sc, ok := ctx.Value(common.ServiceContainerKey).(container.ServiceContainerInterface)
 	if !ok || sc == nil {
 		return fmt.Errorf("service container not available in context")
 	}
+	vaultID, err := vaultcli.RequireDataAction(ctx, cmd, sc, claims.UserID, model.ActionSecretsSet, model.OpSet)
+	if err != nil {
+		return fmt.Errorf("vault authorization failed: %w", err)
+	}
+	scope := model.NewVaultScope(vaultID, claims.UserID)
 	pid, err := uuid.Parse(policyID)
 	if err != nil {
 		return fmt.Errorf("invalid policy ID: %w", err)
@@ -359,7 +406,7 @@ func runRotationAssign(cmd *cobra.Command) error {
 	if err := sc.GetRotationService().AssignPolicyToSecret(ctx, secrets.AssignPolicyRequest{
 		SecretID: sid,
 		PolicyID: pid,
-		UserID:   userID,
+		Scope:    scope,
 	}); err != nil {
 		return fmt.Errorf("failed to assign policy to secret: %w", err)
 	}
@@ -369,11 +416,19 @@ func runRotationAssign(cmd *cobra.Command) error {
 
 func runRotationUnassign(cmd *cobra.Command) error {
 	ctx := cmd.Context()
-	userID := ctx.Value(common.UserIDKey).(uuid.UUID)
+	claims, ok := ctx.Value(common.ClaimsKey).(*model.Claims)
+	if !ok {
+		return fmt.Errorf("unauthorized: missing authentication claims")
+	}
 	sc, ok := ctx.Value(common.ServiceContainerKey).(container.ServiceContainerInterface)
 	if !ok || sc == nil {
 		return fmt.Errorf("service container not available in context")
 	}
+	vaultID, err := vaultcli.RequireDataAction(ctx, cmd, sc, claims.UserID, model.ActionSecretsSet, model.OpSet)
+	if err != nil {
+		return fmt.Errorf("vault authorization failed: %w", err)
+	}
+	scope := model.NewVaultScope(vaultID, claims.UserID)
 	pid, err := uuid.Parse(policyID)
 	if err != nil {
 		return fmt.Errorf("invalid policy ID: %w", err)
@@ -382,7 +437,7 @@ func runRotationUnassign(cmd *cobra.Command) error {
 	if err != nil {
 		return fmt.Errorf("invalid secret ID: %w", err)
 	}
-	if err := sc.GetRotationService().RemovePolicyFromSecret(ctx, sid, pid, userID); err != nil {
+	if err := sc.GetRotationService().RemovePolicyFromSecret(ctx, sid, pid, scope); err != nil {
 		return fmt.Errorf("failed to remove policy from secret: %w", err)
 	}
 	fmt.Fprintln(cmd.OutOrStdout(), "Policy removed from secret successfully.") //nolint:errcheck
@@ -391,11 +446,19 @@ func runRotationUnassign(cmd *cobra.Command) error {
 
 func runRotationRotate(cmd *cobra.Command) error {
 	ctx := cmd.Context()
-	userID := ctx.Value(common.UserIDKey).(uuid.UUID)
+	claims, ok := ctx.Value(common.ClaimsKey).(*model.Claims)
+	if !ok {
+		return fmt.Errorf("unauthorized: missing authentication claims")
+	}
 	sc, ok := ctx.Value(common.ServiceContainerKey).(container.ServiceContainerInterface)
 	if !ok || sc == nil {
 		return fmt.Errorf("service container not available in context")
 	}
+	vaultID, err := vaultcli.RequireDataAction(ctx, cmd, sc, claims.UserID, model.ActionSecretsSet, model.OpRotate)
+	if err != nil {
+		return fmt.Errorf("vault authorization failed: %w", err)
+	}
+	scope := model.NewVaultScope(vaultID, claims.UserID)
 	sid, err := uuid.Parse(secretID)
 	if err != nil {
 		return fmt.Errorf("invalid secret ID: %w", err)
@@ -407,7 +470,7 @@ func runRotationRotate(cmd *cobra.Command) error {
 	if err := sc.GetRotationService().PerformManualRotation(ctx, secrets.ManualRotationRequest{
 		SecretID: sid,
 		PolicyID: pid,
-		UserID:   userID,
+		Scope:    scope,
 	}); err != nil {
 		return fmt.Errorf("failed to rotate secret: %w", err)
 	}
@@ -417,16 +480,24 @@ func runRotationRotate(cmd *cobra.Command) error {
 
 func runRotationHistory(cmd *cobra.Command) error {
 	ctx := cmd.Context()
-	userID := ctx.Value(common.UserIDKey).(uuid.UUID)
+	claims, ok := ctx.Value(common.ClaimsKey).(*model.Claims)
+	if !ok {
+		return fmt.Errorf("unauthorized: missing authentication claims")
+	}
 	sc, ok := ctx.Value(common.ServiceContainerKey).(container.ServiceContainerInterface)
 	if !ok || sc == nil {
 		return fmt.Errorf("service container not available in context")
 	}
+	vaultID, err := vaultcli.RequireDataAction(ctx, cmd, sc, claims.UserID, model.ActionSecretsReadMetadata, model.OpGet)
+	if err != nil {
+		return fmt.Errorf("vault authorization failed: %w", err)
+	}
+	scope := model.NewVaultScope(vaultID, claims.UserID)
 	sid, err := uuid.Parse(secretID)
 	if err != nil {
 		return fmt.Errorf("invalid secret ID: %w", err)
 	}
-	history, err := sc.GetRotationService().GetRotationHistory(ctx, sid, userID)
+	history, err := sc.GetRotationService().GetRotationHistory(ctx, sid, scope)
 	if err != nil {
 		return fmt.Errorf("failed to get rotation history: %w", err)
 	}
@@ -453,22 +524,30 @@ func runRotationHistory(cmd *cobra.Command) error {
 
 func runRotationStatus(cmd *cobra.Command) error {
 	ctx := cmd.Context()
-	userID := ctx.Value(common.UserIDKey).(uuid.UUID)
+	claims, ok := ctx.Value(common.ClaimsKey).(*model.Claims)
+	if !ok {
+		return fmt.Errorf("unauthorized: missing authentication claims")
+	}
 	sc, ok := ctx.Value(common.ServiceContainerKey).(container.ServiceContainerInterface)
 	if !ok || sc == nil {
 		return fmt.Errorf("service container not available in context")
 	}
+	vaultID, err := vaultcli.RequireDataAction(ctx, cmd, sc, claims.UserID, model.ActionSecretsReadMetadata, model.OpGet)
+	if err != nil {
+		return fmt.Errorf("vault authorization failed: %w", err)
+	}
+	scope := model.NewVaultScope(vaultID, claims.UserID)
 	rotSvc := sc.GetRotationService()
 
-	due, err := rotSvc.GetDueRotations(ctx, userID)
+	due, err := rotSvc.GetDueRotations(ctx, scope)
 	if err != nil {
 		return fmt.Errorf("failed to get due rotations: %w", err)
 	}
-	reminders, err := rotSvc.GetUpcomingReminders(ctx, userID)
+	reminders, err := rotSvc.GetUpcomingReminders(ctx, scope)
 	if err != nil {
 		return fmt.Errorf("failed to get upcoming reminders: %w", err)
 	}
-	policies, err := rotSvc.ListUserPolicies(ctx, userID)
+	policies, err := rotSvc.ListPolicies(ctx, scope)
 	if err != nil {
 		return fmt.Errorf("failed to list policies: %w", err)
 	}

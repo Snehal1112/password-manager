@@ -132,6 +132,7 @@ func setupRotationDB(t *testing.T) *sql.DB {
 		CREATE TABLE IF NOT EXISTS rotation_policies (
 			id TEXT PRIMARY KEY,
 			user_id TEXT NOT NULL,
+			vault_id TEXT NOT NULL,
 			name TEXT NOT NULL,
 			description TEXT,
 			interval_days INTEGER NOT NULL,
@@ -1104,11 +1105,13 @@ func TestRotationPolicyRepository_CRUD(t *testing.T) {
 	ctx := context.Background()
 
 	userID := uuid.New()
+	vaultID := uuid.New()
 	now := time.Now()
 
 	policy := &model.RotationPolicy{
 		ID:           uuid.New(),
 		UserID:       userID,
+		VaultID:      vaultID,
 		Name:         "30-day-rotation",
 		Description:  "Rotate every 30 days",
 		IntervalDays: 30,
@@ -1121,7 +1124,7 @@ func TestRotationPolicyRepository_CRUD(t *testing.T) {
 	require.NoError(t, repo.Create(ctx, policy))
 
 	// Read
-	got, err := repo.Read(ctx, policy.ID)
+	got, err := repo.Read(ctx, policy.ID, model.NewVaultScope(vaultID, uuid.New()))
 	require.NoError(t, err)
 	assert.Equal(t, policy.ID, got.ID)
 	assert.Equal(t, "30-day-rotation", got.Name)
@@ -1131,16 +1134,16 @@ func TestRotationPolicyRepository_CRUD(t *testing.T) {
 	policy.Name = "60-day-rotation"
 	policy.IntervalDays = 60
 	policy.UpdatedAt = time.Now()
-	require.NoError(t, repo.Update(ctx, policy))
+	require.NoError(t, repo.Update(ctx, policy, model.NewVaultScope(vaultID, uuid.New())))
 
-	updated, err := repo.Read(ctx, policy.ID)
+	updated, err := repo.Read(ctx, policy.ID, model.NewVaultScope(vaultID, uuid.New()))
 	require.NoError(t, err)
 	assert.Equal(t, "60-day-rotation", updated.Name)
 	assert.Equal(t, 60, updated.IntervalDays)
 
 	// Delete
-	require.NoError(t, repo.Delete(ctx, policy.ID))
-	_, err = repo.Read(ctx, policy.ID)
+	require.NoError(t, repo.Delete(ctx, policy.ID, model.NewVaultScope(vaultID, uuid.New())))
+	_, err = repo.Read(ctx, policy.ID, model.NewAdminScope(uuid.New()))
 	assert.Error(t, err)
 }
 
@@ -1151,7 +1154,7 @@ func TestRotationPolicyRepository_Read_NotFound(t *testing.T) {
 	repo := repositories.NewRotationPolicyRepository(rvdb.NewConn(db, rvdb.SQLite), log)
 	ctx := context.Background()
 
-	_, err := repo.Read(ctx, uuid.New())
+	_, err := repo.Read(ctx, uuid.New(), model.NewAdminScope(uuid.New()))
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "not found")
 }
@@ -1166,11 +1169,12 @@ func TestRotationPolicyRepository_Update_NotFound(t *testing.T) {
 	policy := &model.RotationPolicy{
 		ID:           uuid.New(),
 		UserID:       uuid.New(),
+		VaultID:      uuid.New(),
 		Name:         "ghost",
 		IntervalDays: 1,
 		UpdatedAt:    time.Now(),
 	}
-	err := repo.Update(ctx, policy)
+	err := repo.Update(ctx, policy, model.NewAdminScope(uuid.New()))
 	assert.Error(t, err)
 }
 
@@ -1181,36 +1185,40 @@ func TestRotationPolicyRepository_Delete_NotFound(t *testing.T) {
 	repo := repositories.NewRotationPolicyRepository(rvdb.NewConn(db, rvdb.SQLite), log)
 	ctx := context.Background()
 
-	err := repo.Delete(ctx, uuid.New())
+	err := repo.Delete(ctx, uuid.New(), model.NewAdminScope(uuid.New()))
 	assert.Error(t, err)
 }
 
-func TestRotationPolicyRepository_ListByUser(t *testing.T) {
+func TestRotationPolicyRepository_List(t *testing.T) {
 	t.Parallel()
 	db := setupRotationDB(t)
 	log := logging.InitLogger()
 	repo := repositories.NewRotationPolicyRepository(rvdb.NewConn(db, rvdb.SQLite), log)
 	ctx := context.Background()
 
-	userA := uuid.New()
-	userB := uuid.New()
+	vaultA := uuid.New()
+	vaultB := uuid.New()
 	now := time.Now()
 
-	p1 := &model.RotationPolicy{ID: uuid.New(), UserID: userA, Name: "p1", IntervalDays: 7, CreatedAt: now, UpdatedAt: now}
-	p2 := &model.RotationPolicy{ID: uuid.New(), UserID: userA, Name: "p2", IntervalDays: 14, CreatedAt: now, UpdatedAt: now}
-	p3 := &model.RotationPolicy{ID: uuid.New(), UserID: userB, Name: "p3", IntervalDays: 30, CreatedAt: now, UpdatedAt: now}
+	p1 := &model.RotationPolicy{ID: uuid.New(), UserID: uuid.New(), VaultID: vaultA, Name: "p1", IntervalDays: 7, CreatedAt: now, UpdatedAt: now}
+	p2 := &model.RotationPolicy{ID: uuid.New(), UserID: uuid.New(), VaultID: vaultA, Name: "p2", IntervalDays: 14, CreatedAt: now, UpdatedAt: now}
+	p3 := &model.RotationPolicy{ID: uuid.New(), UserID: uuid.New(), VaultID: vaultB, Name: "p3", IntervalDays: 30, CreatedAt: now, UpdatedAt: now}
 
 	require.NoError(t, repo.Create(ctx, p1))
 	require.NoError(t, repo.Create(ctx, p2))
 	require.NoError(t, repo.Create(ctx, p3))
 
-	listA, err := repo.ListByUser(ctx, userA)
+	listA, err := repo.List(ctx, model.NewVaultScope(vaultA, uuid.New()))
 	require.NoError(t, err)
 	assert.Len(t, listA, 2)
 
-	listB, err := repo.ListByUser(ctx, userB)
+	listB, err := repo.List(ctx, model.NewVaultScope(vaultB, uuid.New()))
 	require.NoError(t, err)
 	assert.Len(t, listB, 1)
+
+	listAll, err := repo.List(ctx, model.NewAdminScope(uuid.New()))
+	require.NoError(t, err)
+	assert.Len(t, listAll, 3)
 }
 
 func TestRotationPolicyRepository_AssignAndRemoveFromSecret(t *testing.T) {
@@ -1227,6 +1235,7 @@ func TestRotationPolicyRepository_AssignAndRemoveFromSecret(t *testing.T) {
 	policy := &model.RotationPolicy{
 		ID:           uuid.New(),
 		UserID:       userID,
+		VaultID:      uuid.New(),
 		Name:         "assign-test",
 		IntervalDays: 30,
 		CreatedAt:    now,
@@ -1306,6 +1315,7 @@ func TestRotationPolicyRepository_CreateAndGetReminder(t *testing.T) {
 	policy := &model.RotationPolicy{
 		ID:           uuid.New(),
 		UserID:       userID,
+		VaultID:      uuid.New(),
 		Name:         "reminder-test",
 		IntervalDays: 30,
 		Enabled:      true,
@@ -1344,7 +1354,7 @@ func TestRotationPolicyRepository_CreateAndGetReminder(t *testing.T) {
 	assert.Nil(t, gone)
 
 	// GetUpcomingReminders should also be empty since we acknowledged
-	upcoming, err := repo.GetUpcomingReminders(ctx, userID)
+	upcoming, err := repo.GetUpcomingReminders(ctx, model.NewAdminScope(userID))
 	require.NoError(t, err)
 	assert.Empty(t, upcoming)
 }
@@ -1362,6 +1372,7 @@ func TestRotationPolicyRepository_GetDueRotations(t *testing.T) {
 	policy := &model.RotationPolicy{
 		ID:           uuid.New(),
 		UserID:       userID,
+		VaultID:      uuid.New(),
 		Name:         "due-test",
 		IntervalDays: 30,
 		Enabled:      true,
@@ -1375,10 +1386,98 @@ func TestRotationPolicyRepository_GetDueRotations(t *testing.T) {
 	pastRotation := now.Add(-time.Minute)
 	require.NoError(t, repo.AssignToSecret(ctx, secretID, policy.ID, now, pastRotation))
 
-	due, err := repo.GetDueRotations(ctx, userID)
+	due, err := repo.GetDueRotations(ctx, model.NewAdminScope(userID))
 	require.NoError(t, err)
 	assert.Len(t, due, 1)
 	assert.Equal(t, secretID, due[0].SecretID)
+}
+
+func TestRotationPolicyRepository_Read_CrossVaultDenied(t *testing.T) {
+	t.Parallel()
+	db := setupRotationDB(t)
+	log := logging.InitLogger()
+	repo := repositories.NewRotationPolicyRepository(rvdb.NewConn(db, rvdb.SQLite), log)
+	ctx := context.Background()
+
+	vaultA, vaultB := uuid.New(), uuid.New()
+	now := time.Now()
+	policy := &model.RotationPolicy{ID: uuid.New(), UserID: uuid.New(), VaultID: vaultA, Name: "p", IntervalDays: 30, CreatedAt: now, UpdatedAt: now}
+	require.NoError(t, repo.Create(ctx, policy))
+
+	got, err := repo.Read(ctx, policy.ID, model.NewVaultScope(vaultA, uuid.New()))
+	require.NoError(t, err)
+	assert.Equal(t, policy.Name, got.Name)
+
+	_, err = repo.Read(ctx, policy.ID, model.NewVaultScope(vaultB, uuid.New()))
+	assert.Error(t, err, "a policy in vault A must not be readable under vault B's scope")
+}
+
+func TestRotationPolicyRepository_Update_CrossVaultDenied(t *testing.T) {
+	t.Parallel()
+	db := setupRotationDB(t)
+	log := logging.InitLogger()
+	repo := repositories.NewRotationPolicyRepository(rvdb.NewConn(db, rvdb.SQLite), log)
+	ctx := context.Background()
+
+	vaultA, vaultB := uuid.New(), uuid.New()
+	now := time.Now()
+	policy := &model.RotationPolicy{ID: uuid.New(), UserID: uuid.New(), VaultID: vaultA, Name: "p", IntervalDays: 30, CreatedAt: now, UpdatedAt: now}
+	require.NoError(t, repo.Create(ctx, policy))
+
+	policy.Name = "renamed"
+	assert.Error(t, repo.Update(ctx, policy, model.NewVaultScope(vaultB, uuid.New())), "update scoped to the wrong vault must fail")
+	require.NoError(t, repo.Update(ctx, policy, model.NewVaultScope(vaultA, uuid.New())))
+
+	got, err := repo.Read(ctx, policy.ID, model.NewVaultScope(vaultA, uuid.New()))
+	require.NoError(t, err)
+	assert.Equal(t, "renamed", got.Name)
+}
+
+func TestRotationPolicyRepository_Delete_CrossVaultDenied(t *testing.T) {
+	t.Parallel()
+	db := setupRotationDB(t)
+	log := logging.InitLogger()
+	repo := repositories.NewRotationPolicyRepository(rvdb.NewConn(db, rvdb.SQLite), log)
+	ctx := context.Background()
+
+	vaultA, vaultB := uuid.New(), uuid.New()
+	now := time.Now()
+	policy := &model.RotationPolicy{ID: uuid.New(), UserID: uuid.New(), VaultID: vaultA, Name: "p", IntervalDays: 30, CreatedAt: now, UpdatedAt: now}
+	require.NoError(t, repo.Create(ctx, policy))
+
+	assert.Error(t, repo.Delete(ctx, policy.ID, model.NewVaultScope(vaultB, uuid.New())))
+	require.NoError(t, repo.Delete(ctx, policy.ID, model.NewVaultScope(vaultA, uuid.New())))
+	_, err := repo.Read(ctx, policy.ID, model.NewAdminScope(uuid.New()))
+	assert.Error(t, err)
+}
+
+func TestRotationPolicyRepository_GetDueRotations_FiltersByVault(t *testing.T) {
+	t.Parallel()
+	db := setupRotationDB(t)
+	log := logging.InitLogger()
+	repo := repositories.NewRotationPolicyRepository(rvdb.NewConn(db, rvdb.SQLite), log)
+	ctx := context.Background()
+
+	vaultA, vaultB := uuid.New(), uuid.New()
+	now := time.Now()
+	policyA := &model.RotationPolicy{ID: uuid.New(), UserID: uuid.New(), VaultID: vaultA, Name: "pa", IntervalDays: 30, Enabled: true, CreatedAt: now, UpdatedAt: now}
+	policyB := &model.RotationPolicy{ID: uuid.New(), UserID: uuid.New(), VaultID: vaultB, Name: "pb", IntervalDays: 30, Enabled: true, CreatedAt: now, UpdatedAt: now}
+	require.NoError(t, repo.Create(ctx, policyA))
+	require.NoError(t, repo.Create(ctx, policyB))
+
+	secretA, secretB := uuid.New(), uuid.New()
+	past := now.Add(-time.Hour)
+	require.NoError(t, repo.AssignToSecret(ctx, secretA, policyA.ID, now, past))
+	require.NoError(t, repo.AssignToSecret(ctx, secretB, policyB.ID, now, past))
+
+	dueA, err := repo.GetDueRotations(ctx, model.NewVaultScope(vaultA, uuid.New()))
+	require.NoError(t, err)
+	require.Len(t, dueA, 1)
+	assert.Equal(t, secretA, dueA[0].SecretID)
+
+	dueAll, err := repo.GetDueRotations(ctx, model.NewAdminScope(uuid.New()))
+	require.NoError(t, err)
+	assert.Len(t, dueAll, 2)
 }
 
 // ---------------------------------------------------------------------------

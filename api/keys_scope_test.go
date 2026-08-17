@@ -59,7 +59,7 @@ func (s *scopeStubKeyService) GetKeyRotationPolicy(ctx context.Context, keyID uu
 	if _, err := s.GetKey(ctx, keyID, scope); err != nil {
 		return nil, err
 	}
-	return s.policyRepo.GetByKeyIDAny(ctx, keyID)
+	return s.policyRepo.GetByKeyID(ctx, keyID, scope)
 }
 
 func (s *scopeStubKeyService) UpsertKeyRotationPolicy(ctx context.Context, keyID uuid.UUID, scope model.Scope, req model.UpsertKeyRotationPolicyRequest) (*model.KeyRotationPolicy, error) {
@@ -81,14 +81,14 @@ func (s *scopeStubKeyService) UpsertKeyRotationPolicy(ctx context.Context, keyID
 	if err := s.policyRepo.Upsert(ctx, policy); err != nil {
 		return nil, err
 	}
-	return s.policyRepo.GetByKeyIDAny(ctx, keyID)
+	return s.policyRepo.GetByKeyID(ctx, keyID, scope)
 }
 
 func (s *scopeStubKeyService) DeleteKeyRotationPolicy(ctx context.Context, keyID uuid.UUID, scope model.Scope) error {
 	if _, err := s.GetKey(ctx, keyID, scope); err != nil {
 		return err
 	}
-	return s.policyRepo.DeleteByKeyIDAny(ctx, keyID)
+	return s.policyRepo.DeleteByKeyID(ctx, keyID, scope)
 }
 
 // newKeyHandlerFixture wires a Context whose container returns svc as the key

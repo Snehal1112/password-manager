@@ -153,24 +153,24 @@ func (m *mockRotationPolicyRepository) Create(ctx context.Context, policy *model
 	return m.Called(ctx, policy).Error(0)
 }
 
-func (m *mockRotationPolicyRepository) Read(ctx context.Context, id uuid.UUID) (*model.RotationPolicy, error) {
-	args := m.Called(ctx, id)
+func (m *mockRotationPolicyRepository) Read(ctx context.Context, id uuid.UUID, scope model.Scope) (*model.RotationPolicy, error) {
+	args := m.Called(ctx, id, scope)
 	if args.Get(0) == nil {
 		return nil, args.Error(1)
 	}
 	return args.Get(0).(*model.RotationPolicy), args.Error(1)
 }
 
-func (m *mockRotationPolicyRepository) Update(ctx context.Context, policy *model.RotationPolicy) error {
-	return m.Called(ctx, policy).Error(0)
+func (m *mockRotationPolicyRepository) Update(ctx context.Context, policy *model.RotationPolicy, scope model.Scope) error {
+	return m.Called(ctx, policy, scope).Error(0)
 }
 
-func (m *mockRotationPolicyRepository) Delete(ctx context.Context, id uuid.UUID) error {
-	return m.Called(ctx, id).Error(0)
+func (m *mockRotationPolicyRepository) Delete(ctx context.Context, id uuid.UUID, scope model.Scope) error {
+	return m.Called(ctx, id, scope).Error(0)
 }
 
-func (m *mockRotationPolicyRepository) ListByUser(ctx context.Context, userID uuid.UUID) ([]model.RotationPolicy, error) {
-	args := m.Called(ctx, userID)
+func (m *mockRotationPolicyRepository) List(ctx context.Context, scope model.Scope) ([]model.RotationPolicy, error) {
+	args := m.Called(ctx, scope)
 	if args.Get(0) == nil {
 		return nil, args.Error(1)
 	}
@@ -217,16 +217,16 @@ func (m *mockRotationPolicyRepository) GetRotationHistory(ctx context.Context, s
 	return args.Get(0).([]model.RotationHistory), args.Error(1)
 }
 
-func (m *mockRotationPolicyRepository) GetDueRotations(ctx context.Context, userID uuid.UUID) ([]model.SecretPolicy, error) {
-	args := m.Called(ctx, userID)
+func (m *mockRotationPolicyRepository) GetDueRotations(ctx context.Context, scope model.Scope) ([]model.SecretPolicy, error) {
+	args := m.Called(ctx, scope)
 	if args.Get(0) == nil {
 		return nil, args.Error(1)
 	}
 	return args.Get(0).([]model.SecretPolicy), args.Error(1)
 }
 
-func (m *mockRotationPolicyRepository) GetUpcomingReminders(ctx context.Context, userID uuid.UUID) ([]model.RotationReminder, error) {
-	args := m.Called(ctx, userID)
+func (m *mockRotationPolicyRepository) GetUpcomingReminders(ctx context.Context, scope model.Scope) ([]model.RotationReminder, error) {
+	args := m.Called(ctx, scope)
 	if args.Get(0) == nil {
 		return nil, args.Error(1)
 	}
@@ -261,8 +261,8 @@ func (m *mockRotationService) CreatePolicy(ctx context.Context, req secrets.Crea
 	return args.Get(0).(*model.RotationPolicy), args.Error(1)
 }
 
-func (m *mockRotationService) GetPolicy(ctx context.Context, id uuid.UUID) (*model.RotationPolicy, error) {
-	args := m.Called(ctx, id)
+func (m *mockRotationService) GetPolicy(ctx context.Context, id uuid.UUID, scope model.Scope) (*model.RotationPolicy, error) {
+	args := m.Called(ctx, id, scope)
 	if args.Get(0) == nil {
 		return nil, args.Error(1)
 	}
@@ -277,12 +277,12 @@ func (m *mockRotationService) UpdatePolicy(ctx context.Context, req secrets.Upda
 	return args.Get(0).(*model.RotationPolicy), args.Error(1)
 }
 
-func (m *mockRotationService) DeletePolicy(ctx context.Context, id uuid.UUID, callerID uuid.UUID) error {
-	return m.Called(ctx, id, callerID).Error(0)
+func (m *mockRotationService) DeletePolicy(ctx context.Context, id uuid.UUID, scope model.Scope) error {
+	return m.Called(ctx, id, scope).Error(0)
 }
 
-func (m *mockRotationService) ListUserPolicies(ctx context.Context, userID uuid.UUID) ([]model.RotationPolicy, error) {
-	args := m.Called(ctx, userID)
+func (m *mockRotationService) ListPolicies(ctx context.Context, scope model.Scope) ([]model.RotationPolicy, error) {
+	args := m.Called(ctx, scope)
 	if args.Get(0) == nil {
 		return nil, args.Error(1)
 	}
@@ -293,12 +293,12 @@ func (m *mockRotationService) AssignPolicyToSecret(ctx context.Context, req secr
 	return m.Called(ctx, req).Error(0)
 }
 
-func (m *mockRotationService) RemovePolicyFromSecret(ctx context.Context, secretID, policyID uuid.UUID, callerID uuid.UUID) error {
-	return m.Called(ctx, secretID, policyID, callerID).Error(0)
+func (m *mockRotationService) RemovePolicyFromSecret(ctx context.Context, secretID, policyID uuid.UUID, scope model.Scope) error {
+	return m.Called(ctx, secretID, policyID, scope).Error(0)
 }
 
-func (m *mockRotationService) GetSecretPolicies(ctx context.Context, secretID, userID uuid.UUID) ([]model.RotationPolicy, error) {
-	args := m.Called(ctx, secretID, userID)
+func (m *mockRotationService) GetSecretPolicies(ctx context.Context, secretID uuid.UUID, scope model.Scope) ([]model.RotationPolicy, error) {
+	args := m.Called(ctx, secretID, scope)
 	if args.Get(0) == nil {
 		return nil, args.Error(1)
 	}
@@ -309,16 +309,16 @@ func (m *mockRotationService) PerformManualRotation(ctx context.Context, req sec
 	return m.Called(ctx, req).Error(0)
 }
 
-func (m *mockRotationService) GetRotationHistory(ctx context.Context, secretID uuid.UUID, callerID uuid.UUID) ([]model.RotationHistory, error) {
-	args := m.Called(ctx, secretID, callerID)
+func (m *mockRotationService) GetRotationHistory(ctx context.Context, secretID uuid.UUID, scope model.Scope) ([]model.RotationHistory, error) {
+	args := m.Called(ctx, secretID, scope)
 	if args.Get(0) == nil {
 		return nil, args.Error(1)
 	}
 	return args.Get(0).([]model.RotationHistory), args.Error(1)
 }
 
-func (m *mockRotationService) GetDueRotations(ctx context.Context, userID uuid.UUID) ([]model.SecretPolicy, error) {
-	args := m.Called(ctx, userID)
+func (m *mockRotationService) GetDueRotations(ctx context.Context, scope model.Scope) ([]model.SecretPolicy, error) {
+	args := m.Called(ctx, scope)
 	if args.Get(0) == nil {
 		return nil, args.Error(1)
 	}
@@ -329,16 +329,16 @@ func (m *mockRotationService) CreateRotationReminder(ctx context.Context, req se
 	return m.Called(ctx, req).Error(0)
 }
 
-func (m *mockRotationService) GetUpcomingReminders(ctx context.Context, userID uuid.UUID) ([]model.RotationReminder, error) {
-	args := m.Called(ctx, userID)
+func (m *mockRotationService) GetUpcomingReminders(ctx context.Context, scope model.Scope) ([]model.RotationReminder, error) {
+	args := m.Called(ctx, scope)
 	if args.Get(0) == nil {
 		return nil, args.Error(1)
 	}
 	return args.Get(0).([]model.RotationReminder), args.Error(1)
 }
 
-func (m *mockRotationService) AcknowledgeReminder(ctx context.Context, reminderID, secretID, userID uuid.UUID) error {
-	return m.Called(ctx, reminderID, secretID, userID).Error(0)
+func (m *mockRotationService) AcknowledgeReminder(ctx context.Context, reminderID, secretID uuid.UUID, scope model.Scope) error {
+	return m.Called(ctx, reminderID, secretID, scope).Error(0)
 }
 
 func TestTagServiceDelegatesAndHandlesEmptyInputs(t *testing.T) {
@@ -886,6 +886,8 @@ func TestRotationServicePolicyLifecycle(t *testing.T) {
 	crypto := &testutils.MockCryptographyService{}
 	svc := secrets.NewRotationService(repo, secretRepo, userRepo, crypto, testutils.NewTestLogger(t), nil)
 
+	scope := model.NewOwnerScope(uuid.Nil, userID)
+
 	userRepo.On("Read", ctx, userID).Return(&model.User{ID: userID, Username: "alice"}, nil).Once()
 	repo.On("Create", ctx, mock.MatchedBy(func(policy *model.RotationPolicy) bool {
 		return policy.UserID == userID &&
@@ -897,7 +899,7 @@ func TestRotationServicePolicyLifecycle(t *testing.T) {
 	})).Return(nil).Once()
 
 	created, err := svc.CreatePolicy(ctx, secrets.CreatePolicyRequest{
-		UserID:       userID,
+		Scope:        scope,
 		Name:         "monthly",
 		Description:  "rotate monthly",
 		IntervalDays: 30,
@@ -910,7 +912,7 @@ func TestRotationServicePolicyLifecycle(t *testing.T) {
 
 	userRepo.On("Read", ctx, userID).Return(&model.User{ID: userID, Username: "alice"}, nil).Once()
 	_, err = svc.CreatePolicy(ctx, secrets.CreatePolicyRequest{
-		UserID:       userID,
+		Scope:        scope,
 		Name:         "bad",
 		IntervalDays: 7,
 		ReminderDays: 7,
@@ -918,14 +920,14 @@ func TestRotationServicePolicyLifecycle(t *testing.T) {
 	assert.ErrorContains(t, err, "must be less")
 
 	existing := &model.RotationPolicy{ID: policyID, UserID: userID, Name: "old", IntervalDays: 30, ReminderDays: 7, CreatedAt: createdAt}
-	repo.On("Read", ctx, policyID).Return(existing, nil).Once()
+	repo.On("Read", ctx, policyID, scope).Return(existing, nil).Once()
 	repo.On("Update", ctx, mock.MatchedBy(func(policy *model.RotationPolicy) bool {
 		return policy.ID == policyID && policy.UserID == userID && policy.Name == "weekly" && policy.CreatedAt.Equal(createdAt)
-	})).Return(nil).Once()
+	}), scope).Return(nil).Once()
 
 	updated, err := svc.UpdatePolicy(ctx, secrets.UpdatePolicyRequest{
 		ID:           policyID,
-		UserID:       userID,
+		Scope:        scope,
 		Name:         "weekly",
 		IntervalDays: 14,
 		ReminderDays: 3,
@@ -934,25 +936,26 @@ func TestRotationServicePolicyLifecycle(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "weekly", updated.Name)
 
-	repo.On("Read", ctx, policyID).Return(&model.RotationPolicy{ID: policyID, UserID: uuid.New()}, nil).Once()
-	_, err = svc.UpdatePolicy(ctx, secrets.UpdatePolicyRequest{ID: policyID, UserID: userID, Name: "x", IntervalDays: 10})
-	assert.ErrorContains(t, err, "does not own")
+	// A caller whose scope doesn't cover this policy fails the scoped read
+	// itself -- there's no separate ownership comparison left to run.
+	repo.On("Read", ctx, policyID, scope).Return(nil, errors.New("rotation policy not found")).Once()
+	_, err = svc.UpdatePolicy(ctx, secrets.UpdatePolicyRequest{ID: policyID, Scope: scope, Name: "x", IntervalDays: 10})
+	assert.ErrorContains(t, err, "policy not found")
 
 	policies := []model.RotationPolicy{*created}
-	repo.On("Read", ctx, policyID).Return(existing, nil).Once()
-	repo.On("ListByUser", ctx, userID).Return(policies, nil).Once()
-	repo.On("Read", ctx, policyID).Return(existing, nil).Once()
-	repo.On("Delete", ctx, policyID).Return(nil).Once()
+	repo.On("Read", ctx, policyID, scope).Return(existing, nil).Once()
+	repo.On("List", ctx, scope).Return(policies, nil).Once()
+	repo.On("Delete", ctx, policyID, scope).Return(nil).Once()
 
-	gotPolicy, err := svc.GetPolicy(ctx, policyID)
+	gotPolicy, err := svc.GetPolicy(ctx, policyID, scope)
 	require.NoError(t, err)
 	assert.Equal(t, existing, gotPolicy)
 
-	list, err := svc.ListUserPolicies(ctx, userID)
+	list, err := svc.ListPolicies(ctx, scope)
 	require.NoError(t, err)
 	assert.Equal(t, policies, list)
 
-	require.NoError(t, svc.DeletePolicy(ctx, policyID, userID))
+	require.NoError(t, svc.DeletePolicy(ctx, policyID, scope))
 	repo.AssertExpectations(t)
 	userRepo.AssertExpectations(t)
 }
@@ -972,8 +975,10 @@ func TestRotationServiceAssignmentRotationAndReminders(t *testing.T) {
 	crypto := &testutils.MockCryptographyService{}
 	svc := secrets.NewRotationService(repo, secretRepo, userRepo, crypto, testutils.NewTestLogger(t), &recordingInvalidator{})
 
-	secretRepo.On("Read", ctx, secretID, model.NewAdminScope(userID)).Return(secret, nil).Once()
-	repo.On("Read", ctx, policyID).Return(policy, nil).Once()
+	scope := model.NewAdminScope(userID)
+
+	secretRepo.On("Read", ctx, secretID, scope).Return(secret, nil).Once()
+	repo.On("Read", ctx, policyID, scope).Return(policy, nil).Once()
 	repo.On("AssignToSecret", ctx, secretID, policyID, mock.AnythingOfType("time.Time"), mock.AnythingOfType("time.Time")).Return(nil).Once()
 	repo.On("CreateReminder", ctx, mock.MatchedBy(func(reminder *model.RotationReminder) bool {
 		return reminder.SecretID == secretID && reminder.PolicyID == policyID && reminder.ReminderType == model.ReminderUpcoming
@@ -982,21 +987,22 @@ func TestRotationServiceAssignmentRotationAndReminders(t *testing.T) {
 	require.NoError(t, svc.AssignPolicyToSecret(ctx, secrets.AssignPolicyRequest{
 		SecretID: secretID,
 		PolicyID: policyID,
-		UserID:   userID,
+		Scope:    scope,
 	}))
 
-	secretRepo.On("Read", ctx, secretID, model.NewAdminScope(userID)).Return(secret, nil).Once()
+	secretRepo.On("Read", ctx, secretID, scope).Return(secret, nil).Once()
 	repo.On("RemoveFromSecret", ctx, secretID, policyID).Return(nil).Once()
-	require.NoError(t, svc.RemovePolicyFromSecret(ctx, secretID, policyID, userID))
+	require.NoError(t, svc.RemovePolicyFromSecret(ctx, secretID, policyID, scope))
 
 	policies := []model.RotationPolicy{*policy}
+	secretRepo.On("Read", ctx, secretID, scope).Return(secret, nil).Once()
 	repo.On("GetPoliciesForSecret", ctx, secretID).Return(policies, nil).Once()
-	gotPolicies, err := svc.GetSecretPolicies(ctx, secretID, uuid.Nil)
+	gotPolicies, err := svc.GetSecretPolicies(ctx, secretID, scope)
 	require.NoError(t, err)
 	assert.Equal(t, policies, gotPolicies)
 
-	secretRepo.On("Read", ctx, secretID, model.NewAdminScope(userID)).Return(secret, nil).Once()
-	repo.On("Read", ctx, policyID).Return(policy, nil).Once()
+	secretRepo.On("Read", ctx, secretID, scope).Return(secret, nil).Once()
+	repo.On("Read", ctx, policyID, scope).Return(policy, nil).Once()
 	secretRepo.On("Update", ctx, mock.MatchedBy(func(updated *model.Secret) bool {
 		return updated.ID == secretID && updated.Version == 4 && updated.Value != "current"
 	}), model.NewOwnerScope(secret.VaultID, secret.UserID)).Return(nil).Once()
@@ -1008,28 +1014,29 @@ func TestRotationServiceAssignmentRotationAndReminders(t *testing.T) {
 	require.NoError(t, svc.PerformManualRotation(ctx, secrets.ManualRotationRequest{
 		SecretID: secretID,
 		PolicyID: policyID,
-		UserID:   userID,
+		Scope:    scope,
 		Notes:    "rotate now",
 	}))
 
 	history := []model.RotationHistory{{ID: uuid.New(), SecretID: secretID}}
 	due := []model.SecretPolicy{{SecretID: secretID, PolicyID: policyID}}
 	reminders := []model.RotationReminder{{ID: uuid.New(), SecretID: secretID, PolicyID: policyID}}
-	secretRepo.On("Read", ctx, secretID, model.NewAdminScope(userID)).Return(secret, nil).Once()
+	secretRepo.On("Read", ctx, secretID, scope).Return(secret, nil).Once()
 	repo.On("GetRotationHistory", ctx, secretID).Return(history, nil).Once()
-	repo.On("GetDueRotations", ctx, userID).Return(due, nil).Once()
+	repo.On("GetDueRotations", ctx, scope).Return(due, nil).Once()
 	repo.On("CreateReminder", ctx, mock.MatchedBy(func(reminder *model.RotationReminder) bool {
 		return reminder.ReminderType == model.ReminderOverdue
 	})).Return(nil).Once()
-	repo.On("GetUpcomingReminders", ctx, userID).Return(reminders, nil).Once()
+	repo.On("GetUpcomingReminders", ctx, scope).Return(reminders, nil).Once()
+	secretRepo.On("Read", ctx, secretID, scope).Return(secret, nil).Once()
 	repo.On("UpdateReminder", ctx, mock.MatchedBy(func(reminder *model.RotationReminder) bool {
 		return reminder.ID == reminders[0].ID && reminder.Acknowledged
 	})).Return(nil).Once()
 
-	gotHistory, err := svc.GetRotationHistory(ctx, secretID, userID)
+	gotHistory, err := svc.GetRotationHistory(ctx, secretID, scope)
 	require.NoError(t, err)
 	assert.Equal(t, history, gotHistory)
-	gotDue, err := svc.GetDueRotations(ctx, userID)
+	gotDue, err := svc.GetDueRotations(ctx, scope)
 	require.NoError(t, err)
 	assert.Equal(t, due, gotDue)
 	require.NoError(t, svc.CreateRotationReminder(ctx, secrets.CreateReminderRequest{
@@ -1037,10 +1044,10 @@ func TestRotationServiceAssignmentRotationAndReminders(t *testing.T) {
 		PolicyID:     policyID,
 		ReminderType: model.ReminderOverdue,
 	}))
-	gotReminders, err := svc.GetUpcomingReminders(ctx, userID)
+	gotReminders, err := svc.GetUpcomingReminders(ctx, scope)
 	require.NoError(t, err)
 	assert.Equal(t, reminders, gotReminders)
-	require.NoError(t, svc.AcknowledgeReminder(ctx, reminders[0].ID, secretID, uuid.Nil))
+	require.NoError(t, svc.AcknowledgeReminder(ctx, reminders[0].ID, secretID, scope))
 
 	err = svc.CreateRotationReminder(ctx, secrets.CreateReminderRequest{
 		SecretID:     secretID,
@@ -1058,7 +1065,6 @@ func TestRotationServiceErrorBranches(t *testing.T) {
 
 	ctx := context.Background()
 	userID := uuid.New()
-	otherID := uuid.New()
 	secretID := uuid.New()
 	policyID := uuid.New()
 	secret := &model.Secret{ID: secretID, UserID: userID, Name: "api", Value: "current", Version: 1}
@@ -1069,103 +1075,91 @@ func TestRotationServiceErrorBranches(t *testing.T) {
 	crypto := &testutils.MockCryptographyService{}
 	svc := secrets.NewRotationService(repo, secretRepo, userRepo, crypto, testutils.NewTestLogger(t), nil)
 
+	scope := model.NewAdminScope(userID)
+
 	userRepo.On("Read", ctx, userID).Return(nil, errors.New("missing user")).Once()
-	_, err := svc.CreatePolicy(ctx, secrets.CreatePolicyRequest{UserID: userID, Name: "p", IntervalDays: 30})
+	_, err := svc.CreatePolicy(ctx, secrets.CreatePolicyRequest{Scope: scope, Name: "p", IntervalDays: 30})
 	assert.ErrorContains(t, err, "user not found")
 
 	userRepo.On("Read", ctx, userID).Return(&model.User{ID: userID}, nil).Once()
 	repo.On("Create", ctx, mock.AnythingOfType("*model.RotationPolicy")).Return(errors.New("insert failed")).Once()
-	_, err = svc.CreatePolicy(ctx, secrets.CreatePolicyRequest{UserID: userID, Name: "p", IntervalDays: 30})
+	_, err = svc.CreatePolicy(ctx, secrets.CreatePolicyRequest{Scope: scope, Name: "p", IntervalDays: 30})
 	assert.ErrorContains(t, err, "failed to create rotation policy")
 
-	repo.On("Read", ctx, policyID).Return(nil, errors.New("missing policy")).Once()
-	_, err = svc.GetPolicy(ctx, policyID)
+	repo.On("Read", ctx, policyID, scope).Return(nil, errors.New("missing policy")).Once()
+	_, err = svc.GetPolicy(ctx, policyID, scope)
 	assert.ErrorContains(t, err, "failed to get rotation policy")
 
-	repo.On("Read", ctx, policyID).Return(nil, errors.New("missing policy")).Once()
-	_, err = svc.UpdatePolicy(ctx, secrets.UpdatePolicyRequest{ID: policyID, UserID: userID, Name: "p", IntervalDays: 30})
+	repo.On("Read", ctx, policyID, scope).Return(nil, errors.New("missing policy")).Once()
+	_, err = svc.UpdatePolicy(ctx, secrets.UpdatePolicyRequest{ID: policyID, Scope: scope, Name: "p", IntervalDays: 30})
 	assert.ErrorContains(t, err, "policy not found")
 
-	repo.On("Read", ctx, policyID).Return(policy, nil).Once()
-	repo.On("Update", ctx, mock.AnythingOfType("*model.RotationPolicy")).Return(errors.New("update failed")).Once()
-	_, err = svc.UpdatePolicy(ctx, secrets.UpdatePolicyRequest{ID: policyID, UserID: userID, Name: "p", IntervalDays: 30})
+	repo.On("Read", ctx, policyID, scope).Return(policy, nil).Once()
+	repo.On("Update", ctx, mock.AnythingOfType("*model.RotationPolicy"), scope).Return(errors.New("update failed")).Once()
+	_, err = svc.UpdatePolicy(ctx, secrets.UpdatePolicyRequest{ID: policyID, Scope: scope, Name: "p", IntervalDays: 30})
 	assert.ErrorContains(t, err, "failed to update rotation policy")
 
-	repo.On("Read", ctx, policyID).Return(&model.RotationPolicy{ID: policyID, UserID: otherID}, nil).Once()
-	err = svc.DeletePolicy(ctx, policyID, userID)
-	assert.ErrorContains(t, err, "forbidden")
-
-	repo.On("Read", ctx, policyID).Return(policy, nil).Once()
-	repo.On("Delete", ctx, policyID).Return(errors.New("delete failed")).Once()
-	err = svc.DeletePolicy(ctx, policyID, userID)
+	// DeletePolicy no longer reads the policy first to compare ownership --
+	// the scoped Delete call is the only gate, so a caller outside scope (or
+	// any other Delete failure) surfaces here as a passthrough repo error.
+	repo.On("Delete", ctx, policyID, scope).Return(errors.New("delete failed")).Once()
+	err = svc.DeletePolicy(ctx, policyID, scope)
 	assert.ErrorContains(t, err, "failed to delete rotation policy")
 
-	repo.On("ListByUser", ctx, userID).Return(nil, errors.New("list failed")).Once()
-	_, err = svc.ListUserPolicies(ctx, userID)
-	assert.ErrorContains(t, err, "failed to list user policies")
+	repo.On("List", ctx, scope).Return(nil, errors.New("list failed")).Once()
+	_, err = svc.ListPolicies(ctx, scope)
+	assert.ErrorContains(t, err, "failed to list rotation policies")
 
-	secretRepo.On("Read", ctx, secretID, model.NewAdminScope(userID)).Return(nil, errors.New("missing secret")).Once()
-	err = svc.AssignPolicyToSecret(ctx, secrets.AssignPolicyRequest{SecretID: secretID, PolicyID: policyID, UserID: userID})
+	secretRepo.On("Read", ctx, secretID, scope).Return(nil, errors.New("missing secret")).Once()
+	err = svc.AssignPolicyToSecret(ctx, secrets.AssignPolicyRequest{SecretID: secretID, PolicyID: policyID, Scope: scope})
 	assert.ErrorContains(t, err, "secret not found")
 
-	secretRepo.On("Read", ctx, secretID, model.NewAdminScope(userID)).Return(&model.Secret{ID: secretID, UserID: otherID}, nil).Once()
-	err = svc.AssignPolicyToSecret(ctx, secrets.AssignPolicyRequest{SecretID: secretID, PolicyID: policyID, UserID: userID})
-	assert.ErrorContains(t, err, "does not own this secret")
-
-	secretRepo.On("Read", ctx, secretID, model.NewAdminScope(userID)).Return(secret, nil).Once()
-	repo.On("Read", ctx, policyID).Return(nil, errors.New("missing policy")).Once()
-	err = svc.AssignPolicyToSecret(ctx, secrets.AssignPolicyRequest{SecretID: secretID, PolicyID: policyID, UserID: userID})
+	secretRepo.On("Read", ctx, secretID, scope).Return(secret, nil).Once()
+	repo.On("Read", ctx, policyID, scope).Return(nil, errors.New("missing policy")).Once()
+	err = svc.AssignPolicyToSecret(ctx, secrets.AssignPolicyRequest{SecretID: secretID, PolicyID: policyID, Scope: scope})
 	assert.ErrorContains(t, err, "policy not found")
 
-	secretRepo.On("Read", ctx, secretID, model.NewAdminScope(userID)).Return(secret, nil).Once()
-	repo.On("Read", ctx, policyID).Return(&model.RotationPolicy{ID: policyID, UserID: otherID}, nil).Once()
-	err = svc.AssignPolicyToSecret(ctx, secrets.AssignPolicyRequest{SecretID: secretID, PolicyID: policyID, UserID: userID})
-	assert.ErrorContains(t, err, "does not own this policy")
-
-	secretRepo.On("Read", ctx, secretID, model.NewAdminScope(userID)).Return(secret, nil).Once()
-	repo.On("Read", ctx, policyID).Return(policy, nil).Once()
+	secretRepo.On("Read", ctx, secretID, scope).Return(secret, nil).Once()
+	repo.On("Read", ctx, policyID, scope).Return(policy, nil).Once()
 	repo.On("AssignToSecret", ctx, secretID, policyID, mock.AnythingOfType("time.Time"), mock.AnythingOfType("time.Time")).Return(errors.New("assign failed")).Once()
-	err = svc.AssignPolicyToSecret(ctx, secrets.AssignPolicyRequest{SecretID: secretID, PolicyID: policyID, UserID: userID})
+	err = svc.AssignPolicyToSecret(ctx, secrets.AssignPolicyRequest{SecretID: secretID, PolicyID: policyID, Scope: scope})
 	assert.ErrorContains(t, err, "failed to assign policy")
 
-	secretRepo.On("Read", ctx, secretID, model.NewAdminScope(userID)).Return(nil, errors.New("missing secret")).Once()
-	err = svc.RemovePolicyFromSecret(ctx, secretID, policyID, userID)
+	secretRepo.On("Read", ctx, secretID, scope).Return(nil, errors.New("missing secret")).Once()
+	err = svc.RemovePolicyFromSecret(ctx, secretID, policyID, scope)
 	assert.ErrorContains(t, err, "secret not found")
 
-	secretRepo.On("Read", ctx, secretID, model.NewAdminScope(userID)).Return(&model.Secret{ID: secretID, UserID: otherID}, nil).Once()
-	err = svc.RemovePolicyFromSecret(ctx, secretID, policyID, userID)
-	assert.ErrorContains(t, err, "forbidden")
-
-	secretRepo.On("Read", ctx, secretID, model.NewAdminScope(userID)).Return(secret, nil).Once()
+	secretRepo.On("Read", ctx, secretID, scope).Return(secret, nil).Once()
 	repo.On("RemoveFromSecret", ctx, secretID, policyID).Return(errors.New("remove failed")).Once()
-	err = svc.RemovePolicyFromSecret(ctx, secretID, policyID, userID)
+	err = svc.RemovePolicyFromSecret(ctx, secretID, policyID, scope)
 	assert.ErrorContains(t, err, "failed to remove policy")
 
+	secretRepo.On("Read", ctx, secretID, scope).Return(secret, nil).Once()
 	repo.On("GetPoliciesForSecret", ctx, secretID).Return(nil, errors.New("policies failed")).Once()
-	_, err = svc.GetSecretPolicies(ctx, secretID, uuid.Nil)
+	_, err = svc.GetSecretPolicies(ctx, secretID, scope)
 	assert.ErrorContains(t, err, "failed to get secret policies")
 
-	secretRepo.On("Read", ctx, secretID, model.NewAdminScope(userID)).Return(nil, errors.New("missing secret")).Once()
-	err = svc.PerformManualRotation(ctx, secrets.ManualRotationRequest{SecretID: secretID, PolicyID: policyID, UserID: userID})
+	secretRepo.On("Read", ctx, secretID, scope).Return(nil, errors.New("missing secret")).Once()
+	err = svc.PerformManualRotation(ctx, secrets.ManualRotationRequest{SecretID: secretID, PolicyID: policyID, Scope: scope})
 	assert.ErrorContains(t, err, "secret not found")
 
-	secretRepo.On("Read", ctx, secretID, model.NewAdminScope(userID)).Return(secret, nil).Once()
-	repo.On("Read", ctx, policyID).Return(policy, nil).Once()
+	secretRepo.On("Read", ctx, secretID, scope).Return(secret, nil).Once()
+	repo.On("Read", ctx, policyID, scope).Return(policy, nil).Once()
 	secretRepo.On("Update", ctx, mock.AnythingOfType("*model.Secret"), model.NewOwnerScope(secret.VaultID, secret.UserID)).Return(errors.New("update failed")).Once()
-	err = svc.PerformManualRotation(ctx, secrets.ManualRotationRequest{SecretID: secretID, PolicyID: policyID, UserID: userID})
+	err = svc.PerformManualRotation(ctx, secrets.ManualRotationRequest{SecretID: secretID, PolicyID: policyID, Scope: scope})
 	assert.ErrorContains(t, err, "failed to update secret during rotation")
 
-	secretRepo.On("Read", ctx, secretID, model.NewAdminScope(userID)).Return(nil, errors.New("missing secret")).Once()
-	_, err = svc.GetRotationHistory(ctx, secretID, userID)
+	secretRepo.On("Read", ctx, secretID, scope).Return(nil, errors.New("missing secret")).Once()
+	_, err = svc.GetRotationHistory(ctx, secretID, scope)
 	assert.ErrorContains(t, err, "secret not found")
 
-	secretRepo.On("Read", ctx, secretID, model.NewAdminScope(userID)).Return(secret, nil).Once()
+	secretRepo.On("Read", ctx, secretID, scope).Return(secret, nil).Once()
 	repo.On("GetRotationHistory", ctx, secretID).Return(nil, errors.New("history failed")).Once()
-	_, err = svc.GetRotationHistory(ctx, secretID, userID)
+	_, err = svc.GetRotationHistory(ctx, secretID, scope)
 	assert.ErrorContains(t, err, "failed to get rotation history")
 
-	repo.On("GetDueRotations", ctx, userID).Return(nil, errors.New("due failed")).Once()
-	_, err = svc.GetDueRotations(ctx, userID)
+	repo.On("GetDueRotations", ctx, scope).Return(nil, errors.New("due failed")).Once()
+	_, err = svc.GetDueRotations(ctx, scope)
 	assert.ErrorContains(t, err, "failed to get due rotations")
 
 	repo.On("CreateReminder", ctx, mock.AnythingOfType("*model.RotationReminder")).Return(errors.New("reminder failed")).Once()
@@ -1176,12 +1170,13 @@ func TestRotationServiceErrorBranches(t *testing.T) {
 	})
 	assert.ErrorContains(t, err, "failed to create rotation reminder")
 
-	repo.On("GetUpcomingReminders", ctx, userID).Return(nil, errors.New("reminders failed")).Once()
-	_, err = svc.GetUpcomingReminders(ctx, userID)
+	repo.On("GetUpcomingReminders", ctx, scope).Return(nil, errors.New("reminders failed")).Once()
+	_, err = svc.GetUpcomingReminders(ctx, scope)
 	assert.ErrorContains(t, err, "failed to get upcoming reminders")
 
+	secretRepo.On("Read", ctx, secretID, scope).Return(secret, nil).Once()
 	repo.On("UpdateReminder", ctx, mock.AnythingOfType("*model.RotationReminder")).Return(errors.New("ack failed")).Once()
-	err = svc.AcknowledgeReminder(ctx, uuid.New(), secretID, uuid.Nil)
+	err = svc.AcknowledgeReminder(ctx, uuid.New(), secretID, scope)
 	assert.ErrorContains(t, err, "failed to acknowledge reminder")
 
 	repo.AssertExpectations(t)
@@ -1212,13 +1207,16 @@ func TestSchedulerServiceProcessesRotationsRemindersAndLifecycle(t *testing.T) {
 	assert.False(t, svc.IsRunning())
 	require.NoError(t, svc.Stop())
 
+	// Per-user passes are owner-scoped ("user_id = ?"), never admin-scoped:
+	// an admin scope drops the predicate and makes each pass process every
+	// user's due work.
 	due := []model.SecretPolicy{{SecretID: secretID, PolicyID: policyID}}
-	rotationSvc.On("GetDueRotations", ctx, userID).Return(due, nil).Once()
-	rotationSvc.On("GetPolicy", ctx, policyID).Return(&model.RotationPolicy{ID: policyID, UserID: userID, AutoRotate: false}, nil).Once()
+	rotationSvc.On("GetDueRotations", ctx, model.NewOwnerScope(uuid.Nil, userID)).Return(due, nil).Once()
+	rotationSvc.On("GetPolicy", ctx, policyID, model.NewAdminScope(uuid.Nil)).Return(&model.RotationPolicy{ID: policyID, UserID: userID, AutoRotate: false}, nil).Once()
 	require.NoError(t, svc.ProcessUserRotations(ctx, userID))
 
-	rotationSvc.On("GetDueRotations", ctx, userID).Return(due, nil).Once()
-	rotationSvc.On("GetPolicy", ctx, policyID).Return(&model.RotationPolicy{ID: policyID, UserID: userID, AutoRotate: true}, nil).Once()
+	rotationSvc.On("GetDueRotations", ctx, model.NewOwnerScope(uuid.Nil, userID)).Return(due, nil).Once()
+	rotationSvc.On("GetPolicy", ctx, policyID, model.NewAdminScope(uuid.Nil)).Return(&model.RotationPolicy{ID: policyID, UserID: userID, AutoRotate: true}, nil).Once()
 	secretRepo.On("Read", ctx, secretID, model.NewAdminScope(uuid.Nil)).Return(&model.Secret{ID: secretID, UserID: userID, Name: "api", Value: "current", Version: 1}, nil).Once()
 	versionSvc.On("CreateVersion", ctx, mock.MatchedBy(func(req secrets.CreateVersionRequest) bool {
 		return req.SecretID == secretID && req.UserID == userID && req.Version == 2
@@ -1226,21 +1224,21 @@ func TestSchedulerServiceProcessesRotationsRemindersAndLifecycle(t *testing.T) {
 	rotationSvc.On("PerformManualRotation", ctx, secrets.ManualRotationRequest{
 		SecretID: secretID,
 		PolicyID: policyID,
-		UserID:   userID,
+		Scope:    model.NewAdminScope(userID),
 		Notes:    "Automatic rotation by scheduler",
 	}).Return(nil).Once()
 	require.NoError(t, svc.ProcessUserRotations(ctx, userID))
 
 	reminders := []model.RotationReminder{{ID: reminderID, SecretID: secretID, PolicyID: policyID, ReminderType: model.ReminderUpcoming}}
-	rotationSvc.On("GetUpcomingReminders", ctx, userID).Return(reminders, nil).Once()
-	rotationSvc.On("AcknowledgeReminder", ctx, reminderID, secretID, uuid.Nil).Return(nil).Once()
+	rotationSvc.On("GetUpcomingReminders", ctx, model.NewOwnerScope(uuid.Nil, userID)).Return(reminders, nil).Once()
+	rotationSvc.On("AcknowledgeReminder", ctx, reminderID, secretID, model.NewAdminScope(uuid.Nil)).Return(nil).Once()
 	require.NoError(t, svc.ProcessUserReminders(ctx, userID))
 
 	manualReq := secrets.ManualSchedulerRotationRequest{SecretID: secretID, PolicyID: policyID, UserID: userID, Notes: "manual"}
 	rotationSvc.On("PerformManualRotation", ctx, secrets.ManualRotationRequest{
 		SecretID: secretID,
 		PolicyID: policyID,
-		UserID:   userID,
+		Scope:    model.NewAdminScope(userID),
 		Notes:    "manual",
 	}).Return(nil).Once()
 	require.NoError(t, svc.PerformManualRotation(ctx, manualReq))
@@ -1271,8 +1269,8 @@ func TestSchedulerServiceBackgroundTickProcessesAllUsers(t *testing.T) {
 				close(listed)
 			}
 		}).Maybe()
-	rotationSvc.On("GetDueRotations", mock.Anything, userID).Return([]model.SecretPolicy{}, nil).Maybe()
-	rotationSvc.On("GetUpcomingReminders", mock.Anything, userID).Return([]model.RotationReminder{}, nil).Maybe()
+	rotationSvc.On("GetDueRotations", mock.Anything, model.NewOwnerScope(uuid.Nil, userID)).Return([]model.SecretPolicy{}, nil).Maybe()
+	rotationSvc.On("GetUpcomingReminders", mock.Anything, model.NewOwnerScope(uuid.Nil, userID)).Return([]model.RotationReminder{}, nil).Maybe()
 
 	require.NoError(t, svc.Start(ctx, time.Millisecond))
 	select {

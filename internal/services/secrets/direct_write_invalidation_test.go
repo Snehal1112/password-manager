@@ -2,6 +2,7 @@ package secrets_test
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"sync"
 	"testing"
@@ -92,13 +93,15 @@ func TestPerformManualRotationInvalidatesCacheAndAudits(t *testing.T) {
 	secretID := uuid.New()
 	policyID := uuid.New()
 
+	scope := model.NewAdminScope(ownerID)
+
 	secretRepo := &testutils.MockSecretRepository{}
-	secretRepo.On("Read", ctx, secretID, model.NewAdminScope(ownerID)).
+	secretRepo.On("Read", ctx, secretID, scope).
 		Return(&model.Secret{ID: secretID, UserID: ownerID, Value: "old", Version: 3}, nil).Once()
 	secretRepo.On("Update", ctx, mock.Anything, mock.Anything).Return(nil).Once()
 
 	rotationRepo := &mockRotationPolicyRepo{}
-	rotationRepo.On("Read", ctx, policyID).
+	rotationRepo.On("Read", ctx, policyID, scope).
 		Return(&model.RotationPolicy{ID: policyID, UserID: ownerID, IntervalDays: 30}, nil).Once()
 	rotationRepo.On("RecordRotation", ctx, mock.Anything).Return(nil).Once()
 	rotationRepo.On("UpdateSecretPolicyRotation", ctx, secretID, policyID, mock.Anything, mock.Anything).
@@ -111,7 +114,7 @@ func TestPerformManualRotationInvalidatesCacheAndAudits(t *testing.T) {
 	require.NoError(t, svc.PerformManualRotation(ctx, secrets.ManualRotationRequest{
 		SecretID: secretID,
 		PolicyID: policyID,
-		UserID:   ownerID,
+		Scope:    scope,
 	}))
 
 	assert.Equal(t, []uuid.UUID{secretID}, invalidator.ids(), "rotation must evict the rotated secret from cache")
@@ -125,17 +128,21 @@ func TestPerformManualRotationInvalidatesCacheAndAudits(t *testing.T) {
 }
 
 // TestPerformManualRotationAuditsDenial pins the failure half of the audit
-// trail: a rejected rotation must be recorded too.
+// trail: a rejected rotation must be recorded too. There is no longer a
+// separate manual ownership-comparison step producing a "denied" status --
+// a caller scope that doesn't cover the secret fails the scoped read itself,
+// which is audited as "failed".
 func TestPerformManualRotationAuditsDenial(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
-	ownerID := uuid.New()
+	vaultID := uuid.New()
 	callerID := uuid.New()
 	secretID := uuid.New()
+	scope := model.NewOwnerScope(vaultID, callerID)
 
 	secretRepo := &testutils.MockSecretRepository{}
-	secretRepo.On("Read", ctx, secretID, model.NewAdminScope(callerID)).
-		Return(&model.Secret{ID: secretID, UserID: ownerID}, nil).Once()
+	secretRepo.On("Read", ctx, secretID, scope).
+		Return(nil, errors.New("secret not found")).Once()
 
 	invalidator := &recordingInvalidator{}
 	logger, audit := newAuditingLogger(t)
@@ -144,12 +151,12 @@ func TestPerformManualRotationAuditsDenial(t *testing.T) {
 	err := svc.PerformManualRotation(ctx, secrets.ManualRotationRequest{
 		SecretID: secretID,
 		PolicyID: uuid.New(),
-		UserID:   callerID,
+		Scope:    scope,
 	})
 	require.Error(t, err)
 
-	_, ok := audit.find("rotate_secret", "denied")
-	assert.True(t, ok, "a denied rotation must emit an audit row")
+	_, ok := audit.find("rotate_secret", "failed")
+	assert.True(t, ok, "a rejected rotation must emit a failure audit row")
 	assert.Empty(t, invalidator.ids(), "a rejected rotation must not touch the cache")
 }
 
@@ -212,13 +219,15 @@ func TestDirectWritersToleratesANoOpCacheInvalidator(t *testing.T) {
 	secretID := uuid.New()
 	policyID := uuid.New()
 
+	scope := model.NewAdminScope(ownerID)
+
 	secretRepo := &testutils.MockSecretRepository{}
-	secretRepo.On("Read", ctx, secretID, model.NewAdminScope(ownerID)).
+	secretRepo.On("Read", ctx, secretID, scope).
 		Return(&model.Secret{ID: secretID, UserID: ownerID, Value: "old", Version: 1}, nil).Once()
 	secretRepo.On("Update", ctx, mock.Anything, mock.Anything).Return(nil).Once()
 
 	rotationRepo := &mockRotationPolicyRepo{}
-	rotationRepo.On("Read", ctx, policyID).
+	rotationRepo.On("Read", ctx, policyID, scope).
 		Return(&model.RotationPolicy{ID: policyID, UserID: ownerID, IntervalDays: 7}, nil).Once()
 	rotationRepo.On("RecordRotation", ctx, mock.Anything).Return(nil).Once()
 	rotationRepo.On("UpdateSecretPolicyRotation", ctx, secretID, policyID, mock.Anything, mock.Anything).
@@ -231,6 +240,6 @@ func TestDirectWritersToleratesANoOpCacheInvalidator(t *testing.T) {
 	require.NoError(t, svc.PerformManualRotation(ctx, secrets.ManualRotationRequest{
 		SecretID: secretID,
 		PolicyID: policyID,
-		UserID:   ownerID,
+		Scope:    scope,
 	}))
 }

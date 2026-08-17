@@ -28,28 +28,16 @@ func (m *mockKeyPolicyRepo) Upsert(ctx context.Context, policy *model.KeyRotatio
 	return m.Called(ctx, policy).Error(0)
 }
 
-func (m *mockKeyPolicyRepo) GetByKeyID(ctx context.Context, keyID, userID uuid.UUID) (*model.KeyRotationPolicy, error) {
-	args := m.Called(ctx, keyID, userID)
+func (m *mockKeyPolicyRepo) GetByKeyID(ctx context.Context, keyID uuid.UUID, scope model.Scope) (*model.KeyRotationPolicy, error) {
+	args := m.Called(ctx, keyID, scope)
 	if v := args.Get(0); v != nil {
 		return v.(*model.KeyRotationPolicy), args.Error(1)
 	}
 	return nil, args.Error(1)
 }
 
-func (m *mockKeyPolicyRepo) DeleteByKeyID(ctx context.Context, keyID, userID uuid.UUID) error {
-	return m.Called(ctx, keyID, userID).Error(0)
-}
-
-func (m *mockKeyPolicyRepo) GetByKeyIDAny(ctx context.Context, keyID uuid.UUID) (*model.KeyRotationPolicy, error) {
-	args := m.Called(ctx, keyID)
-	if v := args.Get(0); v != nil {
-		return v.(*model.KeyRotationPolicy), args.Error(1)
-	}
-	return nil, args.Error(1)
-}
-
-func (m *mockKeyPolicyRepo) DeleteByKeyIDAny(ctx context.Context, keyID uuid.UUID) error {
-	return m.Called(ctx, keyID).Error(0)
+func (m *mockKeyPolicyRepo) DeleteByKeyID(ctx context.Context, keyID uuid.UUID, scope model.Scope) error {
+	return m.Called(ctx, keyID, scope).Error(0)
 }
 
 func TestGetKeyRotationPolicy_VerifiesKeyAccessFirst(t *testing.T) {
@@ -60,7 +48,7 @@ func TestGetKeyRotationPolicy_VerifiesKeyAccessFirst(t *testing.T) {
 
 	keyRepo.On("Read", mock.Anything, keyID, scope).Return(&model.Key{ID: keyID, Enabled: true}, nil)
 	want := &model.KeyRotationPolicy{ID: uuid.New(), KeyID: keyID}
-	policyRepo.On("GetByKeyIDAny", mock.Anything, keyID).Return(want, nil)
+	policyRepo.On("GetByKeyID", mock.Anything, keyID, scope).Return(want, nil)
 
 	svc := NewKeyService(KeyServiceConfig{
 		KeyRepository:    keyRepo,
@@ -94,7 +82,7 @@ func TestGetKeyRotationPolicy_DeniesWhenKeyAccessDenied(t *testing.T) {
 
 	require.Error(t, err)
 	assert.ErrorIs(t, err, ErrKeyNotFound)
-	policyRepo.AssertNotCalled(t, "GetByKeyIDAny", mock.Anything, mock.Anything)
+	policyRepo.AssertNotCalled(t, "GetByKeyID", mock.Anything, mock.Anything, mock.Anything)
 }
 
 func TestListKeyVersions_VerifiesKeyAccessFirst(t *testing.T) {
@@ -146,9 +134,10 @@ func TestUpsertKeyRotationPolicy_VerifiesKeyAccessFirstAndReadsBack(t *testing.T
 	keyRepo := new(mockKeyRepository)
 	policyRepo := new(mockKeyPolicyRepo)
 	keyID := uuid.New()
+	vaultID := uuid.New()
 	scope := model.NewOwnerScope(uuid.New(), uuid.New())
 
-	keyRepo.On("Read", mock.Anything, keyID, scope).Return(&model.Key{ID: keyID, Enabled: true}, nil)
+	keyRepo.On("Read", mock.Anything, keyID, scope).Return(&model.Key{ID: keyID, VaultID: vaultID, Enabled: true}, nil)
 
 	req := model.UpsertKeyRotationPolicyRequest{
 		RotateAfterDays:        90,
@@ -159,14 +148,15 @@ func TestUpsertKeyRotationPolicy_VerifiesKeyAccessFirstAndReadsBack(t *testing.T
 	policyRepo.On("Upsert", mock.Anything, mock.MatchedBy(func(p *model.KeyRotationPolicy) bool {
 		return p.KeyID == keyID &&
 			p.UserID == scope.ActorID() &&
+			p.VaultID == vaultID &&
 			p.RotateAfterDays == req.RotateAfterDays &&
 			p.NotifyBeforeExpiryDays == req.NotifyBeforeExpiryDays &&
 			p.ExpiryDays == req.ExpiryDays &&
 			p.Enabled == req.Enabled
 	})).Return(nil)
 
-	stored := &model.KeyRotationPolicy{ID: uuid.New(), KeyID: keyID, RotateAfterDays: req.RotateAfterDays}
-	policyRepo.On("GetByKeyIDAny", mock.Anything, keyID).Return(stored, nil)
+	stored := &model.KeyRotationPolicy{ID: uuid.New(), KeyID: keyID, VaultID: vaultID, RotateAfterDays: req.RotateAfterDays}
+	policyRepo.On("GetByKeyID", mock.Anything, keyID, scope).Return(stored, nil)
 
 	svc := NewKeyService(KeyServiceConfig{
 		KeyRepository:    keyRepo,
@@ -178,6 +168,45 @@ func TestUpsertKeyRotationPolicy_VerifiesKeyAccessFirstAndReadsBack(t *testing.T
 
 	require.NoError(t, err)
 	assert.Equal(t, stored, got)
+	keyRepo.AssertExpectations(t)
+	policyRepo.AssertExpectations(t)
+}
+
+func TestUpsertKeyRotationPolicy_DerivesVaultFromParentKey(t *testing.T) {
+	keyRepo := new(mockKeyRepository)
+	policyRepo := new(mockKeyPolicyRepo)
+	keyID := uuid.New()
+	vaultID := uuid.New()
+	// The scope's own vault id is deliberately different from the key's
+	// vault id: if the implementation derived VaultID from the scope
+	// instead of the parent key, this test would catch it.
+	scope := model.NewVaultScope(uuid.New(), uuid.New())
+
+	keyRepo.On("Read", mock.Anything, keyID, scope).Return(&model.Key{ID: keyID, VaultID: vaultID, Enabled: true}, nil)
+
+	req := model.UpsertKeyRotationPolicyRequest{
+		RotateAfterDays:        90,
+		NotifyBeforeExpiryDays: 30,
+		ExpiryDays:             365,
+		Enabled:                true,
+	}
+	policyRepo.On("Upsert", mock.Anything, mock.MatchedBy(func(p *model.KeyRotationPolicy) bool {
+		return p.VaultID == vaultID
+	})).Return(nil)
+
+	stored := &model.KeyRotationPolicy{ID: uuid.New(), KeyID: keyID, VaultID: vaultID, RotateAfterDays: req.RotateAfterDays}
+	policyRepo.On("GetByKeyID", mock.Anything, keyID, scope).Return(stored, nil)
+
+	svc := NewKeyService(KeyServiceConfig{
+		KeyRepository:    keyRepo,
+		PolicyRepository: policyRepo,
+		Logger:           newTestKeyLogger(t),
+	})
+
+	policy, err := svc.UpsertKeyRotationPolicy(context.Background(), keyID, scope, req)
+
+	require.NoError(t, err)
+	require.Equal(t, vaultID, policy.VaultID, "policy VaultID must be derived from the key's own vault, not independently settable")
 	keyRepo.AssertExpectations(t)
 	policyRepo.AssertExpectations(t)
 }
@@ -210,7 +239,7 @@ func TestDeleteKeyRotationPolicy_VerifiesKeyAccessFirst(t *testing.T) {
 	scope := model.NewOwnerScope(uuid.New(), uuid.New())
 
 	keyRepo.On("Read", mock.Anything, keyID, scope).Return(&model.Key{ID: keyID, Enabled: true}, nil)
-	policyRepo.On("DeleteByKeyIDAny", mock.Anything, keyID).Return(nil)
+	policyRepo.On("DeleteByKeyID", mock.Anything, keyID, scope).Return(nil)
 
 	svc := NewKeyService(KeyServiceConfig{
 		KeyRepository:    keyRepo,
@@ -243,5 +272,5 @@ func TestDeleteKeyRotationPolicy_DeniesWhenKeyAccessDenied(t *testing.T) {
 
 	require.Error(t, err)
 	assert.ErrorIs(t, err, ErrKeyNotFound)
-	policyRepo.AssertNotCalled(t, "DeleteByKeyIDAny", mock.Anything, mock.Anything)
+	policyRepo.AssertNotCalled(t, "DeleteByKeyID", mock.Anything, mock.Anything, mock.Anything)
 }

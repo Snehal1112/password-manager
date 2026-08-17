@@ -21,12 +21,12 @@ import (
 type RotationPolicyRepositoryInterface interface {
 	// Basic CRUD operations
 	Create(ctx context.Context, policy *model.RotationPolicy) error
-	Read(ctx context.Context, id uuid.UUID) (*model.RotationPolicy, error)
-	Update(ctx context.Context, policy *model.RotationPolicy) error
-	Delete(ctx context.Context, id uuid.UUID) error
+	Read(ctx context.Context, id uuid.UUID, scope model.Scope) (*model.RotationPolicy, error)
+	Update(ctx context.Context, policy *model.RotationPolicy, scope model.Scope) error
+	Delete(ctx context.Context, id uuid.UUID, scope model.Scope) error
 
 	// Query operations
-	ListByUser(ctx context.Context, userID uuid.UUID) ([]model.RotationPolicy, error)
+	List(ctx context.Context, scope model.Scope) ([]model.RotationPolicy, error)
 
 	// Policy assignment operations
 	AssignToSecret(ctx context.Context, secretID, policyID uuid.UUID, assignedAt time.Time, nextRotationAt time.Time) error
@@ -40,8 +40,8 @@ type RotationPolicyRepositoryInterface interface {
 	GetRotationHistory(ctx context.Context, secretID uuid.UUID) ([]model.RotationHistory, error)
 
 	// Due rotations and reminders
-	GetDueRotations(ctx context.Context, userID uuid.UUID) ([]model.SecretPolicy, error)
-	GetUpcomingReminders(ctx context.Context, userID uuid.UUID) ([]model.RotationReminder, error)
+	GetDueRotations(ctx context.Context, scope model.Scope) ([]model.SecretPolicy, error)
+	GetUpcomingReminders(ctx context.Context, scope model.Scope) ([]model.RotationReminder, error)
 
 	// Reminder operations
 	CreateReminder(ctx context.Context, reminder *model.RotationReminder) error
@@ -66,13 +66,14 @@ func NewRotationPolicyRepository(db db.DB, log *logging.Logger) RotationPolicyRe
 // Create creates a new rotation policy (expects pre-processed data with ID and timestamps).
 func (r *rotationPolicyRepository) Create(ctx context.Context, policy *model.RotationPolicy) error {
 	query := `
-		INSERT INTO rotation_policies (id, user_id, name, description, interval_days, enabled, reminder_days, auto_rotate, created_at, updated_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		INSERT INTO rotation_policies (id, user_id, vault_id, name, description, interval_days, enabled, reminder_days, auto_rotate, created_at, updated_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 	`
 
 	_, err := r.db.ExecContext(ctx, query,
 		policy.ID.String(),
 		policy.UserID.String(),
+		policy.VaultID.String(),
 		policy.Name,
 		policy.Description,
 		policy.IntervalDays,
@@ -95,29 +96,13 @@ func (r *rotationPolicyRepository) Create(ctx context.Context, policy *model.Rot
 	return nil
 }
 
-// Read retrieves a rotation policy by ID.
-func (r *rotationPolicyRepository) Read(ctx context.Context, id uuid.UUID) (*model.RotationPolicy, error) {
+// Read retrieves a rotation policy by ID, authorized by scope.
+func (r *rotationPolicyRepository) Read(ctx context.Context, id uuid.UUID, scope model.Scope) (*model.RotationPolicy, error) {
 	query := `
-		SELECT id, user_id, name, description, interval_days, enabled, reminder_days, auto_rotate, created_at, updated_at
-		FROM rotation_policies
-		WHERE id = ?
+		SELECT id, user_id, vault_id, name, description, interval_days, enabled, reminder_days, auto_rotate, created_at, updated_at
+		FROM rotation_policies WHERE id = ?
 	`
-
-	var policy model.RotationPolicy
-	var userID, policyID string
-
-	err := r.db.QueryRowContext(ctx, query, id.String()).Scan(
-		&policyID,
-		&userID,
-		&policy.Name,
-		&policy.Description,
-		&policy.IntervalDays,
-		&policy.Enabled,
-		&policy.ReminderDays,
-		&policy.AutoRotate,
-		&policy.CreatedAt,
-		&policy.UpdatedAt,
-	)
+	policy, err := ScopedGet(ctx, r.db, query, []any{id.String()}, scope, scanRotationPolicyRow)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, fmt.Errorf("rotation policy not found")
@@ -125,31 +110,35 @@ func (r *rotationPolicyRepository) Read(ctx context.Context, id uuid.UUID) (*mod
 		r.log.WithError(err).Error("Failed to read rotation policy")
 		return nil, fmt.Errorf("failed to read rotation policy: %w", err)
 	}
+	return policy, nil
+}
 
-	policy.ID, _ = uuid.Parse(policyID)
+// scanRotationPolicyRow scans a single rotation_policies row.
+func scanRotationPolicyRow(row *sql.Row) (*model.RotationPolicy, error) {
+	var policy model.RotationPolicy
+	var id, userID, vaultID string
+	if err := row.Scan(&id, &userID, &vaultID, &policy.Name, &policy.Description,
+		&policy.IntervalDays, &policy.Enabled, &policy.ReminderDays, &policy.AutoRotate,
+		&policy.CreatedAt, &policy.UpdatedAt); err != nil {
+		return nil, err
+	}
+	policy.ID, _ = uuid.Parse(id)
 	policy.UserID, _ = uuid.Parse(userID)
-
+	policy.VaultID, _ = uuid.Parse(vaultID)
 	return &policy, nil
 }
 
-// Update updates a rotation policy (expects pre-processed data with updated timestamp).
-func (r *rotationPolicyRepository) Update(ctx context.Context, policy *model.RotationPolicy) error {
+// Update updates a rotation policy (expects pre-processed data with updated timestamp), authorized by scope.
+func (r *rotationPolicyRepository) Update(ctx context.Context, policy *model.RotationPolicy, scope model.Scope) error {
 	query := `
 		UPDATE rotation_policies
 		SET name = ?, description = ?, interval_days = ?, enabled = ?, reminder_days = ?, auto_rotate = ?, updated_at = ?
 		WHERE id = ?
 	`
-
-	result, err := r.db.ExecContext(ctx, query,
-		policy.Name,
-		policy.Description,
-		policy.IntervalDays,
-		policy.Enabled,
-		policy.ReminderDays,
-		policy.AutoRotate,
-		policy.UpdatedAt,
-		policy.ID.String(),
-	)
+	result, err := ScopedExec(ctx, r.db, query, []any{
+		policy.Name, policy.Description, policy.IntervalDays, policy.Enabled,
+		policy.ReminderDays, policy.AutoRotate, policy.UpdatedAt, policy.ID.String(),
+	}, scope)
 	if err != nil {
 		r.log.WithError(err).Error("Failed to update rotation policy")
 		return fmt.Errorf("failed to update rotation policy: %w", err)
@@ -168,11 +157,9 @@ func (r *rotationPolicyRepository) Update(ctx context.Context, policy *model.Rot
 	return nil
 }
 
-// Delete deletes a rotation policy.
-func (r *rotationPolicyRepository) Delete(ctx context.Context, id uuid.UUID) error {
-	query := `DELETE FROM rotation_policies WHERE id = ?`
-
-	result, err := r.db.ExecContext(ctx, query, id.String())
+// Delete deletes a rotation policy, authorized by scope.
+func (r *rotationPolicyRepository) Delete(ctx context.Context, id uuid.UUID, scope model.Scope) error {
+	result, err := ScopedExec(ctx, r.db, `DELETE FROM rotation_policies WHERE id = ?`, []any{id.String()}, scope)
 	if err != nil {
 		r.log.WithError(err).Error("Failed to delete rotation policy")
 		return fmt.Errorf("failed to delete rotation policy: %w", err)
@@ -187,49 +174,29 @@ func (r *rotationPolicyRepository) Delete(ctx context.Context, id uuid.UUID) err
 	return nil
 }
 
-// ListByUser lists all rotation policies for a user.
-func (r *rotationPolicyRepository) ListByUser(ctx context.Context, userID uuid.UUID) ([]model.RotationPolicy, error) {
+// List lists rotation policies authorized by scope.
+func (r *rotationPolicyRepository) List(ctx context.Context, scope model.Scope) ([]model.RotationPolicy, error) {
 	query := `
-		SELECT id, user_id, name, description, interval_days, enabled, reminder_days, auto_rotate, created_at, updated_at
-		FROM rotation_policies
-		WHERE user_id = ?
-		ORDER BY created_at DESC
+		SELECT id, user_id, vault_id, name, description, interval_days, enabled, reminder_days, auto_rotate, created_at, updated_at
+		FROM rotation_policies WHERE 1=1
 	`
-
-	rows, err := r.db.QueryContext(ctx, query, userID.String())
+	policies, err := ScopedList(ctx, r.db, query, nil, scope, func(rows *sql.Rows) (model.RotationPolicy, error) {
+		var policy model.RotationPolicy
+		var id, userID, vaultID string
+		if err := rows.Scan(&id, &userID, &vaultID, &policy.Name, &policy.Description,
+			&policy.IntervalDays, &policy.Enabled, &policy.ReminderDays, &policy.AutoRotate,
+			&policy.CreatedAt, &policy.UpdatedAt); err != nil {
+			return policy, err
+		}
+		policy.ID, _ = uuid.Parse(id)
+		policy.UserID, _ = uuid.Parse(userID)
+		policy.VaultID, _ = uuid.Parse(vaultID)
+		return policy, nil
+	})
 	if err != nil {
 		r.log.WithError(err).Error("Failed to list rotation policies")
 		return nil, fmt.Errorf("failed to list rotation policies: %w", err)
 	}
-	defer rows.Close() //nolint:errcheck
-
-	var policies []model.RotationPolicy
-	for rows.Next() {
-		var policy model.RotationPolicy
-		var policyID, userIDStr string
-
-		err := rows.Scan(
-			&policyID,
-			&userIDStr,
-			&policy.Name,
-			&policy.Description,
-			&policy.IntervalDays,
-			&policy.Enabled,
-			&policy.ReminderDays,
-			&policy.AutoRotate,
-			&policy.CreatedAt,
-			&policy.UpdatedAt,
-		)
-		if err != nil {
-			r.log.WithError(err).Error("Failed to scan rotation policy")
-			continue
-		}
-
-		policy.ID, _ = uuid.Parse(policyID)
-		policy.UserID, _ = uuid.Parse(userIDStr)
-		policies = append(policies, policy)
-	}
-
 	return policies, nil
 }
 
@@ -492,103 +459,99 @@ func (r *rotationPolicyRepository) GetRotationHistory(ctx context.Context, secre
 	return history, nil
 }
 
-// GetDueRotations gets secrets that are due for rotation.
-func (r *rotationPolicyRepository) GetDueRotations(ctx context.Context, userID uuid.UUID) ([]model.SecretPolicy, error) {
+// scanSecretPolicyRow scans one secret_policies row (sp.secret_id, sp.policy_id,
+// sp.assigned_at, sp.last_rotated_at, sp.next_rotation_at, in that order).
+func scanSecretPolicyRow(rows *sql.Rows) (model.SecretPolicy, error) {
+	var sp model.SecretPolicy
+	var secretIDStr, policyIDStr string
+	var lastRotatedAt, nextRotationAt sql.NullTime
+
+	if err := rows.Scan(
+		&secretIDStr,
+		&policyIDStr,
+		&sp.AssignedAt,
+		&lastRotatedAt,
+		&nextRotationAt,
+	); err != nil {
+		return sp, err
+	}
+
+	sp.SecretID, _ = uuid.Parse(secretIDStr)
+	sp.PolicyID, _ = uuid.Parse(policyIDStr)
+	if lastRotatedAt.Valid {
+		sp.LastRotatedAt = &lastRotatedAt.Time
+	}
+	if nextRotationAt.Valid {
+		sp.NextRotationAt = &nextRotationAt.Time
+	}
+	return sp, nil
+}
+
+// GetDueRotations gets secrets that are due for rotation, authorized by scope.
+// The JOIN pulls in rotation_policies aliased rp, the only table in this query
+// with a vault_id column, so the unqualified predicate ScopedList appends is
+// unambiguous.
+func (r *rotationPolicyRepository) GetDueRotations(ctx context.Context, scope model.Scope) ([]model.SecretPolicy, error) {
 	query := `
 		SELECT sp.secret_id, sp.policy_id, sp.assigned_at, sp.last_rotated_at, sp.next_rotation_at
 		FROM secret_policies sp
 		JOIN rotation_policies rp ON sp.policy_id = rp.id
-		WHERE rp.user_id = ? AND rp.enabled = TRUE AND sp.next_rotation_at <= ?
+		WHERE rp.enabled = TRUE AND sp.next_rotation_at <= ?
 	`
-
-	now := time.Now()
-	rows, err := r.db.QueryContext(ctx, query, userID.String(), now)
+	due, err := ScopedList(ctx, r.db, query, []any{time.Now()}, scope, scanSecretPolicyRow)
 	if err != nil {
 		r.log.WithError(err).Error("Failed to get due rotations")
 		return nil, fmt.Errorf("failed to get due rotations: %w", err)
 	}
-	defer rows.Close() //nolint:errcheck
-
-	var due []model.SecretPolicy
-	for rows.Next() {
-		var sp model.SecretPolicy
-		var secretIDStr, policyIDStr string
-		var lastRotatedAt, nextRotationAt sql.NullTime
-
-		err := rows.Scan(
-			&secretIDStr,
-			&policyIDStr,
-			&sp.AssignedAt,
-			&lastRotatedAt,
-			&nextRotationAt,
-		)
-		if err != nil {
-			r.log.WithError(err).Error("Failed to scan due rotation")
-			continue
-		}
-
-		sp.SecretID, _ = uuid.Parse(secretIDStr)
-		sp.PolicyID, _ = uuid.Parse(policyIDStr)
-		if lastRotatedAt.Valid {
-			sp.LastRotatedAt = &lastRotatedAt.Time
-		}
-		if nextRotationAt.Valid {
-			sp.NextRotationAt = &nextRotationAt.Time
-		}
-		due = append(due, sp)
-	}
-
 	return due, nil
 }
 
-// GetUpcomingReminders gets upcoming rotation reminders.
-func (r *rotationPolicyRepository) GetUpcomingReminders(ctx context.Context, userID uuid.UUID) ([]model.RotationReminder, error) {
+// scanRotationReminderRow scans one rotation_reminders row (rr.id, rr.secret_id,
+// rr.policy_id, rr.reminder_type, rr.sent_at, rr.next_reminder_at,
+// rr.acknowledged, in that order).
+func scanRotationReminderRow(rows *sql.Rows) (model.RotationReminder, error) {
+	var reminder model.RotationReminder
+	var reminderID, secretIDStr, policyIDStr string
+	var nextReminderAt sql.NullTime
+
+	if err := rows.Scan(
+		&reminderID,
+		&secretIDStr,
+		&policyIDStr,
+		&reminder.ReminderType,
+		&reminder.SentAt,
+		&nextReminderAt,
+		&reminder.Acknowledged,
+	); err != nil {
+		return reminder, err
+	}
+
+	reminder.ID, _ = uuid.Parse(reminderID)
+	reminder.SecretID, _ = uuid.Parse(secretIDStr)
+	reminder.PolicyID, _ = uuid.Parse(policyIDStr)
+	if nextReminderAt.Valid {
+		reminder.NextReminderAt = &nextReminderAt.Time
+	}
+	return reminder, nil
+}
+
+// GetUpcomingReminders gets upcoming rotation reminders, authorized by scope.
+// The JOIN pulls in rotation_policies aliased rp, the only table in this query
+// with a vault_id column, so the unqualified predicate ScopedList appends is
+// unambiguous.
+func (r *rotationPolicyRepository) GetUpcomingReminders(ctx context.Context, scope model.Scope) ([]model.RotationReminder, error) {
 	query := `
 		SELECT rr.id, rr.secret_id, rr.policy_id, rr.reminder_type, rr.sent_at, rr.next_reminder_at, rr.acknowledged
 		FROM rotation_reminders rr
 		JOIN rotation_policies rp ON rr.policy_id = rp.id
-		WHERE rp.user_id = ? AND rr.acknowledged = FALSE AND rr.next_reminder_at <= ?
+		WHERE rr.acknowledged = FALSE AND rr.next_reminder_at <= ?
 	`
-
-	now := time.Now()
-	nowStr := now.Format(time.RFC3339)
-	rows, err := r.db.QueryContext(ctx, query, userID.String(), nowStr)
+	now := time.Now().Format(time.RFC3339)
+	reminders, err := ScopedList(ctx, r.db, query, []any{now}, scope, scanRotationReminderRow)
 	if err != nil {
 		r.log.WithError(err).Error("Failed to get upcoming reminders")
 		return nil, fmt.Errorf("failed to get upcoming reminders: %w", err)
 	}
-	defer rows.Close() //nolint:errcheck
-
-	var reminders []model.RotationReminder
-	for rows.Next() {
-		var reminder model.RotationReminder
-		var reminderID, secretIDStr, policyIDStr string
-		var nextReminderAt sql.NullTime
-
-		err := rows.Scan(
-			&reminderID,
-			&secretIDStr,
-			&policyIDStr,
-			&reminder.ReminderType,
-			&reminder.SentAt,
-			&nextReminderAt,
-			&reminder.Acknowledged,
-		)
-		if err != nil {
-			r.log.WithError(err).Error("Failed to scan reminder")
-			continue
-		}
-
-		reminder.ID, _ = uuid.Parse(reminderID)
-		reminder.SecretID, _ = uuid.Parse(secretIDStr)
-		reminder.PolicyID, _ = uuid.Parse(policyIDStr)
-		if nextReminderAt.Valid {
-			reminder.NextReminderAt = &nextReminderAt.Time
-		}
-
-		reminders = append(reminders, reminder)
-	}
-
 	return reminders, nil
 }
 

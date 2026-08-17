@@ -487,6 +487,7 @@ func (d *DBRepository) createOptimizedSchema(db *sql.DB) error {
 			id                         TEXT PRIMARY KEY,
 			key_id                     TEXT NOT NULL UNIQUE,
 			user_id                    TEXT NOT NULL,
+			vault_id                   TEXT NOT NULL DEFAULT '00000000-0000-0000-0000-00000000efa1',
 			rotate_after_days          INTEGER NOT NULL DEFAULT 90,
 			notify_before_expiry_days  INTEGER NOT NULL DEFAULT 30,
 			expiry_days                INTEGER NOT NULL DEFAULT 365,
@@ -498,6 +499,7 @@ func (d *DBRepository) createOptimizedSchema(db *sql.DB) error {
 		);
 		CREATE INDEX IF NOT EXISTS idx_key_rotation_policies_key_id ON key_rotation_policies(key_id);
 		CREATE INDEX IF NOT EXISTS idx_key_rotation_policies_user_id ON key_rotation_policies(user_id);
+		CREATE INDEX IF NOT EXISTS idx_key_rotation_policies_vault_id ON key_rotation_policies(vault_id);
 
 		CREATE TABLE IF NOT EXISTS crl (
 			id TEXT PRIMARY KEY,
@@ -561,6 +563,7 @@ func (d *DBRepository) createOptimizedSchema(db *sql.DB) error {
 		CREATE TABLE IF NOT EXISTS rotation_policies (
 			id TEXT PRIMARY KEY,
 			user_id TEXT NOT NULL,
+			vault_id TEXT NOT NULL DEFAULT '00000000-0000-0000-0000-00000000efa1',
 			name TEXT NOT NULL,
 			description TEXT,
 			interval_days INTEGER NOT NULL,
@@ -574,6 +577,7 @@ func (d *DBRepository) createOptimizedSchema(db *sql.DB) error {
 		CREATE INDEX IF NOT EXISTS idx_rotation_policies_user_id ON rotation_policies(user_id);
 		CREATE INDEX IF NOT EXISTS idx_rotation_policies_enabled ON rotation_policies(enabled);
 		CREATE INDEX IF NOT EXISTS idx_rotation_policies_auto_rotate ON rotation_policies(auto_rotate);
+		CREATE INDEX IF NOT EXISTS idx_rotation_policies_vault_id ON rotation_policies(vault_id);
 
 		CREATE TABLE IF NOT EXISTS secret_rotation_history (
 			id TEXT PRIMARY KEY,
@@ -786,6 +790,7 @@ func (d *DBRepository) migrateSchema(db *sql.DB) error {
 			id                         TEXT PRIMARY KEY,
 			key_id                     TEXT NOT NULL UNIQUE,
 			user_id                    TEXT NOT NULL,
+			vault_id                   TEXT NOT NULL DEFAULT '00000000-0000-0000-0000-00000000efa1',
 			rotate_after_days          INTEGER NOT NULL DEFAULT 90,
 			notify_before_expiry_days  INTEGER NOT NULL DEFAULT 30,
 			expiry_days                INTEGER NOT NULL DEFAULT 365,
@@ -797,6 +802,24 @@ func (d *DBRepository) migrateSchema(db *sql.DB) error {
 		)`,
 		"CREATE INDEX IF NOT EXISTS idx_key_rotation_policies_key_id ON key_rotation_policies(key_id)",
 		"CREATE INDEX IF NOT EXISTS idx_key_rotation_policies_user_id ON key_rotation_policies(user_id)",
+		// Feature: rotation_policies for secrets (backfill will add vault_id below)
+		`CREATE TABLE IF NOT EXISTS rotation_policies (
+			id TEXT PRIMARY KEY,
+			user_id TEXT NOT NULL,
+			vault_id TEXT NOT NULL DEFAULT '00000000-0000-0000-0000-00000000efa1',
+			name TEXT NOT NULL,
+			description TEXT,
+			interval_days INTEGER NOT NULL,
+			enabled BOOLEAN NOT NULL DEFAULT TRUE,
+			reminder_days INTEGER NOT NULL DEFAULT 7,
+			auto_rotate BOOLEAN NOT NULL DEFAULT FALSE,
+			created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+			updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+			FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+		)`,
+		"CREATE INDEX IF NOT EXISTS idx_rotation_policies_user_id ON rotation_policies(user_id)",
+		"CREATE INDEX IF NOT EXISTS idx_rotation_policies_enabled ON rotation_policies(enabled)",
+		"CREATE INDEX IF NOT EXISTS idx_rotation_policies_auto_rotate ON rotation_policies(auto_rotate)",
 		// Feature: enriched audit fields for SOC 2 / GDPR compliance
 		"ALTER TABLE audit_logs ADD COLUMN resource_type TEXT",
 		"ALTER TABLE audit_logs ADD COLUMN resource_id TEXT",
@@ -834,6 +857,11 @@ func (d *DBRepository) migrateSchema(db *sql.DB) error {
 		"ALTER TABLE secrets ADD COLUMN vault_id TEXT NOT NULL DEFAULT '00000000-0000-0000-0000-00000000efa1'",
 		"ALTER TABLE keys ADD COLUMN vault_id TEXT NOT NULL DEFAULT '00000000-0000-0000-0000-00000000efa1'",
 		"ALTER TABLE certificates ADD COLUMN vault_id TEXT NOT NULL DEFAULT '00000000-0000-0000-0000-00000000efa1'",
+		"ALTER TABLE key_rotation_policies ADD COLUMN vault_id TEXT NOT NULL DEFAULT '00000000-0000-0000-0000-00000000efa1'",
+		"ALTER TABLE rotation_policies ADD COLUMN vault_id TEXT NOT NULL DEFAULT '00000000-0000-0000-0000-00000000efa1'",
+		"CREATE INDEX IF NOT EXISTS idx_key_rotation_policies_vault_id ON key_rotation_policies(vault_id)",
+		"CREATE INDEX IF NOT EXISTS idx_rotation_policies_vault_id ON rotation_policies(vault_id)",
+		"UPDATE key_rotation_policies SET vault_id = (SELECT vault_id FROM keys WHERE keys.id = key_rotation_policies.key_id) WHERE key_id IN (SELECT id FROM keys)",
 		"ALTER TABLE access_policies ADD COLUMN vault_id TEXT NULL",
 		"ALTER TABLE access_policies ADD COLUMN assignment_id TEXT NULL",
 		// Feature: OIDC external identity provider login
@@ -893,8 +921,58 @@ func (d *DBRepository) migrateSchema(db *sql.DB) error {
 		return fmt.Errorf("backfill role assignments: %w", err)
 	}
 
+	// Diagnostic only: surface legacy policy/secret pairings the vault_id
+	// backfill cannot repair on its own. Never fails the migration.
+	d.warnMismatchedRotationPolicyVaults(db)
+
 	d.log.Info("Schema migration completed")
 	return nil
+}
+
+// warnMismatchedRotationPolicyVaults logs (never fails) a warning for every
+// secret_policies pairing whose secret and policy disagree on vault_id -- a
+// legacy pairing from before secrets and rotation_policies were both
+// vault-scoped. rotation_policies got a blind default-vault backfill, which is
+// correct for the policy rows' own provenance (the table predates vault_id
+// existing anywhere), but any pairing whose secret lives in a non-default
+// vault becomes a cross-vault pair. Manual rotation of such a pair now fails
+// from both vaults -- each read is scoped to its own vault -- while the
+// scheduler keeps rotating it (its queries carry no vault predicate), so the
+// breakage is otherwise silent until an operator tries a manual rotation.
+//
+// A query error here is expected and harmless on partially-built schemas (for
+// example a migrateSchema-only test fixture with no secret_policies table), so
+// it is logged at warn level and swallowed.
+func (d *DBRepository) warnMismatchedRotationPolicyVaults(db *sql.DB) {
+	rows, err := db.Query(`
+		SELECT sp.secret_id, sp.policy_id, s.vault_id, rp.vault_id
+		FROM secret_policies sp
+		JOIN secrets s ON s.id = sp.secret_id
+		JOIN rotation_policies rp ON rp.id = sp.policy_id
+		WHERE s.vault_id != rp.vault_id
+	`)
+	if err != nil {
+		d.log.WithError(err).Warn("Failed to check for cross-vault rotation-policy assignments")
+		return
+	}
+	defer rows.Close() //nolint:errcheck
+
+	for rows.Next() {
+		var secretID, policyID, secretVault, policyVault string
+		if err := rows.Scan(&secretID, &policyID, &secretVault, &policyVault); err != nil {
+			d.log.WithError(err).Warn("Failed to scan cross-vault rotation-policy row")
+			continue
+		}
+		d.log.WithFields(map[string]interface{}{
+			"secret_id":    secretID,
+			"policy_id":    policyID,
+			"secret_vault": secretVault,
+			"policy_vault": policyVault,
+		}).Warn("Rotation policy assigned across vaults -- manual rotation of this pair will fail from either vault; run `rotation unassign` and reassign within one vault to fix")
+	}
+	if err := rows.Err(); err != nil {
+		d.log.WithError(err).Warn("Failed to read cross-vault rotation-policy rows")
+	}
 }
 
 // finalizeVaultIndexes resolves name collisions then creates the per-vault unique

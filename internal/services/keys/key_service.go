@@ -466,13 +466,14 @@ func (s *keyService) GetKeyRotationPolicy(ctx context.Context, keyID uuid.UUID, 
 	if _, err := s.GetKey(ctx, keyID, scope); err != nil {
 		return nil, err
 	}
-	return s.policyRepo.GetByKeyIDAny(ctx, keyID)
+	return s.policyRepo.GetByKeyID(ctx, keyID, scope)
 }
 
 // UpsertKeyRotationPolicy creates or replaces the rotation policy for keyID,
 // authorized by scope against the parent key.
 func (s *keyService) UpsertKeyRotationPolicy(ctx context.Context, keyID uuid.UUID, scope model.Scope, req model.UpsertKeyRotationPolicyRequest) (*model.KeyRotationPolicy, error) {
-	if _, err := s.GetKey(ctx, keyID, scope); err != nil {
+	key, err := s.GetKey(ctx, keyID, scope)
+	if err != nil {
 		return nil, err
 	}
 	now := time.Now()
@@ -480,6 +481,7 @@ func (s *keyService) UpsertKeyRotationPolicy(ctx context.Context, keyID uuid.UUI
 		ID:                     uuid.New(),
 		KeyID:                  keyID,
 		UserID:                 scope.ActorID(),
+		VaultID:                key.VaultID, // derived from the parent key, never from the caller
 		RotateAfterDays:        req.RotateAfterDays,
 		NotifyBeforeExpiryDays: req.NotifyBeforeExpiryDays,
 		ExpiryDays:             req.ExpiryDays,
@@ -491,7 +493,7 @@ func (s *keyService) UpsertKeyRotationPolicy(ctx context.Context, keyID uuid.UUI
 		return nil, err
 	}
 	// Read-after-write so the caller gets the canonical stored row.
-	return s.policyRepo.GetByKeyIDAny(ctx, keyID)
+	return s.policyRepo.GetByKeyID(ctx, keyID, scope)
 }
 
 // DeleteKeyRotationPolicy removes the rotation policy for keyID, authorized
@@ -500,7 +502,7 @@ func (s *keyService) DeleteKeyRotationPolicy(ctx context.Context, keyID uuid.UUI
 	if _, err := s.GetKey(ctx, keyID, scope); err != nil {
 		return err
 	}
-	return s.policyRepo.DeleteByKeyIDAny(ctx, keyID)
+	return s.policyRepo.DeleteByKeyID(ctx, keyID, scope)
 }
 
 // ListKeys lists keys authorized by scope and narrowed by filter.

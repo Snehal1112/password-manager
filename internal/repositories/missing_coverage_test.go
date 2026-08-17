@@ -1849,7 +1849,7 @@ func TestRotationPolicyRepository_GetUpcomingReminders_HasData(t *testing.T) {
 	require.NoError(t, repo.CreateReminder(ctx, reminder))
 
 	// GetUpcomingReminders should return this reminder.
-	upcoming, err := repo.GetUpcomingReminders(ctx, userID)
+	upcoming, err := repo.GetUpcomingReminders(ctx, model.NewAdminScope(userID))
 	require.NoError(t, err)
 	assert.Len(t, upcoming, 1)
 	assert.Equal(t, reminder.ID, upcoming[0].ID)
