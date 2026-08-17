@@ -2,6 +2,7 @@ package secrets_test
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 
@@ -21,21 +22,21 @@ type mockRotationPolicyRepo struct{ mock.Mock }
 func (m *mockRotationPolicyRepo) Create(ctx context.Context, policy *model.RotationPolicy) error {
 	return m.Called(ctx, policy).Error(0)
 }
-func (m *mockRotationPolicyRepo) Read(ctx context.Context, id uuid.UUID) (*model.RotationPolicy, error) {
-	args := m.Called(ctx, id)
+func (m *mockRotationPolicyRepo) Read(ctx context.Context, id uuid.UUID, scope model.Scope) (*model.RotationPolicy, error) {
+	args := m.Called(ctx, id, scope)
 	if args.Get(0) == nil {
 		return nil, args.Error(1)
 	}
 	return args.Get(0).(*model.RotationPolicy), args.Error(1)
 }
-func (m *mockRotationPolicyRepo) Update(ctx context.Context, policy *model.RotationPolicy) error {
-	return m.Called(ctx, policy).Error(0)
+func (m *mockRotationPolicyRepo) Update(ctx context.Context, policy *model.RotationPolicy, scope model.Scope) error {
+	return m.Called(ctx, policy, scope).Error(0)
 }
-func (m *mockRotationPolicyRepo) Delete(ctx context.Context, id uuid.UUID) error {
-	return m.Called(ctx, id).Error(0)
+func (m *mockRotationPolicyRepo) Delete(ctx context.Context, id uuid.UUID, scope model.Scope) error {
+	return m.Called(ctx, id, scope).Error(0)
 }
-func (m *mockRotationPolicyRepo) ListByUser(ctx context.Context, userID uuid.UUID) ([]model.RotationPolicy, error) {
-	args := m.Called(ctx, userID)
+func (m *mockRotationPolicyRepo) List(ctx context.Context, scope model.Scope) ([]model.RotationPolicy, error) {
+	args := m.Called(ctx, scope)
 	if args.Get(0) == nil {
 		return nil, args.Error(1)
 	}
@@ -74,15 +75,15 @@ func (m *mockRotationPolicyRepo) GetRotationHistory(ctx context.Context, secretI
 	}
 	return args.Get(0).([]model.RotationHistory), args.Error(1)
 }
-func (m *mockRotationPolicyRepo) GetDueRotations(ctx context.Context, userID uuid.UUID) ([]model.SecretPolicy, error) {
-	args := m.Called(ctx, userID)
+func (m *mockRotationPolicyRepo) GetDueRotations(ctx context.Context, scope model.Scope) ([]model.SecretPolicy, error) {
+	args := m.Called(ctx, scope)
 	if args.Get(0) == nil {
 		return nil, args.Error(1)
 	}
 	return args.Get(0).([]model.SecretPolicy), args.Error(1)
 }
-func (m *mockRotationPolicyRepo) GetUpcomingReminders(ctx context.Context, userID uuid.UUID) ([]model.RotationReminder, error) {
-	args := m.Called(ctx, userID)
+func (m *mockRotationPolicyRepo) GetUpcomingReminders(ctx context.Context, scope model.Scope) ([]model.RotationReminder, error) {
+	args := m.Called(ctx, scope)
 	if args.Get(0) == nil {
 		return nil, args.Error(1)
 	}
@@ -102,95 +103,109 @@ func (m *mockRotationPolicyRepo) GetReminderBySecret(ctx context.Context, secret
 	return args.Get(0).(*model.RotationReminder), args.Error(1)
 }
 
-func TestGetSecretPolicies_NonOwner_Forbidden(t *testing.T) {
+func TestGetSecretPolicies_OutOfScope_NotFound(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
-	ownerID := uuid.New()
+	vaultID := uuid.New()
 	callerID := uuid.New()
 	secretID := uuid.New()
+	scope := model.NewOwnerScope(vaultID, callerID)
 
 	secretRepo := &testutils.MockSecretRepository{}
-	secretRepo.On("Read", ctx, secretID, model.NewAdminScope(callerID)).Return(&model.Secret{ID: secretID, UserID: ownerID}, nil)
+	// A caller-scoped read that doesn't match the secret's real owner/vault
+	// fails at the repository the same way a real scoped query would --
+	// there's no separate ownership comparison left to run.
+	secretRepo.On("Read", ctx, secretID, scope).Return(nil, errors.New("secret not found"))
 	rotationRepo := &mockRotationPolicyRepo{}
 
 	svc := secrets.NewRotationService(rotationRepo, secretRepo, nil, nil, testutils.NewTestLogger(t), nil)
-	_, err := svc.GetSecretPolicies(ctx, secretID, callerID)
+	_, err := svc.GetSecretPolicies(ctx, secretID, scope)
 
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "does not own")
+	assert.Contains(t, err.Error(), "secret not found")
 	rotationRepo.AssertNotCalled(t, "GetPoliciesForSecret", mock.Anything, mock.Anything)
 }
 
-func TestGetSecretPolicies_Owner_Succeeds(t *testing.T) {
+func TestGetSecretPolicies_InScope_Succeeds(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
+	vaultID := uuid.New()
 	ownerID := uuid.New()
 	secretID := uuid.New()
+	scope := model.NewOwnerScope(vaultID, ownerID)
 
 	secretRepo := &testutils.MockSecretRepository{}
-	secretRepo.On("Read", ctx, secretID, model.NewAdminScope(ownerID)).Return(&model.Secret{ID: secretID, UserID: ownerID}, nil)
+	secretRepo.On("Read", ctx, secretID, scope).Return(&model.Secret{ID: secretID, UserID: ownerID}, nil)
 	rotationRepo := &mockRotationPolicyRepo{}
 	rotationRepo.On("GetPoliciesForSecret", ctx, secretID).Return([]model.RotationPolicy{{ID: uuid.New()}}, nil)
 
 	svc := secrets.NewRotationService(rotationRepo, secretRepo, nil, nil, testutils.NewTestLogger(t), nil)
-	policies, err := svc.GetSecretPolicies(ctx, secretID, ownerID)
+	policies, err := svc.GetSecretPolicies(ctx, secretID, scope)
 
 	require.NoError(t, err)
 	assert.Len(t, policies, 1)
 }
 
-func TestGetSecretPolicies_NilUserID_SkipsOwnershipCheck(t *testing.T) {
+func TestGetSecretPolicies_AdminScope_Succeeds(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	secretID := uuid.New()
+	scope := model.NewAdminScope(uuid.Nil)
 
 	secretRepo := &testutils.MockSecretRepository{}
+	// AdminScope has no predicate, so a system/scheduler caller still reads
+	// the secret (there's no uuid.Nil sentinel skipping it anymore) and the
+	// read simply always succeeds.
+	secretRepo.On("Read", ctx, secretID, scope).Return(&model.Secret{ID: secretID}, nil)
 	rotationRepo := &mockRotationPolicyRepo{}
 	rotationRepo.On("GetPoliciesForSecret", ctx, secretID).Return([]model.RotationPolicy{}, nil)
 
 	svc := secrets.NewRotationService(rotationRepo, secretRepo, nil, nil, testutils.NewTestLogger(t), nil)
-	_, err := svc.GetSecretPolicies(ctx, secretID, uuid.Nil)
+	_, err := svc.GetSecretPolicies(ctx, secretID, scope)
 
 	require.NoError(t, err)
-	secretRepo.AssertNotCalled(t, "Read", mock.Anything, mock.Anything)
+	secretRepo.AssertExpectations(t)
 }
 
-func TestAcknowledgeReminder_NonOwner_Forbidden(t *testing.T) {
+func TestAcknowledgeReminder_OutOfScope_NotFound(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
-	ownerID := uuid.New()
+	vaultID := uuid.New()
 	callerID := uuid.New()
 	secretID := uuid.New()
 	reminderID := uuid.New()
+	scope := model.NewOwnerScope(vaultID, callerID)
 
 	secretRepo := &testutils.MockSecretRepository{}
-	secretRepo.On("Read", ctx, secretID, model.NewAdminScope(callerID)).Return(&model.Secret{ID: secretID, UserID: ownerID}, nil)
+	secretRepo.On("Read", ctx, secretID, scope).Return(nil, errors.New("secret not found"))
 	rotationRepo := &mockRotationPolicyRepo{}
 
 	svc := secrets.NewRotationService(rotationRepo, secretRepo, nil, nil, testutils.NewTestLogger(t), nil)
-	err := svc.AcknowledgeReminder(ctx, reminderID, secretID, callerID)
+	err := svc.AcknowledgeReminder(ctx, reminderID, secretID, scope)
 
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "does not own")
+	assert.Contains(t, err.Error(), "secret not found")
 	rotationRepo.AssertNotCalled(t, "UpdateReminder", mock.Anything, mock.Anything)
 }
 
-func TestAcknowledgeReminder_SystemCaller_SkipsOwnershipCheck(t *testing.T) {
+func TestAcknowledgeReminder_AdminScope_Succeeds(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	secretID := uuid.New()
 	reminderID := uuid.New()
+	scope := model.NewAdminScope(uuid.Nil)
 
 	secretRepo := &testutils.MockSecretRepository{}
+	secretRepo.On("Read", ctx, secretID, scope).Return(&model.Secret{ID: secretID}, nil)
 	rotationRepo := &mockRotationPolicyRepo{}
 	rotationRepo.On("UpdateReminder", ctx, mock.MatchedBy(func(r *model.RotationReminder) bool {
 		return r.ID == reminderID && r.Acknowledged
 	})).Return(nil)
 
 	svc := secrets.NewRotationService(rotationRepo, secretRepo, nil, nil, testutils.NewTestLogger(t), nil)
-	err := svc.AcknowledgeReminder(ctx, reminderID, secretID, uuid.Nil)
+	err := svc.AcknowledgeReminder(ctx, reminderID, secretID, scope)
 
 	require.NoError(t, err)
-	secretRepo.AssertNotCalled(t, "Read", mock.Anything, mock.Anything)
+	secretRepo.AssertExpectations(t)
 	rotationRepo.AssertExpectations(t)
 }

@@ -164,7 +164,7 @@ func (s *schedulerService) processAllUserOperations() {
 // ProcessUserRotations processes automatic rotations for a specific user.
 func (s *schedulerService) ProcessUserRotations(ctx context.Context, userID uuid.UUID) error {
 	// Get due rotations using rotation service
-	dueRotations, err := s.rotationSvc.GetDueRotations(ctx, userID)
+	dueRotations, err := s.rotationSvc.GetDueRotations(ctx, model.NewAdminScope(userID))
 	if err != nil {
 		return fmt.Errorf("failed to get due rotations for user %s: %w", userID, err)
 	}
@@ -186,7 +186,7 @@ func (s *schedulerService) ProcessUserRotations(ctx context.Context, userID uuid
 // ProcessUserReminders processes reminder notifications for a specific user.
 func (s *schedulerService) ProcessUserReminders(ctx context.Context, userID uuid.UUID) error {
 	// Get upcoming reminders using rotation service
-	reminders, err := s.rotationSvc.GetUpcomingReminders(ctx, userID)
+	reminders, err := s.rotationSvc.GetUpcomingReminders(ctx, model.NewAdminScope(userID))
 	if err != nil {
 		return fmt.Errorf("failed to get upcoming reminders for user %s: %w", userID, err)
 	}
@@ -211,7 +211,7 @@ func (s *schedulerService) PerformManualRotation(ctx context.Context, req Manual
 	rotationReq := ManualRotationRequest{
 		SecretID: req.SecretID,
 		PolicyID: req.PolicyID,
-		UserID:   req.UserID,
+		Scope:    model.NewAdminScope(req.UserID),
 		Notes:    req.Notes,
 	}
 
@@ -237,7 +237,7 @@ func (s *schedulerService) PerformManualRotation(ctx context.Context, req Manual
 // performAutomaticRotation performs an automatic rotation for a secret-policy pair.
 func (s *schedulerService) performAutomaticRotation(ctx context.Context, sp model.SecretPolicy) error {
 	// Get the policy to check if auto-rotation is enabled
-	policy, err := s.rotationSvc.GetPolicy(ctx, sp.PolicyID)
+	policy, err := s.rotationSvc.GetPolicy(ctx, sp.PolicyID, model.NewAdminScope(uuid.Nil))
 	if err != nil {
 		return fmt.Errorf("failed to get policy: %w", err)
 	}
@@ -278,7 +278,7 @@ func (s *schedulerService) performAutomaticRotation(ctx context.Context, sp mode
 	rotationReq := ManualRotationRequest{
 		SecretID: sp.SecretID,
 		PolicyID: sp.PolicyID,
-		UserID:   secret.UserID,
+		Scope:    model.NewAdminScope(secret.UserID),
 		Notes:    "Automatic rotation by scheduler",
 	}
 
@@ -307,11 +307,11 @@ func (s *schedulerService) sendReminder(ctx context.Context, reminder model.Rota
 		"sent_at":       reminder.SentAt,
 	}).Info("Rotation reminder sent")
 
-	// Acknowledge the reminder through rotation service. uuid.Nil marks the
-	// scheduler as a trusted system caller, skipping the ownership check --
-	// it is acknowledging its own generated reminder, not acting on behalf
-	// of a specific user.
-	err := s.rotationSvc.AcknowledgeReminder(ctx, reminder.ID, reminder.SecretID, uuid.Nil)
+	// Acknowledge the reminder through rotation service. model.NewAdminScope
+	// marks the scheduler as a trusted system caller with no access
+	// predicate -- it is acknowledging its own generated reminder, not
+	// acting on behalf of a specific user.
+	err := s.rotationSvc.AcknowledgeReminder(ctx, reminder.ID, reminder.SecretID, model.NewAdminScope(uuid.Nil))
 	if err != nil {
 		return fmt.Errorf("failed to acknowledge reminder: %w", err)
 	}
