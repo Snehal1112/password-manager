@@ -162,9 +162,18 @@ func (s *schedulerService) processAllUserOperations() {
 }
 
 // ProcessUserRotations processes automatic rotations for a specific user.
+//
+// The scope is owner-scoped, not admin-scoped: model.NewOwnerScope's SQL
+// predicate is "user_id = ?" bound to userID, which is exactly the
+// "WHERE rp.user_id = ?" filter this query has always had. Its vaultID
+// argument is advisory and never enters the predicate (see
+// internal/repositories/scope_predicate.go), so uuid.Nil is correct here --
+// this method is deliberately per-user, not per-vault. An admin scope would
+// drop the predicate entirely and make every per-user pass process every
+// user's work.
 func (s *schedulerService) ProcessUserRotations(ctx context.Context, userID uuid.UUID) error {
 	// Get due rotations using rotation service
-	dueRotations, err := s.rotationSvc.GetDueRotations(ctx, model.NewAdminScope(userID))
+	dueRotations, err := s.rotationSvc.GetDueRotations(ctx, model.NewOwnerScope(uuid.Nil, userID))
 	if err != nil {
 		return fmt.Errorf("failed to get due rotations for user %s: %w", userID, err)
 	}
@@ -184,9 +193,11 @@ func (s *schedulerService) ProcessUserRotations(ctx context.Context, userID uuid
 }
 
 // ProcessUserReminders processes reminder notifications for a specific user.
+// It is owner-scoped for the same reason ProcessUserRotations is: the scope
+// reproduces this query's long-standing "WHERE rp.user_id = ?" filter.
 func (s *schedulerService) ProcessUserReminders(ctx context.Context, userID uuid.UUID) error {
 	// Get upcoming reminders using rotation service
-	reminders, err := s.rotationSvc.GetUpcomingReminders(ctx, model.NewAdminScope(userID))
+	reminders, err := s.rotationSvc.GetUpcomingReminders(ctx, model.NewOwnerScope(uuid.Nil, userID))
 	if err != nil {
 		return fmt.Errorf("failed to get upcoming reminders for user %s: %w", userID, err)
 	}

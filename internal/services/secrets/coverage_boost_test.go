@@ -1207,12 +1207,15 @@ func TestSchedulerServiceProcessesRotationsRemindersAndLifecycle(t *testing.T) {
 	assert.False(t, svc.IsRunning())
 	require.NoError(t, svc.Stop())
 
+	// Per-user passes are owner-scoped ("user_id = ?"), never admin-scoped:
+	// an admin scope drops the predicate and makes each pass process every
+	// user's due work.
 	due := []model.SecretPolicy{{SecretID: secretID, PolicyID: policyID}}
-	rotationSvc.On("GetDueRotations", ctx, model.NewAdminScope(userID)).Return(due, nil).Once()
+	rotationSvc.On("GetDueRotations", ctx, model.NewOwnerScope(uuid.Nil, userID)).Return(due, nil).Once()
 	rotationSvc.On("GetPolicy", ctx, policyID, model.NewAdminScope(uuid.Nil)).Return(&model.RotationPolicy{ID: policyID, UserID: userID, AutoRotate: false}, nil).Once()
 	require.NoError(t, svc.ProcessUserRotations(ctx, userID))
 
-	rotationSvc.On("GetDueRotations", ctx, model.NewAdminScope(userID)).Return(due, nil).Once()
+	rotationSvc.On("GetDueRotations", ctx, model.NewOwnerScope(uuid.Nil, userID)).Return(due, nil).Once()
 	rotationSvc.On("GetPolicy", ctx, policyID, model.NewAdminScope(uuid.Nil)).Return(&model.RotationPolicy{ID: policyID, UserID: userID, AutoRotate: true}, nil).Once()
 	secretRepo.On("Read", ctx, secretID, model.NewAdminScope(uuid.Nil)).Return(&model.Secret{ID: secretID, UserID: userID, Name: "api", Value: "current", Version: 1}, nil).Once()
 	versionSvc.On("CreateVersion", ctx, mock.MatchedBy(func(req secrets.CreateVersionRequest) bool {
@@ -1227,7 +1230,7 @@ func TestSchedulerServiceProcessesRotationsRemindersAndLifecycle(t *testing.T) {
 	require.NoError(t, svc.ProcessUserRotations(ctx, userID))
 
 	reminders := []model.RotationReminder{{ID: reminderID, SecretID: secretID, PolicyID: policyID, ReminderType: model.ReminderUpcoming}}
-	rotationSvc.On("GetUpcomingReminders", ctx, model.NewAdminScope(userID)).Return(reminders, nil).Once()
+	rotationSvc.On("GetUpcomingReminders", ctx, model.NewOwnerScope(uuid.Nil, userID)).Return(reminders, nil).Once()
 	rotationSvc.On("AcknowledgeReminder", ctx, reminderID, secretID, model.NewAdminScope(uuid.Nil)).Return(nil).Once()
 	require.NoError(t, svc.ProcessUserReminders(ctx, userID))
 
@@ -1266,8 +1269,8 @@ func TestSchedulerServiceBackgroundTickProcessesAllUsers(t *testing.T) {
 				close(listed)
 			}
 		}).Maybe()
-	rotationSvc.On("GetDueRotations", mock.Anything, model.NewAdminScope(userID)).Return([]model.SecretPolicy{}, nil).Maybe()
-	rotationSvc.On("GetUpcomingReminders", mock.Anything, model.NewAdminScope(userID)).Return([]model.RotationReminder{}, nil).Maybe()
+	rotationSvc.On("GetDueRotations", mock.Anything, model.NewOwnerScope(uuid.Nil, userID)).Return([]model.SecretPolicy{}, nil).Maybe()
+	rotationSvc.On("GetUpcomingReminders", mock.Anything, model.NewOwnerScope(uuid.Nil, userID)).Return([]model.RotationReminder{}, nil).Maybe()
 
 	require.NoError(t, svc.Start(ctx, time.Millisecond))
 	select {
