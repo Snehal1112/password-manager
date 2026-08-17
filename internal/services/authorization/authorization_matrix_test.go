@@ -136,7 +136,7 @@ var matrixAllowed = map[string][]string{
 	model.RoleKeyVaultCryptoUser: {
 		"keys.list", "keys.get", "keys.listVersions", "keys.listDeleted", "keys.getDeleted",
 		"keys.sign", "keys.verify", "keys.encrypt", "keys.decrypt",
-		"keys.wrap", "keys.unwrap",
+		"keys.wrap", "keys.unwrap", "keys.update", "keys.backup",
 	},
 
 	model.RoleKeyVaultCryptoOfficer: allKeyOps,

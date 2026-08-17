@@ -135,7 +135,7 @@ below re-verifies against the roles that actually govern access: the eleven
 | Secrets Officer | `vaults/secrets/*` (full CRUD + lifecycle) | `Key Vault Secrets Officer`: readMetadata/get/set/delete/backup/restore/recover/purge | ✅ |
 | Secrets User | `getSecret` + `readMetadata` | `Key Vault Secrets User`: `ActionSecretsReadMetadata`, `ActionSecretsGet` | ✅ |
 | Crypto Officer | `vaults/keys/*` — **superset of Crypto User**, includes sign/verify/encrypt/decrypt/wrap/unwrap **plus** management, and `keyrotationpolicies/*` | `Key Vault Crypto Officer`: read/create/update/delete/backup/restore/recover/purge/import/rotate/encrypt/decrypt/wrap/unwrap/sign/verify, plus `ActionKeysRotationPolicyRead`/`ActionKeysRotationPolicyWrite` — every Crypto User action plus management, written out as an explicit superset (not derived by union) | ✅ superset relationship matches |
-| Crypto User | `keys/read,update,backup,encrypt,decrypt,wrap,unwrap,sign,verify` | `Key Vault Crypto User`: read/encrypt/decrypt/wrap/unwrap/sign/verify — has wrap/unwrap (contra the 2026-07-25 pass, which checked the legacy `PolicyOperation` enum instead of this live bundle); missing `update` and `backup` relative to Azure | 🟡 close — missing two actions Azure grants |
+| Crypto User | `keys/read,update,backup,encrypt,decrypt,wrap,unwrap,sign,verify` | `Key Vault Crypto User`: read/update/backup/encrypt/decrypt/wrap/unwrap/sign/verify — `update`/`backup` added 2026-08-17 to close the last gap from the 2026-07-25 pass (which checked the legacy `PolicyOperation` enum instead of this live bundle) | ✅ |
 | Certificates Officer | `certificates/*`, `certificatecas/*`, `certificatecontacts/*` | `Key Vault Certificates Officer`: full cert CRUD + lifecycle; no CA or contacts sub-resources (those RocketVault features don't exist at all) | 🟡 matches what exists; CA/contacts out of scope |
 | Administrator | `vaults/*` — full data-plane, all types, all ops including wrap/unwrap | `Key Vault Administrator`: every secrets/keys/certificates action written out explicitly, including wrap/unwrap — not a union of other roles, so it carries no derived gaps | ✅ |
 
@@ -158,8 +158,8 @@ expanding into an access-policy engine, deny-overrides-wins evaluation) is a gen
 deliberate match to Azure's real RBAC model, and — per the 2026-08-13 correction above
 — the *individual role boundaries* are now close to byte-for-byte too: Reader is
 metadata-only, Crypto Officer is a true superset of Crypto User including wrap/unwrap,
-and Administrator carries no derived gaps. The one remaining live boundary gap is
-Crypto User missing `update`/`backup` relative to Azure's real grant. RocketVault also
+and Administrator carries no derived gaps. Crypto User's `update`/`backup` gap (the
+last live boundary gap from the 2026-08-13 pass) was closed 2026-08-17. RocketVault also
 still ships a legacy, pre-Azure role vocabulary (`vault-reader`, `crypto-officer`,
 `crypto-user`, etc., in `internal/services/authorization/roles.go`) that is retained
 only for two purposes — CLI display of not-yet-upgraded historical `role_assignments`

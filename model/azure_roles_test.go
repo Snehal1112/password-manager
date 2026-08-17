@@ -55,8 +55,9 @@ func TestAzureRoleDataActions(t *testing.T) {
 			ActionSecretsRecover, ActionSecretsPurge,
 		},
 		RoleKeyVaultCryptoUser: {
-			ActionKeysRead, ActionKeysEncrypt, ActionKeysDecrypt,
+			ActionKeysRead, ActionKeysUpdate, ActionKeysEncrypt, ActionKeysDecrypt,
 			ActionKeysWrap, ActionKeysUnwrap, ActionKeysSign, ActionKeysVerify,
+			ActionKeysBackup,
 		},
 		RoleKeyVaultCryptoOfficer: {
 			ActionKeysRead, ActionKeysCreate, ActionKeysUpdate, ActionKeysDelete,

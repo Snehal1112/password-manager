@@ -180,10 +180,11 @@ var azureRoleDataActions = map[string][]DataAction{
 		ActionSecretsRecover, ActionSecretsPurge,
 	},
 	RoleKeyVaultCryptoUser: {
-		ActionKeysRead,
+		ActionKeysRead, ActionKeysUpdate,
 		ActionKeysEncrypt, ActionKeysDecrypt,
 		ActionKeysWrap, ActionKeysUnwrap,
 		ActionKeysSign, ActionKeysVerify,
+		ActionKeysBackup,
 	},
 	RoleKeyVaultCryptoOfficer: {
 		ActionKeysRead, ActionKeysCreate, ActionKeysUpdate, ActionKeysDelete,
