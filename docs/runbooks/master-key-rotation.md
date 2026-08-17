@@ -78,13 +78,16 @@ file entirely. The environment value takes precedence over the file.
 
 ```bash
 ./rocketvault serve
-./rocketvault secrets get <name> --vault default
-./rocketvault certificates list --vault default
+./rocketvault secrets list --vault default
 ```
 
-A successful read proves the rotation and the configuration agree. The server refuses to start at
-all on a key that fails validation (wrong length, the old committed placeholder, or obviously
-non-random), so a successful start is itself part of the verification.
+`secrets list` decrypts every secret value in the vault, so a successful read is real proof the
+rotation and the configuration agree. Don't use `certificates list` for this check — `ListCertificates`
+and `GetCertificate` never touch `private_key` at all, so a successful `certificates list` proves
+nothing about the master key (only certificate create-CA-signed and renew operations decrypt a
+private key). The server also refuses to start at all on a key that fails validation (wrong length,
+the old committed placeholder, or obviously non-random), so a successful start is itself part of the
+verification.
 
 ## 8. Deal with old backups
 

@@ -517,6 +517,8 @@ All commands require authentication with username, password, and TOTP code:
 ./rocketvault --username <username> --password <password> --totp-code <code> <command>
 ```
 
+Every command exits `1` on failure and `0` on success, so it's safe to chain with `&&` or run under `set -e` in scripts and CI.
+
 ### Output Formats
 
 All list and get commands support a global `--output` flag:
@@ -710,6 +712,29 @@ A vault has no data-plane role assignments when it's created — grant one befor
 ```
 
 **Note**: Backups are encrypted by default. Use `--encrypt=false` (with equals sign) to create unencrypted backups. The `./backups` directory is automatically created if it doesn't exist.
+
+### Master Key Rotation
+
+Re-encrypts every secret, key, and certificate sealed under the current `master_key` onto a new one. CLI-only (no HTTP route), admin-only, and an **offline** maintenance operation — stop the server first and back up the database before running it for real. The new key is always supplied via an environment variable, never as a literal flag value.
+
+```bash
+# Preview what would change, write nothing
+NEW_MASTER_KEY=$(openssl rand -base64 32) \
+  ./rocketvault --username admin --password admin123 --totp-code <code> \
+  master-key rotate --new-key-env NEW_MASTER_KEY --dry-run
+
+# Perform the rotation (prompts for interactive "yes" confirmation)
+NEW_MASTER_KEY=$(openssl rand -base64 32) \
+  ./rocketvault --username admin --password admin123 --totp-code <code> \
+  master-key rotate --new-key-env NEW_MASTER_KEY
+
+# Non-interactive (e.g. scripted/CI), with a custom batch size
+NEW_MASTER_KEY=$(openssl rand -base64 32) \
+  ./rocketvault --username admin --password admin123 --totp-code <code> \
+  master-key rotate --new-key-env NEW_MASTER_KEY --yes --batch-size 500
+```
+
+The rotation is resumable — already-migrated rows are skipped, so it's safe to re-run after an interruption. `--old-key-env` overrides which environment variable holds the *current* key (defaults to the `master_key` value from `.rocketvault.yaml`). Backups created under the old key are unaffected and remain restorable only with that old key. RocketVault also refuses to boot if `master_key` is invalid or matches a known-compromised default, so a stalled rotation can't leave the server running on a bad key. Full procedure: [`docs/runbooks/master-key-rotation.md`](docs/runbooks/master-key-rotation.md).
 
 ### System Health
 
@@ -1214,10 +1239,11 @@ This project is licensed under the MIT License. See [LICENSE](LICENSE) for detai
 This application implements industry-standard security practices:
 
 - **Encryption**: All sensitive data is encrypted at rest
-- **Authentication**: JWT tokens with TOTP MFA (asymmetric signing with JWKS rotation)
-- **Authorization**: Role-based access control + attribute-based access policies
-- **Audit Logging**: Comprehensive audit trails persisted to database and log files
-- **Secure Defaults**: Conservative security defaults
+- **Authentication**: JWT tokens with TOTP MFA — asymmetric signing only (RS256/ES256 with mandatory `kid`, JWKS rotation); the server aborts startup rather than degrade to a weaker signing mode
+- **Authorization**: Role-based access control + attribute-based access policies, enforced consistently on both the vault-scoped and legacy flat API routes
+- **Master Key Rotation**: `master-key rotate` CLI re-encrypts every master-key-sealed secret, key, and certificate onto a new key (resumable, dry-run-capable); the server refuses to boot on an invalid or known-compromised master key
+- **Audit Logging**: Comprehensive audit trails persisted to database and log files, with admin-gated access via both the API and CLI
+- **Secure Defaults**: Conservative security defaults; CI guards against real secrets ever being committed to the repository
 - **Rate Limiting**: Configurable per-endpoint rate limits to prevent brute force
 
 For detailed security information, see the [Security Documentation](doc/security.markdown).
