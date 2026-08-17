@@ -16,6 +16,7 @@ type KeyRotationPolicy struct {
 	ID                     uuid.UUID `json:"id" db:"id"`
 	KeyID                  uuid.UUID `json:"key_id" db:"key_id"`
 	UserID                 uuid.UUID `json:"user_id" db:"user_id"`
+	VaultID                uuid.UUID `json:"vault_id" db:"vault_id"`
 	RotateAfterDays        int       `json:"rotate_after_days" db:"rotate_after_days"`
 	NotifyBeforeExpiryDays int       `json:"notify_before_expiry_days" db:"notify_before_expiry_days"`
 	ExpiryDays             int       `json:"expiry_days" db:"expiry_days"`

@@ -11,6 +11,7 @@ import (
 type RotationPolicy struct {
 	ID           uuid.UUID `json:"id"`
 	UserID       uuid.UUID `json:"user_id"`
+	VaultID      uuid.UUID `json:"vault_id"`
 	Name         string    `json:"name"`
 	Description  string    `json:"description"`
 	IntervalDays int       `json:"interval_days"`
