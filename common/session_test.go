@@ -1,6 +1,7 @@
 package common
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"testing"
@@ -41,7 +42,7 @@ func TestSaveSession_SanitizesFilename(t *testing.T) {
 
 	require.NoError(t, SaveSession(&SessionCache{Username: "user14@exchange4all.local", Token: "t"}))
 
-	_, err := os.Stat(filepath.Join(SessionBaseDir, "user14_exchange4all.local.json"))
+	_, err := os.Stat(filepath.Join(SessionBaseDir, LocalServerKey+"__user14_exchange4all.local.json"))
 	assert.NoError(t, err)
 }
 
@@ -134,4 +135,106 @@ func TestDeleteSession_NonCurrentUser_LeavesPointerAlone(t *testing.T) {
 func TestDeleteSession_NonExistent_NoError(t *testing.T) {
 	SessionBaseDir = t.TempDir()
 	assert.NoError(t, DeleteSession("nobody"))
+}
+
+func TestSanitizeServerKey(t *testing.T) {
+	cases := map[string]string{
+		"":                                          LocalServerKey,
+		LocalServerKey:                               LocalServerKey,
+		"https://vault.prod.example.com":             "vault.prod.example.com",
+		"https://vault.prod.example.com:8443":        "vault.prod.example.com_8443",
+		"http://localhost:8774":                      "localhost_8774",
+	}
+	for in, want := range cases {
+		if got := SanitizeServerKey(in); got != want {
+			t.Errorf("SanitizeServerKey(%q) = %q, want %q", in, got, want)
+		}
+	}
+}
+
+func TestLoadSessionForServer_DifferentServers_DoNotCollide(t *testing.T) {
+	SessionBaseDir = t.TempDir()
+
+	prod := &SessionCache{Username: "admin", Token: "prod-token", ServerKey: SanitizeServerKey("https://vault.prod.example.com")}
+	staging := &SessionCache{Username: "admin", Token: "staging-token", ServerKey: SanitizeServerKey("https://vault.staging.example.com")}
+
+	if err := SaveSession(prod); err != nil {
+		t.Fatalf("SaveSession(prod): %v", err)
+	}
+	if err := SaveSession(staging); err != nil {
+		t.Fatalf("SaveSession(staging): %v", err)
+	}
+
+	gotProd, err := LoadSessionForServer(SanitizeServerKey("https://vault.prod.example.com"), "admin")
+	if err != nil || gotProd == nil || gotProd.Token != "prod-token" {
+		t.Fatalf("LoadSessionForServer(prod) = %+v, %v; want token prod-token", gotProd, err)
+	}
+	gotStaging, err := LoadSessionForServer(SanitizeServerKey("https://vault.staging.example.com"), "admin")
+	if err != nil || gotStaging == nil || gotStaging.Token != "staging-token" {
+		t.Fatalf("LoadSessionForServer(staging) = %+v, %v; want token staging-token", gotStaging, err)
+	}
+}
+
+func TestLoadSession_FallsBackToLegacyFormat_AndMigrates(t *testing.T) {
+	SessionBaseDir = t.TempDir()
+	os.MkdirAll(SessionBaseDir, 0700)
+
+	// Simulate a pre-remote-mode session file: bare "<username>.json", no
+	// server key at all.
+	legacy := &SessionCache{Username: "admin", Token: "legacy-token"}
+	data, _ := json.Marshal(legacy)
+	os.WriteFile(filepath.Join(SessionBaseDir, "admin.json"), data, 0600)
+
+	got, err := LoadSession("admin")
+	if err != nil || got == nil || got.Token != "legacy-token" {
+		t.Fatalf("LoadSession(admin) = %+v, %v; want fallback to legacy-token", got, err)
+	}
+
+	// It should have migrated: the new-format file now exists too.
+	if _, err := os.Stat(filepath.Join(SessionBaseDir, LocalServerKey+"__admin.json")); err != nil {
+		t.Fatalf("expected new-format file to exist after migration: %v", err)
+	}
+}
+
+func TestLoadCurrentSession_ParsesLegacyAndNewPointerFormats(t *testing.T) {
+	SessionBaseDir = t.TempDir()
+	os.MkdirAll(SessionBaseDir, 0700)
+
+	remote := &SessionCache{Username: "admin", Token: "remote-token", ServerKey: "vault.prod.example.com"}
+	if err := SaveSession(remote); err != nil {
+		t.Fatalf("SaveSession: %v", err)
+	}
+
+	got, err := LoadCurrentSession()
+	if err != nil || got == nil || got.Token != "remote-token" {
+		t.Fatalf("LoadCurrentSession() = %+v, %v; want remote-token", got, err)
+	}
+
+	// Legacy pointer format: bare username, no "|".
+	os.WriteFile(filepath.Join(SessionBaseDir, "current"), []byte("admin"), 0600)
+	legacySession := &SessionCache{Username: "admin", Token: "legacy-current-token"}
+	data, _ := json.Marshal(legacySession)
+	os.WriteFile(filepath.Join(SessionBaseDir, "admin.json"), data, 0600)
+
+	got2, err := LoadCurrentSession()
+	if err != nil || got2 == nil || got2.Token != "legacy-current-token" {
+		t.Fatalf("LoadCurrentSession() legacy pointer = %+v, %v; want legacy-current-token", got2, err)
+	}
+}
+
+func TestDeleteSessionForServer_ClearsCurrentPointerOnlyForMatchingServer(t *testing.T) {
+	SessionBaseDir = t.TempDir()
+
+	prodKey := SanitizeServerKey("https://vault.prod.example.com")
+	if err := SaveSession(&SessionCache{Username: "admin", Token: "t", ServerKey: prodKey}); err != nil {
+		t.Fatalf("SaveSession: %v", err)
+	}
+
+	if err := DeleteSessionForServer(prodKey, "admin"); err != nil {
+		t.Fatalf("DeleteSessionForServer: %v", err)
+	}
+
+	if s, err := LoadCurrentSession(); err != nil || s != nil {
+		t.Fatalf("LoadCurrentSession() after delete = %+v, %v; want nil, nil", s, err)
+	}
 }
