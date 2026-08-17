@@ -493,7 +493,14 @@ func (d *DBRepository) createOptimizedSchema(db *sql.DB) error {
 			expiry_days                INTEGER NOT NULL DEFAULT 365,
 			enabled                    BOOLEAN NOT NULL DEFAULT TRUE,
 			last_rotated_at            TIMESTAMP NULL,
-			next_rotation_at           TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+			-- Nullable, no default: deliberately mirrors migrateSchema's ALTER
+			-- TABLE for this column (see M3 in the final review). Every code
+			-- path that creates a row (KeyService.UpsertKeyRotationPolicy)
+			-- always sets this explicitly, so a fresh-install-only default
+			-- would only create a divergence from upgraded installs, not
+			-- serve any purpose. scanKeyRotationPolicyRow/Rows treat a NULL
+			-- value defensively (never swept as due).
+			next_rotation_at           TIMESTAMP NULL,
 			created_at                 TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
 			updated_at                 TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
 			FOREIGN KEY (key_id) REFERENCES keys(id) ON DELETE CASCADE,
@@ -798,7 +805,10 @@ func (d *DBRepository) migrateSchema(db *sql.DB) error {
 			expiry_days                INTEGER NOT NULL DEFAULT 365,
 			enabled                    BOOLEAN NOT NULL DEFAULT TRUE,
 			last_rotated_at            TIMESTAMP NULL,
-			next_rotation_at           TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+			-- Nullable, no default: matches the ALTER TABLE pair below and
+			-- createOptimizedSchema's copy of this table (see M3 in the
+			-- final review).
+			next_rotation_at           TIMESTAMP NULL,
 			created_at                 TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
 			updated_at                 TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
 			FOREIGN KEY (key_id) REFERENCES keys(id) ON DELETE CASCADE,

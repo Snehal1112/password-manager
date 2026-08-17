@@ -50,7 +50,7 @@ func (e *RotationExecutor) Check(ctx context.Context) error {
 			e.log.WithError(err).WithField("key_id", policy.KeyID).Error("automatic key rotation failed")
 			continue
 		}
-		if err := e.policyRepo.MarkRotated(ctx, policy.KeyID, model.NewAdminScope(uuid.Nil), time.Now(), policy.RotateAfterDays); err != nil {
+		if err := e.policyRepo.MarkRotated(ctx, policy.KeyID, model.NewAdminScope(uuid.Nil), time.Now().UTC(), policy.RotateAfterDays); err != nil {
 			// Rotation already succeeded -- do not retry the rotation itself
 			// next tick just because this bookkeeping write failed, or the
 			// key would be double-rotated.

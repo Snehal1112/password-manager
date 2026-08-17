@@ -41,8 +41,15 @@ func NewRunner(name string, checkFn CheckFunc, log *logging.Logger) *Runner {
 }
 
 // Start launches the ticker loop in the background and returns immediately
-// -- it does not block on the first check. Returns an error if already running.
+// -- it does not block on the first check. Returns an error if already
+// running, or if interval is not positive (time.NewTicker panics on
+// interval <= 0; this defends every caller, including any that fail to
+// guard a config-sourced interval themselves).
 func (r *Runner) Start(ctx context.Context, interval time.Duration) error {
+	if interval <= 0 {
+		return fmt.Errorf("%s scheduler: interval must be positive, got %s", r.name, interval)
+	}
+
 	r.mu.Lock()
 	if r.running {
 		r.mu.Unlock()
@@ -96,8 +103,29 @@ func (r *Runner) run() {
 			r.runOnce()
 		case <-r.stopChan:
 			return
+		case <-r.ctx.Done():
+			// Mirrors the pre-schedulerkit certificate scheduler, which
+			// exited its loop when its context was cancelled even without an
+			// explicit Stop() call. Without this, an embedder that cancels
+			// ctx but never calls Stop() leaks this goroutine forever.
+			r.markStopped()
+			return
 		}
 	}
+}
+
+// markStopped marks the runner as no longer running, matching the state
+// Stop() would leave it in. Safe to call even if Stop() is concurrently
+// racing it -- whichever runs first under the lock wins, and Stop() treats
+// an already-stopped runner as a no-op (see Stop's own !r.running check).
+func (r *Runner) markStopped() {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if !r.running {
+		return
+	}
+	r.running = false
+	r.ticker.Stop()
 }
 
 func (r *Runner) runOnce() {

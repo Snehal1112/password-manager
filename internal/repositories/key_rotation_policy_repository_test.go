@@ -39,6 +39,7 @@ func setupKeyRotationPolicyTestDB(t *testing.T) *sql.DB {
 		name TEXT NOT NULL,
 		value TEXT NOT NULL,
 		type TEXT NOT NULL,
+		deleted_at TIMESTAMP NULL,
 		created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 	)`)
 	require.NoError(t, err)
@@ -200,11 +201,34 @@ func TestDeleteByKeyID_CrossVaultDenied(t *testing.T) {
 	require.NoError(t, repo.DeleteByKeyID(ctx, keyID, model.NewVaultScope(vaultA, uuid.New())))
 }
 
+// insertLiveKey inserts a keys row that is not soft-deleted, of the given
+// type, for GetDuePolicies tests that need a real parent key to satisfy the
+// I2 join.
+func insertLiveKey(t *testing.T, sqlDB *sql.DB, id uuid.UUID, keyType string) {
+	t.Helper()
+	_, err := sqlDB.Exec(`INSERT INTO keys (id, user_id, vault_id, name, value, type) VALUES (?, ?, ?, 'k', 'v', ?)`,
+		id.String(), uuid.New().String(), uuid.New().String(), keyType)
+	require.NoError(t, err)
+}
+
+// insertSoftDeletedKey inserts a keys row with deleted_at set.
+func insertSoftDeletedKey(t *testing.T, sqlDB *sql.DB, id uuid.UUID, keyType string) {
+	t.Helper()
+	_, err := sqlDB.Exec(`INSERT INTO keys (id, user_id, vault_id, name, value, type, deleted_at) VALUES (?, ?, ?, 'k', 'v', ?, CURRENT_TIMESTAMP)`,
+		id.String(), uuid.New().String(), uuid.New().String(), keyType)
+	require.NoError(t, err)
+}
+
 func TestKeyRotationPolicy_GetDuePolicies_ReturnsOnlyEnabledDueRows(t *testing.T) {
-	db := setupKeyRotationPolicyTestDB(t)
-	repo := repositories.NewKeyRotationPolicyRepository(rvdb.NewConn(db, rvdb.SQLite), newKeyRotationPolicyTestLogger(t))
+	sqlDB := setupKeyRotationPolicyTestDB(t)
+	repo := repositories.NewKeyRotationPolicyRepository(rvdb.NewConn(sqlDB, rvdb.SQLite), newKeyRotationPolicyTestLogger(t))
 	ctx := context.Background()
-	now := time.Now()
+	// UTC, matching GetDuePolicies' own UTC-normalized comparison bound
+	// (M2): the sqlite3 driver stores a bound time.Time with whatever offset
+	// it carries, and SQLite compares TIMESTAMP columns as plain text, so a
+	// local-offset fixture compared against a UTC query parameter would
+	// sort incorrectly outside UTC-timezone test environments.
+	now := time.Now().UTC()
 
 	due := &model.KeyRotationPolicy{
 		ID: uuid.New(), KeyID: uuid.New(), UserID: uuid.New(), VaultID: uuid.New(),
@@ -226,7 +250,9 @@ func TestKeyRotationPolicy_GetDuePolicies_ReturnsOnlyEnabledDueRows(t *testing.T
 		RotateAfterDays: 0, Enabled: true, NextRotationAt: now.Add(-time.Hour),
 		CreatedAt: now, UpdatedAt: now,
 	}
-	for _, p := range []*model.KeyRotationPolicy{due, notYetDue, disabledButDue, noActionConfigured} {
+	policies := []*model.KeyRotationPolicy{due, notYetDue, disabledButDue, noActionConfigured}
+	for _, p := range policies {
+		insertLiveKey(t, sqlDB, p.KeyID, "RSA")
 		require.NoError(t, repo.Upsert(ctx, p))
 	}
 
@@ -234,6 +260,50 @@ func TestKeyRotationPolicy_GetDuePolicies_ReturnsOnlyEnabledDueRows(t *testing.T
 	require.NoError(t, err)
 	require.Len(t, got, 1)
 	require.Equal(t, due.ID, got[0].ID)
+}
+
+// TestKeyRotationPolicy_GetDuePolicies_ExcludesSoftDeletedAndOctKeys covers
+// I2 from the final review: a due, enabled policy whose parent key is
+// soft-deleted or an OCT (symmetric) key must never appear in the sweep --
+// both are permanent-failure classes for RotateKey (a deleted key's read is
+// filtered out; RotateKey has no branch for OCT keys), so including them
+// would retry the same doomed rotation forever. A normal due RSA-key policy
+// is included alongside them to prove the filter is selective, not just
+// always-empty.
+func TestKeyRotationPolicy_GetDuePolicies_ExcludesSoftDeletedAndOctKeys(t *testing.T) {
+	sqlDB := setupKeyRotationPolicyTestDB(t)
+	repo := repositories.NewKeyRotationPolicyRepository(rvdb.NewConn(sqlDB, rvdb.SQLite), newKeyRotationPolicyTestLogger(t))
+	ctx := context.Background()
+	now := time.Now().UTC() // See the sibling test above for why this must be UTC.
+
+	dueLive := &model.KeyRotationPolicy{
+		ID: uuid.New(), KeyID: uuid.New(), UserID: uuid.New(), VaultID: uuid.New(),
+		RotateAfterDays: 90, Enabled: true, NextRotationAt: now.Add(-time.Hour),
+		CreatedAt: now, UpdatedAt: now,
+	}
+	dueButKeyDeleted := &model.KeyRotationPolicy{
+		ID: uuid.New(), KeyID: uuid.New(), UserID: uuid.New(), VaultID: uuid.New(),
+		RotateAfterDays: 90, Enabled: true, NextRotationAt: now.Add(-time.Hour),
+		CreatedAt: now, UpdatedAt: now,
+	}
+	dueButKeyIsOct := &model.KeyRotationPolicy{
+		ID: uuid.New(), KeyID: uuid.New(), UserID: uuid.New(), VaultID: uuid.New(),
+		RotateAfterDays: 90, Enabled: true, NextRotationAt: now.Add(-time.Hour),
+		CreatedAt: now, UpdatedAt: now,
+	}
+
+	insertLiveKey(t, sqlDB, dueLive.KeyID, "RSA")
+	insertSoftDeletedKey(t, sqlDB, dueButKeyDeleted.KeyID, "RSA")
+	insertLiveKey(t, sqlDB, dueButKeyIsOct.KeyID, model.KeyTypeOct)
+
+	for _, p := range []*model.KeyRotationPolicy{dueLive, dueButKeyDeleted, dueButKeyIsOct} {
+		require.NoError(t, repo.Upsert(ctx, p))
+	}
+
+	got, err := repo.GetDuePolicies(ctx, model.NewAdminScope(uuid.Nil))
+	require.NoError(t, err)
+	require.Len(t, got, 1)
+	require.Equal(t, dueLive.ID, got[0].ID)
 }
 
 func TestKeyRotationPolicy_MarkRotated_UpdatesBothTimestamps(t *testing.T) {

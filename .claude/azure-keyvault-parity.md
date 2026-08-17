@@ -46,7 +46,7 @@ vaults). RocketVault columns are sourced from the codebase (`api/`, `internal/`,
 | Encrypt / Decrypt | ✅ | ✅ `POST /keys/{id}/encrypt`, `/decrypt` | ✅ |
 | Wrap / Unwrap key | ✅ | ✅ `POST /keys/{id}/wrap`, `/unwrap` | ✅ |
 | Backup / Restore | ✅ | ✅ `POST /keys/{id}/backup`, `/keys/restore` | ✅ |
-| Get/Set rotation policy | ✅ | ✅ `GET/PUT/DELETE /keys/{key_id}/rotationpolicy`, granted to Crypto Officer + Administrator (matching Azure's `keyrotationpolicies/*`); policy is stored and served, no scheduler enforces it yet (CRUD parity, not rotation-execution parity) | ✅ |
+| Get/Set rotation policy | ✅ | ✅ `GET/PUT/DELETE /keys/{key_id}/rotationpolicy`, granted to Crypto Officer + Administrator (matching Azure's `keyrotationpolicies/*`); a built-in scheduler (`internal/services/keys/rotation_executor.go`, wired via `rotation.keys.*` config) sweeps due, enabled policies and rotates automatically — full rotation-execution parity, not CRUD-only | ✅ |
 | Release (confidential compute) | ✅ | ❌ no TEE attestation flow | ❌ |
 | EXPORT blocked (keys non-extractable) | ✅ | ✅ private material never returned | ✅ |
 

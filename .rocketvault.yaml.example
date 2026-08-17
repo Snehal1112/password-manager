@@ -93,9 +93,13 @@ monitoring:
   metrics_interval: "60s"
   slow_query_threshold: "500ms"
 
-# Rotation scheduler intervals for secrets, certificates, and keys. Defaults
-# shown below match this file's previous hardcoded behavior; this section is
-# optional -- omitting it entirely is equivalent to these defaults.
+# Rotation scheduler intervals for secrets, certificates, and keys. This
+# section is optional -- omitting it entirely is equivalent to the defaults
+# shown below. secrets/certificates defaults match this file's previous
+# hardcoded behavior (1h / 24h); keys is a new capability as of this
+# section's introduction (key rotation policies were CRUD-only before, with
+# nothing executing them), enabled by default since it closes a real
+# security gap rather than changing existing behavior.
 rotation:
   secrets:
     enabled: true

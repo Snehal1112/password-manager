@@ -5,6 +5,7 @@ package keys
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"fmt"
 	"time"
@@ -476,18 +477,49 @@ func (s *keyService) UpsertKeyRotationPolicy(ctx context.Context, keyID uuid.UUI
 	if err != nil {
 		return nil, err
 	}
-	now := time.Now()
+	now := time.Now().UTC()
 
-	// Preserve an existing policy's rotation history: an Upsert that only
-	// changes e.g. notify_before_expiry_days must not reset the due-date
-	// clock an earlier automatic rotation already advanced.
+	// Pre-read the existing policy (if any) so we can preserve its rotation
+	// history rather than resetting the due-date clock on every edit. Only
+	// "no policy exists yet" (sql.ErrNoRows) is treated as a fresh create --
+	// any other read error (e.g. a transient DB failure) must propagate
+	// rather than being silently treated as "no existing policy", which
+	// would also incorrectly reset an update's due-date to key.CreatedAt.
+	existing, err := s.policyRepo.GetByKeyID(ctx, keyID, scope)
+	if err != nil && !errors.Is(err, sql.ErrNoRows) {
+		return nil, fmt.Errorf("read existing key rotation policy: %w", err)
+	}
+
 	var lastRotatedAt *time.Time
-	baseline := key.CreatedAt
-	if existing, err := s.policyRepo.GetByKeyID(ctx, keyID, scope); err == nil && existing != nil {
+	var nextRotationAt time.Time
+	switch {
+	case existing == nil:
+		// First-time creation: anchor on the key's own CreatedAt. This is a
+		// deliberate, single-key admin choice, not a mass retroactive event
+		// -- contrast with the migration backfill (internal/db/db.go),
+		// which anchors on the migration's own run time instead, precisely
+		// to avoid a mass-rotation hazard across every existing key at once.
+		nextRotationAt = key.CreatedAt.AddDate(0, 0, req.RotateAfterDays)
+	case existing.LastRotatedAt != nil:
+		// The policy has already auto-rotated at least once: recompute from
+		// that rotation, mirroring MarkRotated's own formula.
 		lastRotatedAt = existing.LastRotatedAt
-		if lastRotatedAt != nil {
-			baseline = *lastRotatedAt
-		}
+		nextRotationAt = lastRotatedAt.AddDate(0, 0, req.RotateAfterDays)
+	case req.RotateAfterDays != existing.RotateAfterDays:
+		// Never auto-rotated, but the caller is deliberately changing the
+		// rotation window itself -- a conscious admin choice on this
+		// specific key, so recompute from key.CreatedAt like a fresh policy.
+		nextRotationAt = key.CreatedAt.AddDate(0, 0, req.RotateAfterDays)
+	default:
+		// Never auto-rotated, and the rotation window (RotateAfterDays) is
+		// unchanged: this is a metadata-only edit (e.g. toggling Enabled or
+		// changing NotifyBeforeExpiryDays). Preserve the existing due-date
+		// instead of recomputing it from key.CreatedAt -- recomputing here
+		// would silently undo a migration backfill anchored on migration
+		// time (see internal/db/db.go) and could move the due-date into the
+		// past for any key older than its own rotation window, causing an
+		// unplanned immediate rotation on the next scheduler tick.
+		nextRotationAt = existing.NextRotationAt
 	}
 
 	policy := &model.KeyRotationPolicy{
@@ -500,7 +532,7 @@ func (s *keyService) UpsertKeyRotationPolicy(ctx context.Context, keyID uuid.UUI
 		ExpiryDays:             req.ExpiryDays,
 		Enabled:                req.Enabled,
 		LastRotatedAt:          lastRotatedAt,
-		NextRotationAt:         baseline.AddDate(0, 0, req.RotateAfterDays),
+		NextRotationAt:         nextRotationAt,
 		CreatedAt:              now,
 		UpdatedAt:              now,
 	}

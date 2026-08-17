@@ -1464,7 +1464,7 @@ curl -s -X POST $BASE/api/v1/keys -H "Authorization: Bearer $TOKEN" \
 <section id="key-rotation-policy">
   <h2>Key Rotation Policy</h2>
   <h3>What it is</h3>
-  <p>A per-key policy describing how a key should be rotated: how many days after creation it should rotate, how many days before a version's expiry to fire a reminder, and how long each new version stays valid. This is a CRUD resource only — RocketVault stores and serves the policy, but no scheduler currently reads it to trigger an actual rotation (that's a planned follow-up, not shipped yet).</p>
+  <p>A per-key policy describing how a key should be rotated: how many days after creation it should rotate, how many days before a version's expiry to fire a reminder, and how long each new version stays valid. A built-in scheduler sweeps for due, enabled policies and calls key rotation automatically (matching how the certificate renewal scan and the secret rotation scheduler execute their own policies); the reminder/expiry fields are stored but not yet acted on by any notification mechanism.</p>
   <div class="ep">
     <div class="ep-hd"><span class="meth meth-get">GET</span> <span class="ep-path">/api/v1/keys/{id}/rotationpolicy</span> <span class="ep-label">Get policy</span></div>
     <div class="tab-bar"><button class="tab-btn active">cURL</button><button class="tab-btn">Response</button></div>

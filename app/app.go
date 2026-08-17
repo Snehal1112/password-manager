@@ -124,8 +124,8 @@ func (a *App) StartServer(ctx context.Context) error {
 		scheduler := a.ServiceContainer.GetSchedulerService()
 		if scheduler != nil {
 			interval := a.schedulerInterval
-			if interval == 0 {
-				interval = 1 * time.Hour // Default to 1 hour if not specified
+			if interval <= 0 {
+				interval = 1 * time.Hour // Default to 1 hour if not specified, or if a config value was invalid (e.g. negative).
 			}
 
 			// scheduler.Start already logs its own success line; only log here on failure.

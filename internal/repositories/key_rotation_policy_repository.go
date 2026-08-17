@@ -82,14 +82,25 @@ func (r *KeyRotationPolicyRepository) GetByKeyID(ctx context.Context, keyID uuid
 // GetDuePolicies returns enabled policies with a configured rotation action
 // (rotate_after_days > 0) whose next_rotation_at has passed, authorized by
 // scope. The scheduler sweep always passes an admin scope (see spec section 10).
+//
+// The parent key must also still exist, not be soft-deleted, and not be an
+// OCT (symmetric) key -- both are permanent-failure classes for RotateKey
+// (a deleted key's read is filtered out; OCT keys have no rotation branch in
+// RotateKey's type switch), so excluding them here keeps the sweep from
+// retrying the same doomed rotation on every tick forever (see I2 in the
+// final review). This is expressed as a subquery, not a JOIN, so the scope
+// predicate appended by ScopedList (an unqualified "vault_id = ?" / "user_id
+// = ?") stays unambiguous -- a JOIN against keys, which also has vault_id
+// and user_id columns, would make that predicate ambiguous in SQL.
 func (r *KeyRotationPolicyRepository) GetDuePolicies(ctx context.Context, scope model.Scope) ([]model.KeyRotationPolicy, error) {
 	query := `
 		SELECT id, key_id, user_id, vault_id, rotate_after_days, notify_before_expiry_days,
 		       expiry_days, enabled, last_rotated_at, next_rotation_at, created_at, updated_at
 		FROM key_rotation_policies
 		WHERE enabled = TRUE AND rotate_after_days > 0 AND next_rotation_at <= ?
+		  AND key_id IN (SELECT id FROM keys WHERE deleted_at IS NULL AND type != ?)
 	`
-	due, err := ScopedList(ctx, r.db, query, []any{time.Now()}, scope, scanKeyRotationPolicyRows)
+	due, err := ScopedList(ctx, r.db, query, []any{time.Now().UTC(), model.KeyTypeOct}, scope, scanKeyRotationPolicyRows)
 	if err != nil {
 		r.log.WithError(err).Error("Failed to get due key rotation policies")
 		return nil, fmt.Errorf("failed to get due key rotation policies: %w", err)
@@ -139,10 +150,10 @@ func (r *KeyRotationPolicyRepository) DeleteByKeyID(ctx context.Context, keyID u
 func scanKeyRotationPolicyRow(row *sql.Row) (*model.KeyRotationPolicy, error) {
 	var p model.KeyRotationPolicy
 	var idStr, keyIDStr, userIDStr, vaultIDStr string
-	var lastRotatedAt sql.NullTime
+	var lastRotatedAt, nextRotationAt sql.NullTime
 	if err := row.Scan(&idStr, &keyIDStr, &userIDStr, &vaultIDStr,
 		&p.RotateAfterDays, &p.NotifyBeforeExpiryDays, &p.ExpiryDays, &p.Enabled,
-		&lastRotatedAt, &p.NextRotationAt, &p.CreatedAt, &p.UpdatedAt); err != nil {
+		&lastRotatedAt, &nextRotationAt, &p.CreatedAt, &p.UpdatedAt); err != nil {
 		return nil, err
 	}
 	var err error
@@ -160,6 +171,15 @@ func scanKeyRotationPolicyRow(row *sql.Row) (*model.KeyRotationPolicy, error) {
 	}
 	if lastRotatedAt.Valid {
 		p.LastRotatedAt = &lastRotatedAt.Time
+	}
+	// A NULL next_rotation_at (M3 in the final review: a mixed-binary
+	// rolling upgrade could leave this NULL despite the fresh-install
+	// schema's historical NOT NULL) leaves NextRotationAt at its Go zero
+	// value rather than erroring the scan. That zero value naturally fails
+	// GetDuePolicies' "next_rotation_at <= ?" comparison, so such a row is
+	// simply never swept -- the safe default.
+	if nextRotationAt.Valid {
+		p.NextRotationAt = nextRotationAt.Time
 	}
 	return &p, nil
 }
@@ -169,10 +189,10 @@ func scanKeyRotationPolicyRow(row *sql.Row) (*model.KeyRotationPolicy, error) {
 func scanKeyRotationPolicyRows(rows *sql.Rows) (model.KeyRotationPolicy, error) {
 	var p model.KeyRotationPolicy
 	var idStr, keyIDStr, userIDStr, vaultIDStr string
-	var lastRotatedAt sql.NullTime
+	var lastRotatedAt, nextRotationAt sql.NullTime
 	if err := rows.Scan(&idStr, &keyIDStr, &userIDStr, &vaultIDStr,
 		&p.RotateAfterDays, &p.NotifyBeforeExpiryDays, &p.ExpiryDays, &p.Enabled,
-		&lastRotatedAt, &p.NextRotationAt, &p.CreatedAt, &p.UpdatedAt); err != nil {
+		&lastRotatedAt, &nextRotationAt, &p.CreatedAt, &p.UpdatedAt); err != nil {
 		return p, err
 	}
 	var err error
@@ -190,6 +210,12 @@ func scanKeyRotationPolicyRows(rows *sql.Rows) (model.KeyRotationPolicy, error) 
 	}
 	if lastRotatedAt.Valid {
 		p.LastRotatedAt = &lastRotatedAt.Time
+	}
+	// See scanKeyRotationPolicyRow's identical comment: a NULL
+	// next_rotation_at is left at its Go zero value (M3), which safely
+	// excludes the row from GetDuePolicies' due comparison.
+	if nextRotationAt.Valid {
+		p.NextRotationAt = nextRotationAt.Time
 	}
 	return p, nil
 }
