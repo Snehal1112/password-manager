@@ -46,6 +46,7 @@ func setupKeyRotationPolicyTestDB(t *testing.T) *sql.DB {
 		id                         TEXT PRIMARY KEY,
 		key_id                     TEXT NOT NULL UNIQUE,
 		user_id                    TEXT NOT NULL,
+		vault_id                   TEXT NOT NULL DEFAULT '00000000-0000-0000-0000-00000000efa1',
 		rotate_after_days          INTEGER NOT NULL DEFAULT 90,
 		notify_before_expiry_days  INTEGER NOT NULL DEFAULT 30,
 		expiry_days                INTEGER NOT NULL DEFAULT 365,
@@ -71,11 +72,13 @@ func TestKeyRotationPolicy_UpsertAndGet(t *testing.T) {
 
 	keyID := uuid.New()
 	userID := uuid.New()
+	vaultID := uuid.New()
 
 	policy := &model.KeyRotationPolicy{
 		ID:                     uuid.New(),
 		KeyID:                  keyID,
 		UserID:                 userID,
+		VaultID:                vaultID,
 		RotateAfterDays:        90,
 		NotifyBeforeExpiryDays: 30,
 		ExpiryDays:             365,
@@ -85,7 +88,8 @@ func TestKeyRotationPolicy_UpsertAndGet(t *testing.T) {
 	}
 	require.NoError(t, repo.Upsert(context.Background(), policy))
 
-	loaded, err := repo.GetByKeyID(context.Background(), keyID, userID)
+	scope := model.NewVaultScope(vaultID, uuid.New())
+	loaded, err := repo.GetByKeyID(context.Background(), keyID, scope)
 	require.NoError(t, err)
 	require.Equal(t, 90, loaded.RotateAfterDays)
 	require.True(t, loaded.Enabled)
@@ -97,23 +101,25 @@ func TestKeyRotationPolicy_UpsertUpdatesExisting(t *testing.T) {
 
 	keyID := uuid.New()
 	userID := uuid.New()
+	vaultID := uuid.New()
 	now := time.Now()
 
 	first := &model.KeyRotationPolicy{
-		ID: uuid.New(), KeyID: keyID, UserID: userID,
+		ID: uuid.New(), KeyID: keyID, UserID: userID, VaultID: vaultID,
 		RotateAfterDays: 90, NotifyBeforeExpiryDays: 30, ExpiryDays: 365, Enabled: true,
 		CreatedAt: now, UpdatedAt: now,
 	}
 	require.NoError(t, repo.Upsert(context.Background(), first))
 
 	second := &model.KeyRotationPolicy{
-		ID: uuid.New(), KeyID: keyID, UserID: userID,
+		ID: uuid.New(), KeyID: keyID, UserID: userID, VaultID: vaultID,
 		RotateAfterDays: 30, NotifyBeforeExpiryDays: 7, ExpiryDays: 180, Enabled: false,
 		CreatedAt: now, UpdatedAt: now,
 	}
 	require.NoError(t, repo.Upsert(context.Background(), second))
 
-	loaded, err := repo.GetByKeyID(context.Background(), keyID, userID)
+	scope := model.NewVaultScope(vaultID, uuid.New())
+	loaded, err := repo.GetByKeyID(context.Background(), keyID, scope)
 	require.NoError(t, err)
 	require.Equal(t, 30, loaded.RotateAfterDays)
 	require.Equal(t, 7, loaded.NotifyBeforeExpiryDays)
@@ -126,55 +132,68 @@ func TestKeyRotationPolicy_DeleteByKeyID(t *testing.T) {
 
 	keyID := uuid.New()
 	userID := uuid.New()
+	vaultID := uuid.New()
 	now := time.Now()
 
 	policy := &model.KeyRotationPolicy{
-		ID: uuid.New(), KeyID: keyID, UserID: userID,
+		ID: uuid.New(), KeyID: keyID, UserID: userID, VaultID: vaultID,
 		RotateAfterDays: 90, NotifyBeforeExpiryDays: 30, ExpiryDays: 365, Enabled: true,
 		CreatedAt: now, UpdatedAt: now,
 	}
 	require.NoError(t, repo.Upsert(context.Background(), policy))
-	require.NoError(t, repo.DeleteByKeyID(context.Background(), keyID, userID))
 
-	_, err := repo.GetByKeyID(context.Background(), keyID, userID)
+	scope := model.NewVaultScope(vaultID, uuid.New())
+	require.NoError(t, repo.DeleteByKeyID(context.Background(), keyID, scope))
+
+	_, err := repo.GetByKeyID(context.Background(), keyID, scope)
 	require.Error(t, err)
 }
 
-func TestKeyRotationPolicyRepository_GetByKeyIDAny_IgnoresOwner(t *testing.T) {
-	db := setupKeyRotationPolicyTestDB(t)
-	repo := repositories.NewKeyRotationPolicyRepository(rvdb.NewConn(db, rvdb.SQLite), newKeyRotationPolicyTestLogger(t))
+func TestGetByKeyID_CrossVaultDenied(t *testing.T) {
+	sqlDB := setupKeyRotationPolicyTestDB(t)
+	repo := repositories.NewKeyRotationPolicyRepository(rvdb.NewConn(sqlDB, rvdb.SQLite), newKeyRotationPolicyTestLogger(t))
 	ctx := context.Background()
 
-	keyID := uuid.New()
-	ownerID := uuid.New()
-	policy := &model.KeyRotationPolicy{
-		ID: uuid.New(), KeyID: keyID, UserID: ownerID,
-		RotateAfterDays: 90, NotifyBeforeExpiryDays: 30, ExpiryDays: 365, Enabled: true,
-		CreatedAt: time.Now(), UpdatedAt: time.Now(),
-	}
-	require.NoError(t, repo.Upsert(ctx, policy))
-
-	got, err := repo.GetByKeyIDAny(ctx, keyID)
+	vaultA, vaultB := uuid.New(), uuid.New()
+	keyID, userID := uuid.New(), uuid.New()
+	_, err := sqlDB.Exec(`INSERT INTO keys (id, user_id, vault_id, name, value, type) VALUES (?, ?, ?, 'k', 'v', 'RSA')`,
+		keyID.String(), userID.String(), vaultA.String())
 	require.NoError(t, err)
-	require.Equal(t, keyID, got.KeyID)
-}
 
-func TestKeyRotationPolicyRepository_DeleteByKeyIDAny_IgnoresOwner(t *testing.T) {
-	db := setupKeyRotationPolicyTestDB(t)
-	repo := repositories.NewKeyRotationPolicyRepository(rvdb.NewConn(db, rvdb.SQLite), newKeyRotationPolicyTestLogger(t))
-	ctx := context.Background()
-
-	keyID := uuid.New()
-	ownerID := uuid.New()
+	now := time.Now()
 	policy := &model.KeyRotationPolicy{
-		ID: uuid.New(), KeyID: keyID, UserID: ownerID,
+		ID: uuid.New(), KeyID: keyID, UserID: userID, VaultID: vaultA,
 		RotateAfterDays: 90, NotifyBeforeExpiryDays: 30, ExpiryDays: 365, Enabled: true,
-		CreatedAt: time.Now(), UpdatedAt: time.Now(),
+		CreatedAt: now, UpdatedAt: now,
 	}
 	require.NoError(t, repo.Upsert(ctx, policy))
 
-	require.NoError(t, repo.DeleteByKeyIDAny(ctx, keyID))
+	_, err = repo.GetByKeyID(ctx, keyID, model.NewVaultScope(vaultB, uuid.New()))
+	require.Error(t, err, "a policy on a vault-A key must not be readable under vault B's scope")
 
-	_, err := repo.GetByKeyIDAny(ctx, keyID)
-	require.Error(t, err)
+	got, err := repo.GetByKeyID(ctx, keyID, model.NewVaultScope(vaultA, uuid.New()))
+	require.NoError(t, err)
+	require.Equal(t, policy.ID, got.ID)
+}
+
+func TestDeleteByKeyID_CrossVaultDenied(t *testing.T) {
+	sqlDB := setupKeyRotationPolicyTestDB(t)
+	repo := repositories.NewKeyRotationPolicyRepository(rvdb.NewConn(sqlDB, rvdb.SQLite), newKeyRotationPolicyTestLogger(t))
+	ctx := context.Background()
+
+	vaultA, vaultB := uuid.New(), uuid.New()
+	keyID, userID := uuid.New(), uuid.New()
+	_, err := sqlDB.Exec(`INSERT INTO keys (id, user_id, vault_id, name, value, type) VALUES (?, ?, ?, 'k', 'v', 'RSA')`,
+		keyID.String(), userID.String(), vaultA.String())
+	require.NoError(t, err)
+
+	now := time.Now()
+	require.NoError(t, repo.Upsert(ctx, &model.KeyRotationPolicy{
+		ID: uuid.New(), KeyID: keyID, UserID: userID, VaultID: vaultA,
+		RotateAfterDays: 90, NotifyBeforeExpiryDays: 30, ExpiryDays: 365, Enabled: true,
+		CreatedAt: now, UpdatedAt: now,
+	}))
+
+	require.Error(t, repo.DeleteByKeyID(ctx, keyID, model.NewVaultScope(vaultB, uuid.New())))
+	require.NoError(t, repo.DeleteByKeyID(ctx, keyID, model.NewVaultScope(vaultA, uuid.New())))
 }

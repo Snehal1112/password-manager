@@ -51,29 +51,16 @@ func (m *mockKeyRotationPolicyRepo) Upsert(ctx context.Context, policy *model.Ke
 	return args.Error(0)
 }
 
-func (m *mockKeyRotationPolicyRepo) GetByKeyID(ctx context.Context, keyID, userID uuid.UUID) (*model.KeyRotationPolicy, error) {
-	args := m.Called(ctx, keyID, userID)
+func (m *mockKeyRotationPolicyRepo) GetByKeyID(ctx context.Context, keyID uuid.UUID, scope model.Scope) (*model.KeyRotationPolicy, error) {
+	args := m.Called(ctx, keyID, scope)
 	if args.Get(0) == nil {
 		return nil, args.Error(1)
 	}
 	return args.Get(0).(*model.KeyRotationPolicy), args.Error(1)
 }
 
-func (m *mockKeyRotationPolicyRepo) DeleteByKeyID(ctx context.Context, keyID, userID uuid.UUID) error {
-	args := m.Called(ctx, keyID, userID)
-	return args.Error(0)
-}
-
-func (m *mockKeyRotationPolicyRepo) GetByKeyIDAny(ctx context.Context, keyID uuid.UUID) (*model.KeyRotationPolicy, error) {
-	args := m.Called(ctx, keyID)
-	if args.Get(0) == nil {
-		return nil, args.Error(1)
-	}
-	return args.Get(0).(*model.KeyRotationPolicy), args.Error(1)
-}
-
-func (m *mockKeyRotationPolicyRepo) DeleteByKeyIDAny(ctx context.Context, keyID uuid.UUID) error {
-	args := m.Called(ctx, keyID)
+func (m *mockKeyRotationPolicyRepo) DeleteByKeyID(ctx context.Context, keyID uuid.UUID, scope model.Scope) error {
+	args := m.Called(ctx, keyID, scope)
 	return args.Error(0)
 }
 
@@ -235,9 +222,10 @@ func newKeyRotationPolicyCtx(repo repositories.KeyRotationPolicyRepositoryInterf
 // newKeyRotationPolicyCtxKeyNotVisible builds a Context whose key-service
 // pre-check fails, simulating a caller that cannot see the parent key (e.g.
 // wrong scope, deleted key). This exercises the actual security boundary of
-// these handlers: GetByKeyIDAny/DeleteByKeyIDAny are owner-agnostic, so the
-// keySvc.GetKey pre-check is what stops an unauthorized caller from reading
-// or mutating another key's rotation policy through them. The stub error
+// these handlers: this mock's GetByKeyID/DeleteByKeyID succeed regardless of
+// the scope passed in, so the keySvc.GetKey pre-check is what stops an
+// unauthorized caller from reading or mutating another key's rotation policy
+// through them. The stub error
 // wraps ErrKeyNotFound, matching what the real KeyService.GetKey always
 // returns on a failed read (never a bare, unwrapped error) -- see
 // keyService.GetKey in internal/services/keys/key_service.go.
@@ -272,7 +260,7 @@ func TestGetKeyRotationPolicy_InvalidKeyID_Returns400(t *testing.T) {
 func TestGetKeyRotationPolicy_NotFound_Returns404(t *testing.T) {
 	keyID := uuid.New()
 	repo := &mockKeyRotationPolicyRepo{}
-	repo.On("GetByKeyIDAny", mock.Anything, keyID).Return(nil, errors.New("not found"))
+	repo.On("GetByKeyID", mock.Anything, keyID, mock.Anything).Return(nil, errors.New("not found"))
 
 	c := newKeyRotationPolicyCtx(repo, keyID.String())
 	w := httptest.NewRecorder()
@@ -349,7 +337,7 @@ func TestGetKeyRotationPolicy_Success_Returns200(t *testing.T) {
 	keyID := uuid.New()
 	userID := uuid.MustParse(krpTestUserID)
 	repo := &mockKeyRotationPolicyRepo{}
-	repo.On("GetByKeyIDAny", mock.Anything, keyID).Return(&model.KeyRotationPolicy{
+	repo.On("GetByKeyID", mock.Anything, keyID, mock.Anything).Return(&model.KeyRotationPolicy{
 		ID: uuid.New(), KeyID: keyID, UserID: userID, RotateAfterDays: 90,
 	}, nil)
 
@@ -442,7 +430,7 @@ func TestUpsertKeyRotationPolicy_Success_Returns200(t *testing.T) {
 	userID := uuid.MustParse(krpTestUserID)
 	repo := &mockKeyRotationPolicyRepo{}
 	repo.On("Upsert", mock.Anything, mock.Anything).Return(nil)
-	repo.On("GetByKeyIDAny", mock.Anything, keyID).Return(&model.KeyRotationPolicy{
+	repo.On("GetByKeyID", mock.Anything, keyID, mock.Anything).Return(&model.KeyRotationPolicy{
 		ID: uuid.New(), KeyID: keyID, UserID: userID, RotateAfterDays: 90, Enabled: true,
 	}, nil)
 
@@ -499,7 +487,7 @@ func TestDeleteKeyRotationPolicy_KeyNotVisible_Returns404(t *testing.T) {
 func TestDeleteKeyRotationPolicy_ServiceError_Returns500(t *testing.T) {
 	keyID := uuid.New()
 	repo := &mockKeyRotationPolicyRepo{}
-	repo.On("DeleteByKeyIDAny", mock.Anything, keyID).Return(errors.New("db error"))
+	repo.On("DeleteByKeyID", mock.Anything, keyID, mock.Anything).Return(errors.New("db error"))
 
 	c := newKeyRotationPolicyCtx(repo, keyID.String())
 	w := httptest.NewRecorder()
@@ -517,7 +505,7 @@ func TestDeleteKeyRotationPolicy_ServiceError_Returns500(t *testing.T) {
 func TestDeleteKeyRotationPolicy_Success_Returns200(t *testing.T) {
 	keyID := uuid.New()
 	repo := &mockKeyRotationPolicyRepo{}
-	repo.On("DeleteByKeyIDAny", mock.Anything, keyID).Return(nil)
+	repo.On("DeleteByKeyID", mock.Anything, keyID, mock.Anything).Return(nil)
 
 	c := newKeyRotationPolicyCtx(repo, keyID.String())
 	w := httptest.NewRecorder()
