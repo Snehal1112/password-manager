@@ -37,7 +37,9 @@ func TestMigrateSchema_RotationPoliciesVaultID(t *testing.T) {
 		CREATE TABLE audit_logs (id TEXT PRIMARY KEY);
 		CREATE TABLE vaults (
 			id TEXT PRIMARY KEY, name TEXT NOT NULL, enabled BOOLEAN NOT NULL DEFAULT TRUE,
-			created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, scheduled_purge_at TIMESTAMP NULL
+			purge_protection BOOLEAN NOT NULL DEFAULT FALSE, retention_days INTEGER NOT NULL DEFAULT 90,
+			created_by TEXT NOT NULL, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+			deleted_at TIMESTAMP NULL, scheduled_purge_at TIMESTAMP NULL
 		);
 		-- keys pre-dates this migration's ADD COLUMN in real installs, but already
 		-- has vault_id from the 2026-07-26 migration, which runs earlier in the

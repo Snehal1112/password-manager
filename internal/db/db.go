@@ -849,11 +849,6 @@ func (d *DBRepository) migrateSchema(db *sql.DB) error {
 			scheduled_purge_at TIMESTAMP NULL
 		)`,
 		"CREATE INDEX IF NOT EXISTS idx_vaults_name ON vaults(name)",
-		// Vault columns for older databases that might not have these yet.
-		"ALTER TABLE vaults ADD COLUMN retention_days INTEGER NOT NULL DEFAULT 90",
-		"ALTER TABLE vaults ADD COLUMN purge_protection BOOLEAN NOT NULL DEFAULT FALSE",
-		"ALTER TABLE vaults ADD COLUMN deleted_at TIMESTAMP NULL",
-		"ALTER TABLE vaults ADD COLUMN created_by TEXT NOT NULL DEFAULT '00000000-0000-0000-0000-000000000000'",
 		// Vault tags + modification tracking (Azure parity). Tags stored as a JSON
 		// object; (de)serialization is confined to vault_repository.go.
 		"ALTER TABLE vaults ADD COLUMN tags TEXT NOT NULL DEFAULT '{}'",
