@@ -302,9 +302,11 @@ the exploit with the leaked secret.
 including `master_key` — see item 6 below, executed 2026-08-16 against the
 real dev database with a full change log at
 `.claude/master-key-rotation-log-2026-08-16.md`) — see
-`docs/superpowers/plans/2026-08-16-secrets-in-git-remediation.md`. Git history
-still contains every value listed below; purging it is a separate, deferred
-task — `docs/superpowers/plans/2026-08-16-git-history-secret-purge-followup.md`.
+`docs/superpowers/plans/2026-08-16-secrets-in-git-remediation.md`. Git-history
+purge ran 2026-08-17 (see item 9 below) — the "remaining, tracked separately"
+gap this note used to describe is closed. One recurrence happened in between
+(also item 9): a separate session re-tracked `.rocketvault.yaml` directly on
+`v-4.0.0` and pushed it before the structural fix had merged there.
 **Severity**: Resolved — was High (full offline decryption of every stored
 secret, admin-token forgery via the paired H1 finding, and first-admin-bootstrap
 takeover, confirmed by live git-history inspection in
@@ -379,6 +381,30 @@ into a doc before that removal).
    shared PKCS#11 token state, not a config value.
 8. Nine other tracked files with duplicated literal values fixed to placeholders
    or config-driven reads.
+9. **Recurrence + git-history purge, 2026-08-17.** Before this branch's fix
+   (item 1-2 above) had merged into `v-4.0.0`, a separate Claude Code session
+   working directly on the main checkout ran its own master_key rotation and
+   committed the result — including `.rocketvault.yaml`, still git-tracked on
+   `v-4.0.0` at that point — in commit `79d3598` ("chore: rotate dev
+   master_key, update compose healthcheck path"), which was pushed to
+   `origin/v-4.0.0` before being noticed. This put a second `master_key` value
+   live in public git history (repo confirmed public; confirmed not used in
+   production) alongside the four original values. Response: (a) merged this
+   branch's fix into `v-4.0.0` so the file stays untracked going forward; (b)
+   ran a full `git-filter-repo` purge against a fresh mirror clone — removed
+   every historical `.rocketvault*.yaml`/`.password-manager*.yaml` file
+   entirely and scrubbed all 7 known secret literals (the original 6 plus the
+   `79d3598` value) from every remaining blob, across all 1027 commits, 6
+   branches, 7 tags; verified clean via a full object-level sweep (9401
+   objects, zero matches) before force-pushing the rewritten history (no other
+   clones/forks existed, confirmed by the human operator, so no collaborator
+   coordination was needed); (c) rotated `master_key` a third time so the live
+   value was never exposed anywhere in history. Full detail:
+   `.claude/master-key-rotation-log-2026-08-16.md` (§ "Third rotation —
+   2026-08-17"). **Residual risk**: any clone/fork/cache made before
+   2026-08-17, outside the operator's knowledge, still has the pre-purge
+   history — accepted, same as the four original values' pre-rotation
+   exposure.
 
 **Regression tests**: none in the traditional sense (no Go logic changed beyond
 one test-fixture swap) — the "tests" for this fix are the CI gate itself
