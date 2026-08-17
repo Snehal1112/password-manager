@@ -379,6 +379,17 @@ func TestRunVersionLatest_ServiceReturnsError(t *testing.T) {
 	assert.Contains(t, err.Error(), "failed to get latest version")
 }
 
+// rotationCtxMissingServiceContainer builds a context carrying valid
+// authentication claims (so the rotation subcommand's claims check passes)
+// but no service container, to exercise the "service container not
+// available" branch that runs after vault-authorization setup but before the
+// vault lookup itself.
+func rotationCtxMissingServiceContainer() context.Context {
+	userID := uuid.New()
+	ctx := context.WithValue(context.Background(), common.UserIDKey, userID)
+	return context.WithValue(ctx, common.ClaimsKey, &model.Claims{UserID: userID})
+}
+
 // ---------------------------------------------------------------------------
 // runRotationCreate
 // ---------------------------------------------------------------------------
@@ -390,7 +401,7 @@ func TestRunRotationCreate_ServiceContainerMissing(t *testing.T) {
 	policyAutoRotate = false
 	policyDescription = ""
 
-	ctx := context.WithValue(context.Background(), common.UserIDKey, uuid.New())
+	ctx := rotationCtxMissingServiceContainer()
 
 	cmd := &cobra.Command{Use: "create", RunE: rotationCreateCmd.RunE}
 	cmd.SetContext(ctx)
@@ -426,7 +437,7 @@ func TestRunRotationCreate_ServiceReturnsError(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestRunRotationList_ServiceContainerMissing(t *testing.T) {
-	ctx := context.WithValue(context.Background(), common.UserIDKey, uuid.New())
+	ctx := rotationCtxMissingServiceContainer()
 
 	cmd := &cobra.Command{Use: "list", RunE: rotationListCmd.RunE}
 	cmd.SetContext(ctx)
@@ -439,7 +450,7 @@ func TestRunRotationList_ServiceContainerMissing(t *testing.T) {
 func TestRunRotationList_ServiceReturnsError(t *testing.T) {
 	tc, mockRotSvc := setupRotationTestContext(t)
 
-	mockRotSvc.On("ListUserPolicies", mock.Anything, tc.TestUserID).
+	mockRotSvc.On("ListPolicies", mock.Anything, model.NewVaultScope(tc.TestVaultID, tc.TestUserID)).
 		Return(nil, fmt.Errorf("db error"))
 
 	cmd := &cobra.Command{Use: "list", RunE: rotationListCmd.RunE}
@@ -453,7 +464,7 @@ func TestRunRotationList_ServiceReturnsError(t *testing.T) {
 func TestRunRotationList_WithPolicies(t *testing.T) {
 	tc, mockRotSvc := setupRotationTestContext(t)
 
-	mockRotSvc.On("ListUserPolicies", mock.Anything, tc.TestUserID).
+	mockRotSvc.On("ListPolicies", mock.Anything, model.NewVaultScope(tc.TestVaultID, tc.TestUserID)).
 		Return([]model.RotationPolicy{
 			{ID: uuid.New(), Name: "pol-1", IntervalDays: 30, AutoRotate: false, Enabled: true, CreatedAt: time.Now()},
 		}, nil)
@@ -487,7 +498,7 @@ func TestRunRotationUpdate_Success(t *testing.T) {
 		Enabled:      true,
 	}
 
-	mockRotSvc.On("GetPolicy", mock.Anything, pid).Return(existing, nil)
+	mockRotSvc.On("GetPolicy", mock.Anything, pid, model.NewVaultScope(tc.TestVaultID, tc.TestUserID)).Return(existing, nil)
 	mockRotSvc.On("UpdatePolicy", mock.Anything, mock.MatchedBy(func(r secretServices.UpdatePolicyRequest) bool {
 		return r.ID == pid && r.Name == "new-name"
 	})).Return(&model.RotationPolicy{ID: pid, Name: "new-name"}, nil)
@@ -527,7 +538,7 @@ func TestRunRotationUpdate_AllFlagsChanged(t *testing.T) {
 		Enabled:      true,
 	}
 
-	mockRotSvc.On("GetPolicy", mock.Anything, pid).Return(existing, nil)
+	mockRotSvc.On("GetPolicy", mock.Anything, pid, model.NewVaultScope(tc.TestVaultID, tc.TestUserID)).Return(existing, nil)
 	mockRotSvc.On("UpdatePolicy", mock.Anything, mock.MatchedBy(func(r secretServices.UpdatePolicyRequest) bool {
 		return r.ID == pid && r.Name == "new-name" && r.IntervalDays == 60 &&
 			r.ReminderDays == 14 && r.AutoRotate == true
@@ -561,7 +572,7 @@ func TestRunRotationUpdate_GetPolicyError(t *testing.T) {
 	tc, mockRotSvc := setupRotationTestContext(t)
 	pid := uuid.New()
 
-	mockRotSvc.On("GetPolicy", mock.Anything, pid).Return(nil, fmt.Errorf("not found"))
+	mockRotSvc.On("GetPolicy", mock.Anything, pid, model.NewVaultScope(tc.TestVaultID, tc.TestUserID)).Return(nil, fmt.Errorf("not found"))
 
 	policyID = pid.String()
 
@@ -587,7 +598,7 @@ func TestRunRotationUpdate_UpdatePolicyError(t *testing.T) {
 		ID: pid, Name: "old", IntervalDays: 30, Enabled: true,
 	}
 
-	mockRotSvc.On("GetPolicy", mock.Anything, pid).Return(existing, nil)
+	mockRotSvc.On("GetPolicy", mock.Anything, pid, model.NewVaultScope(tc.TestVaultID, tc.TestUserID)).Return(existing, nil)
 	mockRotSvc.On("UpdatePolicy", mock.Anything, mock.AnythingOfType("secrets.UpdatePolicyRequest")).
 		Return(nil, fmt.Errorf("db error"))
 
@@ -628,7 +639,7 @@ func TestRunRotationUpdate_InvalidPolicyID(t *testing.T) {
 func TestRunRotationUpdate_ServiceContainerMissing(t *testing.T) {
 	pid := uuid.New()
 	policyID = pid.String()
-	ctx := context.WithValue(context.Background(), common.UserIDKey, uuid.New())
+	ctx := rotationCtxMissingServiceContainer()
 
 	cmd := &cobra.Command{Use: "update", RunE: rotationUpdateCmd.RunE}
 	cmd.Flags().StringVar(&policyID, "id", pid.String(), "")
@@ -652,7 +663,7 @@ func TestRunRotationDelete_Success(t *testing.T) {
 	tc, mockRotSvc := setupRotationTestContext(t)
 	pid := uuid.New()
 
-	mockRotSvc.On("DeletePolicy", mock.Anything, pid, tc.TestUserID).Return(nil)
+	mockRotSvc.On("DeletePolicy", mock.Anything, pid, model.NewVaultScope(tc.TestVaultID, tc.TestUserID)).Return(nil)
 	policyID = pid.String()
 
 	var out bytes.Buffer
@@ -671,7 +682,7 @@ func TestRunRotationDelete_ServiceReturnsError(t *testing.T) {
 	tc, mockRotSvc := setupRotationTestContext(t)
 	pid := uuid.New()
 
-	mockRotSvc.On("DeletePolicy", mock.Anything, pid, tc.TestUserID).Return(fmt.Errorf("forbidden"))
+	mockRotSvc.On("DeletePolicy", mock.Anything, pid, model.NewVaultScope(tc.TestVaultID, tc.TestUserID)).Return(fmt.Errorf("forbidden"))
 	policyID = pid.String()
 
 	cmd := &cobra.Command{Use: "delete", RunE: rotationDeleteCmd.RunE}
@@ -699,7 +710,7 @@ func TestRunRotationDelete_InvalidPolicyID(t *testing.T) {
 func TestRunRotationDelete_ServiceContainerMissing(t *testing.T) {
 	pid := uuid.New()
 	policyID = pid.String()
-	ctx := context.WithValue(context.Background(), common.UserIDKey, uuid.New())
+	ctx := rotationCtxMissingServiceContainer()
 
 	cmd := &cobra.Command{Use: "delete", RunE: rotationDeleteCmd.RunE}
 	cmd.Flags().StringVar(&policyID, "id", pid.String(), "")
@@ -720,7 +731,7 @@ func TestRunRotationAssign_Success(t *testing.T) {
 	sid := uuid.New()
 
 	mockRotSvc.On("AssignPolicyToSecret", mock.Anything, mock.MatchedBy(func(r secretServices.AssignPolicyRequest) bool {
-		return r.PolicyID == pid && r.SecretID == sid && r.UserID == tc.TestUserID
+		return r.PolicyID == pid && r.SecretID == sid && r.Scope == model.NewVaultScope(tc.TestVaultID, tc.TestUserID)
 	})).Return(nil)
 
 	policyID = pid.String()
@@ -795,7 +806,7 @@ func TestRunRotationAssign_ServiceContainerMissing(t *testing.T) {
 	sid := uuid.New()
 	policyID = pid.String()
 	secretID = sid.String()
-	ctx := context.WithValue(context.Background(), common.UserIDKey, uuid.New())
+	ctx := rotationCtxMissingServiceContainer()
 
 	cmd := &cobra.Command{Use: "assign", RunE: rotationAssignCmd.RunE}
 	cmd.Flags().StringVar(&policyID, "policy-id", pid.String(), "")
@@ -816,7 +827,7 @@ func TestRunRotationUnassign_Success(t *testing.T) {
 	pid := uuid.New()
 	sid := uuid.New()
 
-	mockRotSvc.On("RemovePolicyFromSecret", mock.Anything, sid, pid, tc.TestUserID).Return(nil)
+	mockRotSvc.On("RemovePolicyFromSecret", mock.Anything, sid, pid, model.NewVaultScope(tc.TestVaultID, tc.TestUserID)).Return(nil)
 	policyID = pid.String()
 	secretID = sid.String()
 
@@ -838,7 +849,7 @@ func TestRunRotationUnassign_ServiceReturnsError(t *testing.T) {
 	pid := uuid.New()
 	sid := uuid.New()
 
-	mockRotSvc.On("RemovePolicyFromSecret", mock.Anything, sid, pid, tc.TestUserID).
+	mockRotSvc.On("RemovePolicyFromSecret", mock.Anything, sid, pid, model.NewVaultScope(tc.TestVaultID, tc.TestUserID)).
 		Return(fmt.Errorf("forbidden"))
 	policyID = pid.String()
 	secretID = sid.String()
@@ -888,7 +899,7 @@ func TestRunRotationUnassign_ServiceContainerMissing(t *testing.T) {
 	sid := uuid.New()
 	policyID = pid.String()
 	secretID = sid.String()
-	ctx := context.WithValue(context.Background(), common.UserIDKey, uuid.New())
+	ctx := rotationCtxMissingServiceContainer()
 
 	cmd := &cobra.Command{Use: "unassign", RunE: rotationUnassignCmd.RunE}
 	cmd.Flags().StringVar(&policyID, "policy-id", pid.String(), "")
@@ -908,7 +919,7 @@ func TestRunRotationHistory_EmptyHistory(t *testing.T) {
 	tc, mockRotSvc := setupRotationTestContext(t)
 	sid := uuid.New()
 
-	mockRotSvc.On("GetRotationHistory", mock.Anything, sid, tc.TestUserID).
+	mockRotSvc.On("GetRotationHistory", mock.Anything, sid, model.NewVaultScope(tc.TestVaultID, tc.TestUserID)).
 		Return([]model.RotationHistory{}, nil)
 	secretID = sid.String()
 
@@ -938,7 +949,7 @@ func TestRunRotationHistory_WithEntries(t *testing.T) {
 			Notes:           "rotated manually",
 		},
 	}
-	mockRotSvc.On("GetRotationHistory", mock.Anything, sid, tc.TestUserID).Return(history, nil)
+	mockRotSvc.On("GetRotationHistory", mock.Anything, sid, model.NewVaultScope(tc.TestVaultID, tc.TestUserID)).Return(history, nil)
 	secretID = sid.String()
 
 	var out bytes.Buffer
@@ -962,7 +973,7 @@ func TestRunRotationHistory_LongNotesTruncated(t *testing.T) {
 	history := []model.RotationHistory{
 		{SecretID: sid, RotatedAt: time.Now(), TriggeredBy: "auto", Notes: longNotes},
 	}
-	mockRotSvc.On("GetRotationHistory", mock.Anything, sid, tc.TestUserID).Return(history, nil)
+	mockRotSvc.On("GetRotationHistory", mock.Anything, sid, model.NewVaultScope(tc.TestVaultID, tc.TestUserID)).Return(history, nil)
 	secretID = sid.String()
 
 	var out bytes.Buffer
@@ -980,7 +991,7 @@ func TestRunRotationHistory_ServiceReturnsError(t *testing.T) {
 	tc, mockRotSvc := setupRotationTestContext(t)
 	sid := uuid.New()
 
-	mockRotSvc.On("GetRotationHistory", mock.Anything, sid, tc.TestUserID).
+	mockRotSvc.On("GetRotationHistory", mock.Anything, sid, model.NewVaultScope(tc.TestVaultID, tc.TestUserID)).
 		Return(nil, fmt.Errorf("db error"))
 	secretID = sid.String()
 
@@ -1009,7 +1020,7 @@ func TestRunRotationHistory_InvalidSecretID(t *testing.T) {
 func TestRunRotationHistory_ServiceContainerMissing(t *testing.T) {
 	sid := uuid.New()
 	secretID = sid.String()
-	ctx := context.WithValue(context.Background(), common.UserIDKey, uuid.New())
+	ctx := rotationCtxMissingServiceContainer()
 
 	cmd := &cobra.Command{Use: "history", RunE: rotationHistoryCmd.RunE}
 	cmd.Flags().StringVar(&secretID, "secret-id", sid.String(), "")
@@ -1027,11 +1038,11 @@ func TestRunRotationHistory_ServiceContainerMissing(t *testing.T) {
 func TestRunRotationStatus_NoDueRotations(t *testing.T) {
 	tc, mockRotSvc := setupRotationTestContext(t)
 
-	mockRotSvc.On("GetDueRotations", mock.Anything, tc.TestUserID).
+	mockRotSvc.On("GetDueRotations", mock.Anything, model.NewVaultScope(tc.TestVaultID, tc.TestUserID)).
 		Return([]model.SecretPolicy{}, nil)
-	mockRotSvc.On("GetUpcomingReminders", mock.Anything, tc.TestUserID).
+	mockRotSvc.On("GetUpcomingReminders", mock.Anything, model.NewVaultScope(tc.TestVaultID, tc.TestUserID)).
 		Return([]model.RotationReminder{}, nil)
-	mockRotSvc.On("ListUserPolicies", mock.Anything, tc.TestUserID).
+	mockRotSvc.On("ListPolicies", mock.Anything, model.NewVaultScope(tc.TestVaultID, tc.TestUserID)).
 		Return([]model.RotationPolicy{}, nil)
 
 	var out bytes.Buffer
@@ -1060,9 +1071,9 @@ func TestRunRotationStatus_WithDueAndReminders(t *testing.T) {
 		{ID: uuid.New(), Name: "Monthly", IntervalDays: 30, AutoRotate: true, Enabled: true},
 	}
 
-	mockRotSvc.On("GetDueRotations", mock.Anything, tc.TestUserID).Return(dueRotations, nil)
-	mockRotSvc.On("GetUpcomingReminders", mock.Anything, tc.TestUserID).Return(reminders, nil)
-	mockRotSvc.On("ListUserPolicies", mock.Anything, tc.TestUserID).Return(policies, nil)
+	mockRotSvc.On("GetDueRotations", mock.Anything, model.NewVaultScope(tc.TestVaultID, tc.TestUserID)).Return(dueRotations, nil)
+	mockRotSvc.On("GetUpcomingReminders", mock.Anything, model.NewVaultScope(tc.TestVaultID, tc.TestUserID)).Return(reminders, nil)
+	mockRotSvc.On("ListPolicies", mock.Anything, model.NewVaultScope(tc.TestVaultID, tc.TestUserID)).Return(policies, nil)
 
 	var out bytes.Buffer
 	cmd := &cobra.Command{Use: "status", RunE: rotationStatusCmd.RunE}
@@ -1087,9 +1098,9 @@ func TestRunRotationStatus_DueRotationNilNextTime(t *testing.T) {
 		{SecretID: sid, NextRotationAt: nil},
 	}
 
-	mockRotSvc.On("GetDueRotations", mock.Anything, tc.TestUserID).Return(dueRotations, nil)
-	mockRotSvc.On("GetUpcomingReminders", mock.Anything, tc.TestUserID).Return([]model.RotationReminder{}, nil)
-	mockRotSvc.On("ListUserPolicies", mock.Anything, tc.TestUserID).Return([]model.RotationPolicy{}, nil)
+	mockRotSvc.On("GetDueRotations", mock.Anything, model.NewVaultScope(tc.TestVaultID, tc.TestUserID)).Return(dueRotations, nil)
+	mockRotSvc.On("GetUpcomingReminders", mock.Anything, model.NewVaultScope(tc.TestVaultID, tc.TestUserID)).Return([]model.RotationReminder{}, nil)
+	mockRotSvc.On("ListPolicies", mock.Anything, model.NewVaultScope(tc.TestVaultID, tc.TestUserID)).Return([]model.RotationPolicy{}, nil)
 
 	var out bytes.Buffer
 	cmd := &cobra.Command{Use: "status", RunE: rotationStatusCmd.RunE}
@@ -1104,7 +1115,7 @@ func TestRunRotationStatus_DueRotationNilNextTime(t *testing.T) {
 func TestRunRotationStatus_GetDueRotationsError(t *testing.T) {
 	tc, mockRotSvc := setupRotationTestContext(t)
 
-	mockRotSvc.On("GetDueRotations", mock.Anything, tc.TestUserID).
+	mockRotSvc.On("GetDueRotations", mock.Anything, model.NewVaultScope(tc.TestVaultID, tc.TestUserID)).
 		Return(nil, fmt.Errorf("db error"))
 
 	cmd := &cobra.Command{Use: "status", RunE: rotationStatusCmd.RunE}
@@ -1118,8 +1129,8 @@ func TestRunRotationStatus_GetDueRotationsError(t *testing.T) {
 func TestRunRotationStatus_GetUpcomingRemindersError(t *testing.T) {
 	tc, mockRotSvc := setupRotationTestContext(t)
 
-	mockRotSvc.On("GetDueRotations", mock.Anything, tc.TestUserID).Return([]model.SecretPolicy{}, nil)
-	mockRotSvc.On("GetUpcomingReminders", mock.Anything, tc.TestUserID).Return(nil, fmt.Errorf("db error"))
+	mockRotSvc.On("GetDueRotations", mock.Anything, model.NewVaultScope(tc.TestVaultID, tc.TestUserID)).Return([]model.SecretPolicy{}, nil)
+	mockRotSvc.On("GetUpcomingReminders", mock.Anything, model.NewVaultScope(tc.TestVaultID, tc.TestUserID)).Return(nil, fmt.Errorf("db error"))
 
 	cmd := &cobra.Command{Use: "status", RunE: rotationStatusCmd.RunE}
 	cmd.SetContext(tc.Ctx)
@@ -1132,9 +1143,9 @@ func TestRunRotationStatus_GetUpcomingRemindersError(t *testing.T) {
 func TestRunRotationStatus_ListUserPoliciesError(t *testing.T) {
 	tc, mockRotSvc := setupRotationTestContext(t)
 
-	mockRotSvc.On("GetDueRotations", mock.Anything, tc.TestUserID).Return([]model.SecretPolicy{}, nil)
-	mockRotSvc.On("GetUpcomingReminders", mock.Anything, tc.TestUserID).Return([]model.RotationReminder{}, nil)
-	mockRotSvc.On("ListUserPolicies", mock.Anything, tc.TestUserID).Return(nil, fmt.Errorf("db error"))
+	mockRotSvc.On("GetDueRotations", mock.Anything, model.NewVaultScope(tc.TestVaultID, tc.TestUserID)).Return([]model.SecretPolicy{}, nil)
+	mockRotSvc.On("GetUpcomingReminders", mock.Anything, model.NewVaultScope(tc.TestVaultID, tc.TestUserID)).Return([]model.RotationReminder{}, nil)
+	mockRotSvc.On("ListPolicies", mock.Anything, model.NewVaultScope(tc.TestVaultID, tc.TestUserID)).Return(nil, fmt.Errorf("db error"))
 
 	cmd := &cobra.Command{Use: "status", RunE: rotationStatusCmd.RunE}
 	cmd.SetContext(tc.Ctx)
@@ -1145,7 +1156,7 @@ func TestRunRotationStatus_ListUserPoliciesError(t *testing.T) {
 }
 
 func TestRunRotationStatus_ServiceContainerMissing(t *testing.T) {
-	ctx := context.WithValue(context.Background(), common.UserIDKey, uuid.New())
+	ctx := rotationCtxMissingServiceContainer()
 
 	cmd := &cobra.Command{Use: "status", RunE: rotationStatusCmd.RunE}
 	cmd.SetContext(ctx)

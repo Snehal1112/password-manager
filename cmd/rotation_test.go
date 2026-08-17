@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"bytes"
+	"context"
 	"fmt"
 	"testing"
 	"time"
@@ -10,7 +11,9 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
+	"github.com/stretchr/testify/require"
 
+	"rocketvault/cmd/testutils"
 	secretServices "rocketvault/internal/services/secrets"
 	"rocketvault/model"
 )
@@ -97,7 +100,7 @@ func TestRotationCreateCommand(t *testing.T) {
 
 					// Create policy via service
 					req := secretServices.CreatePolicyRequest{
-						UserID:       uuid.New(), // Use generated UUID for test
+						Scope:        model.NewVaultScope(uuid.New(), uuid.New()), // Use generated scope for test
 						Name:         name,
 						Description:  description,
 						IntervalDays: interval,
@@ -153,12 +156,48 @@ func TestRotationCreateCommand(t *testing.T) {
 	}
 }
 
-// Mock Rotation Service for testing
+// TestRotationCreateCommand_RequiresVaultAuthorization proves the retrofit's
+// authorization gate: without a role grant in the resolved vault, the create
+// subcommand must fail before ever reaching the rotation service.
+//
+// This calls cmd.RunE directly rather than cmd.Execute() (the form used by
+// cmd/keys/update_test.go's equivalent, which lives in a different Go
+// package). In this package, root.go's init() registers cobra.OnInitialize
+// (initConfig) process-wide; going through Command.Execute() would trigger a
+// real config-file load and panic in a test environment with no
+// .rocketvault.yaml. Calling RunE directly exercises the exact same
+// authorization logic without that unrelated landmine, matching every other
+// rotation test in this file.
+func TestRotationCreateCommand_RequiresVaultAuthorization(t *testing.T) {
+	tc := testutils.NewTestContext(t)
+	denyRoles := &testutils.MockRoleAssignmentService{}
+	denyRoles.On("HasDataAction", mock.Anything, mock.Anything, mock.Anything, mock.Anything).
+		Return(false, nil).Maybe()
+	tc.MockContainer.RoleAssignmentService = denyRoles
+	mockService := &MockRotationService{}
+	tc.MockContainer.On("GetRotationService").Return(mockService)
+
+	cmd := &cobra.Command{Use: "create", RunE: rotationCreateCmd.RunE}
+	cmd.Flags().String("name", "test", "")
+	cmd.Flags().Int("interval", 30, "")
+	cmd.SetContext(tc.Ctx)
+
+	err := cmd.RunE(cmd, []string{})
+	require.Error(t, err, "create must fail without a role grant in the resolved vault")
+	mockService.AssertNotCalled(t, "CreatePolicy", mock.Anything, mock.Anything)
+}
+
+// Mock Rotation Service for testing. It implements
+// secretServices.RotationServiceInterface in full so it can be returned from
+// MockServiceContainer.GetRotationService in tests that exercise the CLI
+// command tree end to end.
 type MockRotationService struct {
 	mock.Mock
 }
 
-func (m *MockRotationService) CreatePolicy(ctx interface{}, req secretServices.CreatePolicyRequest) (*model.RotationPolicy, error) {
+var _ secretServices.RotationServiceInterface = (*MockRotationService)(nil)
+
+func (m *MockRotationService) CreatePolicy(ctx context.Context, req secretServices.CreatePolicyRequest) (*model.RotationPolicy, error) {
 	args := m.Called(ctx, req)
 	if args.Get(0) == nil {
 		return nil, args.Error(1)
@@ -166,72 +205,88 @@ func (m *MockRotationService) CreatePolicy(ctx interface{}, req secretServices.C
 	return args.Get(0).(*model.RotationPolicy), args.Error(1)
 }
 
-func (m *MockRotationService) UpdatePolicy(ctx interface{}, req secretServices.UpdatePolicyRequest) error {
+func (m *MockRotationService) GetPolicy(ctx context.Context, id uuid.UUID, scope model.Scope) (*model.RotationPolicy, error) {
+	args := m.Called(ctx, id, scope)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).(*model.RotationPolicy), args.Error(1)
+}
+
+func (m *MockRotationService) UpdatePolicy(ctx context.Context, req secretServices.UpdatePolicyRequest) (*model.RotationPolicy, error) {
 	args := m.Called(ctx, req)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).(*model.RotationPolicy), args.Error(1)
+}
+
+func (m *MockRotationService) DeletePolicy(ctx context.Context, id uuid.UUID, scope model.Scope) error {
+	args := m.Called(ctx, id, scope)
 	return args.Error(0)
 }
 
-func (m *MockRotationService) GetPolicy(ctx interface{}, policyID, userID uuid.UUID) (*model.RotationPolicy, error) {
-	args := m.Called(ctx, policyID, userID)
-	if args.Get(0) == nil {
-		return nil, args.Error(1)
-	}
-	return args.Get(0).(*model.RotationPolicy), args.Error(1)
-}
-
-func (m *MockRotationService) ListPolicies(ctx interface{}, userID uuid.UUID) ([]model.RotationPolicy, error) {
-	args := m.Called(ctx, userID)
+func (m *MockRotationService) ListPolicies(ctx context.Context, scope model.Scope) ([]model.RotationPolicy, error) {
+	args := m.Called(ctx, scope)
 	if args.Get(0) == nil {
 		return nil, args.Error(1)
 	}
 	return args.Get(0).([]model.RotationPolicy), args.Error(1)
 }
 
-func (m *MockRotationService) DeletePolicy(ctx interface{}, policyID, userID uuid.UUID) error {
-	args := m.Called(ctx, policyID, userID)
-	return args.Error(0)
-}
-
-func (m *MockRotationService) AssignToSecret(ctx interface{}, req secretServices.AssignPolicyRequest) error {
+func (m *MockRotationService) AssignPolicyToSecret(ctx context.Context, req secretServices.AssignPolicyRequest) error {
 	args := m.Called(ctx, req)
 	return args.Error(0)
 }
 
-func (m *MockRotationService) RemoveFromSecret(ctx interface{}, secretID, policyID, userID uuid.UUID) error {
-	args := m.Called(ctx, secretID, policyID, userID)
+func (m *MockRotationService) RemovePolicyFromSecret(ctx context.Context, secretID, policyID uuid.UUID, scope model.Scope) error {
+	args := m.Called(ctx, secretID, policyID, scope)
 	return args.Error(0)
 }
 
-func (m *MockRotationService) PerformManualRotation(ctx interface{}, req secretServices.ManualRotationRequest) error {
+func (m *MockRotationService) GetSecretPolicies(ctx context.Context, secretID uuid.UUID, scope model.Scope) ([]model.RotationPolicy, error) {
+	args := m.Called(ctx, secretID, scope)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).([]model.RotationPolicy), args.Error(1)
+}
+
+func (m *MockRotationService) PerformManualRotation(ctx context.Context, req secretServices.ManualRotationRequest) error {
 	args := m.Called(ctx, req)
 	return args.Error(0)
 }
 
-func (m *MockRotationService) GetRotationHistory(ctx interface{}, secretID, userID uuid.UUID) ([]model.RotationHistory, error) {
-	args := m.Called(ctx, secretID, userID)
+func (m *MockRotationService) GetRotationHistory(ctx context.Context, secretID uuid.UUID, scope model.Scope) ([]model.RotationHistory, error) {
+	args := m.Called(ctx, secretID, scope)
 	if args.Get(0) == nil {
 		return nil, args.Error(1)
 	}
 	return args.Get(0).([]model.RotationHistory), args.Error(1)
 }
 
-func (m *MockRotationService) GetDueRotations(ctx interface{}, userID uuid.UUID) ([]model.SecretPolicy, error) {
-	args := m.Called(ctx, userID)
+func (m *MockRotationService) GetDueRotations(ctx context.Context, scope model.Scope) ([]model.SecretPolicy, error) {
+	args := m.Called(ctx, scope)
 	if args.Get(0) == nil {
 		return nil, args.Error(1)
 	}
 	return args.Get(0).([]model.SecretPolicy), args.Error(1)
 }
 
-func (m *MockRotationService) GetUpcomingReminders(ctx interface{}, userID uuid.UUID) ([]model.RotationReminder, error) {
-	args := m.Called(ctx, userID)
+func (m *MockRotationService) CreateRotationReminder(ctx context.Context, req secretServices.CreateReminderRequest) error {
+	args := m.Called(ctx, req)
+	return args.Error(0)
+}
+
+func (m *MockRotationService) GetUpcomingReminders(ctx context.Context, scope model.Scope) ([]model.RotationReminder, error) {
+	args := m.Called(ctx, scope)
 	if args.Get(0) == nil {
 		return nil, args.Error(1)
 	}
 	return args.Get(0).([]model.RotationReminder), args.Error(1)
 }
 
-func (m *MockRotationService) AcknowledgeReminder(ctx interface{}, reminderID uuid.UUID) error {
-	args := m.Called(ctx, reminderID)
+func (m *MockRotationService) AcknowledgeReminder(ctx context.Context, reminderID, secretID uuid.UUID, scope model.Scope) error {
+	args := m.Called(ctx, reminderID, secretID, scope)
 	return args.Error(0)
 }
