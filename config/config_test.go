@@ -282,3 +282,58 @@ func TestLoadCacheConfig_InvalidTTLReturnsError(t *testing.T) {
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "cache.secrets")
 }
+
+// ---------------------------------------------------------------------------
+// TestLoadRotationConfig_Defaults
+// ---------------------------------------------------------------------------
+
+func TestLoadRotationConfig_Defaults(t *testing.T) {
+	reset()
+
+	cfg := LoadRotationConfig()
+
+	assert.True(t, cfg.Secrets.Enabled, "default Secrets.Enabled should be true")
+	assert.Equal(t, time.Hour, cfg.Secrets.Interval, "default Secrets.Interval should be 1h")
+	assert.True(t, cfg.Certificates.Enabled, "default Certificates.Enabled should be true")
+	assert.Equal(t, 24*time.Hour, cfg.Certificates.Interval, "default Certificates.Interval should be 24h")
+	assert.True(t, cfg.Keys.Enabled, "default Keys.Enabled should be true")
+	assert.Equal(t, time.Hour, cfg.Keys.Interval, "default Keys.Interval should be 1h")
+}
+
+// ---------------------------------------------------------------------------
+// TestLoadRotationConfig_OverridesFromViper
+// ---------------------------------------------------------------------------
+
+func TestLoadRotationConfig_OverridesFromViper(t *testing.T) {
+	reset()
+
+	viper.Set("rotation.secrets.enabled", false)
+	viper.Set("rotation.keys.interval", "30m")
+	viper.Set("rotation.certificates.enabled", false)
+
+	cfg := LoadRotationConfig()
+
+	assert.False(t, cfg.Secrets.Enabled, "Secrets.Enabled should be false when explicitly set")
+	assert.Equal(t, time.Hour, cfg.Secrets.Interval, "untouched Secrets.Interval keeps its default (1h)")
+	assert.Equal(t, 30*time.Minute, cfg.Keys.Interval, "Keys.Interval should be 30m when explicitly set")
+	assert.False(t, cfg.Certificates.Enabled, "Certificates.Enabled should be false when explicitly set")
+}
+
+// ---------------------------------------------------------------------------
+// TestLoadRotationConfig_PartialSet — only certificates.interval set
+// ---------------------------------------------------------------------------
+
+func TestLoadRotationConfig_PartialSet(t *testing.T) {
+	reset()
+
+	viper.Set("rotation.certificates.interval", "12h")
+
+	cfg := LoadRotationConfig()
+
+	assert.True(t, cfg.Secrets.Enabled, "Secrets.Enabled should still use the default (true)")
+	assert.Equal(t, time.Hour, cfg.Secrets.Interval, "Secrets.Interval should still use the default (1h)")
+	assert.True(t, cfg.Certificates.Enabled, "Certificates.Enabled should still use the default (true)")
+	assert.Equal(t, 12*time.Hour, cfg.Certificates.Interval)
+	assert.True(t, cfg.Keys.Enabled, "Keys.Enabled should still use the default (true)")
+	assert.Equal(t, time.Hour, cfg.Keys.Interval, "Keys.Interval should still use the default (1h)")
+}

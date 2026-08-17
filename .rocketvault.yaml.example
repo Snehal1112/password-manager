@@ -93,6 +93,20 @@ monitoring:
   metrics_interval: "60s"
   slow_query_threshold: "500ms"
 
+# Rotation scheduler intervals for secrets, certificates, and keys. Defaults
+# shown below match this file's previous hardcoded behavior; this section is
+# optional -- omitting it entirely is equivalent to these defaults.
+rotation:
+  secrets:
+    enabled: true
+    interval: "1h"
+  certificates:
+    enabled: true
+    interval: "24h"
+  keys:
+    enabled: true
+    interval: "1h"
+
 # Health Check Configuration
 health:
   check_interval: "60s"

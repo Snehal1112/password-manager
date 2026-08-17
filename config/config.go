@@ -66,6 +66,47 @@ func LoadMonitoringConfig() MonitoringConfig {
 	return cfg
 }
 
+// ResourceRotationConfig controls one resource type's rotation scheduler.
+type ResourceRotationConfig struct {
+	Enabled  bool          `mapstructure:"enabled"`
+	Interval time.Duration `mapstructure:"interval"`
+}
+
+// RotationConfig holds ResourceRotationConfig for every resource type with a
+// rotation scheduler: secrets, certificates, and keys.
+type RotationConfig struct {
+	Secrets      ResourceRotationConfig `mapstructure:"secrets"`
+	Certificates ResourceRotationConfig `mapstructure:"certificates"`
+	Keys         ResourceRotationConfig `mapstructure:"keys"`
+}
+
+// loadResourceRotationConfig reads one resource type's rotation.<prefix>.*
+// keys from Viper, overriding def field-by-field for whichever keys are
+// explicitly set.
+func loadResourceRotationConfig(prefix string, def ResourceRotationConfig) ResourceRotationConfig {
+	cfg := def
+	if viper.IsSet(prefix + ".enabled") {
+		cfg.Enabled = viper.GetBool(prefix + ".enabled")
+	}
+	if viper.IsSet(prefix + ".interval") {
+		cfg.Interval = viper.GetDuration(prefix + ".interval")
+	}
+	return cfg
+}
+
+// LoadRotationConfig reads rotation.<resource>.* settings from Viper for
+// secrets, certificates, and keys, falling back to defaults that exactly
+// match this codebase's previous hardcoded values (1h for secrets and keys,
+// 24h for certificates) so a config with no rotation: section behaves
+// identically to before this config section existed.
+func LoadRotationConfig() RotationConfig {
+	return RotationConfig{
+		Secrets:      loadResourceRotationConfig("rotation.secrets", ResourceRotationConfig{Enabled: true, Interval: time.Hour}),
+		Certificates: loadResourceRotationConfig("rotation.certificates", ResourceRotationConfig{Enabled: true, Interval: 24 * time.Hour}),
+		Keys:         loadResourceRotationConfig("rotation.keys", ResourceRotationConfig{Enabled: true, Interval: time.Hour}),
+	}
+}
+
 // CacheConfig holds cachekit.Config for every domain that caches records.
 type CacheConfig struct {
 	Secrets      cachekit.Config
