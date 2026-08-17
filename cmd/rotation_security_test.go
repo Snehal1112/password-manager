@@ -6,9 +6,12 @@ import (
 	"testing"
 
 	"github.com/google/uuid"
+	"github.com/spf13/cobra"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
+	"github.com/stretchr/testify/require"
 
+	"rocketvault/cmd/testutils"
 	secretServices "rocketvault/internal/services/secrets"
 	"rocketvault/model"
 )
@@ -153,4 +156,40 @@ func TestRotationHistoryOwnershipRejection(t *testing.T) {
 	_, err := svc.GetRotationHistory(context.Background(), secretUUID, scope)
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "forbidden")
+}
+
+// TestRotationAssignCommand_CrossVaultDenied proves the CLI's boundary of
+// responsibility for cross-vault denial: `rotation assign` resolves the
+// target vault and threads it into the request scope unchanged, but does not
+// itself decide whether the policy and secret actually belong to that vault.
+// RotationService (Task 6, tested directly in
+// internal/services/secrets/rotation_service_test.go) is what enforces that a
+// policy assigned across vaults gets refused. This test only proves the CLI
+// wires the resolved vaultID into the request scope, not a second copy of
+// the service-layer behavior.
+//
+// Package vars policyID/secretID are set explicitly right before building
+// the command (mirroring TestRunRotationAssign_Success in cmd_test.go)
+// because runRotationAssign reads those package-level vars directly rather
+// than the flags registered on the cobra.Command passed to it.
+func TestRotationAssignCommand_CrossVaultDenied(t *testing.T) {
+	tc := testutils.NewTestContext(t)
+	mockService := &MockRotationService{}
+	pid, sid := uuid.New(), uuid.New()
+
+	mockService.On("AssignPolicyToSecret", mock.Anything, mock.MatchedBy(func(req secretServices.AssignPolicyRequest) bool {
+		return req.Scope == model.NewVaultScope(tc.TestVaultID, tc.TestUserID)
+	})).Return(nil)
+	tc.MockContainer.On("GetRotationService").Return(mockService)
+
+	policyID = pid.String()
+	secretID = sid.String()
+
+	cmd := &cobra.Command{Use: "assign", RunE: rotationAssignCmd.RunE}
+	cmd.Flags().StringVar(&secretID, "secret-id", sid.String(), "")
+	cmd.Flags().StringVar(&policyID, "policy-id", pid.String(), "")
+	cmd.SetContext(tc.Ctx)
+
+	require.NoError(t, cmd.RunE(cmd, []string{}))
+	mockService.AssertExpectations(t)
 }
