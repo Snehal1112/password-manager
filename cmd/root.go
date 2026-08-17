@@ -108,6 +108,8 @@ func init() {
 	// Persistent flag selecting a remote RocketVault server to target,
 	// instead of local mode against .rocketvault.yaml.
 	rootCmd.PersistentFlags().String("server", "", "Remote RocketVault server URL (default: local mode against .rocketvault.yaml)")
+	rootCmd.PersistentFlags().String("ca-cert", "", "Path to an additional CA certificate to trust for remote server connections (or set ROCKETVAULT_CA_CERT)")
+	rootCmd.PersistentFlags().Bool("insecure-skip-verify", false, "Disable TLS certificate verification for remote server connections (unsafe — dev/test only)")
 
 	// Cobra also supports local flags, which will only run
 	// when this action is called directly.
