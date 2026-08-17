@@ -532,7 +532,7 @@ git commit -m "feat(model): add VaultID to RotationPolicy and KeyRotationPolicy"
 
 **Files:**
 - Modify: `internal/repositories/rotation_repository.go`
-- Test: `internal/repositories/rotation_repository_test.go` (new — no test file exists for this repository today; it has only ever been exercised indirectly through a service-layer mock)
+- Modify: `internal/repositories/repositories_test.go` (existing — **correction to this plan's original premise**: this file already contains 9 real-SQLite tests exercising `rotation_repository.go` — `TestRotationPolicyRepository_CRUD`/`_Read_NotFound`/`_Update_NotFound`/`_Delete_NotFound`/`_ListByUser`/`_AssignAndRemoveFromSecret`/`_RecordAndGetHistory`/`_CreateAndGetReminder`/`_GetDueRotations` — plus a shared `setupRotationDB(t)` helper whose inline `rotation_policies` schema has no `vault_id` column. Update both in place; do not create a second, colliding test file.
 
 **Interfaces:**
 - Consumes: `model.Scope`, `model.RotationPolicy.VaultID` (Task 3), `ScopedGet`/`ScopedExec`/`ScopedList` (Task 2).
@@ -564,175 +564,180 @@ git commit -m "feat(model): add VaultID to RotationPolicy and KeyRotationPolicy"
   ```
   `AssignToSecret`/`RemoveFromSecret`/`GetSecretPolicies`/`GetPoliciesForSecret`/`UpdateSecretPolicyRotation`/`RecordRotation`/`GetRotationHistory`/`CreateReminder`/`UpdateReminder`/`GetReminderBySecret` are unchanged from today — they operate on the `secret_policies`/`rotation_reminders`/`secret_rotation_history` join tables, which gain no `vault_id` of their own (see spec §5.2).
 
-- [ ] **Step 1: Write the failing tests**
+- [ ] **Step 1: Update `repositories_test.go`'s schema and existing tests, and add new cross-vault tests**
 
-Create `internal/repositories/rotation_repository_test.go`:
+All edits below are in `internal/repositories/repositories_test.go`, in place — do not create a new file (this package already has `setupKeyRotationPolicyTestDB`/`newKeyRotationPolicyTestLogger` in a sibling test file with similar names; a second, parallel set of rotation-policy test helpers here would be redundant and error-prone).
+
+**1a. Schema.** In `setupRotationDB` (~line 128), add a `vault_id` column to the inline `rotation_policies` CREATE TABLE, immediately after `user_id TEXT NOT NULL,`:
 
 ```go
-package repositories_test
+CREATE TABLE IF NOT EXISTS rotation_policies (
+    id TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL,
+    vault_id TEXT NOT NULL,
+    name TEXT NOT NULL,
+    ...
+```
 
-import (
-	"context"
-	"database/sql"
-	"testing"
-	"time"
+**1b. `TestRotationPolicyRepository_CRUD`** (~line 1099): add a `vaultID := uuid.New()` local, set `VaultID: vaultID` on the `policy` literal, and change the three calls:
 
-	"github.com/google/uuid"
-	_ "github.com/mattn/go-sqlite3"
-	"github.com/sirupsen/logrus"
-	"github.com/stretchr/testify/require"
+```go
+got, err := repo.Read(ctx, policy.ID, model.NewVaultScope(vaultID, uuid.New()))
+...
+require.NoError(t, repo.Update(ctx, policy, model.NewVaultScope(vaultID, uuid.New())))
+...
+updated, err := repo.Read(ctx, policy.ID, model.NewVaultScope(vaultID, uuid.New()))
+...
+require.NoError(t, repo.Delete(ctx, policy.ID, model.NewVaultScope(vaultID, uuid.New())))
+_, err = repo.Read(ctx, policy.ID, model.NewAdminScope(uuid.New()))
+```
 
-	rvdb "rocketvault/internal/db"
-	"rocketvault/internal/logging"
-	"rocketvault/internal/repositories"
-	"rocketvault/model"
-)
+**1c. `TestRotationPolicyRepository_Read_NotFound`**: `repo.Read(ctx, uuid.New())` → `repo.Read(ctx, uuid.New(), model.NewAdminScope(uuid.New()))`.
 
-func setupRotationPolicyTestDB(t *testing.T) *sql.DB {
-	t.Helper()
-	db, err := sql.Open("sqlite3", ":memory:")
-	require.NoError(t, err)
-	_, err = db.Exec(`
-		CREATE TABLE rotation_policies (
-			id TEXT PRIMARY KEY, user_id TEXT NOT NULL, vault_id TEXT NOT NULL,
-			name TEXT NOT NULL, description TEXT, interval_days INTEGER NOT NULL,
-			enabled BOOLEAN NOT NULL DEFAULT TRUE, reminder_days INTEGER NOT NULL DEFAULT 7,
-			auto_rotate BOOLEAN NOT NULL DEFAULT FALSE,
-			created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-		);
-		CREATE TABLE secret_policies (
-			secret_id TEXT NOT NULL, policy_id TEXT NOT NULL,
-			assigned_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-			last_rotated_at TIMESTAMP, next_rotation_at TIMESTAMP,
-			PRIMARY KEY (secret_id, policy_id)
-		);
-		CREATE TABLE rotation_reminders (
-			id TEXT PRIMARY KEY, secret_id TEXT NOT NULL, policy_id TEXT NOT NULL,
-			reminder_type TEXT NOT NULL, sent_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-			next_reminder_at TIMESTAMP, acknowledged BOOLEAN NOT NULL DEFAULT FALSE
-		);
-	`)
-	require.NoError(t, err)
-	t.Cleanup(func() { db.Close() }) //nolint:errcheck,gosec
-	return db
-}
+**1d. `TestRotationPolicyRepository_Update_NotFound`**: add `VaultID: uuid.New()` to the `policy` literal; `repo.Update(ctx, policy)` → `repo.Update(ctx, policy, model.NewAdminScope(uuid.New()))`.
 
-func testLog() *logging.Logger {
-	l := logrus.New()
-	l.SetLevel(logrus.ErrorLevel)
-	return logging.NewLogger(l)
-}
+**1e. `TestRotationPolicyRepository_Delete_NotFound`**: `repo.Delete(ctx, uuid.New())` → `repo.Delete(ctx, uuid.New(), model.NewAdminScope(uuid.New()))`.
 
-func newTestPolicy(vaultID uuid.UUID) *model.RotationPolicy {
+**1f. `TestRotationPolicyRepository_ListByUser`** — rename to `TestRotationPolicyRepository_List` and re-key its fixture on vault instead of user, since `List` (the interface's renamed `ListByUser`) is now vault-scoped, not user-scoped:
+
+```go
+func TestRotationPolicyRepository_List(t *testing.T) {
+	t.Parallel()
+	db := setupRotationDB(t)
+	log := logging.InitLogger()
+	repo := repositories.NewRotationPolicyRepository(rvdb.NewConn(db, rvdb.SQLite), log)
+	ctx := context.Background()
+
+	vaultA := uuid.New()
+	vaultB := uuid.New()
 	now := time.Now()
-	return &model.RotationPolicy{
-		ID: uuid.New(), UserID: uuid.New(), VaultID: vaultID, Name: "policy",
-		IntervalDays: 30, Enabled: true, ReminderDays: 5, CreatedAt: now, UpdatedAt: now,
-	}
-}
 
-func TestRotationRepository_Read_CrossVaultDenied(t *testing.T) {
-	sqlDB := setupRotationPolicyTestDB(t)
-	repo := repositories.NewRotationPolicyRepository(rvdb.NewConn(sqlDB, rvdb.SQLite), testLog())
-	ctx := context.Background()
+	p1 := &model.RotationPolicy{ID: uuid.New(), UserID: uuid.New(), VaultID: vaultA, Name: "p1", IntervalDays: 7, CreatedAt: now, UpdatedAt: now}
+	p2 := &model.RotationPolicy{ID: uuid.New(), UserID: uuid.New(), VaultID: vaultA, Name: "p2", IntervalDays: 14, CreatedAt: now, UpdatedAt: now}
+	p3 := &model.RotationPolicy{ID: uuid.New(), UserID: uuid.New(), VaultID: vaultB, Name: "p3", IntervalDays: 30, CreatedAt: now, UpdatedAt: now}
 
-	vaultA, vaultB := uuid.New(), uuid.New()
-	policy := newTestPolicy(vaultA)
-	require.NoError(t, repo.Create(ctx, policy))
-
-	got, err := repo.Read(ctx, policy.ID, model.NewVaultScope(vaultA, uuid.New()))
-	require.NoError(t, err)
-	require.Equal(t, policy.Name, got.Name)
-
-	_, err = repo.Read(ctx, policy.ID, model.NewVaultScope(vaultB, uuid.New()))
-	require.Error(t, err, "a policy in vault A must not be readable under vault B's scope")
-}
-
-func TestRotationRepository_Update_CrossVaultDenied(t *testing.T) {
-	sqlDB := setupRotationPolicyTestDB(t)
-	repo := repositories.NewRotationPolicyRepository(rvdb.NewConn(sqlDB, rvdb.SQLite), testLog())
-	ctx := context.Background()
-
-	vaultA, vaultB := uuid.New(), uuid.New()
-	policy := newTestPolicy(vaultA)
-	require.NoError(t, repo.Create(ctx, policy))
-
-	policy.Name = "renamed"
-	err := repo.Update(ctx, policy, model.NewVaultScope(vaultB, uuid.New()))
-	require.Error(t, err, "update scoped to the wrong vault must fail")
-
-	err = repo.Update(ctx, policy, model.NewVaultScope(vaultA, uuid.New()))
-	require.NoError(t, err)
-
-	got, err := repo.Read(ctx, policy.ID, model.NewVaultScope(vaultA, uuid.New()))
-	require.NoError(t, err)
-	require.Equal(t, "renamed", got.Name)
-}
-
-func TestRotationRepository_Delete_CrossVaultDenied(t *testing.T) {
-	sqlDB := setupRotationPolicyTestDB(t)
-	repo := repositories.NewRotationPolicyRepository(rvdb.NewConn(sqlDB, rvdb.SQLite), testLog())
-	ctx := context.Background()
-
-	vaultA, vaultB := uuid.New(), uuid.New()
-	policy := newTestPolicy(vaultA)
-	require.NoError(t, repo.Create(ctx, policy))
-
-	require.Error(t, repo.Delete(ctx, policy.ID, model.NewVaultScope(vaultB, uuid.New())))
-	require.NoError(t, repo.Delete(ctx, policy.ID, model.NewVaultScope(vaultA, uuid.New())))
-	_, err := repo.Read(ctx, policy.ID, model.NewAdminScope(uuid.New()))
-	require.Error(t, err)
-}
-
-func TestRotationRepository_List_FiltersByVault(t *testing.T) {
-	sqlDB := setupRotationPolicyTestDB(t)
-	repo := repositories.NewRotationPolicyRepository(rvdb.NewConn(sqlDB, rvdb.SQLite), testLog())
-	ctx := context.Background()
-
-	vaultA, vaultB := uuid.New(), uuid.New()
-	require.NoError(t, repo.Create(ctx, newTestPolicy(vaultA)))
-	require.NoError(t, repo.Create(ctx, newTestPolicy(vaultB)))
+	require.NoError(t, repo.Create(ctx, p1))
+	require.NoError(t, repo.Create(ctx, p2))
+	require.NoError(t, repo.Create(ctx, p3))
 
 	listA, err := repo.List(ctx, model.NewVaultScope(vaultA, uuid.New()))
 	require.NoError(t, err)
-	require.Len(t, listA, 1)
+	assert.Len(t, listA, 2)
+
+	listB, err := repo.List(ctx, model.NewVaultScope(vaultB, uuid.New()))
+	require.NoError(t, err)
+	assert.Len(t, listB, 1)
 
 	listAll, err := repo.List(ctx, model.NewAdminScope(uuid.New()))
 	require.NoError(t, err)
-	require.Len(t, listAll, 2)
+	assert.Len(t, listAll, 3)
 }
+```
 
-func TestRotationRepository_GetDueRotations_FiltersByVault(t *testing.T) {
-	sqlDB := setupRotationPolicyTestDB(t)
-	repo := repositories.NewRotationPolicyRepository(rvdb.NewConn(sqlDB, rvdb.SQLite), testLog())
+**1g. `TestRotationPolicyRepository_AssignAndRemoveFromSecret`**: add `VaultID: uuid.New()` to the `policy` literal. No other change — `Create`/`AssignToSecret`/`GetSecretPolicies`/`GetPoliciesForSecret`/`UpdateSecretPolicyRotation`/`RemoveFromSecret` keep their existing signatures.
+
+**1h. `TestRotationPolicyRepository_RecordAndGetHistory`**: no change — it never constructs a `RotationPolicy`.
+
+**1i. `TestRotationPolicyRepository_CreateAndGetReminder`**: add `VaultID: uuid.New()` to the `policy` literal; `repo.GetUpcomingReminders(ctx, userID)` → `repo.GetUpcomingReminders(ctx, model.NewAdminScope(userID))` (this test only asserts acknowledged-filtering, not vault-filtering — `ScopeAdmin` preserves that intent unchanged).
+
+**1j. `TestRotationPolicyRepository_GetDueRotations`**: add `VaultID: uuid.New()` to the `policy` literal; `repo.GetDueRotations(ctx, userID)` → `repo.GetDueRotations(ctx, model.NewAdminScope(userID))` (same rationale as 1i — this test predates and is orthogonal to the new vault-filtering behavior added in Step 1k below).
+
+**1k. Append four new cross-vault tests** after `TestRotationPolicyRepository_GetDueRotations`, reusing `setupRotationDB`/`logging.InitLogger()` exactly as the existing tests above do:
+
+```go
+func TestRotationPolicyRepository_Read_CrossVaultDenied(t *testing.T) {
+	t.Parallel()
+	db := setupRotationDB(t)
+	log := logging.InitLogger()
+	repo := repositories.NewRotationPolicyRepository(rvdb.NewConn(db, rvdb.SQLite), log)
 	ctx := context.Background()
 
 	vaultA, vaultB := uuid.New(), uuid.New()
-	policyA := newTestPolicy(vaultA)
-	policyB := newTestPolicy(vaultB)
+	now := time.Now()
+	policy := &model.RotationPolicy{ID: uuid.New(), UserID: uuid.New(), VaultID: vaultA, Name: "p", IntervalDays: 30, CreatedAt: now, UpdatedAt: now}
+	require.NoError(t, repo.Create(ctx, policy))
+
+	got, err := repo.Read(ctx, policy.ID, model.NewVaultScope(vaultA, uuid.New()))
+	require.NoError(t, err)
+	assert.Equal(t, policy.Name, got.Name)
+
+	_, err = repo.Read(ctx, policy.ID, model.NewVaultScope(vaultB, uuid.New()))
+	assert.Error(t, err, "a policy in vault A must not be readable under vault B's scope")
+}
+
+func TestRotationPolicyRepository_Update_CrossVaultDenied(t *testing.T) {
+	t.Parallel()
+	db := setupRotationDB(t)
+	log := logging.InitLogger()
+	repo := repositories.NewRotationPolicyRepository(rvdb.NewConn(db, rvdb.SQLite), log)
+	ctx := context.Background()
+
+	vaultA, vaultB := uuid.New(), uuid.New()
+	now := time.Now()
+	policy := &model.RotationPolicy{ID: uuid.New(), UserID: uuid.New(), VaultID: vaultA, Name: "p", IntervalDays: 30, CreatedAt: now, UpdatedAt: now}
+	require.NoError(t, repo.Create(ctx, policy))
+
+	policy.Name = "renamed"
+	assert.Error(t, repo.Update(ctx, policy, model.NewVaultScope(vaultB, uuid.New())), "update scoped to the wrong vault must fail")
+	require.NoError(t, repo.Update(ctx, policy, model.NewVaultScope(vaultA, uuid.New())))
+
+	got, err := repo.Read(ctx, policy.ID, model.NewVaultScope(vaultA, uuid.New()))
+	require.NoError(t, err)
+	assert.Equal(t, "renamed", got.Name)
+}
+
+func TestRotationPolicyRepository_Delete_CrossVaultDenied(t *testing.T) {
+	t.Parallel()
+	db := setupRotationDB(t)
+	log := logging.InitLogger()
+	repo := repositories.NewRotationPolicyRepository(rvdb.NewConn(db, rvdb.SQLite), log)
+	ctx := context.Background()
+
+	vaultA, vaultB := uuid.New(), uuid.New()
+	now := time.Now()
+	policy := &model.RotationPolicy{ID: uuid.New(), UserID: uuid.New(), VaultID: vaultA, Name: "p", IntervalDays: 30, CreatedAt: now, UpdatedAt: now}
+	require.NoError(t, repo.Create(ctx, policy))
+
+	assert.Error(t, repo.Delete(ctx, policy.ID, model.NewVaultScope(vaultB, uuid.New())))
+	require.NoError(t, repo.Delete(ctx, policy.ID, model.NewVaultScope(vaultA, uuid.New())))
+	_, err := repo.Read(ctx, policy.ID, model.NewAdminScope(uuid.New()))
+	assert.Error(t, err)
+}
+
+func TestRotationPolicyRepository_GetDueRotations_FiltersByVault(t *testing.T) {
+	t.Parallel()
+	db := setupRotationDB(t)
+	log := logging.InitLogger()
+	repo := repositories.NewRotationPolicyRepository(rvdb.NewConn(db, rvdb.SQLite), log)
+	ctx := context.Background()
+
+	vaultA, vaultB := uuid.New(), uuid.New()
+	now := time.Now()
+	policyA := &model.RotationPolicy{ID: uuid.New(), UserID: uuid.New(), VaultID: vaultA, Name: "pa", IntervalDays: 30, Enabled: true, CreatedAt: now, UpdatedAt: now}
+	policyB := &model.RotationPolicy{ID: uuid.New(), UserID: uuid.New(), VaultID: vaultB, Name: "pb", IntervalDays: 30, Enabled: true, CreatedAt: now, UpdatedAt: now}
 	require.NoError(t, repo.Create(ctx, policyA))
 	require.NoError(t, repo.Create(ctx, policyB))
 
 	secretA, secretB := uuid.New(), uuid.New()
-	past := time.Now().Add(-time.Hour)
-	require.NoError(t, repo.AssignToSecret(ctx, secretA, policyA.ID, time.Now(), past))
-	require.NoError(t, repo.AssignToSecret(ctx, secretB, policyB.ID, time.Now(), past))
+	past := now.Add(-time.Hour)
+	require.NoError(t, repo.AssignToSecret(ctx, secretA, policyA.ID, now, past))
+	require.NoError(t, repo.AssignToSecret(ctx, secretB, policyB.ID, now, past))
 
 	dueA, err := repo.GetDueRotations(ctx, model.NewVaultScope(vaultA, uuid.New()))
 	require.NoError(t, err)
 	require.Len(t, dueA, 1)
-	require.Equal(t, secretA, dueA[0].SecretID)
+	assert.Equal(t, secretA, dueA[0].SecretID)
 
 	dueAll, err := repo.GetDueRotations(ctx, model.NewAdminScope(uuid.New()))
 	require.NoError(t, err)
-	require.Len(t, dueAll, 2)
+	assert.Len(t, dueAll, 2)
 }
 ```
 
 - [ ] **Step 2: Run the tests to verify they fail**
 
-Run: `go test ./internal/repositories/... -run TestRotationRepository -v`
-Expected: FAIL to compile — `Read`/`Update`/`Delete`/`List`/`GetDueRotations` don't have these signatures yet.
+Run: `go test ./internal/repositories/... -run TestRotationPolicyRepository -v`
+Expected: FAIL to compile — `Read`/`Update`/`Delete`/`List`/`GetDueRotations` don't have these signatures yet, and `ListByUser` no longer exists under that name.
 
 - [ ] **Step 3: Update the interface and implementation**
 
@@ -865,7 +870,7 @@ In `internal/repositories/rotation_repository.go`:
 
 - [ ] **Step 4: Run the tests to verify they pass**
 
-Run: `go test ./internal/repositories/... -run TestRotationRepository -v`
+Run: `go test ./internal/repositories/... -run TestRotationPolicyRepository -v`
 Expected: PASS
 
 - [ ] **Step 5: Build the whole module to find broken callers**
@@ -876,7 +881,7 @@ Expected: FAIL — `internal/services/secrets/rotation_service.go` and its test 
 - [ ] **Step 6: Commit**
 
 ```bash
-git add internal/repositories/rotation_repository.go internal/repositories/rotation_repository_test.go
+git add internal/repositories/rotation_repository.go internal/repositories/repositories_test.go
 git commit -m "feat(repositories): collapse RotationPolicyRepository onto model.Scope"
 ```
 
@@ -906,13 +911,14 @@ In `internal/repositories/key_rotation_policy_repository_test.go`:
 
 1. Add `vault_id TEXT NOT NULL DEFAULT '00000000-0000-0000-0000-00000000efa1',` to `setupKeyRotationPolicyTestDB`'s inline `key_rotation_policies` CREATE TABLE (right after `user_id`), matching the `keys` table's existing `vault_id` column in the same helper.
 2. Every existing test that constructs a `model.KeyRotationPolicy{...}` literal (via named fields, confirmed in Task 3 Step 3) needs a `VaultID: ...` value — set it to match the parent key's vault in each test's fixture.
-3. Every existing call to `repo.GetByKeyID(ctx, keyID, userID)` / `DeleteByKeyID(ctx, keyID, userID)` / `GetByKeyIDAny(ctx, keyID)` / `DeleteByKeyIDAny(ctx, keyID)` becomes `repo.GetByKeyID(ctx, keyID, scope)` / `repo.DeleteByKeyID(ctx, keyID, scope)`, constructing `scope := model.NewVaultScope(vaultID, uuid.New())` from each test's own seeded vault.
-4. Add two new tests:
+3. Every existing call to `repo.GetByKeyID(ctx, keyID, userID)` / `DeleteByKeyID(ctx, keyID, userID)` becomes `repo.GetByKeyID(ctx, keyID, scope)` / `repo.DeleteByKeyID(ctx, keyID, scope)`, constructing `scope := model.NewVaultScope(vaultID, uuid.New())` from each test's own seeded vault.
+4. Delete `TestKeyRotationPolicyRepository_GetByKeyIDAny_IgnoresOwner` and `TestKeyRotationPolicyRepository_DeleteByKeyIDAny_IgnoresOwner` (~lines 143-180) entirely — they call `GetByKeyIDAny`/`DeleteByKeyIDAny`, which this task's Step 3 removes from the interface. Their "ignores owner" intent is superseded by the new cross-vault tests below (a policy is now reachable only under its own vault's scope, from any principal in that vault — ownership was never the real gate).
+5. Add two new tests:
 
 ```go
 func TestGetByKeyID_CrossVaultDenied(t *testing.T) {
 	sqlDB := setupKeyRotationPolicyTestDB(t)
-	repo := repositories.NewKeyRotationPolicyRepository(rvdb.NewConn(sqlDB, rvdb.SQLite), testLog())
+	repo := repositories.NewKeyRotationPolicyRepository(rvdb.NewConn(sqlDB, rvdb.SQLite), newKeyRotationPolicyTestLogger(t))
 	ctx := context.Background()
 
 	vaultA, vaultB := uuid.New(), uuid.New()
@@ -939,7 +945,7 @@ func TestGetByKeyID_CrossVaultDenied(t *testing.T) {
 
 func TestDeleteByKeyID_CrossVaultDenied(t *testing.T) {
 	sqlDB := setupKeyRotationPolicyTestDB(t)
-	repo := repositories.NewKeyRotationPolicyRepository(rvdb.NewConn(sqlDB, rvdb.SQLite), testLog())
+	repo := repositories.NewKeyRotationPolicyRepository(rvdb.NewConn(sqlDB, rvdb.SQLite), newKeyRotationPolicyTestLogger(t))
 	ctx := context.Background()
 
 	vaultA, vaultB := uuid.New(), uuid.New()
@@ -1472,14 +1478,16 @@ import (
 )
 
 func TestRotationRepository_RejectsUninitializedScope(t *testing.T) {
-	sqlDB := setupRotationPolicyTestDB(t)
-	repo := repositories.NewRotationPolicyRepository(rvdb.NewConn(sqlDB, rvdb.SQLite), testLog())
+	db := setupRotationDB(t)
+	repo := repositories.NewRotationPolicyRepository(rvdb.NewConn(db, rvdb.SQLite), logging.InitLogger())
 	ctx := context.Background()
 
 	_, err := repo.Read(ctx, uuid.New(), model.Scope{})
 	require.ErrorIs(t, err, repositories.ErrInvalidScope)
 
-	require.ErrorIs(t, repo.Update(ctx, newTestPolicy(uuid.New()), model.Scope{}), repositories.ErrInvalidScope)
+	now := time.Now()
+	policy := &model.RotationPolicy{ID: uuid.New(), UserID: uuid.New(), VaultID: uuid.New(), Name: "p", IntervalDays: 30, CreatedAt: now, UpdatedAt: now}
+	require.ErrorIs(t, repo.Update(ctx, policy, model.Scope{}), repositories.ErrInvalidScope)
 	require.ErrorIs(t, repo.Delete(ctx, uuid.New(), model.Scope{}), repositories.ErrInvalidScope)
 
 	_, err = repo.List(ctx, model.Scope{})
@@ -1487,8 +1495,8 @@ func TestRotationRepository_RejectsUninitializedScope(t *testing.T) {
 }
 
 func TestKeyRotationPolicyRepository_RejectsUninitializedScope(t *testing.T) {
-	sqlDB := setupKeyRotationPolicyTestDB(t)
-	repo := repositories.NewKeyRotationPolicyRepository(rvdb.NewConn(sqlDB, rvdb.SQLite), testLog())
+	db := setupKeyRotationPolicyTestDB(t)
+	repo := repositories.NewKeyRotationPolicyRepository(rvdb.NewConn(db, rvdb.SQLite), newKeyRotationPolicyTestLogger(t))
 	ctx := context.Background()
 
 	_, err := repo.GetByKeyID(ctx, uuid.New(), model.Scope{})
@@ -1497,7 +1505,7 @@ func TestKeyRotationPolicyRepository_RejectsUninitializedScope(t *testing.T) {
 }
 ```
 
-(`setupKeyRotationPolicyTestDB` is the existing helper from `key_rotation_policy_repository_test.go`, in the same `repositories_test` package — confirm its exact package clause before relying on cross-file reuse; if it's `package repositories_test` this works directly, otherwise inline an equivalent local helper.)
+`setupRotationDB`/`logging.InitLogger` are the existing helpers from `repositories_test.go` (updated by Task 4); `setupKeyRotationPolicyTestDB`/`newKeyRotationPolicyTestLogger` are the existing helpers from `key_rotation_policy_repository_test.go` (updated by Task 5). Both are in this same `repositories_test` package — confirmed during plan pre-flight review. Add `"time"` and `"rocketvault/internal/logging"` to this new file's imports alongside the ones already listed above.
 
 - [ ] **Step 2: Run the tests to verify they fail**
 
