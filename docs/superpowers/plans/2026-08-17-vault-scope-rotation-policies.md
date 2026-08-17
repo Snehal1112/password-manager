@@ -1392,7 +1392,10 @@ Write one new failing test proving the retrofit's authorization gate, following 
 ```go
 func TestRotationCreateCommand_RequiresVaultAuthorization(t *testing.T) {
 	tc := testutils.NewTestContext(t)
-	tc.MockContainer.RoleAssignmentService = testutils.NewDenyingRoleAssignmentService() // or the equivalent deny-path fixture this package already uses elsewhere
+	denyRoles := &testutils.MockRoleAssignmentService{}
+	denyRoles.On("HasDataAction", mock.Anything, mock.Anything, mock.Anything, mock.Anything).
+		Return(false, nil).Maybe()
+	tc.MockContainer.RoleAssignmentService = denyRoles
 	mockService := &MockRotationService{}
 	tc.MockContainer.On("GetRotationService").Return(mockService)
 
@@ -1407,7 +1410,7 @@ func TestRotationCreateCommand_RequiresVaultAuthorization(t *testing.T) {
 }
 ```
 
-Check `cmd/testutils` (or a sibling test file already exercising the deny path, e.g. `cmd/keys/*_security_test.go`) for the exact deny-path fixture name before writing this — reuse it rather than inventing a new one.
+This is the verified, exact deny-path pattern already used by `cmd/keys/update_test.go`'s `TestUpdateKeyCommand_Denied` (`&testutils.MockRoleAssignmentService{}`, `.On("HasDataAction", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(false, nil).Maybe()`, assigned to `tc.MockContainer.RoleAssignmentService`) — `cmd/rotation_service_test.go` already imports `rocketvault/cmd/testutils` in this same `package cmd`, confirming the helper is available here too. Use this pattern verbatim; do not invent a different fixture.
 
 - [ ] **Step 2: Run the tests to verify they fail**
 
