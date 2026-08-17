@@ -3,6 +3,8 @@ package cmd
 import (
 	"context"
 	"errors"
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -209,11 +211,28 @@ func TestInitConfig_RetryConfigEnvOverride(t *testing.T) {
 	require.Equal(t, 10, maxAttempts, "environment variable override RETRY_DATABASE_MAX_ATTEMPTS should be reflected in retry config")
 }
 
+// useTempConfigFile points the package-level cfgFile at a minimal, valid
+// config so initConfig (registered globally via cobra.OnInitialize in
+// init(), and therefore run for ANY cobra.Command's Execute/ExecuteContext
+// call in this test binary, not just rootCmd's) doesn't panic when it can't
+// find ".rocketvault.yaml" relative to the test's working directory
+// (cmd/). Restores the previous value on cleanup.
+func useTempConfigFile(t *testing.T) {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), "test-config.yaml")
+	require.NoError(t, os.WriteFile(path, []byte("jwt:\n  expiry: 1h\n"), 0o600))
+
+	previous := cfgFile
+	cfgFile = path
+	t.Cleanup(func() { cfgFile = previous })
+}
+
 // TestRun_ReturnsNonZeroOnError is the regression test for the bug where
 // Execute() called os.Exit(0) even when rootCmd.ExecuteContext returned a
 // non-nil error, making every CLI failure indistinguishable from success
 // at the shell level ("&&"/"set -e" never caught it).
 func TestRun_ReturnsNonZeroOnError(t *testing.T) {
+	useTempConfigFile(t)
 	cmd := &cobra.Command{
 		Use: "test",
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -230,6 +249,7 @@ func TestRun_ReturnsNonZeroOnError(t *testing.T) {
 // TestRun_ReturnsZeroOnSuccess pins the success path so a future change to
 // run() can't flip both cases to the same wrong value.
 func TestRun_ReturnsZeroOnSuccess(t *testing.T) {
+	useTempConfigFile(t)
 	cmd := &cobra.Command{
 		Use: "test",
 		RunE: func(cmd *cobra.Command, args []string) error {
