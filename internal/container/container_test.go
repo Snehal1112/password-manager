@@ -5,6 +5,7 @@ package container
 
 import (
 	"database/sql"
+	"os"
 	"testing"
 	"time"
 
@@ -19,8 +20,20 @@ import (
 	"rocketvault/internal/cachekit"
 	"rocketvault/internal/keycache"
 	"rocketvault/internal/logging"
+	"rocketvault/internal/signing"
 	"rocketvault/internal/vaultcache"
 )
+
+// TestMain ensures every test in this package uses an in-memory fake OS
+// keychain instead of the real one for jwt.key_source=os_store, so `go test`
+// never touches the real GNOME Keyring / macOS Keychain / Windows Credential
+// Manager entry that production uses by default ("jwt-signing-key-rocketvault").
+func TestMain(m *testing.M) {
+	restore := signing.UseFakeKeychainForTesting()
+	code := m.Run()
+	restore()
+	os.Exit(code)
+}
 
 // ---------------------------------------------------------------------------
 // helpers
