@@ -8,6 +8,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"rocketvault/common"
+	"rocketvault/internal/cliclient"
 	rvdb "rocketvault/internal/db"
 	"rocketvault/internal/formatter"
 	"rocketvault/internal/logging"
@@ -43,8 +44,18 @@ Derivation:
 }
 
 // previewMigrationPreRun installs the logger and output formatter without
-// opening or migrating the database.
+// opening or migrating the database. Because it replaces the root pre-run
+// entirely (see the command's own comment above), it must re-run the
+// remote-target refusal itself — this command reads the local database file
+// directly and has no server-side route to call, so it must never silently
+// preview local state while a remote target is active (see NB2 in the
+// 2026-08-17 final review).
 func previewMigrationPreRun(cmd *cobra.Command, _ []string) error {
+	serverFlag, _ := cmd.Flags().GetString("server")
+	if err := cliclient.RequireLocal(serverFlag, "vaults preview-migration"); err != nil {
+		return err
+	}
+
 	log := logging.InitLogger()
 
 	outputFlag, _ := cmd.Flags().GetString("output")

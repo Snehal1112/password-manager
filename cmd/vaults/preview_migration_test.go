@@ -46,6 +46,25 @@ func TestPreviewMigrationRowsEmpty(t *testing.T) {
 	assert.Empty(t, rows)
 }
 
+// TestPreviewMigrationPreRun_RemoteTarget_ReturnsError verifies NB2's fix:
+// preview-migration replaces the root pre-run entirely (see
+// TestInitVaultsPreviewMigrationRegisters), which means the root's
+// remote-target guard never runs for it either. Without its own check, it
+// would silently preview the local database's state while a remote target
+// is configured. It has no server-side route to call, so it must refuse
+// instead.
+func TestPreviewMigrationPreRun_RemoteTarget_ReturnsError(t *testing.T) {
+	root := &cobra.Command{Use: "vaults"}
+	root.PersistentFlags().String("server", "", "")
+	InitVaultsPreviewMigration(root)
+
+	root.SetArgs([]string{"preview-migration", "--server", "https://vault.prod.example.com"})
+	err := root.Execute()
+	require.Error(t, err, "preview-migration must refuse a resolved remote target instead of silently reading the local database")
+	assert.Contains(t, err.Error(), "local-only")
+	assert.Contains(t, err.Error(), "vaults preview-migration")
+}
+
 // TestInitVaultsPreviewMigrationRegisters asserts the command is attached with
 // its own PersistentPreRunE, so the root pre-run does not initialise (and
 // therefore migrate) the database before the preview reads it.
