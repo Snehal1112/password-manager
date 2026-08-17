@@ -1,10 +1,15 @@
 vault:
-  url: "http://localhost:8774"
-  client_id: "consumer-test"      # service account NAME (not UUID) — or set VAULT_CLIENT_ID env var
-  # vault_name: "prod-vault"      # target vault name — omit or leave blank for the `default` vault, or set VAULT_NAME env var
+  url: "https://numericlabs.lxd"
+  client_id: "Connect-Dev-ci" # service account NAME (not UUID) — or set VAULT_CLIENT_ID env var
+  # client_secret is intentionally NOT read from this file — config.go only reads
+  # the VAULT_CLIENT_SECRET env var. Set it before running:
+  #   export VAULT_CLIENT_SECRET="<secret from POST /service-accounts>"
+  vault_name: "connect-dev"      # target vault name — omit or leave blank for the `default` vault, or set VAULT_NAME env var
   secrets:
-    - name: DB_PASSWORD
-      uuid: "b748a034-d493-46cd-8d63-b080da511987"     # fill in UUID from RocketVault
+    - name: APP_KEY
+      uuid: "0370966e-fa37-4d98-a0ed-4d2fd8cc1dae"     # fill in UUID from RocketVault
+    - name: DB_KEY
+      uuid: "0527ee7e-f8a4-418b-8f63-4a285bc4a54c"
 
 server:
   listen: ":9000"
