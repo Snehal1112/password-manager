@@ -1561,10 +1561,12 @@ func TestRotationAssignCommand_CrossVaultDenied(t *testing.T) {
 	cmd.Flags().String("policy-id", policyID.String(), "")
 	cmd.SetContext(tc.Ctx)
 
-	require.NoError(t, cmd.Execute())
+	require.NoError(t, cmd.RunE(cmd, []string{}))
 	mockService.AssertExpectations(t)
 }
 ```
+
+Use `cmd.RunE(cmd, []string{})`, not `cmd.Execute()` — Task 8 discovered `cmd.Execute()` panics in this package because cobra's global `OnInitialize(initConfig)` tries to load a real `.rocketvault.yaml`. `cmd.RunE(...)` is already the established idiom throughout this package's other tests (75+ existing call sites); it still genuinely exercises the authorization/scope-threading path under test.
 
 This documents, at the test-suite level, the boundary between what the CLI task (8) is responsible for (resolving and threading the vault scope) and what the service task (6) is responsible for (actually denying a cross-vault assignment) — so a future reader doesn't go looking for the enforcement logic in the wrong file.
 
