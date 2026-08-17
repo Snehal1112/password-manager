@@ -736,7 +736,7 @@ func TestRotationRepo_Read_DBError(t *testing.T) {
 	require.NoError(t, err)
 
 	repo := &rotationPolicyRepository{db: rvdb.NewConn(db, rvdb.SQLite), log: newInternalLogger()}
-	_, err = repo.Read(context.Background(), uuid.New())
+	_, err = repo.Read(context.Background(), uuid.New(), model.NewAdminScope(uuid.New()))
 	assert.Error(t, err)
 }
 
