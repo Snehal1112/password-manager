@@ -269,12 +269,19 @@ func TestRun_ReturnsZeroOnSuccess(t *testing.T) {
 // config file at all, only a target server.
 func TestInitConfig_RemoteMode_DoesNotPanicWithoutConfigFile(t *testing.T) {
 	dir := t.TempDir() // no .rocketvault.yaml here
-	origWd, _ := os.Getwd()
-	defer os.Chdir(origWd)
-	os.Chdir(dir)
+	origWd, err := os.Getwd()
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = os.Chdir(origWd) })
+	require.NoError(t, os.Chdir(dir))
 
 	t.Setenv("ROCKETVAULT_ADDR", "https://vault.prod.example.com")
+
+	previousSettings := viper.AllSettings()
 	viper.Reset()
+	t.Cleanup(func() {
+		viper.Reset()
+		_ = viper.MergeConfigMap(previousSettings)
+	})
 
 	defer func() {
 		if r := recover(); r != nil {
@@ -282,4 +289,75 @@ func TestInitConfig_RemoteMode_DoesNotPanicWithoutConfigFile(t *testing.T) {
 		}
 	}()
 	initConfig()
+}
+
+// ---------------------------------------------------------------------------
+// C2 (2026-08-17 final review): a resolved remote target (--server /
+// ROCKETVAULT_ADDR / current context) must never be silently ignored by a
+// command that doesn't yet implement remote support. persistentPreRun's
+// explicit guard (cmd/root.go) is the enforcement point tested here.
+// ---------------------------------------------------------------------------
+
+// TestPersistentPreRun_RemoteTarget_NonContextCommand_ReturnsError verifies
+// that a command outside the `context` group errors clearly, instead of
+// silently operating on the local instance, when a remote target resolves.
+// "health" is used as a side-effect-free, DB-independent example command —
+// the guard runs before any DB/service-container setup, so its RunE never
+// executes.
+func TestPersistentPreRun_RemoteTarget_NonContextCommand_ReturnsError(t *testing.T) {
+	dir := t.TempDir()
+	origWd, err := os.Getwd()
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = os.Chdir(origWd) })
+	require.NoError(t, os.Chdir(dir))
+
+	previousArgs := os.Args
+	os.Args = []string{"rocketvault", "health"}
+	t.Cleanup(func() { os.Args = previousArgs })
+
+	previousSettings := viper.AllSettings()
+	viper.Reset()
+	t.Cleanup(func() {
+		viper.Reset()
+		_ = viper.MergeConfigMap(previousSettings)
+	})
+
+	rootCmd.SetArgs([]string{"health", "--server", "https://vault.prod.example.com"})
+	t.Cleanup(func() { rootCmd.SetArgs(nil) })
+
+	err = rootCmd.ExecuteContext(context.Background())
+	require.Error(t, err, "a command outside the context group must refuse a resolved remote target, not silently run locally")
+	assert.Contains(t, err.Error(), "not yet supported")
+	assert.Contains(t, err.Error(), "health")
+}
+
+// TestPersistentPreRun_RemoteTarget_ContextCommand_Unaffected verifies the
+// context group's carve-out from the C2 guard: context commands are allowed
+// to run with a resolved remote target present, since they only read/write
+// local config and never talk to a server themselves.
+func TestPersistentPreRun_RemoteTarget_ContextCommand_Unaffected(t *testing.T) {
+	dir := t.TempDir()
+	common.SessionBaseDir = dir + "/sessions"
+
+	origWd, err := os.Getwd()
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = os.Chdir(origWd) })
+	require.NoError(t, os.Chdir(dir))
+
+	previousArgs := os.Args
+	os.Args = []string{"rocketvault", "context", "list"}
+	t.Cleanup(func() { os.Args = previousArgs })
+
+	previousSettings := viper.AllSettings()
+	viper.Reset()
+	t.Cleanup(func() {
+		viper.Reset()
+		_ = viper.MergeConfigMap(previousSettings)
+	})
+
+	rootCmd.SetArgs([]string{"context", "list", "--server", "https://vault.prod.example.com"})
+	t.Cleanup(func() { rootCmd.SetArgs(nil) })
+
+	err = rootCmd.ExecuteContext(context.Background())
+	require.NoError(t, err, "the context group must be unaffected by a resolved remote target")
 }

@@ -116,6 +116,26 @@ func init() {
 	rootCmd.Flags().BoolP("toggle", "t", false, "Help message for toggle")
 }
 
+// isContextCommandArgs reports whether the command cobra is about to
+// execute for the given post-binary-name args is part of the `context`
+// command group (add/list/use/current/remove). It re-runs cobra's own
+// command-resolution logic (rootCmd.Find) rather than string-matching args
+// directly, so it stays correct regardless of global-flag placement.
+//
+// This exists because initConfig runs as a cobra.OnInitialize hook, which
+// cobra invokes with no *cobra.Command argument — unlike persistentPreRun,
+// which does receive one and does its own equivalent check directly. See
+// C1 in the 2026-08-17 final review: context commands must never require a
+// local config file/database, and previously nothing exempted them from
+// initConfig's panic when neither was present.
+func isContextCommandArgs(args []string) bool {
+	cmd, _, err := rootCmd.Find(args)
+	if err != nil || cmd == nil {
+		return false
+	}
+	return cmd.Name() == "context" || (cmd.Parent() != nil && cmd.Parent().Name() == "context")
+}
+
 // initConfig reads in config file and ENV variables if set.
 func initConfig() {
 	if cfgFile != "" {
@@ -137,8 +157,10 @@ func initConfig() {
 	// If a config file is found, read it in. A missing/unreadable config
 	// file is fatal in local mode (today's behavior, unchanged) but not in
 	// remote mode — remote mode needs no local database or crypto config at
-	// all, only a target server.
-	if err := viper.ReadInConfig(); err != nil {
+	// all, only a target server — nor for the `context` command group, which
+	// never needs a local database/config at all, remote target or not (it
+	// only reads/writes ~/.rocketvault/contexts.json).
+	if err := viper.ReadInConfig(); err != nil && !isContextCommandArgs(os.Args[1:]) {
 		serverFlag, _ := rootCmd.PersistentFlags().GetString("server")
 		target, targetErr := cliclient.ResolveTarget(serverFlag)
 		if targetErr != nil || target == nil {
@@ -268,12 +290,47 @@ func persistentPreRun(cmd *cobra.Command, args []string) error {
 		"preview-migration": true, // Reads ownership to plan role assignments; no auth, no writes
 		"login":             true, // Bootstraps a session (password or --oidc); cannot itself require one
 		"logout":            true, // Clears a cached session; must work even if that session is broken
+		"context":           true, // Local-only config (add/list/use/current/remove); no DB, no auth
 	}
 
 	// Check if this is a system command (either the command itself or its parent)
 	isSystemCmd := systemCmds[cmd.Name()]
 	if !isSystemCmd && cmd.Parent() != nil {
 		isSystemCmd = systemCmds[cmd.Parent().Name()]
+	}
+
+	// Remote-target guard: a command that resolves a remote target (via
+	// --server, ROCKETVAULT_ADDR, or the current context) must never
+	// silently fall back to operating on the local instance — see the CLI
+	// remote-server design spec's Global Constraint #3
+	// (docs/superpowers/specs/2026-08-17-cli-remote-server-support-design.md).
+	// The `context` group is exempt: it only reads/writes local config
+	// (~/.rocketvault/contexts.json) and never talks to a server itself.
+	//
+	// This guard is intentionally temporary scaffolding, not a permanent
+	// architectural fixture. As each resource group's own remote adapter
+	// plan lands (secrets, keys, certificates, vaults, vault-access, users,
+	// audit — see the design spec's Command Support Matrix), that group
+	// gains real remote support and should be carved out of this blanket
+	// check (e.g. by extending isContextGroup-style exemptions, or by
+	// replacing this check with a per-command capability check once most
+	// groups are remote-capable). Once every command either supports remote
+	// mode or has its own explicit local-only refusal (see
+	// internal/cliclient.RequireLocal), this guard should be deleted
+	// entirely.
+	isContextGroup := cmd.Name() == "context" || (cmd.Parent() != nil && cmd.Parent().Name() == "context")
+	if !isContextGroup {
+		serverFlag, _ := cmd.Flags().GetString("server")
+		target, targetErr := cliclient.ResolveTarget(serverFlag)
+		if targetErr != nil {
+			return fmt.Errorf("failed to resolve remote target: %w", targetErr)
+		}
+		if target != nil {
+			return fmt.Errorf(
+				"remote mode (--server/ROCKETVAULT_ADDR/context %q) is not yet supported for %q; unset it to run against the local instance",
+				target.Server, cmd.CommandPath(),
+			)
+		}
 	}
 
 	// Initialize the logger.
