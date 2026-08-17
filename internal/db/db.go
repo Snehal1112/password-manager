@@ -492,6 +492,8 @@ func (d *DBRepository) createOptimizedSchema(db *sql.DB) error {
 			notify_before_expiry_days  INTEGER NOT NULL DEFAULT 30,
 			expiry_days                INTEGER NOT NULL DEFAULT 365,
 			enabled                    BOOLEAN NOT NULL DEFAULT TRUE,
+			last_rotated_at            TIMESTAMP NULL,
+			next_rotation_at           TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
 			created_at                 TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
 			updated_at                 TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
 			FOREIGN KEY (key_id) REFERENCES keys(id) ON DELETE CASCADE,
@@ -795,6 +797,8 @@ func (d *DBRepository) migrateSchema(db *sql.DB) error {
 			notify_before_expiry_days  INTEGER NOT NULL DEFAULT 30,
 			expiry_days                INTEGER NOT NULL DEFAULT 365,
 			enabled                    BOOLEAN NOT NULL DEFAULT TRUE,
+			last_rotated_at            TIMESTAMP NULL,
+			next_rotation_at           TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
 			created_at                 TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
 			updated_at                 TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
 			FOREIGN KEY (key_id) REFERENCES keys(id) ON DELETE CASCADE,
@@ -858,6 +862,8 @@ func (d *DBRepository) migrateSchema(db *sql.DB) error {
 		"ALTER TABLE keys ADD COLUMN vault_id TEXT NOT NULL DEFAULT '00000000-0000-0000-0000-00000000efa1'",
 		"ALTER TABLE certificates ADD COLUMN vault_id TEXT NOT NULL DEFAULT '00000000-0000-0000-0000-00000000efa1'",
 		"ALTER TABLE key_rotation_policies ADD COLUMN vault_id TEXT NOT NULL DEFAULT '00000000-0000-0000-0000-00000000efa1'",
+		"ALTER TABLE key_rotation_policies ADD COLUMN last_rotated_at TIMESTAMP",
+		"ALTER TABLE key_rotation_policies ADD COLUMN next_rotation_at TIMESTAMP",
 		"ALTER TABLE rotation_policies ADD COLUMN vault_id TEXT NOT NULL DEFAULT '00000000-0000-0000-0000-00000000efa1'",
 		"CREATE INDEX IF NOT EXISTS idx_key_rotation_policies_vault_id ON key_rotation_policies(vault_id)",
 		"CREATE INDEX IF NOT EXISTS idx_rotation_policies_vault_id ON rotation_policies(vault_id)",
@@ -875,6 +881,25 @@ func (d *DBRepository) migrateSchema(db *sql.DB) error {
 				return fmt.Errorf("migration failed (%q): %w", stmt, err)
 			}
 		}
+	}
+
+	// Backfill key_rotation_policies.next_rotation_at for rows that predate
+	// this column. Anchored on this migration's own run time, not the key's
+	// created_at: using created_at would retroactively mark every existing
+	// enabled policy whose key predates its own rotation window as
+	// simultaneously overdue the moment this feature ships -- a mass
+	// rotation nobody asked for at that moment. See
+	// docs/superpowers/specs/2026-08-18-rotation-policy-scheduler-design.md
+	// section 4. Only rows already migrated by the ALTER TABLE statements
+	// above (next_rotation_at IS NULL) are touched, so re-running this is a
+	// no-op once every row has a value.
+	now := time.Now().UTC()
+	backfillSQL := "UPDATE key_rotation_policies SET next_rotation_at = datetime(?, '+' || rotate_after_days || ' days') WHERE next_rotation_at IS NULL"
+	if d.dialect == Postgres {
+		backfillSQL = "UPDATE key_rotation_policies SET next_rotation_at = ?::timestamp + (rotate_after_days || ' days')::interval WHERE next_rotation_at IS NULL"
+	}
+	if _, err := db.Exec(d.dialect.Rebind(backfillSQL), now); err != nil {
+		return fmt.Errorf("backfill key_rotation_policies.next_rotation_at: %w", err)
 	}
 
 	// Feature: vault-scoped role assignments table (idempotent).
