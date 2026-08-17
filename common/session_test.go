@@ -238,3 +238,43 @@ func TestDeleteSessionForServer_ClearsCurrentPointerOnlyForMatchingServer(t *tes
 		t.Fatalf("LoadCurrentSession() after delete = %+v, %v; want nil, nil", s, err)
 	}
 }
+
+func TestLoadSession_Migration_DoesNotClobberCurrentPointer(t *testing.T) {
+	SessionBaseDir = t.TempDir()
+	os.MkdirAll(SessionBaseDir, 0700)
+
+	// Scenario: User A is current (new format), User B has a legacy-format session.
+	// When we load B's legacy session for a one-off --username lookup, it should
+	// not change who the "current" pointer references.
+
+	// Save user A's session (in new format) and mark as current.
+	userA := &SessionCache{Username: "userA", Token: "token-a", ServerKey: LocalServerKey}
+	if err := SaveSession(userA); err != nil {
+		t.Fatalf("SaveSession(userA): %v", err)
+	}
+
+	// Verify userA is current.
+	current, err := LoadCurrentSession()
+	if err != nil || current == nil || current.Username != "userA" {
+		t.Fatalf("LoadCurrentSession() initial = %+v, %v; want userA", current, err)
+	}
+
+	// Create user B's legacy-format session (old filename, no server key).
+	userB := &SessionCache{Username: "userB", Token: "token-b"}
+	data, _ := json.Marshal(userB)
+	os.WriteFile(filepath.Join(SessionBaseDir, "userB.json"), data, 0600)
+
+	// Load userB's legacy session (simulates --username userB lookup).
+	loaded, err := LoadSession("userB")
+	if err != nil || loaded == nil || loaded.Token != "token-b" {
+		t.Fatalf("LoadSession(userB) = %+v, %v; want token-b", loaded, err)
+	}
+
+	// CRITICAL: Verify the current pointer still points to userA, not userB.
+	// (Before the fix, SaveSession's side effect during migration would clobber
+	// the pointer, causing this to fail.)
+	current2, err := LoadCurrentSession()
+	if err != nil || current2 == nil || current2.Username != "userA" || current2.Token != "token-a" {
+		t.Fatalf("LoadCurrentSession() after userB migration = %+v, %v; want userA/token-a (pointer must not be clobbered)", current2, err)
+	}
+}

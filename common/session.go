@@ -82,10 +82,12 @@ func currentPointerPath() string {
 	return filepath.Join(SessionBaseDir, "current")
 }
 
-// SaveSession writes session to disk and marks it as the current session —
-// the one commands run without --username fall back to. A blank
-// session.ServerKey is treated as LocalServerKey.
-func SaveSession(session *SessionCache) error {
+// writeSessionFile writes session's JSON to its (serverKey, username)-derived
+// path. Does not touch the current-session pointer — callers that should
+// also update "current" (SaveSession) do that themselves; callers that
+// shouldn't (the lazy-migration path, which is a read-triggered rewrite, not
+// a real session change) must not.
+func writeSessionFile(session *SessionCache) error {
 	if session.ServerKey == "" {
 		session.ServerKey = LocalServerKey
 	}
@@ -101,6 +103,17 @@ func SaveSession(session *SessionCache) error {
 
 	if err := os.WriteFile(sessionFilePath(session.ServerKey, session.Username), data, 0600); err != nil {
 		return fmt.Errorf("failed to write session file: %w", err)
+	}
+
+	return nil
+}
+
+// SaveSession writes session to disk and marks it as the current session —
+// the one commands run without --username fall back to. A blank
+// session.ServerKey is treated as LocalServerKey.
+func SaveSession(session *SessionCache) error {
+	if err := writeSessionFile(session); err != nil {
+		return err
 	}
 
 	pointer := session.ServerKey + "|" + session.Username
@@ -149,10 +162,12 @@ func LoadSessionForServer(serverKey, username string) (*SessionCache, error) {
 	}
 
 	// Lazily migrate: rewrite under the new filename so the legacy fallback
-	// above is only ever needed once per user.
+	// above is only ever needed once per user. Use writeSessionFile (not SaveSession)
+	// because this is a read-triggered rewrite, not a real session change, and must
+	// not affect the current-session pointer.
 	if session.ServerKey == LocalServerKey {
 		if _, newErr := os.Stat(sessionFilePath(LocalServerKey, username)); os.IsNotExist(newErr) {
-			_ = SaveSession(&session)
+			_ = writeSessionFile(&session)
 		}
 	}
 
