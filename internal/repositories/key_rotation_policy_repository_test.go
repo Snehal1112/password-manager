@@ -51,6 +51,8 @@ func setupKeyRotationPolicyTestDB(t *testing.T) *sql.DB {
 		notify_before_expiry_days  INTEGER NOT NULL DEFAULT 30,
 		expiry_days                INTEGER NOT NULL DEFAULT 365,
 		enabled                    BOOLEAN NOT NULL DEFAULT TRUE,
+		last_rotated_at            TIMESTAMP NULL,
+		next_rotation_at           TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
 		created_at                 TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
 		updated_at                 TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 	)`)
@@ -196,4 +198,73 @@ func TestDeleteByKeyID_CrossVaultDenied(t *testing.T) {
 
 	require.Error(t, repo.DeleteByKeyID(ctx, keyID, model.NewVaultScope(vaultB, uuid.New())))
 	require.NoError(t, repo.DeleteByKeyID(ctx, keyID, model.NewVaultScope(vaultA, uuid.New())))
+}
+
+func TestKeyRotationPolicy_GetDuePolicies_ReturnsOnlyEnabledDueRows(t *testing.T) {
+	db := setupKeyRotationPolicyTestDB(t)
+	repo := repositories.NewKeyRotationPolicyRepository(rvdb.NewConn(db, rvdb.SQLite), newKeyRotationPolicyTestLogger(t))
+	ctx := context.Background()
+	now := time.Now()
+
+	due := &model.KeyRotationPolicy{
+		ID: uuid.New(), KeyID: uuid.New(), UserID: uuid.New(), VaultID: uuid.New(),
+		RotateAfterDays: 90, Enabled: true, NextRotationAt: now.Add(-time.Hour),
+		CreatedAt: now, UpdatedAt: now,
+	}
+	notYetDue := &model.KeyRotationPolicy{
+		ID: uuid.New(), KeyID: uuid.New(), UserID: uuid.New(), VaultID: uuid.New(),
+		RotateAfterDays: 90, Enabled: true, NextRotationAt: now.Add(time.Hour),
+		CreatedAt: now, UpdatedAt: now,
+	}
+	disabledButDue := &model.KeyRotationPolicy{
+		ID: uuid.New(), KeyID: uuid.New(), UserID: uuid.New(), VaultID: uuid.New(),
+		RotateAfterDays: 90, Enabled: false, NextRotationAt: now.Add(-time.Hour),
+		CreatedAt: now, UpdatedAt: now,
+	}
+	noActionConfigured := &model.KeyRotationPolicy{
+		ID: uuid.New(), KeyID: uuid.New(), UserID: uuid.New(), VaultID: uuid.New(),
+		RotateAfterDays: 0, Enabled: true, NextRotationAt: now.Add(-time.Hour),
+		CreatedAt: now, UpdatedAt: now,
+	}
+	for _, p := range []*model.KeyRotationPolicy{due, notYetDue, disabledButDue, noActionConfigured} {
+		require.NoError(t, repo.Upsert(ctx, p))
+	}
+
+	got, err := repo.GetDuePolicies(ctx, model.NewAdminScope(uuid.Nil))
+	require.NoError(t, err)
+	require.Len(t, got, 1)
+	require.Equal(t, due.ID, got[0].ID)
+}
+
+func TestKeyRotationPolicy_MarkRotated_UpdatesBothTimestamps(t *testing.T) {
+	db := setupKeyRotationPolicyTestDB(t)
+	repo := repositories.NewKeyRotationPolicyRepository(rvdb.NewConn(db, rvdb.SQLite), newKeyRotationPolicyTestLogger(t))
+	ctx := context.Background()
+
+	keyID, vaultID := uuid.New(), uuid.New()
+	now := time.Now()
+	policy := &model.KeyRotationPolicy{
+		ID: uuid.New(), KeyID: keyID, UserID: uuid.New(), VaultID: vaultID,
+		RotateAfterDays: 30, Enabled: true, NextRotationAt: now.Add(-time.Hour),
+		CreatedAt: now, UpdatedAt: now,
+	}
+	require.NoError(t, repo.Upsert(ctx, policy))
+
+	rotatedAt := now.Truncate(time.Second)
+	require.NoError(t, repo.MarkRotated(ctx, keyID, model.NewAdminScope(uuid.Nil), rotatedAt, 30))
+
+	scope := model.NewVaultScope(vaultID, uuid.New())
+	loaded, err := repo.GetByKeyID(ctx, keyID, scope)
+	require.NoError(t, err)
+	require.NotNil(t, loaded.LastRotatedAt)
+	require.WithinDuration(t, rotatedAt, *loaded.LastRotatedAt, time.Second)
+	require.WithinDuration(t, rotatedAt.AddDate(0, 0, 30), loaded.NextRotationAt, time.Second)
+}
+
+func TestKeyRotationPolicy_MarkRotated_UnknownKeyReturnsNoRows(t *testing.T) {
+	db := setupKeyRotationPolicyTestDB(t)
+	repo := repositories.NewKeyRotationPolicyRepository(rvdb.NewConn(db, rvdb.SQLite), newKeyRotationPolicyTestLogger(t))
+
+	err := repo.MarkRotated(context.Background(), uuid.New(), model.NewAdminScope(uuid.Nil), time.Now(), 30)
+	require.ErrorIs(t, err, sql.ErrNoRows)
 }

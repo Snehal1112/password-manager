@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
@@ -61,6 +62,19 @@ func (m *mockKeyRotationPolicyRepo) GetByKeyID(ctx context.Context, keyID uuid.U
 
 func (m *mockKeyRotationPolicyRepo) DeleteByKeyID(ctx context.Context, keyID uuid.UUID, scope model.Scope) error {
 	args := m.Called(ctx, keyID, scope)
+	return args.Error(0)
+}
+
+func (m *mockKeyRotationPolicyRepo) GetDuePolicies(ctx context.Context, scope model.Scope) ([]model.KeyRotationPolicy, error) {
+	args := m.Called(ctx, scope)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).([]model.KeyRotationPolicy), args.Error(1)
+}
+
+func (m *mockKeyRotationPolicyRepo) MarkRotated(ctx context.Context, keyID uuid.UUID, scope model.Scope, at time.Time, rotateAfterDays int) error {
+	args := m.Called(ctx, keyID, scope, at, rotateAfterDays)
 	return args.Error(0)
 }
 

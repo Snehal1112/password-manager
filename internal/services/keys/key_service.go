@@ -477,6 +477,19 @@ func (s *keyService) UpsertKeyRotationPolicy(ctx context.Context, keyID uuid.UUI
 		return nil, err
 	}
 	now := time.Now()
+
+	// Preserve an existing policy's rotation history: an Upsert that only
+	// changes e.g. notify_before_expiry_days must not reset the due-date
+	// clock an earlier automatic rotation already advanced.
+	var lastRotatedAt *time.Time
+	baseline := key.CreatedAt
+	if existing, err := s.policyRepo.GetByKeyID(ctx, keyID, scope); err == nil && existing != nil {
+		lastRotatedAt = existing.LastRotatedAt
+		if lastRotatedAt != nil {
+			baseline = *lastRotatedAt
+		}
+	}
+
 	policy := &model.KeyRotationPolicy{
 		ID:                     uuid.New(),
 		KeyID:                  keyID,
@@ -486,6 +499,8 @@ func (s *keyService) UpsertKeyRotationPolicy(ctx context.Context, keyID uuid.UUI
 		NotifyBeforeExpiryDays: req.NotifyBeforeExpiryDays,
 		ExpiryDays:             req.ExpiryDays,
 		Enabled:                req.Enabled,
+		LastRotatedAt:          lastRotatedAt,
+		NextRotationAt:         baseline.AddDate(0, 0, req.RotateAfterDays),
 		CreatedAt:              now,
 		UpdatedAt:              now,
 	}

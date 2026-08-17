@@ -13,16 +13,18 @@ import (
 // after creation a key auto-rotates, how long before a version's expiry a
 // notification fires, and how long each new version stays valid.
 type KeyRotationPolicy struct {
-	ID                     uuid.UUID `json:"id" db:"id"`
-	KeyID                  uuid.UUID `json:"key_id" db:"key_id"`
-	UserID                 uuid.UUID `json:"user_id" db:"user_id"`
-	VaultID                uuid.UUID `json:"vault_id" db:"vault_id"`
-	RotateAfterDays        int       `json:"rotate_after_days" db:"rotate_after_days"`
-	NotifyBeforeExpiryDays int       `json:"notify_before_expiry_days" db:"notify_before_expiry_days"`
-	ExpiryDays             int       `json:"expiry_days" db:"expiry_days"`
-	Enabled                bool      `json:"enabled" db:"enabled"`
-	CreatedAt              time.Time `json:"created_at" db:"created_at"`
-	UpdatedAt              time.Time `json:"updated_at" db:"updated_at"`
+	ID                     uuid.UUID  `json:"id" db:"id"`
+	KeyID                  uuid.UUID  `json:"key_id" db:"key_id"`
+	UserID                 uuid.UUID  `json:"user_id" db:"user_id"`
+	VaultID                uuid.UUID  `json:"vault_id" db:"vault_id"`
+	RotateAfterDays        int        `json:"rotate_after_days" db:"rotate_after_days"`
+	NotifyBeforeExpiryDays int        `json:"notify_before_expiry_days" db:"notify_before_expiry_days"`
+	ExpiryDays             int        `json:"expiry_days" db:"expiry_days"`
+	Enabled                bool       `json:"enabled" db:"enabled"`
+	LastRotatedAt          *time.Time `json:"last_rotated_at,omitempty" db:"last_rotated_at"`
+	NextRotationAt         time.Time  `json:"next_rotation_at" db:"next_rotation_at"`
+	CreatedAt              time.Time  `json:"created_at" db:"created_at"`
+	UpdatedAt              time.Time  `json:"updated_at" db:"updated_at"`
 }
 
 // UpsertKeyRotationPolicyRequest is the request body for creating or updating

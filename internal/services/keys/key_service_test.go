@@ -9,6 +9,7 @@ import (
 	"context"
 	"database/sql"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
@@ -38,6 +39,18 @@ func (m *mockKeyPolicyRepo) GetByKeyID(ctx context.Context, keyID uuid.UUID, sco
 
 func (m *mockKeyPolicyRepo) DeleteByKeyID(ctx context.Context, keyID uuid.UUID, scope model.Scope) error {
 	return m.Called(ctx, keyID, scope).Error(0)
+}
+
+func (m *mockKeyPolicyRepo) GetDuePolicies(ctx context.Context, scope model.Scope) ([]model.KeyRotationPolicy, error) {
+	args := m.Called(ctx, scope)
+	if v := args.Get(0); v != nil {
+		return v.([]model.KeyRotationPolicy), args.Error(1)
+	}
+	return nil, args.Error(1)
+}
+
+func (m *mockKeyPolicyRepo) MarkRotated(ctx context.Context, keyID uuid.UUID, scope model.Scope, at time.Time, rotateAfterDays int) error {
+	return m.Called(ctx, keyID, scope, at, rotateAfterDays).Error(0)
 }
 
 func TestGetKeyRotationPolicy_VerifiesKeyAccessFirst(t *testing.T) {
@@ -207,6 +220,83 @@ func TestUpsertKeyRotationPolicy_DerivesVaultFromParentKey(t *testing.T) {
 
 	require.NoError(t, err)
 	require.Equal(t, vaultID, policy.VaultID, "policy VaultID must be derived from the key's own vault, not independently settable")
+	keyRepo.AssertExpectations(t)
+	policyRepo.AssertExpectations(t)
+}
+
+func TestUpsertKeyRotationPolicy_FirstTimeCreate_ComputesNextRotationFromKeyCreatedAt(t *testing.T) {
+	keyRepo := new(mockKeyRepository)
+	policyRepo := new(mockKeyPolicyRepo)
+	keyID := uuid.New()
+	vaultID := uuid.New()
+	scope := model.NewOwnerScope(uuid.New(), uuid.New())
+	createdAt := time.Now().Add(-48 * time.Hour)
+
+	keyRepo.On("Read", mock.Anything, keyID, scope).Return(&model.Key{ID: keyID, VaultID: vaultID, Enabled: true, CreatedAt: createdAt}, nil)
+
+	// Pre-read finds no existing policy (first-time create): baseline for
+	// NextRotationAt must fall back to the key's own CreatedAt, and
+	// LastRotatedAt must stay nil.
+	policyRepo.On("GetByKeyID", mock.Anything, keyID, scope).Return(nil, sql.ErrNoRows).Once()
+
+	req := model.UpsertKeyRotationPolicyRequest{RotateAfterDays: 90, Enabled: true}
+	policyRepo.On("Upsert", mock.Anything, mock.MatchedBy(func(p *model.KeyRotationPolicy) bool {
+		return p.LastRotatedAt == nil &&
+			p.NextRotationAt.Equal(createdAt.AddDate(0, 0, req.RotateAfterDays))
+	})).Return(nil)
+
+	stored := &model.KeyRotationPolicy{ID: uuid.New(), KeyID: keyID, VaultID: vaultID}
+	policyRepo.On("GetByKeyID", mock.Anything, keyID, scope).Return(stored, nil).Once()
+
+	svc := NewKeyService(KeyServiceConfig{
+		KeyRepository:    keyRepo,
+		PolicyRepository: policyRepo,
+		Logger:           newTestKeyLogger(t),
+	})
+
+	_, err := svc.UpsertKeyRotationPolicy(context.Background(), keyID, scope, req)
+
+	require.NoError(t, err)
+	keyRepo.AssertExpectations(t)
+	policyRepo.AssertExpectations(t)
+}
+
+func TestUpsertKeyRotationPolicy_PreservesLastRotatedAt_ComputesNextRotationFromIt(t *testing.T) {
+	keyRepo := new(mockKeyRepository)
+	policyRepo := new(mockKeyPolicyRepo)
+	keyID := uuid.New()
+	vaultID := uuid.New()
+	scope := model.NewOwnerScope(uuid.New(), uuid.New())
+	createdAt := time.Now().Add(-365 * 24 * time.Hour)
+	lastRotatedAt := time.Now().Add(-10 * 24 * time.Hour)
+
+	keyRepo.On("Read", mock.Anything, keyID, scope).Return(&model.Key{ID: keyID, VaultID: vaultID, Enabled: true, CreatedAt: createdAt}, nil)
+
+	// Pre-read finds an existing policy whose LastRotatedAt an earlier
+	// automatic rotation already advanced: this Upsert only changes an
+	// unrelated field, so it must not reset the due-date clock back to the
+	// key's CreatedAt.
+	existing := &model.KeyRotationPolicy{ID: uuid.New(), KeyID: keyID, VaultID: vaultID, LastRotatedAt: &lastRotatedAt}
+	policyRepo.On("GetByKeyID", mock.Anything, keyID, scope).Return(existing, nil).Once()
+
+	req := model.UpsertKeyRotationPolicyRequest{RotateAfterDays: 30, NotifyBeforeExpiryDays: 7, Enabled: true}
+	policyRepo.On("Upsert", mock.Anything, mock.MatchedBy(func(p *model.KeyRotationPolicy) bool {
+		return p.LastRotatedAt != nil && p.LastRotatedAt.Equal(lastRotatedAt) &&
+			p.NextRotationAt.Equal(lastRotatedAt.AddDate(0, 0, req.RotateAfterDays))
+	})).Return(nil)
+
+	stored := &model.KeyRotationPolicy{ID: uuid.New(), KeyID: keyID, VaultID: vaultID}
+	policyRepo.On("GetByKeyID", mock.Anything, keyID, scope).Return(stored, nil).Once()
+
+	svc := NewKeyService(KeyServiceConfig{
+		KeyRepository:    keyRepo,
+		PolicyRepository: policyRepo,
+		Logger:           newTestKeyLogger(t),
+	})
+
+	_, err := svc.UpsertKeyRotationPolicy(context.Background(), keyID, scope, req)
+
+	require.NoError(t, err)
 	keyRepo.AssertExpectations(t)
 	policyRepo.AssertExpectations(t)
 }
