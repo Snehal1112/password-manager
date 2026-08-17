@@ -394,3 +394,46 @@ func TestIsCobraBuiltinCommand(t *testing.T) {
 		})
 	}
 }
+
+// TestPersistentPreRun_RemoteTarget_HelpAndCompletion_RunCleanly is an
+// end-to-end regression test for a crash NB1's first pass introduced:
+// exempting help/completion from the remote-target guard let them fall
+// through into the rest of persistentPreRun (DB init, then
+// resolveAuthentication), and in genuine remote mode — a resolved target,
+// no local .rocketvault.yaml, no cached session — that authentication
+// failure's audit-log call panicked on a nil DB connection. The fix adds
+// "help"/"completion" (and cobra's hidden completion-request commands) to
+// systemCmds too, so they short-circuit before authentication is ever
+// attempted, exactly like the pre-existing "context" entry. This test
+// reproduces the original crash conditions and asserts a clean exit instead.
+func TestPersistentPreRun_RemoteTarget_HelpAndCompletion_RunCleanly(t *testing.T) {
+	dir := t.TempDir()
+	common.SessionBaseDir = filepath.Join(dir, "sessions") // no cached session here
+
+	origWd, err := os.Getwd()
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = os.Chdir(origWd) })
+	require.NoError(t, os.Chdir(dir)) // no .rocketvault.yaml here either
+
+	previousSettings := viper.AllSettings()
+	viper.Reset()
+	t.Cleanup(func() {
+		viper.Reset()
+		_ = viper.MergeConfigMap(previousSettings)
+	})
+
+	for _, args := range [][]string{
+		{"help", "secrets", "--server", "https://vault.prod.example.com"},
+		{"completion", "bash", "--server", "https://vault.prod.example.com"},
+	} {
+		previousArgs := os.Args
+		os.Args = append([]string{"rocketvault"}, args...)
+
+		rootCmd.SetArgs(args)
+		err := rootCmd.ExecuteContext(context.Background())
+		require.NoError(t, err, "%v must run cleanly with a resolved remote target and no cached session", args)
+
+		os.Args = previousArgs
+		rootCmd.SetArgs(nil)
+	}
+}
