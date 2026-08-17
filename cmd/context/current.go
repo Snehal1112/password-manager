@@ -18,11 +18,11 @@ func InitContextCurrent(parent *cobra.Command) *cobra.Command {
 				return err
 			}
 			if ctx == nil {
-				fmt.Fprintln(cmd.OutOrStdout(), "no current context set (local mode)")
-				return nil
+				_, err := fmt.Fprintln(cmd.OutOrStdout(), "no current context set (local mode)")
+				return err
 			}
-			fmt.Fprintf(cmd.OutOrStdout(), "%s -> %s\n", name, ctx.Server)
-			return nil
+			_, err = fmt.Fprintf(cmd.OutOrStdout(), "%s -> %s\n", name, ctx.Server)
+			return err
 		},
 	}
 	parent.AddCommand(currentCmd)

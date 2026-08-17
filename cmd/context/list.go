@@ -2,6 +2,7 @@ package contextcli
 
 import (
 	"fmt"
+	"sort"
 
 	"github.com/spf13/cobra"
 
@@ -24,9 +25,16 @@ func InitContextList(parent *cobra.Command) *cobra.Command {
 				return fmt.Errorf("output formatter not available in context")
 			}
 
+			names := make([]string, 0, len(contexts))
+			for name := range contexts {
+				names = append(names, name)
+			}
+			sort.Strings(names)
+
 			headers := []string{"Name", "Server", "Default Username", "Default Vault", "Current"}
-			rows := make([][]string, 0, len(contexts))
-			for name, ctx := range contexts {
+			rows := make([][]string, 0, len(names))
+			for _, name := range names {
+				ctx := contexts[name]
 				marker := ""
 				if name == current {
 					marker = "*"
