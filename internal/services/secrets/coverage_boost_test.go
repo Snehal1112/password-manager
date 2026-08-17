@@ -1199,6 +1199,13 @@ func TestSchedulerServiceProcessesRotationsRemindersAndLifecycle(t *testing.T) {
 	rotationRepo := &mockRotationPolicyRepository{}
 	svc := secrets.NewSchedulerService(rotationSvc, versionSvc, userRepo, secretRepo, rotationRepo, testutils.NewTestLogger(t))
 
+	// schedulerkit.Runner runs its check immediately on Start, not just on the
+	// first tick. Stop() waits for that in-flight check to finish, so it must
+	// be tolerated here even though this test drives ProcessUserRotations /
+	// ProcessUserReminders directly below rather than through the scheduler
+	// loop. Returning no users keeps the immediate check a no-op.
+	userRepo.On("List", mock.Anything).Return([]model.User{}, nil).Maybe()
+
 	assert.False(t, svc.IsRunning())
 	require.NoError(t, svc.Start(ctx, time.Hour))
 	assert.True(t, svc.IsRunning())

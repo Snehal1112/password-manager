@@ -6,13 +6,13 @@ package secrets
 import (
 	"context"
 	"fmt"
-	"sync"
 	"time"
 
 	"github.com/google/uuid"
 
 	"rocketvault/internal/logging"
 	"rocketvault/internal/repositories"
+	"rocketvault/internal/schedulerkit"
 	"rocketvault/model"
 )
 
@@ -46,12 +46,7 @@ type schedulerService struct {
 	secretRepo    repositories.SecretRepositoryInterface
 	rotationRepo  repositories.RotationPolicyRepositoryInterface
 	log           *logging.Logger
-	ctx           context.Context
-	ticker        *time.Ticker
-	stopChan      chan struct{}
-	wg            sync.WaitGroup
-	mu            sync.RWMutex
-	running       bool
+	runner        *schedulerkit.Runner
 }
 
 // NewSchedulerService creates a new scheduler service with proper service dependencies.
@@ -63,82 +58,38 @@ func NewSchedulerService(
 	rotationRepo repositories.RotationPolicyRepositoryInterface,
 	log *logging.Logger,
 ) SchedulerServiceInterface {
-	return &schedulerService{
+	s := &schedulerService{
 		rotationSvc:   rotationSvc,
 		versioningSvc: versioningSvc,
 		userRepo:      userRepo,
 		secretRepo:    secretRepo,
 		rotationRepo:  rotationRepo,
 		log:           log,
-		stopChan:      make(chan struct{}),
 	}
+	s.runner = schedulerkit.NewRunner("secret rotation", func(ctx context.Context) error {
+		s.processAllUserOperations(ctx)
+		return nil
+	}, log)
+	return s
 }
 
 // Start begins the rotation scheduler with business logic orchestration.
-// The provided ctx is used for all background operations and cancels the scheduler on Done.
 func (s *schedulerService) Start(ctx context.Context, interval time.Duration) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	if s.running {
-		s.log.Warn("Rotation scheduler is already running")
-		return fmt.Errorf("scheduler is already running")
-	}
-
-	s.ctx = ctx
-	s.running = true
-	s.ticker = time.NewTicker(interval)
-	s.wg.Add(1)
-
-	go s.run()
-
-	s.log.WithField("interval", interval).Info("Rotation scheduler started")
-	return nil
+	return s.runner.Start(ctx, interval)
 }
 
 // Stop stops the rotation scheduler gracefully.
 func (s *schedulerService) Stop() error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	if !s.running {
-		return nil
-	}
-
-	s.running = false
-	close(s.stopChan)
-	s.ticker.Stop()
-
-	s.wg.Wait()
-	s.log.Info("Rotation scheduler stopped")
-	return nil
+	return s.runner.Stop()
 }
 
 // IsRunning returns whether the scheduler is currently running.
 func (s *schedulerService) IsRunning() bool {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	return s.running
-}
-
-// run is the main scheduler loop that processes rotations and reminders.
-func (s *schedulerService) run() {
-	defer s.wg.Done()
-
-	for {
-		select {
-		case <-s.ticker.C:
-			s.processAllUserOperations()
-		case <-s.stopChan:
-			return
-		}
-	}
+	return s.runner.IsRunning()
 }
 
 // processAllUserOperations processes rotations and reminders for all users.
-func (s *schedulerService) processAllUserOperations() {
-	ctx := s.ctx
-
+func (s *schedulerService) processAllUserOperations(ctx context.Context) {
 	// Get all users using proper repository pattern
 	users, err := s.getAllUsers(ctx)
 	if err != nil {
