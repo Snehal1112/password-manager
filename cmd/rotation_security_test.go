@@ -162,11 +162,14 @@ func TestRotationHistoryOwnershipRejection(t *testing.T) {
 // responsibility for cross-vault denial: `rotation assign` resolves the
 // target vault and threads it into the request scope unchanged, but does not
 // itself decide whether the policy and secret actually belong to that vault.
-// RotationService (Task 6, tested directly in
-// internal/services/secrets/rotation_service_test.go) is what enforces that a
-// policy assigned across vaults gets refused. This test only proves the CLI
-// wires the resolved vaultID into the request scope, not a second copy of
-// the service-layer behavior.
+// RotationService is what enforces that, by reading both the secret and the
+// policy under the same scope; the real-repository proof of that denial lives
+// in internal/services/secrets/rotation_service_test.go's
+// TestAssignPolicyToSecret_CrossVaultDenied_RealRepos (policy in the wrong
+// vault) and TestAssignPolicyToSecret_CrossVaultSecretDenied_RealRepos
+// (secret in the wrong vault). This test only proves the CLI wires the
+// resolved vaultID into the request scope, not a second copy of the
+// service-layer behavior.
 //
 // Package vars policyID/secretID are set explicitly right before building
 // the command (mirroring TestRunRotationAssign_Success in cmd_test.go)
