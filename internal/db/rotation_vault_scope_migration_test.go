@@ -6,10 +6,12 @@
 package db
 
 import (
+	"bytes"
 	"database/sql"
 	"testing"
 
 	_ "github.com/mattn/go-sqlite3"
+	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/require"
 
 	"rocketvault/internal/logging"
@@ -104,6 +106,107 @@ func TestMigrateSchema_RotationPoliciesVaultID(t *testing.T) {
 		`SELECT vault_id FROM key_rotation_policies WHERE id = '44444444-0000-0000-0000-000000000002'`,
 	).Scan(&krpOther))
 	require.Equal(t, otherVaultID, krpOther, "policy on vault-b key must backfill to vault b, not the default vault")
+}
+
+// newCapturingRepo returns a DBRepository whose logger writes to the returned
+// buffer, so a test can assert on log output. Warn level keeps the buffer to
+// just the diagnostics under test.
+func newCapturingRepo(t *testing.T) (*DBRepository, *bytes.Buffer) {
+	t.Helper()
+	var buf bytes.Buffer
+	l := logrus.New()
+	l.SetOutput(&buf)
+	l.SetLevel(logrus.WarnLevel)
+	return NewRepository(logging.WrapLogrus(l)), &buf
+}
+
+// seedRotationPairingSchema creates the minimal secrets/rotation_policies/
+// secret_policies shape warnMismatchedRotationPolicyVaults joins across.
+func seedRotationPairingSchema(t *testing.T, conn *sql.DB) {
+	t.Helper()
+	_, err := conn.Exec(`
+		CREATE TABLE secrets (
+			id TEXT PRIMARY KEY, name TEXT NOT NULL,
+			vault_id TEXT NOT NULL DEFAULT '` + defaultVaultID + `'
+		);
+		CREATE TABLE rotation_policies (
+			id TEXT PRIMARY KEY, user_id TEXT NOT NULL,
+			vault_id TEXT NOT NULL DEFAULT '` + defaultVaultID + `',
+			name TEXT NOT NULL, interval_days INTEGER NOT NULL
+		);
+		CREATE TABLE secret_policies (
+			secret_id TEXT NOT NULL, policy_id TEXT NOT NULL,
+			PRIMARY KEY (secret_id, policy_id)
+		);
+	`)
+	require.NoError(t, err)
+}
+
+// TestWarnMismatchedRotationPolicyVaults_ReportsCrossVaultPairing is the
+// diagnostic half of this migration: a secret in vault B paired with a policy
+// left in the default vault by the blind backfill is a pairing manual rotation
+// can no longer act on from either vault, so the operator must be told.
+func TestWarnMismatchedRotationPolicyVaults_ReportsCrossVaultPairing(t *testing.T) {
+	conn, err := sql.Open("sqlite3", ":memory:")
+	require.NoError(t, err)
+	defer conn.Close() //nolint:errcheck
+
+	seedRotationPairingSchema(t, conn)
+	_, err = conn.Exec(`
+		INSERT INTO secrets (id, name, vault_id) VALUES
+			('55555555-0000-0000-0000-000000000001', 'secret-in-vault-b', '` + otherVaultID + `'),
+			('55555555-0000-0000-0000-000000000002', 'secret-in-default', '` + defaultVaultID + `');
+		INSERT INTO rotation_policies (id, user_id, vault_id, name, interval_days) VALUES
+			('66666666-0000-0000-0000-000000000001', '22222222-0000-0000-0000-000000000001', '` + defaultVaultID + `', 'p', 30);
+		INSERT INTO secret_policies (secret_id, policy_id) VALUES
+			('55555555-0000-0000-0000-000000000001', '66666666-0000-0000-0000-000000000001'),
+			('55555555-0000-0000-0000-000000000002', '66666666-0000-0000-0000-000000000001');
+	`)
+	require.NoError(t, err)
+
+	repo, buf := newCapturingRepo(t)
+	repo.warnMismatchedRotationPolicyVaults(conn)
+
+	out := buf.String()
+	require.Contains(t, out, "Rotation policy assigned across vaults")
+	require.Contains(t, out, "55555555-0000-0000-0000-000000000001", "the vault-B secret must be named in the warning")
+	require.NotContains(t, out, "55555555-0000-0000-0000-000000000002", "a same-vault pairing must not warn")
+}
+
+// TestWarnMismatchedRotationPolicyVaults_SilentWhenConsistent pins the other
+// half: a clean database must produce no diagnostic noise on every boot.
+func TestWarnMismatchedRotationPolicyVaults_SilentWhenConsistent(t *testing.T) {
+	conn, err := sql.Open("sqlite3", ":memory:")
+	require.NoError(t, err)
+	defer conn.Close() //nolint:errcheck
+
+	seedRotationPairingSchema(t, conn)
+	_, err = conn.Exec(`
+		INSERT INTO secrets (id, name, vault_id) VALUES
+			('55555555-0000-0000-0000-000000000003', 'secret-in-default', '` + defaultVaultID + `');
+		INSERT INTO rotation_policies (id, user_id, vault_id, name, interval_days) VALUES
+			('66666666-0000-0000-0000-000000000002', '22222222-0000-0000-0000-000000000001', '` + defaultVaultID + `', 'p', 30);
+		INSERT INTO secret_policies (secret_id, policy_id) VALUES
+			('55555555-0000-0000-0000-000000000003', '66666666-0000-0000-0000-000000000002');
+	`)
+	require.NoError(t, err)
+
+	repo, buf := newCapturingRepo(t)
+	repo.warnMismatchedRotationPolicyVaults(conn)
+	require.Empty(t, buf.String(), "a consistent database must emit no warning")
+}
+
+// TestWarnMismatchedRotationPolicyVaults_ToleratesMissingTables proves the
+// diagnostic can never break a migration: on a partially-built schema it warns
+// about its own failure and returns instead of panicking or erroring out.
+func TestWarnMismatchedRotationPolicyVaults_ToleratesMissingTables(t *testing.T) {
+	conn, err := sql.Open("sqlite3", ":memory:")
+	require.NoError(t, err)
+	defer conn.Close() //nolint:errcheck
+
+	repo, buf := newCapturingRepo(t)
+	repo.warnMismatchedRotationPolicyVaults(conn)
+	require.Contains(t, buf.String(), "Failed to check for cross-vault rotation-policy assignments")
 }
 
 func TestMigrateSchema_KeyRotationPoliciesVaultIDIndexes(t *testing.T) {
