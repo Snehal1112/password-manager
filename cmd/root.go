@@ -68,14 +68,22 @@ and a RESTful API for programmatic access, with features like MFA and secret rot
 	// Run: func(cmd *cobra.Command, args []string) {},
 }
 
-// Execute adds all child commands to the root command and sets flags appropriately.
+// Execute adds all child commands to the root command, sets flags
+// appropriately, and exits the process with the resulting status code.
 // This is called by main.main(). It only needs to happen once to the rootCmd.
 func Execute() {
-	ctx := context.Background()
-	err := rootCmd.ExecuteContext(ctx)
-	if err != nil {
-		os.Exit(0)
+	os.Exit(run(rootCmd))
+}
+
+// run executes cmd and returns the process exit code: 0 on success, 1 on
+// any error. Separated from Execute so the exit-code decision is
+// unit-testable without terminating the test binary via a real os.Exit
+// call — see TestRun_ReturnsNonZeroOnError / TestRun_ReturnsZeroOnSuccess.
+func run(cmd *cobra.Command) int {
+	if err := cmd.ExecuteContext(context.Background()); err != nil {
+		return 1
 	}
+	return 0
 }
 
 func init() {

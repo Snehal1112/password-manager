@@ -26,7 +26,6 @@ import (
 	"crypto/rand"
 	"fmt"
 	"math/big"
-	"os"
 
 	"github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
@@ -44,7 +43,7 @@ var generateCmd = &cobra.Command{
   # Generate a 32-character password without special characters
   rocketvault secrets generate-password --length 32 --special=false \
     --username admin --password admin123 --totp-code <code>`,
-	Run: func(cmd *cobra.Command, args []string) {
+	RunE: func(cmd *cobra.Command, args []string) error {
 		length, _ := cmd.Flags().GetInt("length")
 		useUpper, _ := cmd.Flags().GetBool("uppercase")
 		useLower, _ := cmd.Flags().GetBool("lowercase")
@@ -53,15 +52,14 @@ var generateCmd = &cobra.Command{
 
 		password, err := generatePassword(length, useUpper, useLower, useNumbers, useSpecial)
 		if err != nil {
-			logrus.Error("Failed to generate password: ", err)
-			os.Exit(0)
-			return
+			return fmt.Errorf("failed to generate password: %w", err)
 		}
 
 		logrus.WithFields(logrus.Fields{
 			"length": length,
 		}).Info("Password generated successfully")
 		fmt.Println("Generated password:", password)
+		return nil
 	},
 }
 
