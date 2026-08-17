@@ -394,7 +394,7 @@ func TestValidateMasterKey_RejectsCompromisedDefault(t *testing.T) {
 	t.Parallel()
 	cv := NewConfigurationValidator(newTestLogger())
 
-	err := cv.ValidateMasterKey("***SECRET-REMOVED-2026-08-17***")
+	err := cv.ValidateMasterKey("MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=")
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "master_key")
 	assert.Contains(t, err.Error(), "master-key rotate")

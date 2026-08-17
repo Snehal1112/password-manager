@@ -94,7 +94,7 @@ func TestResolveRotationKeys_RejectsWeakNewKey(t *testing.T) {
 	original := viper.GetString("master_key")
 	t.Cleanup(func() { viper.Set("master_key", original) })
 	viper.Set("master_key", encodedKey(1))
-	t.Setenv("TEST_NEW_MASTER_KEY", "***SECRET-REMOVED-2026-08-17***")
+	t.Setenv("TEST_NEW_MASTER_KEY", "MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=")
 
 	_, _, _, err := resolveRotationKeys("", "TEST_NEW_MASTER_KEY")
 	require.Error(t, err)

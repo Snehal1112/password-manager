@@ -20,7 +20,7 @@ func TestValidateMasterKey_AcceptsRandomKey(t *testing.T) {
 
 func TestValidateMasterKey_RejectsCommittedDefault(t *testing.T) {
 	// The exact value committed to .rocketvault.yaml.
-	const committed = "***SECRET-REMOVED-2026-08-17***"
+	const committed = "MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY="
 
 	err := ValidateMasterKey(committed)
 	if err == nil {
