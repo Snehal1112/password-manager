@@ -262,3 +262,24 @@ func TestRun_ReturnsZeroOnSuccess(t *testing.T) {
 
 	assert.Equal(t, 0, exitCode, "run() must return 0 when the command succeeds")
 }
+
+// TestInitConfig_RemoteMode_DoesNotPanicWithoutConfigFile verifies that
+// initConfig() no longer panics unconditionally when .rocketvault.yaml is
+// missing — remote mode (resolved here via ROCKETVAULT_ADDR) needs no local
+// config file at all, only a target server.
+func TestInitConfig_RemoteMode_DoesNotPanicWithoutConfigFile(t *testing.T) {
+	dir := t.TempDir() // no .rocketvault.yaml here
+	origWd, _ := os.Getwd()
+	defer os.Chdir(origWd)
+	os.Chdir(dir)
+
+	t.Setenv("ROCKETVAULT_ADDR", "https://vault.prod.example.com")
+	viper.Reset()
+
+	defer func() {
+		if r := recover(); r != nil {
+			t.Fatalf("initConfig() panicked in remote mode without a config file: %v", r)
+		}
+	}()
+	initConfig()
+}

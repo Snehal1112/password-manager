@@ -35,6 +35,7 @@ import (
 	"github.com/spf13/viper"
 
 	"rocketvault/common"
+	"rocketvault/internal/cliclient"
 	"rocketvault/internal/container"
 	"rocketvault/internal/db"
 	"rocketvault/internal/formatter"
@@ -104,6 +105,10 @@ func init() {
 	rootCmd.PersistentFlags().String("vault", "", "Target vault name (default: \"default\")")
 	_ = viper.BindPFlag("vault", rootCmd.PersistentFlags().Lookup("vault"))
 
+	// Persistent flag selecting a remote RocketVault server to target,
+	// instead of local mode against .rocketvault.yaml.
+	rootCmd.PersistentFlags().String("server", "", "Remote RocketVault server URL (default: local mode against .rocketvault.yaml)")
+
 	// Cobra also supports local flags, which will only run
 	// when this action is called directly.
 	rootCmd.Flags().BoolP("toggle", "t", false, "Help message for toggle")
@@ -127,9 +132,16 @@ func initConfig() {
 
 	viper.AutomaticEnv() // read in environment variables that match
 
-	// If a config file is found, read it in.
+	// If a config file is found, read it in. A missing/unreadable config
+	// file is fatal in local mode (today's behavior, unchanged) but not in
+	// remote mode — remote mode needs no local database or crypto config at
+	// all, only a target server.
 	if err := viper.ReadInConfig(); err != nil {
-		log.Panicf("Error reading config file: %v (%s)", err, viper.ConfigFileUsed())
+		serverFlag, _ := rootCmd.PersistentFlags().GetString("server")
+		target, targetErr := cliclient.ResolveTarget(serverFlag)
+		if targetErr != nil || target == nil {
+			log.Panicf("Error reading config file: %v (%s)", err, viper.ConfigFileUsed())
+		}
 	}
 
 	// Configure retry system with defaults and environment variable bindings.
