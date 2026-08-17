@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 
@@ -206,4 +207,38 @@ func TestInitConfig_RetryConfigEnvOverride(t *testing.T) {
 	// Verify the environment variable is reflected in viper.
 	maxAttempts := v.GetInt("retry.database.max_attempts")
 	require.Equal(t, 10, maxAttempts, "environment variable override RETRY_DATABASE_MAX_ATTEMPTS should be reflected in retry config")
+}
+
+// TestRun_ReturnsNonZeroOnError is the regression test for the bug where
+// Execute() called os.Exit(0) even when rootCmd.ExecuteContext returned a
+// non-nil error, making every CLI failure indistinguishable from success
+// at the shell level ("&&"/"set -e" never caught it).
+func TestRun_ReturnsNonZeroOnError(t *testing.T) {
+	cmd := &cobra.Command{
+		Use: "test",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return errors.New("boom")
+		},
+	}
+	cmd.SetArgs([]string{})
+
+	exitCode := run(cmd)
+
+	assert.NotEqual(t, 0, exitCode, "run() must return a non-zero exit code when the command errors")
+}
+
+// TestRun_ReturnsZeroOnSuccess pins the success path so a future change to
+// run() can't flip both cases to the same wrong value.
+func TestRun_ReturnsZeroOnSuccess(t *testing.T) {
+	cmd := &cobra.Command{
+		Use: "test",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return nil
+		},
+	}
+	cmd.SetArgs([]string{})
+
+	exitCode := run(cmd)
+
+	assert.Equal(t, 0, exitCode, "run() must return 0 when the command succeeds")
 }
