@@ -7,6 +7,11 @@ import (
 )
 
 func TestResolveTarget_FlagWins(t *testing.T) {
+	// Not strictly required here -- the flag path returns before reaching
+	// common.CurrentContext() -- but set for hermeticity/defense-in-depth
+	// consistency with the other tests in this file (I3, 2026-08-17 final
+	// review).
+	common.SessionBaseDir = t.TempDir() + "/sessions"
 	t.Setenv("ROCKETVAULT_ADDR", "https://env.example.com")
 	target, err := ResolveTarget("https://flag.example.com")
 	if err != nil || target == nil || target.Server != "https://flag.example.com" {

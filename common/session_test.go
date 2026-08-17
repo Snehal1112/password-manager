@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -139,16 +140,63 @@ func TestDeleteSession_NonExistent_NoError(t *testing.T) {
 
 func TestSanitizeServerKey(t *testing.T) {
 	cases := map[string]string{
-		"":                                          LocalServerKey,
-		LocalServerKey:                               LocalServerKey,
-		"https://vault.prod.example.com":             "vault.prod.example.com",
-		"https://vault.prod.example.com:8443":        "vault.prod.example.com_8443",
-		"http://localhost:8774":                      "localhost_8774",
+		"":                                    LocalServerKey,
+		LocalServerKey:                        LocalServerKey,
+		"https://vault.prod.example.com":      "srv_https_vault.prod.example.com",
+		"https://vault.prod.example.com:8443": "srv_https_vault.prod.example.com_8443",
+		"http://localhost:8774":               "srv_http_localhost_8774",
 	}
 	for in, want := range cases {
 		if got := SanitizeServerKey(in); got != want {
 			t.Errorf("SanitizeServerKey(%q) = %q, want %q", in, got, want)
 		}
+	}
+}
+
+// TestSanitizeServerKey_HTTPvsHTTPS_DoNotCollide is I5's regression test:
+// http and https for the same host used to sanitize to the same key, which
+// would let a token cached for one scheme be reused against the other.
+func TestSanitizeServerKey_HTTPvsHTTPS_DoNotCollide(t *testing.T) {
+	http := SanitizeServerKey("http://vault.example.com")
+	https := SanitizeServerKey("https://vault.example.com")
+	if http == https {
+		t.Fatalf("SanitizeServerKey(http) = SanitizeServerKey(https) = %q, want different keys", http)
+	}
+}
+
+// TestSanitizeServerKey_DefaultPortAndTrailingSlash_Normalize is I5's
+// regression test: "host", "host/", and "host:443" are the same https
+// server and must produce the same key.
+func TestSanitizeServerKey_DefaultPortAndTrailingSlash_Normalize(t *testing.T) {
+	bare := SanitizeServerKey("https://host")
+	slash := SanitizeServerKey("https://host/")
+	defaultPort := SanitizeServerKey("https://host:443")
+	if bare != slash || bare != defaultPort {
+		t.Fatalf("expected equal keys for bare/trailing-slash/default-port variants, got %q, %q, %q", bare, slash, defaultPort)
+	}
+}
+
+// TestSanitizeServerKey_StripsCredentials is I5's regression test: a
+// --server value with embedded credentials must never leak the password
+// into the on-disk key/filename.
+func TestSanitizeServerKey_StripsCredentials(t *testing.T) {
+	key := SanitizeServerKey("https://user:secret@vault.example.com")
+	if strings.Contains(key, "secret") || strings.Contains(key, "user") {
+		t.Fatalf("SanitizeServerKey leaked credentials into key: %q", key)
+	}
+	want := SanitizeServerKey("https://vault.example.com")
+	if key != want {
+		t.Fatalf("SanitizeServerKey(with credentials) = %q, want %q (credentials stripped)", key, want)
+	}
+}
+
+// TestSanitizeServerKey_HostNamedLocal_DoesNotCollideWithLocalServerKey is
+// I5's regression test: a remote host literally named "local" must not
+// collapse onto the reserved LocalServerKey slot.
+func TestSanitizeServerKey_HostNamedLocal_DoesNotCollideWithLocalServerKey(t *testing.T) {
+	key := SanitizeServerKey("https://local")
+	if key == LocalServerKey {
+		t.Fatalf("SanitizeServerKey(%q) = %q, collides with the reserved LocalServerKey slot", "https://local", key)
 	}
 }
 

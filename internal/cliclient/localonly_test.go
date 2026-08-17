@@ -2,11 +2,19 @@
 package cliclient
 
 import (
+	"path/filepath"
 	"strings"
 	"testing"
+
+	"rocketvault/common"
 )
 
 func TestRequireLocal_NoTarget_ReturnsNil(t *testing.T) {
+	// Without this, a nil serverFlag/env falls through to
+	// common.CurrentContext(), which reads the real
+	// ~/.rocketvault/contexts.json -- flaky for any dev/CI runner that has
+	// ever run `context use`. See I3, 2026-08-17 final review.
+	common.SessionBaseDir = filepath.Join(t.TempDir(), "sessions")
 	t.Setenv("ROCKETVAULT_ADDR", "")
 	if err := RequireLocal("", "master-key rotate"); err != nil {
 		t.Fatalf("RequireLocal() = %v, want nil (local mode)", err)

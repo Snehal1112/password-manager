@@ -3,6 +3,7 @@ package common
 import (
 	"encoding/json"
 	"fmt"
+	"net/url"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -54,18 +55,79 @@ func sanitizeUsername(username string) string {
 	return usernameSanitizer.ReplaceAllString(username, "_")
 }
 
-// SanitizeServerKey converts a server URL into a safe filename component:
-// the scheme is stripped, the result is lowercased, and anything unsafe in
-// a filename becomes "_". LocalServerKey and "" both pass through as
-// LocalServerKey.
+// remoteServerKeyPrefix is prepended to every sanitized remote-server key.
+// It exists so a remote host literally named "local" (e.g. "https://local")
+// can never collide with the reserved LocalServerKey slot -- see I5,
+// 2026-08-17 final review.
+const remoteServerKeyPrefix = "srv_"
+
+// defaultPortForScheme maps a URL scheme to the port implied when none is
+// given explicitly, so "host", "host/", and "host:443" (for https) all
+// normalize to the same key.
+var defaultPortForScheme = map[string]string{
+	"https": "443",
+	"http":  "80",
+}
+
+// SanitizeServerKey converts a server URL into a safe, collision-resistant
+// on-disk filename component identifying which server a cached session
+// belongs to.
+//
+// LocalServerKey ("local") and "" both map to LocalServerKey, unprefixed --
+// the reserved local-mode slot.
+//
+// Every remote server maps to a key prefixed with remoteServerKeyPrefix
+// ("srv_"), built from scheme+host+port only:
+//   - any embedded credentials (https://user:pass@host) are discarded
+//     entirely -- a password must never end up in an on-disk filename.
+//   - a port matching the scheme's default (443 for https, 80 for http) is
+//     normalized away, so "host", "host/", and "host:443" all produce the
+//     same key for an https URL.
+//   - the scheme is preserved, so http and https for the same host produce
+//     different keys -- they are different servers, and a token issued for
+//     one must never be reused against the other.
+//   - the "srv_" prefix means a remote host literally named "local" can
+//     never collide with the reserved LocalServerKey slot.
+//
+// If the input can't be parsed as a URL with a host (e.g. a bare hostname
+// with no scheme), this falls back to a simple lowercase+sanitize of the
+// whole string (still "srv_"-prefixed) rather than erroring.
 func SanitizeServerKey(server string) string {
 	if server == "" || server == LocalServerKey {
 		return LocalServerKey
 	}
+
+	if key, ok := sanitizeServerKeyFromURL(server); ok {
+		return key
+	}
+
 	s := strings.TrimPrefix(server, "https://")
 	s = strings.TrimPrefix(s, "http://")
 	s = strings.ToLower(s)
-	return serverKeySanitizer.ReplaceAllString(s, "_")
+	return remoteServerKeyPrefix + serverKeySanitizer.ReplaceAllString(s, "_")
+}
+
+// sanitizeServerKeyFromURL implements the URL-aware path of
+// SanitizeServerKey. ok is false if server doesn't parse as a URL with a
+// host, so the caller can fall back.
+func sanitizeServerKeyFromURL(server string) (string, bool) {
+	u, err := url.Parse(server)
+	if err != nil || u.Host == "" {
+		return "", false
+	}
+
+	scheme := strings.ToLower(u.Scheme)
+	host := strings.ToLower(u.Hostname())
+	port := u.Port()
+
+	// u.User is intentionally never consulted -- credentials must never end
+	// up in an on-disk filename.
+	if port != "" && port != defaultPortForScheme[scheme] {
+		host = host + "_" + port
+	}
+
+	key := remoteServerKeyPrefix + scheme + "_" + host
+	return serverKeySanitizer.ReplaceAllString(key, "_"), true
 }
 
 func sessionFilePath(serverKey, username string) string {
