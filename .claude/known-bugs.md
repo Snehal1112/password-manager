@@ -852,29 +852,41 @@ vault-level cascade block.
 
 ### B21 — `RevokeAssignment` does not enforce the Data Access Administrator grant restriction
 
-**Status**: Open — deliberate deferral, discovered while fixing B19
+**Status**: Fixed in commit `662781e`
 **Severity**: Medium — narrower than B19: exploiting it requires the caller
 to already hold Data Access Administrator in the vault (itself a
 sensitive, deliberately-restricted grant), and the effect is revoking an
 assignment rather than escalating privilege via a new grant
-**File**: `internal/services/authorization/role_assignment_service.go`
+**File**: `internal/services/authorization/role_assignment_service.go`,
+`api/role_assignments.go`, `cmd/vault-access/revoke.go`
 
 **Root cause**: B19's fix restricted which roles `AssignRole` will grant for
 a non-global-admin caller via `nonAdminGrantableRoles` and
-`AssignRoleInput.CallerIsGlobalAdmin`. `RevokeAssignment`'s signature carries
-no equivalent caller-authority flag, so it does not consult that allow-list.
-A non-global-admin Data Access Administrator can grant only the allow-listed
-roles, but can revoke *any* role assignment in their vault — including
+`AssignRoleInput.CallerIsGlobalAdmin`. `RevokeAssignment`'s signature carried
+no equivalent caller-authority flag, so it did not consult that allow-list.
+A non-global-admin Data Access Administrator could grant only the allow-listed
+roles, but could revoke *any* role assignment in their vault — including
 another principal's `Key Vault Data Access Administrator`, `Key Vault Purge
 Operator`, or `Key Vault Certificate User` grant.
 
-**Fix sketch**: give `RevokeAssignment` the same `callerIsGlobalAdmin`
-signal `AssignRole` receives (either a new parameter or a request-scoped
-context value set by both call sites, mirroring `api/role_assignments.go`'s
-`createRoleAssignment` and `cmd/vault-access/grant.go`), and reject revoking
-an assignment whose `Role` is outside `nonAdminGrantableRoles` unless the
-caller is a global admin — same shape as the `AssignRole` check, applied to
-the assignment being revoked rather than the role being granted.
+**What was fixed**: `RevokeAssignment` gained a `callerIsGlobalAdmin bool`
+parameter, mirroring `AssignRoleInput.CallerIsGlobalAdmin`, and now applies
+the same `nonAdminGrantableRoles` allow-list to the assignment being revoked
+— same shape as the `AssignRole` check, applied to the role being revoked
+rather than the role being granted. Both call sites compute the flag the
+same way `AssignRole`'s callers already do
+(`common.HasRequiredRole(role, string(model.RoleAdmin))`):
+`api/role_assignments.go`'s `deleteRoleAssignment` (which now also maps
+`ErrRoleNotGrantable` to HTTP 403, mirroring the grant path) and
+`cmd/vault-access/revoke.go` (which previously didn't even fetch the
+caller's account role). Six `RoleAssignmentService` test doubles across the
+authorization/middleware/api/cmd test suites were updated to the new 4-arg
+signature. New tests: `TestRevokeAssignment_NonAdminCannotRevoke{DataAccessAdministrator,PurgeOperator,CertificateUser}`,
+`TestRevokeAssignment_NonAdminCanRevokeOrdinaryRole`,
+`TestRevokeAssignment_GlobalAdminCanRevokeAnyRole`
+(`internal/services/authorization`), `TestRoleAssignments_RevokeDeniedRoleNotGrantable_Returns403`
+(`api/role_assignments_test.go`), and `TestVaultAccessRevoke_PassesNonAdminCallerFlag`
+(`cmd/vault-access/authz_test.go`).
 
 **Spec/plan**: `docs/plans/2026-08-18-azure-keyvault-parity-audit.md` (Access
 control finding F1 — this residual is called out under B19 above, not a
@@ -885,17 +897,17 @@ own comment on `nonAdminGrantableRoles`.
 
 ### B22 — `PurgeVault`'s bulk cascade-delete ignores per-item purge protection
 
-**Status**: Open — discovered during the final-review pass on B20, not fixed
-in that pass
+**Status**: Fixed in commit `74dfab8`
 **Severity**: High — before B20, this gap was inert because `purge_protection`
 could never be set to `true` on any secret/key/certificate; B20 made the flag
-real and settable, which makes this a live, reachable bypass: purging a vault
-now silently deletes every contained item regardless of its individual
+real and settable, which made this a live, reachable bypass: purging a vault
+silently destroyed every contained item regardless of its individual
 purge-protection flag, the exact guarantee B20 just added for the
 single-item purge path
 **File**: `internal/repositories/secret_repository.go`'s `PurgeVaultContents`
 (and the equivalent `key_repository.go`/`certificate_repository.go` methods),
-`internal/services/vaults/cascade_adapter.go`
+`internal/services/vaults/cascade_adapter.go`, `internal/services/vaults/vault_service.go`,
+`api/vault.go`
 
 **Root cause**: `VaultService.PurgeVault` cascades to
 `cascadeAdapter.PurgeVaultContents`, which calls each resource repository's
@@ -906,15 +918,28 @@ to avoid stranding orphaned rows once the containing vault is gone. That
 design predates B20; it was never revisited once per-item purge protection
 became settable.
 
-**Fix sketch**: either (a) have `PurgeVault` refuse to purge a vault that
-still contains any item with `purge_protection = true` (mirroring Azure's
-"cannot purge a vault while it still contains protected items" semantics —
-requires the caller to purge/wait-out those items individually first), or
-(b) have `PurgeVaultContents` filter out protected rows and return which ones
-were skipped, then decide whether `PurgeVault` succeeds partially or refuses
-outright. Whichever direction is chosen should also decide whether individual
-purge protection is meant to survive vault deletion at all, since Azure has
-no direct equivalent to RocketVault's multi-vault model here.
+**What was fixed**: Took fix-sketch option (a) — `PurgeVault` now refuses to
+purge a vault that still contains any item with `purge_protection = true`,
+mirroring Azure's "cannot purge while it still contains protected items"
+semantics; the caller must purge or wait out those items individually
+first. Added `CascadeRepository.HasProtectedContent(ctx, vaultID) (bool,
+error)`, backed by a `HasProtectedContent` method on each of
+`SecretRepository`/`KeyRepository`/`CertificateRepository` — following the
+existing `PurgeVaultContents` convention, added only to the concrete types,
+not their exported `*RepositoryInterface`, to avoid rippling to every mock
+across the codebase. `PurgeVault` calls it after the vault's own
+`PurgeProtection` check and before `s.repo.Purge`, and **fails closed**: if
+the check itself errors, the purge is refused rather than risking a bypass
+because an item's status couldn't be read (same posture as B20's
+`16c1fa8` follow-up). The new sentinel `ErrVaultContentsPurgeProtected` is
+mapped to HTTP 400 in `api/vault.go` alongside the existing
+`ErrVaultPurgeProtected`/`ErrDefaultVaultProtected` cases. New tests:
+`TestSecretRepository_HasProtectedContent`/`TestKeyRepository_HasProtectedContent`/
+`TestCertificateRepository_HasProtectedContent`,
+`TestPurgeVault_RefusesWhenContentsProtected`/
+`TestPurgeVault_ContentsProtectionCheckError_FailsClosed`
+(`internal/services/vaults`), and `TestPurgeVault_RefusesWhenContentsProtected`
+(`api/vault_test.go`).
 
 **Spec/plan**: `docs/plans/2026-08-18-azure-keyvault-parity-audit.md`
 (Critical Finding #2 row and "Remediation Update — Short-term Fixes
