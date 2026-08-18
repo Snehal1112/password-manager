@@ -361,9 +361,26 @@ func persistentPreRun(cmd *cobra.Command, args []string) error {
 	// Start log rotation goroutine
 	go log.StartPeriodicRotation()
 
-	// Ensure database is initialized.
+	// Ensure database is initialized. A failure here must abort startup for
+	// any command that actually needs the database: every downstream
+	// repository is constructed from database.GetDB(), which returns nil if
+	// InitializeDB errored, and callers dereference that connection with no
+	// nil-check (it's not expected to ever be nil outside the unit-test
+	// path) -- silently continuing turns any schema/connection failure into
+	// a nil-pointer panic deep inside an unrelated command instead of a
+	// clean error here.
+	//
+	// context/help/completion are exempt, same as the remote-target guard
+	// above: they are documented as local-only/no-DB and must keep working
+	// even with no database configured at all (e.g. `rocketvault context
+	// list` before .rocketvault.yaml exists).
 	database := db.NewRepository(log)
-	database.InitializeDB() //nolint:errcheck,gosec
+	if err := database.InitializeDB(); err != nil {
+		if !isContextGroup && !isCobraBuiltinCommand(cmd) {
+			return fmt.Errorf("database initialization failed: %w", err)
+		}
+		log.WithError(err).Warn("Database initialization failed; continuing since this command does not require it")
+	}
 
 	// Create service container
 	serviceContainer, err := container.NewServiceContainer(container.Config{

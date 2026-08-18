@@ -508,7 +508,13 @@ func (d *DBRepository) createOptimizedSchema(db *sql.DB) error {
 		);
 		CREATE INDEX IF NOT EXISTS idx_key_rotation_policies_key_id ON key_rotation_policies(key_id);
 		CREATE INDEX IF NOT EXISTS idx_key_rotation_policies_user_id ON key_rotation_policies(user_id);
-		CREATE INDEX IF NOT EXISTS idx_key_rotation_policies_vault_id ON key_rotation_policies(vault_id);
+		-- idx_key_rotation_policies_vault_id is created in migrateSchema, after
+		-- the ALTER TABLE that adds vault_id to pre-existing databases. Creating
+		-- it here would fail on an upgraded DB where key_rotation_policies
+		-- already existed without vault_id: CREATE TABLE IF NOT EXISTS above
+		-- no-ops on the old shape, but CREATE INDEX is not a no-op and errors
+		-- with "no such column: vault_id" -- the same class of bug already
+		-- avoided for audit_logs's enriched-column indexes below.
 
 		CREATE TABLE IF NOT EXISTS crl (
 			id TEXT PRIMARY KEY,
@@ -586,7 +592,9 @@ func (d *DBRepository) createOptimizedSchema(db *sql.DB) error {
 		CREATE INDEX IF NOT EXISTS idx_rotation_policies_user_id ON rotation_policies(user_id);
 		CREATE INDEX IF NOT EXISTS idx_rotation_policies_enabled ON rotation_policies(enabled);
 		CREATE INDEX IF NOT EXISTS idx_rotation_policies_auto_rotate ON rotation_policies(auto_rotate);
-		CREATE INDEX IF NOT EXISTS idx_rotation_policies_vault_id ON rotation_policies(vault_id);
+		-- idx_rotation_policies_vault_id is created in migrateSchema, after the
+		-- ALTER TABLE that adds vault_id to pre-existing databases -- same
+		-- reasoning as idx_key_rotation_policies_vault_id above.
 
 		CREATE TABLE IF NOT EXISTS secret_rotation_history (
 			id TEXT PRIMARY KEY,

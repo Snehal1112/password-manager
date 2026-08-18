@@ -362,6 +362,44 @@ func TestPersistentPreRun_RemoteTarget_ContextCommand_Unaffected(t *testing.T) {
 	require.NoError(t, err, "the context group must be unaffected by a resolved remote target")
 }
 
+// TestPersistentPreRun_DatabaseInitFailure_NonExemptCommand_ReturnsCleanError
+// pins the fix for the nil-pointer panic a swallowed InitializeDB error used
+// to cause: a command that actually needs the database (anything outside
+// the context/cobra-builtin exemption) must fail fast with a clear error
+// when the database can't be initialized, not silently continue with a nil
+// *db.Conn threaded into every repository and panic deep inside an
+// unrelated command the first time one of them runs a query.
+func TestPersistentPreRun_DatabaseInitFailure_NonExemptCommand_ReturnsCleanError(t *testing.T) {
+	// A valid config with no database section: initConfig doesn't panic on a
+	// missing file, but loadDatabaseConfig has nothing to connect with,
+	// reproducing "database connection string not configured" -- the same
+	// class of InitializeDB failure a stale/incompatible schema also
+	// produces (see TestSetupSchema_UpgradesOldShapeRotationPoliciesWithout-
+	// Error in internal/db), just via a different root cause.
+	useTempConfigFile(t)
+
+	// Reset --server: it's a persistent pflag on the shared rootCmd, so a
+	// prior test in this file that set it (e.g.
+	// TestPersistentPreRun_RemoteTarget_NonContextCommand_ReturnsError)
+	// leaves its value set even after that test's SetArgs(nil) cleanup --
+	// SetArgs only affects the next parse's argument slice, not
+	// already-parsed flag values.
+	previousServer := rootCmd.PersistentFlags().Lookup("server").Value.String()
+	require.NoError(t, rootCmd.PersistentFlags().Set("server", ""))
+	t.Cleanup(func() { _ = rootCmd.PersistentFlags().Set("server", previousServer) })
+
+	previousArgs := os.Args
+	os.Args = []string{"rocketvault", "health"}
+	t.Cleanup(func() { os.Args = previousArgs })
+
+	rootCmd.SetArgs([]string{"health"})
+	t.Cleanup(func() { rootCmd.SetArgs(nil) })
+
+	err := rootCmd.ExecuteContext(context.Background())
+	require.Error(t, err, "a command that needs the database must fail cleanly when it can't be initialized, not panic")
+	assert.Contains(t, err.Error(), "database initialization failed")
+}
+
 // TestIsCobraBuiltinCommand verifies NB1's fix at the unit level: which
 // commands the remote-target guard must treat as exempt cobra built-ins.
 // This is deliberately a pure unit test of the classification logic rather

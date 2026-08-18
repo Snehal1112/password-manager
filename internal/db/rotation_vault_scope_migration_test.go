@@ -108,6 +108,72 @@ func TestMigrateSchema_RotationPoliciesVaultID(t *testing.T) {
 	require.Equal(t, otherVaultID, krpOther, "policy on vault-b key must backfill to vault b, not the default vault")
 }
 
+// TestSetupSchema_UpgradesOldShapeRotationPoliciesWithoutError reproduces the
+// real upgrade path -- SetupSchema (createOptimizedSchema, then
+// migrateSchema), not migrateSchema in isolation -- against a database whose
+// rotation_policies/key_rotation_policies tables predate vault_id.
+//
+// This is the regression test that was missing when vault_id was added to
+// these two tables: createOptimizedSchema's CREATE TABLE IF NOT EXISTS is a
+// safe no-op on an old-shaped table, but it used to be followed, in the same
+// batch, by CREATE INDEX ... (vault_id) -- not a no-op, and fatal with "no
+// such column: vault_id" on exactly this database shape. Because
+// createOptimizedSchema runs before migrateSchema inside SetupSchema, that
+// failure aborted the whole call before migrateSchema's correct ALTER TABLE
+// ever ran, so no real upgrade could ever self-heal. TestMigrateSchema_Rota-
+// tionPoliciesVaultID above calls migrateSchema directly and never exercised
+// this ordering; TestMigrateSchema_KeyRotationPoliciesVaultIDIndexes calls
+// SetupSchema but only against a fresh database, where the bug can't
+// reproduce because the tables don't pre-exist.
+func TestSetupSchema_UpgradesOldShapeRotationPoliciesWithoutError(t *testing.T) {
+	conn, err := sql.Open("sqlite3", ":memory:")
+	require.NoError(t, err)
+	defer conn.Close() //nolint:errcheck
+
+	_, err = conn.Exec(`
+		CREATE TABLE users (
+			id TEXT PRIMARY KEY, username TEXT UNIQUE NOT NULL, password_hash TEXT NOT NULL,
+			totp_secret TEXT, role TEXT NOT NULL, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+		);
+		-- Old-shape rotation_policies and key_rotation_policies: no vault_id
+		-- column, matching a database created before commit 57bfa2b.
+		CREATE TABLE rotation_policies (
+			id TEXT PRIMARY KEY, user_id TEXT NOT NULL, name TEXT NOT NULL,
+			description TEXT, interval_days INTEGER NOT NULL,
+			enabled BOOLEAN NOT NULL DEFAULT TRUE, reminder_days INTEGER NOT NULL DEFAULT 7,
+			auto_rotate BOOLEAN NOT NULL DEFAULT FALSE,
+			created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+		);
+		CREATE TABLE key_rotation_policies (
+			id TEXT PRIMARY KEY, key_id TEXT NOT NULL UNIQUE, user_id TEXT NOT NULL,
+			rotate_after_days INTEGER NOT NULL DEFAULT 90,
+			notify_before_expiry_days INTEGER NOT NULL DEFAULT 30,
+			expiry_days INTEGER NOT NULL DEFAULT 365, enabled BOOLEAN NOT NULL DEFAULT TRUE,
+			created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+		);
+	`)
+	require.NoError(t, err)
+
+	require.False(t, columnExists(t, conn, "rotation_policies", "vault_id"))
+	require.False(t, columnExists(t, conn, "key_rotation_policies", "vault_id"))
+
+	repo := NewRepository(logging.InitLogger())
+	require.NoError(t, repo.SetupSchema(conn, SQLite),
+		"SetupSchema must upgrade an old-shape database in place, not fail on 'no such column: vault_id'")
+
+	require.True(t, columnExists(t, conn, "rotation_policies", "vault_id"))
+	require.True(t, columnExists(t, conn, "key_rotation_policies", "vault_id"))
+
+	for _, idx := range []string{"idx_rotation_policies_vault_id", "idx_key_rotation_policies_vault_id"} {
+		var name string
+		row := conn.QueryRow(`SELECT name FROM sqlite_master WHERE type='index' AND name=?`, idx)
+		require.NoError(t, row.Scan(&name), "%s missing after upgrading an old-shape database", idx)
+	}
+
+	// A second run must remain idempotent, matching every other SetupSchema caller.
+	require.NoError(t, repo.SetupSchema(conn, SQLite), "second SetupSchema run should be idempotent")
+}
+
 // newCapturingRepo returns a DBRepository whose logger writes to the returned
 // buffer, so a test can assert on log output. Warn level keeps the buffer to
 // just the diagnostics under test.
