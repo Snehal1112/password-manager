@@ -77,11 +77,12 @@ func init() {
 
 	cfg := bootstrapConfig
 
-	// Get listen address from config, env var, or default (in priority order)
-	listenAddr := viper.GetString("server.listen_addr")
-	if listenAddr == "" {
-		listenAddr = getEnv("PASSWORD_MANAGER_LISTEN", defaultListenAddr)
-	}
+	// The flag's own default can only be the env var or hardcoded fallback:
+	// init() runs at package-load time, before cobra.OnInitialize(initConfig)
+	// has parsed --config and loaded server.listen_addr into viper. The
+	// config file's value is applied later, in servePreRun, once it's
+	// actually available -- see the comment there.
+	listenAddr := getEnv("PASSWORD_MANAGER_LISTEN", defaultListenAddr)
 
 	serveCmd.Flags().StringVar(&cfg.Listen, "listen", listenAddr, fmt.Sprintf("TCP listen address (default \"%s\").", "8774"))
 	serveCmd.Flags().StringVar(&cfg.BasePath, "api_base", getEnv("PASSWORD_MANAGER_BASE_API", basePath), "Base api path for the password manager service.")
@@ -96,6 +97,17 @@ func init() {
 // intentionally skips the root pre-run's authentication check too, since
 // "serve" starting up requires no prior login.
 func servePreRun(cmd *cobra.Command, _ []string) error {
+	// Apply server.listen_addr from the config file, now that
+	// cobra.OnInitialize(initConfig) has actually loaded it into viper --
+	// init() above runs too early to see it. An explicit --listen flag still
+	// wins over the config file, which still wins over the env var/hardcoded
+	// default baked into the flag's own default.
+	if !cmd.Flags().Changed("listen") {
+		if v := viper.GetString("server.listen_addr"); v != "" {
+			bootstrapConfig.Listen = v
+		}
+	}
+
 	log := logging.InitLogger()
 	go log.StartPeriodicRotation()
 
