@@ -626,7 +626,7 @@ For deployments where private key material must never touch process memory, Rock
 
 **Prerequisites:**
 
-- A PKCS#11 shared library (`.so`) reachable on disk — for example `/usr/lib/softhsm/libsofthsm2.so` for SoftHSM2.
+- A PKCS#11 shared library reachable on disk — for example `/usr/lib/softhsm/libsofthsm2.so` for SoftHSM2 on Ubuntu, or the Homebrew Cellar path on macOS (Homebrew keeps the `.so` extension there too). See `docs/hsm-softhsm2-testing.md` for the full setup on both platforms.
 - A token already initialized on that module with a known label and PIN. For SoftHSM2: `softhsm2-util --init-token --slot 0 --label rocketvault --pin 1234 --so-pin 0000`.
 - The `hsm` block in `.rocketvault.yaml` configured with `enabled: true`:
 

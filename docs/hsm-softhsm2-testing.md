@@ -1,15 +1,24 @@
-# Testing HSM / PKCS#11 with SoftHSM2 on Ubuntu
+# Testing HSM / PKCS#11 with SoftHSM2
 
 SoftHSM2 is a software token that implements the PKCS#11 interface. It lets
-you test the HSM code path without physical hardware.
+you test the HSM code path without physical hardware. Steps below are
+Ubuntu-first; where macOS (Homebrew) differs, a macOS variant is called out.
 
 ## 1. Install SoftHSM2
 
 ```bash
+# Ubuntu / Debian
 sudo apt install softhsm2 opensc
 ```
 
-`opensc` provides `pkcs11-tool`, used in the verification step below.
+```bash
+# macOS (Homebrew)
+brew install softhsm opensc
+```
+
+`opensc` provides `pkcs11-tool`, used in the verification step below. The
+`~/.zshrc` persistence used later in this guide works unmodified on macOS,
+since zsh is the default shell there too.
 
 ## 2. Create the SoftHSM2 configuration file
 
@@ -53,7 +62,7 @@ step 7 if it differs from 0.
 
 ## 4. Locate the library
 
-On this machine both paths are present:
+On Ubuntu, both paths are typically present:
 
 ```
 /usr/lib/softhsm/libsofthsm2.so
@@ -62,9 +71,22 @@ On this machine both paths are present:
 
 Either works. Use the first one in the config below.
 
+On macOS (Homebrew), the path is under the Cellar and includes the installed
+version number; Homebrew keeps the `.so` extension even on macOS (dlopen
+doesn't care about the extension, only the file's actual Mach-O format), so
+this is not a typo:
+
+```bash
+find "$(brew --prefix)/Cellar/softhsm" -name "libsofthsm2.so"
+# e.g. /opt/homebrew/Cellar/softhsm/2.6.1/lib/softhsm/libsofthsm2.so (Apple Silicon)
+#   or /usr/local/Cellar/softhsm/2.6.1/lib/softhsm/libsofthsm2.so (Intel)
+```
+
 ## 5. Enable HSM in `.rocketvault.yaml`
 
-Uncomment and fill in the `hsm` block at the bottom of the file:
+Uncomment and fill in the `hsm` block at the bottom of the file. Use whichever
+path step 4 found on your platform (`lib_path` below is the Ubuntu path;
+substitute the Homebrew Cellar path on macOS):
 
 ```yaml
 hsm:
@@ -162,6 +184,8 @@ pkcs11-tool \
   --list-objects
 ```
 
+On macOS, pass the Homebrew Cellar path found in step 4 to `--module` instead.
+
 > Make sure `SOFTHSM2_CONF` is exported before running `pkcs11-tool`, otherwise
 > it will not find the token.
 
@@ -175,7 +199,7 @@ them, both env vars must be set:
 
 ```bash
 export SOFTHSM2_CONF=~/.config/softhsm2/softhsm2.conf
-export SOFTHSM2_LIB=/usr/lib/softhsm/libsofthsm2.so
+export SOFTHSM2_LIB=/usr/lib/softhsm/libsofthsm2.so  # macOS: the Homebrew Cellar path from step 4
 go test ./internal/crypto/... -v -run TestPKCS11
 ```
 

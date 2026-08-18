@@ -262,6 +262,14 @@ sudo apt install softhsm2 opensc libsofthsm2
 ls /usr/lib/softhsm/libsofthsm2.so
 ```
 
+```bash
+# macOS (Homebrew)
+brew install softhsm opensc
+
+# Locate the library path — Homebrew keeps the .so extension on macOS too
+find "$(brew --prefix)/Cellar/softhsm" -name "libsofthsm2.so"
+```
+
 Then initialise a SoftHSM2 token (one-time setup):
 
 ```bash
@@ -278,7 +286,10 @@ export SOFTHSM2_CONF=~/.config/softhsm2/softhsm2.conf
 softhsm2-util --init-token --slot 0 --label rocketvault --so-pin 0000 --pin 1234
 ```
 
-Enable HSM in `.rocketvault.yaml`:
+Enable HSM in `.rocketvault.yaml`, using the library path found above
+(Ubuntu: `/usr/lib/softhsm/libsofthsm2.so`; macOS: the `Cellar` path from
+`find` above, e.g. `/opt/homebrew/Cellar/softhsm/2.6.1/lib/softhsm/libsofthsm2.so`
+on Apple Silicon or `/usr/local/Cellar/...` on Intel):
 
 ```yaml
 hsm:
