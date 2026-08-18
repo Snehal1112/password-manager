@@ -27,7 +27,6 @@ var (
 	ClaimsKey           = &contextKey{"claims"}
 	RequestIDKey        = &contextKey{"request_id"}
 	ContentTypeKey      = &contextKey{"content_type"}
-	APIVersionKey       = &contextKey{"api_version"}
 	ServiceContainerKey = &contextKey{"service_container"}
 	OutputFormatterKey  = &contextKey{"output_formatter"}
 )

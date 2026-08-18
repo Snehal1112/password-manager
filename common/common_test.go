@@ -508,7 +508,6 @@ func TestContextKeyString_AllKeys(t *testing.T) {
 		{"rocketvault/claims", ClaimsKey},
 		{"rocketvault/request_id", RequestIDKey},
 		{"rocketvault/content_type", ContentTypeKey},
-		{"rocketvault/api_version", APIVersionKey},
 		{"rocketvault/service_container", ServiceContainerKey},
 		{"rocketvault/output_formatter", OutputFormatterKey},
 	}

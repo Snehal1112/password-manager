@@ -22,7 +22,6 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"rocketvault/app"
-	"rocketvault/common"
 	"rocketvault/internal/crypto"
 	"rocketvault/internal/logging"
 	auditSvc "rocketvault/internal/services/audit"
@@ -62,61 +61,6 @@ func TestWithLogger_SetsLoggerField(t *testing.T) {
 	WithLogger(logger)(api)
 	assert.Equal(t, logger, api.Logger)
 }
-
-// ============================================================
-// versioning.go — handleV2Compatibility via CompatibilityMiddleware
-// ============================================================
-
-// TestCompatibilityMiddleware_V2_CallsHandleV2Compatibility injects "v2" via the
-// common.APIVersionKey context key, which is what GetVersionFromContext reads.
-func TestCompatibilityMiddleware_V2_CallsHandleV2Compatibility(t *testing.T) {
-	vm := NewVersionManager(testVersionLogger())
-	vm.RegisterVersion(&Version{Major: 1, Minor: 0, Patch: 0})
-	vm.RegisterVersion(&Version{Major: 2, Minor: 0, Patch: 0})
-
-	called := false
-	next := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		called = true
-		w.WriteHeader(http.StatusOK)
-	})
-
-	handler := vm.CompatibilityMiddleware(next)
-	req := httptest.NewRequest(http.MethodGet, "/api/v2/secrets", nil)
-	// Inject v2 at the same context key that GetVersionFromContext reads.
-	req = req.WithContext(
-		context.WithValue(req.Context(), common.APIVersionKey, "v2"),
-	)
-	w := httptest.NewRecorder()
-	handler.ServeHTTP(w, req)
-
-	// next must still be called — v2 branch does not short-circuit.
-	assert.True(t, called)
-}
-
-// TestCompatibilityMiddleware_V1_CallsHandleV1Compatibility verifies the v1 branch.
-func TestCompatibilityMiddleware_V1_CallsHandleV1Compatibility(t *testing.T) {
-	vm := NewVersionManager(testVersionLogger())
-	vm.RegisterVersion(&Version{Major: 1, Minor: 0, Patch: 0})
-
-	called := false
-	next := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		called = true
-		w.WriteHeader(http.StatusOK)
-	})
-
-	handler := vm.CompatibilityMiddleware(next)
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/secrets", nil)
-	req = req.WithContext(
-		context.WithValue(req.Context(), common.APIVersionKey, "v1"),
-	)
-	// Set Content-Type to trigger the body transformation branch in handleV1Compatibility.
-	req.Header.Set("Content-Type", "application/json")
-	w := httptest.NewRecorder()
-	handler.ServeHTTP(w, req)
-
-	assert.True(t, called)
-}
-
 // ============================================================
 // audit.go — missing branches
 // ============================================================
