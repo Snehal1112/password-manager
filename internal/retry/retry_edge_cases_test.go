@@ -12,6 +12,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"rocketvault/internal/repositories"
 	"rocketvault/internal/retry"
 )
 
@@ -274,6 +275,86 @@ func TestWithExponentialBackoffResult_NonRetryableError(t *testing.T) {
 	}
 	if attempts != 1 {
 		t.Errorf("expected exactly 1 attempt for non-retryable error, got %d", attempts)
+	}
+}
+
+// errRetryableSentinel is a domain-style sentinel whose message matches the
+// "temporary" retryable-errors filter used by the tests below.
+var errRetryableSentinel = errors.New("temporary sentinel failure")
+
+// TestWithExponentialBackoff_NonRetryableError_PreservesSentinel pins that the
+// retry layer wraps the inner error with %w, not %v. Wrapping with %v used to
+// sever the chain, so a caller could no longer match a domain sentinel through
+// a retry-wrapped service — which turned a blocked purge into an HTTP 500
+// instead of the intended 403.
+func TestWithExponentialBackoff_NonRetryableError_PreservesSentinel(t *testing.T) {
+	policy := retry.Policy{
+		Enabled:           true,
+		MaxAttempts:       5,
+		InitialDelay:      1 * time.Millisecond,
+		MaxDelay:          10 * time.Millisecond,
+		BackoffMultiplier: 2.0,
+		RetryableErrors:   []string{"temporary"},
+	}
+
+	err := retry.WithExponentialBackoff(context.Background(), policy, func() error {
+		return repositories.ErrSecretPurgeProtected
+	})
+
+	if !errors.Is(err, retry.ErrNonRetryable) {
+		t.Errorf("expected ErrNonRetryable, got %v", err)
+	}
+	if !errors.Is(err, repositories.ErrSecretPurgeProtected) {
+		t.Errorf("expected the inner sentinel to survive the retry wrap, got %v", err)
+	}
+}
+
+// TestWithExponentialBackoffResult_NonRetryableError_PreservesSentinel is the
+// generic-result twin of the test above.
+func TestWithExponentialBackoffResult_NonRetryableError_PreservesSentinel(t *testing.T) {
+	policy := retry.Policy{
+		Enabled:           true,
+		MaxAttempts:       5,
+		InitialDelay:      1 * time.Millisecond,
+		MaxDelay:          10 * time.Millisecond,
+		BackoffMultiplier: 2.0,
+		RetryableErrors:   []string{"temporary"},
+	}
+
+	_, err := retry.WithExponentialBackoffResult(context.Background(), policy, func() (string, error) {
+		return "", repositories.ErrSecretPurgeProtected
+	})
+
+	if !errors.Is(err, retry.ErrNonRetryable) {
+		t.Errorf("expected ErrNonRetryable, got %v", err)
+	}
+	if !errors.Is(err, repositories.ErrSecretPurgeProtected) {
+		t.Errorf("expected the inner sentinel to survive the retry wrap, got %v", err)
+	}
+}
+
+// TestWithExponentialBackoff_MaxRetriesExceeded_PreservesSentinel covers the
+// other wrap site: an error that was retried to exhaustion must still be
+// matchable by the caller.
+func TestWithExponentialBackoff_MaxRetriesExceeded_PreservesSentinel(t *testing.T) {
+	policy := retry.Policy{
+		Enabled:           true,
+		MaxAttempts:       2,
+		InitialDelay:      1 * time.Millisecond,
+		MaxDelay:          2 * time.Millisecond,
+		BackoffMultiplier: 2.0,
+		RetryableErrors:   []string{"temporary"},
+	}
+
+	err := retry.WithExponentialBackoff(context.Background(), policy, func() error {
+		return errRetryableSentinel
+	})
+
+	if !errors.Is(err, retry.ErrMaxRetriesExceeded) {
+		t.Errorf("expected ErrMaxRetriesExceeded, got %v", err)
+	}
+	if !errors.Is(err, errRetryableSentinel) {
+		t.Errorf("expected the inner sentinel to survive the retry wrap, got %v", err)
 	}
 }
 

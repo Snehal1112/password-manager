@@ -507,7 +507,7 @@ func (r *SecretRepository) SetPurgeProtection(ctx context.Context, id uuid.UUID,
 	}
 	if rowsAffected == 0 {
 		r.log.LogAuditError("", "set_purge_protection_secret", "failed", "Secret not found", nil)
-		return fmt.Errorf("secret not found")
+		return fmt.Errorf("secret %s: %w", id.String(), ErrNotFound)
 	}
 
 	r.log.LogAuditInfo("", "set_purge_protection_secret", "success",

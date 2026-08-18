@@ -352,9 +352,12 @@ func WithExponentialBackoff(ctx context.Context, policy Policy, fn func() error)
 
 		lastErr = err
 
-		// Check if error is retryable
+		// Check if error is retryable. The inner error is wrapped with %w, not
+		// %v, so a caller can still match a domain sentinel (for example
+		// repositories.ErrSecretPurgeProtected) with errors.Is after the retry
+		// layer has handled it.
 		if !IsRetryable(err, policy) {
-			return fmt.Errorf("%w: %v", ErrNonRetryable, err)
+			return fmt.Errorf("%w: %w", ErrNonRetryable, err)
 		}
 
 		// Don't sleep after the last attempt
@@ -374,7 +377,9 @@ func WithExponentialBackoff(ctx context.Context, policy Policy, fn func() error)
 		}
 	}
 
-	return fmt.Errorf("%w: %v", ErrMaxRetriesExceeded, lastErr)
+	// %w for the inner error keeps the caller's sentinel matchable; see the
+	// non-retryable branch above.
+	return fmt.Errorf("%w: %w", ErrMaxRetriesExceeded, lastErr)
 }
 
 // WithExponentialBackoffResult executes the given function with exponential backoff and returns a result.
@@ -404,7 +409,7 @@ func WithExponentialBackoffResult[T any](ctx context.Context, policy Policy, fn 
 
 		// Check if error is retryable
 		if !IsRetryable(err, policy) {
-			return result, fmt.Errorf("%w: %v", ErrNonRetryable, err)
+			return result, fmt.Errorf("%w: %w", ErrNonRetryable, err)
 		}
 
 		// Don't sleep after the last attempt
@@ -424,7 +429,7 @@ func WithExponentialBackoffResult[T any](ctx context.Context, policy Policy, fn 
 		}
 	}
 
-	return result, fmt.Errorf("%w: %v", ErrMaxRetriesExceeded, lastErr)
+	return result, fmt.Errorf("%w: %w", ErrMaxRetriesExceeded, lastErr)
 }
 
 // calculateDelay calculates the delay for the given attempt with exponential backoff and optional jitter.

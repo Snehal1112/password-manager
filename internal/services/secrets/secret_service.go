@@ -824,12 +824,18 @@ func (s *secretService) PurgeSecret(ctx context.Context, secretID uuid.UUID, sco
 	}
 
 	// Vault-level purge protection cascades to the secrets the vault contains,
-	// so a protected vault blocks the per-item purge path too. A vault that
-	// cannot be read is not treated as protected: the repository still applies
-	// the item's own purge_protection flag below.
+	// so a protected vault blocks the per-item purge path too. This check fails
+	// closed: for a secret with no flag of its own it is the only protection
+	// layer, so a vault that cannot be read blocks the purge rather than
+	// silently skipping the check.
 	if s.vaultRepo != nil && scope.VaultID() != uuid.Nil {
 		vault, err := s.vaultRepo.ReadByID(ctx, scope.VaultID())
-		if err == nil && vault.PurgeProtection {
+		if err != nil {
+			s.logger.LogAuditError(scope.ActorID().String(), "purge_secret", "failed",
+				"Failed to check vault purge protection", err)
+			return fmt.Errorf("failed to check vault purge protection: %w", err)
+		}
+		if vault.PurgeProtection {
 			s.logger.LogAuditError(scope.ActorID().String(), "purge_secret", "failed",
 				"Vault has purge protection enabled", nil)
 			return repositories.ErrSecretPurgeProtected

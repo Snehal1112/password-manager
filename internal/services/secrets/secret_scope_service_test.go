@@ -429,6 +429,33 @@ func TestPurgeSecretBlockedWhenVaultIsPurgeProtected(t *testing.T) {
 	vaultRepo.AssertExpectations(t)
 }
 
+// TestPurgeSecretFailsClosedWhenVaultReadFails pins the fail-closed contract:
+// for a secret carrying no purge-protection flag of its own, the vault lookup
+// is the only protection layer, so a transient read failure must block the
+// purge rather than silently skip the check.
+func TestPurgeSecretFailsClosedWhenVaultReadFails(t *testing.T) {
+	repo, svc := newScopeServiceFixture(t)
+	ctx := context.Background()
+
+	vaultRepo := new(MockVaultRepository)
+	svc.vaultRepo = vaultRepo
+
+	secretID := uuid.New()
+	vaultID := uuid.New()
+	scope := model.NewVaultScope(vaultID, uuid.New())
+	deletedAt := time.Now().UTC()
+
+	repo.On("List", ctx, scope, repositories.SecretFilter{OnlyDeleted: true}).
+		Return([]model.Secret{{ID: secretID, VaultID: vaultID, DeletedAt: &deletedAt}}, nil).Once()
+	vaultRepo.On("ReadByID", ctx, vaultID).Return(nil, assert.AnError).Once()
+
+	err := svc.PurgeSecret(ctx, secretID, scope)
+	require.Error(t, err)
+	assert.ErrorIs(t, err, assert.AnError)
+	repo.AssertNotCalled(t, "PurgeSecret", mock.Anything, mock.Anything)
+	vaultRepo.AssertExpectations(t)
+}
+
 func TestPurgeSecretProceedsWhenVaultIsNotPurgeProtected(t *testing.T) {
 	repo, svc := newScopeServiceFixture(t)
 	ctx := context.Background()

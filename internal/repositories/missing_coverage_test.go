@@ -690,8 +690,7 @@ func TestSecretRepository_SetPurgeProtection_NotFound(t *testing.T) {
 	repo := repositories.NewSecretRepository(rvdb.NewConn(db, rvdb.SQLite), newTestSecretLogger(t))
 
 	err := repo.SetPurgeProtection(context.Background(), uuid.New(), true)
-	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "not found")
+	assert.ErrorIs(t, err, repositories.ErrNotFound)
 }
 
 func TestSecretRepository_ListByUser(t *testing.T) {
