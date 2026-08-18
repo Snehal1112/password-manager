@@ -947,6 +947,80 @@ mapped to HTTP 400 in `api/vault.go` alongside the existing
 
 ---
 
+### B23 — Upgrading an existing database with a pre-`vault_id` `key_rotation_policies`/`rotation_policies` table crashed on startup
+
+**Status**: Fixed in commit `f1d3d41`
+**Severity**: High — any real, already-deployed database created before commit
+`57bfa2b` (2026-08-17) could never start again after upgrading past it, and
+the resulting failure mode was a nil-pointer panic on the first DB query of
+any command (e.g. `users login`), not a clean error
+**File**: `internal/db/db.go` (`createOptimizedSchema`), `cmd/root.go`
+(`persistentPreRun`)
+
+**Root cause (two independent bugs compounding)**:
+1. Commit `57bfa2b` ("feat(db): add vault_id to rotation_policies and
+   key_rotation_policies") added `vault_id` to both tables in two places:
+   correctly in `migrateSchema` (`ALTER TABLE ... ADD COLUMN`, then
+   `CREATE INDEX` *after* the ALTER — idempotent, safe on upgrade), and also
+   in `createOptimizedSchema`, the fresh-install schema that runs *before*
+   `migrateSchema` inside `SetupSchema`. There, `CREATE TABLE IF NOT EXISTS`
+   is a safe no-op against a pre-existing old-shaped table, but the
+   `CREATE INDEX ... (vault_id)` immediately following it in the same batch
+   is not a no-op — it fails with `no such column: vault_id` against exactly
+   that table shape. Since `createOptimizedSchema` runs first and its error
+   aborts `SetupSchema`, `migrateSchema`'s correct fix for this never got a
+   chance to run. This is the identical failure class already identified and
+   avoided for `audit_logs`'s enriched-column indexes (see the comment at the
+   end of `createOptimizedSchema`'s SQL block) — just not applied
+   consistently to `key_rotation_policies`/`rotation_policies` when they got
+   the same treatment. The regression test added in the same commit
+   (`rotation_vault_scope_migration_test.go`) tested `migrateSchema` in
+   isolation and `SetupSchema` only against a *fresh* database — never the
+   real call path (`SetupSchema`) against an *old-shaped* one, so it couldn't
+   catch this.
+2. `cmd/root.go`'s `persistentPreRun` discarded `InitializeDB()`'s error
+   (`//nolint:errcheck,gosec`). With the DB-init error above, execution
+   continued with `database.GetDB()` returning `nil`, which
+   `container.NewServiceContainer` threaded into every repository as a nil
+   `*db.Conn` (its nil-guard was written assuming this only happens on the
+   unit-test path). Any command reached deep into a DB call before crashing
+   with a nil-pointer `SIGSEGV`, not a clean error — e.g. `users login`
+   authenticates, logs "Starting user authentication," then panics inside
+   `UserRepository.ReadByUsername`.
+
+**What was fixed**:
+1. Removed the two unsafe `CREATE INDEX ... (vault_id)` statements from
+   `createOptimizedSchema` for `key_rotation_policies` and
+   `rotation_policies` — both indexes are already correctly created in
+   `migrateSchema`, after the ALTER TABLE, for both fresh and upgraded
+   databases. New test `TestSetupSchema_UpgradesOldShapeRotationPolicies-
+   WithoutError` (`internal/db/rotation_vault_scope_migration_test.go`)
+   exercises the real `SetupSchema` call path against an old-shaped database
+   and pins that this can't regress; confirmed it fails with the exact
+   reported error (`no such column: vault_id`) against the pre-fix code.
+2. `persistentPreRun` now checks `InitializeDB()`'s error and aborts with
+   `fmt.Errorf("database initialization failed: %w", err)` for any command
+   that isn't in the `context`/cobra-builtin exemption already used by the
+   adjacent remote-target guard (those are documented no-DB/local-only paths
+   and must keep working with no database configured at all, e.g.
+   `rocketvault context list` before `.rocketvault.yaml` exists). New test
+   `TestPersistentPreRun_DatabaseInitFailure_NonExemptCommand_ReturnsClean-
+   Error` (`cmd/root_test.go`) pins that a DB-needing command now fails
+   cleanly instead of reaching a later nil-pointer panic.
+
+**Effect for existing (real, not test) databases**: with fix 1 alone, a
+database in the pre-`vault_id` shape now upgrades in place on next startup —
+no data loss, no manual intervention. Fix 2 is defense in depth so any
+*future* DB-init failure (a different stale-schema case, a permissions
+issue, a full disk) surfaces as a clean error instead of the same class of
+panic.
+
+**Reported by**: a real user hitting this on `users login` against an
+existing local database, not discovered via review — see conversation
+history for the original panic output.
+
+---
+
 ## Deferred Refactors
 
 Both items formerly tracked here (H3, M2) were re-investigated on 2026-08-14 and
