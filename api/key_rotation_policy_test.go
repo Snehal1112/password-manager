@@ -462,6 +462,108 @@ func TestUpsertKeyRotationPolicy_Success_Returns200(t *testing.T) {
 	repo.AssertExpectations(t)
 }
 
+func TestUpsertKeyRotationPolicy_RotateAfterDaysZeroWhenEnabled_Returns400(t *testing.T) {
+	keyID := uuid.New()
+	repo := &mockKeyRotationPolicyRepo{}
+	// No expectations: validation should fail before reaching the repo.
+
+	c := newKeyRotationPolicyCtx(repo, keyID.String())
+	w := httptest.NewRecorder()
+	body, _ := json.Marshal(map[string]any{"rotate_after_days": 0, "enabled": true})
+	r := httptest.NewRequest(http.MethodPut, "/keys/"+keyID.String()+"/rotationpolicy", bytes.NewReader(body))
+
+	upsertKeyRotationPolicy(c, w, r)
+	if c.Err != nil {
+		writeError(w, c)
+	}
+
+	assert.Equal(t, http.StatusBadRequest, w.Code)
+	assert.NotNil(t, c.Err, "validation should set an error for RotateAfterDays < 7 when enabled")
+	repo.AssertNotCalled(t, "Upsert")
+}
+
+func TestUpsertKeyRotationPolicy_NegativeRotateAfterDaysWhenEnabled_Returns400(t *testing.T) {
+	keyID := uuid.New()
+	repo := &mockKeyRotationPolicyRepo{}
+
+	c := newKeyRotationPolicyCtx(repo, keyID.String())
+	w := httptest.NewRecorder()
+	body, _ := json.Marshal(map[string]any{"rotate_after_days": -1, "enabled": true})
+	r := httptest.NewRequest(http.MethodPut, "/keys/"+keyID.String()+"/rotationpolicy", bytes.NewReader(body))
+
+	upsertKeyRotationPolicy(c, w, r)
+	if c.Err != nil {
+		writeError(w, c)
+	}
+
+	assert.Equal(t, http.StatusBadRequest, w.Code)
+	repo.AssertNotCalled(t, "Upsert")
+}
+
+func TestUpsertKeyRotationPolicy_RotateAfterDaysLessThan7WhenEnabled_Returns400(t *testing.T) {
+	keyID := uuid.New()
+	repo := &mockKeyRotationPolicyRepo{}
+
+	c := newKeyRotationPolicyCtx(repo, keyID.String())
+	w := httptest.NewRecorder()
+	body, _ := json.Marshal(map[string]any{"rotate_after_days": 3, "enabled": true})
+	r := httptest.NewRequest(http.MethodPut, "/keys/"+keyID.String()+"/rotationpolicy", bytes.NewReader(body))
+
+	upsertKeyRotationPolicy(c, w, r)
+	if c.Err != nil {
+		writeError(w, c)
+	}
+
+	assert.Equal(t, http.StatusBadRequest, w.Code)
+	repo.AssertNotCalled(t, "Upsert")
+}
+
+func TestUpsertKeyRotationPolicy_RotateAfterDaysLessThan7WhenDisabled_Returns200(t *testing.T) {
+	keyID := uuid.New()
+	userID := uuid.MustParse(krpTestUserID)
+	repo := &mockKeyRotationPolicyRepo{}
+	repo.On("Upsert", mock.Anything, mock.Anything).Return(nil)
+	repo.On("GetByKeyID", mock.Anything, keyID, mock.Anything).Return(&model.KeyRotationPolicy{
+		ID: uuid.New(), KeyID: keyID, UserID: userID, RotateAfterDays: 3, Enabled: false,
+	}, nil)
+
+	c := newKeyRotationPolicyCtx(repo, keyID.String())
+	w := httptest.NewRecorder()
+	body, _ := json.Marshal(map[string]any{"rotate_after_days": 3, "enabled": false})
+	r := httptest.NewRequest(http.MethodPut, "/keys/"+keyID.String()+"/rotationpolicy", bytes.NewReader(body))
+
+	upsertKeyRotationPolicy(c, w, r)
+	if c.Err != nil {
+		writeError(w, c)
+	}
+
+	assert.Equal(t, http.StatusOK, w.Code, "RotateAfterDays < 7 should be allowed when rotation is disabled")
+	repo.AssertExpectations(t)
+}
+
+func TestUpsertKeyRotationPolicy_RotateAfterDays7WhenEnabled_Returns200(t *testing.T) {
+	keyID := uuid.New()
+	userID := uuid.MustParse(krpTestUserID)
+	repo := &mockKeyRotationPolicyRepo{}
+	repo.On("Upsert", mock.Anything, mock.Anything).Return(nil)
+	repo.On("GetByKeyID", mock.Anything, keyID, mock.Anything).Return(&model.KeyRotationPolicy{
+		ID: uuid.New(), KeyID: keyID, UserID: userID, RotateAfterDays: 7, Enabled: true,
+	}, nil)
+
+	c := newKeyRotationPolicyCtx(repo, keyID.String())
+	w := httptest.NewRecorder()
+	body, _ := json.Marshal(map[string]any{"rotate_after_days": 7, "enabled": true})
+	r := httptest.NewRequest(http.MethodPut, "/keys/"+keyID.String()+"/rotationpolicy", bytes.NewReader(body))
+
+	upsertKeyRotationPolicy(c, w, r)
+	if c.Err != nil {
+		writeError(w, c)
+	}
+
+	assert.Equal(t, http.StatusOK, w.Code, "RotateAfterDays 7 (minimum) should be accepted when enabled")
+	repo.AssertExpectations(t)
+}
+
 // ============================================================
 // deleteKeyRotationPolicy
 // ============================================================

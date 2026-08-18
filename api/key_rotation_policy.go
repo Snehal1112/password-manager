@@ -9,6 +9,7 @@ import (
 	"github.com/google/uuid"
 
 	keyServices "rocketvault/internal/services/keys"
+	vvalidation "rocketvault/internal/validation"
 	"rocketvault/model"
 )
 
@@ -55,6 +56,14 @@ func upsertKeyRotationPolicy(c *Context, w http.ResponseWriter, r *http.Request)
 	req, err := model.UpsertKeyRotationPolicyRequestFromJson(r.Body)
 	if err != nil {
 		c.SetInvalidParam("request body")
+		return
+	}
+
+	if err := vvalidation.ValidateKeyRotationPolicy(vvalidation.KeyRotationPolicyRequest{
+		RotateAfterDays: req.RotateAfterDays,
+		Enabled:         req.Enabled,
+	}); err != nil {
+		c.SetInvalidParam(err.Error())
 		return
 	}
 

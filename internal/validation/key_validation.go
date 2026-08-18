@@ -1,6 +1,8 @@
 package validation
 
 import (
+	"fmt"
+
 	validation "github.com/go-ozzo/ozzo-validation/v4"
 
 	"rocketvault/model"
@@ -69,6 +71,35 @@ func ValidateKeyUpdate(req KeyUpdateRequest) error {
 			validation.Length(0, 15),
 			validation.Each(validation.Length(1, 256)),
 		),
+	)
+}
+
+// KeyRotationPolicyRequest represents the input for creating or updating a
+// key's rotation policy.
+type KeyRotationPolicyRequest struct {
+	RotateAfterDays int
+	Enabled         bool
+}
+
+// ValidateKeyRotationPolicy validates a rotation-policy upsert request. Azure
+// enforces a 7-day minimum rotation interval; RocketVault mirrors it only
+// when the policy is enabled, since a disabled policy never schedules a
+// rotation and RotateAfterDays is inert -- 0/negative disabled values are
+// how a policy is parked without deleting it.
+//
+// Uses validation.By rather than validation.Min: ozzo-validation's built-in
+// threshold rules (Min/Max) skip validation entirely when the field holds
+// its zero value, which would silently let RotateAfterDays: 0 -- the exact
+// continuous-re-rotation case this validation exists to catch -- through.
+func ValidateKeyRotationPolicy(req KeyRotationPolicyRequest) error {
+	return validation.ValidateStruct(&req,
+		validation.Field(&req.RotateAfterDays, validation.By(func(value any) error {
+			days := value.(int)
+			if req.Enabled && days < 7 {
+				return fmt.Errorf("must be at least 7 when the policy is enabled")
+			}
+			return nil
+		})),
 	)
 }
 

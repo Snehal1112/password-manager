@@ -163,6 +163,57 @@ func TestValidateKeyCreate(t *testing.T) {
 	}
 }
 
+func TestValidateKeyRotationPolicy(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name      string
+		request   KeyRotationPolicyRequest
+		wantError bool
+	}{
+		{
+			name:      "zero days while enabled is rejected",
+			request:   KeyRotationPolicyRequest{RotateAfterDays: 0, Enabled: true},
+			wantError: true,
+		},
+		{
+			name:      "negative days while enabled is rejected",
+			request:   KeyRotationPolicyRequest{RotateAfterDays: -1, Enabled: true},
+			wantError: true,
+		},
+		{
+			name:      "below the 7-day minimum while enabled is rejected",
+			request:   KeyRotationPolicyRequest{RotateAfterDays: 3, Enabled: true},
+			wantError: true,
+		},
+		{
+			name:      "exactly 7 days while enabled is accepted",
+			request:   KeyRotationPolicyRequest{RotateAfterDays: 7, Enabled: true},
+			wantError: false,
+		},
+		{
+			name:      "below the minimum is accepted while disabled",
+			request:   KeyRotationPolicyRequest{RotateAfterDays: 3, Enabled: false},
+			wantError: false,
+		},
+		{
+			name:      "zero days is accepted while disabled",
+			request:   KeyRotationPolicyRequest{RotateAfterDays: 0, Enabled: false},
+			wantError: false,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			err := ValidateKeyRotationPolicy(tt.request)
+			if tt.wantError {
+				assert.Error(t, err)
+			} else {
+				assert.NoError(t, err)
+			}
+		})
+	}
+}
+
 // TestCommonValidationRules tests common validation rules.
 func TestCommonValidationRules(t *testing.T) {
 	t.Parallel()
