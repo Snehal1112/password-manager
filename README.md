@@ -243,6 +243,35 @@ rocketvault/
 - [Known Bugs](.claude/known-bugs.md) - Open issues with root-cause analysis
 - [Roadmap — Azure Parity & Beyond](.claude/roadmap-azure-parity-and-beyond.md) - Phased plan to close remaining Azure Key Vault gaps and build self-hosted-native differentiators
 
+## Quick Install (Prebuilt Binary)
+
+The fastest way to get `rocketvault` on Linux or macOS — installs to
+`/usr/local/bin` by default:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/Snehal1112/rocketvault/v-4.0.0/install.sh | bash
+```
+
+> **macOS note:** downloading a release binary directly from the GitHub
+> Releases page in a browser triggers Gatekeeper's "Apple could not verify
+> ... is free of malware" warning — this is macOS quarantining any
+> browser-downloaded, unsigned executable, not a problem with the binary
+> itself. `install.sh` downloads via `curl` instead, which macOS does not
+> quarantine, so the installed binary runs immediately with no extra steps.
+> If you still hit the Gatekeeper dialog (e.g. you downloaded the archive
+> manually), clear it with `xattr -d com.apple.quarantine <path-to-binary>`
+> or System Settings → Privacy & Security → "Open Anyway".
+
+Options:
+
+```bash
+curl -fsSL .../install.sh | VERSION=v0.2.5 bash            # install a specific tag
+curl -fsSL .../install.sh | INSTALL_DIR=~/.local/bin bash  # install elsewhere
+```
+
+Windows users: download the `.zip` asset for your platform from the
+[Releases page](https://github.com/Snehal1112/rocketvault/releases).
+
 ## Prerequisites
 
 - Go 1.25.0 or higher
