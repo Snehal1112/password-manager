@@ -20,21 +20,25 @@ type openAPISpec struct {
 	Paths map[string]map[string]any `yaml:"paths"`
 }
 
-// muxConstraintPattern strips a mux path-parameter's regex constraint down to
+// muxParamPattern strips a mux path-parameter's regex constraint down to
 // bare OpenAPI parameter syntax, e.g. "{secret_id:[A-Fa-f0-9-]+}" becomes
 // "{secret_id}". docs/api-specification.yaml deliberately omits mux regex
 // constraints (raw mux syntax isn't valid OpenAPI -- see Task 3), so the raw
 // path template WalkRoutes returns must be normalized the same way before
 // comparing against the spec's path keys, or every parameterized route would
 // spuriously fail to match.
-var muxConstraintPattern = regexp.MustCompile(`:[^}]*}`)
+//
+// The pattern is anchored to a "{name:" opening, not a bare ":", so a
+// literal ":" in a static path segment (however unlikely in practice) is
+// left untouched instead of being misread as the start of a constraint.
+var muxParamPattern = regexp.MustCompile(`\{(\w+):[^}]*\}`)
 
 // normalizeMuxPath strips mux regex constraints from every parameterized
 // segment in path, e.g.
 // "/api/v1/secrets/{secret_id:[A-Fa-f0-9-]+}/versions/{version:[0-9]+}"
 // becomes "/api/v1/secrets/{secret_id}/versions/{version}".
 func normalizeMuxPath(path string) string {
-	return muxConstraintPattern.ReplaceAllString(path, "}")
+	return muxParamPattern.ReplaceAllString(path, "{$1}")
 }
 
 // TestOpenAPISpecCoversAllRoutes walks the REAL router -- the same
@@ -78,6 +82,50 @@ func TestOpenAPISpecCoversAllRoutes(t *testing.T) {
 		}
 	}
 	require.Empty(t, missing, "docs/api-specification.yaml is missing %d route(s):\n%s", len(missing), joinLines(missing))
+}
+
+// TestNormalizeMuxPath exercises normalizeMuxPath directly, including the
+// adversarial case a review of the original unanchored regex (`:[^}]*}`)
+// found: a literal ":" in a static path segment, before any "{...}" group,
+// must survive untouched rather than being misread as the start of a
+// parameter constraint and swallowing everything up to the next "}".
+func TestNormalizeMuxPath(t *testing.T) {
+	cases := []struct {
+		name string
+		in   string
+		want string
+	}{
+		{
+			name: "single parameterized segment",
+			in:   "/api/v1/secrets/{secret_id:[A-Fa-f0-9-]+}",
+			want: "/api/v1/secrets/{secret_id}",
+		},
+		{
+			name: "multiple parameterized segments",
+			in:   "/api/v1/secrets/{secret_id:[A-Fa-f0-9-]+}/versions/{version:[0-9]+}",
+			want: "/api/v1/secrets/{secret_id}/versions/{version}",
+		},
+		{
+			name: "three parameterized segments",
+			in:   "/api/v1/vaults/{vault_name:[a-z0-9-]+}/secrets/{secret_id:[A-Fa-f0-9-]+}/versions/{version:[0-9]+}",
+			want: "/api/v1/vaults/{vault_name}/secrets/{secret_id}/versions/{version}",
+		},
+		{
+			name: "no parameters",
+			in:   "/api/v1/secrets",
+			want: "/api/v1/secrets",
+		},
+		{
+			name: "adversarial: literal colon in a static segment before a real parameter",
+			in:   "/api/v1/foo:bar/{id:[0-9]+}",
+			want: "/api/v1/foo:bar/{id}",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			require.Equal(t, tc.want, normalizeMuxPath(tc.in))
+		})
+	}
 }
 
 func joinLines(lines []string) string {
