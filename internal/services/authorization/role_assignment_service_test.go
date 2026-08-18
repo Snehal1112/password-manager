@@ -470,6 +470,71 @@ func TestHasDataActionRepositoryErrorPropagates(t *testing.T) {
 	}
 }
 
+func TestAssignRole_NonAdminCannotGrantDataAccessAdministrator(t *testing.T) {
+	rr, pr := newFakeRoleRepo(), newFakePolicyRepo()
+	ul := &fakeUserLookup{users: map[string]model.User{"alice": {ID: uuid.New(), Username: "alice"}}}
+	svc := newSvc(rr, pr, ul)
+
+	_, err := svc.AssignRole(context.Background(), AssignRoleInput{
+		Principal: "alice", PrincipalType: model.PrincipalTypeUser,
+		Role: model.RoleKeyVaultDataAccessAdministrator, VaultID: uuid.New(), CreatedBy: uuid.New(),
+		CallerIsGlobalAdmin: false,
+	})
+	require.ErrorIs(t, err, ErrRoleNotGrantable)
+}
+
+func TestAssignRole_NonAdminCannotGrantPurgeOperator(t *testing.T) {
+	rr, pr := newFakeRoleRepo(), newFakePolicyRepo()
+	ul := &fakeUserLookup{users: map[string]model.User{"alice": {ID: uuid.New(), Username: "alice"}}}
+	svc := newSvc(rr, pr, ul)
+
+	_, err := svc.AssignRole(context.Background(), AssignRoleInput{
+		Principal: "alice", PrincipalType: model.PrincipalTypeUser,
+		Role: model.RoleKeyVaultPurgeOperator, VaultID: uuid.New(), CreatedBy: uuid.New(),
+		CallerIsGlobalAdmin: false,
+	})
+	require.ErrorIs(t, err, ErrRoleNotGrantable)
+}
+
+func TestAssignRole_NonAdminCannotGrantCertificateUser(t *testing.T) {
+	rr, pr := newFakeRoleRepo(), newFakePolicyRepo()
+	ul := &fakeUserLookup{users: map[string]model.User{"alice": {ID: uuid.New(), Username: "alice"}}}
+	svc := newSvc(rr, pr, ul)
+
+	_, err := svc.AssignRole(context.Background(), AssignRoleInput{
+		Principal: "alice", PrincipalType: model.PrincipalTypeUser,
+		Role: model.RoleKeyVaultCertificateUser, VaultID: uuid.New(), CreatedBy: uuid.New(),
+		CallerIsGlobalAdmin: false,
+	})
+	require.ErrorIs(t, err, ErrRoleNotGrantable)
+}
+
+func TestAssignRole_NonAdminCanGrantOrdinaryRole(t *testing.T) {
+	rr, pr := newFakeRoleRepo(), newFakePolicyRepo()
+	ul := &fakeUserLookup{users: map[string]model.User{"alice": {ID: uuid.New(), Username: "alice"}}}
+	svc := newSvc(rr, pr, ul)
+
+	_, err := svc.AssignRole(context.Background(), AssignRoleInput{
+		Principal: "alice", PrincipalType: model.PrincipalTypeUser,
+		Role: model.RoleKeyVaultSecretsOfficer, VaultID: uuid.New(), CreatedBy: uuid.New(),
+		CallerIsGlobalAdmin: false,
+	})
+	require.NoError(t, err)
+}
+
+func TestAssignRole_GlobalAdminCanGrantAnyRole(t *testing.T) {
+	rr, pr := newFakeRoleRepo(), newFakePolicyRepo()
+	ul := &fakeUserLookup{users: map[string]model.User{"alice": {ID: uuid.New(), Username: "alice"}}}
+	svc := newSvc(rr, pr, ul)
+
+	_, err := svc.AssignRole(context.Background(), AssignRoleInput{
+		Principal: "alice", PrincipalType: model.PrincipalTypeUser,
+		Role: model.RoleKeyVaultDataAccessAdministrator, VaultID: uuid.New(), CreatedBy: uuid.New(),
+		CallerIsGlobalAdmin: true,
+	})
+	require.NoError(t, err)
+}
+
 func TestAssignRole_RejectsReleaseUser(t *testing.T) {
 	rr := newFakeRoleRepo()
 	pr := newFakePolicyRepo()

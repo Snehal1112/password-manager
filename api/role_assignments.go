@@ -7,6 +7,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"rocketvault/common"
 	authzServices "rocketvault/internal/services/authorization"
 	"rocketvault/model"
 )
@@ -71,6 +72,7 @@ func createRoleAssignment(c *Context, w http.ResponseWriter, r *http.Request) {
 		c.SetPermissionError("admin, vaults/manage, or Key Vault Data Access Administrator required")
 		return
 	}
+	isGlobalAdmin := common.HasRequiredRole(role, string(model.RoleAdmin))
 
 	req, err := model.AssignRoleRequestFromJson(r.Body)
 	if err != nil {
@@ -88,11 +90,12 @@ func createRoleAssignment(c *Context, w http.ResponseWriter, r *http.Request) {
 
 	svc := c.App.ServiceContainer.GetRoleAssignmentService()
 	ra, err := svc.AssignRole(r.Context(), authzServices.AssignRoleInput{
-		Principal:     req.Principal,
-		PrincipalType: pType,
-		Role:          req.Role,
-		VaultID:       vaultID,
-		CreatedBy:     callerID,
+		Principal:           req.Principal,
+		PrincipalType:       pType,
+		Role:                req.Role,
+		VaultID:             vaultID,
+		CreatedBy:           callerID,
+		CallerIsGlobalAdmin: isGlobalAdmin,
 	})
 	if err != nil {
 		switch {

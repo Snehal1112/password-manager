@@ -16,7 +16,29 @@ var (
 	ErrInvalidRole        = errors.New("invalid role")
 	ErrPrincipalNotFound  = errors.New("principal not found")
 	ErrAssignmentNotFound = errors.New("role assignment not found")
+	// ErrRoleNotGrantable is returned when a non-global-admin caller attempts
+	// to grant a role outside the allow-list a Key Vault Data Access
+	// Administrator may assign — mirroring Azure's ABAC restriction that bars
+	// Data Access Administrator from granting itself, Purge Operator, or
+	// Certificate User.
+	ErrRoleNotGrantable = errors.New("role cannot be granted by a non-admin caller")
 )
+
+// nonAdminGrantableRoles is the allow-list of roles a non-global-admin caller
+// (i.e. one whose authority to manage role assignments comes from holding
+// Key Vault Data Access Administrator, not the admin bypass) may grant or
+// revoke. It deliberately excludes RoleKeyVaultDataAccessAdministrator itself,
+// RoleKeyVaultPurgeOperator, and RoleKeyVaultCertificateUser.
+var nonAdminGrantableRoles = map[string]bool{
+	model.RoleKeyVaultAdministrator:               true,
+	model.RoleKeyVaultReader:                      true,
+	model.RoleKeyVaultSecretsUser:                 true,
+	model.RoleKeyVaultSecretsOfficer:              true,
+	model.RoleKeyVaultCryptoUser:                  true,
+	model.RoleKeyVaultCryptoOfficer:               true,
+	model.RoleKeyVaultCertificatesOfficer:         true,
+	model.RoleKeyVaultCryptoServiceEncryptionUser: true,
+}
 
 // roleAssignmentRepo is the subset of the role-assignment repository the service needs.
 type roleAssignmentRepo interface {
@@ -46,6 +68,13 @@ type AssignRoleInput struct {
 	Role          string
 	VaultID       uuid.UUID
 	CreatedBy     uuid.UUID
+	// CallerIsGlobalAdmin is true when the caller's authority to manage role
+	// assignments comes from the global admin role, not from holding Key
+	// Vault Data Access Administrator in this vault. Set by the caller (HTTP
+	// handler or CLI command) from the same check CanManageRoleAssignments
+	// already performs, since AssignRole itself has no access to the
+	// account-role/session context.
+	CallerIsGlobalAdmin bool
 }
 
 // RoleAssignmentService grants, revokes, and lists vault-scoped role assignments.
@@ -84,6 +113,9 @@ func (s *roleAssignmentService) AssignRole(ctx context.Context, in AssignRoleInp
 		// silently confer zero data-plane access.
 		return nil, fmt.Errorf("%w: %q is a legacy role name and grants no data-plane access; use one of the Azure built-in roles instead: %s",
 			ErrInvalidRole, in.Role, strings.Join(model.AzureRoleNames(), ", "))
+	}
+	if !in.CallerIsGlobalAdmin && !nonAdminGrantableRoles[in.Role] {
+		return nil, fmt.Errorf("%w: %q may only be granted by a global admin", ErrRoleNotGrantable, in.Role)
 	}
 	pType := in.PrincipalType
 	if pType == "" {

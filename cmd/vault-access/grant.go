@@ -48,12 +48,18 @@ func InitVaultAccessGrant(parent *cobra.Command) {
 			if err := requireCanManageRoleAssignments(ctx, sc, vaultID, true); err != nil {
 				return err
 			}
+			callerRole, _, err := callerIdentity(ctx)
+			if err != nil {
+				return err
+			}
+			isGlobalAdmin := common.HasRequiredRole(callerRole, string(model.RoleAdmin))
 			ra, err := sc.GetRoleAssignmentService().AssignRole(ctx, authz.AssignRoleInput{
-				Principal:     principal,
-				PrincipalType: model.PrincipalType(ptype),
-				Role:          role,
-				VaultID:       vaultID,
-				CreatedBy:     callerID,
+				Principal:           principal,
+				PrincipalType:       model.PrincipalType(ptype),
+				Role:                role,
+				VaultID:             vaultID,
+				CreatedBy:           callerID,
+				CallerIsGlobalAdmin: isGlobalAdmin,
 			})
 			if err != nil {
 				return fmt.Errorf("grant failed: %w", err)
