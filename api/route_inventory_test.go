@@ -1,6 +1,7 @@
 package api
 
 import (
+	"flag"
 	"os"
 	"sort"
 	"testing"
@@ -11,13 +12,22 @@ import (
 	"rocketvault/app"
 )
 
+// updateInventory rewrites docs/api-routes.generated.txt with the current
+// route walk instead of comparing against it. Off by default so a plain
+// `go test ./...` can never silently dirty a tracked file -- pass the flag
+// explicitly when routes have genuinely changed:
+//
+//	go test ./api/... -run TestGenerateRouteInventory -update-route-inventory
+var updateInventory = flag.Bool("update-route-inventory", false, "rewrite docs/api-routes.generated.txt instead of comparing against it")
+
 // TestGenerateRouteInventory walks the real router -- the same construction
-// api.Init uses in production -- and writes every registered method+path
-// pair to docs/api-routes.generated.txt, sorted for a stable diff. Run this
-// whenever routes change, to regenerate the ground truth Task 3's OpenAPI
+// api.Init uses in production -- and compares every registered method+path
+// pair, sorted for a stable diff, against the golden file
+// docs/api-routes.generated.txt. Run with -update-route-inventory whenever
+// routes genuinely change, to regenerate the ground truth Task 3's OpenAPI
 // rewrite (and Task 4's drift-check test) are built against:
 //
-//	go test ./api/... -run TestGenerateRouteInventory -v
+//	go test ./api/... -run TestGenerateRouteInventory -update-route-inventory
 func TestGenerateRouteInventory(t *testing.T) {
 	container := &routerWalkContainer{policyContainer: &policyContainer{}, logger: userTestLog()}
 	a := &app.App{ServiceContainer: container, Logger: userTestLog()}
@@ -28,6 +38,7 @@ func TestGenerateRouteInventory(t *testing.T) {
 		WithRouter(router),
 		WithBasePath("/api/v1"),
 		WithLogger(userTestLog()),
+		WithMetricsEnabled(true),
 	)
 	require.NotNil(t, built)
 
@@ -46,5 +57,14 @@ func TestGenerateRouteInventory(t *testing.T) {
 	for _, r := range routes {
 		out += r.Method + "\t" + r.Path + "\n"
 	}
-	require.NoError(t, os.WriteFile("../docs/api-routes.generated.txt", []byte(out), 0o644))
+
+	const path = "../docs/api-routes.generated.txt"
+	if *updateInventory {
+		require.NoError(t, os.WriteFile(path, []byte(out), 0o644))
+		return
+	}
+
+	want, err := os.ReadFile(path)
+	require.NoError(t, err)
+	require.Equal(t, string(want), out, "route inventory is stale; re-run with -update-route-inventory")
 }

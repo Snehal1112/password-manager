@@ -140,3 +140,4 @@ GET	/api/v1/vaults/{vault_name:[a-z0-9-]+}/secrets/{secret_id:[A-Fa-f0-9-]+}/ver
 GET	/api/v1/vaults/{vault_name:[a-z0-9-]+}/secrets/{secret_id:[A-Fa-f0-9-]+}/versions/latest
 GET	/api/v1/vaults/{vault_name:[a-z0-9-]+}/secrets/{secret_id:[A-Fa-f0-9-]+}/versions/{version:[0-9]+}
 GET	/jwks.json
+GET	/metrics
