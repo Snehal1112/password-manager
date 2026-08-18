@@ -368,6 +368,37 @@ func TestSecretRepository_PurgeVaultContents_RemovesAllRows(t *testing.T) {
 	require.Equal(t, "untouched", untouched[0].Name)
 }
 
+func TestSecretRepository_HasProtectedContent(t *testing.T) {
+	t.Parallel()
+	db := setupSecretTestDB(t)
+	repo := repositories.NewSecretRepository(rvdb.NewConn(db, rvdb.SQLite), newTestSecretLogger(t)).(*repositories.SecretRepository)
+	ctx := context.Background()
+	vaultA := uuid.New()
+	vaultB := uuid.New()
+
+	mk := func(vaultID uuid.UUID, name string) *model.Secret {
+		return &model.Secret{ID: uuid.New(), UserID: uuid.New(), VaultID: vaultID, Name: name, Value: "x", Version: 1, CreatedAt: time.Now(), Enabled: true}
+	}
+	unprotected := mk(vaultA, "unprotected")
+	require.NoError(t, repo.Create(ctx, unprotected))
+	other := mk(vaultB, "other-vault")
+	require.NoError(t, repo.Create(ctx, other))
+
+	protected, err := repo.HasProtectedContent(ctx, vaultA)
+	require.NoError(t, err)
+	require.False(t, protected, "no secret in the vault has purge_protection set yet")
+
+	require.NoError(t, repo.SetPurgeProtection(ctx, unprotected.ID, true))
+
+	protected, err = repo.HasProtectedContent(ctx, vaultA)
+	require.NoError(t, err)
+	require.True(t, protected, "a protected secret exists in the vault")
+
+	protected, err = repo.HasProtectedContent(ctx, vaultB)
+	require.NoError(t, err)
+	require.False(t, protected, "vault B has no protected content of its own")
+}
+
 // TestSoftDelete_PreservesPurgeProtection verifies that SoftDelete does not
 // overwrite a pre-existing purge_protection = TRUE on a secret.
 func TestSoftDelete_PreservesPurgeProtection(t *testing.T) {

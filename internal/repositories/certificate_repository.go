@@ -842,3 +842,20 @@ func (r *CertificateRepository) PurgeVaultContents(ctx context.Context, vaultID 
 		return nil
 	})
 }
+
+// HasProtectedContent reports whether any certificate in the vault, active
+// or soft-deleted, has purge_protection enabled. Consumed by the vault
+// service's cascade purge-protection check (see vaults.CascadeRepository) so
+// purging a vault can't bypass an individual certificate's own protection.
+func (r *CertificateRepository) HasProtectedContent(ctx context.Context, vaultID uuid.UUID) (bool, error) {
+	var exists bool
+	err := r.executeWithMetrics("has_protected_content_certificates", func() error {
+		return r.db.QueryRowContext(ctx,
+			"SELECT EXISTS(SELECT 1 FROM certificates WHERE vault_id = ? AND purge_protection = TRUE)",
+			vaultID.String()).Scan(&exists)
+	})
+	if err != nil {
+		return false, fmt.Errorf("failed to check certificate purge protection: %w", err)
+	}
+	return exists, nil
+}

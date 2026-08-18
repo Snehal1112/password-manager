@@ -144,7 +144,7 @@ func nowForVaultTest() time.Time { return time.Unix(1700000000, 0) }
 
 // --- noop cascade for tests ---
 
-type vaultNoopCascade struct{}
+type vaultNoopCascade struct{ protected bool }
 
 func (vaultNoopCascade) SoftDeleteVaultContents(context.Context, uuid.UUID, time.Time) error {
 	return nil
@@ -157,6 +157,9 @@ func (vaultNoopCascade) RecoverVaultContentsTx(context.Context, db.DBTX, uuid.UU
 	return nil
 }
 func (vaultNoopCascade) PurgeVaultContents(context.Context, uuid.UUID) error { return nil }
+func (v vaultNoopCascade) HasProtectedContent(context.Context, uuid.UUID) (bool, error) {
+	return v.protected, nil
+}
 
 // --- vaultSvcTestContainer ---
 
@@ -346,6 +349,30 @@ const vaultTestUserID = "a1b2c3d4-e5f6-7890-abcd-ef1234567890"
 func newVaultTestAPI() (*API, *vaultFakeRepo) {
 	repo := newVaultFakeRepo()
 	svc := vaultServices.NewVaultService(repo, vaultNoopCascade{}, nil)
+	a := &app.App{ServiceContainer: &vaultSvcTestContainer{vaultSvc: svc, policySvc: &mockAccessPolicyService{}}}
+	a.Logger = userTestLog()
+
+	router := mux.NewRouter()
+	api := &API{
+		App:        a,
+		BaseRoutes: &Routes{},
+		basePath:   "/api/v1",
+		rootRouter: router,
+		Logger:     userTestLog(),
+	}
+	api.BaseRoutes.ApiRoot = router.PathPrefix("/api/v1").Subrouter()
+	api.BaseRoutes.Vaults = api.BaseRoutes.ApiRoot.PathPrefix("/vaults").Subrouter()
+	api.BaseRoutes.VaultScoped = api.BaseRoutes.Vaults.PathPrefix("/{vault_name:[a-z0-9-]+}").Subrouter()
+	api.InitVault()
+	return api, repo
+}
+
+// newVaultTestAPIWithProtectedContent is newVaultTestAPI with a cascade that
+// reports the vault as containing purge-protected content, for testing that
+// PurgeVault refuses to bypass an item's own protection (B22).
+func newVaultTestAPIWithProtectedContent() (*API, *vaultFakeRepo) {
+	repo := newVaultFakeRepo()
+	svc := vaultServices.NewVaultService(repo, vaultNoopCascade{protected: true}, nil)
 	a := &app.App{ServiceContainer: &vaultSvcTestContainer{vaultSvc: svc, policySvc: &mockAccessPolicyService{}}}
 	a.Logger = userTestLog()
 
@@ -583,6 +610,24 @@ func TestPurgeVault_RefusesPurgeProtected(t *testing.T) {
 
 	w := doVaultRequest(api, http.MethodDelete, "/api/v1/vaults/stg/purge", nil)
 	assert.Equal(t, http.StatusBadRequest, w.Code)
+}
+
+// TestPurgeVault_RefusesWhenContentsProtected confirms a vault purge is
+// refused with 400 when a contained secret/key/certificate has its own
+// purge_protection flag set, even though the vault itself is unprotected
+// (B22 -- previously the cascade purge bypassed item-level protection).
+func TestPurgeVault_RefusesWhenContentsProtected(t *testing.T) {
+	api, repo := newVaultTestAPIWithProtectedContent()
+	id := uuid.New()
+	deletedAt := nowForVaultTest()
+	repo.byName["stg"] = &model.Vault{ID: id, Name: "stg", Enabled: true, PurgeProtection: false, DeletedAt: &deletedAt}
+	repo.byID[id.String()] = repo.byName["stg"]
+
+	w := doVaultRequest(api, http.MethodDelete, "/api/v1/vaults/stg/purge", nil)
+	assert.Equal(t, http.StatusBadRequest, w.Code)
+	if _, ok := repo.byID[id.String()]; !ok {
+		t.Fatal("expected the vault itself to remain unpurged")
+	}
 }
 
 // TestPurgeVault_NotFound confirms a missing vault returns 404.

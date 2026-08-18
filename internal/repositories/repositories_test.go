@@ -459,6 +459,37 @@ func TestKeyRepository_PurgeVaultContents_RemovesAllRows(t *testing.T) {
 	require.NoError(t, err, "a key in a different vault must be untouched")
 }
 
+func TestKeyRepository_HasProtectedContent(t *testing.T) {
+	t.Parallel()
+	db := setupFullKeyDB(t)
+	log := logging.InitLogger()
+	repo := repositories.NewKeyRepository(rvdb.NewConn(db, rvdb.SQLite), log).(*repositories.KeyRepository)
+	ctx := context.Background()
+
+	vaultA := uuid.New()
+	vaultB := uuid.New()
+	userID := uuid.New()
+
+	unprotected := newKey(userID, vaultA, "unprotected-key")
+	require.NoError(t, repo.Create(ctx, unprotected))
+	other := newKey(userID, vaultB, "other-vault-key")
+	require.NoError(t, repo.Create(ctx, other))
+
+	protected, err := repo.HasProtectedContent(ctx, vaultA)
+	require.NoError(t, err)
+	assert.False(t, protected, "no key in the vault has purge_protection set yet")
+
+	require.NoError(t, repo.SetPurgeProtection(ctx, unprotected.ID, true))
+
+	protected, err = repo.HasProtectedContent(ctx, vaultA)
+	require.NoError(t, err)
+	assert.True(t, protected, "a protected key exists in the vault")
+
+	protected, err = repo.HasProtectedContent(ctx, vaultB)
+	require.NoError(t, err)
+	assert.False(t, protected, "vault B has no protected content of its own")
+}
+
 func TestKeyRepository_RecoverVaultContents(t *testing.T) {
 	t.Parallel()
 	db := setupFullKeyDB(t)
@@ -777,6 +808,37 @@ func TestCertificateRepository_PurgeVaultContents_RemovesAllRows(t *testing.T) {
 
 	_, err = repo.Read(ctx, other.ID, model.NewAdminScope(uuid.Nil))
 	require.NoError(t, err, "a certificate in a different vault must be untouched")
+}
+
+func TestCertificateRepository_HasProtectedContent(t *testing.T) {
+	t.Parallel()
+	db := setupFullCertDB(t)
+	log := logging.InitLogger()
+	repo := repositories.NewCertificateRepository(rvdb.NewConn(db, rvdb.SQLite), log).(*repositories.CertificateRepository)
+	ctx := context.Background()
+
+	vaultA := uuid.New()
+	vaultB := uuid.New()
+	userID := uuid.New()
+
+	unprotected := newCert(userID, vaultA, "unprotected-cert")
+	require.NoError(t, repo.Create(ctx, unprotected))
+	other := newCert(userID, vaultB, "other-vault-cert")
+	require.NoError(t, repo.Create(ctx, other))
+
+	protected, err := repo.HasProtectedContent(ctx, vaultA)
+	require.NoError(t, err)
+	assert.False(t, protected, "no certificate in the vault has purge_protection set yet")
+
+	require.NoError(t, repo.SetPurgeProtection(ctx, unprotected.ID, true))
+
+	protected, err = repo.HasProtectedContent(ctx, vaultA)
+	require.NoError(t, err)
+	assert.True(t, protected, "a protected certificate exists in the vault")
+
+	protected, err = repo.HasProtectedContent(ctx, vaultB)
+	require.NoError(t, err)
+	assert.False(t, protected, "vault B has no protected content of its own")
 }
 
 func TestCertificateRepository_RecoverVaultContents(t *testing.T) {

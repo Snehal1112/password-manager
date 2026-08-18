@@ -824,3 +824,20 @@ func (r *KeyRepository) PurgeVaultContents(ctx context.Context, vaultID uuid.UUI
 		return nil
 	})
 }
+
+// HasProtectedContent reports whether any key in the vault, active or
+// soft-deleted, has purge_protection enabled. Consumed by the vault service's
+// cascade purge-protection check (see vaults.CascadeRepository) so purging a
+// vault can't bypass an individual key's own protection.
+func (r *KeyRepository) HasProtectedContent(ctx context.Context, vaultID uuid.UUID) (bool, error) {
+	var exists bool
+	err := r.executeWithMetrics("has_protected_content_keys", func() error {
+		return r.db.QueryRowContext(ctx,
+			"SELECT EXISTS(SELECT 1 FROM keys WHERE vault_id = ? AND purge_protection = TRUE)",
+			vaultID.String()).Scan(&exists)
+	})
+	if err != nil {
+		return false, fmt.Errorf("failed to check key purge protection: %w", err)
+	}
+	return exists, nil
+}

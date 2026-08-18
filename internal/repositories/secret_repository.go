@@ -630,3 +630,18 @@ func (r *SecretRepository) PurgeVaultContents(ctx context.Context, vaultID uuid.
 	r.log.LogAuditInfo(vaultID.String(), "purge_vault_secrets", "success", "Vault secrets purged successfully")
 	return nil
 }
+
+// HasProtectedContent reports whether any secret in the vault, active or
+// soft-deleted, has purge_protection enabled. Consumed by the vault service's
+// cascade purge-protection check (see vaults.CascadeRepository) so purging a
+// vault can't bypass an individual secret's own protection.
+func (r *SecretRepository) HasProtectedContent(ctx context.Context, vaultID uuid.UUID) (bool, error) {
+	var exists bool
+	err := r.db.QueryRowContext(ctx,
+		"SELECT EXISTS(SELECT 1 FROM secrets WHERE vault_id = ? AND purge_protection = TRUE)",
+		vaultID.String()).Scan(&exists)
+	if err != nil {
+		return false, fmt.Errorf("failed to check secret purge protection: %w", err)
+	}
+	return exists, nil
+}

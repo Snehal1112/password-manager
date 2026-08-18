@@ -43,6 +43,16 @@ type purgeCapableContentRepo interface {
 	PurgeVaultContents(ctx context.Context, vaultID uuid.UUID) error
 }
 
+// protectionCheckableContentRepo is implemented by a vaultContentRepo's
+// concrete type when it can report whether any row it holds for a vault has
+// purge protection enabled. Kept as its own interface for the same reason
+// purgeCapableContentRepo is: HasProtectedContent lives only on the concrete
+// Secret/Key/CertificateRepository structs, not on their exported
+// *RepositoryInterface types.
+type protectionCheckableContentRepo interface {
+	HasProtectedContent(ctx context.Context, vaultID uuid.UUID) (bool, error)
+}
+
 // cascadeAdapter fans cascade operations out to the secret, key, and cert repos.
 type cascadeAdapter struct {
 	repos []vaultContentRepo
@@ -108,4 +118,21 @@ func (a *cascadeAdapter) PurgeVaultContents(ctx context.Context, vaultID uuid.UU
 		}
 	}
 	return nil
+}
+
+func (a *cascadeAdapter) HasProtectedContent(ctx context.Context, vaultID uuid.UUID) (bool, error) {
+	for _, r := range a.repos {
+		checker, ok := r.(protectionCheckableContentRepo)
+		if !ok {
+			return false, fmt.Errorf("repository %T does not support purge-protection checks", r)
+		}
+		protected, err := checker.HasProtectedContent(ctx, vaultID)
+		if err != nil {
+			return false, err
+		}
+		if protected {
+			return true, nil
+		}
+	}
+	return false, nil
 }

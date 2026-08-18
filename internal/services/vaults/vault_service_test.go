@@ -106,7 +106,11 @@ func (f *fakeVaultRepo) Purge(_ context.Context, id uuid.UUID) error {
 	return nil
 }
 
-type noopCascade struct{ soft, recover, purge int }
+type noopCascade struct {
+	soft, recover, purge int
+	protected             bool
+	protectedErr          error
+}
 
 func (n *noopCascade) SoftDeleteVaultContents(context.Context, uuid.UUID, time.Time) error {
 	n.soft++
@@ -127,6 +131,9 @@ func (n *noopCascade) RecoverVaultContentsTx(context.Context, db.DBTX, uuid.UUID
 func (n *noopCascade) PurgeVaultContents(context.Context, uuid.UUID) error {
 	n.purge++
 	return nil
+}
+func (n *noopCascade) HasProtectedContent(context.Context, uuid.UUID) (bool, error) {
+	return n.protected, n.protectedErr
 }
 
 func TestCreateVault_RejectsInvalidName(t *testing.T) {

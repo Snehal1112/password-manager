@@ -312,7 +312,7 @@ func purgeVault(c *Context, w http.ResponseWriter, r *http.Request) {
 		switch {
 		case errors.Is(err, vaultServices.ErrVaultNotFound):
 			c.SetNotFound("vault")
-		case errors.Is(err, vaultServices.ErrDefaultVaultProtected), errors.Is(err, vaultServices.ErrVaultPurgeProtected):
+		case errors.Is(err, vaultServices.ErrDefaultVaultProtected), errors.Is(err, vaultServices.ErrVaultPurgeProtected), errors.Is(err, vaultServices.ErrVaultContentsPurgeProtected):
 			c.SetInvalidParam(err.Error())
 		default:
 			c.SetInternalError(err)

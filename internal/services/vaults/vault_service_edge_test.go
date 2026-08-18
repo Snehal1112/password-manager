@@ -244,6 +244,57 @@ func TestPurgeVault_CascadePurgeError(t *testing.T) {
 	}
 }
 
+// TestPurgeVault_RefusesWhenContentsProtected proves a vault purge is
+// refused when a contained secret/key/certificate has its own
+// purge_protection flag set, even though the vault itself is unprotected --
+// closing B22, where the cascade purge previously bypassed item-level
+// protection entirely.
+func TestPurgeVault_RefusesWhenContentsProtected(t *testing.T) {
+	inner := newFakeRepo()
+	id := uuid.New()
+	now := nowForTest()
+	inner.byName["d"] = &model.Vault{ID: id, Name: "d", PurgeProtection: false, DeletedAt: &now}
+	inner.byID[id.String()] = inner.byName["d"]
+
+	cascade := &noopCascade{protected: true}
+	svc := NewVaultService(inner, cascade, nil)
+
+	err := svc.PurgeVault(context.Background(), "d")
+	if !errors.Is(err, ErrVaultContentsPurgeProtected) {
+		t.Fatalf("expected ErrVaultContentsPurgeProtected, got %v", err)
+	}
+	if cascade.purge != 0 {
+		t.Fatalf("expected PurgeVaultContents not to be called, got %d calls", cascade.purge)
+	}
+	if _, ok := inner.byID[id.String()]; !ok {
+		t.Fatal("expected the vault itself to remain unpurged")
+	}
+}
+
+// TestPurgeVault_ContentsProtectionCheckError_FailsClosed proves that if the
+// purge-protection check itself errors, PurgeVault refuses rather than
+// risking a bypass of an item's protection because its status couldn't be
+// read.
+func TestPurgeVault_ContentsProtectionCheckError_FailsClosed(t *testing.T) {
+	inner := newFakeRepo()
+	id := uuid.New()
+	now := nowForTest()
+	inner.byName["d"] = &model.Vault{ID: id, Name: "d", PurgeProtection: false, DeletedAt: &now}
+	inner.byID[id.String()] = inner.byName["d"]
+
+	boom := errors.New("db unavailable")
+	cascade := &noopCascade{protectedErr: boom}
+	svc := NewVaultService(inner, cascade, nil)
+
+	err := svc.PurgeVault(context.Background(), "d")
+	if !errors.Is(err, boom) {
+		t.Fatalf("expected the check error to propagate, got %v", err)
+	}
+	if cascade.purge != 0 {
+		t.Fatalf("expected PurgeVaultContents not to be called, got %d calls", cascade.purge)
+	}
+}
+
 // -- ListVaults error branches -----------------------------------------------
 
 func TestListVaults_ListError(t *testing.T) {
@@ -302,4 +353,7 @@ func (f *failingCascade) RecoverVaultContentsTx(context.Context, db.DBTX, uuid.U
 }
 func (f *failingCascade) PurgeVaultContents(context.Context, uuid.UUID) error {
 	return f.err
+}
+func (f *failingCascade) HasProtectedContent(context.Context, uuid.UUID) (bool, error) {
+	return false, f.err
 }

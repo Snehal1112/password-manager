@@ -30,6 +30,14 @@ var ErrDefaultVaultProtected = errors.New("default vault is protected from this 
 // the vault has purge protection enabled.
 var ErrVaultPurgeProtected = errors.New("vault is protected from purge")
 
+// ErrVaultContentsPurgeProtected is returned when PurgeVault refuses to act
+// because a secret, key, or certificate inside the vault has its own
+// purge_protection flag enabled. Without this check, purging the vault would
+// bypass that item's protection entirely -- the same guarantee the item's own
+// manual purge path already enforces (see internal/repositories's
+// Err{Secret,Key,Cert}PurgeProtected).
+var ErrVaultContentsPurgeProtected = errors.New("vault contains items protected from purge")
+
 // CascadeRepository soft-deletes, recovers, or purges all resources belonging to a vault.
 type CascadeRepository interface {
 	SoftDeleteVaultContents(ctx context.Context, vaultID uuid.UUID, deletedAt time.Time) error
@@ -44,6 +52,10 @@ type CascadeRepository interface {
 	// call PurgeVault would strand their rows permanently, unreachable but
 	// never removed.
 	PurgeVaultContents(ctx context.Context, vaultID uuid.UUID) error
+	// HasProtectedContent reports whether any secret, key, or certificate in
+	// the vault (active or soft-deleted) has purge_protection enabled.
+	// PurgeVault refuses to proceed when this is true.
+	HasProtectedContent(ctx context.Context, vaultID uuid.UUID) (bool, error)
 }
 
 // PolicyCleaner removes access policies scoped to a vault (used on purge).
@@ -433,6 +445,16 @@ func (s *vaultService) PurgeVault(ctx context.Context, name string) error {
 	}
 	if v.PurgeProtection {
 		return fmt.Errorf("vault %q is protected from purge: %w", name, ErrVaultPurgeProtected)
+	}
+	// Fail closed: if the check itself errors, refuse the purge rather than
+	// risk bypassing an item's own protection because its status couldn't be
+	// read (same posture as the vault-level PurgeProtection read).
+	protected, err := s.cascade.HasProtectedContent(ctx, v.ID)
+	if err != nil {
+		return fmt.Errorf("check vault %q contents for purge protection: %w", name, err)
+	}
+	if protected {
+		return fmt.Errorf("vault %q contains items protected from purge: %w", name, ErrVaultContentsPurgeProtected)
 	}
 	if err := s.repo.Purge(ctx, v.ID); err != nil {
 		return err
