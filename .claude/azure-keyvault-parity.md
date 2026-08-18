@@ -177,6 +177,19 @@ no live authorization weight and is out of scope for parity comparison against A
 | Purge protection (block early purge) | ✅ | ✅ `purge_protection` (per-key + per-vault) | ✅ |
 | Configurable retention window | ✅ (7–90 days) | ✅ `retention_days` + purge scheduler | ✅ |
 
+*Corrected 2026-08-18: the 2026-08-18 Azure Key Vault parity audit (Critical
+Finding #2, `docs/plans/2026-08-18-azure-keyvault-parity-audit.md`) found the
+per-key half of this row was aspirational — the `purge_protection` DB column,
+each repository's `SetPurgeProtection` method, and the enforcement check in
+`PurgeSecret`/`PurgeKey`/`PurgeCertificate` all existed, but no API field,
+service method, or CLI flag ever set the flag, and vault-level purge
+protection didn't cascade to protect contained items. Fixed the same day: a
+`--purge-protection` CLI flag and `purge_protection` API field on
+create/update for all three resource types, plus a vault-level cascade check
+in each `Purge*` service method — see `.claude/known-bugs.md` § B20 for the
+full root cause and fix. The row's claim is now actually true, not
+aspirational.*
+
 ## 8. HSM & cryptographic protection
 
 | Capability | Azure Key Vault | RocketVault | Status |

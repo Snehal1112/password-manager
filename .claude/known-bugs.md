@@ -600,6 +600,328 @@ was never invoked.
 
 ---
 
+### B14 — CLI `vaults get`/`vaults list` performed zero authorization checks
+
+**Status**: Fixed in commit `93339d1`
+**Severity**: High — any authenticated CLI user, including a plain `user` role
+with no vault grants, could enumerate every vault's metadata instance-wide
+**File**: `cmd/vaults/authz.go`, `cmd/vaults/get.go`, `cmd/vaults/list.go`
+
+**Root cause**: Same bug class as B11/B13 — `cmd/vaults/get.go` and
+`cmd/vaults/list.go` bypass the HTTP middleware chain entirely and never
+reproduced the `CanManageVault` check their HTTP equivalents (`api/vault.go`'s
+`getVault`/`listVaults`) both require.
+
+**What was fixed**: Added `requireCanListVaults` (`cmd/vaults/authz.go`,
+checked against `uuid.Nil` since list has no single target vault, mirroring
+`listVaults`) and wired the pre-existing `requireCanManageVault` into
+`get.go`. `TestVaultsGet_ForbiddenWithoutGrant`/
+`TestVaultsList_ForbiddenWithoutGlobalGrant` (`cmd/vaults/vaults_more_test.go`)
+pin the fix.
+
+**Spec/plan**: `docs/plans/2026-08-18-azure-keyvault-parity-audit.md` (Critical
+Finding #1/F2), `docs/superpowers/plans/2026-08-18-security-short-term-fixes.md`
+(Task 1).
+
+---
+
+### B15 — `RestoreSecret`/`RestoreKey`/`RestoreCertificate` wrote the blob's embedded vault, not the caller's authorized vault
+
+**Status**: Fixed in commit `c5bf97d`
+**Severity**: High — a caller with restore permission in one vault could
+silently write a restored secret/key/certificate into any vault the backup
+blob happened to reference
+**File**: `internal/backup/item_backup.go`, `api/backup_item.go`
+
+**Root cause**: `ItemBackupService.RestoreSecret`/`RestoreKey`/
+`RestoreCertificate` decoded the backup blob and persisted the item using the
+`vault_id` embedded inside that blob, instead of the vault the HTTP request
+was actually authorized against. The audit only named the `RestoreSecret`
+instance, but `RestoreKey`/`RestoreCertificate` shared the identical bug.
+
+**What was fixed**: All three methods gained a `vaultID` parameter — the
+vault resolved from the authorized request (`vaultIDFromRequest`) — and now
+write that value onto the restored item's `VaultID`, never the blob's.
+`TestRestoreSecretWritesAuthorizedVaultNotBlobVault`
+(`internal/backup/item_backup_test.go`) and the HTTP-level regression test in
+`api/backup_item_test.go` pin the fix.
+
+**Spec/plan**: `docs/plans/2026-08-18-azure-keyvault-parity-audit.md`
+(Secrets findings, High), `docs/superpowers/plans/2026-08-18-security-short-term-fixes.md`
+(Task 2).
+
+---
+
+### B16 — Role-assignment grant/revoke never audit-logged the success path
+
+**Status**: Fixed in commit `62c4b7b`
+**Severity**: High — the single most security-sensitive action in the RBAC
+system (granting/revoking a per-vault Azure role) left no forensic trail;
+`RevokeAssignment` had zero audit calls on any path
+**File**: `internal/services/authorization/role_assignment_service.go`
+
+**Root cause**: `RoleAssignmentService.AssignRole` only logged on failure
+paths; `RevokeAssignment` didn't call `LogAuditInfo`/`LogAuditError` at all.
+A malicious admin who self-granted excess privilege then revoked it was
+invisible to `GET /audit/logs`.
+
+**What was fixed**: Added `s.log.LogAuditInfo(...)` success-path calls to
+both methods (`"assign_role"`/`"revoke_role_assignment"`, matching the
+existing sentinel-error/`LogAuditInfo` convention).
+`TestAssignRole_LogsSuccessAudit`/`TestRevokeAssignment_LogsSuccessAudit`
+(`internal/services/authorization/role_assignment_service_test.go`) pin the
+fix.
+
+**Spec/plan**: `docs/plans/2026-08-18-azure-keyvault-parity-audit.md`
+(Critical Finding #6), `docs/superpowers/plans/2026-08-18-security-short-term-fixes.md`
+(Task 3).
+
+---
+
+### B17 — Recover/purge success was never audit-logged for secrets, keys, or certificates
+
+**Status**: Fixed in commit `51d8bae`
+**Severity**: High — an irreversible purge of vault material produced zero
+audit record of who did it or when; vaults were the only domain that logged
+this correctly
+**File**: `internal/services/secrets/secret_service.go`,
+`internal/services/keys/key_service.go`,
+`internal/services/certificates/certificate_service.go`
+
+**Root cause**: `RecoverSecret`/`PurgeSecret`/`RecoverKey`/`PurgeKey`/
+`RecoverCertificate`/`PurgeCertificate` only logged the "not found" guard
+failure, never a success-path audit row, unlike `vault_service.go`'s
+`DeleteVault`/`RecoverVault`/`PurgeVault`.
+
+**What was fixed**: Added `s.logger.LogAuditInfo(scope.ActorID().String(),
+"<recover|purge>_<secret|key|certificate>", "success", ...)` to all six
+methods' success paths, matching the existing `vault_service.go` pattern.
+Six new tests (`*_LogsSuccessAudit`) across
+`internal/services/secrets/secret_scope_service_test.go`,
+`internal/services/keys/key_soft_delete_test.go`, and
+`internal/services/certificates/cert_soft_delete_test.go` pin the fix.
+
+**Spec/plan**: `docs/plans/2026-08-18-azure-keyvault-parity-audit.md`
+(Critical Finding #7), `docs/superpowers/plans/2026-08-18-security-short-term-fixes.md`
+(Task 4).
+
+---
+
+### B18 — SOC2 report's `AuthSuccesses`/`AuthFailures` counters were silently wrong in production
+
+**Status**: Fixed in commit `4e50061`
+**Severity**: High — a SOC 2 compliance report generated from real production
+data showed a 100% authentication failure rate regardless of reality
+**File**: `internal/services/auth/authentication_service.go`,
+`internal/container/service_container.go`
+
+**Root cause**: The real `AuthenticateUser`/`issueSession` write path only
+called `s.logger.LogAuditInfo`/`LogAuditError` (a lossy legacy shim that
+never populates `AuditLog.Outcome`), never `AuditService.RecordEvent` (the
+rich path HTTP middleware already uses). Every real login, success or
+failure, persisted `Outcome = ""`, which `ComplianceReportService`'s SOC2
+report counts as neither a success nor a failure it can attribute correctly.
+The existing unit test masked this by seeding `Outcome` directly into the
+repo, bypassing the real write path entirely.
+
+**What was fixed**: `AuthenticationConfig`/`authenticationService` gained an
+optional `AuditService auditServices.AuditServiceInterface` field, wired in
+`internal/container/service_container.go`. `AuthenticateUser`'s four failure
+branches and `issueSession`'s success log now route through
+`AuditService.RecordEvent` (falling back to the old `LogAuditInfo` path only
+when `AuditService` is nil, e.g. in tests that don't set it up).
+`TestAuthenticateUser_RecordsRichAuditOutcomeOnSuccessAndFailure`
+(`internal/services/auth/authentication_service_test.go`) exercises the real
+write path end-to-end and asserts a persisted `Outcome` of `"success"`/
+`"failure"`, not the seeded-row shortcut the old test used.
+
+**Spec/plan**: `docs/plans/2026-08-18-azure-keyvault-parity-audit.md`
+(Critical Finding #8), `docs/superpowers/plans/2026-08-18-security-short-term-fixes.md`
+(Task 5).
+
+---
+
+### B19 — Any Key Vault Data Access Administrator could grant itself, Purge Operator, or Certificate User
+
+**Status**: Fixed in commit `ccdcb3d`; `4b4d0d1` fixed a follow-up where the
+new `ErrRoleNotGrantable` rejection surfaced as HTTP 500 instead of 403 in
+`createRoleAssignment` (the handler didn't map the sentinel, so it fell
+through to `SetInternalError`)
+**Severity**: High — Data Access Administrator exists specifically to
+delegate role management *without* also granting data-plane access or the
+ability to escalate to it; without this restriction a holder could grant
+themselves Purge Operator/Certificate User or grant another principal a
+second Data Access Administrator, defeating the role's entire purpose
+**File**: `internal/services/authorization/role_assignment_service.go`,
+`api/role_assignments.go`, `cmd/vault-access/grant.go`
+
+**Root cause**: `RoleAssignmentService.AssignRole` applied the same
+authorization check regardless of *which* role was being granted or by whom
+— any caller who passed `CanManageRoleAssignments` (global admin, or Data
+Access Administrator in that vault) could grant any role, including
+`Key Vault Data Access Administrator`, `Key Vault Purge Operator`, and
+`Key Vault Certificate User`. Azure's real ABAC restricts Data Access
+Administrator from granting those three roles; RocketVault had no equivalent
+restriction.
+
+**What was fixed**: `AssignRoleInput` gained `CallerIsGlobalAdmin bool`, set
+by both call sites (`api/role_assignments.go`'s `createRoleAssignment`,
+`cmd/vault-access/grant.go`) from the same `common.HasRequiredRole(role,
+string(model.RoleAdmin))` check `CanManageRoleAssignments` already performs.
+`AssignRole` now rejects granting any role outside the
+`nonAdminGrantableRoles` allow-list — which deliberately excludes
+`RoleKeyVaultDataAccessAdministrator`, `RoleKeyVaultPurgeOperator`, and
+`RoleKeyVaultCertificateUser` — with the new sentinel `ErrRoleNotGrantable`,
+unless `CallerIsGlobalAdmin` is true. Five new tests in
+`internal/services/authorization/role_assignment_service_test.go` pin both
+the restriction and the global-admin bypass.
+
+**Known residual gap**: the restriction is enforced by `AssignRole` only —
+`RevokeAssignment` has no equivalent `CallerIsGlobalAdmin`-style check, so a
+non-global-admin Data Access Administrator can *revoke* a Purge
+Operator/Certificate User/Data Access Administrator assignment even though
+they cannot *grant* one. Tracked separately as B21 below; deliberately
+deferred, not an oversight (see the comment on `nonAdminGrantableRoles`).
+
+**Spec/plan**: `docs/plans/2026-08-18-azure-keyvault-parity-audit.md` (Access
+control finding F1), `docs/superpowers/plans/2026-08-18-security-short-term-fixes.md`
+(Task 6).
+
+---
+
+### B20 — Per-item purge protection was dead code for secrets, keys, and certificates
+
+**Status**: Fixed in commits `1e24095` (secrets), `986fc07` (keys), `d9a6136`
+(certificates), plus three follow-ups from the same-day final review:
+`16c1fa8` (the retry layer wrapped inner errors with `%v`, severing the
+`errors.Is` chain, so a purge blocked by `ErrSecretPurgeProtected` surfaced
+as HTTP 500 instead of 403 whenever `retry.database.enabled` — the default
+— was true; changed to `%w`, and the vault-protection read now fails closed,
+i.e. blocks the purge, if the read itself errors), and `68a52d8` (restoring a
+secret/key/certificate via `Restore*` dropped its `purge_protection` flag —
+repository `Create` doesn't write that column — so a backup taken while
+protected restored unprotected; each `Restore*` now re-applies the decoded
+entity's flag via `SetPurgeProtection` after create; also reworded the three
+sentinel messages and hand-copied HTTP 403 literals in
+`api/errors_{secret,key,certificate}.go`, which read as item-only despite
+covering both item- and vault-level blocks).
+**Severity**: High — an operator who enabled purge protection, expecting
+Azure's guarantee that no contained object can be purged early, got no actual
+protection for any secret, key, or certificate; a false sense of security for
+exactly the compliance/data-loss-prevention scenario purge protection exists
+for
+**File**: `internal/repositories/{secret,key,certificate}_repository.go`,
+`internal/services/{secrets,keys,certificates}/*_service.go`,
+`model/{secret,key,certificate}.go`,
+`api/{secrets,keys,certificates}.go`, `api/errors_{secret,key,certificate}.go`,
+`cmd/{secrets,keys,certificates}/{create,update}.go`,
+`internal/container/service_container.go`
+
+**Root cause**: The `purge_protection` DB column, each repository's
+`SetPurgeProtection` method, and the enforcement check inside
+`PurgeSecret`/`PurgeKey`/`PurgeCertificate` all existed, but no API field,
+service method, or CLI flag ever set the flag to `true` — it was unreachable
+plumbing. Even where enforcement existed, only the background auto-purge
+scheduler honored it; the manual `DELETE .../purge` path never checked it for
+keys/certificates, and secrets didn't have the check wired for manual purge
+at all. Vault-level purge protection also did not cascade to protect
+contained items, only the vault itself.
+`.claude/azure-keyvault-parity.md:177` stated "✅ (per-key + per-vault)",
+which was true for per-vault but false for per-key.
+
+**What was fixed**: For each resource type — `PurgeProtection *bool` added
+to the service-layer create/update DTOs and the HTTP DTOs
+(`purge_protection` JSON field, `nil` = no explicit value, matching the
+existing `Enabled *bool` convention); a `--purge-protection` CLI flag on
+`create`/`update`, gated by `cmd.Flags().Changed(...)`; each repository's
+`Purge*` protection check now returns a shared sentinel
+(`repositories.ErrSecretPurgeProtected`/`ErrKeyPurgeProtected`/
+`ErrCertPurgeProtected`, `internal/repositories/purge_protection_errors.go`)
+instead of a bare error, mapped to HTTP 403 in each `api/errors_*.go`; and
+each service's `Purge*` method gained a vault-level cascade check via an
+optional `VaultRepository` — if the containing vault has `PurgeProtection`
+enabled, the purge is refused even if the item itself doesn't have the flag
+set. New tests per resource type cover both the create/update wiring and the
+vault-level cascade block.
+
+**Spec/plan**: `docs/plans/2026-08-18-azure-keyvault-parity-audit.md`
+(Critical Finding #2), `docs/superpowers/plans/2026-08-18-security-short-term-fixes.md`
+(Tasks 7–9).
+
+---
+
+### B21 — `RevokeAssignment` does not enforce the Data Access Administrator grant restriction
+
+**Status**: Open — deliberate deferral, discovered while fixing B19
+**Severity**: Medium — narrower than B19: exploiting it requires the caller
+to already hold Data Access Administrator in the vault (itself a
+sensitive, deliberately-restricted grant), and the effect is revoking an
+assignment rather than escalating privilege via a new grant
+**File**: `internal/services/authorization/role_assignment_service.go`
+
+**Root cause**: B19's fix restricted which roles `AssignRole` will grant for
+a non-global-admin caller via `nonAdminGrantableRoles` and
+`AssignRoleInput.CallerIsGlobalAdmin`. `RevokeAssignment`'s signature carries
+no equivalent caller-authority flag, so it does not consult that allow-list.
+A non-global-admin Data Access Administrator can grant only the allow-listed
+roles, but can revoke *any* role assignment in their vault — including
+another principal's `Key Vault Data Access Administrator`, `Key Vault Purge
+Operator`, or `Key Vault Certificate User` grant.
+
+**Fix sketch**: give `RevokeAssignment` the same `callerIsGlobalAdmin`
+signal `AssignRole` receives (either a new parameter or a request-scoped
+context value set by both call sites, mirroring `api/role_assignments.go`'s
+`createRoleAssignment` and `cmd/vault-access/grant.go`), and reject revoking
+an assignment whose `Role` is outside `nonAdminGrantableRoles` unless the
+caller is a global admin — same shape as the `AssignRole` check, applied to
+the assignment being revoked rather than the role being granted.
+
+**Spec/plan**: `docs/plans/2026-08-18-azure-keyvault-parity-audit.md` (Access
+control finding F1 — this residual is called out under B19 above, not a
+separate audit finding), `internal/services/authorization/role_assignment_service.go`'s
+own comment on `nonAdminGrantableRoles`.
+
+---
+
+### B22 — `PurgeVault`'s bulk cascade-delete ignores per-item purge protection
+
+**Status**: Open — discovered during the final-review pass on B20, not fixed
+in that pass
+**Severity**: High — before B20, this gap was inert because `purge_protection`
+could never be set to `true` on any secret/key/certificate; B20 made the flag
+real and settable, which makes this a live, reachable bypass: purging a vault
+now silently deletes every contained item regardless of its individual
+purge-protection flag, the exact guarantee B20 just added for the
+single-item purge path
+**File**: `internal/repositories/secret_repository.go`'s `PurgeVaultContents`
+(and the equivalent `key_repository.go`/`certificate_repository.go` methods),
+`internal/services/vaults/cascade_adapter.go`
+
+**Root cause**: `VaultService.PurgeVault` cascades to
+`cascadeAdapter.PurgeVaultContents`, which calls each resource repository's
+`PurgeVaultContents(ctx, vaultID)`. Those methods run an unconditional
+`DELETE FROM secrets/keys/certificates WHERE vault_id = ?` with no
+`purge_protection` check at all — by design, per the method's own comment,
+to avoid stranding orphaned rows once the containing vault is gone. That
+design predates B20; it was never revisited once per-item purge protection
+became settable.
+
+**Fix sketch**: either (a) have `PurgeVault` refuse to purge a vault that
+still contains any item with `purge_protection = true` (mirroring Azure's
+"cannot purge a vault while it still contains protected items" semantics —
+requires the caller to purge/wait-out those items individually first), or
+(b) have `PurgeVaultContents` filter out protected rows and return which ones
+were skipped, then decide whether `PurgeVault` succeeds partially or refuses
+outright. Whichever direction is chosen should also decide whether individual
+purge protection is meant to survive vault deletion at all, since Azure has
+no direct equivalent to RocketVault's multi-vault model here.
+
+**Spec/plan**: `docs/plans/2026-08-18-azure-keyvault-parity-audit.md`
+(Critical Finding #2 row and "Remediation Update — Short-term Fixes
+(2026-08-18)" section).
+
+---
+
 ## Deferred Refactors
 
 Both items formerly tracked here (H3, M2) were re-investigated on 2026-08-14 and
