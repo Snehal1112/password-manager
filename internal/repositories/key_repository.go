@@ -800,3 +800,27 @@ func (r *KeyRepository) recoverVaultContents(ctx context.Context, ex db.DBTX, va
 	r.log.LogAuditInfo(vaultID.String(), "recover_vault_keys", "success", "Vault keys recovered successfully")
 	return nil
 }
+
+// PurgeVaultContents permanently deletes every key in a vault, regardless of
+// soft-delete state. keys.vault_id carries no foreign key to vaults(id)
+// (unlike role_assignments.vault_id, which cascades), so without this call a
+// vault purge would strand every key it ever contained as an orphaned row,
+// unreachable through any route and never swept by the soft-delete purge
+// scheduler (which only purges individually-deleted items, not vault
+// orphans). key_versions cascades automatically via its own FK on keys(id).
+// Mirrors the unconditional DELETE the vault service already issues for
+// access_policies on purge, for the same reason.
+func (r *KeyRepository) PurgeVaultContents(ctx context.Context, vaultID uuid.UUID) error {
+	return r.executeWithMetrics("purge_vault_keys", func() error {
+		logrus.WithField("vault_id", vaultID.String()).Debug("Purging all keys in vault")
+
+		_, err := r.db.ExecContext(ctx, "DELETE FROM keys WHERE vault_id = ?", vaultID.String())
+		if err != nil {
+			r.log.LogAuditError(vaultID.String(), "purge_vault_keys", "failed", "Failed to purge vault keys", err)
+			return fmt.Errorf("failed to purge vault keys: %w", err)
+		}
+
+		r.log.LogAuditInfo(vaultID.String(), "purge_vault_keys", "success", "Vault keys purged successfully")
+		return nil
+	})
+}

@@ -424,6 +424,41 @@ func TestKeyRepository_SoftDeleteVaultContents(t *testing.T) {
 	require.NoError(t, err)
 }
 
+// TestKeyRepository_PurgeVaultContents_RemovesAllRows verifies purging a
+// vault's key contents removes every key it ever held -- active or already
+// soft-deleted -- rather than leaving orphaned rows behind.
+func TestKeyRepository_PurgeVaultContents_RemovesAllRows(t *testing.T) {
+	t.Parallel()
+	db := setupFullKeyDB(t)
+	log := logging.InitLogger()
+	// PurgeVaultContents is intentionally not part of KeyRepositoryInterface
+	// (see internal/repositories/key_repository.go); assert to the concrete
+	// type to reach it, the way the vault cascade adapter does at runtime.
+	repo := repositories.NewKeyRepository(rvdb.NewConn(db, rvdb.SQLite), log).(*repositories.KeyRepository)
+	ctx := context.Background()
+
+	vaultA := uuid.New()
+	vaultB := uuid.New()
+	userID := uuid.New()
+
+	active := newKey(userID, vaultA, "active-key")
+	deleted := newKey(userID, vaultA, "deleted-key")
+	other := newKey(userID, vaultB, "other-vault-key")
+	require.NoError(t, repo.Create(ctx, active))
+	require.NoError(t, repo.Create(ctx, deleted))
+	require.NoError(t, repo.Create(ctx, other))
+	require.NoError(t, repo.SoftDelete(ctx, deleted.ID))
+
+	require.NoError(t, repo.PurgeVaultContents(ctx, vaultA))
+
+	all, err := repo.List(ctx, model.NewVaultScope(vaultA, uuid.Nil), repositories.KeyFilter{IncludeDeleted: true})
+	require.NoError(t, err)
+	assert.Empty(t, all, "purge must remove every key in the vault, active or soft-deleted")
+
+	_, err = repo.Read(ctx, other.ID, model.NewAdminScope(uuid.Nil))
+	require.NoError(t, err, "a key in a different vault must be untouched")
+}
+
 func TestKeyRepository_RecoverVaultContents(t *testing.T) {
 	t.Parallel()
 	db := setupFullKeyDB(t)
@@ -705,6 +740,43 @@ func TestCertificateRepository_SoftDeleteVaultContents(t *testing.T) {
 	// Other vault cert unaffected
 	_, err = repo.Read(ctx, c3.ID, model.NewAdminScope(uuid.Nil))
 	require.NoError(t, err)
+}
+
+// TestCertificateRepository_PurgeVaultContents_RemovesAllRows verifies
+// purging a vault's certificate contents removes every certificate it ever
+// held -- active or already soft-deleted -- rather than leaving orphaned
+// rows behind.
+func TestCertificateRepository_PurgeVaultContents_RemovesAllRows(t *testing.T) {
+	t.Parallel()
+	db := setupFullCertDB(t)
+	log := logging.InitLogger()
+	// PurgeVaultContents is intentionally not part of
+	// CertificateRepositoryInterface (see internal/repositories/
+	// certificate_repository.go); assert to the concrete type to reach it,
+	// the way the vault cascade adapter does at runtime.
+	repo := repositories.NewCertificateRepository(rvdb.NewConn(db, rvdb.SQLite), log).(*repositories.CertificateRepository)
+	ctx := context.Background()
+
+	vaultA := uuid.New()
+	vaultB := uuid.New()
+	userID := uuid.New()
+
+	active := newCert(userID, vaultA, "active-cert")
+	deleted := newCert(userID, vaultA, "deleted-cert")
+	other := newCert(userID, vaultB, "other-vault-cert")
+	require.NoError(t, repo.Create(ctx, active))
+	require.NoError(t, repo.Create(ctx, deleted))
+	require.NoError(t, repo.Create(ctx, other))
+	require.NoError(t, repo.SoftDelete(ctx, deleted.ID))
+
+	require.NoError(t, repo.PurgeVaultContents(ctx, vaultA))
+
+	all, err := repo.List(ctx, model.NewVaultScope(vaultA, uuid.Nil), repositories.CertificateFilter{IncludeDeleted: true})
+	require.NoError(t, err)
+	assert.Empty(t, all, "purge must remove every certificate in the vault, active or soft-deleted")
+
+	_, err = repo.Read(ctx, other.ID, model.NewAdminScope(uuid.Nil))
+	require.NoError(t, err, "a certificate in a different vault must be untouched")
 }
 
 func TestCertificateRepository_RecoverVaultContents(t *testing.T) {

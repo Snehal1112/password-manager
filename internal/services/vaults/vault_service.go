@@ -30,7 +30,7 @@ var ErrDefaultVaultProtected = errors.New("default vault is protected from this 
 // the vault has purge protection enabled.
 var ErrVaultPurgeProtected = errors.New("vault is protected from purge")
 
-// CascadeRepository soft-deletes or recovers all resources belonging to a vault.
+// CascadeRepository soft-deletes, recovers, or purges all resources belonging to a vault.
 type CascadeRepository interface {
 	SoftDeleteVaultContents(ctx context.Context, vaultID uuid.UUID, deletedAt time.Time) error
 	RecoverVaultContents(ctx context.Context, vaultID uuid.UUID, deletedAt time.Time) error
@@ -38,6 +38,12 @@ type CascadeRepository interface {
 	SoftDeleteVaultContentsTx(ctx context.Context, ex db.DBTX, vaultID uuid.UUID, deletedAt time.Time) error
 	// RecoverVaultContentsTx is RecoverVaultContents scoped to an explicit executor.
 	RecoverVaultContentsTx(ctx context.Context, ex db.DBTX, vaultID uuid.UUID, deletedAt time.Time) error
+	// PurgeVaultContents permanently deletes every secret/key/certificate row
+	// belonging to a vault, active or already soft-deleted. Secrets, keys,
+	// and certificates carry no foreign key on vault_id, so without this
+	// call PurgeVault would strand their rows permanently, unreachable but
+	// never removed.
+	PurgeVaultContents(ctx context.Context, vaultID uuid.UUID) error
 }
 
 // PolicyCleaner removes access policies scoped to a vault (used on purge).
@@ -433,6 +439,12 @@ func (s *vaultService) PurgeVault(ctx context.Context, name string) error {
 	}
 	if s.vaultCache != nil {
 		s.vaultCache.Invalidate(name)
+	}
+	// Secrets, keys, and certificates have no FK on vault_id either -- purge
+	// their rows explicitly for the same reason access_policies' are purged
+	// below, or they'd be stranded permanently, unreachable but never removed.
+	if err := s.cascade.PurgeVaultContents(ctx, v.ID); err != nil {
+		return fmt.Errorf("purge vault contents: %w", err)
 	}
 	// access_policies has no FK to vaults, so vault-scoped policy rows must be
 	// removed explicitly to avoid orphaning them after the vault is purged.

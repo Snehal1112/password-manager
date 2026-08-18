@@ -32,6 +32,17 @@ type txCapableContentRepo interface {
 	RecoverVaultContentsTx(ctx context.Context, ex db.DBTX, vaultID uuid.UUID, deletedAt time.Time) error
 }
 
+// purgeCapableContentRepo is implemented by a vaultContentRepo's concrete
+// type when it also supports permanently purging every row it holds for a
+// vault. Kept as its own interface for the same reason txCapableContentRepo
+// is: PurgeVaultContents lives only on the concrete Secret/Key/
+// CertificateRepository structs, not on their exported *RepositoryInterface
+// types, so adding it directly to vaultContentRepo would ripple to every
+// test double implementing those wider interfaces across the codebase.
+type purgeCapableContentRepo interface {
+	PurgeVaultContents(ctx context.Context, vaultID uuid.UUID) error
+}
+
 // cascadeAdapter fans cascade operations out to the secret, key, and cert repos.
 type cascadeAdapter struct {
 	repos []vaultContentRepo
@@ -80,6 +91,19 @@ func (a *cascadeAdapter) RecoverVaultContentsTx(ctx context.Context, ex db.DBTX,
 			return fmt.Errorf("repository %T does not support transactional vault cascade", r)
 		}
 		if err := txRepo.RecoverVaultContentsTx(ctx, ex, vaultID, deletedAt); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (a *cascadeAdapter) PurgeVaultContents(ctx context.Context, vaultID uuid.UUID) error {
+	for _, r := range a.repos {
+		purgeRepo, ok := r.(purgeCapableContentRepo)
+		if !ok {
+			return fmt.Errorf("repository %T does not support vault content purge", r)
+		}
+		if err := purgeRepo.PurgeVaultContents(ctx, vaultID); err != nil {
 			return err
 		}
 	}

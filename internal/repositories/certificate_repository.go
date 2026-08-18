@@ -818,3 +818,27 @@ func (r *CertificateRepository) recoverVaultContents(ctx context.Context, ex db.
 	r.log.LogAuditInfo(vaultID.String(), "recover_vault_certificates", "success", "Vault certificates recovered successfully")
 	return nil
 }
+
+// PurgeVaultContents permanently deletes every certificate in a vault,
+// regardless of soft-delete state. certificates.vault_id carries no foreign
+// key to vaults(id) (unlike role_assignments.vault_id, which cascades), so
+// without this call a vault purge would strand every certificate it ever
+// contained as an orphaned row, unreachable through any route and never
+// swept by the soft-delete purge scheduler (which only purges
+// individually-deleted items, not vault orphans). Mirrors the unconditional
+// DELETE the vault service already issues for access_policies on purge, for
+// the same reason.
+func (r *CertificateRepository) PurgeVaultContents(ctx context.Context, vaultID uuid.UUID) error {
+	return r.executeWithMetrics("purge_vault_certificates", func() error {
+		logrus.WithField("vault_id", vaultID.String()).Debug("Purging all certificates in vault")
+
+		_, err := r.db.ExecContext(ctx, "DELETE FROM certificates WHERE vault_id = ?", vaultID.String())
+		if err != nil {
+			r.log.LogAuditError(vaultID.String(), "purge_vault_certificates", "failed", "Failed to purge vault certificates", err)
+			return fmt.Errorf("failed to purge vault certificates: %w", err)
+		}
+
+		r.log.LogAuditInfo(vaultID.String(), "purge_vault_certificates", "success", "Vault certificates purged successfully")
+		return nil
+	})
+}

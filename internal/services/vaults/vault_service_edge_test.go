@@ -204,6 +204,46 @@ func TestPurgeVault_NotFoundInBothLists(t *testing.T) {
 	}
 }
 
+// TestPurgeVault_CascadesContentPurge proves PurgeVault calls
+// CascadeRepository.PurgeVaultContents, so secrets/keys/certificates don't
+// get stranded when their vault is purged (matching the existing
+// access_policies cleanup PurgeVault already performs).
+func TestPurgeVault_CascadesContentPurge(t *testing.T) {
+	inner := newFakeRepo()
+	id := uuid.New()
+	now := nowForTest()
+	inner.byName["d"] = &model.Vault{ID: id, Name: "d", DeletedAt: &now}
+	inner.byID[id.String()] = inner.byName["d"]
+
+	cascade := &noopCascade{}
+	svc := NewVaultService(inner, cascade, nil)
+
+	if err := svc.PurgeVault(context.Background(), "d"); err != nil {
+		t.Fatalf("PurgeVault: %v", err)
+	}
+	if cascade.purge != 1 {
+		t.Fatalf("expected PurgeVaultContents to be called once, got %d", cascade.purge)
+	}
+}
+
+// TestPurgeVault_CascadePurgeError proves a cascade purge failure surfaces
+// as an error from PurgeVault, rather than being silently swallowed.
+func TestPurgeVault_CascadePurgeError(t *testing.T) {
+	inner := newFakeRepo()
+	id := uuid.New()
+	now := nowForTest()
+	inner.byName["d"] = &model.Vault{ID: id, Name: "d", DeletedAt: &now}
+	inner.byID[id.String()] = inner.byName["d"]
+
+	boom := errors.New("cascade purge failed")
+	svc := NewVaultService(inner, &failingCascade{err: boom}, nil)
+
+	err := svc.PurgeVault(context.Background(), "d")
+	if err == nil || !errors.Is(err, boom) {
+		t.Fatalf("expected cascade purge error to propagate, got %v", err)
+	}
+}
+
 // -- ListVaults error branches -----------------------------------------------
 
 func TestListVaults_ListError(t *testing.T) {
@@ -258,5 +298,8 @@ func (f *failingCascade) SoftDeleteVaultContentsTx(context.Context, db.DBTX, uui
 	return f.err
 }
 func (f *failingCascade) RecoverVaultContentsTx(context.Context, db.DBTX, uuid.UUID, time.Time) error {
+	return f.err
+}
+func (f *failingCascade) PurgeVaultContents(context.Context, uuid.UUID) error {
 	return f.err
 }

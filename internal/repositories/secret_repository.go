@@ -572,3 +572,24 @@ func (r *SecretRepository) recoverVaultContents(ctx context.Context, ex db.DBTX,
 	r.log.LogAuditInfo(vaultID.String(), "recover_vault_secrets", "success", "Vault secrets recovered successfully")
 	return nil
 }
+
+// PurgeVaultContents permanently deletes every secret in a vault, regardless
+// of soft-delete state. secrets.vault_id carries no foreign key to vaults(id)
+// (unlike role_assignments.vault_id, which cascades), so without this call a
+// vault purge would strand every secret it ever contained as an orphaned row,
+// unreachable through any route and never swept by the soft-delete purge
+// scheduler (which only purges individually-deleted items, not vault
+// orphans). Mirrors the unconditional DELETE the vault service already
+// issues for access_policies on purge, for the same reason.
+func (r *SecretRepository) PurgeVaultContents(ctx context.Context, vaultID uuid.UUID) error {
+	logrus.WithField("vault_id", vaultID.String()).Debug("Purging all secrets in vault")
+
+	_, err := r.db.ExecContext(ctx, "DELETE FROM secrets WHERE vault_id = ?", vaultID.String())
+	if err != nil {
+		r.log.LogAuditError(vaultID.String(), "purge_vault_secrets", "failed", "Failed to purge vault secrets", err)
+		return fmt.Errorf("failed to purge vault secrets: %w", err)
+	}
+
+	r.log.LogAuditInfo(vaultID.String(), "purge_vault_secrets", "success", "Vault secrets purged successfully")
+	return nil
+}

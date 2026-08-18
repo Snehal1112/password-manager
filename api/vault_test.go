@@ -156,6 +156,7 @@ func (vaultNoopCascade) SoftDeleteVaultContentsTx(context.Context, db.DBTX, uuid
 func (vaultNoopCascade) RecoverVaultContentsTx(context.Context, db.DBTX, uuid.UUID, time.Time) error {
 	return nil
 }
+func (vaultNoopCascade) PurgeVaultContents(context.Context, uuid.UUID) error { return nil }
 
 // --- vaultSvcTestContainer ---
 

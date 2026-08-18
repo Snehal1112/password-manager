@@ -327,6 +327,47 @@ func TestSecretRepository_RecoverVaultContents_OnlyRestoresCascadeDeleted(t *tes
 	require.Equal(t, "active", active[0].Name)
 }
 
+// TestSecretRepository_PurgeVaultContents_RemovesAllRows verifies that
+// purging a vault's contents actually removes every secret it ever held --
+// active or already soft-deleted -- rather than leaving orphaned rows
+// pointing at a vault_id that no longer resolves to anything.
+func TestSecretRepository_PurgeVaultContents_RemovesAllRows(t *testing.T) {
+	t.Parallel()
+	db := setupSecretTestDB(t)
+	// PurgeVaultContents is intentionally not part of SecretRepositoryInterface
+	// (see internal/repositories/secret_repository.go); assert to the concrete
+	// type to reach it, the way the vault cascade adapter does at runtime.
+	repo := repositories.NewSecretRepository(rvdb.NewConn(db, rvdb.SQLite), newTestSecretLogger(t)).(*repositories.SecretRepository)
+	ctx := context.Background()
+	vaultA := uuid.New()
+	vaultB := uuid.New()
+
+	mk := func(vaultID uuid.UUID, name string) *model.Secret {
+		return &model.Secret{ID: uuid.New(), UserID: uuid.New(), VaultID: vaultID, Name: name, Value: "x", Version: 1, CreatedAt: time.Now(), Enabled: true}
+	}
+	active := mk(vaultA, "active")
+	deleted := mk(vaultA, "deleted")
+	other := mk(vaultB, "untouched")
+	require.NoError(t, repo.Create(ctx, active))
+	require.NoError(t, repo.Create(ctx, deleted))
+	require.NoError(t, repo.Create(ctx, other))
+	require.NoError(t, repo.SoftDelete(ctx, deleted.ID))
+
+	require.NoError(t, repo.PurgeVaultContents(ctx, vaultA))
+
+	// Both vaultA rows must be gone entirely, including deleted ones --
+	// unlike a plain list filter, IncludeDeleted must also return nothing.
+	all, err := repo.List(ctx, model.NewVaultScope(vaultA, uuid.Nil), repositories.SecretFilter{IncludeDeleted: true})
+	require.NoError(t, err)
+	require.Len(t, all, 0, "purge must remove every row in the vault, active or soft-deleted")
+
+	// A secret in a different vault must be untouched.
+	untouched, err := repo.List(ctx, model.NewVaultScope(vaultB, uuid.Nil), repositories.SecretFilter{})
+	require.NoError(t, err)
+	require.Len(t, untouched, 1)
+	require.Equal(t, "untouched", untouched[0].Name)
+}
+
 // TestSoftDelete_PreservesPurgeProtection verifies that SoftDelete does not
 // overwrite a pre-existing purge_protection = TRUE on a secret.
 func TestSoftDelete_PreservesPurgeProtection(t *testing.T) {

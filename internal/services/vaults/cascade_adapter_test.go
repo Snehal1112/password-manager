@@ -11,7 +11,7 @@ import (
 	"rocketvault/internal/db"
 )
 
-type recordingRepo struct{ softCalls, recoverCalls int }
+type recordingRepo struct{ softCalls, recoverCalls, purgeCalls int }
 
 func (r *recordingRepo) SoftDeleteVaultContents(context.Context, uuid.UUID, time.Time) error {
 	r.softCalls++
@@ -27,6 +27,10 @@ func (r *recordingRepo) SoftDeleteVaultContentsTx(context.Context, db.DBTX, uuid
 }
 func (r *recordingRepo) RecoverVaultContentsTx(context.Context, db.DBTX, uuid.UUID, time.Time) error {
 	r.recoverCalls++
+	return nil
+}
+func (r *recordingRepo) PurgeVaultContents(context.Context, uuid.UUID) error {
+	r.purgeCalls++
 	return nil
 }
 
@@ -58,6 +62,9 @@ func (f *failingRepo) SoftDeleteVaultContentsTx(context.Context, db.DBTX, uuid.U
 	return f.err
 }
 func (f *failingRepo) RecoverVaultContentsTx(context.Context, db.DBTX, uuid.UUID, time.Time) error {
+	return f.err
+}
+func (f *failingRepo) PurgeVaultContents(context.Context, uuid.UUID) error {
 	return f.err
 }
 
@@ -101,5 +108,33 @@ func TestCascadeAdapter_TxReturnsFirstError(t *testing.T) {
 	}
 	if later.softCalls != 0 {
 		t.Fatalf("expected later repo not to be called after an error, got %d", later.softCalls)
+	}
+}
+
+// TestCascadeAdapter_PurgeFansOutToAllRepos proves PurgeVaultContents fans
+// out to every repo, the same as soft-delete and recover.
+func TestCascadeAdapter_PurgeFansOutToAllRepos(t *testing.T) {
+	s, k, c := &recordingRepo{}, &recordingRepo{}, &recordingRepo{}
+	ad := NewCascadeAdapter(s, k, c)
+	if err := ad.PurgeVaultContents(context.Background(), uuid.New()); err != nil {
+		t.Fatal(err)
+	}
+	if s.purgeCalls != 1 || k.purgeCalls != 1 || c.purgeCalls != 1 {
+		t.Fatalf("purge must fan out to all three repos: s=%d k=%d c=%d", s.purgeCalls, k.purgeCalls, c.purgeCalls)
+	}
+}
+
+func TestCascadeAdapter_PurgeReturnsFirstError(t *testing.T) {
+	boom := errors.New("boom")
+	failing := &failingRepo{err: boom}
+	later := &recordingRepo{}
+	ad := NewCascadeAdapter(failing, later)
+
+	err := ad.PurgeVaultContents(context.Background(), uuid.New())
+	if !errors.Is(err, boom) {
+		t.Fatalf("expected the first repo's error, got %v", err)
+	}
+	if later.purgeCalls != 0 {
+		t.Fatalf("expected later repo not to be called after an error, got %d", later.purgeCalls)
 	}
 }

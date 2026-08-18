@@ -106,7 +106,7 @@ func (f *fakeVaultRepo) Purge(_ context.Context, id uuid.UUID) error {
 	return nil
 }
 
-type noopCascade struct{ soft, recover int }
+type noopCascade struct{ soft, recover, purge int }
 
 func (n *noopCascade) SoftDeleteVaultContents(context.Context, uuid.UUID, time.Time) error {
 	n.soft++
@@ -122,6 +122,10 @@ func (n *noopCascade) SoftDeleteVaultContentsTx(context.Context, db.DBTX, uuid.U
 }
 func (n *noopCascade) RecoverVaultContentsTx(context.Context, db.DBTX, uuid.UUID, time.Time) error {
 	n.recover++
+	return nil
+}
+func (n *noopCascade) PurgeVaultContents(context.Context, uuid.UUID) error {
+	n.purge++
 	return nil
 }
 
