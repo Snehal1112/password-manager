@@ -559,6 +559,7 @@ func (c *ServiceContainer) initializeServices() error {
 		KeyRepository:         c.keyRepository,
 		PolicyRepository:      c.certPolicyRepository,
 		Logger:                c.logger,
+		VaultRepository:       c.vaultRepository,
 	})
 
 	// Initialize certificate renewal service.

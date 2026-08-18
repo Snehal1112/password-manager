@@ -103,6 +103,11 @@ var createCmd = &cobra.Command{
 			AutoRenew:    autoRenew,
 			RenewalDays:  renewalDays,
 		}
+		// Only send purge protection when the flag was explicitly passed.
+		if cmd.Flags().Changed("purge-protection") {
+			purgeProtection, _ := cmd.Flags().GetBool("purge-protection")
+			req.PurgeProtection = &purgeProtection
+		}
 
 		var result *certServices.CreateCertificateResult
 		if caCertIDStr != "" {
@@ -152,6 +157,7 @@ func InitCertificatesCreate(certificatesCmd *cobra.Command) *cobra.Command {
 	createCmd.Flags().String("ca-cert-id", "", "UUID of the CA certificate for CA-signed certificates (optional)")
 	createCmd.Flags().Bool("auto-renew", false, "Automatically renew certificate before expiry")
 	createCmd.Flags().Int("renewal-days", 30, "Days before expiry to trigger renewal")
+	createCmd.Flags().Bool("purge-protection", false, "Protect the certificate from being purged")
 	viper.BindPFlag("cert-name", createCmd.Flags().Lookup("name"))                   //nolint:errcheck,gosec
 	viper.BindPFlag("cert-key-id", createCmd.Flags().Lookup("key-id"))               //nolint:errcheck,gosec
 	viper.BindPFlag("cert-validity-days", createCmd.Flags().Lookup("validity-days")) //nolint:errcheck,gosec

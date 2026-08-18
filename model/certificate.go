@@ -66,6 +66,8 @@ type CreateCertificateRequest struct {
 	CACertID     string     `json:"ca_cert_id,omitempty"`
 	Enabled      *bool      `json:"enabled,omitempty"`
 	NotBefore    *time.Time `json:"not_before,omitempty"`
+	// PurgeProtection is optional; nil leaves the stored default alone.
+	PurgeProtection *bool `json:"purge_protection,omitempty"`
 }
 
 func CreateCertificateRequestFromJson(data io.Reader) (*CreateCertificateRequest, error) {
@@ -80,6 +82,8 @@ type UpdateCertificateRequest struct {
 	RenewalDays *int       `json:"renewal_days,omitempty"`
 	Enabled     *bool      `json:"enabled,omitempty"`
 	NotBefore   *time.Time `json:"not_before,omitempty"`
+	// PurgeProtection is optional; nil means no change.
+	PurgeProtection *bool `json:"purge_protection,omitempty"`
 }
 
 func UpdateCertificateRequestFromJson(data io.Reader) (*UpdateCertificateRequest, error) {

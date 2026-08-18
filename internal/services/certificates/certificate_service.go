@@ -42,6 +42,9 @@ type CreateCertificateRequest struct {
 	RenewalDays  int        // 0 defaults to 30.
 	Enabled      *bool      // nil defaults to true.
 	NotBefore    *time.Time // Optional activation timestamp.
+	// PurgeProtection is optional: nil leaves the stored default alone, true
+	// enables purge protection on the freshly created certificate.
+	PurgeProtection *bool
 }
 
 // resolveVaultID returns the requested vault id, falling back to the default
@@ -72,6 +75,8 @@ type UpdateCertificateRequest struct {
 	RenewalDays *int        // Optional - nil means no change.
 	Enabled     *bool       // Optional - nil means no change.
 	NotBefore   *time.Time  // Optional - nil means no change.
+	// PurgeProtection is optional - nil means no change.
+	PurgeProtection *bool
 }
 
 // CertificateService handles X.509 certificate management operations.
@@ -118,6 +123,9 @@ type certificateService struct {
 	keyRepo    repositories.KeyRepositoryInterface
 	policyRepo repositories.CertificatePolicyRepositoryInterface
 	logger     *logging.Logger
+	// vaultRepo is optional. When set, PurgeCertificate refuses to purge a
+	// certificate whose containing vault has purge protection enabled.
+	vaultRepo repositories.VaultRepositoryInterface
 }
 
 // CertificateServiceConfig holds the dependencies for certificate service.
@@ -126,6 +134,9 @@ type CertificateServiceConfig struct {
 	KeyRepository         repositories.KeyRepositoryInterface
 	PolicyRepository      repositories.CertificatePolicyRepositoryInterface
 	Logger                *logging.Logger
+	// VaultRepository is optional; it enables the vault-level purge-protection
+	// cascade check in PurgeCertificate.
+	VaultRepository repositories.VaultRepositoryInterface
 }
 
 // NewCertificateService creates a new CertificateService with the provided dependencies.
@@ -144,7 +155,23 @@ func NewCertificateService(config CertificateServiceConfig) CertificateService {
 		keyRepo:    config.KeyRepository,
 		policyRepo: config.PolicyRepository,
 		logger:     config.Logger,
+		vaultRepo:  config.VaultRepository,
 	}
+}
+
+// applyCreatePurgeProtection turns on purge protection for a freshly created
+// certificate when the caller asked for it. A nil request field leaves the
+// stored default alone, so the self-signed and CA-signed create paths share
+// one implementation and only differ in the audit action they report.
+func (s *certificateService) applyCreatePurgeProtection(ctx context.Context, req CreateCertificateRequest, certID uuid.UUID, action string) error {
+	if req.PurgeProtection == nil || !*req.PurgeProtection {
+		return nil
+	}
+	if err := s.certRepo.SetPurgeProtection(ctx, certID, true); err != nil {
+		s.logger.LogAuditError(req.UserID.String(), action, "failed", "failed to set purge protection", err)
+		return fmt.Errorf("failed to set purge protection: %w", err)
+	}
+	return nil
 }
 
 // CreateSelfSignedCertificate creates a new self-signed X.509 certificate.
@@ -250,6 +277,10 @@ func (s *certificateService) CreateSelfSignedCertificate(ctx context.Context, re
 	if err := s.certRepo.Create(ctx, cert); err != nil {
 		s.logger.LogAuditError(req.UserID.String(), "create_self_signed_cert", "failed", "failed to store certificate", err)
 		return nil, fmt.Errorf("failed to store self-signed certificate: %w", err)
+	}
+
+	if err := s.applyCreatePurgeProtection(ctx, req, cert.ID, "create_self_signed_cert"); err != nil {
+		return nil, err
 	}
 
 	s.logger.LogAuditInfo(req.UserID.String(), "create_self_signed_cert", "success", fmt.Sprintf("self-signed certificate created: %s, ID: %s", req.Name, cert.ID))
@@ -400,6 +431,10 @@ func (s *certificateService) CreateCASignedCertificate(ctx context.Context, req 
 		return nil, fmt.Errorf("failed to store CA-signed certificate: %w", err)
 	}
 
+	if err := s.applyCreatePurgeProtection(ctx, req, cert.ID, "create_ca_signed_cert"); err != nil {
+		return nil, err
+	}
+
 	s.logger.LogAuditInfo(req.UserID.String(), "create_ca_signed_cert", "success", fmt.Sprintf("CA-signed certificate created: %s, ID: %s", req.Name, cert.ID))
 	logrus.WithFields(logrus.Fields{
 		"cert_id":    cert.ID.String(),
@@ -531,6 +566,15 @@ func (s *certificateService) UpdateCertificate(ctx context.Context, req UpdateCe
 		return fmt.Errorf("failed to update certificate: %w", err)
 	}
 
+	// Purge protection lives outside the certificate entity, so it is a
+	// separate write.
+	if req.PurgeProtection != nil {
+		if err := s.certRepo.SetPurgeProtection(ctx, req.CertID, *req.PurgeProtection); err != nil {
+			s.logger.LogAuditError(actor, "update_certificate", "failed", "failed to set purge protection", err)
+			return fmt.Errorf("failed to set purge protection: %w", err)
+		}
+	}
+
 	s.logger.LogAuditInfo(actor, "update_certificate", "success", fmt.Sprintf("Certificate updated: %s", updated.Name))
 	return nil
 }
@@ -608,6 +652,26 @@ func (s *certificateService) PurgeCertificate(ctx context.Context, certID uuid.U
 			"Certificate not found in deleted state within scope", nil)
 		return fmt.Errorf("%w", ErrCertNotFound)
 	}
+
+	// Vault-level purge protection cascades to the certificates the vault
+	// contains, so a protected vault blocks the per-item purge path too. This
+	// check fails closed: for a certificate with no flag of its own it is the
+	// only protection layer, so a vault that cannot be read blocks the purge
+	// rather than silently skipping the check.
+	if s.vaultRepo != nil && scope.VaultID() != uuid.Nil {
+		vault, err := s.vaultRepo.ReadByID(ctx, scope.VaultID())
+		if err != nil {
+			s.logger.LogAuditError(scope.ActorID().String(), "purge_certificate", "failed",
+				"Failed to check vault purge protection", err)
+			return fmt.Errorf("failed to check vault purge protection: %w", err)
+		}
+		if vault.PurgeProtection {
+			s.logger.LogAuditError(scope.ActorID().String(), "purge_certificate", "failed",
+				"Vault has purge protection enabled", nil)
+			return repositories.ErrCertPurgeProtected
+		}
+	}
+
 	if err := s.certRepo.PurgeCertificate(ctx, certID); err != nil {
 		return fmt.Errorf("failed to purge certificate: %w", err)
 	}

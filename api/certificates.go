@@ -48,6 +48,8 @@ type CreateCertificateAPIRequest struct {
 	CACertID     string     `json:"ca_cert_id,omitempty"` // UUID of CA cert; triggers CA-signed path.
 	Enabled      *bool      `json:"enabled,omitempty"`    // Defaults to true when omitted.
 	NotBefore    *time.Time `json:"not_before,omitempty"` // Optional activation time.
+	// PurgeProtection is optional; nil leaves the stored default alone.
+	PurgeProtection *bool `json:"purge_protection,omitempty"`
 }
 
 // UpdateCertificateAPIRequest is the HTTP request body for PUT /certificates/{certificate_id}.
@@ -58,6 +60,8 @@ type UpdateCertificateAPIRequest struct {
 	RenewalDays *int       `json:"renewal_days,omitempty"` // Days before expiry to renew.
 	Enabled     *bool      `json:"enabled,omitempty"`      // Enable or disable the certificate.
 	NotBefore   *time.Time `json:"not_before,omitempty"`   // Activation timestamp.
+	// PurgeProtection is optional; nil means no change.
+	PurgeProtection *bool `json:"purge_protection,omitempty"`
 }
 
 // CertificateResponse is the JSON response for a single certificate.
@@ -178,16 +182,17 @@ func createCertificate(c *Context, w http.ResponseWriter, r *http.Request) {
 	}
 
 	createReq := certServices.CreateCertificateRequest{
-		Name:         req.Name,
-		KeyID:        keyID,
-		ValidityDays: req.ValidityDays,
-		Tags:         req.Tags,
-		UserID:       userID,
-		VaultID:      vaultID,
-		AutoRenew:    req.AutoRenew,
-		RenewalDays:  req.RenewalDays,
-		Enabled:      req.Enabled,
-		NotBefore:    req.NotBefore,
+		Name:            req.Name,
+		KeyID:           keyID,
+		ValidityDays:    req.ValidityDays,
+		Tags:            req.Tags,
+		UserID:          userID,
+		VaultID:         vaultID,
+		AutoRenew:       req.AutoRenew,
+		RenewalDays:     req.RenewalDays,
+		Enabled:         req.Enabled,
+		NotBefore:       req.NotBefore,
+		PurgeProtection: req.PurgeProtection,
 	}
 
 	var result *certServices.CreateCertificateResult
@@ -305,7 +310,7 @@ func updateCertificate(c *Context, w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if req.Name == nil && req.Tags == nil && req.AutoRenew == nil && req.RenewalDays == nil && req.Enabled == nil && req.NotBefore == nil {
+	if req.Name == nil && req.Tags == nil && req.AutoRenew == nil && req.RenewalDays == nil && req.Enabled == nil && req.NotBefore == nil && req.PurgeProtection == nil {
 		c.SetInvalidParam("at least one update field must be provided")
 		return
 	}
@@ -321,14 +326,15 @@ func updateCertificate(c *Context, w http.ResponseWriter, r *http.Request) {
 	}
 
 	updateReq := certServices.UpdateCertificateRequest{
-		CertID:      certID,
-		Scope:       scope,
-		Name:        req.Name,
-		Tags:        req.Tags,
-		AutoRenew:   req.AutoRenew,
-		RenewalDays: req.RenewalDays,
-		Enabled:     req.Enabled,
-		NotBefore:   req.NotBefore,
+		CertID:          certID,
+		Scope:           scope,
+		Name:            req.Name,
+		Tags:            req.Tags,
+		AutoRenew:       req.AutoRenew,
+		RenewalDays:     req.RenewalDays,
+		Enabled:         req.Enabled,
+		NotBefore:       req.NotBefore,
+		PurgeProtection: req.PurgeProtection,
 	}
 
 	if err := certService.UpdateCertificate(r.Context(), updateReq); err != nil {

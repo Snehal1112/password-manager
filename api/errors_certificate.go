@@ -3,6 +3,7 @@ package api
 import (
 	"errors"
 
+	"rocketvault/internal/repositories"
 	certServices "rocketvault/internal/services/certificates"
 )
 
@@ -20,6 +21,8 @@ func writeCertificateError(c *Context, err error) {
 		c.SetPermissionError("certificate is disabled or outside its valid time window")
 	case errors.Is(err, certServices.ErrCertNotFound):
 		c.SetNotFound("certificate")
+	case errors.Is(err, repositories.ErrCertPurgeProtected):
+		c.SetPermissionError("certificate has purge protection enabled")
 	default:
 		c.SetInternalError(err)
 	}

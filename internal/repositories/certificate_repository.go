@@ -639,7 +639,7 @@ func (r *CertificateRepository) PurgeCertificate(ctx context.Context, id uuid.UU
 		}
 		if purgeProtection {
 			r.log.LogAuditError(uuid.Nil.String(), "purge_certificate", "failed", "Certificate has purge protection enabled", nil)
-			return fmt.Errorf("certificate has purge protection enabled")
+			return ErrCertPurgeProtected
 		}
 
 		result, err := r.db.ExecContext(ctx, "DELETE FROM certificates WHERE id = ?", id.String())

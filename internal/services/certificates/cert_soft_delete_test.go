@@ -3,6 +3,7 @@ package certificates
 import (
 	"context"
 	"encoding/base64"
+	"errors"
 	"strings"
 	"sync"
 	"testing"
@@ -100,6 +101,24 @@ func (m *mockCertRepository) SoftDeleteVaultContents(ctx context.Context, vaultI
 func (m *mockCertRepository) RecoverVaultContents(ctx context.Context, vaultID uuid.UUID, deletedAt time.Time) error {
 	args := m.Called(ctx, vaultID, deletedAt)
 	return args.Error(0)
+}
+
+// mockVaultRepository is a minimal test double for
+// repositories.VaultRepositoryInterface. Only ReadByID is exercised — the
+// purge-protection cascade check is the sole reason the certificate service
+// holds a vault repository at all, so the rest of the interface is embedded
+// rather than implemented.
+type mockVaultRepository struct {
+	mock.Mock
+	repositories.VaultRepositoryInterface
+}
+
+func (m *mockVaultRepository) ReadByID(ctx context.Context, id uuid.UUID) (*model.Vault, error) {
+	args := m.Called(ctx, id)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).(*model.Vault), args.Error(1)
 }
 
 // mockKeyRepo is a minimal stub for KeyRepositoryInterface used in CertificateServiceConfig.
@@ -385,6 +404,249 @@ func TestPurgeCertificate_PurgesWhenInScope(t *testing.T) {
 	err := svc.PurgeCertificate(context.Background(), certID, scope)
 	assert.NoError(t, err)
 	repo.AssertExpectations(t)
+}
+
+// TestCreateSelfSignedCertificate_SetsPurgeProtectionWhenRequested verifies the
+// self-signed create path actually persists the requested purge-protection
+// flag, which was previously only settable by editing the database directly.
+func TestCreateSelfSignedCertificate_SetsPurgeProtectionWhenRequested(t *testing.T) {
+	setupMasterKey()
+
+	userID := uuid.New()
+	keyID := uuid.New()
+
+	privateKeyPEM, err := crypto.GenerateRSAKeyPEM(2048)
+	require.NoError(t, err)
+	encryptedKey, err := common.EncryptSecret(privateKeyPEM)
+	require.NoError(t, err)
+
+	certRepo := &mockCertRepository{}
+	keyRepo := &mockKeyRepo{}
+	keyRepo.On("Read", mock.Anything, keyID, model.NewAdminScope(userID)).Return(&model.Key{
+		ID: keyID, UserID: userID, Type: model.KeyTypeRSA, Value: encryptedKey,
+	}, nil)
+	certRepo.On("Create", mock.Anything, mock.AnythingOfType("*model.Certificate")).Return(nil)
+	certRepo.On("SetPurgeProtection", mock.Anything, mock.AnythingOfType("uuid.UUID"), true).Return(nil)
+
+	logger := &logging.Logger{Logger: logrus.New()}
+	svc := NewCertificateService(CertificateServiceConfig{
+		CertificateRepository: certRepo,
+		KeyRepository:         keyRepo,
+		Logger:                logger,
+	})
+
+	protect := true
+	result, err := svc.CreateSelfSignedCertificate(context.Background(), CreateCertificateRequest{
+		Name:            "protected-self-signed",
+		KeyID:           keyID,
+		ValidityDays:    90,
+		UserID:          userID,
+		PurgeProtection: &protect,
+	})
+	require.NoError(t, err)
+	certRepo.AssertCalled(t, "SetPurgeProtection", mock.Anything, result.CertID, true)
+	certRepo.AssertExpectations(t)
+	keyRepo.AssertExpectations(t)
+}
+
+// TestCreateCASignedCertificate_SetsPurgeProtectionWhenRequested mirrors the
+// self-signed case for the CA-signed create path — the two paths build and
+// store the certificate independently, so both need the wiring.
+func TestCreateCASignedCertificate_SetsPurgeProtectionWhenRequested(t *testing.T) {
+	setupMasterKey()
+
+	userID := uuid.New()
+	keyID := uuid.New()
+	caCertID := uuid.New()
+
+	privateKeyPEM, err := crypto.GenerateRSAKeyPEM(2048)
+	require.NoError(t, err)
+	encryptedKey, err := common.EncryptSecret(privateKeyPEM)
+	require.NoError(t, err)
+
+	caKeyPEM, err := crypto.GenerateRSAKeyPEM(2048)
+	require.NoError(t, err)
+	caCertPEM, err := crypto.CreateSelfSignedCertificatePEM(caKeyPEM, model.KeyTypeRSA, crypto.CertificateTemplate{
+		CommonName: "test-ca", ValidityDays: 365, IsCA: true,
+	})
+	require.NoError(t, err)
+	encryptedCAKey, err := common.EncryptSecret(caKeyPEM)
+	require.NoError(t, err)
+
+	certRepo := &mockCertRepository{}
+	keyRepo := &mockKeyRepo{}
+	keyRepo.On("Read", mock.Anything, keyID, model.NewAdminScope(userID)).Return(&model.Key{
+		ID: keyID, UserID: userID, Type: model.KeyTypeRSA, Value: encryptedKey,
+	}, nil)
+	certRepo.On("Read", mock.Anything, caCertID, model.NewAdminScope(userID)).Return(&model.Certificate{
+		ID: caCertID, UserID: userID, Name: "test-ca", Certificate: caCertPEM, PrivateKey: encryptedCAKey,
+	}, nil)
+	certRepo.On("Create", mock.Anything, mock.AnythingOfType("*model.Certificate")).Return(nil)
+	certRepo.On("SetPurgeProtection", mock.Anything, mock.AnythingOfType("uuid.UUID"), true).Return(nil)
+
+	logger := &logging.Logger{Logger: logrus.New()}
+	svc := NewCertificateService(CertificateServiceConfig{
+		CertificateRepository: certRepo,
+		KeyRepository:         keyRepo,
+		Logger:                logger,
+	})
+
+	protect := true
+	result, err := svc.CreateCASignedCertificate(context.Background(), CreateCertificateRequest{
+		Name:            "protected-ca-signed",
+		KeyID:           keyID,
+		CACertID:        &caCertID,
+		ValidityDays:    90,
+		UserID:          userID,
+		PurgeProtection: &protect,
+	})
+	require.NoError(t, err)
+	certRepo.AssertCalled(t, "SetPurgeProtection", mock.Anything, result.CertID, true)
+	certRepo.AssertExpectations(t)
+	keyRepo.AssertExpectations(t)
+}
+
+// TestCreateSelfSignedCertificate_LeavesPurgeProtectionAloneByDefault verifies
+// a nil request field means "no explicit value", not "off".
+func TestCreateSelfSignedCertificate_LeavesPurgeProtectionAloneByDefault(t *testing.T) {
+	setupMasterKey()
+
+	userID := uuid.New()
+	keyID := uuid.New()
+
+	privateKeyPEM, err := crypto.GenerateRSAKeyPEM(2048)
+	require.NoError(t, err)
+	encryptedKey, err := common.EncryptSecret(privateKeyPEM)
+	require.NoError(t, err)
+
+	certRepo := &mockCertRepository{}
+	keyRepo := &mockKeyRepo{}
+	keyRepo.On("Read", mock.Anything, keyID, model.NewAdminScope(userID)).Return(&model.Key{
+		ID: keyID, UserID: userID, Type: model.KeyTypeRSA, Value: encryptedKey,
+	}, nil)
+	certRepo.On("Create", mock.Anything, mock.AnythingOfType("*model.Certificate")).Return(nil)
+
+	logger := &logging.Logger{Logger: logrus.New()}
+	svc := NewCertificateService(CertificateServiceConfig{
+		CertificateRepository: certRepo,
+		KeyRepository:         keyRepo,
+		Logger:                logger,
+	})
+
+	_, err = svc.CreateSelfSignedCertificate(context.Background(), CreateCertificateRequest{
+		Name: "plain-self-signed", KeyID: keyID, ValidityDays: 90, UserID: userID,
+	})
+	require.NoError(t, err)
+	certRepo.AssertNotCalled(t, "SetPurgeProtection", mock.Anything, mock.Anything, mock.Anything)
+}
+
+// TestUpdateCertificate_SetsPurgeProtectionWhenRequested verifies the update
+// path forwards an explicit purge-protection change to the repository.
+func TestUpdateCertificate_SetsPurgeProtectionWhenRequested(t *testing.T) {
+	certID := uuid.New()
+	vaultID := uuid.New()
+	scope := model.NewVaultScope(vaultID, uuid.New())
+
+	repo := &mockCertRepository{}
+	repo.On("Read", mock.Anything, certID, scope).
+		Return(&model.Certificate{ID: certID, VaultID: vaultID, Name: "cert", Enabled: true}, nil)
+	repo.On("Update", mock.Anything, mock.AnythingOfType("*model.Certificate"), scope).Return(nil)
+	repo.On("SetPurgeProtection", mock.Anything, certID, true).Return(nil)
+
+	logger := &logging.Logger{Logger: logrus.New()}
+	svc := NewCertificateService(CertificateServiceConfig{CertificateRepository: repo, Logger: logger})
+
+	protect := true
+	require.NoError(t, svc.UpdateCertificate(context.Background(), UpdateCertificateRequest{
+		CertID: certID, Scope: scope, PurgeProtection: &protect,
+	}))
+	repo.AssertExpectations(t)
+}
+
+// TestPurgeCertificate_BlockedWhenVaultIsPurgeProtected verifies vault-level
+// purge protection cascades to the per-certificate purge path.
+func TestPurgeCertificate_BlockedWhenVaultIsPurgeProtected(t *testing.T) {
+	vaultID := uuid.New()
+	certID := uuid.New()
+	scope := model.NewVaultScope(vaultID, uuid.New())
+	now := time.Now()
+
+	repo := &mockCertRepository{}
+	repo.On("List", mock.Anything, scope, repositories.CertificateFilter{OnlyDeleted: true}).
+		Return([]model.Certificate{{ID: certID, VaultID: vaultID, DeletedAt: &now}}, nil)
+
+	vaultRepo := &mockVaultRepository{}
+	vaultRepo.On("ReadByID", mock.Anything, vaultID).
+		Return(&model.Vault{ID: vaultID, PurgeProtection: true}, nil)
+
+	logger := &logging.Logger{Logger: logrus.New()}
+	svc := NewCertificateService(CertificateServiceConfig{
+		CertificateRepository: repo,
+		VaultRepository:       vaultRepo,
+		Logger:                logger,
+	})
+
+	err := svc.PurgeCertificate(context.Background(), certID, scope)
+	require.ErrorIs(t, err, repositories.ErrCertPurgeProtected)
+	repo.AssertNotCalled(t, "PurgeCertificate", mock.Anything, mock.Anything)
+	vaultRepo.AssertExpectations(t)
+}
+
+// TestPurgeCertificate_BlockedWhenVaultReadFails pins the fail-closed
+// behaviour: a vault that cannot be read blocks the purge rather than silently
+// skipping the only protection layer a certificate without its own flag has.
+func TestPurgeCertificate_BlockedWhenVaultReadFails(t *testing.T) {
+	vaultID := uuid.New()
+	certID := uuid.New()
+	scope := model.NewVaultScope(vaultID, uuid.New())
+	now := time.Now()
+
+	repo := &mockCertRepository{}
+	repo.On("List", mock.Anything, scope, repositories.CertificateFilter{OnlyDeleted: true}).
+		Return([]model.Certificate{{ID: certID, VaultID: vaultID, DeletedAt: &now}}, nil)
+
+	vaultRepo := &mockVaultRepository{}
+	vaultRepo.On("ReadByID", mock.Anything, vaultID).Return(nil, errors.New("database is locked"))
+
+	logger := &logging.Logger{Logger: logrus.New()}
+	svc := NewCertificateService(CertificateServiceConfig{
+		CertificateRepository: repo,
+		VaultRepository:       vaultRepo,
+		Logger:                logger,
+	})
+
+	err := svc.PurgeCertificate(context.Background(), certID, scope)
+	require.Error(t, err)
+	repo.AssertNotCalled(t, "PurgeCertificate", mock.Anything, mock.Anything)
+	vaultRepo.AssertExpectations(t)
+}
+
+// TestPurgeCertificate_ProceedsWhenVaultIsNotPurgeProtected verifies the
+// cascade check does not block an unprotected vault.
+func TestPurgeCertificate_ProceedsWhenVaultIsNotPurgeProtected(t *testing.T) {
+	vaultID := uuid.New()
+	certID := uuid.New()
+	scope := model.NewVaultScope(vaultID, uuid.New())
+	now := time.Now()
+
+	repo := &mockCertRepository{}
+	repo.On("List", mock.Anything, scope, repositories.CertificateFilter{OnlyDeleted: true}).
+		Return([]model.Certificate{{ID: certID, VaultID: vaultID, DeletedAt: &now}}, nil)
+	repo.On("PurgeCertificate", mock.Anything, certID).Return(nil)
+
+	vaultRepo := &mockVaultRepository{}
+	vaultRepo.On("ReadByID", mock.Anything, vaultID).Return(&model.Vault{ID: vaultID}, nil)
+
+	logger := &logging.Logger{Logger: logrus.New()}
+	svc := NewCertificateService(CertificateServiceConfig{
+		CertificateRepository: repo,
+		VaultRepository:       vaultRepo,
+		Logger:                logger,
+	})
+
+	require.NoError(t, svc.PurgeCertificate(context.Background(), certID, scope))
+	repo.AssertExpectations(t)
+	vaultRepo.AssertExpectations(t)
 }
 
 // auditRecord is one persisted audit row.

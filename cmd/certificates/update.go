@@ -66,6 +66,13 @@ var updateCmd = &cobra.Command{
 			renewalDaysPtr = &v
 		}
 
+		// Only change purge protection when the flag was explicitly passed.
+		var purgeProtectionPtr *bool
+		if cmd.Flags().Changed("purge-protection") {
+			v, _ := cmd.Flags().GetBool("purge-protection")
+			purgeProtectionPtr = &v
+		}
+
 		var tags []string
 		if tagsStr != "" {
 			tags = strings.Split(tagsStr, ",")
@@ -94,12 +101,13 @@ var updateCmd = &cobra.Command{
 		}
 
 		req := certServices.UpdateCertificateRequest{
-			CertID:      certID,
-			Scope:       model.NewVaultScope(vaultID, claims.UserID),
-			Name:        namePtr,
-			Tags:        tags,
-			AutoRenew:   autoRenewPtr,
-			RenewalDays: renewalDaysPtr,
+			CertID:          certID,
+			Scope:           model.NewVaultScope(vaultID, claims.UserID),
+			Name:            namePtr,
+			Tags:            tags,
+			AutoRenew:       autoRenewPtr,
+			RenewalDays:     renewalDaysPtr,
+			PurgeProtection: purgeProtectionPtr,
 		}
 
 		err = certService.UpdateCertificate(ctx, req)
@@ -122,6 +130,7 @@ func InitCertificatesUpdate(certificatesCmd *cobra.Command) *cobra.Command {
 	updateCmd.Flags().String("tags", "", "Comma-separated tags for the certificate")
 	updateCmd.Flags().Bool("auto-renew", false, "Enable or disable auto-renewal")
 	updateCmd.Flags().Int("renewal-days", 0, "Days before expiry to trigger renewal")
+	updateCmd.Flags().Bool("purge-protection", false, "Protect the certificate from being purged")
 	viper.BindPFlag("cert-update-name", updateCmd.Flags().Lookup("name")) //nolint:errcheck,gosec
 	viper.BindPFlag("cert-update-tags", updateCmd.Flags().Lookup("tags")) //nolint:errcheck,gosec
 

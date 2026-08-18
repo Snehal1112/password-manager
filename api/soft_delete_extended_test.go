@@ -554,6 +554,28 @@ func TestPurgeCertificate_NotFound_Returns404(t *testing.T) {
 	svc.AssertExpectations(t)
 }
 
+// TestPurgeCertificate_PurgeProtected_Returns403 pins that a blocked purge is a
+// permission failure, not a server error: writeCertificateError must recognise
+// the repositories.ErrCertPurgeProtected sentinel rather than fall through to
+// SetInternalError.
+func TestPurgeCertificate_PurgeProtected_Returns403(t *testing.T) {
+	certID := uuid.New()
+	svc := &mockCertService{}
+	svc.On("PurgeCertificate", mock.Anything, certID, mock.Anything).Return(repositories.ErrCertPurgeProtected)
+	c := newCertCtx(svc, certAdminClaims())
+	c.Params = &ApiParams{CertificateID: certID.String(), PerPage: 60}
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest(http.MethodDelete, "/deleted/certificates/"+certID.String()+"/purge", nil)
+
+	purgeCertificate(c, w, r)
+	if c.Err != nil {
+		writeError(w, c)
+	}
+
+	assert.Equal(t, http.StatusForbidden, w.Code)
+	svc.AssertExpectations(t)
+}
+
 func TestPurgeCertificate_Success_Returns200(t *testing.T) {
 	certID := uuid.New()
 	svc := &mockCertService{}
