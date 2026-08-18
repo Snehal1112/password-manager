@@ -606,7 +606,7 @@ func (r *KeyRepository) PurgeKey(ctx context.Context, id uuid.UUID) error {
 		}
 		if purgeProtection {
 			r.log.LogAuditError(uuid.Nil.String(), "purge_key", "failed", "Key has purge protection enabled", nil)
-			return fmt.Errorf("key has purge protection enabled")
+			return ErrKeyPurgeProtected
 		}
 
 		result, err := r.db.ExecContext(ctx, "DELETE FROM keys WHERE id = ?", id.String())

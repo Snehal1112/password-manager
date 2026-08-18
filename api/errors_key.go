@@ -3,6 +3,7 @@ package api
 import (
 	"errors"
 
+	"rocketvault/internal/repositories"
 	keyservices "rocketvault/internal/services/keys"
 )
 
@@ -23,6 +24,8 @@ func writeKeyError(c *Context, err error) {
 		c.SetPermissionError("key_access")
 	case errors.Is(err, keyservices.ErrKeyNotFound):
 		c.SetNotFound("key")
+	case errors.Is(err, repositories.ErrKeyPurgeProtected):
+		c.SetPermissionError("key has purge protection enabled")
 	default:
 		c.SetInternalError(err)
 	}

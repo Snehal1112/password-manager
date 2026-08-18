@@ -72,6 +72,8 @@ type CreateKeyRequest struct {
 	Enabled   *bool      `json:"enabled,omitempty"`
 	ExpiresAt *time.Time `json:"expires_at,omitempty"`
 	NotBefore *time.Time `json:"not_before,omitempty"`
+	// PurgeProtection is optional; nil leaves the stored default alone.
+	PurgeProtection *bool `json:"purge_protection,omitempty"`
 }
 
 func CreateKeyRequestFromJson(data io.Reader) (*CreateKeyRequest, error) {
@@ -86,6 +88,8 @@ type UpdateKeyRequest struct {
 	Enabled   *bool      `json:"enabled,omitempty"`
 	ExpiresAt *time.Time `json:"expires_at,omitempty"`
 	NotBefore *time.Time `json:"not_before,omitempty"`
+	// PurgeProtection is optional; nil means no change.
+	PurgeProtection *bool `json:"purge_protection,omitempty"`
 }
 
 func UpdateKeyRequestFromJson(data io.Reader) (*UpdateKeyRequest, error) {

@@ -382,6 +382,28 @@ func TestPurgeKey_NotFound_Returns404(t *testing.T) {
 	svc.AssertExpectations(t)
 }
 
+// TestPurgeKey_PurgeProtected_Returns403 pins that a blocked purge is a
+// permission failure, not a server error: writeKeyError must recognise the
+// repositories.ErrKeyPurgeProtected sentinel rather than fall through to
+// SetInternalError.
+func TestPurgeKey_PurgeProtected_Returns403(t *testing.T) {
+	keyID := uuid.New()
+	svc := &mockKeyService{}
+	svc.On("PurgeKey", mock.Anything, keyID, mock.Anything).Return(repositories.ErrKeyPurgeProtected)
+	c := newKeyCtx(svc)
+	c.Params = &ApiParams{KeyID: keyID.String(), PerPage: 60}
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest(http.MethodDelete, "/deleted/keys/"+keyID.String()+"/purge", nil)
+
+	purgeKey(c, w, r)
+	if c.Err != nil {
+		writeError(w, c)
+	}
+
+	assert.Equal(t, http.StatusForbidden, w.Code)
+	svc.AssertExpectations(t)
+}
+
 func TestPurgeKey_Success_Returns200(t *testing.T) {
 	keyID := uuid.New()
 	svc := &mockKeyService{}

@@ -541,6 +541,7 @@ func (c *ServiceContainer) initializeServices() error {
 		KeyCache:         c.keyCache,
 		PolicyRepository: c.keyRotationPolicyRepository,
 		Logger:           c.logger,
+		VaultRepository:  c.vaultRepository,
 	})
 
 	// Initialize crypto service with cache and Prometheus metrics.

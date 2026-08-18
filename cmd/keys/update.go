@@ -104,9 +104,15 @@ var updateCmd = &cobra.Command{
 			req.Revoked = &revoked
 			hasUpdate = true
 		}
+		// Only change purge protection when the flag was explicitly passed.
+		if cmd.Flags().Changed("purge-protection") {
+			purgeProtection, _ := cmd.Flags().GetBool("purge-protection")
+			req.PurgeProtection = &purgeProtection
+			hasUpdate = true
+		}
 
 		if !hasUpdate {
-			return fmt.Errorf("at least one update field (name, revoked, tags) must be provided")
+			return fmt.Errorf("at least one update field (name, revoked, tags, purge-protection) must be provided")
 		}
 
 		if err := sc.GetKeyService().UpdateKey(ctx, req); err != nil {
@@ -124,6 +130,7 @@ func InitKeysUpdate(keysCmd *cobra.Command) *cobra.Command {
 	updateCmd.Flags().String("name", "", "New name for the key")
 	updateCmd.Flags().Bool("revoked", false, "Set key revocation status")
 	updateCmd.Flags().String("tags", "", "Comma-separated tags to replace existing tags")
+	updateCmd.Flags().Bool("purge-protection", false, "Protect the key from being purged")
 	viper.BindPFlag("name", updateCmd.Flags().Lookup("name"))       //nolint:errcheck,gosec
 	viper.BindPFlag("revoked", updateCmd.Flags().Lookup("revoked")) //nolint:errcheck,gosec
 	viper.BindPFlag("tags", updateCmd.Flags().Lookup("tags"))       //nolint:errcheck,gosec

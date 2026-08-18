@@ -50,6 +50,8 @@ type CreateKeyRequest struct {
 	Enabled   *bool      `json:"enabled,omitempty"` // Defaults to true if nil.
 	ExpiresAt *time.Time `json:"expires_at,omitempty"`
 	NotBefore *time.Time `json:"not_before,omitempty"`
+	// PurgeProtection is optional; nil leaves the stored default alone.
+	PurgeProtection *bool `json:"purge_protection,omitempty"`
 }
 
 // UpdateKeyRequest represents the request structure for updating a cryptographic key.
@@ -60,6 +62,8 @@ type UpdateKeyRequest struct {
 	Enabled   *bool      `json:"enabled,omitempty"`
 	ExpiresAt *time.Time `json:"expires_at,omitempty"`
 	NotBefore *time.Time `json:"not_before,omitempty"`
+	// PurgeProtection is optional; nil means no change.
+	PurgeProtection *bool `json:"purge_protection,omitempty"`
 }
 
 // KeyResponse represents the response structure for a cryptographic key.
@@ -314,14 +318,15 @@ func createKey(c *Context, w http.ResponseWriter, r *http.Request) {
 
 	// Build create key request.
 	createReq := keyservices.CreateKeyRequest{
-		Name:      req.Name,
-		Type:      req.Type,
-		Tags:      req.Tags,
-		UserID:    userID,
-		VaultID:   vaultID,
-		Enabled:   enabled,
-		ExpiresAt: req.ExpiresAt,
-		NotBefore: req.NotBefore,
+		Name:            req.Name,
+		Type:            req.Type,
+		Tags:            req.Tags,
+		UserID:          userID,
+		VaultID:         vaultID,
+		Enabled:         enabled,
+		ExpiresAt:       req.ExpiresAt,
+		NotBefore:       req.NotBefore,
+		PurgeProtection: req.PurgeProtection,
 	}
 
 	var result *keyservices.CreateKeyResult
@@ -456,8 +461,8 @@ func updateKey(c *Context, w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if req.Name == nil && req.Revoked == nil && req.Tags == nil && req.Enabled == nil && req.ExpiresAt == nil && req.NotBefore == nil {
-		c.SetInvalidParam("at least one update field (name, revoked, tags, enabled, expires_at, not_before) must be provided")
+	if req.Name == nil && req.Revoked == nil && req.Tags == nil && req.Enabled == nil && req.ExpiresAt == nil && req.NotBefore == nil && req.PurgeProtection == nil {
+		c.SetInvalidParam("at least one update field (name, revoked, tags, enabled, expires_at, not_before, purge_protection) must be provided")
 		return
 	}
 
@@ -480,14 +485,15 @@ func updateKey(c *Context, w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := keyService.UpdateKey(r.Context(), keyservices.UpdateKeyRequest{
-		KeyID:     keyID,
-		Scope:     scope,
-		Name:      req.Name,
-		Tags:      req.Tags,
-		Revoked:   req.Revoked,
-		Enabled:   req.Enabled,
-		ExpiresAt: req.ExpiresAt,
-		NotBefore: req.NotBefore,
+		KeyID:           keyID,
+		Scope:           scope,
+		Name:            req.Name,
+		Tags:            req.Tags,
+		Revoked:         req.Revoked,
+		Enabled:         req.Enabled,
+		ExpiresAt:       req.ExpiresAt,
+		NotBefore:       req.NotBefore,
+		PurgeProtection: req.PurgeProtection,
 	}); err != nil {
 		writeKeyError(c, err)
 		return

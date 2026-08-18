@@ -2,6 +2,7 @@ package keys
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"sync"
 	"testing"
@@ -13,6 +14,7 @@ import (
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 
+	"rocketvault/internal/crypto"
 	"rocketvault/internal/logging"
 	"rocketvault/internal/repositories"
 	"rocketvault/model"
@@ -100,6 +102,24 @@ func (m *mockKeyRepository) List(ctx context.Context, scope model.Scope, filter 
 		return nil, args.Error(1)
 	}
 	return args.Get(0).([]model.Key), args.Error(1)
+}
+
+// mockVaultRepository is a minimal test double for
+// repositories.VaultRepositoryInterface. Only ReadByID is exercised — the
+// purge-protection cascade check is the sole reason the key service holds a
+// vault repository at all, so the rest of the interface is embedded rather
+// than implemented.
+type mockVaultRepository struct {
+	mock.Mock
+	repositories.VaultRepositoryInterface
+}
+
+func (m *mockVaultRepository) ReadByID(ctx context.Context, id uuid.UUID) (*model.Vault, error) {
+	args := m.Called(ctx, id)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).(*model.Vault), args.Error(1)
 }
 
 // TestDeleteKeySoftDeletes verifies that DeleteKey calls SoftDelete and not Delete.
@@ -293,6 +313,185 @@ func TestPurgeKey_PurgesWhenInScope(t *testing.T) {
 	err := svc.PurgeKey(context.Background(), keyID, scope)
 	assert.NoError(t, err)
 	repo.AssertExpectations(t)
+}
+
+// TestCreateRSAKey_SetsPurgeProtectionWhenRequested verifies the create path
+// actually persists the requested purge-protection flag, which was previously
+// only settable by editing the database directly.
+func TestCreateRSAKey_SetsPurgeProtectionWhenRequested(t *testing.T) {
+	setupKeyTestMasterKey()
+
+	repo := &mockKeyRepository{}
+	var createdKey *model.Key
+	repo.On("Create", mock.Anything, mock.AnythingOfType("*model.Key")).
+		Run(func(args mock.Arguments) { createdKey = args.Get(1).(*model.Key) }).
+		Return(nil)
+	repo.On("SetPurgeProtection", mock.Anything, mock.AnythingOfType("uuid.UUID"), true).Return(nil)
+
+	svc := NewKeyService(KeyServiceConfig{
+		KeyRepository: repo,
+		KeyProvider:   crypto.NewSoftwareKeyProvider(),
+		Logger:        newKeyLogger(),
+	})
+
+	protect := true
+	result, err := svc.CreateRSAKey(context.Background(), CreateKeyRequest{
+		UserID: uuid.New(), Name: "k1", Type: "RSA", Bits: 2048, PurgeProtection: &protect,
+	})
+	require.NoError(t, err)
+	require.NotNil(t, createdKey)
+	repo.AssertCalled(t, "SetPurgeProtection", mock.Anything, result.KeyID, true)
+	repo.AssertExpectations(t)
+}
+
+// TestCreateECDSAKey_SetsPurgeProtectionWhenRequested mirrors the RSA case for
+// the ECDSA create path.
+func TestCreateECDSAKey_SetsPurgeProtectionWhenRequested(t *testing.T) {
+	setupKeyTestMasterKey()
+
+	repo := &mockKeyRepository{}
+	repo.On("Create", mock.Anything, mock.AnythingOfType("*model.Key")).Return(nil)
+	repo.On("SetPurgeProtection", mock.Anything, mock.AnythingOfType("uuid.UUID"), true).Return(nil)
+
+	svc := NewKeyService(KeyServiceConfig{
+		KeyRepository: repo,
+		KeyProvider:   crypto.NewSoftwareKeyProvider(),
+		Logger:        newKeyLogger(),
+	})
+
+	protect := true
+	result, err := svc.CreateECDSAKey(context.Background(), CreateKeyRequest{
+		UserID: uuid.New(), Name: "k2", Type: "ECDSA", Curve: "P-256", PurgeProtection: &protect,
+	})
+	require.NoError(t, err)
+	repo.AssertCalled(t, "SetPurgeProtection", mock.Anything, result.KeyID, true)
+	repo.AssertExpectations(t)
+}
+
+// TestCreateRSAKey_LeavesPurgeProtectionAloneByDefault verifies the flag is
+// only touched when the caller explicitly asks for it.
+func TestCreateRSAKey_LeavesPurgeProtectionAloneByDefault(t *testing.T) {
+	setupKeyTestMasterKey()
+
+	repo := &mockKeyRepository{}
+	repo.On("Create", mock.Anything, mock.AnythingOfType("*model.Key")).Return(nil)
+
+	svc := NewKeyService(KeyServiceConfig{
+		KeyRepository: repo,
+		KeyProvider:   crypto.NewSoftwareKeyProvider(),
+		Logger:        newKeyLogger(),
+	})
+
+	_, err := svc.CreateRSAKey(context.Background(), CreateKeyRequest{
+		UserID: uuid.New(), Name: "k1", Type: "RSA", Bits: 2048,
+	})
+	require.NoError(t, err)
+	repo.AssertNotCalled(t, "SetPurgeProtection", mock.Anything, mock.Anything, mock.Anything)
+}
+
+// TestUpdateKey_SetsPurgeProtectionWhenRequested verifies the update path
+// forwards an explicit purge-protection change to the repository.
+func TestUpdateKey_SetsPurgeProtectionWhenRequested(t *testing.T) {
+	keyID := uuid.New()
+	vaultID := uuid.New()
+	scope := model.NewVaultScope(vaultID, uuid.New())
+
+	repo := &mockKeyRepository{}
+	repo.On("Read", mock.Anything, keyID, scope).
+		Return(&model.Key{ID: keyID, VaultID: vaultID, Name: "k", Type: model.KeyTypeRSA, Enabled: true}, nil)
+	repo.On("Update", mock.Anything, mock.AnythingOfType("*model.Key"), scope).Return(nil)
+	repo.On("SetPurgeProtection", mock.Anything, keyID, true).Return(nil)
+
+	svc := NewKeyService(KeyServiceConfig{KeyRepository: repo, Logger: newKeyLogger()})
+
+	protect := true
+	require.NoError(t, svc.UpdateKey(context.Background(), UpdateKeyRequest{
+		KeyID: keyID, Scope: scope, PurgeProtection: &protect,
+	}))
+	repo.AssertExpectations(t)
+}
+
+// TestPurgeKey_BlockedWhenVaultIsPurgeProtected verifies vault-level purge
+// protection cascades to the per-key purge path.
+func TestPurgeKey_BlockedWhenVaultIsPurgeProtected(t *testing.T) {
+	vaultID := uuid.New()
+	keyID := uuid.New()
+	scope := model.NewVaultScope(vaultID, uuid.New())
+	now := time.Now()
+
+	repo := &mockKeyRepository{}
+	repo.On("List", mock.Anything, scope, repositories.KeyFilter{OnlyDeleted: true}).
+		Return([]model.Key{{ID: keyID, VaultID: vaultID, DeletedAt: &now}}, nil)
+
+	vaultRepo := &mockVaultRepository{}
+	vaultRepo.On("ReadByID", mock.Anything, vaultID).
+		Return(&model.Vault{ID: vaultID, PurgeProtection: true}, nil)
+
+	svc := NewKeyService(KeyServiceConfig{
+		KeyRepository:   repo,
+		VaultRepository: vaultRepo,
+		Logger:          newKeyLogger(),
+	})
+
+	err := svc.PurgeKey(context.Background(), keyID, scope)
+	require.ErrorIs(t, err, repositories.ErrKeyPurgeProtected)
+	repo.AssertNotCalled(t, "PurgeKey", mock.Anything, mock.Anything)
+	vaultRepo.AssertExpectations(t)
+}
+
+// TestPurgeKey_BlockedWhenVaultReadFails pins the fail-closed behaviour: a
+// vault that cannot be read blocks the purge rather than silently skipping the
+// only protection layer a key without its own flag has.
+func TestPurgeKey_BlockedWhenVaultReadFails(t *testing.T) {
+	vaultID := uuid.New()
+	keyID := uuid.New()
+	scope := model.NewVaultScope(vaultID, uuid.New())
+	now := time.Now()
+
+	repo := &mockKeyRepository{}
+	repo.On("List", mock.Anything, scope, repositories.KeyFilter{OnlyDeleted: true}).
+		Return([]model.Key{{ID: keyID, VaultID: vaultID, DeletedAt: &now}}, nil)
+
+	vaultRepo := &mockVaultRepository{}
+	vaultRepo.On("ReadByID", mock.Anything, vaultID).Return(nil, errors.New("database is locked"))
+
+	svc := NewKeyService(KeyServiceConfig{
+		KeyRepository:   repo,
+		VaultRepository: vaultRepo,
+		Logger:          newKeyLogger(),
+	})
+
+	err := svc.PurgeKey(context.Background(), keyID, scope)
+	require.Error(t, err)
+	repo.AssertNotCalled(t, "PurgeKey", mock.Anything, mock.Anything)
+	vaultRepo.AssertExpectations(t)
+}
+
+// TestPurgeKey_ProceedsWhenVaultIsNotPurgeProtected verifies the cascade check
+// does not block an unprotected vault.
+func TestPurgeKey_ProceedsWhenVaultIsNotPurgeProtected(t *testing.T) {
+	vaultID := uuid.New()
+	keyID := uuid.New()
+	scope := model.NewVaultScope(vaultID, uuid.New())
+	now := time.Now()
+
+	repo := &mockKeyRepository{}
+	repo.On("List", mock.Anything, scope, repositories.KeyFilter{OnlyDeleted: true}).
+		Return([]model.Key{{ID: keyID, VaultID: vaultID, DeletedAt: &now}}, nil)
+	repo.On("PurgeKey", mock.Anything, keyID).Return(nil)
+
+	vaultRepo := &mockVaultRepository{}
+	vaultRepo.On("ReadByID", mock.Anything, vaultID).Return(&model.Vault{ID: vaultID}, nil)
+
+	svc := NewKeyService(KeyServiceConfig{
+		KeyRepository:   repo,
+		VaultRepository: vaultRepo,
+		Logger:          newKeyLogger(),
+	})
+
+	require.NoError(t, svc.PurgeKey(context.Background(), keyID, scope))
+	repo.AssertExpectations(t)
+	vaultRepo.AssertExpectations(t)
 }
 
 // auditRecord is one persisted audit row.

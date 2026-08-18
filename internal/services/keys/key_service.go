@@ -51,6 +51,9 @@ type CreateKeyRequest struct {
 	Enabled   *bool     // Defaults to true if nil.
 	ExpiresAt *time.Time
 	NotBefore *time.Time
+	// PurgeProtection is optional: nil leaves the stored default alone, true
+	// enables purge protection on the freshly created key.
+	PurgeProtection *bool
 }
 
 // resolveVaultID returns the requested vault id, falling back to the default
@@ -81,6 +84,8 @@ type UpdateKeyRequest struct {
 	Enabled   *bool       // Optional - nil means no change
 	ExpiresAt *time.Time  // Optional - nil means no change
 	NotBefore *time.Time  // Optional - nil means no change
+	// PurgeProtection is optional - nil means no change.
+	PurgeProtection *bool
 }
 
 // KeyService handles cryptographic key management operations.
@@ -134,6 +139,9 @@ type keyService struct {
 	keyCache    keycache.Cache
 	policyRepo  repositories.KeyRotationPolicyRepositoryInterface
 	logger      *logging.Logger
+	// vaultRepo is optional. When set, PurgeKey refuses to purge a key whose
+	// containing vault has purge protection enabled.
+	vaultRepo repositories.VaultRepositoryInterface
 }
 
 // KeyServiceConfig holds the dependencies for key service.
@@ -145,6 +153,9 @@ type KeyServiceConfig struct {
 	KeyCache         keycache.Cache
 	PolicyRepository repositories.KeyRotationPolicyRepositoryInterface
 	Logger           *logging.Logger
+	// VaultRepository is optional; it enables the vault-level purge-protection
+	// cascade check in PurgeKey.
+	VaultRepository repositories.VaultRepositoryInterface
 }
 
 // NewKeyService creates a new KeyService with the provided dependencies.
@@ -167,7 +178,23 @@ func NewKeyService(config KeyServiceConfig) KeyService {
 		keyCache:    config.KeyCache,
 		policyRepo:  config.PolicyRepository,
 		logger:      config.Logger,
+		vaultRepo:   config.VaultRepository,
 	}
+}
+
+// applyCreatePurgeProtection turns on purge protection for a freshly created
+// key when the caller asked for it. A nil request field leaves the stored
+// default alone, so the three create paths share one implementation and only
+// differ in the audit action they report.
+func (s *keyService) applyCreatePurgeProtection(ctx context.Context, req CreateKeyRequest, keyID uuid.UUID, action string) error {
+	if req.PurgeProtection == nil || !*req.PurgeProtection {
+		return nil
+	}
+	if err := s.keyRepo.SetPurgeProtection(ctx, keyID, true); err != nil {
+		s.logger.LogAuditError(req.UserID.String(), action, "failed", "failed to set purge protection", err)
+		return fmt.Errorf("failed to set purge protection: %w", err)
+	}
+	return nil
 }
 
 // CreateRSAKey creates a new RSA cryptographic key.
@@ -242,6 +269,10 @@ func (s *keyService) CreateRSAKey(ctx context.Context, req CreateKeyRequest) (*C
 	if err := s.keyRepo.Create(ctx, key); err != nil {
 		s.logger.LogAuditError(req.UserID.String(), "create_rsa_key", "failed", "failed to store key", err)
 		return nil, fmt.Errorf("failed to store RSA key: %w", err)
+	}
+
+	if err := s.applyCreatePurgeProtection(ctx, req, key.ID, "create_rsa_key"); err != nil {
+		return nil, err
 	}
 
 	s.logger.LogAuditInfo(req.UserID.String(), "create_rsa_key", "success", fmt.Sprintf("RSA key created: %s, ID: %s", req.Name, key.ID))
@@ -338,6 +369,10 @@ func (s *keyService) CreateECDSAKey(ctx context.Context, req CreateKeyRequest) (
 		return nil, fmt.Errorf("failed to store ECDSA key: %w", err)
 	}
 
+	if err := s.applyCreatePurgeProtection(ctx, req, key.ID, "create_ecdsa_key"); err != nil {
+		return nil, err
+	}
+
 	s.logger.LogAuditInfo(req.UserID.String(), "create_ecdsa_key", "success", fmt.Sprintf("ECDSA key created: %s, ID: %s", req.Name, key.ID))
 	logrus.WithFields(logrus.Fields{
 		"key_id": key.ID.String(),
@@ -403,6 +438,10 @@ func (s *keyService) CreateOctKey(ctx context.Context, req CreateKeyRequest) (*C
 	if err := s.keyRepo.Create(ctx, key); err != nil {
 		s.logger.LogAuditError(req.UserID.String(), "create_oct_key", "failed", "failed to store key", err)
 		return nil, fmt.Errorf("failed to store AES key: %w", err)
+	}
+
+	if err := s.applyCreatePurgeProtection(ctx, req, key.ID, "create_oct_key"); err != nil {
+		return nil, err
 	}
 
 	s.logger.LogAuditInfo(req.UserID.String(), "create_oct_key", "success", fmt.Sprintf("AES key created: %s, ID: %s", req.Name, key.ID))
@@ -588,6 +627,14 @@ func (s *keyService) UpdateKey(ctx context.Context, req UpdateKeyRequest) error 
 		return fmt.Errorf("failed to update key: %w", err)
 	}
 
+	// Purge protection lives outside the key entity, so it is a separate write.
+	if req.PurgeProtection != nil {
+		if err := s.keyRepo.SetPurgeProtection(ctx, req.KeyID, *req.PurgeProtection); err != nil {
+			s.logger.LogAuditError(actor, "update_key", "failed", "failed to set purge protection", err)
+			return fmt.Errorf("failed to set purge protection: %w", err)
+		}
+	}
+
 	// Evict stale cached material (covers revoke, disable, and expiry changes).
 	if s.keyCache != nil {
 		s.keyCache.Invalidate(updatedKey.ID)
@@ -689,6 +736,26 @@ func (s *keyService) PurgeKey(ctx context.Context, keyID uuid.UUID, scope model.
 			"Key not found in deleted state within scope", nil)
 		return fmt.Errorf("%w", ErrKeyNotFound)
 	}
+
+	// Vault-level purge protection cascades to the keys the vault contains, so
+	// a protected vault blocks the per-item purge path too. This check fails
+	// closed: for a key with no flag of its own it is the only protection
+	// layer, so a vault that cannot be read blocks the purge rather than
+	// silently skipping the check.
+	if s.vaultRepo != nil && scope.VaultID() != uuid.Nil {
+		vault, err := s.vaultRepo.ReadByID(ctx, scope.VaultID())
+		if err != nil {
+			s.logger.LogAuditError(scope.ActorID().String(), "purge_key", "failed",
+				"Failed to check vault purge protection", err)
+			return fmt.Errorf("failed to check vault purge protection: %w", err)
+		}
+		if vault.PurgeProtection {
+			s.logger.LogAuditError(scope.ActorID().String(), "purge_key", "failed",
+				"Vault has purge protection enabled", nil)
+			return repositories.ErrKeyPurgeProtected
+		}
+	}
+
 	if err := s.keyRepo.PurgeKey(ctx, keyID); err != nil {
 		return fmt.Errorf("failed to purge key: %w", err)
 	}
