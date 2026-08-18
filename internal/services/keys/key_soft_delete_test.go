@@ -2,6 +2,8 @@ package keys
 
 import (
 	"context"
+	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -9,6 +11,7 @@ import (
 	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
+	"github.com/stretchr/testify/require"
 
 	"rocketvault/internal/logging"
 	"rocketvault/internal/repositories"
@@ -290,4 +293,94 @@ func TestPurgeKey_PurgesWhenInScope(t *testing.T) {
 	err := svc.PurgeKey(context.Background(), keyID, scope)
 	assert.NoError(t, err)
 	repo.AssertExpectations(t)
+}
+
+// auditRecord is one persisted audit row.
+type auditRecord struct {
+	userID  string
+	action  string
+	details string
+}
+
+// recordingAuditPersister captures the audit rows a service emitted. Mirrors
+// the helper defined in internal/services/secrets/direct_write_invalidation_test.go.
+type recordingAuditPersister struct {
+	mu      sync.Mutex
+	records []auditRecord
+}
+
+func (p *recordingAuditPersister) PersistAudit(userID, action, details string) error {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.records = append(p.records, auditRecord{userID, action, details})
+	return nil
+}
+
+func (p *recordingAuditPersister) find(action, status string) (auditRecord, bool) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	for _, rec := range p.records {
+		if rec.action == action && strings.Contains(rec.details, "status="+status) {
+			return rec, true
+		}
+	}
+	return auditRecord{}, false
+}
+
+// newAuditingLogger returns a quiet logger whose audit calls are captured.
+func newAuditingLogger(t *testing.T) (*logging.Logger, *recordingAuditPersister) {
+	t.Helper()
+	l := logrus.New()
+	l.SetLevel(logrus.PanicLevel)
+	logger := logging.WrapLogrus(l)
+	persister := &recordingAuditPersister{}
+	logger.SetAuditPersister(persister)
+	return logger, persister
+}
+
+// TestRecoverKey_LogsSuccessAudit verifies RecoverKey emits a success audit
+// row attributed to the scope's actor.
+func TestRecoverKey_LogsSuccessAudit(t *testing.T) {
+	owner := uuid.New()
+	vaultID := uuid.New()
+	scope := model.NewVaultScope(vaultID, owner)
+	keyID := uuid.New()
+	now := time.Now()
+
+	repo := &mockKeyRepository{}
+	repo.On("List", mock.Anything, scope, repositories.KeyFilter{OnlyDeleted: true}).
+		Return([]model.Key{{ID: keyID, Name: "k", Type: model.KeyTypeRSA, DeletedAt: &now}}, nil)
+	repo.On("RecoverKey", mock.Anything, keyID).Return(nil)
+
+	logger, audit := newAuditingLogger(t)
+	svc := NewKeyService(KeyServiceConfig{KeyRepository: repo, Logger: logger})
+
+	require.NoError(t, svc.RecoverKey(context.Background(), keyID, scope))
+
+	rec, ok := audit.find("recover_key", "success")
+	require.True(t, ok, "RecoverKey must emit a success audit row")
+	assert.Equal(t, owner.String(), rec.userID)
+}
+
+// TestPurgeKey_LogsSuccessAudit mirrors TestRecoverKey_LogsSuccessAudit for purge.
+func TestPurgeKey_LogsSuccessAudit(t *testing.T) {
+	owner := uuid.New()
+	vaultID := uuid.New()
+	scope := model.NewVaultScope(vaultID, owner)
+	keyID := uuid.New()
+	now := time.Now()
+
+	repo := &mockKeyRepository{}
+	repo.On("List", mock.Anything, scope, repositories.KeyFilter{OnlyDeleted: true}).
+		Return([]model.Key{{ID: keyID, Name: "k", Type: model.KeyTypeRSA, DeletedAt: &now}}, nil)
+	repo.On("PurgeKey", mock.Anything, keyID).Return(nil)
+
+	logger, audit := newAuditingLogger(t)
+	svc := NewKeyService(KeyServiceConfig{KeyRepository: repo, Logger: logger})
+
+	require.NoError(t, svc.PurgeKey(context.Background(), keyID, scope))
+
+	rec, ok := audit.find("purge_key", "success")
+	require.True(t, ok, "PurgeKey must emit a success audit row")
+	assert.Equal(t, owner.String(), rec.userID)
 }

@@ -2,6 +2,8 @@ package secrets
 
 import (
 	"context"
+	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -325,4 +327,119 @@ func TestPurgeSecretPurgesWhenInScope(t *testing.T) {
 
 	require.NoError(t, svc.PurgeSecret(ctx, secretID, scope))
 	repo.AssertExpectations(t)
+}
+
+// auditRecord is one persisted audit row. Mirrors the shape defined in
+// direct_write_invalidation_test.go, duplicated here because that file lives
+// in package secrets_test (a separate black-box package) and its unexported
+// helpers aren't visible from this file's package secrets.
+type auditRecord struct {
+	userID  string
+	action  string
+	details string
+}
+
+// recordingAuditPersister captures the audit rows a service emitted.
+type recordingAuditPersister struct {
+	mu      sync.Mutex
+	records []auditRecord
+}
+
+func (p *recordingAuditPersister) PersistAudit(userID, action, details string) error {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.records = append(p.records, auditRecord{userID, action, details})
+	return nil
+}
+
+func (p *recordingAuditPersister) find(action, status string) (auditRecord, bool) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	for _, rec := range p.records {
+		if rec.action == action && strings.Contains(rec.details, "status="+status) {
+			return rec, true
+		}
+	}
+	return auditRecord{}, false
+}
+
+// newAuditingLogger returns a quiet logger whose audit calls are captured.
+func newAuditingLogger(t *testing.T) (*logging.Logger, *recordingAuditPersister) {
+	t.Helper()
+	l := logrus.New()
+	l.SetLevel(logrus.PanicLevel)
+	logger := logging.WrapLogrus(l)
+	persister := &recordingAuditPersister{}
+	logger.SetAuditPersister(persister)
+	return logger, persister
+}
+
+func TestRecoverSecret_LogsSuccessAudit(t *testing.T) {
+	repo := new(MockSecretRepository)
+	tags := new(MockTagService)
+	tags.On("GetTags", mock.Anything, mock.Anything).Return([]string{}, nil).Maybe()
+	tags.On("RemoveAllTags", mock.Anything, mock.Anything).Return(nil).Maybe()
+	versions := new(MockVersioningService)
+	versions.On("CreateVersion", mock.Anything, mock.Anything).Return(&model.SecretVersion{}, nil).Maybe()
+
+	logger, audit := newAuditingLogger(t)
+	svc := &secretService{
+		secretRepo:     repo,
+		cryptoService:  fakeCrypto{},
+		versionService: versions,
+		tagService:     tags,
+		logger:         logger,
+	}
+
+	ctx := context.Background()
+	owner := uuid.New()
+	vaultID := uuid.New()
+	scope := model.NewVaultScope(vaultID, owner)
+	secretID := uuid.New()
+	deletedAt := time.Now().UTC()
+
+	repo.On("List", ctx, scope, repositories.SecretFilter{OnlyDeleted: true}).
+		Return([]model.Secret{{ID: secretID, DeletedAt: &deletedAt}}, nil).Once()
+	repo.On("RecoverSecret", ctx, secretID).Return(nil).Once()
+
+	require.NoError(t, svc.RecoverSecret(ctx, secretID, scope))
+
+	rec, ok := audit.find("recover_secret", "success")
+	require.True(t, ok, "RecoverSecret must emit a success audit row")
+	assert.Equal(t, owner.String(), rec.userID)
+}
+
+func TestPurgeSecret_LogsSuccessAudit(t *testing.T) {
+	repo := new(MockSecretRepository)
+	tags := new(MockTagService)
+	tags.On("GetTags", mock.Anything, mock.Anything).Return([]string{}, nil).Maybe()
+	tags.On("RemoveAllTags", mock.Anything, mock.Anything).Return(nil).Maybe()
+	versions := new(MockVersioningService)
+	versions.On("CreateVersion", mock.Anything, mock.Anything).Return(&model.SecretVersion{}, nil).Maybe()
+
+	logger, audit := newAuditingLogger(t)
+	svc := &secretService{
+		secretRepo:     repo,
+		cryptoService:  fakeCrypto{},
+		versionService: versions,
+		tagService:     tags,
+		logger:         logger,
+	}
+
+	ctx := context.Background()
+	owner := uuid.New()
+	vaultID := uuid.New()
+	scope := model.NewVaultScope(vaultID, owner)
+	secretID := uuid.New()
+	deletedAt := time.Now().UTC()
+
+	repo.On("List", ctx, scope, repositories.SecretFilter{OnlyDeleted: true}).
+		Return([]model.Secret{{ID: secretID, DeletedAt: &deletedAt}}, nil).Once()
+	repo.On("PurgeSecret", ctx, secretID).Return(nil).Once()
+
+	require.NoError(t, svc.PurgeSecret(ctx, secretID, scope))
+
+	rec, ok := audit.find("purge_secret", "success")
+	require.True(t, ok, "PurgeSecret must emit a success audit row")
+	assert.Equal(t, owner.String(), rec.userID)
 }

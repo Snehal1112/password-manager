@@ -673,6 +673,8 @@ func (s *keyService) RecoverKey(ctx context.Context, keyID uuid.UUID, scope mode
 	if err := s.keyRepo.RecoverKey(ctx, keyID); err != nil {
 		return fmt.Errorf("failed to recover key: %w", err)
 	}
+	s.logger.LogAuditInfo(scope.ActorID().String(), "recover_key", "success",
+		fmt.Sprintf("Key recovered: %s", keyID))
 	return nil
 }
 
@@ -690,6 +692,8 @@ func (s *keyService) PurgeKey(ctx context.Context, keyID uuid.UUID, scope model.
 	if err := s.keyRepo.PurgeKey(ctx, keyID); err != nil {
 		return fmt.Errorf("failed to purge key: %w", err)
 	}
+	s.logger.LogAuditInfo(scope.ActorID().String(), "purge_key", "success",
+		fmt.Sprintf("Key purged: %s", keyID))
 	return nil
 }
 

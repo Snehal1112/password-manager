@@ -777,6 +777,8 @@ func (s *secretService) RecoverSecret(ctx context.Context, secretID uuid.UUID, s
 	if err := s.secretRepo.RecoverSecret(ctx, secretID); err != nil {
 		return fmt.Errorf("failed to recover secret: %w", err)
 	}
+	s.logger.LogAuditInfo(scope.ActorID().String(), "recover_secret", "success",
+		fmt.Sprintf("Secret recovered: %s", secretID))
 	return nil
 }
 
@@ -794,6 +796,8 @@ func (s *secretService) PurgeSecret(ctx context.Context, secretID uuid.UUID, sco
 	if err := s.secretRepo.PurgeSecret(ctx, secretID); err != nil {
 		return fmt.Errorf("failed to purge secret: %w", err)
 	}
+	s.logger.LogAuditInfo(scope.ActorID().String(), "purge_secret", "success",
+		fmt.Sprintf("Secret purged: %s", secretID))
 	return nil
 }
 

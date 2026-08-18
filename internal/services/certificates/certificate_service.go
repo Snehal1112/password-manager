@@ -592,6 +592,8 @@ func (s *certificateService) RecoverCertificate(ctx context.Context, certID uuid
 	if err := s.certRepo.RecoverCertificate(ctx, certID); err != nil {
 		return fmt.Errorf("failed to recover certificate: %w", err)
 	}
+	s.logger.LogAuditInfo(scope.ActorID().String(), "recover_certificate", "success",
+		fmt.Sprintf("Certificate recovered: %s", certID))
 	return nil
 }
 
@@ -609,6 +611,8 @@ func (s *certificateService) PurgeCertificate(ctx context.Context, certID uuid.U
 	if err := s.certRepo.PurgeCertificate(ctx, certID); err != nil {
 		return fmt.Errorf("failed to purge certificate: %w", err)
 	}
+	s.logger.LogAuditInfo(scope.ActorID().String(), "purge_certificate", "success",
+		fmt.Sprintf("Certificate purged: %s", certID))
 	return nil
 }
 

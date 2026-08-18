@@ -3,6 +3,8 @@ package certificates
 import (
 	"context"
 	"encoding/base64"
+	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -383,4 +385,95 @@ func TestPurgeCertificate_PurgesWhenInScope(t *testing.T) {
 	err := svc.PurgeCertificate(context.Background(), certID, scope)
 	assert.NoError(t, err)
 	repo.AssertExpectations(t)
+}
+
+// auditRecord is one persisted audit row.
+type auditRecord struct {
+	userID  string
+	action  string
+	details string
+}
+
+// recordingAuditPersister captures the audit rows a service emitted. Mirrors
+// the helper defined in internal/services/secrets/direct_write_invalidation_test.go.
+type recordingAuditPersister struct {
+	mu      sync.Mutex
+	records []auditRecord
+}
+
+func (p *recordingAuditPersister) PersistAudit(userID, action, details string) error {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.records = append(p.records, auditRecord{userID, action, details})
+	return nil
+}
+
+func (p *recordingAuditPersister) find(action, status string) (auditRecord, bool) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	for _, rec := range p.records {
+		if rec.action == action && strings.Contains(rec.details, "status="+status) {
+			return rec, true
+		}
+	}
+	return auditRecord{}, false
+}
+
+// newAuditingLogger returns a quiet logger whose audit calls are captured.
+func newAuditingLogger(t *testing.T) (*logging.Logger, *recordingAuditPersister) {
+	t.Helper()
+	l := logrus.New()
+	l.SetLevel(logrus.PanicLevel)
+	logger := logging.WrapLogrus(l)
+	persister := &recordingAuditPersister{}
+	logger.SetAuditPersister(persister)
+	return logger, persister
+}
+
+// TestRecoverCertificate_LogsSuccessAudit verifies RecoverCertificate emits a
+// success audit row attributed to the scope's actor.
+func TestRecoverCertificate_LogsSuccessAudit(t *testing.T) {
+	owner := uuid.New()
+	vaultID := uuid.New()
+	scope := model.NewVaultScope(vaultID, owner)
+	certID := uuid.New()
+	now := time.Now()
+
+	repo := &mockCertRepository{}
+	repo.On("List", mock.Anything, scope, repositories.CertificateFilter{OnlyDeleted: true}).
+		Return([]model.Certificate{{ID: certID, Name: "cert", DeletedAt: &now}}, nil)
+	repo.On("RecoverCertificate", mock.Anything, certID).Return(nil)
+
+	logger, audit := newAuditingLogger(t)
+	svc := NewCertificateService(CertificateServiceConfig{CertificateRepository: repo, Logger: logger})
+
+	require.NoError(t, svc.RecoverCertificate(context.Background(), certID, scope))
+
+	rec, ok := audit.find("recover_certificate", "success")
+	require.True(t, ok, "RecoverCertificate must emit a success audit row")
+	assert.Equal(t, owner.String(), rec.userID)
+}
+
+// TestPurgeCertificate_LogsSuccessAudit mirrors
+// TestRecoverCertificate_LogsSuccessAudit for purge.
+func TestPurgeCertificate_LogsSuccessAudit(t *testing.T) {
+	owner := uuid.New()
+	vaultID := uuid.New()
+	scope := model.NewVaultScope(vaultID, owner)
+	certID := uuid.New()
+	now := time.Now()
+
+	repo := &mockCertRepository{}
+	repo.On("List", mock.Anything, scope, repositories.CertificateFilter{OnlyDeleted: true}).
+		Return([]model.Certificate{{ID: certID, Name: "cert", DeletedAt: &now}}, nil)
+	repo.On("PurgeCertificate", mock.Anything, certID).Return(nil)
+
+	logger, audit := newAuditingLogger(t)
+	svc := NewCertificateService(CertificateServiceConfig{CertificateRepository: repo, Logger: logger})
+
+	require.NoError(t, svc.PurgeCertificate(context.Background(), certID, scope))
+
+	rec, ok := audit.find("purge_certificate", "success")
+	require.True(t, ok, "PurgeCertificate must emit a success audit row")
+	assert.Equal(t, owner.String(), rec.userID)
 }
