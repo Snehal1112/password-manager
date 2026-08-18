@@ -33,8 +33,8 @@ func (m *mockRoleAssignmentService) AssignRole(ctx context.Context, in authzServ
 	return args.Get(0).(*model.RoleAssignment), args.Error(1)
 }
 
-func (m *mockRoleAssignmentService) RevokeAssignment(ctx context.Context, assignmentID, vaultID uuid.UUID) error {
-	args := m.Called(ctx, assignmentID, vaultID)
+func (m *mockRoleAssignmentService) RevokeAssignment(ctx context.Context, assignmentID, vaultID uuid.UUID, callerIsGlobalAdmin bool) error {
+	args := m.Called(ctx, assignmentID, vaultID, callerIsGlobalAdmin)
 	return args.Error(0)
 }
 
@@ -220,6 +220,49 @@ func TestRoleAssignments_GrantDeniedRoleNotGrantable_Returns403(t *testing.T) {
 	assert.Equal(t, http.StatusForbidden, w.Code)
 }
 
+// TestRoleAssignments_RevokeDeniedRoleNotGrantable_Returns403 mirrors
+// TestRoleAssignments_GrantDeniedRoleNotGrantable_Returns403 for the revoke
+// path (B21): a non-global-admin caller who otherwise passes the
+// CanManageRoleAssignments gate (holds Key Vault Data Access Administrator in
+// the vault) is still refused by RevokeAssignment's own ErrRoleNotGrantable
+// check when the assignment being revoked is outside the allow-list, and the
+// rejection surfaces as 403, not 500.
+func TestRoleAssignments_RevokeDeniedRoleNotGrantable_Returns403(t *testing.T) {
+	vaultID := uuid.New()
+	assignmentID := uuid.New()
+	callerID := uuid.MustParse("00000000-0000-0000-0000-000000000001")
+
+	policySvc := &mockAccessPolicyService{}
+	policySvc.On("CheckAccess", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).
+		Return(authzServices.AccessFallback, nil)
+
+	roleSvc := &mockRoleAssignmentService{}
+	roleSvc.On("HasDataAction", mock.Anything, callerID, vaultID, model.ActionRoleAssignmentsDelete).
+		Return(true, nil)
+	roleSvc.On("RevokeAssignment", mock.Anything, assignmentID, vaultID, false).
+		Return(authzServices.ErrRoleNotGrantable)
+
+	mc := &testutils.MockServiceContainer{}
+	mc.On("GetAccessPolicyService").Return(policySvc)
+	mc.On("GetRoleAssignmentService").Return(roleSvc)
+
+	c := &Context{
+		App:    &app.App{ServiceContainer: mc},
+		Claims: RequestClaims{UserID: callerID.String(), Role: "user"},
+		Params: &ApiParams{VaultName: "prod", AssignmentID: assignmentID.String(), PerPage: 60},
+	}
+	r := httptest.NewRequest(http.MethodDelete, "/api/v1/vaults/prod/role-assignments/"+assignmentID.String(), nil)
+	r = r.WithContext(context.WithValue(r.Context(), common.VaultIDKey, vaultID.String()))
+	w := httptest.NewRecorder()
+
+	deleteRoleAssignment(c, w, r)
+	if c.Err != nil {
+		writeError(w, c)
+	}
+
+	assert.Equal(t, http.StatusForbidden, w.Code)
+}
+
 // TestRoleAssignments_GrantDeniedForDataAccessAdministratorInWrongVault
 // proves the grant is scoped: holding Key Vault Data Access Administrator in
 // vault A does not authorize creating a role assignment in vault B.
@@ -275,7 +318,7 @@ func TestRoleAssignments_RevokeAllowedForDataAccessAdministrator(t *testing.T) {
 	roleSvc := &mockRoleAssignmentService{}
 	roleSvc.On("HasDataAction", mock.Anything, callerID, vaultID, model.ActionRoleAssignmentsDelete).
 		Return(true, nil)
-	roleSvc.On("RevokeAssignment", mock.Anything, assignmentID, vaultID).Return(nil)
+	roleSvc.On("RevokeAssignment", mock.Anything, assignmentID, vaultID, false).Return(nil)
 
 	mc := &testutils.MockServiceContainer{}
 	mc.On("GetAccessPolicyService").Return(policySvc)
@@ -320,7 +363,7 @@ func TestRoleAssignments_DataAccessAdministrator_GrantAndRevokeComposeAcrossVaul
 	roleSvc.On("HasDataAction", mock.Anything, callerID, vaultB, model.ActionRoleAssignmentsDelete).Return(false, nil)
 	roleSvc.On("AssignRole", mock.Anything, mock.Anything).
 		Return(&model.RoleAssignment{ID: uuid.New(), VaultID: vaultA, Role: "Key Vault Secrets User"}, nil)
-	roleSvc.On("RevokeAssignment", mock.Anything, assignmentID, vaultA).Return(nil)
+	roleSvc.On("RevokeAssignment", mock.Anything, assignmentID, vaultA, false).Return(nil)
 
 	mc := &testutils.MockServiceContainer{}
 	mc.On("GetAccessPolicyService").Return(policySvc)

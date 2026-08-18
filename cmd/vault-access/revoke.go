@@ -8,6 +8,7 @@ import (
 
 	"rocketvault/common"
 	"rocketvault/internal/container"
+	"rocketvault/model"
 )
 
 // InitVaultAccessRevoke registers the revoke command, which removes a role assignment.
@@ -36,7 +37,12 @@ func InitVaultAccessRevoke(parent *cobra.Command) {
 			if err := requireCanManageRoleAssignments(ctx, sc, vaultID, false); err != nil {
 				return err
 			}
-			if err := sc.GetRoleAssignmentService().RevokeAssignment(ctx, id, vaultID); err != nil {
+			callerRole, _, err := callerIdentity(ctx)
+			if err != nil {
+				return err
+			}
+			isGlobalAdmin := common.HasRequiredRole(callerRole, string(model.RoleAdmin))
+			if err := sc.GetRoleAssignmentService().RevokeAssignment(ctx, id, vaultID, isGlobalAdmin); err != nil {
 				return fmt.Errorf("revoke failed: %w", err)
 			}
 			fmt.Fprintf(cmd.OutOrStdout(), "revoked assignment %s\n", id) //nolint:errcheck

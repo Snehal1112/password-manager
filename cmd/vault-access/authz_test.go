@@ -40,12 +40,13 @@ func (f *fakePolicySvc) DeletePolicy(context.Context, uuid.UUID) error          
 // fakeRoleSvc is a minimal RoleAssignmentService that reports whether the
 // mutating calls were reached, so a denial test can prove the gate ran first.
 type fakeRoleSvc struct {
-	hasAction     bool
-	assignCalled  bool
-	revokeCalled  bool
-	listCalled    bool
-	actionsAsked  []model.DataAction
-	assignedInput authzServices.AssignRoleInput
+	hasAction                 bool
+	assignCalled              bool
+	revokeCalled              bool
+	listCalled                bool
+	actionsAsked              []model.DataAction
+	assignedInput             authzServices.AssignRoleInput
+	revokeCallerIsGlobalAdmin bool
 }
 
 func (f *fakeRoleSvc) AssignRole(_ context.Context, in authzServices.AssignRoleInput) (*model.RoleAssignment, error) {
@@ -54,8 +55,9 @@ func (f *fakeRoleSvc) AssignRole(_ context.Context, in authzServices.AssignRoleI
 	return &model.RoleAssignment{ID: uuid.New(), VaultID: in.VaultID, Role: in.Role}, nil
 }
 
-func (f *fakeRoleSvc) RevokeAssignment(context.Context, uuid.UUID, uuid.UUID) error {
+func (f *fakeRoleSvc) RevokeAssignment(_ context.Context, _, _ uuid.UUID, callerIsGlobalAdmin bool) error {
 	f.revokeCalled = true
+	f.revokeCallerIsGlobalAdmin = callerIsGlobalAdmin
 	return nil
 }
 
@@ -158,6 +160,25 @@ func TestVaultAccessRevoke_AllowedForDataAccessAdministrator(t *testing.T) {
 	require.NoError(t, cmd.Execute())
 	assert.True(t, roleSvc.revokeCalled)
 	assert.Contains(t, out.String(), "revoked assignment")
+}
+
+// TestVaultAccessRevoke_PassesNonAdminCallerFlag proves `vault-access revoke`
+// computes callerIsGlobalAdmin from the CLI session's account role and passes
+// it through to RevokeAssignment (B21), the same signal grant.go already
+// passes as AssignRoleInput.CallerIsGlobalAdmin -- the enforcement itself is
+// tested at the service layer (role_assignment_service_test.go); this proves
+// the CLI wiring reaches it.
+func TestVaultAccessRevoke_PassesNonAdminCallerFlag(t *testing.T) {
+	tc := testutils.NewTestContext(t)
+	roleSvc := &fakeRoleSvc{hasAction: true}
+	ctx := nonAdminCtx(tc, &fakePolicySvc{decision: authzServices.AccessFallback}, roleSvc)
+
+	cmd, _ := newVaultAccessCmd(ctx)
+	cmd.SetArgs([]string{"revoke", uuid.New().String()})
+
+	require.NoError(t, cmd.Execute())
+	require.True(t, roleSvc.revokeCalled)
+	assert.False(t, roleSvc.revokeCallerIsGlobalAdmin, "a plain user's revoke must not carry the global-admin bypass")
 }
 
 // TestVaultAccessList_DeniedWithoutGrant is the CLI twin of the HTTP

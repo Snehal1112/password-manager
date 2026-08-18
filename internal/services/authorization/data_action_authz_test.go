@@ -30,7 +30,7 @@ func (f *fakeRoleAssignmentService) AssignRole(ctx context.Context, in AssignRol
 	return nil, nil
 }
 
-func (f *fakeRoleAssignmentService) RevokeAssignment(ctx context.Context, assignmentID, vaultID uuid.UUID) error {
+func (f *fakeRoleAssignmentService) RevokeAssignment(ctx context.Context, assignmentID, vaultID uuid.UUID, callerIsGlobalAdmin bool) error {
 	return nil
 }
 

@@ -223,18 +223,22 @@ func deleteRoleAssignment(c *Context, w http.ResponseWriter, r *http.Request) {
 		c.SetPermissionError("admin, vaults/manage, or Key Vault Data Access Administrator required")
 		return
 	}
+	isGlobalAdmin := common.HasRequiredRole(role, string(model.RoleAdmin))
 	id, err := uuid.Parse(c.Params.AssignmentID)
 	if err != nil {
 		c.SetInvalidParam("assignment_id")
 		return
 	}
 	svc := c.App.ServiceContainer.GetRoleAssignmentService()
-	if err := svc.RevokeAssignment(r.Context(), id, vaultID); err != nil {
-		if errors.Is(err, authzServices.ErrAssignmentNotFound) {
+	if err := svc.RevokeAssignment(r.Context(), id, vaultID, isGlobalAdmin); err != nil {
+		switch {
+		case errors.Is(err, authzServices.ErrAssignmentNotFound):
 			c.SetNotFound("role assignment")
-			return
+		case errors.Is(err, authzServices.ErrRoleNotGrantable):
+			c.SetPermissionError("role not revocable by a non-admin caller")
+		default:
+			c.SetInternalError(err)
 		}
-		c.SetInternalError(err)
 		return
 	}
 	ReturnStatusOK(w)

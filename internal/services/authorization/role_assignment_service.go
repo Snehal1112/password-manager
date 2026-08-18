@@ -26,14 +26,13 @@ var (
 
 // nonAdminGrantableRoles is the allow-list of roles a non-global-admin caller
 // (i.e. one whose authority to manage role assignments comes from holding
-// Key Vault Data Access Administrator, not the admin bypass) may grant. It
-// deliberately excludes RoleKeyVaultDataAccessAdministrator itself,
-// RoleKeyVaultPurgeOperator, and RoleKeyVaultCertificateUser.
+// Key Vault Data Access Administrator, not the admin bypass) may grant or
+// revoke. It deliberately excludes RoleKeyVaultDataAccessAdministrator
+// itself, RoleKeyVaultPurgeOperator, and RoleKeyVaultCertificateUser.
 //
-// The allow-list is enforced by AssignRole only. RevokeAssignment does not
-// consult it, because its signature carries no caller-authority flag
-// equivalent to AssignRoleInput.CallerIsGlobalAdmin; extending revoke to the
-// same restriction is a deliberate deferral, not an oversight.
+// Enforced by both AssignRole and RevokeAssignment, so a non-global-admin
+// Data Access Administrator can't sidestep the grant restriction by revoking
+// an assignment they aren't allowed to create.
 var nonAdminGrantableRoles = map[string]bool{
 	model.RoleKeyVaultAdministrator:               true,
 	model.RoleKeyVaultReader:                      true,
@@ -85,7 +84,12 @@ type AssignRoleInput struct {
 // RoleAssignmentService grants, revokes, and lists vault-scoped role assignments.
 type RoleAssignmentService interface {
 	AssignRole(ctx context.Context, in AssignRoleInput) (*model.RoleAssignment, error)
-	RevokeAssignment(ctx context.Context, assignmentID, vaultID uuid.UUID) error
+	// RevokeAssignment revokes assignmentID in vaultID. callerIsGlobalAdmin
+	// mirrors AssignRoleInput.CallerIsGlobalAdmin: when false, revoking an
+	// assignment whose Role is outside nonAdminGrantableRoles is refused with
+	// ErrRoleNotGrantable, so a non-global-admin Data Access Administrator
+	// can't revoke a role they aren't allowed to grant.
+	RevokeAssignment(ctx context.Context, assignmentID, vaultID uuid.UUID, callerIsGlobalAdmin bool) error
 	ListAssignments(ctx context.Context, vaultID uuid.UUID) ([]*model.RoleAssignment, error)
 	// HasDataAction reports whether the principal holds a role assignment in the
 	// given vault that grants the data action. It is the fail-closed
@@ -178,13 +182,16 @@ func (s *roleAssignmentService) AssignRole(ctx context.Context, in AssignRoleInp
 	return ra, nil
 }
 
-func (s *roleAssignmentService) RevokeAssignment(ctx context.Context, assignmentID, vaultID uuid.UUID) error {
+func (s *roleAssignmentService) RevokeAssignment(ctx context.Context, assignmentID, vaultID uuid.UUID, callerIsGlobalAdmin bool) error {
 	ra, err := s.roleRepo.GetByID(ctx, assignmentID)
 	if err != nil {
 		return ErrAssignmentNotFound
 	}
 	if ra.VaultID != vaultID {
 		return ErrAssignmentNotFound
+	}
+	if !callerIsGlobalAdmin && !nonAdminGrantableRoles[ra.Role] {
+		return fmt.Errorf("%w: %q may only be revoked by a global admin", ErrRoleNotGrantable, ra.Role)
 	}
 	if err := s.policyRepo.DeleteByAssignmentID(ctx, assignmentID); err != nil {
 		return fmt.Errorf("delete policies: %w", err)

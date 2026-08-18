@@ -247,7 +247,7 @@ func TestRevokeAssignment_CrossVault(t *testing.T) {
 	svc := newSvc(rr, pr, &fakeUserLookup{users: map[string]model.User{}})
 
 	otherVault := uuid.New()
-	err := svc.RevokeAssignment(context.Background(), ra.ID, otherVault)
+	err := svc.RevokeAssignment(context.Background(), ra.ID, otherVault, true)
 	if !errors.Is(err, ErrAssignmentNotFound) {
 		t.Fatalf("cross-vault revoke should be not-found, got %v", err)
 	}
@@ -272,7 +272,7 @@ func TestRevokeAssignment_HappyPath(t *testing.T) {
 		t.Fatalf("precondition: expected 0 policies + 1 assignment, got %d/%d", len(pr.created), len(rr.rows))
 	}
 
-	if err := svc.RevokeAssignment(context.Background(), ra.ID, vid); err != nil {
+	if err := svc.RevokeAssignment(context.Background(), ra.ID, vid, true); err != nil {
 		t.Fatalf("revoke: %v", err)
 	}
 	if len(rr.rows) != 0 {
@@ -303,7 +303,7 @@ func TestAssignRole_PrincipalIsUUID(t *testing.T) {
 func TestRevokeAssignment_NotFound(t *testing.T) {
 	rr, pr := newFakeRoleRepo(), newFakePolicyRepo()
 	svc := newSvc(rr, pr, &fakeUserLookup{users: map[string]model.User{}})
-	err := svc.RevokeAssignment(context.Background(), uuid.New(), uuid.New())
+	err := svc.RevokeAssignment(context.Background(), uuid.New(), uuid.New(), true)
 	if !errors.Is(err, ErrAssignmentNotFound) {
 		t.Fatalf("expected ErrAssignmentNotFound, got %v", err)
 	}
@@ -535,6 +535,74 @@ func TestAssignRole_GlobalAdminCanGrantAnyRole(t *testing.T) {
 	require.NoError(t, err)
 }
 
+// TestRevokeAssignment_NonAdminCannotRevokeDataAccessAdministrator proves the
+// B19 grant restriction also applies to revoke (B21): a non-global-admin
+// caller can't revoke an assignment whose role they wouldn't be allowed to
+// grant, closing the gap where they could grant only allow-listed roles but
+// revoke any role in their vault.
+func TestRevokeAssignment_NonAdminCannotRevokeDataAccessAdministrator(t *testing.T) {
+	rr, pr := newFakeRoleRepo(), newFakePolicyRepo()
+	vaultID := uuid.New()
+	ra := &model.RoleAssignment{ID: uuid.New(), VaultID: vaultID, Role: model.RoleKeyVaultDataAccessAdministrator}
+	rr.rows[ra.ID] = ra
+	svc := newSvc(rr, pr, &fakeUserLookup{users: map[string]model.User{}})
+
+	err := svc.RevokeAssignment(context.Background(), ra.ID, vaultID, false)
+	require.ErrorIs(t, err, ErrRoleNotGrantable)
+	if _, ok := rr.rows[ra.ID]; !ok {
+		t.Fatal("assignment must not be deleted when revoke is refused")
+	}
+}
+
+func TestRevokeAssignment_NonAdminCannotRevokePurgeOperator(t *testing.T) {
+	rr, pr := newFakeRoleRepo(), newFakePolicyRepo()
+	vaultID := uuid.New()
+	ra := &model.RoleAssignment{ID: uuid.New(), VaultID: vaultID, Role: model.RoleKeyVaultPurgeOperator}
+	rr.rows[ra.ID] = ra
+	svc := newSvc(rr, pr, &fakeUserLookup{users: map[string]model.User{}})
+
+	err := svc.RevokeAssignment(context.Background(), ra.ID, vaultID, false)
+	require.ErrorIs(t, err, ErrRoleNotGrantable)
+}
+
+func TestRevokeAssignment_NonAdminCannotRevokeCertificateUser(t *testing.T) {
+	rr, pr := newFakeRoleRepo(), newFakePolicyRepo()
+	vaultID := uuid.New()
+	ra := &model.RoleAssignment{ID: uuid.New(), VaultID: vaultID, Role: model.RoleKeyVaultCertificateUser}
+	rr.rows[ra.ID] = ra
+	svc := newSvc(rr, pr, &fakeUserLookup{users: map[string]model.User{}})
+
+	err := svc.RevokeAssignment(context.Background(), ra.ID, vaultID, false)
+	require.ErrorIs(t, err, ErrRoleNotGrantable)
+}
+
+// TestRevokeAssignment_NonAdminCanRevokeOrdinaryRole proves the restriction
+// is scoped to the three sensitive roles, not a blanket deny.
+func TestRevokeAssignment_NonAdminCanRevokeOrdinaryRole(t *testing.T) {
+	rr, pr := newFakeRoleRepo(), newFakePolicyRepo()
+	vaultID := uuid.New()
+	ra := &model.RoleAssignment{ID: uuid.New(), VaultID: vaultID, Role: model.RoleKeyVaultSecretsOfficer}
+	rr.rows[ra.ID] = ra
+	svc := newSvc(rr, pr, &fakeUserLookup{users: map[string]model.User{}})
+
+	require.NoError(t, svc.RevokeAssignment(context.Background(), ra.ID, vaultID, false))
+	if _, ok := rr.rows[ra.ID]; ok {
+		t.Fatal("assignment should be deleted")
+	}
+}
+
+// TestRevokeAssignment_GlobalAdminCanRevokeAnyRole proves the global-admin
+// bypass still works for revoke, mirroring TestAssignRole_GlobalAdminCanGrantAnyRole.
+func TestRevokeAssignment_GlobalAdminCanRevokeAnyRole(t *testing.T) {
+	rr, pr := newFakeRoleRepo(), newFakePolicyRepo()
+	vaultID := uuid.New()
+	ra := &model.RoleAssignment{ID: uuid.New(), VaultID: vaultID, Role: model.RoleKeyVaultDataAccessAdministrator}
+	rr.rows[ra.ID] = ra
+	svc := newSvc(rr, pr, &fakeUserLookup{users: map[string]model.User{}})
+
+	require.NoError(t, svc.RevokeAssignment(context.Background(), ra.ID, vaultID, true))
+}
+
 func TestAssignRole_RejectsReleaseUser(t *testing.T) {
 	rr := newFakeRoleRepo()
 	pr := newFakePolicyRepo()
@@ -619,7 +687,7 @@ func TestRevokeAssignment_LogsSuccessAudit(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	require.NoError(t, svc.RevokeAssignment(context.Background(), ra.ID, ra.VaultID))
+	require.NoError(t, svc.RevokeAssignment(context.Background(), ra.ID, ra.VaultID, true))
 
 	_, ok := audit.find("revoke_role_assignment", "success")
 	require.True(t, ok, "RevokeAssignment must emit a success audit row")
