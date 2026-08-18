@@ -77,7 +77,17 @@ func (s *ItemBackupService) RestoreSecret(ctx context.Context, blob string, user
 	secret.ID = newID
 	secret.UserID = userID
 	secret.VaultID = vaultID
-	return s.secretRepo.Create(ctx, &secret)
+	if err := s.secretRepo.Create(ctx, &secret); err != nil {
+		return err
+	}
+	// Create does not write purge_protection, so a protected item would be
+	// restored unprotected. Re-apply the blob's flag as a second write.
+	if secret.PurgeProtection {
+		if err := s.secretRepo.SetPurgeProtection(ctx, newID, true); err != nil {
+			return fmt.Errorf("restore secret: set purge protection: %w", err)
+		}
+	}
+	return nil
 }
 
 // BackupKey creates a base64url-encoded backup blob for the given key.
@@ -105,7 +115,16 @@ func (s *ItemBackupService) RestoreKey(ctx context.Context, blob string, userID,
 	key.ID = newID
 	key.UserID = userID
 	key.VaultID = vaultID
-	return s.keyRepo.Create(ctx, &key)
+	if err := s.keyRepo.Create(ctx, &key); err != nil {
+		return err
+	}
+	// See RestoreSecret: Create does not write purge_protection.
+	if key.PurgeProtection {
+		if err := s.keyRepo.SetPurgeProtection(ctx, newID, true); err != nil {
+			return fmt.Errorf("restore key: set purge protection: %w", err)
+		}
+	}
+	return nil
 }
 
 // BackupCertificate creates a base64url-encoded backup blob for the given certificate.
@@ -134,7 +153,16 @@ func (s *ItemBackupService) RestoreCertificate(ctx context.Context, blob string,
 	cert.ID = newID
 	cert.UserID = userID
 	cert.VaultID = vaultID
-	return s.certRepo.Create(ctx, &cert)
+	if err := s.certRepo.Create(ctx, &cert); err != nil {
+		return err
+	}
+	// See RestoreSecret: Create does not write purge_protection.
+	if cert.PurgeProtection {
+		if err := s.certRepo.SetPurgeProtection(ctx, newID, true); err != nil {
+			return fmt.Errorf("restore certificate: set purge protection: %w", err)
+		}
+	}
+	return nil
 }
 
 // encodeBlob marshals data into a JSON envelope and base64url-encodes it.

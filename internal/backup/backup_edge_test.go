@@ -63,8 +63,14 @@ func (r *stubCertRepo) Revoke(_ context.Context, _ uuid.UUID, _, _ string) error
 func (r *stubCertRepo) SoftDelete(_ context.Context, _ uuid.UUID) error          { return r.err }
 func (r *stubCertRepo) RecoverCertificate(_ context.Context, _ uuid.UUID) error  { return r.err }
 func (r *stubCertRepo) PurgeCertificate(_ context.Context, _ uuid.UUID) error    { return r.err }
-func (r *stubCertRepo) SetPurgeProtection(_ context.Context, _ uuid.UUID, _ bool) error {
-	return r.err
+func (r *stubCertRepo) SetPurgeProtection(_ context.Context, id uuid.UUID, enabled bool) error {
+	if r.err != nil {
+		return r.err
+	}
+	if c, ok := r.certs[id]; ok {
+		c.PurgeProtection = enabled
+	}
+	return nil
 }
 func (r *stubCertRepo) ListRevoked(_ context.Context, _ uuid.UUID) ([]model.RevokedCertificate, error) {
 	return nil, r.err

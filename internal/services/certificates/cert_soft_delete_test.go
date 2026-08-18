@@ -605,8 +605,9 @@ func TestPurgeCertificate_BlockedWhenVaultReadFails(t *testing.T) {
 	repo.On("List", mock.Anything, scope, repositories.CertificateFilter{OnlyDeleted: true}).
 		Return([]model.Certificate{{ID: certID, VaultID: vaultID, DeletedAt: &now}}, nil)
 
+	readErr := errors.New("database is locked")
 	vaultRepo := &mockVaultRepository{}
-	vaultRepo.On("ReadByID", mock.Anything, vaultID).Return(nil, errors.New("database is locked"))
+	vaultRepo.On("ReadByID", mock.Anything, vaultID).Return(nil, readErr)
 
 	logger := &logging.Logger{Logger: logrus.New()}
 	svc := NewCertificateService(CertificateServiceConfig{
@@ -617,6 +618,7 @@ func TestPurgeCertificate_BlockedWhenVaultReadFails(t *testing.T) {
 
 	err := svc.PurgeCertificate(context.Background(), certID, scope)
 	require.Error(t, err)
+	require.ErrorIs(t, err, readErr, "the vault-read failure must stay in the returned error chain")
 	repo.AssertNotCalled(t, "PurgeCertificate", mock.Anything, mock.Anything)
 	vaultRepo.AssertExpectations(t)
 }

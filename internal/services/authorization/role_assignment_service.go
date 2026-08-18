@@ -26,9 +26,14 @@ var (
 
 // nonAdminGrantableRoles is the allow-list of roles a non-global-admin caller
 // (i.e. one whose authority to manage role assignments comes from holding
-// Key Vault Data Access Administrator, not the admin bypass) may grant or
-// revoke. It deliberately excludes RoleKeyVaultDataAccessAdministrator itself,
+// Key Vault Data Access Administrator, not the admin bypass) may grant. It
+// deliberately excludes RoleKeyVaultDataAccessAdministrator itself,
 // RoleKeyVaultPurgeOperator, and RoleKeyVaultCertificateUser.
+//
+// The allow-list is enforced by AssignRole only. RevokeAssignment does not
+// consult it, because its signature carries no caller-authority flag
+// equivalent to AssignRoleInput.CallerIsGlobalAdmin; extending revoke to the
+// same restriction is a deliberate deferral, not an oversight.
 var nonAdminGrantableRoles = map[string]bool{
 	model.RoleKeyVaultAdministrator:               true,
 	model.RoleKeyVaultReader:                      true,

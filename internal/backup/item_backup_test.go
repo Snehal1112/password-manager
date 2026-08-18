@@ -275,7 +275,10 @@ func (r *stubKeyRepo) UpdateRevocationStatus(_ context.Context, _ uuid.UUID, _ b
 func (r *stubKeyRepo) SoftDelete(_ context.Context, _ uuid.UUID) error { return nil }
 func (r *stubKeyRepo) RecoverKey(_ context.Context, _ uuid.UUID) error { return nil }
 func (r *stubKeyRepo) PurgeKey(_ context.Context, _ uuid.UUID) error   { return nil }
-func (r *stubKeyRepo) SetPurgeProtection(_ context.Context, _ uuid.UUID, _ bool) error {
+func (r *stubKeyRepo) SetPurgeProtection(_ context.Context, id uuid.UUID, enabled bool) error {
+	if k, ok := r.keys[id]; ok {
+		k.PurgeProtection = enabled
+	}
 	return nil
 }
 
@@ -372,4 +375,105 @@ func TestRestoreSecretWritesAuthorizedVaultNotBlobVault(t *testing.T) {
 
 	_, err = repo.Read(ctx, newID, model.NewVaultScope(vaultA, owner))
 	require.Error(t, err, "the restored secret must not be readable under the blob's original vault scope")
+}
+
+// TestRestoreSecretPreservesPurgeProtection verifies that a secret backed up
+// while purge-protected comes back protected. The repository's Create does
+// not write purge_protection, so restore must re-apply the flag explicitly —
+// otherwise a backup/restore round-trip silently strips the control.
+func TestRestoreSecretPreservesPurgeProtection(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	repo := newStubSecretRepo()
+	svc := backup.NewItemBackupService(repo, nil, nil)
+
+	owner := uuid.New()
+	vaultID := uuid.New()
+	original := &model.Secret{
+		ID:              uuid.New(),
+		UserID:          owner,
+		VaultID:         vaultID,
+		Name:            "protected",
+		Value:           "v1",
+		Version:         1,
+		Enabled:         true,
+		PurgeProtection: true,
+	}
+	require.NoError(t, repo.Create(ctx, original))
+
+	blob, err := svc.BackupSecret(ctx, original.ID, owner)
+	require.NoError(t, err)
+
+	newID := uuid.New()
+	require.NoError(t, svc.RestoreSecret(ctx, blob, owner, vaultID, newID))
+
+	restored, err := repo.Read(ctx, newID, model.NewVaultScope(vaultID, owner))
+	require.NoError(t, err)
+	assert.True(t, restored.PurgeProtection, "restore must preserve the backed-up secret's purge protection")
+}
+
+// TestRestoreKeyPreservesPurgeProtection is the key-side twin of
+// TestRestoreSecretPreservesPurgeProtection.
+func TestRestoreKeyPreservesPurgeProtection(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	repo := newStubKeyRepo()
+	svc := backup.NewItemBackupService(nil, repo, nil)
+
+	owner := uuid.New()
+	vaultID := uuid.New()
+	original := &model.Key{
+		ID:              uuid.New(),
+		UserID:          owner,
+		VaultID:         vaultID,
+		Name:            "protected-key",
+		Value:           "key-value",
+		Type:            model.KeyTypeRSA,
+		Enabled:         true,
+		PurgeProtection: true,
+	}
+	require.NoError(t, repo.Create(ctx, original))
+
+	blob, err := svc.BackupKey(ctx, original.ID, owner)
+	require.NoError(t, err)
+
+	newID := uuid.New()
+	require.NoError(t, svc.RestoreKey(ctx, blob, owner, vaultID, newID))
+
+	restored, err := repo.Read(ctx, newID, model.NewAdminScope(owner))
+	require.NoError(t, err)
+	assert.True(t, restored.PurgeProtection, "restore must preserve the backed-up key's purge protection")
+}
+
+// TestRestoreCertificatePreservesPurgeProtection is the certificate-side twin
+// of TestRestoreSecretPreservesPurgeProtection.
+func TestRestoreCertificatePreservesPurgeProtection(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	repo := newStubCertRepo()
+	svc := backup.NewItemBackupService(nil, nil, repo)
+
+	owner := uuid.New()
+	vaultID := uuid.New()
+	original := &model.Certificate{
+		ID:              uuid.New(),
+		UserID:          owner,
+		VaultID:         vaultID,
+		Name:            "protected-cert",
+		PurgeProtection: true,
+	}
+	require.NoError(t, repo.Create(ctx, original))
+
+	blob, err := svc.BackupCertificate(ctx, original.ID, owner)
+	require.NoError(t, err)
+
+	newID := uuid.New()
+	require.NoError(t, svc.RestoreCertificate(ctx, blob, owner, vaultID, newID))
+
+	restored, err := repo.Read(ctx, newID, model.NewAdminScope(owner))
+	require.NoError(t, err)
+	assert.True(t, restored.PurgeProtection, "restore must preserve the backed-up certificate's purge protection")
 }

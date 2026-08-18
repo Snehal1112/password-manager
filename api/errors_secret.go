@@ -19,7 +19,7 @@ func writeSecretError(c *Context, err error) {
 	case errors.Is(err, secrets.ErrSecretNotFound):
 		c.SetNotFound("secret")
 	case errors.Is(err, repositories.ErrSecretPurgeProtected):
-		c.SetPermissionError("secret has purge protection enabled")
+		c.SetPermissionError("secret has purge protection enabled (directly or via its vault)")
 	default:
 		c.SetInternalError(err)
 	}

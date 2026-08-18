@@ -25,7 +25,7 @@ func writeKeyError(c *Context, err error) {
 	case errors.Is(err, keyservices.ErrKeyNotFound):
 		c.SetNotFound("key")
 	case errors.Is(err, repositories.ErrKeyPurgeProtected):
-		c.SetPermissionError("key has purge protection enabled")
+		c.SetPermissionError("key has purge protection enabled (directly or via its vault)")
 	default:
 		c.SetInternalError(err)
 	}

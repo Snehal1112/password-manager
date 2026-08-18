@@ -452,8 +452,9 @@ func TestPurgeKey_BlockedWhenVaultReadFails(t *testing.T) {
 	repo.On("List", mock.Anything, scope, repositories.KeyFilter{OnlyDeleted: true}).
 		Return([]model.Key{{ID: keyID, VaultID: vaultID, DeletedAt: &now}}, nil)
 
+	readErr := errors.New("database is locked")
 	vaultRepo := &mockVaultRepository{}
-	vaultRepo.On("ReadByID", mock.Anything, vaultID).Return(nil, errors.New("database is locked"))
+	vaultRepo.On("ReadByID", mock.Anything, vaultID).Return(nil, readErr)
 
 	svc := NewKeyService(KeyServiceConfig{
 		KeyRepository:   repo,
@@ -463,6 +464,7 @@ func TestPurgeKey_BlockedWhenVaultReadFails(t *testing.T) {
 
 	err := svc.PurgeKey(context.Background(), keyID, scope)
 	require.Error(t, err)
+	require.ErrorIs(t, err, readErr, "the vault-read failure must stay in the returned error chain")
 	repo.AssertNotCalled(t, "PurgeKey", mock.Anything, mock.Anything)
 	vaultRepo.AssertExpectations(t)
 }
