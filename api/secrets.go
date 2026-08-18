@@ -345,15 +345,16 @@ func createSecret(c *Context, w http.ResponseWriter, r *http.Request) {
 
 	// Create secret using service layer (which handles encryption).
 	createReq := secrets.CreateSecretRequest{
-		UserID:      userID,
-		VaultID:     vaultID,
-		Name:        req.Name,
-		Value:       req.Value,
-		Tags:        req.Tags,
-		ContentType: req.ContentType,
-		Enabled:     req.Enabled,
-		ExpiresAt:   req.ExpiresAt,
-		NotBefore:   req.NotBefore,
+		UserID:          userID,
+		VaultID:         vaultID,
+		Name:            req.Name,
+		Value:           req.Value,
+		Tags:            req.Tags,
+		ContentType:     req.ContentType,
+		Enabled:         req.Enabled,
+		ExpiresAt:       req.ExpiresAt,
+		NotBefore:       req.NotBefore,
+		PurgeProtection: req.PurgeProtection,
 	}
 
 	secret, err := secretService.CreateSecret(r.Context(), createReq)
@@ -553,6 +554,12 @@ func updateSecret(c *Context, w http.ResponseWriter, r *http.Request) {
 		secret.NotBefore = req.NotBefore
 		updated = true
 	}
+	// Purge protection is persisted by the service, not by this handler, but it
+	// still counts as a change so a protection-only request is not rejected.
+	if req.PurgeProtection != nil {
+		secret.PurgeProtection = *req.PurgeProtection
+		updated = true
+	}
 
 	if !updated {
 		c.SetInvalidParam("no changes provided")
@@ -564,15 +571,16 @@ func updateSecret(c *Context, w http.ResponseWriter, r *http.Request) {
 
 	// Update secret.
 	updateReq := secrets.UpdateSecretRequest{
-		SecretID:    secret.ID,
-		Scope:       scope,
-		Name:        &secret.Name,
-		Value:       &secret.Value,
-		Tags:        &secret.Tags,
-		ContentType: req.ContentType,
-		Enabled:     req.Enabled,
-		ExpiresAt:   req.ExpiresAt,
-		NotBefore:   req.NotBefore,
+		SecretID:        secret.ID,
+		Scope:           scope,
+		Name:            &secret.Name,
+		Value:           &secret.Value,
+		Tags:            &secret.Tags,
+		ContentType:     req.ContentType,
+		Enabled:         req.Enabled,
+		ExpiresAt:       req.ExpiresAt,
+		NotBefore:       req.NotBefore,
+		PurgeProtection: req.PurgeProtection,
 	}
 	if err := secretService.UpdateSecret(r.Context(), updateReq); err != nil {
 		writeSecretError(c, err)

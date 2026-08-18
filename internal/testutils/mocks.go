@@ -211,6 +211,11 @@ func (m *MockSecretRepository) PurgeSecret(ctx context.Context, id uuid.UUID) er
 	return args.Error(0)
 }
 
+func (m *MockSecretRepository) SetPurgeProtection(ctx context.Context, id uuid.UUID, enabled bool) error {
+	args := m.Called(ctx, id, enabled)
+	return args.Error(0)
+}
+
 func (m *MockSecretRepository) SoftDeleteVaultContents(ctx context.Context, vaultID uuid.UUID, deletedAt time.Time) error {
 	args := m.Called(ctx, vaultID, deletedAt)
 	return args.Error(0)

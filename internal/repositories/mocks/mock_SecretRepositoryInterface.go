@@ -4,7 +4,6 @@ package mocks
 
 import (
 	context "context"
-
 	model "rocketvault/model"
 
 	mock "github.com/stretchr/testify/mock"
@@ -676,6 +675,54 @@ func (_c *MockSecretRepositoryInterface_RecoverVaultContents_Call) Return(_a0 er
 }
 
 func (_c *MockSecretRepositoryInterface_RecoverVaultContents_Call) RunAndReturn(run func(context.Context, uuid.UUID, time.Time) error) *MockSecretRepositoryInterface_RecoverVaultContents_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// SetPurgeProtection provides a mock function with given fields: ctx, id, enabled
+func (_m *MockSecretRepositoryInterface) SetPurgeProtection(ctx context.Context, id uuid.UUID, enabled bool) error {
+	ret := _m.Called(ctx, id, enabled)
+
+	if len(ret) == 0 {
+		panic("no return value specified for SetPurgeProtection")
+	}
+
+	var r0 error
+	if rf, ok := ret.Get(0).(func(context.Context, uuid.UUID, bool) error); ok {
+		r0 = rf(ctx, id, enabled)
+	} else {
+		r0 = ret.Error(0)
+	}
+
+	return r0
+}
+
+// MockSecretRepositoryInterface_SetPurgeProtection_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'SetPurgeProtection'
+type MockSecretRepositoryInterface_SetPurgeProtection_Call struct {
+	*mock.Call
+}
+
+// SetPurgeProtection is a helper method to define mock.On call
+//   - ctx context.Context
+//   - id uuid.UUID
+//   - enabled bool
+func (_e *MockSecretRepositoryInterface_Expecter) SetPurgeProtection(ctx interface{}, id interface{}, enabled interface{}) *MockSecretRepositoryInterface_SetPurgeProtection_Call {
+	return &MockSecretRepositoryInterface_SetPurgeProtection_Call{Call: _e.mock.On("SetPurgeProtection", ctx, id, enabled)}
+}
+
+func (_c *MockSecretRepositoryInterface_SetPurgeProtection_Call) Run(run func(ctx context.Context, id uuid.UUID, enabled bool)) *MockSecretRepositoryInterface_SetPurgeProtection_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(uuid.UUID), args[2].(bool))
+	})
+	return _c
+}
+
+func (_c *MockSecretRepositoryInterface_SetPurgeProtection_Call) Return(_a0 error) *MockSecretRepositoryInterface_SetPurgeProtection_Call {
+	_c.Call.Return(_a0)
+	return _c
+}
+
+func (_c *MockSecretRepositoryInterface_SetPurgeProtection_Call) RunAndReturn(run func(context.Context, uuid.UUID, bool) error) *MockSecretRepositoryInterface_SetPurgeProtection_Call {
 	_c.Call.Return(run)
 	return _c
 }

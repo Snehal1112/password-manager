@@ -15,6 +15,7 @@ import (
 	"github.com/stretchr/testify/mock"
 
 	"rocketvault/common"
+	"rocketvault/internal/repositories"
 	certServices "rocketvault/internal/services/certificates"
 	keyServices "rocketvault/internal/services/keys"
 	secretServices "rocketvault/internal/services/secrets"
@@ -204,6 +205,28 @@ func TestPurgeSecret_NotFound_Returns404(t *testing.T) {
 	}
 
 	assert.Equal(t, http.StatusNotFound, w.Code)
+	svc.AssertExpectations(t)
+}
+
+// TestPurgeSecret_PurgeProtected_Returns403 pins that a blocked purge is a
+// permission failure, not a server error: writeSecretError must recognise the
+// repositories.ErrSecretPurgeProtected sentinel rather than fall through to
+// SetInternalError.
+func TestPurgeSecret_PurgeProtected_Returns403(t *testing.T) {
+	secretID := uuid.New()
+	svc := &mockSecretService{}
+	svc.On("PurgeSecret", mock.Anything, secretID, mock.Anything).Return(repositories.ErrSecretPurgeProtected)
+	c := newSecretCtx(svc)
+	c.Params = &ApiParams{SecretID: secretID.String(), PerPage: 60}
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest(http.MethodDelete, "/deleted/secrets/"+secretID.String()+"/purge", nil)
+
+	purgeSecret(c, w, r)
+	if c.Err != nil {
+		writeError(w, c)
+	}
+
+	assert.Equal(t, http.StatusForbidden, w.Code)
 	svc.AssertExpectations(t)
 }
 

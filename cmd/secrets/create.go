@@ -89,6 +89,11 @@ var createCmd = &cobra.Command{
 			Tags:        tags,
 			ContentType: contentType,
 		}
+		// Only send purge protection when the flag was explicitly passed.
+		if cmd.Flags().Changed("purge-protection") {
+			purgeProtection, _ := cmd.Flags().GetBool("purge-protection")
+			req.PurgeProtection = &purgeProtection
+		}
 
 		secret, err := secretService.CreateSecret(ctx, req)
 		if err != nil {
@@ -129,6 +134,7 @@ func InitSecretsCreate(secretsCmd *cobra.Command) *cobra.Command {
 
 	createCmd.Flags().StringSlice("tags", []string{}, "Tags for the secret (comma-separated)")
 	createCmd.Flags().String("content-type", "", "Media type of the secret value (e.g. application/json)")
+	createCmd.Flags().Bool("purge-protection", false, "Protect the secret from being purged")
 
 	return secretsCmd
 }

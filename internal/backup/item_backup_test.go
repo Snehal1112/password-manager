@@ -141,6 +141,13 @@ func (r *stubSecretRepo) PurgeSecret(_ context.Context, id uuid.UUID) error {
 	return nil
 }
 
+func (r *stubSecretRepo) SetPurgeProtection(_ context.Context, id uuid.UUID, enabled bool) error {
+	if s, ok := r.secrets[id]; ok {
+		s.PurgeProtection = enabled
+	}
+	return nil
+}
+
 func (r *stubSecretRepo) SoftDeleteVaultContents(_ context.Context, _ uuid.UUID, _ time.Time) error {
 	return nil
 }

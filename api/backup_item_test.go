@@ -335,6 +335,9 @@ func (m *mockSecretRepo) GetLatestVersion(_ context.Context, _ uuid.UUID) (*mode
 	return nil, nil
 }
 func (m *mockSecretRepo) PurgeSecret(_ context.Context, _ uuid.UUID) error { return nil }
+func (m *mockSecretRepo) SetPurgeProtection(_ context.Context, _ uuid.UUID, _ bool) error {
+	return nil
+}
 func (m *mockSecretRepo) SoftDeleteVaultContents(_ context.Context, _ uuid.UUID, _ time.Time) error {
 	return nil
 }

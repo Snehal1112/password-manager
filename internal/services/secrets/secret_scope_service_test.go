@@ -67,6 +67,34 @@ func (m *MockSecretRepository) PurgeSecret(ctx context.Context, id uuid.UUID) er
 	return args.Error(0)
 }
 
+func (m *MockSecretRepository) Create(ctx context.Context, secret *model.Secret) error {
+	args := m.Called(ctx, secret)
+	return args.Error(0)
+}
+
+func (m *MockSecretRepository) SetPurgeProtection(ctx context.Context, id uuid.UUID, enabled bool) error {
+	args := m.Called(ctx, id, enabled)
+	return args.Error(0)
+}
+
+// MockVaultRepository is a minimal test double for
+// repositories.VaultRepositoryInterface. Only ReadByID is exercised — the
+// purge-protection cascade check is the sole reason the secret service holds a
+// vault repository at all. See MockSecretRepository for why the interface is
+// embedded rather than fully implemented.
+type MockVaultRepository struct {
+	mock.Mock
+	repositories.VaultRepositoryInterface
+}
+
+func (m *MockVaultRepository) ReadByID(ctx context.Context, id uuid.UUID) (*model.Vault, error) {
+	args := m.Called(ctx, id)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).(*model.Vault), args.Error(1)
+}
+
 // MockTagService is a minimal test double for TagService. See
 // MockSecretRepository for why this is a local, package-scoped mock rather
 // than a shared one from internal/testutils.
@@ -327,6 +355,101 @@ func TestPurgeSecretPurgesWhenInScope(t *testing.T) {
 
 	require.NoError(t, svc.PurgeSecret(ctx, secretID, scope))
 	repo.AssertExpectations(t)
+}
+
+func TestCreateSecretSetsPurgeProtectionWhenRequested(t *testing.T) {
+	repo, svc := newScopeServiceFixture(t)
+	ctx := context.Background()
+
+	repo.On("Create", ctx, mock.AnythingOfType("*model.Secret")).Return(nil).Once()
+	repo.On("SetPurgeProtection", ctx, mock.AnythingOfType("uuid.UUID"), true).Return(nil).Once()
+
+	protect := true
+	secret, err := svc.CreateSecret(ctx, CreateSecretRequest{
+		UserID: uuid.New(), Name: "s1", Value: "v1", PurgeProtection: &protect,
+	})
+	require.NoError(t, err)
+	repo.AssertCalled(t, "SetPurgeProtection", ctx, secret.ID, true)
+	repo.AssertExpectations(t)
+}
+
+func TestCreateSecretLeavesPurgeProtectionAloneByDefault(t *testing.T) {
+	repo, svc := newScopeServiceFixture(t)
+	ctx := context.Background()
+
+	repo.On("Create", ctx, mock.AnythingOfType("*model.Secret")).Return(nil).Once()
+
+	_, err := svc.CreateSecret(ctx, CreateSecretRequest{UserID: uuid.New(), Name: "s1", Value: "v1"})
+	require.NoError(t, err)
+	repo.AssertNotCalled(t, "SetPurgeProtection", mock.Anything, mock.Anything, mock.Anything)
+}
+
+func TestUpdateSecretSetsPurgeProtectionWhenRequested(t *testing.T) {
+	repo, svc := newScopeServiceFixture(t)
+	ctx := context.Background()
+
+	secretID := uuid.New()
+	vaultID := uuid.New()
+	scope := model.NewVaultScope(vaultID, uuid.New())
+
+	repo.On("Read", ctx, secretID, scope).Return(&model.Secret{
+		ID: secretID, UserID: uuid.New(), VaultID: vaultID,
+		Name: "original", Value: "ENC(v1)", Version: 1, Enabled: true,
+	}, nil).Once()
+	repo.On("Update", ctx, mock.Anything, scope).Return(nil).Once()
+	repo.On("SetPurgeProtection", ctx, secretID, true).Return(nil).Once()
+
+	protect := true
+	require.NoError(t, svc.UpdateSecret(ctx, UpdateSecretRequest{
+		SecretID: secretID, Scope: scope, PurgeProtection: &protect,
+	}))
+	repo.AssertExpectations(t)
+}
+
+func TestPurgeSecretBlockedWhenVaultIsPurgeProtected(t *testing.T) {
+	repo, svc := newScopeServiceFixture(t)
+	ctx := context.Background()
+
+	vaultRepo := new(MockVaultRepository)
+	svc.vaultRepo = vaultRepo
+
+	secretID := uuid.New()
+	vaultID := uuid.New()
+	scope := model.NewVaultScope(vaultID, uuid.New())
+	deletedAt := time.Now().UTC()
+
+	repo.On("List", ctx, scope, repositories.SecretFilter{OnlyDeleted: true}).
+		Return([]model.Secret{{ID: secretID, VaultID: vaultID, DeletedAt: &deletedAt}}, nil).Once()
+	vaultRepo.On("ReadByID", ctx, vaultID).
+		Return(&model.Vault{ID: vaultID, PurgeProtection: true}, nil).Once()
+
+	err := svc.PurgeSecret(ctx, secretID, scope)
+	assert.ErrorIs(t, err, repositories.ErrSecretPurgeProtected)
+	repo.AssertNotCalled(t, "PurgeSecret", mock.Anything, mock.Anything)
+	vaultRepo.AssertExpectations(t)
+}
+
+func TestPurgeSecretProceedsWhenVaultIsNotPurgeProtected(t *testing.T) {
+	repo, svc := newScopeServiceFixture(t)
+	ctx := context.Background()
+
+	vaultRepo := new(MockVaultRepository)
+	svc.vaultRepo = vaultRepo
+
+	secretID := uuid.New()
+	vaultID := uuid.New()
+	scope := model.NewVaultScope(vaultID, uuid.New())
+	deletedAt := time.Now().UTC()
+
+	repo.On("List", ctx, scope, repositories.SecretFilter{OnlyDeleted: true}).
+		Return([]model.Secret{{ID: secretID, VaultID: vaultID, DeletedAt: &deletedAt}}, nil).Once()
+	vaultRepo.On("ReadByID", ctx, vaultID).
+		Return(&model.Vault{ID: vaultID}, nil).Once()
+	repo.On("PurgeSecret", ctx, secretID).Return(nil).Once()
+
+	require.NoError(t, svc.PurgeSecret(ctx, secretID, scope))
+	repo.AssertExpectations(t)
+	vaultRepo.AssertExpectations(t)
 }
 
 // auditRecord is one persisted audit row. Mirrors the shape defined in

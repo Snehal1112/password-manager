@@ -490,6 +490,7 @@ func (c *ServiceContainer) initializeServices() error {
 		VersionService:   c.versioningService,
 		TagService:       c.tagService,
 		Logger:           c.logger,
+		VaultRepository:  c.vaultRepository,
 	})
 
 	// Wrap with retry logic if retry service is available

@@ -3,6 +3,7 @@ package api
 import (
 	"errors"
 
+	"rocketvault/internal/repositories"
 	"rocketvault/internal/services/secrets"
 )
 
@@ -17,6 +18,8 @@ func writeSecretError(c *Context, err error) {
 		c.SetPermissionError("secret is disabled or outside its valid time window")
 	case errors.Is(err, secrets.ErrSecretNotFound):
 		c.SetNotFound("secret")
+	case errors.Is(err, repositories.ErrSecretPurgeProtected):
+		c.SetPermissionError("secret has purge protection enabled")
 	default:
 		c.SetInternalError(err)
 	}

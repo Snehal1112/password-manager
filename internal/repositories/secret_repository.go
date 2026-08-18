@@ -41,6 +41,8 @@ type SecretRepositoryInterface interface {
 	GetVersion(ctx context.Context, secretID uuid.UUID, version int) (*model.SecretVersion, error)
 	GetLatestVersion(ctx context.Context, secretID uuid.UUID) (*model.SecretVersion, error)
 	PurgeSecret(ctx context.Context, id uuid.UUID) error
+	// SetPurgeProtection enables or disables purge protection on a secret.
+	SetPurgeProtection(ctx context.Context, id uuid.UUID, enabled bool) error
 }
 
 // SecretFilter narrows a scoped secret listing. Tags is accepted for
@@ -452,7 +454,7 @@ func (r *SecretRepository) PurgeSecret(ctx context.Context, id uuid.UUID) error 
 	}
 	if purgeProtection {
 		r.log.LogAuditError("", "purge_secret", "failed", "Secret has purge protection enabled", nil)
-		return fmt.Errorf("secret has purge protection enabled")
+		return ErrSecretPurgeProtected
 	}
 
 	// Perform the purge
@@ -475,6 +477,41 @@ func (r *SecretRepository) PurgeSecret(ctx context.Context, id uuid.UUID) error 
 	r.log.LogAuditInfo("", "purge_secret", "success", "Secret purged successfully")
 	logrus.WithField("secret_id", id.String()).Debug("Secret purged successfully")
 
+	return nil
+}
+
+// SetPurgeProtection enables or disables purge protection on a secret.
+// A secret with purge protection cannot be permanently deleted via PurgeSecret.
+//
+// Parameters:
+//
+//	ctx: The context for the database operation.
+//	id: The secret's unique identifier.
+//	enabled: True to enable purge protection, false to disable it.
+//
+// Returns:
+//
+//	An error if the update fails.
+func (r *SecretRepository) SetPurgeProtection(ctx context.Context, id uuid.UUID, enabled bool) error {
+	result, err := r.db.ExecContext(ctx,
+		"UPDATE secrets SET purge_protection = ? WHERE id = ?", enabled, id.String())
+	if err != nil {
+		r.log.LogAuditError("", "set_purge_protection_secret", "failed", "Failed to set purge protection", err)
+		return fmt.Errorf("failed to set purge protection: %w", err)
+	}
+
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		r.log.LogAuditError("", "set_purge_protection_secret", "failed", "Failed to get rows affected", err)
+		return fmt.Errorf("failed to get rows affected: %w", err)
+	}
+	if rowsAffected == 0 {
+		r.log.LogAuditError("", "set_purge_protection_secret", "failed", "Secret not found", nil)
+		return fmt.Errorf("secret not found")
+	}
+
+	r.log.LogAuditInfo("", "set_purge_protection_secret", "success",
+		fmt.Sprintf("Secret purge protection set to %v", enabled))
 	return nil
 }
 

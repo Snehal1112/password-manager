@@ -108,6 +108,13 @@ func (r *RetryRepositoryWrapper) PurgeSecret(ctx context.Context, id uuid.UUID) 
 	})
 }
 
+// SetPurgeProtection wraps the SetPurgeProtection operation with retry logic.
+func (r *RetryRepositoryWrapper) SetPurgeProtection(ctx context.Context, id uuid.UUID, enabled bool) error {
+	return r.retryService.ExecuteDatabaseOperation(ctx, func() error {
+		return r.baseRepo.SetPurgeProtection(ctx, id, enabled)
+	})
+}
+
 // SoftDeleteVaultContents wraps the SoftDeleteVaultContents operation with retry logic.
 func (r *RetryRepositoryWrapper) SoftDeleteVaultContents(ctx context.Context, vaultID uuid.UUID, deletedAt time.Time) error {
 	return r.retryService.ExecuteDatabaseOperation(ctx, func() error {

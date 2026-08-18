@@ -661,8 +661,37 @@ func TestSecretRepository_PurgeSecret_PurgeProtection(t *testing.T) {
 	require.NoError(t, err)
 
 	err = repo.PurgeSecret(ctx, s.ID)
+	assert.ErrorIs(t, err, repositories.ErrSecretPurgeProtected)
+}
+
+func TestSecretRepository_SetPurgeProtection(t *testing.T) {
+	t.Parallel()
+	db := setupSecretTestDB(t)
+	repo := repositories.NewSecretRepository(rvdb.NewConn(db, rvdb.SQLite), newTestSecretLogger(t))
+	ctx := context.Background()
+
+	s := &model.Secret{ID: uuid.New(), UserID: uuid.New(), Name: "protect-me", Value: "v", Version: 1, CreatedAt: time.Now(), Enabled: true}
+	require.NoError(t, repo.Create(ctx, s))
+
+	require.NoError(t, repo.SetPurgeProtection(ctx, s.ID, true))
+	require.NoError(t, repo.SoftDelete(ctx, s.ID))
+
+	err := repo.PurgeSecret(ctx, s.ID)
+	assert.ErrorIs(t, err, repositories.ErrSecretPurgeProtected)
+
+	// Disabling protection lets the purge through again.
+	require.NoError(t, repo.SetPurgeProtection(ctx, s.ID, false))
+	require.NoError(t, repo.PurgeSecret(ctx, s.ID))
+}
+
+func TestSecretRepository_SetPurgeProtection_NotFound(t *testing.T) {
+	t.Parallel()
+	db := setupSecretTestDB(t)
+	repo := repositories.NewSecretRepository(rvdb.NewConn(db, rvdb.SQLite), newTestSecretLogger(t))
+
+	err := repo.SetPurgeProtection(context.Background(), uuid.New(), true)
 	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "purge protection")
+	assert.Contains(t, err.Error(), "not found")
 }
 
 func TestSecretRepository_ListByUser(t *testing.T) {

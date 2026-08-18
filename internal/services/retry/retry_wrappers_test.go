@@ -388,6 +388,11 @@ func (m *MockSecretRepo) PurgeSecret(ctx context.Context, id uuid.UUID) error {
 	return args.Error(0)
 }
 
+func (m *MockSecretRepo) SetPurgeProtection(ctx context.Context, id uuid.UUID, enabled bool) error {
+	args := m.Called(ctx, id, enabled)
+	return args.Error(0)
+}
+
 // Compile-time check that MockSecretRepo satisfies the interface.
 var _ repositories.SecretRepositoryInterface = (*MockSecretRepo)(nil)
 

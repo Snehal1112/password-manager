@@ -151,6 +151,8 @@ type CreateSecretRequest struct {
 	Enabled     *bool      `json:"enabled,omitempty"`
 	ExpiresAt   *time.Time `json:"expires_at,omitempty"`
 	NotBefore   *time.Time `json:"not_before,omitempty"`
+	// PurgeProtection is optional; omitting it leaves protection off.
+	PurgeProtection *bool `json:"purge_protection,omitempty"`
 }
 
 func CreateSecretRequestFromJson(data io.Reader) (*CreateSecretRequest, error) {
@@ -166,6 +168,8 @@ type UpdateSecretRequest struct {
 	Enabled     *bool      `json:"enabled,omitempty"`
 	ExpiresAt   *time.Time `json:"expires_at,omitempty"`
 	NotBefore   *time.Time `json:"not_before,omitempty"`
+	// PurgeProtection is optional; nil means no change.
+	PurgeProtection *bool `json:"purge_protection,omitempty"`
 }
 
 func UpdateSecretRequestFromJson(data io.Reader) (*UpdateSecretRequest, error) {

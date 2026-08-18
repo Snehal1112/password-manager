@@ -36,6 +36,8 @@ type CreateSecretRequest struct {
 	Enabled     *bool      // Defaults to true when nil.
 	ExpiresAt   *time.Time // Optional expiry time.
 	NotBefore   *time.Time // Optional activation time.
+	// PurgeProtection is optional; nil leaves the stored default (false).
+	PurgeProtection *bool
 }
 
 // UpdateSecretRequest represents a request to update an existing secret.
@@ -49,6 +51,8 @@ type UpdateSecretRequest struct {
 	Enabled     *bool       // Optional - nil means no change.
 	ExpiresAt   *time.Time  // Optional - nil means no change.
 	NotBefore   *time.Time  // Optional - nil means no change.
+	// PurgeProtection is optional; nil means no change.
+	PurgeProtection *bool
 }
 
 // validContentTypes is the allowlist of accepted MIME types for secret content.
@@ -145,6 +149,9 @@ type secretService struct {
 	versionService VersioningServiceInterface
 	tagService     TagService
 	logger         *logging.Logger
+	// vaultRepo is optional. When set, PurgeSecret refuses to purge a secret
+	// whose containing vault has purge protection enabled.
+	vaultRepo repositories.VaultRepositoryInterface
 }
 
 // SecretServiceConfig holds the dependencies for secret service.
@@ -154,6 +161,9 @@ type SecretServiceConfig struct {
 	VersionService   VersioningServiceInterface
 	TagService       TagService
 	Logger           *logging.Logger
+	// VaultRepository is optional; it enables the vault-level purge-protection
+	// cascade check in PurgeSecret.
+	VaultRepository repositories.VaultRepositoryInterface
 }
 
 // NewSecretService creates a new SecretService with the provided dependencies.
@@ -173,6 +183,7 @@ func NewSecretService(config SecretServiceConfig) SecretService {
 		versionService: config.VersionService,
 		tagService:     config.TagService,
 		logger:         config.Logger,
+		vaultRepo:      config.VaultRepository,
 	}
 }
 
@@ -241,6 +252,15 @@ func (s *secretService) CreateSecret(ctx context.Context, req CreateSecretReques
 		return nil, fmt.Errorf("failed to create secret: %w", err)
 	}
 
+	// Purge protection lives in its own column, so it is set as a follow-up
+	// write rather than through Create's insert.
+	if req.PurgeProtection != nil && *req.PurgeProtection {
+		if err = s.secretRepo.SetPurgeProtection(ctx, secret.ID, true); err != nil {
+			s.logger.LogAuditError(req.UserID.String(), "create_secret", "failed", "Failed to set purge protection", err)
+			return nil, fmt.Errorf("failed to set purge protection: %w", err)
+		}
+	}
+
 	// Return plaintext to the caller.
 	secret.Value = req.Value
 
@@ -302,6 +322,15 @@ func (s *secretService) UpdateSecret(ctx context.Context, req UpdateSecretReques
 	if err := s.secretRepo.Update(ctx, updatedSecret, req.Scope); err != nil {
 		s.logger.LogAuditError(actor, "update_secret", "failed", "Failed to update secret", err)
 		return fmt.Errorf("failed to update secret: %w", err)
+	}
+
+	// Purge protection lives in its own column, so it is written separately
+	// from the scoped Update above.
+	if req.PurgeProtection != nil {
+		if err := s.secretRepo.SetPurgeProtection(ctx, req.SecretID, *req.PurgeProtection); err != nil {
+			s.logger.LogAuditError(actor, "update_secret", "failed", "Failed to set purge protection", err)
+			return fmt.Errorf("failed to set purge protection: %w", err)
+		}
 	}
 
 	if req.Tags != nil {
@@ -793,6 +822,20 @@ func (s *secretService) PurgeSecret(ctx context.Context, secretID uuid.UUID, sco
 			"Secret not found in deleted state within scope", nil)
 		return fmt.Errorf("%w", ErrSecretNotFound)
 	}
+
+	// Vault-level purge protection cascades to the secrets the vault contains,
+	// so a protected vault blocks the per-item purge path too. A vault that
+	// cannot be read is not treated as protected: the repository still applies
+	// the item's own purge_protection flag below.
+	if s.vaultRepo != nil && scope.VaultID() != uuid.Nil {
+		vault, err := s.vaultRepo.ReadByID(ctx, scope.VaultID())
+		if err == nil && vault.PurgeProtection {
+			s.logger.LogAuditError(scope.ActorID().String(), "purge_secret", "failed",
+				"Vault has purge protection enabled", nil)
+			return repositories.ErrSecretPurgeProtected
+		}
+	}
+
 	if err := s.secretRepo.PurgeSecret(ctx, secretID); err != nil {
 		return fmt.Errorf("failed to purge secret: %w", err)
 	}

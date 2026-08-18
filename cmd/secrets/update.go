@@ -104,6 +104,12 @@ API's vault-scoped update route.`,
 		}
 		req.ContentType = contentTypePtr
 
+		// Only change purge protection when the flag was explicitly passed.
+		if cmd.Flags().Changed("purge-protection") {
+			purgeProtection, _ := cmd.Flags().GetBool("purge-protection")
+			req.PurgeProtection = &purgeProtection
+		}
+
 		if err := sc.GetSecretService().UpdateSecret(ctx, req); err != nil {
 			return fmt.Errorf("failed to update secret: %w", err)
 		}
@@ -118,5 +124,6 @@ func InitSecretsUpdate(secretsCmd *cobra.Command) *cobra.Command {
 	secretsCmd.AddCommand(updateCmd)
 	updateCmd.Flags().StringSlice("tags", []string{}, "Tags for the secret (comma-separated)")
 	updateCmd.Flags().String("content-type", "", "Media type of the secret value")
+	updateCmd.Flags().Bool("purge-protection", false, "Protect the secret from being purged")
 	return secretsCmd
 }
