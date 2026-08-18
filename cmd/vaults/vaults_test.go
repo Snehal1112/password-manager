@@ -103,6 +103,8 @@ func TestVaultsList(t *testing.T) {
 func TestVaultsGet(t *testing.T) {
 	tc := testutils.NewTestContext(t)
 
+	tc.MockVaultService.On("ListVaults", mock.Anything, true).
+		Return([]model.Vault{{ID: uuid.New(), Name: "my-vault"}}, nil)
 	v := &model.Vault{ID: uuid.New(), Name: "my-vault", Enabled: true, RetentionDays: 90}
 	tc.MockVaultService.On("GetVault", mock.Anything, "my-vault").Return(v, nil)
 

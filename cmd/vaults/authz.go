@@ -63,6 +63,21 @@ func requireCanCreateVault(ctx context.Context, sc container.ServiceContainerInt
 	return nil
 }
 
+// requireCanListVaults checks that the caller may list vaults instance-wide.
+// Like create, list has no single target vault, so authorization is checked
+// against uuid.Nil — matching HTTP listVaults (api/vault.go's
+// authzServices.CanManageVault(..., uuid.Nil)).
+func requireCanListVaults(ctx context.Context, sc container.ServiceContainerInterface) error {
+	role, principalID, err := callerIdentity(ctx)
+	if err != nil {
+		return err
+	}
+	if !authz.CanManageVault(ctx, role, sc.GetAccessPolicyService(), principalID, uuid.Nil) {
+		return fmt.Errorf("permission denied: admin or vaults/manage required")
+	}
+	return nil
+}
+
 // requireCanManageVault resolves vaultName to an ID and checks CanManageVault
 // against it.
 func requireCanManageVault(ctx context.Context, sc container.ServiceContainerInterface, vaultName string) error {

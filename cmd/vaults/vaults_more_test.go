@@ -221,6 +221,8 @@ func TestVaultsCreate_WithRetentionDays(t *testing.T) {
 
 func TestVaultsGet_ServiceError(t *testing.T) {
 	tc := testutils.NewTestContext(t)
+	tc.MockVaultService.On("ListVaults", mock.Anything, true).
+		Return([]model.Vault{{ID: uuid.New(), Name: "missing-vault"}}, nil)
 	tc.MockVaultService.On("GetVault", mock.Anything, "missing-vault").
 		Return(nil, fmt.Errorf("not found"))
 
@@ -235,6 +237,8 @@ func TestVaultsGet_ServiceError(t *testing.T) {
 
 func TestVaultsGet_NoFormatter(t *testing.T) {
 	tc := testutils.NewTestContext(t)
+	tc.MockVaultService.On("ListVaults", mock.Anything, true).
+		Return([]model.Vault{{ID: uuid.New(), Name: "nofmt-vault"}}, nil)
 	v := &model.Vault{ID: uuid.New(), Name: "nofmt-vault", Enabled: true, RetentionDays: 90}
 	tc.MockVaultService.On("GetVault", mock.Anything, "nofmt-vault").Return(v, nil)
 
@@ -495,4 +499,35 @@ func TestVaultsPurge_AllowedWithPurgeOperatorGrant(t *testing.T) {
 	require.NoError(t, err)
 	assert.Contains(t, buf.String(), "purged successfully")
 	tc.MockVaultService.AssertExpectations(t)
+}
+
+func TestVaultsGet_ForbiddenWithoutGrant(t *testing.T) {
+	tc := testutils.NewTestContext(t)
+	nonAdminCtx := context.WithValue(tc.Ctx, common.ClaimsKey, &model.Claims{UserID: tc.TestUserID, Role: model.RoleUser})
+	tc.MockContainer.AccessPolicyService = &mockAccessPolicyService{decision: authzServices.AccessFallback}
+	tc.MockVaultService.On("ListVaults", mock.Anything, true).
+		Return([]model.Vault{{ID: uuid.New(), Name: "guarded-vault"}}, nil)
+
+	cmd := &cobra.Command{Use: "get", Args: cobra.ExactArgs(1), RunE: getCmd.RunE}
+	cmd.SetContext(ctxWithFormatter(nonAdminCtx))
+	cmd.SetArgs([]string{"guarded-vault"})
+
+	err := cmd.Execute()
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "permission denied")
+	tc.MockVaultService.AssertNotCalled(t, "GetVault", mock.Anything, mock.Anything)
+}
+
+func TestVaultsList_ForbiddenWithoutGlobalGrant(t *testing.T) {
+	tc := testutils.NewTestContext(t)
+	nonAdminCtx := context.WithValue(tc.Ctx, common.ClaimsKey, &model.Claims{UserID: tc.TestUserID, Role: model.RoleUser})
+	tc.MockContainer.AccessPolicyService = &mockAccessPolicyService{decision: authzServices.AccessFallback}
+
+	cmd := &cobra.Command{Use: "list", RunE: listCmd.RunE}
+	cmd.SetContext(ctxWithFormatter(nonAdminCtx))
+
+	err := cmd.Execute()
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "permission denied")
+	tc.MockVaultService.AssertNotCalled(t, "ListVaults", mock.Anything, mock.Anything)
 }

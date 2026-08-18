@@ -32,6 +32,9 @@ var listCmd = &cobra.Command{
 		if !ok || serviceContainer == nil {
 			return fmt.Errorf("service container not available in context")
 		}
+		if err := requireCanListVaults(ctx, serviceContainer); err != nil {
+			return err
+		}
 		vaultService := serviceContainer.GetVaultService()
 
 		vaults, err := vaultService.ListVaults(ctx, includeDeleted)
