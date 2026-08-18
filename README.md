@@ -394,6 +394,8 @@ build/
 dist/                             # Cross-platform builds (--all, --release)
 ├── rocketvault-v4.0.0-linux-amd64.tar.gz
 ├── rocketvault-v4.0.0-linux-amd64.tar.gz.sha256
+├── rocketvault-v4.0.0-darwin-amd64.tar.gz
+├── rocketvault-v4.0.0-darwin-amd64.tar.gz.sha256
 ├── rocketvault-v4.0.0-darwin-arm64.tar.gz
 ├── rocketvault-v4.0.0-darwin-arm64.tar.gz.sha256
 ├── rocketvault-v4.0.0-windows-amd64.zip
