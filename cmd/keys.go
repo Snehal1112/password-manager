@@ -60,6 +60,7 @@ func init() {
 	keys.InitKeysWrap(keysCmd)
 	keys.InitKeysUnwrap(keysCmd)
 	keys.InitKeysSign(keysCmd)
+	keys.InitKeysVerify(keysCmd)
 
 	// Here you will define your flags and configuration settings.
 
