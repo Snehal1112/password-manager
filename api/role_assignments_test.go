@@ -177,6 +177,49 @@ func TestRoleAssignments_GrantAllowedForDataAccessAdministrator(t *testing.T) {
 	assert.Equal(t, http.StatusCreated, w.Code)
 }
 
+// TestRoleAssignments_GrantDeniedRoleNotGrantable_Returns403 proves a rejected
+// grant surfaces as 403 (SetPermissionError), not 500 (SetInternalError): the
+// caller passes the CanManageRoleAssignments gate (holds Key Vault Data
+// Access Administrator in the vault) but AssignRole itself refuses the
+// specific role via ErrRoleNotGrantable — an authorization rejection, not an
+// unexpected server failure, and must be reported the same way the earlier
+// CanManageRoleAssignments gate reports rejection in this same handler.
+func TestRoleAssignments_GrantDeniedRoleNotGrantable_Returns403(t *testing.T) {
+	vaultID := uuid.New()
+	callerID := uuid.MustParse("00000000-0000-0000-0000-000000000001")
+
+	policySvc := &mockAccessPolicyService{}
+	policySvc.On("CheckAccess", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).
+		Return(authzServices.AccessFallback, nil)
+
+	roleSvc := &mockRoleAssignmentService{}
+	roleSvc.On("HasDataAction", mock.Anything, callerID, vaultID, model.ActionRoleAssignmentsWrite).
+		Return(true, nil)
+	roleSvc.On("AssignRole", mock.Anything, mock.Anything).
+		Return(nil, authzServices.ErrRoleNotGrantable)
+
+	mc := &testutils.MockServiceContainer{}
+	mc.On("GetAccessPolicyService").Return(policySvc)
+	mc.On("GetRoleAssignmentService").Return(roleSvc)
+
+	c := &Context{
+		App:    &app.App{ServiceContainer: mc},
+		Claims: RequestClaims{UserID: callerID.String(), Role: "user"},
+		Params: &ApiParams{VaultName: "prod", PerPage: 60},
+	}
+	body := []byte(`{"principal":"alice","role":"Key Vault Data Access Administrator"}`)
+	r := httptest.NewRequest(http.MethodPost, "/api/v1/vaults/prod/role-assignments", bytes.NewReader(body))
+	r = r.WithContext(context.WithValue(r.Context(), common.VaultIDKey, vaultID.String()))
+	w := httptest.NewRecorder()
+
+	createRoleAssignment(c, w, r)
+	if c.Err != nil {
+		writeError(w, c)
+	}
+
+	assert.Equal(t, http.StatusForbidden, w.Code)
+}
+
 // TestRoleAssignments_GrantDeniedForDataAccessAdministratorInWrongVault
 // proves the grant is scoped: holding Key Vault Data Access Administrator in
 // vault A does not authorize creating a role assignment in vault B.

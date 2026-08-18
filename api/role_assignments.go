@@ -103,6 +103,8 @@ func createRoleAssignment(c *Context, w http.ResponseWriter, r *http.Request) {
 			c.SetInvalidParam("role")
 		case errors.Is(err, authzServices.ErrPrincipalNotFound):
 			c.SetNotFound("principal")
+		case errors.Is(err, authzServices.ErrRoleNotGrantable):
+			c.SetPermissionError("role not grantable by a non-admin caller")
 		default:
 			c.SetInternalError(err)
 		}
