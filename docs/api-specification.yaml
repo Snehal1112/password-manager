@@ -36,6 +36,8 @@ security:
 tags:
   - name: Health
     description: Liveness, readiness, and database health probes
+  - name: Monitoring
+    description: Prometheus metrics scraping
   - name: Configuration
     description: Non-sensitive front-end configuration
   - name: Authentication
@@ -126,6 +128,29 @@ paths:
           $ref: "#/components/responses/Forbidden"
         "500":
           $ref: "#/components/responses/InternalError"
+
+  # ─── Monitoring (public, outside /api/v1) ──────────────────────────────────
+  /metrics:
+    get:
+      summary: Scrape Prometheus metrics
+      description: |
+        Returns process and application metrics in Prometheus text exposition
+        format. Registered on the unversioned root path (not under
+        `/api/v1`), matching Prometheus scrape conventions. Only registered
+        when `monitoring.enable_metrics` is true; otherwise the route does
+        not exist and requests 404. Public endpoint; no authentication
+        required.
+      operationId: getMetrics
+      tags:
+        - Monitoring
+      security: []
+      responses:
+        "200":
+          description: Metrics retrieved successfully
+          content:
+            text/plain; version=0.0.4; charset=utf-8:
+              schema:
+                type: string
 
   # ─── Configuration ─────────────────────────────────────────────────────────
   /api/v1/config:
