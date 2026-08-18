@@ -47,6 +47,34 @@ func TestComplianceReportService_SOC2Report(t *testing.T) {
 	assert.Equal(t, int64(1), report.KeyOperations)
 }
 
+// TestComplianceReportService_SOC2Report_CountsRealAuthenticateUserOutcomes
+// exercises the real AuditService.RecordEvent write path (rather than
+// seeding rows directly via InsertAuditLog) to document the correct end
+// state: an authenticate_user event recorded with an explicit Outcome must
+// be counted as success/failure in the SOC2 report, not silently miscounted
+// as a failure because Outcome was left as the Go zero value.
+func TestComplianceReportService_SOC2Report_CountsRealAuthenticateUserOutcomes(t *testing.T) {
+	db := openTestDB(t)
+	repo := repositories.NewAuditRepository(rvdb.NewConn(db, rvdb.SQLite))
+	auditSvcInst := auditSvc.NewAuditService(repo)
+
+	require.NoError(t, auditSvcInst.RecordEvent(context.Background(), auditSvc.AuditEvent{
+		UserID: "u1", Action: "authenticate_user", Outcome: "success", Source: "system", ResourceType: "user",
+	}))
+	require.NoError(t, auditSvcInst.RecordEvent(context.Background(), auditSvc.AuditEvent{
+		UserID: "u2", Action: "authenticate_user", Outcome: "failure", Source: "system", ResourceType: "user",
+	}))
+
+	reportSvc := auditSvc.NewComplianceReportService(repo)
+	from := time.Now().UTC().Add(-time.Hour)
+	to := time.Now().UTC().Add(time.Hour)
+	report, err := reportSvc.GenerateSOC2Report(context.Background(), from, to)
+	require.NoError(t, err)
+
+	assert.Equal(t, int64(1), report.AuthSuccesses)
+	assert.Equal(t, int64(1), report.AuthFailures)
+}
+
 func TestComplianceReportService_GDPRReport(t *testing.T) {
 	db := openTestDB(t)
 	repo := repositories.NewAuditRepository(rvdb.NewConn(db, rvdb.SQLite))

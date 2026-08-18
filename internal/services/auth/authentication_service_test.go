@@ -4,20 +4,24 @@ import (
 	"bytes"
 	"context"
 	"crypto/sha256"
+	"database/sql"
 	"encoding/hex"
 	"errors"
 	"testing"
 	"time"
 
 	"github.com/google/uuid"
+	_ "github.com/mattn/go-sqlite3"
 	"github.com/pquerna/otp"
 	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 
+	rvdb "rocketvault/internal/db"
 	"rocketvault/internal/logging"
 	"rocketvault/internal/repositories"
+	auditServices "rocketvault/internal/services/audit"
 	"rocketvault/model"
 )
 
@@ -442,6 +446,91 @@ func TestAuthenticationService_AuthenticateUser_InvalidTOTP(t *testing.T) {
 	mockTOTPService.AssertExpectations(t)
 	// JWT service should not be called
 	mockJWTService.AssertNotCalled(t, "GenerateToken")
+}
+
+// newAuditTestRepo creates an in-memory SQLite-backed audit repository for
+// exercising the real AuditService.RecordEvent write path end-to-end,
+// mirroring the audit_logs schema used by internal/services/audit's own
+// openTestDB test helper.
+func newAuditTestRepo(t *testing.T) repositories.AuditRepositoryExtended {
+	t.Helper()
+	db, err := sql.Open("sqlite3", ":memory:")
+	require.NoError(t, err)
+	t.Cleanup(func() { db.Close() }) //nolint:errcheck,gosec
+	_, err = db.Exec(`CREATE TABLE audit_logs (
+		id TEXT PRIMARY KEY, user_id TEXT, action TEXT NOT NULL,
+		details TEXT, timestamp TIMESTAMP,
+		resource_type TEXT, resource_id TEXT, ip_address TEXT,
+		outcome TEXT, source TEXT, prev_hash TEXT
+	)`)
+	require.NoError(t, err)
+	return repositories.NewAuditRepository(rvdb.NewConn(db, rvdb.SQLite))
+}
+
+// TestAuthenticateUser_RecordsRichAuditOutcomeOnSuccessAndFailure is the
+// regression test for the SOC2 auth-outcome miscounting bug: the real
+// authenticate_user audit write path (previously logger.LogAuditError/
+// LogAuditInfo -> AuditService.PersistAudit -> RecordEvent with Outcome left
+// as the Go zero value) must persist an explicit Outcome of "success" or
+// "failure" so downstream compliance reports don't silently count every
+// login as a failure.
+func TestAuthenticateUser_RecordsRichAuditOutcomeOnSuccessAndFailure(t *testing.T) {
+	auditRepo := newAuditTestRepo(t)
+	auditSvcInst := auditServices.NewAuditService(auditRepo)
+
+	mockUserRepo := &MockUserRepository{}
+	mockSessionRepo := &MockSessionRepository{}
+	mockPasswordService := &MockPasswordService{}
+	mockTOTPService := &MockTOTPService{}
+	mockJWTService := &MockJWTService{}
+
+	logger := logging.InitLogger()
+
+	userID := uuid.New()
+	user := model.User{
+		ID:           userID,
+		Username:     "gooduser",
+		PasswordHash: "hashedpassword",
+		TOTPSecret:   "secret123",
+		Role:         model.RoleUser,
+	}
+
+	mockUserRepo.On("ReadByUsername", mock.Anything, "gooduser").Return(user, nil)
+	mockPasswordService.On("ValidatePassword", "goodpass", "hashedpassword").Return(nil)
+	mockPasswordService.On("ValidatePassword", "wrongpass", "hashedpassword").Return(errors.New("invalid password"))
+	mockTOTPService.On("ValidateCode", "123456", "secret123", mock.AnythingOfType("time.Time")).Return(true, nil)
+	mockSessionRepo.On("CreateSession", mock.Anything, mock.AnythingOfType("*model.Session")).Return(nil)
+	mockJWTService.On("GenerateToken", userID, "gooduser", model.RoleUser, mock.AnythingOfType("uuid.UUID")).Return("jwt_token", nil)
+
+	svc := NewAuthenticationService(AuthenticationConfig{
+		UserRepository:    mockUserRepo,
+		SessionRepository: mockSessionRepo,
+		PasswordService:   mockPasswordService,
+		TOTPService:       mockTOTPService,
+		JWTService:        mockJWTService,
+		Logger:            logger,
+		AuditService:      auditSvcInst,
+	})
+
+	ctx := context.Background()
+
+	// Successful login must persist Outcome=success, not NULL.
+	_, err := svc.AuthenticateUser(ctx, "gooduser", "goodpass", "123456")
+	require.NoError(t, err)
+
+	logs, _, err := auditRepo.QueryAuditLogs(ctx, repositories.AuditFilter{Limit: 1})
+	require.NoError(t, err)
+	require.NotEmpty(t, logs)
+	assert.Equal(t, "success", logs[0].Outcome, "a real successful login must persist Outcome=success, not NULL")
+
+	// Failed login (bad password) must persist Outcome=failure, not NULL.
+	_, err = svc.AuthenticateUser(ctx, "gooduser", "wrongpass", "123456")
+	require.Error(t, err)
+
+	logs, _, err = auditRepo.QueryAuditLogs(ctx, repositories.AuditFilter{Limit: 1})
+	require.NoError(t, err)
+	require.NotEmpty(t, logs)
+	assert.Equal(t, "failure", logs[0].Outcome, "a real failed login must persist Outcome=failure, not NULL")
 }
 
 // This test demonstrates how the new architecture enables easy testing

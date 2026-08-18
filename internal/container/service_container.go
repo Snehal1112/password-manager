@@ -372,6 +372,7 @@ func (c *ServiceContainer) initializeServices() error {
 		JWTService:             c.jwtService,
 		OAuth2ClientRepository: c.oauth2ClientRepository,
 		Logger:                 c.logger,
+		AuditService:           c.auditService,
 	})
 
 	// Wrap with retry logic if retry service is available.

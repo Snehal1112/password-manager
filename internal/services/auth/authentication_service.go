@@ -13,6 +13,7 @@ import (
 
 	"rocketvault/internal/logging"
 	"rocketvault/internal/repositories"
+	auditServices "rocketvault/internal/services/audit"
 	"rocketvault/model"
 )
 
@@ -65,6 +66,7 @@ type authenticationService struct {
 	jwtService       JWTService
 	oauth2ClientRepo repositories.OAuth2ClientRepositoryInterface
 	logger           *logging.Logger
+	auditService     auditServices.AuditServiceInterface
 }
 
 // AuthenticationConfig holds the dependencies for authentication service.
@@ -76,6 +78,7 @@ type AuthenticationConfig struct {
 	JWTService             JWTService
 	OAuth2ClientRepository repositories.OAuth2ClientRepositoryInterface
 	Logger                 *logging.Logger
+	AuditService           auditServices.AuditServiceInterface
 }
 
 // NewAuthenticationService creates a new AuthenticationService with the provided dependencies.
@@ -97,6 +100,7 @@ func NewAuthenticationService(config AuthenticationConfig) AuthenticationService
 		jwtService:       config.JWTService,
 		oauth2ClientRepo: config.OAuth2ClientRepository,
 		logger:           config.Logger,
+		auditService:     config.AuditService,
 	}
 }
 
@@ -120,14 +124,24 @@ func (s *authenticationService) AuthenticateUser(ctx context.Context, username, 
 	// Retrieve user from repository
 	user, err := s.userRepo.ReadByUsername(ctx, username)
 	if err != nil {
-		s.logger.LogAuditError("", "authenticate_user", "failed", "User not found", err)
+		if s.auditService != nil {
+			_ = s.auditService.RecordEvent(ctx, auditServices.AuditEvent{
+				Action: "authenticate_user", Outcome: "failure", Source: "system",
+				ResourceType: "user", Details: "user not found",
+			})
+		}
 		s.logger.WithField("username", username).Warn("Authentication failed: user not found")
 		return nil, fmt.Errorf("invalid credentials")
 	}
 
 	// Validate password
 	if err := s.passwordService.ValidatePassword(password, user.PasswordHash); err != nil {
-		s.logger.LogAuditError(user.ID.String(), "authenticate_user", "failed", "Invalid password", err)
+		if s.auditService != nil {
+			_ = s.auditService.RecordEvent(ctx, auditServices.AuditEvent{
+				UserID: user.ID.String(), Action: "authenticate_user", Outcome: "failure", Source: "system",
+				ResourceType: "user", Details: "invalid password",
+			})
+		}
 		s.logger.WithFields(logrus.Fields{
 			"username": username,
 			"user_id":  user.ID.String(),
@@ -138,13 +152,23 @@ func (s *authenticationService) AuthenticateUser(ctx context.Context, username, 
 	// Validate TOTP code
 	valid, err := s.totpService.ValidateCode(totpCode, user.TOTPSecret, time.Now())
 	if err != nil {
-		s.logger.LogAuditError(user.ID.String(), "authenticate_user", "failed", "TOTP validation error", err)
+		if s.auditService != nil {
+			_ = s.auditService.RecordEvent(ctx, auditServices.AuditEvent{
+				UserID: user.ID.String(), Action: "authenticate_user", Outcome: "failure", Source: "system",
+				ResourceType: "user", Details: "TOTP validation error",
+			})
+		}
 		s.logger.WithError(err).Error("TOTP validation error")
 		return nil, fmt.Errorf("authentication failed: %w", err)
 	}
 
 	if !valid {
-		s.logger.LogAuditError(user.ID.String(), "authenticate_user", "failed", "Invalid TOTP code", nil)
+		if s.auditService != nil {
+			_ = s.auditService.RecordEvent(ctx, auditServices.AuditEvent{
+				UserID: user.ID.String(), Action: "authenticate_user", Outcome: "failure", Source: "system",
+				ResourceType: "user", Details: "invalid TOTP code",
+			})
+		}
 		s.logger.WithFields(logrus.Fields{
 			"username": username,
 			"user_id":  user.ID.String(),
@@ -205,7 +229,14 @@ func (s *authenticationService) issueSession(ctx context.Context, user *model.Us
 		return nil, fmt.Errorf("authentication failed: %w", err)
 	}
 
-	s.logger.LogAuditInfo(user.ID.String(), auditAction, "success", "Session issued successfully")
+	if s.auditService != nil {
+		_ = s.auditService.RecordEvent(ctx, auditServices.AuditEvent{
+			UserID: user.ID.String(), Action: auditAction, Outcome: "success",
+			Source: "system", ResourceType: "user", ResourceID: user.ID.String(),
+		})
+	} else {
+		s.logger.LogAuditInfo(user.ID.String(), auditAction, "success", "Session issued successfully")
+	}
 
 	return &AuthenticationResult{
 		Token:        accessToken,
