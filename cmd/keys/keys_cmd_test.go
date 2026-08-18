@@ -19,6 +19,7 @@ import (
 
 	"rocketvault/cmd/testutils"
 	"rocketvault/common"
+	"rocketvault/internal/crypto"
 	"rocketvault/internal/formatter"
 	"rocketvault/internal/logging"
 	"rocketvault/internal/repositories"
@@ -39,8 +40,10 @@ func TestMain(m *testing.M) {
 	InitKeysWrap(parent)
 	InitKeysUnwrap(parent)
 	InitKeysUpdate(parent)
+	InitKeysSign(parent)
 	_ = NewWrapCmd()
 	_ = NewUnwrapCmd()
+	_ = NewSignCmd()
 	os.Exit(m.Run())
 }
 
@@ -147,7 +150,11 @@ func (m *keyCmdKeyService) ListKeyVersions(ctx context.Context, keyID uuid.UUID,
 type keyCmdCryptoService struct{ mock.Mock }
 
 func (m *keyCmdCryptoService) Sign(ctx context.Context, req keyServices.SignRequest) (*keyServices.SignResult, error) {
-	return nil, nil
+	args := m.Called(ctx, req)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).(*keyServices.SignResult), args.Error(1)
 }
 func (m *keyCmdCryptoService) Verify(ctx context.Context, req keyServices.VerifyRequest) (*keyServices.VerifyResult, error) {
 	return nil, nil
@@ -1645,6 +1652,254 @@ func TestUnwrapCmd_SetsResolvedVaultID(t *testing.T) {
 	defer cleanup()
 
 	cmd, _ := newTestCmd(unwrapCmd.RunE, nil)
+	cmd.SetContext(ctx)
+	err := cmd.Execute()
+	assert.NoError(t, err)
+	cryptoSvc.AssertExpectations(t)
+}
+
+// ========== signCmd tests ==========
+
+func TestSignCmd_NoClaims(t *testing.T) {
+	ctx := context.Background()
+	cleanup := viperSet(map[string]any{"sign-key-id": uuid.New().String(), "sign-data": "dGVzdA==", "sign-algorithm": "RS256"})
+	defer cleanup()
+	cmd, _ := newTestCmd(signCmd.RunE, nil)
+	cmd.SetContext(ctx)
+	err := cmd.Execute()
+	assert.ErrorContains(t, err, "unauthorized")
+}
+
+func TestSignCmd_MissingKeyIDOrData(t *testing.T) {
+	cleanup := viperSet(map[string]any{"sign-key-id": "", "sign-data": "", "sign-algorithm": "RS256"})
+	defer cleanup()
+	claims := &model.Claims{UserID: uuid.New(), Role: model.RoleAdmin}
+	ctx := context.WithValue(context.Background(), common.ClaimsKey, claims)
+	ctx = context.WithValue(ctx, common.LogKey, newLogger())
+	cmd, _ := newTestCmd(signCmd.RunE, nil)
+	cmd.SetContext(ctx)
+	err := cmd.Execute()
+	assert.ErrorContains(t, err, "--key-id and --data are required")
+}
+
+func TestSignCmd_InvalidKeyID(t *testing.T) {
+	cleanup := viperSet(map[string]any{"sign-key-id": "not-a-uuid", "sign-data": "dGVzdA==", "sign-algorithm": "RS256"})
+	defer cleanup()
+	claims := &model.Claims{UserID: uuid.New(), Role: model.RoleAdmin}
+	ctx := context.WithValue(context.Background(), common.ClaimsKey, claims)
+	ctx = context.WithValue(ctx, common.LogKey, newLogger())
+	cmd, _ := newTestCmd(signCmd.RunE, nil)
+	cmd.SetContext(ctx)
+	err := cmd.Execute()
+	assert.ErrorContains(t, err, "invalid key ID")
+}
+
+func TestSignCmd_InvalidBase64(t *testing.T) {
+	cleanup := viperSet(map[string]any{"sign-key-id": uuid.New().String(), "sign-data": "not!!valid@@base64", "sign-algorithm": "RS256"})
+	defer cleanup()
+	claims := &model.Claims{UserID: uuid.New(), Role: model.RoleAdmin}
+	ctx := context.WithValue(context.Background(), common.ClaimsKey, claims)
+	ctx = context.WithValue(ctx, common.LogKey, newLogger())
+	cmd, _ := newTestCmd(signCmd.RunE, nil)
+	cmd.SetContext(ctx)
+	err := cmd.Execute()
+	assert.ErrorContains(t, err, "failed to decode --data")
+}
+
+func TestSignCmd_NoServiceContainer(t *testing.T) {
+	keyID := uuid.New()
+	cleanup := viperSet(map[string]any{"sign-key-id": keyID.String(), "sign-data": "dGVzdA==", "sign-algorithm": "RS256"})
+	defer cleanup()
+	claims := &model.Claims{UserID: uuid.New(), Role: model.RoleAdmin}
+	ctx := context.WithValue(context.Background(), common.ClaimsKey, claims)
+	ctx = context.WithValue(ctx, common.LogKey, newLogger())
+	// No service container.
+	cmd, _ := newTestCmd(signCmd.RunE, nil)
+	cmd.SetContext(ctx)
+	err := cmd.Execute()
+	assert.ErrorContains(t, err, "service container not available")
+}
+
+func TestSignCmd_DefaultsAlgorithmToRS256(t *testing.T) {
+	cryptoSvc := &keyCmdCryptoService{}
+	userID := uuid.New()
+	keyID := uuid.New()
+	data := []byte("data-to-sign")
+	signature := []byte("signature-bytes")
+	sc, vaultID := newAllowedContainer(nil, cryptoSvc)
+	cryptoSvc.On("Sign", mock.Anything, mock.MatchedBy(func(r keyServices.SignRequest) bool {
+		return r.KeyID == keyID && r.UserID == userID && r.VaultID == vaultID &&
+			r.Scope == model.NewVaultScope(vaultID, userID) &&
+			r.Algorithm == crypto.SignatureAlgorithm("RS256")
+	})).Return(&keyServices.SignResult{Signature: signature}, nil)
+
+	claims := &model.Claims{UserID: userID, Role: model.RoleAdmin}
+	ctx := context.WithValue(context.Background(), common.ClaimsKey, claims)
+	ctx = context.WithValue(ctx, common.LogKey, newLogger())
+	ctx = context.WithValue(ctx, common.ServiceContainerKey, sc)
+
+	cleanup := viperSet(map[string]any{
+		"sign-key-id":    keyID.String(),
+		"sign-data":      base64.StdEncoding.EncodeToString(data),
+		"sign-algorithm": "",
+	})
+	defer cleanup()
+
+	cmd, _ := newTestCmd(signCmd.RunE, nil)
+	cmd.SetContext(ctx)
+	err := cmd.Execute()
+	assert.NoError(t, err)
+	cryptoSvc.AssertExpectations(t)
+}
+
+func TestSignCmd_Success(t *testing.T) {
+	cryptoSvc := &keyCmdCryptoService{}
+	userID := uuid.New()
+	keyID := uuid.New()
+	data := []byte("data-to-sign")
+	signature := []byte("signature-bytes")
+	sc, vaultID := newAllowedContainer(nil, cryptoSvc)
+	cryptoSvc.On("Sign", mock.Anything, mock.MatchedBy(func(r keyServices.SignRequest) bool {
+		return r.KeyID == keyID && r.UserID == userID && r.VaultID == vaultID &&
+			r.Scope == model.NewVaultScope(vaultID, userID) &&
+			r.Algorithm == crypto.SignatureAlgorithm("ES256")
+	})).Return(&keyServices.SignResult{Signature: signature}, nil)
+
+	claims := &model.Claims{UserID: userID, Role: model.RoleAdmin}
+	ctx := context.WithValue(context.Background(), common.ClaimsKey, claims)
+	ctx = context.WithValue(ctx, common.LogKey, newLogger())
+	ctx = context.WithValue(ctx, common.ServiceContainerKey, sc)
+
+	cleanup := viperSet(map[string]any{
+		"sign-key-id":    keyID.String(),
+		"sign-data":      base64.StdEncoding.EncodeToString(data),
+		"sign-algorithm": "ES256",
+	})
+	defer cleanup()
+
+	cmd, _ := newTestCmd(signCmd.RunE, nil)
+	cmd.SetContext(ctx)
+	err := cmd.Execute()
+	assert.NoError(t, err)
+	cryptoSvc.AssertExpectations(t)
+}
+
+func TestSignCmd_Denied(t *testing.T) {
+	cryptoSvc := &keyCmdCryptoService{}
+	userID := uuid.New()
+	keyID := uuid.New()
+	sc := newDeniedContainer(nil, cryptoSvc)
+
+	claims := &model.Claims{UserID: userID, Role: model.RoleAdmin}
+	ctx := context.WithValue(context.Background(), common.ClaimsKey, claims)
+	ctx = context.WithValue(ctx, common.LogKey, newLogger())
+	ctx = context.WithValue(ctx, common.ServiceContainerKey, sc)
+
+	cleanup := viperSet(map[string]any{
+		"sign-key-id":    keyID.String(),
+		"sign-data":      base64.StdEncoding.EncodeToString([]byte("data")),
+		"sign-algorithm": "RS256",
+	})
+	defer cleanup()
+
+	cmd, _ := newTestCmd(signCmd.RunE, nil)
+	cmd.SetContext(ctx)
+	err := cmd.Execute()
+	assert.ErrorContains(t, err, "forbidden")
+	cryptoSvc.AssertNotCalled(t, "Sign", mock.Anything, mock.Anything)
+}
+
+func TestSignCmd_Authorized(t *testing.T) {
+	cryptoSvc := &keyCmdCryptoService{}
+	userID := uuid.New()
+	keyID := uuid.New()
+	data := []byte("data-to-sign")
+	signature := []byte("signature-bytes")
+	sc, vaultID := newAllowedContainer(nil, cryptoSvc)
+
+	roles := &testutils.MockRoleAssignmentService{}
+	roles.On("HasDataAction", mock.Anything, userID, vaultID, model.ActionKeysSign).
+		Return(true, nil).Once()
+	policies := &testutils.MockAccessPolicyService{}
+	policies.On("CheckAccess", mock.Anything, userID, model.PolicyResourceKeys, model.OpSign, vaultID).
+		Return(authzServices.AccessAllowed, nil).Once()
+	sc.RoleAssignmentService = roles
+	sc.AccessPolicyService = policies
+
+	cryptoSvc.On("Sign", mock.Anything, mock.MatchedBy(func(r keyServices.SignRequest) bool {
+		return r.KeyID == keyID && r.UserID == userID &&
+			r.VaultID == vaultID && r.Scope == model.NewVaultScope(vaultID, userID)
+	})).Return(&keyServices.SignResult{Signature: signature}, nil)
+
+	claims := &model.Claims{UserID: userID, Role: model.RoleAdmin}
+	ctx := context.WithValue(context.Background(), common.ClaimsKey, claims)
+	ctx = context.WithValue(ctx, common.LogKey, newLogger())
+	ctx = context.WithValue(ctx, common.ServiceContainerKey, sc)
+
+	cleanup := viperSet(map[string]any{
+		"sign-key-id":    keyID.String(),
+		"sign-data":      base64.StdEncoding.EncodeToString(data),
+		"sign-algorithm": "RS256",
+	})
+	defer cleanup()
+
+	cmd, _ := newTestCmd(signCmd.RunE, nil)
+	cmd.SetContext(ctx)
+	err := cmd.Execute()
+	assert.NoError(t, err)
+	cryptoSvc.AssertExpectations(t)
+	roles.AssertExpectations(t)
+	policies.AssertExpectations(t)
+}
+
+func TestSignCmd_ServiceError(t *testing.T) {
+	cryptoSvc := &keyCmdCryptoService{}
+	userID := uuid.New()
+	keyID := uuid.New()
+	sc, _ := newAllowedContainer(nil, cryptoSvc)
+	cryptoSvc.On("Sign", mock.Anything, mock.Anything).Return(nil, fmt.Errorf("sign error"))
+
+	claims := &model.Claims{UserID: userID, Role: model.RoleAdmin}
+	ctx := context.WithValue(context.Background(), common.ClaimsKey, claims)
+	ctx = context.WithValue(ctx, common.LogKey, newLogger())
+	ctx = context.WithValue(ctx, common.ServiceContainerKey, sc)
+
+	cleanup := viperSet(map[string]any{
+		"sign-key-id":    keyID.String(),
+		"sign-data":      base64.StdEncoding.EncodeToString([]byte("data")),
+		"sign-algorithm": "RS256",
+	})
+	defer cleanup()
+
+	cmd, _ := newTestCmd(signCmd.RunE, nil)
+	cmd.SetContext(ctx)
+	err := cmd.Execute()
+	assert.ErrorContains(t, err, "sign failed")
+}
+
+func TestSignCmd_SetsResolvedVaultID(t *testing.T) {
+	cryptoSvc := &keyCmdCryptoService{}
+	userID := uuid.New()
+	keyID := uuid.New()
+	signature := []byte("signature-bytes")
+	sc, vaultID := newAllowedContainer(nil, cryptoSvc)
+	cryptoSvc.On("Sign", mock.Anything, mock.MatchedBy(func(r keyServices.SignRequest) bool {
+		return r.VaultID == vaultID && r.VaultID == uuid.MustParse(model.DefaultVaultID)
+	})).Return(&keyServices.SignResult{Signature: signature}, nil)
+
+	claims := &model.Claims{UserID: userID, Role: model.RoleAdmin}
+	ctx := context.WithValue(context.Background(), common.ClaimsKey, claims)
+	ctx = context.WithValue(ctx, common.LogKey, newLogger())
+	ctx = context.WithValue(ctx, common.ServiceContainerKey, sc)
+
+	cleanup := viperSet(map[string]any{
+		"sign-key-id":    keyID.String(),
+		"sign-data":      base64.StdEncoding.EncodeToString([]byte("data")),
+		"sign-algorithm": "RS256",
+	})
+	defer cleanup()
+
+	cmd, _ := newTestCmd(signCmd.RunE, nil)
 	cmd.SetContext(ctx)
 	err := cmd.Execute()
 	assert.NoError(t, err)
