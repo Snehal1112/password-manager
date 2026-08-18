@@ -20,6 +20,22 @@ type openAPISpec struct {
 	Paths map[string]map[string]any `yaml:"paths"`
 }
 
+// httpMethods is the set of YAML keys under a path item that represent real
+// HTTP operations, per the OpenAPI 3.0.3 Path Item Object. A path item map
+// can also carry non-method keys like "parameters", "summary", or
+// "description" alongside these -- those must not be misread as orphaned
+// routes when walking spec.Paths in the reverse direction below.
+var httpMethods = map[string]bool{
+	"get":     true,
+	"post":    true,
+	"put":     true,
+	"delete":  true,
+	"patch":   true,
+	"head":    true,
+	"options": true,
+	"trace":   true,
+}
+
 // muxParamPattern strips a mux path-parameter's regex constraint down to
 // bare OpenAPI parameter syntax, e.g. "{secret_id:[A-Fa-f0-9-]+}" becomes
 // "{secret_id}". docs/api-specification.yaml deliberately omits mux regex
@@ -57,6 +73,7 @@ func TestOpenAPISpecCoversAllRoutes(t *testing.T) {
 		WithRouter(router),
 		WithBasePath("/api/v1"),
 		WithLogger(userTestLog()),
+		WithMetricsEnabled(true),
 	)
 	require.NotNil(t, built)
 
@@ -82,6 +99,32 @@ func TestOpenAPISpecCoversAllRoutes(t *testing.T) {
 		}
 	}
 	require.Empty(t, missing, "docs/api-specification.yaml is missing %d route(s):\n%s", len(missing), joinLines(missing))
+
+	// Reverse direction: every method the spec documents must correspond to
+	// a route the real router actually registers. This is the guard against
+	// a fictional/orphaned spec entry -- e.g. a stray documented path that
+	// no longer (or never did) exist in the router -- which the
+	// forward-only loop above cannot catch.
+	real := make(map[string]map[string]bool, len(routes))
+	for _, r := range routes {
+		p := normalizeMuxPath(r.Path)
+		if real[p] == nil {
+			real[p] = map[string]bool{}
+		}
+		real[p][strings.ToLower(r.Method)] = true
+	}
+	var orphaned []string
+	for p, ops := range spec.Paths {
+		for m := range ops {
+			if !httpMethods[m] {
+				continue // skip non-method YAML keys like "parameters", "summary"
+			}
+			if !real[p][m] {
+				orphaned = append(orphaned, strings.ToUpper(m)+" "+p)
+			}
+		}
+	}
+	require.Empty(t, orphaned, "docs/api-specification.yaml documents %d route(s) the router does not register:\n%s", len(orphaned), strings.Join(orphaned, "\n"))
 }
 
 // TestNormalizeMuxPath exercises normalizeMuxPath directly, including the
