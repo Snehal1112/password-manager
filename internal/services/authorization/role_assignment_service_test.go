@@ -3,10 +3,16 @@ package authorization
 import (
 	"context"
 	"errors"
+	"strings"
+	"sync"
 	"testing"
 
 	"github.com/google/uuid"
+	"github.com/sirupsen/logrus"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 
+	"rocketvault/internal/logging"
 	"rocketvault/model"
 )
 
@@ -478,4 +484,78 @@ func TestAssignRole_RejectsReleaseUser(t *testing.T) {
 	if !errors.Is(err, ErrInvalidRole) {
 		t.Fatalf("got err=%v, want ErrInvalidRole (Release User is not yet implemented, so IsValidRole must reject it)", err)
 	}
+}
+
+type recordingAuditPersister struct {
+	mu      sync.Mutex
+	records []auditRecord
+}
+
+type auditRecord struct {
+	userID  string
+	action  string
+	details string
+}
+
+func (p *recordingAuditPersister) PersistAudit(userID, action, details string) error {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.records = append(p.records, auditRecord{userID, action, details})
+	return nil
+}
+
+func (p *recordingAuditPersister) find(action, status string) (auditRecord, bool) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	for _, rec := range p.records {
+		if rec.action == action && strings.Contains(rec.details, "status="+status) {
+			return rec, true
+		}
+	}
+	return auditRecord{}, false
+}
+
+func newAuditingSvc(rr *fakeRoleRepo, pr *fakePolicyRepo, ul *fakeUserLookup) (RoleAssignmentService, *recordingAuditPersister) {
+	l := logrus.New()
+	l.SetLevel(logrus.PanicLevel)
+	logger := logging.WrapLogrus(l)
+	persister := &recordingAuditPersister{}
+	logger.SetAuditPersister(persister)
+	return NewRoleAssignmentService(rr, pr, ul, logger), persister
+}
+
+func TestAssignRole_LogsSuccessAudit(t *testing.T) {
+	rr, pr := newFakeRoleRepo(), newFakePolicyRepo()
+	uid := uuid.New()
+	ul := &fakeUserLookup{users: map[string]model.User{"alice": {ID: uid, Username: "alice"}}}
+	svc, audit := newAuditingSvc(rr, pr, ul)
+	createdBy := uuid.New()
+
+	_, err := svc.AssignRole(context.Background(), AssignRoleInput{
+		Principal: "alice", PrincipalType: model.PrincipalTypeUser,
+		Role: model.RoleKeyVaultSecretsUser, VaultID: uuid.New(), CreatedBy: createdBy,
+	})
+	require.NoError(t, err)
+
+	rec, ok := audit.find("assign_role", "success")
+	require.True(t, ok, "AssignRole must emit a success audit row")
+	assert.Equal(t, createdBy.String(), rec.userID)
+}
+
+func TestRevokeAssignment_LogsSuccessAudit(t *testing.T) {
+	rr, pr := newFakeRoleRepo(), newFakePolicyRepo()
+	uid := uuid.New()
+	ul := &fakeUserLookup{users: map[string]model.User{"alice": {ID: uid, Username: "alice"}}}
+	svc, audit := newAuditingSvc(rr, pr, ul)
+	createdBy := uuid.New()
+	ra, err := svc.AssignRole(context.Background(), AssignRoleInput{
+		Principal: "alice", PrincipalType: model.PrincipalTypeUser,
+		Role: model.RoleKeyVaultSecretsUser, VaultID: uuid.New(), CreatedBy: createdBy,
+	})
+	require.NoError(t, err)
+
+	require.NoError(t, svc.RevokeAssignment(context.Background(), ra.ID, ra.VaultID))
+
+	_, ok := audit.find("revoke_role_assignment", "success")
+	require.True(t, ok, "RevokeAssignment must emit a success audit row")
 }

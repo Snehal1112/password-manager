@@ -134,6 +134,10 @@ func (s *roleAssignmentService) AssignRole(ctx context.Context, in AssignRoleInp
 			return nil, fmt.Errorf("expand role policies: %w", err)
 		}
 	}
+	if s.log != nil {
+		s.log.LogAuditInfo(in.CreatedBy.String(), "assign_role", "success",
+			fmt.Sprintf("Role %q assigned to principal %s in vault %s", in.Role, principalID, in.VaultID))
+	}
 	return ra, nil
 }
 
@@ -150,6 +154,10 @@ func (s *roleAssignmentService) RevokeAssignment(ctx context.Context, assignment
 	}
 	if err := s.roleRepo.Delete(ctx, assignmentID); err != nil {
 		return fmt.Errorf("delete assignment: %w", err)
+	}
+	if s.log != nil {
+		s.log.LogAuditInfo("", "revoke_role_assignment", "success",
+			fmt.Sprintf("Role assignment %s (role %q) revoked in vault %s", assignmentID, ra.Role, vaultID))
 	}
 	return nil
 }
