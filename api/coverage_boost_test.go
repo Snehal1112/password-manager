@@ -61,6 +61,7 @@ func TestWithLogger_SetsLoggerField(t *testing.T) {
 	WithLogger(logger)(api)
 	assert.Equal(t, logger, api.Logger)
 }
+
 // ============================================================
 // audit.go — missing branches
 // ============================================================
