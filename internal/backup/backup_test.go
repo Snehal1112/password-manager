@@ -241,6 +241,59 @@ func TestBackupManager(t *testing.T) {
 	})
 }
 
+// TestRestoreBackup_PreservesReferentialIntegrity proves RestoreBackup's
+// two-phase (delete-then-insert, each FK-ordered) restructure still
+// round-trips correctly on this package's existing minimal SQLite fixture:
+// every secret's user_id must still resolve to a real users row after
+// restore, not just match row counts. SQLite's foreign_keys pragma is off
+// by default (setupTestDB doesn't enable it), so this test cannot by itself
+// prove the OLD alphabetical order would have failed -- it proves the NEW
+// FK-ordered code path preserves existing correct behavior. The Postgres
+// integration test (Task 4) is what proves the ordering itself matters,
+// against an engine that actually enforces FK constraints.
+func TestRestoreBackup_PreservesReferentialIntegrity(t *testing.T) {
+	db, cleanup := setupTestDB(t)
+	defer cleanup()
+
+	logger := logging.InitLogger()
+	manager := NewManager(db, rvdb.SQLite, logger)
+
+	tmpDir, err := os.MkdirTemp("", "backup_test_*")
+	if err != nil {
+		t.Fatalf("Failed to create temp dir: %v", err)
+	}
+	defer os.RemoveAll(tmpDir) //nolint:errcheck
+	backupPath := filepath.Join(tmpDir, "integrity.backup")
+
+	if err := manager.CreateBackup(backupPath, false); err != nil {
+		t.Fatalf("CreateBackup failed: %v", err)
+	}
+
+	// Mutate before restoring, so the restore's effect is observable.
+	if _, err := db.Exec("DELETE FROM secrets; DELETE FROM users;"); err != nil {
+		t.Fatalf("Failed to clear data: %v", err)
+	}
+
+	if err := manager.RestoreBackup(backupPath, false); err != nil {
+		t.Fatalf("RestoreBackup failed: %v", err)
+	}
+
+	// setupTestDB seeds secret1/secret2, both owned by user1. Prove the
+	// restored secrets still resolve to a real user row via an actual JOIN,
+	// not just independently-matching counts on each table.
+	var joinedCount int
+	err = db.QueryRow(`
+		SELECT COUNT(*) FROM secrets s
+		JOIN users u ON u.id = s.user_id
+	`).Scan(&joinedCount)
+	if err != nil {
+		t.Fatalf("Failed to count joined rows: %v", err)
+	}
+	if joinedCount != 2 {
+		t.Errorf("expected 2 secrets with a resolvable user_id after restore, got %d", joinedCount)
+	}
+}
+
 func TestBackupMetadata(t *testing.T) {
 	db, cleanup := setupTestDB(t)
 	defer cleanup()

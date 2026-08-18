@@ -143,6 +143,21 @@ func (m *Manager) RestoreBackup(backupPath string, encrypted bool) error {
 		return fmt.Errorf("invalid backup data: %w", err)
 	}
 
+	// Determine restore order by FK dependency, not the backup file's own
+	// (alphabetical) table order -- see table_order.go. Index the backup's
+	// tables by name so both phases below can look them up regardless of
+	// what order they appear in the file.
+	byName := make(map[string]*TableData, len(backupData.Tables))
+	names := make([]string, 0, len(backupData.Tables))
+	for i := range backupData.Tables {
+		byName[backupData.Tables[i].Name] = &backupData.Tables[i]
+		names = append(names, backupData.Tables[i].Name)
+	}
+	order, err := topologicalOrder(names)
+	if err != nil {
+		return fmt.Errorf("determine table restore order: %w", err)
+	}
+
 	// Begin transaction for restore
 	tx, err := m.db.Begin()
 	if err != nil {
@@ -150,11 +165,23 @@ func (m *Manager) RestoreBackup(backupPath string, encrypted bool) error {
 	}
 	defer tx.Rollback() //nolint:errcheck
 
-	// Clear existing data and restore
+	// Delete phase: children before parents (reverse topological order), so
+	// clearing a table never violates an FK still pointing at a row in a
+	// table cleared later.
+	for i := len(order) - 1; i >= 0; i-- {
+		if _, err := tx.Exec(fmt.Sprintf("DELETE FROM %s", order[i])); err != nil {
+			return fmt.Errorf("failed to clear table %s: %w", order[i], err)
+		}
+	}
+
+	// Insert phase: parents before children (topological order), so
+	// inserting a row never violates an FK pointing at a not-yet-restored
+	// parent row.
 	totalRecords := 0
-	for _, tableData := range backupData.Tables {
-		if err := m.restoreTableData(tx, &tableData); err != nil {
-			return fmt.Errorf("failed to restore table %s: %w", tableData.Name, err)
+	for _, name := range order {
+		tableData := byName[name]
+		if err := m.insertTableData(tx, tableData); err != nil {
+			return fmt.Errorf("failed to restore table %s: %w", name, err)
 		}
 		totalRecords += tableData.RowCount
 		m.logger.WithField("table", tableData.Name).WithField("records", tableData.RowCount).Info("Restored table")
@@ -396,31 +423,14 @@ func (m *Manager) validateBackupData(data *BackupData) error {
 	return nil
 }
 
-// restoreTableData restores data for a specific table
-func (m *Manager) restoreTableData(tx *sql.Tx, tableData *TableData) error {
-	// Clear existing data
-	if _, err := tx.Exec(fmt.Sprintf("DELETE FROM %s", tableData.Name)); err != nil {
-		return err
-	}
-
+// insertTableData inserts all rows for a specific table. The caller (RestoreBackup)
+// is responsible for clearing the table first, in the correct FK-safe order --
+// this function only inserts.
+func (m *Manager) insertTableData(tx *sql.Tx, tableData *TableData) error {
 	if len(tableData.Rows) == 0 {
 		return nil
 	}
 
-	// Prepare INSERT statement
-	placeholders := make([]string, len(tableData.Columns))
-	args := make([]interface{}, len(tableData.Columns))
-
-	for i := range placeholders {
-		placeholders[i] = "?"
-	}
-
-	query := fmt.Sprintf("INSERT INTO %s (%s) VALUES (%s)",
-		tableData.Name,
-		fmt.Sprintf("%s", fmt.Sprintf("%s", fmt.Sprintf("%s", tableData.Columns))),
-		fmt.Sprintf("%s", placeholders))
-
-	// Fix the column formatting
 	columnsStr := ""
 	for i, col := range tableData.Columns {
 		if i > 0 {
@@ -437,7 +447,7 @@ func (m *Manager) restoreTableData(tx *sql.Tx, tableData *TableData) error {
 		placeholdersStr += "?"
 	}
 
-	query = fmt.Sprintf("INSERT INTO %s (%s) VALUES (%s)",
+	query := fmt.Sprintf("INSERT INTO %s (%s) VALUES (%s)",
 		tableData.Name, columnsStr, placeholdersStr)
 
 	// Rebind "?" placeholders for the active engine before preparing.
@@ -449,12 +459,11 @@ func (m *Manager) restoreTableData(tx *sql.Tx, tableData *TableData) error {
 	}
 	defer stmt.Close() //nolint:errcheck
 
-	// Insert all rows
+	args := make([]interface{}, len(tableData.Columns))
 	for _, row := range tableData.Rows {
 		for i, col := range tableData.Columns {
 			args[i] = row[col]
 		}
-
 		if _, err := stmt.Exec(args...); err != nil {
 			return err
 		}

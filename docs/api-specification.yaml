@@ -1,37 +1,188 @@
 ---
+# Generated from the real router inventory in docs/api-routes.generated.txt.
+# Every `paths:` entry below corresponds to a route the gorilla/mux router
+# actually registers. Path parameters are written without the mux regular
+# expression constraint, so `/secrets/{secret_id:[A-Fa-f0-9-]+}` in the
+# inventory appears here as `/secrets/{secret_id}`.
+#
+# RocketVault registers most data-plane resources twice: once under a legacy
+# flat path (`/api/v1/secrets`) that resolves to the default vault, and once
+# under a vault-scoped path (`/api/v1/vaults/{vault_name}/secrets`). Both
+# forms are separate registered routes and both are documented here.
 openapi: 3.0.3
 info:
-  title: Password Manager API
+  title: RocketVault API
   description: |
-    A production-ready, self-hosted password manager API for securely
-    storing and managing secrets, keys, and certificates
-  version: 1.0.0
+    A self-hosted, open-source alternative to Azure Key Vault: secrets
+    management, cryptographic key operations, X.509 certificate lifecycle
+    management, and multi-vault RBAC.
+  version: 4.0.0
   contact:
-    name: Password Manager Support
-    email: support@rocketvault.local
+    name: RocketVault
+    url: https://github.com/Snehal1112/rocketvault
   license:
     name: MIT
     url: https://opensource.org/licenses/MIT
 
 servers:
-  - url: http://localhost:8080/api/v1
+  - url: http://localhost:8080
     description: Development server
-  - url: https://api.rocketvault.local/api/v1
+  - url: https://api.rocketvault.local
     description: Production server
 
 security:
   - bearerAuth: []
 
+tags:
+  - name: Health
+    description: Liveness, readiness, and database health probes
+  - name: Monitoring
+    description: Prometheus metrics scraping
+  - name: Configuration
+    description: Non-sensitive front-end configuration
+  - name: Authentication
+    description: Login, token refresh, and session management
+  - name: Users
+    description: User administration
+  - name: Service Accounts
+    description: OAuth2 client-credentials machine identities
+  - name: OIDC
+    description: OpenID Connect authorization-code login
+  - name: JWKS
+    description: JSON Web Key Set publication and signing-key rotation
+  - name: Secrets
+    description: Secret storage, versioning, import/export, and backup
+  - name: Keys
+    description: Cryptographic key lifecycle and crypto operations
+  - name: Certificates
+    description: X.509 certificate lifecycle and policy
+  - name: Soft Delete
+    description: Listing, restoring, and purging soft-deleted items
+  - name: Vaults
+    description: Vault lifecycle management
+  - name: Role Assignments
+    description: Per-vault Azure-parity role grants
+  - name: Access Policies
+    description: Explicit allow/deny policies evaluated before role grants
+  - name: Audit
+    description: Audit log queries and compliance reports
+
 paths:
-  # Health Endpoints
-  /health:
+  # ─── JWKS (public, outside /api/v1) ────────────────────────────────────────
+  /jwks.json:
+    get:
+      summary: Get the JSON Web Key Set
+      description: |
+        Returns an RFC 7517 JWK Set containing every active public signing key.
+        Public endpoint; no authentication required.
+      operationId: getJWKS
+      tags:
+        - JWKS
+      security: []
+      responses:
+        "200":
+          description: JWK Set retrieved successfully
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/JWKSet"
+        "500":
+          description: Failed to build the JWK set
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SimpleErrorResponse"
+        "503":
+          description: Signing provider not available
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SimpleErrorResponse"
+
+  /api/v1/jwks/rotate:
+    post:
+      summary: Rotate the JWT signing key
+      description: |
+        Generates a new signing key and returns its key ID plus the overlap
+        deadline during which the previous key still validates tokens. Only
+        supported by the `self_pki` key source. Admin role required.
+      operationId: rotateJWKS
+      tags:
+        - JWKS
+      responses:
+        "200":
+          description: Signing key rotated successfully
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/JWKSRotateResponse"
+        "400":
+          description: Rotation is not supported by the configured key source
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  # ─── Monitoring (public, outside /api/v1) ──────────────────────────────────
+  /metrics:
+    get:
+      summary: Scrape Prometheus metrics
+      description: |
+        Returns process and application metrics in Prometheus text exposition
+        format. Registered on the unversioned root path (not under
+        `/api/v1`), matching Prometheus scrape conventions. Only registered
+        when `monitoring.enable_metrics` is true; otherwise the route does
+        not exist and requests 404. Public endpoint; no authentication
+        required.
+      operationId: getMetrics
+      tags:
+        - Monitoring
+      security: []
+      responses:
+        "200":
+          description: Metrics retrieved successfully
+          content:
+            text/plain; version=0.0.4; charset=utf-8:
+              schema:
+                type: string
+
+  # ─── Configuration ─────────────────────────────────────────────────────────
+  /api/v1/config:
+    get:
+      summary: Get front-end configuration
+      description: |
+        Returns the non-sensitive configuration the front end needs. Values are
+        populated at startup; no work is done at request time.
+      operationId: getConfig
+      tags:
+        - Configuration
+      security: []
+      responses:
+        "200":
+          description: Configuration retrieved successfully
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/FrontendConfig"
+
+  # ─── Health ────────────────────────────────────────────────────────────────
+  /api/v1/health:
     get:
       summary: Get comprehensive health metrics
       description: |
         Returns detailed system health information including memory usage,
-        CPU statistics, database status, and query performance metrics
+        goroutine and CPU statistics, database connection-pool statistics, and
+        query performance metrics.
+      operationId: getHealth
       tags:
         - Health
+      security: []
       responses:
         "200":
           description: Health metrics retrieved successfully
@@ -42,18 +193,20 @@ paths:
         "500":
           description: Failed to collect health metrics
           content:
-            application/json:
+            text/plain:
               schema:
-                $ref: "#/components/schemas/ErrorResponse"
+                type: string
 
-  /health/ready:
+  /api/v1/health/ready:
     get:
       summary: Check system readiness
       description: |
         Performs a readiness check to determine if the system is ready to
-        accept traffic
+        accept traffic.
+      operationId: getHealthReady
       tags:
         - Health
+      security: []
       responses:
         "200":
           description: System is ready
@@ -66,16 +219,18 @@ paths:
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/ErrorResponse"
+                $ref: "#/components/schemas/ReadinessResponse"
 
-  /health/live:
+  /api/v1/health/live:
     get:
       summary: Check system liveness
       description: |
         Performs a liveness check to determine if the application is running
-        properly
+        properly.
+      operationId: getHealthLive
       tags:
         - Health
+      security: []
       responses:
         "200":
           description: System is alive
@@ -84,71 +239,1363 @@ paths:
               schema:
                 $ref: "#/components/schemas/LivenessResponse"
 
-  # Vault Endpoints
-  /vault/tenant:
+  /api/v1/health/database:
     get:
-      summary: Create a new tenant
-      description: Creates a new tenant in the vault system
+      summary: Check database health
+      description: |
+        Returns connection-pool utilisation and query-performance detail for
+        the configured database. Responds 503 when the reported status is
+        `warning`, `degraded`, or `critical`.
+      operationId: getHealthDatabase
       tags:
-        - Vault
+        - Health
+      security: []
       responses:
-        "201":
-          description: Tenant created successfully
+        "200":
+          description: Database is healthy
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/TenantCreateResponse"
+                $ref: "#/components/schemas/DatabaseHealthResponse"
+        "503":
+          description: Database is degraded, in warning, or critical
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DatabaseHealthResponse"
+
+  # ─── Authentication ────────────────────────────────────────────────────────
+  /api/v1/users/login:
+    post:
+      summary: Authenticate a user
+      description: |
+        Authenticates with username, password, and TOTP code, returning an
+        access token and a refresh token. Public endpoint.
+      operationId: loginUser
+      tags:
+        - Authentication
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/LoginRequest"
+      responses:
+        "200":
+          description: Authentication succeeded
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LoginResponse"
         "400":
-          description: Invalid request data
+          $ref: "#/components/responses/BadRequest"
+        "403":
+          description: Authentication failed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /api/v1/users/refresh:
+    post:
+      summary: Refresh an access token
+      description: Exchanges a valid refresh token for a new access token. Public endpoint.
+      operationId: refreshToken
+      tags:
+        - Authentication
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RefreshTokenRequest"
+      responses:
+        "200":
+          description: Access token refreshed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RefreshTokenResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "403":
+          description: Token refresh failed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /api/v1/users/sessions:
+    get:
+      summary: List the current user's sessions
+      description: Returns every active session belonging to the authenticated user.
+      operationId: listUserSessions
+      tags:
+        - Authentication
+      responses:
+        "200":
+          description: Sessions retrieved successfully
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ListSessionsResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "500":
+          $ref: "#/components/responses/InternalError"
+    delete:
+      summary: Revoke all of the current user's sessions
+      description: Revokes every session belonging to the authenticated user.
+      operationId: revokeAllSessions
+      tags:
+        - Authentication
+      responses:
+        "200":
+          $ref: "#/components/responses/StatusOK"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /api/v1/users/sessions/{session_id}:
+    parameters:
+      - $ref: "#/components/parameters/SessionId"
+    delete:
+      summary: Revoke a single session
+      description: Revokes the identified session.
+      operationId: revokeSession
+      tags:
+        - Authentication
+      responses:
+        "200":
+          $ref: "#/components/responses/StatusOK"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  # ─── Users ─────────────────────────────────────────────────────────────────
+  /api/v1/users:
+    post:
+      summary: Create a user
+      description: Creates a new user and returns its provisioned TOTP secret. Admin role required.
+      operationId: createUser
+      tags:
+        - Users
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateUserRequest"
+      responses:
+        "201":
+          description: User created successfully
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UserResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "500":
+          $ref: "#/components/responses/InternalError"
+    get:
+      summary: List users
+      description: Returns a paginated list of all users. Admin role required.
+      operationId: listUsers
+      tags:
+        - Users
+      parameters:
+        - $ref: "#/components/parameters/Page"
+        - $ref: "#/components/parameters/PerPage"
+      responses:
+        "200":
+          description: Users retrieved successfully
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ListUsersResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /api/v1/users/{user_id}:
+    parameters:
+      - $ref: "#/components/parameters/UserId"
+    get:
+      summary: Get a user
+      description: Returns a user by ID. Callers may read their own profile; admins may read any.
+      operationId: getUser
+      tags:
+        - Users
+      responses:
+        "200":
+          description: User retrieved successfully
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UserResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+    put:
+      summary: Update a user
+      description: |
+        Updates a user's username, password, or role. Callers may update their
+        own profile but not their own role; admins may update any user.
+      operationId: updateUser
+      tags:
+        - Users
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateUserRequest"
+      responses:
+        "200":
+          description: User updated successfully
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UserResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "500":
+          $ref: "#/components/responses/InternalError"
+    delete:
+      summary: Delete a user
+      description: Permanently deletes a user. Admin role required; self-deletion is rejected.
+      operationId: deleteUser
+      tags:
+        - Users
+      responses:
+        "200":
+          $ref: "#/components/responses/StatusOK"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  # ─── Service accounts and OAuth2 ───────────────────────────────────────────
+  /api/v1/oauth2/token:
+    post:
+      summary: Issue a service-account access token
+      description: |
+        RFC 6749 §4.4 client-credentials grant. Credentials may be supplied via
+        HTTP Basic authentication or as form fields. The body must be
+        `application/x-www-form-urlencoded`.
+      operationId: issueOAuth2Token
+      tags:
+        - Service Accounts
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: "#/components/schemas/OAuth2TokenRequest"
+      responses:
+        "200":
+          description: Access token issued
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OAuth2TokenResponse"
+        "400":
+          description: Malformed request or unsupported grant type
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OAuth2ErrorResponse"
+        "401":
+          description: Client authentication failed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OAuth2ErrorResponse"
+        "500":
+          description: Authorization server temporarily unavailable
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OAuth2ErrorResponse"
+
+  /api/v1/service-accounts:
+    post:
+      summary: Create a service account
+      description: |
+        Creates an OAuth2 client-credentials identity and returns the plain-text
+        client secret once only. Admin role required.
+      operationId: createServiceAccount
+      tags:
+        - Service Accounts
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateServiceAccountRequest"
+      responses:
+        "201":
+          description: Service account created successfully
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ServiceAccountWithSecret"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "500":
+          $ref: "#/components/responses/InternalError"
+    get:
+      summary: List service accounts
+      description: Returns all service accounts. Admin role required.
+      operationId: listServiceAccounts
+      tags:
+        - Service Accounts
+      responses:
+        "200":
+          description: Service accounts retrieved successfully
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ListServiceAccountsResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /api/v1/service-accounts/{service_account_id}:
+    parameters:
+      - $ref: "#/components/parameters/ServiceAccountId"
+    get:
+      summary: Get a service account
+      description: Returns a single service account by ID. Admin role required.
+      operationId: getServiceAccount
+      tags:
+        - Service Accounts
+      responses:
+        "200":
+          description: Service account retrieved successfully
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ServiceAccount"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+    delete:
+      summary: Delete a service account
+      description: Permanently deletes a service account. Admin role required.
+      operationId: deleteServiceAccount
+      tags:
+        - Service Accounts
+      responses:
+        "200":
+          $ref: "#/components/responses/StatusOK"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /api/v1/service-accounts/{service_account_id}/rotate:
+    parameters:
+      - $ref: "#/components/parameters/ServiceAccountId"
+    post:
+      summary: Rotate a service account's client secret
+      description: |
+        Issues a new client secret and invalidates the old one. The new secret
+        is returned once only. Admin role required.
+      operationId: rotateServiceAccountSecret
+      tags:
+        - Service Accounts
+      responses:
+        "200":
+          description: Client secret rotated successfully
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ClientSecretResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  # ─── OIDC ──────────────────────────────────────────────────────────────────
+  /api/v1/oidc/login:
+    get:
+      summary: Start an OIDC login
+      description: |
+        Stores a random state and nonce in short-lived cookies and redirects to
+        the configured provider's authorization endpoint. Supplying
+        `cli_redirect_uri` (restricted to `http://127.0.0.1:<port>` or
+        `http://localhost:<port>`) switches on the CLI loopback flow.
+      operationId: oidcLogin
+      tags:
+        - OIDC
+      security: []
+      parameters:
+        - name: cli_redirect_uri
+          in: query
+          required: false
+          description: Loopback redirect target for the CLI login flow
+          schema:
+            type: string
+            example: "http://127.0.0.1:53682/callback"
+      responses:
+        "302":
+          description: Redirect to the provider's authorization endpoint
+        "400":
+          description: Invalid cli_redirect_uri
+          content:
+            text/plain:
+              schema:
+                type: string
+        "500":
+          description: Failed to generate state or nonce
+          content:
+            text/plain:
+              schema:
+                type: string
+        "503":
+          description: OIDC is not configured
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  /api/v1/oidc/callback:
+    get:
+      summary: Complete an OIDC login
+      description: |
+        Verifies state, exchanges the authorization code, verifies the ID token
+        nonce, finds or creates the local user, and issues the same session
+        pair `POST /api/v1/users/login` returns. When the login began with a
+        `cli_redirect_uri`, the session is handed off via a one-time exchange
+        code instead of being returned directly.
+      operationId: oidcCallback
+      tags:
+        - OIDC
+      security: []
+      parameters:
+        - name: code
+          in: query
+          required: true
+          description: Authorization code returned by the provider
+          schema:
+            type: string
+        - name: state
+          in: query
+          required: true
+          description: Opaque state value; must match the oidc_state cookie
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Session issued
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LoginResponse"
+        "302":
+          description: Redirect to the CLI loopback URI carrying a one-time exchange code
+        "400":
+          description: Missing cookie, state mismatch, or missing code
+          content:
+            text/plain:
+              schema:
+                type: string
+        "401":
+          description: OIDC callback failed
+          content:
+            text/plain:
+              schema:
+                type: string
+        "500":
+          description: Failed to resolve the user or issue a session
+          content:
+            text/plain:
+              schema:
+                type: string
+        "503":
+          description: OIDC is not configured
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  /api/v1/oidc/cli/exchange:
+    post:
+      summary: Redeem a CLI login exchange code
+      description: |
+        Redeems the one-time code minted by the OIDC callback for the session it
+        stands in for. Codes are single-use and expire after 60 seconds.
+      operationId: oidcCLIExchange
+      tags:
+        - OIDC
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CLIExchangeRequest"
+      responses:
+        "200":
+          description: Session returned
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LoginResponse"
+        "400":
+          description: Missing code
+          content:
+            text/plain:
+              schema:
+                type: string
+        "410":
+          description: Unknown or expired code
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  # ─── Audit ─────────────────────────────────────────────────────────────────
+  /api/v1/audit/logs:
+    get:
+      summary: Query audit logs
+      description: |
+        Returns a page of audit log entries plus a hash-chain integrity flag.
+        Admin role required.
+      operationId: getAuditLogs
+      tags:
+        - Audit
+      parameters:
+        - name: from
+          in: query
+          required: false
+          description: Lower bound of the time range (RFC 3339)
+          schema:
+            type: string
+            format: date-time
+        - name: to
+          in: query
+          required: false
+          description: Upper bound of the time range (RFC 3339)
+          schema:
+            type: string
+            format: date-time
+        - name: user_id
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: action
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: outcome
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: resource_type
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: resource_id
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: source
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: limit
+          in: query
+          required: false
+          description: Maximum entries to return; defaults to 100, capped at 1000
+          schema:
+            type: integer
+            default: 100
+            maximum: 1000
+      responses:
+        "200":
+          description: Audit logs retrieved successfully
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AuditLogsResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /api/v1/audit/reports/soc2:
+    get:
+      summary: Generate a SOC 2 report
+      description: |
+        Summarises audit activity across the requested window. Returns JSON by
+        default and CSV when `Accept: text/csv` is sent. Admin role required.
+      operationId: getSOC2Report
+      tags:
+        - Audit
+      parameters:
+        - $ref: "#/components/parameters/ReportFrom"
+        - $ref: "#/components/parameters/ReportTo"
+      responses:
+        "200":
+          description: Report generated successfully
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SOC2Report"
+            text/csv:
+              schema:
+                type: string
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /api/v1/audit/reports/gdpr:
+    get:
+      summary: Generate a GDPR data-subject report
+      description: |
+        Returns every audit event touching the named data subject in the
+        requested window. Returns JSON by default and CSV when
+        `Accept: text/csv` is sent. Admin role required.
+      operationId: getGDPRReport
+      tags:
+        - Audit
+      parameters:
+        - name: subject_id
+          in: query
+          required: true
+          description: Identifier of the data subject
+          schema:
+            type: string
+        - $ref: "#/components/parameters/ReportFrom"
+        - $ref: "#/components/parameters/ReportTo"
+      responses:
+        "200":
+          description: Report generated successfully
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GDPRReport"
+            text/csv:
+              schema:
+                type: string
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /api/v1/audit/config:
+    get:
+      summary: Get the audit retention configuration
+      description: Returns the number of days audit entries are retained. Admin role required.
+      operationId: getAuditConfig
+      tags:
+        - Audit
+      responses:
+        "200":
+          description: Retention configuration retrieved successfully
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AuditConfig"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "500":
+          $ref: "#/components/responses/InternalError"
+    patch:
+      summary: Update the audit retention configuration
+      description: Sets the number of days audit entries are retained. Admin role required.
+      operationId: patchAuditConfig
+      tags:
+        - Audit
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AuditConfig"
+      responses:
+        "200":
+          description: Retention configuration updated successfully
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AuditConfig"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  # ─── Access policies ───────────────────────────────────────────────────────
+  /api/v1/access-policies:
+    get:
+      summary: List access policies
+      description: Returns every access policy. Admin role required.
+      operationId: listAccessPolicies
+      tags:
+        - Access Policies
+      responses:
+        "200":
+          description: Access policies retrieved successfully
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ListAccessPoliciesResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "500":
+          $ref: "#/components/responses/InternalError"
+    post:
+      summary: Create an access policy
+      description: |
+        Creates an explicit allow or deny policy. An empty `vault_id` leaves the
+        policy global; a value scopes it to that vault. Admin role required.
+      operationId: createAccessPolicy
+      tags:
+        - Access Policies
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateAccessPolicyRequest"
+      responses:
+        "201":
+          description: Access policy created successfully
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AccessPolicy"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /api/v1/access-policies/{policy_id}:
+    parameters:
+      - $ref: "#/components/parameters/PolicyId"
+    get:
+      summary: Get an access policy
+      description: Returns a single access policy by ID. Admin role required.
+      operationId: getAccessPolicy
+      tags:
+        - Access Policies
+      responses:
+        "200":
+          description: Access policy retrieved successfully
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AccessPolicy"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+    put:
+      summary: Update an access policy's effect
+      description: Changes the policy's effect between `allow` and `deny`. Admin role required.
+      operationId: updateAccessPolicy
+      tags:
+        - Access Policies
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateAccessPolicyRequest"
+      responses:
+        "200":
+          description: Access policy updated successfully
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AccessPolicy"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+    delete:
+      summary: Delete an access policy
+      description: Permanently removes an access policy. Admin role required.
+      operationId: deleteAccessPolicy
+      tags:
+        - Access Policies
+      responses:
+        "200":
+          $ref: "#/components/responses/StatusOK"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /api/v1/access-policies/principal/{principal_id}:
+    parameters:
+      - $ref: "#/components/parameters/PrincipalId"
+    get:
+      summary: List a principal's access policies
+      description: Returns every access policy attached to the named principal. Admin role required.
+      operationId: listAccessPoliciesByPrincipal
+      tags:
+        - Access Policies
+      responses:
+        "200":
+          description: Access policies retrieved successfully
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ListAccessPoliciesResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  # ─── Vaults ────────────────────────────────────────────────────────────────
+  /api/v1/vaults:
+    get:
+      summary: List vaults
+      description: |
+        Returns every vault. Requires the admin role or a global `vaults/manage`
+        allow policy — a vault-scoped grant is not sufficient.
+      operationId: listVaults
+      tags:
+        - Vaults
+      parameters:
+        - name: include_deleted
+          in: query
+          required: false
+          description: Include soft-deleted vaults when set to `true`
+          schema:
+            type: boolean
+            default: false
+      responses:
+        "200":
+          description: Vaults retrieved successfully
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ListVaultsResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "500":
+          $ref: "#/components/responses/InternalError"
+    post:
+      summary: Create a vault
+      description: |
+        Creates a new vault. Requires the admin role or a global `vaults/manage`
+        allow policy — a vault-scoped grant on another vault is not sufficient.
+      operationId: createVault
+      tags:
+        - Vaults
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateVaultRequest"
+      responses:
+        "201":
+          description: Vault created successfully
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/VaultResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+
+  /api/v1/vaults/{name}:
+    parameters:
+      - name: name
+        in: path
+        required: true
+        description: Name of the vault
+        schema:
+          type: string
+          pattern: "^[a-z0-9](?:[a-z0-9-]{1,61}[a-z0-9])$"
+          example: "production"
+    get:
+      summary: Get a vault
+      description: |
+        Returns a vault by name. Authorized against the named vault itself, not
+        the default vault.
+      operationId: getVault
+      tags:
+        - Vaults
+      responses:
+        "200":
+          description: Vault retrieved successfully
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/VaultResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalError"
+    patch:
+      summary: Update a vault
+      description: |
+        Updates a vault's enabled flag, purge protection, retention period, or
+        tags. Nil fields are left unchanged; an empty tag map clears all tags.
+      operationId: updateVault
+      tags:
+        - Vaults
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateVaultRequest"
+      responses:
+        "200":
+          description: Vault updated successfully
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/VaultResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+    delete:
+      summary: Soft-delete a vault
+      description: |
+        Soft-deletes a vault and cascades to its secrets, keys, and
+        certificates. The default vault cannot be deleted.
+      operationId: deleteVault
+      tags:
+        - Vaults
+      responses:
+        "204":
+          description: Vault soft-deleted successfully
+        "400":
+          description: The default vault is protected from deletion
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /api/v1/vaults/{vault_name}/purge:
+    parameters:
+      - $ref: "#/components/parameters/VaultName"
+    delete:
+      summary: Purge a vault
+      description: |
+        Permanently removes a soft-deleted vault and everything it held. Gated
+        purely by the vault-scoped role-assignment check, so even a global admin
+        needs an explicit grant (for example Key Vault Purge Operator) in this
+        vault. The default vault and purge-protected vaults are refused.
+      operationId: purgeVault
+      tags:
+        - Vaults
+      responses:
+        "204":
+          description: Vault purged successfully
+        "400":
+          description: The vault is default-protected or purge-protected
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  # ─── Role assignments ──────────────────────────────────────────────────────
+  /api/v1/vaults/{vault_name}/role-assignments:
+    parameters:
+      - $ref: "#/components/parameters/VaultName"
+    get:
+      summary: List role assignments in a vault
+      description: |
+        Returns every role assignment scoped to the vault, enriched with the
+        principal's username and the number of policies the role expands to.
+      operationId: listRoleAssignments
+      tags:
+        - Role Assignments
+      responses:
+        "200":
+          description: Role assignments retrieved successfully
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ListRoleAssignmentsResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "500":
+          $ref: "#/components/responses/InternalError"
+    post:
+      summary: Grant a role in a vault
+      description: |
+        Grants a built-in Azure-parity role to a principal within the vault. The
+        principal may be given as a username or a UUID.
+      operationId: createRoleAssignment
+      tags:
+        - Role Assignments
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AssignRoleRequest"
+      responses:
+        "201":
+          description: Role assignment created successfully
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RoleAssignmentResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          description: Principal not found
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorResponse"
         "500":
-          description: Internal server error
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ErrorResponse"
+          $ref: "#/components/responses/InternalError"
 
-  /vault/tenant/{id}:
+  /api/v1/vaults/{vault_name}/role-assignments/{assignment_id}:
+    parameters:
+      - $ref: "#/components/parameters/VaultName"
+      - $ref: "#/components/parameters/AssignmentId"
     get:
-      summary: Get tenant by ID
-      description: Retrieves tenant information by its unique identifier
+      summary: Get a role assignment
+      description: Returns a single role assignment within the vault.
+      operationId: getRoleAssignment
       tags:
-        - Vault
-      parameters:
-        - name: id
-          in: path
-          required: true
-          description: Unique identifier of the tenant
-          schema:
-            type: string
-            pattern: "^[A-Za-z0-9_-]+$"
+        - Role Assignments
       responses:
         "200":
-          description: Tenant retrieved successfully
+          description: Role assignment retrieved successfully
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/Tenant"
+                $ref: "#/components/schemas/RoleAssignmentResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
         "404":
-          description: Tenant not found
+          $ref: "#/components/responses/NotFound"
+    delete:
+      summary: Revoke a role assignment
+      description: Removes a role assignment from the vault.
+      operationId: deleteRoleAssignment
+      tags:
+        - Role Assignments
+      responses:
+        "200":
+          $ref: "#/components/responses/StatusOK"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  # ─── Secrets (legacy flat routes; resolve to the default vault) ────────────
+  /api/v1/secrets:
+    get:
+      summary: List secrets
+      description: |
+        Lists the secrets in the resolved vault. Values are omitted. Any vault
+        member sees every secret in the vault.
+      operationId: listSecrets
+      tags:
+        - Secrets
+      parameters:
+        - $ref: "#/components/parameters/Tags"
+      responses:
+        "200":
+          description: Secrets retrieved successfully
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/ErrorResponse"
+                $ref: "#/components/schemas/ListSecretsResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "500":
+          $ref: "#/components/responses/InternalError"
+    post:
+      summary: Create a secret
+      description: Stores a new secret. The response omits the secret value.
+      operationId: createSecret
+      tags:
+        - Secrets
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateSecretRequest"
+      responses:
+        "201":
+          description: Secret created successfully
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SecretResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "500":
+          $ref: "#/components/responses/InternalError"
 
-  # Secrets Endpoints
-  /secrets/export:
+  /api/v1/secrets/{secret_id}:
+    parameters:
+      - $ref: "#/components/parameters/SecretId"
+    get:
+      summary: Get a secret
+      description: Returns a secret including its decrypted value.
+      operationId: getSecret
+      tags:
+        - Secrets
+      responses:
+        "200":
+          description: Secret retrieved successfully
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SecretResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+    put:
+      summary: Update a secret
+      description: |
+        Updates a secret and increments its version. At least one changed field
+        must be supplied.
+      operationId: updateSecret
+      tags:
+        - Secrets
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateSecretRequest"
+      responses:
+        "200":
+          description: Secret updated successfully
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SecretResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+    delete:
+      summary: Delete a secret
+      description: |
+        Soft-deletes a secret; it remains recoverable until purged or until
+        retention expires.
+      operationId: deleteSecret
+      tags:
+        - Secrets
+      responses:
+        "200":
+          $ref: "#/components/responses/StatusOK"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /api/v1/secrets/generate:
+    post:
+      summary: Generate a secret
+      description: |
+        Generates a random value of the requested length and character classes
+        and stores it as a new secret. The response includes the value.
+      operationId: generateSecret
+      tags:
+        - Secrets
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/GenerateSecretRequest"
+      responses:
+        "201":
+          description: Secret generated successfully
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SecretResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /api/v1/secrets/export:
     post:
       summary: Export secrets
       description: |
-        Exports user secrets in JSON or CSV format with optional encryption
+        Exports the vault's secrets as a downloadable JSON or CSV file,
+        optionally filtered by tag.
+      operationId: exportSecrets
       tags:
         - Secrets
-      security:
-        - bearerAuth: []
       requestBody:
         required: true
         content:
@@ -170,33 +1617,23 @@ paths:
                 format: binary
                 description: Exported secrets data in CSV format
         "400":
-          description: Invalid request data
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ErrorResponse"
+          $ref: "#/components/responses/BadRequest"
         "401":
-          description: Authentication required
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ErrorResponse"
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
         "500":
-          description: Export failed
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ErrorResponse"
+          $ref: "#/components/responses/InternalError"
 
-  /secrets/import:
+  /api/v1/secrets/import:
     post:
       summary: Import secrets
       description: |
-        Imports secrets from JSON or CSV format with optional decryption
+        Imports secrets from an uploaded JSON or CSV file. Request bodies are
+        limited to 10 MB.
+      operationId: importSecrets
       tags:
         - Secrets
-      security:
-        - bearerAuth: []
       requestBody:
         required: true
         content:
@@ -211,40 +1648,73 @@ paths:
               schema:
                 $ref: "#/components/schemas/ImportResponse"
         "400":
-          description: Invalid request data
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ErrorResponse"
+          $ref: "#/components/responses/BadRequest"
         "401":
-          description: Authentication required
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ErrorResponse"
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
         "500":
-          description: Import failed
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ErrorResponse"
+          $ref: "#/components/responses/InternalError"
 
-  /secrets/{id}/versions:
-    get:
-      summary: List secret versions
-      description: Retrieves all versions of a specific secret
+  /api/v1/secrets/{secret_id}/backup:
+    parameters:
+      - $ref: "#/components/parameters/SecretId"
+    post:
+      summary: Back up a secret
+      description: Returns an opaque, encrypted backup blob for a single secret.
+      operationId: backupSecret
       tags:
         - Secrets
-      security:
-        - bearerAuth: []
-      parameters:
-        - name: id
-          in: path
-          required: true
-          description: Unique identifier of the secret
-          schema:
-            type: string
-            format: uuid
+      responses:
+        "200":
+          description: Backup blob created successfully
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BackupBlobResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /api/v1/secrets/restore:
+    post:
+      summary: Restore a secret from a backup blob
+      description: Decodes a backup blob and re-inserts the secret into the resolved vault.
+      operationId: restoreSecret
+      tags:
+        - Secrets
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RestoreRequest"
+      responses:
+        "200":
+          $ref: "#/components/responses/StatusOK"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /api/v1/secrets/{secret_id}/versions:
+    parameters:
+      - $ref: "#/components/parameters/SecretId"
+    get:
+      summary: List secret versions
+      description: Retrieves all versions of a specific secret.
+      operationId: listSecretVersions
+      tags:
+        - Secrets
       responses:
         "200":
           description: Secret versions retrieved successfully
@@ -255,53 +1725,24 @@ paths:
                 items:
                   $ref: "#/components/schemas/SecretVersion"
         "400":
-          description: Invalid secret ID
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ErrorResponse"
+          $ref: "#/components/responses/BadRequest"
         "401":
-          description: Authentication required
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ErrorResponse"
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
         "404":
-          description: Secret not found
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ErrorResponse"
-        "500":
-          description: Failed to retrieve versions
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ErrorResponse"
+          $ref: "#/components/responses/NotFound"
 
-  /secrets/{id}/versions/{version}:
+  /api/v1/secrets/{secret_id}/versions/{version}:
+    parameters:
+      - $ref: "#/components/parameters/SecretId"
+      - $ref: "#/components/parameters/Version"
     get:
-      summary: Get specific secret version
-      description: Retrieves a specific version of a secret
+      summary: Get a specific secret version
+      description: Retrieves one numbered version of a secret.
+      operationId: getSecretVersion
       tags:
         - Secrets
-      security:
-        - bearerAuth: []
-      parameters:
-        - name: id
-          in: path
-          required: true
-          description: Unique identifier of the secret
-          schema:
-            type: string
-            format: uuid
-        - name: version
-          in: path
-          required: true
-          description: Version number of the secret
-          schema:
-            type: integer
-            minimum: 1
       responses:
         "200":
           description: Secret version retrieved successfully
@@ -310,46 +1751,23 @@ paths:
               schema:
                 $ref: "#/components/schemas/SecretVersion"
         "400":
-          description: Invalid secret ID or version
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ErrorResponse"
+          $ref: "#/components/responses/BadRequest"
         "401":
-          description: Authentication required
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ErrorResponse"
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
         "404":
-          description: Secret or version not found
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ErrorResponse"
-        "500":
-          description: Failed to retrieve version
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ErrorResponse"
+          $ref: "#/components/responses/NotFound"
 
-  /secrets/{id}/versions/latest:
+  /api/v1/secrets/{secret_id}/versions/latest:
+    parameters:
+      - $ref: "#/components/parameters/SecretId"
     get:
-      summary: Get latest secret version
-      description: Retrieves the most recent version of a secret
+      summary: Get the latest secret version
+      description: Retrieves the most recent version of a secret.
+      operationId: getLatestSecretVersion
       tags:
         - Secrets
-      security:
-        - bearerAuth: []
-      parameters:
-        - name: id
-          in: path
-          required: true
-          description: Unique identifier of the secret
-          schema:
-            type: string
-            format: uuid
       responses:
         "200":
           description: Latest secret version retrieved successfully
@@ -358,29 +1776,2178 @@ paths:
               schema:
                 $ref: "#/components/schemas/SecretVersion"
         "400":
-          description: Invalid secret ID
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ErrorResponse"
+          $ref: "#/components/responses/BadRequest"
         "401":
-          description: Authentication required
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ErrorResponse"
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
         "404":
-          description: Secret not found
+          $ref: "#/components/responses/NotFound"
+
+  # ─── Secrets (vault-scoped routes) ─────────────────────────────────────────
+  /api/v1/vaults/{vault_name}/secrets:
+    parameters:
+      - $ref: "#/components/parameters/VaultName"
+    get:
+      summary: List secrets in a vault
+      description: Lists the secrets held in the named vault. Values are omitted.
+      operationId: listSecretsInVault
+      tags:
+        - Secrets
+      parameters:
+        - $ref: "#/components/parameters/Tags"
+      responses:
+        "200":
+          description: Secrets retrieved successfully
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/ErrorResponse"
+                $ref: "#/components/schemas/ListSecretsResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
         "500":
-          description: Failed to retrieve latest version
+          $ref: "#/components/responses/InternalError"
+    post:
+      summary: Create a secret in a vault
+      description: Stores a new secret in the named vault. The response omits the secret value.
+      operationId: createSecretInVault
+      tags:
+        - Secrets
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateSecretRequest"
+      responses:
+        "201":
+          description: Secret created successfully
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/ErrorResponse"
+                $ref: "#/components/schemas/SecretResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /api/v1/vaults/{vault_name}/secrets/{secret_id}:
+    parameters:
+      - $ref: "#/components/parameters/VaultName"
+      - $ref: "#/components/parameters/SecretId"
+    get:
+      summary: Get a secret from a vault
+      description: Returns a secret from the named vault, including its decrypted value.
+      operationId: getSecretInVault
+      tags:
+        - Secrets
+      responses:
+        "200":
+          description: Secret retrieved successfully
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SecretResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+    put:
+      summary: Update a secret in a vault
+      description: Updates a secret in the named vault and increments its version.
+      operationId: updateSecretInVault
+      tags:
+        - Secrets
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateSecretRequest"
+      responses:
+        "200":
+          description: Secret updated successfully
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SecretResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+    delete:
+      summary: Delete a secret from a vault
+      description: Soft-deletes a secret held in the named vault.
+      operationId: deleteSecretInVault
+      tags:
+        - Secrets
+      responses:
+        "200":
+          $ref: "#/components/responses/StatusOK"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /api/v1/vaults/{vault_name}/secrets/generate:
+    parameters:
+      - $ref: "#/components/parameters/VaultName"
+    post:
+      summary: Generate a secret in a vault
+      description: Generates a random value and stores it as a new secret in the named vault.
+      operationId: generateSecretInVault
+      tags:
+        - Secrets
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/GenerateSecretRequest"
+      responses:
+        "201":
+          description: Secret generated successfully
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SecretResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /api/v1/vaults/{vault_name}/secrets/export:
+    parameters:
+      - $ref: "#/components/parameters/VaultName"
+    post:
+      summary: Export a vault's secrets
+      description: Exports the named vault's secrets as a downloadable JSON or CSV file.
+      operationId: exportSecretsInVault
+      tags:
+        - Secrets
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ExportRequest"
+      responses:
+        "200":
+          description: Secrets exported successfully
+          content:
+            application/json:
+              schema:
+                type: string
+                format: binary
+                description: Exported secrets data
+            text/csv:
+              schema:
+                type: string
+                format: binary
+                description: Exported secrets data in CSV format
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /api/v1/vaults/{vault_name}/secrets/import:
+    parameters:
+      - $ref: "#/components/parameters/VaultName"
+    post:
+      summary: Import secrets into a vault
+      description: Imports secrets from an uploaded JSON or CSV file into the named vault.
+      operationId: importSecretsInVault
+      tags:
+        - Secrets
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              $ref: "#/components/schemas/ImportRequest"
+      responses:
+        "200":
+          description: Secrets imported successfully
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ImportResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /api/v1/vaults/{vault_name}/secrets/{secret_id}/versions:
+    parameters:
+      - $ref: "#/components/parameters/VaultName"
+      - $ref: "#/components/parameters/SecretId"
+    get:
+      summary: List a vault secret's versions
+      description: Retrieves all versions of a secret held in the named vault.
+      operationId: listSecretVersionsInVault
+      tags:
+        - Secrets
+      responses:
+        "200":
+          description: Secret versions retrieved successfully
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/SecretVersion"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /api/v1/vaults/{vault_name}/secrets/{secret_id}/versions/{version}:
+    parameters:
+      - $ref: "#/components/parameters/VaultName"
+      - $ref: "#/components/parameters/SecretId"
+      - $ref: "#/components/parameters/Version"
+    get:
+      summary: Get a specific version of a vault secret
+      description: Retrieves one numbered version of a secret held in the named vault.
+      operationId: getSecretVersionInVault
+      tags:
+        - Secrets
+      responses:
+        "200":
+          description: Secret version retrieved successfully
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SecretVersion"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /api/v1/vaults/{vault_name}/secrets/{secret_id}/versions/latest:
+    parameters:
+      - $ref: "#/components/parameters/VaultName"
+      - $ref: "#/components/parameters/SecretId"
+    get:
+      summary: Get the latest version of a vault secret
+      description: Retrieves the most recent version of a secret held in the named vault.
+      operationId: getLatestSecretVersionInVault
+      tags:
+        - Secrets
+      responses:
+        "200":
+          description: Latest secret version retrieved successfully
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SecretVersion"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  # ─── Keys (legacy flat routes; resolve to the default vault) ───────────────
+  /api/v1/keys:
+    get:
+      summary: List keys
+      description: |
+        Lists the cryptographic keys in the resolved vault, optionally filtered
+        by type and tags. Private key material is never returned; the public JWK
+        components are included for software-backed keys.
+      operationId: listKeys
+      tags:
+        - Keys
+      parameters:
+        - name: type
+          in: query
+          required: false
+          description: Filter by key type
+          schema:
+            type: string
+            example: "RSA"
+        - $ref: "#/components/parameters/Tags"
+      responses:
+        "200":
+          description: Keys retrieved successfully
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/KeyListResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "500":
+          $ref: "#/components/responses/InternalError"
+    post:
+      summary: Create a key
+      description: |
+        Generates an RSA, ECDSA, or symmetric (OCT) key. RSA accepts 2048, 3072,
+        or 4096 bits (default 2048); ECDSA accepts curves P-256, P-384, P-521,
+        or P-256K (default P-256); OCT accepts 128, 192, or 256 bits and
+        requires an HSM-backed key provider.
+      operationId: createKey
+      tags:
+        - Keys
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateKeyRequest"
+      responses:
+        "201":
+          description: Key created successfully
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/KeyResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /api/v1/keys/{key_id}:
+    parameters:
+      - $ref: "#/components/parameters/KeyId"
+    get:
+      summary: Get a key
+      description: Returns a key's metadata and public components. Private material is never returned.
+      operationId: getKey
+      tags:
+        - Keys
+      responses:
+        "200":
+          description: Key retrieved successfully
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/KeyResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+    put:
+      summary: Update a key
+      description: |
+        Updates a key's name, tags, revocation status, enabled flag, or validity
+        window. At least one field must be supplied.
+      operationId: updateKey
+      tags:
+        - Keys
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateKeyRequest"
+      responses:
+        "200":
+          description: Key updated successfully
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/KeyResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+    delete:
+      summary: Delete a key
+      description: |
+        Soft-deletes a key and returns its deletion metadata, including the
+        recovery URL to restore it.
+      operationId: deleteKey
+      tags:
+        - Keys
+      responses:
+        "200":
+          description: Key soft-deleted successfully
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DeletedKeyResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /api/v1/keys/{key_id}/rotate:
+    parameters:
+      - $ref: "#/components/parameters/KeyId"
+    post:
+      summary: Rotate a key
+      description: Generates fresh key material for the key and returns the updated record.
+      operationId: rotateKey
+      tags:
+        - Keys
+      responses:
+        "200":
+          description: Key rotated successfully
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/KeyResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /api/v1/keys/{key_id}/versions:
+    parameters:
+      - $ref: "#/components/parameters/KeyId"
+    get:
+      summary: List key versions
+      description: |
+        Returns the key's version history. Raw key material is deliberately
+        omitted from every entry.
+      operationId: listKeyVersions
+      tags:
+        - Keys
+      responses:
+        "200":
+          description: Key versions retrieved successfully
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/KeyVersionsResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /api/v1/keys/{key_id}/wrap:
+    parameters:
+      - $ref: "#/components/parameters/KeyId"
+    post:
+      summary: Wrap key material
+      description: |
+        Wraps base64-encoded plaintext key material with the identified vault
+        key. The algorithm defaults to RSA-OAEP.
+      operationId: wrapKey
+      tags:
+        - Keys
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/WrapKeyRequest"
+      responses:
+        "200":
+          description: Key material wrapped successfully
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WrapKeyResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /api/v1/keys/{key_id}/unwrap:
+    parameters:
+      - $ref: "#/components/parameters/KeyId"
+    post:
+      summary: Unwrap key material
+      description: |
+        Recovers plaintext key material from base64-encoded wrapped bytes using
+        the identified vault key. The algorithm defaults to RSA-OAEP.
+      operationId: unwrapKey
+      tags:
+        - Keys
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UnwrapKeyRequest"
+      responses:
+        "200":
+          description: Key material unwrapped successfully
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UnwrapKeyResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /api/v1/keys/{key_id}/sign:
+    parameters:
+      - $ref: "#/components/parameters/KeyId"
+    post:
+      summary: Sign data
+      description: |
+        Signs base64-encoded data with the identified vault key. The algorithm
+        defaults to RS256.
+      operationId: signWithKey
+      tags:
+        - Keys
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SignKeyRequest"
+      responses:
+        "200":
+          description: Data signed successfully
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SignKeyResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /api/v1/keys/{key_id}/verify:
+    parameters:
+      - $ref: "#/components/parameters/KeyId"
+    post:
+      summary: Verify a signature
+      description: Verifies a base64-encoded signature over base64-encoded data.
+      operationId: verifyWithKey
+      tags:
+        - Keys
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/VerifyKeyRequest"
+      responses:
+        "200":
+          description: Signature verification completed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/VerifyKeyResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /api/v1/keys/{key_id}/encrypt:
+    parameters:
+      - $ref: "#/components/parameters/KeyId"
+    post:
+      summary: Encrypt data
+      description: |
+        Encrypts base64-encoded plaintext with the identified vault key. The
+        algorithm defaults to RSA-OAEP; AES-GCM responses also carry a nonce.
+      operationId: encryptWithKey
+      tags:
+        - Keys
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/EncryptKeyRequest"
+      responses:
+        "200":
+          description: Data encrypted successfully
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EncryptKeyResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /api/v1/keys/{key_id}/decrypt:
+    parameters:
+      - $ref: "#/components/parameters/KeyId"
+    post:
+      summary: Decrypt data
+      description: |
+        Decrypts base64-encoded ciphertext with the identified vault key. A
+        nonce is required for AES-GCM ciphertexts.
+      operationId: decryptWithKey
+      tags:
+        - Keys
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/DecryptKeyRequest"
+      responses:
+        "200":
+          description: Data decrypted successfully
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DecryptKeyResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /api/v1/keys/{key_id}/rotationpolicy:
+    parameters:
+      - $ref: "#/components/parameters/KeyId"
+    get:
+      summary: Get a key's rotation policy
+      description: Returns the rotation policy attached to the key.
+      operationId: getKeyRotationPolicy
+      tags:
+        - Keys
+      responses:
+        "200":
+          description: Rotation policy retrieved successfully
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/KeyRotationPolicy"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+    put:
+      summary: Create or replace a key's rotation policy
+      description: Upserts the rotation policy for the key.
+      operationId: upsertKeyRotationPolicy
+      tags:
+        - Keys
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpsertKeyRotationPolicyRequest"
+      responses:
+        "200":
+          description: Rotation policy saved successfully
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/KeyRotationPolicy"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalError"
+    delete:
+      summary: Delete a key's rotation policy
+      description: Removes the rotation policy attached to the key.
+      operationId: deleteKeyRotationPolicy
+      tags:
+        - Keys
+      responses:
+        "200":
+          $ref: "#/components/responses/StatusOK"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /api/v1/keys/{key_id}/backup:
+    parameters:
+      - $ref: "#/components/parameters/KeyId"
+    post:
+      summary: Back up a key
+      description: Returns an opaque, encrypted backup blob for a single key.
+      operationId: backupKey
+      tags:
+        - Keys
+      responses:
+        "200":
+          description: Backup blob created successfully
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BackupBlobResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /api/v1/keys/restore:
+    post:
+      summary: Restore a key from a backup blob
+      description: Decodes a backup blob and re-inserts the key into the resolved vault.
+      operationId: restoreKey
+      tags:
+        - Keys
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RestoreRequest"
+      responses:
+        "200":
+          $ref: "#/components/responses/StatusOK"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  # ─── Keys (vault-scoped routes) ────────────────────────────────────────────
+  /api/v1/vaults/{vault_name}/keys:
+    parameters:
+      - $ref: "#/components/parameters/VaultName"
+    get:
+      summary: List keys in a vault
+      description: Lists the cryptographic keys held in the named vault.
+      operationId: listKeysInVault
+      tags:
+        - Keys
+      parameters:
+        - name: type
+          in: query
+          required: false
+          description: Filter by key type
+          schema:
+            type: string
+            example: "RSA"
+        - $ref: "#/components/parameters/Tags"
+      responses:
+        "200":
+          description: Keys retrieved successfully
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/KeyListResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "500":
+          $ref: "#/components/responses/InternalError"
+    post:
+      summary: Create a key in a vault
+      description: Generates a new key in the named vault.
+      operationId: createKeyInVault
+      tags:
+        - Keys
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateKeyRequest"
+      responses:
+        "201":
+          description: Key created successfully
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/KeyResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /api/v1/vaults/{vault_name}/keys/{key_id}:
+    parameters:
+      - $ref: "#/components/parameters/VaultName"
+      - $ref: "#/components/parameters/KeyId"
+    get:
+      summary: Get a key from a vault
+      description: Returns a key held in the named vault.
+      operationId: getKeyInVault
+      tags:
+        - Keys
+      responses:
+        "200":
+          description: Key retrieved successfully
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/KeyResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+    put:
+      summary: Update a key in a vault
+      description: Updates a key held in the named vault.
+      operationId: updateKeyInVault
+      tags:
+        - Keys
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateKeyRequest"
+      responses:
+        "200":
+          description: Key updated successfully
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/KeyResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+    delete:
+      summary: Delete a key from a vault
+      description: Soft-deletes a key held in the named vault.
+      operationId: deleteKeyInVault
+      tags:
+        - Keys
+      responses:
+        "200":
+          description: Key soft-deleted successfully
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DeletedKeyResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /api/v1/vaults/{vault_name}/keys/{key_id}/rotate:
+    parameters:
+      - $ref: "#/components/parameters/VaultName"
+      - $ref: "#/components/parameters/KeyId"
+    post:
+      summary: Rotate a key in a vault
+      description: Generates fresh key material for a key held in the named vault.
+      operationId: rotateKeyInVault
+      tags:
+        - Keys
+      responses:
+        "200":
+          description: Key rotated successfully
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/KeyResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /api/v1/vaults/{vault_name}/keys/{key_id}/versions:
+    parameters:
+      - $ref: "#/components/parameters/VaultName"
+      - $ref: "#/components/parameters/KeyId"
+    get:
+      summary: List versions of a vault key
+      description: Returns the version history for a key held in the named vault.
+      operationId: listKeyVersionsInVault
+      tags:
+        - Keys
+      responses:
+        "200":
+          description: Key versions retrieved successfully
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/KeyVersionsResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /api/v1/vaults/{vault_name}/keys/{key_id}/wrap:
+    parameters:
+      - $ref: "#/components/parameters/VaultName"
+      - $ref: "#/components/parameters/KeyId"
+    post:
+      summary: Wrap key material with a vault key
+      description: Wraps base64-encoded plaintext key material with a key held in the named vault.
+      operationId: wrapKeyInVault
+      tags:
+        - Keys
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/WrapKeyRequest"
+      responses:
+        "200":
+          description: Key material wrapped successfully
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WrapKeyResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /api/v1/vaults/{vault_name}/keys/{key_id}/unwrap:
+    parameters:
+      - $ref: "#/components/parameters/VaultName"
+      - $ref: "#/components/parameters/KeyId"
+    post:
+      summary: Unwrap key material with a vault key
+      description: Recovers plaintext key material using a key held in the named vault.
+      operationId: unwrapKeyInVault
+      tags:
+        - Keys
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UnwrapKeyRequest"
+      responses:
+        "200":
+          description: Key material unwrapped successfully
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UnwrapKeyResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /api/v1/vaults/{vault_name}/keys/{key_id}/sign:
+    parameters:
+      - $ref: "#/components/parameters/VaultName"
+      - $ref: "#/components/parameters/KeyId"
+    post:
+      summary: Sign data with a vault key
+      description: Signs base64-encoded data with a key held in the named vault.
+      operationId: signWithKeyInVault
+      tags:
+        - Keys
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SignKeyRequest"
+      responses:
+        "200":
+          description: Data signed successfully
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SignKeyResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /api/v1/vaults/{vault_name}/keys/{key_id}/verify:
+    parameters:
+      - $ref: "#/components/parameters/VaultName"
+      - $ref: "#/components/parameters/KeyId"
+    post:
+      summary: Verify a signature with a vault key
+      description: Verifies a base64-encoded signature using a key held in the named vault.
+      operationId: verifyWithKeyInVault
+      tags:
+        - Keys
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/VerifyKeyRequest"
+      responses:
+        "200":
+          description: Signature verification completed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/VerifyKeyResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /api/v1/vaults/{vault_name}/keys/{key_id}/encrypt:
+    parameters:
+      - $ref: "#/components/parameters/VaultName"
+      - $ref: "#/components/parameters/KeyId"
+    post:
+      summary: Encrypt data with a vault key
+      description: Encrypts base64-encoded plaintext with a key held in the named vault.
+      operationId: encryptWithKeyInVault
+      tags:
+        - Keys
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/EncryptKeyRequest"
+      responses:
+        "200":
+          description: Data encrypted successfully
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EncryptKeyResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /api/v1/vaults/{vault_name}/keys/{key_id}/decrypt:
+    parameters:
+      - $ref: "#/components/parameters/VaultName"
+      - $ref: "#/components/parameters/KeyId"
+    post:
+      summary: Decrypt data with a vault key
+      description: Decrypts base64-encoded ciphertext with a key held in the named vault.
+      operationId: decryptWithKeyInVault
+      tags:
+        - Keys
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/DecryptKeyRequest"
+      responses:
+        "200":
+          description: Data decrypted successfully
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DecryptKeyResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /api/v1/vaults/{vault_name}/keys/{key_id}/rotationpolicy:
+    parameters:
+      - $ref: "#/components/parameters/VaultName"
+      - $ref: "#/components/parameters/KeyId"
+    get:
+      summary: Get a vault key's rotation policy
+      description: Returns the rotation policy for a key held in the named vault.
+      operationId: getKeyRotationPolicyInVault
+      tags:
+        - Keys
+      responses:
+        "200":
+          description: Rotation policy retrieved successfully
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/KeyRotationPolicy"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+    put:
+      summary: Create or replace a vault key's rotation policy
+      description: Upserts the rotation policy for a key held in the named vault.
+      operationId: upsertKeyRotationPolicyInVault
+      tags:
+        - Keys
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpsertKeyRotationPolicyRequest"
+      responses:
+        "200":
+          description: Rotation policy saved successfully
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/KeyRotationPolicy"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalError"
+    delete:
+      summary: Delete a vault key's rotation policy
+      description: Removes the rotation policy for a key held in the named vault.
+      operationId: deleteKeyRotationPolicyInVault
+      tags:
+        - Keys
+      responses:
+        "200":
+          $ref: "#/components/responses/StatusOK"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  # ─── Certificates (legacy flat routes; resolve to the default vault) ───────
+  /api/v1/certificates:
+    get:
+      summary: List certificates
+      description: Lists the X.509 certificates in the resolved vault.
+      operationId: listCertificates
+      tags:
+        - Certificates
+      responses:
+        "200":
+          description: Certificates retrieved successfully
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CertificateListResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "500":
+          $ref: "#/components/responses/InternalError"
+    post:
+      summary: Create a certificate
+      description: |
+        Issues an X.509 certificate signed by the named key. Supplying
+        `ca_cert_id` issues a CA-signed certificate; omitting it issues a
+        self-signed one.
+      operationId: createCertificate
+      tags:
+        - Certificates
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateCertificateRequest"
+      responses:
+        "201":
+          description: Certificate created successfully
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CertificateResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /api/v1/certificates/{certificate_id}:
+    parameters:
+      - $ref: "#/components/parameters/CertificateId"
+    get:
+      summary: Get a certificate
+      description: Returns a certificate's metadata by ID.
+      operationId: getCertificate
+      tags:
+        - Certificates
+      responses:
+        "200":
+          description: Certificate retrieved successfully
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CertificateResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+    put:
+      summary: Update a certificate
+      description: |
+        Updates a certificate's name, tags, auto-renewal settings, enabled flag,
+        or activation time. At least one field must be supplied.
+      operationId: updateCertificate
+      tags:
+        - Certificates
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateCertificateRequest"
+      responses:
+        "200":
+          description: Certificate updated successfully
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CertificateResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+    delete:
+      summary: Delete a certificate
+      description: Soft-deletes a certificate; it remains recoverable until purged.
+      operationId: deleteCertificate
+      tags:
+        - Certificates
+      responses:
+        "200":
+          $ref: "#/components/responses/StatusOK"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /api/v1/certificates/{certificate_id}/policy:
+    parameters:
+      - $ref: "#/components/parameters/CertificateId"
+    get:
+      summary: Get a certificate's policy
+      description: Returns the creation and renewal policy attached to the certificate.
+      operationId: getCertificatePolicy
+      tags:
+        - Certificates
+      responses:
+        "200":
+          description: Policy retrieved successfully
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CertificatePolicy"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+    put:
+      summary: Create or replace a certificate's policy
+      description: Upserts the creation and renewal policy for the certificate.
+      operationId: upsertCertificatePolicy
+      tags:
+        - Certificates
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpsertCertificatePolicyRequest"
+      responses:
+        "200":
+          description: Policy saved successfully
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CertificatePolicy"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalError"
+    delete:
+      summary: Delete a certificate's policy
+      description: Removes the policy attached to the certificate.
+      operationId: deleteCertificatePolicy
+      tags:
+        - Certificates
+      responses:
+        "200":
+          $ref: "#/components/responses/StatusOK"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /api/v1/certificates/{certificate_id}/backup:
+    parameters:
+      - $ref: "#/components/parameters/CertificateId"
+    post:
+      summary: Back up a certificate
+      description: Returns an opaque, encrypted backup blob for a single certificate.
+      operationId: backupCertificate
+      tags:
+        - Certificates
+      responses:
+        "200":
+          description: Backup blob created successfully
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BackupBlobResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /api/v1/certificates/restore:
+    post:
+      summary: Restore a certificate from a backup blob
+      description: Decodes a backup blob and re-inserts the certificate into the resolved vault.
+      operationId: restoreCertificate
+      tags:
+        - Certificates
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RestoreRequest"
+      responses:
+        "200":
+          $ref: "#/components/responses/StatusOK"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  # ─── Certificates (vault-scoped routes) ────────────────────────────────────
+  /api/v1/vaults/{vault_name}/certificates:
+    parameters:
+      - $ref: "#/components/parameters/VaultName"
+    get:
+      summary: List certificates in a vault
+      description: Lists the X.509 certificates held in the named vault.
+      operationId: listCertificatesInVault
+      tags:
+        - Certificates
+      responses:
+        "200":
+          description: Certificates retrieved successfully
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CertificateListResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "500":
+          $ref: "#/components/responses/InternalError"
+    post:
+      summary: Create a certificate in a vault
+      description: Issues an X.509 certificate in the named vault.
+      operationId: createCertificateInVault
+      tags:
+        - Certificates
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateCertificateRequest"
+      responses:
+        "201":
+          description: Certificate created successfully
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CertificateResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /api/v1/vaults/{vault_name}/certificates/{certificate_id}:
+    parameters:
+      - $ref: "#/components/parameters/VaultName"
+      - $ref: "#/components/parameters/CertificateId"
+    get:
+      summary: Get a certificate from a vault
+      description: Returns a certificate held in the named vault.
+      operationId: getCertificateInVault
+      tags:
+        - Certificates
+      responses:
+        "200":
+          description: Certificate retrieved successfully
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CertificateResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+    put:
+      summary: Update a certificate in a vault
+      description: Updates a certificate held in the named vault.
+      operationId: updateCertificateInVault
+      tags:
+        - Certificates
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateCertificateRequest"
+      responses:
+        "200":
+          description: Certificate updated successfully
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CertificateResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+    delete:
+      summary: Delete a certificate from a vault
+      description: Soft-deletes a certificate held in the named vault.
+      operationId: deleteCertificateInVault
+      tags:
+        - Certificates
+      responses:
+        "200":
+          $ref: "#/components/responses/StatusOK"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /api/v1/vaults/{vault_name}/certificates/{certificate_id}/policy:
+    parameters:
+      - $ref: "#/components/parameters/VaultName"
+      - $ref: "#/components/parameters/CertificateId"
+    get:
+      summary: Get a vault certificate's policy
+      description: Returns the policy for a certificate held in the named vault.
+      operationId: getCertificatePolicyInVault
+      tags:
+        - Certificates
+      responses:
+        "200":
+          description: Policy retrieved successfully
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CertificatePolicy"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+    put:
+      summary: Create or replace a vault certificate's policy
+      description: Upserts the policy for a certificate held in the named vault.
+      operationId: upsertCertificatePolicyInVault
+      tags:
+        - Certificates
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpsertCertificatePolicyRequest"
+      responses:
+        "200":
+          description: Policy saved successfully
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CertificatePolicy"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalError"
+    delete:
+      summary: Delete a vault certificate's policy
+      description: Removes the policy for a certificate held in the named vault.
+      operationId: deleteCertificatePolicyInVault
+      tags:
+        - Certificates
+      responses:
+        "200":
+          $ref: "#/components/responses/StatusOK"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  # ─── Soft delete (legacy flat routes; resolve to the default vault) ────────
+  /api/v1/deleted/secrets:
+    get:
+      summary: List soft-deleted secrets
+      description: Returns every soft-deleted secret in the resolved vault.
+      operationId: listDeletedSecrets
+      tags:
+        - Soft Delete
+      responses:
+        "200":
+          description: Soft-deleted secrets retrieved successfully
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DeletedSecretsResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /api/v1/deleted/secrets/{secret_id}/restore:
+    parameters:
+      - $ref: "#/components/parameters/SecretId"
+    post:
+      summary: Restore a soft-deleted secret
+      description: Recovers a soft-deleted secret so it becomes readable again.
+      operationId: recoverSecret
+      tags:
+        - Soft Delete
+      responses:
+        "200":
+          description: Secret recovered successfully
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RecoveryResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /api/v1/deleted/secrets/{secret_id}/purge:
+    parameters:
+      - $ref: "#/components/parameters/SecretId"
+    delete:
+      summary: Purge a soft-deleted secret
+      description: Permanently removes a soft-deleted secret. Purge-protected items are refused.
+      operationId: purgeSecret
+      tags:
+        - Soft Delete
+      responses:
+        "200":
+          $ref: "#/components/responses/StatusOK"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /api/v1/deleted/keys:
+    get:
+      summary: List soft-deleted keys
+      description: Returns every soft-deleted key in the resolved vault.
+      operationId: listDeletedKeys
+      tags:
+        - Soft Delete
+      responses:
+        "200":
+          description: Soft-deleted keys retrieved successfully
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DeletedKeysResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /api/v1/deleted/keys/{key_id}:
+    parameters:
+      - $ref: "#/components/parameters/KeyId"
+    get:
+      summary: Get a soft-deleted key
+      description: |
+        Returns a single soft-deleted key. This route has no vault-scoped
+        counterpart and always resolves to the default vault.
+      operationId: getDeletedKey
+      tags:
+        - Soft Delete
+      responses:
+        "200":
+          description: Soft-deleted key retrieved successfully
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DeletedKeyItem"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /api/v1/deleted/keys/{key_id}/restore:
+    parameters:
+      - $ref: "#/components/parameters/KeyId"
+    post:
+      summary: Restore a soft-deleted key
+      description: Recovers a soft-deleted key so it becomes usable again.
+      operationId: recoverKey
+      tags:
+        - Soft Delete
+      responses:
+        "200":
+          description: Key recovered successfully
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RecoveryResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /api/v1/deleted/keys/{key_id}/purge:
+    parameters:
+      - $ref: "#/components/parameters/KeyId"
+    delete:
+      summary: Purge a soft-deleted key
+      description: Permanently removes a soft-deleted key. Purge-protected items are refused.
+      operationId: purgeKey
+      tags:
+        - Soft Delete
+      responses:
+        "200":
+          $ref: "#/components/responses/StatusOK"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /api/v1/deleted/certificates:
+    get:
+      summary: List soft-deleted certificates
+      description: Returns every soft-deleted certificate in the resolved vault.
+      operationId: listDeletedCertificates
+      tags:
+        - Soft Delete
+      responses:
+        "200":
+          description: Soft-deleted certificates retrieved successfully
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DeletedCertificatesResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /api/v1/deleted/certificates/{certificate_id}/restore:
+    parameters:
+      - $ref: "#/components/parameters/CertificateId"
+    post:
+      summary: Restore a soft-deleted certificate
+      description: Recovers a soft-deleted certificate so it becomes usable again.
+      operationId: recoverCertificate
+      tags:
+        - Soft Delete
+      responses:
+        "200":
+          description: Certificate recovered successfully
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RecoveryResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /api/v1/deleted/certificates/{certificate_id}/purge:
+    parameters:
+      - $ref: "#/components/parameters/CertificateId"
+    delete:
+      summary: Purge a soft-deleted certificate
+      description: Permanently removes a soft-deleted certificate. Purge-protected items are refused.
+      operationId: purgeCertificate
+      tags:
+        - Soft Delete
+      responses:
+        "200":
+          $ref: "#/components/responses/StatusOK"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  # ─── Soft delete (vault-scoped routes) ─────────────────────────────────────
+  /api/v1/vaults/{vault_name}/deleted/secrets:
+    parameters:
+      - $ref: "#/components/parameters/VaultName"
+    get:
+      summary: List a vault's soft-deleted secrets
+      description: Returns every soft-deleted secret in the named vault.
+      operationId: listDeletedSecretsInVault
+      tags:
+        - Soft Delete
+      responses:
+        "200":
+          description: Soft-deleted secrets retrieved successfully
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DeletedSecretsResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /api/v1/vaults/{vault_name}/deleted/secrets/{secret_id}/restore:
+    parameters:
+      - $ref: "#/components/parameters/VaultName"
+      - $ref: "#/components/parameters/SecretId"
+    post:
+      summary: Restore a soft-deleted secret in a vault
+      description: Recovers a soft-deleted secret held in the named vault.
+      operationId: recoverSecretInVault
+      tags:
+        - Soft Delete
+      responses:
+        "200":
+          description: Secret recovered successfully
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RecoveryResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /api/v1/vaults/{vault_name}/deleted/secrets/{secret_id}/purge:
+    parameters:
+      - $ref: "#/components/parameters/VaultName"
+      - $ref: "#/components/parameters/SecretId"
+    delete:
+      summary: Purge a soft-deleted secret in a vault
+      description: Permanently removes a soft-deleted secret held in the named vault.
+      operationId: purgeSecretInVault
+      tags:
+        - Soft Delete
+      responses:
+        "200":
+          $ref: "#/components/responses/StatusOK"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /api/v1/vaults/{vault_name}/deleted/keys:
+    parameters:
+      - $ref: "#/components/parameters/VaultName"
+    get:
+      summary: List a vault's soft-deleted keys
+      description: Returns every soft-deleted key in the named vault.
+      operationId: listDeletedKeysInVault
+      tags:
+        - Soft Delete
+      responses:
+        "200":
+          description: Soft-deleted keys retrieved successfully
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DeletedKeysResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /api/v1/vaults/{vault_name}/deleted/keys/{key_id}/restore:
+    parameters:
+      - $ref: "#/components/parameters/VaultName"
+      - $ref: "#/components/parameters/KeyId"
+    post:
+      summary: Restore a soft-deleted key in a vault
+      description: Recovers a soft-deleted key held in the named vault.
+      operationId: recoverKeyInVault
+      tags:
+        - Soft Delete
+      responses:
+        "200":
+          description: Key recovered successfully
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RecoveryResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /api/v1/vaults/{vault_name}/deleted/keys/{key_id}/purge:
+    parameters:
+      - $ref: "#/components/parameters/VaultName"
+      - $ref: "#/components/parameters/KeyId"
+    delete:
+      summary: Purge a soft-deleted key in a vault
+      description: Permanently removes a soft-deleted key held in the named vault.
+      operationId: purgeKeyInVault
+      tags:
+        - Soft Delete
+      responses:
+        "200":
+          $ref: "#/components/responses/StatusOK"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /api/v1/vaults/{vault_name}/deleted/certificates:
+    parameters:
+      - $ref: "#/components/parameters/VaultName"
+    get:
+      summary: List a vault's soft-deleted certificates
+      description: Returns every soft-deleted certificate in the named vault.
+      operationId: listDeletedCertificatesInVault
+      tags:
+        - Soft Delete
+      responses:
+        "200":
+          description: Soft-deleted certificates retrieved successfully
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DeletedCertificatesResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /api/v1/vaults/{vault_name}/deleted/certificates/{certificate_id}/restore:
+    parameters:
+      - $ref: "#/components/parameters/VaultName"
+      - $ref: "#/components/parameters/CertificateId"
+    post:
+      summary: Restore a soft-deleted certificate in a vault
+      description: Recovers a soft-deleted certificate held in the named vault.
+      operationId: recoverCertificateInVault
+      tags:
+        - Soft Delete
+      responses:
+        "200":
+          description: Certificate recovered successfully
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RecoveryResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /api/v1/vaults/{vault_name}/deleted/certificates/{certificate_id}/purge:
+    parameters:
+      - $ref: "#/components/parameters/VaultName"
+      - $ref: "#/components/parameters/CertificateId"
+    delete:
+      summary: Purge a soft-deleted certificate in a vault
+      description: Permanently removes a soft-deleted certificate held in the named vault.
+      operationId: purgeCertificateInVault
+      tags:
+        - Soft Delete
+      responses:
+        "200":
+          $ref: "#/components/responses/StatusOK"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
 
 components:
   securitySchemes:
@@ -388,10 +3955,186 @@ components:
       type: http
       scheme: bearer
       bearerFormat: JWT
-      description: JWT token obtained from user authentication
+      description: |
+        JWT access token obtained from `POST /api/v1/users/login`,
+        `POST /api/v1/users/refresh`, the OIDC callback, or
+        `POST /api/v1/oauth2/token`. Tokens are signed asymmetrically
+        (RS256/ES256) and always carry a `kid` header.
+
+  parameters:
+    VaultName:
+      name: vault_name
+      in: path
+      required: true
+      description: Name of the target vault
+      schema:
+        type: string
+        pattern: "^[a-z0-9-]+$"
+        example: "production"
+    SecretId:
+      name: secret_id
+      in: path
+      required: true
+      description: Unique identifier of the secret
+      schema:
+        type: string
+        format: uuid
+    KeyId:
+      name: key_id
+      in: path
+      required: true
+      description: Unique identifier of the key
+      schema:
+        type: string
+        format: uuid
+    CertificateId:
+      name: certificate_id
+      in: path
+      required: true
+      description: Unique identifier of the certificate
+      schema:
+        type: string
+        format: uuid
+    UserId:
+      name: user_id
+      in: path
+      required: true
+      description: Unique identifier of the user
+      schema:
+        type: string
+        format: uuid
+    SessionId:
+      name: session_id
+      in: path
+      required: true
+      description: Unique identifier of the session
+      schema:
+        type: string
+        format: uuid
+    PolicyId:
+      name: policy_id
+      in: path
+      required: true
+      description: Unique identifier of the access policy
+      schema:
+        type: string
+        format: uuid
+    PrincipalId:
+      name: principal_id
+      in: path
+      required: true
+      description: Unique identifier of the principal
+      schema:
+        type: string
+        format: uuid
+    ServiceAccountId:
+      name: service_account_id
+      in: path
+      required: true
+      description: Unique identifier of the service account
+      schema:
+        type: string
+        format: uuid
+    AssignmentId:
+      name: assignment_id
+      in: path
+      required: true
+      description: Unique identifier of the role assignment
+      schema:
+        type: string
+        format: uuid
+    Version:
+      name: version
+      in: path
+      required: true
+      description: Version number
+      schema:
+        type: integer
+        minimum: 1
+    Tags:
+      name: tags
+      in: query
+      required: false
+      description: Comma-separated list of tags to filter on
+      schema:
+        type: string
+        example: "production,database"
+    Page:
+      name: page
+      in: query
+      required: false
+      description: Zero-based page index
+      schema:
+        type: integer
+        minimum: 0
+        default: 0
+    PerPage:
+      name: per_page
+      in: query
+      required: false
+      description: Page size; defaults to 60 and is capped at 200
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 200
+        default: 60
+    ReportFrom:
+      name: from
+      in: query
+      required: true
+      description: Start of the report window (RFC 3339)
+      schema:
+        type: string
+        format: date-time
+    ReportTo:
+      name: to
+      in: query
+      required: true
+      description: End of the report window (RFC 3339)
+      schema:
+        type: string
+        format: date-time
+
+  responses:
+    StatusOK:
+      description: Operation completed successfully
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/StatusResponse"
+    BadRequest:
+      description: Invalid request data
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+    Unauthorized:
+      description: Authentication required or the session is invalid
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+    Forbidden:
+      description: The caller is not authorized for this operation
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+    NotFound:
+      description: The requested resource does not exist
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+    InternalError:
+      description: Internal server error
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
 
   schemas:
-    # Error Response
+    # ─── Shared envelopes ────────────────────────────────────────────────────
     ErrorResponse:
       type: object
       required:
@@ -402,7 +4145,7 @@ components:
         id:
           type: string
           description: Error identifier
-          example: "exportSecrets"
+          example: "api.secret.create"
         message:
           type: string
           description: Human-readable error message
@@ -416,63 +4159,231 @@ components:
           description: HTTP status code
           example: 400
 
-    # Health Response
-    HealthResponse:
+    SimpleErrorResponse:
       type: object
+      properties:
+        error:
+          type: string
+          example: "signing provider not available"
+
+    StatusResponse:
+      type: object
+      required:
+        - status
       properties:
         status:
           type: string
-          enum: [healthy, unhealthy]
-          example: "healthy"
+          example: "OK"
+
+    RestoreRequest:
+      type: object
+      required:
+        - blob
+      properties:
+        blob:
+          type: string
+          description: Opaque backup blob previously returned by a backup endpoint
+          example: "eyJ2IjoxLCJkYXRhIjoi..."
+
+    BackupBlobResponse:
+      type: object
+      required:
+        - blob
+      properties:
+        blob:
+          type: string
+          description: Opaque, encrypted backup blob
+          example: "eyJ2IjoxLCJkYXRhIjoi..."
+
+    RecoveryResponse:
+      type: object
+      required:
+        - message
+        - id
+      properties:
+        message:
+          type: string
+          example: "Secret recovered successfully"
+        id:
+          type: string
+          format: uuid
+
+    # ─── JWKS ────────────────────────────────────────────────────────────────
+    JWKSet:
+      type: object
+      required:
+        - keys
+      properties:
+        keys:
+          type: array
+          description: RFC 7517 JWK objects for every active public signing key
+          items:
+            type: object
+            additionalProperties: true
+
+    JWKSRotateResponse:
+      type: object
+      required:
+        - status
+        - new_kid
+        - overlap_until
+      properties:
+        status:
+          type: string
+          example: "ok"
+        new_kid:
+          type: string
+          description: Key ID of the newly generated signing key
+        overlap_until:
+          type: string
+          description: Instant until which the previous key still validates tokens
+
+    # ─── Configuration ───────────────────────────────────────────────────────
+    FrontendConfig:
+      type: object
+      required:
+        - feature_flags
+        - public_api_url
+        - sentry_dsn
+      properties:
+        feature_flags:
+          type: object
+          additionalProperties:
+            type: boolean
+        public_api_url:
+          type: string
+          example: "https://api.rocketvault.local"
+        sentry_dsn:
+          type: string
+
+    # ─── Health ──────────────────────────────────────────────────────────────
+    HealthResponse:
+      type: object
+      properties:
+        memory_usage:
+          type: object
+          properties:
+            alloc_bytes:
+              type: integer
+              format: int64
+            total_alloc_bytes:
+              type: integer
+              format: int64
+            sys_bytes:
+              type: integer
+              format: int64
+            lookups:
+              type: integer
+              format: int64
+            mallocs:
+              type: integer
+              format: int64
+            frees:
+              type: integer
+              format: int64
+            heap_alloc_bytes:
+              type: integer
+              format: int64
+            heap_sys_bytes:
+              type: integer
+              format: int64
+            heap_idle_bytes:
+              type: integer
+              format: int64
+            heap_inuse_bytes:
+              type: integer
+              format: int64
+            heap_released_bytes:
+              type: integer
+              format: int64
+            heap_objects:
+              type: integer
+              format: int64
+            stack_inuse_bytes:
+              type: integer
+              format: int64
+            stack_sys_bytes:
+              type: integer
+              format: int64
+            gc_sys_bytes:
+              type: integer
+              format: int64
+            next_gc_bytes:
+              type: integer
+              format: int64
+            last_gc_timestamp:
+              type: integer
+              format: int64
+            num_gc:
+              type: integer
+        cpu_stats:
+          type: object
+          properties:
+            goroutines:
+              type: integer
+              example: 42
+            cgo_calls:
+              type: integer
+              format: int64
+        database_stats:
+          type: object
+          properties:
+            open_connections:
+              type: integer
+              example: 7
+            in_use:
+              type: integer
+              example: 2
+            idle:
+              type: integer
+              example: 5
+            wait_count:
+              type: integer
+              format: int64
+            wait_duration:
+              type: integer
+              format: int64
+              description: Wait duration in nanoseconds
+            max_idle_closed:
+              type: integer
+              format: int64
+            max_lifetime_closed:
+              type: integer
+              format: int64
+            utilization_percent:
+              type: number
+              format: double
+              example: 28.6
+            query_count:
+              type: integer
+              format: int64
+            slow_query_count:
+              type: integer
+              format: int64
+            avg_query_time:
+              type: integer
+              format: int64
+              description: Average query time in nanoseconds
+            total_query_time:
+              type: integer
+              format: int64
+              description: Total query time in nanoseconds
+            health_status:
+              type: string
+              example: "healthy"
+        uptime:
+          type: integer
+          format: int64
+          description: Process uptime in nanoseconds
+        go_version:
+          type: string
+          example: "go1.24.2"
+        goroutines:
+          type: integer
+          example: 42
         timestamp:
           type: string
           format: date-time
-          example: "2023-12-01T10:30:00Z"
-        uptime:
-          type: string
-          example: "2h 15m 30s"
-        memory:
-          type: object
-          properties:
-            used:
-              type: string
-              example: "45.2 MB"
-            total:
-              type: string
-              example: "512 MB"
-            percentage:
-              type: number
-              format: float
-              example: 8.8
-        cpu:
-          type: object
-          properties:
-            usage:
-              type: number
-              format: float
-              example: 12.5
-            cores:
-              type: integer
-              example: 4
-        database:
-          type: object
-          properties:
-            status:
-              type: string
-              enum: [connected, disconnected]
-              example: "connected"
-            connection_pool:
-              type: object
-              properties:
-                active:
-                  type: integer
-                  example: 2
-                idle:
-                  type: integer
-                  example: 5
-                max_open:
-                  type: integer
-                  example: 10
         query_metrics:
           type: object
           properties:
@@ -491,7 +4402,6 @@ components:
               format: int64
               example: 3
 
-    # Readiness Response
     ReadinessResponse:
       type: object
       required:
@@ -499,10 +4409,12 @@ components:
       properties:
         status:
           type: string
-          enum: [ready]
+          enum: [ready, "not ready"]
           example: "ready"
+        error:
+          type: string
+          description: Present only when the system is not ready
 
-    # Liveness Response
     LivenessResponse:
       type: object
       required:
@@ -513,42 +4425,960 @@ components:
           enum: [alive]
           example: "alive"
 
-    # Tenant
-    Tenant:
+    DatabaseHealthResponse:
+      type: object
+      properties:
+        status:
+          type: string
+          enum: [healthy, warning, degraded, critical]
+          example: "healthy"
+        error:
+          type: string
+          description: Present when the database is not initialized
+        ping_error:
+          type: string
+        ping_duration_ms:
+          type: integer
+          format: int64
+        warnings:
+          type: array
+          items:
+            type: string
+        connection_pool:
+          type: object
+          properties:
+            open_connections:
+              type: integer
+            in_use:
+              type: integer
+            idle:
+              type: integer
+            wait_count:
+              type: integer
+              format: int64
+            wait_duration_ms:
+              type: integer
+              format: int64
+            max_idle_closed:
+              type: integer
+              format: int64
+            max_lifetime_closed:
+              type: integer
+              format: int64
+            utilization_percent:
+              type: number
+              format: double
+        performance:
+          type: object
+          properties:
+            query_count:
+              type: integer
+              format: int64
+            slow_query_count:
+              type: integer
+              format: int64
+            avg_query_time_ms:
+              type: integer
+              format: int64
+            total_query_time_ms:
+              type: integer
+              format: int64
+            slow_query_percentage:
+              type: number
+              format: double
+        query_test:
+          type: object
+          properties:
+            error:
+              type: string
+            duration_ms:
+              type: integer
+              format: int64
+
+    # ─── Authentication and users ────────────────────────────────────────────
+    LoginRequest:
+      type: object
+      required:
+        - username
+        - password
+        - totp_code
+      properties:
+        username:
+          type: string
+          example: "admin"
+        password:
+          type: string
+          format: password
+        totp_code:
+          type: string
+          example: "123456"
+
+    LoginResponse:
+      type: object
+      required:
+        - token
+        - refresh_token
+        - user_id
+        - username
+        - role
+      properties:
+        token:
+          type: string
+          description: JWT access token
+        refresh_token:
+          type: string
+        user_id:
+          type: string
+          format: uuid
+        username:
+          type: string
+        role:
+          type: string
+          example: "admin"
+
+    RefreshTokenRequest:
+      type: object
+      required:
+        - refresh_token
+      properties:
+        refresh_token:
+          type: string
+
+    RefreshTokenResponse:
+      type: object
+      required:
+        - token
+        - refresh_token
+        - user_id
+        - username
+        - role
+        - expires_at
+      properties:
+        token:
+          type: string
+        refresh_token:
+          type: string
+        user_id:
+          type: string
+          format: uuid
+        username:
+          type: string
+        role:
+          type: string
+        expires_at:
+          type: string
+          format: date-time
+
+    ListSessionsResponse:
+      type: object
+      required:
+        - sessions
+        - total
+      properties:
+        sessions:
+          type: array
+          items:
+            $ref: "#/components/schemas/Session"
+        total:
+          type: integer
+
+    Session:
       type: object
       properties:
         id:
           type: string
-          description: Unique tenant identifier
-          example: "tenant-123"
-        name:
+          format: uuid
+        device_info:
           type: string
-          description: Tenant name
-          example: "Production Tenant"
+        ip_address:
+          type: string
+        user_agent:
+          type: string
+        expires_at:
+          type: string
+          format: date-time
+        last_used_at:
+          type: string
+          format: date-time
         created_at:
           type: string
           format: date-time
-          example: "2023-12-01T10:30:00Z"
+        revoked:
+          type: boolean
+
+    CreateUserRequest:
+      type: object
+      required:
+        - username
+        - password
+        - role
+      properties:
+        username:
+          type: string
+          minLength: 3
+          maxLength: 50
+        password:
+          type: string
+          format: password
+          minLength: 8
+        role:
+          type: string
+          description: |
+            One or more comma-separated global roles. Valid values are `admin`,
+            `user`, `secrets_manager`, `crypto_manager`, and
+            `certificate_manager`.
+          example: "secrets_manager"
+
+    UpdateUserRequest:
+      type: object
+      properties:
+        username:
+          type: string
+          minLength: 3
+          maxLength: 50
+        password:
+          type: string
+          format: password
+          minLength: 8
+        role:
+          type: string
+          description: Admin-only; a non-admin caller cannot change its own role.
+
+    UserResponse:
+      type: object
+      required:
+        - id
+        - username
+        - role
+        - created_at
+      properties:
+        id:
+          type: string
+          format: uuid
+        username:
+          type: string
+        role:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+        totp_secret:
+          type: string
+          description: Returned only when the user is first created
+
+    ListUsersResponse:
+      type: object
+      required:
+        - users
+        - total
+      properties:
+        users:
+          type: array
+          items:
+            $ref: "#/components/schemas/UserResponse"
+        total:
+          type: integer
+
+    # ─── Service accounts and OAuth2 ─────────────────────────────────────────
+    OAuth2TokenRequest:
+      type: object
+      required:
+        - grant_type
+      properties:
+        grant_type:
+          type: string
+          enum: [client_credentials]
+        client_id:
+          type: string
+          description: Omitted when credentials are sent via HTTP Basic
+        client_secret:
+          type: string
+          description: Omitted when credentials are sent via HTTP Basic
+
+    OAuth2TokenResponse:
+      type: object
+      required:
+        - access_token
+        - token_type
+        - expires_in
+      properties:
+        access_token:
+          type: string
+        token_type:
+          type: string
+          example: "Bearer"
+        expires_in:
+          type: integer
+          description: Token lifetime in seconds
+          example: 900
+
+    OAuth2ErrorResponse:
+      type: object
+      required:
+        - error
+        - error_description
+      properties:
+        error:
+          type: string
+          enum:
+            - invalid_request
+            - invalid_client
+            - unsupported_grant_type
+            - server_error
+        error_description:
+          type: string
+
+    CreateServiceAccountRequest:
+      type: object
+      required:
+        - name
+      properties:
+        name:
+          type: string
+          example: "ci-pipeline"
+        description:
+          type: string
+        expires_at:
+          type: string
+          format: date-time
+          nullable: true
+
+    ServiceAccount:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        description:
+          type: string
+        enabled:
+          type: boolean
+        created_at:
+          type: string
+          format: date-time
+        expires_at:
+          type: string
+          format: date-time
+          nullable: true
+
+    ServiceAccountWithSecret:
+      allOf:
+        - $ref: "#/components/schemas/ServiceAccount"
+        - type: object
+          required:
+            - client_secret
+          properties:
+            client_secret:
+              type: string
+              description: Plain-text client secret; returned once only
+
+    ListServiceAccountsResponse:
+      type: object
+      required:
+        - service_accounts
+        - total
+      properties:
+        service_accounts:
+          type: array
+          items:
+            $ref: "#/components/schemas/ServiceAccount"
+        total:
+          type: integer
+
+    ClientSecretResponse:
+      type: object
+      required:
+        - client_secret
+      properties:
+        client_secret:
+          type: string
+          description: New plain-text client secret; returned once only
+
+    CLIExchangeRequest:
+      type: object
+      required:
+        - code
+      properties:
+        code:
+          type: string
+          description: One-time exchange code minted by the OIDC callback
+
+    # ─── Audit ───────────────────────────────────────────────────────────────
+    AuditLogsResponse:
+      type: object
+      required:
+        - logs
+        - total
+        - integrity_ok
+        - next_cursor
+      properties:
+        logs:
+          type: array
+          items:
+            $ref: "#/components/schemas/AuditLog"
+        total:
+          type: integer
+          format: int64
+        integrity_ok:
+          type: boolean
+          description: False when the audit hash chain fails verification
+        next_cursor:
+          type: string
+
+    AuditLog:
+      type: object
+      description: |
+        The Go type carries no JSON tags, so field names are serialised exactly
+        as declared, in PascalCase.
+      properties:
+        ID:
+          type: string
+        UserID:
+          type: string
+        Action:
+          type: string
+          example: "secret_create"
+        Details:
+          type: string
+        Timestamp:
+          type: string
+          format: date-time
+        ResourceType:
+          type: string
+        ResourceID:
+          type: string
+        IPAddress:
+          type: string
+        Outcome:
+          type: string
+          example: "success"
+        Source:
+          type: string
+          example: "api"
+        PrevHash:
+          type: string
+
+    SOC2Report:
+      type: object
+      description: Serialised with Go field names; the type carries no JSON tags.
+      properties:
+        From:
+          type: string
+          format: date-time
+        To:
+          type: string
+          format: date-time
+        TotalEvents:
+          type: integer
+          format: int64
+        UniqueUsers:
+          type: integer
+          format: int64
+        AuthSuccesses:
+          type: integer
+          format: int64
+        AuthFailures:
+          type: integer
+          format: int64
+        DataAccessEvents:
+          type: integer
+          format: int64
+        AdminActions:
+          type: integer
+          format: int64
+        KeyOperations:
+          type: integer
+          format: int64
+        TopActions:
+          type: array
+          items:
+            $ref: "#/components/schemas/ActionCount"
+
+    ActionCount:
+      type: object
+      properties:
+        Action:
+          type: string
+        Count:
+          type: integer
+          format: int64
+
+    GDPRReport:
+      type: object
+      description: Serialised with Go field names; the type carries no JSON tags.
+      properties:
+        SubjectID:
+          type: string
+        From:
+          type: string
+          format: date-time
+        To:
+          type: string
+          format: date-time
+        TotalEvents:
+          type: integer
+          format: int64
+        DataAccess:
+          type: integer
+          format: int64
+        Deletions:
+          type: integer
+          format: int64
+        AuthEvents:
+          type: integer
+          format: int64
+        Events:
+          type: array
+          items:
+            $ref: "#/components/schemas/AuditLog"
+
+    AuditConfig:
+      type: object
+      required:
+        - retention_days
+      properties:
+        retention_days:
+          type: integer
+          minimum: 1
+          example: 365
+
+    # ─── Access policies ─────────────────────────────────────────────────────
+    AccessPolicy:
+      type: object
+      required:
+        - id
+        - principal_id
+        - principal_type
+        - resource_type
+        - operation
+        - effect
+        - created_at
+      properties:
+        id:
+          type: string
+          format: uuid
+        principal_id:
+          type: string
+          format: uuid
+        principal_type:
+          type: string
+          enum: [user, service_account]
+        resource_type:
+          type: string
+          enum: [secrets, keys, certificates, vaults]
+        operation:
+          type: string
+          enum:
+            - get
+            - list
+            - set
+            - create
+            - delete
+            - backup
+            - restore
+            - purge
+            - recover
+            - rotate
+            - sign
+            - verify
+            - encrypt
+            - decrypt
+            - import
+            - renew
+            - manage
+        effect:
+          type: string
+          enum: [allow, deny]
+        vault_id:
+          type: string
+          format: uuid
+          description: Omitted when the policy is global
+        assignment_id:
+          type: string
+          format: uuid
+          description: Set when the policy was derived from a role assignment
+        created_at:
+          type: string
+          format: date-time
+
+    CreateAccessPolicyRequest:
+      type: object
+      required:
+        - principal_id
+        - principal_type
+        - resource_type
+        - operation
+        - effect
+      properties:
+        principal_id:
+          type: string
+          format: uuid
+        principal_type:
+          type: string
+          enum: [user, service_account]
+        resource_type:
+          type: string
+          enum: [secrets, keys, certificates, vaults]
+        operation:
+          type: string
+          example: "get"
+        effect:
+          type: string
+          enum: [allow, deny]
+        vault_id:
+          type: string
+          format: uuid
+          description: Empty leaves the policy global
+
+    UpdateAccessPolicyRequest:
+      type: object
+      required:
+        - effect
+      properties:
+        effect:
+          type: string
+          enum: [allow, deny]
+
+    ListAccessPoliciesResponse:
+      type: object
+      required:
+        - access_policies
+        - total
+      properties:
+        access_policies:
+          type: array
+          items:
+            $ref: "#/components/schemas/AccessPolicy"
+        total:
+          type: integer
+
+    # ─── Vaults ──────────────────────────────────────────────────────────────
+    CreateVaultRequest:
+      type: object
+      required:
+        - name
+      properties:
+        name:
+          type: string
+          description: 3-63 lowercase alphanumerics or hyphens, no leading or trailing hyphen
+          pattern: "^[a-z0-9](?:[a-z0-9-]{1,61}[a-z0-9])$"
+          example: "production"
+        enabled:
+          type: boolean
+        purge_protection:
+          type: boolean
+        retention_days:
+          type: integer
+        tags:
+          type: object
+          description: At most 15 entries; keys and values are 1-256 characters
+          additionalProperties:
+            type: string
+
+    UpdateVaultRequest:
+      type: object
+      description: Omitted fields are left unchanged.
+      properties:
+        enabled:
+          type: boolean
+        purge_protection:
+          type: boolean
+        retention_days:
+          type: integer
+        tags:
+          type: object
+          description: Omitted leaves tags unchanged, `{}` clears them, a value replaces them
+          additionalProperties:
+            type: string
+
+    VaultResponse:
+      type: object
+      required:
+        - id
+        - name
+        - enabled
+        - purge_protection
+        - retention_days
+        - created_by
+        - created_at
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        enabled:
+          type: boolean
+        purge_protection:
+          type: boolean
+        retention_days:
+          type: integer
+        created_by:
+          type: string
+          format: uuid
+        created_at:
+          type: string
+          format: date-time
+        deleted_at:
+          type: string
+          format: date-time
+        scheduled_purge_at:
+          type: string
+          format: date-time
+        tags:
+          type: object
+          additionalProperties:
+            type: string
         updated_at:
           type: string
           format: date-time
-          example: "2023-12-01T10:30:00Z"
+        updated_by:
+          type: string
+          format: uuid
 
-    # Tenant Create Response
-    TenantCreateResponse:
+    ListVaultsResponse:
       type: object
       required:
-        - message
-        - status
+        - vaults
+        - total
       properties:
-        message:
-          type: string
-          example: "Tenant created successfully"
-        status:
-          type: string
-          example: "success"
+        vaults:
+          type: array
+          items:
+            $ref: "#/components/schemas/VaultResponse"
+        total:
+          type: integer
 
-    # Export Request
+    # ─── Role assignments ────────────────────────────────────────────────────
+    AssignRoleRequest:
+      type: object
+      required:
+        - principal
+        - role
+      properties:
+        principal:
+          type: string
+          description: Username or principal UUID; the server resolves either form
+          example: "alice"
+        principal_type:
+          type: string
+          enum: [user, service_account]
+          default: user
+        role:
+          type: string
+          enum:
+            - "Key Vault Administrator"
+            - "Key Vault Reader"
+            - "Key Vault Secrets User"
+            - "Key Vault Secrets Officer"
+            - "Key Vault Crypto User"
+            - "Key Vault Crypto Officer"
+            - "Key Vault Certificates Officer"
+            - "Key Vault Purge Operator"
+            - "Key Vault Certificate User"
+            - "Key Vault Crypto Service Encryption User"
+            - "Key Vault Data Access Administrator"
+
+    RoleAssignmentResponse:
+      type: object
+      required:
+        - id
+        - principal_id
+        - principal_type
+        - role
+        - vault_id
+        - created_at
+      properties:
+        id:
+          type: string
+          format: uuid
+        principal_id:
+          type: string
+          format: uuid
+        principal_username:
+          type: string
+          description: Omitted when the principal can no longer be resolved
+        principal_type:
+          type: string
+          enum: [user, service_account]
+        role:
+          type: string
+        vault_id:
+          type: string
+          format: uuid
+        vault_name:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+        expanded_policy_count:
+          type: integer
+          description: Number of access policies the role bundle expands to
+
+    ListRoleAssignmentsResponse:
+      type: object
+      required:
+        - role_assignments
+        - total
+      properties:
+        role_assignments:
+          type: array
+          items:
+            $ref: "#/components/schemas/RoleAssignmentResponse"
+        total:
+          type: integer
+
+    # ─── Secrets ─────────────────────────────────────────────────────────────
+    CreateSecretRequest:
+      type: object
+      required:
+        - name
+        - value
+      properties:
+        name:
+          type: string
+          example: "database-password"
+        value:
+          type: string
+        tags:
+          type: array
+          items:
+            type: string
+        content_type:
+          type: string
+          example: "text/plain"
+        enabled:
+          type: boolean
+          default: true
+        expires_at:
+          type: string
+          format: date-time
+        not_before:
+          type: string
+          format: date-time
+
+    UpdateSecretRequest:
+      type: object
+      description: At least one field must differ from the stored secret.
+      properties:
+        name:
+          type: string
+        value:
+          type: string
+        tags:
+          type: array
+          items:
+            type: string
+        content_type:
+          type: string
+        enabled:
+          type: boolean
+        expires_at:
+          type: string
+          format: date-time
+        not_before:
+          type: string
+          format: date-time
+
+    GenerateSecretRequest:
+      type: object
+      required:
+        - name
+      properties:
+        name:
+          type: string
+        length:
+          type: integer
+          minimum: 8
+          maximum: 128
+          default: 16
+        use_symbols:
+          type: boolean
+        use_numbers:
+          type: boolean
+        use_uppercase:
+          type: boolean
+        use_lowercase:
+          type: boolean
+
+    SecretResponse:
+      type: object
+      required:
+        - id
+        - name
+        - version
+        - created_at
+        - enabled
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        value:
+          type: string
+          description: Returned only by get and generate; omitted on create, update, and list
+        tags:
+          type: array
+          items:
+            type: string
+        version:
+          type: integer
+        content_type:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+        enabled:
+          type: boolean
+        expires_at:
+          type: string
+          format: date-time
+        not_before:
+          type: string
+          format: date-time
+
+    ListSecretsResponse:
+      type: object
+      required:
+        - secrets
+        - total
+      properties:
+        secrets:
+          type: array
+          items:
+            $ref: "#/components/schemas/SecretResponse"
+        total:
+          type: integer
+
+    SecretVersion:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: Identifier of the version row
+        secret_id:
+          type: string
+          format: uuid
+        user_id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        value:
+          type: string
+        version:
+          type: integer
+        created_at:
+          type: string
+          format: date-time
+
     ExportRequest:
       type: object
       required:
@@ -557,26 +5387,19 @@ components:
         format:
           type: string
           enum: [json, csv]
-          description: Export format
           example: "json"
         encrypt:
           type: boolean
-          description: Whether to encrypt the export
           default: false
-          example: true
         tags:
           type: array
+          description: Restrict the export to secrets carrying these tags
           items:
             type: string
-          description: Filter secrets by tags
-          example: ["production", "api"]
         include_tags:
           type: boolean
-          description: Include tags in export
           default: false
-          example: true
 
-    # Import Request
     ImportRequest:
       type: object
       required:
@@ -586,26 +5409,16 @@ components:
         file:
           type: string
           format: binary
-          description: File containing secrets to import
+          description: File containing the secrets to import
         format:
           type: string
           enum: [json, csv]
-          description: Import format
-          example: "json"
-        encrypted:
-          type: string
-          enum: ["true", "false"]
-          description: Whether the file is encrypted
-          default: "false"
-          example: "true"
         overwrite:
           type: string
           enum: ["true", "false"]
-          description: Whether to overwrite existing secrets
           default: "false"
-          example: "false"
+          description: Replace secrets that already exist
 
-    # Import Response
     ImportResponse:
       type: object
       required:
@@ -618,61 +5431,686 @@ components:
       properties:
         success:
           type: boolean
-          example: true
         message:
           type: string
-          example: "Successfully imported 5 secrets"
+          example: "Successfully imported 5/5 secrets"
         imported_count:
           type: integer
-          example: 5
         total_count:
           type: integer
-          example: 5
         format:
           type: string
-          example: "json"
         imported_at:
           type: string
           format: date-time
-          example: "2023-12-01T10:30:00Z"
 
-    # Secret Version
-    SecretVersion:
+    # ─── Keys ────────────────────────────────────────────────────────────────
+    CreateKeyRequest:
+      type: object
+      required:
+        - name
+        - type
+      properties:
+        name:
+          type: string
+        type:
+          type: string
+          enum: [RSA, ECDSA, OCT]
+        bits:
+          type: integer
+          description: |
+            RSA accepts 2048, 3072, or 4096 (default 2048); OCT accepts 128,
+            192, or 256. Ignored for ECDSA.
+        curve:
+          type: string
+          enum: [P-256, P-384, P-521, P-256K]
+          default: P-256
+          description: ECDSA only
+        tags:
+          type: array
+          items:
+            type: string
+        enabled:
+          type: boolean
+          default: true
+        expires_at:
+          type: string
+          format: date-time
+        not_before:
+          type: string
+          format: date-time
+
+    UpdateKeyRequest:
+      type: object
+      description: At least one field must be supplied.
+      properties:
+        name:
+          type: string
+        revoked:
+          type: boolean
+        tags:
+          type: array
+          items:
+            type: string
+        enabled:
+          type: boolean
+        expires_at:
+          type: string
+          format: date-time
+        not_before:
+          type: string
+          format: date-time
+
+    KeyResponse:
+      type: object
+      required:
+        - id
+        - name
+        - type
+        - user_id
+        - revoked
+        - created_at
+        - enabled
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        type:
+          type: string
+          description: |
+            HSM-backed keys carry Azure's hardware suffix, so `RSA` becomes
+            `RSA-HSM` and `ECDSA`/`ES256K` become `EC-HSM`.
+          example: "RSA"
+        user_id:
+          type: string
+          format: uuid
+        revoked:
+          type: boolean
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+        tags:
+          type: array
+          items:
+            type: string
+        enabled:
+          type: boolean
+        expires_at:
+          type: string
+          format: date-time
+        not_before:
+          type: string
+          format: date-time
+        bits:
+          type: integer
+        curve:
+          type: string
+        n:
+          type: string
+          description: RSA modulus (base64url); omitted for HSM-backed keys
+        e:
+          type: string
+          description: RSA public exponent (base64url); omitted for HSM-backed keys
+        x:
+          type: string
+          description: EC x coordinate (base64url); omitted for HSM-backed keys
+        y:
+          type: string
+          description: EC y coordinate (base64url); omitted for HSM-backed keys
+
+    KeyListResponse:
+      type: object
+      required:
+        - keys
+      properties:
+        keys:
+          type: array
+          items:
+            $ref: "#/components/schemas/KeyResponse"
+
+    DeletedKeyResponse:
+      type: object
+      required:
+        - id
+        - name
+        - deleted_at
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        deleted_at:
+          type: string
+          format: date-time
+          nullable: true
+        scheduled_purge_at:
+          type: string
+          format: date-time
+        recovery_id:
+          type: string
+          description: Relative path that restores the key
+          example: "/deleted/keys/550e8400-e29b-41d4-a716-446655440000/restore"
+
+    KeyVersion:
+      type: object
+      properties:
+        key_id:
+          type: string
+          format: uuid
+        version:
+          type: integer
+        created_at:
+          type: string
+          format: date-time
+
+    KeyVersionsResponse:
+      type: object
+      required:
+        - versions
+      properties:
+        versions:
+          type: array
+          items:
+            $ref: "#/components/schemas/KeyVersion"
+
+    WrapKeyRequest:
+      type: object
+      required:
+        - plaintext_key
+      properties:
+        plaintext_key:
+          type: string
+          description: Base64-encoded key material to wrap
+        algorithm:
+          type: string
+          default: "RSA-OAEP"
+
+    WrapKeyResponse:
+      type: object
+      required:
+        - wrapped_key
+        - algorithm
+      properties:
+        wrapped_key:
+          type: string
+          description: Base64-encoded wrapped bytes
+        algorithm:
+          type: string
+
+    UnwrapKeyRequest:
+      type: object
+      required:
+        - wrapped_key
+      properties:
+        wrapped_key:
+          type: string
+          description: Base64-encoded wrapped bytes
+        algorithm:
+          type: string
+          default: "RSA-OAEP"
+
+    UnwrapKeyResponse:
+      type: object
+      required:
+        - plaintext_key
+        - algorithm
+      properties:
+        plaintext_key:
+          type: string
+          description: Base64-encoded recovered key material
+        algorithm:
+          type: string
+
+    SignKeyRequest:
+      type: object
+      required:
+        - value
+      properties:
+        value:
+          type: string
+          description: Base64-encoded data to sign
+        algorithm:
+          type: string
+          enum: [RS256, RS384, RS512, PS256, PS384, PS512, ES256, ES384, ES512]
+          default: RS256
+
+    SignKeyResponse:
+      type: object
+      required:
+        - key_id
+        - algorithm
+        - value
+      properties:
+        key_id:
+          type: string
+          format: uuid
+        algorithm:
+          type: string
+        value:
+          type: string
+          description: Base64-encoded signature
+
+    VerifyKeyRequest:
+      type: object
+      required:
+        - value
+        - signature
+      properties:
+        value:
+          type: string
+          description: Base64-encoded original data
+        signature:
+          type: string
+          description: Base64-encoded signature
+        algorithm:
+          type: string
+
+    VerifyKeyResponse:
+      type: object
+      required:
+        - key_id
+        - algorithm
+        - valid
+      properties:
+        key_id:
+          type: string
+          format: uuid
+        algorithm:
+          type: string
+        valid:
+          type: boolean
+
+    EncryptKeyRequest:
+      type: object
+      required:
+        - value
+      properties:
+        value:
+          type: string
+          description: Base64-encoded plaintext
+        algorithm:
+          type: string
+          enum: [RSA-OAEP, RSA-OAEP-256, AES256-GCM]
+          default: RSA-OAEP
+
+    EncryptKeyResponse:
+      type: object
+      required:
+        - key_id
+        - algorithm
+        - value
+      properties:
+        key_id:
+          type: string
+          format: uuid
+        algorithm:
+          type: string
+        value:
+          type: string
+          description: Base64-encoded ciphertext
+        nonce:
+          type: string
+          description: Base64-encoded nonce; present for AES-GCM only
+
+    DecryptKeyRequest:
+      type: object
+      required:
+        - value
+      properties:
+        value:
+          type: string
+          description: Base64-encoded ciphertext
+        nonce:
+          type: string
+          description: Base64-encoded nonce; required for AES-GCM
+        algorithm:
+          type: string
+
+    DecryptKeyResponse:
+      type: object
+      required:
+        - key_id
+        - algorithm
+        - value
+      properties:
+        key_id:
+          type: string
+          format: uuid
+        algorithm:
+          type: string
+        value:
+          type: string
+          description: Base64-encoded plaintext
+
+    KeyRotationPolicy:
       type: object
       properties:
         id:
           type: string
           format: uuid
-          description: Secret identifier
-          example: "550e8400-e29b-41d4-a716-446655440000"
-        version:
+        key_id:
+          type: string
+          format: uuid
+        user_id:
+          type: string
+          format: uuid
+        vault_id:
+          type: string
+          format: uuid
+        rotate_after_days:
           type: integer
-          description: Version number
-          example: 1
+        notify_before_expiry_days:
+          type: integer
+        expiry_days:
+          type: integer
+        enabled:
+          type: boolean
+        last_rotated_at:
+          type: string
+          format: date-time
+        next_rotation_at:
+          type: string
+          format: date-time
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+
+    UpsertKeyRotationPolicyRequest:
+      type: object
+      required:
+        - rotate_after_days
+        - notify_before_expiry_days
+        - expiry_days
+        - enabled
+      properties:
+        rotate_after_days:
+          type: integer
+          example: 90
+        notify_before_expiry_days:
+          type: integer
+          example: 30
+        expiry_days:
+          type: integer
+          example: 365
+        enabled:
+          type: boolean
+
+    # ─── Certificates ────────────────────────────────────────────────────────
+    CreateCertificateRequest:
+      type: object
+      required:
+        - name
+        - key_id
+        - validity_days
+      properties:
         name:
           type: string
-          description: Secret name
-          example: "database-password"
-        value:
+          description: Certificate common name
+        key_id:
           type: string
-          description: Secret value (encrypted)
-          example: "encrypted-secret-value"
+          format: uuid
+          description: UUID of the signing key
+        validity_days:
+          type: integer
+          minimum: 1
         tags:
           type: array
           items:
             type: string
-          description: Associated tags
-          example: ["production", "database"]
+        auto_renew:
+          type: boolean
+        renewal_days:
+          type: integer
+          description: Days before expiry to renew; defaults to 30
+        ca_key_id:
+          type: string
+          format: uuid
+          description: Reserved for future use
+        ca_cert_id:
+          type: string
+          format: uuid
+          description: UUID of the CA certificate; supplying it issues a CA-signed certificate
+        enabled:
+          type: boolean
+          default: true
+        not_before:
+          type: string
+          format: date-time
+
+    UpdateCertificateRequest:
+      type: object
+      description: At least one field must be supplied.
+      properties:
+        name:
+          type: string
+        tags:
+          type: array
+          items:
+            type: string
+        auto_renew:
+          type: boolean
+        renewal_days:
+          type: integer
+        enabled:
+          type: boolean
+        not_before:
+          type: string
+          format: date-time
+
+    CertificateResponse:
+      type: object
+      required:
+        - id
+        - name
+        - user_id
+        - created_at
+        - auto_renew
+        - renewal_days
+        - enabled
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        user_id:
+          type: string
+          format: uuid
         created_at:
           type: string
           format: date-time
-          example: "2023-12-01T10:30:00Z"
+        tags:
+          type: array
+          items:
+            type: string
+        auto_renew:
+          type: boolean
+        renewal_days:
+          type: integer
+        expires_at:
+          type: string
+          format: date-time
+        enabled:
+          type: boolean
+        not_before:
+          type: string
+          format: date-time
+
+    CertificateListResponse:
+      type: object
+      required:
+        - certificates
+      properties:
+        certificates:
+          type: array
+          items:
+            $ref: "#/components/schemas/CertificateResponse"
+
+    CertificatePolicy:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        certificate_id:
+          type: string
+          format: uuid
+        user_id:
+          type: string
+          format: uuid
+        validity_months:
+          type: integer
+        key_type:
+          type: string
+        key_size:
+          type: integer
+        curve:
+          type: string
+        subject:
+          type: string
+          example: "CN=api.example.com,O=Example Ltd"
+        sans:
+          type: string
+          description: Comma-separated subject alternative names
+        auto_renew:
+          type: boolean
+        days_before_expiry:
+          type: integer
+        issuer_name:
+          type: string
+        created_at:
+          type: string
+          format: date-time
         updated_at:
           type: string
           format: date-time
-          example: "2023-12-01T10:30:00Z"
-        created_by:
+
+    UpsertCertificatePolicyRequest:
+      type: object
+      required:
+        - validity_months
+        - key_type
+        - subject
+        - auto_renew
+        - days_before_expiry
+      properties:
+        validity_months:
+          type: integer
+          example: 12
+        key_type:
+          type: string
+          example: "RSA"
+        key_size:
+          type: integer
+          example: 2048
+        curve:
+          type: string
+        subject:
+          type: string
+        sans:
+          type: string
+        auto_renew:
+          type: boolean
+        days_before_expiry:
+          type: integer
+          example: 30
+        issuer_name:
+          type: string
+
+    # ─── Soft delete ─────────────────────────────────────────────────────────
+    DeletedSecretsResponse:
+      type: object
+      required:
+        - deleted_secrets
+        - total
+      properties:
+        deleted_secrets:
+          type: array
+          items:
+            type: object
+            properties:
+              id:
+                type: string
+                format: uuid
+              name:
+                type: string
+              version:
+                type: integer
+              deleted_at:
+                type: string
+                format: date-time
+              created_at:
+                type: string
+                format: date-time
+        total:
+          type: integer
+
+    DeletedKeyItem:
+      type: object
+      required:
+        - id
+        - name
+        - type
+        - deleted_at
+        - purge_protection
+      properties:
+        id:
           type: string
           format: uuid
-          description: User who created this version
-          example: "550e8400-e29b-41d4-a716-446655440001"
+        name:
+          type: string
+        type:
+          type: string
+        deleted_at:
+          type: string
+          format: date-time
+          nullable: true
+        purge_protection:
+          type: boolean
+
+    DeletedKeysResponse:
+      type: object
+      required:
+        - deleted_keys
+        - total
+      properties:
+        deleted_keys:
+          type: array
+          items:
+            $ref: "#/components/schemas/DeletedKeyItem"
+        total:
+          type: integer
+
+    DeletedCertificatesResponse:
+      type: object
+      required:
+        - deleted_certificates
+        - total
+      properties:
+        deleted_certificates:
+          type: array
+          items:
+            type: object
+            properties:
+              id:
+                type: string
+                format: uuid
+              name:
+                type: string
+              deleted_at:
+                type: string
+                format: date-time
+                nullable: true
+              purge_protection:
+                type: boolean
+        total:
+          type: integer
