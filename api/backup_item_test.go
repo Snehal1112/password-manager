@@ -15,6 +15,7 @@ import (
 	"github.com/stretchr/testify/assert"
 
 	"rocketvault/app"
+	"rocketvault/common"
 	"rocketvault/internal/backup"
 	"rocketvault/internal/repositories"
 	"rocketvault/model"
@@ -526,6 +527,53 @@ func TestRestoreSecretHandler_Success_Returns200(t *testing.T) {
 	}
 
 	assert.Equal(t, http.StatusOK, w.Code)
+}
+
+// TestRestoreSecretHandler_WritesRequestVaultNotBlobVault verifies that the
+// restore handler persists the vault ID resolved from the request (via
+// vaultIDFromRequest), not the vault ID embedded in the backup blob. A user
+// authorized in vaultB, restoring a blob whose embedded vault is vaultA,
+// must land the restored secret in vaultB — not silently write into vaultA.
+func TestRestoreSecretHandler_WritesRequestVaultNotBlobVault(t *testing.T) {
+	vaultA := uuid.New()
+	vaultB := uuid.New()
+	secretID := uuid.New()
+	userID := uuid.MustParse(secretHTestUserID)
+
+	// Build a blob for a secret scoped to vaultA.
+	blobSecretRepo := &mockSecretRepo{
+		readFn: func(_ context.Context, id uuid.UUID) (*model.Secret, error) {
+			return &model.Secret{ID: id, Name: "s", Value: "v", UserID: userID, VaultID: vaultA}, nil
+		},
+	}
+	blobSvc := backup.NewItemBackupService(blobSecretRepo, nil, nil)
+	blob, err := blobSvc.BackupSecret(context.Background(), secretID, userID)
+	if err != nil {
+		t.Fatalf("failed to build blob: %v", err)
+	}
+
+	var createdVaultID uuid.UUID
+	secretRepo := &mockSecretRepo{
+		createFn: func(_ context.Context, secret *model.Secret) error {
+			createdVaultID = secret.VaultID
+			return nil
+		},
+	}
+
+	c := newBackupCtxWithSecret(secretRepo)
+	w := httptest.NewRecorder()
+	body, _ := json.Marshal(map[string]string{"blob": blob})
+	r := httptest.NewRequest(http.MethodPost, "/secrets/restore", bytes.NewReader(body))
+	r = r.WithContext(context.WithValue(r.Context(), common.VaultIDKey, vaultB.String()))
+
+	restoreSecretHandler(c, w, r)
+	if c.Err != nil {
+		writeError(w, c)
+	}
+
+	assert.Equal(t, http.StatusOK, w.Code)
+	assert.Equal(t, vaultB, createdVaultID, "restore must write the vault authorized by the request, not the blob's embedded vault")
+	assert.NotEqual(t, vaultA, createdVaultID, "restore must not write the blob's embedded vault")
 }
 
 // TestRestoreSecretHandler_NilContainer_Returns500 verifies nil container handling.

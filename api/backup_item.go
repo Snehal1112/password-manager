@@ -107,12 +107,18 @@ func restoreSecretHandler(c *Context, w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	vaultID, err := vaultIDFromRequest(r)
+	if err != nil {
+		c.SetInvalidParam("vault")
+		return
+	}
+
 	svc := itemBackupSvc(c)
 	if svc == nil {
 		return
 	}
 
-	if err := svc.RestoreSecret(r.Context(), req.Blob, userID, uuid.New()); err != nil {
+	if err := svc.RestoreSecret(r.Context(), req.Blob, userID, vaultID, uuid.New()); err != nil {
 		switch {
 		case errors.Is(err, backup.ErrForbidden):
 			c.SetPermissionError("cannot restore: forbidden")
@@ -172,12 +178,18 @@ func restoreKeyHandler(c *Context, w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	vaultID, err := vaultIDFromRequest(r)
+	if err != nil {
+		c.SetInvalidParam("vault")
+		return
+	}
+
 	svc := itemBackupSvc(c)
 	if svc == nil {
 		return
 	}
 
-	if err := svc.RestoreKey(r.Context(), req.Blob, userID, uuid.New()); err != nil {
+	if err := svc.RestoreKey(r.Context(), req.Blob, userID, vaultID, uuid.New()); err != nil {
 		switch {
 		case errors.Is(err, backup.ErrForbidden):
 			c.SetPermissionError("cannot restore: forbidden")
@@ -237,12 +249,18 @@ func restoreCertificateHandler(c *Context, w http.ResponseWriter, r *http.Reques
 		return
 	}
 
+	vaultID, err := vaultIDFromRequest(r)
+	if err != nil {
+		c.SetInvalidParam("vault")
+		return
+	}
+
 	svc := itemBackupSvc(c)
 	if svc == nil {
 		return
 	}
 
-	if err := svc.RestoreCertificate(r.Context(), req.Blob, userID, uuid.New()); err != nil {
+	if err := svc.RestoreCertificate(r.Context(), req.Blob, userID, vaultID, uuid.New()); err != nil {
 		switch {
 		case errors.Is(err, backup.ErrForbidden):
 			c.SetPermissionError("cannot restore: forbidden")

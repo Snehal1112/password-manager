@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"rocketvault/internal/backup"
@@ -178,7 +179,7 @@ func TestBackupRestoreSecret(t *testing.T) {
 	require.NoError(t, repo.Delete(ctx, secretID))
 
 	// Restore using a new UUID so no collision.
-	err = svc.RestoreSecret(ctx, blob, userID, uuid.New())
+	err = svc.RestoreSecret(ctx, blob, userID, uuid.New(), uuid.New())
 	require.NoError(t, err)
 
 	// Verify the restored secret matches the original data.
@@ -319,7 +320,49 @@ func TestRestoreSecretBlobTypeMismatch(t *testing.T) {
 	blob, err := svc.BackupKey(ctx, keyID, userID)
 	require.NoError(t, err)
 
-	err = svc.RestoreSecret(ctx, blob, userID, uuid.New())
+	err = svc.RestoreSecret(ctx, blob, userID, uuid.New(), uuid.New())
 	require.Error(t, err)
 	require.True(t, errors.Is(err, backup.ErrInvalidBlob), "expected ErrInvalidBlob, got: %v", err)
+}
+
+// TestRestoreSecretWritesAuthorizedVaultNotBlobVault verifies that
+// RestoreSecret writes the vault ID authorized by the caller's request, not
+// the vault ID embedded in the backup blob. A user with restore permission
+// in vault B, restoring a blob whose embedded vault is A, must land the
+// restored secret in vault B — not silently write into vault A.
+func TestRestoreSecretWritesAuthorizedVaultNotBlobVault(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	repo := newStubSecretRepo()
+	svc := backup.NewItemBackupService(repo, nil, nil)
+
+	vaultA := uuid.New()
+	vaultB := uuid.New()
+	owner := uuid.New()
+
+	original := &model.Secret{
+		ID:      uuid.New(),
+		UserID:  owner,
+		VaultID: vaultA,
+		Name:    "s1",
+		Value:   "v1",
+		Version: 1,
+		Enabled: true,
+	}
+	require.NoError(t, repo.Create(ctx, original))
+
+	blob, err := svc.BackupSecret(ctx, original.ID, owner)
+	require.NoError(t, err)
+
+	newID := uuid.New()
+	err = svc.RestoreSecret(ctx, blob, owner, vaultB, newID)
+	require.NoError(t, err)
+
+	restored, err := repo.Read(ctx, newID, model.NewVaultScope(vaultB, owner))
+	require.NoError(t, err)
+	assert.Equal(t, vaultB, restored.VaultID, "restore must write the authorized vault, not the blob's embedded vault")
+
+	_, err = repo.Read(ctx, newID, model.NewVaultScope(vaultA, owner))
+	require.Error(t, err, "the restored secret must not be readable under the blob's original vault scope")
 }

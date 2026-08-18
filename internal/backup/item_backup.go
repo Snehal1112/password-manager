@@ -64,15 +64,19 @@ func (s *ItemBackupService) BackupSecret(ctx context.Context, id, userID uuid.UU
 	return encodeBlob("secret", id.String(), secret)
 }
 
-// RestoreSecret decodes a backup blob and re-inserts the secret under newID so
-// that the caller can avoid primary-key collisions with the original row.
-func (s *ItemBackupService) RestoreSecret(ctx context.Context, blob string, userID uuid.UUID, newID uuid.UUID) error {
+// RestoreSecret decodes blob and re-inserts it as newID, owned by userID,
+// into vaultID — the vault authorized by the caller's request, never the
+// vault embedded in the blob. Trusting the blob's vault_id would let a
+// caller with restore permission in one vault silently write into any vault
+// a blob happens to reference.
+func (s *ItemBackupService) RestoreSecret(ctx context.Context, blob string, userID, vaultID, newID uuid.UUID) error {
 	var secret model.Secret
 	if err := decodeBlob(blob, "secret", &secret); err != nil {
 		return err
 	}
 	secret.ID = newID
 	secret.UserID = userID
+	secret.VaultID = vaultID
 	return s.secretRepo.Create(ctx, &secret)
 }
 
@@ -91,14 +95,16 @@ func (s *ItemBackupService) BackupKey(ctx context.Context, id, userID uuid.UUID)
 	return encodeBlob("key", id.String(), key)
 }
 
-// RestoreKey decodes a backup blob and re-inserts the key under newID.
-func (s *ItemBackupService) RestoreKey(ctx context.Context, blob string, userID uuid.UUID, newID uuid.UUID) error {
+// RestoreKey decodes blob and re-inserts it as newID, owned by userID, into
+// vaultID — the vault authorized by the caller's request. See RestoreSecret.
+func (s *ItemBackupService) RestoreKey(ctx context.Context, blob string, userID, vaultID, newID uuid.UUID) error {
 	var key model.Key
 	if err := decodeBlob(blob, "key", &key); err != nil {
 		return err
 	}
 	key.ID = newID
 	key.UserID = userID
+	key.VaultID = vaultID
 	return s.keyRepo.Create(ctx, &key)
 }
 
@@ -117,14 +123,17 @@ func (s *ItemBackupService) BackupCertificate(ctx context.Context, id, userID uu
 	return encodeBlob("certificate", id.String(), cert)
 }
 
-// RestoreCertificate decodes a backup blob and re-inserts the certificate under newID.
-func (s *ItemBackupService) RestoreCertificate(ctx context.Context, blob string, userID uuid.UUID, newID uuid.UUID) error {
+// RestoreCertificate decodes blob and re-inserts it as newID, owned by
+// userID, into vaultID — the vault authorized by the caller's request. See
+// RestoreSecret.
+func (s *ItemBackupService) RestoreCertificate(ctx context.Context, blob string, userID, vaultID, newID uuid.UUID) error {
 	var cert model.Certificate
 	if err := decodeBlob(blob, "certificate", &cert); err != nil {
 		return err
 	}
 	cert.ID = newID
 	cert.UserID = userID
+	cert.VaultID = vaultID
 	return s.certRepo.Create(ctx, &cert)
 }
 

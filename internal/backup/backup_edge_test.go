@@ -153,7 +153,7 @@ func TestRestoreKeySuccess(t *testing.T) {
 	require.NoError(t, kr.Delete(ctx, keyID))
 
 	newID := uuid.New()
-	require.NoError(t, svc.RestoreKey(ctx, blob, ownerID, newID))
+	require.NoError(t, svc.RestoreKey(ctx, blob, ownerID, uuid.New(), newID))
 
 	restored, err := kr.Read(ctx, newID, model.NewAdminScope(ownerID))
 	require.NoError(t, err)
@@ -164,7 +164,7 @@ func TestRestoreKeyBlobError(t *testing.T) {
 	t.Parallel()
 
 	svc := backup.NewItemBackupService(nil, newStubKeyRepo(), nil)
-	err := svc.RestoreKey(context.Background(), "!!!not-base64!!!", uuid.New(), uuid.New())
+	err := svc.RestoreKey(context.Background(), "!!!not-base64!!!", uuid.New(), uuid.New(), uuid.New())
 	require.Error(t, err)
 	require.True(t, errors.Is(err, backup.ErrInvalidBlob))
 }
@@ -187,7 +187,7 @@ func TestRestoreKeyTypeMismatch(t *testing.T) {
 	blob, err := svc.BackupSecret(ctx, secretID, userID)
 	require.NoError(t, err)
 
-	err = svc.RestoreKey(ctx, blob, userID, uuid.New())
+	err = svc.RestoreKey(ctx, blob, userID, uuid.New(), uuid.New())
 	require.Error(t, err)
 	require.True(t, errors.Is(err, backup.ErrInvalidBlob))
 }
@@ -264,7 +264,7 @@ func TestRestoreCertificateSuccess(t *testing.T) {
 	delete(cr.certs, certID)
 
 	newID := uuid.New()
-	require.NoError(t, svc.RestoreCertificate(ctx, blob, ownerID, newID))
+	require.NoError(t, svc.RestoreCertificate(ctx, blob, ownerID, uuid.New(), newID))
 
 	restored, err := cr.Read(ctx, newID, model.NewAdminScope(ownerID))
 	require.NoError(t, err)
@@ -275,7 +275,7 @@ func TestRestoreCertificateBlobError(t *testing.T) {
 	t.Parallel()
 
 	svc := backup.NewItemBackupService(nil, nil, newStubCertRepo())
-	err := svc.RestoreCertificate(context.Background(), "!!!bad!!!", uuid.New(), uuid.New())
+	err := svc.RestoreCertificate(context.Background(), "!!!bad!!!", uuid.New(), uuid.New(), uuid.New())
 	require.Error(t, err)
 	require.True(t, errors.Is(err, backup.ErrInvalidBlob))
 }
@@ -298,7 +298,7 @@ func TestRestoreCertificateTypeMismatch(t *testing.T) {
 	blob, err := svc.BackupCertificate(ctx, certID, userID)
 	require.NoError(t, err)
 
-	err = svc.RestoreSecret(ctx, blob, userID, uuid.New())
+	err = svc.RestoreSecret(ctx, blob, userID, uuid.New(), uuid.New())
 	require.Error(t, err)
 	require.True(t, errors.Is(err, backup.ErrInvalidBlob))
 }
@@ -332,6 +332,6 @@ func TestRestoreSecretCreateError(t *testing.T) {
 
 	// Restore into a failing repo.
 	badSvc := backup.NewItemBackupService(newErrSecretRepo(), nil, nil)
-	err = badSvc.RestoreSecret(ctx, blob, userID, uuid.New())
+	err = badSvc.RestoreSecret(ctx, blob, userID, uuid.New(), uuid.New())
 	require.Error(t, err)
 }
