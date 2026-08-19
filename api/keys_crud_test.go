@@ -470,6 +470,32 @@ func TestCreateKey_InvalidECDSACurve_Returns400(t *testing.T) {
 	assert.Equal(t, http.StatusBadRequest, w.Code)
 }
 
+// TestCreateKey_ECDSA_P256K_NoHSMMechanism_Returns400 pins a bug found while
+// following up on B24: once ValidateKeyCreate allowed P-256K through, an
+// HSM-enabled instance (PKCS#11 has no P-256K mechanism) fell through to an
+// uncaught 500 instead of a clean 400, since crypto.ErrUnsupportedCurve was
+// never special-cased alongside crypto.ErrOctKeysRequireHSM.
+func TestCreateKey_ECDSA_P256K_NoHSMMechanism_Returns400(t *testing.T) {
+	svc := &mockKeyService{}
+	svc.On("CreateECDSAKey", mock.Anything, mock.MatchedBy(func(r keyServices.CreateKeyRequest) bool {
+		return r.Curve == "P-256K"
+	})).Return(nil, fmt.Errorf("failed to generate ECDSA key: %w", crypto.ErrUnsupportedCurve))
+
+	c := newKeyCtx(svc)
+	body, _ := json.Marshal(map[string]any{"name": "eckey", "type": "ECDSA", "curve": "P-256K"})
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest(http.MethodPost, "/keys", bytes.NewReader(body))
+
+	createKey(c, w, r)
+	if c.Err != nil {
+		writeError(w, c)
+	}
+
+	assert.Equal(t, http.StatusBadRequest, w.Code)
+	svc.AssertExpectations(t)
+	svc.AssertNotCalled(t, "GetKey", mock.Anything, mock.Anything, mock.Anything)
+}
+
 func TestCreateKey_OctType_CallsCreateOctKey(t *testing.T) {
 	svc := &mockKeyService{}
 	keyID := uuid.New()
@@ -878,6 +904,31 @@ func TestRotateKey_InvalidKeyID_Returns400(t *testing.T) {
 	}
 
 	assert.Equal(t, http.StatusBadRequest, w.Code)
+}
+
+// TestRotateKey_P256K_NoHSMMechanism_Returns400 pins the shared writeKeyError
+// mapping added alongside TestCreateKey_ECDSA_P256K_NoHSMMechanism_Returns400
+// (B24 follow-up): RotateKey hits the identical crypto.ErrUnsupportedCurve
+// via GenerateECDSAKey(ctx, "P-256K") for an ES256K key on an HSM-enabled
+// instance, and must not fall through to a 500 either.
+func TestRotateKey_P256K_NoHSMMechanism_Returns400(t *testing.T) {
+	keyID := uuid.New()
+	svc := &mockKeyService{}
+	svc.On("RotateKey", mock.Anything, keyID, keyLegacyVaultScope()).
+		Return(nil, fmt.Errorf("key generation failed: %w", crypto.ErrUnsupportedCurve))
+
+	c := newKeyCtx(svc)
+	c.Params = &ApiParams{KeyID: keyID.String(), PerPage: 60}
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest(http.MethodPost, "/keys/"+keyID.String()+"/rotate", nil)
+
+	rotateKey(c, w, r)
+	if c.Err != nil {
+		writeError(w, c)
+	}
+
+	assert.Equal(t, http.StatusBadRequest, w.Code)
+	svc.AssertExpectations(t)
 }
 
 func TestRotateKey_ServiceError_Returns500(t *testing.T) {
