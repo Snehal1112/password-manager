@@ -367,9 +367,16 @@ func wrapAlgorithmToEncryption(algorithm string) (crypto.EncryptionAlgorithm, er
 	}
 }
 
-// isHSMWrapAlgorithm reports whether algorithm has a PKCS#11 mechanism
-// equivalent that crypto.PKCS11KeyProvider implements. AES-CBC wrap has none
-// and stays software-key-only.
+// isHSMWrapAlgorithm reports whether algorithm can be used to wrap or unwrap
+// with a PKCS#11-backed key. AES-CBC is deliberately excluded even though
+// crypto.PKCS11KeyProvider does implement CKM_AES_CBC_PAD: the wrap/unwrap
+// contract has no IV channel. WrapKeyResult and UnwrapKeyRequest (and their
+// api.WrapKeyResponse/api.UnwrapKeyRequest counterparts) carry only the
+// wrapped bytes and the algorithm name, so the IV the provider generates on
+// wrap cannot be returned to the caller, and no IV can be supplied back on
+// unwrap. AES-CBC on HSM-backed keys is reachable through Encrypt/Decrypt
+// instead, which do round-trip the IV as EncryptResult.Nonce and
+// DecryptRequest.Nonce.
 func isHSMWrapAlgorithm(algorithm string) bool {
 	switch algorithm {
 	case "RSA-OAEP", "RSA-OAEP-256", "A128KW", "A192KW", "A256KW":
@@ -638,8 +645,10 @@ func (s *cryptoService) Decrypt(ctx context.Context, req DecryptRequest) (*Decry
 }
 
 // WrapKey encrypts plaintext key material using RSA-OAEP, RSA-OAEP-256, AES-KW,
-// or AES-CBC with the specified vault key. AES-CBC is software-key-only (no
-// PKCS#11 mechanism); HSM-backed keys support the RSA-OAEP and AES-KW variants.
+// or AES-CBC with the specified vault key. HSM-backed keys support the
+// RSA-OAEP and AES-KW variants only: AES-CBC needs an IV, and WrapKeyResult
+// has no field to return one, so a CBC-wrapped blob could never be unwrapped.
+// Use Encrypt/Decrypt for AES-CBC on an HSM-backed key — those do carry the IV.
 func (s *cryptoService) WrapKey(ctx context.Context, req WrapKeyRequest) (*WrapKeyResult, error) {
 	start := time.Now()
 
@@ -676,9 +685,9 @@ func (s *cryptoService) WrapKey(ctx context.Context, req WrapKeyRequest) (*WrapK
 		return nil, err
 	}
 
-	// AES-CBC wrap has no PKCS#11 mechanism and stays software-key-only; every
-	// other supported algorithm now has an HSM path (RSA-OAEP variants via the
-	// RSA public/private key pair, AES-KW variants via the AES secret key).
+	// RSA-OAEP variants (via the RSA key pair) and AES-KW variants (via the AES
+	// secret key) have HSM wrap paths. AES-CBC does not, because wrap has no IV
+	// channel to return the provider-generated IV on — see isHSMWrapAlgorithm.
 	if wrapIsPKCS11 && !isHSMWrapAlgorithm(req.Algorithm) {
 		return nil, fmt.Errorf("algorithm %q is not supported for HSM-backed keys; use RSA-OAEP, RSA-OAEP-256, A128KW, A192KW, or A256KW", req.Algorithm)
 	}
@@ -707,8 +716,11 @@ func (s *cryptoService) WrapKey(ctx context.Context, req WrapKeyRequest) (*WrapK
 }
 
 // UnwrapKey decrypts wrapped key material using RSA-OAEP, RSA-OAEP-256, AES-KW,
-// or AES-CBC with the specified vault key. AES-CBC is software-key-only (no
-// PKCS#11 mechanism); HSM-backed keys support the RSA-OAEP and AES-KW variants.
+// or AES-CBC with the specified vault key. HSM-backed keys support the
+// RSA-OAEP and AES-KW variants only: AES-CBC needs an IV, and UnwrapKeyRequest
+// has no field to supply one, so the PKCS#11 DecryptInit call would fail with
+// CKR_ARGUMENTS_BAD. Use Encrypt/Decrypt for AES-CBC on an HSM-backed key —
+// those do carry the IV.
 func (s *cryptoService) UnwrapKey(ctx context.Context, req UnwrapKeyRequest) (*UnwrapKeyResult, error) {
 	start := time.Now()
 
@@ -745,9 +757,9 @@ func (s *cryptoService) UnwrapKey(ctx context.Context, req UnwrapKeyRequest) (*U
 		return nil, err
 	}
 
-	// AES-CBC wrap has no PKCS#11 mechanism and stays software-key-only; every
-	// other supported algorithm now has an HSM path (RSA-OAEP variants via the
-	// RSA public/private key pair, AES-KW variants via the AES secret key).
+	// RSA-OAEP variants (via the RSA key pair) and AES-KW variants (via the AES
+	// secret key) have HSM unwrap paths. AES-CBC does not, because unwrap has no
+	// IV channel to accept the IV back on — see isHSMWrapAlgorithm.
 	if unwrapIsPKCS11 && !isHSMWrapAlgorithm(req.Algorithm) {
 		return nil, fmt.Errorf("algorithm %q is not supported for HSM-backed keys; use RSA-OAEP, RSA-OAEP-256, A128KW, A192KW, or A256KW", req.Algorithm)
 	}

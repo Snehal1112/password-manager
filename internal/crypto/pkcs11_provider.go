@@ -2,6 +2,7 @@ package crypto
 
 import (
 	"context"
+	"crypto/rand"
 	"encoding/asn1"
 	"errors"
 	"fmt"
@@ -164,15 +165,25 @@ func (p *PKCS11KeyProvider) GenerateRSAKey(_ context.Context, bits int) (string,
 }
 
 // ecOID maps Go curve names to their DER-encoded ASN.1 OID for PKCS#11
-// CKA_EC_PARAMS. secp256k1 is intentionally excluded.
+// CKA_EC_PARAMS. CKM_EC_KEY_PAIR_GEN is curve-agnostic in the PKCS#11 spec --
+// it validates against a key-size range, not a fixed curve allowlist -- so
+// secp256k1 works here on any token whose key-size range covers 256 bits
+// (confirmed empirically against SoftHSM2, which accepts 112-521 bits for
+// this mechanism). Real HSM vendors may still reject it in practice, since
+// secp256k1 isn't a NIST-approved curve; see isHSMCapabilityError for how
+// that's handled.
 var ecOID = map[string]asn1.ObjectIdentifier{
-	"P-256": {1, 2, 840, 10045, 3, 1, 7},
-	"P-384": {1, 3, 132, 0, 34},
-	"P-521": {1, 3, 132, 0, 35},
+	"P-256":  {1, 2, 840, 10045, 3, 1, 7},
+	"P-384":  {1, 3, 132, 0, 34},
+	"P-521":  {1, 3, 132, 0, 35},
+	"P-256K": {1, 3, 132, 0, 10},
 }
 
-// GenerateECDSAKey generates an EC key pair on the token. P-256K is not
-// supported on PKCS#11 and returns ErrUnsupportedCurve.
+// GenerateECDSAKey generates an EC key pair on the token. curveName is one of
+// "P-256", "P-384", "P-521", or "P-256K". If the specific token rejects the
+// curve at the hardware level (e.g. CKR_CURVE_NOT_SUPPORTED on a real HSM
+// that doesn't accept secp256k1), the error is reported as ErrUnsupportedCurve
+// the same as an unrecognised curve name.
 func (p *PKCS11KeyProvider) GenerateECDSAKey(_ context.Context, curveName string) (string, error) {
 	oid, ok := ecOID[curveName]
 	if !ok {
@@ -215,6 +226,9 @@ func (p *PKCS11KeyProvider) GenerateECDSAKey(_ context.Context, curveName string
 	mech := []*p11.Mechanism{p11.NewMechanism(p11.CKM_EC_KEY_PAIR_GEN, nil)}
 	_, _, err = p.ctx.GenerateKeyPair(session, mech, pubAttrs, privAttrs)
 	if err != nil {
+		if isHSMCapabilityError(err) {
+			return "", fmt.Errorf("%w: %s (rejected by HSM)", ErrUnsupportedCurve, curveName)
+		}
 		return "", fmt.Errorf("pkcs11 ec key gen (%s): %w", curveName, err)
 	}
 
@@ -334,6 +348,130 @@ func isAESKWAlgorithm(algorithm EncryptionAlgorithm) bool {
 	}
 }
 
+// isAESCBCAlgorithm reports whether algorithm is an AES-CBC variant, which
+// maps to CKM_AES_CBC_PAD against a CKO_SECRET_KEY object (same key handle
+// AES-KW already uses).
+func isAESCBCAlgorithm(algorithm EncryptionAlgorithm) bool {
+	switch algorithm {
+	case AlgorithmA128CBC, AlgorithmA192CBC, AlgorithmA256CBC:
+		return true
+	default:
+		return false
+	}
+}
+
+// isAESGCMAlgorithm reports whether algorithm is RocketVault's one AES-GCM
+// identifier (256-bit only, matching the software provider -- no
+// A128GCM/A192GCM exist in this codebase).
+func isAESGCMAlgorithm(algorithm EncryptionAlgorithm) bool {
+	return algorithm == AlgorithmAES256
+}
+
+// encryptAESCBC encrypts plaintext with the secret key object referenced by
+// the key handle using CKM_AES_CBC_PAD -- the padded variant, so PKCS7 padding happens
+// on-token and the plaintext need not be block-aligned in Go, matching
+// SoftwareKeyProvider's PKCS7-padded CBC semantics exactly. A random 16-byte
+// IV is generated here (matching the software provider's convention) and
+// returned as the nonce; the caller must supply it back to decryptAESCBC.
+func (p *PKCS11KeyProvider) encryptAESCBC(session p11.SessionHandle, key p11.ObjectHandle, plaintext []byte) (ciphertext, iv []byte, err error) {
+	iv = make([]byte, 16)
+	if _, err := rand.Read(iv); err != nil {
+		return nil, nil, fmt.Errorf("generate cbc iv: %w", err)
+	}
+
+	mech := []*p11.Mechanism{p11.NewMechanism(p11.CKM_AES_CBC_PAD, iv)}
+	if err := p.ctx.EncryptInit(session, mech, key); err != nil {
+		if isHSMCapabilityError(err) {
+			return nil, nil, fmt.Errorf("%w: AES-CBC (rejected by HSM)", ErrUnsupportedAlgorithm)
+		}
+		return nil, nil, fmt.Errorf("pkcs11 aes-cbc encrypt init: %w", err)
+	}
+
+	ct, err := p.ctx.Encrypt(session, plaintext)
+	if err != nil {
+		return nil, nil, fmt.Errorf("pkcs11 aes-cbc encrypt: %w", err)
+	}
+	return ct, iv, nil
+}
+
+// decryptAESCBC reverses encryptAESCBC using the same IV the encrypt call
+// returned. PKCS7 padding is stripped on-token by CKM_AES_CBC_PAD.
+//
+// The IV length is checked here rather than left to the token: SoftHSM2
+// rejects a wrong-length IV with CKR_MECHANISM_INVALID, which is on
+// isHSMCapabilityError's allowlist and would therefore be misreported as
+// "AES-CBC (rejected by HSM)" instead of the input error it actually is.
+func (p *PKCS11KeyProvider) decryptAESCBC(session p11.SessionHandle, key p11.ObjectHandle, ciphertext, iv []byte) ([]byte, error) {
+	if len(iv) != 16 {
+		return nil, fmt.Errorf("aes-cbc iv must be 16 bytes, got %d", len(iv))
+	}
+
+	mech := []*p11.Mechanism{p11.NewMechanism(p11.CKM_AES_CBC_PAD, iv)}
+	if err := p.ctx.DecryptInit(session, mech, key); err != nil {
+		if isHSMCapabilityError(err) {
+			return nil, fmt.Errorf("%w: AES-CBC (rejected by HSM)", ErrUnsupportedAlgorithm)
+		}
+		return nil, fmt.Errorf("pkcs11 aes-cbc decrypt init: %w", err)
+	}
+
+	pt, err := p.ctx.Decrypt(session, ciphertext)
+	if err != nil {
+		return nil, fmt.Errorf("pkcs11 aes-cbc decrypt: %w", err)
+	}
+	return pt, nil
+}
+
+// encryptAESGCM encrypts plaintext with the secret key object referenced by
+// the key handle using CKM_AES_GCM, no AAD, and a 128-bit tag -- matching the software
+// provider's cipher.NewGCM default behavior exactly. A random 12-byte nonce
+// is generated here (GCM's standard 96-bit IV size) and returned; the caller
+// must supply it back to decryptAESGCM.
+func (p *PKCS11KeyProvider) encryptAESGCM(session p11.SessionHandle, key p11.ObjectHandle, plaintext []byte) (ciphertext, nonce []byte, err error) {
+	nonce = make([]byte, 12)
+	if _, err := rand.Read(nonce); err != nil {
+		return nil, nil, fmt.Errorf("generate gcm nonce: %w", err)
+	}
+
+	gcmParams := p11.NewGCMParams(nonce, nil, 128)
+	defer gcmParams.Free()
+
+	mech := []*p11.Mechanism{p11.NewMechanism(p11.CKM_AES_GCM, gcmParams)}
+	if err := p.ctx.EncryptInit(session, mech, key); err != nil {
+		if isHSMCapabilityError(err) {
+			return nil, nil, fmt.Errorf("%w: AES256-GCM (rejected by HSM)", ErrUnsupportedAlgorithm)
+		}
+		return nil, nil, fmt.Errorf("pkcs11 aes-gcm encrypt init: %w", err)
+	}
+
+	ct, err := p.ctx.Encrypt(session, plaintext)
+	if err != nil {
+		return nil, nil, fmt.Errorf("pkcs11 aes-gcm encrypt: %w", err)
+	}
+	return ct, nonce, nil
+}
+
+// decryptAESGCM reverses encryptAESGCM using the same nonce the encrypt call
+// returned. A tampered ciphertext or wrong nonce fails authentication and
+// returns an error, per GCM's authenticated-encryption guarantee.
+func (p *PKCS11KeyProvider) decryptAESGCM(session p11.SessionHandle, key p11.ObjectHandle, ciphertext, nonce []byte) ([]byte, error) {
+	gcmParams := p11.NewGCMParams(nonce, nil, 128)
+	defer gcmParams.Free()
+
+	mech := []*p11.Mechanism{p11.NewMechanism(p11.CKM_AES_GCM, gcmParams)}
+	if err := p.ctx.DecryptInit(session, mech, key); err != nil {
+		if isHSMCapabilityError(err) {
+			return nil, fmt.Errorf("%w: AES256-GCM (rejected by HSM)", ErrUnsupportedAlgorithm)
+		}
+		return nil, fmt.Errorf("pkcs11 aes-gcm decrypt init: %w", err)
+	}
+
+	pt, err := p.ctx.Decrypt(session, ciphertext)
+	if err != nil {
+		return nil, fmt.Errorf("pkcs11 aes-gcm decrypt: %w", err)
+	}
+	return pt, nil
+}
+
 // wrapRawData wraps plaintext with wrappingKey using plain, unpadded RFC 3394
 // CKM_AES_KEY_WRAP via C_WrapKey. Many PKCS#11 tokens (including SoftHSM2)
 // only expose AES-KW mechanisms through the CKF_WRAP/CKF_UNWRAP capability,
@@ -427,10 +565,13 @@ var signMechanisms = map[SignatureAlgorithm]signMechanism{
 	AlgorithmPS384: {p11.CKM_SHA384_RSA_PKCS_PSS, false, "", p11.NewPSSParams(p11.CKM_SHA384, p11.CKG_MGF1_SHA384, 48)},
 	AlgorithmPS512: {p11.CKM_SHA512_RSA_PKCS_PSS, false, "", p11.NewPSSParams(p11.CKM_SHA512, p11.CKG_MGF1_SHA512, 64)},
 
-	// CKM_ECDSA takes a pre-hashed digest; hash in Go before sending.
-	AlgorithmES256: {p11.CKM_ECDSA, true, AlgorithmES256, nil},
-	AlgorithmES384: {p11.CKM_ECDSA, true, AlgorithmES384, nil},
-	AlgorithmES512: {p11.CKM_ECDSA, true, AlgorithmES512, nil},
+	// CKM_ECDSA takes a pre-hashed digest; hash in Go before sending. The
+	// mechanism itself is curve-agnostic -- it operates on whatever EC key is
+	// loaded, so ES256K reuses it exactly like ES256/384/512.
+	AlgorithmES256:  {p11.CKM_ECDSA, true, AlgorithmES256, nil},
+	AlgorithmES384:  {p11.CKM_ECDSA, true, AlgorithmES384, nil},
+	AlgorithmES512:  {p11.CKM_ECDSA, true, AlgorithmES512, nil},
+	AlgorithmES256K: {p11.CKM_ECDSA, true, AlgorithmES256K, nil},
 }
 
 // Sign signs data with the private key identified by handle (CKA_LABEL).
@@ -528,8 +669,43 @@ func isSignatureInvalid(err error) bool {
 		s == "pkcs11: 0xC1: CKR_SIGNATURE_LEN_RANGE"
 }
 
+// Known CKR_* result codes a PKCS#11 token returns when it understands a
+// request but doesn't support the specific curve or mechanism -- as opposed
+// to a transport/system failure. These are PKCS#11 CKR_* result codes.
+const (
+	ckrCurveNotSupported     = p11.Error(0x140) // CKR_CURVE_NOT_SUPPORTED
+	ckrDomainParamsInvalid   = p11.Error(0x130) // CKR_DOMAIN_PARAMS_INVALID
+	ckrMechanismInvalid      = p11.Error(0x70)  // CKR_MECHANISM_INVALID
+	ckrMechanismParamInvalid = p11.Error(0x71)  // CKR_MECHANISM_PARAM_INVALID
+)
+
+// isHSMCapabilityError reports whether err indicates the token rejected an
+// operation because it doesn't support the requested curve or mechanism,
+// rather than a transport/system failure. SoftHSM2 accepts secp256k1 and
+// AES-CBC/GCM, but real HSM vendors vary -- this lets any such rejection
+// degrade to a clean, typed error instead of an opaque one.
+//
+// Compares the library's typed error value directly via errors.As rather
+// than its string form: CKR_CURVE_NOT_SUPPORTED has no entry in the
+// library's own strerror table (error.go), so Error(0x140).Error() renders
+// as "pkcs11: 0x140: " with an empty symbol name -- there is no reliable
+// string to match against for that code.
+func isHSMCapabilityError(err error) bool {
+	var pErr p11.Error
+	if !errors.As(err, &pErr) {
+		return false
+	}
+	switch pErr {
+	case ckrCurveNotSupported, ckrDomainParamsInvalid, ckrMechanismInvalid, ckrMechanismParamInvalid:
+		return true
+	default:
+		return false
+	}
+}
+
 // Encrypt performs RSA-OAEP encryption with the token's RSA public key, or
-// AES-KW wrapping with the token's AES secret key, depending on algorithm.
+// AES-KW wrapping with the token's AES secret key, or AES-CBC encryption
+// depending on algorithm.
 func (p *PKCS11KeyProvider) Encrypt(_ context.Context, handle string, data []byte, algorithm EncryptionAlgorithm) ([]byte, []byte, error) {
 	session, err := p.openRWSession()
 	if err != nil {
@@ -549,6 +725,22 @@ func (p *PKCS11KeyProvider) Encrypt(_ context.Context, handle string, data []byt
 		}
 		// AES-KW does not use a nonce.
 		return ct, nil, nil
+	}
+
+	if isAESCBCAlgorithm(algorithm) {
+		key, err := p.findSecretKey(session, handle)
+		if err != nil {
+			return nil, nil, err
+		}
+		return p.encryptAESCBC(session, key, data)
+	}
+
+	if isAESGCMAlgorithm(algorithm) {
+		key, err := p.findSecretKey(session, handle)
+		if err != nil {
+			return nil, nil, err
+		}
+		return p.encryptAESGCM(session, key, data)
 	}
 
 	oaepParams, err := oaepMechParams(algorithm)
@@ -576,8 +768,9 @@ func (p *PKCS11KeyProvider) Encrypt(_ context.Context, handle string, data []byt
 }
 
 // Decrypt performs RSA-OAEP decryption with the token's RSA private key, or
-// AES-KW unwrapping with the token's AES secret key, depending on algorithm.
-func (p *PKCS11KeyProvider) Decrypt(_ context.Context, handle string, data []byte, _ []byte, algorithm EncryptionAlgorithm) ([]byte, error) {
+// AES-KW unwrapping with the token's AES secret key, or AES-CBC decryption
+// depending on algorithm.
+func (p *PKCS11KeyProvider) Decrypt(_ context.Context, handle string, data []byte, nonce []byte, algorithm EncryptionAlgorithm) ([]byte, error) {
 	session, err := p.openRWSession()
 	if err != nil {
 		return nil, err
@@ -591,6 +784,22 @@ func (p *PKCS11KeyProvider) Decrypt(_ context.Context, handle string, data []byt
 		}
 
 		return p.unwrapRawData(session, key, data)
+	}
+
+	if isAESCBCAlgorithm(algorithm) {
+		key, err := p.findSecretKey(session, handle)
+		if err != nil {
+			return nil, err
+		}
+		return p.decryptAESCBC(session, key, data, nonce)
+	}
+
+	if isAESGCMAlgorithm(algorithm) {
+		key, err := p.findSecretKey(session, handle)
+		if err != nil {
+			return nil, err
+		}
+		return p.decryptAESGCM(session, key, data, nonce)
 	}
 
 	oaepParams, err := oaepMechParams(algorithm)

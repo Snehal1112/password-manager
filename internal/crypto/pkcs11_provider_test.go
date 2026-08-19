@@ -81,11 +81,42 @@ func TestPKCS11Provider_GenerateECDSAKey_P521(t *testing.T) {
 	assert.Len(t, handle, 36)
 }
 
-func TestPKCS11Provider_GenerateECDSAKey_P256K_ReturnsError(t *testing.T) {
+func TestPKCS11Provider_GenerateECDSAKey_P256K(t *testing.T) {
 	p := newTestPKCS11Provider(t)
-	_, err := p.GenerateECDSAKey(context.Background(), "P-256K")
-	require.Error(t, err)
-	assert.ErrorIs(t, err, crypto.ErrUnsupportedCurve)
+	handle, err := p.GenerateECDSAKey(context.Background(), "P-256K")
+	require.NoError(t, err)
+	assert.Len(t, handle, 36, "handle must be a UUID label")
+}
+
+func TestPKCS11Provider_SignVerify_ECDSA_ES256K(t *testing.T) {
+	p := newTestPKCS11Provider(t)
+
+	handle, err := p.GenerateECDSAKey(context.Background(), "P-256K")
+	require.NoError(t, err)
+
+	data := []byte("secp256k1 hsm sign test")
+	sig, err := p.Sign(context.Background(), handle, "ECDSA", data, crypto.AlgorithmES256K)
+	require.NoError(t, err)
+	assert.NotEmpty(t, sig)
+
+	valid, err := p.Verify(context.Background(), handle, "ECDSA", data, sig, crypto.AlgorithmES256K)
+	require.NoError(t, err)
+	assert.True(t, valid, "signature must verify as valid")
+}
+
+func TestPKCS11Provider_Verify_ES256K_TamperedData_ReturnsFalse(t *testing.T) {
+	p := newTestPKCS11Provider(t)
+
+	handle, err := p.GenerateECDSAKey(context.Background(), "P-256K")
+	require.NoError(t, err)
+
+	data := []byte("original")
+	sig, err := p.Sign(context.Background(), handle, "ECDSA", data, crypto.AlgorithmES256K)
+	require.NoError(t, err)
+
+	valid, err := p.Verify(context.Background(), handle, "ECDSA", []byte("tampered"), sig, crypto.AlgorithmES256K)
+	require.NoError(t, err)
+	assert.False(t, valid, "tampered data must not verify")
 }
 
 // --- Sign / Verify ---
@@ -213,15 +244,59 @@ func isCKRArgumentsBad(err error) bool {
 		err.Error() == "pkcs11: 0x7: CKR_ARGUMENTS_BAD")
 }
 
-func TestPKCS11Provider_Encrypt_AES_ReturnsError(t *testing.T) {
+func TestPKCS11Provider_EncryptDecrypt_AES256GCM(t *testing.T) {
 	p := newTestPKCS11Provider(t)
 
-	handle, err := p.GenerateRSAKey(context.Background(), 2048)
+	handle, err := p.GenerateAESKey(context.Background(), 256)
 	require.NoError(t, err)
 
-	_, _, err = p.Encrypt(context.Background(), handle, []byte("data"), crypto.AlgorithmAES256)
-	require.Error(t, err)
-	assert.ErrorIs(t, err, crypto.ErrUnsupportedAlgorithm)
+	plaintext := []byte("aes-gcm hsm round trip payload")
+	ct, nonce, err := p.Encrypt(context.Background(), handle, plaintext, crypto.AlgorithmAES256)
+	require.NoError(t, err)
+	assert.NotEmpty(t, ct)
+	assert.Len(t, nonce, 12, "GCM nonce must be 96 bits")
+
+	pt, err := p.Decrypt(context.Background(), handle, ct, nonce, crypto.AlgorithmAES256)
+	require.NoError(t, err)
+	assert.Equal(t, plaintext, pt)
+}
+
+func TestPKCS11Provider_DecryptAESGCM_TamperedCiphertext_Fails(t *testing.T) {
+	p := newTestPKCS11Provider(t)
+
+	handle, err := p.GenerateAESKey(context.Background(), 256)
+	require.NoError(t, err)
+
+	plaintext := []byte("gcm tamper detection payload")
+	ct, nonce, err := p.Encrypt(context.Background(), handle, plaintext, crypto.AlgorithmAES256)
+	require.NoError(t, err)
+
+	tampered := make([]byte, len(ct))
+	copy(tampered, ct)
+	tampered[0] ^= 0xFF
+
+	// GCM is authenticated: a tampered ciphertext MUST fail to decrypt, never
+	// silently return wrong plaintext.
+	_, err = p.Decrypt(context.Background(), handle, tampered, nonce, crypto.AlgorithmAES256)
+	assert.Error(t, err, "tampered GCM ciphertext must fail authentication")
+}
+
+func TestPKCS11Provider_DecryptAESGCM_WrongNonce_Fails(t *testing.T) {
+	p := newTestPKCS11Provider(t)
+
+	handle, err := p.GenerateAESKey(context.Background(), 256)
+	require.NoError(t, err)
+
+	plaintext := []byte("gcm wrong nonce payload")
+	ct, nonce, err := p.Encrypt(context.Background(), handle, plaintext, crypto.AlgorithmAES256)
+	require.NoError(t, err)
+
+	wrongNonce := make([]byte, len(nonce))
+	copy(wrongNonce, nonce)
+	wrongNonce[0] ^= 0xFF
+
+	_, err = p.Decrypt(context.Background(), handle, ct, wrongNonce, crypto.AlgorithmAES256)
+	assert.Error(t, err, "wrong GCM nonce must fail authentication")
 }
 
 // --- AES (oct) key generation and wrap/unwrap ---
@@ -295,6 +370,106 @@ func TestPKCS11Provider_Encrypt_AESKWWithRSAKey_ReturnsError(t *testing.T) {
 
 	_, _, err = p.Encrypt(context.Background(), handle, []byte("test"), crypto.AlgorithmA256KW)
 	assert.Error(t, err)
+}
+
+// --- AES-CBC Encrypt/Decrypt ---
+
+func TestPKCS11Provider_EncryptDecrypt_AES128CBC(t *testing.T) {
+	p := newTestPKCS11Provider(t)
+
+	handle, err := p.GenerateAESKey(context.Background(), 128)
+	require.NoError(t, err)
+
+	plaintext := []byte("aes-cbc round trip test payload, any length works with padding")
+	ct, iv, err := p.Encrypt(context.Background(), handle, plaintext, crypto.AlgorithmA128CBC)
+	require.NoError(t, err)
+	assert.NotEmpty(t, ct)
+	assert.Len(t, iv, 16, "CBC IV must be one AES block")
+
+	pt, err := p.Decrypt(context.Background(), handle, ct, iv, crypto.AlgorithmA128CBC)
+	require.NoError(t, err)
+	assert.Equal(t, plaintext, pt)
+}
+
+func TestPKCS11Provider_EncryptDecrypt_AES192CBC(t *testing.T) {
+	p := newTestPKCS11Provider(t)
+
+	handle, err := p.GenerateAESKey(context.Background(), 192)
+	require.NoError(t, err)
+
+	plaintext := []byte("192-bit cbc payload")
+	ct, iv, err := p.Encrypt(context.Background(), handle, plaintext, crypto.AlgorithmA192CBC)
+	require.NoError(t, err)
+
+	pt, err := p.Decrypt(context.Background(), handle, ct, iv, crypto.AlgorithmA192CBC)
+	require.NoError(t, err)
+	assert.Equal(t, plaintext, pt)
+}
+
+func TestPKCS11Provider_EncryptDecrypt_AES256CBC(t *testing.T) {
+	p := newTestPKCS11Provider(t)
+
+	handle, err := p.GenerateAESKey(context.Background(), 256)
+	require.NoError(t, err)
+
+	plaintext := []byte("256-bit cbc payload, deliberately not block-aligned to exercise padding")
+	ct, iv, err := p.Encrypt(context.Background(), handle, plaintext, crypto.AlgorithmA256CBC)
+	require.NoError(t, err)
+
+	pt, err := p.Decrypt(context.Background(), handle, ct, iv, crypto.AlgorithmA256CBC)
+	require.NoError(t, err)
+	assert.Equal(t, plaintext, pt)
+}
+
+func TestPKCS11Provider_DecryptAESCBC_WrongIV_Fails(t *testing.T) {
+	p := newTestPKCS11Provider(t)
+
+	handle, err := p.GenerateAESKey(context.Background(), 256)
+	require.NoError(t, err)
+
+	plaintext := []byte("cbc tamper detection payload")
+	ct, iv, err := p.Encrypt(context.Background(), handle, plaintext, crypto.AlgorithmA256CBC)
+	require.NoError(t, err)
+
+	wrongIV := make([]byte, len(iv))
+	copy(wrongIV, iv)
+	wrongIV[0] ^= 0xFF
+
+	pt, err := p.Decrypt(context.Background(), handle, ct, wrongIV, crypto.AlgorithmA256CBC)
+	// CBC has no built-in integrity check: a wrong IV corrupts only the first
+	// plaintext block (this is the well-known CBC property), so decryption
+	// itself may succeed while producing wrong plaintext, or may fail if the
+	// corruption breaks PKCS7 padding. Either outcome proves the wrong IV was
+	// not silently ignored.
+	if err == nil {
+		assert.NotEqual(t, plaintext, pt, "wrong IV must not silently decrypt to the original plaintext")
+	}
+}
+
+// TestPKCS11Provider_DecryptAESCBC_WrongLengthIV_ReturnsValidationError pins
+// the IV-length check in decryptAESCBC. Without it, SoftHSM2 rejects a
+// wrong-length IV with CKR_MECHANISM_INVALID, which is on
+// isHSMCapabilityError's allowlist, so a malformed caller-supplied IV would be
+// misreported as ErrUnsupportedAlgorithm ("AES-CBC (rejected by HSM)") rather
+// than the input-validation error it actually is.
+func TestPKCS11Provider_DecryptAESCBC_WrongLengthIV_ReturnsValidationError(t *testing.T) {
+	p := newTestPKCS11Provider(t)
+
+	handle, err := p.GenerateAESKey(context.Background(), 256)
+	require.NoError(t, err)
+
+	plaintext := []byte("cbc iv length validation payload")
+	ct, iv, err := p.Encrypt(context.Background(), handle, plaintext, crypto.AlgorithmA256CBC)
+	require.NoError(t, err)
+	require.Len(t, iv, 16)
+
+	for _, shortIV := range [][]byte{nil, {}, iv[:8], append(append([]byte{}, iv...), 0x00)} {
+		_, err := p.Decrypt(context.Background(), handle, ct, shortIV, crypto.AlgorithmA256CBC)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "aes-cbc iv must be 16 bytes")
+		assert.NotErrorIs(t, err, crypto.ErrUnsupportedAlgorithm,
+			"a malformed IV is an input error, not an HSM capability rejection")
+	}
 }
 
 // --- Interface compliance ---

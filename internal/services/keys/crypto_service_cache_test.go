@@ -368,7 +368,11 @@ func TestUnwrapKey_HSMKey_RejectsAESKWSizeMismatch(t *testing.T) {
 }
 
 // TestWrapKey_HSMKey_RejectsAES256CBC verifies AES-CBC stays rejected for
-// PKCS#11-backed keys — there is no PKCS#11 mechanism for it.
+// wrapping with PKCS#11-backed keys. The provider does implement
+// CKM_AES_CBC_PAD, but wrap has no IV channel: WrapKeyResult carries only the
+// wrapped bytes and the algorithm, so the provider-generated IV would be
+// discarded and the blob could never be unwrapped. AES-CBC on HSM-backed keys
+// is reachable through Encrypt/Decrypt, which do round-trip the IV.
 func TestWrapKey_HSMKey_RejectsAES256CBC(t *testing.T) {
 	t.Parallel()
 
@@ -382,9 +386,11 @@ func TestWrapKey_HSMKey_RejectsAES256CBC(t *testing.T) {
 	repo.On("Read", mock.Anything, keyID, scope).Return(key, nil)
 	repo.On("CurrentVersion", mock.Anything, keyID, userID).Return(1, nil)
 
+	provider := &mockKeyProvider{}
+
 	svc := keys.NewCryptoService(keys.CryptoServiceConfig{
 		KeyRepository: repo,
-		KeyProvider:   &mockKeyProvider{},
+		KeyProvider:   provider,
 		Logger:        &logging.Logger{Logger: logrus.New()},
 	})
 
@@ -392,7 +398,43 @@ func TestWrapKey_HSMKey_RejectsAES256CBC(t *testing.T) {
 		KeyID: keyID, UserID: userID, Scope: scope,
 		PlaintextKey: []byte("plaintext"), Algorithm: "A256CBC",
 	})
-	assert.Error(t, err)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "not supported for HSM-backed keys")
+	provider.AssertNotCalled(t, "Encrypt", mock.Anything)
+}
+
+// TestUnwrapKey_HSMKey_RejectsAES256CBC mirrors the WrapKey rejection: an
+// AES-CBC unwrap against a PKCS#11-backed key must be refused before the
+// provider is reached, because UnwrapKeyRequest has no IV field and
+// PKCS#11 DecryptInit with a nil IV fails with CKR_ARGUMENTS_BAD.
+func TestUnwrapKey_HSMKey_RejectsAES256CBC(t *testing.T) {
+	t.Parallel()
+
+	keyID := uuid.New()
+	userID := uuid.New()
+	scope := model.NewOwnerScope(uuid.Nil, userID)
+
+	key := &model.Key{ID: keyID, UserID: userID, Type: model.KeyTypeOct, Value: "pkcs11:aes-label", Enabled: true}
+
+	repo := mocks.NewMockKeyRepositoryInterface(t)
+	repo.On("Read", mock.Anything, keyID, scope).Return(key, nil)
+	repo.On("CurrentVersion", mock.Anything, keyID, userID).Return(1, nil)
+
+	provider := &mockKeyProvider{}
+
+	svc := keys.NewCryptoService(keys.CryptoServiceConfig{
+		KeyRepository: repo,
+		KeyProvider:   provider,
+		Logger:        &logging.Logger{Logger: logrus.New()},
+	})
+
+	_, err := svc.UnwrapKey(context.Background(), keys.UnwrapKeyRequest{
+		KeyID: keyID, UserID: userID, Scope: scope,
+		WrappedKey: []byte("wrapped"), Algorithm: "A256CBC",
+	})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "not supported for HSM-backed keys")
+	provider.AssertNotCalled(t, "Decrypt", mock.Anything)
 }
 
 // TestNilCacheAndMetrics_DoNotPanic verifies that constructing a CryptoService
