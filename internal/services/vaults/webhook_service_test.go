@@ -1,0 +1,280 @@
+package vaults_test
+
+import (
+	"context"
+	"encoding/base64"
+	"errors"
+	"testing"
+	"time"
+
+	"github.com/google/uuid"
+	"github.com/sirupsen/logrus"
+	"github.com/spf13/viper"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
+	"rocketvault/common"
+	"rocketvault/internal/logging"
+	"rocketvault/internal/repositories"
+	"rocketvault/internal/services/vaults"
+	"rocketvault/model"
+)
+
+// setupWebhookTestMasterKey configures a deterministic master key so
+// common.EncryptSecret/DecryptSecret work in this package's tests, mirroring
+// setupKeyTestMasterKey in internal/services/keys/key_service_extended_test.go.
+func setupWebhookTestMasterKey() {
+	k := make([]byte, 32)
+	for i := range k {
+		k[i] = byte(i + 1)
+	}
+	viper.Set("master_key", base64.StdEncoding.EncodeToString(k))
+}
+
+// newWebhookTestLogger returns a minimal *logging.Logger, mirroring the
+// pattern used across internal/services/keys tests. logging.Logger has no
+// standalone constructor (only InitLogger, which does file/rotation setup we
+// don't want here), so tests build it directly from an embedded logrus.Logger.
+func newWebhookTestLogger() *logging.Logger {
+	return &logging.Logger{Logger: logrus.New()}
+}
+
+// fakeWebhookRepo is an in-memory VaultWebhookRepositoryInterface. A hand-
+// written fake rather than a testify mock: these tests assert on stored state
+// across successive calls, which a fake expresses far more directly.
+type fakeWebhookRepo struct {
+	rows    map[uuid.UUID]*model.VaultWebhookConfig
+	upserts int
+	failGet error
+}
+
+func newFakeWebhookRepo() *fakeWebhookRepo {
+	return &fakeWebhookRepo{rows: map[uuid.UUID]*model.VaultWebhookConfig{}}
+}
+
+func (f *fakeWebhookRepo) Upsert(_ context.Context, cfg *model.VaultWebhookConfig) error {
+	f.upserts++
+	clone := *cfg
+	f.rows[cfg.VaultID] = &clone
+	return nil
+}
+
+func (f *fakeWebhookRepo) GetByVaultID(_ context.Context, vaultID uuid.UUID) (*model.VaultWebhookConfig, error) {
+	if f.failGet != nil {
+		return nil, f.failGet
+	}
+	cfg, ok := f.rows[vaultID]
+	if !ok {
+		return nil, repositories.ErrNotFound
+	}
+	clone := *cfg
+	return &clone, nil
+}
+
+func (f *fakeWebhookRepo) DeleteByVaultID(_ context.Context, vaultID uuid.UUID) error {
+	delete(f.rows, vaultID)
+	return nil
+}
+
+func newWebhookService(repo repositories.VaultWebhookRepositoryInterface) vaults.VaultWebhookService {
+	return vaults.NewVaultWebhookService(repo, newWebhookTestLogger())
+}
+
+func TestWebhookService_Upsert_CreateMintsAndReturnsSecret(t *testing.T) {
+	setupWebhookTestMasterKey()
+	repo := newFakeWebhookRepo()
+	svc := newWebhookService(repo)
+	vaultID := uuid.New()
+
+	cfg, secret, err := svc.Upsert(context.Background(), vaultID,
+		vaults.UpsertWebhookRequest{URL: "https://hooks.example/rv"})
+	require.NoError(t, err)
+
+	assert.NotEmpty(t, secret, "create must mint and return a secret")
+	assert.Equal(t, "https://hooks.example/rv", cfg.URL)
+	assert.True(t, cfg.Enabled, "enabled defaults to true on create")
+
+	// The stored value is ciphertext that decrypts back to what we returned.
+	assert.NotEqual(t, secret, cfg.SigningSecretEncrypted, "the secret must be stored encrypted")
+	decrypted, err := common.DecryptSecret(cfg.SigningSecretEncrypted)
+	require.NoError(t, err)
+	assert.Equal(t, secret, decrypted)
+}
+
+// TestWebhookService_Upsert_SecretsAreUnpredictable guards the crypto/rand
+// source: a constant or a counter would pass every other test in this file.
+func TestWebhookService_Upsert_SecretsAreUnpredictable(t *testing.T) {
+	setupWebhookTestMasterKey()
+	svc := newWebhookService(newFakeWebhookRepo())
+	seen := map[string]bool{}
+	for i := 0; i < 20; i++ {
+		_, secret, err := svc.Upsert(context.Background(), uuid.New(),
+			vaults.UpsertWebhookRequest{URL: "https://hooks.example/rv"})
+		require.NoError(t, err)
+		require.False(t, seen[secret], "minted a duplicate secret on iteration %d", i)
+		require.GreaterOrEqual(t, len(secret), 40, "32 random bytes must not base64 to fewer than 40 chars")
+		seen[secret] = true
+	}
+}
+
+func TestWebhookService_Upsert_UpdateWithoutRotateKeepsSecret(t *testing.T) {
+	setupWebhookTestMasterKey()
+	repo := newFakeWebhookRepo()
+	svc := newWebhookService(repo)
+	ctx, vaultID := context.Background(), uuid.New()
+
+	created, firstSecret, err := svc.Upsert(ctx, vaultID,
+		vaults.UpsertWebhookRequest{URL: "https://first.example"})
+	require.NoError(t, err)
+	require.NotEmpty(t, firstSecret)
+
+	updated, secret, err := svc.Upsert(ctx, vaultID,
+		vaults.UpsertWebhookRequest{URL: "https://second.example"})
+	require.NoError(t, err)
+
+	assert.Empty(t, secret, "an update that did not rotate must return no secret")
+	assert.Equal(t, "https://second.example", updated.URL)
+	assert.Equal(t, created.SigningSecretEncrypted, updated.SigningSecretEncrypted,
+		"the stored ciphertext must be byte-identical when not rotating")
+}
+
+func TestWebhookService_Upsert_RotateMintsNewSecret(t *testing.T) {
+	setupWebhookTestMasterKey()
+	repo := newFakeWebhookRepo()
+	svc := newWebhookService(repo)
+	ctx, vaultID := context.Background(), uuid.New()
+
+	created, firstSecret, err := svc.Upsert(ctx, vaultID,
+		vaults.UpsertWebhookRequest{URL: "https://a.example"})
+	require.NoError(t, err)
+
+	rotated, secondSecret, err := svc.Upsert(ctx, vaultID,
+		vaults.UpsertWebhookRequest{URL: "https://a.example", RotateSecret: true})
+	require.NoError(t, err)
+
+	assert.NotEmpty(t, secondSecret, "a rotate must return the new secret")
+	assert.NotEqual(t, firstSecret, secondSecret)
+	assert.NotEqual(t, created.SigningSecretEncrypted, rotated.SigningSecretEncrypted)
+
+	decrypted, err := common.DecryptSecret(rotated.SigningSecretEncrypted)
+	require.NoError(t, err)
+	assert.Equal(t, secondSecret, decrypted)
+}
+
+// TestWebhookService_Upsert_NilEnabledKeepsStoredValue is the regression test
+// for the bare-bool trap the *bool type exists to avoid: a URL-only update
+// must not silently disable the webhook.
+func TestWebhookService_Upsert_NilEnabledKeepsStoredValue(t *testing.T) {
+	setupWebhookTestMasterKey()
+	repo := newFakeWebhookRepo()
+	svc := newWebhookService(repo)
+	ctx, vaultID := context.Background(), uuid.New()
+	disabled := false
+
+	_, _, err := svc.Upsert(ctx, vaultID,
+		vaults.UpsertWebhookRequest{URL: "https://a.example", Enabled: &disabled})
+	require.NoError(t, err)
+
+	updated, _, err := svc.Upsert(ctx, vaultID,
+		vaults.UpsertWebhookRequest{URL: "https://b.example"}) // Enabled nil
+	require.NoError(t, err)
+	assert.False(t, updated.Enabled, "a nil Enabled must keep the stored value, not reset it")
+
+	enabled := true
+	reenabled, _, err := svc.Upsert(ctx, vaultID,
+		vaults.UpsertWebhookRequest{URL: "https://b.example", Enabled: &enabled})
+	require.NoError(t, err)
+	assert.True(t, reenabled.Enabled)
+}
+
+func TestWebhookService_Upsert_RejectsBadURLs(t *testing.T) {
+	svc := newWebhookService(newFakeWebhookRepo())
+	for _, tc := range []struct{ name, url string }{
+		{"http scheme", "http://hooks.example/rv"},
+		{"no scheme", "hooks.example/rv"},
+		{"scheme only, no host", "https://"},
+		{"empty", ""},
+		{"unparseable", "https://exa mple.com/\x7f"},
+		{"not a url", "::::"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			_, _, err := svc.Upsert(context.Background(), uuid.New(),
+				vaults.UpsertWebhookRequest{URL: tc.url})
+			require.Error(t, err)
+			assert.True(t, errors.Is(err, vaults.ErrInvalidWebhookURL),
+				"expected ErrInvalidWebhookURL, got %v", err)
+		})
+	}
+}
+
+// TestWebhookService_Upsert_RejectsBadURLBeforeTouchingRepo proves validation
+// happens first, so an invalid request never reaches storage.
+func TestWebhookService_Upsert_RejectsBadURLBeforeTouchingRepo(t *testing.T) {
+	repo := newFakeWebhookRepo()
+	svc := newWebhookService(repo)
+
+	_, _, err := svc.Upsert(context.Background(), uuid.New(),
+		vaults.UpsertWebhookRequest{URL: "http://insecure.example"})
+	require.Error(t, err)
+	assert.Zero(t, repo.upserts, "an invalid URL must not reach the repository")
+}
+
+func TestWebhookService_Get_UnknownReturnsErrWebhookNotFound(t *testing.T) {
+	svc := newWebhookService(newFakeWebhookRepo())
+
+	_, err := svc.Get(context.Background(), uuid.New())
+	require.Error(t, err)
+	assert.True(t, errors.Is(err, vaults.ErrWebhookNotFound), "expected ErrWebhookNotFound, got %v", err)
+}
+
+// TestWebhookService_Get_RealRepoErrorIsNotNotFound keeps a database outage
+// from being reported to the caller as "no webhook configured".
+func TestWebhookService_Get_RealRepoErrorIsNotNotFound(t *testing.T) {
+	repo := newFakeWebhookRepo()
+	repo.failGet = errors.New("database is locked")
+	svc := newWebhookService(repo)
+
+	_, err := svc.Get(context.Background(), uuid.New())
+	require.Error(t, err)
+	assert.False(t, errors.Is(err, vaults.ErrWebhookNotFound))
+}
+
+func TestWebhookService_Get_DoesNotDecrypt(t *testing.T) {
+	setupWebhookTestMasterKey()
+	repo := newFakeWebhookRepo()
+	svc := newWebhookService(repo)
+	ctx, vaultID := context.Background(), uuid.New()
+
+	_, secret, err := svc.Upsert(ctx, vaultID, vaults.UpsertWebhookRequest{URL: "https://a.example"})
+	require.NoError(t, err)
+
+	got, err := svc.Get(ctx, vaultID)
+	require.NoError(t, err)
+	assert.NotEqual(t, secret, got.SigningSecretEncrypted, "Get must return ciphertext, never plaintext")
+}
+
+func TestWebhookService_Delete(t *testing.T) {
+	setupWebhookTestMasterKey()
+	repo := newFakeWebhookRepo()
+	svc := newWebhookService(repo)
+	ctx, vaultID := context.Background(), uuid.New()
+	_, _, err := svc.Upsert(ctx, vaultID, vaults.UpsertWebhookRequest{URL: "https://a.example"})
+	require.NoError(t, err)
+
+	require.NoError(t, svc.Delete(ctx, vaultID))
+
+	_, err = svc.Get(ctx, vaultID)
+	assert.True(t, errors.Is(err, vaults.ErrWebhookNotFound))
+}
+
+func TestWebhookService_Upsert_StampsTimestamps(t *testing.T) {
+	setupWebhookTestMasterKey()
+	svc := newWebhookService(newFakeWebhookRepo())
+	before := time.Now().UTC().Add(-time.Second)
+
+	cfg, _, err := svc.Upsert(context.Background(), uuid.New(),
+		vaults.UpsertWebhookRequest{URL: "https://a.example"})
+	require.NoError(t, err)
+	assert.False(t, cfg.CreatedAt.Before(before))
+	assert.False(t, cfg.UpdatedAt.Before(before))
+}
