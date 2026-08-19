@@ -143,6 +143,8 @@ type MockServiceContainer struct {
 	// VaultService is returned by GetVaultService. It defaults to a MockVaultService
 	// that resolves the "default" vault so vault-aware resource commands work in tests.
 	VaultService vaultServices.VaultService
+	// VaultWebhookService is returned by GetVaultWebhookService, nil by default.
+	VaultWebhookService vaultServices.VaultWebhookService
 	// AccessPolicyService is returned by GetAccessPolicyService, nil by default.
 	AccessPolicyService authzServices.AccessPolicyService
 	// RoleAssignmentService is returned by GetRoleAssignmentService. It defaults to a
@@ -195,6 +197,10 @@ func (m *MockServiceContainer) GetVaultRepository() repositories.VaultRepository
 
 func (m *MockServiceContainer) GetVaultService() vaultServices.VaultService {
 	return m.VaultService
+}
+
+func (m *MockServiceContainer) GetVaultWebhookService() vaultServices.VaultWebhookService {
+	return m.VaultWebhookService
 }
 
 // Authentication service getters - return nil for unused services

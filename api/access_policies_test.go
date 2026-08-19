@@ -139,6 +139,9 @@ func (c *policyContainer) GetVaultRepository() repositories.VaultRepositoryInter
 func (c *policyContainer) GetVaultService() vaultServices.VaultService {
 	panic("unexpected call: GetVaultService")
 }
+func (c *policyContainer) GetVaultWebhookService() vaultServices.VaultWebhookService {
+	panic("unexpected call: GetVaultWebhookService")
+}
 func (c *policyContainer) GetPasswordService() authServices.PasswordService {
 	panic("unexpected call: GetPasswordService")
 }

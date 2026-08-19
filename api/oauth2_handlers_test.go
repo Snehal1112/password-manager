@@ -133,6 +133,9 @@ func (c *oauth2HTestContainer) GetVaultRepository() repositories.VaultRepository
 func (c *oauth2HTestContainer) GetVaultService() vaultServices.VaultService {
 	panic("unexpected call: GetVaultService")
 }
+func (c *oauth2HTestContainer) GetVaultWebhookService() vaultServices.VaultWebhookService {
+	panic("unexpected call: GetVaultWebhookService")
+}
 func (c *oauth2HTestContainer) GetPasswordService() authServices.PasswordService {
 	panic("unexpected call: GetPasswordService")
 }

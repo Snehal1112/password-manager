@@ -111,6 +111,9 @@ func (m *mockServiceContainer) GetVaultRepository() repositories.VaultRepository
 func (m *mockServiceContainer) GetVaultService() vaultServices.VaultService {
 	panic("unexpected call: GetVaultService")
 }
+func (m *mockServiceContainer) GetVaultWebhookService() vaultServices.VaultWebhookService {
+	panic("unexpected call: GetVaultWebhookService")
+}
 func (m *mockServiceContainer) GetPasswordService() authServices.PasswordService {
 	panic("unexpected call: GetPasswordService")
 }

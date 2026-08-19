@@ -137,6 +137,7 @@ func TestGetters_ZeroValueContainer(t *testing.T) {
 	assert.Nil(t, c.GetCertificateRenewalService(), "GetCertificateRenewalService")
 	assert.Nil(t, c.GetCryptoService(), "GetCryptoService")
 	assert.Nil(t, c.GetVaultService(), "GetVaultService")
+	assert.Nil(t, c.GetVaultWebhookService(), "GetVaultWebhookService")
 
 	// Secret component services
 	assert.Nil(t, c.GetCryptographyService(), "GetCryptographyService")
@@ -292,6 +293,7 @@ func TestNewServiceContainer_Success_CacheDisabled(t *testing.T) {
 	assert.NotNil(t, container.GetCertificateRenewalService(), "GetCertificateRenewalService")
 	assert.NotNil(t, container.GetCryptoService(), "GetCryptoService")
 	assert.NotNil(t, container.GetVaultService(), "GetVaultService")
+	assert.NotNil(t, container.GetVaultWebhookService(), "GetVaultWebhookService")
 
 	// Secret component services
 	assert.NotNil(t, container.GetCryptographyService(), "GetCryptographyService")

@@ -83,6 +83,10 @@ func (m *MockServiceContainer) GetVaultService() vaultServices.VaultService {
 	return args.Get(0).(vaultServices.VaultService)
 }
 
+func (m *MockServiceContainer) GetVaultWebhookService() vaultServices.VaultWebhookService {
+	return nil
+}
+
 // stubVaultService is a minimal vaultServices.VaultService for middleware tests.
 type stubVaultService struct {
 	vault         *model.Vault

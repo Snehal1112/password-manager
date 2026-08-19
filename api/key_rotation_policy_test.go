@@ -120,6 +120,9 @@ func (c *keyRotationPolicyRepoContainer) GetVaultRepository() repositories.Vault
 func (c *keyRotationPolicyRepoContainer) GetVaultService() vaultServices.VaultService {
 	panic("unexpected call: GetVaultService")
 }
+func (c *keyRotationPolicyRepoContainer) GetVaultWebhookService() vaultServices.VaultWebhookService {
+	panic("unexpected call: GetVaultWebhookService")
+}
 func (c *keyRotationPolicyRepoContainer) GetPasswordService() authServices.PasswordService {
 	panic("unexpected call: GetPasswordService")
 }

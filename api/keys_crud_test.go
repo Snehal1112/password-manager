@@ -211,6 +211,9 @@ func (c *keySvcTestContainer) GetVaultRepository() repositories.VaultRepositoryI
 func (c *keySvcTestContainer) GetVaultService() vaultServices.VaultService {
 	panic("unexpected call: GetVaultService")
 }
+func (c *keySvcTestContainer) GetVaultWebhookService() vaultServices.VaultWebhookService {
+	panic("unexpected call: GetVaultWebhookService")
+}
 func (c *keySvcTestContainer) GetPasswordService() authServices.PasswordService {
 	panic("unexpected call: GetPasswordService")
 }

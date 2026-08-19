@@ -164,19 +164,23 @@ func (v vaultNoopCascade) HasProtectedContent(context.Context, uuid.UUID) (bool,
 // --- vaultSvcTestContainer ---
 
 type vaultSvcTestContainer struct {
-	vaultSvc       vaultServices.VaultService
-	secretSvc      secretServices.SecretService
-	keySvc         keyServices.KeyService
-	cryptoSvc      keyServices.CryptoService
-	certSvc        certServices.CertificateService
-	certPolicyRepo repositories.CertificatePolicyRepositoryInterface
-	policySvc      authzServices.AccessPolicyService
-	rbacSvc        authzServices.RBACService
-	roleSvc        authzServices.RoleAssignmentService
-	logger         *logging.Logger
+	vaultSvc        vaultServices.VaultService
+	vaultWebhookSvc vaultServices.VaultWebhookService
+	secretSvc       secretServices.SecretService
+	keySvc          keyServices.KeyService
+	cryptoSvc       keyServices.CryptoService
+	certSvc         certServices.CertificateService
+	certPolicyRepo  repositories.CertificatePolicyRepositoryInterface
+	policySvc       authzServices.AccessPolicyService
+	rbacSvc         authzServices.RBACService
+	roleSvc         authzServices.RoleAssignmentService
+	logger          *logging.Logger
 }
 
 func (c *vaultSvcTestContainer) GetVaultService() vaultServices.VaultService { return c.vaultSvc }
+func (c *vaultSvcTestContainer) GetVaultWebhookService() vaultServices.VaultWebhookService {
+	return c.vaultWebhookSvc
+}
 func (c *vaultSvcTestContainer) GetSecretService() secretServices.SecretService {
 	if c.secretSvc != nil {
 		return c.secretSvc

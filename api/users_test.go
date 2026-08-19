@@ -193,6 +193,9 @@ func (c *userSvcContainer) GetVaultRepository() repositories.VaultRepositoryInte
 func (c *userSvcContainer) GetVaultService() vaultServices.VaultService {
 	panic("unexpected call: GetVaultService")
 }
+func (c *userSvcContainer) GetVaultWebhookService() vaultServices.VaultWebhookService {
+	panic("unexpected call: GetVaultWebhookService")
+}
 func (c *userSvcContainer) GetRBACService() authzServices.RBACService {
 	panic("unexpected call: GetRBACService")
 }

@@ -113,6 +113,9 @@ func (c *jwkContainerBase) GetVaultRepository() repositories.VaultRepositoryInte
 func (c *jwkContainerBase) GetVaultService() vaultServices.VaultService {
 	panic("unexpected call: GetVaultService")
 }
+func (c *jwkContainerBase) GetVaultWebhookService() vaultServices.VaultWebhookService {
+	panic("unexpected call: GetVaultWebhookService")
+}
 func (c *jwkContainerBase) GetPasswordService() authServices.PasswordService {
 	panic("unexpected call: GetPasswordService")
 }
