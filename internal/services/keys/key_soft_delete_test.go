@@ -73,6 +73,27 @@ func (m *mockKeyRepository) ListVersions(ctx context.Context, keyID, userID uuid
 	return nil, args.Error(1)
 }
 
+func (m *mockKeyRepository) ReadVersionValue(ctx context.Context, keyID uuid.UUID, version int, userID uuid.UUID) (string, error) {
+	args := m.Called(ctx, keyID, version, userID)
+	return args.String(0), args.Error(1)
+}
+
+func (m *mockKeyRepository) GetVersion(ctx context.Context, keyID uuid.UUID, version int, userID uuid.UUID) (*model.KeyVersion, error) {
+	args := m.Called(ctx, keyID, version, userID)
+	if v := args.Get(0); v != nil {
+		return v.(*model.KeyVersion), args.Error(1)
+	}
+	return nil, args.Error(1)
+}
+
+func (m *mockKeyRepository) ListVersionRecords(ctx context.Context, keyID uuid.UUID, userID uuid.UUID) ([]model.KeyVersionRecord, error) {
+	args := m.Called(ctx, keyID, userID)
+	if v := args.Get(0); v != nil {
+		return v.([]model.KeyVersionRecord), args.Error(1)
+	}
+	return nil, args.Error(1)
+}
+
 func (m *mockKeyRepository) SoftDeleteVaultContents(ctx context.Context, vaultID uuid.UUID, deletedAt time.Time) error {
 	args := m.Called(ctx, vaultID, deletedAt)
 	return args.Error(0)

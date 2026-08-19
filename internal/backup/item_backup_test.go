@@ -294,6 +294,18 @@ func (r *stubKeyRepo) ListVersions(_ context.Context, _, _ uuid.UUID) ([]model.K
 	return nil, nil
 }
 
+func (r *stubKeyRepo) ReadVersionValue(_ context.Context, _ uuid.UUID, _ int, _ uuid.UUID) (string, error) {
+	return "", nil
+}
+
+func (r *stubKeyRepo) GetVersion(_ context.Context, _ uuid.UUID, _ int, _ uuid.UUID) (*model.KeyVersion, error) {
+	return nil, nil
+}
+
+func (r *stubKeyRepo) ListVersionRecords(_ context.Context, _ uuid.UUID, _ uuid.UUID) ([]model.KeyVersionRecord, error) {
+	return nil, nil
+}
+
 func (r *stubKeyRepo) SoftDeleteVaultContents(_ context.Context, _ uuid.UUID, _ time.Time) error {
 	return nil
 }

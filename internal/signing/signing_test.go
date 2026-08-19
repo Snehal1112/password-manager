@@ -113,6 +113,18 @@ func (m *mockKeyRepo) ListVersions(_ context.Context, _, _ uuid.UUID) ([]model.K
 	return nil, fmt.Errorf("not implemented")
 }
 
+func (m *mockKeyRepo) ReadVersionValue(_ context.Context, _ uuid.UUID, _ int, _ uuid.UUID) (string, error) {
+	return "", fmt.Errorf("not implemented")
+}
+
+func (m *mockKeyRepo) GetVersion(_ context.Context, _ uuid.UUID, _ int, _ uuid.UUID) (*model.KeyVersion, error) {
+	return nil, fmt.Errorf("not implemented")
+}
+
+func (m *mockKeyRepo) ListVersionRecords(_ context.Context, _ uuid.UUID, _ uuid.UUID) ([]model.KeyVersionRecord, error) {
+	return nil, fmt.Errorf("not implemented")
+}
+
 func (m *mockKeyRepo) SoftDeleteVaultContents(_ context.Context, _ uuid.UUID, _ time.Time) error {
 	return fmt.Errorf("not implemented")
 }
