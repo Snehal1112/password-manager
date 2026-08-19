@@ -495,12 +495,26 @@ func (s *keyService) GetKey(ctx context.Context, keyID uuid.UUID, scope model.Sc
 // against the parent key. Resolving the owner from the authorized key (not
 // the caller's own id) keeps vault-member access consistent with GetKey,
 // since KeyRepository.ListVersions filters on owner with no vault predicate.
+//
+// A never-rotated key has zero key_versions rows, but its material in
+// keys.value is version 1 implicitly — the exact fallback GetKeyVersion and
+// every crypto operation already apply. Synthesizing that entry here keeps
+// the list endpoint from reporting "no versions" for a key whose version 1
+// is addressable and usable. RotateKey deliberately does NOT go through this
+// method: its version-numbering math needs the true zero-row count.
 func (s *keyService) ListKeyVersions(ctx context.Context, keyID uuid.UUID, scope model.Scope) ([]model.KeyVersion, error) {
 	key, err := s.GetKey(ctx, keyID, scope)
 	if err != nil {
 		return nil, err
 	}
-	return s.keyRepo.ListVersions(ctx, keyID, key.UserID)
+	versions, err := s.keyRepo.ListVersions(ctx, keyID, key.UserID)
+	if err != nil {
+		return nil, err
+	}
+	if len(versions) == 0 {
+		return []model.KeyVersion{{KeyID: keyID, Version: 1, CreatedAt: key.CreatedAt}}, nil
+	}
+	return versions, nil
 }
 
 // GetKeyVersion returns metadata for one version of keyID, authorized by

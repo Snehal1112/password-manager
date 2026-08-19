@@ -125,6 +125,65 @@ func TestListKeyVersions_VerifiesKeyAccessFirst(t *testing.T) {
 	keyRepo.AssertExpectations(t)
 }
 
+// TestListKeyVersions_NeverRotatedKey_SynthesizesVersionOne pins that the
+// list endpoint and the single-version endpoint agree about a never-rotated
+// key. key_versions is genuinely empty until the first rotation, but
+// GetKeyVersion and every crypto operation resolve version 1 from
+// keys.value, so listing must report that same implicit version 1 rather
+// than an empty history a client cannot reconcile.
+func TestListKeyVersions_NeverRotatedKey_SynthesizesVersionOne(t *testing.T) {
+	keyRepo := new(mockKeyRepository)
+	keyID := uuid.New()
+	ownerID := uuid.New()
+	scope := model.NewOwnerScope(uuid.New(), ownerID)
+	createdAt := time.Now().Add(-2 * time.Hour).UTC()
+
+	keyRepo.On("Read", mock.Anything, keyID, scope).
+		Return(&model.Key{ID: keyID, UserID: ownerID, Enabled: true, CreatedAt: createdAt}, nil)
+	// Never rotated: the repository genuinely has zero key_versions rows.
+	keyRepo.On("ListVersions", mock.Anything, keyID, ownerID).Return([]model.KeyVersion{}, nil)
+
+	svc := NewKeyService(KeyServiceConfig{
+		KeyRepository: keyRepo,
+		Logger:        newTestKeyLogger(t),
+	})
+
+	got, err := svc.ListKeyVersions(context.Background(), keyID, scope)
+
+	require.NoError(t, err)
+	require.Len(t, got, 1)
+	assert.Equal(t, 1, got[0].Version)
+	assert.Equal(t, keyID, got[0].KeyID)
+	// The synthesized entry is timestamped by the key's own creation time,
+	// which is when its version-1 material came into existence.
+	assert.Equal(t, createdAt, got[0].CreatedAt)
+	keyRepo.AssertExpectations(t)
+}
+
+// TestListKeyVersions_RepositoryErrorPropagates pins that a repository
+// failure is surfaced rather than being swallowed into the synthesized
+// implicit-version-1 result.
+func TestListKeyVersions_RepositoryErrorPropagates(t *testing.T) {
+	keyRepo := new(mockKeyRepository)
+	keyID := uuid.New()
+	ownerID := uuid.New()
+	scope := model.NewOwnerScope(uuid.New(), ownerID)
+
+	keyRepo.On("Read", mock.Anything, keyID, scope).
+		Return(&model.Key{ID: keyID, UserID: ownerID, Enabled: true}, nil)
+	keyRepo.On("ListVersions", mock.Anything, keyID, ownerID).Return(nil, errors.New("db down"))
+
+	svc := NewKeyService(KeyServiceConfig{
+		KeyRepository: keyRepo,
+		Logger:        newTestKeyLogger(t),
+	})
+
+	_, err := svc.ListKeyVersions(context.Background(), keyID, scope)
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "db down")
+}
+
 func TestListKeyVersions_DeniesWhenKeyAccessDenied(t *testing.T) {
 	keyRepo := new(mockKeyRepository)
 	keyID := uuid.New()
