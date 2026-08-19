@@ -157,6 +157,14 @@ func (m *mockKeyService) ListKeyVersions(ctx context.Context, keyID uuid.UUID, s
 	return args.Get(0).([]model.KeyVersion), args.Error(1)
 }
 
+func (m *mockKeyService) GetKeyVersion(ctx context.Context, keyID uuid.UUID, version int, scope model.Scope) (*model.KeyVersion, error) {
+	args := m.Called(ctx, keyID, version, scope)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).(*model.KeyVersion), args.Error(1)
+}
+
 // --- keySvcTestContainer ---
 
 type keySvcTestContainer struct {

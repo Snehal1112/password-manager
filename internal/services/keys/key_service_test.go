@@ -144,6 +144,28 @@ func TestListKeyVersions_DeniesWhenKeyAccessDenied(t *testing.T) {
 	keyRepo.AssertNotCalled(t, "ListVersions", mock.Anything, mock.Anything, mock.Anything)
 }
 
+func TestGetKeyVersion_AuthorizesThenDelegatesToRepo(t *testing.T) {
+	userID := uuid.New()
+	keyID := uuid.New()
+	vaultKey := &model.Key{ID: keyID, UserID: userID, Type: model.KeyTypeRSA, Enabled: true}
+	scope := model.NewOwnerScope(uuid.Nil, userID)
+
+	repo := new(mockKeyRepository)
+	repo.On("Read", mock.Anything, keyID, scope).Return(vaultKey, nil)
+	repo.On("GetVersion", mock.Anything, keyID, 1, userID).Return(&model.KeyVersion{KeyID: keyID, Version: 1}, nil)
+
+	svc := NewKeyService(KeyServiceConfig{
+		KeyRepository: repo,
+		Logger:        newTestKeyLogger(t),
+	})
+
+	v, err := svc.GetKeyVersion(context.Background(), keyID, 1, scope)
+
+	require.NoError(t, err)
+	assert.Equal(t, 1, v.Version)
+	repo.AssertExpectations(t)
+}
+
 func TestUpsertKeyRotationPolicy_VerifiesKeyAccessFirstAndReadsBack(t *testing.T) {
 	keyRepo := new(mockKeyRepository)
 	policyRepo := new(mockKeyPolicyRepo)

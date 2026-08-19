@@ -104,6 +104,9 @@ func (s *recordingKeyService) DeleteKeyRotationPolicy(context.Context, uuid.UUID
 func (s *recordingKeyService) ListKeyVersions(context.Context, uuid.UUID, model.Scope) ([]model.KeyVersion, error) {
 	panic("unexpected")
 }
+func (s *recordingKeyService) GetKeyVersion(context.Context, uuid.UUID, int, model.Scope) (*model.KeyVersion, error) {
+	panic("unexpected")
+}
 
 // recordingCertService records which list/get method was called and with what
 // scope, mirroring recordingKeyService for certificates.

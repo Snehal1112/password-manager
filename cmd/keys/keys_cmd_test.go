@@ -147,6 +147,13 @@ func (m *keyCmdKeyService) ListKeyVersions(ctx context.Context, keyID uuid.UUID,
 	}
 	return args.Get(0).([]model.KeyVersion), args.Error(1)
 }
+func (m *keyCmdKeyService) GetKeyVersion(ctx context.Context, keyID uuid.UUID, version int, scope model.Scope) (*model.KeyVersion, error) {
+	args := m.Called(ctx, keyID, version, scope)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).(*model.KeyVersion), args.Error(1)
+}
 
 // keyCmdCryptoService is a full mock for keyServices.CryptoService.
 type keyCmdCryptoService struct{ mock.Mock }

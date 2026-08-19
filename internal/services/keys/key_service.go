@@ -129,6 +129,9 @@ type KeyService interface {
 	// GetKey, since KeyRepository.ListVersions filters on owner with no
 	// vault predicate.
 	ListKeyVersions(ctx context.Context, keyID uuid.UUID, scope model.Scope) ([]model.KeyVersion, error)
+	// GetKeyVersion returns metadata for one version of keyID, authorized
+	// by scope against the parent key.
+	GetKeyVersion(ctx context.Context, keyID uuid.UUID, version int, scope model.Scope) (*model.KeyVersion, error)
 }
 
 // keyService implements KeyService by coordinating key operations
@@ -498,6 +501,16 @@ func (s *keyService) ListKeyVersions(ctx context.Context, keyID uuid.UUID, scope
 		return nil, err
 	}
 	return s.keyRepo.ListVersions(ctx, keyID, key.UserID)
+}
+
+// GetKeyVersion returns metadata for one version of keyID, authorized by
+// scope against the parent key. Mirrors ListKeyVersions exactly.
+func (s *keyService) GetKeyVersion(ctx context.Context, keyID uuid.UUID, version int, scope model.Scope) (*model.KeyVersion, error) {
+	key, err := s.GetKey(ctx, keyID, scope)
+	if err != nil {
+		return nil, err
+	}
+	return s.keyRepo.GetVersion(ctx, keyID, version, key.UserID)
 }
 
 // GetKeyRotationPolicy retrieves the rotation policy for keyID, authorized by
