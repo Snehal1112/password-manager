@@ -412,6 +412,57 @@ func (p *PKCS11KeyProvider) decryptAESCBC(session p11.SessionHandle, key p11.Obj
 	return pt, nil
 }
 
+// encryptAESGCM encrypts plaintext with the secret key identified by label
+// using CKM_AES_GCM, no AAD, and a 128-bit tag -- matching the software
+// provider's cipher.NewGCM default behavior exactly. A random 12-byte nonce
+// is generated here (GCM's standard 96-bit IV size) and returned; the caller
+// must supply it back to decryptAESGCM.
+func (p *PKCS11KeyProvider) encryptAESGCM(session p11.SessionHandle, key p11.ObjectHandle, plaintext []byte) (ciphertext, nonce []byte, err error) {
+	nonce = make([]byte, 12)
+	if _, err := rand.Read(nonce); err != nil {
+		return nil, nil, fmt.Errorf("generate gcm nonce: %w", err)
+	}
+
+	gcmParams := p11.NewGCMParams(nonce, nil, 128)
+	defer gcmParams.Free()
+
+	mech := []*p11.Mechanism{p11.NewMechanism(p11.CKM_AES_GCM, gcmParams)}
+	if err := p.ctx.EncryptInit(session, mech, key); err != nil {
+		if isHSMCapabilityError(err) {
+			return nil, nil, fmt.Errorf("%w: AES256-GCM (rejected by HSM)", ErrUnsupportedAlgorithm)
+		}
+		return nil, nil, fmt.Errorf("pkcs11 aes-gcm encrypt init: %w", err)
+	}
+
+	ct, err := p.ctx.Encrypt(session, plaintext)
+	if err != nil {
+		return nil, nil, fmt.Errorf("pkcs11 aes-gcm encrypt: %w", err)
+	}
+	return ct, nonce, nil
+}
+
+// decryptAESGCM reverses encryptAESGCM using the same nonce the encrypt call
+// returned. A tampered ciphertext or wrong nonce fails authentication and
+// returns an error, per GCM's authenticated-encryption guarantee.
+func (p *PKCS11KeyProvider) decryptAESGCM(session p11.SessionHandle, key p11.ObjectHandle, ciphertext, nonce []byte) ([]byte, error) {
+	gcmParams := p11.NewGCMParams(nonce, nil, 128)
+	defer gcmParams.Free()
+
+	mech := []*p11.Mechanism{p11.NewMechanism(p11.CKM_AES_GCM, gcmParams)}
+	if err := p.ctx.DecryptInit(session, mech, key); err != nil {
+		if isHSMCapabilityError(err) {
+			return nil, fmt.Errorf("%w: AES256-GCM (rejected by HSM)", ErrUnsupportedAlgorithm)
+		}
+		return nil, fmt.Errorf("pkcs11 aes-gcm decrypt init: %w", err)
+	}
+
+	pt, err := p.ctx.Decrypt(session, ciphertext)
+	if err != nil {
+		return nil, fmt.Errorf("pkcs11 aes-gcm decrypt: %w", err)
+	}
+	return pt, nil
+}
+
 // wrapRawData wraps plaintext with wrappingKey using plain, unpadded RFC 3394
 // CKM_AES_KEY_WRAP via C_WrapKey. Many PKCS#11 tokens (including SoftHSM2)
 // only expose AES-KW mechanisms through the CKF_WRAP/CKF_UNWRAP capability,
@@ -675,6 +726,14 @@ func (p *PKCS11KeyProvider) Encrypt(_ context.Context, handle string, data []byt
 		return p.encryptAESCBC(session, key, data)
 	}
 
+	if isAESGCMAlgorithm(algorithm) {
+		key, err := p.findSecretKey(session, handle)
+		if err != nil {
+			return nil, nil, err
+		}
+		return p.encryptAESGCM(session, key, data)
+	}
+
 	oaepParams, err := oaepMechParams(algorithm)
 	if err != nil {
 		return nil, nil, err
@@ -724,6 +783,14 @@ func (p *PKCS11KeyProvider) Decrypt(_ context.Context, handle string, data []byt
 			return nil, err
 		}
 		return p.decryptAESCBC(session, key, data, nonce)
+	}
+
+	if isAESGCMAlgorithm(algorithm) {
+		key, err := p.findSecretKey(session, handle)
+		if err != nil {
+			return nil, err
+		}
+		return p.decryptAESGCM(session, key, data, nonce)
 	}
 
 	oaepParams, err := oaepMechParams(algorithm)

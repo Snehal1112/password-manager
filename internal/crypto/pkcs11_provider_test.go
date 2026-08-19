@@ -244,15 +244,59 @@ func isCKRArgumentsBad(err error) bool {
 		err.Error() == "pkcs11: 0x7: CKR_ARGUMENTS_BAD")
 }
 
-func TestPKCS11Provider_Encrypt_AES_ReturnsError(t *testing.T) {
+func TestPKCS11Provider_EncryptDecrypt_AES256GCM(t *testing.T) {
 	p := newTestPKCS11Provider(t)
 
-	handle, err := p.GenerateRSAKey(context.Background(), 2048)
+	handle, err := p.GenerateAESKey(context.Background(), 256)
 	require.NoError(t, err)
 
-	_, _, err = p.Encrypt(context.Background(), handle, []byte("data"), crypto.AlgorithmAES256)
-	require.Error(t, err)
-	assert.ErrorIs(t, err, crypto.ErrUnsupportedAlgorithm)
+	plaintext := []byte("aes-gcm hsm round trip payload")
+	ct, nonce, err := p.Encrypt(context.Background(), handle, plaintext, crypto.AlgorithmAES256)
+	require.NoError(t, err)
+	assert.NotEmpty(t, ct)
+	assert.Len(t, nonce, 12, "GCM nonce must be 96 bits")
+
+	pt, err := p.Decrypt(context.Background(), handle, ct, nonce, crypto.AlgorithmAES256)
+	require.NoError(t, err)
+	assert.Equal(t, plaintext, pt)
+}
+
+func TestPKCS11Provider_DecryptAESGCM_TamperedCiphertext_Fails(t *testing.T) {
+	p := newTestPKCS11Provider(t)
+
+	handle, err := p.GenerateAESKey(context.Background(), 256)
+	require.NoError(t, err)
+
+	plaintext := []byte("gcm tamper detection payload")
+	ct, nonce, err := p.Encrypt(context.Background(), handle, plaintext, crypto.AlgorithmAES256)
+	require.NoError(t, err)
+
+	tampered := make([]byte, len(ct))
+	copy(tampered, ct)
+	tampered[0] ^= 0xFF
+
+	// GCM is authenticated: a tampered ciphertext MUST fail to decrypt, never
+	// silently return wrong plaintext.
+	_, err = p.Decrypt(context.Background(), handle, tampered, nonce, crypto.AlgorithmAES256)
+	assert.Error(t, err, "tampered GCM ciphertext must fail authentication")
+}
+
+func TestPKCS11Provider_DecryptAESGCM_WrongNonce_Fails(t *testing.T) {
+	p := newTestPKCS11Provider(t)
+
+	handle, err := p.GenerateAESKey(context.Background(), 256)
+	require.NoError(t, err)
+
+	plaintext := []byte("gcm wrong nonce payload")
+	ct, nonce, err := p.Encrypt(context.Background(), handle, plaintext, crypto.AlgorithmAES256)
+	require.NoError(t, err)
+
+	wrongNonce := make([]byte, len(nonce))
+	copy(wrongNonce, nonce)
+	wrongNonce[0] ^= 0xFF
+
+	_, err = p.Decrypt(context.Background(), handle, ct, wrongNonce, crypto.AlgorithmAES256)
+	assert.Error(t, err, "wrong GCM nonce must fail authentication")
 }
 
 // --- AES (oct) key generation and wrap/unwrap ---
