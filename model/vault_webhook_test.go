@@ -1,7 +1,7 @@
 package model
 
 import (
-	"encoding/json"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -38,13 +38,17 @@ func TestVaultWebhookConfig_ToResponse_OmitsSecret(t *testing.T) {
 }
 
 // TestVaultWebhookConfig_HasNoJsonTags proves the domain type cannot be
-// marshaled into a response shape by accident -- marshaling it yields Go
-// field names, not the API's snake_case contract, so any handler that
-// forwarded it directly would produce visibly wrong output caught by tests.
+// marshaled into a response shape by accident -- no field carries a json tag,
+// so any handler that forwarded this struct directly to json.Marshal would
+// emit Go field names (URL, VaultID, etc.) not the API's snake_case contract,
+// yielding visibly wrong output that tests would catch.
 func TestVaultWebhookConfig_HasNoJsonTags(t *testing.T) {
-	b, err := json.Marshal(&VaultWebhookConfig{URL: "https://x.example"})
-	require.NoError(t, err)
-	assert.Contains(t, string(b), `"URL"`, "domain type must not carry snake_case json tags")
+	typ := reflect.TypeOf((*VaultWebhookConfig)(nil)).Elem()
+	for i := 0; i < typ.NumField(); i++ {
+		field := typ.Field(i)
+		tag := field.Tag.Get("json")
+		assert.Empty(t, tag, "field %s must not carry a json tag", field.Name)
+	}
 }
 
 // TestVaultWebhookConfigCreatedResponse_CarriesSecret is the counterpart:
