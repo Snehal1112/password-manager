@@ -52,6 +52,7 @@ POST	/api/v1/keys/{key_id:[A-Fa-f0-9-]+}/sign
 POST	/api/v1/keys/{key_id:[A-Fa-f0-9-]+}/unwrap
 POST	/api/v1/keys/{key_id:[A-Fa-f0-9-]+}/verify
 GET	/api/v1/keys/{key_id:[A-Fa-f0-9-]+}/versions
+GET	/api/v1/keys/{key_id:[A-Fa-f0-9-]+}/versions/{version:[0-9]+}
 POST	/api/v1/keys/{key_id:[A-Fa-f0-9-]+}/wrap
 POST	/api/v1/oauth2/token
 GET	/api/v1/oidc/callback
@@ -126,6 +127,7 @@ POST	/api/v1/vaults/{vault_name:[a-z0-9-]+}/keys/{key_id:[A-Fa-f0-9-]+}/sign
 POST	/api/v1/vaults/{vault_name:[a-z0-9-]+}/keys/{key_id:[A-Fa-f0-9-]+}/unwrap
 POST	/api/v1/vaults/{vault_name:[a-z0-9-]+}/keys/{key_id:[A-Fa-f0-9-]+}/verify
 GET	/api/v1/vaults/{vault_name:[a-z0-9-]+}/keys/{key_id:[A-Fa-f0-9-]+}/versions
+GET	/api/v1/vaults/{vault_name:[a-z0-9-]+}/keys/{key_id:[A-Fa-f0-9-]+}/versions/{version:[0-9]+}
 POST	/api/v1/vaults/{vault_name:[a-z0-9-]+}/keys/{key_id:[A-Fa-f0-9-]+}/wrap
 DELETE	/api/v1/vaults/{vault_name:[a-z0-9-]+}/purge
 GET	/api/v1/vaults/{vault_name:[a-z0-9-]+}/role-assignments
