@@ -1021,6 +1021,50 @@ history for the original panic output.
 
 ---
 
+### B24 — `POST /keys` rejected the P-256K curve despite full support elsewhere
+
+**Status**: Fixed
+**Severity**: Medium — a real, working capability was unreachable through the
+only HTTP-facing way to create keys; the CLI and service layer already
+supported it, so this was a REST-API-specific regression, not a missing
+feature
+**File**: `internal/validation/key_validation.go`
+
+**Root cause**: `ValidateKeyCreate`'s curve field used
+`validation.In("P-256", "P-384", "P-521")` — an allowlist that predated
+P-256K support and was never updated when it was added elsewhere.
+`api/keys.go`'s `createKey` handler calls this validator (line 282) *before*
+its own, already-correct four-curve check at line 358
+(`req.Curve != "P-256" && ... && req.Curve != "P-256K"`), so the validator's
+`400 Curve: must be a valid value.` fired first and the handler's own check
+never got a chance to run. `KeyService.CreateECDSAKey` (the service layer)
+also independently allowed P-256K, and the CLI (`rocketvault keys create
+--curve P-256K`) worked because it calls `KeyService` directly and never
+goes through this HTTP validator at all — so the bug was specific to the
+`POST /keys` REST path. Found during the 2026-08-19 Azure parity audit
+against `.claude/azure-keyvault-parity.md` §3, while re-verifying EC curve
+support against the actual API surface rather than the service layer alone.
+
+**What was fixed**: Added `"P-256K"` to the `validation.In(...)` allowlist in
+`key_validation.go` (one line), plus its doc comment. Added a regression test
+at the API layer (`TestCreateKey_ECDSA_P256K_Success_Returns201`,
+`api/keys_crud_test.go`) asserting `POST /keys` with `curve: "P-256K"`
+returns 201 — a unit test on the validator alone would not have caught the
+original bug, since it's an interaction between two independent checks in
+two different files. Added a unit case to `TestValidateKeyCreate`
+(`internal/validation/validation_test.go`) for direct coverage of the
+allowlist itself. Also updated the CLI's `--curve` flag help text
+(`cmd/keys/create.go`), which listed only three curves despite the fourth
+already working.
+
+**Scope check performed, no other call site affected**: `ValidateKeyCreate`
+has exactly one caller (`api/keys.go:282`). `ValidateKeyUpdate` has no
+`Curve` field — key updates never change curve, so the update path was never
+affected. Key rotation reuses the existing key's stored curve
+(`KeyService.RotateKey`), not user input, so it was never affected either.
+
+---
+
 ## Deferred Refactors
 
 Both items formerly tracked here (H3, M2) were re-investigated on 2026-08-14 and
