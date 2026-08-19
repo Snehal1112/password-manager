@@ -1118,6 +1118,103 @@ gap there.
 
 ---
 
+### B26 — Rotating a key permanently stranded every pre-rotation ciphertext and signature
+
+**Status**: Fixed
+**Severity**: High — silent, permanent data loss: any secret encrypted, any
+signature produced, or any key wrapped before a rotation became
+undecryptable/unverifiable/unwrappable forever, with no error at rotation
+time to warn the caller
+**Files**: `internal/repositories/key_repository.go`,
+`internal/services/keys/crypto_service.go`, `internal/services/keys/key_service.go`,
+`api/keys.go`, `api/errors_key.go`, `internal/backup/item_backup.go`, `model/key.go`
+
+**Root cause**: `KeyService.RotateKey` (`internal/services/keys/key_service.go`)
+always archived the pre-rotation key material into `key_versions.value` before
+overwriting `keys.value` with the newly generated material — the write path
+was correct and had been since `key_versions` was introduced. But nothing on
+the read side ever used it: `model.KeyVersion` had no `Value` field,
+`KeyRepository.ListVersions` deliberately selected only `version, created_at`
+("Raw key material (value) is not returned" per its own doc comment), and none
+of the six crypto operations — `Sign`/`Verify`/`Encrypt`/`Decrypt`/`WrapKey`/
+`UnwrapKey` in `internal/services/keys/crypto_service.go` — had any way to
+request a version; every one of them always resolved to `key.Value`, the
+*current* row, unconditionally. The archived material was sitting in the
+database, correctly encrypted, and permanently unreachable. Practical impact:
+rotate a key once, and every ciphertext, wrapped key, or signature produced
+before that rotation could never be decrypted, unwrapped, or verified again —
+a real, silent data-loss bug with no error raised at rotation time to warn
+the caller it was about to happen. Found via `.claude/azure-keyvault-parity.md`
+§2 gap analysis against Azure Key Vault, which keeps every key version
+independently addressable and usable indefinitely.
+
+**Bundled bug found during design, fixed in the same pass**:
+`resolveKeyMaterial` (`internal/services/keys/crypto_service.go`) cached
+decrypted PEM material keyed on `(key.ID, 0)` — the version component of the
+cache key was hardcoded to `0`, not derived from the material actually being
+resolved, even though `internal/keycache`'s `Get`/`Set` already took a real
+`version int` parameter that nothing ever populated correctly. Harmless
+before this fix, since only one version (the current one) was ever resolved
+per key. Had the version-addressing fix below shipped without also fixing
+this, a second version's material would have been served from the first
+version's stale cache entry (or vice versa) on any two-versions-in-a-row
+lookup — a silent wrong-plaintext / wrong-signature bug, worse than the
+original gap because it would fail without even raising a not-found error.
+
+**What was fixed** (plan:
+`docs/superpowers/plans/2026-08-19-key-version-addressability.md`, design:
+`docs/superpowers/specs/2026-08-19-key-version-addressability-design.md`,
+commits `78ad152..f03957a`):
+- `KeyRepository` gained `ReadVersionValue`/`GetVersion`/`ListVersionRecords`
+  to read archived `key_versions` rows (material and metadata), authorized
+  against the key's owner, matching the existing `ListVersions` idiom exactly.
+  A new `model.KeyVersionRecord` internal-only type carries material for
+  backup use; the existing HTTP-facing `model.KeyVersion` still never gains a
+  `Value` field, so API responses can't leak material even by future mistake.
+- All six crypto service request/result types
+  (`SignRequest`/`VerifyRequest`/`EncryptRequest`/`DecryptRequest`/
+  `WrapKeyRequest`/`UnwrapKeyRequest` and their `*Result` counterparts) gained
+  an optional `Version int` — `0`/omitted resolves to the current version,
+  unchanged from prior behavior; any other value resolves via the new
+  repository methods. Same addition on the six HTTP request/response types in
+  `api/keys.go`, as a `"version"` JSON field (`omitempty` on the request,
+  always present on the response so a caller who omitted it can discover what
+  "current" resolved to).
+- `resolveKeyMaterial`'s cache key changed from the hardcoded `(key.ID, 0)` to
+  `(key.ID, resolvedVersion)` — the fix for the bundled cache bug above.
+- New `GET /keys/{key_id}/versions/{version}` route (flat + vault-scoped),
+  backed by a new `KeyService.GetKeyVersion`, mirroring the existing
+  `ListKeyVersions` authorization shape — closes the read-side asymmetry
+  against secrets, which already had `GET /secrets/{id}/versions/{version}`.
+  `repositories.ErrKeyVersionNotFound` (new sentinel) maps to a clean 404 in
+  both the six crypto handlers' inline error switches and the shared
+  `writeKeyError` helper.
+- `internal/backup/item_backup.go`'s shared `backupEnvelope` gained an
+  additive `Versions []model.KeyVersionRecord` field (`omitempty`), populated
+  by `BackupKey` via `ListVersionRecords` and replayed by `RestoreKey` via
+  `CreateVersion` under the restored key's new ID. Purely additive to the
+  envelope — a pre-fix backup blob (no `versions` field) still decodes and
+  restores exactly as before, just without version history, so this is
+  backward compatible with every backup taken before this fix. Without this
+  half of the fix, a rotated key's version history would have silently been
+  lost on any backup/restore cycle, reintroducing the exact bug this fix
+  closes via a different path than rotation.
+- OCT (symmetric, HSM-only) keys are unaffected: `RotateKey` has no case for
+  `model.KeyTypeOCT` and OCT keys cannot be rotated at all, so there is no
+  multi-version OCT case to fix.
+
+**Left open, tracked as a fast-follow, not a regression**: the CLI
+(`rocketvault keys verify`, `cmd/keys/verify.go`) still calls
+`CryptoService.Verify` directly with no `--version` flag — REST is the only
+way to address an archived version today. Flagged explicitly in the design's
+"Not in scope" section rather than silently deferred. Also noted but not
+fixed, as a pre-existing and unrelated gap: `KeyRepository.PurgeKey` never
+destroys PKCS#11 HSM token objects for the current or any archived version on
+purge — out of scope for this fix, a candidate for its own future entry here
+if it needs to be addressed.
+
+---
+
 ## Deferred Refactors
 
 Both items formerly tracked here (H3, M2) were re-investigated on 2026-08-14 and

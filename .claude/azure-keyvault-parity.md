@@ -38,14 +38,14 @@ vaults). RocketVault columns are sourced from the codebase (`api/`, `internal/`,
 |---|---|---|---|
 | Create key | ✅ | ✅ `POST /keys` | ✅ |
 | Import key | ✅ (JWK) | ❌ no import route — `ActionKeysImport` is declared in `model/azure_roles.go` and granted to Crypto Officer/Administrator, but no path maps to it in `MapRouteToDataAction` | ❌ |
-| Get / List / List versions | ✅ | 🟡 `GET /keys`, `/keys/{id}`, `/keys/{id}/versions` — versions are metadata only (`model.KeyVersion` deliberately omits `Value`) and not addressable: no `/keys/{id}/{version}` route exists | 🟡 |
+| Get / List / List versions | ✅ | ✅ `GET /keys`, `/keys/{id}`, `/keys/{id}/versions`, and now `/keys/{id}/versions/{version}` (added 2026-08-19, § B26) for one version's metadata — versions stay metadata-only over this route (`model.KeyVersion` deliberately omits `Value`), matching Azure's own read shape; a version's material is reached indirectly, by passing `version` to sign/verify/encrypt/decrypt/wrap/unwrap (see the Rotate row below), not by reading it back raw | ✅ |
 | Update (attributes) | ✅ | ✅ `PUT /keys/{id}` | ✅ |
 | Delete (soft) | ✅ | ✅ `DELETE /keys/{id}` | ✅ |
-| Rotate (new version) | ✅ | 🟡 `POST /keys/{id}/rotate` — `KeyService.RotateKey` archives the old material into `key_versions` and overwrites `keys.value` in place (RSA/ECDSA/ES256K only; OCT has no branch). Since no crypto op takes a version, a prior version can never be used again: data encrypted before a rotation cannot be decrypted after it | 🟡 |
+| Rotate (new version) | ✅ | 🟡 `POST /keys/{id}/rotate` — `KeyService.RotateKey` still archives the old material into `key_versions` and overwrites `keys.value` in place (RSA/ECDSA/ES256K only; OCT has no branch), but old versions are no longer a dead end: all six crypto operations (`sign`/`verify`/`encrypt`/`decrypt`/`wrap`/`unwrap`) now accept an optional `version` field and resolve to the matching `key_versions` row, so data encrypted or signed before a rotation is usable again over REST (fixed 2026-08-19, `.claude/known-bugs.md` § B26). `GET /keys/{id}/versions/{version}` also now exists for reading one version's metadata. The one gap left open: the CLI (`rocketvault keys verify`, `cmd/keys/verify.go`) has no `--version` flag — it still only verifies against the current version; REST is the only way to address an archived version today | 🟡 (full REST parity; CLI `--version` fast-follow not yet done) |
 | Sign / Verify | ✅ | ✅ `POST /keys/{id}/sign`, `/verify` | ✅ |
 | Encrypt / Decrypt | ✅ | ✅ `POST /keys/{id}/encrypt`, `/decrypt` | ✅ |
 | Wrap / Unwrap key | ✅ | ✅ `POST /keys/{id}/wrap`, `/unwrap` | ✅ |
-| Backup / Restore | ✅ | 🟡 `POST /keys/{id}/backup`, `/keys/restore` — registered on the flat routes only (`api/backup_item.go` `InitBackupItem` attaches to `BaseRoutes.Keys`, never to the vault-scoped subrouter, so `/vaults/{name}/keys/{id}/backup` 404s), and `ItemBackupService.BackupKey` gates on `key.UserID == caller` on top of `ActionKeysBackup`, so a Crypto User who does not own the key is refused | 🟡 |
+| Backup / Restore | ✅ | 🟡 `POST /keys/{id}/backup`, `/keys/restore` — registered on the flat routes only (`api/backup_item.go` `InitBackupItem` attaches to `BaseRoutes.Keys`, never to the vault-scoped subrouter, so `/vaults/{name}/keys/{id}/backup` 404s), and `ItemBackupService.BackupKey` gates on `key.UserID == caller` on top of `ActionKeysBackup`, so a Crypto User who does not own the key is refused. Key backups now also carry `key_versions` history (`BackupKey`/`RestoreKey`, fixed 2026-08-19, § B26): a rotated key that is backed up and restored keeps its archived versions instead of silently losing them | 🟡 |
 | Get/Set rotation policy | ✅ | 🟡 `GET/PUT/DELETE /keys/{key_id}/rotationpolicy`, mapped to `ActionKeysRotationPolicyRead`/`Write` in `MapRouteToDataAction` (`mapKeyAction`) and granted only to Crypto Officer + Administrator, matching Azure's `keyrotationpolicies/*`. `RotationScheduler` → `RotationExecutor.Check` (`rotation.keys.*` config, started in `bootstrap.go`) sweeps `KeyRotationPolicyRepository.GetDuePolicies` — enabled, `rotate_after_days > 0`, `next_rotation_at` passed — and calls `RotateKey`, so the rotate action genuinely executes. But `expiry_days` and `notify_before_expiry_days` are only persisted and echoed back: nothing stamps an expiry on the rotated key and no near-expiry notification exists, so Azure's Notify lifetime action and policy `expiryTime` have no implementation behind them | 🟡 |
 | Release (confidential compute) | ✅ | ❌ no TEE attestation flow | ❌ |
 | EXPORT blocked (keys non-extractable) | ✅ | ✅ `buildKeyResponse` emits only JWK public components (`crypto.ExtractPublicComponents`) and `model.KeyVersion` omits `Value`; the one response carrying stored material is the backup blob, and that is the master-key AES-256-GCM ciphertext (`common.EncryptSecret`) or a bare `pkcs11:` handle — never plaintext PEM | ✅ |
@@ -72,6 +72,28 @@ tree (Release stays ❌). Note for §1/§9 owners: `model.KeyRotationPolicy`
 carries `vault_id` and its CRUD is `model.Scope`-scoped, but
 `RotationExecutor.Check` sweeps under `model.NewAdminScope(uuid.Nil)` — the
 policies are vault-scoped, the sweep is deliberately vault-agnostic.*
+
+*Corrected 2026-08-19 (second pass, same day): the "Rotate (new version)" and
+"Backup / Restore" rows above were re-verified against the just-landed key
+version addressability fix (`docs/superpowers/plans/2026-08-19-key-version-
+addressability.md`, design at `docs/superpowers/specs/2026-08-19-key-version-
+addressability-design.md`, commits `78ad152..f03957a`). The core gap this
+section flagged earlier today — "no crypto op takes a version... a prior
+version can never be used again" — is fixed: `SignRequest`/`VerifyRequest`/
+`EncryptRequest`/`DecryptRequest`/`WrapKeyRequest`/`UnwrapKeyRequest` all gained
+an optional `Version` field (`internal/services/keys/crypto_service.go`), a new
+`KeyRepository.ReadVersionValue` reads the archived `key_versions.value` a
+prior rotation already wrote but nothing previously read back, and a new
+`GET /keys/{id}/versions/{version}` route (`api/keys.go`) exposes one version's
+metadata directly, closing the `Get / List / List versions` row's "not
+addressable" caveat above too. Backup/restore was extended in the same body of
+work so a rotated key's `key_versions` history survives a backup/restore cycle
+(previously it silently reintroduced the exact bug this fix closes). See
+`.claude/known-bugs.md` § B26 for the full root-cause writeup, including a
+bundled latent cache-key bug (`resolveKeyMaterial` hardcoding its cache key's
+version to `0`) found and fixed during design. Left open: no CLI `--version`
+flag on `rocketvault keys verify` — flagged as a fast-follow in the design's
+"Not in scope" section, not done as part of this pass.*
 
 ## 3. Key management — types & algorithms
 
@@ -374,15 +396,23 @@ Administrator carries no derived gaps, and Data Access Administrator now enforce
 Azure's own eight-role grant allow-list, closed 2026-08-18, see §6).
 
 **Partial (🟡):**
-- **Key operations beyond CRUD** (see §2): key *versions* are archival metadata, not
-  addressable objects — no crypto operation (sign/verify/encrypt/decrypt/wrap/unwrap)
-  takes a version, so `RotateKey` overwriting `keys.value` in place makes every
-  pre-rotation ciphertext permanently undecryptable, where Azure keeps old versions
-  usable. Key backup/restore is registered on the flat routes only (404s on the
-  vault-scoped path) and is additionally owner-gated on top of the RBAC check.
-  Rotation-policy scheduling genuinely executes the rotate lifetime action, but
-  `expiry_days`/`notify_before_expiry_days` are stored and never acted on — Azure's
-  Notify lifetime action has no RocketVault equivalent.
+- **Key operations beyond CRUD** (see §2): fixed 2026-08-19 (§ B26) — key
+  *versions* are still archival by nature (`RotateKey` still archives the old
+  material into `key_versions` and overwrites `keys.value` in place), but they
+  are no longer a dead end: all six crypto operations
+  (sign/verify/encrypt/decrypt/wrap/unwrap) now accept an optional `version`
+  field and can address any archived version, and `GET
+  /keys/{id}/versions/{version}` reads one version's metadata directly —
+  pre-rotation ciphertexts and signatures are usable again over REST, matching
+  Azure's model. Still open: the CLI (`rocketvault keys verify`) has no
+  `--version` flag, so the fix is REST-only for now. Key backup/restore is
+  still registered on the flat routes only (404s on the vault-scoped path) and
+  is still additionally owner-gated on top of the RBAC check, but a backed-up
+  and restored key now keeps its `key_versions` history instead of silently
+  losing it (also part of the 2026-08-19 fix). Rotation-policy scheduling
+  genuinely executes the rotate lifetime action, but
+  `expiry_days`/`notify_before_expiry_days` are stored and never acted on —
+  Azure's Notify lifetime action has no RocketVault equivalent.
 - **Key types & algorithms** (see §3): P-256K's two REST bugs are both fixed — the
   validator rejection (2026-08-19, § B24) and the follow-up uncaught 500 on
   HSM-enabled instances (2026-08-19, § B25). Creation, sign, and verify now work
