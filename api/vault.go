@@ -28,6 +28,9 @@ import (
 //   - GET    /vaults/{name}  : Get a vault by name.
 //   - PATCH  /vaults/{name}  : Update a vault.
 //   - DELETE /vaults/{name}  : Soft-delete a vault.
+//   - PUT    /vaults/{name}/webhook : Create or update the vault's webhook config.
+//   - GET    /vaults/{name}/webhook : Get the vault's webhook config.
+//   - DELETE /vaults/{name}/webhook : Delete the vault's webhook config.
 //   - DELETE /vaults/{vault_name}/purge : Permanently purge a vault.
 func (api *API) InitVault() {
 	v := api.BaseRoutes.Vaults
@@ -37,6 +40,9 @@ func (api *API) InitVault() {
 	v.Handle("/{name}", ApiSessionRequired(api.App, getVault)).Methods("GET")
 	v.Handle("/{name}", ApiSessionRequired(api.App, updateVault)).Methods("PATCH")
 	v.Handle("/{name}", ApiSessionRequired(api.App, deleteVault)).Methods("DELETE")
+	v.Handle("/{name}/webhook", ApiSessionRequired(api.App, upsertVaultWebhook)).Methods("PUT")
+	v.Handle("/{name}/webhook", ApiSessionRequired(api.App, getVaultWebhook)).Methods("GET")
+	v.Handle("/{name}/webhook", ApiSessionRequired(api.App, deleteVaultWebhook)).Methods("DELETE")
 
 	// Vault-scoped: resolved via VaultResolutionMiddleware, authorized via
 	// PolicyMiddleware's deny-by-default data-plane check, not a handler-level one.

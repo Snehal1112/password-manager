@@ -91,6 +91,9 @@ POST	/api/v1/vaults
 DELETE	/api/v1/vaults/{name}
 GET	/api/v1/vaults/{name}
 PATCH	/api/v1/vaults/{name}
+DELETE	/api/v1/vaults/{name}/webhook
+GET	/api/v1/vaults/{name}/webhook
+PUT	/api/v1/vaults/{name}/webhook
 GET	/api/v1/vaults/{vault_name:[a-z0-9-]+}/certificates
 POST	/api/v1/vaults/{vault_name:[a-z0-9-]+}/certificates
 POST	/api/v1/vaults/{vault_name:[a-z0-9-]+}/certificates/restore
