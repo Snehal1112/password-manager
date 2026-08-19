@@ -159,18 +159,23 @@ func backupKeyHandler(c *Context, w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	vaultID, err := vaultIDFromRequest(r)
+	if err != nil {
+		c.SetInvalidParam("vault")
+		return
+	}
+
 	svc := itemBackupSvc(c)
 	if svc == nil {
 		return
 	}
 
-	blob, err := svc.BackupKey(r.Context(), keyID, userID)
+	// A key outside the authorized vault does not resolve under the scoped
+	// read, so it reports as not-found — the same shape every other scoped key
+	// route uses for an out-of-scope ID.
+	blob, err := svc.BackupKey(r.Context(), keyID, userID, vaultID)
 	if err != nil {
-		if errors.Is(err, backup.ErrForbidden) {
-			c.SetPermissionError("backup_key")
-		} else {
-			c.SetNotFound("key")
-		}
+		c.SetNotFound("key")
 		return
 	}
 

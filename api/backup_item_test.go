@@ -786,29 +786,6 @@ func TestBackupKeyHandler_Success_Returns200(t *testing.T) {
 	assert.NotEmpty(t, body["blob"])
 }
 
-// TestBackupKeyHandler_Forbidden_Returns403 verifies ErrForbidden maps to 403.
-func TestBackupKeyHandler_Forbidden_Returns403(t *testing.T) {
-	keyID := uuid.New()
-	otherUserID := uuid.New()
-	keyRepo := &mockKeyRepo{
-		readFn: func(_ context.Context, id uuid.UUID) (*model.Key, error) {
-			return &model.Key{ID: id, Name: "k", Type: "RSA", UserID: otherUserID}, nil
-		},
-	}
-
-	c := newBackupCtxWithKey(keyRepo)
-	c.Params = &ApiParams{KeyID: keyID.String(), PerPage: 60}
-	w := httptest.NewRecorder()
-	r := httptest.NewRequest(http.MethodPost, "/keys/"+keyID.String()+"/backup", nil)
-
-	backupKeyHandler(c, w, r)
-	if c.Err != nil {
-		writeError(w, c)
-	}
-
-	assert.Equal(t, http.StatusForbidden, w.Code)
-}
-
 // TestBackupKeyHandler_NotFound_Returns404 verifies repo error maps to 404.
 func TestBackupKeyHandler_NotFound_Returns404(t *testing.T) {
 	keyID := uuid.New()
@@ -844,7 +821,7 @@ func buildValidKeyBlob(t *testing.T, keyID, userID uuid.UUID) string {
 		},
 	}
 	svc := backup.NewItemBackupService(nil, keyRepo, nil)
-	blob, err := svc.BackupKey(context.Background(), keyID, userID)
+	blob, err := svc.BackupKey(context.Background(), keyID, userID, uuid.Nil)
 	if err != nil {
 		t.Fatalf("buildValidKeyBlob: %v", err)
 	}

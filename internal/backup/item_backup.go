@@ -92,18 +92,24 @@ func (s *ItemBackupService) RestoreSecret(ctx context.Context, blob string, user
 }
 
 // BackupKey creates a base64url-encoded backup blob for the given key.
-// It returns an error when the key does not belong to userID.
-func (s *ItemBackupService) BackupKey(ctx context.Context, id, userID uuid.UUID) (string, error) {
-	// The read itself is unchecked (admin scope); the explicit ownership
-	// check below is the actual gate, matching the pre-scope behaviour.
-	key, err := s.keyRepo.Read(ctx, id, model.NewAdminScope(userID))
+//
+// vaultID is the vault the caller's request was authorized against, never a
+// vault taken from user input — the same rule RestoreKey follows. The scoped
+// read is the entire authorization gate: an unscoped read plus an ownership
+// comparison (the previous design) refused a Crypto User who legitimately held
+// ActionKeysBackup without owning the key, while still letting any caller name
+// a key in a vault they were never authorized for.
+func (s *ItemBackupService) BackupKey(ctx context.Context, id, userID, vaultID uuid.UUID) (string, error) {
+	key, err := s.keyRepo.Read(ctx, id, model.NewVaultScope(vaultID, userID))
 	if err != nil {
 		return "", fmt.Errorf("backup key: %w", err)
 	}
-	if key.UserID != userID {
-		return "", ErrForbidden
-	}
-	versions, err := s.keyRepo.ListVersionRecords(ctx, id, userID)
+
+	// Version records are filtered by the key's owner, not the caller:
+	// ListVersionRecords joins on k.user_id, so passing a non-owning caller's
+	// ID returns zero rows and silently drops the key's rotation history from
+	// the blob.
+	versions, err := s.keyRepo.ListVersionRecords(ctx, id, key.UserID)
 	if err != nil {
 		return "", fmt.Errorf("backup key: list versions: %w", err)
 	}

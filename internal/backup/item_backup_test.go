@@ -229,6 +229,10 @@ func TestBackupSecretForbidden(t *testing.T) {
 type stubKeyRepo struct {
 	keys     map[uuid.UUID]*model.Key
 	versions map[uuid.UUID]map[int]string
+	// LastReadScope records the scope of the most recent Read. The stub itself
+	// ignores scope (it is an in-memory map), so the scope the service passes
+	// is asserted directly — the real predicate lives in KeyRepository's SQL.
+	LastReadScope model.Scope
 }
 
 func newStubKeyRepo() *stubKeyRepo {
@@ -247,10 +251,12 @@ func (r *stubKeyRepo) Create(_ context.Context, k *model.Key) error {
 	return nil
 }
 
-// Read ignores scope: BackupKey/RestoreKey pass an admin scope (the read
-// itself is unchecked) and enforce ownership manually afterward, matching
-// item_backup.go's actual behaviour.
-func (r *stubKeyRepo) Read(_ context.Context, id uuid.UUID, _ model.Scope) (*model.Key, error) {
+// Read ignores scope for authorization purposes: it is an in-memory map with
+// no SQL predicate to enforce. It still records the scope it was called with
+// so tests can assert the service passed the correct one; the real predicate
+// lives in KeyRepository's SQL.
+func (r *stubKeyRepo) Read(_ context.Context, id uuid.UUID, scope model.Scope) (*model.Key, error) {
+	r.LastReadScope = scope
 	k, ok := r.keys[id]
 	if !ok {
 		return nil, fmt.Errorf("key not found")
@@ -370,7 +376,7 @@ func TestRestoreSecretBlobTypeMismatch(t *testing.T) {
 	svc := backup.NewItemBackupService(newStubSecretRepo(), keyRepo, nil)
 
 	// Backup a key but try to restore it as a secret.
-	blob, err := svc.BackupKey(ctx, keyID, userID)
+	blob, err := svc.BackupKey(ctx, keyID, userID, uuid.Nil)
 	require.NoError(t, err)
 
 	err = svc.RestoreSecret(ctx, blob, userID, uuid.New(), uuid.New())
@@ -479,7 +485,7 @@ func TestRestoreKeyPreservesPurgeProtection(t *testing.T) {
 	}
 	require.NoError(t, repo.Create(ctx, original))
 
-	blob, err := svc.BackupKey(ctx, original.ID, owner)
+	blob, err := svc.BackupKey(ctx, original.ID, owner, vaultID)
 	require.NoError(t, err)
 
 	newID := uuid.New()
@@ -542,7 +548,7 @@ func TestBackupRestoreKey_CarriesVersionHistory(t *testing.T) {
 
 	svc := backup.NewItemBackupService(nil, repo, nil)
 
-	blob, err := svc.BackupKey(ctx, keyID, owner)
+	blob, err := svc.BackupKey(ctx, keyID, owner, vaultID)
 	require.NoError(t, err)
 
 	newID := uuid.New()
@@ -576,7 +582,7 @@ func TestRestoreKey_OldFormatBlob_NoVersionsField(t *testing.T) {
 
 	// A key with zero key_versions rows produces a blob with an empty/absent
 	// "versions" field today, which is exactly the old-format shape.
-	blob, err := svc.BackupKey(ctx, keyID, owner)
+	blob, err := svc.BackupKey(ctx, keyID, owner, vaultID)
 	require.NoError(t, err)
 
 	newID := uuid.New()

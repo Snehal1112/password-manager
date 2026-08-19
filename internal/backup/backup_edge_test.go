@@ -111,31 +111,61 @@ func (r *errKeyRepo) Create(_ context.Context, _ *model.Key) error {
 
 // -- BackupKey / RestoreKey -------------------------------------------------
 
-func TestBackupKeyForbidden(t *testing.T) {
+func TestBackupKeyNonOwnerInSameVaultSucceeds(t *testing.T) {
 	t.Parallel()
 
 	ctx := context.Background()
 	ownerID := uuid.New()
-	otherID := uuid.New()
+	callerID := uuid.New()
+	vaultID := uuid.New()
 	keyID := uuid.New()
 
 	kr := newStubKeyRepo()
 	require.NoError(t, kr.Create(ctx, &model.Key{
-		ID: keyID, UserID: ownerID, Name: "k", Value: "v", Type: model.KeyTypeRSA, Enabled: true,
+		ID: keyID, UserID: ownerID, VaultID: vaultID,
+		Name: "k", Value: "v", Type: model.KeyTypeRSA, Enabled: true,
 	}))
 
 	svc := backup.NewItemBackupService(nil, kr, nil)
 
-	_, err := svc.BackupKey(ctx, keyID, otherID)
-	require.Error(t, err)
-	require.Contains(t, err.Error(), "forbidden")
+	// A Crypto User authorized in this vault who does not own the key must be
+	// able to back it up. Authorization is the RBAC action check in
+	// PolicyMiddleware plus the vault scope, not key ownership.
+	blob, err := svc.BackupKey(ctx, keyID, callerID, vaultID)
+	require.NoError(t, err)
+	require.NotEmpty(t, blob)
+}
+
+func TestBackupKeyReadsWithVaultScope(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	ownerID := uuid.New()
+	callerID := uuid.New()
+	vaultID := uuid.New()
+	keyID := uuid.New()
+
+	kr := newStubKeyRepo()
+	require.NoError(t, kr.Create(ctx, &model.Key{
+		ID: keyID, UserID: ownerID, VaultID: vaultID,
+		Name: "k", Value: "v", Type: model.KeyTypeRSA, Enabled: true,
+	}))
+
+	svc := backup.NewItemBackupService(nil, kr, nil)
+
+	_, err := svc.BackupKey(ctx, keyID, callerID, vaultID)
+	require.NoError(t, err)
+
+	// The scope is the whole gate now: an admin scope carries no predicate and
+	// would let a caller name a key in any vault.
+	require.Equal(t, model.NewVaultScope(vaultID, callerID), kr.LastReadScope)
 }
 
 func TestBackupKeyRepoError(t *testing.T) {
 	t.Parallel()
 
 	svc := backup.NewItemBackupService(nil, newErrKeyRepo(), nil)
-	_, err := svc.BackupKey(context.Background(), uuid.New(), uuid.New())
+	_, err := svc.BackupKey(context.Background(), uuid.New(), uuid.New(), uuid.New())
 	require.Error(t, err)
 }
 
@@ -153,7 +183,7 @@ func TestRestoreKeySuccess(t *testing.T) {
 
 	svc := backup.NewItemBackupService(nil, kr, nil)
 
-	blob, err := svc.BackupKey(ctx, keyID, ownerID)
+	blob, err := svc.BackupKey(ctx, keyID, ownerID, uuid.Nil)
 	require.NoError(t, err)
 
 	require.NoError(t, kr.Delete(ctx, keyID))
