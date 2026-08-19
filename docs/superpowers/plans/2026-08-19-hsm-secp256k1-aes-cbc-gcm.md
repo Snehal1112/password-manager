@@ -1,5 +1,13 @@
 # HSM secp256k1 + AES-CBC/GCM Support Implementation Plan
 
+> **STATUS: COMPLETE — executed and merged 2026-08-19.** All seven tasks ran on
+> branch `feat/hsm-secp256k1-aes-cbc-gcm`, merged into `v-4.0.0` as `5e41b92`.
+> Checkboxes were ticked retroactively on 2026-08-19 to reflect that; they record
+> that a step *ran*, not that its end state survived. Tasks 5 and 6 were
+> deliberately reverted after execution — read their headers before treating
+> their contents as current, and see "Post-plan corrections" at the end of this
+> file for the four commits that landed after Task 7.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Close `.claude/azure-keyvault-parity.md` §8's remaining HSM-backed-keys gaps by adding secp256k1 (P-256K) key generation/sign/verify and AES-CBC/AES-GCM encrypt/decrypt to `PKCS11KeyProvider`, with reactive error translation so a real HSM vendor that rejects one of these degrades to a clean 400 instead of a leaked 500.
@@ -23,6 +31,11 @@
 
 ## Task 1: `isHSMCapabilityError` helper
 
+**Shipped as:** `2d19434` — in force today (`internal/crypto/pkcs11_provider.go`,
+covered by `internal/crypto/pkcs11_capability_error_test.go`). Later touched by
+`05f1b66`, which corrected the allowlist so a malformed caller-supplied IV is not
+misclassified as a token-capability failure.
+
 **Files:**
 - Modify: `internal/crypto/pkcs11_provider.go`
 - Test: `internal/crypto/pkcs11_provider_test.go`
@@ -32,7 +45,7 @@
 
 This task is pure Go logic with no PKCS#11 token interaction, so its tests need no live HSM.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Add to `internal/crypto/pkcs11_provider_test.go` (this file is `package crypto_test`, so the
 unexported `isHSMCapabilityError` isn't directly reachable — add a same-package test file instead,
@@ -85,12 +98,12 @@ func TestIsHSMCapabilityError_Nil_ReturnsFalse(t *testing.T) {
 
 This file needs `"fmt"` imported alongside `"errors"`, `"testing"`, the assert package, and `p11`.
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [x] **Step 2: Run tests to verify they fail**
 
 Run: `go test ./internal/crypto/... -run TestIsHSMCapabilityError -v`
 Expected: FAIL — `isHSMCapabilityError` is undefined.
 
-- [ ] **Step 3: Implement the helper**
+- [x] **Step 3: Implement the helper**
 
 In `internal/crypto/pkcs11_provider.go`, add after `isSignatureInvalid` (around line 529, right
 after its closing brace):
@@ -133,18 +146,18 @@ func isHSMCapabilityError(err error) bool {
 
 `errors` and `p11` are already imported in this file. No new imports needed here.
 
-- [ ] **Step 4: Run tests to verify they pass**
+- [x] **Step 4: Run tests to verify they pass**
 
 Run: `go test ./internal/crypto/... -run TestIsHSMCapabilityError -v`
 Expected: all 7 PASS.
 
-- [ ] **Step 5: Run the full package test suite to check for regressions**
+- [x] **Step 5: Run the full package test suite to check for regressions**
 
 Run: `go build ./... && go test ./internal/crypto/... 2>&1 | tail -20`
 Expected: build succeeds, all existing tests still pass (this task added code but didn't change
 any existing behavior yet).
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add internal/crypto/pkcs11_provider.go internal/crypto/pkcs11_capability_error_test.go
@@ -161,6 +174,8 @@ table, so it has no reliable string form to match."
 
 ## Task 2: secp256k1 (P-256K) key generation + sign/verify
 
+**Shipped as:** `9d96e81` — in force today.
+
 **Files:**
 - Modify: `internal/crypto/pkcs11_provider.go`
 - Modify: `internal/crypto/pkcs11_provider_test.go`
@@ -170,7 +185,7 @@ table, so it has no reliable string form to match."
 - Produces: `PKCS11KeyProvider.GenerateECDSAKey(ctx, "P-256K")` now succeeds; `Sign`/`Verify` with
   `crypto.AlgorithmES256K` now work against such a key. No signature changes to either method.
 
-- [ ] **Step 1: Update the failing test first**
+- [x] **Step 1: Update the failing test first**
 
 In `internal/crypto/pkcs11_provider_test.go`, replace the existing rejection test:
 
@@ -225,7 +240,7 @@ func TestPKCS11Provider_Verify_ES256K_TamperedData_ReturnsFalse(t *testing.T) {
 }
 ```
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [x] **Step 2: Run tests to verify they fail**
 
 Run: `SOFTHSM2_LIB=/usr/lib/softhsm/libsofthsm2.so go test ./internal/crypto/... -run 'TestPKCS11Provider_GenerateECDSAKey_P256K$|TestPKCS11Provider_SignVerify_ECDSA_ES256K|TestPKCS11Provider_Verify_ES256K_TamperedData' -v`
 Expected: `TestPKCS11Provider_GenerateECDSAKey_P256K` and
@@ -233,7 +248,7 @@ Expected: `TestPKCS11Provider_GenerateECDSAKey_P256K` and
 `TestPKCS11Provider_Verify_ES256K_TamperedData_ReturnsFalse` also FAILs at the `Sign` step for the
 same reason.
 
-- [ ] **Step 3: Implement the curve and sign-mechanism map entries**
+- [x] **Step 3: Implement the curve and sign-mechanism map entries**
 
 In `internal/crypto/pkcs11_provider.go`, replace the `ecOID` map and its comment (currently lines
 166-172):
@@ -342,18 +357,18 @@ var signMechanisms = map[SignatureAlgorithm]signMechanism{
 }
 ```
 
-- [ ] **Step 4: Run tests to verify they pass**
+- [x] **Step 4: Run tests to verify they pass**
 
 Run: `SOFTHSM2_LIB=/usr/lib/softhsm/libsofthsm2.so go test ./internal/crypto/... -run 'TestPKCS11Provider_GenerateECDSAKey_P256K$|TestPKCS11Provider_SignVerify_ECDSA_ES256K|TestPKCS11Provider_Verify_ES256K_TamperedData' -v`
 Expected: all 3 PASS.
 
-- [ ] **Step 5: Run the full package test suite to check for regressions**
+- [x] **Step 5: Run the full package test suite to check for regressions**
 
 Run: `go build ./... && SOFTHSM2_LIB=/usr/lib/softhsm/libsofthsm2.so go test ./internal/crypto/... -v 2>&1 | tail -60`
 Expected: build succeeds, every test passes (in particular, the existing P-256/P-384/P-521 sign/
 verify tests must be unaffected, since `signMechanisms`' existing three entries weren't touched).
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add internal/crypto/pkcs11_provider.go internal/crypto/pkcs11_provider_test.go
@@ -373,6 +388,9 @@ picks it up with no changes there."
 
 ## Task 3: AES-CBC encrypt/decrypt on HSM-backed keys
 
+**Shipped as:** `88fb676` — in force today (`CKM_AES_CBC_PAD`). Hardened by
+`05f1b66`, which added IV-length validation before `DecryptInit`.
+
 **Files:**
 - Modify: `internal/crypto/pkcs11_provider.go`
 - Modify: `internal/crypto/pkcs11_provider_test.go`
@@ -384,7 +402,7 @@ picks it up with no changes there."
   taking `iv` back via the existing `nonce []byte` parameter — same shape as every other
   algorithm, no interface changes.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Add to `internal/crypto/pkcs11_provider_test.go`, after the existing AES-KW tests (search for
 `TestPKCS11Provider_WrapUnwrap_AES256KW` and add these after that test function ends):
@@ -463,13 +481,13 @@ func TestPKCS11Provider_DecryptAESCBC_WrongIV_Fails(t *testing.T) {
 }
 ```
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [x] **Step 2: Run tests to verify they fail**
 
 Run: `SOFTHSM2_LIB=/usr/lib/softhsm/libsofthsm2.so go test ./internal/crypto/... -run 'TestPKCS11Provider_EncryptDecrypt_AES.*CBC|TestPKCS11Provider_DecryptAESCBC_WrongIV' -v`
 Expected: FAIL — `AlgorithmA128CBC`/etc. fall into the RSA-OAEP path today and return
 `ErrUnsupportedAlgorithm`.
 
-- [ ] **Step 3: Implement AES-CBC encrypt/decrypt**
+- [x] **Step 3: Implement AES-CBC encrypt/decrypt**
 
 In `internal/crypto/pkcs11_provider.go`, add after `isAESKWAlgorithm` (currently lines 325-335):
 
@@ -664,17 +682,17 @@ Finally, add `"crypto/rand"` to this file's imports if not already present — c
 `grep -n '"crypto/rand"' internal/crypto/pkcs11_provider.go`. If absent, add it to the import
 block alongside the existing `"context"`, `"encoding/asn1"`, `"errors"`, `"fmt"`, `"hash"`.
 
-- [ ] **Step 4: Run tests to verify they pass**
+- [x] **Step 4: Run tests to verify they pass**
 
 Run: `SOFTHSM2_LIB=/usr/lib/softhsm/libsofthsm2.so go test ./internal/crypto/... -run 'TestPKCS11Provider_EncryptDecrypt_AES.*CBC|TestPKCS11Provider_DecryptAESCBC_WrongIV' -v`
 Expected: all 4 PASS.
 
-- [ ] **Step 5: Run the full package test suite to check for regressions**
+- [x] **Step 5: Run the full package test suite to check for regressions**
 
 Run: `go build ./... && SOFTHSM2_LIB=/usr/lib/softhsm/libsofthsm2.so go test ./internal/crypto/... -v 2>&1 | tail -80`
 Expected: build succeeds, every test passes, including the untouched AES-KW and RSA-OAEP tests.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add internal/crypto/pkcs11_provider.go internal/crypto/pkcs11_provider_test.go
@@ -691,6 +709,8 @@ verified against SoftHSM2 (see the design spec)."
 ---
 
 ## Task 4: AES-GCM encrypt/decrypt on HSM-backed keys
+
+**Shipped as:** `3315595` — in force today (`CKM_AES_GCM`).
 
 **Files:**
 - Modify: `internal/crypto/pkcs11_provider.go`
@@ -712,7 +732,7 @@ unrelated error ("secret key not found for label ...", since the handle names an
 not a secret key) because the label exists but has the wrong PKCS#11 object class. The test's
 original premise (GCM is unimplemented) is now false and must be replaced, not preserved.
 
-- [ ] **Step 1: Replace the obsolete test and add new ones**
+- [x] **Step 1: Replace the obsolete test and add new ones**
 
 In `internal/crypto/pkcs11_provider_test.go`, find and delete:
 
@@ -789,7 +809,7 @@ func TestPKCS11Provider_DecryptAESGCM_WrongNonce_Fails(t *testing.T) {
 }
 ```
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [x] **Step 2: Run tests to verify they fail**
 
 Run: `SOFTHSM2_LIB=/usr/lib/softhsm/libsofthsm2.so go test ./internal/crypto/... -run 'TestPKCS11Provider_EncryptDecrypt_AES256GCM|TestPKCS11Provider_DecryptAESGCM' -v`
 Expected: FAIL — the package builds fine (`isAESGCMAlgorithm` exists since Task 3 but isn't
@@ -797,7 +817,7 @@ dispatched by `Encrypt`/`Decrypt` yet), but `Encrypt(..., crypto.AlgorithmAES256
 through to the RSA-OAEP path, which rejects it with `ErrUnsupportedAlgorithm` before ever touching
 the key.
 
-- [ ] **Step 3: Implement AES-GCM encrypt/decrypt and wire it into `Encrypt`/`Decrypt`**
+- [x] **Step 3: Implement AES-GCM encrypt/decrypt and wire it into `Encrypt`/`Decrypt`**
 
 In `internal/crypto/pkcs11_provider.go`, add after the `encryptAESCBC`/`decryptAESCBC` methods
 from Task 3:
@@ -880,12 +900,12 @@ And to `Decrypt`, immediately after its `isAESCBCAlgorithm` branch:
 	}
 ```
 
-- [ ] **Step 4: Run tests to verify they pass**
+- [x] **Step 4: Run tests to verify they pass**
 
 Run: `SOFTHSM2_LIB=/usr/lib/softhsm/libsofthsm2.so go test ./internal/crypto/... -run 'TestPKCS11Provider_EncryptDecrypt_AES256GCM|TestPKCS11Provider_DecryptAESGCM' -v`
 Expected: all 3 PASS.
 
-- [ ] **Step 5: Run the full package test suite to check for regressions**
+- [x] **Step 5: Run the full package test suite to check for regressions**
 
 Run: `go build ./... && SOFTHSM2_LIB=/usr/lib/softhsm/libsofthsm2.so go test ./internal/crypto/... -v 2>&1 | tail -100`
 Expected: build succeeds, every test passes — confirm specifically that
@@ -895,7 +915,7 @@ renamed) and no other test references it.
 Run: `grep -rn "TestPKCS11Provider_Encrypt_AES_ReturnsError" internal/`
 Expected: no output (confirms the old test and any stray references are fully gone).
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add internal/crypto/pkcs11_provider.go internal/crypto/pkcs11_provider_test.go
@@ -913,6 +933,23 @@ tamper-detection tests. Empirically verified against SoftHSM2."
 
 ## Task 5: Wire AES-CBC into the service-layer `isHSMWrapAlgorithm` gate
 
+> **REVERTED — do not follow the steps below as current guidance.** Executed as
+> `ec097a2`, then reverted by `f199c82`. The task's premise was wrong: the
+> wrap/unwrap contract has no IV channel. `WrapKeyResult`, `UnwrapKeyRequest`,
+> and their `api.WrapKeyResponse`/`api.UnwrapKeyRequest` counterparts carry only
+> the wrapped bytes and the algorithm name, so `WrapKey` discarded the
+> provider-generated IV and `UnwrapKey` passed `nil` back — verified against
+> SoftHSM2, where `DecryptInit` with a nil IV returns `CKR_ARGUMENTS_BAD`. The
+> observable effect was `POST /keys/{id}/wrap` with `A256CBC` returning 200 with
+> an unrecoverable ciphertext, and the matching `/unwrap` returning 500.
+>
+> Current state: `isHSMWrapAlgorithm` (`internal/services/keys/crypto_service.go:380`)
+> holds its pre-Task-5 set — `RSA-OAEP`, `RSA-OAEP-256`, `A128KW`, `A192KW`,
+> `A256KW`. `TestWrapKey_HSMKey_RejectsAES256CBC` is restored and
+> `TestUnwrapKey_HSMKey_RejectsAES256CBC` was added alongside it. AES-CBC on
+> HSM-backed keys remains available through Encrypt/Decrypt (Task 3), which do
+> carry the IV as `EncryptResult.Nonce`/`DecryptRequest.Nonce`.
+
 **Files:**
 - Modify: `internal/services/keys/crypto_service.go`
 - Modify: `internal/services/keys/crypto_service_cache_test.go`
@@ -928,7 +965,7 @@ This is the gate that Task 3 alone didn't remove — `WrapKey`/`UnwrapKey` check
 `isHSMWrapAlgorithm` before calling `s.keyProvider.Encrypt`/`Decrypt` at all, so without this
 task, CBC wrap still fails even though the provider itself now supports it.
 
-- [ ] **Step 1: Update the failing test first**
+- [x] **Step 1: Update the failing test first**
 
 In `internal/services/keys/crypto_service_cache_test.go`, replace:
 
@@ -1002,14 +1039,14 @@ func TestWrapKey_HSMKey_AllowsAES256CBC(t *testing.T) {
 `grep -n '"github.com/stretchr/testify/require"' internal/services/keys/crypto_service_cache_test.go`;
 if absent, add it next to the existing `assert` import.)
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `go test ./internal/services/keys/... -run TestWrapKey_HSMKey_AllowsAES256CBC -v`
 Expected: FAIL — `isHSMWrapAlgorithm("A256CBC")` still returns `false`, so `WrapKey` rejects the
 request before ever calling `provider.Encrypt`, and `provider.AssertExpectations` fails because
 the expected call never happened.
 
-- [ ] **Step 3: Update `isHSMWrapAlgorithm` and its callers' doc comments**
+- [x] **Step 3: Update `isHSMWrapAlgorithm` and its callers' doc comments**
 
 In `internal/services/keys/crypto_service.go`, replace:
 
@@ -1047,19 +1084,19 @@ of `"AES-CBC is software-key-only (no PKCS#11 mechanism); HSM-backed keys suppor
 and AES-KW variants."` (one on `WrapKey`, one on `UnwrapKey`) with:
 `"HSM-backed keys support all of RSA-OAEP, AES-KW, and AES-CBC."`.
 
-- [ ] **Step 4: Run test to verify it passes**
+- [x] **Step 4: Run test to verify it passes**
 
 Run: `go test ./internal/services/keys/... -run TestWrapKey_HSMKey_AllowsAES256CBC -v`
 Expected: PASS.
 
-- [ ] **Step 5: Run the full package test suite to check for regressions**
+- [x] **Step 5: Run the full package test suite to check for regressions**
 
 Run: `go build ./... && go test ./internal/services/keys/... -v 2>&1 | tail -60`
 Expected: build succeeds, every test passes, including
 `TestWrapKey_HSMKey_AllowsAES256KW`/`RejectsAESKWSizeMismatch` (untouched — AES-KW's own gating
 logic wasn't changed) and `TestUnwrapKey_HSMKey_RejectsAESKWSizeMismatch`.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add internal/services/keys/crypto_service.go internal/services/keys/crypto_service_cache_test.go
@@ -1076,6 +1113,14 @@ existing TestWrapKey_HSMKey_AllowsAES256KW pattern."
 
 ## Task 6: End-to-end API regression test
 
+> **SUPERSEDED — the test below no longer exists in this form.** Executed as
+> `7ba0a9d`, then rewritten by `f199c82` along with Task 5. Because the test used
+> a stubbed `CryptoService`, it never exercised the real `isHSMWrapAlgorithm`
+> gate and so passed against a premise that was false. It was repurposed to
+> `A256KW`, which keeps the HTTP-to-handler wrap wiring covered by an assertion
+> that is still true. The `stubCryptoSvc` extension from Step 1 did not survive
+> either — `wrapKeyFn`/`unwrapKeyFn` are not present in `api/` today.
+
 **Files:**
 - Modify: `api/keys_crypto_test.go` (add `wrapKeyFn`/`unwrapKeyFn` to `stubCryptoSvc`)
 - Modify: `api/keys_crud_test.go` (new test)
@@ -1090,7 +1135,7 @@ existing TestWrapKey_HSMKey_AllowsAES256KW pattern."
 test exercises a successful wrap. This task adds that capability to the stub (following the
 existing `signFn`/`verifyFn`/`encryptFn`/`decryptFn` field pattern) and one test using it.
 
-- [ ] **Step 1: Write the failing test first**
+- [x] **Step 1: Write the failing test first**
 
 In `api/keys_crypto_test.go`, extend `stubCryptoSvc` (currently lines 68-92):
 
@@ -1175,30 +1220,30 @@ imported (used by `keyServices.CreateKeyResult` elsewhere in the same file per e
 session), so no import change needed. `newCryptoContext`/`jsonBody`/`testKeyIDStr` are defined in
 `api/keys_crypto_test.go`, same package (`api`), so they're already visible here.
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `go test ./api/... -run TestWrapKey_AES256CBC_Success_Returns200 -v`
 Expected: FAIL to compile — `stubCryptoSvc` has no `wrapKeyFn` field yet.
 
-- [ ] **Step 3: Nothing further to implement**
+- [x] **Step 3: Nothing further to implement**
 
 This task's "implementation" step is the `stubCryptoSvc` extension from Step 1 (the production
 `wrapKey` handler and `WrapKey` service method are already correct as of Task 5 — this task only
 proves it end-to-end). If Step 1 was done in full (both the `stubCryptoSvc` extension and the new
 test), there's nothing left to change.
 
-- [ ] **Step 4: Run test to verify it passes**
+- [x] **Step 4: Run test to verify it passes**
 
 Run: `go test ./api/... -run TestWrapKey_AES256CBC_Success_Returns200 -v`
 Expected: PASS.
 
-- [ ] **Step 5: Run the full package test suite to check for regressions**
+- [x] **Step 5: Run the full package test suite to check for regressions**
 
 Run: `go build ./... && go test ./api/... 2>&1 | tail -20`
 Expected: build succeeds, every test passes — in particular every other `stubCryptoSvc`-based
 test (`TestSignKey_Success` and its siblings) must be unaffected by the new struct fields.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add api/keys_crypto_test.go api/keys_crud_test.go
@@ -1216,6 +1261,12 @@ response."
 
 ## Task 7: Documentation
 
+**Shipped as:** `a95edf8`, then refined by `b4db24d` (imprecise AES
+operation-split wording in §8/Summary), `8374f62` (stopped overclaiming live-HTTP
+verification for HSM-backed paths), and `6251eb9` (corrected AES-CBC to
+encrypt/decrypt-only after Task 5's revert). The `CLAUDE.md` paragraph from
+Step 4 is in force verbatim.
+
 **Files:**
 - Modify: `.claude/azure-keyvault-parity.md`
 - Modify: `CLAUDE.md`
@@ -1224,7 +1275,7 @@ response."
 results from Tasks 1-6. Do not speculate about final Status glyphs before this task; use the
 actual verified behavior.
 
-- [ ] **Step 1: Update `.claude/azure-keyvault-parity.md` §3**
+- [x] **Step 1: Update `.claude/azure-keyvault-parity.md` §3**
 
 Read the current §3 table (`grep -n "^## 3\." -A 20 .claude/azure-keyvault-parity.md`) and update:
 
@@ -1251,7 +1302,7 @@ Add a new dated note below the table (following this doc's existing dated-note c
 dated with today's date, citing the design spec and summarizing what changed, mirroring the
 B24/B25-era notes' level of detail (specific function/mechanism names, not vague claims).
 
-- [ ] **Step 2: Update `.claude/azure-keyvault-parity.md` §8**
+- [x] **Step 2: Update `.claude/azure-keyvault-parity.md` §8**
 
 Read the current §8 "HSM-backed keys" row (`grep -n "^## 8\." -A 10 .claude/azure-keyvault-parity.md`).
 Update it to reflect that P-256K, AES-CBC, and AES-GCM are now HSM-backed too (only FIPS 140-3 L3
@@ -1262,7 +1313,7 @@ implementation time in the spec's Documentation section — resolve it here base
 of this document uses the ✅/🟡 legend for "gap that can never close through code" vs. "gap that's
 now closed").
 
-- [ ] **Step 3: Update the parity doc's Summary section**
+- [x] **Step 3: Update the parity doc's Summary section**
 
 Read the current Summary (`grep -n "^## Summary" -A 60 .claude/azure-keyvault-parity.md`).
 Reconcile it against Tasks 1-6: likely removes or narrows the "HSM: ... P-256K and AES-CBC remain
@@ -1270,7 +1321,7 @@ software-only" framing from the Partial (🟡) list (or wherever the current tex
 today's earlier B24/B25-era edits), and potentially adds a note to the Strong parity (✅) section
 if the HSM row's glyph moved there in Step 2.
 
-- [ ] **Step 4: Add a `CLAUDE.md` note**
+- [x] **Step 4: Add a `CLAUDE.md` note**
 
 Find the existing HSM AES-KW note (`grep -n "AES-KW wrap/unwrap for real" CLAUDE.md`) under "Key
 Management" and extend it, following that entry's own precedent (a single dense paragraph citing
@@ -1280,20 +1331,20 @@ specific functions/errors, not a vague summary):
 - Symmetric AES (`oct`) keys are **HSM-only** by design, matching Azure (Managed HSM never allows symmetric key creation on Standard/Premium vaults, and RocketVault's software provider mirrors that restriction). `KeyService.CreateOctKey` → `crypto.KeyProvider.GenerateAESKey` always fails with `crypto.ErrOctKeysRequireHSM` unless `hsm.enabled: true`; the PKCS#11 provider implements AES-KW, AES-CBC, and AES-GCM wrap/encrypt for real (2026-08-19 — see `docs/superpowers/specs/2026-08-19-hsm-secp256k1-aes-cbc-gcm-design.md`). `POST /keys` accepts `"type": "OCT"` with `"bits"` of 128/192/256. The PKCS#11 provider also generates and signs/verifies secp256k1 (P-256K) EC keys as of the same date — real HSM vendors may still reject non-NIST curves like secp256k1 at the hardware level, which `isHSMCapabilityError` (`internal/crypto/pkcs11_provider.go`) degrades to a clean `ErrUnsupportedCurve`/`ErrUnsupportedAlgorithm` instead of a leaked error.
 ```
 
-- [ ] **Step 5: Verify the doc renders coherently**
+- [x] **Step 5: Verify the doc renders coherently**
 
 Run: `grep -n "^## \|^\*Corrected\|^\*Re-verified\|^\*Closed\|^\*Extended\|^\*Added" .claude/azure-keyvault-parity.md`
 Expected: section numbering and dated-note markers are all still sequential and intact — no
 duplicated or orphaned headings from the edit.
 
-- [ ] **Step 6: Final full-repo verification**
+- [x] **Step 6: Final full-repo verification**
 
 Run: `go build ./... && go vet ./... && SOFTHSM2_LIB=/usr/lib/softhsm/libsofthsm2.so go test ./... 2>&1 | tail -100`
 Expected: build succeeds, vet is clean, and the full test suite passes (this is the first
 full-repo test run across this plan — Tasks 1-6 only ran scoped package tests — so this is the
 final confirmation nothing elsewhere broke).
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add .claude/azure-keyvault-parity.md CLAUDE.md
@@ -1305,3 +1356,21 @@ capability closed by this plan. CLAUDE.md's Key Management section
 gets a matching note, following the 2026-08-11-13 HSM AES-KW
 precedent."
 ```
+
+---
+
+## Post-plan corrections
+
+Four commits landed on `feat/hsm-secp256k1-aes-cbc-gcm` after Task 7 and before
+the merge. They are part of the shipped result, so the plan is only accurate read
+together with them:
+
+| Commit | Change | Why it wasn't in the plan |
+|---|---|---|
+| `f199c82` | Scoped AES-CBC back out of `isHSMWrapAlgorithm`; restored `TestWrapKey_HSMKey_RejectsAES256CBC`, added the `UnwrapKey` twin, repurposed the Task 6 API test to `A256KW` | Reverts Tasks 5 and 6 — the wrap/unwrap contract has no IV field, which the plan did not account for |
+| `c2f3037` | Mapped `crypto.ErrUnsupportedAlgorithm` to 400 in `api/keys.go` and `api/errors_key.go` | **Contradicts this plan's Global Constraint** "No changes to `api/keys.go` or `api/errors_key.go`". The B24/B25 pipeline handled `ErrUnsupportedCurve` but not `ErrUnsupportedAlgorithm`, so that constraint's premise was false and the sentinel leaked as a 500 |
+| `05f1b66` | Validated AES-CBC IV length before `DecryptInit`; narrowed `isHSMCapabilityError`'s allowlist accordingly | A malformed caller-supplied IV was being reported as a token-capability failure |
+| `6251eb9` | Corrected `.claude/azure-keyvault-parity.md` to say AES-CBC is encrypt/decrypt-only, not wrap/unwrap | Task 7's doc edits described the state Task 5 created, which `f199c82` then undid |
+
+Verified on `v-4.0.0` at ticking time: `go build ./...` clean, and
+`go test ./internal/crypto/` passes against the live SoftHSM2 token.
