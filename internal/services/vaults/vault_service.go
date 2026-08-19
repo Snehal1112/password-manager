@@ -63,6 +63,18 @@ type PolicyCleaner interface {
 	DeleteByVault(ctx context.Context, vaultID uuid.UUID) error
 }
 
+// WebhookCleaner removes a vault's webhook config (used on purge). Satisfied
+// by repositories.VaultWebhookRepositoryInterface.
+//
+// This is required, not belt-and-braces: vault_webhook_configs declares a
+// FOREIGN KEY ... ON DELETE CASCADE, but SQLite's foreign_keys PRAGMA is off
+// in this project, so that clause never fires there. Without this hook a
+// purged vault strands a row holding an encrypted signing secret -- the same
+// reason PurgeVaultContents and DeleteByVault below exist.
+type WebhookCleaner interface {
+	DeleteByVaultID(ctx context.Context, vaultID uuid.UUID) error
+}
+
 // SecretCacheFlusher empties the secret cache. The delete/recover cascade
 // stamps deleted_at on every secret in a vault with one UPDATE, so the ids it
 // touched are never enumerated and per-id eviction is not possible; a flush is
@@ -114,6 +126,7 @@ type VaultService interface {
 	RecoverVault(ctx context.Context, name string) error
 	PurgeVault(ctx context.Context, name string) error
 	SetPolicyCleaner(p PolicyCleaner)
+	SetWebhookCleaner(c WebhookCleaner)
 	SetTxBeginner(tb TxBeginner)
 	SetSecretCacheFlusher(f SecretCacheFlusher)
 	SetVaultCache(c VaultCacheInterface)
@@ -123,6 +136,7 @@ type vaultService struct {
 	repo        repositories.VaultRepositoryInterface
 	cascade     CascadeRepository
 	policies    PolicyCleaner
+	webhooks    WebhookCleaner
 	txBeginner  TxBeginner
 	secretCache SecretCacheFlusher
 	vaultCache  VaultCacheInterface
@@ -136,6 +150,10 @@ func NewVaultService(repo repositories.VaultRepositoryInterface, cascade Cascade
 
 // SetPolicyCleaner attaches an optional cleaner that removes vault-scoped access policies on purge.
 func (s *vaultService) SetPolicyCleaner(p PolicyCleaner) { s.policies = p }
+
+// SetWebhookCleaner attaches an optional cleaner that removes a vault's
+// webhook config on purge.
+func (s *vaultService) SetWebhookCleaner(c WebhookCleaner) { s.webhooks = c }
 
 // SetTxBeginner attaches an optional transaction beginner. When set,
 // DeleteVault/RecoverVault run their cascade atomically inside one
@@ -473,6 +491,15 @@ func (s *vaultService) PurgeVault(ctx context.Context, name string) error {
 	if s.policies != nil {
 		if err := s.policies.DeleteByVault(ctx, v.ID); err != nil {
 			return fmt.Errorf("delete vault policies: %w", err)
+		}
+	}
+	// vault_webhook_configs' ON DELETE CASCADE is inert on SQLite (the
+	// foreign_keys PRAGMA is off here), so the row must be removed explicitly
+	// or it strands an encrypted signing secret for a vault that no longer
+	// exists.
+	if s.webhooks != nil {
+		if err := s.webhooks.DeleteByVaultID(ctx, v.ID); err != nil {
+			return fmt.Errorf("purge vault webhook config: %w", err)
 		}
 	}
 	if s.log != nil {
