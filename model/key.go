@@ -61,6 +61,17 @@ type KeyVersion struct {
 	CreatedAt time.Time `json:"created_at"`
 }
 
+// KeyVersionRecord carries one version's material for internal use only
+// (the backup service). It is never marshaled into an HTTP response — API
+// responses use KeyVersion, which has no Value field, so the versions-list
+// and versions-get handlers cannot leak material even by future mistake.
+type KeyVersionRecord struct {
+	KeyID     uuid.UUID `json:"key_id"`
+	Version   int       `json:"version"`
+	Value     string    `json:"value"`
+	CreatedAt time.Time `json:"created_at"`
+}
+
 // --- HTTP request/response types ---
 
 type CreateKeyRequest struct {

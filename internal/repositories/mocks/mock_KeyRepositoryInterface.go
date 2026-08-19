@@ -171,6 +171,67 @@ func (_c *MockKeyRepositoryInterface_Delete_Call) RunAndReturn(run func(context.
 	return _c
 }
 
+// GetVersion provides a mock function with given fields: ctx, keyID, version, userID
+func (_m *MockKeyRepositoryInterface) GetVersion(ctx context.Context, keyID uuid.UUID, version int, userID uuid.UUID) (*model.KeyVersion, error) {
+	ret := _m.Called(ctx, keyID, version, userID)
+
+	if len(ret) == 0 {
+		panic("no return value specified for GetVersion")
+	}
+
+	var r0 *model.KeyVersion
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, uuid.UUID, int, uuid.UUID) (*model.KeyVersion, error)); ok {
+		return rf(ctx, keyID, version, userID)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, uuid.UUID, int, uuid.UUID) *model.KeyVersion); ok {
+		r0 = rf(ctx, keyID, version, userID)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).(*model.KeyVersion)
+		}
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context, uuid.UUID, int, uuid.UUID) error); ok {
+		r1 = rf(ctx, keyID, version, userID)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// MockKeyRepositoryInterface_GetVersion_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'GetVersion'
+type MockKeyRepositoryInterface_GetVersion_Call struct {
+	*mock.Call
+}
+
+// GetVersion is a helper method to define mock.On call
+//   - ctx context.Context
+//   - keyID uuid.UUID
+//   - version int
+//   - userID uuid.UUID
+func (_e *MockKeyRepositoryInterface_Expecter) GetVersion(ctx interface{}, keyID interface{}, version interface{}, userID interface{}) *MockKeyRepositoryInterface_GetVersion_Call {
+	return &MockKeyRepositoryInterface_GetVersion_Call{Call: _e.mock.On("GetVersion", ctx, keyID, version, userID)}
+}
+
+func (_c *MockKeyRepositoryInterface_GetVersion_Call) Run(run func(ctx context.Context, keyID uuid.UUID, version int, userID uuid.UUID)) *MockKeyRepositoryInterface_GetVersion_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(uuid.UUID), args[2].(int), args[3].(uuid.UUID))
+	})
+	return _c
+}
+
+func (_c *MockKeyRepositoryInterface_GetVersion_Call) Return(_a0 *model.KeyVersion, _a1 error) *MockKeyRepositoryInterface_GetVersion_Call {
+	_c.Call.Return(_a0, _a1)
+	return _c
+}
+
+func (_c *MockKeyRepositoryInterface_GetVersion_Call) RunAndReturn(run func(context.Context, uuid.UUID, int, uuid.UUID) (*model.KeyVersion, error)) *MockKeyRepositoryInterface_GetVersion_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // List provides a mock function with given fields: ctx, scope, filter
 func (_m *MockKeyRepositoryInterface) List(ctx context.Context, scope model.Scope, filter repositories.KeyFilter) ([]model.Key, error) {
 	ret := _m.Called(ctx, scope, filter)
@@ -227,6 +288,66 @@ func (_c *MockKeyRepositoryInterface_List_Call) Return(_a0 []model.Key, _a1 erro
 }
 
 func (_c *MockKeyRepositoryInterface_List_Call) RunAndReturn(run func(context.Context, model.Scope, repositories.KeyFilter) ([]model.Key, error)) *MockKeyRepositoryInterface_List_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// ListVersionRecords provides a mock function with given fields: ctx, keyID, userID
+func (_m *MockKeyRepositoryInterface) ListVersionRecords(ctx context.Context, keyID uuid.UUID, userID uuid.UUID) ([]model.KeyVersionRecord, error) {
+	ret := _m.Called(ctx, keyID, userID)
+
+	if len(ret) == 0 {
+		panic("no return value specified for ListVersionRecords")
+	}
+
+	var r0 []model.KeyVersionRecord
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, uuid.UUID, uuid.UUID) ([]model.KeyVersionRecord, error)); ok {
+		return rf(ctx, keyID, userID)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, uuid.UUID, uuid.UUID) []model.KeyVersionRecord); ok {
+		r0 = rf(ctx, keyID, userID)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).([]model.KeyVersionRecord)
+		}
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context, uuid.UUID, uuid.UUID) error); ok {
+		r1 = rf(ctx, keyID, userID)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// MockKeyRepositoryInterface_ListVersionRecords_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'ListVersionRecords'
+type MockKeyRepositoryInterface_ListVersionRecords_Call struct {
+	*mock.Call
+}
+
+// ListVersionRecords is a helper method to define mock.On call
+//   - ctx context.Context
+//   - keyID uuid.UUID
+//   - userID uuid.UUID
+func (_e *MockKeyRepositoryInterface_Expecter) ListVersionRecords(ctx interface{}, keyID interface{}, userID interface{}) *MockKeyRepositoryInterface_ListVersionRecords_Call {
+	return &MockKeyRepositoryInterface_ListVersionRecords_Call{Call: _e.mock.On("ListVersionRecords", ctx, keyID, userID)}
+}
+
+func (_c *MockKeyRepositoryInterface_ListVersionRecords_Call) Run(run func(ctx context.Context, keyID uuid.UUID, userID uuid.UUID)) *MockKeyRepositoryInterface_ListVersionRecords_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(uuid.UUID), args[2].(uuid.UUID))
+	})
+	return _c
+}
+
+func (_c *MockKeyRepositoryInterface_ListVersionRecords_Call) Return(_a0 []model.KeyVersionRecord, _a1 error) *MockKeyRepositoryInterface_ListVersionRecords_Call {
+	_c.Call.Return(_a0, _a1)
+	return _c
+}
+
+func (_c *MockKeyRepositoryInterface_ListVersionRecords_Call) RunAndReturn(run func(context.Context, uuid.UUID, uuid.UUID) ([]model.KeyVersionRecord, error)) *MockKeyRepositoryInterface_ListVersionRecords_Call {
 	_c.Call.Return(run)
 	return _c
 }
@@ -453,6 +574,65 @@ func (_c *MockKeyRepositoryInterface_ReadDeleted_Call) Return(_a0 *model.Key, _a
 }
 
 func (_c *MockKeyRepositoryInterface_ReadDeleted_Call) RunAndReturn(run func(context.Context, uuid.UUID) (*model.Key, error)) *MockKeyRepositoryInterface_ReadDeleted_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// ReadVersionValue provides a mock function with given fields: ctx, keyID, version, userID
+func (_m *MockKeyRepositoryInterface) ReadVersionValue(ctx context.Context, keyID uuid.UUID, version int, userID uuid.UUID) (string, error) {
+	ret := _m.Called(ctx, keyID, version, userID)
+
+	if len(ret) == 0 {
+		panic("no return value specified for ReadVersionValue")
+	}
+
+	var r0 string
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, uuid.UUID, int, uuid.UUID) (string, error)); ok {
+		return rf(ctx, keyID, version, userID)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, uuid.UUID, int, uuid.UUID) string); ok {
+		r0 = rf(ctx, keyID, version, userID)
+	} else {
+		r0 = ret.Get(0).(string)
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context, uuid.UUID, int, uuid.UUID) error); ok {
+		r1 = rf(ctx, keyID, version, userID)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// MockKeyRepositoryInterface_ReadVersionValue_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'ReadVersionValue'
+type MockKeyRepositoryInterface_ReadVersionValue_Call struct {
+	*mock.Call
+}
+
+// ReadVersionValue is a helper method to define mock.On call
+//   - ctx context.Context
+//   - keyID uuid.UUID
+//   - version int
+//   - userID uuid.UUID
+func (_e *MockKeyRepositoryInterface_Expecter) ReadVersionValue(ctx interface{}, keyID interface{}, version interface{}, userID interface{}) *MockKeyRepositoryInterface_ReadVersionValue_Call {
+	return &MockKeyRepositoryInterface_ReadVersionValue_Call{Call: _e.mock.On("ReadVersionValue", ctx, keyID, version, userID)}
+}
+
+func (_c *MockKeyRepositoryInterface_ReadVersionValue_Call) Run(run func(ctx context.Context, keyID uuid.UUID, version int, userID uuid.UUID)) *MockKeyRepositoryInterface_ReadVersionValue_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(uuid.UUID), args[2].(int), args[3].(uuid.UUID))
+	})
+	return _c
+}
+
+func (_c *MockKeyRepositoryInterface_ReadVersionValue_Call) Return(_a0 string, _a1 error) *MockKeyRepositoryInterface_ReadVersionValue_Call {
+	_c.Call.Return(_a0, _a1)
+	return _c
+}
+
+func (_c *MockKeyRepositoryInterface_ReadVersionValue_Call) RunAndReturn(run func(context.Context, uuid.UUID, int, uuid.UUID) (string, error)) *MockKeyRepositoryInterface_ReadVersionValue_Call {
 	_c.Call.Return(run)
 	return _c
 }
