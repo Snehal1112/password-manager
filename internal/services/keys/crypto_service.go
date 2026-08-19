@@ -26,6 +26,7 @@ type SignRequest struct {
 	UserID    uuid.UUID
 	VaultID   uuid.UUID
 	Scope     model.Scope
+	Version   int // 0 = current
 }
 
 // SignResult represents the result of a sign operation.
@@ -34,6 +35,7 @@ type SignResult struct {
 	Algorithm crypto.SignatureAlgorithm
 	Digest    []byte
 	KeyID     uuid.UUID
+	Version   int // the version actually used
 }
 
 // VerifyRequest represents a request to verify a signature.
@@ -45,6 +47,7 @@ type VerifyRequest struct {
 	UserID    uuid.UUID
 	VaultID   uuid.UUID
 	Scope     model.Scope
+	Version   int // 0 = current
 }
 
 // VerifyResult represents the result of a verify operation.
@@ -52,6 +55,7 @@ type VerifyResult struct {
 	Valid     bool
 	Algorithm crypto.SignatureAlgorithm
 	KeyID     uuid.UUID
+	Version   int // the version actually used
 }
 
 // EncryptRequest represents a request to encrypt data.
@@ -62,6 +66,7 @@ type EncryptRequest struct {
 	UserID    uuid.UUID
 	VaultID   uuid.UUID
 	Scope     model.Scope
+	Version   int // 0 = current
 }
 
 // EncryptResult represents the result of an encrypt operation.
@@ -70,6 +75,7 @@ type EncryptResult struct {
 	Algorithm  crypto.EncryptionAlgorithm
 	Nonce      []byte
 	KeyID      uuid.UUID
+	Version    int // the version actually used
 }
 
 // DecryptRequest represents a request to decrypt data.
@@ -81,6 +87,7 @@ type DecryptRequest struct {
 	UserID     uuid.UUID
 	VaultID    uuid.UUID
 	Scope      model.Scope
+	Version    int // 0 = current
 }
 
 // DecryptResult represents the result of a decrypt operation.
@@ -88,6 +95,7 @@ type DecryptResult struct {
 	Plaintext []byte
 	Algorithm crypto.EncryptionAlgorithm
 	KeyID     uuid.UUID
+	Version   int // the version actually used
 }
 
 // WrapKeyRequest is a request to wrap key material with an RSA vault key.
@@ -98,12 +106,14 @@ type WrapKeyRequest struct {
 	Scope        model.Scope
 	PlaintextKey []byte
 	Algorithm    string // must be one of: RSA-OAEP, RSA-OAEP-256, A128KW, A192KW, A256KW, A128CBC, A192CBC, A256CBC
+	Version      int    // 0 = current
 }
 
 // WrapKeyResult holds the wrapped key bytes.
 type WrapKeyResult struct {
 	WrappedKey []byte
 	Algorithm  string
+	Version    int // the version actually used
 }
 
 // UnwrapKeyRequest is a request to unwrap key material with an RSA vault key.
@@ -114,12 +124,14 @@ type UnwrapKeyRequest struct {
 	Scope      model.Scope
 	WrappedKey []byte
 	Algorithm  string // must be one of: RSA-OAEP, RSA-OAEP-256, A128KW, A192KW, A256KW, A128CBC, A192CBC, A256CBC
+	Version    int    // 0 = current
 }
 
 // UnwrapKeyResult holds the recovered plaintext key bytes.
 type UnwrapKeyResult struct {
 	PlaintextKey []byte
 	Algorithm    string
+	Version      int // the version actually used
 }
 
 // CryptoService provides cryptographic operations using stored keys.
@@ -190,25 +202,63 @@ func resolveKeyHandle(storedValue string) (handle string, isPKCS11 bool, err err
 	return decrypted, false, nil
 }
 
-// resolveKeyMaterial returns decrypted PEM key material from cache (hit) or via
-// AES-GCM decrypt (miss). For PKCS#11 keys the material is the raw token handle
-// and caching is skipped entirely. On a cache hit, handle contains the decrypted
-// PEM string stored earlier.
-func (s *cryptoService) resolveKeyMaterial(key *model.Key) (
+// currentVersionNumber returns key's current version number: the highest
+// key_versions row if any rotation has happened, else the implicit 1 (a
+// never-rotated key's only material is keys.value). Matches RotateKey's own
+// versioning math (key_service.go).
+func (s *cryptoService) currentVersionNumber(ctx context.Context, key *model.Key) (int, error) {
+	versions, err := s.keyRepo.ListVersions(ctx, key.ID, key.UserID)
+	if err != nil {
+		return 0, fmt.Errorf("failed to determine current key version: %w", err)
+	}
+	if len(versions) == 0 {
+		return 1, nil
+	}
+	return versions[len(versions)-1].Version, nil // ListVersions orders ASC
+}
+
+// resolveVersionValue resolves which material to use for a crypto
+// operation. requested == 0 (or equal to the current version number)
+// resolves to key.Value directly — no key_versions read. Otherwise fetches
+// the archived version's material via ReadVersionValue.
+func (s *cryptoService) resolveVersionValue(ctx context.Context, key *model.Key, requested int) (value string, resolvedVersion int, err error) {
+	current, err := s.currentVersionNumber(ctx, key)
+	if err != nil {
+		return "", 0, err
+	}
+	if requested == 0 || requested == current {
+		return key.Value, current, nil
+	}
+	value, err = s.keyRepo.ReadVersionValue(ctx, key.ID, requested, key.UserID)
+	if err != nil {
+		return "", 0, err
+	}
+	return value, requested, nil
+}
+
+// resolveKeyMaterial returns decrypted PEM key material from cache (hit) or
+// via AES-GCM decrypt (miss), for the given value at the given version. For
+// PKCS#11 keys the material is the raw token handle and caching is skipped
+// entirely. On a cache hit, handle contains the decrypted PEM string stored
+// earlier. The cache key is (key.ID, version) — using the real resolved
+// version, not a hardcoded constant, is required for correctness once more
+// than one version can be resolved per key: a hardcoded key would serve one
+// version's material for a different version's request.
+func (s *cryptoService) resolveKeyMaterial(key *model.Key, value string, version int) (
 	handle string,
 	isPKCS11 bool,
 	cacheHit bool,
 	err error,
 ) {
 	// PKCS#11 keys store the token handle directly; never cache them.
-	if strings.HasPrefix(key.Value, pkcs11Prefix) {
-		handle = strings.TrimPrefix(key.Value, pkcs11Prefix)
+	if strings.HasPrefix(value, pkcs11Prefix) {
+		handle = strings.TrimPrefix(value, pkcs11Prefix)
 		isPKCS11 = true
 		return
 	}
 
-	// Check cache using keyID and version 0 (model.Key has no version field).
-	if entry, ok := s.keyCache.Get(key.ID, 0); ok {
+	// Check cache using keyID and the real resolved version.
+	if entry, ok := s.keyCache.Get(key.ID, version); ok {
 		if pemKey, ok := entry.PrivateKey.(keycache.PEMKey); ok {
 			handle = pemKey.PEM
 			cacheHit = true
@@ -217,17 +267,17 @@ func (s *cryptoService) resolveKeyMaterial(key *model.Key) (
 	}
 
 	// Cache miss: AES-GCM decrypt the stored PEM.
-	decrypted, decErr := common.DecryptSecret(key.Value)
+	decrypted, decErr := common.DecryptSecret(value)
 	if decErr != nil {
 		err = fmt.Errorf("failed to decrypt key: %w", decErr)
 		return
 	}
 
 	// Store decrypted PEM in cache for subsequent calls.
-	s.keyCache.Set(key.ID, 0, &keycache.Entry{
+	s.keyCache.Set(key.ID, version, &keycache.Entry{
 		PrivateKey: keycache.PEMKey{PEM: decrypted},
 		KeyType:    key.Type,
-		Version:    0,
+		Version:    version,
 	})
 
 	handle = decrypted
@@ -360,7 +410,12 @@ func (s *cryptoService) Sign(ctx context.Context, req SignRequest) (*SignResult,
 		return nil, err
 	}
 
-	handle, isPKCS11, cacheHit, err := s.resolveKeyMaterial(key)
+	value, resolvedVersion, err := s.resolveVersionValue(ctx, key, req.Version)
+	if err != nil {
+		s.logger.LogAuditError(req.UserID.String(), "sign", "failed", "Failed to resolve key version", err)
+		return nil, err
+	}
+	handle, isPKCS11, cacheHit, err := s.resolveKeyMaterial(key, value, resolvedVersion)
 	if err != nil {
 		s.logger.LogAuditError(req.UserID.String(), "sign", "failed", "Failed to resolve key handle", err)
 		return nil, err
@@ -404,6 +459,7 @@ func (s *cryptoService) Sign(ctx context.Context, req SignRequest) (*SignResult,
 		Algorithm: req.Algorithm,
 		Digest:    digest,
 		KeyID:     req.KeyID,
+		Version:   resolvedVersion,
 	}, nil
 }
 
@@ -416,7 +472,12 @@ func (s *cryptoService) Verify(ctx context.Context, req VerifyRequest) (*VerifyR
 		return nil, err
 	}
 
-	handle, isPKCS11, cacheHit, err := s.resolveKeyMaterial(key)
+	value, resolvedVersion, err := s.resolveVersionValue(ctx, key, req.Version)
+	if err != nil {
+		s.logger.LogAuditError(req.UserID.String(), "verify", "failed", "Failed to resolve key version", err)
+		return nil, err
+	}
+	handle, isPKCS11, cacheHit, err := s.resolveKeyMaterial(key, value, resolvedVersion)
 	if err != nil {
 		s.logger.LogAuditError(req.UserID.String(), "verify", "failed", "Failed to resolve key handle", err)
 		return nil, err
@@ -461,6 +522,7 @@ func (s *cryptoService) Verify(ctx context.Context, req VerifyRequest) (*VerifyR
 		Valid:     valid,
 		Algorithm: req.Algorithm,
 		KeyID:     req.KeyID,
+		Version:   resolvedVersion,
 	}, nil
 }
 
@@ -473,7 +535,12 @@ func (s *cryptoService) Encrypt(ctx context.Context, req EncryptRequest) (*Encry
 		return nil, err
 	}
 
-	handle, isPKCS11, cacheHit, err := s.resolveKeyMaterial(key)
+	value, resolvedVersion, err := s.resolveVersionValue(ctx, key, req.Version)
+	if err != nil {
+		s.logger.LogAuditError(req.UserID.String(), "encrypt", "failed", "Failed to resolve key version", err)
+		return nil, err
+	}
+	handle, isPKCS11, cacheHit, err := s.resolveKeyMaterial(key, value, resolvedVersion)
 	if err != nil {
 		s.logger.LogAuditError(req.UserID.String(), "encrypt", "failed", "Failed to resolve key handle", err)
 		return nil, err
@@ -514,6 +581,7 @@ func (s *cryptoService) Encrypt(ctx context.Context, req EncryptRequest) (*Encry
 		Algorithm:  req.Algorithm,
 		Nonce:      nonce,
 		KeyID:      req.KeyID,
+		Version:    resolvedVersion,
 	}, nil
 }
 
@@ -526,7 +594,12 @@ func (s *cryptoService) Decrypt(ctx context.Context, req DecryptRequest) (*Decry
 		return nil, err
 	}
 
-	handle, isPKCS11, cacheHit, err := s.resolveKeyMaterial(key)
+	value, resolvedVersion, err := s.resolveVersionValue(ctx, key, req.Version)
+	if err != nil {
+		s.logger.LogAuditError(req.UserID.String(), "decrypt", "failed", "Failed to resolve key version", err)
+		return nil, err
+	}
+	handle, isPKCS11, cacheHit, err := s.resolveKeyMaterial(key, value, resolvedVersion)
 	if err != nil {
 		s.logger.LogAuditError(req.UserID.String(), "decrypt", "failed", "Failed to resolve key handle", err)
 		return nil, err
@@ -565,6 +638,7 @@ func (s *cryptoService) Decrypt(ctx context.Context, req DecryptRequest) (*Decry
 		Plaintext: plaintext,
 		Algorithm: req.Algorithm,
 		KeyID:     req.KeyID,
+		Version:   resolvedVersion,
 	}, nil
 }
 
@@ -588,7 +662,12 @@ func (s *cryptoService) WrapKey(ctx context.Context, req WrapKeyRequest) (*WrapK
 		return nil, err
 	}
 
-	wrapHandle, wrapIsPKCS11, cacheHit, err := s.resolveKeyMaterial(key)
+	value, resolvedVersion, err := s.resolveVersionValue(ctx, key, req.Version)
+	if err != nil {
+		s.logger.LogAuditError(req.UserID.String(), "wrap_key", "failed", "Failed to resolve key version", err)
+		return nil, err
+	}
+	wrapHandle, wrapIsPKCS11, cacheHit, err := s.resolveKeyMaterial(key, value, resolvedVersion)
 	if err != nil {
 		s.logger.LogAuditError(req.UserID.String(), "wrap_key", "failed", "failed to resolve vault key handle", err)
 		return nil, err
@@ -629,7 +708,7 @@ func (s *cryptoService) WrapKey(ctx context.Context, req WrapKeyRequest) (*WrapK
 	}
 	s.logger.LogAuditInfo(req.UserID.String(), "wrap_key", "success",
 		fmt.Sprintf("key material wrapped with vault key %s", req.KeyID))
-	return &WrapKeyResult{WrappedKey: wrappedKey, Algorithm: req.Algorithm}, nil
+	return &WrapKeyResult{WrappedKey: wrappedKey, Algorithm: req.Algorithm, Version: resolvedVersion}, nil
 }
 
 // UnwrapKey decrypts wrapped key material using RSA-OAEP, RSA-OAEP-256, AES-KW,
@@ -652,7 +731,12 @@ func (s *cryptoService) UnwrapKey(ctx context.Context, req UnwrapKeyRequest) (*U
 		return nil, err
 	}
 
-	unwrapHandle, unwrapIsPKCS11, cacheHit, err := s.resolveKeyMaterial(key)
+	value, resolvedVersion, err := s.resolveVersionValue(ctx, key, req.Version)
+	if err != nil {
+		s.logger.LogAuditError(req.UserID.String(), "unwrap_key", "failed", "Failed to resolve key version", err)
+		return nil, err
+	}
+	unwrapHandle, unwrapIsPKCS11, cacheHit, err := s.resolveKeyMaterial(key, value, resolvedVersion)
 	if err != nil {
 		s.logger.LogAuditError(req.UserID.String(), "unwrap_key", "failed", "failed to resolve vault key handle", err)
 		return nil, err
@@ -693,5 +777,5 @@ func (s *cryptoService) UnwrapKey(ctx context.Context, req UnwrapKeyRequest) (*U
 	}
 	s.logger.LogAuditInfo(req.UserID.String(), "unwrap_key", "success",
 		fmt.Sprintf("key material unwrapped with vault key %s", req.KeyID))
-	return &UnwrapKeyResult{PlaintextKey: plaintext, Algorithm: req.Algorithm}, nil
+	return &UnwrapKeyResult{PlaintextKey: plaintext, Algorithm: req.Algorithm, Version: resolvedVersion}, nil
 }

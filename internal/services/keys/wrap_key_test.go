@@ -63,6 +63,7 @@ func TestWrapAndUnwrapKey(t *testing.T) {
 
 	repo := mocks.NewMockKeyRepositoryInterface(t)
 	repo.On("Read", mock.Anything, keyID, model.NewOwnerScope(uuid.Nil, userID)).Return(vaultKey, nil)
+	repo.On("ListVersions", mock.Anything, keyID, userID).Return(nil, nil)
 
 	svc := keys.NewCryptoService(keys.CryptoServiceConfig{
 		KeyRepository: repo,
@@ -107,6 +108,7 @@ func TestWrapAndUnwrapKey_OAEP256(t *testing.T) {
 
 	repo := mocks.NewMockKeyRepositoryInterface(t)
 	repo.On("Read", mock.Anything, keyID, model.NewOwnerScope(uuid.Nil, userID)).Return(vaultKey, nil)
+	repo.On("ListVersions", mock.Anything, keyID, userID).Return(nil, nil)
 
 	svc := keys.NewCryptoService(keys.CryptoServiceConfig{
 		KeyRepository: repo,

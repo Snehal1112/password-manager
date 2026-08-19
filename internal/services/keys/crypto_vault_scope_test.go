@@ -94,6 +94,18 @@ func newCryptoVaultScopeFixture(t *testing.T, vaultID, ownerID, keyID uuid.UUID)
 		PRIMARY KEY (key_id, tag)
 	)`)
 	require.NoError(t, err)
+	// key_versions is required by KeyRepository.ListVersions, which
+	// CryptoService now calls on every crypto operation to resolve the
+	// current version number (Task 2, key-version-addressability). Schema
+	// mirrors internal/db/db.go's migration.
+	_, err = sqlDB.Exec(`CREATE TABLE IF NOT EXISTS key_versions (
+		key_id TEXT NOT NULL,
+		version INTEGER NOT NULL,
+		value TEXT NOT NULL,
+		created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+		PRIMARY KEY (key_id, version)
+	)`)
+	require.NoError(t, err)
 
 	logger := &logging.Logger{Logger: logrus.New()}
 	keyRepo := repositories.NewKeyRepository(rvdb.NewConn(sqlDB, rvdb.SQLite), logger)
