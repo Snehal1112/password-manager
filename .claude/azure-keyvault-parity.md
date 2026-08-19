@@ -38,7 +38,7 @@ vaults). RocketVault columns are sourced from the codebase (`api/`, `internal/`,
 |---|---|---|---|
 | Create key | ✅ | ✅ `POST /keys` | ✅ |
 | Import key | ✅ (JWK) | ❌ no import route — `ActionKeysImport` is declared in `model/azure_roles.go` and granted to Crypto Officer/Administrator, but no path maps to it in `MapRouteToDataAction` | ❌ |
-| Get / List / List versions | ✅ | ✅ `GET /keys`, `/keys/{id}`, `/keys/{id}/versions`, and now `/keys/{id}/versions/{version}` (added 2026-08-19, § B26) for one version's metadata — versions stay metadata-only over this route (`model.KeyVersion` deliberately omits `Value`), matching Azure's own read shape; a version's material is reached indirectly, by passing `version` to sign/verify/encrypt/decrypt/wrap/unwrap (see the Rotate row below), not by reading it back raw | ✅ |
+| Get / List / List versions | ✅ (`GET /keys/{name}/{version}` returns the version's public JWK — `n`/`e` for RSA, `x`/`y`/`crv` for EC) | ✅ `GET /keys`, `/keys/{id}`, `/keys/{id}/versions`, and now `/keys/{id}/versions/{version}` (added 2026-08-19, § B26) for one version's metadata — but the response is `model.KeyVersion{KeyID, Version, CreatedAt}` only, no public JWK components at all, thinner than even the current-key `GET /keys/{id}` (which does emit them via `buildKeyResponse`); a version's public key material is reached only indirectly, by passing `version` to sign/verify/encrypt/decrypt/wrap/unwrap (see the Rotate row below), never by reading it back directly | 🟡 (route now exists, closing the missing-route gap, but it's bookkeeping-only — no public JWK — unlike Azure's real response) |
 | Update (attributes) | ✅ | ✅ `PUT /keys/{id}` | ✅ |
 | Delete (soft) | ✅ | ✅ `DELETE /keys/{id}` | ✅ |
 | Rotate (new version) | ✅ | 🟡 `POST /keys/{id}/rotate` — `KeyService.RotateKey` still archives the old material into `key_versions` and overwrites `keys.value` in place (RSA/ECDSA/ES256K only; OCT has no branch), but old versions are no longer a dead end: all six crypto operations (`sign`/`verify`/`encrypt`/`decrypt`/`wrap`/`unwrap`) now accept an optional `version` field and resolve to the matching `key_versions` row, so data encrypted or signed before a rotation is usable again over REST (fixed 2026-08-19, `.claude/known-bugs.md` § B26). `GET /keys/{id}/versions/{version}` also now exists for reading one version's metadata. The one gap left open: the CLI (`rocketvault keys verify`, `cmd/keys/verify.go`) has no `--version` flag — it still only verifies against the current version; REST is the only way to address an archived version today | 🟡 (full REST parity; CLI `--version` fast-follow not yet done) |
@@ -401,10 +401,14 @@ Azure's own eight-role grant allow-list, closed 2026-08-18, see §6).
   material into `key_versions` and overwrites `keys.value` in place), but they
   are no longer a dead end: all six crypto operations
   (sign/verify/encrypt/decrypt/wrap/unwrap) now accept an optional `version`
-  field and can address any archived version, and `GET
-  /keys/{id}/versions/{version}` reads one version's metadata directly —
-  pre-rotation ciphertexts and signatures are usable again over REST, matching
-  Azure's model. Still open: the CLI (`rocketvault keys verify`) has no
+  field and can address any archived version — pre-rotation ciphertexts and
+  signatures are usable again over REST, matching Azure's model. The new `GET
+  /keys/{id}/versions/{version}` route closes the missing-route gap for
+  reading a version back, but only for bookkeeping metadata
+  (`model.KeyVersion{KeyID, Version, CreatedAt}`); unlike Azure's real
+  `GET /keys/{name}/{version}`, it returns no public JWK, so a version's
+  public key is still only reachable indirectly via a crypto op with
+  `version` set. Still open: the CLI (`rocketvault keys verify`) has no
   `--version` flag, so the fix is REST-only for now. Key backup/restore is
   still registered on the flat routes only (404s on the vault-scoped path) and
   is still additionally owner-gated on top of the RBAC check, but a backed-up
