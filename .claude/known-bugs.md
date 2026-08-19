@@ -1240,6 +1240,61 @@ archived `key_versions` rows, encrypted material and all, orphaned in the
 database. Both are candidates for their own future entries here if they need
 to be addressed.
 
+### B27 — Rotation policy's `expiry_days` lifetime action was stored but never acted on
+
+**Status**: Partially fixed
+**Severity**: Low — a documented, non-functioning policy field, not a
+security or data-loss issue; an operator configuring `expiry_days` got no
+error, just silent non-enforcement
+**Files**: `internal/services/keys/key_service.go`,
+`internal/services/keys/keys_edge_test.go`
+
+**Root cause**: `UpsertKeyRotationPolicy` (`api/key_rotation_policy.go` →
+`internal/services/keys/key_service.go`) persisted and echoed back both
+`expiry_days` and `notify_before_expiry_days`, but `RotateKey` never read
+either — `Key.ExpiresAt` was left exactly as it was before rotation, forever,
+regardless of what a policy's `expiry_days` said. Azure's Notify lifetime
+action has two halves: stamping an expiration on the rotated version, and
+sending a near-expiry notification. Neither had any implementation behind it.
+Found via `.claude/azure-keyvault-parity.md` §2's "Get/Set rotation policy" row.
+
+**What was fixed** (commit `1161fa5`): `RotateKey` now looks up the key's
+rotation policy via the already-injected `policyRepo` and, if the policy is
+`Enabled` with `ExpiryDays > 0`, stamps `existing.ExpiresAt = now +
+ExpiryDays` before the existing `KeyRepository.Update` call — no new
+repository method needed, since `Update`'s SQL already writes `expires_at`
+(`UpdateKey` already lets callers set it directly). Applies uniformly to
+every rotation, scheduled or manual, since both paths go through the same
+`RotateKey`. `policyRepo` is nil-guarded (most `keyService` test instances,
+and any future minimally-constructed caller, don't set it — matches the
+existing `vaultRepo` optional-dependency convention already used in
+`PurgeKey`), and a key with no policy configured — the common case — rotates
+exactly as before. A genuine repository error during the policy lookup (not
+"no policy configured", which is `sql.ErrNoRows` and expected) fails the
+whole rotation rather than silently skipping the stamp.
+
+**Deliberately not fixed — a separate, larger effort**:
+`notify_before_expiry_days` (the actual near-expiry *notification*) is
+untouched. RocketVault has no notification delivery mechanism anywhere in the
+codebase — `internal/services/secrets/scheduler_service.go`'s `sendReminder`
+is a logging-only placeholder (its own comment: "In a real implementation,
+this would send email/SMS notifications"), and
+`internal/services/secrets/expiration_service.go`'s `ExpirationService` is
+unwired, unreachable dead code (`NewExpirationService` is never called from
+`internal/container/` or any `cmd/` bootstrap). Building real delivery (at
+minimum a generic webhook) is RocketVault's own roadmap item — see
+`.claude/roadmap-azure-parity-and-beyond.md`'s Phase 3 "native
+webhook/notification system" entry — and was explicitly scoped out of the
+original rotation-scheduler work for the same reason
+(`docs/superpowers/specs/2026-08-18-rotation-policy-scheduler-design.md`
+§11). Tracked as its own future design/plan, not a follow-up here.
+
+**Also out of scope**: secrets. `model.RotationPolicy` (the secrets-side
+policy) has no `expiry_days` field at all — only `ReminderDays`/`AutoRotate`,
+an entirely separate, non-shared schema from keys' `KeyRotationPolicy`.
+Adding secret-side expiry stamping would be a schema change and its own
+decision, not implied by this fix.
+
 ---
 
 ## Deferred Refactors
