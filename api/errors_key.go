@@ -29,6 +29,8 @@ func writeKeyError(c *Context, err error) {
 		c.SetPermissionError("key has purge protection enabled (directly or via its vault)")
 	case errors.Is(err, crypto.ErrUnsupportedCurve):
 		c.SetInvalidParam("curve: " + err.Error())
+	case errors.Is(err, repositories.ErrKeyVersionNotFound):
+		c.SetNotFound("key version")
 	default:
 		c.SetInternalError(err)
 	}

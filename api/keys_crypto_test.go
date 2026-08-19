@@ -738,6 +738,62 @@ func TestDecryptKey_RevokedKey_Returns403(t *testing.T) {
 
 // --- uuid parsing guard (invalid key_id) ---
 
+// --- version threading tests ---
+
+func TestSignKey_ThreadsVersionAndEchoesResolvedVersion(t *testing.T) {
+	svc := &stubCryptoSvc{
+		signFn: func(_ context.Context, req keyServices.SignRequest) (*keyServices.SignResult, error) {
+			assert.Equal(t, 1, req.Version)
+			return &keyServices.SignResult{
+				Signature: []byte("sig"),
+				Algorithm: crypto.SignatureAlgorithm("RS256"),
+				Version:   1,
+			}, nil
+		},
+	}
+
+	c := newCryptoContext(svc)
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest(http.MethodPost, "/", jsonBody(t, map[string]any{
+		"value":     base64.StdEncoding.EncodeToString([]byte("hello")),
+		"algorithm": "RS256",
+		"version":   1,
+	}))
+
+	signKey(c, w, r)
+	if c.Err != nil {
+		writeError(w, c)
+	}
+
+	require.Equal(t, http.StatusOK, w.Code)
+	var resp SignKeyResponse
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
+	assert.Equal(t, 1, resp.Version)
+}
+
+func TestSignKey_VersionNotFound_Returns404(t *testing.T) {
+	svc := &stubCryptoSvc{
+		signFn: func(_ context.Context, _ keyServices.SignRequest) (*keyServices.SignResult, error) {
+			return nil, repositories.ErrKeyVersionNotFound
+		},
+	}
+
+	c := newCryptoContext(svc)
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest(http.MethodPost, "/", jsonBody(t, map[string]any{
+		"value":     base64.StdEncoding.EncodeToString([]byte("hello")),
+		"algorithm": "RS256",
+		"version":   9,
+	}))
+
+	signKey(c, w, r)
+	if c.Err != nil {
+		writeError(w, c)
+	}
+
+	assert.Equal(t, http.StatusNotFound, w.Code)
+}
+
 func TestSignKey_InvalidKeyID_Returns400(t *testing.T) {
 	c := &Context{
 		Params: &ApiParams{KeyID: "not-a-uuid"},

@@ -95,39 +95,45 @@ type KeyListResponse struct {
 
 // WrapKeyRequest is the HTTP request body for POST /keys/{key_id}/wrap.
 type WrapKeyRequest struct {
-	PlaintextKey string `json:"plaintext_key"` // base64-encoded key material.
-	Algorithm    string `json:"algorithm"`     // defaults to "RSA-OAEP".
+	PlaintextKey string `json:"plaintext_key"`     // base64-encoded key material.
+	Algorithm    string `json:"algorithm"`         // defaults to "RSA-OAEP".
+	Version      int    `json:"version,omitempty"` // 0 = current
 }
 
 // WrapKeyResponse is the HTTP response for a successful wrap.
 type WrapKeyResponse struct {
 	WrappedKey string `json:"wrapped_key"` // base64-encoded wrapped bytes.
 	Algorithm  string `json:"algorithm"`
+	Version    int    `json:"version"` // the version actually used
 }
 
 // UnwrapKeyRequest is the HTTP request body for POST /keys/{key_id}/unwrap.
 type UnwrapKeyRequest struct {
-	WrappedKey string `json:"wrapped_key"` // base64-encoded wrapped bytes.
-	Algorithm  string `json:"algorithm"`   // defaults to "RSA-OAEP".
+	WrappedKey string `json:"wrapped_key"`       // base64-encoded wrapped bytes.
+	Algorithm  string `json:"algorithm"`         // defaults to "RSA-OAEP".
+	Version    int    `json:"version,omitempty"` // 0 = current
 }
 
 // UnwrapKeyResponse is the HTTP response for a successful unwrap.
 type UnwrapKeyResponse struct {
 	PlaintextKey string `json:"plaintext_key"` // base64-encoded recovered key.
 	Algorithm    string `json:"algorithm"`
+	Version      int    `json:"version"` // the version actually used
 }
 
 // SignKeyRequest is the HTTP request body for POST /keys/{key_id}/sign.
 type SignKeyRequest struct {
-	Value     string `json:"value"`     // base64-encoded data to sign
-	Algorithm string `json:"algorithm"` // RS256, RS384, RS512, PS256, PS384, PS512, ES256, ES384, ES512
+	Value     string `json:"value"`             // base64-encoded data to sign
+	Algorithm string `json:"algorithm"`         // RS256, RS384, RS512, PS256, PS384, PS512, ES256, ES384, ES512
+	Version   int    `json:"version,omitempty"` // 0 = current
 }
 
 // SignKeyResponse is the HTTP response for a successful sign.
 type SignKeyResponse struct {
 	KeyID     string `json:"key_id"`
 	Algorithm string `json:"algorithm"`
-	Value     string `json:"value"` // base64-encoded signature
+	Value     string `json:"value"`   // base64-encoded signature
+	Version   int    `json:"version"` // the version actually used
 }
 
 // VerifyKeyRequest is the HTTP request body for POST /keys/{key_id}/verify.
@@ -135,6 +141,7 @@ type VerifyKeyRequest struct {
 	Value     string `json:"value"`     // base64-encoded original data
 	Signature string `json:"signature"` // base64-encoded signature
 	Algorithm string `json:"algorithm"`
+	Version   int    `json:"version,omitempty"` // 0 = current
 }
 
 // VerifyKeyResponse is the HTTP response for a verify operation.
@@ -142,12 +149,14 @@ type VerifyKeyResponse struct {
 	KeyID     string `json:"key_id"`
 	Algorithm string `json:"algorithm"`
 	Valid     bool   `json:"valid"`
+	Version   int    `json:"version"` // the version actually used
 }
 
 // EncryptKeyRequest is the HTTP request body for POST /keys/{key_id}/encrypt.
 type EncryptKeyRequest struct {
-	Value     string `json:"value"`     // base64-encoded plaintext
-	Algorithm string `json:"algorithm"` // RSA-OAEP, RSA-OAEP-256, AES256-GCM
+	Value     string `json:"value"`             // base64-encoded plaintext
+	Algorithm string `json:"algorithm"`         // RSA-OAEP, RSA-OAEP-256, AES256-GCM
+	Version   int    `json:"version,omitempty"` // 0 = current
 }
 
 // EncryptKeyResponse is the HTTP response for a successful encrypt.
@@ -156,6 +165,7 @@ type EncryptKeyResponse struct {
 	Algorithm string `json:"algorithm"`
 	Value     string `json:"value"`           // base64-encoded ciphertext
 	Nonce     string `json:"nonce,omitempty"` // base64-encoded, for AES-GCM
+	Version   int    `json:"version"`         // the version actually used
 }
 
 // DecryptKeyRequest is the HTTP request body for POST /keys/{key_id}/decrypt.
@@ -163,13 +173,15 @@ type DecryptKeyRequest struct {
 	Value     string `json:"value"`           // base64-encoded ciphertext
 	Nonce     string `json:"nonce,omitempty"` // base64-encoded, for AES-GCM
 	Algorithm string `json:"algorithm"`
+	Version   int    `json:"version,omitempty"` // 0 = current
 }
 
 // DecryptKeyResponse is the HTTP response for a successful decrypt.
 type DecryptKeyResponse struct {
 	KeyID     string `json:"key_id"`
 	Algorithm string `json:"algorithm"`
-	Value     string `json:"value"` // base64-encoded plaintext
+	Value     string `json:"value"`   // base64-encoded plaintext
+	Version   int    `json:"version"` // the version actually used
 }
 
 // buildKeyResponse converts a model.Key to a KeyResponse.
@@ -677,6 +689,7 @@ func wrapKey(c *Context, w http.ResponseWriter, r *http.Request) {
 		Scope:        scope,
 		PlaintextKey: plaintextBytes,
 		Algorithm:    req.Algorithm,
+		Version:      req.Version,
 	})
 	if err != nil {
 		switch {
@@ -688,6 +701,8 @@ func wrapKey(c *Context, w http.ResponseWriter, r *http.Request) {
 			c.SetPermissionError("key is disabled or outside its valid time window")
 		case errors.Is(err, keyservices.ErrUnsupportedAlgorithm):
 			c.SetInvalidParam("algorithm")
+		case errors.Is(err, repositories.ErrKeyVersionNotFound):
+			c.SetNotFound("key version")
 		default:
 			c.SetInternalError(err)
 		}
@@ -698,6 +713,7 @@ func wrapKey(c *Context, w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(WrapKeyResponse{ //nolint:errcheck,gosec
 		WrappedKey: base64.StdEncoding.EncodeToString(result.WrappedKey),
 		Algorithm:  result.Algorithm,
+		Version:    result.Version,
 	})
 }
 
@@ -745,6 +761,7 @@ func unwrapKey(c *Context, w http.ResponseWriter, r *http.Request) {
 		Scope:      scope,
 		WrappedKey: wrappedBytes,
 		Algorithm:  req.Algorithm,
+		Version:    req.Version,
 	})
 	if err != nil {
 		switch {
@@ -756,6 +773,8 @@ func unwrapKey(c *Context, w http.ResponseWriter, r *http.Request) {
 			c.SetPermissionError("key is disabled or outside its valid time window")
 		case errors.Is(err, keyservices.ErrUnsupportedAlgorithm):
 			c.SetInvalidParam("algorithm")
+		case errors.Is(err, repositories.ErrKeyVersionNotFound):
+			c.SetNotFound("key version")
 		default:
 			c.SetInternalError(err)
 		}
@@ -766,6 +785,7 @@ func unwrapKey(c *Context, w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(UnwrapKeyResponse{ //nolint:errcheck,gosec
 		PlaintextKey: base64.StdEncoding.EncodeToString(result.PlaintextKey),
 		Algorithm:    result.Algorithm,
+		Version:      result.Version,
 	})
 }
 
@@ -813,6 +833,7 @@ func signKey(c *Context, w http.ResponseWriter, r *http.Request) {
 		UserID:    scope.ActorID(),
 		VaultID:   scope.VaultID(),
 		Scope:     scope,
+		Version:   req.Version,
 	})
 	if err != nil {
 		switch {
@@ -824,6 +845,8 @@ func signKey(c *Context, w http.ResponseWriter, r *http.Request) {
 			c.SetPermissionError("key is disabled or outside its valid time window")
 		case errors.Is(err, keyservices.ErrUnsupportedAlgorithm):
 			c.SetInvalidParam("algorithm")
+		case errors.Is(err, repositories.ErrKeyVersionNotFound):
+			c.SetNotFound("key version")
 		default:
 			c.SetInternalError(err)
 		}
@@ -835,6 +858,7 @@ func signKey(c *Context, w http.ResponseWriter, r *http.Request) {
 		KeyID:     keyID.String(),
 		Algorithm: string(result.Algorithm),
 		Value:     base64.StdEncoding.EncodeToString(result.Signature),
+		Version:   result.Version,
 	})
 }
 
@@ -885,6 +909,7 @@ func verifyKey(c *Context, w http.ResponseWriter, r *http.Request) {
 		UserID:    scope.ActorID(),
 		VaultID:   scope.VaultID(),
 		Scope:     scope,
+		Version:   req.Version,
 	})
 	if err != nil {
 		switch {
@@ -896,6 +921,8 @@ func verifyKey(c *Context, w http.ResponseWriter, r *http.Request) {
 			c.SetPermissionError("key is disabled or outside its valid time window")
 		case errors.Is(err, keyservices.ErrUnsupportedAlgorithm):
 			c.SetInvalidParam("algorithm")
+		case errors.Is(err, repositories.ErrKeyVersionNotFound):
+			c.SetNotFound("key version")
 		default:
 			c.SetInternalError(err)
 		}
@@ -907,6 +934,7 @@ func verifyKey(c *Context, w http.ResponseWriter, r *http.Request) {
 		KeyID:     keyID.String(),
 		Algorithm: string(result.Algorithm),
 		Valid:     result.Valid,
+		Version:   result.Version,
 	})
 }
 
@@ -954,6 +982,7 @@ func encryptKey(c *Context, w http.ResponseWriter, r *http.Request) {
 		UserID:    scope.ActorID(),
 		VaultID:   scope.VaultID(),
 		Scope:     scope,
+		Version:   req.Version,
 	})
 	if err != nil {
 		switch {
@@ -965,6 +994,8 @@ func encryptKey(c *Context, w http.ResponseWriter, r *http.Request) {
 			c.SetPermissionError("key is disabled or outside its valid time window")
 		case errors.Is(err, keyservices.ErrUnsupportedAlgorithm):
 			c.SetInvalidParam("algorithm")
+		case errors.Is(err, repositories.ErrKeyVersionNotFound):
+			c.SetNotFound("key version")
 		default:
 			c.SetInternalError(err)
 		}
@@ -975,6 +1006,7 @@ func encryptKey(c *Context, w http.ResponseWriter, r *http.Request) {
 		KeyID:     keyID.String(),
 		Algorithm: string(result.Algorithm),
 		Value:     base64.StdEncoding.EncodeToString(result.Ciphertext),
+		Version:   result.Version,
 	}
 	if len(result.Nonce) > 0 {
 		resp.Nonce = base64.StdEncoding.EncodeToString(result.Nonce)
@@ -1035,6 +1067,7 @@ func decryptKey(c *Context, w http.ResponseWriter, r *http.Request) {
 		UserID:     scope.ActorID(),
 		VaultID:    scope.VaultID(),
 		Scope:      scope,
+		Version:    req.Version,
 	})
 	if err != nil {
 		switch {
@@ -1046,6 +1079,8 @@ func decryptKey(c *Context, w http.ResponseWriter, r *http.Request) {
 			c.SetPermissionError("key is disabled or outside its valid time window")
 		case errors.Is(err, keyservices.ErrUnsupportedAlgorithm):
 			c.SetInvalidParam("algorithm")
+		case errors.Is(err, repositories.ErrKeyVersionNotFound):
+			c.SetNotFound("key version")
 		default:
 			c.SetInternalError(err)
 		}
@@ -1057,5 +1092,6 @@ func decryptKey(c *Context, w http.ResponseWriter, r *http.Request) {
 		KeyID:     keyID.String(),
 		Algorithm: string(result.Algorithm),
 		Value:     base64.StdEncoding.EncodeToString(result.Plaintext),
+		Version:   result.Version,
 	})
 }
