@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"context"
 	"database/sql"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -16,6 +17,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
+	"github.com/stretchr/testify/require"
 
 	"rocketvault/app"
 	rvconfig "rocketvault/config"
@@ -1087,6 +1089,37 @@ func TestWrapKey_MissingPlaintext_Returns400(t *testing.T) {
 	}
 
 	assert.Equal(t, http.StatusBadRequest, w.Code)
+}
+
+func TestWrapKey_AES256CBC_Success_Returns200(t *testing.T) {
+	wrapped := []byte("wrapped-cbc-ciphertext")
+	svc := &stubCryptoSvc{
+		wrapKeyFn: func(_ context.Context, req keyServices.WrapKeyRequest) (*keyServices.WrapKeyResult, error) {
+			assert.Equal(t, testKeyIDStr, req.KeyID.String())
+			assert.Equal(t, "A256CBC", req.Algorithm)
+			assert.Equal(t, []byte("plaintext key material"), req.PlaintextKey)
+			return &keyServices.WrapKeyResult{WrappedKey: wrapped, Algorithm: "A256CBC"}, nil
+		},
+	}
+
+	c := newCryptoContext(svc)
+	c.Params = &ApiParams{KeyID: testKeyIDStr, PerPage: 60}
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest(http.MethodPost, "/keys/"+testKeyIDStr+"/wrap", jsonBody(t, map[string]any{
+		"plaintext_key": base64.StdEncoding.EncodeToString([]byte("plaintext key material")),
+		"algorithm":     "A256CBC",
+	}))
+
+	wrapKey(c, w, r)
+	if c.Err != nil {
+		writeError(w, c)
+	}
+
+	require.Equal(t, http.StatusOK, w.Code)
+	var resp WrapKeyResponse
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
+	assert.Equal(t, base64.StdEncoding.EncodeToString(wrapped), resp.WrappedKey)
+	assert.Equal(t, "A256CBC", resp.Algorithm)
 }
 
 // ============================================================

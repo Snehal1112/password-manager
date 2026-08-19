@@ -66,10 +66,12 @@ import (
 
 // stubCryptoSvc is a minimal stub of keyServices.CryptoService for handler tests.
 type stubCryptoSvc struct {
-	signFn    func(ctx context.Context, req keyServices.SignRequest) (*keyServices.SignResult, error)
-	verifyFn  func(ctx context.Context, req keyServices.VerifyRequest) (*keyServices.VerifyResult, error)
-	encryptFn func(ctx context.Context, req keyServices.EncryptRequest) (*keyServices.EncryptResult, error)
-	decryptFn func(ctx context.Context, req keyServices.DecryptRequest) (*keyServices.DecryptResult, error)
+	signFn      func(ctx context.Context, req keyServices.SignRequest) (*keyServices.SignResult, error)
+	verifyFn    func(ctx context.Context, req keyServices.VerifyRequest) (*keyServices.VerifyResult, error)
+	encryptFn   func(ctx context.Context, req keyServices.EncryptRequest) (*keyServices.EncryptResult, error)
+	decryptFn   func(ctx context.Context, req keyServices.DecryptRequest) (*keyServices.DecryptResult, error)
+	wrapKeyFn   func(ctx context.Context, req keyServices.WrapKeyRequest) (*keyServices.WrapKeyResult, error)
+	unwrapKeyFn func(ctx context.Context, req keyServices.UnwrapKeyRequest) (*keyServices.UnwrapKeyResult, error)
 }
 
 func (s *stubCryptoSvc) Sign(ctx context.Context, req keyServices.SignRequest) (*keyServices.SignResult, error) {
@@ -85,9 +87,15 @@ func (s *stubCryptoSvc) Decrypt(ctx context.Context, req keyServices.DecryptRequ
 	return s.decryptFn(ctx, req)
 }
 func (s *stubCryptoSvc) WrapKey(ctx context.Context, req keyServices.WrapKeyRequest) (*keyServices.WrapKeyResult, error) {
+	if s.wrapKeyFn != nil {
+		return s.wrapKeyFn(ctx, req)
+	}
 	return nil, errors.New("not implemented")
 }
 func (s *stubCryptoSvc) UnwrapKey(ctx context.Context, req keyServices.UnwrapKeyRequest) (*keyServices.UnwrapKeyResult, error) {
+	if s.unwrapKeyFn != nil {
+		return s.unwrapKeyFn(ctx, req)
+	}
 	return nil, errors.New("not implemented")
 }
 
