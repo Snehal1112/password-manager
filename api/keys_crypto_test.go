@@ -70,6 +70,11 @@ type stubCryptoSvc struct {
 	verifyFn  func(ctx context.Context, req keyServices.VerifyRequest) (*keyServices.VerifyResult, error)
 	encryptFn func(ctx context.Context, req keyServices.EncryptRequest) (*keyServices.EncryptResult, error)
 	decryptFn func(ctx context.Context, req keyServices.DecryptRequest) (*keyServices.DecryptResult, error)
+	// wrapFn/unwrapFn are optional; when nil the operation reports
+	// "not implemented", which is how every pre-existing test in this file
+	// used this stub.
+	wrapFn   func(ctx context.Context, req keyServices.WrapKeyRequest) (*keyServices.WrapKeyResult, error)
+	unwrapFn func(ctx context.Context, req keyServices.UnwrapKeyRequest) (*keyServices.UnwrapKeyResult, error)
 }
 
 func (s *stubCryptoSvc) Sign(ctx context.Context, req keyServices.SignRequest) (*keyServices.SignResult, error) {
@@ -85,10 +90,16 @@ func (s *stubCryptoSvc) Decrypt(ctx context.Context, req keyServices.DecryptRequ
 	return s.decryptFn(ctx, req)
 }
 func (s *stubCryptoSvc) WrapKey(ctx context.Context, req keyServices.WrapKeyRequest) (*keyServices.WrapKeyResult, error) {
-	return nil, errors.New("not implemented")
+	if s.wrapFn == nil {
+		return nil, errors.New("not implemented")
+	}
+	return s.wrapFn(ctx, req)
 }
 func (s *stubCryptoSvc) UnwrapKey(ctx context.Context, req keyServices.UnwrapKeyRequest) (*keyServices.UnwrapKeyResult, error) {
-	return nil, errors.New("not implemented")
+	if s.unwrapFn == nil {
+		return nil, errors.New("not implemented")
+	}
+	return s.unwrapFn(ctx, req)
 }
 
 // --- minimal mock service container ---
@@ -832,4 +843,213 @@ func TestSignKey_NilContainer_Returns500(t *testing.T) {
 	}
 
 	assert.Equal(t, http.StatusInternalServerError, w.Code)
+}
+
+// TestCryptoHandlers_ThreadVersionAndEchoResolvedVersion covers the five
+// crypto handlers that have no dedicated version test of their own (signKey's
+// is above): each must decode "version" from the request body, pass it to the
+// service, and echo the service's resolved version back in the response.
+func TestCryptoHandlers_ThreadVersionAndEchoResolvedVersion(t *testing.T) {
+	const requestedVersion = 3
+
+	cases := []struct {
+		name    string
+		svc     *stubCryptoSvc
+		body    map[string]any
+		handler func(c *Context, w http.ResponseWriter, r *http.Request)
+		// version extracts the "version" field from the handler's response body.
+		version func(t *testing.T, body []byte) int
+	}{
+		{
+			name: "verifyKey",
+			svc: &stubCryptoSvc{
+				verifyFn: func(_ context.Context, req keyServices.VerifyRequest) (*keyServices.VerifyResult, error) {
+					assert.Equal(t, requestedVersion, req.Version)
+					return &keyServices.VerifyResult{Valid: true, Algorithm: "RS256", Version: req.Version}, nil
+				},
+			},
+			body: map[string]any{
+				"value":     base64.StdEncoding.EncodeToString([]byte("hello")),
+				"signature": base64.StdEncoding.EncodeToString([]byte("sig")),
+				"algorithm": "RS256",
+				"version":   requestedVersion,
+			},
+			handler: verifyKey,
+			version: func(t *testing.T, body []byte) int {
+				var resp VerifyKeyResponse
+				require.NoError(t, json.Unmarshal(body, &resp))
+				return resp.Version
+			},
+		},
+		{
+			name: "encryptKey",
+			svc: &stubCryptoSvc{
+				encryptFn: func(_ context.Context, req keyServices.EncryptRequest) (*keyServices.EncryptResult, error) {
+					assert.Equal(t, requestedVersion, req.Version)
+					return &keyServices.EncryptResult{Ciphertext: []byte("ct"), Algorithm: "RSA-OAEP", Version: req.Version}, nil
+				},
+			},
+			body: map[string]any{
+				"value":     base64.StdEncoding.EncodeToString([]byte("hello")),
+				"algorithm": "RSA-OAEP",
+				"version":   requestedVersion,
+			},
+			handler: encryptKey,
+			version: func(t *testing.T, body []byte) int {
+				var resp EncryptKeyResponse
+				require.NoError(t, json.Unmarshal(body, &resp))
+				return resp.Version
+			},
+		},
+		{
+			name: "decryptKey",
+			svc: &stubCryptoSvc{
+				decryptFn: func(_ context.Context, req keyServices.DecryptRequest) (*keyServices.DecryptResult, error) {
+					assert.Equal(t, requestedVersion, req.Version)
+					return &keyServices.DecryptResult{Plaintext: []byte("pt"), Algorithm: "RSA-OAEP", Version: req.Version}, nil
+				},
+			},
+			body: map[string]any{
+				"value":     base64.StdEncoding.EncodeToString([]byte("ct")),
+				"algorithm": "RSA-OAEP",
+				"version":   requestedVersion,
+			},
+			handler: decryptKey,
+			version: func(t *testing.T, body []byte) int {
+				var resp DecryptKeyResponse
+				require.NoError(t, json.Unmarshal(body, &resp))
+				return resp.Version
+			},
+		},
+		{
+			name: "wrapKey",
+			svc: &stubCryptoSvc{
+				wrapFn: func(_ context.Context, req keyServices.WrapKeyRequest) (*keyServices.WrapKeyResult, error) {
+					assert.Equal(t, requestedVersion, req.Version)
+					return &keyServices.WrapKeyResult{WrappedKey: []byte("wrapped"), Algorithm: "RSA-OAEP", Version: req.Version}, nil
+				},
+			},
+			body: map[string]any{
+				"plaintext_key": base64.StdEncoding.EncodeToString([]byte("dek")),
+				"algorithm":     "RSA-OAEP",
+				"version":       requestedVersion,
+			},
+			handler: wrapKey,
+			version: func(t *testing.T, body []byte) int {
+				var resp WrapKeyResponse
+				require.NoError(t, json.Unmarshal(body, &resp))
+				return resp.Version
+			},
+		},
+		{
+			name: "unwrapKey",
+			svc: &stubCryptoSvc{
+				unwrapFn: func(_ context.Context, req keyServices.UnwrapKeyRequest) (*keyServices.UnwrapKeyResult, error) {
+					assert.Equal(t, requestedVersion, req.Version)
+					return &keyServices.UnwrapKeyResult{PlaintextKey: []byte("dek"), Algorithm: "RSA-OAEP", Version: req.Version}, nil
+				},
+			},
+			body: map[string]any{
+				"wrapped_key": base64.StdEncoding.EncodeToString([]byte("wrapped")),
+				"algorithm":   "RSA-OAEP",
+				"version":     requestedVersion,
+			},
+			handler: unwrapKey,
+			version: func(t *testing.T, body []byte) int {
+				var resp UnwrapKeyResponse
+				require.NoError(t, json.Unmarshal(body, &resp))
+				return resp.Version
+			},
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			c := newCryptoContext(tc.svc)
+			w := httptest.NewRecorder()
+			r := httptest.NewRequest(http.MethodPost, "/", jsonBody(t, tc.body))
+
+			tc.handler(c, w, r)
+			if c.Err != nil {
+				writeError(w, c)
+			}
+
+			require.Equal(t, http.StatusOK, w.Code, w.Body.String())
+			assert.Equal(t, requestedVersion, tc.version(t, w.Body.Bytes()))
+		})
+	}
+}
+
+// TestCryptoHandlers_VersionNotFound_Return404 covers the same five handlers'
+// repositories.ErrKeyVersionNotFound branch, which must map to 404 rather
+// than the generic 500 fallthrough (signKey's equivalent is above).
+func TestCryptoHandlers_VersionNotFound_Return404(t *testing.T) {
+	versionNotFound := repositories.ErrKeyVersionNotFound
+
+	cases := []struct {
+		name    string
+		svc     *stubCryptoSvc
+		body    map[string]any
+		handler func(c *Context, w http.ResponseWriter, r *http.Request)
+	}{
+		{
+			name: "verifyKey",
+			svc: &stubCryptoSvc{verifyFn: func(context.Context, keyServices.VerifyRequest) (*keyServices.VerifyResult, error) {
+				return nil, versionNotFound
+			}},
+			body: map[string]any{
+				"value":     base64.StdEncoding.EncodeToString([]byte("hello")),
+				"signature": base64.StdEncoding.EncodeToString([]byte("sig")),
+				"version":   9,
+			},
+			handler: verifyKey,
+		},
+		{
+			name: "encryptKey",
+			svc: &stubCryptoSvc{encryptFn: func(context.Context, keyServices.EncryptRequest) (*keyServices.EncryptResult, error) {
+				return nil, versionNotFound
+			}},
+			body:    map[string]any{"value": base64.StdEncoding.EncodeToString([]byte("hello")), "version": 9},
+			handler: encryptKey,
+		},
+		{
+			name: "decryptKey",
+			svc: &stubCryptoSvc{decryptFn: func(context.Context, keyServices.DecryptRequest) (*keyServices.DecryptResult, error) {
+				return nil, versionNotFound
+			}},
+			body:    map[string]any{"value": base64.StdEncoding.EncodeToString([]byte("ct")), "version": 9},
+			handler: decryptKey,
+		},
+		{
+			name: "wrapKey",
+			svc: &stubCryptoSvc{wrapFn: func(context.Context, keyServices.WrapKeyRequest) (*keyServices.WrapKeyResult, error) {
+				return nil, versionNotFound
+			}},
+			body:    map[string]any{"plaintext_key": base64.StdEncoding.EncodeToString([]byte("dek")), "version": 9},
+			handler: wrapKey,
+		},
+		{
+			name: "unwrapKey",
+			svc: &stubCryptoSvc{unwrapFn: func(context.Context, keyServices.UnwrapKeyRequest) (*keyServices.UnwrapKeyResult, error) {
+				return nil, versionNotFound
+			}},
+			body:    map[string]any{"wrapped_key": base64.StdEncoding.EncodeToString([]byte("wrapped")), "version": 9},
+			handler: unwrapKey,
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			c := newCryptoContext(tc.svc)
+			w := httptest.NewRecorder()
+			r := httptest.NewRequest(http.MethodPost, "/", jsonBody(t, tc.body))
+
+			tc.handler(c, w, r)
+			if c.Err != nil {
+				writeError(w, c)
+			}
+
+			assert.Equal(t, http.StatusNotFound, w.Code, w.Body.String())
+		})
+	}
 }
