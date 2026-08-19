@@ -3,6 +3,7 @@ package keys
 
 import (
 	"context"
+	"database/sql"
 	"encoding/base64"
 	"errors"
 	"testing"
@@ -332,6 +333,224 @@ func TestRotateKey_ES256KKey(t *testing.T) {
 	result, err := svc.RotateKey(context.Background(), keyID, model.NewOwnerScope(uuid.Nil, ownerID))
 	require.NoError(t, err)
 	assert.Equal(t, keyID, result.KeyID)
+}
+
+// ─── RotateKey — expiry_days stamping ───────────────────────────────────────
+
+// TestRotateKey_StampsExpiryFromPolicy verifies that an enabled policy with
+// ExpiryDays > 0 stamps ExpiresAt on the key at rotation time.
+func TestRotateKey_StampsExpiryFromPolicy(t *testing.T) {
+	setupMasterKey(t)
+
+	repo := &mockKeyRepository{}
+	policyRepo := new(mockKeyPolicyRepo)
+	keyID := uuid.New()
+	ownerID := uuid.New()
+	scope := model.NewOwnerScope(uuid.Nil, ownerID)
+
+	existingEncrypted, _ := common.EncryptSecret("rsa-key-material")
+	repo.On("Read", mock.Anything, keyID, scope).Return(
+		&model.Key{ID: keyID, UserID: ownerID, Type: model.KeyTypeRSA, Bits: 2048, Value: existingEncrypted, Name: "rsa-key"},
+		nil,
+	)
+	repo.On("ListVersions", mock.Anything, keyID, ownerID).Return([]model.KeyVersion{}, nil)
+	repo.On("CreateVersion", mock.Anything, keyID, 1, existingEncrypted).Return(nil)
+	repo.On("CreateVersion", mock.Anything, keyID, 2, mock.AnythingOfType("string")).Return(nil)
+
+	policyRepo.On("GetByKeyID", mock.Anything, keyID, scope).Return(
+		&model.KeyRotationPolicy{KeyID: keyID, Enabled: true, ExpiryDays: 30}, nil,
+	)
+
+	before := time.Now().UTC()
+	var captured *model.Key
+	repo.On("Update", mock.Anything, mock.MatchedBy(func(k *model.Key) bool {
+		captured = k
+		return k.ExpiresAt != nil
+	}), scope).Return(nil)
+
+	softwareProvider := crypto.NewSoftwareKeyProvider()
+	svc := &keyService{keyRepo: repo, policyRepo: policyRepo, logger: testLogger(), keyProvider: softwareProvider}
+	_, err := svc.RotateKey(context.Background(), keyID, scope)
+	require.NoError(t, err)
+	repo.AssertExpectations(t)
+	policyRepo.AssertExpectations(t)
+
+	require.NotNil(t, captured)
+	require.NotNil(t, captured.ExpiresAt)
+	wantMin := before.AddDate(0, 0, 30)
+	wantMax := time.Now().UTC().AddDate(0, 0, 30)
+	assert.False(t, captured.ExpiresAt.Before(wantMin), "ExpiresAt too early")
+	assert.False(t, captured.ExpiresAt.After(wantMax), "ExpiresAt too late")
+}
+
+// TestRotateKey_NoPolicyDoesNotStampExpiry verifies that a key with no
+// rotation policy configured (the common case) rotates exactly as before —
+// ExpiresAt is left untouched.
+func TestRotateKey_NoPolicyDoesNotStampExpiry(t *testing.T) {
+	setupMasterKey(t)
+
+	repo := &mockKeyRepository{}
+	policyRepo := new(mockKeyPolicyRepo)
+	keyID := uuid.New()
+	ownerID := uuid.New()
+	scope := model.NewOwnerScope(uuid.Nil, ownerID)
+
+	existingEncrypted, _ := common.EncryptSecret("rsa-key-material")
+	repo.On("Read", mock.Anything, keyID, scope).Return(
+		&model.Key{ID: keyID, UserID: ownerID, Type: model.KeyTypeRSA, Bits: 2048, Value: existingEncrypted, Name: "rsa-key"},
+		nil,
+	)
+	repo.On("ListVersions", mock.Anything, keyID, ownerID).Return([]model.KeyVersion{}, nil)
+	repo.On("CreateVersion", mock.Anything, keyID, 1, existingEncrypted).Return(nil)
+	repo.On("CreateVersion", mock.Anything, keyID, 2, mock.AnythingOfType("string")).Return(nil)
+
+	policyRepo.On("GetByKeyID", mock.Anything, keyID, scope).Return(nil, sql.ErrNoRows)
+
+	repo.On("Update", mock.Anything, mock.MatchedBy(func(k *model.Key) bool {
+		return k.ExpiresAt == nil
+	}), scope).Return(nil)
+
+	softwareProvider := crypto.NewSoftwareKeyProvider()
+	svc := &keyService{keyRepo: repo, policyRepo: policyRepo, logger: testLogger(), keyProvider: softwareProvider}
+	_, err := svc.RotateKey(context.Background(), keyID, scope)
+	require.NoError(t, err)
+	repo.AssertExpectations(t)
+	policyRepo.AssertExpectations(t)
+}
+
+// TestRotateKey_DisabledPolicyDoesNotStamp verifies that a disabled policy's
+// ExpiryDays is not applied.
+func TestRotateKey_DisabledPolicyDoesNotStamp(t *testing.T) {
+	setupMasterKey(t)
+
+	repo := &mockKeyRepository{}
+	policyRepo := new(mockKeyPolicyRepo)
+	keyID := uuid.New()
+	ownerID := uuid.New()
+	scope := model.NewOwnerScope(uuid.Nil, ownerID)
+
+	existingEncrypted, _ := common.EncryptSecret("rsa-key-material")
+	repo.On("Read", mock.Anything, keyID, scope).Return(
+		&model.Key{ID: keyID, UserID: ownerID, Type: model.KeyTypeRSA, Bits: 2048, Value: existingEncrypted, Name: "rsa-key"},
+		nil,
+	)
+	repo.On("ListVersions", mock.Anything, keyID, ownerID).Return([]model.KeyVersion{}, nil)
+	repo.On("CreateVersion", mock.Anything, keyID, 1, existingEncrypted).Return(nil)
+	repo.On("CreateVersion", mock.Anything, keyID, 2, mock.AnythingOfType("string")).Return(nil)
+
+	policyRepo.On("GetByKeyID", mock.Anything, keyID, scope).Return(
+		&model.KeyRotationPolicy{KeyID: keyID, Enabled: false, ExpiryDays: 30}, nil,
+	)
+
+	repo.On("Update", mock.Anything, mock.MatchedBy(func(k *model.Key) bool {
+		return k.ExpiresAt == nil
+	}), scope).Return(nil)
+
+	softwareProvider := crypto.NewSoftwareKeyProvider()
+	svc := &keyService{keyRepo: repo, policyRepo: policyRepo, logger: testLogger(), keyProvider: softwareProvider}
+	_, err := svc.RotateKey(context.Background(), keyID, scope)
+	require.NoError(t, err)
+	repo.AssertExpectations(t)
+	policyRepo.AssertExpectations(t)
+}
+
+// TestRotateKey_ZeroExpiryDaysDoesNotStamp verifies that an enabled policy
+// with ExpiryDays == 0 (no expiry lifetime action configured) does not stamp.
+func TestRotateKey_ZeroExpiryDaysDoesNotStamp(t *testing.T) {
+	setupMasterKey(t)
+
+	repo := &mockKeyRepository{}
+	policyRepo := new(mockKeyPolicyRepo)
+	keyID := uuid.New()
+	ownerID := uuid.New()
+	scope := model.NewOwnerScope(uuid.Nil, ownerID)
+
+	existingEncrypted, _ := common.EncryptSecret("rsa-key-material")
+	repo.On("Read", mock.Anything, keyID, scope).Return(
+		&model.Key{ID: keyID, UserID: ownerID, Type: model.KeyTypeRSA, Bits: 2048, Value: existingEncrypted, Name: "rsa-key"},
+		nil,
+	)
+	repo.On("ListVersions", mock.Anything, keyID, ownerID).Return([]model.KeyVersion{}, nil)
+	repo.On("CreateVersion", mock.Anything, keyID, 1, existingEncrypted).Return(nil)
+	repo.On("CreateVersion", mock.Anything, keyID, 2, mock.AnythingOfType("string")).Return(nil)
+
+	policyRepo.On("GetByKeyID", mock.Anything, keyID, scope).Return(
+		&model.KeyRotationPolicy{KeyID: keyID, Enabled: true, ExpiryDays: 0, RotateAfterDays: 90}, nil,
+	)
+
+	repo.On("Update", mock.Anything, mock.MatchedBy(func(k *model.Key) bool {
+		return k.ExpiresAt == nil
+	}), scope).Return(nil)
+
+	softwareProvider := crypto.NewSoftwareKeyProvider()
+	svc := &keyService{keyRepo: repo, policyRepo: policyRepo, logger: testLogger(), keyProvider: softwareProvider}
+	_, err := svc.RotateKey(context.Background(), keyID, scope)
+	require.NoError(t, err)
+	repo.AssertExpectations(t)
+	policyRepo.AssertExpectations(t)
+}
+
+// TestRotateKey_PolicyLookupErrorFailsRotation verifies that a genuine
+// repository error during policy lookup (not "no policy configured") aborts
+// the rotation rather than silently skipping the stamp.
+func TestRotateKey_PolicyLookupErrorFailsRotation(t *testing.T) {
+	setupMasterKey(t)
+
+	repo := &mockKeyRepository{}
+	policyRepo := new(mockKeyPolicyRepo)
+	keyID := uuid.New()
+	ownerID := uuid.New()
+	scope := model.NewOwnerScope(uuid.Nil, ownerID)
+
+	existingEncrypted, _ := common.EncryptSecret("rsa-key-material")
+	repo.On("Read", mock.Anything, keyID, scope).Return(
+		&model.Key{ID: keyID, UserID: ownerID, Type: model.KeyTypeRSA, Bits: 2048, Value: existingEncrypted, Name: "rsa-key"},
+		nil,
+	)
+	repo.On("ListVersions", mock.Anything, keyID, ownerID).Return([]model.KeyVersion{}, nil)
+	repo.On("CreateVersion", mock.Anything, keyID, 1, existingEncrypted).Return(nil)
+	repo.On("CreateVersion", mock.Anything, keyID, 2, mock.AnythingOfType("string")).Return(nil)
+
+	policyRepo.On("GetByKeyID", mock.Anything, keyID, scope).Return(nil, errors.New("db connection lost"))
+
+	softwareProvider := crypto.NewSoftwareKeyProvider()
+	svc := &keyService{keyRepo: repo, policyRepo: policyRepo, logger: testLogger(), keyProvider: softwareProvider}
+	_, err := svc.RotateKey(context.Background(), keyID, scope)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "rotation policy")
+	repo.AssertNotCalled(t, "Update", mock.Anything, mock.Anything, mock.Anything)
+	policyRepo.AssertExpectations(t)
+}
+
+// TestRotateKey_NilPolicyRepoDoesNotStamp verifies that a keyService
+// constructed without a policyRepo (as most existing tests in this file do)
+// rotates successfully without attempting a lookup — matching the existing
+// optional-dependency convention already used for vaultRepo in PurgeKey.
+func TestRotateKey_NilPolicyRepoDoesNotStamp(t *testing.T) {
+	setupMasterKey(t)
+
+	repo := &mockKeyRepository{}
+	keyID := uuid.New()
+	ownerID := uuid.New()
+	scope := model.NewOwnerScope(uuid.Nil, ownerID)
+
+	existingEncrypted, _ := common.EncryptSecret("rsa-key-material")
+	repo.On("Read", mock.Anything, keyID, scope).Return(
+		&model.Key{ID: keyID, UserID: ownerID, Type: model.KeyTypeRSA, Bits: 2048, Value: existingEncrypted, Name: "rsa-key"},
+		nil,
+	)
+	repo.On("ListVersions", mock.Anything, keyID, ownerID).Return([]model.KeyVersion{}, nil)
+	repo.On("CreateVersion", mock.Anything, keyID, 1, existingEncrypted).Return(nil)
+	repo.On("CreateVersion", mock.Anything, keyID, 2, mock.AnythingOfType("string")).Return(nil)
+	repo.On("Update", mock.Anything, mock.MatchedBy(func(k *model.Key) bool {
+		return k.ExpiresAt == nil
+	}), scope).Return(nil)
+
+	softwareProvider := crypto.NewSoftwareKeyProvider()
+	svc := &keyService{keyRepo: repo, logger: testLogger(), keyProvider: softwareProvider}
+	_, err := svc.RotateKey(context.Background(), keyID, scope)
+	require.NoError(t, err)
+	repo.AssertExpectations(t)
 }
 
 // ─── CryptoService error paths ───────────────────────────────────────────────

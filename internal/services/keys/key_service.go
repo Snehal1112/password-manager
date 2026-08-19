@@ -890,6 +890,27 @@ func (s *keyService) RotateKey(ctx context.Context, keyID uuid.UUID, scope model
 		return nil, fmt.Errorf("create new key version: %w", err)
 	}
 
+	// Apply the rotation policy's expiry_days lifetime action, if
+	// configured: stamp ExpiresAt on every rotation (scheduled or manual),
+	// matching Azure's expiryTime, which governs the version a rotation
+	// produces regardless of what triggered it. policyRepo is optional
+	// (nil in some minimally-constructed test/service instances, matching
+	// the vaultRepo convention in PurgeKey); most keys also simply have no
+	// policy configured, which is the common case, not an error.
+	if s.policyRepo != nil {
+		policy, err := s.policyRepo.GetByKeyID(ctx, keyID, scope)
+		switch {
+		case err == nil && policy.Enabled && policy.ExpiryDays > 0:
+			expiresAt := time.Now().UTC().AddDate(0, 0, policy.ExpiryDays)
+			existing.ExpiresAt = &expiresAt
+		case errors.Is(err, sql.ErrNoRows):
+			// No policy configured for this key -- nothing to stamp.
+		case err != nil:
+			s.logger.LogAuditError(userID.String(), "rotate_key", "failed", "rotation policy lookup failed", err)
+			return nil, fmt.Errorf("rotate key: look up rotation policy: %w", err)
+		}
+	}
+
 	// Update the key's active value in place, repeating the scope predicate
 	// that authorized the read.
 	existing.Value = encryptedNew
