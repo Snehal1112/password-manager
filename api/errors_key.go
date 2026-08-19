@@ -29,6 +29,13 @@ func writeKeyError(c *Context, err error) {
 		c.SetPermissionError("key has purge protection enabled (directly or via its vault)")
 	case errors.Is(err, crypto.ErrUnsupportedCurve):
 		c.SetInvalidParam("curve: " + err.Error())
+	case errors.Is(err, crypto.ErrUnsupportedAlgorithm):
+		// The provider-side twin of keyservices.ErrUnsupportedAlgorithm: an HSM
+		// that rejects a mechanism (AES-CBC, AES-GCM, ...) surfaces here via
+		// isHSMCapabilityError. Without this case it would fall through to a
+		// 500 carrying the raw PKCS#11 error, the same leak B24/B25 closed for
+		// the curve case above.
+		c.SetInvalidParam("algorithm: " + err.Error())
 	default:
 		c.SetInternalError(err)
 	}

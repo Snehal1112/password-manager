@@ -613,6 +613,62 @@ func TestEncryptKey_UnsupportedAlgorithm_Returns400(t *testing.T) {
 	assert.Equal(t, http.StatusBadRequest, w.Code)
 }
 
+// TestEncryptKey_HSMRejectsAlgorithm_Returns400 pins the algorithm-side twin of
+// the B24/B25 curve bug. crypto.ErrUnsupportedAlgorithm — what
+// isHSMCapabilityError degrades a real HSM's mechanism rejection to — is a
+// different Go error value than keyServices.ErrUnsupportedAlgorithm, so before
+// this case was added it fell through to SetInternalError: a 500 with the raw
+// PKCS#11 error in detailed_error.
+func TestEncryptKey_HSMRejectsAlgorithm_Returns400(t *testing.T) {
+	svc := &stubCryptoSvc{
+		encryptFn: func(_ context.Context, _ keyServices.EncryptRequest) (*keyServices.EncryptResult, error) {
+			return nil, fmt.Errorf("encryption failed: %w: AES-CBC (rejected by HSM)", crypto.ErrUnsupportedAlgorithm)
+		},
+	}
+
+	c := newCryptoContext(svc)
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest(http.MethodPost, "/", jsonBody(t, map[string]any{
+		"value":     base64.StdEncoding.EncodeToString([]byte("data")),
+		"algorithm": "A256CBC",
+	}))
+
+	encryptKey(c, w, r)
+	if c.Err != nil {
+		writeError(w, c)
+	}
+
+	require.Equal(t, http.StatusBadRequest, w.Code)
+	assert.NotContains(t, w.Body.String(), "rejected by HSM")
+	assert.NotContains(t, w.Body.String(), "PKCS#11")
+}
+
+// TestDecryptKey_HSMRejectsAlgorithm_Returns400 mirrors the encrypt case: the
+// decrypt handler has its own error switch, so it needs its own coverage.
+func TestDecryptKey_HSMRejectsAlgorithm_Returns400(t *testing.T) {
+	svc := &stubCryptoSvc{
+		decryptFn: func(_ context.Context, _ keyServices.DecryptRequest) (*keyServices.DecryptResult, error) {
+			return nil, fmt.Errorf("decryption failed: %w: AES256-GCM (rejected by HSM)", crypto.ErrUnsupportedAlgorithm)
+		},
+	}
+
+	c := newCryptoContext(svc)
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest(http.MethodPost, "/", jsonBody(t, map[string]any{
+		"value":     base64.StdEncoding.EncodeToString([]byte("ct")),
+		"algorithm": "A256GCM",
+	}))
+
+	decryptKey(c, w, r)
+	if c.Err != nil {
+		writeError(w, c)
+	}
+
+	require.Equal(t, http.StatusBadRequest, w.Code)
+	assert.NotContains(t, w.Body.String(), "rejected by HSM")
+	assert.NotContains(t, w.Body.String(), "PKCS#11")
+}
+
 // --- decryptKey tests ---
 
 func TestDecryptKey_Success(t *testing.T) {
