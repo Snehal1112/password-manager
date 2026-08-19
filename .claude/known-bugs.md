@@ -1065,6 +1065,59 @@ affected. Key rotation reuses the existing key's stored curve
 
 ---
 
+### B25 — `POST /keys` with `curve: "P-256K"` leaked an uncaught 500 on HSM-enabled instances
+
+**Status**: Fixed
+**Severity**: Medium — an information-disclosure-adjacent error-handling gap
+(a raw internal error string reached the client) rather than a capability
+gap; HSM-backed P-256K key creation was never actually supported and still
+isn't — only the failure mode was wrong
+**File**: `api/keys.go`, `api/errors_key.go`
+
+**Root cause**: A direct follow-up to B24. Once `ValidateKeyCreate` allowed
+`P-256K` through (B24's fix), `POST /keys {"curve":"P-256K"}` on an
+HSM-enabled instance (`hsm.enabled: true`, this repo's own configured
+default) reached `KeyService.CreateECDSAKey` → `PKCS11KeyProvider
+.GenerateECDSAKey`, which correctly returns `crypto.ErrUnsupportedCurve`
+(`internal/crypto/pkcs11_provider.go`'s `ecOID` map has no P-256K entry — no
+PKCS#11 mechanism exists for it). But `createKey`'s error switch
+(`api/keys.go`) only special-cased `crypto.ErrOctKeysRequireHSM` into a
+clean 400 — every other error, including this one, fell through to
+`c.SetInternalError(err)`, an uncaught HTTP 500 with the raw Go error text
+(`"failed to generate ECDSA key: curve not supported by PKCS#11 provider:
+P-256K"`) in the response body. The same `GenerateECDSAKey` call exists in
+`KeyService.RotateKey` for `ES256K` keys, reached via the shared
+`writeKeyError` helper (`api/errors_key.go`), which had the identical gap —
+currently unreachable in practice (an HSM instance can never create the
+P-256K key it would need to rotate), but the shared helper needed the same
+fix for correctness. Found via live end-to-end verification while following
+up on B24 against `.claude/azure-keyvault-parity.md` §3 — a unit test on the
+validator alone (B24's fix) would not have caught this, since it's a
+downstream error-mapping gap in a completely different file.
+
+**What was fixed**: Added a case for `crypto.ErrUnsupportedCurve` to both
+`createKey`'s error switch (`api/keys.go`) and the shared `writeKeyError`
+(`api/errors_key.go`), mapping it to a clean 400 with the message `curve: `
+plus the underlying error text — mirroring the existing
+`crypto.ErrOctKeysRequireHSM` precedent exactly. Added two regression tests:
+`TestCreateKey_ECDSA_P256K_NoHSMMechanism_Returns400` and
+`TestRotateKey_P256K_NoHSMMechanism_Returns400` (`api/keys_crud_test.go`),
+both reproducing the exact error value and wrapping the real service layer
+produces. HSM-backed P-256K key creation itself remains unsupported by
+design (no PKCS#11 mechanism exists) — this fix corrects only the failure
+mode, not the underlying capability gap.
+
+**Scope check performed**: grepped every `GenerateECDSAKey` call site (two:
+`CreateECDSAKey` and `RotateKey`, both in `KeyService`) and every consumer of
+their errors (`createKey`'s inline switch and `writeKeyError`, respectively)
+— both are now covered. `crypto.ErrUnsupportedAlgorithm`, a sibling PKCS#11
+sentinel for algorithm (not curve) mismatches, was checked separately and
+found to already be properly wrapped into a service-level
+`keyservices.ErrUnsupportedAlgorithm` and mapped to 400 in six handlers — no
+gap there.
+
+---
+
 ## Deferred Refactors
 
 Both items formerly tracked here (H3, M2) were re-investigated on 2026-08-14 and
