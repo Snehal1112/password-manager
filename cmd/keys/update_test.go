@@ -67,6 +67,13 @@ func (m *MockKeyServiceForUpdate) DeleteKeyRotationPolicy(ctx context.Context, k
 func (m *MockKeyServiceForUpdate) ListKeyVersions(ctx context.Context, keyID uuid.UUID, scope model.Scope) ([]model.KeyVersion, error) {
 	return nil, nil
 }
+func (m *MockKeyServiceForUpdate) GetKeyVersion(ctx context.Context, keyID uuid.UUID, version int, scope model.Scope) (*model.KeyVersion, error) {
+	args := m.Called(ctx, keyID, version, scope)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).(*model.KeyVersion), args.Error(1)
+}
 
 func TestUpdateKeyCommand_CallsServiceUpdate(t *testing.T) {
 	tc := testutils.NewTestContext(t)
