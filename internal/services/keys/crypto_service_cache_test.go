@@ -367,9 +367,10 @@ func TestUnwrapKey_HSMKey_RejectsAESKWSizeMismatch(t *testing.T) {
 	provider.AssertNotCalled(t, "Decrypt", mock.Anything)
 }
 
-// TestWrapKey_HSMKey_RejectsAES256CBC verifies AES-CBC stays rejected for
-// PKCS#11-backed keys — there is no PKCS#11 mechanism for it.
-func TestWrapKey_HSMKey_RejectsAES256CBC(t *testing.T) {
+// TestWrapKey_HSMKey_AllowsAES256CBC verifies AES-CBC now succeeds for
+// PKCS#11-backed keys, matching TestWrapKey_HSMKey_AllowsAES256KW's pattern
+// -- PKCS11KeyProvider implements CKM_AES_CBC_PAD (see the design spec).
+func TestWrapKey_HSMKey_AllowsAES256CBC(t *testing.T) {
 	t.Parallel()
 
 	keyID := uuid.New()
@@ -382,17 +383,22 @@ func TestWrapKey_HSMKey_RejectsAES256CBC(t *testing.T) {
 	repo.On("Read", mock.Anything, keyID, scope).Return(key, nil)
 	repo.On("ListVersions", mock.Anything, keyID, userID).Return(nil, nil)
 
+	provider := &mockKeyProvider{}
+	provider.On("Encrypt", "aes-label").Return([]byte("wrapped-cbc"), []byte("iv-bytes-1234567"), nil)
+
 	svc := keys.NewCryptoService(keys.CryptoServiceConfig{
 		KeyRepository: repo,
-		KeyProvider:   &mockKeyProvider{},
+		KeyProvider:   provider,
 		Logger:        &logging.Logger{Logger: logrus.New()},
 	})
 
-	_, err := svc.WrapKey(context.Background(), keys.WrapKeyRequest{
+	result, err := svc.WrapKey(context.Background(), keys.WrapKeyRequest{
 		KeyID: keyID, UserID: userID, Scope: scope,
 		PlaintextKey: []byte("plaintext"), Algorithm: "A256CBC",
 	})
-	assert.Error(t, err)
+	require.NoError(t, err)
+	assert.Equal(t, []byte("wrapped-cbc"), result.WrappedKey)
+	provider.AssertExpectations(t)
 }
 
 // TestNilCacheAndMetrics_DoNotPanic verifies that constructing a CryptoService
