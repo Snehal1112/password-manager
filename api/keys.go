@@ -249,6 +249,7 @@ func (api *API) registerKeyRoutes(k *mux.Router, scope string) {
 	// Additional operations.
 	k.Handle("/{key_id:[A-Fa-f0-9-]+}/rotate", ApiSessionRequired(api.App, rotateKey)).Methods("POST")
 	k.Handle("/{key_id:[A-Fa-f0-9-]+}/versions", ApiSessionRequired(api.App, listKeyVersions)).Methods("GET")
+	k.Handle("/{key_id:[A-Fa-f0-9-]+}/versions/{version:[0-9]+}", ApiSessionRequired(api.App, getKeyVersion)).Methods("GET")
 	k.Handle("/{key_id:[A-Fa-f0-9-]+}/wrap", ApiSessionRequired(api.App, wrapKey)).Methods("POST")
 	k.Handle("/{key_id:[A-Fa-f0-9-]+}/unwrap", ApiSessionRequired(api.App, unwrapKey)).Methods("POST")
 	k.Handle("/{key_id:[A-Fa-f0-9-]+}/sign", ApiSessionRequired(api.App, signKey)).Methods("POST")
@@ -643,6 +644,35 @@ func listKeyVersions(c *Context, w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]interface{}{"versions": versions}) //nolint:errcheck,gosec
+}
+
+// getKeyVersion retrieves metadata for one version of the vault key
+// identified by {key_id}. Never returns key material — see model.KeyVersion.
+func getKeyVersion(c *Context, w http.ResponseWriter, r *http.Request) {
+	keyID, err := uuid.Parse(c.Params.KeyID)
+	if err != nil {
+		c.SetInvalidParam("key_id")
+		return
+	}
+
+	keyService := c.keySvc()
+	if keyService == nil {
+		return
+	}
+
+	scope, ok := scopeFromRequest(c, r)
+	if !ok {
+		return
+	}
+
+	version, err := keyService.GetKeyVersion(r.Context(), keyID, c.Params.Version, scope)
+	if err != nil {
+		writeKeyError(c, err)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(version) //nolint:errcheck,gosec
 }
 
 // wrapKey wraps plaintext key material using the vault key identified by {key_id}.

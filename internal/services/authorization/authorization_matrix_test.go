@@ -57,6 +57,7 @@ var matrixOps = []matrixOp{
 	{"keys.delete", http.MethodDelete, "/api/v1/vaults/prod/keys/abc"},
 	{"keys.rotate", http.MethodPost, "/api/v1/vaults/prod/keys/abc/rotate"},
 	{"keys.listVersions", http.MethodGet, "/api/v1/vaults/prod/keys/abc/versions"},
+	{"keys.getVersion", http.MethodGet, "/api/v1/vaults/prod/keys/abc/versions/1"},
 	{"keys.sign", http.MethodPost, "/api/v1/vaults/prod/keys/abc/sign"},
 	{"keys.verify", http.MethodPost, "/api/v1/vaults/prod/keys/abc/verify"},
 	{"keys.encrypt", http.MethodPost, "/api/v1/vaults/prod/keys/abc/encrypt"},
@@ -99,7 +100,7 @@ var (
 	}
 	allKeyOps = []string{
 		"keys.list", "keys.get", "keys.create", "keys.update", "keys.delete",
-		"keys.rotate", "keys.listVersions", "keys.sign", "keys.verify",
+		"keys.rotate", "keys.listVersions", "keys.getVersion", "keys.sign", "keys.verify",
 		"keys.encrypt", "keys.decrypt", "keys.wrap", "keys.unwrap",
 		"keys.getRotationPolicy", "keys.setRotationPolicy",
 		"keys.backup", "keys.restore", "keys.listDeleted", "keys.getDeleted",
@@ -121,7 +122,7 @@ var matrixAllowed = map[string][]string{
 
 	model.RoleKeyVaultReader: {
 		"secrets.list", "secrets.listVersions", "secrets.listDeleted",
-		"keys.list", "keys.get", "keys.listVersions", "keys.listDeleted", "keys.getDeleted",
+		"keys.list", "keys.get", "keys.listVersions", "keys.getVersion", "keys.listDeleted", "keys.getDeleted",
 		"certs.list", "certs.get", "certs.getPolicy", "certs.listDeleted",
 	},
 
@@ -134,7 +135,7 @@ var matrixAllowed = map[string][]string{
 	model.RoleKeyVaultSecretsOfficer: allSecretOps,
 
 	model.RoleKeyVaultCryptoUser: {
-		"keys.list", "keys.get", "keys.listVersions", "keys.listDeleted", "keys.getDeleted",
+		"keys.list", "keys.get", "keys.listVersions", "keys.getVersion", "keys.listDeleted", "keys.getDeleted",
 		"keys.sign", "keys.verify", "keys.encrypt", "keys.decrypt",
 		"keys.wrap", "keys.unwrap", "keys.update", "keys.backup",
 	},
@@ -150,7 +151,7 @@ var matrixAllowed = map[string][]string{
 	},
 
 	model.RoleKeyVaultCryptoServiceEncryptionUser: {
-		"keys.list", "keys.get", "keys.listVersions", "keys.listDeleted", "keys.getDeleted",
+		"keys.list", "keys.get", "keys.listVersions", "keys.getVersion", "keys.listDeleted", "keys.getDeleted",
 		"keys.wrap", "keys.unwrap",
 	},
 
@@ -193,7 +194,7 @@ func TestAuthorizationMatrixCoversEveryOperation(t *testing.T) {
 		require.False(t, known[op.name], "duplicate operation %q", op.name)
 		known[op.name] = true
 	}
-	assert.Len(t, matrixOps, 50)
+	assert.Len(t, matrixOps, 51)
 
 	for role, names := range matrixAllowed {
 		for _, n := range names {
@@ -207,9 +208,9 @@ func TestAuthorizationMatrixCoversEveryOperation(t *testing.T) {
 func TestAuthorizationMatrixNoRoleGrantsEverythingButAdministrator(t *testing.T) {
 	for role, names := range matrixAllowed {
 		if role == model.RoleKeyVaultAdministrator {
-			assert.Len(t, names, 50)
+			assert.Len(t, names, 51)
 			continue
 		}
-		assert.Less(t, len(names), 50, "only Key Vault Administrator may grant every operation")
+		assert.Less(t, len(names), 51, "only Key Vault Administrator may grant every operation")
 	}
 }

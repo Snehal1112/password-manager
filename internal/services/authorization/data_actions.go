@@ -200,6 +200,10 @@ func mapKeyAction(method, rest string) (model.DataAction, RouteKind) {
 			}
 		}
 	}
+	if len(seg) == 3 && seg[1] == "versions" && method == http.MethodGet {
+		// A specific key version returns metadata only.
+		return model.ActionKeysRead, RouteVaultData
+	}
 	return "", RouteVaultData
 }
 

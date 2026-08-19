@@ -16,6 +16,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
+	"github.com/stretchr/testify/require"
 
 	"rocketvault/app"
 	rvconfig "rocketvault/config"
@@ -1060,6 +1061,53 @@ func TestListKeyVersions_UnauthorizedKeyIsNotFound(t *testing.T) {
 
 	assert.Equal(t, http.StatusNotFound, w.Code)
 	svc.AssertExpectations(t)
+}
+
+// ============================================================
+// getKeyVersion
+// ============================================================
+
+func TestGetKeyVersion_Success(t *testing.T) {
+	svc := &mockKeyService{}
+	keyID := uuid.New()
+	svc.On("GetKeyVersion", mock.Anything, keyID, 1, mock.Anything).
+		Return(&model.KeyVersion{KeyID: keyID, Version: 1}, nil)
+
+	c := newKeyCtx(svc)
+	c.Params.KeyID = keyID.String()
+	c.Params.Version = 1
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest(http.MethodGet, "/", nil)
+
+	getKeyVersion(c, w, r)
+	if c.Err != nil {
+		writeError(w, c)
+	}
+
+	require.Equal(t, http.StatusOK, w.Code)
+	var v model.KeyVersion
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &v))
+	assert.Equal(t, 1, v.Version)
+}
+
+func TestGetKeyVersion_NotFound_Returns404(t *testing.T) {
+	svc := &mockKeyService{}
+	keyID := uuid.New()
+	svc.On("GetKeyVersion", mock.Anything, keyID, 9, mock.Anything).
+		Return(nil, repositories.ErrKeyVersionNotFound)
+
+	c := newKeyCtx(svc)
+	c.Params.KeyID = keyID.String()
+	c.Params.Version = 9
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest(http.MethodGet, "/", nil)
+
+	getKeyVersion(c, w, r)
+	if c.Err != nil {
+		writeError(w, c)
+	}
+
+	assert.Equal(t, http.StatusNotFound, w.Code)
 }
 
 // ============================================================
