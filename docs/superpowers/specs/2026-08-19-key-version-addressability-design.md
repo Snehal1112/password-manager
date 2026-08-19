@@ -34,12 +34,23 @@ the repository/service/API layers, not a data-recovery or migration problem.
   (`internal/repositories/key_repository.go:702-724`) explicitly selects only
   `version, created_at` — its own doc comment says "Raw key material (value)
   is not returned." No method exists to fetch one version's value at all.
-- No crypto operation accepts a version. `SignRequest`/`VerifyRequest`/
-  `EncryptRequest`/`DecryptRequest` (`internal/services/keys/crypto_service.go:22-84`)
-  and `WrapKeyRequest`/`UnwrapKeyRequest` (`model/key.go:130-158`) have no
-  `Version` field; `cryptoService.loadAndAuthorize`
+- No crypto operation accepts a version. All six service-layer request types —
+  `SignRequest`/`VerifyRequest`/`EncryptRequest`/`DecryptRequest`/`WrapKeyRequest`/
+  `UnwrapKeyRequest` — live together in
+  `internal/services/keys/crypto_service.go:22-123` and none has a `Version`
+  field; `cryptoService.loadAndAuthorize`
   (`internal/services/keys/crypto_service.go:257`) always reads the current
-  row and every call site uses `key.Value` directly.
+  row and every call site uses `key.Value` directly. **Correction from an
+  earlier draft of this design:** the HTTP-facing request/response types for
+  all six operations also live together, in `api/keys.go:96-172`
+  (`WrapKeyRequest`/`WrapKeyResponse`/`UnwrapKeyRequest`/`UnwrapKeyResponse`
+  at `:96-119`, `SignKeyRequest` through `DecryptKeyResponse` at `:121-172`) —
+  not split across `model/key.go` as first written. `model/key.go` does
+  separately declare types named `WrapKeyRequest`/`WrapKeyResponse`/
+  `UnwrapKeyRequest`/`UnwrapKeyResponse` (`:130-158`), but `grep -rn
+  "model\.WrapKeyRequest\|model\.UnwrapKeyRequest"` returns no matches
+  anywhere in the tree — they are pre-existing dead code, unrelated to the
+  six live HTTP handlers, and this design does not touch them.
 - **HSM keys are not a blocker.** `RotateKey`
   (`internal/services/keys/key_service.go:783-888`) never calls any
   destroy/delete on the PKCS#11 provider — it only generates new material and
@@ -133,9 +144,12 @@ type KeyVersionRecord struct {
 
 `crypto_service.go`:
 
-- `SignRequest`, `VerifyRequest`, `EncryptRequest`, `DecryptRequest` gain
-  `Version int`. `WrapKeyRequest`/`UnwrapKeyRequest` (currently declared in
-  `model/key.go`, unlike the other four) gain the same field.
+- All six service-layer request types — `SignRequest`, `VerifyRequest`,
+  `EncryptRequest`, `DecryptRequest`, `WrapKeyRequest`, `UnwrapKeyRequest`
+  (all declared together in this file, `:22-123`) — gain `Version int`. Their
+  paired result types — `SignResult`, `VerifyResult`, `EncryptResult`,
+  `DecryptResult`, `WrapKeyResult`, `UnwrapKeyResult` (same file) — gain
+  `Version int` to carry the resolved version back to the API layer.
 - After `loadAndAuthorize` returns the authorized, lifecycle-checked key row
   (unchanged — authorization and revocation/enabled/expiry stay key-level, see
   the design-decisions table), a new helper resolves *material*:
@@ -166,9 +180,17 @@ type KeyVersionRecord struct {
   `resolveVersionValue` after `loadAndAuthorize`, thread `resolvedVersion`
   into `resolveKeyMaterial`, and return it in their result structs so the API
   layer can echo it in the response.
-- New sentinel `ErrKeyVersionNotFound`, alongside the package's existing
-  `ErrKeyNotFound`/`ErrKeyForbidden`/`ErrKeyRevoked`/`ErrKeyLifecycleDenied`/
-  `ErrUnsupportedAlgorithm` (`key_service.go:26-40`).
+- The new `repositories.ErrKeyVersionNotFound` sentinel (declared in the
+  repository, see section 1) propagates unwrapped from `resolveVersionValue`
+  — not re-wrapped into a `keyservices.Err*` sentinel. This matches the
+  existing precedent of `repositories.ErrKeyPurgeProtected`
+  (`internal/repositories/purge_protection_errors.go:12`), which likewise
+  reaches `writeKeyError` (`api/errors_key.go:26`) directly from the
+  repository layer with no service-layer wrapper. `loadAndAuthorize`'s own
+  wrapping of the *key* read's not-found case into `ErrKeyNotFound`
+  (`crypto_service.go:279-282`) is a separate, pre-existing pattern for a
+  different error — not a precedent to follow here, since a real precedent
+  for the unwrapped style already exists in this same package.
 
 `key_service.go`:
 
@@ -179,15 +201,25 @@ type KeyVersionRecord struct {
 
 ### 4. API layer (`api/keys.go`)
 
-- `SignKeyRequest`, `VerifyKeyRequest`, `EncryptKeyRequest`, `DecryptKeyRequest`
-  (declared in this file, `api/keys.go:121-172`) and `WrapKeyRequest`/
-  `UnwrapKeyRequest` (`model/key.go:130-158`) gain `Version int \`json:"version,omitempty"\``.
+- All six HTTP request types — `WrapKeyRequest`, `UnwrapKeyRequest`
+  (`api/keys.go:96-119`), `SignKeyRequest`, `VerifyKeyRequest`,
+  `EncryptKeyRequest`, `DecryptKeyRequest` (`:121-172`) — gain
+  `Version int \`json:"version,omitempty"\``. (Not `model/key.go`'s
+  identically-named `WrapKeyRequest`/`UnwrapKeyRequest` — see the correction
+  note in "Current state" above; those are dead code, untouched.)
 - `SignKeyResponse`, `VerifyKeyResponse`, `EncryptKeyResponse`,
   `DecryptKeyResponse`, `WrapKeyResponse`, `UnwrapKeyResponse` gain
   `Version int \`json:"version"\`` populated from the service result.
 - The six handlers (`signKey`, `verifyKey`, `encryptKey`, `decryptKey`,
   `wrapKey`, `unwrapKey`) thread `req.Version` into the service request and
-  add one new `switch` case: `errors.Is(err, keyservices.ErrKeyVersionNotFound) → c.SetNotFound("key version")`.
+  add one new `switch` case to each of their existing inline error switches:
+  `errors.Is(err, repositories.ErrKeyVersionNotFound) → c.SetNotFound("key version")`.
+  `api/keys.go` already imports `rocketvault/internal/repositories`
+  (`:37`), so no new import.
+- `writeKeyError` (`api/errors_key.go:20-32`, used by `listKeyVersions` and
+  the new `getKeyVersion` handler below, but not by the six crypto handlers,
+  which keep their own separate inline switches as today) gains the same new
+  case.
 - New handler `getKeyVersion`, registered alongside the existing
   `listKeyVersions` route (`api/keys.go:239`):
 
@@ -203,25 +235,48 @@ type KeyVersionRecord struct {
 
 ### 5. Backup/restore (`internal/backup/item_backup.go`)
 
-- New internal envelope type for keys specifically (secrets/certificates are
-  untouched — they have no version-material concept):
+**Correction from an earlier draft:** the first version of this section
+wrapped `*model.Key` inside a new payload type (`{Key, Versions}`) and
+encoded *that* as the blob's `Data` field. That changes `Data`'s shape from
+a flat `model.Key` object to a nested one, which breaks decoding every
+key backup blob taken before this change — `payload.Key` would come back
+`nil`, not `nil`-with-graceful-fallback, directly contradicting the
+backward-compatibility guarantee below. Fixed by adding the version history
+as a new *sibling* field on the shared envelope instead of nesting it inside
+`Data` — purely additive, so old blobs (which simply lack the new field)
+keep decoding exactly as before.
+
+- `backupEnvelope` (`internal/backup/item_backup.go:46-50`, shared by
+  secrets/keys/certificates) gains one new field:
 
   ```go
-  type keyBackupPayload struct {
-  	Key      *model.Key              `json:"key"`
-  	Versions []model.KeyVersionRecord `json:"versions,omitempty"`
+  type backupEnvelope struct {
+  	ResourceType string                   `json:"resource_type"`
+  	ResourceID   string                   `json:"resource_id"`
+  	Data         json.RawMessage          `json:"data"`
+  	Versions     []model.KeyVersionRecord `json:"versions,omitempty"` // keys only
   }
   ```
-- `BackupKey` builds this payload (`Versions` from the new
-  `ListVersionRecords`) and encodes it instead of `*model.Key` directly.
-- `RestoreKey` decodes it, creates the key row under `newID` as today, then
-  calls `CreateVersion(ctx, newID, v.Version, v.Value)` for each entry in
-  `Versions`, remapping to the new key's ID the same way the rest of restore
-  remaps IDs.
+- `encodeBlob`/`decodeBlob` (`:169-183`, `:187-200`) gain a `versions` parameter/return
+  value: `encodeBlob(resourceType, resourceID string, data interface{}, versions []model.KeyVersionRecord) (string, error)`
+  and `decodeBlob(blob, expectedType string, out interface{}) (versions []model.KeyVersionRecord, err error)`.
+  `Data` itself is unchanged — still the plain marshaled resource (`*model.Key`,
+  `*model.Secret`, or `*model.Certificate`), exactly as today.
+- `BackupSecret`/`BackupCertificate` and `RestoreSecret`/`RestoreCertificate`
+  pass/discard `nil`/the extra return value — one-line changes, no behavior
+  change (secrets and certificates have no version-material concept).
+- `BackupKey` calls the new `ListVersionRecords` and passes its result as
+  `encodeBlob`'s `versions` argument.
+- `RestoreKey` receives `versions` from `decodeBlob`, creates the key row
+  under `newID` as today, then calls `CreateVersion(ctx, newID, v.Version, v.Value)`
+  for each entry — remapping to the new key's ID the same way the rest of
+  restore remaps IDs.
 - Backward compatibility: a blob produced before this change has no
-  `versions` field. Decoding treats it as optional — `Versions` decodes to
-  `nil`/empty, and restore proceeds exactly as it does today (a key with no
-  version history). Not an error.
+  `versions` field on its envelope. Decoding treats it as optional —
+  `decodeBlob` returns a `nil` slice, `Data` decodes exactly as it always
+  has, and restore proceeds exactly as it does today (a key with no version
+  history). Not an error, and no special-casing needed in `RestoreKey` beyond
+  ranging over a possibly-empty slice.
 
 ## Behavior changes
 
