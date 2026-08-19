@@ -2315,7 +2315,10 @@ paths:
       summary: List key versions
       description: |
         Returns the key's version history. Raw key material is deliberately
-        omitted from every entry.
+        omitted from every entry. A key that has never been rotated reports a
+        single implicit version 1 (timestamped by the key's own creation
+        time), matching what GET /keys/{key_id}/versions/1 and every crypto
+        operation already resolve for such a key.
       operationId: listKeyVersions
       tags:
         - Keys
@@ -2846,7 +2849,10 @@ paths:
       - $ref: "#/components/parameters/KeyId"
     get:
       summary: List versions of a vault key
-      description: Returns the version history for a key held in the named vault.
+      description: |
+        Returns the version history for a key held in the named vault. A key
+        that has never been rotated reports a single implicit version 1,
+        matching the flat route.
       operationId: listKeyVersionsInVault
       tags:
         - Keys
@@ -5851,6 +5857,7 @@ components:
       required:
         - wrapped_key
         - algorithm
+        - version
       properties:
         wrapped_key:
           type: string
@@ -5881,6 +5888,7 @@ components:
       required:
         - plaintext_key
         - algorithm
+        - version
       properties:
         plaintext_key:
           type: string
@@ -5913,6 +5921,7 @@ components:
         - key_id
         - algorithm
         - value
+        - version
       properties:
         key_id:
           type: string
@@ -5950,6 +5959,7 @@ components:
         - key_id
         - algorithm
         - valid
+        - version
       properties:
         key_id:
           type: string
@@ -5984,6 +5994,7 @@ components:
         - key_id
         - algorithm
         - value
+        - version
       properties:
         key_id:
           type: string
@@ -6023,6 +6034,7 @@ components:
         - key_id
         - algorithm
         - value
+        - version
       properties:
         key_id:
           type: string

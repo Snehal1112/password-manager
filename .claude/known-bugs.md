@@ -1203,15 +1203,42 @@ commits `78ad152..f03957a`):
   `model.KeyTypeOCT` and OCT keys cannot be rotated at all, so there is no
   multi-version OCT case to fix.
 
-**Left open, tracked as a fast-follow, not a regression**: the CLI
-(`rocketvault keys verify`, `cmd/keys/verify.go`) still calls
-`CryptoService.Verify` directly with no `--version` flag — REST is the only
-way to address an archived version today. Flagged explicitly in the design's
-"Not in scope" section rather than silently deferred. Also noted but not
-fixed, as a pre-existing and unrelated gap: `KeyRepository.PurgeKey` never
-destroys PKCS#11 HSM token objects for the current or any archived version on
-purge — out of scope for this fix, a candidate for its own future entry here
-if it needs to be addressed.
+**Two follow-ups from the whole-branch review, fixed in the same body of
+work**:
+- `KeyService.ListKeyVersions` now synthesizes the implicit version-1 entry
+  when `key_versions` is empty, so `GET /keys/{id}/versions` no longer reports
+  an empty history for a never-rotated key whose version 1 both
+  `GET /keys/{id}/versions/1` and every crypto operation happily resolve. The
+  synthesized entry is timestamped by the key's own `CreatedAt`, matching
+  `ReadVersionValue`/`GetVersion`'s existing fallback. `RotateKey` deliberately
+  still calls the raw `KeyRepository.ListVersions`, since its version-numbering
+  math needs the true zero-row count.
+- New `KeyRepository.CurrentVersion` — a single `COALESCE(MAX(kv.version), 1)`
+  aggregate over a LEFT JOIN from `keys` — replaces the full `ListVersions` row
+  scan that `cryptoService.currentVersionNumber` was running on *every* crypto
+  operation just to compute one number. The LEFT JOIN direction is load-bearing:
+  an INNER JOIN from `key_versions` returns zero rows for a never-rotated key
+  rather than a row with a NULL aggregate, which would defeat the `COALESCE`
+  fallback to 1.
+
+**Left open, tracked as a fast-follow, not a regression**: all four crypto CLI
+commands — `rocketvault keys sign` (`cmd/keys/sign.go`), `keys verify`
+(`cmd/keys/verify.go`), `keys wrap` (`cmd/keys/wrap.go`), and `keys unwrap`
+(`cmd/keys/unwrap.go`) — still call their `CryptoService` method with
+`Version` left unset (always current), and none exposes a `--version` flag.
+REST is the only way to address an archived version today. (There are no
+`keys encrypt`/`keys decrypt` CLI commands at all, so those four are the
+complete set.) Flagged explicitly in the design's "Not in scope" section
+rather than silently deferred. Also noted but not fixed, as pre-existing and
+unrelated gaps in the purge path: `KeyRepository.PurgeKey` never destroys
+PKCS#11 HSM token objects for the current or any archived version on purge;
+and it deletes only the `keys` row, relying on `ON DELETE CASCADE` to remove
+the matching `key_versions` rows — but this project runs SQLite with
+`foreign_keys` left off (`internal/db/db.go` never issues
+`PRAGMA foreign_keys = ON`), so on SQLite deployments a purged key leaves its
+archived `key_versions` rows, encrypted material and all, orphaned in the
+database. Both are candidates for their own future entries here if they need
+to be addressed.
 
 ---
 

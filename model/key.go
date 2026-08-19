@@ -62,9 +62,14 @@ type KeyVersion struct {
 }
 
 // KeyVersionRecord carries one version's material for internal use only
-// (the backup service). It is never marshaled into an HTTP response — API
-// responses use KeyVersion, which has no Value field, so the versions-list
-// and versions-get handlers cannot leak material even by future mistake.
+// (the backup service). It is never marshaled into a key or key-version API
+// response — those use KeyVersion, which has no Value field, so the
+// versions-list and versions-get handlers cannot leak material even by
+// future mistake. It IS marshaled into a key backup blob, which
+// POST /keys/{key_id}/backup returns in its response body as a merely
+// base64url-encoded (not encrypted) JSON envelope, so a backup blob must be
+// handled as key material. Value itself still carries the same
+// master-key-encrypted form the database stores.
 type KeyVersionRecord struct {
 	KeyID     uuid.UUID `json:"key_id"`
 	Version   int       `json:"version"`

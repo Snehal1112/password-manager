@@ -41,7 +41,7 @@ vaults). RocketVault columns are sourced from the codebase (`api/`, `internal/`,
 | Get / List / List versions | ✅ (`GET /keys/{name}/{version}` returns the version's public JWK — `n`/`e` for RSA, `x`/`y`/`crv` for EC) | ✅ `GET /keys`, `/keys/{id}`, `/keys/{id}/versions`, and now `/keys/{id}/versions/{version}` (added 2026-08-19, § B26) for one version's metadata — but the response is `model.KeyVersion{KeyID, Version, CreatedAt}` only, no public JWK components at all, thinner than even the current-key `GET /keys/{id}` (which does emit them via `buildKeyResponse`); a version's public key material is reached only indirectly, by passing `version` to sign/verify/encrypt/decrypt/wrap/unwrap (see the Rotate row below), never by reading it back directly | 🟡 (route now exists, closing the missing-route gap, but it's bookkeeping-only — no public JWK — unlike Azure's real response) |
 | Update (attributes) | ✅ | ✅ `PUT /keys/{id}` | ✅ |
 | Delete (soft) | ✅ | ✅ `DELETE /keys/{id}` | ✅ |
-| Rotate (new version) | ✅ | 🟡 `POST /keys/{id}/rotate` — `KeyService.RotateKey` still archives the old material into `key_versions` and overwrites `keys.value` in place (RSA/ECDSA/ES256K only; OCT has no branch), but old versions are no longer a dead end: all six crypto operations (`sign`/`verify`/`encrypt`/`decrypt`/`wrap`/`unwrap`) now accept an optional `version` field and resolve to the matching `key_versions` row, so data encrypted or signed before a rotation is usable again over REST (fixed 2026-08-19, `.claude/known-bugs.md` § B26). `GET /keys/{id}/versions/{version}` also now exists for reading one version's metadata. The one gap left open: the CLI (`rocketvault keys verify`, `cmd/keys/verify.go`) has no `--version` flag — it still only verifies against the current version; REST is the only way to address an archived version today | 🟡 (full REST parity; CLI `--version` fast-follow not yet done) |
+| Rotate (new version) | ✅ | 🟡 `POST /keys/{id}/rotate` — `KeyService.RotateKey` still archives the old material into `key_versions` and overwrites `keys.value` in place (RSA/ECDSA/ES256K only; OCT has no branch), but old versions are no longer a dead end: all six crypto operations (`sign`/`verify`/`encrypt`/`decrypt`/`wrap`/`unwrap`) now accept an optional `version` field and resolve to the matching `key_versions` row, so data encrypted or signed before a rotation is usable again over REST (fixed 2026-08-19, `.claude/known-bugs.md` § B26). `GET /keys/{id}/versions/{version}` also now exists for reading one version's metadata. The one gap left open: none of the four crypto CLI commands (`rocketvault keys sign`/`verify`/`wrap`/`unwrap` — `cmd/keys/sign.go`, `verify.go`, `wrap.go`, `unwrap.go`) has a `--version` flag; each still calls its service method with `Version` unset, so all four only operate on the current version. REST is the only way to address an archived version today | 🟡 (full REST parity; CLI `--version` fast-follow not yet done) |
 | Sign / Verify | ✅ | ✅ `POST /keys/{id}/sign`, `/verify` | ✅ |
 | Encrypt / Decrypt | ✅ | ✅ `POST /keys/{id}/encrypt`, `/decrypt` | ✅ |
 | Wrap / Unwrap key | ✅ | ✅ `POST /keys/{id}/wrap`, `/unwrap` | ✅ |
@@ -92,7 +92,9 @@ work so a rotated key's `key_versions` history survives a backup/restore cycle
 `.claude/known-bugs.md` § B26 for the full root-cause writeup, including a
 bundled latent cache-key bug (`resolveKeyMaterial` hardcoding its cache key's
 version to `0`) found and fixed during design. Left open: no CLI `--version`
-flag on `rocketvault keys verify` — flagged as a fast-follow in the design's
+flag on any of the four crypto CLI commands — `rocketvault keys sign`,
+`keys verify`, `keys wrap`, and `keys unwrap` all call their service method
+with `Version` unset — flagged as a fast-follow in the design's
 "Not in scope" section, not done as part of this pass.*
 
 ## 3. Key management — types & algorithms
@@ -408,8 +410,9 @@ Azure's own eight-role grant allow-list, closed 2026-08-18, see §6).
   (`model.KeyVersion{KeyID, Version, CreatedAt}`); unlike Azure's real
   `GET /keys/{name}/{version}`, it returns no public JWK, so a version's
   public key is still only reachable indirectly via a crypto op with
-  `version` set. Still open: the CLI (`rocketvault keys verify`) has no
-  `--version` flag, so the fix is REST-only for now. Key backup/restore is
+  `version` set. Still open: none of the four crypto CLI commands
+  (`rocketvault keys sign`/`verify`/`wrap`/`unwrap`) has a `--version` flag,
+  so the fix is REST-only for now. Key backup/restore is
   still registered on the flat routes only (404s on the vault-scoped path) and
   is still additionally owner-gated on top of the RBAC check, but a backed-up
   and restored key now keeps its `key_versions` history instead of silently
