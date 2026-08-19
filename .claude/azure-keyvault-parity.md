@@ -350,7 +350,7 @@ posture as B20's own cascade check.*
 | Capability | Azure Key Vault | RocketVault | Status |
 |---|---|---|---|
 | Software crypto module | ✅ Standard (FIPS 140 L1) | ✅ Go crypto + AES-256-GCM | 🟡 (not FIPS-validated) |
-| HSM-backed keys | ✅ Premium (FIPS 140-3 L3) | PKCS#11 provider (`hsm.enabled`); RSA sign/verify/encrypt/decrypt, EC sign/verify (P-256/P-384/P-521 **and now P-256K**), and AES generate/wrap/unwrap/encrypt/decrypt (KW, CBC, and GCM — see §3) are all HSM-backed as of 2026-08-19 (`docs/superpowers/specs/2026-08-19-hsm-secp256k1-aes-cbc-gcm-design.md`) — every algorithm/curve gap that could be closed through code now is, verified against a live SoftHSM2 token (real-vendor-hardware confirmation for secp256k1 specifically remains outstanding, see §3's EC curves row). The one gap left is FIPS 140-3 L3 certification itself — a hardware/process certification, not achievable through code, that Azure's Premium tier holds and RocketVault's software-driven PKCS#11 integration never will; the same category of permanent, non-code-closable caveat the "Software crypto module" row above carries for FIPS 140 L1 | 🟡 (not FIPS 140-3 L3 certified — every other gap this row previously listed is now closed) |
+| HSM-backed keys | ✅ Premium (FIPS 140-3 L3) | PKCS#11 provider (`hsm.enabled`); RSA sign/verify/encrypt/decrypt, EC sign/verify (P-256/P-384/P-521 **and now P-256K**), and AES generate/wrap/unwrap (KW, CBC) plus encrypt/decrypt (CBC, GCM) are all HSM-backed as of 2026-08-19 (`docs/superpowers/specs/2026-08-19-hsm-secp256k1-aes-cbc-gcm-design.md`; see §3 for the exact per-algorithm operation split) — every algorithm/curve gap that could be closed through code now is, verified against a live SoftHSM2 token (real-vendor-hardware confirmation for secp256k1 specifically remains outstanding, see §3's EC curves row). The one gap left is FIPS 140-3 L3 certification itself — a hardware/process certification, not achievable through code, that Azure's Premium tier holds and RocketVault's software-driven PKCS#11 integration never will; the same category of permanent, non-code-closable caveat the "Software crypto module" row above carries for FIPS 140 L1 | 🟡 (not FIPS 140-3 L3 certified — every other gap this row previously listed is now closed) |
 | JWT signing key protection | n/a | ➕ OS keychain / self-PKI / external-PKI providers | ➕ |
 | Keys non-extractable | ✅ | ✅ | ✅ |
 
@@ -433,8 +433,8 @@ eight-role grant allow-list, closed 2026-08-18, see §6).
   CBC/GCM coverage.
 - **HSM** (see §8): PKCS#11 path exists but is not the default; as of 2026-08-19 it
   covers RSA (sign/verify/encrypt/decrypt), EC P-256/P-384/P-521/P-256K
-  (sign/verify), and AES KW/CBC/GCM (generate/wrap/unwrap/encrypt/decrypt) — every
-  algorithm/curve gap that could be closed through code now is. No FIPS 140-3 L3
+  (sign/verify), and AES generate/wrap/unwrap (KW, CBC) plus encrypt/decrypt (CBC,
+  GCM) — every algorithm/curve gap that could be closed through code now is. No FIPS 140-3 L3
   validation remains (a certification process, not achievable through code) — the
   one permanent, non-code-closable caveat left on this row.
 - **Access-policy engine** (see §6): a genuine architectural match to Azure's
