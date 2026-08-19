@@ -55,6 +55,12 @@ type KeyRepositoryInterface interface {
 	// ListVersionRecords returns every version of a key INCLUDING material,
 	// authorized against userID. Internal use only (backup service).
 	ListVersionRecords(ctx context.Context, keyID uuid.UUID, userID uuid.UUID) ([]model.KeyVersionRecord, error)
+	// CurrentVersion returns keyID's current version number: the highest
+	// key_versions row if any rotation has happened, else the implicit 1
+	// (a never-rotated key's only material is keys.value). Single
+	// aggregate query — avoids fetching every version row just to find
+	// the max, unlike computing it via ListVersions.
+	CurrentVersion(ctx context.Context, keyID uuid.UUID, userID uuid.UUID) (int, error)
 	// SoftDeleteVaultContents soft-deletes every active key in a vault.
 	SoftDeleteVaultContents(ctx context.Context, vaultID uuid.UUID, deletedAt time.Time) error
 	// RecoverVaultContents recovers only the keys the cascade soft-deleted at deletedAt.
@@ -846,6 +852,35 @@ func (r *KeyRepository) ListVersionRecords(ctx context.Context, keyID uuid.UUID,
 		records = append(records, rec)
 	}
 	return records, rows.Err()
+}
+
+// CurrentVersion returns keyID's current version number via a single
+// aggregate query. LEFT JOIN from keys (not an INNER JOIN from
+// key_versions) is required: a never-rotated key has zero key_versions
+// rows, and an INNER JOIN would return zero result rows instead of a row
+// with a NULL aggregate, breaking the COALESCE fallback below.
+//
+// Parameters:
+//   - ctx: The context for the database operation.
+//   - keyID: The key's unique identifier.
+//   - userID: The owner's user ID — the row is filtered by joining against the keys table.
+//
+// Returns:
+//
+//	The current version number, or an error if the query fails.
+func (r *KeyRepository) CurrentVersion(ctx context.Context, keyID uuid.UUID, userID uuid.UUID) (int, error) {
+	var version int
+	err := r.db.QueryRowContext(ctx, `
+		SELECT COALESCE(MAX(kv.version), 1)
+		FROM keys k
+		LEFT JOIN key_versions kv ON kv.key_id = k.id
+		WHERE k.id = ? AND k.user_id = ?`,
+		keyID.String(), userID.String(),
+	).Scan(&version)
+	if err != nil {
+		return 0, fmt.Errorf("failed to determine current key version: %w", err)
+	}
+	return version, nil
 }
 
 // SoftDeleteVaultContents marks every active key in a vault as soft-deleted.

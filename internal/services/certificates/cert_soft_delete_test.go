@@ -166,6 +166,9 @@ func (m *mockKeyRepo) CreateVersion(ctx context.Context, keyID uuid.UUID, versio
 func (m *mockKeyRepo) ListVersions(ctx context.Context, keyID, userID uuid.UUID) ([]model.KeyVersion, error) {
 	return nil, nil
 }
+func (m *mockKeyRepo) CurrentVersion(ctx context.Context, keyID uuid.UUID, userID uuid.UUID) (int, error) {
+	return 1, nil
+}
 func (m *mockKeyRepo) ReadVersionValue(ctx context.Context, keyID uuid.UUID, version int, userID uuid.UUID) (string, error) {
 	return "", nil
 }

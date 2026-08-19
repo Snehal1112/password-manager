@@ -94,7 +94,7 @@ func newCryptoVaultScopeFixture(t *testing.T, vaultID, ownerID, keyID uuid.UUID)
 		PRIMARY KEY (key_id, tag)
 	)`)
 	require.NoError(t, err)
-	// key_versions is required by KeyRepository.ListVersions, which
+	// key_versions is required by KeyRepository.CurrentVersion, which
 	// CryptoService now calls on every crypto operation to resolve the
 	// current version number (Task 2, key-version-addressability). Schema
 	// mirrors internal/db/db.go's migration.

@@ -308,6 +308,18 @@ func (r *stubKeyRepo) ListVersions(_ context.Context, keyID uuid.UUID, _ uuid.UU
 	return out, nil
 }
 
+// CurrentVersion mirrors the repository's aggregate: the highest stored
+// version, or the implicit 1 when the key has never been rotated.
+func (r *stubKeyRepo) CurrentVersion(_ context.Context, keyID uuid.UUID, _ uuid.UUID) (int, error) {
+	current := 1
+	for v := range r.versions[keyID] {
+		if v > current {
+			current = v
+		}
+	}
+	return current, nil
+}
+
 func (r *stubKeyRepo) ReadVersionValue(_ context.Context, _ uuid.UUID, _ int, _ uuid.UUID) (string, error) {
 	return "", nil
 }

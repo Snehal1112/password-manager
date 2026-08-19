@@ -147,16 +147,16 @@ func TestCacheHit_ReducesDecryptCalls(t *testing.T) {
 	// keyRepo.Read is called on every Sign for the authorization check.
 	repo := mocks.NewMockKeyRepositoryInterface(t)
 	repo.On("Read", mock.Anything, keyID, model.NewOwnerScope(uuid.Nil, userID)).Return(vaultKey, nil)
-	// currentVersionNumber calls ListVersions on every crypto op; no rotation
-	// has happened for this key, so the version list is empty.
-	repo.On("ListVersions", mock.Anything, keyID, userID).Return(nil, nil)
+	// currentVersionNumber calls CurrentVersion on every crypto op; no
+	// rotation has happened for this key, so it resolves to the implicit 1.
+	repo.On("CurrentVersion", mock.Anything, keyID, userID).Return(1, nil)
 
 	// Use a mock cache so we can assert Set/Get call counts precisely.
 	cache := &mockKeyCache{}
 
 	// Build the cached entry that the mock returns on the second Get call.
-	// Version 1: currentVersionNumber resolves a never-rotated key (empty
-	// ListVersions) to the implicit version 1, not the old hardcoded 0.
+	// Version 1: currentVersionNumber resolves a never-rotated key (no
+	// key_versions rows) to the implicit version 1, not the old hardcoded 0.
 	cachedEntry := &keycache.Entry{
 		PrivateKey: keycache.PEMKey{PEM: privateKeyPEM},
 		KeyType:    "RSA",
@@ -233,7 +233,7 @@ func TestHSMPath_NeverCallsCacheSet(t *testing.T) {
 
 	repo := mocks.NewMockKeyRepositoryInterface(t)
 	repo.On("Read", mock.Anything, keyID, model.NewOwnerScope(uuid.Nil, userID)).Return(hsmKey, nil)
-	repo.On("ListVersions", mock.Anything, keyID, userID).Return(nil, nil)
+	repo.On("CurrentVersion", mock.Anything, keyID, userID).Return(1, nil)
 
 	// Use a mock KeyProvider that returns a dummy signature for the HSM call.
 	provider := &mockKeyProvider{}
@@ -278,7 +278,7 @@ func TestWrapKey_HSMKey_AllowsAES256KW(t *testing.T) {
 
 	repo := mocks.NewMockKeyRepositoryInterface(t)
 	repo.On("Read", mock.Anything, keyID, scope).Return(key, nil)
-	repo.On("ListVersions", mock.Anything, keyID, userID).Return(nil, nil)
+	repo.On("CurrentVersion", mock.Anything, keyID, userID).Return(1, nil)
 
 	provider := &mockKeyProvider{}
 	provider.On("Encrypt", "aes-label").Return([]byte("wrapped"), []byte(nil), nil)
@@ -315,7 +315,7 @@ func TestWrapKey_HSMKey_RejectsAESKWSizeMismatch(t *testing.T) {
 
 	repo := mocks.NewMockKeyRepositoryInterface(t)
 	repo.On("Read", mock.Anything, keyID, scope).Return(key, nil)
-	repo.On("ListVersions", mock.Anything, keyID, userID).Return(nil, nil)
+	repo.On("CurrentVersion", mock.Anything, keyID, userID).Return(1, nil)
 
 	provider := &mockKeyProvider{}
 
@@ -348,7 +348,7 @@ func TestUnwrapKey_HSMKey_RejectsAESKWSizeMismatch(t *testing.T) {
 
 	repo := mocks.NewMockKeyRepositoryInterface(t)
 	repo.On("Read", mock.Anything, keyID, scope).Return(key, nil)
-	repo.On("ListVersions", mock.Anything, keyID, userID).Return(nil, nil)
+	repo.On("CurrentVersion", mock.Anything, keyID, userID).Return(1, nil)
 
 	provider := &mockKeyProvider{}
 
@@ -380,7 +380,7 @@ func TestWrapKey_HSMKey_RejectsAES256CBC(t *testing.T) {
 
 	repo := mocks.NewMockKeyRepositoryInterface(t)
 	repo.On("Read", mock.Anything, keyID, scope).Return(key, nil)
-	repo.On("ListVersions", mock.Anything, keyID, userID).Return(nil, nil)
+	repo.On("CurrentVersion", mock.Anything, keyID, userID).Return(1, nil)
 
 	svc := keys.NewCryptoService(keys.CryptoServiceConfig{
 		KeyRepository: repo,
@@ -434,7 +434,7 @@ func TestCacheHit_TTLExpiry(t *testing.T) {
 
 	repo := mocks.NewMockKeyRepositoryInterface(t)
 	repo.On("Read", mock.Anything, keyID, model.NewOwnerScope(uuid.Nil, userID)).Return(vaultKey, nil)
-	repo.On("ListVersions", mock.Anything, keyID, userID).Return(nil, nil)
+	repo.On("CurrentVersion", mock.Anything, keyID, userID).Return(1, nil)
 
 	// Use a very short TTL so entries expire quickly.
 	shortTTLConfig := &cachekit.Config{
@@ -502,7 +502,7 @@ func TestSign_ArchivedVersion_UsesVersionMaterial(t *testing.T) {
 	repo := mocks.NewMockKeyRepositoryInterface(t)
 	repo.On("Read", mock.Anything, keyID, model.NewOwnerScope(uuid.Nil, userID)).Return(vaultKey, nil)
 	// Two versions exist: 1 (archived) and 2 (current, == keys.value).
-	repo.On("ListVersions", mock.Anything, keyID, userID).Return([]model.KeyVersion{{KeyID: keyID, Version: 1}, {KeyID: keyID, Version: 2}}, nil)
+	repo.On("CurrentVersion", mock.Anything, keyID, userID).Return(2, nil)
 	repo.On("ReadVersionValue", mock.Anything, keyID, 1, userID).Return(encryptedArchived, nil)
 
 	svc := keys.NewCryptoService(keys.CryptoServiceConfig{
@@ -539,7 +539,7 @@ func TestSign_VersionOmitted_UsesCurrentAndEchoesNumber(t *testing.T) {
 
 	repo := mocks.NewMockKeyRepositoryInterface(t)
 	repo.On("Read", mock.Anything, keyID, model.NewOwnerScope(uuid.Nil, userID)).Return(vaultKey, nil)
-	repo.On("ListVersions", mock.Anything, keyID, userID).Return([]model.KeyVersion{{KeyID: keyID, Version: 1}, {KeyID: keyID, Version: 2}}, nil)
+	repo.On("CurrentVersion", mock.Anything, keyID, userID).Return(2, nil)
 
 	svc := keys.NewCryptoService(keys.CryptoServiceConfig{
 		KeyRepository: repo,
@@ -571,7 +571,7 @@ func TestSign_NonexistentVersion_ReturnsErrKeyVersionNotFound(t *testing.T) {
 
 	repo := mocks.NewMockKeyRepositoryInterface(t)
 	repo.On("Read", mock.Anything, keyID, model.NewOwnerScope(uuid.Nil, userID)).Return(vaultKey, nil)
-	repo.On("ListVersions", mock.Anything, keyID, userID).Return([]model.KeyVersion{{KeyID: keyID, Version: 1}}, nil)
+	repo.On("CurrentVersion", mock.Anything, keyID, userID).Return(1, nil)
 	repo.On("ReadVersionValue", mock.Anything, keyID, 9, userID).Return("", repositories.ErrKeyVersionNotFound)
 
 	svc := keys.NewCryptoService(keys.CryptoServiceConfig{
@@ -607,7 +607,7 @@ func TestResolveKeyMaterial_CacheKeyUsesRealVersion_NoCrossContamination(t *test
 
 	repo := mocks.NewMockKeyRepositoryInterface(t)
 	repo.On("Read", mock.Anything, keyID, model.NewOwnerScope(uuid.Nil, userID)).Return(vaultKey, nil)
-	repo.On("ListVersions", mock.Anything, keyID, userID).Return([]model.KeyVersion{{KeyID: keyID, Version: 1}, {KeyID: keyID, Version: 2}}, nil)
+	repo.On("CurrentVersion", mock.Anything, keyID, userID).Return(2, nil)
 	repo.On("ReadVersionValue", mock.Anything, keyID, 1, userID).Return(encryptedArchived, nil)
 
 	cache := &mockKeyCache{}
@@ -638,4 +638,142 @@ func TestResolveKeyMaterial_CacheKeyUsesRealVersion_NoCrossContamination(t *test
 	// Different key material must produce different signatures.
 	assert.NotEqual(t, resCurrent.Signature, resArchived.Signature)
 	cache.AssertExpectations(t)
+}
+
+// pkcs11TestPrefix mirrors crypto_service.go's unexported pkcs11Prefix; this
+// test file is in the external keys_test package and cannot reference it.
+const pkcs11TestPrefix = "pkcs11:"
+
+// TestVersionThreading_RemainingOperations proves that a non-zero Version
+// reaches the material-resolution path for the five operations that have no
+// dedicated version test of their own (Sign's are above). Each case runs
+// against a PKCS#11-backed key, which makes the resolved material directly
+// observable: the provider is stubbed for the ARCHIVED handle only, so a
+// case that silently used the key's current keys.value would call the mock
+// with an unexpected argument and fail, and the echoed result version is
+// asserted alongside.
+func TestVersionThreading_RemainingOperations(t *testing.T) {
+	t.Parallel()
+
+	const currentHandle = "current-handle"
+	const archivedHandle = "archived-handle"
+
+	cases := []struct {
+		name string
+		stub func(p *mockKeyProvider)
+		call func(svc keys.CryptoService, keyID, userID uuid.UUID, scope model.Scope) (int, error)
+	}{
+		{
+			name: "Verify",
+			stub: func(p *mockKeyProvider) { p.On("Verify", archivedHandle).Return(true, nil) },
+			call: func(svc keys.CryptoService, keyID, userID uuid.UUID, scope model.Scope) (int, error) {
+				res, err := svc.Verify(context.Background(), keys.VerifyRequest{
+					KeyID: keyID, UserID: userID, Scope: scope,
+					Data: []byte("hello"), Signature: []byte("sig"),
+					Algorithm: crypto.AlgorithmRS256, Version: 1,
+				})
+				if err != nil {
+					return 0, err
+				}
+				return res.Version, nil
+			},
+		},
+		{
+			name: "Encrypt",
+			stub: func(p *mockKeyProvider) {
+				p.On("Encrypt", archivedHandle).Return([]byte("ct"), []byte(nil), nil)
+			},
+			call: func(svc keys.CryptoService, keyID, userID uuid.UUID, scope model.Scope) (int, error) {
+				res, err := svc.Encrypt(context.Background(), keys.EncryptRequest{
+					KeyID: keyID, UserID: userID, Scope: scope,
+					Data: []byte("hello"), Algorithm: crypto.AlgorithmRSAOAEP, Version: 1,
+				})
+				if err != nil {
+					return 0, err
+				}
+				return res.Version, nil
+			},
+		},
+		{
+			name: "Decrypt",
+			stub: func(p *mockKeyProvider) { p.On("Decrypt", archivedHandle).Return([]byte("pt"), nil) },
+			call: func(svc keys.CryptoService, keyID, userID uuid.UUID, scope model.Scope) (int, error) {
+				res, err := svc.Decrypt(context.Background(), keys.DecryptRequest{
+					KeyID: keyID, UserID: userID, Scope: scope,
+					Ciphertext: []byte("ct"), Algorithm: crypto.AlgorithmRSAOAEP, Version: 1,
+				})
+				if err != nil {
+					return 0, err
+				}
+				return res.Version, nil
+			},
+		},
+		{
+			name: "WrapKey",
+			stub: func(p *mockKeyProvider) {
+				p.On("Encrypt", archivedHandle).Return([]byte("wrapped"), []byte(nil), nil)
+			},
+			call: func(svc keys.CryptoService, keyID, userID uuid.UUID, scope model.Scope) (int, error) {
+				res, err := svc.WrapKey(context.Background(), keys.WrapKeyRequest{
+					KeyID: keyID, UserID: userID, Scope: scope,
+					PlaintextKey: []byte("dek"), Algorithm: "RSA-OAEP", Version: 1,
+				})
+				if err != nil {
+					return 0, err
+				}
+				return res.Version, nil
+			},
+		},
+		{
+			name: "UnwrapKey",
+			stub: func(p *mockKeyProvider) { p.On("Decrypt", archivedHandle).Return([]byte("dek"), nil) },
+			call: func(svc keys.CryptoService, keyID, userID uuid.UUID, scope model.Scope) (int, error) {
+				res, err := svc.UnwrapKey(context.Background(), keys.UnwrapKeyRequest{
+					KeyID: keyID, UserID: userID, Scope: scope,
+					WrappedKey: []byte("wrapped"), Algorithm: "RSA-OAEP", Version: 1,
+				})
+				if err != nil {
+					return 0, err
+				}
+				return res.Version, nil
+			},
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			userID := uuid.New()
+			keyID := uuid.New()
+			scope := model.NewOwnerScope(uuid.Nil, userID)
+			vaultKey := &model.Key{
+				ID: keyID, UserID: userID, Type: model.KeyTypeRSA, Bits: 2048,
+				Value: pkcs11TestPrefix + currentHandle, Enabled: true,
+			}
+
+			repo := mocks.NewMockKeyRepositoryInterface(t)
+			repo.On("Read", mock.Anything, keyID, scope).Return(vaultKey, nil)
+			// Two versions exist; 2 is current (== keys.value), 1 is archived.
+			repo.On("CurrentVersion", mock.Anything, keyID, userID).Return(2, nil)
+			repo.On("ReadVersionValue", mock.Anything, keyID, 1, userID).
+				Return(pkcs11TestPrefix+archivedHandle, nil)
+
+			provider := &mockKeyProvider{}
+			tc.stub(provider)
+
+			svc := keys.NewCryptoService(keys.CryptoServiceConfig{
+				KeyRepository: repo,
+				KeyProvider:   provider,
+				Logger:        &logging.Logger{Logger: logrus.New()},
+			})
+
+			gotVersion, err := tc.call(svc, keyID, userID, scope)
+			require.NoError(t, err)
+			assert.Equal(t, 1, gotVersion, "the resolved version must be echoed back")
+			// Asserting the provider's expectations is what proves the
+			// ARCHIVED handle (not the current one) reached the operation.
+			provider.AssertExpectations(t)
+		})
+	}
 }

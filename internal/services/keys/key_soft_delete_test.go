@@ -73,6 +73,11 @@ func (m *mockKeyRepository) ListVersions(ctx context.Context, keyID, userID uuid
 	return nil, args.Error(1)
 }
 
+func (m *mockKeyRepository) CurrentVersion(ctx context.Context, keyID uuid.UUID, userID uuid.UUID) (int, error) {
+	args := m.Called(ctx, keyID, userID)
+	return args.Int(0), args.Error(1)
+}
+
 func (m *mockKeyRepository) ReadVersionValue(ctx context.Context, keyID uuid.UUID, version int, userID uuid.UUID) (string, error) {
 	args := m.Called(ctx, keyID, version, userID)
 	return args.String(0), args.Error(1)

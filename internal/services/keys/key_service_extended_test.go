@@ -964,6 +964,9 @@ func (m *mockKeyRepoForExtendedCrypto) CreateVersion(ctx context.Context, keyID 
 func (m *mockKeyRepoForExtendedCrypto) ListVersions(ctx context.Context, keyID, userID uuid.UUID) ([]model.KeyVersion, error) {
 	return nil, nil
 }
+func (m *mockKeyRepoForExtendedCrypto) CurrentVersion(ctx context.Context, keyID uuid.UUID, userID uuid.UUID) (int, error) {
+	return 1, nil
+}
 func (m *mockKeyRepoForExtendedCrypto) ReadVersionValue(ctx context.Context, keyID uuid.UUID, version int, userID uuid.UUID) (string, error) {
 	return "", nil
 }

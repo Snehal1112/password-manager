@@ -205,16 +205,11 @@ func resolveKeyHandle(storedValue string) (handle string, isPKCS11 bool, err err
 // currentVersionNumber returns key's current version number: the highest
 // key_versions row if any rotation has happened, else the implicit 1 (a
 // never-rotated key's only material is keys.value). Matches RotateKey's own
-// versioning math (key_service.go).
+// versioning math (key_service.go). This runs on every crypto operation, so
+// it uses the repository's single-row aggregate query rather than fetching
+// every version row just to read the last one.
 func (s *cryptoService) currentVersionNumber(ctx context.Context, key *model.Key) (int, error) {
-	versions, err := s.keyRepo.ListVersions(ctx, key.ID, key.UserID)
-	if err != nil {
-		return 0, fmt.Errorf("failed to determine current key version: %w", err)
-	}
-	if len(versions) == 0 {
-		return 1, nil
-	}
-	return versions[len(versions)-1].Version, nil // ListVersions orders ASC
+	return s.keyRepo.CurrentVersion(ctx, key.ID, key.UserID)
 }
 
 // resolveVersionValue resolves which material to use for a crypto

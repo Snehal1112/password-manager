@@ -113,6 +113,10 @@ func (m *mockKeyRepo) ListVersions(_ context.Context, _, _ uuid.UUID) ([]model.K
 	return nil, fmt.Errorf("not implemented")
 }
 
+func (m *mockKeyRepo) CurrentVersion(_ context.Context, _ uuid.UUID, _ uuid.UUID) (int, error) {
+	return 0, fmt.Errorf("not implemented")
+}
+
 func (m *mockKeyRepo) ReadVersionValue(_ context.Context, _ uuid.UUID, _ int, _ uuid.UUID) (string, error) {
 	return "", fmt.Errorf("not implemented")
 }
