@@ -141,6 +141,15 @@ func TestValidateKeyCreate(t *testing.T) {
 			wantError: true,
 		},
 		{
+			name: "valid ECDSA P-256K key",
+			request: KeyCreateRequest{
+				Name:  "my-secp256k1-key",
+				Type:  model.KeyTypeECDSA,
+				Curve: "P-256K",
+			},
+			wantError: false,
+		},
+		{
 			name: "missing name",
 			request: KeyCreateRequest{
 				Type: model.KeyTypeRSA,

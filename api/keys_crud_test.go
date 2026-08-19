@@ -417,6 +417,30 @@ func TestCreateKey_ECDSA_Success_Returns201(t *testing.T) {
 	svc.AssertExpectations(t)
 }
 
+// TestCreateKey_ECDSA_P256K_Success_Returns201 pins a bug found during the
+// 2026-08-19 Azure parity audit: vvalidation.ValidateKeyCreate's curve
+// allowlist predated P-256K support and rejected it before this handler's
+// own (already-correct) four-curve check ever ran. See known-bugs.md B24.
+func TestCreateKey_ECDSA_P256K_Success_Returns201(t *testing.T) {
+	keyID := uuid.New()
+	svc := &mockKeyService{}
+	svc.On("CreateECDSAKey", mock.Anything, mock.Anything).Return(&keyServices.CreateKeyResult{KeyID: keyID, Name: "eckey"}, nil)
+	svc.On("GetKey", mock.Anything, keyID, keyLegacyVaultScope()).Return(makeKeyModel(keyID), nil)
+
+	c := newKeyCtx(svc)
+	w := httptest.NewRecorder()
+	body, _ := json.Marshal(map[string]any{"name": "eckey", "type": "ECDSA", "curve": "P-256K"})
+	r := httptest.NewRequest(http.MethodPost, "/keys", bytes.NewReader(body))
+
+	createKey(c, w, r)
+	if c.Err != nil {
+		writeError(w, c)
+	}
+
+	assert.Equal(t, http.StatusCreated, w.Code)
+	svc.AssertExpectations(t)
+}
+
 func TestCreateKey_InvalidRSABits_Returns400(t *testing.T) {
 	c := newKeyCtx(nil)
 	w := httptest.NewRecorder()

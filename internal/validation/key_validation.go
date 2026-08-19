@@ -13,7 +13,7 @@ type KeyCreateRequest struct {
 	Name  string
 	Type  string // "RSA" or "ECDSA"
 	Bits  int    // For RSA: 2048, 3072, or 4096
-	Curve string // For ECDSA: P-256, P-384, P-521
+	Curve string // For ECDSA: P-256, P-384, P-521, P-256K
 	Tags  []string
 }
 
@@ -48,7 +48,7 @@ func ValidateKeyCreate(req KeyCreateRequest) error {
 		validation.Field(&req.Curve,
 			validation.When(req.Type == model.KeyTypeECDSA,
 				validation.Required,
-				validation.In("P-256", "P-384", "P-521"),
+				validation.In("P-256", "P-384", "P-521", "P-256K"),
 			),
 		),
 		validation.Field(&req.Tags,
