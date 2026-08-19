@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sort"
 	"testing"
 	"time"
 
@@ -226,11 +227,15 @@ func TestBackupSecretForbidden(t *testing.T) {
 
 // stubKeyRepo is a minimal in-memory key repository for testing.
 type stubKeyRepo struct {
-	keys map[uuid.UUID]*model.Key
+	keys     map[uuid.UUID]*model.Key
+	versions map[uuid.UUID]map[int]string
 }
 
 func newStubKeyRepo() *stubKeyRepo {
-	return &stubKeyRepo{keys: make(map[uuid.UUID]*model.Key)}
+	return &stubKeyRepo{
+		keys:     make(map[uuid.UUID]*model.Key),
+		versions: make(map[uuid.UUID]map[int]string),
+	}
 }
 
 func (r *stubKeyRepo) Create(_ context.Context, k *model.Key) error {
@@ -286,12 +291,21 @@ func (r *stubKeyRepo) ReadDeleted(_ context.Context, _ uuid.UUID) (*model.Key, e
 	return nil, nil
 }
 
-func (r *stubKeyRepo) CreateVersion(_ context.Context, _ uuid.UUID, _ int, _ string) error {
+func (r *stubKeyRepo) CreateVersion(_ context.Context, keyID uuid.UUID, version int, value string) error {
+	if r.versions[keyID] == nil {
+		r.versions[keyID] = make(map[int]string)
+	}
+	r.versions[keyID][version] = value
 	return nil
 }
 
-func (r *stubKeyRepo) ListVersions(_ context.Context, _, _ uuid.UUID) ([]model.KeyVersion, error) {
-	return nil, nil
+func (r *stubKeyRepo) ListVersions(_ context.Context, keyID uuid.UUID, _ uuid.UUID) ([]model.KeyVersion, error) {
+	var out []model.KeyVersion
+	for v := range r.versions[keyID] {
+		out = append(out, model.KeyVersion{KeyID: keyID, Version: v})
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Version < out[j].Version })
+	return out, nil
 }
 
 func (r *stubKeyRepo) ReadVersionValue(_ context.Context, _ uuid.UUID, _ int, _ uuid.UUID) (string, error) {
@@ -302,8 +316,13 @@ func (r *stubKeyRepo) GetVersion(_ context.Context, _ uuid.UUID, _ int, _ uuid.U
 	return nil, nil
 }
 
-func (r *stubKeyRepo) ListVersionRecords(_ context.Context, _ uuid.UUID, _ uuid.UUID) ([]model.KeyVersionRecord, error) {
-	return nil, nil
+func (r *stubKeyRepo) ListVersionRecords(_ context.Context, keyID uuid.UUID, _ uuid.UUID) ([]model.KeyVersionRecord, error) {
+	var records []model.KeyVersionRecord
+	for v, val := range r.versions[keyID] {
+		records = append(records, model.KeyVersionRecord{KeyID: keyID, Version: v, Value: val})
+	}
+	sort.Slice(records, func(i, j int) bool { return records[i].Version < records[j].Version })
+	return records, nil
 }
 
 func (r *stubKeyRepo) SoftDeleteVaultContents(_ context.Context, _ uuid.UUID, _ time.Time) error {
@@ -488,4 +507,70 @@ func TestRestoreCertificatePreservesPurgeProtection(t *testing.T) {
 	restored, err := repo.Read(ctx, newID, model.NewAdminScope(owner))
 	require.NoError(t, err)
 	assert.True(t, restored.PurgeProtection, "restore must preserve the backed-up certificate's purge protection")
+}
+
+// TestBackupRestoreKey_CarriesVersionHistory verifies a rotated key's
+// key_versions history survives a backup/restore round-trip, and that a
+// crypto-relevant old version's material is still present afterward.
+func TestBackupRestoreKey_CarriesVersionHistory(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	owner := uuid.New()
+	vaultID := uuid.New()
+	keyID := uuid.New()
+
+	repo := newStubKeyRepo()
+	require.NoError(t, repo.Create(ctx, &model.Key{
+		ID: keyID, UserID: owner, VaultID: vaultID, Name: "rotated-key",
+		Value: "pem-v2", Type: model.KeyTypeRSA, Enabled: true,
+	}))
+	require.NoError(t, repo.CreateVersion(ctx, keyID, 1, "pem-v1"))
+	require.NoError(t, repo.CreateVersion(ctx, keyID, 2, "pem-v2"))
+
+	svc := backup.NewItemBackupService(nil, repo, nil)
+
+	blob, err := svc.BackupKey(ctx, keyID, owner)
+	require.NoError(t, err)
+
+	newID := uuid.New()
+	require.NoError(t, svc.RestoreKey(ctx, blob, owner, vaultID, newID))
+
+	records, err := repo.ListVersionRecords(ctx, newID, owner)
+	require.NoError(t, err)
+	require.Len(t, records, 2)
+	assert.Equal(t, "pem-v1", records[0].Value)
+	assert.Equal(t, "pem-v2", records[1].Value)
+}
+
+// TestRestoreKey_OldFormatBlob_NoVersionsField verifies a blob encoded
+// before this change (no "versions" field on its envelope) still restores
+// correctly, with no version history — not an error.
+func TestRestoreKey_OldFormatBlob_NoVersionsField(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	owner := uuid.New()
+	vaultID := uuid.New()
+	keyID := uuid.New()
+
+	repo := newStubKeyRepo()
+	require.NoError(t, repo.Create(ctx, &model.Key{
+		ID: keyID, UserID: owner, VaultID: vaultID, Name: "never-rotated",
+		Value: "pem-v1", Type: model.KeyTypeRSA, Enabled: true,
+	}))
+
+	svc := backup.NewItemBackupService(nil, repo, nil)
+
+	// A key with zero key_versions rows produces a blob with an empty/absent
+	// "versions" field today, which is exactly the old-format shape.
+	blob, err := svc.BackupKey(ctx, keyID, owner)
+	require.NoError(t, err)
+
+	newID := uuid.New()
+	require.NoError(t, svc.RestoreKey(ctx, blob, owner, vaultID, newID))
+
+	records, err := repo.ListVersionRecords(ctx, newID, owner)
+	require.NoError(t, err)
+	assert.Empty(t, records)
 }
