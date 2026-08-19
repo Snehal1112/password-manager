@@ -1091,14 +1091,20 @@ func TestWrapKey_MissingPlaintext_Returns400(t *testing.T) {
 	assert.Equal(t, http.StatusBadRequest, w.Code)
 }
 
-func TestWrapKey_AES256CBC_Success_Returns200(t *testing.T) {
-	wrapped := []byte("wrapped-cbc-ciphertext")
+// TestWrapKey_AES256KW_Success_Returns200 covers the HTTP -> handler ->
+// response wiring for a successful wrap. It deliberately uses A256KW, not
+// A256CBC: AES-CBC wrap is rejected for HSM-backed keys because wrap/unwrap has
+// no IV channel (see TestWrapKey_HSMKey_RejectsAES256CBC in
+// internal/services/keys, which pins that gate against the real service — a
+// stubbed CryptoService cannot exercise it).
+func TestWrapKey_AES256KW_Success_Returns200(t *testing.T) {
+	wrapped := []byte("wrapped-kw-ciphertext")
 	svc := &stubCryptoSvc{
 		wrapKeyFn: func(_ context.Context, req keyServices.WrapKeyRequest) (*keyServices.WrapKeyResult, error) {
 			assert.Equal(t, testKeyIDStr, req.KeyID.String())
-			assert.Equal(t, "A256CBC", req.Algorithm)
+			assert.Equal(t, "A256KW", req.Algorithm)
 			assert.Equal(t, []byte("plaintext key material"), req.PlaintextKey)
-			return &keyServices.WrapKeyResult{WrappedKey: wrapped, Algorithm: "A256CBC"}, nil
+			return &keyServices.WrapKeyResult{WrappedKey: wrapped, Algorithm: "A256KW"}, nil
 		},
 	}
 
@@ -1107,7 +1113,7 @@ func TestWrapKey_AES256CBC_Success_Returns200(t *testing.T) {
 	w := httptest.NewRecorder()
 	r := httptest.NewRequest(http.MethodPost, "/keys/"+testKeyIDStr+"/wrap", jsonBody(t, map[string]any{
 		"plaintext_key": base64.StdEncoding.EncodeToString([]byte("plaintext key material")),
-		"algorithm":     "A256CBC",
+		"algorithm":     "A256KW",
 	}))
 
 	wrapKey(c, w, r)
@@ -1119,7 +1125,7 @@ func TestWrapKey_AES256CBC_Success_Returns200(t *testing.T) {
 	var resp WrapKeyResponse
 	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
 	assert.Equal(t, base64.StdEncoding.EncodeToString(wrapped), resp.WrappedKey)
-	assert.Equal(t, "A256CBC", resp.Algorithm)
+	assert.Equal(t, "A256KW", resp.Algorithm)
 }
 
 // ============================================================
