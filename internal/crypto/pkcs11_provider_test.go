@@ -81,11 +81,42 @@ func TestPKCS11Provider_GenerateECDSAKey_P521(t *testing.T) {
 	assert.Len(t, handle, 36)
 }
 
-func TestPKCS11Provider_GenerateECDSAKey_P256K_ReturnsError(t *testing.T) {
+func TestPKCS11Provider_GenerateECDSAKey_P256K(t *testing.T) {
 	p := newTestPKCS11Provider(t)
-	_, err := p.GenerateECDSAKey(context.Background(), "P-256K")
-	require.Error(t, err)
-	assert.ErrorIs(t, err, crypto.ErrUnsupportedCurve)
+	handle, err := p.GenerateECDSAKey(context.Background(), "P-256K")
+	require.NoError(t, err)
+	assert.Len(t, handle, 36, "handle must be a UUID label")
+}
+
+func TestPKCS11Provider_SignVerify_ECDSA_ES256K(t *testing.T) {
+	p := newTestPKCS11Provider(t)
+
+	handle, err := p.GenerateECDSAKey(context.Background(), "P-256K")
+	require.NoError(t, err)
+
+	data := []byte("secp256k1 hsm sign test")
+	sig, err := p.Sign(context.Background(), handle, "ECDSA", data, crypto.AlgorithmES256K)
+	require.NoError(t, err)
+	assert.NotEmpty(t, sig)
+
+	valid, err := p.Verify(context.Background(), handle, "ECDSA", data, sig, crypto.AlgorithmES256K)
+	require.NoError(t, err)
+	assert.True(t, valid, "signature must verify as valid")
+}
+
+func TestPKCS11Provider_Verify_ES256K_TamperedData_ReturnsFalse(t *testing.T) {
+	p := newTestPKCS11Provider(t)
+
+	handle, err := p.GenerateECDSAKey(context.Background(), "P-256K")
+	require.NoError(t, err)
+
+	data := []byte("original")
+	sig, err := p.Sign(context.Background(), handle, "ECDSA", data, crypto.AlgorithmES256K)
+	require.NoError(t, err)
+
+	valid, err := p.Verify(context.Background(), handle, "ECDSA", []byte("tampered"), sig, crypto.AlgorithmES256K)
+	require.NoError(t, err)
+	assert.False(t, valid, "tampered data must not verify")
 }
 
 // --- Sign / Verify ---

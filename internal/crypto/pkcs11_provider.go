@@ -164,15 +164,25 @@ func (p *PKCS11KeyProvider) GenerateRSAKey(_ context.Context, bits int) (string,
 }
 
 // ecOID maps Go curve names to their DER-encoded ASN.1 OID for PKCS#11
-// CKA_EC_PARAMS. secp256k1 is intentionally excluded.
+// CKA_EC_PARAMS. CKM_EC_KEY_PAIR_GEN is curve-agnostic in the PKCS#11 spec --
+// it validates against a key-size range, not a fixed curve allowlist -- so
+// secp256k1 works here on any token whose key-size range covers 256 bits
+// (confirmed empirically against SoftHSM2, which accepts 112-521 bits for
+// this mechanism). Real HSM vendors may still reject it in practice, since
+// secp256k1 isn't a NIST-approved curve; see isHSMCapabilityError for how
+// that's handled.
 var ecOID = map[string]asn1.ObjectIdentifier{
-	"P-256": {1, 2, 840, 10045, 3, 1, 7},
-	"P-384": {1, 3, 132, 0, 34},
-	"P-521": {1, 3, 132, 0, 35},
+	"P-256":  {1, 2, 840, 10045, 3, 1, 7},
+	"P-384":  {1, 3, 132, 0, 34},
+	"P-521":  {1, 3, 132, 0, 35},
+	"P-256K": {1, 3, 132, 0, 10},
 }
 
-// GenerateECDSAKey generates an EC key pair on the token. P-256K is not
-// supported on PKCS#11 and returns ErrUnsupportedCurve.
+// GenerateECDSAKey generates an EC key pair on the token. curveName is one of
+// "P-256", "P-384", "P-521", or "P-256K". If the specific token rejects the
+// curve at the hardware level (e.g. CKR_CURVE_NOT_SUPPORTED on a real HSM
+// that doesn't accept secp256k1), the error is reported as ErrUnsupportedCurve
+// the same as an unrecognised curve name.
 func (p *PKCS11KeyProvider) GenerateECDSAKey(_ context.Context, curveName string) (string, error) {
 	oid, ok := ecOID[curveName]
 	if !ok {
@@ -215,6 +225,9 @@ func (p *PKCS11KeyProvider) GenerateECDSAKey(_ context.Context, curveName string
 	mech := []*p11.Mechanism{p11.NewMechanism(p11.CKM_EC_KEY_PAIR_GEN, nil)}
 	_, _, err = p.ctx.GenerateKeyPair(session, mech, pubAttrs, privAttrs)
 	if err != nil {
+		if isHSMCapabilityError(err) {
+			return "", fmt.Errorf("%w: %s (rejected by HSM)", ErrUnsupportedCurve, curveName)
+		}
 		return "", fmt.Errorf("pkcs11 ec key gen (%s): %w", curveName, err)
 	}
 
@@ -427,10 +440,13 @@ var signMechanisms = map[SignatureAlgorithm]signMechanism{
 	AlgorithmPS384: {p11.CKM_SHA384_RSA_PKCS_PSS, false, "", p11.NewPSSParams(p11.CKM_SHA384, p11.CKG_MGF1_SHA384, 48)},
 	AlgorithmPS512: {p11.CKM_SHA512_RSA_PKCS_PSS, false, "", p11.NewPSSParams(p11.CKM_SHA512, p11.CKG_MGF1_SHA512, 64)},
 
-	// CKM_ECDSA takes a pre-hashed digest; hash in Go before sending.
-	AlgorithmES256: {p11.CKM_ECDSA, true, AlgorithmES256, nil},
-	AlgorithmES384: {p11.CKM_ECDSA, true, AlgorithmES384, nil},
-	AlgorithmES512: {p11.CKM_ECDSA, true, AlgorithmES512, nil},
+	// CKM_ECDSA takes a pre-hashed digest; hash in Go before sending. The
+	// mechanism itself is curve-agnostic -- it operates on whatever EC key is
+	// loaded, so ES256K reuses it exactly like ES256/384/512.
+	AlgorithmES256:  {p11.CKM_ECDSA, true, AlgorithmES256, nil},
+	AlgorithmES384:  {p11.CKM_ECDSA, true, AlgorithmES384, nil},
+	AlgorithmES512:  {p11.CKM_ECDSA, true, AlgorithmES512, nil},
+	AlgorithmES256K: {p11.CKM_ECDSA, true, AlgorithmES256K, nil},
 }
 
 // Sign signs data with the private key identified by handle (CKA_LABEL).
