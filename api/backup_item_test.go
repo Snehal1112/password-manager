@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/gorilla/mux"
 	"github.com/stretchr/testify/assert"
 
 	"rocketvault/app"
@@ -1119,4 +1120,95 @@ func TestRestoreCertificateHandler_NilContainer_Returns500(t *testing.T) {
 	}
 
 	assert.Equal(t, http.StatusInternalServerError, w.Code)
+}
+
+// ============================================================
+// InitBackupItem — vault-scoped route registration
+// ============================================================
+
+// TestInitBackupItem_RegistersVaultScopedRoutes verifies that backup/restore
+// for secrets, keys, and certificates resolve under the vault-scoped path
+// shape (/vaults/{vault_name}/...), not just the legacy flat routes. Route
+// matching only, no handler dispatch, so it needs no service container.
+func TestInitBackupItem_RegistersVaultScopedRoutes(t *testing.T) {
+	router := mux.NewRouter()
+	testAPI := &API{
+		BaseRoutes: &Routes{},
+		basePath:   "/api/v1",
+		rootRouter: router,
+	}
+	r := testAPI.BaseRoutes
+	r.ApiRoot = router.PathPrefix("/api/v1").Subrouter()
+	r.Vaults = r.ApiRoot.PathPrefix("/vaults").Subrouter()
+	r.VaultScoped = r.Vaults.PathPrefix("/{vault_name:[a-z0-9-]+}").Subrouter()
+	r.Secrets = r.ApiRoot.PathPrefix("/secrets").Subrouter()
+	r.Keys = r.ApiRoot.PathPrefix("/keys").Subrouter()
+	r.Certificates = r.ApiRoot.PathPrefix("/certificates").Subrouter()
+
+	testAPI.InitBackupItem()
+
+	cases := []struct {
+		name   string
+		method string
+		path   string
+	}{
+		{"secret backup", http.MethodPost, "/api/v1/vaults/prod/secrets/" + uuid.New().String() + "/backup"},
+		{"secret restore", http.MethodPost, "/api/v1/vaults/prod/secrets/restore"},
+		{"key backup", http.MethodPost, "/api/v1/vaults/prod/keys/" + uuid.New().String() + "/backup"},
+		{"key restore", http.MethodPost, "/api/v1/vaults/prod/keys/restore"},
+		{"certificate backup", http.MethodPost, "/api/v1/vaults/prod/certificates/" + uuid.New().String() + "/backup"},
+		{"certificate restore", http.MethodPost, "/api/v1/vaults/prod/certificates/restore"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			req := httptest.NewRequest(tc.method, tc.path, nil)
+			var match mux.RouteMatch
+			if !router.Match(req, &match) {
+				t.Fatalf("no vault-scoped route matched %s %s", tc.method, tc.path)
+			}
+		})
+	}
+}
+
+// TestInitBackupItem_LegacyFlatRoutesStillMatch verifies the pre-existing
+// flat routes keep working once vault-scoped registration is added alongside
+// them.
+func TestInitBackupItem_LegacyFlatRoutesStillMatch(t *testing.T) {
+	router := mux.NewRouter()
+	testAPI := &API{
+		BaseRoutes: &Routes{},
+		basePath:   "/api/v1",
+		rootRouter: router,
+	}
+	r := testAPI.BaseRoutes
+	r.ApiRoot = router.PathPrefix("/api/v1").Subrouter()
+	r.Vaults = r.ApiRoot.PathPrefix("/vaults").Subrouter()
+	r.VaultScoped = r.Vaults.PathPrefix("/{vault_name:[a-z0-9-]+}").Subrouter()
+	r.Secrets = r.ApiRoot.PathPrefix("/secrets").Subrouter()
+	r.Keys = r.ApiRoot.PathPrefix("/keys").Subrouter()
+	r.Certificates = r.ApiRoot.PathPrefix("/certificates").Subrouter()
+
+	testAPI.InitBackupItem()
+
+	cases := []struct {
+		name   string
+		method string
+		path   string
+	}{
+		{"secret backup", http.MethodPost, "/api/v1/secrets/" + uuid.New().String() + "/backup"},
+		{"secret restore", http.MethodPost, "/api/v1/secrets/restore"},
+		{"key backup", http.MethodPost, "/api/v1/keys/" + uuid.New().String() + "/backup"},
+		{"key restore", http.MethodPost, "/api/v1/keys/restore"},
+		{"certificate backup", http.MethodPost, "/api/v1/certificates/" + uuid.New().String() + "/backup"},
+		{"certificate restore", http.MethodPost, "/api/v1/certificates/restore"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			req := httptest.NewRequest(tc.method, tc.path, nil)
+			var match mux.RouteMatch
+			if !router.Match(req, &match) {
+				t.Fatalf("no legacy flat route matched %s %s", tc.method, tc.path)
+			}
+		})
+	}
 }

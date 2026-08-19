@@ -6,17 +6,30 @@ import (
 	"net/http"
 
 	"github.com/google/uuid"
+	"github.com/gorilla/mux"
 
 	"rocketvault/internal/backup"
 )
 
-// InitBackupItem registers per-item backup and restore routes onto the existing
-// Secrets, Keys, and Certificates subrouters.
+// InitBackupItem registers per-item backup and restore routes onto the
+// legacy flat Secrets, Keys, and Certificates subrouters, and — mirroring
+// registerSecretRoutes/registerKeyRoutes/registerCertificateRoutes — onto the
+// vault-scoped equivalents, so both URL shapes resolve to the same handlers.
 func (api *API) InitBackupItem() {
-	s := api.BaseRoutes.Secrets
-	k := api.BaseRoutes.Keys
-	c := api.BaseRoutes.Certificates
+	api.registerBackupItemRoutes(api.BaseRoutes.Secrets, api.BaseRoutes.Keys, api.BaseRoutes.Certificates)
 
+	if api.BaseRoutes.VaultScoped != nil {
+		api.registerBackupItemRoutes(
+			api.BaseRoutes.VaultScoped.PathPrefix("/secrets").Subrouter(),
+			api.BaseRoutes.VaultScoped.PathPrefix("/keys").Subrouter(),
+			api.BaseRoutes.VaultScoped.PathPrefix("/certificates").Subrouter(),
+		)
+	}
+}
+
+// registerBackupItemRoutes registers the backup/restore handlers on the given
+// secrets, keys, and certificates subrouters.
+func (api *API) registerBackupItemRoutes(s, k, c *mux.Router) {
 	// Secret backup / restore.
 	s.Handle("/{secret_id:[A-Fa-f0-9-]+}/backup",
 		ApiSessionRequired(api.App, backupSecretHandler)).Methods("POST")

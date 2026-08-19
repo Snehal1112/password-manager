@@ -2007,6 +2007,59 @@ paths:
         "500":
           $ref: "#/components/responses/InternalError"
 
+  /api/v1/vaults/{vault_name}/secrets/{secret_id}/backup:
+    parameters:
+      - $ref: "#/components/parameters/VaultName"
+      - $ref: "#/components/parameters/SecretId"
+    post:
+      summary: Back up a vault secret
+      description: Returns an opaque, encrypted backup blob for a secret held in the named vault.
+      operationId: backupSecretInVault
+      tags:
+        - Secrets
+      responses:
+        "200":
+          description: Backup blob created successfully
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BackupBlobResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /api/v1/vaults/{vault_name}/secrets/restore:
+    parameters:
+      - $ref: "#/components/parameters/VaultName"
+    post:
+      summary: Restore a secret from a backup blob into a vault
+      description: Decodes a backup blob and re-inserts the secret into the named vault.
+      operationId: restoreSecretInVault
+      tags:
+        - Secrets
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RestoreRequest"
+      responses:
+        "200":
+          $ref: "#/components/responses/StatusOK"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
   /api/v1/vaults/{vault_name}/secrets/{secret_id}/versions:
     parameters:
       - $ref: "#/components/parameters/VaultName"
@@ -3053,6 +3106,59 @@ paths:
         "500":
           $ref: "#/components/responses/InternalError"
 
+  /api/v1/vaults/{vault_name}/keys/{key_id}/backup:
+    parameters:
+      - $ref: "#/components/parameters/VaultName"
+      - $ref: "#/components/parameters/KeyId"
+    post:
+      summary: Back up a vault key
+      description: Returns an opaque, encrypted backup blob for a key held in the named vault.
+      operationId: backupKeyInVault
+      tags:
+        - Keys
+      responses:
+        "200":
+          description: Backup blob created successfully
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BackupBlobResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /api/v1/vaults/{vault_name}/keys/restore:
+    parameters:
+      - $ref: "#/components/parameters/VaultName"
+    post:
+      summary: Restore a key from a backup blob into a vault
+      description: Decodes a backup blob and re-inserts the key into the named vault.
+      operationId: restoreKeyInVault
+      tags:
+        - Keys
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RestoreRequest"
+      responses:
+        "200":
+          $ref: "#/components/responses/StatusOK"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
   # ─── Certificates (legacy flat routes; resolve to the default vault) ───────
   /api/v1/certificates:
     get:
@@ -3491,6 +3597,59 @@ paths:
           $ref: "#/components/responses/Forbidden"
         "404":
           $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /api/v1/vaults/{vault_name}/certificates/{certificate_id}/backup:
+    parameters:
+      - $ref: "#/components/parameters/VaultName"
+      - $ref: "#/components/parameters/CertificateId"
+    post:
+      summary: Back up a vault certificate
+      description: Returns an opaque, encrypted backup blob for a certificate held in the named vault.
+      operationId: backupCertificateInVault
+      tags:
+        - Certificates
+      responses:
+        "200":
+          description: Backup blob created successfully
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BackupBlobResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /api/v1/vaults/{vault_name}/certificates/restore:
+    parameters:
+      - $ref: "#/components/parameters/VaultName"
+    post:
+      summary: Restore a certificate from a backup blob into a vault
+      description: Decodes a backup blob and re-inserts the certificate into the named vault.
+      operationId: restoreCertificateInVault
+      tags:
+        - Certificates
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RestoreRequest"
+      responses:
+        "200":
+          $ref: "#/components/responses/StatusOK"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
         "500":
           $ref: "#/components/responses/InternalError"
 
