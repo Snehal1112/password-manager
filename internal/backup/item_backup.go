@@ -13,9 +13,6 @@ import (
 	"rocketvault/model"
 )
 
-// ErrForbidden is returned when a user attempts to access a resource they do not own.
-var ErrForbidden = errors.New("forbidden")
-
 // ErrInvalidBlob is returned when the backup blob cannot be decoded.
 var ErrInvalidBlob = errors.New("invalid backup blob")
 

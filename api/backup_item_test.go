@@ -362,7 +362,7 @@ func newBackupCtxWithSecret(secretRepo *mockSecretRepo) *Context {
 }
 
 // ============================================================
-// backupSecretHandler — success and ErrForbidden paths
+// backupSecretHandler — success and not-found paths
 // ============================================================
 
 // TestBackupSecretHandler_Success_Returns200 verifies the happy path returns the blob.
@@ -452,7 +452,7 @@ func TestRestoreSecretHandler_InvalidBlob_Returns400(t *testing.T) {
 }
 
 // TestRestoreSecretHandler_CreateError_Returns500 verifies that a generic repo error
-// during restore maps to 500 (ErrForbidden cannot arise from RestoreSecret).
+// during restore maps to 500.
 func TestRestoreSecretHandler_CreateError_Returns500(t *testing.T) {
 	secretID := uuid.New()
 	userID := uuid.MustParse(secretHTestUserID)

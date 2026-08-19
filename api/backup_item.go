@@ -138,8 +138,6 @@ func restoreSecretHandler(c *Context, w http.ResponseWriter, r *http.Request) {
 
 	if err := svc.RestoreSecret(r.Context(), req.Blob, userID, vaultID, uuid.New()); err != nil {
 		switch {
-		case errors.Is(err, backup.ErrForbidden):
-			c.SetPermissionError("cannot restore: forbidden")
 		case errors.Is(err, backup.ErrInvalidBlob):
 			c.SetInvalidParam("blob")
 		default:
@@ -214,8 +212,6 @@ func restoreKeyHandler(c *Context, w http.ResponseWriter, r *http.Request) {
 
 	if err := svc.RestoreKey(r.Context(), req.Blob, userID, vaultID, uuid.New()); err != nil {
 		switch {
-		case errors.Is(err, backup.ErrForbidden):
-			c.SetPermissionError("cannot restore: forbidden")
 		case errors.Is(err, backup.ErrInvalidBlob):
 			c.SetInvalidParam("blob")
 		default:
@@ -290,8 +286,6 @@ func restoreCertificateHandler(c *Context, w http.ResponseWriter, r *http.Reques
 
 	if err := svc.RestoreCertificate(r.Context(), req.Blob, userID, vaultID, uuid.New()); err != nil {
 		switch {
-		case errors.Is(err, backup.ErrForbidden):
-			c.SetPermissionError("cannot restore: forbidden")
 		case errors.Is(err, backup.ErrInvalidBlob):
 			c.SetInvalidParam("blob")
 		default:
