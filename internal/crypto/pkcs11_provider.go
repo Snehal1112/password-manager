@@ -367,8 +367,8 @@ func isAESGCMAlgorithm(algorithm EncryptionAlgorithm) bool {
 	return algorithm == AlgorithmAES256
 }
 
-// encryptAESCBC encrypts plaintext with the secret key identified by label
-// using CKM_AES_CBC_PAD -- the padded variant, so PKCS7 padding happens
+// encryptAESCBC encrypts plaintext with the secret key object referenced by
+// the key handle using CKM_AES_CBC_PAD -- the padded variant, so PKCS7 padding happens
 // on-token and the plaintext need not be block-aligned in Go, matching
 // SoftwareKeyProvider's PKCS7-padded CBC semantics exactly. A random 16-byte
 // IV is generated here (matching the software provider's convention) and
@@ -396,7 +396,16 @@ func (p *PKCS11KeyProvider) encryptAESCBC(session p11.SessionHandle, key p11.Obj
 
 // decryptAESCBC reverses encryptAESCBC using the same IV the encrypt call
 // returned. PKCS7 padding is stripped on-token by CKM_AES_CBC_PAD.
+//
+// The IV length is checked here rather than left to the token: SoftHSM2
+// rejects a wrong-length IV with CKR_MECHANISM_INVALID, which is on
+// isHSMCapabilityError's allowlist and would therefore be misreported as
+// "AES-CBC (rejected by HSM)" instead of the input error it actually is.
 func (p *PKCS11KeyProvider) decryptAESCBC(session p11.SessionHandle, key p11.ObjectHandle, ciphertext, iv []byte) ([]byte, error) {
+	if len(iv) != 16 {
+		return nil, fmt.Errorf("aes-cbc iv must be 16 bytes, got %d", len(iv))
+	}
+
 	mech := []*p11.Mechanism{p11.NewMechanism(p11.CKM_AES_CBC_PAD, iv)}
 	if err := p.ctx.DecryptInit(session, mech, key); err != nil {
 		if isHSMCapabilityError(err) {
@@ -412,8 +421,8 @@ func (p *PKCS11KeyProvider) decryptAESCBC(session p11.SessionHandle, key p11.Obj
 	return pt, nil
 }
 
-// encryptAESGCM encrypts plaintext with the secret key identified by label
-// using CKM_AES_GCM, no AAD, and a 128-bit tag -- matching the software
+// encryptAESGCM encrypts plaintext with the secret key object referenced by
+// the key handle using CKM_AES_GCM, no AAD, and a 128-bit tag -- matching the software
 // provider's cipher.NewGCM default behavior exactly. A random 12-byte nonce
 // is generated here (GCM's standard 96-bit IV size) and returned; the caller
 // must supply it back to decryptAESGCM.
@@ -662,7 +671,7 @@ func isSignatureInvalid(err error) bool {
 
 // Known CKR_* result codes a PKCS#11 token returns when it understands a
 // request but doesn't support the specific curve or mechanism -- as opposed
-// to a transport/system failure. Values from the PKCS#11 v2.40 spec.
+// to a transport/system failure. These are PKCS#11 CKR_* result codes.
 const (
 	ckrCurveNotSupported     = p11.Error(0x140) // CKR_CURVE_NOT_SUPPORTED
 	ckrDomainParamsInvalid   = p11.Error(0x130) // CKR_DOMAIN_PARAMS_INVALID

@@ -446,6 +446,32 @@ func TestPKCS11Provider_DecryptAESCBC_WrongIV_Fails(t *testing.T) {
 	}
 }
 
+// TestPKCS11Provider_DecryptAESCBC_WrongLengthIV_ReturnsValidationError pins
+// the IV-length check in decryptAESCBC. Without it, SoftHSM2 rejects a
+// wrong-length IV with CKR_MECHANISM_INVALID, which is on
+// isHSMCapabilityError's allowlist, so a malformed caller-supplied IV would be
+// misreported as ErrUnsupportedAlgorithm ("AES-CBC (rejected by HSM)") rather
+// than the input-validation error it actually is.
+func TestPKCS11Provider_DecryptAESCBC_WrongLengthIV_ReturnsValidationError(t *testing.T) {
+	p := newTestPKCS11Provider(t)
+
+	handle, err := p.GenerateAESKey(context.Background(), 256)
+	require.NoError(t, err)
+
+	plaintext := []byte("cbc iv length validation payload")
+	ct, iv, err := p.Encrypt(context.Background(), handle, plaintext, crypto.AlgorithmA256CBC)
+	require.NoError(t, err)
+	require.Len(t, iv, 16)
+
+	for _, shortIV := range [][]byte{nil, {}, iv[:8], append(append([]byte{}, iv...), 0x00)} {
+		_, err := p.Decrypt(context.Background(), handle, ct, shortIV, crypto.AlgorithmA256CBC)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "aes-cbc iv must be 16 bytes")
+		assert.NotErrorIs(t, err, crypto.ErrUnsupportedAlgorithm,
+			"a malformed IV is an input error, not an HSM capability rejection")
+	}
+}
+
 // --- Interface compliance ---
 
 // Ensure PKCS11KeyProvider satisfies KeyProvider at compile time.

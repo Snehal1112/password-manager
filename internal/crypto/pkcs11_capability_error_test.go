@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"testing"
 
-	"github.com/stretchr/testify/assert"
 	p11 "github.com/miekg/pkcs11"
+	"github.com/stretchr/testify/assert"
 )
 
 func TestIsHSMCapabilityError_CurveNotSupported(t *testing.T) {
