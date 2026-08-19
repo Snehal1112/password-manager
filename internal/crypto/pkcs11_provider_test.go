@@ -328,6 +328,80 @@ func TestPKCS11Provider_Encrypt_AESKWWithRSAKey_ReturnsError(t *testing.T) {
 	assert.Error(t, err)
 }
 
+// --- AES-CBC Encrypt/Decrypt ---
+
+func TestPKCS11Provider_EncryptDecrypt_AES128CBC(t *testing.T) {
+	p := newTestPKCS11Provider(t)
+
+	handle, err := p.GenerateAESKey(context.Background(), 128)
+	require.NoError(t, err)
+
+	plaintext := []byte("aes-cbc round trip test payload, any length works with padding")
+	ct, iv, err := p.Encrypt(context.Background(), handle, plaintext, crypto.AlgorithmA128CBC)
+	require.NoError(t, err)
+	assert.NotEmpty(t, ct)
+	assert.Len(t, iv, 16, "CBC IV must be one AES block")
+
+	pt, err := p.Decrypt(context.Background(), handle, ct, iv, crypto.AlgorithmA128CBC)
+	require.NoError(t, err)
+	assert.Equal(t, plaintext, pt)
+}
+
+func TestPKCS11Provider_EncryptDecrypt_AES192CBC(t *testing.T) {
+	p := newTestPKCS11Provider(t)
+
+	handle, err := p.GenerateAESKey(context.Background(), 192)
+	require.NoError(t, err)
+
+	plaintext := []byte("192-bit cbc payload")
+	ct, iv, err := p.Encrypt(context.Background(), handle, plaintext, crypto.AlgorithmA192CBC)
+	require.NoError(t, err)
+
+	pt, err := p.Decrypt(context.Background(), handle, ct, iv, crypto.AlgorithmA192CBC)
+	require.NoError(t, err)
+	assert.Equal(t, plaintext, pt)
+}
+
+func TestPKCS11Provider_EncryptDecrypt_AES256CBC(t *testing.T) {
+	p := newTestPKCS11Provider(t)
+
+	handle, err := p.GenerateAESKey(context.Background(), 256)
+	require.NoError(t, err)
+
+	plaintext := []byte("256-bit cbc payload, deliberately not block-aligned to exercise padding")
+	ct, iv, err := p.Encrypt(context.Background(), handle, plaintext, crypto.AlgorithmA256CBC)
+	require.NoError(t, err)
+
+	pt, err := p.Decrypt(context.Background(), handle, ct, iv, crypto.AlgorithmA256CBC)
+	require.NoError(t, err)
+	assert.Equal(t, plaintext, pt)
+}
+
+func TestPKCS11Provider_DecryptAESCBC_WrongIV_Fails(t *testing.T) {
+	p := newTestPKCS11Provider(t)
+
+	handle, err := p.GenerateAESKey(context.Background(), 256)
+	require.NoError(t, err)
+
+	plaintext := []byte("cbc tamper detection payload")
+	ct, iv, err := p.Encrypt(context.Background(), handle, plaintext, crypto.AlgorithmA256CBC)
+	require.NoError(t, err)
+
+	wrongIV := make([]byte, len(iv))
+	copy(wrongIV, iv)
+	wrongIV[0] ^= 0xFF
+
+	pt, err := p.Decrypt(context.Background(), handle, ct, wrongIV, crypto.AlgorithmA256CBC)
+	// CBC has no built-in integrity check: a wrong IV corrupts only the first
+	// plaintext block (this is the well-known CBC property), so decryption
+	// itself may succeed while producing wrong plaintext, or may fail if the
+	// corruption breaks PKCS7 padding. Either outcome proves the wrong IV was
+	// not silently ignored.
+	if err == nil {
+		assert.NotEqual(t, plaintext, pt, "wrong IV must not silently decrypt to the original plaintext")
+	}
+}
+
 // --- Interface compliance ---
 
 // Ensure PKCS11KeyProvider satisfies KeyProvider at compile time.

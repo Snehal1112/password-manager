@@ -2,6 +2,7 @@ package crypto
 
 import (
 	"context"
+	"crypto/rand"
 	"encoding/asn1"
 	"errors"
 	"fmt"
@@ -347,6 +348,70 @@ func isAESKWAlgorithm(algorithm EncryptionAlgorithm) bool {
 	}
 }
 
+// isAESCBCAlgorithm reports whether algorithm is an AES-CBC variant, which
+// maps to CKM_AES_CBC_PAD against a CKO_SECRET_KEY object (same key handle
+// AES-KW already uses).
+func isAESCBCAlgorithm(algorithm EncryptionAlgorithm) bool {
+	switch algorithm {
+	case AlgorithmA128CBC, AlgorithmA192CBC, AlgorithmA256CBC:
+		return true
+	default:
+		return false
+	}
+}
+
+// isAESGCMAlgorithm reports whether algorithm is RocketVault's one AES-GCM
+// identifier (256-bit only, matching the software provider -- no
+// A128GCM/A192GCM exist in this codebase).
+func isAESGCMAlgorithm(algorithm EncryptionAlgorithm) bool {
+	return algorithm == AlgorithmAES256
+}
+
+// encryptAESCBC encrypts plaintext with the secret key identified by label
+// using CKM_AES_CBC_PAD -- the padded variant, so PKCS7 padding happens
+// on-token and the plaintext need not be block-aligned in Go, matching
+// SoftwareKeyProvider's PKCS7-padded CBC semantics exactly. A random 16-byte
+// IV is generated here (matching the software provider's convention) and
+// returned as the nonce; the caller must supply it back to decryptAESCBC.
+func (p *PKCS11KeyProvider) encryptAESCBC(session p11.SessionHandle, key p11.ObjectHandle, plaintext []byte) (ciphertext, iv []byte, err error) {
+	iv = make([]byte, 16)
+	if _, err := rand.Read(iv); err != nil {
+		return nil, nil, fmt.Errorf("generate cbc iv: %w", err)
+	}
+
+	mech := []*p11.Mechanism{p11.NewMechanism(p11.CKM_AES_CBC_PAD, iv)}
+	if err := p.ctx.EncryptInit(session, mech, key); err != nil {
+		if isHSMCapabilityError(err) {
+			return nil, nil, fmt.Errorf("%w: AES-CBC (rejected by HSM)", ErrUnsupportedAlgorithm)
+		}
+		return nil, nil, fmt.Errorf("pkcs11 aes-cbc encrypt init: %w", err)
+	}
+
+	ct, err := p.ctx.Encrypt(session, plaintext)
+	if err != nil {
+		return nil, nil, fmt.Errorf("pkcs11 aes-cbc encrypt: %w", err)
+	}
+	return ct, iv, nil
+}
+
+// decryptAESCBC reverses encryptAESCBC using the same IV the encrypt call
+// returned. PKCS7 padding is stripped on-token by CKM_AES_CBC_PAD.
+func (p *PKCS11KeyProvider) decryptAESCBC(session p11.SessionHandle, key p11.ObjectHandle, ciphertext, iv []byte) ([]byte, error) {
+	mech := []*p11.Mechanism{p11.NewMechanism(p11.CKM_AES_CBC_PAD, iv)}
+	if err := p.ctx.DecryptInit(session, mech, key); err != nil {
+		if isHSMCapabilityError(err) {
+			return nil, fmt.Errorf("%w: AES-CBC (rejected by HSM)", ErrUnsupportedAlgorithm)
+		}
+		return nil, fmt.Errorf("pkcs11 aes-cbc decrypt init: %w", err)
+	}
+
+	pt, err := p.ctx.Decrypt(session, ciphertext)
+	if err != nil {
+		return nil, fmt.Errorf("pkcs11 aes-cbc decrypt: %w", err)
+	}
+	return pt, nil
+}
+
 // wrapRawData wraps plaintext with wrappingKey using plain, unpadded RFC 3394
 // CKM_AES_KEY_WRAP via C_WrapKey. Many PKCS#11 tokens (including SoftHSM2)
 // only expose AES-KW mechanisms through the CKF_WRAP/CKF_UNWRAP capability,
@@ -579,7 +644,8 @@ func isHSMCapabilityError(err error) bool {
 }
 
 // Encrypt performs RSA-OAEP encryption with the token's RSA public key, or
-// AES-KW wrapping with the token's AES secret key, depending on algorithm.
+// AES-KW wrapping with the token's AES secret key, or AES-CBC encryption
+// depending on algorithm.
 func (p *PKCS11KeyProvider) Encrypt(_ context.Context, handle string, data []byte, algorithm EncryptionAlgorithm) ([]byte, []byte, error) {
 	session, err := p.openRWSession()
 	if err != nil {
@@ -599,6 +665,14 @@ func (p *PKCS11KeyProvider) Encrypt(_ context.Context, handle string, data []byt
 		}
 		// AES-KW does not use a nonce.
 		return ct, nil, nil
+	}
+
+	if isAESCBCAlgorithm(algorithm) {
+		key, err := p.findSecretKey(session, handle)
+		if err != nil {
+			return nil, nil, err
+		}
+		return p.encryptAESCBC(session, key, data)
 	}
 
 	oaepParams, err := oaepMechParams(algorithm)
@@ -626,8 +700,9 @@ func (p *PKCS11KeyProvider) Encrypt(_ context.Context, handle string, data []byt
 }
 
 // Decrypt performs RSA-OAEP decryption with the token's RSA private key, or
-// AES-KW unwrapping with the token's AES secret key, depending on algorithm.
-func (p *PKCS11KeyProvider) Decrypt(_ context.Context, handle string, data []byte, _ []byte, algorithm EncryptionAlgorithm) ([]byte, error) {
+// AES-KW unwrapping with the token's AES secret key, or AES-CBC decryption
+// depending on algorithm.
+func (p *PKCS11KeyProvider) Decrypt(_ context.Context, handle string, data []byte, nonce []byte, algorithm EncryptionAlgorithm) ([]byte, error) {
 	session, err := p.openRWSession()
 	if err != nil {
 		return nil, err
@@ -641,6 +716,14 @@ func (p *PKCS11KeyProvider) Decrypt(_ context.Context, handle string, data []byt
 		}
 
 		return p.unwrapRawData(session, key, data)
+	}
+
+	if isAESCBCAlgorithm(algorithm) {
+		key, err := p.findSecretKey(session, handle)
+		if err != nil {
+			return nil, err
+		}
+		return p.decryptAESCBC(session, key, data, nonce)
 	}
 
 	oaepParams, err := oaepMechParams(algorithm)
