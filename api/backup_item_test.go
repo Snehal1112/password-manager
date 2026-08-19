@@ -391,30 +391,6 @@ func TestBackupSecretHandler_Success_Returns200(t *testing.T) {
 	assert.NotEmpty(t, body["blob"])
 }
 
-// TestBackupSecretHandler_Forbidden_Returns403 verifies ErrForbidden maps to 403.
-func TestBackupSecretHandler_Forbidden_Returns403(t *testing.T) {
-	secretID := uuid.New()
-	// Return a secret that belongs to a different user.
-	otherUserID := uuid.New()
-	secretRepo := &mockSecretRepo{
-		readFn: func(_ context.Context, id uuid.UUID) (*model.Secret, error) {
-			return &model.Secret{ID: id, Name: "s", Value: "v", UserID: otherUserID}, nil
-		},
-	}
-
-	c := newBackupCtxWithSecret(secretRepo)
-	c.Params = &ApiParams{SecretID: secretID.String(), PerPage: 60}
-	w := httptest.NewRecorder()
-	r := httptest.NewRequest(http.MethodPost, "/secrets/"+secretID.String()+"/backup", nil)
-
-	backupSecretHandler(c, w, r)
-	if c.Err != nil {
-		writeError(w, c)
-	}
-
-	assert.Equal(t, http.StatusForbidden, w.Code)
-}
-
 // TestBackupSecretHandler_NotFound_Returns404 verifies that a repo error maps to 404.
 func TestBackupSecretHandler_NotFound_Returns404(t *testing.T) {
 	secretID := uuid.New()
@@ -450,7 +426,7 @@ func buildValidSecretBlob(t *testing.T, secretID, userID uuid.UUID) string {
 		},
 	}
 	svc := backup.NewItemBackupService(secretRepo, nil, nil)
-	blob, err := svc.BackupSecret(context.Background(), secretID, userID)
+	blob, err := svc.BackupSecret(context.Background(), secretID, userID, uuid.Nil)
 	if err != nil {
 		t.Fatalf("buildValidSecretBlob: %v", err)
 	}
@@ -551,7 +527,7 @@ func TestRestoreSecretHandler_WritesRequestVaultNotBlobVault(t *testing.T) {
 		},
 	}
 	blobSvc := backup.NewItemBackupService(blobSecretRepo, nil, nil)
-	blob, err := blobSvc.BackupSecret(context.Background(), secretID, userID)
+	blob, err := blobSvc.BackupSecret(context.Background(), secretID, userID, uuid.Nil)
 	if err != nil {
 		t.Fatalf("failed to build blob: %v", err)
 	}

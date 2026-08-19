@@ -220,7 +220,7 @@ func TestRestoreKeyTypeMismatch(t *testing.T) {
 	svc := backup.NewItemBackupService(sr, newStubKeyRepo(), nil)
 
 	// A secret blob must not restore as a key.
-	blob, err := svc.BackupSecret(ctx, secretID, userID)
+	blob, err := svc.BackupSecret(ctx, secretID, userID, uuid.Nil)
 	require.NoError(t, err)
 
 	err = svc.RestoreKey(ctx, blob, userID, uuid.New(), uuid.New())
@@ -345,7 +345,7 @@ func TestBackupSecretReadError(t *testing.T) {
 	t.Parallel()
 
 	svc := backup.NewItemBackupService(newErrSecretRepo(), nil, nil)
-	_, err := svc.BackupSecret(context.Background(), uuid.New(), uuid.New())
+	_, err := svc.BackupSecret(context.Background(), uuid.New(), uuid.New(), uuid.New())
 	require.Error(t, err)
 }
 
@@ -363,7 +363,7 @@ func TestRestoreSecretCreateError(t *testing.T) {
 	}))
 
 	goodSvc := backup.NewItemBackupService(good, nil, nil)
-	blob, err := goodSvc.BackupSecret(ctx, secretID, userID)
+	blob, err := goodSvc.BackupSecret(ctx, secretID, userID, uuid.Nil)
 	require.NoError(t, err)
 
 	// Restore into a failing repo.

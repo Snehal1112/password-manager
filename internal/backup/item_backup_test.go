@@ -20,6 +20,12 @@ import (
 // stubSecretRepo is a minimal in-memory secret repository for testing.
 type stubSecretRepo struct {
 	secrets map[uuid.UUID]*model.Secret
+	// LastReadScope records the scope of the most recent Read. The stub
+	// itself ignores scope for its own gating (it applies scopeAuthorizes
+	// directly against the in-memory map), but this lets tests assert the
+	// exact scope the service passed — the real predicate lives in
+	// SecretRepository's SQL.
+	LastReadScope model.Scope
 }
 
 func newStubSecretRepo() *stubSecretRepo {
@@ -52,6 +58,7 @@ func scopeAuthorizes(s *model.Secret, scope model.Scope) bool {
 }
 
 func (r *stubSecretRepo) Read(_ context.Context, id uuid.UUID, scope model.Scope) (*model.Secret, error) {
+	r.LastReadScope = scope
 	s, ok := r.secrets[id]
 	if !ok || !scopeAuthorizes(s, scope) {
 		return nil, fmt.Errorf("secret not found or access denied")
@@ -179,7 +186,7 @@ func TestBackupRestoreSecret(t *testing.T) {
 	svc := backup.NewItemBackupService(repo, nil, nil)
 
 	// Backup the secret.
-	blob, err := svc.BackupSecret(ctx, secretID, userID)
+	blob, err := svc.BackupSecret(ctx, secretID, userID, uuid.Nil)
 	require.NoError(t, err)
 	require.NotEmpty(t, blob)
 
@@ -199,19 +206,21 @@ func TestBackupRestoreSecret(t *testing.T) {
 	require.Equal(t, original.Version, restored[0].Version)
 }
 
-func TestBackupSecretForbidden(t *testing.T) {
+func TestBackupSecretNonOwnerInSameVaultSucceeds(t *testing.T) {
 	t.Parallel()
 
 	ctx := context.Background()
 	ownerID := uuid.New()
-	otherID := uuid.New()
+	callerID := uuid.New()
+	vaultID := uuid.New()
 	secretID := uuid.New()
 
 	repo := newStubSecretRepo()
 	require.NoError(t, repo.Create(ctx, &model.Secret{
 		ID:      secretID,
 		UserID:  ownerID,
-		Name:    "private",
+		VaultID: vaultID,
+		Name:    "shared",
 		Value:   "value",
 		Version: 1,
 		Enabled: true,
@@ -219,10 +228,12 @@ func TestBackupSecretForbidden(t *testing.T) {
 
 	svc := backup.NewItemBackupService(repo, nil, nil)
 
-	// A different user must not be able to back up another user's secret.
-	_, err := svc.BackupSecret(ctx, secretID, otherID)
-	require.Error(t, err)
-	require.Contains(t, err.Error(), "forbidden")
+	// A Secrets Officer authorized in this vault who does not own the secret
+	// must be able to back it up.
+	blob, err := svc.BackupSecret(ctx, secretID, callerID, vaultID)
+	require.NoError(t, err)
+	require.NotEmpty(t, blob)
+	require.Equal(t, model.NewVaultScope(vaultID, callerID), repo.LastReadScope)
 }
 
 // stubKeyRepo is a minimal in-memory key repository for testing.
@@ -411,7 +422,7 @@ func TestRestoreSecretWritesAuthorizedVaultNotBlobVault(t *testing.T) {
 	}
 	require.NoError(t, repo.Create(ctx, original))
 
-	blob, err := svc.BackupSecret(ctx, original.ID, owner)
+	blob, err := svc.BackupSecret(ctx, original.ID, owner, vaultA)
 	require.NoError(t, err)
 
 	newID := uuid.New()
@@ -451,7 +462,7 @@ func TestRestoreSecretPreservesPurgeProtection(t *testing.T) {
 	}
 	require.NoError(t, repo.Create(ctx, original))
 
-	blob, err := svc.BackupSecret(ctx, original.ID, owner)
+	blob, err := svc.BackupSecret(ctx, original.ID, owner, vaultID)
 	require.NoError(t, err)
 
 	newID := uuid.New()
