@@ -78,13 +78,13 @@ policies are vault-scoped, the sweep is deliberately vault-agnostic.*
 | Capability | Azure Key Vault | RocketVault | Status |
 |---|---|---|---|
 | RSA key sizes | 2048 / 3072 / 4096 | 2048 / 3072 / 4096 | ✅ |
-| EC curves | P-256, P-256K, P-384, P-521 | P-256 / P-384 / P-521 work over REST on both software and HSM-backed instances. P-256K's two REST bugs are both fixed: the validator rejection (`ValidateKeyCreate` blocking it before the handler's own four-curve check — `.claude/known-bugs.md` § B24, 2026-08-19) and the follow-up uncaught 500 on HSM-enabled instances (§ B25, 2026-08-19). `POST /keys {"curve":"P-256K"}` now returns 201 when `hsm.enabled: false` (verified live). On an HSM-enabled instance (`hsm.enabled: true`, this repo's own configured default) it now returns a clean 400 (`curve: curve not supported by PKCS#11 provider: P-256K`) instead of leaking a 500 — HSM-backed P-256K key creation itself remains genuinely unsupported (`ecOID`, `ErrUnsupportedCurve`; no PKCS#11 mechanism exists for it in this provider), but the failure mode is now correct | 🟡 (full REST support on software-backed instances; HSM-backed instances now fail cleanly instead of leaking a 500, but still can't create the key) |
+| EC curves | P-256, P-256K, P-384, P-521 | P-256 / P-384 / P-521 work over REST on both software and HSM-backed instances. P-256K now does too, end-to-end: both of its REST bugs were already fixed (the validator rejection, `.claude/known-bugs.md` § B24, and the follow-up uncaught 500 on HSM-enabled instances, § B25), and this plan closed the underlying capability gap those bugs' error paths existed to protect (2026-08-19, `docs/superpowers/specs/2026-08-19-hsm-secp256k1-aes-cbc-gcm-design.md`). `PKCS11KeyProvider.GenerateECDSAKey`'s `ecOID` map now includes secp256k1's OID (1.3.132.0.10) — `CKM_EC_KEY_PAIR_GEN` is curve-agnostic in the PKCS#11 spec, and SoftHSM2 accepts it. `POST /keys {"curve":"P-256K"}` now returns 201 on both `hsm.enabled: false` and `hsm.enabled: true` (verified live against a running server), with working `sign`/`verify` on the resulting key either way. Only SoftHSM2 was available to verify against in this environment — secp256k1 isn't a NIST-approved curve, and real HSM vendor hardware may still reject it at the PKCS#11 level; `isHSMCapabilityError` (`internal/crypto/pkcs11_provider.go`) degrades that rejection to the existing clean `ErrUnsupportedCurve` 400 rather than an uncaught 500, so the failure mode is safe either way | 🟡 (RocketVault's own P-256K gap is fully closed on both software and SoftHSM2-backed instances; real-vendor-hardware secp256k1 support is unverified and genuinely uncertain, unlike the well-established P-256/P-384/P-521 curves) |
 | Symmetric (oct/oct-HSM) keys | 🟡 oct-HSM 128/192/256 on **Premium vaults, public preview** (Managed HSM: GA) | ✅ `POST /keys` `"type": "OCT"` with `bits` 128/192/256 → `KeyService.CreateOctKey`; HSM-only by design (`SoftwareKeyProvider.GenerateAESKey` always returns `ErrOctKeysRequireHSM`), stored as a `pkcs11:` label so no key material enters the process. No CLI support (`keys create` takes RSA/ECDSA only) | ✅ (HSM-gating matches Azure's HSM-only rule; algorithm coverage differs — see the AES row) |
 | Sign/Verify — RSA | RS256/384/512, PS256/384/512, RSNULL | RS256/384/512, PS256/384/512 | 🟡 (no RSNULL TLS edge case) |
-| Sign/Verify — EC | ES256, ES256K, ES384, ES512 | ES256/384/512 in software and on HSM keys (`signMechanisms`, `CKM_ECDSA` with a Go-side pre-hash); ES256K is software-only (secp256k1, key type `ES256K`) but now reachable end-to-end over REST — verified live: a REST-created P-256K key's `POST /keys/{id}/sign`/`verify` with `algorithm: ES256K` both work correctly (valid DER signature, correct accept/reject on tamper), on a software-backed instance. An HSM-enabled instance can't create a P-256K key at all (no PKCS#11 mechanism, now cleanly rejected — see the EC curves row above), so ES256K sign/verify is unreachable there | 🟡 (works fully on software-backed instances; unreachable on HSM-enabled ones because key creation itself is unsupported there) |
+| Sign/Verify — EC | ES256, ES256K, ES384, ES512 | ES256/384/512 in software and on HSM keys (`signMechanisms`, `CKM_ECDSA` with a Go-side pre-hash). ES256K (secp256k1, key type `ES256K`) now works the same way on both software and HSM-backed instances (2026-08-19, same plan as the EC curves row above) — verified live: a REST-created P-256K key's `POST /keys/{id}/sign`/`verify` with `algorithm: ES256K` both work correctly (valid DER signature, correct accept/reject on tamper), via the same generic `CKM_ECDSA` mechanism used for the other curves, on an HSM-enabled instance as well as a software-backed one. This closes a RocketVault-side gap only — Azure's own secp256k1/ES256K support is unaffected by this change either way | 🟡 (fully working on software and SoftHSM2-backed instances; real-vendor HSM secp256k1 support unverified, same caveat as the EC curves row) |
 | Sign/Verify — symmetric (HMAC) | HS256, HS384, HS512 (oct-HSM) | ❌ in practice: `CryptoOperations.Sign`/`Verify` implement HS256/384/512 for `oct` keys, but every oct key is PKCS#11-backed and `PKCS11KeyProvider`'s `signMechanisms` map has no HMAC entry | ❌ |
 | Wrap/Encrypt — RSA | RSA-OAEP-256, RSA-OAEP, RSA1_5 | RSA-OAEP-256 and RSA-OAEP on both wrap/unwrap and encrypt/decrypt, software and HSM (`CKM_RSA_PKCS_OAEP` with SHA-256/SHA-1 params); RSA1_5 is implemented for encrypt/decrypt on software keys only (`AlgorithmRSA1_5`, no PKCS#11 mechanism) and deliberately excluded from the wrap/unwrap allowlist | 🟡 (RSA1_5 encrypt/decrypt only — Azure marks it "not recommended" anyway) |
-| Wrap/Encrypt — AES (KW/CBC/GCM) | AES-KW, AES-GCM, AES-CBC on oct-HSM (Premium preview / Managed HSM) | A128/192/256 KW on HSM-backed AES keys (`CKM_AES_KEY_WRAP` via C_WrapKey, with an algorithm↔`key.Bits` match check); AES-KW requires 8-byte-aligned input (RFC 3394, matches Azure). A128/192/256 CBC and AES256-GCM exist only in the software path (`crypto_operations.go`) and are unreachable today — no software-backed symmetric key can be created (`ErrOctKeysRequireHSM`), and the PKCS#11 path rejects both (`isHSMWrapAlgorithm`, `oaepMechParams`) | 🟡 (KW only; CBC/GCM code present but no key can reach it) |
+| Wrap/Encrypt — AES (KW/CBC/GCM) | AES-KW, AES-GCM, AES-CBC on oct-HSM (Premium preview / Managed HSM) | A128/192/256 KW, A128/192/256 CBC, and AES256-GCM (256-bit only, matching RocketVault's pre-existing software identifier — Azure GCM key sizes beyond that aren't modeled) all now work end-to-end on HSM-backed AES keys (2026-08-19, `docs/superpowers/specs/2026-08-19-hsm-secp256k1-aes-cbc-gcm-design.md`). KW: `CKM_AES_KEY_WRAP` via `C_WrapKey`, with an algorithm↔`key.Bits` match check; requires 8-byte-aligned input (RFC 3394, matches Azure). CBC: new `encryptAESCBC`/`decryptAESCBC` on `PKCS11KeyProvider` using the padded `CKM_AES_CBC_PAD` mechanism; `isHSMWrapAlgorithm` (`internal/services/keys/crypto_service.go`) now allows `A128CBC`/`A192CBC`/`A256CBC` through the wrap/unwrap gate that previously blocked them — verified at the PKCS#11 provider level (round-trip, all 3 sizes, wrong-IV rejection), the service-layer gate, and a live `POST /keys/{id}/wrap` HTTP regression test. GCM: new `encryptAESGCM`/`decryptAESGCM` using `CKM_AES_GCM`/`NewGCMParams`, reached through the plain `Encrypt`/`Decrypt` service path (which never had a wrap-style algorithm allowlist to begin with) — verified at the PKCS#11 provider level (round-trip, tamper detection, wrong-nonce rejection); GCM stays Encrypt/Decrypt-only, never wrap/unwrap, matching Azure's own convention. Only SoftHSM2 was verified — these are standard NIST algorithms, so real-vendor rejection is far less likely than for P-256K, but genuinely unconfirmed beyond SoftHSM2 | ✅ (KW, CBC, and GCM all HSM-backed now, closely matching Azure's oct-HSM Premium-preview coverage; real-vendor-hardware confirmation is the only remaining gap, not a RocketVault implementation gap) |
 
 *Corrected 2026-08-19 (third pass): both P-256K REST bugs are now fixed. The
 validator rejection (`.claude/known-bugs.md` § B24) landed first; the follow-up —
@@ -112,6 +112,32 @@ internal parse error rather than a clean "not supported for EC keys" rejection;
 Azure doesn't support encrypt/wrap on EC keys either, so this isn't a capability
 gap, but the error handling is a pre-existing rough edge worth its own note if
 RocketVault's error responses get audited for information leakage.*
+
+*Closed 2026-08-19 (same day, separate plan,
+`docs/superpowers/specs/2026-08-19-hsm-secp256k1-aes-cbc-gcm-design.md`): the three
+implementation gaps the note above still left open — HSM-backed P-256K key
+creation/sign/verify, and HSM-backed AES-CBC/AES-GCM — are now real, working code,
+verified against a live SoftHSM2 token. `PKCS11KeyProvider.GenerateECDSAKey`'s
+`ecOID` map gained secp256k1's OID (1.3.132.0.10); `CKM_EC_KEY_PAIR_GEN` is
+curve-agnostic in the PKCS#11 spec and SoftHSM2 accepts it, so `POST /keys
+{"curve":"P-256K"}` and `sign`/`verify` with `algorithm: ES256K` both now work
+end-to-end on an HSM-enabled instance, not only a software-backed one. New
+`encryptAESCBC`/`decryptAESCBC` (via the padded `CKM_AES_CBC_PAD` mechanism) and
+`encryptAESGCM`/`decryptAESGCM` (via `CKM_AES_GCM`/`NewGCMParams`) methods on
+`PKCS11KeyProvider` make AES-CBC and AES256-GCM real for HSM-backed AES keys, and
+`isHSMWrapAlgorithm` (`internal/services/keys/crypto_service.go`) was extended to
+let `A128CBC`/`A192CBC`/`A256CBC` through the wrap/unwrap gate that previously
+blocked them. A new `isHSMCapabilityError` helper
+(`internal/crypto/pkcs11_provider.go`) translates a real HSM's rejection of any of
+these three operations into the existing `ErrUnsupportedCurve`/
+`ErrUnsupportedAlgorithm` sentinels — a clean 400 via the B24/B25 error-mapping
+pipeline already in `api/keys.go`/`api/errors_key.go`, not an uncaught 500 — for
+vendor hardware that doesn't accept them; no changes to those two files were
+needed. Only SoftHSM2 was available to verify against in this environment:
+secp256k1 isn't a NIST-approved curve and real HSM vendors may still reject it,
+while AES-CBC/GCM are standard NIST algorithms far less likely to be rejected. See
+the EC curves, Sign/Verify — EC, and Wrap/Encrypt — AES rows above, and §8 below,
+for the resulting Status-glyph changes.*
 
 ## 4. Certificate management
 
@@ -324,7 +350,7 @@ posture as B20's own cascade check.*
 | Capability | Azure Key Vault | RocketVault | Status |
 |---|---|---|---|
 | Software crypto module | ✅ Standard (FIPS 140 L1) | ✅ Go crypto + AES-256-GCM | 🟡 (not FIPS-validated) |
-| HSM-backed keys | ✅ Premium (FIPS 140-3 L3) | 🟡 PKCS#11 provider (`hsm.enabled`); RSA sign/verify/encrypt/decrypt, EC sign/verify (P-256/P-384/P-521), and AES-KW generate/wrap/unwrap all HSM-backed. P-256K has no PKCS#11 mechanism — `POST /keys {"curve":"P-256K"}` on an HSM-enabled instance (this repo's own configured default) correctly returns a clean 400 (fixed 2026-08-19, `.claude/known-bugs.md` § B25 — it previously leaked an uncaught 500); P-256K key creation only works end-to-end when `hsm.enabled: false` (see §3). AES-CBC/GCM code exists in the software crypto path but is unreachable in practice: no software-backed symmetric key can ever be created (`ErrOctKeysRequireHSM`), so real AES support is HSM-AES-KW only | 🟡 |
+| HSM-backed keys | ✅ Premium (FIPS 140-3 L3) | PKCS#11 provider (`hsm.enabled`); RSA sign/verify/encrypt/decrypt, EC sign/verify (P-256/P-384/P-521 **and now P-256K**), and AES generate/wrap/unwrap/encrypt/decrypt (KW, CBC, and GCM — see §3) are all HSM-backed as of 2026-08-19 (`docs/superpowers/specs/2026-08-19-hsm-secp256k1-aes-cbc-gcm-design.md`) — every algorithm/curve gap that could be closed through code now is, verified against a live SoftHSM2 token (real-vendor-hardware confirmation for secp256k1 specifically remains outstanding, see §3's EC curves row). The one gap left is FIPS 140-3 L3 certification itself — a hardware/process certification, not achievable through code, that Azure's Premium tier holds and RocketVault's software-driven PKCS#11 integration never will; the same category of permanent, non-code-closable caveat the "Software crypto module" row above carries for FIPS 140 L1 | 🟡 (not FIPS 140-3 L3 certified — every other gap this row previously listed is now closed) |
 | JWT signing key protection | n/a | ➕ OS keychain / self-PKI / external-PKI providers | ➕ |
 | Keys non-extractable | ✅ | ✅ | ✅ |
 
@@ -361,17 +387,25 @@ dated notes throughout §§1-3, 5-7, 10). Two rows moved out of Partial entirely
 before this pass and now confirmed live); several new Partial findings surfaced in
 §2 and §3 that predate this pass but had never been rolled up here.*
 
+*Further reconciled 2026-08-19 (same day, separate plan — HSM secp256k1 +
+AES-CBC/GCM, `docs/superpowers/specs/2026-08-19-hsm-secp256k1-aes-cbc-gcm-design.md`):
+§3's EC curves, Sign/Verify — EC, and Wrap/Encrypt — AES rows, and §8's HSM-backed
+keys row, are updated below to reflect the capability that plan closed — see the
+dated notes in §3 and §8 for the full detail.*
+
 **Strong parity (✅):** secret lifecycle + versioning, rotation policies (now
 vault-scoped with a working auto-rotate scheduler, closed 2026-08-17, see §1),
 certificate CRUD + policy + auto-renewal, multi-vault isolation, per-vault purge
 protection that correctly cascades to contained items (closed 2026-08-18, see §5,
 §7), vault-scoped deleted/restore/purge across all three resource types (closed
-2026-08-13, see §5), and RBAC: the vault-scoped role-assignment architecture matches
-Azure's real RBAC model, and — re-verified line-by-line against `model/azure_roles.go`
-on 2026-08-19 — all eleven role bundles are byte-for-byte accurate (Reader is
-metadata-only, Crypto Officer is a true superset of Crypto User including wrap/unwrap,
-Administrator carries no derived gaps, and Data Access Administrator now enforces
-Azure's own eight-role grant allow-list, closed 2026-08-18, see §6).
+2026-08-13, see §5), AES-KW/CBC/GCM wrap and encrypt on HSM-backed keys now closely
+matching Azure's oct-HSM Premium-preview coverage (closed 2026-08-19, see §3), and
+RBAC: the vault-scoped role-assignment architecture matches Azure's real RBAC model,
+and — re-verified line-by-line against `model/azure_roles.go` on 2026-08-19 — all
+eleven role bundles are byte-for-byte accurate (Reader is metadata-only, Crypto
+Officer is a true superset of Crypto User including wrap/unwrap, Administrator
+carries no derived gaps, and Data Access Administrator now enforces Azure's own
+eight-role grant allow-list, closed 2026-08-18, see §6).
 
 **Partial (🟡):**
 - **Key operations beyond CRUD** (see §2): key *versions* are archival metadata, not
@@ -385,23 +419,24 @@ Azure's own eight-role grant allow-list, closed 2026-08-18, see §6).
   Notify lifetime action has no RocketVault equivalent.
 - **Key types & algorithms** (see §3): P-256K's two REST bugs are both fixed — the
   validator rejection (2026-08-19, § B24) and the follow-up uncaught 500 on
-  HSM-enabled instances (2026-08-19, § B25). Creation, sign, and verify now work
-  end-to-end over REST, verified live, on software-backed instances
-  (`hsm.enabled: false`). On HSM-enabled instances (`hsm.enabled: true`, this
-  repo's own configured default), the same create request now returns a clean 400
-  instead of leaking a 500 — HSM-backed P-256K key creation remains genuinely
-  unsupported (no PKCS#11 mechanism exists for it in this provider), but the
-  failure mode is now correct. RSA1_5 exists for encrypt/decrypt only, not wrap
-  (matching Azure's own "not recommended" posture on that algorithm). AES-CBC/GCM
-  software code exists but is unreachable in practice: no software-backed
-  symmetric key can ever be created (`ErrOctKeysRequireHSM`), so real AES support
-  is HSM-AES-KW only — matching, not exceeding, Azure's Managed-HSM/Premium-preview
-  restriction.
-- **HSM** (see §8): PKCS#11 path exists but is not the default; covers RSA
-  (sign/verify/encrypt/decrypt), EC P-256/P-384/P-521 (sign/verify), and AES-KW
-  (generate/wrap/unwrap) — P-256K has no PKCS#11 mechanism, and no AES-CBC/GCM
-  PKCS#11 mechanism exists either. No FIPS 140-3 L3 validation (a certification
-  process, not achievable through code).
+  HSM-enabled instances (2026-08-19, § B25) — and, as of the same day, the
+  underlying capability gap those bugs' error paths existed to protect is closed
+  too: P-256K key creation, sign, and verify all now work end-to-end over REST on
+  both software-backed and HSM-enabled instances (verified live against a running
+  server and a live SoftHSM2 token). Real-vendor-hardware secp256k1 support beyond
+  SoftHSM2 remains unverified and genuinely uncertain (not a NIST-approved curve),
+  with `isHSMCapabilityError` degrading a real rejection to a clean 400 rather than
+  a leaked 500 either way. RSA1_5 exists for encrypt/decrypt only, not wrap
+  (matching Azure's own "not recommended" posture on that algorithm). AES-CBC and
+  AES-GCM are also now real, HSM-backed capabilities (same date, same plan),
+  closely matching — not exceeding — Azure's Managed-HSM/Premium-preview AES-KW/
+  CBC/GCM coverage.
+- **HSM** (see §8): PKCS#11 path exists but is not the default; as of 2026-08-19 it
+  covers RSA (sign/verify/encrypt/decrypt), EC P-256/P-384/P-521/P-256K
+  (sign/verify), and AES KW/CBC/GCM (generate/wrap/unwrap/encrypt/decrypt) — every
+  algorithm/curve gap that could be closed through code now is. No FIPS 140-3 L3
+  validation remains (a certification process, not achievable through code) — the
+  one permanent, non-code-closable caveat left on this row.
 - **Access-policy engine** (see §6): a genuine architectural match to Azure's
   deny-overrides model, but simplified to two layers under one table rather than
   Azure's two fully separate, switchable engines — reasonable for a single
