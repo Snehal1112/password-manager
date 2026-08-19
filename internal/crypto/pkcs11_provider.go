@@ -528,6 +528,40 @@ func isSignatureInvalid(err error) bool {
 		s == "pkcs11: 0xC1: CKR_SIGNATURE_LEN_RANGE"
 }
 
+// Known CKR_* result codes a PKCS#11 token returns when it understands a
+// request but doesn't support the specific curve or mechanism -- as opposed
+// to a transport/system failure. Values from the PKCS#11 v2.40 spec.
+const (
+	ckrCurveNotSupported     = p11.Error(0x140) // CKR_CURVE_NOT_SUPPORTED
+	ckrDomainParamsInvalid   = p11.Error(0x130) // CKR_DOMAIN_PARAMS_INVALID
+	ckrMechanismInvalid      = p11.Error(0x70)  // CKR_MECHANISM_INVALID
+	ckrMechanismParamInvalid = p11.Error(0x71)  // CKR_MECHANISM_PARAM_INVALID
+)
+
+// isHSMCapabilityError reports whether err indicates the token rejected an
+// operation because it doesn't support the requested curve or mechanism,
+// rather than a transport/system failure. SoftHSM2 accepts secp256k1 and
+// AES-CBC/GCM, but real HSM vendors vary -- this lets any such rejection
+// degrade to a clean, typed error instead of an opaque one.
+//
+// Compares the library's typed error value directly via errors.As rather
+// than its string form: CKR_CURVE_NOT_SUPPORTED has no entry in the
+// library's own strerror table (error.go), so Error(0x140).Error() renders
+// as "pkcs11: 0x140: " with an empty symbol name -- there is no reliable
+// string to match against for that code.
+func isHSMCapabilityError(err error) bool {
+	var pErr p11.Error
+	if !errors.As(err, &pErr) {
+		return false
+	}
+	switch pErr {
+	case ckrCurveNotSupported, ckrDomainParamsInvalid, ckrMechanismInvalid, ckrMechanismParamInvalid:
+		return true
+	default:
+		return false
+	}
+}
+
 // Encrypt performs RSA-OAEP encryption with the token's RSA public key, or
 // AES-KW wrapping with the token's AES secret key, depending on algorithm.
 func (p *PKCS11KeyProvider) Encrypt(_ context.Context, handle string, data []byte, algorithm EncryptionAlgorithm) ([]byte, []byte, error) {
