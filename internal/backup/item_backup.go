@@ -142,17 +142,16 @@ func (s *ItemBackupService) RestoreKey(ctx context.Context, blob string, userID,
 	return nil
 }
 
-// BackupCertificate creates a base64url-encoded backup blob for the given certificate.
-// It returns an error when the certificate does not belong to userID.
-func (s *ItemBackupService) BackupCertificate(ctx context.Context, id, userID uuid.UUID) (string, error) {
-	// The read itself is unchecked (admin scope); the explicit ownership
-	// check below is the actual gate, matching the pre-scope behaviour.
-	cert, err := s.certRepo.Read(ctx, id, model.NewAdminScope(userID))
+// BackupCertificate creates a base64url-encoded backup blob for the given
+// certificate.
+//
+// vaultID is the vault the caller's request was authorized against. See
+// BackupKey for why the scoped read replaces the previous unscoped read plus
+// ownership comparison.
+func (s *ItemBackupService) BackupCertificate(ctx context.Context, id, userID, vaultID uuid.UUID) (string, error) {
+	cert, err := s.certRepo.Read(ctx, id, model.NewVaultScope(vaultID, userID))
 	if err != nil {
 		return "", fmt.Errorf("backup certificate: %w", err)
-	}
-	if cert.UserID != userID {
-		return "", ErrForbidden
 	}
 	return encodeBlob("certificate", id.String(), cert, nil)
 }

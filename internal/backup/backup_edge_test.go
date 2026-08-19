@@ -20,6 +20,11 @@ import (
 type stubCertRepo struct {
 	certs map[uuid.UUID]*model.Certificate
 	err   error
+	// LastReadScope records the scope of the most recent Read. The stub itself
+	// ignores scope (it is an in-memory map), so the scope the service passes
+	// is asserted directly — the real predicate lives in
+	// CertificateRepository's SQL.
+	LastReadScope model.Scope
 }
 
 func newStubCertRepo() *stubCertRepo {
@@ -35,10 +40,12 @@ func (r *stubCertRepo) Create(_ context.Context, c *model.Certificate) error {
 	return nil
 }
 
-// Read ignores scope: BackupCertificate/RestoreCertificate pass an admin
-// scope (the read itself is unchecked) and enforce ownership manually
-// afterward, matching item_backup.go's actual behaviour.
-func (r *stubCertRepo) Read(_ context.Context, id uuid.UUID, _ model.Scope) (*model.Certificate, error) {
+// Read ignores scope for authorization purposes: it is an in-memory map with
+// no SQL predicate to enforce. It still records the scope it was called with
+// so tests can assert the service passed the correct one; the real predicate
+// lives in CertificateRepository's SQL.
+func (r *stubCertRepo) Read(_ context.Context, id uuid.UUID, scope model.Scope) (*model.Certificate, error) {
+	r.LastReadScope = scope
 	if r.err != nil {
 		return nil, r.err
 	}
@@ -244,29 +251,37 @@ func TestBackupCertificateSuccess(t *testing.T) {
 
 	svc := backup.NewItemBackupService(nil, nil, cr)
 
-	blob, err := svc.BackupCertificate(ctx, certID, ownerID)
+	blob, err := svc.BackupCertificate(ctx, certID, ownerID, uuid.Nil)
 	require.NoError(t, err)
 	require.NotEmpty(t, blob)
 }
 
-func TestBackupCertificateForbidden(t *testing.T) {
+// TestBackupCertificateNonOwnerInSameVaultSucceeds verifies that a
+// Certificates Officer authorized in this vault who does not own the
+// certificate can still back it up. Authorization is the RBAC action check
+// in PolicyMiddleware plus the vault scope, not certificate ownership.
+func TestBackupCertificateNonOwnerInSameVaultSucceeds(t *testing.T) {
 	t.Parallel()
 
 	ctx := context.Background()
 	ownerID := uuid.New()
-	otherID := uuid.New()
+	callerID := uuid.New()
+	vaultID := uuid.New()
 	certID := uuid.New()
 
+	// stubCertRepo has no Create; TestBackupCertificateSuccess above
+	// populates its map directly, and this mirrors that.
 	cr := newStubCertRepo()
 	cr.certs[certID] = &model.Certificate{
-		ID: certID, UserID: ownerID, Name: "cert",
+		ID: certID, UserID: ownerID, VaultID: vaultID, Name: "my-cert",
 	}
 
 	svc := backup.NewItemBackupService(nil, nil, cr)
 
-	_, err := svc.BackupCertificate(ctx, certID, otherID)
-	require.Error(t, err)
-	require.Contains(t, err.Error(), "forbidden")
+	blob, err := svc.BackupCertificate(ctx, certID, callerID, vaultID)
+	require.NoError(t, err)
+	require.NotEmpty(t, blob)
+	require.Equal(t, model.NewVaultScope(vaultID, callerID), cr.LastReadScope)
 }
 
 func TestBackupCertificateRepoError(t *testing.T) {
@@ -276,7 +291,7 @@ func TestBackupCertificateRepoError(t *testing.T) {
 	cr.err = errors.New("db failure")
 
 	svc := backup.NewItemBackupService(nil, nil, cr)
-	_, err := svc.BackupCertificate(context.Background(), uuid.New(), uuid.New())
+	_, err := svc.BackupCertificate(context.Background(), uuid.New(), uuid.New(), uuid.New())
 	require.Error(t, err)
 }
 
@@ -294,7 +309,7 @@ func TestRestoreCertificateSuccess(t *testing.T) {
 
 	svc := backup.NewItemBackupService(nil, nil, cr)
 
-	blob, err := svc.BackupCertificate(ctx, certID, ownerID)
+	blob, err := svc.BackupCertificate(ctx, certID, ownerID, uuid.Nil)
 	require.NoError(t, err)
 
 	delete(cr.certs, certID)
@@ -331,7 +346,7 @@ func TestRestoreCertificateTypeMismatch(t *testing.T) {
 	svc := backup.NewItemBackupService(nil, nil, cr)
 
 	// Build a cert blob then attempt to restore it as a secret.
-	blob, err := svc.BackupCertificate(ctx, certID, userID)
+	blob, err := svc.BackupCertificate(ctx, certID, userID, uuid.Nil)
 	require.NoError(t, err)
 
 	err = svc.RestoreSecret(ctx, blob, userID, uuid.New(), uuid.New())

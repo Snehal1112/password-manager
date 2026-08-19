@@ -527,7 +527,7 @@ func TestRestoreCertificatePreservesPurgeProtection(t *testing.T) {
 	}
 	require.NoError(t, repo.Create(ctx, original))
 
-	blob, err := svc.BackupCertificate(ctx, original.ID, owner)
+	blob, err := svc.BackupCertificate(ctx, original.ID, owner, vaultID)
 	require.NoError(t, err)
 
 	newID := uuid.New()

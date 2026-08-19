@@ -928,29 +928,6 @@ func TestBackupCertificateHandler_Success_Returns200(t *testing.T) {
 	assert.NotEmpty(t, body["blob"])
 }
 
-// TestBackupCertificateHandler_Forbidden_Returns403 verifies ErrForbidden maps to 403.
-func TestBackupCertificateHandler_Forbidden_Returns403(t *testing.T) {
-	certID := uuid.New()
-	otherUserID := uuid.New()
-	certRepo := &mockCertRepo{
-		readFn: func(_ context.Context, id uuid.UUID) (*model.Certificate, error) {
-			return &model.Certificate{ID: id, Name: "c", UserID: otherUserID}, nil
-		},
-	}
-
-	c := newBackupCtxWithCert(certRepo)
-	c.Params = &ApiParams{CertificateID: certID.String(), PerPage: 60}
-	w := httptest.NewRecorder()
-	r := httptest.NewRequest(http.MethodPost, "/certificates/"+certID.String()+"/backup", nil)
-
-	backupCertificateHandler(c, w, r)
-	if c.Err != nil {
-		writeError(w, c)
-	}
-
-	assert.Equal(t, http.StatusForbidden, w.Code)
-}
-
 // TestBackupCertificateHandler_NotFound_Returns404 verifies repo errors map to 404.
 func TestBackupCertificateHandler_NotFound_Returns404(t *testing.T) {
 	certID := uuid.New()
@@ -986,7 +963,7 @@ func buildValidCertBlob(t *testing.T, certID, userID uuid.UUID) string {
 		},
 	}
 	svc := backup.NewItemBackupService(nil, nil, certRepo)
-	blob, err := svc.BackupCertificate(context.Background(), certID, userID)
+	blob, err := svc.BackupCertificate(context.Background(), certID, userID, uuid.Nil)
 	if err != nil {
 		t.Fatalf("buildValidCertBlob: %v", err)
 	}
