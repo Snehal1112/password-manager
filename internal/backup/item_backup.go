@@ -39,12 +39,27 @@ func NewItemBackupService(
 	}
 }
 
+// blobVersions carries whatever version history a resource type has. Both
+// fields are optional: a key blob populates Key, a secret blob populates
+// Secret, and a certificate blob populates neither (certificates have no
+// version table).
+type blobVersions struct {
+	Key    []model.KeyVersionRecord
+	Secret []model.SecretVersion
+}
+
 // backupEnvelope is the internal structure stored inside the opaque blob.
+//
+// Both version fields are omitempty and additive: a blob written before a
+// given field existed simply decodes it as nil. That is what lets pre-2026-08
+// key blobs and pre-2026-08-20 secret blobs still restore. Never rename or
+// retype an existing field here -- it is a wire format.
 type backupEnvelope struct {
-	ResourceType string                   `json:"resource_type"`
-	ResourceID   string                   `json:"resource_id"`
-	Data         json.RawMessage          `json:"data"`
-	Versions     []model.KeyVersionRecord `json:"versions,omitempty"` // keys only
+	ResourceType   string                   `json:"resource_type"`
+	ResourceID     string                   `json:"resource_id"`
+	Data           json.RawMessage          `json:"data"`
+	Versions       []model.KeyVersionRecord `json:"versions,omitempty"`        // keys only
+	SecretVersions []model.SecretVersion    `json:"secret_versions,omitempty"` // secrets only
 }
 
 // BackupSecret creates a base64url-encoded backup blob for the given secret.
@@ -57,7 +72,7 @@ func (s *ItemBackupService) BackupSecret(ctx context.Context, id, userID, vaultI
 	if err != nil {
 		return "", fmt.Errorf("backup secret: %w", err)
 	}
-	return encodeBlob("secret", id.String(), secret, nil)
+	return encodeBlob("secret", id.String(), secret, blobVersions{})
 }
 
 // RestoreSecret decodes blob and re-inserts it as newID, owned by userID,
@@ -106,7 +121,7 @@ func (s *ItemBackupService) BackupKey(ctx context.Context, id, userID, vaultID u
 	if err != nil {
 		return "", fmt.Errorf("backup key: list versions: %w", err)
 	}
-	return encodeBlob("key", id.String(), key, versions)
+	return encodeBlob("key", id.String(), key, blobVersions{Key: versions})
 }
 
 // RestoreKey decodes blob and re-inserts it as newID, owned by userID, into
@@ -129,7 +144,7 @@ func (s *ItemBackupService) RestoreKey(ctx context.Context, blob string, userID,
 			return fmt.Errorf("restore key: set purge protection: %w", err)
 		}
 	}
-	for _, v := range versions {
+	for _, v := range versions.Key {
 		if err := s.keyRepo.CreateVersion(ctx, newID, v.Version, v.Value); err != nil {
 			return fmt.Errorf("restore key: create version %d: %w", v.Version, err)
 		}
@@ -148,7 +163,7 @@ func (s *ItemBackupService) BackupCertificate(ctx context.Context, id, userID, v
 	if err != nil {
 		return "", fmt.Errorf("backup certificate: %w", err)
 	}
-	return encodeBlob("certificate", id.String(), cert, nil)
+	return encodeBlob("certificate", id.String(), cert, blobVersions{})
 }
 
 // RestoreCertificate decodes blob and re-inserts it as newID, owned by
@@ -175,18 +190,19 @@ func (s *ItemBackupService) RestoreCertificate(ctx context.Context, blob string,
 }
 
 // encodeBlob marshals data into a JSON envelope and base64url-encodes it.
-// versions is nil for secrets/certificates (no version-material concept);
-// keys pass their archived version records.
-func encodeBlob(resourceType, resourceID string, data interface{}, versions []model.KeyVersionRecord) (string, error) {
+// versions carries whatever history the resource type has; a zero blobVersions
+// means none, and both envelope fields are then omitted.
+func encodeBlob(resourceType, resourceID string, data interface{}, versions blobVersions) (string, error) {
 	raw, err := json.Marshal(data)
 	if err != nil {
 		return "", fmt.Errorf("marshal data: %w", err)
 	}
 	envelope, err := json.Marshal(backupEnvelope{
-		ResourceType: resourceType,
-		ResourceID:   resourceID,
-		Data:         raw,
-		Versions:     versions,
+		ResourceType:   resourceType,
+		ResourceID:     resourceID,
+		Data:           raw,
+		Versions:       versions.Key,
+		SecretVersions: versions.Secret,
 	})
 	if err != nil {
 		return "", fmt.Errorf("marshal envelope: %w", err)
@@ -195,22 +211,25 @@ func encodeBlob(resourceType, resourceID string, data interface{}, versions []mo
 }
 
 // decodeBlob base64url-decodes a blob and unmarshals the envelope into out.
-// Returns the envelope's Versions (nil for secrets/certificates, and nil for
-// a blob encoded before this field existed — the field is purely additive).
-func decodeBlob(blob, expectedType string, out interface{}) ([]model.KeyVersionRecord, error) {
+// The returned blobVersions is zero for a resource type with no history, and
+// zero for a blob encoded before the corresponding field existed -- both
+// fields are purely additive.
+func decodeBlob(blob, expectedType string, out interface{}) (blobVersions, error) {
+	var none blobVersions
+
 	raw, err := base64.URLEncoding.DecodeString(blob)
 	if err != nil {
-		return nil, fmt.Errorf("%w: invalid encoding: %w", ErrInvalidBlob, err)
+		return none, fmt.Errorf("%w: invalid encoding: %w", ErrInvalidBlob, err)
 	}
 	var envelope backupEnvelope
 	if err := json.Unmarshal(raw, &envelope); err != nil {
-		return nil, fmt.Errorf("%w: invalid format: %w", ErrInvalidBlob, err)
+		return none, fmt.Errorf("%w: invalid format: %w", ErrInvalidBlob, err)
 	}
 	if envelope.ResourceType != expectedType {
-		return nil, fmt.Errorf("%w: type mismatch: expected %s, got %s", ErrInvalidBlob, expectedType, envelope.ResourceType)
+		return none, fmt.Errorf("%w: type mismatch: expected %s, got %s", ErrInvalidBlob, expectedType, envelope.ResourceType)
 	}
 	if err := json.Unmarshal(envelope.Data, out); err != nil {
-		return nil, err
+		return none, err
 	}
-	return envelope.Versions, nil
+	return blobVersions{Key: envelope.Versions, Secret: envelope.SecretVersions}, nil
 }

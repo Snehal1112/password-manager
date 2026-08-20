@@ -610,3 +610,44 @@ func TestRestoreKey_OldFormatBlob_NoVersionsField(t *testing.T) {
 	require.NoError(t, err)
 	assert.Empty(t, records)
 }
+
+// TestBlobEnvelope_SecretVersionsRoundTrip pins the new envelope field.
+func TestBlobEnvelope_SecretVersionsRoundTrip(t *testing.T) {
+	t.Parallel()
+
+	secretID := uuid.New()
+	versions := []model.SecretVersion{
+		{ID: uuid.New(), SecretID: secretID, UserID: uuid.New(), Name: "s", Value: "enc-v1", Version: 1},
+		{ID: uuid.New(), SecretID: secretID, UserID: uuid.New(), Name: "s", Value: "enc-v2", Version: 2},
+	}
+
+	blob, err := backup.ExportedEncodeBlob("secret", secretID.String(),
+		&model.Secret{ID: secretID, Name: "s"},
+		backup.ExportedBlobVersions{Secret: versions})
+	require.NoError(t, err)
+
+	var out model.Secret
+	got, err := backup.ExportedDecodeBlob(blob, "secret", &out)
+	require.NoError(t, err)
+	require.Len(t, got.Secret, 2)
+	require.Equal(t, "enc-v1", got.Secret[0].Value)
+	require.Empty(t, got.Key, "a secret blob carries no key version records")
+}
+
+// TestBlobEnvelope_KeyVersionsUnaffected proves this refactor did not disturb
+// the key path's existing field.
+func TestBlobEnvelope_KeyVersionsUnaffected(t *testing.T) {
+	t.Parallel()
+
+	keyID := uuid.New()
+	blob, err := backup.ExportedEncodeBlob("key", keyID.String(),
+		&model.Key{ID: keyID, Name: "k"},
+		backup.ExportedBlobVersions{Key: []model.KeyVersionRecord{{KeyID: keyID, Version: 1, Value: "enc"}}})
+	require.NoError(t, err)
+
+	var out model.Key
+	got, err := backup.ExportedDecodeBlob(blob, "key", &out)
+	require.NoError(t, err)
+	require.Len(t, got.Key, 1)
+	require.Empty(t, got.Secret)
+}
