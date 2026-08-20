@@ -1349,6 +1349,9 @@ ever produced the sentinel in the first place.
 (`internal/backup/backup_edge_test.go`, `internal/backup/item_backup_test.go`)
 pin the fix.
 
+**Superseded by**: F2 (below) — the `user_id` parameter itself was removed
+from `ListVersionRecords` and its four sibling version methods on 2026-08-20.
+
 ---
 
 ## Deferred Refactors
@@ -1496,7 +1499,10 @@ such a feature lands. No technical debt or risk — harmless and deliberate.
 never fail, but its presence as an apparent authorization check enabled the
 ambiguity behind B28.
 **Files**: `internal/repositories/key_repository.go`,
-`internal/repositories/key_versions_test.go`.
+`internal/repositories/key_versions_test.go`,
+`internal/services/keys/key_service.go`,
+`internal/services/keys/crypto_service.go`,
+`internal/backup/item_backup.go`.
 
 **What it was**: `KeyRepository`'s five version methods — `ListVersions`,
 `ReadVersionValue`, `GetVersion`, `ListVersionRecords`, `CurrentVersion` —
@@ -1530,11 +1536,13 @@ ambiguity) everywhere.
 from all five methods (`746bf91` for `ReadVersionValue`/
 `ListVersionRecords`, `44334b5` for `ListVersions`/`GetVersion`/
 `CurrentVersion`, the latter also fixing a third `ListVersions` call site in
-`KeyService.RotateKey` that the first commit had missed). `CurrentVersion`
-keeps its `LEFT JOIN keys k` — unrelated to authorization, it exists so a
-never-rotated key (zero `key_versions` rows) still returns a row, letting
-`COALESCE(MAX(kv.version), 1)` fall back to `1` instead of the query
-returning no row at all. The new contract matches the pre-existing
+`KeyService.RotateKey` that the plan's caller table had missed).
+`CurrentVersion` also dropped its `LEFT JOIN keys k` entirely (corrected
+during final review, 2026-08-20): the join was never load-bearing — an
+ungrouped aggregate query always returns exactly one row regardless of join
+type or how many rows match, so `COALESCE(MAX(version), 1)` against
+`key_versions` alone already supplies the never-rotated fallback of `1`
+without any join. The new contract matches the pre-existing
 `SecretVersionRepositoryInterface`
 (`internal/repositories/versioning_repository.go:18-28`), which has never
 taken a user or scope parameter on any method, for the same reason: the
