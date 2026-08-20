@@ -149,7 +149,7 @@ func TestCacheHit_ReducesDecryptCalls(t *testing.T) {
 	repo.On("Read", mock.Anything, keyID, model.NewOwnerScope(uuid.Nil, userID)).Return(vaultKey, nil)
 	// currentVersionNumber calls CurrentVersion on every crypto op; no
 	// rotation has happened for this key, so it resolves to the implicit 1.
-	repo.On("CurrentVersion", mock.Anything, keyID, userID).Return(1, nil)
+	repo.On("CurrentVersion", mock.Anything, keyID).Return(1, nil)
 
 	// Use a mock cache so we can assert Set/Get call counts precisely.
 	cache := &mockKeyCache{}
@@ -233,7 +233,7 @@ func TestHSMPath_NeverCallsCacheSet(t *testing.T) {
 
 	repo := mocks.NewMockKeyRepositoryInterface(t)
 	repo.On("Read", mock.Anything, keyID, model.NewOwnerScope(uuid.Nil, userID)).Return(hsmKey, nil)
-	repo.On("CurrentVersion", mock.Anything, keyID, userID).Return(1, nil)
+	repo.On("CurrentVersion", mock.Anything, keyID).Return(1, nil)
 
 	// Use a mock KeyProvider that returns a dummy signature for the HSM call.
 	provider := &mockKeyProvider{}
@@ -278,7 +278,7 @@ func TestWrapKey_HSMKey_AllowsAES256KW(t *testing.T) {
 
 	repo := mocks.NewMockKeyRepositoryInterface(t)
 	repo.On("Read", mock.Anything, keyID, scope).Return(key, nil)
-	repo.On("CurrentVersion", mock.Anything, keyID, userID).Return(1, nil)
+	repo.On("CurrentVersion", mock.Anything, keyID).Return(1, nil)
 
 	provider := &mockKeyProvider{}
 	provider.On("Encrypt", "aes-label").Return([]byte("wrapped"), []byte(nil), nil)
@@ -315,7 +315,7 @@ func TestWrapKey_HSMKey_RejectsAESKWSizeMismatch(t *testing.T) {
 
 	repo := mocks.NewMockKeyRepositoryInterface(t)
 	repo.On("Read", mock.Anything, keyID, scope).Return(key, nil)
-	repo.On("CurrentVersion", mock.Anything, keyID, userID).Return(1, nil)
+	repo.On("CurrentVersion", mock.Anything, keyID).Return(1, nil)
 
 	provider := &mockKeyProvider{}
 
@@ -348,7 +348,7 @@ func TestUnwrapKey_HSMKey_RejectsAESKWSizeMismatch(t *testing.T) {
 
 	repo := mocks.NewMockKeyRepositoryInterface(t)
 	repo.On("Read", mock.Anything, keyID, scope).Return(key, nil)
-	repo.On("CurrentVersion", mock.Anything, keyID, userID).Return(1, nil)
+	repo.On("CurrentVersion", mock.Anything, keyID).Return(1, nil)
 
 	provider := &mockKeyProvider{}
 
@@ -384,7 +384,7 @@ func TestWrapKey_HSMKey_RejectsAES256CBC(t *testing.T) {
 
 	repo := mocks.NewMockKeyRepositoryInterface(t)
 	repo.On("Read", mock.Anything, keyID, scope).Return(key, nil)
-	repo.On("CurrentVersion", mock.Anything, keyID, userID).Return(1, nil)
+	repo.On("CurrentVersion", mock.Anything, keyID).Return(1, nil)
 
 	provider := &mockKeyProvider{}
 
@@ -418,7 +418,7 @@ func TestUnwrapKey_HSMKey_RejectsAES256CBC(t *testing.T) {
 
 	repo := mocks.NewMockKeyRepositoryInterface(t)
 	repo.On("Read", mock.Anything, keyID, scope).Return(key, nil)
-	repo.On("CurrentVersion", mock.Anything, keyID, userID).Return(1, nil)
+	repo.On("CurrentVersion", mock.Anything, keyID).Return(1, nil)
 
 	provider := &mockKeyProvider{}
 
@@ -476,7 +476,7 @@ func TestCacheHit_TTLExpiry(t *testing.T) {
 
 	repo := mocks.NewMockKeyRepositoryInterface(t)
 	repo.On("Read", mock.Anything, keyID, model.NewOwnerScope(uuid.Nil, userID)).Return(vaultKey, nil)
-	repo.On("CurrentVersion", mock.Anything, keyID, userID).Return(1, nil)
+	repo.On("CurrentVersion", mock.Anything, keyID).Return(1, nil)
 
 	// Use a very short TTL so entries expire quickly.
 	shortTTLConfig := &cachekit.Config{
@@ -544,7 +544,7 @@ func TestSign_ArchivedVersion_UsesVersionMaterial(t *testing.T) {
 	repo := mocks.NewMockKeyRepositoryInterface(t)
 	repo.On("Read", mock.Anything, keyID, model.NewOwnerScope(uuid.Nil, userID)).Return(vaultKey, nil)
 	// Two versions exist: 1 (archived) and 2 (current, == keys.value).
-	repo.On("CurrentVersion", mock.Anything, keyID, userID).Return(2, nil)
+	repo.On("CurrentVersion", mock.Anything, keyID).Return(2, nil)
 	repo.On("ReadVersionValue", mock.Anything, keyID, 1).Return(encryptedArchived, nil)
 
 	svc := keys.NewCryptoService(keys.CryptoServiceConfig{
@@ -581,7 +581,7 @@ func TestSign_VersionOmitted_UsesCurrentAndEchoesNumber(t *testing.T) {
 
 	repo := mocks.NewMockKeyRepositoryInterface(t)
 	repo.On("Read", mock.Anything, keyID, model.NewOwnerScope(uuid.Nil, userID)).Return(vaultKey, nil)
-	repo.On("CurrentVersion", mock.Anything, keyID, userID).Return(2, nil)
+	repo.On("CurrentVersion", mock.Anything, keyID).Return(2, nil)
 
 	svc := keys.NewCryptoService(keys.CryptoServiceConfig{
 		KeyRepository: repo,
@@ -613,7 +613,7 @@ func TestSign_NonexistentVersion_ReturnsErrKeyVersionNotFound(t *testing.T) {
 
 	repo := mocks.NewMockKeyRepositoryInterface(t)
 	repo.On("Read", mock.Anything, keyID, model.NewOwnerScope(uuid.Nil, userID)).Return(vaultKey, nil)
-	repo.On("CurrentVersion", mock.Anything, keyID, userID).Return(1, nil)
+	repo.On("CurrentVersion", mock.Anything, keyID).Return(1, nil)
 	repo.On("ReadVersionValue", mock.Anything, keyID, 9).Return("", repositories.ErrKeyVersionNotFound)
 
 	svc := keys.NewCryptoService(keys.CryptoServiceConfig{
@@ -649,7 +649,7 @@ func TestResolveKeyMaterial_CacheKeyUsesRealVersion_NoCrossContamination(t *test
 
 	repo := mocks.NewMockKeyRepositoryInterface(t)
 	repo.On("Read", mock.Anything, keyID, model.NewOwnerScope(uuid.Nil, userID)).Return(vaultKey, nil)
-	repo.On("CurrentVersion", mock.Anything, keyID, userID).Return(2, nil)
+	repo.On("CurrentVersion", mock.Anything, keyID).Return(2, nil)
 	repo.On("ReadVersionValue", mock.Anything, keyID, 1).Return(encryptedArchived, nil)
 
 	cache := &mockKeyCache{}
@@ -797,7 +797,7 @@ func TestVersionThreading_RemainingOperations(t *testing.T) {
 			repo := mocks.NewMockKeyRepositoryInterface(t)
 			repo.On("Read", mock.Anything, keyID, scope).Return(vaultKey, nil)
 			// Two versions exist; 2 is current (== keys.value), 1 is archived.
-			repo.On("CurrentVersion", mock.Anything, keyID, userID).Return(2, nil)
+			repo.On("CurrentVersion", mock.Anything, keyID).Return(2, nil)
 			repo.On("ReadVersionValue", mock.Anything, keyID, 1).
 				Return(pkcs11TestPrefix+archivedHandle, nil)
 

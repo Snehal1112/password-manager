@@ -209,7 +209,7 @@ func resolveKeyHandle(storedValue string) (handle string, isPKCS11 bool, err err
 // it uses the repository's single-row aggregate query rather than fetching
 // every version row just to read the last one.
 func (s *cryptoService) currentVersionNumber(ctx context.Context, key *model.Key) (int, error) {
-	return s.keyRepo.CurrentVersion(ctx, key.ID, key.UserID)
+	return s.keyRepo.CurrentVersion(ctx, key.ID)
 }
 
 // resolveVersionValue resolves which material to use for a crypto

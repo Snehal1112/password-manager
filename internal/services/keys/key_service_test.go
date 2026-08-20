@@ -111,7 +111,7 @@ func TestListKeyVersions_VerifiesKeyAccessFirst(t *testing.T) {
 	// authorized key, not the scope directly.
 	keyRepo.On("Read", mock.Anything, keyID, scope).Return(&model.Key{ID: keyID, UserID: ownerID, Enabled: true}, nil)
 	want := []model.KeyVersion{{KeyID: keyID, Version: 1}, {KeyID: keyID, Version: 2}}
-	keyRepo.On("ListVersions", mock.Anything, keyID, ownerID).Return(want, nil)
+	keyRepo.On("ListVersions", mock.Anything, keyID).Return(want, nil)
 
 	svc := NewKeyService(KeyServiceConfig{
 		KeyRepository: keyRepo,
@@ -141,7 +141,7 @@ func TestListKeyVersions_NeverRotatedKey_SynthesizesVersionOne(t *testing.T) {
 	keyRepo.On("Read", mock.Anything, keyID, scope).
 		Return(&model.Key{ID: keyID, UserID: ownerID, Enabled: true, CreatedAt: createdAt}, nil)
 	// Never rotated: the repository genuinely has zero key_versions rows.
-	keyRepo.On("ListVersions", mock.Anything, keyID, ownerID).Return([]model.KeyVersion{}, nil)
+	keyRepo.On("ListVersions", mock.Anything, keyID).Return([]model.KeyVersion{}, nil)
 
 	svc := NewKeyService(KeyServiceConfig{
 		KeyRepository: keyRepo,
@@ -171,7 +171,7 @@ func TestListKeyVersions_RepositoryErrorPropagates(t *testing.T) {
 
 	keyRepo.On("Read", mock.Anything, keyID, scope).
 		Return(&model.Key{ID: keyID, UserID: ownerID, Enabled: true}, nil)
-	keyRepo.On("ListVersions", mock.Anything, keyID, ownerID).Return(nil, errors.New("db down"))
+	keyRepo.On("ListVersions", mock.Anything, keyID).Return(nil, errors.New("db down"))
 
 	svc := NewKeyService(KeyServiceConfig{
 		KeyRepository: keyRepo,
@@ -211,7 +211,7 @@ func TestGetKeyVersion_AuthorizesThenDelegatesToRepo(t *testing.T) {
 
 	repo := new(mockKeyRepository)
 	repo.On("Read", mock.Anything, keyID, scope).Return(vaultKey, nil)
-	repo.On("GetVersion", mock.Anything, keyID, 1, userID).Return(&model.KeyVersion{KeyID: keyID, Version: 1}, nil)
+	repo.On("GetVersion", mock.Anything, keyID, 1).Return(&model.KeyVersion{KeyID: keyID, Version: 1}, nil)
 
 	svc := NewKeyService(KeyServiceConfig{
 		KeyRepository: repo,

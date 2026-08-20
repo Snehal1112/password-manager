@@ -65,16 +65,16 @@ func (m *mockKeyRepository) CreateVersion(ctx context.Context, keyID uuid.UUID, 
 	return m.Called(ctx, keyID, version, value).Error(0)
 }
 
-func (m *mockKeyRepository) ListVersions(ctx context.Context, keyID, userID uuid.UUID) ([]model.KeyVersion, error) {
-	args := m.Called(ctx, keyID, userID)
+func (m *mockKeyRepository) ListVersions(ctx context.Context, keyID uuid.UUID) ([]model.KeyVersion, error) {
+	args := m.Called(ctx, keyID)
 	if v := args.Get(0); v != nil {
 		return v.([]model.KeyVersion), args.Error(1)
 	}
 	return nil, args.Error(1)
 }
 
-func (m *mockKeyRepository) CurrentVersion(ctx context.Context, keyID uuid.UUID, userID uuid.UUID) (int, error) {
-	args := m.Called(ctx, keyID, userID)
+func (m *mockKeyRepository) CurrentVersion(ctx context.Context, keyID uuid.UUID) (int, error) {
+	args := m.Called(ctx, keyID)
 	return args.Int(0), args.Error(1)
 }
 
@@ -83,8 +83,8 @@ func (m *mockKeyRepository) ReadVersionValue(ctx context.Context, keyID uuid.UUI
 	return args.String(0), args.Error(1)
 }
 
-func (m *mockKeyRepository) GetVersion(ctx context.Context, keyID uuid.UUID, version int, userID uuid.UUID) (*model.KeyVersion, error) {
-	args := m.Called(ctx, keyID, version, userID)
+func (m *mockKeyRepository) GetVersion(ctx context.Context, keyID uuid.UUID, version int) (*model.KeyVersion, error) {
+	args := m.Called(ctx, keyID, version)
 	if v := args.Get(0); v != nil {
 		return v.(*model.KeyVersion), args.Error(1)
 	}

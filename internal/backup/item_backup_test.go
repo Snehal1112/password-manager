@@ -316,7 +316,7 @@ func (r *stubKeyRepo) CreateVersion(_ context.Context, keyID uuid.UUID, version 
 	return nil
 }
 
-func (r *stubKeyRepo) ListVersions(_ context.Context, keyID uuid.UUID, _ uuid.UUID) ([]model.KeyVersion, error) {
+func (r *stubKeyRepo) ListVersions(_ context.Context, keyID uuid.UUID) ([]model.KeyVersion, error) {
 	var out []model.KeyVersion
 	for v := range r.versions[keyID] {
 		out = append(out, model.KeyVersion{KeyID: keyID, Version: v})
@@ -327,7 +327,7 @@ func (r *stubKeyRepo) ListVersions(_ context.Context, keyID uuid.UUID, _ uuid.UU
 
 // CurrentVersion mirrors the repository's aggregate: the highest stored
 // version, or the implicit 1 when the key has never been rotated.
-func (r *stubKeyRepo) CurrentVersion(_ context.Context, keyID uuid.UUID, _ uuid.UUID) (int, error) {
+func (r *stubKeyRepo) CurrentVersion(_ context.Context, keyID uuid.UUID) (int, error) {
 	current := 1
 	for v := range r.versions[keyID] {
 		if v > current {
@@ -341,7 +341,7 @@ func (r *stubKeyRepo) ReadVersionValue(_ context.Context, _ uuid.UUID, _ int) (s
 	return "", nil
 }
 
-func (r *stubKeyRepo) GetVersion(_ context.Context, _ uuid.UUID, _ int, _ uuid.UUID) (*model.KeyVersion, error) {
+func (r *stubKeyRepo) GetVersion(_ context.Context, _ uuid.UUID, _ int) (*model.KeyVersion, error) {
 	return nil, nil
 }
 
