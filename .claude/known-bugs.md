@@ -1486,3 +1486,63 @@ such a feature lands. No technical debt or risk — harmless and deliberate.
 - `CLAUDE.md`'s "Configuration" section incorrectly listed this as a dead stub;
   corrected 2026-08-15 to remove `retry.service_operations` from the dead-stub list
   and added a clarifying note about intentional unwiring.
+
+---
+
+### F2 — Key-version repository queries carried a `user_id` filter that authorized nothing
+
+**Status**: Fixed 2026-08-20 (commits `746bf91`, `44334b5`).
+**Severity**: Low (architectural) — no runtime bug; the predicate could
+never fail, but its presence as an apparent authorization check enabled the
+ambiguity behind B28.
+**Files**: `internal/repositories/key_repository.go`,
+`internal/repositories/key_versions_test.go`.
+
+**What it was**: `KeyRepository`'s five version methods — `ListVersions`,
+`ReadVersionValue`, `GetVersion`, `ListVersionRecords`, `CurrentVersion` —
+each took a `userID uuid.UUID` and filtered on a joined `keys.user_id`.
+`ReadVersionValue` and `GetVersion` each additionally fell back to a second,
+implicit-version-1 query directly against `keys` (for a never-rotated key
+with zero `key_versions` rows), and that fallback query carried the same
+`user_id` predicate.
+
+**Why it authorized nothing**: all five methods are reachable only after
+the caller has already read the parent key through a scoped `Read` (which
+applies the real vault predicate), and every call site then passed *that
+key's own owner ID* back in — never the caller's own. The predicate was
+therefore satisfied by construction on every code path and could not fail,
+while still reading like an access control.
+
+**Why it was worth removing**: a parameter that looks like an authorization
+control but is really "pass back the owner ID you just read" gives no
+signal when it is passed the wrong value. B28 is exactly that bug:
+`ItemBackupService.BackupKey` passed the *caller's* ID into
+`ListVersionRecords`, which was correct only while an upstream ownership
+check guaranteed caller == owner. Once that ownership check was slated for
+removal to close a real Azure-parity gap, the argument would have silently
+become wrong, and a non-owning caller's backup would have returned zero
+version rows — dropping a rotated key's history with no error. B28's fix
+(2026-08-19) worked around this by switching that one call site to pass
+`key.UserID` instead; this refactor removes the parameter (and the
+ambiguity) everywhere.
+
+**Fix**: the `userID` parameter and its `user_id` predicate were dropped
+from all five methods (`746bf91` for `ReadVersionValue`/
+`ListVersionRecords`, `44334b5` for `ListVersions`/`GetVersion`/
+`CurrentVersion`, the latter also fixing a third `ListVersions` call site in
+`KeyService.RotateKey` that the first commit had missed). `CurrentVersion`
+keeps its `LEFT JOIN keys k` — unrelated to authorization, it exists so a
+never-rotated key (zero `key_versions` rows) still returns a row, letting
+`COALESCE(MAX(kv.version), 1)` fall back to `1` instead of the query
+returning no row at all. The new contract matches the pre-existing
+`SecretVersionRepositoryInterface`
+(`internal/repositories/versioning_repository.go:18-28`), which has never
+taken a user or scope parameter on any method, for the same reason: the
+caller's scoped read of the parent secret is the only enforcement point.
+`TestKeyVersions_ReadVersionValue_WrongOwner`, which asserted the retired
+filter, was deleted — the argument it exercised no longer exists.
+
+**Pinned by**: `TestVersionQueries_NotFilteredByOwner`,
+`TestVersionMetadataQueries_NotFilteredByOwner`,
+`TestCurrentVersion_NeverRotatedKeyStillReturnsOne`
+(`internal/repositories/key_versions_test.go`).
