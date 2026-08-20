@@ -210,8 +210,17 @@ need to export it each session:
 echo 'export SOFTHSM2_LIB=/usr/lib/softhsm/libsofthsm2.so' >> ~/.zshrc
 ```
 
-Expected: all `TestPKCS11*` tests pass; the `P256K` test returns
-`ErrUnsupportedCurve` (secp256k1 is not in the standard PKCS#11 EC OID table).
+Expected: all `TestPKCS11*` tests pass, including the secp256k1 ones —
+`TestPKCS11Provider_GenerateECDSAKey_P256K` and
+`TestPKCS11Provider_SignVerify_ECDSA_ES256K` both require success against
+SoftHSM2, which accepts any curve inside its 112–521 bit key-size range.
+
+A different HSM may legitimately refuse secp256k1, since it is not a
+NIST-approved curve. That is not a bug and not a test failure: the provider
+maps a token's `CKR_CURVE_NOT_SUPPORTED` / `CKR_DOMAIN_PARAMS_INVALID`
+rejection onto a clean `ErrUnsupportedCurve` rather than leaking the raw
+PKCS#11 error (see `isHSMCapabilityError` in
+`internal/crypto/pkcs11_provider.go`).
 
 ## 10. Reset the token
 
@@ -226,9 +235,26 @@ softhsm2-util --init-token --slot 0 --label rocketvault --so-pin 0000 --pin 1234
 
 | Operation | Algorithms |
 |-----------|-----------|
-| Sign / Verify | RS256, RS384, RS512, PS256, PS384, PS512, ES256, ES384, ES512 |
-| Encrypt / Decrypt | RSA-OAEP (SHA-1), RSA-OAEP-256 (SHA-256) |
-| Key generation | RSA 2048/4096, ECDSA P-256 / P-384 / P-521 |
+| Sign / Verify | RS256, RS384, RS512, PS256, PS384, PS512, ES256, ES384, ES512, ES256K |
+| Encrypt / Decrypt | RSA-OAEP (SHA-1), RSA-OAEP-256 (SHA-256); AES256-GCM and A128CBC / A192CBC / A256CBC on OCT keys |
+| Wrap / Unwrap | RSA-OAEP, RSA-OAEP-256, A128KW / A192KW / A256KW |
+| Key generation | RSA 2048/4096, ECDSA P-256 / P-384 / P-521 / P-256K, AES 128/192/256 |
 
-P-256K (secp256k1) is handled by the software provider regardless of HSM
-config, because it is not in the standard PKCS#11 EC OID table.
+Two things the table doesn't show:
+
+**AES-CBC is deliberately absent from wrap/unwrap** while being present for
+encrypt/decrypt. CBC needs an IV, and the wrap/unwrap request and response
+shapes have no field to carry one — `EncryptResult.Nonce` and
+`DecryptRequest.Nonce` do round-trip it, so use `/encrypt` and `/decrypt` for
+CBC instead. See `isHSMWrapAlgorithm` in
+`internal/services/keys/crypto_service.go`.
+
+**OCT (symmetric AES) keys are HSM-only by design**, matching Azure: Managed
+HSM never allows symmetric key creation on Standard/Premium vaults, and the
+software provider mirrors that restriction. `CreateOctKey` fails with
+`crypto.ErrOctKeysRequireHSM` unless `hsm.enabled: true`.
+
+secp256k1 (P-256K / ES256K) works on this path — `CKM_EC_KEY_PAIR_GEN` and
+`CKM_ECDSA` are both curve-agnostic in the PKCS#11 spec, so the curve's OID is
+all that's needed. It is not a NIST curve, though, so an individual token may
+still refuse it; see the note in step 9 above for how that surfaces.
