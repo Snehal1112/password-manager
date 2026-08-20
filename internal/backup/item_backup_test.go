@@ -767,10 +767,12 @@ func TestBackupRestoreSecret_CarriesVersionHistory(t *testing.T) {
 	}))
 
 	vr := newStubSecretVersionRepo()
+	baseCreatedAt := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
 	for i := 1; i <= 2; i++ {
 		require.NoError(t, vr.CreateVersion(ctx, &model.SecretVersion{
 			ID: uuid.New(), SecretID: secretID, UserID: ownerID,
 			Name: "db-password", Value: fmt.Sprintf("enc-v%d", i), Version: i,
+			CreatedAt: baseCreatedAt.AddDate(0, 0, i),
 		}))
 	}
 
@@ -795,6 +797,29 @@ func TestBackupRestoreSecret_CarriesVersionHistory(t *testing.T) {
 	}
 	require.NotEqual(t, restoredVersions[0].ID, restoredVersions[1].ID,
 		"each replayed version needs its own primary key")
+
+	// The assertions above only check plumbing (IDs, ownership) -- none of
+	// them would fail if the replay zeroed every Version or blanked every
+	// Value. Assert the actual payload survived the round trip, order
+	// agnostic: production orders "version DESC" while the stub returns
+	// insertion order.
+	type versionPair struct {
+		Version int
+		Value   string
+	}
+	wantPairs := []versionPair{
+		{Version: 1, Value: "enc-v1"},
+		{Version: 2, Value: "enc-v2"},
+	}
+	var gotPairs []versionPair
+	for _, v := range restoredVersions {
+		gotPairs = append(gotPairs, versionPair{Version: v.Version, Value: v.Value})
+		assert.Equal(t, "db-password", v.Name, "version name must survive the round trip")
+		assert.True(t, v.CreatedAt.Equal(baseCreatedAt.AddDate(0, 0, v.Version)),
+			"version created_at must survive the round trip")
+	}
+	assert.ElementsMatch(t, wantPairs, gotPairs,
+		"restored version {version, value} pairs must match what was backed up")
 }
 
 // TestRestoreSecret_OldFormatBlob_NoVersionsField proves back-compat: a blob

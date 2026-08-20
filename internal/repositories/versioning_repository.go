@@ -92,13 +92,18 @@ func (r *secretVersionRepository) GetVersions(ctx context.Context, secretID uuid
 		err := rows.Scan(&id, &secretIDStr, &userIDStr, &v.Name, &v.Value, &v.Version, &v.CreatedAt)
 		if err != nil {
 			r.log.WithError(err).Error("Failed to scan secret version")
-			continue
+			return nil, fmt.Errorf("failed to scan secret version: %w", err)
 		}
 
 		v.ID, _ = uuid.Parse(id)
 		v.SecretID, _ = uuid.Parse(secretIDStr)
 		v.UserID, _ = uuid.Parse(userIDStr)
 		versions = append(versions, v)
+	}
+
+	if err := rows.Err(); err != nil {
+		r.log.WithError(err).Error("Failed to iterate secret versions")
+		return nil, fmt.Errorf("failed to iterate secret versions: %w", err)
 	}
 
 	return versions, nil

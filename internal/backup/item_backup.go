@@ -56,7 +56,7 @@ type blobVersions struct {
 // Both version fields are omitempty and additive: a blob written before a
 // given field existed simply decodes it as nil. That is what lets pre-2026-08
 // key blobs and pre-2026-08-20 secret blobs still restore. Never rename or
-// retype an existing field here -- it is a wire format.
+// retype an existing field here — it is a wire format.
 type backupEnvelope struct {
 	ResourceType   string                   `json:"resource_type"`
 	ResourceID     string                   `json:"resource_id"`
@@ -107,19 +107,24 @@ func (s *ItemBackupService) RestoreSecret(ctx context.Context, blob string, user
 	if err := s.secretRepo.Create(ctx, &secret); err != nil {
 		return err
 	}
-	// Create does not write purge_protection, so a protected item would be
-	// restored unprotected. Re-apply the blob's flag as a second write.
-	if secret.PurgeProtection {
-		if err := s.secretRepo.SetPurgeProtection(ctx, newID, true); err != nil {
-			return fmt.Errorf("restore secret: set purge protection: %w", err)
-		}
-	}
+	// Replay versions before applying purge protection: if this fails, the
+	// partial restore is left unprotected and can still be purged by an
+	// operator. Setting purge protection first would leave a partial restore
+	// that PurgeSecret refuses to clean up, orphaning it under an ID the
+	// caller never received.
 	for _, v := range versions.Secret {
 		v.ID = uuid.New()
 		v.SecretID = newID
 		v.UserID = userID
 		if err := s.versionRepo.CreateVersion(ctx, &v); err != nil {
 			return fmt.Errorf("restore secret: create version %d: %w", v.Version, err)
+		}
+	}
+	// Create does not write purge_protection, so a protected item would be
+	// restored unprotected. Re-apply the blob's flag as a second write.
+	if secret.PurgeProtection {
+		if err := s.secretRepo.SetPurgeProtection(ctx, newID, true); err != nil {
+			return fmt.Errorf("restore secret: set purge protection: %w", err)
 		}
 	}
 	return nil
@@ -236,7 +241,7 @@ func encodeBlob(resourceType, resourceID string, data interface{}, versions blob
 
 // decodeBlob base64url-decodes a blob and unmarshals the envelope into out.
 // The returned blobVersions is zero for a resource type with no history, and
-// zero for a blob encoded before the corresponding field existed -- both
+// zero for a blob encoded before the corresponding field existed — both
 // fields are purely additive.
 func decodeBlob(blob, expectedType string, out interface{}) (blobVersions, error) {
 	var none blobVersions
