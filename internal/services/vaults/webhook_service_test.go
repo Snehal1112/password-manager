@@ -9,6 +9,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/sirupsen/logrus"
+	logrustest "github.com/sirupsen/logrus/hooks/test"
 	"github.com/spf13/viper"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -265,6 +266,133 @@ func TestWebhookService_Delete(t *testing.T) {
 
 	_, err = svc.Get(ctx, vaultID)
 	assert.True(t, errors.Is(err, vaults.ErrWebhookNotFound))
+}
+
+// hookedWebhookService builds a VaultWebhookService whose logger is a fresh
+// *logrus.Logger with a test hook attached, so callers can inspect exactly
+// what LogAuditInfo emitted.
+func hookedWebhookService(repo repositories.VaultWebhookRepositoryInterface) (vaults.VaultWebhookService, *logrustest.Hook) {
+	l := logrus.New()
+	hook := logrustest.NewLocal(l)
+	log := &logging.Logger{Logger: l}
+	return vaults.NewVaultWebhookService(repo, log), hook
+}
+
+// assertNoSecretLeak fails the test if secret appears anywhere in an audit
+// log entry -- message or any field value.
+func assertNoSecretLeak(t *testing.T, hook *logrustest.Hook, secret string) {
+	t.Helper()
+	require.NotEmpty(t, secret, "test bug: secret must be non-empty for this check to mean anything")
+	for _, entry := range hook.AllEntries() {
+		assert.NotContains(t, entry.Message, secret, "the signing secret must never reach the audit log message")
+		for k, v := range entry.Data {
+			if s, ok := v.(string); ok {
+				assert.NotContains(t, s, secret, "the signing secret must never reach audit log field %q", k)
+			}
+		}
+	}
+}
+
+// TestWebhookService_Upsert_Create_LogsAuditRecord pins that a create reaches
+// the audit trail (via LogAuditInfo, the same call vault_service.go's
+// create/update/delete/recover/purge use) with operation "create_vault_webhook"
+// and rotated=true (creating always mints a secret).
+func TestWebhookService_Upsert_Create_LogsAuditRecord(t *testing.T) {
+	setupWebhookTestMasterKey()
+	svc, hook := hookedWebhookService(newFakeWebhookRepo())
+	vaultID := uuid.New()
+
+	_, secret, err := svc.Upsert(context.Background(), vaultID,
+		vaults.UpsertWebhookRequest{URL: "https://hooks.example/rv"})
+	require.NoError(t, err)
+	require.NotEmpty(t, secret)
+
+	entries := hook.AllEntries()
+	require.Len(t, entries, 1, "Upsert must write exactly one audit record")
+	entry := entries[0]
+	assert.Equal(t, "create_vault_webhook", entry.Data["operation"])
+	assert.Equal(t, "success", entry.Data["status"])
+	assert.Contains(t, entry.Message, vaultID.String())
+	assert.Contains(t, entry.Message, "https://hooks.example/rv")
+	assert.Contains(t, entry.Message, "rotated=true")
+
+	assertNoSecretLeak(t, hook, secret)
+}
+
+// TestWebhookService_Upsert_UpdateWithRotate_LogsAuditRecord pins that an
+// update distinguishes a rotation in its audit record.
+func TestWebhookService_Upsert_UpdateWithRotate_LogsAuditRecord(t *testing.T) {
+	setupWebhookTestMasterKey()
+	repo := newFakeWebhookRepo()
+	svc, hook := hookedWebhookService(repo)
+	ctx, vaultID := context.Background(), uuid.New()
+
+	_, firstSecret, err := svc.Upsert(ctx, vaultID, vaults.UpsertWebhookRequest{URL: "https://a.example"})
+	require.NoError(t, err)
+	hook.Reset()
+
+	_, secondSecret, err := svc.Upsert(ctx, vaultID,
+		vaults.UpsertWebhookRequest{URL: "https://a.example", RotateSecret: true})
+	require.NoError(t, err)
+	require.NotEmpty(t, secondSecret)
+
+	entries := hook.AllEntries()
+	require.Len(t, entries, 1)
+	entry := entries[0]
+	assert.Equal(t, "update_vault_webhook", entry.Data["operation"])
+	assert.Contains(t, entry.Message, "rotated=true")
+
+	assertNoSecretLeak(t, hook, firstSecret)
+	assertNoSecretLeak(t, hook, secondSecret)
+}
+
+// TestWebhookService_Upsert_UpdateWithoutRotate_LogsAuditRecord pins that an
+// update that did not rotate records rotated=false, and -- since no new
+// secret was minted -- confirms the audit record can't be leaking one.
+func TestWebhookService_Upsert_UpdateWithoutRotate_LogsAuditRecord(t *testing.T) {
+	setupWebhookTestMasterKey()
+	repo := newFakeWebhookRepo()
+	svc, hook := hookedWebhookService(repo)
+	ctx, vaultID := context.Background(), uuid.New()
+
+	_, firstSecret, err := svc.Upsert(ctx, vaultID, vaults.UpsertWebhookRequest{URL: "https://a.example"})
+	require.NoError(t, err)
+	hook.Reset()
+
+	_, secret, err := svc.Upsert(ctx, vaultID, vaults.UpsertWebhookRequest{URL: "https://b.example"})
+	require.NoError(t, err)
+	assert.Empty(t, secret, "an update that did not rotate must return no secret")
+
+	entries := hook.AllEntries()
+	require.Len(t, entries, 1)
+	entry := entries[0]
+	assert.Equal(t, "update_vault_webhook", entry.Data["operation"])
+	assert.Contains(t, entry.Message, "rotated=false")
+
+	assertNoSecretLeak(t, hook, firstSecret)
+}
+
+// TestWebhookService_Delete_LogsAuditRecord pins that Delete -- previously
+// silent -- now writes an audit record.
+func TestWebhookService_Delete_LogsAuditRecord(t *testing.T) {
+	setupWebhookTestMasterKey()
+	repo := newFakeWebhookRepo()
+	svc, hook := hookedWebhookService(repo)
+	ctx, vaultID := context.Background(), uuid.New()
+
+	_, secret, err := svc.Upsert(ctx, vaultID, vaults.UpsertWebhookRequest{URL: "https://a.example"})
+	require.NoError(t, err)
+	hook.Reset()
+
+	require.NoError(t, svc.Delete(ctx, vaultID))
+
+	entries := hook.AllEntries()
+	require.Len(t, entries, 1, "Delete must write exactly one audit record")
+	entry := entries[0]
+	assert.Equal(t, "delete_vault_webhook", entry.Data["operation"])
+	assert.Contains(t, entry.Message, vaultID.String())
+
+	assertNoSecretLeak(t, hook, secret)
 }
 
 func TestWebhookService_Upsert_StampsTimestamps(t *testing.T) {

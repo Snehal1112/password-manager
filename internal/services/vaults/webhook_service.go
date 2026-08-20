@@ -10,7 +10,6 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/sirupsen/logrus"
 
 	"rocketvault/common"
 	"rocketvault/internal/logging"
@@ -164,12 +163,22 @@ func (s *vaultWebhookService) Upsert(ctx context.Context, vaultID uuid.UUID, req
 	if err := s.repo.Upsert(ctx, cfg); err != nil {
 		return nil, "", err
 	}
+	// Audit trail for the one vault-management mutation on this tier that
+	// controls where future notifications are sent and what secret signs
+	// them -- see the sibling create/update/delete/recover/purge
+	// LogAuditInfo calls in vault_service.go. The message NEVER carries the
+	// signing secret, plaintext or ciphertext, only vault id / url / whether
+	// this was a create vs update / whether the secret rotated.
 	if s.log != nil {
-		s.log.WithFields(logrus.Fields{
-			"vault_id": vaultID.String(),
-			"created":  creating,
-			"rotated":  plaintextSecret != "",
-		}).Info("Vault webhook config saved")
+		operation := "update_vault_webhook"
+		verb := "updated"
+		if creating {
+			operation = "create_vault_webhook"
+			verb = "created"
+		}
+		rotated := plaintextSecret != ""
+		s.log.LogAuditInfo("", operation, "success",
+			fmt.Sprintf("Vault webhook config %s: vault=%s url=%s rotated=%t", verb, vaultID, req.URL, rotated))
 	}
 
 	return cfg, plaintextSecret, nil
@@ -189,5 +198,12 @@ func (s *vaultWebhookService) Get(ctx context.Context, vaultID uuid.UUID) (*mode
 
 // Delete removes the vault's webhook config.
 func (s *vaultWebhookService) Delete(ctx context.Context, vaultID uuid.UUID) error {
-	return s.repo.DeleteByVaultID(ctx, vaultID)
+	if err := s.repo.DeleteByVaultID(ctx, vaultID); err != nil {
+		return err
+	}
+	if s.log != nil {
+		s.log.LogAuditInfo("", "delete_vault_webhook", "success",
+			fmt.Sprintf("Vault webhook config deleted: vault=%s", vaultID))
+	}
+	return nil
 }
