@@ -29,7 +29,7 @@ vaults). RocketVault columns are sourced from the codebase (`api/`, `internal/`,
 | Encryption at rest | ✅ HSM-backed | ✅ AES-256-GCM at rest | 🟡 (no HSM-sealed envelope) |
 | Generate random secret | ❌ | ✅ `POST /secrets/generate` | ➕ |
 | Bulk export / import | ❌ (per-secret only) | ✅ `POST /secrets/export`, `/import` | ➕ |
-| Per-secret backup / restore | ✅ | ✅ `POST /secrets/{id}/backup`, `/secrets/restore` — the blob carries the secret's full `secret_versions` history and restore replays it under the new secret ID (2026-08-20), matching Azure's per-version backup semantics | ✅ |
+| Per-secret backup / restore | ✅ | ✅ `POST /secrets/{id}/backup`, `/secrets/restore` — the blob carries the secret's full `secret_versions` history and restore replays it under the new secret ID (2026-08-20), matching Azure's per-version backup semantics. Caveat: restore is not atomic across its parent write, purge-protection write and version replay (`.claude/known-bugs.md` § F3, deferred) — a mid-restore failure leaves a partial row. For secrets the residue is deletable; for **keys** the write order leaves a purge-protected orphan `PurgeKey` refuses to remove | ✅ capability parity; see F3 for the failure-path caveat |
 | Rotation policy (auto-rotate) | ✅ | ✅ vault-scoped `rotation_policies` (`vault_id` + `model.Scope`-based repo/service, closed 2026-08-17 — see `.claude/known-bugs.md` § B23 for a follow-on upgrade-path fix) + CLI `secrets rotation ...` (`--vault`, `vaultcli.RequireDataAction`); scheduler auto-rotates due, enabled policies (`internal/services/secrets/scheduler_service.go`) — CLI-only, no HTTP route, matching today's design | ✅ |
 
 ## 2. Key management — operations
@@ -46,7 +46,7 @@ vaults). RocketVault columns are sourced from the codebase (`api/`, `internal/`,
 | Encrypt / Decrypt | ✅ | ✅ `POST /keys/{id}/encrypt`, `/decrypt` | ✅ |
 | Wrap / Unwrap key | ✅ | ✅ `POST /keys/{id}/wrap`, `/unwrap` | ✅ |
 | Backup / Restore | ✅ | ✅ `POST /keys/{id}/backup`, `/keys/restore`, registered on both the flat and vault-scoped routers (`api/backup_item.go` `InitBackupItem`). Authorization is the RBAC data action in `PolicyMiddleware` plus a `model.NewVaultScope` read in `ItemBackupService` — a Crypto User with `ActionKeysBackup` can back up any key in a vault they are authorized for, and cannot name a key outside it. Key backups carry `key_versions` history, so a rotated key survives a backup/restore cycle with its archived versions intact | ✅ |
-| Get/Set rotation policy | ✅ | 🟡 `GET/PUT/DELETE /keys/{key_id}/rotationpolicy`, mapped to `ActionKeysRotationPolicyRead`/`Write` in `MapRouteToDataAction` (`mapKeyAction`) and granted only to Crypto Officer + Administrator, matching Azure's `keyrotationpolicies/*`. `RotationScheduler` → `RotationExecutor.Check` (`rotation.keys.*` config, started in `bootstrap.go`) sweeps `KeyRotationPolicyRepository.GetDuePolicies` — enabled, `rotate_after_days > 0`, `next_rotation_at` passed — and calls `RotateKey`, so the rotate action genuinely executes. `expiry_days` is now acted on too (fixed 2026-08-19, `.claude/known-bugs.md` § B27): `RotateKey` stamps `ExpiresAt` on every rotation when the policy is enabled and `expiry_days > 0`. `notify_before_expiry_days` is still only persisted and echoed back — no near-expiry notification exists, since RocketVault has no notification delivery mechanism anywhere in the codebase yet (roadmap Phase 3), so Azure's Notify lifetime action is now half-implemented rather than fully absent | 🟡 |
+| Get/Set rotation policy | ✅ | 🟡 `GET/PUT/DELETE /keys/{key_id}/rotationpolicy`, mapped to `ActionKeysRotationPolicyRead`/`Write` in `MapRouteToDataAction` (`mapKeyAction`) and granted only to Crypto Officer + Administrator, matching Azure's `keyrotationpolicies/*`. `RotationScheduler` → `RotationExecutor.Check` (`rotation.keys.*` config, started in `bootstrap.go`) sweeps `KeyRotationPolicyRepository.GetDuePolicies` — enabled, `rotate_after_days > 0`, `next_rotation_at` passed — and calls `RotateKey`, so the rotate action genuinely executes. `expiry_days` is now acted on too (fixed 2026-08-19, `.claude/known-bugs.md` § B27): `RotateKey` stamps `ExpiresAt` on every rotation when the policy is enabled and `expiry_days > 0`. `notify_before_expiry_days` is still only persisted and echoed back — verified 2026-08-20, `NotifyBeforeExpiryDays` is read nowhere outside its own model and CRUD. Azure's Notify lifetime action remains half-implemented: the expiry half executes, the notify half does not. What changed on 2026-08-20 is one layer below parity — per-vault webhook **configuration** now exists (`vault_webhook_configs`, `PUT/GET/DELETE /vaults/{name}/webhook`, `rocketvault vault-webhook`), so a notification now has somewhere to be addressed *to*. Nothing sends: there is no outbound HTTP anywhere in the vault/secret/key service packages, and delivery is specced but unbuilt (`docs/superpowers/specs/2026-08-20-webhook-delivery-primitive-design.md`) | 🟡 |
 | Release (confidential compute) | ✅ | ❌ no TEE attestation flow | ❌ |
 | EXPORT blocked (keys non-extractable) | ✅ | ✅ `buildKeyResponse` emits only JWK public components (`crypto.ExtractPublicComponents`) and `model.KeyVersion` omits `Value`; the one response carrying stored material is the backup blob, and that is the master-key AES-256-GCM ciphertext (`common.EncryptSecret`) or a bare `pkcs11:` handle — never plaintext PEM | ✅ |
 
@@ -312,7 +312,7 @@ below re-verifies against the roles that actually govern access: the eleven
 
 | Role | Azure grants (`dataActions`) | RocketVault grants (live `model/azure_roles.go`) | Status |
 |---|---|---|---|
-| Reader | `vaults/secrets/readMetadata` (metadata only — **not** the value), key/cert metadata + public material | `Key Vault Reader`: `ActionSecretsReadMetadata`, `ActionKeysRead`, `ActionCertificatesRead` — no secret-value action granted, so `GET /secrets/{id}` (which requires `ActionSecretsGet`) is denied | ✅ |
+| Reader | `vaults/secrets/readMetadata` (metadata only — **not** the value), key/cert metadata + public material | `Key Vault Reader`: `ActionSecretsReadMetadata`, `ActionKeysRead`, `ActionCertificatesRead`. The *bundle* is correct — no secret-value action is granted, and `GET /secrets/{id}` (requiring `ActionSecretsGet`) is denied. But the **effective** boundary is not: `GET /secrets/{id}/versions` is mapped to `ActionSecretsReadMetadata` (`data_actions.go:129-131`, comment "Listing versions exposes metadata only"), and that premise is false — `versioningService.GetVersions` decrypts every version and `model.SecretVersion.Value` is `json:"value"`, so the route returns every historical plaintext value of the secret to a Reader. See `.claude/known-bugs.md` § B30 (open, High) | ❌ RocketVault's Reader grants strictly **more** than Azure's — full plaintext disclosure of every secret version, which is the exact thing the role exists to withhold |
 | Secrets Officer | `vaults/secrets/*` (full CRUD + lifecycle) | `Key Vault Secrets Officer`: readMetadata/get/set/delete/backup/restore/recover/purge | ✅ |
 | Secrets User | `getSecret` + `readMetadata` | `Key Vault Secrets User`: `ActionSecretsReadMetadata`, `ActionSecretsGet` | ✅ |
 | Crypto Officer | `vaults/keys/*` — **superset of Crypto User**, includes sign/verify/encrypt/decrypt/wrap/unwrap **plus** management, and `keyrotationpolicies/*` | `Key Vault Crypto Officer`: read/create/update/delete/backup/restore/recover/purge/import/rotate/encrypt/decrypt/wrap/unwrap/sign/verify, plus `ActionKeysRotationPolicyRead`/`ActionKeysRotationPolicyWrite` — every Crypto User action plus management, written out as an explicit superset (not derived by union) | ✅ superset relationship matches |
@@ -349,13 +349,25 @@ Access Administrator set. See `.claude/known-bugs.md` §§ B19, B21; pinned by
 **Net:** the *architecture* (tenant-global identities + vault-scoped role assignments
 evaluated directly against `model.azureRoleDataActions`, with an access-policy
 explicit-deny override checked first) is a genuine, deliberate match to Azure's real
-RBAC model, and — per the 2026-08-13 correction above — the *individual role
-boundaries* are now byte-for-byte too. All eleven bundles were re-verified line by
-line against `model/azure_roles.go` on 2026-08-19 with no discrepancy found: Reader is
-metadata-only, Crypto Officer is a true superset of Crypto User including wrap/unwrap,
-Administrator carries no derived gaps, and — new since the last pass — Data Access
-Administrator now carries Azure's own grant restriction. Crypto User's `update`/`backup`
-gap (the last live boundary gap from the 2026-08-13 pass) was closed 2026-08-17.
+RBAC model. All eleven *bundles* are byte-for-byte accurate against
+`model/azure_roles.go`: Crypto Officer is a true superset of Crypto User including
+wrap/unwrap, Administrator carries no derived gaps, and Data Access Administrator
+carries Azure's own eight-role grant restriction. Crypto User's `update`/`backup` gap
+(the last bundle gap from the 2026-08-13 pass) was closed 2026-08-17.
+
+*Corrected 2026-08-20 — and the correction is about method, not just a row.* This
+paragraph previously concluded that "the *individual role boundaries* are now
+byte-for-byte too," on the strength of an eleven-bundle line-by-line re-verification.
+That inference does not hold. **A role's effective permission is its bundle composed
+with the route→action map, and the bundle check cannot see the second half.** § B30 is
+exactly that failure: the `Key Vault Reader` bundle is correct in isolation, while
+`mapSecretAction` files `GET /secrets/{id}/versions` under `ActionSecretsReadMetadata`
+on a false premise, so a Reader reads every historical plaintext secret value in the
+vault. Verifying bundles against Azure's `dataActions` lists is necessary and was done
+correctly; it is not sufficient, and no number of repeat passes over
+`model/azure_roles.go` would ever have surfaced this. A future pass claiming role
+parity must check both halves — for each role, which routes its actions actually
+unlock, and what those routes return.
 
 RocketVault also still ships a legacy, pre-Azure role vocabulary (`vault-reader`,
 `crypto-officer`, `crypto-user`, etc., in
@@ -433,7 +445,7 @@ posture as B20's own cascade check.*
 | Tamper-evident audit chain | ❌ | ✅ `prev_hash` hash-chained audit rows | ➕ |
 | Compliance reports | ❌ (raw logs only) | ✅ `/audit/reports/soc2`, `/audit/reports/gdpr` | ➕ |
 | Configurable audit retention | via storage | ✅ `/audit/config` | ✅ |
-| Stream to Event Hub / archive to storage | ✅ | ❌ no cloud sinks | ❌ |
+| Stream to Event Hub / archive to storage | ✅ | ❌ no cloud sinks, and no push delivery of any kind. Per-vault webhook *configuration* landed 2026-08-20 (see §2's rotation-policy row) and is the roadmap's intended self-hosted answer here, but nothing is delivered yet — no row moves on config alone | ❌ |
 | Health / readiness probes | platform-managed | ✅ `/health/live`, `/ready`, `/database` | ➕ |
 
 ## 10. Platform & operations
@@ -451,6 +463,40 @@ posture as B20's own cascade check.*
 ---
 
 ## Summary
+
+### Scorecard (2026-08-20)
+
+Counted from the status column of every capability row in §§1-10, including §6's
+role-boundary tables. RocketVault extras (➕) are excluded from the denominator —
+they are capabilities Azure lacks, not parity gaps.
+
+| Section | ✅ | 🟡 | ❌ | ➕ |
+|---|---:|---:|---:|---:|
+| 1. Secrets management | 9 | 1 | 0 | 2 |
+| 2. Key management — operations | 8 | 3 | 2 | 0 |
+| 3. Key management — types & algorithms | 3 | 4 | 1 | 0 |
+| 4. Certificate management | 5 | 0 | 2 | 0 |
+| 5. Multi-vault / namespacing | 5 | 0 | 0 | 1 |
+| 6. Access control / authorization | 13 | 3 | 1 | 0 |
+| 7. Soft-delete, purge protection, recovery | 5 | 0 | 0 | 0 |
+| 8. HSM & cryptographic protection | 1 | 2 | 0 | 1 |
+| 9. Monitoring, audit & compliance | 1 | 1 | 1 | 3 |
+| 10. Platform & operations | 3 | 0 | 1 | 3 |
+| **Total** | **53** | **14** | **8** | **10** |
+
+**71% full parity** (53/75 parity-comparable rows), 19% partial, 11% not supported.
+Counting partial as usable-with-caveats, 89% of compared capabilities are present in
+some form.
+
+Read that number with three caveats. **Rows are not equally weighted** — "geo-
+replication ❌" and "RSNULL 🟡" cost the same one row, though only one of them would
+stop a deployment. **Four of the eight ❌ rows are structural, not backlog**:
+geo-replication, cloud log sinks, public-CA/ACME enrollment and confidential-compute
+key release are cloud-platform or third-party-integration features a single
+self-hosted binary does not have an equivalent for by design. The genuinely closable
+❌ rows are key import, HMAC-on-symmetric-keys, and the Reader boundary break below.
+And **the percentage measures breadth, not correctness**: § B30 is a single ❌ row and
+also the most serious finding in this document.
 
 *Reconciled 2026-08-19 against a full section-by-section re-verification (see the
 dated notes throughout §§1-3, 5-7, 10). Two rows moved out of Partial entirely
@@ -471,12 +517,20 @@ protection that correctly cascades to contained items (closed 2026-08-18, see §
 §7), vault-scoped deleted/restore/purge across all three resource types (closed
 2026-08-13, see §5), AES-KW wrap and AES-CBC/GCM encrypt on HSM-backed keys now
 closely matching Azure's oct-HSM Premium-preview coverage (closed 2026-08-19, see §3), and
-RBAC: the vault-scoped role-assignment architecture matches Azure's real RBAC model,
-and — re-verified line-by-line against `model/azure_roles.go` on 2026-08-19 — all
-eleven role bundles are byte-for-byte accurate (Reader is metadata-only, Crypto
-Officer is a true superset of Crypto User including wrap/unwrap, Administrator
-carries no derived gaps, and Data Access Administrator now enforces Azure's own
-eight-role grant allow-list, closed 2026-08-18, see §6).
+and RBAC *architecture*: vault-scoped role assignments evaluated against
+`model.azureRoleDataActions` with an access-policy explicit-deny override checked
+first, matching Azure's real RBAC model. All eleven role **bundles** are byte-for-byte
+accurate against `model/azure_roles.go` (Crypto Officer is a true superset of Crypto
+User including wrap/unwrap, Administrator carries no derived gaps, Data Access
+Administrator enforces Azure's own eight-role grant allow-list, closed 2026-08-18,
+see §6).
+
+**Role boundaries are *not* at parity, despite those bundles** — see § B30 and the
+2026-08-20 correction in §6. `Key Vault Reader` reads every historical plaintext
+secret value in its vault, because `GET /secrets/{id}/versions` is filed under
+`ActionSecretsReadMetadata` on the false premise that listing versions returns
+metadata. A correct bundle composed with a wrong route→action mapping still yields a
+wrong permission, and prior passes verified only the bundle half.
 
 **Partial (🟡):**
 - **Key operations beyond CRUD** (see §2): fixed 2026-08-19 (§ B26) — key
@@ -498,9 +552,11 @@ eight-role grant allow-list, closed 2026-08-18, see §6).
   authorized by the RBAC data action plus a vault scope rather than item
   ownership, and carrying `key_versions` history across a backup/restore
   cycle. Rotation-policy scheduling
-  genuinely executes the rotate lifetime action, but
-  `expiry_days`/`notify_before_expiry_days` are stored and never acted on —
-  Azure's Notify lifetime action has no RocketVault equivalent.
+  genuinely executes the rotate lifetime action, and `expiry_days` is acted on
+  as of 2026-08-19; `notify_before_expiry_days` is still stored and never read,
+  so Azure's Notify lifetime action remains half-implemented. Per-vault webhook
+  configuration landed 2026-08-20 — a notification now has a destination to be
+  addressed to — but nothing sends yet, so no row moves on that alone.
 - **Key types & algorithms** (see §3): P-256K's two REST bugs are both fixed — the
   validator rejection (2026-08-19, § B24) and the follow-up uncaught 500 on
   HSM-enabled instances (2026-08-19, § B25) — and, as of the same day, the
@@ -535,7 +591,28 @@ eight-role grant allow-list, closed 2026-08-18, see §6).
   only, identical to Reader's certificate slice today, because RocketVault has no
   cert/key/secret linkage yet (Azure's version also reads the linked private key).
 
-**Not supported (❌):** key import (declared as a role action in
+*Reconciled 2026-08-20. Six commits had landed since the last pass (secret
+backup version-history follow-ups, the webhook config fixes, and a design spec);
+the webhook configuration feature itself merged just before that pass and was
+never recorded. Changes: §6's Reader row moved ✅ → ❌ on § B30, and §6's "Net"
+conclusion was corrected on method — bundle verification cannot establish role
+boundaries. §2's rotation-policy row and §9's cloud-sink row were reconciled
+against what webhook configuration actually is (storage only; nothing sends).
+§1's per-secret backup row gained the § F3 non-atomic-restore caveat. A
+scorecard was added. **Deliberately not added: a ➕ row for webhooks.** Per the
+sub-project 1 spec's own decision, a parity claim for CRUD with nothing wired to
+it would be premature; the row belongs here when something delivers. Also
+re-verified and unchanged: key import is still unroutable (`ActionKeysImport`
+appears only in `model/azure_roles.go`, never in `data_actions.go`), and the
+PKCS#11 provider still has no HMAC mechanism — both ❌ rows are current, not
+stale. `GET /secrets` was checked for the same defect as § B30 and is clean:
+`listSecrets` (`api/secrets.go:391`) builds its response without values
+deliberately, which is what makes the versions route an outlier rather than a
+pattern.*
+
+**Not supported (❌):** the `Key Vault Reader` boundary (§6, § B30 — Reader reads
+every historical plaintext secret value, granting strictly more than Azure's Reader;
+this is a security defect, not a missing feature), key import (declared as a role action in
 `model/azure_roles.go` but unroutable — no path maps to it), key release to
 confidential compute (TEE), HMAC sign/verify on symmetric keys (implemented in the
 crypto-operations layer but unreachable in practice — every oct key is HSM-backed and
