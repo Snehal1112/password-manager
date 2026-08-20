@@ -29,7 +29,7 @@ vaults). RocketVault columns are sourced from the codebase (`api/`, `internal/`,
 | Encryption at rest | ✅ HSM-backed | ✅ AES-256-GCM at rest | 🟡 (no HSM-sealed envelope) |
 | Generate random secret | ❌ | ✅ `POST /secrets/generate` | ➕ |
 | Bulk export / import | ❌ (per-secret only) | ✅ `POST /secrets/export`, `/import` | ➕ |
-| Per-secret backup / restore | ✅ | ✅ `POST /secrets/{id}/backup`, `/secrets/restore` | ✅ |
+| Per-secret backup / restore | ✅ | ✅ `POST /secrets/{id}/backup`, `/secrets/restore` — the blob carries the secret's full `secret_versions` history and restore replays it under the new secret ID (2026-08-20), matching Azure's per-version backup semantics | ✅ |
 | Rotation policy (auto-rotate) | ✅ | ✅ vault-scoped `rotation_policies` (`vault_id` + `model.Scope`-based repo/service, closed 2026-08-17 — see `.claude/known-bugs.md` § B23 for a follow-on upgrade-path fix) + CLI `secrets rotation ...` (`--vault`, `vaultcli.RequireDataAction`); scheduler auto-rotates due, enabled policies (`internal/services/secrets/scheduler_service.go`) — CLI-only, no HTTP route, matching today's design | ✅ |
 
 ## 2. Key management — operations

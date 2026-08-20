@@ -579,6 +579,7 @@ func (c *ServiceContainer) initializeServices() error {
 		c.secretRepository,
 		c.keyRepository,
 		c.certificateRepository,
+		c.versionRepository,
 	)
 
 	return nil

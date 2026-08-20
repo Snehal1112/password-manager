@@ -2,6 +2,9 @@ package backup_test
 
 import (
 	"context"
+	"database/sql"
+	"encoding/base64"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"sort"
@@ -183,7 +186,7 @@ func TestBackupRestoreSecret(t *testing.T) {
 	}
 	require.NoError(t, repo.Create(ctx, original))
 
-	svc := backup.NewItemBackupService(repo, nil, nil)
+	svc := backup.NewItemBackupService(repo, nil, nil, newStubSecretVersionRepo())
 
 	// Backup the secret.
 	blob, err := svc.BackupSecret(ctx, secretID, userID, uuid.Nil)
@@ -226,7 +229,7 @@ func TestBackupSecretNonOwnerInSameVaultSucceeds(t *testing.T) {
 		Enabled: true,
 	}))
 
-	svc := backup.NewItemBackupService(repo, nil, nil)
+	svc := backup.NewItemBackupService(repo, nil, nil, newStubSecretVersionRepo())
 
 	// A Secrets Officer authorized in this vault who does not own the secret
 	// must be able to back it up.
@@ -384,7 +387,7 @@ func TestRestoreSecretBlobTypeMismatch(t *testing.T) {
 		Enabled: true,
 	}))
 
-	svc := backup.NewItemBackupService(newStubSecretRepo(), keyRepo, nil)
+	svc := backup.NewItemBackupService(newStubSecretRepo(), keyRepo, nil, nil)
 
 	// Backup a key but try to restore it as a secret.
 	blob, err := svc.BackupKey(ctx, keyID, userID, uuid.Nil)
@@ -405,7 +408,7 @@ func TestRestoreSecretWritesAuthorizedVaultNotBlobVault(t *testing.T) {
 
 	ctx := context.Background()
 	repo := newStubSecretRepo()
-	svc := backup.NewItemBackupService(repo, nil, nil)
+	svc := backup.NewItemBackupService(repo, nil, nil, newStubSecretVersionRepo())
 
 	vaultA := uuid.New()
 	vaultB := uuid.New()
@@ -446,7 +449,7 @@ func TestRestoreSecretPreservesPurgeProtection(t *testing.T) {
 
 	ctx := context.Background()
 	repo := newStubSecretRepo()
-	svc := backup.NewItemBackupService(repo, nil, nil)
+	svc := backup.NewItemBackupService(repo, nil, nil, newStubSecretVersionRepo())
 
 	owner := uuid.New()
 	vaultID := uuid.New()
@@ -480,7 +483,7 @@ func TestRestoreKeyPreservesPurgeProtection(t *testing.T) {
 
 	ctx := context.Background()
 	repo := newStubKeyRepo()
-	svc := backup.NewItemBackupService(nil, repo, nil)
+	svc := backup.NewItemBackupService(nil, repo, nil, nil)
 
 	owner := uuid.New()
 	vaultID := uuid.New()
@@ -514,7 +517,7 @@ func TestRestoreCertificatePreservesPurgeProtection(t *testing.T) {
 
 	ctx := context.Background()
 	repo := newStubCertRepo()
-	svc := backup.NewItemBackupService(nil, nil, repo)
+	svc := backup.NewItemBackupService(nil, nil, repo, nil)
 
 	owner := uuid.New()
 	vaultID := uuid.New()
@@ -564,7 +567,7 @@ func TestBackupRestoreKey_CarriesVersionHistory(t *testing.T) {
 	require.NoError(t, repo.CreateVersion(ctx, keyID, 1, "pem-v1"))
 	require.NoError(t, repo.CreateVersion(ctx, keyID, 2, "pem-v2"))
 
-	svc := backup.NewItemBackupService(nil, repo, nil)
+	svc := backup.NewItemBackupService(nil, repo, nil, nil)
 
 	blob, err := svc.BackupKey(ctx, keyID, caller, vaultID)
 	require.NoError(t, err)
@@ -596,7 +599,7 @@ func TestRestoreKey_OldFormatBlob_NoVersionsField(t *testing.T) {
 		Value: "pem-v1", Type: model.KeyTypeRSA, Enabled: true,
 	}))
 
-	svc := backup.NewItemBackupService(nil, repo, nil)
+	svc := backup.NewItemBackupService(nil, repo, nil, nil)
 
 	// A key with zero key_versions rows produces a blob with an empty/absent
 	// "versions" field today, which is exactly the old-format shape.
@@ -609,4 +612,242 @@ func TestRestoreKey_OldFormatBlob_NoVersionsField(t *testing.T) {
 	records, err := repo.ListVersionRecords(ctx, newID)
 	require.NoError(t, err)
 	assert.Empty(t, records)
+}
+
+// TestBlobEnvelope_SecretVersionsRoundTrip pins the new envelope field.
+func TestBlobEnvelope_SecretVersionsRoundTrip(t *testing.T) {
+	t.Parallel()
+
+	secretID := uuid.New()
+	versions := []model.SecretVersion{
+		{ID: uuid.New(), SecretID: secretID, UserID: uuid.New(), Name: "s", Value: "enc-v1", Version: 1},
+		{ID: uuid.New(), SecretID: secretID, UserID: uuid.New(), Name: "s", Value: "enc-v2", Version: 2},
+	}
+
+	blob, err := backup.ExportedEncodeBlob("secret", secretID.String(),
+		&model.Secret{ID: secretID, Name: "s"},
+		backup.ExportedBlobVersions{Secret: versions})
+	require.NoError(t, err)
+
+	var out model.Secret
+	got, err := backup.ExportedDecodeBlob(blob, "secret", &out)
+	require.NoError(t, err)
+	require.Len(t, got.Secret, 2)
+	require.Equal(t, "enc-v1", got.Secret[0].Value)
+	require.Empty(t, got.Key, "a secret blob carries no key version records")
+}
+
+// TestBlobEnvelope_KeyVersionsUnaffected proves this refactor did not disturb
+// the key path's existing field.
+func TestBlobEnvelope_KeyVersionsUnaffected(t *testing.T) {
+	t.Parallel()
+
+	keyID := uuid.New()
+	blob, err := backup.ExportedEncodeBlob("key", keyID.String(),
+		&model.Key{ID: keyID, Name: "k"},
+		backup.ExportedBlobVersions{Key: []model.KeyVersionRecord{{KeyID: keyID, Version: 1, Value: "enc"}}})
+	require.NoError(t, err)
+
+	var out model.Key
+	got, err := backup.ExportedDecodeBlob(blob, "key", &out)
+	require.NoError(t, err)
+	require.Len(t, got.Key, 1)
+	require.Empty(t, got.Secret)
+}
+
+// stubSecretVersionRepo is a minimal in-memory SecretVersionRepositoryInterface.
+type stubSecretVersionRepo struct {
+	versions map[uuid.UUID][]model.SecretVersion
+}
+
+func newStubSecretVersionRepo() *stubSecretVersionRepo {
+	return &stubSecretVersionRepo{versions: make(map[uuid.UUID][]model.SecretVersion)}
+}
+
+func (r *stubSecretVersionRepo) CreateVersion(_ context.Context, v *model.SecretVersion) error {
+	r.versions[v.SecretID] = append(r.versions[v.SecretID], *v)
+	return nil
+}
+
+func (r *stubSecretVersionRepo) GetVersions(_ context.Context, secretID uuid.UUID) ([]model.SecretVersion, error) {
+	return r.versions[secretID], nil
+}
+
+func (r *stubSecretVersionRepo) GetVersion(_ context.Context, secretID uuid.UUID, version int) (*model.SecretVersion, error) {
+	for i := range r.versions[secretID] {
+		if r.versions[secretID][i].Version == version {
+			return &r.versions[secretID][i], nil
+		}
+	}
+	return nil, sql.ErrNoRows
+}
+
+func (r *stubSecretVersionRepo) GetLatestVersion(_ context.Context, secretID uuid.UUID) (*model.SecretVersion, error) {
+	list := r.versions[secretID]
+	if len(list) == 0 {
+		return nil, sql.ErrNoRows
+	}
+	return &list[len(list)-1], nil
+}
+
+func (r *stubSecretVersionRepo) DeleteVersions(_ context.Context, secretID uuid.UUID) error {
+	delete(r.versions, secretID)
+	return nil
+}
+
+func (r *stubSecretVersionRepo) DeleteSpecificVersion(_ context.Context, secretID uuid.UUID, version int) error {
+	kept := r.versions[secretID][:0]
+	for _, v := range r.versions[secretID] {
+		if v.Version != version {
+			kept = append(kept, v)
+		}
+	}
+	r.versions[secretID] = kept
+	return nil
+}
+
+// TestBackupSecret_CarriesVersionHistory verifies a secret's archived
+// version history reaches the backup blob. The stub's GetVersions returns
+// versions in insertion order, but the real secretVersionRepository orders
+// version DESC (internal/repositories/versioning_repository.go) — so this
+// asserts the set of values reached the blob, not their position. Task 3
+// replays each row with its own Version number, making order irrelevant.
+func TestBackupSecret_CarriesVersionHistory(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	ownerID := uuid.New()
+	vaultID := uuid.New()
+	secretID := uuid.New()
+
+	repo := newStubSecretRepo()
+	require.NoError(t, repo.Create(ctx, &model.Secret{
+		ID: secretID, UserID: ownerID, VaultID: vaultID,
+		Name: "db-password", Value: "enc-v3", Version: 3, Enabled: true,
+	}))
+
+	vr := newStubSecretVersionRepo()
+	for i := 1; i <= 2; i++ {
+		require.NoError(t, vr.CreateVersion(ctx, &model.SecretVersion{
+			ID: uuid.New(), SecretID: secretID, UserID: ownerID,
+			Name: "db-password", Value: fmt.Sprintf("enc-v%d", i), Version: i,
+		}))
+	}
+
+	svc := backup.NewItemBackupService(repo, nil, nil, vr)
+
+	blob, err := svc.BackupSecret(ctx, secretID, ownerID, vaultID)
+	require.NoError(t, err)
+
+	var restored model.Secret
+	got, err := backup.ExportedDecodeBlob(blob, "secret", &restored)
+	require.NoError(t, err)
+	require.Len(t, got.Secret, 2, "both archived versions must reach the blob")
+
+	values := []string{got.Secret[0].Value, got.Secret[1].Value}
+	assert.ElementsMatch(t, []string{"enc-v1", "enc-v2"}, values)
+}
+
+// TestBackupRestoreSecret_CarriesVersionHistory verifies a secret's archived
+// versions survive a full backup/restore round-trip: they must be replayed
+// under the new secret's ID and the restoring caller's user ID, each with its
+// own fresh primary key.
+func TestBackupRestoreSecret_CarriesVersionHistory(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	ownerID := uuid.New()
+	vaultID := uuid.New()
+	secretID := uuid.New()
+
+	repo := newStubSecretRepo()
+	require.NoError(t, repo.Create(ctx, &model.Secret{
+		ID: secretID, UserID: ownerID, VaultID: vaultID,
+		Name: "db-password", Value: "enc-v3", Version: 3, Enabled: true,
+	}))
+
+	vr := newStubSecretVersionRepo()
+	baseCreatedAt := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	for i := 1; i <= 2; i++ {
+		require.NoError(t, vr.CreateVersion(ctx, &model.SecretVersion{
+			ID: uuid.New(), SecretID: secretID, UserID: ownerID,
+			Name: "db-password", Value: fmt.Sprintf("enc-v%d", i), Version: i,
+			CreatedAt: baseCreatedAt.AddDate(0, 0, i),
+		}))
+	}
+
+	svc := backup.NewItemBackupService(repo, nil, nil, vr)
+
+	blob, err := svc.BackupSecret(ctx, secretID, ownerID, vaultID)
+	require.NoError(t, err)
+
+	newID := uuid.New()
+	restorerID := uuid.New()
+	newVaultID := uuid.New()
+	require.NoError(t, svc.RestoreSecret(ctx, blob, restorerID, newVaultID, newID))
+
+	restoredVersions, err := vr.GetVersions(ctx, newID)
+	require.NoError(t, err)
+	require.Len(t, restoredVersions, 2, "restore must replay the archived versions")
+
+	for _, v := range restoredVersions {
+		require.Equal(t, newID, v.SecretID, "versions must attach to the NEW secret")
+		require.Equal(t, restorerID, v.UserID, "versions must belong to the restoring user")
+		require.NotEqual(t, uuid.Nil, v.ID)
+	}
+	require.NotEqual(t, restoredVersions[0].ID, restoredVersions[1].ID,
+		"each replayed version needs its own primary key")
+
+	// The assertions above only check plumbing (IDs, ownership) -- none of
+	// them would fail if the replay zeroed every Version or blanked every
+	// Value. Assert the actual payload survived the round trip, order
+	// agnostic: production orders "version DESC" while the stub returns
+	// insertion order.
+	type versionPair struct {
+		Version int
+		Value   string
+	}
+	wantPairs := []versionPair{
+		{Version: 1, Value: "enc-v1"},
+		{Version: 2, Value: "enc-v2"},
+	}
+	var gotPairs []versionPair
+	for _, v := range restoredVersions {
+		gotPairs = append(gotPairs, versionPair{Version: v.Version, Value: v.Value})
+		assert.Equal(t, "db-password", v.Name, "version name must survive the round trip")
+		assert.True(t, v.CreatedAt.Equal(baseCreatedAt.AddDate(0, 0, v.Version)),
+			"version created_at must survive the round trip")
+	}
+	assert.ElementsMatch(t, wantPairs, gotPairs,
+		"restored version {version, value} pairs must match what was backed up")
+}
+
+// TestRestoreSecret_OldFormatBlob_NoVersionsField proves back-compat: a blob
+// written before the secret_versions field existed must still restore.
+func TestRestoreSecret_OldFormatBlob_NoVersionsField(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	secretID := uuid.New()
+
+	// Hand-built envelope with no secret_versions key at all.
+	raw, err := json.Marshal(map[string]any{
+		"resource_type": "secret",
+		"resource_id":   secretID.String(),
+		"data":          json.RawMessage(`{"id":"` + secretID.String() + `","name":"legacy","value":"enc","version":1}`),
+	})
+	require.NoError(t, err)
+	blob := base64.URLEncoding.EncodeToString(raw)
+
+	repo := newStubSecretRepo()
+	vr := newStubSecretVersionRepo()
+	svc := backup.NewItemBackupService(repo, nil, nil, vr)
+
+	newID := uuid.New()
+	require.NoError(t, svc.RestoreSecret(ctx, blob, uuid.New(), uuid.New(), newID),
+		"a pre-versions blob must still restore")
+
+	versions, err := vr.GetVersions(ctx, newID)
+	require.NoError(t, err)
+	require.Empty(t, versions)
 }

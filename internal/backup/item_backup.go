@@ -20,9 +20,10 @@ var ErrInvalidBlob = errors.New("invalid backup blob")
 // and certificates. Each backup is a base64url-encoded JSON envelope that is
 // opaque to the caller.
 type ItemBackupService struct {
-	secretRepo repositories.SecretRepositoryInterface
-	keyRepo    repositories.KeyRepositoryInterface
-	certRepo   repositories.CertificateRepositoryInterface
+	secretRepo  repositories.SecretRepositoryInterface
+	keyRepo     repositories.KeyRepositoryInterface
+	certRepo    repositories.CertificateRepositoryInterface
+	versionRepo repositories.SecretVersionRepositoryInterface
 }
 
 // NewItemBackupService creates an ItemBackupService wired to the given repos.
@@ -31,20 +32,37 @@ func NewItemBackupService(
 	secretRepo repositories.SecretRepositoryInterface,
 	keyRepo repositories.KeyRepositoryInterface,
 	certRepo repositories.CertificateRepositoryInterface,
+	versionRepo repositories.SecretVersionRepositoryInterface,
 ) *ItemBackupService {
 	return &ItemBackupService{
-		secretRepo: secretRepo,
-		keyRepo:    keyRepo,
-		certRepo:   certRepo,
+		secretRepo:  secretRepo,
+		keyRepo:     keyRepo,
+		certRepo:    certRepo,
+		versionRepo: versionRepo,
 	}
 }
 
+// blobVersions carries whatever version history a resource type has. Both
+// fields are optional: a key blob populates Key, a secret blob populates
+// Secret, and a certificate blob populates neither (certificates have no
+// version table).
+type blobVersions struct {
+	Key    []model.KeyVersionRecord
+	Secret []model.SecretVersion
+}
+
 // backupEnvelope is the internal structure stored inside the opaque blob.
+//
+// Both version fields are omitempty and additive: a blob written before a
+// given field existed simply decodes it as nil. That is what lets pre-2026-08
+// key blobs and pre-2026-08-20 secret blobs still restore. Never rename or
+// retype an existing field here — it is a wire format.
 type backupEnvelope struct {
-	ResourceType string                   `json:"resource_type"`
-	ResourceID   string                   `json:"resource_id"`
-	Data         json.RawMessage          `json:"data"`
-	Versions     []model.KeyVersionRecord `json:"versions,omitempty"` // keys only
+	ResourceType   string                   `json:"resource_type"`
+	ResourceID     string                   `json:"resource_id"`
+	Data           json.RawMessage          `json:"data"`
+	Versions       []model.KeyVersionRecord `json:"versions,omitempty"`        // keys only
+	SecretVersions []model.SecretVersion    `json:"secret_versions,omitempty"` // secrets only
 }
 
 // BackupSecret creates a base64url-encoded backup blob for the given secret.
@@ -57,7 +75,15 @@ func (s *ItemBackupService) BackupSecret(ctx context.Context, id, userID, vaultI
 	if err != nil {
 		return "", fmt.Errorf("backup secret: %w", err)
 	}
-	return encodeBlob("secret", id.String(), secret, nil)
+
+	// Version rows are fetched by secret ID; the scoped read above is their
+	// authorization. Without these the blob would restore a single version
+	// and silently discard the rest — the same loss B26 closed for keys.
+	versions, err := s.versionRepo.GetVersions(ctx, id)
+	if err != nil {
+		return "", fmt.Errorf("backup secret: list versions: %w", err)
+	}
+	return encodeBlob("secret", id.String(), secret, blobVersions{Secret: versions})
 }
 
 // RestoreSecret decodes blob and re-inserts it as newID, owned by userID,
@@ -65,9 +91,14 @@ func (s *ItemBackupService) BackupSecret(ctx context.Context, id, userID, vaultI
 // vault embedded in the blob. Trusting the blob's vault_id would let a
 // caller with restore permission in one vault silently write into any vault
 // a blob happens to reference.
+//
+// Archived versions in the blob are replayed under newID. Each gets a fresh
+// primary key: secret_versions.id is a PRIMARY KEY, and the source secret
+// usually still exists, so reusing the blob's IDs would collide.
 func (s *ItemBackupService) RestoreSecret(ctx context.Context, blob string, userID, vaultID, newID uuid.UUID) error {
 	var secret model.Secret
-	if _, err := decodeBlob(blob, "secret", &secret); err != nil {
+	versions, err := decodeBlob(blob, "secret", &secret)
+	if err != nil {
 		return err
 	}
 	secret.ID = newID
@@ -75,6 +106,19 @@ func (s *ItemBackupService) RestoreSecret(ctx context.Context, blob string, user
 	secret.VaultID = vaultID
 	if err := s.secretRepo.Create(ctx, &secret); err != nil {
 		return err
+	}
+	// Replay versions before applying purge protection: if this fails, the
+	// partial restore is left unprotected and can still be purged by an
+	// operator. Setting purge protection first would leave a partial restore
+	// that PurgeSecret refuses to clean up, orphaning it under an ID the
+	// caller never received.
+	for _, v := range versions.Secret {
+		v.ID = uuid.New()
+		v.SecretID = newID
+		v.UserID = userID
+		if err := s.versionRepo.CreateVersion(ctx, &v); err != nil {
+			return fmt.Errorf("restore secret: create version %d: %w", v.Version, err)
+		}
 	}
 	// Create does not write purge_protection, so a protected item would be
 	// restored unprotected. Re-apply the blob's flag as a second write.
@@ -106,7 +150,7 @@ func (s *ItemBackupService) BackupKey(ctx context.Context, id, userID, vaultID u
 	if err != nil {
 		return "", fmt.Errorf("backup key: list versions: %w", err)
 	}
-	return encodeBlob("key", id.String(), key, versions)
+	return encodeBlob("key", id.String(), key, blobVersions{Key: versions})
 }
 
 // RestoreKey decodes blob and re-inserts it as newID, owned by userID, into
@@ -129,7 +173,7 @@ func (s *ItemBackupService) RestoreKey(ctx context.Context, blob string, userID,
 			return fmt.Errorf("restore key: set purge protection: %w", err)
 		}
 	}
-	for _, v := range versions {
+	for _, v := range versions.Key {
 		if err := s.keyRepo.CreateVersion(ctx, newID, v.Version, v.Value); err != nil {
 			return fmt.Errorf("restore key: create version %d: %w", v.Version, err)
 		}
@@ -148,7 +192,7 @@ func (s *ItemBackupService) BackupCertificate(ctx context.Context, id, userID, v
 	if err != nil {
 		return "", fmt.Errorf("backup certificate: %w", err)
 	}
-	return encodeBlob("certificate", id.String(), cert, nil)
+	return encodeBlob("certificate", id.String(), cert, blobVersions{})
 }
 
 // RestoreCertificate decodes blob and re-inserts it as newID, owned by
@@ -175,18 +219,19 @@ func (s *ItemBackupService) RestoreCertificate(ctx context.Context, blob string,
 }
 
 // encodeBlob marshals data into a JSON envelope and base64url-encodes it.
-// versions is nil for secrets/certificates (no version-material concept);
-// keys pass their archived version records.
-func encodeBlob(resourceType, resourceID string, data interface{}, versions []model.KeyVersionRecord) (string, error) {
+// versions carries whatever history the resource type has; a zero blobVersions
+// means none, and both envelope fields are then omitted.
+func encodeBlob(resourceType, resourceID string, data interface{}, versions blobVersions) (string, error) {
 	raw, err := json.Marshal(data)
 	if err != nil {
 		return "", fmt.Errorf("marshal data: %w", err)
 	}
 	envelope, err := json.Marshal(backupEnvelope{
-		ResourceType: resourceType,
-		ResourceID:   resourceID,
-		Data:         raw,
-		Versions:     versions,
+		ResourceType:   resourceType,
+		ResourceID:     resourceID,
+		Data:           raw,
+		Versions:       versions.Key,
+		SecretVersions: versions.Secret,
 	})
 	if err != nil {
 		return "", fmt.Errorf("marshal envelope: %w", err)
@@ -195,22 +240,25 @@ func encodeBlob(resourceType, resourceID string, data interface{}, versions []mo
 }
 
 // decodeBlob base64url-decodes a blob and unmarshals the envelope into out.
-// Returns the envelope's Versions (nil for secrets/certificates, and nil for
-// a blob encoded before this field existed — the field is purely additive).
-func decodeBlob(blob, expectedType string, out interface{}) ([]model.KeyVersionRecord, error) {
+// The returned blobVersions is zero for a resource type with no history, and
+// zero for a blob encoded before the corresponding field existed — both
+// fields are purely additive.
+func decodeBlob(blob, expectedType string, out interface{}) (blobVersions, error) {
+	var none blobVersions
+
 	raw, err := base64.URLEncoding.DecodeString(blob)
 	if err != nil {
-		return nil, fmt.Errorf("%w: invalid encoding: %w", ErrInvalidBlob, err)
+		return none, fmt.Errorf("%w: invalid encoding: %w", ErrInvalidBlob, err)
 	}
 	var envelope backupEnvelope
 	if err := json.Unmarshal(raw, &envelope); err != nil {
-		return nil, fmt.Errorf("%w: invalid format: %w", ErrInvalidBlob, err)
+		return none, fmt.Errorf("%w: invalid format: %w", ErrInvalidBlob, err)
 	}
 	if envelope.ResourceType != expectedType {
-		return nil, fmt.Errorf("%w: type mismatch: expected %s, got %s", ErrInvalidBlob, expectedType, envelope.ResourceType)
+		return none, fmt.Errorf("%w: type mismatch: expected %s, got %s", ErrInvalidBlob, expectedType, envelope.ResourceType)
 	}
 	if err := json.Unmarshal(envelope.Data, out); err != nil {
-		return nil, err
+		return none, err
 	}
-	return envelope.Versions, nil
+	return blobVersions{Key: envelope.Versions, Secret: envelope.SecretVersions}, nil
 }
