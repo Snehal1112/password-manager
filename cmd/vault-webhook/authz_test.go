@@ -49,8 +49,9 @@ func TestRequireCanManageVault_DeniedWithoutGrant(t *testing.T) {
 	tc := testutils.NewTestContext(t)
 	ctx := nonAdminCtx(tc, &fakePolicySvc{decision: authzServices.AccessFallback})
 
-	err := requireCanManageVault(ctx, tc.MockContainer, tc.TestVaultID, "prod")
+	principal, err := requireCanManageVault(ctx, tc.MockContainer, tc.TestVaultID, "prod")
 	require.Error(t, err)
+	assert.Equal(t, uuid.Nil, principal, "a denied call must not hand back a principal to attribute")
 	assert.Contains(t, err.Error(), "permission denied")
 	assert.Contains(t, err.Error(), `"prod"`, "denial message must name the vault")
 }
@@ -60,8 +61,11 @@ func TestRequireCanManageVault_DeniedWithoutGrant(t *testing.T) {
 func TestRequireCanManageVault_AllowsAdmin(t *testing.T) {
 	tc := testutils.NewTestContext(t)
 	// tc's default context already carries an admin-role claim.
-	err := requireCanManageVault(tc.Ctx, tc.MockContainer, tc.TestVaultID, "prod")
+	principal, err := requireCanManageVault(tc.Ctx, tc.MockContainer, tc.TestVaultID, "prod")
 	require.NoError(t, err)
+	// The returned principal is what the command attributes the change to in
+	// the audit trail; uuid.Nil here would produce a record naming nobody.
+	assert.NotEqual(t, uuid.Nil, principal, "an allowed call must return the acting principal")
 }
 
 // TestRequireCanManageVault_NoClaimsInContext proves a context with no claims
@@ -70,7 +74,8 @@ func TestRequireCanManageVault_NoClaimsInContext(t *testing.T) {
 	tc := testutils.NewTestContext(t)
 	ctx := context.Background() // no ClaimsKey set at all.
 
-	err := requireCanManageVault(ctx, tc.MockContainer, tc.TestVaultID, "prod")
+	principal, err := requireCanManageVault(ctx, tc.MockContainer, tc.TestVaultID, "prod")
 	require.Error(t, err)
+	assert.Equal(t, uuid.Nil, principal)
 	assert.Contains(t, err.Error(), "authenticated claims not available")
 }

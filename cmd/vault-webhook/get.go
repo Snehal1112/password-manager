@@ -32,7 +32,8 @@ func InitVaultWebhookGet(parent *cobra.Command) {
 			if err != nil {
 				return err
 			}
-			if err := requireCanManageVault(ctx, sc, vaultID, vaultName); err != nil {
+			// Reads are not audited, so the principal id is not needed here.
+			if _, err := requireCanManageVault(ctx, sc, vaultID, vaultName); err != nil {
 				return err
 			}
 

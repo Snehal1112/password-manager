@@ -54,12 +54,19 @@ type VaultWebhookService interface {
 	// non-empty only when this call minted a secret: always on create, and on
 	// update only when req.RotateSecret is true. That empty/non-empty
 	// distinction is how the caller knows whether to show the secret.
-	Upsert(ctx context.Context, vaultID uuid.UUID, req UpsertWebhookRequest) (cfg *model.VaultWebhookConfig, plaintextSecret string, err error)
+	//
+	// actor is the principal performing the change, recorded in the audit
+	// trail. It is NOT used for authorization -- callers authorize with
+	// CanManageVault at the edge before calling. Passing uuid.Nil produces a
+	// record attributed to nobody, which defeats the point of the trail.
+	Upsert(ctx context.Context, vaultID uuid.UUID, req UpsertWebhookRequest, actor uuid.UUID) (cfg *model.VaultWebhookConfig, plaintextSecret string, err error)
 	// Get returns the vault's config, or ErrWebhookNotFound. The returned
-	// config carries the encrypted secret, never the plaintext.
+	// config carries the encrypted secret, never the plaintext. There is no
+	// actor parameter: reads are not audited, matching GetVault.
 	Get(ctx context.Context, vaultID uuid.UUID) (*model.VaultWebhookConfig, error)
 	// Delete removes the vault's config. Deleting when none exists succeeds.
-	Delete(ctx context.Context, vaultID uuid.UUID) error
+	// actor is recorded in the audit trail, as for Upsert.
+	Delete(ctx context.Context, vaultID uuid.UUID, actor uuid.UUID) error
 }
 
 type vaultWebhookService struct {
@@ -107,7 +114,7 @@ func mintSecret() (string, error) {
 }
 
 // Upsert creates or updates the vault's webhook config.
-func (s *vaultWebhookService) Upsert(ctx context.Context, vaultID uuid.UUID, req UpsertWebhookRequest) (*model.VaultWebhookConfig, string, error) {
+func (s *vaultWebhookService) Upsert(ctx context.Context, vaultID uuid.UUID, req UpsertWebhookRequest, actor uuid.UUID) (*model.VaultWebhookConfig, string, error) {
 	// 1. Validate before touching storage.
 	if err := validateWebhookURL(req.URL); err != nil {
 		return nil, "", err
@@ -177,7 +184,7 @@ func (s *vaultWebhookService) Upsert(ctx context.Context, vaultID uuid.UUID, req
 			verb = "created"
 		}
 		rotated := plaintextSecret != ""
-		s.log.LogAuditInfo("", operation, "success",
+		s.log.LogAuditInfo(actor.String(), operation, "success",
 			fmt.Sprintf("Vault webhook config %s: vault=%s url=%s rotated=%t", verb, vaultID, req.URL, rotated))
 	}
 
@@ -197,12 +204,12 @@ func (s *vaultWebhookService) Get(ctx context.Context, vaultID uuid.UUID) (*mode
 }
 
 // Delete removes the vault's webhook config.
-func (s *vaultWebhookService) Delete(ctx context.Context, vaultID uuid.UUID) error {
+func (s *vaultWebhookService) Delete(ctx context.Context, vaultID uuid.UUID, actor uuid.UUID) error {
 	if err := s.repo.DeleteByVaultID(ctx, vaultID); err != nil {
 		return err
 	}
 	if s.log != nil {
-		s.log.LogAuditInfo("", "delete_vault_webhook", "success",
+		s.log.LogAuditInfo(actor.String(), "delete_vault_webhook", "success",
 			fmt.Sprintf("Vault webhook config deleted: vault=%s", vaultID))
 	}
 	return nil

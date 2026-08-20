@@ -32,11 +32,12 @@ func InitVaultWebhookDelete(parent *cobra.Command) {
 			if err != nil {
 				return err
 			}
-			if err := requireCanManageVault(ctx, sc, vaultID, vaultName); err != nil {
+			actor, err := requireCanManageVault(ctx, sc, vaultID, vaultName)
+			if err != nil {
 				return err
 			}
 
-			if err := sc.GetVaultWebhookService().Delete(ctx, vaultID); err != nil {
+			if err := sc.GetVaultWebhookService().Delete(ctx, vaultID, actor); err != nil {
 				if errors.Is(err, vaultServices.ErrWebhookNotFound) {
 					return fmt.Errorf("no webhook configured for vault %q", vaultName)
 				}

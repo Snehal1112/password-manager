@@ -38,13 +38,18 @@ func callerIdentity(ctx context.Context) (role string, principalID uuid.UUID, er
 // The CLI calls the service layer directly and bypasses PolicyMiddleware
 // entirely, so this is the only authorization enforcement point on this path
 // -- a command that skips it bypasses authorization completely.
-func requireCanManageVault(ctx context.Context, sc container.ServiceContainerInterface, vaultID uuid.UUID, vaultName string) error {
+//
+// It returns the authorized principal's id so the caller can attribute the
+// change in the audit trail. The CLI has no middleware to stamp an actor for
+// it, so a command that discards this value produces an audit record naming
+// nobody.
+func requireCanManageVault(ctx context.Context, sc container.ServiceContainerInterface, vaultID uuid.UUID, vaultName string) (uuid.UUID, error) {
 	role, principalID, err := callerIdentity(ctx)
 	if err != nil {
-		return err
+		return uuid.Nil, err
 	}
 	if !authz.CanManageVault(ctx, role, sc.GetAccessPolicyService(), principalID, vaultID) {
-		return fmt.Errorf("permission denied: managing webhook config for vault %q requires admin or vaults/manage", vaultName)
+		return uuid.Nil, fmt.Errorf("permission denied: managing webhook config for vault %q requires admin or vaults/manage", vaultName)
 	}
-	return nil
+	return principalID, nil
 }

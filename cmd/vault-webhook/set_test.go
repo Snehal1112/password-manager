@@ -22,6 +22,8 @@ import (
 // methods were reached, so a denial test can prove the authz gate ran first.
 type fakeWebhookSvc struct {
 	upsertCalled bool
+	upsertActor  uuid.UUID
+	deleteActor  uuid.UUID
 	upsertVault  uuid.UUID
 	upsertReq    vaultServices.UpsertWebhookRequest
 	upsertResp   *model.VaultWebhookConfig
@@ -36,10 +38,11 @@ type fakeWebhookSvc struct {
 	deleteErr    error
 }
 
-func (f *fakeWebhookSvc) Upsert(_ context.Context, vaultID uuid.UUID, req vaultServices.UpsertWebhookRequest) (*model.VaultWebhookConfig, string, error) {
+func (f *fakeWebhookSvc) Upsert(_ context.Context, vaultID uuid.UUID, req vaultServices.UpsertWebhookRequest, actor uuid.UUID) (*model.VaultWebhookConfig, string, error) {
 	f.upsertCalled = true
 	f.upsertVault = vaultID
 	f.upsertReq = req
+	f.upsertActor = actor
 	return f.upsertResp, f.upsertSecret, f.upsertErr
 }
 
@@ -48,8 +51,9 @@ func (f *fakeWebhookSvc) Get(_ context.Context, _ uuid.UUID) (*model.VaultWebhoo
 	return f.getResp, f.getErr
 }
 
-func (f *fakeWebhookSvc) Delete(_ context.Context, _ uuid.UUID) error {
+func (f *fakeWebhookSvc) Delete(_ context.Context, _ uuid.UUID, actor uuid.UUID) error {
 	f.deleteCalled = true
+	f.deleteActor = actor
 	return f.deleteErr
 }
 
@@ -123,6 +127,12 @@ func TestVaultWebhookSet_Create(t *testing.T) {
 	require.True(t, fake.upsertCalled)
 	assert.Contains(t, out.String(), "Signing Secret: "+secret)
 	assert.Contains(t, out.String(), "Store the signing secret now")
+
+	// The CLI has no middleware to stamp an actor, so requireCanManageVault's
+	// principal is the only identity available -- if the command drops it, the
+	// audit record names nobody. tc's default context carries an admin claim.
+	assert.Equal(t, tc.TestUserID, fake.upsertActor,
+		"the acting principal must be passed through for the audit trail")
 
 	require.Empty(t, globalHook.AllEntries(), "the set command must not log through the global logrus API; it writes to stdout only")
 	require.Empty(t, ctxHook.AllEntries(), "the set command must not log through the context-scoped logger; it writes to stdout only")

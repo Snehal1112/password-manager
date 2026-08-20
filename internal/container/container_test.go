@@ -643,7 +643,7 @@ func TestNewServiceContainer_PurgeRemovesWebhookConfig(t *testing.T) {
 
 	_, _, err = webhookSvc.Upsert(ctx, v.ID, vaultServices.UpsertWebhookRequest{
 		URL: "https://example.com/hook",
-	})
+	}, uuid.New())
 	require.NoError(t, err)
 
 	// Sanity check: the row exists before purge.

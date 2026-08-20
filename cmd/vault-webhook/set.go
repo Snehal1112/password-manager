@@ -55,7 +55,8 @@ func InitVaultWebhookSet(parent *cobra.Command) {
 			if err != nil {
 				return err
 			}
-			if err := requireCanManageVault(ctx, sc, vaultID, vaultName); err != nil {
+			actor, err := requireCanManageVault(ctx, sc, vaultID, vaultName)
+			if err != nil {
 				return err
 			}
 
@@ -63,7 +64,7 @@ func InitVaultWebhookSet(parent *cobra.Command) {
 				URL:          url,
 				RotateSecret: rotateSecret,
 				Enabled:      enabled,
-			})
+			}, actor)
 			if err != nil {
 				return fmt.Errorf("set webhook failed: %w", err)
 			}

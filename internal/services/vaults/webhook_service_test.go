@@ -88,7 +88,7 @@ func TestWebhookService_Upsert_CreateMintsAndReturnsSecret(t *testing.T) {
 	vaultID := uuid.New()
 
 	cfg, secret, err := svc.Upsert(context.Background(), vaultID,
-		vaults.UpsertWebhookRequest{URL: "https://hooks.example/rv"})
+		vaults.UpsertWebhookRequest{URL: "https://hooks.example/rv"}, uuid.New())
 	require.NoError(t, err)
 
 	assert.NotEmpty(t, secret, "create must mint and return a secret")
@@ -110,7 +110,7 @@ func TestWebhookService_Upsert_SecretsAreUnpredictable(t *testing.T) {
 	seen := map[string]bool{}
 	for i := 0; i < 20; i++ {
 		_, secret, err := svc.Upsert(context.Background(), uuid.New(),
-			vaults.UpsertWebhookRequest{URL: "https://hooks.example/rv"})
+			vaults.UpsertWebhookRequest{URL: "https://hooks.example/rv"}, uuid.New())
 		require.NoError(t, err)
 		require.False(t, seen[secret], "minted a duplicate secret on iteration %d", i)
 		require.GreaterOrEqual(t, len(secret), 40, "32 random bytes must not base64 to fewer than 40 chars")
@@ -125,12 +125,12 @@ func TestWebhookService_Upsert_UpdateWithoutRotateKeepsSecret(t *testing.T) {
 	ctx, vaultID := context.Background(), uuid.New()
 
 	created, firstSecret, err := svc.Upsert(ctx, vaultID,
-		vaults.UpsertWebhookRequest{URL: "https://first.example"})
+		vaults.UpsertWebhookRequest{URL: "https://first.example"}, uuid.New())
 	require.NoError(t, err)
 	require.NotEmpty(t, firstSecret)
 
 	updated, secret, err := svc.Upsert(ctx, vaultID,
-		vaults.UpsertWebhookRequest{URL: "https://second.example"})
+		vaults.UpsertWebhookRequest{URL: "https://second.example"}, uuid.New())
 	require.NoError(t, err)
 
 	assert.Empty(t, secret, "an update that did not rotate must return no secret")
@@ -146,11 +146,11 @@ func TestWebhookService_Upsert_RotateMintsNewSecret(t *testing.T) {
 	ctx, vaultID := context.Background(), uuid.New()
 
 	created, firstSecret, err := svc.Upsert(ctx, vaultID,
-		vaults.UpsertWebhookRequest{URL: "https://a.example"})
+		vaults.UpsertWebhookRequest{URL: "https://a.example"}, uuid.New())
 	require.NoError(t, err)
 
 	rotated, secondSecret, err := svc.Upsert(ctx, vaultID,
-		vaults.UpsertWebhookRequest{URL: "https://a.example", RotateSecret: true})
+		vaults.UpsertWebhookRequest{URL: "https://a.example", RotateSecret: true}, uuid.New())
 	require.NoError(t, err)
 
 	assert.NotEmpty(t, secondSecret, "a rotate must return the new secret")
@@ -173,17 +173,17 @@ func TestWebhookService_Upsert_NilEnabledKeepsStoredValue(t *testing.T) {
 	disabled := false
 
 	_, _, err := svc.Upsert(ctx, vaultID,
-		vaults.UpsertWebhookRequest{URL: "https://a.example", Enabled: &disabled})
+		vaults.UpsertWebhookRequest{URL: "https://a.example", Enabled: &disabled}, uuid.New())
 	require.NoError(t, err)
 
 	updated, _, err := svc.Upsert(ctx, vaultID,
-		vaults.UpsertWebhookRequest{URL: "https://b.example"}) // Enabled nil
+		vaults.UpsertWebhookRequest{URL: "https://b.example"}, uuid.New()) // Enabled nil
 	require.NoError(t, err)
 	assert.False(t, updated.Enabled, "a nil Enabled must keep the stored value, not reset it")
 
 	enabled := true
 	reenabled, _, err := svc.Upsert(ctx, vaultID,
-		vaults.UpsertWebhookRequest{URL: "https://b.example", Enabled: &enabled})
+		vaults.UpsertWebhookRequest{URL: "https://b.example", Enabled: &enabled}, uuid.New())
 	require.NoError(t, err)
 	assert.True(t, reenabled.Enabled)
 }
@@ -200,7 +200,7 @@ func TestWebhookService_Upsert_RejectsBadURLs(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			_, _, err := svc.Upsert(context.Background(), uuid.New(),
-				vaults.UpsertWebhookRequest{URL: tc.url})
+				vaults.UpsertWebhookRequest{URL: tc.url}, uuid.New())
 			require.Error(t, err)
 			assert.True(t, errors.Is(err, vaults.ErrInvalidWebhookURL),
 				"expected ErrInvalidWebhookURL, got %v", err)
@@ -215,7 +215,7 @@ func TestWebhookService_Upsert_RejectsBadURLBeforeTouchingRepo(t *testing.T) {
 	svc := newWebhookService(repo)
 
 	_, _, err := svc.Upsert(context.Background(), uuid.New(),
-		vaults.UpsertWebhookRequest{URL: "http://insecure.example"})
+		vaults.UpsertWebhookRequest{URL: "http://insecure.example"}, uuid.New())
 	require.Error(t, err)
 	assert.Zero(t, repo.upserts, "an invalid URL must not reach the repository")
 }
@@ -246,7 +246,8 @@ func TestWebhookService_Get_DoesNotDecrypt(t *testing.T) {
 	svc := newWebhookService(repo)
 	ctx, vaultID := context.Background(), uuid.New()
 
-	_, secret, err := svc.Upsert(ctx, vaultID, vaults.UpsertWebhookRequest{URL: "https://a.example"})
+	_, secret, err := svc.Upsert(ctx, vaultID,
+		vaults.UpsertWebhookRequest{URL: "https://a.example"}, uuid.New())
 	require.NoError(t, err)
 
 	got, err := svc.Get(ctx, vaultID)
@@ -259,10 +260,11 @@ func TestWebhookService_Delete(t *testing.T) {
 	repo := newFakeWebhookRepo()
 	svc := newWebhookService(repo)
 	ctx, vaultID := context.Background(), uuid.New()
-	_, _, err := svc.Upsert(ctx, vaultID, vaults.UpsertWebhookRequest{URL: "https://a.example"})
+	_, _, err := svc.Upsert(ctx, vaultID,
+		vaults.UpsertWebhookRequest{URL: "https://a.example"}, uuid.New())
 	require.NoError(t, err)
 
-	require.NoError(t, svc.Delete(ctx, vaultID))
+	require.NoError(t, svc.Delete(ctx, vaultID, uuid.New()))
 
 	_, err = svc.Get(ctx, vaultID)
 	assert.True(t, errors.Is(err, vaults.ErrWebhookNotFound))
@@ -302,8 +304,9 @@ func TestWebhookService_Upsert_Create_LogsAuditRecord(t *testing.T) {
 	svc, hook := hookedWebhookService(newFakeWebhookRepo())
 	vaultID := uuid.New()
 
+	actor := uuid.New()
 	_, secret, err := svc.Upsert(context.Background(), vaultID,
-		vaults.UpsertWebhookRequest{URL: "https://hooks.example/rv"})
+		vaults.UpsertWebhookRequest{URL: "https://hooks.example/rv"}, actor)
 	require.NoError(t, err)
 	require.NotEmpty(t, secret)
 
@@ -312,6 +315,11 @@ func TestWebhookService_Upsert_Create_LogsAuditRecord(t *testing.T) {
 	entry := entries[0]
 	assert.Equal(t, "create_vault_webhook", entry.Data["operation"])
 	assert.Equal(t, "success", entry.Data["status"])
+	// user_id is what LogAuditInfo hands to PersistAudit, so this is the field
+	// that reaches the audit_logs table. Without it the record says a webhook
+	// was repointed but not by whom.
+	assert.Equal(t, actor.String(), entry.Data["user_id"],
+		"the acting principal must be attributed in the audit record")
 	assert.Contains(t, entry.Message, vaultID.String())
 	assert.Contains(t, entry.Message, "https://hooks.example/rv")
 	assert.Contains(t, entry.Message, "rotated=true")
@@ -327,12 +335,13 @@ func TestWebhookService_Upsert_UpdateWithRotate_LogsAuditRecord(t *testing.T) {
 	svc, hook := hookedWebhookService(repo)
 	ctx, vaultID := context.Background(), uuid.New()
 
-	_, firstSecret, err := svc.Upsert(ctx, vaultID, vaults.UpsertWebhookRequest{URL: "https://a.example"})
+	creator, rotator := uuid.New(), uuid.New()
+	_, firstSecret, err := svc.Upsert(ctx, vaultID, vaults.UpsertWebhookRequest{URL: "https://a.example"}, creator)
 	require.NoError(t, err)
 	hook.Reset()
 
 	_, secondSecret, err := svc.Upsert(ctx, vaultID,
-		vaults.UpsertWebhookRequest{URL: "https://a.example", RotateSecret: true})
+		vaults.UpsertWebhookRequest{URL: "https://a.example", RotateSecret: true}, rotator)
 	require.NoError(t, err)
 	require.NotEmpty(t, secondSecret)
 
@@ -341,6 +350,11 @@ func TestWebhookService_Upsert_UpdateWithRotate_LogsAuditRecord(t *testing.T) {
 	entry := entries[0]
 	assert.Equal(t, "update_vault_webhook", entry.Data["operation"])
 	assert.Contains(t, entry.Message, "rotated=true")
+	// Distinct actors for the create and the rotate: this is the scenario the
+	// attribution exists for -- a different principal rotating someone else's
+	// signing secret must be distinguishable in the trail.
+	assert.Equal(t, rotator.String(), entry.Data["user_id"])
+	assert.NotEqual(t, creator.String(), entry.Data["user_id"])
 
 	assertNoSecretLeak(t, hook, firstSecret)
 	assertNoSecretLeak(t, hook, secondSecret)
@@ -355,11 +369,12 @@ func TestWebhookService_Upsert_UpdateWithoutRotate_LogsAuditRecord(t *testing.T)
 	svc, hook := hookedWebhookService(repo)
 	ctx, vaultID := context.Background(), uuid.New()
 
-	_, firstSecret, err := svc.Upsert(ctx, vaultID, vaults.UpsertWebhookRequest{URL: "https://a.example"})
+	actor := uuid.New()
+	_, firstSecret, err := svc.Upsert(ctx, vaultID, vaults.UpsertWebhookRequest{URL: "https://a.example"}, actor)
 	require.NoError(t, err)
 	hook.Reset()
 
-	_, secret, err := svc.Upsert(ctx, vaultID, vaults.UpsertWebhookRequest{URL: "https://b.example"})
+	_, secret, err := svc.Upsert(ctx, vaultID, vaults.UpsertWebhookRequest{URL: "https://b.example"}, actor)
 	require.NoError(t, err)
 	assert.Empty(t, secret, "an update that did not rotate must return no secret")
 
@@ -368,6 +383,7 @@ func TestWebhookService_Upsert_UpdateWithoutRotate_LogsAuditRecord(t *testing.T)
 	entry := entries[0]
 	assert.Equal(t, "update_vault_webhook", entry.Data["operation"])
 	assert.Contains(t, entry.Message, "rotated=false")
+	assert.Equal(t, actor.String(), entry.Data["user_id"])
 
 	assertNoSecretLeak(t, hook, firstSecret)
 }
@@ -380,17 +396,20 @@ func TestWebhookService_Delete_LogsAuditRecord(t *testing.T) {
 	svc, hook := hookedWebhookService(repo)
 	ctx, vaultID := context.Background(), uuid.New()
 
-	_, secret, err := svc.Upsert(ctx, vaultID, vaults.UpsertWebhookRequest{URL: "https://a.example"})
+	creator, deleter := uuid.New(), uuid.New()
+	_, secret, err := svc.Upsert(ctx, vaultID, vaults.UpsertWebhookRequest{URL: "https://a.example"}, creator)
 	require.NoError(t, err)
 	hook.Reset()
 
-	require.NoError(t, svc.Delete(ctx, vaultID))
+	require.NoError(t, svc.Delete(ctx, vaultID, deleter))
 
 	entries := hook.AllEntries()
 	require.Len(t, entries, 1, "Delete must write exactly one audit record")
 	entry := entries[0]
 	assert.Equal(t, "delete_vault_webhook", entry.Data["operation"])
 	assert.Contains(t, entry.Message, vaultID.String())
+	assert.Equal(t, deleter.String(), entry.Data["user_id"],
+		"the deleting principal must be attributed, not the principal who created the config")
 
 	assertNoSecretLeak(t, hook, secret)
 }
@@ -401,7 +420,7 @@ func TestWebhookService_Upsert_StampsTimestamps(t *testing.T) {
 	before := time.Now().UTC().Add(-time.Second)
 
 	cfg, _, err := svc.Upsert(context.Background(), uuid.New(),
-		vaults.UpsertWebhookRequest{URL: "https://a.example"})
+		vaults.UpsertWebhookRequest{URL: "https://a.example"}, uuid.New())
 	require.NoError(t, err)
 	assert.False(t, cfg.CreatedAt.Before(before))
 	assert.False(t, cfg.UpdatedAt.Before(before))

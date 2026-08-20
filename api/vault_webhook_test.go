@@ -24,6 +24,11 @@ import (
 type webhookStub struct {
 	called bool
 
+	// gotActor records the principal the handler attributed the change to, so
+	// tests can prove the caller's identity is threaded through to the audit
+	// trail rather than dropped at the handler boundary.
+	gotActor uuid.UUID
+
 	cfg             *model.VaultWebhookConfig
 	plaintextSecret string
 	upsertErr       error
@@ -31,8 +36,9 @@ type webhookStub struct {
 	deleteErr       error
 }
 
-func (s *webhookStub) Upsert(_ context.Context, _ uuid.UUID, _ vaultServices.UpsertWebhookRequest) (*model.VaultWebhookConfig, string, error) {
+func (s *webhookStub) Upsert(_ context.Context, _ uuid.UUID, _ vaultServices.UpsertWebhookRequest, actor uuid.UUID) (*model.VaultWebhookConfig, string, error) {
 	s.called = true
+	s.gotActor = actor
 	if s.upsertErr != nil {
 		return nil, "", s.upsertErr
 	}
@@ -47,8 +53,9 @@ func (s *webhookStub) Get(_ context.Context, _ uuid.UUID) (*model.VaultWebhookCo
 	return s.cfg, nil
 }
 
-func (s *webhookStub) Delete(_ context.Context, _ uuid.UUID) error {
+func (s *webhookStub) Delete(_ context.Context, _ uuid.UUID, actor uuid.UUID) error {
 	s.called = true
+	s.gotActor = actor
 	return s.deleteErr
 }
 
@@ -87,6 +94,26 @@ func TestUpsertVaultWebhook_Create_Returns200WithSecret(t *testing.T) {
 	assert.Contains(t, w.Body.String(), `"signing_secret":"s3cr3t"`)
 	assert.Contains(t, w.Body.String(), `"url":"https://hooks.example/rv"`)
 	assert.True(t, stub.called)
+	// The authenticated caller must reach the service so the change is
+	// attributable in audit_logs. resolveAndAuthorizeVault already resolves
+	// this identity to run CanManageVault; dropping it afterwards would leave
+	// a record saying a webhook was repointed but not by whom.
+	assert.Equal(t, uuid.MustParse(vaultTestUserID), stub.gotActor,
+		"the authenticated caller must be passed to the service for the audit trail")
+}
+
+// TestDeleteVaultWebhook_PassesActor is the delete-side counterpart: delete is
+// the destructive operation on this resource, so its audit record is the one
+// most worth attributing.
+func TestDeleteVaultWebhook_PassesActor(t *testing.T) {
+	stub := &webhookStub{}
+	api, _ := newWebhookTestAPI(t, stub, &mockAccessPolicyService{})
+
+	w := doVaultRequest(api, http.MethodDelete, "/api/v1/vaults/prod/webhook", nil)
+
+	assert.Equal(t, http.StatusNoContent, w.Code)
+	assert.True(t, stub.called)
+	assert.Equal(t, uuid.MustParse(vaultTestUserID), stub.gotActor)
 }
 
 func TestUpsertVaultWebhook_UpdateWithoutRotate_OmitsSecret(t *testing.T) {

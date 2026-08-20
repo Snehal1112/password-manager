@@ -4,6 +4,7 @@ import (
 	"errors"
 	"net/http"
 
+	"github.com/google/uuid"
 	"github.com/gorilla/mux"
 
 	authzServices "rocketvault/internal/services/authorization"
@@ -34,32 +35,32 @@ func (c *Context) webhookSvc() vaultServices.VaultWebhookService {
 // vault routes bypass VaultResolutionMiddleware, so PolicyMiddleware only ever
 // evaluated the default vault for them (see InitVault's doc comment). Each
 // handler restores the per-vault check here.
-func resolveAndAuthorizeVault(c *Context, r *http.Request) (*model.Vault, bool) {
+func resolveAndAuthorizeVault(c *Context, r *http.Request) (*model.Vault, uuid.UUID, bool) {
 	name := mux.Vars(r)["name"]
 
 	svc := c.vaultSvc()
 	if svc == nil {
-		return nil, false
+		return nil, uuid.Nil, false
 	}
 	target, err := svc.GetVault(r.Context(), name)
 	if err != nil {
 		if errors.Is(err, vaultServices.ErrVaultNotFound) {
 			c.SetNotFound("vault")
-			return nil, false
+			return nil, uuid.Nil, false
 		}
 		c.SetInternalError(err)
-		return nil, false
+		return nil, uuid.Nil, false
 	}
 	role, userID, ok := callerIdentity(c)
 	if !ok {
 		c.SetInternalError(nil)
-		return nil, false
+		return nil, uuid.Nil, false
 	}
 	if !authzServices.CanManageVault(r.Context(), role, c.App.ServiceContainer.GetAccessPolicyService(), userID, target.ID) {
 		c.SetPermissionError("admin or vaults/manage required")
-		return nil, false
+		return nil, uuid.Nil, false
 	}
-	return target, true
+	return target, userID, true
 }
 
 // upsertVaultWebhook creates or updates a vault's webhook config.
@@ -68,7 +69,7 @@ func resolveAndAuthorizeVault(c *Context, r *http.Request) (*model.Vault, bool) 
 // one -- on create, or on an explicit rotate. That is the entire show-once
 // contract: there is no other path, here or in getVaultWebhook, that emits it.
 func upsertVaultWebhook(c *Context, w http.ResponseWriter, r *http.Request) {
-	target, ok := resolveAndAuthorizeVault(c, r)
+	target, actor, ok := resolveAndAuthorizeVault(c, r)
 	if !ok {
 		return
 	}
@@ -87,7 +88,7 @@ func upsertVaultWebhook(c *Context, w http.ResponseWriter, r *http.Request) {
 		URL:          req.URL,
 		RotateSecret: req.RotateSecret,
 		Enabled:      req.Enabled,
-	})
+	}, actor)
 	if err != nil {
 		if errors.Is(err, vaultServices.ErrInvalidWebhookURL) {
 			c.SetInvalidParam("url: " + err.Error())
@@ -113,7 +114,7 @@ func upsertVaultWebhook(c *Context, w http.ResponseWriter, r *http.Request) {
 // getVaultWebhook returns a vault's webhook config. It never emits the signing
 // secret in any form -- VaultWebhookConfigResponse has no field for it.
 func getVaultWebhook(c *Context, w http.ResponseWriter, r *http.Request) {
-	target, ok := resolveAndAuthorizeVault(c, r)
+	target, _, ok := resolveAndAuthorizeVault(c, r)
 	if !ok {
 		return
 	}
@@ -139,7 +140,7 @@ func getVaultWebhook(c *Context, w http.ResponseWriter, r *http.Request) {
 
 // deleteVaultWebhook removes a vault's webhook config.
 func deleteVaultWebhook(c *Context, w http.ResponseWriter, r *http.Request) {
-	target, ok := resolveAndAuthorizeVault(c, r)
+	target, actor, ok := resolveAndAuthorizeVault(c, r)
 	if !ok {
 		return
 	}
@@ -148,7 +149,7 @@ func deleteVaultWebhook(c *Context, w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := svc.Delete(r.Context(), target.ID); err != nil {
+	if err := svc.Delete(r.Context(), target.ID, actor); err != nil {
 		c.SetInternalError(err)
 		return
 	}
