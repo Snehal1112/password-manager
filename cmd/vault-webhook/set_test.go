@@ -81,15 +81,31 @@ func TestVaultWebhookSet_MissingURLIsFlagError(t *testing.T) {
 }
 
 // TestVaultWebhookSet_Create prints the minted secret and the one-time
-// notice, and never leaks the secret through the logger.
+// notice, and never leaks the secret through either logger the command's
+// execution path can reach:
+//
+//  1. the global logrus API (the exact anti-pattern cited in the brief --
+//     cmd/users/create.go:91 calls package-level logrus.WithFields(...).Info(...)
+//     with a freshly minted secret); and
+//  2. the context-scoped *logging.Logger every cmd/ RunE can retrieve via
+//     ctx.Value(common.LogKey) (see e.g. cmd/keys/rotate.go), which wraps a
+//     *separate* logrus.Logger instance the global hook never observes.
+//
+// Both hooks must see zero entries: set.go writes only via
+// cmd.OutOrStdout(), never through either logger. The invariant is asserted
+// directly (require.Empty), not inferred from an empty loop over zero
+// entries -- see TestVaultWebhookSet_LogHookCanDetectALeak for proof the
+// hooks are wired to something that would actually catch a leak.
 func TestVaultWebhookSet_Create(t *testing.T) {
-	// Hook the global logrus logger so we can prove nothing our code emits
-	// carries the secret -- the CLI-side guard against cmd/users/create.go:91's
-	// habit of logging a freshly minted secret.
-	hook := logrustest.NewGlobal()
+	globalHook := logrustest.NewGlobal()
 	defer logrus.StandardLogger().ReplaceHooks(make(logrus.LevelHooks))
 
 	tc := testutils.NewTestContext(t)
+	// tc.Logger is the same *logging.Logger instance stashed under
+	// common.LogKey in tc.Ctx (see cmd/testutils/test_utils.go), so hooking
+	// its embedded *logrus.Logger covers the context-scoped path too.
+	ctxHook := logrustest.NewLocal(tc.Logger.Logger)
+
 	const secret = "brand-new-signing-secret"
 	fake := &fakeWebhookSvc{
 		upsertResp: &model.VaultWebhookConfig{
@@ -108,14 +124,63 @@ func TestVaultWebhookSet_Create(t *testing.T) {
 	assert.Contains(t, out.String(), "Signing Secret: "+secret)
 	assert.Contains(t, out.String(), "Store the signing secret now")
 
-	for _, entry := range hook.AllEntries() {
-		assert.NotContains(t, entry.Message, secret, "the secret must never reach the logger")
-		for _, v := range entry.Data {
-			if s, ok := v.(string); ok {
-				assert.NotContains(t, s, secret, "the secret must never reach the logger")
+	require.Empty(t, globalHook.AllEntries(), "the set command must not log through the global logrus API; it writes to stdout only")
+	require.Empty(t, ctxHook.AllEntries(), "the set command must not log through the context-scoped logger; it writes to stdout only")
+
+	// Kept as a second line of defense: if the command ever starts logging,
+	// this still catches a leak of the secret specifically, even though the
+	// require.Empty above already fails on any entry at all.
+	for _, hook := range []*logrustest.Hook{globalHook, ctxHook} {
+		for _, entry := range hook.AllEntries() {
+			assert.NotContains(t, entry.Message, secret, "the secret must never reach the logger")
+			for _, v := range entry.Data {
+				if s, ok := v.(string); ok {
+					assert.NotContains(t, s, secret, "the secret must never reach the logger")
+				}
 			}
 		}
 	}
+}
+
+// TestVaultWebhookSet_LogHookCanDetectALeak is a negative control for
+// TestVaultWebhookSet_Create: it proves the global-logrus hook actually
+// observes what it claims to, by deliberately logging the secret through the
+// same API cmd/users/create.go:91 uses, then checking that the
+// secret-detection assertion would have failed against it. Without this,
+// "hook.AllEntries() is empty" and "the hook is wired to the wrong logger"
+// are indistinguishable.
+func TestVaultWebhookSet_LogHookCanDetectALeak(t *testing.T) {
+	hook := logrustest.NewGlobal()
+	defer logrus.StandardLogger().ReplaceHooks(make(logrus.LevelHooks))
+
+	const secret = "leaked-secret-for-negative-control"
+	logrus.WithFields(logrus.Fields{"signing_secret": secret}).Info("simulated leak, mirrors cmd/users/create.go:91")
+
+	entries := hook.AllEntries()
+	require.Len(t, entries, 1, "the hook must capture a record emitted through the global logrus API")
+
+	// Run the same detection logic TestVaultWebhookSet_Create uses, but
+	// against a recorder that records failure instead of calling t.Fatal, so
+	// this test itself stays green while proving the assertion would have
+	// failed on a real leak.
+	rec := &recordingT{}
+	for _, v := range entries[0].Data {
+		if s, ok := v.(string); ok {
+			assert.NotContains(rec, s, secret)
+		}
+	}
+	assert.True(t, rec.failed, "the secret-detection assertion must fail when the secret is actually logged -- this proves the hook in TestVaultWebhookSet_Create is wired correctly, not just silent")
+}
+
+// recordingT is a minimal assert.TestingT that records whether an assertion
+// failed instead of failing the enclosing test, so a negative-control test
+// can prove an assertion *would* fail without itself failing.
+type recordingT struct {
+	failed bool
+}
+
+func (r *recordingT) Errorf(string, ...interface{}) {
+	r.failed = true
 }
 
 // TestVaultWebhookSet_UpdateWithoutRotate prints NO secret line and no
