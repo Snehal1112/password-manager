@@ -124,9 +124,9 @@ func (_c *MockKeyRepositoryInterface_CreateVersion_Call) RunAndReturn(run func(c
 	return _c
 }
 
-// CurrentVersion provides a mock function with given fields: ctx, keyID, userID
-func (_m *MockKeyRepositoryInterface) CurrentVersion(ctx context.Context, keyID uuid.UUID, userID uuid.UUID) (int, error) {
-	ret := _m.Called(ctx, keyID, userID)
+// CurrentVersion provides a mock function with given fields: ctx, keyID
+func (_m *MockKeyRepositoryInterface) CurrentVersion(ctx context.Context, keyID uuid.UUID) (int, error) {
+	ret := _m.Called(ctx, keyID)
 
 	if len(ret) == 0 {
 		panic("no return value specified for CurrentVersion")
@@ -134,17 +134,17 @@ func (_m *MockKeyRepositoryInterface) CurrentVersion(ctx context.Context, keyID 
 
 	var r0 int
 	var r1 error
-	if rf, ok := ret.Get(0).(func(context.Context, uuid.UUID, uuid.UUID) (int, error)); ok {
-		return rf(ctx, keyID, userID)
+	if rf, ok := ret.Get(0).(func(context.Context, uuid.UUID) (int, error)); ok {
+		return rf(ctx, keyID)
 	}
-	if rf, ok := ret.Get(0).(func(context.Context, uuid.UUID, uuid.UUID) int); ok {
-		r0 = rf(ctx, keyID, userID)
+	if rf, ok := ret.Get(0).(func(context.Context, uuid.UUID) int); ok {
+		r0 = rf(ctx, keyID)
 	} else {
 		r0 = ret.Get(0).(int)
 	}
 
-	if rf, ok := ret.Get(1).(func(context.Context, uuid.UUID, uuid.UUID) error); ok {
-		r1 = rf(ctx, keyID, userID)
+	if rf, ok := ret.Get(1).(func(context.Context, uuid.UUID) error); ok {
+		r1 = rf(ctx, keyID)
 	} else {
 		r1 = ret.Error(1)
 	}
@@ -160,14 +160,13 @@ type MockKeyRepositoryInterface_CurrentVersion_Call struct {
 // CurrentVersion is a helper method to define mock.On call
 //   - ctx context.Context
 //   - keyID uuid.UUID
-//   - userID uuid.UUID
-func (_e *MockKeyRepositoryInterface_Expecter) CurrentVersion(ctx interface{}, keyID interface{}, userID interface{}) *MockKeyRepositoryInterface_CurrentVersion_Call {
-	return &MockKeyRepositoryInterface_CurrentVersion_Call{Call: _e.mock.On("CurrentVersion", ctx, keyID, userID)}
+func (_e *MockKeyRepositoryInterface_Expecter) CurrentVersion(ctx interface{}, keyID interface{}) *MockKeyRepositoryInterface_CurrentVersion_Call {
+	return &MockKeyRepositoryInterface_CurrentVersion_Call{Call: _e.mock.On("CurrentVersion", ctx, keyID)}
 }
 
-func (_c *MockKeyRepositoryInterface_CurrentVersion_Call) Run(run func(ctx context.Context, keyID uuid.UUID, userID uuid.UUID)) *MockKeyRepositoryInterface_CurrentVersion_Call {
+func (_c *MockKeyRepositoryInterface_CurrentVersion_Call) Run(run func(ctx context.Context, keyID uuid.UUID)) *MockKeyRepositoryInterface_CurrentVersion_Call {
 	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(context.Context), args[1].(uuid.UUID), args[2].(uuid.UUID))
+		run(args[0].(context.Context), args[1].(uuid.UUID))
 	})
 	return _c
 }
@@ -177,7 +176,7 @@ func (_c *MockKeyRepositoryInterface_CurrentVersion_Call) Return(_a0 int, _a1 er
 	return _c
 }
 
-func (_c *MockKeyRepositoryInterface_CurrentVersion_Call) RunAndReturn(run func(context.Context, uuid.UUID, uuid.UUID) (int, error)) *MockKeyRepositoryInterface_CurrentVersion_Call {
+func (_c *MockKeyRepositoryInterface_CurrentVersion_Call) RunAndReturn(run func(context.Context, uuid.UUID) (int, error)) *MockKeyRepositoryInterface_CurrentVersion_Call {
 	_c.Call.Return(run)
 	return _c
 }
@@ -229,9 +228,9 @@ func (_c *MockKeyRepositoryInterface_Delete_Call) RunAndReturn(run func(context.
 	return _c
 }
 
-// GetVersion provides a mock function with given fields: ctx, keyID, version, userID
-func (_m *MockKeyRepositoryInterface) GetVersion(ctx context.Context, keyID uuid.UUID, version int, userID uuid.UUID) (*model.KeyVersion, error) {
-	ret := _m.Called(ctx, keyID, version, userID)
+// GetVersion provides a mock function with given fields: ctx, keyID, version
+func (_m *MockKeyRepositoryInterface) GetVersion(ctx context.Context, keyID uuid.UUID, version int) (*model.KeyVersion, error) {
+	ret := _m.Called(ctx, keyID, version)
 
 	if len(ret) == 0 {
 		panic("no return value specified for GetVersion")
@@ -239,19 +238,19 @@ func (_m *MockKeyRepositoryInterface) GetVersion(ctx context.Context, keyID uuid
 
 	var r0 *model.KeyVersion
 	var r1 error
-	if rf, ok := ret.Get(0).(func(context.Context, uuid.UUID, int, uuid.UUID) (*model.KeyVersion, error)); ok {
-		return rf(ctx, keyID, version, userID)
+	if rf, ok := ret.Get(0).(func(context.Context, uuid.UUID, int) (*model.KeyVersion, error)); ok {
+		return rf(ctx, keyID, version)
 	}
-	if rf, ok := ret.Get(0).(func(context.Context, uuid.UUID, int, uuid.UUID) *model.KeyVersion); ok {
-		r0 = rf(ctx, keyID, version, userID)
+	if rf, ok := ret.Get(0).(func(context.Context, uuid.UUID, int) *model.KeyVersion); ok {
+		r0 = rf(ctx, keyID, version)
 	} else {
 		if ret.Get(0) != nil {
 			r0 = ret.Get(0).(*model.KeyVersion)
 		}
 	}
 
-	if rf, ok := ret.Get(1).(func(context.Context, uuid.UUID, int, uuid.UUID) error); ok {
-		r1 = rf(ctx, keyID, version, userID)
+	if rf, ok := ret.Get(1).(func(context.Context, uuid.UUID, int) error); ok {
+		r1 = rf(ctx, keyID, version)
 	} else {
 		r1 = ret.Error(1)
 	}
@@ -268,14 +267,13 @@ type MockKeyRepositoryInterface_GetVersion_Call struct {
 //   - ctx context.Context
 //   - keyID uuid.UUID
 //   - version int
-//   - userID uuid.UUID
-func (_e *MockKeyRepositoryInterface_Expecter) GetVersion(ctx interface{}, keyID interface{}, version interface{}, userID interface{}) *MockKeyRepositoryInterface_GetVersion_Call {
-	return &MockKeyRepositoryInterface_GetVersion_Call{Call: _e.mock.On("GetVersion", ctx, keyID, version, userID)}
+func (_e *MockKeyRepositoryInterface_Expecter) GetVersion(ctx interface{}, keyID interface{}, version interface{}) *MockKeyRepositoryInterface_GetVersion_Call {
+	return &MockKeyRepositoryInterface_GetVersion_Call{Call: _e.mock.On("GetVersion", ctx, keyID, version)}
 }
 
-func (_c *MockKeyRepositoryInterface_GetVersion_Call) Run(run func(ctx context.Context, keyID uuid.UUID, version int, userID uuid.UUID)) *MockKeyRepositoryInterface_GetVersion_Call {
+func (_c *MockKeyRepositoryInterface_GetVersion_Call) Run(run func(ctx context.Context, keyID uuid.UUID, version int)) *MockKeyRepositoryInterface_GetVersion_Call {
 	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(context.Context), args[1].(uuid.UUID), args[2].(int), args[3].(uuid.UUID))
+		run(args[0].(context.Context), args[1].(uuid.UUID), args[2].(int))
 	})
 	return _c
 }
@@ -285,7 +283,7 @@ func (_c *MockKeyRepositoryInterface_GetVersion_Call) Return(_a0 *model.KeyVersi
 	return _c
 }
 
-func (_c *MockKeyRepositoryInterface_GetVersion_Call) RunAndReturn(run func(context.Context, uuid.UUID, int, uuid.UUID) (*model.KeyVersion, error)) *MockKeyRepositoryInterface_GetVersion_Call {
+func (_c *MockKeyRepositoryInterface_GetVersion_Call) RunAndReturn(run func(context.Context, uuid.UUID, int) (*model.KeyVersion, error)) *MockKeyRepositoryInterface_GetVersion_Call {
 	_c.Call.Return(run)
 	return _c
 }
@@ -350,9 +348,9 @@ func (_c *MockKeyRepositoryInterface_List_Call) RunAndReturn(run func(context.Co
 	return _c
 }
 
-// ListVersionRecords provides a mock function with given fields: ctx, keyID, userID
-func (_m *MockKeyRepositoryInterface) ListVersionRecords(ctx context.Context, keyID uuid.UUID, userID uuid.UUID) ([]model.KeyVersionRecord, error) {
-	ret := _m.Called(ctx, keyID, userID)
+// ListVersionRecords provides a mock function with given fields: ctx, keyID
+func (_m *MockKeyRepositoryInterface) ListVersionRecords(ctx context.Context, keyID uuid.UUID) ([]model.KeyVersionRecord, error) {
+	ret := _m.Called(ctx, keyID)
 
 	if len(ret) == 0 {
 		panic("no return value specified for ListVersionRecords")
@@ -360,19 +358,19 @@ func (_m *MockKeyRepositoryInterface) ListVersionRecords(ctx context.Context, ke
 
 	var r0 []model.KeyVersionRecord
 	var r1 error
-	if rf, ok := ret.Get(0).(func(context.Context, uuid.UUID, uuid.UUID) ([]model.KeyVersionRecord, error)); ok {
-		return rf(ctx, keyID, userID)
+	if rf, ok := ret.Get(0).(func(context.Context, uuid.UUID) ([]model.KeyVersionRecord, error)); ok {
+		return rf(ctx, keyID)
 	}
-	if rf, ok := ret.Get(0).(func(context.Context, uuid.UUID, uuid.UUID) []model.KeyVersionRecord); ok {
-		r0 = rf(ctx, keyID, userID)
+	if rf, ok := ret.Get(0).(func(context.Context, uuid.UUID) []model.KeyVersionRecord); ok {
+		r0 = rf(ctx, keyID)
 	} else {
 		if ret.Get(0) != nil {
 			r0 = ret.Get(0).([]model.KeyVersionRecord)
 		}
 	}
 
-	if rf, ok := ret.Get(1).(func(context.Context, uuid.UUID, uuid.UUID) error); ok {
-		r1 = rf(ctx, keyID, userID)
+	if rf, ok := ret.Get(1).(func(context.Context, uuid.UUID) error); ok {
+		r1 = rf(ctx, keyID)
 	} else {
 		r1 = ret.Error(1)
 	}
@@ -388,14 +386,13 @@ type MockKeyRepositoryInterface_ListVersionRecords_Call struct {
 // ListVersionRecords is a helper method to define mock.On call
 //   - ctx context.Context
 //   - keyID uuid.UUID
-//   - userID uuid.UUID
-func (_e *MockKeyRepositoryInterface_Expecter) ListVersionRecords(ctx interface{}, keyID interface{}, userID interface{}) *MockKeyRepositoryInterface_ListVersionRecords_Call {
-	return &MockKeyRepositoryInterface_ListVersionRecords_Call{Call: _e.mock.On("ListVersionRecords", ctx, keyID, userID)}
+func (_e *MockKeyRepositoryInterface_Expecter) ListVersionRecords(ctx interface{}, keyID interface{}) *MockKeyRepositoryInterface_ListVersionRecords_Call {
+	return &MockKeyRepositoryInterface_ListVersionRecords_Call{Call: _e.mock.On("ListVersionRecords", ctx, keyID)}
 }
 
-func (_c *MockKeyRepositoryInterface_ListVersionRecords_Call) Run(run func(ctx context.Context, keyID uuid.UUID, userID uuid.UUID)) *MockKeyRepositoryInterface_ListVersionRecords_Call {
+func (_c *MockKeyRepositoryInterface_ListVersionRecords_Call) Run(run func(ctx context.Context, keyID uuid.UUID)) *MockKeyRepositoryInterface_ListVersionRecords_Call {
 	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(context.Context), args[1].(uuid.UUID), args[2].(uuid.UUID))
+		run(args[0].(context.Context), args[1].(uuid.UUID))
 	})
 	return _c
 }
@@ -405,14 +402,14 @@ func (_c *MockKeyRepositoryInterface_ListVersionRecords_Call) Return(_a0 []model
 	return _c
 }
 
-func (_c *MockKeyRepositoryInterface_ListVersionRecords_Call) RunAndReturn(run func(context.Context, uuid.UUID, uuid.UUID) ([]model.KeyVersionRecord, error)) *MockKeyRepositoryInterface_ListVersionRecords_Call {
+func (_c *MockKeyRepositoryInterface_ListVersionRecords_Call) RunAndReturn(run func(context.Context, uuid.UUID) ([]model.KeyVersionRecord, error)) *MockKeyRepositoryInterface_ListVersionRecords_Call {
 	_c.Call.Return(run)
 	return _c
 }
 
-// ListVersions provides a mock function with given fields: ctx, keyID, userID
-func (_m *MockKeyRepositoryInterface) ListVersions(ctx context.Context, keyID uuid.UUID, userID uuid.UUID) ([]model.KeyVersion, error) {
-	ret := _m.Called(ctx, keyID, userID)
+// ListVersions provides a mock function with given fields: ctx, keyID
+func (_m *MockKeyRepositoryInterface) ListVersions(ctx context.Context, keyID uuid.UUID) ([]model.KeyVersion, error) {
+	ret := _m.Called(ctx, keyID)
 
 	if len(ret) == 0 {
 		panic("no return value specified for ListVersions")
@@ -420,19 +417,19 @@ func (_m *MockKeyRepositoryInterface) ListVersions(ctx context.Context, keyID uu
 
 	var r0 []model.KeyVersion
 	var r1 error
-	if rf, ok := ret.Get(0).(func(context.Context, uuid.UUID, uuid.UUID) ([]model.KeyVersion, error)); ok {
-		return rf(ctx, keyID, userID)
+	if rf, ok := ret.Get(0).(func(context.Context, uuid.UUID) ([]model.KeyVersion, error)); ok {
+		return rf(ctx, keyID)
 	}
-	if rf, ok := ret.Get(0).(func(context.Context, uuid.UUID, uuid.UUID) []model.KeyVersion); ok {
-		r0 = rf(ctx, keyID, userID)
+	if rf, ok := ret.Get(0).(func(context.Context, uuid.UUID) []model.KeyVersion); ok {
+		r0 = rf(ctx, keyID)
 	} else {
 		if ret.Get(0) != nil {
 			r0 = ret.Get(0).([]model.KeyVersion)
 		}
 	}
 
-	if rf, ok := ret.Get(1).(func(context.Context, uuid.UUID, uuid.UUID) error); ok {
-		r1 = rf(ctx, keyID, userID)
+	if rf, ok := ret.Get(1).(func(context.Context, uuid.UUID) error); ok {
+		r1 = rf(ctx, keyID)
 	} else {
 		r1 = ret.Error(1)
 	}
@@ -448,14 +445,13 @@ type MockKeyRepositoryInterface_ListVersions_Call struct {
 // ListVersions is a helper method to define mock.On call
 //   - ctx context.Context
 //   - keyID uuid.UUID
-//   - userID uuid.UUID
-func (_e *MockKeyRepositoryInterface_Expecter) ListVersions(ctx interface{}, keyID interface{}, userID interface{}) *MockKeyRepositoryInterface_ListVersions_Call {
-	return &MockKeyRepositoryInterface_ListVersions_Call{Call: _e.mock.On("ListVersions", ctx, keyID, userID)}
+func (_e *MockKeyRepositoryInterface_Expecter) ListVersions(ctx interface{}, keyID interface{}) *MockKeyRepositoryInterface_ListVersions_Call {
+	return &MockKeyRepositoryInterface_ListVersions_Call{Call: _e.mock.On("ListVersions", ctx, keyID)}
 }
 
-func (_c *MockKeyRepositoryInterface_ListVersions_Call) Run(run func(ctx context.Context, keyID uuid.UUID, userID uuid.UUID)) *MockKeyRepositoryInterface_ListVersions_Call {
+func (_c *MockKeyRepositoryInterface_ListVersions_Call) Run(run func(ctx context.Context, keyID uuid.UUID)) *MockKeyRepositoryInterface_ListVersions_Call {
 	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(context.Context), args[1].(uuid.UUID), args[2].(uuid.UUID))
+		run(args[0].(context.Context), args[1].(uuid.UUID))
 	})
 	return _c
 }
@@ -465,7 +461,7 @@ func (_c *MockKeyRepositoryInterface_ListVersions_Call) Return(_a0 []model.KeyVe
 	return _c
 }
 
-func (_c *MockKeyRepositoryInterface_ListVersions_Call) RunAndReturn(run func(context.Context, uuid.UUID, uuid.UUID) ([]model.KeyVersion, error)) *MockKeyRepositoryInterface_ListVersions_Call {
+func (_c *MockKeyRepositoryInterface_ListVersions_Call) RunAndReturn(run func(context.Context, uuid.UUID) ([]model.KeyVersion, error)) *MockKeyRepositoryInterface_ListVersions_Call {
 	_c.Call.Return(run)
 	return _c
 }
@@ -636,9 +632,9 @@ func (_c *MockKeyRepositoryInterface_ReadDeleted_Call) RunAndReturn(run func(con
 	return _c
 }
 
-// ReadVersionValue provides a mock function with given fields: ctx, keyID, version, userID
-func (_m *MockKeyRepositoryInterface) ReadVersionValue(ctx context.Context, keyID uuid.UUID, version int, userID uuid.UUID) (string, error) {
-	ret := _m.Called(ctx, keyID, version, userID)
+// ReadVersionValue provides a mock function with given fields: ctx, keyID, version
+func (_m *MockKeyRepositoryInterface) ReadVersionValue(ctx context.Context, keyID uuid.UUID, version int) (string, error) {
+	ret := _m.Called(ctx, keyID, version)
 
 	if len(ret) == 0 {
 		panic("no return value specified for ReadVersionValue")
@@ -646,17 +642,17 @@ func (_m *MockKeyRepositoryInterface) ReadVersionValue(ctx context.Context, keyI
 
 	var r0 string
 	var r1 error
-	if rf, ok := ret.Get(0).(func(context.Context, uuid.UUID, int, uuid.UUID) (string, error)); ok {
-		return rf(ctx, keyID, version, userID)
+	if rf, ok := ret.Get(0).(func(context.Context, uuid.UUID, int) (string, error)); ok {
+		return rf(ctx, keyID, version)
 	}
-	if rf, ok := ret.Get(0).(func(context.Context, uuid.UUID, int, uuid.UUID) string); ok {
-		r0 = rf(ctx, keyID, version, userID)
+	if rf, ok := ret.Get(0).(func(context.Context, uuid.UUID, int) string); ok {
+		r0 = rf(ctx, keyID, version)
 	} else {
 		r0 = ret.Get(0).(string)
 	}
 
-	if rf, ok := ret.Get(1).(func(context.Context, uuid.UUID, int, uuid.UUID) error); ok {
-		r1 = rf(ctx, keyID, version, userID)
+	if rf, ok := ret.Get(1).(func(context.Context, uuid.UUID, int) error); ok {
+		r1 = rf(ctx, keyID, version)
 	} else {
 		r1 = ret.Error(1)
 	}
@@ -673,14 +669,13 @@ type MockKeyRepositoryInterface_ReadVersionValue_Call struct {
 //   - ctx context.Context
 //   - keyID uuid.UUID
 //   - version int
-//   - userID uuid.UUID
-func (_e *MockKeyRepositoryInterface_Expecter) ReadVersionValue(ctx interface{}, keyID interface{}, version interface{}, userID interface{}) *MockKeyRepositoryInterface_ReadVersionValue_Call {
-	return &MockKeyRepositoryInterface_ReadVersionValue_Call{Call: _e.mock.On("ReadVersionValue", ctx, keyID, version, userID)}
+func (_e *MockKeyRepositoryInterface_Expecter) ReadVersionValue(ctx interface{}, keyID interface{}, version interface{}) *MockKeyRepositoryInterface_ReadVersionValue_Call {
+	return &MockKeyRepositoryInterface_ReadVersionValue_Call{Call: _e.mock.On("ReadVersionValue", ctx, keyID, version)}
 }
 
-func (_c *MockKeyRepositoryInterface_ReadVersionValue_Call) Run(run func(ctx context.Context, keyID uuid.UUID, version int, userID uuid.UUID)) *MockKeyRepositoryInterface_ReadVersionValue_Call {
+func (_c *MockKeyRepositoryInterface_ReadVersionValue_Call) Run(run func(ctx context.Context, keyID uuid.UUID, version int)) *MockKeyRepositoryInterface_ReadVersionValue_Call {
 	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(context.Context), args[1].(uuid.UUID), args[2].(int), args[3].(uuid.UUID))
+		run(args[0].(context.Context), args[1].(uuid.UUID), args[2].(int))
 	})
 	return _c
 }
@@ -690,7 +685,7 @@ func (_c *MockKeyRepositoryInterface_ReadVersionValue_Call) Return(_a0 string, _
 	return _c
 }
 
-func (_c *MockKeyRepositoryInterface_ReadVersionValue_Call) RunAndReturn(run func(context.Context, uuid.UUID, int, uuid.UUID) (string, error)) *MockKeyRepositoryInterface_ReadVersionValue_Call {
+func (_c *MockKeyRepositoryInterface_ReadVersionValue_Call) RunAndReturn(run func(context.Context, uuid.UUID, int) (string, error)) *MockKeyRepositoryInterface_ReadVersionValue_Call {
 	_c.Call.Return(run)
 	return _c
 }

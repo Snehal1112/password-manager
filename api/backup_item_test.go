@@ -658,19 +658,19 @@ func (m *mockKeyRepo) ReadDeleted(_ context.Context, _ uuid.UUID) (*model.Key, e
 func (m *mockKeyRepo) CreateVersion(_ context.Context, _ uuid.UUID, _ int, _ string) error {
 	return nil
 }
-func (m *mockKeyRepo) ListVersions(_ context.Context, _, _ uuid.UUID) ([]model.KeyVersion, error) {
+func (m *mockKeyRepo) ListVersions(_ context.Context, _ uuid.UUID) ([]model.KeyVersion, error) {
 	return nil, nil
 }
-func (m *mockKeyRepo) CurrentVersion(_ context.Context, _ uuid.UUID, _ uuid.UUID) (int, error) {
+func (m *mockKeyRepo) CurrentVersion(_ context.Context, _ uuid.UUID) (int, error) {
 	return 1, nil
 }
-func (m *mockKeyRepo) ReadVersionValue(_ context.Context, _ uuid.UUID, _ int, _ uuid.UUID) (string, error) {
+func (m *mockKeyRepo) ReadVersionValue(_ context.Context, _ uuid.UUID, _ int) (string, error) {
 	return "", nil
 }
-func (m *mockKeyRepo) GetVersion(_ context.Context, _ uuid.UUID, _ int, _ uuid.UUID) (*model.KeyVersion, error) {
+func (m *mockKeyRepo) GetVersion(_ context.Context, _ uuid.UUID, _ int) (*model.KeyVersion, error) {
 	return nil, nil
 }
-func (m *mockKeyRepo) ListVersionRecords(_ context.Context, _ uuid.UUID, _ uuid.UUID) ([]model.KeyVersionRecord, error) {
+func (m *mockKeyRepo) ListVersionRecords(_ context.Context, _ uuid.UUID) ([]model.KeyVersionRecord, error) {
 	return nil, nil
 }
 func (m *mockKeyRepo) SoftDeleteVaultContents(_ context.Context, _ uuid.UUID, _ time.Time) error {

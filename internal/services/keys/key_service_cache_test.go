@@ -169,7 +169,7 @@ func TestKeyService_RotateKey_InvalidatesCache(t *testing.T) {
 
 	repo := &mockKeyRepository{}
 	repo.On("Read", mock.Anything, keyID, rotateScope).Return(existing, nil)
-	repo.On("ListVersions", mock.Anything, keyID, userID).Return([]model.KeyVersion{}, nil)
+	repo.On("ListVersions", mock.Anything, keyID).Return([]model.KeyVersion{}, nil)
 	// Archive original as version 1 (first rotation).
 	repo.On("CreateVersion", mock.Anything, keyID, 1, existing.Value).Return(nil)
 	// Archive new material as version 2.

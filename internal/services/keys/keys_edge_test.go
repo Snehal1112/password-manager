@@ -248,7 +248,7 @@ func TestRotateKey_ListVersionsError(t *testing.T) {
 	repo.On("Read", mock.Anything, keyID, model.NewOwnerScope(uuid.Nil, ownerID)).Return(
 		&model.Key{ID: keyID, UserID: ownerID, Type: model.KeyTypeRSA, Bits: 2048}, nil,
 	)
-	repo.On("ListVersions", mock.Anything, keyID, ownerID).Return(nil, errors.New("db error"))
+	repo.On("ListVersions", mock.Anything, keyID).Return(nil, errors.New("db error"))
 
 	softwareProvider := crypto.NewSoftwareKeyProvider()
 	svc := &keyService{keyRepo: repo, logger: testLogger(), keyProvider: softwareProvider}
@@ -272,7 +272,7 @@ func TestRotateKey_SuccessWithVersionArchive(t *testing.T) {
 		nil,
 	)
 	// No existing versions — RotateKey must archive the original as v1 first.
-	repo.On("ListVersions", mock.Anything, keyID, ownerID).Return([]model.KeyVersion{}, nil)
+	repo.On("ListVersions", mock.Anything, keyID).Return([]model.KeyVersion{}, nil)
 	repo.On("CreateVersion", mock.Anything, keyID, 1, existingEncrypted).Return(nil)
 	repo.On("CreateVersion", mock.Anything, keyID, 2, mock.AnythingOfType("string")).Return(nil)
 	repo.On("Update", mock.Anything, mock.AnythingOfType("*model.Key"), model.NewOwnerScope(uuid.Nil, ownerID)).Return(nil)
@@ -299,7 +299,7 @@ func TestRotateKey_ECDSAKey(t *testing.T) {
 			Value: existingEncrypted, Name: "ec-key"},
 		nil,
 	)
-	repo.On("ListVersions", mock.Anything, keyID, ownerID).Return([]model.KeyVersion{}, nil)
+	repo.On("ListVersions", mock.Anything, keyID).Return([]model.KeyVersion{}, nil)
 	repo.On("CreateVersion", mock.Anything, keyID, mock.AnythingOfType("int"), mock.AnythingOfType("string")).Return(nil)
 	repo.On("Update", mock.Anything, mock.AnythingOfType("*model.Key"), model.NewOwnerScope(uuid.Nil, ownerID)).Return(nil)
 
@@ -324,7 +324,7 @@ func TestRotateKey_ES256KKey(t *testing.T) {
 			Value: existingEncrypted, Name: "es256k-key"},
 		nil,
 	)
-	repo.On("ListVersions", mock.Anything, keyID, ownerID).Return([]model.KeyVersion{}, nil)
+	repo.On("ListVersions", mock.Anything, keyID).Return([]model.KeyVersion{}, nil)
 	repo.On("CreateVersion", mock.Anything, keyID, mock.AnythingOfType("int"), mock.AnythingOfType("string")).Return(nil)
 	repo.On("Update", mock.Anything, mock.AnythingOfType("*model.Key"), model.NewOwnerScope(uuid.Nil, ownerID)).Return(nil)
 
@@ -353,7 +353,7 @@ func TestRotateKey_StampsExpiryFromPolicy(t *testing.T) {
 		&model.Key{ID: keyID, UserID: ownerID, Type: model.KeyTypeRSA, Bits: 2048, Value: existingEncrypted, Name: "rsa-key"},
 		nil,
 	)
-	repo.On("ListVersions", mock.Anything, keyID, ownerID).Return([]model.KeyVersion{}, nil)
+	repo.On("ListVersions", mock.Anything, keyID).Return([]model.KeyVersion{}, nil)
 	repo.On("CreateVersion", mock.Anything, keyID, 1, existingEncrypted).Return(nil)
 	repo.On("CreateVersion", mock.Anything, keyID, 2, mock.AnythingOfType("string")).Return(nil)
 
@@ -400,7 +400,7 @@ func TestRotateKey_NoPolicyDoesNotStampExpiry(t *testing.T) {
 		&model.Key{ID: keyID, UserID: ownerID, Type: model.KeyTypeRSA, Bits: 2048, Value: existingEncrypted, Name: "rsa-key"},
 		nil,
 	)
-	repo.On("ListVersions", mock.Anything, keyID, ownerID).Return([]model.KeyVersion{}, nil)
+	repo.On("ListVersions", mock.Anything, keyID).Return([]model.KeyVersion{}, nil)
 	repo.On("CreateVersion", mock.Anything, keyID, 1, existingEncrypted).Return(nil)
 	repo.On("CreateVersion", mock.Anything, keyID, 2, mock.AnythingOfType("string")).Return(nil)
 
@@ -434,7 +434,7 @@ func TestRotateKey_DisabledPolicyDoesNotStamp(t *testing.T) {
 		&model.Key{ID: keyID, UserID: ownerID, Type: model.KeyTypeRSA, Bits: 2048, Value: existingEncrypted, Name: "rsa-key"},
 		nil,
 	)
-	repo.On("ListVersions", mock.Anything, keyID, ownerID).Return([]model.KeyVersion{}, nil)
+	repo.On("ListVersions", mock.Anything, keyID).Return([]model.KeyVersion{}, nil)
 	repo.On("CreateVersion", mock.Anything, keyID, 1, existingEncrypted).Return(nil)
 	repo.On("CreateVersion", mock.Anything, keyID, 2, mock.AnythingOfType("string")).Return(nil)
 
@@ -470,7 +470,7 @@ func TestRotateKey_ZeroExpiryDaysDoesNotStamp(t *testing.T) {
 		&model.Key{ID: keyID, UserID: ownerID, Type: model.KeyTypeRSA, Bits: 2048, Value: existingEncrypted, Name: "rsa-key"},
 		nil,
 	)
-	repo.On("ListVersions", mock.Anything, keyID, ownerID).Return([]model.KeyVersion{}, nil)
+	repo.On("ListVersions", mock.Anything, keyID).Return([]model.KeyVersion{}, nil)
 	repo.On("CreateVersion", mock.Anything, keyID, 1, existingEncrypted).Return(nil)
 	repo.On("CreateVersion", mock.Anything, keyID, 2, mock.AnythingOfType("string")).Return(nil)
 
@@ -507,7 +507,7 @@ func TestRotateKey_PolicyLookupErrorFailsRotation(t *testing.T) {
 		&model.Key{ID: keyID, UserID: ownerID, Type: model.KeyTypeRSA, Bits: 2048, Value: existingEncrypted, Name: "rsa-key"},
 		nil,
 	)
-	repo.On("ListVersions", mock.Anything, keyID, ownerID).Return([]model.KeyVersion{}, nil)
+	repo.On("ListVersions", mock.Anything, keyID).Return([]model.KeyVersion{}, nil)
 	repo.On("CreateVersion", mock.Anything, keyID, 1, existingEncrypted).Return(nil)
 	repo.On("CreateVersion", mock.Anything, keyID, 2, mock.AnythingOfType("string")).Return(nil)
 
@@ -539,7 +539,7 @@ func TestRotateKey_NilPolicyRepoDoesNotStamp(t *testing.T) {
 		&model.Key{ID: keyID, UserID: ownerID, Type: model.KeyTypeRSA, Bits: 2048, Value: existingEncrypted, Name: "rsa-key"},
 		nil,
 	)
-	repo.On("ListVersions", mock.Anything, keyID, ownerID).Return([]model.KeyVersion{}, nil)
+	repo.On("ListVersions", mock.Anything, keyID).Return([]model.KeyVersion{}, nil)
 	repo.On("CreateVersion", mock.Anything, keyID, 1, existingEncrypted).Return(nil)
 	repo.On("CreateVersion", mock.Anything, keyID, 2, mock.AnythingOfType("string")).Return(nil)
 	repo.On("Update", mock.Anything, mock.MatchedBy(func(k *model.Key) bool {

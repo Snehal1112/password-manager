@@ -152,7 +152,7 @@ func TestRotationExecutor_Check_EndToEnd_RealRepositories(t *testing.T) {
 	require.NoError(t, err)
 	require.NotEqual(t, before.Value, after.Value, "RotateKey must have replaced the key's stored material")
 
-	versions, err := keyRepo.ListVersions(ctx, keyID, userID)
+	versions, err := keyRepo.ListVersions(ctx, keyID)
 	require.NoError(t, err)
 	require.Len(t, versions, 2, "the original material and the newly rotated material must both be archived")
 

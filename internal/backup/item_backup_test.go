@@ -316,7 +316,7 @@ func (r *stubKeyRepo) CreateVersion(_ context.Context, keyID uuid.UUID, version 
 	return nil
 }
 
-func (r *stubKeyRepo) ListVersions(_ context.Context, keyID uuid.UUID, _ uuid.UUID) ([]model.KeyVersion, error) {
+func (r *stubKeyRepo) ListVersions(_ context.Context, keyID uuid.UUID) ([]model.KeyVersion, error) {
 	var out []model.KeyVersion
 	for v := range r.versions[keyID] {
 		out = append(out, model.KeyVersion{KeyID: keyID, Version: v})
@@ -327,7 +327,7 @@ func (r *stubKeyRepo) ListVersions(_ context.Context, keyID uuid.UUID, _ uuid.UU
 
 // CurrentVersion mirrors the repository's aggregate: the highest stored
 // version, or the implicit 1 when the key has never been rotated.
-func (r *stubKeyRepo) CurrentVersion(_ context.Context, keyID uuid.UUID, _ uuid.UUID) (int, error) {
+func (r *stubKeyRepo) CurrentVersion(_ context.Context, keyID uuid.UUID) (int, error) {
 	current := 1
 	for v := range r.versions[keyID] {
 		if v > current {
@@ -337,15 +337,15 @@ func (r *stubKeyRepo) CurrentVersion(_ context.Context, keyID uuid.UUID, _ uuid.
 	return current, nil
 }
 
-func (r *stubKeyRepo) ReadVersionValue(_ context.Context, _ uuid.UUID, _ int, _ uuid.UUID) (string, error) {
+func (r *stubKeyRepo) ReadVersionValue(_ context.Context, _ uuid.UUID, _ int) (string, error) {
 	return "", nil
 }
 
-func (r *stubKeyRepo) GetVersion(_ context.Context, _ uuid.UUID, _ int, _ uuid.UUID) (*model.KeyVersion, error) {
+func (r *stubKeyRepo) GetVersion(_ context.Context, _ uuid.UUID, _ int) (*model.KeyVersion, error) {
 	return nil, nil
 }
 
-func (r *stubKeyRepo) ListVersionRecords(_ context.Context, keyID uuid.UUID, _ uuid.UUID) ([]model.KeyVersionRecord, error) {
+func (r *stubKeyRepo) ListVersionRecords(_ context.Context, keyID uuid.UUID) ([]model.KeyVersionRecord, error) {
 	var records []model.KeyVersionRecord
 	for v, val := range r.versions[keyID] {
 		records = append(records, model.KeyVersionRecord{KeyID: keyID, Version: v, Value: val})
@@ -540,12 +540,19 @@ func TestRestoreCertificatePreservesPurgeProtection(t *testing.T) {
 
 // TestBackupRestoreKey_CarriesVersionHistory verifies a rotated key's
 // key_versions history survives a backup/restore round-trip, and that a
-// crypto-relevant old version's material is still present afterward.
+// crypto-relevant old version's material is still present afterward. The
+// calling user is deliberately distinct from the key's owner: this is the
+// direct regression pin for B28/F2 -- a non-owner backing up a key they
+// don't own, but do hold ActionKeysBackup for in the same vault. Under the
+// pre-fix code, ListVersionRecords' owner-ID filter would have been passed
+// the caller's ID instead of the key's, matched no rows, and silently
+// dropped the version history from the blob.
 func TestBackupRestoreKey_CarriesVersionHistory(t *testing.T) {
 	t.Parallel()
 
 	ctx := context.Background()
 	owner := uuid.New()
+	caller := uuid.New()
 	vaultID := uuid.New()
 	keyID := uuid.New()
 
@@ -559,13 +566,13 @@ func TestBackupRestoreKey_CarriesVersionHistory(t *testing.T) {
 
 	svc := backup.NewItemBackupService(nil, repo, nil)
 
-	blob, err := svc.BackupKey(ctx, keyID, owner, vaultID)
+	blob, err := svc.BackupKey(ctx, keyID, caller, vaultID)
 	require.NoError(t, err)
 
 	newID := uuid.New()
-	require.NoError(t, svc.RestoreKey(ctx, blob, owner, vaultID, newID))
+	require.NoError(t, svc.RestoreKey(ctx, blob, caller, vaultID, newID))
 
-	records, err := repo.ListVersionRecords(ctx, newID, owner)
+	records, err := repo.ListVersionRecords(ctx, newID)
 	require.NoError(t, err)
 	require.Len(t, records, 2)
 	assert.Equal(t, "pem-v1", records[0].Value)
@@ -599,7 +606,7 @@ func TestRestoreKey_OldFormatBlob_NoVersionsField(t *testing.T) {
 	newID := uuid.New()
 	require.NoError(t, svc.RestoreKey(ctx, blob, owner, vaultID, newID))
 
-	records, err := repo.ListVersionRecords(ctx, newID, owner)
+	records, err := repo.ListVersionRecords(ctx, newID)
 	require.NoError(t, err)
 	assert.Empty(t, records)
 }

@@ -100,11 +100,9 @@ func (s *ItemBackupService) BackupKey(ctx context.Context, id, userID, vaultID u
 		return "", fmt.Errorf("backup key: %w", err)
 	}
 
-	// Version records are filtered by the key's owner, not the caller:
-	// ListVersionRecords joins on k.user_id, so passing a non-owning caller's
-	// ID returns zero rows and silently drops the key's rotation history from
-	// the blob.
-	versions, err := s.keyRepo.ListVersionRecords(ctx, id, key.UserID)
+	// Version records are fetched by key ID. The scoped Read above is the
+	// authorization for them.
+	versions, err := s.keyRepo.ListVersionRecords(ctx, id)
 	if err != nil {
 		return "", fmt.Errorf("backup key: list versions: %w", err)
 	}

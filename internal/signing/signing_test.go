@@ -109,23 +109,23 @@ func (m *mockKeyRepo) CreateVersion(_ context.Context, _ uuid.UUID, _ int, _ str
 	return fmt.Errorf("not implemented")
 }
 
-func (m *mockKeyRepo) ListVersions(_ context.Context, _, _ uuid.UUID) ([]model.KeyVersion, error) {
+func (m *mockKeyRepo) ListVersions(_ context.Context, _ uuid.UUID) ([]model.KeyVersion, error) {
 	return nil, fmt.Errorf("not implemented")
 }
 
-func (m *mockKeyRepo) CurrentVersion(_ context.Context, _ uuid.UUID, _ uuid.UUID) (int, error) {
+func (m *mockKeyRepo) CurrentVersion(_ context.Context, _ uuid.UUID) (int, error) {
 	return 0, fmt.Errorf("not implemented")
 }
 
-func (m *mockKeyRepo) ReadVersionValue(_ context.Context, _ uuid.UUID, _ int, _ uuid.UUID) (string, error) {
+func (m *mockKeyRepo) ReadVersionValue(_ context.Context, _ uuid.UUID, _ int) (string, error) {
 	return "", fmt.Errorf("not implemented")
 }
 
-func (m *mockKeyRepo) GetVersion(_ context.Context, _ uuid.UUID, _ int, _ uuid.UUID) (*model.KeyVersion, error) {
+func (m *mockKeyRepo) GetVersion(_ context.Context, _ uuid.UUID, _ int) (*model.KeyVersion, error) {
 	return nil, fmt.Errorf("not implemented")
 }
 
-func (m *mockKeyRepo) ListVersionRecords(_ context.Context, _ uuid.UUID, _ uuid.UUID) ([]model.KeyVersionRecord, error) {
+func (m *mockKeyRepo) ListVersionRecords(_ context.Context, _ uuid.UUID) ([]model.KeyVersionRecord, error) {
 	return nil, fmt.Errorf("not implemented")
 }
 

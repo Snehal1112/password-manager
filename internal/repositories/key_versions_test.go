@@ -36,7 +36,7 @@ func TestKeyVersions_CreateAndList(t *testing.T) {
 	require.NoError(t, repo.CreateVersion(context.Background(), keyID, 1, "pem-v1"))
 	require.NoError(t, repo.CreateVersion(context.Background(), keyID, 2, "pem-v2"))
 
-	versions, err := repo.ListVersions(context.Background(), keyID, userID)
+	versions, err := repo.ListVersions(context.Background(), keyID)
 	require.NoError(t, err)
 	require.Len(t, versions, 2)
 	require.Equal(t, 2, versions[1].Version)
@@ -55,7 +55,7 @@ func TestKeyVersions_ReadVersionValue_ArchivedVersion(t *testing.T) {
 	require.NoError(t, repo.CreateVersion(context.Background(), keyID, 1, "pem-v1"))
 	require.NoError(t, repo.CreateVersion(context.Background(), keyID, 2, "pem-v2"))
 
-	value, err := repo.ReadVersionValue(context.Background(), keyID, 1, userID)
+	value, err := repo.ReadVersionValue(context.Background(), keyID, 1)
 	require.NoError(t, err)
 	require.Equal(t, "pem-v1", value)
 }
@@ -72,7 +72,7 @@ func TestKeyVersions_ReadVersionValue_ImplicitVersionOneFallback(t *testing.T) {
 	k := &model.Key{ID: keyID, UserID: userID, Name: "k", Type: model.KeyTypeRSA, Value: "pem-original", Enabled: true, CreatedAt: time.Now()}
 	require.NoError(t, repo.Create(context.Background(), k))
 
-	value, err := repo.ReadVersionValue(context.Background(), keyID, 1, userID)
+	value, err := repo.ReadVersionValue(context.Background(), keyID, 1)
 	require.NoError(t, err)
 	require.Equal(t, "pem-original", value)
 }
@@ -88,23 +88,7 @@ func TestKeyVersions_ReadVersionValue_NonexistentVersion(t *testing.T) {
 	k := &model.Key{ID: keyID, UserID: userID, Name: "k", Type: model.KeyTypeRSA, Value: "pem-v1", Enabled: true, CreatedAt: time.Now()}
 	require.NoError(t, repo.Create(context.Background(), k))
 
-	_, err := repo.ReadVersionValue(context.Background(), keyID, 5, userID)
-	require.ErrorIs(t, err, repositories.ErrKeyVersionNotFound)
-}
-
-func TestKeyVersions_ReadVersionValue_WrongOwner(t *testing.T) {
-	t.Parallel()
-	db := setupTestDB(t)
-	log := logging.InitLogger()
-	repo := repositories.NewKeyRepository(rvdb.NewConn(db, rvdb.SQLite), log)
-
-	keyID := uuid.New()
-	userID := uuid.New()
-	other := uuid.New()
-	k := &model.Key{ID: keyID, UserID: userID, Name: "k", Type: model.KeyTypeRSA, Value: "pem-v1", Enabled: true, CreatedAt: time.Now()}
-	require.NoError(t, repo.Create(context.Background(), k))
-
-	_, err := repo.ReadVersionValue(context.Background(), keyID, 1, other)
+	_, err := repo.ReadVersionValue(context.Background(), keyID, 5)
 	require.ErrorIs(t, err, repositories.ErrKeyVersionNotFound)
 }
 
@@ -120,19 +104,19 @@ func TestKeyVersions_GetVersion_ArchivedAndImplicit(t *testing.T) {
 	require.NoError(t, repo.Create(context.Background(), k))
 
 	// Implicit version 1 (never rotated) resolves from the key row.
-	v, err := repo.GetVersion(context.Background(), keyID, 1, userID)
+	v, err := repo.GetVersion(context.Background(), keyID, 1)
 	require.NoError(t, err)
 	require.Equal(t, 1, v.Version)
 	require.Equal(t, keyID, v.KeyID)
 
 	// Nonexistent version.
-	_, err = repo.GetVersion(context.Background(), keyID, 2, userID)
+	_, err = repo.GetVersion(context.Background(), keyID, 2)
 	require.ErrorIs(t, err, repositories.ErrKeyVersionNotFound)
 
 	// After rotation, version 1 is archived and version 2 exists.
 	require.NoError(t, repo.CreateVersion(context.Background(), keyID, 1, "pem-v1"))
 	require.NoError(t, repo.CreateVersion(context.Background(), keyID, 2, "pem-v2"))
-	v, err = repo.GetVersion(context.Background(), keyID, 2, userID)
+	v, err = repo.GetVersion(context.Background(), keyID, 2)
 	require.NoError(t, err)
 	require.Equal(t, 2, v.Version)
 }
@@ -154,7 +138,7 @@ func TestKeyVersions_CurrentVersion(t *testing.T) {
 	require.NoError(t, repo.Create(context.Background(), k))
 
 	// Never rotated: zero key_versions rows resolve to the implicit 1.
-	current, err := repo.CurrentVersion(context.Background(), keyID, userID)
+	current, err := repo.CurrentVersion(context.Background(), keyID)
 	require.NoError(t, err)
 	require.Equal(t, 1, current)
 
@@ -163,7 +147,7 @@ func TestKeyVersions_CurrentVersion(t *testing.T) {
 	require.NoError(t, repo.CreateVersion(context.Background(), keyID, 2, "pem-v2"))
 	require.NoError(t, repo.CreateVersion(context.Background(), keyID, 3, "pem-v3"))
 
-	current, err = repo.CurrentVersion(context.Background(), keyID, userID)
+	current, err = repo.CurrentVersion(context.Background(), keyID)
 	require.NoError(t, err)
 	require.Equal(t, 3, current)
 }
@@ -180,17 +164,99 @@ func TestKeyVersions_ListVersionRecords_IncludesValue(t *testing.T) {
 	require.NoError(t, repo.Create(context.Background(), k))
 
 	// Never rotated: zero records.
-	records, err := repo.ListVersionRecords(context.Background(), keyID, userID)
+	records, err := repo.ListVersionRecords(context.Background(), keyID)
 	require.NoError(t, err)
 	require.Empty(t, records)
 
 	require.NoError(t, repo.CreateVersion(context.Background(), keyID, 1, "pem-v1"))
 	require.NoError(t, repo.CreateVersion(context.Background(), keyID, 2, "pem-v2"))
 
-	records, err = repo.ListVersionRecords(context.Background(), keyID, userID)
+	records, err = repo.ListVersionRecords(context.Background(), keyID)
 	require.NoError(t, err)
 	require.Len(t, records, 2)
 	require.Equal(t, "pem-v1", records[0].Value)
 	require.Equal(t, 1, records[0].Version)
 	require.Equal(t, "pem-v2", records[1].Value)
+}
+
+// TestVersionQueries_NotFilteredByOwner pins the contract these methods moved
+// to: they return a key's versions by key ID alone. Authorization is the
+// caller's scoped Read of the parent key, performed before these are reached.
+// Before this change the queries joined keys and filtered k.user_id, so a
+// lookup keyed on anyone but the owner returned nothing.
+func TestVersionQueries_NotFilteredByOwner(t *testing.T) {
+	t.Parallel()
+	db := setupTestDB(t)
+	log := logging.InitLogger()
+	repo := repositories.NewKeyRepository(rvdb.NewConn(db, rvdb.SQLite), log)
+
+	ctx := context.Background()
+	keyID := uuid.New()
+	require.NoError(t, repo.Create(ctx, &model.Key{
+		ID: keyID, UserID: uuid.New(), Name: "rotated",
+		Type: model.KeyTypeRSA, Value: "pem-v2", Enabled: true, CreatedAt: time.Now(),
+	}))
+	require.NoError(t, repo.CreateVersion(ctx, keyID, 1, "pem-v1"))
+
+	value, err := repo.ReadVersionValue(ctx, keyID, 1)
+	require.NoError(t, err)
+	require.Equal(t, "pem-v1", value)
+
+	records, err := repo.ListVersionRecords(ctx, keyID)
+	require.NoError(t, err)
+	require.Len(t, records, 1)
+	require.Equal(t, "pem-v1", records[0].Value)
+}
+
+// TestCurrentVersion_NeverRotatedKeyStillReturnsOne pins the one thing worth
+// guarding here: a never-rotated key's implicit current version is 1. A
+// never-rotated key has zero key_versions rows, and COALESCE(MAX(version), 1)
+// yields 1 for that case because an ungrouped aggregate always returns
+// exactly one row, with or without a join.
+func TestCurrentVersion_NeverRotatedKeyStillReturnsOne(t *testing.T) {
+	t.Parallel()
+	db := setupTestDB(t)
+	log := logging.InitLogger()
+	repo := repositories.NewKeyRepository(rvdb.NewConn(db, rvdb.SQLite), log)
+
+	ctx := context.Background()
+	keyID := uuid.New()
+	require.NoError(t, repo.Create(ctx, &model.Key{
+		ID: keyID, UserID: uuid.New(), Name: "never-rotated",
+		Type: model.KeyTypeRSA, Value: "material", Enabled: true, CreatedAt: time.Now(),
+	}))
+
+	current, err := repo.CurrentVersion(ctx, keyID)
+	require.NoError(t, err)
+	require.Equal(t, 1, current, "a never-rotated key's implicit current version is 1")
+}
+
+// TestVersionMetadataQueries_NotFilteredByOwner mirrors
+// TestVersionQueries_NotFilteredByOwner's assertion for the metadata-only
+// queries.
+func TestVersionMetadataQueries_NotFilteredByOwner(t *testing.T) {
+	t.Parallel()
+	db := setupTestDB(t)
+	log := logging.InitLogger()
+	repo := repositories.NewKeyRepository(rvdb.NewConn(db, rvdb.SQLite), log)
+
+	ctx := context.Background()
+	keyID := uuid.New()
+	require.NoError(t, repo.Create(ctx, &model.Key{
+		ID: keyID, UserID: uuid.New(), Name: "rotated",
+		Type: model.KeyTypeRSA, Value: "v2", Enabled: true, CreatedAt: time.Now(),
+	}))
+	require.NoError(t, repo.CreateVersion(ctx, keyID, 1, "v1"))
+
+	versions, err := repo.ListVersions(ctx, keyID)
+	require.NoError(t, err)
+	require.Len(t, versions, 1)
+
+	v, err := repo.GetVersion(ctx, keyID, 1)
+	require.NoError(t, err)
+	require.Equal(t, 1, v.Version)
+
+	current, err := repo.CurrentVersion(ctx, keyID)
+	require.NoError(t, err)
+	require.Equal(t, 1, current)
 }

@@ -961,19 +961,19 @@ func (m *mockKeyRepoForExtendedCrypto) ReadDeleted(ctx context.Context, id uuid.
 func (m *mockKeyRepoForExtendedCrypto) CreateVersion(ctx context.Context, keyID uuid.UUID, version int, value string) error {
 	return nil
 }
-func (m *mockKeyRepoForExtendedCrypto) ListVersions(ctx context.Context, keyID, userID uuid.UUID) ([]model.KeyVersion, error) {
+func (m *mockKeyRepoForExtendedCrypto) ListVersions(ctx context.Context, keyID uuid.UUID) ([]model.KeyVersion, error) {
 	return nil, nil
 }
-func (m *mockKeyRepoForExtendedCrypto) CurrentVersion(ctx context.Context, keyID uuid.UUID, userID uuid.UUID) (int, error) {
+func (m *mockKeyRepoForExtendedCrypto) CurrentVersion(ctx context.Context, keyID uuid.UUID) (int, error) {
 	return 1, nil
 }
-func (m *mockKeyRepoForExtendedCrypto) ReadVersionValue(ctx context.Context, keyID uuid.UUID, version int, userID uuid.UUID) (string, error) {
+func (m *mockKeyRepoForExtendedCrypto) ReadVersionValue(ctx context.Context, keyID uuid.UUID, version int) (string, error) {
 	return "", nil
 }
-func (m *mockKeyRepoForExtendedCrypto) GetVersion(ctx context.Context, keyID uuid.UUID, version int, userID uuid.UUID) (*model.KeyVersion, error) {
+func (m *mockKeyRepoForExtendedCrypto) GetVersion(ctx context.Context, keyID uuid.UUID, version int) (*model.KeyVersion, error) {
 	return nil, nil
 }
-func (m *mockKeyRepoForExtendedCrypto) ListVersionRecords(ctx context.Context, keyID uuid.UUID, userID uuid.UUID) ([]model.KeyVersionRecord, error) {
+func (m *mockKeyRepoForExtendedCrypto) ListVersionRecords(ctx context.Context, keyID uuid.UUID) ([]model.KeyVersionRecord, error) {
 	return nil, nil
 }
 func (m *mockKeyRepoForExtendedCrypto) SoftDeleteVaultContents(ctx context.Context, vaultID uuid.UUID, deletedAt time.Time) error {

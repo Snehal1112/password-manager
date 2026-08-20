@@ -492,9 +492,7 @@ func (s *keyService) GetKey(ctx context.Context, keyID uuid.UUID, scope model.Sc
 }
 
 // ListKeyVersions returns keyID's version history, authorized by scope
-// against the parent key. Resolving the owner from the authorized key (not
-// the caller's own id) keeps vault-member access consistent with GetKey,
-// since KeyRepository.ListVersions filters on owner with no vault predicate.
+// against the parent key.
 //
 // A never-rotated key has zero key_versions rows, but its material in
 // keys.value is version 1 implicitly — the exact fallback GetKeyVersion and
@@ -507,7 +505,7 @@ func (s *keyService) ListKeyVersions(ctx context.Context, keyID uuid.UUID, scope
 	if err != nil {
 		return nil, err
 	}
-	versions, err := s.keyRepo.ListVersions(ctx, keyID, key.UserID)
+	versions, err := s.keyRepo.ListVersions(ctx, keyID)
 	if err != nil {
 		return nil, err
 	}
@@ -520,11 +518,11 @@ func (s *keyService) ListKeyVersions(ctx context.Context, keyID uuid.UUID, scope
 // GetKeyVersion returns metadata for one version of keyID, authorized by
 // scope against the parent key. Mirrors ListKeyVersions exactly.
 func (s *keyService) GetKeyVersion(ctx context.Context, keyID uuid.UUID, version int, scope model.Scope) (*model.KeyVersion, error) {
-	key, err := s.GetKey(ctx, keyID, scope)
-	if err != nil {
+	// The scoped read is the authorization for the version rows below.
+	if _, err := s.GetKey(ctx, keyID, scope); err != nil {
 		return nil, err
 	}
-	return s.keyRepo.GetVersion(ctx, keyID, version, key.UserID)
+	return s.keyRepo.GetVersion(ctx, keyID, version)
 }
 
 // GetKeyRotationPolicy retrieves the rotation policy for keyID, authorized by
@@ -867,11 +865,10 @@ func (s *keyService) RotateKey(ctx context.Context, keyID uuid.UUID, scope model
 		}
 	}
 
-	// Determine next version number from existing history. ListVersions joins
-	// on the key's owner, so pass the owner of the row the scope just
-	// authorized rather than the acting principal — they differ under an
-	// admin scope.
-	versions, err := s.keyRepo.ListVersions(ctx, keyID, existing.UserID)
+	// Determine next version number from existing history. The scoped Read
+	// of existing above is the authorization; ListVersions itself performs
+	// none.
+	versions, err := s.keyRepo.ListVersions(ctx, keyID)
 	if err != nil {
 		return nil, fmt.Errorf("list versions: %w", err)
 	}

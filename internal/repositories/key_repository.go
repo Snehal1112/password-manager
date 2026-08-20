@@ -42,25 +42,37 @@ type KeyRepositoryInterface interface {
 	// Used to return deletion metadata after a soft-delete operation.
 	ReadDeleted(ctx context.Context, id uuid.UUID) (*model.Key, error)
 	// CreateVersion persists a versioned snapshot of a key's raw material.
+	// Performs no authorization; see ReadVersionValue for the contract.
 	CreateVersion(ctx context.Context, keyID uuid.UUID, version int, value string) error
-	// ListVersions returns all version records for a key, ordered by version ASC.
-	// userID is used to enforce ownership before returning results.
-	ListVersions(ctx context.Context, keyID, userID uuid.UUID) ([]model.KeyVersion, error)
-	// ReadVersionValue returns the encrypted/handle material for one
-	// version of a key, authorized against userID.
-	ReadVersionValue(ctx context.Context, keyID uuid.UUID, version int, userID uuid.UUID) (string, error)
-	// GetVersion returns metadata (no material) for one version of a key,
-	// authorized against userID.
-	GetVersion(ctx context.Context, keyID uuid.UUID, version int, userID uuid.UUID) (*model.KeyVersion, error)
+	// ListVersions returns all version records for a key, ordered by version
+	// ASC. Performs no authorization; see ReadVersionValue for the contract.
+	ListVersions(ctx context.Context, keyID uuid.UUID) ([]model.KeyVersion, error)
+	// ReadVersionValue returns the encrypted/handle material for one version
+	// of a key, by key ID and version.
+	//
+	// It performs NO authorization. The caller MUST have already authorized
+	// the parent key with a scoped Read -- these version rows are reachable
+	// only through a key the caller has proved access to. A previous
+	// signature took a userID and filtered on k.user_id; every caller
+	// satisfied it by passing the owner ID from that same scoped Read, so it
+	// could never fail while appearing to be a check. See known-bugs B28 for
+	// the bug that ambiguity caused.
+	ReadVersionValue(ctx context.Context, keyID uuid.UUID, version int) (string, error)
+	// GetVersion returns metadata (no material) for one version of a key.
+	// Performs no authorization; see ReadVersionValue for the contract.
+	GetVersion(ctx context.Context, keyID uuid.UUID, version int) (*model.KeyVersion, error)
 	// ListVersionRecords returns every version of a key INCLUDING material,
-	// authorized against userID. Internal use only (backup service).
-	ListVersionRecords(ctx context.Context, keyID uuid.UUID, userID uuid.UUID) ([]model.KeyVersionRecord, error)
+	// by key ID. Internal use only (the backup service) -- never wired to an
+	// HTTP response.
+	//
+	// Performs no authorization; see ReadVersionValue for the contract.
+	ListVersionRecords(ctx context.Context, keyID uuid.UUID) ([]model.KeyVersionRecord, error)
 	// CurrentVersion returns keyID's current version number: the highest
 	// key_versions row if any rotation has happened, else the implicit 1
-	// (a never-rotated key's only material is keys.value). Single
-	// aggregate query — avoids fetching every version row just to find
-	// the max, unlike computing it via ListVersions.
-	CurrentVersion(ctx context.Context, keyID uuid.UUID, userID uuid.UUID) (int, error)
+	// (a never-rotated key's only material is keys.value). Single aggregate
+	// query -- avoids fetching every version row just to find the max.
+	// Performs no authorization; see ReadVersionValue for the contract.
+	CurrentVersion(ctx context.Context, keyID uuid.UUID) (int, error)
 	// SoftDeleteVaultContents soft-deletes every active key in a vault.
 	SoftDeleteVaultContents(ctx context.Context, vaultID uuid.UUID, deletedAt time.Time) error
 	// RecoverVaultContents recovers only the keys the cascade soft-deleted at deletedAt.
@@ -703,25 +715,25 @@ func (r *KeyRepository) CreateVersion(ctx context.Context, keyID uuid.UUID, vers
 	return err
 }
 
-// ListVersions retrieves all version metadata for a key, enforcing ownership via a JOIN.
-// Raw key material (value) is not returned; only version number and timestamp are exposed.
+// ListVersions retrieves all version metadata for a key. Raw key material
+// (value) is not returned; only version number and timestamp are exposed.
+//
+// Performs no authorization; see ReadVersionValue for the contract.
 //
 // Parameters:
 //   - ctx: The context for the database operation.
 //   - keyID: The key's unique identifier.
-//   - userID: The owner's user ID — rows are filtered by joining against the keys table.
 //
 // Returns:
 //
 //	An ordered (ASC) slice of KeyVersion records, or an error if retrieval fails.
-func (r *KeyRepository) ListVersions(ctx context.Context, keyID, userID uuid.UUID) ([]model.KeyVersion, error) {
+func (r *KeyRepository) ListVersions(ctx context.Context, keyID uuid.UUID) ([]model.KeyVersion, error) {
 	rows, err := r.db.QueryContext(ctx, `
 		SELECT kv.version, kv.created_at
 		FROM key_versions kv
-		JOIN keys k ON k.id = kv.key_id
-		WHERE kv.key_id = ? AND k.user_id = ?
+		WHERE kv.key_id = ?
 		ORDER BY kv.version ASC`,
-		keyID.String(), userID.String(),
+		keyID.String(),
 	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to query key versions: %w", err)
@@ -740,14 +752,22 @@ func (r *KeyRepository) ListVersions(ctx context.Context, keyID, userID uuid.UUI
 	return versions, rows.Err()
 }
 
-// ReadVersionValue returns the encrypted/handle material for one version of
-// keyID, authorized against userID (matching ListVersions's existing
-// owner-JOIN convention, not a model.Scope predicate). Falls back to
-// keys.value when version==1 and the key has never been rotated (zero
-// key_versions rows), matching RotateKey's own versioning math: a
-// never-rotated key's only material is keys.value, which is version 1
-// implicitly.
-func (r *KeyRepository) ReadVersionValue(ctx context.Context, keyID uuid.UUID, version int, userID uuid.UUID) (string, error) {
+// ReadVersionValue returns the encrypted/handle material for one version
+// of a key, by key ID and version.
+//
+// It performs NO authorization. The caller MUST have already authorized
+// the parent key with a scoped Read -- these version rows are reachable
+// only through a key the caller has proved access to. A previous
+// signature took a userID and filtered on k.user_id; every caller
+// satisfied it by passing the owner ID from that same scoped Read, so it
+// could never fail while appearing to be a check. See known-bugs B28 for
+// the bug that ambiguity caused.
+//
+// Falls back to keys.value when version==1 and the key has never been
+// rotated (zero key_versions rows), matching RotateKey's own versioning
+// math: a never-rotated key's only material is keys.value, which is
+// version 1 implicitly.
+func (r *KeyRepository) ReadVersionValue(ctx context.Context, keyID uuid.UUID, version int) (string, error) {
 	if version < 1 {
 		return "", fmt.Errorf("%w: version must be >= 1", ErrKeyVersionNotFound)
 	}
@@ -756,9 +776,8 @@ func (r *KeyRepository) ReadVersionValue(ctx context.Context, keyID uuid.UUID, v
 	err := r.db.QueryRowContext(ctx, `
 		SELECT kv.value
 		FROM key_versions kv
-		JOIN keys k ON k.id = kv.key_id
-		WHERE kv.key_id = ? AND kv.version = ? AND k.user_id = ?`,
-		keyID.String(), version, userID.String(),
+		WHERE kv.key_id = ? AND kv.version = ?`,
+		keyID.String(), version,
 	).Scan(&value)
 	if err == nil {
 		return value, nil
@@ -771,8 +790,8 @@ func (r *KeyRepository) ReadVersionValue(ctx context.Context, keyID uuid.UUID, v
 	}
 
 	err = r.db.QueryRowContext(ctx,
-		"SELECT value FROM keys WHERE id = ? AND user_id = ?",
-		keyID.String(), userID.String(),
+		"SELECT value FROM keys WHERE id = ?",
+		keyID.String(),
 	).Scan(&value)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
@@ -783,10 +802,10 @@ func (r *KeyRepository) ReadVersionValue(ctx context.Context, keyID uuid.UUID, v
 	return value, nil
 }
 
-// GetVersion returns metadata (no material) for one version of keyID,
-// authorized against userID. Same not-found and implicit-version-1 fallback
-// semantics as ReadVersionValue.
-func (r *KeyRepository) GetVersion(ctx context.Context, keyID uuid.UUID, version int, userID uuid.UUID) (*model.KeyVersion, error) {
+// GetVersion returns metadata (no material) for one version of a key.
+// Performs no authorization; see ReadVersionValue for the contract. Same
+// not-found and implicit-version-1 fallback semantics as ReadVersionValue.
+func (r *KeyRepository) GetVersion(ctx context.Context, keyID uuid.UUID, version int) (*model.KeyVersion, error) {
 	if version < 1 {
 		return nil, fmt.Errorf("%w: version must be >= 1", ErrKeyVersionNotFound)
 	}
@@ -795,9 +814,8 @@ func (r *KeyRepository) GetVersion(ctx context.Context, keyID uuid.UUID, version
 	err := r.db.QueryRowContext(ctx, `
 		SELECT kv.created_at
 		FROM key_versions kv
-		JOIN keys k ON k.id = kv.key_id
-		WHERE kv.key_id = ? AND kv.version = ? AND k.user_id = ?`,
-		keyID.String(), version, userID.String(),
+		WHERE kv.key_id = ? AND kv.version = ?`,
+		keyID.String(), version,
 	).Scan(&createdAt)
 	if err == nil {
 		return &model.KeyVersion{KeyID: keyID, Version: version, CreatedAt: createdAt}, nil
@@ -810,8 +828,8 @@ func (r *KeyRepository) GetVersion(ctx context.Context, keyID uuid.UUID, version
 	}
 
 	err = r.db.QueryRowContext(ctx,
-		"SELECT created_at FROM keys WHERE id = ? AND user_id = ?",
-		keyID.String(), userID.String(),
+		"SELECT created_at FROM keys WHERE id = ?",
+		keyID.String(),
 	).Scan(&createdAt)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
@@ -822,20 +840,22 @@ func (r *KeyRepository) GetVersion(ctx context.Context, keyID uuid.UUID, version
 	return &model.KeyVersion{KeyID: keyID, Version: 1, CreatedAt: createdAt}, nil
 }
 
-// ListVersionRecords returns every archived version of keyID INCLUDING
-// material, authorized against userID. Internal use only (the backup
-// service) — never wired to an HTTP response. Unlike ReadVersionValue/
-// GetVersion, this does NOT synthesize an implicit version-1 entry for a
-// never-rotated key: the backup service backs up keys.value separately, so
-// no such entry is needed here.
-func (r *KeyRepository) ListVersionRecords(ctx context.Context, keyID uuid.UUID, userID uuid.UUID) ([]model.KeyVersionRecord, error) {
+// ListVersionRecords returns every version of a key INCLUDING material,
+// by key ID. Internal use only (the backup service) -- never wired to an
+// HTTP response.
+//
+// Performs no authorization; see ReadVersionValue for the contract.
+//
+// Unlike ReadVersionValue/GetVersion, this does NOT synthesize an implicit
+// version-1 entry for a never-rotated key: the backup service backs up
+// keys.value separately, so no such entry is needed here.
+func (r *KeyRepository) ListVersionRecords(ctx context.Context, keyID uuid.UUID) ([]model.KeyVersionRecord, error) {
 	rows, err := r.db.QueryContext(ctx, `
 		SELECT kv.version, kv.value, kv.created_at
 		FROM key_versions kv
-		JOIN keys k ON k.id = kv.key_id
-		WHERE kv.key_id = ? AND k.user_id = ?
+		WHERE kv.key_id = ?
 		ORDER BY kv.version ASC`,
-		keyID.String(), userID.String(),
+		keyID.String(),
 	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to query key version records: %w", err)
@@ -855,27 +875,28 @@ func (r *KeyRepository) ListVersionRecords(ctx context.Context, keyID uuid.UUID,
 }
 
 // CurrentVersion returns keyID's current version number via a single
-// aggregate query. LEFT JOIN from keys (not an INNER JOIN from
-// key_versions) is required: a never-rotated key has zero key_versions
-// rows, and an INNER JOIN would return zero result rows instead of a row
-// with a NULL aggregate, breaking the COALESCE fallback below.
+// aggregate query against key_versions alone -- no join against keys is
+// needed. An ungrouped aggregate always yields exactly one row regardless
+// of how many (if any) key_versions rows match, so COALESCE(MAX(version),
+// 1) supplies the never-rotated fallback on its own; this also avoids
+// fetching every version row just to find the max.
+//
+// Performs no authorization; see ReadVersionValue for the contract.
 //
 // Parameters:
 //   - ctx: The context for the database operation.
 //   - keyID: The key's unique identifier.
-//   - userID: The owner's user ID — the row is filtered by joining against the keys table.
 //
 // Returns:
 //
 //	The current version number, or an error if the query fails.
-func (r *KeyRepository) CurrentVersion(ctx context.Context, keyID uuid.UUID, userID uuid.UUID) (int, error) {
+func (r *KeyRepository) CurrentVersion(ctx context.Context, keyID uuid.UUID) (int, error) {
 	var version int
 	err := r.db.QueryRowContext(ctx, `
-		SELECT COALESCE(MAX(kv.version), 1)
-		FROM keys k
-		LEFT JOIN key_versions kv ON kv.key_id = k.id
-		WHERE k.id = ? AND k.user_id = ?`,
-		keyID.String(), userID.String(),
+		SELECT COALESCE(MAX(version), 1)
+		FROM key_versions
+		WHERE key_id = ?`,
+		keyID.String(),
 	).Scan(&version)
 	if err != nil {
 		return 0, fmt.Errorf("failed to determine current key version: %w", err)
