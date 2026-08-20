@@ -3,6 +3,8 @@ package backup_test
 import (
 	"context"
 	"database/sql"
+	"encoding/base64"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"sort"
@@ -744,4 +746,83 @@ func TestBackupSecret_CarriesVersionHistory(t *testing.T) {
 
 	values := []string{got.Secret[0].Value, got.Secret[1].Value}
 	assert.ElementsMatch(t, []string{"enc-v1", "enc-v2"}, values)
+}
+
+// TestBackupRestoreSecret_CarriesVersionHistory verifies a secret's archived
+// versions survive a full backup/restore round-trip: they must be replayed
+// under the new secret's ID and the restoring caller's user ID, each with its
+// own fresh primary key.
+func TestBackupRestoreSecret_CarriesVersionHistory(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	ownerID := uuid.New()
+	vaultID := uuid.New()
+	secretID := uuid.New()
+
+	repo := newStubSecretRepo()
+	require.NoError(t, repo.Create(ctx, &model.Secret{
+		ID: secretID, UserID: ownerID, VaultID: vaultID,
+		Name: "db-password", Value: "enc-v3", Version: 3, Enabled: true,
+	}))
+
+	vr := newStubSecretVersionRepo()
+	for i := 1; i <= 2; i++ {
+		require.NoError(t, vr.CreateVersion(ctx, &model.SecretVersion{
+			ID: uuid.New(), SecretID: secretID, UserID: ownerID,
+			Name: "db-password", Value: fmt.Sprintf("enc-v%d", i), Version: i,
+		}))
+	}
+
+	svc := backup.NewItemBackupService(repo, nil, nil, vr)
+
+	blob, err := svc.BackupSecret(ctx, secretID, ownerID, vaultID)
+	require.NoError(t, err)
+
+	newID := uuid.New()
+	restorerID := uuid.New()
+	newVaultID := uuid.New()
+	require.NoError(t, svc.RestoreSecret(ctx, blob, restorerID, newVaultID, newID))
+
+	restoredVersions, err := vr.GetVersions(ctx, newID)
+	require.NoError(t, err)
+	require.Len(t, restoredVersions, 2, "restore must replay the archived versions")
+
+	for _, v := range restoredVersions {
+		require.Equal(t, newID, v.SecretID, "versions must attach to the NEW secret")
+		require.Equal(t, restorerID, v.UserID, "versions must belong to the restoring user")
+		require.NotEqual(t, uuid.Nil, v.ID)
+	}
+	require.NotEqual(t, restoredVersions[0].ID, restoredVersions[1].ID,
+		"each replayed version needs its own primary key")
+}
+
+// TestRestoreSecret_OldFormatBlob_NoVersionsField proves back-compat: a blob
+// written before the secret_versions field existed must still restore.
+func TestRestoreSecret_OldFormatBlob_NoVersionsField(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	secretID := uuid.New()
+
+	// Hand-built envelope with no secret_versions key at all.
+	raw, err := json.Marshal(map[string]any{
+		"resource_type": "secret",
+		"resource_id":   secretID.String(),
+		"data":          json.RawMessage(`{"id":"` + secretID.String() + `","name":"legacy","value":"enc","version":1}`),
+	})
+	require.NoError(t, err)
+	blob := base64.URLEncoding.EncodeToString(raw)
+
+	repo := newStubSecretRepo()
+	vr := newStubSecretVersionRepo()
+	svc := backup.NewItemBackupService(repo, nil, nil, vr)
+
+	newID := uuid.New()
+	require.NoError(t, svc.RestoreSecret(ctx, blob, uuid.New(), uuid.New(), newID),
+		"a pre-versions blob must still restore")
+
+	versions, err := vr.GetVersions(ctx, newID)
+	require.NoError(t, err)
+	require.Empty(t, versions)
 }

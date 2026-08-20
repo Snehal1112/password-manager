@@ -91,9 +91,14 @@ func (s *ItemBackupService) BackupSecret(ctx context.Context, id, userID, vaultI
 // vault embedded in the blob. Trusting the blob's vault_id would let a
 // caller with restore permission in one vault silently write into any vault
 // a blob happens to reference.
+//
+// Archived versions in the blob are replayed under newID. Each gets a fresh
+// primary key: secret_versions.id is a PRIMARY KEY, and the source secret
+// usually still exists, so reusing the blob's IDs would collide.
 func (s *ItemBackupService) RestoreSecret(ctx context.Context, blob string, userID, vaultID, newID uuid.UUID) error {
 	var secret model.Secret
-	if _, err := decodeBlob(blob, "secret", &secret); err != nil {
+	versions, err := decodeBlob(blob, "secret", &secret)
+	if err != nil {
 		return err
 	}
 	secret.ID = newID
@@ -107,6 +112,14 @@ func (s *ItemBackupService) RestoreSecret(ctx context.Context, blob string, user
 	if secret.PurgeProtection {
 		if err := s.secretRepo.SetPurgeProtection(ctx, newID, true); err != nil {
 			return fmt.Errorf("restore secret: set purge protection: %w", err)
+		}
+	}
+	for _, v := range versions.Secret {
+		v.ID = uuid.New()
+		v.SecretID = newID
+		v.UserID = userID
+		if err := s.versionRepo.CreateVersion(ctx, &v); err != nil {
+			return fmt.Errorf("restore secret: create version %d: %w", v.Version, err)
 		}
 	}
 	return nil
