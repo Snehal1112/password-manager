@@ -103,12 +103,15 @@ export it as the <code>MASTER_KEY</code> environment variable of the server proc
 file entirely. The environment value takes precedence over the file.</p>
 <h2 id="7-restart-and-verify">7. Restart and verify</h2>
 <div class="codewrap"><div class="code-hd"><span class="code-lang">bash</span><button class="copy-btn">Copy</button></div><pre class="code with-hd">./rocketvault serve
-./rocketvault secrets get &lt;name&gt; --vault default
-./rocketvault certificates list --vault default
+./rocketvault secrets list --vault default
 </pre></div>
-<p>A successful read proves the rotation and the configuration agree. The server refuses to start at
-all on a key that fails validation (wrong length, the old committed placeholder, or obviously
-non-random), so a successful start is itself part of the verification.</p>
+<p><code>secrets list</code> decrypts every secret value in the vault, so a successful read is real proof the
+rotation and the configuration agree. Don't use <code>certificates list</code> for this check — <code>ListCertificates</code>
+and <code>GetCertificate</code> never touch <code>private_key</code> at all, so a successful <code>certificates list</code> proves
+nothing about the master key (only certificate create-CA-signed and renew operations decrypt a
+private key). The server also refuses to start at all on a key that fails validation (wrong length,
+the old committed placeholder, or obviously non-random), so a successful start is itself part of the
+verification.</p>
 <h2 id="8-deal-with-old-backups">8. Deal with old backups</h2>
 <p>Backup files created by <code>rocketvault backup create</code> before the rotation are encrypted with the
 <strong>old</strong> key and can only be restored with it. Either archive the old key for the backups' retention

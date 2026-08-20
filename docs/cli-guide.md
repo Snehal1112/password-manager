@@ -461,6 +461,84 @@ These roles are what actually gate access once you're in a vault — see [Managi
 
 ---
 
+## Vault Webhooks
+
+Each vault can store one webhook configuration: an HTTPS URL and a signing secret. Think of it as somewhere to record *where* notifications about this vault should go.
+
+> **These commands configure a webhook — they do not send anything.** RocketVault has no delivery mechanism yet, so nothing is posted to the URL today. Setting one now means the destination is already recorded when delivery ships.
+
+Unlike secrets or keys, webhook configuration is a **vault-management** action, not a data action. You need to be an admin or hold a `vaults:manage` grant — no per-vault role assignment gets you here, and holding **Key Vault Secrets User** in the vault does not.
+
+### Set (or update) a vault's webhook
+
+```
+go run main.go vault-webhook set --vault prod --url https://hooks.example.com/rocketvault \
+  --username admin --password admin123 --totp-code 123456
+```
+
+**Example output:**
+
+```
+Webhook configured for vault "prod":
+  URL: https://hooks.example.com/rocketvault
+  Enabled: true
+  Signing Secret: 9pQ2v...
+
+Store the signing secret now — it is not retrievable after this.
+```
+
+**The signing secret is shown once and never again.** It is printed only when it is created, or when you ask for a new one with `--rotate-secret`. `get` will not show it, and there is no command that will. If you lose it, your only option is to rotate and update whatever was verifying signatures with the old one.
+
+The URL must be an absolute **https** URL, and it must not embed credentials (`https://user:pass@host/...` is rejected). That second rule exists because the URL is stored unencrypted and `get` returns it verbatim — a password buried in the URL would leak into the response and into anything that logs it.
+
+### Rotate the signing secret
+
+```
+go run main.go vault-webhook set --vault prod --rotate-secret \
+  --username admin --password admin123 --totp-code 123456
+```
+
+Prints a fresh secret, once. The URL stays as it was unless you also pass `--url`.
+
+### Turn a webhook off without deleting it
+
+```
+go run main.go vault-webhook set --vault prod --enabled=false \
+  --username admin --password admin123 --totp-code 123456
+```
+
+Leave `--enabled` off entirely and the current value is kept — on a brand-new webhook, that means enabled.
+
+### See a vault's webhook
+
+```
+go run main.go vault-webhook get --vault prod \
+  --username admin --password admin123 --totp-code 123456
+```
+
+**Example output:**
+
+```
+Webhook for vault "prod":
+  URL: https://hooks.example.com/rocketvault
+  Enabled: true
+  Created: 2026-08-19T10:22:04Z
+  Updated: 2026-08-20T09:15:41Z
+```
+
+Note the absence of the signing secret — that is deliberate, not an omission in this guide.
+
+### Delete a vault's webhook
+
+```
+go run main.go vault-webhook delete --vault prod \
+  --username admin --password admin123 --totp-code 123456
+```
+
+Deleting the vault itself also removes its webhook configuration, but only on a **purge**. Soft-deleting a vault leaves the configuration in place, so recovering the vault brings its webhook back with it.
+
+---
+
 ## Managing Secrets
 
 A **secret** is any piece of sensitive information: a password, an API key, a database connection string, etc.

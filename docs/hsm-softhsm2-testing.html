@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8"/>
 <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-<title>Testing HSM / PKCS#11 with SoftHSM2 on Ubuntu — RocketVault Docs</title>
+<title>Testing HSM / PKCS#11 with SoftHSM2 — RocketVault Docs</title>
 <link rel="preconnect" href="https://fonts.googleapis.com"/>
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
 <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=IBM+Plex+Sans:wght@400;500;600&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet"/>
@@ -16,18 +16,25 @@
     <div class="doc-mark" aria-hidden="true"></div>
     <span class="doc-kicker">RocketVault Docs</span>
   </div>
-  <h1 class="doc-title">Testing HSM / PKCS#11 with SoftHSM2 on Ubuntu</h1>
+  <h1 class="doc-title">Testing HSM / PKCS#11 with SoftHSM2</h1>
   <div class="doc-meta"><span class="doc-chip">docs/hsm-softhsm2-testing.md</span></div>
   <hr/>
 </header>
 <nav class="doc-toc"><div class="doc-toc-label">On this page</div><ol><li><a href="#1-install-softhsm2">1. Install SoftHSM2</a></li><li><a href="#2-create-the-softhsm2-configuration-file">2. Create the SoftHSM2 configuration file</a></li><li><a href="#3-initialize-a-token">3. Initialize a token</a></li><li><a href="#4-locate-the-library">4. Locate the library</a></li><li><a href="#5-enable-hsm-in-rocketvaultyaml">5. Enable HSM in .rocketvault.yaml</a></li><li><a href="#6-start-the-server">6. Start the server</a></li><li><a href="#7-exercise-the-hsm-via-the-api">7. Exercise the HSM via the API</a></li><li><a href="#8-verify-keys-are-stored-on-the-token">8. Verify keys are stored on the token</a></li><li><a href="#9-run-the-integration-tests">9. Run the integration tests</a></li><li><a href="#10-reset-the-token">10. Reset the token</a></li><li><a href="#supported-algorithms">Supported algorithms</a></li></ol></nav>
 <main class="doc">
 <p>SoftHSM2 is a software token that implements the PKCS#11 interface. It lets
-you test the HSM code path without physical hardware.</p>
+you test the HSM code path without physical hardware. Steps below are
+Ubuntu-first; where macOS (Homebrew) differs, a macOS variant is called out.</p>
 <h2 id="1-install-softhsm2">1. Install SoftHSM2</h2>
-<div class="codewrap"><div class="code-hd"><span class="code-lang">bash</span><button class="copy-btn">Copy</button></div><pre class="code with-hd">sudo apt install softhsm2 opensc
+<div class="codewrap"><div class="code-hd"><span class="code-lang">bash</span><button class="copy-btn">Copy</button></div><pre class="code with-hd"># Ubuntu / Debian
+sudo apt install softhsm2 opensc
 </pre></div>
-<p><code>opensc</code> provides <code>pkcs11-tool</code>, used in the verification step below.</p>
+<div class="codewrap"><div class="code-hd"><span class="code-lang">bash</span><button class="copy-btn">Copy</button></div><pre class="code with-hd"># macOS (Homebrew)
+brew install softhsm opensc
+</pre></div>
+<p><code>opensc</code> provides <code>pkcs11-tool</code>, used in the verification step below. The
+<code>~/.zshrc</code> persistence used later in this guide works unmodified on macOS,
+since zsh is the default shell there too.</p>
 <h2 id="2-create-the-softhsm2-configuration-file">2. Create the SoftHSM2 configuration file</h2>
 <p>After install, SoftHSM2 needs a config file pointing at a token directory.
 The default location <code>softhsm2-util</code> looks for is <code>~/.config/softhsm2/softhsm2.conf</code>.</p>
@@ -56,13 +63,23 @@ export SOFTHSM2_CONF=~/.config/softhsm2/softhsm2.conf
 <p>Note the new slot number — SoftHSM2 reassigns the slot after init. Use it in
 step 7 if it differs from 0.</p>
 <h2 id="4-locate-the-library">4. Locate the library</h2>
-<p>On this machine both paths are present:</p>
+<p>On Ubuntu, both paths are typically present:</p>
 <div class="codewrap"><div class="code-hd"><span class="code-lang">text</span><button class="copy-btn">Copy</button></div><pre class="code with-hd">/usr/lib/softhsm/libsofthsm2.so
 /usr/lib/x86_64-linux-gnu/softhsm/libsofthsm2.so
 </pre></div>
 <p>Either works. Use the first one in the config below.</p>
+<p>On macOS (Homebrew), the path is under the Cellar and includes the installed
+version number; Homebrew keeps the <code>.so</code> extension even on macOS (dlopen
+doesn't care about the extension, only the file's actual Mach-O format), so
+this is not a typo:</p>
+<div class="codewrap"><div class="code-hd"><span class="code-lang">bash</span><button class="copy-btn">Copy</button></div><pre class="code with-hd">find &quot;$(brew --prefix)/Cellar/softhsm&quot; -name &quot;libsofthsm2.so&quot;
+# e.g. /opt/homebrew/Cellar/softhsm/2.6.1/lib/softhsm/libsofthsm2.so (Apple Silicon)
+#   or /usr/local/Cellar/softhsm/2.6.1/lib/softhsm/libsofthsm2.so (Intel)
+</pre></div>
 <h2 id="5-enable-hsm-in-rocketvaultyaml">5. Enable HSM in <code>.rocketvault.yaml</code></h2>
-<p>Uncomment and fill in the <code>hsm</code> block at the bottom of the file:</p>
+<p>Uncomment and fill in the <code>hsm</code> block at the bottom of the file. Use whichever
+path step 4 found on your platform (<code>lib_path</code> below is the Ubuntu path;
+substitute the Homebrew Cellar path on macOS):</p>
 <div class="codewrap"><div class="code-hd"><span class="code-lang">yaml</span><button class="copy-btn">Copy</button></div><pre class="code with-hd">hsm:
   enabled: true
   lib_path: /usr/lib/softhsm/libsofthsm2.so
@@ -131,6 +148,7 @@ curl -s -X POST &quot;http://localhost:8774/api/v1/keys/${KEY_ID}/decrypt&quot; 
   --login --pin 1234 \
   --list-objects
 </pre></div>
+<p>On macOS, pass the Homebrew Cellar path found in step 4 to <code>--module</code> instead.</p>
 <blockquote>
 <p>Make sure <code>SOFTHSM2_CONF</code> is exported before running <code>pkcs11-tool</code>, otherwise
 it will not find the token.</p>
@@ -141,15 +159,23 @@ labeled with the UUID stored in the database.</p>
 <p>The PKCS#11 tests skip automatically when SoftHSM2 is not available. To run
 them, both env vars must be set:</p>
 <div class="codewrap"><div class="code-hd"><span class="code-lang">bash</span><button class="copy-btn">Copy</button></div><pre class="code with-hd">export SOFTHSM2_CONF=~/.config/softhsm2/softhsm2.conf
-export SOFTHSM2_LIB=/usr/lib/softhsm/libsofthsm2.so
+export SOFTHSM2_LIB=/usr/lib/softhsm/libsofthsm2.so  # macOS: the Homebrew Cellar path from step 4
 go test ./internal/crypto/... -v -run TestPKCS11
 </pre></div>
 <p>Persist <code>SOFTHSM2_LIB</code> alongside <code>SOFTHSM2_CONF</code> in <code>~/.zshrc</code> so you don't
 need to export it each session:</p>
 <div class="codewrap"><div class="code-hd"><span class="code-lang">bash</span><button class="copy-btn">Copy</button></div><pre class="code with-hd">echo 'export SOFTHSM2_LIB=/usr/lib/softhsm/libsofthsm2.so' &gt;&gt; ~/.zshrc
 </pre></div>
-<p>Expected: all <code>TestPKCS11*</code> tests pass; the <code>P256K</code> test returns
-<code>ErrUnsupportedCurve</code> (secp256k1 is not in the standard PKCS#11 EC OID table).</p>
+<p>Expected: all <code>TestPKCS11*</code> tests pass, including the secp256k1 ones —
+<code>TestPKCS11Provider_GenerateECDSAKey_P256K</code> and
+<code>TestPKCS11Provider_SignVerify_ECDSA_ES256K</code> both require success against
+SoftHSM2, which accepts any curve inside its 112–521 bit key-size range.</p>
+<p>A different HSM may legitimately refuse secp256k1, since it is not a
+NIST-approved curve. That is not a bug and not a test failure: the provider
+maps a token's <code>CKR_CURVE_NOT_SUPPORTED</code> / <code>CKR_DOMAIN_PARAMS_INVALID</code>
+rejection onto a clean <code>ErrUnsupportedCurve</code> rather than leaking the raw
+PKCS#11 error (see <code>isHSMCapabilityError</code> in
+<code>internal/crypto/pkcs11_provider.go</code>).</p>
 <h2 id="10-reset-the-token">10. Reset the token</h2>
 <p>If you need a clean slate:</p>
 <div class="codewrap"><div class="code-hd"><span class="code-lang">bash</span><button class="copy-btn">Copy</button></div><pre class="code with-hd">softhsm2-util --delete-token --token rocketvault
@@ -166,20 +192,37 @@ softhsm2-util --init-token --slot 0 --label rocketvault --so-pin 0000 --pin 1234
 <tbody>
 <tr>
 <td>Sign / Verify</td>
-<td>RS256, RS384, RS512, PS256, PS384, PS512, ES256, ES384, ES512</td>
+<td>RS256, RS384, RS512, PS256, PS384, PS512, ES256, ES384, ES512, ES256K</td>
 </tr>
 <tr>
 <td>Encrypt / Decrypt</td>
-<td>RSA-OAEP (SHA-1), RSA-OAEP-256 (SHA-256)</td>
+<td>RSA-OAEP (SHA-1), RSA-OAEP-256 (SHA-256); AES256-GCM and A128CBC / A192CBC / A256CBC on OCT keys</td>
+</tr>
+<tr>
+<td>Wrap / Unwrap</td>
+<td>RSA-OAEP, RSA-OAEP-256, A128KW / A192KW / A256KW</td>
 </tr>
 <tr>
 <td>Key generation</td>
-<td>RSA 2048/4096, ECDSA P-256 / P-384 / P-521</td>
+<td>RSA 2048/4096, ECDSA P-256 / P-384 / P-521 / P-256K, AES 128/192/256</td>
 </tr>
 </tbody>
 </table>
-<p>P-256K (secp256k1) is handled by the software provider regardless of HSM
-config, because it is not in the standard PKCS#11 EC OID table.</p>
+<p>Two things the table doesn't show:</p>
+<p><strong>AES-CBC is deliberately absent from wrap/unwrap</strong> while being present for
+encrypt/decrypt. CBC needs an IV, and the wrap/unwrap request and response
+shapes have no field to carry one — <code>EncryptResult.Nonce</code> and
+<code>DecryptRequest.Nonce</code> do round-trip it, so use <code>/encrypt</code> and <code>/decrypt</code> for
+CBC instead. See <code>isHSMWrapAlgorithm</code> in
+<code>internal/services/keys/crypto_service.go</code>.</p>
+<p><strong>OCT (symmetric AES) keys are HSM-only by design</strong>, matching Azure: Managed
+HSM never allows symmetric key creation on Standard/Premium vaults, and the
+software provider mirrors that restriction. <code>CreateOctKey</code> fails with
+<code>crypto.ErrOctKeysRequireHSM</code> unless <code>hsm.enabled: true</code>.</p>
+<p>secp256k1 (P-256K / ES256K) works on this path — <code>CKM_EC_KEY_PAIR_GEN</code> and
+<code>CKM_ECDSA</code> are both curve-agnostic in the PKCS#11 spec, so the curve's OID is
+all that's needed. It is not a NIST curve, though, so an individual token may
+still refuse it; see the note in step 9 above for how that surfaces.</p>
 
 </main>
 <footer class="doc-footer"><a href="admin-manual.html">&larr; Back to the Admin Manual</a></footer>
