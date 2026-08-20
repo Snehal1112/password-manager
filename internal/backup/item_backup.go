@@ -20,9 +20,10 @@ var ErrInvalidBlob = errors.New("invalid backup blob")
 // and certificates. Each backup is a base64url-encoded JSON envelope that is
 // opaque to the caller.
 type ItemBackupService struct {
-	secretRepo repositories.SecretRepositoryInterface
-	keyRepo    repositories.KeyRepositoryInterface
-	certRepo   repositories.CertificateRepositoryInterface
+	secretRepo  repositories.SecretRepositoryInterface
+	keyRepo     repositories.KeyRepositoryInterface
+	certRepo    repositories.CertificateRepositoryInterface
+	versionRepo repositories.SecretVersionRepositoryInterface
 }
 
 // NewItemBackupService creates an ItemBackupService wired to the given repos.
@@ -31,11 +32,13 @@ func NewItemBackupService(
 	secretRepo repositories.SecretRepositoryInterface,
 	keyRepo repositories.KeyRepositoryInterface,
 	certRepo repositories.CertificateRepositoryInterface,
+	versionRepo repositories.SecretVersionRepositoryInterface,
 ) *ItemBackupService {
 	return &ItemBackupService{
-		secretRepo: secretRepo,
-		keyRepo:    keyRepo,
-		certRepo:   certRepo,
+		secretRepo:  secretRepo,
+		keyRepo:     keyRepo,
+		certRepo:    certRepo,
+		versionRepo: versionRepo,
 	}
 }
 
@@ -72,7 +75,15 @@ func (s *ItemBackupService) BackupSecret(ctx context.Context, id, userID, vaultI
 	if err != nil {
 		return "", fmt.Errorf("backup secret: %w", err)
 	}
-	return encodeBlob("secret", id.String(), secret, blobVersions{})
+
+	// Version rows are fetched by secret ID; the scoped read above is their
+	// authorization. Without these the blob would restore a single version
+	// and silently discard the rest — the same loss B26 closed for keys.
+	versions, err := s.versionRepo.GetVersions(ctx, id)
+	if err != nil {
+		return "", fmt.Errorf("backup secret: list versions: %w", err)
+	}
+	return encodeBlob("secret", id.String(), secret, blobVersions{Secret: versions})
 }
 
 // RestoreSecret decodes blob and re-inserts it as newID, owned by userID,

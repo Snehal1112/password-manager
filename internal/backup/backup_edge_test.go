@@ -133,7 +133,7 @@ func TestBackupKeyNonOwnerInSameVaultSucceeds(t *testing.T) {
 		Name: "k", Value: "v", Type: model.KeyTypeRSA, Enabled: true,
 	}))
 
-	svc := backup.NewItemBackupService(nil, kr, nil)
+	svc := backup.NewItemBackupService(nil, kr, nil, nil)
 
 	// A Crypto User authorized in this vault who does not own the key must be
 	// able to back it up. Authorization is the RBAC action check in
@@ -158,7 +158,7 @@ func TestBackupKeyReadsWithVaultScope(t *testing.T) {
 		Name: "k", Value: "v", Type: model.KeyTypeRSA, Enabled: true,
 	}))
 
-	svc := backup.NewItemBackupService(nil, kr, nil)
+	svc := backup.NewItemBackupService(nil, kr, nil, nil)
 
 	_, err := svc.BackupKey(ctx, keyID, callerID, vaultID)
 	require.NoError(t, err)
@@ -171,7 +171,7 @@ func TestBackupKeyReadsWithVaultScope(t *testing.T) {
 func TestBackupKeyRepoError(t *testing.T) {
 	t.Parallel()
 
-	svc := backup.NewItemBackupService(nil, newErrKeyRepo(), nil)
+	svc := backup.NewItemBackupService(nil, newErrKeyRepo(), nil, nil)
 	_, err := svc.BackupKey(context.Background(), uuid.New(), uuid.New(), uuid.New())
 	require.Error(t, err)
 }
@@ -188,7 +188,7 @@ func TestRestoreKeySuccess(t *testing.T) {
 		ID: keyID, UserID: ownerID, Name: "k", Value: "v", Type: model.KeyTypeRSA, Enabled: true,
 	}))
 
-	svc := backup.NewItemBackupService(nil, kr, nil)
+	svc := backup.NewItemBackupService(nil, kr, nil, nil)
 
 	blob, err := svc.BackupKey(ctx, keyID, ownerID, uuid.Nil)
 	require.NoError(t, err)
@@ -206,7 +206,7 @@ func TestRestoreKeySuccess(t *testing.T) {
 func TestRestoreKeyBlobError(t *testing.T) {
 	t.Parallel()
 
-	svc := backup.NewItemBackupService(nil, newStubKeyRepo(), nil)
+	svc := backup.NewItemBackupService(nil, newStubKeyRepo(), nil, nil)
 	err := svc.RestoreKey(context.Background(), "!!!not-base64!!!", uuid.New(), uuid.New(), uuid.New())
 	require.Error(t, err)
 	require.True(t, errors.Is(err, backup.ErrInvalidBlob))
@@ -224,7 +224,7 @@ func TestRestoreKeyTypeMismatch(t *testing.T) {
 		ID: secretID, UserID: userID, Name: "s", Value: "v", Version: 1, Enabled: true,
 	}))
 
-	svc := backup.NewItemBackupService(sr, newStubKeyRepo(), nil)
+	svc := backup.NewItemBackupService(sr, newStubKeyRepo(), nil, newStubSecretVersionRepo())
 
 	// A secret blob must not restore as a key.
 	blob, err := svc.BackupSecret(ctx, secretID, userID, uuid.Nil)
@@ -249,7 +249,7 @@ func TestBackupCertificateSuccess(t *testing.T) {
 		ID: certID, UserID: ownerID, Name: "my-cert",
 	}
 
-	svc := backup.NewItemBackupService(nil, nil, cr)
+	svc := backup.NewItemBackupService(nil, nil, cr, nil)
 
 	blob, err := svc.BackupCertificate(ctx, certID, ownerID, uuid.Nil)
 	require.NoError(t, err)
@@ -276,7 +276,7 @@ func TestBackupCertificateNonOwnerInSameVaultSucceeds(t *testing.T) {
 		ID: certID, UserID: ownerID, VaultID: vaultID, Name: "my-cert",
 	}
 
-	svc := backup.NewItemBackupService(nil, nil, cr)
+	svc := backup.NewItemBackupService(nil, nil, cr, nil)
 
 	blob, err := svc.BackupCertificate(ctx, certID, callerID, vaultID)
 	require.NoError(t, err)
@@ -290,7 +290,7 @@ func TestBackupCertificateRepoError(t *testing.T) {
 	cr := newStubCertRepo()
 	cr.err = errors.New("db failure")
 
-	svc := backup.NewItemBackupService(nil, nil, cr)
+	svc := backup.NewItemBackupService(nil, nil, cr, nil)
 	_, err := svc.BackupCertificate(context.Background(), uuid.New(), uuid.New(), uuid.New())
 	require.Error(t, err)
 }
@@ -307,7 +307,7 @@ func TestRestoreCertificateSuccess(t *testing.T) {
 		ID: certID, UserID: ownerID, Name: "my-cert",
 	}
 
-	svc := backup.NewItemBackupService(nil, nil, cr)
+	svc := backup.NewItemBackupService(nil, nil, cr, nil)
 
 	blob, err := svc.BackupCertificate(ctx, certID, ownerID, uuid.Nil)
 	require.NoError(t, err)
@@ -325,7 +325,7 @@ func TestRestoreCertificateSuccess(t *testing.T) {
 func TestRestoreCertificateBlobError(t *testing.T) {
 	t.Parallel()
 
-	svc := backup.NewItemBackupService(nil, nil, newStubCertRepo())
+	svc := backup.NewItemBackupService(nil, nil, newStubCertRepo(), nil)
 	err := svc.RestoreCertificate(context.Background(), "!!!bad!!!", uuid.New(), uuid.New(), uuid.New())
 	require.Error(t, err)
 	require.True(t, errors.Is(err, backup.ErrInvalidBlob))
@@ -343,7 +343,7 @@ func TestRestoreCertificateTypeMismatch(t *testing.T) {
 		ID: certID, UserID: userID, Name: "c",
 	}
 
-	svc := backup.NewItemBackupService(nil, nil, cr)
+	svc := backup.NewItemBackupService(nil, nil, cr, nil)
 
 	// Build a cert blob then attempt to restore it as a secret.
 	blob, err := svc.BackupCertificate(ctx, certID, userID, uuid.Nil)
@@ -359,7 +359,7 @@ func TestRestoreCertificateTypeMismatch(t *testing.T) {
 func TestBackupSecretReadError(t *testing.T) {
 	t.Parallel()
 
-	svc := backup.NewItemBackupService(newErrSecretRepo(), nil, nil)
+	svc := backup.NewItemBackupService(newErrSecretRepo(), nil, nil, nil)
 	_, err := svc.BackupSecret(context.Background(), uuid.New(), uuid.New(), uuid.New())
 	require.Error(t, err)
 }
@@ -377,12 +377,12 @@ func TestRestoreSecretCreateError(t *testing.T) {
 		ID: secretID, UserID: userID, Name: "s", Value: "v", Version: 1, Enabled: true,
 	}))
 
-	goodSvc := backup.NewItemBackupService(good, nil, nil)
+	goodSvc := backup.NewItemBackupService(good, nil, nil, newStubSecretVersionRepo())
 	blob, err := goodSvc.BackupSecret(ctx, secretID, userID, uuid.Nil)
 	require.NoError(t, err)
 
 	// Restore into a failing repo.
-	badSvc := backup.NewItemBackupService(newErrSecretRepo(), nil, nil)
+	badSvc := backup.NewItemBackupService(newErrSecretRepo(), nil, nil, nil)
 	err = badSvc.RestoreSecret(ctx, blob, userID, uuid.New(), uuid.New())
 	require.Error(t, err)
 }
