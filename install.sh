@@ -50,6 +50,12 @@ detect_platform() {
             ;;
     esac
 
+    # macOS releases are Apple Silicon only; there is no Intel build to download.
+    if [[ "${os}" == "darwin" && "${arch}" == "amd64" ]]; then
+        log_error "Intel Macs are not supported. RocketVault ships macOS binaries for Apple Silicon (arm64) only; build from source instead."
+        exit 1
+    fi
+
     echo "${os} ${arch}"
 }
 

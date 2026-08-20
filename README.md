@@ -412,10 +412,10 @@ For development, use the build script for optimized binaries with embedded versi
 - **Dependency Verification**: Validates `go.mod` integrity before building
 
 **Cross-Platform Compilation**:
-The build script supports 5 platform targets:
+The build script supports 4 platform targets:
 
 - Linux (amd64, arm64)
-- macOS (amd64/Intel, arm64/Apple Silicon)
+- macOS (arm64/Apple Silicon)
 - Windows (amd64)
 
 **Security & Verification**:
@@ -434,8 +434,6 @@ build/
 dist/                             # Cross-platform builds (--all, --release)
 ├── rocketvault-v4.0.0-linux-amd64.tar.gz
 ├── rocketvault-v4.0.0-linux-amd64.tar.gz.sha256
-├── rocketvault-v4.0.0-darwin-amd64.tar.gz
-├── rocketvault-v4.0.0-darwin-amd64.tar.gz.sha256
 ├── rocketvault-v4.0.0-darwin-arm64.tar.gz
 ├── rocketvault-v4.0.0-darwin-arm64.tar.gz.sha256
 ├── rocketvault-v4.0.0-windows-amd64.zip
