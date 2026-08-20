@@ -137,7 +137,18 @@ jobs:
 
       - name: No hand-built Scope literals
         run: |
-          if grep -rn "model\.Scope{" --include="*.go" . | grep -v "^./api/context.go"; then
+          # Bans POPULATED literals only. The zero value, model.Scope{}, is
+          # ScopeInvalid -- the deliberate fail-closed sentinel -- and tests
+          # legitimately construct it to assert that an uninitialised scope is
+          # rejected (internal/repositories/rotation_scope_test.go,
+          # scoped_crud_test.go). api/context.go returns it on the error path
+          # too, which is why no path exclusion is needed any more.
+          # The |$ alternative catches a literal opened at end of line:
+          #   model.Scope{
+          #       kind: ...,
+          #   }
+          # Single quotes keep the shell away from the $).
+          if grep -rnE 'model\.Scope\{([^}]|$)' --include="*.go" .; then
             echo "::error::construct scopes with NewVaultScope/NewOwnerScope/NewAdminScope"
             exit 1
           fi
