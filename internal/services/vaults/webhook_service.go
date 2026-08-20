@@ -21,10 +21,14 @@ import (
 var ErrWebhookNotFound = errors.New("webhook config not found")
 
 // ErrInvalidWebhookURL is returned when the supplied URL is not an absolute
-// https URL with a host. Validation is deliberately minimal: SSRF policy
-// (private-range blocking, allowlists, redirect handling) belongs to the
-// sub-project that actually makes the outbound call, not to a layer that
-// never dials anything.
+// https URL with a host, or when it embeds credentials.
+//
+// Validation stays minimal by design: SSRF policy (private-range blocking,
+// allowlists, redirect handling) belongs to the sub-project that actually
+// makes the outbound call, not to a layer that never dials anything. The
+// credential check is the deliberate exception, because it is a storage
+// concern rather than a request-time one -- this layer is what writes the URL
+// to a column it does not encrypt.
 var ErrInvalidWebhookURL = errors.New("webhook url must be an absolute https URL")
 
 // webhookSecretBytes is the entropy of a generated signing secret, before
@@ -79,17 +83,38 @@ func NewVaultWebhookService(repo repositories.VaultWebhookRepositoryInterface, l
 	return &vaultWebhookService{repo: repo, log: log}
 }
 
-// validateWebhookURL enforces an absolute https URL with a host.
+// validateWebhookURL enforces an absolute https URL with a host and no
+// embedded credentials.
+//
+// No error returned here may quote the supplied URL. This error text travels
+// verbatim to the caller -- api/vault_webhook.go turns it into a 400 body via
+// SetInvalidParam, and the CLI prints it -- so echoing the input would hand a
+// credential back to whoever sent it, and into anything logging that response.
+// That is why the parse failure below reports a fixed reason instead of
+// wrapping url.Parse's own error, whose text embeds the full raw input.
 func validateWebhookURL(raw string) error {
 	parsed, err := url.Parse(raw)
 	if err != nil {
-		return fmt.Errorf("%w: %s", ErrInvalidWebhookURL, err)
+		// Deliberately does not wrap err: its message quotes raw in full.
+		return fmt.Errorf("%w: could not be parsed as a URL", ErrInvalidWebhookURL)
 	}
 	if parsed.Scheme != "https" {
+		// Safe to quote: a scheme cannot carry userinfo.
 		return fmt.Errorf("%w: got scheme %q", ErrInvalidWebhookURL, parsed.Scheme)
 	}
 	if parsed.Host == "" {
 		return fmt.Errorf("%w: missing host", ErrInvalidWebhookURL)
+	}
+	// Reject any userinfo, with or without a password, and even when empty.
+	// vault_webhook_configs.url is the one column on this table stored
+	// unencrypted, and GET returns it verbatim, so a credential embedded here
+	// would sit in cleartext in the database, in every read, and in backups.
+	// Stripping it silently instead would change what the operator asked for
+	// and surface later as an unexplained authentication failure at the
+	// receiver; refusing at configuration time is the honest failure.
+	if parsed.User != nil {
+		return fmt.Errorf("%w: must not embed credentials (user:password@); "+
+			"authenticate the receiver with this vault's webhook signing secret instead", ErrInvalidWebhookURL)
 	}
 	return nil
 }

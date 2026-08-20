@@ -197,6 +197,14 @@ func TestWebhookService_Upsert_RejectsBadURLs(t *testing.T) {
 		{"empty", ""},
 		{"unparseable", "https://exa mple.com/\x7f"},
 		{"not a url", "::::"},
+		// Credentials in the URL: vault_webhook_configs.url is the one column
+		// on this table deliberately stored unencrypted, and GET returns it
+		// verbatim, so a password embedded here would sit in cleartext in the
+		// database, in every API read, and in backups. The per-vault signing
+		// secret is the authentication mechanism this feature provides.
+		{"user and password", "https://user:hunter2@hooks.example/rv"},
+		{"username only", "https://tokenonly@hooks.example/rv"},
+		{"empty userinfo", "https://@hooks.example/rv"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			_, _, err := svc.Upsert(context.Background(), uuid.New(),
@@ -204,6 +212,43 @@ func TestWebhookService_Upsert_RejectsBadURLs(t *testing.T) {
 			require.Error(t, err)
 			assert.True(t, errors.Is(err, vaults.ErrInvalidWebhookURL),
 				"expected ErrInvalidWebhookURL, got %v", err)
+		})
+	}
+}
+
+// TestWebhookService_Upsert_ErrorNeverEchoesCredentials is the leak test for
+// the rejection path itself. The returned error reaches the client verbatim --
+// api/vault_webhook.go maps it to a 400 via SetInvalidParam("url: "+err.Error())
+// and the CLI prints it -- so an error that quotes the offending URL hands the
+// credential straight back, and into whatever logs that response.
+//
+// The parse-failure case is the sharp one: url.Parse's own error embeds the
+// full raw input ("parse \"https://user:pw@host/\\x7f\": ..."), so wrapping it
+// leaks even though the config is rejected and never stored.
+func TestWebhookService_Upsert_ErrorNeverEchoesCredentials(t *testing.T) {
+	// The master key must work, or Upsert fails during encryption instead of
+	// validation and every case below passes for the wrong reason -- an error
+	// is produced, and it happens not to contain the password.
+	setupWebhookTestMasterKey()
+	svc := newWebhookService(newFakeWebhookRepo())
+	const password = "hunter2"
+
+	for _, tc := range []struct{ name, url string }{
+		{"rejected for userinfo", "https://user:" + password + "@hooks.example/rv"},
+		{"rejected for being unparseable", "https://user:" + password + "@hooks.example/\x7f"},
+		{"rejected for scheme", "http://user:" + password + "@hooks.example/rv"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			_, _, err := svc.Upsert(context.Background(), uuid.New(),
+				vaults.UpsertWebhookRequest{URL: tc.url}, uuid.New())
+			require.Error(t, err)
+			// Pin that the rejection came from URL validation. Without this,
+			// a case could pass by erroring somewhere else entirely and
+			// happening not to mention the password.
+			require.True(t, errors.Is(err, vaults.ErrInvalidWebhookURL),
+				"expected a URL-validation rejection, got %v", err)
+			assert.NotContains(t, err.Error(), password,
+				"the rejection error must not echo the credential back to the caller")
 		})
 	}
 }
