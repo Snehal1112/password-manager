@@ -1567,6 +1567,115 @@ B31 was verified to fail before the fix.
 
 ---
 
+### B32 — Certificate creation authorizes its signing key by ownership, not by vault
+
+**Status**: Fixed 2026-08-20, same day it was found
+**Severity**: Medium — breaks vault isolation, but only for a key the caller
+already owns. It is not a path to using someone else's key
+**Files**: `internal/services/certificates/certificate_service.go`
+
+**What it is**: `ValidateKeyOwnership` (`:826-847`) reads the signing key with
+`model.NewAdminScope(userID)` — an admin scope carries no vault predicate — and
+then applies a single check, `key.UserID != userID`. Vault membership is never
+consulted.
+
+So a user who owns a key in vault A can create a certificate in vault B signed
+by that key, with no role assignment relating the two vaults. The vault
+boundary, which is the security boundary everywhere else in the system, does
+not apply here. `ValidateCertificateAccess` (`:792-822`) has the identical
+shape for the CA certificate on the CA-signed path.
+
+This is the ownership-based authorization that P2 retired across the data
+plane, surviving in a corner the `scope-gate` CI job does not cover: the job
+bans `NewOwnerScope`, and this code reaches the same outcome using
+`NewAdminScope` plus a hand-written owner comparison.
+
+**Two things that make it easy to misread as safe**:
+
+- Both functions open with `if role == model.RoleAdmin { return nil }`, which
+  reads like a deliberate privilege tier. It is inert — all three call sites
+  pass `""` (`:203`, `:334`, `:339`, `:719`), so the branch never fires.
+- Three call sites carry a comment of the form "Ownership was already verified
+  by ValidateKeyOwnership above, so an admin scope is safe here" (`:208`,
+  `:345`, `:360`). The premise is true and the conclusion does not follow:
+  ownership was verified, vault authorization was not, so the admin-scoped
+  re-read that pulls the private key inherits the same gap.
+
+**The fix**: both functions now take a `model.Scope` in place of
+`userID`+`role`, and read through it, so the repository's vault predicate does
+the work. The three admin-scoped re-reads that pulled the private key and CA
+certificate afterwards were changed to the same scope — they had quietly
+reintroduced the gap the validator had just closed — and the three comments
+claiming an admin scope was "safe here" are gone with them.
+
+The owner comparison was deliberately **kept**. Dropping it would match how the
+rest of the data plane works, where a scoped read is the whole gate, but it
+would also let any vault member sign with another member's key: strictly more
+access than before. A security fix should not widen permissions on the way
+past, so that remains a separate decision.
+
+No request-type plumbing was needed after all. `CreateCertificateRequest`
+already carried `VaultID`, and `RenewCertificate` already took a `model.Scope`
+— an earlier estimate in this entry said otherwise and was wrong.
+
+**Pinned by**: `TestValidateKeyOwnership_IsVaultScoped` and
+`TestValidateCertificateAccess_IsVaultScoped`, each asserting both halves. The
+same-vault half is the one that fails against the old code — a cross-vault
+assertion on its own would pass either way, since the old code also errors,
+just for the wrong reason. Both were verified failing before the fix landed.
+
+**Note on the test suite**: four tests encoded the defect as a requirement.
+`TestValidateCertificateAccess_AdminBypassesCheck` and
+`TestValidateKeyOwnership_AdminBypasses` asserted that the dead admin branch
+short-circuited the repository read, and nineteen `.On("Read", …,
+model.NewAdminScope(userID))` expectations pinned the unscoped read. The admin
+tests were replaced by `TestValidateCertificateAccess_HasNoAdminBypass`, which
+asserts the opposite, and the expectations now use a `certVaultScope` matcher
+that an admin scope fails.
+
+**Not reachable by the case that prompted the audit**: `user14` owns no keys.
+
+---
+
+### B33 — CLI and HTTP disagree on the policy operation for key sign and verify
+
+**Status**: Fixed 2026-08-20, same day it was found
+**Severity**: Low — affects only explicit-deny access policies, not the
+deny-by-default role check. No effect on deployments that write no deny rules
+**Files**: `internal/middleware/middleware.go`, `cmd/keys/sign.go`,
+`cmd/keys/verify.go`
+
+**What it is**: `resolvePolicy` (`:407-430`) special-cases the `/purge`,
+`/restore`, `/rotate`, `/import` and `/renew` suffixes, then falls through to
+the plain HTTP method. `/sign` and `/verify` have no case, so both resolve to
+`OpCreate` on their `POST`. The CLI passes `model.OpSign` (`cmd/keys/sign.go:95`)
+and `model.OpVerify` (`cmd/keys/verify.go:107`).
+
+Stage 1 of the check — the explicit-deny `access_policies` override — matches
+on `(principalID, resourceType, operation, vaultID)`. A deny rule written
+against `(keys, sign)` therefore fires on the CLI and does not fire over HTTP,
+where the request is looking for `(keys, create)`. The API is the way around a
+deny rule that the CLI honours.
+
+Stage 2, the deny-by-default role-assignment check, keys off the data action
+(`ActionKeysSign`/`ActionKeysVerify`) and is unaffected — a principal with no
+qualifying role assignment is still denied on both paths. That is what keeps
+this Low rather than a bypass.
+
+`wrap` and `unwrap` are consistent: their CLI commands pass `OpCreate`
+(`cmd/keys/wrap.go:90`, `cmd/keys/unwrap.go:90`), matching what HTTP resolves.
+
+**The fix**: `/sign` and `/verify` suffix cases were added to `resolvePolicy`,
+so HTTP now produces `OpSign`/`OpVerify` and matches the CLI. Changing the CLI
+to send `OpCreate` would also have made the two agree, but it would leave a
+deny rule unable to name the operation it wants to deny.
+
+**Pinned by**: `TestResolvePolicy_SignAndVerifyResolveToTheirOwnOperations`,
+which covers both the flat and vault-scoped route shapes and also asserts that
+`wrap`, `unwrap` and `rotate` are unchanged — the new cases must not widen.
+
+---
+
 ## Deferred Refactors
 
 Both items formerly tracked here (H3, M2) were re-investigated on 2026-08-14 and

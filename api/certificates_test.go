@@ -98,13 +98,13 @@ func (m *mockCertService) RenewCertificate(ctx context.Context, certID uuid.UUID
 	return args.Get(0).(*certServices.CreateCertificateResult), args.Error(1)
 }
 
-func (m *mockCertService) ValidateCertificateAccess(ctx context.Context, certID, userID uuid.UUID, role string) error {
-	args := m.Called(ctx, certID, userID, role)
+func (m *mockCertService) ValidateCertificateAccess(ctx context.Context, certID uuid.UUID, scope model.Scope) error {
+	args := m.Called(ctx, certID, scope)
 	return args.Error(0)
 }
 
-func (m *mockCertService) ValidateKeyOwnership(ctx context.Context, keyID, userID uuid.UUID, role string) error {
-	args := m.Called(ctx, keyID, userID, role)
+func (m *mockCertService) ValidateKeyOwnership(ctx context.Context, keyID uuid.UUID, scope model.Scope) error {
+	args := m.Called(ctx, keyID, scope)
 	return args.Error(0)
 }
 
