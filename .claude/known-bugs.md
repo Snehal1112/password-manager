@@ -1213,13 +1213,21 @@ work**:
   `ReadVersionValue`/`GetVersion`'s existing fallback. `RotateKey` deliberately
   still calls the raw `KeyRepository.ListVersions`, since its version-numbering
   math needs the true zero-row count.
-- New `KeyRepository.CurrentVersion` — a single `COALESCE(MAX(kv.version), 1)`
-  aggregate over a LEFT JOIN from `keys` — replaces the full `ListVersions` row
-  scan that `cryptoService.currentVersionNumber` was running on *every* crypto
-  operation just to compute one number. The LEFT JOIN direction is load-bearing:
-  an INNER JOIN from `key_versions` returns zero rows for a never-rotated key
-  rather than a row with a NULL aggregate, which would defeat the `COALESCE`
-  fallback to 1.
+- New `KeyRepository.CurrentVersion` — a single `COALESCE(MAX(version), 1)`
+  aggregate over `key_versions` — replaces the full `ListVersions` row scan
+  that `cryptoService.currentVersionNumber` was running on *every* crypto
+  operation just to compute one number.
+
+  **Correction (2026-08-20)**: this paragraph used to describe the query as an
+  aggregate over a `LEFT JOIN` from `keys`, and claimed that join direction was
+  load-bearing — that "an INNER JOIN from `key_versions` returns zero rows for a
+  never-rotated key rather than a row with a NULL aggregate, which would defeat
+  the `COALESCE` fallback to 1." **That claim is false.** An aggregate with no
+  `GROUP BY` always returns exactly one row even when nothing matches: `MAX`
+  yields NULL, and `COALESCE` turns it into 1. Verified empirically against
+  SQLite — the left-join, inner-join, and join-free forms all return 1 for a
+  never-rotated key. F2 dropped the join entirely on that basis; the current
+  query is join-free (`internal/repositories/key_repository.go:893-905`).
 
 **Left open, tracked as a fast-follow, not a regression**: all four crypto CLI
 commands — `rocketvault keys sign` (`cmd/keys/sign.go`), `keys verify`
@@ -1706,19 +1714,47 @@ filter, was deleted — the argument it exercised no longer exists.
 
 **Status**: Deferred — not blocking
 **Severity**: Low — a failure partway leaves a partial restore, not corrupt
-data; the caller gets an error rather than a false success, and the residue
-is cleanable (see F7 in the 2026-08-20 secret-backup-version-history fix pass,
-which reordered `RestoreSecret` so a failed version replay no longer leaves
-the partial row purge-protected)
+data; the caller gets an error rather than a false success, and the residue is
+cleanable on all three paths. (It was *not* cleanable for keys until
+2026-08-20; see the ordering table below.)
 **Files**: `internal/backup/item_backup.go`
 
-**What it is**: `RestoreKey` and `RestoreSecret` (and, without version
-replay, `RestoreCertificate`) each perform their work as separate, unwrapped
-repository calls — `Create`, then `SetPurgeProtection` (if the blob's flag
-was set), then, for keys and secrets, a per-version `CreateVersion` call per
-archived version. A failure partway through — for example, the parent row
-is created but the third of five version replays fails — leaves a partial
-restore under the newly minted ID, with no automatic cleanup.
+**What it is**: `RestoreKey`, `RestoreSecret`, and `RestoreCertificate` each
+perform their work as separate, unwrapped repository calls, with no
+transaction spanning them. A failure partway through — for example, the
+parent row is created but the third of five version replays fails — leaves a
+partial restore under the newly minted ID, with no automatic cleanup.
+
+The write order differs per path, and the difference decides whether the
+residue is cleanable (verified against `internal/backup/item_backup.go`,
+2026-08-20):
+
+| Path | Write order | Residue after a failed replay |
+|---|---|---|
+| `RestoreSecret` | `Create` → `CreateVersion`×N → `SetPurgeProtection` | partial row, not purge-protected — deletable |
+| `RestoreKey` | `Create` → `CreateVersion`×N → `SetPurgeProtection` | partial row, not purge-protected — deletable |
+| `RestoreCertificate` | `Create` → `SetPurgeProtection` (no version replay) | one write after `Create`; narrow window |
+
+Versions-before-protection is the deliberate order on both replaying paths. F7
+of the 2026-08-20 secret-backup-version-history pass established it for
+`RestoreSecret`, so a failed replay could not strand a purge-protected row.
+
+**`RestoreKey` was fixed the same way on 2026-08-20**, having been missed by
+F7. Before that swap, a failed `CreateVersion` left the key row already
+purge-protected, and `KeyRepository.PurgeKey` refuses to delete a protected key
+(`ErrKeyPurgeProtected`, `internal/repositories/key_repository.go:634-637`) —
+so the partial restore could not be cleaned up until someone cleared purge
+protection by hand. Pinned by
+`TestRestoreKey_FailedVersionReplayLeavesNoPurgeProtectedOrphan`.
+
+That fix also exposed a stub-fidelity gap worth remembering: `stubKeyRepo.Create`
+persisted the caller's `PurgeProtection` flag, while the real
+`KeyRepository.Create` omits `purge_protection` from its INSERT column list
+entirely. A restored key looked protected either way, so the stub could not
+have caught this class of ordering bug. The stub now mirrors the INSERT, and
+fixtures apply protection through `SetPurgeProtection`, as production does.
+
+The remaining non-atomicity below is still open.
 
 **Why it is deferred rather than fixed here**: a real fix needs a
 transaction spanning all of a restore's writes, but `ItemBackupService` is

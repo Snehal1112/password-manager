@@ -247,6 +247,10 @@ type stubKeyRepo struct {
 	// ignores scope (it is an in-memory map), so the scope the service passes
 	// is asserted directly — the real predicate lives in KeyRepository's SQL.
 	LastReadScope model.Scope
+	// failCreateVersionAt makes the nth CreateVersion call (1-based) fail, so a
+	// test can drive a version replay that dies partway through. Zero disables it.
+	failCreateVersionAt int
+	createVersionCalls  int
 }
 
 func newStubKeyRepo() *stubKeyRepo {
@@ -261,6 +265,11 @@ func (r *stubKeyRepo) Create(_ context.Context, k *model.Key) error {
 		return fmt.Errorf("key already exists: %s", k.ID)
 	}
 	cp := *k
+	// Mirror the real INSERT, whose column list omits purge_protection: a
+	// created key is always unprotected until SetPurgeProtection is called.
+	// Persisting the caller's flag here would hide restore-ordering bugs,
+	// since a partially restored key would look protected either way.
+	cp.PurgeProtection = false
 	r.keys[k.ID] = &cp
 	return nil
 }
@@ -312,6 +321,10 @@ func (r *stubKeyRepo) ReadDeleted(_ context.Context, _ uuid.UUID) (*model.Key, e
 }
 
 func (r *stubKeyRepo) CreateVersion(_ context.Context, keyID uuid.UUID, version int, value string) error {
+	r.createVersionCalls++
+	if r.failCreateVersionAt != 0 && r.createVersionCalls == r.failCreateVersionAt {
+		return fmt.Errorf("simulated version write failure")
+	}
 	if r.versions[keyID] == nil {
 		r.versions[keyID] = make(map[int]string)
 	}
@@ -498,6 +511,10 @@ func TestRestoreKeyPreservesPurgeProtection(t *testing.T) {
 		PurgeProtection: true,
 	}
 	require.NoError(t, repo.Create(ctx, original))
+	// Create never persists purge_protection, in the stub or the real
+	// repository -- production applies it as a separate write, so the fixture
+	// must too.
+	require.NoError(t, repo.SetPurgeProtection(ctx, original.ID, true))
 
 	blob, err := svc.BackupKey(ctx, original.ID, owner, vaultID)
 	require.NoError(t, err)
@@ -508,6 +525,60 @@ func TestRestoreKeyPreservesPurgeProtection(t *testing.T) {
 	restored, err := repo.Read(ctx, newID, model.NewAdminScope(owner))
 	require.NoError(t, err)
 	assert.True(t, restored.PurgeProtection, "restore must preserve the backed-up key's purge protection")
+}
+
+// TestRestoreKey_FailedVersionReplayLeavesNoPurgeProtectedOrphan pins the write
+// order inside RestoreKey: archived versions must be replayed before purge
+// protection is applied.
+//
+// The order matters because a restore is not transactional (see
+// .claude/known-bugs.md § F3). If purge protection went on first and a version
+// replay then failed, the partial key would be left protected, and
+// KeyRepository.PurgeKey refuses to delete a protected key
+// (ErrKeyPurgeProtected) -- stranding a row under an ID the caller never
+// received and cannot clean up. RestoreSecret was reordered for exactly this
+// reason; this test is the key-side equivalent.
+func TestRestoreKey_FailedVersionReplayLeavesNoPurgeProtectedOrphan(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	repo := newStubKeyRepo()
+	svc := backup.NewItemBackupService(nil, repo, nil, nil)
+
+	owner := uuid.New()
+	vaultID := uuid.New()
+	original := &model.Key{
+		ID:              uuid.New(),
+		UserID:          owner,
+		VaultID:         vaultID,
+		Name:            "protected-rotated-key",
+		Value:           "current-value",
+		Type:            model.KeyTypeRSA,
+		Enabled:         true,
+		PurgeProtection: true,
+	}
+	require.NoError(t, repo.Create(ctx, original))
+	require.NoError(t, repo.SetPurgeProtection(ctx, original.ID, true))
+	require.NoError(t, repo.CreateVersion(ctx, original.ID, 1, "v1-value"))
+	require.NoError(t, repo.CreateVersion(ctx, original.ID, 2, "v2-value"))
+
+	blob, err := svc.BackupKey(ctx, original.ID, owner, vaultID)
+	require.NoError(t, err)
+
+	// Fail the second replayed version, so the restore dies partway through
+	// with the parent row already written.
+	restoreRepo := newStubKeyRepo()
+	restoreRepo.failCreateVersionAt = 2
+	restoreSvc := backup.NewItemBackupService(nil, restoreRepo, nil, nil)
+
+	newID := uuid.New()
+	err = restoreSvc.RestoreKey(ctx, blob, owner, vaultID, newID)
+	require.Error(t, err, "a failed version replay must surface as an error, not a silent partial restore")
+
+	orphan, readErr := restoreRepo.Read(ctx, newID, model.NewAdminScope(owner))
+	require.NoError(t, readErr, "the parent row is expected to survive; the point is that it stays cleanable")
+	assert.False(t, orphan.PurgeProtection,
+		"a partially restored key must not be purge-protected, or PurgeKey cannot clean it up")
 }
 
 // TestRestoreCertificatePreservesPurgeProtection is the certificate-side twin
