@@ -167,15 +167,19 @@ func (s *ItemBackupService) RestoreKey(ctx context.Context, blob string, userID,
 	if err := s.keyRepo.Create(ctx, &key); err != nil {
 		return err
 	}
+	// Replay versions before applying purge protection, for the reason spelled
+	// out in RestoreSecret: a failure here must leave the partial restore
+	// purgeable. Setting purge protection first would strand it, since
+	// PurgeKey refuses a protected key.
+	for _, v := range versions.Key {
+		if err := s.keyRepo.CreateVersion(ctx, newID, v.Version, v.Value); err != nil {
+			return fmt.Errorf("restore key: create version %d: %w", v.Version, err)
+		}
+	}
 	// See RestoreSecret: Create does not write purge_protection.
 	if key.PurgeProtection {
 		if err := s.keyRepo.SetPurgeProtection(ctx, newID, true); err != nil {
 			return fmt.Errorf("restore key: set purge protection: %w", err)
-		}
-	}
-	for _, v := range versions.Key {
-		if err := s.keyRepo.CreateVersion(ctx, newID, v.Version, v.Value); err != nil {
-			return fmt.Errorf("restore key: create version %d: %w", v.Version, err)
 		}
 	}
 	return nil
