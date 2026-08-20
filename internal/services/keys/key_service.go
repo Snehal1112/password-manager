@@ -8,6 +8,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -132,6 +133,14 @@ type KeyService interface {
 	// GetKeyVersion returns metadata for one version of keyID, authorized
 	// by scope against the parent key.
 	GetKeyVersion(ctx context.Context, keyID uuid.UUID, version int, scope model.Scope) (*model.KeyVersion, error)
+	// GetPublicJWK returns the public components of one version of keyID,
+	// authorized by scope against the parent key. version 0 means the key's
+	// current version.
+	//
+	// This lives in the service layer, not the handler, because the material
+	// is master-key-encrypted in storage and api/ has no decryption
+	// precedent. An HSM-backed key yields an empty PublicJWK and a nil error.
+	GetPublicJWK(ctx context.Context, keyID uuid.UUID, version int, scope model.Scope) (*model.PublicJWK, error)
 }
 
 // keyService implements KeyService by coordinating key operations
@@ -523,6 +532,64 @@ func (s *keyService) GetKeyVersion(ctx context.Context, keyID uuid.UUID, version
 		return nil, err
 	}
 	return s.keyRepo.GetVersion(ctx, keyID, version)
+}
+
+// GetPublicJWK returns the public components of one version of keyID,
+// authorized by scope against the parent key. version 0 means the current
+// version.
+//
+// Why this is not in the handler: every software key is stored
+// master-key-encrypted (see CreateKey, which runs common.EncryptSecret before
+// KeyRepository.Create). api/keys.go used to call
+// crypto.ExtractPublicComponents(key.Value, ...) directly and discard the
+// error, so pem.Decode saw base64 ciphertext, returned a nil block, and all
+// four components came back empty on every response -- .claude/known-bugs.md
+// § B34. Decryption belongs in this layer; the handler just copies the result.
+func (s *keyService) GetPublicJWK(ctx context.Context, keyID uuid.UUID, version int, scope model.Scope) (*model.PublicJWK, error) {
+	// The scoped read is the authorization for the version rows below.
+	key, err := s.GetKey(ctx, keyID, scope)
+	if err != nil {
+		return nil, err
+	}
+
+	// An HSM key's material never leaves the token, so there is nothing to
+	// extract. Empty components with a nil error, not a failure.
+	if strings.HasPrefix(key.Value, pkcs11Prefix) {
+		return &model.PublicJWK{}, nil
+	}
+
+	// version 0 means current, which is the material on the key row itself.
+	// Any other version has to come from key_versions.
+	storedValue := key.Value
+	if version != 0 {
+		current, err := s.keyRepo.CurrentVersion(ctx, keyID)
+		if err != nil {
+			return nil, fmt.Errorf("resolve current version: %w", err)
+		}
+		if version != current {
+			storedValue, err = s.keyRepo.ReadVersionValue(ctx, keyID, version)
+			if err != nil {
+				return nil, fmt.Errorf("read key version %d: %w", version, err)
+			}
+		}
+	}
+
+	// An archived version of a key that has since moved to an HSM, or was
+	// always HSM-backed, carries a handle rather than PEM.
+	if strings.HasPrefix(storedValue, pkcs11Prefix) {
+		return &model.PublicJWK{}, nil
+	}
+
+	pemKey, err := common.DecryptSecret(storedValue)
+	if err != nil {
+		return nil, fmt.Errorf("decrypt key material: %w", err)
+	}
+
+	n, e, x, y, err := crypto.ExtractPublicComponents(pemKey, key.Type)
+	if err != nil {
+		return nil, fmt.Errorf("extract public components: %w", err)
+	}
+	return &model.PublicJWK{N: n, E: e, X: x, Y: y}, nil
 }
 
 // GetKeyRotationPolicy retrieves the rotation policy for keyID, authorized by

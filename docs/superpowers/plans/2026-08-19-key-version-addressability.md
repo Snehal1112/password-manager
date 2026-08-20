@@ -1,5 +1,18 @@
 # Key Version Addressability Implementation Plan
 
+> **STATUS: COMPLETE — executed and shipped 2026-08-19 on `v-4.0.0`.** All eight
+> tasks landed as the commit range `6985a49..6147b39`, in the order the plan
+> lays them out. Checkboxes were ticked retroactively on 2026-08-19 to reflect
+> that; a tick records that a step *ran*, not that its literal code survived
+> unchanged. Task 2 Step 4's `currentVersionNumber` body in particular was
+> superseded days later by `d04141e` — read that task's header before treating
+> its snippet as current, and see "Post-plan corrections" at the end of this
+> file for the five commits that landed after Task 8.
+>
+> Verified 2026-08-19 against the working tree: `go build ./...`, `go vet ./...`,
+> and `go test ./...` all pass, and `mockery --config .mockery.yaml` produces no
+> drift in any key-related mock.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Make archived key versions usable in crypto operations
@@ -43,6 +56,12 @@ again. No schema migration; version numbers are computed, not stored.
 
 ### Task 1: Repository layer — version-aware reads
 
+**Shipped as:** `6985a49`, with `e7c4353` following immediately to update the
+hand-rolled repository mocks outside `internal/repositories/mocks/` (in
+`internal/signing`, `internal/services/keys`, `internal/services/certificates`)
+that the plan did not anticipate. In force today. `d04141e` later added a fourth
+method, `CurrentVersion`, to the same interface — see "Post-plan corrections".
+
 **Files:**
 - Modify: `internal/repositories/key_repository.go`
 - Create: `internal/repositories/key_version_errors.go`
@@ -61,7 +80,7 @@ again. No schema migration; version numbers are computed, not stored.
   - `KeyRepositoryInterface.GetVersion(ctx context.Context, keyID uuid.UUID, version int, userID uuid.UUID) (*model.KeyVersion, error)`
   - `KeyRepositoryInterface.ListVersionRecords(ctx context.Context, keyID uuid.UUID, userID uuid.UUID) ([]model.KeyVersionRecord, error)`
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Append to `internal/repositories/key_versions_test.go`:
 
@@ -189,12 +208,12 @@ func TestKeyVersions_ListVersionRecords_IncludesValue(t *testing.T) {
 }
 ```
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [x] **Step 2: Run tests to verify they fail**
 
 Run: `go test ./internal/repositories/... -run TestKeyVersions -v`
 Expected: FAIL — `repo.ReadVersionValue undefined (type *repositories.KeyRepository has no field or method ReadVersionValue)` (and similarly for `GetVersion`, `ListVersionRecords`, `repositories.ErrKeyVersionNotFound`).
 
-- [ ] **Step 3: Add `KeyVersionRecord` to `model/key.go`**
+- [x] **Step 3: Add `KeyVersionRecord` to `model/key.go`**
 
 Add immediately after the existing `KeyVersion` struct (`model/key.go:58-62`):
 
@@ -211,7 +230,7 @@ type KeyVersionRecord struct {
 }
 ```
 
-- [ ] **Step 4: Add the sentinel in a new file**
+- [x] **Step 4: Add the sentinel in a new file**
 
 Create `internal/repositories/key_version_errors.go`:
 
@@ -227,7 +246,7 @@ import "errors"
 var ErrKeyVersionNotFound = errors.New("key version not found")
 ```
 
-- [ ] **Step 5: Implement the three repository methods**
+- [x] **Step 5: Implement the three repository methods**
 
 Add to `internal/repositories/key_repository.go`, immediately after
 `ListVersions` (`:702-724`):
@@ -352,7 +371,7 @@ Confirm `"database/sql"` and `"errors"` are already imported at the top of
 `internal/repositories/key_repository.go` (they are — used elsewhere in the
 file); no new imports needed there.
 
-- [ ] **Step 6: Add the three methods to `KeyRepositoryInterface`**
+- [x] **Step 6: Add the three methods to `KeyRepositoryInterface`**
 
 In `internal/repositories/key_repository.go`, immediately after the existing
 `ListVersions` interface line (`:48`):
@@ -369,12 +388,12 @@ In `internal/repositories/key_repository.go`, immediately after the existing
 	ListVersionRecords(ctx context.Context, keyID uuid.UUID, userID uuid.UUID) ([]model.KeyVersionRecord, error)
 ```
 
-- [ ] **Step 7: Run tests to verify they pass**
+- [x] **Step 7: Run tests to verify they pass**
 
 Run: `go test ./internal/repositories/... -run TestKeyVersions -v`
 Expected: PASS (all new tests plus the existing `TestKeyVersions_CreateAndList`).
 
-- [ ] **Step 8: Regenerate the `KeyRepositoryInterface` mock**
+- [x] **Step 8: Regenerate the `KeyRepositoryInterface` mock**
 
 Run: `mockery --config .mockery.yaml`
 
@@ -383,7 +402,7 @@ with the three new methods. Run `go build ./...` afterward to confirm the
 mock package still compiles (mockery output is generated code — do not
 hand-edit it).
 
-- [ ] **Step 9: Run full package tests and commit**
+- [x] **Step 9: Run full package tests and commit**
 
 Run: `go build ./... && go vet ./... && go test ./internal/repositories/... ./model/...`
 Expected: PASS.
@@ -396,6 +415,15 @@ git commit -m "feat(keys): add repository methods to read archived version mater
 ---
 
 ### Task 2: Service layer — crypto operations accept a version
+
+**Shipped as:** `b82e065`. The version threading through all six operations, the
+`resolveKeyMaterial` cache-key fix, and `resolveVersionValue` are in force today.
+**Step 4's `currentVersionNumber` body is superseded:** `d04141e` replaced the
+`ListVersions`-then-take-the-last approach shown below with a delegation to a new
+`KeyRepository.CurrentVersion` aggregate query, because this helper runs on every
+crypto operation and fetching every version row to read one number was wasteful.
+The mock expectations in this task's tests changed accordingly — the shipped
+tests stub `CurrentVersion`, not `ListVersions`.
 
 **Files:**
 - Modify: `internal/services/keys/crypto_service.go`
@@ -414,7 +442,7 @@ git commit -m "feat(keys): add repository methods to read archived version mater
   `WrapKeyResult.Version`, `UnwrapKeyResult.Version` (resolved version echoed
   back).
 
-- [ ] **Step 1: Write the failing test — version selects archived material**
+- [x] **Step 1: Write the failing test — version selects archived material**
 
 Add to `internal/services/keys/crypto_service_cache_test.go` (it already has
 the `mockKeyRepositoryInterface`-via-`mocks.NewMockKeyRepositoryInterface`
@@ -586,14 +614,14 @@ already present (it is not — `mocks` is imported from
 `rocketvault/internal/repositories/mocks`, but the bare `repositories`
 package for `ErrKeyVersionNotFound` needs its own import line).
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [x] **Step 2: Run tests to verify they fail**
 
 Run: `go test ./internal/services/keys/... -run 'TestSign_ArchivedVersion|TestSign_VersionOmitted|TestSign_NonexistentVersion|TestResolveKeyMaterial_CacheKeyUsesRealVersion' -v`
 Expected: FAIL — `req.Version undefined`, `res.Version undefined` (the six
 request/result types don't have the field yet), and mock expectations for
 `ListVersions`/`ReadVersionValue` are unmet.
 
-- [ ] **Step 3: Add `Version` to the six request and six result types**
+- [x] **Step 3: Add `Version` to the six request and six result types**
 
 In `internal/services/keys/crypto_service.go`, add `Version int` as the last
 field to each of `SignRequest` (`:22-29`), `VerifyRequest` (`:40-48`),
@@ -627,7 +655,7 @@ type SignResult struct {
 }
 ```
 
-- [ ] **Step 4: Add `resolveVersionValue` and `currentVersionNumber` helpers**
+- [x] **Step 4: Add `resolveVersionValue` and `currentVersionNumber` helpers**
 
 Add immediately before `resolveKeyMaterial` (`:197`):
 
@@ -667,7 +695,7 @@ func (s *cryptoService) resolveVersionValue(ctx context.Context, key *model.Key,
 }
 ```
 
-- [ ] **Step 5: Change `resolveKeyMaterial`'s signature and cache key**
+- [x] **Step 5: Change `resolveKeyMaterial`'s signature and cache key**
 
 Replace the existing `resolveKeyMaterial` (`:197-236`):
 
@@ -721,7 +749,7 @@ func (s *cryptoService) resolveKeyMaterial(key *model.Key, value string, version
 }
 ```
 
-- [ ] **Step 6: Wire `resolveVersionValue` into all six methods**
+- [x] **Step 6: Wire `resolveVersionValue` into all six methods**
 
 For each of `Sign` (`:355`), `Verify` (`:411`), `Encrypt` (`:468`), `Decrypt`
 (`:521`) — replace:
@@ -763,7 +791,7 @@ pattern:
 `Version: resolvedVersion` to `WrapKeyResult{WrappedKey: wrappedKey, Algorithm: req.Algorithm}`
 and the equivalent `UnwrapKeyResult` return.
 
-- [ ] **Step 7: Run tests to verify they pass**
+- [x] **Step 7: Run tests to verify they pass**
 
 Run: `go test ./internal/services/keys/... -v`
 Expected: PASS — all new tests, and every pre-existing test in this package
@@ -780,7 +808,7 @@ the appropriate version list) to each — `currentVersionNumber` now calls
 `mocks.NewMockKeyRepositoryInterface` across `internal/services/keys/*_test.go`
 to find every call site that needs this.
 
-- [ ] **Step 8: Commit**
+- [x] **Step 8: Commit**
 
 ```bash
 git add internal/services/keys/crypto_service.go internal/services/keys/crypto_service_cache_test.go
@@ -790,6 +818,10 @@ git commit -m "feat(keys): thread version selection through crypto operations"
 ---
 
 ### Task 3: Service layer — `GetKeyVersion`
+
+**Shipped as:** `55872a5`, with `30d64cb` following to add the new method to
+`MockKeyServiceForUpdate` — a second hand-rolled fake in the `api` package that
+this task's Step 6 missed (it only accounted for `mockKeyService`). In force today.
 
 **Files:**
 - Modify: `internal/services/keys/key_service.go`
@@ -802,7 +834,7 @@ git commit -m "feat(keys): thread version selection through crypto operations"
   `keyService.GetKey` (`:` around the file, unchanged).
 - Produces: `KeyService.GetKeyVersion(ctx context.Context, keyID uuid.UUID, version int, scope model.Scope) (*model.KeyVersion, error)`.
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 Add to `internal/services/keys/key_service_test.go` (check the file's
 existing imports/helpers first — it already has a `mocks.NewMockKeyRepositoryInterface`
@@ -833,12 +865,12 @@ takes `KeyRepository repositories.KeyRepositoryInterface`, `KeyProvider crypto.K
 `Logger *logging.Logger`, `VaultRepository repositories.VaultRepositoryInterface` — all but
 `KeyRepository` and `Logger` are optional for this test.)
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `go test ./internal/services/keys/... -run TestGetKeyVersion_AuthorizesThenDelegatesToRepo -v`
 Expected: FAIL — `svc.GetKeyVersion undefined`.
 
-- [ ] **Step 3: Add `GetKeyVersion` to the interface and implementation**
+- [x] **Step 3: Add `GetKeyVersion` to the interface and implementation**
 
 In `internal/services/keys/key_service.go`, add to the `KeyService`
 interface immediately after `ListKeyVersions` (`:131`):
@@ -864,12 +896,12 @@ func (s *keyService) GetKeyVersion(ctx context.Context, keyID uuid.UUID, version
 }
 ```
 
-- [ ] **Step 4: Run test to verify it passes**
+- [x] **Step 4: Run test to verify it passes**
 
 Run: `go test ./internal/services/keys/... -run TestGetKeyVersion_AuthorizesThenDelegatesToRepo -v`
 Expected: PASS.
 
-- [ ] **Step 5: Regenerate the `KeyService` mock**
+- [x] **Step 5: Regenerate the `KeyService` mock**
 
 Run: `mockery --config .mockery.yaml`
 
@@ -877,7 +909,7 @@ Regenerates `internal/services/keys/mocks/mock_KeyService.go` (per
 `.mockery.yaml`'s `rocketvault/internal/services/keys: interfaces: KeyService:`
 entry) with the new method.
 
-- [ ] **Step 6: Add `GetKeyVersion` to the hand-rolled `mockKeyService` in `api/keys_crud_test.go`**
+- [x] **Step 6: Add `GetKeyVersion` to the hand-rolled `mockKeyService` in `api/keys_crud_test.go`**
 
 `api/keys_crud_test.go` defines its own hand-rolled `mockKeyService`
 (`type mockKeyService struct { mock.Mock }`, `:46-47`) that implements
@@ -898,7 +930,7 @@ func (m *mockKeyService) GetKeyVersion(ctx context.Context, keyID uuid.UUID, ver
 }
 ```
 
-- [ ] **Step 7: Run full repository build and package tests, then commit**
+- [x] **Step 7: Run full repository build and package tests, then commit**
 
 Run: `go build ./... && go vet ./... && go test ./internal/services/keys/... ./api/...`
 Expected: PASS — confirms Step 6 actually fixed the cross-package break.
@@ -911,6 +943,10 @@ git commit -m "feat(keys): add GetKeyVersion service method"
 ---
 
 ### Task 4: API layer — six crypto handlers accept and echo `version`
+
+**Shipped as:** `18ae8cc`. In force today. This task shipped test coverage for
+`signKey` only; `26bb940` later backfilled the other five operations — see
+"Post-plan corrections".
 
 **Files:**
 - Modify: `api/keys.go`
@@ -926,7 +962,7 @@ git commit -m "feat(keys): add GetKeyVersion service method"
   `EncryptKeyResponse`, `DecryptKeyResponse`, `WrapKeyResponse`,
   `UnwrapKeyResponse` (response).
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 Add to `api/keys_crypto_test.go` (using the existing `stubCryptoSvc`,
 `newCryptoContext`, `jsonBody` helpers already in this file):
@@ -990,14 +1026,14 @@ func TestSignKey_VersionNotFound_Returns404(t *testing.T) {
 Add `"rocketvault/internal/repositories"` to this test file's imports if not
 already present.
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [x] **Step 2: Run tests to verify they fail**
 
 Run: `go test ./api/... -run 'TestSignKey_ThreadsVersionAndEchoesResolvedVersion|TestSignKey_VersionNotFound_Returns404' -v`
 Expected: FAIL — `req.Version`/`resp.Version` don't exist yet, and the
 handler has no case for `ErrKeyVersionNotFound` so it falls through to the
 `default: c.SetInternalError(err)` 500 branch.
 
-- [ ] **Step 3: Add `Version` to the six HTTP request/response types**
+- [x] **Step 3: Add `Version` to the six HTTP request/response types**
 
 In `api/keys.go`, add `Version int \`json:"version,omitempty"\`` to
 `WrapKeyRequest` (`:96-100`) and `UnwrapKeyRequest` (`:108-112`); add
@@ -1023,7 +1059,7 @@ type SignKeyResponse struct {
 }
 ```
 
-- [ ] **Step 4: Thread `Version` through all six handlers**
+- [x] **Step 4: Thread `Version` through all six handlers**
 
 For each of `signKey` (`:773`), `verifyKey` (`:842`), `encryptKey` (`:914`),
 `decryptKey` (`:988`), `wrapKey` (`:637`), `unwrapKey` (`:705`): add
@@ -1050,7 +1086,7 @@ call. Example (`signKey`):
 	})
 ```
 
-- [ ] **Step 5: Add the new error case to each of the six inline switches**
+- [x] **Step 5: Add the new error case to each of the six inline switches**
 
 Each of the six handlers has its own `switch { case errors.Is(err, ...): ... }`
 block (they do not share `writeKeyError`). Add one new case to each,
@@ -1064,7 +1100,7 @@ alongside the existing `ErrUnsupportedAlgorithm` case:
 `api/keys.go` already imports `"rocketvault/internal/repositories"` (`:37`)
 — no new import.
 
-- [ ] **Step 6: Add the same case to `writeKeyError`**
+- [x] **Step 6: Add the same case to `writeKeyError`**
 
 In `api/errors_key.go`, add to the existing switch (used by `listKeyVersions`
 and the new `getKeyVersion` handler in Task 5, not by the six crypto
@@ -1075,7 +1111,7 @@ handlers):
 		c.SetNotFound("key version")
 ```
 
-- [ ] **Step 7: Run tests to verify they pass**
+- [x] **Step 7: Run tests to verify they pass**
 
 Run: `go test ./api/... -run 'TestSignKey|TestVerifyKey|TestEncryptKey|TestDecryptKey|TestWrapKey|TestUnwrapKey' -v`
 Expected: PASS — the two new tests, and every pre-existing test in this file
@@ -1083,7 +1119,7 @@ Expected: PASS — the two new tests, and every pre-existing test in this file
 etc. don't assert on unless the test explicitly checks it, so no existing
 assertion breaks).
 
-- [ ] **Step 8: Commit**
+- [x] **Step 8: Commit**
 
 ```bash
 git add api/keys.go api/errors_key.go api/keys_crypto_test.go
@@ -1093,6 +1129,9 @@ git commit -m "feat(keys): accept and echo key version on the six crypto endpoin
 ---
 
 ### Task 5: API layer — `GET /keys/{id}/versions/{version}`
+
+**Shipped as:** `9f4f30d`. In force today — both the flat and vault-scoped forms
+are registered, as the single-line registration predicted.
 
 **Files:**
 - Modify: `api/keys.go`
@@ -1107,7 +1146,7 @@ git commit -m "feat(keys): accept and echo key version on the six crypto endpoin
   vault-scoped, both registered automatically since `registerKeyRoutes`
   already runs twice — no separate wiring task needed).
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 Read `api/keys_crud_test.go`'s existing `mockKeyService`/`newKeyCtx` helpers
 first (referenced in Task 3 setup), then add:
@@ -1162,12 +1201,12 @@ func TestGetKeyVersion_NotFound_Returns404(t *testing.T) {
 convention exactly; its `GetKeyVersion` method was already added in Task 3
 Step 6, so no further mock changes are needed here.)
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [x] **Step 2: Run tests to verify they fail**
 
 Run: `go test ./api/... -run 'TestGetKeyVersion' -v`
 Expected: FAIL — `getKeyVersion undefined`.
 
-- [ ] **Step 3: Implement the handler**
+- [x] **Step 3: Implement the handler**
 
 Add to `api/keys.go`, near `listKeyVersions` (`:601-634`):
 
@@ -1202,7 +1241,7 @@ func getKeyVersion(c *Context, w http.ResponseWriter, r *http.Request) {
 }
 ```
 
-- [ ] **Step 4: Register the route**
+- [x] **Step 4: Register the route**
 
 Immediately after the existing `/versions` registration (`api/keys.go:239`):
 
@@ -1217,17 +1256,17 @@ already runs twice (`api/keys.go:220-222`, once against
 flat and vault-scoped forms are registered by this one line, with no
 `InitBackupItem`-style separate-registration gap to fix.
 
-- [ ] **Step 5: Run tests to verify they pass**
+- [x] **Step 5: Run tests to verify they pass**
 
 Run: `go test ./api/... -run 'TestGetKeyVersion' -v`
 Expected: PASS.
 
-- [ ] **Step 6: Run the OpenAPI/route-inventory drift tests**
+- [x] **Step 6: Run the OpenAPI/route-inventory drift tests**
 
 Run: `go test ./api/... -run 'TestOpenAPISpecCoversAllRoutes|TestGenerateRouteInventory' -v`
 Expected: FAIL (new route not documented yet — handled in Task 7).
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add api/keys.go api/keys_crud_test.go
@@ -1243,6 +1282,9 @@ commit and the docs-regen commit separable and independently reviewable.)
 
 ### Task 6: Backup/restore carries key version history
 
+**Shipped as:** `1457091`. In force today — `backupEnvelope.Versions` is
+additive and `omitempty`, so pre-change blobs still restore.
+
 **Files:**
 - Modify: `internal/backup/item_backup.go`
 - Test: `internal/backup/item_backup_test.go`
@@ -1253,7 +1295,7 @@ commit and the docs-regen commit separable and independently reviewable.)
 - Produces: `backupEnvelope.Versions`; `encodeBlob`/`decodeBlob` gain a
   `versions []model.KeyVersionRecord` parameter/return.
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 Add to `internal/backup/item_backup_test.go` (using the existing
 `stubKeyRepo` from this file):
@@ -1384,7 +1426,7 @@ implementations instead of no-ops. No other test in this file asserts on the
 old no-op behavior (confirmed: neither method's return value is checked
 anywhere except through these new tests), so this is a safe in-place change.
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [x] **Step 2: Run tests to verify they fail**
 
 Run: `go test ./internal/backup/... -run 'TestBackupRestoreKey_CarriesVersionHistory|TestRestoreKey_OldFormatBlob_NoVersionsField' -v`
 Expected: FAIL — compile error (`stubKeyRepo` doesn't implement the updated
@@ -1392,7 +1434,7 @@ interface yet if Task 1 already landed; if it does compile, the test fails
 because `repo.ListVersionRecords(ctx, newID, owner)` returns empty even
 though version history should have been restored).
 
-- [ ] **Step 3: Add `Versions` to `backupEnvelope` and thread it through `encodeBlob`/`decodeBlob`**
+- [x] **Step 3: Add `Versions` to `backupEnvelope` and thread it through `encodeBlob`/`decodeBlob`**
 
 In `internal/backup/item_backup.go`, modify the envelope struct (`:46-50`):
 
@@ -1454,7 +1496,7 @@ func decodeBlob(blob, expectedType string, out interface{}) ([]model.KeyVersionR
 }
 ```
 
-- [ ] **Step 4: Update every `encodeBlob`/`decodeBlob` call site**
+- [x] **Step 4: Update every `encodeBlob`/`decodeBlob` call site**
 
 `BackupSecret`/`BackupCertificate` — add `nil` as the fourth argument:
 
@@ -1528,7 +1570,7 @@ func (s *ItemBackupService) RestoreKey(ctx context.Context, blob string, userID,
 }
 ```
 
-- [ ] **Step 5: Run tests to verify they pass**
+- [x] **Step 5: Run tests to verify they pass**
 
 Run: `go test ./internal/backup/... -v`
 Expected: PASS — the two new tests, plus every pre-existing test in this
@@ -1536,12 +1578,12 @@ package (secrets/certificates pass `nil`/discard the new return value with
 no behavior change; `TestRestoreSecretBlobTypeMismatch` and similar continue
 to work since `Data`'s shape is untouched).
 
-- [ ] **Step 6: Run the full test suite**
+- [x] **Step 6: Run the full test suite**
 
 Run: `go build ./... && go vet ./... && go test ./...`
 Expected: PASS across the whole repository.
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add internal/backup/item_backup.go internal/backup/item_backup_test.go
@@ -1552,6 +1594,9 @@ git commit -m "feat(keys): carry key_versions history through backup/restore"
 
 ### Task 7: OpenAPI spec and route inventory
 
+**Shipped as:** `f03957a`. In force today, with `11fe012` later correcting some
+of the schema descriptions — see "Post-plan corrections".
+
 **Files:**
 - Modify: `docs/api-specification.yaml`
 - Modify: `docs/api-routes.generated.txt` (regenerated, not hand-edited)
@@ -1560,7 +1605,7 @@ git commit -m "feat(keys): carry key_versions history through backup/restore"
 - Consumes: the new route from Task 5, the new `version` request/response
   fields from Task 4.
 
-- [ ] **Step 1: Regenerate the route inventory**
+- [x] **Step 1: Regenerate the route inventory**
 
 Run: `go test ./api/... -run TestGenerateRouteInventory -update-route-inventory -v`
 
@@ -1568,7 +1613,7 @@ This rewrites `docs/api-routes.generated.txt` to include
 `GET /api/v1/keys/{key_id:[A-Fa-f0-9-]+}/versions/{version:[0-9]+}` and its
 vault-scoped equivalent.
 
-- [ ] **Step 2: Add the new route to `docs/api-specification.yaml`**
+- [x] **Step 2: Add the new route to `docs/api-specification.yaml`**
 
 Follow the existing pattern for `GET /keys/{key_id}/versions` (find its
 block in the file first) — add a sibling path immediately after it, for both
@@ -1578,7 +1623,7 @@ to match structure exactly — parameters, operationId naming convention
 `getKeyVersionInVault` for the vault-scoped variant, response schema
 referencing `KeyVersion`, standard 400/401/403/404 responses).
 
-- [ ] **Step 3: Add `version` to the six existing crypto request/response schemas**
+- [x] **Step 3: Add `version` to the six existing crypto request/response schemas**
 
 Find `SignKeyRequest`, `VerifyKeyRequest`, `EncryptKeyRequest`,
 `DecryptKeyRequest`, `WrapKeyRequest`, `UnwrapKeyRequest` and their `*Response`
@@ -1586,17 +1631,17 @@ counterparts under `components.schemas` in `docs/api-specification.yaml`. Add
 `version: {type: integer}` to each request schema (optional, no `required`
 entry) and each response schema (present in the response body).
 
-- [ ] **Step 4: Run the drift tests**
+- [x] **Step 4: Run the drift tests**
 
 Run: `go test ./api/... -run 'TestOpenAPISpecCoversAllRoutes|TestGenerateRouteInventory' -v`
 Expected: PASS.
 
-- [ ] **Step 5: Run the full API test suite**
+- [x] **Step 5: Run the full API test suite**
 
 Run: `go test ./api/...`
 Expected: PASS.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add docs/api-specification.yaml docs/api-routes.generated.txt
@@ -1606,6 +1651,11 @@ git commit -m "docs(api): document GET /keys/{id}/versions/{version} and the ver
 ---
 
 ### Task 8: Documentation
+
+**Shipped as:** `6147b39` — the `known-bugs.md` entry landed as **§ B26**, and
+`docs/.usage-guide-map.json`'s `lastVerifiedCommit` was set to `f03957a`
+(Task 7's commit). Two follow-up commits corrected overclaims in what this task
+wrote: `dd70dd9` and `11fe012` — see "Post-plan corrections".
 
 **Files:**
 - Modify: `.claude/azure-keyvault-parity.md`
@@ -1621,7 +1671,7 @@ conversation this plan came from); re-check whether `.claude/azure-keyvault-pari
 or `.claude/known-bugs.md` have moved since this plan was written, and merge
 by hand rather than overwriting.
 
-- [ ] **Step 1: Update the parity doc**
+- [x] **Step 1: Update the parity doc**
 
 In `.claude/azure-keyvault-parity.md` §2, "Rotate (new version)" row: change
 from 🟡 to ✅ (or a narrower 🟡 if the CLI `--version` fast-follow noted in the
@@ -1632,26 +1682,26 @@ restore. Add a dated correction note (matching this doc's existing
 convention, e.g. the 2026-08-19 notes already in the file) explaining what
 changed and pointing at this plan's spec.
 
-- [ ] **Step 2: Add a `known-bugs.md` entry**
+- [x] **Step 2: Add a `known-bugs.md` entry**
 
 Add a new dated entry (next letter in the existing `B<N>` sequence — check
 the last one used) describing: root cause (versions archived but never
 readable), the fix (this plan), and the bundled cache-key bug found during
 design. Mark it closed, with the commit range from Tasks 1-7.
 
-- [ ] **Step 3: Update `docs/usage-guide.md`**
+- [x] **Step 3: Update `docs/usage-guide.md`**
 
 §2 (REST API): note the new `version` field on the six crypto endpoints and
 the new `GET .../versions/{version}` route. §6 (Backup/restore tooling): note
 that key backups now carry version history.
 
-- [ ] **Step 4: Update `docs/.usage-guide-map.json`**
+- [x] **Step 4: Update `docs/.usage-guide-map.json`**
 
 Set `lastVerifiedCommit` to the current `git rev-parse HEAD` and
 `lastVerifiedDate` to today, per this repo's `usage-guide-refresh` skill
 convention (see the file's existing shape before editing).
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add .claude/azure-keyvault-parity.md .claude/known-bugs.md docs/usage-guide.md docs/.usage-guide-map.json
@@ -1674,3 +1724,24 @@ mockery --config .mockery.yaml && git diff --stat  # confirm no drift between in
 All must pass with zero diff from the mock regeneration (if `git diff`
 shows changes, an interface changed after the last `mockery` run somewhere
 in the plan — regenerate and fold into the relevant task's commit).
+
+Re-run 2026-08-19 when these checkboxes were ticked: build, vet, and the full
+`go test ./...` all pass. `mockery` produces no drift in any key-related mock;
+it does rewrite two unrelated `internal/services/secrets/mocks/*` files with a
+whitespace-only import-grouping change, which is pre-existing and unconnected to
+this plan.
+
+---
+
+## Post-plan corrections
+
+Five commits landed after Task 8 and change what the tasks above describe. They
+are part of this fix wave, not separate work.
+
+| Commit | What it changed | Effect on this plan |
+|---|---|---|
+| `d04141e` | Added `KeyRepository.CurrentVersion` — a single `COALESCE(MAX(kv.version), 1)` aggregate over a `LEFT JOIN` from `keys` — and made `cryptoService.currentVersionNumber` delegate to it. The `LEFT JOIN` direction is load-bearing: an `INNER JOIN` from `key_versions` returns zero rows for a never-rotated key instead of a row with a NULL aggregate, defeating the `COALESCE` fallback to the implicit version 1. | **Supersedes Task 2 Step 4's `currentVersionNumber` body.** The plan's version ran `ListVersions` — a full ordered row scan — on every crypto operation just to read the last row's number, adding a second query to a previously single-query hot path. Also adds a fourth method to the interface Task 1 defined, so the mockery mock and six hand-rolled fakes were regenerated/updated. |
+| `0ae97b2` | `KeyService.ListKeyVersions` now synthesizes an implicit version-1 entry (timestamped by the key's `CreatedAt`) when the repository returns zero rows. | Closes an inconsistency this plan created: `GET /keys/{id}/versions/1` and every crypto op resolved version 1 from `keys.value` via the implicit fallback, but `GET /keys/{id}/versions` returned an empty list, so a client that listed first to discover addressable versions found nothing. `RotateKey` deliberately still calls the raw `KeyRepository.ListVersions` — its `nextVersion := len(versions) + 1` math needs the true zero-row count. |
+| `26bb940` | Table-driven version-threading coverage for the five operations the plan only tested by inspection: `Verify`/`Encrypt`/`Decrypt`/`WrapKey`/`UnwrapKey` at the service layer (landed with `d04141e`) and their HTTP handlers here. | Fills a real gap — Tasks 2 and 4 each shipped tests for `Sign`/`signKey` only. The service-layer cases run against a PKCS#11-backed key with the provider stubbed for the archived handle only, so a case that silently fell back to `keys.value` fails rather than passing quietly. |
+| `dd70dd9` | Reverted the parity doc's "Get / List / List versions" row from ✅ back to 🟡. | Corrects an overclaim Task 8 Step 1 introduced. Azure's `GET /keys/{name}/{version}` returns the version's public JWK; the route Task 5 added returns only `model.KeyVersion{KeyID, Version, CreatedAt}`. It closes the "no route exists" gap, not the capability gap. |
+| `11fe012` | Five corrections across `.claude/known-bugs.md` § B26, `.claude/azure-keyvault-parity.md`, `docs/usage-guide.md`, `docs/api-specification.yaml`, and `model/key.go`. | Corrects Tasks 7 and 8: the CLI `--version` gap covers all four crypto commands (`sign`/`verify`/`wrap`/`unwrap`), not just `verify`; the usage guide pointed at `docs/api-developer-guide.md`, which documents no key endpoints at all; the six crypto response schemas listed `version` as a property but omitted it from `required:`. It also **corrects this plan's own Global Constraints wording** — `model.KeyVersionRecord`'s "never marshaled into an HTTP response" claim is wrong, since Task 6 marshals it into a key backup blob that `POST /keys/{key_id}/backup` returns base64url-encoded and unencrypted. The constraint that actually holds is narrower: `KeyVersionRecord` never appears in a key or key-version API response. Separately records a pre-existing issue this work did not introduce: `KeyRepository.PurgeKey` deletes only the `keys` row and relies on `ON DELETE CASCADE` for `key_versions`, but this project runs SQLite with `foreign_keys` off, so purging a key on SQLite orphans its archived version rows. |

@@ -64,6 +64,7 @@ var signCmd = &cobra.Command{
 		keyIDStr := viper.GetString("sign-key-id")
 		dataB64 := viper.GetString("sign-data")
 		algorithm := viper.GetString("sign-algorithm")
+		version := viper.GetInt("sign-version")
 
 		if keyIDStr == "" || dataB64 == "" {
 			log.LogAuditError(claims.UserID.String(), "sign_key", "failed", "--key-id and --data are required", nil)
@@ -107,6 +108,7 @@ var signCmd = &cobra.Command{
 			UserID:    claims.UserID,
 			VaultID:   vaultID,
 			Scope:     model.NewVaultScope(vaultID, claims.UserID),
+			Version:   version,
 		})
 		if err != nil {
 			log.LogAuditError(claims.UserID.String(), "sign_key", "failed", fmt.Sprintf("sign failed: %s", err), err)
@@ -132,9 +134,11 @@ func InitKeysSign(keysCmd *cobra.Command) *cobra.Command {
 	signCmd.Flags().String("key-id", "", "UUID of the vault key used to sign")
 	signCmd.Flags().String("data", "", "Base64-encoded data to sign")
 	signCmd.Flags().String("algorithm", "RS256", "Signature algorithm (RS256, RS384, RS512, PS256, PS384, PS512, ES256, ES384, ES512)")
+	signCmd.Flags().Int("version", 0, "Key version to use (0 or omitted = the key's current version)")
 	viper.BindPFlag("sign-key-id", signCmd.Flags().Lookup("key-id"))       //nolint:errcheck,gosec
-	viper.BindPFlag("sign-data", signCmd.Flags().Lookup("data"))          //nolint:errcheck,gosec
+	viper.BindPFlag("sign-data", signCmd.Flags().Lookup("data"))           //nolint:errcheck,gosec
 	viper.BindPFlag("sign-algorithm", signCmd.Flags().Lookup("algorithm")) //nolint:errcheck,gosec
+	viper.BindPFlag("sign-version", signCmd.Flags().Lookup("version"))     //nolint:errcheck,gosec
 
 	return keysCmd
 }

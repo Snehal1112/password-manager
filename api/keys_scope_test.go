@@ -40,6 +40,16 @@ func (s *scopeStubKeyService) GetKey(_ context.Context, _ uuid.UUID, scope model
 	return s.key, s.keyErr
 }
 
+// GetPublicJWK must be implemented explicitly rather than left to the embedded
+// KeyService: that field is a nil interface, so a handler calling through it
+// panics instead of returning an error. These tests assert the scope a handler
+// passes, not response bodies, so an empty JWK is the right answer -- but it
+// deliberately does NOT record lastScope, which would mask a handler that
+// derived its scope correctly for the JWK and wrongly for the key itself.
+func (s *scopeStubKeyService) GetPublicJWK(_ context.Context, _ uuid.UUID, _ int, _ model.Scope) (*model.PublicJWK, error) {
+	return &model.PublicJWK{}, nil
+}
+
 func (s *scopeStubKeyService) ListKeys(_ context.Context, scope model.Scope, filter repositories.KeyFilter) ([]model.Key, error) {
 	s.lastScope = scope
 	s.lastFilter = filter

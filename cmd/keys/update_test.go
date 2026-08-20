@@ -75,6 +75,11 @@ func (m *MockKeyServiceForUpdate) GetKeyVersion(ctx context.Context, keyID uuid.
 	return args.Get(0).(*model.KeyVersion), args.Error(1)
 }
 
+func (m *MockKeyServiceForUpdate) GetPublicJWK(ctx context.Context, keyID uuid.UUID, version int, scope model.Scope) (*model.PublicJWK, error) {
+	// Plain stub: this test asserts the update call, not response bodies.
+	return &model.PublicJWK{}, nil
+}
+
 func TestUpdateKeyCommand_CallsServiceUpdate(t *testing.T) {
 	tc := testutils.NewTestContext(t)
 	mockKeySvc := &MockKeyServiceForUpdate{}
