@@ -18,7 +18,12 @@ func (c *Context) webhookSvc() vaultServices.VaultWebhookService {
 		c.SetInternalError(nil)
 		return nil
 	}
-	return c.App.ServiceContainer.GetVaultWebhookService()
+	svc := c.App.ServiceContainer.GetVaultWebhookService()
+	if svc == nil {
+		c.SetInternalError(nil)
+		return nil
+	}
+	return svc
 }
 
 // resolveAndAuthorizeVault resolves the {name} path variable to a vault and

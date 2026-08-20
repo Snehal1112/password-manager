@@ -234,6 +234,47 @@ func TestDeleteVaultWebhook_InternalErrorIsNotReportedAsSuccess(t *testing.T) {
 	assert.Equal(t, http.StatusInternalServerError, w.Code)
 }
 
+// TestVaultWebhook_NilService_Returns500 confirms webhookSvc() reports a 500
+// (via SetInternalError) instead of silently writing nothing when the
+// container is non-nil but GetVaultWebhookService() itself returns nil. Before
+// this fix, all three handlers returned early with no response written and no
+// error set, which net/http turns into a misleading 200 with an empty body --
+// worst for delete, which would report success for a delete that never ran.
+func TestVaultWebhook_NilService_Returns500(t *testing.T) {
+	cases := []struct {
+		name   string
+		method string
+		body   []byte
+	}{
+		{"PUT", http.MethodPut, []byte(`{"url":"https://hooks.example/rv"}`)},
+		{"GET", http.MethodGet, nil},
+		{"DELETE", http.MethodDelete, nil},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			repo := newVaultFakeRepo()
+			id := uuid.New()
+			repo.byName["prod"] = &model.Vault{ID: id, Name: "prod", Enabled: true}
+			repo.byID[id.String()] = repo.byName["prod"]
+
+			vaultSvc := vaultServices.NewVaultService(repo, vaultNoopCascade{}, nil)
+			cont := &vaultSvcTestContainer{
+				vaultSvc: vaultSvc,
+				// vaultWebhookSvc deliberately left nil: GetVaultWebhookService()
+				// returns a nil interface even though the container itself is set.
+				policySvc: &mockAccessPolicyService{},
+				logger:    userTestLog(),
+			}
+			api := newVaultTestAPIWithContainer(cont)
+
+			w := doVaultRequest(api, tc.method, "/api/v1/vaults/prod/webhook", tc.body)
+
+			assert.Equal(t, http.StatusInternalServerError, w.Code,
+				"a nil webhook service must surface as 500, never a bare 200")
+		})
+	}
+}
+
 // TestInitVault_WebhookRoutesOnVaultsRouter proves the routes are registered
 // on BaseRoutes.Vaults, not BaseRoutes.VaultScoped. The {name} router is the
 // vault-management tier; VaultScoped would put webhook config behind the
