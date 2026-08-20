@@ -119,6 +119,9 @@ func (c *certPolicyRepoContainer) GetVaultRepository() repositories.VaultReposit
 func (c *certPolicyRepoContainer) GetVaultService() vaultServices.VaultService {
 	panic("unexpected call: GetVaultService")
 }
+func (c *certPolicyRepoContainer) GetVaultWebhookService() vaultServices.VaultWebhookService {
+	panic("unexpected call: GetVaultWebhookService")
+}
 func (c *certPolicyRepoContainer) GetPasswordService() authServices.PasswordService {
 	panic("unexpected call: GetPasswordService")
 }

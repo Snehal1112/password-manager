@@ -83,6 +83,10 @@ func (m *MockServiceContainer) GetVaultService() vaultServices.VaultService {
 	return args.Get(0).(vaultServices.VaultService)
 }
 
+func (m *MockServiceContainer) GetVaultWebhookService() vaultServices.VaultWebhookService {
+	return nil
+}
+
 // stubVaultService is a minimal vaultServices.VaultService for middleware tests.
 type stubVaultService struct {
 	vault         *model.Vault
@@ -105,6 +109,7 @@ func (s *stubVaultService) DeleteVault(context.Context, string) error           
 func (s *stubVaultService) RecoverVault(context.Context, string) error               { return nil }
 func (s *stubVaultService) PurgeVault(context.Context, string) error                 { return nil }
 func (s *stubVaultService) SetPolicyCleaner(_ vaultServices.PolicyCleaner)           {}
+func (s *stubVaultService) SetWebhookCleaner(_ vaultServices.WebhookCleaner)         {}
 func (s *stubVaultService) SetTxBeginner(_ vaultServices.TxBeginner)                 {}
 func (s *stubVaultService) SetSecretCacheFlusher(_ vaultServices.SecretCacheFlusher) {}
 func (s *stubVaultService) SetVaultCache(_ vaultServices.VaultCacheInterface)        {}

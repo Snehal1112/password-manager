@@ -1295,6 +1295,36 @@ an entirely separate, non-shared schema from keys' `KeyRotationPolicy`.
 Adding secret-side expiry stamping would be a schema change and its own
 decision, not implied by this fix.
 
+**2026-08-20 update — storage/configuration layer shipped, B27 stays open**:
+A per-vault webhook *storage and configuration* layer now exists on
+`feat/vault-webhook-config` (`docs/superpowers/specs/2026-08-19-vault-webhook-config-design.md`):
+table `vault_webhook_configs` (`internal/db/db.go`), `model.VaultWebhookConfig`
+(`model/vault_webhook.go`), `internal/repositories/vault_webhook_repository.go`,
+`internal/services/vaults/webhook_service.go`
+(`VaultWebhookService`/`UpsertWebhookRequest`), the HTTP routes
+`PUT`/`GET`/`DELETE /vaults/{name}/webhook` (`api/vault_webhook.go`,
+`api/vault.go`), and a `rocketvault vault-webhook set|get|delete` CLI
+(`cmd/vault-webhook/`). The signing secret is server-generated, encrypted at
+rest, and returned in plaintext exactly once — on create or rotate via `set`
+— never again afterwards (`GET`'s response schema has no `signing_secret`
+field at all).
+
+This is configuration only. **B27 remains open.** Nothing sends a
+notification yet — this sub-project deliberately built no delivery mechanism
+of any kind: no outbound HTTP call, no sender, no payload schema. The
+paragraph above this one, stating RocketVault "has no notification delivery
+mechanism anywhere in the codebase," is still accurate about *delivery* —
+what changed is that a notification now has somewhere to be configured to go
+*to*, not a way to get there. `notify_before_expiry_days` still has no
+effect. The remaining work is split into its own sub-projects, not follow-up
+tasks here: the delivery primitive (which will make the first real outbound
+HTTP call and own the payload schema), keys' near-expiry sweep (reading
+`notify_before_expiry_days` off `KeyRotationPolicy` and firing the delivery
+primitive), secrets' `sendReminder` wiring (replacing the logging-only
+placeholder in `internal/services/secrets/scheduler_service.go`),
+certificates' expiry-warning wiring, and user-facing docs
+(`docs/usage-guide.md`, deferred until the chain is usable end-to-end).
+
 ---
 
 ### B28 — Item backup gated on ownership, and unscoped underneath it

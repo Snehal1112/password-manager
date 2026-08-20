@@ -80,6 +80,7 @@ type ServiceContainerInterface interface {
 	GetCertificateRenewalService() certServices.CertificateRenewalService
 	GetCryptoService() keyServices.CryptoService
 	GetVaultService() vaultServices.VaultService
+	GetVaultWebhookService() vaultServices.VaultWebhookService
 
 	// Secret component service getters
 	GetCryptographyService() secretServices.CryptographyService
@@ -176,13 +177,14 @@ type ServiceContainer struct {
 	oauth2Service          oauth2Services.OAuth2Service
 
 	// Business services
-	userService        userServices.UserService
-	secretService      secrets.SecretService
-	keyService         keyServices.KeyService
-	certificateService certServices.CertificateService
-	certRenewalService certServices.CertificateRenewalService
-	keyCryptoService   keyServices.CryptoService
-	vaultService       vaultServices.VaultService
+	userService         userServices.UserService
+	secretService       secrets.SecretService
+	keyService          keyServices.KeyService
+	certificateService  certServices.CertificateService
+	certRenewalService  certServices.CertificateRenewalService
+	keyCryptoService    keyServices.CryptoService
+	vaultService        vaultServices.VaultService
+	vaultWebhookService vaultServices.VaultWebhookService
 
 	// Secret component services
 	cryptoService     secretServices.CryptographyService
@@ -285,6 +287,9 @@ func (c *ServiceContainer) initializeServices() error {
 	c.vaultService.SetTxBeginner(c.conn)
 	c.vaultCache = vaultcache.NewCache(c.cacheConfig.Vaults)
 	c.vaultService.SetVaultCache(c.vaultCache)
+	vaultWebhookRepo := repositories.NewVaultWebhookRepository(c.conn, c.logger)
+	c.vaultWebhookService = vaultServices.NewVaultWebhookService(vaultWebhookRepo, c.logger)
+	c.vaultService.SetWebhookCleaner(vaultWebhookRepo)
 	c.certPolicyRepository = repositories.NewCertificatePolicyRepository(c.conn, c.logger)
 	c.keyRotationPolicyRepository = repositories.NewKeyRotationPolicyRepository(c.conn, c.logger)
 	c.sessionRepository = repositories.NewSessionRepository(repositories.SessionRepositoryConfig{
@@ -728,6 +733,11 @@ func (c *ServiceContainer) GetVaultRepository() repositories.VaultRepositoryInte
 // GetVaultService returns the vault lifecycle service.
 func (c *ServiceContainer) GetVaultService() vaultServices.VaultService {
 	return c.vaultService
+}
+
+// GetVaultWebhookService returns the per-vault webhook configuration service.
+func (c *ServiceContainer) GetVaultWebhookService() vaultServices.VaultWebhookService {
+	return c.vaultWebhookService
 }
 
 // GetSessionRepository returns the session repository.

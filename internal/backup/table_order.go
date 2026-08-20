@@ -32,6 +32,7 @@ var tableDependencies = map[string][]string{
 	"rotation_policies":       {"users"},
 	"user_sessions":           {"users"},
 	"role_assignments":        {"vaults"},
+	"vault_webhook_configs":   {"vaults"},
 	"key_tags":                {"keys"},
 	"key_versions":            {"keys"},
 	"certificate_tags":        {"certificates"},

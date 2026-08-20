@@ -1291,6 +1291,128 @@ paths:
         "500":
           $ref: "#/components/responses/InternalError"
 
+  /api/v1/vaults/{name}/webhook:
+    parameters:
+      - name: name
+        in: path
+        required: true
+        description: Name of the vault
+        schema:
+          type: string
+          pattern: "^[a-z0-9](?:[a-z0-9-]{1,61}[a-z0-9])$"
+          example: "production"
+    put:
+      summary: Create or update a vault's webhook config
+      description: |
+        Creates or updates the vault's webhook notification target.
+        Authorized against the named vault itself (`vaults/manage`), the same
+        as the other `/vaults/{name}` management routes.
+
+        The server always mints the signing secret; there is no
+        client-supplied secret field. `rotate_secret: true` replaces an
+        existing secret. `enabled` is omittable to leave the current value
+        (or default to `true` on create) rather than silently disabling the
+        webhook by omission.
+
+        The response carries `signing_secret` in plaintext only on the call
+        that mints one — the first create, or any update with
+        `rotate_secret: true`. It is shown exactly once: the secret is stored
+        encrypted, and no endpoint (including the GET below) ever returns it
+        again after this response.
+      operationId: upsertVaultWebhook
+      tags:
+        - Vaults
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpsertVaultWebhookRequest"
+      responses:
+        "200":
+          description: |
+            Webhook config saved. The `signing_secret` field is present only
+            when this call minted a secret (create, or update with
+            `rotate_secret: true`); an update that did not rotate returns the
+            config without it.
+          content:
+            application/json:
+              schema:
+                anyOf:
+                  - $ref: "#/components/schemas/VaultWebhookConfigCreatedResponse"
+                  - $ref: "#/components/schemas/VaultWebhookConfigResponse"
+              examples:
+                created_or_rotated:
+                  summary: Create or rotate — secret shown once
+                  value:
+                    url: "https://hooks.example.com/rocketvault"
+                    enabled: true
+                    created_at: "2026-08-19T12:00:00Z"
+                    updated_at: "2026-08-19T12:00:00Z"
+                    signing_secret: "b64-encoded-secret-shown-only-now"
+                updated_without_rotate:
+                  summary: Update without rotating — no secret field
+                  value:
+                    url: "https://hooks.example.com/rocketvault"
+                    enabled: true
+                    created_at: "2026-08-19T12:00:00Z"
+                    updated_at: "2026-08-19T12:05:00Z"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalError"
+    get:
+      summary: Get a vault's webhook config
+      description: |
+        Returns the vault's webhook config. The response never includes the
+        signing secret in any form, encrypted or plain — the secret is shown
+        exactly once, from the PUT call that minted it.
+      operationId: getVaultWebhook
+      tags:
+        - Vaults
+      responses:
+        "200":
+          description: Webhook config retrieved successfully
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/VaultWebhookConfigResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          description: The vault does not exist, or has no webhook config
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "500":
+          $ref: "#/components/responses/InternalError"
+    delete:
+      summary: Delete a vault's webhook config
+      description: Removes the vault's webhook config. Deleting when none exists succeeds.
+      operationId: deleteVaultWebhook
+      tags:
+        - Vaults
+      responses:
+        "204":
+          description: Webhook config deleted successfully
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
   /api/v1/vaults/{vault_name}/purge:
     parameters:
       - $ref: "#/components/parameters/VaultName"
@@ -5368,6 +5490,67 @@ components:
             $ref: "#/components/schemas/VaultResponse"
         total:
           type: integer
+
+    UpsertVaultWebhookRequest:
+      type: object
+      required:
+        - url
+      description: |
+        There is no client-supplied secret field — the server always mints
+        the signing secret.
+      properties:
+        url:
+          type: string
+          format: uri
+          description: Must be an absolute https URL with a host.
+          example: "https://hooks.example.com/rocketvault"
+        rotate_secret:
+          type: boolean
+          description: Replace the existing signing secret with a newly minted one.
+          default: false
+        enabled:
+          type: boolean
+          description: Omitted leaves the current value unchanged (defaults to `true` on create).
+
+    VaultWebhookConfigResponse:
+      type: object
+      description: |
+        Has no property for the signing secret in any form, encrypted or
+        plain — it is never returned by this shape.
+      required:
+        - url
+        - enabled
+        - created_at
+        - updated_at
+      properties:
+        url:
+          type: string
+          format: uri
+        enabled:
+          type: boolean
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+
+    VaultWebhookConfigCreatedResponse:
+      type: object
+      description: |
+        VaultWebhookConfigResponse plus the plaintext signing secret, shown
+        exactly once: only in the PUT response for the call that minted it
+        (create, or rotate). No other endpoint or later call ever returns
+        this field again.
+      allOf:
+        - $ref: "#/components/schemas/VaultWebhookConfigResponse"
+        - type: object
+          required:
+            - signing_secret
+          properties:
+            signing_secret:
+              type: string
+              description: Plaintext signing secret. Shown once; not retrievable afterwards.
 
     # ─── Role assignments ────────────────────────────────────────────────────
     AssignRoleRequest:

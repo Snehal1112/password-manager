@@ -573,6 +573,10 @@ func (m *MockServiceContainer) GetVaultService() vaultServices.VaultService {
 	return nil
 }
 
+func (m *MockServiceContainer) GetVaultWebhookService() vaultServices.VaultWebhookService {
+	return nil
+}
+
 func (m *MockServiceContainer) GetPasswordService() authServices.PasswordService {
 	return nil
 }

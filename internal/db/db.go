@@ -516,6 +516,18 @@ func (d *DBRepository) createOptimizedSchema(db *sql.DB) error {
 		-- with "no such column: vault_id" -- the same class of bug already
 		-- avoided for audit_logs's enriched-column indexes below.
 
+		CREATE TABLE IF NOT EXISTS vault_webhook_configs (
+			id                       TEXT PRIMARY KEY,
+			vault_id                 TEXT NOT NULL UNIQUE,
+			url                      TEXT NOT NULL,
+			signing_secret_encrypted TEXT NOT NULL,
+			enabled                  BOOLEAN NOT NULL DEFAULT TRUE,
+			created_at               TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+			updated_at               TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+			FOREIGN KEY (vault_id) REFERENCES vaults(id) ON DELETE CASCADE
+		);
+		CREATE INDEX IF NOT EXISTS idx_vault_webhook_configs_vault_id ON vault_webhook_configs(vault_id);
+
 		CREATE TABLE IF NOT EXISTS crl (
 			id TEXT PRIMARY KEY,
 			user_id TEXT NOT NULL,
@@ -824,6 +836,19 @@ func (d *DBRepository) migrateSchema(db *sql.DB) error {
 		)`,
 		"CREATE INDEX IF NOT EXISTS idx_key_rotation_policies_key_id ON key_rotation_policies(key_id)",
 		"CREATE INDEX IF NOT EXISTS idx_key_rotation_policies_user_id ON key_rotation_policies(user_id)",
+		// Feature: per-vault webhook configuration (idempotent — table did not
+		// exist before this migration on any pre-existing database).
+		`CREATE TABLE IF NOT EXISTS vault_webhook_configs (
+			id                       TEXT PRIMARY KEY,
+			vault_id                 TEXT NOT NULL UNIQUE,
+			url                      TEXT NOT NULL,
+			signing_secret_encrypted TEXT NOT NULL,
+			enabled                  BOOLEAN NOT NULL DEFAULT TRUE,
+			created_at               TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+			updated_at               TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+			FOREIGN KEY (vault_id) REFERENCES vaults(id) ON DELETE CASCADE
+		)`,
+		"CREATE INDEX IF NOT EXISTS idx_vault_webhook_configs_vault_id ON vault_webhook_configs(vault_id)",
 		// Feature: rotation_policies for secrets (backfill will add vault_id below)
 		`CREATE TABLE IF NOT EXISTS rotation_policies (
 			id TEXT PRIMARY KEY,

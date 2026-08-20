@@ -4,11 +4,14 @@
 package container
 
 import (
+	"context"
 	"database/sql"
+	"encoding/base64"
 	"os"
 	"testing"
 	"time"
 
+	"github.com/google/uuid"
 	_ "github.com/mattn/go-sqlite3"
 	"github.com/sirupsen/logrus"
 	"github.com/spf13/viper"
@@ -18,10 +21,13 @@ import (
 	rvconfig "rocketvault/config"
 	"rocketvault/internal/cache"
 	"rocketvault/internal/cachekit"
+	rvdb "rocketvault/internal/db"
 	"rocketvault/internal/keycache"
 	"rocketvault/internal/logging"
+	vaultServices "rocketvault/internal/services/vaults"
 	"rocketvault/internal/signing"
 	"rocketvault/internal/vaultcache"
+	"rocketvault/model"
 )
 
 // TestMain ensures every test in this package uses an in-memory fake OS
@@ -137,6 +143,7 @@ func TestGetters_ZeroValueContainer(t *testing.T) {
 	assert.Nil(t, c.GetCertificateRenewalService(), "GetCertificateRenewalService")
 	assert.Nil(t, c.GetCryptoService(), "GetCryptoService")
 	assert.Nil(t, c.GetVaultService(), "GetVaultService")
+	assert.Nil(t, c.GetVaultWebhookService(), "GetVaultWebhookService")
 
 	// Secret component services
 	assert.Nil(t, c.GetCryptographyService(), "GetCryptographyService")
@@ -292,6 +299,7 @@ func TestNewServiceContainer_Success_CacheDisabled(t *testing.T) {
 	assert.NotNil(t, container.GetCertificateRenewalService(), "GetCertificateRenewalService")
 	assert.NotNil(t, container.GetCryptoService(), "GetCryptoService")
 	assert.NotNil(t, container.GetVaultService(), "GetVaultService")
+	assert.NotNil(t, container.GetVaultWebhookService(), "GetVaultWebhookService")
 
 	// Secret component services
 	assert.NotNil(t, container.GetCryptographyService(), "GetCryptographyService")
@@ -562,4 +570,98 @@ func TestNewServiceContainer_VaultCacheAlwaysNonNil(t *testing.T) {
 	t.Cleanup(func() { _ = container.Close() })
 
 	assert.NotNil(t, container.GetVaultCache(), "GetVaultCache must always be non-nil")
+}
+
+// ---------------------------------------------------------------------------
+// Test 18 — purge wiring actually removes a vault's webhook config row
+// ---------------------------------------------------------------------------
+
+// TestNewServiceContainer_PurgeRemovesWebhookConfig pins the orphan-prevention
+// guarantee that service_container.go's
+// `c.vaultService.SetWebhookCleaner(vaultWebhookRepo)` line exists to provide:
+// purging a vault with a webhook config must not strand a
+// vault_webhook_configs row (which holds an encrypted signing secret) behind.
+//
+// This is a behavioural check, not a wiring inspection, because
+// VaultWebhookService's cleaner is not exposed on VaultService's exported
+// interface. If that SetWebhookCleaner call is ever deleted, PurgeVault's
+// s.webhooks fork is simply never taken (see
+// TestPurgeVault_NoWebhookCleanerIsFine in
+// internal/services/vaults/vault_service_webhook_cleanup_test.go, which
+// explicitly asserts purge still succeeds with no cleaner set) and this test
+// must fail by finding the row still present after purge.
+func TestNewServiceContainer_PurgeRemovesWebhookConfig(t *testing.T) {
+	// common.EncryptSecret (used by VaultWebhookService.Upsert) reads
+	// master_key from the global viper singleton, not the per-container
+	// Viper instance -- mirror setupWebhookTestMasterKey in
+	// internal/services/vaults/webhook_service_test.go.
+	origMasterKey := viper.GetString("master_key")
+	k := make([]byte, 32)
+	for i := range k {
+		k[i] = byte(i + 1)
+	}
+	viper.Set("master_key", base64.StdEncoding.EncodeToString(k))
+	t.Cleanup(func() { viper.Set("master_key", origMasterKey) })
+
+	// A plain ":memory:" DSN gives every new pooled connection its own empty
+	// database, which the container's background init (e.g. the softdelete
+	// scheduler) can trip over via a second concurrent connection. Use a
+	// named, shared-cache DSN instead so every connection in the pool sees
+	// the same in-memory database, and open it directly rather than through
+	// newMinimalConfig/openSQLite (which use plain ":memory:").
+	dsn := "file:webhookpurgetest_" + uuid.NewString() + "?mode=memory&cache=shared"
+	rawDB, err := sql.Open("sqlite3", dsn)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = rawDB.Close() })
+
+	require.NoError(t, rvdb.NewRepository(newTestLogger()).SetupSchema(rawDB, rvdb.SQLite),
+		"setup schema before exercising vault/webhook services")
+
+	containerViper := viper.New()
+	containerViper.Set("jwt.key_source", "os_store")
+	cfg := Config{
+		Database:    rawDB,
+		Logger:      newTestLogger(),
+		CacheConfig: cacheConfigWithSecretsDisabled(t),
+		Viper:       containerViper,
+	}
+
+	container, err := NewServiceContainer(cfg)
+	require.NoError(t, err)
+	require.NotNil(t, container)
+	t.Cleanup(func() { _ = container.Close() })
+
+	ctx := context.Background()
+	vaultSvc := container.GetVaultService()
+	webhookSvc := container.GetVaultWebhookService()
+	require.NotNil(t, vaultSvc)
+	require.NotNil(t, webhookSvc)
+
+	name := "webhook-purge-" + uuid.NewString()[:8]
+	v, err := vaultSvc.CreateVault(ctx, model.CreateVaultRequest{Name: name}, uuid.New())
+	require.NoError(t, err)
+
+	_, _, err = webhookSvc.Upsert(ctx, v.ID, vaultServices.UpsertWebhookRequest{
+		URL: "https://example.com/hook",
+	})
+	require.NoError(t, err)
+
+	// Sanity check: the row exists before purge.
+	var countBefore int
+	require.NoError(t, rawDB.QueryRow(
+		"SELECT COUNT(*) FROM vault_webhook_configs WHERE vault_id = ?", v.ID.String(),
+	).Scan(&countBefore))
+	require.Equal(t, 1, countBefore, "webhook config row must exist before purge")
+
+	require.NoError(t, vaultSvc.DeleteVault(ctx, name))
+	require.NoError(t, vaultSvc.PurgeVault(ctx, name))
+
+	var countAfter int
+	require.NoError(t, rawDB.QueryRow(
+		"SELECT COUNT(*) FROM vault_webhook_configs WHERE vault_id = ?", v.ID.String(),
+	).Scan(&countAfter))
+	assert.Equal(t, 0, countAfter,
+		"purging a vault must remove its webhook config row -- if this fails, "+
+			"check that service_container.go still calls "+
+			"c.vaultService.SetWebhookCleaner(vaultWebhookRepo)")
 }
