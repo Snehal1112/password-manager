@@ -105,10 +105,6 @@ func TestListKeyVersions_VerifiesKeyAccessFirst(t *testing.T) {
 	ownerID := uuid.New()
 	scope := model.NewOwnerScope(uuid.New(), ownerID)
 
-	// The key row's owner (ownerID) is what ListVersions must be called
-	// with, not the scope's own actor id -- they happen to match here for
-	// an owner scope, but the point is the handoff goes through the
-	// authorized key, not the scope directly.
 	keyRepo.On("Read", mock.Anything, keyID, scope).Return(&model.Key{ID: keyID, UserID: ownerID, Enabled: true}, nil)
 	want := []model.KeyVersion{{KeyID: keyID, Version: 1}, {KeyID: keyID, Version: 2}}
 	keyRepo.On("ListVersions", mock.Anything, keyID).Return(want, nil)

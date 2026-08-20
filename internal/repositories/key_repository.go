@@ -42,6 +42,7 @@ type KeyRepositoryInterface interface {
 	// Used to return deletion metadata after a soft-delete operation.
 	ReadDeleted(ctx context.Context, id uuid.UUID) (*model.Key, error)
 	// CreateVersion persists a versioned snapshot of a key's raw material.
+	// Performs no authorization; see ReadVersionValue for the contract.
 	CreateVersion(ctx context.Context, keyID uuid.UUID, version int, value string) error
 	// ListVersions returns all version records for a key, ordered by version
 	// ASC. Performs no authorization; see ReadVersionValue for the contract.
@@ -874,10 +875,11 @@ func (r *KeyRepository) ListVersionRecords(ctx context.Context, keyID uuid.UUID)
 }
 
 // CurrentVersion returns keyID's current version number via a single
-// aggregate query. LEFT JOIN from keys (not an INNER JOIN from
-// key_versions) is required: a never-rotated key has zero key_versions
-// rows, and an INNER JOIN would return zero result rows instead of a row
-// with a NULL aggregate, breaking the COALESCE fallback below.
+// aggregate query against key_versions alone -- no join against keys is
+// needed. An ungrouped aggregate always yields exactly one row regardless
+// of how many (if any) key_versions rows match, so COALESCE(MAX(version),
+// 1) supplies the never-rotated fallback on its own; this also avoids
+// fetching every version row just to find the max.
 //
 // Performs no authorization; see ReadVersionValue for the contract.
 //
@@ -891,10 +893,9 @@ func (r *KeyRepository) ListVersionRecords(ctx context.Context, keyID uuid.UUID)
 func (r *KeyRepository) CurrentVersion(ctx context.Context, keyID uuid.UUID) (int, error) {
 	var version int
 	err := r.db.QueryRowContext(ctx, `
-		SELECT COALESCE(MAX(kv.version), 1)
-		FROM keys k
-		LEFT JOIN key_versions kv ON kv.key_id = k.id
-		WHERE k.id = ?`,
+		SELECT COALESCE(MAX(version), 1)
+		FROM key_versions
+		WHERE key_id = ?`,
 		keyID.String(),
 	).Scan(&version)
 	if err != nil {

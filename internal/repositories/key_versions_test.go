@@ -208,12 +208,11 @@ func TestVersionQueries_NotFilteredByOwner(t *testing.T) {
 	require.Equal(t, "pem-v1", records[0].Value)
 }
 
-// TestCurrentVersion_NeverRotatedKeyStillReturnsOne guards the one subtlety in
-// this refactor: CurrentVersion keeps its LEFT JOIN against keys even though
-// the user_id term is gone. A never-rotated key has zero key_versions rows,
-// and the LEFT JOIN is what makes COALESCE(MAX(kv.version), 1) yield a row
-// containing 1 rather than no row at all. Dropping the join with the filter
-// would turn this into sql.ErrNoRows.
+// TestCurrentVersion_NeverRotatedKeyStillReturnsOne pins the one thing worth
+// guarding here: a never-rotated key's implicit current version is 1. A
+// never-rotated key has zero key_versions rows, and COALESCE(MAX(version), 1)
+// yields 1 for that case because an ungrouped aggregate always returns
+// exactly one row, with or without a join.
 func TestCurrentVersion_NeverRotatedKeyStillReturnsOne(t *testing.T) {
 	t.Parallel()
 	db := setupTestDB(t)

@@ -540,12 +540,19 @@ func TestRestoreCertificatePreservesPurgeProtection(t *testing.T) {
 
 // TestBackupRestoreKey_CarriesVersionHistory verifies a rotated key's
 // key_versions history survives a backup/restore round-trip, and that a
-// crypto-relevant old version's material is still present afterward.
+// crypto-relevant old version's material is still present afterward. The
+// calling user is deliberately distinct from the key's owner: this is the
+// direct regression pin for B28/F2 -- a non-owner backing up a key they
+// don't own, but do hold ActionKeysBackup for in the same vault. Under the
+// pre-fix code, ListVersionRecords' owner-ID filter would have been passed
+// the caller's ID instead of the key's, matched no rows, and silently
+// dropped the version history from the blob.
 func TestBackupRestoreKey_CarriesVersionHistory(t *testing.T) {
 	t.Parallel()
 
 	ctx := context.Background()
 	owner := uuid.New()
+	caller := uuid.New()
 	vaultID := uuid.New()
 	keyID := uuid.New()
 
@@ -559,11 +566,11 @@ func TestBackupRestoreKey_CarriesVersionHistory(t *testing.T) {
 
 	svc := backup.NewItemBackupService(nil, repo, nil)
 
-	blob, err := svc.BackupKey(ctx, keyID, owner, vaultID)
+	blob, err := svc.BackupKey(ctx, keyID, caller, vaultID)
 	require.NoError(t, err)
 
 	newID := uuid.New()
-	require.NoError(t, svc.RestoreKey(ctx, blob, owner, vaultID, newID))
+	require.NoError(t, svc.RestoreKey(ctx, blob, caller, vaultID, newID))
 
 	records, err := repo.ListVersionRecords(ctx, newID)
 	require.NoError(t, err)
