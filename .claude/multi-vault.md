@@ -96,11 +96,13 @@ api/keys.go` first.
 These continue to work via the default vault; they were scoped out to keep
 each change reviewable:
 
-- **Secondary subsystems still user-scoped:** rotation, scheduler, and backup
-  still key off `user_id`, using the still-present `ReadByOwner`/`ListByUser`
+- **Secondary subsystems still user-scoped:** rotation and scheduler still
+  key off `user_id`, using the still-present `ReadByOwner`/`ListByUser`
   repository methods (which is why those methods were NOT removed). Secrets
   versioning, secrets/keys UPDATE, and secrets export/import were vault-scoped
-  by the 2026-07-26 fix above and are no longer in this category.
+  by the 2026-07-26 fix above; item backup (`internal/backup/item_backup.go`)
+  was vault-scoped separately on 2026-08-19 (`model.NewVaultScope`) and is no
+  longer in this category either.
 - **Keys/certs CLI `--vault` wiring:** only the `secrets` CLI commands
   (create/list/get/delete/update/export/import — all of them call
   `resolveVaultID` via `cmd/secrets/vault.go`) are vault-scoped. Keys and

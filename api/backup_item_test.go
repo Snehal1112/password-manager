@@ -291,8 +291,9 @@ func (c *backupItemContainer) GetItemBackupService() *backup.ItemBackupService {
 // mockSecretRepo is a minimal SecretRepositoryInterface implementation for
 // backup tests. Only Create and Read are expected to be called.
 type mockSecretRepo struct {
-	readFn   func(ctx context.Context, id uuid.UUID) (*model.Secret, error)
-	createFn func(ctx context.Context, secret *model.Secret) error
+	readFn    func(ctx context.Context, id uuid.UUID) (*model.Secret, error)
+	createFn  func(ctx context.Context, secret *model.Secret) error
+	lastScope model.Scope
 }
 
 func (m *mockSecretRepo) Create(ctx context.Context, secret *model.Secret) error {
@@ -301,7 +302,8 @@ func (m *mockSecretRepo) Create(ctx context.Context, secret *model.Secret) error
 	}
 	return nil
 }
-func (m *mockSecretRepo) Read(ctx context.Context, id uuid.UUID, _ model.Scope) (*model.Secret, error) {
+func (m *mockSecretRepo) Read(ctx context.Context, id uuid.UUID, scope model.Scope) (*model.Secret, error) {
+	m.lastScope = scope
 	if m.readFn != nil {
 		return m.readFn(ctx, id)
 	}
@@ -411,6 +413,39 @@ func TestBackupSecretHandler_NotFound_Returns404(t *testing.T) {
 	}
 
 	assert.Equal(t, http.StatusNotFound, w.Code)
+}
+
+// TestBackupSecretHandler_ScopesReadToRequestVault verifies that the vault
+// resolved from the request (vaultIDFromRequest, via common.VaultIDKey) is
+// threaded through to the repository's Read call as the scope's vault, paired
+// with the caller's user ID — not transposed, and not dropped in favor of
+// uuid.Nil. mockSecretRepo.Read previously discarded its scope argument
+// entirely, so a bug that swapped or zeroed backupSecretHandler's call to
+// svc.BackupSecret(ctx, secretID, userID, vaultID) would compile and pass
+// every other test in this file; this test pins the actual scope produced.
+func TestBackupSecretHandler_ScopesReadToRequestVault(t *testing.T) {
+	secretID := uuid.New()
+	userID := uuid.MustParse(secretHTestUserID)
+	vaultID := uuid.New()
+	secretRepo := &mockSecretRepo{
+		readFn: func(_ context.Context, id uuid.UUID) (*model.Secret, error) {
+			return &model.Secret{ID: id, Name: "s", Value: "v", UserID: userID}, nil
+		},
+	}
+
+	c := newBackupCtxWithSecret(secretRepo)
+	c.Params = &ApiParams{SecretID: secretID.String(), PerPage: 60}
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest(http.MethodPost, "/secrets/"+secretID.String()+"/backup", nil)
+	r = r.WithContext(context.WithValue(r.Context(), common.VaultIDKey, vaultID.String()))
+
+	backupSecretHandler(c, w, r)
+	if c.Err != nil {
+		writeError(w, c)
+	}
+
+	assert.Equal(t, http.StatusOK, w.Code)
+	assert.Equal(t, model.NewVaultScope(vaultID, userID), secretRepo.lastScope)
 }
 
 // ============================================================
@@ -585,8 +620,9 @@ func TestRestoreSecretHandler_NilContainer_Returns500(t *testing.T) {
 
 // mockKeyRepo is a minimal KeyRepositoryInterface for backup tests.
 type mockKeyRepo struct {
-	readFn   func(ctx context.Context, id uuid.UUID) (*model.Key, error)
-	createFn func(ctx context.Context, key *model.Key) error
+	readFn    func(ctx context.Context, id uuid.UUID) (*model.Key, error)
+	createFn  func(ctx context.Context, key *model.Key) error
+	lastScope model.Scope
 }
 
 func (m *mockKeyRepo) Create(ctx context.Context, key *model.Key) error {
@@ -595,7 +631,8 @@ func (m *mockKeyRepo) Create(ctx context.Context, key *model.Key) error {
 	}
 	return nil
 }
-func (m *mockKeyRepo) Read(ctx context.Context, id uuid.UUID, _ model.Scope) (*model.Key, error) {
+func (m *mockKeyRepo) Read(ctx context.Context, id uuid.UUID, scope model.Scope) (*model.Key, error) {
+	m.lastScope = scope
 	if m.readFn != nil {
 		return m.readFn(ctx, id)
 	}
@@ -645,8 +682,9 @@ func (m *mockKeyRepo) RecoverVaultContents(_ context.Context, _ uuid.UUID, _ tim
 
 // mockCertRepo is a minimal CertificateRepositoryInterface for backup tests.
 type mockCertRepo struct {
-	readFn   func(ctx context.Context, id uuid.UUID) (*model.Certificate, error)
-	createFn func(ctx context.Context, cert *model.Certificate) error
+	readFn    func(ctx context.Context, id uuid.UUID) (*model.Certificate, error)
+	createFn  func(ctx context.Context, cert *model.Certificate) error
+	lastScope model.Scope
 }
 
 func (m *mockCertRepo) Create(ctx context.Context, cert *model.Certificate) error {
@@ -655,7 +693,8 @@ func (m *mockCertRepo) Create(ctx context.Context, cert *model.Certificate) erro
 	}
 	return nil
 }
-func (m *mockCertRepo) Read(ctx context.Context, id uuid.UUID, _ model.Scope) (*model.Certificate, error) {
+func (m *mockCertRepo) Read(ctx context.Context, id uuid.UUID, scope model.Scope) (*model.Certificate, error) {
+	m.lastScope = scope
 	if m.readFn != nil {
 		return m.readFn(ctx, id)
 	}
@@ -782,6 +821,36 @@ func TestBackupKeyHandler_NotFound_Returns404(t *testing.T) {
 	}
 
 	assert.Equal(t, http.StatusNotFound, w.Code)
+}
+
+// TestBackupKeyHandler_ScopesReadToRequestVault verifies that the vault
+// resolved from the request is threaded through to the repository's Read
+// call as the scope's vault, paired with the caller's user ID — see
+// TestBackupSecretHandler_ScopesReadToRequestVault for why this needs its own
+// test rather than relying on the existing success/not-found cases.
+func TestBackupKeyHandler_ScopesReadToRequestVault(t *testing.T) {
+	keyID := uuid.New()
+	userID := uuid.MustParse(secretHTestUserID)
+	vaultID := uuid.New()
+	keyRepo := &mockKeyRepo{
+		readFn: func(_ context.Context, id uuid.UUID) (*model.Key, error) {
+			return &model.Key{ID: id, Name: "k", Type: "RSA", UserID: userID}, nil
+		},
+	}
+
+	c := newBackupCtxWithKey(keyRepo)
+	c.Params = &ApiParams{KeyID: keyID.String(), PerPage: 60}
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest(http.MethodPost, "/keys/"+keyID.String()+"/backup", nil)
+	r = r.WithContext(context.WithValue(r.Context(), common.VaultIDKey, vaultID.String()))
+
+	backupKeyHandler(c, w, r)
+	if c.Err != nil {
+		writeError(w, c)
+	}
+
+	assert.Equal(t, http.StatusOK, w.Code)
+	assert.Equal(t, model.NewVaultScope(vaultID, userID), keyRepo.lastScope)
 }
 
 // ============================================================
@@ -948,6 +1017,36 @@ func TestBackupCertificateHandler_NotFound_Returns404(t *testing.T) {
 	}
 
 	assert.Equal(t, http.StatusNotFound, w.Code)
+}
+
+// TestBackupCertificateHandler_ScopesReadToRequestVault verifies that the
+// vault resolved from the request is threaded through to the repository's
+// Read call as the scope's vault, paired with the caller's user ID — see
+// TestBackupSecretHandler_ScopesReadToRequestVault for why this needs its own
+// test rather than relying on the existing success/not-found cases.
+func TestBackupCertificateHandler_ScopesReadToRequestVault(t *testing.T) {
+	certID := uuid.New()
+	userID := uuid.MustParse(secretHTestUserID)
+	vaultID := uuid.New()
+	certRepo := &mockCertRepo{
+		readFn: func(_ context.Context, id uuid.UUID) (*model.Certificate, error) {
+			return &model.Certificate{ID: id, Name: "c", UserID: userID}, nil
+		},
+	}
+
+	c := newBackupCtxWithCert(certRepo)
+	c.Params = &ApiParams{CertificateID: certID.String(), PerPage: 60}
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest(http.MethodPost, "/certificates/"+certID.String()+"/backup", nil)
+	r = r.WithContext(context.WithValue(r.Context(), common.VaultIDKey, vaultID.String()))
+
+	backupCertificateHandler(c, w, r)
+	if c.Err != nil {
+		writeError(w, c)
+	}
+
+	assert.Equal(t, http.StatusOK, w.Code)
+	assert.Equal(t, model.NewVaultScope(vaultID, userID), certRepo.lastScope)
 }
 
 // ============================================================
