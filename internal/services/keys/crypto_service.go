@@ -224,7 +224,7 @@ func (s *cryptoService) resolveVersionValue(ctx context.Context, key *model.Key,
 	if requested == 0 || requested == current {
 		return key.Value, current, nil
 	}
-	value, err = s.keyRepo.ReadVersionValue(ctx, key.ID, requested, key.UserID)
+	value, err = s.keyRepo.ReadVersionValue(ctx, key.ID, requested)
 	if err != nil {
 		return "", 0, err
 	}

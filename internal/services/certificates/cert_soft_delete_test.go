@@ -169,13 +169,13 @@ func (m *mockKeyRepo) ListVersions(ctx context.Context, keyID, userID uuid.UUID)
 func (m *mockKeyRepo) CurrentVersion(ctx context.Context, keyID uuid.UUID, userID uuid.UUID) (int, error) {
 	return 1, nil
 }
-func (m *mockKeyRepo) ReadVersionValue(ctx context.Context, keyID uuid.UUID, version int, userID uuid.UUID) (string, error) {
+func (m *mockKeyRepo) ReadVersionValue(ctx context.Context, keyID uuid.UUID, version int) (string, error) {
 	return "", nil
 }
 func (m *mockKeyRepo) GetVersion(ctx context.Context, keyID uuid.UUID, version int, userID uuid.UUID) (*model.KeyVersion, error) {
 	return nil, nil
 }
-func (m *mockKeyRepo) ListVersionRecords(ctx context.Context, keyID uuid.UUID, userID uuid.UUID) ([]model.KeyVersionRecord, error) {
+func (m *mockKeyRepo) ListVersionRecords(ctx context.Context, keyID uuid.UUID) ([]model.KeyVersionRecord, error) {
 	return nil, nil
 }
 func (m *mockKeyRepo) SoftDeleteVaultContents(ctx context.Context, vaultID uuid.UUID, deletedAt time.Time) error {

@@ -55,7 +55,7 @@ func TestKeyVersions_ReadVersionValue_ArchivedVersion(t *testing.T) {
 	require.NoError(t, repo.CreateVersion(context.Background(), keyID, 1, "pem-v1"))
 	require.NoError(t, repo.CreateVersion(context.Background(), keyID, 2, "pem-v2"))
 
-	value, err := repo.ReadVersionValue(context.Background(), keyID, 1, userID)
+	value, err := repo.ReadVersionValue(context.Background(), keyID, 1)
 	require.NoError(t, err)
 	require.Equal(t, "pem-v1", value)
 }
@@ -72,7 +72,7 @@ func TestKeyVersions_ReadVersionValue_ImplicitVersionOneFallback(t *testing.T) {
 	k := &model.Key{ID: keyID, UserID: userID, Name: "k", Type: model.KeyTypeRSA, Value: "pem-original", Enabled: true, CreatedAt: time.Now()}
 	require.NoError(t, repo.Create(context.Background(), k))
 
-	value, err := repo.ReadVersionValue(context.Background(), keyID, 1, userID)
+	value, err := repo.ReadVersionValue(context.Background(), keyID, 1)
 	require.NoError(t, err)
 	require.Equal(t, "pem-original", value)
 }
@@ -88,23 +88,7 @@ func TestKeyVersions_ReadVersionValue_NonexistentVersion(t *testing.T) {
 	k := &model.Key{ID: keyID, UserID: userID, Name: "k", Type: model.KeyTypeRSA, Value: "pem-v1", Enabled: true, CreatedAt: time.Now()}
 	require.NoError(t, repo.Create(context.Background(), k))
 
-	_, err := repo.ReadVersionValue(context.Background(), keyID, 5, userID)
-	require.ErrorIs(t, err, repositories.ErrKeyVersionNotFound)
-}
-
-func TestKeyVersions_ReadVersionValue_WrongOwner(t *testing.T) {
-	t.Parallel()
-	db := setupTestDB(t)
-	log := logging.InitLogger()
-	repo := repositories.NewKeyRepository(rvdb.NewConn(db, rvdb.SQLite), log)
-
-	keyID := uuid.New()
-	userID := uuid.New()
-	other := uuid.New()
-	k := &model.Key{ID: keyID, UserID: userID, Name: "k", Type: model.KeyTypeRSA, Value: "pem-v1", Enabled: true, CreatedAt: time.Now()}
-	require.NoError(t, repo.Create(context.Background(), k))
-
-	_, err := repo.ReadVersionValue(context.Background(), keyID, 1, other)
+	_, err := repo.ReadVersionValue(context.Background(), keyID, 5)
 	require.ErrorIs(t, err, repositories.ErrKeyVersionNotFound)
 }
 
@@ -180,17 +164,46 @@ func TestKeyVersions_ListVersionRecords_IncludesValue(t *testing.T) {
 	require.NoError(t, repo.Create(context.Background(), k))
 
 	// Never rotated: zero records.
-	records, err := repo.ListVersionRecords(context.Background(), keyID, userID)
+	records, err := repo.ListVersionRecords(context.Background(), keyID)
 	require.NoError(t, err)
 	require.Empty(t, records)
 
 	require.NoError(t, repo.CreateVersion(context.Background(), keyID, 1, "pem-v1"))
 	require.NoError(t, repo.CreateVersion(context.Background(), keyID, 2, "pem-v2"))
 
-	records, err = repo.ListVersionRecords(context.Background(), keyID, userID)
+	records, err = repo.ListVersionRecords(context.Background(), keyID)
 	require.NoError(t, err)
 	require.Len(t, records, 2)
 	require.Equal(t, "pem-v1", records[0].Value)
 	require.Equal(t, 1, records[0].Version)
 	require.Equal(t, "pem-v2", records[1].Value)
+}
+
+// TestVersionQueries_NotFilteredByOwner pins the contract these methods moved
+// to: they return a key's versions by key ID alone. Authorization is the
+// caller's scoped Read of the parent key, performed before these are reached.
+// Before this change the queries joined keys and filtered k.user_id, so a
+// lookup keyed on anyone but the owner returned nothing.
+func TestVersionQueries_NotFilteredByOwner(t *testing.T) {
+	t.Parallel()
+	db := setupTestDB(t)
+	log := logging.InitLogger()
+	repo := repositories.NewKeyRepository(rvdb.NewConn(db, rvdb.SQLite), log)
+
+	ctx := context.Background()
+	keyID := uuid.New()
+	require.NoError(t, repo.Create(ctx, &model.Key{
+		ID: keyID, UserID: uuid.New(), Name: "rotated",
+		Type: model.KeyTypeRSA, Value: "pem-v2", Enabled: true, CreatedAt: time.Now(),
+	}))
+	require.NoError(t, repo.CreateVersion(ctx, keyID, 1, "pem-v1"))
+
+	value, err := repo.ReadVersionValue(ctx, keyID, 1)
+	require.NoError(t, err)
+	require.Equal(t, "pem-v1", value)
+
+	records, err := repo.ListVersionRecords(ctx, keyID)
+	require.NoError(t, err)
+	require.Len(t, records, 1)
+	require.Equal(t, "pem-v1", records[0].Value)
 }

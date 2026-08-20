@@ -545,7 +545,7 @@ func TestSign_ArchivedVersion_UsesVersionMaterial(t *testing.T) {
 	repo.On("Read", mock.Anything, keyID, model.NewOwnerScope(uuid.Nil, userID)).Return(vaultKey, nil)
 	// Two versions exist: 1 (archived) and 2 (current, == keys.value).
 	repo.On("CurrentVersion", mock.Anything, keyID, userID).Return(2, nil)
-	repo.On("ReadVersionValue", mock.Anything, keyID, 1, userID).Return(encryptedArchived, nil)
+	repo.On("ReadVersionValue", mock.Anything, keyID, 1).Return(encryptedArchived, nil)
 
 	svc := keys.NewCryptoService(keys.CryptoServiceConfig{
 		KeyRepository: repo,
@@ -594,7 +594,7 @@ func TestSign_VersionOmitted_UsesCurrentAndEchoesNumber(t *testing.T) {
 	})
 	require.NoError(t, err)
 	assert.Equal(t, 2, res.Version)
-	repo.AssertNotCalled(t, "ReadVersionValue", mock.Anything, mock.Anything, mock.Anything, mock.Anything)
+	repo.AssertNotCalled(t, "ReadVersionValue", mock.Anything, mock.Anything, mock.Anything)
 }
 
 // TestSign_NonexistentVersion_ReturnsErrKeyVersionNotFound verifies a
@@ -614,7 +614,7 @@ func TestSign_NonexistentVersion_ReturnsErrKeyVersionNotFound(t *testing.T) {
 	repo := mocks.NewMockKeyRepositoryInterface(t)
 	repo.On("Read", mock.Anything, keyID, model.NewOwnerScope(uuid.Nil, userID)).Return(vaultKey, nil)
 	repo.On("CurrentVersion", mock.Anything, keyID, userID).Return(1, nil)
-	repo.On("ReadVersionValue", mock.Anything, keyID, 9, userID).Return("", repositories.ErrKeyVersionNotFound)
+	repo.On("ReadVersionValue", mock.Anything, keyID, 9).Return("", repositories.ErrKeyVersionNotFound)
 
 	svc := keys.NewCryptoService(keys.CryptoServiceConfig{
 		KeyRepository: repo,
@@ -650,7 +650,7 @@ func TestResolveKeyMaterial_CacheKeyUsesRealVersion_NoCrossContamination(t *test
 	repo := mocks.NewMockKeyRepositoryInterface(t)
 	repo.On("Read", mock.Anything, keyID, model.NewOwnerScope(uuid.Nil, userID)).Return(vaultKey, nil)
 	repo.On("CurrentVersion", mock.Anything, keyID, userID).Return(2, nil)
-	repo.On("ReadVersionValue", mock.Anything, keyID, 1, userID).Return(encryptedArchived, nil)
+	repo.On("ReadVersionValue", mock.Anything, keyID, 1).Return(encryptedArchived, nil)
 
 	cache := &mockKeyCache{}
 	// version 2 (current) miss then never re-fetched; version 1 (archived) miss too.
@@ -798,7 +798,7 @@ func TestVersionThreading_RemainingOperations(t *testing.T) {
 			repo.On("Read", mock.Anything, keyID, scope).Return(vaultKey, nil)
 			// Two versions exist; 2 is current (== keys.value), 1 is archived.
 			repo.On("CurrentVersion", mock.Anything, keyID, userID).Return(2, nil)
-			repo.On("ReadVersionValue", mock.Anything, keyID, 1, userID).
+			repo.On("ReadVersionValue", mock.Anything, keyID, 1).
 				Return(pkcs11TestPrefix+archivedHandle, nil)
 
 			provider := &mockKeyProvider{}

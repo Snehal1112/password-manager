@@ -337,7 +337,7 @@ func (r *stubKeyRepo) CurrentVersion(_ context.Context, keyID uuid.UUID, _ uuid.
 	return current, nil
 }
 
-func (r *stubKeyRepo) ReadVersionValue(_ context.Context, _ uuid.UUID, _ int, _ uuid.UUID) (string, error) {
+func (r *stubKeyRepo) ReadVersionValue(_ context.Context, _ uuid.UUID, _ int) (string, error) {
 	return "", nil
 }
 
@@ -345,7 +345,7 @@ func (r *stubKeyRepo) GetVersion(_ context.Context, _ uuid.UUID, _ int, _ uuid.U
 	return nil, nil
 }
 
-func (r *stubKeyRepo) ListVersionRecords(_ context.Context, keyID uuid.UUID, _ uuid.UUID) ([]model.KeyVersionRecord, error) {
+func (r *stubKeyRepo) ListVersionRecords(_ context.Context, keyID uuid.UUID) ([]model.KeyVersionRecord, error) {
 	var records []model.KeyVersionRecord
 	for v, val := range r.versions[keyID] {
 		records = append(records, model.KeyVersionRecord{KeyID: keyID, Version: v, Value: val})
@@ -565,7 +565,7 @@ func TestBackupRestoreKey_CarriesVersionHistory(t *testing.T) {
 	newID := uuid.New()
 	require.NoError(t, svc.RestoreKey(ctx, blob, owner, vaultID, newID))
 
-	records, err := repo.ListVersionRecords(ctx, newID, owner)
+	records, err := repo.ListVersionRecords(ctx, newID)
 	require.NoError(t, err)
 	require.Len(t, records, 2)
 	assert.Equal(t, "pem-v1", records[0].Value)
@@ -599,7 +599,7 @@ func TestRestoreKey_OldFormatBlob_NoVersionsField(t *testing.T) {
 	newID := uuid.New()
 	require.NoError(t, svc.RestoreKey(ctx, blob, owner, vaultID, newID))
 
-	records, err := repo.ListVersionRecords(ctx, newID, owner)
+	records, err := repo.ListVersionRecords(ctx, newID)
 	require.NoError(t, err)
 	assert.Empty(t, records)
 }
