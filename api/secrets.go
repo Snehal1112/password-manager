@@ -97,7 +97,13 @@ func listSecretVersionsHandler(c *Context, w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	versions, err := secretService.GetSecretVersions(r.Context(), secretID, scope)
+	// Metadata only, and metadata only by construction: this route is
+	// authorized by ActionSecretsReadMetadata, which Key Vault Reader holds.
+	// It previously called GetSecretVersions, which decrypts every version,
+	// so a Reader could read every historical plaintext value of the secret
+	// (.claude/known-bugs.md § B30). A value is read through
+	// GET /secrets/{id}/versions/{n}, which requires ActionSecretsGet.
+	versions, err := secretService.GetSecretVersionsMetadata(r.Context(), secretID, scope)
 	if err != nil {
 		writeSecretError(c, err)
 		return

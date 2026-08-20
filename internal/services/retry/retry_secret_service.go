@@ -77,6 +77,14 @@ func (s *retrySecretService) GetSecretVersions(ctx context.Context, secretID uui
 	})
 }
 
+// GetSecretVersionsMetadata enumerates a secret's versions, without values,
+// with retry logic for database operations.
+func (s *retrySecretService) GetSecretVersionsMetadata(ctx context.Context, secretID uuid.UUID, scope model.Scope) ([]model.SecretVersionMetadata, error) {
+	return retried(ctx, s.retryService, func() ([]model.SecretVersionMetadata, error) {
+		return s.baseService.GetSecretVersionsMetadata(ctx, secretID, scope)
+	})
+}
+
 // GetSecretVersion retrieves a specific secret version with retry logic for database operations
 func (s *retrySecretService) GetSecretVersion(ctx context.Context, secretID uuid.UUID, version int, scope model.Scope) (*model.SecretVersion, error) {
 	return retried(ctx, s.retryService, func() (*model.SecretVersion, error) {

@@ -130,8 +130,12 @@ type SecretService interface {
 	GenerateSecret(ctx context.Context, req GenerateSecretRequest) (*model.Secret, error)
 	ExportSecrets(ctx context.Context, req ExportSecretsRequest) ([]byte, error)
 	ImportSecrets(ctx context.Context, req ImportSecretsRequest) (*ImportResult, error)
-	// GetSecretVersions returns every version of a secret the scope authorizes.
+	// GetSecretVersions returns every version of a secret the scope
+	// authorizes, with values decrypted. Use GetSecretVersionsMetadata to
+	// merely enumerate versions -- see § B30.
 	GetSecretVersions(ctx context.Context, secretID uuid.UUID, scope model.Scope) ([]model.SecretVersion, error)
+	// GetSecretVersionsMetadata enumerates a secret's versions without values.
+	GetSecretVersionsMetadata(ctx context.Context, secretID uuid.UUID, scope model.Scope) ([]model.SecretVersionMetadata, error)
 	// GetSecretVersion returns one version the scope authorizes.
 	GetSecretVersion(ctx context.Context, secretID uuid.UUID, version int, scope model.Scope) (*model.SecretVersion, error)
 	// GetLatestSecretVersion returns the newest version the scope authorizes.
@@ -460,6 +464,11 @@ func (s *secretService) ListDeletedSecrets(ctx context.Context, scope model.Scop
 // GetSecretVersions returns every version of a secret the scope authorizes.
 func (s *secretService) GetSecretVersions(ctx context.Context, secretID uuid.UUID, scope model.Scope) ([]model.SecretVersion, error) {
 	return s.versionService.GetVersions(ctx, secretID, scope)
+}
+
+// GetSecretVersionsMetadata enumerates a secret's versions without values.
+func (s *secretService) GetSecretVersionsMetadata(ctx context.Context, secretID uuid.UUID, scope model.Scope) ([]model.SecretVersionMetadata, error) {
+	return s.versionService.GetVersionsMetadata(ctx, secretID, scope)
 }
 
 // GetSecretVersion returns one version the scope authorizes.

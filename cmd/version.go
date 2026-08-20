@@ -29,6 +29,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/spf13/cobra"
 
+	"rocketvault/cmd/vaultcli"
 	"rocketvault/common"
 	"rocketvault/internal/container"
 	"rocketvault/model"
@@ -114,11 +115,19 @@ func init() {
 	// Latest command flags
 	versionLatestCmd.Flags().StringVar(&versionSecretID, "secret-id", "", "Secret ID to get latest version for (required)")
 	versionLatestCmd.MarkFlagRequired("secret-id") //nolint:errcheck,gosec
+
+	// Every subcommand resolves a vault, so each needs the selection flag.
+	for _, c := range []*cobra.Command{versionListCmd, versionGetCmd, versionLatestCmd} {
+		c.Flags().String("vault", "", "vault name (default: ROCKETVAULT_VAULT env, config, or \"default\")")
+	}
 }
 
 func runVersionList(cmd *cobra.Command) error {
 	ctx := cmd.Context()
-	userID := ctx.Value(common.UserIDKey).(uuid.UUID)
+	userID, ok := ctx.Value(common.UserIDKey).(uuid.UUID)
+	if !ok {
+		return fmt.Errorf("user ID not available in context")
+	}
 
 	secretID, err := uuid.Parse(versionSecretID)
 	if err != nil {
@@ -130,7 +139,18 @@ func runVersionList(cmd *cobra.Command) error {
 		return fmt.Errorf("service container not available in context")
 	}
 
-	versions, err := sc.GetSecretService().GetSecretVersions(ctx, secretID, model.NewOwnerScope(uuid.Nil, userID))
+	// The CLI bypasses PolicyMiddleware entirely, so this is the only
+	// authorization enforcement point on this path. Listing versions is a
+	// metadata read, matching the HTTP route's ActionSecretsReadMetadata.
+	vaultID, err := vaultcli.RequireDataAction(ctx, cmd, sc, userID, model.ActionSecretsReadMetadata, model.OpList)
+	if err != nil {
+		return err
+	}
+
+	// A vault scope, not an owner scope: an owner scope survives revocation,
+	// so a user who created a secret could still read its history after
+	// losing access to the vault holding it.
+	versions, err := sc.GetSecretService().GetSecretVersionsMetadata(ctx, secretID, model.NewVaultScope(vaultID, userID))
 	if err != nil {
 		return fmt.Errorf("failed to get versions: %w", err)
 	}
@@ -140,12 +160,15 @@ func runVersionList(cmd *cobra.Command) error {
 		return nil
 	}
 
+	// No VALUE column: this command is authorized for metadata only. Use
+	// "secrets version get --version N" to read one version's value, which
+	// requires ActionSecretsGet.
 	w := tabwriter.NewWriter(cmd.OutOrStdout(), 0, 0, 2, ' ', 0)
-	fmt.Fprintln(w, "VERSION\tCREATED_AT\tNAME\tVALUE") //nolint:errcheck
-	fmt.Fprintln(w, "-------\t----------\t----\t-----") //nolint:errcheck
+	fmt.Fprintln(w, "VERSION\tCREATED_AT\tNAME") //nolint:errcheck
+	fmt.Fprintln(w, "-------\t----------\t----") //nolint:errcheck
 	for _, v := range versions {
-		fmt.Fprintf(w, "%d\t%s\t%s\t%s\n", //nolint:errcheck
-			v.Version, v.CreatedAt.Format("2006-01-02 15:04:05"), v.Name, v.Value)
+		fmt.Fprintf(w, "%d\t%s\t%s\n", //nolint:errcheck
+			v.Version, v.CreatedAt.Format("2006-01-02 15:04:05"), v.Name)
 	}
 	w.Flush()                                                                                             //nolint:errcheck,gosec
 	fmt.Fprintf(cmd.OutOrStdout(), "\nFound %d versions for secret %s\n", len(versions), versionSecretID) //nolint:errcheck
@@ -154,7 +177,10 @@ func runVersionList(cmd *cobra.Command) error {
 
 func runVersionGet(cmd *cobra.Command) error {
 	ctx := cmd.Context()
-	userID := ctx.Value(common.UserIDKey).(uuid.UUID)
+	userID, ok := ctx.Value(common.UserIDKey).(uuid.UUID)
+	if !ok {
+		return fmt.Errorf("user ID not available in context")
+	}
 
 	secretID, err := uuid.Parse(versionSecretID)
 	if err != nil {
@@ -166,7 +192,14 @@ func runVersionGet(cmd *cobra.Command) error {
 		return fmt.Errorf("service container not available in context")
 	}
 
-	version, err := sc.GetSecretService().GetSecretVersion(ctx, secretID, versionNumber, model.NewOwnerScope(uuid.Nil, userID))
+	// Returns a plaintext value, so it requires ActionSecretsGet -- the same
+	// action GET /secrets/{id}/versions/{n} requires.
+	vaultID, err := vaultcli.RequireDataAction(ctx, cmd, sc, userID, model.ActionSecretsGet, model.OpGet)
+	if err != nil {
+		return err
+	}
+
+	version, err := sc.GetSecretService().GetSecretVersion(ctx, secretID, versionNumber, model.NewVaultScope(vaultID, userID))
 	if err != nil {
 		return fmt.Errorf("failed to get version: %w", err)
 	}
@@ -179,7 +212,10 @@ func runVersionGet(cmd *cobra.Command) error {
 
 func runVersionLatest(cmd *cobra.Command) error {
 	ctx := cmd.Context()
-	userID := ctx.Value(common.UserIDKey).(uuid.UUID)
+	userID, ok := ctx.Value(common.UserIDKey).(uuid.UUID)
+	if !ok {
+		return fmt.Errorf("user ID not available in context")
+	}
 
 	secretID, err := uuid.Parse(versionSecretID)
 	if err != nil {
@@ -191,7 +227,13 @@ func runVersionLatest(cmd *cobra.Command) error {
 		return fmt.Errorf("service container not available in context")
 	}
 
-	version, err := sc.GetSecretService().GetLatestSecretVersion(ctx, secretID, model.NewOwnerScope(uuid.Nil, userID))
+	// Returns a plaintext value, so it requires ActionSecretsGet.
+	vaultID, err := vaultcli.RequireDataAction(ctx, cmd, sc, userID, model.ActionSecretsGet, model.OpGet)
+	if err != nil {
+		return err
+	}
+
+	version, err := sc.GetSecretService().GetLatestSecretVersion(ctx, secretID, model.NewVaultScope(vaultID, userID))
 	if err != nil {
 		return fmt.Errorf("failed to get latest version: %w", err)
 	}

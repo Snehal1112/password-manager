@@ -105,6 +105,30 @@ type SecretVersion struct {
 	CreatedAt time.Time `json:"created_at"`
 }
 
+// SecretVersionMetadata describes one version of a secret without its value.
+//
+// This type exists so listing a secret's versions cannot disclose the values:
+// it has no Value field, so a handler physically cannot serialize one, in the
+// same way model.KeyVersion makes key-version listing safe by construction.
+//
+// The distinction is load-bearing, not stylistic. GET /secrets/{id}/versions
+// is authorized by ActionSecretsReadMetadata, which Key Vault Reader holds;
+// before 2026-08-20 that route returned model.SecretVersion with every
+// historical plaintext decrypted into it, so the least-privileged built-in
+// role could read every value of every secret in its vault
+// (.claude/known-bugs.md § B30). Reading an actual value goes through
+// GET /secrets/{id}/versions/{n}, which requires ActionSecretsGet.
+//
+// Do not add a Value field. Callers that legitimately need plaintext -- backup
+// and restore -- use model.SecretVersion via VersioningService.GetVersions.
+type SecretVersionMetadata struct {
+	ID        uuid.UUID `json:"id"`
+	SecretID  uuid.UUID `json:"secret_id"`
+	Name      string    `json:"name"`
+	Version   int       `json:"version"`
+	CreatedAt time.Time `json:"created_at"`
+}
+
 // ExportFormat represents the format for exporting secrets.
 type ExportFormat string
 

@@ -108,6 +108,12 @@ func (s *CachedSecretService) GetSecretVersions(ctx context.Context, secretID uu
 	return s.secretService.GetSecretVersions(ctx, secretID, scope)
 }
 
+// GetSecretVersionsMetadata enumerates a secret's versions without values.
+// Pass-through, like GetSecretVersions: version listings are not cached.
+func (s *CachedSecretService) GetSecretVersionsMetadata(ctx context.Context, secretID uuid.UUID, scope model.Scope) ([]model.SecretVersionMetadata, error) {
+	return s.secretService.GetSecretVersionsMetadata(ctx, secretID, scope)
+}
+
 // GetSecretVersion retrieves a specific version of a secret.
 func (s *CachedSecretService) GetSecretVersion(ctx context.Context, secretID uuid.UUID, version int, scope model.Scope) (*model.SecretVersion, error) {
 	return s.secretService.GetSecretVersion(ctx, secretID, version, scope)

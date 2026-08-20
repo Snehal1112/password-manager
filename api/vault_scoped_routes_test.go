@@ -84,10 +84,17 @@ func (s *recordingSecretService) ImportSecrets(_ context.Context, req secretServ
 	s.importScope = req.Scope
 	return &secretServices.ImportResult{}, nil
 }
-func (s *recordingSecretService) GetSecretVersions(_ context.Context, _ uuid.UUID, scope model.Scope) ([]model.SecretVersion, error) {
+
+// GetSecretVersions panics: the versions route must reach the metadata path,
+// never the value-bearing one. Calling this from a handler is the § B30
+// regression, so the double fails loudly rather than quietly returning.
+func (s *recordingSecretService) GetSecretVersions(context.Context, uuid.UUID, model.Scope) ([]model.SecretVersion, error) {
+	panic("listSecretVersionsHandler must call GetSecretVersionsMetadata, not GetSecretVersions (B30)")
+}
+func (s *recordingSecretService) GetSecretVersionsMetadata(_ context.Context, _ uuid.UUID, scope model.Scope) ([]model.SecretVersionMetadata, error) {
 	s.versionsCalled = true
 	s.versionsScope = scope
-	return []model.SecretVersion{}, nil
+	return []model.SecretVersionMetadata{}, nil
 }
 func (s *recordingSecretService) GetSecretVersion(context.Context, uuid.UUID, int, model.Scope) (*model.SecretVersion, error) {
 	panic("unexpected")

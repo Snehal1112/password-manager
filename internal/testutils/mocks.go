@@ -266,6 +266,14 @@ func (m *MockVersioningService) GetVersions(ctx context.Context, secretID uuid.U
 	return nil, args.Error(1)
 }
 
+func (m *MockVersioningService) GetVersionsMetadata(ctx context.Context, secretID uuid.UUID, scope model.Scope) ([]model.SecretVersionMetadata, error) {
+	args := m.Called(ctx, secretID, scope)
+	if v := args.Get(0); v != nil {
+		return v.([]model.SecretVersionMetadata), args.Error(1)
+	}
+	return nil, args.Error(1)
+}
+
 func (m *MockVersioningService) GetVersion(ctx context.Context, secretID uuid.UUID, version int, scope model.Scope) (*model.SecretVersion, error) {
 	args := m.Called(ctx, secretID, version, scope)
 	if v := args.Get(0); v != nil {

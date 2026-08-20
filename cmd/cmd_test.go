@@ -237,8 +237,12 @@ func TestRunVersionList_EmptyVersions(t *testing.T) {
 	tc := testutils.NewTestContext(t)
 	sID := uuid.New()
 
-	tc.MockSecretService.On("GetSecretVersions", mock.Anything, sID, model.NewOwnerScope(uuid.Nil, tc.TestUserID)).
-		Return([]model.SecretVersion{}, nil)
+	// Metadata, not values, and a vault scope rather than an owner scope:
+	// listing versions is authorized by ActionSecretsReadMetadata and must not
+	// disclose values (.claude/known-bugs.md § B30), and an owner scope would
+	// survive revocation of the caller's access to the vault.
+	tc.MockSecretService.On("GetSecretVersionsMetadata", mock.Anything, sID, mock.Anything).
+		Return([]model.SecretVersionMetadata{}, nil)
 	tc.MockContainer.On("GetSecretService").Return(tc.MockSecretService)
 
 	versionSecretID = sID.String()
@@ -258,7 +262,7 @@ func TestRunVersionList_ServiceReturnsError(t *testing.T) {
 	tc := testutils.NewTestContext(t)
 	sID := uuid.New()
 
-	tc.MockSecretService.On("GetSecretVersions", mock.Anything, sID, model.NewOwnerScope(uuid.Nil, tc.TestUserID)).
+	tc.MockSecretService.On("GetSecretVersionsMetadata", mock.Anything, sID, mock.Anything).
 		Return(nil, fmt.Errorf("db error"))
 	tc.MockContainer.On("GetSecretService").Return(tc.MockSecretService)
 
@@ -315,7 +319,7 @@ func TestRunVersionGet_ServiceReturnsError(t *testing.T) {
 	versionSecretID = sID.String()
 	versionNumber = 99
 
-	tc.MockSecretService.On("GetSecretVersion", mock.Anything, sID, 99, model.NewOwnerScope(uuid.Nil, tc.TestUserID)).
+	tc.MockSecretService.On("GetSecretVersion", mock.Anything, sID, 99, mock.Anything).
 		Return(nil, fmt.Errorf("not found"))
 	tc.MockContainer.On("GetSecretService").Return(tc.MockSecretService)
 
@@ -366,7 +370,7 @@ func TestRunVersionLatest_ServiceReturnsError(t *testing.T) {
 	sID := uuid.New()
 	versionSecretID = sID.String()
 
-	tc.MockSecretService.On("GetLatestSecretVersion", mock.Anything, sID, model.NewOwnerScope(uuid.Nil, tc.TestUserID)).
+	tc.MockSecretService.On("GetLatestSecretVersion", mock.Anything, sID, mock.Anything).
 		Return(nil, fmt.Errorf("db error"))
 	tc.MockContainer.On("GetSecretService").Return(tc.MockSecretService)
 

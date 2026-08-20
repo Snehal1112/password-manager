@@ -117,6 +117,14 @@ func (m *mockSecretService) GetSecretVersions(ctx context.Context, secretID uuid
 	return args.Get(0).([]model.SecretVersion), args.Error(1)
 }
 
+func (m *mockSecretService) GetSecretVersionsMetadata(ctx context.Context, secretID uuid.UUID, scope model.Scope) ([]model.SecretVersionMetadata, error) {
+	args := m.Called(ctx, secretID, scope)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).([]model.SecretVersionMetadata), args.Error(1)
+}
+
 func (m *mockSecretService) GetSecretVersion(ctx context.Context, secretID uuid.UUID, version int, scope model.Scope) (*model.SecretVersion, error) {
 	args := m.Called(ctx, secretID, version, scope)
 	if args.Get(0) == nil {
@@ -814,7 +822,7 @@ func TestListSecretVersionsHandler_InvalidSecretID_Returns400(t *testing.T) {
 func TestListSecretVersionsHandler_ServiceError_Returns500(t *testing.T) {
 	secretID := uuid.New()
 	svc := &mockSecretService{}
-	svc.On("GetSecretVersions", mock.Anything, secretID, mock.Anything).Return([]model.SecretVersion{}, errors.New("db error"))
+	svc.On("GetSecretVersionsMetadata", mock.Anything, secretID, mock.Anything).Return([]model.SecretVersionMetadata{}, errors.New("db error"))
 
 	c := newSecretCtx(svc)
 	c.Params = &ApiParams{SecretID: secretID.String(), PerPage: 60}
@@ -833,7 +841,7 @@ func TestListSecretVersionsHandler_ServiceError_Returns500(t *testing.T) {
 func TestListSecretVersionsHandler_Success_Returns200(t *testing.T) {
 	secretID := uuid.New()
 	svc := &mockSecretService{}
-	svc.On("GetSecretVersions", mock.Anything, secretID, mock.Anything).Return([]model.SecretVersion{
+	svc.On("GetSecretVersionsMetadata", mock.Anything, secretID, mock.Anything).Return([]model.SecretVersionMetadata{
 		{SecretID: secretID, Version: 1},
 	}, nil)
 
@@ -1114,5 +1122,44 @@ func TestGetSecret_NotFoundSentinel_Returns404(t *testing.T) {
 	}
 
 	assert.Equal(t, http.StatusNotFound, w.Code)
+	svc.AssertExpectations(t)
+}
+
+// TestListSecretVersionsHandler_NeverEmitsValues is the API-side regression
+// guard for § B30.
+//
+// GET /secrets/{id}/versions is authorized by ActionSecretsReadMetadata, which
+// Key Vault Reader holds. It used to call GetSecretVersions, which decrypts
+// every version, so the least-privileged built-in role could read every
+// historical plaintext value of every secret in its vault.
+//
+// Two assertions, because either alone is weak: the response carries no
+// "value" key, AND the value-bearing service method is never reached. The
+// second is what makes this a real guard -- with model.SecretVersionMetadata
+// having no Value field, the first would pass even if the handler decrypted
+// everything and then discarded it.
+func TestListSecretVersionsHandler_NeverEmitsValues(t *testing.T) {
+	secretID := uuid.New()
+	svc := &mockSecretService{}
+	svc.On("GetSecretVersionsMetadata", mock.Anything, secretID, mock.Anything).
+		Return([]model.SecretVersionMetadata{
+			{SecretID: secretID, Name: "db-password", Version: 1},
+			{SecretID: secretID, Name: "db-password", Version: 2},
+		}, nil)
+
+	c := newSecretCtx(svc)
+	c.Params = &ApiParams{SecretID: secretID.String(), PerPage: 60}
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest(http.MethodGet, "/secrets/"+secretID.String()+"/versions", nil)
+
+	listSecretVersionsHandler(c, w, r)
+	if c.Err != nil {
+		writeError(w, c)
+	}
+
+	assert.Equal(t, http.StatusOK, w.Code)
+	assert.NotContains(t, w.Body.String(), `"value"`,
+		"the versions list must not carry a value field")
+	svc.AssertNotCalled(t, "GetSecretVersions", mock.Anything, mock.Anything, mock.Anything)
 	svc.AssertExpectations(t)
 }

@@ -525,6 +525,14 @@ func (m *MockSecretService) GetSecretVersions(ctx context.Context, secretID uuid
 	return args.Get(0).([]model.SecretVersion), args.Error(1)
 }
 
+func (m *MockSecretService) GetSecretVersionsMetadata(ctx context.Context, secretID uuid.UUID, scope model.Scope) ([]model.SecretVersionMetadata, error) {
+	args := m.Called(ctx, secretID, scope)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).([]model.SecretVersionMetadata), args.Error(1)
+}
+
 func (m *MockSecretService) GetSecretVersion(ctx context.Context, secretID uuid.UUID, version int, scope model.Scope) (*model.SecretVersion, error) {
 	args := m.Called(ctx, secretID, version, scope)
 	if args.Get(0) == nil {

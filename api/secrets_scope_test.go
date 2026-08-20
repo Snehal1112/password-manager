@@ -43,7 +43,13 @@ func (s *scopeStubSecretService) DeleteSecret(_ context.Context, _ uuid.UUID, sc
 	return nil
 }
 
-func (s *scopeStubSecretService) GetSecretVersions(_ context.Context, _ uuid.UUID, scope model.Scope) ([]model.SecretVersion, error) {
+// GetSecretVersions panics: the versions route must reach the metadata path,
+// never the value-bearing one (§ B30).
+func (s *scopeStubSecretService) GetSecretVersions(context.Context, uuid.UUID, model.Scope) ([]model.SecretVersion, error) {
+	panic("listSecretVersionsHandler must call GetSecretVersionsMetadata, not GetSecretVersions (B30)")
+}
+
+func (s *scopeStubSecretService) GetSecretVersionsMetadata(_ context.Context, _ uuid.UUID, scope model.Scope) ([]model.SecretVersionMetadata, error) {
 	s.lastScope = scope
 	return nil, s.versionsErr
 }

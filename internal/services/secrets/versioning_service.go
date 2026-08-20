@@ -21,8 +21,13 @@ import (
 type VersioningServiceInterface interface {
 	// Version creation and management
 	CreateVersion(ctx context.Context, req CreateVersionRequest) (*model.SecretVersion, error)
-	// GetVersions returns every decrypted version of a secret the scope authorizes.
+	// GetVersions returns every decrypted version of a secret the scope
+	// authorizes. Callers that only need to enumerate versions must use
+	// GetVersionsMetadata instead -- see § B30.
 	GetVersions(ctx context.Context, secretID uuid.UUID, scope model.Scope) ([]model.SecretVersion, error)
+	// GetVersionsMetadata returns every version of a secret the scope
+	// authorizes, without values and without ever decrypting one.
+	GetVersionsMetadata(ctx context.Context, secretID uuid.UUID, scope model.Scope) ([]model.SecretVersionMetadata, error)
 	// GetVersion returns one decrypted version the scope authorizes.
 	GetVersion(ctx context.Context, secretID uuid.UUID, version int, scope model.Scope) (*model.SecretVersion, error)
 	// GetLatestVersion returns the newest decrypted version the scope authorizes.
@@ -179,6 +184,39 @@ func (s *versioningService) GetVersions(ctx context.Context, secretID uuid.UUID,
 		decVersion := encVersion
 		decVersion.Value = decryptedValue
 		versions = append(versions, decVersion)
+	}
+	return versions, nil
+}
+
+// GetVersionsMetadata returns every version of a secret the scope authorizes,
+// without values.
+//
+// It deliberately never calls DecryptSecret. Returning model.SecretVersionMetadata
+// would already prevent a value reaching the caller, but decrypting and then
+// discarding would leave every historical plaintext in process memory for no
+// reason, and would leave the guarantee resting on the caller's choice of
+// return type -- which is precisely how § B30 happened. Not obtaining the
+// plaintext is the guarantee.
+func (s *versioningService) GetVersionsMetadata(ctx context.Context, secretID uuid.UUID, scope model.Scope) ([]model.SecretVersionMetadata, error) {
+	if _, err := s.secretRepo.Read(ctx, secretID, scope); err != nil {
+		return nil, fmt.Errorf("%w: %s", ErrSecretNotFound, err.Error())
+	}
+
+	encryptedVersions, err := s.versionRepo.GetVersions(ctx, secretID)
+	if err != nil {
+		s.log.WithError(err).WithField("secret_id", secretID).Error("Failed to get secret versions")
+		return nil, fmt.Errorf("failed to get secret versions: %w", err)
+	}
+
+	versions := make([]model.SecretVersionMetadata, 0, len(encryptedVersions))
+	for _, v := range encryptedVersions {
+		versions = append(versions, model.SecretVersionMetadata{
+			ID:        v.ID,
+			SecretID:  v.SecretID,
+			Name:      v.Name,
+			Version:   v.Version,
+			CreatedAt: v.CreatedAt,
+		})
 	}
 	return versions, nil
 }

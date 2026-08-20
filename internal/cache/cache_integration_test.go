@@ -22,20 +22,21 @@ import (
 
 type mockSecretService struct {
 	// per-call return values
-	getSecretFn              func(ctx context.Context, secretID uuid.UUID, scope model.Scope) (*model.Secret, error)
-	listSecretsFn            func(ctx context.Context, scope model.Scope, tags []string) ([]model.Secret, error)
-	deleteSecretFn           func(ctx context.Context, secretID uuid.UUID, scope model.Scope) error
-	listDeletedSecretsFn     func(ctx context.Context, scope model.Scope) ([]model.Secret, error)
-	createSecretFn           func(ctx context.Context, req secrets.CreateSecretRequest) (*model.Secret, error)
-	updateSecretFn           func(ctx context.Context, req secrets.UpdateSecretRequest) error
-	getSecretVersionsFn      func(ctx context.Context, secretID uuid.UUID, scope model.Scope) ([]model.SecretVersion, error)
-	getSecretVersionFn       func(ctx context.Context, secretID uuid.UUID, version int, scope model.Scope) (*model.SecretVersion, error)
-	getLatestSecretVersionFn func(ctx context.Context, secretID uuid.UUID, scope model.Scope) (*model.SecretVersion, error)
-	generateSecretFn         func(ctx context.Context, req secrets.GenerateSecretRequest) (*model.Secret, error)
-	exportSecretsFn          func(ctx context.Context, req secrets.ExportSecretsRequest) ([]byte, error)
-	importSecretsFn          func(ctx context.Context, req secrets.ImportSecretsRequest) (*secrets.ImportResult, error)
-	recoverSecretFn          func(ctx context.Context, secretID uuid.UUID, scope model.Scope) error
-	purgeSecretFn            func(ctx context.Context, secretID uuid.UUID, scope model.Scope) error
+	getSecretFn                 func(ctx context.Context, secretID uuid.UUID, scope model.Scope) (*model.Secret, error)
+	listSecretsFn               func(ctx context.Context, scope model.Scope, tags []string) ([]model.Secret, error)
+	deleteSecretFn              func(ctx context.Context, secretID uuid.UUID, scope model.Scope) error
+	listDeletedSecretsFn        func(ctx context.Context, scope model.Scope) ([]model.Secret, error)
+	createSecretFn              func(ctx context.Context, req secrets.CreateSecretRequest) (*model.Secret, error)
+	updateSecretFn              func(ctx context.Context, req secrets.UpdateSecretRequest) error
+	getSecretVersionsMetadataFn func(context.Context, uuid.UUID, model.Scope) ([]model.SecretVersionMetadata, error)
+	getSecretVersionsFn         func(ctx context.Context, secretID uuid.UUID, scope model.Scope) ([]model.SecretVersion, error)
+	getSecretVersionFn          func(ctx context.Context, secretID uuid.UUID, version int, scope model.Scope) (*model.SecretVersion, error)
+	getLatestSecretVersionFn    func(ctx context.Context, secretID uuid.UUID, scope model.Scope) (*model.SecretVersion, error)
+	generateSecretFn            func(ctx context.Context, req secrets.GenerateSecretRequest) (*model.Secret, error)
+	exportSecretsFn             func(ctx context.Context, req secrets.ExportSecretsRequest) ([]byte, error)
+	importSecretsFn             func(ctx context.Context, req secrets.ImportSecretsRequest) (*secrets.ImportResult, error)
+	recoverSecretFn             func(ctx context.Context, secretID uuid.UUID, scope model.Scope) error
+	purgeSecretFn               func(ctx context.Context, secretID uuid.UUID, scope model.Scope) error
 }
 
 // compile-time check
@@ -86,6 +87,13 @@ func (m *mockSecretService) UpdateSecret(ctx context.Context, req secrets.Update
 func (m *mockSecretService) GetSecretVersions(ctx context.Context, secretID uuid.UUID, scope model.Scope) ([]model.SecretVersion, error) {
 	if m.getSecretVersionsFn != nil {
 		return m.getSecretVersionsFn(ctx, secretID, scope)
+	}
+	return nil, errors.New("not implemented")
+}
+
+func (m *mockSecretService) GetSecretVersionsMetadata(ctx context.Context, secretID uuid.UUID, scope model.Scope) ([]model.SecretVersionMetadata, error) {
+	if m.getSecretVersionsMetadataFn != nil {
+		return m.getSecretVersionsMetadataFn(ctx, secretID, scope)
 	}
 	return nil, errors.New("not implemented")
 }
