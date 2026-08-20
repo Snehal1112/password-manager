@@ -1716,7 +1716,7 @@ curl -s -X POST $BASE/api/v1/keys -H "Authorization: Bearer $TOKEN" \
 <section id="backup">
   <h2>18. Backup &amp; Restore</h2>
   <h3>What it is</h3>
-  <p>Two levels: full database backups via the CLI, and per-item encrypted backup/restore blobs for individual secrets, keys, and certificates via the API.</p>
+  <p>Two levels: full database backups via the CLI, and per-item base64url-encoded (not encrypted) backup/restore blobs for individual secrets, keys, and certificates via the API.</p>
   <h3>Full backup (CLI)</h3>
   <pre class="code">rocketvault backup create  --username admin --password admin123 --totp-code 123456
 rocketvault backup list    --username admin --password admin123 --totp-code 123456

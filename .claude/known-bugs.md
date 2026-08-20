@@ -1386,7 +1386,7 @@ from `ListVersionRecords` and its four sibling version methods on 2026-08-20.
 
 ### B29 — Secret backup silently discarded every archived version
 
-**Status**: Fixed 2026-08-20.
+**Status**: Fixed 2026-08-20
 **Severity**: High — silent, permanent data loss: a secret with ten
 historical versions backed up and restored as one, with no error and no
 warning to the caller.
@@ -1433,6 +1433,69 @@ before this change decode with a nil slice and restore unchanged — pinned by
 `TestBackupRestoreSecret_CarriesVersionHistory`,
 `TestRestoreSecret_OldFormatBlob_NoVersionsField`
 (`internal/backup/item_backup_test.go`).
+
+---
+
+### B30 — A Key Vault Reader can dump every historical plaintext value of every secret in a vault
+
+**Status**: Open
+**Severity**: High — a role documented and tested as "metadata only" instead
+grants full plaintext secret-value disclosure, for every archived version of
+every secret in a vault the role is assigned in
+**Files**: `internal/services/authorization/data_actions.go`,
+`api/secrets.go`, `internal/services/secrets/versioning_service.go`,
+`model/azure_roles.go`, `internal/services/authorization/authorization_matrix_test.go`,
+`model/secret.go`
+
+**Root cause**: `mapSecretAction` maps `GET /secrets/{id}/versions` to
+`model.ActionSecretsReadMetadata` (`internal/services/authorization/data_actions.go:129-131`),
+with the comment "Listing versions exposes metadata only." That premise is
+false: `listSecretVersionsHandler` (`api/secrets.go:100-106`) calls
+`secretService.GetSecretVersions` and JSON-encodes the result directly, and
+`versioningService.GetVersions` (`internal/services/secrets/versioning_service.go:172-183`)
+decrypts every version's value before returning it — the handler ships
+plaintext, not metadata. `RoleKeyVaultReader` holds
+`ActionSecretsReadMetadata` (`model/azure_roles.go:168-171`, i.e. the block
+is one line later than initially estimated at 167-171), and
+`authorization_matrix_test.go:123-124` asserts Reader is *supposed* to be
+allowed `secrets.listVersions` — so this is the intended, tested
+authorization outcome, not an oversight in the test.
+
+**Net effect**: any principal holding only `Key Vault Reader` — the
+least-privileged built-in role, granted no plaintext read of the current
+secret value (`ActionSecretsGet` is absent from its list) — can call
+`GET /secrets/{id}/versions` and receive the plaintext value of every
+historical version of that secret. This is distinct from the 2026-08-14
+retraction in this file's history: that one cleared `GET /secrets/{id}`
+(`ActionSecretsGet`, which Reader does not hold) as safe; this is a
+different route, gated by a different, Reader-held action.
+
+**Why this branch surfaced it**: `model.SecretVersion`'s doc comment
+(`model/secret.go:89-97`) was added by this branch and claims the same
+sensitivity handling as `model.KeyVersionRecord`. But `KeyVersionRecord`'s
+safety is structural, not a policy choice: `model.KeyVersion` (the type
+actually returned by key version-list/version-get handlers) has no `Value`
+field at all (`model/key.go:64-72`), so those handlers cannot leak key
+material even by future mistake — only the internal-only
+`KeyVersionRecord` carries `Value`, and it is never marshaled into an HTTP
+response. Secrets have no equivalent split: `model.SecretVersion` is both
+the backup-blob payload type *and* the type `listSecretVersionsHandler`
+marshals into its response body, so there is no structural barrier — only
+the data-action mapping — between "list versions" and "read every
+historical plaintext value."
+
+**Candidate fixes (not chosen; this entry is record-only)**:
+1. Split the type the way keys do: introduce a metadata-only
+   `SecretVersionMetadata` (no `Value`) for the versions-list API response,
+   keeping `model.SecretVersion` (with `Value`) as the internal/backup-only
+   type.
+2. Re-map `GET /secrets/{id}/versions` to a data action Reader does not
+   hold (e.g. `ActionSecretsGet`), accepting that this narrows what
+   "metadata only" routes Reader retains.
+
+Fixing this is out of scope for the secret-backup-version-history work that
+surfaced it and requires its own design pass; see that branch's final
+review for the trace that found it.
 
 ---
 
@@ -1636,3 +1699,53 @@ filter, was deleted — the argument it exercised no longer exists.
 `TestVersionMetadataQueries_NotFilteredByOwner`,
 `TestCurrentVersion_NeverRotatedKeyStillReturnsOne`
 (`internal/repositories/key_versions_test.go`).
+
+---
+
+### F3 — Item restore is non-atomic across its parent write, purge-protection write, and version replay
+
+**Status**: Deferred — not blocking
+**Severity**: Low — a failure partway leaves a partial restore, not corrupt
+data; the caller gets an error rather than a false success, and the residue
+is cleanable (see F7 in the 2026-08-20 secret-backup-version-history fix pass,
+which reordered `RestoreSecret` so a failed version replay no longer leaves
+the partial row purge-protected)
+**Files**: `internal/backup/item_backup.go`
+
+**What it is**: `RestoreKey` and `RestoreSecret` (and, without version
+replay, `RestoreCertificate`) each perform their work as separate, unwrapped
+repository calls — `Create`, then `SetPurgeProtection` (if the blob's flag
+was set), then, for keys and secrets, a per-version `CreateVersion` call per
+archived version. A failure partway through — for example, the parent row
+is created but the third of five version replays fails — leaves a partial
+restore under the newly minted ID, with no automatic cleanup.
+
+**Why it is deferred rather than fixed here**: a real fix needs a
+transaction spanning all of a restore's writes, but `ItemBackupService` is
+built on repository *interfaces* (`SecretRepositoryInterface`,
+`KeyRepositoryInterface`, `CertificateRepositoryInterface`,
+`SecretVersionRepositoryInterface`), not a concrete `*db.Tx`, and none of
+those interfaces has a transaction-scoped variant of its methods today.
+Threading a unit of work through the repository layer — so `Create`,
+`SetPurgeProtection`, and every `CreateVersion` call in one `Restore*` share
+a single transaction — is a real, separate piece of work, not a small
+reordering.
+
+**Verified**: `db.DB` does expose `BeginTx` (`internal/db/conn.go:14`), and
+several repositories already use it for their own atomic multi-statement
+writes (e.g. `internal/repositories/key_repository.go:321`,
+`internal/repositories/certificate_repository.go:134`,
+`internal/repositories/user_repository.go:238`, `internal/db/tags.go:50`).
+The full-database restore (`internal/backup/backup.go`,
+`Manager.RestoreBackup`) is also transactional, but not through that same
+mechanism: `Manager` holds a raw `*sql.DB` (not the `db.DB` interface) and
+calls the stdlib `(*sql.DB).Begin()` directly — a separate code path from
+`db.DB.BeginTx()`. Either way, the point stands: a transactional primitive
+exists and is proven in this codebase; `ItemBackupService`'s repository
+dependencies simply don't expose a way to reuse one across multiple calls.
+
+**Candidate fix (not implemented)**: give `ItemBackupService` a
+transaction-scoped variant of the repository methods it needs — either a
+`WithTx(*db.Tx)` factory on each repository interface, or a narrower
+unit-of-work abstraction passed into `RestoreSecret`/`RestoreKey` — so the
+three (or more) writes per restore commit or roll back together.
