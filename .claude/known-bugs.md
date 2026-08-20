@@ -1384,6 +1384,58 @@ from `ListVersionRecords` and its four sibling version methods on 2026-08-20.
 
 ---
 
+### B29 — Secret backup silently discarded every archived version
+
+**Status**: Fixed 2026-08-20.
+**Severity**: High — silent, permanent data loss: a secret with ten
+historical versions backed up and restored as one, with no error and no
+warning to the caller.
+**Files**: `internal/backup/item_backup.go`, `model/secret.go`,
+`internal/backup/item_backup_test.go`
+
+**Root cause**: `ItemBackupService.BackupSecret` ended
+`return encodeBlob("secret", id.String(), secret, nil)`. The `nil` was the
+versions argument. `model.Secret` carries a `Version` *number*, which made
+the blob look complete, but the historical values live in the separate
+`secret_versions` table the blob never read.
+
+**Why it survived**: the identical defect on the key path was found and
+fixed on 2026-08-19 (§ B26), but that fix was scoped to keys; `BackupSecret`'s
+`nil` was left in place and only became conspicuous once `BackupKey` was
+explicit about carrying history. Nothing tested for the absence.
+
+**What was fixed** (commits `34ffee1`, `284a60b`, `8327ab7`):
+- `34ffee1` generalized the backup blob envelope from a keys-only
+  `[]model.KeyVersionRecord` parameter to a `blobVersions{Key, Secret}`
+  struct, adding a new additive `secret_versions` JSON field (`omitempty`)
+  alongside the existing `versions` field.
+- `284a60b` injected `SecretVersionRepositoryInterface` into
+  `ItemBackupService`; `BackupSecret` now calls `GetVersions` and puts the
+  result in the blob's `Secret` field. `model.SecretVersion` gained the same
+  sensitivity-warning comment `model.KeyVersionRecord` already carried.
+- `8327ab7` made `RestoreSecret` replay those versions under the new
+  secret's ID: each row gets a fresh `uuid.New()` primary key
+  (`secret_versions.id` is a PRIMARY KEY, and the source secret usually
+  still exists, so reusing the blob's IDs would collide) and the restoring
+  caller's `UserID` (`secret_versions.user_id` is a real FK to `users`,
+  enforced on PostgreSQL, so carrying the blob's original owner could
+  reference a user absent from the target deployment).
+
+**Security note**: a secret backup blob now carries every historical secret
+value, so it is exactly as sensitive as a key backup blob — the response
+body is a merely base64url-encoded, not encrypted, JSON envelope.
+
+**Back-compat**: the new field is `omitempty` and additive, so blobs taken
+before this change decode with a nil slice and restore unchanged — pinned by
+`TestRestoreSecret_OldFormatBlob_NoVersionsField`.
+
+**Pinned by**: `TestBackupSecret_CarriesVersionHistory`,
+`TestBackupRestoreSecret_CarriesVersionHistory`,
+`TestRestoreSecret_OldFormatBlob_NoVersionsField`
+(`internal/backup/item_backup_test.go`).
+
+---
+
 ## Deferred Refactors
 
 Both items formerly tracked here (H3, M2) were re-investigated on 2026-08-14 and
