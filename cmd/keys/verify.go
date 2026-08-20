@@ -70,6 +70,7 @@ keys verify ...; then").`,
 		dataB64 := viper.GetString("verify-data")
 		signatureB64 := viper.GetString("verify-signature")
 		algorithm := viper.GetString("verify-algorithm")
+		version := viper.GetInt("verify-version")
 
 		if keyIDStr == "" || dataB64 == "" || signatureB64 == "" {
 			log.LogAuditError(claims.UserID.String(), "verify_key", "failed", "--key-id, --data, and --signature are required", nil)
@@ -120,6 +121,7 @@ keys verify ...; then").`,
 			UserID:    claims.UserID,
 			VaultID:   vaultID,
 			Scope:     model.NewVaultScope(vaultID, claims.UserID),
+			Version:   version,
 		})
 		if err != nil {
 			log.LogAuditError(claims.UserID.String(), "verify_key", "failed", fmt.Sprintf("verify failed: %s", err), err)
@@ -163,10 +165,12 @@ func InitKeysVerify(keysCmd *cobra.Command) *cobra.Command {
 	verifyCmd.Flags().String("data", "", "Base64-encoded original data")
 	verifyCmd.Flags().String("signature", "", "Base64-encoded signature to verify")
 	verifyCmd.Flags().String("algorithm", "RS256", "Signature algorithm (RS256, RS384, RS512, PS256, PS384, PS512, ES256, ES384, ES512)")
+	verifyCmd.Flags().Int("version", 0, "Key version to use (0 or omitted = the key's current version)")
 	viper.BindPFlag("verify-key-id", verifyCmd.Flags().Lookup("key-id"))       //nolint:errcheck,gosec
 	viper.BindPFlag("verify-data", verifyCmd.Flags().Lookup("data"))           //nolint:errcheck,gosec
 	viper.BindPFlag("verify-signature", verifyCmd.Flags().Lookup("signature")) //nolint:errcheck,gosec
 	viper.BindPFlag("verify-algorithm", verifyCmd.Flags().Lookup("algorithm")) //nolint:errcheck,gosec
+	viper.BindPFlag("verify-version", verifyCmd.Flags().Lookup("version"))     //nolint:errcheck,gosec
 
 	return keysCmd
 }

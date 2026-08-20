@@ -841,6 +841,27 @@ The command prints the original DEK in base64.
 
 > Wrapping and unwrapping require a role assignment on the target vault that grants the wrap/unwrap permission — for example `Key Vault Crypto User` or `Key Vault Crypto Service Encryption User`. There is no owner or admin shortcut: even the key's creator or a global admin needs that role assignment to wrap or unwrap with it. The algorithm used is RSA-OAEP with SHA-256.
 
+### Using an older version of a key
+
+Rotating a key doesn't throw the old material away — it's archived, and the old version stays usable. Anything you signed or wrapped before a rotation still needs that older version to verify or unwrap.
+
+`keys sign`, `keys verify`, `keys wrap`, and `keys unwrap` all take a `--version` flag for this:
+
+```
+# Unwrap something that was wrapped with version 2, before the key was rotated
+go run main.go keys unwrap \
+  --username admin --password admin123 --totp-code 123456 \
+  --key-id KEY-ID-HERE \
+  --wrapped-key BASE64-WRAPPED-KEY \
+  --version 2
+```
+
+Leave `--version` off and the key's **current** version is used, which is what every command did before this flag existed. Passing `--version 0` means the same thing, so scripts that pass it explicitly aren't a special case.
+
+To see which versions a key has, use the REST endpoint `GET /api/v1/keys/{id}/versions` — there is no CLI command for listing versions yet.
+
+> Addressing an older version needs no extra permission. It's the same data action as using the current one, on a key you already have access to.
+
 ---
 
 ## Managing Certificates

@@ -2169,3 +2169,154 @@ func TestVerifyCmd_SetsResolvedVaultID(t *testing.T) {
 
 // ---- verify unused imports are gone ----
 var _ io.Writer = (*bytes.Buffer)(nil)
+
+// ========== --version flag tests ==========
+//
+// The service layer has accepted a Version on every crypto request since the
+// 2026-08-19 key-version-addressability work, but the four CLI commands never
+// set it, so the CLI could only ever operate on a key's current version while
+// REST could address an archived one. Each test below pins that the flag now
+// reaches the service, and that omitting it still sends 0 -- the "current
+// version" sentinel resolveVersionValue special-cases -- so existing scripted
+// invocations are unaffected.
+
+func TestSignCmd_PassesVersionToService(t *testing.T) {
+	cryptoSvc := &keyCmdCryptoService{}
+	userID := uuid.New()
+	keyID := uuid.New()
+	sc, _ := newAllowedContainer(nil, cryptoSvc)
+	cryptoSvc.On("Sign", mock.Anything, mock.MatchedBy(func(r keyServices.SignRequest) bool {
+		return r.KeyID == keyID && r.Version == 2
+	})).Return(&keyServices.SignResult{Signature: []byte("sig")}, nil)
+
+	claims := &model.Claims{UserID: userID, Role: model.RoleAdmin}
+	ctx := context.WithValue(context.Background(), common.ClaimsKey, claims)
+	ctx = context.WithValue(ctx, common.LogKey, newLogger())
+	ctx = context.WithValue(ctx, common.ServiceContainerKey, sc)
+
+	cleanup := viperSet(map[string]interface{}{
+		"sign-key-id":    keyID.String(),
+		"sign-data":      base64.StdEncoding.EncodeToString([]byte("data")),
+		"sign-algorithm": "RS256",
+		"sign-version":   2,
+	})
+	defer cleanup()
+
+	cmd, _ := newTestCmd(signCmd.RunE, nil)
+	cmd.SetContext(ctx)
+	assert.NoError(t, cmd.Execute())
+	cryptoSvc.AssertExpectations(t)
+}
+
+func TestSignCmd_OmittedVersionSendsZero(t *testing.T) {
+	cryptoSvc := &keyCmdCryptoService{}
+	userID := uuid.New()
+	keyID := uuid.New()
+	sc, _ := newAllowedContainer(nil, cryptoSvc)
+	cryptoSvc.On("Sign", mock.Anything, mock.MatchedBy(func(r keyServices.SignRequest) bool {
+		return r.Version == 0
+	})).Return(&keyServices.SignResult{Signature: []byte("sig")}, nil)
+
+	claims := &model.Claims{UserID: userID, Role: model.RoleAdmin}
+	ctx := context.WithValue(context.Background(), common.ClaimsKey, claims)
+	ctx = context.WithValue(ctx, common.LogKey, newLogger())
+	ctx = context.WithValue(ctx, common.ServiceContainerKey, sc)
+
+	cleanup := viperSet(map[string]interface{}{
+		"sign-key-id":    keyID.String(),
+		"sign-data":      base64.StdEncoding.EncodeToString([]byte("data")),
+		"sign-algorithm": "RS256",
+	})
+	defer cleanup()
+
+	cmd, _ := newTestCmd(signCmd.RunE, nil)
+	cmd.SetContext(ctx)
+	assert.NoError(t, cmd.Execute())
+	cryptoSvc.AssertExpectations(t)
+}
+
+func TestVerifyCmd_PassesVersionToService(t *testing.T) {
+	cryptoSvc := &keyCmdCryptoService{}
+	userID := uuid.New()
+	keyID := uuid.New()
+	sc, _ := newAllowedContainer(nil, cryptoSvc)
+	cryptoSvc.On("Verify", mock.Anything, mock.MatchedBy(func(r keyServices.VerifyRequest) bool {
+		return r.KeyID == keyID && r.Version == 3
+	})).Return(&keyServices.VerifyResult{Valid: true, KeyID: keyID}, nil)
+
+	claims := &model.Claims{UserID: userID, Role: model.RoleAdmin}
+	ctx := context.WithValue(context.Background(), common.ClaimsKey, claims)
+	ctx = context.WithValue(ctx, common.LogKey, newLogger())
+	ctx = context.WithValue(ctx, common.ServiceContainerKey, sc)
+	// verify prints through the output formatter; the other three write a bare
+	// base64 line, so only this command needs one in context.
+	ctx = context.WithValue(ctx, common.OutputFormatterKey, newTestFmtr())
+
+	cleanup := viperSet(map[string]interface{}{
+		"verify-key-id":    keyID.String(),
+		"verify-data":      base64.StdEncoding.EncodeToString([]byte("data")),
+		"verify-signature": base64.StdEncoding.EncodeToString([]byte("sig")),
+		"verify-algorithm": "RS256",
+		"verify-version":   3,
+	})
+	defer cleanup()
+
+	cmd, _ := newTestCmd(verifyCmd.RunE, nil)
+	cmd.SetContext(ctx)
+	assert.NoError(t, cmd.Execute())
+	cryptoSvc.AssertExpectations(t)
+}
+
+func TestWrapCmd_PassesVersionToService(t *testing.T) {
+	cryptoSvc := &keyCmdCryptoService{}
+	userID := uuid.New()
+	keyID := uuid.New()
+	sc, _ := newAllowedContainer(nil, cryptoSvc)
+	cryptoSvc.On("WrapKey", mock.Anything, mock.MatchedBy(func(r keyServices.WrapKeyRequest) bool {
+		return r.KeyID == keyID && r.Version == 4
+	})).Return(&keyServices.WrapKeyResult{WrappedKey: []byte("wrapped")}, nil)
+
+	claims := &model.Claims{UserID: userID, Role: model.RoleAdmin}
+	ctx := context.WithValue(context.Background(), common.ClaimsKey, claims)
+	ctx = context.WithValue(ctx, common.LogKey, newLogger())
+	ctx = context.WithValue(ctx, common.ServiceContainerKey, sc)
+
+	cleanup := viperSet(map[string]interface{}{
+		"wrap-key-id":       keyID.String(),
+		"wrap-key-material": base64.StdEncoding.EncodeToString([]byte("material")),
+		"wrap-version":      4,
+	})
+	defer cleanup()
+
+	cmd, _ := newTestCmd(wrapCmd.RunE, nil)
+	cmd.SetContext(ctx)
+	assert.NoError(t, cmd.Execute())
+	cryptoSvc.AssertExpectations(t)
+}
+
+func TestUnwrapCmd_PassesVersionToService(t *testing.T) {
+	cryptoSvc := &keyCmdCryptoService{}
+	userID := uuid.New()
+	keyID := uuid.New()
+	sc, _ := newAllowedContainer(nil, cryptoSvc)
+	cryptoSvc.On("UnwrapKey", mock.Anything, mock.MatchedBy(func(r keyServices.UnwrapKeyRequest) bool {
+		return r.KeyID == keyID && r.Version == 5
+	})).Return(&keyServices.UnwrapKeyResult{PlaintextKey: []byte("plain")}, nil)
+
+	claims := &model.Claims{UserID: userID, Role: model.RoleAdmin}
+	ctx := context.WithValue(context.Background(), common.ClaimsKey, claims)
+	ctx = context.WithValue(ctx, common.LogKey, newLogger())
+	ctx = context.WithValue(ctx, common.ServiceContainerKey, sc)
+
+	cleanup := viperSet(map[string]interface{}{
+		"unwrap-key-id":      keyID.String(),
+		"unwrap-wrapped-key": base64.StdEncoding.EncodeToString([]byte("wrapped")),
+		"unwrap-version":     5,
+	})
+	defer cleanup()
+
+	cmd, _ := newTestCmd(unwrapCmd.RunE, nil)
+	cmd.SetContext(ctx)
+	assert.NoError(t, cmd.Execute())
+	cryptoSvc.AssertExpectations(t)
+}

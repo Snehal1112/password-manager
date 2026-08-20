@@ -62,6 +62,7 @@ var unwrapCmd = &cobra.Command{
 
 		keyIDStr := viper.GetString("unwrap-key-id")
 		wrappedKeyB64 := viper.GetString("unwrap-wrapped-key")
+		version := viper.GetInt("unwrap-version")
 
 		if keyIDStr == "" || wrappedKeyB64 == "" {
 			log.LogAuditError(claims.UserID.String(), "unwrap_key", "failed", "--key-id and --wrapped-key are required", nil)
@@ -102,6 +103,7 @@ var unwrapCmd = &cobra.Command{
 			Scope:      model.NewVaultScope(vaultID, claims.UserID),
 			WrappedKey: wrappedKey,
 			Algorithm:  "RSA-OAEP",
+			Version:    version,
 		})
 		if err != nil {
 			log.LogAuditError(claims.UserID.String(), "unwrap_key", "failed", fmt.Sprintf("unwrap failed: %s", err), err)
@@ -126,8 +128,10 @@ func InitKeysUnwrap(keysCmd *cobra.Command) *cobra.Command {
 
 	unwrapCmd.Flags().String("key-id", "", "UUID of the vault RSA key used for unwrapping")
 	unwrapCmd.Flags().String("wrapped-key", "", "Base64-encoded wrapped key material to unwrap")
+	unwrapCmd.Flags().Int("version", 0, "Key version to use (0 or omitted = the key's current version)")
 	viper.BindPFlag("unwrap-key-id", unwrapCmd.Flags().Lookup("key-id"))           //nolint:errcheck,gosec
 	viper.BindPFlag("unwrap-wrapped-key", unwrapCmd.Flags().Lookup("wrapped-key")) //nolint:errcheck,gosec
+	viper.BindPFlag("unwrap-version", unwrapCmd.Flags().Lookup("version"))         //nolint:errcheck,gosec
 
 	return keysCmd
 }

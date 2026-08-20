@@ -62,6 +62,7 @@ var wrapCmd = &cobra.Command{
 
 		keyIDStr := viper.GetString("wrap-key-id")
 		keyMaterialB64 := viper.GetString("wrap-key-material")
+		version := viper.GetInt("wrap-version")
 
 		if keyIDStr == "" || keyMaterialB64 == "" {
 			log.LogAuditError(claims.UserID.String(), "wrap_key", "failed", "--key-id and --key-material are required", nil)
@@ -102,6 +103,7 @@ var wrapCmd = &cobra.Command{
 			Scope:        model.NewVaultScope(vaultID, claims.UserID),
 			PlaintextKey: plaintext,
 			Algorithm:    "RSA-OAEP",
+			Version:      version,
 		})
 		if err != nil {
 			log.LogAuditError(claims.UserID.String(), "wrap_key", "failed", fmt.Sprintf("wrap failed: %s", err), err)
@@ -126,8 +128,10 @@ func InitKeysWrap(keysCmd *cobra.Command) *cobra.Command {
 
 	wrapCmd.Flags().String("key-id", "", "UUID of the vault RSA key used for wrapping")
 	wrapCmd.Flags().String("key-material", "", "Base64-encoded plaintext key material to wrap")
+	wrapCmd.Flags().Int("version", 0, "Key version to use (0 or omitted = the key's current version)")
 	viper.BindPFlag("wrap-key-id", wrapCmd.Flags().Lookup("key-id"))             //nolint:errcheck,gosec
 	viper.BindPFlag("wrap-key-material", wrapCmd.Flags().Lookup("key-material")) //nolint:errcheck,gosec
+	viper.BindPFlag("wrap-version", wrapCmd.Flags().Lookup("version"))           //nolint:errcheck,gosec
 
 	return keysCmd
 }
