@@ -88,7 +88,17 @@ func validateWebhookURL(raw string) error {
 	return nil
 }
 
-// mintSecret returns a new base64-encoded signing secret.
+// mintSecret returns a new base64-encoded signing secret: 32 random bytes
+// encoded with base64.RawURLEncoding, a 43-character unpadded string.
+//
+// That returned string, in full, IS the secret -- not the 32 bytes it
+// decodes to. It is what the operator copies out of the create/rotate
+// response (the only place it is ever shown), so it is what a receiver will
+// hold and use directly as HMAC key material. Any future delivery/signing
+// implementation must HMAC with the 43-character string's bytes as received,
+// not with base64.RawURLEncoding.DecodeString(secret) -- decoding first would
+// silently produce a different key than what the operator configured on the
+// receiving end.
 func mintSecret() (string, error) {
 	buf := make([]byte, webhookSecretBytes)
 	if _, err := rand.Read(buf); err != nil {
