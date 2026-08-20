@@ -417,6 +417,15 @@ func resolvePolicy(method, path string) (model.PolicyResourceType, model.PolicyO
 		op = model.OpImport
 	case strings.HasSuffix(path, "/renew") && method == http.MethodPost:
 		op = model.OpRenew
+	// B33: sign and verify need their own operations so an explicit-deny
+	// policy naming them is evaluated the same over HTTP as it is on the CLI,
+	// which passes model.OpSign / model.OpVerify. Wrap and unwrap are
+	// deliberately absent: their CLI commands pass OpCreate, so the plain POST
+	// arm below already agrees with them.
+	case strings.HasSuffix(path, "/sign") && method == http.MethodPost:
+		op = model.OpSign
+	case strings.HasSuffix(path, "/verify") && method == http.MethodPost:
+		op = model.OpVerify
 	case method == http.MethodGet:
 		op = model.OpGet
 	case method == http.MethodPost:

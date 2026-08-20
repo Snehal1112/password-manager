@@ -103,8 +103,8 @@ type CertificateService interface {
 	RecoverCertificate(ctx context.Context, certID uuid.UUID, scope model.Scope) error
 	// PurgeCertificate permanently deletes a soft-deleted certificate authorized by scope.
 	PurgeCertificate(ctx context.Context, certID uuid.UUID, scope model.Scope) error
-	ValidateCertificateAccess(ctx context.Context, certID, userID uuid.UUID, role string) error
-	ValidateKeyOwnership(ctx context.Context, keyID, userID uuid.UUID, role string) error
+	ValidateCertificateAccess(ctx context.Context, certID uuid.UUID, scope model.Scope) error
+	ValidateKeyOwnership(ctx context.Context, keyID uuid.UUID, scope model.Scope) error
 	// GetCertificatePolicy retrieves the policy for certID, authorized by scope
 	// against the parent certificate.
 	GetCertificatePolicy(ctx context.Context, certID uuid.UUID, scope model.Scope) (*model.CertificatePolicy, error)
@@ -199,14 +199,18 @@ func (s *certificateService) CreateSelfSignedCertificate(ctx context.Context, re
 		return nil, fmt.Errorf("validity days must be positive")
 	}
 
-	// Verify key ownership and access
-	if err := s.ValidateKeyOwnership(ctx, req.KeyID, req.UserID, ""); err != nil {
+	// Authorize the signing key against the vault this certificate is being
+	// created in, never against the key's own vault (B32).
+	keyScope := model.NewVaultScope(resolveVaultID(req.VaultID), req.UserID)
+	if err := s.ValidateKeyOwnership(ctx, req.KeyID, keyScope); err != nil {
 		return nil, err
 	}
 
-	// Get the private key. Ownership was already verified by
-	// ValidateKeyOwnership above, so an admin scope is safe here.
-	key, err := s.keyRepo.Read(ctx, req.KeyID, model.NewAdminScope(req.UserID))
+	// Re-read under the same scope to pull the private key. This used to use an
+	// admin scope on the grounds that ownership had already been verified --
+	// true, but ownership is not vault authorization, so the admin scope
+	// reintroduced exactly the gap ValidateKeyOwnership had just closed.
+	key, err := s.keyRepo.Read(ctx, req.KeyID, keyScope)
 	if err != nil {
 		s.logger.LogAuditError(req.UserID.String(), "create_self_signed_cert", "failed", "failed to read key", err)
 		return nil, fmt.Errorf("failed to read key: %w", err)
@@ -330,20 +334,23 @@ func (s *certificateService) CreateCASignedCertificate(ctx context.Context, req 
 		return nil, fmt.Errorf("validity days must be positive")
 	}
 
-	// Verify key ownership and access
-	if err := s.ValidateKeyOwnership(ctx, req.KeyID, req.UserID, ""); err != nil {
+	// Both the signing key and the CA certificate are authorized against the
+	// vault this certificate is being created in (B32).
+	certScope := model.NewVaultScope(resolveVaultID(req.VaultID), req.UserID)
+
+	if err := s.ValidateKeyOwnership(ctx, req.KeyID, certScope); err != nil {
 		return nil, err
 	}
 
 	// Verify CA certificate access
-	if err := s.ValidateCertificateAccess(ctx, *req.CACertID, req.UserID, ""); err != nil {
+	if err := s.ValidateCertificateAccess(ctx, *req.CACertID, certScope); err != nil {
 		s.logger.LogAuditError(req.UserID.String(), "create_ca_signed_cert", "failed", "cannot access CA certificate", err)
 		return nil, fmt.Errorf("cannot access CA certificate: %w", err)
 	}
 
-	// Get the private key for the new certificate. Ownership was already
-	// verified by ValidateKeyOwnership above, so an admin scope is safe here.
-	key, err := s.keyRepo.Read(ctx, req.KeyID, model.NewAdminScope(req.UserID))
+	// Re-read under the same scope; see CreateSelfSignedCertificate for why an
+	// admin scope here would undo the check immediately above it.
+	key, err := s.keyRepo.Read(ctx, req.KeyID, certScope)
 	if err != nil {
 		s.logger.LogAuditError(req.UserID.String(), "create_ca_signed_cert", "failed", "failed to read key", err)
 		return nil, fmt.Errorf("failed to read key: %w", err)
@@ -356,9 +363,8 @@ func (s *certificateService) CreateCASignedCertificate(ctx context.Context, req 
 		return nil, fmt.Errorf("failed to decrypt key: %w", err)
 	}
 
-	// Get the CA certificate. Access was already verified by
-	// ValidateCertificateAccess above, so an admin scope is safe here.
-	caCert, err := s.certRepo.Read(ctx, *req.CACertID, model.NewAdminScope(req.UserID))
+	// Re-read the CA certificate under the same scope, for the same reason.
+	caCert, err := s.certRepo.Read(ctx, *req.CACertID, certScope)
 	if err != nil {
 		s.logger.LogAuditError(req.UserID.String(), "create_ca_signed_cert", "failed", "failed to read CA certificate", err)
 		return nil, fmt.Errorf("failed to read CA certificate: %w", err)
@@ -716,11 +722,13 @@ func (s *certificateService) RenewCertificate(ctx context.Context, certID uuid.U
 	// existing row in place rather than inserting a new one under the same
 	// name (CreateSelfSignedCertificate always mints a new ID/row and would
 	// collide with the certificate being renewed).
-	if err := s.ValidateKeyOwnership(ctx, original.KeyID, userID, ""); err != nil {
+	// The caller's own scope already names the vault the certificate lives in,
+	// so the signing key is authorized against that vault too (B32).
+	if err := s.ValidateKeyOwnership(ctx, original.KeyID, scope); err != nil {
 		return nil, err
 	}
 
-	key, err := s.keyRepo.Read(ctx, original.KeyID, model.NewAdminScope(userID))
+	key, err := s.keyRepo.Read(ctx, original.KeyID, scope)
 	if err != nil {
 		s.logger.LogAuditError(userID.String(), "renew_certificate", "failed", "failed to read key", err)
 		return nil, fmt.Errorf("failed to read key: %w", err)
@@ -776,68 +784,78 @@ func (s *certificateService) RenewCertificate(ctx context.Context, certID uuid.U
 	}, nil
 }
 
-// ValidateCertificateAccess validates that a user has access to a specific certificate.
-// It handles role-based access control for certificate operations.
+// ValidateCertificateAccess validates that the caller may use a specific
+// certificate as a signing CA.
+//
+// The scoped read is the vault half of the authorization: the repository's
+// predicate makes a certificate in another vault simply invisible, so a caller
+// cannot reach across the vault boundary. The owner comparison that follows is
+// retained deliberately (see ValidateKeyOwnership for why).
 //
 // Parameters:
 //
 //	ctx: The context for the operation.
 //	certID: The certificate's unique identifier.
-//	userID: The requesting user's ID.
-//	role: The user's role for permission checking.
+//	scope: The caller's vault scope, carrying both the target vault and the
+//	  acting user.
 //
 // Returns:
 //
 //	An error if access is denied.
-func (s *certificateService) ValidateCertificateAccess(ctx context.Context, certID, userID uuid.UUID, role string) error {
-	// Admin users have access to all certificates
-	if role == model.RoleAdmin {
-		return nil
-	}
+func (s *certificateService) ValidateCertificateAccess(ctx context.Context, certID uuid.UUID, scope model.Scope) error {
+	actorID := scope.ActorID()
 
-	// Non-admin users can only access their own certificates
-	cert, err := s.certRepo.Read(ctx, certID, model.NewAdminScope(userID))
+	cert, err := s.certRepo.Read(ctx, certID, scope)
 	if err != nil {
-		s.logger.LogAuditError(userID.String(), "validate_certificate_access", "failed", fmt.Sprintf("certificate not found: %s", err), err)
+		s.logger.LogAuditError(actorID.String(), "validate_certificate_access", "failed", fmt.Sprintf("certificate not found: %s", err), err)
 		return fmt.Errorf("certificate not found: %w", err)
 	}
 
-	if cert.UserID != userID {
-		s.logger.LogAuditError(userID.String(), "validate_certificate_access", "failed", "forbidden: cannot access other users' certificates", nil)
+	if cert.UserID != actorID {
+		s.logger.LogAuditError(actorID.String(), "validate_certificate_access", "failed", "forbidden: cannot access other users' certificates", nil)
 		return fmt.Errorf("forbidden: cannot access other users' certificates")
 	}
 
 	return nil
 }
 
-// ValidateKeyOwnership validates that a user has access to use a specific key.
-// It handles role-based access control for key usage in certificate operations.
+// ValidateKeyOwnership validates that the caller may use a specific key to
+// sign a certificate.
+//
+// Two checks, and both matter (B32):
+//
+//   - The scoped read enforces the vault boundary. This used to be an admin
+//     scope, which carries no vault predicate, so a user who owned a key in
+//     vault A could mint a certificate in vault B signed by it. The vault is
+//     the security boundary everywhere else in the system; it applies here now.
+//   - The owner comparison is kept on purpose. Dropping it would match how the
+//     rest of the data plane works -- where a scoped read is the whole gate --
+//     but it would also let any vault member sign with another member's key,
+//     which is strictly more access than before. Widening permissions is not
+//     something a security fix should do on the way past; that call belongs in
+//     its own change.
 //
 // Parameters:
 //
 //	ctx: The context for the operation.
 //	keyID: The key's unique identifier.
-//	userID: The requesting user's ID.
-//	role: The user's role for permission checking.
+//	scope: The caller's vault scope, carrying both the target vault and the
+//	  acting user.
 //
 // Returns:
 //
 //	An error if access is denied.
-func (s *certificateService) ValidateKeyOwnership(ctx context.Context, keyID, userID uuid.UUID, role string) error {
-	// Admin users can use any key
-	if role == model.RoleAdmin {
-		return nil
-	}
+func (s *certificateService) ValidateKeyOwnership(ctx context.Context, keyID uuid.UUID, scope model.Scope) error {
+	actorID := scope.ActorID()
 
-	// Verify key ownership
-	key, err := s.keyRepo.Read(ctx, keyID, model.NewAdminScope(userID))
+	key, err := s.keyRepo.Read(ctx, keyID, scope)
 	if err != nil {
-		s.logger.LogAuditError(userID.String(), "validate_key_ownership", "failed", fmt.Sprintf("key not found: %s", err), err)
+		s.logger.LogAuditError(actorID.String(), "validate_key_ownership", "failed", fmt.Sprintf("key not found: %s", err), err)
 		return fmt.Errorf("key not found: %w", err)
 	}
 
-	if key.UserID != userID {
-		s.logger.LogAuditError(userID.String(), "validate_key_ownership", "failed", "forbidden: cannot use other users' keys", nil)
+	if key.UserID != actorID {
+		s.logger.LogAuditError(actorID.String(), "validate_key_ownership", "failed", "forbidden: cannot use other users' keys", nil)
 		return fmt.Errorf("forbidden: cannot use other users' keys")
 	}
 

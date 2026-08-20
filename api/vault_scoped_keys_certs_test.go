@@ -170,10 +170,10 @@ func (s *recordingCertService) DeleteCertificate(context.Context, uuid.UUID, mod
 func (s *recordingCertService) RenewCertificate(context.Context, uuid.UUID, model.Scope, int) (*certServices.CreateCertificateResult, error) {
 	panic("unexpected")
 }
-func (s *recordingCertService) ValidateCertificateAccess(context.Context, uuid.UUID, uuid.UUID, string) error {
+func (s *recordingCertService) ValidateCertificateAccess(context.Context, uuid.UUID, model.Scope) error {
 	panic("unexpected")
 }
-func (s *recordingCertService) ValidateKeyOwnership(context.Context, uuid.UUID, uuid.UUID, string) error {
+func (s *recordingCertService) ValidateKeyOwnership(context.Context, uuid.UUID, model.Scope) error {
 	panic("unexpected")
 }
 func (s *recordingCertService) ListDeletedCertificates(context.Context, model.Scope) ([]model.Certificate, error) {

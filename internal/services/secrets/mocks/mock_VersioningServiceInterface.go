@@ -363,6 +363,66 @@ func (_c *MockVersioningServiceInterface_GetVersions_Call) RunAndReturn(run func
 	return _c
 }
 
+// GetVersionsMetadata provides a mock function with given fields: ctx, secretID, scope
+func (_m *MockVersioningServiceInterface) GetVersionsMetadata(ctx context.Context, secretID uuid.UUID, scope model.Scope) ([]model.SecretVersionMetadata, error) {
+	ret := _m.Called(ctx, secretID, scope)
+
+	if len(ret) == 0 {
+		panic("no return value specified for GetVersionsMetadata")
+	}
+
+	var r0 []model.SecretVersionMetadata
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, uuid.UUID, model.Scope) ([]model.SecretVersionMetadata, error)); ok {
+		return rf(ctx, secretID, scope)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, uuid.UUID, model.Scope) []model.SecretVersionMetadata); ok {
+		r0 = rf(ctx, secretID, scope)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).([]model.SecretVersionMetadata)
+		}
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context, uuid.UUID, model.Scope) error); ok {
+		r1 = rf(ctx, secretID, scope)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// MockVersioningServiceInterface_GetVersionsMetadata_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'GetVersionsMetadata'
+type MockVersioningServiceInterface_GetVersionsMetadata_Call struct {
+	*mock.Call
+}
+
+// GetVersionsMetadata is a helper method to define mock.On call
+//   - ctx context.Context
+//   - secretID uuid.UUID
+//   - scope model.Scope
+func (_e *MockVersioningServiceInterface_Expecter) GetVersionsMetadata(ctx interface{}, secretID interface{}, scope interface{}) *MockVersioningServiceInterface_GetVersionsMetadata_Call {
+	return &MockVersioningServiceInterface_GetVersionsMetadata_Call{Call: _e.mock.On("GetVersionsMetadata", ctx, secretID, scope)}
+}
+
+func (_c *MockVersioningServiceInterface_GetVersionsMetadata_Call) Run(run func(ctx context.Context, secretID uuid.UUID, scope model.Scope)) *MockVersioningServiceInterface_GetVersionsMetadata_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(uuid.UUID), args[2].(model.Scope))
+	})
+	return _c
+}
+
+func (_c *MockVersioningServiceInterface_GetVersionsMetadata_Call) Return(_a0 []model.SecretVersionMetadata, _a1 error) *MockVersioningServiceInterface_GetVersionsMetadata_Call {
+	_c.Call.Return(_a0, _a1)
+	return _c
+}
+
+func (_c *MockVersioningServiceInterface_GetVersionsMetadata_Call) RunAndReturn(run func(context.Context, uuid.UUID, model.Scope) ([]model.SecretVersionMetadata, error)) *MockVersioningServiceInterface_GetVersionsMetadata_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // RollbackToVersion provides a mock function with given fields: ctx, req
 func (_m *MockVersioningServiceInterface) RollbackToVersion(ctx context.Context, req secrets.RollbackRequest) (*model.Secret, error) {
 	ret := _m.Called(ctx, req)

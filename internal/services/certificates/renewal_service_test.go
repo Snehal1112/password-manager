@@ -131,11 +131,11 @@ func (m *mockCertSvcForRenewal) RenewCertificate(ctx context.Context, certID uui
 	return args.Get(0).(*certificates.CreateCertificateResult), args.Error(1)
 }
 
-func (m *mockCertSvcForRenewal) ValidateCertificateAccess(ctx context.Context, certID, userID uuid.UUID, role string) error {
+func (m *mockCertSvcForRenewal) ValidateCertificateAccess(ctx context.Context, certID uuid.UUID, scope model.Scope) error {
 	panic("not called")
 }
 
-func (m *mockCertSvcForRenewal) ValidateKeyOwnership(ctx context.Context, keyID, userID uuid.UUID, role string) error {
+func (m *mockCertSvcForRenewal) ValidateKeyOwnership(ctx context.Context, keyID uuid.UUID, scope model.Scope) error {
 	panic("not called")
 }
 

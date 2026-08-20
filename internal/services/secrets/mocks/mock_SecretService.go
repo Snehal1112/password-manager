@@ -492,6 +492,66 @@ func (_c *MockSecretService_GetSecretVersions_Call) RunAndReturn(run func(contex
 	return _c
 }
 
+// GetSecretVersionsMetadata provides a mock function with given fields: ctx, secretID, scope
+func (_m *MockSecretService) GetSecretVersionsMetadata(ctx context.Context, secretID uuid.UUID, scope model.Scope) ([]model.SecretVersionMetadata, error) {
+	ret := _m.Called(ctx, secretID, scope)
+
+	if len(ret) == 0 {
+		panic("no return value specified for GetSecretVersionsMetadata")
+	}
+
+	var r0 []model.SecretVersionMetadata
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, uuid.UUID, model.Scope) ([]model.SecretVersionMetadata, error)); ok {
+		return rf(ctx, secretID, scope)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, uuid.UUID, model.Scope) []model.SecretVersionMetadata); ok {
+		r0 = rf(ctx, secretID, scope)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).([]model.SecretVersionMetadata)
+		}
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context, uuid.UUID, model.Scope) error); ok {
+		r1 = rf(ctx, secretID, scope)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// MockSecretService_GetSecretVersionsMetadata_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'GetSecretVersionsMetadata'
+type MockSecretService_GetSecretVersionsMetadata_Call struct {
+	*mock.Call
+}
+
+// GetSecretVersionsMetadata is a helper method to define mock.On call
+//   - ctx context.Context
+//   - secretID uuid.UUID
+//   - scope model.Scope
+func (_e *MockSecretService_Expecter) GetSecretVersionsMetadata(ctx interface{}, secretID interface{}, scope interface{}) *MockSecretService_GetSecretVersionsMetadata_Call {
+	return &MockSecretService_GetSecretVersionsMetadata_Call{Call: _e.mock.On("GetSecretVersionsMetadata", ctx, secretID, scope)}
+}
+
+func (_c *MockSecretService_GetSecretVersionsMetadata_Call) Run(run func(ctx context.Context, secretID uuid.UUID, scope model.Scope)) *MockSecretService_GetSecretVersionsMetadata_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(uuid.UUID), args[2].(model.Scope))
+	})
+	return _c
+}
+
+func (_c *MockSecretService_GetSecretVersionsMetadata_Call) Return(_a0 []model.SecretVersionMetadata, _a1 error) *MockSecretService_GetSecretVersionsMetadata_Call {
+	_c.Call.Return(_a0, _a1)
+	return _c
+}
+
+func (_c *MockSecretService_GetSecretVersionsMetadata_Call) RunAndReturn(run func(context.Context, uuid.UUID, model.Scope) ([]model.SecretVersionMetadata, error)) *MockSecretService_GetSecretVersionsMetadata_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // ImportSecrets provides a mock function with given fields: ctx, req
 func (_m *MockSecretService) ImportSecrets(ctx context.Context, req secrets.ImportSecretsRequest) (*secrets.ImportResult, error) {
 	ret := _m.Called(ctx, req)

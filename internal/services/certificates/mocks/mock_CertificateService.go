@@ -746,17 +746,17 @@ func (_c *MockCertificateService_UpsertCertificatePolicy_Call) RunAndReturn(run 
 	return _c
 }
 
-// ValidateCertificateAccess provides a mock function with given fields: ctx, certID, userID, role
-func (_m *MockCertificateService) ValidateCertificateAccess(ctx context.Context, certID uuid.UUID, userID uuid.UUID, role string) error {
-	ret := _m.Called(ctx, certID, userID, role)
+// ValidateCertificateAccess provides a mock function with given fields: ctx, certID, scope
+func (_m *MockCertificateService) ValidateCertificateAccess(ctx context.Context, certID uuid.UUID, scope model.Scope) error {
+	ret := _m.Called(ctx, certID, scope)
 
 	if len(ret) == 0 {
 		panic("no return value specified for ValidateCertificateAccess")
 	}
 
 	var r0 error
-	if rf, ok := ret.Get(0).(func(context.Context, uuid.UUID, uuid.UUID, string) error); ok {
-		r0 = rf(ctx, certID, userID, role)
+	if rf, ok := ret.Get(0).(func(context.Context, uuid.UUID, model.Scope) error); ok {
+		r0 = rf(ctx, certID, scope)
 	} else {
 		r0 = ret.Error(0)
 	}
@@ -772,15 +772,14 @@ type MockCertificateService_ValidateCertificateAccess_Call struct {
 // ValidateCertificateAccess is a helper method to define mock.On call
 //   - ctx context.Context
 //   - certID uuid.UUID
-//   - userID uuid.UUID
-//   - role string
-func (_e *MockCertificateService_Expecter) ValidateCertificateAccess(ctx interface{}, certID interface{}, userID interface{}, role interface{}) *MockCertificateService_ValidateCertificateAccess_Call {
-	return &MockCertificateService_ValidateCertificateAccess_Call{Call: _e.mock.On("ValidateCertificateAccess", ctx, certID, userID, role)}
+//   - scope model.Scope
+func (_e *MockCertificateService_Expecter) ValidateCertificateAccess(ctx interface{}, certID interface{}, scope interface{}) *MockCertificateService_ValidateCertificateAccess_Call {
+	return &MockCertificateService_ValidateCertificateAccess_Call{Call: _e.mock.On("ValidateCertificateAccess", ctx, certID, scope)}
 }
 
-func (_c *MockCertificateService_ValidateCertificateAccess_Call) Run(run func(ctx context.Context, certID uuid.UUID, userID uuid.UUID, role string)) *MockCertificateService_ValidateCertificateAccess_Call {
+func (_c *MockCertificateService_ValidateCertificateAccess_Call) Run(run func(ctx context.Context, certID uuid.UUID, scope model.Scope)) *MockCertificateService_ValidateCertificateAccess_Call {
 	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(context.Context), args[1].(uuid.UUID), args[2].(uuid.UUID), args[3].(string))
+		run(args[0].(context.Context), args[1].(uuid.UUID), args[2].(model.Scope))
 	})
 	return _c
 }
@@ -790,22 +789,22 @@ func (_c *MockCertificateService_ValidateCertificateAccess_Call) Return(_a0 erro
 	return _c
 }
 
-func (_c *MockCertificateService_ValidateCertificateAccess_Call) RunAndReturn(run func(context.Context, uuid.UUID, uuid.UUID, string) error) *MockCertificateService_ValidateCertificateAccess_Call {
+func (_c *MockCertificateService_ValidateCertificateAccess_Call) RunAndReturn(run func(context.Context, uuid.UUID, model.Scope) error) *MockCertificateService_ValidateCertificateAccess_Call {
 	_c.Call.Return(run)
 	return _c
 }
 
-// ValidateKeyOwnership provides a mock function with given fields: ctx, keyID, userID, role
-func (_m *MockCertificateService) ValidateKeyOwnership(ctx context.Context, keyID uuid.UUID, userID uuid.UUID, role string) error {
-	ret := _m.Called(ctx, keyID, userID, role)
+// ValidateKeyOwnership provides a mock function with given fields: ctx, keyID, scope
+func (_m *MockCertificateService) ValidateKeyOwnership(ctx context.Context, keyID uuid.UUID, scope model.Scope) error {
+	ret := _m.Called(ctx, keyID, scope)
 
 	if len(ret) == 0 {
 		panic("no return value specified for ValidateKeyOwnership")
 	}
 
 	var r0 error
-	if rf, ok := ret.Get(0).(func(context.Context, uuid.UUID, uuid.UUID, string) error); ok {
-		r0 = rf(ctx, keyID, userID, role)
+	if rf, ok := ret.Get(0).(func(context.Context, uuid.UUID, model.Scope) error); ok {
+		r0 = rf(ctx, keyID, scope)
 	} else {
 		r0 = ret.Error(0)
 	}
@@ -821,15 +820,14 @@ type MockCertificateService_ValidateKeyOwnership_Call struct {
 // ValidateKeyOwnership is a helper method to define mock.On call
 //   - ctx context.Context
 //   - keyID uuid.UUID
-//   - userID uuid.UUID
-//   - role string
-func (_e *MockCertificateService_Expecter) ValidateKeyOwnership(ctx interface{}, keyID interface{}, userID interface{}, role interface{}) *MockCertificateService_ValidateKeyOwnership_Call {
-	return &MockCertificateService_ValidateKeyOwnership_Call{Call: _e.mock.On("ValidateKeyOwnership", ctx, keyID, userID, role)}
+//   - scope model.Scope
+func (_e *MockCertificateService_Expecter) ValidateKeyOwnership(ctx interface{}, keyID interface{}, scope interface{}) *MockCertificateService_ValidateKeyOwnership_Call {
+	return &MockCertificateService_ValidateKeyOwnership_Call{Call: _e.mock.On("ValidateKeyOwnership", ctx, keyID, scope)}
 }
 
-func (_c *MockCertificateService_ValidateKeyOwnership_Call) Run(run func(ctx context.Context, keyID uuid.UUID, userID uuid.UUID, role string)) *MockCertificateService_ValidateKeyOwnership_Call {
+func (_c *MockCertificateService_ValidateKeyOwnership_Call) Run(run func(ctx context.Context, keyID uuid.UUID, scope model.Scope)) *MockCertificateService_ValidateKeyOwnership_Call {
 	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(context.Context), args[1].(uuid.UUID), args[2].(uuid.UUID), args[3].(string))
+		run(args[0].(context.Context), args[1].(uuid.UUID), args[2].(model.Scope))
 	})
 	return _c
 }
@@ -839,7 +837,7 @@ func (_c *MockCertificateService_ValidateKeyOwnership_Call) Return(_a0 error) *M
 	return _c
 }
 
-func (_c *MockCertificateService_ValidateKeyOwnership_Call) RunAndReturn(run func(context.Context, uuid.UUID, uuid.UUID, string) error) *MockCertificateService_ValidateKeyOwnership_Call {
+func (_c *MockCertificateService_ValidateKeyOwnership_Call) RunAndReturn(run func(context.Context, uuid.UUID, model.Scope) error) *MockCertificateService_ValidateKeyOwnership_Call {
 	_c.Call.Return(run)
 	return _c
 }

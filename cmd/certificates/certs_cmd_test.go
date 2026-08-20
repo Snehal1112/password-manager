@@ -92,11 +92,11 @@ func (m *certCmdCertService) RenewCertificate(ctx context.Context, certID uuid.U
 	return args.Get(0).(*certServices.CreateCertificateResult), args.Error(1)
 }
 
-func (m *certCmdCertService) ValidateCertificateAccess(ctx context.Context, certID, userID uuid.UUID, role string) error {
+func (m *certCmdCertService) ValidateCertificateAccess(ctx context.Context, certID uuid.UUID, scope model.Scope) error {
 	return nil
 }
 
-func (m *certCmdCertService) ValidateKeyOwnership(ctx context.Context, keyID, userID uuid.UUID, role string) error {
+func (m *certCmdCertService) ValidateKeyOwnership(ctx context.Context, keyID uuid.UUID, scope model.Scope) error {
 	return nil
 }
 

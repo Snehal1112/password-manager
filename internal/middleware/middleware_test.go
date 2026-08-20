@@ -1402,6 +1402,43 @@ func TestResolvePolicy_VaultNamedAfterAResourceTypeDoesNotMisrouteResourceType(t
 	}
 }
 
+// TestResolvePolicy_SignAndVerifyResolveToTheirOwnOperations is the regression
+// for B33. resolvePolicy special-cases /purge, /restore, /rotate, /import and
+// /renew, but had no case for /sign or /verify, so both fell through to the
+// plain POST arm and resolved to OpCreate. The CLI passes OpSign and OpVerify
+// (cmd/keys/sign.go, cmd/keys/verify.go), so an explicit-deny access policy
+// written against (keys, sign) fired on the CLI and did not fire over HTTP --
+// the API was the way around a deny rule the CLI honoured.
+//
+// wrap and unwrap are deliberately absent from this table: their CLI commands
+// pass OpCreate, matching what HTTP already resolves, so the two agree.
+func TestResolvePolicy_SignAndVerifyResolveToTheirOwnOperations(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		name   string
+		method string
+		path   string
+		wantOp model.PolicyOperation
+	}{
+		{"sign, flat route", http.MethodPost, "/api/v1/keys/abc/sign", model.OpSign},
+		{"sign, vault-scoped route", http.MethodPost, "/api/v1/vaults/prod/keys/abc/sign", model.OpSign},
+		{"verify, flat route", http.MethodPost, "/api/v1/keys/abc/verify", model.OpVerify},
+		{"verify, vault-scoped route", http.MethodPost, "/api/v1/vaults/prod/keys/abc/verify", model.OpVerify},
+		// Unchanged neighbours, to pin that the new cases didn't widen.
+		{"wrap still resolves to create", http.MethodPost, "/api/v1/keys/abc/wrap", model.OpCreate},
+		{"unwrap still resolves to create", http.MethodPost, "/api/v1/keys/abc/unwrap", model.OpCreate},
+		{"rotate keeps its own operation", http.MethodPost, "/api/v1/keys/abc/rotate", model.OpRotate},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			resourceType, op := resolvePolicy(c.method, c.path)
+			assert.Equal(t, model.PolicyResourceKeys, resourceType, "resolvePolicy(%s, %s) resource", c.method, c.path)
+			assert.Equal(t, c.wantOp, op, "resolvePolicy(%s, %s) operation", c.method, c.path)
+		})
+	}
+}
+
 // TestPolicyMiddleware_VaultNamedSecretsDoesNotHideKeysDenyPolicy proves the
 // fix end-to-end through PolicyMiddleware: a deny policy targeting "keys"
 // must still be looked up (and enforced) for a vault literally named

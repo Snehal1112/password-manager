@@ -291,9 +291,12 @@ func TestRenewCertificate_Succeeds_WhenKeyIDSet(t *testing.T) {
 	// RenewCertificate calls GetCertificate, which calls Read internally.
 	certRepo.On("Read", mock.Anything, certID, scope).Return(existingCert, nil)
 
-	// keyRepo.Read is called twice with the same admin scope: once in
-	// ValidateKeyOwnership, once to get the key PEM.
-	keyRepo.On("Read", mock.Anything, keyID, model.NewAdminScope(userID)).Return(mockKey, nil)
+	// keyRepo.Read is called twice with the CALLER'S OWN scope: once in
+	// ValidateKeyOwnership, once to get the key PEM. Both used to pass
+	// model.NewAdminScope, which carries no vault predicate -- B32. Renewal
+	// now reuses the scope the caller was authorized under, so the signing key
+	// has to be reachable within it.
+	keyRepo.On("Read", mock.Anything, keyID, scope).Return(mockKey, nil)
 
 	// Renewal must update the existing row in place (same ID/name), not insert a
 	// second row: certificates has a UNIQUE(vault_id, name) index, so inserting
@@ -434,7 +437,7 @@ func TestCreateSelfSignedCertificate_SetsPurgeProtectionWhenRequested(t *testing
 
 	certRepo := &mockCertRepository{}
 	keyRepo := &mockKeyRepo{}
-	keyRepo.On("Read", mock.Anything, keyID, model.NewAdminScope(userID)).Return(&model.Key{
+	keyRepo.On("Read", mock.Anything, keyID, certVaultScope(userID)).Return(&model.Key{
 		ID: keyID, UserID: userID, Type: model.KeyTypeRSA, Value: encryptedKey,
 	}, nil)
 	certRepo.On("Create", mock.Anything, mock.AnythingOfType("*model.Certificate")).Return(nil)
@@ -487,10 +490,10 @@ func TestCreateCASignedCertificate_SetsPurgeProtectionWhenRequested(t *testing.T
 
 	certRepo := &mockCertRepository{}
 	keyRepo := &mockKeyRepo{}
-	keyRepo.On("Read", mock.Anything, keyID, model.NewAdminScope(userID)).Return(&model.Key{
+	keyRepo.On("Read", mock.Anything, keyID, certVaultScope(userID)).Return(&model.Key{
 		ID: keyID, UserID: userID, Type: model.KeyTypeRSA, Value: encryptedKey,
 	}, nil)
-	certRepo.On("Read", mock.Anything, caCertID, model.NewAdminScope(userID)).Return(&model.Certificate{
+	certRepo.On("Read", mock.Anything, caCertID, certVaultScope(userID)).Return(&model.Certificate{
 		ID: caCertID, UserID: userID, Name: "test-ca", Certificate: caCertPEM, PrivateKey: encryptedCAKey,
 	}, nil)
 	certRepo.On("Create", mock.Anything, mock.AnythingOfType("*model.Certificate")).Return(nil)
@@ -533,7 +536,7 @@ func TestCreateSelfSignedCertificate_LeavesPurgeProtectionAloneByDefault(t *test
 
 	certRepo := &mockCertRepository{}
 	keyRepo := &mockKeyRepo{}
-	keyRepo.On("Read", mock.Anything, keyID, model.NewAdminScope(userID)).Return(&model.Key{
+	keyRepo.On("Read", mock.Anything, keyID, certVaultScope(userID)).Return(&model.Key{
 		ID: keyID, UserID: userID, Type: model.KeyTypeRSA, Value: encryptedKey,
 	}, nil)
 	certRepo.On("Create", mock.Anything, mock.AnythingOfType("*model.Certificate")).Return(nil)
