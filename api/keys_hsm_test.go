@@ -43,7 +43,7 @@ func TestBuildKeyResponse_RSA_HSM(t *testing.T) {
 		CreatedAt: time.Now(),
 		Tags:      []string{},
 	}
-	resp := buildKeyResponse(key)
+	resp := buildKeyResponse(key, nil)
 	assert.Equal(t, "RSA-HSM", resp.Type)
 	assert.Equal(t, key.ID, resp.ID)
 	assert.Equal(t, key.Name, resp.Name)
@@ -59,7 +59,7 @@ func TestBuildKeyResponse_ECDSA_HSM(t *testing.T) {
 		CreatedAt: time.Now(),
 		Tags:      []string{},
 	}
-	resp := buildKeyResponse(key)
+	resp := buildKeyResponse(key, nil)
 	// ECDSA maps to "EC-HSM" to match Azure Key Vault convention.
 	assert.Equal(t, "EC-HSM", resp.Type)
 }
@@ -74,7 +74,7 @@ func TestBuildKeyResponse_RSA_Software(t *testing.T) {
 		CreatedAt: time.Now(),
 		Tags:      []string{},
 	}
-	resp := buildKeyResponse(key)
+	resp := buildKeyResponse(key, nil)
 	assert.Equal(t, "RSA", resp.Type)
 }
 
@@ -88,7 +88,7 @@ func TestBuildKeyResponse_ECDSA_Software(t *testing.T) {
 		CreatedAt: time.Now(),
 		Tags:      []string{},
 	}
-	resp := buildKeyResponse(key)
+	resp := buildKeyResponse(key, nil)
 	assert.Equal(t, "ECDSA", resp.Type)
 }
 
@@ -110,7 +110,7 @@ func TestBuildKeyResponse_AllFieldsCopied(t *testing.T) {
 		NotBefore: &now,
 		Bits:      2048,
 	}
-	resp := buildKeyResponse(key)
+	resp := buildKeyResponse(key, nil)
 	assert.Equal(t, "RSA-HSM", resp.Type)
 	assert.Equal(t, key.ID, resp.ID)
 	assert.Equal(t, key.UserID, resp.UserID)

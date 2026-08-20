@@ -494,6 +494,67 @@ func (_c *MockKeyService_GetKeyVersion_Call) RunAndReturn(run func(context.Conte
 	return _c
 }
 
+// GetPublicJWK provides a mock function with given fields: ctx, keyID, version, scope
+func (_m *MockKeyService) GetPublicJWK(ctx context.Context, keyID uuid.UUID, version int, scope model.Scope) (*model.PublicJWK, error) {
+	ret := _m.Called(ctx, keyID, version, scope)
+
+	if len(ret) == 0 {
+		panic("no return value specified for GetPublicJWK")
+	}
+
+	var r0 *model.PublicJWK
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, uuid.UUID, int, model.Scope) (*model.PublicJWK, error)); ok {
+		return rf(ctx, keyID, version, scope)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, uuid.UUID, int, model.Scope) *model.PublicJWK); ok {
+		r0 = rf(ctx, keyID, version, scope)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).(*model.PublicJWK)
+		}
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context, uuid.UUID, int, model.Scope) error); ok {
+		r1 = rf(ctx, keyID, version, scope)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// MockKeyService_GetPublicJWK_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'GetPublicJWK'
+type MockKeyService_GetPublicJWK_Call struct {
+	*mock.Call
+}
+
+// GetPublicJWK is a helper method to define mock.On call
+//   - ctx context.Context
+//   - keyID uuid.UUID
+//   - version int
+//   - scope model.Scope
+func (_e *MockKeyService_Expecter) GetPublicJWK(ctx interface{}, keyID interface{}, version interface{}, scope interface{}) *MockKeyService_GetPublicJWK_Call {
+	return &MockKeyService_GetPublicJWK_Call{Call: _e.mock.On("GetPublicJWK", ctx, keyID, version, scope)}
+}
+
+func (_c *MockKeyService_GetPublicJWK_Call) Run(run func(ctx context.Context, keyID uuid.UUID, version int, scope model.Scope)) *MockKeyService_GetPublicJWK_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(uuid.UUID), args[2].(int), args[3].(model.Scope))
+	})
+	return _c
+}
+
+func (_c *MockKeyService_GetPublicJWK_Call) Return(_a0 *model.PublicJWK, _a1 error) *MockKeyService_GetPublicJWK_Call {
+	_c.Call.Return(_a0, _a1)
+	return _c
+}
+
+func (_c *MockKeyService_GetPublicJWK_Call) RunAndReturn(run func(context.Context, uuid.UUID, int, model.Scope) (*model.PublicJWK, error)) *MockKeyService_GetPublicJWK_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // ListDeletedKeys provides a mock function with given fields: ctx, scope
 func (_m *MockKeyService) ListDeletedKeys(ctx context.Context, scope model.Scope) ([]model.Key, error) {
 	ret := _m.Called(ctx, scope)

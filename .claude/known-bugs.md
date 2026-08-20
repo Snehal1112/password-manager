@@ -1676,6 +1676,75 @@ which covers both the flat and vault-scoped route shapes and also asserts that
 
 ---
 
+### B34 — JWK public components silently empty on every key response
+
+**Status**: Fixed 2026-08-20
+**Severity**: Low — a missing response field, not a security or data defect.
+Nothing was exposed that should not have been; an advertised capability simply
+never worked
+**Files**: `api/keys.go`, `internal/services/keys/key_service.go`, `model/key.go`
+
+**Symptom**: `GET /keys/{id}`, `POST /keys`, `PUT /keys/{id}` and
+`POST /keys/{id}/rotate` all declared `n`/`e`/`x`/`y` on `api.KeyResponse` and
+never populated them for any software-backed key. All four carry `omitempty`,
+so the fields simply vanished from the JSON and no client could tell "this key
+has no public material" — the genuine HSM result — from "extraction failed".
+
+**Root cause**: `buildKeyResponse` called
+`crypto.ExtractPublicComponents(key.Value, key.Type)`. `key.Value` is the value
+as *stored*, and every software key is stored master-key-encrypted
+(`CreateKey` runs `common.EncryptSecret` before `keyRepo.Create`).
+`ExtractPublicComponents` opens with `pem.Decode`, which returns a nil block
+for base64 ciphertext, so the function returned four empty strings and
+`failed to decode PEM block`. **That error was assigned to `_`.**
+
+**Why it survived review**: the discarded error made the failure
+indistinguishable from the legitimate HSM path, which also returns four empty
+strings — but with a nil error. No test asserted a non-empty `n` at the handler
+level, and `internal/crypto/key_crypto_test.go` only exercised
+`ExtractPublicComponents` with plaintext PEM, where it works correctly. The
+unit under test was fine; the caller was passing it the wrong bytes.
+
+**Fix**: extraction moved to `KeyService.GetPublicJWK`, which decrypts with
+`common.DecryptSecret` before parsing and propagates both failures.
+`buildKeyResponse` now *receives* the components instead of deriving them, so a
+handler cannot reintroduce the bug by passing the wrong value — the encrypted
+material is no longer in reach at that layer. The same method resolves an
+archived version's material through `KeyRepository.ReadVersionValue`, which is
+what let `GET /keys/{id}/versions/{version}` gain a real public JWK, matching
+Azure's `GET /keys/{name}/{version}`.
+
+Deliberate choices worth keeping:
+
+- **A JWK failure does not fail the request.** `keyJWK` (`api/keys.go`) logs and
+  omits the components. The primary content of the response is already in hand,
+  and a key created moments ago should not 500 because its public components
+  could not be derived.
+- **`listKeys` passes `nil`.** Fetching a JWK per row would be an N-way decrypt
+  on a list endpoint, and Azure's own list response carries identifiers and
+  attributes only.
+- **HSM keys return an empty JWK with a nil error**, never a 500 — the material
+  never left the token, which is a normal answer rather than a failure.
+- **`model.KeyVersion` is unchanged.** The version route returns a new
+  `api.KeyVersionResponse` that embeds it and adds the four public fields, so
+  that type's no-material guarantee still holds.
+
+**Pinned by**: `TestGetPublicJWK_*` (`internal/services/keys/key_jwk_test.go`)
+at the service layer and `TestGetKey_EmitsPublicJWKComponents`,
+`TestGetKey_JWKFailureDoesNotFailTheRequest`,
+`TestGetKeyVersion_EmitsThatVersionsJWK` (`api/keys_jwk_test.go`) at the
+handler. The handler tests matter independently: the service tests would pass
+against a handler that still extracted from the encrypted value itself, which
+is exactly the bug. Verified by reinstating the original
+`ExtractPublicComponents(key.Value, …)` call and watching
+`TestGetKey_EmitsPublicJWKComponents` fail.
+
+**Note on the plan**: this was planned on 2026-08-19 as bug `B28`, which was
+taken by the item-backup entry before the plan ran. Renumbered to B34 on
+execution.
+
+---
+
 ## Deferred Refactors
 
 Both items formerly tracked here (H3, M2) were re-investigated on 2026-08-14 and

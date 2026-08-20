@@ -77,6 +77,20 @@ type KeyVersionRecord struct {
 	CreatedAt time.Time `json:"created_at"`
 }
 
+// PublicJWK carries the public components of a key, in the base64url form JWK
+// uses: N and E for RSA, X and Y for EC. It never carries private material,
+// and no field may be added to it that would -- callers copy it straight onto
+// HTTP responses.
+//
+// All four fields are empty for an HSM-backed key, whose material never leaves
+// the token. That is a normal result, not an error.
+type PublicJWK struct {
+	N string `json:"n,omitempty"`
+	E string `json:"e,omitempty"`
+	X string `json:"x,omitempty"`
+	Y string `json:"y,omitempty"`
+}
+
 // --- HTTP request/response types ---
 
 type CreateKeyRequest struct {

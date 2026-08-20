@@ -38,7 +38,7 @@ vaults). RocketVault columns are sourced from the codebase (`api/`, `internal/`,
 |---|---|---|---|
 | Create key | ✅ | ✅ `POST /keys` | ✅ |
 | Import key | ✅ (JWK) | ❌ no import route — `ActionKeysImport` is declared in `model/azure_roles.go` and granted to Crypto Officer/Administrator, but no path maps to it in `MapRouteToDataAction` | ❌ |
-| Get / List / List versions | ✅ (`GET /keys/{name}/{version}` returns the version's public JWK — `n`/`e` for RSA, `x`/`y`/`crv` for EC) | ✅ `GET /keys`, `/keys/{id}`, `/keys/{id}/versions`, and now `/keys/{id}/versions/{version}` (added 2026-08-19, § B26) for one version's metadata — but the response is `model.KeyVersion{KeyID, Version, CreatedAt}` only, no public JWK components at all, thinner than even the current-key `GET /keys/{id}` (which does emit them via `buildKeyResponse`); a version's public key material is reached only indirectly, by passing `version` to sign/verify/encrypt/decrypt/wrap/unwrap (see the Rotate row below), never by reading it back directly | 🟡 (route now exists, closing the missing-route gap, but it's bookkeeping-only — no public JWK — unlike Azure's real response) |
+| Get / List / List versions | ✅ (`GET /keys/{name}/{version}` returns the version's public JWK — `n`/`e` for RSA, `x`/`y`/`crv` for EC) | ✅ `GET /keys`, `/keys/{id}`, `/keys/{id}/versions`, and `/keys/{id}/versions/{version}`, which returns that version's public JWK components alongside its metadata (2026-08-20, § B34). Note the earlier claim here that the current-key `GET /keys/{id}` "does emit them via `buildKeyResponse`" was **false**: it advertised `n`/`e`/`x`/`y` and never populated them for any software key, because the handler parsed the master-key-encrypted stored value and discarded the resulting error. Both routes emit real components now. `GET /keys` stays JWK-free by design, as Azure's list response does | ✅ |
 | Update (attributes) | ✅ | ✅ `PUT /keys/{id}` | ✅ |
 | Delete (soft) | ✅ | ✅ `DELETE /keys/{id}` | ✅ |
 | Rotate (new version) | ✅ | 🟡 `POST /keys/{id}/rotate` — `KeyService.RotateKey` still archives the old material into `key_versions` and overwrites `keys.value` in place (RSA/ECDSA/ES256K only; OCT has no branch), but old versions are no longer a dead end: all six crypto operations (`sign`/`verify`/`encrypt`/`decrypt`/`wrap`/`unwrap`) now accept an optional `version` field and resolve to the matching `key_versions` row, so data encrypted or signed before a rotation is usable again over REST (fixed 2026-08-19, `.claude/known-bugs.md` § B26). `GET /keys/{id}/versions/{version}` also now exists for reading one version's metadata. The CLI caught up on 2026-08-20: all four crypto commands (`rocketvault keys sign`/`verify`/`wrap`/`unwrap`) now take a `--version` flag, so an archived version is addressable from the CLI as well as REST. Omitting the flag sends `0`, which still means "current" | ✅ |
@@ -545,12 +545,11 @@ alone can never establish boundary parity.
   (sign/verify/encrypt/decrypt/wrap/unwrap) now accept an optional `version`
   field and can address any archived version — pre-rotation ciphertexts and
   signatures are usable again over REST, matching Azure's model. The new `GET
-  /keys/{id}/versions/{version}` route closes the missing-route gap for
-  reading a version back, but only for bookkeeping metadata
-  (`model.KeyVersion{KeyID, Version, CreatedAt}`); unlike Azure's real
-  `GET /keys/{name}/{version}`, it returns no public JWK, so a version's
-  public key is still only reachable indirectly via a crypto op with
-  `version` set. The CLI gap that made this REST-only is closed as
+  /keys/{id}/versions/{version}` route closed the missing-route gap for
+  reading a version back. It initially returned bookkeeping metadata only
+  (`model.KeyVersion{KeyID, Version, CreatedAt}`); as of 2026-08-20 it also
+  returns that version's public JWK components, matching Azure's real
+  `GET /keys/{name}/{version}` (§ B34). The CLI gap that made this REST-only is closed as
   of 2026-08-20: all four crypto CLI commands take a `--version` flag.
   Key backup/restore is fully at parity: registered on both route shapes,
   authorized by the RBAC data action plus a vault scope rather than item

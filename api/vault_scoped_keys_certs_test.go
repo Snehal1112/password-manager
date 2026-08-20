@@ -4,6 +4,7 @@ package api
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"testing"
@@ -106,6 +107,11 @@ func (s *recordingKeyService) ListKeyVersions(context.Context, uuid.UUID, model.
 }
 func (s *recordingKeyService) GetKeyVersion(context.Context, uuid.UUID, int, model.Scope) (*model.KeyVersion, error) {
 	panic("unexpected")
+}
+func (s *recordingKeyService) GetPublicJWK(context.Context, uuid.UUID, int, model.Scope) (*model.PublicJWK, error) {
+	// These tests exercise routing and authorization, not response bodies, and
+	// keyJWK tolerates an error by omitting the components.
+	return nil, errors.New("not used in these tests")
 }
 
 // recordingCertService records which list/get method was called and with what

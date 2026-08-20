@@ -167,6 +167,13 @@ func (m *mockKeyService) GetKeyVersion(ctx context.Context, keyID uuid.UUID, ver
 	return args.Get(0).(*model.KeyVersion), args.Error(1)
 }
 
+func (m *mockKeyService) GetPublicJWK(ctx context.Context, keyID uuid.UUID, version int, scope model.Scope) (*model.PublicJWK, error) {
+	// A plain stub, not m.Called: these tests set no JWK expectation, and the
+	// component values are covered by key_jwk_test.go at the service layer and
+	// by the dedicated handler test below.
+	return &model.PublicJWK{}, nil
+}
+
 // --- keySvcTestContainer ---
 
 type keySvcTestContainer struct {

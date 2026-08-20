@@ -88,6 +88,21 @@ type KeyResponse struct {
 	Y string `json:"y,omitempty"` // EC y coordinate (base64url).
 }
 
+// KeyVersionResponse is one key version's metadata plus its public JWK
+// components, matching what Azure Key Vault's GET /keys/{name}/{version}
+// returns.
+//
+// It embeds model.KeyVersion rather than adding fields to it, so that type's
+// no-material guarantee is untouched: there is deliberately no Value or PEM
+// field here, and none may be added.
+type KeyVersionResponse struct {
+	model.KeyVersion
+	N string `json:"n,omitempty"` // RSA modulus (base64url).
+	E string `json:"e,omitempty"` // RSA public exponent (base64url).
+	X string `json:"x,omitempty"` // EC x coordinate (base64url).
+	Y string `json:"y,omitempty"` // EC y coordinate (base64url).
+}
+
 // KeyListResponse represents the response structure for listing keys.
 type KeyListResponse struct {
 	Keys []KeyResponse `json:"keys"`
@@ -184,11 +199,42 @@ type DecryptKeyResponse struct {
 	Version   int    `json:"version"` // the version actually used
 }
 
+// keyJWK fetches a key's public components for a response body. version 0
+// means the key's current version, which is what the four single-key handlers
+// pass; getKeyVersion passes the version actually being addressed.
+//
+// A failure here is deliberately not fatal to the request: the JWK is
+// supplementary to a response whose primary content (identifiers, attributes)
+// is already in hand, and a key created moments ago should not 500 because its
+// public components could not be derived. The error is logged and the
+// components are omitted. HSM-backed keys legitimately return an empty JWK
+// with no error at all.
+func keyJWK(c *Context, r *http.Request, keySvc keyservices.KeyService, keyID uuid.UUID, scope model.Scope, version int) *model.PublicJWK {
+	jwk, err := keySvc.GetPublicJWK(r.Context(), keyID, version, scope)
+	if err != nil {
+		if c.Logger != nil {
+			c.Logger.LogAuditError(c.Claims.UserID, "get_public_jwk", "failed",
+				"failed to derive public JWK components", err)
+		}
+		return nil
+	}
+	return jwk
+}
+
 // buildKeyResponse converts a model.Key to a KeyResponse.
 // When the key's value carries a "pkcs11:" prefix the type is suffixed with
 // "-HSM" (e.g. "RSA" → "RSA-HSM", "ECDSA" → "EC-HSM") to match Azure Key
 // Vault's convention for hardware-backed keys.
-func buildKeyResponse(key *model.Key) KeyResponse {
+//
+// jwk carries the public components and may be nil, which leaves n/e/x/y
+// omitted -- that is what listKeys passes, since fetching a JWK per row would
+// mean an N-way decrypt on a list endpoint. It is a parameter rather than
+// something extracted here because the material in key.Value is
+// master-key-encrypted: this function used to call
+// crypto.ExtractPublicComponents(key.Value, ...) itself and discard the error,
+// so every response carried four empty fields (.claude/known-bugs.md § B34).
+// Decryption belongs in KeyService.GetPublicJWK.
+func buildKeyResponse(key *model.Key, jwk *model.PublicJWK) KeyResponse {
 	kty := key.Type
 	if strings.HasPrefix(key.Value, "pkcs11:") {
 		switch kty {
@@ -198,7 +244,10 @@ func buildKeyResponse(key *model.Key) KeyResponse {
 			kty = kty + "-HSM"
 		}
 	}
-	n, e, x, y, _ := crypto.ExtractPublicComponents(key.Value, key.Type)
+	var n, e, x, y string
+	if jwk != nil {
+		n, e, x, y = jwk.N, jwk.E, jwk.X, jwk.Y
+	}
 	return KeyResponse{
 		ID:        key.ID,
 		Name:      key.Name,
@@ -391,7 +440,8 @@ func createKey(c *Context, w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Fetch the full key record so buildKeyResponse can inspect the stored value.
-	key, err := keyService.GetKey(r.Context(), result.KeyID, model.NewVaultScope(vaultID, userID))
+	createScope := model.NewVaultScope(vaultID, userID)
+	key, err := keyService.GetKey(r.Context(), result.KeyID, createScope)
 	if err != nil {
 		c.SetInternalError(err)
 		return
@@ -399,7 +449,7 @@ func createKey(c *Context, w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusCreated)
-	json.NewEncoder(w).Encode(buildKeyResponse(key)) //nolint:errcheck,gosec
+	json.NewEncoder(w).Encode(buildKeyResponse(key, keyJWK(c, r, keyService, result.KeyID, createScope, 0))) //nolint:errcheck,gosec
 }
 
 // listKeys lists cryptographic keys. Legacy flat routes list the default
@@ -429,7 +479,7 @@ func listKeys(c *Context, w http.ResponseWriter, r *http.Request) {
 	// Convert to response format.
 	response := KeyListResponse{Keys: make([]KeyResponse, len(keysList))}
 	for i := range keysList {
-		response.Keys[i] = buildKeyResponse(&keysList[i])
+		response.Keys[i] = buildKeyResponse(&keysList[i], nil)
 	}
 
 	w.Header().Set("Content-Type", "application/json")
@@ -461,7 +511,7 @@ func getKey(c *Context, w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(buildKeyResponse(key)) //nolint:errcheck,gosec
+	json.NewEncoder(w).Encode(buildKeyResponse(key, keyJWK(c, r, keyService, key.ID, scope, 0))) //nolint:errcheck,gosec
 }
 
 // updateKey updates a cryptographic key.
@@ -527,7 +577,7 @@ func updateKey(c *Context, w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(buildKeyResponse(key)) //nolint:errcheck,gosec
+	json.NewEncoder(w).Encode(buildKeyResponse(key, keyJWK(c, r, keyService, key.ID, scope, 0))) //nolint:errcheck,gosec
 }
 
 // deleteKey deletes a cryptographic key.
@@ -609,7 +659,7 @@ func rotateKey(c *Context, w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(buildKeyResponse(key)) //nolint:errcheck,gosec
+	json.NewEncoder(w).Encode(buildKeyResponse(key, keyJWK(c, r, keyService, key.ID, scope, 0))) //nolint:errcheck,gosec
 }
 
 // listKeyVersions returns the version history for a key, excluding raw key material.
@@ -673,8 +723,15 @@ func getKeyVersion(c *Context, w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// The public components for THIS version, not the key's current ones --
+	// that is the whole point of addressing a version.
+	resp := KeyVersionResponse{KeyVersion: *version}
+	if jwk := keyJWK(c, r, keyService, keyID, scope, c.Params.Version); jwk != nil {
+		resp.N, resp.E, resp.X, resp.Y = jwk.N, jwk.E, jwk.X, jwk.Y
+	}
+
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(version) //nolint:errcheck,gosec
+	json.NewEncoder(w).Encode(resp) //nolint:errcheck,gosec
 }
 
 // wrapKey wraps plaintext key material using the vault key identified by {key_id}.
