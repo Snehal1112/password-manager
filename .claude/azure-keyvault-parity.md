@@ -45,7 +45,7 @@ vaults). RocketVault columns are sourced from the codebase (`api/`, `internal/`,
 | Sign / Verify | ✅ | ✅ `POST /keys/{id}/sign`, `/verify` | ✅ |
 | Encrypt / Decrypt | ✅ | ✅ `POST /keys/{id}/encrypt`, `/decrypt` | ✅ |
 | Wrap / Unwrap key | ✅ | ✅ `POST /keys/{id}/wrap`, `/unwrap` | ✅ |
-| Backup / Restore | ✅ | 🟡 `POST /keys/{id}/backup`, `/keys/restore` — registered on the flat routes only (`api/backup_item.go` `InitBackupItem` attaches to `BaseRoutes.Keys`, never to the vault-scoped subrouter, so `/vaults/{name}/keys/{id}/backup` 404s), and `ItemBackupService.BackupKey` gates on `key.UserID == caller` on top of `ActionKeysBackup`, so a Crypto User who does not own the key is refused. Key backups now also carry `key_versions` history (`BackupKey`/`RestoreKey`, fixed 2026-08-19, § B26): a rotated key that is backed up and restored keeps its archived versions instead of silently losing them | 🟡 |
+| Backup / Restore | ✅ | ✅ `POST /keys/{id}/backup`, `/keys/restore`, registered on both the flat and vault-scoped routers (`api/backup_item.go` `InitBackupItem`). Authorization is the RBAC data action in `PolicyMiddleware` plus a `model.NewVaultScope` read in `ItemBackupService` — a Crypto User with `ActionKeysBackup` can back up any key in a vault they are authorized for, and cannot name a key outside it. Key backups carry `key_versions` history, so a rotated key survives a backup/restore cycle with its archived versions intact | ✅ |
 | Get/Set rotation policy | ✅ | 🟡 `GET/PUT/DELETE /keys/{key_id}/rotationpolicy`, mapped to `ActionKeysRotationPolicyRead`/`Write` in `MapRouteToDataAction` (`mapKeyAction`) and granted only to Crypto Officer + Administrator, matching Azure's `keyrotationpolicies/*`. `RotationScheduler` → `RotationExecutor.Check` (`rotation.keys.*` config, started in `bootstrap.go`) sweeps `KeyRotationPolicyRepository.GetDuePolicies` — enabled, `rotate_after_days > 0`, `next_rotation_at` passed — and calls `RotateKey`, so the rotate action genuinely executes. `expiry_days` is now acted on too (fixed 2026-08-19, `.claude/known-bugs.md` § B27): `RotateKey` stamps `ExpiresAt` on every rotation when the policy is enabled and `expiry_days > 0`. `notify_before_expiry_days` is still only persisted and echoed back — no near-expiry notification exists, since RocketVault has no notification delivery mechanism anywhere in the codebase yet (roadmap Phase 3), so Azure's Notify lifetime action is now half-implemented rather than fully absent | 🟡 |
 | Release (confidential compute) | ✅ | ❌ no TEE attestation flow | ❌ |
 | EXPORT blocked (keys non-extractable) | ✅ | ✅ `buildKeyResponse` emits only JWK public components (`crypto.ExtractPublicComponents`) and `model.KeyVersion` omits `Value`; the one response carrying stored material is the backup blob, and that is the master-key AES-256-GCM ciphertext (`common.EncryptSecret`) or a bare `pkcs11:` handle — never plaintext PEM | ✅ |
@@ -96,6 +96,20 @@ flag on any of the four crypto CLI commands — `rocketvault keys sign`,
 `keys verify`, `keys wrap`, and `keys unwrap` all call their service method
 with `Version` unset — flagged as a fast-follow in the design's
 "Not in scope" section, not done as part of this pass.*
+
+*Corrected 2026-08-19 (fifth pass): the "Backup / Restore" row above carried two
+claims that were each wrong in a different direction. **(1)** Stale: it said
+backup/restore was "registered on the flat routes only ... so
+`/vaults/{name}/keys/{id}/backup` 404s". Commit `03badab` had already attached
+all six routes to `BaseRoutes.VaultScoped`; `api/backup_item.go:21-27` shows the
+registration. **(2)** Real, and now fixed: `BackupKey` gated on
+`key.UserID == caller` on top of `ActionKeysBackup`, refusing a Crypto User who
+legitimately held the action without owning the key — and the same gate existed
+in `BackupSecret` and `BackupCertificate`, which the row never mentioned. All
+three now read with `model.NewVaultScope(vaultID, userID)` instead of an
+unscoped admin read plus an ownership comparison. That swap also closed a
+latent cross-vault read the ownership check had been incidentally covering; see
+`.claude/known-bugs.md` § B28.*
 
 ## 3. Key management — types & algorithms
 
@@ -479,11 +493,11 @@ eight-role grant allow-list, closed 2026-08-18, see §6).
   public key is still only reachable indirectly via a crypto op with
   `version` set. Still open: none of the four crypto CLI commands
   (`rocketvault keys sign`/`verify`/`wrap`/`unwrap`) has a `--version` flag,
-  so the fix is REST-only for now. Key backup/restore is
-  still registered on the flat routes only (404s on the vault-scoped path) and
-  is still additionally owner-gated on top of the RBAC check, but a backed-up
-  and restored key now keeps its `key_versions` history instead of silently
-  losing it (also part of the 2026-08-19 fix). Rotation-policy scheduling
+  so the fix is REST-only for now.
+  Key backup/restore is fully at parity: registered on both route shapes,
+  authorized by the RBAC data action plus a vault scope rather than item
+  ownership, and carrying `key_versions` history across a backup/restore
+  cycle. Rotation-policy scheduling
   genuinely executes the rotate lifetime action, but
   `expiry_days`/`notify_before_expiry_days` are stored and never acted on —
   Azure's Notify lifetime action has no RocketVault equivalent.

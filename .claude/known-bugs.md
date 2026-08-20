@@ -1297,6 +1297,60 @@ decision, not implied by this fix.
 
 ---
 
+### B28 — Item backup gated on ownership, and unscoped underneath it
+
+**Status**: Fixed 2026-08-19
+**Severity**: High — the visible half refused every legitimately-authorized
+non-owner, a real Azure parity gap; the hidden half meant the ownership check
+was the *only* thing stopping a caller from backing up an item they owned in
+a vault other than the one their request was authorized against
+**Files**: `internal/backup/item_backup.go`, `api/backup_item.go`
+
+**Root cause**: `ItemBackupService.BackupKey` read the target key via
+`model.NewAdminScope(userID)` — a scope with no predicate at all — and then
+separately compared `key.UserID == caller`, returning `ErrForbidden` (→ HTTP
+403) for anyone else; the method's own comment said as much: "The read itself
+is unchecked (admin scope); the explicit ownership check below is the actual
+gate." Azure's Crypto User role grants `keys/backup/action` with no ownership
+concept whatsoever, so this refused every non-owner who legitimately held
+`ActionKeysBackup` — a real parity gap. `BackupSecret` and `BackupCertificate`
+carried the identical gate. Before this fix none of the three methods even
+took a `vaultID` parameter, so the ownership comparison was the *only* code
+confirming the named item belonged to the caller at all — nothing tied the
+read to the vault the caller's request was authorized against. A caller who
+owned a key in vault A could back it up via a request authorized only for
+vault B, since the admin-scoped read would find the key by ID regardless of
+vault and the ownership check passed independently of which vault was in
+play. Deleting the ownership check to close the parity gap — the obvious
+fix — would, on its own, have left that cross-vault read open.
+
+**What was fixed** (plan:
+`docs/superpowers/plans/2026-08-19-item-backup-vault-scoped-authz.md`): all
+three `Backup*` methods now take the request's authorized `vaultID`
+(resolved by `vaultIDFromRequest`, the same rule the three `Restore*` methods
+already followed per B15) and read with `model.NewVaultScope(vaultID,
+userID)` instead of an admin-scoped read plus an ownership comparison — the
+repository's scope predicate is now the sole enforcement point, and an
+out-of-scope ID reports 404, matching every other scoped resource route.
+`BackupKey` also switched `ListVersionRecords`'s second argument from the
+caller's ID to `key.UserID` (the key it just read): that query joins
+`k.user_id`, so passing the caller's ID was safe only while caller-equals-
+owner was guaranteed, and once a non-owner can legitimately back up a key it
+would have returned zero rows and silently dropped the key's rotation
+history from the blob — reintroducing the exact loss B26 closed, through a
+different path. `backup.ErrForbidden` and the three now-unreachable
+`errors.Is(err, backup.ErrForbidden)` branches in the restore handlers
+(`api/backup_item.go`) were also deleted; the three backup handlers had
+already lost theirs in the same body of work, and no `Restore*` method had
+ever produced the sentinel in the first place.
+`TestBackupKeyNonOwnerInSameVaultSucceeds`, `TestBackupKeyReadsWithVaultScope`,
+`TestBackupSecretNonOwnerInSameVaultSucceeds`, and
+`TestBackupCertificateNonOwnerInSameVaultSucceeds`
+(`internal/backup/backup_edge_test.go`, `internal/backup/item_backup_test.go`)
+pin the fix.
+
+---
+
 ## Deferred Refactors
 
 Both items formerly tracked here (H3, M2) were re-investigated on 2026-08-14 and
