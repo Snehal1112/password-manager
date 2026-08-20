@@ -312,7 +312,7 @@ below re-verifies against the roles that actually govern access: the eleven
 
 | Role | Azure grants (`dataActions`) | RocketVault grants (live `model/azure_roles.go`) | Status |
 |---|---|---|---|
-| Reader | `vaults/secrets/readMetadata` (metadata only — **not** the value), key/cert metadata + public material | `Key Vault Reader`: `ActionSecretsReadMetadata`, `ActionKeysRead`, `ActionCertificatesRead`. The *bundle* is correct — no secret-value action is granted, and `GET /secrets/{id}` (requiring `ActionSecretsGet`) is denied. But the **effective** boundary is not: `GET /secrets/{id}/versions` is mapped to `ActionSecretsReadMetadata` (`data_actions.go:129-131`, comment "Listing versions exposes metadata only"), and that premise is false — `versioningService.GetVersions` decrypts every version and `model.SecretVersion.Value` is `json:"value"`, so the route returns every historical plaintext value of the secret to a Reader. See `.claude/known-bugs.md` § B30 (open, High) | ❌ RocketVault's Reader grants strictly **more** than Azure's — full plaintext disclosure of every secret version, which is the exact thing the role exists to withhold |
+| Reader | `vaults/secrets/readMetadata` (metadata only — **not** the value), key/cert metadata + public material | `Key Vault Reader`: `ActionSecretsReadMetadata`, `ActionKeysRead`, `ActionCertificatesRead`. Bundle and effective boundary now agree: `GET /secrets/{id}` (requiring `ActionSecretsGet`) is denied, and as of 2026-08-20 `GET /secrets/{id}/versions` returns `model.SecretVersionMetadata`, which has no `Value` field, via a service path that never decrypts — so listing versions discloses no values. A value is read through `/versions/{n}`, which requires `ActionSecretsGet`, exactly as in Azure. Fixed in `764a75e`; see `.claude/known-bugs.md` §§ B30, B31 | ✅ |
 | Secrets Officer | `vaults/secrets/*` (full CRUD + lifecycle) | `Key Vault Secrets Officer`: readMetadata/get/set/delete/backup/restore/recover/purge | ✅ |
 | Secrets User | `getSecret` + `readMetadata` | `Key Vault Secrets User`: `ActionSecretsReadMetadata`, `ActionSecretsGet` | ✅ |
 | Crypto Officer | `vaults/keys/*` — **superset of Crypto User**, includes sign/verify/encrypt/decrypt/wrap/unwrap **plus** management, and `keyrotationpolicies/*` | `Key Vault Crypto Officer`: read/create/update/delete/backup/restore/recover/purge/import/rotate/encrypt/decrypt/wrap/unwrap/sign/verify, plus `ActionKeysRotationPolicyRead`/`ActionKeysRotationPolicyWrite` — every Crypto User action plus management, written out as an explicit superset (not derived by union) | ✅ superset relationship matches |
@@ -477,26 +477,27 @@ they are capabilities Azure lacks, not parity gaps.
 | 3. Key management — types & algorithms | 3 | 4 | 1 | 0 |
 | 4. Certificate management | 5 | 0 | 2 | 0 |
 | 5. Multi-vault / namespacing | 5 | 0 | 0 | 1 |
-| 6. Access control / authorization | 13 | 3 | 1 | 0 |
+| 6. Access control / authorization | 14 | 3 | 0 | 0 |
 | 7. Soft-delete, purge protection, recovery | 5 | 0 | 0 | 0 |
 | 8. HSM & cryptographic protection | 1 | 2 | 0 | 1 |
 | 9. Monitoring, audit & compliance | 1 | 1 | 1 | 3 |
 | 10. Platform & operations | 3 | 0 | 1 | 3 |
-| **Total** | **53** | **14** | **8** | **10** |
+| **Total** | **54** | **14** | **7** | **10** |
 
-**71% full parity** (53/75 parity-comparable rows), 19% partial, 11% not supported.
+**72% full parity** (54/75 parity-comparable rows), 19% partial, 9% not supported.
 Counting partial as usable-with-caveats, 89% of compared capabilities are present in
 some form.
 
 Read that number with three caveats. **Rows are not equally weighted** — "geo-
 replication ❌" and "RSNULL 🟡" cost the same one row, though only one of them would
-stop a deployment. **Four of the eight ❌ rows are structural, not backlog**:
+stop a deployment. **Four of the seven ❌ rows are structural, not backlog**:
 geo-replication, cloud log sinks, public-CA/ACME enrollment and confidential-compute
 key release are cloud-platform or third-party-integration features a single
 self-hosted binary does not have an equivalent for by design. The genuinely closable
-❌ rows are key import, HMAC-on-symmetric-keys, and the Reader boundary break below.
-And **the percentage measures breadth, not correctness**: § B30 is a single ❌ row and
-also the most serious finding in this document.
+❌ rows are key import, HMAC-on-symmetric-keys, and ACME enrollment. And **the
+percentage measures breadth, not correctness** — the row that moved this number from
+71% to 72% (§ B30, fixed 2026-08-20) was a plaintext-disclosure defect, worth far more
+than the one point it scored.
 
 *Reconciled 2026-08-19 against a full section-by-section re-verification (see the
 dated notes throughout §§1-3, 5-7, 10). Two rows moved out of Partial entirely
@@ -525,12 +526,14 @@ User including wrap/unwrap, Administrator carries no derived gaps, Data Access
 Administrator enforces Azure's own eight-role grant allow-list, closed 2026-08-18,
 see §6).
 
-**Role boundaries are *not* at parity, despite those bundles** — see § B30 and the
-2026-08-20 correction in §6. `Key Vault Reader` reads every historical plaintext
-secret value in its vault, because `GET /secrets/{id}/versions` is filed under
-`ActionSecretsReadMetadata` on the false premise that listing versions returns
-metadata. A correct bundle composed with a wrong route→action mapping still yields a
-wrong permission, and prior passes verified only the bundle half.
+Role **boundaries** were found broken on 2026-08-20 and fixed the same day (§§ B30,
+B31, commit `764a75e`): `Key Vault Reader` had read every historical plaintext secret
+value in its vault, because `GET /secrets/{id}/versions` was filed under
+`ActionSecretsReadMetadata` on the false premise that listing versions returned
+metadata. The mapping was right; the handler violated it. Bundles and effective
+boundaries now agree — but note the method point in §6: a correct bundle composed with
+a wrong route→action mapping still yields a wrong permission, so bundle verification
+alone can never establish boundary parity.
 
 **Partial (🟡):**
 - **Key operations beyond CRUD** (see §2): fixed 2026-08-19 (§ B26) — key
@@ -610,9 +613,7 @@ stale. `GET /secrets` was checked for the same defect as § B30 and is clean:
 deliberately, which is what makes the versions route an outlier rather than a
 pattern.*
 
-**Not supported (❌):** the `Key Vault Reader` boundary (§6, § B30 — Reader reads
-every historical plaintext secret value, granting strictly more than Azure's Reader;
-this is a security defect, not a missing feature), key import (declared as a role action in
+**Not supported (❌):** key import (declared as a role action in
 `model/azure_roles.go` but unroutable — no path maps to it), key release to
 confidential compute (TEE), HMAC sign/verify on symmetric keys (implemented in the
 crypto-operations layer but unreachable in practice — every oct key is HSM-backed and

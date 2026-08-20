@@ -1446,7 +1446,7 @@ before this change decode with a nil slice and restore unchanged — pinned by
 
 ### B30 — A Key Vault Reader can dump every historical plaintext value of every secret in a vault
 
-**Status**: Open
+**Status**: Fixed 2026-08-20 (commit `764a75e`)
 **Severity**: High — a role documented and tested as "metadata only" instead
 grants full plaintext secret-value disclosure, for every archived version of
 every secret in a vault the role is assigned in
@@ -1501,9 +1501,69 @@ historical plaintext value."
    hold (e.g. `ActionSecretsGet`), accepting that this narrows what
    "metadata only" routes Reader retains.
 
-Fixing this is out of scope for the secret-backup-version-history work that
-surfaced it and requires its own design pass; see that branch's final
-review for the trace that found it.
+Fixing this was out of scope for the secret-backup-version-history work that
+surfaced it; it got its own design pass on 2026-08-20.
+
+**What was fixed** (commit `764a75e`): candidate fix 1 above, chosen because
+it matches Azure — a Reader may enumerate versions, and reads a value through
+`GET /secrets/{id}/versions/{n}`, which requires `ActionSecretsGet`. Candidate
+2 would have closed the leak by *diverging* from Azure and would have left the
+response carrying plaintext, so the next mismapping would leak again.
+
+New `model.SecretVersionMetadata` has no `Value` field, so a handler cannot
+serialize one — the same structural guarantee `model.KeyVersion` already gives
+key-version listing. `listSecretVersionsHandler` now calls a new
+`GetSecretVersionsMetadata` path that **never calls `DecryptSecret`**: returning
+a values-free type alone would still pull every historical plaintext into
+process memory and would leave the guarantee resting on the caller's choice of
+return type, which is exactly how this bug happened. Not obtaining the
+plaintext is the guarantee.
+
+**The authorization mapping was never wrong and is unchanged.** Only its
+comment was — "Listing versions exposes metadata only" was a false statement
+about the handler, not a mistaken action choice. `authorization_matrix_test.go`
+still correctly asserts Reader may list versions.
+
+**Scope check**: `GET /secrets` was audited for the same defect and is clean —
+`listSecrets` (`api/secrets.go`) builds its response without values
+deliberately, which makes the versions route an outlier rather than a pattern.
+Keys are structurally safe already (`model.KeyVersion` has no `Value`, and its
+"metadata only" mapping is truthful). Certificates have no versions at all.
+
+**Bundled fix — see B31 below**, a distinct defect in the same code path found
+while fixing this one.
+
+---
+
+### B31 — The `secrets version` CLI commands had no authorization check at all
+
+**Status**: Fixed 2026-08-20 (commit `764a75e`, same commit as B30)
+**Severity**: Medium — no authorization enforcement on a plaintext-returning
+path, plus a scope that survives revocation. Narrower than B30 because the
+owner scope limited results to secrets the caller created
+**Files**: `cmd/version.go`
+
+**Root cause**: none of `secrets version list`, `get`, or `latest` called
+`vaultcli.RequireDataAction`, unlike every sibling command in `cmd/secrets/`.
+The CLI bypasses `PolicyMiddleware` entirely, so — per CLAUDE.md's "CLI
+Authorization" section — that check is the only enforcement point on the path,
+and there was none. All three also used `model.NewOwnerScope(uuid.Nil, userID)`,
+the pattern the B11 flat-route fix removed elsewhere, which **survives
+revocation**: a user who created a secret in a vault could still read its full
+version history after losing access to that vault. `list` additionally printed
+a `VALUE` column, so it was B30's leak on a second surface.
+
+**What was fixed**: `list` now requires `ActionSecretsReadMetadata` and prints
+no `VALUE` column; `get` and `latest` require `ActionSecretsGet`, since they
+legitimately return one value; all three resolve a vault scope. A `--vault`
+flag was added to each, matching the other resource commands.
+
+**Note on the test suite**: a test named
+`TestVersionListCommand_ReturnsDecryptedVersions` had encoded the leak as a
+requirement, asserting the plaintext appeared in the command's output. It was
+inverted and renamed rather than deleted, so the file records that the old
+behaviour was intended and is now forbidden. Every new guard in both B30 and
+B31 was verified to fail before the fix.
 
 ---
 
