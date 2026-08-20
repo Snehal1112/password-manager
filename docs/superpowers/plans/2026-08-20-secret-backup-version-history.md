@@ -46,7 +46,7 @@ That `nil` is the whole bug. `model.Secret` carries a `Version int` column — t
 |---|---|
 | `model/secret.go` (modify) | Warning comment on `SecretVersion` about blob sensitivity |
 | `internal/backup/item_backup.go` (modify) | `blobVersions` type, envelope field, `encodeBlob`/`decodeBlob`, `ItemBackupService` dependency, `BackupSecret`, `RestoreSecret` |
-| `internal/container/service_container.go:573` (modify) | Pass `c.versionRepository` into the constructor |
+| `internal/container/service_container.go:578` (modify) | Pass `c.versionRepository` into the constructor |
 | `internal/backup/item_backup_test.go`, `backup_edge_test.go` (modify) | Constructor call sites; new round-trip tests |
 | `api/backup_item_test.go` (modify) | Constructor call sites |
 | `.claude/azure-keyvault-parity.md`, `.claude/known-bugs.md` (modify) | §1 row + new entry |
@@ -56,7 +56,7 @@ That `nil` is the whole bug. `model.Secret` carries a `Version int` column — t
 ### Task 1: Generalize the blob envelope to carry two kinds of version record
 
 **Files:**
-- Modify: `internal/backup/item_backup.go` — `backupEnvelope` (`:43-48`), `encodeBlob` (`:182`) and `decodeBlob` (`:202`), and their six call sites (`:60`, `:70`, `:111`, `:118`, `:153`, `:161`)
+- Modify: `internal/backup/item_backup.go` — `backupEnvelope` (`:43-49`), `encodeBlob` (`:180`) and `decodeBlob` (`:200`), and their six call sites (`:60`, `:70`, `:109`, `:116`, `:151`, `:159`)
 - Test: `internal/backup/item_backup_test.go`
 
 > Line numbers throughout this plan are indicative and drift as earlier steps
@@ -218,7 +218,7 @@ func decodeBlob(blob, expectedType string, out interface{}) (blobVersions, error
 
 - [ ] **Step 5: Update the six call sites**
 
-Mechanical. `BackupSecret` (`:55`) and `BackupCertificate` (`:148`) pass a zero value:
+Mechanical. `BackupSecret` (`:55`) and `BackupCertificate` (`:146`) pass a zero value:
 
 ```go
 	return encodeBlob("secret", id.String(), secret, blobVersions{})
@@ -227,19 +227,19 @@ Mechanical. `BackupSecret` (`:55`) and `BackupCertificate` (`:148`) pass a zero 
 	return encodeBlob("certificate", id.String(), cert, blobVersions{})
 ```
 
-`BackupKey` (`:111`):
+`BackupKey` (`:97`, encodeBlob at `:109`):
 
 ```go
 	return encodeBlob("key", id.String(), key, blobVersions{Key: versions})
 ```
 
-The three `decodeBlob` callers change their receiving variable. `RestoreSecret` (`:70`) and `RestoreCertificate` (`:161`) currently discard it with `_`; leave them discarding for now — Task 3 wires the secret one:
+The three `decodeBlob` callers change their receiving variable. `RestoreSecret` (`:68`, decodeBlob at `:70`) and `RestoreCertificate` (`:157`, decodeBlob at `:159`) currently discard it with `_`; leave them discarding for now — Task 3 wires the secret one:
 
 ```go
 	if _, err := decodeBlob(blob, "secret", &secret); err != nil {
 ```
 
-`RestoreKey` (`:118`) now receives the struct:
+`RestoreKey` (`:114`, decodeBlob at `:116`) now receives the struct:
 
 ```go
 	versions, err := decodeBlob(blob, "key", &key)
@@ -248,7 +248,7 @@ The three `decodeBlob` callers change their receiving variable. `RestoreSecret` 
 	}
 ```
 
-and its replay loop at `:134` becomes:
+and its replay loop (the `for _, v := range versions` line) becomes:
 
 ```go
 	for _, v := range versions.Key {
@@ -446,7 +446,7 @@ func (s *ItemBackupService) BackupSecret(ctx context.Context, id, userID, vaultI
 
 - [ ] **Step 6: Update the container and every test call site**
 
-`internal/container/service_container.go:573`:
+`internal/container/service_container.go:578`:
 
 ```go
 	c.itemBackupService = backup.NewItemBackupService(
@@ -457,7 +457,7 @@ func (s *ItemBackupService) BackupSecret(ctx context.Context, id, userID, vaultI
 	)
 ```
 
-(`c.versionRepository` is declared at `:147` and constructed at `:279`, before this point — verify that ordering holds before relying on it.)
+(`c.versionRepository` is declared at `:148` and constructed at `:281`, before the `NewItemBackupService` call at `:578` — I verified that ordering holds.)
 
 Then find every other call site: `grep -rn "NewItemBackupService(" --include="*.go" . | grep -v worktrees`
 
