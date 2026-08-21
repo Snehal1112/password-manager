@@ -718,7 +718,7 @@ func TestSecretServiceExportAndImport(t *testing.T) {
 	})
 	require.NoError(t, err)
 	assert.Contains(t, string(csvData), "name,value,tags")
-	assert.Contains(t, string(csvData), `"csv-db","csv-plain","csv,prod"`)
+	assert.Contains(t, string(csvData), `csv-db,csv-plain,"csv,prod"`)
 
 	_, err = svc.ExportSecrets(ctx, secrets.ExportSecretsRequest{Scope: model.NewOwnerScope(uuid.Nil, userID), Format: "yaml"})
 	assert.ErrorContains(t, err, "invalid format")

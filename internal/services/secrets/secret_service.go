@@ -1,8 +1,10 @@
 package secrets
 
 import (
+	"bytes"
 	"context"
 	"crypto/rand"
+	"encoding/csv"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -671,24 +673,43 @@ func (s *secretService) ExportSecrets(ctx context.Context, req ExportSecretsRequ
 			return nil, fmt.Errorf("failed to marshal JSON: %w", err)
 		}
 	} else {
-		// Export as CSV
-		var csvData string
+		// Export as CSV via encoding/csv, which quotes and escapes embedded
+		// quotes, commas and newlines correctly. Hand-rolled string
+		// concatenation could not do this safely (B42).
+		var buf bytes.Buffer
+		writer := csv.NewWriter(&buf)
+
+		header := []string{"name", "value"}
 		if req.IncludeTags {
-			csvData = "name,value,tags\n"
-			for _, secret := range secretsList {
-				tags := ""
-				if len(secret.Tags) > 0 {
-					tags = fmt.Sprintf(`"%s"`, strings.Join(secret.Tags, ","))
+			header = append(header, "tags")
+		}
+		if err := writer.Write(header); err != nil {
+			s.logger.LogAuditError(req.Scope.ActorID().String(), "export_secrets", "failed", "Failed to write CSV header", err)
+			return nil, fmt.Errorf("failed to write CSV header: %w", err)
+		}
+
+		for _, secret := range secretsList {
+			row := []string{secret.Name, secret.Value}
+			if req.IncludeTags {
+				tagsField, tagErr := csvEncodeTags(secret.Tags)
+				if tagErr != nil {
+					s.logger.LogAuditError(req.Scope.ActorID().String(), "export_secrets", "failed", "Failed to encode tags", tagErr)
+					return nil, fmt.Errorf("failed to encode tags for %q: %w", secret.Name, tagErr)
 				}
-				csvData += fmt.Sprintf(`"%s","%s",%s`+"\n", secret.Name, secret.Value, tags)
+				row = append(row, tagsField)
 			}
-		} else {
-			csvData = "name,value\n"
-			for _, secret := range secretsList {
-				csvData += fmt.Sprintf(`"%s","%s"`+"\n", secret.Name, secret.Value)
+			if err := writer.Write(row); err != nil {
+				s.logger.LogAuditError(req.Scope.ActorID().String(), "export_secrets", "failed", "Failed to write CSV row", err)
+				return nil, fmt.Errorf("failed to write CSV row for %q: %w", secret.Name, err)
 			}
 		}
-		data = []byte(csvData)
+
+		writer.Flush()
+		if err := writer.Error(); err != nil {
+			s.logger.LogAuditError(req.Scope.ActorID().String(), "export_secrets", "failed", "Failed to flush CSV writer", err)
+			return nil, fmt.Errorf("failed to flush CSV writer: %w", err)
+		}
+		data = buf.Bytes()
 	}
 
 	// Seal after formatting, so a CSV export is sealed too. The file on disk is
@@ -947,6 +968,25 @@ func (s *secretService) PurgeSecret(ctx context.Context, secretID uuid.UUID, sco
 	s.logger.LogAuditInfo(scope.ActorID().String(), "purge_secret", "success",
 		fmt.Sprintf("Secret purged: %s", secretID))
 	return nil
+}
+
+// csvEncodeTags packs a secret's tags into a single CSV field using
+// encoding/csv itself, so a tag containing a comma or a quote survives
+// being embedded in the outer record (B42).
+func csvEncodeTags(tags []string) (string, error) {
+	if len(tags) == 0 {
+		return "", nil
+	}
+	var buf bytes.Buffer
+	w := csv.NewWriter(&buf)
+	if err := w.Write(tags); err != nil {
+		return "", err
+	}
+	w.Flush()
+	if err := w.Error(); err != nil {
+		return "", err
+	}
+	return strings.TrimSuffix(buf.String(), "\n"), nil
 }
 
 // parseCSVLine parses a CSV line handling quoted values.

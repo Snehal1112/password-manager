@@ -1074,3 +1074,30 @@ func TestImportSecrets_SealedPayload_IsRefused(t *testing.T) {
 	assert.Nil(t, result)
 	repo.AssertNotCalled(t, "Create", mock.Anything, mock.Anything)
 }
+
+func TestExportSecretsCSV_EscapesEmbeddedQuote(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	vaultID := uuid.New()
+	userID := uuid.New()
+
+	repo := &testutils.MockSecretRepository{}
+	crypto := &testutils.MockCryptographyService{}
+	ver := &testutils.MockVersioningService{}
+	tag := &testutils.MockTagService{}
+
+	stored := []model.Secret{{ID: uuid.New(), VaultID: vaultID, Name: `d"b`, Value: "enc-v1"}}
+	repo.On("List", ctx, model.NewVaultScope(vaultID, userID), repositories.SecretFilter{Tags: nil}).Return(stored, nil)
+	crypto.On("DecryptSecret", "enc-v1").Return(`a"b`, nil)
+	tag.On("GetTags", ctx, stored[0].ID).Return(nil, nil)
+
+	svc := newService(repo, crypto, ver, tag, t)
+	data, err := svc.ExportSecrets(ctx, secrets.ExportSecretsRequest{
+		Scope:  model.NewVaultScope(vaultID, userID),
+		Format: "csv",
+	})
+	require.NoError(t, err)
+
+	expected := "name,value\n" + `"d""b","a""b"` + "\n"
+	assert.Equal(t, expected, string(data), "an embedded quote must be doubled, not left bare")
+}
