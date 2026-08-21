@@ -394,8 +394,16 @@ func (s *certificateService) CreateCASignedCertificate(ctx context.Context, req 
 		return nil, fmt.Errorf("failed to decrypt CA key: %w", err)
 	}
 
-	// Generate CA-signed certificate - assume CA uses RSA for simplicity
-	certPEM, err := crypto.CreateCASignedCertificatePEM(privateKeyPEM, key.Type, caCert.Certificate, caKeyPEM, "RSA", crypto.CertificateTemplate{
+	// Derive the CA key type from the CA key material itself. This was
+	// hardcoded to "RSA" ("assume CA uses RSA for simplicity"), which sent an
+	// ECDSA CA down the RSA parsing path and failed (B37).
+	caKeyType, err := crypto.DetectPrivateKeyType(caKeyPEM)
+	if err != nil {
+		s.logger.LogAuditError(req.UserID.String(), "create_ca_signed_cert", "failed", "failed to determine CA key type", err)
+		return nil, fmt.Errorf("failed to determine CA key type: %w", err)
+	}
+
+	certPEM, err := crypto.CreateCASignedCertificatePEM(privateKeyPEM, key.Type, caCert.Certificate, caKeyPEM, caKeyType, crypto.CertificateTemplate{
 		CommonName:   req.Name,
 		ValidityDays: req.ValidityDays,
 		IsCA:         false,
@@ -436,6 +444,7 @@ func (s *certificateService) CreateCASignedCertificate(ctx context.Context, req 
 		UserID:      req.UserID,
 		VaultID:     resolveVaultID(req.VaultID),
 		KeyID:       req.KeyID,
+		CACertID:    req.CACertID,
 		Name:        req.Name,
 		Certificate: certPEM,
 		PrivateKey:  encryptedKey,

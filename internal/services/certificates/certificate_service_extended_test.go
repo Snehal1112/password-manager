@@ -1349,6 +1349,109 @@ func TestCreateCASignedCertificate_FullSuccess(t *testing.T) {
 	assert.NotNil(t, result.ExpiresAt)
 }
 
+// The CA link must be stored, or renewal has nothing to branch on (B37).
+func TestCreateCASignedCertificate_StoresCACertID(t *testing.T) {
+	setupMasterKey()
+
+	userID := uuid.New()
+	keyID := uuid.New()
+	caCertID := uuid.New()
+
+	entityKeyPEM, err := crypto.GenerateRSAKeyPEM(2048)
+	require.NoError(t, err)
+	caKeyPEM, err := crypto.GenerateRSAKeyPEM(2048)
+	require.NoError(t, err)
+
+	caCertPEM, err := crypto.CreateSelfSignedCertificatePEM(caKeyPEM, "RSA", crypto.CertificateTemplate{
+		CommonName: "Test CA", ValidityDays: 3650, IsCA: true,
+	})
+	require.NoError(t, err)
+
+	encEntity, err := common.EncryptSecret(entityKeyPEM)
+	require.NoError(t, err)
+	encCA, err := common.EncryptSecret(caKeyPEM)
+	require.NoError(t, err)
+
+	certRepo := &mockCertRepository{}
+	keyRepo := &mockKeyRepo{}
+
+	keyRepo.On("Read", mock.Anything, keyID, certVaultScope(userID)).
+		Return(&model.Key{ID: keyID, UserID: userID, Type: model.KeyTypeRSA, Value: encEntity}, nil)
+	certRepo.On("Read", mock.Anything, caCertID, certVaultScope(userID)).
+		Return(&model.Certificate{
+			ID: caCertID, UserID: userID, Name: "test-ca",
+			Certificate: caCertPEM, PrivateKey: encCA, Enabled: true,
+		}, nil)
+
+	var created *model.Certificate
+	certRepo.On("Create", mock.Anything, mock.AnythingOfType("*model.Certificate")).
+		Run(func(args mock.Arguments) { created = args.Get(1).(*model.Certificate) }).
+		Return(nil)
+
+	svc := newCertSvc(certRepo, keyRepo)
+	_, err = svc.CreateCASignedCertificate(context.Background(), CreateCertificateRequest{
+		Name: "entity-cert", KeyID: keyID, ValidityDays: 365,
+		UserID: userID, CACertID: &caCertID,
+	})
+	require.NoError(t, err)
+	require.NotNil(t, created)
+	require.NotNil(t, created.CACertID, "a CA-signed certificate must record its CA")
+	assert.Equal(t, caCertID, *created.CACertID)
+}
+
+// An ECDSA CA used to be sent down the RSA parsing path, because the CA key
+// type was hardcoded as "RSA" (B37, related finding).
+func TestCreateCASignedCertificate_ECDSACA(t *testing.T) {
+	setupMasterKey()
+
+	userID := uuid.New()
+	keyID := uuid.New()
+	caCertID := uuid.New()
+
+	entityKeyPEM, err := crypto.GenerateRSAKeyPEM(2048)
+	require.NoError(t, err)
+	caKeyPEM, err := crypto.GenerateECDSAKeyPEM("P-256")
+	require.NoError(t, err)
+
+	caCertPEM, err := crypto.CreateSelfSignedCertificatePEM(caKeyPEM, "ECDSA", crypto.CertificateTemplate{
+		CommonName: "ECDSA CA", ValidityDays: 3650, IsCA: true,
+	})
+	require.NoError(t, err)
+
+	encEntity, err := common.EncryptSecret(entityKeyPEM)
+	require.NoError(t, err)
+	encCA, err := common.EncryptSecret(caKeyPEM)
+	require.NoError(t, err)
+
+	certRepo := &mockCertRepository{}
+	keyRepo := &mockKeyRepo{}
+
+	keyRepo.On("Read", mock.Anything, keyID, certVaultScope(userID)).
+		Return(&model.Key{ID: keyID, UserID: userID, Type: model.KeyTypeRSA, Value: encEntity}, nil)
+	certRepo.On("Read", mock.Anything, caCertID, certVaultScope(userID)).
+		Return(&model.Certificate{
+			ID: caCertID, UserID: userID, Name: "ecdsa-ca",
+			Certificate: caCertPEM, PrivateKey: encCA, Enabled: true,
+		}, nil)
+
+	var created *model.Certificate
+	certRepo.On("Create", mock.Anything, mock.AnythingOfType("*model.Certificate")).
+		Run(func(args mock.Arguments) { created = args.Get(1).(*model.Certificate) }).
+		Return(nil)
+
+	svc := newCertSvc(certRepo, keyRepo)
+	_, err = svc.CreateCASignedCertificate(context.Background(), CreateCertificateRequest{
+		Name: "entity-cert", KeyID: keyID, ValidityDays: 365,
+		UserID: userID, CACertID: &caCertID,
+	})
+	require.NoError(t, err)
+	require.NotNil(t, created)
+
+	// The issuer must be the ECDSA CA, and the CA's public key must verify the
+	// leaf's signature.
+	assertSignedBy(t, created.Certificate, caCertPEM, "ECDSA CA")
+}
+
 func TestCreateCASignedCertificate_RepoCreateFails(t *testing.T) {
 	setupMasterKey()
 
