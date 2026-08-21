@@ -207,9 +207,37 @@ func (r *MigrationRunner) MigrateUp(ctx context.Context) error {
 }
 
 // MigrateToVersion applies migrations up to a specific version.
+//
+// It refuses when targetVersion is lower than the database's current schema
+// version rather than silently doing nothing: this package has no
+// down-migration support, so treating a lower target as a no-op would let an
+// operator believe they rolled back when nothing happened (B39).
 func (r *MigrationRunner) MigrateToVersion(ctx context.Context, targetVersion string) error {
 	if err := r.Initialize(ctx); err != nil {
 		return err
+	}
+
+	currentVersion, err := r.GetCurrentVersion(ctx)
+	if err != nil {
+		return err
+	}
+
+	currentNum, err := parseVersionNumber(currentVersion)
+	if err != nil {
+		return fmt.Errorf("cannot determine current schema version: %w", err)
+	}
+
+	targetNum, err := parseVersionNumber(targetVersion)
+	if err != nil {
+		return fmt.Errorf("cannot parse target version %q: %w", targetVersion, err)
+	}
+
+	if targetNum < currentNum {
+		//nolint:staticcheck // ST1005: this two-sentence error is the exact, deliberate
+		// user-facing text the B39 fix specifies -- not a wrapped/chained error --
+		// see docs/superpowers/specs/2026-08-21-cli-bug-fixes-b35-b41-design.md.
+		return fmt.Errorf("cannot migrate down: current schema is at version %s, target %s is lower. Down-migrations are not supported.",
+			currentVersion, targetVersion)
 	}
 
 	applied, err := r.GetAppliedMigrations(ctx)
@@ -223,7 +251,11 @@ func (r *MigrationRunner) MigrateToVersion(ctx context.Context, targetVersion st
 	}
 
 	for _, migration := range migrations {
-		if migration.Version > targetVersion {
+		migrationNum, err := parseVersionNumber(migration.Version)
+		if err != nil {
+			return fmt.Errorf("migration file version %q is not numeric: %w", migration.Version, err)
+		}
+		if migrationNum > targetNum {
 			break // Stop at target version
 		}
 
