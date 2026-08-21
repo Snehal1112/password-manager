@@ -128,6 +128,10 @@ permissions, and any missing parent directories are created.`,
 		// Resolve the passphrase after the authorization check and before any
 		// write, so an unauthorized caller is never prompted and a caller with
 		// no passphrase never reaches os.WriteFile.
+		if !exportEncrypt && exportPassphraseFile != "" {
+			return fmt.Errorf("--passphrase-file was given with --encrypt=false: " +
+				"drop one, since a plaintext export has no passphrase")
+		}
 		var passphrase string
 		if exportEncrypt {
 			passphrase, err = common.ResolvePassphrase(common.PassphraseSource{

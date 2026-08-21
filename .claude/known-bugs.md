@@ -1843,7 +1843,12 @@ unrecoverable case.
 
 ### B36 — `secrets export` writes plaintext while `--encrypt` (default true) claims otherwise
 
-**Status**: Fixed in commit `8d02ec8` (2026-08-21)
+**Status**: Fixed 2026-08-21, across commits `457c0c5..5840391` — the fix
+spans the service layer (`457c0c5` seals exports under a passphrase),
+the CLI wiring (`8d02ec8`), import detection and refusal (`e9e2f12`,
+`a10654b`), the API's dead `encrypt` field (`e0252cd`), and the audit-record
+and release-note follow-ups (`179dd45`, `5840391`); no single commit covers
+the whole fix.
 **Severity**: Resolved
 **Files**: `cmd/secrets/export.go`, `cmd/secrets/import.go`,
 `internal/services/secrets/secret_service.go`
@@ -1885,8 +1890,12 @@ and opens it; `--encrypted` is deprecated rather than removed. The API's dead
 **Breaking**: a scripted export with no passphrase source now fails instead of
 writing plaintext. See `docs/release-notes/v4.2.0-ca-certificates.md`.
 
-**Not verified**: who is authorized to call export. The defect logged here is
-the false assurance, not necessarily an access-control hole.
+**Authorization**: `cmd/secrets/export.go`'s `RunE` requires the admin or
+secrets_manager role (`common.HasRequiredRole`), then
+`vaultcli.RequireDataAction` re-runs the same access-policy-then-role-grant
+check HTTP gets, scoped to the target vault and
+`ActionSecretsGet`. There was never an access-control hole here — the defect
+was purely the false encryption assurance.
 
 ---
 

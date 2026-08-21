@@ -257,3 +257,36 @@ func TestExportCommand_PlaintextStillWorksAndRequestCarriesNoPassphrase(t *testi
 	assert.FileExists(t, tmpFile)
 	tc.MockSecretService.AssertExpectations(t)
 }
+
+// TestExportCommand_EncryptFalseWithPassphraseFile_Errors guards the flag
+// combination B36's original fix never considered: --passphrase-file
+// supplied alongside --encrypt=false. Silently dropping the passphrase file
+// and writing plaintext would reproduce B36's exact failure shape, so the
+// command must refuse instead.
+func TestExportCommand_EncryptFalseWithPassphraseFile_Errors(t *testing.T) {
+	tc := testutils.NewTestContext(t)
+	tc.MockContainer.On("GetSecretService").Return(tc.MockSecretService).Maybe()
+
+	dir := t.TempDir()
+	passFile := filepath.Join(dir, "pass.txt")
+	require.NoError(t, os.WriteFile(passFile, []byte("s3cret\n"), 0o600))
+	tmpFile := filepath.Join(dir, "export.json")
+
+	exportFormat = "json"
+	exportFile = tmpFile
+	exportEncrypt = false
+	exportPassphraseFile = passFile
+	exportTags = []string{}
+	exportFilterTags = []string{}
+	t.Cleanup(func() { exportPassphraseFile = "" })
+
+	cmd := newExportTestCmd(tmpFile)
+	cmd.SetContext(tc.Ctx)
+
+	err := cmd.Execute()
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "--passphrase-file")
+	assert.Contains(t, err.Error(), "--encrypt=false")
+	assert.NoFileExists(t, tmpFile)
+	tc.MockSecretService.AssertNotCalled(t, "ExportSecrets", mock.Anything, mock.Anything)
+}
