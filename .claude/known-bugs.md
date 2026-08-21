@@ -1835,9 +1835,12 @@ the false assurance, not necessarily an access-control hole.
 
 ### B37 — `certificates renew` silently converts a CA-signed certificate to self-signed
 
-**Status**: Open, found 2026-08-21
+**Status**: Fixed 2026-08-21
 **Severity**: High — breaks trust chains without warning
-**Files**: `internal/services/certificates/certificate_service.go`
+**Files**: `internal/services/certificates/certificate_service.go`,
+`internal/repositories/certificate_repository.go`, `internal/crypto/x509_helper.go`,
+`internal/crypto/key_crypto.go`, `internal/db/db.go`, `model/certificate.go`,
+`cmd/certificates/renew.go`
 
 **Symptom**: renewing a certificate originally issued against a CA returns a
 self-signed certificate. Relying parties that pinned or validated the chain
@@ -1868,9 +1871,48 @@ distinguishes a leaf, a working CA, and a pre-fix certificate that asserts
 (l.396-397, comment: "assume CA uses RSA for simplicity"), so an ECDSA CA is
 sent down the RSA path.
 
-**Fix sketch**: branch on the original certificate's `CACertID` — re-issue
-through `CreateCASignedCertificate` when set, self-sign only when it is not —
-and derive the CA key type from the CA key rather than hardcoding it.
+**Fix**: the CA link had nowhere to live — `CreateCertificateRequest.CACertID`
+was consumed at creation and discarded, and neither `model.Certificate` nor the
+`certificates` table had a column for it. The fix therefore spans the storage
+path as well as the branch:
+
+- `certificates.ca_cert_id` added to the fresh-install schema and to
+  `migrateSchema`; `model.Certificate.CACertID *uuid.UUID` added.
+  `CertificateRepository.Update` deliberately does **not** write the column —
+  renewal writes through it, and touching it there would erase the issuer.
+- `CreateCASignedCertificate` records the link and derives the CA key type
+  from the CA private key via the new `crypto.DetectPrivateKeyType`, replacing
+  the hardcoded `"RSA"`.
+- `RenewCertificate` branches on the link. A CA that is deleted, out of scope,
+  disabled or expired refuses the renewal instead of silently self-signing —
+  stricter than creation, deliberately.
+- `crypto.CreateX509Template` now adds `KeyUsageCertSign|KeyUsageCRLSign` to
+  CA templates. Without it neither `CheckSignatureFrom` nor a pool `Verify`
+  accepted any chain this system issued, so the headline regression test could
+  not have been written.
+- `crypto.CreateCASignedCertificatePEM` now errors on an unsupported CA key
+  type instead of returning a PEM block wrapping zero bytes with a nil error.
+
+**Not repaired by the fix, two carry-overs:**
+
+1. Certificates created before this change have a NULL `ca_cert_id`. If such a
+   certificate is genuinely CA-signed, renewal now **refuses** it with
+   "signed by a CA this installation no longer records"; re-create it against
+   its CA. Refusing is deliberate — silently self-signing is the bug.
+2. CA certificates issued before this change lack `KeyUsageCertSign`, so
+   chains under them still fail Go's verifier. Renewing the CA re-issues it
+   with the correct usage bits and repairs the chain from that point on.
+
+**Follow-ups filed, not done here:**
+
+- `CreateCASignedCertificate` will still sign with an expired CA
+  (`certRepo.Read` with no lifecycle gate) while renewal now refuses to.
+  Aligning create is a behavior change outside B37.
+- (Resolved before this plan landed.) `CreateSelfSignedCertificate` used to set
+  `IsCA: true` on every self-signed certificate, leaf or not. That was filed as
+  B44 and fixed by
+  `docs/superpowers/plans/2026-08-21-08-b43-ca-keyusage.md`: the CA flag is now
+  opt-in, and renewal carries over whatever the stored certificate says.
 
 ---
 
@@ -1932,9 +1974,8 @@ actual filename.
 the list above
 **Files**: various under `cmd/`, `internal/services/`
 
-- `certificates renew` prints "Old Certificate ID" and "New Certificate ID",
-  always the same UUID — `RenewCertificate` does `updated := *original` and
-  `certRepo.Update`, so no new row is created.
+- ~~`certificates renew` prints "Old Certificate ID" and "New Certificate ID",
+  always the same UUID~~ — fixed 2026-08-21 as part of B37; one ID is printed.
 - `keys rotate` prints "New Key: ID=…" though `RotateKey` reuses the same UUID.
 - `keys create --bits` help says "(2048 or 4096)"; `CreateRSAKey` also accepts
   3072.
