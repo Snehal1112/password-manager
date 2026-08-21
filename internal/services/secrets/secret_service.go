@@ -697,7 +697,7 @@ func (s *secretService) ExportSecrets(ctx context.Context, req ExportSecretsRequ
 	}
 
 	s.logger.LogAuditInfo(req.Scope.ActorID().String(), "export_secrets", "success",
-		fmt.Sprintf("Exported %d secrets in %s format", len(secretsList), req.Format))
+		fmt.Sprintf("Exported %d secrets in %s format (encrypted: %v)", len(secretsList), req.Format, req.Encrypt || req.Passphrase != ""))
 	logrus.WithFields(logrus.Fields{
 		"user_id":      req.Scope.ActorID().String(),
 		"format":       req.Format,
