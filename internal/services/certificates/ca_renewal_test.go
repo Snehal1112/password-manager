@@ -2,6 +2,7 @@ package certificates
 
 import (
 	"context"
+	"crypto/x509"
 	"testing"
 	"time"
 
@@ -341,4 +342,106 @@ func TestRenewCertificate_LeafAsCARefusesRenewal(t *testing.T) {
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "cannot sign certificates")
 	f.certRepo.AssertNotCalled(t, "Update", mock.Anything, mock.Anything, mock.Anything)
+}
+
+// Creation needs the same gate renewal has. Without it, pointing
+// "certificate create --ca-cert-id" at a pre-fix pseudo-CA (CA:TRUE with no
+// keyCertSign) still mints a certificate that fails CheckSignatureFrom and
+// Verify against its own CA -- B43's broken-chain defect, reached through the
+// creation path instead of the renewal path.
+func TestCreateCASignedCertificate_PreFixPseudoCARefusesCreation(t *testing.T) {
+	setupMasterKey()
+
+	userID := uuid.New()
+	keyID := uuid.New()
+	caCertID := uuid.New()
+
+	entityKeyPEM, err := crypto.GenerateRSAKeyPEM(2048)
+	require.NoError(t, err)
+	caKeyPEM, err := crypto.GenerateRSAKeyPEM(2048)
+	require.NoError(t, err)
+
+	pseudoCAPEM := prefixShapedCertPEM(t, caKeyPEM)
+
+	// Guard the fixture: it must really carry the pre-fix shape, or this test
+	// would pass while proving nothing.
+	stored := parseCertPEM(t, pseudoCAPEM)
+	require.True(t, stored.IsCA, "the fixture must assert CA:TRUE")
+	require.Zero(t, stored.KeyUsage&x509.KeyUsageCertSign, "the fixture must have no keyCertSign")
+
+	encEntityKey, err := common.EncryptSecret(entityKeyPEM)
+	require.NoError(t, err)
+	encCAKey, err := common.EncryptSecret(caKeyPEM)
+	require.NoError(t, err)
+
+	certRepo := &mockCertRepository{}
+	keyRepo := &mockKeyRepo{}
+
+	keyRepo.On("Read", mock.Anything, keyID, certVaultScope(userID)).
+		Return(&model.Key{ID: keyID, UserID: userID, Type: model.KeyTypeRSA, Value: encEntityKey}, nil)
+	certRepo.On("Read", mock.Anything, caCertID, certVaultScope(userID)).Return(&model.Certificate{
+		ID: caCertID, UserID: userID, Name: "pre-fix-ca",
+		Certificate: pseudoCAPEM, PrivateKey: encCAKey, Enabled: true,
+	}, nil)
+	// No certRepo.On("Create", ...) stub: creation must abort before storing
+	// anything, and the hand-written mocks panic on an unexpected call.
+
+	svc := newCertSvc(certRepo, keyRepo)
+	_, err = svc.CreateCASignedCertificate(context.Background(), CreateCertificateRequest{
+		Name:         "entity-cert",
+		KeyID:        keyID,
+		ValidityDays: 365,
+		UserID:       userID,
+		CACertID:     &caCertID,
+	})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "cannot sign certificates")
+	certRepo.AssertNotCalled(t, "Create", mock.Anything, mock.Anything)
+}
+
+// The same gate, for the other shape a ca_cert_id can wrongly point at: an
+// ordinary leaf that was never a CA at all.
+func TestCreateCASignedCertificate_LeafAsCARefusesCreation(t *testing.T) {
+	setupMasterKey()
+
+	userID := uuid.New()
+	keyID := uuid.New()
+	caCertID := uuid.New()
+
+	entityKeyPEM, err := crypto.GenerateRSAKeyPEM(2048)
+	require.NoError(t, err)
+	caKeyPEM, err := crypto.GenerateRSAKeyPEM(2048)
+	require.NoError(t, err)
+
+	leafAsCAPEM, err := crypto.CreateSelfSignedCertificatePEM(caKeyPEM, "RSA", crypto.CertificateTemplate{
+		CommonName: "not-actually-a-ca", ValidityDays: 3650, IsCA: false,
+	})
+	require.NoError(t, err)
+
+	encEntityKey, err := common.EncryptSecret(entityKeyPEM)
+	require.NoError(t, err)
+	encCAKey, err := common.EncryptSecret(caKeyPEM)
+	require.NoError(t, err)
+
+	certRepo := &mockCertRepository{}
+	keyRepo := &mockKeyRepo{}
+
+	keyRepo.On("Read", mock.Anything, keyID, certVaultScope(userID)).
+		Return(&model.Key{ID: keyID, UserID: userID, Type: model.KeyTypeRSA, Value: encEntityKey}, nil)
+	certRepo.On("Read", mock.Anything, caCertID, certVaultScope(userID)).Return(&model.Certificate{
+		ID: caCertID, UserID: userID, Name: "not-a-ca",
+		Certificate: leafAsCAPEM, PrivateKey: encCAKey, Enabled: true,
+	}, nil)
+
+	svc := newCertSvc(certRepo, keyRepo)
+	_, err = svc.CreateCASignedCertificate(context.Background(), CreateCertificateRequest{
+		Name:         "entity-cert",
+		KeyID:        keyID,
+		ValidityDays: 365,
+		UserID:       userID,
+		CACertID:     &caCertID,
+	})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "cannot sign certificates")
+	certRepo.AssertNotCalled(t, "Create", mock.Anything, mock.Anything)
 }

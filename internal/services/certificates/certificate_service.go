@@ -388,6 +388,23 @@ func (s *certificateService) CreateCASignedCertificate(ctx context.Context, req 
 		return nil, fmt.Errorf("failed to read CA certificate: %w", err)
 	}
 
+	// x509.CreateCertificate does not check the parent's IsCA/KeyUsage bits, so
+	// it will happily sign through a certificate that cannot actually verify as
+	// an issuer -- a pre-fix pseudo-CA (CA:TRUE with no keyCertSign, the B43
+	// shape) or an ordinary leaf a ca_cert_id was pointed at by mistake. Refuse
+	// before signing rather than minting a certificate that reports success and
+	// then fails CheckSignatureFrom/Verify against its own CA. Renewal applies
+	// the identical gate in renewCASignedBody.
+	caStatus, err := inspectCertificateCA(caCert.Certificate)
+	if err != nil {
+		s.logger.LogAuditError(req.UserID.String(), "create_ca_signed_cert", "failed", "failed to inspect CA certificate", err)
+		return nil, fmt.Errorf("cannot issue a CA-signed certificate: failed to inspect CA %s: %w", *req.CACertID, err)
+	}
+	if caStatus != caStatusCA {
+		s.logger.LogAuditError(req.UserID.String(), "create_ca_signed_cert", "failed", "CA certificate cannot sign certificates", nil)
+		return nil, fmt.Errorf("signing CA %s cannot sign certificates (asserts CA without keyCertSign, or is not a CA); reissue it with --is-ca", *req.CACertID)
+	}
+
 	// Decrypt CA private key
 	caKeyPEM, err := common.DecryptSecret(caCert.PrivateKey)
 	if err != nil {
