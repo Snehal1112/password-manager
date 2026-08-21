@@ -2105,6 +2105,59 @@ flag is inside the signed body, so they must be reissued.
 
 ---
 
+### B45 — `POST /secrets/generate` uses a modulo-biased password generator
+
+**Status**: Open, found 2026-08-21
+**Severity**: Medium — weakens generated secrets measurably; not catastrophic,
+but it is a security primitive reachable over HTTP
+**Files**: `internal/services/secrets/secret_service.go`
+
+**Symptom**: passwords minted by `GenerateSecret` (reached from
+`api/secrets.go:697`) are not uniformly distributed over their character set.
+
+**Root cause**: `generateRandomPassword` (l.552) selects each character as
+
+```go
+randomIndex := make([]byte, 1)
+rand.Read(randomIndex)
+password[i] = charset[int(randomIndex[0])%len(charset)]
+```
+
+A single byte spans 0-255. With all four character sets enabled the charset is
+88 characters, and `256 mod 88 == 80`, so indices 0-79 are produced three times
+per 256 draws while indices 80-87 are produced twice — a 1.5x bias toward the
+first 80 characters. Any charset length that does not divide 256 is biased; only
+lengths that are powers of two are safe.
+
+It is also weaker than the CLI's generator in two further ways: it guarantees no
+character from each enabled set, and it has no rule against runs of identical
+characters.
+
+**Why this is now worth fixing**: `internal/pwgen` exists as of 2026-08-21 and
+does all three things correctly — rejection-free selection via
+`rand.Int(rand.Reader, big.NewInt(n))`, guaranteed per-set characters, and no
+three identical characters in a row. After B35 lands, `internal/services/secrets`
+will already import `pwgen`, so `secrets generate-password` and rotation
+`--generate` will produce strong values while `POST /secrets/generate` keeps
+producing biased ones from the same package.
+
+**Fix sketch**: replace `generateRandomPassword`'s body with a call to
+`pwgen.Generate`, mapping `GenerateSecretRequest`'s flags onto `pwgen.Options`.
+Delete `generateRandomPassword`. Note the flag names differ in order
+(`useSymbols, useNumbers, useUppercase, useLowercase` vs `pwgen.Options`), so
+map them by name, not position.
+
+**Test**: generate a large sample over a charset whose length does not divide
+256 and assert the distribution is within tolerance; assert one character from
+each enabled set is present.
+
+**Found**: by the whole-plan review of the shared-foundations plan, which
+noticed the extracted generator was about to sit beside a weaker duplicate in
+the very package it was extracted for. Deliberately not fixed there — that plan's
+constraint was "fix the defect and nothing else".
+
+---
+
 ## Deferred Refactors
 
 Both items formerly tracked here (H3, M2) were re-investigated on 2026-08-14 and

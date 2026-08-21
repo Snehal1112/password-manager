@@ -115,10 +115,22 @@ service layer (as `common/encrypt.go` already is).
   "kdf": "argon2id",
   "params": { "time": 1, "memory": 65536, "threads": 4 },
   "salt": "<base64, 16 bytes>",
-  "nonce": "<base64>",
   "ciphertext": "<base64>"
 }
 ```
+
+**Corrected 2026-08-21 to match the implementation.** An earlier draft showed a
+top-level `nonce` field. There is none: `EncryptWithKey` already prepends its
+own random GCM nonce to the ciphertext it returns, so the nonce travels inside
+`ciphertext`. Adding a second one would have been redundant and a chance to get
+nonce handling wrong. Release notes and any format documentation must describe
+this shape, not the earlier draft's.
+
+**Params are read from the file and must be validated.** `argon2.IDKey` panics
+when `time` or `threads` is below 1, so an envelope that merely omits `params`
+would crash the reader. The read path validates every parameter before use and
+returns an error naming the bad one — never `ErrWrongPassphrase`, since a
+malformed file is not a wrong passphrase.
 
 - `argon2.IDKey` from `golang.org/x/crypto` — already a dependency at v0.48.0,
   currently unused in the tree. Verified 2026-08-21 that both
