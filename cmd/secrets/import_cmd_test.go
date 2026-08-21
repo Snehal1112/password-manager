@@ -1,6 +1,7 @@
 package secrets
 
 import (
+	"io"
 	"os"
 	"path/filepath"
 	"testing"
@@ -282,4 +283,52 @@ func TestImportCommand_Forbidden_NeverPromptsForPassphrase(t *testing.T) {
 	assert.Contains(t, err.Error(), "forbidden")
 	assert.NotContains(t, err.Error(), "no passphrase")
 	tc.MockSecretService.AssertNotCalled(t, "ImportSecrets", mock.Anything, mock.Anything)
+}
+
+func TestImportCommand_PrintsImportedSkippedAndFailedCounts(t *testing.T) {
+	tc := testutils.NewTestContext(t)
+
+	tc.MockSecretService.On("ImportSecrets", mock.Anything, mock.Anything).
+		Return(&secretServices.ImportResult{ImportedCount: 1, SkippedCount: 2, FailedCount: 3}, nil)
+	tc.MockContainer.On("GetSecretService").Return(tc.MockSecretService)
+
+	roles := &testutils.MockRoleAssignmentService{}
+	roles.On("HasDataAction", mock.Anything, tc.TestUserID, tc.TestVaultID, model.ActionSecretsSet).
+		Return(true, nil).Once()
+	policies := &testutils.MockAccessPolicyService{}
+	policies.On("CheckAccess", mock.Anything, tc.TestUserID, model.PolicyResourceSecrets, model.OpImport, tc.TestVaultID).
+		Return(authzServices.AccessAllowed, nil).Once()
+	tc.MockContainer.RoleAssignmentService = roles
+	tc.MockContainer.AccessPolicyService = policies
+
+	tmpFile := t.TempDir() + "/import.json"
+	os.WriteFile(tmpFile, []byte(`{}`), 0o600) //nolint:errcheck,gosec
+
+	importFormat = "json"
+	importFile = tmpFile
+	importEncrypted = false
+	importOverwrite = true
+
+	cmd := &cobra.Command{Use: "import", RunE: secretsImportCmd.RunE}
+	cmd.Flags().StringVarP(&importFormat, "format", "f", "json", "")
+	cmd.Flags().StringVarP(&importFile, "file", "i", tmpFile, "")
+	cmd.Flags().BoolVarP(&importEncrypted, "encrypted", "e", false, "")
+	cmd.Flags().BoolVarP(&importOverwrite, "overwrite", "w", false, "")
+	cmd.SetContext(tc.Ctx)
+
+	origStdout := os.Stdout
+	r, w, pipeErr := os.Pipe()
+	require.NoError(t, pipeErr)
+	os.Stdout = w
+
+	execErr := cmd.Execute()
+
+	w.Close() //nolint:errcheck
+	os.Stdout = origStdout
+
+	out, readErr := io.ReadAll(r)
+	require.NoError(t, readErr)
+
+	assert.NoError(t, execErr)
+	assert.Equal(t, "Secrets imported successfully\nImported: 1\nSkipped: 2\nFailed: 3\n", string(out))
 }

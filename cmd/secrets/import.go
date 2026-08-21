@@ -50,7 +50,10 @@ var secretsImportCmd = &cobra.Command{
 	Use:   "import",
 	Short: "Import secrets from a file",
 	Long: `Import secrets into the target vault from a file in the layout
-"secrets export" produces.
+"secrets export" produces. Each record is matched by name against the
+target vault: a name that does not already exist is created at version 1.
+A name that already exists is updated when --overwrite is set, which
+versions the previous value; otherwise it is skipped.
 
 An encrypted export is detected by its contents, not by a flag or a file
 extension. When the file is encrypted the passphrase is read from
@@ -68,8 +71,8 @@ target vault.
 Acts on the vault named by --vault, which defaults to "default". The caller
 becomes the owner of every imported secret.
 
-Records missing a name or a value are skipped rather than failing the run,
-and the imported and skipped counts are printed when the run finishes.`,
+Records missing a name or a value are skipped rather than failing the run.
+Imported, skipped, and failed counts are all printed when the run finishes.`,
 	Example: `  # Import an encrypted export, prompting for the passphrase
   rocketvault secrets import --file secrets.json
 
@@ -79,7 +82,10 @@ and the imported and skipped counts are printed when the run finishes.`,
 
   # Import a CSV export into a named vault
   rocketvault secrets import --format csv --file payments.csv \
-    --vault <vault-name>`,
+    --vault <vault-name>
+
+  # Overwrite existing secrets with the same name
+  rocketvault secrets import --file secrets.json --overwrite`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		ctx := cmd.Context()
 
@@ -159,8 +165,8 @@ and the imported and skipped counts are printed when the run finishes.`,
 			return fmt.Errorf("failed to import secrets: %w", err)
 		}
 
-		fmt.Printf("Secrets imported successfully\nImported: %d\nSkipped: %d\n",
-			result.ImportedCount, result.SkippedCount)
+		fmt.Printf("Secrets imported successfully\nImported: %d\nSkipped: %d\nFailed: %d\n",
+			result.ImportedCount, result.SkippedCount, result.FailedCount)
 		return nil
 	},
 }
