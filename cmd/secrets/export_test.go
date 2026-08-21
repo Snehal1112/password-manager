@@ -1,11 +1,14 @@
 package secrets
 
 import (
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/spf13/cobra"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
+	"github.com/stretchr/testify/require"
 
 	"rocketvault/cmd/testutils"
 	authzServices "rocketvault/internal/services/authorization"
@@ -50,6 +53,7 @@ func TestExportCommand_CallsServiceExport(t *testing.T) {
 	exportFormat = "json"
 	exportFile = tmpFile
 	exportEncrypt = false
+	exportPassphraseFile = ""
 	exportTags = []string{}
 	exportFilterTags = []string{}
 
@@ -80,6 +84,7 @@ func TestExportCommand_Forbidden(t *testing.T) {
 	exportFormat = "json"
 	exportFile = tmpFile
 	exportEncrypt = false
+	exportPassphraseFile = ""
 	exportTags = []string{}
 	exportFilterTags = []string{}
 
@@ -95,4 +100,121 @@ func TestExportCommand_Forbidden(t *testing.T) {
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "forbidden")
 	tc.MockSecretService.AssertNotCalled(t, "ExportSecrets", mock.Anything, mock.Anything)
+}
+
+// newExportTestCmd builds a standalone command sharing the real export RunE, so
+// the flag set matches what InitSecretsExport registers.
+func newExportTestCmd(file string) *cobra.Command {
+	cmd := &cobra.Command{Use: "export", RunE: secretsExportCmd.RunE}
+	cmd.Flags().StringVarP(&exportFormat, "format", "f", "json", "")
+	cmd.Flags().StringVarP(&exportFile, "file", "o", file, "")
+	cmd.Flags().BoolVarP(&exportEncrypt, "encrypt", "e", exportEncrypt, "")
+	cmd.Flags().StringVar(&exportPassphraseFile, "passphrase-file", exportPassphraseFile, "")
+	cmd.Flags().StringSliceVarP(&exportTags, "tags", "t", []string{}, "")
+	cmd.Flags().StringSliceVar(&exportFilterTags, "filter-tags", []string{}, "")
+	return cmd
+}
+
+func TestExportCommand_EncryptWithNoPassphraseSource_FailsAndWritesNoFile(t *testing.T) {
+	tc := testutils.NewTestContext(t)
+	tc.MockContainer.On("GetSecretService").Return(tc.MockSecretService).Maybe()
+
+	// go test runs with stdin detached, so ResolvePassphrase takes its
+	// non-terminal branch and returns ErrNoPassphraseAvailable.
+	t.Setenv("ROCKETVAULT_EXPORT_PASSPHRASE", "")
+
+	tmpFile := filepath.Join(t.TempDir(), "export.json")
+	exportFormat = "json"
+	exportFile = tmpFile
+	exportEncrypt = true
+	exportPassphraseFile = ""
+	exportTags = []string{}
+	exportFilterTags = []string{}
+
+	cmd := newExportTestCmd(tmpFile)
+	cmd.SetContext(tc.Ctx)
+
+	err := cmd.Execute()
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "no passphrase")
+	assert.NoFileExists(t, tmpFile, "a failed encrypted export must leave nothing on disk")
+	tc.MockSecretService.AssertNotCalled(t, "ExportSecrets", mock.Anything, mock.Anything)
+}
+
+func TestExportCommand_PassphraseFileIsPlumbedIntoRequest(t *testing.T) {
+	tc := testutils.NewTestContext(t)
+
+	dir := t.TempDir()
+	passFile := filepath.Join(dir, "pass.txt")
+	require.NoError(t, os.WriteFile(passFile, []byte("s3cret\n"), 0o600))
+	tmpFile := filepath.Join(dir, "export.json")
+
+	tc.MockSecretService.On("ExportSecrets", mock.Anything, mock.MatchedBy(func(r secretServices.ExportSecretsRequest) bool {
+		return r.Encrypt && r.Passphrase == "s3cret"
+	})).Return([]byte(`{"rocketvault_export":1}`), nil)
+	tc.MockContainer.On("GetSecretService").Return(tc.MockSecretService)
+
+	exportFormat = "json"
+	exportFile = tmpFile
+	exportEncrypt = true
+	exportPassphraseFile = passFile
+	exportTags = []string{}
+	exportFilterTags = []string{}
+
+	cmd := newExportTestCmd(tmpFile)
+	cmd.SetContext(tc.Ctx)
+
+	require.NoError(t, cmd.Execute())
+	assert.FileExists(t, tmpFile)
+	tc.MockSecretService.AssertExpectations(t)
+}
+
+func TestExportCommand_EnvPassphraseIsPlumbedIntoRequest(t *testing.T) {
+	tc := testutils.NewTestContext(t)
+	t.Setenv("ROCKETVAULT_EXPORT_PASSPHRASE", "from-env")
+
+	tmpFile := filepath.Join(t.TempDir(), "export.json")
+
+	tc.MockSecretService.On("ExportSecrets", mock.Anything, mock.MatchedBy(func(r secretServices.ExportSecretsRequest) bool {
+		return r.Encrypt && r.Passphrase == "from-env"
+	})).Return([]byte(`{"rocketvault_export":1}`), nil)
+	tc.MockContainer.On("GetSecretService").Return(tc.MockSecretService)
+
+	exportFormat = "json"
+	exportFile = tmpFile
+	exportEncrypt = true
+	exportPassphraseFile = ""
+	exportTags = []string{}
+	exportFilterTags = []string{}
+
+	cmd := newExportTestCmd(tmpFile)
+	cmd.SetContext(tc.Ctx)
+
+	require.NoError(t, cmd.Execute())
+	tc.MockSecretService.AssertExpectations(t)
+}
+
+func TestExportCommand_PlaintextStillWorksAndRequestCarriesNoPassphrase(t *testing.T) {
+	tc := testutils.NewTestContext(t)
+
+	tmpFile := filepath.Join(t.TempDir(), "export.json")
+
+	tc.MockSecretService.On("ExportSecrets", mock.Anything, mock.MatchedBy(func(r secretServices.ExportSecretsRequest) bool {
+		return !r.Encrypt && r.Passphrase == ""
+	})).Return([]byte(`[]`), nil)
+	tc.MockContainer.On("GetSecretService").Return(tc.MockSecretService)
+
+	exportFormat = "json"
+	exportFile = tmpFile
+	exportEncrypt = false
+	exportPassphraseFile = ""
+	exportTags = []string{}
+	exportFilterTags = []string{}
+
+	cmd := newExportTestCmd(tmpFile)
+	cmd.SetContext(tc.Ctx)
+
+	require.NoError(t, cmd.Execute())
+	assert.FileExists(t, tmpFile)
+	tc.MockSecretService.AssertExpectations(t)
 }

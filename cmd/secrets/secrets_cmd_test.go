@@ -670,6 +670,8 @@ func TestExportCmd_NoServiceContainer(t *testing.T) {
 	prevFile := exportFile
 	exportFile = t.TempDir() + "/export.json"
 	defer func() { exportFile = prevFile }()
+	exportEncrypt = false
+	exportPassphraseFile = ""
 
 	cmd := &cobra.Command{Use: "export", RunE: secretsExportCmd.RunE}
 	cmd.Flags().StringVarP(&exportFormat, "format", "f", "json", "")
@@ -699,6 +701,8 @@ func TestExportCmd_ServiceError(t *testing.T) {
 	defer func() { exportFile = prevFile }()
 	exportTags = []string{}
 	exportFilterTags = []string{}
+	exportEncrypt = false
+	exportPassphraseFile = ""
 
 	cmd := &cobra.Command{Use: "export", RunE: secretsExportCmd.RunE}
 	cmd.Flags().StringVarP(&exportFormat, "format", "f", "json", "")
