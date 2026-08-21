@@ -2646,6 +2646,53 @@ byte-exactness matters.
 
 ---
 
+### B50 — A soft-deleted certificate's name is not freed for reuse
+
+**Status**: Open, found 2026-08-22
+**Severity**: Low-Medium — blocks a documented operational procedure
+(v4.2.0's CA reissue), with a workaround; no data loss and nothing fails
+silently
+**Files**: `internal/db/db.go` (`finalizeVaultIndexes`),
+`internal/repositories/certificate_repository.go` (`SoftDelete`)
+
+**Symptom**: delete a certificate, then create a replacement under the same
+name in the same vault. The create fails on a raw `UNIQUE constraint failed:
+certificates.vault_id, certificates.name` from the driver — no service-layer
+error wraps it, so the operator sees a database error rather than "that name
+is still taken by a deleted certificate".
+
+**Root cause**: `finalizeVaultIndexes` creates
+`CREATE UNIQUE INDEX idx_certificates_vault_name ON certificates(vault_id, name)`
+with no `WHERE deleted_at IS NULL` predicate, and `SoftDelete` only stamps
+`deleted_at` — the row, and its name, stay in the table. Only
+`PurgeCertificate` (a real `DELETE FROM certificates`) frees the name, and
+purge has no CLI subcommand: it is reachable solely over
+`DELETE /api/v1/vaults/{vault}/deleted/certificates/{id}/purge`.
+
+`idx_secrets_vault_name` and `idx_keys_vault_name` are built the same way in
+the same function, so secrets and keys have the same shape; certificates are
+where it was noticed because of the reissue procedure below.
+
+**Symptom in the docs**: `docs/release-notes/v4.2.0-ca-certificates.md`'s
+reissue procedure told operators to recreate the CA under its old name at
+step 2 and retire the old one at step 5, which cannot work in that order. It
+was reworked on 2026-08-22 to give the replacement CA a new name, with the
+delete-then-purge route documented as the only way to reuse the exact name.
+
+**Fix sketch**: make the three unique indexes partial —
+`CREATE UNIQUE INDEX ... ON certificates(vault_id, name) WHERE deleted_at IS NULL`
+— which both SQLite and PostgreSQL support. Note the migration is not a pure
+index swap: `finalizeVaultIndexes` runs `ResolveNameCollisions` first, and
+dropping and recreating a live unique index needs the same care. A cheaper
+partial fix, worth doing either way, is to translate the driver's unique
+violation into a named service-layer error so the message says which name is
+taken and that a soft-deleted row holds it.
+
+**Found**: during the whole-branch review of `fix/b35-b44`, while checking
+that v4.2.0's CA reissue procedure was executable as written.
+
+---
+
 ## Deferred Refactors
 
 Both items formerly tracked here (H3, M2) were re-investigated on 2026-08-14 and
