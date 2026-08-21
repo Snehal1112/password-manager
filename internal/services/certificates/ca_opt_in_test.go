@@ -233,3 +233,46 @@ func TestRenewCertificate_PreservesCA(t *testing.T) {
 	assert.True(t, parseIssuedCert(t, f.capture.cert.Certificate).IsCA,
 		"renewing a CA must keep it a CA")
 }
+
+// The opt-in must produce a certificate that can actually sign. IsCA alone is
+// only half a CA: without CertSign no verifier will accept anything it signs,
+// which was B43. This is the assertion that ties the two fixes together.
+func TestCreateSelfSignedCertificate_CAOptInCarriesCertSign(t *testing.T) {
+	f := newSelfSignedFixture(t)
+
+	_, err := f.svc.CreateSelfSignedCertificate(context.Background(), CreateCertificateRequest{
+		Name:         "issuing-ca",
+		KeyID:        f.keyID,
+		ValidityDays: 3650,
+		UserID:       f.userID,
+		IsCA:         true,
+	})
+	require.NoError(t, err)
+	require.NotNil(t, f.capture.cert)
+
+	issued := parseIssuedCert(t, f.capture.cert.Certificate)
+	assert.True(t, issued.IsCA, "the opt-in must produce a CA certificate")
+	assert.NotZero(t, issued.KeyUsage&x509.KeyUsageCertSign, "a CA must be allowed to sign certificates")
+	assert.NotZero(t, issued.KeyUsage&x509.KeyUsageCRLSign, "a CA must be allowed to sign CRLs")
+}
+
+// And the mirror. This is the assertion that would have caught landing B43's
+// fix while B44 stood: an ordinary certificate must gain no signing authority
+// from it.
+func TestCreateSelfSignedCertificate_LeafGetsNoCertSign(t *testing.T) {
+	f := newSelfSignedFixture(t)
+
+	_, err := f.svc.CreateSelfSignedCertificate(context.Background(), CreateCertificateRequest{
+		Name:         "tls-server",
+		KeyID:        f.keyID,
+		ValidityDays: 365,
+		UserID:       f.userID,
+	})
+	require.NoError(t, err)
+	require.NotNil(t, f.capture.cert)
+
+	issued := parseIssuedCert(t, f.capture.cert.Certificate)
+	assert.False(t, issued.IsCA)
+	assert.Zero(t, issued.KeyUsage&x509.KeyUsageCertSign, "an ordinary certificate must not be able to sign certificates")
+	assert.Zero(t, issued.KeyUsage&x509.KeyUsageCRLSign, "an ordinary certificate must not be able to sign CRLs")
+}

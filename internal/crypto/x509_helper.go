@@ -51,6 +51,15 @@ func CreateX509Template(params CertificateTemplate) (*x509.Certificate, error) {
 		return nil, err
 	}
 
+	// A CA must be allowed to sign certificates and CRLs. RFC 5280 requires
+	// keyCertSign once a key-usage extension is asserted at all, and
+	// crypto/x509 enforces it: a parent with a non-zero KeyUsage lacking
+	// CertSign is rejected as a signer, so nothing it issued would verify.
+	keyUsage := x509.KeyUsageDigitalSignature | x509.KeyUsageKeyEncipherment
+	if params.IsCA {
+		keyUsage |= x509.KeyUsageCertSign | x509.KeyUsageCRLSign
+	}
+
 	template := &x509.Certificate{
 		SerialNumber: serialNumber,
 		Subject: pkix.Name{
@@ -58,7 +67,7 @@ func CreateX509Template(params CertificateTemplate) (*x509.Certificate, error) {
 		},
 		NotBefore:             time.Now(),
 		NotAfter:              time.Now().AddDate(0, 0, params.ValidityDays),
-		KeyUsage:              x509.KeyUsageDigitalSignature | x509.KeyUsageKeyEncipherment,
+		KeyUsage:              keyUsage,
 		ExtKeyUsage:           []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth, x509.ExtKeyUsageClientAuth},
 		BasicConstraintsValid: true,
 		IsCA:                  params.IsCA,
