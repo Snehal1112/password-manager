@@ -102,8 +102,8 @@ would.`,
 			return fmt.Errorf("failed to rotate key: %w", err)
 		}
 
-		log.LogAuditInfo(claims.UserID.String(), "rotate_key", "success", fmt.Sprintf("key rotated, new ID: %s", newKey.KeyID))
-		fmt.Printf("Key rotated successfully, New Key: ID=%s, Name=%s, Type=%s, CreatedAt=%s, Tags=%v\n",
+		log.LogAuditInfo(claims.UserID.String(), "rotate_key", "success", fmt.Sprintf("key rotated: %s", newKey.KeyID))
+		fmt.Fprintf(cmd.OutOrStdout(), "Key rotated successfully: ID=%s, Name=%s, Type=%s, CreatedAt=%s, Tags=%v\n", //nolint:errcheck
 			newKey.KeyID, newKey.Name, newKey.Type, newKey.CreatedAt.Format(time.RFC3339), newKey.Tags)
 		return nil
 	},

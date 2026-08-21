@@ -1141,7 +1141,7 @@ func TestRotateCmd_Success(t *testing.T) {
 	keyID := uuid.New()
 	sc, vaultID := newAllowedContainer(keySvc, nil)
 	result := &keyServices.CreateKeyResult{
-		KeyID: uuid.New(), Name: "rotated", Type: "RSA", CreatedAt: time.Now(),
+		KeyID: keyID, Name: "rotated", Type: "RSA", CreatedAt: time.Now(),
 	}
 	keySvc.On("RotateKey", mock.Anything, keyID, model.NewVaultScope(vaultID, userID)).Return(result, nil)
 
@@ -1150,12 +1150,14 @@ func TestRotateCmd_Success(t *testing.T) {
 	ctx = context.WithValue(ctx, common.LogKey, newLogger())
 	ctx = context.WithValue(ctx, common.ServiceContainerKey, sc)
 
-	cmd, _ := newTestCmd(rotateCmd.RunE, []string{keyID.String()})
+	cmd, buf := newTestCmd(rotateCmd.RunE, []string{keyID.String()})
 	cmd.Args = cobra.ExactArgs(1)
 	cmd.SetContext(ctx)
 	err := cmd.Execute()
 	assert.NoError(t, err)
 	keySvc.AssertExpectations(t)
+	assert.Contains(t, buf.String(), "Key rotated successfully: ID="+keyID.String())
+	assert.NotContains(t, buf.String(), "New Key", "the rotated key keeps its UUID; the output must not imply a new one")
 }
 
 func TestRotateCmd_Denied(t *testing.T) {
