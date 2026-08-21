@@ -1988,10 +1988,11 @@ path as well as the branch:
 
 ### B38 — `secrets import --overwrite` is a no-op
 
-**Status**: Open, found 2026-08-21
-**Severity**: Medium — documented behavior that does not exist; imports intended
-to replace existing secrets silently do not
-**Files**: `internal/services/secrets/secret_service.go`
+**Status**: Fixed 2026-08-21
+**Severity**: Resolved — was Medium (documented behavior that did not exist;
+imports intended to replace existing secrets silently did not)
+**Files**: `internal/services/secrets/secret_service.go`,
+`internal/repositories/secret_repository.go`, `cmd/secrets/import.go`
 
 `importOverwrite` is plumbed correctly into `ImportSecretsRequest.Overwrite`,
 but `ImportSecrets` only emits it as a log field. The import loop calls
@@ -1999,6 +2000,28 @@ but `ImportSecrets` only emits it as a log field. The import loop calls
 `CreateSecret` never looks for an existing name. The previous CLI example
 "Import and overwrite existing secrets" documented behavior with no
 implementation behind it.
+
+**What was fixed** (commits `548cd6b..fcfede3`): `FindByName` was added to
+`SecretRepositoryInterface` as a scoped, name-keyed lookup. The import loop
+now looks up each record by name before deciding create vs. overwrite vs.
+skip: a name that does not exist is created at version 1, an existing name is
+updated (versioning the previous value) only when `--overwrite` is set, and
+otherwise it is skipped. `ImportResult.FailedCount` was added to distinguish
+records that were attempted and errored from records intentionally skipped
+(`SkippedCount`), and the CLI now prints all three counters. A real
+in-memory-SQLite round-trip test
+(`internal/services/secrets/import_overwrite_roundtrip_test.go`) proves the
+create/overwrite/skip sequence against real crypto and the real
+`idx_secrets_vault_name` unique index, not mocks.
+
+**Related**: operators combining `--format csv` with `--overwrite` should
+know §B42 (CSV export/import corrupts any value containing a quote or
+newline) is still open. Before this fix, a mis-parsed CSV record hitting an
+existing name was refused outright by the unique-name constraint; now that
+`--overwrite` actually works, the same mis-parsed record can silently
+overwrite a correct secret with garbage instead of being rejected. Versioning
+makes this recoverable (the previous value survives in `secret_versions`),
+but it is not surfaced as an error the way it used to be.
 
 ---
 
