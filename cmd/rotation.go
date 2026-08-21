@@ -129,7 +129,13 @@ checked.
 --reminder must be strictly smaller than --interval, or the policy is
 rejected. New policies are always created enabled; there is no flag for
 creating a disabled one, and the CLI cannot disable one later. The full
-policy ID is printed on success — "secrets rotation list" abbreviates it.`,
+policy ID is printed on success — "secrets rotation list" abbreviates it.
+
+With --auto-rotate set, the server's scheduler will REPLACE this secret's
+live value with a freshly GENERATED one on its own schedule, once it is
+overdue — nothing outside RocketVault is told, so nothing else is updated
+to match. Anything that consumes this secret must tolerate that unattended
+change, or --auto-rotate should stay off.`,
 	Example: `  # 30-day policy, using the default 7-day reminder
   rocketvault secrets rotation create --name <name> --interval 30
 
@@ -180,6 +186,12 @@ var rotationUpdateCmd = &cobra.Command{
 the flags actually passed are applied, so every field left off keeps its
 current value. --auto-rotate is a boolean flag: pass --auto-rotate=false to
 turn scheduled rotation back off.
+
+Setting --auto-rotate=true means the server's scheduler will REPLACE each
+assigned secret's live value with a freshly GENERATED one on its own
+schedule, once it is overdue — nothing outside RocketVault is told, so
+nothing else is updated to match. Anything that consumes those secrets must
+tolerate that unattended change, or --auto-rotate should stay off.
 
 Requires the Microsoft.KeyVault/vaults/secrets/setSecret/action data action
 in the vault named by --vault, which defaults to "default". No global role is

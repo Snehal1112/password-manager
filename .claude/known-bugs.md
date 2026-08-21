@@ -1803,15 +1803,41 @@ The regression test is
 `TestPerformManualRotation_ExplicitValue_RoundTripsThroughGetSecret` in
 `internal/services/secrets/rotation_roundtrip_test.go`.
 
+**Upgrade note**: the rotation scheduler is enabled by default
+(`rotation.secrets.enabled: true`, 1h interval — see `config/config.go` and
+`.rocketvault.yaml.example`). Any deployment upgrading to this fix with
+`auto_rotate = true` policies that are already overdue will have those
+secrets rotated to a freshly generated value within the scheduler's next
+tick (default 1h) after deploy — this is correct per the fix, not a
+regression, but it is a real behavior change: the old value is archived as a
+version, not lost, but the live value changes to something the operator did
+not choose, and nothing outside RocketVault is updated to match. Operators
+who rely on those secrets matching an external system's value should check
+for overdue `auto_rotate` policies before upgrading, or disable auto-rotate
+on them first, rotate manually with an explicit `--value`, then re-enable.
+
 **Recovery for data corrupted before this fix**: values rotated by the
 scheduler survive in `secret_versions`, but doubly encrypted — a normal
-`secrets versions get` returns the inner ciphertext, and recovering the
+`secrets version get` returns the inner ciphertext, and recovering the
 plaintext means decrypting that output once more with the master key. Values
 rotated manually are **not recoverable**: the manual path never versioned, and
 it overwrote the stored ciphertext in place. The only recovery for those is an
 out-of-band copy (a database backup or `rocketvault backup` archive predating
 the rotation, or the value as known to the system the secret belongs to). No
 repair tooling was built; this was an explicit non-goal.
+
+Detecting affected secrets: a corrupted value has a `_rotated_<digits>`
+suffix on an otherwise base64 body, and fails to decrypt. Operators can find
+candidates with
+`SELECT id, name FROM secrets WHERE value LIKE '%\_rotated\_%' ESCAPE '\';`
+and cross-check `secret_rotation_history` to tell the two recovery cases
+apart. Its `triggered_by` column does not help here — both the scheduler and
+the CLI go through `PerformManualRotation`, which hardcodes
+`TriggeredBy: model.TriggerManual` regardless of caller, so every row reads
+`'manual'`. Use `notes` instead: a row with
+`notes = 'Automatic rotation by scheduler'` is the doubly-encrypted,
+recoverable case above; any other row, or no row at all, is the manual,
+unrecoverable case.
 
 ---
 
@@ -2297,6 +2323,65 @@ each enabled set is present.
 noticed the extracted generator was about to sit beside a weaker duplicate in
 the very package it was extracted for. Deliberately not fixed there — that plan's
 constraint was "fix the defect and nothing else".
+
+---
+
+### B46 — `RollbackToVersion` has B35's exact defect (double-encrypt + plaintext write), currently unreachable
+
+**Status**: Open, found 2026-08-21
+**Severity**: Low today (unreachable), would be Critical if ever wired up —
+same defect class as B35, which was rated Critical for the equivalent
+scheduler path
+**Files**: `internal/services/secrets/versioning_service.go`
+(`RollbackToVersion`, l.340-403)
+
+**Symptom**: none yet in production. `RollbackToVersion` has no caller
+outside its own tests — no CLI command under `cmd/secrets` and no API route
+invoke it, and the only production reference to `RollbackRequest` is the
+interface declaration on `VersioningServiceInterface` (l.39) plus its
+generated mocks. If a future CLI command or API route calls it, every
+rollback will corrupt both the secret being rolled back and the version
+archived on the way in.
+
+**Root cause**: `RollbackToVersion` reads `secret` via `secretRepo.Read`
+(l.345), so `secret.Value` is master-key ciphertext, exactly as it is
+throughout the B35 codepaths. It then makes both of B35's mistakes at once:
+
+1. **Archives ciphertext through `CreateVersion`, which encrypts it again.**
+   At l.372-380 it builds a `CreateVersionRequest{..., Value: secret.Value,
+   ...}` and calls `s.CreateVersion(ctx, currentVersionReq)`. `CreateVersion`
+   unconditionally encrypts whatever it is given
+   (`s.cryptoSvc.EncryptSecret(req.Value)`, l.128) before storing it, so the
+   backup row written here is `secret.Value` encrypted a second time — the
+   same double-encryption B35 diagnosed in the pre-fix scheduler path.
+2. **Writes decrypted plaintext into `secrets.value`.** At l.364 it decrypts
+   the *target* version's value into `decryptedValue`, then at l.388 does
+   `secret.Value = decryptedValue` and passes that straight to
+   `secretRepo.Update` (l.391) with no re-encryption step. The repository
+   contract expects `secret.Value` to already be ciphertext, so this writes
+   plaintext into a column every other code path treats as ciphertext — a
+   subsequent `GetSecret`'s decrypt attempt on that row fails, the same
+   symptom B35 fixed for `PerformManualRotation`.
+
+Both halves fire on every call: there is no conditional or flag that skips
+either step, so a single rollback both corrupts the current version's backup
+row and breaks the secret's own decryptability going forward.
+
+**Why this is filed instead of fixed**: found during the B35 final review.
+The reviewer confirmed it is presently unreachable — fixing unreachable code
+is unplanned, unreviewed work outside that plan's scope — so it is tracked
+here for whoever wires a rollback command or route up next. Do not treat
+"unreachable" as "safe to ignore indefinitely": the moment a caller is added,
+this becomes exactly as live as B35 was.
+
+**Fix sketch**: mirror B35's fix. Pass `s.cryptoSvc.DecryptSecret(secret.Value)`
+(or an already-decrypted plaintext already in hand) as `Value` in the backup
+`CreateVersionRequest` so `CreateVersion`'s own encryption is the only
+encryption step; and re-encrypt `decryptedValue` through
+`s.cryptoSvc.EncryptSecret` before assigning it to `secret.Value` and calling
+`secretRepo.Update`. A regression test should roll back then `GetSecret` and
+assert the plaintext round-trips, plus assert the freshly-created backup
+version round-trips through a `secrets version get` on its own.
 
 ---
 
