@@ -973,7 +973,8 @@ func TestRotationServiceAssignmentRotationAndReminders(t *testing.T) {
 	secretRepo := &testutils.MockSecretRepository{}
 	userRepo := &mockUserRepository{}
 	crypto := &testutils.MockCryptographyService{}
-	svc := secrets.NewRotationService(repo, secretRepo, userRepo, crypto, nil, testutils.NewTestLogger(t), &recordingInvalidator{})
+	versionSvc := &testutils.MockVersioningService{}
+	svc := secrets.NewRotationService(repo, secretRepo, userRepo, crypto, versionSvc, testutils.NewTestLogger(t), &recordingInvalidator{})
 
 	scope := model.NewAdminScope(userID)
 
@@ -1003,8 +1004,13 @@ func TestRotationServiceAssignmentRotationAndReminders(t *testing.T) {
 
 	secretRepo.On("Read", ctx, secretID, scope).Return(secret, nil).Once()
 	repo.On("Read", ctx, policyID, scope).Return(policy, nil).Once()
+	crypto.On("DecryptSecret", "current").Return("current-plaintext", nil).Once()
+	crypto.On("EncryptSecret", "next-plaintext").Return("next-ciphertext", nil).Once()
+	versionSvc.On("CreateVersion", ctx, mock.MatchedBy(func(req secrets.CreateVersionRequest) bool {
+		return req.SecretID == secretID && req.Value == "current-plaintext" && req.Version == 3
+	})).Return(&model.SecretVersion{ID: uuid.New()}, nil).Once()
 	secretRepo.On("Update", ctx, mock.MatchedBy(func(updated *model.Secret) bool {
-		return updated.ID == secretID && updated.Version == 4 && updated.Value != "current"
+		return updated.ID == secretID && updated.Version == 4 && updated.Value == "next-ciphertext"
 	}), model.NewOwnerScope(secret.VaultID, secret.UserID)).Return(nil).Once()
 	repo.On("RecordRotation", ctx, mock.MatchedBy(func(history *model.RotationHistory) bool {
 		return history.SecretID == secretID && *history.PolicyID == policyID && history.PreviousVersion == 3 && history.NewVersion == 4
@@ -1016,6 +1022,7 @@ func TestRotationServiceAssignmentRotationAndReminders(t *testing.T) {
 		PolicyID: policyID,
 		Scope:    scope,
 		Notes:    "rotate now",
+		NewValue: "next-plaintext",
 	}))
 
 	history := []model.RotationHistory{{ID: uuid.New(), SecretID: secretID}}
@@ -1058,6 +1065,7 @@ func TestRotationServiceAssignmentRotationAndReminders(t *testing.T) {
 
 	repo.AssertExpectations(t)
 	secretRepo.AssertExpectations(t)
+	versionSvc.AssertExpectations(t)
 }
 
 func TestRotationServiceErrorBranches(t *testing.T) {
@@ -1073,7 +1081,8 @@ func TestRotationServiceErrorBranches(t *testing.T) {
 	secretRepo := &testutils.MockSecretRepository{}
 	userRepo := &mockUserRepository{}
 	crypto := &testutils.MockCryptographyService{}
-	svc := secrets.NewRotationService(repo, secretRepo, userRepo, crypto, nil, testutils.NewTestLogger(t), nil)
+	versionSvc := &testutils.MockVersioningService{}
+	svc := secrets.NewRotationService(repo, secretRepo, userRepo, crypto, versionSvc, testutils.NewTestLogger(t), nil)
 
 	scope := model.NewAdminScope(userID)
 
@@ -1140,13 +1149,26 @@ func TestRotationServiceErrorBranches(t *testing.T) {
 	assert.ErrorContains(t, err, "failed to get secret policies")
 
 	secretRepo.On("Read", ctx, secretID, scope).Return(nil, errors.New("missing secret")).Once()
-	err = svc.PerformManualRotation(ctx, secrets.ManualRotationRequest{SecretID: secretID, PolicyID: policyID, Scope: scope})
+	err = svc.PerformManualRotation(ctx, secrets.ManualRotationRequest{
+		SecretID: secretID, PolicyID: policyID, Scope: scope, NewValue: "next-plaintext",
+	})
 	assert.ErrorContains(t, err, "secret not found")
+
+	// A request with no value source fails before any repository call.
+	err = svc.PerformManualRotation(ctx, secrets.ManualRotationRequest{
+		SecretID: secretID, PolicyID: policyID, Scope: scope,
+	})
+	assert.ErrorIs(t, err, secrets.ErrRotationValueRequired)
 
 	secretRepo.On("Read", ctx, secretID, scope).Return(secret, nil).Once()
 	repo.On("Read", ctx, policyID, scope).Return(policy, nil).Once()
+	crypto.On("DecryptSecret", "current").Return("current-plaintext", nil).Once()
+	crypto.On("EncryptSecret", "next-plaintext").Return("next-ciphertext", nil).Once()
+	versionSvc.On("CreateVersion", ctx, mock.Anything).Return(&model.SecretVersion{ID: uuid.New()}, nil).Once()
 	secretRepo.On("Update", ctx, mock.AnythingOfType("*model.Secret"), model.NewOwnerScope(secret.VaultID, secret.UserID)).Return(errors.New("update failed")).Once()
-	err = svc.PerformManualRotation(ctx, secrets.ManualRotationRequest{SecretID: secretID, PolicyID: policyID, Scope: scope})
+	err = svc.PerformManualRotation(ctx, secrets.ManualRotationRequest{
+		SecretID: secretID, PolicyID: policyID, Scope: scope, NewValue: "next-plaintext",
+	})
 	assert.ErrorContains(t, err, "failed to update secret during rotation")
 
 	secretRepo.On("Read", ctx, secretID, scope).Return(nil, errors.New("missing secret")).Once()

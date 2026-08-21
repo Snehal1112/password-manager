@@ -97,7 +97,7 @@ func TestPerformManualRotationInvalidatesCacheAndAudits(t *testing.T) {
 
 	secretRepo := &testutils.MockSecretRepository{}
 	secretRepo.On("Read", ctx, secretID, scope).
-		Return(&model.Secret{ID: secretID, UserID: ownerID, Value: "old", Version: 3}, nil).Once()
+		Return(&model.Secret{ID: secretID, UserID: ownerID, Name: "db", Value: "old-ciphertext", Version: 3}, nil).Once()
 	secretRepo.On("Update", ctx, mock.Anything, mock.Anything).Return(nil).Once()
 
 	rotationRepo := &mockRotationPolicyRepo{}
@@ -107,14 +107,25 @@ func TestPerformManualRotationInvalidatesCacheAndAudits(t *testing.T) {
 	rotationRepo.On("UpdateSecretPolicyRotation", ctx, secretID, policyID, mock.Anything, mock.Anything).
 		Return(nil).Once()
 
+	crypto := &testutils.MockCryptographyService{}
+	crypto.On("DecryptSecret", "old-ciphertext").Return("old-plaintext", nil).Once()
+	crypto.On("EncryptSecret", "new-plaintext").Return("new-ciphertext", nil).Once()
+
+	versioningSvc := &testutils.MockVersioningService{}
+	versioningSvc.On("CreateVersion", ctx, mock.MatchedBy(func(req secrets.CreateVersionRequest) bool {
+		return req.SecretID == secretID && req.UserID == ownerID &&
+			req.Value == "old-plaintext" && req.Version == 3
+	})).Return(&model.SecretVersion{ID: uuid.New()}, nil).Once()
+
 	invalidator := &recordingInvalidator{}
 	logger, audit := newAuditingLogger(t)
-	svc := secrets.NewRotationService(rotationRepo, secretRepo, nil, nil, nil, logger, invalidator)
+	svc := secrets.NewRotationService(rotationRepo, secretRepo, nil, crypto, versioningSvc, logger, invalidator)
 
 	require.NoError(t, svc.PerformManualRotation(ctx, secrets.ManualRotationRequest{
 		SecretID: secretID,
 		PolicyID: policyID,
 		Scope:    scope,
+		NewValue: "new-plaintext",
 	}))
 
 	assert.Equal(t, []uuid.UUID{secretID}, invalidator.ids(), "rotation must evict the rotated secret from cache")
@@ -125,6 +136,8 @@ func TestPerformManualRotationInvalidatesCacheAndAudits(t *testing.T) {
 
 	secretRepo.AssertExpectations(t)
 	rotationRepo.AssertExpectations(t)
+	crypto.AssertExpectations(t)
+	versioningSvc.AssertExpectations(t)
 }
 
 // TestPerformManualRotationAuditsDenial pins the failure half of the audit
@@ -223,7 +236,7 @@ func TestDirectWritersToleratesANoOpCacheInvalidator(t *testing.T) {
 
 	secretRepo := &testutils.MockSecretRepository{}
 	secretRepo.On("Read", ctx, secretID, scope).
-		Return(&model.Secret{ID: secretID, UserID: ownerID, Value: "old", Version: 1}, nil).Once()
+		Return(&model.Secret{ID: secretID, UserID: ownerID, Name: "db", Value: "old-ciphertext", Version: 1}, nil).Once()
 	secretRepo.On("Update", ctx, mock.Anything, mock.Anything).Return(nil).Once()
 
 	rotationRepo := &mockRotationPolicyRepo{}
@@ -233,13 +246,21 @@ func TestDirectWritersToleratesANoOpCacheInvalidator(t *testing.T) {
 	rotationRepo.On("UpdateSecretPolicyRotation", ctx, secretID, policyID, mock.Anything, mock.Anything).
 		Return(nil).Once()
 
+	crypto := &testutils.MockCryptographyService{}
+	crypto.On("DecryptSecret", "old-ciphertext").Return("old-plaintext", nil).Once()
+	crypto.On("EncryptSecret", "new-plaintext").Return("new-ciphertext", nil).Once()
+
+	versioningSvc := &testutils.MockVersioningService{}
+	versioningSvc.On("CreateVersion", ctx, mock.Anything).Return(&model.SecretVersion{ID: uuid.New()}, nil).Once()
+
 	logger, _ := newAuditingLogger(t)
 	invalidator := &recordingInvalidator{}
-	svc := secrets.NewRotationService(rotationRepo, secretRepo, nil, nil, nil, logger, invalidator)
+	svc := secrets.NewRotationService(rotationRepo, secretRepo, nil, crypto, versioningSvc, logger, invalidator)
 
 	require.NoError(t, svc.PerformManualRotation(ctx, secrets.ManualRotationRequest{
 		SecretID: secretID,
 		PolicyID: policyID,
 		Scope:    scope,
+		NewValue: "new-plaintext",
 	}))
 }

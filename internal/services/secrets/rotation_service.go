@@ -5,12 +5,14 @@ package secrets
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
 	"github.com/google/uuid"
 
 	"rocketvault/internal/logging"
+	"rocketvault/internal/pwgen"
 	"rocketvault/internal/repositories"
 	"rocketvault/model"
 )
@@ -77,12 +79,31 @@ type AssignPolicyRequest struct {
 }
 
 // ManualRotationRequest represents the request to perform manual rotation.
+//
+// Exactly one value source must be set. Rotation never invents a value: with
+// neither NewValue nor Generate it fails, because a generated string is wrong
+// whenever the secret must match an external system, and silently keeping the
+// old value would be a rotation that rotated nothing.
 type ManualRotationRequest struct {
 	SecretID uuid.UUID   `json:"secret_id" validate:"required"`
 	PolicyID uuid.UUID   `json:"policy_id" validate:"required"`
 	Scope    model.Scope // Authorization scope shared by both the secret and the policy read.
 	Notes    string      `json:"notes" validate:"max=500"`
+	// NewValue is the explicit replacement value, in plaintext.
+	NewValue string `json:"new_value"`
+	// Generate asks for a random replacement value instead of an explicit one.
+	Generate bool `json:"generate"`
+	// GenerateOpts tunes generation. A zero value means pwgen.DefaultOptions.
+	GenerateOpts pwgen.Options `json:"generate_opts"`
 }
+
+// ErrRotationValueRequired is returned when a rotation request names no value
+// source at all.
+var ErrRotationValueRequired = errors.New("rotation requires a new value: set NewValue or Generate")
+
+// ErrRotationValueConflict is returned when a rotation request names both
+// value sources, which is ambiguous rather than a precedence question.
+var ErrRotationValueConflict = errors.New("rotation cannot take both an explicit value and a generated one")
 
 // CreateReminderRequest represents the request to create a rotation reminder.
 type CreateReminderRequest struct {
@@ -367,8 +388,18 @@ func (s *rotationService) GetSecretPolicies(ctx context.Context, secretID uuid.U
 // so it owns both its audit trail and its cache invalidation. The secret and
 // policy are both read under req.Scope, the same structural cross-vault
 // guard AssignPolicyToSecret uses.
+//
+// The order is deliberate: resolve the replacement value, archive the value
+// being replaced, encrypt, then write. Archiving is fatal on failure -- a
+// rotation that cannot preserve the old value must not destroy it.
 func (s *rotationService) PerformManualRotation(ctx context.Context, req ManualRotationRequest) error {
 	actor := req.Scope.ActorID().String()
+
+	newPlaintext, err := resolveRotationValue(req)
+	if err != nil {
+		s.log.LogAuditError(actor, "rotate_secret", "failed", "No usable replacement value in the request", err)
+		return err
+	}
 
 	secret, err := s.secretRepo.Read(ctx, req.SecretID, req.Scope)
 	if err != nil {
@@ -382,12 +413,39 @@ func (s *rotationService) PerformManualRotation(ctx context.Context, req ManualR
 		return fmt.Errorf("policy not found: %w", err)
 	}
 
-	// Generate new secret value (simplified implementation)
-	newValue := s.generateNewSecretValue(secret.Value)
+	// The stored value is ciphertext and CreateVersion encrypts whatever it is
+	// given, so the plaintext is what must be archived -- exactly as
+	// SecretService.UpdateSecret does. Passing the ciphertext straight through
+	// would store it doubly encrypted.
+	currentPlaintext, err := s.cryptoSvc.DecryptSecret(secret.Value)
+	if err != nil {
+		s.log.LogAuditError(actor, "rotate_secret", "failed", "Failed to decrypt the current value", err)
+		return fmt.Errorf("failed to decrypt the current secret value: %w", err)
+	}
+
+	// CreateVersion gates on secret.UserID == req.UserID, so pass the secret's
+	// real owner here, never the scope's actor: a legitimate vault-scoped
+	// rotation by a non-owner member must not be rejected by that gate.
+	if _, err = s.versioningSvc.CreateVersion(ctx, CreateVersionRequest{
+		SecretID: secret.ID,
+		UserID:   secret.UserID,
+		Name:     secret.Name,
+		Value:    currentPlaintext,
+		Version:  secret.Version,
+	}); err != nil {
+		s.log.LogAuditError(actor, "rotate_secret", "failed", "Failed to archive the pre-rotation value", err)
+		return fmt.Errorf("failed to archive the pre-rotation value: %w", err)
+	}
+
+	encryptedValue, err := s.cryptoSvc.EncryptSecret(newPlaintext)
+	if err != nil {
+		s.log.LogAuditError(actor, "rotate_secret", "failed", "Failed to encrypt the replacement value", err)
+		return fmt.Errorf("failed to encrypt the replacement value: %w", err)
+	}
 
 	// Update secret with new value and incremented version
 	previousVersion := secret.Version
-	secret.Value = newValue
+	secret.Value = encryptedValue
 	secret.Version++
 
 	err = s.secretRepo.Update(ctx, secret, model.NewOwnerScope(secret.VaultID, secret.UserID))
@@ -541,10 +599,26 @@ func (s *rotationService) AcknowledgeReminder(ctx context.Context, reminderID, s
 	return nil
 }
 
-// generateNewSecretValue generates a new value for a secret (simplified implementation).
-// In production, this would be more sophisticated based on secret type.
-func (s *rotationService) generateNewSecretValue(currentValue string) string {
-	// This is a simplified implementation
-	// In production, you'd want more sophisticated generation based on secret type
-	return fmt.Sprintf("%s_rotated_%d", currentValue, time.Now().Unix())
+// resolveRotationValue returns the plaintext a rotation should write. It is a
+// pure function of the request, so it runs before any I/O and a bad request
+// costs nothing.
+func resolveRotationValue(req ManualRotationRequest) (string, error) {
+	switch {
+	case req.NewValue != "" && req.Generate:
+		return "", ErrRotationValueConflict
+	case req.NewValue != "":
+		return req.NewValue, nil
+	case req.Generate:
+		opts := req.GenerateOpts
+		if opts == (pwgen.Options{}) {
+			opts = pwgen.DefaultOptions()
+		}
+		value, err := pwgen.Generate(opts)
+		if err != nil {
+			return "", fmt.Errorf("failed to generate a replacement value: %w", err)
+		}
+		return value, nil
+	default:
+		return "", ErrRotationValueRequired
+	}
 }
