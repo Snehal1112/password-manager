@@ -538,6 +538,17 @@ func (m *Manager) getBackupMetadata(backupPath string) (*BackupMetadata, error) 
 		return &base, nil
 	}
 
+	// Valid JSON that unmarshals cleanly can still be unrelated to a backup
+	// -- e.g. "{}" or "{"hello":"world"}" -- which would otherwise produce an
+	// all-zero BackupData and be reported as a genuine, readable backup. An
+	// empty Version is the same minimum-viability check validateBackupData
+	// uses to reject a restore, so apply it here too: treat it as unreadable
+	// rather than fabricating a fake-but-plausible metadata row.
+	if backupData.Metadata.Version == "" {
+		base.Encrypted = true
+		return &base, nil
+	}
+
 	md := backupData.Metadata
 	md.Filename = base.Filename
 	md.Size = base.Size
