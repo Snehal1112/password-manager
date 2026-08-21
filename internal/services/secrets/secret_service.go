@@ -12,6 +12,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/sirupsen/logrus"
 
+	"rocketvault/common"
 	"rocketvault/internal/logging"
 	"rocketvault/internal/repositories"
 	"rocketvault/model"
@@ -24,6 +25,11 @@ var ErrSecretNotFound = errors.New("secret not found")
 // ErrSecretLifecycleDenied is returned when a secret exists but is disabled or
 // outside its valid time window (not_before / expires_at).
 var ErrSecretLifecycleDenied = errors.New("secret is disabled or outside its valid time window")
+
+// ErrExportPassphraseRequired is returned when an export asks for encryption
+// without supplying a passphrase. The export fails rather than quietly writing
+// plaintext under a flag that promises encryption.
+var ErrExportPassphraseRequired = errors.New("export encryption requested but no passphrase was supplied")
 
 // CreateSecretRequest represents a request to create a new secret.
 type CreateSecretRequest struct {
@@ -92,6 +98,12 @@ type ExportSecretsRequest struct {
 	Format      string      // "json" or "csv"
 	FilterTags  []string    // Optional tag filter
 	IncludeTags bool        // Include tags in export
+	// Encrypt asks for a passphrase-sealed export. Passphrase must then be
+	// non-empty; the export fails rather than falling back to plaintext.
+	Encrypt bool
+	// Passphrase seals the formatted export via common.SealExport. It is never
+	// logged and never appears in an error message.
+	Passphrase string
 }
 
 // ImportSecretsRequest represents a request to import secrets.
@@ -667,12 +679,30 @@ func (s *secretService) ExportSecrets(ctx context.Context, req ExportSecretsRequ
 		data = []byte(csvData)
 	}
 
+	// Seal after formatting, so a CSV export is sealed too. The file on disk is
+	// then the JSON envelope and the chosen format describes its payload.
+	if req.Encrypt || req.Passphrase != "" {
+		if req.Passphrase == "" {
+			s.logger.LogAuditError(req.Scope.ActorID().String(), "export_secrets", "failed",
+				"Encryption requested without a passphrase", nil)
+			return nil, ErrExportPassphraseRequired
+		}
+		sealed, sealErr := common.SealExport(data, req.Passphrase)
+		if sealErr != nil {
+			s.logger.LogAuditError(req.Scope.ActorID().String(), "export_secrets", "failed",
+				"Failed to seal export", sealErr)
+			return nil, fmt.Errorf("failed to encrypt export: %w", sealErr)
+		}
+		data = sealed
+	}
+
 	s.logger.LogAuditInfo(req.Scope.ActorID().String(), "export_secrets", "success",
 		fmt.Sprintf("Exported %d secrets in %s format", len(secretsList), req.Format))
 	logrus.WithFields(logrus.Fields{
 		"user_id":      req.Scope.ActorID().String(),
 		"format":       req.Format,
 		"secret_count": len(secretsList),
+		"encrypted":    req.Encrypt || req.Passphrase != "",
 	}).Info("Secrets exported successfully")
 
 	return data, nil

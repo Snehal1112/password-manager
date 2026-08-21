@@ -2,7 +2,9 @@ package secrets_test
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"strings"
 	"testing"
 
 	"github.com/google/uuid"
@@ -10,6 +12,7 @@ import (
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 
+	"rocketvault/common"
 	"rocketvault/internal/repositories"
 	"rocketvault/internal/services/secrets"
 	"rocketvault/internal/testutils"
@@ -552,6 +555,170 @@ func TestExportSecrets_VaultScoped_UsesListSecretsInVault(t *testing.T) {
 	require.NoError(t, err)
 	require.Contains(t, string(data), "plain-v1")
 	repo.AssertExpectations(t)
+}
+
+func TestExportSecrets_WithPassphrase_SealsAndLeaksNoPlaintext(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	vaultID := uuid.New()
+	userID := uuid.New()
+
+	repo := &testutils.MockSecretRepository{}
+	crypto := &testutils.MockCryptographyService{}
+	ver := &testutils.MockVersioningService{}
+	tag := &testutils.MockTagService{}
+
+	stored := []model.Secret{{ID: uuid.New(), VaultID: vaultID, Name: "db-password", Value: "enc-v1"}}
+	repo.On("List", ctx, model.NewVaultScope(vaultID, userID), repositories.SecretFilter{Tags: nil}).Return(stored, nil)
+	crypto.On("DecryptSecret", "enc-v1").Return("hunter2", nil)
+	tag.On("GetTags", ctx, stored[0].ID).Return([]string{"production"}, nil)
+
+	svc := newService(repo, crypto, ver, tag, t)
+	data, err := svc.ExportSecrets(ctx, secrets.ExportSecretsRequest{
+		Scope:       model.NewVaultScope(vaultID, userID),
+		Format:      "json",
+		IncludeTags: true,
+		Encrypt:     true,
+		Passphrase:  "correct horse battery staple",
+	})
+	require.NoError(t, err)
+
+	// The sealed file must not parse as the plain export document.
+	var plain []struct {
+		Name  string   `json:"name"`
+		Value string   `json:"value"`
+		Tags  []string `json:"tags"`
+	}
+	require.Error(t, json.Unmarshal(data, &plain), "sealed export still parses as the plain export JSON")
+
+	assert.NotContains(t, string(data), "db-password", "sealed export contains a secret name")
+	assert.NotContains(t, string(data), "hunter2", "sealed export contains a secret value")
+	assert.NotContains(t, string(data), "production", "sealed export contains a tag")
+	assert.True(t, common.IsSealedExport(data), "sealed export is not a recognisable envelope")
+}
+
+func TestExportSecrets_EncryptWithoutPassphrase_FailsAndReturnsNoData(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	vaultID := uuid.New()
+	userID := uuid.New()
+
+	repo := &testutils.MockSecretRepository{}
+	crypto := &testutils.MockCryptographyService{}
+	ver := &testutils.MockVersioningService{}
+	tag := &testutils.MockTagService{}
+
+	stored := []model.Secret{{ID: uuid.New(), VaultID: vaultID, Name: "db-password", Value: "enc-v1"}}
+	repo.On("List", ctx, model.NewVaultScope(vaultID, userID), repositories.SecretFilter{Tags: nil}).Return(stored, nil).Maybe()
+	crypto.On("DecryptSecret", "enc-v1").Return("hunter2", nil).Maybe()
+	tag.On("GetTags", ctx, stored[0].ID).Return([]string{}, nil).Maybe()
+
+	svc := newService(repo, crypto, ver, tag, t)
+	data, err := svc.ExportSecrets(ctx, secrets.ExportSecretsRequest{
+		Scope:   model.NewVaultScope(vaultID, userID),
+		Format:  "json",
+		Encrypt: true,
+	})
+
+	require.Error(t, err)
+	assert.True(t, errors.Is(err, secrets.ErrExportPassphraseRequired), "got %v", err)
+	assert.Nil(t, data, "a failed encrypted export must return no bytes at all")
+}
+
+func TestExportSecrets_CSVWithPassphrase_IsSealedEnvelope(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	vaultID := uuid.New()
+	userID := uuid.New()
+
+	repo := &testutils.MockSecretRepository{}
+	crypto := &testutils.MockCryptographyService{}
+	ver := &testutils.MockVersioningService{}
+	tag := &testutils.MockTagService{}
+
+	stored := []model.Secret{{ID: uuid.New(), VaultID: vaultID, Name: "db-password", Value: "enc-v1"}}
+	repo.On("List", ctx, model.NewVaultScope(vaultID, userID), repositories.SecretFilter{Tags: nil}).Return(stored, nil)
+	crypto.On("DecryptSecret", "enc-v1").Return("hunter2", nil)
+	tag.On("GetTags", ctx, stored[0].ID).Return([]string{}, nil)
+
+	svc := newService(repo, crypto, ver, tag, t)
+	data, err := svc.ExportSecrets(ctx, secrets.ExportSecretsRequest{
+		Scope:      model.NewVaultScope(vaultID, userID),
+		Format:     "csv",
+		Encrypt:    true,
+		Passphrase: "pw",
+	})
+	require.NoError(t, err)
+
+	// A sealed CSV export is a JSON envelope on disk; the CSV lives inside it.
+	assert.True(t, common.IsSealedExport(data))
+	assert.False(t, strings.Contains(string(data), "name,value"), "CSV header leaked outside the envelope")
+	assert.NotContains(t, string(data), "hunter2")
+
+	opened, err := common.OpenExport(data, "pw")
+	require.NoError(t, err)
+	assert.True(t, strings.HasPrefix(string(opened), "name,value"), "payload inside the envelope is not the CSV")
+}
+
+func TestExportSecrets_SealedRoundTripsThroughImport(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	vaultID := uuid.New()
+	userID := uuid.New()
+
+	repo := &testutils.MockSecretRepository{}
+	crypto := &testutils.MockCryptographyService{}
+	ver := &testutils.MockVersioningService{}
+	tag := &testutils.MockTagService{}
+
+	stored := []model.Secret{{ID: uuid.New(), VaultID: vaultID, Name: "db-password", Value: "enc-v1"}}
+	repo.On("List", ctx, model.NewVaultScope(vaultID, userID), repositories.SecretFilter{Tags: nil}).Return(stored, nil)
+	crypto.On("DecryptSecret", "enc-v1").Return("hunter2", nil)
+	tag.On("GetTags", ctx, stored[0].ID).Return([]string{}, nil)
+
+	svc := newService(repo, crypto, ver, tag, t)
+	sealed, err := svc.ExportSecrets(ctx, secrets.ExportSecretsRequest{
+		Scope:      model.NewVaultScope(vaultID, userID),
+		Format:     "json",
+		Encrypt:    true,
+		Passphrase: "pw",
+	})
+	require.NoError(t, err)
+
+	opened, err := common.OpenExport(sealed, "pw")
+	require.NoError(t, err)
+
+	// Import the opened payload into a second service and assert the value
+	// survived the round trip intact.
+	importRepo := &testutils.MockSecretRepository{}
+	importCrypto := &testutils.MockCryptographyService{}
+	importCrypto.On("EncryptSecret", "hunter2").Return("enc-imported", nil)
+
+	var created *model.Secret
+	importRepo.On("Create", ctx, mock.AnythingOfType("*model.Secret")).
+		Run(func(args mock.Arguments) {
+			// Snapshot a copy: CreateSecret mutates the same pointer back to the
+			// plaintext value after Create returns, so capturing the pointer
+			// itself would observe that later mutation instead of what was
+			// actually persisted.
+			persisted := *args.Get(1).(*model.Secret)
+			created = &persisted
+		}).
+		Return(nil)
+
+	importSvc := newService(importRepo, importCrypto, &testutils.MockVersioningService{}, &testutils.MockTagService{}, t)
+	result, err := importSvc.ImportSecrets(ctx, secrets.ImportSecretsRequest{
+		Scope:  model.NewVaultScope(vaultID, userID),
+		Data:   opened,
+		Format: "json",
+	})
+	require.NoError(t, err)
+
+	assert.Equal(t, 1, result.ImportedCount)
+	require.NotNil(t, created, "import did not create a secret")
+	assert.Equal(t, "db-password", created.Name)
+	assert.Equal(t, "enc-imported", created.Value)
+	assert.Equal(t, vaultID, created.VaultID)
 }
 
 func TestImportSecrets_VaultScoped_ThreadsVaultIDIntoCreatedSecrets(t *testing.T) {
