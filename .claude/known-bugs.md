@@ -1748,9 +1748,14 @@ execution.
 ### B35 — `secrets rotation rotate` writes a corrupted value that never decrypts again
 
 **Status**: Open, found 2026-08-21
-**Severity**: High — silent data loss. A routine, advertised operation destroys
-the secret it claims to rotate, and nothing surfaces an error
-**Files**: `internal/services/secrets/rotation_service.go`
+**Severity**: Critical — unattended silent data loss. Re-rated from High on
+2026-08-21: `schedulerService.performAutomaticRotation`
+(`internal/services/secrets/scheduler_service.go:240-247`) delegates to the same
+`PerformManualRotation`, so every policy with `AutoRotate: true` destroys its
+secrets on a timer with no operator present and no error surfaced. The manual
+path is additionally unrecoverable, because it never archives a version row
+**Files**: `internal/services/secrets/rotation_service.go`,
+`internal/services/secrets/scheduler_service.go`, `cmd/rotation.go`
 
 **Symptom**: after `rocketvault secrets rotation rotate`, a subsequent
 `secrets get` on that secret cannot decrypt it. The rotation itself reports
