@@ -67,8 +67,10 @@ var migrateToCmd = &cobra.Command{
 	Use:   "migrate:to [version]",
 	Short: "Migrate to a specific version",
 	Long: `Apply every pending migration whose version is less than or equal to the
-given version, in order; already-applied migrations are skipped. It does not
-roll back migrations already applied past the target version.`,
+given version, in order; already-applied migrations are skipped. If the
+given version is lower than the database's current schema version, the
+command refuses and exits non-zero instead of silently doing nothing --
+there is no down-migration support.`,
 	Example: `  # Migrate the database to a specific version
   rocketvault migrate:to <version>`,
 	Args: cobra.ExactArgs(1),
