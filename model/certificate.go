@@ -14,6 +14,10 @@ type Certificate struct {
 	UserID           uuid.UUID  `json:"user_id"`
 	VaultID          uuid.UUID  `json:"vault_id"`
 	KeyID            uuid.UUID  `json:"key_id" db:"key_id"`
+	// CACertID names the certificate of the CA that signed this one. Nil means
+	// the certificate is self-signed. It is set at creation and never changes,
+	// so no update path writes it.
+	CACertID         *uuid.UUID `json:"ca_cert_id,omitempty" db:"ca_cert_id"`
 	Name             string     `json:"name"`
 	Certificate      string     `json:"certificate"`
 	PrivateKey       string     `json:"private_key"`

@@ -435,6 +435,7 @@ func (d *DBRepository) createOptimizedSchema(db *sql.DB) error {
 			id TEXT PRIMARY KEY,
 			user_id TEXT NOT NULL,
 			key_id TEXT NOT NULL DEFAULT '',
+			ca_cert_id TEXT NULL,
 			name TEXT NOT NULL,
 			vault_id TEXT NOT NULL DEFAULT '00000000-0000-0000-0000-00000000efa1',
 			certificate TEXT NOT NULL,
@@ -773,6 +774,9 @@ func (d *DBRepository) migrateSchema(db *sql.DB) error {
 		// Feature: lifecycle attributes for certificates
 		"ALTER TABLE certificates ADD COLUMN enabled BOOLEAN NOT NULL DEFAULT TRUE",
 		"ALTER TABLE certificates ADD COLUMN not_before TIMESTAMP NULL",
+		// B37: remember which CA signed a certificate, so renewal can re-issue
+		// through the same CA instead of silently self-signing.
+		"ALTER TABLE certificates ADD COLUMN ca_cert_id TEXT NULL",
 		// Milestone 3: service-account / OAuth2 table (CREATE TABLE IF NOT EXISTS is idempotent)
 		`CREATE TABLE IF NOT EXISTS oauth2_clients (
 			id            TEXT PRIMARY KEY,
