@@ -1985,7 +1985,7 @@ touch this. The two are independent; B36 does not fix or worsen it.
 
 ### B43 — CA certificates omit KeyUsageCertSign, so no issued chain verifies
 
-**Status**: Open, found 2026-08-21
+**Status**: Fixed 2026-08-21
 **Severity**: High — the CA-signed certificate feature does not produce usable
 certificates. Every chain this system has ever issued fails standard
 verification
@@ -2022,15 +2022,27 @@ CONTROL (+CertSign):OK
 The control differs only by `KeyUsage |= CertSign | CRLSign` and verifies
 cleanly, isolating the cause.
 
-**Fix**: add `x509.KeyUsageCertSign | x509.KeyUsageCRLSign` when
-`params.IsCA` is set. Owned by Task 1 of
-`docs/superpowers/plans/2026-08-21-03-b37-ca-renewal.md`, because B37's required
-chain-verification test cannot pass without it.
+**What was fixed**: `CreateX509Template` now computes `KeyUsage` as a variable
+and adds `x509.KeyUsageCertSign | x509.KeyUsageCRLSign` when `params.IsCA` is
+set; leaf templates are unchanged. Implemented by
+`docs/superpowers/plans/2026-08-21-08-b43-ca-keyusage.md`, which took the work
+over from Task 1 of `docs/superpowers/plans/2026-08-21-03-b37-ca-renewal.md` —
+B37's chain-verification tests could not pass until this landed, so plan 08
+lands first. That plan fixed B44 in the same change and **landed B44's `IsCA`
+default first**, so this fix never gave a certificate signing authority nobody
+had asked for.
+
+The regression tests are in `internal/crypto/x509_ca_keyusage_test.go`: a CA
+chain is built and verified end to end with both `CheckSignatureFrom` and a
+cert-pool `Verify`, for an RSA and an ECDSA CA, plus a negative test pinning
+that a leaf never gains `CertSign`. Asserting on the usage bits alone would
+have accepted a blanket change.
 
 **Carry-over that cannot be repaired in place**: a CA certificate already
 issued keeps its bad `KeyUsage` — the extension is inside the signed body.
 Existing CAs stay unusable until reissued, and every certificate under them
-must then be reissued too. Say so in release notes.
+must then be reissued too. Documented, with the reissue procedure, in
+`docs/release-notes/v4.2.0-ca-certificates.md`.
 
 **Why it survived**: no test ever verified a chain. The certificate tests assert
 that issuance returns a PEM and that fields round-trip, never that the result
@@ -2041,16 +2053,19 @@ caught it at the first CA-signed certificate.
 same feature. B37 makes renewal preserve the issuer; B43 makes the issuer's
 signature acceptable in the first place. Neither alone gives a working chain.
 
-**Blocked by B44 — do not fix B43 on its own.** Every self-signed certificate is
-currently marked `IsCA: true` (see B44). Adding `CertSign` on the strength of
-that flag would turn every self-signed leaf into a working CA. B44 must land
-first or in the same change.
+**Shipped with B44, in that order.** Every self-signed certificate used to be
+marked `IsCA: true` (B44), so adding `CertSign` on the strength of that flag
+would have turned every self-signed leaf into a working CA. Plan 08 landed
+B44's `IsCA` default and its `--is-ca` opt-in first, then this fix. The
+ordering is recorded in that plan's "Task ordering is a security property"
+section, and pinned by
+`TestCreateSelfSignedCertificate_LeafGetsNoCertSign`.
 
 ---
 
 ### B44 — Every self-signed certificate is issued as a Certificate Authority
 
-**Status**: Open, found 2026-08-21
+**Status**: Fixed 2026-08-21
 **Severity**: High — a compromised leaf key becomes a signing CA. Also gates
 B43, whose fix would otherwise make this exploitable rather than merely wrong
 **Files**: `internal/services/certificates/certificate_service.go`
@@ -2091,15 +2106,35 @@ promote every self-signed certificate from a broken CA to a fully functional
 one. That is a security regression introduced by a security fix, which is why
 the two must be sequenced together.
 
-**Fix sketch**: default `IsCA` to `false` for self-signed certificates and let a
-caller opt in explicitly — a `--ca` flag on `certificates create` and a
-corresponding request field — so a CA is something you ask for rather than
-something everyone gets. Existing certificates cannot be repaired in place; the
-flag is inside the signed body, so they must be reissued.
+**What was fixed**: `CreateCertificateRequest` gained an `IsCA bool` that
+defaults to false, surfaced as `--is-ca` on `rocketvault certificates create`
+and `is_ca` in the `POST /certificates` body. `CreateSelfSignedCertificate`
+passes it through; `CreateCASignedCertificate` rejects it, because an
+intermediate CA is a separate feature and quietly issuing a leaf when a CA was
+asked for is the same silent wrongness as the bug itself. `RenewCertificate`
+no longer forces a value at all: `certificateIsCA` reads the flag out of the
+certificate being replaced, so a leaf renews as a leaf and a CA renews as a
+CA. Implemented by
+`docs/superpowers/plans/2026-08-21-08-b43-ca-keyusage.md`, ahead of B43 in the
+same change.
 
-**Test**: create an ordinary self-signed certificate and assert the parsed
-`x509.Certificate` has `IsCA == false`; create one with the opt-in and assert
-`IsCA == true` plus `KeyUsageCertSign`.
+The flag is `--is-ca`, not the `--ca` this entry originally sketched: every
+other flag on that command is named for the JSON field it fills
+(`--ca-cert-id`/`ca_cert_id`, `--auto-renew`/`auto_renew`), and `--ca` would
+have sat one character from `--ca-cert-id` and from the root command's
+`--ca-cert`, which takes a path.
+
+**Regression tests**: `internal/services/certificates/ca_opt_in_test.go` —
+an ordinary self-signed certificate parses back with `IsCA == false` and no
+`CertSign`; the opt-in parses back with `IsCA == true` and `CertSign`; the
+CA-signed path refuses the opt-in; and renewal preserves the stored value in
+both directions.
+
+**Carry-over that cannot be repaired in place**: the CA flag is inside the
+signed body, so every certificate issued before this fix keeps asserting
+`CA:TRUE` and must be reissued, not merely renewed — renewal preserves the
+flag by design. Documented in
+`docs/release-notes/v4.2.0-ca-certificates.md`.
 
 **Found**: while planning B43, which surfaced that its fix keys off this flag.
 
