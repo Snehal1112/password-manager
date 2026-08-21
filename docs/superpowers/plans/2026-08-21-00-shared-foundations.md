@@ -182,9 +182,39 @@ func DefaultOptions() Options {
 // character from every enabled set and never emits three identical characters
 // in a row.
 func Generate(opts Options) (string, error) {
-	// Body ported verbatim from the former cmd/secrets.generatePassword.
-	...
+	// Body ported verbatim; see the porting instruction below.
 }
+```
+
+**Porting instruction — this is the whole of the implementation.** The body is
+not reproduced here on purpose: it is 107 lines, it already exists, and
+retyping it into a plan document is how transcription drift gets introduced.
+
+Copy the body of `generatePassword` from `cmd/secrets/generate.go`, starting at
+the line `func generatePassword(length int, useUpper, useLower, useNumbers,
+useSpecial bool) (string, error) {` and ending at its closing brace — 107 lines
+including the signature. Then make exactly these mechanical substitutions and
+no others:
+
+1. Replace the parameter list with `opts Options`.
+2. Replace each bare parameter reference: `length` → `opts.Length`,
+   `useUpper` → `opts.Upper`, `useLower` → `opts.Lower`,
+   `useNumbers` → `opts.Numbers`, `useSpecial` → `opts.Special`.
+3. Move the four `const` charset declarations to package scope, as shown above,
+   and delete the inner `const` block.
+
+Change nothing else — not the RNG, not the guaranteed-injection loop, not the
+no-three-in-a-row rule, not an error string. Any behavioral "improvement" here
+is a defect: the eight tests in Step 1 exist to prove this is a move, and a
+passing test suite after a rewritten algorithm proves only that the tests are
+weak.
+
+Verify the port mechanically before moving on:
+
+```bash
+# Should print only the substitutions above — no other logic differences.
+diff <(awk '/^func generatePassword/,/^}/' cmd/secrets/generate.go) \
+     <(awk '/^func Generate\(opts Options\)/,/^}/' internal/pwgen/pwgen.go)
 ```
 
 - [ ] **Step 4: Run test to verify it passes**
