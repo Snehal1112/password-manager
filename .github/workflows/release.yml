@@ -90,9 +90,12 @@ jobs:
         run: |
           VERSION="${{ github.ref_name }}"
           BINARY="rocketvault-${VERSION}-${{ matrix.goos }}-${{ matrix.goarch }}"
-          ARCHIVE="dist/${BINARY}.tar.gz"
-          tar -czf "${ARCHIVE}" -C dist "${BINARY}"
+          ARCHIVE="${BINARY}.tar.gz"
+          tar -czf "dist/${ARCHIVE}" -C dist "${BINARY}"
+          # Hash from inside dist so the recorded filename has no path prefix,
+          # which lets consumers verify against a bare downloaded archive.
           # sha256sum on Linux, shasum on macOS
+          cd dist
           command -v sha256sum >/dev/null 2>&1 && sha256sum "${ARCHIVE}" > "${ARCHIVE}.sha256" || shasum -a 256 "${ARCHIVE}" > "${ARCHIVE}.sha256"
 
       - name: Package (zip)
@@ -103,7 +106,9 @@ jobs:
           BINARY="rocketvault-${VERSION}-${{ matrix.goos }}-${{ matrix.goarch }}${{ matrix.ext }}"
           ARCHIVE="rocketvault-${VERSION}-${{ matrix.goos }}-${{ matrix.goarch }}.zip"
           7z a "dist/${ARCHIVE}" "dist/${BINARY}"
-          command -v sha256sum >/dev/null 2>&1 && sha256sum "dist/${ARCHIVE}" > "dist/${ARCHIVE}.sha256" || shasum -a 256 "dist/${ARCHIVE}" > "dist/${ARCHIVE}.sha256"
+          # Hash from inside dist so the recorded filename has no path prefix.
+          cd dist
+          command -v sha256sum >/dev/null 2>&1 && sha256sum "${ARCHIVE}" > "${ARCHIVE}.sha256" || shasum -a 256 "${ARCHIVE}" > "${ARCHIVE}.sha256"
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4

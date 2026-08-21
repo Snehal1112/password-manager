@@ -240,13 +240,18 @@ build_all() {
     ls -lh "${DIST_DIR}"
 }
 
-# Write a sha256 checksum file next to the given file.
+# Write a sha256 checksum file next to the given file. Hash from the file's own
+# directory so the recorded name has no path prefix, which is what lets
+# "sha256sum -c" work wherever the archive is later downloaded to.
 _checksum() {
     local file="$1"
+    local dir base
+    dir=$(dirname "${file}")
+    base=$(basename "${file}")
     if command -v sha256sum &>/dev/null; then
-        sha256sum "${file}" > "${file}.sha256"
+        (cd "${dir}" && sha256sum "${base}" > "${base}.sha256")
     elif command -v shasum &>/dev/null; then
-        shasum -a 256 "${file}" > "${file}.sha256"
+        (cd "${dir}" && shasum -a 256 "${base}" > "${base}.sha256")
     fi
 }
 

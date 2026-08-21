@@ -21,6 +21,9 @@ REPO="Snehal1112/rocketvault"
 INSTALL_DIR="${INSTALL_DIR:-/usr/local/bin}"
 BINARY_NAME="rocketvault"
 
+# Script-scoped so the EXIT trap can still read it once main() returns.
+tmp_dir=""
+
 RED='\033[0;31m'
 GREEN='\033[0;32m'
 BLUE='\033[0;34m'
@@ -98,9 +101,8 @@ main() {
     local download_url="https://github.com/${REPO}/releases/download/${version}/${archive}"
     local checksum_url="${download_url}.sha256"
 
-    local tmp_dir
     tmp_dir=$(mktemp -d)
-    trap 'rm -rf "${tmp_dir}"' EXIT
+    trap 'rm -rf "${tmp_dir:-}"' EXIT
 
     log_info "Downloading ${download_url}..."
     if ! curl -fsSL -o "${tmp_dir}/${archive}" "${download_url}"; then
@@ -109,20 +111,35 @@ main() {
     fi
 
     log_info "Verifying checksum..."
-    if curl -fsSL -o "${tmp_dir}/${archive}.sha256" "${checksum_url}"; then
-        (
-            cd "${tmp_dir}"
-            if command -v sha256sum &>/dev/null; then
-                sha256sum -c "${archive}.sha256"
-            else
-                shasum -a 256 -c "${archive}.sha256"
-            fi
-        )
-        log_success "Checksum verified."
-    else
+    if ! curl -fsSL -o "${tmp_dir}/${archive}.sha256" "${checksum_url}"; then
         log_error "Could not download checksum file — refusing to install an unverified binary."
         exit 1
     fi
+
+    # Compare digests directly instead of using "sha256sum -c". The filename
+    # column in the published file is the path the release workflow hashed,
+    # which is "dist/<archive>" for releases up to v0.2.6, and that path does
+    # not exist here.
+    # awk lowercases both sides, since macOS's bash 3.2 has no "${var,,}".
+    local expected actual
+    expected=$(awk 'NF {print tolower($1); exit}' "${tmp_dir}/${archive}.sha256")
+    if command -v sha256sum &>/dev/null; then
+        actual=$(sha256sum "${tmp_dir}/${archive}" | awk '{print tolower($1)}')
+    else
+        actual=$(shasum -a 256 "${tmp_dir}/${archive}" | awk '{print tolower($1)}')
+    fi
+
+    if [[ ! "${expected}" =~ ^[0-9a-f]{64}$ ]]; then
+        log_error "Checksum file is malformed — refusing to install an unverified binary."
+        exit 1
+    fi
+    if [[ "${expected}" != "${actual}" ]]; then
+        log_error "Checksum mismatch — refusing to install."
+        log_error "  expected: ${expected}"
+        log_error "  actual:   ${actual}"
+        exit 1
+    fi
+    log_success "Checksum verified."
 
     tar -xzf "${tmp_dir}/${archive}" -C "${tmp_dir}"
 
