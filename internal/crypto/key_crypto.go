@@ -132,6 +132,39 @@ func ParsePrivateKey(pemData, keyType string) (any, error) {
 	}
 }
 
+// DetectPrivateKeyType reports the type of a PEM-encoded private key, using
+// the same vocabulary ParsePrivateKey accepts. It reads the key material
+// itself rather than a stored type string, so it cannot disagree with the key
+// that will actually sign.
+//
+// Parameters:
+//   - pemData: The PEM-encoded private key.
+//
+// Returns:
+//
+//	"RSA", "ECDSA" or "ES256K", or an error if the key cannot be classified.
+func DetectPrivateKeyType(pemData string) (string, error) {
+	block, _ := pem.Decode([]byte(pemData))
+	if block == nil {
+		return "", fmt.Errorf("failed to decode private key PEM")
+	}
+
+	switch block.Type {
+	case "RSA PRIVATE KEY":
+		return "RSA", nil
+	case "EC PRIVATE KEY":
+		// secp256k1 keys use this block type too, but MarshalSecp256k1PrivateKeyPEM
+		// writes a raw 32-byte scalar rather than SEC1 DER, so a parse failure
+		// identifies them.
+		if _, err := x509.ParseECPrivateKey(block.Bytes); err == nil {
+			return "ECDSA", nil
+		}
+		return "ES256K", nil
+	default:
+		return "", fmt.Errorf("unsupported private key PEM block type: %s", block.Type)
+	}
+}
+
 // ExtractPublicComponents parses a PEM-encoded private key and returns the
 // base64url-encoded public key components. Returns empty strings for PKCS#11
 // keys (which carry a label, not PEM).
