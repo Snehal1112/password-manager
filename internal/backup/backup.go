@@ -488,7 +488,6 @@ func (m *Manager) insertTableData(tx *sql.Tx, tableData *TableData) error {
 	return nil
 }
 
-// getBackupMetadata reads metadata from a backup file without full parsing
 // getBackupMetadata reads metadata from a backup file. It never requires or
 // touches the master key: detection is content-based (does the file parse as
 // plaintext backup JSON?), never decryption-based. A file that fails that
