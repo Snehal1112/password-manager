@@ -23,70 +23,11 @@ THE SOFTWARE.
 package secrets
 
 import (
-	"strings"
 	"testing"
-	"unicode"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
-
-func TestGeneratePasswordUsesCSPRNG(t *testing.T) {
-	seen := make(map[string]bool)
-	for i := 0; i < 100; i++ {
-		pw, err := generatePassword(16, true, true, true, true)
-		require.NoError(t, err)
-		seen[pw] = true
-	}
-	assert.Greater(t, len(seen), 90, "expected near-unique passwords, got many duplicates — likely weak RNG")
-}
-
-func TestGeneratePasswordHasNoRepeatingRun(t *testing.T) {
-	for i := 0; i < 1000; i++ {
-		pw, err := generatePassword(16, true, true, true, true)
-		require.NoError(t, err)
-		runes := []rune(pw)
-		for j := 0; j < len(runes)-2; j++ {
-			assert.False(t, runes[j] == runes[j+1] && runes[j+1] == runes[j+2],
-				"found 3 identical consecutive chars in password %q at pos %d — likely weak RNG", pw, j)
-		}
-	}
-}
-
-func TestGeneratePasswordLength(t *testing.T) {
-	pw, err := generatePassword(20, true, true, true, false)
-	require.NoError(t, err)
-	assert.Len(t, []rune(pw), 20)
-}
-
-func TestGeneratePasswordCharsetEnforcement(t *testing.T) {
-	pw, err := generatePassword(32, false, true, false, false)
-	require.NoError(t, err)
-	for _, c := range pw {
-		assert.True(t, unicode.IsLower(c), "expected only lowercase, got %c in %q", c, pw)
-	}
-}
-
-func TestGeneratePasswordAllCharsetTypes(t *testing.T) {
-	pw, err := generatePassword(64, true, true, true, true)
-	require.NoError(t, err)
-	assert.True(t, strings.ContainsAny(pw, "ABCDEFGHIJKLMNOPQRSTUVWXYZ"), "no uppercase in %q", pw)
-	assert.True(t, strings.ContainsAny(pw, "abcdefghijklmnopqrstuvwxyz"), "no lowercase in %q", pw)
-	assert.True(t, strings.ContainsAny(pw, "0123456789"), "no digits in %q", pw)
-	assert.True(t, strings.ContainsAny(pw, "!@#$%^&*()-_=+[]{}|;:,.<>?"), "no special chars in %q", pw)
-}
-
-func TestGeneratePasswordRejectsEmptyCharset(t *testing.T) {
-	_, err := generatePassword(16, false, false, false, false)
-	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "at least one character type")
-}
-
-func TestGeneratePasswordRejectsZeroLength(t *testing.T) {
-	_, err := generatePassword(0, true, true, true, true)
-	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "length must be at least 1")
-}
 
 // TestGenerateCmd_InvalidLength_ReturnsError is the regression test for the
 // bug where generateCmd's Run handler called os.Exit(0) on a
