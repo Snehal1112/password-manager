@@ -884,7 +884,7 @@ func TestRotationServicePolicyLifecycle(t *testing.T) {
 	secretRepo := &testutils.MockSecretRepository{}
 	userRepo := &mockUserRepository{}
 	crypto := &testutils.MockCryptographyService{}
-	svc := secrets.NewRotationService(repo, secretRepo, userRepo, crypto, testutils.NewTestLogger(t), nil)
+	svc := secrets.NewRotationService(repo, secretRepo, userRepo, crypto, nil, testutils.NewTestLogger(t), nil)
 
 	scope := model.NewOwnerScope(uuid.Nil, userID)
 
@@ -973,7 +973,7 @@ func TestRotationServiceAssignmentRotationAndReminders(t *testing.T) {
 	secretRepo := &testutils.MockSecretRepository{}
 	userRepo := &mockUserRepository{}
 	crypto := &testutils.MockCryptographyService{}
-	svc := secrets.NewRotationService(repo, secretRepo, userRepo, crypto, testutils.NewTestLogger(t), &recordingInvalidator{})
+	svc := secrets.NewRotationService(repo, secretRepo, userRepo, crypto, nil, testutils.NewTestLogger(t), &recordingInvalidator{})
 
 	scope := model.NewAdminScope(userID)
 
@@ -1073,7 +1073,7 @@ func TestRotationServiceErrorBranches(t *testing.T) {
 	secretRepo := &testutils.MockSecretRepository{}
 	userRepo := &mockUserRepository{}
 	crypto := &testutils.MockCryptographyService{}
-	svc := secrets.NewRotationService(repo, secretRepo, userRepo, crypto, testutils.NewTestLogger(t), nil)
+	svc := secrets.NewRotationService(repo, secretRepo, userRepo, crypto, nil, testutils.NewTestLogger(t), nil)
 
 	scope := model.NewAdminScope(userID)
 

@@ -476,6 +476,7 @@ func (c *ServiceContainer) initializeServices() error {
 		c.secretRepository,
 		c.userRepository,
 		c.cryptoService,
+		c.versioningService,
 		c.logger,
 		secretCacheInvalidator,
 	)

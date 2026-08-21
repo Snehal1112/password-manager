@@ -122,7 +122,7 @@ func TestGetSecretPolicies_OutOfScope_NotFound(t *testing.T) {
 	secretRepo.On("Read", ctx, secretID, scope).Return(nil, errors.New("secret not found"))
 	rotationRepo := &mockRotationPolicyRepo{}
 
-	svc := secrets.NewRotationService(rotationRepo, secretRepo, nil, nil, testutils.NewTestLogger(t), nil)
+	svc := secrets.NewRotationService(rotationRepo, secretRepo, nil, nil, nil, testutils.NewTestLogger(t), nil)
 	_, err := svc.GetSecretPolicies(ctx, secretID, scope)
 
 	require.Error(t, err)
@@ -143,7 +143,7 @@ func TestGetSecretPolicies_InScope_Succeeds(t *testing.T) {
 	rotationRepo := &mockRotationPolicyRepo{}
 	rotationRepo.On("GetPoliciesForSecret", ctx, secretID).Return([]model.RotationPolicy{{ID: uuid.New()}}, nil)
 
-	svc := secrets.NewRotationService(rotationRepo, secretRepo, nil, nil, testutils.NewTestLogger(t), nil)
+	svc := secrets.NewRotationService(rotationRepo, secretRepo, nil, nil, nil, testutils.NewTestLogger(t), nil)
 	policies, err := svc.GetSecretPolicies(ctx, secretID, scope)
 
 	require.NoError(t, err)
@@ -164,7 +164,7 @@ func TestGetSecretPolicies_AdminScope_Succeeds(t *testing.T) {
 	rotationRepo := &mockRotationPolicyRepo{}
 	rotationRepo.On("GetPoliciesForSecret", ctx, secretID).Return([]model.RotationPolicy{}, nil)
 
-	svc := secrets.NewRotationService(rotationRepo, secretRepo, nil, nil, testutils.NewTestLogger(t), nil)
+	svc := secrets.NewRotationService(rotationRepo, secretRepo, nil, nil, nil, testutils.NewTestLogger(t), nil)
 	_, err := svc.GetSecretPolicies(ctx, secretID, scope)
 
 	require.NoError(t, err)
@@ -184,7 +184,7 @@ func TestAcknowledgeReminder_OutOfScope_NotFound(t *testing.T) {
 	secretRepo.On("Read", ctx, secretID, scope).Return(nil, errors.New("secret not found"))
 	rotationRepo := &mockRotationPolicyRepo{}
 
-	svc := secrets.NewRotationService(rotationRepo, secretRepo, nil, nil, testutils.NewTestLogger(t), nil)
+	svc := secrets.NewRotationService(rotationRepo, secretRepo, nil, nil, nil, testutils.NewTestLogger(t), nil)
 	err := svc.AcknowledgeReminder(ctx, reminderID, secretID, scope)
 
 	require.Error(t, err)
@@ -206,7 +206,7 @@ func TestAcknowledgeReminder_AdminScope_Succeeds(t *testing.T) {
 		return r.ID == reminderID && r.Acknowledged
 	})).Return(nil)
 
-	svc := secrets.NewRotationService(rotationRepo, secretRepo, nil, nil, testutils.NewTestLogger(t), nil)
+	svc := secrets.NewRotationService(rotationRepo, secretRepo, nil, nil, nil, testutils.NewTestLogger(t), nil)
 	err := svc.AcknowledgeReminder(ctx, reminderID, secretID, scope)
 
 	require.NoError(t, err)
@@ -302,7 +302,7 @@ func TestAssignPolicyToSecret_CrossVaultDenied_RealRepos(t *testing.T) {
 
 	secretRepo := repositories.NewSecretRepository(rvdb.NewConn(conn, rvdb.SQLite), log)
 	rotationRepo := repositories.NewRotationPolicyRepository(rvdb.NewConn(conn, rvdb.SQLite), log)
-	svc := secrets.NewRotationService(rotationRepo, secretRepo, nil, nil, log, nil)
+	svc := secrets.NewRotationService(rotationRepo, secretRepo, nil, nil, nil, log, nil)
 
 	vaultA, vaultB := uuid.New(), uuid.New()
 	actorID, ownerID := uuid.New(), uuid.New()
@@ -361,7 +361,7 @@ func TestAssignPolicyToSecret_CrossVaultSecretDenied_RealRepos(t *testing.T) {
 
 	secretRepo := repositories.NewSecretRepository(rvdb.NewConn(conn, rvdb.SQLite), log)
 	rotationRepo := repositories.NewRotationPolicyRepository(rvdb.NewConn(conn, rvdb.SQLite), log)
-	svc := secrets.NewRotationService(rotationRepo, secretRepo, nil, nil, log, nil)
+	svc := secrets.NewRotationService(rotationRepo, secretRepo, nil, nil, nil, log, nil)
 
 	vaultA, vaultB := uuid.New(), uuid.New()
 	actorID, ownerID := uuid.New(), uuid.New()

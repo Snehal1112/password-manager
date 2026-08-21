@@ -109,7 +109,7 @@ func TestPerformManualRotationInvalidatesCacheAndAudits(t *testing.T) {
 
 	invalidator := &recordingInvalidator{}
 	logger, audit := newAuditingLogger(t)
-	svc := secrets.NewRotationService(rotationRepo, secretRepo, nil, nil, logger, invalidator)
+	svc := secrets.NewRotationService(rotationRepo, secretRepo, nil, nil, nil, logger, invalidator)
 
 	require.NoError(t, svc.PerformManualRotation(ctx, secrets.ManualRotationRequest{
 		SecretID: secretID,
@@ -146,7 +146,7 @@ func TestPerformManualRotationAuditsDenial(t *testing.T) {
 
 	invalidator := &recordingInvalidator{}
 	logger, audit := newAuditingLogger(t)
-	svc := secrets.NewRotationService(&mockRotationPolicyRepo{}, secretRepo, nil, nil, logger, invalidator)
+	svc := secrets.NewRotationService(&mockRotationPolicyRepo{}, secretRepo, nil, nil, nil, logger, invalidator)
 
 	err := svc.PerformManualRotation(ctx, secrets.ManualRotationRequest{
 		SecretID: secretID,
@@ -235,7 +235,7 @@ func TestDirectWritersToleratesANoOpCacheInvalidator(t *testing.T) {
 
 	logger, _ := newAuditingLogger(t)
 	invalidator := &recordingInvalidator{}
-	svc := secrets.NewRotationService(rotationRepo, secretRepo, nil, nil, logger, invalidator)
+	svc := secrets.NewRotationService(rotationRepo, secretRepo, nil, nil, nil, logger, invalidator)
 
 	require.NoError(t, svc.PerformManualRotation(ctx, secrets.ManualRotationRequest{
 		SecretID: secretID,

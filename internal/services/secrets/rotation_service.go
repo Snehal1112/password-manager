@@ -94,12 +94,13 @@ type CreateReminderRequest struct {
 
 // rotationService implements RotationServiceInterface.
 type rotationService struct {
-	rotationRepo repositories.RotationPolicyRepositoryInterface
-	secretRepo   repositories.SecretRepositoryInterface
-	userRepo     repositories.UserRepositoryInterface
-	cryptoSvc    CryptographyService
-	cacheInv     SecretCacheInvalidator
-	log          *logging.Logger
+	rotationRepo  repositories.RotationPolicyRepositoryInterface
+	secretRepo    repositories.SecretRepositoryInterface
+	userRepo      repositories.UserRepositoryInterface
+	cryptoSvc     CryptographyService
+	versioningSvc VersioningServiceInterface
+	cacheInv      SecretCacheInvalidator
+	log           *logging.Logger
 }
 
 // NewRotationService creates a new rotation service with the required
@@ -108,11 +109,14 @@ type rotationService struct {
 // always constructs a real (possibly no-op-backed) invalidator; a nil
 // cacheInv (e.g. from a test) is defaulted to a no-op implementation so
 // invalidateCache never nil-derefs.
+// versioningSvc archives the pre-rotation value: rotation must never overwrite
+// a secret it has not first written to a version row.
 func NewRotationService(
 	rotationRepo repositories.RotationPolicyRepositoryInterface,
 	secretRepo repositories.SecretRepositoryInterface,
 	userRepo repositories.UserRepositoryInterface,
 	cryptoSvc CryptographyService,
+	versioningSvc VersioningServiceInterface,
 	log *logging.Logger,
 	cacheInv SecretCacheInvalidator,
 ) RotationServiceInterface {
@@ -120,12 +124,13 @@ func NewRotationService(
 		cacheInv = noopSecretCacheInvalidator{}
 	}
 	return &rotationService{
-		rotationRepo: rotationRepo,
-		secretRepo:   secretRepo,
-		userRepo:     userRepo,
-		cryptoSvc:    cryptoSvc,
-		cacheInv:     cacheInv,
-		log:          log,
+		rotationRepo:  rotationRepo,
+		secretRepo:    secretRepo,
+		userRepo:      userRepo,
+		cryptoSvc:     cryptoSvc,
+		versioningSvc: versioningSvc,
+		cacheInv:      cacheInv,
+		log:           log,
 	}
 }
 
