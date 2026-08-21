@@ -433,6 +433,36 @@ func TestIsCobraBuiltinCommand(t *testing.T) {
 	}
 }
 
+// TestIsSystemCommand pins persistentPreRun's authentication-exemption
+// list at the unit level, the same way TestIsCobraBuiltinCommand pins the
+// cobra-builtin classification -- see isSystemCommand in cmd/root.go.
+func TestIsSystemCommand(t *testing.T) {
+	secretsCmd := &cobra.Command{Use: "secrets"}
+	generatePasswordCmd := &cobra.Command{Use: "generate-password"}
+	secretsCmd.AddCommand(generatePasswordCmd)
+
+	usersCmd := &cobra.Command{Use: "users"}
+	loginCmd := &cobra.Command{Use: "login"}
+	usersCmd.AddCommand(loginCmd)
+
+	cases := []struct {
+		name string
+		cmd  *cobra.Command
+		want bool
+	}{
+		{"generate-password (leaf, pure local RNG, no session needed)", generatePasswordCmd, true},
+		{"secrets (parent; not itself a system command)", secretsCmd, false},
+		{"login (pre-existing exemption, still works)", loginCmd, true},
+		{"health (top-level system command)", &cobra.Command{Use: "health"}, true},
+		{"create (not a system command)", &cobra.Command{Use: "create"}, false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			assert.Equal(t, tc.want, isSystemCommand(tc.cmd))
+		})
+	}
+}
+
 // TestPersistentPreRun_RemoteTarget_HelpAndCompletion_RunCleanly is an
 // end-to-end regression test for a crash NB1's first pass introduced:
 // exempting help/completion from the remote-target guard let them fall

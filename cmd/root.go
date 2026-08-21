@@ -167,6 +167,40 @@ func isCobraBuiltinCommand(cmd *cobra.Command) bool {
 	return cmd.Parent() != nil && cmd.Parent().Name() == "completion"
 }
 
+// isSystemCommand reports whether cmd is exempt from persistentPreRun's
+// authentication requirement -- either because it performs no vault/data
+// operation at all (e.g. "health", "roles", "generate-password"), or
+// because it is itself part of bootstrapping or clearing a session (e.g.
+// "login", "logout"). Checked against both cmd.Name() and, for a leaf
+// command, its parent's name, so a whole command group (e.g. "context")
+// can be exempted at once.
+func isSystemCommand(cmd *cobra.Command) bool {
+	systemCmds := map[string]bool{
+		"health":                        true,
+		"serve":                         true, // Server startup doesn't require prior authentication
+		"admin":                         true, // Allow admin registration without prior authentication
+		"migrate":                       true, // Database migrations don't require authentication
+		"migrate:status":                true, // Migration status check
+		"migrate:to":                    true, // Targeted migrations
+		"migrate:create":                true, // Migration file creation
+		"roles":                         true, // Lists built-in vault roles; pure client-side, no auth needed
+		"preview-migration":             true, // Reads ownership to plan role assignments; no auth, no writes
+		"login":                         true, // Bootstraps a session (password or --oidc); cannot itself require one
+		"logout":                        true, // Clears a cached session; must work even if that session is broken
+		"context":                       true, // Local-only config (add/list/use/current/remove); no DB, no auth
+		"help":                          true, // Cobra built-in; must never require login (see isCobraBuiltinCommand)
+		"completion":                    true, // Cobra built-in; ditto, for the per-shell completion-script commands
+		"generate-password":             true, // Pure local RNG; stores nothing, touches no vault -- see B41
+		cobra.ShellCompRequestCmd:       true, // "__complete" -- invoked by live shell tab-completion
+		cobra.ShellCompNoDescRequestCmd: true, // "__completeNoDesc" -- ditto, no-description variant
+	}
+
+	if systemCmds[cmd.Name()] {
+		return true
+	}
+	return cmd.Parent() != nil && systemCmds[cmd.Parent().Name()]
+}
+
 // initConfig reads in config file and ENV variables if set.
 func initConfig() {
 	if cfgFile != "" {
@@ -308,31 +342,8 @@ func resolveAuthentication(cmd *cobra.Command, authSvc authServices.Authenticati
 func persistentPreRun(cmd *cobra.Command, args []string) error {
 	logrus.Info("Persistent PreRun called for command:", cmd.Name())
 
-	// System commands that don't require authentication
-	systemCmds := map[string]bool{
-		"health":                        true,
-		"serve":                         true, // Server startup doesn't require prior authentication
-		"admin":                         true, // Allow admin registration without prior authentication
-		"migrate":                       true, // Database migrations don't require authentication
-		"migrate:status":                true, // Migration status check
-		"migrate:to":                    true, // Targeted migrations
-		"migrate:create":                true, // Migration file creation
-		"roles":                         true, // Lists built-in vault roles; pure client-side, no auth needed
-		"preview-migration":             true, // Reads ownership to plan role assignments; no auth, no writes
-		"login":                         true, // Bootstraps a session (password or --oidc); cannot itself require one
-		"logout":                        true, // Clears a cached session; must work even if that session is broken
-		"context":                       true, // Local-only config (add/list/use/current/remove); no DB, no auth
-		"help":                          true, // Cobra built-in; must never require login (see isCobraBuiltinCommand)
-		"completion":                    true, // Cobra built-in; ditto, for the per-shell completion-script commands
-		cobra.ShellCompRequestCmd:       true, // "__complete" — invoked by live shell tab-completion
-		cobra.ShellCompNoDescRequestCmd: true, // "__completeNoDesc" — ditto, no-description variant
-	}
-
-	// Check if this is a system command (either the command itself or its parent)
-	isSystemCmd := systemCmds[cmd.Name()]
-	if !isSystemCmd && cmd.Parent() != nil {
-		isSystemCmd = systemCmds[cmd.Parent().Name()]
-	}
+	// System commands that don't require authentication -- see isSystemCommand.
+	isSystemCmd := isSystemCommand(cmd)
 
 	// Remote-target guard: a command that resolves a remote target (via
 	// --server, ROCKETVAULT_ADDR, or the current context) must never
