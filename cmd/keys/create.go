@@ -188,7 +188,7 @@ func InitKeysCreate(keysCmd *cobra.Command) *cobra.Command {
 
 	createCmd.Flags().String("name", "", "Name for the new key")
 	createCmd.Flags().String("type", "", "Key type (RSA, ECDSA)")
-	createCmd.Flags().Int("bits", 2048, "RSA key size in bits (2048 or 4096)")
+	createCmd.Flags().Int("bits", 2048, "RSA key size in bits (2048, 3072 or 4096)")
 	createCmd.Flags().String("curve", "P-256", "ECDSA curve (P-256, P-384, P-521, P-256K)")
 	createCmd.Flags().String("tags", "", "Comma-separated tags for the key")
 	createCmd.Flags().Bool("purge-protection", false, "Protect the key from being purged")

@@ -454,6 +454,14 @@ func TestCreateCmd_RSASuccess(t *testing.T) {
 	keySvc.AssertExpectations(t)
 }
 
+func TestKeysCreateBitsFlagDocumentsAllAcceptedSizes(t *testing.T) {
+	flag := createCmd.Flags().Lookup("bits")
+	if flag == nil {
+		t.Fatal("--bits flag not registered on keys create")
+	}
+	assert.Equal(t, "RSA key size in bits (2048, 3072 or 4096)", flag.Usage)
+}
+
 func TestCreateCmd_Denied(t *testing.T) {
 	keySvc := &keyCmdKeyService{}
 	userID := uuid.New()
