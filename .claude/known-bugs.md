@@ -1843,11 +1843,26 @@ the false assurance, not necessarily an access-control hole.
 self-signed certificate. Relying parties that pinned or validated the chain
 reject it, with nothing in the CLI output indicating the issuer changed.
 
-**Root cause**: `RenewCertificate` calls
+**Root cause**: `RenewCertificate` always self-signs. It calls
 `crypto.CreateSelfSignedCertificatePEM(privateKeyPEM, key.Type,
-crypto.CertificateTemplate{... IsCA: true})` unconditionally (l.743-746). There
-is no CA-signing branch in the renew path and the original `CACertID` is never
+crypto.CertificateTemplate{... IsCA: isCA})` on every path: there is no
+CA-signing branch in the renew path and the original `CACertID` is never
 consulted.
+
+The `IsCA` argument used to be a hardcoded `true`, which was B44; it is now
+derived from the stored certificate by `inspectCertificateCA`, which
+distinguishes a leaf, a working CA, and a pre-fix certificate that asserts
+`CA:TRUE` without `keyCertSign`.
+
+> **Do not revert that `IsCA` handling to a hardcoded value when fixing this
+> bug.** Passing `IsCA: true` again reintroduces B44, and post-B43 it is
+> strictly worse than the original: the template now adds `keyCertSign`
+> wherever `IsCA` is set, so a hardcoded `true` turns every renewed
+> certificate into a fully working CA. Passing a hardcoded `false` is the
+> mirror-image bug — it strips the CA bit off real CAs. Keep the derivation
+> and the demotion of pre-fix certificates exactly as they are; see
+> `docs/superpowers/plans/2026-08-21-08-b43-ca-keyusage.md` and § B44 below
+> for why.
 
 **Related**: `CreateCASignedCertificate` hardcodes the CA key type as `"RSA"`
 (l.381, comment: "assume CA uses RSA for simplicity"), so an ECDSA CA is sent
@@ -2112,9 +2127,11 @@ and `is_ca` in the `POST /certificates` body. `CreateSelfSignedCertificate`
 passes it through; `CreateCASignedCertificate` rejects it, because an
 intermediate CA is a separate feature and quietly issuing a leaf when a CA was
 asked for is the same silent wrongness as the bug itself. `RenewCertificate`
-no longer forces a value at all: `certificateIsCA` reads the flag out of the
-certificate being replaced, so a leaf renews as a leaf and a CA renews as a
-CA. Implemented by
+no longer forces a value at all: `inspectCertificateCA` reads the status out of
+the certificate being replaced, so a leaf renews as a leaf and a working CA
+renews as a CA. The one status it does not preserve is a pre-fix certificate —
+`CA:TRUE` with no `keyCertSign` — which is demoted to a leaf; see the
+carry-over paragraph below. Implemented by
 `docs/superpowers/plans/2026-08-21-08-b43-ca-keyusage.md`, ahead of B43 in the
 same change.
 
@@ -2127,13 +2144,34 @@ have sat one character from `--ca-cert-id` and from the root command's
 **Regression tests**: `internal/services/certificates/ca_opt_in_test.go` —
 an ordinary self-signed certificate parses back with `IsCA == false` and no
 `CertSign`; the opt-in parses back with `IsCA == true` and `CertSign`; the
-CA-signed path refuses the opt-in; and renewal preserves the stored value in
-both directions.
+CA-signed path refuses the opt-in; renewal preserves the stored value in both
+directions (`TestRenewCertificate_PreservesNonCA`,
+`TestRenewCertificate_PreservesCA`); and a pre-fix certificate renews as a
+leaf with the demotion audit-logged
+(`TestRenewCertificate_DemotesPreFixPseudoCAToLeaf`,
+`TestRenewCertificate_DemotionIsAuditLogged`).
 
 **Carry-over that cannot be repaired in place**: the CA flag is inside the
 signed body, so every certificate issued before this fix keeps asserting
-`CA:TRUE` and must be reissued, not merely renewed — renewal preserves the
-flag by design. Documented in
+`CA:TRUE` until it is replaced. Upgrading does not narrow an existing
+certificate.
+
+What renewal does with such a certificate: it **demotes it to an ordinary
+leaf** and records the demotion in the audit log under the `renew_certificate`
+operation with status `ca_demoted`. Renewal is not refused, because refusing
+would break auto-renew across the whole existing fleet, and nothing is lost —
+a pre-fix certificate carries no `keyCertSign`, so nothing it ever signed
+verified in the first place. A certificate that was genuinely meant to be a CA
+must be reissued with `--is-ca`; renewal will not restore its authority.
+
+**Operators who renewed during an earlier upgrade window must check.** Before
+this correction landed, renewal preserved the bare `IsCA` flag while the fixed
+template added `keyCertSign` to anything carrying it — so renewing a pre-fix
+certificate armed it as a **fully working CA**, unattended via the auto-renew
+scheduler and with nothing in the output saying its authority had changed. Any
+certificate renewed in that window should be inspected with `openssl x509
+-noout -text` for `CA:TRUE` together with `Certificate Sign`, and reissued as
+a leaf if it was never meant to be an authority. Documented in
 `docs/release-notes/v4.2.0-ca-certificates.md`.
 
 **Found**: while planning B43, which surfaced that its fix keys off this flag.
