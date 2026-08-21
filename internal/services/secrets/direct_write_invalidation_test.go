@@ -165,12 +165,66 @@ func TestPerformManualRotationAuditsDenial(t *testing.T) {
 		SecretID: secretID,
 		PolicyID: uuid.New(),
 		Scope:    scope,
+		NewValue: "new-plaintext",
 	})
 	require.Error(t, err)
 
 	_, ok := audit.find("rotate_secret", "failed")
 	assert.True(t, ok, "a rejected rotation must emit a failure audit row")
 	assert.Empty(t, invalidator.ids(), "a rejected rotation must not touch the cache")
+
+	secretRepo.AssertExpectations(t)
+}
+
+// TestPerformManualRotationDoesNotWriteWhenArchivingFails pins the ordering
+// PerformManualRotation depends on: the pre-rotation value must be archived
+// before the secret is overwritten, and a failed archive must abort the
+// rotation entirely rather than fall through to the write.
+func TestPerformManualRotationDoesNotWriteWhenArchivingFails(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	ownerID := uuid.New()
+	secretID := uuid.New()
+	policyID := uuid.New()
+
+	scope := model.NewAdminScope(ownerID)
+
+	secretRepo := &testutils.MockSecretRepository{}
+	secretRepo.On("Read", ctx, secretID, scope).
+		Return(&model.Secret{ID: secretID, UserID: ownerID, Name: "db", Value: "old-ciphertext", Version: 3}, nil).Once()
+
+	rotationRepo := &mockRotationPolicyRepo{}
+	rotationRepo.On("Read", ctx, policyID, scope).
+		Return(&model.RotationPolicy{ID: policyID, UserID: ownerID, IntervalDays: 30}, nil).Once()
+
+	crypto := &testutils.MockCryptographyService{}
+	crypto.On("DecryptSecret", "old-ciphertext").Return("old-plaintext", nil).Once()
+
+	versioningSvc := &testutils.MockVersioningService{}
+	versioningSvc.On("CreateVersion", ctx, mock.Anything).Return(nil, errors.New("disk full")).Once()
+
+	logger, audit := newAuditingLogger(t)
+	svc := secrets.NewRotationService(rotationRepo, secretRepo, nil, crypto, versioningSvc, logger, &recordingInvalidator{})
+
+	err := svc.PerformManualRotation(ctx, secrets.ManualRotationRequest{
+		SecretID: secretID,
+		PolicyID: policyID,
+		Scope:    scope,
+		NewValue: "new-plaintext",
+	})
+	require.Error(t, err, "a failed archive must abort the rotation")
+
+	// secretRepo.Update has no expectation set up above, so a call to it would
+	// already fail the mock -- this assertion just makes that guarantee explicit.
+	secretRepo.AssertNotCalled(t, "Update", mock.Anything, mock.Anything, mock.Anything)
+
+	_, ok := audit.find("rotate_secret", "failed")
+	assert.True(t, ok, "a failed archive must still emit a failure audit row")
+
+	secretRepo.AssertExpectations(t)
+	rotationRepo.AssertExpectations(t)
+	crypto.AssertExpectations(t)
+	versioningSvc.AssertExpectations(t)
 }
 
 // TestRollbackToVersionInvalidatesCacheAndAudits is the versioning-service half

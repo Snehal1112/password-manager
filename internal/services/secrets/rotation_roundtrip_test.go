@@ -86,6 +86,16 @@ const rotationFixtureSchema = `
 		next_rotation_at TIMESTAMP,
 		PRIMARY KEY (secret_id, policy_id)
 	);
+	CREATE TABLE secret_rotation_history (
+		id TEXT PRIMARY KEY,
+		secret_id TEXT NOT NULL,
+		policy_id TEXT,
+		rotated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+		previous_version INTEGER,
+		new_version INTEGER,
+		triggered_by TEXT NOT NULL,
+		notes TEXT
+	);
 	CREATE TABLE rotation_reminders (
 		id TEXT PRIMARY KEY,
 		secret_id TEXT NOT NULL,
@@ -230,6 +240,12 @@ func TestPerformManualRotation_ExplicitValue_RoundTripsThroughGetSecret(t *testi
 	require.NoError(t, err, "a rotated secret must still decrypt")
 	assert.Equal(t, "replacement-password", got.Value)
 	assert.Equal(t, 2, got.Version)
+
+	history, err := f.rotationSvc.GetRotationHistory(ctx, f.secretID, f.scope())
+	require.NoError(t, err)
+	require.Len(t, history, 1, "rotation must record exactly one history row")
+	assert.Equal(t, 1, history[0].PreviousVersion)
+	assert.Equal(t, 2, history[0].NewVersion)
 }
 
 // TestPerformManualRotation_ArchivesThePreviousValue pins the second half of
