@@ -1222,9 +1222,12 @@ func TestImportSecretsCSV_FieldCountMismatch_IsReportedNotSilentlyDropped(t *tes
 
 	svc := newService(repo, crypto, ver, tag, t)
 	// The header declares 2 columns; this row has 3. The pre-fix parser
-	// (parts := parseCSVLine(line)) kept only parts[0]/parts[1] and threw
-	// "extra" away with no error at all — a silent data loss on read, not
-	// just on write. encoding/csv's FieldsPerRecord check must catch this.
+	// (parts := parseCSVLine(line)) accepted this row outright, since its
+	// only length check was len(parts) >= 2. It then fed parts[2] into a
+	// separate tag-parsing branch (`if len(parts) > 2 && parts[2] != ""`),
+	// silently reinterpreting "extra" as a tag (Tags: ["extra"]) rather
+	// than reporting an error — silent data corruption, not data loss.
+	// encoding/csv's FieldsPerRecord check must catch this instead.
 	data := []byte("name,value\nn1,v1,extra\n")
 
 	result, err := svc.ImportSecrets(ctx, secrets.ImportSecretsRequest{
