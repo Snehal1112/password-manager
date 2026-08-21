@@ -1745,6 +1745,304 @@ execution.
 
 ---
 
+### B35 — `secrets rotation rotate` writes a corrupted value that never decrypts again
+
+**Status**: Open, found 2026-08-21
+**Severity**: High — silent data loss. A routine, advertised operation destroys
+the secret it claims to rotate, and nothing surfaces an error
+**Files**: `internal/services/secrets/rotation_service.go`
+
+**Symptom**: after `rocketvault secrets rotation rotate`, a subsequent
+`secrets get` on that secret cannot decrypt it. The rotation itself reports
+success.
+
+**Root cause**: `PerformManualRotation` does
+
+```go
+newValue := s.generateNewSecretValue(secret.Value)
+secret.Value = newValue
+err = s.secretRepo.Update(ctx, secret, model.NewOwnerScope(...))
+```
+
+with no encryption step. `generateNewSecretValue` is a placeholder returning
+`fmt.Sprintf("%s_rotated_%d", currentValue, time.Now().Unix())`. Per the
+repository contract, `secret.Value` as loaded is the *master-key ciphertext*,
+so the suffix is appended to ciphertext and stored. `common.DecryptSecret` can
+never recover it.
+
+`cryptoSvc CryptographyService` is injected into `rotationService` and never
+used — it appears exactly three times in the file: field declaration (l.100),
+constructor parameter (l.115), assignment (l.126). The dependency needed to fix
+this is already wired in and simply not called.
+
+**Also**: the manual path never archives the prior value. Only the scheduler's
+`performAutomaticRotation` calls `versioningSvc.CreateVersion` first, so there
+is no version row to recover the pre-rotation value from.
+
+**Fix sketch**: generate a real replacement value (or require the caller to
+supply one), encrypt via `cryptoSvc` before `Update`, and call
+`versioningSvc.CreateVersion` on the old value first, matching
+`performAutomaticRotation`. A regression test should rotate then `GetSecret`
+and assert the plaintext round-trips.
+
+**Why it survived**: no test performs a manual rotation followed by a read. The
+CLI help previously said only "rotate a secret according to its assigned
+policy", which described the intent rather than the placeholder implementation.
+
+---
+
+### B36 — `secrets export` writes plaintext while `--encrypt` (default true) claims otherwise
+
+**Status**: Open, found 2026-08-21
+**Severity**: High — false security assurance. Every secret value the caller can
+read is written to disk in the clear, under a flag that says the opposite
+**Files**: `cmd/secrets/export.go`, `cmd/secrets/import.go`,
+`internal/services/secrets/secret_service.go`
+
+**Symptom**: `rocketvault secrets export --file backup.json` produces a file
+containing plaintext secret values. The flag `--encrypt`/`-e` defaults to
+`true` and is described as "Encrypt the export file", so the default
+invocation actively misinforms.
+
+**Corrected 2026-08-21** (this entry originally cited the wrong flag and line):
+the output flag is `--file`/`-o` (`export.go:141`, with
+`MarkFlagRequired("file")`), not `--output` — `--output` is a root persistent
+flag selecting table/json/yaml rendering. `exportEncrypt` binds at
+`export.go:142`, not 129.
+
+**The HTTP path has the same defect.** `model.ExportSecretsRequest.Encrypt`
+(`model/secret.go:228`) also has no reader anywhere in the tree, so
+`POST /secrets/export` with `{"encrypt": true}` returns plaintext too. This was
+missed when the entry was first filed; fixing only the CLI would leave the API
+making the same false claim.
+
+**Root cause**: `exportEncrypt` is declared (`export.go:43`) and bound
+(`export.go:142`) and **never read anywhere in the repository**.
+`ExportSecretsRequest` has no encryption field at all — only `Scope`, `Format`,
+`FilterTags`, `IncludeTags` — and `ExportSecrets` serialises
+`Value string \`json:"value"\`` directly. `importEncrypted`
+(`import.go:42,122`, "File is encrypted") is dead in exactly the same way.
+
+**Fix decision required**: either implement export encryption, or delete both
+flags. Leaving a flag that asserts encryption it does not perform is the worst
+of the three options. Deleting is the smaller change and is honest; implementing
+is what a user reasonably expects from a `--encrypt` default of `true`.
+
+**Not verified**: who is authorized to call export. The defect logged here is
+the false assurance, not necessarily an access-control hole.
+
+---
+
+### B37 — `certificates renew` silently converts a CA-signed certificate to self-signed
+
+**Status**: Open, found 2026-08-21
+**Severity**: High — breaks trust chains without warning
+**Files**: `internal/services/certificates/certificate_service.go`
+
+**Symptom**: renewing a certificate originally issued against a CA returns a
+self-signed certificate. Relying parties that pinned or validated the chain
+reject it, with nothing in the CLI output indicating the issuer changed.
+
+**Root cause**: `RenewCertificate` calls
+`crypto.CreateSelfSignedCertificatePEM(privateKeyPEM, key.Type,
+crypto.CertificateTemplate{... IsCA: true})` unconditionally (l.743-746). There
+is no CA-signing branch in the renew path and the original `CACertID` is never
+consulted.
+
+**Related**: `CreateCASignedCertificate` hardcodes the CA key type as `"RSA"`
+(l.381, comment: "assume CA uses RSA for simplicity"), so an ECDSA CA is sent
+down the RSA path.
+
+**Fix sketch**: branch on the original certificate's `CACertID` — re-issue
+through `CreateCASignedCertificate` when set, self-sign only when it is not —
+and derive the CA key type from the CA key rather than hardcoding it.
+
+---
+
+### B38 — `secrets import --overwrite` is a no-op
+
+**Status**: Open, found 2026-08-21
+**Severity**: Medium — documented behavior that does not exist; imports intended
+to replace existing secrets silently do not
+**Files**: `internal/services/secrets/secret_service.go`
+
+`importOverwrite` is plumbed correctly into `ImportSecretsRequest.Overwrite`,
+but `ImportSecrets` only emits it as a log field. The import loop calls
+`s.CreateSecret(ctx, createReq)` unconditionally with no existence check, and
+`CreateSecret` never looks for an existing name. The previous CLI example
+"Import and overwrite existing secrets" documented behavior with no
+implementation behind it.
+
+---
+
+### B39 — `migrate:to` a lower version is a silent no-op, not a rollback
+
+**Status**: Open, found 2026-08-21
+**Severity**: Medium — an operator can believe they rolled back when nothing
+happened
+**Files**: `internal/db/migrations/migration_runner.go`
+
+`MigrateToVersion` only ever applies forward: it `break`s once a migration's
+version exceeds the target and `continue`s past already-applied ones
+(l.225-230). No down-migration path exists anywhere in the runner. Targeting a
+version below the current one therefore succeeds while doing nothing.
+
+**Fix decision required**: either implement down-migrations, or make the command
+refuse a target below the current version with a clear error. The second is
+much cheaper and removes the false impression.
+
+---
+
+### B40 — `backup list` shows nothing for default (encrypted) backups
+
+**Status**: Open, found 2026-08-21
+**Severity**: Medium — the command reports an empty backup directory that is
+not empty
+**Files**: `internal/backup/backup.go`, `cmd/backup.go`
+
+`getBackupMetadata` (l.476) rejects any file whose contents do not begin with
+`{`, and `ListBackups` logs a warning and skips it. Since `backup create`
+encrypts by default, a directory of default backups lists as empty.
+
+Separately, the `FILE` column is synthesized from each backup's timestamp
+(`cmd/backup.go:227`) rather than read from disk, so it can disagree with the
+actual filename.
+
+---
+
+### B41 — Cluster of misleading CLI output and help strings
+
+**Status**: Open, found 2026-08-21
+**Severity**: Low — cosmetic or documentation-only; grouped to avoid diluting
+the list above
+**Files**: various under `cmd/`, `internal/services/`
+
+- `certificates renew` prints "Old Certificate ID" and "New Certificate ID",
+  always the same UUID — `RenewCertificate` does `updated := *original` and
+  `certRepo.Update`, so no new row is created.
+- `keys rotate` prints "New Key: ID=…" though `RotateKey` reuses the same UUID.
+- `keys create --bits` help says "(2048 or 4096)"; `CreateRSAKey` also accepts
+  3072.
+- `cmd/vault-webhook/delete.go` has an unreachable
+  `errors.Is(err, ErrWebhookNotFound)` branch; `Delete` never returns that
+  sentinel and deleting an absent webhook is a silent success.
+- `secrets create --purge-protection=false` is inert — `CreateSecret` writes the
+  column only when the value is `true`, while `UpdateSecret` honors both
+  directions.
+- `secrets generate-password` requires a session despite being pure local RNG
+  that stores nothing; it is absent from `persistentPreRun`'s `systemCmds` map.
+- `vault-access list` passes `write=false` to `requireCanManageRoleAssignments`
+  — the same value `revoke` passes — so listing assignments requires
+  revoke-level permission. Fail-closed, so not a hole, but stricter than the
+  parameter name suggests.
+
+**Provenance for B35–B41**: all found during the 2026-08-21 CLI help-text sweep
+(`.claude/cli-help-conventions.md`), while reading every `RunE` to describe it
+accurately. Each was verified against the source before filing. The help text
+now documents actual behavior in each case, so the shipped help and this list
+agree.
+
+---
+
+### B42 — CSV export/import corrupts any value containing a quote or newline
+
+**Status**: Open, found 2026-08-21
+**Severity**: Medium — silent data corruption on a round trip, independent of
+B36's encryption defect
+**Files**: `internal/services/secrets/secret_service.go`
+
+**Symptom**: export a secret whose value contains a `"` or a newline with
+`--format csv`, then import it back. The value that returns is not the value
+that left.
+
+**Root cause**: neither side uses `encoding/csv`.
+
+Export builds rows by string concatenation with no escaping:
+
+```go
+csvData += fmt.Sprintf(`"%s","%s",%s`+"\n", secret.Name, secret.Value, tags)
+```
+
+An embedded `"` therefore closes the field early, and an embedded newline ends
+the record early.
+
+Import's `parseCSVLine` (l.863) toggles `inQuotes` on *every* quote character
+with no handling for the doubled-quote escape the CSV convention uses, and
+operates on input already split by line, so a quoted newline can never be
+parsed correctly.
+
+**Fix sketch**: use `encoding/csv`'s `Writer` and `Reader` on both sides. They
+handle quoting, doubling and embedded newlines correctly, and `Reader` with
+`FieldsPerRecord` also gives real malformed-row detection, which the current
+hand-rolled parser lacks. Delete `parseCSVLine`.
+
+**Test**: round-trip a value containing `"`, `,`, and `\n` and assert equality.
+
+**Found**: while planning B36, which seals the formatted bytes and so does not
+touch this. The two are independent; B36 does not fix or worsen it.
+
+---
+
+### B43 — CA certificates omit KeyUsageCertSign, so no issued chain verifies
+
+**Status**: Open, found 2026-08-21
+**Severity**: High — the CA-signed certificate feature does not produce usable
+certificates. Every chain this system has ever issued fails standard
+verification
+**Files**: `internal/crypto/x509_helper.go`
+
+**Symptom**: a certificate issued via `CreateCASignedCertificate` cannot be
+validated against its own CA by Go's verifier, OpenSSL, or a browser.
+
+**Root cause**: `CreateX509Template` (`x509_helper.go:61`) sets
+
+```go
+KeyUsage:              x509.KeyUsageDigitalSignature | x509.KeyUsageKeyEncipherment,
+BasicConstraintsValid: true,
+IsCA:                  params.IsCA,
+```
+
+The same template serves leaves and CAs, so a CA is marked `IsCA: true` with
+`BasicConstraintsValid: true` but **without `KeyUsageCertSign`**. RFC 5280
+requires a CA that asserts a key-usage extension to include `keyCertSign`, and
+Go's verifier enforces it: a parent with a non-zero `KeyUsage` lacking
+`CertSign` is rejected as a signer.
+
+**Evidence** (reproduced 2026-08-21 in a scratch module using this template
+verbatim, with a control):
+
+```
+CA KeyUsage bits: 00000101  (CertSign bit set: false)
+CheckSignatureFrom: FAILED -> x509: invalid signature: parent certificate
+                              cannot sign this kind of certificate
+chain Verify:       FAILED -> x509: certificate signed by unknown authority
+CONTROL (+CertSign):OK
+```
+
+The control differs only by `KeyUsage |= CertSign | CRLSign` and verifies
+cleanly, isolating the cause.
+
+**Fix**: add `x509.KeyUsageCertSign | x509.KeyUsageCRLSign` when
+`params.IsCA` is set. Owned by Task 1 of
+`docs/superpowers/plans/2026-08-21-03-b37-ca-renewal.md`, because B37's required
+chain-verification test cannot pass without it.
+
+**Carry-over that cannot be repaired in place**: a CA certificate already
+issued keeps its bad `KeyUsage` — the extension is inside the signed body.
+Existing CAs stay unusable until reissued, and every certificate under them
+must then be reissued too. Say so in release notes.
+
+**Why it survived**: no test ever verified a chain. The certificate tests assert
+that issuance returns a PEM and that fields round-trip, never that the result
+validates. An assertion as small as `leaf.CheckSignatureFrom(ca)` would have
+caught it at the first CA-signed certificate.
+
+**Related**: B37 (renewal drops the CA signature) is a separate defect in the
+same feature. B37 makes renewal preserve the issuer; B43 makes the issuer's
+signature acceptable in the first place. Neither alone gives a working chain.
+
+---
+
 ## Deferred Refactors
 
 Both items formerly tracked here (H3, M2) were re-investigated on 2026-08-14 and
