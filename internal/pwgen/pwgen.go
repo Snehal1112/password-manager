@@ -29,9 +29,13 @@ func DefaultOptions() Options {
 	return Options{Length: 16, Upper: true, Lower: true, Numbers: true, Special: true}
 }
 
-// Generate returns a random password matching opts. It guarantees at least one
-// character from every enabled set and never emits three identical characters
-// in a row.
+// Generate returns a random password matching opts. It never emits three
+// identical characters in a row. When Length is at least as large as the
+// number of enabled character sets, it also guarantees at least one character
+// from every enabled set. Below that, each set's injection can overwrite an
+// earlier one, so the guarantee does not hold: for example, Length 1 with all
+// four sets enabled returns a single character from whichever set injects
+// last, not one of each.
 func Generate(opts Options) (string, error) {
 	if opts.Length < 1 {
 		return "", fmt.Errorf("password length must be at least 1")

@@ -66,6 +66,21 @@ func TestGenerateIsNotDeterministic(t *testing.T) {
 	assert.Greater(t, len(seen), 45, "generator appears to repeat itself")
 }
 
+// TestGenerateAtLength1WithAllSetsDoesNotIncludeEveryCharset pins the
+// documented caveat: with Length smaller than the number of enabled sets,
+// each set's guaranteed-character injection can overwrite an earlier one, so
+// the result is not guaranteed to contain a character from every set. With
+// all four sets enabled and Length 1, the special-character injection runs
+// last and always wins, so every result comes from the special charset.
+func TestGenerateAtLength1WithAllSetsDoesNotIncludeEveryCharset(t *testing.T) {
+	for range 50 {
+		got, err := Generate(Options{Length: 1, Upper: true, Lower: true, Numbers: true, Special: true})
+		require.NoError(t, err)
+		require.Len(t, got, 1)
+		assert.True(t, strings.ContainsAny(got, specialChars), "expected the last-injected (special) charset to win at Length 1, got %q", got)
+	}
+}
+
 func TestDefaultOptions(t *testing.T) {
 	o := DefaultOptions()
 	assert.Equal(t, 16, o.Length)
