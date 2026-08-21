@@ -277,57 +277,87 @@ func TestCreateSelfSignedCertificate_LeafGetsNoCertSign(t *testing.T) {
 	assert.Zero(t, issued.KeyUsage&x509.KeyUsageCRLSign, "an ordinary certificate must not be able to sign CRLs")
 }
 
-// certificateIsCA's parse-failure branch is fail-closed: renewal aborts
+// certificateIsCA's parse-failure branches are fail-closed: renewal aborts
 // rather than guessing a CA status for a certificate it cannot read. That
-// behaviour has no lock on it -- a future "cleanup" turning it into
+// behaviour has no lock on it -- a future "cleanup" turning either branch into
 // `return false, nil` would silently strip the CA bit off every real CA on
-// its first renewal, with the rest of the suite still green. This pins it.
+// its first renewal, with the rest of the suite still green. This pins both
+// of certificateIsCA's two distinct failure paths: pem.Decode rejecting the
+// stored bytes outright, and x509.ParseCertificate rejecting a
+// syntactically valid PEM block whose DER body isn't a certificate.
 func TestRenewCertificate_UnparsableCertificateAbortsWithoutIssuing(t *testing.T) {
-	setupMasterKey()
+	garbageDERPEM := string(pem.EncodeToMemory(&pem.Block{
+		Type:  "CERTIFICATE",
+		Bytes: []byte("this is not a valid DER-encoded certificate"),
+	}))
 
-	userID := uuid.New()
-	vaultID := uuid.New()
-	certID := uuid.New()
-	keyID := uuid.New()
-
-	privateKeyPEM, err := crypto.GenerateRSAKeyPEM(2048)
-	require.NoError(t, err)
-	encryptedKey, err := common.EncryptSecret(privateKeyPEM)
-	require.NoError(t, err)
-
-	scope := model.NewVaultScope(vaultID, userID)
-	original := &model.Certificate{
-		ID:          certID,
-		UserID:      userID,
-		VaultID:     vaultID,
-		KeyID:       keyID,
-		Name:        "renew-me",
-		Certificate: "not a valid PEM certificate",
-		PrivateKey:  encryptedKey,
-		CreatedAt:   time.Now().Add(-300 * 24 * time.Hour),
-		Enabled:     true,
-		RenewalDays: 30,
+	tests := []struct {
+		name         string
+		storedCert   string
+		wantErrorMsg string
+	}{
+		{
+			name:         "not PEM at all",
+			storedCert:   "not a valid PEM certificate",
+			wantErrorMsg: "renewal must abort when the stored certificate cannot be PEM-decoded",
+		},
+		{
+			name:         "valid PEM block, unparsable DER",
+			storedCert:   garbageDERPEM,
+			wantErrorMsg: "renewal must abort when the stored certificate's DER body cannot be parsed",
+		},
 	}
 
-	certRepo := &mockCertRepository{}
-	keyRepo := &mockKeyRepo{}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			setupMasterKey()
 
-	certRepo.On("Read", mock.Anything, certID, scope).Return(original, nil)
-	keyRepo.On("Read", mock.Anything, keyID, scope).Return(&model.Key{
-		ID:     keyID,
-		UserID: userID,
-		Type:   model.KeyTypeRSA,
-		Value:  encryptedKey,
-	}, nil)
-	// No certRepo.On("Update", ...) stub: renewal must abort before it would
-	// ever call Update. The hand-written mocks in this package panic on an
-	// unexpected call rather than failing just the one test, so an
-	// unintended Update call here fails loudly instead of quietly.
+			userID := uuid.New()
+			vaultID := uuid.New()
+			certID := uuid.New()
+			keyID := uuid.New()
 
-	svc := newCertSvc(certRepo, keyRepo)
+			privateKeyPEM, err := crypto.GenerateRSAKeyPEM(2048)
+			require.NoError(t, err)
+			encryptedKey, err := common.EncryptSecret(privateKeyPEM)
+			require.NoError(t, err)
 
-	_, err = svc.RenewCertificate(context.Background(), certID, scope, 365)
-	require.Error(t, err, "renewal must abort when the stored certificate cannot be parsed")
+			scope := model.NewVaultScope(vaultID, userID)
+			original := &model.Certificate{
+				ID:          certID,
+				UserID:      userID,
+				VaultID:     vaultID,
+				KeyID:       keyID,
+				Name:        "renew-me",
+				Certificate: tt.storedCert,
+				PrivateKey:  encryptedKey,
+				CreatedAt:   time.Now().Add(-300 * 24 * time.Hour),
+				Enabled:     true,
+				RenewalDays: 30,
+			}
 
-	certRepo.AssertNotCalled(t, "Update", mock.Anything, mock.Anything, mock.Anything)
+			certRepo := &mockCertRepository{}
+			keyRepo := &mockKeyRepo{}
+
+			certRepo.On("Read", mock.Anything, certID, scope).Return(original, nil)
+			keyRepo.On("Read", mock.Anything, keyID, scope).Return(&model.Key{
+				ID:     keyID,
+				UserID: userID,
+				Type:   model.KeyTypeRSA,
+				Value:  encryptedKey,
+			}, nil)
+			// No certRepo.On("Update", ...) stub: renewal must abort before it
+			// would ever call Update. The hand-written mocks in this package
+			// panic on an unexpected call rather than failing just the one
+			// test, so an unintended Update call here fails loudly instead of
+			// quietly.
+
+			svc := newCertSvc(certRepo, keyRepo)
+
+			_, err = svc.RenewCertificate(context.Background(), certID, scope, 365)
+			require.Error(t, err, tt.wantErrorMsg)
+
+			certRepo.AssertNotCalled(t, "Update", mock.Anything, mock.Anything, mock.Anything)
+		})
+	}
 }
