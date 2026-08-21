@@ -123,8 +123,13 @@ type ImportSecretsRequest struct {
 type ImportResult struct {
 	ImportedCount int
 	SkippedCount  int
-	TotalCount    int
-	Errors        []string
+	// FailedCount counts records that were attempted (create or overwrite)
+	// but errored. It is reported separately from SkippedCount, which counts
+	// records the import intentionally did not act on: a record missing a
+	// name or value, or an existing name with Overwrite unset.
+	FailedCount int
+	TotalCount  int
+	Errors      []string
 }
 
 // SecretService orchestrates secret management operations.
@@ -791,11 +796,42 @@ func (s *secretService) ImportSecrets(ctx context.Context, req ImportSecretsRequ
 
 	result.TotalCount = len(secretsToImport)
 
-	// Import each secret
+	// Import each secret. A record whose name already exists in the target
+	// vault is only overwritten when the caller asked for it; otherwise it is
+	// skipped and counted separately from a record that fails outright, so
+	// the printed summary distinguishes "chose not to" from "tried and
+	// failed".
 	for _, importSec := range secretsToImport {
 		if importSec.Name == "" || importSec.Value == "" {
 			result.Errors = append(result.Errors, "Secret missing name or value")
 			result.SkippedCount++
+			continue
+		}
+
+		existing, err := s.secretRepo.FindByName(ctx, importSec.Name, req.Scope)
+		if err != nil && !errors.Is(err, repositories.ErrNotFound) {
+			result.Errors = append(result.Errors, fmt.Sprintf("Failed to look up '%s': %v", importSec.Name, err))
+			result.FailedCount++
+			continue
+		}
+
+		if existing != nil {
+			if !req.Overwrite {
+				result.SkippedCount++
+				continue
+			}
+
+			value := importSec.Value
+			if err := s.UpdateSecret(ctx, UpdateSecretRequest{
+				SecretID: existing.ID,
+				Scope:    req.Scope,
+				Value:    &value,
+			}); err != nil {
+				result.Errors = append(result.Errors, fmt.Sprintf("Failed to overwrite '%s': %v", importSec.Name, err))
+				result.FailedCount++
+			} else {
+				result.ImportedCount++
+			}
 			continue
 		}
 
@@ -809,19 +845,21 @@ func (s *secretService) ImportSecrets(ctx context.Context, req ImportSecretsRequ
 
 		if _, err := s.CreateSecret(ctx, createReq); err != nil {
 			result.Errors = append(result.Errors, fmt.Sprintf("Failed to import '%s': %v", importSec.Name, err))
-			result.SkippedCount++
+			result.FailedCount++
 		} else {
 			result.ImportedCount++
 		}
 	}
 
 	s.logger.LogAuditInfo(req.Scope.ActorID().String(), "import_secrets", "success",
-		fmt.Sprintf("Imported %d/%d secrets", result.ImportedCount, result.TotalCount))
+		fmt.Sprintf("Imported %d/%d secrets (%d skipped, %d failed)",
+			result.ImportedCount, result.TotalCount, result.SkippedCount, result.FailedCount))
 	logrus.WithFields(logrus.Fields{
 		"user_id":        req.Scope.ActorID().String(),
 		"format":         req.Format,
 		"imported_count": result.ImportedCount,
 		"skipped_count":  result.SkippedCount,
+		"failed_count":   result.FailedCount,
 		"total_count":    result.TotalCount,
 	}).Info("Secrets import completed")
 

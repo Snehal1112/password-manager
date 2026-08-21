@@ -692,6 +692,7 @@ func TestExportSecrets_SealedRoundTripsThroughImport(t *testing.T) {
 	// survived the round trip intact.
 	importRepo := &testutils.MockSecretRepository{}
 	importCrypto := &testutils.MockCryptographyService{}
+	importRepo.On("FindByName", ctx, "db-password", model.NewVaultScope(vaultID, userID)).Return(nil, repositories.ErrNotFound)
 	importCrypto.On("EncryptSecret", "hunter2").Return("enc-imported", nil)
 
 	var created *model.Secret
@@ -725,12 +726,15 @@ func TestImportSecrets_VaultScoped_ThreadsVaultIDIntoCreatedSecrets(t *testing.T
 	t.Parallel()
 	ctx := context.Background()
 	vaultID := uuid.New()
+	actorID := uuid.New()
+	scope := model.NewVaultScope(vaultID, actorID)
 
 	repo := &testutils.MockSecretRepository{}
 	crypto := &testutils.MockCryptographyService{}
 	ver := &testutils.MockVersioningService{}
 	tag := &testutils.MockTagService{}
 
+	repo.On("FindByName", ctx, "n1", scope).Return(nil, repositories.ErrNotFound)
 	crypto.On("EncryptSecret", "v1").Return("enc-v1", nil)
 	repo.On("Create", ctx, mock.MatchedBy(func(s *model.Secret) bool {
 		return s.VaultID == vaultID && s.Name == "n1"
@@ -739,14 +743,141 @@ func TestImportSecrets_VaultScoped_ThreadsVaultIDIntoCreatedSecrets(t *testing.T
 	svc := newService(repo, crypto, ver, tag, t)
 	data := []byte(`[{"name":"n1","value":"v1"}]`)
 	result, err := svc.ImportSecrets(ctx, secrets.ImportSecretsRequest{
-		Scope:  model.NewVaultScope(vaultID, uuid.New()),
+		Scope:  scope,
 		Data:   data,
 		Format: "json",
 	})
 
 	require.NoError(t, err)
 	require.Equal(t, 1, result.ImportedCount)
+	assert.Equal(t, 0, result.SkippedCount)
+	assert.Equal(t, 0, result.FailedCount)
 	repo.AssertExpectations(t)
+}
+
+func TestImportSecrets_ExistingNameWithOverwrite_UpdatesAndVersionsPriorValue(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	vaultID := uuid.New()
+	ownerID := uuid.New()
+	scope := model.NewVaultScope(vaultID, ownerID)
+	existingID := uuid.New()
+
+	existing := &model.Secret{
+		ID:      existingID,
+		UserID:  ownerID,
+		VaultID: vaultID,
+		Name:    "db-password",
+		Value:   "old-encrypted",
+		Version: 1,
+	}
+
+	repo := &testutils.MockSecretRepository{}
+	crypto := &testutils.MockCryptographyService{}
+	ver := &testutils.MockVersioningService{}
+	tag := &testutils.MockTagService{}
+
+	repo.On("FindByName", ctx, "db-password", scope).Return(existing, nil).Once()
+	repo.On("Read", ctx, existingID, scope).Return(existing, nil).Once()
+	crypto.On("DecryptSecret", "old-encrypted").Return("old-plain", nil).Once()
+	ver.On("CreateVersion", ctx, secrets.CreateVersionRequest{
+		SecretID: existingID,
+		UserID:   ownerID,
+		Name:     "db-password",
+		Value:    "old-plain",
+		Version:  1,
+	}).Return(&model.SecretVersion{}, nil).Once()
+	crypto.On("EncryptSecret", "new-value").Return("new-encrypted", nil).Once()
+	repo.On("Update", ctx, mock.MatchedBy(func(s *model.Secret) bool {
+		return s.ID == existingID && s.Value == "new-encrypted" && s.Version == 2
+	}), scope).Return(nil).Once()
+
+	svc := newService(repo, crypto, ver, tag, t)
+	result, err := svc.ImportSecrets(ctx, secrets.ImportSecretsRequest{
+		Scope:     scope,
+		Format:    "json",
+		Overwrite: true,
+		Data:      []byte(`[{"name":"db-password","value":"new-value"}]`),
+	})
+
+	require.NoError(t, err)
+	assert.Equal(t, 1, result.ImportedCount)
+	assert.Equal(t, 0, result.SkippedCount)
+	assert.Equal(t, 0, result.FailedCount)
+	repo.AssertExpectations(t)
+	crypto.AssertExpectations(t)
+	ver.AssertExpectations(t)
+}
+
+func TestImportSecrets_ExistingNameWithoutOverwrite_SkipsAndCounts(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	vaultID := uuid.New()
+	ownerID := uuid.New()
+	scope := model.NewVaultScope(vaultID, ownerID)
+	existingID := uuid.New()
+
+	existing := &model.Secret{
+		ID:      existingID,
+		UserID:  ownerID,
+		VaultID: vaultID,
+		Name:    "db-password",
+		Value:   "old-encrypted",
+		Version: 1,
+	}
+
+	repo := &testutils.MockSecretRepository{}
+	crypto := &testutils.MockCryptographyService{}
+	ver := &testutils.MockVersioningService{}
+	tag := &testutils.MockTagService{}
+
+	repo.On("FindByName", ctx, "db-password", scope).Return(existing, nil).Once()
+
+	svc := newService(repo, crypto, ver, tag, t)
+	result, err := svc.ImportSecrets(ctx, secrets.ImportSecretsRequest{
+		Scope:     scope,
+		Format:    "json",
+		Overwrite: false,
+		Data:      []byte(`[{"name":"db-password","value":"new-value"}]`),
+	})
+
+	require.NoError(t, err)
+	assert.Equal(t, 0, result.ImportedCount)
+	assert.Equal(t, 1, result.SkippedCount)
+	assert.Equal(t, 0, result.FailedCount)
+	repo.AssertExpectations(t)
+	repo.AssertNotCalled(t, "Update", mock.Anything, mock.Anything, mock.Anything)
+	repo.AssertNotCalled(t, "Read", mock.Anything, mock.Anything, mock.Anything)
+	ver.AssertNotCalled(t, "CreateVersion", mock.Anything, mock.Anything)
+}
+
+func TestImportSecrets_CreateError_CountsAsFailedNotSkipped(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	userID := uuid.New()
+	scope := model.NewOwnerScope(uuid.Nil, userID)
+
+	repo := &testutils.MockSecretRepository{}
+	crypto := &testutils.MockCryptographyService{}
+	ver := &testutils.MockVersioningService{}
+	tag := &testutils.MockTagService{}
+
+	repo.On("FindByName", ctx, "broken", scope).Return(nil, repositories.ErrNotFound).Once()
+	crypto.On("EncryptSecret", "value").Return("", errors.New("crypto failure")).Once()
+
+	svc := newService(repo, crypto, ver, tag, t)
+	result, err := svc.ImportSecrets(ctx, secrets.ImportSecretsRequest{
+		Scope:  scope,
+		Format: "json",
+		Data:   []byte(`[{"name":"broken","value":"value"}]`),
+	})
+
+	require.NoError(t, err)
+	assert.Equal(t, 0, result.ImportedCount)
+	assert.Equal(t, 0, result.SkippedCount)
+	assert.Equal(t, 1, result.FailedCount)
+	repo.AssertExpectations(t)
+	crypto.AssertExpectations(t)
 }
 
 // TestUpdateSecret_VaultScope_NonOwnerVaultMember_CreateVersionUsesSecretOwner

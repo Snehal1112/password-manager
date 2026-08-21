@@ -724,6 +724,7 @@ func TestSecretServiceExportAndImport(t *testing.T) {
 	assert.ErrorContains(t, err, "invalid format")
 
 	crypto.On("EncryptSecret", "one").Return("encrypted-one", nil).Once()
+	repo.On("FindByName", ctx, "api", model.NewOwnerScope(uuid.Nil, userID)).Return(nil, repositories.ErrNotFound).Once()
 	repo.On("Create", ctx, mock.MatchedBy(func(secret *model.Secret) bool {
 		return secret.UserID == userID && secret.Name == "api" && secret.Value == "encrypted-one"
 	})).Return(nil).Once()
