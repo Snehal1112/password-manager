@@ -7,6 +7,7 @@ import (
 	"embed"
 	"fmt"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -261,6 +262,22 @@ func (r *MigrationRunner) GetCurrentVersion(ctx context.Context) (string, error)
 	}
 
 	return version.String, nil
+}
+
+// parseVersionNumber converts a migration version string to its numeric
+// value for magnitude comparison. Every version in this package is decimal
+// digits only -- either the legacy zero-padded sequential form (e.g. "001")
+// or the YYYYMMDDNNNNNN timestamp form migrate:create generates -- so a
+// base-10 parse is safe. Comparing the strings directly is not: it is only
+// correct when every version being compared has the same width, and nothing
+// enforces that across this package's own version files (e.g. "9" < "10"
+// numerically but "9" > "10" lexicographically).
+func parseVersionNumber(version string) (int64, error) {
+	n, err := strconv.ParseInt(version, 10, 64)
+	if err != nil {
+		return 0, fmt.Errorf("invalid migration version %q: must be a decimal number: %w", version, err)
+	}
+	return n, nil
 }
 
 // Example usage:
