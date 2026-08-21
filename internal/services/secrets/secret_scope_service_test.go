@@ -384,6 +384,22 @@ func TestCreateSecretLeavesPurgeProtectionAloneByDefault(t *testing.T) {
 	repo.AssertNotCalled(t, "SetPurgeProtection", mock.Anything, mock.Anything, mock.Anything)
 }
 
+func TestCreateSecretSetsPurgeProtectionFalseWhenExplicitlyRequested(t *testing.T) {
+	repo, svc := newScopeServiceFixture(t)
+	ctx := context.Background()
+
+	repo.On("Create", ctx, mock.AnythingOfType("*model.Secret")).Return(nil).Once()
+	repo.On("SetPurgeProtection", ctx, mock.AnythingOfType("uuid.UUID"), false).Return(nil).Once()
+
+	protect := false
+	secret, err := svc.CreateSecret(ctx, CreateSecretRequest{
+		UserID: uuid.New(), Name: "s1", Value: "v1", PurgeProtection: &protect,
+	})
+	require.NoError(t, err)
+	repo.AssertCalled(t, "SetPurgeProtection", ctx, secret.ID, false)
+	repo.AssertExpectations(t)
+}
+
 func TestUpdateSecretSetsPurgeProtectionWhenRequested(t *testing.T) {
 	repo, svc := newScopeServiceFixture(t)
 	ctx := context.Background()

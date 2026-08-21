@@ -279,9 +279,11 @@ func (s *secretService) CreateSecret(ctx context.Context, req CreateSecretReques
 	}
 
 	// Purge protection lives in its own column, so it is set as a follow-up
-	// write rather than through Create's insert.
-	if req.PurgeProtection != nil && *req.PurgeProtection {
-		if err = s.secretRepo.SetPurgeProtection(ctx, secret.ID, true); err != nil {
+	// write rather than through Create's insert. Honor an explicit false the
+	// same way UpdateSecret does, so "--purge-protection=false" is not
+	// silently inert (B41).
+	if req.PurgeProtection != nil {
+		if err = s.secretRepo.SetPurgeProtection(ctx, secret.ID, *req.PurgeProtection); err != nil {
 			s.logger.LogAuditError(req.UserID.String(), "create_secret", "failed", "Failed to set purge protection", err)
 			return nil, fmt.Errorf("failed to set purge protection: %w", err)
 		}
