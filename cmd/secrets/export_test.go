@@ -102,6 +102,45 @@ func TestExportCommand_Forbidden(t *testing.T) {
 	tc.MockSecretService.AssertNotCalled(t, "ExportSecrets", mock.Anything, mock.Anything)
 }
 
+// TestExportCommand_Forbidden_NeverPromptsForPassphrase guards the ordering
+// itself, not just its outcome: with encryption on and no passphrase source
+// available, a denied authorization check must still fail with the
+// authorization error, never the passphrase error. If a future edit moved
+// passphrase resolution above the vaultcli.RequireDataAction check, this
+// test would start seeing the "no passphrase" error instead and fail, even
+// though every other test in this file would still pass.
+func TestExportCommand_Forbidden_NeverPromptsForPassphrase(t *testing.T) {
+	tc := testutils.NewTestContext(t)
+
+	denyRoles := &testutils.MockRoleAssignmentService{}
+	denyRoles.On("HasDataAction", mock.Anything, mock.Anything, mock.Anything, mock.Anything).
+		Return(false, nil).Maybe()
+	tc.MockContainer.RoleAssignmentService = denyRoles
+
+	// go test runs with stdin detached, so if passphrase resolution were
+	// ever reached it would fail with ErrNoPassphraseAvailable rather than
+	// hanging on a prompt.
+	t.Setenv("ROCKETVAULT_EXPORT_PASSPHRASE", "")
+
+	tmpFile := t.TempDir() + "/export.json"
+	exportFormat = "json"
+	exportFile = tmpFile
+	exportEncrypt = true
+	exportPassphraseFile = ""
+	exportTags = []string{}
+	exportFilterTags = []string{}
+
+	cmd := newExportTestCmd(tmpFile)
+	cmd.SetContext(tc.Ctx)
+
+	err := cmd.Execute()
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "forbidden")
+	assert.NotContains(t, err.Error(), "no passphrase")
+	assert.NoFileExists(t, tmpFile)
+	tc.MockSecretService.AssertNotCalled(t, "ExportSecrets", mock.Anything, mock.Anything)
+}
+
 // newExportTestCmd builds a standalone command sharing the real export RunE, so
 // the flag set matches what InitSecretsExport registers.
 func newExportTestCmd(file string) *cobra.Command {
