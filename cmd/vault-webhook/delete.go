@@ -1,14 +1,12 @@
 package vaultwebhook
 
 import (
-	"errors"
 	"fmt"
 
 	"github.com/spf13/cobra"
 
 	"rocketvault/common"
 	"rocketvault/internal/container"
-	vaultServices "rocketvault/internal/services/vaults"
 )
 
 // InitVaultWebhookDelete registers the delete command, which removes a
@@ -46,9 +44,6 @@ scoped to this vault (or granted globally). Acts on the vault named by
 			}
 
 			if err := sc.GetVaultWebhookService().Delete(ctx, vaultID, actor); err != nil {
-				if errors.Is(err, vaultServices.ErrWebhookNotFound) {
-					return fmt.Errorf("no webhook configured for vault %q", vaultName)
-				}
 				return fmt.Errorf("delete webhook failed: %w", err)
 			}
 
