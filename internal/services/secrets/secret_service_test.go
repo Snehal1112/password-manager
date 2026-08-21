@@ -1140,3 +1140,72 @@ func TestImportSecretsCSV_UnescapesDoubledQuote(t *testing.T) {
 	assert.Equal(t, `a"b`, created.Value)
 	crypto.AssertCalled(t, "EncryptSecret", `a"b`)
 }
+
+func TestExportImportCSV_RoundTripsQuoteCommaNewlineValueAndCommaTag(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	vaultID := uuid.New()
+	userID := uuid.New()
+
+	// Contains a double quote, a comma, and a newline in one value — the
+	// exact combination the pre-fix writer could not represent and the
+	// pre-fix reader could not parse.
+	value := "she said \"hi, there\"\nbye"
+	tags := []string{"prod,west"}
+
+	repo := &testutils.MockSecretRepository{}
+	crypto := &testutils.MockCryptographyService{}
+	ver := &testutils.MockVersioningService{}
+	tag := &testutils.MockTagService{}
+
+	stored := []model.Secret{{ID: uuid.New(), VaultID: vaultID, Name: "db-password", Value: "enc-v1", Tags: tags}}
+	repo.On("List", ctx, model.NewVaultScope(vaultID, userID), repositories.SecretFilter{Tags: nil}).Return(stored, nil)
+	crypto.On("DecryptSecret", "enc-v1").Return(value, nil)
+	tag.On("GetTags", ctx, stored[0].ID).Return(tags, nil)
+
+	svc := newService(repo, crypto, ver, tag, t)
+	csvData, err := svc.ExportSecrets(ctx, secrets.ExportSecretsRequest{
+		Scope:       model.NewVaultScope(vaultID, userID),
+		Format:      "csv",
+		IncludeTags: true,
+	})
+	require.NoError(t, err)
+
+	importRepo := &testutils.MockSecretRepository{}
+	importCrypto := &testutils.MockCryptographyService{}
+	importCrypto.On("EncryptSecret", value).Return("enc-imported", nil)
+
+	// ImportSecrets always checks for an existing record by name before
+	// deciding to create or overwrite (see secret_service.go's ImportSecrets),
+	// so the mock repo needs a FindByName stub regardless of Overwrite.
+	importScope := model.NewVaultScope(vaultID, uuid.New())
+	importRepo.On("FindByName", ctx, "db-password", importScope).Return(nil, repositories.ErrNotFound)
+
+	var created *model.Secret
+	importRepo.On("Create", ctx, mock.AnythingOfType("*model.Secret")).
+		Run(func(args mock.Arguments) { created = args.Get(1).(*model.Secret) }).
+		Return(nil)
+
+	importSvc := newService(importRepo, importCrypto, &testutils.MockVersioningService{}, &testutils.MockTagService{}, t)
+	result, err := importSvc.ImportSecrets(ctx, secrets.ImportSecretsRequest{
+		Scope:  importScope,
+		Data:   csvData,
+		Format: "csv",
+	})
+	require.NoError(t, err)
+	assert.Equal(t, 1, result.ImportedCount)
+	assert.Equal(t, 0, result.SkippedCount)
+
+	require.NotNil(t, created, "import did not create a secret")
+	assert.Equal(t, "db-password", created.Name)
+	importCrypto.AssertCalled(t, "EncryptSecret", value)
+	// CreateSecret overwrites the passed secret's Value back to plaintext
+	// before returning it (see "Return plaintext to the caller" in
+	// CreateSecret), matching the same pattern documented on
+	// TestImportSecretsCSV_UnescapesDoubledQuote above — so the
+	// mock-captured struct holds the decoded CSV value here, not the
+	// encrypted one. This still proves the quote/comma/newline value
+	// round-tripped through export then import intact.
+	assert.Equal(t, value, created.Value, "the decoded CSV value must match the original byte-for-byte")
+	assert.Equal(t, tags, created.Tags, "the comma-containing tag must survive the round trip intact")
+}
