@@ -26,6 +26,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"time"
@@ -35,13 +36,24 @@ import (
 	"rocketvault/internal/logging"
 )
 
-// BackupMetadata contains metadata about a backup
+// BackupMetadata contains metadata about a backup. Filename, Size and ModTime
+// are always populated from the filesystem, regardless of whether the file's
+// payload could be read. Readable is false when the file's contents could not
+// be parsed as plaintext backup JSON -- either because it is encrypted (the
+// expected case for a default "backup create") or genuinely corrupt. When
+// Readable is false, Version, Timestamp, TableCount and RecordCount are their
+// zero values and must not be treated as real data; Encrypted is set true in
+// that case as a best-effort inference from content, not a decrypted fact.
 type BackupMetadata struct {
-	Version     string    `json:"version"`
-	Timestamp   time.Time `json:"timestamp"`
-	Database    string    `json:"database"`
-	TableCount  int       `json:"table_count"`
-	RecordCount int       `json:"record_count"`
+	Filename    string    `json:"filename"`
+	Size        int64     `json:"size"`
+	ModTime     time.Time `json:"mod_time"`
+	Readable    bool      `json:"readable"`
+	Version     string    `json:"version,omitempty"`
+	Timestamp   time.Time `json:"timestamp,omitempty"`
+	Database    string    `json:"database,omitempty"`
+	TableCount  int       `json:"table_count,omitempty"`
+	RecordCount int       `json:"record_count,omitempty"`
 	Encrypted   bool      `json:"encrypted"`
 	Checksum    string    `json:"checksum,omitempty"`
 }
@@ -201,7 +213,11 @@ func (m *Manager) RestoreBackup(backupPath string, encrypted bool) error {
 	return nil
 }
 
-// ListBackups lists available backup files in a directory
+// ListBackups lists available backup files in a directory. A backup that
+// cannot be read as plaintext JSON -- e.g. a normal encrypted backup --
+// still appears as a row via getBackupMetadata's content-based fallback;
+// only a real filesystem error (permission denied, file removed mid-scan)
+// causes a file to be skipped, and that skip is still logged as a warning.
 func (m *Manager) ListBackups(backupDir string) ([]BackupMetadata, error) {
 	files, err := filepath.Glob(filepath.Join(backupDir, "*.backup"))
 	if err != nil {
@@ -473,24 +489,60 @@ func (m *Manager) insertTableData(tx *sql.Tx, tableData *TableData) error {
 }
 
 // getBackupMetadata reads metadata from a backup file without full parsing
+// getBackupMetadata reads metadata from a backup file. It never requires or
+// touches the master key: detection is content-based (does the file parse as
+// plaintext backup JSON?), never decryption-based. A file that fails that
+// parse -- encrypted or corrupt -- still returns filesystem-derived metadata
+// with Readable set to false, rather than an error; only a real filesystem
+// failure (the file can't be opened, stat'd or read) returns an error.
 func (m *Manager) getBackupMetadata(backupPath string) (*BackupMetadata, error) {
-	data, err := os.ReadFile(backupPath)
+	f, err := os.Open(backupPath)
+	if err != nil {
+		return nil, err
+	}
+	defer f.Close() //nolint:errcheck
+
+	info, err := f.Stat()
 	if err != nil {
 		return nil, err
 	}
 
+	data, err := io.ReadAll(f)
+	if err != nil {
+		return nil, err
+	}
+
+	base := BackupMetadata{
+		Filename: filepath.Base(backupPath),
+		Size:     info.Size(),
+		ModTime:  info.ModTime(),
+	}
+
 	content := string(data)
 
-	// If the file appears to be encrypted (doesn't start with '{'), we can't read metadata
+	// A file whose contents don't start with '{' isn't plaintext backup
+	// JSON -- it's either an encrypted backup (the default "backup create"
+	// output) or genuinely corrupt. Either way, list it: the filesystem
+	// fields above are still real, even though the payload isn't readable
+	// without the master key, which this function never touches.
 	if len(content) == 0 || content[0] != '{' {
-		return nil, fmt.Errorf("backup file appears to be encrypted or corrupted")
+		base.Encrypted = true
+		return &base, nil
 	}
 
-	// Parse the full backup data structure
 	var backupData BackupData
 	if err := json.Unmarshal([]byte(content), &backupData); err != nil {
-		return nil, fmt.Errorf("failed to parse backup file: %w", err)
+		// Starts with '{' but isn't valid backup JSON: also genuinely
+		// corrupt. Same treatment -- list what the filesystem knows, no
+		// payload fields.
+		base.Encrypted = true
+		return &base, nil
 	}
 
-	return &backupData.Metadata, nil
+	md := backupData.Metadata
+	md.Filename = base.Filename
+	md.Size = base.Size
+	md.ModTime = base.ModTime
+	md.Readable = true
+	return &md, nil
 }
