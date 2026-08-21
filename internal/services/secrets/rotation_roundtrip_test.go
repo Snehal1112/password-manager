@@ -335,3 +335,28 @@ func TestPerformManualRotation_RejectsBothValueAndGenerate(t *testing.T) {
 	require.NoError(t, getErr)
 	assert.Equal(t, "original-password", got.Value)
 }
+
+// TestScheduler_AutomaticRotation_RoundTripsAndVersionsOnce covers the path
+// that made B35 Critical: a policy with AutoRotate corrupts its secret on a
+// timer, unattended. It also pins the single version row -- the scheduler used
+// to write its own, on top of the one rotation now writes.
+func TestScheduler_AutomaticRotation_RoundTripsAndVersionsOnce(t *testing.T) {
+	ctx := context.Background()
+	f := newRotationFixture(t, "original-password")
+
+	require.NoError(t, f.schedulerSvc.ProcessUserRotations(ctx, f.userID))
+
+	got, err := f.secretSvc.GetSecret(ctx, f.secretID, f.scope())
+	require.NoError(t, err, "an automatically rotated secret must still decrypt")
+	assert.NotEqual(t, "original-password", got.Value)
+	assert.NotContains(t, got.Value, "_rotated_")
+	assert.Equal(t, 2, got.Version)
+
+	versions, err := f.versionRepo.GetVersions(ctx, f.secretID)
+	require.NoError(t, err)
+	require.Len(t, versions, 1, "automatic rotation must write exactly one version row")
+
+	archived, err := f.crypto.DecryptSecret(versions[0].Value)
+	require.NoError(t, err, "the archived version must be singly encrypted")
+	assert.Equal(t, "original-password", archived)
+}

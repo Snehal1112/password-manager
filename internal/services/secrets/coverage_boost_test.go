@@ -13,6 +13,7 @@ import (
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 
+	"rocketvault/internal/pwgen"
 	"rocketvault/internal/repositories"
 	"rocketvault/internal/services/secrets"
 	"rocketvault/internal/testutils"
@@ -1247,14 +1248,13 @@ func TestSchedulerServiceProcessesRotationsRemindersAndLifecycle(t *testing.T) {
 	rotationSvc.On("GetDueRotations", ctx, model.NewOwnerScope(uuid.Nil, userID)).Return(due, nil).Once()
 	rotationSvc.On("GetPolicy", ctx, policyID, model.NewAdminScope(uuid.Nil)).Return(&model.RotationPolicy{ID: policyID, UserID: userID, AutoRotate: true}, nil).Once()
 	secretRepo.On("Read", ctx, secretID, model.NewAdminScope(uuid.Nil)).Return(&model.Secret{ID: secretID, UserID: userID, Name: "api", Value: "current", Version: 1}, nil).Once()
-	versionSvc.On("CreateVersion", ctx, mock.MatchedBy(func(req secrets.CreateVersionRequest) bool {
-		return req.SecretID == secretID && req.UserID == userID && req.Version == 2
-	})).Return(&model.SecretVersion{ID: uuid.New()}, nil).Once()
 	rotationSvc.On("PerformManualRotation", ctx, secrets.ManualRotationRequest{
-		SecretID: secretID,
-		PolicyID: policyID,
-		Scope:    model.NewAdminScope(userID),
-		Notes:    "Automatic rotation by scheduler",
+		SecretID:     secretID,
+		PolicyID:     policyID,
+		Scope:        model.NewAdminScope(userID),
+		Notes:        "Automatic rotation by scheduler",
+		Generate:     true,
+		GenerateOpts: pwgen.DefaultOptions(),
 	}).Return(nil).Once()
 	require.NoError(t, svc.ProcessUserRotations(ctx, userID))
 
@@ -1263,12 +1263,16 @@ func TestSchedulerServiceProcessesRotationsRemindersAndLifecycle(t *testing.T) {
 	rotationSvc.On("AcknowledgeReminder", ctx, reminderID, secretID, model.NewAdminScope(uuid.Nil)).Return(nil).Once()
 	require.NoError(t, svc.ProcessUserReminders(ctx, userID))
 
-	manualReq := secrets.ManualSchedulerRotationRequest{SecretID: secretID, PolicyID: policyID, UserID: userID, Notes: "manual"}
+	manualReq := secrets.ManualSchedulerRotationRequest{
+		SecretID: secretID, PolicyID: policyID, UserID: userID, Notes: "manual",
+		NewValue: "operator-supplied",
+	}
 	rotationSvc.On("PerformManualRotation", ctx, secrets.ManualRotationRequest{
 		SecretID: secretID,
 		PolicyID: policyID,
 		Scope:    model.NewAdminScope(userID),
 		Notes:    "manual",
+		NewValue: "operator-supplied",
 	}).Return(nil).Once()
 	require.NoError(t, svc.PerformManualRotation(ctx, manualReq))
 

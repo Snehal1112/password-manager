@@ -11,6 +11,7 @@ import (
 	"github.com/google/uuid"
 
 	"rocketvault/internal/logging"
+	"rocketvault/internal/pwgen"
 	"rocketvault/internal/repositories"
 	"rocketvault/internal/schedulerkit"
 	"rocketvault/model"
@@ -30,12 +31,17 @@ type SchedulerServiceInterface interface {
 	PerformManualRotation(ctx context.Context, req ManualSchedulerRotationRequest) error
 }
 
-// ManualSchedulerRotationRequest represents a manual rotation request through the scheduler.
+// ManualSchedulerRotationRequest represents a manual rotation request through
+// the scheduler. Its value source is passed straight through to
+// ManualRotationRequest, so the same "never invent a value" rule applies.
 type ManualSchedulerRotationRequest struct {
-	SecretID uuid.UUID `json:"secret_id" validate:"required"`
-	PolicyID uuid.UUID `json:"policy_id" validate:"required"`
-	UserID   uuid.UUID `json:"user_id" validate:"required"`
-	Notes    string    `json:"notes" validate:"max=500"`
+	SecretID     uuid.UUID     `json:"secret_id" validate:"required"`
+	PolicyID     uuid.UUID     `json:"policy_id" validate:"required"`
+	UserID       uuid.UUID     `json:"user_id" validate:"required"`
+	Notes        string        `json:"notes" validate:"max=500"`
+	NewValue     string        `json:"new_value"`
+	Generate     bool          `json:"generate"`
+	GenerateOpts pwgen.Options `json:"generate_opts"`
 }
 
 // schedulerService implements SchedulerServiceInterface with service dependencies.
@@ -171,10 +177,13 @@ func (s *schedulerService) ProcessUserReminders(ctx context.Context, userID uuid
 func (s *schedulerService) PerformManualRotation(ctx context.Context, req ManualSchedulerRotationRequest) error {
 	// Delegate to rotation service
 	rotationReq := ManualRotationRequest{
-		SecretID: req.SecretID,
-		PolicyID: req.PolicyID,
-		Scope:    model.NewAdminScope(req.UserID),
-		Notes:    req.Notes,
+		SecretID:     req.SecretID,
+		PolicyID:     req.PolicyID,
+		Scope:        model.NewAdminScope(req.UserID),
+		Notes:        req.Notes,
+		NewValue:     req.NewValue,
+		Generate:     req.Generate,
+		GenerateOpts: req.GenerateOpts,
 	}
 
 	err := s.rotationSvc.PerformManualRotation(ctx, rotationReq)
@@ -221,27 +230,18 @@ func (s *schedulerService) performAutomaticRotation(ctx context.Context, sp mode
 		return fmt.Errorf("failed to get secret: %w", err)
 	}
 
-	// Create version before rotation
-	versionReq := CreateVersionRequest{
-		SecretID: sp.SecretID,
-		UserID:   secret.UserID,
-		Name:     secret.Name,
-		Value:    secret.Value,
-		Version:  secret.Version + 1,
-	}
-
-	_, err = s.versioningSvc.CreateVersion(ctx, versionReq)
-	if err != nil {
-		s.log.WithError(err).Error("Failed to create version before automatic rotation")
-		// Continue with rotation even if versioning fails
-	}
-
-	// Perform automatic rotation using rotation service
+	// Perform automatic rotation using rotation service. Unattended rotation
+	// has no operator to supply a value, so this is the one path where
+	// generating one is the only option. Versioning is not repeated here:
+	// PerformManualRotation archives the pre-rotation value itself, and a
+	// second CreateVersion would write a duplicate row.
 	rotationReq := ManualRotationRequest{
-		SecretID: sp.SecretID,
-		PolicyID: sp.PolicyID,
-		Scope:    model.NewAdminScope(secret.UserID),
-		Notes:    "Automatic rotation by scheduler",
+		SecretID:     sp.SecretID,
+		PolicyID:     sp.PolicyID,
+		Scope:        model.NewAdminScope(secret.UserID),
+		Notes:        "Automatic rotation by scheduler",
+		Generate:     true,
+		GenerateOpts: pwgen.DefaultOptions(),
 	}
 
 	err = s.rotationSvc.PerformManualRotation(ctx, rotationReq)
