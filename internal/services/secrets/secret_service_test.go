@@ -1209,3 +1209,33 @@ func TestExportImportCSV_RoundTripsQuoteCommaNewlineValueAndCommaTag(t *testing.
 	assert.Equal(t, value, created.Value, "the decoded CSV value must match the original byte-for-byte")
 	assert.Equal(t, tags, created.Tags, "the comma-containing tag must survive the round trip intact")
 }
+
+func TestImportSecretsCSV_FieldCountMismatch_IsReportedNotSilentlyDropped(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	vaultID := uuid.New()
+
+	repo := &testutils.MockSecretRepository{}
+	crypto := &testutils.MockCryptographyService{}
+	ver := &testutils.MockVersioningService{}
+	tag := &testutils.MockTagService{}
+
+	svc := newService(repo, crypto, ver, tag, t)
+	// The header declares 2 columns; this row has 3. The pre-fix parser
+	// (parts := parseCSVLine(line)) kept only parts[0]/parts[1] and threw
+	// "extra" away with no error at all — a silent data loss on read, not
+	// just on write. encoding/csv's FieldsPerRecord check must catch this.
+	data := []byte("name,value\nn1,v1,extra\n")
+
+	result, err := svc.ImportSecrets(ctx, secrets.ImportSecretsRequest{
+		Scope:  model.NewVaultScope(vaultID, uuid.New()),
+		Data:   data,
+		Format: "csv",
+	})
+	require.NoError(t, err, "one malformed row must not fail the whole import")
+	require.Len(t, result.Errors, 1, "the malformed row must be reported, not silently mis-parsed")
+	assert.Contains(t, result.Errors[0], "Line 2")
+	assert.Equal(t, 0, result.TotalCount, "a malformed row must not be counted as a parsed record")
+	assert.Equal(t, 0, result.ImportedCount)
+	repo.AssertNotCalled(t, "Create", mock.Anything, mock.Anything)
+}
