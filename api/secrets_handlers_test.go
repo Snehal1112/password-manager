@@ -997,6 +997,22 @@ func TestExportSecrets_InvalidFormat_Returns400(t *testing.T) {
 	assert.Equal(t, http.StatusBadRequest, w.Code)
 }
 
+// The API has no passphrase channel, so it must refuse "encrypt": true rather
+// than return plaintext under it (B36).
+func TestExportSecrets_EncryptRequested_Returns400(t *testing.T) {
+	c := newSecretCtx(nil)
+	w := httptest.NewRecorder()
+	body, _ := json.Marshal(map[string]any{"format": "json", "encrypt": true})
+	r := httptest.NewRequest(http.MethodPost, "/secrets/export", bytes.NewReader(body))
+
+	exportSecrets(c, w, r)
+	if c.Err != nil {
+		writeError(w, c)
+	}
+
+	assert.Equal(t, http.StatusBadRequest, w.Code)
+}
+
 func TestExportSecrets_ServiceError_Returns500(t *testing.T) {
 	svc := &mockSecretService{}
 	svc.On("ExportSecrets", mock.Anything, mock.Anything).Return([]byte{}, errors.New("export failed"))

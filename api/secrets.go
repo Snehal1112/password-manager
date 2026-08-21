@@ -183,6 +183,14 @@ func exportSecrets(c *Context, w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Encrypted export needs a passphrase, and a request body is the wrong
+	// place to carry one. Refusing is honest; returning plaintext under
+	// "encrypt": true is the bug this replaces (B36).
+	if exportReq.Encrypt {
+		c.SetInvalidParam("encrypt: encrypted export is available only through the CLI (rocketvault secrets export)")
+		return
+	}
+
 	secretService := c.secretSvc()
 	if secretService == nil {
 		return
