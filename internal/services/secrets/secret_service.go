@@ -822,11 +822,18 @@ func (s *secretService) ImportSecrets(ctx context.Context, req ImportSecretsRequ
 			}
 
 			value := importSec.Value
-			if err := s.UpdateSecret(ctx, UpdateSecretRequest{
+			updateReq := UpdateSecretRequest{
 				SecretID: existing.ID,
 				Scope:    req.Scope,
 				Value:    &value,
-			}); err != nil {
+			}
+			// Tags is nil-means-no-change. Only set it when the import
+			// record actually specified tags, so a record that says
+			// nothing about tags does not wipe the existing ones.
+			if importSec.Tags != nil {
+				updateReq.Tags = &importSec.Tags
+			}
+			if err := s.UpdateSecret(ctx, updateReq); err != nil {
 				result.Errors = append(result.Errors, fmt.Sprintf("Failed to overwrite '%s': %v", importSec.Name, err))
 				result.FailedCount++
 			} else {

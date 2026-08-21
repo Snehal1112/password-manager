@@ -809,6 +809,127 @@ func TestImportSecrets_ExistingNameWithOverwrite_UpdatesAndVersionsPriorValue(t 
 	ver.AssertExpectations(t)
 }
 
+// TestImportSecrets_ExistingNameWithOverwrite_TagsSpecified_ReplacesTags
+// proves that overwriting a secret whose import record specifies tags
+// replaces the existing tags with the imported ones.
+func TestImportSecrets_ExistingNameWithOverwrite_TagsSpecified_ReplacesTags(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	vaultID := uuid.New()
+	ownerID := uuid.New()
+	scope := model.NewVaultScope(vaultID, ownerID)
+	existingID := uuid.New()
+
+	existing := &model.Secret{
+		ID:      existingID,
+		UserID:  ownerID,
+		VaultID: vaultID,
+		Name:    "db-password",
+		Value:   "old-encrypted",
+		Version: 1,
+	}
+
+	repo := &testutils.MockSecretRepository{}
+	crypto := &testutils.MockCryptographyService{}
+	ver := &testutils.MockVersioningService{}
+	tag := &testutils.MockTagService{}
+
+	repo.On("FindByName", ctx, "db-password", scope).Return(existing, nil).Once()
+	repo.On("Read", ctx, existingID, scope).Return(existing, nil).Once()
+	crypto.On("DecryptSecret", "old-encrypted").Return("old-plain", nil).Once()
+	ver.On("CreateVersion", ctx, secrets.CreateVersionRequest{
+		SecretID: existingID,
+		UserID:   ownerID,
+		Name:     "db-password",
+		Value:    "old-plain",
+		Version:  1,
+	}).Return(&model.SecretVersion{}, nil).Once()
+	crypto.On("EncryptSecret", "new-value").Return("new-encrypted", nil).Once()
+	repo.On("Update", ctx, mock.MatchedBy(func(s *model.Secret) bool {
+		return s.ID == existingID && s.Value == "new-encrypted" && s.Version == 2
+	}), scope).Return(nil).Once()
+	tag.On("RemoveAllTags", ctx, existingID).Return(nil).Once()
+	tag.On("AddTags", ctx, existingID, []string{"prod", "api"}).Return(nil).Once()
+
+	svc := newService(repo, crypto, ver, tag, t)
+	result, err := svc.ImportSecrets(ctx, secrets.ImportSecretsRequest{
+		Scope:     scope,
+		Format:    "json",
+		Overwrite: true,
+		Data:      []byte(`[{"name":"db-password","value":"new-value","tags":["prod","api"]}]`),
+	})
+
+	require.NoError(t, err)
+	assert.Equal(t, 1, result.ImportedCount)
+	assert.Equal(t, 0, result.SkippedCount)
+	assert.Equal(t, 0, result.FailedCount)
+	repo.AssertExpectations(t)
+	crypto.AssertExpectations(t)
+	ver.AssertExpectations(t)
+	tag.AssertExpectations(t)
+}
+
+// TestImportSecrets_ExistingNameWithOverwrite_TagsNotSpecified_LeavesTagsUntouched
+// proves that overwriting a secret whose import record omits tags leaves the
+// existing secret's tags exactly as they were, rather than wiping them.
+func TestImportSecrets_ExistingNameWithOverwrite_TagsNotSpecified_LeavesTagsUntouched(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	vaultID := uuid.New()
+	ownerID := uuid.New()
+	scope := model.NewVaultScope(vaultID, ownerID)
+	existingID := uuid.New()
+
+	existing := &model.Secret{
+		ID:      existingID,
+		UserID:  ownerID,
+		VaultID: vaultID,
+		Name:    "db-password",
+		Value:   "old-encrypted",
+		Version: 1,
+	}
+
+	repo := &testutils.MockSecretRepository{}
+	crypto := &testutils.MockCryptographyService{}
+	ver := &testutils.MockVersioningService{}
+	tag := &testutils.MockTagService{}
+
+	repo.On("FindByName", ctx, "db-password", scope).Return(existing, nil).Once()
+	repo.On("Read", ctx, existingID, scope).Return(existing, nil).Once()
+	crypto.On("DecryptSecret", "old-encrypted").Return("old-plain", nil).Once()
+	ver.On("CreateVersion", ctx, secrets.CreateVersionRequest{
+		SecretID: existingID,
+		UserID:   ownerID,
+		Name:     "db-password",
+		Value:    "old-plain",
+		Version:  1,
+	}).Return(&model.SecretVersion{}, nil).Once()
+	crypto.On("EncryptSecret", "new-value").Return("new-encrypted", nil).Once()
+	repo.On("Update", ctx, mock.MatchedBy(func(s *model.Secret) bool {
+		return s.ID == existingID && s.Value == "new-encrypted" && s.Version == 2
+	}), scope).Return(nil).Once()
+
+	svc := newService(repo, crypto, ver, tag, t)
+	// The import record has no "tags" field at all, so importSec.Tags is
+	// nil, not an empty slice.
+	result, err := svc.ImportSecrets(ctx, secrets.ImportSecretsRequest{
+		Scope:     scope,
+		Format:    "json",
+		Overwrite: true,
+		Data:      []byte(`[{"name":"db-password","value":"new-value"}]`),
+	})
+
+	require.NoError(t, err)
+	assert.Equal(t, 1, result.ImportedCount)
+	assert.Equal(t, 0, result.SkippedCount)
+	assert.Equal(t, 0, result.FailedCount)
+	repo.AssertExpectations(t)
+	crypto.AssertExpectations(t)
+	ver.AssertExpectations(t)
+	tag.AssertNotCalled(t, "RemoveAllTags", mock.Anything, mock.Anything)
+	tag.AssertNotCalled(t, "AddTags", mock.Anything, mock.Anything, mock.Anything)
+}
+
 func TestImportSecrets_ExistingNameWithoutOverwrite_SkipsAndCounts(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
