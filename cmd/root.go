@@ -66,7 +66,8 @@ Log in once with 'rocketvault users login'. The session is cached under
 ~/.rocketvault/sessions and refreshed automatically, so everyday commands need
 no credential flags. These commands need no session at all: health, serve,
 users admin, users login, users logout, the migrate commands, vaults
-preview-migration, vault-access roles, and the whole context group.
+preview-migration, vault-access roles, secrets generate-password, and the
+whole context group.
 
 Secrets, keys, and certificates live inside a vault. Those commands act on the
 vault named by --vault or ROCKETVAULT_VAULT, falling back to "default".`,

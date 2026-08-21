@@ -117,7 +117,7 @@ Registered as persistent flags on `rootCmd`: `--config`, `--username`,
 `persistentPreRun` treats these as system commands, so their examples must not
 imply a login: `health`, `serve`, `admin`, `migrate`, `migrate:status`,
 `migrate:to`, `migrate:create`, `roles`, `preview-migration`, `login`,
-`logout`, and the whole `context` group.
+`logout`, `secrets generate-password`, and the whole `context` group.
 
 ## Do not
 

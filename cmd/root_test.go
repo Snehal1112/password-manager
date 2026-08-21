@@ -463,6 +463,12 @@ func TestIsSystemCommand(t *testing.T) {
 	}
 }
 
+// TestRootLongTextListsGeneratePasswordAsSessionExempt pins rootCmd.Long's
+// session-exempt command list against the isSystemCommand fix (B41).
+func TestRootLongTextListsGeneratePasswordAsSessionExempt(t *testing.T) {
+	assert.Contains(t, rootCmd.Long, "secrets generate-password")
+}
+
 // TestPersistentPreRun_RemoteTarget_HelpAndCompletion_RunCleanly is an
 // end-to-end regression test for a crash NB1's first pass introduced:
 // exempting help/completion from the remote-target guard let them fall

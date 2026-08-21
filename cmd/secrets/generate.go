@@ -45,8 +45,8 @@ The result contains at least one character from every enabled set, and it
 never repeats the same character three times in a row.
 
 No role and no data action is checked, and no vault is touched. The command
-is not on the CLI's list of session-exempt commands, so an active session
-is still required to run it.`,
+needs no active session or credential flags to run it, since it performs no
+server or vault operation at all.`,
 	Example: `  # Generate a 16-character password from the default character sets
   rocketvault secrets generate-password
 

@@ -45,3 +45,11 @@ func TestGenerateCmd_InvalidLength_ReturnsError(t *testing.T) {
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "failed to generate password")
 }
+
+// TestGenerateCmdLongTextReflectsSessionExemption pins the help text
+// against the isSystemCommand fix (B41): the command no longer requires an
+// active session, so its Long text must not claim otherwise.
+func TestGenerateCmdLongTextReflectsSessionExemption(t *testing.T) {
+	assert.NotContains(t, generateCmd.Long, "is still required to run it")
+	assert.Contains(t, generateCmd.Long, "needs no active session")
+}
