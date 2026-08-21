@@ -24,9 +24,14 @@ var renewCmd = &cobra.Command{
 	Short: "Renew a certificate",
 	Long: `Re-issue an X.509 certificate over its existing key with a fresh validity
 period counted from now. The renewal is written in place: the certificate
-keeps its ID, name, tags and vault, and only its body and expiry change. The
-renewed certificate is always self-signed and marked as a CA, even when the
-original was signed by a CA certificate.
+keeps its ID, name, tags and vault, and only its body and expiry change.
+There is no new certificate ID to record.
+
+A certificate originally signed by a CA is re-issued through that same CA,
+so its issuer and chain are preserved; a self-signed certificate is
+re-issued self-signed. The signing CA must still exist in the vault, be
+enabled, and be within its own validity window, or the renewal is refused
+rather than quietly downgraded to self-signed.
 
 Requires the admin or certificate_manager role, and the
 Microsoft.KeyVault/vaults/certificates/create data action in the target
@@ -91,9 +96,10 @@ renew before it lapses rather than after.`,
 			return fmt.Errorf("failed to renew certificate: %w", err)
 		}
 
-		log.LogAuditInfo(claims.UserID.String(), "renew_certificate", "success", fmt.Sprintf("certificate renewed: %s, new ID: %s", certID, result.CertID))
-		fmt.Printf("Certificate renewed successfully!\nOld Certificate ID: %s\nNew Certificate ID: %s\nValidity: %d days\n",
-			certID, result.CertID, validityDays)
+		log.LogAuditInfo(claims.UserID.String(), "renew_certificate", "success", fmt.Sprintf("certificate renewed: %s", result.CertID))
+		// Renewal updates the row in place, so there is one ID, not two.
+		fmt.Printf("Certificate renewed successfully!\nCertificate ID: %s\nValidity: %d days\n",
+			result.CertID, validityDays)
 		return nil
 	},
 }
