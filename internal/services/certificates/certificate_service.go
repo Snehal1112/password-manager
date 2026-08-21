@@ -712,6 +712,69 @@ func (s *certificateService) PurgeCertificate(ctx context.Context, certID uuid.U
 	return nil
 }
 
+// renewCASignedBody re-issues a CA-signed certificate through the CA that
+// signed the original, so the issuer and the chain survive the renewal.
+//
+// The CA is resolved with the same authorization CreateCASignedCertificate
+// uses -- the scoped read plus the owner comparison -- and then read again
+// through GetCertificate, which adds the lifecycle gate. A CA that was
+// deleted, moved out of scope, disabled or has itself expired therefore
+// refuses the renewal. That is deliberately stricter than creation, which
+// will still sign with an expired CA: a renewal exists to produce a usable
+// certificate, and one signed by an expired CA cannot chain-verify.
+func (s *certificateService) renewCASignedBody(ctx context.Context, original *model.Certificate, scope model.Scope, privateKeyPEM, keyType string, validityDays int) (string, error) {
+	userID := scope.ActorID()
+	caCertID := *original.CACertID
+
+	if err := s.ValidateCertificateAccess(ctx, caCertID, scope); err != nil {
+		s.logger.LogAuditError(userID.String(), "renew_certificate", "failed", "cannot access signing CA certificate", err)
+		return "", fmt.Errorf("cannot renew CA-signed certificate: signing CA %s is not accessible: %w", caCertID, err)
+	}
+
+	caCert, err := s.GetCertificate(ctx, caCertID, scope)
+	if err != nil {
+		s.logger.LogAuditError(userID.String(), "renew_certificate", "failed", "signing CA certificate is unusable", err)
+		return "", fmt.Errorf("cannot renew CA-signed certificate: signing CA %s is unusable: %w", caCertID, err)
+	}
+
+	caKeyPEM, err := common.DecryptSecret(caCert.PrivateKey)
+	if err != nil {
+		s.logger.LogAuditError(userID.String(), "renew_certificate", "failed", "failed to decrypt CA key", err)
+		return "", fmt.Errorf("failed to decrypt CA key: %w", err)
+	}
+
+	caKeyType, err := crypto.DetectPrivateKeyType(caKeyPEM)
+	if err != nil {
+		s.logger.LogAuditError(userID.String(), "renew_certificate", "failed", "failed to determine CA key type", err)
+		return "", fmt.Errorf("failed to determine CA key type: %w", err)
+	}
+
+	certPEM, err := crypto.CreateCASignedCertificatePEM(privateKeyPEM, keyType, caCert.Certificate, caKeyPEM, caKeyType, crypto.CertificateTemplate{
+		CommonName:   original.Name,
+		ValidityDays: validityDays,
+		IsCA:         false,
+	})
+	if err != nil {
+		s.logger.LogAuditError(userID.String(), "renew_certificate", "failed", "failed to generate CA-signed certificate", err)
+		return "", fmt.Errorf("failed to generate renewed certificate: %w", err)
+	}
+	return certPEM, nil
+}
+
+// isSelfSignedPEM reports whether a stored certificate signed itself, by
+// checking its signature against its own public key.
+func isSelfSignedPEM(certPEM string) (bool, error) {
+	block, _ := pem.Decode([]byte(certPEM))
+	if block == nil {
+		return false, fmt.Errorf("failed to decode PEM block from certificate")
+	}
+	cert, err := x509.ParseCertificate(block.Bytes)
+	if err != nil {
+		return false, fmt.Errorf("failed to parse X.509 certificate: %w", err)
+	}
+	return cert.CheckSignature(cert.SignatureAlgorithm, cert.RawTBSCertificate, cert.Signature) == nil, nil
+}
+
 // RenewCertificate creates a new certificate to replace an expiring one.
 // It generates a new certificate with the same properties as the original.
 //
@@ -786,14 +849,40 @@ func (s *certificateService) RenewCertificate(ctx context.Context, certID uuid.U
 	isCA := status == caStatusCA
 	demoted := status == caStatusUnsignableCA
 
-	certPEM, err := crypto.CreateSelfSignedCertificatePEM(privateKeyPEM, key.Type, crypto.CertificateTemplate{
-		CommonName:   original.Name,
-		ValidityDays: validityDays,
-		IsCA:         isCA,
-	})
-	if err != nil {
-		s.logger.LogAuditError(userID.String(), "renew_certificate", "failed", "failed to generate certificate", err)
-		return nil, fmt.Errorf("failed to generate renewed certificate: %w", err)
+	var certPEM string
+	if original.CACertID != nil {
+		certPEM, err = s.renewCASignedBody(ctx, original, scope, privateKeyPEM, key.Type, validityDays)
+		if err != nil {
+			return nil, err
+		}
+	} else {
+		// A row created before ca_cert_id existed carries no CA link. Renewing
+		// it self-signed would silently drop a real issuer -- the bug this
+		// branch exists to fix -- so refuse when the stored body says the
+		// certificate was signed by somebody else.
+		selfSigned, inspectErr := isSelfSignedPEM(original.Certificate)
+		if inspectErr != nil {
+			s.logger.LogAuditError(userID.String(), "renew_certificate", "failed", "failed to inspect stored certificate", inspectErr)
+			return nil, fmt.Errorf("failed to inspect stored certificate: %w", inspectErr)
+		}
+		if !selfSigned {
+			s.logger.LogAuditError(userID.String(), "renew_certificate", "failed", "certificate records no signing CA but is not self-signed", nil)
+			return nil, fmt.Errorf("cannot renew certificate %s: it was signed by a CA this installation no longer records; re-create it against its CA instead", original.ID)
+		}
+
+		// isCA is the flag read off the certificate being replaced, above.
+		// Renewal preserves it: forcing true would make every renewal issue a
+		// CA (B44), and forcing false would strip the CA bit from every CA
+		// this system issued, the first time it renewed.
+		certPEM, err = crypto.CreateSelfSignedCertificatePEM(privateKeyPEM, key.Type, crypto.CertificateTemplate{
+			CommonName:   original.Name,
+			ValidityDays: validityDays,
+			IsCA:         isCA,
+		})
+		if err != nil {
+			s.logger.LogAuditError(userID.String(), "renew_certificate", "failed", "failed to generate certificate", err)
+			return nil, fmt.Errorf("failed to generate renewed certificate: %w", err)
+		}
 	}
 
 	expiresAt, err := extractExpiresAt(certPEM)
