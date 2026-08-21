@@ -1242,3 +1242,82 @@ func TestImportSecretsCSV_FieldCountMismatch_IsReportedNotSilentlyDropped(t *tes
 	assert.Equal(t, 0, result.ImportedCount)
 	repo.AssertNotCalled(t, "Create", mock.Anything, mock.Anything)
 }
+
+func TestImportSecretsCSV_ParsesOldPreFixExportForCommonCase(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	vaultID := uuid.New()
+	scope := model.NewVaultScope(vaultID, uuid.New())
+
+	repo := &testutils.MockSecretRepository{}
+	crypto := &testutils.MockCryptographyService{}
+	ver := &testutils.MockVersioningService{}
+	tag := &testutils.MockTagService{}
+
+	// ImportSecrets always checks for an existing record by name before
+	// deciding to create or overwrite (see secret_service.go's ImportSecrets),
+	// so the mock repo needs a FindByName stub regardless of Overwrite.
+	repo.On("FindByName", ctx, "legacy", scope).Return(nil, repositories.ErrNotFound)
+	crypto.On("EncryptSecret", "legacy-value").Return("enc-legacy", nil)
+	var created *model.Secret
+	repo.On("Create", ctx, mock.AnythingOfType("*model.Secret")).
+		Run(func(args mock.Arguments) { created = args.Get(1).(*model.Secret) }).
+		Return(nil)
+
+	svc := newService(repo, crypto, ver, tag, t)
+	// Byte-for-byte what the pre-fix hand-rolled writer produced for a
+	// secret and tags with no embedded quote, comma or newline — the
+	// common case. This fix must still read it correctly: no export ever
+	// written before this fix should become unreadable because of it.
+	oldFormatData := []byte("name,value,tags\n" + `"legacy","legacy-value","tag1,tag2"` + "\n")
+
+	result, err := svc.ImportSecrets(ctx, secrets.ImportSecretsRequest{
+		Scope:  scope,
+		Data:   oldFormatData,
+		Format: "csv",
+	})
+	require.NoError(t, err)
+	assert.Equal(t, 1, result.ImportedCount)
+	require.NotNil(t, created)
+	assert.Equal(t, "legacy", created.Name)
+	// CreateSecret overwrites the passed secret's Value back to plaintext
+	// before returning it (see "Return plaintext to the caller" in
+	// CreateSecret), matching the pattern documented on
+	// TestImportSecretsCSV_UnescapesDoubledQuote above — so the
+	// mock-captured struct holds the decoded CSV value here, not the
+	// encrypted one.
+	assert.Equal(t, "legacy-value", created.Value)
+	crypto.AssertCalled(t, "EncryptSecret", "legacy-value")
+	assert.Equal(t, []string{"tag1", "tag2"}, created.Tags)
+}
+
+func TestImportSecretsCSV_OldFormatWithEmbeddedQuote_FailsLoudlyNotSilently(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	vaultID := uuid.New()
+
+	repo := &testutils.MockSecretRepository{}
+	crypto := &testutils.MockCryptographyService{}
+	ver := &testutils.MockVersioningService{}
+	tag := &testutils.MockTagService{}
+
+	svc := newService(repo, crypto, ver, tag, t)
+	// Byte-for-byte what the pre-fix writer produced for Name="legacy",
+	// Value=`say "hi"`: fmt.Sprintf(`"%s","%s"`, name, value) leaves a
+	// bare, unescaped quote inside a quoted field. That file was already
+	// corrupted the moment it was written — no reader can recover the
+	// original value from it. What changed is that this reader reports
+	// the row as malformed instead of silently returning a truncated or
+	// wrong value.
+	oldCorruptData := []byte("name,value\n" + `"legacy","say "hi""` + "\n")
+
+	result, err := svc.ImportSecrets(ctx, secrets.ImportSecretsRequest{
+		Scope:  model.NewVaultScope(vaultID, uuid.New()),
+		Data:   oldCorruptData,
+		Format: "csv",
+	})
+	require.NoError(t, err, "one bad row must not fail the whole import")
+	require.Len(t, result.Errors, 1)
+	assert.Equal(t, 0, result.ImportedCount)
+	repo.AssertNotCalled(t, "Create", mock.Anything, mock.Anything)
+}
