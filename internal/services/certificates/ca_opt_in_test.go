@@ -400,14 +400,15 @@ func TestCreateSelfSignedCertificate_LeafGetsNoCertSign(t *testing.T) {
 	assert.Zero(t, issued.KeyUsage&x509.KeyUsageCRLSign, "an ordinary certificate must not be able to sign CRLs")
 }
 
-// certificateIsCA's parse-failure branches are fail-closed: renewal aborts
-// rather than guessing a CA status for a certificate it cannot read. That
-// behaviour has no lock on it -- a future "cleanup" turning either branch into
-// `return false, nil` would silently strip the CA bit off every real CA on
-// its first renewal, with the rest of the suite still green. This pins both
-// of certificateIsCA's two distinct failure paths: pem.Decode rejecting the
-// stored bytes outright, and x509.ParseCertificate rejecting a
-// syntactically valid PEM block whose DER body isn't a certificate.
+// inspectCertificateCA's parse-failure branches are fail-closed: renewal
+// aborts rather than guessing a CA status for a certificate it cannot read.
+// That behaviour has no lock on it -- a future "cleanup" turning either
+// branch into `return caStatusLeaf, nil` would silently strip the CA bit off
+// every real CA on its first renewal, with the rest of the suite still
+// green. This pins both of inspectCertificateCA's two distinct failure
+// paths: pem.Decode rejecting the stored bytes outright, and
+// x509.ParseCertificate rejecting a syntactically valid PEM block whose DER
+// body isn't a certificate.
 func TestRenewCertificate_UnparsableCertificateAbortsWithoutIssuing(t *testing.T) {
 	garbageDERPEM := string(pem.EncodeToMemory(&pem.Block{
 		Type:  "CERTIFICATE",

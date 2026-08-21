@@ -1865,8 +1865,8 @@ distinguishes a leaf, a working CA, and a pre-fix certificate that asserts
 > for why.
 
 **Related**: `CreateCASignedCertificate` hardcodes the CA key type as `"RSA"`
-(l.381, comment: "assume CA uses RSA for simplicity"), so an ECDSA CA is sent
-down the RSA path.
+(l.396-397, comment: "assume CA uses RSA for simplicity"), so an ECDSA CA is
+sent down the RSA path.
 
 **Fix sketch**: branch on the original certificate's `CACertID` — re-issue
 through `CreateCASignedCertificate` when set, self-sign only when it is not —
