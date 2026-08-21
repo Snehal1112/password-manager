@@ -3366,7 +3366,8 @@ paths:
       description: |
         Issues an X.509 certificate signed by the named key. Supplying
         `ca_cert_id` issues a CA-signed certificate; omitting it issues a
-        self-signed one.
+        self-signed one. The certificate is an ordinary leaf unless `is_ca`
+        is true, which cannot be combined with `ca_cert_id`.
       operationId: createCertificate
       tags:
         - Certificates
@@ -6322,6 +6323,13 @@ components:
           type: string
           format: uuid
           description: UUID of the CA certificate; supplying it issues a CA-signed certificate
+        is_ca:
+          type: boolean
+          default: false
+          description: >-
+            Issue the certificate as a Certificate Authority that can sign
+            other certificates. Only valid on the self-signed path; combining
+            it with ca_cert_id is rejected.
         enabled:
           type: boolean
           default: true

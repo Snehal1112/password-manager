@@ -46,6 +46,7 @@ type CreateCertificateAPIRequest struct {
 	RenewalDays  int        `json:"renewal_days"`         // Days before expiry to renew; defaults to 30.
 	CAKeyID      string     `json:"ca_key_id,omitempty"`  // Unused; kept for future use.
 	CACertID     string     `json:"ca_cert_id,omitempty"` // UUID of CA cert; triggers CA-signed path.
+	IsCA         bool       `json:"is_ca,omitempty"`      // Issue as a Certificate Authority; defaults to false.
 	Enabled      *bool      `json:"enabled,omitempty"`    // Defaults to true when omitted.
 	NotBefore    *time.Time `json:"not_before,omitempty"` // Optional activation time.
 	// PurgeProtection is optional; nil leaves the stored default alone.
@@ -190,6 +191,7 @@ func createCertificate(c *Context, w http.ResponseWriter, r *http.Request) {
 		VaultID:         vaultID,
 		AutoRenew:       req.AutoRenew,
 		RenewalDays:     req.RenewalDays,
+		IsCA:            req.IsCA,
 		Enabled:         req.Enabled,
 		NotBefore:       req.NotBefore,
 		PurgeProtection: req.PurgeProtection,

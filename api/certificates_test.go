@@ -772,3 +772,75 @@ func TestGetCertificate_InternalError_Returns500(t *testing.T) {
 	assert.Equal(t, http.StatusInternalServerError, w.Code)
 	svc.AssertExpectations(t)
 }
+
+// is_ca must reach the service. Before B44 there was no way to ask for
+// anything other than a CA, because every self-signed certificate was one.
+func TestCreateCertificate_PassesIsCAThrough(t *testing.T) {
+	svc := &mockCertService{}
+	now := time.Now()
+
+	var captured certServices.CreateCertificateRequest
+	svc.On("CreateSelfSignedCertificate", mock.Anything, mock.Anything).
+		Run(func(args mock.Arguments) {
+			captured = args.Get(1).(certServices.CreateCertificateRequest)
+		}).
+		Return(&certServices.CreateCertificateResult{
+			CertID:    uuid.New(),
+			Name:      "issuing-ca",
+			CreatedAt: now,
+		}, nil)
+
+	c := newCertCtx(svc, certAdminClaims())
+	w := httptest.NewRecorder()
+	body, _ := json.Marshal(map[string]any{
+		"name":          "issuing-ca",
+		"key_id":        uuid.New().String(),
+		"validity_days": 3650,
+		"is_ca":         true,
+	})
+	r := httptest.NewRequest(http.MethodPost, "/certificates", bytes.NewReader(body))
+
+	createCertificate(c, w, r)
+	if c.Err != nil {
+		writeError(w, c)
+	}
+
+	assert.Equal(t, http.StatusCreated, w.Code)
+	assert.True(t, captured.IsCA, "is_ca must reach the service")
+	svc.AssertExpectations(t)
+}
+
+// Omitting is_ca must issue a leaf. That default is the whole of B44.
+func TestCreateCertificate_DefaultsToNonCA(t *testing.T) {
+	svc := &mockCertService{}
+	now := time.Now()
+
+	var captured certServices.CreateCertificateRequest
+	svc.On("CreateSelfSignedCertificate", mock.Anything, mock.Anything).
+		Run(func(args mock.Arguments) {
+			captured = args.Get(1).(certServices.CreateCertificateRequest)
+		}).
+		Return(&certServices.CreateCertificateResult{
+			CertID:    uuid.New(),
+			Name:      "tls-server",
+			CreatedAt: now,
+		}, nil)
+
+	c := newCertCtx(svc, certAdminClaims())
+	w := httptest.NewRecorder()
+	body, _ := json.Marshal(map[string]any{
+		"name":          "tls-server",
+		"key_id":        uuid.New().String(),
+		"validity_days": 365,
+	})
+	r := httptest.NewRequest(http.MethodPost, "/certificates", bytes.NewReader(body))
+
+	createCertificate(c, w, r)
+	if c.Err != nil {
+		writeError(w, c)
+	}
+
+	assert.Equal(t, http.StatusCreated, w.Code)
+	assert.False(t, captured.IsCA, "omitting is_ca must issue a leaf")
+	svc.AssertExpectations(t)
+}

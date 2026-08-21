@@ -29,9 +29,13 @@ var createCmd = &cobra.Command{
 	Short: "Create a new X.509 certificate",
 	Long: `Issue an X.509 certificate over a key that already exists in the target
 vault, and store the certificate in that same vault. Without --ca-cert-id
-the certificate is self-signed and marked as a CA, so it can itself sign
-later certificates; with --ca-cert-id it is signed by that CA certificate,
-which must live in the same vault.
+the certificate is self-signed; with --ca-cert-id it is signed by that CA
+certificate, which must live in the same vault.
+
+The certificate is an ordinary leaf unless you pass --is-ca, which marks it
+as a Certificate Authority so it can sign later certificates. Ask for that
+only when you mean it: anything holding a CA's private key can issue
+certificates for any name. --is-ca cannot be combined with --ca-cert-id.
 
 Requires the admin or certificate_manager role, and the
 Microsoft.KeyVault/vaults/certificates/create data action in the target
@@ -46,6 +50,10 @@ sent only when the flag is passed explicitly.`,
 	Example: `  # Self-signed certificate over an existing key
   rocketvault certificate create --name <name> --key-id <key-id> \
     --validity-days 365
+
+  # Self-signed CA that can sign later certificates
+  rocketvault certificate create --name <name> --key-id <key-id> \
+    --is-ca --validity-days 3650
 
   # Certificate signed by a CA certificate in the same vault
   rocketvault certificate create --name <name> --key-id <key-id> \
@@ -75,6 +83,7 @@ sent only when the flag is passed explicitly.`,
 		caCertIDStr := viper.GetString("cert-ca-cert-id")
 		autoRenew, _ := cmd.Flags().GetBool("auto-renew")
 		renewalDays, _ := cmd.Flags().GetInt("renewal-days")
+		isCA, _ := cmd.Flags().GetBool("is-ca")
 
 		if name == "" || keyIDStr == "" || validityDays <= 0 {
 			log.LogAuditError(claims.UserID.String(), "create_certificate", "failed", "name, key-id, and validity-days are required", nil)
@@ -119,6 +128,7 @@ sent only when the flag is passed explicitly.`,
 			VaultID:      vaultID,
 			AutoRenew:    autoRenew,
 			RenewalDays:  renewalDays,
+			IsCA:         isCA,
 		}
 		// Only send purge protection when the flag was explicitly passed.
 		if cmd.Flags().Changed("purge-protection") {
@@ -175,6 +185,7 @@ func InitCertificatesCreate(certificatesCmd *cobra.Command) *cobra.Command {
 	createCmd.Flags().Bool("auto-renew", false, "Automatically renew certificate before expiry")
 	createCmd.Flags().Int("renewal-days", 30, "Days before expiry to trigger renewal")
 	createCmd.Flags().Bool("purge-protection", false, "Protect the certificate from being purged")
+	createCmd.Flags().Bool("is-ca", false, "Issue the certificate as a Certificate Authority that can sign other certificates")
 	viper.BindPFlag("cert-name", createCmd.Flags().Lookup("name"))                   //nolint:errcheck,gosec
 	viper.BindPFlag("cert-key-id", createCmd.Flags().Lookup("key-id"))               //nolint:errcheck,gosec
 	viper.BindPFlag("cert-validity-days", createCmd.Flags().Lookup("validity-days")) //nolint:errcheck,gosec

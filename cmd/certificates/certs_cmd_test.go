@@ -1614,3 +1614,92 @@ func TestFormatOptionalTime_NonNil(t *testing.T) {
 	assert.Equal(t, ts.Format(time.RFC3339), result)
 	assert.Contains(t, result, "2026-01-15")
 }
+
+// --is-ca is the opt-in that replaces the old blanket CA:TRUE (B44). It has to
+// reach the service, or the flag is decoration.
+func TestCertCreateCmd_IsCAFlagOptsIn(t *testing.T) {
+	tc := testutils.NewTestContext(t)
+	certSvc := &certCmdCertService{}
+	keyID := uuid.New()
+	result := &certServices.CreateCertificateResult{
+		CertID:    uuid.New(),
+		Name:      "issuing-ca",
+		CreatedAt: time.Now(),
+	}
+	certSvc.On("CreateSelfSignedCertificate", mock.Anything, mock.MatchedBy(func(r certServices.CreateCertificateRequest) bool {
+		return r.Name == "issuing-ca" && r.KeyID == keyID && r.IsCA
+	})).Return(result, nil)
+
+	sc := &certsTestContainer{
+		MockServiceContainer: tc.MockContainer,
+		certSvc:              certSvc,
+	}
+	claims := &model.Claims{UserID: tc.TestUserID, Username: "admin", Role: model.RoleAdmin}
+	ctx := context.WithValue(context.Background(), common.ClaimsKey, claims)
+	ctx = context.WithValue(ctx, common.LogKey, newCertLogger())
+	ctx = context.WithValue(ctx, common.ServiceContainerKey, sc)
+	ctx = context.WithValue(ctx, common.OutputFormatterKey, newCertFmtr())
+	cleanup := viperSetCert(map[string]interface{}{
+		"cert-name":          "issuing-ca",
+		"cert-key-id":        keyID.String(),
+		"cert-validity-days": 3650,
+		"cert-tags":          "",
+		"cert-ca-cert-id":    "",
+	})
+	defer cleanup()
+
+	cmd, buf := newCertCmd(createCmd.RunE, nil)
+	cmd.Flags().Bool("auto-renew", false, "")
+	cmd.Flags().Int("renewal-days", 30, "")
+	cmd.Flags().Bool("is-ca", false, "")
+	assert.NoError(t, cmd.Flags().Set("is-ca", "true"))
+	cmd.SetContext(ctx)
+	err := cmd.Execute()
+	assert.NoError(t, err)
+	assert.NotEmpty(t, buf.String())
+	certSvc.AssertExpectations(t)
+}
+
+// Without the flag the request must ask for a leaf. This is the default that
+// B44 was missing.
+func TestCertCreateCmd_WithoutIsCAFlagRequestsALeaf(t *testing.T) {
+	tc := testutils.NewTestContext(t)
+	certSvc := &certCmdCertService{}
+	keyID := uuid.New()
+	result := &certServices.CreateCertificateResult{
+		CertID:    uuid.New(),
+		Name:      "tls-server",
+		CreatedAt: time.Now(),
+	}
+	certSvc.On("CreateSelfSignedCertificate", mock.Anything, mock.MatchedBy(func(r certServices.CreateCertificateRequest) bool {
+		return r.Name == "tls-server" && !r.IsCA
+	})).Return(result, nil)
+
+	sc := &certsTestContainer{
+		MockServiceContainer: tc.MockContainer,
+		certSvc:              certSvc,
+	}
+	claims := &model.Claims{UserID: tc.TestUserID, Username: "admin", Role: model.RoleAdmin}
+	ctx := context.WithValue(context.Background(), common.ClaimsKey, claims)
+	ctx = context.WithValue(ctx, common.LogKey, newCertLogger())
+	ctx = context.WithValue(ctx, common.ServiceContainerKey, sc)
+	ctx = context.WithValue(ctx, common.OutputFormatterKey, newCertFmtr())
+	cleanup := viperSetCert(map[string]interface{}{
+		"cert-name":          "tls-server",
+		"cert-key-id":        keyID.String(),
+		"cert-validity-days": 365,
+		"cert-tags":          "",
+		"cert-ca-cert-id":    "",
+	})
+	defer cleanup()
+
+	cmd, buf := newCertCmd(createCmd.RunE, nil)
+	cmd.Flags().Bool("auto-renew", false, "")
+	cmd.Flags().Int("renewal-days", 30, "")
+	cmd.Flags().Bool("is-ca", false, "")
+	cmd.SetContext(ctx)
+	err := cmd.Execute()
+	assert.NoError(t, err)
+	assert.NotEmpty(t, buf.String())
+	certSvc.AssertExpectations(t)
+}
