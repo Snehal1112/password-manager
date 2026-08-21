@@ -69,7 +69,8 @@ Microsoft.KeyVault/vaults/secrets/setSecret/action data action in the
 target vault.
 
 Acts on the vault named by --vault, which defaults to "default". The caller
-becomes the owner of every imported secret.
+becomes the owner of every secret this import creates; an overwritten
+secret keeps its existing owner.
 
 Records missing a name or a value are skipped rather than failing the run.
 Imported, skipped, and failed counts are all printed when the run finishes.`,
@@ -152,9 +153,10 @@ Imported, skipped, and failed counts are all printed when the run finishes.`,
 			data = opened
 		}
 
-		// The scope's actor becomes the owner of every imported secret, so it
-		// must carry the real authenticated user; uuid.Nil would orphan every
-		// row (and fail the PostgreSQL foreign key outright).
+		// The scope's actor becomes the owner of every secret this import
+		// creates (an overwritten secret keeps its existing owner), so the
+		// scope must carry the real authenticated user; uuid.Nil would orphan
+		// every created row (and fail the PostgreSQL foreign key outright).
 		result, err := sc.GetSecretService().ImportSecrets(ctx, secretServices.ImportSecretsRequest{
 			Scope:     model.NewVaultScope(vaultID, userID),
 			Data:      data,
@@ -167,6 +169,18 @@ Imported, skipped, and failed counts are all printed when the run finishes.`,
 
 		fmt.Printf("Secrets imported successfully\nImported: %d\nSkipped: %d\nFailed: %d\n",
 			result.ImportedCount, result.SkippedCount, result.FailedCount)
+
+		if len(result.Errors) > 0 {
+			fmt.Printf("Errors:\n")
+			for _, e := range result.Errors {
+				fmt.Printf("  - %s\n", e)
+			}
+		}
+
+		if result.FailedCount > 0 {
+			return fmt.Errorf("%d record(s) failed to import; see errors above", result.FailedCount)
+		}
+
 		return nil
 	},
 }
