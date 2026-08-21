@@ -2099,6 +2099,17 @@ the list above
   revoke-level permission. Fail-closed, so not a hole, but stricter than the
   parameter name suggests.
 
+**`vault-access list`'s permission tier is a deferred product decision, not
+a bug fix.** `cmd/vault-access/list.go`'s `Long` text (as of commit
+`dd5fb83`) already documents the current behavior accurately: listing
+requires the same permission as `vault-access revoke`. The spec for this
+cluster (`docs/superpowers/specs/2026-08-21-cli-bug-fixes-b35-b41-design.md`,
+§ B41) marks "add a narrower read tier vs. keep the shared check" as
+"resolve before implementing" rather than a mechanical fix, so B41's plan
+(`docs/superpowers/plans/2026-08-21-07-b41-cleanup-cluster.md`) deliberately
+left the authorization check untouched. Whoever owns the product call
+should update this note when a decision is made.
+
 **Provenance for B35–B41**: all found during the 2026-08-21 CLI help-text sweep
 (`.claude/cli-help-conventions.md`), while reading every `RunE` to describe it
 accurately. Each was verified against the source before filing. The help text
