@@ -2041,6 +2041,68 @@ caught it at the first CA-signed certificate.
 same feature. B37 makes renewal preserve the issuer; B43 makes the issuer's
 signature acceptable in the first place. Neither alone gives a working chain.
 
+**Blocked by B44 — do not fix B43 on its own.** Every self-signed certificate is
+currently marked `IsCA: true` (see B44). Adding `CertSign` on the strength of
+that flag would turn every self-signed leaf into a working CA. B44 must land
+first or in the same change.
+
+---
+
+### B44 — Every self-signed certificate is issued as a Certificate Authority
+
+**Status**: Open, found 2026-08-21
+**Severity**: High — a compromised leaf key becomes a signing CA. Also gates
+B43, whose fix would otherwise make this exploitable rather than merely wrong
+**Files**: `internal/services/certificates/certificate_service.go`
+
+**Symptom**: request an ordinary self-signed certificate — a TLS server
+certificate, say — and the certificate you get back has
+`BasicConstraints: CA:TRUE`. Verify with:
+
+```bash
+openssl x509 -in cert.pem -noout -text | grep -A1 "Basic Constraints"
+```
+
+**Root cause**: both self-signed call sites hardcode the flag.
+
+```go
+// certificate_service.go:227 (creation) and :743 (renewal)
+crypto.CreateSelfSignedCertificatePEM(privateKeyPEM, key.Type, crypto.CertificateTemplate{
+    CommonName:   req.Name,
+    ValidityDays: req.ValidityDays,
+    IsCA:         true,
+})
+```
+
+There is no code path that produces a self-signed certificate with
+`IsCA: false`. The API and CLI expose no way to ask for one.
+
+**Why this matters on its own**: a certificate asserting `CA:TRUE` is, to any
+relying party that trusts it, an issuer. If its private key leaks, the holder
+can mint certificates for arbitrary names that chain to it. An ordinary leaf
+certificate should assert `CA:FALSE` so that a key compromise stays scoped to
+that one identity.
+
+**Why it gates B43**: today these certificates carry `IsCA: true` but no
+`keyCertSign`, so verifiers refuse to treat them as signers — the B43 defect is
+accidentally the only thing preventing them from working as CAs. B43's fix adds
+`CertSign` **conditioned on `IsCA`**, so applying it while B44 stands would
+promote every self-signed certificate from a broken CA to a fully functional
+one. That is a security regression introduced by a security fix, which is why
+the two must be sequenced together.
+
+**Fix sketch**: default `IsCA` to `false` for self-signed certificates and let a
+caller opt in explicitly — a `--ca` flag on `certificates create` and a
+corresponding request field — so a CA is something you ask for rather than
+something everyone gets. Existing certificates cannot be repaired in place; the
+flag is inside the signed body, so they must be reissued.
+
+**Test**: create an ordinary self-signed certificate and assert the parsed
+`x509.Certificate` has `IsCA == false`; create one with the opt-in and assert
+`IsCA == true` plus `KeyUsageCertSign`.
+
+**Found**: while planning B43, which surfaced that its fix keys off this flag.
+
 ---
 
 ## Deferred Refactors

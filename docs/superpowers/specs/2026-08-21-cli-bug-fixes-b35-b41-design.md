@@ -237,11 +237,29 @@ Both commands' help must say so; it is the one user-visible surprise here.
 attempting to open it, so an API caller handed a sealed file gets a clear error
 instead of "failed to parse JSON".
 
-**The HTTP path has the same defect.** `model.ExportSecretsRequest.Encrypt`
-(`model/secret.go:228`) has no reader anywhere in the tree, so
-`POST /secrets/export` with `{"encrypt": true}` returns plaintext exactly as the
-CLI did. Fixing only the CLI leaves the API making the same false claim. This
-was missed when B36 was filed; see "Open decision" below.
+**The HTTP path has the same defect, and is fixed too.**
+`model.ExportSecretsRequest.Encrypt` (`model/secret.go:228`) has no reader
+anywhere in the tree, so `POST /secrets/export` with `{"encrypt": true}` returns
+plaintext exactly as the CLI did. Fixing only the CLI would leave the API making
+the same false claim.
+
+**Decision (2026-08-21): the API accepts a passphrase in the request body.**
+`model.ExportSecretsRequest` gains `Passphrase string \`json:"passphrase"\``,
+and the handler passes it through to the same `ExportSecrets` path the CLI uses,
+so there is one sealing implementation rather than two. Rules:
+
+- `{"encrypt": true}` with no passphrase → `400`, naming the missing field.
+  Never a plaintext body.
+- `{"encrypt": false}` → plaintext, as today, deliberately requested.
+- The passphrase is request-scoped: never logged, never audit-logged, never
+  echoed in a response or an error. The audit entry records that an encrypted
+  export happened, not what sealed it.
+- Rejecting `{"encrypt": true}` outright with a 400 was considered and dropped:
+  it would leave the API unable to produce an encrypted export at all, which is
+  a capability regression against what the field already advertises.
+
+This relies on transport security for the passphrase, which is the same
+assumption every credential-bearing endpoint here already makes.
 
 `--encrypt` keeps its `true` default and now means what it says. `--no-encrypt`
 (or `--encrypt=false`) writes plaintext deliberately, and the CLI prints a
