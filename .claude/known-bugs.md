@@ -2534,10 +2534,11 @@ the global display-format flag — actually reads whatever the user passed to
 `backup create`'s local `-o/--output` flag, i.e. the file path. Since a file
 path is never `table`, `json`, or `yaml`, the format validation in
 `PersistentPreRunE` always rejects it, and `backup create --output <path>`
-cannot succeed regardless of the path given. (`-o` alone does not collide —
-only the long form `--output` does — but `backupCreateCmd.Flags().StringVarP`
-registers both names on the same variable, and it's the long form that's
-read by `cmd/root.go:415`.)
+cannot succeed regardless of the path given. (Neither the long form
+`--output` nor the short form `-o` avoids the collision — pflag's flag-set
+merge is keyed on name and skips registering root's persistent `output` flag
+entirely on this command once the local `output` flag is registered,
+regardless of which form a user types.)
 
 **Not fixed here**: found incidentally while implementing the B40 fix
 (`backup list`'s encrypted/corrupt-file bug); this bug is about `backup
