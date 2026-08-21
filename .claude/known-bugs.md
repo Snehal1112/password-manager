@@ -2176,6 +2176,14 @@ misread (`TestImportSecretsCSV_OldFormatWithEmbeddedQuote_FailsLoudlyNotSilently
 Nothing repairs an already-corrupted historical export — there is no data to
 recover from a row that was mis-written before this fix existed.
 
+One residual limitation remains, not a regression: `encoding/csv.Reader`
+normalizes any embedded `\r\n` to `\n`, including inside a quoted field, with
+no option to disable it, so a value or tag containing a literal `\r\n` does
+not round-trip byte-for-byte through CSV. Before this fix *any* embedded
+newline (`\r\n` or `\n`) destroyed the record outright; now only `\r\n`
+specifically is silently altered. See B49. `--format json` is unaffected and
+is the recommended format when byte-exactness matters.
+
 **Test**: round-trip a value containing `"`, `,`, and `\n` and assert equality.
 
 **Found**: while planning B36, which seals the formatted bytes and so does not
@@ -2583,6 +2591,37 @@ create`, is pre-existing, and is unrelated to B40's change. No production
 code was changed to investigate or confirm it — the collision was traced by
 reading `cmd/root.go` and `cmd/backup.go` directly, not by reproducing the
 CLI failure live.
+
+---
+
+### B49 — CSV export/import normalizes embedded CRLF to LF in values and tags
+
+**Status**: Open, found 2026-08-22
+**Severity**: Low — a documented limitation of a stdlib API, not silent
+corruption beyond byte-normalization; `--format json` is unaffected and
+available as a workaround
+**Files**: `internal/services/secrets/secret_service.go`
+
+**Symptom**: export a secret whose value or a tag contains a literal `\r\n`
+(e.g. Windows-authored text, some PEM/config blobs) with `--format csv`, then
+import it back. The `\r\n` returns as `\n` — the round trip is not
+byte-exact.
+
+**Root cause**: `encoding/csv.Reader` (Go stdlib) unconditionally converts
+`\r\n` to `\n` wherever it appears, including inside a quoted multi-line
+field, with no option to disable this.
+
+**Not a regression**: before B42's fix, *any* embedded newline (`\r\n` or
+`\n`) destroyed the CSV record entirely. After B42's fix, `\n` round-trips
+exactly and only `\r\n` specifically is silently altered — a narrower,
+lower-severity residual case.
+
+**Fix sketch**: none — there is no `encoding/csv` option to preserve literal
+`\r\n` inside a field. Out of scope for this fix wave; `--format json` is
+lossless for CRLF-containing values and is the recommended format when
+byte-exactness matters.
+
+**Found**: during final review of the B42 CSV round-trip fix.
 
 ---
 
