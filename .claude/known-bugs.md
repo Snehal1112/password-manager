@@ -2076,28 +2076,36 @@ actual filename.
 
 ### B41 — Cluster of misleading CLI output and help strings
 
-**Status**: Open, found 2026-08-21
+**Status**: Fixed 2026-08-21 (except the deferred `vault-access list`
+permission tier — see below)
 **Severity**: Low — cosmetic or documentation-only; grouped to avoid diluting
 the list above
 **Files**: various under `cmd/`, `internal/services/`
 
 - ~~`certificates renew` prints "Old Certificate ID" and "New Certificate ID",
   always the same UUID~~ — fixed 2026-08-21 as part of B37; one ID is printed.
-- `keys rotate` prints "New Key: ID=…" though `RotateKey` reuses the same UUID.
-- `keys create --bits` help says "(2048 or 4096)"; `CreateRSAKey` also accepts
-  3072.
-- `cmd/vault-webhook/delete.go` has an unreachable
+- ~~`keys rotate` prints "New Key: ID=…" though `RotateKey` reuses the same
+  UUID.~~ — fixed 2026-08-21, commit `59ea36e`; output now reads "Key rotated
+  successfully: ID=…" with no "New Key" claim.
+- ~~`keys create --bits` help says "(2048 or 4096)"; `CreateRSAKey` also
+  accepts 3072.~~ — fixed 2026-08-21, commit `9353568`; help text now lists
+  all three accepted sizes.
+- ~~`cmd/vault-webhook/delete.go` has an unreachable
   `errors.Is(err, ErrWebhookNotFound)` branch; `Delete` never returns that
-  sentinel and deleting an absent webhook is a silent success.
-- `secrets create --purge-protection=false` is inert — `CreateSecret` writes the
-  column only when the value is `true`, while `UpdateSecret` honors both
-  directions.
-- `secrets generate-password` requires a session despite being pure local RNG
-  that stores nothing; it is absent from `persistentPreRun`'s `systemCmds` map.
+  sentinel and deleting an absent webhook is a silent success.~~ — fixed
+  2026-08-21, commit `cd9eb52`; the dead branch was removed.
+- ~~`secrets create --purge-protection=false` is inert — `CreateSecret` writes
+  the column only when the value is `true`, while `UpdateSecret` honors both
+  directions.~~ — fixed 2026-08-21, commits `2381eae` (behavior) and
+  `3471964` (help text); `create` now honors both directions like `update`.
+- ~~`secrets generate-password` requires a session despite being pure local
+  RNG that stores nothing; it is absent from `persistentPreRun`'s
+  `systemCmds` map.~~ — fixed 2026-08-21, commits `edea96d` (behavior) and
+  `3f84a8c` (docs); the command is now exempt from the session requirement.
 - `vault-access list` passes `write=false` to `requireCanManageRoleAssignments`
   — the same value `revoke` passes — so listing assignments requires
   revoke-level permission. Fail-closed, so not a hole, but stricter than the
-  parameter name suggests.
+  parameter name suggests. **Deferred**, not fixed — see below.
 
 **`vault-access list`'s permission tier is a deferred product decision, not
 a bug fix.** `cmd/vault-access/list.go`'s `Long` text (as of commit
