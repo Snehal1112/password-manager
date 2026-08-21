@@ -243,3 +243,100 @@ func TestMigrateToVersion_RejectsCorruptCurrentVersion(t *testing.T) {
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "cannot determine current schema version")
 }
+
+// TestGetCurrentVersion_EmptyTableReturnsZero locks in the pre-existing
+// empty-table behavior: "0" with no error, unchanged by the numeric-magnitude
+// fix below.
+func TestGetCurrentVersion_EmptyTableReturnsZero(t *testing.T) {
+	t.Parallel()
+	runner, _ := newTestRunner(t)
+	ctx := context.Background()
+
+	version, err := runner.GetCurrentVersion(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, "0", version)
+}
+
+// TestGetCurrentVersion_RealMigrationSetUnchanged locks in that, for the
+// actual embedded migration files (all either the legacy "001" or a 14-digit
+// timestamp), the numeric-magnitude fix returns the byte-for-byte same value
+// the old lexicographic SQL MAX() did: the last file in version order.
+func TestGetCurrentVersion_RealMigrationSetUnchanged(t *testing.T) {
+	t.Parallel()
+	runner, conn := newTestRunner(t)
+	ctx := context.Background()
+
+	versions := allRealVersions(t, runner)
+	seedApplied(t, conn, versions...)
+
+	got, err := runner.GetCurrentVersion(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, versions[len(versions)-1], got,
+		"the real migration set is uniform-width within each prefix (\"001\" then all 14-digit "+
+			"timestamps), so the numerically highest version is also the lexicographically highest "+
+			"one the old MAX() query would have picked")
+}
+
+// TestGetCurrentVersion_NumericNotLexicographic is the headline fix test:
+// GetCurrentVersion must pick the numerically highest applied version, not
+// the lexicographically highest one. A short, high-leading-digit version
+// ("9") sorts after any 14-digit timestamp version lexicographically (SQL
+// MAX() on the VARCHAR column) but is numerically far smaller.
+func TestGetCurrentVersion_NumericNotLexicographic(t *testing.T) {
+	t.Parallel()
+	runner, conn := newTestRunner(t)
+	ctx := context.Background()
+
+	seedApplied(t, conn, "9", "20260308000001")
+
+	got, err := runner.GetCurrentVersion(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, "20260308000001", got,
+		"lexicographic MAX() would incorrectly return \"9\" here, since \"9\" > \"20260308000001\" byte-wise")
+}
+
+// TestMigrateToVersion_ReviewerDemonstratedBypassIsFixed reproduces the
+// live bypass a senior reviewer demonstrated against the pre-fix
+// GetCurrentVersion: seeding a short, high-leading-digit version ("9")
+// alongside the real, numerically-higher current version made
+// MigrateToVersion's refusal check compare against the wrong "current"
+// value, so a migrate:to targeting a real lower version silently succeeded
+// instead of refusing -- B39's exact original symptom. With
+// GetCurrentVersion fixed to compare numerically, the same seeded state must
+// now correctly refuse.
+func TestMigrateToVersion_ReviewerDemonstratedBypassIsFixed(t *testing.T) {
+	t.Parallel()
+	runner, conn := newTestRunner(t)
+	ctx := context.Background()
+
+	// "9" is lexicographically greater than every real 14-digit version, so
+	// the old SQL MAX()-based GetCurrentVersion would have reported "9" as
+	// current here instead of the true, numerically higher current version.
+	seedApplied(t, conn,
+		"001",
+		"20241025000001",
+		"20241026000001",
+		"20241026000002",
+		"20260308000001",
+		"9",
+	)
+
+	before, err := runner.GetAppliedMigrations(ctx)
+	require.NoError(t, err)
+
+	// A real, lower target: below the true numeric current (20260308000001)
+	// but above the lexicographically-wrong "current" ("9") the old code
+	// would have reported. Under the pre-fix defect this target is treated
+	// as "upward" relative to "9" and the migration silently no-ops instead
+	// of refusing.
+	err = runner.MigrateToVersion(ctx, "20241026000002")
+	require.Error(t, err, "must refuse: the true current version (20260308000001) is numerically above the target")
+	assert.Contains(t, err.Error(), "cannot migrate down")
+	assert.Contains(t, err.Error(), "current schema is at version 20260308000001",
+		"the refusal must cite the true numeric current version, not the lexicographically-wrong \"9\"")
+	assert.Contains(t, err.Error(), "target 20241026000002 is lower")
+
+	after, err := runner.GetAppliedMigrations(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, before, after, "a refused downward migration must leave the applied set unchanged")
+}

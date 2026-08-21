@@ -219,9 +219,13 @@ func (r *MigrationRunner) MigrateToVersion(ctx context.Context, targetVersion st
 
 	currentVersion, err := r.GetCurrentVersion(ctx)
 	if err != nil {
-		return err
+		return fmt.Errorf("cannot determine current schema version: %w", err)
 	}
 
+	// GetCurrentVersion already parsed and numerically compared every applied
+	// version to find currentVersion, so this can only fail if the database
+	// changed between that call and this one -- fail closed rather than
+	// trusting a value that is no longer known-good.
 	currentNum, err := parseVersionNumber(currentVersion)
 	if err != nil {
 		return fmt.Errorf("cannot determine current schema version: %w", err)
@@ -277,23 +281,53 @@ func (r *MigrationRunner) MigrateToVersion(ctx context.Context, targetVersion st
 	return nil
 }
 
-// GetCurrentVersion returns the current database schema version.
+// GetCurrentVersion returns the current database schema version: the applied
+// version with the highest numeric magnitude, not the lexicographically
+// greatest one. SQL's MAX() over the VARCHAR version column compares
+// byte-wise, which misorders versions of different digit widths (e.g. the
+// short legacy "9" would beat a real 14-digit timestamp version) -- the same
+// defect class MigrateToVersion's refusal check was fixed against in this
+// plan, and the one place that check actually depends on (B39 final review).
 func (r *MigrationRunner) GetCurrentVersion(ctx context.Context) (string, error) {
 	if err := r.Initialize(ctx); err != nil {
 		return "", err
 	}
 
-	var version sql.NullString
-	err := r.db.QueryRowContext(ctx, "SELECT MAX(version) FROM schema_migrations").Scan(&version)
+	rows, err := r.db.QueryContext(ctx, "SELECT version FROM schema_migrations")
 	if err != nil {
 		return "", fmt.Errorf("failed to get current version: %w", err)
 	}
+	defer rows.Close() //nolint:errcheck
 
-	if !version.Valid || version.String == "" {
+	var current string
+	var currentNum int64
+	found := false
+	for rows.Next() {
+		var version string
+		if err := rows.Scan(&version); err != nil {
+			return "", fmt.Errorf("failed to scan migration version: %w", err)
+		}
+
+		num, err := parseVersionNumber(version)
+		if err != nil {
+			return "", fmt.Errorf("recorded schema_migrations version %q is not numeric: %w", version, err)
+		}
+
+		if !found || num > currentNum {
+			current = version
+			currentNum = num
+			found = true
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return "", fmt.Errorf("failed to read schema_migrations rows: %w", err)
+	}
+
+	if !found {
 		return "0", nil // No migrations applied yet
 	}
 
-	return version.String, nil
+	return current, nil
 }
 
 // parseVersionNumber converts a migration version string to its numeric
