@@ -47,6 +47,16 @@ func TestSealUsesFreshSaltAndNonce(t *testing.T) {
 	require.NoError(t, err)
 
 	assert.NotEqual(t, a, b, "identical plaintext and passphrase produced identical ciphertext")
+
+	// The full-output comparison above is also satisfied by EncryptWithKey's
+	// own fresh GCM nonce alone, so it does not prove the salt was fresh.
+	// Isolate the salt field itself to guard against a hardcoded or reused salt.
+	var envA, envB struct {
+		Salt string `json:"salt"`
+	}
+	require.NoError(t, json.Unmarshal(a, &envA))
+	require.NoError(t, json.Unmarshal(b, &envB))
+	assert.NotEqual(t, envA.Salt, envB.Salt, "identical plaintext and passphrase produced the same salt")
 }
 
 func TestIsSealedExportDetection(t *testing.T) {
