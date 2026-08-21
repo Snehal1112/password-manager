@@ -132,14 +132,47 @@ Both identities reduce to a bearer token, because `middleware.go:270` accepts
 `Authorization: Bearer <jwt>` and `common.SessionCache.Token` already holds a
 JWT. There is one request path, not two.
 
-- **`serviceAccountSource`** — `POST /api/v1/oauth2/token` (client credentials),
-  caching the token until expiry minus a skew margin. Same shape as
-  `vaultclient.ensureToken`, reimplemented rather than reused because
+- **`serviceAccountSource`** — `POST /api/v1/oauth2/token` with
+  `grant_type=client_credentials`, caching the token until expiry minus a skew
+  margin. Credentials are sent as **HTTP Basic**, not as form fields. The
+  endpoint accepts either, but prefers Basic per RFC 6749 §2.3.1
+  (`extractClientCredentials`, `api/oauth2.go:143`), and Basic keeps the client
+  secret out of the request body and out of anything that logs bodies. Same
+  shape as `vaultclient.ensureToken`, reimplemented rather than reused because
   `vaultclient` is hardwired to UUID-keyed secret fetches.
 - **`sessionSource`** — reads `common.LoadCurrentSession()`, refreshes via
   `POST /api/v1/users/refresh` when past `ExpiresAt`, persists with
   `common.SaveSession`. Server-keyed, so `common.SanitizeServerKey` disambiguates
   `admin@serverA` from `admin@serverB`.
+
+  **Refresh tokens rotate.** `refreshToken` returns a *new* `refresh_token`
+  alongside the access token (`api/users.go:501`), so `sessionSource` must
+  persist both back through `common.SaveSession`. Persisting only the access
+  token leaves a stale refresh token on disk and the *next* refresh fails —
+  a bug that would surface an hour later, far from its cause.
+
+### There is no end-user authentication
+
+The MCP server does not authenticate a human. It authenticates *itself* as a
+single principal, resolved once at startup and held for the process lifetime.
+
+This is a property of the stdio transport, not a shortcut: stdio JSON-RPC has no
+user-identity concept and no channel for an interactive prompt, and a server
+that tried to prompt would simply hang the host. The user boundary is therefore
+the **OS process boundary** — one server process per person, running as them,
+acting as exactly one RocketVault principal. There is no impersonation and no
+per-tool-call identity.
+
+Two consequences follow:
+
+1. The session path makes the agent act *as you*. Its actions land in the audit
+   log under your `UserID`, indistinguishable from your own — which is the
+   second reason (after forgeable `Source`) that production requires a dedicated
+   service account.
+2. Per-connection identity becomes mandatory only in phase 4, when multiple
+   clients share one server over a network. That is a different authentication
+   model — OAuth resource-server metadata, per-request token validation, origin
+   checks — not a transport swap, which is why it has its own spec.
 
 Resolution at startup: service account if `mcp.client_id` and
 `mcp.client_secret` (or `ROCKETVAULT_MCP_CLIENT_SECRET`) are set; else the
