@@ -88,6 +88,97 @@ func TestSealRejectsEmptyPassphrase(t *testing.T) {
 	_, err := SealExport([]byte("payload"), "")
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "passphrase")
+	assert.True(t, errors.Is(err, ErrPassphraseRequired), "got %v", err)
+}
+
+func TestOpenRejectsEmptyPassphrase(t *testing.T) {
+	sealed, err := SealExport([]byte("payload"), "pw")
+	require.NoError(t, err)
+
+	_, err = OpenExport(sealed, "")
+	require.Error(t, err)
+	assert.True(t, errors.Is(err, ErrPassphraseRequired), "got %v", err)
+	// It must not be reported as a wrong passphrase: the caller dropped the
+	// passphrase entirely, which is a different bug than a wrong one.
+	assert.False(t, errors.Is(err, ErrWrongPassphrase), "empty passphrase should not surface as ErrWrongPassphrase, got %v", err)
+}
+
+// mutateSealedParams seals payload normally, then applies mutate to the
+// decoded envelope's "params" object (or removes it, if mutate is nil) before
+// re-marshalling, mirroring TestOpenRejectsUnknownVersion's pattern for
+// producing a malformed-but-otherwise-valid envelope.
+func mutateSealedParams(t *testing.T, mutate func(params map[string]any)) []byte {
+	t.Helper()
+
+	sealed, err := SealExport([]byte("payload"), "pw")
+	require.NoError(t, err)
+
+	var env map[string]any
+	require.NoError(t, json.Unmarshal(sealed, &env))
+
+	if mutate == nil {
+		delete(env, "params")
+	} else {
+		params, _ := env["params"].(map[string]any)
+		if params == nil {
+			params = map[string]any{}
+		}
+		mutate(params)
+		env["params"] = params
+	}
+
+	mutated, err := json.Marshal(env)
+	require.NoError(t, err)
+	return mutated
+}
+
+func TestOpenRejectsMissingParams(t *testing.T) {
+	mutated := mutateSealedParams(t, nil)
+
+	assert.NotPanics(t, func() {
+		_, err := OpenExport(mutated, "pw")
+		require.Error(t, err)
+		assert.False(t, errors.Is(err, ErrWrongPassphrase), "malformed file should not be reported as ErrWrongPassphrase, got %v", err)
+	})
+}
+
+func TestOpenRejectsZeroTimeParam(t *testing.T) {
+	mutated := mutateSealedParams(t, func(params map[string]any) {
+		params["time"] = 0
+	})
+
+	assert.NotPanics(t, func() {
+		_, err := OpenExport(mutated, "pw")
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "time")
+		assert.False(t, errors.Is(err, ErrWrongPassphrase), "malformed file should not be reported as ErrWrongPassphrase, got %v", err)
+	})
+}
+
+func TestOpenRejectsZeroThreadsParam(t *testing.T) {
+	mutated := mutateSealedParams(t, func(params map[string]any) {
+		params["threads"] = 0
+	})
+
+	assert.NotPanics(t, func() {
+		_, err := OpenExport(mutated, "pw")
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "threads")
+		assert.False(t, errors.Is(err, ErrWrongPassphrase), "malformed file should not be reported as ErrWrongPassphrase, got %v", err)
+	})
+}
+
+func TestOpenRejectsAbsurdMemoryParam(t *testing.T) {
+	mutated := mutateSealedParams(t, func(params map[string]any) {
+		params["memory"] = 4294967295
+	})
+
+	assert.NotPanics(t, func() {
+		_, err := OpenExport(mutated, "pw")
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "memory")
+		assert.False(t, errors.Is(err, ErrWrongPassphrase), "malformed file should not be reported as ErrWrongPassphrase, got %v", err)
+	})
 }
 
 func TestEnvelopeRecordsItsKDFParams(t *testing.T) {
