@@ -55,8 +55,9 @@ Acts on the vault named by --vault, which defaults to "default".
 --content-type is restricted to text/plain, application/json,
 application/xml, application/x-pem-file, application/x-pkcs12 and
 application/octet-stream. Any other value is rejected before the secret is
-stored. --purge-protection is only written when it is true, and it blocks
-the later permanent purge of the secret once it has been soft-deleted.`,
+stored. --purge-protection is written whenever the flag is explicitly passed
+(true or false), and it blocks the later permanent purge of the secret once
+it has been soft-deleted.`,
 	Example: `  # Create a secret in the default vault
   rocketvault secrets create <name> <value>
 

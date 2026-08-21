@@ -191,3 +191,13 @@ func TestCreateSecretWithTags(t *testing.T) {
 	require.NoError(t, err)
 	tc.MockSecretService.AssertExpectations(t)
 }
+
+// TestCreateCmdLongTextMatchesPurgeProtectionBehavior pins the help text to
+// the fix in secret_service.go's CreateSecret (B41): --purge-protection is
+// now written whenever the flag is explicitly passed, true or false,
+// matching UpdateSecret -- not "only when it is true" as the text used to
+// claim.
+func TestCreateCmdLongTextMatchesPurgeProtectionBehavior(t *testing.T) {
+	assert.NotContains(t, createCmd.Long, "only written when it is true")
+	assert.Contains(t, createCmd.Long, "whenever the flag is explicitly passed")
+}
