@@ -2107,7 +2107,7 @@ one. That is a security regression introduced by a security fix, which is why
 the two must be sequenced together.
 
 **What was fixed**: `CreateCertificateRequest` gained an `IsCA bool` that
-defaults to false, surfaced as `--is-ca` on `rocketvault certificates create`
+defaults to false, surfaced as `--is-ca` on `rocketvault certificate create`
 and `is_ca` in the `POST /certificates` body. `CreateSelfSignedCertificate`
 passes it through; `CreateCASignedCertificate` rejects it, because an
 intermediate CA is a separate feature and quietly issuing a leaf when a CA was
