@@ -2059,7 +2059,7 @@ forward-apply) is numeric end to end.
 
 ### B40 — `backup list` shows nothing for default (encrypted) backups
 
-**Status**: Open, found 2026-08-21
+**Status**: Fixed in commit `7a58926` (2026-08-21)
 **Severity**: Medium — the command reports an empty backup directory that is
 not empty
 **Files**: `internal/backup/backup.go`, `cmd/backup.go`
@@ -2491,6 +2491,60 @@ database this project's own normal boot path created.
 mechanism conflict, not a version-comparison bug) and reproduces on any fresh
 database, not just ones affected by B39. Filed for a future fix wave — no
 production code was changed to investigate or confirm it.
+
+---
+
+### B48 — `backup create --output <path>` fails outright: local flag shadowed by root's persistent `--output`
+
+**Status**: Open, found 2026-08-21
+**Severity**: Medium — `backup create --output <path>` cannot be run at all;
+the command exits with a format-validation error instead of writing a backup
+**Files**: `cmd/root.go`, `cmd/backup.go`
+
+**Symptom**: running `rocketvault backup create --output /path/to/file.backup`
+fails immediately with an error of the shape `Error: invalid --output value
+"/path/to/file.backup": must be table, json, or yaml` — the file path the
+user passed is rejected as if it were a display-format selector, and no
+backup is written.
+
+**Root cause**: two different flags share the name `output`, and pflag's
+local-flag-wins merge behavior picks the wrong one at the point it's read.
+
+- `cmd/root.go:117` registers a **persistent** flag on the root command:
+  `rootCmd.PersistentFlags().String("output", "table", "Output format: table,
+  json, yaml")` — this is the global display-format selector (table/json/yaml)
+  inherited by every subcommand.
+- `cmd/root.go:415-418`, inside `PersistentPreRunE` (which runs before every
+  command's `RunE`, including `backup create`'s), reads it back with
+  `cmd.Flags().GetString("output")` and passes the result to
+  `formatter.New(formatter.Format(outputFlag))`; a value that isn't
+  `table`/`json`/`yaml` makes this call fail and `PersistentPreRunE` return
+  the error above, so `RunE` never runs.
+- `cmd/backup.go:207` separately registers a **local** flag on
+  `backupCreateCmd` with the same name: `backupCreateCmd.Flags().StringVarP(
+  &backupOutput, "output", "o", "", "Output file path for backup
+  (required)")` — this is meant to be the destination file path, marked
+  required at `cmd/backup.go:209`.
+
+Cobra/pflag merges a command's local flag set with its inherited persistent
+flags before `PersistentPreRunE` runs, and when both define a flag with the
+same name, the command's own local flag takes precedence in the merged set.
+So `cmd.Flags().GetString("output")` at `cmd/root.go:415` — intended to read
+the global display-format flag — actually reads whatever the user passed to
+`backup create`'s local `-o/--output` flag, i.e. the file path. Since a file
+path is never `table`, `json`, or `yaml`, the format validation in
+`PersistentPreRunE` always rejects it, and `backup create --output <path>`
+cannot succeed regardless of the path given. (`-o` alone does not collide —
+only the long form `--output` does — but `backupCreateCmd.Flags().StringVarP`
+registers both names on the same variable, and it's the long form that's
+read by `cmd/root.go:415`.)
+
+**Not fixed here**: found incidentally while implementing the B40 fix
+(`backup list`'s encrypted/corrupt-file bug); this bug is about `backup
+create`, is pre-existing, and is unrelated to B40's change. No production
+code was changed to investigate or confirm it — the collision was traced by
+reading `cmd/root.go` and `cmd/backup.go` directly, not by reproducing the
+CLI failure live.
 
 ---
 
