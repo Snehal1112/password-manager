@@ -1237,7 +1237,10 @@ func TestImportSecretsCSV_FieldCountMismatch_IsReportedNotSilentlyDropped(t *tes
 	})
 	require.NoError(t, err, "one malformed row must not fail the whole import")
 	require.Len(t, result.Errors, 1, "the malformed row must be reported, not silently mis-parsed")
-	assert.Contains(t, result.Errors[0], "Line 2")
+	// No redundant/conflicting "Line N:" prefix — the underlying
+	// *csv.ParseError already reports the correct physical line number.
+	assert.Contains(t, result.Errors[0], "invalid CSV")
+	assert.Contains(t, result.Errors[0], "line 2")
 	assert.Equal(t, 0, result.TotalCount, "a malformed row must not be counted as a parsed record")
 	assert.Equal(t, 0, result.ImportedCount)
 	repo.AssertNotCalled(t, "Create", mock.Anything, mock.Anything)

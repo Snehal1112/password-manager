@@ -816,8 +816,16 @@ func (s *secretService) ImportSecrets(ctx context.Context, req ImportSecretsRequ
 			if readErr != nil {
 				// A row with the wrong number of fields, or an unescaped
 				// quote, is reported here instead of silently mis-split —
-				// the defect this replaces (B42).
-				result.Errors = append(result.Errors, fmt.Sprintf("Line %d: invalid CSV: %v", lineNum, readErr))
+				// the defect this replaces (B42). No "Line N:" prefix here:
+				// our lineNum counts CSV records, not physical lines, and a
+				// record can legitimately span multiple physical lines (an
+				// embedded newline inside a quoted field), so our count can
+				// under-count relative to the real line. readErr is a
+				// *csv.ParseError whose own Error() already includes the
+				// correct physical line number (e.g. "record on line 4:
+				// wrong number of fields") — prepending our own would risk a
+				// second, conflicting number in the same message.
+				result.Errors = append(result.Errors, fmt.Sprintf("invalid CSV: %v", readErr))
 				continue
 			}
 			if len(record) < 2 {
@@ -996,7 +1004,10 @@ func (s *secretService) PurgeSecret(ctx context.Context, secretID uuid.UUID, sco
 
 // csvEncodeTags packs a secret's tags into a single CSV field using
 // encoding/csv itself, so a tag containing a comma or a quote survives
-// being embedded in the outer record (B42).
+// being embedded in the outer record (B42). Note: a tags slice containing
+// exactly one empty-string tag ([]string{""}) encodes to the empty string,
+// which import treats as "no tags present" — that one case does not
+// round-trip.
 func csvEncodeTags(tags []string) (string, error) {
 	if len(tags) == 0 {
 		return "", nil
