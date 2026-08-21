@@ -1,19 +1,25 @@
 package certificates
 
 import (
+	"bytes"
 	"context"
+	"crypto/rand"
 	"crypto/x509"
+	"crypto/x509/pkix"
 	"encoding/pem"
+	"math/big"
 	"testing"
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 
 	"rocketvault/common"
 	"rocketvault/internal/crypto"
+	"rocketvault/internal/logging"
 	"rocketvault/model"
 )
 
@@ -146,9 +152,31 @@ type renewalFixture struct {
 	scope   model.Scope
 	certID  uuid.UUID
 	capture *certCapture
+	logs    *bytes.Buffer
 }
 
 func newRenewalFixture(t *testing.T, storedIsCA bool) *renewalFixture {
+	t.Helper()
+	setupMasterKey()
+
+	privateKeyPEM, err := crypto.GenerateRSAKeyPEM(2048)
+	require.NoError(t, err)
+
+	storedPEM, err := crypto.CreateSelfSignedCertificatePEM(privateKeyPEM, model.KeyTypeRSA, crypto.CertificateTemplate{
+		CommonName:   "renew-me",
+		ValidityDays: 365,
+		IsCA:         storedIsCA,
+	})
+	require.NoError(t, err)
+
+	return newRenewalFixtureWithStoredCert(t, privateKeyPEM, storedPEM)
+}
+
+// newRenewalFixtureWithStoredCert wires a renewal over a caller-supplied
+// stored certificate body, so a test can hand renewal a shape the current
+// template can no longer produce. Its logger writes to fixture.logs, which is
+// how a test asserts what renewal recorded in the audit log.
+func newRenewalFixtureWithStoredCert(t *testing.T, privateKeyPEM, storedPEM string) *renewalFixture {
 	t.Helper()
 	setupMasterKey()
 
@@ -157,16 +185,7 @@ func newRenewalFixture(t *testing.T, storedIsCA bool) *renewalFixture {
 	certID := uuid.New()
 	keyID := uuid.New()
 
-	privateKeyPEM, err := crypto.GenerateRSAKeyPEM(2048)
-	require.NoError(t, err)
 	encryptedKey, err := common.EncryptSecret(privateKeyPEM)
-	require.NoError(t, err)
-
-	storedPEM, err := crypto.CreateSelfSignedCertificatePEM(privateKeyPEM, model.KeyTypeRSA, crypto.CertificateTemplate{
-		CommonName:   "renew-me",
-		ValidityDays: 365,
-		IsCA:         storedIsCA,
-	})
 	require.NoError(t, err)
 
 	scope := model.NewVaultScope(vaultID, userID)
@@ -199,12 +218,53 @@ func newRenewalFixture(t *testing.T, storedIsCA bool) *renewalFixture {
 		Run(func(args mock.Arguments) { capture.cert = args.Get(1).(*model.Certificate) }).
 		Return(nil)
 
+	logs := &bytes.Buffer{}
+	logrusLogger := logrus.New()
+	logrusLogger.SetOutput(logs)
+
+	svc := NewCertificateService(CertificateServiceConfig{
+		CertificateRepository: certRepo,
+		KeyRepository:         keyRepo,
+		Logger:                &logging.Logger{Logger: logrusLogger},
+	})
+
 	return &renewalFixture{
-		svc:     newCertSvc(certRepo, keyRepo),
+		svc:     svc,
 		scope:   scope,
 		certID:  certID,
 		capture: capture,
+		logs:    logs,
 	}
+}
+
+// prefixShapedCertPEM builds a certificate in the shape every certificate
+// issued before this release carries: CA:TRUE with no keyCertSign. That
+// missing bit is the only reason those certificates never worked as
+// authorities. It is constructed directly with crypto/x509 because the fixed
+// template can no longer produce it -- IsCA there always implies keyCertSign.
+func prefixShapedCertPEM(t *testing.T, privateKeyPEM string) string {
+	t.Helper()
+
+	block, _ := pem.Decode([]byte(privateKeyPEM))
+	require.NotNil(t, block, "private key PEM must decode")
+	key, err := x509.ParsePKCS1PrivateKey(block.Bytes)
+	require.NoError(t, err)
+
+	template := &x509.Certificate{
+		SerialNumber:          big.NewInt(1),
+		Subject:               pkix.Name{CommonName: "renew-me"},
+		NotBefore:             time.Now().Add(-24 * time.Hour),
+		NotAfter:              time.Now().Add(30 * 24 * time.Hour),
+		KeyUsage:              x509.KeyUsageDigitalSignature | x509.KeyUsageKeyEncipherment,
+		ExtKeyUsage:           []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth, x509.ExtKeyUsageClientAuth},
+		BasicConstraintsValid: true,
+		IsCA:                  true,
+	}
+
+	der, err := x509.CreateCertificate(rand.Reader, template, template, &key.PublicKey, key)
+	require.NoError(t, err)
+
+	return string(pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der}))
 }
 
 // Renewal must not promote a leaf to a CA. The renewal call site hardcoded
@@ -216,8 +276,12 @@ func TestRenewCertificate_PreservesNonCA(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, f.capture.cert)
 
-	assert.False(t, parseIssuedCert(t, f.capture.cert.Certificate).IsCA,
-		"renewing a leaf must not turn it into a CA")
+	renewed := parseIssuedCert(t, f.capture.cert.Certificate)
+	assert.False(t, renewed.IsCA, "renewing a leaf must not turn it into a CA")
+	assert.Zero(t, renewed.KeyUsage&x509.KeyUsageCertSign,
+		"renewing a leaf must not grant it certificate-signing authority")
+	assert.NotContains(t, f.logs.String(), "ca_demoted",
+		"an ordinary leaf has no authority to demote, so nothing should be logged")
 }
 
 // The other direction matters just as much: renewal must not strip the CA bit
@@ -230,8 +294,67 @@ func TestRenewCertificate_PreservesCA(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, f.capture.cert)
 
-	assert.True(t, parseIssuedCert(t, f.capture.cert.Certificate).IsCA,
-		"renewing a CA must keep it a CA")
+	renewed := parseIssuedCert(t, f.capture.cert.Certificate)
+	assert.True(t, renewed.IsCA, "renewing a CA must keep it a CA")
+	assert.NotZero(t, renewed.KeyUsage&x509.KeyUsageCertSign,
+		"a renewed CA must keep its certificate-signing authority")
+	assert.NotZero(t, renewed.KeyUsage&x509.KeyUsageCRLSign,
+		"a renewed CA must keep its CRL-signing authority")
+	assert.NotContains(t, f.logs.String(), "ca_demoted",
+		"a genuine CA must not be demoted")
+}
+
+// A certificate issued before this release asserts CA:TRUE but carries no
+// keyCertSign, which is the only reason it never worked as an authority. Now
+// that the template adds keyCertSign to anything with IsCA set, renewing such
+// a certificate as a CA would arm it -- unattended, across the whole existing
+// fleet, via the auto-renew scheduler. Renewal demotes it to a leaf instead.
+// Nothing is lost: nothing it ever signed verified in the first place.
+func TestRenewCertificate_DemotesPreFixPseudoCAToLeaf(t *testing.T) {
+	setupMasterKey()
+
+	privateKeyPEM, err := crypto.GenerateRSAKeyPEM(2048)
+	require.NoError(t, err)
+
+	storedPEM := prefixShapedCertPEM(t, privateKeyPEM)
+
+	// Guard the fixture itself: it must really carry the pre-fix shape, or
+	// this test would pass while proving nothing.
+	stored := parseIssuedCert(t, storedPEM)
+	require.True(t, stored.IsCA, "the fixture must assert CA:TRUE")
+	require.Zero(t, stored.KeyUsage&x509.KeyUsageCertSign, "the fixture must have no keyCertSign")
+
+	f := newRenewalFixtureWithStoredCert(t, privateKeyPEM, storedPEM)
+
+	_, err = f.svc.RenewCertificate(context.Background(), f.certID, f.scope, 365)
+	require.NoError(t, err, "renewal must not be refused: that would break auto-renew across the fleet")
+	require.NotNil(t, f.capture.cert)
+
+	renewed := parseIssuedCert(t, f.capture.cert.Certificate)
+	assert.False(t, renewed.IsCA, "a pre-fix pseudo-CA must renew as a leaf, not as a working CA")
+	assert.Zero(t, renewed.KeyUsage&x509.KeyUsageCertSign,
+		"the renewed certificate must not gain certificate-signing authority")
+	assert.Zero(t, renewed.KeyUsage&x509.KeyUsageCRLSign,
+		"the renewed certificate must not gain CRL-signing authority")
+}
+
+// The demotion changes what a certificate is allowed to do, so it must be
+// visible to an operator rather than happening silently.
+func TestRenewCertificate_DemotionIsAuditLogged(t *testing.T) {
+	setupMasterKey()
+
+	privateKeyPEM, err := crypto.GenerateRSAKeyPEM(2048)
+	require.NoError(t, err)
+
+	f := newRenewalFixtureWithStoredCert(t, privateKeyPEM, prefixShapedCertPEM(t, privateKeyPEM))
+
+	_, err = f.svc.RenewCertificate(context.Background(), f.certID, f.scope, 365)
+	require.NoError(t, err)
+
+	logged := f.logs.String()
+	assert.Contains(t, logged, "ca_demoted", "the demotion must carry its own audit status")
+	assert.Contains(t, logged, "renew_certificate", "the demotion must be logged against the renewal operation")
+	assert.Contains(t, logged, f.certID.String(), "the audit entry must name the certificate that was demoted")
 }
 
 // The opt-in must produce a certificate that can actually sign. IsCA alone is

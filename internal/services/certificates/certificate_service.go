@@ -761,11 +761,21 @@ func (s *certificateService) RenewCertificate(ctx context.Context, certID uuid.U
 	// IsCA: true unconditionally, so the first renewal promoted any
 	// certificate to a Certificate Authority (B44). Forcing false instead
 	// would be the mirror-image bug: it would strip the CA bit off a real CA.
-	isCA, err := certificateIsCA(original.Certificate)
+	//
+	// The one status that is not preserved is caStatusUnsignableCA. Every
+	// certificate issued before this release asserts CA:TRUE without
+	// keyCertSign, and that missing bit is the only reason none of them ever
+	// worked as a CA. Renewing such a certificate as a CA would hand it the
+	// keyCertSign the fixed template now adds and turn it into a working
+	// authority, unattended, via the auto-renew scheduler. It is renewed as a
+	// leaf instead, and the demotion is audit-logged below.
+	status, err := inspectCertificateCA(original.Certificate)
 	if err != nil {
 		s.logger.LogAuditError(userID.String(), "renew_certificate", "failed", "failed to inspect stored certificate", err)
 		return nil, fmt.Errorf("failed to inspect stored certificate: %w", err)
 	}
+	isCA := status == caStatusCA
+	demoted := status == caStatusUnsignableCA
 
 	certPEM, err := crypto.CreateSelfSignedCertificatePEM(privateKeyPEM, key.Type, crypto.CertificateTemplate{
 		CommonName:   original.Name,
@@ -798,6 +808,14 @@ func (s *certificateService) RenewCertificate(ctx context.Context, certID uuid.U
 	if err := s.certRepo.Update(ctx, &updated, scope); err != nil {
 		s.logger.LogAuditError(userID.String(), "renew_certificate", "failed", "failed to store renewed certificate", err)
 		return nil, fmt.Errorf("failed to store renewed certificate: %w", err)
+	}
+
+	// The demotion is logged only once the renewed certificate is actually
+	// stored, so the audit trail never claims a change that did not land.
+	if demoted {
+		s.logger.LogAuditInfo(userID.String(), "renew_certificate", "ca_demoted",
+			fmt.Sprintf("certificate %s (ID: %s) asserted CA:TRUE without keyCertSign and was renewed as a non-CA leaf; reissue it with --is-ca if it is genuinely a certificate authority",
+				updated.Name, updated.ID))
 	}
 
 	s.logger.LogAuditInfo(userID.String(), "renew_certificate", "success", fmt.Sprintf("certificate renewed: %s, ID: %s", updated.Name, updated.ID))
@@ -903,24 +921,51 @@ func extractExpiresAt(certPEM string) (*time.Time, error) {
 	return &t, nil
 }
 
-// certificateIsCA reports whether a stored certificate asserts the CA basic
-// constraint. Renewal reads it out of the certificate it is replacing, so a
-// leaf renews as a leaf and a CA renews as a CA -- neither value is forced.
+// caStatus describes what authority a stored certificate actually carries.
+type caStatus int
+
+const (
+	// caStatusLeaf is an ordinary certificate: no CA basic constraint.
+	caStatusLeaf caStatus = iota
+	// caStatusCA is a working certificate authority. It asserts CA:TRUE and
+	// carries the keyCertSign usage that verifiers require of a signer.
+	caStatusCA
+	// caStatusUnsignableCA is a certificate that asserts CA:TRUE but has no
+	// keyCertSign, so nothing it signed ever verified. This shape identifies a
+	// certificate issued before B43 and B44 were fixed; the current template
+	// cannot produce it, because IsCA now always implies keyCertSign.
+	caStatusUnsignableCA
+)
+
+// inspectCertificateCA reports what authority a stored certificate carries.
+// Renewal reads this out of the certificate it is replacing, so a leaf renews
+// as a leaf and a real CA renews as a CA -- neither value is forced. This
+// replaced an earlier certificateIsCA helper that returned cert.IsCA alone and
+// so could not tell a working CA from a pre-fix one.
+//
+// Parse failures are fail-closed on purpose: the caller aborts the renewal
+// rather than guessing an authority for a certificate it cannot read.
 //
 // Parameters:
 //   - certPEM: The PEM-encoded certificate.
 //
 // Returns:
 //
-//	Whether the certificate is a CA, or an error if it cannot be parsed.
-func certificateIsCA(certPEM string) (bool, error) {
+//	The certificate's CA status, or an error if it cannot be parsed.
+func inspectCertificateCA(certPEM string) (caStatus, error) {
 	block, _ := pem.Decode([]byte(certPEM))
 	if block == nil {
-		return false, fmt.Errorf("failed to decode PEM block from certificate")
+		return caStatusLeaf, fmt.Errorf("failed to decode PEM block from certificate")
 	}
 	cert, err := x509.ParseCertificate(block.Bytes)
 	if err != nil {
-		return false, fmt.Errorf("failed to parse X.509 certificate: %w", err)
+		return caStatusLeaf, fmt.Errorf("failed to parse X.509 certificate: %w", err)
 	}
-	return cert.IsCA, nil
+	if !cert.IsCA {
+		return caStatusLeaf, nil
+	}
+	if cert.KeyUsage&x509.KeyUsageCertSign == 0 {
+		return caStatusUnsignableCA, nil
+	}
+	return caStatusCA, nil
 }
