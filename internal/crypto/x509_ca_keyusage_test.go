@@ -141,3 +141,30 @@ func TestSelfSignedCA_CarriesCertSignInTheIssuedCertificate(t *testing.T) {
 	require.NotZero(t, ca.KeyUsage&x509.KeyUsageCertSign)
 	require.NotZero(t, ca.KeyUsage&x509.KeyUsageCRLSign)
 }
+
+// An ES256K CA parses to a *secp256k1.PrivateKey, which matches neither arm
+// of the inner type switch. That used to leave certBytes nil with err nil,
+// so the function PEM-encoded zero bytes and reported success.
+func TestCreateCASignedCertificatePEM_UnsupportedCAKeyTypeErrors(t *testing.T) {
+	leafKeyPEM, err := GenerateRSAKeyPEM(2048)
+	require.NoError(t, err)
+	caKeyPEM, err := GenerateECDSAKeyPEM("P-256K")
+	require.NoError(t, err)
+
+	// The CA certificate body is irrelevant here: the failure must happen on
+	// the CA private key, so a well-formed RSA CA certificate is enough to get
+	// past parsing.
+	rsaCAKeyPEM, err := GenerateRSAKeyPEM(2048)
+	require.NoError(t, err)
+	caPEM, err := CreateSelfSignedCertificatePEM(rsaCAKeyPEM, "RSA", CertificateTemplate{
+		CommonName: "Test CA", ValidityDays: 3650, IsCA: true,
+	})
+	require.NoError(t, err)
+
+	out, err := CreateCASignedCertificatePEM(leafKeyPEM, "RSA", caPEM, caKeyPEM, "ES256K", CertificateTemplate{
+		CommonName: "leaf", ValidityDays: 365, IsCA: false,
+	})
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "unsupported CA key type")
+	require.Empty(t, out)
+}

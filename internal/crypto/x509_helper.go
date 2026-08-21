@@ -187,6 +187,13 @@ func CreateCASignedCertificatePEM(privateKeyPEM, keyType, caCertPEM, caKeyPEM, c
 		return "", fmt.Errorf("unsupported key type: %s", keyType)
 	}
 
+	// Both inner switches are exhaustive only for RSA and ECDSA CA keys. Any
+	// other CA key type falls through them leaving certBytes nil and err nil,
+	// which would encode an empty PEM block and report success.
+	if err == nil && certBytes == nil {
+		return "", fmt.Errorf("unsupported CA key type: %s", caKeyType)
+	}
+
 	if err != nil {
 		logrus.WithError(err).Error("Failed to create CA-signed certificate")
 		return "", fmt.Errorf("failed to create CA-signed certificate: %w", err)
