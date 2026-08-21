@@ -55,16 +55,16 @@ type CertificateFilter struct {
 }
 
 // certificateColumns is the canonical SELECT list shared by every scoped query.
-const certificateColumns = "id, user_id, vault_id, name, certificate, private_key, created_at, expires_at, auto_renew, renewal_days, key_id, enabled, not_before, deleted_at, purge_protection"
+const certificateColumns = "id, user_id, vault_id, name, certificate, private_key, created_at, expires_at, auto_renew, renewal_days, key_id, ca_cert_id, enabled, not_before, deleted_at, purge_protection"
 
 // scanCertificateRow scans one certificates row in the canonical column order.
 func scanCertificateRow(scan func(dest ...any) error) (model.Certificate, error) {
 	var cert model.Certificate
 	var idStr, userIDStr, vaultIDStr string
-	var keyIDStr sql.NullString
+	var keyIDStr, caCertIDStr sql.NullString
 
 	if err := scan(&idStr, &userIDStr, &vaultIDStr, &cert.Name, &cert.Certificate, &cert.PrivateKey,
-		&cert.CreatedAt, &cert.ExpiresAt, &cert.AutoRenew, &cert.RenewalDays, &keyIDStr,
+		&cert.CreatedAt, &cert.ExpiresAt, &cert.AutoRenew, &cert.RenewalDays, &keyIDStr, &caCertIDStr,
 		&cert.Enabled, &cert.NotBefore, &cert.DeletedAt, &cert.PurgeProtection); err != nil {
 		return cert, err
 	}
@@ -83,6 +83,15 @@ func scanCertificateRow(scan func(dest ...any) error) (model.Certificate, error)
 		if cert.KeyID, err = uuid.Parse(keyIDStr.String); err != nil {
 			return cert, fmt.Errorf("failed to parse key ID: %w", err)
 		}
+	}
+	// A NULL or empty ca_cert_id means self-signed, which stays nil rather
+	// than becoming a zero UUID that later reads as a real CA.
+	if caCertIDStr.Valid && caCertIDStr.String != "" {
+		caCertID, parseErr := uuid.Parse(caCertIDStr.String)
+		if parseErr != nil {
+			return cert, fmt.Errorf("failed to parse CA certificate ID: %w", parseErr)
+		}
+		cert.CACertID = &caCertID
 	}
 	return cert, nil
 }
@@ -137,6 +146,9 @@ func (r *CertificateRepository) Update(ctx context.Context, cert *model.Certific
 		}
 		defer tx.Rollback() //nolint:errcheck
 
+		// ca_cert_id is deliberately absent: the CA link is set at creation and
+		// immutable afterwards. Renewal writes through this method, so touching
+		// the column here would erase the issuer on the first renewal (B37).
 		query := "UPDATE certificates SET name = ?, certificate = ?, private_key = ?, created_at = ?, expires_at = ?, auto_renew = ?, renewal_days = ?, enabled = ?, not_before = ? WHERE id = ? AND " + predicate
 		execArgs := append([]any{
 			cert.Name, cert.Certificate, cert.PrivateKey, cert.CreatedAt, cert.ExpiresAt,
@@ -319,12 +331,18 @@ func (r *CertificateRepository) Create(ctx context.Context, cert *model.Certific
 		}
 		defer tx.Rollback() //nolint:errcheck
 
+		// ca_cert_id is NULL for a self-signed certificate.
+		var caCertID any
+		if cert.CACertID != nil {
+			caCertID = cert.CACertID.String()
+		}
+
 		// Insert certificate with pre-encrypted private key and renewal metadata.
 		_, err = tx.ExecContext(
 			ctx,
-			"INSERT INTO certificates (id, user_id, vault_id, name, certificate, private_key, created_at, expires_at, auto_renew, renewal_days, key_id, enabled, not_before) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+			"INSERT INTO certificates (id, user_id, vault_id, name, certificate, private_key, created_at, expires_at, auto_renew, renewal_days, key_id, ca_cert_id, enabled, not_before) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
 			cert.ID.String(), cert.UserID.String(), cert.VaultID.String(), cert.Name, cert.Certificate, cert.PrivateKey, cert.CreatedAt,
-			cert.ExpiresAt, cert.AutoRenew, cert.RenewalDays, cert.KeyID.String(), cert.Enabled, cert.NotBefore,
+			cert.ExpiresAt, cert.AutoRenew, cert.RenewalDays, cert.KeyID.String(), caCertID, cert.Enabled, cert.NotBefore,
 		)
 		if err != nil {
 			r.log.LogAuditError(cert.UserID.String(), "create_certificate", "failed", "Failed to insert certificate", err)
@@ -715,7 +733,7 @@ func (r *CertificateRepository) ListAll(ctx context.Context) ([]model.Certificat
 
 	err := r.executeWithMetrics("list_all_certificates", func() error {
 		rows, err := r.db.QueryContext(ctx,
-			"SELECT id, user_id, name, certificate, private_key, created_at, expires_at, auto_renew, renewal_days, key_id, enabled, not_before FROM certificates WHERE deleted_at IS NULL")
+			"SELECT id, user_id, name, certificate, private_key, created_at, expires_at, auto_renew, renewal_days, key_id, ca_cert_id, enabled, not_before FROM certificates WHERE deleted_at IS NULL")
 		if err != nil {
 			return fmt.Errorf("failed to list all certificates: %w", err)
 		}
@@ -724,15 +742,24 @@ func (r *CertificateRepository) ListAll(ctx context.Context) ([]model.Certificat
 		for rows.Next() {
 			var cert model.Certificate
 			var idStr, userIDStr string
-			var keyIDStr sql.NullString
+			var keyIDStr, caCertIDStr sql.NullString
 			if err := rows.Scan(&idStr, &userIDStr, &cert.Name, &cert.Certificate, &cert.PrivateKey, &cert.CreatedAt,
-				&cert.ExpiresAt, &cert.AutoRenew, &cert.RenewalDays, &keyIDStr, &cert.Enabled, &cert.NotBefore); err != nil {
+				&cert.ExpiresAt, &cert.AutoRenew, &cert.RenewalDays, &keyIDStr, &caCertIDStr, &cert.Enabled, &cert.NotBefore); err != nil {
 				return fmt.Errorf("failed to scan certificate row: %w", err)
 			}
 			cert.ID = uuid.MustParse(idStr)
 			cert.UserID = uuid.MustParse(userIDStr)
 			if keyIDStr.Valid {
 				cert.KeyID = uuid.MustParse(keyIDStr.String)
+			}
+			// The renewal scheduler branches on this, so it must survive the
+			// listing read too.
+			if caCertIDStr.Valid && caCertIDStr.String != "" {
+				caCertID, parseErr := uuid.Parse(caCertIDStr.String)
+				if parseErr != nil {
+					return fmt.Errorf("failed to parse CA certificate ID: %w", parseErr)
+				}
+				cert.CACertID = &caCertID
 			}
 			certs = append(certs, cert)
 		}

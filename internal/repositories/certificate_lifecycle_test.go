@@ -37,6 +37,7 @@ func setupCertLifecycleTestDB(t *testing.T) *sql.DB {
 		auto_renew BOOLEAN NOT NULL DEFAULT FALSE,
 		renewal_days INTEGER NOT NULL DEFAULT 30,
 		key_id TEXT,
+		ca_cert_id TEXT NULL,
 		enabled BOOLEAN NOT NULL DEFAULT TRUE,
 		not_before TIMESTAMP NULL
 	)`)
