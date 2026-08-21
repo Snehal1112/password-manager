@@ -796,3 +796,29 @@ func TestUpdateSecret_VaultScope_NonOwnerVaultMember_CreateVersionUsesSecretOwne
 	assert.Equal(t, ownerID, gotVersionReq.UserID,
 		"CreateVersion must be called with the secret's owner, not the caller, so its internal ownership gate does not reject a legitimate vault-scoped update")
 }
+
+func TestImportSecrets_SealedPayload_IsRefused(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	vaultID := uuid.New()
+
+	repo := &testutils.MockSecretRepository{}
+	crypto := &testutils.MockCryptographyService{}
+	ver := &testutils.MockVersioningService{}
+	tag := &testutils.MockTagService{}
+
+	sealed, err := common.SealExport([]byte(`[{"name":"n1","value":"v1"}]`), "pw")
+	require.NoError(t, err)
+
+	svc := newService(repo, crypto, ver, tag, t)
+	result, err := svc.ImportSecrets(ctx, secrets.ImportSecretsRequest{
+		Scope:  model.NewVaultScope(vaultID, uuid.New()),
+		Data:   sealed,
+		Format: "json",
+	})
+
+	require.Error(t, err)
+	assert.True(t, errors.Is(err, secrets.ErrImportDataIsSealed), "got %v", err)
+	assert.Nil(t, result)
+	repo.AssertNotCalled(t, "Create", mock.Anything, mock.Anything)
+}

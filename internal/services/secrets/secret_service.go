@@ -31,6 +31,11 @@ var ErrSecretLifecycleDenied = errors.New("secret is disabled or outside its val
 // plaintext under a flag that promises encryption.
 var ErrExportPassphraseRequired = errors.New("export encryption requested but no passphrase was supplied")
 
+// ErrImportDataIsSealed is returned when import data is a passphrase-sealed
+// export envelope. The caller must open it first; the service holds no
+// passphrase and must never prompt for one.
+var ErrImportDataIsSealed = errors.New("import data is an encrypted RocketVault export: decrypt it before importing")
+
 // CreateSecretRequest represents a request to create a new secret.
 type CreateSecretRequest struct {
 	UserID      uuid.UUID
@@ -734,6 +739,14 @@ func (s *secretService) ImportSecrets(ctx context.Context, req ImportSecretsRequ
 	if req.Format != "json" && req.Format != "csv" {
 		s.logger.LogAuditError(req.Scope.ActorID().String(), "import_secrets", "failed", "Invalid format: must be json or csv", nil)
 		return nil, fmt.Errorf("invalid format: must be json or csv")
+	}
+
+	// A sealed export is opened by the caller, which is the only layer that can
+	// prompt for a passphrase. Refusing here beats a confusing parse error.
+	if common.IsSealedExport(req.Data) {
+		s.logger.LogAuditError(req.Scope.ActorID().String(), "import_secrets", "failed",
+			"Import data is an encrypted export", nil)
+		return nil, ErrImportDataIsSealed
 	}
 
 	type importSecret struct {
