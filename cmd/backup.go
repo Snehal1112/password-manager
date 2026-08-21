@@ -128,12 +128,13 @@ whole file with the master key, which means it can only be restored on an
 instance holding that same key. --encrypt=false writes plain JSON instead:
 secret values and private keys inside it remain master-key sealed, but names,
 tags, users, password hashes and role assignments become readable by anyone
-who can read the file. Only unencrypted backups can be inspected with
-"backup list".`,
+who can read the file. Both encrypted and unencrypted backups appear in
+"backup list"; only an unencrypted one shows its table and record counts
+there, since listing never decrypts the payload.`,
 	Example: `  # Create an encrypted backup (the default)
   rocketvault backup create --output ./backups/<name>.backup
 
-  # Create an unencrypted backup, which "backup list" can read
+  # Create an unencrypted backup, readable in full by "backup list"
   rocketvault backup create --output ./backups/<name>.backup \
     --encrypt=false`,
 	RunE: func(cmd *cobra.Command, args []string) error {
@@ -145,18 +146,21 @@ who can read the file. Only unencrypted backups can be inspected with
 var backupListCmd = &cobra.Command{
 	Use:   "list",
 	Short: "List available backup files",
-	Long: `Scan a directory for files matching "*.backup" and print what each one
-contains: when it was taken, its format version, how many tables and records
-it holds, and whether it is encrypted. The scan is not recursive.
+	Long: `Scan a directory for files matching "*.backup" and print one row per file:
+when it was taken, its format version, how many tables and records it holds,
+whether it is encrypted, its filename, size and modification time. The scan
+is not recursive.
 
 Requires the global admin role.
 
-Only unencrypted backups can be listed. Metadata is read by parsing the file
-as JSON, so a backup written with the default encryption is skipped with a
-warning and never appears — a directory holding only encrypted backups
-reports none found. The FILE column is rebuilt from each backup's own
-timestamp rather than read from the name on disk, so it will not match a file
-you renamed.`,
+Listing never requires the master key and never decrypts a backup. Metadata
+is read by attempting a plaintext JSON parse; a backup written with the
+default encryption fails that parse, so its TIMESTAMP, VERSION, TABLES and
+RECORDS columns print "-" instead of real values. FILE, SIZE and MODIFIED
+always come from the filesystem, so an encrypted backup — or even a corrupt
+one — still appears as a row, identified by its actual filename, instead of
+being silently skipped. A directory holding only encrypted backups is never
+reported as empty.`,
 	Example: `  # List the backups in the default ./backups directory
   rocketvault backup list
 
