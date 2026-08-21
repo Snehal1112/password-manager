@@ -1747,13 +1747,10 @@ execution.
 
 ### B35 — `secrets rotation rotate` writes a corrupted value that never decrypts again
 
-**Status**: Open, found 2026-08-21
-**Severity**: Critical — unattended silent data loss. Re-rated from High on
-2026-08-21: `schedulerService.performAutomaticRotation`
-(`internal/services/secrets/scheduler_service.go:240-247`) delegates to the same
-`PerformManualRotation`, so every policy with `AutoRotate: true` destroys its
-secrets on a timer with no operator present and no error surfaced. The manual
-path is additionally unrecoverable, because it never archives a version row
+**Status**: Fixed 2026-08-21
+**Severity**: Resolved — was Critical (re-rated from High during design:
+`schedulerService.performAutomaticRotation` delegated to the same function, so
+every policy with `AutoRotate: true` destroyed its secrets unattended)
 **Files**: `internal/services/secrets/rotation_service.go`,
 `internal/services/secrets/scheduler_service.go`, `cmd/rotation.go`
 
@@ -1793,6 +1790,28 @@ and assert the plaintext round-trips.
 **Why it survived**: no test performs a manual rotation followed by a read. The
 CLI help previously said only "rotate a secret according to its assigned
 policy", which described the intent rather than the placeholder implementation.
+
+**What was fixed**: `PerformManualRotation` now resolves its replacement value
+from the request (`NewValue`, or `Generate` with `pwgen.Options`) and fails
+with `ErrRotationValueRequired` rather than inventing one; archives the
+pre-rotation plaintext through `versioningSvc.CreateVersion` before writing,
+which is fatal on failure; and encrypts through `cryptoSvc.EncryptSecret`
+before `secretRepo.Update`. `generateNewSecretValue` is deleted. The scheduler
+sets `Generate: true` and no longer calls `CreateVersion` itself, which used to
+write a second, doubly encrypted row. The CLI gained `--value`/`--generate`.
+The regression test is
+`TestPerformManualRotation_ExplicitValue_RoundTripsThroughGetSecret` in
+`internal/services/secrets/rotation_roundtrip_test.go`.
+
+**Recovery for data corrupted before this fix**: values rotated by the
+scheduler survive in `secret_versions`, but doubly encrypted — a normal
+`secrets versions get` returns the inner ciphertext, and recovering the
+plaintext means decrypting that output once more with the master key. Values
+rotated manually are **not recoverable**: the manual path never versioned, and
+it overwrote the stored ciphertext in place. The only recovery for those is an
+out-of-band copy (a database backup or `rocketvault backup` archive predating
+the rotation, or the value as known to the system the secret belongs to). No
+repair tooling was built; this was an explicit non-goal.
 
 ---
 
