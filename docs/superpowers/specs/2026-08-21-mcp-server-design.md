@@ -232,6 +232,29 @@ everything enabled exposes 27 (10 read, 9 write, 4 destructive, 4 crypto).
 `include_value` argument **only** when `mcp.allow_secret_values` is true — the
 schema itself is different, so a value cannot be requested when disabled.
 
+**A server constraint qualifies this, and it should not be glossed over.**
+`GET /api/v1/vaults/{v}/secrets/{id}` returns the plaintext value
+unconditionally — the handler sets `Value: secret.Value` under the comment
+"include value for get operation" (`api/secrets.go:462-465`), with no query
+parameter to suppress it. So:
+
+- The value **enters the MCP server process** regardless of
+  `allow_secret_values`. Redaction governs what reaches the *model*, which is
+  the threat this design is defending against, but it cannot stop the value
+  crossing the wire.
+- Metadata-only reads cannot ask for less. `ListSecrets` does omit values, but
+  it also omits `expires_at`, `enabled` and `content_type` — and expiry is
+  precisely what operators ask about — so `get_secret` must use the get route.
+
+This is why `vaultapi.SecretValue` redacts on `String`, `GoString` and
+`MarshalJSON`: the plaintext arrives whether or not anyone wants it, so
+discarding it is the default and revealing it is the deliberate act.
+
+Closing the gap properly would mean adding `?include_value=false` to the
+existing get route. That is a modification to an existing endpoint rather than
+a new one, but it is still a server change, which this design's non-goals
+exclude. It should be proposed separately.
+
 ### Write tier — `mcp.allow_write`
 
 | Tool | Route |
