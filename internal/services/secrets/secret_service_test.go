@@ -1101,3 +1101,42 @@ func TestExportSecretsCSV_EscapesEmbeddedQuote(t *testing.T) {
 	expected := "name,value\n" + `"d""b","a""b"` + "\n"
 	assert.Equal(t, expected, string(data), "an embedded quote must be doubled, not left bare")
 }
+
+func TestImportSecretsCSV_UnescapesDoubledQuote(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	vaultID := uuid.New()
+	scope := model.NewVaultScope(vaultID, uuid.New())
+
+	repo := &testutils.MockSecretRepository{}
+	crypto := &testutils.MockCryptographyService{}
+	ver := &testutils.MockVersioningService{}
+	tag := &testutils.MockTagService{}
+
+	repo.On("FindByName", ctx, `d"b`, scope).Return(nil, repositories.ErrNotFound)
+	crypto.On("EncryptSecret", `a"b`).Return("enc-imported", nil)
+	var created *model.Secret
+	repo.On("Create", ctx, mock.AnythingOfType("*model.Secret")).
+		Run(func(args mock.Arguments) { created = args.Get(1).(*model.Secret) }).
+		Return(nil)
+
+	svc := newService(repo, crypto, ver, tag, t)
+	data := []byte("name,value\n" + `"d""b","a""b"` + "\n")
+
+	result, err := svc.ImportSecrets(ctx, secrets.ImportSecretsRequest{
+		Scope:  scope,
+		Data:   data,
+		Format: "csv",
+	})
+	require.NoError(t, err)
+	assert.Equal(t, 1, result.ImportedCount)
+	require.NotNil(t, created)
+	assert.Equal(t, `d"b`, created.Name)
+	// CreateSecret overwrites the passed secret's Value back to plaintext
+	// before returning it (see "Return plaintext to the caller" in
+	// CreateSecret), so the mock-captured struct reflects the decoded CSV
+	// value here, not the encrypted one — this still proves the doubled
+	// quote in the value column was unescaped correctly.
+	assert.Equal(t, `a"b`, created.Value)
+	crypto.AssertCalled(t, "EncryptSecret", `a"b`)
+}

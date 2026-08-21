@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"strings"
 	"time"
 
@@ -792,26 +793,49 @@ func (s *secretService) ImportSecrets(ctx context.Context, req ImportSecretsRequ
 			return nil, fmt.Errorf("failed to parse JSON: %w", err)
 		}
 	} else {
-		// Parse CSV (simplified - assumes CSV format: name,value or name,value,tags)
-		lines := strings.Split(string(req.Data), "\n")
-		for i, line := range lines {
-			if i == 0 || strings.TrimSpace(line) == "" {
-				continue // Skip header and empty lines
-			}
+		// Parse CSV via encoding/csv, which handles doubled-quote escaping
+		// and embedded newlines inside a quoted field correctly — the
+		// hand-rolled parseCSVLine could not (B42).
+		reader := csv.NewReader(strings.NewReader(string(req.Data)))
+		reader.FieldsPerRecord = 0 // Locked to the header row's own column count.
 
-			// Simple CSV parsing (handles quoted values)
-			parts := parseCSVLine(line)
-			if len(parts) < 2 {
-				result.Errors = append(result.Errors, fmt.Sprintf("Line %d: invalid format", i+1))
+		header, err := reader.Read()
+		if err != nil && err != io.EOF {
+			s.logger.LogAuditError(req.Scope.ActorID().String(), "import_secrets", "failed", "Failed to parse CSV header", err)
+			return nil, fmt.Errorf("failed to parse CSV: %w", err)
+		}
+		hasTags := len(header) > 2
+
+		lineNum := 1
+		for {
+			record, readErr := reader.Read()
+			if readErr == io.EOF {
+				break
+			}
+			lineNum++
+			if readErr != nil {
+				// A row with the wrong number of fields, or an unescaped
+				// quote, is reported here instead of silently mis-split —
+				// the defect this replaces (B42).
+				result.Errors = append(result.Errors, fmt.Sprintf("Line %d: invalid CSV: %v", lineNum, readErr))
+				continue
+			}
+			if len(record) < 2 {
+				result.Errors = append(result.Errors, fmt.Sprintf("Line %d: invalid format", lineNum))
 				continue
 			}
 
 			secret := importSecret{
-				Name:  parts[0],
-				Value: parts[1],
+				Name:  record[0],
+				Value: record[1],
 			}
-			if len(parts) > 2 && parts[2] != "" {
-				secret.Tags = strings.Split(parts[2], ",")
+			if hasTags && len(record) > 2 && record[2] != "" {
+				tags, tagErr := csvDecodeTags(record[2])
+				if tagErr != nil {
+					result.Errors = append(result.Errors, fmt.Sprintf("Line %d: invalid tags: %v", lineNum, tagErr))
+					continue
+				}
+				secret.Tags = tags
 			}
 			secretsToImport = append(secretsToImport, secret)
 		}
@@ -989,28 +1013,15 @@ func csvEncodeTags(tags []string) (string, error) {
 	return strings.TrimSuffix(buf.String(), "\n"), nil
 }
 
-// parseCSVLine parses a CSV line handling quoted values.
-func parseCSVLine(line string) []string {
-	var parts []string
-	var current strings.Builder
-	inQuotes := false
-
-	for i := 0; i < len(line); i++ {
-		char := line[i]
-		switch char {
-		case '"':
-			inQuotes = !inQuotes
-		case ',':
-			if inQuotes {
-				current.WriteByte(char)
-			} else {
-				parts = append(parts, strings.TrimSpace(current.String()))
-				current.Reset()
-			}
-		default:
-			current.WriteByte(char)
-		}
+// csvDecodeTags reverses csvEncodeTags. An empty field means no tags (B42).
+func csvDecodeTags(field string) ([]string, error) {
+	if field == "" {
+		return nil, nil
 	}
-	parts = append(parts, strings.TrimSpace(current.String()))
-	return parts
+	r := csv.NewReader(strings.NewReader(field))
+	tags, err := r.Read()
+	if err != nil {
+		return nil, err
+	}
+	return tags, nil
 }

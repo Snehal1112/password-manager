@@ -732,7 +732,7 @@ func TestSecretServiceExportAndImport(t *testing.T) {
 	result, err := svc.ImportSecrets(ctx, secrets.ImportSecretsRequest{
 		Scope:  model.NewOwnerScope(uuid.Nil, userID),
 		Format: "csv",
-		Data:   []byte("name,value,tags\napi,one,\"prod,api\"\nmissing,\n"),
+		Data:   []byte("name,value,tags\napi,one,\"prod,api\"\nmissing,,\n"),
 	})
 	require.NoError(t, err)
 	assert.Equal(t, 1, result.ImportedCount)
