@@ -1843,9 +1843,8 @@ unrecoverable case.
 
 ### B36 — `secrets export` writes plaintext while `--encrypt` (default true) claims otherwise
 
-**Status**: Open, found 2026-08-21
-**Severity**: High — false security assurance. Every secret value the caller can
-read is written to disk in the clear, under a flag that says the opposite
+**Status**: Fixed in commit `8d02ec8` (2026-08-21)
+**Severity**: Resolved
 **Files**: `cmd/secrets/export.go`, `cmd/secrets/import.go`,
 `internal/services/secrets/secret_service.go`
 
@@ -1873,10 +1872,18 @@ making the same false claim.
 `Value string \`json:"value"\`` directly. `importEncrypted`
 (`import.go:42,122`, "File is encrypted") is dead in exactly the same way.
 
-**Fix decision required**: either implement export encryption, or delete both
-flags. Leaving a flag that asserts encryption it does not perform is the worst
-of the three options. Deleting is the smaller change and is honest; implementing
-is what a user reasonably expects from a `--encrypt` default of `true`.
+**Fix taken**: export encryption is implemented, not deleted.
+`ExportSecretsRequest` gained `Encrypt`/`Passphrase`; `ExportSecrets` seals the
+formatted bytes with `common.SealExport` (argon2id over the existing
+AES-256-GCM primitives) and errors rather than returning plaintext when
+encryption was requested without a passphrase. The CLI resolves the passphrase
+from `--passphrase-file`, `ROCKETVAULT_EXPORT_PASSPHRASE` or a prompt, after the
+authorization check and before any write. Import detects the envelope by content
+and opens it; `--encrypted` is deprecated rather than removed. The API's dead
+`encrypt` field is now a 400.
+
+**Breaking**: a scripted export with no passphrase source now fails instead of
+writing plaintext. See `docs/release-notes/v4.2.0-ca-certificates.md`.
 
 **Not verified**: who is authorized to call export. The defect logged here is
 the false assurance, not necessarily an access-control hole.
