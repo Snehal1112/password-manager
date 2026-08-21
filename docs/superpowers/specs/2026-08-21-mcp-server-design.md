@@ -226,7 +226,34 @@ everything enabled exposes 27 (10 read, 9 write, 4 destructive, 4 crypto).
 | `get_certificate` | `GET /api/v1/vaults/{v}/certificates/{id}` (+ `/policy`) |
 | `list_deleted` | `GET /api/v1/vaults/{v}/deleted/{secrets,keys,certificates}` |
 | `list_role_assignments` | `GET /api/v1/vaults/{v}/role-assignments` |
-| `query_audit_log` | `GET /api/v1/audit/logs` |
+| `query_audit_log` | `GET /api/v1/audit/logs` — **requires global admin**, see below |
+
+**`query_audit_log` cannot work under the recommended posture.**
+`GET /api/v1/audit/logs` gates on the global `admin` role, not on a data
+action:
+
+```go
+if role != string(model.RoleAdmin) {
+    c.SetPermissionError("admin role required")
+```
+(`api/audit.go:66-71`)
+
+No per-vault Azure role grants it — not `Key Vault Reader`, not even
+`Key Vault Data Access Administrator`. So a least-privilege service account,
+which this design otherwise recommends, receives 403 from this tool every
+time. That is the server's design, not a defect in the MCP layer.
+
+The trade-off is real and belongs to the operator: reading audit logs through
+MCP means running the agent as a global admin, which is a far larger grant
+than everything else here needs. Many deployments should rationally leave
+`query_audit_log` unusable rather than pay that price. The operator runbook
+must state this, and the tool's 403 message says it directly rather than
+suggesting a vault role that could not help.
+
+`list_role_assignments` has a softer version of the same constraint — it
+accepts admin, `vaults/manage`, *or* `Key Vault Data Access Administrator`
+(`api/role_assignments.go:139`), and the last is grantable per vault, so a
+least-privileged principal can hold it.
 
 `get_secret` returns metadata, tags, version list and expiry. It exposes an
 `include_value` argument **only** when `mcp.allow_secret_values` is true — the
