@@ -280,3 +280,65 @@ func TestRenewCertificate_ExpiredCertificateStillRefused(t *testing.T) {
 func timeInPast() time.Time {
 	return time.Now().Add(-24 * time.Hour)
 }
+
+// x509.CreateCertificate does not check the parent's IsCA/KeyUsage bits, so
+// without an explicit gate renewal would sign through a CA whose own body
+// cannot actually verify as an issuer, report success, and leave a chain that
+// silently fails CheckSignatureFrom/Verify. This is the pre-B43 shape every
+// CA certificate in an unrepaired deployment carries: CA:TRUE with no
+// keyCertSign.
+func TestRenewCertificate_UnsignableCARefusesRenewal(t *testing.T) {
+	f := newCARenewalFixture(t, "RSA")
+
+	caKeyPEM, err := crypto.GenerateRSAKeyPEM(2048)
+	require.NoError(t, err)
+	unsignableCAPEM := prefixShapedCertPEM(t, caKeyPEM)
+	encCAKey, err := common.EncryptSecret(caKeyPEM)
+	require.NoError(t, err)
+
+	unsignableCA := &model.Certificate{
+		ID: f.caCertID, UserID: f.scope.ActorID(), VaultID: f.scope.VaultID(),
+		Name: "fixture-ca", Certificate: unsignableCAPEM, PrivateKey: encCAKey,
+		Enabled: true,
+	}
+
+	f.certRepo.ExpectedCalls = nil
+	f.certRepo.On("Read", mock.Anything, f.certID, f.scope).Return(f.original, nil)
+	f.certRepo.On("Read", mock.Anything, f.caCertID, f.scope).Return(unsignableCA, nil)
+
+	_, err = f.svc.RenewCertificate(context.Background(), f.certID, f.scope, 365)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "cannot sign certificates")
+	f.certRepo.AssertNotCalled(t, "Update", mock.Anything, mock.Anything, mock.Anything)
+}
+
+// A ca_cert_id can point at a certificate that is not a CA at all -- an
+// ordinary leaf, if the link was set up wrong or the target was since
+// re-issued without --is-ca. Renewal must refuse rather than sign through it.
+func TestRenewCertificate_LeafAsCARefusesRenewal(t *testing.T) {
+	f := newCARenewalFixture(t, "RSA")
+
+	caKeyPEM, err := crypto.GenerateRSAKeyPEM(2048)
+	require.NoError(t, err)
+	leafAsCAPEM, err := crypto.CreateSelfSignedCertificatePEM(caKeyPEM, "RSA", crypto.CertificateTemplate{
+		CommonName: "not-actually-a-ca", ValidityDays: 3650, IsCA: false,
+	})
+	require.NoError(t, err)
+	encCAKey, err := common.EncryptSecret(caKeyPEM)
+	require.NoError(t, err)
+
+	leafAsCA := &model.Certificate{
+		ID: f.caCertID, UserID: f.scope.ActorID(), VaultID: f.scope.VaultID(),
+		Name: "fixture-ca", Certificate: leafAsCAPEM, PrivateKey: encCAKey,
+		Enabled: true,
+	}
+
+	f.certRepo.ExpectedCalls = nil
+	f.certRepo.On("Read", mock.Anything, f.certID, f.scope).Return(f.original, nil)
+	f.certRepo.On("Read", mock.Anything, f.caCertID, f.scope).Return(leafAsCA, nil)
+
+	_, err = f.svc.RenewCertificate(context.Background(), f.certID, f.scope, 365)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "cannot sign certificates")
+	f.certRepo.AssertNotCalled(t, "Update", mock.Anything, mock.Anything, mock.Anything)
+}

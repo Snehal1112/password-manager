@@ -1900,8 +1900,12 @@ path as well as the branch:
    "signed by a CA this installation no longer records"; re-create it against
    its CA. Refusing is deliberate — silently self-signing is the bug.
 2. CA certificates issued before this change lack `KeyUsageCertSign`, so
-   chains under them still fail Go's verifier. Renewing the CA re-issues it
-   with the correct usage bits and repairs the chain from that point on.
+   chains under them still fail Go's verifier. Renewing such a CA does not
+   repair it: `inspectCertificateCA` reports it as `caStatusUnsignableCA`, and
+   the self-signed branch's `isCA := status == caStatusCA` evaluates false for
+   that status, so renewal demotes it to an ordinary leaf instead. Existing
+   CAs stay unusable until reissued with `--is-ca`; see the reissue procedure
+   in `docs/release-notes/v4.2.0-ca-certificates.md`.
 
 **Follow-ups filed, not done here:**
 

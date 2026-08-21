@@ -4,6 +4,7 @@
 package certificates
 
 import (
+	"bytes"
 	"context"
 	"crypto/x509"
 	"encoding/pem"
@@ -737,6 +738,20 @@ func (s *certificateService) renewCASignedBody(ctx context.Context, original *mo
 		return "", fmt.Errorf("cannot renew CA-signed certificate: signing CA %s is unusable: %w", caCertID, err)
 	}
 
+	// x509.CreateCertificate does not check the parent's IsCA/KeyUsage bits,
+	// so it will happily sign through a certificate that cannot actually
+	// verify as an issuer. Refuse before that happens rather than producing a
+	// certificate that reports success but fails CheckSignatureFrom/Verify.
+	caStatus, err := inspectCertificateCA(caCert.Certificate)
+	if err != nil {
+		s.logger.LogAuditError(userID.String(), "renew_certificate", "failed", "failed to inspect signing CA certificate", err)
+		return "", fmt.Errorf("cannot renew CA-signed certificate: failed to inspect signing CA %s: %w", caCertID, err)
+	}
+	if caStatus != caStatusCA {
+		s.logger.LogAuditError(userID.String(), "renew_certificate", "failed", "signing CA certificate cannot sign certificates", nil)
+		return "", fmt.Errorf("signing CA %s cannot sign certificates (asserts CA without keyCertSign, or is not a CA); reissue it with --is-ca", caCertID)
+	}
+
 	caKeyPEM, err := common.DecryptSecret(caCert.PrivateKey)
 	if err != nil {
 		s.logger.LogAuditError(userID.String(), "renew_certificate", "failed", "failed to decrypt CA key", err)
@@ -761,8 +776,13 @@ func (s *certificateService) renewCASignedBody(ctx context.Context, original *mo
 	return certPEM, nil
 }
 
-// isSelfSignedPEM reports whether a stored certificate signed itself, by
-// checking its signature against its own public key.
+// isSelfSignedPEM reports whether a stored certificate signed itself. It
+// requires both that the certificate verifies against its own public key and
+// that its issuer equals its own subject. The signature check alone is not
+// enough: a legacy row with no ca_cert_id link whose CA happens to share the
+// leaf's keypair would self-verify while still naming a different issuer, and
+// treating that as self-signed would silently re-sign it under a new issuer
+// on renewal -- the exact failure this check exists to catch.
 func isSelfSignedPEM(certPEM string) (bool, error) {
 	block, _ := pem.Decode([]byte(certPEM))
 	if block == nil {
@@ -771,6 +791,9 @@ func isSelfSignedPEM(certPEM string) (bool, error) {
 	cert, err := x509.ParseCertificate(block.Bytes)
 	if err != nil {
 		return false, fmt.Errorf("failed to parse X.509 certificate: %w", err)
+	}
+	if !bytes.Equal(cert.RawIssuer, cert.RawSubject) {
+		return false, nil
 	}
 	return cert.CheckSignature(cert.SignatureAlgorithm, cert.RawTBSCertificate, cert.Signature) == nil, nil
 }
