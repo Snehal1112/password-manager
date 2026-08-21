@@ -274,24 +274,46 @@ func runBackupList(cmd *cobra.Command) error {
 
 	// Display results in a table
 	w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
-	fmt.Fprintln(w, "TIMESTAMP\tVERSION\tTABLES\tRECORDS\tENCRYPTED\tFILE") //nolint:errcheck
-	fmt.Fprintln(w, "---------\t-------\t------\t-------\t---------\t----") //nolint:errcheck
+	fmt.Fprintln(w, "TIMESTAMP\tVERSION\tTABLES\tRECORDS\tENCRYPTED\tFILE\tSIZE\tMODIFIED") //nolint:errcheck
+	fmt.Fprintln(w, "---------\t-------\t------\t-------\t---------\t----\t----\t--------") //nolint:errcheck
 
 	for _, b := range backups {
-		filename := filepath.Base(fmt.Sprintf("backup-%s.backup", b.Timestamp.Format("2006-01-02_15-04-05")))
-		fmt.Fprintf(w, "%s\t%s\t%d\t%d\t%t\t%s\n", //nolint:errcheck
-			b.Timestamp.Format("2006-01-02 15:04:05"),
-			b.Version,
-			b.TableCount,
-			b.RecordCount,
-			b.Encrypted,
-			filename)
+		row := backupListRow(b)
+		fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n", //nolint:errcheck
+			row[0], row[1], row[2], row[3], row[4], row[5], row[6], row[7])
 	}
 
 	w.Flush() //nolint:errcheck,gosec
 	fmt.Printf("\n📊 Found %d backup files in %s\n", len(backups), backupListDir)
 
 	return nil
+}
+
+// backupListRow renders one "backup list" row as
+// [timestamp, version, tables, records, encrypted, file, size, modified].
+// Timestamp, version, tables and records come from the backup's payload and
+// render as "-" when b.Readable is false -- an encrypted (or corrupt) backup
+// never has its payload read during listing, so those columns are honestly
+// unknown rather than guessed. File, size and modified always come from the
+// filesystem and are populated regardless of readability.
+func backupListRow(b backup.BackupMetadata) [8]string {
+	timestamp, version, tables, records := "-", "-", "-", "-"
+	if b.Readable {
+		timestamp = b.Timestamp.Format("2006-01-02 15:04:05")
+		version = b.Version
+		tables = fmt.Sprintf("%d", b.TableCount)
+		records = fmt.Sprintf("%d", b.RecordCount)
+	}
+	return [8]string{
+		timestamp,
+		version,
+		tables,
+		records,
+		fmt.Sprintf("%t", b.Encrypted),
+		b.Filename,
+		fmt.Sprintf("%d", b.Size),
+		b.ModTime.Format("2006-01-02 15:04:05"),
+	}
 }
 
 func runBackupRestore(cmd *cobra.Command) error {
