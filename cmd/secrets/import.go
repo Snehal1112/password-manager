@@ -23,6 +23,7 @@ THE SOFTWARE.
 package secrets
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"strings"
@@ -37,21 +38,28 @@ import (
 )
 
 var (
-	importFormat    string
-	importFile      string
-	importEncrypted bool
-	importOverwrite bool
+	importFormat         string
+	importFile           string
+	importEncrypted      bool
+	importPassphraseFile string
+	importOverwrite      bool
 )
 
 // secretsImportCmd represents the import command.
 var secretsImportCmd = &cobra.Command{
 	Use:   "import",
 	Short: "Import secrets from a file",
-	Long: `Import secrets into the target vault from a JSON or CSV file in the layout
-"secrets export" produces. Every record is created as a new secret at
-version 1, so an existing secret of the same name is never replaced:
---overwrite is passed to the import service but never acted on, and
---encrypted is accepted and unused because the export is plaintext.
+	Long: `Import secrets into the target vault from a file in the layout
+"secrets export" produces.
+
+An encrypted export is detected by its contents, not by a flag or a file
+extension. When the file is encrypted the passphrase is read from
+--passphrase-file, then the ROCKETVAULT_EXPORT_PASSPHRASE environment
+variable, then an interactive prompt. A plaintext file needs no passphrase
+and is never prompted for. --encrypted is deprecated and ignored.
+
+--format describes the payload, not the file: an encrypted CSV export is a
+JSON envelope on disk, so it is still imported with --format csv.
 
 Requires the admin or secrets_manager role, and the
 Microsoft.KeyVault/vaults/secrets/setSecret/action data action in the
@@ -62,14 +70,16 @@ becomes the owner of every imported secret.
 
 Records missing a name or a value are skipped rather than failing the run,
 and the imported and skipped counts are printed when the run finishes.`,
-	Example: `  # Import secrets from a JSON file into the default vault
+	Example: `  # Import an encrypted export, prompting for the passphrase
   rocketvault secrets import --file secrets.json
 
-  # Import a CSV export
-  rocketvault secrets import --format csv --file secrets.csv
+  # Import non-interactively, reading the passphrase from a file
+  rocketvault secrets import --file secrets.json \
+    --passphrase-file /run/secrets/export-pass
 
-  # Import into a named vault
-  rocketvault secrets import --file secrets.json --vault <vault-name>`,
+  # Import a CSV export into a named vault
+  rocketvault secrets import --format csv --file payments.csv \
+    --vault <vault-name>`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		ctx := cmd.Context()
 
@@ -109,6 +119,33 @@ and the imported and skipped counts are printed when the run finishes.`,
 			return err
 		}
 
+		// A sealed export is opened here, not in the service: the CLI is the
+		// only layer that can prompt for a passphrase. Detection is by content,
+		// so --format and the file extension are irrelevant to it.
+		if common.IsSealedExport(data) {
+			passphrase, phErr := common.ResolvePassphrase(common.PassphraseSource{
+				File:   importPassphraseFile,
+				EnvVar: exportPassphraseEnvVar,
+				Prompt: "Import passphrase: ",
+			})
+			if phErr != nil {
+				if errors.Is(phErr, common.ErrNoPassphraseAvailable) {
+					return fmt.Errorf("%s is an encrypted export but no passphrase is available: "+
+						"pass --passphrase-file or set %s", importFile, exportPassphraseEnvVar)
+				}
+				return fmt.Errorf("failed to resolve import passphrase: %w", phErr)
+			}
+
+			opened, openErr := common.OpenExport(data, passphrase)
+			if openErr != nil {
+				if errors.Is(openErr, common.ErrWrongPassphrase) {
+					return fmt.Errorf("failed to decrypt %s: wrong passphrase or corrupted file", importFile)
+				}
+				return fmt.Errorf("failed to decrypt %s: %w", importFile, openErr)
+			}
+			data = opened
+		}
+
 		// The scope's actor becomes the owner of every imported secret, so it
 		// must carry the real authenticated user; uuid.Nil would orphan every
 		// row (and fail the PostgreSQL foreign key outright).
@@ -133,7 +170,13 @@ func InitSecretsImport(parentCmd *cobra.Command) {
 	parentCmd.AddCommand(secretsImportCmd)
 	secretsImportCmd.Flags().StringVarP(&importFormat, "format", "f", "json", "Import format (json or csv)")
 	secretsImportCmd.Flags().StringVarP(&importFile, "file", "i", "", "Input file path (required)")
-	secretsImportCmd.Flags().BoolVarP(&importEncrypted, "encrypted", "e", true, "File is encrypted")
+	secretsImportCmd.Flags().BoolVarP(&importEncrypted, "encrypted", "e", true, "File is encrypted (deprecated: detected automatically)")
+	// Kept rather than removed: detection makes it redundant, but deleting it
+	// would break existing invocations for no benefit.
+	secretsImportCmd.Flags().MarkDeprecated("encrypted", //nolint:errcheck,gosec
+		"encryption is detected automatically and this flag is ignored")
+	secretsImportCmd.Flags().StringVar(&importPassphraseFile, "passphrase-file", "",
+		"Read the import passphrase from the first line of this file")
 	secretsImportCmd.Flags().BoolVarP(&importOverwrite, "overwrite", "w", false, "Overwrite existing secrets")
 	secretsImportCmd.MarkFlagRequired("file") //nolint:errcheck,gosec
 }
