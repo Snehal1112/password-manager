@@ -2128,7 +2128,7 @@ agree.
 
 ### B42 — CSV export/import corrupts any value containing a quote or newline
 
-**Status**: Open, found 2026-08-21
+**Status**: Fixed in commit `f1650c0` (2026-08-21)
 **Severity**: Medium — silent data corruption on a round trip, independent of
 B36's encryption defect
 **Files**: `internal/services/secrets/secret_service.go`
@@ -2157,6 +2157,24 @@ parsed correctly.
 handle quoting, doubling and embedded newlines correctly, and `Reader` with
 `FieldsPerRecord` also gives real malformed-row detection, which the current
 hand-rolled parser lacks. Delete `parseCSVLine`.
+
+**What was fixed**: `ExportSecrets`'s CSV branch now writes with
+`encoding/csv.Writer` and `ImportSecrets`'s CSV branch reads with
+`encoding/csv.Reader`, with `FieldsPerRecord` locked to the header row's own
+column count so a malformed row is reported in `ImportResult.Errors` instead
+of silently mis-parsed. Tags are packed into their column through a second,
+nested `csv.Writer`/`csv.Reader` pair (`csvEncodeTags`/`csvDecodeTags`) so a
+tag containing a comma round-trips too. `parseCSVLine` is deleted.
+
+**Backward compatibility**: a CSV export written before this fix still
+imports correctly when no field contains a quote, comma, or newline — the
+common case, verified by
+`TestImportSecretsCSV_ParsesOldPreFixExportForCommonCase`. An export whose
+value already contained a quote was already corrupted at write time; that
+row is now reported as a parse error on import instead of being silently
+misread (`TestImportSecretsCSV_OldFormatWithEmbeddedQuote_FailsLoudlyNotSilently`).
+Nothing repairs an already-corrupted historical export — there is no data to
+recover from a row that was mis-written before this fix existed.
 
 **Test**: round-trip a value containing `"`, `,`, and `\n` and assert equality.
 
