@@ -1714,7 +1714,10 @@ paths:
       summary: Export secrets
       description: |
         Exports the vault's secrets as a downloadable JSON or CSV file,
-        optionally filtered by tag.
+        optionally filtered by tag. The export is always plaintext: an
+        encrypted export is sealed under a passphrase, which a request body
+        cannot carry, so `"encrypt": true` is rejected with 400 and encrypted
+        export is CLI-only.
       operationId: exportSecrets
       tags:
         - Secrets
@@ -2065,7 +2068,10 @@ paths:
       - $ref: "#/components/parameters/VaultName"
     post:
       summary: Export a vault's secrets
-      description: Exports the named vault's secrets as a downloadable JSON or CSV file.
+      description: |
+        Exports the named vault's secrets as a downloadable JSON or CSV file.
+        The export is always plaintext: `"encrypt": true` is rejected with
+        400 and encrypted export is CLI-only.
       operationId: exportSecretsInVault
       tags:
         - Secrets
@@ -5793,6 +5799,13 @@ components:
         encrypt:
           type: boolean
           default: false
+          description: |
+            Deprecated and effectively write-only. Sending `true` now returns
+            400: an encrypted export is sealed under a passphrase, and a
+            request body is the wrong place to carry one, so encrypted export
+            is available only through the CLI
+            (`rocketvault secrets export`). Omit the field or send `false`.
+            The response of this endpoint is always plaintext.
         tags:
           type: array
           description: Restrict the export to secrets carrying these tags
