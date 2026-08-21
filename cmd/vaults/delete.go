@@ -13,10 +13,19 @@ import (
 var deleteCmd = &cobra.Command{
 	Use:   "delete <name>",
 	Short: "Soft-delete a vault by name",
-	Long:  `Soft-delete a vault and its contents by name.`,
-	Example: `  # Soft-delete a vault by name
-  rocketvault vaults delete <name> \
-    --username admin --password admin123 --totp-code <code>`,
+	Long: `Soft-delete a vault by name, cascading the soft delete to every secret,
+key, and certificate it contains. The vault and its contents can be restored
+with vaults recover until they are purged.
+
+Requires the admin account role, or an access-policy allow on (vaults,
+manage) scoped to this vault or granted globally.
+
+The vault name is the positional argument; this command has no --vault
+flag.
+
+The default vault cannot be deleted.`,
+	Example: `  # Soft-delete a vault
+  rocketvault vaults delete <name>`,
 	Args: cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		name := args[0]

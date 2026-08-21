@@ -8,18 +8,23 @@ import "github.com/spf13/cobra"
 var AuditCmd = &cobra.Command{
 	Use:   "audit",
 	Short: "Audit log and compliance reporting commands",
-	Long:  "Query audit logs and generate SOC 2 / GDPR compliance reports.",
-	Example: `  # View recent audit log entries
-  rocketvault audit logs \
-    --username admin --password admin123 --totp-code <code>
+	Long: `Query audit logs, generate SOC 2 or GDPR compliance reports, and view or
+update the audit log retention policy.
+
+Every audit command requires the global admin role. Audit data spans every
+vault, so there is no --vault scoping and no data-action check — the same
+restriction the HTTP audit routes enforce.`,
+	Example: `  # Log in once; the session is cached
+  rocketvault users login --username admin
+
+  # View recent audit log entries
+  rocketvault audit logs
 
   # Generate a SOC 2 compliance report
-  rocketvault audit report --type soc2 --from 2026-01-01 --to 2026-03-31 \
-    --username admin --password admin123 --totp-code <code>
+  rocketvault audit report --type soc2 --from 2026-01-01 --to 2026-03-31
 
-  # Show audit retention configuration
-  rocketvault audit config \
-    --username admin --password admin123 --totp-code <code>`,
+  # Show audit log retention configuration
+  rocketvault audit config`,
 }
 
 func init() {

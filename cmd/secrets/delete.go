@@ -37,12 +37,27 @@ import (
 
 // deleteCmd represents the delete command
 var deleteCmd = &cobra.Command{
-	Use:   "delete [id]",
+	Use:   "delete <id>",
 	Short: "Delete a secret by ID",
-	Long:  `Delete a secret by its ID for the authenticated user.`,
-	Example: `  # Soft-delete a secret by id
-  rocketvault secrets delete <id> \
-    --username admin --password admin123 --totp-code <code>`,
+	Long: `Soft-delete a secret in the target vault by its ID. The secret is marked
+deleted and all of its tags are removed, but the row is retained so it can
+still be recovered. Recovery and permanent purge are exposed only over the
+REST API; this CLI has no secrets recover or purge subcommand.
+
+A background scheduler permanently removes soft-deleted secrets once the
+configured retention period has elapsed, unless purge protection is set on
+the secret or on its vault.
+
+Requires the admin or secrets_manager role, and the
+Microsoft.KeyVault/vaults/secrets/delete data action in the target vault.
+
+Acts on the vault named by --vault, which defaults to "default". A secret
+held in another vault is not visible to this command.`,
+	Example: `  # Soft-delete a secret in the default vault
+  rocketvault secrets delete <id>
+
+  # Soft-delete a secret in a named vault
+  rocketvault secrets delete <id> --vault <vault-name>`,
 	Args: cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		secretID, err := uuid.Parse(args[0])

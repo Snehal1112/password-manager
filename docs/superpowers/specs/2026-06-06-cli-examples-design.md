@@ -1,8 +1,16 @@
 # CLI Example Coverage Sweep — Design
 
 **Date:** 2026-06-06
-**Status:** Approved
+**Status:** Superseded on 2026-08-21 by `.claude/cli-help-conventions.md`
 **Author:** brainstorming session
+
+> **Superseded.** Rule 4 below ("include auth flags on every invocation") was
+> correct when written, but the 2026-08-15 CLI session-cache migration made it
+> obsolete: `rocketvault users login` now caches a session and leaf commands
+> need no credential flags. Examples following Rule 4 teach a superseded
+> workflow. The current house style is `.claude/cli-help-conventions.md`, and
+> `cmd/help_examples_test.go` now enforces it — which also reverses this
+> spec's "no test guard and no CI check are added" decision.
 
 ## Problem
 

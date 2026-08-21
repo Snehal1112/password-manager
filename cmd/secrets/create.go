@@ -42,14 +42,31 @@ var createCmd = &cobra.Command{
 	Use:     "create <name> <value>",
 	Aliases: []string{"add"},
 	Short:   "Create a new secret",
-	Long:    `Create a new secret in the password manager. You can specify the secret name, value, and optional tags.`,
-	Example: `  # Create a simple secret
-  rocketvault secrets create my-secret my-value \
-    --username admin --password admin123 --totp-code <code>
+	Long: `Create a secret in the target vault. The value is encrypted before it is
+stored, and the new secret starts at version 1. Creating a second secret
+with the same name does not replace the first one; both are stored.
 
-  # Create a secret with tags and content type
-  rocketvault secrets create my-secret my-value --tags prod,db --content-type application/json \
-    --username admin --password admin123 --totp-code <code>`,
+Requires the admin or secrets_manager role, and the
+Microsoft.KeyVault/vaults/secrets/setSecret/action data action in the
+target vault.
+
+Acts on the vault named by --vault, which defaults to "default".
+
+--content-type is restricted to text/plain, application/json,
+application/xml, application/x-pem-file, application/x-pkcs12 and
+application/octet-stream. Any other value is rejected before the secret is
+stored. --purge-protection is only written when it is true, and it blocks
+the later permanent purge of the secret once it has been soft-deleted.`,
+	Example: `  # Create a secret in the default vault
+  rocketvault secrets create <name> <value>
+
+  # Create a secret with tags and a content type
+  rocketvault secrets create <name> <value> \
+    --tags prod,db --content-type application/json
+
+  # Create a purge-protected secret in a named vault
+  rocketvault secrets create <name> <value> \
+    --purge-protection --vault <vault-name>`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		if len(args) < 2 {
 			return fmt.Errorf("requires <name> and <value> arguments")

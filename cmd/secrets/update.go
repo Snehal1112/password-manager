@@ -37,19 +37,36 @@ import (
 
 // updateCmd represents the update command.
 var updateCmd = &cobra.Command{
-	Use:   "update [id] [value]",
+	Use:   "update <id> <value>",
 	Short: "Update a secret",
-	Long: `Update a secret's value and tags by its ID.
-Any member of the target vault holding a role that grants ActionSecretsSet
-(e.g. Key Vault Secrets Officer) can update the secret, matching the HTTP
-API's vault-scoped update route.`,
-	Example: `  # Update a secret's value
-  rocketvault secrets update <id> <new-value> \
-    --username admin --password admin123 --totp-code <code>
+	Long: `Update a secret's value, and optionally its tags, content type and purge
+protection, by its ID. The previous value is first snapshotted as a version
+row and the secret's version number is then incremented, so an update never
+discards history.
 
-  # Update value, tags and content type
-  rocketvault secrets update <id> <new-value> --tags prod,db --content-type text/plain \
-    --username admin --password admin123 --totp-code <code>`,
+Requires the admin or secrets_manager role, and the
+Microsoft.KeyVault/vaults/secrets/setSecret/action data action in the
+target vault.
+
+Acts on the vault named by --vault, which defaults to "default". The update
+is vault scoped, so a member holding the action can update a secret another
+member created.
+
+--tags replaces the secret's whole tag set and is ignored when empty, so
+tags cannot be cleared through this command. --content-type is written only
+when the flag is passed, against the same allowlist "secrets create"
+enforces. --purge-protection is likewise written only when the flag is
+passed, and can be set either way.`,
+	Example: `  # Update a secret's value in the default vault
+  rocketvault secrets update <id> <new-value>
+
+  # Replace the tag set and set a content type
+  rocketvault secrets update <id> <new-value> \
+    --tags prod,db --content-type text/plain
+
+  # Update a secret in a named vault and protect it from purge
+  rocketvault secrets update <id> <new-value> \
+    --vault <vault-name> --purge-protection`,
 	Args: cobra.ExactArgs(2),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		secretID, err := uuid.Parse(args[0])

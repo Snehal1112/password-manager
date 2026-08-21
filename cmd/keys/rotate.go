@@ -40,10 +40,27 @@ import (
 var rotateCmd = &cobra.Command{
 	Use:   "rotate <id>",
 	Short: "Rotate a cryptographic key",
-	Long:  `Rotate a cryptographic key by generating a new key pair and revoking the old key. Accessible by the key's owner or users with the admin role.`,
-	Example: `  # Rotate a key
-  rocketvault keys rotate <key-id> \
-    --username admin --password admin123 --totp-code <code>`,
+	Long: `Rotate a cryptographic key in place. New material is generated with the same
+type, bit size and curve as the existing key, the previous material is
+archived as a numbered version, and the new material becomes current. The
+key keeps its UUID, name and tags, and the old material is not revoked:
+earlier versions stay usable through the --version flag on "keys sign",
+"keys verify", "keys wrap" and "keys unwrap".
+
+Requires the admin or crypto_manager role, and the
+Microsoft.KeyVault/vaults/keys/rotate/action data action in the target
+vault, which defaults to "default".
+
+Only RSA, ECDSA and ES256K keys can be rotated; any other stored type is
+rejected. Rotation works on a disabled or expired key. If the key has an
+enabled rotation policy with an expiry_days lifetime action, this manual
+rotation stamps a fresh expiry on the key just as a scheduled rotation
+would.`,
+	Example: `  # Rotate a key in the default vault
+  rocketvault keys rotate <key-id>
+
+  # Rotate a key in a named vault
+  rocketvault keys rotate <key-id> --vault payments`,
 	Args: cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		ctx := cmd.Context()

@@ -42,14 +42,32 @@ import (
 var updateCmd = &cobra.Command{
 	Use:   "update <id>",
 	Short: "Update a cryptographic key",
-	Long:  `Update a cryptographic key's name, revocation status, or tags by its UUID.`,
-	Example: `  # Update key name
-  rocketvault keys update <key-id> --name newname \
-    --username admin --password admin123 --totp-code <code>
+	Long: `Change a cryptographic key's mutable attributes by its UUID: its name, its
+tags, its revocation flag, or its purge protection. Key material, type and
+curve cannot be changed here; use "keys rotate" for new material.
+
+Requires the admin or crypto_manager role, and the
+Microsoft.KeyVault/vaults/keys/update data action in the target vault,
+which defaults to "default".
+
+At least one of --name, --tags, --revoked or --purge-protection must be
+supplied, or the command fails. An empty --name or --tags value counts as
+not supplied; --revoked and --purge-protection are applied only when the
+flag is actually present on the command line, so an unset boolean never
+overwrites the stored value. --tags replaces the existing tag set rather
+than adding to it. Revoking a key leaves its metadata readable but makes
+every crypto operation on it fail.`,
+	Example: `  # Rename a key
+  rocketvault keys update <key-id> --name <new-name>
+
+  # Replace the tag set on a key in a named vault
+  rocketvault keys update <key-id> --tags prod,secure --vault payments
 
   # Revoke a key
-  rocketvault keys update <key-id> --revoked \
-    --username admin --password admin123 --totp-code <code>`,
+  rocketvault keys update <key-id> --revoked
+
+  # Clear purge protection so the key can be purged
+  rocketvault keys update <key-id> --purge-protection=false`,
 	Args: cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		ctx := cmd.Context()

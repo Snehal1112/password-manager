@@ -50,19 +50,34 @@ var (
 var rotationCmd = &cobra.Command{
 	Use:   "rotation",
 	Short: "Manage secret rotation policies",
-	Long: `Manage secret rotation policies including creation, assignment,
-monitoring, and automated rotation of secrets.`,
-	Example: `  # Create a new rotation policy
-  rocketvault secrets rotation create --name "Monthly DB Password" --interval 30
+	Long: `Manage the rotation policies that govern how often a vault's secrets are
+replaced. A policy carries an interval in days, a reminder lead time, and a
+flag deciding whether the server rotates matching secrets on its own. A
+policy does nothing until it is assigned to a secret with "assign".
 
-  # List all rotation policies
-  rocketvault secrets rotation list
+Policies belong to the vault named by --vault, defaulting to "default", and
+can only be assigned to secrets in that same vault. Every subcommand checks
+one secrets data action in that vault: create, update, delete, assign,
+unassign and rotate need
+Microsoft.KeyVault/vaults/secrets/setSecret/action; list, history and status
+need Microsoft.KeyVault/vaults/secrets/readMetadata/action. No global role is
+checked — access comes entirely from the vault's role assignments.
 
-  # Assign a policy to a secret
-  rocketvault secrets rotation assign --policy-id <uuid> --secret-id <uuid>
+Automatic rotation is carried out by the scheduler inside a running
+"rocketvault serve" process, so --auto-rotate has no effect while the server
+is stopped. The "rotate" subcommand is the only way to rotate from the CLI.`,
+	Example: `  # Log in once; the session is cached
+  rocketvault users login --username admin
 
-  # Manually rotate a secret
-  rocketvault secrets rotation rotate --secret-id <uuid> --policy-id <uuid>`,
+  # Create a 30-day policy in the default vault
+  rocketvault secrets rotation create --name <name> --interval 30
+
+  # Assign the policy to a secret
+  rocketvault secrets rotation assign --policy-id <policy-id> \
+    --secret-id <secret-id>
+
+  # Review what is due in a named vault
+  rocketvault secrets rotation status --vault payments`,
 }
 
 func init() {
@@ -87,10 +102,32 @@ func init() {
 
 // rotationCreateCmd represents the rotation create command
 var rotationCreateCmd = &cobra.Command{
-	Use:     "create",
-	Short:   "Create a new rotation policy",
-	Long:    `Create a new rotation policy with specified parameters.`,
-	Example: `rocketvault secrets rotation create --name "Monthly Rotation" --interval 30 --reminder 7 --auto-rotate`,
+	Use:   "create",
+	Short: "Create a new rotation policy",
+	Long: `Create a rotation policy in the target vault. The policy records how many
+days may pass between rotations, how many days ahead of that a reminder is
+raised, and whether the server's scheduler rotates assigned secrets by
+itself. Creating a policy rotates nothing; it starts applying to a secret
+only after "secrets rotation assign".
+
+Requires the Microsoft.KeyVault/vaults/secrets/setSecret/action data action
+in the vault named by --vault, which defaults to "default". No global role is
+checked.
+
+--reminder must be strictly smaller than --interval, or the policy is
+rejected. New policies are always created enabled; there is no flag for
+creating a disabled one, and the CLI cannot disable one later. The full
+policy ID is printed on success — "secrets rotation list" abbreviates it.`,
+	Example: `  # 30-day policy, using the default 7-day reminder
+  rocketvault secrets rotation create --name <name> --interval 30
+
+  # 90-day policy the server rotates on its own
+  rocketvault secrets rotation create --name <name> --interval 90 \
+    --reminder 14 --auto-rotate
+
+  # Described policy in a named vault
+  rocketvault secrets rotation create --name <name> --interval 30 \
+    --description <description> --vault payments`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		return runRotationCreate(cmd)
 	},
@@ -98,10 +135,26 @@ var rotationCreateCmd = &cobra.Command{
 
 // rotationListCmd represents the rotation list command
 var rotationListCmd = &cobra.Command{
-	Use:     "list",
-	Short:   "List all rotation policies",
-	Long:    `List all rotation policies for the current user.`,
-	Example: `rocketvault secrets rotation list`,
+	Use:   "list",
+	Short: "List all rotation policies",
+	Long: `List every rotation policy in the target vault, whoever created it — the
+listing is vault-scoped, not per-user. Each row shows the interval, whether
+the scheduler auto-rotates for that policy, whether the policy is enabled,
+and when it was created.
+
+Requires the Microsoft.KeyVault/vaults/secrets/readMetadata/action data
+action in the vault named by --vault, which defaults to "default". No global
+role is checked.
+
+The output is always a fixed table; --output is ignored. Policy IDs are
+abbreviated to their first eight characters, so take the full ID from the
+output of "secrets rotation create" when a command needs --id or
+--policy-id.`,
+	Example: `  # List the policies in the default vault
+  rocketvault secrets rotation list
+
+  # List the policies in a named vault
+  rocketvault secrets rotation list --vault payments`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		return runRotationList(cmd)
 	},
@@ -109,10 +162,31 @@ var rotationListCmd = &cobra.Command{
 
 // rotationUpdateCmd represents the rotation update command
 var rotationUpdateCmd = &cobra.Command{
-	Use:     "update",
-	Short:   "Update a rotation policy",
-	Long:    `Update an existing rotation policy.`,
-	Example: `rocketvault secrets rotation update --id <uuid> --name "New Name" --interval 60`,
+	Use:   "update",
+	Short: "Update a rotation policy",
+	Long: `Change an existing rotation policy. The stored policy is read first and only
+the flags actually passed are applied, so every field left off keeps its
+current value. --auto-rotate is a boolean flag: pass --auto-rotate=false to
+turn scheduled rotation back off.
+
+Requires the Microsoft.KeyVault/vaults/secrets/setSecret/action data action
+in the vault named by --vault, which defaults to "default". No global role is
+checked. The policy must live in that vault.
+
+The resulting reminder days must still be strictly smaller than the resulting
+interval, or the update is rejected. A new interval does not reschedule
+secrets already assigned to the policy — their next rotation date is
+recalculated only when they are next rotated or re-assigned.`,
+	Example: `  # Change the interval and the reminder lead time
+  rocketvault secrets rotation update --id <policy-id> --interval 60 \
+    --reminder 14
+
+  # Turn scheduled rotation off again
+  rocketvault secrets rotation update --id <policy-id> --auto-rotate=false
+
+  # Rename a policy in a named vault
+  rocketvault secrets rotation update --id <policy-id> --name <name> \
+    --vault payments`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		return runRotationUpdate(cmd)
 	},
@@ -120,10 +194,25 @@ var rotationUpdateCmd = &cobra.Command{
 
 // rotationDeleteCmd represents the rotation delete command
 var rotationDeleteCmd = &cobra.Command{
-	Use:     "delete",
-	Short:   "Delete a rotation policy",
-	Long:    `Delete an existing rotation policy.`,
-	Example: `rocketvault secrets rotation delete --id <uuid>`,
+	Use:   "delete",
+	Short: "Delete a rotation policy",
+	Long: `Delete a rotation policy from the target vault. The deletion is immediate and
+permanent: policies have no soft-delete or recovery, and the command does not
+ask for confirmation.
+
+Requires the Microsoft.KeyVault/vaults/secrets/setSecret/action data action
+in the vault named by --vault, which defaults to "default". No global role is
+checked. A policy in another vault is reported as not found.
+
+Deleting a policy also removes its assignments to secrets and its pending
+reminders, so those secrets stop being scheduled; the secrets themselves and
+their values are untouched. Past rotation events stay in "secrets rotation
+history" but lose their link to the deleted policy.`,
+	Example: `  # Delete a policy from the default vault
+  rocketvault secrets rotation delete --id <policy-id>
+
+  # Delete a policy from a named vault
+  rocketvault secrets rotation delete --id <policy-id> --vault payments`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		return runRotationDelete(cmd)
 	},
@@ -131,10 +220,27 @@ var rotationDeleteCmd = &cobra.Command{
 
 // rotationAssignCmd represents the rotation assign command
 var rotationAssignCmd = &cobra.Command{
-	Use:     "assign",
-	Short:   "Assign a policy to a secret",
-	Long:    `Assign a rotation policy to a secret.`,
-	Example: `rocketvault secrets rotation assign --policy-id <uuid> --secret-id <uuid>`,
+	Use:   "assign",
+	Short: "Assign a policy to a secret",
+	Long: `Put a secret under a rotation policy. The first rotation is scheduled for the
+policy's interval from now, and if the policy has a reminder lead time a
+reminder is queued for that many days before it.
+
+Requires the Microsoft.KeyVault/vaults/secrets/setSecret/action data action
+in the vault named by --vault, which defaults to "default". No global role is
+checked. The secret and the policy are both read in that vault, so a
+cross-vault assignment simply reports one of them as not found.
+
+A secret may carry several policies, but the same pair cannot be assigned
+twice — re-running this for a pair that is already assigned fails. To restart
+a secret's clock, unassign it and assign it again.`,
+	Example: `  # Assign a policy to a secret in the default vault
+  rocketvault secrets rotation assign --policy-id <policy-id> \
+    --secret-id <secret-id>
+
+  # Assign a policy to a secret in a named vault
+  rocketvault secrets rotation assign --policy-id <policy-id> \
+    --secret-id <secret-id> --vault payments`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		return runRotationAssign(cmd)
 	},
@@ -142,10 +248,26 @@ var rotationAssignCmd = &cobra.Command{
 
 // rotationUnassignCmd represents the rotation unassign command
 var rotationUnassignCmd = &cobra.Command{
-	Use:     "unassign",
-	Short:   "Remove a policy from a secret",
-	Long:    `Remove a rotation policy from a secret.`,
-	Example: `rocketvault secrets rotation unassign --policy-id <uuid> --secret-id <uuid>`,
+	Use:   "unassign",
+	Short: "Remove a policy from a secret",
+	Long: `Take a secret out of a rotation policy. The policy itself survives and stays
+assigned to any other secret; only this pairing and its schedule are removed,
+so the secret stops appearing in "secrets rotation status".
+
+Requires the Microsoft.KeyVault/vaults/secrets/setSecret/action data action
+in the vault named by --vault, which defaults to "default". No global role is
+checked. The secret must be readable in that vault.
+
+If the pair was never assigned, the command reports that the assignment was
+not found. Reminders already queued for the pair are not cleared, and past
+rotation events stay in "secrets rotation history".`,
+	Example: `  # Remove a policy from a secret in the default vault
+  rocketvault secrets rotation unassign --policy-id <policy-id> \
+    --secret-id <secret-id>
+
+  # Remove a policy from a secret in a named vault
+  rocketvault secrets rotation unassign --policy-id <policy-id> \
+    --secret-id <secret-id> --vault payments`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		return runRotationUnassign(cmd)
 	},
@@ -153,10 +275,31 @@ var rotationUnassignCmd = &cobra.Command{
 
 // rotationRotateCmd represents the rotation rotate command
 var rotationRotateCmd = &cobra.Command{
-	Use:     "rotate",
-	Short:   "Manually rotate a secret",
-	Long:    `Manually rotate a secret according to its assigned policy.`,
-	Example: `rocketvault secrets rotation rotate --secret-id <uuid> --policy-id <uuid>`,
+	Use:   "rotate",
+	Short: "Manually rotate a secret",
+	Long: `Rotate one secret now, without waiting for its schedule. The secret's value
+is replaced, its version number is incremented, a "manual" entry is added to
+its rotation history, and its next rotation is pushed out by the policy's
+interval.
+
+Requires the Microsoft.KeyVault/vaults/secrets/setSecret/action data action
+in the vault named by --vault, which defaults to "default". No global role is
+checked. The secret and the policy are both read in that vault.
+
+The replacement value is not a freshly generated credential: it is the
+secret's currently stored value with a "_rotated_<timestamp>" suffix, written
+back as-is. Nothing outside RocketVault is updated, the previous value is
+overwritten rather than archived as a version, and the stored value is not
+re-sealed, so a rotated secret does not read back correctly through "secrets
+get". Prefer "secrets update" to set a real new value until this generator is
+finished.`,
+	Example: `  # Rotate a secret in the default vault
+  rocketvault secrets rotation rotate --secret-id <secret-id> \
+    --policy-id <policy-id>
+
+  # Rotate a secret in a named vault
+  rocketvault secrets rotation rotate --secret-id <secret-id> \
+    --policy-id <policy-id> --vault payments`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		return runRotationRotate(cmd)
 	},
@@ -164,10 +307,26 @@ var rotationRotateCmd = &cobra.Command{
 
 // rotationHistoryCmd represents the rotation history command
 var rotationHistoryCmd = &cobra.Command{
-	Use:     "history",
-	Short:   "View rotation history for a secret",
-	Long:    `View the rotation history for a specific secret.`,
-	Example: `rocketvault secrets rotation history --secret-id <uuid>`,
+	Use:   "history",
+	Short: "View rotation history for a secret",
+	Long: `Show every recorded rotation of one secret: when it happened, whether it was
+manual or run by the scheduler, the version numbers before and after, and any
+notes. Entries written by past rotations survive even after the policy that
+caused them is deleted.
+
+Requires the Microsoft.KeyVault/vaults/secrets/readMetadata/action data
+action in the vault named by --vault, which defaults to "default". No global
+role is checked. The secret must be readable in that vault.
+
+Values are never shown, only version numbers. Notes longer than 30 characters
+are truncated in the table, and --output is ignored. A secret that has never
+been rotated prints an empty-history message rather than failing.`,
+	Example: `  # Show a secret's rotation history
+  rocketvault secrets rotation history --secret-id <secret-id>
+
+  # Show it for a secret in a named vault
+  rocketvault secrets rotation history --secret-id <secret-id> \
+    --vault payments`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		return runRotationHistory(cmd)
 	},
@@ -175,10 +334,26 @@ var rotationHistoryCmd = &cobra.Command{
 
 // rotationStatusCmd represents the rotation status command
 var rotationStatusCmd = &cobra.Command{
-	Use:     "status",
-	Short:   "View rotation status and due rotations",
-	Long:    `View the current rotation status and secrets due for rotation.`,
-	Example: `rocketvault secrets rotation status`,
+	Use:   "status",
+	Short: "View rotation status and due rotations",
+	Long: `Summarise rotation for the target vault in three parts: secrets whose next
+rotation date has passed under an enabled policy, reminders that have come
+due and have not been acknowledged, and every enabled policy with its
+interval.
+
+Requires the Microsoft.KeyVault/vaults/secrets/readMetadata/action data
+action in the vault named by --vault, which defaults to "default". No global
+role is checked.
+
+Secret IDs are abbreviated to their first eight characters, and --output is
+ignored. This is a read-only report: nothing is rotated or acknowledged by
+running it, and a reminder stays listed until it is acknowledged, which the
+CLI has no command for.`,
+	Example: `  # Show rotation status for the default vault
+  rocketvault secrets rotation status
+
+  # Show rotation status for a named vault
+  rocketvault secrets rotation status --vault payments`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		return runRotationStatus(cmd)
 	},

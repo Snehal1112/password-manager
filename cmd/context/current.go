@@ -12,6 +12,11 @@ func InitContextCurrent(parent *cobra.Command) *cobra.Command {
 	currentCmd := &cobra.Command{
 		Use:   "current",
 		Short: "Show the current server context",
+		Long: `Print the name and server URL of the context set by 'rocketvault context
+use', or report that none is set (local mode). Reads only the local context
+store; it does not contact the server.`,
+		Example: `  # Show the current context
+  rocketvault context current`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			ctx, name, err := common.CurrentContext()
 			if err != nil {

@@ -44,7 +44,7 @@ without --username/--password).`,
   rocketvault users logout
 
   # Log out a specific cached user without affecting others
-  rocketvault users logout --username user14@exchange4all.local`,
+  rocketvault users logout --username <username>`,
 	Args: cobra.NoArgs,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		return runLogout(viper.GetString("logout-username"))

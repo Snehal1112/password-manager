@@ -44,14 +44,28 @@ import (
 var listCmd = &cobra.Command{
 	Use:   "list",
 	Short: "List cryptographic keys",
-	Long:  `List all cryptographic keys for the authenticated user. Admins can list all keys. Supports filtering by type and tags.`,
-	Example: `  # List all keys
-  rocketvault keys list \
-    --username admin --password admin123 --totp-code <code>
+	Long: `List the cryptographic keys in the target vault, newest first, showing ID,
+name, type, revocation status, tags and creation time. Listing is vault
+scoped rather than owner scoped: every key in the vault is returned,
+whoever created it. Soft-deleted keys are excluded.
+
+Requires the Microsoft.KeyVault/vaults/keys/read data action in the target
+vault. No global role is checked here.
+
+The vault is named by --vault and defaults to "default". --type matches the
+stored key type exactly (RSA, ECDSA or ES256K), and --tags returns any key
+carrying at least one of the listed tags.`,
+	Example: `  # List the keys in the default vault
+  rocketvault keys list
+
+  # List the keys in a named vault
+  rocketvault keys list --vault payments
 
   # Filter by type and tags
-  rocketvault keys list --type RSA --tags prod,secure \
-    --username admin --password admin123 --totp-code <code>`,
+  rocketvault keys list --type RSA --tags prod,secure
+
+  # Machine-readable output
+  rocketvault keys list --output json`,
 	Args: cobra.NoArgs,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		ctx := cmd.Context()

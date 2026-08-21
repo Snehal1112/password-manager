@@ -16,16 +16,35 @@ func InitVaultWebhookSet(parent *cobra.Command) {
 	cmd := &cobra.Command{
 		Use:   "set",
 		Short: "Create or update a vault's webhook configuration",
-		Example: `  # Create (or update the URL of) a vault's webhook
-  rocketvault vault-webhook set --vault prod --url https://hooks.example/rocketvault \
-    --username admin --password admin123 --totp-code <code>
+		Long: `Create or update the webhook configuration for a vault. The first call for
+a vault creates the config and mints a signing secret; later calls update
+the existing config in place.
+
+--url is required and must be an absolute https URL with a host, and must
+not embed credentials. --rotate-secret replaces the current signing secret
+with a newly minted one; without it, an update leaves the existing secret
+untouched. --enabled toggles the webhook without changing its URL; omit it
+to leave the current value alone (a newly created webhook is enabled by
+default).
+
+The signing secret is printed once, immediately after this command mints
+one (on creation or with --rotate-secret), and is not retrievable
+afterward — store it before moving on.
+
+Requires the admin role, or an access-policy grant of manage on vaults
+scoped to this vault (or granted globally). Acts on the vault named by
+--vault, defaulting to "default".`,
+		Example: `  # Point a vault's webhook at a receiver
+  rocketvault vault-webhook set --vault prod \
+    --url https://hooks.example/rocketvault
 
   # Rotate the signing secret
-  rocketvault vault-webhook set --vault prod --url https://hooks.example/rocketvault --rotate-secret \
-    --username admin --password admin123 --totp-code <code>
+  rocketvault vault-webhook set --vault prod \
+    --url https://hooks.example/rocketvault --rotate-secret
 
   # Disable the webhook without changing its URL
-  rocketvault vault-webhook set --vault prod --url https://hooks.example/rocketvault --enabled=false`,
+  rocketvault vault-webhook set --vault prod \
+    --url https://hooks.example/rocketvault --enabled=false`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			url, _ := cmd.Flags().GetString("url")
 			if url == "" {

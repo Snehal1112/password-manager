@@ -43,10 +43,29 @@ import (
 var signCmd = &cobra.Command{
 	Use:   "sign",
 	Short: "Sign data using a vault key",
-	Long:  `Sign base64-encoded data with an existing vault key, producing a base64-encoded signature.`,
-	Example: `  # Sign data with an RSA key
-  rocketvault keys sign --key-id <uuid> --data <base64> --algorithm RS256 \
-    --username admin --password admin123 --totp-code <code>`,
+	Long: `Sign data with a key held in the target vault and print the signature to
+stdout as standard base64. --data is itself standard base64 and is decoded
+before signing, so raw text must be encoded first.
+
+Requires the admin or crypto_manager role, and the
+Microsoft.KeyVault/vaults/keys/sign/action data action in the target vault,
+which defaults to "default".
+
+--key-id and --data are both required. --algorithm defaults to RS256 and
+must suit the key type: RS256/RS384/RS512 and PS256/PS384/PS512 for RSA
+keys, ES256/ES384/ES512 for ECDSA keys. --version selects an archived key
+version produced by "keys rotate"; 0 or omitted signs with the key's
+current material. A key that is revoked, disabled, or outside its
+not-before/expiry window is refused.`,
+	Example: `  # Sign with the key's current version, using the default RS256
+  rocketvault keys sign --key-id <uuid> --data <base64>
+
+  # Sign with an ECDSA key in a named vault
+  rocketvault keys sign --key-id <uuid> --data <base64> \
+    --algorithm ES256 --vault payments
+
+  # Sign with an earlier version of a rotated key
+  rocketvault keys sign --key-id <uuid> --data <base64> --version 1`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		ctx := cmd.Context()
 		claims, ok := ctx.Value(common.ClaimsKey).(*model.Claims)

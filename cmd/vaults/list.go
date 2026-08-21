@@ -16,14 +16,20 @@ import (
 var listCmd = &cobra.Command{
 	Use:   "list",
 	Short: "List vaults",
-	Long:  `List vaults, optionally including soft-deleted ones.`,
+	Long: `List every vault, optionally including soft-deleted ones still inside
+their retention window.
+
+Requires the admin account role, or an access-policy allow on (vaults,
+manage) granted globally — list has no single target vault to scope the
+check to.
+
+Not vault scoped by --vault: this command lists every vault the caller may
+manage, not the contents of one.`,
 	Example: `  # List vaults
-  rocketvault vaults list \
-    --username admin --password admin123 --totp-code <code>
+  rocketvault vaults list
 
   # Include soft-deleted vaults
-  rocketvault vaults list --include-deleted \
-    --username admin --password admin123 --totp-code <code>`,
+  rocketvault vaults list --include-deleted`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		includeDeleted, _ := cmd.Flags().GetBool("include-deleted")
 

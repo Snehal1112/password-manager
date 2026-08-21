@@ -13,10 +13,18 @@ import (
 var recoverCmd = &cobra.Command{
 	Use:   "recover <name>",
 	Short: "Recover a soft-deleted vault by name",
-	Long:  `Recover a soft-deleted vault and its contents by name.`,
+	Long: `Recover a soft-deleted vault by name, restoring it and cascading the
+recovery to the secrets, keys, and certificates that were soft-deleted along
+with it. Items that were deleted individually, at a different time, are left
+untouched.
+
+Requires the admin account role, or an access-policy allow on (vaults,
+manage) scoped to this vault or granted globally.
+
+The vault name is the positional argument; this command has no --vault
+flag.`,
 	Example: `  # Recover a soft-deleted vault
-  rocketvault vaults recover <name> \
-    --username admin --password admin123 --totp-code <code>`,
+  rocketvault vaults recover <name>`,
 	Args: cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		name := args[0]

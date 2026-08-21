@@ -22,14 +22,24 @@ var createCmd = &cobra.Command{
 	Use:     "create <name>",
 	Aliases: []string{"add"},
 	Short:   "Create a new vault",
-	Long:    `Create a new vault to hold secrets, keys, and certificates.`,
-	Example: `  # Create a new vault
-  rocketvault vaults create <name> \
-    --username admin --password admin123 --totp-code <code>
+	Long: `Create a new vault: an isolated boundary for secrets, keys, and
+certificates, with its own access grants.
 
-  # Create with purge protection and retention
-  rocketvault vaults create <name> --purge-protection --retention-days 30 \
-    --username admin --password admin123 --totp-code <code>`,
+Requires the admin account role, or an access-policy allow on (vaults,
+manage) scoped globally rather than to a specific vault, since the vault
+being created does not exist yet to scope the check to.
+
+The vault name is the positional argument; this command has no --vault
+flag.
+
+A new vault is enabled by default with a 90-day soft-delete retention
+period. --purge-protection and --retention-days override those defaults at
+creation time.`,
+	Example: `  # Create a vault with default settings
+  rocketvault vaults create <name>
+
+  # Create with purge protection and a 30-day retention window
+  rocketvault vaults create <name> --purge-protection --retention-days 30`,
 	Args: cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		name := args[0]

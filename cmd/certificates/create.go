@@ -27,16 +27,33 @@ import (
 var createCmd = &cobra.Command{
 	Use:   "create",
 	Short: "Create a new X.509 certificate",
-	Long:  `Create a self-signed or CA-signed X.509 certificate using an existing key. Requires admin or certificate_manager role.`,
-	Example: `  # Create a self-signed certificate
-  rocketvault certificate create --name mycert --key-id <key-id> \
-    --validity-days 365 --tags prod,secure \
-    --username admin --password admin123 --totp-code <code>
+	Long: `Issue an X.509 certificate over a key that already exists in the target
+vault, and store the certificate in that same vault. Without --ca-cert-id
+the certificate is self-signed and marked as a CA, so it can itself sign
+later certificates; with --ca-cert-id it is signed by that CA certificate,
+which must live in the same vault.
 
-  # Create a CA-signed certificate
-  rocketvault certificate create --name mycert --key-id <key-id> \
-    --validity-days 365 --tags prod,secure --ca-cert-id <ca-cert-id> \
-    --username admin --password admin123 --totp-code <code>`,
+Requires the admin or certificate_manager role, and the
+Microsoft.KeyVault/vaults/certificates/create data action in the target
+vault. The key named by --key-id must also be owned by the calling user, as
+must the certificate named by --ca-cert-id.
+
+Acts on the vault named by --vault, defaulting to "default". --name and
+--key-id are required and --validity-days must be positive. --auto-renew and
+--renewal-days only arm the background renewal scheduler for later; they
+change nothing about the certificate being issued now. --purge-protection is
+sent only when the flag is passed explicitly.`,
+	Example: `  # Self-signed certificate over an existing key
+  rocketvault certificate create --name <name> --key-id <key-id> \
+    --validity-days 365
+
+  # Certificate signed by a CA certificate in the same vault
+  rocketvault certificate create --name <name> --key-id <key-id> \
+    --ca-cert-id <ca-cert-id> --validity-days 90
+
+  # Tagged, auto-renewing certificate in a named vault
+  rocketvault certificate create --name <name> --key-id <key-id> \
+    --tags prod,tls --auto-renew --renewal-days 45 --vault payments`,
 	Args: cobra.NoArgs,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		ctx := cmd.Context()

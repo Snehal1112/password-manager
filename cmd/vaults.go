@@ -32,16 +32,34 @@ import (
 var vaultsCmd = &cobra.Command{
 	Use:   "vaults",
 	Short: "Manage vaults",
-	Long: `A command group for creating, retrieving, listing, deleting, recovering,
-and purging vaults that hold secrets, keys, and certificates.`,
-	Example: `  # Create a vault
-  rocketvault vaults create my-vault --username admin --password admin123 --totp-code <code>
+	Long: `Manage the vaults themselves — the isolation boundaries that hold secrets,
+keys, and certificates. Create a vault, inspect and list vaults, change its
+enabled, purge-protection, and retention settings, soft-delete one, recover
+it, or purge it for good. Every deployment ships with a vault named "default".
 
-  # Get a vault by name
-  rocketvault vaults get my-vault --username admin --password admin123 --totp-code <code>
+Creating, reading, listing, updating, deleting, and recovering require the
+admin role or a vaults/manage grant. Purging additionally accepts the Key
+Vault Purge Operator role in the target vault. Managing a vault carries no
+access to what is inside it; that is granted separately with 'rocketvault
+vault-access'.
 
-  # List vaults
-  rocketvault vaults list --username admin --password admin123 --totp-code <code>`,
+These commands name their vault as a positional argument, so the global
+--vault flag does not apply to them. delete is a soft delete: the vault and
+its contents stay recoverable until the retention window elapses, after which
+the background scheduler purges them. purge destroys a soft-deleted vault and
+everything in it immediately and cannot be undone.`,
+	Example: `  # Log in once; the session is cached
+  rocketvault users login --username admin
+
+  # Create a vault with purge protection
+  rocketvault vaults create <name> --purge-protection --retention-days 90
+
+  # List vaults, including soft-deleted ones
+  rocketvault vaults list --include-deleted
+
+  # Soft-delete a vault, then recover it within its retention window
+  rocketvault vaults delete <name>
+  rocketvault vaults recover <name>`,
 }
 
 func init() {

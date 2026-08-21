@@ -14,7 +14,14 @@ func InitVaultAccessRoles(parent *cobra.Command) {
 	cmd := &cobra.Command{
 		Use:   "roles",
 		Short: "List built-in vault roles and their permissions",
-		Example: `  # List built-in vault roles and their permissions (no auth required)
+		Long: `Print every built-in Azure Key Vault role name, and the data actions
+each one grants. Deprecated legacy role names are listed too, marked as no
+longer grantable and conferring no access, so an operator can tell why a
+role from before the Azure-parity migration no longer works.
+
+Requires no authentication: this reads only compiled-in role definitions,
+never the database.`,
+		Example: `  # List built-in vault roles and their permissions
   rocketvault vault-access roles`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			out := cmd.OutOrStdout()

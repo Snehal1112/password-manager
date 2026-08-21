@@ -48,17 +48,30 @@ var (
 var secretsExportCmd = &cobra.Command{
 	Use:   "export",
 	Short: "Export secrets to a file",
-	Long: `Export secrets to an encrypted JSON or CSV file.
-Any member of the target vault holding a role that grants ActionSecretsGet
-can export the vault's secrets, including those created by other members,
-matching the HTTP API's vault-scoped export route.`,
-	Example: `  # Export all secrets to JSON
-  rocketvault secrets export --format json --file secrets.json \
-    --username admin --password admin123 --totp-code <code>
+	Long: `Export the target vault's secrets to a JSON or CSV file holding each
+secret's name, plaintext value and tags. Nothing in the file is encrypted:
+--encrypt is accepted but never read by this command. The file is written
+with 0600 permissions, and any missing parent directories are created.
 
-  # Export secrets filtered by tags to CSV
-  rocketvault secrets export --format csv --file secrets.csv --tags production \
-    --username admin --password admin123 --totp-code <code>`,
+Requires the admin or secrets_manager role, and the
+Microsoft.KeyVault/vaults/secrets/getSecret/action data action in the
+target vault.
+
+Acts on the vault named by --vault, which defaults to "default". The export
+is vault scoped, so it includes secrets created by other members of that
+vault, not only the caller's own.
+
+--tags and --filter-tags are merged into one tag filter. Passing neither
+exports every secret in the vault.`,
+	Example: `  # Export every secret in the default vault as JSON
+  rocketvault secrets export --file secrets.json
+
+  # Export as CSV, restricted to secrets tagged production
+  rocketvault secrets export --format csv --file secrets.csv \
+    --tags production
+
+  # Export a named vault's secrets
+  rocketvault secrets export --file payments.json --vault <vault-name>`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		ctx := cmd.Context()
 

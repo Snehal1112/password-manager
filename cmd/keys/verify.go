@@ -45,13 +45,33 @@ import (
 var verifyCmd = &cobra.Command{
 	Use:   "verify",
 	Short: "Verify a signature using a vault key",
-	Long: `Verify a base64-encoded signature against base64-encoded data using an
-existing vault key. Prints the result and exits non-zero if the signature is
-invalid, so the command composes directly in scripts (e.g. "if rocketvault
-keys verify ...; then").`,
+	Long: `Verify a base64-encoded signature against base64-encoded data using a key
+held in the target vault. The outcome is printed as a row of key ID,
+algorithm and validity, and the command exits non-zero when the signature
+does not check out, so it composes directly in scripts (e.g. "if
+rocketvault keys verify ...; then").
+
+Requires the admin or crypto_manager role, and the
+Microsoft.KeyVault/vaults/keys/verify/action data action in the target
+vault, which defaults to "default".
+
+--key-id, --data and --signature are all required, and --data and
+--signature must both be standard base64. --algorithm defaults to RS256 and
+must match the algorithm the signature was produced with. --version selects
+an archived key version produced by "keys rotate"; 0 or omitted verifies
+against the key's current material. A key that is revoked, disabled, or
+outside its not-before/expiry window is refused.`,
 	Example: `  # Verify a signature produced by "keys sign"
-  rocketvault keys verify --key-id <uuid> --data <base64> --signature <base64> --algorithm RS256 \
-    --username admin --password admin123 --totp-code <code>`,
+  rocketvault keys verify --key-id <uuid> --data <base64> \
+    --signature <base64>
+
+  # Verify against an ECDSA key in a named vault
+  rocketvault keys verify --key-id <uuid> --data <base64> \
+    --signature <base64> --algorithm ES256 --vault payments
+
+  # Verify against an earlier version of a rotated key
+  rocketvault keys verify --key-id <uuid> --data <base64> \
+    --signature <base64> --version 1`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		ctx := cmd.Context()
 		claims, ok := ctx.Value(common.ClaimsKey).(*model.Claims)

@@ -24,11 +24,31 @@ import (
 var updateCmd = &cobra.Command{
 	Use:   "update <id>",
 	Short: "Update certificate metadata",
-	Long:  `Update metadata for an X.509 certificate (name, tags). Requires admin or certificate_manager role.`,
-	Example: `  # Update certificate metadata
-  rocketvault certificate update <cert-id> --name "Updated name" \
-    --tags prod,secure \
-    --username admin --password admin123 --totp-code <code>`,
+	Long: `Change a certificate's metadata in place: its name, its tag set, its
+auto-renewal settings and its purge protection. The certificate itself is
+never re-signed here — use 'rocketvault certificate renew' for that.
+
+Requires the admin or certificate_manager role, and the
+Microsoft.KeyVault/vaults/certificates/update data action in the target
+vault.
+
+Acts on the vault named by --vault, defaulting to "default". Only the flags
+you actually pass take effect: --auto-renew, --renewal-days and
+--purge-protection are read only when given explicitly, and an omitted or
+empty --name or --tags leaves the stored value untouched. --tags replaces
+the whole tag set rather than adding to it, and passing an empty value
+cannot clear it.`,
+	Example: `  # Rename a certificate
+  rocketvault certificate update <id> --name <name>
+
+  # Replace the tag set
+  rocketvault certificate update <id> --tags prod,tls
+
+  # Arm auto-renewal 45 days before expiry
+  rocketvault certificate update <id> --auto-renew --renewal-days 45
+
+  # Protect a certificate from purge, in a named vault
+  rocketvault certificate update <id> --purge-protection --vault payments`,
 	Args: cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		ctx := cmd.Context()

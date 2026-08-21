@@ -32,38 +32,77 @@ var (
 var masterKeyCmd = &cobra.Command{
 	Use:   "master-key",
 	Short: "Manage the master encryption key",
-	Long: `Manage the master key that seals secrets, software key PEMs, and
-certificate private keys at rest.`,
+	Long: `Manage the master key that seals secrets, software key PEMs, and certificate
+private keys at rest. The only operation today is "rotate", which re-encrypts
+every sealed column onto a replacement key.
+
+Requires the global admin role. The master key protects the whole instance,
+so this is not a per-vault operation and --vault does not apply.
+
+Key material is never passed on the command line: both keys are named by the
+environment variable holding them, and the old key defaults to the master_key
+in the configuration file.`,
+	Example: `  # Log in once; the session is cached
+  rocketvault users login --username admin
+
+  # Preview a rotation onto a new key, writing nothing
+  export NEW_MASTER_KEY="$(openssl rand -base64 32)"
+  rocketvault master-key rotate --new-key-env NEW_MASTER_KEY --dry-run
+
+  # Perform the rotation
+  rocketvault master-key rotate --new-key-env NEW_MASTER_KEY`,
 }
 
 // masterKeyRotateCmd re-encrypts all master-key-sealed data onto a new key.
 var masterKeyRotateCmd = &cobra.Command{
 	Use:   "rotate",
 	Short: "Re-encrypt all stored data onto a new master key",
-	Long: `Re-encrypt every master-key-sealed database column onto a new key.
+	Long: `Read every master-key-sealed value in the database, decrypt it with the old
+key and write it back sealed with a new one. Five columns are covered:
+secrets.value, secret_versions.value, keys.value, key_versions.value and
+certificates.private_key — soft-deleted rows and version history included.
+Key rows whose material lives in an HSM hold only a PKCS#11 label, so they
+are counted as skipped and left alone.
 
-Both keys are read from environment variables by name so no key material ever
-appears in the command line. The old key defaults to the master_key currently
-in the configuration file.
+Requires the global admin role. The key protects every vault at once, so
+--vault does not apply.
 
-Stop the RocketVault server and take a database backup before running this.
-Interrupting the command is safe: re-running it skips rows that are already on
-the new key.
+Both keys are named by the environment variable holding them, so no key
+material reaches the command line. The old key defaults to the master_key in
+the configuration file; note that an exported MASTER_KEY overrides that file,
+which is the usual reason a rotation reports both keys as identical. The new
+key must be a fresh base64 32-byte key and is checked against the same
+weak-key rules as a configured one.
 
-Note: this command only re-encrypts database columns. Any database backup
-files created before this rotation were sealed with the old master key by
-"rocketvault backup create" and will not be restorable once the old key is
-retired — keep the old key (or a copy of those backups made under it) if you
-may need to restore from them.`,
+Stop the RocketVault server and take a database backup first. A real run
+prints both key sources and waits for you to type "yes" unless --yes is
+given; --dry-run reports the same per-table counts and never prompts or
+writes. Each table is fully read and classified before any of its rows are
+written, and every update is guarded by the ciphertext it was planned
+against, so a row changed underneath the run (a server still running) aborts
+it instead of being clobbered. Interrupting is therefore safe: rows already
+carrying the new key are recognised and skipped, so re-running with the same
+key pair resumes where it stopped.
+
+When it completes, set the new key as master_key in the configuration (or as
+MASTER_KEY) and restart the server — nothing is written back to the config
+file for you. Backup files made with "rocketvault backup create" are not
+touched by this command and stay sealed under the old key, so keep that key
+if you may need to restore one.`,
 	Example: `  # Preview what would be re-encrypted, without writing
   export NEW_MASTER_KEY="$(openssl rand -base64 32)"
   rocketvault master-key rotate --new-key-env NEW_MASTER_KEY --dry-run
 
-  # Perform the rotation
+  # Perform the rotation, answering the confirmation prompt
   rocketvault master-key rotate --new-key-env NEW_MASTER_KEY
 
   # Take the old key from an environment variable instead of the config file
-  rocketvault master-key rotate --old-key-env OLD_MASTER_KEY --new-key-env NEW_MASTER_KEY`,
+  rocketvault master-key rotate --old-key-env OLD_MASTER_KEY \
+    --new-key-env NEW_MASTER_KEY
+
+  # Unattended run with smaller transactions
+  rocketvault master-key rotate --new-key-env NEW_MASTER_KEY \
+    --batch-size 50 --yes`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		return runMasterKeyRotate(cmd)
 	},

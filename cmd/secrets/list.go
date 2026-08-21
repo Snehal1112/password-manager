@@ -42,14 +42,27 @@ import (
 var listCmd = &cobra.Command{
 	Use:   "list",
 	Short: "List all secrets",
-	Long:  `List all secrets for the authenticated user, optionally filtered by tags.`,
-	Example: `  # List all secrets
-  rocketvault secrets list \
-    --username admin --password admin123 --totp-code <code>
+	Long: `List the secrets in the target vault, ordered by name, printing each one's
+ID, name, version, enabled state, tags and creation time. Values are not
+printed; use "secrets get" to read one. Soft-deleted secrets are excluded.
 
-  # List secrets filtered by tags, as JSON
-  rocketvault secrets list --tags prod,db --output json \
-    --username admin --password admin123 --totp-code <code>`,
+Requires the Microsoft.KeyVault/vaults/secrets/readMetadata/action data
+action in the target vault. No global role is checked here, so a
+reader-style role assignment is enough to enumerate a vault's secrets.
+
+Acts on the vault named by --vault, which defaults to "default". The
+listing is vault scoped, so it returns every member's secrets, not only the
+caller's own.
+
+--tags narrows the listing to secrets carrying the given tags.`,
+	Example: `  # List every secret in the default vault
+  rocketvault secrets list
+
+  # List a named vault's secrets
+  rocketvault secrets list --vault <vault-name>
+
+  # Filter by tags and print JSON
+  rocketvault secrets list --tags prod,db --output json`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		tags, _ := cmd.Flags().GetStringSlice("tags")
 

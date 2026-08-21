@@ -16,19 +16,26 @@ import (
 var logsCmd = &cobra.Command{
 	Use:   "logs",
 	Short: "Query audit log entries",
-	Long:  "Query audit log entries with optional filters for time range, user, action, outcome, and resource type.",
+	Long: `Query audit log entries, filtered by time range, user, action, outcome, or
+resource type. Prints a running total of matching entries, then the
+entries themselves; if the log's hash chain fails an integrity check, a
+tampering warning is printed to stderr first.
+
+--from and --to accept RFC3339 timestamps or YYYY-MM-DD dates. --limit
+caps the number of entries returned (default 100).
+
+Requires the global admin role. Audit data spans every vault, so there is
+no --vault scoping.`,
 	Example: `  # View recent audit logs
-  rocketvault audit logs \
-    --username admin --password admin123 --totp-code <code>
+  rocketvault audit logs
 
   # Filter by date range and action
   rocketvault audit logs --from 2026-01-01 --to 2026-01-31 \
-    --action authenticate --outcome failure \
-    --username admin --password admin123 --totp-code <code>
+    --action authenticate --outcome failure
 
-  # Filter by user and resource type
-  rocketvault audit logs --user-id abc123 --resource-type secret --limit 50 \
-    --username admin --password admin123 --totp-code <code>`,
+  # Filter by user and resource type, as JSON
+  rocketvault audit logs --user-id <user-id> --resource-type secret \
+    --limit 50 --output json`,
 	Args: cobra.NoArgs,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		ctx := cmd.Context()

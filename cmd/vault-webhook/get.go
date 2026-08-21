@@ -18,9 +18,21 @@ func InitVaultWebhookGet(parent *cobra.Command) {
 	cmd := &cobra.Command{
 		Use:   "get",
 		Short: "Show a vault's webhook configuration",
-		Example: `  # Show a vault's webhook configuration
-  rocketvault vault-webhook get --vault prod \
-    --username admin --password admin123 --totp-code <code>`,
+		Long: `Show a vault's webhook configuration: URL, enabled state, and created and
+updated timestamps. The signing secret is never shown here — it is
+printed once, only on creation or rotation, and cannot be retrieved
+afterward.
+
+Fails if the vault has no webhook configured.
+
+Requires the admin role, or an access-policy grant of manage on vaults
+scoped to this vault (or granted globally). Acts on the vault named by
+--vault, defaulting to "default".`,
+		Example: `  # Show the webhook configuration for the default vault
+  rocketvault vault-webhook get
+
+  # Show it for a named vault
+  rocketvault vault-webhook get --vault prod`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			ctx := cmd.Context()
 			sc, ok := ctx.Value(common.ServiceContainerKey).(container.ServiceContainerInterface)

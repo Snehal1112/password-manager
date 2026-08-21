@@ -39,11 +39,20 @@ import (
 var updateCmd = &cobra.Command{
 	Use:   "update <id>",
 	Short: "Update user information",
-	Long:  `Update a user's username, password, or role by their UUID. Accessible by the user themselves or users with the admin role.`,
-	Example: `  # Update user information by ID
-  rocketvault users update <user-id> \
-    --username admin --password admin123 --totp-code <code> \
-    --new-username newuser --new-password newpass123 --new-role user`,
+	Long: `Update a user's username, password, or role by UUID. At least one of
+--new-username, --new-password, or --new-role is required.
+
+Accessible by the account's own owner, or by a caller with the admin role.
+Changing --new-role additionally requires the admin role, even when updating
+your own account, and is rejected unless the value is one of the built-in
+roles (admin, user, secrets_manager, crypto_manager, certificate_manager,
+service_account). There is no vault scoping: user accounts are global, not
+a vault-scoped resource.`,
+	Example: `  # Change your own password
+  rocketvault users update <user-id> --new-password <password>
+
+  # Change another user's role (requires admin role)
+  rocketvault users update <user-id> --new-role crypto_manager`,
 	Args: cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		ctx := cmd.Context()

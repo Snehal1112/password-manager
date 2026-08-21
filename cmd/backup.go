@@ -74,22 +74,31 @@ var (
 var backupCmd = &cobra.Command{
 	Use:   "backup",
 	Short: "Manage database backups",
-	Long: `Create, list, and restore encrypted database backups.
-Supports full database backup and restore operations with optional encryption.`,
-	Example: `  # Create an encrypted backup (default)
-  rocketvault backup create --output ./backups/backup-2024.backup
+	Long: `Create, list, and restore whole-database backups. A backup is a single JSON
+file holding every table in the database — every vault's secrets, keys and
+certificates, plus users, role assignments and audit rows — and is encrypted
+with the instance's master key by default.
 
-  # Create an unencrypted backup
-  rocketvault backup create --output ./backups/backup-2024.backup --encrypt=false
+Every subcommand requires the global admin role. There is no vault-scoped
+form of backup: it always covers the whole instance, so --vault does not
+apply and an operator with a role in only one vault cannot use these
+commands.
 
-  # List available backups
+An encrypted backup is sealed with the master key in force when it was
+written, and "master-key rotate" does not re-encrypt existing backup files.
+Keep the old key if you may ever need to restore a backup taken before a
+rotation.`,
+	Example: `  # Log in once; the session is cached
+  rocketvault users login --username admin
+
+  # Create an encrypted backup
+  rocketvault backup create --output ./backups/<name>.backup
+
+  # List the backups in a directory
   rocketvault backup list --dir ./backups
 
-  # Restore from an encrypted backup (default)
-  rocketvault backup restore --file ./backups/backup-2024.backup
-
-  # Restore from an unencrypted backup
-  rocketvault backup restore --file ./backups/backup-2024.backup --decrypt=false`,
+  # Replace the database from a backup
+  rocketvault backup restore --file ./backups/<name>.backup`,
 }
 
 func init() {
@@ -105,13 +114,28 @@ func init() {
 var backupCreateCmd = &cobra.Command{
 	Use:   "create",
 	Short: "Create a database backup",
-	Long: `Create a complete backup of the database including all tables and data.
-The backup is encrypted by default using the master key for security.`,
-	Example: `  # Create an encrypted backup (default)
-  rocketvault backup create --output ./backup-2024.backup
+	Long: `Write every table in the database to one JSON file: all vaults' secrets, keys
+and certificates, including soft-deleted rows, together with users, sessions,
+role assignments and the audit log. Rows are copied verbatim, so values that
+are sealed in the database stay sealed inside the file.
 
-  # Create an unencrypted backup
-  rocketvault backup create --output ./backup-2024.backup --encrypt=false`,
+Requires the global admin role. The backup spans every vault, so --vault does
+not apply.
+
+--output is required; its directory is created if missing and the file is
+written readable only by its owner. The default --encrypt=true seals the
+whole file with the master key, which means it can only be restored on an
+instance holding that same key. --encrypt=false writes plain JSON instead:
+secret values and private keys inside it remain master-key sealed, but names,
+tags, users, password hashes and role assignments become readable by anyone
+who can read the file. Only unencrypted backups can be inspected with
+"backup list".`,
+	Example: `  # Create an encrypted backup (the default)
+  rocketvault backup create --output ./backups/<name>.backup
+
+  # Create an unencrypted backup, which "backup list" can read
+  rocketvault backup create --output ./backups/<name>.backup \
+    --encrypt=false`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		return runBackupCreate(cmd)
 	},
@@ -121,9 +145,23 @@ The backup is encrypted by default using the master key for security.`,
 var backupListCmd = &cobra.Command{
 	Use:   "list",
 	Short: "List available backup files",
-	Long:  `List all backup files in the specified directory with their metadata.`,
-	Example: `  # List available backups in a directory
-  rocketvault backup list --dir ./backups`,
+	Long: `Scan a directory for files matching "*.backup" and print what each one
+contains: when it was taken, its format version, how many tables and records
+it holds, and whether it is encrypted. The scan is not recursive.
+
+Requires the global admin role.
+
+Only unencrypted backups can be listed. Metadata is read by parsing the file
+as JSON, so a backup written with the default encryption is skipped with a
+warning and never appears — a directory holding only encrypted backups
+reports none found. The FILE column is rebuilt from each backup's own
+timestamp rather than read from the name on disk, so it will not match a file
+you renamed.`,
+	Example: `  # List the backups in the default ./backups directory
+  rocketvault backup list
+
+  # List the backups in another directory
+  rocketvault backup list --dir /var/backups/rocketvault`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		return runBackupList(cmd)
 	},
@@ -133,12 +171,28 @@ var backupListCmd = &cobra.Command{
 var backupRestoreCmd = &cobra.Command{
 	Use:   "restore",
 	Short: "Restore database from backup",
-	Long:  `Restore the database from a backup file. This will replace all existing data.`,
-	Example: `  # Restore from an encrypted backup (default)
-  rocketvault backup restore --file ./backup-2024.backup
+	Long: `Replace the database contents with a backup file. Every table present in the
+backup is emptied and refilled from the file in foreign-key order, inside a
+single transaction, so the restore either lands completely or leaves the
+database as it was. Tables the backup does not contain are left alone.
 
-  # Restore from an unencrypted backup
-  rocketvault backup restore --file ./backup-2024.backup --decrypt=false`,
+Requires the global admin role. The restore covers every vault in the file,
+so --vault does not apply.
+
+This is destructive and has no undo: current secrets, keys, certificates,
+users and audit rows are discarded in favour of the file's. The command
+prints the target file and waits for you to type "yes"; anything else
+cancels, and there is no flag to skip the prompt. --decrypt must match how
+the backup was written — the default expects a master-key-encrypted file and
+fails unless this instance holds the key that sealed it. Stop the RocketVault
+server first: a running server keeps serving cached secrets that the restore
+does not invalidate.`,
+	Example: `  # Restore from an encrypted backup (the default)
+  rocketvault backup restore --file ./backups/<name>.backup
+
+  # Restore from a backup written with --encrypt=false
+  rocketvault backup restore --file ./backups/<name>.backup \
+    --decrypt=false`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		return runBackupRestore(cmd)
 	},

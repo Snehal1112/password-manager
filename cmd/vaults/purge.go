@@ -13,10 +13,25 @@ import (
 var purgeCmd = &cobra.Command{
 	Use:   "purge <name>",
 	Short: "Permanently purge a vault by name",
-	Long:  `Permanently remove a vault by name. This operation cannot be undone.`,
+	Long: `Permanently remove a vault and everything in it: secrets, keys,
+certificates, and access policies. This cannot be undone.
+
+Requires the admin account role, or a Key Vault Purge Operator role
+assignment in this vault (the Microsoft.KeyVault/vaults/purge/action data
+action) — a different authorization tier from the other vaults commands,
+which check the (vaults, manage) access policy instead. The admin bypass
+applies only here, on the CLI: the HTTP purge route has no admin
+short-circuit and always requires an explicit role grant.
+
+The vault name is the positional argument; this command has no --vault
+flag.
+
+Refuses to run if the vault, or anything inside it, has purge protection
+enabled, and always refuses the default vault. A soft-deleted vault is the
+normal target, but an active vault that was never soft-deleted is purged
+too if it matches by name.`,
 	Example: `  # Permanently purge a soft-deleted vault
-  rocketvault vaults purge <name> \
-    --username admin --password admin123 --totp-code <code>`,
+  rocketvault vaults purge <name>`,
 	Args: cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		name := args[0]

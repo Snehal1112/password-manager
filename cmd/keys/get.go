@@ -43,14 +43,25 @@ import (
 var getCmd = &cobra.Command{
 	Use:   "get <id>",
 	Short: "Retrieve a cryptographic key",
-	Long:  `Retrieve details of a cryptographic key by its UUID. Accessible by the key's owner or users with the admin role.`,
-	Example: `  # Get a key by id
-  rocketvault keys get <key-id> \
-    --username admin --password admin123 --totp-code <code>
+	Long: `Print the metadata of one cryptographic key by its UUID: ID, name, type,
+revocation status, tags and creation time. Key material is never printed.
 
-  # Get a key as JSON
-  rocketvault keys get <key-id> --output json \
-    --username admin --password admin123 --totp-code <code>`,
+Requires the Microsoft.KeyVault/vaults/keys/read data action in the target
+vault. No global role is checked here, so any principal holding a role
+assignment that grants that action can read key metadata.
+
+The lookup is scoped to the vault named by --vault, defaulting to
+"default"; a key that lives in another vault is reported as not found. A
+key that is disabled, or outside its not-before/expiry window, is refused
+even though it exists.`,
+	Example: `  # Show a key in the default vault
+  rocketvault keys get <key-id>
+
+  # Show a key in a named vault
+  rocketvault keys get <key-id> --vault payments
+
+  # Machine-readable output
+  rocketvault keys get <key-id> --output json`,
 	Args: cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		ctx := cmd.Context()

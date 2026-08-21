@@ -56,6 +56,17 @@ var bootstrapConfig = &bootstrap.Config{}
 var serveCmd = &cobra.Command{
 	Use:   "serve",
 	Short: "Start the API server",
+	Long: `Start the RocketVault API server: open the database connection, build the
+service container (JWT signing-key provider, key provider, and OIDC when
+enabled), and begin serving the HTTP API on the configured listen address.
+
+.rocketvault.yaml is the only config file loaded at runtime. jwt.expiry must
+be set there; startup aborts if it is missing, if master_key is not usable,
+or if the configured JWT signing-key provider cannot be constructed.
+
+--listen overrides server.listen_addr from the config file, which in turn
+overrides the PASSWORD_MANAGER_LISTEN environment variable and the built-in
+default of 127.0.0.1:8774.`,
 	Example: `  # Start the API server on the default address
   rocketvault serve
 

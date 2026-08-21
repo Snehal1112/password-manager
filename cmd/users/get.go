@@ -39,10 +39,16 @@ import (
 var getCmd = &cobra.Command{
 	Use:   "get",
 	Short: "Get user information",
-	Long:  `Retrieve information about a specific user by their username.`,
-	Example: `  # Get user information by ID
-  rocketvault users get <id> \
-    --username admin --password admin123 --totp-code <code>`,
+	Long: `Retrieve a single user's ID, username, role, and creation time by UUID.
+
+Accessible by the account's own owner, or by a caller with the admin role.
+There is no vault scoping: user accounts are global, not a vault-scoped
+resource.`,
+	Example: `  # Get your own user record
+  rocketvault users get <user-id>
+
+  # Get another user's record as JSON (requires admin role)
+  rocketvault users get <user-id> --output json`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		ctx := cmd.Context()
 		claims, ok := ctx.Value(common.ClaimsKey).(*model.Claims)

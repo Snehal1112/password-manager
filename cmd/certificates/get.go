@@ -25,10 +25,25 @@ import (
 var getCmd = &cobra.Command{
 	Use:   "get <id>",
 	Short: "Retrieve a certificate",
-	Long:  `Retrieve details of an X.509 certificate by its UUID. Accessible by the certificate's owner or users with the admin role.`,
-	Example: `  # Get a certificate by ID
-  rocketvault certificate get <cert-id> \
-    --username admin --password admin123 --totp-code <code>`,
+	Long: `Print one certificate's metadata by UUID: its ID, name, tags, expiry,
+auto-renew flag and creation time. Neither the certificate PEM nor its
+private key is printed.
+
+Requires the Microsoft.KeyVault/vaults/certificates/read data action in the
+target vault. There is no role check on this command — the vault role
+assignment is the whole gate, and it is deny-by-default.
+
+Acts on the vault named by --vault, defaulting to "default", and finds only
+certificates in that vault. A certificate that is disabled, not yet valid or
+already expired is refused as inaccessible rather than printed.`,
+	Example: `  # Show a certificate in the default vault
+  rocketvault certificate get <id>
+
+  # Show a certificate in a named vault
+  rocketvault certificate get <id> --vault payments
+
+  # Machine-readable output
+  rocketvault certificate get <id> --output json`,
 	Args: cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		ctx := cmd.Context()

@@ -41,16 +41,12 @@ import (
 var migrateCmd = &cobra.Command{
 	Use:   "migrate",
 	Short: "Run database migrations",
-	Long: `Run database migrations to update the database schema.
-This command applies all pending migrations in order.`,
+	Long: `Apply every pending migration in internal/db/migrations/, in version order.
+Already-applied migrations are skipped. It opens its own database connection
+using the same database.connection config serve reads, independent of the
+API server -- running this command does not start serve.`,
 	Example: `  # Run all pending migrations
-  rocketvault migrate
-
-  # Check migration status
-  rocketvault migrate:status
-
-  # Migrate to a specific version
-  rocketvault migrate:to <version>`,
+  rocketvault migrate`,
 	RunE: runMigrations,
 }
 
@@ -58,7 +54,9 @@ This command applies all pending migrations in order.`,
 var migrateStatusCmd = &cobra.Command{
 	Use:   "migrate:status",
 	Short: "Show migration status",
-	Long:  `Display the current database schema version and list all migrations with their status.`,
+	Long: `Display the current database schema version, then list every migration file
+found in internal/db/migrations/ as either applied or pending, with a summary
+count. Reads the schema_migrations table directly; it does not apply anything.`,
 	Example: `  # Show pending and applied migrations
   rocketvault migrate:status`,
 	RunE: showMigrationStatus,
@@ -68,7 +66,9 @@ var migrateStatusCmd = &cobra.Command{
 var migrateToCmd = &cobra.Command{
 	Use:   "migrate:to [version]",
 	Short: "Migrate to a specific version",
-	Long:  `Apply migrations up to and including the specified version.`,
+	Long: `Apply every pending migration whose version is less than or equal to the
+given version, in order; already-applied migrations are skipped. It does not
+roll back migrations already applied past the target version.`,
 	Example: `  # Migrate the database to a specific version
   rocketvault migrate:to <version>`,
 	Args: cobra.ExactArgs(1),
@@ -79,9 +79,10 @@ var migrateToCmd = &cobra.Command{
 var migrateCreateCmd = &cobra.Command{
 	Use:   "migrate:create [description]",
 	Short: "Create a new migration file",
-	Long: `Create a new timestamped migration file in internal/db/migrations/.
-
-The description words are joined with underscores to form the filename.`,
+	Long: `Create a new migration file in internal/db/migrations/, with a TODO SQL
+template. The description words are joined with underscores to form the
+filename: YYYYMMDDNNNNNN_description.sql, where NNNNNN is the next unused
+sequence number for today's date.`,
 	Example: `  # Create a new migration file
   rocketvault migrate:create "add purge_protection column"`,
 	Args: cobra.MinimumNArgs(1),

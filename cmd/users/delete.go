@@ -39,10 +39,13 @@ import (
 var deleteCmd = &cobra.Command{
 	Use:   "delete",
 	Short: "Delete a user",
-	Long:  `Delete a user by their UUID. Accessible by the user themselves or users with the crypto_manager role. This action cannot be undone.`,
-	Example: `  # Delete a user by ID
-  rocketvault users delete <user-id> \
-    --username admin --password admin123 --totp-code <code>`,
+	Long: `Delete a user account by UUID. This action cannot be undone.
+
+Accessible by the account's own owner, or by a caller with the admin role.
+There is no vault scoping: user accounts are global, not a vault-scoped
+resource.`,
+	Example: `  # Delete a user by ID (your own account, or any account as admin)
+  rocketvault users delete <user-id>`,
 	Args: cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		ctx := cmd.Context()

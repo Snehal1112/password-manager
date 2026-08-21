@@ -39,10 +39,22 @@ import (
 var deleteCmd = &cobra.Command{
 	Use:   "delete <id>",
 	Short: "Delete a cryptographic key",
-	Long:  `Delete a cryptographic key by its UUID, including associated tags. Accessible by the key's owner or users with the admin role.`,
-	Example: `  # Delete a key
-  rocketvault keys delete <key-id> \
-    --username admin --password admin123 --totp-code <code>`,
+	Long: `Soft-delete a cryptographic key by its UUID. The key row is retained with a
+deletion timestamp rather than destroyed, so it drops out of "keys list" and
+stops resolving for crypto operations but remains recoverable until it is
+purged. Recovery and purge are REST API operations; the CLI has no
+equivalent subcommand.
+
+Requires the admin or crypto_manager role, and the
+Microsoft.KeyVault/vaults/keys/delete data action in the target vault.
+
+Only keys in the vault named by --vault are addressable, defaulting to
+"default"; a key that lives in another vault is reported as not found.`,
+	Example: `  # Delete a key in the default vault
+  rocketvault keys delete <key-id>
+
+  # Delete a key in a named vault
+  rocketvault keys delete <key-id> --vault payments`,
 	Args: cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		ctx := cmd.Context()

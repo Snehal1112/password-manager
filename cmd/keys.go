@@ -32,16 +32,32 @@ import (
 var keysCmd = &cobra.Command{
 	Use:   "keys",
 	Short: "Manage keys",
-	Long:  `Manage keys for the application, including creating, updating, and deleting keys.`,
-	Example: `  # Create an RSA key
-  rocketvault keys create --name <name> --type RSA --bits 2048 \
-    --username admin --password admin123 --totp-code <code>
+	Long: `Manage the cryptographic keys held in a vault: create RSA and ECDSA keys,
+inspect and list them, update their metadata, rotate them, delete them, and
+use them to sign, verify, wrap, and unwrap. Private key material never leaves
+the vault; crypto operations run inside it and return only the result.
 
-  # Get a key by id
-  rocketvault keys get <id> --username admin --password admin123 --totp-code <code>
+Creating, updating, rotating, deleting, and every crypto operation require the
+admin or crypto_manager role plus the matching data action (keys/create,
+keys/sign, keys/wrap, ...) in the target vault. get and list require only the
+keys/read data action. Vault access is deny-by-default, so a role assignment
+must exist for the target vault — see 'rocketvault vault-access'.
 
-  # List keys
-  rocketvault keys list --username admin --password admin123 --totp-code <code>`,
+Every command here acts on the vault named by --vault, defaulting to
+"default". The CLI creates RSA and ECDSA keys only; symmetric AES (OCT) keys
+are HSM-only and available through the REST API when hsm.enabled is true.`,
+	Example: `  # Log in once; the session is cached
+  rocketvault users login --username admin
+
+  # Create an RSA key in the default vault
+  rocketvault keys create --name <name> --type RSA --bits 2048
+
+  # List the keys in a named vault
+  rocketvault keys list --vault payments
+
+  # Sign base64-encoded data with a key
+  rocketvault keys sign --key-id <key-id> --data <base64-data> \
+    --algorithm RS256`,
 	Run: func(cmd *cobra.Command, args []string) {
 		// Show help when command is called without subcommands
 		cmd.Help() //nolint:errcheck,gosec

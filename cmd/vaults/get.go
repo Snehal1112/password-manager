@@ -16,10 +16,19 @@ import (
 var getCmd = &cobra.Command{
 	Use:   "get <name>",
 	Short: "Retrieve a vault by name",
-	Long:  `Retrieve a vault by its name.`,
+	Long: `Retrieve a single vault's details by name: ID, enabled state, purge
+protection, retention period, and creation time.
+
+Requires the admin account role, or an access-policy allow on (vaults,
+manage) scoped to this vault or granted globally.
+
+The vault name is the positional argument; this command has no --vault
+flag.`,
 	Example: `  # Get a vault by name
-  rocketvault vaults get <name> \
-    --username admin --password admin123 --totp-code <code>`,
+  rocketvault vaults get <name>
+
+  # Machine-readable output
+  rocketvault vaults get <name> --output json`,
 	Args: cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		name := args[0]

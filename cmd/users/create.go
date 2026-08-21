@@ -39,11 +39,20 @@ import (
 var createCmd = &cobra.Command{
 	Use:   "create",
 	Short: "Create a new user",
-	Long:  `Create a new user with a username, password, and role, generating a TOTP secret for MFA. Requires admin role for authentication.`,
-	Example: `  # Create a new user (requires admin role)
+	Long: `Create a new user account with a username, password, and role. A TOTP
+secret is generated for the new account's MFA and printed once — save it
+before configuring an authenticator app.
+
+Requires the caller to hold the admin role. There is no vault scoping: user
+accounts are global, not a vault-scoped resource.`,
+	Example: `  # Create a new user (requires an active admin session)
   rocketvault users create \
-    --username admin --password admin123 --totp-code <code> \
-    --new-username testuser --new-password password123 --new-role user`,
+    --new-username <username> --new-password <password> --new-role user
+
+  # Create a user with the crypto_manager role
+  rocketvault users create \
+    --new-username <username> --new-password <password> \
+    --new-role crypto_manager`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		ctx := cmd.Context()
 

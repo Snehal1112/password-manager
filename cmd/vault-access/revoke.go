@@ -16,9 +16,19 @@ func InitVaultAccessRevoke(parent *cobra.Command) {
 	cmd := &cobra.Command{
 		Use:   "revoke <assignment-id>",
 		Short: "Revoke a role assignment in a vault",
+		Long: `Revoke a role assignment by its assignment ID, removing that principal's
+access under the granted role in the vault.
+
+Requires the admin account role, an access-policy allow on (vaults, manage)
+for this vault, or a Key Vault Data Access Administrator role assignment
+holding Microsoft.Authorization/roleAssignments/delete in this vault.
+
+Vault scoped via --vault; defaults to the ROCKETVAULT_VAULT environment
+variable, then config, then "default" if none of those is set. The
+assignment must belong to the resolved vault, or the revoke fails as if the
+assignment did not exist.`,
 		Example: `  # Revoke a role assignment by id
-  rocketvault vault-access revoke <assignment-id> --vault prod \
-    --username admin --password admin123 --totp-code <code>`,
+  rocketvault vault-access revoke <assignment-id> --vault prod`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			id, err := uuid.Parse(args[0])

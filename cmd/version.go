@@ -44,16 +44,27 @@ var (
 var versionCmd = &cobra.Command{
 	Use:   "version",
 	Short: "Manage secret versions",
-	Long: `View, retrieve, and manage historical versions of secrets.
-Supports listing versions, retrieving specific versions, and version history.`,
-	Example: `  # List all versions of a secret
-  rocketvault secrets version list --secret-id <uuid> --username admin --password admin123 --totp-code <code>
+	Long: `View a secret's historical versions: list them, read one back by number, or
+fetch the most recently written one. This group is read-only -- it does not
+create, update, or delete versions.
+
+'list' requires the Microsoft.KeyVault/vaults/secrets/readMetadata/action
+data action and returns metadata only, no values. 'get' and 'latest' require
+Microsoft.KeyVault/vaults/secrets/getSecret/action and return the decrypted
+value. None of the three checks a role beyond that data action.
+
+Every subcommand acts on the vault named by --vault, defaulting to "default".`,
+	Example: `  # Log in once; the session is cached
+  rocketvault users login --username admin
+
+  # List all versions of a secret
+  rocketvault secrets version list --secret-id <id>
 
   # Get a specific version of a secret
-  rocketvault secrets version get --secret-id <uuid> --version 2 --username admin --password admin123 --totp-code <code>
+  rocketvault secrets version get --secret-id <id> --version 2
 
   # Get the latest version of a secret
-  rocketvault secrets version latest --secret-id <uuid> --username admin --password admin123 --totp-code <code>`,
+  rocketvault secrets version latest --secret-id <id>`,
 }
 
 func init() {
@@ -69,9 +80,17 @@ func init() {
 var versionListCmd = &cobra.Command{
 	Use:   "list",
 	Short: "List all versions of a secret",
-	Long:  `List all historical versions of a secret with their metadata.`,
+	Long: `List every version of a secret with its version number, name, and creation
+time -- values are not included. Requires the
+Microsoft.KeyVault/vaults/secrets/readMetadata/action data action in the
+target vault; no role check applies.
+
+Acts on the vault named by --vault, defaulting to "default".`,
 	Example: `  # List all versions of a secret
-  rocketvault secrets version list --secret-id 123e4567-e89b-12d3-a456-426614174000 --username admin --password admin123 --totp-code <code>`,
+  rocketvault secrets version list --secret-id <id>
+
+  # List versions in a named vault
+  rocketvault secrets version list --secret-id <id> --vault payments`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		return runVersionList(cmd)
 	},
@@ -81,9 +100,17 @@ var versionListCmd = &cobra.Command{
 var versionGetCmd = &cobra.Command{
 	Use:   "get",
 	Short: "Get a specific version of a secret",
-	Long:  `Retrieve a specific historical version of a secret.`,
+	Long: `Retrieve one specific version of a secret by its version number, including
+its decrypted value. Requires the
+Microsoft.KeyVault/vaults/secrets/getSecret/action data action in the target
+vault; no role check applies.
+
+Acts on the vault named by --vault, defaulting to "default".`,
 	Example: `  # Get version 2 of a secret
-  rocketvault secrets version get --secret-id 123e4567-e89b-12d3-a456-426614174000 --version 2 --username admin --password admin123 --totp-code <code>`,
+  rocketvault secrets version get --secret-id <id> --version 2
+
+  # Get a version from a named vault
+  rocketvault secrets version get --secret-id <id> --version 2 --vault payments`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		return runVersionGet(cmd)
 	},
@@ -93,9 +120,16 @@ var versionGetCmd = &cobra.Command{
 var versionLatestCmd = &cobra.Command{
 	Use:   "latest",
 	Short: "Get the latest version of a secret",
-	Long:  `Retrieve the most recent version of a secret.`,
+	Long: `Retrieve the most recently written version of a secret, including its
+decrypted value. Requires the Microsoft.KeyVault/vaults/secrets/getSecret/action
+data action in the target vault; no role check applies.
+
+Acts on the vault named by --vault, defaulting to "default".`,
 	Example: `  # Get the latest version of a secret
-  rocketvault secrets version latest --secret-id 123e4567-e89b-12d3-a456-426614174000 --username admin --password admin123 --totp-code <code>`,
+  rocketvault secrets version latest --secret-id <id>
+
+  # Get the latest version from a named vault
+  rocketvault secrets version latest --secret-id <id> --vault payments`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		return runVersionLatest(cmd)
 	},

@@ -40,8 +40,11 @@ import (
 var healthCmd = &cobra.Command{
 	Use:   "health",
 	Short: "Display system health metrics",
-	Long: `Display comprehensive system health metrics including memory usage,
-CPU statistics, database connection status, and query performance metrics.`,
+	Long: `Display a point-in-time snapshot of this process's own health: memory and
+heap usage, goroutine and CGO call counts, database connection pool
+statistics, and query performance (count, average duration, slow-query count,
+total duration). It opens its own database connection to collect these
+metrics; it does not call a running "serve" instance over the network.`,
 	Example: `  # Display system health metrics
   rocketvault health`,
 	RunE: func(cmd *cobra.Command, args []string) error {

@@ -42,10 +42,30 @@ import (
 var wrapCmd = &cobra.Command{
 	Use:   "wrap",
 	Short: "Wrap key material using a vault RSA key",
-	Long:  `Encrypt plaintext key material with RSA-OAEP using an existing vault key. The input key material must be base64-encoded.`,
-	Example: `  # Wrap key material with RSA key
+	Long: `Wrap (encrypt) plaintext key material with an RSA key held in the target
+vault and print the wrapped result to stdout as standard base64. The CLI
+always requests RSA-OAEP; there is no algorithm flag, so this path needs an
+RSA key.
+
+Requires the admin or crypto_manager role, and the
+Microsoft.KeyVault/vaults/keys/wrap/action data action in the target vault,
+which defaults to "default".
+
+--key-id and --key-material are both required, and --key-material must be
+standard base64. --version selects an archived key version produced by
+"keys rotate"; 0 or omitted wraps with the key's current material. A key
+that is revoked, disabled, or outside its not-before/expiry window is
+refused.`,
+	Example: `  # Wrap key material with an RSA key in the default vault
+  rocketvault keys wrap --key-id <uuid> --key-material <base64>
+
+  # Wrap with an RSA key in a named vault
   rocketvault keys wrap --key-id <uuid> --key-material <base64> \
-    --username admin --password admin123 --totp-code <code>`,
+    --vault payments
+
+  # Wrap with an earlier version of a rotated key
+  rocketvault keys wrap --key-id <uuid> --key-material <base64> \
+    --version 1`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		ctx := cmd.Context()
 		claims, ok := ctx.Value(common.ClaimsKey).(*model.Claims)

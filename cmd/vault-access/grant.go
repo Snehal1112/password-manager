@@ -17,13 +17,27 @@ func InitVaultAccessGrant(parent *cobra.Command) {
 	cmd := &cobra.Command{
 		Use:   "grant <principal>",
 		Short: "Grant a built-in role to a principal in a vault",
+		Long: `Grant a built-in Azure Key Vault role to a principal (user or service
+account) in a vault, creating a role assignment that governs its data-plane
+access there.
+
+Requires the admin account role, an access-policy allow on (vaults, manage)
+for this vault, or a Key Vault Data Access Administrator role assignment
+holding Microsoft.Authorization/roleAssignments/write in this vault.
+
+Vault scoped via --vault; defaults to the ROCKETVAULT_VAULT environment
+variable, then config, then "default" if none of those is set.
+
+--role must be one of the built-in role names listed by vault-access roles.
+--principal-type defaults to "user"; the only other accepted value is
+"service_account".`,
 		Example: `  # Grant a built-in role to a user in a vault
-  rocketvault vault-access grant alice --role "Key Vault Secrets User" --vault prod \
-    --username admin --password admin123 --totp-code <code>
+  rocketvault vault-access grant alice --role "Key Vault Secrets User" \
+    --vault prod
 
   # Grant a role to a service account
-  rocketvault vault-access grant my-svc --role "Key Vault Crypto User" --principal-type service_account --vault prod \
-    --username admin --password admin123 --totp-code <code>`,
+  rocketvault vault-access grant my-svc --role "Key Vault Crypto User" \
+    --principal-type service_account --vault prod`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			principal := args[0]

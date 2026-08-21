@@ -18,9 +18,17 @@ func InitVaultWebhookDelete(parent *cobra.Command) {
 	cmd := &cobra.Command{
 		Use:   "delete",
 		Short: "Delete a vault's webhook configuration",
-		Example: `  # Delete a vault's webhook configuration
-  rocketvault vault-webhook delete --vault prod \
-    --username admin --password admin123 --totp-code <code>`,
+		Long: `Delete a vault's webhook configuration. Deleting a vault with no webhook
+configured still succeeds — this command is idempotent.
+
+Requires the admin role, or an access-policy grant of manage on vaults
+scoped to this vault (or granted globally). Acts on the vault named by
+--vault, defaulting to "default".`,
+		Example: `  # Delete the webhook configuration for the default vault
+  rocketvault vault-webhook delete
+
+  # Delete it for a named vault
+  rocketvault vault-webhook delete --vault prod`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			ctx := cmd.Context()
 			sc, ok := ctx.Value(common.ServiceContainerKey).(container.ServiceContainerInterface)

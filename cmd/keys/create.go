@@ -43,14 +43,31 @@ import (
 var createCmd = &cobra.Command{
 	Use:   "create",
 	Short: "Create a new key",
-	Long:  `Create a new key with the specified details.`,
-	Example: `  # Create an RSA key
-  rocketvault keys create --name mykey --type RSA --bits 2048 \
-    --username admin --password admin123 --totp-code <code>
+	Long: `Generate a new asymmetric key and store its material in the target vault,
+encrypted with the server master key. Software keys are stored as encrypted
+PEM; when an HSM is configured, only a PKCS#11 handle is stored.
 
-  # Create an ECDSA key with tags
-  rocketvault keys create --name eckey --type ECDSA --curve P-256 --tags prod,secure \
-    --username admin --password admin123 --totp-code <code>`,
+Requires the admin or crypto_manager role, and the
+Microsoft.KeyVault/vaults/keys/create data action in the target vault.
+
+--name and --type are both required. --type accepts only RSA or ECDSA;
+any other value is rejected before any key is generated. RSA keys must be
+2048, 3072 or 4096 bits. ECDSA keys must use curve P-256, P-384, P-521 or
+P-256K, and a P-256K key is recorded with type ES256K. Symmetric OCT keys
+are HSM-only and cannot be created from the CLI at all.
+
+The key is created in the vault named by --vault, which defaults to
+"default".`,
+	Example: `  # RSA key in the default vault
+  rocketvault keys create --name <name> --type RSA --bits 2048
+
+  # ECDSA key in a named vault, with tags
+  rocketvault keys create --name <name> --type ECDSA \
+    --curve P-384 --tags prod,secure --vault payments
+
+  # RSA key that cannot be purged until purge protection is cleared
+  rocketvault keys create --name <name> --type RSA --bits 4096 \
+    --purge-protection`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		ctx := cmd.Context()
 		claims, ok := ctx.Value(common.ClaimsKey).(*model.Claims)

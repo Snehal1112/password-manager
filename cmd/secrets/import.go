@@ -47,15 +47,29 @@ var (
 var secretsImportCmd = &cobra.Command{
 	Use:   "import",
 	Short: "Import secrets from a file",
-	Long: `Import secrets from a JSON or CSV file.
-The file must be compatible with the export format produced by the export command.`,
-	Example: `  # Import secrets from JSON file
-  rocketvault secrets import --file secrets.json \
-    --username admin --password admin123 --totp-code <code>
+	Long: `Import secrets into the target vault from a JSON or CSV file in the layout
+"secrets export" produces. Every record is created as a new secret at
+version 1, so an existing secret of the same name is never replaced:
+--overwrite is passed to the import service but never acted on, and
+--encrypted is accepted and unused because the export is plaintext.
 
-  # Import and overwrite existing secrets
-  rocketvault secrets import --file secrets.json --overwrite \
-    --username admin --password admin123 --totp-code <code>`,
+Requires the admin or secrets_manager role, and the
+Microsoft.KeyVault/vaults/secrets/setSecret/action data action in the
+target vault.
+
+Acts on the vault named by --vault, which defaults to "default". The caller
+becomes the owner of every imported secret.
+
+Records missing a name or a value are skipped rather than failing the run,
+and the imported and skipped counts are printed when the run finishes.`,
+	Example: `  # Import secrets from a JSON file into the default vault
+  rocketvault secrets import --file secrets.json
+
+  # Import a CSV export
+  rocketvault secrets import --format csv --file secrets.csv
+
+  # Import into a named vault
+  rocketvault secrets import --file secrets.json --vault <vault-name>`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		ctx := cmd.Context()
 

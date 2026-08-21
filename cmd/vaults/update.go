@@ -17,14 +17,20 @@ import (
 var updateCmd = &cobra.Command{
 	Use:   "update <name>",
 	Short: "Update a vault",
-	Long:  `Update an existing vault's settings. Only the flags you set are changed.`,
+	Long: `Update an existing vault's settings. Only flags explicitly passed on
+the command line are applied; --enabled defaults to true but is only used
+when --enabled is actually set.
+
+Requires the admin account role, or an access-policy allow on (vaults,
+manage) scoped to this vault or granted globally.
+
+The vault name is the positional argument; this command has no --vault
+flag.`,
 	Example: `  # Disable a vault
-  rocketvault vaults update <name> --enabled=false \
-    --username admin --password admin123 --totp-code <code>
+  rocketvault vaults update <name> --enabled=false
 
   # Update purge protection and retention
-  rocketvault vaults update <name> --purge-protection --retention-days 60 \
-    --username admin --password admin123 --totp-code <code>`,
+  rocketvault vaults update <name> --purge-protection --retention-days 60`,
 	Args: cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		name := args[0]

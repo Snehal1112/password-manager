@@ -46,7 +46,7 @@ Either way, the resulting session is cached to disk so subsequent commands
 don't need credentials repeated.`,
 	Example: `  # Log in with a local username/password/TOTP account
   rocketvault users login \
-    --username admin --password admin123 --totp-code <code>
+    --username <username> --password <password> --totp-code <code>
 
   # Log in via the configured OIDC provider (opens a browser)
   rocketvault users login --oidc`,

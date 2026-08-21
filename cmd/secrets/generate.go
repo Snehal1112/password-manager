@@ -35,14 +35,27 @@ import (
 var generateCmd = &cobra.Command{
 	Use:   "generate-password",
 	Short: "Generate a random password",
-	Long:  `Generate a random password with configurable length and character types.`,
-	Example: `  # Generate a 16-character password (default)
-  rocketvault secrets generate-password \
-    --username admin --password admin123 --totp-code <code>
+	Long: `Generate a random password locally and print it to standard output. Nothing
+is stored: the password is not written to any vault, so pass it to
+"secrets create" yourself if you want to keep it.
 
-  # Generate a 32-character password without special characters
-  rocketvault secrets generate-password --length 32 --special=false \
-    --username admin --password admin123 --totp-code <code>`,
+The character pool is built from the enabled --uppercase, --lowercase,
+--numbers and --special sets, and at least one of them must remain enabled.
+The result contains at least one character from every enabled set, and it
+never repeats the same character three times in a row.
+
+No role and no data action is checked, and no vault is touched. The command
+is not on the CLI's list of session-exempt commands, so an active session
+is still required to run it.`,
+	Example: `  # Generate a 16-character password from the default character sets
+  rocketvault secrets generate-password
+
+  # Generate a 32-character password with no special characters
+  rocketvault secrets generate-password --length 32 --special=false
+
+  # Generate a digits-only PIN
+  rocketvault secrets generate-password --length 8 \
+    --uppercase=false --lowercase=false --special=false`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		length, _ := cmd.Flags().GetInt("length")
 		useUpper, _ := cmd.Flags().GetBool("uppercase")

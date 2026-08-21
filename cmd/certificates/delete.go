@@ -21,10 +21,24 @@ import (
 var deleteCmd = &cobra.Command{
 	Use:   "delete <id>",
 	Short: "Delete a certificate",
-	Long:  `Delete an X.509 certificate by its UUID. Requires admin or certificate_manager role.`,
-	Example: `  # Delete a certificate
-  rocketvault certificate delete <cert-id> \
-    --username admin --password admin123 --totp-code <code>`,
+	Long: `Soft-delete an X.509 certificate by its UUID. The row is stamped with a
+deletion time rather than removed, so the certificate disappears from
+'rocketvault certificate list' but survives until the retention window ends
+and the background purge scheduler destroys it. Recovering or purging it
+before then is possible only over the REST soft-delete endpoints; the CLI
+has no recover or purge subcommand for certificates.
+
+Requires the admin or certificate_manager role, and the
+Microsoft.KeyVault/vaults/certificates/delete data action in the target
+vault.
+
+Acts on the vault named by --vault, defaulting to "default". A certificate
+in another vault is invisible to this command and reports as not found.`,
+	Example: `  # Delete a certificate in the default vault
+  rocketvault certificate delete <id>
+
+  # Delete a certificate in a named vault
+  rocketvault certificate delete <id> --vault payments`,
 	Args: cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		ctx := cmd.Context()

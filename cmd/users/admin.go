@@ -37,10 +37,18 @@ import (
 var registerAdminCmd = &cobra.Command{
 	Use:   "admin",
 	Short: "Register the initial admin user",
-	Long:  `Register the first admin user for the Password Manager using a bootstrap token. This command is only allowed when no users exist and requires a valid token.`,
+	Long: `Create the first admin user using a one-time bootstrap token, seeded
+from the "bootstrap_token" value in .rocketvault.yaml. Requires no prior
+authentication or session — this is one of the CLI's system commands.
+
+Only works while no users exist yet: the token is rejected once any user
+account has been created, and it is invalidated after a successful run, so
+it can be redeemed exactly once. On success, prints the new admin's user ID
+and TOTP secret; configure the secret in an authenticator app before
+logging in, since login always requires a TOTP code.`,
 	Example: `  # Create the first admin user
   rocketvault users admin \
-    --admin-username admin --admin-password admin123 \
+    --admin-username <username> --admin-password <password> \
     --bootstrap-token <token>`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		ctx := cmd.Context()

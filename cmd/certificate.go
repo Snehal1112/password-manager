@@ -32,16 +32,33 @@ import (
 var certificateCmd = &cobra.Command{
 	Use:   "certificate",
 	Short: "Manage certificates",
-	Long:  `Manage certificates for the application, including creating, updating, and deleting certificates.`,
-	Example: `  # Create a certificate backed by an existing key
-  rocketvault certificate create --name <name> --key-id <key-id> --validity-days 365 \
-    --username admin --password admin123 --totp-code <code>
+	Long: `Manage the X.509 certificates held in a vault: issue a self-signed or
+CA-signed certificate over a key that already lives in that vault, inspect and
+list certificates, update their metadata, renew them, and delete them.
 
-  # Get a certificate by id
-  rocketvault certificate get <id> --username admin --password admin123 --totp-code <code>
+Issuing, updating, renewing, and deleting require the admin or
+certificate_manager role plus the matching data action
+(certificates/create, certificates/update, certificates/delete) in the target
+vault. get and list require only certificates/read. Vault access is
+deny-by-default, so a role assignment must exist for the target vault — see
+'rocketvault vault-access'.
 
-  # List certificates
-  rocketvault certificate list --username admin --password admin123 --totp-code <code>`,
+Every command here acts on the vault named by --vault, defaulting to
+"default". A certificate is always bound to an existing key named by --key-id,
+so create the key with 'rocketvault keys create' first; pass --ca-cert-id to
+sign the new certificate with a CA certificate instead of itself.`,
+	Example: `  # Log in once; the session is cached
+  rocketvault users login --username admin
+
+  # Issue a self-signed certificate over an existing key
+  rocketvault certificate create --name <name> --key-id <key-id> \
+    --validity-days 365
+
+  # List the certificates in a named vault
+  rocketvault certificate list --vault payments
+
+  # Renew a certificate before it expires
+  rocketvault certificate renew <id>`,
 	Run: func(cmd *cobra.Command, args []string) {
 		// Show help when command is called without subcommands
 		cmd.Help() //nolint:errcheck,gosec

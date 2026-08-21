@@ -13,25 +13,26 @@ import (
 var reportCmd = &cobra.Command{
 	Use:   "report",
 	Short: "Generate a compliance report",
-	Long:  "Generate a SOC 2 or GDPR compliance report for the specified time range.",
+	Long: `Generate a SOC 2 or GDPR compliance report for a time range: a
+human-readable summary by default, or the raw records with --format csv.
+
+--type is required and must be soc2 or gdpr. --from and --to are required
+and accept RFC3339 timestamps or YYYY-MM-DD dates. --subject-id is
+required for gdpr reports, to scope the report to one data subject; it is
+ignored for soc2.
+
+Requires the global admin role. Audit data spans every vault, so there is
+no --vault scoping.`,
 	Example: `  # Generate a SOC 2 compliance report
+  rocketvault audit report --type soc2 --from 2026-01-01 --to 2026-03-31
+
+  # Generate the same report as CSV
   rocketvault audit report --type soc2 --from 2026-01-01 --to 2026-03-31 \
-    --username admin --password admin123 --totp-code <code>
+    --format csv
 
-  # Generate a SOC 2 report in CSV format
-  rocketvault audit report --type soc2 --from 2026-01-01 --to 2026-03-31 \
-    --format csv \
-    --username admin --password admin123 --totp-code <code>
-
-  # Generate a GDPR report for a data subject
+  # Generate a GDPR report for one data subject
   rocketvault audit report --type gdpr --from 2026-01-01 --to 2026-03-31 \
-    --subject-id user123 \
-    --username admin --password admin123 --totp-code <code>
-
-  # Generate a GDPR report in CSV format
-  rocketvault audit report --type gdpr --from 2026-01-01 --to 2026-03-31 \
-    --subject-id user123 --format csv \
-    --username admin --password admin123 --totp-code <code>`,
+    --subject-id <user-id>`,
 	Args: cobra.NoArgs,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		ctx := cmd.Context()

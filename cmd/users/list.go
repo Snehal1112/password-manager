@@ -38,10 +38,15 @@ import (
 var listCmd = &cobra.Command{
 	Use:   "list",
 	Short: "List all users",
-	Long:  `Retrieve a list of all users in the Password Manager. Accessible only by users with the admin role.`,
+	Long: `List every user account: ID, username, role, and creation time.
+
+Requires the caller to hold the admin role. There is no vault scoping: user
+accounts are global, not a vault-scoped resource.`,
 	Example: `  # List all users (requires admin role)
-  rocketvault users list \
-    --username admin --password admin123 --totp-code <code>`,
+  rocketvault users list
+
+  # List all users as JSON
+  rocketvault users list --output json`,
 	Args: cobra.NoArgs,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		ctx := cmd.Context()

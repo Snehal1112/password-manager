@@ -32,16 +32,34 @@ import (
 var secretsCmd = &cobra.Command{
 	Use:   "secrets",
 	Short: "Manage secrets in the password manager",
-	Long: `A command group for creating, retrieving, updating, listing, and deleting secrets,
-as well as generating random passwords.`,
-	Example: `  # Create a secret
-  rocketvault secrets create <name> <value> --username admin --password admin123 --totp-code <code>
+	Long: `Manage the secrets held in a vault: create a secret, read it back, update
+it into a new version, list and filter by tag, delete it, and bulk import or
+export a vault's secrets. The group also generates random passwords, which are
+returned to you and not stored. Two subgroups sit under it: 'secrets version'
+walks a secret's version history, and 'secrets rotation' manages the policies
+that rotate secrets on a schedule.
 
-  # Get a secret by id
-  rocketvault secrets get <id> --username admin --password admin123 --totp-code <code>
+Creating, updating, deleting, importing, and exporting require the admin or
+secrets_manager role plus the matching data action (secrets/set,
+secrets/delete, secrets/get) in the target vault. get and list require only
+their data action. Vault access is deny-by-default, so a role assignment must
+exist for the target vault — see 'rocketvault vault-access'.
 
-  # List secrets
-  rocketvault secrets list --username admin --password admin123 --totp-code <code>`,
+Every command here acts on the vault named by --vault, defaulting to
+"default". Secret values are encrypted at rest, but export writes their
+plaintext values to the file you name, so treat that file as a secret itself.`,
+	Example: `  # Log in once; the session is cached
+  rocketvault users login --username admin
+
+  # Create a tagged secret and read it back
+  rocketvault secrets create <name> <value> --tags prod
+  rocketvault secrets get <id>
+
+  # List the secrets in a named vault
+  rocketvault secrets list --vault payments
+
+  # Export a vault's secrets to a file
+  rocketvault secrets export --file <path> --format json --vault payments`,
 }
 
 func init() {

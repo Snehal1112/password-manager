@@ -42,10 +42,30 @@ import (
 var unwrapCmd = &cobra.Command{
 	Use:   "unwrap",
 	Short: "Unwrap key material using a vault RSA key",
-	Long:  `Decrypt wrapped key material with RSA-OAEP using an existing vault key. The wrapped key must be base64-encoded.`,
-	Example: `  # Unwrap key material with RSA key
+	Long: `Unwrap (decrypt) wrapped key material with an RSA key held in the target
+vault and print the recovered plaintext key to stdout as standard base64.
+The CLI always requests RSA-OAEP; there is no algorithm flag, so this path
+needs the RSA key the material was wrapped with.
+
+Requires the admin or crypto_manager role, and the
+Microsoft.KeyVault/vaults/keys/unwrap/action data action in the target
+vault, which defaults to "default".
+
+--key-id and --wrapped-key are both required, and --wrapped-key must be
+standard base64. --version selects an archived key version produced by
+"keys rotate", and must be the version that did the wrapping; 0 or omitted
+unwraps with the key's current material. A key that is revoked, disabled,
+or outside its not-before/expiry window is refused.`,
+	Example: `  # Unwrap key material with an RSA key in the default vault
+  rocketvault keys unwrap --key-id <uuid> --wrapped-key <base64>
+
+  # Unwrap with an RSA key in a named vault
   rocketvault keys unwrap --key-id <uuid> --wrapped-key <base64> \
-    --username admin --password admin123 --totp-code <code>`,
+    --vault payments
+
+  # Unwrap material that was wrapped before the key was rotated
+  rocketvault keys unwrap --key-id <uuid> --wrapped-key <base64> \
+    --version 1`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		ctx := cmd.Context()
 		claims, ok := ctx.Value(common.ClaimsKey).(*model.Claims)

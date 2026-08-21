@@ -40,16 +40,29 @@ import (
 
 // getCmd represents the get command
 var getCmd = &cobra.Command{
-	Use:   "get [id]",
+	Use:   "get <id>",
 	Short: "Retrieve a secret by ID",
-	Long:  `Retrieve a secret by its ID for the authenticated user.`,
-	Example: `  # Get a secret by id
-  rocketvault secrets get <id> \
-    --username admin --password admin123 --totp-code <code>
+	Long: `Retrieve one secret by its ID and print its decrypted value alongside its
+version, enabled state, content type, tags and validity dates. The value is
+printed in plaintext, so redirect the output rather than leaving it in the
+terminal scrollback.
+
+Requires the Microsoft.KeyVault/vaults/secrets/getSecret/action data action
+in the target vault. No global role is checked here, so a user who holds
+neither the admin nor the secrets_manager role can still read a secret when
+a role assignment in that vault grants the action.
+
+Acts on the vault named by --vault, which defaults to "default". The lookup
+is vault scoped, so a member holding the action can read a secret another
+member created.`,
+	Example: `  # Get a secret from the default vault
+  rocketvault secrets get <id>
+
+  # Get a secret from a named vault
+  rocketvault secrets get <id> --vault <vault-name>
 
   # Get a secret as JSON
-  rocketvault secrets get <id> --output json \
-    --username admin --password admin123 --totp-code <code>`,
+  rocketvault secrets get <id> --output json`,
 	Args: cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		secretID, err := uuid.Parse(args[0])

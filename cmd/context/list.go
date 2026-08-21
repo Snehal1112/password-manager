@@ -14,6 +14,15 @@ func InitContextList(parent *cobra.Command) *cobra.Command {
 	listCmd := &cobra.Command{
 		Use:   "list",
 		Short: "List saved server contexts",
+		Long: `List every saved context in a table: name, server, default username,
+default vault, and whether it is the current context (set with 'rocketvault
+context use'). Reads only the local context store; it does not contact any
+server.`,
+		Example: `  # List all saved contexts
+  rocketvault context list
+
+  # List all saved contexts as JSON
+  rocketvault context list --output json`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			contexts, current, err := common.ListContexts()
 			if err != nil {

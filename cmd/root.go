@@ -52,18 +52,33 @@ var cfgFile string
 var rootCmd = &cobra.Command{
 	Use:   "rocketvault",
 	Short: "A secure password manager for secrets, keys, and certificates",
-	Long: `The password manager is a standalone application for securely managing
-secrets, cryptographic keys, and certificates. It provides a CLI for user interaction
-and a RESTful API for programmatic access, with features like MFA and secret rotation.`,
-	Example: `  # Log in
-  rocketvault users login --username admin --password admin123 --totp-code <code>
+	Long: `RocketVault is a self-hosted vault for secrets, cryptographic keys, and
+X.509 certificates. This single binary is both the server that stores them
+(rocketvault serve) and the client used to administer it.
 
-  # Create and read a secret
-  rocketvault secrets create <name> <value> --username admin --password admin123 --totp-code <code>
-  rocketvault secrets get <id> --username admin --password admin123 --totp-code <code>
+Commands run in local mode against the instance described by
+.rocketvault.yaml; --config selects a different file. Remote mode (--server,
+ROCKETVAULT_ADDR, or an active context) is implemented only for the context
+group — every other command refuses to run while a remote target is set,
+rather than silently falling back to the local instance.
+
+Log in once with 'rocketvault users login'. The session is cached under
+~/.rocketvault/sessions and refreshed automatically, so everyday commands need
+no credential flags. These commands need no session at all: health, serve,
+users admin, users login, users logout, the migrate commands, vaults
+preview-migration, vault-access roles, and the whole context group.
+
+Secrets, keys, and certificates live inside a vault. Those commands act on the
+vault named by --vault or ROCKETVAULT_VAULT, falling back to "default".`,
+	Example: `  # Log in once; the session is cached
+  rocketvault users login --username admin
+
+  # Store a secret and read it back
+  rocketvault secrets create <name> <value>
+  rocketvault secrets get <id>
 
   # Start the API server
-  rocketvault serve`,
+  rocketvault serve --listen :8774`,
 	PersistentPreRunE:  persistentPreRun,
 	PersistentPostRunE: persistentPostRun,
 	// Run: func(cmd *cobra.Command, args []string) {},

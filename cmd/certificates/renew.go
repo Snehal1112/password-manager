@@ -22,10 +22,29 @@ import (
 var renewCmd = &cobra.Command{
 	Use:   "renew <id>",
 	Short: "Renew a certificate",
-	Long:  `Renew an expiring X.509 certificate with a new validity period. Requires admin or certificate_manager role.`,
-	Example: `  # Renew a certificate
-  rocketvault certificate renew <cert-id> --validity-days 365 \
-    --username admin --password admin123 --totp-code <code>`,
+	Long: `Re-issue an X.509 certificate over its existing key with a fresh validity
+period counted from now. The renewal is written in place: the certificate
+keeps its ID, name, tags and vault, and only its body and expiry change. The
+renewed certificate is always self-signed and marked as a CA, even when the
+original was signed by a CA certificate.
+
+Requires the admin or certificate_manager role, and the
+Microsoft.KeyVault/vaults/certificates/create data action in the target
+vault — not certificates/update. The certificate's key must still exist in
+that vault and be owned by the calling user.
+
+Acts on the vault named by --vault, defaulting to "default".
+--validity-days must be positive. A certificate that is disabled, not yet
+valid or already expired reads as inaccessible and cannot be renewed, so
+renew before it lapses rather than after.`,
+	Example: `  # Renew for the default 365 days
+  rocketvault certificate renew <id>
+
+  # Renew for a shorter period
+  rocketvault certificate renew <id> --validity-days 90
+
+  # Renew a certificate in a named vault
+  rocketvault certificate renew <id> --validity-days 365 --vault payments`,
 	Args: cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		ctx := cmd.Context()

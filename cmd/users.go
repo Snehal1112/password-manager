@@ -32,17 +32,32 @@ import (
 var usersCmd = &cobra.Command{
 	Use:   "users",
 	Short: "Manage users in the password manager",
-	Long: `A command group for creating, retrieving, updating, listing, and deleting users,
-generating TOTP secrets for MFA, and logging in/out of a cached CLI session.`,
-	Example: `  # Log in and obtain a session token
-  rocketvault users login --username admin --password admin123 --totp-code <code>
+	Long: `Manage the accounts that authenticate to RocketVault, and the cached CLI
+session they use: create, inspect, update, and delete users, bootstrap the
+first administrator, and log in or out.
 
-  # Create a new user
-  rocketvault users create --new-username <username> --new-password <password> --new-role secrets_manager \
-    --username admin --password admin123 --totp-code <code>
+Creating a user and listing users require the admin role. A non-admin may get,
+update, or delete only their own account, and only an admin may change a
+user's role. Accounts are instance-wide rather than vault-scoped, so --vault
+has no effect here; what an account may do inside a vault is granted
+separately with 'rocketvault vault-access'.
 
-  # List users
-  rocketvault users list --username admin --password admin123 --totp-code <code>`,
+login, logout, and admin need no existing session. login exchanges a password
+and TOTP code — or a browser flow with --oidc — for one and caches it under
+~/.rocketvault/sessions, where every other command picks it up. logout clears
+that cache on this machine only; it does not revoke the token server-side.`,
+	Example: `  # Log in once; the session is cached
+  rocketvault users login --username admin
+
+  # Create a user with a role
+  rocketvault users create --new-username <username> \
+    --new-password <password> --new-role secrets_manager
+
+  # List users as JSON
+  rocketvault users list --output json
+
+  # Clear the cached session
+  rocketvault users logout`,
 	Args: cobra.NoArgs,
 }
 
