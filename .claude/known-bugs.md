@@ -2027,9 +2027,9 @@ but it is not surfaced as an error the way it used to be.
 
 ### B39 — `migrate:to` a lower version is a silent no-op, not a rollback
 
-**Status**: Open, found 2026-08-21
-**Severity**: Medium — an operator can believe they rolled back when nothing
-happened
+**Status**: Fixed 2026-08-21
+**Severity**: Resolved — was Medium (an operator could believe they rolled
+back when nothing happened)
 **Files**: `internal/db/migrations/migration_runner.go`
 
 `MigrateToVersion` only ever applies forward: it `break`s once a migration's
@@ -2037,9 +2037,23 @@ version exceeds the target and `continue`s past already-applied ones
 (l.225-230). No down-migration path exists anywhere in the runner. Targeting a
 version below the current one therefore succeeds while doing nothing.
 
-**Fix decision required**: either implement down-migrations, or make the command
-refuse a target below the current version with a clear error. The second is
-much cheaper and removes the false impression.
+**What was fixed** (commits `70a9cae..61cc088`, i.e. `70a9cae`, `440a667`,
+`6a1048e`, `61cc088`):
+`MigrateToVersion` now refuses outright when the target's version magnitude
+is lower than the current schema version's, with a clear error naming both
+versions and stating that down-migrations are not supported. The refusal is
+a pure magnitude comparison against the current version, independent of
+whether the target names a real migration file — an operator cannot dodge it
+by guessing an arbitrary small number. The forward-apply loop's own
+break-condition comparator was fixed alongside it, since it shared the same
+underlying defect (comparing version strings instead of their numeric
+value). A final code review then caught that `GetCurrentVersion` itself —
+which the new refusal check depends on to learn what "current" means — still
+determined the current version via SQL's lexicographic `MAX(version)`
+instead of numeric magnitude, defeating the fix in the one case where
+applied versions have different digit widths; that was fixed in the same
+follow-up wave so the whole comparison chain (current version, target,
+forward-apply) is numeric end to end.
 
 ---
 
@@ -2421,6 +2435,62 @@ encryption step; and re-encrypt `decryptedValue` through
 `secretRepo.Update`. A regression test should roll back then `GetSecret` and
 assert the plaintext round-trips, plus assert the freshly-created backup
 version round-trips through a `secrets version get` on its own.
+
+---
+
+### B47 — `rocketvault migrate` fails on any freshly-initialized database with a duplicate-column error
+
+**Status**: Open, found 2026-08-21
+**Severity**: Medium — the explicit `rocketvault migrate` CLI command is
+unusable against a normally-bootstrapped database; the app itself still
+starts and serves traffic fine, since its own boot-time schema setup never
+hits this path
+**Files**: `internal/db/db.go` (`createOptimizedSchema`, l.330 — the `secrets`
+table's `CREATE TABLE IF NOT EXISTS` at l.369-385 already declares `deleted_at
+TIMESTAMP NULL` at l.377), `internal/db/migrations/20241025000001_add_soft_delete.sql`
+(l.5 — `ALTER TABLE secrets ADD COLUMN deleted_at TIMESTAMP DEFAULT NULL;`)
+
+**Symptom**: on a database that was bootstrapped the normal way (`serve`'s
+startup path, which calls `InitializeDB` → `SetupSchema` →
+`createOptimizedSchema`), running the standalone `rocketvault migrate` CLI
+command fails with an error of the shape `migration failed: failed to apply
+migration 20241025000001: failed to execute migration 20241025000001:
+duplicate column name: deleted_at`. Reproduced live against a fresh in-memory
+SQLite database seeded via `DBRepository.SetupSchema` followed by
+`migrations.NewMigrationRunner(...).MigrateUp(ctx)`.
+
+**Root cause**: RocketVault has two independent, non-communicating schema
+mechanisms that both believe they own the `secrets.deleted_at` column:
+
+1. `internal/db/db.go`'s `createOptimizedSchema` (called by `SetupSchema`,
+   which every normal boot runs via `InitializeDB`) creates the `secrets`
+   table fresh with `deleted_at TIMESTAMP NULL` already in its `CREATE TABLE
+   IF NOT EXISTS` statement (l.377). Its sibling `migrateSchema` (l.741) also
+   issues `ALTER TABLE secrets ADD COLUMN deleted_at TIMESTAMP NULL` (l.744)
+   for upgrading pre-existing databases, but that call site is guarded:
+   `SetupSchema`'s doc comment and the loop at l.925-931 explicitly swallow
+   `isDuplicateColumnError` results, so this half of the codebase is already
+   idempotent against a column that's already there. Neither of these two
+   functions ever writes a row to `schema_migrations`.
+2. `internal/db/migrations/20241025000001_add_soft_delete.sql`, run through
+   `MigrationRunner.ApplyMigration` (`internal/db/migrations/migration_runner.go`),
+   does the same `ALTER TABLE secrets ADD COLUMN deleted_at` (l.5) but with no
+   such guard — `ApplyMigration` runs the raw SQL in a transaction and treats
+   any error, including SQLite's `duplicate column name`, as fatal.
+
+Because a normal boot never populates `schema_migrations`, `MigrationRunner`
+has no record that `deleted_at` was already handled by
+`createOptimizedSchema`, so the first time anyone runs `rocketvault migrate`
+against a normally-bootstrapped database, migration `001` (a no-op
+placeholder — see its own comment, "The production schema is managed in
+internal/db/db.go") applies fine, and then `20241025000001` fails outright on
+the column collision. `rocketvault migrate` is effectively unusable on any
+database this project's own normal boot path created.
+
+**Not fixed here**: this is unrelated to B39 (a schema-initialization
+mechanism conflict, not a version-comparison bug) and reproduces on any fresh
+database, not just ones affected by B39. Filed for a future fix wave — no
+production code was changed to investigate or confirm it.
 
 ---
 
