@@ -38,10 +38,15 @@ type CreateCertificateRequest struct {
 	UserID       uuid.UUID
 	VaultID      uuid.UUID  // Target vault; defaults to the default vault when nil.
 	CACertID     *uuid.UUID // Optional for CA-signed certificates.
-	AutoRenew    bool
-	RenewalDays  int        // 0 defaults to 30.
-	Enabled      *bool      // nil defaults to true.
-	NotBefore    *time.Time // Optional activation timestamp.
+	// IsCA requests a Certificate Authority certificate. False -- the zero
+	// value -- issues an ordinary leaf, which is what almost every caller
+	// wants. Both self-signed call sites used to hardcode true, so every
+	// certificate was a CA (B44).
+	IsCA        bool
+	AutoRenew   bool
+	RenewalDays int        // 0 defaults to 30.
+	Enabled     *bool      // nil defaults to true.
+	NotBefore   *time.Time // Optional activation timestamp.
 	// PurgeProtection is optional: nil leaves the stored default alone, true
 	// enables purge protection on the freshly created certificate.
 	PurgeProtection *bool
@@ -223,11 +228,14 @@ func (s *certificateService) CreateSelfSignedCertificate(ctx context.Context, re
 		return nil, fmt.Errorf("failed to decrypt key: %w", err)
 	}
 
-	// Generate self-signed certificate
+	// Generate the self-signed certificate. IsCA is opt-in: this used to be
+	// hardcoded true, so an ordinary TLS server certificate was issued as a
+	// Certificate Authority and a leak of its key meant a leak of an issuer
+	// (B44).
 	certPEM, err := crypto.CreateSelfSignedCertificatePEM(privateKeyPEM, key.Type, crypto.CertificateTemplate{
 		CommonName:   req.Name,
 		ValidityDays: req.ValidityDays,
-		IsCA:         true,
+		IsCA:         req.IsCA,
 	})
 	if err != nil {
 		s.logger.LogAuditError(req.UserID.String(), "create_self_signed_cert", "failed", "failed to generate certificate", err)
@@ -332,6 +340,15 @@ func (s *certificateService) CreateCASignedCertificate(ctx context.Context, req 
 	if req.ValidityDays <= 0 {
 		s.logger.LogAuditError(req.UserID.String(), "create_ca_signed_cert", "failed", "validity days must be positive", nil)
 		return nil, fmt.Errorf("validity days must be positive")
+	}
+
+	// A CA-signed certificate is always a leaf here: issuing an intermediate
+	// CA is a separate feature nobody has asked for yet. Refusing is
+	// deliberate -- silently issuing a leaf when a CA was requested is the
+	// same quiet wrongness as B44 itself.
+	if req.IsCA {
+		s.logger.LogAuditError(req.UserID.String(), "create_ca_signed_cert", "failed", "CA opt-in is not supported on the CA-signed path", nil)
+		return nil, fmt.Errorf("cannot issue a CA-signed certificate as a CA: intermediate CA certificates are not supported")
 	}
 
 	// Both the signing key and the CA certificate are authorized against the
@@ -740,10 +757,20 @@ func (s *certificateService) RenewCertificate(ctx context.Context, certID uuid.U
 		return nil, fmt.Errorf("failed to decrypt key: %w", err)
 	}
 
+	// Renewal preserves what the certificate already was. This used to pass
+	// IsCA: true unconditionally, so the first renewal promoted any
+	// certificate to a Certificate Authority (B44). Forcing false instead
+	// would be the mirror-image bug: it would strip the CA bit off a real CA.
+	isCA, err := certificateIsCA(original.Certificate)
+	if err != nil {
+		s.logger.LogAuditError(userID.String(), "renew_certificate", "failed", "failed to inspect stored certificate", err)
+		return nil, fmt.Errorf("failed to inspect stored certificate: %w", err)
+	}
+
 	certPEM, err := crypto.CreateSelfSignedCertificatePEM(privateKeyPEM, key.Type, crypto.CertificateTemplate{
 		CommonName:   original.Name,
 		ValidityDays: validityDays,
-		IsCA:         true,
+		IsCA:         isCA,
 	})
 	if err != nil {
 		s.logger.LogAuditError(userID.String(), "renew_certificate", "failed", "failed to generate certificate", err)
@@ -874,4 +901,26 @@ func extractExpiresAt(certPEM string) (*time.Time, error) {
 	}
 	t := cert.NotAfter
 	return &t, nil
+}
+
+// certificateIsCA reports whether a stored certificate asserts the CA basic
+// constraint. Renewal reads it out of the certificate it is replacing, so a
+// leaf renews as a leaf and a CA renews as a CA -- neither value is forced.
+//
+// Parameters:
+//   - certPEM: The PEM-encoded certificate.
+//
+// Returns:
+//
+//	Whether the certificate is a CA, or an error if it cannot be parsed.
+func certificateIsCA(certPEM string) (bool, error) {
+	block, _ := pem.Decode([]byte(certPEM))
+	if block == nil {
+		return false, fmt.Errorf("failed to decode PEM block from certificate")
+	}
+	cert, err := x509.ParseCertificate(block.Bytes)
+	if err != nil {
+		return false, fmt.Errorf("failed to parse X.509 certificate: %w", err)
+	}
+	return cert.IsCA, nil
 }

@@ -266,10 +266,21 @@ func TestRenewCertificate_Succeeds_WhenKeyIDSet(t *testing.T) {
 	encryptedKey, err := common.EncryptSecret(privateKeyPEM)
 	require.NoError(t, err)
 
+	// A stored certificate always has a body, and renewal now reads the CA bit
+	// out of it. The fixture used to leave Certificate empty, which no row in
+	// a real database is.
+	existingCertPEM, err := crypto.CreateSelfSignedCertificatePEM(privateKeyPEM, model.KeyTypeRSA, crypto.CertificateTemplate{
+		CommonName:   "test-renew-cert",
+		ValidityDays: 365,
+		IsCA:         false,
+	})
+	require.NoError(t, err)
+
 	existingCert := &model.Certificate{
 		ID:          certID,
 		UserID:      userID,
 		KeyID:       keyID,
+		Certificate: existingCertPEM,
 		Name:        "test-renew-cert",
 		CreatedAt:   time.Now().Add(-365 * 24 * time.Hour),
 		AutoRenew:   true,
