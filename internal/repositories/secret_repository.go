@@ -23,6 +23,11 @@ type SecretRepositoryInterface interface {
 	// access check: a row outside the scope is indistinguishable from a row
 	// that does not exist.
 	Read(ctx context.Context, id uuid.UUID, scope model.Scope) (*model.Secret, error)
+	// FindByName looks up the active (non-deleted) secret named name within
+	// scope. It returns ErrNotFound, wrapped, when no such secret exists in
+	// scope. ImportSecrets uses this to decide whether a record is a create
+	// or an overwrite.
+	FindByName(ctx context.Context, name string, scope model.Scope) (*model.Secret, error)
 	// Update updates a secret authorized by scope. The predicate comes
 	// from the scope argument, never from the entity.
 	Update(ctx context.Context, secret *model.Secret, scope model.Scope) error
@@ -201,6 +206,27 @@ func (r *SecretRepository) Read(ctx context.Context, id uuid.UUID, scope model.S
 	}
 	if err != nil {
 		return nil, fmt.Errorf("failed to query secret: %w", err)
+	}
+	return &secret, nil
+}
+
+// FindByName looks up the active secret named name, authorized by scope. It
+// mirrors Read's scoping rules exactly, keyed on name instead of id.
+func (r *SecretRepository) FindByName(ctx context.Context, name string, scope model.Scope) (*model.Secret, error) {
+	predicate, args, err := scopePredicate(scope)
+	if err != nil {
+		return nil, err
+	}
+
+	query := "SELECT " + secretColumns + " FROM secrets WHERE name = ? AND " + predicate + " AND deleted_at IS NULL"
+	queryArgs := append([]any{name}, args...)
+
+	secret, err := scanSecretRow(r.db.QueryRowContext(ctx, query, queryArgs...).Scan)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, fmt.Errorf("secret %q: %w", name, ErrNotFound)
+	}
+	if err != nil {
+		return nil, fmt.Errorf("failed to query secret by name: %w", err)
 	}
 	return &secret, nil
 }

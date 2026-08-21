@@ -309,6 +309,9 @@ func (m *mockSecretRepo) Read(ctx context.Context, id uuid.UUID, scope model.Sco
 	}
 	return nil, errors.New("not found")
 }
+func (m *mockSecretRepo) FindByName(_ context.Context, _ string, _ model.Scope) (*model.Secret, error) {
+	return nil, errors.New("not implemented")
+}
 func (m *mockSecretRepo) Update(_ context.Context, _ *model.Secret, _ model.Scope) error {
 	return errors.New("not implemented")
 }

@@ -70,6 +70,18 @@ func (r *stubSecretRepo) Read(_ context.Context, id uuid.UUID, scope model.Scope
 	return &cp, nil
 }
 
+// FindByName looks up an active secret by name, mirroring the real
+// repository's scoping rules via scopeAuthorizes.
+func (r *stubSecretRepo) FindByName(_ context.Context, name string, scope model.Scope) (*model.Secret, error) {
+	for _, s := range r.secrets {
+		if s.Name == name && s.DeletedAt == nil && scopeAuthorizes(s, scope) {
+			cp := *s
+			return &cp, nil
+		}
+	}
+	return nil, fmt.Errorf("secret %q: %w", name, repositories.ErrNotFound)
+}
+
 func (r *stubSecretRepo) Update(_ context.Context, s *model.Secret, scope model.Scope) error {
 	existing, ok := r.secrets[s.ID]
 	if !ok || !scopeAuthorizes(existing, scope) {

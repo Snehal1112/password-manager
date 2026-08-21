@@ -38,6 +38,13 @@ func (r *RetryRepositoryWrapper) Read(ctx context.Context, id uuid.UUID, scope m
 	})
 }
 
+// FindByName wraps the FindByName operation with retry logic.
+func (r *RetryRepositoryWrapper) FindByName(ctx context.Context, name string, scope model.Scope) (*model.Secret, error) {
+	return retried(ctx, r.retryService, func() (*model.Secret, error) {
+		return r.baseRepo.FindByName(ctx, name, scope)
+	})
+}
+
 // Update wraps the Update operation with retry logic.
 func (r *RetryRepositoryWrapper) Update(ctx context.Context, secret *model.Secret, scope model.Scope) error {
 	return r.retryService.ExecuteDatabaseOperation(ctx, func() error {

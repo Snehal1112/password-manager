@@ -316,6 +316,14 @@ func (m *MockSecretRepo) Read(ctx context.Context, id uuid.UUID, scope model.Sco
 	return args.Get(0).(*model.Secret), args.Error(1)
 }
 
+func (m *MockSecretRepo) FindByName(ctx context.Context, name string, scope model.Scope) (*model.Secret, error) {
+	args := m.Called(ctx, name, scope)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).(*model.Secret), args.Error(1)
+}
+
 func (m *MockSecretRepo) Update(ctx context.Context, secret *model.Secret, scope model.Scope) error {
 	args := m.Called(ctx, secret, scope)
 	return args.Error(0)

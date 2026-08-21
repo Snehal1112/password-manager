@@ -559,3 +559,92 @@ func TestSecretRepository_Read_PopulatesVaultID(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, vaultID, byOwner.VaultID, "an owner-scoped Read must populate VaultID")
 }
+
+func TestSecretRepository_FindByName_VaultScope_FindsActiveSecret(t *testing.T) {
+	t.Parallel()
+	db := setupSecretTestDB(t)
+	repo := repositories.NewSecretRepository(rvdb.NewConn(db, rvdb.SQLite), newTestSecretLogger(t))
+	ctx := context.Background()
+
+	vaultID := uuid.New()
+	userID := uuid.New()
+	secret := &model.Secret{
+		ID:        uuid.New(),
+		UserID:    userID,
+		VaultID:   vaultID,
+		Name:      "db-password",
+		Value:     "encrypted-data",
+		Version:   1,
+		CreatedAt: time.Now().UTC(),
+	}
+	require.NoError(t, repo.Create(ctx, secret))
+
+	found, err := repo.FindByName(ctx, "db-password", model.NewVaultScope(vaultID, userID))
+	require.NoError(t, err)
+	assert.Equal(t, secret.ID, found.ID)
+	assert.Equal(t, "db-password", found.Name)
+}
+
+func TestSecretRepository_FindByName_UnknownReturnsErrNotFound(t *testing.T) {
+	t.Parallel()
+	db := setupSecretTestDB(t)
+	repo := repositories.NewSecretRepository(rvdb.NewConn(db, rvdb.SQLite), newTestSecretLogger(t))
+	ctx := context.Background()
+
+	vaultID := uuid.New()
+	userID := uuid.New()
+
+	_, err := repo.FindByName(ctx, "ghost", model.NewVaultScope(vaultID, userID))
+	require.Error(t, err)
+	assert.ErrorIs(t, err, repositories.ErrNotFound)
+}
+
+func TestSecretRepository_FindByName_SoftDeletedSecretNotVisible(t *testing.T) {
+	t.Parallel()
+	db := setupSecretTestDB(t)
+	repo := repositories.NewSecretRepository(rvdb.NewConn(db, rvdb.SQLite), newTestSecretLogger(t))
+	ctx := context.Background()
+
+	vaultID := uuid.New()
+	userID := uuid.New()
+	secret := &model.Secret{
+		ID:        uuid.New(),
+		UserID:    userID,
+		VaultID:   vaultID,
+		Name:      "rotated-out",
+		Value:     "encrypted-data",
+		Version:   1,
+		CreatedAt: time.Now().UTC(),
+	}
+	require.NoError(t, repo.Create(ctx, secret))
+	require.NoError(t, repo.SoftDelete(ctx, secret.ID))
+
+	_, err := repo.FindByName(ctx, "rotated-out", model.NewVaultScope(vaultID, userID))
+	require.Error(t, err)
+	assert.ErrorIs(t, err, repositories.ErrNotFound)
+}
+
+func TestSecretRepository_FindByName_WrongVaultReturnsErrNotFound(t *testing.T) {
+	t.Parallel()
+	db := setupSecretTestDB(t)
+	repo := repositories.NewSecretRepository(rvdb.NewConn(db, rvdb.SQLite), newTestSecretLogger(t))
+	ctx := context.Background()
+
+	vaultA := uuid.New()
+	vaultB := uuid.New()
+	userID := uuid.New()
+	secret := &model.Secret{
+		ID:        uuid.New(),
+		UserID:    userID,
+		VaultID:   vaultA,
+		Name:      "shared-name",
+		Value:     "encrypted-data",
+		Version:   1,
+		CreatedAt: time.Now().UTC(),
+	}
+	require.NoError(t, repo.Create(ctx, secret))
+
+	_, err := repo.FindByName(ctx, "shared-name", model.NewVaultScope(vaultB, userID))
+	require.Error(t, err)
+	assert.ErrorIs(t, err, repositories.ErrNotFound)
+}

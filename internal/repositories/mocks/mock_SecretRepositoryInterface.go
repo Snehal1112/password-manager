@@ -181,6 +181,66 @@ func (_c *MockSecretRepositoryInterface_ExportSecrets_Call) RunAndReturn(run fun
 	return _c
 }
 
+// FindByName provides a mock function with given fields: ctx, name, scope
+func (_m *MockSecretRepositoryInterface) FindByName(ctx context.Context, name string, scope model.Scope) (*model.Secret, error) {
+	ret := _m.Called(ctx, name, scope)
+
+	if len(ret) == 0 {
+		panic("no return value specified for FindByName")
+	}
+
+	var r0 *model.Secret
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, string, model.Scope) (*model.Secret, error)); ok {
+		return rf(ctx, name, scope)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, string, model.Scope) *model.Secret); ok {
+		r0 = rf(ctx, name, scope)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).(*model.Secret)
+		}
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context, string, model.Scope) error); ok {
+		r1 = rf(ctx, name, scope)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// MockSecretRepositoryInterface_FindByName_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'FindByName'
+type MockSecretRepositoryInterface_FindByName_Call struct {
+	*mock.Call
+}
+
+// FindByName is a helper method to define mock.On call
+//   - ctx context.Context
+//   - name string
+//   - scope model.Scope
+func (_e *MockSecretRepositoryInterface_Expecter) FindByName(ctx interface{}, name interface{}, scope interface{}) *MockSecretRepositoryInterface_FindByName_Call {
+	return &MockSecretRepositoryInterface_FindByName_Call{Call: _e.mock.On("FindByName", ctx, name, scope)}
+}
+
+func (_c *MockSecretRepositoryInterface_FindByName_Call) Run(run func(ctx context.Context, name string, scope model.Scope)) *MockSecretRepositoryInterface_FindByName_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(string), args[2].(model.Scope))
+	})
+	return _c
+}
+
+func (_c *MockSecretRepositoryInterface_FindByName_Call) Return(_a0 *model.Secret, _a1 error) *MockSecretRepositoryInterface_FindByName_Call {
+	_c.Call.Return(_a0, _a1)
+	return _c
+}
+
+func (_c *MockSecretRepositoryInterface_FindByName_Call) RunAndReturn(run func(context.Context, string, model.Scope) (*model.Secret, error)) *MockSecretRepositoryInterface_FindByName_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // GetLatestVersion provides a mock function with given fields: ctx, secretID
 func (_m *MockSecretRepositoryInterface) GetLatestVersion(ctx context.Context, secretID uuid.UUID) (*model.SecretVersion, error) {
 	ret := _m.Called(ctx, secretID)
