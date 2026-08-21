@@ -289,21 +289,21 @@ rotation events stay in "secrets rotation history".`,
 var rotationRotateCmd = &cobra.Command{
 	Use:   "rotate",
 	Short: "Manually rotate a secret",
-	Long: `Rotate one secret now, without waiting for its schedule. The secret's value
-is replaced, the previous value is archived as a version, the version number
-is incremented, a "manual" entry is added to its rotation history, and its
-next rotation is pushed out by the policy's interval.
+	Long: `Rotate one secret now, without waiting for its schedule. The secret's
+value is replaced, the previous value is archived as a version, the version
+number is incremented, a "manual" entry is added to its rotation history, and
+its next rotation is pushed out by the policy's interval.
 
 Requires the Microsoft.KeyVault/vaults/secrets/setSecret/action data action
 in the vault named by --vault, which defaults to "default". No global role is
 checked. The secret and the policy are both read in that vault.
 
-The new value comes from you: pass --value to set one, or --generate to have
-a random one generated with --length and the --uppercase/--lowercase/--numbers/--special
-sets, exactly as "secrets generate-password" builds them. Passing neither is
-an error, and passing both is rejected. Nothing outside RocketVault is
-updated, so a rotated credential must still be changed in the system that
-uses it.`,
+The new value comes from you: pass --value to set one, or --generate to have a
+random one generated with --length and the
+--uppercase/--lowercase/--numbers/--special sets, exactly as "secrets
+generate-password" builds them. Passing neither is an error, and passing both
+is rejected. Nothing outside RocketVault is updated, so a rotated credential
+must still be changed in the system that uses it.`,
 	Example: `  # Rotate a secret to a value you supply
   rocketvault secrets rotation rotate --secret-id <secret-id> \
     --policy-id <policy-id> --value <new-value>
