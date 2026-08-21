@@ -1747,7 +1747,7 @@ execution.
 
 ### B35 — `secrets rotation rotate` writes a corrupted value that never decrypts again
 
-**Status**: Fixed 2026-08-21
+**Status**: Fixed 2026-08-21, commits `1dcf07f..1043a4c`
 **Severity**: Resolved — was Critical (re-rated from High during design:
 `schedulerService.performAutomaticRotation` delegated to the same function, so
 every policy with `AutoRotate: true` destroyed its secrets unattended)
@@ -1901,7 +1901,8 @@ was purely the false encryption assurance.
 
 ### B37 — `certificates renew` silently converts a CA-signed certificate to self-signed
 
-**Status**: Fixed 2026-08-21
+**Status**: Fixed 2026-08-21, commits `bba1735..52af5f1`, plus `a9bcbad`
+(gate renewal on the CA's own signability)
 **Severity**: High — breaks trust chains without warning
 **Files**: `internal/services/certificates/certificate_service.go`,
 `internal/repositories/certificate_repository.go`, `internal/crypto/x509_helper.go`,
@@ -2014,14 +2015,13 @@ in-memory-SQLite round-trip test
 create/overwrite/skip sequence against real crypto and the real
 `idx_secrets_vault_name` unique index, not mocks.
 
-**Related**: operators combining `--format csv` with `--overwrite` should
-know §B42 (CSV export/import corrupts any value containing a quote or
-newline) is still open. Before this fix, a mis-parsed CSV record hitting an
-existing name was refused outright by the unique-name constraint; now that
-`--overwrite` actually works, the same mis-parsed record can silently
-overwrite a correct secret with garbage instead of being rejected. Versioning
-makes this recoverable (the previous value survives in `secret_versions`),
-but it is not surfaced as an error the way it used to be.
+**Related**: this fix briefly widened the blast radius of §B42 (CSV
+export/import corrupts any value containing a quote or newline) — a
+mis-parsed CSV record hitting an existing name used to be refused outright by
+the unique-name constraint, and a working `--overwrite` would instead have
+let it replace a correct secret with garbage. B42 has since been fixed, and a
+malformed CSV row is now reported in `ImportResult.Errors` rather than parsed
+into a value at all, so that combination is no longer a concern.
 
 ---
 
@@ -2059,18 +2059,36 @@ forward-apply) is numeric end to end.
 
 ### B40 — `backup list` shows nothing for default (encrypted) backups
 
-**Status**: Fixed in commit `7a58926` (2026-08-21)
-**Severity**: Medium — the command reports an empty backup directory that is
-not empty
+**Status**: Fixed 2026-08-21, commits `e5b8fd8`, `6e18215` and `dedcaf5`
+(behavior), `b6eeaaf` and `7a58926` (comment and help text)
+**Severity**: Resolved — was Medium (the command reported an empty backup
+directory that was not empty)
 **Files**: `internal/backup/backup.go`, `cmd/backup.go`
 
-`getBackupMetadata` (l.476) rejects any file whose contents do not begin with
-`{`, and `ListBackups` logs a warning and skips it. Since `backup create`
-encrypts by default, a directory of default backups lists as empty.
+`getBackupMetadata` rejected any file whose contents did not begin with `{`,
+and `ListBackups` logged a warning and skipped it. Since `backup create`
+encrypts by default, a directory of default backups listed as empty.
 
-Separately, the `FILE` column is synthesized from each backup's timestamp
-(`cmd/backup.go:227`) rather than read from disk, so it can disagree with the
-actual filename.
+Separately, the `FILE` column was synthesized from each backup's timestamp
+rather than read from disk, so it could disagree with the actual filename.
+
+**What was fixed**: `getBackupMetadata` is now content-based and never
+decryption-based — it never touches the master key. A file that does not
+parse as plaintext backup JSON is no longer an error: it returns the
+filesystem-derived fields (`Filename`, `Size`, `ModTime`) with `Readable`
+false and `Encrypted` true, so an encrypted or corrupt backup still lists as
+a row. Only a genuine filesystem failure (cannot open, stat or read) returns
+an error, and `ListBackups` still logs that skip as a warning. Three shapes
+take the unreadable path: contents not starting with `{`, contents that
+start with `{` but fail to unmarshal, and — added by `dedcaf5` — contents
+that unmarshal cleanly but carry an empty `Metadata.Version`, which is the
+same minimum-viability check `validateBackupData` uses to refuse a restore,
+so `{}` is reported as unreadable rather than as a fabricated all-zero
+backup row. `cmd/backup.go`'s rendering was extracted into `backupListRow`,
+which prints `-` for the four payload-derived columns (timestamp, version,
+tables, records) whenever `Readable` is false rather than guessing them, and
+takes `FILE`, `SIZE` and `MODIFIED` from the filesystem fields, so the
+filename column is the real filename.
 
 ---
 
@@ -2128,7 +2146,8 @@ agree.
 
 ### B42 — CSV export/import corrupts any value containing a quote or newline
 
-**Status**: Fixed in commit `f1650c0` (2026-08-21)
+**Status**: Fixed 2026-08-21, commits `f2efdc5` (export) and `f1650c0`
+(import), plus `e2d95e2` from the final-review wave
 **Severity**: Medium — silent data corruption on a round trip, independent of
 B36's encryption defect
 **Files**: `internal/services/secrets/secret_service.go`
@@ -2193,7 +2212,8 @@ touch this. The two are independent; B36 does not fix or worsen it.
 
 ### B43 — CA certificates omit KeyUsageCertSign, so no issued chain verifies
 
-**Status**: Fixed 2026-08-21
+**Status**: Fixed 2026-08-21, commit `820e4c0` (landed after B44's `8bed005`
+and `5d4399b`; see the ordering note below)
 **Severity**: High — the CA-signed certificate feature does not produce usable
 certificates. Every chain this system has ever issued fails standard
 verification
@@ -2273,7 +2293,8 @@ section, and pinned by
 
 ### B44 — Every self-signed certificate is issued as a Certificate Authority
 
-**Status**: Fixed 2026-08-21
+**Status**: Fixed 2026-08-21, commits `8bed005` and `5d4399b`, plus
+`d6a524c` (renew a pre-fix pseudo-CA as a leaf)
 **Severity**: High — a compromised leaf key becomes a signing CA. Also gates
 B43, whose fix would otherwise make this exploitable rather than merely wrong
 **Files**: `internal/services/certificates/certificate_service.go`
@@ -2402,9 +2423,9 @@ characters.
 **Why this is now worth fixing**: `internal/pwgen` exists as of 2026-08-21 and
 does all three things correctly — rejection-free selection via
 `rand.Int(rand.Reader, big.NewInt(n))`, guaranteed per-set characters, and no
-three identical characters in a row. After B35 lands, `internal/services/secrets`
-will already import `pwgen`, so `secrets generate-password` and rotation
-`--generate` will produce strong values while `POST /secrets/generate` keeps
+three identical characters in a row. Now that B35 has landed, `internal/services/secrets`
+already imports `pwgen`, so `secrets generate-password` and rotation
+`--generate` produce strong values while `POST /secrets/generate` keeps
 producing biased ones from the same package.
 
 **Fix sketch**: replace `generateRandomPassword`'s body with a call to
