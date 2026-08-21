@@ -1214,6 +1214,9 @@ func TestRunRotationRotate_ServiceReturnsError(t *testing.T) {
 
 	secretID = sid.String()
 	policyID = pid.String()
+	rotateValue = "operator-supplied"
+	rotateGenerate = false
+	t.Cleanup(func() { rotateValue = "" })
 
 	cmd := &cobra.Command{Use: "rotate", RunE: rotationRotateCmd.RunE}
 	cmd.Flags().StringVar(&secretID, "secret-id", sid.String(), "")

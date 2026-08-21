@@ -32,6 +32,7 @@ import (
 	"rocketvault/cmd/vaultcli"
 	"rocketvault/common"
 	"rocketvault/internal/container"
+	"rocketvault/internal/pwgen"
 	secrets "rocketvault/internal/services/secrets"
 	"rocketvault/model"
 )
@@ -44,6 +45,17 @@ var (
 	policyAutoRotate  bool
 	policyID          string
 	secretID          string
+
+	// Rotate-only flags. They are package-level, like secretID and policyID
+	// above, so that RunE reads them directly rather than through a flag set
+	// the command's tests do not build.
+	rotateValue    string
+	rotateGenerate bool
+	rotateLength   int
+	rotateUpper    bool
+	rotateLower    bool
+	rotateNumbers  bool
+	rotateSpecial  bool
 )
 
 // rotationCmd represents the rotation command group
@@ -278,28 +290,31 @@ var rotationRotateCmd = &cobra.Command{
 	Use:   "rotate",
 	Short: "Manually rotate a secret",
 	Long: `Rotate one secret now, without waiting for its schedule. The secret's value
-is replaced, its version number is incremented, a "manual" entry is added to
-its rotation history, and its next rotation is pushed out by the policy's
-interval.
+is replaced, the previous value is archived as a version, the version number
+is incremented, a "manual" entry is added to its rotation history, and its
+next rotation is pushed out by the policy's interval.
 
 Requires the Microsoft.KeyVault/vaults/secrets/setSecret/action data action
 in the vault named by --vault, which defaults to "default". No global role is
 checked. The secret and the policy are both read in that vault.
 
-The replacement value is not a freshly generated credential: it is the
-secret's currently stored value with a "_rotated_<timestamp>" suffix, written
-back as-is. Nothing outside RocketVault is updated, the previous value is
-overwritten rather than archived as a version, and the stored value is not
-re-sealed, so a rotated secret does not read back correctly through "secrets
-get". Prefer "secrets update" to set a real new value until this generator is
-finished.`,
-	Example: `  # Rotate a secret in the default vault
+The new value comes from you: pass --value to set one, or --generate to have
+a random one generated with --length and the --uppercase/--lowercase/--numbers/--special
+sets, exactly as "secrets generate-password" builds them. Passing neither is
+an error, and passing both is rejected. Nothing outside RocketVault is
+updated, so a rotated credential must still be changed in the system that
+uses it.`,
+	Example: `  # Rotate a secret to a value you supply
   rocketvault secrets rotation rotate --secret-id <secret-id> \
-    --policy-id <policy-id>
+    --policy-id <policy-id> --value <new-value>
+
+  # Rotate to a generated 32-character value with no special characters
+  rocketvault secrets rotation rotate --secret-id <secret-id> \
+    --policy-id <policy-id> --generate --length 32 --special=false
 
   # Rotate a secret in a named vault
   rocketvault secrets rotation rotate --secret-id <secret-id> \
-    --policy-id <policy-id> --vault payments`,
+    --policy-id <policy-id> --generate --vault payments`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		return runRotationRotate(cmd)
 	},
@@ -396,6 +411,13 @@ func init() {
 	// Rotate command flags
 	rotationRotateCmd.Flags().StringVar(&secretID, "secret-id", "", "Secret ID (required)")
 	rotationRotateCmd.Flags().StringVar(&policyID, "policy-id", "", "Policy ID (required)")
+	rotationRotateCmd.Flags().StringVar(&rotateValue, "value", "", "New secret value (mutually exclusive with --generate)")
+	rotationRotateCmd.Flags().BoolVar(&rotateGenerate, "generate", false, "Generate a random new value instead of supplying one")
+	rotationRotateCmd.Flags().IntVar(&rotateLength, "length", 16, "Length of the generated value (with --generate)")
+	rotationRotateCmd.Flags().BoolVar(&rotateUpper, "uppercase", true, "Include uppercase letters in the generated value")
+	rotationRotateCmd.Flags().BoolVar(&rotateLower, "lowercase", true, "Include lowercase letters in the generated value")
+	rotationRotateCmd.Flags().BoolVar(&rotateNumbers, "numbers", true, "Include numbers in the generated value")
+	rotationRotateCmd.Flags().BoolVar(&rotateSpecial, "special", true, "Include special characters in the generated value")
 	rotationRotateCmd.MarkFlagRequired("secret-id") //nolint:errcheck,gosec
 	rotationRotateCmd.MarkFlagRequired("policy-id") //nolint:errcheck,gosec
 
@@ -642,10 +664,26 @@ func runRotationRotate(cmd *cobra.Command) error {
 	if err != nil {
 		return fmt.Errorf("invalid policy ID: %w", err)
 	}
+	if rotateValue == "" && !rotateGenerate {
+		return fmt.Errorf("no new value: pass --value <value> to set one, or --generate to have one generated")
+	}
+	if rotateValue != "" && rotateGenerate {
+		return fmt.Errorf("--value and --generate are mutually exclusive; pass only one")
+	}
+
 	if err := sc.GetRotationService().PerformManualRotation(ctx, secrets.ManualRotationRequest{
 		SecretID: sid,
 		PolicyID: pid,
 		Scope:    scope,
+		NewValue: rotateValue,
+		Generate: rotateGenerate,
+		GenerateOpts: pwgen.Options{
+			Length:  rotateLength,
+			Upper:   rotateUpper,
+			Lower:   rotateLower,
+			Numbers: rotateNumbers,
+			Special: rotateSpecial,
+		},
 	}); err != nil {
 		return fmt.Errorf("failed to rotate secret: %w", err)
 	}
