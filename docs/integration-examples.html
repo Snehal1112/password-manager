@@ -125,6 +125,9 @@ BACKUP_FILE=&quot;$BACKUP_DIR/secrets_backup_$TIMESTAMP.json&quot;
 # Source authentication
 source ./authenticate.sh
 
+# BACKUP_PASSPHRASE must be set from a secret store (e.g. `source
+# ./secrets.env` or a secrets manager), never hardcoded in this script.
+
 # Create backup directory if it doesn't exist
 mkdir -p &quot;$BACKUP_DIR&quot;
 
@@ -135,6 +138,7 @@ curl -X POST \
   -d '{
     &quot;format&quot;: &quot;json&quot;,
     &quot;encrypt&quot;: true,
+    &quot;passphrase&quot;: &quot;'&quot;$BACKUP_PASSPHRASE&quot;'&quot;,
     &quot;include_tags&quot;: true
   }' \
   &quot;https://api.rocketvault.local/api/v1/secrets/export&quot; \
@@ -171,12 +175,15 @@ fi
 # Source authentication
 source ./authenticate.sh
 
+# BACKUP_PASSPHRASE must be set from a secret store, never hardcoded in this
+# script -- required only if $BACKUP_FILE is a passphrase-encrypted export.
+
 # Restore secrets
 curl -X POST \
   -H &quot;Authorization: Bearer $JWT_TOKEN&quot; \
   -F &quot;file=@$BACKUP_FILE&quot; \
   -F &quot;format=json&quot; \
-  -F &quot;encrypted=true&quot; \
+  -F &quot;passphrase=$BACKUP_PASSPHRASE&quot; \
   -F &quot;overwrite=$OVERWRITE&quot; \
   &quot;https://api.rocketvault.local/api/v1/secrets/import&quot;
 
@@ -639,6 +646,7 @@ jobs:
             -d '{
               &quot;format&quot;: &quot;json&quot;,
               &quot;encrypt&quot;: true,
+              &quot;passphrase&quot;: &quot;${{ secrets.BACKUP_PASSPHRASE }}&quot;,
               &quot;include_tags&quot;: true
             }' \
             &quot;${{ env.API_URL }}/secrets/export&quot; \
@@ -754,6 +762,7 @@ pipeline {
                             -d '{
                                 &quot;format&quot;: &quot;json&quot;,
                                 &quot;encrypt&quot;: true,
+                                &quot;passphrase&quot;: &quot;${env.BACKUP_PASSPHRASE}&quot;,
                                 &quot;include_tags&quot;: true
                             }' \
                             &quot;${env.API_URL}/secrets/export&quot; \

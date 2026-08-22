@@ -273,6 +273,16 @@ so there is one sealing implementation rather than two. Rules:
 This relies on transport security for the passphrase, which is the same
 assumption every credential-bearing endpoint here already makes.
 
+**Retroactively implemented 2026-08-22.** This decision was recorded but not
+acted on when B36 shipped (2026-08-21) — the API instead took the opposite
+approach (`400` on any `encrypt: true`, CLI-only encrypted export; see
+`.claude/known-bugs.md` § B36's follow-up note). The decision above was
+implemented as written a day later, unchanged, plus an additional,
+separately-scoped decision to extend the same passphrase channel to
+`POST /secrets/import` symmetrically (not discussed in this spec, which
+predates that scoping decision) — see
+`docs/release-notes/v4.3.0-api-secrets-passphrase.md`.
+
 `--encrypt` keeps its `true` default and now means what it says. `--no-encrypt`
 (or `--encrypt=false`) writes plaintext deliberately, and the CLI prints a
 warning naming what is exposed.

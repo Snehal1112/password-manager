@@ -147,6 +147,7 @@ Content-Type: application/json
 <div class="codewrap"><div class="code-hd"><span class="code-lang">json</span><button class="copy-btn">Copy</button></div><pre class="code with-hd">{
   &quot;format&quot;: &quot;json&quot;,
   &quot;encrypt&quot;: true,
+  &quot;passphrase&quot;: &quot;&lt;your-export-passphrase&gt;&quot;,
   &quot;tags&quot;: [&quot;production&quot;, &quot;api&quot;],
   &quot;include_tags&quot;: true
 }
@@ -155,6 +156,7 @@ Content-Type: application/json
 <ul>
 <li><code>format</code>: <code>&quot;json&quot;</code> or <code>&quot;csv&quot;</code></li>
 <li><code>encrypt</code>: Boolean, whether to encrypt the export</li>
+<li><code>passphrase</code>: String, required when <code>encrypt</code> is <code>true</code>. A non-empty passphrase alone (without <code>encrypt: true</code>) also triggers encryption. Never logged or echoed back. No minimum length enforced.</li>
 <li><code>tags</code>: Array of tag strings to filter secrets</li>
 <li><code>include_tags</code>: Boolean, include tags in export</li>
 </ul>
@@ -168,8 +170,8 @@ Content-Type: multipart/form-data
 <ul>
 <li><code>file</code>: File containing secrets data</li>
 <li><code>format</code>: <code>&quot;json&quot;</code> or <code>&quot;csv&quot;</code></li>
-<li><code>encrypted</code>: <code>&quot;true&quot;</code> or <code>&quot;false&quot;</code></li>
 <li><code>overwrite</code>: <code>&quot;true&quot;</code> or <code>&quot;false&quot;</code></li>
+<li><code>passphrase</code>: Required only when the uploaded file is a passphrase-sealed encrypted export (detected automatically by content). Ignored for a plaintext file.</li>
 </ul>
 <p><strong>Response:</strong></p>
 <div class="codewrap"><div class="code-hd"><span class="code-lang">json</span><button class="copy-btn">Copy</button></div><pre class="code with-hd">{
@@ -349,6 +351,7 @@ function validateExportRequest(data) {
 const exportData = {
   format: &quot;json&quot;,
   encrypt: true,
+  passphrase: process.env.EXPORT_PASSPHRASE,
   tags: [&quot;production&quot;],
 };
 
@@ -364,7 +367,9 @@ async function importSecrets(file, format, options = {}) {
   const formData = new FormData();
   formData.append(&quot;file&quot;, file);
   formData.append(&quot;format&quot;, format);
-  formData.append(&quot;encrypted&quot;, options.encrypted ? &quot;true&quot; : &quot;false&quot;);
+  if (options.passphrase) {
+    formData.append(&quot;passphrase&quot;, options.passphrase);
+  }
   formData.append(&quot;overwrite&quot;, options.overwrite ? &quot;true&quot; : &quot;false&quot;);
 
   const response = await apiRequest(&quot;/api/v1/secrets/import&quot;, {
@@ -416,6 +421,7 @@ async function importSecrets(file, format, options = {}) {
       body: JSON.stringify({
         format,
         encrypt: options.encrypt || false,
+        passphrase: options.passphrase || &quot;&quot;,
         tags: options.tags || [],
         include_tags: options.includeTags || false,
       }),
@@ -440,6 +446,7 @@ console.log(&quot;System health:&quot;, health.status);
 // Export secrets
 const exportResponse = await api.exportSecrets(&quot;json&quot;, {
   encrypt: true,
+  passphrase: process.env.EXPORT_PASSPHRASE,
   tags: [&quot;production&quot;],
   includeTags: true,
 });

@@ -197,6 +197,7 @@ Content-Type: application/json
 {
   "format": "json",
   "encrypt": true,
+  "passphrase": "<your-export-passphrase>",
   "tags": ["production", "api"],
   "include_tags": true
 }
@@ -206,6 +207,9 @@ Content-Type: application/json
 
 - `format`: `"json"` or `"csv"`
 - `encrypt`: Boolean, whether to encrypt the export
+- `passphrase`: String, required when `encrypt` is `true`. A non-empty
+  passphrase alone (without `encrypt: true`) also triggers encryption. Never
+  logged or echoed back. No minimum length enforced.
 - `tags`: Array of tag strings to filter secrets
 - `include_tags`: Boolean, include tags in export
 
@@ -223,8 +227,10 @@ Content-Type: multipart/form-data
 
 - `file`: File containing secrets data
 - `format`: `"json"` or `"csv"`
-- `encrypted`: `"true"` or `"false"`
 - `overwrite`: `"true"` or `"false"`
+- `passphrase`: Required only when the uploaded file is a passphrase-sealed
+  encrypted export (detected automatically by content). Ignored for a
+  plaintext file.
 
 **Response:**
 
@@ -437,6 +443,7 @@ function validateExportRequest(data) {
 const exportData = {
   format: "json",
   encrypt: true,
+  passphrase: process.env.EXPORT_PASSPHRASE,
   tags: ["production"],
 };
 
@@ -455,7 +462,9 @@ async function importSecrets(file, format, options = {}) {
   const formData = new FormData();
   formData.append("file", file);
   formData.append("format", format);
-  formData.append("encrypted", options.encrypted ? "true" : "false");
+  if (options.passphrase) {
+    formData.append("passphrase", options.passphrase);
+  }
   formData.append("overwrite", options.overwrite ? "true" : "false");
 
   const response = await apiRequest("/api/v1/secrets/import", {
@@ -511,6 +520,7 @@ class PasswordManagerAPI {
       body: JSON.stringify({
         format,
         encrypt: options.encrypt || false,
+        passphrase: options.passphrase || "",
         tags: options.tags || [],
         include_tags: options.includeTags || false,
       }),
@@ -535,6 +545,7 @@ console.log("System health:", health.status);
 // Export secrets
 const exportResponse = await api.exportSecrets("json", {
   encrypt: true,
+  passphrase: process.env.EXPORT_PASSPHRASE,
   tags: ["production"],
   includeTags: true,
 });

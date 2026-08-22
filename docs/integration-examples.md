@@ -114,6 +114,9 @@ BACKUP_FILE="$BACKUP_DIR/secrets_backup_$TIMESTAMP.json"
 # Source authentication
 source ./authenticate.sh
 
+# BACKUP_PASSPHRASE must be set from a secret store (e.g. `source
+# ./secrets.env` or a secrets manager), never hardcoded in this script.
+
 # Create backup directory if it doesn't exist
 mkdir -p "$BACKUP_DIR"
 
@@ -124,6 +127,7 @@ curl -X POST \
   -d '{
     "format": "json",
     "encrypt": true,
+    "passphrase": "'"$BACKUP_PASSPHRASE"'",
     "include_tags": true
   }' \
   "https://api.rocketvault.local/api/v1/secrets/export" \
@@ -163,12 +167,15 @@ fi
 # Source authentication
 source ./authenticate.sh
 
+# BACKUP_PASSPHRASE must be set from a secret store, never hardcoded in this
+# script -- required only if $BACKUP_FILE is a passphrase-encrypted export.
+
 # Restore secrets
 curl -X POST \
   -H "Authorization: Bearer $JWT_TOKEN" \
   -F "file=@$BACKUP_FILE" \
   -F "format=json" \
-  -F "encrypted=true" \
+  -F "passphrase=$BACKUP_PASSPHRASE" \
   -F "overwrite=$OVERWRITE" \
   "https://api.rocketvault.local/api/v1/secrets/import"
 
@@ -645,6 +652,7 @@ jobs:
             -d '{
               "format": "json",
               "encrypt": true,
+              "passphrase": "${{ secrets.BACKUP_PASSPHRASE }}",
               "include_tags": true
             }' \
             "${{ env.API_URL }}/secrets/export" \
@@ -763,6 +771,7 @@ pipeline {
                             -d '{
                                 "format": "json",
                                 "encrypt": true,
+                                "passphrase": "${env.BACKUP_PASSPHRASE}",
                                 "include_tags": true
                             }' \
                             "${env.API_URL}/secrets/export" \

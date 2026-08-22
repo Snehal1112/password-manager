@@ -1887,6 +1887,23 @@ authorization check and before any write. Import detects the envelope by content
 and opens it; `--encrypted` is deprecated rather than removed. The API's dead
 `encrypt` field is now a 400.
 
+**Follow-up (2026-08-22): the API-side 400 was itself reversed.** The "API's
+dead `encrypt` field is now a 400" decision above was not the only one on the
+table when it was made — a design-spec commit (`a428298`) recorded a
+different decision 12 minutes after the implementation plan was written
+("the API accepts a passphrase in the request body"), but the plan's earlier,
+opposite approach is what actually shipped, and the spec text was never
+reconciled with the code. That contradiction was found and resolved on this
+date: `POST /secrets/export` and `POST /secrets/import` now accept a
+`passphrase` (request body field / multipart form value respectively) and
+can produce and consume encrypted exports directly, implementing the design
+spec's original decision. See
+`docs/superpowers/specs/2026-08-21-cli-bug-fixes-b35-b41-design.md`'s
+"Decision (2026-08-21)" note (itself annotated on this date to say so) and
+`docs/release-notes/v4.3.0-api-secrets-passphrase.md`. The paragraph above is
+left as written because it was correct for the commits it describes; it no
+longer describes current behavior.
+
 **Breaking**: a scripted export with no passphrase source now fails instead of
 writing plaintext. See `docs/release-notes/v4.2.0-ca-certificates.md`.
 
@@ -2863,7 +2880,7 @@ that v4.2.0's CA reissue procedure was executable as written.
 
 ### B51 — Docs still show `"encrypt": true` on `POST /secrets/export`, which now 400s
 
-**Status**: Open, found 2026-08-22
+**Status**: Fixed 2026-08-22
 **Severity**: Low — copy-pasting a documented example now fails with a 400
 instead of doing something unsafe; no security or data-loss impact
 **Files**: `docs/api-developer-guide.md`, `docs/api-developer-guide.html`,
@@ -2894,6 +2911,17 @@ workflow before editing it directly.
 **Found**: during the scoped re-review of the whole-branch review's own fix
 wave for `fix/b35-b44`, while independently verifying item 5 (the OpenAPI
 spec fix) against the rest of the documentation set.
+
+**Closed (2026-08-22)**: rather than scrubbing `"encrypt": true` from these
+examples (this entry's original "Fix sketch"), the underlying API behavior
+was changed instead — `POST /secrets/export`/`POST /secrets/import` now
+accept a `passphrase` field/form value (see B36's follow-up note above), so
+the examples this bug flagged are correct again once a `passphrase` is added
+alongside `encrypt: true`. All three originally-named files were updated,
+plus `docs/integration-examples.html`, which this entry's original "Files"
+list omitted despite carrying the same three stale spots as its `.md` source
+(`docs/integration-examples.md`) — a gap in the original filing, corrected
+during the fix rather than left for a future bug report.
 
 ---
 
