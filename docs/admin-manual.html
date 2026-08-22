@@ -947,7 +947,7 @@ echo $TOKEN | cut -d. -f2 | base64 -d | python3 -m json.tool</pre>
   "id": "&lt;uuid&gt;",
   "username": "alice",
   "role": "user",
-  "totp_secret": "&lt;base32-secret&gt;"
+  "totp_secret": "otpauth://totp/PasswordManager:alice?algorithm=SHA1&amp;digits=6&amp;issuer=PasswordManager&amp;period=30&amp;secret=&lt;32-char base32, unpadded&gt;"
 }</pre></div>
     <details class="collapse"><summary>Errors</summary><div class="inner">400 invalid role (one of secrets_manager, crypto_manager, certificate_manager, admin, user) · 401/403 non-admin caller</div></details>
   </div>
