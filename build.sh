@@ -23,6 +23,12 @@ COMMIT_HASH="${COMMIT_HASH:-$(git rev-parse --short HEAD 2>/dev/null || echo 'un
 BUILD_TIME="$(date -u '+%Y-%m-%dT%H:%M:%SZ')"
 GO_VERSION="$(go version | awk '{print $3}')"
 
+# Semver string embedded in the binary via main.Version, shown by
+# "rocketvault --version". Distinct from VERSION above, which keeps its
+# "v" prefix because it also names dist/ archives and must match the
+# GitHub Release asset names install.sh downloads.
+APP_VERSION="$(./version.sh)"
+
 MODULE_NAME="rocketvault"
 BINARY_NAME="rocketvault"
 MAIN_PACKAGE="."
@@ -47,7 +53,7 @@ PLATFORMS=(
 LDFLAGS=(
     "-s"
     "-w"
-    "-X 'main.Version=${VERSION}'"
+    "-X 'main.Version=${APP_VERSION}'"
     "-X 'main.CommitHash=${COMMIT_HASH}'"
     "-X 'main.BuildTime=${BUILD_TIME}'"
     "-X 'main.GoVersion=${GO_VERSION}'"
@@ -322,6 +328,7 @@ clean() {
 show_info() {
     log_info "Build information:"
     echo "  Version:     ${VERSION}"
+    echo "  App Version: ${APP_VERSION}  (embedded in the binary, shown by --version)"
     echo "  Commit:      ${COMMIT_HASH}"
     echo "  Build Time:  ${BUILD_TIME}"
     echo "  Go Version:  ${GO_VERSION}"

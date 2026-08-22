@@ -32,5 +32,6 @@ var (
 )
 
 func main() {
+	cmd.SetVersionInfo(Version, CommitHash, BuildTime, GoVersion)
 	cmd.Execute()
 }

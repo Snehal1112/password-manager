@@ -48,6 +48,17 @@ import (
 // cfgFile is the config file name
 var cfgFile string
 
+// buildCommitHash, buildTime, and buildGoVersion hold the extra build
+// metadata shown by --version alongside rootCmd.Version. Populated by
+// SetVersionInfo, which main.go calls before Execute() with the values
+// ldflags injected into its own package-level vars -- cmd cannot import
+// main directly, since main already imports cmd.
+var (
+	buildCommitHash = "unknown"
+	buildTime       = "unknown"
+	buildGoVersion  = "unknown"
+)
+
 // rootCmd represents the base command when called without any subcommands
 var rootCmd = &cobra.Command{
 	Use:   "rocketvault",
@@ -90,6 +101,25 @@ vault named by --vault or ROCKETVAULT_VAULT, falling back to "default".`,
 // This is called by main.main(). It only needs to happen once to the rootCmd.
 func Execute() {
 	os.Exit(run(rootCmd))
+}
+
+// SetVersionInfo records the build metadata ldflags injected into main.go's
+// package-level vars and wires it up to the --version flag Cobra
+// auto-generates from rootCmd.Version. main.go must call this before
+// Execute() -- ldflags targets main.Version etc., not this package, so
+// there is no other path for that metadata to reach the CLI. See build.sh
+// and .github/workflows/release.yml for the ldflags that populate the
+// values passed in here.
+func SetVersionInfo(version, commitHash, buildTimeVal, goVersion string) {
+	rootCmd.Version = version
+	buildCommitHash = commitHash
+	buildTime = buildTimeVal
+	buildGoVersion = goVersion
+	rootCmd.SetVersionTemplate(`{{.Name}} version {{.Version}}
+commit:     ` + buildCommitHash + `
+built:      ` + buildTime + `
+go version: ` + buildGoVersion + `
+`)
 }
 
 // run executes cmd and returns the process exit code: 0 on success, 1 on
