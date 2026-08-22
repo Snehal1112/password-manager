@@ -3,11 +3,12 @@ package repositories_test
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"testing"
 	"time"
 
 	"github.com/google/uuid"
-	_ "github.com/mattn/go-sqlite3"
+	sqlite3 "github.com/mattn/go-sqlite3"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -304,4 +305,50 @@ func TestKeySoftDelete_PreservesPurgeProtection(t *testing.T) {
 		"SELECT purge_protection FROM keys WHERE id = ?", key.ID.String()).Scan(&pp)
 	require.NoError(t, err)
 	assert.True(t, pp, "SoftDelete must not overwrite purge_protection")
+}
+
+// TestKeyRepository_Create_NameCollision_ReturnsErrNameTaken is the B50
+// secondary fix: creating a key whose name collides with an ACTIVE key in the
+// same vault must surface repositories.ErrNameTaken, not the raw driver
+// error. This uses a real SQLite database with the same partial unique index
+// finalizeVaultIndexes installs in production, so the constraint violation is
+// a genuine driver error, not a mock.
+func TestKeyRepository_Create_NameCollision_ReturnsErrNameTaken(t *testing.T) {
+	t.Parallel()
+	db := setupTestDB(t)
+	_, err := db.Exec(`CREATE UNIQUE INDEX idx_keys_vault_name ON keys(vault_id, name) WHERE deleted_at IS NULL`)
+	require.NoError(t, err)
+
+	log := logging.InitLogger()
+	repo := repositories.NewKeyRepository(rvdb.NewConn(db, rvdb.SQLite), log)
+	ctx := context.Background()
+	vaultID := uuid.New()
+
+	first := &model.Key{
+		ID: uuid.New(), UserID: uuid.New(), VaultID: vaultID, Name: "taken-key",
+		Type: "rsa", Value: "encrypted-private-key", CreatedAt: time.Now(),
+	}
+	require.NoError(t, repo.Create(ctx, first))
+
+	// A second, active key with the same name in the same vault must be
+	// rejected as a name collision.
+	second := &model.Key{
+		ID: uuid.New(), UserID: uuid.New(), VaultID: vaultID, Name: "taken-key",
+		Type: "rsa", Value: "encrypted-private-key-2", CreatedAt: time.Now(),
+	}
+	err = repo.Create(ctx, second)
+	require.Error(t, err)
+	assert.ErrorIs(t, err, repositories.ErrNameTaken, "collision must be reported as ErrNameTaken, got: %v", err)
+
+	// The original driver error must still be reachable through %w, proving
+	// this wraps the real constraint error rather than replacing it outright.
+	var sqliteErr sqlite3.Error
+	assert.True(t, errors.As(err, &sqliteErr), "original sqlite3.Error must still be reachable via errors.As, got: %v", err)
+
+	// A non-colliding create in the same vault must still succeed.
+	third := &model.Key{
+		ID: uuid.New(), UserID: uuid.New(), VaultID: vaultID, Name: "different-key",
+		Type: "rsa", Value: "encrypted-private-key-3", CreatedAt: time.Now(),
+	}
+	assert.NoError(t, repo.Create(ctx, third), "a non-colliding create must still succeed")
 }

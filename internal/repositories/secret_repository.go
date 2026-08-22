@@ -171,6 +171,10 @@ func (r *SecretRepository) create(ctx context.Context, ex db.DBTX, secret *model
 		secret.ID.String(), secret.UserID.String(), secret.VaultID.String(), secret.Name, secret.Value, secret.Version, secret.CreatedAt, secret.ContentType, secret.Enabled, secret.ExpiresAt, secret.NotBefore,
 	)
 	if err != nil {
+		if db.SQLite.IsConstraintErr(err) {
+			r.log.LogAuditError(secret.UserID.String(), "create_secret", "failed", fmt.Sprintf("Secret name already taken: %s", secret.Name), err)
+			return fmt.Errorf("secret %q: %w: %w", secret.Name, ErrNameTaken, err)
+		}
 		r.log.LogAuditError(secret.UserID.String(), "create_secret", "failed", "Failed to insert secret", err)
 		return fmt.Errorf("failed to insert secret: %w", err)
 	}

@@ -373,6 +373,10 @@ func (r *KeyRepository) insertKeyAndTags(ctx context.Context, ex db.DBTX, key *m
 		key.Enabled, key.ExpiresAt, key.NotBefore, key.Bits, key.Curve,
 	)
 	if err != nil {
+		if db.SQLite.IsConstraintErr(err) {
+			r.log.LogAuditError(key.UserID.String(), "create_key", "failed", fmt.Sprintf("Key name already taken: %s", key.Name), err)
+			return fmt.Errorf("key %q: %w: %w", key.Name, ErrNameTaken, err)
+		}
 		r.log.LogAuditError(key.UserID.String(), "create_key", "failed", "Failed to insert key", err)
 		return fmt.Errorf("failed to insert key: %w", err)
 	}

@@ -3,11 +3,12 @@ package repositories_test
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"testing"
 	"time"
 
 	"github.com/google/uuid"
-	_ "github.com/mattn/go-sqlite3"
+	sqlite3 "github.com/mattn/go-sqlite3"
 	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -647,4 +648,49 @@ func TestSecretRepository_FindByName_WrongVaultReturnsErrNotFound(t *testing.T) 
 	_, err := repo.FindByName(ctx, "shared-name", model.NewVaultScope(vaultB, userID))
 	require.Error(t, err)
 	assert.ErrorIs(t, err, repositories.ErrNotFound)
+}
+
+// TestSecretRepository_Create_NameCollision_ReturnsErrNameTaken is the B50
+// secondary fix: creating a secret whose name collides with an ACTIVE secret
+// in the same vault must surface repositories.ErrNameTaken, not the raw
+// driver error. This uses a real SQLite database with the same partial
+// unique index finalizeVaultIndexes installs in production, so the
+// constraint violation is a genuine driver error, not a mock.
+func TestSecretRepository_Create_NameCollision_ReturnsErrNameTaken(t *testing.T) {
+	t.Parallel()
+	db := setupSecretTestDB(t)
+	_, err := db.Exec(`CREATE UNIQUE INDEX idx_secrets_vault_name ON secrets(vault_id, name) WHERE deleted_at IS NULL`)
+	require.NoError(t, err)
+
+	repo := repositories.NewSecretRepository(rvdb.NewConn(db, rvdb.SQLite), newTestSecretLogger(t))
+	ctx := context.Background()
+	vaultID := uuid.New()
+
+	first := &model.Secret{
+		ID: uuid.New(), UserID: uuid.New(), VaultID: vaultID, Name: "taken-name",
+		Value: "encrypted-data", Version: 1, CreatedAt: time.Now().UTC(), Enabled: true,
+	}
+	require.NoError(t, repo.Create(ctx, first))
+
+	// A second, active secret with the same name in the same vault must be
+	// rejected as a name collision.
+	second := &model.Secret{
+		ID: uuid.New(), UserID: uuid.New(), VaultID: vaultID, Name: "taken-name",
+		Value: "encrypted-data-2", Version: 1, CreatedAt: time.Now().UTC(), Enabled: true,
+	}
+	err = repo.Create(ctx, second)
+	require.Error(t, err)
+	assert.ErrorIs(t, err, repositories.ErrNameTaken, "collision must be reported as ErrNameTaken, got: %v", err)
+
+	// The original driver error must still be reachable through %w, proving
+	// this wraps the real constraint error rather than replacing it outright.
+	var sqliteErr sqlite3.Error
+	assert.True(t, errors.As(err, &sqliteErr), "original sqlite3.Error must still be reachable via errors.As, got: %v", err)
+
+	// A non-colliding create in the same vault must still succeed.
+	third := &model.Secret{
+		ID: uuid.New(), UserID: uuid.New(), VaultID: vaultID, Name: "different-name",
+		Value: "encrypted-data-3", Version: 1, CreatedAt: time.Now().UTC(), Enabled: true,
+	}
+	assert.NoError(t, repo.Create(ctx, third), "a non-colliding create must still succeed")
 }

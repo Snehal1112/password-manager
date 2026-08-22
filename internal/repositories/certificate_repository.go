@@ -383,6 +383,10 @@ func (r *CertificateRepository) insertCertAndTags(ctx context.Context, ex db.DBT
 		cert.ExpiresAt, cert.AutoRenew, cert.RenewalDays, cert.KeyID.String(), caCertID, cert.Enabled, cert.NotBefore,
 	)
 	if err != nil {
+		if db.SQLite.IsConstraintErr(err) {
+			r.log.LogAuditError(cert.UserID.String(), "create_certificate", "failed", fmt.Sprintf("Certificate name already taken: %s", cert.Name), err)
+			return fmt.Errorf("certificate %q: %w: %w", cert.Name, ErrNameTaken, err)
+		}
 		r.log.LogAuditError(cert.UserID.String(), "create_certificate", "failed", "Failed to insert certificate", err)
 		return fmt.Errorf("failed to insert certificate: %w", err)
 	}

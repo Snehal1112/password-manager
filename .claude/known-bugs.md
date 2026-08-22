@@ -2737,45 +2737,98 @@ survive exactly.
 
 ### B50 — A soft-deleted certificate's name is not freed for reuse
 
-**Status**: Open, found 2026-08-22
-**Severity**: Low-Medium — blocks a documented operational procedure
-(v4.2.0's CA reissue), with a workaround; no data loss and nothing fails
+**Status**: Fixed 2026-08-22
+**Severity**: Low-Medium — blocked a documented operational procedure
+(v4.2.0's CA reissue), with a workaround; no data loss and nothing failed
 silently
 **Files**: `internal/db/db.go` (`finalizeVaultIndexes`),
-`internal/repositories/certificate_repository.go` (`SoftDelete`)
+`internal/db/vault_collision.go` (`ResolveNameCollisions`),
+`internal/db/vault_partial_unique_index_test.go` (new),
+`internal/db/vault_collision_test.go`, `internal/db/db_edge_test.go`,
+`internal/services/secrets/import_overwrite_roundtrip_test.go`,
+`internal/repositories/name_taken_errors.go` (new),
+`internal/repositories/secret_repository.go`,
+`internal/repositories/key_repository.go`,
+`internal/repositories/certificate_repository.go`,
+`internal/repositories/secret_repository_test.go`,
+`internal/repositories/key_soft_delete_test.go`,
+`internal/repositories/certificate_soft_delete_test.go`
 
-**Symptom**: delete a certificate, then create a replacement under the same
-name in the same vault. The create fails on a raw `UNIQUE constraint failed:
-certificates.vault_id, certificates.name` from the driver — no service-layer
-error wraps it, so the operator sees a database error rather than "that name
-is still taken by a deleted certificate".
+**Symptom (pre-fix)**: delete a certificate, then create a replacement under
+the same name in the same vault. The create failed on a raw `UNIQUE
+constraint failed: certificates.vault_id, certificates.name` from the
+driver — no service-layer error wrapped it, so the operator saw a database
+error rather than "that name is still taken by a deleted certificate".
 
-**Root cause**: `finalizeVaultIndexes` creates
+**Root cause**: `finalizeVaultIndexes` created
 `CREATE UNIQUE INDEX idx_certificates_vault_name ON certificates(vault_id, name)`
 with no `WHERE deleted_at IS NULL` predicate, and `SoftDelete` only stamps
-`deleted_at` — the row, and its name, stay in the table. Only
-`PurgeCertificate` (a real `DELETE FROM certificates`) frees the name, and
+`deleted_at` — the row, and its name, stayed in the table. Only
+`PurgeCertificate` (a real `DELETE FROM certificates`) freed the name, and
 purge has no CLI subcommand: it is reachable solely over
 `DELETE /api/v1/vaults/{vault}/deleted/certificates/{id}/purge`.
-
-`idx_secrets_vault_name` and `idx_keys_vault_name` are built the same way in
-the same function, so secrets and keys have the same shape; certificates are
+`idx_secrets_vault_name` and `idx_keys_vault_name` were built the same way in
+the same function, so secrets and keys had the same shape; certificates were
 where it was noticed because of the reissue procedure below.
 
-**Symptom in the docs**: `docs/release-notes/v4.2.0-ca-certificates.md`'s
-reissue procedure told operators to recreate the CA under its old name at
-step 2 and retire the old one at step 5, which cannot work in that order. It
-was reworked on 2026-08-22 to give the replacement CA a new name, with the
-delete-then-purge route documented as the only way to reuse the exact name.
+**What was fixed — the index**: all three indexes are now partial
+(`WHERE deleted_at IS NULL`), so a soft-deleted row is invisible to the
+constraint and its name is immediately reusable, with no purge required.
+Since `CREATE UNIQUE INDEX IF NOT EXISTS` matches on the index *name*, not
+its definition, an already-upgraded database's pre-fix, non-partial index
+would have been a silent no-op under `IF NOT EXISTS` alone and the old
+definition would have survived this fix forever — `finalizeVaultIndexes` now
+unconditionally `DROP INDEX IF EXISTS`s each of the three indexes before
+recreating them, every boot, rather than attempting dialect-specific
+introspection of the existing definition. `DROP INDEX IF EXISTS` and partial
+indexes are spelled identically in SQLite and PostgreSQL, so no dialect
+branching was needed. Neither `finalizeVaultIndexes` nor its caller
+(`SetupSchema`) runs inside a transaction, so the brief window between the
+DROP and the CREATE where the constraint is absent matches the pre-existing
+risk profile of the boot sequence, not a new one.
 
-**Fix sketch**: make the three unique indexes partial —
-`CREATE UNIQUE INDEX ... ON certificates(vault_id, name) WHERE deleted_at IS NULL`
-— which both SQLite and PostgreSQL support. Note the migration is not a pure
-index swap: `finalizeVaultIndexes` runs `ResolveNameCollisions` first, and
-dropping and recreating a live unique index needs the same care. A cheaper
-partial fix, worth doing either way, is to translate the driver's unique
-violation into a named service-layer error so the message says which name is
-taken and that a soft-deleted row holds it.
+**What was fixed — the collision resolver**: `ResolveNameCollisions`, which
+runs before `finalizeVaultIndexes` and renames colliding
+`(vault_id, name)` rows so the unique index can be created, used to scan
+*all* rows including soft-deleted ones. Once the index only constrains
+active rows, a soft-deleted row sharing a name with an active (or another
+soft-deleted) row is no longer a real collision — renaming it would be pure
+churn and could misleadingly rename a row that was never going to violate
+the new constraint. Its `SELECT` now filters `WHERE deleted_at IS NULL`.
+
+**What was fixed — the error message**: a genuine remaining collision
+(two *active* resources sharing a name in one vault, still correctly
+rejected) used to surface the raw, unwrapped driver error. `SecretRepository.create`,
+`KeyRepository.insertKeyAndTags`, and `CertificateRepository.insertCertAndTags`
+now detect a constraint violation via the existing, already-used
+`db.Dialect.IsConstraintErr` helper (dialect-agnostic: SQLite's
+`sqlite3.ErrConstraint` and Postgres's `23505` code) and wrap it as the new
+`repositories.ErrNameTaken` sentinel, using Go's multi-`%w` support so both
+`errors.Is(err, ErrNameTaken)` and the original driver error stay reachable —
+a deliberate improvement over the fix sketch's single-`%w` suggestion, which
+would have discarded the underlying driver error entirely.
+
+**Symptom in the docs, still accurate**: `docs/release-notes/v4.2.0-ca-certificates.md`'s
+reissue procedure was reworked on 2026-08-22 (before this fix landed) to give
+the replacement CA a new name, with the delete-then-purge route documented
+as the only way to reuse the exact name. That reasoning still holds after
+this fix — the reissue procedure's problem was retiring the old CA *after*
+trying to recreate it under the same name, which this fix does not change
+the ordering requirements of, since a soft-delete only frees the name once
+the create attempt runs after the delete, not before.
+
+**Test**: `internal/db/vault_partial_unique_index_test.go` (new, real SQLite,
+covering all three resource types) proves the actual fix (a soft-deleted
+name is reusable), that active duplicates are still rejected, that
+cross-vault names are unaffected, and — the case this bug class has broken
+on four times before in this codebase — that an already-upgraded database
+carrying the old, non-partial index gets it replaced correctly, not silently
+skipped. `internal/db/vault_collision_test.go` gained soft-delete-aware
+cases; its four pre-existing tests still pass unmodified in intent (given a
+`deleted_at` column fixtures now need). `internal/repositories/*_test.go`
+gained one real-database test per resource type proving `errors.Is(err,
+repositories.ErrNameTaken)` on a genuine collision, and that a normal create
+still succeeds.
 
 **Found**: during the whole-branch review of `fix/b35-b44`, while checking
 that v4.2.0's CA reissue procedure was executable as written.
