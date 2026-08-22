@@ -1048,7 +1048,29 @@ func (d *DBRepository) warnMismatchedRotationPolicyVaults(db *sql.DB) {
 }
 
 // finalizeVaultIndexes resolves name collisions then creates the per-vault unique
-// indexes. It is idempotent and safe to run on every startup.
+// indexes. Safe to run on every startup: it always leaves the same end state, so
+// it is idempotent in effect even though the DROP/CREATE pair below really runs
+// each time rather than becoming a no-op after the first boot.
+//
+// The indexes are partial -- WHERE deleted_at IS NULL -- so a soft-deleted
+// secret, key or certificate no longer holds its name hostage against a
+// replacement of the same name in the same vault (B50). Only active rows are
+// constrained, which matches what every list and read path can actually see.
+//
+// Each index is dropped before being recreated, unconditionally. CREATE UNIQUE
+// INDEX IF NOT EXISTS matches on the index NAME, not its definition, so on a
+// database that already carries the old non-partial index of the same name it
+// would be a silent no-op and the old definition would survive this fix
+// forever. Introspecting the existing definition first would need
+// dialect-specific queries (sqlite_master vs pg_indexes) for no real gain on
+// three small indexes, so the drop is simply always done.
+//
+// DROP INDEX IF EXISTS and partial indexes are spelled identically in SQLite
+// and PostgreSQL, so no dialect branching is needed here. Neither this function
+// nor its caller runs inside a transaction (SetupSchema executes each step as
+// plain statements), so the brief window between the DROP and the CREATE where
+// the constraint is absent matches the existing risk profile of the boot
+// sequence rather than introducing a new one.
 func (d *DBRepository) finalizeVaultIndexes(db *sql.DB) error {
 	ctx := context.Background()
 	for _, table := range []string{"secrets", "keys", "certificates"} {
@@ -1056,14 +1078,19 @@ func (d *DBRepository) finalizeVaultIndexes(db *sql.DB) error {
 			return err
 		}
 	}
-	stmts := []string{
-		"CREATE UNIQUE INDEX IF NOT EXISTS idx_secrets_vault_name ON secrets(vault_id, name)",
-		"CREATE UNIQUE INDEX IF NOT EXISTS idx_keys_vault_name ON keys(vault_id, name)",
-		"CREATE UNIQUE INDEX IF NOT EXISTS idx_certificates_vault_name ON certificates(vault_id, name)",
+	indexes := []struct{ name, table string }{
+		{"idx_secrets_vault_name", "secrets"},
+		{"idx_keys_vault_name", "keys"},
+		{"idx_certificates_vault_name", "certificates"},
 	}
-	for _, s := range stmts {
-		if _, err := db.Exec(s); err != nil {
-			return fmt.Errorf("create vault unique index: %w", err)
+	for _, idx := range indexes {
+		if _, err := db.Exec(fmt.Sprintf("DROP INDEX IF EXISTS %s", idx.name)); err != nil {
+			return fmt.Errorf("drop vault unique index %s: %w", idx.name, err)
+		}
+		if _, err := db.Exec(fmt.Sprintf(
+			"CREATE UNIQUE INDEX IF NOT EXISTS %s ON %s(vault_id, name) WHERE deleted_at IS NULL",
+			idx.name, idx.table)); err != nil {
+			return fmt.Errorf("create vault unique index %s: %w", idx.name, err)
 		}
 	}
 	return nil

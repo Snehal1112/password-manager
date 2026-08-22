@@ -123,7 +123,8 @@ func TestFinalizeVaultIndexes_Idempotent(t *testing.T) {
 	repo := NewRepository(log)
 	require.NoError(t, repo.InitializeDB())
 
-	// Indexes already exist; calling again must be a no-op (CREATE INDEX IF NOT EXISTS).
+	// Indexes already exist; calling again drops and recreates each one (B50) and
+	// must converge on the same end state without erroring.
 	require.NoError(t, repo.finalizeVaultIndexes(repo.GetDB()))
 }
 

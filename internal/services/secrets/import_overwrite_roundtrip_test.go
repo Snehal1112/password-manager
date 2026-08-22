@@ -48,7 +48,9 @@ import (
 // import touches. Unlike rotationFixtureSchema, it includes
 // idx_secrets_vault_name: the unique index that decides whether FindByName
 // sees an existing row, so a schema without it would not exercise the real
-// create-vs-overwrite branch this test proves.
+// create-vs-overwrite branch this test proves. It carries the same
+// WHERE deleted_at IS NULL predicate finalizeVaultIndexes builds in
+// production (B50), so the fixture cannot drift from the real constraint.
 const importFixtureSchema = `
 	CREATE TABLE users (
 		id TEXT PRIMARY KEY,
@@ -75,7 +77,7 @@ const importFixtureSchema = `
 		expires_at TIMESTAMP NULL,
 		not_before TIMESTAMP NULL
 	);
-	CREATE UNIQUE INDEX idx_secrets_vault_name ON secrets(vault_id, name);
+	CREATE UNIQUE INDEX idx_secrets_vault_name ON secrets(vault_id, name) WHERE deleted_at IS NULL;
 	CREATE TABLE secret_tags (
 		secret_id TEXT NOT NULL,
 		tag TEXT NOT NULL,

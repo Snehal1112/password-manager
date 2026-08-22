@@ -12,11 +12,20 @@ import (
 // of each duplicate group and renames the rest to "{name}-{short-id}". It returns
 // the number of rows renamed and logs each rename.
 //
+// Only ACTIVE rows (deleted_at IS NULL) are considered, matching the partial
+// unique index finalizeVaultIndexes creates (B50). A soft-deleted row is
+// invisible to that index, so it can never cause a collision: sharing a name
+// with an active row, or with another soft-deleted row, is legal and must not
+// trigger a rename. Renaming on those cases would be pure churn, and could
+// rename a row that was never going to violate the constraint.
+//
 // The table name comes only from internal callers using constant table names,
-// never from user input, so the fmt.Sprintf into SQL is safe here.
+// never from user input, so the fmt.Sprintf into SQL is safe here. Every table
+// this is called for (secrets, keys, certificates) has a deleted_at column by
+// the time it runs -- migrateSchema adds it before finalizeVaultIndexes.
 func ResolveNameCollisions(ctx context.Context, d DB, table string) (int, error) {
 	rows, err := d.QueryContext(ctx, fmt.Sprintf(
-		"SELECT id, name, vault_id FROM %s ORDER BY vault_id, name, id", table))
+		"SELECT id, name, vault_id FROM %s WHERE deleted_at IS NULL ORDER BY vault_id, name, id", table))
 	if err != nil {
 		return 0, fmt.Errorf("scan %s for collisions: %w", table, err)
 	}
