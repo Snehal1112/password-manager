@@ -3,7 +3,6 @@ package secrets
 import (
 	"bytes"
 	"context"
-	"crypto/rand"
 	"encoding/csv"
 	"encoding/json"
 	"errors"
@@ -17,6 +16,7 @@ import (
 
 	"rocketvault/common"
 	"rocketvault/internal/logging"
+	"rocketvault/internal/pwgen"
 	"rocketvault/internal/repositories"
 	"rocketvault/model"
 )
@@ -538,8 +538,15 @@ func (s *secretService) GenerateSecret(ctx context.Context, req GenerateSecretRe
 		return nil, fmt.Errorf("at least one character type must be selected")
 	}
 
-	// Generate random password using common utility
-	generatedValue, err := generateRandomPassword(req.Length, req.UseSymbols, req.UseNumbers, req.UseUppercase, req.UseLowercase)
+	// Generate random password using the shared, unbiased pwgen generator
+	// (B45 — the old modulo-based selection here skewed character frequency).
+	generatedValue, err := pwgen.Generate(pwgen.Options{
+		Length:  req.Length,
+		Upper:   req.UseUppercase,
+		Lower:   req.UseLowercase,
+		Numbers: req.UseNumbers,
+		Special: req.UseSymbols,
+	})
 	if err != nil {
 		s.logger.LogAuditError(req.UserID.String(), "generate_secret", "failed", "Failed to generate random password", err)
 		return nil, fmt.Errorf("failed to generate random password: %w", err)
@@ -572,49 +579,6 @@ func (s *secretService) GenerateSecret(ctx context.Context, req GenerateSecretRe
 	}).Info("Random secret generated successfully")
 
 	return secret, nil
-}
-
-// generateRandomPassword generates a random password with specified criteria.
-// This is a helper function for password generation.
-func generateRandomPassword(length int, useSymbols, useNumbers, useUppercase, useLowercase bool) (string, error) {
-	const (
-		symbols   = "!@#$%^&*()_+-=[]{}|;:,.<>?"
-		numbers   = "0123456789"
-		uppercase = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
-		lowercase = "abcdefghijklmnopqrstuvwxyz"
-	)
-
-	// Build character set based on requirements
-	var charset string
-	if useSymbols {
-		charset += symbols
-	}
-	if useNumbers {
-		charset += numbers
-	}
-	if useUppercase {
-		charset += uppercase
-	}
-	if useLowercase {
-		charset += lowercase
-	}
-
-	if len(charset) == 0 {
-		return "", fmt.Errorf("no character types selected")
-	}
-
-	// Generate random password
-	password := make([]byte, length)
-	for i := range password {
-		// Use crypto/rand for secure random selection
-		randomIndex := make([]byte, 1)
-		if _, err := rand.Read(randomIndex); err != nil {
-			return "", fmt.Errorf("failed to generate random bytes: %w", err)
-		}
-		password[i] = charset[int(randomIndex[0])%len(charset)]
-	}
-
-	return string(password), nil
 }
 
 // ExportSecrets exports secrets in JSON or CSV format.

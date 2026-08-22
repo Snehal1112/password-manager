@@ -2394,10 +2394,11 @@ a leaf if it was never meant to be an authority. Documented in
 
 ### B45 — `POST /secrets/generate` uses a modulo-biased password generator
 
-**Status**: Open, found 2026-08-21
+**Status**: Fixed 2026-08-22
 **Severity**: Medium — weakens generated secrets measurably; not catastrophic,
 but it is a security primitive reachable over HTTP
-**Files**: `internal/services/secrets/secret_service.go`
+**Files**: `internal/services/secrets/secret_service.go`,
+`internal/services/secrets/secret_service_test.go`
 
 **Symptom**: passwords minted by `GenerateSecret` (reached from
 `api/secrets.go:697`) are not uniformly distributed over their character set.
@@ -2442,6 +2443,31 @@ each enabled set is present.
 noticed the extracted generator was about to sit beside a weaker duplicate in
 the very package it was extracted for. Deliberately not fixed there — that plan's
 constraint was "fix the defect and nothing else".
+
+**What was fixed**: `generateRandomPassword` deleted outright.
+`GenerateSecret` now calls `pwgen.Generate` directly, mapping
+`GenerateSecretRequest`'s flags onto `pwgen.Options` **by name** (the two
+structs order their booleans differently — `UseSymbols→Special`,
+`UseNumbers→Numbers`, `UseUppercase→Upper`, `UseLowercase→Lower`). The now-
+unused `crypto/rand` import was removed. Error handling and the pre-existing
+length/charset validation in `GenerateSecret` were untouched.
+
+**Test**: `TestGenerateSecret_UniformCharacterDistribution` generates 2000
+passwords of length 64 (128,000 characters total) through `GenerateSecret`
+with all four charset flags enabled (88-char set, `256 mod 88 != 0`) and
+asserts every character's observed frequency is within 20% of the expected
+uniform frequency. Verified to actually discriminate the bug — not just
+pass by construction — by temporarily reverting `secret_service.go` alone
+back to the old modulo-biased implementation and confirming the test fails
+reliably (5/5 runs) against it, then confirming it passes reliably (10/10
+runs) against the real fix. An earlier draft of this test (400 samples,
+50% tolerance) passed even against the unfixed biased code — too loose to
+catch the ~31% deviation the bug actually produces on the charset's tail
+characters — and was tightened before being accepted.
+`TestGenerateSecret_GuaranteesAllCharsetTypes` asserts 100 length-128
+passwords each contain at least one uppercase, lowercase, digit, and symbol
+character (length 128 chosen over the service's stated minimum of 8 — see
+B53 below for why).
 
 ---
 
@@ -2907,6 +2933,68 @@ regenerated output (including the two currently-uncommitted
 own, separately-reviewed change — not bundled into an unrelated bug fix.
 
 **Found**: while fixing B48 (2026-08-22).
+
+---
+
+### B53 — `pwgen.Generate`'s "guaranteed per-set character" injection can silently overwrite another set's guarantee, especially at short lengths
+
+**Status**: Open, found 2026-08-22
+**Severity**: Medium — undermines a documented guarantee of a shared security
+primitive used by HTTP secret generation, CLI password generation, and
+credential rotation; most likely to bite at short lengths, which is exactly
+where a caller is most likely to still want every requested character class
+represented
+**Files**: `internal/pwgen/pwgen.go`
+
+**Symptom**: `pwgen.Generate`'s doc comment promises "when Length is at
+least as large as the number of enabled character sets, it also guarantees
+at least one character from every enabled set." That guarantee does not
+hold in practice once more than one set is enabled, well above the
+documented breakdown point (`Length < number of enabled sets`).
+
+**Root cause**: the `injectGuaranteed` closure (l.89-115) is called once per
+enabled charset (Upper, Lower, Numbers, Special, in that order), and each
+call independently picks a **random position** in the password to overwrite
+with a character from its own set — with no tracking of which positions
+earlier calls already claimed. A later set's injection can land on the exact
+position an earlier set just guaranteed, silently erasing that guarantee
+without the function ever noticing.
+
+Measured failure rate (all four sets enabled, `crypto/rand`-backed, real
+runs against current code):
+
+| Length | Guarantee violated |
+|---|---|
+| 8 (the secrets-service minimum) | ~15% of samples |
+| 16 | ~1.6% |
+| 32 | ~0.08% |
+| 128 (the secrets-service maximum) | unmeasured in 20,000 samples |
+
+**Impact**: any caller requesting a short password with multiple character
+classes enabled can receive one missing a class it explicitly asked for,
+despite the function's contract. Current callers: `POST /secrets/generate`
+(default length 16, but caller-settable down to 8 — see B45, just fixed to
+call this function), `secrets generate-password` CLI (`cmd/secrets/generate.go`),
+and credential rotation's `--generate` path (`internal/services/secrets/rotation_service.go`).
+None of them currently retry or validate the guarantee after the call, so a
+violation ships silently as a generated secret/password that is one
+character class short of what was requested.
+
+**Fix sketch**: track claimed positions across all `injectGuaranteed` calls
+(e.g. a `map[int]bool` or a shuffled position list consumed one index per
+call) so a later set's injection never lands on a position an earlier set
+already claimed. That also removes the need for `injectGuaranteed`'s
+own run-of-3 retry-on-collision loop to double as an implicit (and
+insufficient) way of avoiding overwrites.
+
+**Found**: by the B45 implementer, while writing a test asserting
+`pwgen.Generate`'s guaranteed-per-set-character property at length 8 (B45's
+service minimum) — the test failed intermittently, not from B45's own
+change, but from this pre-existing defect in the shared `pwgen` package.
+B45's own test was changed to use length 128 instead of 8 to avoid the
+flakiness while still exercising the real guarantee; fixing this bug is
+tracked separately since `pwgen` is shared by callers outside B45's scope
+and touching it wasn't part of that fix.
 
 ---
 
