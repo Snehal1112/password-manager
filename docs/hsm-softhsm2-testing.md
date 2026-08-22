@@ -4,6 +4,8 @@ SoftHSM2 is a software token that implements the PKCS#11 interface. It lets
 you test the HSM code path without physical hardware. Steps below are
 Ubuntu-first; where macOS (Homebrew) differs, a macOS variant is called out.
 
+> **Docker deployments**: The RocketVault Docker image now supports SoftHSM2 natively via the `RV_HSM_ENABLED`, `RV_HSM_PIN`, and `RV_HSM_SO_PIN` environment variables; `docker-entrypoint.sh` handles token initialization automatically. See [Deploying RocketVault to Railway](./deploy-railway.md) for container/Railway/Fly/Docker Compose setup. This guide remains the reference for manual local development.
+
 ## 1. Install SoftHSM2
 
 ```bash

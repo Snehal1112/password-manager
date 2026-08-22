@@ -12,6 +12,11 @@
 # plain "docker run" -- or postgres, used by docker-compose.yml and
 # fly.toml, which both set RV_DB_DRIVER=postgres explicitly). See
 # docker-entrypoint.sh's own header comment for exactly what each mode sets.
+#
+# RV_HSM_ENABLED=true additionally makes docker-entrypoint.sh initialize a
+# SoftHSM2 software token inside the container (persisted under /app/data),
+# so the HSM-only code paths (OCT/AES key creation, secp256k1 signing) work
+# without a real hardware HSM. See docker-entrypoint.sh's header comment.
 
 master_key: "${RV_MASTER_KEY}"
 
@@ -145,8 +150,12 @@ frontend:
   sentry_dsn: ""
 
 hsm:
-  enabled: false
+  enabled: ${RV_HSM_ENABLED}
   lib_path: /usr/lib/softhsm/libsofthsm2.so
   token_label: rocketvault
   pin: "${RV_HSM_PIN}"
+  # 0 is not a literal slot index here -- PKCS11Config.SlotID is only used as
+  # a raw slot number when > 0. At 0, findSlot() (internal/crypto/pkcs11_provider.go)
+  # ignores slot numbering and matches by token_label instead, which is what
+  # SoftHSM2 needs: it reassigns slot numbers on every --init-token run.
   slot_id: 0

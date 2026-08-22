@@ -51,6 +51,26 @@ railway variable set RV_DB_DRIVER=sqlite3 -s <service-name>
 
 `RV_HSM_PIN` is left unset — HSM is off by default.
 
+## Optional: SoftHSM (software HSM)
+
+SoftHSM2 is a software token that implements PKCS#11, letting you test the HSM code path without hardware — note: key material lives on disk with no hardware tamper-resistance.
+
+To enable SoftHSM2 in your Railway deployment:
+
+```bash
+railway variable set RV_HSM_ENABLED=true -s <service-name>
+railway variable set RV_HSM_PIN="<your-pin>" -s <service-name>
+railway variable set RV_HSM_SO_PIN="<your-so-pin>" -s <service-name>
+```
+
+- `RV_HSM_ENABLED`: Set to `true` to initialize the token on container start and enable `hsm.enabled: true` in the config. Default: `false`.
+- `RV_HSM_PIN`: User PIN for PKCS#11 operations (any value you choose).
+- `RV_HSM_SO_PIN`: Security Officer PIN used only at token initialization. Defaults to `RV_HSM_PIN` if unset.
+
+Token data persists at `/app/data/softhsm/tokens/` on your persistent volume, just like the SQLite DB.
+
+See [HSM / PKCS#11 with SoftHSM2](./hsm-softhsm2-testing.md) for manual local setup and testing procedures.
+
 ## 4. Deploy
 
 ```bash

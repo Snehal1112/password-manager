@@ -73,9 +73,13 @@ services:
       RV_BOOTSTRAP_TOKEN: ${RV_BOOTSTRAP_TOKEN:?RV_BOOTSTRAP_TOKEN is required, see .env.example}
       RV_ISSUER: ${RV_ISSUER:-http://localhost:8774}
       RV_CORS_ORIGINS: ${RV_CORS_ORIGINS:-http://localhost:8774}
-      # Only used when hsm.enabled is true in the rendered config (false by
-      # default in .rocketvault.docker.yaml.tmpl); left empty otherwise.
+      # RV_HSM_ENABLED=true initializes a SoftHSM2 software token in the
+      # container and sets hsm.enabled: true; RV_HSM_PIN/RV_HSM_SO_PIN are
+      # only used when it's true. Default: false. See
+      # docs/hsm-softhsm2-testing.md.
+      RV_HSM_ENABLED: ${RV_HSM_ENABLED:-false}
       RV_HSM_PIN: ${RV_HSM_PIN:-}
+      RV_HSM_SO_PIN: ${RV_HSM_SO_PIN:-}
     volumes:
       - ./.rocketvault.docker.yaml.tmpl:/app/.rocketvault.docker.yaml.tmpl:ro
       - rocketvault_logs:/app/logs

@@ -27,13 +27,31 @@
 #   RV_ISSUER, RV_CORS_ORIGINS -- public URL / CORS origin, default to
 #                                  http://localhost:8774 in the template if
 #                                  left unset (envsubst substitutes "").
-#   RV_HSM_PIN                 -- PKCS#11 HSM slot PIN; only meaningful when
-#                                  hsm.enabled is true in the rendered
-#                                  config (false by default). Left empty
-#                                  otherwise.
+#   RV_HSM_ENABLED              -- "true" initializes a SoftHSM2 software
+#                                  token inside the container and sets
+#                                  hsm.enabled: true in the rendered config.
+#                                  Default: false (hsm.enabled: false, no
+#                                  SoftHSM2 setup). This is a *software*
+#                                  token, not a real hardware HSM -- it
+#                                  unlocks RocketVault's HSM-only code paths
+#                                  (OCT/AES keys, secp256k1 signing) but the
+#                                  key material lives on the same mounted
+#                                  volume as everything else, with no
+#                                  hardware tamper-resistance. See
+#                                  docs/hsm-softhsm2-testing.md.
+#   RV_HSM_PIN                  -- PKCS#11 user PIN. Required when
+#                                  RV_HSM_ENABLED=true (used both for the
+#                                  SoftHSM2 token's PIN and, unless
+#                                  RV_HSM_SO_PIN is set separately, its
+#                                  SO-PIN too). Left empty otherwise.
+#   RV_HSM_SO_PIN                -- SoftHSM2 token's Security Officer PIN
+#                                  (only used to initialize/re-initialize the
+#                                  token, never by RocketVault itself at
+#                                  runtime). Defaults to RV_HSM_PIN if unset.
 set -eu
 
 RV_DB_DRIVER="${RV_DB_DRIVER:-sqlite3}"
+RV_HSM_ENABLED="${RV_HSM_ENABLED:-false}"
 TEMPLATE="/app/.rocketvault.docker.yaml.tmpl"
 RENDERED="/app/.rocketvault.yaml"
 
@@ -43,7 +61,12 @@ RENDERED="/app/.rocketvault.yaml"
 
 case "$RV_DB_DRIVER" in
     sqlite3)
+        # A platform volume (Railway, Fly) mounts over /app/data with
+        # root:root ownership, undoing the image's build-time chown. Fix it
+        # up before mkdir -- this script still runs as root at this point.
+        chown rocketvault:rocketvault /app/data
         mkdir -p /app/data/logs
+        chown rocketvault:rocketvault /app/data/logs
         RV_DATABASE_DRIVER="sqlite3"
         RV_DATABASE_CONNECTION="/app/data/rocketvault.db"
         RV_LOG_FILE="/app/data/logs/rocketvault.log"
@@ -52,6 +75,9 @@ case "$RV_DB_DRIVER" in
         : "${POSTGRES_USER:?POSTGRES_USER is required}"
         : "${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}"
         : "${POSTGRES_DB:?POSTGRES_DB is required}"
+        # Same as the sqlite3 branch: docker-compose.yml's rocketvault_logs
+        # volume mounts over /app/logs with root:root ownership.
+        chown rocketvault:rocketvault /app/logs
         RV_DATABASE_DRIVER="postgres"
         RV_DATABASE_CONNECTION="postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}?sslmode=disable"
         RV_LOG_FILE="./logs/rocketvault.log"
@@ -63,7 +89,45 @@ case "$RV_DB_DRIVER" in
 esac
 export RV_DATABASE_DRIVER RV_DATABASE_CONNECTION RV_LOG_FILE
 
-envsubst '${RV_MASTER_KEY} ${RV_BOOTSTRAP_TOKEN} ${RV_CORS_ORIGINS} ${RV_ISSUER} ${RV_HSM_PIN} ${RV_DATABASE_DRIVER} ${RV_DATABASE_CONNECTION} ${RV_LOG_FILE}' \
-    < "$TEMPLATE" > "$RENDERED"
+# SoftHSM2 setup. Independent of RV_DB_DRIVER -- runs after the case above so
+# /app/data already exists (sqlite3 branch) or is created here (postgres
+# branch never otherwise touches /app/data).
+if [ "$RV_HSM_ENABLED" = "true" ]; then
+    : "${RV_HSM_PIN:?RV_HSM_PIN is required when RV_HSM_ENABLED=true}"
+    RV_HSM_SO_PIN="${RV_HSM_SO_PIN:-$RV_HSM_PIN}"
 
-exec "$@"
+    mkdir -p /app/data/softhsm/tokens
+    chown -R rocketvault:rocketvault /app/data/softhsm
+
+    # SOFTHSM2_CONF itself is a fixed Dockerfile ENV (not exported here), so
+    # a later "docker exec"/"railway ssh" CLI command finds it too -- see the
+    # Dockerfile's own comment on that ENV line.
+    if [ ! -f "$SOFTHSM2_CONF" ]; then
+        cat > "$SOFTHSM2_CONF" <<EOF
+directories.tokendir = /app/data/softhsm/tokens/
+objectstore.backend = file
+log.level = INFO
+EOF
+        chown rocketvault:rocketvault "$SOFTHSM2_CONF"
+    fi
+
+    # --init-token wipes any existing token under the same label, so only run
+    # it once -- on every later boot the token already exists on the mounted
+    # volume. --free lets SoftHSM2 pick the slot; RocketVault's hsm.slot_id: 0
+    # in the template means "match by token_label", not "slot 0", so the
+    # actual slot number SoftHSM2 assigns (it reassigns on every init) does
+    # not matter.
+    if ! gosu rocketvault softhsm2-util --show-slots 2>/dev/null | grep -q "rocketvault"; then
+        gosu rocketvault softhsm2-util --init-token --free --label rocketvault \
+            --so-pin "$RV_HSM_SO_PIN" --pin "$RV_HSM_PIN"
+    fi
+fi
+export RV_HSM_ENABLED
+
+envsubst '${RV_MASTER_KEY} ${RV_BOOTSTRAP_TOKEN} ${RV_CORS_ORIGINS} ${RV_ISSUER} ${RV_HSM_PIN} ${RV_HSM_ENABLED} ${RV_DATABASE_DRIVER} ${RV_DATABASE_CONNECTION} ${RV_LOG_FILE}' \
+    < "$TEMPLATE" > "$RENDERED"
+chown rocketvault:rocketvault "$RENDERED"
+
+# Drop from root (needed above to fix volume-mount ownership) to the
+# unprivileged rocketvault user before running the actual server process.
+exec gosu rocketvault "$@"
