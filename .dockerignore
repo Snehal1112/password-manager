@@ -1,0 +1,27 @@
+# Never let local secrets or generated state leak into a build context.
+.rocketvault.yaml
+.env
+*.db
+*.db-journal
+dev-rocketvault.db*
+test-*.db*
+
+# Build/test artifacts -- rebuilt fresh inside the image.
+build/
+dist/
+coverage/
+*.out
+rocketvault
+
+# Everything else that has no business in an image build.
+.git/
+.github/
+.claude/
+docs/
+doc/
+scripts/docsgen/site/
+*.md
+!README.md
+logs/
+*.pem
+*.key

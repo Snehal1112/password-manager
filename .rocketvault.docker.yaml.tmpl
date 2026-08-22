@@ -1,44 +1,47 @@
-# Docker / Fly.io Runtime Configuration Template
+# Docker / Fly.io / Railway Runtime Configuration Template
 #
 # docker-entrypoint.sh renders this into /app/.rocketvault.yaml at container
 # startup via envsubst, substituting all ${VAR} placeholders from the
-# container environment. Never put real secrets in this file — it is
-# committed to version control. Set values via .env (compose) or
-# `fly secrets set` (Fly.io).
+# container environment. Never put real secrets in this file -- it is
+# committed to version control. Set values via .env (compose), `fly secrets
+# set` (Fly.io), or Railway service variables.
+#
+# One template covers both database drivers: docker-entrypoint.sh sets
+# RV_DATABASE_DRIVER, RV_DATABASE_CONNECTION, and RV_LOG_FILE differently
+# depending on RV_DB_DRIVER (sqlite3 -- the default, used by Railway and
+# plain "docker run" -- or postgres, used by docker-compose.yml and
+# fly.toml, which both set RV_DB_DRIVER=postgres explicitly). See
+# docker-entrypoint.sh's own header comment for exactly what each mode sets.
 
 master_key: "${RV_MASTER_KEY}"
-jwt_secret: "${RV_JWT_SECRET}"
 
 # JWT signing configuration. key_source is "self_pki" (not "os_store")
 # because containers have no OS keychain to back github.com/zalando/go-keyring;
-# self_pki stores the signing key in the database via CryptoService/KeyRepository.
+# self_pki stores the signing key encrypted inside the SQLite/Postgres
+# database itself via CryptoService/KeyRepository, so it persists alongside
+# the rest of the data with no separate key file or keychain to lose on
+# redeploy. No "jwt_secret" key here: HS256 was removed in favor of
+# asymmetric-only signing (see CLAUDE.md), so that key is never read.
 jwt:
   key_source: "self_pki"
   key_cn: "rocketvault"
   expiry: "1h"
   rotation_overlap: "1h"
-  migration_window: "24h"
   signing_key_file: ""
 
 bootstrap_token: "${RV_BOOTSTRAP_TOKEN}"
 
 environment: "production"
 
-# Database Configuration
-#
-# driver/connection mirror the Postgres URL form documented in
-# internal/db/db.go (sniffDriver) and internal/db/dialect.go: a
-# "postgres://" prefix or "host=...dbname=..." DSN is auto-detected as the
-# "postgres" driver even without an explicit driver key, but we set it
-# explicitly here for clarity. "postgres" is the compose service name, which
-# resolves via Docker's internal DNS once the postgres service is healthy.
+# Database Configuration -- see the header comment above for how these two
+# values are set per driver.
 database:
-  connection: "postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}?sslmode=disable"
-  driver: "postgres"
+  connection: "${RV_DATABASE_CONNECTION}"
+  driver: "${RV_DATABASE_DRIVER}"
 
 log:
   level: "info"
-  file: "./logs/rocketvault.log"
+  file: "${RV_LOG_FILE}"
   format: "json"
   pretty_print: false
   max_backups: 3

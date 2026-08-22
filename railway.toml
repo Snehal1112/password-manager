@@ -1,0 +1,62 @@
+# railway.toml — Railway.app deployment configuration for RocketVault
+#
+# NOTE: Railway's "Config as Code" format (this file) is deprecated in favor
+# of Railway's newer "Infrastructure as Code" system. Existing config-as-code
+# files keep working for legacy services until 2026-12-01, per
+# https://docs.railway.com/reference/config-as-code. This file is fine to use
+# today; re-check Railway's docs before that date if you haven't migrated.
+#
+# Quick start:
+#   1. Install the Railway CLI: https://docs.railway.com/guides/cli
+#      railway login
+#   2. From the repo root, create the project (builds from this Dockerfile):
+#      railway init
+#   3. Attach a persistent volume for /app/data. This CANNOT be declared in
+#      this file — Railway volumes are a CLI/dashboard-only step:
+#      railway volume add --mount-path /app/data -s <service-name>
+#      (Dashboard alternative: select the service -> Volumes -> New Volume,
+#      mount path "/app/data".)
+#      This path holds the SQLite DB (which also stores the JWT signing key,
+#      key_source: self_pki) and logs. Without it, a redeploy loses both.
+#   4. Set the required environment variables (both must be base64, generate
+#      with `openssl rand -base64 32`):
+#      railway variable set RV_MASTER_KEY="$(openssl rand -base64 32)" -s <service-name>
+#      railway variable set RV_BOOTSTRAP_TOKEN="$(openssl rand -base64 32)" -s <service-name>
+#      # Optional (default to http://localhost:8774 if unset — set these to
+#      # your real Railway domain once assigned):
+#      railway variable set RV_ISSUER="https://<your-app>.up.railway.app" -s <service-name>
+#      railway variable set RV_CORS_ORIGINS="https://<your-app>.up.railway.app" -s <service-name>
+#      # RV_DB_DRIVER defaults to sqlite3 in docker-entrypoint.sh, so it does
+#      # not need to be set. Set it explicitly if you want that intent visible
+#      # in the dashboard:
+#      railway variable set RV_DB_DRIVER=sqlite3 -s <service-name>
+#      # RV_HSM_PIN is left unset — HSM is off by default.
+#   5. Deploy:
+#      railway up
+#   6. Create first admin (runs a one-off command inside the deployed
+#      container over SSH — `railway ssh -- <cmd>` executes non-interactively
+#      and exits, unlike a bare `railway ssh` which opens an interactive shell):
+#      railway ssh -s <service-name> -- \
+#        /app/rocketvault users admin --admin-username=admin --admin-password=<pw> --bootstrap-token=<RV_BOOTSTRAP_TOKEN>
+#
+# Single instance — RocketVault is a single-vault system. Multiple replicas
+# would race on schema migrations at startup. Scale vertically, not
+# horizontally. Railway's config-as-code schema has no simple top-level
+# replica count field: replica counts are only settable via
+# [deploy.multiRegionConfig], keyed per region, and a service with no
+# multiRegionConfig set runs a single instance by default. Deliberately
+# omitted here — do not add [deploy.multiRegionConfig] and do not raise the
+# replica count from the dashboard's Scaling settings.
+
+[build]
+  builder        = "DOCKERFILE"
+  dockerfilePath = "Dockerfile"
+
+# RocketVault serves on :8774. Railway terminates TLS at its edge proxy and
+# forwards HTTP to the container port Railway auto-detects from the
+# Dockerfile's EXPOSE.
+[deploy]
+  healthcheckPath         = "/api/v1/health/live"
+  healthcheckTimeout      = 30
+  restartPolicyType       = "ON_FAILURE"
+  restartPolicyMaxRetries = 3

@@ -31,10 +31,11 @@ WORKDIR /app
 
 COPY --from=build /out/rocketvault /app/rocketvault
 
-# Default config for plain "docker run" usage (SQLite, matches local dev).
-# docker-compose.yml overrides this by bind-mounting the Postgres template
-# below plus docker-entrypoint.sh, which renders it before the binary starts.
-COPY .rocketvault.yaml /app/.rocketvault.yaml
+# No baked-in .rocketvault.yaml: docker-entrypoint.sh always renders it from
+# this template at container startup (see the entrypoint's own header
+# comment), parametrized by RV_DB_DRIVER. This is also why .rocketvault.yaml
+# is excluded in .dockerignore -- a developer's local copy, with real
+# secrets, must never end up in the build context or the image.
 COPY .rocketvault.docker.yaml.tmpl /app/.rocketvault.docker.yaml.tmpl
 COPY docker-entrypoint.sh /app/docker-entrypoint.sh
 RUN chmod +x /app/docker-entrypoint.sh

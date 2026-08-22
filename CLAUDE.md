@@ -436,7 +436,11 @@ npm run typecheck # If available
   `master_key`/`bootstrap_token`.
 - **Test**: `test-config.yaml`
 - **Docker**: `docker-compose.yml` (`.rocketvault.docker.yaml.tmpl`, rendered
-  via `envsubst` from `.env` at container start — never holds a literal secret)
+  via `envsubst` from `.env` at container start — never holds a literal secret).
+  The same template also serves Fly.io and Railway; `docker-entrypoint.sh`
+  parametrizes the database driver via `RV_DB_DRIVER` (`sqlite3` by default,
+  `postgres` set explicitly by `docker-compose.yml`/`fly.toml`) rather than
+  keeping a separate template per driver.
 
 ### Config facts (2026-03-08)
 - `initConfig()` in `cmd/root.go` hardcodes `.rocketvault.yaml` — no automatic env switching.

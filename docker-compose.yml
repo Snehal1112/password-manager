@@ -60,6 +60,9 @@ services:
       postgres:
         condition: service_healthy
     environment:
+      # RV_DB_DRIVER selects which template docker-entrypoint.sh renders;
+      # explicit here since the entrypoint's own default is sqlite3.
+      RV_DB_DRIVER: postgres
       # Consumed by docker-entrypoint.sh to render the Postgres DSN and
       # secrets into .rocketvault.yaml. POSTGRES_* must match the postgres
       # service above. The entrypoint refuses to start if any are unset.
@@ -67,7 +70,6 @@ services:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required, see .env.example}
       POSTGRES_DB: ${POSTGRES_DB:-rocketvault}
       RV_MASTER_KEY: ${RV_MASTER_KEY:?RV_MASTER_KEY is required, see .env.example}
-      RV_JWT_SECRET: ${RV_JWT_SECRET:?RV_JWT_SECRET is required, see .env.example}
       RV_BOOTSTRAP_TOKEN: ${RV_BOOTSTRAP_TOKEN:?RV_BOOTSTRAP_TOKEN is required, see .env.example}
       RV_ISSUER: ${RV_ISSUER:-http://localhost:8774}
       RV_CORS_ORIGINS: ${RV_CORS_ORIGINS:-http://localhost:8774}
